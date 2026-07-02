@@ -91,16 +91,16 @@ export function PublicApplicationInterviewBridgePage({
             <div className="panel-head">
               <div>
                 <h2>{state.data.name}님의 면접 진입 준비</h2>
-                <p>D public interview access context가 준비되면 이 화면에서 실제 면접 런타임으로 이어집니다.</p>
+                <p>면접 환경을 확인한 뒤 자동으로 면접 화면으로 이동합니다.</p>
               </div>
             </div>
             <dl className="detail-list">
               <DetailItem label="지원 직무" value={state.data.jobRole} />
-              <DetailItem label="면접 상태" value={state.data.interviewStatus} />
-              <DetailItem label="연동 상태" value={state.data.interviewEntry.integrationStatus} />
+              <DetailItem label="면접 상태" value={formatStatusLabel(state.data.interviewStatus)} />
+              <DetailItem label="진입 상태" value={formatStatusLabel(state.data.interviewEntry.integrationStatus)} />
             </dl>
             <div className="empty">
-              D public 면접 세션과 접근 토큰을 준비했습니다. 잠시 후 면접 화면으로 이동합니다.
+              면접 세션을 준비했습니다. 잠시 후 면접 화면으로 이동합니다.
             </div>
           </section>
         ) : null}
@@ -117,6 +117,20 @@ function DetailItem({ label, value }: { label: string; value?: string | null }) 
     </>
   );
 }
+
+function formatStatusLabel(value?: string | null) {
+  if (!value) return "-";
+  return STATUS_LABELS[value] ?? value;
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  NOT_READY: "준비 전",
+  READY: "준비 완료",
+  IN_PROGRESS: "진행 중",
+  COMPLETED: "완료",
+  FAILED: "실패",
+  D_PUBLIC_CONTEXT_PENDING: "면접 진입 준비 중",
+};
 
 function toErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "요청 처리 중 오류가 발생했습니다.";

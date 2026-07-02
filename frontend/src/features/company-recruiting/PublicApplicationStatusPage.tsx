@@ -65,14 +65,16 @@ export function PublicApplicationStatusPage({ token, backHref = "/" }: { token?:
           ) : null}
           {state.data ? (
             <>
-              <dl className="detail-list">
+              <div className="public-status-grid" aria-label="지원 진행 상태">
+                <StatusCard label="지원 상태" value={state.data.applicationStatus} />
+                <StatusCard label="서류 상태" value={state.data.documentStatus} />
+                <StatusCard label="면접 상태" value={state.data.interviewStatus} />
+                <StatusCard label="리포트 상태" value={state.data.reportStatus} />
+              </div>
+              <dl className="detail-list public-status-meta">
                 <DetailItem label="지원자" value={state.data.name} />
                 <DetailItem label="이메일" value={state.data.email} />
                 <DetailItem label="직무" value={state.data.jobRole} />
-                <DetailItem label="지원 상태" value={state.data.applicationStatus} />
-                <DetailItem label="서류 상태" value={state.data.documentStatus} />
-                <DetailItem label="면접 상태" value={state.data.interviewStatus} />
-                <DetailItem label="리포트 상태" value={state.data.reportStatus} />
                 <DetailItem label="최종 갱신" value={formatDateTime(state.data.updatedAt)} />
               </dl>
               <div className="form-actions">
@@ -89,12 +91,21 @@ export function PublicApplicationStatusPage({ token, backHref = "/" }: { token?:
                   </button>
                 )}
               </div>
-              <p className="notice">{state.data.interviewEntry.message}</p>
             </>
           ) : null}
         </section>
       </section>
     </main>
+  );
+}
+
+function StatusCard({ label, value }: { label: string; value?: string | null }) {
+  const status = formatStatus(value);
+  return (
+    <article className={`public-status-card ${status.tone}`}>
+      <span>{label}</span>
+      <strong>{status.label}</strong>
+    </article>
   );
 }
 
@@ -113,6 +124,57 @@ function formatDateTime(value: string | null) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function formatStatus(value?: string | null) {
+  const key = value ?? "";
+  const label =
+    STATUS_LABELS[key] ??
+    key
+      .toLowerCase()
+      .split("_")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ") ??
+    "-";
+  return { label: label || "-", tone: getStatusTone(key) };
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  SUBMITTED: "지원 완료",
+  DRAFT: "작성 중",
+  INVITED: "초대 완료",
+  WITHDRAWN: "지원 철회",
+  NOT_SUBMITTED: "미제출",
+  SCREENING: "검토 중",
+  PASSED: "통과",
+  REJECTED: "반려",
+  NOT_READY: "준비 전",
+  READY: "준비 완료",
+  IN_PROGRESS: "진행 중",
+  COMPLETED: "완료",
+  FAILED: "실패",
+  PENDING: "대기 중",
+  GENERATING: "생성 중",
+  NONE_OR_GENERATING: "없음/생성 중",
+  GENERATED: "생성 완료",
+  PASS: "합격",
+  HOLD: "보류",
+  FAIL: "불합격",
+  UNDECIDED: "미정",
+};
+
+function getStatusTone(value: string) {
+  if (["SUBMITTED", "READY", "COMPLETED", "GENERATED", "PASSED", "PASS"].includes(value)) {
+    return "success";
+  }
+  if (["IN_PROGRESS", "SCREENING", "GENERATING", "PENDING", "HOLD", "NONE_OR_GENERATING"].includes(value)) {
+    return "warning";
+  }
+  if (["FAILED", "REJECTED", "FAIL", "WITHDRAWN"].includes(value)) {
+    return "danger";
+  }
+  return "neutral";
 }
 
 function toErrorMessage(error: unknown) {

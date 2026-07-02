@@ -188,7 +188,7 @@ export function PublicRecruitmentApplyPage({ recruitmentId }: { recruitmentId: n
                       <input
                         required
                         value={form.name}
-                        placeholder="김지원"
+                        placeholder="이름을 입력해주세요"
                         onChange={(event) => updateField("name", event.currentTarget.value)}
                       />
                     </label>
@@ -198,7 +198,7 @@ export function PublicRecruitmentApplyPage({ recruitmentId }: { recruitmentId: n
                         required
                         type="email"
                         value={form.email}
-                        placeholder="jiwon@example.com"
+                        placeholder="init@example.com"
                         onChange={(event) => updateField("email", event.currentTarget.value)}
                       />
                     </label>
@@ -216,7 +216,7 @@ export function PublicRecruitmentApplyPage({ recruitmentId }: { recruitmentId: n
                       <input
                         type="url"
                         value={form.githubBlogUrl ?? ""}
-                        placeholder="https://github.com/jiwon"
+                        placeholder="https://github.com/init"
                         onChange={(event) => updateField("githubBlogUrl", event.currentTarget.value)}
                       />
                     </label>

@@ -766,6 +766,75 @@ textarea:focus {
   overflow-wrap: anywhere;
 }
 
+.public-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.public-status-card {
+  display: grid;
+  gap: 8px;
+  min-height: 104px;
+  padding: 18px;
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 18px;
+  box-shadow: 0 12px 30px rgba(20, 18, 45, 0.06);
+}
+
+.public-status-card span {
+  color: var(--ink-300);
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.public-status-card strong {
+  align-self: end;
+  color: var(--ink-900);
+  font-size: 22px;
+  font-weight: 850;
+}
+
+.public-status-card.success {
+  background: linear-gradient(180deg, #fbfffd 0%, #fff 100%);
+  border-color: #cdebdc;
+}
+
+.public-status-card.success strong {
+  color: #12805c;
+}
+
+.public-status-card.warning {
+  background: linear-gradient(180deg, #fffdfa 0%, #fff 100%);
+  border-color: #f5dfad;
+}
+
+.public-status-card.warning strong {
+  color: #a26000;
+}
+
+.public-status-card.danger {
+  background: linear-gradient(180deg, #fffafa 0%, #fff 100%);
+  border-color: #ffd0ca;
+}
+
+.public-status-card.danger strong {
+  color: #b42318;
+}
+
+.public-status-card.neutral strong {
+  color: var(--ink-700);
+}
+
+.public-status-meta {
+  padding: 16px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+}
+
 .inline-check {
   display: inline-flex;
   align-items: center;
@@ -2559,6 +2628,7 @@ td input {
 
   .grid-2,
   .kpi-row,
+  .public-status-grid,
   .posting,
   .company-mypage-layout,
   .company-logo-upload,
