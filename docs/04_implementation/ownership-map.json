@@ -6,6 +6,7 @@
     "^docs/04_implementation/ownership-map\\.json$",
     "^docs/04_implementation/one-time-alignment/agent-[a-e]\\.md$",
     "^docs/04_implementation/one-time-alignment/agent-pm\\.md$",
+    "^docs/superpowers/specs/",
     "^scripts/",
     "^start-local\\.ps1$",
     "^\\.github/",

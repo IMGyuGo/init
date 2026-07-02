@@ -4,6 +4,9 @@
 .gitignore
 \nogitdocs
 
+# Local Toss Payments sandbox artifacts.
+docs/_local/payment-sandbox/
+
 # Dependencies
 node_modules/
 **/node_modules/
