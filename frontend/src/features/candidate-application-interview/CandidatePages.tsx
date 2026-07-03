@@ -1438,6 +1438,10 @@ function InterviewRuntimePanel({
   const router = useRouter();
   const runtimeApi = apiClient ?? getCandidateApi();
   const currentQuestion = data?.runtime.currentQuestion;
+  const runtimeInterviewType = data?.runtime.interviewType;
+  const runtimePreparationTimeSec = data?.runtime.timePolicy?.preparationTimeSec;
+  const runtimeAnswerTimeSec = data?.runtime.timePolicy?.answerTimeSec;
+  const runtimeRetryAllowed = data?.runtime.timePolicy?.retryAllowed ?? false;
   const [answer, setAnswer] = useState<InterviewAnswerFormState>(defaultInterviewAnswerFormState);
   const [retryAnswerId, setRetryAnswerId] = useState<number>();
   const [retryingQuestionId, setRetryingQuestionId] = useState<number>();
@@ -1660,9 +1664,25 @@ function InterviewRuntimePanel({
       setRetryingQuestionId(undefined);
       setQuestionSpeechCompleted(false);
       setQuestionSpeechPlaying(false);
-      resetRuntimeQuestionTimer(data?.runtime, setTimerPhase, setRemainingSeconds);
+      resetRuntimeQuestionTimer(
+        runtimeInterviewType
+          ? {
+              interviewType: runtimeInterviewType,
+              timePolicy:
+                typeof runtimePreparationTimeSec === "number" && typeof runtimeAnswerTimeSec === "number"
+                  ? {
+                      preparationTimeSec: runtimePreparationTimeSec,
+                      answerTimeSec: runtimeAnswerTimeSec,
+                      retryAllowed: runtimeRetryAllowed,
+                    }
+                  : undefined,
+            }
+          : undefined,
+        setTimerPhase,
+        setRemainingSeconds,
+      );
     }
-  }, [currentQuestion, data?.runtime.timePolicy?.answerTimeSec, data?.runtime.timePolicy?.preparationTimeSec]);
+  }, [currentQuestion, runtimeAnswerTimeSec, runtimeInterviewType, runtimePreparationTimeSec, runtimeRetryAllowed]);
 
   useEffect(() => {
     void refreshCameraDevices();
