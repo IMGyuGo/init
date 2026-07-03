@@ -128,8 +128,8 @@ export class PrismaCandidateReportRepository implements CandidateReportRepositor
         processType: "REPORT_GENERATE",
         OR: [
           { sessionId: BigInt(sessionId) },
-          { inputRef: { contains: `"sessionId":${sessionId}` } },
-          { inputRef: { contains: `"reportId":${sessionId}` } },
+          ...this.jsonNumberFieldWhere("sessionId", sessionId),
+          ...this.jsonNumberFieldWhere("reportId", sessionId),
         ],
       },
       orderBy: { createdAt: "desc" },
@@ -149,14 +149,22 @@ export class PrismaCandidateReportRepository implements CandidateReportRepositor
   private applicationProcessWhere(applicationId: number, sessionId?: number): Prisma.AiProcessLogWhereInput[] {
     return [
       { applicationId: BigInt(applicationId) },
-      { inputRef: { contains: `"applicationId":${applicationId}` } },
-      { inputRef: { contains: `"reportId":${applicationId}` } },
+      ...this.jsonNumberFieldWhere("applicationId", applicationId),
+      ...this.jsonNumberFieldWhere("reportId", applicationId),
       ...(sessionId
         ? [
             { sessionId: BigInt(sessionId) },
-            { inputRef: { contains: `"sessionId":${sessionId}` } },
+            ...this.jsonNumberFieldWhere("sessionId", sessionId),
           ]
         : []),
+    ];
+  }
+
+  private jsonNumberFieldWhere(fieldName: string, value: number): Prisma.AiProcessLogWhereInput[] {
+    const prefix = `"${fieldName}":${value}`;
+    return [
+      { inputRef: { contains: `${prefix},` } },
+      { inputRef: { contains: `${prefix}}` } },
     ];
   }
 
