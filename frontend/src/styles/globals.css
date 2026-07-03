@@ -133,6 +133,66 @@ a.gnb-link:focus-visible {
   color: var(--ink-300);
 }
 
+.gnb-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+  padding: 10px;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  opacity: 0;
+  box-shadow: 0 16px 40px rgba(20, 18, 45, 0.12);
+  transform: translateY(-4px);
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+.gnb-item:hover > .gnb-panel,
+.gnb-item:focus-within > .gnb-panel {
+  pointer-events: auto;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.gnb-panel::before {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  height: 10px;
+  content: "";
+}
+
+.gnb-panel a,
+.gnb-panel span.disabled {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 12px;
+  color: var(--ink-700);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  border-radius: 10px;
+}
+
+.gnb-panel span.disabled {
+  color: var(--ink-300);
+  cursor: not-allowed;
+}
+
+.gnb-panel a:hover,
+.gnb-panel a:focus-visible,
+.gnb-panel a.active {
+  color: var(--brand-strong);
+  background: var(--surface-soft);
+}
+
 .gnb-right {
   display: flex;
   flex: 0 0 auto;
@@ -505,6 +565,170 @@ textarea:focus {
   gap: 8px;
 }
 
+.public-application-layout {
+  width: min(100%, 860px);
+  margin: 0 auto;
+}
+
+.choice-fieldset {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
+
+.choice-fieldset legend {
+  margin: 0 0 2px;
+  color: var(--ink-700);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.segmented-control {
+  display: inline-flex;
+  width: fit-content;
+  padding: 4px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+}
+
+.segmented-control label {
+  display: inline-flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 0;
+  width: auto;
+  cursor: pointer;
+}
+
+.segmented-control input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+.segmented-control span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 14px;
+  color: var(--ink-400);
+  font-size: 12.5px;
+  font-weight: 800;
+  border-radius: 999px;
+}
+
+.segmented-control input:checked + span {
+  color: var(--brand-strong);
+  background: #fff;
+  box-shadow: 0 6px 16px rgba(94, 93, 255, 0.12);
+}
+
+.file-picker-field {
+  display: grid;
+  gap: 8px;
+}
+
+.file-picker-label {
+  color: var(--ink-700);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.file-picker {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 76px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px dashed #d9d8ec;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.file-picker:hover,
+.file-picker:focus-within {
+  background: #fbfbff;
+  border-color: #aaa5ff;
+  box-shadow: 0 10px 24px rgba(94, 93, 255, 0.1);
+}
+
+.file-picker.has-file {
+  background: #fbfbff;
+  border-style: solid;
+  border-color: #c9c5ff;
+}
+
+.file-picker-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  color: var(--brand-strong);
+  font-size: 12px;
+  font-weight: 850;
+  background: var(--brand-soft);
+  border-radius: 14px;
+}
+
+.file-picker-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.file-picker-copy strong,
+.file-picker-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-picker-copy strong {
+  color: var(--ink-900);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.file-picker-copy small {
+  color: var(--ink-300);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.file-picker-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 13px;
+  color: var(--brand-strong);
+  font-size: 12.5px;
+  font-weight: 800;
+  background: #f3f1ff;
+  border-radius: 999px;
+}
+
+.file-picker-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .empty,
 .description-box {
   padding: 20px;
@@ -540,6 +764,75 @@ textarea:focus {
   color: var(--ink-800);
   font-weight: 700;
   overflow-wrap: anywhere;
+}
+
+.public-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.public-status-card {
+  display: grid;
+  gap: 8px;
+  min-height: 104px;
+  padding: 18px;
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 18px;
+  box-shadow: 0 12px 30px rgba(20, 18, 45, 0.06);
+}
+
+.public-status-card span {
+  color: var(--ink-300);
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.public-status-card strong {
+  align-self: end;
+  color: var(--ink-900);
+  font-size: 22px;
+  font-weight: 850;
+}
+
+.public-status-card.success {
+  background: linear-gradient(180deg, #fbfffd 0%, #fff 100%);
+  border-color: #cdebdc;
+}
+
+.public-status-card.success strong {
+  color: #12805c;
+}
+
+.public-status-card.warning {
+  background: linear-gradient(180deg, #fffdfa 0%, #fff 100%);
+  border-color: #f5dfad;
+}
+
+.public-status-card.warning strong {
+  color: #a26000;
+}
+
+.public-status-card.danger {
+  background: linear-gradient(180deg, #fffafa 0%, #fff 100%);
+  border-color: #ffd0ca;
+}
+
+.public-status-card.danger strong {
+  color: #b42318;
+}
+
+.public-status-card.neutral strong {
+  color: var(--ink-700);
+}
+
+.public-status-meta {
+  padding: 16px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
 }
 
 .inline-check {
@@ -615,13 +908,13 @@ textarea:focus {
 
 .posting-extra-fields {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .posting-extra-field {
   display: grid;
-  gap: 10px;
-  padding: 12px;
+  gap: 12px;
+  padding: 14px;
   background: var(--surface-soft);
   border: 1px solid var(--line-soft);
   border-radius: 12px;
@@ -632,20 +925,65 @@ textarea:focus {
   border-color: #dedaff;
 }
 
-.posting-extra-check {
-  display: inline-flex;
-  grid-template-columns: none;
+.posting-extra-field-head {
+  display: flex;
   align-items: center;
-  width: fit-content;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
   color: var(--ink-700);
   font-size: 13px;
   font-weight: 750;
 }
 
-.posting-extra-check input {
-  width: 16px;
-  min-height: 16px;
+.posting-extra-clear {
+  min-height: 30px;
+  padding: 0 10px;
+  color: var(--ink-300);
+  font-size: 12px;
+  font-weight: 750;
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.posting-extra-clear:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.posting-extra-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.posting-extra-option {
+  display: inline-flex;
+  grid-template-columns: none;
+  align-items: center;
+  width: auto;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 11px;
+  color: var(--ink-500);
+  font-size: 12.5px;
+  font-weight: 750;
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.posting-extra-option:has(input:checked) {
+  color: var(--brand-strong);
+  background: #f1efff;
+  border-color: #dcd6ff;
+}
+
+.posting-extra-option input {
+  width: 14px;
+  min-height: 14px;
   accent-color: var(--brand-strong);
 }
 
@@ -1755,37 +2093,92 @@ td input {
 }
 
 .company-logo-drop {
-  display: flex;
-  grid-template-columns: none;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   min-width: 0;
-  gap: 12px;
+  gap: 14px;
   padding: 16px;
-  background: var(--surface-soft);
-  border: 1px dashed var(--line);
-  border-radius: 14px;
+  background: #fff;
+  border: 1px dashed #d9d8ec;
+  border-radius: 16px;
   cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.company-logo-drop:hover,
+.company-logo-drop:focus-within {
+  background: #fbfbff;
+  border-color: #aaa5ff;
+  box-shadow: 0 10px 24px rgba(94, 93, 255, 0.1);
+}
+
+.company-logo-drop.has-file {
+  background: #fbfbff;
+  border-style: solid;
+  border-color: #c9c5ff;
 }
 
 .company-logo-drop input {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
-.company-logo-drop span {
+.company-logo-file-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  color: var(--brand-strong);
+  font-size: 12px;
+  font-weight: 850;
+  background: var(--brand-soft);
+  border-radius: 14px;
+}
+
+.company-logo-file-copy {
+  display: grid;
+  gap: 4px;
   min-width: 0;
+}
+
+.company-logo-file-copy strong,
+.company-logo-file-copy small {
   overflow: hidden;
-  color: var(--ink-700);
-  font-size: 13.5px;
-  font-weight: 760;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.company-logo-drop strong {
-  flex: 0 0 auto;
+.company-logo-file-copy strong {
+  color: var(--ink-900);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.company-logo-file-copy small {
   color: var(--ink-300);
   font-size: 12.5px;
+  font-weight: 600;
+}
+
+.company-logo-file-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 13px;
+  color: var(--brand-strong);
+  font-size: 12.5px;
+  font-weight: 800;
+  background: #f3f1ff;
+  border-radius: 999px;
 }
 
 .company-notification-grid {
@@ -2235,6 +2628,7 @@ td input {
 
   .grid-2,
   .kpi-row,
+  .public-status-grid,
   .posting,
   .company-mypage-layout,
   .company-logo-upload,
@@ -2244,6 +2638,20 @@ td input {
   .setup-card-grid,
   .glass-page .posting {
     grid-template-columns: 1fr;
+  }
+
+  .file-picker {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .company-logo-drop {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .file-picker-action,
+  .company-logo-file-action {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 
   .company-profile-card {

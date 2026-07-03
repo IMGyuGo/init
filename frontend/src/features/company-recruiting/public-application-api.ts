@@ -24,8 +24,14 @@ export type PublicRecruitment = Pick<
 export type PublicApplicationInput = {
   name: string;
   email: string;
-  phone?: string;
+  phone: string;
+  githubBlogUrl?: string;
+  portfolioMode: "URL" | "FILE";
   portfolioUrl?: string;
+  portfolioFile?: File | null;
+  resumeFile?: File | null;
+  motivation?: string;
+  additionalInfo?: string;
   resumeText?: string;
   consentAgreed: boolean;
 };
@@ -89,9 +95,26 @@ export async function getPublicRecruitment(recruitmentId: number) {
 }
 
 export async function submitPublicApplication(recruitmentId: number, input: PublicApplicationInput) {
+  const body = new FormData();
+  appendFormValue(body, "name", input.name);
+  appendFormValue(body, "email", input.email);
+  appendFormValue(body, "phone", input.phone);
+  appendFormValue(body, "githubBlogUrl", input.githubBlogUrl);
+  appendFormValue(body, "portfolioMode", input.portfolioMode);
+  appendFormValue(body, "portfolioUrl", input.portfolioMode === "URL" ? input.portfolioUrl : undefined);
+  appendFormValue(body, "motivation", input.motivation);
+  appendFormValue(body, "additionalInfo", input.additionalInfo);
+  appendFormValue(body, "consentAgreed", String(input.consentAgreed));
+  if (input.resumeFile) {
+    body.append("resumeFile", input.resumeFile);
+  }
+  if (input.portfolioMode === "FILE" && input.portfolioFile) {
+    body.append("portfolioFile", input.portfolioFile);
+  }
+
   return request<PublicApplicationResult>(`/public/recruitments/${recruitmentId}/applications`, {
     method: "POST",
-    body: input,
+    body,
   });
 }
 
@@ -122,12 +145,20 @@ async function request<T>(
   } = {},
 ): Promise<ApiEnvelope<T>> {
   const url = new URL(`/api/v1${path}`, API_BASE_URL);
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+  const requestBody: BodyInit | undefined = isFormData
+    ? (options.body as FormData)
+    : options.body
+      ? JSON.stringify(options.body)
+      : undefined;
   const response = await fetch(url.toString(), {
     method: options.method ?? "GET",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
+    headers: isFormData
+      ? undefined
+      : {
+          "Content-Type": "application/json",
+        },
+    body: requestBody,
   });
 
   const payload = (await response.json()) as ApiEnvelope<T> | ApiErrorEnvelope;
@@ -137,4 +168,11 @@ async function request<T>(
   }
 
   return payload;
+}
+
+function appendFormValue(body: FormData, key: string, value: string | undefined) {
+  const normalized = value?.trim();
+  if (normalized) {
+    body.append(key, normalized);
+  }
 }

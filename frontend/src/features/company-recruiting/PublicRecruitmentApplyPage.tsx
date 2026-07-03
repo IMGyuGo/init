@@ -10,7 +10,6 @@ import {
   type PublicApplicationInput,
   type PublicRecruitment,
 } from "./public-application-api";
-import { JobDescriptionViewer } from "./JobDescriptionViewer";
 
 type AsyncState<T> = {
   data?: T;
@@ -18,18 +17,25 @@ type AsyncState<T> = {
   error?: string;
 };
 
-const initialForm: PublicApplicationInput = {
-  name: "",
-  email: "",
-  phone: "",
-  portfolioUrl: "",
-  resumeText: "",
-  consentAgreed: false,
-};
+function createInitialForm(): PublicApplicationInput {
+  return {
+    name: "",
+    email: "",
+    phone: "",
+    githubBlogUrl: "",
+    portfolioMode: "URL",
+    portfolioUrl: "",
+    portfolioFile: null,
+    resumeFile: null,
+    motivation: "",
+    additionalInfo: "",
+    consentAgreed: false,
+  };
+}
 
 export function PublicRecruitmentApplyPage({ recruitmentId }: { recruitmentId: number }) {
   const [state, setState] = useState<AsyncState<PublicRecruitment>>({ loading: true });
-  const [form, setForm] = useState<PublicApplicationInput>(initialForm);
+  const [form, setForm] = useState<PublicApplicationInput>(() => createInitialForm());
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [resending, setResending] = useState(false);
@@ -51,8 +57,16 @@ export function PublicRecruitmentApplyPage({ recruitmentId }: { recruitmentId: n
   }, [loadRecruitment]);
 
   const canSubmit = useMemo(() => {
-    return Boolean(form.name.trim() && form.email.trim() && form.consentAgreed && !busy && state.data);
-  }, [busy, form.consentAgreed, form.email, form.name, state.data]);
+    return Boolean(
+      form.name.trim() &&
+        form.email.trim() &&
+        form.phone.trim() &&
+        form.resumeFile &&
+        form.consentAgreed &&
+        !busy &&
+        state.data,
+    );
+  }, [busy, form.consentAgreed, form.email, form.name, form.phone, form.resumeFile, state.data]);
 
   function updateField<K extends keyof PublicApplicationInput>(field: K, value: PublicApplicationInput[K]) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -69,14 +83,16 @@ export function PublicRecruitmentApplyPage({ recruitmentId }: { recruitmentId: n
         ...form,
         name: form.name.trim(),
         email: form.email.trim(),
-        phone: emptyToUndefined(form.phone),
+        phone: form.phone.trim(),
+        githubBlogUrl: emptyToUndefined(form.githubBlogUrl),
         portfolioUrl: emptyToUndefined(form.portfolioUrl),
-        resumeText: emptyToUndefined(form.resumeText),
+        motivation: emptyToUndefined(form.motivation),
+        additionalInfo: emptyToUndefined(form.additionalInfo),
       });
       setSubmittedEmail(result.data.email);
       setDeliveryStatus(result.data.magicLinkDeliveryStatus);
       setMessage(buildDeliveryMessage(result.data.magicLinkDeliveryStatus));
-      setForm(initialForm);
+      setForm(createInitialForm());
     } catch (error) {
       setMessage(toErrorMessage(error));
     } finally {
@@ -126,29 +142,7 @@ export function PublicRecruitmentApplyPage({ recruitmentId }: { recruitmentId: n
         {message && !submittedEmail ? <p className="notice danger">{message}</p> : null}
 
         {state.data ? (
-          <div className="grid-2">
-            <section className="panel">
-              <div className="panel-head">
-                <div>
-                  <h2>공고 정보</h2>
-                  <p>지원 전 공고 내용을 확인해주세요.</p>
-                </div>
-              </div>
-              <dl className="detail-list">
-                <DetailItem label="회사" value={state.data.companyName} />
-                <DetailItem label="직무" value={state.data.jobRole} />
-                <DetailItem label="채용 기간" value={formatDateRange(state.data.startsOn, state.data.endsOn)} />
-                <DetailItem label="경력" value={state.data.careerRequirement} />
-                <DetailItem label="학력" value={state.data.educationRequirement} />
-                <DetailItem label="급여" value={state.data.salaryInfo} />
-                <DetailItem label="근무지역" value={state.data.workLocation} />
-                <DetailItem label="근무형태" value={state.data.employmentType} />
-              </dl>
-              <div className="description-box">
-                <JobDescriptionViewer emptyMessage="등록된 JD가 없습니다." value={state.data.jobDescription} />
-              </div>
-            </section>
-
+          <div className="public-application-layout">
             {submittedEmail ? (
               <section className="panel">
                 <div className="panel-head">
@@ -184,52 +178,116 @@ export function PublicRecruitmentApplyPage({ recruitmentId }: { recruitmentId: n
                 <div className="panel-head">
                   <div>
                     <h2>지원 정보</h2>
-                    <p>접수 후 이메일 인증과 지원 현황 안내가 이어집니다.</p>
+                    <p>필수 정보를 입력하고 이력서 PDF를 첨부하면 접수 후 이메일 안내가 이어집니다.</p>
                   </div>
                 </div>
                 <div className="creation-flow">
-                  <label>
-                    이름 *
-                    <input
-                      required
-                      value={form.name}
-                      placeholder="김지원"
-                      onChange={(event) => updateField("name", event.currentTarget.value)}
+                  <div className="grid-2">
+                    <label>
+                      이름 *
+                      <input
+                        required
+                        value={form.name}
+                        placeholder="이름을 입력해주세요"
+                        onChange={(event) => updateField("name", event.currentTarget.value)}
+                      />
+                    </label>
+                    <label>
+                      이메일 *
+                      <input
+                        required
+                        type="email"
+                        value={form.email}
+                        placeholder="init@example.com"
+                        onChange={(event) => updateField("email", event.currentTarget.value)}
+                      />
+                    </label>
+                    <label>
+                      연락처 *
+                      <input
+                        required
+                        value={form.phone}
+                        placeholder="010-0000-0000"
+                        onChange={(event) => updateField("phone", event.currentTarget.value)}
+                      />
+                    </label>
+                    <label>
+                      GitHub / 블로그 URL
+                      <input
+                        type="url"
+                        value={form.githubBlogUrl ?? ""}
+                        placeholder="https://github.com/init"
+                        onChange={(event) => updateField("githubBlogUrl", event.currentTarget.value)}
+                      />
+                    </label>
+                  </div>
+
+                  <FilePickerField
+                    id="public-application-resume-file"
+                    label="이력서 PDF"
+                    required
+                    file={form.resumeFile ?? null}
+                    onChange={(file) => updateField("resumeFile", file)}
+                  />
+
+                  <fieldset className="choice-fieldset">
+                    <legend>포트폴리오</legend>
+                    <div className="segmented-control">
+                      <label>
+                        <input
+                          checked={form.portfolioMode === "URL"}
+                          type="radio"
+                          name="portfolioMode"
+                          onChange={() => updateField("portfolioMode", "URL")}
+                        />
+                        <span>URL 입력</span>
+                      </label>
+                      <label>
+                        <input
+                          checked={form.portfolioMode === "FILE"}
+                          type="radio"
+                          name="portfolioMode"
+                          onChange={() => updateField("portfolioMode", "FILE")}
+                        />
+                        <span>PDF 업로드</span>
+                      </label>
+                    </div>
+                  </fieldset>
+
+                  {form.portfolioMode === "URL" ? (
+                    <label key="portfolio-url">
+                      포트폴리오 URL
+                      <input
+                        type="url"
+                        value={form.portfolioUrl ?? ""}
+                        placeholder="https://portfolio.example.com"
+                        onChange={(event) => updateField("portfolioUrl", event.currentTarget.value)}
+                      />
+                    </label>
+                  ) : (
+                    <FilePickerField
+                      key="portfolio-file"
+                      id="public-application-portfolio-file"
+                      label="포트폴리오 PDF"
+                      file={form.portfolioFile ?? null}
+                      onChange={(file) => updateField("portfolioFile", file)}
                     />
-                  </label>
+                  )}
+
                   <label>
-                    이메일 *
-                    <input
-                      required
-                      type="email"
-                      value={form.email}
-                      placeholder="jiwon@example.com"
-                      onChange={(event) => updateField("email", event.currentTarget.value)}
-                    />
-                  </label>
-                  <label>
-                    연락처
-                    <input
-                      value={form.phone ?? ""}
-                      placeholder="010-0000-0000"
-                      onChange={(event) => updateField("phone", event.currentTarget.value)}
-                    />
-                  </label>
-                  <label>
-                    포트폴리오 URL
-                    <input
-                      type="url"
-                      value={form.portfolioUrl ?? ""}
-                      placeholder="https://github.com/jiwon"
-                      onChange={(event) => updateField("portfolioUrl", event.currentTarget.value)}
-                    />
-                  </label>
-                  <label>
-                    자기소개 / 추가 설명
+                    지원동기
                     <textarea
-                      value={form.resumeText ?? ""}
+                      value={form.motivation ?? ""}
+                      placeholder="지원 동기와 관심 있는 업무를 입력해주세요."
+                      onChange={(event) => updateField("motivation", event.currentTarget.value)}
+                    />
+                  </label>
+                  <label>
+                    추가 설명
+                    <textarea
+                      value={form.additionalInfo ?? ""}
                       placeholder="지원 직무와 관련된 경험, 프로젝트, 강조하고 싶은 내용을 입력해주세요."
-                      onChange={(event) => updateField("resumeText", event.currentTarget.value)}
+                      onChange={(event) => updateField("additionalInfo", event.currentTarget.value)}
                     />
                   </label>
                   <label>
@@ -257,6 +315,46 @@ export function PublicRecruitmentApplyPage({ recruitmentId }: { recruitmentId: n
   );
 }
 
+function FilePickerField({
+  id,
+  label,
+  required = false,
+  file,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  required?: boolean;
+  file: File | null;
+  onChange: (file: File | null) => void;
+}) {
+  return (
+    <div className="file-picker-field">
+      <span className="file-picker-label">
+        {label}
+        {required ? " *" : ""}
+      </span>
+      <label className={`file-picker ${file ? "has-file" : ""}`} htmlFor={id}>
+        <span className="file-picker-icon" aria-hidden="true">
+          PDF
+        </span>
+        <span className="file-picker-copy">
+          <strong>{file ? file.name : "PDF 파일 선택"}</strong>
+          <small>{file ? formatFileSize(file.size) : "이력서와 포트폴리오는 PDF 파일로 첨부해주세요."}</small>
+        </span>
+        <span className="file-picker-action">파일 선택</span>
+      </label>
+      <input
+        id={id}
+        className="file-picker-input"
+        type="file"
+        accept="application/pdf,.pdf"
+        onChange={(event) => onChange(event.currentTarget.files?.[0] ?? null)}
+      />
+    </div>
+  );
+}
+
 function DetailItem({ label, value }: { label: string; value?: string | null }) {
   return (
     <>
@@ -264,12 +362,6 @@ function DetailItem({ label, value }: { label: string; value?: string | null }) 
       <dd>{value || "-"}</dd>
     </>
   );
-}
-
-function formatDateRange(startsOn: string | null, endsOn: string | null) {
-  if (!startsOn && !endsOn) return "상시";
-  if (startsOn && endsOn) return `${startsOn} - ${endsOn}`;
-  return startsOn ? `${startsOn}부터` : `${endsOn}까지`;
 }
 
 function emptyToUndefined(value?: string) {
@@ -292,6 +384,13 @@ function formatDeliveryStatus(status: "SENT" | "FAILED" | "NOT_SENT_TEMPORARY" |
   if (status === "FAILED") return "발송 실패";
   if (status === "NOT_SENT_TEMPORARY") return "임시 미발송";
   return "-";
+}
+
+function formatFileSize(size: number) {
+  if (size < 1024 * 1024) {
+    return `${Math.max(1, Math.round(size / 1024))}KB`;
+  }
+  return `${(size / (1024 * 1024)).toFixed(1)}MB`;
 }
 
 function toErrorMessage(error: unknown) {

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { getPublicApplicationStatus, type PublicApplicationStatus } from "./public-application-api";
 import { buildPublicApplicationInterviewHref } from "./routes";
+import { formatRecruitingStatusLabel, getRecruitingStatusTone } from "./status-labels";
 
 type AsyncState<T> = {
   data?: T;
@@ -65,14 +66,16 @@ export function PublicApplicationStatusPage({ token, backHref = "/" }: { token?:
           ) : null}
           {state.data ? (
             <>
-              <dl className="detail-list">
+              <div className="public-status-grid" aria-label="지원 진행 상태">
+                <StatusCard label="지원 상태" value={state.data.applicationStatus} />
+                <StatusCard label="서류 상태" value={state.data.documentStatus} />
+                <StatusCard label="면접 상태" value={state.data.interviewStatus} />
+                <StatusCard label="리포트 상태" value={state.data.reportStatus} />
+              </div>
+              <dl className="detail-list public-status-meta">
                 <DetailItem label="지원자" value={state.data.name} />
                 <DetailItem label="이메일" value={state.data.email} />
                 <DetailItem label="직무" value={state.data.jobRole} />
-                <DetailItem label="지원 상태" value={state.data.applicationStatus} />
-                <DetailItem label="서류 상태" value={state.data.documentStatus} />
-                <DetailItem label="면접 상태" value={state.data.interviewStatus} />
-                <DetailItem label="리포트 상태" value={state.data.reportStatus} />
                 <DetailItem label="최종 갱신" value={formatDateTime(state.data.updatedAt)} />
               </dl>
               <div className="form-actions">
@@ -89,12 +92,20 @@ export function PublicApplicationStatusPage({ token, backHref = "/" }: { token?:
                   </button>
                 )}
               </div>
-              <p className="notice">{state.data.interviewEntry.message}</p>
             </>
           ) : null}
         </section>
       </section>
     </main>
+  );
+}
+
+function StatusCard({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <article className={`public-status-card ${getRecruitingStatusTone(value)}`}>
+      <span>{label}</span>
+      <strong>{formatRecruitingStatusLabel(value)}</strong>
+    </article>
   );
 }
 

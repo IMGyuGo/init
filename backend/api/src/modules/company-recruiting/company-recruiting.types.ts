@@ -124,3 +124,10 @@ export type JobDescriptionImageUploadFile = {
 export type JobDescriptionImageUploadResponse = CompanyFileAssetRecord & {
   url: string;
 };
+
+export type PublicApplicationDocumentUploadFile = {
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  buffer: Buffer;
+};

@@ -67,12 +67,18 @@ export function JobDescriptionEditor({ value, onChange, disabled = false, upload
       return;
     }
 
-    if (!nextUrl.trim()) {
+    const normalizedUrl = normalizeLinkUrl(nextUrl);
+    if (!normalizedUrl) {
       editor.chain().focus().extendMarkRange("link").unsetLink().run();
       return;
     }
 
-    editor.chain().focus().extendMarkRange("link").setLink({ href: nextUrl.trim() }).run();
+    if (editor.state.selection.empty) {
+      editor.chain().focus().insertContent(`<a href="${escapeAttribute(normalizedUrl)}">${escapeHtml(normalizedUrl)}</a>`).run();
+      return;
+    }
+
+    editor.chain().focus().extendMarkRange("link").setLink({ href: normalizedUrl }).run();
   }
 
   function openImageFilePicker() {
@@ -305,4 +311,28 @@ export function JobDescriptionEditor({ value, onChange, disabled = false, upload
       <EditorContent className="jd-editor-shell" editor={editor} />
     </div>
   );
+}
+
+function normalizeLinkUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (/^https?:\/\//i.test(trimmed) || /^mailto:/i.test(trimmed)) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
+}
+
+function escapeAttribute(value: string) {
+  return escapeHtml(value).replace(/`/g, "&#96;");
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }

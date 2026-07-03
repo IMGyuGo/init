@@ -119,9 +119,22 @@ export function RecruitmentApplicantsPage({ recruitmentId }: { recruitmentId: nu
                     <td>
                       <StatusBadge value={item.applicationStatus} />
                     </td>
-                    <td>{item.interviewStatus}</td>
-                    <td>{item.report ? `${item.report.status} · ${item.report.totalScore ?? "점수 없음"}` : "없음/생성중"}</td>
-                    <td>{item.screeningDecision}</td>
+                    <td>
+                      <StatusBadge value={item.interviewStatus} />
+                    </td>
+                    <td>
+                      {item.report ? (
+                        <span className="status-with-note">
+                          <StatusBadge value={item.report.status} />
+                          <span>{item.report.totalScore ?? "점수 없음"}</span>
+                        </span>
+                      ) : (
+                        <StatusBadge value="NONE_OR_GENERATING" />
+                      )}
+                    </td>
+                    <td>
+                      <StatusBadge value={item.screeningDecision} />
+                    </td>
                     <td>
                       <Link className="text-link" href={`/company/applicants/${item.applicationId}/evaluation`}>
                         평가 상세

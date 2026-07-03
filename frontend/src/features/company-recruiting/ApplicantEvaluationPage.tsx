@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import { getApplicantEvaluation, updateScreeningStatus } from "./api";
 import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
+import { formatRecruitingStatusLabel } from "./status-labels";
 import type { ApplicantEvaluation, ScreeningDecision } from "./types";
 
 const decisions: ScreeningDecision[] = ["UNDECIDED", "PASS", "HOLD", "FAIL"];
@@ -96,15 +97,19 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
             <section className="kpi-row">
               <div className="kpi">
                 <span>지원 상태</span>
-                <strong>{evaluation.statuses.applicationStatus}</strong>
+                <strong>{formatRecruitingStatusLabel(evaluation.statuses.applicationStatus)}</strong>
+              </div>
+              <div className="kpi">
+                <span>서류 상태</span>
+                <strong>{formatRecruitingStatusLabel(evaluation.statuses.documentStatus)}</strong>
               </div>
               <div className="kpi">
                 <span>면접 상태</span>
-                <strong>{evaluation.statuses.interviewStatus}</strong>
+                <strong>{formatRecruitingStatusLabel(evaluation.statuses.interviewStatus)}</strong>
               </div>
               <div className="kpi">
                 <span>리포트 상태</span>
-                <strong>{evaluation.statuses.reportStatus}</strong>
+                <strong>{formatRecruitingStatusLabel(evaluation.statuses.reportStatus)}</strong>
               </div>
             </section>
 
@@ -112,7 +117,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
               <div className="panel-head">
                 <div>
                   <h2>전형 상태</h2>
-                  <p>저장 가능한 값은 UNDECIDED, PASS, HOLD, FAIL입니다.</p>
+                  <p>저장 가능한 값은 미정, 합격, 보류, 불합격입니다.</p>
                 </div>
                 <button className="btn primary" type="submit" disabled={loading}>
                   저장
@@ -124,7 +129,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                   <select value={decision} onChange={(event) => setDecision(event.target.value as ScreeningDecision)}>
                     {decisions.map((item) => (
                       <option key={item} value={item}>
-                        {item}
+                        {formatRecruitingStatusLabel(item)}
                       </option>
                     ))}
                   </select>

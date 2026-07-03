@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { getRecruitment, listRecruitmentApplicants, updateScreeningStatus } from "./api";
-import { Breadcrumb } from "./CompanyRecruitingChrome";
+import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
 import { JobDescriptionViewer } from "./JobDescriptionViewer";
 import { PostingExtraInfoSummary } from "./PostingExtraInfoFields";
 import { extractPostingExtraInfo, postingExtraInfoFromApiFields } from "./posting-extra-info";
 import { getPublicApplicationLinkState } from "./public-application-link";
 import { buildInterviewSettingsHref } from "./routes";
+import { formatRecruitingStatusLabel } from "./status-labels";
 import {
   getScreeningAutosaveFieldState,
   hasScreeningDraftChanged,
@@ -280,8 +281,19 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                               <strong>{item.name}</strong>
                               <span>{item.email}</span>
                             </td>
-                            <td>{item.interviewStatus}</td>
-                            <td>{item.report ? `${item.report.status} · ${item.report.totalScore ?? "점수 없음"}` : "없음/생성중"}</td>
+                            <td>
+                              <StatusBadge value={item.interviewStatus} />
+                            </td>
+                            <td>
+                              {item.report ? (
+                                <span className="status-with-note">
+                                  <StatusBadge value={item.report.status} />
+                                  <span>{item.report.totalScore ?? "점수 없음"}</span>
+                                </span>
+                              ) : (
+                                <StatusBadge value="NONE_OR_GENERATING" />
+                              )}
+                            </td>
                             <td>
                               <div className={`autosave-field ${decisionState === "saving" ? "is-saving" : ""} ${decisionState === "error" ? "is-error" : ""}`}>
                                 <select
@@ -291,7 +303,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                                 >
                                   {decisions.map((decision) => (
                                     <option key={decision} value={decision}>
-                                      {decision}
+                                      {formatRecruitingStatusLabel(decision)}
                                     </option>
                                   ))}
                                 </select>

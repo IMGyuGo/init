@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { PrismaCompanyRecruitingRepository } from "./company-recruiting.repository";
 
 describe("PrismaCompanyRecruitingRepository", () => {
-  it("writes only B-owned application fields when creating public applications", async () => {
+  it("writes application defaults when creating public applications", async () => {
     let capturedData: Record<string, unknown> | null = null;
     const prisma = {
       application: {
@@ -49,6 +49,7 @@ describe("PrismaCompanyRecruitingRepository", () => {
       postingId: 101n,
       candidateId: 44n,
       applicationStatus: "SUBMITTED",
+      documentStatus: "NOT_SUBMITTED",
       screeningDecision: "UNDECIDED",
       screeningMemo: null,
     });

@@ -2,6 +2,8 @@ import { Inject, Injectable } from "@nestjs/common";
 import {
   ApplicationStatus,
   AuthProvider,
+  DocumentStatus,
+  DocumentType,
   PostingStatus,
   ScreeningDecision,
   UserStatus,
@@ -54,6 +56,7 @@ export type CreateCandidateInput = {
 };
 
 export type CreatePublicCandidateInput = CreateCandidateInput & {
+  githubUrl: string | null;
   portfolioUrl: string | null;
   summary: string | null;
 };
@@ -68,6 +71,7 @@ export type CreateApplicationInput = {
   postingId: number;
   candidateId: number;
   screeningMemo: string | null;
+  documentStatus?: DocumentStatus;
 };
 
 export type UpdateApplicationScreeningInput = {
@@ -83,6 +87,12 @@ export type CreateFileAssetInput = {
   sizeBytes: number;
 };
 
+export type CreateApplicationDocumentInput = {
+  applicationId: number;
+  fileId: number;
+  documentType: DocumentType;
+};
+
 export type CompanyRecruitingRepositoryPort = {
   createPosting(input: CreatePostingInput): Promise<RecruitmentRecord>;
   updatePosting(postingId: number, companyId: number, input: UpdatePostingInput): Promise<RecruitmentRecord | null>;
@@ -95,7 +105,7 @@ export type CompanyRecruitingRepositoryPort = {
   findPublicApplicationStatusById(applicationId: number): Promise<ApplicantRecord | null>;
   findUserAccountByEmail(email: string): Promise<RecruitingUserAccount | null>;
   findOrCreateCandidate(input: CreateCandidateInput): Promise<{ candidateId: number }>;
-  findOrCreatePublicCandidate(input: CreatePublicCandidateInput): Promise<{ candidateId: number }>;
+  findOrCreatePublicCandidate(input: CreatePublicCandidateInput): Promise<{ candidateId: number; userId: number }>;
   createApplication(input: CreateApplicationInput): Promise<ApplicantRecord>;
   listApplicationsForPosting(
     postingId: number,
@@ -110,6 +120,7 @@ export type CompanyRecruitingRepositoryPort = {
     input: UpdateApplicationScreeningInput,
   ): Promise<ApplicantRecord | null>;
   createFileAsset(input: CreateFileAssetInput): Promise<CompanyFileAssetRecord>;
+  createApplicationDocument(input: CreateApplicationDocumentInput): Promise<{ documentId: number }>;
 };
 
 @Injectable()
@@ -283,7 +294,7 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
     });
   }
 
-  async findOrCreatePublicCandidate(input: CreatePublicCandidateInput): Promise<{ candidateId: number }> {
+  async findOrCreatePublicCandidate(input: CreatePublicCandidateInput): Promise<{ candidateId: number; userId: number }> {
     return this.prisma.$transaction(async (tx) => {
       const existingUser = await tx.user.findUnique({
         where: { email: input.email },
@@ -291,7 +302,7 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
       });
 
       if (existingUser?.candidateProfile) {
-        return { candidateId: Number(existingUser.candidateProfile.candidateId) };
+        return { candidateId: Number(existingUser.candidateProfile.candidateId), userId: Number(existingUser.userId) };
       }
 
       if (existingUser) {
@@ -312,11 +323,12 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
       const profile = await tx.candidateProfile.create({
         data: {
           userId: user.userId,
+          githubUrl: input.githubUrl,
           portfolioUrl: input.portfolioUrl,
           summary: input.summary || "Submitted through public application form.",
         },
       });
-      return { candidateId: Number(profile.candidateId) };
+      return { candidateId: Number(profile.candidateId), userId: Number(user.userId) };
     });
   }
 
@@ -326,6 +338,7 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
         postingId: BigInt(input.postingId),
         candidateId: BigInt(input.candidateId),
         applicationStatus: ApplicationStatus.SUBMITTED,
+        documentStatus: input.documentStatus ?? DocumentStatus.NOT_SUBMITTED,
         screeningDecision: ScreeningDecision.UNDECIDED,
         screeningMemo: input.screeningMemo,
       },
@@ -399,6 +412,19 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
       },
     });
     return mapFileAsset(fileAsset);
+  }
+
+  async createApplicationDocument(input: CreateApplicationDocumentInput): Promise<{ documentId: number }> {
+    const document = await this.prisma.applicationDocument.create({
+      data: {
+        applicationId: BigInt(input.applicationId),
+        fileId: BigInt(input.fileId),
+        documentType: input.documentType,
+        parseStatus: DocumentStatus.SUBMITTED,
+      },
+      select: { documentId: true },
+    });
+    return { documentId: Number(document.documentId) };
   }
 }
 
