@@ -21,6 +21,7 @@ import {
   getCandidateApplicationInterviewActionHref,
   getCandidateApplicationReportHref,
   getCandidateJobDetailActionHref,
+  getMockInterviewDeviceCheckHref,
   getMockInterviewHref,
   getMockReportHref,
   isCandidateFacingMockFeedbackSafe,
@@ -228,6 +229,7 @@ const applicationInterviewHref = getCandidateApplicationInterviewActionHref(appl
 const applicationReportHref = getCandidateApplicationReportHref(applicationSummary);
 const applicationCanStart = isCandidateInterviewStartEnabled(applicationSummary);
 const mockInterviewHref = getMockInterviewHref({ sessionId: 10001 });
+const mockInterviewDeviceCheckHref = getMockInterviewDeviceCheckHref({ sessionId: 10001 });
 const mockReportHref = getMockReportHref(mockReport);
 const mockFeedbackIsSafe = isCandidateFacingMockFeedbackSafe(mockFeedback);
 const recruitingReportIsLimited = isCandidateRecruitingReportLimited(recruitingReport);
@@ -328,6 +330,7 @@ void applicationInterviewHref;
 void applicationReportHref;
 void applicationCanStart;
 void mockInterviewHref;
+void mockInterviewDeviceCheckHref;
 void mockReportHref;
 void mockFeedbackIsSafe;
 void recruitingReportIsLimited;

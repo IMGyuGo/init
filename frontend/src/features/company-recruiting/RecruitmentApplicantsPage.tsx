@@ -83,7 +83,7 @@ export function RecruitmentApplicantsPage({ recruitmentId }: { recruitmentId: nu
             <h2>지원자 목록</h2>
             <p>지원 상태, 면접 상태, 리포트 상태를 한 곳에서 확인합니다.</p>
           </div>
-          <form className="toolbar" onSubmit={handleSearch}>
+          <form className="toolbar list-filter-toolbar" onSubmit={handleSearch}>
             <input value={q} onChange={(event) => setQ(event.target.value)} placeholder="이름, 이메일 검색" />
             <button className="btn secondary" type="submit" disabled={loading}>
               조회
