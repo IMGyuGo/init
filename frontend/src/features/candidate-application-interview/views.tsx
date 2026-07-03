@@ -28,94 +28,104 @@ export interface CandidateJobsViewProps {
 
 export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: CandidateJobsViewProps) {
   return (
-    <section aria-label="채용공고 목록" className="candidate-jobs-page">
-      <form
-        className="candidate-jobs-filter"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onQueryChange({ ...query, page: 1 });
-        }}
-      >
-        <label className="candidate-jobs-search">
-          <span className="sr-only">검색어</span>
-          <input
-            name="q"
-            placeholder="검색어"
-            value={query.q ?? ""}
-            onChange={(event) => onQueryChange({ ...query, q: event.currentTarget.value, page: 1 })}
-          />
-        </label>
-        <label>
-          <span className="sr-only">직무</span>
-          <select
-            name="jobRole"
-            value={query.jobRole ?? ""}
-            onChange={(event) => onQueryChange({ ...query, jobRole: event.currentTarget.value, page: 1 })}
-          >
-            <option value="">직무</option>
-            <option value="Backend">백엔드</option>
-            <option value="Android">안드로이드</option>
-            <option value="Frontend">프론트엔드</option>
-            <option value="AI Engineer">AI 엔지니어</option>
-          </select>
-        </label>
-        <label>
-          <span className="sr-only">지역</span>
-          <select
-            name="location"
-            value={query.location ?? ""}
-            onChange={(event) => onQueryChange({ ...query, location: event.currentTarget.value, page: 1 })}
-          >
-            <option value="">지역</option>
-            <option value="Seoul">서울</option>
-            <option value="Pangyo">판교</option>
-            <option value="Remote">원격</option>
-          </select>
-        </label>
-        <label>
-          <span className="sr-only">채용 상태</span>
-          <select
-            name="postingStatus"
-            value={query.postingStatus ?? ""}
-            onChange={(event) =>
-              onQueryChange({
-                ...query,
-                postingStatus: toOptionalPostingStatus(event.currentTarget.value),
-                page: 1,
-              })
-            }
-          >
-            <option value="">채용 상태</option>
-            <option value="OPEN">채용중</option>
-            <option value="CLOSING_SOON">마감 임박</option>
-          </select>
-        </label>
-        <button className="btn primary" type="submit">조회</button>
-      </form>
+    <section aria-label="채용공고 목록" className="panel candidate-jobs-panel">
+      <div className="panel-head">
+        <div className="panel-title">
+          <h2>채용 공고</h2>
+          <span className="count-pill">{totalItems}</span>
+        </div>
+        <form
+          className="toolbar candidate-jobs-filter"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onQueryChange({ ...query, page: 1 });
+          }}
+        >
+          <label className="candidate-jobs-search">
+            <span className="sr-only">검색어</span>
+            <input
+              name="q"
+              placeholder="회사·직무 검색"
+              value={query.q ?? ""}
+              onChange={(event) => onQueryChange({ ...query, q: event.currentTarget.value, page: 1 })}
+            />
+          </label>
+          <label>
+            <span className="sr-only">직무</span>
+            <select
+              name="jobRole"
+              value={query.jobRole ?? ""}
+              onChange={(event) => onQueryChange({ ...query, jobRole: event.currentTarget.value, page: 1 })}
+            >
+              <option value="">전체 직무</option>
+              <option value="Backend">백엔드</option>
+              <option value="Android">안드로이드</option>
+              <option value="Frontend">프론트엔드</option>
+              <option value="AI Engineer">AI 엔지니어</option>
+            </select>
+          </label>
+          <label>
+            <span className="sr-only">지역</span>
+            <select
+              name="location"
+              value={query.location ?? ""}
+              onChange={(event) => onQueryChange({ ...query, location: event.currentTarget.value, page: 1 })}
+            >
+              <option value="">전체 지역</option>
+              <option value="Seoul">서울</option>
+              <option value="Pangyo">판교</option>
+              <option value="Remote">원격</option>
+            </select>
+          </label>
+          <label>
+            <span className="sr-only">채용 상태</span>
+            <select
+              name="postingStatus"
+              value={query.postingStatus ?? ""}
+              onChange={(event) =>
+                onQueryChange({
+                  ...query,
+                  postingStatus: toOptionalPostingStatus(event.currentTarget.value),
+                  page: 1,
+                })
+              }
+            >
+              <option value="">전체 상태</option>
+              <option value="OPEN">모집중</option>
+              <option value="CLOSING_SOON">마감임박</option>
+            </select>
+          </label>
+          <button className="btn secondary" type="submit">조회</button>
+        </form>
+      </div>
 
-      <div className="candidate-cards-2" role="list">
-        {jobs.map((job, index) => (
-          <article className="candidate-jobcard" key={job.jobId} role="listitem">
-            <div className="candidate-jobcard__head">
+      {jobs.length ? (
+        <div className="posting-list candidate-job-list" role="list">
+          {jobs.map((job, index) => (
+            <article className="posting candidate-job-row" key={job.jobId} role="listitem">
               <CompanyLogoMark companyLogoUrl={job.companyLogoUrl} fallbackLabel={companyLogoLabel(index)} />
-              <div>
-                <h2>{job.companyName}</h2>
+              <div className="posting-info">
+                <div className="posting-title-row">
+                  <h3>{job.title}</h3>
+                  <StatusBadge status={job.postingStatus} />
+                </div>
+                <p>{job.companyName} · {displayLocation(job.location)}</p>
               </div>
-            </div>
-            <p className="candidate-jobcard__line">{job.title} · {displayLocation(job.location)} · {statusLabel[job.postingStatus]}</p>
-            <div className="candidate-jobcard__actions">
               <span className={`candidate-job-available${job.alreadyApplied ? " is-applied" : ""}`}>
                 {job.alreadyApplied ? "지원 완료" : "지원 가능"}
               </span>
-              <a className="candidate-job-detail-button" href={candidateApplicationInterviewRoutes.jobDetail(job.jobId)}>
-                상세 보기
-              </a>
-            </div>
-          </article>
-        ))}
-      </div>
+              <div className="posting-actions">
+                <a className="btn secondary compact" href={candidateApplicationInterviewRoutes.jobDetail(job.jobId)}>
+                  상세 보기
+                </a>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="empty">조건에 맞는 채용공고가 없습니다.</p>
+      )}
       <span className="sr-only">지원 가능한 공고 {totalItems}건</span>
-      {!jobs.length ? <p className="empty">조건에 맞는 채용공고가 없습니다.</p> : null}
     </section>
   );
 }
@@ -128,47 +138,57 @@ export function CandidateJobDetailView({ job }: CandidateJobDetailViewProps) {
   const actionHref = getCandidateJobDetailActionHref(job);
 
   return (
-    <section aria-labelledby="candidate-job-detail-heading" className="candidate-modal-scrim candidate-job-detail-scrim">
-      <div className="candidate-modal candidate-job-detail-modal">
-        <header className="candidate-modal__head candidate-job-detail-head">
-          <h2>회사 상세</h2>
-          <a aria-label="회사 상세 닫기" className="candidate-modal__close candidate-job-detail-close" href={candidateApplicationInterviewRoutes.jobs}>
-            <span aria-hidden="true">×</span>
-          </a>
-        </header>
-        <div className="candidate-modal__body candidate-job-detail-body">
-          <div className="candidate-job-detail-title">
-            <CompanyLogoMark companyLogoUrl={job.companyLogoUrl} fallbackLabel={companyLogoLabelFromName(job.companyName)} />
-            <div>
-              <h1 id="candidate-job-detail-heading">{job.companyName}</h1>
-              <p>{job.title} · <StatusBadge status={job.postingStatus} /></p>
-            </div>
+    <section aria-labelledby="candidate-job-detail-heading" className="candidate-job-detail-page glass-page">
+      <div className="page-head">
+        <div className="candidate-job-detail-title">
+          <CompanyLogoMark companyLogoUrl={job.companyLogoUrl} fallbackLabel={companyLogoLabelFromName(job.companyName)} />
+          <div>
+            <h1 id="candidate-job-detail-heading">{job.companyName}</h1>
+            <p>{job.title} · <StatusBadge status={job.postingStatus} /></p>
           </div>
-          <section className="candidate-job-detail-card">
-            <p className="panel-title">회사 정보</p>
-            <div className="candidate-job-detail-box">{job.companyProfile || "산업군, 규모, 주요 서비스 등"}</div>
-          </section>
-          <section className="candidate-job-detail-card">
-            <p className="panel-title">JD</p>
-            <div className="candidate-job-detail-box">
-              <JobDescriptionViewer value={job.jobDescription} emptyMessage="등록된 JD가 없습니다." />
-              <ul className="candidate-feature__tags">
-                {job.techStacks.map((techStack) => (
-                  <li key={techStack}>{techStack}</li>
-                ))}
-              </ul>
-            </div>
-          </section>
-          <p className="candidate-modal__meta candidate-job-detail-period">
-            채용 기간 · {formatDateForDisplay(job.startsOn)} ~ {formatDateForDisplay(job.endsOn)}
-          </p>
         </div>
-        <footer className="candidate-modal__foot candidate-job-detail-foot">
-          <a className="candidate-detail-button candidate-detail-button--secondary" href={candidateApplicationInterviewRoutes.jobs}>닫기</a>
-          <a aria-disabled={!actionHref} className="candidate-detail-button candidate-detail-button--primary" href={actionHref || "#"}>
+        <div className="page-actions">
+          <a className="btn secondary" href={candidateApplicationInterviewRoutes.jobs}>목록</a>
+          <a aria-disabled={!actionHref} className="btn primary" href={actionHref || "#"} tabIndex={actionHref ? undefined : -1}>
             {job.alreadyApplied ? "지원 완료" : "지원하기"}
           </a>
-        </footer>
+        </div>
+      </div>
+
+      <div className="candidate-job-detail-grid">
+        <section className="panel candidate-job-detail-card">
+          <div className="panel-head">
+            <div className="panel-title">
+              <h2>회사 정보</h2>
+            </div>
+          </div>
+          <div className="candidate-job-detail-box">{job.companyProfile || "산업군, 규모, 주요 서비스 등"}</div>
+        </section>
+        <section className="panel candidate-job-detail-card">
+          <div className="panel-head">
+            <div className="panel-title">
+              <h2>채용 공고</h2>
+            </div>
+          </div>
+          <div className="candidate-job-detail-box">
+            <JobDescriptionViewer value={job.jobDescription} emptyMessage="등록된 JD가 없습니다." />
+            <ul className="candidate-feature__tags">
+              {job.techStacks.map((techStack) => (
+                <li key={techStack}>{techStack}</li>
+              ))}
+            </ul>
+          </div>
+        </section>
+        <section className="panel candidate-job-detail-meta">
+          <div>
+            <CompanyLogoMark companyLogoUrl={job.companyLogoUrl} fallbackLabel={companyLogoLabelFromName(job.companyName)} />
+            <div>
+              <strong>{job.title}</strong>
+              <span>{job.companyName}</span>
+            </div>
+          </div>
+          <p>채용 기간 · {formatDateForDisplay(job.startsOn)} ~ {formatDateForDisplay(job.endsOn)}</p>
+        </section>
       </div>
     </section>
   );

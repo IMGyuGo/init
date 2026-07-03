@@ -188,17 +188,24 @@ export function CandidateJobsPage() {
 
   return (
     <CandidatePageShell active="jobs">
-      <header className="candidate-jobs-head">
-        <h1>채용공고</h1>
-        <p>지원 가능한 채용공고를 둘러보세요.</p>
-      </header>
-      <StatusNotice loading={loading} error={error} />
-      <CandidateJobsView
-        jobs={data?.data.items ?? []}
-        query={query}
-        totalItems={data?.meta.page.totalItems ?? 0}
-        onQueryChange={setQuery}
-      />
+      <section className="candidate-jobs-page glass-page" aria-labelledby="candidate-jobs-heading">
+        <div className="page-head">
+          <div>
+            <h1 id="candidate-jobs-heading">채용공고</h1>
+            <p className="page-sub">지원 가능한 채용공고를 기업 공고 목록과 같은 기준으로 확인합니다.</p>
+          </div>
+          <Link className="btn secondary" href={candidateApplicationInterviewRoutes.applications}>
+            지원현황
+          </Link>
+        </div>
+        <StatusNotice loading={loading} error={error} />
+        <CandidateJobsView
+          jobs={data?.data.items ?? []}
+          query={query}
+          totalItems={data?.meta.page.totalItems ?? 0}
+          onQueryChange={setQuery}
+        />
+      </section>
     </CandidatePageShell>
   );
 }
