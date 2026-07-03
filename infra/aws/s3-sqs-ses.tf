@@ -60,7 +60,7 @@ resource "aws_s3_bucket_cors_configuration" "assets" {
   cors_rule {
     allowed_headers = ["*"]
     allowed_methods = ["GET", "HEAD", "PUT", "POST"]
-    allowed_origins = ["https://${aws_cloudfront_distribution.app.domain_name}"]
+    allowed_origins = ["https://${local.app_domain_name}"]
     expose_headers  = ["ETag"]
     max_age_seconds = 3000
   }

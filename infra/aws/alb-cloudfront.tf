@@ -118,6 +118,7 @@ resource "aws_cloudfront_distribution" "app" {
   price_class     = "PriceClass_200"
   http_version    = "http2and3"
   comment         = "${local.name_prefix} frontend/api/assets"
+  aliases         = [local.app_domain_name]
 
   origin {
     origin_id   = "alb"
@@ -198,7 +199,9 @@ resource "aws_cloudfront_distribution" "app" {
   }
 
   viewer_certificate {
-    cloudfront_default_certificate = true
+    acm_certificate_arn      = aws_acm_certificate_validation.cloudfront.certificate_arn
+    minimum_protocol_version = "TLSv1.2_2021"
+    ssl_support_method       = "sni-only"
   }
 
   tags = {

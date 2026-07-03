@@ -20,6 +20,12 @@ variable "project_name" {
   default     = "init"
 }
 
+variable "root_domain_name" {
+  description = "Root domain hosted in Route53. The main environment uses the apex domain, and non-main environments use environment subdomains."
+  type        = string
+  default     = "init-jungle.cloud"
+}
+
 variable "vpc_cidr" {
   description = "CIDR block for the environment VPC."
   type        = string

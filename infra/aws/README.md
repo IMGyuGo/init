@@ -9,8 +9,8 @@
 `dev`와 `main`은 서로 다른 AWS environment다. 같은 AWS 계정 안에서도 VPC, CloudFront distribution, ALB, ECS service, RDS, Redis, S3 bucket, SQS queue, Secrets Manager path를 environment별로 분리한다.
 
 ```text
-dev branch  -> init-dev-*  resources -> dev CloudFront domain
-main branch -> init-main-* resources -> main CloudFront domain
+dev branch  -> init-dev-*  resources -> dev.init-jungle.cloud
+main branch -> init-main-* resources -> init-jungle.cloud
 ```
 
 각 environment 안에서는 하나의 도메인에서 frontend와 API를 path로 나눈다.
@@ -24,12 +24,13 @@ main branch -> init-main-* resources -> main CloudFront domain
 
 | 파일 | 책임 |
 | --- | --- |
-| `bootstrap/*` | remote state S3 bucket과 계정 단위 GitHub OIDC provider 최초 생성 |
+| `bootstrap/*` | remote state S3 bucket, Route53 hosted zone, 계정 단위 GitHub OIDC provider 최초 생성 |
 | `versions.tf`, `providers.tf` | Terraform/AWS provider 버전과 region 설정 |
 | `variables.tf`, `locals.tf` | environment별 입력값, naming, service/env/secret key 계약 |
 | `network.tf` | VPC, subnet, route table, NAT Gateway, VPC endpoint |
 | `security-groups.tf` | ALB, ECS, RDS, Redis, VPC endpoint security group |
 | `alb-cloudfront.tf` | ALB listener/target group, CloudFront behavior, S3 OAC |
+| `route53-acm.tf` | Route53 app record, CloudFront용 us-east-1 ACM 인증서, DNS validation record |
 | `ecs.tf` | ECS cluster, task definition, service |
 | `ecr.tf` | environment별 ECR repository와 lifecycle policy |
 | `rds.tf`, `redis.tf` | PostgreSQL RDS, ElastiCache Redis |
@@ -48,6 +49,8 @@ main branch -> init-main-* resources -> main CloudFront domain
 - AWS CLI 또는 AWS SSO/profile 등 AWS credential
 - 대상 AWS account ID
 - Terraform state bucket 이름: `init-tfstate-<aws_account_id>-ap-northeast-2`
+- 가비아에서 구매한 root domain: `init-jungle.cloud`
+- Route53 hosted zone 생성 후 가비아 네임서버를 Route53 NS record로 위임할 권한
 - `dev`, `main`을 같은 AWS 계정에 만들지, 별도 계정에 만들지에 대한 팀 결정
 - AWS 비용 발생 가능성에 대한 승인
 
@@ -69,7 +72,7 @@ aws sts get-caller-identity
 
 ## 최초 bootstrap
 
-bootstrap은 environment별 stack보다 먼저 1회만 실행한다. remote state bucket과 GitHub OIDC provider는 AWS 계정 단위로 공유되는 기반 리소스이기 때문이다.
+bootstrap은 environment별 stack보다 먼저 1회만 실행한다. remote state bucket, Route53 hosted zone, GitHub OIDC provider는 AWS 계정 단위로 공유되는 기반 리소스이기 때문이다.
 
 1. AWS account ID를 확인한다.
 
@@ -77,7 +80,7 @@ bootstrap은 environment별 stack보다 먼저 1회만 실행한다. remote stat
 aws sts get-caller-identity --query Account --output text
 ```
 
-2. remote state bucket과 GitHub OIDC provider를 생성한다.
+2. remote state bucket, Route53 hosted zone, GitHub OIDC provider를 생성한다.
 
 ```powershell
 terraform -chdir=infra/aws/bootstrap init
@@ -85,13 +88,21 @@ terraform -chdir=infra/aws/bootstrap plan -var "state_bucket_name=init-tfstate-<
 terraform -chdir=infra/aws/bootstrap apply -var "state_bucket_name=init-tfstate-<aws_account_id>-ap-northeast-2"
 ```
 
-3. GitHub OIDC provider가 이미 있는 계정이면 중복 생성하지 않는다. 이미 존재한다면 bootstrap state로 import한다.
+3. Route53 NS record를 확인하고 가비아 네임서버에 등록한다.
+
+```powershell
+terraform -chdir=infra/aws/bootstrap output route53_name_servers
+```
+
+가비아 관리 화면에서 `init-jungle.cloud`의 네임서버를 위 출력값으로 교체한다. 이 위임이 완료되어야 dev/main stack의 ACM DNS validation이 정상 완료된다.
+
+4. GitHub OIDC provider가 이미 있는 계정이면 중복 생성하지 않는다. 이미 존재한다면 bootstrap state로 import한다.
 
 ```powershell
 terraform -chdir=infra/aws/bootstrap import aws_iam_openid_connect_provider.github arn:aws:iam::<aws_account_id>:oidc-provider/token.actions.githubusercontent.com
 ```
 
-4. bootstrap 출력값을 확인한다.
+5. bootstrap 출력값을 확인한다.
 
 ```powershell
 terraform -chdir=infra/aws/bootstrap output
@@ -133,6 +144,7 @@ terraform -chdir=infra/aws apply tfplan-dev
 ```powershell
 terraform -chdir=infra/aws output
 terraform -chdir=infra/aws output cloudfront_domain_name
+terraform -chdir=infra/aws output application_url
 terraform -chdir=infra/aws output ecr_repository_urls
 terraform -chdir=infra/aws output runtime_secret_arns
 ```
@@ -177,11 +189,11 @@ aws secretsmanager put-secret-value `
   "AUTH_REFRESH_COOKIE_NAME": "refreshToken",
   "AUTH_COOKIE_SECURE": "true",
   "AUTH_COOKIE_SAME_SITE": "lax",
-  "FRONTEND_ORIGIN": "https://<cloudfront-domain>",
+  "FRONTEND_ORIGIN": "https://dev.init-jungle.cloud",
   "AWS_REGION": "ap-northeast-2",
   "S3_BUCKET": "init-dev-assets-<aws_account_id>",
   "S3_BUCKET_NAME": "init-dev-assets-<aws_account_id>",
-  "S3_PUBLIC_BASE_URL": "https://<cloudfront-domain>",
+  "S3_PUBLIC_BASE_URL": "https://dev.init-jungle.cloud",
   "AI_SQS_QUEUE_URL": "<sqs-url>",
   "SQS_QUEUE_URL": "<sqs-url>",
   "OPENAI_API_KEY": "<openai-key>",
@@ -244,6 +256,7 @@ AWS Console에서 직접 수정하지 않는 것을 원칙으로 한다. 리소�
 | VPC/subnet/NAT 변경 | `network.tf`, `env/*.tfvars` | CIDR 충돌, route table, NAT 비용 |
 | Security group 변경 | `security-groups.tf` | public ingress 확장 여부, ECS/RDS/Redis 접근 경계 |
 | CloudFront/ALB path 변경 | `alb-cloudfront.tf` | `/api/*`, `/_next/static/*`, S3 asset prefix가 frontend route를 가리지 않는지 |
+| Route53/ACM/domain 변경 | `route53-acm.tf`, `providers.tf`, `env/*.tfvars` | 가비아 NS 위임, us-east-1 ACM, A/AAAA alias, DNS validation 완료 여부 |
 | ECS CPU/memory/port 변경 | `locals.tf`, `ecs.tf` | Dockerfile exposed port, ALB target group, Fargate 지원 조합 |
 | ECS desired count 변경 | `env/dev.tfvars`, `env/main.tfvars` | image와 secret 값이 먼저 준비됐는지 |
 | ECR repository 정책 변경 | `ecr.tf` | immutable tag 정책과 deploy workflow tag 전략 |

@@ -37,10 +37,12 @@ Dockerfile을 추가해도 현재 로컬 개발 방식을 없애지 않는다. �
 
 | 항목 | 결정 |
 | --- | --- |
-| 도메인 | 환경별 단일 도메인 + `/api/*` path routing |
+| 도메인 | `init-jungle.cloud` 기준 환경별 단일 도메인 + `/api/*` path routing |
 | Frontend 배포 | Next.js SSR이므로 S3 정적 배포가 아니라 ECS container로 배포 |
 | 메일 서비스 | 별도 SMTP 서버 없이 Amazon SES 사용 |
 | CloudFront | 처음부터 사용 |
+| Route53 | `init-jungle.cloud`를 Route53 hosted zone으로 위임 |
+| CloudFront 인증서 | us-east-1 ACM 인증서를 DNS validation으로 발급 |
 | ALB | 1개 ALB 사용, listener rule로 frontend/API 분기 |
 | ECS subnet | private subnet |
 | NAT Gateway | private subnet ECS task의 outbound 통신을 위해 사용 |
@@ -110,6 +112,7 @@ RDS instance에는 `copy_tags_to_snapshot = true`를 둔다. 최종 snapshot이�
 | `aws_iam_role_policy`, `aws_iam_role_policy_attachment` | 연결된 IAM role 태그로 관리 |
 | `aws_route_table_association` | route table과 subnet 태그로 관리 |
 | `aws_ecs_cluster_capacity_providers` | ECS cluster 태그로 관리 |
+| `aws_route53_record` | Route53 hosted zone과 record name으로 관리 |
 | `aws_cloudfront_origin_access_control` | CloudFront distribution과 S3 bucket 태그로 관리 |
 | `aws_ses_domain_identity` | SES domain identity는 provider schema상 tag 미지원. 도메인명과 Terraform state로 식별 |
 
@@ -128,7 +131,8 @@ git diff --check
 
 ```text
 User
--> Route53
+-> Domain registration for init-jungle.cloud
+-> Route53 hosted zone
 -> CloudFront
    -> /api/* behavior: ALB /api/* listener rule -> ECS API service
    -> default behavior: ALB default rule -> ECS frontend service
@@ -152,19 +156,30 @@ ECS worker service
 
 사용자는 각 환경의 CloudFront에 연결된 단일 도메인만 바라본다. CloudFront와 ALB가 path 기준으로 frontend와 API를 나눈다. `dev`와 `main`은 같은 도메인을 공유하지 않고, 서로 다른 CloudFront/ECS/RDS/Redis/S3/SQS 세트를 가진다.
 
+도메인 소유권은 `init-jungle.cloud`를 기준으로 한다. DNS 관리는 Route53 hosted zone으로 위임한다. bootstrap Terraform이 Route53 hosted zone을 만들고, 출력된 NS record를 가비아 네임서버 설정에 등록해야 한다. 이 위임이 끝나지 않으면 Terraform이 ACM DNS validation record를 만들어도 CloudFront 인증서 검증이 완료되지 않을 수 있다.
+
 ## 환경별 단일 도메인 + `/api/*`
 
 단일 도메인 원칙은 환경마다 적용한다. 즉 `dev`와 `main`이 하나의 도메인을 서로 덮어쓰는 구조가 아니라, 각 환경 안에서 frontend와 API만 같은 도메인을 공유한다.
 
 ```text
-https://dev.example.com/                 -> dev frontend
-https://dev.example.com/api/v1/health    -> dev API
+https://dev.init-jungle.cloud/                 -> dev frontend
+https://dev.init-jungle.cloud/api/v1/health    -> dev API
 
-https://example.com/                     -> main frontend
-https://example.com/api/v1/health        -> main API
+https://init-jungle.cloud/                     -> main frontend
+https://init-jungle.cloud/api/v1/health        -> main API
 ```
 
 이 방식의 핵심 이점은 브라우저가 frontend와 API를 같은 origin으로 본다는 점이다. CORS, cookie, OAuth callback, refresh token 처리가 단순해진다.
+
+Terraform domain mapping:
+
+| Environment | Domain | Route53 record | CloudFront certificate |
+| --- | --- | --- | --- |
+| `dev` | `dev.init-jungle.cloud` | A/AAAA alias -> dev CloudFront distribution | ACM in `us-east-1`, DNS validation |
+| `main` | `init-jungle.cloud` | A/AAAA alias -> main CloudFront distribution | ACM in `us-east-1`, DNS validation |
+
+CloudFront custom domain을 쓰려면 인증서는 CloudFront 요구사항에 맞춰 `us-east-1` ACM에 있어야 한다. 따라서 `infra/aws`는 기본 `ap-northeast-2` provider 외에 `aws.us_east_1` provider alias를 사용한다.
 
 CloudFront behavior 초안:
 

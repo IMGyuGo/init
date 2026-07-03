@@ -33,6 +33,14 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" 
   }
 }
 
+resource "aws_route53_zone" "root" {
+  name = trimsuffix(var.root_domain_name, ".")
+
+  tags = {
+    Name = trimsuffix(var.root_domain_name, ".")
+  }
+}
+
 resource "aws_iam_openid_connect_provider" "github" {
   url             = "https://token.actions.githubusercontent.com"
   client_id_list  = ["sts.amazonaws.com"]
@@ -49,4 +57,12 @@ output "state_bucket_name" {
 
 output "github_oidc_provider_arn" {
   value = aws_iam_openid_connect_provider.github.arn
+}
+
+output "route53_zone_id" {
+  value = aws_route53_zone.root.zone_id
+}
+
+output "route53_name_servers" {
+  value = aws_route53_zone.root.name_servers
 }

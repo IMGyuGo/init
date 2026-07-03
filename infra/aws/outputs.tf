@@ -6,6 +6,14 @@ output "cloudfront_domain_name" {
   value = aws_cloudfront_distribution.app.domain_name
 }
 
+output "application_domain_name" {
+  value = local.app_domain_name
+}
+
+output "application_url" {
+  value = "https://${local.app_domain_name}"
+}
+
 output "alb_dns_name" {
   value = aws_lb.app.dns_name
 }
@@ -56,4 +64,3 @@ output "redis_primary_endpoint" {
 output "github_deploy_role_arn" {
   value = aws_iam_role.github_deploy.arn
 }
-
