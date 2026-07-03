@@ -1,0 +1,6 @@
+bucket       = "init-tfstate-<aws_account_id>-ap-northeast-2"
+key          = "init/dev/terraform.tfstate"
+region       = "ap-northeast-2"
+encrypt      = true
+use_lockfile = true
+

@@ -1,0 +1,161 @@
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
+data "aws_caller_identity" "current" {}
+
+data "aws_region" "current" {}
+
+locals {
+  name_prefix = "${var.project_name}-${var.environment}"
+  azs         = slice(data.aws_availability_zones.available.names, 0, 2)
+
+  common_tags = {
+    Project     = "jungle-init"
+    Environment = var.environment
+    ManagedBy   = "terraform"
+    Repository  = var.github_repository
+    Owner       = "A"
+  }
+
+  public_subnets = {
+    for idx, cidr in var.public_subnet_cidrs : "public-${idx + 1}" => {
+      cidr_block = cidr
+      az         = local.azs[idx]
+    }
+  }
+
+  private_app_subnets = {
+    for idx, cidr in var.private_app_subnet_cidrs : "app-${idx + 1}" => {
+      cidr_block = cidr
+      az         = local.azs[idx]
+    }
+  }
+
+  private_data_subnets = {
+    for idx, cidr in var.private_data_subnet_cidrs : "data-${idx + 1}" => {
+      cidr_block = cidr
+      az         = local.azs[idx]
+    }
+  }
+
+  services = {
+    frontend = {
+      container_name = "frontend"
+      port           = 3000
+      cpu            = 512
+      memory         = 1024
+      health_path    = "/"
+    }
+    api = {
+      container_name = "api"
+      port           = 3001
+      cpu            = 512
+      memory         = 1024
+      health_path    = "/api/v1/health"
+    }
+    worker = {
+      container_name = "worker"
+      port           = null
+      cpu            = 1024
+      memory         = 2048
+      health_path    = null
+    }
+  }
+
+  static_environment = {
+    frontend = {
+      NODE_ENV = "production"
+      PORT     = "3000"
+    }
+    api = {
+      NODE_ENV = "production"
+      PORT     = "3001"
+    }
+    worker = {
+      NODE_ENV               = "production"
+      WORKER_REPOSITORY_MODE = "prisma"
+    }
+  }
+
+  secret_keys = {
+    frontend = [
+      "NEXT_PUBLIC_API_BASE_URL"
+    ]
+    api = [
+      "DATABASE_URL",
+      "REDIS_URL",
+      "JWT_SECRET",
+      "JWT_ACCESS_TOKEN_TTL",
+      "JWT_REFRESH_TOKEN_TTL",
+      "AUTH_REFRESH_COOKIE_NAME",
+      "AUTH_COOKIE_SECURE",
+      "AUTH_COOKIE_SAME_SITE",
+      "FRONTEND_ORIGIN",
+      "PUBLIC_APPLICATION_MAGIC_LINK_TTL_SECONDS",
+      "PUBLIC_APPLICATION_TOKEN_VERIFY_URL",
+      "PUBLIC_APPLICATION_TOKEN_VERIFY_SECRET",
+      "PUBLIC_APPLICATION_TOKEN_SECRET",
+      "PUBLIC_INTERVIEW_ACCESS_TOKEN_SECRET",
+      "PUBLIC_INTERVIEW_ACCESS_TOKEN_TTL_SECONDS",
+      "GOOGLE_CLIENT_ID",
+      "GOOGLE_CLIENT_SECRET",
+      "GOOGLE_CALLBACK_URL",
+      "SMTP_HOST",
+      "SMTP_PORT",
+      "SMTP_SECURE",
+      "SMTP_USER",
+      "SMTP_PASS",
+      "SMTP_FROM",
+      "AWS_REGION",
+      "S3_BUCKET",
+      "S3_BUCKET_NAME",
+      "S3_PUBLIC_BASE_URL",
+      "AI_SQS_QUEUE_URL",
+      "SQS_QUEUE_URL",
+      "OPENAI_API_KEY",
+      "AI_PROVIDER_API_KEY",
+      "OPENAI_MODEL",
+      "OPENAI_EMBEDDING_MODEL",
+      "AI_STT_PROVIDER",
+      "OPENAI_STT_MODEL",
+      "OPENAI_STT_LANGUAGE",
+      "MAX_UPLOAD_BYTES",
+      "JD_IMAGE_MAX_UPLOAD_BYTES",
+      "SIGNED_URL_TTL_SECONDS"
+    ]
+    worker = [
+      "DATABASE_URL",
+      "AWS_REGION",
+      "S3_BUCKET",
+      "S3_BUCKET_NAME",
+      "AI_SQS_QUEUE_URL",
+      "SQS_QUEUE_URL",
+      "OPENAI_API_KEY",
+      "AI_PROVIDER_API_KEY",
+      "OPENAI_MODEL",
+      "OPENAI_EMBEDDING_MODEL",
+      "AI_STT_PROVIDER",
+      "OPENAI_STT_MODEL",
+      "OPENAI_STT_LANGUAGE",
+      "WORKER_CONCURRENCY",
+      "WORKER_REPOSITORY_MODE",
+      "WORKER_BATCH_SIZE",
+      "WORKER_POLL_INTERVAL_MS"
+    ]
+  }
+
+  interface_endpoint_services = {
+    ecr_api        = "ecr.api"
+    ecr_dkr        = "ecr.dkr"
+    logs           = "logs"
+    secretsmanager = "secretsmanager"
+    sqs            = "sqs"
+  }
+
+  github_oidc_provider_arn = (
+    var.github_oidc_provider_arn != ""
+    ? var.github_oidc_provider_arn
+    : "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/token.actions.githubusercontent.com"
+  )
+}

@@ -122,7 +122,7 @@ Docker build 검증은 image가 만들어지는지 확인하는 단계이고, cl
 | Check | 기준 | 실패 의미 |
 | --- | --- | --- |
 | Changed service detection | 변경 경로에 맞는 service만 build/push/update | 불필요한 service 재시작 또는 필요한 service 누락 |
-| ECR push | `init-frontend`, `init-api`, `init-worker`에 `github.sha` tag push | ECS가 새 image를 pull할 수 없음 |
+| ECR push | `init-{env}-frontend`, `init-{env}-api`, `init-{env}-worker`에 `github.sha` tag push | ECS가 새 image를 pull할 수 없음 |
 | ECS task definition revision | 기존 task definition 기반으로 image URI만 새 SHA tag로 갱신 | env, secret, IAM, log 설정 drift 가능 |
 | Migration gate | API/Prisma 변경 시 service update 전 `npx prisma migrate deploy` one-off task 성공 | 새 application code와 DB schema 불일치 |
 | ECS service stability | `aws ecs wait services-stable` 또는 동등한 대기 | 새 task가 정상 기동하지 않음 |

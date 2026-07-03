@@ -17,7 +17,7 @@
 | SQS | LocalStack queue `init-ai-jobs` | SQS queue |
 | Mailpit | local SMTP inbox | Amazon SES |
 
-클라우드에서는 frontend, API, worker를 각각 Docker image로 만든다. 현재 `infra/docker`에는 `frontend.Dockerfile`, `api.Dockerfile`, `worker.Dockerfile`이 추가되어 AWS 배포 image 계약을 검증할 수 있다. 다만 실제 ECR push, ECS task definition 갱신, ECS service update workflow는 아직 후속 작업이다.
+클라우드에서는 frontend, API, worker를 각각 Docker image로 만든다. 현재 `infra/docker`에는 `frontend.Dockerfile`, `api.Dockerfile`, `worker.Dockerfile`이 추가되어 AWS 배포 image 계약을 검증할 수 있다. `infra/aws`에는 dev/main 기준 AWS 리소스 Terraform 초안이 추가되어 있다. 다만 실제 ECR push, ECS task definition 갱신, ECS service update workflow는 아직 후속 작업이다.
 
 ## 로컬 실행과 AWS 실행 계약 분리
 
@@ -37,7 +37,7 @@ Dockerfile을 추가해도 현재 로컬 개발 방식을 없애지 않는다. �
 
 | 항목 | 결정 |
 | --- | --- |
-| 도메인 | 단일 도메인 + `/api/*` path routing |
+| 도메인 | 환경별 단일 도메인 + `/api/*` path routing |
 | Frontend 배포 | Next.js SSR이므로 S3 정적 배포가 아니라 ECS container로 배포 |
 | 메일 서비스 | 별도 SMTP 서버 없이 Amazon SES 사용 |
 | CloudFront | 처음부터 사용 |
@@ -50,7 +50,7 @@ Dockerfile을 추가해도 현재 로컬 개발 방식을 없애지 않는다. �
 | Docker build context | frontend/API/worker 모두 repo root |
 | Frontend image 방식 | Next.js `output: "standalone"` 기반 SSR container |
 | 로컬 app compose | 이번 Docker 기반 배포 준비 slice에서는 제외. Docker build 안정화 후 추가 |
-| AWS IaC 도구 | 후속 AWS 리소스 구현은 Terraform 기준 |
+| AWS IaC 도구 | AWS 리소스 초안은 Terraform 기준으로 `infra/aws`에 구현 |
 | 환경변수와 secret | 모든 실제 값은 AWS Secrets Manager에서 관리 |
 | 환경변수 키 목록 | 별도 schema 파일 없이 `.env.example`을 기준으로 관리 |
 | Secrets Manager 환경명 | branch 이름과 맞춰 `dev`, `main` 사용. `prod` 명칭은 쓰지 않음 |
@@ -83,15 +83,18 @@ ECS worker service
 -> OpenAI/MediaPipe runtime dependency
 ```
 
-사용자는 CloudFront에 연결된 단일 도메인만 바라본다. CloudFront와 ALB가 path 기준으로 frontend와 API를 나눈다.
+사용자는 각 환경의 CloudFront에 연결된 단일 도메인만 바라본다. CloudFront와 ALB가 path 기준으로 frontend와 API를 나눈다. `dev`와 `main`은 같은 도메인을 공유하지 않고, 서로 다른 CloudFront/ECS/RDS/Redis/S3/SQS 세트를 가진다.
 
-## 단일 도메인 + `/api/*`
+## 환경별 단일 도메인 + `/api/*`
 
-단일 도메인으로 확정한다.
+단일 도메인 원칙은 환경마다 적용한다. 즉 `dev`와 `main`이 하나의 도메인을 서로 덮어쓰는 구조가 아니라, 각 환경 안에서 frontend와 API만 같은 도메인을 공유한다.
 
 ```text
-https://app.example.com/                 -> frontend
-https://app.example.com/api/v1/health    -> API
+https://dev.example.com/                 -> dev frontend
+https://dev.example.com/api/v1/health    -> dev API
+
+https://example.com/                     -> main frontend
+https://example.com/api/v1/health        -> main API
 ```
 
 이 방식의 핵심 이점은 브라우저가 frontend와 API를 같은 origin으로 본다는 점이다. CORS, cookie, OAuth callback, refresh token 처리가 단순해진다.
@@ -148,11 +151,22 @@ public subnet에 ECS task를 두면 초기 실습은 쉽지만 task가 인터넷
 
 초기 환경은 `dev`와 `main` 두 개만 둔다. `staging`은 발표 전 리허설 또는 운영 검증 환경이 필요해지는 시점에 추가한다.
 
+GitHub branch와 AWS environment는 1:1로 연결한다. AWS가 repository의 두 branch를 직접 감시하는 것이 아니라, GitHub Actions가 push/merge trigger를 받아 해당 branch에 맞는 AWS environment를 갱신한다.
+
 | Git branch | AWS environment | 배포 정책 | Migration 정책 |
 | --- | --- | --- | --- |
 | Pull Request | 없음 | 배포하지 않음. test/build/docker build만 수행 | 실제 DB migration 없음. `prisma validate/generate`만 수행 |
 | `dev` | dev | merge 후 자동 배포 | ECS one-off migration task 자동 실행 |
 | `main` | main | workflow는 자동 시작, GitHub Environment approval 후 배포 | approval 후 ECS one-off migration task 실행 |
+
+환경별 갱신 범위:
+
+| Trigger | 갱신되는 AWS 리소스 | 갱신되지 않는 리소스 |
+| --- | --- | --- |
+| `dev` push/merge | `init-dev-*` ECR/ECS, dev RDS/Redis/S3/SQS, dev CloudFront | `init-main-*`, main CloudFront |
+| `main` push/merge + approval | `init-main-*` ECR/ECS, main RDS/Redis/S3/SQS, main CloudFront | `init-dev-*`, dev CloudFront |
+
+따라서 `dev`에 최신 commit이 배포되어도 main 도메인은 바뀌지 않는다. 반대로 `main` 배포가 승인되어도 dev 환경은 별도로 유지된다.
 
 ## 서비스별 자동 배포 흐름
 
@@ -186,11 +200,11 @@ branch별 동작:
 
 | 변경 경로 | Build/Push 대상 | ECS update 대상 | 추가 절차 |
 | --- | --- | --- | --- |
-| `frontend/**`, `infra/docker/frontend.Dockerfile` | `init-frontend` | `init-{env}-frontend` | frontend smoke test |
-| `backend/api/**`, `infra/docker/api.Dockerfile` | `init-api` | `init-{env}-api` | migration task 실행 후 API service update |
-| `backend/common/**` | `init-api` | `init-{env}-api` | API가 `@init/common`을 참조하므로 API image 재빌드 |
-| `backend/worker/**`, `infra/docker/worker.Dockerfile` | `init-worker` | `init-{env}-worker` | worker startup log 확인 |
-| `backend/api/prisma/**` | `init-api`, `init-worker` | `init-{env}-api`, `init-{env}-worker` | API image 기반 migration task 실행. worker가 API generated Prisma Client를 포함하므로 worker도 재빌드 |
+| `frontend/**`, `infra/docker/frontend.Dockerfile` | `init-{env}-frontend` | `init-{env}-frontend` | frontend smoke test |
+| `backend/api/**`, `infra/docker/api.Dockerfile` | `init-{env}-api` | `init-{env}-api` | migration task 실행 후 API service update |
+| `backend/common/**` | `init-{env}-api` | `init-{env}-api` | API가 `@init/common`을 참조하므로 API image 재빌드 |
+| `backend/worker/**`, `infra/docker/worker.Dockerfile` | `init-{env}-worker` | `init-{env}-worker` | worker startup log 확인 |
+| `backend/api/prisma/**` | `init-{env}-api`, `init-{env}-worker` | `init-{env}-api`, `init-{env}-worker` | API image 기반 migration task 실행. worker가 API generated Prisma Client를 포함하므로 worker도 재빌드 |
 | `.env.example` | image build는 변경 service 기준 | 필요 service만 update | Secrets Manager key validation. secret mapping 자체 변경은 Terraform PR로 처리 |
 | `infra/aws/**` | 없음 | 없음 | Terraform plan/apply 대상. application image deploy workflow와 분리 |
 
@@ -201,7 +215,7 @@ ECR image tag는 mutable한 `latest`를 배포 기준으로 쓰지 않는다. �
 ```text
 backend/api/** 변경 감지
 -> infra/docker/api.Dockerfile 기준 Docker build
--> ECR init-api:<github.sha> push
+-> ECR init-dev-api:<github.sha> push
 -> init-dev-api task definition 새 revision 등록
 -> npx prisma migrate deploy one-off task 실행
 -> init-dev-api ECS service update
@@ -387,13 +401,12 @@ rollback 기준은 단순하다. bash harness 변경으로 macOS/Linux role harn
 
 ## 다음 작업 단위
 
-1. AWS 리소스 초안
-   - Terraform 기준으로 `infra/aws`에 작성
-   - VPC public/private subnet
-   - 1개 ALB와 listener rule
-   - ECS cluster/service/task definition
-   - RDS, ElastiCache, S3, SQS, SES, Secrets Manager, CloudWatch
-   - NAT Gateway와 후속 VPC endpoint
+1. AWS 리소스 초안 검증과 적용 준비
+   - `infra/aws` Terraform fmt/validate/plan 검증
+   - bootstrap state bucket 생성 여부 확인
+   - dev/main backend config의 account id 반영
+   - GitHub OIDC provider가 이미 있는 AWS 계정이면 import 여부 확인
+   - Secrets Manager 실제 값 seed 절차 정리
 
 2. CI/CD 배포 workflow
    - GitHub OIDC IAM role
