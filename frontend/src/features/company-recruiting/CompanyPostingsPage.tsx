@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useState } from "react";
@@ -13,6 +14,11 @@ import { getCompanyPostingActions } from "./company-posting-actions";
 import { getCompanyProfile } from "../company-profile/api";
 import { getCompanyDisplayName } from "../company-profile/company-profile-display";
 import type { CompanyProfile } from "../company-profile/types";
+import agreementIcon from "./assets/kpi-agreement.png";
+import expiredIcon from "./assets/kpi-expired.png";
+import personalGrowthIcon from "./assets/kpi-personal-growth.png";
+import taskPlanningIcon from "./assets/kpi-task-planning.png";
+import postingBanner from "./assets/posting-banner.png";
 
 type StatusFilter = "ALL" | RecruitmentStatus;
 
@@ -124,8 +130,6 @@ export function CompanyPostingsPage() {
     ? Math.min(...closingItems.map((item) => daysUntil(item.endsOn) as number))
     : null;
   const companyDisplayName = getCompanyDisplayName(companyProfile);
-  const reviewPendingSummary = reviewPending === null ? "집계 중" : `${reviewPending}명`;
-  const closingSummary = nearestDday !== null ? `D-${nearestDday}` : "없음";
 
   return (
     <section className="app-page glass-page notion list-page">
@@ -141,45 +145,22 @@ export function CompanyPostingsPage() {
               + 공고 생성
             </Link>
           </div>
-          <aside className="page-banner-card" aria-label="공고 운영 요약">
-            <div className="banner-card-head">
-              <span>운영 요약</span>
-              <strong>{items.length}</strong>
-            </div>
-            <div className="banner-card-grid">
-              <div>
-                <span>진행 공고</span>
-                <strong>{activeCount}개</strong>
-              </div>
-              <div>
-                <span>총 지원자</span>
-                <strong>{totalApplicants}명</strong>
-              </div>
-              <div>
-                <span>검토 대기</span>
-                <strong>{reviewPendingSummary}</strong>
-              </div>
-              <div>
-                <span>마감 임박</span>
-                <strong>{closingSummary}</strong>
-              </div>
-            </div>
-          </aside>
+          <Image className="page-banner-art" src={postingBanner} alt="" width={300} height={300} aria-hidden="true" priority />
         </div>
 
         <section className="kpi-row kpi-summary">
           <div className="kpi">
-            <span className="kpi-icon" aria-hidden="true">📋</span>
+            <Image className="kpi-icon" src={taskPlanningIcon} alt="" width={28} height={28} aria-hidden="true" />
             <span>진행 중 공고</span>
             <strong>{activeCount}</strong>
           </div>
           <div className="kpi primary">
-            <span className="kpi-icon" aria-hidden="true">👥</span>
+            <Image className="kpi-icon" src={personalGrowthIcon} alt="" width={28} height={28} aria-hidden="true" />
             <span>총 지원자</span>
             <strong>{totalApplicants}</strong>
           </div>
           <div className="kpi">
-            <span className="kpi-icon" aria-hidden="true">📝</span>
+            <Image className="kpi-icon" src={agreementIcon} alt="" width={28} height={28} aria-hidden="true" />
             <span>검토 대기</span>
             <strong>
               {reviewPending ?? "—"}
@@ -187,7 +168,7 @@ export function CompanyPostingsPage() {
             </strong>
           </div>
           <div className="kpi">
-            <span className="kpi-icon" aria-hidden="true">⏳</span>
+            <Image className="kpi-icon" src={expiredIcon} alt="" width={28} height={28} aria-hidden="true" />
             <span>마감 임박</span>
             <strong>
               {closingItems.length}
