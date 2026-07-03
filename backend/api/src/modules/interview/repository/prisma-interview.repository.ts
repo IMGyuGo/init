@@ -199,7 +199,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
         questionId: BigInt(input.questionId),
         videoFileId: input.videoFileId ? BigInt(input.videoFileId) : null,
         audioFileId: input.audioFileId ? BigInt(input.audioFileId) : null,
-        transcript: input.transcript,
+        ...(input.transcript !== undefined ? { transcript: input.transcript } : {}),
         durationSeconds: input.durationSeconds,
         submittedAt: new Date(input.submittedAt),
       },
