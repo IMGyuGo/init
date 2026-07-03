@@ -92,7 +92,9 @@ export function RecruitmentApplicantsPage({ recruitmentId }: { recruitmentId: nu
         </div>
 
         {message ? <p className="notice">{message}</p> : null}
-        {items.length === 0 ? (
+        {loading && items.length === 0 ? (
+          <div className="empty">지원자를 불러오는 중입니다…</div>
+        ) : items.length === 0 ? (
           <div className="empty">아직 공개 지원으로 제출된 지원자가 없습니다.</div>
         ) : (
           <div className="table-wrap">

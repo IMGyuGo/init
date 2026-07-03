@@ -2308,6 +2308,16 @@ td input {
   background: #6a64f4;
 }
 
+/* destructive confirm (예: 공고 삭제) */
+.app-shell .glass-page .btn.primary.danger {
+  background: #e24b4a;
+  box-shadow: 0 4px 12px rgba(226, 75, 74, 0.26);
+}
+
+.app-shell .glass-page .btn.primary.danger:hover {
+  background: #d43f3e;
+}
+
 .glass-page input,
 .glass-page select {
   min-height: 36px;
@@ -2454,6 +2464,36 @@ td input {
 .posting .dday {
   color: var(--ink-700);
   font-weight: 700;
+}
+
+.posting .dday.dday-urgent {
+  color: #e24b4a;
+}
+
+.glass-page .posting.is-clickable {
+  cursor: pointer;
+}
+
+.glass-page .posting.is-clickable:focus-visible {
+  outline: 2px solid var(--brand-strong);
+  outline-offset: 2px;
+}
+
+.posting-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  color: var(--ink-200);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+
+.glass-page .posting.is-clickable:hover .posting-chevron {
+  color: var(--brand-strong);
+  transform: translateX(2px);
 }
 
 .posting-progress {
