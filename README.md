@@ -264,66 +264,52 @@ worker는 LocalStack SQS의 `init-ai-jobs` queue에서 message를 가져와 처�
 
 ## 10. 한 번에 로컬 실행하기
 
-루트의 `start-local.ps1`을 사용하면 Docker infra, API, frontend, worker를 한 번에 실행할 수 있습니다.
+루트의 `server` 메뉴를 사용하면 Docker infra, API, frontend, worker, Prisma 작업을 한 화면에서 관리할 수 있습니다.
+
+`all`은 Docker infra, API, frontend, worker를 순서대로 실행합니다. Prisma generate/migrate/seed는 오래 걸릴 수 있으므로 `all`에 포함하지 않고, 메뉴의 `prisma` 항목에서 별도로 실행합니다.
+
+Windows PowerShell에서는 프로젝트 루트에서 아래 명령으로 메뉴를 엽니다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\start-local.ps1
+.\server.ps1
 ```
 
-필요한 서비스만 실행할 수도 있습니다.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\start-local.ps1 -Only Infra
-powershell -ExecutionPolicy Bypass -File .\start-local.ps1 -Only Api
-powershell -ExecutionPolicy Bypass -File .\start-local.ps1 -Only Frontend
-powershell -ExecutionPolicy Bypass -File .\start-local.ps1 -Only Worker
-```
-
-PowerShell 세션에서 `server.ps1`을 dot-source 하면 `server` 명령으로 로컬 서버를 관리할 수 있습니다.
-
-```powershell
-. .\server.ps1
-server             # 키보드 메뉴 열기
-server up          # 전체 실행
-server frontend    # frontend만 실행
-server api         # API만 실행
-server worker      # worker만 실행
-server infra       # Docker infra만 실행
-server prisma      # Prisma 하위 명령 도움말
-server prisma generate
-server prisma migrate
-server prisma seed
-server down        # 전체 종료
-server down api    # API만 종료
-```
-
-macOS/Linux에서는 PowerShell 설치 없이 bash 스크립트를 사용합니다.
+macOS/Linux/WSL에서는 프로젝트 루트에서 아래 명령으로 메뉴를 엽니다.
 
 ```bash
-bash start-local.sh
-bash start-local.sh Frontend
-bash start-local.sh Api
-bash start-local.sh Worker
-bash stop-local.sh
+bash ./server
 ```
 
-bash 세션에서는 `server` 파일을 source 해서 같은 방식으로 사용할 수 있습니다.
+메뉴가 열리면 방향키로 항목을 이동하고 Enter로 실행 또는 종료합니다.
+
+```text
+↑/↓  항목 이동
+Enter 실행 또는 종료
+r    상태 새로고침
+q    메뉴 닫기
+```
+
+매번 `.\server.ps1` 또는 `bash ./server`를 입력하지 않고 `server`만 입력하고 싶다면 최초 1회 터미널 프로필에 등록합니다.
+
+Windows PowerShell:
+
+```powershell
+Add-Content $PROFILE ". '$PWD\server.ps1'"
+```
+
+macOS/Linux/WSL bash:
 
 ```bash
-source server
-server             # 키보드 메뉴 열기
-server up          # 전체 실행
-server frontend    # frontend만 실행
-server api         # API만 실행
-server worker      # worker만 실행
-server infra       # Docker infra만 실행
-server prisma      # Prisma 하위 명령 도움말
-server prisma generate
-server prisma migrate
-server prisma seed
-server down        # 전체 종료
-server down api    # API만 종료
+echo "source $(pwd)/server" >> ~/.bashrc
 ```
+
+zsh:
+
+```bash
+echo "source $(pwd)/server" >> ~/.zshrc
+```
+
+등록 후 새 터미널을 열면 프로젝트 루트에서 `server`만 입력해 메뉴를 열 수 있습니다.
 
 ## 11. 로그인/회원가입 흐름 확인하기
 
