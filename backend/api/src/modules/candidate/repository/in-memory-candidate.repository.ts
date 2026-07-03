@@ -123,6 +123,14 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     return this.jobs.find((job) => job.jobId === jobId);
   }
 
+  async getInterviewTimePolicy() {
+    return {
+      preparationTimeSec: 0,
+      answerTimeSec: 90,
+      retryAllowed: false,
+    };
+  }
+
   async findFileAsset(fileId: number): Promise<FileAsset | undefined> {
     return this.fileAssets.find((fileAsset) => fileAsset.fileId === fileId);
   }
@@ -343,7 +351,7 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       candidateId: application.candidateId,
       interviewType: "RECRUITING",
       status: "NOT_READY",
-      showQuestionText: false,
+      showQuestionText: true,
       windowStartsAt: createdAt,
       windowEndsAt,
       deviceCheck: {
