@@ -166,7 +166,7 @@ export function CompanyPostingsPage() {
               <h2>채용 공고</h2>
               {items.length > 0 ? <span className="count-pill">{items.length}</span> : null}
             </div>
-            <form className="toolbar" onSubmit={handleSearch}>
+            <form className="toolbar list-filter-toolbar" onSubmit={handleSearch}>
               <input value={q} onChange={(event) => setQ(event.target.value)} placeholder="프로젝트·직무 검색" />
               <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
                 <option value="ALL">전체 상태</option>
