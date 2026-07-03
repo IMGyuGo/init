@@ -437,7 +437,12 @@ export class InterviewService {
         return this.envelope({
           sessionId: session.sessionId,
           previousQuestionId: session.questionIds[session.currentQuestionIndex - 1],
-          currentQuestion: await this.toQuestionView(session, await this.currentQuestion(session), true),
+          currentQuestion: await this.toQuestionView(
+            session,
+            await this.currentQuestion(session),
+            true,
+            session.currentQuestionIndex + 1,
+          ),
           isLastQuestion: session.currentQuestionIndex === session.questionIds.length - 1,
         });
       }
@@ -459,7 +464,12 @@ export class InterviewService {
     return this.envelope({
       sessionId: updatedSession.sessionId,
       previousQuestionId,
-      currentQuestion: await this.toQuestionView(updatedSession, await this.currentQuestion(updatedSession), true),
+      currentQuestion: await this.toQuestionView(
+        updatedSession,
+        await this.currentQuestion(updatedSession),
+        true,
+        updatedSession.currentQuestionIndex + 1,
+      ),
       isLastQuestion: updatedSession.currentQuestionIndex === updatedSession.questionIds.length - 1,
     });
   }
@@ -677,7 +687,7 @@ export class InterviewService {
       processLogId,
       sourceAnswerId: answer.answerId,
       sourceQuestionId: answer.questionId,
-      question: await this.toQuestionView(session, question, false),
+      question: await this.toQuestionView(session, question, false, questionIndex + 1),
       inserted,
       totalQuestions: session.questionIds.length,
       nextQuestionAvailable: session.currentQuestionIndex < session.questionIds.length - 1,
@@ -815,7 +825,14 @@ export class InterviewService {
       status: session.status,
       showQuestionText: session.showQuestionText,
       currentQuestion:
-        session.status === "IN_PROGRESS" ? await this.toQuestionView(session, await this.currentQuestion(session), true) : undefined,
+        session.status === "IN_PROGRESS"
+          ? await this.toQuestionView(
+              session,
+              await this.currentQuestion(session),
+              true,
+              session.currentQuestionIndex + 1,
+            )
+          : undefined,
       totalQuestions: session.questionIds.length,
       answeredCount: await this.countAnswers(session.sessionId),
       canRecord: session.status === "IN_PROGRESS",
@@ -838,7 +855,12 @@ export class InterviewService {
       currentQuestionId: session.status === "IN_PROGRESS" ? this.currentQuestionId(session) : undefined,
       questions: await Promise.all(
         session.questionIds.map(async (questionId, index) =>
-          this.toQuestionView(session, await this.requiredQuestion(questionId), index === session.currentQuestionIndex),
+          this.toQuestionView(
+            session,
+            await this.requiredQuestion(questionId),
+            index === session.currentQuestionIndex,
+            index + 1,
+          ),
         ),
       ),
     };
@@ -848,11 +870,12 @@ export class InterviewService {
     session: RuntimeInterviewSession,
     question: InterviewQuestion,
     current: boolean,
+    runtimeSortOrder?: number,
   ): Promise<InterviewQuestionView> {
     return {
       questionId: question.questionId,
       questionType: question.questionType,
-      sortOrder: question.sortOrder,
+      sortOrder: runtimeSortOrder ?? question.sortOrder,
       content: session.showQuestionText ? question.content : undefined,
       audioPrompt: `audio://interview-questions/${question.questionId}`,
       answered: Boolean(await this.interviewRepository.findAnswer(session.sessionId, question.questionId)),
