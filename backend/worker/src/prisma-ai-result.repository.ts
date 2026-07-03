@@ -36,6 +36,9 @@ interface PrismaAiResultClient {
     deleteMany(args: unknown): Promise<unknown>;
     create(args: unknown): Promise<unknown>;
   };
+  reportEvidence: {
+    deleteMany(args: unknown): Promise<unknown>;
+  };
   embedding: {
     upsert(args: unknown): Promise<EmbeddingRecord & { embeddingId?: bigint }>;
   };
@@ -236,6 +239,13 @@ export class PrismaAiResultRepository implements AiResultRepository {
 
   private async replaceReportScores(reportId: number, scores: GeneratedReportScoreRecord[]): Promise<void> {
     assertScoresHaveEvidence(scores);
+    await this.prisma.reportEvidence.deleteMany({
+      where: {
+        score: {
+          reportId: BigInt(reportId)
+        }
+      }
+    });
     await this.prisma.reportScore.deleteMany({
       where: { reportId: BigInt(reportId) }
     });
