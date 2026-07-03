@@ -21,6 +21,14 @@ export interface CreateInterviewAnswerInput {
   submittedAt: string;
 }
 
+export interface CompletedFollowUpProcess {
+  processLogId: number;
+  sessionId: number;
+  answerId: number;
+  content: string;
+  policy: "MOCK" | "RECRUITING";
+}
+
 export type FollowUpQuestionPolicy = "MOCK" | "RECRUITING";
 
 export interface GeneratedFollowUpQuestion {
@@ -58,6 +66,7 @@ export interface InterviewRepository {
   findAnswerById(sessionId: number, answerId: number): MaybePromise<InterviewAnswer | undefined>;
   findLatestAnswer(sessionId: number): MaybePromise<InterviewAnswer | undefined>;
   createAnswer(input: CreateInterviewAnswerInput): MaybePromise<InterviewAnswer>;
+  findCompletedFollowUpProcess(processLogId: number): MaybePromise<CompletedFollowUpProcess | undefined>;
   findGeneratedFollowUpQuestion(
     answerId: number,
     policy: FollowUpQuestionPolicy,

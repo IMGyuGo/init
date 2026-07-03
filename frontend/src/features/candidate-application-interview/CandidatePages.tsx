@@ -134,8 +134,10 @@ type AutoAiPipelineState = {
   answerId: number;
   sttStatus: AutoAiStepStatus;
   followUpStatus: AutoAiStepStatus;
+  insertStatus?: AutoAiStepStatus;
   sttProcessLogId?: number;
   followUpProcessLogId?: number;
+  insertedQuestionId?: number;
   transcript?: string;
   followUpQuestion?: string;
   error?: string;
@@ -2357,6 +2359,79 @@ function InterviewRuntimePanel({
     return result.data;
   }
 
+  async function requestFollowUpQuestionInsert() {
+    if (!data || !autoAiPipeline?.followUpProcessLogId) {
+      throw new Error("질문으로 추가할 꼬리질문 작업이 없습니다.");
+    }
+
+    const api = getCandidateApi();
+    return mode === "mock"
+      ? api.insertMockFollowUpQuestion(data.runtime.sessionId, {
+          processLogId: autoAiPipeline.followUpProcessLogId,
+        })
+      : api.insertRecruitingFollowUpQuestion(data.runtime.sessionId, {
+          processLogId: autoAiPipeline.followUpProcessLogId,
+        });
+  }
+
+  async function handleAnswerFollowUpQuestion() {
+    if (!data) return;
+
+    setBusy(true);
+    setMessage("");
+    setAutoAiPipeline((current) =>
+      current
+        ? {
+            ...current,
+            insertStatus: "RUNNING",
+            error: undefined,
+          }
+        : current,
+    );
+    try {
+      const result = await requestFollowUpQuestionInsert();
+
+      setAutoAiPipeline((current) =>
+        current
+          ? {
+              ...current,
+              insertStatus: "COMPLETED",
+              insertedQuestionId: result.data.question.questionId,
+              error: undefined,
+            }
+          : current,
+      );
+      stopQuestionSpeech();
+      setAnswer(defaultInterviewAnswerFormState);
+      setRecordedFileName("");
+      setQuestionSpeechStatus("꼬리질문 음성 대기");
+      setQuestionSpeechCompleted(false);
+      setQuestionSpeechPlaying(false);
+      setRemainingSeconds(INTERVIEW_QUESTION_TIME_LIMIT_SECONDS);
+      timeExpiredQuestionRef.current = null;
+      autoRecordingQuestionRef.current = null;
+      setMessage(
+        result.data.inserted
+          ? "생성된 꼬리질문으로 이동했습니다. 답변을 시작해주세요."
+          : "이미 추가된 꼬리질문으로 이동했습니다. 답변을 시작해주세요.",
+      );
+      refresh();
+    } catch (submitError) {
+      setAutoAiPipeline((current) =>
+        current
+          ? {
+              ...current,
+              insertStatus: "FAILED",
+              error: toErrorMessage(submitError),
+            }
+          : current,
+      );
+      setMessage(toErrorMessage(submitError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleQuestionTimeExpired() {
     if (!data || !currentQuestion || currentQuestionAnswered) return;
     setMessage("답변 시간이 종료되어 현재 답변을 자동 제출합니다.");
@@ -2633,6 +2708,27 @@ function InterviewRuntimePanel({
               <div className={`question-voice-status ${questionSpeechSupported ? "" : "unsupported"}`} aria-live="polite">
                 {questionSpeechStatus}
               </div>
+              {generatedFollowUpReady ? (
+                <div className="candidate-follow-up-prompt">
+                  <div className="candidate-follow-up-prompt__head">
+                    <span>생성된 꼬리질문</span>
+                    <button
+                      className="btn primary compact"
+                      type="button"
+                      disabled={
+                        busy ||
+                        autoAiPipeline?.followUpStatus !== "COMPLETED" ||
+                        !autoAiPipeline?.followUpProcessLogId ||
+                        autoAiPipeline?.insertStatus === "COMPLETED"
+                      }
+                      onClick={() => void handleAnswerFollowUpQuestion()}
+                    >
+                      꼬리질문 답변하기
+                    </button>
+                  </div>
+                  <p>{autoAiPipeline?.followUpQuestion}</p>
+                </div>
+              ) : null}
             </section>
 
             <section className="iv-grid">

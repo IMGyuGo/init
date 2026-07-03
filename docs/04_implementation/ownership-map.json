@@ -87,6 +87,29 @@
         "^backend/worker/src/mock-ai-task\\.handler\\.ts$"
       ],
       "roles": ["D", "E"]
+    },
+    {
+      "name": "candidate interview AI handoff bridge",
+      "patterns": [
+        "^backend/api/src/modules/interview/controller/interview\\.controller(\\.spec)?\\.ts$",
+        "^backend/api/src/modules/interview/dto/interview\\.runtime\\.dto\\.ts$",
+        "^backend/api/src/modules/interview/interview\\.routes(\\.spec)?\\.ts$",
+        "^backend/api/src/modules/interview/interview\\.runtime\\.types\\.ts$",
+        "^backend/api/src/modules/interview/repository/(interview|in-memory-interview|prisma-interview)\\.repository\\.ts$",
+        "^backend/api/src/modules/interview/service/interview\\.service\\.ts$",
+        "^frontend/src/features/candidate-application-interview/(api|CandidatePages|contract\\.spec)\\.(ts|tsx)$"
+      ],
+      "roles": ["D", "E"]
+    },
+    {
+      "name": "candidate interview AI bridge docs",
+      "patterns": [
+        "^docs/01_product/(screen-flow|feature-spec)\\.md$",
+        "^docs/02_architecture/async-ai-pipeline\\.md$",
+        "^docs/03_contracts/(api-index|api-spec)\\.md$",
+        "^docs/04_implementation/ai-job-contracts\\.md$"
+      ],
+      "roles": ["D", "E", "PM"]
     }
   ],
   "roles": {

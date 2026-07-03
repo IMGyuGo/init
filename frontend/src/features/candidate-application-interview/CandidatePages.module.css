@@ -1538,12 +1538,19 @@
 
 :global(.candidate-follow-up-prompt) {
   display: grid;
-  gap: 6px;
+  gap: 10px;
   padding: 14px 16px;
   margin-top: 16px;
   background: #fff;
   border: 1px solid var(--line-soft);
   border-radius: 10px;
+}
+
+:global(.candidate-follow-up-prompt__head) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 :global(.candidate-follow-up-prompt span) {
@@ -1559,6 +1566,11 @@
   font-weight: 800;
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+:global(.candidate-follow-up-prompt .btn) {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 :global(.iv-grid) {

@@ -255,6 +255,7 @@ const mockNextQuestionPath = candidateApiPaths.mockNextQuestion(10001);
 const mockCompletePath = candidateApiPaths.mockComplete(10001);
 const mockSttPath = candidateApiPaths.mockStt(10001);
 const mockFollowUpPath = candidateApiPaths.mockFollowUpQuestion(10001);
+const mockFollowUpInsertPath = candidateApiPaths.mockFollowUpQuestionInsert(10001);
 const mockReportsPath = candidateApiPaths.mockReports;
 const mockHistoryPath = candidateApiPaths.mockHistory;
 const mockReportFeedbackPath = candidateApiPaths.mockReportFeedback(10001);
@@ -274,6 +275,7 @@ const recruitingNextQuestionPath = candidateApiPaths.recruitingNextQuestion(1);
 const recruitingCompletePath = candidateApiPaths.recruitingComplete(1);
 const recruitingSttPath = candidateApiPaths.recruitingStt(1);
 const recruitingFollowUpPath = candidateApiPaths.recruitingFollowUpQuestion(1);
+const recruitingFollowUpInsertPath = candidateApiPaths.recruitingFollowUpQuestionInsert(1);
 
 const applyActionHref = getCandidateJobDetailActionHref({
   jobId: 1,
@@ -340,6 +342,7 @@ void mockNextQuestionPath;
 void mockCompletePath;
 void mockSttPath;
 void mockFollowUpPath;
+void mockFollowUpInsertPath;
 void mockReportsPath;
 void mockHistoryPath;
 void mockReportFeedbackPath;
@@ -359,6 +362,7 @@ void recruitingNextQuestionPath;
 void recruitingCompletePath;
 void recruitingSttPath;
 void recruitingFollowUpPath;
+void recruitingFollowUpInsertPath;
 void applyActionHref;
 void appliedActionHref;
 void disabledActionHref;

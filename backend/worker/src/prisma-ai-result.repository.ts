@@ -88,11 +88,14 @@ export class PrismaAiResultRepository implements AiResultRepository {
   }
 
   async saveTranscript(record: TranscriptRecord): Promise<void> {
+    const fileId = BigInt(record.audioFileId);
     await this.prisma.interviewAnswer.updateMany({
       where: {
         answerId: BigInt(record.answerId),
-        audioFileId: BigInt(record.audioFileId),
-        transcript: null
+        AND: [
+          { OR: [{ audioFileId: fileId }, { videoFileId: fileId }] },
+          { OR: [{ transcript: null }, { transcript: "" }] }
+        ]
       },
       data: {
         transcript: record.transcript
