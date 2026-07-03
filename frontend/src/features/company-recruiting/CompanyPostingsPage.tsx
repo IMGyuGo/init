@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useState } from "react";
 
 import { listRecruitmentApplicants, listRecruitments } from "./api";
 import { StatusBadge } from "./CompanyRecruitingChrome";
@@ -17,12 +18,26 @@ type CompletionStat = { rate: number; done: number; total: number };
 
 const ACTIVE_STATUSES: RecruitmentStatus[] = ["OPEN", "CLOSING_SOON"];
 const INTERVIEW_DONE_STATUSES = ["COMPLETED", "DONE"];
+const URGENT_DDAY = 3;
+
+// 로고 이미지가 없을 때 이니셜 칩에 줄 색 (제목 해시로 순환) — 목록 스캔성 보조
+const CHIP_TONES = ["#6e5bf6", "#5b8cff", "#5b57f2", "#3a86ff", "#4f7cf0", "#1d9e75", "#0f6e56", "#6aa0ff"];
+
+function chipTone(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return CHIP_TONES[hash % CHIP_TONES.length];
+}
 
 export function CompanyPostingsPage() {
+  const router = useRouter();
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [items, setItems] = useState<Recruitment[]>([]);
   const [completion, setCompletion] = useState<Record<number, CompletionStat>>({});
+  const [reviewPending, setReviewPending] = useState<number | null>(null);
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -30,19 +45,21 @@ export function CompanyPostingsPage() {
   // list API에는 응시 완료율이 없어 공고별 지원자를 읽어 면접 완료 비율을 계산한다.
   const loadCompletion = useCallback(async (list: Recruitment[]) => {
     try {
-      const entries = await Promise.all(
+      const results = await Promise.all(
         list.map(async (item) => {
           const res = await listRecruitmentApplicants(item.recruitmentId, { page: 1, limit: 100 });
           const applicants = res.data.items;
           const done = applicants.filter((a) => INTERVIEW_DONE_STATUSES.includes(a.interviewStatus)).length;
+          const pending = applicants.filter((a) => a.screeningDecision === "UNDECIDED").length;
           const total = applicants.length;
           const rate = total > 0 ? Math.round((done / total) * 100) : 0;
-          return [item.recruitmentId, { rate, done, total }] as const;
+          return { id: item.recruitmentId, stat: { rate, done, total }, pending };
         }),
       );
-      setCompletion(Object.fromEntries(entries));
+      setCompletion(Object.fromEntries(results.map((r) => [r.id, r.stat])));
+      setReviewPending(results.reduce((sum, r) => sum + r.pending, 0));
     } catch {
-      // 완료율은 보조 지표 — 실패해도 목록 자체는 유지한다.
+      // 완료율/검토 대기는 보조 지표 — 실패해도 목록 자체는 유지한다.
     }
   }, []);
 
@@ -128,9 +145,10 @@ export function CompanyPostingsPage() {
             <strong>{totalApplicants}</strong>
           </div>
           <div className="kpi">
-            <span>서류 검토 대기</span>
+            <span>검토 대기</span>
             <strong>
-              —<em className="kpi-tag">연동 전</em>
+              {reviewPending ?? "—"}
+              {reviewPending !== null && reviewPending > 0 ? <small> 명</small> : null}
             </strong>
           </div>
           <div className="kpi">
@@ -166,7 +184,9 @@ export function CompanyPostingsPage() {
 
           {message ? <p className="notice">{message}</p> : null}
 
-          {items.length === 0 ? (
+          {loading && items.length === 0 ? (
+            <div className="empty">공고를 불러오는 중입니다…</div>
+          ) : items.length === 0 ? (
             <div className="empty">공고가 없습니다. 오른쪽 상단에서 첫 공고를 생성하세요.</div>
           ) : (
             <div className="posting-list">
@@ -174,9 +194,22 @@ export function CompanyPostingsPage() {
                 const stat = completion[item.recruitmentId];
                 const rate = stat?.rate ?? 0;
                 const actions = getCompanyPostingActions(item);
+                const manageHref = actions.includes("manage") ? `/company/recruitments/${item.recruitmentId}` : null;
+                const left = daysUntil(item.endsOn);
+                const urgent = left !== null && left >= 0 && left <= URGENT_DDAY;
                 return (
-                  <article className="posting" key={item.recruitmentId}>
-                    <div className={`logo-chip ${companyLogoUrl ? "has-image" : ""}`}>
+                  <article
+                    className={`posting${manageHref ? " is-clickable" : ""}`}
+                    key={item.recruitmentId}
+                    role={manageHref ? "link" : undefined}
+                    tabIndex={manageHref ? 0 : undefined}
+                    onClick={manageHref ? () => router.push(manageHref) : undefined}
+                    onKeyDown={manageHref ? (event) => handleRowKey(event, () => router.push(manageHref)) : undefined}
+                  >
+                    <div
+                      className={`logo-chip ${companyLogoUrl ? "has-image" : ""}`}
+                      style={companyLogoUrl ? undefined : { background: chipTone(item.title) }}
+                    >
                       {companyLogoUrl ? <span style={{ backgroundImage: `url(${companyLogoUrl})` }} aria-hidden="true" /> : getCompanyInitial(companyProfile, item.title)}
                     </div>
                     <div className="posting-info">
@@ -185,25 +218,17 @@ export function CompanyPostingsPage() {
                         <StatusBadge value={item.status} />
                       </div>
                       <p>
-                        {companyDisplayName ? `${companyDisplayName} · ` : ""}
-                        {item.jobRole} · {formatPeriod(item)} · <b className="dday">{ddayLabel(item.endsOn)}</b>
+                        {item.jobRole} · {formatPeriod(item)} · <b className={`dday${urgent ? " dday-urgent" : ""}`}>{ddayLabel(item.endsOn)}</b>
                       </p>
                     </div>
                     <div className="posting-progress">
                       <div className="progress">
                         <i style={{ width: `${rate}%` }} />
                       </div>
-                      <span>
-                        응시 완료 {rate}%
-                        {stat ? ` · ${stat.done}/${stat.total}명` : ""}
-                      </span>
+                      <span>{stat ? `응시 완료 ${rate}% · ${stat.done}/${stat.total}명` : "응시 완료 집계 중…"}</span>
                     </div>
                     <div className="posting-actions">
-                      {actions.includes("manage") ? (
-                        <Link className="btn secondary" href={`/company/recruitments/${item.recruitmentId}`}>
-                          관리
-                        </Link>
-                      ) : null}
+                      {manageHref ? <span className="posting-chevron" aria-hidden="true">›</span> : null}
                     </div>
                   </article>
                 );
@@ -247,4 +272,11 @@ function ddayLabel(endsOn: string | null): string {
     return "D-day";
   }
   return `D-${left}`;
+}
+
+function handleRowKey(event: KeyboardEvent<HTMLElement>, run: () => void) {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    run();
+  }
 }
