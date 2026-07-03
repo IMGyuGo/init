@@ -107,12 +107,22 @@ export class PublicApplicationMagicLinkStore {
   }
 
   private async write(key: string, value: PublicApplicationStatusTokenPayload) {
-    this.memory.set(key, { expiresAt: Date.now() + this.ttlSeconds * 1000, value });
-    try {
-      await this.redis?.set(key, JSON.stringify(value), "EX", this.ttlSeconds);
-    } catch {
-      // Memory fallback keeps local/test behavior available when Redis is unavailable.
+    if (this.redis) {
+      try {
+        await this.redis.set(key, JSON.stringify(value), "EX", this.ttlSeconds);
+        return;
+      } catch (error) {
+        if (isProductionRuntime()) {
+          throw error;
+        }
+      }
     }
+
+    if (isProductionRuntime()) {
+      throw new Error("PUBLIC_APPLICATION_MAGIC_LINK_STORE_UNAVAILABLE");
+    }
+
+    this.memory.set(key, { expiresAt: Date.now() + this.ttlSeconds * 1000, value });
   }
 
   private key(token: string) {
@@ -129,7 +139,21 @@ export class PublicApplicationAuthAdapter implements PublicApplicationAuthAdapte
   ) {}
 
   async requestEmailVerification(input: PublicApplicationAuthRequest): Promise<PublicApplicationAuthResult> {
-    const { token, expiresInSeconds } = await this.magicLinkStore.issueApplicationStatusToken(input);
+    let issuedToken: { token: string; expiresInSeconds: number };
+    try {
+      issuedToken = await this.magicLinkStore.issueApplicationStatusToken(input);
+    } catch {
+      return {
+        emailVerificationStatus: "PENDING",
+        nextAction: "CHECK_EMAIL",
+        temporary: false,
+        temporaryBoundary: null,
+        magicLinkDeliveryStatus: "FAILED",
+        magicLinkExpiresInSeconds: this.magicLinkStore.expiresInSeconds,
+      };
+    }
+
+    const { token, expiresInSeconds } = issuedToken;
     const magicLink = buildPublicApplicationStatusLink(input.recruitmentId, token);
 
     let magicLinkDeliveryStatus: PublicApplicationAuthResult["magicLinkDeliveryStatus"] = "SENT";
@@ -196,4 +220,8 @@ function parseMagicLinkTtlSeconds() {
     return 60 * 60 * 24 * 7;
   }
   return Math.floor(value);
+}
+
+function isProductionRuntime() {
+  return process.env.NODE_ENV === "production";
 }

@@ -6,9 +6,11 @@ import { PublicApplicationAuthAdapter, PublicApplicationMagicLinkStore } from ".
 describe("PublicApplicationAuthAdapter", () => {
   const previousRedisUrl = process.env.REDIS_URL;
   const previousFrontendOrigin = process.env.FRONTEND_ORIGIN;
+  const previousNodeEnv = process.env.NODE_ENV;
 
   beforeEach(() => {
     delete process.env.REDIS_URL;
+    process.env.NODE_ENV = "test";
     process.env.FRONTEND_ORIGIN = "http://localhost:3000";
   });
 
@@ -22,6 +24,11 @@ describe("PublicApplicationAuthAdapter", () => {
       delete process.env.FRONTEND_ORIGIN;
     } else {
       process.env.FRONTEND_ORIGIN = previousFrontendOrigin;
+    }
+    if (previousNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = previousNodeEnv;
     }
   });
 
@@ -84,5 +91,35 @@ describe("PublicApplicationAuthAdapter", () => {
     });
 
     assert.equal(result.magicLinkDeliveryStatus, "FAILED");
+  });
+
+  it("does not send a magic link when token storage fails", async () => {
+    let mailSent = false;
+    const mailService = {
+      transporter: {
+        async sendMail() {
+          mailSent = true;
+        },
+      },
+    } as unknown as MailService;
+    const magicLinkStore = {
+      expiresInSeconds: 604800,
+      async issueApplicationStatusToken() {
+        throw new Error("redis unavailable");
+      },
+      async verifyApplicationStatusToken() {
+        return null;
+      },
+    } as unknown as PublicApplicationMagicLinkStore;
+    const adapter = new PublicApplicationAuthAdapter(magicLinkStore, mailService);
+
+    const result = await adapter.requestEmailVerification({
+      applicationId: 77,
+      recruitmentId: 101,
+      email: "candidate@example.com",
+    });
+
+    assert.equal(result.magicLinkDeliveryStatus, "FAILED");
+    assert.equal(mailSent, false);
   });
 });

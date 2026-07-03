@@ -11,7 +11,10 @@ import {
 } from "../dto/company-recruiting-response.dto";
 import { RequestPublicApplicationAccessLinkDto } from "../dto/request-public-application-access-link.dto";
 import { SubmitPublicApplicationDto } from "../dto/submit-public-application.dto";
-import { CompanyRecruitingService } from "../service/company-recruiting.service";
+import {
+  CompanyRecruitingService,
+  getConfiguredPublicApplicationDocumentMaxUploadBytes,
+} from "../service/company-recruiting.service";
 
 type UploadedPublicApplicationFile = {
   originalname: string;
@@ -24,6 +27,8 @@ type UploadedPublicApplicationFiles = {
   resumeFile?: UploadedPublicApplicationFile[];
   portfolioFile?: UploadedPublicApplicationFile[];
 };
+
+const PUBLIC_APPLICATION_TEXT_FIELD_MAX_BYTES = 20 * 1024;
 
 @ApiTags("Public Recruitment")
 @ApiErrorResponses()
@@ -46,10 +51,21 @@ export class PublicRecruitmentController {
 
   @Post(":recruitmentId/applications")
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: "resumeFile", maxCount: 1 },
-      { name: "portfolioFile", maxCount: 1 },
-    ]),
+    FileFieldsInterceptor(
+      [
+        { name: "resumeFile", maxCount: 1 },
+        { name: "portfolioFile", maxCount: 1 },
+      ],
+      {
+        limits: {
+          fileSize: getConfiguredPublicApplicationDocumentMaxUploadBytes(),
+          files: 2,
+          fields: 10,
+          fieldSize: PUBLIC_APPLICATION_TEXT_FIELD_MAX_BYTES,
+          parts: 12,
+        },
+      },
+    ),
   )
   @ApiOperationId("API-087")
   @ApiOperation({ summary: "공개 지원 폼 제출" })
