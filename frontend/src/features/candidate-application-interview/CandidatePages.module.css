@@ -276,8 +276,13 @@
 
 :global(.candidate-feature__checks input),
 :global(.candidate-feature__inline-check input) {
+  flex: 0 0 auto;
   width: 16px;
+  height: 16px;
+  min-width: 16px;
   min-height: 16px;
+  padding: 0;
+  margin: 0;
   accent-color: var(--brand-strong);
 }
 
@@ -1364,8 +1369,13 @@
 }
 
 :global(.candidate-filter-chips input) {
+  flex: 0 0 auto;
   width: 14px;
   height: 14px;
+  min-width: 14px;
+  min-height: 14px;
+  padding: 0;
+  margin: 0;
   accent-color: var(--brand-strong);
 }
 
@@ -2766,8 +2776,13 @@
 }
 
 :global(.candidate-apply-consent input) {
+  flex: 0 0 auto;
   width: 14px;
   height: 14px;
+  min-width: 14px;
+  min-height: 14px;
+  padding: 0;
+  margin: 0;
   accent-color: var(--brand-strong);
 }
 
