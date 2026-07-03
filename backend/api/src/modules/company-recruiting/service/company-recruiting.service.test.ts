@@ -696,6 +696,40 @@ describe("CompanyRecruitingService", () => {
     assert.equal(repository.calls.findOrCreatePublicCandidate, undefined);
   });
 
+  it("maps concurrent duplicate public application writes to COMMON_CONFLICT", async () => {
+    const repository = createRepository({
+      async createApplication() {
+        const error = new Error("Unique constraint failed on the fields: (`posting_id`,`candidate_id`)");
+        Object.assign(error, {
+          code: "P2002",
+          meta: { target: ["postingId", "candidateId"] },
+        });
+        throw error;
+      },
+    });
+    const storageAdapter = createStorageAdapter();
+    const service = new CompanyRecruitingService(repository, storageAdapter);
+
+    await assert.rejects(
+      () =>
+        service.submitPublicApplication(
+          101,
+          {
+            name: "김지원",
+            email: "jiwon@example.com",
+            phone: "010-0000-0000",
+            consentAgreed: true,
+          },
+          { resumeFile: createUploadFile("resume.pdf") },
+        ),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "COMMON_CONFLICT",
+    );
+  });
+
   it("rejects public submissions for existing accounts before mutating candidate profiles", async () => {
     const repository = createRepository({
       async findUserAccountByEmail(email: string) {

@@ -226,62 +226,69 @@ export class CompanyRecruitingService {
       this.assertPublicApplicationDocumentFile(files.portfolioFile, "portfolioFile", "포트폴리오 PDF 파일을 확인해주세요.");
     }
 
-    const candidate = await this.repository.findOrCreatePublicCandidate({
-      name: dto.name.trim(),
-      email,
-      phone: normalizeNullableString(dto.phone),
-      githubUrl: normalizeNullableString(dto.githubBlogUrl),
-      portfolioUrl: normalizeNullableString(dto.portfolioUrl),
-      summary: buildPublicApplicationSummary(dto),
-    });
-    const uploadedDocuments = [
-      await this.uploadPublicApplicationDocumentFile(
-        recruitmentId,
-        candidate.candidateId,
-        candidate.userId,
-        DocumentType.RESUME,
-        files.resumeFile,
-      ),
-    ];
-    if (files.portfolioFile) {
-      uploadedDocuments.push(
+    try {
+      const candidate = await this.repository.findOrCreatePublicCandidate({
+        name: dto.name.trim(),
+        email,
+        phone: normalizeNullableString(dto.phone),
+        githubUrl: normalizeNullableString(dto.githubBlogUrl),
+        portfolioUrl: normalizeNullableString(dto.portfolioUrl),
+        summary: buildPublicApplicationSummary(dto),
+      });
+      const uploadedDocuments = [
         await this.uploadPublicApplicationDocumentFile(
           recruitmentId,
           candidate.candidateId,
           candidate.userId,
-          DocumentType.PORTFOLIO,
-          files.portfolioFile,
+          DocumentType.RESUME,
+          files.resumeFile,
+        ),
+      ];
+      if (files.portfolioFile) {
+        uploadedDocuments.push(
+          await this.uploadPublicApplicationDocumentFile(
+            recruitmentId,
+            candidate.candidateId,
+            candidate.userId,
+            DocumentType.PORTFOLIO,
+            files.portfolioFile,
+          ),
+        );
+      }
+      const application = await this.repository.createApplication({
+        postingId: recruitmentId,
+        candidateId: candidate.candidateId,
+        screeningMemo: null,
+        documentStatus: DocumentStatus.SUBMITTED,
+      });
+      await Promise.all(
+        uploadedDocuments.map((document) =>
+          this.repository.createApplicationDocument({
+            applicationId: application.applicationId,
+            fileId: document.fileId,
+            documentType: document.documentType,
+          }),
         ),
       );
-    }
-    const application = await this.repository.createApplication({
-      postingId: recruitmentId,
-      candidateId: candidate.candidateId,
-      screeningMemo: null,
-      documentStatus: DocumentStatus.SUBMITTED,
-    });
-    await Promise.all(
-      uploadedDocuments.map((document) =>
-        this.repository.createApplicationDocument({
-          applicationId: application.applicationId,
-          fileId: document.fileId,
-          documentType: document.documentType,
-        }),
-      ),
-    );
-    const verification = await this.publicApplicationAuthAdapter.requestEmailVerification({
-      applicationId: application.applicationId,
-      recruitmentId: application.postingId,
-      email,
-    });
+      const verification = await this.publicApplicationAuthAdapter.requestEmailVerification({
+        applicationId: application.applicationId,
+        recruitmentId: application.postingId,
+        email,
+      });
 
-    return {
-      applicationId: application.applicationId,
-      recruitmentId: application.postingId,
-      email,
-      applicationStatus: application.applicationStatus,
-      ...verification,
-    };
+      return {
+        applicationId: application.applicationId,
+        recruitmentId: application.postingId,
+        email,
+        applicationStatus: application.applicationStatus,
+        ...verification,
+      };
+    } catch (error) {
+      if (isPrismaUniqueConstraintError(error)) {
+        throw duplicatePublicApplicationEmailException();
+      }
+      throw error;
+    }
   }
 
   async requestPublicApplicationAccessLink(recruitmentId: number, dto: RequestPublicApplicationAccessLinkDto) {
@@ -718,6 +725,16 @@ function validateApplicantName(name: string) {
       { field: "name", reason: "INVALID_NAME" },
     ]);
   }
+}
+
+function duplicatePublicApplicationEmailException() {
+  return new CompanyRecruitingException(409, ERROR_CODES.COMMON_CONFLICT, "이미 이 공고에 지원한 이메일입니다.", [
+    { field: "email", reason: "DUPLICATED_IN_RECRUITMENT" },
+  ]);
+}
+
+function isPrismaUniqueConstraintError(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "P2002";
 }
 
 function isValidApplicantName(name: string) {

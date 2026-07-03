@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { getPublicApplicationStatus, type PublicApplicationStatus } from "./public-application-api";
 import { buildPublicApplicationInterviewHref } from "./routes";
+import { formatRecruitingStatusLabel, getRecruitingStatusTone } from "./status-labels";
 
 type AsyncState<T> = {
   data?: T;
@@ -100,11 +101,10 @@ export function PublicApplicationStatusPage({ token, backHref = "/" }: { token?:
 }
 
 function StatusCard({ label, value }: { label: string; value?: string | null }) {
-  const status = formatStatus(value);
   return (
-    <article className={`public-status-card ${status.tone}`}>
+    <article className={`public-status-card ${getRecruitingStatusTone(value)}`}>
       <span>{label}</span>
-      <strong>{status.label}</strong>
+      <strong>{formatRecruitingStatusLabel(value)}</strong>
     </article>
   );
 }
@@ -124,57 +124,6 @@ function formatDateTime(value: string | null) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
-}
-
-function formatStatus(value?: string | null) {
-  const key = value ?? "";
-  const label =
-    STATUS_LABELS[key] ??
-    key
-      .toLowerCase()
-      .split("_")
-      .filter(Boolean)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" ") ??
-    "-";
-  return { label: label || "-", tone: getStatusTone(key) };
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  SUBMITTED: "지원 완료",
-  DRAFT: "작성 중",
-  INVITED: "초대 완료",
-  WITHDRAWN: "지원 철회",
-  NOT_SUBMITTED: "미제출",
-  SCREENING: "검토 중",
-  PASSED: "통과",
-  REJECTED: "반려",
-  NOT_READY: "준비 전",
-  READY: "준비 완료",
-  IN_PROGRESS: "진행 중",
-  COMPLETED: "완료",
-  FAILED: "실패",
-  PENDING: "대기 중",
-  GENERATING: "생성 중",
-  NONE_OR_GENERATING: "없음/생성 중",
-  GENERATED: "생성 완료",
-  PASS: "합격",
-  HOLD: "보류",
-  FAIL: "불합격",
-  UNDECIDED: "미정",
-};
-
-function getStatusTone(value: string) {
-  if (["SUBMITTED", "READY", "COMPLETED", "GENERATED", "PASSED", "PASS"].includes(value)) {
-    return "success";
-  }
-  if (["IN_PROGRESS", "SCREENING", "GENERATING", "PENDING", "HOLD", "NONE_OR_GENERATING"].includes(value)) {
-    return "warning";
-  }
-  if (["FAILED", "REJECTED", "FAIL", "WITHDRAWN"].includes(value)) {
-    return "danger";
-  }
-  return "neutral";
 }
 
 function toErrorMessage(error: unknown) {

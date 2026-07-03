@@ -13,6 +13,7 @@ import {
   buildPublicInterviewBridgeResult,
   persistPublicInterviewAccessToken,
 } from "./public-interview-bridge";
+import { formatRecruitingStatusLabel } from "./status-labels";
 
 type AsyncState<T> = {
   data?: T;
@@ -96,8 +97,8 @@ export function PublicApplicationInterviewBridgePage({
             </div>
             <dl className="detail-list">
               <DetailItem label="지원 직무" value={state.data.jobRole} />
-              <DetailItem label="면접 상태" value={formatStatusLabel(state.data.interviewStatus)} />
-              <DetailItem label="진입 상태" value={formatStatusLabel(state.data.interviewEntry.integrationStatus)} />
+              <DetailItem label="면접 상태" value={formatRecruitingStatusLabel(state.data.interviewStatus)} />
+              <DetailItem label="진입 상태" value={formatRecruitingStatusLabel(state.data.interviewEntry.integrationStatus)} />
             </dl>
             <div className="empty">
               면접 세션을 준비했습니다. 잠시 후 면접 화면으로 이동합니다.
@@ -117,20 +118,6 @@ function DetailItem({ label, value }: { label: string; value?: string | null }) 
     </>
   );
 }
-
-function formatStatusLabel(value?: string | null) {
-  if (!value) return "-";
-  return STATUS_LABELS[value] ?? value;
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  NOT_READY: "준비 전",
-  READY: "준비 완료",
-  IN_PROGRESS: "진행 중",
-  COMPLETED: "완료",
-  FAILED: "실패",
-  D_PUBLIC_CONTEXT_PENDING: "면접 진입 준비 중",
-};
 
 function toErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "요청 처리 중 오류가 발생했습니다.";

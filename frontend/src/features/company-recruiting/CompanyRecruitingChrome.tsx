@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { GnbAvatar, GnbLogoutButton } from "../auth/GnbAccountControls";
 import { COMPANY_MYPAGE_ROUTE } from "../company-profile/routes";
 import { companyAccountBillingNav, companyNavLabels } from "./company-nav-config";
+import { formatRecruitingStatusLabel, getRecruitingStatusTone } from "./status-labels";
 
 type CompanyNavSection = "postings" | "accountBilling";
 
@@ -112,28 +113,6 @@ export function Breadcrumb({ items }: { items: CrumbItem[] }) {
   );
 }
 
-const SUCCESS_STATUSES = new Set(["OPEN", "PASS", "COMPLETED", "DONE", "GENERATED", "SENT", "DELIVERED"]);
-const WARNING_STATUSES = new Set(["CLOSING_SOON", "HOLD", "IN_PROGRESS", "GENERATING", "PENDING", "REQUESTED"]);
-const DANGER_STATUSES = new Set(["FAIL", "CLOSED", "FAILED", "REJECTED"]);
-const NEUTRAL_STATUSES = new Set(["DRAFT", "ARCHIVED", "UNDECIDED", "NONE_OR_GENERATING"]);
-
-const STATUS_LABELS: Record<string, string> = {
-  OPEN: "모집중",
-  DRAFT: "작성중",
-  CLOSING_SOON: "마감임박",
-  CLOSED: "마감",
-  ARCHIVED: "보관",
-};
-
-export function StatusBadge({ value }: { value: string }) {
-  const tone = SUCCESS_STATUSES.has(value)
-    ? "success"
-    : DANGER_STATUSES.has(value)
-      ? "danger"
-      : WARNING_STATUSES.has(value)
-        ? "warning"
-        : NEUTRAL_STATUSES.has(value)
-          ? "neutral"
-          : "info";
-  return <span className={`badge ${tone}`}>{STATUS_LABELS[value] ?? value}</span>;
+export function StatusBadge({ value }: { value?: string | null }) {
+  return <span className={`badge ${getRecruitingStatusTone(value)}`}>{formatRecruitingStatusLabel(value)}</span>;
 }
