@@ -1,0 +1,23 @@
+fw() {
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  bash "$script_dir/fw.sh" "$@"
+}
+
+server() {
+  if [[ "$#" -eq 0 ]]; then
+    fw ui
+    return
+  fi
+
+  fw "$@"
+}
+
+서버관리() {
+  if [[ "$#" -eq 0 ]]; then
+    fw ui
+    return
+  fi
+
+  fw "$@"
+}
