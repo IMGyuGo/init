@@ -12,6 +12,13 @@ import { getPublicApplicationLinkState } from "./public-application-link";
 import { buildInterviewSettingsHref } from "./routes";
 import { formatRecruitingStatusLabel } from "./status-labels";
 import {
+  extractStructuredJobDescription,
+  getStructuredJobDescriptionGallery,
+  structuredJobSectionDefinitions,
+  type StructuredJobDescription,
+  type StructuredJobImage,
+} from "./structured-job-description";
+import {
   getScreeningAutosaveFieldState,
   hasScreeningDraftChanged,
   markScreeningAutosaveError,
@@ -231,12 +238,10 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
               {isRecruitmentInfoOpen ? (
                 <div className="info-toggle-body" id="recruitment-info-content">
                   <PostingExtraInfoSummary value={postingExtraInfo} />
-                  <div className="description-box">
-                    <JobDescriptionViewer
-                      value={parsedJobDescription.jobDescription}
-                      emptyMessage="등록된 JD가 없습니다. 면접 설정은 C 역할 영역에서 별도 연결합니다."
-                    />
-                  </div>
+                  <RecruitmentInfoDescription
+                    value={parsedJobDescription.jobDescription}
+                    emptyMessage="등록된 JD가 없습니다. 면접 설정은 C 역할 영역에서 별도 연결합니다."
+                  />
                 </div>
               ) : null}
             </section>
@@ -352,6 +357,82 @@ function formatPeriod(item: Recruitment) {
 
 function isCompleted(value: string) {
   return ["COMPLETED", "DONE", "GENERATED"].includes(value);
+}
+
+function RecruitmentInfoDescription({ value, emptyMessage }: { value: string | null | undefined; emptyMessage: string }) {
+  const parsed = extractStructuredJobDescription(value);
+  const gallery = getStructuredJobDescriptionGallery(value);
+
+  if (!parsed.structured) {
+    return (
+      <div className="description-box">
+        <JobDescriptionViewer value={parsed.fallbackHtml} emptyMessage={emptyMessage} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="recruitment-info-description">
+      <RecruitmentInfoGallery gallery={gallery} />
+      <RecruitmentStructuredInfo structured={parsed.structured} fallbackHtml={parsed.fallbackHtml} emptyMessage={emptyMessage} />
+    </div>
+  );
+}
+
+function RecruitmentInfoGallery({ gallery }: { gallery: StructuredJobImage[] }) {
+  if (gallery.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="recruitment-info-gallery" aria-label="공고 이미지">
+      {gallery.map((image, index) => (
+        <figure key={`${image.url}-${index}`}>
+          <span style={{ backgroundImage: `url(${image.url})` }} aria-label={image.name || "공고 이미지"} role="img" />
+          <figcaption>{image.name || `공고 이미지 ${index + 1}`}</figcaption>
+        </figure>
+      ))}
+    </div>
+  );
+}
+
+function RecruitmentStructuredInfo({
+  structured,
+  fallbackHtml,
+  emptyMessage,
+}: {
+  structured: StructuredJobDescription;
+  fallbackHtml: string;
+  emptyMessage: string;
+}) {
+  const sections = structuredJobSectionDefinitions.filter((section) => structured.sections[section.key]?.trim());
+  const hasContent = sections.length > 0 || structured.tags.length > 0 || fallbackHtml.trim();
+
+  if (!hasContent) {
+    return <div className="description-box">{emptyMessage}</div>;
+  }
+
+  return (
+    <div className="description-box recruitment-structured-info">
+      {sections.map((section) => (
+        <section key={section.key}>
+          <h3>{section.title}</h3>
+          <div className="jd-content" dangerouslySetInnerHTML={{ __html: structured.sections[section.key] }} />
+        </section>
+      ))}
+      {structured.tags.length > 0 ? (
+        <section>
+          <h3>태그</h3>
+          <div className="recruitment-info-tags">
+            {structured.tags.map((tag) => (
+              <span key={tag}>{tag}</span>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {fallbackHtml.trim() ? <JobDescriptionViewer value={fallbackHtml} emptyMessage="" /> : null}
+    </div>
+  );
 }
 
 function toScreeningDraft(item: Applicant): ScreeningDraft {

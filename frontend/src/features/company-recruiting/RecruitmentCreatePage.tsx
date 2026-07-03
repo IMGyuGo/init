@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChangeEvent, FormEvent, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, KeyboardEvent, useRef, useState } from "react";
 
 import { createRecruitment, uploadJobDescriptionImage } from "./api";
 import { Breadcrumb } from "./CompanyRecruitingChrome";
@@ -16,13 +16,10 @@ import {
   type PostingExtraInfo,
 } from "./posting-extra-info";
 import { buildInterviewSettingsHref } from "./routes";
-import { StructuredJobDescriptionView } from "./StructuredJobDescriptionView";
 import {
-  buildStructuredPreviewJobDescription,
   composeStructuredJobDescription,
   createEmptyStructuredJobDescription,
   structuredJobSectionDefinitions,
-  suggestedPostingTags,
   type StructuredJobDescription,
   type StructuredJobImage,
   type StructuredJobSectionKey,
@@ -57,17 +54,6 @@ export function RecruitmentCreatePage() {
   const [galleryUploading, setGalleryUploading] = useState(false);
   const [galleryMessage, setGalleryMessage] = useState("");
   const [tagInput, setTagInput] = useState("");
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const previewJobDescription = buildStructuredPreviewJobDescription(
-    form.structuredJobDescription,
-    form.extraInfo.location.value,
-  );
-  const previewTitle = form.title.trim() || "공고 제목 미리보기";
-  const previewJobRole = form.jobRole.trim() || "직무명";
-  const previewCompanyName = "회사명";
-  const previewCareer = form.extraInfo.career.value.trim() || "경력 정보";
-  const previewLocation = form.extraInfo.location.value.trim() || "근무지역";
-  const previewEmploymentType = form.extraInfo.employmentType.value.trim() || "근무형태";
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -206,6 +192,12 @@ export function RecruitmentCreatePage() {
     setTagInput("");
   }
 
+  function handleTagInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    addCustomTags();
+  }
+
   return (
     <section className="app-page glass-page posting-create-page">
         <div className="page-head">
@@ -225,14 +217,13 @@ export function RecruitmentCreatePage() {
 
         {message ? <p className="notice danger">{message}</p> : null}
 
-        <div className="posting-builder-shell">
-          <form className="creation-flow posting-builder-form" onSubmit={handleCreate}>
+        <form className="creation-flow posting-create-flow" onSubmit={handleCreate}>
             <section className="panel structured-create-hero">
               <div className="panel-head">
                 <div>
                   <p className="eyebrow">JOB POSTING BUILDER</p>
                   <h2>구직자가 보는 공고 그대로 입력하세요</h2>
-                  <p>왼쪽에서 입력하면 오른쪽 지원자 미리보기에 즉시 반영됩니다.</p>
+                  <p>기본 정보, 이미지, 상세 JD, 태그를 순서대로 채우면 공개 공고 화면에 같은 구조로 노출됩니다.</p>
                 </div>
               </div>
             </section>
@@ -349,7 +340,6 @@ export function RecruitmentCreatePage() {
                 <div className="structured-section-card" key={section.key}>
                   <div>
                     <h3>{section.title}</h3>
-                    <p>{section.placeholder}</p>
                   </div>
                   <MiniRichTextEditor
                     value={form.structuredJobDescription.sections[section.key]}
@@ -366,25 +356,25 @@ export function RecruitmentCreatePage() {
             <div className="panel-head">
               <div>
                 <h2>태그</h2>
-                <p>복지, 조직문화, 성장 신호를 태그로 선택합니다. 검색/필터링 용도는 이번 범위에서 제외합니다.</p>
+                <p>직접 입력한 태그만 공개 공고에 노출됩니다. 여러 개는 쉼표로 구분해 추가할 수 있습니다.</p>
               </div>
             </div>
-            <div className="posting-tag-picker">
-              {suggestedPostingTags.map((tag) => (
-                <button
-                  className={form.structuredJobDescription.tags.includes(tag) ? "is-selected" : ""}
-                  type="button"
-                  key={tag}
-                  onClick={() => toggleTag(tag)}
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
+            {form.structuredJobDescription.tags.length > 0 ? (
+              <div className="posting-tag-picker" aria-label="추가된 태그">
+                {form.structuredJobDescription.tags.map((tag) => (
+                  <button className="is-selected" type="button" key={tag} onClick={() => toggleTag(tag)}>
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="empty">추가된 태그가 없습니다.</div>
+            )}
             <div className="tag-input-row">
               <input
                 value={tagInput}
                 onChange={(event) => setTagInput(event.target.value)}
+                onKeyDown={handleTagInputKeyDown}
                 placeholder="직접 입력 후 추가, 여러 개는 쉼표로 구분"
               />
               <button className="btn secondary" type="button" onClick={addCustomTags}>
@@ -398,57 +388,7 @@ export function RecruitmentCreatePage() {
                 다음
               </button>
             </div>
-          </form>
-
-          <aside className="posting-live-preview" aria-label="지원자 화면 미리보기">
-            <div className="posting-live-preview-head">
-              <div>
-                <p className="eyebrow">LIVE PREVIEW</p>
-                <h2>지원자 화면</h2>
-              </div>
-              <button className="btn secondary" type="button" onClick={() => setPreviewOpen(true)}>
-                크게 보기
-              </button>
-            </div>
-            <div className="posting-preview-viewport">
-              <StructuredJobDescriptionView
-                preview
-                companyName={previewCompanyName}
-                title={previewTitle}
-                jobRole={previewJobRole}
-                jobDescription={previewJobDescription}
-                careerRequirement={previewCareer}
-                workLocation={previewLocation}
-                employmentType={previewEmploymentType}
-                endsOn={form.endsOn || null}
-              />
-            </div>
-          </aside>
-        </div>
-
-        {previewOpen ? (
-          <div className="posting-preview-modal" role="dialog" aria-modal="true" aria-label="지원자 화면 크게 보기">
-            <div className="posting-preview-modal-head">
-              <strong>지원자 화면 미리보기</strong>
-              <button className="btn secondary" type="button" onClick={() => setPreviewOpen(false)}>
-                닫기
-              </button>
-            </div>
-            <div className="posting-preview-modal-body">
-              <StructuredJobDescriptionView
-                preview
-                companyName={previewCompanyName}
-                title={previewTitle}
-                jobRole={previewJobRole}
-                jobDescription={previewJobDescription}
-                careerRequirement={previewCareer}
-                workLocation={previewLocation}
-                employmentType={previewEmploymentType}
-                endsOn={form.endsOn || null}
-              />
-            </div>
-          </div>
-        ) : null}
+        </form>
     </section>
   );
 }

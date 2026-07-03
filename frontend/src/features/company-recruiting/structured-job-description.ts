@@ -57,23 +57,7 @@ export const structuredJobSectionDefinitions: StructuredJobSectionDefinition[] =
   },
 ];
 
-export const suggestedPostingTags = [
-  "커피",
-  "스낵바",
-  "사내동호회",
-  "식대지원",
-  "자유로운 휴가",
-  "유연근무",
-  "인원 급성장",
-  "연봉 업계 평균 이상",
-  "보너스",
-  "누적 투자 100억 이상",
-  "워크샵",
-  "개발 장비 지원",
-  "기술 세미나",
-  "코드 리뷰 문화",
-  "재택근무",
-];
+export const suggestedPostingTags = [] as const;
 
 const structuredBlockPattern =
   /<!--\s*init-structured-job-description:start\s*-->[\s\S]*?<!--\s*init-structured-job-description:end\s*-->/i;
@@ -140,13 +124,6 @@ export function composeStructuredJobDescription(jobDescription: string, value: S
   return [structuredJobDescriptionToHtml(value), fallback].filter(Boolean).join("");
 }
 
-export function buildStructuredPreviewJobDescription(value: StructuredJobDescription, locationNote?: string | null) {
-  return composeStructuredJobDescription("", {
-    ...value,
-    locationNote: locationNote?.trim() || value.locationNote,
-  });
-}
-
 export function extractStructuredJobDescription(jobDescription: string | null | undefined): {
   structured: StructuredJobDescription | null;
   fallbackHtml: string;
@@ -188,6 +165,21 @@ export function extractStructuredJobDescription(jobDescription: string | null | 
     structured,
     fallbackHtml: stripStructuredJobDescriptionBlock(content).trim(),
   };
+}
+
+export function createStructuredJobDescriptionFromHtml(jobDescription: string | null | undefined): StructuredJobDescription {
+  const parsed = extractStructuredJobDescription(jobDescription);
+  if (parsed.structured) {
+    return parsed.structured;
+  }
+
+  const structured = createEmptyStructuredJobDescription();
+  structured.sections.positionDetail = parsed.fallbackHtml;
+  return structured;
+}
+
+export function getStructuredJobDescriptionGallery(jobDescription: string | null | undefined): StructuredJobImage[] {
+  return extractStructuredJobDescription(jobDescription).structured?.gallery ?? [];
 }
 
 export function stripStructuredJobDescriptionBlock(jobDescription: string | null | undefined) {

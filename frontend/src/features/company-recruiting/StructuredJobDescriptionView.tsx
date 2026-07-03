@@ -19,7 +19,6 @@ type StructuredJobDescriptionViewProps = {
   employmentType?: string | null;
   endsOn?: string | null;
   rightRail?: ReactNode;
-  preview?: boolean;
 };
 
 export function StructuredJobDescriptionView({
@@ -32,14 +31,12 @@ export function StructuredJobDescriptionView({
   employmentType,
   endsOn,
   rightRail,
-  preview = false,
 }: StructuredJobDescriptionViewProps) {
   const parsed = extractStructuredJobDescription(jobDescription);
-  const frameClassName = `candidate-posting-frame ${preview ? "is-preview" : ""}`;
 
   if (!parsed.structured) {
     return (
-      <section className={frameClassName}>
+      <section className="candidate-posting-frame">
         <CandidatePostingNav />
         <div className="candidate-posting-body">
           <article className="candidate-posting-main">
@@ -50,11 +47,11 @@ export function StructuredJobDescriptionView({
               careerRequirement={careerRequirement}
               workLocation={workLocation}
               employmentType={employmentType}
-              endsOn={endsOn}
             />
             <section className="wanted-section">
               <JobDescriptionViewer value={parsed.fallbackHtml} emptyMessage="등록된 공고 상세가 없습니다." />
             </section>
+            <PostingDeadline endsOn={endsOn} />
           </article>
           <aside className="candidate-apply-rail">{rightRail ?? <DefaultApplyRail />}</aside>
         </div>
@@ -63,7 +60,7 @@ export function StructuredJobDescriptionView({
   }
 
   return (
-    <section className={frameClassName}>
+    <section className="candidate-posting-frame">
       <CandidatePostingNav />
       <div className="candidate-posting-body">
         <article className="candidate-posting-main">
@@ -75,10 +72,10 @@ export function StructuredJobDescriptionView({
             careerRequirement={careerRequirement}
             workLocation={workLocation}
             employmentType={employmentType}
-            endsOn={endsOn}
           />
           <PostingSections structured={parsed.structured} />
           <PostingTags tags={parsed.structured.tags} />
+          <PostingDeadline endsOn={endsOn} />
           <PostingLocation location={parsed.structured.locationNote || workLocation} />
         </article>
         <aside className="candidate-apply-rail">{rightRail ?? <DefaultApplyRail />}</aside>
@@ -163,24 +160,23 @@ function PostingHeading({
   careerRequirement,
   workLocation,
   employmentType,
-  endsOn,
-}: Omit<StructuredJobDescriptionViewProps, "jobDescription">) {
+}: Omit<StructuredJobDescriptionViewProps, "jobDescription" | "endsOn">) {
   const meta = [companyName, workLocation, careerRequirement, employmentType].filter(Boolean);
   return (
     <header className="wanted-posting-head">
-      <p>{meta.join(" · ")}</p>
+      <p className="wanted-posting-meta">{meta.join(" · ")}</p>
       <h2>{title}</h2>
-      <dl>
-        <div>
-          <dt>직무</dt>
-          <dd>{jobRole}</dd>
-        </div>
-        <div>
-          <dt>마감일</dt>
-          <dd>{endsOn ?? "상시 채용"}</dd>
-        </div>
-      </dl>
+      {jobRole ? <p className="wanted-posting-role">{jobRole}</p> : null}
     </header>
+  );
+}
+
+function PostingDeadline({ endsOn }: { endsOn?: string | null }) {
+  return (
+    <section className="wanted-section">
+      <h3>마감일</h3>
+      <p className="wanted-deadline">{endsOn ? endsOn : "상시 채용"}</p>
+    </section>
   );
 }
 

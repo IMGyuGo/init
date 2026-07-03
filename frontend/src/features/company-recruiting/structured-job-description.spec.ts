@@ -1,8 +1,10 @@
 import {
-  buildStructuredPreviewJobDescription,
   composeStructuredJobDescription,
+  createStructuredJobDescriptionFromHtml,
   createEmptyStructuredJobDescription,
   extractStructuredJobDescription,
+  getStructuredJobDescriptionGallery,
+  suggestedPostingTags,
   structuredJobDescriptionToHtml,
 } from "./structured-job-description";
 
@@ -46,6 +48,12 @@ if (parsed.structured.gallery.length !== 2 || parsed.structured.gallery[0]?.url 
   throw new Error("Structured JD parser should restore gallery images.");
 }
 
+const detailGallery = getStructuredJobDescriptionGallery(html);
+
+if (detailGallery.length !== 2 || detailGallery[1]?.name !== "culture-2.webp") {
+  throw new Error("Recruitment detail should be able to read structured gallery images.");
+}
+
 if (!parsed.structured.sections.requirements.includes("<strong>TypeScript</strong>")) {
   throw new Error("Structured JD parser should preserve rich text section HTML.");
 }
@@ -71,9 +79,15 @@ if (legacy.structured !== null || legacy.fallbackHtml !== "<p>기존 JD</p>") {
   throw new Error("Unmarked JD HTML should be returned as fallback content.");
 }
 
-const previewHtml = buildStructuredPreviewJobDescription(structured, "서울 강남구");
-const preview = extractStructuredJobDescription(previewHtml);
+const legacyDraft = createStructuredJobDescriptionFromHtml("<p>기존 JD</p>");
 
-if (!preview.structured || preview.structured.locationNote !== "서울 강남구") {
-  throw new Error("Preview JD should compose structured content with the current location.");
+if (legacyDraft.sections.positionDetail !== "<p>기존 JD</p>") {
+  throw new Error("Existing unstructured JD should hydrate into the position detail section.");
 }
+
+if (suggestedPostingTags.length !== 0) {
+  throw new Error("Posting tag suggestions should stay empty so only manually added tags are shown.");
+}
+
+const noSuggestedTags: readonly [] = suggestedPostingTags;
+void noSuggestedTags;
