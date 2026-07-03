@@ -11,6 +11,30 @@ function Invoke-FinalWeaponServer {
   )
 
   $root = $PSScriptRoot
+  $envFile = Join-Path $root '.env'
+  $exampleEnvFile = Join-Path $root '.env.example'
+
+  function Import-LocalEnv {
+    $path = if ($UseExampleEnv -or -not (Test-Path -LiteralPath $envFile)) { $exampleEnvFile } else { $envFile }
+    if (-not (Test-Path -LiteralPath $path)) {
+      throw "Environment file not found: $path"
+    }
+
+    $lines = Get-Content -Encoding UTF8 -LiteralPath $path
+    foreach ($line in $lines) {
+      $trimmed = $line.Trim()
+      if (-not $trimmed -or $trimmed.StartsWith('#') -or -not $trimmed.Contains('=')) {
+        continue
+      }
+
+      $name, $value = $trimmed -split '=', 2
+      $name = $name.Trim()
+      $value = $value.Trim().Trim('"').Trim("'")
+      if ($name) {
+        Set-Item -Path "Env:$name" -Value $value
+      }
+    }
+  }
 
   function Normalize-Target {
     param([string] $Value)
@@ -32,6 +56,7 @@ function Invoke-FinalWeaponServer {
     $apiDir = Join-Path $root 'backend/api'
     Push-Location $apiDir
     try {
+      Import-LocalEnv
       switch -Regex ($PrismaAction.ToLowerInvariant()) {
         '^(g|generate|client)$' {
           npm run prisma:generate

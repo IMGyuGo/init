@@ -18,15 +18,20 @@ server() {
 
   prisma_run() {
     local prisma_action="${1:-menu}"
+    local env_file="$script_dir/.env"
+    if [[ ! -f "$env_file" ]]; then
+      env_file="$script_dir/.env.example"
+    fi
+
     case "${prisma_action,,}" in
       g|generate|client)
-        (cd "$script_dir/backend/api" && npm run prisma:generate)
+        (set -a; [[ -f "$env_file" ]] && source "$env_file"; set +a; cd "$script_dir/backend/api" && npm run prisma:generate)
         ;;
       m|migrate|migration)
-        (cd "$script_dir/backend/api" && npm run db:migrate)
+        (set -a; [[ -f "$env_file" ]] && source "$env_file"; set +a; cd "$script_dir/backend/api" && npm run db:migrate)
         ;;
       s|seed)
-        (cd "$script_dir/backend/api" && npm run db:seed)
+        (set -a; [[ -f "$env_file" ]] && source "$env_file"; set +a; cd "$script_dir/backend/api" && npm run db:seed)
         ;;
       *)
         echo "Usage: server prisma generate|migrate|seed"
