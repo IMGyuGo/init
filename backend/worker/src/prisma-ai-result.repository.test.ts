@@ -170,12 +170,15 @@ test("PrismaAiResultRepository stores report scores without completing a report"
     ]
   });
 
-  assert.equal(calls[0].model, "reportScore");
+  assert.equal(calls[0].model, "reportEvidence");
   assert.equal(calls[0].method, "deleteMany");
-  assert.equal(calls[1].model, "evaluationCriterion");
-  assert.equal(calls[1].method, "findUnique");
-  assert.equal(calls[2].model, "reportScore");
-  assert.equal(calls[2].method, "create");
+  assert.deepEqual(calls[0].args.where, { score: { reportId: BigInt(30) } });
+  assert.equal(calls[1].model, "reportScore");
+  assert.equal(calls[1].method, "deleteMany");
+  assert.equal(calls[2].model, "evaluationCriterion");
+  assert.equal(calls[2].method, "findUnique");
+  assert.equal(calls[3].model, "reportScore");
+  assert.equal(calls[3].method, "create");
   assert.equal(calls.some((call) => call.model === "evaluationReport"), false);
 });
 
@@ -308,13 +311,15 @@ test("PrismaAiResultRepository stores generated reports after guardrail pass", a
   assert.equal(calls[0].model, "evaluationReport");
   assert.equal(calls[0].method, "upsert");
   assert.equal(calls[0].args.update.status, "COMPLETED");
-  assert.equal(calls[1].model, "reportScore");
+  assert.equal(calls[1].model, "reportEvidence");
   assert.equal(calls[1].method, "deleteMany");
-  assert.equal(calls[2].model, "evaluationCriterion");
-  assert.equal(calls[2].method, "findUnique");
-  assert.equal(calls[3].model, "reportScore");
-  assert.equal(calls[3].method, "create");
-  assert.equal(calls[3].args.data.evidences.create[0].sourceType, "INTERVIEW_ANSWER");
+  assert.equal(calls[2].model, "reportScore");
+  assert.equal(calls[2].method, "deleteMany");
+  assert.equal(calls[3].model, "evaluationCriterion");
+  assert.equal(calls[3].method, "findUnique");
+  assert.equal(calls[4].model, "reportScore");
+  assert.equal(calls[4].method, "create");
+  assert.equal(calls[4].args.data.evidences.create[0].sourceType, "INTERVIEW_ANSWER");
 });
 
 test("PrismaAiResultRepository marks generated reports failed with retryability", async () => {
@@ -368,6 +373,11 @@ function fakePrisma(calls: Array<{ model: string; method: string; args: any }>) 
       },
       async create(args: any) {
         calls.push({ model: "reportScore", method: "create", args });
+      }
+    },
+    reportEvidence: {
+      async deleteMany(args: any) {
+        calls.push({ model: "reportEvidence", method: "deleteMany", args });
       }
     },
     embedding: {
