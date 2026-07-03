@@ -465,7 +465,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState("");
-  const [cameraPreviewStatus, setCameraPreviewStatus] = useState("카메라 대기");
+  const [, setCameraPreviewStatus] = useState("카메라 대기");
   const [cameraFramingState, setCameraFramingState] = useState<CameraFramingState>("idle");
   const [microphoneReady, setMicrophoneReady] = useState(false);
   const [microphoneDevices, setMicrophoneDevices] = useState<MediaDeviceInfo[]>([]);
@@ -1562,7 +1562,7 @@ function InterviewRuntimePanel({
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState("");
-  const [cameraPreviewStatus, setCameraPreviewStatus] = useState("카메라 대기");
+  const [, setCameraPreviewStatus] = useState("카메라 대기");
   const [cameraFramingState, setCameraFramingState] = useState<CameraFramingState>("idle");
   const [microphoneReady, setMicrophoneReady] = useState(false);
   const [microphoneDevices, setMicrophoneDevices] = useState<MediaDeviceInfo[]>([]);
