@@ -279,6 +279,52 @@ powershell -ExecutionPolicy Bypass -File .\start-local.ps1 -Only Frontend
 powershell -ExecutionPolicy Bypass -File .\start-local.ps1 -Only Worker
 ```
 
+PowerShell 세션에서 `server.ps1`을 dot-source 하면 `server` 명령으로 로컬 서버를 관리할 수 있습니다.
+
+```powershell
+. .\server.ps1
+server             # 키보드 메뉴 열기
+server up          # 전체 실행
+server frontend    # frontend만 실행
+server api         # API만 실행
+server worker      # worker만 실행
+server infra       # Docker infra만 실행
+server prisma      # Prisma 하위 명령 도움말
+server prisma generate
+server prisma migrate
+server prisma seed
+server down        # 전체 종료
+server down api    # API만 종료
+```
+
+macOS/Linux에서는 PowerShell 설치 없이 bash 스크립트를 사용합니다.
+
+```bash
+bash start-local.sh
+bash start-local.sh Frontend
+bash start-local.sh Api
+bash start-local.sh Worker
+bash stop-local.sh
+```
+
+bash 세션에서는 `server` 파일을 source 해서 같은 방식으로 사용할 수 있습니다.
+
+```bash
+source server
+server             # 키보드 메뉴 열기
+server up          # 전체 실행
+server frontend    # frontend만 실행
+server api         # API만 실행
+server worker      # worker만 실행
+server infra       # Docker infra만 실행
+server prisma      # Prisma 하위 명령 도움말
+server prisma generate
+server prisma migrate
+server prisma seed
+server down        # 전체 종료
+server down api    # API만 종료
+```
+
 ## 11. 로그인/회원가입 흐름 확인하기
 
 로컬에서 인증 흐름을 확인할 때는 아래 순서로 보면 됩니다.

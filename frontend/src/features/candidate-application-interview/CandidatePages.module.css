@@ -1689,6 +1689,110 @@
   border-radius: 999px;
 }
 
+:global(.candidate-device-main) {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+:global(.camera-framing-overlay) {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+:global(.camera-framing-overlay__face) {
+  position: absolute;
+  top: 16%;
+  left: 50%;
+  width: min(24.2%, 165px);
+  aspect-ratio: 0.78;
+  border: 2px solid rgba(255, 255, 255, 0.78);
+  border-radius: 999px;
+  box-shadow: 0 0 0 999px rgba(16, 16, 25, 0.08);
+  transform: translateX(-50%);
+}
+
+:global(.camera-framing-overlay.warn .camera-framing-overlay__face),
+:global(.camera-framing-overlay.warn .camera-framing-overlay__shoulders) {
+  border-color: rgba(239, 68, 68, 0.92);
+  box-shadow: 0 0 0 999px rgba(127, 29, 29, 0.12);
+}
+
+:global(.camera-framing-overlay__shoulders) {
+  position: absolute;
+  bottom: 17%;
+  left: 50%;
+  width: min(52.8%, 374px);
+  height: 26.4%;
+  border: 2px solid rgba(255, 255, 255, 0.72);
+  border-bottom: 0;
+  border-radius: 999px 999px 0 0;
+  transform: translateX(-50%);
+}
+
+:global(.camera-framing-overlay__center) {
+  position: absolute;
+  top: 12%;
+  bottom: 12%;
+  left: 50%;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+}
+
+:global(.camera-framing-overlay__label) {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  max-width: calc(100% - 28px);
+  padding: 6px 10px;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+  white-space: nowrap;
+  background: rgba(16, 16, 25, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  transform: translateX(-50%);
+}
+
+:global(.camera-framing-overlay.warn .camera-framing-overlay__label) {
+  color: #fff;
+  background: rgba(185, 28, 28, 0.76);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+:global(.camera-framing-overlay__prompt) {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  color: rgba(255, 255, 255, 0.92);
+  text-align: center;
+  background: rgba(16, 16, 25, 0.64);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+}
+
+:global(.camera-framing-overlay__prompt span) {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  opacity: 0.72;
+}
+
+:global(.camera-framing-overlay__prompt strong) {
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 :global(.vcam) {
   display: grid;
   place-items: center;

@@ -181,6 +181,85 @@ type MicrophoneProbeResult = {
   state?: MediaStreamTrackState;
   error?: unknown;
 };
+type CameraQualityResult = {
+  ok: boolean;
+  brightness?: number;
+  message: string;
+};
+type MicrophoneQualityResult = {
+  ok: boolean;
+  peakLevel: number;
+  message: string;
+};
+type NetworkQualityResult = {
+  ok: boolean;
+  message: string;
+};
+type CameraFramingState = "idle" | "ok" | "warn" | "unsupported";
+type CameraFramingResult = {
+  state: CameraFramingState;
+  blocking: boolean;
+  message: string;
+};
+type DetectedFace = {
+  boundingBox: DOMRectReadOnly;
+};
+type FaceDetectorConstructor = new (options?: { fastMode?: boolean; maxDetectedFaces?: number }) => {
+  detect: (source: CanvasImageSource) => Promise<DetectedFace[]>;
+};
+type FaceDetectorWindow = Window & {
+  FaceDetector?: FaceDetectorConstructor;
+};
+type FaceBoundingBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+type MediaPipeFaceDetection = {
+  boundingBox?: {
+    originX?: number;
+    originY?: number;
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+  };
+};
+type MediaPipeFaceDetectorInstance = {
+  detectForVideo: (video: HTMLVideoElement, timestampMs: number) => { detections?: MediaPipeFaceDetection[] };
+};
+const DEVICE_TEST_SENTENCES = [
+  "나는 차분하게 듣고, 나의 생각을 분명하게 답할 수 있다.",
+  "나는 준비한 만큼 침착하게 말하고, 끝까지 답할 수 있다.",
+  "긴장해도 괜찮다. 나는 천천히 생각하고 분명하게 말한다.",
+  "나는 오늘의 경험을 믿고, 차분하게 나를 보여줄 수 있다.",
+  "나는 질문을 끝까지 듣고, 내 언어로 또렷하게 답한다.",
+  "완벽하지 않아도 괜찮다. 나는 침착하게 끝까지 말한다.",
+  "나는 지금 이 순간에도 차분하게 호흡하고 또렷하게 말한다.",
+  "나는 나의 경험을 믿고, 한 문장씩 분명하게 답할 수 있다.",
+  "나는 서두르지 않고 질문을 이해한 뒤 차분하게 대답한다.",
+  "나는 오늘 준비한 시간을 믿고 자신 있게 나를 표현한다.",
+  "나는 긴장 속에서도 중심을 잡고, 끝까지 내 생각을 전한다.",
+  "나는 천천히 숨을 고르고, 내가 가진 강점을 분명히 말한다.",
+  "나는 질문을 잘 듣고, 나의 경험을 바탕으로 답할 수 있다.",
+  "나는 침착한 목소리로 나의 생각과 태도를 또렷하게 전한다.",
+  "나는 실수해도 다시 차분하게 이어가며 끝까지 답할 수 있다.",
+  "나는 지금까지 해온 노력을 믿고, 자신 있게 면접에 임한다.",
+  "나는 흔들리지 않고 나의 생각을 차근차근 설명할 수 있다.",
+  "나는 오늘 나의 가능성과 경험을 분명한 목소리로 보여준다.",
+  "나는 마음을 가다듬고, 질문마다 성실하게 답할 준비가 됐다.",
+  "나는 천천히 말해도 괜찮다. 중요한 것은 끝까지 전하는 것이다.",
+  "나는 나답게 생각하고, 나답게 말하며, 끝까지 집중할 수 있다.",
+  "나는 차분한 태도로 듣고, 또렷한 목소리로 나를 설명한다.",
+  "나는 준비된 사람이다. 지금 이 자리에서 침착하게 답할 수 있다.",
+  "나는 나의 속도로 말하고, 나의 경험으로 충분히 답할 수 있다.",
+  "나는 끝까지 집중하며, 오늘의 면접을 차분하게 마무리할 수 있다.",
+] as const;
+const MEDIAPIPE_TASKS_VERSION = "0.10.35";
+const MEDIAPIPE_FACE_DETECTOR_MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite";
+let mediaPipeFaceDetectorPromise: Promise<MediaPipeFaceDetectorInstance | null> | null = null;
 
 export function CandidateJobsPage() {
   const [query, setQuery] = useState<CandidateJobQuery>(defaultCandidateJobQuery);
@@ -404,18 +483,21 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const microphoneFrameRef = useRef<number | null>(null);
+  const cameraQualityIntervalRef = useRef<number | null>(null);
   const [step, setStep] = useState<InterviewGuideStep>("guide");
   const [consentState, setConsentState] = useState<CandidateInterviewConsentState>(defaultInterviewConsentState);
   const [deviceState, setDeviceState] = useState<CandidateDeviceCheckState>(defaultDeviceCheckState);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState("");
-  const [cameraPreviewStatus, setCameraPreviewStatus] = useState("카메라 대기");
+  const [, setCameraPreviewStatus] = useState("카메라 대기");
+  const [cameraFramingState, setCameraFramingState] = useState<CameraFramingState>("idle");
   const [microphoneReady, setMicrophoneReady] = useState(false);
   const [microphoneDevices, setMicrophoneDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedMicrophoneId, setSelectedMicrophoneId] = useState("");
   const [microphoneStatus, setMicrophoneStatus] = useState("마이크 대기");
   const [microphoneLevel, setMicrophoneLevel] = useState(0);
+  const [networkStatus, setNetworkStatus] = useState("네트워크 대기");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => getCandidateApi().getInterviewGuide(applicationId), [applicationId]);
@@ -426,10 +508,12 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
   const guideRequiredConsentCompleted = guide
     ? guide.requiredConsentTypes.every((consentType) => consentState.consentTypes.includes(consentType))
     : false;
+  const deviceTestSentence = useMemo(() => pickDeviceTestSentence(), []);
 
   useEffect(() => {
     void refreshGuideCameraDevices();
     return () => {
+      stopGuideCameraQualityMonitor();
       stopGuideMicrophoneMeter();
       stopMediaStream(mediaStreamRef.current);
     };
@@ -475,6 +559,27 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
     void audioContextRef.current?.close();
     audioContextRef.current = null;
     setMicrophoneLevel(0);
+  }
+
+  function stopGuideCameraQualityMonitor() {
+    if (cameraQualityIntervalRef.current !== null) {
+      window.clearInterval(cameraQualityIntervalRef.current);
+      cameraQualityIntervalRef.current = null;
+    }
+  }
+
+  function startGuideCameraQualityMonitor(previewInfo: CameraPreviewInfo, fallbackLabel?: string) {
+    stopGuideCameraQualityMonitor();
+    const video = videoRef.current;
+    if (!video) return;
+
+    cameraQualityIntervalRef.current = startCameraQualityMonitor(video, previewInfo, fallbackLabel, (quality, framing, status) => {
+      const cameraOk = quality.ok && !framing.blocking;
+      setCameraReady(cameraOk);
+      setCameraFramingState(framing.state);
+      setCameraPreviewStatus(status);
+      setDeviceState((current) => ({ ...current, cameraGranted: cameraOk }));
+    });
   }
 
   function startGuideMicrophoneMeter(stream: MediaStream) {
@@ -538,11 +643,14 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
         throw new Error("현재 브라우저에서 카메라/마이크 점검을 사용할 수 없습니다.");
       }
       stopGuideMicrophoneMeter();
+      stopGuideCameraQualityMonitor();
       stopMediaStream(mediaStreamRef.current);
       setCameraReady(false);
+      setCameraFramingState("idle");
       setMicrophoneReady(false);
       setCameraPreviewStatus("카메라 연결 중");
-      setMicrophoneStatus("마이크 연결 중");
+      setMicrophoneStatus(`테스트 문장을 읽어주세요. 예: ${deviceTestSentence}`);
+      setNetworkStatus("네트워크 확인 중");
       const streamResult = await getCameraMediaStream(selectedCameraId, selectedMicrophoneId);
       const { stream, audioEnabled, fallbackLabel } = streamResult;
       mediaStreamRef.current = stream;
@@ -551,11 +659,25 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
         previewInfo = await attachMediaStreamToVideo(videoRef.current, stream);
       }
       assertCameraPreviewHasFrame(previewInfo);
-      setCameraReady(true);
-      setMicrophoneReady(audioEnabled);
-      setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, fallbackLabel));
-      setMicrophoneStatus(formatMicrophoneStatus(streamResult));
-      setDeviceState({ cameraGranted: true, microphoneGranted: audioEnabled, networkStable: navigator.onLine });
+      const cameraQuality = assessCameraQuality(videoRef.current);
+      const cameraFraming = await assessCameraFraming(videoRef.current);
+      const microphoneQuality = audioEnabled
+        ? await measureMicrophoneQuality(stream, setMicrophoneLevel)
+        : { ok: false, peakLevel: 0, message: formatMicrophoneStatus(streamResult) };
+      const networkQuality = await checkInterviewNetworkQuality();
+      const cameraOk = cameraQuality.ok && !cameraFraming.blocking;
+      setCameraReady(cameraOk);
+      setCameraFramingState(cameraFraming.state);
+      setMicrophoneReady(audioEnabled && microphoneQuality.ok);
+      setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, fallbackLabel, cameraQuality, cameraFraming));
+      setMicrophoneStatus(audioEnabled ? formatMicrophoneQualityStatus(streamResult, microphoneQuality) : microphoneQuality.message);
+      setNetworkStatus(networkQuality.message);
+      setDeviceState({
+        cameraGranted: cameraOk,
+        microphoneGranted: audioEnabled && microphoneQuality.ok,
+        networkStable: networkQuality.ok,
+      });
+      startGuideCameraQualityMonitor(previewInfo, fallbackLabel);
       if (audioEnabled) {
         startGuideMicrophoneMeter(stream);
       } else {
@@ -565,10 +687,14 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
       setMessage(
         fallbackLabel
           ? `카메라를 연결했습니다. ${fallbackLabel} 마이크 권한을 확인한 뒤 면접을 시작해주세요.`
-          : "카메라와 마이크 권한을 확인했습니다. 면접 시작을 눌러주세요.",
+          : cameraOk && audioEnabled && microphoneQuality.ok && networkQuality.ok
+            ? "카메라 밝기, 마이크 입력, 네트워크 상태가 적정합니다. 면접 시작을 눌러주세요."
+            : "장치 점검 기준을 통과하지 못했습니다. 안내에 따라 카메라 위치, 조명, 마이크 입력을 조정해주세요.",
       );
     } catch (previewError) {
       setCameraReady(false);
+      setCameraFramingState("idle");
+      stopGuideCameraQualityMonitor();
       stopGuideMicrophoneMeter();
       stopMediaStream(mediaStreamRef.current);
       mediaStreamRef.current = null;
@@ -576,7 +702,9 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
       setMicrophoneReady(microphoneProbe.ok);
       setMicrophoneStatus(formatMicrophoneProbeStatus(microphoneProbe));
       setCameraPreviewStatus(`카메라 연결 실패: ${formatMediaError(previewError)}`);
-      setDeviceState((current) => ({ ...current, networkStable: navigator.onLine }));
+      const networkQuality = await checkInterviewNetworkQuality();
+      setNetworkStatus(networkQuality.message);
+      setDeviceState((current) => ({ ...current, networkStable: networkQuality.ok }));
       setMessage(
         microphoneProbe.ok
           ? `${formatMediaError(previewError)} 마이크는 연결되지만 녹화를 위해 카메라 권한도 필요합니다.`
@@ -609,6 +737,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
         await getCandidateApi().saveDeviceCheck(guide.sessionId, toDeviceCheckRequest(deviceState));
       }
       await getCandidateApi().startInterview(applicationId);
+      stopGuideCameraQualityMonitor();
       stopGuideMicrophoneMeter();
       stopMediaStream(mediaStreamRef.current);
       mediaStreamRef.current = null;
@@ -728,25 +857,21 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
                 </div>
               </div>
               <div className="candidate-device-setup__grid">
-                <div className="video-box candidate-device-preview">
-                  <video ref={videoRef} autoPlay muted playsInline />
-                  <div className="camera-debug">{cameraPreviewStatus}</div>
-                  {!cameraReady ? (
-                    <div className="vlabel">
-                      <div className="vcam">⌾</div>
-                      카메라 미리보기
-                    </div>
-                  ) : null}
+                <div className="candidate-device-main">
+                  <div className="video-box candidate-device-preview">
+                    <video ref={videoRef} autoPlay muted playsInline />
+                    <CameraFramingOverlay state={cameraFramingState} testSentence={deviceTestSentence} />
+                  </div>
                 </div>
                 <aside className="panel candidate-runtime-status-panel">
                   <p className="panel-title">장치 상태</p>
                   <div className="status-list">
-                    <div className="status-line"><span className={cameraReady ? "ok" : "wait"}>{cameraReady ? "✓" : "!"}</span> 카메라 {cameraReady ? "정상" : "대기"}</div>
+                    <div className="status-line"><span className={cameraReady ? "ok" : "wait"}>{cameraReady ? "✓" : "!"}</span> 카메라 {cameraReady ? "정상" : "구도 확인 필요"}</div>
                     <div className="status-line"><span className={microphoneReady ? "ok" : "wait"}>{microphoneReady ? "✓" : "!"}</span> {microphoneStatus}</div>
                     <div className="mic-meter" aria-label={`마이크 입력 ${microphoneLevel}%`}>
                       <span style={{ width: `${microphoneLevel}%` }} />
                     </div>
-                    <div className="status-line"><span className={deviceState.networkStable ? "ok" : "wait"}>{deviceState.networkStable ? "✓" : "!"}</span> 네트워크 {deviceState.networkStable ? "정상" : "확인 필요"}</div>
+                    <div className="status-line"><span className={deviceState.networkStable ? "ok" : "wait"}>{deviceState.networkStable ? "✓" : "!"}</span> {networkStatus}</div>
                   </div>
                   <div className="candidate-device-controls">
                     <select
@@ -1532,12 +1657,15 @@ function InterviewRuntimePanel({
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState("");
-  const [cameraPreviewStatus, setCameraPreviewStatus] = useState("카메라 대기");
+  const [, setCameraPreviewStatus] = useState("카메라 대기");
+  const [cameraFramingState, setCameraFramingState] = useState<CameraFramingState>("idle");
   const [microphoneReady, setMicrophoneReady] = useState(false);
   const [microphoneDevices, setMicrophoneDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedMicrophoneId, setSelectedMicrophoneId] = useState("");
   const [microphoneStatus, setMicrophoneStatus] = useState("마이크 대기");
   const [microphoneLevel, setMicrophoneLevel] = useState(0);
+  const [networkReady, setNetworkReady] = useState(false);
+  const [networkStatus, setNetworkStatus] = useState("네트워크 대기");
   const [recording, setRecording] = useState(false);
   const [recordedFileName, setRecordedFileName] = useState("");
   const [setupCompleted, setSetupCompleted] = useState(false);
@@ -1555,6 +1683,7 @@ function InterviewRuntimePanel({
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const microphoneFrameRef = useRef<number | null>(null);
+  const cameraQualityIntervalRef = useRef<number | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<BlobPart[]>([]);
   const recordingStartedAtRef = useRef(0);
@@ -1579,6 +1708,7 @@ function InterviewRuntimePanel({
         data?.questions.questions.some((question) => question.questionId === currentQuestion.questionId && question.answered)),
   );
   const currentQuestionReplayUsed = Boolean(currentQuestion && replayedQuestionIds.has(currentQuestion.questionId));
+  const deviceTestSentence = useMemo(() => pickDeviceTestSentence(), []);
 
   const stopQuestionSpeech = useCallback(() => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
@@ -1706,9 +1836,13 @@ function InterviewRuntimePanel({
 
   const attachRuntimeVideoRef = useCallback((node: HTMLVideoElement | null) => {
     videoRef.current = node;
-    if (!node || !streamRef.current) return;
+    if (!node || !streamRef.current) {
+      stopRuntimeCameraQualityMonitor();
+      return;
+    }
 
     const attachRun = ++videoAttachRunRef.current;
+    stopRuntimeCameraQualityMonitor();
     setCameraPreviewStatus("카메라 화면 연결 중");
     void (async () => {
       try {
@@ -1717,11 +1851,22 @@ function InterviewRuntimePanel({
         const previewInfo = await attachMediaStreamToVideo(node, stream);
         assertCameraPreviewHasFrame(previewInfo);
         if (videoRef.current !== node || videoAttachRunRef.current !== attachRun) return;
-        setCameraReady(true);
-        setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo));
+        const cameraQuality = assessCameraQuality(node);
+        const cameraFraming = await assessCameraFraming(node);
+        const cameraOk = cameraQuality.ok && !cameraFraming.blocking;
+        setCameraReady(cameraOk);
+        setCameraFramingState(cameraFraming.state);
+        setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, undefined, cameraQuality, cameraFraming));
+        cameraQualityIntervalRef.current = startCameraQualityMonitor(node, previewInfo, undefined, (quality, framing, status) => {
+          if (videoRef.current !== node || videoAttachRunRef.current !== attachRun) return;
+          setCameraReady(quality.ok && !framing.blocking);
+          setCameraFramingState(framing.state);
+          setCameraPreviewStatus(status);
+        });
       } catch (previewError) {
         if (videoRef.current !== node || videoAttachRunRef.current !== attachRun) return;
         setCameraReady(false);
+        setCameraFramingState("idle");
         if (mode !== "recruiting") {
           setSetupCompleted(false);
         }
@@ -1771,6 +1916,7 @@ function InterviewRuntimePanel({
         recorderRef.current.stop();
       }
       stopQuestionSpeech();
+      stopRuntimeCameraQualityMonitor();
       stopMicrophoneMeter();
       stopMediaStream(streamRef.current);
     };
@@ -2012,6 +2158,25 @@ function InterviewRuntimePanel({
     setMicrophoneLevel(0);
   }
 
+  function stopRuntimeCameraQualityMonitor() {
+    if (cameraQualityIntervalRef.current !== null) {
+      window.clearInterval(cameraQualityIntervalRef.current);
+      cameraQualityIntervalRef.current = null;
+    }
+  }
+
+  function startRuntimeCameraQualityMonitor(previewInfo: CameraPreviewInfo, fallbackLabel?: string) {
+    stopRuntimeCameraQualityMonitor();
+    const video = videoRef.current;
+    if (!video) return;
+
+    cameraQualityIntervalRef.current = startCameraQualityMonitor(video, previewInfo, fallbackLabel, (quality, framing, status) => {
+      setCameraReady(quality.ok && !framing.blocking);
+      setCameraFramingState(framing.state);
+      setCameraPreviewStatus(status);
+    });
+  }
+
   function startMicrophoneMeter(stream: MediaStream) {
     stopMicrophoneMeter();
     const [audioTrack] = stream.getAudioTracks();
@@ -2049,11 +2214,14 @@ function InterviewRuntimePanel({
 
     try {
       stopMicrophoneMeter();
+      stopRuntimeCameraQualityMonitor();
       stopMediaStream(streamRef.current);
       setCameraReady(false);
+      setCameraFramingState("idle");
       setMicrophoneReady(false);
       setCameraPreviewStatus("카메라 연결 중");
-      setMicrophoneStatus("마이크 연결 중");
+      setMicrophoneStatus(`테스트 문장을 읽어주세요. 예: ${deviceTestSentence}`);
+      setNetworkStatus("네트워크 확인 중");
       const streamResult = await getCameraMediaStream(selectedCameraId, selectedMicrophoneId);
       const { stream, fallbackLabel } = streamResult;
       streamRef.current = stream;
@@ -2064,19 +2232,41 @@ function InterviewRuntimePanel({
       }
       assertCameraPreviewHasFrame(previewInfo);
 
-      setCameraReady(true);
-      setMicrophoneReady(streamResult.audioEnabled);
-      setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, fallbackLabel));
-      setMicrophoneStatus(formatMicrophoneStatus(streamResult));
+      const cameraQuality = assessCameraQuality(videoRef.current);
+      const cameraFraming = await assessCameraFraming(videoRef.current);
+      const microphoneQuality = streamResult.audioEnabled
+        ? await measureMicrophoneQuality(stream, setMicrophoneLevel)
+        : { ok: false, peakLevel: 0, message: formatMicrophoneStatus(streamResult) };
+      const networkQuality = await checkInterviewNetworkQuality();
+      const cameraOk = cameraQuality.ok && !cameraFraming.blocking;
+      setCameraReady(cameraOk);
+      setCameraFramingState(cameraFraming.state);
+      setMicrophoneReady(streamResult.audioEnabled && microphoneQuality.ok);
+      setNetworkReady(networkQuality.ok);
+      setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, fallbackLabel, cameraQuality, cameraFraming));
+      setMicrophoneStatus(
+        streamResult.audioEnabled ? formatMicrophoneQualityStatus(streamResult, microphoneQuality) : microphoneQuality.message,
+      );
+      setNetworkStatus(networkQuality.message);
+      startRuntimeCameraQualityMonitor(previewInfo, fallbackLabel);
       if (streamResult.audioEnabled) {
         startMicrophoneMeter(stream);
       } else {
         setMicrophoneLevel(0);
       }
       await refreshCameraDevices();
-      setMessage(fallbackLabel ? `카메라가 연결되었습니다. ${fallbackLabel}` : "카메라와 마이크가 연결되었습니다.");
+      setMessage(
+        fallbackLabel
+          ? `카메라가 연결되었습니다. ${fallbackLabel}`
+          : cameraOk && streamResult.audioEnabled && microphoneQuality.ok && networkQuality.ok
+            ? "카메라 밝기, 마이크 입력, 네트워크 상태가 적정합니다."
+            : "장치 점검 기준을 통과하지 못했습니다. 안내에 따라 카메라 위치, 조명, 마이크 입력을 조정해주세요.",
+      );
     } catch (cameraError) {
       setCameraReady(false);
+      setCameraFramingState("idle");
+      setNetworkReady(false);
+      stopRuntimeCameraQualityMonitor();
       stopMediaStream(streamRef.current);
       streamRef.current = null;
       stopMicrophoneMeter();
@@ -2085,6 +2275,9 @@ function InterviewRuntimePanel({
       setCameraPreviewStatus(`카메라 연결 실패: ${errorMessage}`);
       setMicrophoneReady(microphoneProbe.ok);
       setMicrophoneStatus(formatMicrophoneProbeStatus(microphoneProbe));
+      const networkQuality = await checkInterviewNetworkQuality();
+      setNetworkReady(networkQuality.ok);
+      setNetworkStatus(networkQuality.message);
       setMessage(
         microphoneProbe.ok
           ? `${errorMessage} 마이크는 연결되지만 녹화를 위해 카메라 권한도 필요합니다.`
@@ -2106,15 +2299,15 @@ function InterviewRuntimePanel({
   async function handleEnterInterview() {
     warmUpInterviewAudioOutput();
     if (!data) return;
-    if (!streamRef.current || !cameraReady || !microphoneReady) {
+    if (!streamRef.current || !cameraReady || !microphoneReady || !networkReady) {
       await handleEnableCamera();
     }
 
     const stream = streamRef.current;
     const hasLiveVideo = stream?.getVideoTracks().some((track) => track.readyState === "live") ?? false;
     const hasLiveAudio = stream?.getAudioTracks().some((track) => track.readyState === "live") ?? false;
-    if (!hasLiveVideo || !hasLiveAudio) {
-      setMessage("카메라와 마이크 점검을 완료한 뒤 면접을 시작해주세요.");
+    if (!hasLiveVideo || !hasLiveAudio || !networkReady) {
+      setMessage("카메라, 마이크, 네트워크 점검을 완료한 뒤 면접을 시작해주세요.");
       return;
     }
 
@@ -2133,7 +2326,7 @@ function InterviewRuntimePanel({
           toDeviceCheckRequest({
             cameraGranted: true,
             microphoneGranted: true,
-            networkStable: navigator.onLine,
+            networkStable: networkReady,
           }),
         );
         await api.startInterview(data.runtime.applicationId);
@@ -2980,30 +3173,26 @@ function InterviewRuntimePanel({
                     : "채용 AI 면접을 시작하거나 재개하기 전에 카메라와 마이크를 다시 점검합니다."}
                 </p>
               </div>
-              <button className="btn primary" type="button" disabled={busy || !cameraReady || !microphoneReady} onClick={() => void handleEnterInterview()}>
+              <button className="btn primary" type="button" disabled={busy || !cameraReady || !microphoneReady || !networkReady} onClick={() => void handleEnterInterview()}>
                 면접 시작
               </button>
             </div>
             <div className="candidate-device-setup__grid">
-              <div className="video-box candidate-device-preview">
-                <video ref={attachRuntimeVideoRef} autoPlay muted playsInline />
-                <div className="camera-debug">{cameraPreviewStatus}</div>
-                {!cameraReady ? (
-                  <div className="vlabel">
-                    <div className="vcam">⌾</div>
-                    카메라 미리보기
-                  </div>
-                ) : null}
+              <div className="candidate-device-main">
+                <div className="video-box candidate-device-preview">
+                  <video ref={attachRuntimeVideoRef} autoPlay muted playsInline />
+                  <CameraFramingOverlay state={cameraFramingState} testSentence={deviceTestSentence} />
+                </div>
               </div>
               <aside className="panel candidate-runtime-status-panel">
                 <p className="panel-title">장치 상태</p>
                 <div className="status-list">
-                  <div className="status-line"><span className={cameraReady ? "ok" : "wait"}>{cameraReady ? "✓" : "!"}</span> 카메라 {cameraReady ? "정상" : "대기"}</div>
+                  <div className="status-line"><span className={cameraReady ? "ok" : "wait"}>{cameraReady ? "✓" : "!"}</span> 카메라 {cameraReady ? "정상" : "구도 확인 필요"}</div>
                   <div className="status-line"><span className={microphoneReady ? "ok" : "wait"}>{microphoneReady ? "✓" : "!"}</span> {microphoneStatus}</div>
                   <div className="mic-meter" aria-label={`마이크 입력 ${microphoneLevel}%`}>
                     <span style={{ width: `${microphoneLevel}%` }} />
                   </div>
-                  <div className="status-line"><span className="ok">✓</span> 네트워크 정상</div>
+                  <div className="status-line"><span className={networkReady ? "ok" : "wait"}>{networkReady ? "✓" : "!"}</span> {networkStatus}</div>
                 </div>
                 <div className="candidate-device-controls">
                   <select
@@ -3071,15 +3260,8 @@ function InterviewRuntimePanel({
             <section className="iv-grid">
               <div className="video-box">
                 <video ref={attachRuntimeVideoRef} autoPlay muted playsInline />
-                <div className="camera-debug">{cameraPreviewStatus}</div>
                 {recording ? (
                   <div className="recbadge"><span className="pulse" /> 녹화 중</div>
-                ) : null}
-                {!cameraReady ? (
-                  <div className="vlabel">
-                    <div className="vcam">⌾</div>
-                    카메라 미리보기
-                  </div>
                 ) : null}
               </div>
 
@@ -3091,7 +3273,7 @@ function InterviewRuntimePanel({
                   <div className="mic-meter" aria-label={`마이크 입력 ${microphoneLevel}%`}>
                     <span style={{ width: `${microphoneLevel}%` }} />
                   </div>
-                  <div className="status-line"><span className="ok">✓</span> 네트워크 정상</div>
+                  <div className="status-line"><span className={networkReady ? "ok" : "wait"}>{networkReady ? "✓" : "!"}</span> {networkStatus}</div>
                   <div className="status-line"><span className={answerProcessingReady ? "ok" : "wait"}>{answerProcessingReady ? "✓" : "!"}</span> {answerProcessingLabel}</div>
                   <div className="status-line"><span className={recordedFileName || answer.videoFile ? "ok" : "wait"}>{recordedFileName || answer.videoFile ? "✓" : "!"}</span> 답변 파일 {recordedFileName || answer.videoFile ? "준비 완료" : "대기"}</div>
                 </div>
@@ -4172,6 +4354,27 @@ function formatProcessTypeLabel(processType: string): string {
   return labels[processType] ?? processType;
 }
 
+function pickDeviceTestSentence(): string {
+  return DEVICE_TEST_SENTENCES[Math.floor(Math.random() * DEVICE_TEST_SENTENCES.length)] ?? DEVICE_TEST_SENTENCES[0];
+}
+
+function CameraFramingOverlay({ state, testSentence }: { state: CameraFramingState; testSentence: string }) {
+  return (
+    <div className={`camera-framing-overlay ${state === "warn" ? "warn" : ""}`}>
+      <span className="camera-framing-overlay__face" />
+      <span className="camera-framing-overlay__shoulders" />
+      <span className="camera-framing-overlay__center" />
+      <span className="camera-framing-overlay__label">
+        {state === "warn" ? "얼굴을 가이드 안으로 맞춰주세요" : "얼굴과 상반신을 선 안에 맞춰주세요"}
+      </span>
+      <span className="camera-framing-overlay__prompt" aria-label="마이크 테스트 문장">
+        <span>마이크 테스트 문장</span>
+        <strong>{testSentence}</strong>
+      </span>
+    </div>
+  );
+}
+
 function useCandidateResource<T>(load: () => Promise<T>, dependencies: DependencyList) {
   const [state, setState] = useState<AsyncState<T>>({ loading: true });
   const [refreshKey, setRefreshKey] = useState(0);
@@ -4488,13 +4691,37 @@ function stopMediaStream(stream: MediaStream | null) {
   stream?.getTracks().forEach((track) => track.stop());
 }
 
+function startCameraQualityMonitor(
+  video: HTMLVideoElement,
+  previewInfo: CameraPreviewInfo,
+  fallbackLabel: string | undefined,
+  onQualityChange: (quality: CameraQualityResult, framing: CameraFramingResult, status: string) => void,
+): number {
+  const update = async () => {
+    const quality = assessCameraQuality(video);
+    const framing = await assessCameraFraming(video);
+    onQualityChange(quality, framing, formatCameraPreviewStatus(previewInfo, fallbackLabel, quality, framing));
+  };
+
+  void update();
+  return window.setInterval(update, 600);
+}
+
 async function getCameraMediaStream(cameraDeviceId = "", microphoneDeviceId = ""): Promise<CameraStreamResult> {
   const videoAttempts: Array<MediaTrackConstraints | boolean> = cameraDeviceId
     ? [{ deviceId: { ideal: cameraDeviceId } }, true]
     : [{ facingMode: "user" }, true];
   const audioAttempts: Array<MediaTrackConstraints | boolean> = microphoneDeviceId
-    ? [{ deviceId: { ideal: microphoneDeviceId } }, true]
-    : [true];
+    ? [
+        {
+          deviceId: { ideal: microphoneDeviceId },
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        true,
+      ]
+    : [{ echoCancellation: true, noiseSuppression: true, autoGainControl: true }, true];
   let lastError: unknown;
   let lastAudioError: unknown;
 
@@ -4617,11 +4844,262 @@ function assertCameraPreviewHasFrame(info?: CameraPreviewInfo): asserts info is 
   }
 }
 
-function formatCameraPreviewStatus(info?: CameraPreviewInfo, fallbackLabel?: string): string {
+function assessCameraQuality(video: HTMLVideoElement | null): CameraQualityResult {
+  if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) {
+    return { ok: false, message: "카메라 화면을 확인할 수 없습니다." };
+  }
+
+  const canvas = document.createElement("canvas");
+  const width = 32;
+  const height = 18;
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) {
+    return { ok: true, message: "카메라 화면이 표시됩니다." };
+  }
+
+  context.drawImage(video, 0, 0, width, height);
+  const data = context.getImageData(0, 0, width, height).data;
+  let total = 0;
+  for (let index = 0; index < data.length; index += 4) {
+    total += (data[index] + data[index + 1] + data[index + 2]) / 3;
+  }
+
+  const brightness = Math.round(total / (data.length / 4));
+  if (brightness < 40) {
+    return { ok: false, brightness, message: "카메라 화면이 어둡습니다. 조명을 켜거나 밝은 곳으로 이동해주세요." };
+  }
+  if (brightness > 225) {
+    return { ok: false, brightness, message: "카메라 화면이 너무 밝습니다. 강한 역광이나 조명을 조정해주세요." };
+  }
+
+  return { ok: true, brightness, message: "카메라 밝기가 적정합니다." };
+}
+
+async function assessCameraFraming(video: HTMLVideoElement | null): Promise<CameraFramingResult> {
+  if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) {
+    return { state: "warn", blocking: true, message: "카메라 구도를 확인할 수 없습니다." };
+  }
+
+  const nativeFace = await detectNativeFace(video);
+  if (nativeFace) {
+    return evaluateCameraFraming(nativeFace, video);
+  }
+
+  const mediaPipeFace = await detectMediaPipeFace(video);
+  if (mediaPipeFace) {
+    return evaluateCameraFraming(mediaPipeFace, video);
+  }
+
+  if (isNativeFaceDetectorSupported()) {
+    return { state: "warn", blocking: true, message: "얼굴이 감지되지 않습니다. 카메라를 정면으로 바라봐주세요." };
+  }
+
+  const mediaPipeDetector = await getMediaPipeFaceDetector();
+  if (mediaPipeDetector) {
+    return { state: "warn", blocking: true, message: "얼굴이 감지되지 않습니다. 카메라를 정면으로 바라봐주세요." };
+  }
+
+  return { state: "unsupported", blocking: false, message: "자동 구도 판정을 사용할 수 없어 가이드만 표시합니다." };
+}
+
+function isNativeFaceDetectorSupported(): boolean {
+  return Boolean((window as FaceDetectorWindow).FaceDetector);
+}
+
+async function detectNativeFace(video: HTMLVideoElement): Promise<FaceBoundingBox | undefined> {
+  const FaceDetector = (window as FaceDetectorWindow).FaceDetector;
+  if (!FaceDetector) {
+    return undefined;
+  }
+
+  try {
+    const detector = new FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
+    const faces = await detector.detect(video);
+    const [face] = faces;
+    if (!face) return undefined;
+    const box = face.boundingBox;
+    return { x: box.x, y: box.y, width: box.width, height: box.height };
+  } catch {
+    return undefined;
+  }
+}
+
+async function detectMediaPipeFace(video: HTMLVideoElement): Promise<FaceBoundingBox | undefined> {
+  const detector = await getMediaPipeFaceDetector();
+  if (!detector) return undefined;
+
+  try {
+    const result = detector.detectForVideo(video, performance.now());
+    const box = result.detections?.[0]?.boundingBox;
+    if (!box || box.width === undefined || box.height === undefined) return undefined;
+    return {
+      x: box.originX ?? box.x ?? 0,
+      y: box.originY ?? box.y ?? 0,
+      width: box.width,
+      height: box.height,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+async function getMediaPipeFaceDetector(): Promise<MediaPipeFaceDetectorInstance | null> {
+  if (typeof window === "undefined") return null;
+  mediaPipeFaceDetectorPromise ??= (async () => {
+    try {
+      const { FaceDetector, FilesetResolver } = await import("@mediapipe/tasks-vision");
+      const vision = await FilesetResolver.forVisionTasks(
+        `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_TASKS_VERSION}/wasm`,
+      );
+      return (await FaceDetector.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: MEDIAPIPE_FACE_DETECTOR_MODEL_URL,
+          delegate: "GPU",
+        },
+        runningMode: "VIDEO",
+      })) as MediaPipeFaceDetectorInstance;
+    } catch {
+      return null;
+    }
+  })();
+
+  return mediaPipeFaceDetectorPromise;
+}
+
+function evaluateCameraFraming(box: FaceBoundingBox, video: HTMLVideoElement): CameraFramingResult {
+  const centerX = (box.x + box.width / 2) / video.videoWidth;
+  const centerY = (box.y + box.height / 2) / video.videoHeight;
+  const widthRatio = box.width / video.videoWidth;
+  const inGuide =
+    centerX >= 0.38 &&
+    centerX <= 0.62 &&
+    centerY >= 0.22 &&
+    centerY <= 0.48 &&
+    widthRatio >= 0.12 &&
+    widthRatio <= 0.36;
+
+  if (!inGuide) {
+    return { state: "warn", blocking: true, message: "얼굴을 화면 중앙 가이드 안으로 맞춰주세요." };
+  }
+
+  return { state: "ok", blocking: false, message: "얼굴 위치가 적정합니다." };
+}
+
+async function measureMicrophoneQuality(
+  stream: MediaStream,
+  onLevel?: (level: number) => void,
+): Promise<MicrophoneQualityResult> {
+  const [audioTrack] = stream.getAudioTracks();
+  if (!audioTrack || audioTrack.readyState !== "live") {
+    return { ok: false, peakLevel: 0, message: "마이크 입력을 확인할 수 없습니다." };
+  }
+
+  const AudioContextConstructor = window.AudioContext;
+  if (!AudioContextConstructor) {
+    return { ok: false, peakLevel: 0, message: "이 브라우저에서는 마이크 입력 품질을 측정할 수 없습니다." };
+  }
+
+  const audioContext = new AudioContextConstructor();
+  const analyser = audioContext.createAnalyser();
+  analyser.fftSize = 256;
+  audioContext.createMediaStreamSource(stream).connect(analyser);
+  const samples = new Uint8Array(analyser.frequencyBinCount);
+  let peakLevel = 0;
+  const startedAt = Date.now();
+
+  await new Promise<void>((resolve) => {
+    const tick = () => {
+      analyser.getByteTimeDomainData(samples);
+      let peak = 0;
+      samples.forEach((sample) => {
+        peak = Math.max(peak, Math.abs(sample - 128));
+      });
+      const level = Math.min(100, Math.round((peak / 128) * 100));
+      peakLevel = Math.max(peakLevel, level);
+      onLevel?.(level);
+
+      if (Date.now() - startedAt >= 1800) {
+        resolve();
+        return;
+      }
+
+      window.requestAnimationFrame(tick);
+    };
+
+    tick();
+  });
+
+  await audioContext.close();
+
+  if (peakLevel <= 5) {
+    return { ok: false, peakLevel, message: "마이크 입력이 감지되지 않습니다. 테스트 문장을 소리 내어 읽어주세요." };
+  }
+  if (peakLevel < 20) {
+    return { ok: false, peakLevel, message: "마이크 입력이 너무 작습니다. 마이크를 가까이 두거나 입력 장치를 확인해주세요." };
+  }
+  if (peakLevel > 85) {
+    return { ok: false, peakLevel, message: "마이크 입력이 너무 큽니다. 마이크를 조금 멀리 두거나 입력 볼륨을 낮춰주세요." };
+  }
+
+  return { ok: true, peakLevel, message: "마이크 입력이 적정합니다." };
+}
+
+async function checkInterviewNetworkQuality(): Promise<NetworkQualityResult> {
+  if (!navigator.onLine) {
+    return { ok: false, message: "네트워크 연결이 끊겨 있습니다." };
+  }
+
+  const healthUrl = `${API_BASE_URL}/api/v1/health`;
+  let successCount = 0;
+  let totalDurationMs = 0;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 1500);
+    const startedAt = performance.now();
+    try {
+      const response = await fetch(healthUrl, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (response.ok) {
+        successCount += 1;
+        totalDurationMs += performance.now() - startedAt;
+      }
+    } catch {
+      // Failed attempts are reflected in successCount.
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }
+
+  if (successCount < 2) {
+    return { ok: false, message: "네트워크 확인이 불안정합니다. 연결 상태를 확인해주세요." };
+  }
+
+  const averageMs = Math.round(totalDurationMs / successCount);
+  if (averageMs > 1000) {
+    return { ok: false, message: `네트워크 응답이 느립니다. 평균 ${averageMs}ms` };
+  }
+
+  return { ok: true, message: `네트워크 정상 · 평균 ${averageMs}ms` };
+}
+
+function formatCameraPreviewStatus(
+  info?: CameraPreviewInfo,
+  fallbackLabel?: string,
+  quality?: CameraQualityResult,
+  framing?: CameraFramingResult,
+): string {
   if (!info) return "카메라 연결됨";
   const size = info.width > 0 && info.height > 0 ? `${info.width}x${info.height}` : "프레임 없음";
   const label = info.trackLabel || "선택된 카메라";
-  return [label, size, info.trackState ?? "live", fallbackLabel].filter(Boolean).join(" · ");
+  const brightness = quality?.brightness === undefined ? undefined : `밝기 ${quality.brightness}`;
+  return [label, size, info.trackState ?? "live", brightness, quality?.message, framing?.message, fallbackLabel]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function formatMicrophoneStatus(result: CameraStreamResult): string {
@@ -4629,6 +5107,15 @@ function formatMicrophoneStatus(result: CameraStreamResult): string {
     return `${result.audioLabel || "선택된 마이크"} · ${result.audioState ?? "live"}`;
   }
   return `마이크 실패: ${formatMediaError(result.audioError, "microphone")}`;
+}
+
+function formatMicrophoneQualityStatus(
+  result: CameraStreamResult,
+  quality: MicrophoneQualityResult,
+): string {
+  const label = result.audioLabel || "선택된 마이크";
+  const state = result.audioState ?? "live";
+  return `${label} · ${state} · 입력 ${quality.peakLevel}% · ${quality.message}`;
 }
 
 function formatMicrophoneProbeStatus(result: MicrophoneProbeResult): string {
