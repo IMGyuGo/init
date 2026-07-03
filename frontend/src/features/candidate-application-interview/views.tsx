@@ -362,27 +362,31 @@ export function CandidateApplicationView({
       <fieldset className="candidate-apply-consent">
         <legend>동의 및 제출 전 확인</legend>
         <div className="candidate-apply-consent__checks">
-        {applicationConsentOptions.map((consentType) => (
-          <label key={consentType}>
-            <input
-              checked={state.consentTypes.includes(consentType)}
-              type="checkbox"
-              onChange={() => onStateChange({ ...state, consentTypes: toggleConsent(state.consentTypes, consentType) })}
-            />
-            {consentLabel[consentType]}
-          </label>
-        ))}
+          {applicationConsentOptions.map((consentType) => (
+            <label key={consentType}>
+              <input
+                checked={state.consentTypes.includes(consentType)}
+                type="checkbox"
+                onChange={() =>
+                  onStateChange({ ...state, consentTypes: toggleConsent(state.consentTypes, consentType) })
+                }
+              />
+              {consentLabel[consentType]}
+            </label>
+          ))}
         </div>
         <p>필수값, 이력서 업로드, 필수 동의가 모두 완료되면 제출 버튼이 활성화됩니다.</p>
       </fieldset>
 
       <footer className="candidate-apply-footer">
         <div>
-          <a className="candidate-apply-button candidate-apply-button--secondary" href={candidateApplicationInterviewRoutes.jobDetail(job.jobId)}>회사 상세로</a>
-          <button className="candidate-apply-button candidate-apply-button--secondary" type="button">임시저장</button>
-          <a className="candidate-apply-cancel" href={candidateApplicationInterviewRoutes.jobs}>지원 취소</a>
+          <a className="btn secondary" href={candidateApplicationInterviewRoutes.jobDetail(job.jobId)}>
+            회사 상세로
+          </a>
+          <button className="btn secondary" type="button">임시저장</button>
+          <a className="btn secondary" href={candidateApplicationInterviewRoutes.jobs}>지원 취소</a>
         </div>
-        <button className="candidate-apply-button candidate-apply-button--primary" disabled={!canSubmit} type="submit">
+        <button className="btn primary" disabled={!canSubmit} type="submit">
           {job.alreadyApplied ? "이미 지원 완료" : "지원서 제출"}
         </button>
       </footer>

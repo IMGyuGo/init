@@ -57,6 +57,7 @@ import {
   defaultStartMockInterviewState,
   createResumeUploadStateFromFile,
   getCandidateApplicationReportHref,
+  getMockInterviewDeviceCheckHref,
   getMockReportHref,
   inferPortfolioLinkType,
   isAllowedInterviewMediaMimeType,
@@ -282,24 +283,32 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
 
   return (
     <CandidatePageShell active="jobs">
-      {data ? (
-        <header className="candidate-apply-head">
-          <h1>지원서 제출</h1>
-          <p>{data.data.job.companyName} · {data.data.job.title}</p>
-        </header>
-      ) : null}
-      <StatusNotice loading={loading || busy} error={error} message={message} />
-      {data ? (
-        <CandidateApplicationView
-          busy={busy}
-          job={data.data.job}
-          latestResumeFile={latestResumeFile}
-          state={form}
-          onResumeFileSelect={handleResumeFileSelect}
-          onStateChange={setForm}
-          onSubmit={handleApplicationSubmit}
-        />
-      ) : null}
+      <section className="candidate-apply-shell glass-page">
+        {data ? (
+          <CandidatePageHead
+            eyebrow=""
+            title="지원서 제출"
+            description={`${data.data.job.companyName} · ${data.data.job.title}`}
+            actions={
+              <Link className="btn secondary" href={candidateApplicationInterviewRoutes.jobDetail(jobId)}>
+                채용공고
+              </Link>
+            }
+          />
+        ) : null}
+        <StatusNotice loading={loading || busy} error={error} message={message} />
+        {data ? (
+          <CandidateApplicationView
+            busy={busy}
+            job={data.data.job}
+            latestResumeFile={latestResumeFile}
+            state={form}
+            onResumeFileSelect={handleResumeFileSelect}
+            onStateChange={setForm}
+            onSubmit={handleApplicationSubmit}
+          />
+        ) : null}
+      </section>
     </CandidatePageShell>
   );
 }
@@ -322,67 +331,69 @@ export function CandidateApplicationsPage() {
 
   return (
     <CandidatePageShell active="applications">
-      <CandidatePageHead
-        eyebrow=""
-        title="지원현황"
-        description="지원한 공고의 진행 상태를 확인합니다."
-        actions={
-          <label className="candidate-status-filter">
-            <span className="sr-only">지원현황 상태 필터</span>
-            <select
-              value={statusFilter}
-              onChange={(event) => {
-                setStatusFilter(event.target.value as CandidateApplicationStatusFilter);
-                setSelectedApplicationId(undefined);
-                refresh();
-              }}
-            >
-              <option value="ALL">상태 필터</option>
-              <option value="WAITING">응시 대기</option>
-              <option value="IN_PROGRESS">진행 중</option>
-              <option value="COMPLETED">응시 완료</option>
-              <option value="REPORTING">리포트 진행</option>
-            </select>
-          </label>
-        }
-      />
-      <StatusNotice loading={loading} error={error} />
-      <section className="panel candidate-applications-panel">
-        {filteredApplications.length ? (
-          <ApplicationsTable
-            applications={filteredApplications}
-            selectedApplicationId={selectedApplication?.applicationId}
-            onSelect={(applicationId) => setSelectedApplicationId(applicationId)}
-          />
-        ) : (
-          <p className="empty">조건에 맞는 지원 건이 없습니다.</p>
-        )}
-      </section>
-      {selectedApplication ? (
-        <section className="panel candidate-selected-application">
-          <div className="candidate-selected-application__head">
-            <p className="panel-title">
-              선택한 지원 건 · {selectedApplication.companyName} / {selectedApplication.jobTitle}
-            </p>
-            <ApplicationStatusBadge
-              label={formatCandidateInterviewStatusLabel(selectedApplication.interviewStatus)}
-              tone={getCandidateInterviewStatusTone(selectedApplication.interviewStatus)}
+      <section className="candidate-applications-page glass-page">
+        <CandidatePageHead
+          eyebrow=""
+          title="지원현황"
+          description="지원한 공고의 진행 상태를 확인합니다."
+          actions={
+            <label className="candidate-status-filter">
+              <span className="sr-only">지원현황 상태 필터</span>
+              <select
+                value={statusFilter}
+                onChange={(event) => {
+                  setStatusFilter(event.target.value as CandidateApplicationStatusFilter);
+                  setSelectedApplicationId(undefined);
+                  refresh();
+                }}
+              >
+                <option value="ALL">상태 필터</option>
+                <option value="WAITING">응시 대기</option>
+                <option value="IN_PROGRESS">진행 중</option>
+                <option value="COMPLETED">응시 완료</option>
+                <option value="REPORTING">리포트 진행</option>
+              </select>
+            </label>
+          }
+        />
+        <StatusNotice loading={loading} error={error} />
+        <section className="panel candidate-applications-panel">
+          {filteredApplications.length ? (
+            <ApplicationsTable
+              applications={filteredApplications}
+              selectedApplicationId={selectedApplication?.applicationId}
+              onSelect={(applicationId) => setSelectedApplicationId(applicationId)}
             />
-          </div>
-          <div className="candidate-selected-application__notice">
-            AI 면접 방식, 유의사항, 답변 절차를 안내합니다.
-          </div>
-          {selectedApplicationAction?.href ? (
-            <Link className="btn primary lg candidate-application-start-button" href={selectedApplicationAction.href}>
-              {selectedApplicationAction.label}
-            </Link>
           ) : (
-            <span aria-disabled="true" className="btn primary lg candidate-application-start-button">
-              {selectedApplicationAction?.label ?? "진행 불가"}
-            </span>
+            <p className="empty">조건에 맞는 지원 건이 없습니다.</p>
           )}
         </section>
-      ) : null}
+        {selectedApplication ? (
+          <section className="panel candidate-selected-application">
+            <div className="candidate-selected-application__head">
+              <p className="panel-title">
+                선택한 지원 건 · {selectedApplication.companyName} / {selectedApplication.jobTitle}
+              </p>
+              <ApplicationStatusBadge
+                label={formatCandidateInterviewStatusLabel(selectedApplication.interviewStatus)}
+                tone={getCandidateInterviewStatusTone(selectedApplication.interviewStatus)}
+              />
+            </div>
+            <div className="candidate-selected-application__notice">
+              AI 면접 방식, 유의사항, 답변 절차를 안내합니다.
+            </div>
+            {selectedApplicationAction?.href ? (
+              <Link className="btn primary candidate-application-start-button" href={selectedApplicationAction.href}>
+                {selectedApplicationAction.label}
+              </Link>
+            ) : (
+              <span aria-disabled="true" className="btn primary candidate-application-start-button">
+                {selectedApplicationAction?.label ?? "진행 불가"}
+              </span>
+            )}
+          </section>
+        ) : null}
+      </section>
     </CandidatePageShell>
   );
 }
@@ -884,6 +895,7 @@ export function PublicCandidateInterviewPage({ applicationId }: { applicationId:
 export function CandidateMockInterviewStartPage() {
   const router = useRouter();
   const [state, setState] = useState<StartMockInterviewState>(defaultStartMockInterviewState);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const historyLoad = useCallback(() => getCandidateApi().listMockInterviewHistory(), []);
@@ -895,7 +907,7 @@ export function CandidateMockInterviewStartPage() {
     setMessage("");
     try {
       const result = await getCandidateApi().startMockInterview(toStartMockInterviewRequest(state));
-      router.push(candidateApplicationInterviewRoutes.mockInterview(result.data.sessionId));
+      router.push(getMockInterviewDeviceCheckHref(result.data));
     } catch (submitError) {
       setMessage(toErrorMessage(submitError));
     } finally {
@@ -905,84 +917,145 @@ export function CandidateMockInterviewStartPage() {
 
   return (
     <CandidatePageShell active="interview">
-      <CandidatePageHead
-        eyebrow="모의면접"
-        title="개인 연습용 AI 모의면접"
-        description="합격/탈락 판단 없이 연습 피드백만 제공합니다."
-        actions={<Link className="btn secondary" href={candidateApplicationInterviewRoutes.mockReports}>리포트 보기</Link>}
-      />
-      <StatusNotice loading={busy} message={message} />
-      <form className="panel detail-stack candidate-mock-start-form" onSubmit={handleSubmit}>
-        <p className="panel-title">모의면접 설정</p>
-        <div className="candidate-mock-filters">
-          <label className="candidate-filter-field">
-            <span>직무</span>
-            <select
-              value={state.jobRole}
-              onChange={(event) => setState((current) => ({ ...current, jobRole: event.target.value }))}
+      <section className="candidate-mock-start-page glass-page">
+        <CandidatePageHead
+          eyebrow="모의면접"
+          title="개인 연습용 AI 모의면접"
+          description="합격/탈락 판단 없이 연습 피드백만 제공합니다."
+          actions={
+            <Link className="btn secondary" href={candidateApplicationInterviewRoutes.mockReports}>
+              리포트 보기
+            </Link>
+          }
+        />
+        <StatusNotice loading={busy && !settingsOpen} message={message && !settingsOpen ? message : undefined} />
+        <section className="panel candidate-mock-guide">
+          <div>
+            <p className="eyebrow">진행 방식</p>
+            <h2>실제 면접처럼 장치 점검 후 답변을 녹화합니다.</h2>
+            <p>
+              질문 유형과 난이도를 고르면 카메라와 마이크를 먼저 확인한 뒤 AI 안내에 따라 답변을 진행합니다.
+            </p>
+          </div>
+          <ol className="candidate-mock-flow" aria-label="모의면접 진행 순서">
+            <li>
+              <span>1</span>
+              <strong>설정 선택</strong>
+              <p>직무, 난이도, 질문 유형을 선택합니다.</p>
+            </li>
+            <li>
+              <span>2</span>
+              <strong>장치 점검</strong>
+              <p>카메라와 마이크 입력을 확인합니다.</p>
+            </li>
+            <li>
+              <span>3</span>
+              <strong>답변 진행</strong>
+              <p>질문을 듣고 정해진 시간 안에 답변합니다.</p>
+            </li>
+          </ol>
+          <div className="candidate-mock-guide-actions">
+            <button className="btn primary" type="button" onClick={() => setSettingsOpen(true)}>
+              모의면접 설정하기
+            </button>
+          </div>
+        </section>
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h2>연습 이력</h2>
+              <p>이전 모의면접 기록과 리포트를 확인합니다.</p>
+            </div>
+          </div>
+          <StatusNotice loading={historyResource.loading} error={historyResource.error} />
+          {historyResource.data?.data.items.length ? (
+            <MockHistoryTable history={historyResource.data.data.items} />
+          ) : (
+            <p className="empty">모의면접 이력이 없습니다.</p>
+          )}
+        </section>
+        {settingsOpen ? (
+          <div className="modal-backdrop" role="presentation">
+            <form
+              className="modal wide-modal candidate-mock-settings-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="candidate-mock-settings-title"
+              onSubmit={handleSubmit}
             >
-              <option value="Backend">백엔드</option>
-              <option value="Frontend">프론트엔드</option>
-              <option value="Android">안드로이드</option>
-              <option value="iOS">iOS</option>
-              <option value="Full Stack">풀스택</option>
-              <option value="AI">AI/ML</option>
-            </select>
-          </label>
-          <label className="candidate-filter-field">
-            <span>난이도</span>
-            <select
-              value={state.difficulty}
-              onChange={(event) =>
-                setState((current) => ({
-                  ...current,
-                  difficulty: event.target.value as StartMockInterviewState["difficulty"],
-                }))
-              }
-            >
-              <option value="EASY">초급</option>
-              <option value="NORMAL">중급</option>
-              <option value="HARD">고급</option>
-            </select>
-          </label>
-          <fieldset className="candidate-filter-field candidate-question-type-filter">
-            <legend>질문 유형</legend>
-            <div className="candidate-filter-chips">
-              {questionTypeOptions.map((questionType) => (
-                <label key={questionType}>
-                  <input
-                    type="checkbox"
-                    checked={state.questionTypes?.includes(questionType) ?? false}
-                    onChange={() =>
+              <div className="modal-head">
+                <div>
+                  <h2 id="candidate-mock-settings-title">모의면접 설정</h2>
+                  <p>설정이 완료되면 카메라와 마이크 점검 화면으로 이동합니다.</p>
+                </div>
+                <button className="btn secondary compact" type="button" disabled={busy} onClick={() => setSettingsOpen(false)}>
+                  닫기
+                </button>
+              </div>
+              <StatusNotice loading={busy} message={message} />
+              <div className="candidate-mock-filters">
+                <label className="candidate-filter-field">
+                  <span>직무</span>
+                  <select
+                    value={state.jobRole}
+                    onChange={(event) => setState((current) => ({ ...current, jobRole: event.target.value }))}
+                  >
+                    <option value="Backend">백엔드</option>
+                    <option value="Frontend">프론트엔드</option>
+                    <option value="Android">안드로이드</option>
+                    <option value="iOS">iOS</option>
+                    <option value="Full Stack">풀스택</option>
+                    <option value="AI">AI/ML</option>
+                  </select>
+                </label>
+                <label className="candidate-filter-field">
+                  <span>난이도</span>
+                  <select
+                    value={state.difficulty}
+                    onChange={(event) =>
                       setState((current) => ({
                         ...current,
-                        questionTypes: toggleValue(current.questionTypes ?? [], questionType),
+                        difficulty: event.target.value as StartMockInterviewState["difficulty"],
                       }))
                     }
-                  />
-                  <span>{formatQuestionTypeLabel(questionType)}</span>
+                  >
+                    <option value="EASY">초급</option>
+                    <option value="NORMAL">중급</option>
+                    <option value="HARD">고급</option>
+                  </select>
                 </label>
-              ))}
-            </div>
-          </fieldset>
-        </div>
-        <div className="toolbar candidate-mock-start-actions">
-          <button className="btn primary" type="submit" disabled={busy}>모의면접 시작</button>
-        </div>
-      </form>
-      <section className="panel">
-        <div className="panel-head">
-          <div>
-            <h2>연습 이력</h2>
-            <p>이전 모의면접 기록과 리포트를 확인합니다.</p>
+                <fieldset className="candidate-filter-field candidate-question-type-filter">
+                  <legend>질문 유형</legend>
+                  <div className="candidate-filter-chips">
+                    {questionTypeOptions.map((questionType) => (
+                      <label key={questionType}>
+                        <input
+                          type="checkbox"
+                          checked={state.questionTypes?.includes(questionType) ?? false}
+                          onChange={() =>
+                            setState((current) => ({
+                              ...current,
+                              questionTypes: toggleValue(current.questionTypes ?? [], questionType),
+                            }))
+                          }
+                        />
+                        <span>{formatQuestionTypeLabel(questionType)}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              </div>
+              <div className="modal-actions split-actions">
+                <button className="btn secondary" type="button" disabled={busy} onClick={() => setSettingsOpen(false)}>
+                  취소
+                </button>
+                <button className="btn primary" type="submit" disabled={busy}>
+                  모의면접 시작
+                </button>
+              </div>
+            </form>
           </div>
-        </div>
-        <StatusNotice loading={historyResource.loading} error={historyResource.error} />
-        {historyResource.data?.data.items.length ? (
-          <MockHistoryTable history={historyResource.data.data.items} />
-        ) : (
-          <p className="empty">모의면접 이력이 없습니다.</p>
-        )}
+        ) : null}
       </section>
     </CandidatePageShell>
   );

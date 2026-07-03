@@ -533,6 +533,21 @@
   margin-bottom: 0;
 }
 
+:global(.candidate-apply-shell),
+:global(.candidate-applications-page),
+:global(.candidate-mock-start-page) {
+  display: grid;
+  gap: 0;
+}
+
+:global(.candidate-apply-shell .page-head p),
+:global(.candidate-applications-page .page-head p),
+:global(.candidate-mock-start-page .page-head p) {
+  margin: 6px 0 0;
+  color: var(--ink-300);
+  font-size: 14px;
+}
+
 :global(.candidate-jobs-page .panel-head) {
   align-items: center;
 }
@@ -1002,16 +1017,17 @@
 
 :global(.candidate-status-filter select) {
   min-width: 118px;
-  height: 46px;
-  padding: 0 38px 0 18px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 32px 0 12px;
   color: var(--ink-900);
-  font-size: 15px;
-  font-weight: 900;
+  font-size: 12px;
+  font-weight: 600;
   appearance: none;
   cursor: pointer;
   background: #fff;
   border: 1px solid var(--line-soft);
-  border-radius: 14px;
+  border-radius: 10px;
 }
 
 :global(.candidate-status-filter::after) {
@@ -1024,13 +1040,13 @@
 }
 
 :global(.candidate-applications-panel) {
-  padding: 28px;
+  padding: 16px 18px;
 }
 
 :global(.candidate-applications-table) {
   overflow: hidden;
   border: 1px solid var(--line-soft);
-  border-radius: 18px;
+  border-radius: 14px;
 }
 
 :global(.candidate-applications-table__row) {
@@ -1038,12 +1054,12 @@
   grid-template-columns: 1.1fr 2.5fr 1.3fr 1.3fr 1.3fr;
   align-items: center;
   width: 100%;
-  min-height: 72px;
-  padding: 0 28px;
+  min-height: 50px;
+  padding: 0 16px;
   color: var(--ink-800);
   font: inherit;
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 650;
   text-align: left;
   background: #fff;
   border: 0;
@@ -1073,10 +1089,10 @@
 }
 
 :global(.candidate-applications-table__head) {
-  min-height: 54px;
+  min-height: 38px;
   color: var(--ink-500);
-  font-size: 15px;
-  font-weight: 900;
+  font-size: 12px;
+  font-weight: 800;
   cursor: default;
   background: #f8f6fb;
 }
@@ -1085,10 +1101,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 32px;
-  padding: 0 15px;
-  font-size: 14px;
-  font-weight: 900;
+  min-height: 24px;
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 700;
   white-space: nowrap;
   border-radius: 999px;
 }
@@ -1115,14 +1131,14 @@
 
 :global(.candidate-report-empty) {
   color: var(--ink-700);
-  font-size: 18px;
-  font-weight: 900;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 :global(.candidate-selected-application) {
   display: grid;
-  gap: 22px;
-  padding: 30px;
+  gap: 14px;
+  padding: 16px 18px;
 }
 
 :global(.candidate-selected-application__head) {
@@ -1134,18 +1150,22 @@
 
 :global(.candidate-selected-application__head .panel-title) {
   margin: 0;
-  font-size: 20px;
+  font-size: 15px;
 }
 
 :global(.candidate-selected-application__notice) {
-  min-height: 72px;
-  padding: 22px 24px;
+  min-height: 44px;
+  padding: 12px 14px;
   color: var(--ink-500);
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 650;
   background: #f6f4fd;
   border: 1px dashed #e3def4;
-  border-radius: 14px;
+  border-radius: 12px;
+}
+
+:global(.candidate-application-start-button) {
+  justify-self: start;
 }
 
 :global(.candidate-consent-chips) {
@@ -1215,20 +1235,89 @@
   border-radius: 999px;
 }
 
-:global(.candidate-mock-start-form) {
-  gap: 24px;
+:global(.candidate-mock-guide),
+:global(.candidate-mock-start-form),
+:global(.candidate-mock-settings-modal) {
+  display: grid;
+  gap: 14px;
+}
+
+:global(.candidate-mock-guide h2) {
+  margin: 0;
+  color: var(--ink-900);
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+:global(.candidate-mock-guide p) {
+  margin: 6px 0 0;
+  color: var(--ink-500);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+:global(.candidate-mock-flow) {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+:global(.candidate-mock-flow li) {
+  display: grid;
+  gap: 6px;
+  min-height: 116px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+}
+
+:global(.candidate-mock-flow li > span) {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  background: var(--brand-strong);
+  border-radius: 10px;
+}
+
+:global(.candidate-mock-flow strong) {
+  color: var(--ink-900);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+:global(.candidate-mock-flow p) {
+  margin: 0;
+  color: var(--ink-500);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+:global(.candidate-mock-guide-actions) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 :global(.candidate-mock-filters) {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) minmax(320px, 1.25fr);
-  gap: 18px;
+  grid-template-columns: minmax(160px, 0.9fr) minmax(160px, 0.9fr) minmax(260px, 1.4fr);
+  gap: 12px;
   align-items: start;
 }
 
 :global(.candidate-filter-field) {
   display: grid;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
   padding: 0;
   margin: 0;
@@ -1238,50 +1327,58 @@
 :global(.candidate-filter-field > span),
 :global(.candidate-filter-field legend) {
   color: var(--ink-900);
-  font-size: 15px;
-  font-weight: 800;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 :global(.candidate-filter-field select) {
   width: 100%;
-  min-height: 70px;
-  padding: 0 20px;
+  min-height: 36px;
+  padding: 0 12px;
   color: var(--ink-900);
-  font-size: 15px;
-  font-weight: 800;
-  background: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.85);
   border: 1px solid var(--line-soft);
-  border-radius: 12px;
+  border-radius: 10px;
 }
 
 :global(.candidate-filter-chips) {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 :global(.candidate-filter-chips label) {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 48px;
-  padding: 0 18px;
+  min-height: 32px;
+  padding: 0 12px;
   color: var(--ink-900);
-  font-size: 14px;
-  font-weight: 800;
-  background: #f5f3fb;
+  font-size: 12px;
+  font-weight: 650;
+  background: rgba(255, 255, 255, 0.72);
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: 10px;
 }
 
 :global(.candidate-filter-chips input) {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   accent-color: var(--brand-strong);
 }
 
 :global(.candidate-mock-start-actions) {
   justify-content: flex-end;
+}
+
+:global(.candidate-mock-settings-modal .candidate-mock-filters) {
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+}
+
+:global(.candidate-mock-settings-modal .candidate-question-type-filter) {
+  grid-column: 1 / -1;
 }
 
 :global(.candidate-interview-app) {
@@ -2401,88 +2498,71 @@
   box-shadow: none;
 }
 
-:global(.candidate-apply-head) {
-  display: grid;
-  gap: 10px;
-  padding-top: 6px;
-}
-
-:global(.candidate-apply-head h1) {
-  margin: 0;
-  color: var(--ink-900);
-  font-size: 28px;
-  font-weight: 900;
-  letter-spacing: 0;
-}
-
-:global(.candidate-apply-head p) {
-  margin: 0;
-  color: var(--ink-500);
-  font-size: 15px;
-  font-weight: 600;
-}
-
 :global(.candidate-apply-page) {
   display: grid;
-  gap: 18px;
+  gap: 14px;
 }
 
 :global(.candidate-apply-overview),
 :global(.candidate-apply-card),
 :global(.candidate-apply-consent) {
-  background: #fff;
-  border: 1px solid var(--line-soft);
-  border-radius: 18px;
-  box-shadow: 0 18px 40px rgba(32, 30, 58, 0.04);
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 22px;
+  box-shadow:
+    0 1px 2px rgba(20, 18, 45, 0.04),
+    0 14px 36px rgba(40, 40, 90, 0.08);
+  backdrop-filter: saturate(180%) blur(22px);
+  -webkit-backdrop-filter: saturate(180%) blur(22px);
 }
 
 :global(.candidate-apply-overview) {
   display: grid;
-  gap: 16px;
-  padding: 26px 30px;
+  gap: 12px;
+  padding: 16px 18px;
 }
 
 :global(.candidate-apply-info-grid),
 :global(.candidate-apply-steps) {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  gap: 10px;
 }
 
 :global(.candidate-apply-info-box),
 :global(.candidate-apply-steps span) {
   display: grid;
   align-content: center;
-  gap: 8px;
-  min-height: 66px;
-  padding: 0 18px;
-  background: #fff;
+  gap: 5px;
+  min-height: 52px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.72);
   border: 1px solid var(--line-soft);
-  border-radius: 12px;
+  border-radius: 10px;
 }
 
 :global(.candidate-apply-info-box span) {
   color: var(--ink-800);
-  font-size: 13px;
-  font-weight: 900;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 :global(.candidate-apply-info-box strong) {
   color: var(--ink-900);
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 650;
 }
 
 :global(.candidate-apply-steps span) {
   color: var(--ink-500);
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 :global(.candidate-apply-steps span b) {
   color: var(--brand-strong);
-  font-size: 11px;
-  letter-spacing: 0.18em;
+  font-size: 10px;
+  letter-spacing: 0.12em;
 }
 
 :global(.candidate-apply-steps .current) {
@@ -2494,50 +2574,50 @@
 :global(.candidate-apply-grid) {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+  gap: 14px;
 }
 
 :global(.candidate-apply-card) {
   display: grid;
   align-content: start;
-  gap: 18px;
-  min-height: 282px;
-  padding: 30px;
+  gap: 14px;
+  min-height: 0;
+  padding: 18px;
 }
 
 :global(.candidate-apply-card .panel-title),
 :global(.candidate-apply-consent legend) {
   margin: 0;
   color: var(--ink-900);
-  font-size: 19px;
-  font-weight: 900;
+  font-size: 16px;
+  font-weight: 800;
   letter-spacing: 0;
 }
 
 :global(.candidate-apply-card label) {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   color: var(--ink-800);
-  font-size: 14px;
-  font-weight: 900;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 :global(.candidate-apply-card input),
 :global(.candidate-apply-card textarea) {
   width: 100%;
-  min-height: 54px;
-  padding: 0 16px;
+  min-height: 38px;
+  padding: 0 12px;
   color: var(--ink-900);
-  font-size: 15px;
-  font-weight: 600;
-  background: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.85);
   border: 1px solid var(--line-soft);
   border-radius: 10px;
 }
 
 :global(.candidate-apply-card textarea) {
-  min-height: 88px;
-  padding: 16px;
+  min-height: 86px;
+  padding: 12px;
   resize: vertical;
 }
 
@@ -2553,32 +2633,32 @@
 :global(.candidate-apply-file-row) {
   display: grid;
   grid-template-columns: auto 1fr auto;
-  gap: 14px;
+  gap: 10px;
   align-items: center;
-  min-height: 70px;
-  padding: 0 18px;
+  min-height: 54px;
+  padding: 0 12px;
   color: var(--ink-500);
-  font-size: 15px;
-  font-weight: 700;
-  background: #fff;
+  font-size: 13px;
+  font-weight: 650;
+  background: rgba(255, 255, 255, 0.72);
   border: 1px dashed #dedbed;
-  border-radius: 14px;
+  border-radius: 12px;
 }
 
 :global(.candidate-apply-file-row strong) {
   color: #2e8b57;
-  font-size: 13px;
-  font-weight: 900;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 :global(.candidate-apply-file-icon) {
   display: inline-grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
+  width: 32px;
+  height: 32px;
   color: var(--brand-strong);
   background: var(--brand-soft);
-  border-radius: 12px;
+  border-radius: 10px;
 }
 
 :global(.candidate-apply-file-row .candidate-hidden-file) {
@@ -2596,9 +2676,9 @@
 :global(.candidate-apply-note),
 :global(.candidate-apply-consent p) {
   margin: 0;
-  padding: 14px 16px;
+  padding: 10px 12px;
   color: var(--ink-500);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   background: #f6f4fd;
   border-radius: 10px;
@@ -2613,7 +2693,7 @@
 :global(.candidate-apply-check-row) {
   display: grid;
   grid-template-columns: 1fr 1.6fr;
-  min-height: 52px;
+  min-height: 42px;
   border-bottom: 1px solid var(--line-soft);
 }
 
@@ -2625,10 +2705,10 @@
 :global(.candidate-apply-check-row > strong) {
   display: flex;
   align-items: center;
-  padding: 0 18px;
+  padding: 0 12px;
   color: var(--ink-800);
-  font-size: 14px;
-  font-weight: 800;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 :global(.candidate-apply-check-row > span) {
@@ -2644,11 +2724,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 28px;
-  padding: 0 12px;
+  min-height: 24px;
+  padding: 0 9px;
   color: #9a6b12;
-  font-size: 13px;
-  font-weight: 900;
+  font-size: 12px;
+  font-weight: 700;
   background: #fff3d8;
   border-radius: 999px;
 }
@@ -2660,8 +2740,8 @@
 
 :global(.candidate-apply-consent) {
   display: grid;
-  gap: 16px;
-  padding: 26px 30px;
+  gap: 12px;
+  padding: 16px 18px;
   margin: 0;
 }
 
@@ -2675,12 +2755,12 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 42px;
-  padding: 0 16px;
+  min-height: 32px;
+  padding: 0 12px;
   color: var(--ink-900);
-  font-size: 14px;
-  font-weight: 800;
-  background: #fff;
+  font-size: 12px;
+  font-weight: 650;
+  background: rgba(255, 255, 255, 0.72);
   border: 1px solid var(--line-soft);
   border-radius: 10px;
 }
@@ -2695,7 +2775,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 10px;
   padding-top: 2px;
 }
 
@@ -2704,45 +2784,6 @@
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-}
-
-:global(.candidate-apply-button),
-:global(.candidate-apply-cancel) {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-  padding: 0 18px;
-  font-size: 14px;
-  font-weight: 900;
-  text-decoration: none;
-  border-radius: 10px;
-}
-
-:global(.candidate-apply-button--secondary) {
-  color: var(--ink-900);
-  background: #fff;
-  border: 1px solid var(--line-soft);
-}
-
-:global(.candidate-apply-cancel) {
-  color: var(--ink-500);
-  background: transparent;
-  border: 0;
-}
-
-:global(.candidate-apply-button--primary) {
-  color: #fff;
-  background: var(--brand-grad);
-  border: 0;
-  box-shadow: 0 16px 32px rgba(110, 91, 246, 0.24);
-}
-
-:global(.candidate-apply-button:disabled) {
-  color: var(--ink-400);
-  cursor: not-allowed;
-  background: var(--surface-soft);
-  box-shadow: none;
 }
 
 @media (max-width: 900px) {
@@ -2767,7 +2808,7 @@
   :global(.candidate-apply-card),
   :global(.candidate-apply-overview),
   :global(.candidate-apply-consent) {
-    padding: 22px;
+    padding: 16px;
   }
 
   :global(.candidate-apply-footer) {
@@ -2808,6 +2849,7 @@
   :global(.candidate-cards-2),
   :global(.candidate-jobs-filter),
   :global(.candidate-mypage__cards),
+  :global(.candidate-mock-flow),
   :global(.candidate-mock-filters),
   :global(.candidate-device-setup__grid),
   :global(.candidate-steps),
