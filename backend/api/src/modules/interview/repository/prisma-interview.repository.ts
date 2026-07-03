@@ -8,6 +8,7 @@ import {
 import { PrismaService } from "../../../shared/prisma.service";
 import type { InterviewAnswer, InterviewQuestion, RuntimeInterviewSession } from "../interview.runtime.types";
 import type {
+  CompletedFollowUpProcess,
   CreateInterviewAnswerInput,
   CreateMockInterviewSessionInput,
   CreateRuntimeFollowUpQuestionInput,
@@ -203,6 +204,28 @@ export class PrismaInterviewRepository implements InterviewRepository {
       },
     });
     return this.toAnswer(answer);
+  }
+
+  async findCompletedFollowUpProcess(processLogId: number): Promise<CompletedFollowUpProcess | undefined> {
+    const processLog = await this.prisma.aiProcessLog.findUnique({
+      where: { processLogId: BigInt(processLogId) },
+    });
+    if (!processLog || processLog.processType !== "FOLLOW_UP" || processLog.status !== "COMPLETED" || !processLog.outputRef) {
+      return undefined;
+    }
+
+    const output = parseFollowUpOutput(processLog.outputRef);
+    if (!output) {
+      return undefined;
+    }
+
+    return {
+      processLogId,
+      sessionId: output.sessionId,
+      answerId: output.answerId,
+      content: output.content,
+      policy: output.policy,
+    };
   }
 
   async findGeneratedFollowUpQuestion(
@@ -468,6 +491,35 @@ export class PrismaInterviewRepository implements InterviewRepository {
       FOLLOW_UP: 5,
       CLOSING: 6,
     }[questionType];
+  }
+}
+
+function parseFollowUpOutput(outputRef: string): Omit<CompletedFollowUpProcess, "processLogId"> | undefined {
+  try {
+    const output = JSON.parse(outputRef) as Record<string, unknown>;
+    const sessionId = Number(output.sessionId);
+    const answerId = Number(output.answerId);
+    const content = typeof output.content === "string" ? output.content.trim() : "";
+    const policy = output.policy;
+    if (
+      !Number.isInteger(sessionId) ||
+      sessionId <= 0 ||
+      !Number.isInteger(answerId) ||
+      answerId <= 0 ||
+      !content ||
+      (policy !== "MOCK" && policy !== "RECRUITING")
+    ) {
+      return undefined;
+    }
+
+    return {
+      sessionId,
+      answerId,
+      content,
+      policy,
+    };
+  } catch {
+    return undefined;
   }
 }
 

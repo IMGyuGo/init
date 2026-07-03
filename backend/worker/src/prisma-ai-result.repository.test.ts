@@ -80,8 +80,10 @@ test("PrismaAiResultRepository stores STT transcript into interview_answers", as
     args: {
       where: {
         answerId: BigInt(42),
-        audioFileId: BigInt(11),
-        transcript: null
+        AND: [
+          { OR: [{ audioFileId: BigInt(11) }, { videoFileId: BigInt(11) }] },
+          { OR: [{ transcript: null }, { transcript: "" }] }
+        ]
       },
       data: {
         transcript: "hello"

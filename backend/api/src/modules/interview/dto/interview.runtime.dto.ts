@@ -97,3 +97,9 @@ export class AiInterviewRequestDto {
   @IsString()
   documentSummary?: string;
 }
+
+export class InsertFollowUpQuestionDto {
+  @IsInt()
+  @IsPositive()
+  processLogId!: number;
+}

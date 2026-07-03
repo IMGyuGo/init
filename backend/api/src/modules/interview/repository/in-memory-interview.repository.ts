@@ -1,5 +1,6 @@
 import type { InterviewAnswer, InterviewQuestion, RuntimeInterviewSession } from "../interview.runtime.types";
 import type {
+  CompletedFollowUpProcess,
   CreateInterviewAnswerInput,
   CreateMockInterviewSessionInput,
   CreateRuntimeFollowUpQuestionInput,
@@ -120,6 +121,7 @@ export class InMemoryInterviewRepository implements InterviewRepository {
   private readonly mockSessions = new Map<number, RuntimeInterviewSession>();
   private readonly recruitingSessions = new Map<number, RuntimeInterviewSession>();
   private readonly answers: InterviewAnswer[] = [];
+  private readonly followUpProcesses = new Map<number, CompletedFollowUpProcess>();
   private readonly followUpQuestions = new Map<string, GeneratedFollowUpQuestion>();
 
   listQuestions(filter: InterviewQuestionFilter = {}): InterviewQuestion[] {
@@ -230,6 +232,11 @@ export class InMemoryInterviewRepository implements InterviewRepository {
     return this.cloneAnswer(answer);
   }
 
+  findCompletedFollowUpProcess(processLogId: number): CompletedFollowUpProcess | undefined {
+    const process = this.followUpProcesses.get(processLogId);
+    return process ? { ...process } : undefined;
+  }
+
   findGeneratedFollowUpQuestion(
     answerId: number,
     policy: FollowUpQuestionPolicy,
@@ -278,6 +285,10 @@ export class InMemoryInterviewRepository implements InterviewRepository {
     if (answer) {
       answer.transcript = transcript;
     }
+  }
+
+  saveCompletedFollowUpProcess(process: CompletedFollowUpProcess): void {
+    this.followUpProcesses.set(process.processLogId, { ...process });
   }
 
   private questionSortOrder(questionId: number): number {

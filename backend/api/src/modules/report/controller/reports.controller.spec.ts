@@ -6,13 +6,29 @@ import { AppModule } from "../../app.module";
 import { ApiExceptionFilter } from "../../../shared/api-exception.filter";
 import { ApiResponseInterceptor } from "../../../shared/api-response.interceptor";
 import { PrismaService } from "../../../shared/prisma.service";
+import { InMemoryInterviewRepository } from "../../interview/repository/in-memory-interview.repository";
+import { INTERVIEW_REPOSITORY } from "../../interview/repository/interview.repository";
 import { InMemoryReportRepository } from "../repository/in-memory-report.repository";
 
 describe("ReportsController", () => {
   let app: INestApplication;
   let repository: InMemoryReportRepository;
+  let mockAiFixture: AiInterviewFixture;
+  let mockAnswerWithoutFileFixture: AiInterviewFixture;
+  let recruitingAiFixture: AiInterviewFixture;
+  const previousEnv = {
+    candidateRepositoryMode: process.env.CANDIDATE_REPOSITORY_MODE,
+    candidateDemoNoAuth: process.env.CANDIDATE_DEMO_NO_AUTH,
+    disablePrismaConnect: process.env.DISABLE_PRISMA_CONNECT,
+    interviewRepositoryMode: process.env.INTERVIEW_REPOSITORY_MODE,
+  };
 
   beforeAll(async () => {
+    process.env.CANDIDATE_REPOSITORY_MODE = "memory";
+    process.env.CANDIDATE_DEMO_NO_AUTH = "true";
+    process.env.DISABLE_PRISMA_CONNECT = "true";
+    process.env.INTERVIEW_REPOSITORY_MODE = "memory";
+
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule]
     })
@@ -26,10 +42,16 @@ describe("ReportsController", () => {
     app.useGlobalInterceptors(new ApiResponseInterceptor());
     await app.init();
     repository = app.get(InMemoryReportRepository);
+    const interviewRepository = app.get<InMemoryInterviewRepository>(INTERVIEW_REPOSITORY);
+    ({ mockAiFixture, mockAnswerWithoutFileFixture, recruitingAiFixture } = seedInterviewAiFixtures(interviewRepository));
   });
 
   afterAll(async () => {
     await app.close();
+    restoreEnv("CANDIDATE_REPOSITORY_MODE", previousEnv.candidateRepositoryMode);
+    restoreEnv("CANDIDATE_DEMO_NO_AUTH", previousEnv.candidateDemoNoAuth);
+    restoreEnv("DISABLE_PRISMA_CONNECT", previousEnv.disablePrismaConnect);
+    restoreEnv("INTERVIEW_REPOSITORY_MODE", previousEnv.interviewRepositoryMode);
   });
 
   it("queues evaluation context work for a company dev user", async () => {
@@ -195,11 +217,11 @@ describe("ReportsController", () => {
   });
 
   it("queues candidate STT work for worker processing", async () => {
-    const response = await candidateRequest("/api/v1/candidate/mock-interviews/7/stt")
+    const response = await candidateRequest(`/api/v1/candidate/mock-interviews/${mockAiFixture.sessionId}/stt`)
       .send({
-        answerId: 10,
-        audioFileId: 11,
-        audioS3Key: "candidate/4/answer-10.wav"
+        answerId: mockAiFixture.answerId,
+        audioFileId: mockAiFixture.audioFileId,
+        audioS3Key: mockAiFixture.audioS3Key
       })
       .expect(202);
 
@@ -209,29 +231,29 @@ describe("ReportsController", () => {
   });
 
   it("rejects STT without an audio file asset reference", async () => {
-    await candidateRequest("/api/v1/candidate/mock-interviews/7/stt")
+    await candidateRequest(`/api/v1/candidate/mock-interviews/${mockAnswerWithoutFileFixture.sessionId}/stt`)
       .send({
-        answerId: 10,
-        audioS3Key: "candidate/4/answer-10.wav"
+        answerId: mockAnswerWithoutFileFixture.answerId,
+        audioS3Key: mockAnswerWithoutFileFixture.audioS3Key
       })
       .expect(400);
   });
 
   it("rejects STT raw audio content before it can enter process logs", async () => {
-    await candidateRequest("/api/v1/candidate/mock-interviews/7/stt")
+    await candidateRequest(`/api/v1/candidate/mock-interviews/${mockAiFixture.sessionId}/stt`)
       .send({
-        answerId: 10,
-        audioFileId: 11,
-        audioS3Key: "candidate/4/answer-10.wav",
+        answerId: mockAiFixture.answerId,
+        audioFileId: mockAiFixture.audioFileId,
+        audioS3Key: mockAiFixture.audioS3Key,
         audioContent: "raw wav bytes"
       })
       .expect(400);
   });
 
   it("queues mock follow-up work with previous question context", async () => {
-    const response = await candidateRequest("/api/v1/candidate/mock-interviews/7/follow-up-question")
+    const response = await candidateRequest(`/api/v1/candidate/mock-interviews/${mockAiFixture.sessionId}/follow-up-question`)
       .send({
-        answerId: 10,
+        answerId: mockAiFixture.answerId,
         previousQuestion: "How did you use Redis?",
         transcript: "I improved read performance with Redis cache."
       })
@@ -243,9 +265,9 @@ describe("ReportsController", () => {
   });
 
   it("queues recruiting follow-up work with JD or document context", async () => {
-    const response = await candidateRequest("/api/v1/candidate/interviews/7/follow-up-question")
+    const response = await candidateRequest(`/api/v1/candidate/interviews/${recruitingAiFixture.sessionId}/follow-up-question`)
       .send({
-        answerId: 10,
+        answerId: recruitingAiFixture.answerId,
         previousQuestion: "How did you use Redis?",
         transcript: "I improved read performance with Redis cache.",
         jobDescription: "Backend engineer with Redis operations."
@@ -258,9 +280,9 @@ describe("ReportsController", () => {
   });
 
   it("rejects recruiting follow-up without JD or document context", async () => {
-    await candidateRequest("/api/v1/candidate/interviews/7/follow-up-question")
+    await candidateRequest(`/api/v1/candidate/interviews/${recruitingAiFixture.sessionId}/follow-up-question`)
       .send({
-        answerId: 10,
+        answerId: recruitingAiFixture.answerId,
         previousQuestion: "How did you use Redis?",
         transcript: "I improved read performance with Redis cache."
       })
@@ -632,4 +654,91 @@ function validGeneratePayload() {
       }
     ]
   };
+}
+
+type AiInterviewFixture = {
+  sessionId: number;
+  answerId: number;
+  audioFileId?: number;
+  audioS3Key: string;
+};
+
+function seedInterviewAiFixtures(interviewRepository: InMemoryInterviewRepository) {
+  const now = new Date().toISOString();
+  const mockSession = interviewRepository.createMockSession({
+    candidateId: 1,
+    showQuestionText: true,
+    questionIds: [1],
+    startedAt: now,
+    updatedAt: now
+  });
+  const mockAnswer = interviewRepository.createAnswer({
+    sessionId: mockSession.sessionId,
+    questionId: 1,
+    audioFileId: 11,
+    durationSeconds: 30,
+    submittedAt: now
+  });
+
+  const mockSessionWithoutFile = interviewRepository.createMockSession({
+    candidateId: 1,
+    showQuestionText: true,
+    questionIds: [2],
+    startedAt: now,
+    updatedAt: now
+  });
+  const mockAnswerWithoutFile = interviewRepository.createAnswer({
+    sessionId: mockSessionWithoutFile.sessionId,
+    questionId: 2,
+    durationSeconds: 30,
+    submittedAt: now
+  });
+
+  interviewRepository.saveRecruitingRuntimeSession({
+    sessionId: 1,
+    applicationId: 1,
+    candidateId: 1,
+    interviewType: "RECRUITING",
+    status: "IN_PROGRESS",
+    showQuestionText: true,
+    currentQuestionIndex: 0,
+    questionIds: [101],
+    startedAt: now,
+    updatedAt: now
+  });
+  const recruitingAnswer = interviewRepository.createAnswer({
+    sessionId: 1,
+    questionId: 101,
+    audioFileId: 12,
+    durationSeconds: 45,
+    submittedAt: now
+  });
+
+  return {
+    mockAiFixture: {
+      sessionId: mockSession.sessionId,
+      answerId: mockAnswer.answerId,
+      audioFileId: mockAnswer.audioFileId,
+      audioS3Key: "candidate/1/answer-mock.wav"
+    },
+    mockAnswerWithoutFileFixture: {
+      sessionId: mockSessionWithoutFile.sessionId,
+      answerId: mockAnswerWithoutFile.answerId,
+      audioS3Key: "candidate/1/answer-without-file.wav"
+    },
+    recruitingAiFixture: {
+      sessionId: 1,
+      answerId: recruitingAnswer.answerId,
+      audioFileId: recruitingAnswer.audioFileId,
+      audioS3Key: "candidate/1/answer-recruiting.wav"
+    }
+  };
+}
+
+function restoreEnv(name: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
 }

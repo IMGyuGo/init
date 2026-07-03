@@ -98,7 +98,9 @@ GET /api/v1/ai/jobs/101/status
 | `POST /candidate/mock-interviews/{sessionId}/stt` | Candidate | answerId, audioFileId, audioS3Key | transcript 없을 때만 저장 |
 | `POST /candidate/interviews/{sessionId}/stt` | Candidate | answerId, audioFileId, audioS3Key | transcript 없을 때만 저장 |
 | `POST /candidate/mock-interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript | 모의면접 표현 정책 적용 |
+| `POST /candidate/mock-interviews/{sessionId}/follow-up-questions/insert` | Candidate | processLogId | MVP 임시 브릿지. 완료된 FOLLOW_UP 작업 결과를 면접 질문 흐름에 추가 |
 | `POST /candidate/interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript, jobDescription 또는 documentSummary | 채용면접 표현 정책 적용 |
+| `POST /candidate/interviews/{sessionId}/follow-up-questions/insert` | Candidate | processLogId | MVP 임시 브릿지. 완료된 FOLLOW_UP 작업 결과를 면접 질문 흐름에 추가 |
 | `POST /company/interviews/evaluation-criteria/suggest` | Company | postingId, jobDescription, talentProfile, evaluationPolicy | reviewRequired draft 반환, 확정 전 최종 저장 금지 |
 | `POST /company/interviews/questions/generate` | Company | postingId, jobDescription, questionCount | reviewRequired draft 반환 |
 | `POST /company/interviews/question-sets` | Company | postingId, questionCount, criteria, questionTypes | reviewRequired draft 반환 |

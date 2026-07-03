@@ -117,3 +117,14 @@ export interface AiHandoffResult {
   queued?: boolean;
   callbackTopic: string;
 }
+
+export interface InsertFollowUpQuestionResult {
+  sessionId: number;
+  processLogId: number;
+  sourceAnswerId: number;
+  sourceQuestionId: number;
+  question: InterviewQuestionView;
+  inserted: boolean;
+  totalQuestions: number;
+  nextQuestionAvailable: boolean;
+}

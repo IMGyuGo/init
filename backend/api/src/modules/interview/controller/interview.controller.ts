@@ -5,7 +5,7 @@ import { type RequestLike } from "../../../shared/response-envelope";
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
 import { resolveCurrentCandidate, CandidateDomainError } from "../../candidate";
 import { DeviceCheckDto } from "../dto/interview.device-check.dto";
-import { AiInterviewRequestDto, SaveInterviewAnswerDto, StartMockInterviewDto } from "../dto/interview.runtime.dto";
+import { AiInterviewRequestDto, InsertFollowUpQuestionDto, SaveInterviewAnswerDto, StartMockInterviewDto } from "../dto/interview.runtime.dto";
 import { interviewApiRoutePrefix, interviewApiRoutes } from "../interview.routes";
 import { InterviewService } from "../service/interview.service";
 
@@ -62,6 +62,8 @@ export class InterviewController {
     return this.handle(() => this.interviewService.completeMockInterview(Number(sessionId), resolveCurrentCandidate(request.currentUser)));
   }
 
+  @Post(interviewApiRoutes.mockStt)
+  @HttpCode(202)
   requestMockStt(
     @Req()
     request: CandidateRequest,
@@ -73,6 +75,8 @@ export class InterviewController {
     return this.handle(() => this.interviewService.requestMockStt(Number(sessionId), dto, resolveCurrentCandidate(request.currentUser)));
   }
 
+  @Post(interviewApiRoutes.mockFollowUpQuestion)
+  @HttpCode(202)
   requestMockFollowUpQuestion(
     @Req()
     request: CandidateRequest,
@@ -83,6 +87,17 @@ export class InterviewController {
   ) {
     return this.handle(() =>
       this.interviewService.requestMockFollowUpQuestion(Number(sessionId), dto, resolveCurrentCandidate(request.currentUser)),
+    );
+  }
+
+  @Post(interviewApiRoutes.mockFollowUpQuestionInsert)
+  insertMockFollowUpQuestion(
+    @Req() request: CandidateRequest,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: InsertFollowUpQuestionDto,
+  ) {
+    return this.handle(() =>
+      this.interviewService.insertMockFollowUpQuestion(Number(sessionId), dto, resolveCurrentCandidate(request.currentUser)),
     );
   }
 
@@ -160,6 +175,8 @@ export class InterviewController {
     );
   }
 
+  @Post(interviewApiRoutes.recruitingStt)
+  @HttpCode(202)
   requestRecruitingStt(
     @Req()
     request: CandidateRequest,
@@ -173,6 +190,8 @@ export class InterviewController {
     );
   }
 
+  @Post(interviewApiRoutes.recruitingFollowUpQuestion)
+  @HttpCode(202)
   requestRecruitingFollowUpQuestion(
     @Req()
     request: CandidateRequest,
@@ -183,6 +202,17 @@ export class InterviewController {
   ) {
     return this.handle(() =>
       this.interviewService.requestRecruitingFollowUpQuestion(Number(sessionId), dto, resolveCurrentCandidate(request.currentUser)),
+    );
+  }
+
+  @Post(interviewApiRoutes.recruitingFollowUpQuestionInsert)
+  insertRecruitingFollowUpQuestion(
+    @Req() request: CandidateRequest,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: InsertFollowUpQuestionDto,
+  ) {
+    return this.handle(() =>
+      this.interviewService.insertRecruitingFollowUpQuestion(Number(sessionId), dto, resolveCurrentCandidate(request.currentUser)),
     );
   }
 

@@ -2,6 +2,8 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { AiResultRepository, InMemoryAiResultRepository } from "./ai-result.repository";
 import { MockAiTaskHandler } from "./mock-ai-task.handler";
+import { OpenAiAiTaskHandler } from "./openai-ai-task.handler";
+import { OpenAiFollowUpProvider } from "./openai-follow-up.provider";
 import { AiProcessLogRepository, InMemoryAiProcessLogRepository } from "./process-log.repository";
 import { PrismaAiResultRepository } from "./prisma-ai-result.repository";
 import { PrismaAiProcessLogRepository } from "./prisma-process-log.repository";
@@ -29,9 +31,17 @@ export interface WorkerRuntime {
 
 export async function createWorkerRuntime(queue: AiJobQueue, env: WorkerEnv): Promise<WorkerRuntime> {
   const repositories = await createRepositories(env);
-  const handler = new MockAiTaskHandler(repositories.results, {
+  const mockHandler = new MockAiTaskHandler(repositories.results, {
     sttProvider: createSttProvider(env)
   });
+  const handler =
+    env.aiProviderMode === "openai"
+      ? new OpenAiAiTaskHandler(
+          mockHandler,
+          repositories.results,
+          new OpenAiFollowUpProvider(env.aiProviderApiKey, env.openaiModel)
+        )
+      : mockHandler;
 
   return {
     runner: new AiWorkerRunner(queue, repositories.processLogs, handler, {
@@ -44,23 +54,18 @@ export async function createWorkerRuntime(queue: AiJobQueue, env: WorkerEnv): Pr
 }
 
 function createSttProvider(env: WorkerEnv): SttProvider | undefined {
-  if (process.env.AI_STT_PROVIDER === "mock") {
+  if (env.aiSttProviderMode === "mock") {
     return undefined;
   }
 
   return new OpenAiS3SttProvider({
-    apiKey: process.env.OPENAI_API_KEY?.trim() || env.aiProviderApiKey,
+    apiKey: env.aiProviderApiKey,
     bucketName: env.s3BucketName,
     region: env.awsRegion,
-    endpoint: process.env.AWS_ENDPOINT_URL,
-    model: optionalEnv("OPENAI_STT_MODEL"),
-    language: optionalEnv("OPENAI_STT_LANGUAGE")
+    endpoint: env.awsEndpointUrl,
+    model: env.openaiSttModel,
+    language: env.openaiSttLanguage
   });
-}
-
-function optionalEnv(name: string): string | undefined {
-  const value = process.env[name]?.trim();
-  return value ? value : undefined;
 }
 
 async function createRepositories(env: WorkerEnv): Promise<WorkerRepositories> {
