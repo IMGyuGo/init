@@ -183,7 +183,7 @@ export function CompanyPostingsPage() {
               <h2>채용 공고</h2>
               {(pageMeta?.totalItems ?? items.length) > 0 ? <span className="count-pill">{pageMeta?.totalItems ?? items.length}</span> : null}
             </div>
-            <form className="toolbar" onSubmit={handleSearch}>
+            <form className="toolbar list-filter-toolbar" onSubmit={handleSearch}>
               <input value={q} onChange={(event) => setQ(event.target.value)} placeholder="프로젝트·직무 검색" />
               <button className="btn secondary" type="submit" disabled={loading}>
                 조회

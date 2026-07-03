@@ -208,6 +208,10 @@ export function getMockInterviewHref(session: Pick<InterviewRuntimeSessionView, 
   return candidateApplicationInterviewRoutes.mockInterview(session.sessionId);
 }
 
+export function getMockInterviewDeviceCheckHref(session: Pick<InterviewRuntimeSessionView, "sessionId">): string {
+  return getMockInterviewHref(session);
+}
+
 export function getMockReportHref(report: Pick<CandidateMockReportSummary, "reportId">): string {
   return candidateApplicationInterviewRoutes.mockReportDetail(report.reportId);
 }

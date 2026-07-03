@@ -35,10 +35,10 @@ flowchart TD
   RecruitmentDetail --> InterviewBridge
   RecruitmentDetail --> Applicants[/지원자 관리/]
   Applicants --> Evaluation[/지원자 평가 상세/]
-  Login --> MockStart[/지원자 모의면접 시작/]
+  Login --> Jobs[/채용공고 목록/]
+  Jobs --> MockStart[/지원자 모의면접 시작/]
   MockStart --> MockInterview[/모의면접 진행/]
   MockInterview --> MockReport[/모의면접 리포트/]
-  MockStart --> Jobs[/채용공고 목록/]
   Jobs --> JobDetail[/회사 상세/]
   JobDetail --> Apply[/기업별 이력서 제출/]
   Apply --> Applications[/지원현황/]
