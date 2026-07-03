@@ -10,6 +10,7 @@ import {
   type PublicApplicationInput,
   type PublicRecruitment,
 } from "./public-application-api";
+import { StructuredJobDescriptionView } from "./StructuredJobDescriptionView";
 
 type AsyncState<T> = {
   data?: T;
@@ -143,6 +144,16 @@ export function PublicRecruitmentApplyPage({ recruitmentId }: { recruitmentId: n
 
         {state.data ? (
           <div className="public-application-layout">
+            <StructuredJobDescriptionView
+              companyName={state.data.companyName}
+              title={state.data.title}
+              jobRole={state.data.jobRole}
+              jobDescription={state.data.jobDescription}
+              careerRequirement={state.data.careerRequirement}
+              workLocation={state.data.workLocation}
+              employmentType={state.data.employmentType}
+              endsOn={state.data.endsOn}
+            />
             {submittedEmail ? (
               <section className="panel">
                 <div className="panel-head">
