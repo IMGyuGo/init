@@ -17,17 +17,21 @@ describe("ReportsController", () => {
   let mockAnswerWithoutFileFixture: AiInterviewFixture;
   let recruitingAiFixture: AiInterviewFixture;
   const previousEnv = {
+    aiSqsQueueUrl: process.env.AI_SQS_QUEUE_URL,
     candidateRepositoryMode: process.env.CANDIDATE_REPOSITORY_MODE,
     candidateDemoNoAuth: process.env.CANDIDATE_DEMO_NO_AUTH,
     disablePrismaConnect: process.env.DISABLE_PRISMA_CONNECT,
     interviewRepositoryMode: process.env.INTERVIEW_REPOSITORY_MODE,
+    sqsQueueUrl: process.env.SQS_QUEUE_URL,
   };
 
   beforeAll(async () => {
+    delete process.env.AI_SQS_QUEUE_URL;
     process.env.CANDIDATE_REPOSITORY_MODE = "memory";
     process.env.CANDIDATE_DEMO_NO_AUTH = "true";
     process.env.DISABLE_PRISMA_CONNECT = "true";
     process.env.INTERVIEW_REPOSITORY_MODE = "memory";
+    delete process.env.SQS_QUEUE_URL;
 
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule]
@@ -48,10 +52,12 @@ describe("ReportsController", () => {
 
   afterAll(async () => {
     await app.close();
+    restoreEnv("AI_SQS_QUEUE_URL", previousEnv.aiSqsQueueUrl);
     restoreEnv("CANDIDATE_REPOSITORY_MODE", previousEnv.candidateRepositoryMode);
     restoreEnv("CANDIDATE_DEMO_NO_AUTH", previousEnv.candidateDemoNoAuth);
     restoreEnv("DISABLE_PRISMA_CONNECT", previousEnv.disablePrismaConnect);
     restoreEnv("INTERVIEW_REPOSITORY_MODE", previousEnv.interviewRepositoryMode);
+    restoreEnv("SQS_QUEUE_URL", previousEnv.sqsQueueUrl);
   });
 
   it("queues evaluation context work for a company dev user", async () => {

@@ -159,6 +159,76 @@ test("explicit follow-up insert focuses the inserted question and is idempotent"
   assert.equal(questionsAfterDuplicate.data.questions[1]?.questionId, inserted.data.question.questionId);
 });
 
+test("recording validation skip stores an unanswered answer and allows moving next", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["INTRO", "TECHNICAL"],
+    showQuestionText: false,
+  });
+  const questions = await controller.listMockQuestions(validCandidateRequest, String(started.data.sessionId));
+  const firstQuestionId = questions.data.questions[0]?.questionId ?? 0;
+
+  const skipped = await controller.saveMockAnswer(validCandidateRequest, String(started.data.sessionId), {
+    questionId: firstQuestionId,
+    durationSeconds: 0,
+    skipReason: "RECORDING_VALIDATION_FAILED",
+  });
+  assert.equal(skipped.data.answer.durationSeconds, 0);
+  assert.equal(skipped.data.answer.transcript, "[NO_ANSWER] Recording validation failed twice.");
+
+  const moved = await controller.moveMockNextQuestion(validCandidateRequest, String(started.data.sessionId));
+  assert.equal(moved.data.previousQuestionId, firstQuestionId);
+  assert.equal(moved.data.currentQuestion?.questionType, "TECHNICAL");
+});
+
+test("retry answer replaces the saved answer for the current question", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["INTRO", "TECHNICAL"],
+    showQuestionText: false,
+  });
+  const questions = await controller.listMockQuestions(validCandidateRequest, String(started.data.sessionId));
+  const firstQuestionId = questions.data.questions[0]?.questionId ?? 0;
+
+  const first = await controller.saveMockAnswer(validCandidateRequest, String(started.data.sessionId), {
+    questionId: firstQuestionId,
+    audioFile: {
+      storageKey: "candidate/1/mock-answer-retry-first.webm",
+      originalName: "mock-answer-retry-first.webm",
+      mimeType: "audio/webm",
+      sizeBytes: 1024,
+    },
+    durationSeconds: 3,
+  });
+  const retried = await controller.saveMockAnswer(validCandidateRequest, String(started.data.sessionId), {
+    questionId: firstQuestionId,
+    audioFile: {
+      storageKey: "candidate/1/mock-answer-retry-second.webm",
+      originalName: "mock-answer-retry-second.webm",
+      mimeType: "audio/webm",
+      sizeBytes: 2048,
+    },
+    durationSeconds: 12,
+    retryAnswerId: first.data.answer.answerId,
+  });
+
+  assert.equal(retried.data.answer.answerId, first.data.answer.answerId);
+  assert.equal(retried.data.answer.durationSeconds, 12);
+  assert.notEqual(retried.data.answer.audioFileId, first.data.answer.audioFileId);
+
+  const moved = await controller.moveMockNextQuestion(validCandidateRequest, String(started.data.sessionId));
+  assert.equal(moved.data.previousQuestionId, firstQuestionId);
+  assert.equal(moved.data.currentQuestion?.questionType, "TECHNICAL");
+});
+
 async function runControllerRuntimeAssertions() {
   const repository = new InMemoryCandidateRepository();
   const candidateService = new CandidateService(repository);
@@ -367,11 +437,16 @@ async function runControllerRuntimeAssertions() {
   assert.equal(runtime.data.sessionId, session.sessionId);
   assert.equal(runtime.data.status, "IN_PROGRESS");
   assert.equal(runtime.data.canRecord, true);
+  assert.deepEqual(runtime.data.timePolicy, {
+    preparationTimeSec: 0,
+    answerTimeSec: 90,
+    retryAllowed: false,
+  });
 
   const recruitingQuestions = await controller.listRecruitingQuestions(validCandidateRequest, String(session.sessionId));
   assert.equal(recruitingQuestions.data.interviewType, "RECRUITING");
   assert.equal(recruitingQuestions.data.questions.length, 4);
-  assert.equal(recruitingQuestions.data.questions[0]?.content, undefined);
+  assert.ok(recruitingQuestions.data.questions[0]?.content);
 
   for (let index = 0; index < recruitingQuestions.data.questions.length; index += 1) {
     const question = recruitingQuestions.data.questions[index];

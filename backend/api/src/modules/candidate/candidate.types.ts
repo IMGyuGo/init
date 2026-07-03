@@ -259,8 +259,15 @@ export interface CandidateInterviewRuntimeView {
   showQuestionText: boolean;
   canRecord: boolean;
   jobDescription?: string;
+  timePolicy: InterviewTimePolicy;
   nextQuestionEndpoint: string;
   answerUploadEndpoint: string;
+}
+
+export interface InterviewTimePolicy {
+  preparationTimeSec: number;
+  answerTimeSec: number;
+  retryAllowed: boolean;
 }
 
 export interface ApplicationSubmissionResult {
@@ -273,6 +280,7 @@ export interface ApplicationSubmissionResult {
 export interface CandidateRepository {
   listJobs(): Promise<CandidateJob[]>;
   findJob(jobId: number): Promise<CandidateJob | undefined>;
+  getInterviewTimePolicy(postingId: number): Promise<InterviewTimePolicy>;
   findFileAsset(fileId: number): Promise<FileAsset | undefined>;
   listApplications(candidateId: number): Promise<Application[]>;
   findApplication(applicationId: number): Promise<Application | undefined>;
