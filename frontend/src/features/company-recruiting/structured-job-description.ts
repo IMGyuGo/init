@@ -140,6 +140,13 @@ export function composeStructuredJobDescription(jobDescription: string, value: S
   return [structuredJobDescriptionToHtml(value), fallback].filter(Boolean).join("");
 }
 
+export function buildStructuredPreviewJobDescription(value: StructuredJobDescription, locationNote?: string | null) {
+  return composeStructuredJobDescription("", {
+    ...value,
+    locationNote: locationNote?.trim() || value.locationNote,
+  });
+}
+
 export function extractStructuredJobDescription(jobDescription: string | null | undefined): {
   structured: StructuredJobDescription | null;
   fallbackHtml: string;

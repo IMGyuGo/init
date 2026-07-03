@@ -1,4 +1,5 @@
 import {
+  buildStructuredPreviewJobDescription,
   composeStructuredJobDescription,
   createEmptyStructuredJobDescription,
   extractStructuredJobDescription,
@@ -68,4 +69,11 @@ const legacy = extractStructuredJobDescription("<p>기존 JD</p>");
 
 if (legacy.structured !== null || legacy.fallbackHtml !== "<p>기존 JD</p>") {
   throw new Error("Unmarked JD HTML should be returned as fallback content.");
+}
+
+const previewHtml = buildStructuredPreviewJobDescription(structured, "서울 강남구");
+const preview = extractStructuredJobDescription(previewHtml);
+
+if (!preview.structured || preview.structured.locationNote !== "서울 강남구") {
+  throw new Error("Preview JD should compose structured content with the current location.");
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 import { JobDescriptionViewer } from "./JobDescriptionViewer";
 import {
   extractStructuredJobDescription,
@@ -16,6 +18,8 @@ type StructuredJobDescriptionViewProps = {
   workLocation?: string | null;
   employmentType?: string | null;
   endsOn?: string | null;
+  rightRail?: ReactNode;
+  preview?: boolean;
 };
 
 export function StructuredJobDescriptionView({
@@ -27,44 +31,80 @@ export function StructuredJobDescriptionView({
   workLocation,
   employmentType,
   endsOn,
+  rightRail,
+  preview = false,
 }: StructuredJobDescriptionViewProps) {
   const parsed = extractStructuredJobDescription(jobDescription);
+  const frameClassName = `candidate-posting-frame ${preview ? "is-preview" : ""}`;
 
   if (!parsed.structured) {
     return (
-      <section className="wanted-public-posting">
-        <PostingHeading
-          companyName={companyName}
-          title={title}
-          jobRole={jobRole}
-          careerRequirement={careerRequirement}
-          workLocation={workLocation}
-          employmentType={employmentType}
-          endsOn={endsOn}
-        />
-        <section className="wanted-section">
-          <JobDescriptionViewer value={parsed.fallbackHtml} emptyMessage="등록된 공고 상세가 없습니다." />
-        </section>
+      <section className={frameClassName}>
+        <CandidatePostingNav />
+        <div className="candidate-posting-body">
+          <article className="candidate-posting-main">
+            <PostingHeading
+              companyName={companyName}
+              title={title}
+              jobRole={jobRole}
+              careerRequirement={careerRequirement}
+              workLocation={workLocation}
+              employmentType={employmentType}
+              endsOn={endsOn}
+            />
+            <section className="wanted-section">
+              <JobDescriptionViewer value={parsed.fallbackHtml} emptyMessage="등록된 공고 상세가 없습니다." />
+            </section>
+          </article>
+          <aside className="candidate-apply-rail">{rightRail ?? <DefaultApplyRail />}</aside>
+        </div>
       </section>
     );
   }
 
   return (
-    <section className="wanted-public-posting">
-      <PostingGallery gallery={parsed.structured.gallery} />
-      <PostingHeading
-        companyName={companyName}
-        title={title}
-        jobRole={jobRole}
-        careerRequirement={careerRequirement}
-        workLocation={workLocation}
-        employmentType={employmentType}
-        endsOn={endsOn}
-      />
-      <PostingSections structured={parsed.structured} />
-      <PostingTags tags={parsed.structured.tags} />
-      <PostingLocation location={parsed.structured.locationNote || workLocation} />
+    <section className={frameClassName}>
+      <CandidatePostingNav />
+      <div className="candidate-posting-body">
+        <article className="candidate-posting-main">
+          <PostingGallery gallery={parsed.structured.gallery} />
+          <PostingHeading
+            companyName={companyName}
+            title={title}
+            jobRole={jobRole}
+            careerRequirement={careerRequirement}
+            workLocation={workLocation}
+            employmentType={employmentType}
+            endsOn={endsOn}
+          />
+          <PostingSections structured={parsed.structured} />
+          <PostingTags tags={parsed.structured.tags} />
+          <PostingLocation location={parsed.structured.locationNote || workLocation} />
+        </article>
+        <aside className="candidate-apply-rail">{rightRail ?? <DefaultApplyRail />}</aside>
+      </div>
     </section>
+  );
+}
+
+function CandidatePostingNav() {
+  return (
+    <header className="candidate-site-nav" aria-label="지원자 공고 상단 네비게이션">
+      <div className="candidate-site-nav-inner">
+        <strong className="candidate-site-logo">INIT</strong>
+        <nav>
+          <span>채용</span>
+          <span>이력서</span>
+          <span>커리어</span>
+          <span>콘텐츠</span>
+        </nav>
+        <div className="candidate-site-actions">
+          <span>검색</span>
+          <span>알림</span>
+          <button type="button">기업 서비스</button>
+        </div>
+      </div>
+    </header>
   );
 }
 
@@ -91,6 +131,27 @@ function PostingGallery({ gallery }: { gallery: StructuredJobDescription["galler
           />
         </figure>
       ))}
+    </div>
+  );
+}
+
+function DefaultApplyRail() {
+  return (
+    <div className="candidate-apply-stack">
+      <div className="candidate-apply-sticky">
+        <button className="candidate-apply-button" type="button">
+          지원하기
+        </button>
+        <div className="candidate-resume-card">
+          <span className="candidate-resume-asset" aria-hidden="true">
+            AI
+          </span>
+          <div>
+            <p>이력서 정보가 충분하지 않아요</p>
+            <strong>이력서 작성 시 서류 합격률을 확인할 수 있어요</strong>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
