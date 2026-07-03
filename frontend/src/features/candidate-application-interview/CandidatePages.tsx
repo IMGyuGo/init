@@ -76,7 +76,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3
 const DEMO_CANDIDATE_ID = 1;
 export const PUBLIC_INTERVIEW_ACCESS_TOKEN_STORAGE_KEY = "init.publicInterviewAccessToken";
 const DEFAULT_INTERVIEW_QUESTION_TIME_LIMIT_SECONDS = 90;
-const DEFAULT_MOCK_INTERVIEW_PREPARATION_TIME_LIMIT_SECONDS = 10;
+const DEFAULT_MOCK_INTERVIEW_PREPARATION_TIME_LIMIT_SECONDS = 5;
 const MIN_INTERVIEW_RECORDING_DURATION_SECONDS = 3;
 const MIN_INTERVIEW_RECORDING_BLOB_SIZE_BYTES = 10 * 1024;
 const MIN_STT_TRANSCRIPT_MEANINGFUL_LENGTH = 10;
@@ -2787,8 +2787,14 @@ function InterviewRuntimePanel({
   const isCurrentQuestionLast = Boolean(
     data && currentQuestionIndex >= 0 && currentQuestionIndex >= data.runtime.totalQuestions - 1,
   );
+  const runtimeFollowUpQuestionCount =
+    data?.questions.questions.filter((question) => question.questionType === "FOLLOW_UP").length ?? 0;
+  const runtimeBaseQuestionCount =
+    data?.questions.questions.filter((question) => question.questionType !== "FOLLOW_UP").length ?? 0;
+  const canAddRuntimeFollowUpQuestion = runtimeFollowUpQuestionCount < runtimeBaseQuestionCount;
   const generatedFollowUpReady = Boolean(
     data &&
+      canAddRuntimeFollowUpQuestion &&
       currentQuestionAnswered &&
       currentQuestion?.questionType !== "FOLLOW_UP" &&
       autoAiPipeline?.answerId === lastAnswer?.answerId &&
@@ -2831,6 +2837,7 @@ function InterviewRuntimePanel({
   const currentBaseQuestionWaitingForFollowUp = Boolean(
     currentQuestionAnswered &&
       currentQuestion?.questionType !== "FOLLOW_UP" &&
+      canAddRuntimeFollowUpQuestion &&
       lastAnswer?.questionId === currentQuestion?.questionId &&
       !generatedFollowUpReady &&
       !followUpSkippedForCurrentAnswer,
@@ -3607,7 +3614,7 @@ function ReportScoreList({ scores }: { scores: CandidateReportScoreView[] }) {
               <span>{score.score}점</span>
             </div>
             {score.rationale ? <p>{score.rationale}</p> : null}
-            <EvidenceList evidences={score.evidences} />
+            <EvidenceList evidences={score.evidences} criterionName={score.criterionName} />
           </article>
         ))}
       </div>
@@ -3667,24 +3674,62 @@ function FollowUpQuestionList({ questions }: { questions: CandidateReportAnswerV
   );
 }
 
-function EvidenceList({ evidences }: { evidences: CandidateReportEvidenceView[] }) {
+function EvidenceList({ evidences, criterionName }: { evidences: CandidateReportEvidenceView[]; criterionName?: string }) {
   if (!evidences.length) {
     return null;
   }
 
   return (
     <div className="report-evidence-list">
-      <strong>근거</strong>
+      <strong>평가 근거</strong>
       <ul>
         {evidences.map((evidence) => (
           <li key={evidence.evidenceId}>
-            <span>{evidence.evidenceText}</span>
-            <small>{evidence.sourceType}{evidence.answerId ? ` · 답변 #${evidence.answerId}` : ""}</small>
+            <span>{formatEvidenceSummary(evidence, criterionName)}</span>
+            <small>{formatEvidenceSourceLabel(evidence)}</small>
           </li>
         ))}
       </ul>
     </div>
   );
+}
+
+function formatEvidenceSummary(evidence: CandidateReportEvidenceView, criterionName?: string): string {
+  const focus = formatCriterionEvidenceFocus(criterionName);
+  const source = formatEvidenceSourceSubject(evidence.sourceType);
+  return `${focus} ${source} 확인되었습니다.`;
+}
+
+function formatCriterionEvidenceFocus(criterionName?: string): string {
+  const labels: Record<string, string> = {
+    "직무 적합성": "지원 직무와 연결되는 경험, 관심 분야, 실무 역량의 단서가",
+    "문제 해결력": "문제를 나누어 확인하고 해결 방향을 찾은 과정이",
+    "커뮤니케이션": "경험을 설명하는 흐름과 전달 방식이",
+  };
+
+  return criterionName ? labels[criterionName] ?? `${criterionName} 평가와 관련된 답변 내용이` : "리포트 평가와 관련된 답변 내용이";
+}
+
+function formatEvidenceSourceSubject(sourceType: string): string {
+  const labels: Record<string, string> = {
+    INTERVIEW_ANSWER: "면접 답변에서",
+    APPLICATION_DOCUMENT: "제출 자료에서",
+    DOCUMENT: "제출 자료에서",
+    FOLLOW_UP: "꼬리질문 답변에서",
+  };
+
+  return labels[sourceType] ?? "평가 자료에서";
+}
+
+function formatEvidenceSourceLabel(evidence: CandidateReportEvidenceView): string {
+  const labels: Record<string, string> = {
+    INTERVIEW_ANSWER: "면접 답변 기반",
+    APPLICATION_DOCUMENT: "제출 자료 기반",
+    DOCUMENT: "제출 자료 기반",
+    FOLLOW_UP: "꼬리질문 답변 기반",
+  };
+
+  return labels[evidence.sourceType] ?? "평가 자료 기반";
 }
 
 function ReportGenerationHandoffView({ handoff }: { handoff: CandidateReportGenerationHandoff }) {

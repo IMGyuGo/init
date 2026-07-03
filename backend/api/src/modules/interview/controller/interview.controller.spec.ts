@@ -185,6 +185,103 @@ test("recording validation skip stores an unanswered answer and allows moving ne
   assert.equal(moved.data.currentQuestion?.questionType, "TECHNICAL");
 });
 
+test("mock runtime can add one follow-up per base question", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["INTRO", "TECHNICAL", "EXPERIENCE", "CLOSING"],
+    showQuestionText: true,
+  });
+  const sessionId = String(started.data.sessionId);
+  let runtime = await controller.getMockRuntime(validCandidateRequest, sessionId);
+
+  const firstAnswer = await controller.saveMockAnswer(validCandidateRequest, sessionId, {
+    questionId: runtime.data.currentQuestion?.questionId ?? 0,
+    audioFile: {
+      storageKey: "candidate/1/mock-limit-answer-1.webm",
+      originalName: "mock-limit-answer-1.webm",
+      mimeType: "audio/webm",
+      sizeBytes: 2048,
+    },
+    durationSeconds: 30,
+  });
+  interviewRepository.saveGeneratedFollowUpQuestionForTest(
+    firstAnswer.data.answer.answerId,
+    "MOCK",
+    "First follow-up question.",
+  );
+  let moved = await controller.moveMockNextQuestion(validCandidateRequest, sessionId);
+  assert.equal(moved.data.currentQuestion?.questionType, "FOLLOW_UP");
+
+  await controller.saveMockAnswer(validCandidateRequest, sessionId, {
+    questionId: moved.data.currentQuestion?.questionId ?? 0,
+    audioFile: {
+      storageKey: "candidate/1/mock-limit-follow-up-1.webm",
+      originalName: "mock-limit-follow-up-1.webm",
+      mimeType: "audio/webm",
+      sizeBytes: 2048,
+    },
+    durationSeconds: 30,
+  });
+  moved = await controller.moveMockNextQuestion(validCandidateRequest, sessionId);
+  assert.equal(moved.data.currentQuestion?.questionType, "TECHNICAL");
+
+  const secondAnswer = await controller.saveMockAnswer(validCandidateRequest, sessionId, {
+    questionId: moved.data.currentQuestion?.questionId ?? 0,
+    audioFile: {
+      storageKey: "candidate/1/mock-limit-answer-2.webm",
+      originalName: "mock-limit-answer-2.webm",
+      mimeType: "audio/webm",
+      sizeBytes: 2048,
+    },
+    durationSeconds: 30,
+  });
+  interviewRepository.saveGeneratedFollowUpQuestionForTest(
+    secondAnswer.data.answer.answerId,
+    "MOCK",
+    "Second follow-up question.",
+  );
+  moved = await controller.moveMockNextQuestion(validCandidateRequest, sessionId);
+  assert.equal(moved.data.currentQuestion?.questionType, "FOLLOW_UP");
+
+  await controller.saveMockAnswer(validCandidateRequest, sessionId, {
+    questionId: moved.data.currentQuestion?.questionId ?? 0,
+    audioFile: {
+      storageKey: "candidate/1/mock-limit-follow-up-2.webm",
+      originalName: "mock-limit-follow-up-2.webm",
+      mimeType: "audio/webm",
+      sizeBytes: 2048,
+    },
+    durationSeconds: 30,
+  });
+  moved = await controller.moveMockNextQuestion(validCandidateRequest, sessionId);
+  assert.equal(moved.data.currentQuestion?.questionType, "EXPERIENCE");
+
+  const thirdAnswer = await controller.saveMockAnswer(validCandidateRequest, sessionId, {
+    questionId: moved.data.currentQuestion?.questionId ?? 0,
+    audioFile: {
+      storageKey: "candidate/1/mock-limit-answer-3.webm",
+      originalName: "mock-limit-answer-3.webm",
+      mimeType: "audio/webm",
+      sizeBytes: 2048,
+    },
+    durationSeconds: 30,
+  });
+  interviewRepository.saveGeneratedFollowUpQuestionForTest(
+    thirdAnswer.data.answer.answerId,
+    "MOCK",
+    "Third follow-up question.",
+  );
+  moved = await controller.moveMockNextQuestion(validCandidateRequest, sessionId);
+
+  assert.equal(moved.data.currentQuestion?.questionType, "FOLLOW_UP");
+  const questions = await controller.listMockQuestions(validCandidateRequest, sessionId);
+  assert.equal(questions.data.questions.filter((question) => question.questionType === "FOLLOW_UP").length, 3);
+});
+
 test("retry answer replaces the saved answer for the current question", async () => {
   const repository = new InMemoryCandidateRepository();
   const candidateService = new CandidateService(repository);
