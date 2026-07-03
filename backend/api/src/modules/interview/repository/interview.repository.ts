@@ -17,8 +17,13 @@ export interface CreateInterviewAnswerInput {
   questionId: number;
   videoFileId?: number;
   audioFileId?: number;
+  transcript?: string;
   durationSeconds: number;
   submittedAt: string;
+}
+
+export interface UpdateInterviewAnswerInput extends CreateInterviewAnswerInput {
+  answerId: number;
 }
 
 export interface CompletedFollowUpProcess {
@@ -66,6 +71,7 @@ export interface InterviewRepository {
   findAnswerById(sessionId: number, answerId: number): MaybePromise<InterviewAnswer | undefined>;
   findLatestAnswer(sessionId: number): MaybePromise<InterviewAnswer | undefined>;
   createAnswer(input: CreateInterviewAnswerInput): MaybePromise<InterviewAnswer>;
+  updateAnswer(input: UpdateInterviewAnswerInput): MaybePromise<InterviewAnswer>;
   findCompletedFollowUpProcess(processLogId: number): MaybePromise<CompletedFollowUpProcess | undefined>;
   findGeneratedFollowUpQuestion(
     answerId: number,

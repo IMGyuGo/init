@@ -359,6 +359,8 @@ export interface SaveInterviewAnswerRequest {
   audioFileId?: number;
   audioFile?: RuntimeFileAssetRequest;
   durationSeconds: number;
+  skipReason?: "RECORDING_VALIDATION_FAILED";
+  retryAnswerId?: number;
 }
 
 export interface InterviewAnswer {

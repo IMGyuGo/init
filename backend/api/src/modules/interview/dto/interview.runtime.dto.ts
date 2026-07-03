@@ -57,8 +57,17 @@ export class SaveInterviewAnswerDto {
   audioFile?: RuntimeFileAssetDto;
 
   @IsInt()
-  @Min(1)
+  @Min(0)
   durationSeconds!: number;
+
+  @IsOptional()
+  @IsIn(["RECORDING_VALIDATION_FAILED"])
+  skipReason?: "RECORDING_VALIDATION_FAILED";
+
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  retryAnswerId?: number;
 }
 
 export class AiInterviewRequestDto {

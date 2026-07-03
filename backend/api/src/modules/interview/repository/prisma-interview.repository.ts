@@ -199,6 +199,21 @@ export class PrismaInterviewRepository implements InterviewRepository {
         questionId: BigInt(input.questionId),
         videoFileId: input.videoFileId ? BigInt(input.videoFileId) : null,
         audioFileId: input.audioFileId ? BigInt(input.audioFileId) : null,
+        transcript: input.transcript,
+        durationSeconds: input.durationSeconds,
+        submittedAt: new Date(input.submittedAt),
+      },
+    });
+    return this.toAnswer(answer);
+  }
+
+  async updateAnswer(input: CreateInterviewAnswerInput & { answerId: number }): Promise<InterviewAnswer> {
+    const answer = await this.prisma.interviewAnswer.update({
+      where: { answerId: BigInt(input.answerId) },
+      data: {
+        videoFileId: input.videoFileId ? BigInt(input.videoFileId) : null,
+        audioFileId: input.audioFileId ? BigInt(input.audioFileId) : null,
+        transcript: input.transcript ?? null,
         durationSeconds: input.durationSeconds,
         submittedAt: new Date(input.submittedAt),
       },
