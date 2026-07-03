@@ -1158,7 +1158,7 @@ export class CandidateService {
   }
 
   private allowedInterviewMediaMimeTypes(): string[] {
-    return ["video/webm", "video/mp4", "audio/webm", "audio/mpeg", "audio/wav"];
+    return ["video/webm", "video/mp4", "audio/webm", "audio/mp4", "audio/mpeg", "audio/wav"];
   }
 
   private assertFileAssetMetadataOnly(dto: UploadResumeDto): void {

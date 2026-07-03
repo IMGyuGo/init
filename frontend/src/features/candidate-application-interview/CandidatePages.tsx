@@ -2370,7 +2370,7 @@ function InterviewRuntimePanel({
       };
 
       recorder.onstop = () => {
-        const recordedMimeType = recorder.mimeType || mimeType || "video/webm";
+        const recordedMimeType = resolveRecordedMimeType(recorder, mimeType, recordingChunksRef.current);
         const blob = new Blob(recordingChunksRef.current, { type: recordedMimeType });
         const durationSeconds = Math.max(1, Math.round((Date.now() - recordingStartedAtRef.current) / 1000));
         const fileName = `${mode}-answer-${data.runtime.sessionId}-${currentQuestion.questionId}.${mediaFileExtension(recordedMimeType)}`;
@@ -4780,13 +4780,39 @@ function normalizeInterviewMediaMimeType(mimeType: string): RuntimeFileAssetRequ
 
 function getSupportedRecordingMimeType(): string | undefined {
   if (typeof MediaRecorder === "undefined") return undefined;
-  return ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"].find((mimeType) =>
-    MediaRecorder.isTypeSupported(mimeType),
-  );
+  return [
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm",
+    "video/mp4",
+    "audio/mp4",
+  ].find((mimeType) => MediaRecorder.isTypeSupported(mimeType));
 }
 
-function mediaFileExtension(mimeType: string): "mp4" | "webm" {
-  return mimeType.includes("mp4") ? "mp4" : "webm";
+function resolveRecordedMimeType(
+  recorder: MediaRecorder,
+  requestedMimeType: string | undefined,
+  chunks: BlobPart[],
+): RuntimeFileAssetRequest["mimeType"] | string {
+  const chunkMimeType = chunks
+    .map((chunk) => chunk instanceof Blob ? chunk.type : "")
+    .find((type) => normalizeInterviewMediaMimeType(type));
+  return normalizeInterviewMediaMimeType(chunkMimeType ?? "")
+    ?? normalizeInterviewMediaMimeType(recorder.mimeType)
+    ?? normalizeInterviewMediaMimeType(requestedMimeType ?? "")
+    ?? chunkMimeType
+    ?? recorder.mimeType
+    ?? requestedMimeType
+    ?? "";
+}
+
+function mediaFileExtension(mimeType: string): "m4a" | "mp3" | "mp4" | "wav" | "webm" {
+  const normalizedMimeType = normalizeInterviewMediaMimeType(mimeType);
+  if (normalizedMimeType === "audio/mp4") return "m4a";
+  if (normalizedMimeType === "audio/mpeg") return "mp3";
+  if (normalizedMimeType === "audio/wav") return "wav";
+  if (normalizedMimeType?.includes("mp4")) return "mp4";
+  return "webm";
 }
 
 function safeFileName(name: string): string {

@@ -106,6 +106,17 @@ const answerRequest: SaveInterviewAnswerRequest = toSaveInterviewAnswerRequest({
   durationSeconds: 30,
 });
 
+const macosAudioAnswerRequest: SaveInterviewAnswerRequest = toSaveInterviewAnswerRequest({
+  questionId: 2,
+  audioFile: {
+    storageKey: "candidate/1/mock-answer.m4a",
+    originalName: "mock-answer.m4a",
+    mimeType: "audio/mp4",
+    sizeBytes: 12 * 1024,
+  },
+  durationSeconds: 30,
+});
+
 const questionSpeechText = toRuntimeQuestionSpeechText({
   content: "최근 프로젝트에서 가장 어려웠던 기술적 문제는 무엇이었나요?",
   audioPrompt: "audio://candidate/mock-question/1",
@@ -318,6 +329,7 @@ void interviewConsentRequest;
 void deviceCheckRequest;
 void startMockRequest;
 void answerRequest;
+void macosAudioAnswerRequest;
 void questionSpeechText;
 void audioPromptSpeechText;
 void applicationSummary;

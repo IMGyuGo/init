@@ -96,6 +96,7 @@ export const allowedInterviewMediaMimeTypes: RuntimeFileAssetRequest["mimeType"]
   "video/webm",
   "video/mp4",
   "audio/webm",
+  "audio/mp4",
   "audio/mpeg",
   "audio/wav",
 ];

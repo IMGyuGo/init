@@ -305,7 +305,7 @@ export interface InterviewTimePolicyView {
 export interface RuntimeFileAssetRequest {
   storageKey: string;
   originalName: string;
-  mimeType: "video/webm" | "video/mp4" | "audio/webm" | "audio/mpeg" | "audio/wav";
+  mimeType: "video/webm" | "video/mp4" | "audio/webm" | "audio/mp4" | "audio/mpeg" | "audio/wav";
   sizeBytes: number;
 }
 
