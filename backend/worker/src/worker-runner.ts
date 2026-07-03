@@ -1,6 +1,6 @@
 import { AiJobQueue } from "./queue";
 import { AiProcessLogRepository } from "./process-log.repository";
-import { NonRetryableAiWorkerFailure, toFailureReason } from "./worker-errors";
+import { NonRetryableAiWorkerFailure, isRetryableFailureCategory, toFailureReason } from "./worker-errors";
 import { AiQueueMessage, AiTaskHandler, AiWorkerJob, FailureReason } from "./worker.types";
 
 export interface AiWorkerRunnerOptions {
@@ -51,10 +51,11 @@ export class AiWorkerRunner {
         );
 
         if (result.guardrail.result === "BLOCKED") {
+          const category = result.guardrail.failureCategory ?? "NON_RETRYABLE";
           await this.failAndAck(message, {
-            category: result.guardrail.failureCategory ?? "NON_RETRYABLE",
+            category,
             reason: result.guardrail.reason ?? "guardrail blocked output",
-            retryable: result.guardrail.failureCategory === "RETRYABLE"
+            retryable: isRetryableFailureCategory(category)
           });
           return;
         }
@@ -71,7 +72,7 @@ export class AiWorkerRunner {
       await this.queue.delete(message);
     } catch (error) {
       const failure = toFailureReason(error);
-      if (failure.category === "RETRYABLE") {
+      if (isRetryableFailureCategory(failure.category)) {
         await this.markFailed(message, failure);
         return;
       }

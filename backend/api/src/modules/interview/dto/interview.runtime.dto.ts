@@ -59,6 +59,10 @@ export class SaveInterviewAnswerDto {
   @IsInt()
   @Min(1)
   durationSeconds!: number;
+
+  @IsOptional()
+  @IsBoolean()
+  allowReanswer?: boolean;
 }
 
 export class AiInterviewRequestDto {

@@ -352,6 +352,7 @@ export interface SaveInterviewAnswerRequest {
   audioFileId?: number;
   audioFile?: RuntimeFileAssetRequest;
   durationSeconds: number;
+  allowReanswer?: boolean;
 }
 
 export interface InterviewAnswer {

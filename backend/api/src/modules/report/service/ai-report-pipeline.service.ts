@@ -12,6 +12,7 @@ import {
   FailureReason,
   GenerateReportRequest,
   GenerateReportResult,
+  isRetryableFailureCategory,
   ReportCommand,
   ReportPipelineStep,
   ReportType
@@ -247,8 +248,11 @@ export class AiReportPipelineService {
       throw this.validation("answers is required.");
     }
     for (const answer of answers) {
-      if (!Number.isInteger(answer.answerId) || answer.answerId <= 0 || !answer.transcript?.trim()) {
-        throw this.validation("answerId and transcript are required.");
+      if (!Number.isInteger(answer.answerId) || answer.answerId <= 0) {
+        throw this.validation("answerId is required.");
+      }
+      if (answer.evaluationStatus !== "STT_UNAVAILABLE" && !answer.transcript?.trim()) {
+        throw this.validation("answer transcript is required unless evaluationStatus is STT_UNAVAILABLE.");
       }
     }
   }
@@ -261,7 +265,7 @@ export class AiReportPipelineService {
   }
 
   private failure(category: FailureReason["category"], reason: string): FailureReason {
-    return { category, reason, retryable: category === "RETRYABLE" };
+    return { category, reason, retryable: isRetryableFailureCategory(category) };
   }
 
   private toFailure(error: unknown, fallbackCategory: FailureReason["category"]): FailureReason {

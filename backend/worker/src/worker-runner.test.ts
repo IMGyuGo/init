@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { InMemoryAiProcessLogRepository } from "./process-log.repository";
 import { InMemoryAiJobQueue } from "./queue";
 import { loadWorkerEnv } from "./worker-env";
-import { NonRetryableAiWorkerFailure, RetryableAiWorkerFailure } from "./worker-errors";
+import {
+  NonRetryableAiWorkerFailure,
+  ReanswerRequiredAiWorkerFailure,
+  RetryableAiWorkerFailure,
+  SttRetryableAiWorkerFailure
+} from "./worker-errors";
 import { AiWorkerRunner } from "./worker-runner";
 import { AiQueueMessage, AiTaskHandler } from "./worker.types";
 
@@ -138,6 +143,26 @@ test("keeps retryable failures on the queue for redelivery", async () => {
   assert.deepEqual(queue.deletedMessageIds, []);
 });
 
+test("keeps STT retryable failures on the queue for redelivery", async () => {
+  const queue = new InMemoryAiJobQueue([message(7)]);
+  const repository = new InMemoryAiProcessLogRepository();
+  const handler: AiTaskHandler = {
+    async handle() {
+      throw new SttRetryableAiWorkerFailure("OpenAI STT timeout");
+    }
+  };
+
+  await new AiWorkerRunner(queue, repository, handler).processBatch();
+
+  assert.equal(repository.get(7).status, "FAILED");
+  assert.deepEqual(repository.get(7).failure, {
+    category: "STT_RETRYABLE",
+    reason: "OpenAI STT timeout",
+    retryable: true
+  });
+  assert.deepEqual(queue.deletedMessageIds, []);
+});
+
 test("acks non-retryable failures after recording the reason", async () => {
   const queue = new InMemoryAiJobQueue([message(4)]);
   const repository = new InMemoryAiProcessLogRepository();
@@ -156,6 +181,26 @@ test("acks non-retryable failures after recording the reason", async () => {
     retryable: false
   });
   assert.deepEqual(queue.deletedMessageIds, ["message-4"]);
+});
+
+test("acks reanswer-required STT failures after recording the reason", async () => {
+  const queue = new InMemoryAiJobQueue([message(8)]);
+  const repository = new InMemoryAiProcessLogRepository();
+  const handler: AiTaskHandler = {
+    async handle() {
+      throw new ReanswerRequiredAiWorkerFailure("Audio file might be corrupted or unsupported");
+    }
+  };
+
+  await new AiWorkerRunner(queue, repository, handler).processBatch();
+
+  assert.equal(repository.get(8).status, "FAILED");
+  assert.deepEqual(repository.get(8).failure, {
+    category: "REANSWER_REQUIRED",
+    reason: "Audio file might be corrupted or unsupported",
+    retryable: false
+  });
+  assert.deepEqual(queue.deletedMessageIds, ["message-8"]);
 });
 
 test("loads SQS, S3 and AI provider settings from environment variables", () => {

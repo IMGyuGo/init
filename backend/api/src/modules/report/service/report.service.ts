@@ -418,33 +418,21 @@ export class ReportService {
   }
 
   private async reportAnswerInputs(answers: InterviewAnswer[]): Promise<ReportInterviewAnswerInput[]> {
-    const missingTranscriptAnswerIds: number[] = [];
-    const reportAnswers = await Promise.all(
+    return Promise.all(
       answers.map(async (answer) => {
         const transcript = this.cleanOptionalText(answer.transcript);
-        if (!transcript) {
-          missingTranscriptAnswerIds.push(answer.answerId);
-        }
-
         const question = await this.interviewRepository.findQuestion(answer.questionId);
+        const unavailableReason =
+          "STT 실패로 transcript가 없어 임시 0점 처리되었습니다. 이 점수는 답변 품질이 아니라 음성 인식 실패에 따른 임시 처리입니다.";
         return {
           answerId: answer.answerId,
           question: question?.content ?? `Interview question ${answer.questionId}`,
-          transcript: transcript ?? "",
+          transcript: transcript ?? unavailableReason,
+          evaluationStatus: transcript ? "EVALUATED" : "STT_UNAVAILABLE",
+          transcriptUnavailableReason: transcript ? undefined : unavailableReason,
         };
       }),
     );
-
-    if (missingTranscriptAnswerIds.length > 0) {
-      throw new CandidateDomainError("REPORT_INPUT_NOT_READY", "Report generation requires STT transcripts.", 409, [
-        {
-          field: "answers",
-          reason: `transcript is missing for answerIds: ${missingTranscriptAnswerIds.join(", ")}`,
-        },
-      ]);
-    }
-
-    return reportAnswers;
   }
 
   private async reportCriteria(

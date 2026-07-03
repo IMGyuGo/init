@@ -10,7 +10,7 @@ export type AiProcessType =
   | "QUESTION_SET_GENERATE";
 
 export type AiProcessStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
-export type FailureCategory = "RETRYABLE" | "NON_RETRYABLE";
+export type FailureCategory = "RETRYABLE" | "NON_RETRYABLE" | "STT_RETRYABLE" | "REANSWER_REQUIRED";
 export type GuardrailResult = "PASS" | "BLOCKED" | "REGENERATED";
 
 export interface AiWorkerJob {
