@@ -21,6 +21,25 @@ export type AuthTokenResponse = {
   user: AuthUser;
 };
 
+export type ApiPageMeta = {
+  page: number;
+  limit: number;
+  totalItems: number;
+  totalPages: number;
+  hasNext: boolean;
+};
+
+export type ApiMeta = {
+  traceId: string;
+  timestamp: string;
+  page?: ApiPageMeta;
+};
+
+export type ApiEnvelope<T, M = ApiMeta> = {
+  data: T;
+  meta: M;
+};
+
 export function getAccessToken() {
   if (typeof window === "undefined") return null;
   return window.sessionStorage.getItem(TOKEN_KEY);
@@ -78,6 +97,17 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, retry
     throw new Error(json.error?.message ?? "요청을 처리할 수 없습니다.");
   }
   return json.data as T;
+}
+
+export async function apiFetchEnvelope<T, M = ApiMeta>(path: string, options: RequestInit = {}, retry = true): Promise<ApiEnvelope<T, M>> {
+  const response = await authFetch(`${API_BASE}/api/v1${path}`, options, retry);
+
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(json.error?.message ?? "Request failed.");
+  }
+
+  return json as ApiEnvelope<T, M>;
 }
 
 export async function refreshAccessToken() {

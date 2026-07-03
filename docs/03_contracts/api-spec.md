@@ -1,5 +1,76 @@
 # API Spec
 
+## Payment API Addendum
+
+상세 PM 문서: `.PM/payments/결제-api-명세.md`
+
+### API-PAY-001 Create Company Credit Payment Order
+
+- Method: `POST`
+- Path: `/payments/orders`
+- Auth: company or candidate user
+- Request: `{ "productCode": "COMPANY_AI_INTERVIEW_CREDIT_30", "quantity": 1 }`
+- Product codes: `COMPANY_AI_INTERVIEW_CREDIT_10`(10회/39,000원), `COMPANY_AI_INTERVIEW_CREDIT_30`(30회/99,000원), `COMPANY_AI_INTERVIEW_CREDIT_100`(100회/290,000원)
+- Response data: payment order, Toss checkout amount, `creditAmount`, `unitPrice`, `customerKey`, `successUrl`, `failUrl`
+
+지원자 모의면접 결제도 같은 API를 사용한다.
+
+- Auth: candidate user
+- Request: `{ "productCode": "CANDIDATE_MOCK_INTERVIEW_PASS_1", "quantity": 1 }`
+- Product code: `CANDIDATE_MOCK_INTERVIEW_PASS_1`(AI 모의면접 1회/4,900원)
+- Response data: payment order, Toss checkout amount, `creditAmount=1`, `unitPrice=4900`, `customerKey`, `successUrl=/candidate/billing/success`, `failUrl=/candidate/billing/fail`
+
+### API-PAY-002 List Payment Orders
+
+- Method: `GET`
+- Path: `/payments/orders`
+- Auth: company or candidate user
+- Query: `page`, `limit`, optional `status`
+- Rule: default history excludes transient `READY` and `IN_PROGRESS` orders. Explicit `status` queries can still retrieve those states for internal/payment troubleshooting.
+- Response data: `{ "items": PaymentOrder[] }` with page meta
+
+### API-PAY-003 Get Payment Order
+
+- Method: `GET`
+- Path: `/payments/orders/{orderId}`
+- Auth: company or candidate user
+- Response data: owned payment order
+
+### API-PAY-004 Confirm Payment
+
+- Method: `POST`
+- Path: `/payments/confirm`
+- Auth: company or candidate user
+- Request: `{ "paymentKey": "...", "orderId": "...", "amount": 99000 }`
+- Rule: backend verifies stored order amount before calling Toss `/v1/payments/confirm`
+- Idempotency: if the order is already `DONE` with the same `paymentKey`, return the stored order. If the order is `IN_PROGRESS` with the same `paymentKey`, return the stored order without calling Toss again.
+- Provider failure: if Toss approval fails after a valid success redirect, mark the order `FAILED` and return the failed payment order so the result page can render a terminal failure state.
+
+### API-PAY-005 Record Checkout Failure
+
+- Method: `POST`
+- Path: `/payments/orders/{orderId}/fail`
+- Auth: company or candidate user
+- Request: `{ "code": "PAY_PROCESS_CANCELED", "message": "..." }`
+- Rule: only `READY` or `IN_PROGRESS` orders can transition to `FAILED`. Terminal orders such as `DONE` are returned unchanged.
+
+### API-PAY-006 Get Candidate Mock Interview Pass Summary
+
+- Method: `GET`
+- Path: `/payments/candidate/mock-interview-passes`
+- Auth: candidate user
+- Rule: first access lazily grants the initial free 3 passes with a 30-day expiry.
+- Response data: `{ "availablePasses": 3, "grantedPasses": 3, "usedPasses": 0, "freeExpiresAt": "..." }`
+
+### API-PAY-007 Grant Development Mock Interview Passes
+
+- Method: `POST`
+- Path: `/payments/candidate/mock-interview-passes/dev-grant`
+- Auth: candidate user
+- Request: `{ "passAmount": 5 }`
+- Rule: local/dev/test only. Production rejects this API regardless of request body. The backend can disable it in non-production with `PAYMENT_DEV_PASS_GRANT_ENABLED=false`.
+- Response data: updated candidate mock interview pass summary. Ledger source is `DEV_GRANT`, not `PURCHASE`.
+
 > Source: `init/docs/00_source` 기준. Generated at 2026-06-27.
 
 AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.

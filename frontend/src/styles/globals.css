@@ -549,6 +549,11 @@ textarea:focus {
   background: #fce8e8;
 }
 
+.notice.success {
+  color: #236b3b;
+  background: #e5f6ea;
+}
+
 .sticky-actions {
   position: sticky;
   right: 0;

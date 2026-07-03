@@ -5,7 +5,7 @@
 \nogitdocs
 
 # Local Toss Payments sandbox artifacts.
-docs/_local/payment-sandbox/
+.PM/payments/sandbox/
 
 # Dependencies
 node_modules/

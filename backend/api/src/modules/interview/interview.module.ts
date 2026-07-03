@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { PrismaService } from "../../shared/prisma.service";
 import { AuthModule } from "../auth/auth.module";
 import { CandidateModule } from "../candidate";
+import { PaymentModule } from "../payment/payment.module";
 import { InMemoryReportRepository } from "../report/repository/in-memory-report.repository";
 import { PrismaReportRepository } from "../report/repository/prisma-report.repository";
 import { REPORT_REPOSITORY } from "../report/repository/report.repository";
@@ -38,7 +39,7 @@ const reportRepositoryProviders = usePrismaReportRepository
     ];
 
 @Module({
-  imports: [AuthModule, CandidateModule],
+  imports: [AuthModule, CandidateModule, PaymentModule],
   controllers: [InterviewController, PublicInterviewController],
   providers: [
     PrismaService,

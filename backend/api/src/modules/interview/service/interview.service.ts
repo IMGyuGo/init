@@ -29,6 +29,10 @@ import {
   StartMockInterviewResult,
 } from "../interview.runtime.types";
 import { AiJobDispatcherService } from "../../report/service/ai-job-dispatcher.service";
+import {
+  CandidateMockInterviewPassService,
+  type CandidateMockInterviewPassPort,
+} from "../../payment/service/candidate-mock-interview-pass.service";
 import { INTERVIEW_REPOSITORY, type FollowUpQuestionPolicy, type InterviewRepository } from "../repository/interview.repository";
 import {
   InMemoryInterviewMediaStorageAdapter,
@@ -55,6 +59,9 @@ export class InterviewService {
     @Optional()
     @Inject(INTERVIEW_MEDIA_STORAGE)
     private readonly mediaStorage: InterviewMediaStoragePort = new InMemoryInterviewMediaStorageAdapter(),
+    @Optional()
+    @Inject(CandidateMockInterviewPassService)
+    private readonly mockInterviewPasses?: CandidateMockInterviewPassPort,
   ) {}
 
   async listOwnedMockInterviewSessions(currentUser: CurrentCandidateUser): Promise<RuntimeInterviewSession[]> {
@@ -81,6 +88,7 @@ export class InterviewService {
     const showQuestionText = requestBody.showQuestionText === true;
     const questionIds = await this.selectMockQuestionIds(dto);
     const now = new Date().toISOString();
+    await this.mockInterviewPasses?.consumePass(currentUser.candidateId, 1, undefined, new Date(now));
     const session = await this.interviewRepository.createMockSession({
       candidateId: currentUser.candidateId,
       showQuestionText,

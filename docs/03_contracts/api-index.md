@@ -1,5 +1,19 @@
 # API Index
 
+## Payment Addendum
+
+Detailed PM-facing payment contract: `.PM/payments/결제-api-명세.md`.
+
+| API ID | Domain | Method | Path | Summary | Auth | Async | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| API-PAY-001 | Payments | POST | /payments/orders | Create Toss one-time payment order | Company/Candidate user | N | 201 Created |
+| API-PAY-002 | Payments | GET | /payments/orders | List owned payment orders | Company/Candidate user | N | 200 OK |
+| API-PAY-003 | Payments | GET | /payments/orders/{orderId} | Get owned payment order | Company/Candidate user | N | 200 OK |
+| API-PAY-004 | Payments | POST | /payments/confirm | Confirm Toss payment after success redirect | Company/Candidate user | N | 200 OK |
+| API-PAY-005 | Payments | POST | /payments/orders/{orderId}/fail | Record Toss fail redirect | Company/Candidate user | N | 200 OK |
+| API-PAY-006 | Payments | GET | /payments/candidate/mock-interview-passes | Get candidate mock interview pass summary | Candidate user | N | 200 OK |
+| API-PAY-007 | Payments | POST | /payments/candidate/mock-interview-passes/dev-grant | Grant development-only candidate mock interview passes | Candidate user(local/dev/test only) | N | 200 OK |
+
 > Source: `init/docs/00_source` 기준. Generated at 2026-06-27.
 
 API 전체 목록을 도메인별로 빠르게 탐색한다.

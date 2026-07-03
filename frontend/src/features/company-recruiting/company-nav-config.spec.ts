@@ -1,4 +1,4 @@
-import { companyAccountBillingNav, companyNavLabels } from "./company-nav-config";
+import { companyAccountBillingNav, companyNavLabels, isCompanyAccountBillingPath } from "./company-nav-config";
 
 if (companyNavLabels.accountBilling !== "계정/결제") {
   throw new Error("Company account navigation label should be 계정/결제.");
@@ -12,6 +12,10 @@ if (companyAccountBillingNav[0]?.label !== "계정" || companyAccountBillingNav[
   throw new Error("Company account dropdown should link 계정 to the company profile page.");
 }
 
-if (companyAccountBillingNav[1]?.label !== "결제" || !("disabled" in companyAccountBillingNav[1]) || !companyAccountBillingNav[1].disabled) {
-  throw new Error("Company account dropdown should reserve 결제 as a disabled billing tab.");
+if (companyAccountBillingNav[1]?.label !== "결제" || companyAccountBillingNav[1]?.href !== "/company/billing") {
+  throw new Error("Company account dropdown should link 결제 to the company billing page.");
+}
+
+if (!isCompanyAccountBillingPath("/company/billing")) {
+  throw new Error("Company billing route should keep the account/billing navigation section active.");
 }
