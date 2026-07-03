@@ -47,20 +47,20 @@ server() {
       cat <<'EOF'
 Usage:
   server                 # open keyboard menu
-  server up              # start all
-  server frontend        # start frontend
-  server api             # start API
-  server worker          # start worker
-  server infra           # start Docker infra
-  server down            # stop all
-  server down api        # stop API
-  server prisma          # show prisma command help
-  server prisma generate # generate Prisma Client
-  server prisma migrate  # run Prisma migrate dev
-  server prisma seed     # run Prisma seed
 
-Short targets:
-  all, a/api, f/frontend, w/worker, i/infra, p/prisma
+Menu:
+  all                    # start/stop infra, API, frontend, worker
+  infra                  # start/stop local Docker infra
+  backend/api            # start/stop API
+  frontend               # start/stop frontend
+  worker                 # start/stop worker
+  prisma                 # open generate/migrate/seed submenu
+
+Keys:
+  ↑/↓                    # move
+  Enter                  # run/open/toggle
+  r                      # refresh status
+  q                      # quit
 EOF
       ;;
     p|prisma)
