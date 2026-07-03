@@ -27,12 +27,25 @@ function Invoke-FinalWeaponServer {
   }
 
   function Invoke-PrismaInit {
+    param([string] $PrismaAction = 'menu')
+
     $apiDir = Join-Path $root 'backend/api'
     Push-Location $apiDir
     try {
-      npm run prisma:generate
-      npm run db:migrate
-      npm run db:seed
+      switch -Regex ($PrismaAction.ToLowerInvariant()) {
+        '^(g|generate|client)$' {
+          npm run prisma:generate
+        }
+        '^(m|migrate|migration)$' {
+          npm run db:migrate
+        }
+        '^(s|seed)$' {
+          npm run db:seed
+        }
+        default {
+          Write-Host 'Usage: server prisma generate|migrate|seed'
+        }
+      }
     } finally {
       Pop-Location
     }
@@ -54,7 +67,10 @@ Usage:
   server infra           # start Docker infra
   server down            # stop all
   server down api        # stop API
-  server prisma          # prisma generate + migrate + seed
+  server prisma          # show prisma command help
+  server prisma generate # generate Prisma Client
+  server prisma migrate  # run Prisma migrate dev
+  server prisma seed     # run Prisma seed
 
 Short targets:
   all, a/api, f/frontend, w/worker, i/infra, p/prisma
@@ -62,13 +78,13 @@ Short targets:
       return
     }
     '^(p|prisma)$' {
-      Invoke-PrismaInit
+      Invoke-PrismaInit -PrismaAction $Target
       return
     }
     '^(up|start|on|s)$' {
       $only = Normalize-Target -Value $Target
       if ($only -eq 'Prisma') {
-        Invoke-PrismaInit
+        Invoke-PrismaInit -PrismaAction 'menu'
         return
       }
 
@@ -91,7 +107,7 @@ Short targets:
     default {
       $only = Normalize-Target -Value $Action
       if ($only -eq 'Prisma') {
-        Invoke-PrismaInit
+        Invoke-PrismaInit -PrismaAction $Target
         return
       }
 

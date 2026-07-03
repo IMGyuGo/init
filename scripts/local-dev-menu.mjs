@@ -5,19 +5,30 @@ import process from 'node:process';
 
 const isWindows = process.platform === 'win32';
 const root = process.cwd();
-const entries = [
+const mainEntries = [
   { key: 'all', label: 'all', target: 'all', kind: 'toggle' },
   { key: 'i', label: 'infra', target: 'i', kind: 'toggle' },
   { key: 'a', label: 'backend/api', target: 'a', port: 3001, kind: 'toggle' },
   { key: 'f', label: 'frontend', target: 'f', port: 3000, kind: 'toggle' },
   { key: 'w', label: 'worker', target: 'w', kind: 'toggle' },
-  { key: 'p', label: 'prisma', target: 'p', kind: 'run' },
+  { key: 'p', label: 'prisma', target: 'p', kind: 'submenu' },
+];
+const prismaEntries = [
+  { key: 'pg', label: 'generate', target: 'generate', kind: 'prisma' },
+  { key: 'pm', label: 'migrate', target: 'migrate', kind: 'prisma' },
+  { key: 'ps', label: 'seed', target: 'seed', kind: 'prisma' },
+  { key: 'back', label: 'back', target: 'back', kind: 'back' },
 ];
 
 let selected = 0;
+let view = 'main';
 const statuses = new Map();
 const statusLabels = new Map();
 const details = new Map();
+
+function currentEntries() {
+  return view === 'prisma' ? prismaEntries : mainEntries;
+}
 
 function checkPort(port) {
   return new Promise((resolve) => {
@@ -37,7 +48,7 @@ function checkPort(port) {
 
 async function refreshStatuses() {
   await Promise.all(
-    entries.map(async (entry) => {
+    mainEntries.map(async (entry) => {
       if (entry.port) {
         statuses.set(entry.key, await checkPort(entry.port));
       }
@@ -138,10 +149,34 @@ function refreshDetails(infra, worker) {
   ]);
 
   details.set('p', [
-    'prisma: generate + migrate + seed',
+    'prisma: open generate/migrate/seed submenu',
     `db: ${dbReachable ? 'reachable' : 'down'}`,
     `client: ${prismaStatus}`,
-    'restart: api/worker should be restarted after schema/client changes',
+    'generate: refresh Prisma Client after schema changes',
+    'migrate: apply local database migrations',
+    'seed: insert or update local dev data when needed',
+  ]);
+
+  details.set('pg', [
+    'run: npm run prisma:generate',
+    `client: ${prismaStatus}`,
+    'restart: api/worker should be restarted after client changes',
+  ]);
+
+  details.set('pm', [
+    'run: npm run db:migrate',
+    `db: ${dbReachable ? 'reachable' : 'down'}`,
+    'restart: api/worker should be restarted after schema changes',
+  ]);
+
+  details.set('ps', [
+    'run: npm run db:seed',
+    `db: ${dbReachable ? 'reachable' : 'down'}`,
+    'use only when local dev data should be inserted or refreshed',
+  ]);
+
+  details.set('back', [
+    'return to main menu',
   ]);
 }
 
@@ -187,7 +222,9 @@ function clear() {
 }
 
 function statusText(entry) {
-  if (entry.kind === 'run') return 'run';
+  if (entry.kind === 'run' || entry.kind === 'prisma') return 'run';
+  if (entry.kind === 'submenu') return 'open';
+  if (entry.kind === 'back') return '';
   if (statusLabels.has(entry.key)) return statusLabels.get(entry.key);
   const running = statuses.get(entry.key);
   return running ? 'on' : 'off';
@@ -197,8 +234,11 @@ function render() {
   clear();
   console.log('Final Weapon local dev menu');
   console.log('');
-  console.log('↑/↓ move · Enter toggle/run · r refresh · q quit');
+  console.log(view === 'prisma'
+    ? '↑/↓ move · Enter run/back · Esc back · r refresh · q quit'
+    : '↑/↓ move · Enter toggle/open · r refresh · q quit');
   console.log('');
+  const entries = currentEntries();
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
     const marker = index === selected ? '>' : ' ';
@@ -231,7 +271,22 @@ function runServer(action, target) {
 }
 
 async function toggleSelected() {
+  const entries = currentEntries();
   const entry = entries[selected];
+  if (entry.kind === 'submenu') {
+    view = 'prisma';
+    selected = 0;
+    return;
+  }
+  if (entry.kind === 'back') {
+    view = 'main';
+    selected = 0;
+    return;
+  }
+  if (entry.kind === 'prisma') {
+    runServer('prisma', entry.target);
+    return;
+  }
   if (entry.kind === 'run') {
     runServer('p', entry.target);
     return;
@@ -258,9 +313,14 @@ async function main() {
     }
 
     if (key === '\u001b[A') {
+      const entries = currentEntries();
       selected = (selected - 1 + entries.length) % entries.length;
     } else if (key === '\u001b[B') {
+      const entries = currentEntries();
       selected = (selected + 1) % entries.length;
+    } else if (key === '\u001b' && view !== 'main') {
+      view = 'main';
+      selected = 0;
     } else if (key === '\r' || key === '\n') {
       await toggleSelected();
       await refreshStatuses();

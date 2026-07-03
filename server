@@ -16,8 +16,22 @@ server() {
     esac
   }
 
-  prisma_init() {
-    (cd "$script_dir/backend/api" && npm run prisma:generate && npm run db:migrate && npm run db:seed)
+  prisma_run() {
+    local prisma_action="${1:-menu}"
+    case "${prisma_action,,}" in
+      g|generate|client)
+        (cd "$script_dir/backend/api" && npm run prisma:generate)
+        ;;
+      m|migrate|migration)
+        (cd "$script_dir/backend/api" && npm run db:migrate)
+        ;;
+      s|seed)
+        (cd "$script_dir/backend/api" && npm run db:seed)
+        ;;
+      *)
+        echo "Usage: server prisma generate|migrate|seed"
+        ;;
+    esac
   }
 
   case "${action,,}" in
@@ -35,19 +49,22 @@ Usage:
   server infra           # start Docker infra
   server down            # stop all
   server down api        # stop API
-  server prisma          # prisma generate + migrate + seed
+  server prisma          # show prisma command help
+  server prisma generate # generate Prisma Client
+  server prisma migrate  # run Prisma migrate dev
+  server prisma seed     # run Prisma seed
 
 Short targets:
   all, a/api, f/frontend, w/worker, i/infra, p/prisma
 EOF
       ;;
     p|prisma)
-      prisma_init
+      prisma_run "$target"
       ;;
     up|start|on|s)
       target="$(normalize_target "$target")" || return 1
       if [[ "$target" == "Prisma" ]]; then
-        prisma_init
+        prisma_run
       else
         bash "$script_dir/start-local.sh" "$target"
       fi
@@ -63,7 +80,7 @@ EOF
     *)
       target="$(normalize_target "$action")" || return 1
       if [[ "$target" == "Prisma" ]]; then
-        prisma_init
+        prisma_run "$target"
       else
         bash "$script_dir/start-local.sh" "$target"
       fi

@@ -289,7 +289,10 @@ server frontend    # frontend만 실행
 server api         # API만 실행
 server worker      # worker만 실행
 server infra       # Docker infra만 실행
-server prisma      # Prisma generate + migrate + seed
+server prisma      # Prisma 하위 명령 도움말
+server prisma generate
+server prisma migrate
+server prisma seed
 server down        # 전체 종료
 server down api    # API만 종료
 ```
@@ -314,7 +317,10 @@ server frontend    # frontend만 실행
 server api         # API만 실행
 server worker      # worker만 실행
 server infra       # Docker infra만 실행
-server prisma      # Prisma generate + migrate + seed
+server prisma      # Prisma 하위 명령 도움말
+server prisma generate
+server prisma migrate
+server prisma seed
 server down        # 전체 종료
 server down api    # API만 종료
 ```
