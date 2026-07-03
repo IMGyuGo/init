@@ -139,15 +139,6 @@ function DefaultApplyRail() {
         <button className="candidate-apply-button" type="button">
           지원하기
         </button>
-        <div className="candidate-resume-card">
-          <span className="candidate-resume-asset" aria-hidden="true">
-            AI
-          </span>
-          <div>
-            <p>이력서 정보가 충분하지 않아요</p>
-            <strong>이력서 작성 시 서류 합격률을 확인할 수 있어요</strong>
-          </div>
-        </div>
       </div>
     </div>
   );
