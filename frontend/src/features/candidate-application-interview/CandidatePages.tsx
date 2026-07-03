@@ -513,6 +513,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
   }
 
   async function handleDevicePreview() {
+    warmUpInterviewAudioOutput();
     setMessage("");
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
@@ -567,6 +568,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
   }
 
   async function handleStartInterview() {
+    warmUpInterviewAudioOutput();
     if (!guide) return;
     if (!cameraReady || !microphoneReady || !deviceState.networkStable) {
       setMessage("카메라, 마이크, 네트워크 점검을 완료한 뒤 면접을 시작해주세요.");
@@ -1939,6 +1941,7 @@ function InterviewRuntimePanel({
   }
 
   async function handleEnableCamera() {
+    warmUpInterviewAudioOutput();
     if (!navigator.mediaDevices?.getUserMedia) {
       setMessage("이 브라우저에서는 카메라/마이크를 사용할 수 없습니다.");
       return;
@@ -2001,6 +2004,7 @@ function InterviewRuntimePanel({
   }, [data?.runtime.sessionId, setupCompleted]);
 
   async function handleEnterInterview() {
+    warmUpInterviewAudioOutput();
     if (!data) return;
     if (!streamRef.current || !cameraReady || !microphoneReady) {
       await handleEnableCamera();
@@ -2267,6 +2271,7 @@ function InterviewRuntimePanel({
 
   function handleReplayPrompt() {
     if (!currentQuestion || currentQuestionReplayUsed || !questionSpeechSupported) return;
+    warmUpInterviewAudioOutput();
     setReplayedQuestionIds((current) => {
       const next = new Set(current);
       next.add(currentQuestion.questionId);
@@ -4223,6 +4228,38 @@ function getInterviewTranscriptRetryReason(transcript: string): string | undefin
 type WindowWithWebkitAudioContext = Window & typeof globalThis & {
   webkitAudioContext?: typeof AudioContext;
 };
+
+function warmUpInterviewAudioOutput() {
+  if (typeof window === "undefined") return;
+
+  if (isQuestionSpeechSupported() && !window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
+    const utterance = new SpeechSynthesisUtterance(" ");
+    utterance.lang = "ko-KR";
+    utterance.volume = 0;
+    window.speechSynthesis.speak(utterance);
+  }
+
+  const AudioContextConstructor = window.AudioContext ?? (window as WindowWithWebkitAudioContext).webkitAudioContext;
+  if (!AudioContextConstructor) return;
+
+  try {
+    const audioContext = new AudioContextConstructor();
+    const gain = audioContext.createGain();
+    const oscillator = audioContext.createOscillator();
+    gain.gain.value = 0;
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + 0.01);
+    void audioContext.resume().finally(() => {
+      window.setTimeout(() => {
+        void audioContext.close().catch(() => undefined);
+      }, 50);
+    });
+  } catch {
+    // Some browsers reject AudioContext creation until a later user gesture.
+  }
+}
 
 function playAnswerStartCue() {
   if (typeof window === "undefined") return;
