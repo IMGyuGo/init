@@ -12,6 +12,11 @@ data "aws_iam_policy_document" "ecs_task_assume" {
 resource "aws_iam_role" "ecs_execution" {
   name               = "${local.name_prefix}-ecs-execution"
   assume_role_policy = data.aws_iam_policy_document.ecs_task_assume.json
+
+  tags = {
+    Name = "${local.name_prefix}-ecs-execution"
+    Role = "ecs-execution"
+  }
 }
 
 resource "aws_iam_role_policy_attachment" "ecs_execution_managed" {
@@ -42,6 +47,12 @@ resource "aws_iam_role" "ecs_task" {
 
   name               = "${local.name_prefix}-${each.key}-task"
   assume_role_policy = data.aws_iam_policy_document.ecs_task_assume.json
+
+  tags = {
+    Name    = "${local.name_prefix}-${each.key}-task"
+    Role    = "ecs-task"
+    Service = each.key
+  }
 }
 
 data "aws_iam_policy_document" "api_task" {
@@ -145,6 +156,11 @@ data "aws_iam_policy_document" "github_deploy_assume" {
 resource "aws_iam_role" "github_deploy" {
   name               = "${local.name_prefix}-github-deploy"
   assume_role_policy = data.aws_iam_policy_document.github_deploy_assume.json
+
+  tags = {
+    Name = "${local.name_prefix}-github-deploy"
+    Role = "github-deploy"
+  }
 }
 
 data "aws_iam_policy_document" "github_deploy" {

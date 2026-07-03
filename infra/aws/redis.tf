@@ -1,6 +1,10 @@
 resource "aws_elasticache_subnet_group" "redis" {
   name       = "${local.name_prefix}-redis"
   subnet_ids = values(aws_subnet.private_data)[*].id
+
+  tags = {
+    Name = "${local.name_prefix}-redis"
+  }
 }
 
 resource "aws_elasticache_replication_group" "redis" {
@@ -23,5 +27,8 @@ resource "aws_elasticache_replication_group" "redis" {
   at_rest_encryption_enabled = true
   transit_encryption_enabled = false
   snapshot_retention_limit   = var.redis_snapshot_retention_days
-}
 
+  tags = {
+    Name = "${local.name_prefix}-redis"
+  }
+}

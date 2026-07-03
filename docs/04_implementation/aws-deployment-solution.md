@@ -57,6 +57,73 @@ Dockerfile을 추가해도 현재 로컬 개발 방식을 없애지 않는다. �
 | Production approval | GitHub Environment approval 사용. A 단독 승인 가능, PM 검토는 선택 |
 | CI/CD 성격 | 완성본 배포가 아니라 개발 중 schema/package/runtime 변경을 계속 흡수하는 pipeline |
 
+## AWS 리소스 태그 정책
+
+`infra/aws` Terraform 코드에는 리소스 관리와 비용 추적을 위해 태그 정책을 반영한다. 현재 기준은 Terraform AWS provider `v6.53.0`에서 `tags`를 지원하는 리소스에는 명시적 `tags` block을 둔다는 것이다. 실제 AWS 리소스에 태그가 반영되는 시점은 Terraform `plan/apply` 실행 이후다.
+
+공통 태그는 provider `default_tags`로 적용한다.
+
+| 태그 key | 값 |
+| --- | --- |
+| `Project` | `jungle-init` |
+| `Environment` | main stack은 `dev` 또는 `main`, bootstrap stack은 `bootstrap` |
+| `ManagedBy` | `terraform` |
+| `Repository` | `var.github_repository` |
+| `Owner` | main stack은 `A`, bootstrap stack은 `var.owner` 기본값 `A` |
+
+리소스별 식별 태그는 공통 태그와 별도로 둔다.
+
+| 태그 key | 사용 대상 | 목적 |
+| --- | --- | --- |
+| `Name` | 대부분의 태그 지원 리소스 | AWS Console, 비용 탐색, 운영 점검에서 사람이 식별 |
+| `Tier` | subnet | `public`, `private-app`, `private-data` 구분 |
+| `Service` | frontend/API/worker 관련 ECS, target group, security group rule, log group | 서비스별 비용과 장애 범위 추적 |
+| `Component` | CloudWatch alarm 등 공통 감시 리소스 | `alb`, `sqs`, `rds`처럼 감시 대상 구분 |
+| `Role` | IAM role | `ecs-execution`, `ecs-task`, `github-deploy` 역할 구분 |
+| `Source` | 일부 ingress rule | CloudFront 또는 admin CIDR 출처 구분 |
+
+현재 명시적 태그를 둔 주요 리소스 범위는 아래와 같다.
+
+| 범위 | 태그 적용 리소스 |
+| --- | --- |
+| Network | VPC, subnet, internet gateway, EIP, NAT Gateway, route table, VPC endpoint |
+| Security | security group, security group ingress/egress rule |
+| Edge/Routing | ALB, target group, listener, listener rule, CloudFront distribution |
+| Compute | ECS cluster, ECS task definition, ECS service |
+| IAM | ECS execution role, ECS task role, GitHub deploy role |
+| Data | RDS subnet group, RDS instance, ElastiCache subnet group, ElastiCache replication group |
+| Storage/Queue | S3 assets bucket, SQS queue, SQS DLQ |
+| Runtime config | Secrets Manager secret |
+| Observability | CloudWatch log group, CloudWatch metric alarm |
+| Bootstrap | Terraform state S3 bucket, GitHub OIDC provider |
+
+ECS service에는 `enable_ecs_managed_tags = true`, `propagate_tags = "SERVICE"`를 둔다. 이렇게 하면 ECS가 관리하는 task에도 service 기준 태그가 전파되어 어떤 service의 실행 task인지 추적하기 쉽다.
+
+RDS instance에는 `copy_tags_to_snapshot = true`를 둔다. 최종 snapshot이나 수동 snapshot을 운영할 때 원본 DB의 관리 태그가 snapshot에도 이어지게 하기 위함이다.
+
+태그를 지원하지 않는 Terraform 리소스는 개별 리소스에 태그를 붙이지 않고, 상위 리소스의 태그로 관리한다.
+
+| 태그 미지원 리소스 | 관리 기준 |
+| --- | --- |
+| `aws_s3_bucket_public_access_block`, `aws_s3_bucket_versioning`, `aws_s3_bucket_server_side_encryption_configuration`, `aws_s3_bucket_ownership_controls`, `aws_s3_bucket_lifecycle_configuration`, `aws_s3_bucket_cors_configuration`, `aws_s3_bucket_policy` | S3 bucket 자체 태그로 관리 |
+| `aws_ecr_lifecycle_policy` | ECR repository 태그로 관리 |
+| `aws_iam_role_policy`, `aws_iam_role_policy_attachment` | 연결된 IAM role 태그로 관리 |
+| `aws_route_table_association` | route table과 subnet 태그로 관리 |
+| `aws_ecs_cluster_capacity_providers` | ECS cluster 태그로 관리 |
+| `aws_cloudfront_origin_access_control` | CloudFront distribution과 S3 bucket 태그로 관리 |
+| `aws_ses_domain_identity` | SES domain identity는 provider schema상 tag 미지원. 도메인명과 Terraform state로 식별 |
+
+태그 누락 검증은 현재 provider schema 기준으로 수행한다.
+
+```powershell
+terraform -chdir=infra/aws fmt -check -recursive
+terraform -chdir=infra/aws validate
+terraform -chdir=infra/aws/bootstrap validate
+git diff --check
+```
+
+추가로 Terraform AWS provider schema를 조회해 `tags`를 지원하는 리소스 중 명시적 `tags` block이 없는 항목이 없는지 확인한다. 이 검증은 코드 리뷰 보조용이며, 실제 AWS 반영 여부는 `terraform plan`에서 확인한다.
+
 ## 목표 아키텍처
 
 ```text

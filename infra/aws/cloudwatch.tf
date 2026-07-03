@@ -3,6 +3,11 @@ resource "aws_cloudwatch_log_group" "ecs" {
 
   name              = "/ecs/${var.project_name}/${var.environment}/${each.key}"
   retention_in_days = var.environment == "main" ? 30 : 14
+
+  tags = {
+    Name    = "${local.name_prefix}-${each.key}-logs"
+    Service = each.key
+  }
 }
 
 resource "aws_cloudwatch_metric_alarm" "alb_target_5xx" {
@@ -18,6 +23,11 @@ resource "aws_cloudwatch_metric_alarm" "alb_target_5xx" {
 
   dimensions = {
     LoadBalancer = aws_lb.app.arn_suffix
+  }
+
+  tags = {
+    Name      = "${local.name_prefix}-alb-target-5xx"
+    Component = "alb"
   }
 }
 
@@ -35,6 +45,11 @@ resource "aws_cloudwatch_metric_alarm" "sqs_oldest_message" {
   dimensions = {
     QueueName = aws_sqs_queue.ai_jobs.name
   }
+
+  tags = {
+    Name      = "${local.name_prefix}-sqs-oldest-message"
+    Component = "sqs"
+  }
 }
 
 resource "aws_cloudwatch_metric_alarm" "rds_cpu" {
@@ -51,5 +66,9 @@ resource "aws_cloudwatch_metric_alarm" "rds_cpu" {
   dimensions = {
     DBInstanceIdentifier = aws_db_instance.app.id
   }
-}
 
+  tags = {
+    Name      = "${local.name_prefix}-rds-cpu"
+    Component = "rds"
+  }
+}

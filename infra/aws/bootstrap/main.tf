@@ -1,5 +1,9 @@
 resource "aws_s3_bucket" "terraform_state" {
   bucket = var.state_bucket_name
+
+  tags = {
+    Name = var.state_bucket_name
+  }
 }
 
 resource "aws_s3_bucket_public_access_block" "terraform_state" {
@@ -33,6 +37,10 @@ resource "aws_iam_openid_connect_provider" "github" {
   url             = "https://token.actions.githubusercontent.com"
   client_id_list  = ["sts.amazonaws.com"]
   thumbprint_list = var.github_oidc_thumbprints
+
+  tags = {
+    Name = "github-actions-oidc"
+  }
 }
 
 output "state_bucket_name" {

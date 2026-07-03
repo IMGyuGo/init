@@ -5,6 +5,10 @@ resource "aws_ecs_cluster" "app" {
     name  = "containerInsights"
     value = "disabled"
   }
+
+  tags = {
+    Name = local.name_prefix
+  }
 }
 
 resource "aws_ecs_cluster_capacity_providers" "app" {
@@ -26,6 +30,11 @@ resource "aws_ecs_task_definition" "service" {
   runtime_platform {
     operating_system_family = "LINUX"
     cpu_architecture        = "X86_64"
+  }
+
+  tags = {
+    Name    = "${local.name_prefix}-${each.key}"
+    Service = each.key
   }
 
   container_definitions = jsonencode([
@@ -80,6 +89,8 @@ resource "aws_ecs_service" "service" {
   health_check_grace_period_seconds  = each.key == "worker" ? null : 60
   deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200
+  enable_ecs_managed_tags            = true
+  propagate_tags                     = "SERVICE"
 
   capacity_provider_strategy {
     capacity_provider = var.capacity_provider_by_service[each.key]
@@ -115,5 +126,9 @@ resource "aws_ecs_service" "service" {
     aws_lb_listener.http,
     aws_ecs_cluster_capacity_providers.app
   ]
-}
 
+  tags = {
+    Name    = "${local.name_prefix}-${each.key}"
+    Service = each.key
+  }
+}

@@ -18,6 +18,11 @@ resource "aws_vpc_security_group_ingress_rule" "alb_http_cloudfront" {
   from_port         = 80
   ip_protocol       = "tcp"
   to_port           = 80
+
+  tags = {
+    Name   = "${local.name_prefix}-alb-http-cloudfront"
+    Source = "cloudfront"
+  }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "alb_http_admin" {
@@ -28,12 +33,21 @@ resource "aws_vpc_security_group_ingress_rule" "alb_http_admin" {
   from_port         = 80
   ip_protocol       = "tcp"
   to_port           = 80
+
+  tags = {
+    Name   = "${local.name_prefix}-alb-http-admin"
+    Source = each.value
+  }
 }
 
 resource "aws_vpc_security_group_egress_rule" "alb_all" {
   security_group_id = aws_security_group.alb.id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
+
+  tags = {
+    Name = "${local.name_prefix}-alb-all-egress"
+  }
 }
 
 resource "aws_security_group" "ecs_frontend" {
@@ -72,6 +86,11 @@ resource "aws_vpc_security_group_ingress_rule" "frontend_from_alb" {
   from_port                    = 3000
   ip_protocol                  = "tcp"
   to_port                      = 3000
+
+  tags = {
+    Name    = "${local.name_prefix}-frontend-from-alb"
+    Service = "frontend"
+  }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "api_from_alb" {
@@ -80,24 +99,44 @@ resource "aws_vpc_security_group_ingress_rule" "api_from_alb" {
   from_port                    = 3001
   ip_protocol                  = "tcp"
   to_port                      = 3001
+
+  tags = {
+    Name    = "${local.name_prefix}-api-from-alb"
+    Service = "api"
+  }
 }
 
 resource "aws_vpc_security_group_egress_rule" "ecs_frontend_all" {
   security_group_id = aws_security_group.ecs_frontend.id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
+
+  tags = {
+    Name    = "${local.name_prefix}-ecs-frontend-all-egress"
+    Service = "frontend"
+  }
 }
 
 resource "aws_vpc_security_group_egress_rule" "ecs_api_all" {
   security_group_id = aws_security_group.ecs_api.id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
+
+  tags = {
+    Name    = "${local.name_prefix}-ecs-api-all-egress"
+    Service = "api"
+  }
 }
 
 resource "aws_vpc_security_group_egress_rule" "ecs_worker_all" {
   security_group_id = aws_security_group.ecs_worker.id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
+
+  tags = {
+    Name    = "${local.name_prefix}-ecs-worker-all-egress"
+    Service = "worker"
+  }
 }
 
 resource "aws_security_group" "rds" {
@@ -116,6 +155,11 @@ resource "aws_vpc_security_group_ingress_rule" "rds_from_api" {
   from_port                    = 5432
   ip_protocol                  = "tcp"
   to_port                      = 5432
+
+  tags = {
+    Name    = "${local.name_prefix}-rds-from-api"
+    Service = "api"
+  }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "rds_from_worker" {
@@ -124,12 +168,21 @@ resource "aws_vpc_security_group_ingress_rule" "rds_from_worker" {
   from_port                    = 5432
   ip_protocol                  = "tcp"
   to_port                      = 5432
+
+  tags = {
+    Name    = "${local.name_prefix}-rds-from-worker"
+    Service = "worker"
+  }
 }
 
 resource "aws_vpc_security_group_egress_rule" "rds_all" {
   security_group_id = aws_security_group.rds.id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
+
+  tags = {
+    Name = "${local.name_prefix}-rds-all-egress"
+  }
 }
 
 resource "aws_security_group" "redis" {
@@ -148,6 +201,11 @@ resource "aws_vpc_security_group_ingress_rule" "redis_from_api" {
   from_port                    = 6379
   ip_protocol                  = "tcp"
   to_port                      = 6379
+
+  tags = {
+    Name    = "${local.name_prefix}-redis-from-api"
+    Service = "api"
+  }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "redis_from_worker" {
@@ -156,11 +214,19 @@ resource "aws_vpc_security_group_ingress_rule" "redis_from_worker" {
   from_port                    = 6379
   ip_protocol                  = "tcp"
   to_port                      = 6379
+
+  tags = {
+    Name    = "${local.name_prefix}-redis-from-worker"
+    Service = "worker"
+  }
 }
 
 resource "aws_vpc_security_group_egress_rule" "redis_all" {
   security_group_id = aws_security_group.redis.id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
-}
 
+  tags = {
+    Name = "${local.name_prefix}-redis-all-egress"
+  }
+}

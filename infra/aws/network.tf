@@ -162,12 +162,20 @@ resource "aws_vpc_security_group_ingress_rule" "vpc_endpoints_https" {
   from_port         = 443
   ip_protocol       = "tcp"
   to_port           = 443
+
+  tags = {
+    Name = "${local.name_prefix}-vpc-endpoints-https"
+  }
 }
 
 resource "aws_vpc_security_group_egress_rule" "vpc_endpoints_all" {
   security_group_id = aws_security_group.vpc_endpoints.id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
+
+  tags = {
+    Name = "${local.name_prefix}-vpc-endpoints-all-egress"
+  }
 }
 
 resource "aws_vpc_endpoint" "interface" {
@@ -187,4 +195,3 @@ resource "aws_vpc_endpoint" "interface" {
     Name = "${local.name_prefix}-${each.key}-endpoint"
   }
 }
-

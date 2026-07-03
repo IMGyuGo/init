@@ -16,6 +16,10 @@ resource "aws_lb" "app" {
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
   subnets            = values(aws_subnet.public)[*].id
+
+  tags = {
+    Name = "${local.name_prefix}-alb"
+  }
 }
 
 resource "aws_lb_target_group" "frontend" {
@@ -33,6 +37,11 @@ resource "aws_lb_target_group" "frontend" {
     timeout             = 5
     healthy_threshold   = 2
     unhealthy_threshold = 3
+  }
+
+  tags = {
+    Name    = "${local.name_prefix}-frontend"
+    Service = "frontend"
   }
 }
 
@@ -52,6 +61,11 @@ resource "aws_lb_target_group" "api" {
     healthy_threshold   = 2
     unhealthy_threshold = 3
   }
+
+  tags = {
+    Name    = "${local.name_prefix}-api"
+    Service = "api"
+  }
 }
 
 resource "aws_lb_listener" "http" {
@@ -62,6 +76,10 @@ resource "aws_lb_listener" "http" {
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.frontend.arn
+  }
+
+  tags = {
+    Name = "${local.name_prefix}-http-listener"
   }
 }
 
@@ -78,6 +96,11 @@ resource "aws_lb_listener_rule" "api" {
     path_pattern {
       values = ["/api/*"]
     }
+  }
+
+  tags = {
+    Name    = "${local.name_prefix}-api-path-rule"
+    Service = "api"
   }
 }
 
@@ -177,6 +200,10 @@ resource "aws_cloudfront_distribution" "app" {
   viewer_certificate {
     cloudfront_default_certificate = true
   }
+
+  tags = {
+    Name = "${local.name_prefix}-cloudfront"
+  }
 }
 
 data "aws_iam_policy_document" "assets_bucket" {
@@ -207,4 +234,3 @@ resource "aws_s3_bucket_policy" "assets" {
   bucket = aws_s3_bucket.assets.id
   policy = data.aws_iam_policy_document.assets_bucket.json
 }
-

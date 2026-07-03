@@ -70,6 +70,10 @@ resource "aws_sqs_queue" "ai_jobs_dlq" {
   name                      = "${local.name_prefix}-ai-jobs-dlq"
   message_retention_seconds = 345600
   sqs_managed_sse_enabled   = true
+
+  tags = {
+    Name = "${local.name_prefix}-ai-jobs-dlq"
+  }
 }
 
 resource "aws_sqs_queue" "ai_jobs" {
@@ -85,6 +89,10 @@ resource "aws_sqs_queue" "ai_jobs" {
     deadLetterTargetArn = aws_sqs_queue.ai_jobs_dlq.arn
     maxReceiveCount     = 3
   })
+
+  tags = {
+    Name = "${local.name_prefix}-ai-jobs"
+  }
 }
 
 resource "aws_ses_domain_identity" "mail" {

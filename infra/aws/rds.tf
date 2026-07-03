@@ -37,6 +37,10 @@ resource "aws_db_instance" "app" {
   final_snapshot_identifier = (
     var.rds_skip_final_snapshot ? null : "${local.name_prefix}-postgres-final"
   )
-  apply_immediately = var.rds_apply_immediately
-}
+  copy_tags_to_snapshot = true
+  apply_immediately     = var.rds_apply_immediately
 
+  tags = {
+    Name = "${local.name_prefix}-postgres"
+  }
+}
