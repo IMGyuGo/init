@@ -1,23 +1,76 @@
-fw() {
-  local script_dir
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  bash "$script_dir/fw.sh" "$@"
-}
-
 server() {
-  if [[ "$#" -eq 0 ]]; then
-    fw ui
-    return
-  fi
+  local script_dir action target
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  action="${1:-ui}"
+  target="${2:-all}"
 
-  fw "$@"
+  normalize_target() {
+    case "${1,,}" in
+      all|"") echo "All" ;;
+      i|infra|docker|db) echo "Infra" ;;
+      a|api|back|backend|be) echo "Api" ;;
+      f|front|frontend|fe|web) echo "Frontend" ;;
+      w|worker|ai) echo "Worker" ;;
+      p|prisma) echo "Prisma" ;;
+      *) echo "Unknown target: $1" >&2; return 1 ;;
+    esac
+  }
+
+  prisma_init() {
+    (cd "$script_dir/backend/api" && npm run prisma:generate && npm run db:migrate && npm run db:seed)
+  }
+
+  case "${action,,}" in
+    ui|menu|tui|server)
+      node "$script_dir/scripts/local-dev-menu.mjs"
+      ;;
+    help|h|-h|--help)
+      cat <<'EOF'
+Usage:
+  server                 # open keyboard menu
+  server up              # start all
+  server frontend        # start frontend
+  server api             # start API
+  server worker          # start worker
+  server infra           # start Docker infra
+  server down            # stop all
+  server down api        # stop API
+  server prisma          # prisma generate + migrate + seed
+
+Short targets:
+  all, a/api, f/frontend, w/worker, i/infra, p/prisma
+EOF
+      ;;
+    p|prisma)
+      prisma_init
+      ;;
+    up|start|on|s)
+      target="$(normalize_target "$target")" || return 1
+      if [[ "$target" == "Prisma" ]]; then
+        prisma_init
+      else
+        bash "$script_dir/start-local.sh" "$target"
+      fi
+      ;;
+    down|stop|off|x)
+      target="$(normalize_target "$target")" || return 1
+      if [[ "$target" == "Prisma" ]]; then
+        echo "[local] Prisma is a one-shot command and has no process to stop."
+      else
+        bash "$script_dir/stop-local.sh" "$target"
+      fi
+      ;;
+    *)
+      target="$(normalize_target "$action")" || return 1
+      if [[ "$target" == "Prisma" ]]; then
+        prisma_init
+      else
+        bash "$script_dir/start-local.sh" "$target"
+      fi
+      ;;
+  esac
 }
 
-서버관리() {
-  if [[ "$#" -eq 0 ]]; then
-    fw ui
-    return
-  fi
-
-  fw "$@"
-}
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  server "$@"
+fi

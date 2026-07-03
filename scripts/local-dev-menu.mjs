@@ -217,11 +217,11 @@ function renderDetails(entry) {
   }
 }
 
-function runFw(action, target) {
+function runServer(action, target) {
   const command = isWindows ? 'powershell' : 'bash';
   const args = isWindows
-    ? ['-ExecutionPolicy', 'Bypass', '-File', 'fw.ps1', action, target]
-    : ['fw.sh', action, target];
+    ? ['-ExecutionPolicy', 'Bypass', '-File', 'server.ps1', action, target]
+    : ['server', action, target];
 
   process.stdin.setRawMode(false);
   process.stdin.pause();
@@ -233,14 +233,14 @@ function runFw(action, target) {
 async function toggleSelected() {
   const entry = entries[selected];
   if (entry.kind === 'run') {
-    runFw('p', entry.target);
+    runServer('p', entry.target);
     return;
   }
 
   const running = entry.key === 'all'
     ? statusLabels.get('all') === 'on'
     : Boolean(statuses.get(entry.key));
-  runFw(running ? 'down' : 'up', entry.target);
+  runServer(running ? 'down' : 'up', entry.target);
 }
 
 async function main() {

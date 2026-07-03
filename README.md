@@ -279,17 +279,19 @@ powershell -ExecutionPolicy Bypass -File .\start-local.ps1 -Only Frontend
 powershell -ExecutionPolicy Bypass -File .\start-local.ps1 -Only Worker
 ```
 
-Windows에서는 짧은 실행 래퍼인 `fw.ps1`을 사용할 수 있습니다.
+PowerShell 세션에서 `server.ps1`을 dot-source 하면 `server` 명령으로 로컬 서버를 관리할 수 있습니다.
 
 ```powershell
-.\fw.ps1 up       # 전체 실행
-.\fw.ps1 f        # frontend만 실행
-.\fw.ps1 a        # API만 실행
-.\fw.ps1 w        # worker만 실행
-.\fw.ps1 i        # Docker infra만 실행
-.\fw.ps1 p        # Prisma generate + migrate + seed
-.\fw.ps1 down     # 전체 종료
-.\fw.ps1 ui       # 키보드 메뉴 열기
+. .\server.ps1
+server             # 키보드 메뉴 열기
+server up          # 전체 실행
+server frontend    # frontend만 실행
+server api         # API만 실행
+server worker      # worker만 실행
+server infra       # Docker infra만 실행
+server prisma      # Prisma generate + migrate + seed
+server down        # 전체 종료
+server down api    # API만 종료
 ```
 
 macOS/Linux에서는 PowerShell 설치 없이 bash 스크립트를 사용합니다.
@@ -302,27 +304,19 @@ bash start-local.sh Worker
 bash stop-local.sh
 ```
 
-macOS/Linux에서도 짧은 래퍼를 사용할 수 있습니다.
-
-```bash
-bash fw.sh up
-bash fw.sh f
-bash fw.sh down
-bash fw.sh ui
-```
-
-PowerShell 세션에서 매번 `.\fw.ps1`을 입력하지 않으려면 `server.ps1`을 dot-source 해서 alias를 만들 수 있습니다.
-
-```powershell
-. .\server.ps1
-fw ui
-```
-
 bash 세션에서는 `server` 파일을 source 해서 같은 방식으로 사용할 수 있습니다.
 
 ```bash
 source server
-fw ui
+server             # 키보드 메뉴 열기
+server up          # 전체 실행
+server frontend    # frontend만 실행
+server api         # API만 실행
+server worker      # worker만 실행
+server infra       # Docker infra만 실행
+server prisma      # Prisma generate + migrate + seed
+server down        # 전체 종료
+server down api    # API만 종료
 ```
 
 ## 11. 로그인/회원가입 흐름 확인하기
