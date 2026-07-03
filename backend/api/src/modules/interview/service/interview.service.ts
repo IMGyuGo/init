@@ -823,7 +823,7 @@ export class InterviewService {
       applicationId: session.applicationId,
       interviewType: session.interviewType,
       status: session.status,
-      showQuestionText: session.showQuestionText,
+      showQuestionText: this.shouldExposeQuestionText(session),
       currentQuestion:
         session.status === "IN_PROGRESS"
           ? await this.toQuestionView(
@@ -851,7 +851,7 @@ export class InterviewService {
     return {
       sessionId: session.sessionId,
       interviewType: session.interviewType,
-      showQuestionText: session.showQuestionText,
+      showQuestionText: this.shouldExposeQuestionText(session),
       currentQuestionId: session.status === "IN_PROGRESS" ? this.currentQuestionId(session) : undefined,
       questions: await Promise.all(
         session.questionIds.map(async (questionId, index) =>
@@ -876,11 +876,15 @@ export class InterviewService {
       questionId: question.questionId,
       questionType: question.questionType,
       sortOrder: runtimeSortOrder ?? question.sortOrder,
-      content: session.showQuestionText ? question.content : undefined,
+      content: this.shouldExposeQuestionText(session) ? question.content : undefined,
       audioPrompt: `audio://interview-questions/${question.questionId}`,
       answered: Boolean(await this.interviewRepository.findAnswer(session.sessionId, question.questionId)),
       current,
     };
+  }
+
+  private shouldExposeQuestionText(session: RuntimeInterviewSession): boolean {
+    return session.interviewType === "RECRUITING" || session.showQuestionText;
   }
 
   private async selectMockQuestionIds(dto: StartMockInterviewDto): Promise<number[]> {

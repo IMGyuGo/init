@@ -351,7 +351,7 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       candidateId: application.candidateId,
       interviewType: "RECRUITING",
       status: "NOT_READY",
-      showQuestionText: false,
+      showQuestionText: true,
       windowStartsAt: createdAt,
       windowEndsAt,
       deviceCheck: {

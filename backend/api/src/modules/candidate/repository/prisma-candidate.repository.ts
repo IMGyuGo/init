@@ -163,7 +163,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
         candidateId: application.candidateId,
         interviewType: PrismaInterviewType.RECRUITING,
         status: PrismaInterviewStatus.NOT_READY,
-        showQuestionText: false,
+        showQuestionText: true,
       },
       include: { application: true },
     });
@@ -286,7 +286,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
           candidateId: BigInt(input.candidateId),
           interviewType: PrismaInterviewType.RECRUITING,
           status: PrismaInterviewStatus.NOT_READY,
-          showQuestionText: false,
+          showQuestionText: true,
         },
       });
 

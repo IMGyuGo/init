@@ -358,7 +358,7 @@ export class CandidateService {
       sessionId: session.sessionId,
       interviewType: "RECRUITING",
       status: session.status,
-      showQuestionText: session.showQuestionText,
+      showQuestionText: true,
       canRecord: session.status === "IN_PROGRESS",
       ...(job?.jobDescription ? { jobDescription: job.jobDescription } : {}),
       timePolicy,

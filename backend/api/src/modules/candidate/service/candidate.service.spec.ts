@@ -548,6 +548,7 @@ async function run() {
   assert.equal(runtime.data.applicationId, submitted.data.application.applicationId);
   assert.equal(runtime.data.sessionId, consentSaved.data.sessionId);
   assert.equal(runtime.data.status, "IN_PROGRESS");
+  assert.equal(runtime.data.showQuestionText, true);
   assert.equal(runtime.data.canRecord, true);
   assert.deepEqual(runtime.data.timePolicy, {
     preparationTimeSec: 0,

@@ -376,7 +376,7 @@ async function runControllerRuntimeAssertions() {
   const recruitingQuestions = await controller.listRecruitingQuestions(validCandidateRequest, String(session.sessionId));
   assert.equal(recruitingQuestions.data.interviewType, "RECRUITING");
   assert.equal(recruitingQuestions.data.questions.length, 4);
-  assert.equal(recruitingQuestions.data.questions[0]?.content, undefined);
+  assert.ok(recruitingQuestions.data.questions[0]?.content);
 
   for (let index = 0; index < recruitingQuestions.data.questions.length; index += 1) {
     const question = recruitingQuestions.data.questions[index];

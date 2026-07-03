@@ -76,6 +76,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3
 const DEMO_CANDIDATE_ID = 1;
 export const PUBLIC_INTERVIEW_ACCESS_TOKEN_STORAGE_KEY = "init.publicInterviewAccessToken";
 const DEFAULT_INTERVIEW_QUESTION_TIME_LIMIT_SECONDS = 90;
+const DEFAULT_MOCK_INTERVIEW_PREPARATION_TIME_LIMIT_SECONDS = 10;
 const questionTypeOptions: QuestionType[] = ["INTRO", "TECHNICAL", "EXPERIENCE", "SITUATION", "CLOSING"];
 
 type CandidateNavSection = "jobs" | "applications" | "interview" | "reports" | "mypage";
@@ -85,6 +86,7 @@ type AsyncState<T> = {
   error?: string;
 };
 type RuntimeMode = "mock" | "recruiting";
+type RuntimeTimerPhase = "PREPARING" | "ANSWERING";
 type InterviewGuideStep = "guide" | "device";
 type CandidateApplicationStatusFilter = "ALL" | "WAITING" | "IN_PROGRESS" | "COMPLETED" | "REPORTING";
 type ApplicationBadgeTone = "green" | "yellow" | "purple" | "neutral";
@@ -1449,6 +1451,7 @@ function InterviewRuntimePanel({
   const [setupCompleted, setSetupCompleted] = useState(false);
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
   const [remainingSeconds, setRemainingSeconds] = useState(DEFAULT_INTERVIEW_QUESTION_TIME_LIMIT_SECONDS);
+  const [timerPhase, setTimerPhase] = useState<RuntimeTimerPhase>("ANSWERING");
   const [introCompleted, setIntroCompleted] = useState(false);
   const [questionSpeechCompleted, setQuestionSpeechCompleted] = useState(false);
   const [questionSpeechPlaying, setQuestionSpeechPlaying] = useState(false);
@@ -1470,6 +1473,7 @@ function InterviewRuntimePanel({
   const autoSpokenQuestionRef = useRef<number | null>(null);
   const introSpokenSessionRef = useRef<number | null>(null);
   const timeExpiredQuestionRef = useRef<number | null>(null);
+  const answerStartCueQuestionRef = useRef<number | null>(null);
   const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const videoAttachRunRef = useRef(0);
   const hasAnswerFile = Boolean(answer.videoFile || answer.audioFile || answer.videoFileId || answer.audioFileId);
@@ -1503,10 +1507,15 @@ function InterviewRuntimePanel({
     }
 
     stopQuestionSpeech();
+    const preparationTimeSec = getRuntimePreparationTimeLimitSeconds(data.runtime);
+    const timingGuide =
+      preparationTimeSec > 0
+        ? `질문 안내가 끝나면 먼저 ${preparationTimeSec}초의 준비 시간이 흐르고, 준비 시간이 끝나면 알림음과 함께 답변 시간이 시작됩니다.`
+        : "질문 안내가 끝나면 바로 답변 시간이 시작됩니다.";
     const text =
       mode === "recruiting"
-        ? "안녕하세요. 지금부터 채용 AI 면접을 시작하겠습니다. 질문 안내가 끝난 뒤 답변 시간이 시작됩니다."
-        : "안녕하세요. 지금부터 AI 모의면접을 시작하겠습니다. 질문 안내가 끝난 뒤 답변 시간이 시작됩니다.";
+        ? `안녕하세요. 지금부터 채용 AI 면접을 시작하겠습니다. ${timingGuide}`
+        : `안녕하세요. 지금부터 AI 모의면접을 시작하겠습니다. ${timingGuide}`;
     const utterance = new SpeechSynthesisUtterance(text);
     const koreanVoice = findKoreanSpeechVoice(window.speechSynthesis.getVoices());
     utterance.lang = "ko-KR";
@@ -1634,11 +1643,12 @@ function InterviewRuntimePanel({
       submitAfterRecordingStopRef.current = false;
       autoAdvanceAfterAnswerSubmitRef.current = false;
       timeExpiredQuestionRef.current = null;
+      answerStartCueQuestionRef.current = null;
       setQuestionSpeechCompleted(false);
       setQuestionSpeechPlaying(false);
-      setRemainingSeconds(getRuntimeAnswerTimeLimitSeconds(data?.runtime));
+      resetRuntimeQuestionTimer(data?.runtime, setTimerPhase, setRemainingSeconds);
     }
-  }, [currentQuestion, data?.runtime.timePolicy?.answerTimeSec]);
+  }, [currentQuestion, data?.runtime.timePolicy?.answerTimeSec, data?.runtime.timePolicy?.preparationTimeSec]);
 
   useEffect(() => {
     void refreshCameraDevices();
@@ -1763,6 +1773,42 @@ function InterviewRuntimePanel({
   useEffect(() => {
     if (
       remainingSeconds > 0 ||
+      timerPhase !== "PREPARING" ||
+      !setupCompleted ||
+      !introCompleted ||
+      !questionSpeechCompleted ||
+      questionSpeechPlaying ||
+      !currentQuestion ||
+      currentQuestionAnswered ||
+      busy
+    ) {
+      return;
+    }
+
+    if (answerStartCueQuestionRef.current !== currentQuestion.questionId) {
+      answerStartCueQuestionRef.current = currentQuestion.questionId;
+      playAnswerStartCue();
+      setQuestionSpeechStatus("준비 시간이 끝났습니다. 답변을 시작해주세요.");
+    }
+    setTimerPhase("ANSWERING");
+    setRemainingSeconds(getRuntimeAnswerTimeLimitSeconds(data?.runtime));
+  }, [
+    busy,
+    currentQuestion,
+    currentQuestionAnswered,
+    data?.runtime,
+    introCompleted,
+    questionSpeechCompleted,
+    questionSpeechPlaying,
+    remainingSeconds,
+    setupCompleted,
+    timerPhase,
+  ]);
+
+  useEffect(() => {
+    if (
+      remainingSeconds > 0 ||
+      timerPhase !== "ANSWERING" ||
       !setupCompleted ||
       !introCompleted ||
       !questionSpeechCompleted ||
@@ -1787,6 +1833,7 @@ function InterviewRuntimePanel({
     questionSpeechPlaying,
     remainingSeconds,
     setupCompleted,
+    timerPhase,
   ]);
 
   useEffect(() => {
@@ -1799,7 +1846,8 @@ function InterviewRuntimePanel({
       !cameraReady ||
       !microphoneReady ||
       !currentQuestion ||
-      currentQuestionAnswered
+      currentQuestionAnswered ||
+      timerPhase !== "ANSWERING"
     ) {
       return;
     }
@@ -1819,6 +1867,7 @@ function InterviewRuntimePanel({
     questionSpeechPlaying,
     currentQuestion?.questionId,
     currentQuestionAnswered,
+    timerPhase,
     recording,
     answer.videoFile,
     answer.audioFile,
@@ -2408,7 +2457,7 @@ function InterviewRuntimePanel({
       setQuestionSpeechStatus("꼬리질문 음성 대기");
       setQuestionSpeechCompleted(false);
       setQuestionSpeechPlaying(false);
-      setRemainingSeconds(getRuntimeAnswerTimeLimitSeconds(data.runtime));
+      resetRuntimeQuestionTimer(data.runtime, setTimerPhase, setRemainingSeconds);
       timeExpiredQuestionRef.current = null;
       autoRecordingQuestionRef.current = null;
       setMessage(
@@ -2473,6 +2522,11 @@ function InterviewRuntimePanel({
 
   async function handleNextQuestion() {
     if (!data) return;
+    if (generatedFollowUpReady) {
+      await handleAnswerFollowUpQuestion();
+      return;
+    }
+
     setBusy(true);
     setMessage("");
     try {
@@ -2486,7 +2540,7 @@ function InterviewRuntimePanel({
       setQuestionSpeechStatus("다음 질문 음성 대기");
       setQuestionSpeechCompleted(false);
       setQuestionSpeechPlaying(false);
-      setRemainingSeconds(getRuntimeAnswerTimeLimitSeconds(data.runtime));
+      resetRuntimeQuestionTimer(data.runtime, setTimerPhase, setRemainingSeconds);
       timeExpiredQuestionRef.current = null;
       autoRecordingQuestionRef.current = null;
       refresh();
@@ -2598,7 +2652,8 @@ function InterviewRuntimePanel({
       })
     : false;
   const formattedRemainingTime = formatInterviewCountdown(remainingSeconds);
-  const timerDanger = remainingSeconds <= 10;
+  const timerLabel = timerPhase === "PREPARING" ? "준비 시간" : "남은 시간";
+  const timerDanger = timerPhase === "ANSWERING" && remainingSeconds <= 10;
 
   return (
     <main className="candidate-interview-app">
@@ -2694,8 +2749,8 @@ function InterviewRuntimePanel({
                   {mode === "recruiting" ? <div className="qm">채용 AI 면접</div> : null}
                   <div className="qn">질문 {questionNumber} / {data.runtime.totalQuestions}</div>
                 </div>
-                <div className={`question-timer ${timerDanger ? "danger" : ""}`} aria-label={`남은 시간 ${formattedRemainingTime}`}>
-                  <span>남은 시간</span>
+                <div className={`question-timer ${timerDanger ? "danger" : ""}`} aria-label={`${timerLabel} ${formattedRemainingTime}`}>
+                  <span>{timerLabel}</span>
                   <strong>{formattedRemainingTime}</strong>
                 </div>
               </div>
@@ -2709,27 +2764,6 @@ function InterviewRuntimePanel({
               <div className={`question-voice-status ${questionSpeechSupported ? "" : "unsupported"}`} aria-live="polite">
                 {questionSpeechStatus}
               </div>
-              {generatedFollowUpReady ? (
-                <div className="candidate-follow-up-prompt">
-                  <div className="candidate-follow-up-prompt__head">
-                    <span>생성된 꼬리질문</span>
-                    <button
-                      className="btn primary compact"
-                      type="button"
-                      disabled={
-                        busy ||
-                        autoAiPipeline?.followUpStatus !== "COMPLETED" ||
-                        !autoAiPipeline?.followUpProcessLogId ||
-                        autoAiPipeline?.insertStatus === "COMPLETED"
-                      }
-                      onClick={() => void handleAnswerFollowUpQuestion()}
-                    >
-                      꼬리질문 답변하기
-                    </button>
-                  </div>
-                  <p>{autoAiPipeline?.followUpQuestion}</p>
-                </div>
-              ) : null}
             </section>
 
             <section className="iv-grid">
@@ -3932,6 +3966,69 @@ function getRuntimeAnswerTimeLimitSeconds(runtime?: Pick<RuntimePageSession, "ti
   return typeof answerTimeSec === "number" && Number.isFinite(answerTimeSec) && answerTimeSec > 0
     ? answerTimeSec
     : DEFAULT_INTERVIEW_QUESTION_TIME_LIMIT_SECONDS;
+}
+
+function getRuntimePreparationTimeLimitSeconds(runtime?: Pick<RuntimePageSession, "interviewType" | "timePolicy">) {
+  const preparationTimeSec = runtime?.timePolicy?.preparationTimeSec;
+  if (typeof preparationTimeSec === "number" && Number.isFinite(preparationTimeSec) && preparationTimeSec > 0) {
+    return preparationTimeSec;
+  }
+
+  return runtime?.interviewType === "MOCK" ? DEFAULT_MOCK_INTERVIEW_PREPARATION_TIME_LIMIT_SECONDS : 0;
+}
+
+function resetRuntimeQuestionTimer(
+  runtime: Pick<RuntimePageSession, "interviewType" | "timePolicy"> | undefined,
+  setTimerPhase: (phase: RuntimeTimerPhase) => void,
+  setRemainingSeconds: (seconds: number) => void,
+) {
+  const preparationTimeSec = getRuntimePreparationTimeLimitSeconds(runtime);
+  if (preparationTimeSec > 0) {
+    setTimerPhase("PREPARING");
+    setRemainingSeconds(preparationTimeSec);
+    return;
+  }
+
+  setTimerPhase("ANSWERING");
+  setRemainingSeconds(getRuntimeAnswerTimeLimitSeconds(runtime));
+}
+
+type WindowWithWebkitAudioContext = Window & typeof globalThis & {
+  webkitAudioContext?: typeof AudioContext;
+};
+
+function playAnswerStartCue() {
+  if (typeof window === "undefined") return;
+
+  const AudioContextConstructor = window.AudioContext ?? (window as WindowWithWebkitAudioContext).webkitAudioContext;
+  if (!AudioContextConstructor) return;
+
+  const audioContext = new AudioContextConstructor();
+  const now = audioContext.currentTime;
+  const gain = audioContext.createGain();
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.18, now + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.48);
+  gain.connect(audioContext.destination);
+
+  const first = audioContext.createOscillator();
+  first.type = "sine";
+  first.frequency.setValueAtTime(880, now);
+  first.connect(gain);
+  first.start(now);
+  first.stop(now + 0.16);
+
+  const second = audioContext.createOscillator();
+  second.type = "sine";
+  second.frequency.setValueAtTime(1174.66, now + 0.16);
+  second.connect(gain);
+  second.start(now + 0.16);
+  second.stop(now + 0.42);
+
+  void audioContext.resume().catch(() => undefined);
+  window.setTimeout(() => {
+    void audioContext.close().catch(() => undefined);
+  }, 650);
 }
 
 function createRuntimeFileAssetFromMetadata(
