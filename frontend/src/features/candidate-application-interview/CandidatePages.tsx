@@ -77,7 +77,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3
 const DEMO_CANDIDATE_ID = 1;
 export const PUBLIC_INTERVIEW_ACCESS_TOKEN_STORAGE_KEY = "init.publicInterviewAccessToken";
 const DEFAULT_INTERVIEW_QUESTION_TIME_LIMIT_SECONDS = 90;
-const DEFAULT_MOCK_INTERVIEW_PREPARATION_TIME_LIMIT_SECONDS = 10;
+const DEFAULT_MOCK_INTERVIEW_PREPARATION_TIME_LIMIT_SECONDS = 5;
 const MIN_INTERVIEW_RECORDING_DURATION_SECONDS = 3;
 const MIN_INTERVIEW_RECORDING_BLOB_SIZE_BYTES = 10 * 1024;
 const MIN_STT_TRANSCRIPT_MEANINGFUL_LENGTH = 10;
@@ -1253,7 +1253,7 @@ export function CandidateMockReportsPage() {
 export function CandidateMockReportDetailPage({ reportId }: { reportId: number }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const [reportHandoff, setReportHandoff] = useState<CandidateReportGenerationHandoff>();
+  const [generationRequested, setGenerationRequested] = useState(false);
   const load = useCallback(async (): Promise<MockReportDetailData> => {
     const api = getCandidateApi();
     const [feedbackResult, mediaResult] = await Promise.allSettled([
@@ -1268,16 +1268,23 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
     };
   }, [reportId]);
   const { data, loading, error, refresh } = useCandidateResource(load, [reportId]);
+  const reportStatus = data?.feedback?.status ?? data?.media?.status ?? (generationRequested ? "GENERATING" : undefined);
+  const reportStatusView = getMockReportStatusView(reportStatus, data?.feedbackError);
+  const canRequestReport = !busy && reportStatus !== "GENERATING" && reportStatus !== "COMPLETED";
+
+  useEffect(() => {
+    if (reportStatus !== "GENERATING") return;
+    const timer = window.setInterval(refresh, 5000);
+    return () => window.clearInterval(timer);
+  }, [refresh, reportStatus]);
 
   async function handleGenerate() {
     setBusy(true);
     setMessage("");
     try {
-      const result = await getCandidateApi().requestMockReportGeneration(reportId);
-      setReportHandoff(result.data);
-      setMessage(
-        `리포트 생성 요청 준비 완료: reportId=${result.data.reportId}, sessionId=${result.data.sessionId}, answerIds=${result.data.answerIds.join(",") || "-"}, fileIds=${result.data.fileIds.join(",") || "-"}`,
-      );
+      await getCandidateApi().requestMockReportGeneration(reportId);
+      setGenerationRequested(true);
+      setMessage("AI 분석 요청이 접수되었습니다. 분석이 완료되면 리포트가 자동으로 갱신됩니다.");
       refresh();
     } catch (generateError) {
       setMessage(toErrorMessage(generateError));
@@ -1301,36 +1308,13 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
             <h2>종합 피드백</h2>
             <p>합격/탈락 판단이나 내부 점수는 노출하지 않습니다.</p>
           </div>
-          <button className="btn secondary" type="button" disabled={busy} onClick={() => void handleGenerate()}>
-            리포트 생성 요청
+          <button className="btn secondary" type="button" disabled={!canRequestReport} onClick={() => void handleGenerate()}>
+            {reportStatus === "FAILED" ? "분석 다시 요청" : "AI 분석 시작"}
           </button>
         </div>
-        {data?.feedback ? <MockFeedbackView feedback={data.feedback} /> : <p className="notice danger">{data?.feedbackError ?? "피드백을 불러오지 못했습니다."}</p>}
-      </section>
-      <section className="panel">
-        <div className="panel-head">
-          <div>
-            <h2>E 리포트 생성 연결값</h2>
-            <p>리포트 생성 요청을 누르면 E 담당 AI 파이프라인에 전달할 참조값을 확인합니다.</p>
-          </div>
-        </div>
-        {reportHandoff ? (
-          <ReportGenerationHandoffView handoff={reportHandoff} />
-        ) : (
-          <div className="candidate-pipeline-card muted">
-            <strong>리포트 생성 요청 대기</strong>
-            <p>버튼을 누르면 reportId, sessionId, answerIds, fileIds가 포함된 공유용 payload가 표시됩니다.</p>
-          </div>
-        )}
-      </section>
-      <section className="panel">
-        <div className="panel-head">
-          <div>
-            <h2>역량별 점수</h2>
-            <p>AI 리포트 점수 데이터가 연결되면 항목별 시각화를 표시합니다.</p>
-          </div>
-        </div>
-        <div className="ph-box">현재 D 후보자 조회 API에는 역량 점수 필드가 없어, 피드백 텍스트 중심으로 표시합니다.</div>
+        {data?.feedback && data.feedback.status === "COMPLETED"
+          ? <MockFeedbackView feedback={data.feedback} />
+          : <MockReportStatusPanel view={reportStatusView} />}
       </section>
       <section className="panel">
         <div className="panel-head">
@@ -3052,6 +3036,7 @@ function InterviewRuntimePanel({
         router.push(candidateApplicationInterviewRoutes.applicationReport(data.runtime.applicationId));
         return;
       }
+      await requestMockReportGenerationAfterComplete(result.data.sessionId);
       router.push(candidateApplicationInterviewRoutes.mockReportDetail(result.data.sessionId));
     } catch (submitError) {
       setMessage(toErrorMessage(submitError));
@@ -3075,8 +3060,14 @@ function InterviewRuntimePanel({
   const isCurrentQuestionLast = Boolean(
     data && currentQuestionIndex >= 0 && currentQuestionIndex >= data.runtime.totalQuestions - 1,
   );
+  const runtimeFollowUpQuestionCount =
+    data?.questions.questions.filter((question) => question.questionType === "FOLLOW_UP").length ?? 0;
+  const runtimeBaseQuestionCount =
+    data?.questions.questions.filter((question) => question.questionType !== "FOLLOW_UP").length ?? 0;
+  const canAddRuntimeFollowUpQuestion = runtimeFollowUpQuestionCount < runtimeBaseQuestionCount;
   const generatedFollowUpReady = Boolean(
     data &&
+      canAddRuntimeFollowUpQuestion &&
       currentQuestionAnswered &&
       currentQuestion?.questionType !== "FOLLOW_UP" &&
       autoAiPipeline?.answerId === lastAnswer?.answerId &&
@@ -3119,6 +3110,7 @@ function InterviewRuntimePanel({
   const currentBaseQuestionWaitingForFollowUp = Boolean(
     currentQuestionAnswered &&
       currentQuestion?.questionType !== "FOLLOW_UP" &&
+      canAddRuntimeFollowUpQuestion &&
       lastAnswer?.questionId === currentQuestion?.questionId &&
       !generatedFollowUpReady &&
       !followUpSkippedForCurrentAnswer,
@@ -3672,6 +3664,75 @@ function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryI
   );
 }
 
+type MockReportStatusView = {
+  badge: string;
+  title: string;
+  description: string;
+  helper?: string;
+  tone: "neutral" | "progress" | "blocked";
+};
+
+function MockReportStatusPanel({ view }: { view: MockReportStatusView }) {
+  return (
+    <div className={`candidate-pipeline-card ${view.tone === "progress" ? "muted" : ""}`}>
+      <div className="candidate-pipeline-card__head">
+        <div>
+          <strong>{view.title}</strong>
+          <p>{view.description}</p>
+        </div>
+        <StatusPill value={view.badge} />
+      </div>
+      {view.helper ? <p>{view.helper}</p> : null}
+    </div>
+  );
+}
+
+function getMockReportStatusView(
+  status: CandidateMockReportFeedback["status"] | CandidateMockReportMedia["status"] | undefined,
+  feedbackError?: string,
+): MockReportStatusView {
+  if (status === "COMPLETED") {
+    return {
+      badge: "완료",
+      title: "리포트 결과를 불러오는 중입니다.",
+      description: "AI 분석은 완료되었고 화면에 표시할 결과를 다시 확인하고 있습니다.",
+      tone: "neutral",
+    };
+  }
+
+  if (status === "GENERATING") {
+    return {
+      badge: "분석 중",
+      title: "AI가 면접 답변을 분석하고 있습니다.",
+      description: "STT 텍스트와 답변 근거를 바탕으로 종합 피드백과 역량별 점수를 생성 중입니다.",
+      helper: "잠시 후 결과가 자동으로 갱신됩니다.",
+      tone: "progress",
+    };
+  }
+
+  if (status === "FAILED") {
+    return {
+      badge: "실패",
+      title: "리포트 분석을 완료하지 못했습니다.",
+      description: "일시적인 AI 처리 오류이거나 분석에 필요한 답변 데이터가 부족할 수 있습니다.",
+      helper: feedbackError && !isReportNotReadyMessage(feedbackError) ? feedbackError : "분석 다시 요청을 눌러 재시도해 주세요.",
+      tone: "blocked",
+    };
+  }
+
+  return {
+    badge: "대기",
+    title: "리포트 분석을 시작할 수 있습니다.",
+    description: "면접 답변과 STT 결과가 준비되면 AI 분석을 요청해 종합 피드백을 확인할 수 있습니다.",
+    helper: feedbackError && !isReportNotReadyMessage(feedbackError) ? feedbackError : "AI 분석 시작을 눌러 리포트를 생성해 주세요.",
+    tone: "neutral",
+  };
+}
+
+function isReportNotReadyMessage(message: string): boolean {
+  return message.includes("Report is not ready") || message.includes("REPORT_NOT_READY");
+}
+
 function MockFeedbackView({ feedback }: { feedback: CandidateMockReportFeedback }) {
   return (
     <div className="detail-stack">
@@ -3793,7 +3854,6 @@ function AiProcessSummaryView({ process }: { process: CandidateAiProcessView }) 
     <dl className="candidate-feature__summary compact report-ai-process">
       <Definition label="AI 작업" value={formatProcessTypeLabel(process.processType)} />
       <Definition label="작업 상태" value={<StatusPill value={process.status} />} />
-      <Definition label="processLogId" value={`#${process.processLogId}`} />
       <Definition label="요청 시각" value={formatDateTime(process.createdAt)} />
       {process.failureReason ? <Definition label="실패 사유" value={process.failureReason} /> : null}
     </dl>
@@ -3816,7 +3876,7 @@ function ReportScoreList({ scores }: { scores: CandidateReportScoreView[] }) {
               <span>{score.score}점</span>
             </div>
             {score.rationale ? <p>{score.rationale}</p> : null}
-            <EvidenceList evidences={score.evidences} />
+            <EvidenceList evidences={score.evidences} criterionName={score.criterionName} />
           </article>
         ))}
       </div>
@@ -3876,24 +3936,62 @@ function FollowUpQuestionList({ questions }: { questions: CandidateReportAnswerV
   );
 }
 
-function EvidenceList({ evidences }: { evidences: CandidateReportEvidenceView[] }) {
+function EvidenceList({ evidences, criterionName }: { evidences: CandidateReportEvidenceView[]; criterionName?: string }) {
   if (!evidences.length) {
     return null;
   }
 
   return (
     <div className="report-evidence-list">
-      <strong>근거</strong>
+      <strong>평가 근거</strong>
       <ul>
         {evidences.map((evidence) => (
           <li key={evidence.evidenceId}>
-            <span>{evidence.evidenceText}</span>
-            <small>{evidence.sourceType}{evidence.answerId ? ` · 답변 #${evidence.answerId}` : ""}</small>
+            <span>{formatEvidenceSummary(evidence, criterionName)}</span>
+            <small>{formatEvidenceSourceLabel(evidence)}</small>
           </li>
         ))}
       </ul>
     </div>
   );
+}
+
+function formatEvidenceSummary(evidence: CandidateReportEvidenceView, criterionName?: string): string {
+  const focus = formatCriterionEvidenceFocus(criterionName);
+  const source = formatEvidenceSourceSubject(evidence.sourceType);
+  return `${focus} ${source} 확인되었습니다.`;
+}
+
+function formatCriterionEvidenceFocus(criterionName?: string): string {
+  const labels: Record<string, string> = {
+    "직무 적합성": "지원 직무와 연결되는 경험, 관심 분야, 실무 역량의 단서가",
+    "문제 해결력": "문제를 나누어 확인하고 해결 방향을 찾은 과정이",
+    "커뮤니케이션": "경험을 설명하는 흐름과 전달 방식이",
+  };
+
+  return criterionName ? labels[criterionName] ?? `${criterionName} 평가와 관련된 답변 내용이` : "리포트 평가와 관련된 답변 내용이";
+}
+
+function formatEvidenceSourceSubject(sourceType: string): string {
+  const labels: Record<string, string> = {
+    INTERVIEW_ANSWER: "면접 답변에서",
+    APPLICATION_DOCUMENT: "제출 자료에서",
+    DOCUMENT: "제출 자료에서",
+    FOLLOW_UP: "꼬리질문 답변에서",
+  };
+
+  return labels[sourceType] ?? "평가 자료에서";
+}
+
+function formatEvidenceSourceLabel(evidence: CandidateReportEvidenceView): string {
+  const labels: Record<string, string> = {
+    INTERVIEW_ANSWER: "면접 답변 기반",
+    APPLICATION_DOCUMENT: "제출 자료 기반",
+    DOCUMENT: "제출 자료 기반",
+    FOLLOW_UP: "꼬리질문 답변 기반",
+  };
+
+  return labels[evidence.sourceType] ?? "평가 자료 기반";
 }
 
 function ReportGenerationHandoffView({ handoff }: { handoff: CandidateReportGenerationHandoff }) {
@@ -3931,6 +4029,14 @@ function PipelinePayloadPreview({ title, payload }: { title: string; payload: Re
       <pre>{formatJsonPayload(payload)}</pre>
     </div>
   );
+}
+
+async function requestMockReportGenerationAfterComplete(reportId: number): Promise<void> {
+  try {
+    await getCandidateApi().requestMockReportGeneration(reportId);
+  } catch {
+    return;
+  }
 }
 
 async function prepareAnswerRequestWithUploadedMedia(

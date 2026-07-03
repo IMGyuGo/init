@@ -769,7 +769,7 @@ export class ReportService {
     return scores.map((score) => ({
       scoreId: score.scoreId,
       criterionId: score.criterionId,
-      criterionName: score.criterionName,
+      criterionName: this.displayCriterionName(score),
       score: score.score,
       rationale: score.rationale,
       evidences: score.evidences.map((evidence) => this.toCandidateEvidence(evidence)),
@@ -840,13 +840,22 @@ export class ReportService {
       return scores.length > 0 ? ["저장된 STT와 근거를 기준으로 답변 흐름을 다시 점검해 보세요."] : [];
     }
     return lowScores
-      .map((score) => `${score.criterionName ?? "평가 항목"} 답변을 더 구체적인 사례와 수치로 보강해 보세요.`)
+      .map((score) => `${this.displayCriterionName(score) ?? "평가 항목"} 답변을 더 구체적인 사례와 수치로 보강해 보세요.`)
       .slice(0, 3);
   }
 
   private scoreSentence(score: CandidateReportScoreRecord): string {
-    const label = score.criterionName ?? `평가 항목 #${score.criterionId ?? score.scoreId}`;
+    const label = this.displayCriterionName(score) ?? `평가 항목 #${score.criterionId ?? score.scoreId}`;
     return `${label} ${score.score}점${score.rationale ? `: ${score.rationale}` : ""}`;
+  }
+
+  private displayCriterionName(score: CandidateReportScoreRecord): string | undefined {
+    return score.criterionName ?? this.criterionNameFromRationale(score.rationale);
+  }
+
+  private criterionNameFromRationale(rationale?: string): string | undefined {
+    const match = rationale?.match(/^(직무 적합성|문제 해결력|커뮤니케이션|기술 이해도)은\s+\d+점/);
+    return match?.[1];
   }
 
   private throwReportNotReady(id: number): never {
