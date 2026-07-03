@@ -345,6 +345,7 @@ export class CandidateService {
   ): Promise<ApiResponse<CandidateInterviewRuntimeView>> {
     const { application, session } = await this.getOwnedApplicationWithSession(applicationId, currentUser);
     const job = await this.repository.findJob(application.postingId);
+    const timePolicy = await this.repository.getInterviewTimePolicy(application.postingId);
     this.assertSessionNotExpired(session);
     if (!["NOT_READY", "READY", "IN_PROGRESS", "COMPLETED"].includes(session.status)) {
       throw new CandidateDomainError("COMMON_CONFLICT", "Interview has not been started.", 409, [
@@ -360,6 +361,7 @@ export class CandidateService {
       showQuestionText: session.showQuestionText,
       canRecord: session.status === "IN_PROGRESS",
       ...(job?.jobDescription ? { jobDescription: job.jobDescription } : {}),
+      timePolicy,
       nextQuestionEndpoint: `/api/v1/candidate/interviews/${session.sessionId}/next-question`,
       answerUploadEndpoint: `/api/v1/candidate/interviews/${session.sessionId}/answers`,
     });

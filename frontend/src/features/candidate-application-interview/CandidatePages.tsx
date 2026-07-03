@@ -75,7 +75,7 @@ import { CandidateApplicationView, CandidateJobDetailView, CandidateJobsView } f
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
 const DEMO_CANDIDATE_ID = 1;
 export const PUBLIC_INTERVIEW_ACCESS_TOKEN_STORAGE_KEY = "init.publicInterviewAccessToken";
-const INTERVIEW_QUESTION_TIME_LIMIT_SECONDS = 90;
+const DEFAULT_INTERVIEW_QUESTION_TIME_LIMIT_SECONDS = 90;
 const questionTypeOptions: QuestionType[] = ["INTRO", "TECHNICAL", "EXPERIENCE", "SITUATION", "CLOSING"];
 
 type CandidateNavSection = "jobs" | "applications" | "interview" | "reports" | "mypage";
@@ -100,6 +100,7 @@ type RuntimePageSession = {
   showQuestionText: boolean;
   canRecord: boolean;
   jobDescription?: string;
+  timePolicy?: CandidateInterviewRuntimeView["timePolicy"];
   totalQuestions: number;
   answeredCount: number;
   currentQuestion?: RuntimeQuestionView;
@@ -1447,7 +1448,7 @@ function InterviewRuntimePanel({
   const [recordedFileName, setRecordedFileName] = useState("");
   const [setupCompleted, setSetupCompleted] = useState(false);
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
-  const [remainingSeconds, setRemainingSeconds] = useState(INTERVIEW_QUESTION_TIME_LIMIT_SECONDS);
+  const [remainingSeconds, setRemainingSeconds] = useState(DEFAULT_INTERVIEW_QUESTION_TIME_LIMIT_SECONDS);
   const [introCompleted, setIntroCompleted] = useState(false);
   const [questionSpeechCompleted, setQuestionSpeechCompleted] = useState(false);
   const [questionSpeechPlaying, setQuestionSpeechPlaying] = useState(false);
@@ -1635,9 +1636,9 @@ function InterviewRuntimePanel({
       timeExpiredQuestionRef.current = null;
       setQuestionSpeechCompleted(false);
       setQuestionSpeechPlaying(false);
-      setRemainingSeconds(INTERVIEW_QUESTION_TIME_LIMIT_SECONDS);
+      setRemainingSeconds(getRuntimeAnswerTimeLimitSeconds(data?.runtime));
     }
-  }, [currentQuestion]);
+  }, [currentQuestion, data?.runtime.timePolicy?.answerTimeSec]);
 
   useEffect(() => {
     void refreshCameraDevices();
@@ -2407,7 +2408,7 @@ function InterviewRuntimePanel({
       setQuestionSpeechStatus("꼬리질문 음성 대기");
       setQuestionSpeechCompleted(false);
       setQuestionSpeechPlaying(false);
-      setRemainingSeconds(INTERVIEW_QUESTION_TIME_LIMIT_SECONDS);
+      setRemainingSeconds(getRuntimeAnswerTimeLimitSeconds(data.runtime));
       timeExpiredQuestionRef.current = null;
       autoRecordingQuestionRef.current = null;
       setMessage(
@@ -2485,7 +2486,7 @@ function InterviewRuntimePanel({
       setQuestionSpeechStatus("다음 질문 음성 대기");
       setQuestionSpeechCompleted(false);
       setQuestionSpeechPlaying(false);
-      setRemainingSeconds(INTERVIEW_QUESTION_TIME_LIMIT_SECONDS);
+      setRemainingSeconds(getRuntimeAnswerTimeLimitSeconds(data.runtime));
       timeExpiredQuestionRef.current = null;
       autoRecordingQuestionRef.current = null;
       refresh();
@@ -3917,12 +3918,20 @@ function toRecruitingRuntimeSession(
     showQuestionText: runtime.showQuestionText,
     canRecord: runtime.canRecord,
     ...(runtime.jobDescription ? { jobDescription: runtime.jobDescription } : {}),
+    ...(runtime.timePolicy ? { timePolicy: runtime.timePolicy } : {}),
     totalQuestions: questions.questions.length,
     answeredCount: questions.questions.filter((question) => question.answered).length,
     currentQuestion,
     nextQuestionEndpoint: runtime.nextQuestionEndpoint,
     answerUploadEndpoint: runtime.answerUploadEndpoint,
   };
+}
+
+function getRuntimeAnswerTimeLimitSeconds(runtime?: Pick<RuntimePageSession, "timePolicy">) {
+  const answerTimeSec = runtime?.timePolicy?.answerTimeSec;
+  return typeof answerTimeSec === "number" && Number.isFinite(answerTimeSec) && answerTimeSec > 0
+    ? answerTimeSec
+    : DEFAULT_INTERVIEW_QUESTION_TIME_LIMIT_SECONDS;
 }
 
 function createRuntimeFileAssetFromMetadata(

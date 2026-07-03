@@ -291,8 +291,15 @@ export interface CandidateInterviewRuntimeView {
   showQuestionText: boolean;
   canRecord: boolean;
   jobDescription?: string;
+  timePolicy?: InterviewTimePolicyView;
   nextQuestionEndpoint: string;
   answerUploadEndpoint: string;
+}
+
+export interface InterviewTimePolicyView {
+  preparationTimeSec: number;
+  answerTimeSec: number;
+  retryAllowed: boolean;
 }
 
 export interface RuntimeFileAssetRequest {

@@ -367,6 +367,11 @@ async function runControllerRuntimeAssertions() {
   assert.equal(runtime.data.sessionId, session.sessionId);
   assert.equal(runtime.data.status, "IN_PROGRESS");
   assert.equal(runtime.data.canRecord, true);
+  assert.deepEqual(runtime.data.timePolicy, {
+    preparationTimeSec: 0,
+    answerTimeSec: 90,
+    retryAllowed: false,
+  });
 
   const recruitingQuestions = await controller.listRecruitingQuestions(validCandidateRequest, String(session.sessionId));
   assert.equal(recruitingQuestions.data.interviewType, "RECRUITING");

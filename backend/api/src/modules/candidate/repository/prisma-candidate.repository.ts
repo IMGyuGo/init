@@ -58,6 +58,17 @@ export class PrismaCandidateRepository implements CandidateRepository {
     return posting ? this.toCandidateJob(posting) : undefined;
   }
 
+  async getInterviewTimePolicy(postingId: number) {
+    const timePolicy = await this.prisma.interviewTimePolicy.findUnique({
+      where: { postingId: BigInt(postingId) },
+    });
+    return {
+      preparationTimeSec: timePolicy?.preparationTimeSec ?? 0,
+      answerTimeSec: timePolicy?.answerTimeSec ?? 90,
+      retryAllowed: timePolicy?.retryAllowed ?? false,
+    };
+  }
+
   async findFileAsset(fileId: number): Promise<FileAsset | undefined> {
     const fileAsset = await this.prisma.fileAsset.findUnique({ where: { fileId: BigInt(fileId) } });
     return fileAsset ? this.toFileAsset(fileAsset) : undefined;

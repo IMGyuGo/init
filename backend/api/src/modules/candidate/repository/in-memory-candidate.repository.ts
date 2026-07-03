@@ -123,6 +123,14 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     return this.jobs.find((job) => job.jobId === jobId);
   }
 
+  async getInterviewTimePolicy() {
+    return {
+      preparationTimeSec: 0,
+      answerTimeSec: 90,
+      retryAllowed: false,
+    };
+  }
+
   async findFileAsset(fileId: number): Promise<FileAsset | undefined> {
     return this.fileAssets.find((fileAsset) => fileAsset.fileId === fileId);
   }
