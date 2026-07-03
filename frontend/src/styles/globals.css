@@ -3651,34 +3651,50 @@ td input {
 .glass-page.notion .posting-tag-picker button.is-selected { color: #fff; background: #191919; border-color: #191919; }
 .glass-page.notion .posting-live-preview-head { background: #fff; border-color: rgba(55, 53, 47, 0.1); }
 
-/* ---- 배너 (공고 목록) — 노션 마케팅식 큰 헤딩, 흰 배경 ---- */
+/* ---- 배너 (공고 목록) — 노션식 카드 헤더 ---- */
 .notion .page-banner {
   position: relative;
   display: grid;
-  gap: 12px;
-  margin-bottom: 36px;
-  padding: 0;
-  background: none;
-  border: 0;
-  border-radius: 0;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  align-items: center;
+  gap: 34px;
+  overflow: hidden;
+  margin-bottom: 30px;
+  padding: 34px 38px;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 22px;
+  box-shadow: 0 18px 45px rgba(55, 53, 47, 0.08);
+}
+.notion .page-banner::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 5px;
+  background: linear-gradient(90deg, #3b6fe0, #8fb8ff, #f2c94c);
+}
+.notion .page-banner-copy {
+  display: grid;
+  gap: 13px;
+  min-width: 0;
 }
 .notion .page-eyebrow {
   margin: 0;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 700;
   color: rgba(55, 53, 47, 0.55);
 }
 .notion .page-banner h1 {
   margin: 0;
-  font-size: 48px;
+  font-size: 54px;
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
   line-height: 1.08;
   color: #191919;
 }
 .notion .page-banner .page-sub {
-  margin: 2px 0 8px;
-  max-width: 560px;
+  margin: 0 0 6px;
+  max-width: 610px;
   font-size: 16px;
   line-height: 1.6;
   color: rgba(55, 53, 47, 0.7);
@@ -3686,6 +3702,64 @@ td input {
 .notion .page-banner .banner-cta {
   position: static;
   justify-self: start;
+  margin-top: 2px;
+}
+.notion .page-banner-card {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  padding: 18px;
+  background: #fbfbfa;
+  border: 1px solid rgba(55, 53, 47, 0.09);
+  border-radius: 16px;
+}
+.notion .banner-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(55, 53, 47, 0.08);
+}
+.notion .banner-card-head span {
+  color: rgba(55, 53, 47, 0.58);
+  font-size: 13px;
+  font-weight: 700;
+}
+.notion .banner-card-head strong {
+  color: #191919;
+  font-size: 30px;
+  line-height: 1;
+}
+.notion .banner-card-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.notion .banner-card-grid div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 12px;
+}
+.notion .banner-card-grid span {
+  overflow: hidden;
+  color: rgba(55, 53, 47, 0.55);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notion .banner-card-grid strong {
+  overflow: hidden;
+  color: #191919;
+  font-size: 18px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---- 리스트(공고 목록) 노션 커넥션즈식 ---- */

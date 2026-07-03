@@ -124,19 +124,47 @@ export function CompanyPostingsPage() {
     ? Math.min(...closingItems.map((item) => daysUntil(item.endsOn) as number))
     : null;
   const companyDisplayName = getCompanyDisplayName(companyProfile);
+  const reviewPendingSummary = reviewPending === null ? "집계 중" : `${reviewPending}명`;
+  const closingSummary = nearestDday !== null ? `D-${nearestDday}` : "없음";
 
   return (
     <section className="app-page glass-page notion list-page">
         <div className="page-banner">
-          <p className="page-eyebrow">채용 관리</p>
-          <h1>공고 목록</h1>
-          <p className="page-sub">
-            {companyDisplayName ? `${companyDisplayName}의 채용 공고를 한 곳에서 관리하세요. ` : "진행 중인 채용 공고를 한 곳에서 관리하세요. "}
-            공고를 선택하면 지원자 현황과 면접·리포트 상태를 바로 확인할 수 있어요.
-          </p>
-          <Link className="btn primary banner-cta" href="/company/recruitments/new">
-            + 공고 생성
-          </Link>
+          <div className="page-banner-copy">
+            <p className="page-eyebrow">채용 관리</p>
+            <h1>공고 목록</h1>
+            <p className="page-sub">
+              {companyDisplayName ? `${companyDisplayName}의 채용 공고를 한 곳에서 관리하세요. ` : "진행 중인 채용 공고를 한 곳에서 관리하세요. "}
+              공고를 선택하면 지원자 현황과 면접·리포트 상태를 바로 확인할 수 있어요.
+            </p>
+            <Link className="btn primary banner-cta" href="/company/recruitments/new">
+              + 공고 생성
+            </Link>
+          </div>
+          <aside className="page-banner-card" aria-label="공고 운영 요약">
+            <div className="banner-card-head">
+              <span>운영 요약</span>
+              <strong>{items.length}</strong>
+            </div>
+            <div className="banner-card-grid">
+              <div>
+                <span>진행 공고</span>
+                <strong>{activeCount}개</strong>
+              </div>
+              <div>
+                <span>총 지원자</span>
+                <strong>{totalApplicants}명</strong>
+              </div>
+              <div>
+                <span>검토 대기</span>
+                <strong>{reviewPendingSummary}</strong>
+              </div>
+              <div>
+                <span>마감 임박</span>
+                <strong>{closingSummary}</strong>
+              </div>
+            </div>
+          </aside>
         </div>
 
         <section className="kpi-row kpi-summary">
