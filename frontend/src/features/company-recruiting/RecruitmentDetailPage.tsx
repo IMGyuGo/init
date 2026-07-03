@@ -169,7 +169,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
     : parsedJobDescription.extraInfo;
 
   return (
-    <section className="app-page glass-page">
+    <section className="app-page glass-page notion">
         <div className="page-head">
           <div>
             <Breadcrumb

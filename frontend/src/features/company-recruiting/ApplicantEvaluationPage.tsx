@@ -59,7 +59,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   const report = evaluation?.report ?? null;
 
   return (
-    <section className="app-page glass-page">
+    <section className="app-page glass-page notion">
         <div className="page-head">
           <div>
             <Breadcrumb

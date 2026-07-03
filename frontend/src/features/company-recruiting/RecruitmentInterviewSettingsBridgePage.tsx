@@ -63,7 +63,7 @@ export function RecruitmentInterviewSettingsBridgePage({ recruitmentId }: { recr
   const isOpen = recruitment?.status === "OPEN";
 
   return (
-    <section className="app-page glass-page">
+    <section className="app-page glass-page notion">
         <div className="page-head">
           <div>
             <Breadcrumb

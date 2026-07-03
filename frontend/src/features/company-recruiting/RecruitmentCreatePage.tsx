@@ -199,7 +199,7 @@ export function RecruitmentCreatePage() {
   }
 
   return (
-    <section className="app-page glass-page posting-create-page">
+    <section className="app-page glass-page posting-create-page notion">
         <div className="page-head">
           <div>
             <Breadcrumb

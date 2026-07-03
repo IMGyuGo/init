@@ -6,10 +6,12 @@ import { FormEvent, KeyboardEvent, useCallback, useEffect, useState } from "reac
 
 import { listRecruitmentApplicants, listRecruitments } from "./api";
 import { StatusBadge } from "./CompanyRecruitingChrome";
+import { formatRecruitmentPaginationSummary, getRecruitmentPaginationPages } from "./recruitment-list-pagination";
 import type { Recruitment, RecruitmentStatus } from "./types";
+import type { PageMeta } from "./types";
 import { getCompanyPostingActions } from "./company-posting-actions";
 import { getCompanyProfile } from "../company-profile/api";
-import { getCompanyDisplayName, getCompanyInitial, getCompanyLogoUrl } from "../company-profile/company-profile-display";
+import { getCompanyDisplayName } from "../company-profile/company-profile-display";
 import type { CompanyProfile } from "../company-profile/types";
 
 type StatusFilter = "ALL" | RecruitmentStatus;
@@ -19,28 +21,29 @@ type CompletionStat = { rate: number; done: number; total: number };
 const ACTIVE_STATUSES: RecruitmentStatus[] = ["OPEN", "CLOSING_SOON"];
 const INTERVIEW_DONE_STATUSES = ["COMPLETED", "DONE"];
 const URGENT_DDAY = 3;
+const recruitmentPageSize = 10;
 
-// 로고 이미지가 없을 때 이니셜 칩에 줄 색 (제목 해시로 순환) — 목록 스캔성 보조
-const CHIP_TONES = ["#6e5bf6", "#5b8cff", "#5b57f2", "#3a86ff", "#4f7cf0", "#1d9e75", "#0f6e56", "#6aa0ff"];
-
-function chipTone(seed: string): string {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) {
-    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  }
-  return CHIP_TONES[hash % CHIP_TONES.length];
-}
+const STATUS_CHIPS: { value: StatusFilter; label: string }[] = [
+  { value: "ALL", label: "전체" },
+  { value: "OPEN", label: "모집중" },
+  { value: "CLOSING_SOON", label: "마감임박" },
+  { value: "DRAFT", label: "작성중" },
+  { value: "CLOSED", label: "마감" },
+  { value: "ARCHIVED", label: "보관" },
+];
 
 export function CompanyPostingsPage() {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [items, setItems] = useState<Recruitment[]>([]);
+  const [pageMeta, setPageMeta] = useState<PageMeta | null>(null);
   const [completion, setCompletion] = useState<Record<number, CompletionStat>>({});
   const [reviewPending, setReviewPending] = useState<number | null>(null);
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const paginationPages = getRecruitmentPaginationPages(pageMeta);
 
   // list API에는 응시 완료율이 없어 공고별 지원자를 읽어 면접 완료 비율을 계산한다.
   const loadCompletion = useCallback(async (list: Recruitment[]) => {
@@ -63,19 +66,21 @@ export function CompanyPostingsPage() {
     }
   }, []);
 
-  const loadRecruitments = useCallback(async (search: string, status: StatusFilter) => {
+  const loadRecruitments = useCallback(async (search: string, status: StatusFilter, options: { page?: number } = {}) => {
+    const requestedPage = options.page ?? 1;
     setLoading(true);
     setMessage("");
     try {
       const response = await listRecruitments({
-        page: 1,
-        limit: 20,
+        page: requestedPage,
+        limit: recruitmentPageSize,
         q: search,
         status: status === "ALL" ? undefined : status,
         sort: "createdAt",
         order: "desc",
       });
       setItems(response.data.items);
+      setPageMeta(response.meta.page ?? null);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "공고 목록을 불러오지 못했습니다.");
     } finally {
@@ -105,7 +110,7 @@ export function CompanyPostingsPage() {
 
   async function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await loadRecruitments(q, statusFilter);
+    await loadRecruitments(q, statusFilter, { page: 1 });
   }
 
   // KPI는 list 응답에서 파생 가능한 값만 사용한다.
@@ -119,32 +124,34 @@ export function CompanyPostingsPage() {
     ? Math.min(...closingItems.map((item) => daysUntil(item.endsOn) as number))
     : null;
   const companyDisplayName = getCompanyDisplayName(companyProfile);
-  const companyLogoUrl = getCompanyLogoUrl(companyProfile);
 
   return (
-    <section className="app-page glass-page">
-        <div className="page-head">
-          <div>
-            <h1>공고 목록</h1>
-            <p className="page-sub">
-              {companyDisplayName ? `${companyDisplayName}의 채용 공고를 한눈에 관리합니다.` : "진행 중인 채용 공고를 한눈에 관리합니다."}
-            </p>
-          </div>
-          <Link className="btn primary" href="/company/recruitments/new">
+    <section className="app-page glass-page notion list-page">
+        <div className="page-banner">
+          <p className="page-eyebrow">채용 관리</p>
+          <h1>공고 목록</h1>
+          <p className="page-sub">
+            {companyDisplayName ? `${companyDisplayName}의 채용 공고를 한 곳에서 관리하세요. ` : "진행 중인 채용 공고를 한 곳에서 관리하세요. "}
+            공고를 선택하면 지원자 현황과 면접·리포트 상태를 바로 확인할 수 있어요.
+          </p>
+          <Link className="btn primary banner-cta" href="/company/recruitments/new">
             + 공고 생성
           </Link>
         </div>
 
         <section className="kpi-row kpi-summary">
           <div className="kpi">
+            <span className="kpi-icon" aria-hidden="true">📋</span>
             <span>진행 중 공고</span>
             <strong>{activeCount}</strong>
           </div>
           <div className="kpi primary">
+            <span className="kpi-icon" aria-hidden="true">👥</span>
             <span>총 지원자</span>
             <strong>{totalApplicants}</strong>
           </div>
           <div className="kpi">
+            <span className="kpi-icon" aria-hidden="true">📝</span>
             <span>검토 대기</span>
             <strong>
               {reviewPending ?? "—"}
@@ -152,6 +159,7 @@ export function CompanyPostingsPage() {
             </strong>
           </div>
           <div className="kpi">
+            <span className="kpi-icon" aria-hidden="true">⏳</span>
             <span>마감 임박</span>
             <strong>
               {closingItems.length}
@@ -164,22 +172,31 @@ export function CompanyPostingsPage() {
           <div className="panel-head">
             <div className="panel-title">
               <h2>채용 공고</h2>
-              {items.length > 0 ? <span className="count-pill">{items.length}</span> : null}
+              {(pageMeta?.totalItems ?? items.length) > 0 ? <span className="count-pill">{pageMeta?.totalItems ?? items.length}</span> : null}
             </div>
             <form className="toolbar" onSubmit={handleSearch}>
               <input value={q} onChange={(event) => setQ(event.target.value)} placeholder="프로젝트·직무 검색" />
-              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
-                <option value="ALL">전체 상태</option>
-                <option value="DRAFT">작성중</option>
-                <option value="OPEN">모집중</option>
-                <option value="CLOSING_SOON">마감임박</option>
-                <option value="CLOSED">마감</option>
-                <option value="ARCHIVED">보관</option>
-              </select>
               <button className="btn secondary" type="submit" disabled={loading}>
                 조회
               </button>
             </form>
+          </div>
+
+          <div className="posting-filter-chips" role="group" aria-label="상태 필터">
+            {STATUS_CHIPS.map((chip) => (
+              <button
+                key={chip.value}
+                type="button"
+                className={`filter-chip${statusFilter === chip.value ? " is-active" : ""}`}
+                aria-pressed={statusFilter === chip.value}
+                onClick={() => {
+                  setStatusFilter(chip.value);
+                  void loadRecruitments(q, chip.value, { page: 1 });
+                }}
+              >
+                {chip.label}
+              </button>
+            ))}
           </div>
 
           {message ? <p className="notice">{message}</p> : null}
@@ -206,12 +223,6 @@ export function CompanyPostingsPage() {
                     onClick={manageHref ? () => router.push(manageHref) : undefined}
                     onKeyDown={manageHref ? (event) => handleRowKey(event, () => router.push(manageHref)) : undefined}
                   >
-                    <div
-                      className={`logo-chip ${companyLogoUrl ? "has-image" : ""}`}
-                      style={companyLogoUrl ? undefined : { background: chipTone(item.title) }}
-                    >
-                      {companyLogoUrl ? <span style={{ backgroundImage: `url(${companyLogoUrl})` }} aria-hidden="true" /> : getCompanyInitial(companyProfile, item.title)}
-                    </div>
                     <div className="posting-info">
                       <div className="posting-title-row">
                         <h3>{item.title}</h3>
@@ -235,6 +246,42 @@ export function CompanyPostingsPage() {
               })}
             </div>
           )}
+
+          {pageMeta && pageMeta.totalItems > 0 ? (
+            <div className="pagination" aria-label="공고 목록 페이지네이션">
+              <div className="pagination-summary">{formatRecruitmentPaginationSummary(pageMeta)}</div>
+              <div className="pagination-actions">
+                <button
+                  className="btn secondary compact"
+                  type="button"
+                  disabled={loading || pageMeta.page <= 1}
+                  onClick={() => void loadRecruitments(q, statusFilter, { page: pageMeta.page - 1 })}
+                >
+                  이전
+                </button>
+                {paginationPages.map((pageNumber) => (
+                  <button
+                    className={`page-button ${pageNumber === pageMeta.page ? "active" : ""}`}
+                    key={pageNumber}
+                    type="button"
+                    aria-current={pageNumber === pageMeta.page ? "page" : undefined}
+                    disabled={loading}
+                    onClick={() => void loadRecruitments(q, statusFilter, { page: pageNumber })}
+                  >
+                    {pageNumber}
+                  </button>
+                ))}
+                <button
+                  className="btn secondary compact"
+                  type="button"
+                  disabled={loading || !pageMeta.hasNext}
+                  onClick={() => void loadRecruitments(q, statusFilter, { page: pageMeta.page + 1 })}
+                >
+                  다음
+                </button>
+              </div>
+            </div>
+          ) : null}
         </section>
     </section>
   );

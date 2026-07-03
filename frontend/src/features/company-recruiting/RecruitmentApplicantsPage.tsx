@@ -62,7 +62,7 @@ export function RecruitmentApplicantsPage({ recruitmentId }: { recruitmentId: nu
   }
 
   return (
-    <section className="app-page glass-page">
+    <section className="app-page glass-page notion">
       <div className="page-head">
         <div>
           <Breadcrumb
