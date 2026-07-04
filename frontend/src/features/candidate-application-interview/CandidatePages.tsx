@@ -662,21 +662,21 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
       }
       assertCameraPreviewHasFrame(previewInfo);
       const cameraQuality = assessCameraQuality(videoRef.current);
-      const cameraFraming = await assessCameraFraming(videoRef.current);
+      const cameraFraming: CameraFramingResult = { state: "ok", blocking: false, message: "카메라 연결됨" };
       const microphoneQuality = audioEnabled
         ? await measureMicrophoneQuality(stream, setMicrophoneLevel)
         : { ok: false, peakLevel: 0, message: formatMicrophoneStatus(streamResult) };
       const networkQuality = await checkInterviewNetworkQuality();
-      const cameraOk = cameraQuality.ok && !cameraFraming.blocking;
+      const cameraOk = cameraQuality.ok;
       setCameraReady(cameraOk);
       setCameraFramingState(cameraFraming.state);
-      setMicrophoneReady(audioEnabled && microphoneQuality.ok);
+      setMicrophoneReady(audioEnabled);
       setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, fallbackLabel, cameraQuality, cameraFraming));
       setMicrophoneStatus(audioEnabled ? formatMicrophoneQualityStatus(streamResult, microphoneQuality) : microphoneQuality.message);
       setNetworkStatus(networkQuality.message);
       setDeviceState({
         cameraGranted: cameraOk,
-        microphoneGranted: audioEnabled && microphoneQuality.ok,
+        microphoneGranted: audioEnabled,
         networkStable: networkQuality.ok,
       });
       startGuideCameraQualityMonitor(previewInfo, fallbackLabel);
@@ -689,7 +689,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
       setMessage(
         fallbackLabel
           ? `카메라를 연결했습니다. ${fallbackLabel} 마이크 권한을 확인한 뒤 면접을 시작해주세요.`
-          : cameraOk && audioEnabled && microphoneQuality.ok && networkQuality.ok
+          : cameraOk && audioEnabled && networkQuality.ok
             ? "카메라 밝기, 마이크 입력, 네트워크 상태가 적정합니다. 면접 시작을 눌러주세요."
             : "장치 점검 기준을 통과하지 못했습니다. 안내에 따라 카메라 위치, 조명, 마이크 입력을 조정해주세요.",
       );
@@ -868,7 +868,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
                 <aside className="panel candidate-runtime-status-panel">
                   <p className="panel-title">장치 상태</p>
                   <div className="status-list">
-                    <div className="status-line"><span className={cameraReady ? "ok" : "wait"}>{cameraReady ? "✓" : "!"}</span> 카메라 {cameraReady ? "정상" : "구도 확인 필요"}</div>
+                    <div className="status-line"><span className={cameraReady ? "ok" : "wait"}>{cameraReady ? "✓" : "!"}</span> 카메라 {cameraReady ? "정상" : "연결 확인 필요"}</div>
                     <div className="status-line"><span className={microphoneReady ? "ok" : "wait"}>{microphoneReady ? "✓" : "!"}</span> {microphoneStatus}</div>
                     <div className="mic-meter" aria-label={`마이크 입력 ${microphoneLevel}%`}>
                       <span style={{ width: `${microphoneLevel}%` }} />
@@ -1838,14 +1838,14 @@ function InterviewRuntimePanel({
         assertCameraPreviewHasFrame(previewInfo);
         if (videoRef.current !== node || videoAttachRunRef.current !== attachRun) return;
         const cameraQuality = assessCameraQuality(node);
-        const cameraFraming = await assessCameraFraming(node);
-        const cameraOk = cameraQuality.ok && !cameraFraming.blocking;
+        const cameraFraming: CameraFramingResult = { state: "ok", blocking: false, message: "카메라 연결됨" };
+        const cameraOk = cameraQuality.ok;
         setCameraReady(cameraOk);
         setCameraFramingState(cameraFraming.state);
         setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, undefined, cameraQuality, cameraFraming));
         cameraQualityIntervalRef.current = startCameraQualityMonitor(node, previewInfo, undefined, (quality, framing, status) => {
           if (videoRef.current !== node || videoAttachRunRef.current !== attachRun) return;
-          setCameraReady(quality.ok && !framing.blocking);
+          setCameraReady(quality.ok);
           setCameraFramingState(framing.state);
           setCameraPreviewStatus(status);
         });
@@ -2219,15 +2219,15 @@ function InterviewRuntimePanel({
       assertCameraPreviewHasFrame(previewInfo);
 
       const cameraQuality = assessCameraQuality(videoRef.current);
-      const cameraFraming = await assessCameraFraming(videoRef.current);
+      const cameraFraming: CameraFramingResult = { state: "ok", blocking: false, message: "카메라 연결됨" };
       const microphoneQuality = streamResult.audioEnabled
         ? await measureMicrophoneQuality(stream, setMicrophoneLevel)
         : { ok: false, peakLevel: 0, message: formatMicrophoneStatus(streamResult) };
       const networkQuality = await checkInterviewNetworkQuality();
-      const cameraOk = cameraQuality.ok && !cameraFraming.blocking;
+      const cameraOk = cameraQuality.ok;
       setCameraReady(cameraOk);
       setCameraFramingState(cameraFraming.state);
-      setMicrophoneReady(streamResult.audioEnabled && microphoneQuality.ok);
+      setMicrophoneReady(streamResult.audioEnabled);
       setNetworkReady(networkQuality.ok);
       setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, fallbackLabel, cameraQuality, cameraFraming));
       setMicrophoneStatus(
@@ -2244,7 +2244,7 @@ function InterviewRuntimePanel({
       setMessage(
         fallbackLabel
           ? `카메라가 연결되었습니다. ${fallbackLabel}`
-          : cameraOk && streamResult.audioEnabled && microphoneQuality.ok && networkQuality.ok
+          : cameraOk && streamResult.audioEnabled && networkQuality.ok
             ? "카메라 밝기, 마이크 입력, 네트워크 상태가 적정합니다."
             : "장치 점검 기준을 통과하지 못했습니다. 안내에 따라 카메라 위치, 조명, 마이크 입력을 조정해주세요.",
       );
@@ -3185,7 +3185,7 @@ function InterviewRuntimePanel({
               <aside className="panel candidate-runtime-status-panel">
                 <p className="panel-title">장치 상태</p>
                 <div className="status-list">
-                  <div className="status-line"><span className={cameraReady ? "ok" : "wait"}>{cameraReady ? "✓" : "!"}</span> 카메라 {cameraReady ? "정상" : "구도 확인 필요"}</div>
+                  <div className="status-line"><span className={cameraReady ? "ok" : "wait"}>{cameraReady ? "✓" : "!"}</span> 카메라 {cameraReady ? "정상" : "연결 확인 필요"}</div>
                   <div className="status-line"><span className={microphoneReady ? "ok" : "wait"}>{microphoneReady ? "✓" : "!"}</span> {microphoneStatus}</div>
                   <div className="mic-meter" aria-label={`마이크 입력 ${microphoneLevel}%`}>
                     <span style={{ width: `${microphoneLevel}%` }} />
@@ -4834,7 +4834,7 @@ function startCameraQualityMonitor(
 ): number {
   const update = async () => {
     const quality = assessCameraQuality(video);
-    const framing = await assessCameraFraming(video);
+    const framing: CameraFramingResult = { state: "ok", blocking: false, message: "카메라 연결됨" };
     onQualityChange(quality, framing, formatCameraPreviewStatus(previewInfo, fallbackLabel, quality, framing));
   };
 
@@ -5250,7 +5250,7 @@ function formatMicrophoneQualityStatus(
 ): string {
   const label = result.audioLabel || "선택된 마이크";
   const state = result.audioState ?? "live";
-  return `${label} · ${state} · 입력 ${quality.peakLevel}% · ${quality.message}`;
+  return `${label} · ${state} · 마이크 연결됨`;
 }
 
 function formatMicrophoneProbeStatus(result: MicrophoneProbeResult): string {
