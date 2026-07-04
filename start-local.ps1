@@ -3,6 +3,7 @@ param(
   [string] $Only = 'All',
 
   [switch] $SkipDocker,
+  [switch] $SkipPrisma,
   [switch] $UseExampleEnv,
   [switch] $Help
 )
@@ -24,6 +25,7 @@ Options:
   -Only Frontend  Start only the Next.js frontend server.
   -Only Worker    Start only the AI worker.
   -SkipDocker     Do not start Docker infra when -Only All is used.
+  -SkipPrisma     Deprecated. Prisma tasks are no longer run by -Only All.
   -UseExampleEnv  Load .env.example even when .env exists.
   -Help           Show this help.
 
@@ -167,6 +169,25 @@ function Test-PortInUse {
   }
 }
 
+function Wait-PortReady {
+  param(
+    [int] $Port,
+    [string] $Name,
+    [int] $TimeoutSeconds = 60
+  )
+
+  for ($attempt = 1; $attempt -le $TimeoutSeconds; $attempt++) {
+    if (Test-PortInUse -Port $Port) {
+      Write-Host "[local] $Name is ready on port $Port."
+      return
+    }
+
+    Start-Sleep -Seconds 1
+  }
+
+  Write-Host "[local] $Name did not become ready on port $Port within $TimeoutSeconds seconds. Continuing."
+}
+
 function Invoke-LocalstackCommand {
   param([string[]] $Arguments)
 
@@ -222,6 +243,7 @@ function Ensure-LocalstackResources {
 function Start-Infra {
   Write-Host '[local] Starting Docker infra: PostgreSQL, Redis, Mailpit, LocalStack'
   docker compose --env-file $EnvFile -f (Join-Path $Root 'infra/local/docker-compose.yml') up -d
+  Wait-PortReady -Port 5432 -Name 'PostgreSQL' -TimeoutSeconds 60
   Ensure-LocalstackResources
 }
 
@@ -252,6 +274,10 @@ if ($Only -eq 'All' -or $Only -eq 'Api') {
     -WorkingDirectory $apiDir `
     -Command "$envCommand; npm run dev" `
     -Port 3001
+
+  if ($Only -eq 'All') {
+    Wait-PortReady -Port 3001 -Name 'API' -TimeoutSeconds 90
+  }
 }
 
 if ($Only -eq 'All' -or $Only -eq 'Frontend') {

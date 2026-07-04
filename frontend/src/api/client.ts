@@ -56,9 +56,13 @@ export function setAccessToken(token: string | null) {
   window.dispatchEvent(new Event(AUTH_SESSION_CLEARED_EVENT));
 }
 
+export function getDefaultEntryPath(userType: "COMPANY"): "/company/applications/dashboard";
+export function getDefaultEntryPath(userType: "CANDIDATE"): "/candidate/jobs";
+export function getDefaultEntryPath(userType: "ADMIN"): "/";
+export function getDefaultEntryPath(userType: AuthUserType): "/company/applications/dashboard" | "/candidate/jobs" | "/";
 export function getDefaultEntryPath(userType: AuthUserType) {
   if (userType === "COMPANY") return "/company/applications/dashboard";
-  if (userType === "CANDIDATE") return "/candidate/mock-interview/start";
+  if (userType === "CANDIDATE") return "/candidate/jobs";
   return "/";
 }
 

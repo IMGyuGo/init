@@ -44,12 +44,12 @@ init v0.5의 화면/기능 정의를 구현 단위로 정리한다.
 
 | Screen | Path | Type | Content | Description | Input | Success | API/Route | Release | Note |
 | --- |--- |--- |--- |--- |--- |--- |--- |--- |--- |
-| 로그인 화면 | /login | selection | 사용자 선택 | 로그인 사용자 유형 선택 | 유형 선택 버튼(기업/지원자) | 선택한 사용자 유형이 로그인 요청에 반영됨 | - | v1.0 | 로그인 성공 후 기업은 지원현황 > 공고 관리, 지원자는 AI 모의면접 > 면접시작으로 이동 |
+| 로그인 화면 | /login | selection | 사용자 선택 | 로그인 사용자 유형 선택 | 유형 선택 버튼(기업/지원자) | 선택한 사용자 유형이 로그인 요청에 반영됨 | - | v1.0 | 로그인 성공 후 기업은 지원현황 > 공고 관리, 지원자는 채용정보 > 채용공고로 이동 |
 | 로그인 화면 | /login | form | 로그인 입력 폼 | 이메일/비밀번호 입력 | 이메일, 비밀번호 | 로그인 버튼 클릭 가능 | POST /auth/login | v1.0 | ID/PW 찾기·회원가입 링크는 비밀번호 입력란 바로 아래 배치 |
 | 로그인 화면 | /login | link button | ID/PW 찾기 버튼 | ID/PW 찾기 화면 이동 | 이메일 | ID/PW 찾기 또는 비밀번호 재설정 화면으로 이동 | /password/reset | v1.0 | 비밀번호 입력란 바로 아래 배치 |
 | 로그인 화면 | /login | link button | 회원가입 버튼 | 회원가입 화면 이동 | - | 회원가입 유형 선택 화면으로 이동 | /signup | v1.0 | 비밀번호 입력란 바로 아래 배치 |
-| 로그인 화면 | /login | button | 로그인 버튼 | 로그인 요청 | 사용자 유형, 이메일, 비밀번호 | 기업은 지원현황 > 공고 관리로 이동, 지원자는 AI 모의면접 > 면접시작으로 이동 | POST /auth/login | v1.0 | 기업 기본 진입: /company/applications/dashboard, 지원자 기본 진입: /candidate/mock-interview/start |
-| 로그인 화면 | /login | button | Google 로그인 버튼 | 지원자 전용 Google OAuth 로그인 | Google 계정 정보, 사용자 유형(CANDIDATE) | 지원자는 AI 모의면접 > 면접시작으로 이동 | GET /auth/google | v1.0 | Google 로그인은 지원자 개인 계정만 허용한다. 기업 계정은 이메일 회원가입/로그인만 사용하며, 이메일 회원가입과 달리 별도 이메일 인증 입력 단계는 적용하지 않음 |
+| 로그인 화면 | /login | button | 로그인 버튼 | 로그인 요청 | 사용자 유형, 이메일, 비밀번호 | 기업은 지원현황 > 공고 관리로 이동, 지원자는 채용정보 > 채용공고로 이동 | POST /auth/login | v1.0 | 기업 기본 진입: /company/applications/dashboard, 지원자 기본 진입: /candidate/jobs |
+| 로그인 화면 | /login | button | Google 로그인 버튼 | 지원자 전용 Google OAuth 로그인 | Google 계정 정보, 사용자 유형(CANDIDATE) | 지원자는 채용정보 > 채용공고로 이동 | GET /auth/google | v1.0 | Google 로그인은 지원자 개인 계정만 허용한다. 기업 계정은 이메일 회원가입/로그인만 사용하며, 이메일 회원가입과 달리 별도 이메일 인증 입력 단계는 적용하지 않음 |
 | 비밀번호 재설정 화면 | /password/reset | form | 비밀번호 재설정 폼 | 비밀번호 재설정 | 이메일, 인증 코드, 새 비밀번호, 새 비밀번호 확인 | 비밀번호 재설정 완료 후 로그인 화면으로 이동 | POST /auth/password/reset | v1.0 | - |
 | 비밀번호 재설정 화면 | /password/reset | button | 인증 코드 발송 버튼 | 비밀번호 재설정 인증 요청 | 이메일 | 인증 코드 입력 영역 활성화 | POST /auth/password/send-code | v1.0 | - |
 | 비밀번호 재설정 화면 | /password/reset | button | 인증 확인 버튼 | 비밀번호 재설정 인증 확인 | 이메일, 인증 코드 | 새 비밀번호 입력 영역 활성화 | POST /auth/password/verify-code | v1.0 | - |

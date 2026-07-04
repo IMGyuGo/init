@@ -530,6 +530,9 @@ export class InterviewService {
         return false;
       }
     }
+    if (!(await this.canAddRuntimeFollowUpQuestion(session))) {
+      return false;
+    }
 
     const policy: FollowUpQuestionPolicy = session.interviewType === "MOCK" ? "MOCK" : "RECRUITING";
     const generatedFollowUp = await this.interviewRepository.findGeneratedFollowUpQuestion(answer.answerId, policy);
@@ -697,10 +700,9 @@ export class InterviewService {
     let inserted = false;
 
     if (!question) {
-      const followUpCount = await this.countFollowUpQuestions(session);
-      if (followUpCount >= 2) {
+      if (!(await this.canAddRuntimeFollowUpQuestion(session))) {
         throw new CandidateDomainError("COMMON_CONFLICT", "Follow-up question limit has been reached.", 409, [
-          { field: "followUpQuestions", reason: "maximum 2 follow-up questions per session" },
+          { field: "followUpQuestions", reason: "maximum one follow-up question per base question" },
         ]);
       }
 
@@ -1039,6 +1041,13 @@ export class InterviewService {
   private async countFollowUpQuestions(session: RuntimeInterviewSession): Promise<number> {
     const questions = await Promise.all(session.questionIds.map((questionId) => this.interviewRepository.findQuestion(questionId)));
     return questions.filter((question) => question?.questionType === "FOLLOW_UP").length;
+  }
+
+  private async canAddRuntimeFollowUpQuestion(session: RuntimeInterviewSession): Promise<boolean> {
+    const questions = await Promise.all(session.questionIds.map((questionId) => this.interviewRepository.findQuestion(questionId)));
+    const followUpQuestionCount = questions.filter((question) => question?.questionType === "FOLLOW_UP").length;
+    const baseQuestionCount = questions.filter((question) => question && question.questionType !== "FOLLOW_UP").length;
+    return followUpQuestionCount < baseQuestionCount;
   }
 
   private async findExistingRuntimeFollowUpQuestion(

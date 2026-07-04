@@ -441,7 +441,8 @@ export class PrismaInterviewRepository implements InterviewRepository {
     if (session.interviewType === PrismaInterviewType.MOCK) {
       const cached = this.mockSessionQuestionIds.get(sessionId);
       if (cached) return [...cached];
-      return (await this.listQuestions({ interviewType: "MOCK" })).map((question) => question.questionId);
+      const questionIds = (await this.listQuestions({ interviewType: "MOCK" })).map((question) => question.questionId);
+      return this.restoreAnsweredQuestionOrder(sessionId, questionIds);
     }
 
     const cached = this.recruitingSessionQuestionIds.get(sessionId);
@@ -450,14 +451,44 @@ export class PrismaInterviewRepository implements InterviewRepository {
     const postingId = session.application?.postingId ? Number(session.application.postingId) : undefined;
     if (postingId !== undefined) {
       const postingQuestions = await this.listQuestions({ interviewType: "RECRUITING", postingId });
-      if (postingQuestions.length > 0) return postingQuestions.map((question) => question.questionId);
+      if (postingQuestions.length > 0) {
+        return this.restoreAnsweredQuestionOrder(sessionId, postingQuestions.map((question) => question.questionId));
+      }
     }
 
     const fallbackBySortOrder = new Map<number, InterviewQuestion>();
     (await this.listQuestions({ interviewType: "RECRUITING" })).forEach((question) => {
       if (!fallbackBySortOrder.has(question.sortOrder)) fallbackBySortOrder.set(question.sortOrder, question);
     });
-    return [...fallbackBySortOrder.values()].map((question) => question.questionId);
+    return this.restoreAnsweredQuestionOrder(
+      sessionId,
+      [...fallbackBySortOrder.values()].map((question) => question.questionId),
+    );
+  }
+
+  private async restoreAnsweredQuestionOrder(sessionId: number, baseQuestionIds: number[]): Promise<number[]> {
+    const answers = await this.prisma.interviewAnswer.findMany({
+      where: { sessionId: BigInt(sessionId), questionId: { not: null } },
+      orderBy: [{ submittedAt: "asc" }, { answerId: "asc" }],
+      select: { questionId: true },
+    });
+    const restoredQuestionIds: number[] = [];
+    const seenQuestionIds = new Set<number>();
+
+    for (const answer of answers) {
+      const questionId = Number(answer.questionId);
+      if (seenQuestionIds.has(questionId)) continue;
+      restoredQuestionIds.push(questionId);
+      seenQuestionIds.add(questionId);
+    }
+
+    for (const questionId of baseQuestionIds) {
+      if (seenQuestionIds.has(questionId)) continue;
+      restoredQuestionIds.push(questionId);
+      seenQuestionIds.add(questionId);
+    }
+
+    return restoredQuestionIds;
   }
 
   private async resolveCurrentQuestionIndex(sessionId: number, questionIds: number[]): Promise<number> {

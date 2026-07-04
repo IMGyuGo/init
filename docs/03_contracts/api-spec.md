@@ -180,7 +180,7 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
   - 사용자 유형 선택 및 계정 정보 일치
 - 성공 응답/처리:
   - 로그인 버튼 클릭 가능
-  - 기업은 지원현황 > 공고 관리로 이동, 지원자는 AI 모의면접 > 면접시작으로 이동
+  - 기업은 지원현황 > 공고 관리로 이동, 지원자는 채용정보 > 채용공고로 이동
 - 오류/예외:
   - 계정 정보 불일치, 비활성 계정, 사용자 유형 불일치 시 로그인 실패 메시지를 표시한다.
   - 계정 정보 불일치, 비활성 계정, 권한 불일치, 서버 오류 시 로그인 실패 메시지를 표시한다.
@@ -188,7 +188,7 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
   - users, companies, candidate_profiles, postings, applications, interview_sessions, notifications, ai_process_logs
 - 비고/미결:
   - ID/PW 찾기·회원가입 링크는 비밀번호 입력란 바로 아래 배치
-  - 기업 기본 진입: /company/applications/dashboard, 지원자 기본 진입: /candidate/mock-interview/start
+  - 기업 기본 진입: /company/applications/dashboard, 지원자 기본 진입: /candidate/jobs
 
 ### API-002 GET /auth/google
 - 도메인: 인증/계정
@@ -203,7 +203,7 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
   - 사용자 유형은 지원자(CANDIDATE)만 허용
   - Google OAuth 인증 성공 및 계정 연동 성공
 - 성공 응답/처리:
-  - 지원자는 AI 모의면접 > 면접시작으로 이동
+  - 지원자는 채용정보 > 채용공고로 이동
 - 오류/예외:
   - 기업(COMPANY) 유형으로 요청하면 `AUTH_USER_TYPE_MISMATCH`로 거부한다.
   - OAuth 인증 실패, 계정 연동 실패, 권한 거부 시 로그인 실패 메시지를 표시한다.
@@ -1235,6 +1235,9 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
 - 상태 코드: 201 Created
 - 비동기: N
 - Path Params: sessionId
+- 요청 데이터:
+  - 답변 파일 메타데이터 허용 MIME: `video/webm`, `video/mp4`, `audio/webm`, `audio/mp4`, `audio/mpeg`, `audio/wav`
+  - macOS/Safari 계열 오디오 fallback은 `audio/mp4` MIME과 `.m4a` 파일명을 허용한다.
 - 검증/전제조건:
   - publicAccessToken의 sessionId가 path sessionId와 일치해야 한다.
 - 성공 응답/처리:
@@ -2077,6 +2080,8 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
 - Path Params: sessionId
 - 요청 데이터:
   - 카메라 스트림, 마이크 스트림, 답변 시간
+  - 답변 파일 메타데이터 허용 MIME: `video/webm`, `video/mp4`, `audio/webm`, `audio/mp4`, `audio/mpeg`, `audio/wav`
+  - macOS/Safari 계열 오디오 fallback은 `audio/mp4` MIME과 `.m4a` 파일명을 허용한다.
 - 검증/전제조건:
   - 장치 권한 허용, 저장 공간 확보
 - 성공 응답/처리:
@@ -2580,6 +2585,8 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
 - Path Params: sessionId
 - 요청 데이터:
   - 카메라 스트림, 마이크 스트림, 답변 시간
+  - 답변 파일 메타데이터 허용 MIME: `video/webm`, `video/mp4`, `audio/webm`, `audio/mp4`, `audio/mpeg`, `audio/wav`
+  - macOS/Safari 계열 오디오 fallback은 `audio/mp4` MIME과 `.m4a` 파일명을 허용한다.
 - 검증/전제조건:
   - 장치 권한 허용, 저장 공간 확보
 - 성공 응답/처리:
