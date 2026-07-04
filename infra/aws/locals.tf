@@ -10,7 +10,7 @@ locals {
   name_prefix      = "${var.project_name}-${var.environment}"
   azs              = slice(data.aws_availability_zones.available.names, 0, 2)
   root_domain_name = trimsuffix(var.root_domain_name, ".")
-  app_domain_name  = var.environment == "main" ? local.root_domain_name : "${var.environment}.${local.root_domain_name}"
+  app_domain_name  = local.root_domain_name
 
   common_tags = {
     Project     = "jungle-init"

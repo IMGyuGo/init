@@ -17,7 +17,7 @@
 | SQS | LocalStack queue `init-ai-jobs` | SQS queue |
 | Mailpit | local SMTP inbox | Amazon SES |
 
-클라우드에서는 frontend, API, worker를 각각 Docker image로 만든다. 현재 `infra/docker`에는 `frontend.Dockerfile`, `api.Dockerfile`, `worker.Dockerfile`이 추가되어 AWS 배포 image 계약을 검증할 수 있다. `infra/aws`에는 dev/main 기준 AWS 리소스 Terraform 초안이 추가되어 있다. 다만 실제 ECR push, ECS task definition 갱신, ECS service update workflow는 아직 후속 작업이다.
+클라우드에서는 frontend, API, worker를 각각 Docker image로 만든다. 현재 `infra/docker`에는 `frontend.Dockerfile`, `api.Dockerfile`, `worker.Dockerfile`이 추가되어 AWS 배포 image 계약을 검증할 수 있다. `infra/aws`에는 `main` 단일 실배포 환경 기준 AWS 리소스 Terraform 초안이 추가되어 있다. 다만 실제 ECR push, ECS task definition 갱신, ECS service update workflow는 아직 후속 작업이다.
 
 ## 로컬 실행과 AWS 실행 계약 분리
 
@@ -37,7 +37,7 @@ Dockerfile을 추가해도 현재 로컬 개발 방식을 없애지 않는다. �
 
 | 항목 | 결정 |
 | --- | --- |
-| 도메인 | `init-jungle.cloud` 기준 환경별 단일 도메인 + `/api/*` path routing |
+| 도메인 | `init-jungle.cloud` 단일 실배포 도메인 + `/api/*` path routing |
 | Frontend 배포 | Next.js SSR이므로 S3 정적 배포가 아니라 ECS container로 배포 |
 | 메일 서비스 | 별도 SMTP 서버 없이 Amazon SES 사용 |
 | CloudFront | 처음부터 사용 |
@@ -55,8 +55,8 @@ Dockerfile을 추가해도 현재 로컬 개발 방식을 없애지 않는다. �
 | AWS IaC 도구 | AWS 리소스 초안은 Terraform 기준으로 `infra/aws`에 구현 |
 | 환경변수와 secret | 모든 실제 값은 AWS Secrets Manager에서 관리 |
 | 환경변수 키 목록 | 별도 schema 파일 없이 `.env.example`을 기준으로 관리 |
-| Secrets Manager 환경명 | branch 이름과 맞춰 `dev`, `main` 사용. `prod` 명칭은 쓰지 않음 |
-| Production approval | GitHub Environment approval 사용. A 단독 승인 가능, PM 검토는 선택 |
+| Secrets Manager 환경명 | 단일 실배포 환경 기준 `main`만 사용. `dev`, `prod` 명칭은 쓰지 않음 |
+| 배포 approval | 사용하지 않음. `dev`, `main` 브랜치 모두 같은 실배포 환경에 자동 배포 |
 | CI/CD 성격 | 완성본 배포가 아니라 개발 중 schema/package/runtime 변경을 계속 흡수하는 pipeline |
 
 ## AWS 리소스 태그 정책
@@ -68,7 +68,7 @@ Dockerfile을 추가해도 현재 로컬 개발 방식을 없애지 않는다. �
 | 태그 key | 값 |
 | --- | --- |
 | `Project` | `jungle-init` |
-| `Environment` | main stack은 `dev` 또는 `main`, bootstrap stack은 `bootstrap` |
+| `Environment` | main stack은 `main`, bootstrap stack은 `bootstrap` |
 | `ManagedBy` | `terraform` |
 | `Repository` | `var.github_repository` |
 | `Owner` | main stack은 `A`, bootstrap stack은 `var.owner` 기본값 `A` |
@@ -154,18 +154,15 @@ ECS worker service
 -> OpenAI/MediaPipe runtime dependency
 ```
 
-사용자는 각 환경의 CloudFront에 연결된 단일 도메인만 바라본다. CloudFront와 ALB가 path 기준으로 frontend와 API를 나눈다. `dev`와 `main`은 같은 도메인을 공유하지 않고, 서로 다른 CloudFront/ECS/RDS/Redis/S3/SQS 세트를 가진다.
+사용자는 CloudFront에 연결된 `init-jungle.cloud` 단일 도메인만 바라본다. CloudFront와 ALB가 path 기준으로 frontend와 API를 나눈다. `dev`와 `main`은 서로 다른 AWS 환경을 만들지 않고, 같은 `init-main-*` CloudFront/ECS/RDS/Redis/S3/SQS 세트를 갱신한다.
 
 도메인 소유권은 `init-jungle.cloud`를 기준으로 한다. DNS 관리는 Route53 hosted zone으로 위임한다. bootstrap Terraform이 Route53 hosted zone을 만들고, 출력된 NS record를 가비아 네임서버 설정에 등록해야 한다. 이 위임이 끝나지 않으면 Terraform이 ACM DNS validation record를 만들어도 CloudFront 인증서 검증이 완료되지 않을 수 있다.
 
-## 환경별 단일 도메인 + `/api/*`
+## 단일 실배포 도메인 + `/api/*`
 
-단일 도메인 원칙은 환경마다 적용한다. 즉 `dev`와 `main`이 하나의 도메인을 서로 덮어쓰는 구조가 아니라, 각 환경 안에서 frontend와 API만 같은 도메인을 공유한다.
+단일 도메인 원칙은 실배포 환경 하나에 적용한다. `dev`와 `main` 브랜치는 둘 다 같은 `init-jungle.cloud`와 같은 AWS 리소스를 바라본다. 따라서 나중에 성공한 배포가 실서비스에 반영된다.
 
 ```text
-https://dev.init-jungle.cloud/                 -> dev frontend
-https://dev.init-jungle.cloud/api/v1/health    -> dev API
-
 https://init-jungle.cloud/                     -> main frontend
 https://init-jungle.cloud/api/v1/health        -> main API
 ```
@@ -176,7 +173,6 @@ Terraform domain mapping:
 
 | Environment | Domain | Route53 record | CloudFront certificate |
 | --- | --- | --- | --- |
-| `dev` | `dev.init-jungle.cloud` | A/AAAA alias -> dev CloudFront distribution | ACM in `us-east-1`, DNS validation |
 | `main` | `init-jungle.cloud` | A/AAAA alias -> main CloudFront distribution | ACM in `us-east-1`, DNS validation |
 
 CloudFront custom domain을 쓰려면 인증서는 CloudFront 요구사항에 맞춰 `us-east-1` ACM에 있어야 한다. 따라서 `infra/aws`는 기본 `ap-northeast-2` provider 외에 `aws.us_east_1` provider alias를 사용한다.
@@ -229,26 +225,26 @@ public subnet에 ECS task를 두면 초기 실습은 쉽지만 task가 인터넷
 
 1차 배포에서는 NAT Gateway로 성공 경로를 만든다. 2차 최적화에서 S3, ECR, CloudWatch Logs, Secrets Manager, SQS endpoint를 추가한다.
 
-## dev, main 배포 정책
+## dev, main 브랜치의 단일 실배포 정책
 
-초기 환경은 `dev`와 `main` 두 개만 둔다. `staging`은 발표 전 리허설 또는 운영 검증 환경이 필요해지는 시점에 추가한다.
+초기 AWS 환경은 `main` 실배포 환경 하나만 둔다. `dev` 브랜치는 별도 AWS dev 환경이 아니라, 실배포 환경에 자동 배포되는 또 하나의 trigger다. `staging`은 발표 전 리허설 또는 운영 검증 환경이 필요해지는 시점에 별도 작업으로 추가한다.
 
-GitHub branch와 AWS environment는 1:1로 연결한다. AWS가 repository의 두 branch를 직접 감시하는 것이 아니라, GitHub Actions가 push/merge trigger를 받아 해당 branch에 맞는 AWS environment를 갱신한다.
+GitHub Actions가 `dev` 또는 `main` push/merge trigger를 받아 같은 AWS environment를 갱신한다. AWS가 repository의 두 branch를 직접 감시하는 것이 아니라, GitHub Actions가 어떤 branch에서 왔는지 확인한 뒤 동일한 배포 target을 사용한다.
 
 | Git branch | AWS environment | 배포 정책 | Migration 정책 |
 | --- | --- | --- | --- |
 | Pull Request | 없음 | 배포하지 않음. test/build/docker build만 수행 | 실제 DB migration 없음. `prisma validate/generate`만 수행 |
-| `dev` | dev | merge 후 자동 배포 | ECS one-off migration task 자동 실행 |
-| `main` | main | workflow는 자동 시작, GitHub Environment approval 후 배포 | approval 후 ECS one-off migration task 실행 |
+| `dev` | main | merge 후 자동 실배포 | ECS one-off migration task 자동 실행 |
+| `main` | main | merge 후 자동 실배포 | ECS one-off migration task 자동 실행 |
 
 환경별 갱신 범위:
 
 | Trigger | 갱신되는 AWS 리소스 | 갱신되지 않는 리소스 |
 | --- | --- | --- |
-| `dev` push/merge | `init-dev-*` ECR/ECS, dev RDS/Redis/S3/SQS, dev CloudFront | `init-main-*`, main CloudFront |
-| `main` push/merge + approval | `init-main-*` ECR/ECS, main RDS/Redis/S3/SQS, main CloudFront | `init-dev-*`, dev CloudFront |
+| `dev` push/merge | `init-main-*` ECR/ECS, main RDS/Redis/S3/SQS, main CloudFront | 없음 |
+| `main` push/merge | `init-main-*` ECR/ECS, main RDS/Redis/S3/SQS, main CloudFront | 없음 |
 
-따라서 `dev`에 최신 commit이 배포되어도 main 도메인은 바뀌지 않는다. 반대로 `main` 배포가 승인되어도 dev 환경은 별도로 유지된다.
+따라서 `dev`와 `main` 중 어느 브랜치든 배포가 성공하면 `init-jungle.cloud`의 실제 서비스가 갱신된다. 두 브랜치 배포가 겹치면 마지막으로 성공한 배포가 최종 상태가 되므로, 향후 deploy workflow에는 같은 concurrency group을 두어 중복 배포를 직렬화한다.
 
 ## 서비스별 자동 배포 흐름
 
@@ -275,55 +271,52 @@ branch별 동작:
 | Trigger | 동작 |
 | --- | --- |
 | Pull Request to `dev`/`main` | test/build/docker build 검증만 수행. ECR push와 ECS update는 하지 않음 |
-| Merge to `dev` | 변경된 service만 dev ECR/ECS에 자동 배포 |
-| Merge to `main` | workflow 시작 후 GitHub Environment approval 대기. A 승인 후 변경된 service만 main ECR/ECS에 배포 |
+| Merge to `dev` | 변경된 service만 main ECR/ECS에 자동 실배포 |
+| Merge to `main` | 변경된 service만 main ECR/ECS에 자동 실배포 |
 
 서비스별 변경 감지 기준:
 
 | 변경 경로 | Build/Push 대상 | ECS update 대상 | 추가 절차 |
 | --- | --- | --- | --- |
-| `frontend/**`, `infra/docker/frontend.Dockerfile` | `init-{env}-frontend` | `init-{env}-frontend` | frontend smoke test |
-| `backend/api/**`, `infra/docker/api.Dockerfile` | `init-{env}-api` | `init-{env}-api` | migration task 실행 후 API service update |
-| `backend/common/**` | `init-{env}-api` | `init-{env}-api` | API가 `@init/common`을 참조하므로 API image 재빌드 |
-| `backend/worker/**`, `infra/docker/worker.Dockerfile` | `init-{env}-worker` | `init-{env}-worker` | worker startup log 확인 |
-| `backend/api/prisma/**` | `init-{env}-api`, `init-{env}-worker` | `init-{env}-api`, `init-{env}-worker` | API image 기반 migration task 실행. worker가 API generated Prisma Client를 포함하므로 worker도 재빌드 |
+| `frontend/**`, `infra/docker/frontend.Dockerfile` | `init-main-frontend` | `init-main-frontend` | frontend smoke test |
+| `backend/api/**`, `infra/docker/api.Dockerfile` | `init-main-api` | `init-main-api` | migration task 실행 후 API service update |
+| `backend/common/**` | `init-main-api` | `init-main-api` | API가 `@init/common`을 참조하므로 API image 재빌드 |
+| `backend/worker/**`, `infra/docker/worker.Dockerfile` | `init-main-worker` | `init-main-worker` | worker startup log 확인 |
+| `backend/api/prisma/**` | `init-main-api`, `init-main-worker` | `init-main-api`, `init-main-worker` | API image 기반 migration task 실행. worker가 API generated Prisma Client를 포함하므로 worker도 재빌드 |
 | `.env.example` | image build는 변경 service 기준 | 필요 service만 update | Secrets Manager key validation. secret mapping 자체 변경은 Terraform PR로 처리 |
 | `infra/aws/**` | 없음 | 없음 | Terraform plan/apply 대상. application image deploy workflow와 분리 |
 
-ECR image tag는 mutable한 `latest`를 배포 기준으로 쓰지 않는다. 기본 tag는 `github.sha`를 사용하고, 필요하면 사람이 보기 쉬운 branch alias tag를 추가로 붙인다. ECS task definition에는 항상 immutable한 SHA tag image URI를 반영한다.
+ECR image tag는 mutable한 `latest`를 배포 기준으로 쓰지 않는다. 기본 tag는 `github.sha`를 사용하고, 필요하면 사람이 보기 쉬운 branch alias tag를 추가로 붙인다. ECS task definition에는 항상 immutable한 SHA tag image URI를 반영한다. `dev`와 `main` 모두 같은 ECR repository에 push하므로 SHA tag를 기준으로 배포 이력을 추적한다.
 
 예를 들어 팀원이 API 코드만 수정해 `dev`에 merge하면 자동화는 아래처럼 동작한다.
 
 ```text
 backend/api/** 변경 감지
 -> infra/docker/api.Dockerfile 기준 Docker build
--> ECR init-dev-api:<github.sha> push
--> init-dev-api task definition 새 revision 등록
+-> ECR init-main-api:<github.sha> push
+-> init-main-api task definition 새 revision 등록
 -> npx prisma migrate deploy one-off task 실행
--> init-dev-api ECS service update
+-> init-main-api ECS service update
 -> ALB /api/v1/health target health check
--> dev smoke test 통과
+-> init-jungle.cloud smoke test 통과
 ```
 
-`main` 배포 approval은 GitHub Environment protection으로 처리한다. A가 단독으로 승인할 수 있게 설정하고, PM 검토는 발표/검증 관점의 선택 절차로 둔다. 즉 production 배포를 위해 PM 승인이 항상 필수인 구조는 아니다.
+동일 실배포 환경에 대한 deploy workflow는 승인 대기 없이 자동으로 진행한다. 배포 충돌을 피하기 위해 향후 workflow에는 예를 들어 `aws-main-deploy` 같은 단일 concurrency group을 둔다.
 
-Production 배포 절차:
+자동 실배포 절차:
 
 ```text
-1. PR -> dev merge
-2. dev 환경 자동 배포와 smoke test 통과 확인
-3. dev에서 검증된 commit을 main으로 PR 생성
-4. main PR 리뷰 및 merge
-5. GitHub Actions production deploy workflow 자동 시작
-6. workflow가 production environment approval에서 대기
-7. A가 CI 결과, migration 여부, package/env 변경, dev 검증 결과 확인
-8. A가 GitHub UI에서 Approve
-9. workflow가 main 환경 migration task 실행
-10. migration 성공 후 ECS service update
-11. smoke test 통과 후 배포 완료
+1. PR -> dev 또는 main merge
+2. GitHub Actions deploy workflow 자동 시작
+3. concurrency group에서 이전 배포 완료 대기
+4. 변경된 service image build
+5. init-main-* ECR repository에 github.sha tag push
+6. API/Prisma 변경이면 main 환경 migration task 실행
+7. migration 성공 후 ECS service update
+8. smoke test 통과 후 배포 완료
 ```
 
-A approval 체크리스트:
+자동 배포 전 확인 기준:
 
 | 확인 항목 | 확인 방법 |
 | --- | --- |
@@ -333,7 +326,7 @@ A approval 체크리스트:
 | DB schema/migration 변경 여부 | `backend/api/prisma/schema.prisma`, `migrations/*` diff 확인 |
 | migration 위험도 | destructive SQL 여부 확인 |
 | env/secret 변경 여부 | `.env.example` diff와 Secrets Manager key 존재 여부 확인 |
-| dev 배포 검증 | dev smoke test와 주요 화면 확인 |
+| 실배포 검증 | `init-jungle.cloud` smoke test와 주요 화면 확인 |
 
 ## Migration 자동화 원칙
 
@@ -408,13 +401,10 @@ root `.dockerignore`도 함께 추가되어 있다. repo root를 build context�
 
 환경변수 키 목록은 `.env.example`만 기준으로 관리한다. 별도 `secrets.schema.json` 파일은 만들지 않는다. 새 환경변수를 추가하면 반드시 `.env.example`에 키를 추가하고 PR에서 리뷰받는다.
 
-Secrets Manager 경로는 branch와 맞춘다.
+Secrets Manager 경로는 단일 실배포 환경인 `main`만 사용한다.
 
 | Secret group | 대상 service | 예시 |
 | --- | --- | --- |
-| `init/dev/frontend` | frontend | `NODE_ENV`, `PORT` |
-| `init/dev/api` | API | `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `FRONTEND_ORIGIN`, `SMTP_*`, `S3_BUCKET`, `SQS_QUEUE_URL` |
-| `init/dev/worker` | worker | `DATABASE_URL`, `S3_BUCKET`, `SQS_QUEUE_URL`, `OPENAI_API_KEY`, `WORKER_*` |
 | `init/main/frontend` | frontend | main frontend runtime env |
 | `init/main/api` | API | main API runtime env |
 | `init/main/worker` | worker | main worker runtime env |
@@ -486,7 +476,7 @@ rollback 기준은 단순하다. bash harness 변경으로 macOS/Linux role harn
 1. AWS 리소스 초안 검증과 적용 준비
    - `infra/aws` Terraform fmt/validate/plan 검증
    - bootstrap state bucket 생성 여부 확인
-   - dev/main backend config의 account id 반영
+   - main backend config의 account id 반영
    - GitHub OIDC provider가 이미 있는 AWS 계정이면 import 여부 확인
    - Secrets Manager 실제 값 seed 절차 정리
 
@@ -506,7 +496,7 @@ rollback 기준은 단순하다. bash harness 변경으로 macOS/Linux role harn
 
 | 질문 | 현재 권장 | 결정 필요 시점 |
 | --- | --- | --- |
-| staging 환경을 추가할까? | 초반에는 dev + main만 사용 | 발표/운영 리허설 환경이 필요할 때 |
+| staging 환경을 추가할까? | 초반에는 main 단일 실배포 환경만 사용 | 발표/운영 리허설 환경이 필요할 때 |
 | destructive migration 허용 기준 | 별도 리뷰 필요 | 실제 destructive migration이 등장할 때 |
 | 로컬 app compose를 추가할까? | Docker build 안정화 후 추가 | AWS-like local smoke test가 필요할 때 |
-| PM approval을 필수로 둘까? | 현재는 필수 아님. A 단독 승인 가능 | 팀 운영상 PM gate가 필요해질 때 |
+| PM approval을 둘까? | 현재는 사용하지 않음. dev/main 모두 자동 실배포 | 팀 운영상 PM gate가 필요해질 때 |

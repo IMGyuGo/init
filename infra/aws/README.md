@@ -6,14 +6,14 @@
 
 ## 구성 원칙
 
-`dev`와 `main`은 서로 다른 AWS environment다. 같은 AWS 계정 안에서도 VPC, CloudFront distribution, ALB, ECS service, RDS, Redis, S3 bucket, SQS queue, Secrets Manager path를 environment별로 분리한다.
+AWS environment는 `main` 단일 실배포 환경만 둔다. `dev`와 `main` Git branch는 모두 같은 VPC, CloudFront distribution, ALB, ECS service, RDS, Redis, S3 bucket, SQS queue, Secrets Manager path를 갱신한다.
 
 ```text
-dev branch  -> init-dev-*  resources -> dev.init-jungle.cloud
+dev branch  -> init-main-* resources -> init-jungle.cloud
 main branch -> init-main-* resources -> init-jungle.cloud
 ```
 
-각 environment 안에서는 하나의 도메인에서 frontend와 API를 path로 나눈다.
+단일 실배포 도메인에서 frontend와 API를 path로 나눈다.
 
 ```text
 /      -> ECS frontend service
@@ -26,20 +26,20 @@ main branch -> init-main-* resources -> init-jungle.cloud
 | --- | --- |
 | `bootstrap/*` | remote state S3 bucket, Route53 hosted zone, 계정 단위 GitHub OIDC provider 최초 생성 |
 | `versions.tf`, `providers.tf` | Terraform/AWS provider 버전과 region 설정 |
-| `variables.tf`, `locals.tf` | environment별 입력값, naming, service/env/secret key 계약 |
+| `variables.tf`, `locals.tf` | main 실배포 입력값, naming, service/env/secret key 계약 |
 | `network.tf` | VPC, subnet, route table, NAT Gateway, VPC endpoint |
 | `security-groups.tf` | ALB, ECS, RDS, Redis, VPC endpoint security group |
 | `alb-cloudfront.tf` | ALB listener/target group, CloudFront behavior, S3 OAC |
 | `route53-acm.tf` | Route53 app record, CloudFront용 us-east-1 ACM 인증서, DNS validation record |
 | `ecs.tf` | ECS cluster, task definition, service |
-| `ecr.tf` | environment별 ECR repository와 lifecycle policy |
+| `ecr.tf` | main 실배포 ECR repository와 lifecycle policy |
 | `rds.tf`, `redis.tf` | PostgreSQL RDS, ElastiCache Redis |
 | `s3-sqs-ses.tf` | asset bucket, SQS/DLQ, optional SES domain identity |
 | `secrets.tf` | service별 Secrets Manager container |
 | `iam.tf` | ECS execution/task role, GitHub deploy role |
 | `cloudwatch.tf` | log group과 기본 alarm |
 | `outputs.tf` | 적용 후 필요한 endpoint, ARN, URL 출력 |
-| `env/dev.tfvars`, `env/main.tfvars` | dev/main 구체 property 값 |
+| `env/main.tfvars` | main 실배포 구체 property 값 |
 
 ## 적용 전 준비사항
 
@@ -51,10 +51,10 @@ main branch -> init-main-* resources -> init-jungle.cloud
 - Terraform state bucket 이름: `init-tfstate-<aws_account_id>-ap-northeast-2`
 - 가비아에서 구매한 root domain: `init-jungle.cloud`
 - Route53 hosted zone 생성 후 가비아 네임서버를 Route53 NS record로 위임할 권한
-- `dev`, `main`을 같은 AWS 계정에 만들지, 별도 계정에 만들지에 대한 팀 결정
+- `dev`, `main` 브랜치가 같은 실배포 환경을 갱신한다는 팀 합의
 - AWS 비용 발생 가능성에 대한 승인
 
-현재 설계는 같은 AWS 계정 안에 `dev`, `main`을 environment prefix로 분리하는 전제를 둔다.
+현재 설계는 같은 AWS 계정 안에 `main` 실배포 환경 하나만 두는 전제를 둔다.
 
 AWS credential은 예를 들어 아래 방식 중 하나로 준비한다.
 
@@ -72,7 +72,7 @@ aws sts get-caller-identity
 
 ## 최초 bootstrap
 
-bootstrap은 environment별 stack보다 먼저 1회만 실행한다. remote state bucket, Route53 hosted zone, GitHub OIDC provider는 AWS 계정 단위로 공유되는 기반 리소스이기 때문이다.
+bootstrap은 main 실배포 stack보다 먼저 1회만 실행한다. remote state bucket, Route53 hosted zone, GitHub OIDC provider는 AWS 계정 단위로 공유되는 기반 리소스이기 때문이다.
 
 1. AWS account ID를 확인한다.
 
@@ -94,7 +94,7 @@ terraform -chdir=infra/aws/bootstrap apply -var "state_bucket_name=init-tfstate-
 terraform -chdir=infra/aws/bootstrap output route53_name_servers
 ```
 
-가비아 관리 화면에서 `init-jungle.cloud`의 네임서버를 위 출력값으로 교체한다. 이 위임이 완료되어야 dev/main stack의 ACM DNS validation이 정상 완료된다.
+가비아 관리 화면에서 `init-jungle.cloud`의 네임서버를 위 출력값으로 교체한다. 이 위임이 완료되어야 main stack의 ACM DNS validation이 정상 완료된다.
 
 4. GitHub OIDC provider가 이미 있는 계정이면 중복 생성하지 않는다. 이미 존재한다면 bootstrap state로 import한다.
 
@@ -113,30 +113,29 @@ terraform -chdir=infra/aws/bootstrap output
 `backend-*.hcl` 파일은 실제 account ID가 들어가므로 Git에 커밋하지 않는다. `.gitignore`에서 `infra/aws/backend-*.hcl`을 제외하고 있다.
 
 ```powershell
-Copy-Item infra\aws\backend-dev.hcl.example infra\aws\backend-dev.hcl
 Copy-Item infra\aws\backend-main.hcl.example infra\aws\backend-main.hcl
 ```
 
-복사 후 두 파일의 `<aws_account_id>`를 실제 계정 ID로 바꾼다.
+복사 후 `<aws_account_id>`를 실제 계정 ID로 바꾼다.
 
 ```hcl
 bucket       = "init-tfstate-123456789012-ap-northeast-2"
-key          = "init/dev/terraform.tfstate"
+key          = "init/main/terraform.tfstate"
 region       = "ap-northeast-2"
 encrypt      = true
 use_lockfile = true
 ```
 
-## dev 적용 절차
+## main 실배포 적용 절차
 
-`dev`는 자동 배포 검증 환경이다. AWS 리소스만 먼저 생성하고, image/secret 준비 전에는 ECS desired count를 `0`으로 둔다.
+`main`은 유일한 실배포 환경이다. `dev`와 `main` branch deploy workflow는 모두 이 환경의 ECR/ECS/Secrets/CloudFront를 대상으로 한다.
 
 ```powershell
-terraform -chdir=infra/aws init -backend-config=backend-dev.hcl -reconfigure
+terraform -chdir=infra/aws init -backend-config=backend-main.hcl -reconfigure
 terraform -chdir=infra/aws fmt -check -recursive
 terraform -chdir=infra/aws validate
-terraform -chdir=infra/aws plan -var-file=env/dev.tfvars -out=tfplan-dev
-terraform -chdir=infra/aws apply tfplan-dev
+terraform -chdir=infra/aws plan -var-file=env/main.tfvars -out=tfplan-main
+terraform -chdir=infra/aws apply tfplan-main
 ```
 
 적용 후 output을 확인한다.
@@ -149,19 +148,7 @@ terraform -chdir=infra/aws output ecr_repository_urls
 terraform -chdir=infra/aws output runtime_secret_arns
 ```
 
-## main 적용 절차
-
-`main`은 운영/발표용 환경이다. dev에서 같은 변경의 plan/apply가 먼저 성공한 뒤 적용한다.
-
-```powershell
-terraform -chdir=infra/aws init -backend-config=backend-main.hcl -reconfigure
-terraform -chdir=infra/aws fmt -check -recursive
-terraform -chdir=infra/aws validate
-terraform -chdir=infra/aws plan -var-file=env/main.tfvars -out=tfplan-main
-terraform -chdir=infra/aws apply tfplan-main
-```
-
-main 변경은 PR 리뷰 후 적용한다. 특히 RDS, Redis, CloudFront, IAM 변경은 비용/보안/장애 영향을 같이 확인한다.
+인프라 변경은 PR 리뷰 후 적용한다. 특히 RDS, Redis, CloudFront, IAM 변경은 비용/보안/장애 영향을 같이 확인한다.
 
 ## Secrets Manager 값 seed
 
@@ -173,11 +160,11 @@ ECS task definition은 `secretArn:KEY::` 형식으로 JSON key를 참조한다. 
 
 ```powershell
 aws secretsmanager put-secret-value `
-  --secret-id init/dev/api `
-  --secret-string file://api.dev.secret.json
+  --secret-id init/main/api `
+  --secret-string file://api.main.secret.json
 ```
 
-`api.dev.secret.json` 예시:
+`api.main.secret.json` 예시:
 
 ```json
 {
@@ -189,11 +176,11 @@ aws secretsmanager put-secret-value `
   "AUTH_REFRESH_COOKIE_NAME": "refreshToken",
   "AUTH_COOKIE_SECURE": "true",
   "AUTH_COOKIE_SAME_SITE": "lax",
-  "FRONTEND_ORIGIN": "https://dev.init-jungle.cloud",
+  "FRONTEND_ORIGIN": "https://init-jungle.cloud",
   "AWS_REGION": "ap-northeast-2",
-  "S3_BUCKET": "init-dev-assets-<aws_account_id>",
-  "S3_BUCKET_NAME": "init-dev-assets-<aws_account_id>",
-  "S3_PUBLIC_BASE_URL": "https://dev.init-jungle.cloud",
+  "S3_BUCKET": "init-main-assets-<aws_account_id>",
+  "S3_BUCKET_NAME": "init-main-assets-<aws_account_id>",
+  "S3_PUBLIC_BASE_URL": "https://init-jungle.cloud",
   "AI_SQS_QUEUE_URL": "<sqs-url>",
   "SQS_QUEUE_URL": "<sqs-url>",
   "OPENAI_API_KEY": "<openai-key>",
@@ -221,15 +208,12 @@ Terraform apply만으로 앱이 뜨지 않는다. 현재 `env/*.tfvars`의 ECS d
 앱을 실제로 기동하려면 아래 순서가 필요하다.
 
 1. ECR repository에 image push
-   - `init-dev-frontend`
-   - `init-dev-api`
-   - `init-dev-worker`
    - `init-main-frontend`
    - `init-main-api`
    - `init-main-worker`
 2. Secrets Manager JSON 값 seed
 3. API image 기반 Prisma migration task 실행
-4. `env/<env>.tfvars`의 `desired_counts`를 `1`로 변경
+4. `env/main.tfvars`의 `desired_counts`를 `1`로 변경
 5. Terraform plan/apply
 6. ALB target group health와 CloudFront URL smoke test
 
@@ -256,9 +240,9 @@ AWS Console에서 직접 수정하지 않는 것을 원칙으로 한다. 리소�
 | VPC/subnet/NAT 변경 | `network.tf`, `env/*.tfvars` | CIDR 충돌, route table, NAT 비용 |
 | Security group 변경 | `security-groups.tf` | public ingress 확장 여부, ECS/RDS/Redis 접근 경계 |
 | CloudFront/ALB path 변경 | `alb-cloudfront.tf` | `/api/*`, `/_next/static/*`, S3 asset prefix가 frontend route를 가리지 않는지 |
-| Route53/ACM/domain 변경 | `route53-acm.tf`, `providers.tf`, `env/*.tfvars` | 가비아 NS 위임, us-east-1 ACM, A/AAAA alias, DNS validation 완료 여부 |
+| Route53/ACM/domain 변경 | `route53-acm.tf`, `providers.tf`, `env/main.tfvars` | 가비아 NS 위임, us-east-1 ACM, A/AAAA alias, DNS validation 완료 여부 |
 | ECS CPU/memory/port 변경 | `locals.tf`, `ecs.tf` | Dockerfile exposed port, ALB target group, Fargate 지원 조합 |
-| ECS desired count 변경 | `env/dev.tfvars`, `env/main.tfvars` | image와 secret 값이 먼저 준비됐는지 |
+| ECS desired count 변경 | `env/main.tfvars` | image와 secret 값이 먼저 준비됐는지 |
 | ECR repository 정책 변경 | `ecr.tf` | immutable tag 정책과 deploy workflow tag 전략 |
 | RDS class/storage/backup 변경 | `rds.tf`, `env/*.tfvars` | downtime, backup retention, deletion protection |
 | Redis TLS/auth 변경 | `redis.tf` | 앱 `REDIS_URL`을 `rediss://`로 바꾸는 코드/secret 변경 필요 |
@@ -270,8 +254,8 @@ AWS Console에서 직접 수정하지 않는 것을 원칙으로 한다. 리소�
 
 ## 변경 작업 표준 절차
 
-1. 변경 목적과 대상 environment를 정한다.
-2. Terraform 파일 또는 `env/*.tfvars`를 수정한다.
+1. 변경 목적을 정한다.
+2. Terraform 파일 또는 `env/main.tfvars`를 수정한다.
 3. 포맷과 validate를 실행한다.
 
 ```powershell
@@ -279,16 +263,16 @@ terraform -chdir=infra/aws fmt -recursive
 terraform -chdir=infra/aws validate
 ```
 
-4. 대상 environment backend로 초기화한다.
+4. main backend로 초기화한다.
 
 ```powershell
-terraform -chdir=infra/aws init -backend-config=backend-dev.hcl -reconfigure
+terraform -chdir=infra/aws init -backend-config=backend-main.hcl -reconfigure
 ```
 
 5. plan 파일을 만든다.
 
 ```powershell
-terraform -chdir=infra/aws plan -var-file=env/dev.tfvars -out=tfplan-dev
+terraform -chdir=infra/aws plan -var-file=env/main.tfvars -out=tfplan-main
 ```
 
 6. plan에서 생성/수정/삭제 리소스를 확인한다.
@@ -296,7 +280,7 @@ terraform -chdir=infra/aws plan -var-file=env/dev.tfvars -out=tfplan-dev
 8. 승인 후 apply한다.
 
 ```powershell
-terraform -chdir=infra/aws apply tfplan-dev
+terraform -chdir=infra/aws apply tfplan-main
 ```
 
 9. output과 AWS Console에서 생성 결과를 확인한다.
@@ -344,7 +328,6 @@ terraform -chdir=infra/aws/bootstrap validate
 AWS credential이 필요한 검증:
 
 ```powershell
-terraform -chdir=infra/aws plan -var-file=env/dev.tfvars
 terraform -chdir=infra/aws plan -var-file=env/main.tfvars
 ```
 

@@ -5,12 +5,12 @@ variable "aws_region" {
 }
 
 variable "environment" {
-  description = "Deployment environment. Keep names aligned with Git branches."
+  description = "Deployment environment. The live AWS stack is shared by dev and main branch deploys."
   type        = string
 
   validation {
-    condition     = contains(["dev", "main"], var.environment)
-    error_message = "environment must be dev or main."
+    condition     = var.environment == "main"
+    error_message = "environment must be main."
   }
 }
 
@@ -21,7 +21,7 @@ variable "project_name" {
 }
 
 variable "root_domain_name" {
-  description = "Root domain hosted in Route53. The main environment uses the apex domain, and non-main environments use environment subdomains."
+  description = "Root domain hosted in Route53 and used by the shared live environment."
   type        = string
   default     = "init-jungle.cloud"
 }

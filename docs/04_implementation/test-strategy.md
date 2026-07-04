@@ -117,17 +117,18 @@ powershell -ExecutionPolicy Bypass -File scripts\verify-docker.ps1 -Build
 
 ## Cloud Deploy Contract Checks
 
-Docker build 검증은 image가 만들어지는지 확인하는 단계이고, cloud deploy 검증은 새 image가 실제 ECS service로 안전하게 교체되는지 확인하는 단계다. 배포 workflow가 추가되면 `dev` merge와 `main` approval 배포에서 아래 기준을 확인한다.
+Docker build 검증은 image가 만들어지는지 확인하는 단계이고, cloud deploy 검증은 새 image가 실제 ECS service로 안전하게 교체되는지 확인하는 단계다. 배포 workflow가 추가되면 `dev` merge와 `main` merge 모두 같은 `main` 실배포 환경에서 아래 기준을 확인한다.
 
 | Check | 기준 | 실패 의미 |
 | --- | --- | --- |
 | Changed service detection | 변경 경로에 맞는 service만 build/push/update | 불필요한 service 재시작 또는 필요한 service 누락 |
-| ECR push | `init-{env}-frontend`, `init-{env}-api`, `init-{env}-worker`에 `github.sha` tag push | ECS가 새 image를 pull할 수 없음 |
+| ECR push | `init-main-frontend`, `init-main-api`, `init-main-worker`에 `github.sha` tag push | ECS가 새 image를 pull할 수 없음 |
 | ECS task definition revision | 기존 task definition 기반으로 image URI만 새 SHA tag로 갱신 | env, secret, IAM, log 설정 drift 가능 |
 | Migration gate | API/Prisma 변경 시 service update 전 `npx prisma migrate deploy` one-off task 성공 | 새 application code와 DB schema 불일치 |
 | ECS service stability | `aws ecs wait services-stable` 또는 동등한 대기 | 새 task가 정상 기동하지 않음 |
 | ALB health check | API는 `/api/v1/health`, frontend는 `/` 접근 확인 | target group이 새 task를 healthy로 보지 않음 |
 | Worker verification | worker ECS running task와 CloudWatch startup log 확인 | worker가 SQS polling을 시작하지 못함 |
+| Deploy concurrency | `dev`/`main` deploy workflow가 같은 concurrency group을 사용 | 같은 실배포 환경에 동시 service update가 겹침 |
 
 cloud deploy workflow는 production 배포를 `docker-compose`로 수행하지 않는다. `docker-compose`는 후속 local AWS-like smoke test 용도이고, 실제 AWS 배포 기준은 ECR image, ECS task definition, ECS service, ALB target group이다.
 
