@@ -29,5 +29,5 @@ variable "owner" {
 variable "github_oidc_thumbprints" {
   type        = list(string)
   description = "Thumbprints required by the IAM OIDC provider resource."
-  default     = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
+  default     = ["22ff89586561fc2d52f77491e9f1eff1b80be33e"]
 }
