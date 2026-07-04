@@ -6,14 +6,14 @@ import { usePathname } from "next/navigation";
 
 import { GnbAvatar, GnbLogoutButton } from "../auth/GnbAccountControls";
 import { COMPANY_MYPAGE_ROUTE } from "../company-profile/routes";
-import { companyAccountBillingNav, companyNavLabels } from "./company-nav-config";
+import { companyAccountBillingNav, companyNavLabels, isCompanyAccountBillingPath } from "./company-nav-config";
 import { formatRecruitingStatusLabel, getRecruitingStatusTone } from "./status-labels";
 
 type CompanyNavSection = "postings" | "accountBilling";
 
 export function CompanyNav({ active }: { active?: CompanyNavSection }) {
   const pathname = usePathname();
-  const current = active ?? (pathname?.startsWith(COMPANY_MYPAGE_ROUTE) ? "accountBilling" : "postings");
+  const current = active ?? (isCompanyAccountBillingPath(pathname) ? "accountBilling" : "postings");
 
   return (
     <header className="gnb">
@@ -39,13 +39,6 @@ export function CompanyNav({ active }: { active?: CompanyNavSection }) {
             </Link>
             <div className="gnb-panel">
               {companyAccountBillingNav.map((item) => {
-                if (!("href" in item)) {
-                  return (
-                    <span className="disabled" key={item.label} aria-disabled="true">
-                      {item.label}
-                    </span>
-                  );
-                }
                 const isActive = pathname?.startsWith(item.href);
                 return (
                   <Link

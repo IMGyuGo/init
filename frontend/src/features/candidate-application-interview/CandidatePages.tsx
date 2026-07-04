@@ -4,11 +4,23 @@ import "./CandidatePages.module.css";
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { DependencyList, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getAccessToken } from "../../api/client";
 import { GnbAvatar, GnbLogoutButton } from "../auth/GnbAccountControls";
+import { createPaymentOrder, getCandidateMockInterviewPassSummary, grantCandidateMockInterviewDevPasses, listPaymentOrders } from "../payment/api";
+import { PaymentOrderPagination, formatDateTime as formatPaymentDateTime, formatWon } from "../payment/CompanyBillingPage";
+import { requestTossCardPayment } from "../payment/toss-sdk";
+import {
+  CANDIDATE_FREE_MOCK_INTERVIEW_POLICY,
+  CANDIDATE_MOCK_INTERVIEW_PASS_PRODUCT,
+  EMPTY_PAYMENT_ORDER_PAGE,
+  PAYMENT_HISTORY_PAGE_LIMIT,
+  type CandidateMockInterviewPassSummary,
+  type PaymentOrder,
+  type PaymentOrderPageMeta,
+} from "../payment/types";
 import {
   CandidateApiError,
   type AiInterviewHandoffResponse,
@@ -73,9 +85,12 @@ import {
   toStartMockInterviewRequest,
   toUploadResumeRequest,
 } from "./view-model";
+import { candidateAccountBillingNav, candidateNavLabels, isCandidateAccountBillingPath } from "./candidate-nav-config";
 import { CandidateApplicationView, CandidateJobDetailView, CandidateJobsView } from "./views";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
+const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY ?? "";
+const SHOW_PAYMENT_DEV_TOOLS = process.env.NODE_ENV !== "production";
 const DEMO_CANDIDATE_ID = 1;
 export const PUBLIC_INTERVIEW_ACCESS_TOKEN_STORAGE_KEY = "init.publicInterviewAccessToken";
 const DEFAULT_INTERVIEW_QUESTION_TIME_LIMIT_SECONDS = 90;
@@ -85,7 +100,7 @@ const MIN_INTERVIEW_RECORDING_BLOB_SIZE_BYTES = 10 * 1024;
 const MIN_STT_TRANSCRIPT_MEANINGFUL_LENGTH = 10;
 const questionTypeOptions: QuestionType[] = ["INTRO", "TECHNICAL", "EXPERIENCE", "SITUATION", "CLOSING"];
 
-type CandidateNavSection = "jobs" | "applications" | "interview" | "reports" | "mypage";
+type CandidateNavSection = "jobs" | "applications" | "interview" | "reports" | "accountBilling";
 type AsyncState<T> = {
   data?: T;
   loading: boolean;
@@ -1490,7 +1505,7 @@ export function CandidateMyPage() {
   }
 
   return (
-    <CandidatePageShell active="mypage">
+    <CandidatePageShell active="accountBilling">
       <section className="candidate-mypage">
         <header className="candidate-mypage__head">
           <h1>지원자 마이페이지</h1>
@@ -1611,6 +1626,177 @@ export function CandidateMyPage() {
         </section>
       </section>
     </CandidatePageShell>
+  );
+}
+
+export function CandidateBillingPage() {
+  const [orders, setOrders] = useState<PaymentOrder[]>([]);
+  const [orderPage, setOrderPage] = useState<PaymentOrderPageMeta>(EMPTY_PAYMENT_ORDER_PAGE);
+  const [passSummary, setPassSummary] = useState<CandidateMockInterviewPassSummary | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState<"danger" | "success">("danger");
+
+  const loadBillingData = useCallback(async (page = 1) => {
+    setLoading(true);
+    setMessage("");
+    setMessageTone("danger");
+    try {
+      const [orderData, passData] = await Promise.all([
+        listPaymentOrders({ page, limit: PAYMENT_HISTORY_PAGE_LIMIT }),
+        getCandidateMockInterviewPassSummary(),
+      ]);
+      setOrders(orderData.items);
+      setOrderPage(orderData.page);
+      setPassSummary(passData);
+    } catch (error) {
+      setMessageTone("danger");
+      setMessage(error instanceof Error ? error.message : "결제 정보를 불러오지 못했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadBillingData();
+  }, [loadBillingData]);
+
+  async function handlePayment() {
+    setPaying(true);
+    setMessage("");
+    setMessageTone("danger");
+    try {
+      const order = await createPaymentOrder({
+        productCode: CANDIDATE_MOCK_INTERVIEW_PASS_PRODUCT.productCode,
+        quantity: 1,
+      });
+      await requestTossCardPayment(TOSS_CLIENT_KEY, order);
+    } catch (error) {
+      setMessageTone("danger");
+      setMessage(error instanceof Error ? error.message : "결제창을 열지 못했습니다.");
+      setPaying(false);
+    }
+  }
+
+  async function handleDevelopmentPassGrant() {
+    setLoading(true);
+    setMessage("");
+    setMessageTone("danger");
+    try {
+      const summary = await grantCandidateMockInterviewDevPasses({ passAmount: 5 });
+      setPassSummary(summary);
+      setMessageTone("success");
+      setMessage(`테스트용 모의면접 이용권 5회를 추가했습니다. 현재 사용 가능 ${summary.availablePasses}회`);
+    } catch (error) {
+      setMessageTone("danger");
+      setMessage(error instanceof Error ? error.message : "테스트 이용권을 추가하지 못했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <CandidatePageShell active="accountBilling">
+      <CandidatePageHead
+        eyebrow=""
+        title="결제 정보"
+        description="모의면접 이용권과 결제 내역을 확인합니다."
+      />
+      {message ? <p className={`notice ${messageTone}`}>{message}</p> : null}
+      <section className="panel">
+        <div className="grid-2">
+          <div className="candidate-mypage-card">
+            <div className="panel-head">
+              <div>
+                <h2>신규 지원자 무료 이용권</h2>
+                <p>처음 시작하는 사용자는 모의면접을 먼저 경험할 수 있습니다.</p>
+              </div>
+              <span className="badge success">보유 {passSummary?.availablePasses ?? CANDIDATE_FREE_MOCK_INTERVIEW_POLICY.freePasses}회</span>
+            </div>
+            <div className="candidate-selected-application__notice">
+              가입 또는 첫 로그인 시 AI 모의면접 {CANDIDATE_FREE_MOCK_INTERVIEW_POLICY.freePasses}회를 무료로 제공합니다. 무료 이용권은 지급일로부터 {CANDIDATE_FREE_MOCK_INTERVIEW_POLICY.expiresInDays}일 동안 사용할 수 있습니다.
+              {passSummary ? (
+                <>
+                  <br />
+                  현재 사용 가능 {passSummary.availablePasses}회 · 사용 {passSummary.usedPasses}회
+                  {passSummary.freeExpiresAt ? ` · 무료권 만료 ${formatPaymentDateTime(passSummary.freeExpiresAt)}` : ""}
+                </>
+              ) : null}
+            </div>
+            {SHOW_PAYMENT_DEV_TOOLS ? (
+              <button
+                className="btn secondary candidate-mypage-action"
+                type="button"
+                onClick={() => void handleDevelopmentPassGrant()}
+                disabled={loading || paying}
+              >
+                테스트 이용권 5회 추가
+              </button>
+            ) : null}
+          </div>
+          <div className="candidate-mypage-card">
+            <div className="panel-head">
+              <div>
+                <h2>{CANDIDATE_MOCK_INTERVIEW_PASS_PRODUCT.orderName}</h2>
+                <p>무료 이용권 소진 후 추가 연습이 필요할 때 구매합니다.</p>
+              </div>
+              <span className="badge info">{CANDIDATE_MOCK_INTERVIEW_PASS_PRODUCT.label}</span>
+            </div>
+            <div className="candidate-selected-application__notice">
+              <strong>{formatWon(CANDIDATE_MOCK_INTERVIEW_PASS_PRODUCT.amount)}</strong>
+              <br />
+              모의면접 1회 응시와 AI 피드백 리포트를 포함합니다.
+            </div>
+            <button className="btn primary candidate-mypage-action" type="button" onClick={() => void handlePayment()} disabled={paying}>
+              {paying ? "결제창 여는 중" : "토스페이먼츠로 결제"}
+            </button>
+          </div>
+        </div>
+      </section>
+      <section className="panel">
+        <div className="panel-head">
+          <div>
+            <h2>최근 결제 내역</h2>
+            <p>모의면접 이용권 결제 상태를 확인합니다.</p>
+          </div>
+          <button className="btn secondary" type="button" onClick={() => void loadBillingData(orderPage.page)} disabled={loading || paying}>
+            새로고침
+          </button>
+        </div>
+        {loading ? <p className="empty">결제 내역을 불러오는 중입니다.</p> : <CandidatePaymentOrderList orders={orders} />}
+        {!loading ? (
+          <PaymentOrderPagination page={orderPage} disabled={paying} onPageChange={(nextPage) => void loadBillingData(nextPage)} />
+        ) : null}
+      </section>
+    </CandidatePageShell>
+  );
+}
+
+function CandidatePaymentOrderList({ orders }: { orders: PaymentOrder[] }) {
+  if (orders.length === 0) {
+    return <p className="empty">아직 결제 내역이 없습니다.</p>;
+  }
+
+  return (
+    <div className="candidate-alert-table" role="table" aria-label="지원자 결제 내역">
+      <div className="candidate-alert-row candidate-alert-row--head" role="row">
+        <span role="columnheader">상품</span>
+        <span role="columnheader">금액</span>
+        <span role="columnheader">상태</span>
+        <span role="columnheader">일시</span>
+      </div>
+      {orders.map((order) => (
+        <div className="candidate-alert-row" role="row" key={order.orderId}>
+          <span role="cell">{order.orderName}</span>
+          <span role="cell">{formatWon(order.amount)}</span>
+          <span role="cell">
+            <span className={`badge ${paymentStatusTone(order.status)}`}>{paymentStatusLabel(order.status)}</span>
+          </span>
+          <span role="cell">{formatPaymentDateTime(order.approvedAt ?? order.createdAt)}</span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -3350,8 +3536,10 @@ function CandidatePageShell({ active, children }: { active: CandidateNavSection;
 }
 
 function CandidateNav({ active }: { active: CandidateNavSection }) {
+  const pathname = usePathname();
   const mockActive = active === "interview" || active === "reports";
   const recruitingActive = active === "jobs" || active === "applications";
+  const accountBillingActive = active === "accountBilling" || isCandidateAccountBillingPath(pathname);
 
   return (
     <header className="gnb">
@@ -3388,10 +3576,18 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
               </Link>
             </div>
           </div>
-          <div className={`gnb-item ${active === "mypage" ? "active" : ""}`}>
-            <Link className="gnb-link" href={candidateApplicationInterviewRoutes.mypage} aria-current={active === "mypage" ? "page" : undefined}>
-              마이페이지
+          <div className={`gnb-item ${accountBillingActive ? "active" : ""}`}>
+            <Link className="gnb-link" href={candidateApplicationInterviewRoutes.mypage} aria-current={accountBillingActive ? "page" : undefined}>
+              {candidateNavLabels.accountBilling}
+              <span className="gnb-caret" aria-hidden="true">⌄</span>
             </Link>
+            <div className="gnb-panel">
+              {candidateAccountBillingNav.map((item) => (
+                <Link className={pathname?.startsWith(item.href) ? "active" : ""} href={item.href} key={item.href}>
+                  {item.label}
+                </Link>
+              ))}
+            </div>
           </div>
         </nav>
         <div className="gnb-right">
@@ -4464,6 +4660,25 @@ function formatProcessTypeLabel(processType: string): string {
   };
 
   return labels[processType] ?? processType;
+}
+
+function paymentStatusLabel(status: PaymentOrder["status"]) {
+  const labels: Record<PaymentOrder["status"], string> = {
+    READY: "대기",
+    IN_PROGRESS: "승인 중",
+    DONE: "승인 완료",
+    FAILED: "실패",
+    CANCELED: "취소",
+    PARTIAL_CANCELED: "부분 취소",
+  };
+  return labels[status];
+}
+
+function paymentStatusTone(status: PaymentOrder["status"]) {
+  if (status === "DONE") return "success";
+  if (status === "FAILED" || status === "CANCELED") return "danger";
+  if (status === "READY" || status === "IN_PROGRESS") return "warning";
+  return "neutral";
 }
 
 function pickDeviceTestSentence(): string {

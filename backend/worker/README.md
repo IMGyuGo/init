@@ -14,6 +14,13 @@ Runtime commands:
 
 - `npm run build`
 - `npm start`
+- `npm run start:dev`
+
+Local development loads `.env` files before validating worker settings. When the
+worker is started from `backend/worker`, the loader reads the project root
+`.env` first and then `backend/worker/.env`, so worker-local values can override
+shared defaults. Already exported shell variables take precedence over `.env`
+file values.
 
 Required runtime environment variables:
 
@@ -24,8 +31,8 @@ Required runtime environment variables:
 
 The `.env.example` file also includes project-level aliases such as `SQS_QUEUE_URL`,
 `S3_BUCKET`, and `OPENAI_API_KEY` so the shared environment harness can validate
-the common deployment contract. The current worker runtime reads the `AI_*` and
-`S3_BUCKET_NAME` names above.
+the common deployment contract. The worker runtime accepts both the `AI_*` /
+`S3_BUCKET_NAME` names above and those project-level aliases.
 
 Deployment boundary with A:
 

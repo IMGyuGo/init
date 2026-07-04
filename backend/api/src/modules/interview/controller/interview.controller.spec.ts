@@ -12,6 +12,7 @@ import { InterviewController } from "./interview.controller";
 import { interviewApiRoutePrefix, interviewApiRoutes } from "../interview.routes";
 import { InMemoryInterviewRepository } from "../repository/in-memory-interview.repository";
 import { InterviewService } from "../service/interview.service";
+import type { CandidateMockInterviewPassPort } from "../../payment/service/candidate-mock-interview-pass.service";
 
 type InterviewControllerRoute =
   | "startMockInterview"
@@ -157,6 +158,61 @@ test("explicit follow-up insert focuses the inserted question and is idempotent"
     1,
   );
   assert.equal(questionsAfterDuplicate.data.questions[1]?.questionId, inserted.data.question.questionId);
+});
+
+test("mock interview start consumes one candidate mock interview pass", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const passCalls: Array<{ candidateId: number; passAmount?: number }> = [];
+  const passService: CandidateMockInterviewPassPort = {
+    async ensureInitialFreePasses(candidateId) {
+      return {
+        candidateId,
+        availablePasses: 3,
+        grantedPasses: 3,
+        usedPasses: 0,
+        freePasses: 3,
+        paidPasses: 0,
+        freeExpiresAt: new Date("2026-08-02T00:00:00.000Z"),
+        updatedAt: new Date("2026-07-03T00:00:00.000Z"),
+      };
+    },
+    async grantPurchasedPasses(candidateId) {
+      return {
+        candidateId,
+        availablePasses: 4,
+        grantedPasses: 4,
+        usedPasses: 0,
+        freePasses: 3,
+        paidPasses: 1,
+        freeExpiresAt: new Date("2026-08-02T00:00:00.000Z"),
+        updatedAt: new Date("2026-07-03T00:00:00.000Z"),
+      };
+    },
+    async consumePass(candidateId, passAmount) {
+      passCalls.push({ candidateId, passAmount });
+      return {
+        candidateId,
+        availablePasses: 2,
+        grantedPasses: 3,
+        usedPasses: 1,
+        freePasses: 3,
+        paidPasses: 0,
+        freeExpiresAt: new Date("2026-08-02T00:00:00.000Z"),
+        updatedAt: new Date("2026-07-03T00:00:00.000Z"),
+      };
+    },
+  };
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository, undefined, undefined, passService));
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["INTRO", "TECHNICAL"],
+    showQuestionText: false,
+  });
+
+  assert.equal(started.data.interviewType, "MOCK");
+  assert.deepEqual(passCalls, [{ candidateId: DEV_CANDIDATE_USER.candidateId, passAmount: 1 }]);
 });
 
 test("recording validation skip stores an unanswered answer and allows moving next", async () => {
