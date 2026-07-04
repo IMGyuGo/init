@@ -471,32 +471,51 @@ rollback 기준은 단순하다. bash harness 변경으로 macOS/Linux role harn
    - `scripts/verify-docker.ps1 -Build`를 repo root context 기준으로 수정
    - `scripts/check-local.sh --build-docker`를 repo root context 기준으로 수정
 
-## 다음 작업 단위
+## 다음 작업 단위: AWS 인프라 구축 통합 실행 계획
 
-1. AWS 리소스 초안 검증과 적용 준비
-   - `infra/aws` Terraform fmt/validate/plan 검증
-   - bootstrap state bucket 생성 여부 확인
-   - main backend config의 account id 반영
-   - GitHub OIDC provider가 이미 있는 AWS 계정이면 import 여부 확인
-   - Secrets Manager 실제 값 seed 절차 정리
+다음 작업은 `AWS 리소스 적용 준비`와 `CI/CD 배포 workflow 구현`을 분리하지 않고 하나의 실행 단위로 진행한다. 이유는 실제 적용 중간에 가비아 네임서버 위임, Secrets Manager 실제 값 입력, AWS Console 확인처럼 코딩 에이전트가 대신할 수 없는 수동 작업이 끼어 있기 때문이다.
 
-2. CI/CD 배포 workflow
-   - GitHub OIDC IAM role
-   - service별 변경 감지
-   - ECR push
-   - ECS task definition image URI 갱신
-   - Secrets Manager key validation
-   - ECS one-off migration task
-   - ECS service update
-   - ALB target group health check 대기
-   - CloudFront invalidation
-   - smoke test
+실제 단계별 수행 절차의 source of truth는 [`infra/aws/README.md`](../../infra/aws/README.md)다. 이 설계 문서는 배포 방식의 결정, 완료 기준, 중단 기준만 유지하고, 실행 명령과 AWS Console 확인 절차는 runbook 문서에 둔다.
 
-## 후속 결정
+통합 실행 흐름:
 
-| 질문 | 현재 권장 | 결정 필요 시점 |
-| --- | --- | --- |
-| staging 환경을 추가할까? | 초반에는 main 단일 실배포 환경만 사용 | 발표/운영 리허설 환경이 필요할 때 |
-| destructive migration 허용 기준 | 별도 리뷰 필요 | 실제 destructive migration이 등장할 때 |
-| 로컬 app compose를 추가할까? | Docker build 안정화 후 추가 | AWS-like local smoke test가 필요할 때 |
-| PM approval을 둘까? | 현재는 사용하지 않음. dev/main 모두 자동 실배포 | 팀 운영상 PM gate가 필요해질 때 |
+```text
+Preflight
+-> Bootstrap apply
+-> Gabia NS 위임
+-> backend-main.hcl 준비
+-> main Terraform apply
+-> Secrets Manager 값 seed
+-> 초기 Docker image build/push
+-> ECS one-off migration task
+-> ECS service activation
+-> domain smoke test
+-> GitHub Actions deploy workflow 구현
+-> dev/main branch 자동 배포 검증
+```
+
+작업 단위 완료 기준:
+
+- `infra/aws/bootstrap`과 `infra/aws` main stack의 `terraform plan/apply`가 성공한다.
+- 가비아 `init-jungle.cloud` 네임서버가 Route53 hosted zone NS로 위임된다.
+- Secrets Manager `init/main/*` JSON 값이 `.env.example`과 task definition secret key 계약을 만족한다.
+- ECR에 frontend/API/worker image가 존재한다.
+- ECS one-off migration task가 성공한 뒤 ECS service update가 진행된다.
+- ALB target group health check와 `https://init-jungle.cloud` smoke test가 통과한다.
+- GitHub Actions deploy workflow가 `dev`, `main` push 모두에서 같은 main 실배포 환경을 갱신한다.
+
+중단 기준:
+
+- `aws sts get-caller-identity`가 의도한 AWS 계정이 아니다.
+- 가비아 네임서버 위임이 완료되지 않아 ACM DNS validation이 장시간 대기 상태다.
+- Terraform plan에 RDS, Redis, CloudFront, IAM의 의도하지 않은 교체 또는 삭제가 포함된다.
+- Secrets Manager에 필요한 runtime key가 누락되어 task 기동이 실패한다.
+- Prisma migration task가 실패한다.
+- ECS service update 후 ALB target health가 정상화되지 않는다.
+
+코딩 에이전트가 대신할 수 없는 수동 작업:
+
+- 실제 AWS 계정 credential/profile 선택과 비용 발생 승인
+- 가비아 관리 화면에서 `init-jungle.cloud` 네임서버를 Route53 NS로 변경
+- OpenAI, JWT, SES, DB password 등 실제 secret 값 결정 및 입력
+- AWS Console에서 비용/보안/상태를 직접 확인하는 최종 판단

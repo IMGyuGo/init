@@ -1,8 +1,19 @@
-# AWS Terraform Runbook
+# AWS 인프라 구축 및 배포 Runbook
 
-이 디렉터리는 `init` 프로젝트의 AWS 인프라 기준선을 Terraform으로 정의한다.
+이 문서는 `init` 프로젝트의 AWS 인프라를 실제 계정에 구축하고, Docker image 배포와 migration을 거쳐 `https://init-jungle.cloud`를 기동하는 실행 절차를 정리한다.
 
-여기서 관리하는 것은 AWS resource다. 애플리케이션 image build/push, ECS service deploy, Secrets Manager 실제 값 seed, Prisma migration 실행은 별도 CI/CD workflow 또는 수동 운영 절차에서 수행한다.
+Terraform 코드는 AWS resource의 기준선이다. 이 runbook은 그 Terraform 기준선을 언제 어떤 순서로 적용하고, Terraform 밖에서 필요한 ECR push, Secrets Manager 값 seed, ECS one-off migration, smoke test, GitHub Actions deploy workflow까지 어떻게 이어갈지 설명한다.
+
+## 문서 역할
+
+AWS 배포 설계의 source of truth는 두 문서로 나눈다.
+
+| 문서 | 역할 |
+| --- | --- |
+| `docs/04_implementation/aws-deployment-solution.md` | 배포 설계 결정, tradeoff, 완료/중단 기준 |
+| `infra/aws/README.md` | 실제 적용 runbook, 명령, 확인 지점, 유지보수 절차 |
+
+따라서 실제 AWS에 적용할 때는 이 문서를 기준으로 진행하고, 설계 방향이 바뀌면 먼저 `aws-deployment-solution.md`를 갱신한 뒤 이 runbook을 맞춘다.
 
 ## 구성 원칙
 
@@ -70,53 +81,131 @@ $env:AWS_PROFILE="your-profile-name"
 aws sts get-caller-identity
 ```
 
-## 최초 bootstrap
+## AWS 인프라 구축 통합 Runbook
 
-bootstrap은 main 실배포 stack보다 먼저 1회만 실행한다. remote state bucket, Route53 hosted zone, GitHub OIDC provider는 AWS 계정 단위로 공유되는 기반 리소스이기 때문이다.
+이 runbook은 최초 1회 구축을 기준으로 한다. 이후 변경은 아래 `AWS 변경 유지보수 원칙`과 `변경 작업 표준 절차`를 따른다.
 
-1. AWS account ID를 확인한다.
+전체 흐름:
 
-```powershell
-aws sts get-caller-identity --query Account --output text
+```text
+1. Preflight
+2. Bootstrap apply
+3. Gabia NS 위임
+4. backend-main.hcl 준비
+5. main Terraform apply
+6. Secrets Manager 값 seed
+7. 초기 Docker image build/push
+8. ECS one-off migration task
+9. ECS service activation
+10. domain smoke test
+11. GitHub Actions deploy workflow 구현
+12. dev/main branch 자동 배포 검증
 ```
 
-2. remote state bucket, Route53 hosted zone, GitHub OIDC provider를 생성한다.
+중간에 코딩 에이전트가 대신할 수 없는 작업은 AWS 계정 선택, Terraform apply 승인, 가비아 네임서버 변경, 실제 secret 값 입력, AWS 비용/보안 판단이다. 해당 단계에서는 명령 결과를 기준으로 사용자가 직접 확인한다.
+
+### 1. Preflight
+
+목적은 잘못된 AWS 계정이나 깨진 Terraform 상태로 apply를 시작하지 않는 것이다.
+
+실행:
 
 ```powershell
+aws sts get-caller-identity
+terraform -chdir=infra/aws fmt -check -recursive
+terraform -chdir=infra/aws init -backend=false
+terraform -chdir=infra/aws validate
+terraform -chdir=infra/aws/bootstrap init -backend=false
+terraform -chdir=infra/aws/bootstrap validate
+```
+
+확인:
+
+- `Account`가 팀에서 쓰기로 한 AWS 계정 ID와 일치해야 한다.
+- Terraform validate가 main stack과 bootstrap stack 모두 통과해야 한다.
+- `infra/aws/env/main.tfvars`의 `environment`는 `main`이어야 한다.
+
+중단 기준:
+
+- AWS 계정이 다르다.
+- Terraform validate가 실패한다.
+- `dev` 또는 별도 환경을 새로 만들려는 변경이 섞여 있다.
+
+### 2. Bootstrap apply
+
+bootstrap은 main stack보다 먼저 1회만 실행한다. 여기서 remote state S3 bucket, Route53 hosted zone, GitHub OIDC provider를 만든다.
+
+실행:
+
+```powershell
+$accountId = aws sts get-caller-identity --query Account --output text
+$stateBucket = "init-tfstate-$accountId-ap-northeast-2"
+
 terraform -chdir=infra/aws/bootstrap init
-terraform -chdir=infra/aws/bootstrap plan -var "state_bucket_name=init-tfstate-<aws_account_id>-ap-northeast-2"
-terraform -chdir=infra/aws/bootstrap apply -var "state_bucket_name=init-tfstate-<aws_account_id>-ap-northeast-2"
+terraform -chdir=infra/aws/bootstrap plan -var "state_bucket_name=$stateBucket" -out=tfplan-bootstrap
+terraform -chdir=infra/aws/bootstrap apply tfplan-bootstrap
+terraform -chdir=infra/aws/bootstrap output
 ```
 
-3. Route53 NS record를 확인하고 가비아 네임서버에 등록한다.
-
-```powershell
-terraform -chdir=infra/aws/bootstrap output route53_name_servers
-```
-
-가비아 관리 화면에서 `init-jungle.cloud`의 네임서버를 위 출력값으로 교체한다. 이 위임이 완료되어야 main stack의 ACM DNS validation이 정상 완료된다.
-
-4. GitHub OIDC provider가 이미 있는 계정이면 중복 생성하지 않는다. 이미 존재한다면 bootstrap state로 import한다.
+GitHub OIDC provider가 이미 있는 계정이면 중복 생성하지 않는다. plan에서 중복 에러가 나면 기존 provider를 bootstrap state로 import한 뒤 다시 plan/apply한다.
 
 ```powershell
 terraform -chdir=infra/aws/bootstrap import aws_iam_openid_connect_provider.github arn:aws:iam::<aws_account_id>:oidc-provider/token.actions.githubusercontent.com
 ```
 
-5. bootstrap 출력값을 확인한다.
+AWS Console 확인:
+
+- S3 bucket: `init-tfstate-<aws_account_id>-ap-northeast-2`
+- Route53 hosted zone: `init-jungle.cloud`
+- IAM OIDC provider: `token.actions.githubusercontent.com`
+
+중단 기준:
+
+- state bucket 이름이 다른 계정 ID로 만들어졌다.
+- GitHub OIDC provider 중복을 import 없이 억지로 새로 만들려고 한다.
+
+### 3. Gabia NS 위임
+
+목적은 가비아에서 구매한 `init-jungle.cloud`를 Route53 hosted zone으로 위임하는 것이다. 이 위임이 끝나야 CloudFront용 ACM 인증서 DNS validation이 정상 완료된다.
+
+실행:
 
 ```powershell
-terraform -chdir=infra/aws/bootstrap output
+terraform -chdir=infra/aws/bootstrap output route53_name_servers
 ```
 
-## backend config 준비
+사용자 작업:
 
-`backend-*.hcl` 파일은 실제 account ID가 들어가므로 Git에 커밋하지 않는다. `.gitignore`에서 `infra/aws/backend-*.hcl`을 제외하고 있다.
+1. 가비아 관리 화면에 로그인한다.
+2. `init-jungle.cloud` 도메인의 네임서버를 위 output의 Route53 NS 값으로 교체한다.
+3. 변경 후 DNS 전파를 기다린다.
+
+확인:
+
+```powershell
+nslookup -type=NS init-jungle.cloud
+```
+
+AWS Console 확인:
+
+- Route53 hosted zone의 NS 값과 `nslookup` 결과가 일치해야 한다.
+
+중단 기준:
+
+- 가비아 네임서버가 Route53 NS로 바뀌지 않았다.
+- NS 전파가 되지 않아 ACM DNS validation이 계속 대기 상태다.
+
+### 4. backend-main.hcl 준비
+
+main stack의 Terraform state를 bootstrap에서 만든 S3 bucket에 저장하도록 backend config를 만든다. 이 파일은 실제 account ID가 들어가므로 Git에 커밋하지 않는다.
+
+실행:
 
 ```powershell
 Copy-Item infra\aws\backend-main.hcl.example infra\aws\backend-main.hcl
 ```
 
-복사 후 `<aws_account_id>`를 실제 계정 ID로 바꾼다.
+`infra/aws/backend-main.hcl`의 `<aws_account_id>`를 실제 계정 ID로 바꾼다.
 
 ```hcl
 bucket       = "init-tfstate-123456789012-ap-northeast-2"
@@ -126,9 +215,22 @@ encrypt      = true
 use_lockfile = true
 ```
 
-## main 실배포 적용 절차
+확인:
 
-`main`은 유일한 실배포 환경이다. `dev`와 `main` branch deploy workflow는 모두 이 환경의 ECR/ECS/Secrets/CloudFront를 대상으로 한다.
+```powershell
+terraform -chdir=infra/aws init -backend-config=backend-main.hcl -reconfigure
+```
+
+중단 기준:
+
+- backend bucket 이름의 account ID가 현재 AWS 계정과 다르다.
+- `backend-main.hcl`을 Git에 stage하려고 한다.
+
+### 5. main Terraform apply
+
+목적은 애플리케이션이 올라갈 AWS 리소스를 만든 뒤, 아직 ECS task는 띄우지 않는 것이다. 현재 `env/main.tfvars`의 `desired_counts`는 `0`이므로 apply 직후 앱은 아직 실행되지 않는다.
+
+실행:
 
 ```powershell
 terraform -chdir=infra/aws init -backend-config=backend-main.hcl -reconfigure
@@ -136,27 +238,61 @@ terraform -chdir=infra/aws fmt -check -recursive
 terraform -chdir=infra/aws validate
 terraform -chdir=infra/aws plan -var-file=env/main.tfvars -out=tfplan-main
 terraform -chdir=infra/aws apply tfplan-main
+terraform -chdir=infra/aws output
 ```
 
-적용 후 output을 확인한다.
+필수 output:
 
 ```powershell
-terraform -chdir=infra/aws output
-terraform -chdir=infra/aws output cloudfront_domain_name
 terraform -chdir=infra/aws output application_url
 terraform -chdir=infra/aws output ecr_repository_urls
 terraform -chdir=infra/aws output runtime_secret_arns
+terraform -chdir=infra/aws output rds_endpoint
+terraform -chdir=infra/aws output rds_master_secret_arn
+terraform -chdir=infra/aws output redis_primary_endpoint
+terraform -chdir=infra/aws output ai_jobs_queue_url
+terraform -chdir=infra/aws output github_deploy_role_arn
 ```
 
-인프라 변경은 PR 리뷰 후 적용한다. 특히 RDS, Redis, CloudFront, IAM 변경은 비용/보안/장애 영향을 같이 확인한다.
+AWS Console 확인:
 
-## Secrets Manager 값 seed
+- VPC: `init-main`
+- ALB: `init-main-alb`
+- CloudFront distribution alias: `init-jungle.cloud`
+- ECR repositories: `init-main-frontend`, `init-main-api`, `init-main-worker`
+- ECS cluster: `init-main`
+- ECS services: `init-main-frontend`, `init-main-api`, `init-main-worker`
+- RDS, Redis, S3, SQS, Secrets Manager container가 생성됨
 
-Terraform은 secret container만 만든다. 실제 값은 Terraform state에 남기지 않기 위해 Terraform 밖에서 넣는다.
+중단 기준:
 
-ECS task definition은 `secretArn:KEY::` 형식으로 JSON key를 참조한다. 따라서 secret value는 `.env` 텍스트가 아니라 JSON object여야 한다.
+- plan에 RDS/Redis 삭제 또는 교체가 포함된다.
+- CloudFront ACM validation이 완료되지 않는다.
+- IAM trust policy가 의도한 GitHub repository/branch보다 넓다.
 
-예시:
+### 6. Secrets Manager 값 seed
+
+Terraform은 secret container만 만든다. 실제 secret 값은 Terraform state에 남기지 않기 위해 Terraform 밖에서 넣는다.
+
+원칙:
+
+- secret 이름은 `init/main/frontend`, `init/main/api`, `init/main/worker`를 사용한다.
+- secret value는 `.env` 텍스트가 아니라 JSON object여야 한다.
+- 필요한 key 목록의 기준은 `infra/aws/locals.tf`의 `local.secret_keys`다.
+- key 이름 관리는 `.env.example`과 함께 맞춘다.
+- JSON 파일은 로컬 임시 파일로만 만들고 Git에 커밋하지 않는다.
+
+RDS master password 확인:
+
+```powershell
+$rdsMasterSecretArn = terraform -chdir=infra/aws output -raw rds_master_secret_arn
+aws secretsmanager get-secret-value `
+  --secret-id $rdsMasterSecretArn `
+  --query SecretString `
+  --output text
+```
+
+API secret seed 예시:
 
 ```powershell
 aws secretsmanager put-secret-value `
@@ -170,7 +306,7 @@ aws secretsmanager put-secret-value `
 {
   "DATABASE_URL": "postgresql://init_admin:<password>@<rds-endpoint>:5432/init?schema=public",
   "REDIS_URL": "redis://<redis-endpoint>:6379",
-  "JWT_SECRET": "change-me",
+  "JWT_SECRET": "<jwt-secret>",
   "JWT_ACCESS_TOKEN_TTL": "15m",
   "JWT_REFRESH_TOKEN_TTL": "14d",
   "AUTH_REFRESH_COOKIE_NAME": "refreshToken",
@@ -184,40 +320,163 @@ aws secretsmanager put-secret-value `
   "AI_SQS_QUEUE_URL": "<sqs-url>",
   "SQS_QUEUE_URL": "<sqs-url>",
   "OPENAI_API_KEY": "<openai-key>",
+  "AI_PROVIDER_API_KEY": "<openai-key>",
+  "OPENAI_MODEL": "<model>",
+  "OPENAI_EMBEDDING_MODEL": "<embedding-model>",
+  "AI_STT_PROVIDER": "openai",
+  "OPENAI_STT_MODEL": "<stt-model>",
+  "OPENAI_STT_LANGUAGE": "ko",
   "SMTP_HOST": "<ses-smtp-host>",
   "SMTP_PORT": "587",
   "SMTP_SECURE": "false",
   "SMTP_USER": "<ses-smtp-user>",
   "SMTP_PASS": "<ses-smtp-pass>",
-  "SMTP_FROM": "no-reply@example.com"
+  "SMTP_FROM": "no-reply@init-jungle.cloud"
 }
 ```
 
-RDS master password는 AWS가 생성한다. ARN은 output으로 확인한다.
+위 JSON은 형식 예시다. 실제 `api.main.secret.json`에는 `infra/aws/locals.tf`의 `secret_keys.api`에 있는 모든 key를 포함해야 한다.
+
+frontend와 worker도 같은 방식으로 넣는다.
 
 ```powershell
-terraform -chdir=infra/aws output rds_master_secret_arn
+aws secretsmanager put-secret-value `
+  --secret-id init/main/frontend `
+  --secret-string file://frontend.main.secret.json
+
+aws secretsmanager put-secret-value `
+  --secret-id init/main/worker `
+  --secret-string file://worker.main.secret.json
 ```
 
-그 secret에서 password를 확인한 뒤 `DATABASE_URL`을 구성한다.
+확인:
 
-## 애플리케이션 기동 전 준비
+```powershell
+aws secretsmanager describe-secret --secret-id init/main/frontend
+aws secretsmanager describe-secret --secret-id init/main/api
+aws secretsmanager describe-secret --secret-id init/main/worker
+```
 
-Terraform apply만으로 앱이 뜨지 않는다. 현재 `env/*.tfvars`의 ECS desired count는 `0`이다.
+중단 기준:
 
-앱을 실제로 기동하려면 아래 순서가 필요하다.
+- `DATABASE_URL`, `REDIS_URL`, `AI_SQS_QUEUE_URL`, `S3_BUCKET`, `OPENAI_API_KEY` 등 runtime 필수값이 비어 있다.
+- secret JSON key가 `local.secret_keys`와 맞지 않는다.
+- 실제 secret 값을 문서, PR, commit에 남기려고 한다.
 
-1. ECR repository에 image push
-   - `init-main-frontend`
-   - `init-main-api`
-   - `init-main-worker`
-2. Secrets Manager JSON 값 seed
-3. API image 기반 Prisma migration task 실행
-4. `env/main.tfvars`의 `desired_counts`를 `1`로 변경
-5. Terraform plan/apply
-6. ALB target group health와 CloudFront URL smoke test
+### 7. 초기 Docker image build/push
 
-예시:
+Terraform task definition은 기본적으로 `image_tag = "bootstrap"`을 참조한다. 최초 기동 전에는 ECR에 `bootstrap` tag image가 있어야 한다. 재실행 중 ECR immutable tag 충돌이 나면 `bootstrap`을 다시 덮어쓰지 말고 `git rev-parse HEAD` 같은 새 tag를 사용하고 Terraform plan에 `-var "image_tag=<tag>"`를 함께 넘긴다.
+
+실행:
+
+```powershell
+$region = "ap-northeast-2"
+$accountId = aws sts get-caller-identity --query Account --output text
+$registry = "$accountId.dkr.ecr.$region.amazonaws.com"
+$tag = "bootstrap"
+
+aws ecr get-login-password --region $region | docker login --username AWS --password-stdin $registry
+
+$ecr = terraform -chdir=infra/aws output -json ecr_repository_urls | ConvertFrom-Json
+
+docker build -f infra/docker/frontend.Dockerfile -t "$($ecr.frontend):$tag" .
+docker build -f infra/docker/api.Dockerfile -t "$($ecr.api):$tag" .
+docker build -f infra/docker/worker.Dockerfile -t "$($ecr.worker):$tag" .
+
+docker push "$($ecr.frontend):$tag"
+docker push "$($ecr.api):$tag"
+docker push "$($ecr.worker):$tag"
+```
+
+확인:
+
+```powershell
+aws ecr describe-images --repository-name init-main-frontend --image-ids imageTag=$tag
+aws ecr describe-images --repository-name init-main-api --image-ids imageTag=$tag
+aws ecr describe-images --repository-name init-main-worker --image-ids imageTag=$tag
+```
+
+`bootstrap`이 아닌 tag를 사용했다면 migration 전에 ECS task definition도 같은 image tag를 보도록 다시 적용한다. 이때 `desired_counts`가 아직 `0`이면 service traffic은 열리지 않는다.
+
+```powershell
+terraform -chdir=infra/aws plan -var-file=env/main.tfvars -var "image_tag=$tag" -out=tfplan-main
+terraform -chdir=infra/aws apply tfplan-main
+```
+
+중단 기준:
+
+- Docker build가 실패한다.
+- API image에서 Prisma Client 또는 `@init/common` 관련 build 오류가 난다.
+- ECR push 권한이 없다.
+
+### 8. ECS one-off migration task
+
+DB migration은 API container startup에서 실행하지 않는다. ECS service update 전에 API image를 재사용한 one-off task로 `npx prisma migrate deploy`를 1회 실행한다.
+
+`migration-overrides.json` 파일을 로컬에 만든다. 이 파일은 Git에 커밋하지 않는다.
+
+```json
+{
+  "containerOverrides": [
+    {
+      "name": "api",
+      "command": ["npx", "prisma", "migrate", "deploy"]
+    }
+  ]
+}
+```
+
+실행:
+
+```powershell
+$cluster = "init-main"
+$vpcId = aws ec2 describe-vpcs `
+  --filters "Name=tag:Name,Values=init-main" `
+  --query "Vpcs[0].VpcId" `
+  --output text
+
+$subnetIds = aws ec2 describe-subnets `
+  --filters "Name=vpc-id,Values=$vpcId" "Name=tag:Tier,Values=private-app" `
+  --query "Subnets[].SubnetId" `
+  --output text
+
+$apiSecurityGroupId = aws ec2 describe-security-groups `
+  --filters "Name=vpc-id,Values=$vpcId" "Name=group-name,Values=init-main-ecs-api" `
+  --query "SecurityGroups[0].GroupId" `
+  --output text
+
+$subnetList = ($subnetIds -split "\s+") -join ","
+$networkConfig = "awsvpcConfiguration={subnets=[$subnetList],securityGroups=[$apiSecurityGroupId],assignPublicIp=DISABLED}"
+
+$runTask = aws ecs run-task `
+  --cluster $cluster `
+  --launch-type FARGATE `
+  --task-definition init-main-api `
+  --network-configuration $networkConfig `
+  --overrides file://migration-overrides.json | ConvertFrom-Json
+
+$taskArn = $runTask.tasks[0].taskArn
+aws ecs wait tasks-stopped --cluster $cluster --tasks $taskArn
+aws ecs describe-tasks --cluster $cluster --tasks $taskArn `
+  --query "tasks[0].containers[?name=='api'].{exitCode:exitCode,reason:reason}"
+```
+
+확인:
+
+- `exitCode`가 `0`이어야 한다.
+- CloudWatch Logs의 API log group에서 migration 실패 stack trace가 없어야 한다.
+
+중단 기준:
+
+- migration task가 실패한다.
+- 일부 DDL이 적용된 뒤 실패했다. 이 경우 service update를 멈추고 보정 migration을 작성한다.
+- RDS 연결, secret, private subnet network 오류가 발생한다.
+
+### 9. ECS service activation
+
+image, secret, migration이 모두 준비된 뒤 ECS desired count를 올린다.
+
+`infra/aws/env/main.tfvars`:
 
 ```hcl
 desired_counts = {
@@ -226,6 +485,135 @@ desired_counts = {
   worker   = 1
 }
 ```
+
+실행:
+
+```powershell
+$tag = "bootstrap"
+terraform -chdir=infra/aws plan -var-file=env/main.tfvars -var "image_tag=$tag" -out=tfplan-main
+terraform -chdir=infra/aws apply tfplan-main
+
+aws ecs wait services-stable `
+  --cluster init-main `
+  --services init-main-frontend init-main-api init-main-worker
+```
+
+ALB target group 확인:
+
+```powershell
+$frontendTgArn = aws elbv2 describe-target-groups `
+  --names init-main-frontend `
+  --query "TargetGroups[0].TargetGroupArn" `
+  --output text
+
+$apiTgArn = aws elbv2 describe-target-groups `
+  --names init-main-api `
+  --query "TargetGroups[0].TargetGroupArn" `
+  --output text
+
+aws elbv2 describe-target-health --target-group-arn $frontendTgArn
+aws elbv2 describe-target-health --target-group-arn $apiTgArn
+```
+
+중단 기준:
+
+- ECS service가 stable 상태가 되지 않는다.
+- ALB target health가 `healthy`가 아니다.
+- API task가 secret, DB, Redis 연결 오류로 반복 재시작한다.
+
+### 10. Domain smoke test
+
+단일 도메인에서 frontend와 API가 모두 응답하는지 확인한다.
+
+실행:
+
+```powershell
+curl.exe -I https://init-jungle.cloud
+curl.exe https://init-jungle.cloud/api/v1/health
+```
+
+CloudFront cache 때문에 배포 확인이 지연되면 invalidation을 실행한다.
+
+```powershell
+$distributionId = aws cloudfront list-distributions `
+  --query "DistributionList.Items[?Aliases.Items && contains(Aliases.Items, 'init-jungle.cloud')].Id | [0]" `
+  --output text
+
+aws cloudfront create-invalidation `
+  --distribution-id $distributionId `
+  --paths "/*"
+```
+
+확인:
+
+- `https://init-jungle.cloud`가 frontend SSR 응답을 반환한다.
+- `https://init-jungle.cloud/api/v1/health`가 API health 응답을 반환한다.
+- CloudFront, ALB, ECS log에 5xx가 반복되지 않는다.
+
+중단 기준:
+
+- CloudFront 403/502/504가 발생한다.
+- `/api/*`가 frontend로 라우팅된다.
+- API health check는 성공하지만 주요 로그인/업로드 경로가 secret 누락으로 실패한다.
+
+### 11. GitHub Actions deploy workflow 구현
+
+수동 구축이 한 번 성공한 뒤 자동 배포 workflow를 만든다. 목표는 `dev`, `main` branch push가 모두 같은 `init-main-*` 리소스를 갱신하는 것이다.
+
+필수 workflow 계약:
+
+| 항목 | 기준 |
+| --- | --- |
+| trigger | `push` on `dev`, `main` |
+| AWS 인증 | GitHub OIDC로 `github_deploy_role_arn` assume |
+| concurrency | `aws-main-deploy` 단일 group |
+| image tag | `github.sha` |
+| ECR | `init-main-frontend`, `init-main-api`, `init-main-worker` |
+| 변경 감지 | frontend/API/worker/common/prisma/env/infra 변경 경로 기준 |
+| migration | API 또는 Prisma 변경 시 ECS one-off `npx prisma migrate deploy` |
+| service update | migration 성공 후 ECS task definition revision 등록 및 service update |
+| smoke | `https://init-jungle.cloud`, `/api/v1/health` |
+| cache | 필요 시 CloudFront invalidation |
+
+GitHub repository에 필요한 값:
+
+| 이름 | 위치 | 값 |
+| --- | --- | --- |
+| `AWS_REGION` | GitHub Actions variable | `ap-northeast-2` |
+| `AWS_DEPLOY_ROLE_ARN` | GitHub Actions variable 또는 secret | `terraform output github_deploy_role_arn` |
+| `APP_BASE_URL` | GitHub Actions variable | `https://init-jungle.cloud` |
+
+중단 기준:
+
+- OIDC assume role이 실패한다.
+- secret key validation이 실패한다.
+- migration task가 실패한다.
+- smoke test가 실패한다.
+
+### 12. dev/main branch 자동 배포 검증
+
+자동화가 들어간 뒤에는 `dev`와 `main`이 서로 다른 서버가 아니라 같은 main 실배포 환경을 갱신한다는 점을 검증한다.
+
+검증 흐름:
+
+```text
+dev push
+-> deploy workflow 실행
+-> init-main-* ECR image push
+-> init-main-* ECS service update
+-> https://init-jungle.cloud smoke 통과
+
+main push
+-> 같은 workflow 실행
+-> 같은 init-main-* 리소스 갱신
+-> https://init-jungle.cloud smoke 통과
+```
+
+완료 기준:
+
+- GitHub Actions deploy workflow log에서 `dev`, `main` 모두 성공한다.
+- ECS service task definition revision이 최신 commit image tag를 참조한다.
+- `https://init-jungle.cloud`가 최신 push 커밋 기준으로 갱신된다.
 
 ## AWS 변경 유지보수 원칙
 
