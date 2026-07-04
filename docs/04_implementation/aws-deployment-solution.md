@@ -39,7 +39,7 @@ Dockerfile을 추가해도 현재 로컬 개발 방식을 없애지 않는다. �
 | --- | --- |
 | 도메인 | `init-jungle.cloud` 단일 실배포 도메인 + `/api/*` path routing |
 | Frontend 배포 | Next.js SSR이므로 S3 정적 배포가 아니라 ECS container로 배포 |
-| 메일 서비스 | 별도 SMTP 서버 없이 Amazon SES 사용 |
+| 메일 서비스 | 별도 SMTP 서버 없이 Amazon SES 사용. domain identity, Easy DKIM, custom MAIL FROM은 Route53 DNS record와 함께 Terraform으로 관리 |
 | CloudFront | 처음부터 사용 |
 | Route53 | `init-jungle.cloud`를 Route53 hosted zone으로 위임 |
 | CloudFront 인증서 | us-east-1 ACM 인증서를 DNS validation으로 발급 |
@@ -412,6 +412,8 @@ Secrets Manager 경로는 단일 실배포 환경인 `main`만 사용한다.
 배포 전 secret 검증은 `.env.example`에 있는 키 중 service별로 필요한 키가 Secrets Manager에 존재하는지 확인하는 방식으로 둔다. 실제 값은 Git에 저장하지 않는다.
 
 SES는 초기에는 현재 API 코드 변경 범위를 줄이기 위해 SES SMTP endpoint를 사용한다. 현재 API는 `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` 환경변수를 사용한다. AWS SDK SES client로 전환하는 작업은 별도 refactoring으로 분리한다.
+
+SES 발신 도메인은 `init-jungle.cloud` domain identity, Easy DKIM CNAME, custom MAIL FROM(`mail.init-jungle.cloud`) MX/SPF TXT record를 Terraform으로 생성한다. DMARC record와 SES SMTP credential 발급/주입은 별도 운영 작업으로 다룬다.
 
 ## 실패 모드와 제어
 

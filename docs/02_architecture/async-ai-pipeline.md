@@ -10,6 +10,9 @@ AI 처리와 비동기 작업의 실행 흐름을 정리한다.
 - AI 결과 저장 전 guardrail 정책 위반 여부를 검증하고 `ai_guardrail_logs`에 PASS/BLOCKED/REGENERATED를 기록한다.
 - 실패한 작업은 `FAILED` 상태와 재시도 가능 사유를 화면에 노출한다.
 - 임베딩은 원문 해시(`source_text_hash`)로 중복 생성을 방지하고, `ai_guardrail_logs`에 PASS를 기록한 뒤 저장한다. `ai_process_logs.outputRef`에는 원문 대신 `sourceTextHash`, `dedupeKey`, `duplicatePolicy=UPSERT_BY_SOURCE_TEXT_HASH`만 남긴다.
+- AWS 실배포 worker queue는 SQS Standard를 기준으로 한다. Redis는 인증 TTL/cache 용도이며, AI worker queue backend로 전환하지 않는다.
+- SQS Standard는 중복 전달이 가능하므로 worker는 `processLogId`를 idempotency key로 사용한다. 이미 `COMPLETED`인 작업 재전달은 AI provider 호출 없이 ack하고, 처리 중인 작업은 원자적 claim/lease로 중복 실행을 막는다.
+- 장기 AI 작업은 SQS visibility timeout 안에 끝나거나 `ChangeMessageVisibility` heartbeat로 visibility를 연장해야 한다. 이 보강 전에는 real AI provider traffic을 worker에 연결하지 않는다.
 
 ## Main Flows
 
