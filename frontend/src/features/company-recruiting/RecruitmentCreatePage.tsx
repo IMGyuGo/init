@@ -1,11 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChangeEvent, FormEvent, KeyboardEvent, useRef, useState } from "react";
 
 import { createRecruitment, uploadJobDescriptionImage } from "./api";
-import { Breadcrumb } from "./CompanyRecruitingChrome";
 import { MiniRichTextEditor } from "./MiniRichTextEditor";
 import { JOB_DESCRIPTION_IMAGE_ACCEPT, validateJobDescriptionImageFile } from "./job-description-image-upload";
 import {
@@ -25,6 +25,7 @@ import {
   type StructuredJobImage,
   type StructuredJobSectionKey,
 } from "./structured-job-description";
+import createBanner from "./assets/create-banner.png";
 
 type FormState = {
   title: string;
@@ -201,33 +202,21 @@ export function RecruitmentCreatePage() {
 
   return (
     <section className="app-page glass-page posting-create-page notion">
-        <div className="page-head">
-          <div>
-            <Breadcrumb
-              items={[
-                { label: "공고 목록", href: "/company/recruitments" },
-                { label: "공고 생성" },
-              ]}
-            />
+        <div className="page-banner">
+          <div className="page-banner-copy">
+            <p className="page-eyebrow">채용 관리</p>
             <h1>공고 생성</h1>
+            <p className="page-sub">구직자가 보는 공고 그대로 입력하세요. 기본 정보, 이미지, 상세 JD, 태그를 순서대로 채우면 공개 공고 화면에 같은 구조로 노출됩니다.</p>
+            <Link className="btn secondary banner-cta" href="/company/recruitments">
+              공고 목록
+            </Link>
           </div>
-          <Link className="btn secondary" href="/company/recruitments">
-            공고 목록
-          </Link>
+          <Image className="page-banner-art" src={createBanner} alt="" width={300} height={300} aria-hidden="true" priority />
         </div>
 
         {message ? <p className="notice danger">{message}</p> : null}
 
         <form className="creation-flow posting-create-flow" onSubmit={handleCreate}>
-            <section className="panel structured-create-hero">
-              <div className="panel-head">
-                <div>
-                  <p className="eyebrow">JOB POSTING BUILDER</p>
-                  <h2>구직자가 보는 공고 그대로 입력하세요</h2>
-                  <p>기본 정보, 이미지, 상세 JD, 태그를 순서대로 채우면 공개 공고 화면에 같은 구조로 노출됩니다.</p>
-                </div>
-              </div>
-            </section>
 
           <section className="panel">
             <div className="panel-head">

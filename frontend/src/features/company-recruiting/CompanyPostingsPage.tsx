@@ -239,13 +239,13 @@ export function CompanyPostingsPage() {
                     <div
                       className={`pcard-cover has-image${coverIsPlaceholder ? " is-placeholder" : ""}`}
                       style={{ backgroundImage: `url(${coverUrl})` }}
-                    >
-                      <div className="pcard-cover-badges">
+                      aria-hidden="true"
+                    />
+                    <div className="pcard-body">
+                      <div className="pcard-tags">
                         <StatusBadge value={item.status} />
                         <span className={`pcard-dday${ddayLabel(item.endsOn) === "마감" ? " is-danger" : ""}`}>{ddayLabel(item.endsOn)}</span>
                       </div>
-                    </div>
-                    <div className="pcard-body">
                       <h3 className="pcard-title">{item.title}</h3>
                       <p className="pcard-sub">
                         지원 <strong>{item.applicantCount}</strong>명 · 완료 <strong>{rate}%</strong>

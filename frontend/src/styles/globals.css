@@ -3654,15 +3654,18 @@ td input {
   border: 1px solid rgba(55, 53, 47, 0.1); border-radius: 10px; box-shadow: none; margin-bottom: 24px;
 }
 .glass-page.notion .panel-head h2 { font-size: 16px; font-weight: 600; color: #191919; }
+.glass-page.notion.posting-create-page .panel-head h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+.glass-page.notion.posting-create-page .structured-section-card h3 { font-size: 17px; font-weight: 700; }
 .glass-page.notion .panel-head p { color: rgba(55, 53, 47, 0.6); }
 .glass-page.notion .count-pill { color: #37352f; background: #ededec; }
 
 /* KPI 플랫 */
 .glass-page.notion .kpi-summary { gap: 12px; }
-.glass-page.notion .kpi { background: #f7f7f5; backdrop-filter: none; -webkit-backdrop-filter: none; border: 0; border-radius: 12px; box-shadow: none; padding: 18px 20px; }
+.glass-page.notion .kpi { background: #ffffff; backdrop-filter: none; -webkit-backdrop-filter: none; border: 1px solid rgba(55, 53, 47, 0.1); border-radius: 10px; box-shadow: none; padding: 18px 20px; transition: border-color 0.12s ease; }
+.glass-page.notion .kpi:hover { border-color: #3b6fe0; }
 .glass-page.notion .kpi span { font-size: 13px; font-weight: 500; color: rgba(55, 53, 47, 0.6); }
 .glass-page.notion .kpi strong { color: #191919; font-weight: 700; font-variant-numeric: tabular-nums; }
-.glass-page.notion .kpi.primary { background: #f7f7f5; box-shadow: none; }
+.glass-page.notion .kpi.primary { background: #ffffff; box-shadow: none; }
 .glass-page.notion .kpi.primary span { color: rgba(55, 53, 47, 0.6); }
 .glass-page.notion .kpi.primary strong { color: #3b6fe0; }
 .glass-page.notion .kpi strong small { color: rgba(55, 53, 47, 0.55); }
@@ -3691,14 +3694,24 @@ td input {
 
 /* 상태 뱃지 파스텔 */
 .glass-page.notion .badge { font-weight: 500; }
-.glass-page.notion .badge.success { color: #448361; background: #edf3ec; }
+.glass-page.notion .badge.success { color: #0f7a43; background: #d5f2df; }
 .glass-page.notion .badge.warning { color: #d9730d; background: #faebdd; }
 .glass-page.notion .badge.danger { color: #c4554d; background: #fdebec; }
 .glass-page.notion .badge.info { color: #337ea9; background: #e7f3f8; }
 .glass-page.notion .badge.neutral { color: #787774; background: #f1f1ef; }
 
 /* 공고 생성 빌더 flatten */
-.glass-page.notion .structured-create-hero { background: #fbfbfa; border-color: rgba(55, 53, 47, 0.08); }
+.glass-page.notion .structured-create-hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 24px; margin-bottom: 24px; padding: 8px 4px 24px; background: transparent; border: 0; border-bottom: 1px solid rgba(55, 53, 47, 0.12); border-radius: 0; box-shadow: none; }
+.glass-page.notion .structured-create-hero .panel-head { margin: 0; padding: 0; }
+.glass-page.notion .structured-create-hero .panel-head > div { display: grid; gap: 12px; }
+.glass-page.notion .structured-create-hero .eyebrow { margin: 0; font-size: 14px; font-weight: 500; letter-spacing: 0.02em; color: rgba(55, 53, 47, 0.55); }
+.glass-page.notion .structured-create-hero h2 { margin: 0; font-size: 40px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; color: #191919; }
+.glass-page.notion .structured-create-hero .panel-head p:last-child { margin: 2px 0 0; max-width: 560px; font-size: 16px; line-height: 1.6; color: rgba(55, 53, 47, 0.7); word-break: keep-all; overflow-wrap: break-word; }
+.glass-page.notion .create-hero-art { width: 300px; height: 300px; object-fit: contain; flex: none; margin: -24px -4px -24px 0; }
+@media (max-width: 720px) {
+  .glass-page.notion .structured-create-hero { grid-template-columns: 1fr; }
+  .glass-page.notion .create-hero-art { display: none; }
+}
 .glass-page.notion .structured-section-card { background: #fff; border-color: rgba(55, 53, 47, 0.1); border-radius: 8px; }
 .glass-page.notion .mini-rich-editor { border-color: rgba(55, 53, 47, 0.16); border-radius: 6px; }
 .glass-page.notion .mini-rich-editor:focus-within { border-color: #3b6fe0; box-shadow: 0 0 0 2px rgba(59, 111, 224, 0.2); }
@@ -3715,12 +3728,13 @@ td input {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 24px;
-  margin-bottom: 30px;
-  padding: 30px 34px;
-  background: #ffffff;
-  border: 1px solid rgba(55, 53, 47, 0.07);
-  border-radius: 16px;
-  box-shadow: 0 8px 28px rgba(55, 53, 47, 0.08);
+  margin-bottom: 24px;
+  padding: 8px 4px 24px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(55, 53, 47, 0.12);
+  border-radius: 0;
+  box-shadow: none;
 }
 .notion .page-banner-copy {
   display: grid;
@@ -3747,6 +3761,8 @@ td input {
   font-size: 16px;
   line-height: 1.6;
   color: rgba(55, 53, 47, 0.7);
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 .notion .page-banner .banner-cta {
   position: static;
@@ -3771,8 +3787,8 @@ td input {
 
 /* ---- 리스트(공고 목록) 노션 커넥션즈식 ---- */
 .notion.list-page.app-page:not(.posting-create-page) { width: min(1080px, 100%); }
-.glass-page.notion.list-page .panel { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; border: 0; border-radius: 0; box-shadow: none; padding: 0; }
-.glass-page.notion.list-page .panel-head { padding: 0 8px 12px; border-bottom: 1px solid rgba(55, 53, 47, 0.09); }
+.glass-page.notion.list-page .panel { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; border: 0; border-top: 1px solid rgba(55, 53, 47, 0.12); border-radius: 0; box-shadow: none; margin-top: 24px; padding: 24px 0 0; }
+.glass-page.notion.list-page .panel-head { padding: 0 8px 12px; }
 .notion.list-page .posting-filter-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 4px; }
 .notion .filter-chip { height: 34px; padding: 0 15px; color: #37352f; font-family: inherit; font-size: 13.5px; font-weight: 500; background: #fff; border: 1px solid rgba(55, 53, 47, 0.16); border-radius: 999px; cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; }
 .notion .filter-chip:hover { background: #f5f5f3; }
@@ -3858,7 +3874,7 @@ td input {
 .notion.list-page .posting-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
+  gap: 16px;
   padding-top: 10px;
 }
 @media (max-width: 900px) {
@@ -3876,19 +3892,18 @@ td input {
   flex-direction: column;
   min-width: 0;
   background: #ffffff;
-  border: 1px solid rgba(55, 53, 47, 0.07);
-  border-radius: 14px;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 1px 2px rgba(15, 15, 15, 0.04), 0 6px 18px rgba(15, 15, 15, 0.05);
-  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  box-shadow: none;
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
 .notion .posting-card.is-clickable {
   cursor: pointer;
 }
 .notion .posting-card.is-clickable:hover {
-  transform: translateY(-2px);
-  border-color: rgba(55, 53, 47, 0.12);
-  box-shadow: 0 2px 4px rgba(15, 15, 15, 0.05), 0 12px 28px rgba(15, 15, 15, 0.1);
+  border-color: rgba(55, 53, 47, 0.16);
+  background: #fbfbfa;
 }
 .notion .posting-card.is-clickable:focus-visible {
   outline: 2px solid #3b6fe0;
@@ -4105,34 +4120,24 @@ td input {
   line-height: 1;
 }
 
-/* ---- 공고 카드 v3 (부동산 리스트식) ---- */
+/* ---- 공고 카드 v4 (노션 갤러리식) ---- */
 .notion .posting-card {
   padding: 0;
   overflow: hidden;
 }
 .notion .pcard-cover {
   position: relative;
-  height: 168px;
-  padding: 14px;
+  height: 132px;
+  border-bottom: 1px solid rgba(55, 53, 47, 0.08);
 }
 .notion .pcard-cover.has-image {
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;
 }
-.notion .pcard-cover.has-image::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.28) 0%, rgba(0, 0, 0, 0) 45%);
-  pointer-events: none;
-}
 .notion .pcard-cover.is-placeholder {
-  background-size: 132px;
-  background-color: #f7f8fa;
-}
-.notion .pcard-cover.is-placeholder::before {
-  background: none;
+  background-size: 108px;
+  background-color: #f7f7f5;
 }
 .notion .pcard-cover-logo {
   position: absolute;
@@ -4142,41 +4147,43 @@ td input {
   opacity: 0.9;
 }
 .notion .pcard-cover-badges {
-  position: relative;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.notion .pcard-cover-badges .badge {
-  background: #ffffff;
-}
-.notion .pcard-dday {
-  display: inline-flex;
-  align-items: center;
-  height: 25px;
-  padding: 0 11px;
-  color: #37352f;
-  font-size: 12px;
-  font-weight: 600;
-  background: #ffffff;
-  border-radius: 999px;
-}
-.notion .pcard-dday.is-danger {
-  color: #c4554d;
+  display: none;
 }
 .notion .pcard-body {
   display: flex;
   flex: 1;
   flex-direction: column;
   gap: 8px;
-  padding: 18px 18px 20px;
+  padding: 14px 16px 16px;
+}
+.notion .pcard-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.notion .pcard-tags .badge {
+  height: 22px;
+  min-height: 22px;
+  padding: 0 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 4px;
+}
+.notion .pcard-dday {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(55, 53, 47, 0.5);
+}
+.notion .pcard-dday.is-danger {
+  color: #c4554d;
 }
 .notion .pcard-title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 700;
+  margin: 2px 0 0;
+  font-size: 15.5px;
+  font-weight: 600;
   color: #191919;
-  line-height: 1.35;
+  line-height: 1.4;
   letter-spacing: -0.01em;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -4184,12 +4191,13 @@ td input {
   overflow: hidden;
 }
 .notion .pcard-sub {
-  margin: 0;
-  font-size: 14px;
-  color: rgba(55, 53, 47, 0.6);
+  margin: auto 0 0;
+  padding-top: 6px;
+  font-size: 13px;
+  color: rgba(55, 53, 47, 0.55);
 }
 .notion .pcard-sub strong {
   font-weight: 600;
-  color: #37352f;
+  color: rgba(55, 53, 47, 0.75);
   font-variant-numeric: tabular-nums;
 }
