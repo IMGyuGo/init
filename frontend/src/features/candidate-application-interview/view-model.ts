@@ -96,6 +96,7 @@ export const allowedInterviewMediaMimeTypes: RuntimeFileAssetRequest["mimeType"]
   "video/webm",
   "video/mp4",
   "audio/webm",
+  "audio/mp4",
   "audio/mpeg",
   "audio/wav",
 ];
@@ -430,6 +431,39 @@ export function isAllowedCandidateDocumentMimeType(mimeType: string): mimeType i
 
 export function isAllowedInterviewMediaMimeType(mimeType: string): mimeType is RuntimeFileAssetRequest["mimeType"] {
   return allowedInterviewMediaMimeTypes.includes(mimeType as RuntimeFileAssetRequest["mimeType"]);
+}
+
+export function normalizeInterviewMediaMimeType(mimeType: string): RuntimeFileAssetRequest["mimeType"] | undefined {
+  const baseMimeType = mimeType.split(";")[0]?.trim().toLowerCase();
+  return isAllowedInterviewMediaMimeType(baseMimeType) ? baseMimeType : undefined;
+}
+
+export function resolveRecordedMimeType({
+  chunkMimeTypes,
+  recorderMimeType,
+  requestedMimeType,
+}: {
+  chunkMimeTypes: string[];
+  recorderMimeType?: string;
+  requestedMimeType?: string;
+}): RuntimeFileAssetRequest["mimeType"] | string {
+  const chunkMimeType = chunkMimeTypes.find((type) => normalizeInterviewMediaMimeType(type));
+  return normalizeInterviewMediaMimeType(chunkMimeType ?? "")
+    ?? normalizeInterviewMediaMimeType(recorderMimeType ?? "")
+    ?? normalizeInterviewMediaMimeType(requestedMimeType ?? "")
+    ?? chunkMimeType
+    ?? recorderMimeType
+    ?? requestedMimeType
+    ?? "";
+}
+
+export function getInterviewMediaFileExtension(mimeType: string): "m4a" | "mp3" | "mp4" | "wav" | "webm" {
+  const normalizedMimeType = normalizeInterviewMediaMimeType(mimeType);
+  if (normalizedMimeType === "audio/mp4") return "m4a";
+  if (normalizedMimeType === "audio/mpeg") return "mp3";
+  if (normalizedMimeType === "audio/wav") return "wav";
+  if (normalizedMimeType?.includes("mp4")) return "mp4";
+  return "webm";
 }
 
 export function inferPortfolioLinkType(url: string): PortfolioLinkType {

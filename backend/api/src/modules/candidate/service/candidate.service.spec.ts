@@ -134,6 +134,18 @@ async function run() {
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
   );
 
+  const macosAudioInterviewFile = await service.createInterviewFileAsset(
+    {
+      storageKey: "candidate/1/interviews/mock-answer.m4a",
+      originalName: "mock-answer.m4a",
+      mimeType: "audio/mp4",
+      sizeBytes: 12 * 1024,
+    },
+    currentUser,
+  );
+  assert.equal(macosAudioInterviewFile.mimeType, "audio/mp4");
+  assert.equal(macosAudioInterviewFile.storageKey, "candidate/1/interviews/mock-answer.m4a");
+
   const defaultJobs = await service.listJobs({} as never);
   assert.equal(defaultJobs.meta.page.page, 1);
   assert.equal(defaultJobs.meta.page.limit, 20);
