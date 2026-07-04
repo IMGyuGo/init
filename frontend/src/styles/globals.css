@@ -5977,23 +5977,25 @@ p {
   padding-top: 64px;
 }
 .app.auth.notion .auth-logo { display: block; }
-.app.auth.notion .auth-logo img { display: block; width: auto; height: 30px; }
+.app.auth.notion .auth-logo img { display: block; width: auto; height: 44px; }
 
 .app.auth.notion .form-card {
-  border: 1px solid rgba(55, 53, 47, 0.1);
-  border-radius: 12px;
+  border: 0;
+  border-radius: 0;
   box-shadow: none;
-  padding: 30px;
+  padding: 0;
+  background: transparent;
+  max-width: 360px;
 }
-.app.auth.notion .eyebrow {
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: rgba(55, 53, 47, 0.45);
+.app.auth.notion .form-card.wide { max-width: 480px; }
+.app.auth.notion .eyebrow { display: none; }
+.app.auth.notion .form-card h2 {
+  color: #191919;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  text-align: center;
 }
-.app.auth.notion .form-card h2 { color: #191919; font-weight: 800; letter-spacing: -0.01em; }
-.app.auth.notion .lead { color: rgba(55, 53, 47, 0.6); }
+.app.auth.notion .lead { color: rgba(55, 53, 47, 0.6); text-align: center; }
 .app.auth.notion .label { color: #37352f; }
 
 .app.auth.notion .input {
@@ -6041,7 +6043,7 @@ p {
 .app.auth.notion .choice:hover { border-color: #3b6fe0; background: #fbfcff; }
 .app.auth.notion .choice.sel { border-color: #3b6fe0; background: #eef3fd; box-shadow: none; }
 .app.auth.notion .choice .ck { color: #fff; background: #3b6fe0; }
-.app.auth.notion .choice .ico { color: #3b6fe0; background: #eaf0fd; border-radius: 10px; }
+.app.auth.notion .choice .ico { color: #37352f; background: transparent; border-radius: 0; }
 .app.auth.notion .choice h4 { color: #191919; }
 .app.auth.notion .choice p { color: rgba(55, 53, 47, 0.6); }
 
