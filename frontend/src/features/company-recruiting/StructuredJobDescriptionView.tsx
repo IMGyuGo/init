@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import type { ReactNode } from "react";
 
 import { JobDescriptionViewer } from "./JobDescriptionViewer";
@@ -88,18 +89,7 @@ function CandidatePostingNav() {
   return (
     <header className="candidate-site-nav" aria-label="지원자 공고 상단 네비게이션">
       <div className="candidate-site-nav-inner">
-        <strong className="candidate-site-logo">INIT</strong>
-        <nav>
-          <span>채용</span>
-          <span>이력서</span>
-          <span>커리어</span>
-          <span>콘텐츠</span>
-        </nav>
-        <div className="candidate-site-actions">
-          <span>검색</span>
-          <span>알림</span>
-          <button type="button">기업 서비스</button>
-        </div>
+        <Image className="candidate-site-logo-img" src="/logo-init-v2.png" alt="init" width={1150} height={470} priority />
       </div>
     </header>
   );
@@ -107,14 +97,7 @@ function CandidatePostingNav() {
 
 function PostingGallery({ gallery }: { gallery: StructuredJobDescription["gallery"] }) {
   if (gallery.length === 0) {
-    return (
-      <div className="wanted-gallery is-empty">
-        <div>
-          <strong>INIT</strong>
-          <span>채용 공고 이미지</span>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -133,15 +116,7 @@ function PostingGallery({ gallery }: { gallery: StructuredJobDescription["galler
 }
 
 function DefaultApplyRail() {
-  return (
-    <div className="candidate-apply-stack">
-      <div className="candidate-apply-sticky">
-        <button className="candidate-apply-button" type="button">
-          지원하기
-        </button>
-      </div>
-    </div>
-  );
+  return null;
 }
 
 function PostingHeading({
@@ -215,10 +190,7 @@ function PostingLocation({ location }: { location?: string | null }) {
   return (
     <section className="wanted-section">
       <h3>근무지역</h3>
-      <div className="wanted-map-card">
-        <strong>{location}</strong>
-        <span>지도 영역</span>
-      </div>
+      <p className="wanted-location">{location}</p>
     </section>
   );
 }

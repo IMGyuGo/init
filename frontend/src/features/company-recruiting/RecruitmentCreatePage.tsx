@@ -16,6 +16,7 @@ import {
   type PostingExtraInfo,
 } from "./posting-extra-info";
 import { buildInterviewSettingsHref } from "./routes";
+import { generateMockPostingDraft } from "./posting-ai-draft";
 import {
   composeStructuredJobDescription,
   createEmptyStructuredJobDescription,
@@ -26,6 +27,8 @@ import {
   type StructuredJobSectionKey,
 } from "./structured-job-description";
 import createBanner from "./assets/create-banner.png";
+import choiceManual from "./assets/choice-manual.png";
+import choiceAi from "./assets/choice-ai.png";
 
 type FormState = {
   title: string;
@@ -58,6 +61,36 @@ export function RecruitmentCreatePage() {
   const [tagInput, setTagInput] = useState("");
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState<1 | -1>(1);
+  const [aiKeywords, setAiKeywords] = useState("");
+  const [aiSummary, setAiSummary] = useState("");
+  const [aiFilled, setAiFilled] = useState(false);
+  const [phase, setPhase] = useState<"intro" | "choice" | "ai" | "form">("intro");
+  const [entryMode, setEntryMode] = useState<"manual" | "ai">("manual");
+
+  function startForm() {
+    setDir(1);
+    setStep(1);
+    setMessage("");
+    setPhase("form");
+  }
+
+  function handleGenerateDraft() {
+    const draft = generateMockPostingDraft({
+      title: form.title,
+      jobRole: form.jobRole,
+      keywords: aiKeywords,
+      summary: aiSummary,
+    });
+    setForm((current) => ({
+      ...current,
+      structuredJobDescription: {
+        ...current.structuredJobDescription,
+        sections: { ...current.structuredJobDescription.sections, ...draft.sections },
+        tags: Array.from(new Set([...current.structuredJobDescription.tags, ...draft.tags])),
+      },
+    }));
+    setAiFilled(true);
+  }
 
   async function handleCreate() {
     setLoading(true);
@@ -327,9 +360,8 @@ export function RecruitmentCreatePage() {
 
   const formSteps = [basicStep, imagesStep, ...sectionSteps, tagsStep];
   const totalForm = formSteps.length;
-  const isIntro = step === 0;
   const currentFormIndex = step - 1;
-  const currentStep = isIntro ? null : formSteps[currentFormIndex];
+  const currentStep = formSteps[currentFormIndex];
   const isLast = step === totalForm;
 
   function goTo(next: number) {
@@ -348,7 +380,7 @@ export function RecruitmentCreatePage() {
 
   return (
     <section className="app-page glass-page posting-create-page posting-wizard notion">
-      {isIntro ? (
+      {phase === "intro" ? (
         <div className="wizard-intro">
           <div className="wizard-intro-copy">
             <p className="page-eyebrow">채용 관리</p>
@@ -388,8 +420,9 @@ export function RecruitmentCreatePage() {
                 </span>
               </li>
             </ol>
+
             <div className="wizard-intro-actions">
-              <button className="btn primary" type="button" onClick={() => goTo(1)}>
+              <button className="btn primary" type="button" onClick={() => setPhase("choice")}>
                 공고 생성하러 가기
               </button>
               <Link className="btn secondary" href="/company/recruitments">
@@ -399,8 +432,115 @@ export function RecruitmentCreatePage() {
           </div>
           <Image className="wizard-intro-art" src={createBanner} alt="" width={320} height={320} aria-hidden="true" priority />
         </div>
+      ) : phase === "choice" ? (
+        <div className="wizard-choice">
+          <div className="wizard-choice-head">
+            <h1>어떻게 작성할까요?</h1>
+            <p className="page-sub">빈 양식에 직접 입력하거나, AI가 만든 초안에서 시작할 수 있어요. 어느 쪽이든 이후 각 단계에서 자유롭게 수정할 수 있어요.</p>
+          </div>
+          <div className="wizard-choice-cards">
+            <button
+              className="wizard-choice-card"
+              type="button"
+              onClick={() => {
+                setEntryMode("manual");
+                startForm();
+              }}
+            >
+              <Image className="wizard-choice-art" src={choiceManual} alt="" width={200} height={200} aria-hidden="true" />
+              <strong>직접 입력</strong>
+              <span>빈 양식에 처음부터 직접 작성합니다.</span>
+            </button>
+            <button
+              className="wizard-choice-card is-ai"
+              type="button"
+              onClick={() => {
+                setEntryMode("ai");
+                setPhase("ai");
+              }}
+            >
+              <span className="wizard-choice-badge">데모용 목업</span>
+              <Image className="wizard-choice-art" src={choiceAi} alt="" width={200} height={200} aria-hidden="true" />
+              <strong>AI로 초안 만들기</strong>
+              <span>제목·키워드를 넣으면 공고 상세 초안을 채워줍니다.</span>
+            </button>
+          </div>
+          <div className="wizard-intro-actions">
+            <button className="btn secondary" type="button" onClick={() => setPhase("intro")}>
+              이전
+            </button>
+          </div>
+        </div>
+      ) : phase === "ai" ? (
+        <div className="wizard-ai-phase">
+          <div className="page-banner">
+            <div className="page-banner-copy">
+              <p className="page-eyebrow">AI 초안</p>
+              <h1>AI로 초안 만들기</h1>
+              <p className="page-sub">
+                제목·직무와 키워드, 핵심 내용을 넣고 초안을 채운 뒤 시작하세요.
+                <span className="wizard-ai-badge">데모용 목업 · 실제 AI 아님</span>
+              </p>
+            </div>
+            <Image className="page-banner-art" src={choiceAi} alt="" width={300} height={300} aria-hidden="true" priority />
+          </div>
+          <div className="wizard-ai">
+            <div className="grid-2">
+              <label>
+                공고 제목
+                <input value={form.title} onChange={(event) => updateField("title", event.target.value)} placeholder="2026 신입 백엔드 채용" />
+              </label>
+              <label>
+                직무명
+                <input value={form.jobRole} onChange={(event) => updateField("jobRole", event.target.value)} placeholder="Backend Developer" />
+              </label>
+            </div>
+            <label>
+              키워드 (쉼표로 구분)
+              <input value={aiKeywords} onChange={(event) => setAiKeywords(event.target.value)} placeholder="Node.js, MSA, 대용량 트래픽, 협업" />
+            </label>
+            <label>
+              핵심 내용 / 한 줄 소개
+              <textarea value={aiSummary} onChange={(event) => setAiSummary(event.target.value)} placeholder="어떤 팀에서 어떤 문제를 푸는 포지션인지 간단히 적어주세요." />
+            </label>
+            <div className="wizard-ai-actions">
+              <button className="btn secondary" type="button" onClick={handleGenerateDraft}>
+                ✨ AI로 초안 채우기
+              </button>
+              {aiFilled ? <span className="wizard-ai-done">초안이 채워졌어요. 다음에서 각 단계를 확인·수정하세요.</span> : null}
+            </div>
+          </div>
+          <div className="wizard-nav">
+            <button className="btn secondary" type="button" onClick={() => setPhase("choice")}>
+              이전
+            </button>
+            <button className="btn primary" type="button" onClick={startForm}>
+              {aiFilled ? "작성 이어가기" : "초안 없이 시작"}
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="wizard">
+          <div className="page-banner">
+            <div className="page-banner-copy">
+              <p className="page-eyebrow">공고 작성</p>
+              <h1>{entryMode === "ai" ? "AI 초안으로 작성" : "직접 입력"}</h1>
+              <p className="page-sub">
+                {entryMode === "ai"
+                  ? "AI가 채운 초안에서 시작해, 각 단계를 확인하고 자유롭게 수정하세요."
+                  : "빈 양식에 각 단계를 직접 채워 공고를 완성해요."}
+              </p>
+            </div>
+            <Image
+              className="page-banner-art"
+              src={entryMode === "ai" ? choiceAi : choiceManual}
+              alt=""
+              width={300}
+              height={300}
+              aria-hidden="true"
+              priority
+            />
+          </div>
           <div className="wizard-progress">
             <div className="wizard-progress-meta">
               <span className="wizard-progress-step">
@@ -433,7 +573,7 @@ export function RecruitmentCreatePage() {
           {message ? <p className="notice danger">{message}</p> : null}
 
           <div className="wizard-nav">
-            <button className="btn secondary" type="button" onClick={() => goTo(step - 1)} disabled={loading}>
+            <button className="btn secondary" type="button" onClick={() => (step > 1 ? goTo(step - 1) : setPhase("choice"))} disabled={loading}>
               이전
             </button>
             {isLast ? (

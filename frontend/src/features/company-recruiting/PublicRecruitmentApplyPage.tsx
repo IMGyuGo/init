@@ -122,12 +122,8 @@ export function PublicRecruitmentApplyPage({ recruitmentId }: { recruitmentId: n
     setMessage("");
   }
 
-  function scrollToApplicationForm() {
-    document.getElementById(applicationFormId)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
   return (
-    <main className="candidate-public-page">
+    <main className="candidate-public-page notion">
       {state.loading ? <p className="candidate-page-notice">공고 정보를 불러오는 중입니다.</p> : null}
       {state.error ? <p className="candidate-page-notice is-danger">{state.error}</p> : null}
 
@@ -143,12 +139,6 @@ export function PublicRecruitmentApplyPage({ recruitmentId }: { recruitmentId: n
           endsOn={state.data.endsOn}
           rightRail={
             <div className="candidate-apply-stack">
-              <div className="candidate-apply-sticky">
-                <button className="candidate-apply-button" type="button" onClick={scrollToApplicationForm}>
-                  지원하기
-                </button>
-              </div>
-
               {submittedEmail ? (
                 <section className="candidate-application-card" id={applicationFormId}>
                   <div className="candidate-card-head">
