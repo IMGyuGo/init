@@ -3875,16 +3875,20 @@ function ReportScoreList({ scores }: { scores: CandidateReportScoreView[] }) {
     <div>
       <h3 className="candidate-section-title">AI 평가 결과</h3>
       <div className="report-score-list">
-        {scores.map((score) => (
-          <article className="report-score-card" key={score.scoreId}>
-            <div className="report-score-card__head">
-              <strong>{score.criterionName ?? `평가 항목 #${score.criterionId ?? score.scoreId}`}</strong>
-              <span>{score.score}점</span>
-            </div>
-            {score.rationale ? <p>{score.rationale}</p> : null}
-            <EvidenceList evidences={score.evidences} criterionName={score.criterionName} />
-          </article>
-        ))}
+        {scores.map((score) => {
+          const band = getReportScoreBand(score.score);
+          return (
+            <article className="report-score-card" key={score.scoreId}>
+              <div className="report-score-card__head">
+                <strong>{score.criterionName ?? `평가 항목 #${score.criterionId ?? score.scoreId}`}</strong>
+                <span>{score.score}점 · {band.label}</span>
+              </div>
+              <p className="report-score-card__band">{band.range} 구간 · {band.description}</p>
+              {score.rationale ? <p>{score.rationale}</p> : null}
+              <EvidenceList evidences={score.evidences} criterionName={score.criterionName} />
+            </article>
+          );
+        })}
       </div>
     </div>
   );
@@ -3965,17 +3969,41 @@ function EvidenceList({ evidences, criterionName }: { evidences: CandidateReport
 function formatEvidenceSummary(evidence: CandidateReportEvidenceView, criterionName?: string): string {
   const focus = formatCriterionEvidenceFocus(criterionName);
   const source = formatEvidenceSourceSubject(evidence.sourceType);
-  return `${focus} ${source} 확인되었습니다.`;
+  return `${focus} ${source} 확인되었습니다: "${shortenReportEvidence(evidence.evidenceText)}"`;
 }
 
 function formatCriterionEvidenceFocus(criterionName?: string): string {
   const labels: Record<string, string> = {
-    "직무 적합성": "지원 직무와 연결되는 경험, 관심 분야, 실무 역량의 단서가",
+    "직무/기술 역량": "JD와 연결되는 기술 경험과 구현 판단이",
     "문제 해결력": "문제를 나누어 확인하고 해결 방향을 찾은 과정이",
-    "커뮤니케이션": "경험을 설명하는 흐름과 전달 방식이",
+    "실행력과 성과": "본인이 맡은 실행 과정과 결과가",
+    "협업/커뮤니케이션": "상황과 역할을 설명하는 흐름과 협업 방식이",
+    "학습/성장성": "새로운 내용을 학습하고 적용한 흐름이",
+    "책임감/신뢰성": "끝까지 확인하고 검증하려는 태도가",
   };
 
   return criterionName ? labels[criterionName] ?? `${criterionName} 평가와 관련된 답변 내용이` : "리포트 평가와 관련된 답변 내용이";
+}
+
+function getReportScoreBand(score: number): { label: string; range: string; description: string } {
+  if (score >= 90) {
+    return { label: "매우 우수", range: "90~100", description: "근거가 풍부하고 결과와 재발 방지까지 명확합니다." };
+  }
+  if (score >= 80) {
+    return { label: "우수", range: "80~89", description: "상황, 행동, 결과가 비교적 구체적으로 연결됩니다." };
+  }
+  if (score >= 70) {
+    return { label: "보통 이상", range: "70~79", description: "핵심 경험은 확인되지만 일부 근거 보강이 필요합니다." };
+  }
+  if (score >= 60) {
+    return { label: "보완 필요", range: "60~69", description: "상황은 있으나 본인 역할, 과정, 결과가 부족합니다." };
+  }
+  return { label: "부족", range: "0~59", description: "질문과 직접 연결되는 평가 근거가 부족합니다." };
+}
+
+function shortenReportEvidence(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 90 ? `${normalized.slice(0, 87)}...` : normalized;
 }
 
 function formatEvidenceSourceSubject(sourceType: string): string {

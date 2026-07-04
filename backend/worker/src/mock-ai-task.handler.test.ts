@@ -489,9 +489,16 @@ test("criteria suggestion uses JD, talent profile and evaluation policy", async 
   assert.deepEqual(output.targetTables, ["criterion_tags", "evaluation_criteria"]);
   assert.equal(output.postingId, 2);
   assert.deepEqual(output.items, results.generatedDrafts[0].items);
-  assert.equal(output.criteriaSuggestions?.length, 3);
-  assert.match(output.criteriaSuggestions?.map((item) => item.description).join("\n") ?? "", /Pragmatic problem solver/);
-  assert.match(output.criteriaSuggestions?.map((item) => item.description).join("\n") ?? "", /Evidence-backed backend ownership/);
+  assert.equal(output.criteriaSuggestions?.length, 6);
+  assert.deepEqual(output.items, ["직무/기술 역량", "문제 해결력", "실행력과 성과", "협업/커뮤니케이션", "학습/성장성", "책임감/신뢰성"]);
+  assert.match(
+    output.criteriaSuggestions?.map((item) => `${item.description}\n${item.suggestionReason}`).join("\n") ?? "",
+    /Pragmatic problem solver/,
+  );
+  assert.match(
+    output.criteriaSuggestions?.map((item) => `${item.description}\n${item.suggestionReason}`).join("\n") ?? "",
+    /Evidence-backed backend ownership/,
+  );
 });
 
 test("question set generation reflects criteria and question type conditions", async () => {

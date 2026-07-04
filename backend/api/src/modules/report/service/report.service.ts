@@ -48,6 +48,7 @@ import {
   type ReportType,
 } from "../report.types";
 import { AiJobDispatcherService } from "./ai-job-dispatcher.service";
+import { buildDefaultReportCriteria, scoreBandFor } from "./service-interview-rubric";
 
 type ReportAnswerSession = Pick<RuntimeInterviewSession, "sessionId" | "interviewType" | "showQuestionText">;
 type ReportGenerationKind = "MOCK_REPORT_GENERATE" | "RECRUITING_REPORT_GENERATE";
@@ -493,27 +494,7 @@ export class ReportService {
   }
 
   private defaultReportCriteria(reportType: ReportType): EvaluationCriterionInput[] {
-    const prefix = reportType === "MOCK_INTERVIEW_REPORT" ? 9000 : 8000;
-    return [
-      {
-        criterionId: prefix + 1,
-        name: "Role fit",
-        description: "Connects experience and decisions to the target role.",
-        weight: 40,
-      },
-      {
-        criterionId: prefix + 2,
-        name: "Problem solving",
-        description: "Explains constraints, tradeoffs, and outcomes with concrete evidence.",
-        weight: 35,
-      },
-      {
-        criterionId: prefix + 3,
-        name: "Communication",
-        description: "Presents answers in a structured and understandable way.",
-        weight: 25,
-      },
-    ];
+    return buildDefaultReportCriteria(reportType);
   }
 
   private questionCriterionName(question: InterviewQuestion): string {
@@ -846,7 +827,8 @@ export class ReportService {
 
   private scoreSentence(score: CandidateReportScoreRecord): string {
     const label = this.displayCriterionName(score) ?? `평가 항목 #${score.criterionId ?? score.scoreId}`;
-    return `${label} ${score.score}점${score.rationale ? `: ${score.rationale}` : ""}`;
+    const band = scoreBandFor(score.score).label;
+    return `${label} ${score.score}점(${band})${score.rationale ? `: ${score.rationale}` : ""}`;
   }
 
   private displayCriterionName(score: CandidateReportScoreRecord): string | undefined {
@@ -854,7 +836,7 @@ export class ReportService {
   }
 
   private criterionNameFromRationale(rationale?: string): string | undefined {
-    const match = rationale?.match(/^(직무 적합성|문제 해결력|커뮤니케이션|기술 이해도)은\s+\d+점/);
+    const match = rationale?.match(/^(직무\/기술 역량|문제 해결력|실행력과 성과|협업\/커뮤니케이션|학습\/성장성|책임감\/신뢰성)은\s+\d+점/);
     return match?.[1];
   }
 

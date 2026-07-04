@@ -2318,6 +2318,12 @@
   line-height: 1.6;
 }
 
+:global(.report-score-card p.report-score-card__band) {
+  color: #0f766e;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 :global(.report-follow-up-list),
 :global(.report-evidence-list) {
   display: grid;
