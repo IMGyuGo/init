@@ -59,7 +59,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   const report = evaluation?.report ?? null;
 
   return (
-    <section className="app-page glass-page">
+    <section className="app-page glass-page notion">
         <div className="page-head">
           <div>
             <Breadcrumb
@@ -94,7 +94,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
 
         {evaluation ? (
           <>
-            <section className="kpi-row">
+            <section className="kpi-row status-row">
               <div className="kpi">
                 <span>지원 상태</span>
                 <strong>{formatRecruitingStatusLabel(evaluation.statuses.applicationStatus)}</strong>
