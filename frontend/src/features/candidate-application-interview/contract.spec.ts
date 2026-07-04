@@ -20,9 +20,17 @@ import type {
 } from "./api";
 import { candidateApiPaths } from "./api";
 import {
+  clampCameraPipPosition,
+  createCameralessInterviewTestDeviceCheckState,
+  formatAiInterviewerQuestionPrompt,
+  getAiInterviewerProfile,
   getCandidateApplicationInterviewActionHref,
   getCandidateApplicationReportHref,
   getCandidateJobDetailActionHref,
+  getDefaultCameraPipPosition,
+  getInterviewRuntimeLayoutState,
+  getInterviewRuntimeShortcutHints,
+  getInterviewRuntimeStatusChips,
   getInterviewMediaFileExtension,
   getMockInterviewDeviceCheckHref,
   getMockInterviewHref,
@@ -91,6 +99,15 @@ const deviceCheckRequest: InterviewDeviceCheckRequest = toDeviceCheckRequest({
   microphoneGranted: true,
   networkStable: true,
 });
+const cameralessTestDeviceCheckState = createCameralessInterviewTestDeviceCheckState();
+const cameralessTestDeviceCheckRequest: InterviewDeviceCheckRequest = toDeviceCheckRequest(
+  cameralessTestDeviceCheckState,
+);
+assert.deepEqual(cameralessTestDeviceCheckRequest, {
+  cameraGranted: true,
+  microphoneGranted: true,
+  networkStable: true,
+});
 
 const startMockRequest: StartMockInterviewRequest = toStartMockInterviewRequest({
   jobRole: " Android ",
@@ -151,6 +168,158 @@ const questionSpeechText = toRuntimeQuestionSpeechText({
 const audioPromptSpeechText = toRuntimeQuestionSpeechText({
   audioPrompt: "자기소개를 1분 안에 들려주세요.",
 });
+const mockInterviewerProfile = getAiInterviewerProfile("mock");
+assert.deepEqual(mockInterviewerProfile, {
+  displayName: "AI 면접관",
+  toneLabel: "연습 코치형",
+  voiceGuide: "편안하고 차분한 목소리",
+  disclosure: "이 면접관의 음성은 AI로 생성됩니다.",
+  infoButtonLabel: "AI 면접관 설명",
+  infoShortcutKey: "M",
+});
+const mockInterviewerInfoShortcutKey: "M" = mockInterviewerProfile.infoShortcutKey;
+const recruitingInterviewerProfile = getAiInterviewerProfile("recruiting");
+assert.deepEqual(recruitingInterviewerProfile, {
+  displayName: "AI 면접관",
+  toneLabel: "공식 진행형",
+  voiceGuide: "중립적이고 공식적인 목소리",
+  disclosure: "이 면접관의 음성은 AI로 생성됩니다.",
+  infoButtonLabel: "AI 면접관 설명",
+  infoShortcutKey: "M",
+});
+assert.equal(
+  formatAiInterviewerQuestionPrompt({
+    question: {
+      content: "최근 프로젝트에서 가장 어려웠던 기술적 문제는 무엇이었나요?",
+      audioPrompt: "audio://candidate/mock-question/1",
+    },
+    questionVisible: false,
+  }),
+  "질문 음성을 듣고 답변해주세요.",
+);
+assert.equal(
+  formatAiInterviewerQuestionPrompt({
+    question: {
+      content: "최근 프로젝트에서 가장 어려웠던 기술적 문제는 무엇이었나요?",
+      audioPrompt: "audio://candidate/mock-question/1",
+    },
+    questionVisible: true,
+  }),
+  "최근 프로젝트에서 가장 어려웠던 기술적 문제는 무엇이었나요?",
+);
+assert.deepEqual(
+  clampCameraPipPosition(
+    { x: 820, y: 640 },
+    { stageWidth: 900, stageHeight: 700, pipWidth: 220, pipHeight: 150, padding: 16 },
+  ),
+  { x: 664, y: 534 },
+);
+assert.deepEqual(
+  clampCameraPipPosition(
+    { x: 240, y: 24 },
+    { stageWidth: 900, stageHeight: 700, pipWidth: 220, pipHeight: 150, padding: 16, reservedTopHeight: 92 },
+  ),
+  { x: 240, y: 108 },
+);
+assert.deepEqual(
+  getDefaultCameraPipPosition({
+    stageWidth: 1920,
+    stageHeight: 1030,
+    pipWidth: 320,
+    pipHeight: 278,
+    padding: 32,
+    reservedTopHeight: 112,
+  }),
+  { x: 1568, y: 376 },
+);
+assert.deepEqual(
+  getDefaultCameraPipPosition({
+    stageWidth: 520,
+    stageHeight: 360,
+    pipWidth: 240,
+    pipHeight: 220,
+    padding: 16,
+    reservedTopHeight: 180,
+  }),
+  { x: 264, y: 196 },
+);
+const healthyRuntimeStatusChips = getInterviewRuntimeStatusChips({
+  microphoneReady: true,
+  microphoneLevel: 42,
+  cameraReady: true,
+  networkReady: true,
+  networkStatus: "네트워크 정상 · 평균 42ms",
+});
+const healthyMicrophoneTone: Exclude<(typeof healthyRuntimeStatusChips)[number]["tone"], "ok"> =
+  healthyRuntimeStatusChips[0].tone;
+assert.deepEqual(
+  healthyRuntimeStatusChips,
+  [
+    {
+      id: "microphone",
+      label: "음성 입력 42%",
+      tone: "success",
+      visible: true,
+    },
+  ],
+);
+assert.deepEqual(
+  getInterviewRuntimeStatusChips({
+    microphoneReady: false,
+    microphoneLevel: 0,
+    cameraReady: false,
+    networkReady: false,
+    networkStatus: "네트워크 확인이 불안정합니다.",
+  }),
+  [
+    {
+      id: "microphone",
+      label: "음성 확인 필요",
+      tone: "warning",
+      visible: true,
+    },
+    {
+      id: "camera",
+      label: "카메라 확인 필요",
+      tone: "warning",
+      visible: true,
+    },
+    {
+      id: "network",
+      label: "네트워크 확인이 불안정합니다.",
+      tone: "warning",
+      visible: true,
+    },
+  ],
+);
+const visibleRuntimeShortcutHints: Array<{ key: "F"; label: string }> = getInterviewRuntimeShortcutHints();
+assert.deepEqual(visibleRuntimeShortcutHints, [
+  { key: "F", label: "전체화면" },
+]);
+const compactRuntimeLayoutState = getInterviewRuntimeLayoutState({ fullscreenActive: false });
+assert.deepEqual(compactRuntimeLayoutState, {
+  mode: "compact",
+  showShortcutHints: true,
+  fullscreenButtonLabel: "전체화면",
+  stageClassName: "ai-interviewer-stage",
+  viewportLockClassName: "ai-interviewer-stage--viewport-lock",
+});
+assert.equal(compactRuntimeLayoutState.stageClassName, "ai-interviewer-stage");
+const compactViewportLockClassName: "ai-interviewer-stage--viewport-lock" =
+  compactRuntimeLayoutState.viewportLockClassName;
+assert.equal(compactViewportLockClassName, "ai-interviewer-stage--viewport-lock");
+const immersiveRuntimeLayoutState = getInterviewRuntimeLayoutState({ fullscreenActive: true });
+assert.deepEqual(immersiveRuntimeLayoutState, {
+  mode: "immersive",
+  showShortcutHints: false,
+  fullscreenButtonLabel: "전체화면 해제",
+  stageClassName: "ai-interviewer-stage",
+  viewportLockClassName: "ai-interviewer-stage--viewport-lock",
+});
+assert.equal(immersiveRuntimeLayoutState.stageClassName, "ai-interviewer-stage");
+const immersiveViewportLockClassName: "ai-interviewer-stage--viewport-lock" =
+  immersiveRuntimeLayoutState.viewportLockClassName;
+assert.equal(immersiveViewportLockClassName, "ai-interviewer-stage--viewport-lock");
 
 const applicationSummary: CandidateApplicationSummary = {
   applicationId: 1,
@@ -353,6 +522,14 @@ void resumeRequest;
 void portfolioRequest;
 void interviewConsentRequest;
 void deviceCheckRequest;
+void cameralessTestDeviceCheckState;
+void cameralessTestDeviceCheckRequest;
+void mockInterviewerProfile;
+void mockInterviewerInfoShortcutKey;
+void recruitingInterviewerProfile;
+void healthyMicrophoneTone;
+void compactViewportLockClassName;
+void immersiveViewportLockClassName;
 void startMockRequest;
 void answerRequest;
 void macosAudioAnswerRequest;
