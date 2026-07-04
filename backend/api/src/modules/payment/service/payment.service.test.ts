@@ -90,13 +90,18 @@ const candidateReadyOrder: PaymentOrderRecord = {
   amount: 4900,
 };
 
-function createRepository(seed: { customer?: PaymentCustomerRecord | null; orders?: PaymentOrderRecord[] } = {}) {
+function createRepository(seed: {
+  customer?: PaymentCustomerRecord | null;
+  orders?: PaymentOrderRecord[];
+  concurrentInProgressClaim?: { paymentKey: string };
+} = {}) {
   let customer = seed.customer ?? null;
   const orders = [...(seed.orders ?? [])];
   const calls: {
     createOrder?: unknown;
     confirmOrder?: unknown;
     failOrder?: unknown;
+    markOrderInProgress?: unknown;
   } = {};
 
   const repository: PaymentRepositoryPort = {
@@ -163,7 +168,14 @@ function createRepository(seed: { customer?: PaymentCustomerRecord | null; order
       };
     },
     async markOrderInProgress(orderId, paymentKey) {
+      calls.markOrderInProgress = { orderId, paymentKey };
       const order = requireOrder(orders, orderId);
+      if (seed.concurrentInProgressClaim) {
+        order.status = "IN_PROGRESS";
+        order.paymentKey = seed.concurrentInProgressClaim.paymentKey;
+        order.requestedAt = new Date("2026-07-03T00:01:00.000Z");
+        return null;
+      }
       order.status = "IN_PROGRESS";
       order.paymentKey = paymentKey;
       order.requestedAt = new Date("2026-07-03T00:01:00.000Z");
@@ -248,7 +260,12 @@ function createPassService() {
   return { service, calls };
 }
 
-function createService(seed: { customer?: PaymentCustomerRecord | null; orders?: PaymentOrderRecord[]; providerFailure?: Error } = {}) {
+function createService(seed: {
+  customer?: PaymentCustomerRecord | null;
+  orders?: PaymentOrderRecord[];
+  providerFailure?: Error;
+  concurrentInProgressClaim?: { paymentKey: string };
+} = {}) {
   const { repository, calls, orders } = createRepository(seed);
   const { provider, calls: providerCalls } = createProvider({ failure: seed.providerFailure });
   const { service: passService, calls: passCalls } = createPassService();
@@ -466,6 +483,7 @@ describe("PaymentService", () => {
     assert.deepEqual(calls.failOrder, {
       failureCode: "PROVIDER_CONFIRM_FAILED",
       failureMessage: "카드 승인 한도를 초과했습니다.",
+      paymentKey: "tgen_candidate_pass",
     });
     assert.deepEqual(passCalls, []);
   });
@@ -574,6 +592,24 @@ describe("PaymentService", () => {
 
     assert.equal(result.status, "IN_PROGRESS");
     assert.equal(result.paymentKey, "tgen_pending");
+    assert.equal(providerCalls.length, 0);
+  });
+
+  it("does not call the provider when a concurrent confirm already claimed the ready order with the same payment key", async () => {
+    const { service, providerCalls } = createService({
+      customer: baseCustomer,
+      orders: [{ ...readyOrder }],
+      concurrentInProgressClaim: { paymentKey: "tgen_race" },
+    });
+
+    const result = await service.confirmPayment(companyUser, {
+      orderId: readyOrder.orderId,
+      paymentKey: "tgen_race",
+      amount: 99000,
+    });
+
+    assert.equal(result.status, "IN_PROGRESS");
+    assert.equal(result.paymentKey, "tgen_race");
     assert.equal(providerCalls.length, 0);
   });
 });

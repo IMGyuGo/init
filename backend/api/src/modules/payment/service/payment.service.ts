@@ -103,6 +103,7 @@ export type MarkPaymentOrderDoneInput = {
 export type MarkPaymentOrderFailedInput = {
   failureCode: string;
   failureMessage: string;
+  paymentKey?: string;
 };
 
 export type PaymentRepositoryPort = {
@@ -111,7 +112,7 @@ export type PaymentRepositoryPort = {
   createOrder(input: CreatePaymentOrderRepositoryInput): Promise<PaymentOrderRecord>;
   findOrderByOrderId(provider: PaymentProvider, orderId: string): Promise<PaymentOrderRecord | null>;
   listOrders(owner: PaymentOwnerContext, status?: PaymentOrderStatus): Promise<{ items: PaymentOrderRecord[]; totalItems: number }>;
-  markOrderInProgress(orderId: string, paymentKey: string): Promise<PaymentOrderRecord>;
+  markOrderInProgress(orderId: string, paymentKey: string): Promise<PaymentOrderRecord | null>;
   markOrderDone(orderId: string, input: MarkPaymentOrderDoneInput): Promise<PaymentOrderRecord>;
   markOrderFailed(orderId: string, input: MarkPaymentOrderFailedInput): Promise<PaymentOrderRecord>;
 };
@@ -272,32 +273,26 @@ export class PaymentService {
       ]);
     }
 
-    if (order.status === "DONE") {
-      if (order.paymentKey === input.paymentKey) {
-        await this.grantCandidateMockPassIfNeeded(order);
-        return toPaymentOrderResponse(order);
-      }
-      throw new PaymentException(400, PAYMENT_ERROR_CODES.PAYMENT_INVALID_STATUS, "이미 다른 결제 키로 승인된 주문입니다.");
+    const existingResult = await this.resolveExistingConfirmResult(order, input.paymentKey);
+    if (existingResult) {
+      return existingResult;
     }
 
-    if (order.status === "IN_PROGRESS") {
-      if (order.paymentKey === input.paymentKey) {
-        return toPaymentOrderResponse(order);
+    const inProgress = await this.repository.markOrderInProgress(order.orderId, input.paymentKey);
+    if (!inProgress) {
+      const latest = await this.findOwnedOrder(owner, input.orderId);
+      const latestResult = await this.resolveExistingConfirmResult(latest, input.paymentKey);
+      if (latestResult) {
+        return latestResult;
       }
-      throw new PaymentException(400, PAYMENT_ERROR_CODES.PAYMENT_INVALID_STATUS, "이미 다른 결제 키로 승인 처리 중인 주문입니다.");
-    }
-
-    if (order.status !== "READY") {
-      throw new PaymentException(400, PAYMENT_ERROR_CODES.PAYMENT_INVALID_STATUS, "현재 상태에서는 결제를 승인할 수 없습니다.", [
-        { status: order.status },
+      throw new PaymentException(409, PAYMENT_ERROR_CODES.PAYMENT_INVALID_STATUS, "결제 주문 상태가 이미 변경되었습니다.", [
+        { status: latest.status },
       ]);
     }
 
-    await this.repository.markOrderInProgress(order.orderId, input.paymentKey);
-
     try {
       const confirmed = await this.provider.confirmPayment(input);
-      const done = await this.repository.markOrderDone(order.orderId, {
+      const done = await this.repository.markOrderDone(inProgress.orderId, {
         paymentKey: confirmed.paymentKey,
         method: confirmed.method,
         receiptUrl: confirmed.receiptUrl,
@@ -307,9 +302,10 @@ export class PaymentService {
       await this.grantCandidateMockPassIfNeeded(done);
       return toPaymentOrderResponse(done);
     } catch (error) {
-      const failed = await this.repository.markOrderFailed(order.orderId, {
+      const failed = await this.repository.markOrderFailed(inProgress.orderId, {
         failureCode: "PROVIDER_CONFIRM_FAILED",
         failureMessage: error instanceof Error ? error.message : "토스 결제 승인에 실패했습니다.",
+        paymentKey: input.paymentKey,
       });
       return toPaymentOrderResponse(failed);
     }
@@ -385,7 +381,12 @@ export class PaymentService {
   }
 
   private async grantCandidateMockPassIfNeeded(order: PaymentOrderRecord): Promise<void> {
-    if (!this.candidateMockInterviewPasses || !order.candidateId || order.productCode !== "CANDIDATE_MOCK_INTERVIEW_PASS_1") {
+    if (
+      order.status !== "DONE" ||
+      !this.candidateMockInterviewPasses ||
+      !order.candidateId ||
+      order.productCode !== "CANDIDATE_MOCK_INTERVIEW_PASS_1"
+    ) {
       return;
     }
 
@@ -396,6 +397,31 @@ export class PaymentService {
       product?.creditAmount ?? 1,
       order.approvedAt ?? new Date(),
     );
+  }
+
+  private async resolveExistingConfirmResult(order: PaymentOrderRecord, paymentKey: string): Promise<PaymentOrderResponse | null> {
+    if (order.status === "DONE") {
+      if (order.paymentKey === paymentKey) {
+        await this.grantCandidateMockPassIfNeeded(order);
+        return toPaymentOrderResponse(order);
+      }
+      throw new PaymentException(400, PAYMENT_ERROR_CODES.PAYMENT_INVALID_STATUS, "이미 다른 결제 키로 승인된 주문입니다.");
+    }
+
+    if (order.status === "IN_PROGRESS") {
+      if (order.paymentKey === paymentKey) {
+        return toPaymentOrderResponse(order);
+      }
+      throw new PaymentException(400, PAYMENT_ERROR_CODES.PAYMENT_INVALID_STATUS, "이미 다른 결제 키로 승인 처리 중인 주문입니다.");
+    }
+
+    if (order.status !== "READY") {
+      throw new PaymentException(400, PAYMENT_ERROR_CODES.PAYMENT_INVALID_STATUS, "현재 상태에서는 결제를 승인할 수 없습니다.", [
+        { status: order.status },
+      ]);
+    }
+
+    return null;
   }
 
   private frontendBaseUrl() {

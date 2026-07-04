@@ -90,13 +90,12 @@ export class PrismaPaymentRepository implements PaymentRepositoryPort {
     return { items: items.map(mapPaymentOrder), totalItems };
   }
 
-  async markOrderInProgress(orderId: string, paymentKey: string): Promise<PaymentOrderRecord> {
-    const order = await this.prisma.paymentOrder.update({
+  async markOrderInProgress(orderId: string, paymentKey: string): Promise<PaymentOrderRecord | null> {
+    const result = await this.prisma.paymentOrder.updateMany({
       where: {
-        provider_orderId: {
-          provider: "TOSS",
-          orderId,
-        },
+        provider: "TOSS",
+        orderId,
+        status: "READY",
       },
       data: {
         status: "IN_PROGRESS",
@@ -104,16 +103,32 @@ export class PrismaPaymentRepository implements PaymentRepositoryPort {
         requestedAt: new Date(),
       },
     });
-    return mapPaymentOrder(order);
-  }
 
-  async markOrderDone(orderId: string, input: MarkPaymentOrderDoneInput): Promise<PaymentOrderRecord> {
-    const order = await this.prisma.paymentOrder.update({
+    if (result.count === 0) {
+      return null;
+    }
+
+    const order = await this.prisma.paymentOrder.findUnique({
       where: {
         provider_orderId: {
           provider: "TOSS",
           orderId,
         },
+      },
+    });
+    if (!order) {
+      throw new Error("Payment order not found after in-progress update.");
+    }
+    return mapPaymentOrder(order);
+  }
+
+  async markOrderDone(orderId: string, input: MarkPaymentOrderDoneInput): Promise<PaymentOrderRecord> {
+    await this.prisma.paymentOrder.updateMany({
+      where: {
+        provider: "TOSS",
+        orderId,
+        status: "IN_PROGRESS",
+        paymentKey: input.paymentKey,
       },
       data: {
         status: "DONE",
@@ -124,6 +139,18 @@ export class PrismaPaymentRepository implements PaymentRepositoryPort {
         providerPayload: input.providerPayload as Prisma.InputJsonValue,
       },
     });
+
+    const order = await this.prisma.paymentOrder.findUnique({
+      where: {
+        provider_orderId: {
+          provider: "TOSS",
+          orderId,
+        },
+      },
+    });
+    if (!order) {
+      throw new Error("Payment order not found after done update.");
+    }
     return mapPaymentOrder(order);
   }
 
@@ -133,6 +160,7 @@ export class PrismaPaymentRepository implements PaymentRepositoryPort {
         provider: "TOSS",
         orderId,
         status: { in: ["READY", "IN_PROGRESS"] },
+        ...(input.paymentKey ? { paymentKey: input.paymentKey } : {}),
       },
       data: {
         status: "FAILED",

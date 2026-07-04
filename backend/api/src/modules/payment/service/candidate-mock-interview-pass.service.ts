@@ -55,14 +55,20 @@ export class CandidateMockInterviewPassService implements CandidateMockInterview
     });
 
     if (!existing) {
-      await this.ledger.create({
-        data: {
-          candidateId: BigInt(candidateId),
-          source: "FREE_SIGNUP",
-          changeAmount: CANDIDATE_MOCK_INTERVIEW_INITIAL_FREE_PASSES,
-          expiresAt: addDays(now, CANDIDATE_MOCK_INTERVIEW_FREE_PASS_EXPIRES_IN_DAYS),
-        },
-      });
+      try {
+        await this.ledger.create({
+          data: {
+            candidateId: BigInt(candidateId),
+            source: "FREE_SIGNUP",
+            changeAmount: CANDIDATE_MOCK_INTERVIEW_INITIAL_FREE_PASSES,
+            expiresAt: addDays(now, CANDIDATE_MOCK_INTERVIEW_FREE_PASS_EXPIRES_IN_DAYS),
+          },
+        });
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) {
+          throw error;
+        }
+      }
     }
 
     return this.getSummary(candidateId, now);
@@ -194,4 +200,8 @@ function addDays(value: Date, days: number): Date {
   const next = new Date(value);
   next.setUTCDate(next.getUTCDate() + days);
   return next;
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "P2002";
 }
