@@ -96,7 +96,73 @@ resource "aws_sqs_queue" "ai_jobs" {
 }
 
 resource "aws_ses_domain_identity" "mail" {
-  count = var.enable_ses_domain_identity && var.ses_domain_name != "" ? 1 : 0
+  count = local.ses_enabled ? 1 : 0
 
-  domain = var.ses_domain_name
+  domain = local.ses_domain_name
+}
+
+resource "aws_route53_record" "ses_domain_verification" {
+  count = local.ses_enabled ? 1 : 0
+
+  allow_overwrite = true
+  name            = "_amazonses.${local.ses_domain_name}"
+  records         = [aws_ses_domain_identity.mail[0].verification_token]
+  ttl             = 600
+  type            = "TXT"
+  zone_id         = data.aws_route53_zone.root.zone_id
+}
+
+resource "aws_ses_domain_identity_verification" "mail" {
+  count = local.ses_enabled ? 1 : 0
+
+  domain = aws_ses_domain_identity.mail[0].domain
+
+  depends_on = [aws_route53_record.ses_domain_verification]
+}
+
+resource "aws_ses_domain_dkim" "mail" {
+  count = local.ses_enabled ? 1 : 0
+
+  domain = aws_ses_domain_identity.mail[0].domain
+}
+
+resource "aws_route53_record" "ses_dkim" {
+  count = local.ses_enabled ? 3 : 0
+
+  allow_overwrite = true
+  name            = "${aws_ses_domain_dkim.mail[0].dkim_tokens[count.index]}._domainkey.${local.ses_domain_name}"
+  records         = ["${aws_ses_domain_dkim.mail[0].dkim_tokens[count.index]}.dkim.amazonses.com"]
+  ttl             = 600
+  type            = "CNAME"
+  zone_id         = data.aws_route53_zone.root.zone_id
+}
+
+resource "aws_ses_domain_mail_from" "mail" {
+  count = local.ses_enabled && local.ses_mail_from_domain != "" ? 1 : 0
+
+  behavior_on_mx_failure = var.ses_mail_from_behavior_on_mx_failure
+  domain                 = aws_ses_domain_identity.mail[0].domain
+  mail_from_domain       = local.ses_mail_from_domain
+}
+
+resource "aws_route53_record" "ses_mail_from_mx" {
+  count = local.ses_enabled && local.ses_mail_from_domain != "" ? 1 : 0
+
+  allow_overwrite = true
+  name            = local.ses_mail_from_domain
+  records         = ["10 feedback-smtp.${data.aws_region.current.region}.amazonses.com"]
+  ttl             = 600
+  type            = "MX"
+  zone_id         = data.aws_route53_zone.root.zone_id
+}
+
+resource "aws_route53_record" "ses_mail_from_spf" {
+  count = local.ses_enabled && local.ses_mail_from_domain != "" ? 1 : 0
+
+  allow_overwrite = true
+  name            = local.ses_mail_from_domain
+  records         = ["v=spf1 include:amazonses.com ~all"]
+  ttl             = 600
+  type            = "TXT"
+  zone_id         = data.aws_route53_zone.root.zone_id
 }

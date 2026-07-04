@@ -45,7 +45,7 @@ main branch -> init-main-* resources -> init-jungle.cloud
 | `ecs.tf` | ECS cluster, task definition, service |
 | `ecr.tf` | main 실배포 ECR repository와 lifecycle policy |
 | `rds.tf`, `redis.tf` | PostgreSQL RDS, ElastiCache Redis |
-| `s3-sqs-ses.tf` | asset bucket, SQS/DLQ, optional SES domain identity |
+| `s3-sqs-ses.tf` | asset bucket, SQS/DLQ, optional SES domain identity, DKIM, custom MAIL FROM DNS |
 | `secrets.tf` | service별 Secrets Manager container |
 | `iam.tf` | ECS execution/task role, GitHub deploy role |
 | `cloudwatch.tf` | log group과 기본 alarm |
@@ -252,6 +252,10 @@ terraform -chdir=infra/aws output rds_master_secret_arn
 terraform -chdir=infra/aws output redis_primary_endpoint
 terraform -chdir=infra/aws output ai_jobs_queue_url
 terraform -chdir=infra/aws output github_deploy_role_arn
+terraform -chdir=infra/aws output ses_domain_identity
+terraform -chdir=infra/aws output ses_domain_verification_record
+terraform -chdir=infra/aws output ses_dkim_records
+terraform -chdir=infra/aws output ses_mail_from_domain
 ```
 
 AWS Console 확인:
@@ -263,12 +267,15 @@ AWS Console 확인:
 - ECS cluster: `init-main`
 - ECS services: `init-main-frontend`, `init-main-api`, `init-main-worker`
 - RDS, Redis, S3, SQS, Secrets Manager container가 생성됨
+- SES verified identity: `init-jungle.cloud`
+- Route53 DNS records: `_amazonses.init-jungle.cloud`, DKIM CNAME 3개, `mail.init-jungle.cloud` MX/TXT
 
 중단 기준:
 
 - plan에 RDS/Redis 삭제 또는 교체가 포함된다.
 - CloudFront ACM validation이 완료되지 않는다.
 - IAM trust policy가 의도한 GitHub repository/branch보다 넓다.
+- SES verification, DKIM, custom MAIL FROM DNS record가 Route53 hosted zone에 생성되지 않는다.
 
 ### 6. Secrets Manager 값 seed
 
@@ -471,6 +478,7 @@ aws ecs describe-tasks --cluster $cluster --tasks $taskArn `
 - migration task가 실패한다.
 - 일부 DDL이 적용된 뒤 실패했다. 이 경우 service update를 멈추고 보정 migration을 작성한다.
 - RDS 연결, secret, private subnet network 오류가 발생한다.
+- real AI provider traffic을 받을 예정인데 worker에 SQS visibility heartbeat와 `processLogId` 멱등성 보강이 없다.
 
 ### 9. ECS service activation
 
@@ -520,6 +528,7 @@ aws elbv2 describe-target-health --target-group-arn $apiTgArn
 - ECS service가 stable 상태가 되지 않는다.
 - ALB target health가 `healthy`가 아니다.
 - API task가 secret, DB, Redis 연결 오류로 반복 재시작한다.
+- worker가 real AI provider traffic을 받을 예정인데 `ChangeMessageVisibility` heartbeat와 duplicate `processLogId` skip/claim 테스트가 없다.
 
 ### 10. Domain smoke test
 

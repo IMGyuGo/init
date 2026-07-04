@@ -64,3 +64,21 @@ output "redis_primary_endpoint" {
 output "github_deploy_role_arn" {
   value = aws_iam_role.github_deploy.arn
 }
+
+output "ses_domain_identity" {
+  value = local.ses_enabled ? aws_ses_domain_identity.mail[0].domain : null
+}
+
+output "ses_domain_verification_record" {
+  value = local.ses_enabled ? aws_route53_record.ses_domain_verification[0].fqdn : null
+}
+
+output "ses_dkim_records" {
+  value = local.ses_enabled ? [
+    for record in aws_route53_record.ses_dkim : record.fqdn
+  ] : []
+}
+
+output "ses_mail_from_domain" {
+  value = local.ses_enabled && local.ses_mail_from_domain != "" ? local.ses_mail_from_domain : null
+}
