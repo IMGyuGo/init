@@ -144,7 +144,7 @@ test("keeps retryable failures on the queue for redelivery", async () => {
 });
 
 test("keeps STT retryable failures on the queue for redelivery", async () => {
-  const queue = new InMemoryAiJobQueue([message(7)]);
+  const queue = new InMemoryAiJobQueue([message(7, 2)]);
   const repository = new InMemoryAiProcessLogRepository();
   const handler: AiTaskHandler = {
     async handle() {
@@ -161,6 +161,26 @@ test("keeps STT retryable failures on the queue for redelivery", async () => {
     retryable: true
   });
   assert.deepEqual(queue.deletedMessageIds, []);
+});
+
+test("acks retryable failures after the receive retry limit is exceeded", async () => {
+  const queue = new InMemoryAiJobQueue([message(9, 3)]);
+  const repository = new InMemoryAiProcessLogRepository();
+  const handler: AiTaskHandler = {
+    async handle() {
+      throw new SttRetryableAiWorkerFailure("OpenAI STT connection error");
+    }
+  };
+
+  await new AiWorkerRunner(queue, repository, handler).processBatch();
+
+  assert.equal(repository.get(9).status, "FAILED");
+  assert.deepEqual(repository.get(9).failure, {
+    category: "NON_RETRYABLE",
+    reason: "STT retry limit exceeded after 3 attempts: OpenAI STT connection error",
+    retryable: false
+  });
+  assert.deepEqual(queue.deletedMessageIds, ["message-9"]);
 });
 
 test("acks non-retryable failures after recording the reason", async () => {
@@ -225,8 +245,10 @@ test("loads SQS, S3 and AI provider settings from environment variables", () => 
       aiSttProviderMode: "mock",
       openaiSttModel: "gpt-4o-mini-transcribe",
       openaiSttLanguage: "ko",
+      openaiSttTimeoutMs: 30000,
       s3BucketName: "init-dev",
       workerBatchSize: 5,
+      workerMaxRetryableReceives: 3,
       workerPollIntervalMs: 2500,
       workerRepositoryMode: "prisma",
       prismaClientModule: "../api/node_modules/@prisma/client"
@@ -234,7 +256,7 @@ test("loads SQS, S3 and AI provider settings from environment variables", () => 
   );
 });
 
-function message(processLogId: number): AiQueueMessage {
+function message(processLogId: number, receiveCount?: number): AiQueueMessage {
   return {
     messageId: `message-${processLogId}`,
     receiptHandle: `receipt-${processLogId}`,
@@ -243,6 +265,7 @@ function message(processLogId: number): AiQueueMessage {
       processType: "REPORT_GENERATE",
       inputRef: `report:${processLogId}`,
       attempt: 1
-    }
+    },
+    receiveCount
   };
 }

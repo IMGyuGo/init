@@ -5,13 +5,14 @@ import { AiQueueMessage, AiTaskHandler, AiWorkerJob, FailureReason } from "./wor
 
 export interface AiWorkerRunnerOptions {
   maxMessages?: number;
+  maxRetryableReceives?: number;
   guardrailPolicyName?: string;
   onStart?: (job: AiWorkerJob) => Promise<void>;
   onFailure?: (job: AiWorkerJob, failure: FailureReason) => Promise<void>;
 }
 
 export class AiWorkerRunner {
-  private readonly options: Required<Pick<AiWorkerRunnerOptions, "maxMessages" | "guardrailPolicyName">> &
+  private readonly options: Required<Pick<AiWorkerRunnerOptions, "maxMessages" | "maxRetryableReceives" | "guardrailPolicyName">> &
     Pick<AiWorkerRunnerOptions, "onStart" | "onFailure">;
 
   constructor(
@@ -22,6 +23,7 @@ export class AiWorkerRunner {
   ) {
     this.options = {
       maxMessages: 1,
+      maxRetryableReceives: 3,
       guardrailPolicyName: "AI_WORKER_OUTPUT_VALIDATE",
       ...options
     };
@@ -73,6 +75,11 @@ export class AiWorkerRunner {
     } catch (error) {
       const failure = toFailureReason(error);
       if (isRetryableFailureCategory(failure.category)) {
+        if (this.retryableReceiveCount(message) >= this.options.maxRetryableReceives) {
+          await this.failAndAck(message, this.retryLimitExceededFailure(failure));
+          return;
+        }
+
         await this.markFailed(message, failure);
         return;
       }
@@ -89,5 +96,18 @@ export class AiWorkerRunner {
   private async markFailed(message: AiQueueMessage, failure: FailureReason): Promise<void> {
     await this.options.onFailure?.(message.job, failure);
     await this.repository.markFailed(message.job.processLogId, failure);
+  }
+
+  private retryableReceiveCount(message: AiQueueMessage): number {
+    return message.receiveCount ?? message.job.attempt;
+  }
+
+  private retryLimitExceededFailure(failure: FailureReason): FailureReason {
+    const prefix = failure.category === "STT_RETRYABLE" ? "STT retry limit exceeded" : "Retry limit exceeded";
+    return {
+      category: "NON_RETRYABLE",
+      reason: `${prefix} after ${this.options.maxRetryableReceives} attempts: ${failure.reason}`,
+      retryable: false
+    };
   }
 }

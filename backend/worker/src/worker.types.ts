@@ -24,6 +24,7 @@ export interface AiQueueMessage {
   messageId: string;
   receiptHandle: string;
   job: AiWorkerJob;
+  receiveCount?: number;
 }
 
 export interface GuardrailDecision {

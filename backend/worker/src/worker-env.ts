@@ -8,8 +8,10 @@ export interface WorkerEnv {
   aiSttProviderMode: "mock" | "openai";
   openaiSttModel: string;
   openaiSttLanguage: string;
+  openaiSttTimeoutMs: number;
   s3BucketName: string;
   workerBatchSize: number;
+  workerMaxRetryableReceives: number;
   workerPollIntervalMs: number;
   workerRepositoryMode: "memory" | "prisma";
   prismaClientModule?: string;
@@ -28,8 +30,10 @@ export function loadWorkerEnv(env: NodeJS.ProcessEnv = process.env): WorkerEnv {
     aiSttProviderMode,
     openaiSttModel: optional(env.OPENAI_STT_MODEL) ?? "gpt-4o-mini-transcribe",
     openaiSttLanguage: optional(env.OPENAI_STT_LANGUAGE) ?? "ko",
+    openaiSttTimeoutMs: integer(env.OPENAI_STT_TIMEOUT_MS, 1_000, 600_000, 30_000),
     s3BucketName: requiredOneOf(env, ["S3_BUCKET_NAME", "S3_BUCKET"]),
     workerBatchSize: integer(env.WORKER_BATCH_SIZE, 1, 10, 1),
+    workerMaxRetryableReceives: integer(env.WORKER_MAX_RETRYABLE_RECEIVES, 1, 10, 3),
     workerPollIntervalMs: integer(env.WORKER_POLL_INTERVAL_MS, 100, 60_000, 1_000),
     workerRepositoryMode: repositoryMode(env.WORKER_REPOSITORY_MODE),
     prismaClientModule: optional(env.PRISMA_CLIENT_MODULE)

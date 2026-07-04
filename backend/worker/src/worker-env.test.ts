@@ -34,8 +34,10 @@ test("loadWorkerEnv returns defaults for optional worker settings", () => {
     aiSttProviderMode: "mock",
     openaiSttModel: "gpt-4o-mini-transcribe",
     openaiSttLanguage: "ko",
+    openaiSttTimeoutMs: 30000,
     s3BucketName: validEnv.S3_BUCKET_NAME,
     workerBatchSize: 1,
+    workerMaxRetryableReceives: 3,
     workerPollIntervalMs: 1000,
     workerRepositoryMode: "memory",
     prismaClientModule: undefined
@@ -60,8 +62,10 @@ test("loadWorkerEnv accepts legacy API env aliases", () => {
       aiSttProviderMode: "mock",
       openaiSttModel: "gpt-4o-mini-transcribe",
       openaiSttLanguage: "ko",
+      openaiSttTimeoutMs: 30000,
       s3BucketName: "init-local-assets",
       workerBatchSize: 1,
+      workerMaxRetryableReceives: 3,
       workerPollIntervalMs: 1000,
       workerRepositoryMode: "memory",
       prismaClientModule: undefined
@@ -71,12 +75,22 @@ test("loadWorkerEnv accepts legacy API env aliases", () => {
 
 test("loadWorkerEnv validates bounded numeric worker settings", () => {
   assert.equal(loadWorkerEnv({ ...validEnv, WORKER_BATCH_SIZE: "10" }).workerBatchSize, 10);
+  assert.equal(loadWorkerEnv({ ...validEnv, WORKER_MAX_RETRYABLE_RECEIVES: "4" }).workerMaxRetryableReceives, 4);
   assert.equal(loadWorkerEnv({ ...validEnv, WORKER_POLL_INTERVAL_MS: "60000" }).workerPollIntervalMs, 60000);
+  assert.equal(loadWorkerEnv({ ...validEnv, OPENAI_STT_TIMEOUT_MS: "20000" }).openaiSttTimeoutMs, 20000);
 
   assert.throws(() => loadWorkerEnv({ ...validEnv, WORKER_BATCH_SIZE: "0" }), /Expected integer between 1 and 10/);
   assert.throws(
+    () => loadWorkerEnv({ ...validEnv, WORKER_MAX_RETRYABLE_RECEIVES: "0" }),
+    /Expected integer between 1 and 10/
+  );
+  assert.throws(
     () => loadWorkerEnv({ ...validEnv, WORKER_POLL_INTERVAL_MS: "99" }),
     /Expected integer between 100 and 60000/
+  );
+  assert.throws(
+    () => loadWorkerEnv({ ...validEnv, OPENAI_STT_TIMEOUT_MS: "999" }),
+    /Expected integer between 1000 and 600000/
   );
 });
 

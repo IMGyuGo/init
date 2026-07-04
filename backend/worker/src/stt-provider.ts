@@ -28,6 +28,7 @@ export interface OpenAiS3SttProviderOptions {
   endpoint?: string;
   model?: string;
   language?: string;
+  timeoutMs?: number;
 }
 
 export class OpenAiS3SttProvider implements SttProvider {
@@ -49,7 +50,7 @@ export class OpenAiS3SttProvider implements SttProvider {
             }
           : undefined
     });
-    this.openai = new OpenAI({ apiKey: options.apiKey });
+    this.openai = new OpenAI({ apiKey: options.apiKey, timeout: options.timeoutMs ?? 30_000 });
     this.model = options.model ?? "gpt-4o-mini-transcribe";
     this.language = options.language ?? "ko";
   }
@@ -119,10 +120,10 @@ async function bodyToBuffer(body: unknown): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-function classifyOpenAiSttError(error: unknown): Error {
+export function classifyOpenAiSttError(error: unknown): Error {
   const status = errorStatus(error);
   const message = errorMessage(error);
-  const normalized = message.toLowerCase();
+  const normalized = errorDetails(error, message).toLowerCase();
   const reanswerRequiredMessage =
     normalized.includes("corrupt") ||
     normalized.includes("unsupported") ||
@@ -145,8 +146,14 @@ function classifyOpenAiSttError(error: unknown): Error {
     normalized.includes("timeout") ||
     normalized.includes("timed out") ||
     normalized.includes("rate limit") ||
+    normalized.includes("connection error") ||
+    normalized.includes("connection failed") ||
+    normalized.includes("fetch failed") ||
     normalized.includes("econnreset") ||
+    normalized.includes("econnrefused") ||
     normalized.includes("etimedout") ||
+    normalized.includes("enotfound") ||
+    normalized.includes("eai_again") ||
     normalized.includes("network")
   ) {
     return new SttRetryableAiWorkerFailure(message);
@@ -168,6 +175,27 @@ function errorMessage(error: unknown): string {
     return error.message.trim();
   }
   return "STT provider failed";
+}
+
+function errorDetails(error: unknown, message: string): string {
+  if (!error || typeof error !== "object") {
+    return message;
+  }
+
+  const details = [message];
+  const name = (error as { name?: unknown }).name;
+  if (typeof name === "string") {
+    details.push(name);
+  }
+
+  const cause = (error as { cause?: unknown }).cause;
+  if (cause instanceof Error) {
+    details.push(cause.message, cause.name);
+  } else if (typeof cause === "string") {
+    details.push(cause);
+  }
+
+  return details.join(" ");
 }
 
 function normalizeTranscript(response: unknown): string {
