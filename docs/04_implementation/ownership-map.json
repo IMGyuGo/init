@@ -153,6 +153,7 @@
       "^frontend/src/app/company/mypage/",
       "^frontend/src/styles/",
       "^frontend/public/logo-init\\.png$",
+      "^frontend/public/logo-init-v2\\.png$",
       "^backend/api/src/modules/company-recruiting/",
       "^backend/api/src/modules/company-profile/",
       "^docs/03_contracts/(api-index|api-spec)\\.md$"
