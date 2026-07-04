@@ -3712,6 +3712,85 @@ td input {
   .glass-page.notion .structured-create-hero { grid-template-columns: 1fr; }
   .glass-page.notion .create-hero-art { display: none; }
 }
+
+/* ---- 공고 생성 위저드 (PPT식 단계 전환) ---- */
+.app-page.posting-create-page.posting-wizard { width: min(900px, 100%); }
+
+.notion .wizard-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 32px;
+  padding: 24px 0;
+}
+.notion .wizard-intro-copy { display: grid; gap: 14px; min-width: 0; }
+.notion .wizard-intro-copy h1 { margin: 0; font-size: 40px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; color: #191919; }
+.notion .wizard-intro-copy .page-sub { margin: 0; max-width: 520px; font-size: 16px; line-height: 1.6; color: rgba(55, 53, 47, 0.7); word-break: keep-all; overflow-wrap: break-word; }
+.notion .wizard-intro-steps { display: grid; gap: 2px; margin: 8px 0 4px; padding: 8px 8px; list-style: none; background: #fbfbfa; border: 1px solid rgba(55, 53, 47, 0.08); border-radius: 10px; }
+.notion .wizard-intro-steps li { display: flex; align-items: center; gap: 12px; padding: 9px 10px; font-size: 14.5px; color: rgba(55, 53, 47, 0.72); border-radius: 6px; }
+.notion .wizard-intro-steps li:hover { background: rgba(55, 53, 47, 0.03); }
+.notion .wizard-intro-steps strong { margin-right: 6px; color: #191919; font-weight: 600; }
+.notion .wizard-intro-num {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #3b6fe0;
+  background: #eaf0fd;
+  border-radius: 50%;
+}
+.notion .wizard-intro-actions { display: flex; gap: 10px; margin-top: 10px; }
+.notion .wizard-intro-art { width: 320px; height: 320px; object-fit: contain; flex: none; }
+@media (max-width: 760px) {
+  .notion .wizard-intro { grid-template-columns: 1fr; }
+  .notion .wizard-intro-art { display: none; }
+}
+
+.notion .wizard { display: grid; gap: 20px; }
+.notion .wizard-progress { display: grid; gap: 10px; }
+.notion .wizard-progress-meta { display: flex; align-items: baseline; gap: 10px; }
+.notion .wizard-progress-step { font-size: 13px; font-weight: 600; color: #3b6fe0; }
+.notion .wizard-progress-title { font-size: 15px; font-weight: 700; color: #191919; }
+.notion .wizard-progress-bar { position: relative; height: 6px; background: rgba(55, 53, 47, 0.1); border-radius: 999px; overflow: hidden; }
+.notion .wizard-progress-bar span { position: absolute; inset: 0 auto 0 0; background: #3b6fe0; border-radius: 999px; transition: width 0.32s cubic-bezier(0.22, 0.61, 0.36, 1); }
+
+.notion .wizard-stage { position: relative; overflow: hidden; }
+.notion .wizard-slide { will-change: transform, opacity; }
+.notion .wizard-slide.from-right { animation: wizardFromRight 0.32s cubic-bezier(0.22, 0.61, 0.36, 1); }
+.notion .wizard-slide.from-left { animation: wizardFromLeft 0.32s cubic-bezier(0.22, 0.61, 0.36, 1); }
+@keyframes wizardFromRight { from { opacity: 0; transform: translateX(44px); } to { opacity: 1; transform: none; } }
+@keyframes wizardFromLeft { from { opacity: 0; transform: translateX(-44px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .notion .wizard-slide.from-right,
+  .notion .wizard-slide.from-left { animation: none; }
+}
+
+.notion .wizard-guide {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: rgba(55, 53, 47, 0.65);
+  background: #f7f7f5;
+  border: 0;
+  border-radius: 6px;
+  word-break: keep-all;
+}
+.notion .wizard-guide-icon { flex: none; font-size: 15px; line-height: 1.5; }
+.notion .wizard-inline-action { margin-bottom: 14px; }
+
+.notion .wizard-slide .panel { margin-bottom: 0; min-height: 360px; padding: 26px 28px; }
+.notion .wizard-slide .panel-head { margin-bottom: 16px; }
+
+.notion .wizard-nav { display: flex; justify-content: space-between; gap: 12px; }
+.notion .wizard-nav .btn { min-width: 132px; }
+
 .glass-page.notion .structured-section-card { background: #fff; border-color: rgba(55, 53, 47, 0.1); border-radius: 8px; }
 .glass-page.notion .mini-rich-editor { border-color: rgba(55, 53, 47, 0.16); border-radius: 6px; }
 .glass-page.notion .mini-rich-editor:focus-within { border-color: #3b6fe0; box-shadow: 0 0 0 2px rgba(59, 111, 224, 0.2); }
@@ -3873,9 +3952,14 @@ td input {
 /* ---- 공고 카드 그리드 (컬러 헤더) ---- */
 .notion.list-page .posting-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   padding-top: 10px;
+}
+@media (max-width: 1100px) {
+  .notion.list-page .posting-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 @media (max-width: 900px) {
   .notion.list-page .posting-grid {

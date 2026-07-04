@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChangeEvent, FormEvent, KeyboardEvent, useRef, useState } from "react";
+import { ChangeEvent, KeyboardEvent, useRef, useState } from "react";
 
 import { createRecruitment, uploadJobDescriptionImage } from "./api";
 import { MiniRichTextEditor } from "./MiniRichTextEditor";
@@ -56,9 +56,10 @@ export function RecruitmentCreatePage() {
   const [galleryUploading, setGalleryUploading] = useState(false);
   const [galleryMessage, setGalleryMessage] = useState("");
   const [tagInput, setTagInput] = useState("");
+  const [step, setStep] = useState(0);
+  const [dir, setDir] = useState<1 | -1>(1);
 
-  async function handleCreate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function handleCreate() {
     setLoading(true);
     setMessage("");
     try {
@@ -200,185 +201,253 @@ export function RecruitmentCreatePage() {
     addCustomTags();
   }
 
+  const basicStep = {
+    key: "basic",
+    title: "기본 정보",
+    guide: "공고 제목과 직무명은 필수예요. 채용 기간·근무지까지 채우면 지원자에게 더 정확하게 노출됩니다.",
+    body: (
+      <div className="grid-2">
+        <label>
+          공고 제목
+          <input required value={form.title} onChange={(event) => updateField("title", event.target.value)} placeholder="2026 신입 백엔드 채용" />
+        </label>
+        <label>
+          직무명
+          <input required value={form.jobRole} onChange={(event) => updateField("jobRole", event.target.value)} placeholder="Backend Developer" />
+        </label>
+        <label>
+          요구 경력
+          <input value={form.extraInfo.career.value} onChange={(event) => updateExtraInfo("career", event.target.value)} placeholder="신입 이상 / 1~2년차 / 5년 이상" />
+        </label>
+        <label>
+          근무형태
+          <input value={form.extraInfo.employmentType.value} onChange={(event) => updateExtraInfo("employmentType", event.target.value)} placeholder="정규직 / 계약직 / 인턴" />
+        </label>
+        <label>
+          채용 시작일
+          <input type="date" value={form.startsOn} onChange={(event) => updateField("startsOn", event.target.value)} />
+        </label>
+        <label>
+          채용 마감일
+          <input type="date" value={form.endsOn} onChange={(event) => updateField("endsOn", event.target.value)} />
+        </label>
+        <label className="wide">
+          회사 위치 / 근무지역
+          <input value={form.extraInfo.location.value} onChange={(event) => updateExtraInfo("location", event.target.value)} placeholder="서울 강남구 테헤란로 123" />
+        </label>
+      </div>
+    ),
+  };
+
+  const imagesStep = {
+    key: "images",
+    title: "공고 이미지",
+    guide: "상단 갤러리에 노출할 이미지를 최대 5장 등록하세요. 첫 번째 이미지가 공고 목록 카드의 대표 이미지로 쓰여요.",
+    body: (
+      <>
+        <div className="wizard-inline-action">
+          <button className="btn secondary" type="button" disabled={galleryUploading} onClick={() => galleryInputRef.current?.click()}>
+            {galleryUploading ? "업로드 중" : "이미지 추가"}
+          </button>
+        </div>
+        <input
+          ref={galleryInputRef}
+          className="jd-file-input"
+          type="file"
+          multiple
+          accept={JOB_DESCRIPTION_IMAGE_ACCEPT}
+          disabled={galleryUploading}
+          onChange={handleGalleryFiles}
+        />
+        {galleryMessage ? <p className="notice">{galleryMessage}</p> : null}
+        {form.structuredJobDescription.gallery.length === 0 ? (
+          <div className="empty">아직 등록된 공고 이미지가 없습니다.</div>
+        ) : (
+          <div className="posting-gallery-editor">
+            {form.structuredJobDescription.gallery.map((image, index) => (
+              <figure key={`${image.url}-${index}`}>
+                <span style={{ backgroundImage: `url(${image.url})` }} aria-hidden="true" />
+                <figcaption>{image.name}</figcaption>
+                <button type="button" onClick={() => removeGalleryImage(index)}>
+                  삭제
+                </button>
+              </figure>
+            ))}
+          </div>
+        )}
+      </>
+    ),
+  };
+
+  const sectionSteps = structuredJobSectionDefinitions.map((section) => ({
+    key: section.key,
+    title: section.title,
+    guide: section.placeholder,
+    body: (
+      <MiniRichTextEditor
+        value={form.structuredJobDescription.sections[section.key]}
+        placeholder={section.placeholder}
+        disabled={loading}
+        onChange={(value) => updateStructuredSection(section.key, value)}
+      />
+    ),
+  }));
+
+  const tagsStep = {
+    key: "tags",
+    title: "태그",
+    guide: "직무·기술 스택을 태그로 추가하면 지원자가 공고를 한눈에 이해할 수 있어요. 여러 개는 쉼표로 구분해 추가하세요.",
+    body: (
+      <>
+        {form.structuredJobDescription.tags.length > 0 ? (
+          <div className="posting-tag-picker" aria-label="추가된 태그">
+            {form.structuredJobDescription.tags.map((tag) => (
+              <button className="is-selected" type="button" key={tag} onClick={() => toggleTag(tag)}>
+                {tag}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="empty">추가된 태그가 없습니다.</div>
+        )}
+        <div className="tag-input-row">
+          <input
+            value={tagInput}
+            onChange={(event) => setTagInput(event.target.value)}
+            onKeyDown={handleTagInputKeyDown}
+            placeholder="직접 입력 후 추가, 여러 개는 쉼표로 구분"
+          />
+          <button className="btn secondary" type="button" onClick={addCustomTags}>
+            태그 추가
+          </button>
+        </div>
+      </>
+    ),
+  };
+
+  const formSteps = [basicStep, imagesStep, ...sectionSteps, tagsStep];
+  const totalForm = formSteps.length;
+  const isIntro = step === 0;
+  const currentFormIndex = step - 1;
+  const currentStep = isIntro ? null : formSteps[currentFormIndex];
+  const isLast = step === totalForm;
+
+  function goTo(next: number) {
+    setDir(next > step ? 1 : -1);
+    setStep(next);
+    setMessage("");
+  }
+
+  function handleNext() {
+    if (currentStep?.key === "basic" && (!form.title.trim() || !form.jobRole.trim())) {
+      setMessage("공고 제목과 직무명을 입력해주세요.");
+      return;
+    }
+    goTo(step + 1);
+  }
+
   return (
-    <section className="app-page glass-page posting-create-page notion">
-        <div className="page-banner">
-          <div className="page-banner-copy">
+    <section className="app-page glass-page posting-create-page posting-wizard notion">
+      {isIntro ? (
+        <div className="wizard-intro">
+          <div className="wizard-intro-copy">
             <p className="page-eyebrow">채용 관리</p>
             <h1>공고 생성</h1>
-            <p className="page-sub">구직자가 보는 공고 그대로 입력하세요. 기본 정보, 이미지, 상세 JD, 태그를 순서대로 채우면 공개 공고 화면에 같은 구조로 노출됩니다.</p>
-            <Link className="btn secondary banner-cta" href="/company/recruitments">
-              공고 목록
-            </Link>
+            <p className="page-sub">
+              구직자가 보는 공고 그대로, 한 단계씩 채워 나가는 방식이에요. 아래 순서대로 진행한 뒤 마지막에 면접 설정까지 이어집니다.
+            </p>
+            <ol className="wizard-intro-steps">
+              <li>
+                <span className="wizard-intro-num">1</span>
+                <span>
+                  <strong>기본 정보</strong> 공고 제목·직무·채용 기간
+                </span>
+              </li>
+              <li>
+                <span className="wizard-intro-num">2</span>
+                <span>
+                  <strong>공고 이미지</strong> 대표 이미지 최대 5장
+                </span>
+              </li>
+              <li>
+                <span className="wizard-intro-num">3</span>
+                <span>
+                  <strong>공고 상세</strong> 포지션 상세·주요 업무·자격 요건 등
+                </span>
+              </li>
+              <li>
+                <span className="wizard-intro-num">4</span>
+                <span>
+                  <strong>태그</strong> 직무·기술 스택 키워드
+                </span>
+              </li>
+              <li>
+                <span className="wizard-intro-num">5</span>
+                <span>
+                  <strong>면접 설정</strong> 생성 후 이어서 면접을 구성해요
+                </span>
+              </li>
+            </ol>
+            <div className="wizard-intro-actions">
+              <button className="btn primary" type="button" onClick={() => goTo(1)}>
+                공고 생성하러 가기
+              </button>
+              <Link className="btn secondary" href="/company/recruitments">
+                공고 목록
+              </Link>
+            </div>
           </div>
-          <Image className="page-banner-art" src={createBanner} alt="" width={300} height={300} aria-hidden="true" priority />
+          <Image className="wizard-intro-art" src={createBanner} alt="" width={320} height={320} aria-hidden="true" priority />
         </div>
-
-        {message ? <p className="notice danger">{message}</p> : null}
-
-        <form className="creation-flow posting-create-flow" onSubmit={handleCreate}>
-
-          <section className="panel">
-            <div className="panel-head">
-              <div>
-                <h2>기본 정보</h2>
-                <p>공개 공고 상단에 노출되는 핵심 정보입니다. 회사명은 기업 프로필 기준으로 자동 표시됩니다.</p>
-              </div>
+      ) : (
+        <div className="wizard">
+          <div className="wizard-progress">
+            <div className="wizard-progress-meta">
+              <span className="wizard-progress-step">
+                단계 {step} / {totalForm}
+              </span>
+              <span className="wizard-progress-title">{currentStep?.title}</span>
             </div>
-
-            <div className="grid-2">
-              <label>
-                공고 제목
-                <input
-                  required
-                  value={form.title}
-                  onChange={(event) => updateField("title", event.target.value)}
-                  placeholder="2026 신입 백엔드 채용"
-                />
-              </label>
-              <label>
-                직무명
-                <input
-                  required
-                  value={form.jobRole}
-                  onChange={(event) => updateField("jobRole", event.target.value)}
-                  placeholder="Backend Developer"
-                />
-              </label>
-              <label>
-                요구 경력
-                <input
-                  value={form.extraInfo.career.value}
-                  onChange={(event) => updateExtraInfo("career", event.target.value)}
-                  placeholder="신입 이상 / 1~2년차 / 5년 이상"
-                />
-              </label>
-              <label>
-                근무형태
-                <input
-                  value={form.extraInfo.employmentType.value}
-                  onChange={(event) => updateExtraInfo("employmentType", event.target.value)}
-                  placeholder="정규직 / 계약직 / 인턴"
-                />
-              </label>
-              <label>
-                채용 시작일
-                <input type="date" value={form.startsOn} onChange={(event) => updateField("startsOn", event.target.value)} />
-              </label>
-              <label>
-                채용 마감일
-                <input type="date" value={form.endsOn} onChange={(event) => updateField("endsOn", event.target.value)} />
-              </label>
-              <label className="wide">
-                회사 위치 / 근무지역
-                <input
-                  value={form.extraInfo.location.value}
-                  onChange={(event) => updateExtraInfo("location", event.target.value)}
-                  placeholder="서울 강남구 테헤란로 123"
-                />
-              </label>
+            <div className="wizard-progress-bar" role="presentation">
+              <span style={{ width: `${(step / totalForm) * 100}%` }} />
             </div>
-          </section>
+          </div>
 
-          <section className="panel">
-            <div className="panel-head">
-              <div>
-                <h2>공고 이미지</h2>
-                <p>공개 공고 상단 갤러리에 노출할 이미지를 최대 5장까지 등록합니다.</p>
-              </div>
-              <button className="btn secondary" type="button" disabled={galleryUploading} onClick={() => galleryInputRef.current?.click()}>
-                {galleryUploading ? "업로드 중" : "이미지 추가"}
-              </button>
-            </div>
-            <input
-              ref={galleryInputRef}
-              className="jd-file-input"
-              type="file"
-              multiple
-              accept={JOB_DESCRIPTION_IMAGE_ACCEPT}
-              disabled={galleryUploading}
-              onChange={handleGalleryFiles}
-            />
-            {galleryMessage ? <p className="notice">{galleryMessage}</p> : null}
-            {form.structuredJobDescription.gallery.length === 0 ? (
-              <div className="empty">아직 등록된 공고 이미지가 없습니다.</div>
-            ) : (
-              <div className="posting-gallery-editor">
-                {form.structuredJobDescription.gallery.map((image, index) => (
-                  <figure key={`${image.url}-${index}`}>
-                    <span style={{ backgroundImage: `url(${image.url})` }} aria-hidden="true" />
-                    <figcaption>{image.name}</figcaption>
-                    <button type="button" onClick={() => removeGalleryImage(index)}>
-                      삭제
-                    </button>
-                  </figure>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="panel">
-            <div className="panel-head">
-              <div>
-                <h2>공고 상세</h2>
-                <p>각 섹션 안에서는 굵게, 목록, 번호 목록, 링크 서식을 사용할 수 있습니다.</p>
-              </div>
-            </div>
-
-            <div className="structured-section-grid">
-              {structuredJobSectionDefinitions.map((section) => (
-                <div className="structured-section-card" key={section.key}>
+          <div className="wizard-stage">
+            <div className={`wizard-slide ${dir > 0 ? "from-right" : "from-left"}`} key={step}>
+              <section className="panel">
+                <div className="panel-head">
                   <div>
-                    <h3>{section.title}</h3>
+                    <h2>{currentStep?.title}</h2>
                   </div>
-                  <MiniRichTextEditor
-                    value={form.structuredJobDescription.sections[section.key]}
-                    placeholder={section.placeholder}
-                    disabled={loading}
-                    onChange={(value) => updateStructuredSection(section.key, value)}
-                  />
                 </div>
-              ))}
+                <p className="wizard-guide">
+                  <span className="wizard-guide-icon" aria-hidden="true">💡</span>
+                  {currentStep?.guide}
+                </p>
+                {currentStep?.body}
+              </section>
             </div>
-          </section>
+          </div>
 
-          <section className="panel">
-            <div className="panel-head">
-              <div>
-                <h2>태그</h2>
-                <p>직접 입력한 태그만 공개 공고에 노출됩니다. 여러 개는 쉼표로 구분해 추가할 수 있습니다.</p>
-              </div>
-            </div>
-            {form.structuredJobDescription.tags.length > 0 ? (
-              <div className="posting-tag-picker" aria-label="추가된 태그">
-                {form.structuredJobDescription.tags.map((tag) => (
-                  <button className="is-selected" type="button" key={tag} onClick={() => toggleTag(tag)}>
-                    {tag}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="empty">추가된 태그가 없습니다.</div>
-            )}
-            <div className="tag-input-row">
-              <input
-                value={tagInput}
-                onChange={(event) => setTagInput(event.target.value)}
-                onKeyDown={handleTagInputKeyDown}
-                placeholder="직접 입력 후 추가, 여러 개는 쉼표로 구분"
-              />
-              <button className="btn secondary" type="button" onClick={addCustomTags}>
-                태그 추가
+          {message ? <p className="notice danger">{message}</p> : null}
+
+          <div className="wizard-nav">
+            <button className="btn secondary" type="button" onClick={() => goTo(step - 1)} disabled={loading}>
+              이전
+            </button>
+            {isLast ? (
+              <button className="btn primary" type="button" onClick={() => void handleCreate()} disabled={loading}>
+                {loading ? "생성 중" : "생성하기"}
               </button>
-            </div>
-          </section>
-
-            <div className="form-actions">
-              <button className="btn primary" type="submit" disabled={loading}>
+            ) : (
+              <button className="btn primary" type="button" onClick={handleNext} disabled={loading}>
                 다음
               </button>
-            </div>
-        </form>
+            )}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
