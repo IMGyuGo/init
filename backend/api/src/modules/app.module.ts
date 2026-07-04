@@ -9,6 +9,7 @@ import { CompanyProfileModule } from "./company-profile/company-profile.module";
 import { CompanyRecruitingModule } from "./company-recruiting/company-recruiting.module";
 import { HealthController } from "./health/controller/health.controller";
 import { InterviewModule } from "./interview";
+import { PaymentModule } from "./payment/payment.module";
 import { ReportModule } from "./report/report.module";
 
 @Module({
@@ -22,6 +23,7 @@ import { ReportModule } from "./report/report.module";
     ReportModule,
     AiModule,
     CompanyInterviewModule,
+    PaymentModule,
   ],
   controllers: [HealthController],
   providers: [PrismaService],

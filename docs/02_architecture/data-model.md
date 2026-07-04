@@ -1,5 +1,27 @@
 # Data Model
 
+## Payment Addendum
+
+상세 PM ERD 문서: `.PM/payments/결제-erd.md`
+
+1단계 구현 테이블:
+
+| Table | Purpose |
+| --- | --- |
+| `payment_customers` | 기업 사용자와 Toss `customerKey` 매핑 |
+| `payment_orders` | 기업 후원형 AI 면접 크레딧 패키지와 지원자 모의면접 1회 이용권의 1회성 결제 주문, 승인 결과, 실패 기록 저장 |
+| `candidate_mock_interview_pass_ledgers` | 신규 무료 3회, 유료 1회권 지급, 모의면접 시작 시 사용 차감 기록 |
+
+이번 MVP에서는 결제 승인 주문과 지원자 모의면접 이용권 장부까지 저장한다.
+`candidate_mock_interview_pass_ledgers.source`는 `FREE_SIGNUP`, `PURCHASE`, `USAGE`를 기본으로 쓰고,
+local/dev/test QA 지급은 결제와 분리해 `DEV_GRANT`로만 기록한다.
+`FREE_SIGNUP` 최초 지급은 동시 요청에서도 후보자당 한 번만 생성되도록
+`candidate_id, source` 부분 유일 인덱스(`source = 'FREE_SIGNUP'`)로 보호한다.
+기업 크레딧 지급/차감 장부는 다음 단계에서 `company_credit_ledgers` 같은 별도 테이블로 추가한다.
+`payment_customers`와 `payment_orders`는 `company_id` 또는 `candidate_id` 중 하나만 가진다.
+향후 구독/자동결제 단계에서는 `billing_keys`, `subscriptions`를 추가하고, 갱신 결제는
+`payment_orders.type = SUBSCRIPTION_RENEWAL`로 기록한다.
+
 > Source: `init/docs/00_source` 기준. Generated at 2026-06-27.
 
 도메인별 데이터 소유권과 주요 필드를 정리한다.

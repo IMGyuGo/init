@@ -3,6 +3,55 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 const now = () => new Date();
+const dayMs = 24 * 60 * 60 * 1000;
+
+const companyFailedPaymentOrderSeeds = [
+  {
+    orderId: "sample_company_failed_001",
+    productCode: "COMPANY_AI_INTERVIEW_CREDIT_10",
+    orderName: "기업 후원 AI 면접 크레딧 10회",
+    amount: 39000,
+    failureCode: "PAY_PROCESS_CANCELED",
+    failureMessage: "사용자가 결제창에서 결제를 취소했습니다.",
+    daysAgo: 0,
+  },
+  {
+    orderId: "sample_company_failed_002",
+    productCode: "COMPANY_AI_INTERVIEW_CREDIT_30",
+    orderName: "기업 후원 AI 면접 크레딧 30회",
+    amount: 99000,
+    failureCode: "REJECT_CARD_COMPANY",
+    failureMessage: "카드사 승인 거절로 결제가 실패했습니다.",
+    daysAgo: 1,
+  },
+  {
+    orderId: "sample_company_failed_003",
+    productCode: "COMPANY_AI_INTERVIEW_CREDIT_100",
+    orderName: "기업 후원 AI 면접 크레딧 100회",
+    amount: 290000,
+    failureCode: "NOT_ENOUGH_BALANCE",
+    failureMessage: "카드 한도 또는 잔액 부족으로 결제가 실패했습니다.",
+    daysAgo: 2,
+  },
+  {
+    orderId: "sample_company_failed_004",
+    productCode: "COMPANY_AI_INTERVIEW_CREDIT_30",
+    orderName: "기업 후원 AI 면접 크레딧 30회",
+    amount: 99000,
+    failureCode: "INVALID_CARD",
+    failureMessage: "사용할 수 없는 카드 정보로 결제가 실패했습니다.",
+    daysAgo: 3,
+  },
+  {
+    orderId: "sample_company_failed_005",
+    productCode: "COMPANY_AI_INTERVIEW_CREDIT_10",
+    orderName: "기업 후원 AI 면접 크레딧 10회",
+    amount: 39000,
+    failureCode: "EXCEED_MAX_DAILY_PAYMENT_COUNT",
+    failureMessage: "일일 결제 가능 횟수를 초과해 결제가 실패했습니다.",
+    daysAgo: 4,
+  },
+] as const;
 
 const criterionTagSeeds = [
   {
@@ -164,6 +213,97 @@ async function main() {
       updatedAt: createdAt,
     },
   });
+
+  const companyPaymentCustomer = await prisma.paymentCustomer.upsert({
+    where: {
+      provider_companyId: {
+        provider: "TOSS",
+        companyId: 1,
+      },
+    },
+    update: {
+      userId: 1,
+      candidateId: null,
+      customerKey: "company_1",
+      updatedAt: createdAt,
+    },
+    create: {
+      userId: 1,
+      companyId: 1,
+      candidateId: null,
+      provider: "TOSS",
+      customerKey: "company_1",
+      createdAt,
+      updatedAt: createdAt,
+    },
+  });
+
+  for (const seed of companyFailedPaymentOrderSeeds) {
+    const failedAt = new Date(createdAt.getTime() - seed.daysAgo * dayMs);
+    const requestedAt = new Date(failedAt.getTime() - 3 * 60 * 1000);
+
+    await prisma.paymentOrder.upsert({
+      where: {
+        provider_orderId: {
+          provider: "TOSS",
+          orderId: seed.orderId,
+        },
+      },
+      update: {
+        paymentCustomerId: companyPaymentCustomer.paymentCustomerId,
+        companyId: 1,
+        candidateId: null,
+        productCode: seed.productCode,
+        orderName: seed.orderName,
+        type: "ONE_TIME",
+        status: "FAILED",
+        amount: seed.amount,
+        currency: "KRW",
+        method: "CARD",
+        receiptUrl: null,
+        failureCode: seed.failureCode,
+        failureMessage: seed.failureMessage,
+        providerPayload: {
+          seed: true,
+          provider: "TOSS",
+          failureCode: seed.failureCode,
+        },
+        requestedAt,
+        approvedAt: null,
+        failedAt,
+        createdAt: requestedAt,
+        updatedAt: failedAt,
+      },
+      create: {
+        paymentCustomerId: companyPaymentCustomer.paymentCustomerId,
+        companyId: 1,
+        candidateId: null,
+        provider: "TOSS",
+        orderId: seed.orderId,
+        paymentKey: null,
+        productCode: seed.productCode,
+        orderName: seed.orderName,
+        type: "ONE_TIME",
+        status: "FAILED",
+        amount: seed.amount,
+        currency: "KRW",
+        method: "CARD",
+        receiptUrl: null,
+        failureCode: seed.failureCode,
+        failureMessage: seed.failureMessage,
+        providerPayload: {
+          seed: true,
+          provider: "TOSS",
+          failureCode: seed.failureCode,
+        },
+        requestedAt,
+        approvedAt: null,
+        failedAt,
+        createdAt: requestedAt,
+        updatedAt: failedAt,
+      },
+    });
+  }
 
   for (const tag of criterionTagSeeds) {
     await prisma.criterionTag.upsert({
