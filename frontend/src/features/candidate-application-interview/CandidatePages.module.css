@@ -2265,11 +2265,6 @@
   margin-top: 16px;
 }
 
-:global(.report-ai-process) {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-}
-
 :global(.report-score-list),
 :global(.report-answer-insight-list) {
   display: grid;

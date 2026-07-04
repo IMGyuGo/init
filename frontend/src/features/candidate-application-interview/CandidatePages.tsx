@@ -22,7 +22,6 @@ import {
   type CandidateJobQuery,
   type CandidateMockInterviewHistoryItem,
   type CandidateReportGenerationHandoff,
-  type CandidateAiProcessView,
   type CandidateMockReportFeedback,
   type CandidateMockReportMedia,
   type CandidateMockReportSummary,
@@ -3760,7 +3759,6 @@ function MockFeedbackView({ feedback }: { feedback: CandidateMockReportFeedback 
         <Definition label="생성 시각" value={feedback.generatedAt ? formatDateTime(feedback.generatedAt) : "-"} />
         <Definition label="공개 범위" value={feedback.visibilityPolicy.candidateFacingOnly ? "지원자용" : "확인 필요"} />
       </dl>
-      {feedback.aiProcess ? <AiProcessSummaryView process={feedback.aiProcess} /> : null}
       <p className="description-box">{feedback.summary ?? "리포트 생성 중입니다."}</p>
       {scores.length ? null : <ListBlock title="강점" items={feedback.strengths} />}
       <ListBlock title="개선점" items={improvementItems} />
@@ -3877,23 +3875,11 @@ function RecruitingReportView({ report }: { report: CandidateRecruitingReportVie
         <Definition label="생성 시각" value={report.generatedAt ? formatDateTime(report.generatedAt) : "-"} />
         <Definition label="다음 단계" value={report.nextStepLabel} />
       </dl>
-      {report.aiProcess ? <AiProcessSummaryView process={report.aiProcess} /> : null}
       <p className="description-box">{report.candidateMessage}</p>
       {report.summary ? <p className="description-box">{report.summary}</p> : null}
       <ReportScoreList scores={report.scores} />
       <ReportAnswerInsightList answers={report.answers} />
     </div>
-  );
-}
-
-function AiProcessSummaryView({ process }: { process: CandidateAiProcessView }) {
-  return (
-    <dl className="candidate-feature__summary compact report-ai-process">
-      <Definition label="AI 작업" value={formatProcessTypeLabel(process.processType)} />
-      <Definition label="작업 상태" value={<StatusPill value={process.status} />} />
-      <Definition label="요청 시각" value={formatDateTime(process.createdAt)} />
-      {process.failureReason ? <Definition label="실패 사유" value={process.failureReason} /> : null}
-    </dl>
   );
 }
 
@@ -4569,16 +4555,6 @@ function formatInterviewTypeLabel(interviewType: string): string {
   };
 
   return labels[interviewType] ?? interviewType;
-}
-
-function formatProcessTypeLabel(processType: string): string {
-  const labels: Record<string, string> = {
-    STT: "음성 텍스트 변환",
-    FOLLOW_UP: "꼬리질문 생성",
-    REPORT_GENERATE: "리포트 생성",
-  };
-
-  return labels[processType] ?? processType;
 }
 
 function pickDeviceTestSentence(): string {
