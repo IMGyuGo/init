@@ -75,7 +75,7 @@ export class AiWorkerRunner {
     } catch (error) {
       const failure = toFailureReason(error);
       if (isRetryableFailureCategory(failure.category)) {
-        if (this.retryableReceiveCount(message) >= this.options.maxRetryableReceives) {
+        if (this.retryableReceiveCount(message) > this.options.maxRetryableReceives) {
           await this.failAndAck(message, this.retryLimitExceededFailure(failure));
           return;
         }
@@ -106,7 +106,7 @@ export class AiWorkerRunner {
     const prefix = failure.category === "STT_RETRYABLE" ? "STT retry limit exceeded" : "Retry limit exceeded";
     return {
       category: "NON_RETRYABLE",
-      reason: `${prefix} after ${this.options.maxRetryableReceives} attempts: ${failure.reason}`,
+      reason: `${prefix} after ${this.options.maxRetryableReceives} total attempts: ${failure.reason}`,
       retryable: false
     };
   }

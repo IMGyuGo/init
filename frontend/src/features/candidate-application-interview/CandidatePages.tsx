@@ -3435,6 +3435,7 @@ function InterviewRuntimePanel({
                   {subtitlesEnabled ? "자막 ON" : "자막 OFF"}
                 </button>
               </div>
+              <p className="field-hint">STT 실패 시 재답변은 문항당 1회만 가능합니다.</p>
               <div className="candidate-interview-complete-action">
                 <button
                   className="btn primary lg"
@@ -3913,7 +3914,12 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
         </div>
         <div className="script-box report-answer-card__script">
           <strong>스크립트</strong>
-          <p>{item.transcript ?? (item.transcriptStatus === "AVAILABLE" ? "스크립트를 불러오는 중입니다." : "STT 처리 대기 중입니다.")}</p>
+          <TranscriptText
+            transcript={item.transcript}
+            transcriptStatus={item.transcriptStatus}
+            evaluationStatus={item.evaluationStatus}
+            transcriptUnavailableReason={item.transcriptUnavailableReason}
+          />
           <FollowUpQuestionList questions={item.followUpQuestions} />
           <dl className="report-answer-meta">
             <Definition label="답변 시간" value={`${item.durationSeconds}s`} />
@@ -4024,7 +4030,12 @@ function ReportAnswerInsightList({ answers }: { answers: CandidateReportAnswerVi
             </div>
             <div className="script-box">
               <strong>STT 텍스트</strong>
-              <p>{answer.transcript ?? (answer.transcriptStatus === "AVAILABLE" ? "스크립트를 불러오는 중입니다." : "STT 처리 대기 중입니다.")}</p>
+              <TranscriptText
+                transcript={answer.transcript}
+                transcriptStatus={answer.transcriptStatus}
+                evaluationStatus={answer.evaluationStatus}
+                transcriptUnavailableReason={answer.transcriptUnavailableReason}
+              />
             </div>
             <FollowUpQuestionList questions={answer.followUpQuestions} />
             <EvidenceList evidences={answer.evidences} />
@@ -4033,6 +4044,29 @@ function ReportAnswerInsightList({ answers }: { answers: CandidateReportAnswerVi
       </div>
     </div>
   );
+}
+
+function TranscriptText({
+  transcript,
+  transcriptStatus,
+  evaluationStatus,
+  transcriptUnavailableReason,
+}: {
+  transcript?: string;
+  transcriptStatus: "PENDING" | "AVAILABLE" | "UNAVAILABLE";
+  evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
+  transcriptUnavailableReason?: string;
+}) {
+  if (evaluationStatus === "STT_UNAVAILABLE" || transcriptStatus === "UNAVAILABLE") {
+    return (
+      <>
+        <span className="badge warning">STT 미가용</span>
+        <p>{transcriptUnavailableReason ?? "음성 인식 실패로 실제 답변 텍스트를 확보하지 못했습니다."}</p>
+      </>
+    );
+  }
+
+  return <p>{transcript ?? (transcriptStatus === "AVAILABLE" ? "스크립트를 불러오는 중입니다." : "STT 처리 대기 중입니다.")}</p>;
 }
 
 function FollowUpQuestionList({ questions }: { questions: CandidateReportAnswerView["followUpQuestions"] }) {

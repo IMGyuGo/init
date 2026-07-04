@@ -331,3 +331,4 @@ QA는 정상 완료 흐름과 별개로 위 5개 상태를 최소 1회씩 확인
 - D는 STT와 꼬리질문 입력으로 `answerId`, `audioFileId`, `audioS3Key`, transcript를 넘긴다.
 - B는 리포트 화면에서 `evaluation_reports.status`와 `GET /ai/jobs/{processLogId}/status` 결과를 함께 표시한다.
 - E는 guardrail PASS/REGENERATED 전에는 `evaluation_reports`, `report_scores`, `report_evidences`, `question_bank`, `evaluation_criteria`에 최종 저장하지 않는다.
+- E는 `transcript`를 실제 답변 텍스트 전용으로 유지한다. STT 실패로 transcript가 없는 답변은 `evaluationStatus=STT_UNAVAILABLE`, `transcriptUnavailableReason`으로 사유를 분리하고, 현재는 보고서 생성을 막지 않기 위해 임시 0점 처리한다. 이 점수 정책은 팀 논의 후 변경될 수 있다.

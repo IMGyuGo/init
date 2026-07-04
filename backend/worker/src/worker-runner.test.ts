@@ -144,7 +144,7 @@ test("keeps retryable failures on the queue for redelivery", async () => {
 });
 
 test("keeps STT retryable failures on the queue for redelivery", async () => {
-  const queue = new InMemoryAiJobQueue([message(7, 2)]);
+  const queue = new InMemoryAiJobQueue([message(7, 3)]);
   const repository = new InMemoryAiProcessLogRepository();
   const handler: AiTaskHandler = {
     async handle() {
@@ -163,8 +163,8 @@ test("keeps STT retryable failures on the queue for redelivery", async () => {
   assert.deepEqual(queue.deletedMessageIds, []);
 });
 
-test("acks retryable failures after the receive retry limit is exceeded", async () => {
-  const queue = new InMemoryAiJobQueue([message(9, 3)]);
+test("acks retryable failures after the total receive attempt limit is exceeded", async () => {
+  const queue = new InMemoryAiJobQueue([message(9, 4)]);
   const repository = new InMemoryAiProcessLogRepository();
   const handler: AiTaskHandler = {
     async handle() {
@@ -177,7 +177,7 @@ test("acks retryable failures after the receive retry limit is exceeded", async 
   assert.equal(repository.get(9).status, "FAILED");
   assert.deepEqual(repository.get(9).failure, {
     category: "NON_RETRYABLE",
-    reason: "STT retry limit exceeded after 3 attempts: OpenAI STT connection error",
+    reason: "STT retry limit exceeded after 3 total attempts: OpenAI STT connection error",
     retryable: false
   });
   assert.deepEqual(queue.deletedMessageIds, ["message-9"]);

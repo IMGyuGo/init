@@ -857,7 +857,7 @@ function answersOf(value: unknown): ReportAnswerForScoring[] {
       optionalText(record.transcriptUnavailableReason) ?? STT_UNAVAILABLE_TEMP_ZERO_REASON;
     const transcript =
       evaluationStatus === "STT_UNAVAILABLE"
-        ? optionalText(record.transcript) ?? transcriptUnavailableReason
+        ? optionalText(record.transcript) ?? ""
         : requiredText(record.transcript, "transcript");
 
     return {

@@ -51,6 +51,8 @@ import { AiJobDispatcherService } from "./ai-job-dispatcher.service";
 
 type ReportAnswerSession = Pick<RuntimeInterviewSession, "sessionId" | "interviewType" | "showQuestionText">;
 type ReportGenerationKind = "MOCK_REPORT_GENERATE" | "RECRUITING_REPORT_GENERATE";
+const DEFAULT_STT_UNAVAILABLE_REASON =
+  "STT 실패로 transcript가 없어 임시 0점 처리되었습니다. 이 점수는 답변 품질이 아니라 음성 인식 실패에 따른 임시 처리입니다.";
 type ReportGenerationInput = {
   reportId: number;
   applicationId?: number;
@@ -193,8 +195,22 @@ export class ReportService {
     const status = await this.resolveMockReportStatus(session, report, process);
     const answers = await this.interviewRepository.listAnswersBySession(session.sessionId);
     const followUpsByAnswerId = await this.followUpsByAnswerId(answers);
+    const unavailableReasonsByAnswerId = this.sttUnavailableReasonsByAnswerId(report);
     const media = await Promise.all(
-      answers.map((answer) => this.toMockReportMediaItem(answer, session, currentUser, followUpsByAnswerId)),
+      answers.map((answer) =>
+        this.toMockReportMediaItem(
+          answer,
+          session,
+          currentUser,
+          followUpsByAnswerId,
+          this.transcriptUnavailableReasonForAnswer(
+            answer,
+            this.cleanOptionalText(answer.transcript),
+            report,
+            unavailableReasonsByAnswerId,
+          ),
+        ),
+      ),
     );
 
     return this.envelope({
@@ -422,12 +438,11 @@ export class ReportService {
       answers.map(async (answer) => {
         const transcript = this.cleanOptionalText(answer.transcript);
         const question = await this.interviewRepository.findQuestion(answer.questionId);
-        const unavailableReason =
-          "STT 실패로 transcript가 없어 임시 0점 처리되었습니다. 이 점수는 답변 품질이 아니라 음성 인식 실패에 따른 임시 처리입니다.";
+        const unavailableReason = DEFAULT_STT_UNAVAILABLE_REASON;
         return {
           answerId: answer.answerId,
           question: question?.content ?? `Interview question ${answer.questionId}`,
-          transcript: transcript ?? unavailableReason,
+          ...(transcript ? { transcript } : {}),
           evaluationStatus: transcript ? "EVALUATED" : "STT_UNAVAILABLE",
           transcriptUnavailableReason: transcript ? undefined : unavailableReason,
         };
@@ -596,6 +611,7 @@ export class ReportService {
     session: RuntimeInterviewSession,
     currentUser: CurrentCandidateUser,
     followUpsByAnswerId: Map<number, CandidateFollowUpQuestionView[]>,
+    transcriptUnavailableReason?: string,
   ): Promise<CandidateMockReportMediaItem> {
     const question = await this.interviewRepository.findQuestion(answer.questionId);
     if (!question) {
@@ -617,8 +633,10 @@ export class ReportService {
         : undefined,
       durationSeconds: answer.durationSeconds,
       submittedAt: answer.submittedAt,
-      transcriptStatus: this.toTranscriptStatus(answer.transcript),
+      transcriptStatus: this.toTranscriptStatus(answer.transcript, transcriptUnavailableReason),
       transcript: this.cleanOptionalText(answer.transcript),
+      evaluationStatus: transcriptUnavailableReason ? "STT_UNAVAILABLE" : this.cleanOptionalText(answer.transcript) ? "EVALUATED" : undefined,
+      transcriptUnavailableReason,
       followUpQuestions: followUpsByAnswerId.get(answer.answerId) ?? [],
     };
   }
@@ -630,10 +648,18 @@ export class ReportService {
     const answers = await this.interviewRepository.listAnswersBySession(session.sessionId);
     const followUpsByAnswerId = await this.followUpsByAnswerId(answers);
     const evidencesByAnswerId = this.evidencesByAnswerId(report?.scores ?? []);
+    const unavailableReasonsByAnswerId = this.sttUnavailableReasonsByAnswerId(report);
 
     return Promise.all(
       answers.map(async (answer) => {
         const question = await this.interviewRepository.findQuestion(answer.questionId);
+        const transcript = this.cleanOptionalText(answer.transcript);
+        const transcriptUnavailableReason = this.transcriptUnavailableReasonForAnswer(
+          answer,
+          transcript,
+          report,
+          unavailableReasonsByAnswerId,
+        );
         return {
           answerId: answer.answerId,
           questionId: answer.questionId,
@@ -642,8 +668,10 @@ export class ReportService {
           questionContent: this.visibleQuestionContent(session, question),
           durationSeconds: answer.durationSeconds,
           submittedAt: answer.submittedAt,
-          transcriptStatus: this.toTranscriptStatus(answer.transcript),
-          transcript: this.cleanOptionalText(answer.transcript),
+          transcriptStatus: this.toTranscriptStatus(answer.transcript, transcriptUnavailableReason),
+          transcript,
+          evaluationStatus: transcriptUnavailableReason ? "STT_UNAVAILABLE" : transcript ? "EVALUATED" : undefined,
+          transcriptUnavailableReason,
           followUpQuestions: followUpsByAnswerId.get(answer.answerId) ?? [],
           evidences: evidencesByAnswerId.get(answer.answerId) ?? [],
         };
@@ -685,6 +713,44 @@ export class ReportService {
         map.set(evidence.answerId, items);
         return map;
       }, new Map<number, CandidateReportEvidenceView[]>());
+  }
+
+  private sttUnavailableReasonsByAnswerId(report?: CandidateStoredReport): Map<number, string> {
+    const reasons = new Map<number, string>();
+    if (report?.status !== "COMPLETED") {
+      return reasons;
+    }
+
+    for (const score of report.scores) {
+      for (const evidence of score.evidences) {
+        if (!evidence.answerId || !this.isSttUnavailableScore(score, evidence)) {
+          continue;
+        }
+        reasons.set(evidence.answerId, score.rationale ?? evidence.evidenceText ?? DEFAULT_STT_UNAVAILABLE_REASON);
+      }
+    }
+
+    return reasons;
+  }
+
+  private transcriptUnavailableReasonForAnswer(
+    answer: InterviewAnswer,
+    transcript: string | undefined,
+    report: CandidateStoredReport | undefined,
+    unavailableReasonsByAnswerId: Map<number, string>,
+  ): string | undefined {
+    if (transcript) {
+      return undefined;
+    }
+    return unavailableReasonsByAnswerId.get(answer.answerId) ?? (report?.status === "COMPLETED" ? DEFAULT_STT_UNAVAILABLE_REASON : undefined);
+  }
+
+  private isSttUnavailableScore(
+    score: CandidateReportScoreRecord,
+    evidence: CandidateReportEvidenceRecord,
+  ): boolean {
+    const text = `${score.rationale ?? ""} ${evidence.evidenceText ?? ""}`.toUpperCase();
+    return score.score === 0 && (text.includes("STT") || text.includes("음성 인식"));
   }
 
   private toFileReference(fileAsset: FileAsset): CandidateReportFileReference {
@@ -799,8 +865,11 @@ export class ReportService {
     };
   }
 
-  private toTranscriptStatus(transcript?: string): "PENDING" | "AVAILABLE" {
-    return this.cleanOptionalText(transcript) ? "AVAILABLE" : "PENDING";
+  private toTranscriptStatus(transcript?: string, transcriptUnavailableReason?: string): "PENDING" | "AVAILABLE" | "UNAVAILABLE" {
+    if (this.cleanOptionalText(transcript)) {
+      return "AVAILABLE";
+    }
+    return transcriptUnavailableReason ? "UNAVAILABLE" : "PENDING";
   }
 
   private cleanOptionalText(value?: string): string | undefined {
