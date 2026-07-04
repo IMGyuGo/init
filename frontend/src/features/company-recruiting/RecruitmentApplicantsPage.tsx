@@ -83,7 +83,7 @@ export function RecruitmentApplicantsPage({ recruitmentId }: { recruitmentId: nu
             <h2>지원자 목록</h2>
             <p>지원 상태, 면접 상태, 리포트 상태를 한 곳에서 확인합니다.</p>
           </div>
-          <form className="toolbar" onSubmit={handleSearch}>
+          <form className="toolbar list-filter-toolbar" onSubmit={handleSearch}>
             <input value={q} onChange={(event) => setQ(event.target.value)} placeholder="이름, 이메일 검색" />
             <button className="btn secondary" type="submit" disabled={loading}>
               조회
@@ -92,7 +92,9 @@ export function RecruitmentApplicantsPage({ recruitmentId }: { recruitmentId: nu
         </div>
 
         {message ? <p className="notice">{message}</p> : null}
-        {items.length === 0 ? (
+        {loading && items.length === 0 ? (
+          <div className="empty">지원자를 불러오는 중입니다…</div>
+        ) : items.length === 0 ? (
           <div className="empty">아직 공개 지원으로 제출된 지원자가 없습니다.</div>
         ) : (
           <div className="table-wrap">
@@ -119,9 +121,22 @@ export function RecruitmentApplicantsPage({ recruitmentId }: { recruitmentId: nu
                     <td>
                       <StatusBadge value={item.applicationStatus} />
                     </td>
-                    <td>{item.interviewStatus}</td>
-                    <td>{item.report ? `${item.report.status} · ${item.report.totalScore ?? "점수 없음"}` : "없음/생성중"}</td>
-                    <td>{item.screeningDecision}</td>
+                    <td>
+                      <StatusBadge value={item.interviewStatus} />
+                    </td>
+                    <td>
+                      {item.report ? (
+                        <span className="status-with-note">
+                          <StatusBadge value={item.report.status} />
+                          <span>{item.report.totalScore ?? "점수 없음"}</span>
+                        </span>
+                      ) : (
+                        <StatusBadge value="NONE_OR_GENERATING" />
+                      )}
+                    </td>
+                    <td>
+                      <StatusBadge value={item.screeningDecision} />
+                    </td>
                     <td>
                       <Link className="text-link" href={`/company/applicants/${item.applicationId}/evaluation`}>
                         평가 상세

@@ -562,6 +562,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
       const evidenceText = pickEvidence(answer.transcript, documentText);
       const score = Math.min(95, 70 + Math.min(10, Math.round(criterion.weight / 10)) + Math.min(10, Math.floor(evidenceText.length / 30)));
       const structured = structuredAssessment(answer.transcript, documentText, criterion.description);
+      const criterionName = localizedCriterionName(criterion.name);
       const evidences: GeneratedReportScoreRecord["evidences"] = [
         {
           sourceType: "INTERVIEW_ANSWER",
@@ -580,9 +581,9 @@ export class MockAiTaskHandler implements AiTaskHandler {
       ];
       const reportScore: GeneratedReportScoreRecord = {
         criterionId: criterion.criterionId,
-        criterionName: criterion.name,
+        criterionName,
         score,
-        rationale: `${criterion.name} was evaluated from structured interview answer evidence.`,
+        rationale: scoreRationale(criterionName, score, answer.transcript, structured),
         rubricAnchor: structured.rubricAnchor,
         confidence: structured.confidence,
         uncertaintyReasons: structured.uncertaintyReasons,
@@ -592,7 +593,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
       scores.push(reportScore);
       questionEvaluations.push({
         criterionId: criterion.criterionId,
-        criterionName: criterion.name,
+        criterionName,
         answerId: answer.answerId,
         question: answer.question ?? `Answer ${answer.answerId}`,
         rubricAnchor: structured.rubricAnchor,
@@ -1014,6 +1015,49 @@ function normalizeSpace(value: string): string {
 function pickEvidence(transcript: string, documentText?: string): string {
   const source = transcript.trim() || documentText?.trim() || "";
   return shorten(source);
+}
+
+function localizedCriterionName(name: string): string {
+  const normalized = name.toLowerCase();
+  if (normalized.includes("role") || normalized.includes("fit")) {
+    return "직무 적합성";
+  }
+  if (normalized.includes("problem") || normalized.includes("solving")) {
+    return "문제 해결력";
+  }
+  if (normalized.includes("communication")) {
+    return "커뮤니케이션";
+  }
+  if (normalized.includes("technical")) {
+    return "기술 이해도";
+  }
+  return name;
+}
+
+function scoreRationale(
+  criterionName: string,
+  score: number,
+  transcript: string,
+  assessment: ReturnType<typeof structuredAssessment>
+): string {
+  const evidence = pickEvidence(transcript);
+  const improvement = assessment.uncertaintyReasons.includes("No explicit measurable outcome was provided.")
+    ? "성과나 결과를 수치 또는 전후 비교로 보강하면 더 설득력 있는 답변이 됩니다."
+    : "행동과 결과가 함께 제시되어 답변의 신뢰도가 비교적 높습니다.";
+
+  if (criterionName === "직무 적합성") {
+    return `${criterionName}은 ${score}점입니다. 답변에서 "${evidence}"를 통해 지원 직무와 연결되는 경험과 관심 분야가 확인됩니다. ${improvement}`;
+  }
+
+  if (criterionName === "문제 해결력") {
+    return `${criterionName}은 ${score}점입니다. 문제 상황을 확인 가능한 단위로 나누고 원인을 좁혀 가는 접근이 드러납니다. ${improvement}`;
+  }
+
+  if (criterionName === "커뮤니케이션") {
+    return `${criterionName}은 ${score}점입니다. 경험을 차분하게 설명해 흐름은 이해하기 쉽지만, 상황-행동-결과 순서로 조금 더 압축하면 전달력이 좋아집니다. ${improvement}`;
+  }
+
+  return `${criterionName}은 ${score}점입니다. 답변에서 "${evidence}"를 근거로 관련 역량을 확인할 수 있습니다. ${improvement}`;
 }
 
 function structuredAssessment(

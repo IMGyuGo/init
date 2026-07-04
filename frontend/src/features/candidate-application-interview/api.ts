@@ -291,14 +291,21 @@ export interface CandidateInterviewRuntimeView {
   showQuestionText: boolean;
   canRecord: boolean;
   jobDescription?: string;
+  timePolicy?: InterviewTimePolicyView;
   nextQuestionEndpoint: string;
   answerUploadEndpoint: string;
+}
+
+export interface InterviewTimePolicyView {
+  preparationTimeSec: number;
+  answerTimeSec: number;
+  retryAllowed: boolean;
 }
 
 export interface RuntimeFileAssetRequest {
   storageKey: string;
   originalName: string;
-  mimeType: "video/webm" | "video/mp4" | "audio/webm" | "audio/mpeg" | "audio/wav";
+  mimeType: "video/webm" | "video/mp4" | "audio/webm" | "audio/mp4" | "audio/mpeg" | "audio/wav";
   sizeBytes: number;
 }
 
@@ -353,6 +360,8 @@ export interface SaveInterviewAnswerRequest {
   audioFile?: RuntimeFileAssetRequest;
   durationSeconds: number;
   allowReanswer?: boolean;
+  skipReason?: "RECORDING_VALIDATION_FAILED";
+  retryAnswerId?: number;
 }
 
 export interface InterviewAnswer {

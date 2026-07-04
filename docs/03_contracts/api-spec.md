@@ -109,7 +109,7 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
   - 사용자 유형 선택 및 계정 정보 일치
 - 성공 응답/처리:
   - 로그인 버튼 클릭 가능
-  - 기업은 지원현황 > 공고 관리로 이동, 지원자는 AI 모의면접 > 면접시작으로 이동
+  - 기업은 지원현황 > 공고 관리로 이동, 지원자는 채용정보 > 채용공고로 이동
 - 오류/예외:
   - 계정 정보 불일치, 비활성 계정, 사용자 유형 불일치 시 로그인 실패 메시지를 표시한다.
   - 계정 정보 불일치, 비활성 계정, 권한 불일치, 서버 오류 시 로그인 실패 메시지를 표시한다.
@@ -117,7 +117,7 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
   - users, companies, candidate_profiles, postings, applications, interview_sessions, notifications, ai_process_logs
 - 비고/미결:
   - ID/PW 찾기·회원가입 링크는 비밀번호 입력란 바로 아래 배치
-  - 기업 기본 진입: /company/applications/dashboard, 지원자 기본 진입: /candidate/mock-interview/start
+  - 기업 기본 진입: /company/applications/dashboard, 지원자 기본 진입: /candidate/jobs
 
 ### API-002 GET /auth/google
 - 도메인: 인증/계정
@@ -132,7 +132,7 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
   - 사용자 유형은 지원자(CANDIDATE)만 허용
   - Google OAuth 인증 성공 및 계정 연동 성공
 - 성공 응답/처리:
-  - 지원자는 AI 모의면접 > 면접시작으로 이동
+  - 지원자는 채용정보 > 채용공고로 이동
 - 오류/예외:
   - 기업(COMPANY) 유형으로 요청하면 `AUTH_USER_TYPE_MISMATCH`로 거부한다.
   - OAuth 인증 실패, 계정 연동 실패, 권한 거부 시 로그인 실패 메시지를 표시한다.
@@ -690,25 +690,34 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
 - 비동기: N
 - Path Params:
   - `recruitmentId`
-- 요청 데이터:
+- 요청 데이터: `multipart/form-data`
   - `name`: string, required
   - `email`: string, required
-  - `phone`: string, optional
+  - `phone`: string, required
+  - `githubBlogUrl`: string, optional
+  - `portfolioMode`: `URL` 또는 `FILE`, optional
   - `portfolioUrl`: string, optional
-  - `resumeText`: string, optional
+  - `portfolioFile`: file, optional, `application/pdf`
+  - `resumeFile`: file, required, `application/pdf`
+  - `motivation`: string, optional
+  - `additionalInfo`: string, optional
   - `consentAgreed`: boolean, required
 - 검증/전제조건:
   - 공고 상태가 `OPEN`이어야 한다.
-  - `name`, `email`, `consentAgreed`는 필수다.
+  - `name`, `email`, `phone`, `resumeFile`, `consentAgreed`는 필수다.
   - `email`은 이메일 형식이어야 한다.
   - `consentAgreed`는 `true`여야 한다.
+  - `resumeFile`과 `portfolioFile`은 PDF만 허용한다.
   - 같은 공고에 같은 이메일로 이미 지원한 경우 중복 지원을 막는다.
 - 성공 응답/처리:
-  - 비회원 지원자 최소 row를 생성하거나 기존 candidate profile을 재사용한다.
+  - 공개 지원용 비회원 지원자 최소 row를 생성한다.
   - `users.user_type=CANDIDATE`, `users.status=PENDING` 기준으로 생성한다.
+  - `candidate_profiles.github_url`에는 `githubBlogUrl`을 저장한다.
   - `candidate_profiles.portfolio_url`에는 `portfolioUrl`을 저장한다.
-  - `candidate_profiles.summary`에는 공개 지원 폼의 `resumeText`를 저장한다.
-  - `applications.application_status=SUBMITTED`, `screening_decision=UNDECIDED`로 생성한다.
+  - `candidate_profiles.summary`에는 공개 지원 폼의 `motivation/additionalInfo`를 요약 저장한다.
+  - 파일 원본은 저장소에 저장하고 DB에는 `file_assets` 메타데이터만 저장한다.
+  - 이력서/포트폴리오 파일은 `application_documents.document_type=RESUME/PORTFOLIO`로 연결한다.
+  - `applications.application_status=SUBMITTED`, `document_status=SUBMITTED`, `screening_decision=UNDECIDED`로 생성한다.
   - 응답 필드:
     - `applicationId`
     - `recruitmentId`
@@ -723,15 +732,17 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
 - 오류/예외:
   - 공고가 없거나 공개 상태가 아니면 `COMMON_NOT_FOUND`를 반환한다.
   - 필수값 누락, 이메일 형식 오류, 동의 누락은 `COMMON_VALIDATION_FAILED`를 반환한다.
+  - PDF가 아닌 파일은 `FILE_INVALID_TYPE`을 반환한다.
+  - 파일 크기 제한 초과는 `FILE_SIZE_EXCEEDED`를 반환한다.
   - 같은 공고에 같은 이메일이 이미 있으면 `COMMON_CONFLICT`를 반환한다.
 - 관련 ERD 테이블:
-  - companies, postings, users, candidate_profiles, applications
+  - companies, postings, users, candidate_profiles, applications, file_assets, application_documents
 - 비고/미결:
   - 매직링크 token 원문은 저장하지 않고 SHA-256 hash만 Redis에 저장한다.
   - Redis key namespace는 `auth:magic-link:application-status:{tokenHash}`를 사용한다.
   - 매직링크 TTL은 고정 TTL을 사용하며 MVP 기준 기본값은 7일이다.
   - 이메일 발송은 기존 Auth `MailService`/SMTP 경로를 재사용한다.
-  - 파일 업로드/S3/file_assets/application_documents 저장은 이번 범위에서 제외한다.
+  - `application_documents`는 D/E도 참조하므로 PR에서 cross-owner review가 필요하다.
 
 ### API-088 POST /public/recruitments/{recruitmentId}/applications/access-link
 - 도메인: 공개 - 채용공고/지원
@@ -1153,6 +1164,9 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
 - 상태 코드: 201 Created
 - 비동기: N
 - Path Params: sessionId
+- 요청 데이터:
+  - 답변 파일 메타데이터 허용 MIME: `video/webm`, `video/mp4`, `audio/webm`, `audio/mp4`, `audio/mpeg`, `audio/wav`
+  - macOS/Safari 계열 오디오 fallback은 `audio/mp4` MIME과 `.m4a` 파일명을 허용한다.
 - 검증/전제조건:
   - publicAccessToken의 sessionId가 path sessionId와 일치해야 한다.
 - 성공 응답/처리:
@@ -1995,6 +2009,8 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
 - Path Params: sessionId
 - 요청 데이터:
   - 카메라 스트림, 마이크 스트림, 답변 시간
+  - 답변 파일 메타데이터 허용 MIME: `video/webm`, `video/mp4`, `audio/webm`, `audio/mp4`, `audio/mpeg`, `audio/wav`
+  - macOS/Safari 계열 오디오 fallback은 `audio/mp4` MIME과 `.m4a` 파일명을 허용한다.
 - 검증/전제조건:
   - 장치 권한 허용, 저장 공간 확보
 - 성공 응답/처리:
@@ -2498,6 +2514,8 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
 - Path Params: sessionId
 - 요청 데이터:
   - 카메라 스트림, 마이크 스트림, 답변 시간
+  - 답변 파일 메타데이터 허용 MIME: `video/webm`, `video/mp4`, `audio/webm`, `audio/mp4`, `audio/mpeg`, `audio/wav`
+  - macOS/Safari 계열 오디오 fallback은 `audio/mp4` MIME과 `.m4a` 파일명을 허용한다.
 - 검증/전제조건:
   - 장치 권한 허용, 저장 공간 확보
 - 성공 응답/처리:

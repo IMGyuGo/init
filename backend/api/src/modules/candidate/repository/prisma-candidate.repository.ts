@@ -58,6 +58,17 @@ export class PrismaCandidateRepository implements CandidateRepository {
     return posting ? this.toCandidateJob(posting) : undefined;
   }
 
+  async getInterviewTimePolicy(postingId: number) {
+    const timePolicy = await this.prisma.interviewTimePolicy.findUnique({
+      where: { postingId: BigInt(postingId) },
+    });
+    return {
+      preparationTimeSec: timePolicy?.preparationTimeSec ?? 0,
+      answerTimeSec: timePolicy?.answerTimeSec ?? 90,
+      retryAllowed: timePolicy?.retryAllowed ?? false,
+    };
+  }
+
   async findFileAsset(fileId: number): Promise<FileAsset | undefined> {
     const fileAsset = await this.prisma.fileAsset.findUnique({ where: { fileId: BigInt(fileId) } });
     return fileAsset ? this.toFileAsset(fileAsset) : undefined;
@@ -152,7 +163,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
         candidateId: application.candidateId,
         interviewType: PrismaInterviewType.RECRUITING,
         status: PrismaInterviewStatus.NOT_READY,
-        showQuestionText: false,
+        showQuestionText: true,
       },
       include: { application: true },
     });
@@ -275,7 +286,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
           candidateId: BigInt(input.candidateId),
           interviewType: PrismaInterviewType.RECRUITING,
           status: PrismaInterviewStatus.NOT_READY,
-          showQuestionText: false,
+          showQuestionText: true,
         },
       });
 

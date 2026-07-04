@@ -211,7 +211,7 @@ describe("PrismaCandidateRepository", () => {
       candidateId: 44n,
       interviewType: "RECRUITING",
       status: "NOT_READY",
-      showQuestionText: false,
+      showQuestionText: true,
     });
     assert.deepEqual(candidateProfileData, { githubUrl: "https://github.com/init/project" });
     assert.equal(result.application.applicationId, 77);

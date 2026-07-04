@@ -345,6 +345,7 @@ export class CandidateService {
   ): Promise<ApiResponse<CandidateInterviewRuntimeView>> {
     const { application, session } = await this.getOwnedApplicationWithSession(applicationId, currentUser);
     const job = await this.repository.findJob(application.postingId);
+    const timePolicy = await this.repository.getInterviewTimePolicy(application.postingId);
     this.assertSessionNotExpired(session);
     if (!["NOT_READY", "READY", "IN_PROGRESS", "COMPLETED"].includes(session.status)) {
       throw new CandidateDomainError("COMMON_CONFLICT", "Interview has not been started.", 409, [
@@ -357,9 +358,10 @@ export class CandidateService {
       sessionId: session.sessionId,
       interviewType: "RECRUITING",
       status: session.status,
-      showQuestionText: session.showQuestionText,
+      showQuestionText: true,
       canRecord: session.status === "IN_PROGRESS",
       ...(job?.jobDescription ? { jobDescription: job.jobDescription } : {}),
+      timePolicy,
       nextQuestionEndpoint: `/api/v1/candidate/interviews/${session.sessionId}/next-question`,
       answerUploadEndpoint: `/api/v1/candidate/interviews/${session.sessionId}/answers`,
     });
@@ -1156,7 +1158,7 @@ export class CandidateService {
   }
 
   private allowedInterviewMediaMimeTypes(): string[] {
-    return ["video/webm", "video/mp4", "audio/webm", "audio/mpeg", "audio/wav"];
+    return ["video/webm", "video/mp4", "audio/webm", "audio/mp4", "audio/mpeg", "audio/wav"];
   }
 
   private assertFileAssetMetadataOnly(dto: UploadResumeDto): void {

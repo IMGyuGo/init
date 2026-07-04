@@ -135,7 +135,7 @@ export function CompanyMypagePage() {
     <section className="app-page company-mypage-page">
       <div className="page-head">
         <div>
-          <h1>기업 마이페이지</h1>
+          <h1>계정</h1>
           <p className="page-sub">회사 정보와 채용 운영 기본값을 관리합니다.</p>
         </div>
         <button className="btn secondary" type="button" onClick={() => void loadProfile()} disabled={loading || saving || uploadingLogo}>
@@ -248,15 +248,21 @@ export function CompanyMypagePage() {
               </div>
             </div>
             <div className="company-logo-upload">
-              <label className="company-logo-drop">
+              <label className={`company-logo-drop ${selectedLogoFile ? "has-file" : ""}`}>
                 <input
                   type="file"
                   accept={COMPANY_LOGO_ACCEPT}
                   onChange={(event) => handleLogoSelect(event.target.files?.[0])}
                   disabled={uploadingLogo || loading}
                 />
-                <span>{selectedLogoFile ? selectedLogoFile.name : "파일 선택"}</span>
-                <strong>{selectedLogoFile ? formatFileSize(selectedLogoFile.size) : "최대 2MB"}</strong>
+                <span className="company-logo-file-icon" aria-hidden="true">
+                  IMG
+                </span>
+                <span className="company-logo-file-copy">
+                  <strong>{selectedLogoFile ? selectedLogoFile.name : "로고 파일 선택"}</strong>
+                  <small>{selectedLogoFile ? formatFileSize(selectedLogoFile.size) : "PNG, JPG, WebP · 최대 2MB"}</small>
+                </span>
+                <span className="company-logo-file-action">파일 선택</span>
               </label>
               <div className="form-actions">
                 <button className="btn secondary" type="button" onClick={() => setSelectedLogoFile(null)} disabled={!selectedLogoFile || uploadingLogo}>

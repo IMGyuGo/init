@@ -17,6 +17,7 @@ export interface CreateInterviewAnswerInput {
   questionId: number;
   videoFileId?: number;
   audioFileId?: number;
+  transcript?: string;
   durationSeconds: number;
   submittedAt: string;
 }
@@ -34,6 +35,10 @@ export interface ReanswerRequiredFailure {
   createdAt: string;
   failureCategory: "REANSWER_REQUIRED";
   failureReason?: string;
+}
+
+export interface UpdateInterviewAnswerInput extends CreateInterviewAnswerInput {
+  answerId: number;
 }
 
 export interface CompletedFollowUpProcess {
@@ -83,6 +88,7 @@ export interface InterviewRepository {
   createAnswer(input: CreateInterviewAnswerInput): MaybePromise<InterviewAnswer>;
   replaceAnswer(input: ReplaceInterviewAnswerInput): MaybePromise<InterviewAnswer>;
   listReanswerRequiredFailures(sessionId: number, answerId: number): MaybePromise<ReanswerRequiredFailure[]>;
+  updateAnswer(input: UpdateInterviewAnswerInput): MaybePromise<InterviewAnswer>;
   findCompletedFollowUpProcess(processLogId: number): MaybePromise<CompletedFollowUpProcess | undefined>;
   findGeneratedFollowUpQuestion(
     answerId: number,

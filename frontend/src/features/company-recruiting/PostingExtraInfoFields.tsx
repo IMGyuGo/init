@@ -25,24 +25,51 @@ export function PostingExtraInfoFields({ value, disabled = false, onChange }: Po
     <div className="posting-extra-fields">
       {postingExtraInfoFields.map((field) => {
         const state = value[field.key];
+        const customValue = state.enabled && state.value && !field.options.includes(state.value) ? state.value : "";
 
         return (
           <div className={`posting-extra-field ${state.enabled ? "is-enabled" : ""}`} key={field.key}>
-            <label className="posting-extra-check">
-              <input
-                type="checkbox"
-                checked={state.enabled}
-                disabled={disabled}
-                onChange={(event) => updateField(field.key, { enabled: event.target.checked })}
-              />
+            <div className="posting-extra-field-head">
               <span>{field.label}</span>
-            </label>
-            {state.enabled ? (
+              <button
+                className="posting-extra-clear"
+                type="button"
+                disabled={disabled || !state.enabled}
+                onClick={() => updateField(field.key, { enabled: false, value: "" })}
+              >
+                입력 안 함
+              </button>
+            </div>
+            <div className="posting-extra-options" role="radiogroup" aria-label={`${field.label} 선택`}>
+              {field.options.map((option) => (
+                <label className="posting-extra-option" key={option}>
+                  <input
+                    type="radio"
+                    name={`posting-extra-${field.key}`}
+                    checked={state.enabled && state.value === option}
+                    disabled={disabled}
+                    onChange={() => updateField(field.key, { enabled: true, value: option })}
+                  />
+                  <span>{option}</span>
+                </label>
+              ))}
+              <label className="posting-extra-option">
+                <input
+                  type="radio"
+                  name={`posting-extra-${field.key}`}
+                  checked={Boolean(customValue)}
+                  disabled={disabled}
+                  onChange={() => updateField(field.key, { enabled: true, value: customValue || "" })}
+                />
+                <span>직접 입력</span>
+              </label>
+            </div>
+            {customValue || (state.enabled && !state.value) ? (
               <input
-                aria-label={`${field.label} 입력`}
+                aria-label={`${field.label} 직접 입력`}
                 disabled={disabled}
-                value={state.value}
-                onChange={(event) => updateField(field.key, { value: event.target.value })}
+                value={customValue || state.value}
+                onChange={(event) => updateField(field.key, { enabled: true, value: event.target.value })}
                 placeholder={field.placeholder}
               />
             ) : null}

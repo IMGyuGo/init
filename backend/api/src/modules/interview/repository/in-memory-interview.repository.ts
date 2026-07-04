@@ -228,6 +228,7 @@ export class InMemoryInterviewRepository implements InterviewRepository {
       questionId: input.questionId,
       videoFileId: input.videoFileId,
       audioFileId: input.audioFileId,
+      transcript: input.transcript,
       durationSeconds: input.durationSeconds,
       submittedAt: input.submittedAt,
     };
@@ -255,6 +256,28 @@ export class InMemoryInterviewRepository implements InterviewRepository {
       .filter((failure) => failure.sessionId === sessionId && failure.answerId === answerId)
       .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt) || right.processLogId - left.processLogId)
       .map(({ sessionId: _sessionId, answerId: _answerId, ...failure }) => ({ ...failure }));
+  }
+
+  updateAnswer(input: CreateInterviewAnswerInput & { answerId: number }): InterviewAnswer {
+    const index = this.answers.findIndex(
+      (answer) => answer.sessionId === input.sessionId && answer.answerId === input.answerId,
+    );
+    if (index < 0) {
+      throw new Error(`answer ${input.answerId} was not found`);
+    }
+
+    const answer: InterviewAnswer = {
+      answerId: input.answerId,
+      sessionId: input.sessionId,
+      questionId: input.questionId,
+      videoFileId: input.videoFileId,
+      audioFileId: input.audioFileId,
+      transcript: input.transcript,
+      durationSeconds: input.durationSeconds,
+      submittedAt: input.submittedAt,
+    };
+    this.answers[index] = this.cloneAnswer(answer);
+    return this.cloneAnswer(answer);
   }
 
   findCompletedFollowUpProcess(processLogId: number): CompletedFollowUpProcess | undefined {
