@@ -305,7 +305,7 @@ export interface InterviewTimePolicyView {
 export interface RuntimeFileAssetRequest {
   storageKey: string;
   originalName: string;
-  mimeType: "video/webm" | "video/mp4" | "audio/webm" | "audio/mpeg" | "audio/wav";
+  mimeType: "video/webm" | "video/mp4" | "audio/webm" | "audio/mp4" | "audio/mpeg" | "audio/wav";
   sizeBytes: number;
 }
 
@@ -359,6 +359,7 @@ export interface SaveInterviewAnswerRequest {
   audioFileId?: number;
   audioFile?: RuntimeFileAssetRequest;
   durationSeconds: number;
+  allowReanswer?: boolean;
   skipReason?: "RECORDING_VALIDATION_FAILED";
   retryAnswerId?: number;
 }
@@ -460,7 +461,8 @@ export interface AiJobStatusResponse {
 }
 
 export type CandidateReportType = "MOCK_INTERVIEW_REPORT" | "RECRUITING_REPORT";
-export type TranscriptStatus = "PENDING" | "AVAILABLE";
+export type TranscriptStatus = "PENDING" | "AVAILABLE" | "UNAVAILABLE";
+export type CandidateAnswerEvaluationStatus = "EVALUATED" | "STT_UNAVAILABLE";
 export type CandidateAiProcessStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
 
 export interface CandidateAiProcessView {
@@ -508,6 +510,8 @@ export interface CandidateReportAnswerView {
   submittedAt: string;
   transcriptStatus: TranscriptStatus;
   transcript?: string;
+  evaluationStatus?: CandidateAnswerEvaluationStatus;
+  transcriptUnavailableReason?: string;
   followUpQuestions: CandidateFollowUpQuestionView[];
   evidences: CandidateReportEvidenceView[];
 }
@@ -575,6 +579,8 @@ export interface CandidateMockReportMediaItem {
   submittedAt: string;
   transcriptStatus: TranscriptStatus;
   transcript?: string;
+  evaluationStatus?: CandidateAnswerEvaluationStatus;
+  transcriptUnavailableReason?: string;
   followUpQuestions: CandidateFollowUpQuestionView[];
 }
 

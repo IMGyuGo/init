@@ -6,6 +6,8 @@ import {
   GeneratedReportRecord,
   GeneratedReportConfidenceRecord,
   GeneratedReportScoreRecord,
+  ReportAnswerEvaluationStatusRecord,
+  STT_UNAVAILABLE_TEMP_ZERO_REASON,
   hashSourceText
 } from "./ai-result.repository";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
@@ -20,6 +22,14 @@ interface WorkerInput {
 interface StructuredReportEvaluation {
   scores: GeneratedReportScoreRecord[];
   questionEvaluations: GeneratedQuestionEvaluationRecord[];
+}
+
+interface ReportAnswerForScoring {
+  answerId: number;
+  question?: string;
+  transcript: string;
+  evaluationStatus: ReportAnswerEvaluationStatusRecord;
+  transcriptUnavailableReason?: string;
 }
 
 const MOCK_HIRING_DECISION_TERMS = [
@@ -345,7 +355,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const answers = Array.isArray(payload.answers)
       ? answersOf(payload.answers)
       : generatedSummary
-        ? [{ answerId: 1, transcript: generatedSummary }]
+        ? [{ answerId: 1, transcript: generatedSummary, evaluationStatus: "EVALUATED" as const }]
         : answersOf(payload.answers);
     const documentText = typeof payload.documentText === "string" ? payload.documentText : undefined;
     const { scores, questionEvaluations } = this.scoreReport(criteria, answers, documentText);
@@ -532,14 +542,23 @@ export class MockAiTaskHandler implements AiTaskHandler {
 
   private scoreReport(
     criteria: Array<{ criterionId: number; name: string; weight: number; description?: string }>,
-    answers: Array<{ answerId: number; question?: string; transcript: string }>,
+    answers: ReportAnswerForScoring[],
     documentText?: string
   ): StructuredReportEvaluation {
     const scores: GeneratedReportScoreRecord[] = [];
     const questionEvaluations: GeneratedQuestionEvaluationRecord[] = [];
+    const evaluatedAnswerIds = new Set<number>();
 
     criteria.forEach((criterion, index) => {
       const answer = answers[index % answers.length];
+      if (answer.evaluationStatus === "STT_UNAVAILABLE") {
+        const zeroEvaluation = zeroScoreForUnavailableTranscript(criterion, answer);
+        scores.push(zeroEvaluation.score);
+        questionEvaluations.push(zeroEvaluation.questionEvaluation);
+        evaluatedAnswerIds.add(answer.answerId);
+        return;
+      }
+
       const evidenceText = pickEvidence(answer.transcript, documentText);
       const score = Math.min(95, 70 + Math.min(10, Math.round(criterion.weight / 10)) + Math.min(10, Math.floor(evidenceText.length / 30)));
       const structured = structuredAssessment(answer.transcript, documentText, criterion.description);
@@ -582,7 +601,18 @@ export class MockAiTaskHandler implements AiTaskHandler {
         uncertaintyReasons: structured.uncertaintyReasons,
         evidences
       });
+      evaluatedAnswerIds.add(answer.answerId);
     });
+
+    answers
+      .filter((answer) => answer.evaluationStatus === "STT_UNAVAILABLE" && !evaluatedAnswerIds.has(answer.answerId))
+      .forEach((answer) => {
+        const criterion = criteria[scores.length % criteria.length];
+        const zeroEvaluation = zeroScoreForUnavailableTranscript(criterion, answer);
+        scores.push(zeroEvaluation.score);
+        questionEvaluations.push(zeroEvaluation.questionEvaluation);
+        evaluatedAnswerIds.add(answer.answerId);
+      });
 
     return { scores, questionEvaluations };
   }
@@ -811,7 +841,7 @@ function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; 
   });
 }
 
-function answersOf(value: unknown): Array<{ answerId: number; question?: string; transcript: string }> {
+function answersOf(value: unknown): ReportAnswerForScoring[] {
   if (!Array.isArray(value) || value.length === 0) {
     throw new NonRetryableAiWorkerFailure("answers is required");
   }
@@ -821,12 +851,60 @@ function answersOf(value: unknown): Array<{ answerId: number; question?: string;
       throw new NonRetryableAiWorkerFailure("answers item must be an object");
     }
     const record = item as Record<string, unknown>;
+    const evaluationStatus: ReportAnswerEvaluationStatusRecord =
+      record.evaluationStatus === "STT_UNAVAILABLE" ? "STT_UNAVAILABLE" : "EVALUATED";
+    const transcriptUnavailableReason =
+      optionalText(record.transcriptUnavailableReason) ?? STT_UNAVAILABLE_TEMP_ZERO_REASON;
+    const transcript =
+      evaluationStatus === "STT_UNAVAILABLE"
+        ? optionalText(record.transcript) ?? ""
+        : requiredText(record.transcript, "transcript");
+
     return {
       answerId: positiveNumber(record.answerId, "answerId"),
       question: typeof record.question === "string" ? record.question : undefined,
-      transcript: requiredText(record.transcript, "transcript")
+      transcript,
+      evaluationStatus,
+      transcriptUnavailableReason: evaluationStatus === "STT_UNAVAILABLE" ? transcriptUnavailableReason : undefined
     };
   });
+}
+
+function zeroScoreForUnavailableTranscript(
+  criterion: { criterionId: number; name: string },
+  answer: ReportAnswerForScoring
+): { score: GeneratedReportScoreRecord; questionEvaluation: GeneratedQuestionEvaluationRecord } {
+  const reason = answer.transcriptUnavailableReason ?? STT_UNAVAILABLE_TEMP_ZERO_REASON;
+  const evidences: GeneratedReportScoreRecord["evidences"] = [
+    {
+      sourceType: "INTERVIEW_ANSWER",
+      answerId: answer.answerId,
+      text: reason
+    }
+  ];
+  const score: GeneratedReportScoreRecord = {
+    criterionId: criterion.criterionId,
+    criterionName: criterion.name,
+    score: 0,
+    rationale: reason,
+    rubricAnchor: "STT_UNAVAILABLE_TEMP_ZERO",
+    confidence: "LOW",
+    uncertaintyReasons: [reason],
+    evidences
+  };
+  return {
+    score,
+    questionEvaluation: {
+      criterionId: criterion.criterionId,
+      criterionName: criterion.name,
+      answerId: answer.answerId,
+      question: answer.question ?? `Answer ${answer.answerId}`,
+      rubricAnchor: score.rubricAnchor,
+      confidence: score.confidence,
+      uncertaintyReasons: score.uncertaintyReasons,
+      evidences
+    }
+  };
 }
 
 function optionalText(value: unknown): string | undefined {

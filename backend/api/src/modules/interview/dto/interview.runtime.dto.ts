@@ -61,6 +61,10 @@ export class SaveInterviewAnswerDto {
   durationSeconds!: number;
 
   @IsOptional()
+  @IsBoolean()
+  allowReanswer?: boolean;
+
+  @IsOptional()
   @IsIn(["RECORDING_VALIDATION_FAILED"])
   skipReason?: "RECORDING_VALIDATION_FAILED";
 

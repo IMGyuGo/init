@@ -159,6 +159,7 @@ model User {
   fileAssets        FileAsset[]
   manualEvaluations ManualEvaluation[]
   notifications     Notification[]
+  paymentCustomers  PaymentCustomer[]
 
   @@unique([authProvider, providerUserId], map: "uk_users_provider_user")
   @@map("users")
@@ -181,6 +182,8 @@ model Company {
   logoFile                   FileAsset? @relation("CompanyLogo", fields: [logoFileId], references: [fileId])
   postings                   Posting[]
   questions                  Question[]
+  paymentCustomers           PaymentCustomer[]
+  paymentOrders              PaymentOrder[]
 
   @@map("companies")
 }
@@ -217,6 +220,9 @@ model CandidateProfile {
   defaultResumeFile   FileAsset?         @relation(fields: [defaultResumeFileId], references: [fileId])
   applications        Application[]
   interviewSessions   InterviewSession[]
+  mockPassLedgers     CandidateMockInterviewPassLedger[]
+  paymentCustomers    PaymentCustomer[]
+  paymentOrders       PaymentOrder[]
 
   @@map("candidate_profiles")
 }
@@ -401,8 +407,28 @@ model InterviewSession {
   answers           InterviewAnswer[]
   evaluationReports EvaluationReport[]
   aiProcessLogs     AiProcessLog[]
+  mockPassUsages    CandidateMockInterviewPassLedger[]
 
   @@map("interview_sessions")
+}
+
+model CandidateMockInterviewPassLedger {
+  ledgerId       BigInt            @id @default(autoincrement()) @map("ledger_id")
+  candidateId    BigInt            @map("candidate_id")
+  paymentOrderId BigInt?           @map("payment_order_id")
+  usedSessionId  BigInt?           @map("used_session_id")
+  source         String            @db.VarChar(40)
+  changeAmount   Int               @map("change_amount")
+  expiresAt      DateTime?         @map("expires_at")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  candidate      CandidateProfile  @relation(fields: [candidateId], references: [candidateId])
+  paymentOrder   PaymentOrder?     @relation(fields: [paymentOrderId], references: [paymentOrderId])
+  usedSession    InterviewSession? @relation(fields: [usedSessionId], references: [sessionId])
+
+  @@index([candidateId, createdAt], map: "idx_candidate_mock_pass_candidate_created")
+  @@index([candidateId, expiresAt], map: "idx_candidate_mock_pass_candidate_expires")
+  @@unique([paymentOrderId], map: "uk_candidate_mock_pass_payment_order")
+  @@map("candidate_mock_interview_pass_ledgers")
 }
 
 model InterviewAnswer {
@@ -563,4 +589,61 @@ model Embedding {
   @@index([sourceType], map: "idx_embeddings_source_type")
   @@index([sourceTextHash], map: "idx_embeddings_source_hash")
   @@map("embeddings")
+}
+
+model PaymentCustomer {
+  paymentCustomerId BigInt         @id @default(autoincrement()) @map("payment_customer_id")
+  userId            BigInt         @map("user_id")
+  companyId         BigInt?        @map("company_id")
+  candidateId       BigInt?        @map("candidate_id")
+  provider          String         @db.VarChar(30)
+  customerKey       String         @map("customer_key") @db.VarChar(100)
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+  user              User           @relation(fields: [userId], references: [userId])
+  company           Company?       @relation(fields: [companyId], references: [companyId])
+  candidate         CandidateProfile? @relation(fields: [candidateId], references: [candidateId])
+  orders            PaymentOrder[]
+
+  @@unique([provider, customerKey], map: "uk_payment_customers_provider_customer_key")
+  @@unique([provider, companyId], map: "uk_payment_customers_provider_company")
+  @@unique([provider, candidateId], map: "uk_payment_customers_provider_candidate")
+  @@map("payment_customers")
+}
+
+model PaymentOrder {
+  paymentOrderId   BigInt          @id @default(autoincrement()) @map("payment_order_id")
+  paymentCustomerId BigInt         @map("payment_customer_id")
+  companyId        BigInt?         @map("company_id")
+  candidateId      BigInt?         @map("candidate_id")
+  provider         String          @db.VarChar(30)
+  orderId          String          @map("order_id") @db.VarChar(100)
+  paymentKey       String?         @map("payment_key") @db.VarChar(200)
+  productCode      String          @map("product_code") @db.VarChar(50)
+  orderName        String          @map("order_name") @db.VarChar(150)
+  type             String          @db.VarChar(30)
+  status           String          @db.VarChar(30)
+  amount           Int
+  currency         String          @db.VarChar(3)
+  method           String?         @db.VarChar(30)
+  receiptUrl       String?         @map("receipt_url")
+  failureCode      String?         @map("failure_code") @db.VarChar(100)
+  failureMessage   String?         @map("failure_message")
+  providerPayload  Json?           @map("provider_payload")
+  requestedAt      DateTime?       @map("requested_at")
+  approvedAt       DateTime?       @map("approved_at")
+  failedAt         DateTime?       @map("failed_at")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+  paymentCustomer  PaymentCustomer @relation(fields: [paymentCustomerId], references: [paymentCustomerId])
+  company          Company?        @relation(fields: [companyId], references: [companyId])
+  candidate        CandidateProfile? @relation(fields: [candidateId], references: [candidateId])
+  mockPassLedgers  CandidateMockInterviewPassLedger[]
+
+  @@unique([provider, orderId], map: "uk_payment_orders_provider_order")
+  @@unique([provider, paymentKey], map: "uk_payment_orders_provider_payment_key")
+  @@index([companyId, createdAt], map: "idx_payment_orders_company_created")
+  @@index([candidateId, createdAt], map: "idx_payment_orders_candidate_created")
+  @@index([status, createdAt], map: "idx_payment_orders_status_created")
+  @@map("payment_orders")
 }

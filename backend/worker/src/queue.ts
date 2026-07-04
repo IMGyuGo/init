@@ -1,4 +1,4 @@
-import { DeleteMessageCommand, ReceiveMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { DeleteMessageCommand, MessageSystemAttributeName, ReceiveMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { AiQueueMessage } from "./worker.types";
 
 export interface AiJobQueue {
@@ -35,6 +35,7 @@ export class SqsAiJobQueue implements AiJobQueue {
       new ReceiveMessageCommand({
         QueueUrl: this.queueUrl,
         MaxNumberOfMessages: Math.min(Math.max(maxMessages, 1), 10),
+        MessageSystemAttributeNames: [MessageSystemAttributeName.ApproximateReceiveCount],
         WaitTimeSeconds: 10
       })
     );
@@ -47,7 +48,8 @@ export class SqsAiJobQueue implements AiJobQueue {
       return {
         messageId: message.MessageId,
         receiptHandle: message.ReceiptHandle,
-        job: JSON.parse(message.Body)
+        job: JSON.parse(message.Body),
+        receiveCount: parseReceiveCount(message.Attributes?.ApproximateReceiveCount)
       };
     });
   }
@@ -60,6 +62,15 @@ export class SqsAiJobQueue implements AiJobQueue {
       })
     );
   }
+}
+
+function parseReceiveCount(value: string | undefined): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 export function createAiJobQueue(env: NodeJS.ProcessEnv = process.env): AiJobQueue {

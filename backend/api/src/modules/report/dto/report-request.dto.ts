@@ -36,10 +36,22 @@ export class InterviewAnswerInputDto {
   @IsNotEmpty()
   question!: string;
 
-  @ApiProperty({ example: "I improved read performance with Redis cache, TTL, and invalidation policies." })
+  @ApiPropertyOptional({ example: "I improved read performance with Redis cache, TTL, and invalidation policies." })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  transcript!: string;
+  transcript?: string;
+
+  @ApiPropertyOptional({ enum: ["EVALUATED", "STT_UNAVAILABLE"], example: "EVALUATED" })
+  @IsOptional()
+  @IsIn(["EVALUATED", "STT_UNAVAILABLE"])
+  evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
+
+  @ApiPropertyOptional({
+    example: "STT transcript is unavailable; temporary score is 0 because speech recognition failed."
+  })
+  @IsOptional()
+  @IsString()
+  transcriptUnavailableReason?: string;
 }
 
 export class ManualEvaluationInputDto {

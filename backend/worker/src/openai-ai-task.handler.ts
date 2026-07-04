@@ -4,6 +4,9 @@ import { ReportAiProvider, ReportGenerationResult } from "./openai-report.provid
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import { AiTaskHandler, AiTaskResult, AiWorkerJob } from "./worker.types";
 
+const STT_UNAVAILABLE_TEMP_ZERO_REASON =
+  "STT transcript is unavailable; this answer is temporarily scored as 0 because speech recognition failed, not because of answer quality.";
+
 interface WorkerInput {
   kind?: string;
   payload?: Record<string, unknown>;
@@ -157,7 +160,13 @@ function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; 
   });
 }
 
-function answersOf(value: unknown): Array<{ answerId: number; question?: string; transcript: string }> {
+function answersOf(value: unknown): Array<{
+  answerId: number;
+  question?: string;
+  transcript: string;
+  evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
+  transcriptUnavailableReason?: string;
+}> {
   if (!Array.isArray(value) || value.length === 0) {
     throw new NonRetryableAiWorkerFailure("answers is required");
   }
@@ -167,10 +176,20 @@ function answersOf(value: unknown): Array<{ answerId: number; question?: string;
       throw new NonRetryableAiWorkerFailure("answers item must be an object");
     }
     const record = item as Record<string, unknown>;
+    const evaluationStatus = record.evaluationStatus === "STT_UNAVAILABLE" ? "STT_UNAVAILABLE" : "EVALUATED";
+    const transcriptUnavailableReason =
+      optionalText(record.transcriptUnavailableReason) ?? STT_UNAVAILABLE_TEMP_ZERO_REASON;
+    const transcript =
+      evaluationStatus === "STT_UNAVAILABLE"
+        ? optionalText(record.transcript) ?? ""
+        : requiredText(record.transcript, "transcript");
+
     return {
       answerId: positiveNumber(record.answerId, "answerId"),
       question: typeof record.question === "string" ? record.question : undefined,
-      transcript: requiredText(record.transcript, "transcript")
+      transcript,
+      evaluationStatus,
+      transcriptUnavailableReason: evaluationStatus === "STT_UNAVAILABLE" ? transcriptUnavailableReason : undefined
     };
   });
 }
@@ -228,4 +247,12 @@ function requiredText(value: unknown, name: string): string {
 
 function hasText(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function optionalText(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 0 ? normalized : undefined;
 }

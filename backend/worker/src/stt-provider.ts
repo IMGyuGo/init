@@ -1,6 +1,10 @@
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import OpenAI, { toFile } from "openai";
-import { NonRetryableAiWorkerFailure } from "./worker-errors";
+import {
+  NonRetryableAiWorkerFailure,
+  ReanswerRequiredAiWorkerFailure,
+  SttRetryableAiWorkerFailure
+} from "./worker-errors";
 
 export interface SttProviderInput {
   audioFileId: number;
@@ -24,6 +28,7 @@ export interface OpenAiS3SttProviderOptions {
   endpoint?: string;
   model?: string;
   language?: string;
+  timeoutMs?: number;
 }
 
 export class OpenAiS3SttProvider implements SttProvider {
@@ -45,7 +50,7 @@ export class OpenAiS3SttProvider implements SttProvider {
             }
           : undefined
     });
-    this.openai = new OpenAI({ apiKey: options.apiKey });
+    this.openai = new OpenAI({ apiKey: options.apiKey, timeout: options.timeoutMs ?? 30_000 });
     this.model = options.model ?? "gpt-4o-mini-transcribe";
     this.language = options.language ?? "ko";
   }
@@ -55,14 +60,10 @@ export class OpenAiS3SttProvider implements SttProvider {
     const file = await toFile(object.body, filenameFromStorageKey(input.audioS3Key), {
       type: object.contentType ?? guessContentType(input.audioS3Key)
     });
-    const response = await this.openai.audio.transcriptions.create({
-      file,
-      model: this.model,
-      language: this.language
-    });
+    const response = await this.createTranscription(file);
     const transcript = normalizeTranscript(response);
     if (!transcript) {
-      throw new NonRetryableAiWorkerFailure("STT provider returned empty transcript");
+      throw new ReanswerRequiredAiWorkerFailure("STT provider returned empty transcript");
     }
 
     return {
@@ -88,6 +89,18 @@ export class OpenAiS3SttProvider implements SttProvider {
       contentType: result.ContentType
     };
   }
+
+  private async createTranscription(file: File): Promise<unknown> {
+    try {
+      return await this.openai.audio.transcriptions.create({
+        file,
+        model: this.model,
+        language: this.language
+      });
+    } catch (error) {
+      throw classifyOpenAiSttError(error);
+    }
+  }
 }
 
 async function bodyToBuffer(body: unknown): Promise<Buffer> {
@@ -105,6 +118,84 @@ async function bodyToBuffer(body: unknown): Promise<Buffer> {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
   return Buffer.concat(chunks);
+}
+
+export function classifyOpenAiSttError(error: unknown): Error {
+  const status = errorStatus(error);
+  const message = errorMessage(error);
+  const normalized = errorDetails(error, message).toLowerCase();
+  const reanswerRequiredMessage =
+    normalized.includes("corrupt") ||
+    normalized.includes("unsupported") ||
+    normalized.includes("invalid file") ||
+    normalized.includes("invalid audio") ||
+    normalized.includes("empty") ||
+    normalized.includes("no speech") ||
+    normalized.includes("could not decode") ||
+    normalized.includes("unrecognized file format");
+
+  if (reanswerRequiredMessage && (status === undefined || status === 400 || status === 415)) {
+    return new ReanswerRequiredAiWorkerFailure(message);
+  }
+
+  if (
+    status === 408 ||
+    status === 409 ||
+    status === 429 ||
+    (typeof status === "number" && status >= 500) ||
+    normalized.includes("timeout") ||
+    normalized.includes("timed out") ||
+    normalized.includes("rate limit") ||
+    normalized.includes("connection error") ||
+    normalized.includes("connection failed") ||
+    normalized.includes("fetch failed") ||
+    normalized.includes("econnreset") ||
+    normalized.includes("econnrefused") ||
+    normalized.includes("etimedout") ||
+    normalized.includes("enotfound") ||
+    normalized.includes("eai_again") ||
+    normalized.includes("network")
+  ) {
+    return new SttRetryableAiWorkerFailure(message);
+  }
+
+  return error instanceof Error ? error : new Error(message);
+}
+
+function errorStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") {
+    return undefined;
+  }
+  const status = (error as { status?: unknown; code?: unknown }).status ?? (error as { statusCode?: unknown }).statusCode;
+  return typeof status === "number" ? status : undefined;
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+  return "STT provider failed";
+}
+
+function errorDetails(error: unknown, message: string): string {
+  if (!error || typeof error !== "object") {
+    return message;
+  }
+
+  const details = [message];
+  const name = (error as { name?: unknown }).name;
+  if (typeof name === "string") {
+    details.push(name);
+  }
+
+  const cause = (error as { cause?: unknown }).cause;
+  if (cause instanceof Error) {
+    details.push(cause.message, cause.name);
+  } else if (typeof cause === "string") {
+    details.push(cause);
+  }
+
+  return details.join(" ");
 }
 
 function normalizeTranscript(response: unknown): string {

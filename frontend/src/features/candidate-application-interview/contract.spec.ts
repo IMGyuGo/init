@@ -1,3 +1,4 @@
+import { strict as assert } from "node:assert";
 import type {
   ApiErrorBody,
   CandidateApplicationSummary,
@@ -10,6 +11,7 @@ import type {
   CandidateRecruitingReportView,
   CreatePortfolioLinkRequest,
   InterviewDeviceCheckRequest,
+  RuntimeFileAssetRequest,
   SaveInterviewAnswerRequest,
   SaveInterviewConsentRequest,
   StartMockInterviewRequest,
@@ -21,12 +23,14 @@ import {
   getCandidateApplicationInterviewActionHref,
   getCandidateApplicationReportHref,
   getCandidateJobDetailActionHref,
+  getInterviewMediaFileExtension,
   getMockInterviewDeviceCheckHref,
   getMockInterviewHref,
   getMockReportHref,
   isCandidateFacingMockFeedbackSafe,
   isCandidateInterviewStartEnabled,
   isCandidateRecruitingReportLimited,
+  resolveRecordedMimeType,
   shouldShowInterviewDeviceSetup,
   toRuntimeQuestionSpeechText,
   toDeviceCheckRequest,
@@ -105,6 +109,39 @@ const answerRequest: SaveInterviewAnswerRequest = toSaveInterviewAnswerRequest({
   },
   durationSeconds: 30,
 });
+
+const macosAudioAnswerRequest: SaveInterviewAnswerRequest = toSaveInterviewAnswerRequest({
+  questionId: 2,
+  audioFile: {
+    storageKey: "candidate/1/mock-answer.m4a",
+    originalName: "mock-answer.m4a",
+    mimeType: "audio/mp4",
+    sizeBytes: 12 * 1024,
+  },
+  durationSeconds: 30,
+});
+
+const macosChunkFallbackMimeType: RuntimeFileAssetRequest["mimeType"] = resolveRecordedMimeType({
+  chunkMimeTypes: ["audio/mp4;codecs=opus"],
+  recorderMimeType: "",
+  requestedMimeType: "video/webm",
+}) as RuntimeFileAssetRequest["mimeType"];
+assert.equal(macosChunkFallbackMimeType, "audio/mp4");
+assert.equal(getInterviewMediaFileExtension(macosChunkFallbackMimeType), "m4a");
+
+const requestedMimeTypeFallback: RuntimeFileAssetRequest["mimeType"] = resolveRecordedMimeType({
+  chunkMimeTypes: [""],
+  recorderMimeType: "",
+  requestedMimeType: "video/mp4",
+}) as RuntimeFileAssetRequest["mimeType"];
+assert.equal(requestedMimeTypeFallback, "video/mp4");
+
+const unsupportedRecordedMimeType = resolveRecordedMimeType({
+  chunkMimeTypes: [""],
+  recorderMimeType: "",
+  requestedMimeType: "",
+});
+assert.equal(unsupportedRecordedMimeType, "");
 
 const questionSpeechText = toRuntimeQuestionSpeechText({
   content: "최근 프로젝트에서 가장 어려웠던 기술적 문제는 무엇이었나요?",
@@ -318,6 +355,10 @@ void interviewConsentRequest;
 void deviceCheckRequest;
 void startMockRequest;
 void answerRequest;
+void macosAudioAnswerRequest;
+void macosChunkFallbackMimeType;
+void requestedMimeTypeFallback;
+void unsupportedRecordedMimeType;
 void questionSpeechText;
 void audioPromptSpeechText;
 void applicationSummary;

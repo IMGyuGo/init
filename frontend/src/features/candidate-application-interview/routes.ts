@@ -14,6 +14,7 @@ export const candidateApplicationInterviewRoutes = {
     `/public/applications/${applicationId}/interview/runtime${sessionId ? `?sessionId=${sessionId}` : ""}`,
   publicInterviewComplete: (applicationId: number) => `/public/applications/${applicationId}/interview/runtime/complete`,
   mypage: "/candidate/mypage",
+  billing: "/candidate/billing",
 } as const;
 
 export const candidateApplicationInterviewFeature = {

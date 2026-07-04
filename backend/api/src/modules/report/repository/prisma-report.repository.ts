@@ -10,6 +10,7 @@ import {
   GuardrailDecision,
   AiProcessRefs,
   AiProcessType,
+  isRetryableFailureCategory,
   ProcessLogSnapshot,
   QueuedAiProcessSnapshot,
   ReportPipelineStep,
@@ -338,7 +339,7 @@ export class PrismaReportRepository implements ReportRepository {
           ? {
               category: processLog.failureCategory as FailureReason["category"],
               reason: processLog.failureReason,
-              retryable: processLog.failureCategory === "RETRYABLE"
+              retryable: isRetryableFailureCategory(processLog.failureCategory as FailureReason["category"])
             }
           : undefined
     };
@@ -369,7 +370,7 @@ export class PrismaReportRepository implements ReportRepository {
           ? {
               category: processLog.failureCategory as FailureReason["category"],
               reason: processLog.failureReason,
-              retryable: processLog.failureCategory === "RETRYABLE"
+              retryable: isRetryableFailureCategory(processLog.failureCategory as FailureReason["category"])
             }
           : undefined
     };
@@ -395,7 +396,7 @@ export class PrismaReportRepository implements ReportRepository {
           ? {
               category: report.failureCategory as FailureReason["category"],
               reason: report.failureReason,
-              retryable: report.failureCategory === "RETRYABLE"
+              retryable: isRetryableFailureCategory(report.failureCategory as FailureReason["category"])
             }
           : undefined
     };

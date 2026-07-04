@@ -19,7 +19,11 @@ export type ReportPipelineStep =
   | "ANSWER_EVALUATION"
   | "COMMUNICATION_ANALYSIS"
   | "REPORT_GENERATE";
-export type FailureCategory = "RETRYABLE" | "NON_RETRYABLE";
+export type FailureCategory = "RETRYABLE" | "NON_RETRYABLE" | "STT_RETRYABLE" | "REANSWER_REQUIRED";
+
+export function isRetryableFailureCategory(category: FailureCategory): boolean {
+  return category === "RETRYABLE" || category === "STT_RETRYABLE";
+}
 
 export interface EvaluationCriterionInput {
   criterionId: number;
@@ -31,7 +35,9 @@ export interface EvaluationCriterionInput {
 export interface InterviewAnswerInput {
   answerId: number;
   question: string;
-  transcript: string;
+  transcript?: string;
+  evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
+  transcriptUnavailableReason?: string;
 }
 
 export interface ManualEvaluationInput {
