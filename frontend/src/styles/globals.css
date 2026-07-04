@@ -4562,9 +4562,9 @@ td input {
 .landing.notion .btn.lg { min-height: 46px; padding: 0 22px; font-size: 15px; border-radius: 8px; }
 
 .landing.notion .landing-hero {
-  max-width: 1040px;
+  max-width: 880px;
   margin: 0 auto;
-  padding: 40px 24px 64px;
+  padding: 96px 24px 80px;
   text-align: center;
 }
 .landing.notion .landing-pill {
@@ -4578,45 +4578,22 @@ td input {
   border: 1px solid rgba(59, 111, 224, 0.18);
   border-radius: 999px;
 }
-.landing.notion .landing-hero-figure {
-  position: relative;
-  width: 100%;
-  max-width: 360px;
-  margin: 0 auto;
-  container-type: inline-size;
-}
-.landing.notion .landing-hero-illustration {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-.landing.notion .landing-hero-bubble {
-  position: absolute;
-  top: 9%;
-  left: 15%;
-  width: 70%;
-  height: 34%;
-  display: grid;
-  place-items: center;
-  text-align: center;
-}
-.landing.notion .landing-hero-bubble h1 {
+.landing.notion .landing-hero h1 {
   margin: 0;
-  font-size: 8.2cqw;
+  font-size: 58px;
   font-weight: 800;
-  line-height: 1.18;
-  letter-spacing: -0.02em;
+  line-height: 1.1;
+  letter-spacing: -0.035em;
   color: #191919;
-  word-break: keep-all;
 }
-.landing.notion .landing-hero-bubble h1 span { color: #3b6fe0; }
+.landing.notion .landing-hero h1 span { color: #3b6fe0; }
 .landing.notion .landing-sub {
-  max-width: none;
-  margin: 20px auto 0;
-  font-size: 17px;
-  line-height: 1.6;
+  max-width: 640px;
+  margin: 24px auto 0;
+  font-size: 18px;
+  line-height: 1.65;
   color: rgba(55, 53, 47, 0.65);
-  white-space: nowrap;
+  word-break: keep-all;
 }
 .landing.notion .landing-cta {
   display: flex;
@@ -4783,8 +4760,8 @@ td input {
 .landing.notion .landing-footer-links a:hover { color: #3b6fe0; }
 
 @media (max-width: 820px) {
-  .landing.notion .landing-hero { padding: 32px 24px 48px; }
-  .landing.notion .landing-sub { white-space: normal; word-break: keep-all; font-size: 15.5px; }
+  .landing.notion .landing-hero { padding: 64px 24px 56px; }
+  .landing.notion .landing-hero h1 { font-size: 40px; }
   .landing.notion .landing-preview-grid,
   .landing.notion .landing-feature-grid,
   .landing.notion .landing-step-grid { grid-template-columns: 1fr; }

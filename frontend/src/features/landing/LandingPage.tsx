@@ -1,8 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
 
-import heroIllustration from "./assets/hero-illustration.png";
-
 const steps = [
   {
     no: "01",
@@ -82,16 +80,12 @@ export function LandingPage() {
       </header>
 
       <section className="landing-hero">
-        <div className="landing-hero-figure">
-          <Image className="landing-hero-illustration" src={heroIllustration} alt="" aria-hidden="true" priority />
-          <div className="landing-hero-bubble">
-            <h1>
-              면접을 잇다.
-              <br />
-              더 많은 지원자에게 <span>공정한 기회</span>를.
-            </h1>
-          </div>
-        </div>
+        <span className="landing-pill">AI 인터뷰로 채용의 1차 검증을 자동화</span>
+        <h1>
+          면접을 잇다.
+          <br />
+          더 많은 지원자에게 <span>공정한 기회</span>를.
+        </h1>
         <p className="landing-sub">
           init은 지원자를 대화형 AI 인터뷰로 만나고, 답변·서류 근거가 담긴 리포트로 채용 결정을 돕습니다.
         </p>
