@@ -45,6 +45,7 @@ export function CompanyPostingsPage() {
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [items, setItems] = useState<Recruitment[]>([]);
+  const [allRecruitments, setAllRecruitments] = useState<Recruitment[]>([]);
   const [pageMeta, setPageMeta] = useState<PageMeta | null>(null);
   const [completion, setCompletion] = useState<Record<number, CompletionStat>>({});
   const [reviewPending, setReviewPending] = useState<number | null>(null);
@@ -53,7 +54,7 @@ export function CompanyPostingsPage() {
   const [loading, setLoading] = useState(false);
   const paginationPages = getRecruitmentPaginationPages(pageMeta);
 
-  // list API에는 응시 완료율이 없어 공고별 지원자를 읽어 면접 완료 비율을 계산한다.
+  // list API에는 응시 완료율이 없어 현재 페이지 공고별 지원자를 읽어 카드에 표시할 면접 완료 비율을 계산한다.
   const loadCompletion = useCallback(async (list: Recruitment[]) => {
     try {
       const results = await Promise.all(
@@ -61,16 +62,42 @@ export function CompanyPostingsPage() {
           const res = await listRecruitmentApplicants(item.recruitmentId, { page: 1, limit: 100 });
           const applicants = res.data.items;
           const done = applicants.filter((a) => INTERVIEW_DONE_STATUSES.includes(a.interviewStatus)).length;
-          const pending = applicants.filter((a) => a.screeningDecision === "UNDECIDED").length;
           const total = applicants.length;
           const rate = total > 0 ? Math.round((done / total) * 100) : 0;
-          return { id: item.recruitmentId, stat: { rate, done, total }, pending };
+          return { id: item.recruitmentId, stat: { rate, done, total } };
         }),
       );
-      setCompletion(Object.fromEntries(results.map((r) => [r.id, r.stat])));
-      setReviewPending(results.reduce((sum, r) => sum + r.pending, 0));
+      setCompletion((current) => ({ ...current, ...Object.fromEntries(results.map((r) => [r.id, r.stat])) }));
     } catch {
-      // 완료율/검토 대기는 보조 지표 — 실패해도 목록 자체는 유지한다.
+      // 완료율은 보조 지표 — 실패해도 목록 자체는 유지한다.
+    }
+  }, []);
+
+  // KPI(진행 중 공고·총 지원자·검토 대기·마감 임박)는 현재 페이지가 아니라 전체 공고 기준으로 집계한다.
+  const loadSummary = useCallback(async () => {
+    try {
+      const all: Recruitment[] = [];
+      let page = 1;
+      // 상태 필터/페이지와 무관하게 전체 공고를 모은다.
+      for (;;) {
+        const res = await listRecruitments({ page, limit: 100, sort: "createdAt", order: "desc" });
+        all.push(...res.data.items);
+        const meta = res.meta.page;
+        if (!meta || !meta.hasNext) break;
+        page += 1;
+      }
+      setAllRecruitments(all);
+
+      // 검토 대기(미정 전형)는 전체 공고의 지원자를 합산해야 "총" 의미가 맞는다.
+      const pendings = await Promise.all(
+        all.map(async (item) => {
+          const res = await listRecruitmentApplicants(item.recruitmentId, { page: 1, limit: 100 });
+          return res.data.items.filter((a) => a.screeningDecision === "UNDECIDED").length;
+        }),
+      );
+      setReviewPending(pendings.reduce((sum, n) => sum + n, 0));
+    } catch {
+      // 집계는 보조 지표 — 실패해도 목록 자체는 유지한다.
     }
   }, []);
 
@@ -108,7 +135,8 @@ export function CompanyPostingsPage() {
   useEffect(() => {
     void loadRecruitments("", "ALL");
     void loadCompanyProfile();
-  }, [loadCompanyProfile, loadRecruitments]);
+    void loadSummary();
+  }, [loadCompanyProfile, loadRecruitments, loadSummary]);
 
   useEffect(() => {
     if (items.length > 0) {
@@ -121,10 +149,10 @@ export function CompanyPostingsPage() {
     await loadRecruitments(q, statusFilter, { page: 1 });
   }
 
-  // KPI는 list 응답에서 파생 가능한 값만 사용한다.
-  const activeCount = items.filter((item) => ACTIVE_STATUSES.includes(item.status)).length;
-  const totalApplicants = items.reduce((sum, item) => sum + item.applicantCount, 0);
-  const closingItems = items.filter((item) => {
+  // KPI는 현재 페이지(items)가 아니라 전체 공고(allRecruitments) 기준으로 파생한다.
+  const activeCount = allRecruitments.filter((item) => ACTIVE_STATUSES.includes(item.status)).length;
+  const totalApplicants = allRecruitments.reduce((sum, item) => sum + item.applicantCount, 0);
+  const closingItems = allRecruitments.filter((item) => {
     const left = daysUntil(item.endsOn);
     return left !== null && left >= 0 && left <= 7 && item.status !== "CLOSED" && item.status !== "ARCHIVED";
   });

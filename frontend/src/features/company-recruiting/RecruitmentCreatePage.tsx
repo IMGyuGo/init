@@ -30,6 +30,8 @@ import createBanner from "./assets/create-banner.png";
 import choiceManual from "./assets/choice-manual.png";
 import choiceAi from "./assets/choice-ai.png";
 
+const MAX_GALLERY_IMAGES = 5;
+
 type FormState = {
   title: string;
   jobRole: string;
@@ -165,14 +167,24 @@ export function RecruitmentCreatePage() {
     event.currentTarget.value = "";
     if (files.length === 0) return;
 
+    // 업로드 전 남은 슬롯을 계산해 초과분은 아예 올리지 않는다.
+    const remaining = MAX_GALLERY_IMAGES - form.structuredJobDescription.gallery.length;
+    if (remaining <= 0) {
+      setGalleryMessage(`공고 이미지는 최대 ${MAX_GALLERY_IMAGES}장까지 등록할 수 있어요. 기존 이미지를 삭제한 뒤 다시 추가해주세요.`);
+      return;
+    }
+    const accepted = files.slice(0, remaining);
+    const overflowCount = files.length - accepted.length;
+
     setGalleryUploading(true);
     setGalleryMessage("");
     try {
       const uploaded: StructuredJobImage[] = [];
-      for (const file of files) {
+      let invalidCount = 0;
+      for (const file of accepted) {
         const validation = validateJobDescriptionImageFile(file);
         if (!validation.ok) {
-          setGalleryMessage(validation.message);
+          invalidCount += 1;
           continue;
         }
         const result = await uploadJobDescriptionImage(file);
@@ -184,11 +196,16 @@ export function RecruitmentCreatePage() {
           ...current,
           structuredJobDescription: {
             ...current.structuredJobDescription,
-            gallery: [...current.structuredJobDescription.gallery, ...uploaded].slice(0, 5),
+            gallery: [...current.structuredJobDescription.gallery, ...uploaded].slice(0, MAX_GALLERY_IMAGES),
           },
         }));
-        setGalleryMessage(`${uploaded.length}장의 이미지를 추가했습니다.`);
       }
+
+      const parts: string[] = [];
+      if (uploaded.length > 0) parts.push(`${uploaded.length}장을 추가했어요.`);
+      if (overflowCount > 0) parts.push(`최대 ${MAX_GALLERY_IMAGES}장 제한으로 ${overflowCount}장은 제외했어요.`);
+      if (invalidCount > 0) parts.push(`${invalidCount}장은 형식/용량이 맞지 않아 제외했어요.`);
+      setGalleryMessage(parts.length > 0 ? parts.join(" ") : "추가된 이미지가 없어요.");
     } catch (error) {
       setGalleryMessage(error instanceof Error ? error.message : "공고 이미지 업로드에 실패했습니다.");
     } finally {
