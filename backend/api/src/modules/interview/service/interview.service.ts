@@ -29,6 +29,10 @@ import {
   StartMockInterviewResult,
 } from "../interview.runtime.types";
 import { AiJobDispatcherService } from "../../report/service/ai-job-dispatcher.service";
+import {
+  CandidateMockInterviewPassService,
+  type CandidateMockInterviewPassPort,
+} from "../../payment/service/candidate-mock-interview-pass.service";
 import { INTERVIEW_REPOSITORY, type FollowUpQuestionPolicy, type InterviewRepository } from "../repository/interview.repository";
 import {
   InMemoryInterviewMediaStorageAdapter,
@@ -44,6 +48,18 @@ export type UploadedInterviewMediaFile = {
   buffer: Buffer;
 };
 
+type AnswerRequestBody = {
+  questionId: number;
+  videoFileId?: number;
+  videoFile?: RuntimeFileAssetDto;
+  audioFileId?: number;
+  audioFile?: RuntimeFileAssetDto;
+  durationSeconds: number;
+  allowReanswer: boolean;
+  skipReason?: "RECORDING_VALIDATION_FAILED";
+  retryAnswerId?: number;
+};
+
 @Injectable()
 export class InterviewService {
   constructor(
@@ -55,6 +71,9 @@ export class InterviewService {
     @Optional()
     @Inject(INTERVIEW_MEDIA_STORAGE)
     private readonly mediaStorage: InterviewMediaStoragePort = new InMemoryInterviewMediaStorageAdapter(),
+    @Optional()
+    @Inject(CandidateMockInterviewPassService)
+    private readonly mockInterviewPasses?: CandidateMockInterviewPassPort,
   ) {}
 
   async listOwnedMockInterviewSessions(currentUser: CurrentCandidateUser): Promise<RuntimeInterviewSession[]> {
@@ -81,6 +100,7 @@ export class InterviewService {
     const showQuestionText = requestBody.showQuestionText === true;
     const questionIds = await this.selectMockQuestionIds(dto);
     const now = new Date().toISOString();
+    await this.mockInterviewPasses?.consumePass(currentUser.candidateId, 1, undefined, new Date(now));
     const session = await this.interviewRepository.createMockSession({
       candidateId: currentUser.candidateId,
       showQuestionText,
@@ -355,8 +375,12 @@ export class InterviewService {
     dto: SaveInterviewAnswerDto,
     currentUser: CurrentCandidateUser,
   ): Promise<{ data: SaveInterviewAnswerResult; meta: { traceId: string; timestamp: string } }> {
-    this.assertInProgress(session);
     const requestBody = this.assertAnswerRequest(dto);
+    if (!requestBody.allowReanswer && !requestBody.retryAnswerId) {
+      session = await this.syncCurrentQuestionToFirstUnanswered(session);
+    }
+
+    this.assertInProgress(session);
 
     let existingAnswer: InterviewAnswer | undefined;
     if (requestBody.retryAnswerId) {
@@ -374,7 +398,6 @@ export class InterviewService {
       }
       session.currentQuestionIndex = retryQuestionIndex;
     } else {
-      session = await this.syncCurrentQuestionToFirstUnanswered(session);
       const currentQuestionId = this.currentQuestionId(session);
       if (requestBody.questionId !== currentQuestionId) {
         throw new CandidateDomainError("COMMON_CONFLICT", "Answer must match the current question.", 409, [
@@ -382,11 +405,16 @@ export class InterviewService {
         ]);
       }
       existingAnswer = await this.interviewRepository.findAnswer(session.sessionId, requestBody.questionId);
-      if (existingAnswer) {
+      if (existingAnswer && !requestBody.allowReanswer) {
         throw new CandidateDomainError("COMMON_CONFLICT", "Current question has already been answered.", 409, [
           { field: "questionId", reason: "question already answered" },
         ]);
       }
+    }
+    if (!existingAnswer && requestBody.allowReanswer) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "Reanswer requires an existing answer.", 409, [
+        { field: "questionId", reason: "question answer is missing" },
+      ]);
     }
 
     const skippedForRecordingValidation = requestBody.skipReason === "RECORDING_VALIDATION_FAILED";
@@ -422,12 +450,19 @@ export class InterviewService {
       durationSeconds: requestBody.durationSeconds,
       submittedAt,
     };
-    const answer = requestBody.retryAnswerId && existingAnswer
-      ? await this.interviewRepository.updateAnswer({
-          ...answerInput,
-          answerId: existingAnswer.answerId,
+    const answer = requestBody.allowReanswer && existingAnswer
+      ? await this.replaceAnswerAfterReanswerRequest(session, existingAnswer, {
+          videoFileId: videoFile?.fileId,
+          audioFileId: audioFile?.fileId,
+          durationSeconds: requestBody.durationSeconds,
+          submittedAt,
         })
-      : await this.interviewRepository.createAnswer(answerInput);
+      : requestBody.retryAnswerId && existingAnswer
+        ? await this.interviewRepository.updateAnswer({
+            ...answerInput,
+            answerId: existingAnswer.answerId,
+          })
+        : await this.interviewRepository.createAnswer(answerInput);
     session.updatedAt = submittedAt;
     await this.interviewRepository.saveRuntimeSession(session);
 
@@ -727,6 +762,54 @@ export class InterviewService {
     });
   }
 
+  private async replaceAnswerAfterReanswerRequest(
+    session: RuntimeInterviewSession,
+    answer: InterviewAnswer,
+    input: {
+      videoFileId?: number;
+      audioFileId?: number;
+      durationSeconds: number;
+      submittedAt: string;
+    },
+  ): Promise<InterviewAnswer> {
+    await this.assertReanswerAllowed(session, answer);
+    return this.interviewRepository.replaceAnswer({
+      answerId: answer.answerId,
+      videoFileId: input.videoFileId,
+      audioFileId: input.audioFileId,
+      durationSeconds: input.durationSeconds,
+      submittedAt: input.submittedAt,
+    });
+  }
+
+  private async assertReanswerAllowed(session: RuntimeInterviewSession, answer: InterviewAnswer): Promise<void> {
+    if (answer.transcript?.trim()) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "Reanswer is allowed only when transcript is missing.", 409, [
+        { field: "answerId", reason: "answer already has transcript" },
+      ]);
+    }
+
+    const failures = await this.interviewRepository.listReanswerRequiredFailures(session.sessionId, answer.answerId);
+    if (failures.length !== 1) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "Reanswer is allowed only once after REANSWER_REQUIRED.", 409, [
+        { field: "answerId", reason: failures.length > 1 ? "reanswer limit exceeded" : "REANSWER_REQUIRED failure not found" },
+      ]);
+    }
+
+    const failure = failures[0];
+    if (!failure) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "REANSWER_REQUIRED failure was not found.", 409, [
+        { field: "answerId", reason: "REANSWER_REQUIRED failure not found" },
+      ]);
+    }
+
+    if (Date.parse(answer.submittedAt) > Date.parse(failure.createdAt)) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "Reanswer has already been submitted.", 409, [
+        { field: "answerId", reason: "answer was submitted after the latest REANSWER_REQUIRED failure" },
+      ]);
+    }
+  }
+
   private aiJobKind(interviewType: RuntimeInterviewSession["interviewType"], processType: "STT" | "FOLLOW_UP"): string {
     if (processType === "STT") {
       return interviewType === "MOCK" ? "MOCK_INTERVIEW_STT" : "RECRUITING_INTERVIEW_STT";
@@ -959,16 +1042,7 @@ export class InterviewService {
     return [...fallbackBySortOrder.values()].map((question) => question.questionId);
   }
 
-  private assertAnswerRequest(dto: SaveInterviewAnswerDto): {
-    questionId: number;
-    videoFileId?: number;
-    videoFile?: RuntimeFileAssetDto;
-    audioFileId?: number;
-    audioFile?: RuntimeFileAssetDto;
-    durationSeconds: number;
-    skipReason?: "RECORDING_VALIDATION_FAILED";
-    retryAnswerId?: number;
-  } {
+  private assertAnswerRequest(dto: SaveInterviewAnswerDto): AnswerRequestBody {
     const requestBody = this.toRequestBody(dto, "answer");
     if (!this.isPositiveInteger(requestBody.questionId)) {
       throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "questionId is invalid.", 400, [
@@ -978,6 +1052,11 @@ export class InterviewService {
     if (requestBody.retryAnswerId !== undefined && !this.isPositiveInteger(requestBody.retryAnswerId)) {
       throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "retryAnswerId is invalid.", 400, [
         { field: "retryAnswerId", reason: "retryAnswerId must be a positive integer" },
+      ]);
+    }
+    if (requestBody.allowReanswer === true && requestBody.retryAnswerId !== undefined) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "retryAnswerId cannot be combined with allowReanswer.", 400, [
+        { field: "retryAnswerId", reason: "retryAnswerId and allowReanswer are mutually exclusive" },
       ]);
     }
     const skippedForRecordingValidation = requestBody.skipReason === "RECORDING_VALIDATION_FAILED";
@@ -1008,15 +1087,9 @@ export class InterviewService {
       ]);
     }
 
-    return requestBody as {
-      questionId: number;
-      videoFileId?: number;
-      videoFile?: RuntimeFileAssetDto;
-      audioFileId?: number;
-      audioFile?: RuntimeFileAssetDto;
-      durationSeconds: number;
-      skipReason?: "RECORDING_VALIDATION_FAILED";
-      retryAnswerId?: number;
+    return {
+      ...(requestBody as Omit<AnswerRequestBody, "allowReanswer">),
+      allowReanswer: requestBody.allowReanswer === true,
     };
   }
 

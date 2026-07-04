@@ -1,5 +1,23 @@
 # ERD
 
+## Payment Addendum
+
+상세 PM ERD 문서: `.PM/payments/결제-erd.md`
+
+새 결제 관계 요약:
+
+```mermaid
+erDiagram
+  users ||--o{ payment_customers : owns
+  companies ||--o{ payment_customers : has
+  candidate_profiles ||--o{ payment_customers : has
+  payment_customers ||--o{ payment_orders : creates
+  companies ||--o{ payment_orders : owns
+  candidate_profiles ||--o{ payment_orders : owns
+  candidate_profiles ||--o{ candidate_mock_interview_pass_ledgers : owns
+  payment_orders ||--o{ candidate_mock_interview_pass_ledgers : grants
+```
+
 > Source: `init/docs/00_source` 기준. Generated at 2026-06-27.
 
 ERDCloud SQL을 사람이 읽는 테이블/관계 문서로 변환한다.

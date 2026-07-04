@@ -714,6 +714,46 @@ test("report generation stores scores and evidences after guardrail pass", async
   assert.equal(report?.scores[0].evidences.length, 2);
 });
 
+test("report generation uses temporary zero score when STT transcript is unavailable", async () => {
+  const results = new InMemoryAiResultRepository();
+
+  await run({
+    processLogId: 34,
+    processType: "REPORT_GENERATE",
+    input: {
+      payload: {
+        reportId: 34,
+        reportType: "MOCK_INTERVIEW_REPORT",
+        jobDescription: "Mock interview practice session",
+        criteria: [
+          {
+            criterionId: 1,
+            name: "Communication",
+            weight: 40
+          }
+        ],
+        answers: [
+          {
+            answerId: 10,
+            question: "Describe the project.",
+            evaluationStatus: "STT_UNAVAILABLE",
+            transcriptUnavailableReason: "STT failed because the audio file was unsupported."
+          }
+        ]
+      }
+    },
+    results
+  });
+
+  const report = results.generatedReports.get(34);
+  assert.equal(report?.reportType, "MOCK_INTERVIEW_REPORT");
+  assert.equal(report?.totalScore, 0);
+  assert.equal(report?.scores[0]?.score, 0);
+  assert.equal(report?.scores[0]?.rubricAnchor, "STT_UNAVAILABLE_TEMP_ZERO");
+  assert.match(report?.scores[0]?.rationale ?? "", /STT failed/);
+  assert.equal(report?.questionEvaluations[0]?.answerId, 10);
+});
+
 test("mock report generation marks report failed when expression policy is blocked", async () => {
   const results = new InMemoryAiResultRepository();
   const repository = new InMemoryAiProcessLogRepository();

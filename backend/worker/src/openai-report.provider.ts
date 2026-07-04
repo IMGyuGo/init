@@ -14,6 +14,8 @@ export interface ReportGenerationAnswer {
   answerId: number;
   question?: string;
   transcript: string;
+  evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
+  transcriptUnavailableReason?: string;
 }
 
 export interface ReportGenerationInput {
@@ -55,7 +57,7 @@ export class OpenAiReportProvider implements ReportAiProvider {
         {
           role: "system",
           content:
-            "You write concise Korean interview feedback reports. Return JSON only with keys summary and feedback. All JSON string values must be written in Korean. Evaluate only evidence found in answer transcripts, JD, and submitted documents. Do not include hiring pass/fail judgments. Do not infer or score sensitive attributes, appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, or health. For mock interview reports, never mention acceptance, rejection, hiring fit, or pass/fail."
+            "You write concise Korean interview feedback reports. Return JSON only with keys summary and feedback. All JSON string values must be written in Korean. Evaluate only evidence found in answer transcripts, JD, and submitted documents. If an answer has evaluationStatus STT_UNAVAILABLE, state that it is temporarily scored as 0 because speech recognition failed and do not infer answer quality from it. Do not include hiring pass/fail judgments. Do not infer or score sensitive attributes, appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, or health. For mock interview reports, never mention acceptance, rejection, hiring fit, or pass/fail."
         },
         {
           role: "user",

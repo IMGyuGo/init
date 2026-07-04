@@ -1,5 +1,4 @@
 import "../styles/globals.css";
-import "../styles/global.css";
 
 import { AuthProvider } from "@/features/auth/AuthProvider";
 

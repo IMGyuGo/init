@@ -129,6 +129,71 @@ describe("AiReportPipelineService", () => {
     expect(result.questionEvaluations).toHaveLength(1);
   });
 
+  it("generates a report with temporary zero score when STT transcript is unavailable", async () => {
+    const request = validGenerateRequest();
+    request.answers = [
+      {
+        answerId: 10,
+        question: "Describe your Redis experience.",
+        evaluationStatus: "STT_UNAVAILABLE",
+        transcriptUnavailableReason: "STT failed because the audio file was unsupported."
+      }
+    ];
+
+    const result = await service.generate({
+      currentUser: { userId: 1, userType: "COMPANY", companyId: 1 },
+      reportId: 1,
+      body: request
+    });
+
+    expect(result.status).toBe("COMPLETED");
+    expect(result.report.status).toBe("COMPLETED");
+    expect(result.totalScore).toBe(0);
+    expect(result.scores[0]).toMatchObject({
+      score: 0,
+      rubricAnchor: "STT_UNAVAILABLE_TEMP_ZERO",
+      confidence: "LOW"
+    });
+    expect(result.scores[0].rationale).toContain("STT failed");
+    expect(result.questionEvaluations[0]).toMatchObject({
+      answerId: 10,
+      rubricAnchor: "STT_UNAVAILABLE_TEMP_ZERO"
+    });
+  });
+
+  it("keeps temporary zero score evidence for unavailable transcripts beyond criterion count", async () => {
+    const request = validGenerateRequest();
+    request.answers = [
+      ...request.answers,
+      {
+        answerId: 11,
+        question: "Describe your cache invalidation policy.",
+        evaluationStatus: "STT_UNAVAILABLE",
+        transcriptUnavailableReason: "STT failed because speech was not detected."
+      }
+    ];
+
+    const result = await service.generate({
+      currentUser: { userId: 1, userType: "COMPANY", companyId: 1 },
+      reportId: 1,
+      body: request
+    });
+
+    const unavailableQuestion = result.questionEvaluations.find((evaluation) => evaluation.answerId === 11);
+    const unavailableScore = result.scores.find((score) => score.rubricAnchor === "STT_UNAVAILABLE_TEMP_ZERO");
+
+    expect(result.status).toBe("COMPLETED");
+    expect(result.scores).toHaveLength(2);
+    expect(unavailableQuestion).toMatchObject({
+      answerId: 11,
+      rubricAnchor: "STT_UNAVAILABLE_TEMP_ZERO"
+    });
+    expect(unavailableScore).toMatchObject({
+      score: 0,
+      confidence: "LOW"
+    });
+  });
+
   it("records unexpected report generation failures as retryable without storing final scores", async () => {
     const failedProvider = new MockAiReportProvider();
     jest.spyOn(failedProvider, "generate").mockImplementation(() => {

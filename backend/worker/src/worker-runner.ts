@@ -1,17 +1,18 @@
 import { AiJobQueue } from "./queue";
 import { AiProcessLogRepository } from "./process-log.repository";
-import { NonRetryableAiWorkerFailure, toFailureReason } from "./worker-errors";
+import { NonRetryableAiWorkerFailure, isRetryableFailureCategory, toFailureReason } from "./worker-errors";
 import { AiQueueMessage, AiTaskHandler, AiWorkerJob, FailureReason } from "./worker.types";
 
 export interface AiWorkerRunnerOptions {
   maxMessages?: number;
+  maxRetryableReceives?: number;
   guardrailPolicyName?: string;
   onStart?: (job: AiWorkerJob) => Promise<void>;
   onFailure?: (job: AiWorkerJob, failure: FailureReason) => Promise<void>;
 }
 
 export class AiWorkerRunner {
-  private readonly options: Required<Pick<AiWorkerRunnerOptions, "maxMessages" | "guardrailPolicyName">> &
+  private readonly options: Required<Pick<AiWorkerRunnerOptions, "maxMessages" | "maxRetryableReceives" | "guardrailPolicyName">> &
     Pick<AiWorkerRunnerOptions, "onStart" | "onFailure">;
 
   constructor(
@@ -22,6 +23,7 @@ export class AiWorkerRunner {
   ) {
     this.options = {
       maxMessages: 1,
+      maxRetryableReceives: 3,
       guardrailPolicyName: "AI_WORKER_OUTPUT_VALIDATE",
       ...options
     };
@@ -51,10 +53,11 @@ export class AiWorkerRunner {
         );
 
         if (result.guardrail.result === "BLOCKED") {
+          const category = result.guardrail.failureCategory ?? "NON_RETRYABLE";
           await this.failAndAck(message, {
-            category: result.guardrail.failureCategory ?? "NON_RETRYABLE",
+            category,
             reason: result.guardrail.reason ?? "guardrail blocked output",
-            retryable: result.guardrail.failureCategory === "RETRYABLE"
+            retryable: isRetryableFailureCategory(category)
           });
           return;
         }
@@ -71,7 +74,12 @@ export class AiWorkerRunner {
       await this.queue.delete(message);
     } catch (error) {
       const failure = toFailureReason(error);
-      if (failure.category === "RETRYABLE") {
+      if (isRetryableFailureCategory(failure.category)) {
+        if (this.retryableReceiveCount(message) > this.options.maxRetryableReceives) {
+          await this.failAndAck(message, this.retryLimitExceededFailure(failure));
+          return;
+        }
+
         await this.markFailed(message, failure);
         return;
       }
@@ -88,5 +96,18 @@ export class AiWorkerRunner {
   private async markFailed(message: AiQueueMessage, failure: FailureReason): Promise<void> {
     await this.options.onFailure?.(message.job, failure);
     await this.repository.markFailed(message.job.processLogId, failure);
+  }
+
+  private retryableReceiveCount(message: AiQueueMessage): number {
+    return message.receiveCount ?? message.job.attempt;
+  }
+
+  private retryLimitExceededFailure(failure: FailureReason): FailureReason {
+    const prefix = failure.category === "STT_RETRYABLE" ? "STT retry limit exceeded" : "Retry limit exceeded";
+    return {
+      category: "NON_RETRYABLE",
+      reason: `${prefix} after ${this.options.maxRetryableReceives} total attempts: ${failure.reason}`,
+      retryable: false
+    };
   }
 }

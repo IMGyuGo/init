@@ -404,6 +404,56 @@ border-color:#7E7EFF; box-shadow:0 0 0 3px rgba(110,91,246,.14);
 
 ---
 
+## 14. 노션 테마 (기업 화면 현행 기준)
+
+> **현행 우선.** 기업(B) 화면은 §13(글라스/애플)을 대체해 **노션 톤**을 기준으로 한다. 그라데이션·글라스 블러·라디얼 글로우는 쓰지 않는다. 재질은 "흰 면 + 얇은 hairline + 절제된 단색 포인트" 하나로 통일한다.
+
+### 적용 방식 (핵심)
+- **디자인은 CSS에 있고, 페이지는 클래스만 붙인다.** 실제 스타일은 `frontend/src/styles/globals.css`의 노션 블록(`.notion`, `.glass-page.notion …`).
+- **CSS는 단일 파일.** 기존 `global.css`(A)는 `globals.css` 끝에 통합했고 `global.css`는 삭제. `app/layout.tsx`는 `globals.css` 하나만 import한다. 통합 규칙은 캐스케이드 순서 유지를 위해 파일 하단에 붙였다.
+- 새 기업 화면에 적용하려면 루트 섹션에 클래스 추가:
+  ```tsx
+  <section className="app-page glass-page notion">                        // 기본
+  <section className="app-page glass-page notion list-page">              // 넓은 리스트/그리드형(공고 목록)
+  <section className="app-page glass-page notion posting-create-page">    // 공고 생성 위저드
+  ```
+- 폰트는 페이지에 `Inter`가 상속되고, 헤더(GNB)도 `Inter`로 플랫 처리된다. 공개 지원 폼도 `.candidate-public-page.notion`으로 같은 톤을 쓴다.
+
+### 토큰
+| 용도 | 값 |
+|---|---|
+| 잉크(본문) | `#37352F` |
+| 헤딩/강조 텍스트 | `#191919` |
+| 보조 텍스트 | `rgba(55,53,47,0.6)` · 캡션 `rgba(55,53,47,0.45)` |
+| hairline 보더 | `rgba(55,53,47,0.1)` (강조 `0.16`) · 구분선 `0.12` |
+| 배경 | `#FFFFFF` (보조 면 `#FBFBFA` / 피처카드 `#F7F7F5`) |
+| 강조(포인트) 블루 | `#3B6FE0` (hover `#315FC6`) — 링크·주 버튼·활성·포커스·진행바·강조 숫자·카드 hover 보더 |
+| 위험(삭제) | `#E03E3E` (hover `#C0392B`) |
+| 폰트 | `Inter` (`-apple-system` 폴백) |
+| 라운드 | 컨트롤 6px · 카드 10~14px · 배지/태그 4px |
+| 그림자 | **기본 없음(테두리로 구분).** 배너·카드도 그림자 미사용, hairline로만 구분. |
+
+### 컴포넌트 규칙
+- **버튼**: primary = 파랑 `#3B6FE0`(radius 6, 그림자 없음), secondary = 흰 배경 + hairline, destructive/`primary.danger` = 레드.
+- **헤더(GNB)**: 전체폭 플랫 흰 바 + 하단 hairline. 로고(이미지 `logo-init*.png`) 왼쪽 / 메뉴 오른쪽 / 액션 오른쪽, **로그아웃 버튼이 맨 오른쪽**. 아이콘 버튼 고스트, 드롭다운 hover는 **파랑**(보라 금지).
+- **패널/KPI/테이블/모달/빈상태**: 흰 면 + hairline, 그림자·블러 제거. KPI는 **흰 배경 + hairline**(hover 시 파란 테두리) + 컬러 아이콘, 강조 숫자만 블루.
+- **상태 뱃지**: 노션 파스텔 태그색 — 모집중 초록 `#0F7A43/#D5F2DF`, 마감임박 주황 `#D9730D/#FAEBDD`, 마감 빨강 `#C4554D/#FDEBEC`, 정보 파랑 `#337EA9/#E7F3F8`, 중립 회색 `#787774/#F1F1EF`. 앞에 컬러 dot. 공고 카드 태그는 축소형(20px).
+- **eyebrow**: 영문 대문자·보라 금지 → 작은 회색 라벨.
+- **페이지 전환**: 라우트 진입 시 `.glass-page.notion.app-page`에 슬라이드업(`pageEnter`, opacity 페이드 없음 — A 배경 틴트 노출 방지). `.app-shell` 배경 흰색으로 전환 중 틴트 플래시 제거. `prefers-reduced-motion` 대응.
+
+### 화면 유형별 변형
+- **배너**: **평평(투명 배경, 그림자·테두리 없음) + 하단 hairline 구분선.** 좌측 카피(eyebrow·큰 헤딩·설명·버튼) + 우측 일러스트(`assets/*-banner.png` 등, 300px). 목록·설정·생성·지원자 관리·계정 화면에 통일 적용.
+- **리스트/그리드형(`list-page`)**: 공고 카드 **노션 갤러리식** — 상단 커버(JD 첫 이미지 → 회사 로고 → `posting-no-image` placeholder 순 fallback), 본문에 상태 태그·제목·`지원 N · 완료 X%`. 한 줄 **4열**(반응형 3/2/1), hairline 카드 + hover 톤/파란 보더, 그림자 없음. 상단 상태 **필터 칩 밴드**(활성 파랑).
+- **공고 생성 위저드(`posting-create-page`)**: 인트로 → **작성 방식 선택 카드(직접 입력 / AI 초안)** → (AI 시) AI 입력 → 단계형 위저드(기본정보 → 이미지 → 상세 섹션별 → 태그) → 생성 후 면접 설정. 단계 전환은 **PPT식 슬라이드**(`wizard-slide`, reduced-motion 대응), 상단 진행바 + 단계별 💡 가이드. 진입 모드별 배너 일러스트.
+  - **AI 초안 = 데모용 목업**(`posting-ai-draft.ts`, 실제 AI 호출 아님, 배지로 명시). 실제 연동 시 백엔드 async 엔드포인트(예: `POST /company/recruitments/jd/generate`, 202) + worker + 계약 추가 후 호출부만 교체.
+
+### 적용 범위 / 제외
+- 적용: 공고 목록·생성·대시보드·지원자 관리·공고 설정·평가 상세·기업 마이페이지(계정)·**공개 지원 폼**(`candidate-public-page.notion`).
+- 공개 지원 폼: 가짜 사이트 nav·"지도 영역" placeholder·빈 갤러리 박스 제거, 로고 이미지화. 상단 로고 바만 유지.
+- **제외: 면접 설정(브릿지) 화면** — 노션 미적용(별도 유지). C `/company/interviews/settings`는 대상 아님.
+
+---
+
 ## 체크리스트 — 새 페이지 만들 때
 
 - [ ] 검토용 셸(`device`, `chrome`, `review-nav`)이 아니라 `.app` 내부 배치만 구현했는가

@@ -108,7 +108,8 @@ export class CompanyRecruitingService {
     const companyId = requireCompanyId(user);
     this.assertJobDescriptionImageFile(file);
 
-    const storageKey = buildJobDescriptionImageStorageKey(companyId, file.originalName);
+    const originalName = normalizeUploadedFileName(file.originalName);
+    const storageKey = buildJobDescriptionImageStorageKey(companyId, originalName);
     await this.storageAdapter.putObject({
       key: storageKey,
       body: file.buffer,
@@ -118,7 +119,7 @@ export class CompanyRecruitingService {
     const fileAsset = await this.repository.createFileAsset({
       ownerUserId: user.userId,
       storageKey,
-      originalName: file.originalName,
+      originalName,
       mimeType: file.mimeType,
       sizeBytes: file.sizeBytes,
     });
@@ -609,6 +610,25 @@ function sanitizeFileName(originalName: string) {
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "");
   return sanitized || "image";
+}
+
+function normalizeUploadedFileName(originalName: string) {
+  const trimmed = originalName.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  const decoded = decodeLatin1MojibakeFileName(trimmed).trim();
+  return (decoded || trimmed).normalize("NFC");
+}
+
+function decodeLatin1MojibakeFileName(fileName: string) {
+  if (!/[\u0080-\u00ff]/.test(fileName)) {
+    return fileName;
+  }
+
+  const decoded = Buffer.from(fileName, "latin1").toString("utf8");
+  return decoded.includes("\uFFFD") ? fileName : decoded;
 }
 
 function buildPublicFileUrl(storageKey: string, configuredBaseUrl: string | undefined) {

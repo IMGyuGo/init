@@ -1,8 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import { getCompanyProfile, updateCompanyProfile, uploadCompanyLogo } from "./api";
+import accountBanner from "../company-recruiting/assets/account-banner.png";
 import { COMPANY_LOGO_ACCEPT, validateCompanyLogoFile } from "./company-profile-logo-upload";
 import type { CompanyProfile, UpdateCompanyProfileInput } from "./types";
 
@@ -132,15 +134,17 @@ export function CompanyMypagePage() {
   }
 
   return (
-    <section className="app-page company-mypage-page">
-      <div className="page-head">
-        <div>
+    <section className="app-page glass-page notion company-mypage-page">
+      <div className="page-banner">
+        <div className="page-banner-copy">
+          <p className="page-eyebrow">계정 설정</p>
           <h1>계정</h1>
           <p className="page-sub">회사 정보와 채용 운영 기본값을 관리합니다.</p>
+          <button className="btn secondary banner-cta" type="button" onClick={() => void loadProfile()} disabled={loading || saving || uploadingLogo}>
+            새로고침
+          </button>
         </div>
-        <button className="btn secondary" type="button" onClick={() => void loadProfile()} disabled={loading || saving || uploadingLogo}>
-          새로고침
-        </button>
+        <Image className="page-banner-art" src={accountBanner} alt="" width={300} height={300} aria-hidden="true" priority />
       </div>
 
       {message ? <p className="notice">{message}</p> : null}
