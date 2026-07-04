@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
@@ -7,6 +8,7 @@ import { getRecruitment, listRecruitmentApplicants } from "./api";
 import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
 import { buildPaginationRange } from "./pagination";
 import type { Applicant, PageMeta, Recruitment } from "./types";
+import applicantsBanner from "./assets/applicants-banner.png";
 
 const applicantPageSize = 20;
 
@@ -63,8 +65,8 @@ export function RecruitmentApplicantsPage({ recruitmentId }: { recruitmentId: nu
 
   return (
     <section className="app-page glass-page notion">
-      <div className="page-head">
-        <div>
+      <div className="page-banner">
+        <div className="page-banner-copy">
           <Breadcrumb
             items={[
               { label: "공고 목록", href: "/company/recruitments" },
@@ -75,6 +77,7 @@ export function RecruitmentApplicantsPage({ recruitmentId }: { recruitmentId: nu
           <h1>지원자 관리</h1>
           <p className="page-sub">공개 지원 링크로 제출된 지원자와 평가 상태를 확인합니다.</p>
         </div>
+        <Image className="page-banner-art applicants-art" src={applicantsBanner} alt="" width={420} height={145} aria-hidden="true" priority />
       </div>
 
       <section className="panel">

@@ -94,7 +94,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
 
         {evaluation ? (
           <>
-            <section className="kpi-row">
+            <section className="kpi-row status-row">
               <div className="kpi">
                 <span>지원 상태</span>
                 <strong>{formatRecruitingStatusLabel(evaluation.statuses.applicationStatus)}</strong>
