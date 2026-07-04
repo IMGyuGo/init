@@ -8,7 +8,10 @@ import StarterKit from "@tiptap/starter-kit";
 
 export function getJobDescriptionExtensions() {
   return [
-    StarterKit,
+    StarterKit.configure({
+      link: false,
+      underline: false,
+    }),
     Underline,
     TextStyle,
     Color,

@@ -19,7 +19,7 @@ export function CompanyNav({ active }: { active?: CompanyNavSection }) {
     <header className="gnb">
       <div className="gnb-inner">
         <Link className="brand" href="/company/recruitments">
-          <Image src="/logo-init.png" alt="init" width={1010} height={375} priority />
+          <Image src="/logo-init-v2.png" alt="init" width={1150} height={470} priority />
         </Link>
         <nav className="gnb-menu" aria-label="기업 메뉴">
           <div className={`gnb-item ${current === "postings" ? "active" : ""}`}>
@@ -56,7 +56,6 @@ export function CompanyNav({ active }: { active?: CompanyNavSection }) {
           </div>
         </nav>
         <div className="gnb-right">
-          <GnbLogoutButton />
           <button className="icon-btn" type="button" aria-label="알림">
             <svg
               width="18"
@@ -74,6 +73,7 @@ export function CompanyNav({ active }: { active?: CompanyNavSection }) {
             </svg>
           </button>
           <GnbAvatar accountLabel="기업 계정" />
+          <GnbLogoutButton />
         </div>
       </div>
     </header>
