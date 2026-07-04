@@ -3807,6 +3807,7 @@ function MockMediaView({ media }: { media: CandidateMockReportMedia }) {
 function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockReportMedia["media"][number]; questionNumber: number }) {
   const videoUrl = getCachedRecordingObjectUrl(item.videoFile?.storageKey);
   const audioUrl = getCachedRecordingObjectUrl(item.audioFile?.storageKey);
+  const practiceGuide = buildMockAnswerPracticeGuide(item);
 
   return (
     <article className="report-answer-card">
@@ -3834,6 +3835,7 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
           <strong>스크립트</strong>
           <p>{item.transcript ?? (item.transcriptStatus === "AVAILABLE" ? "스크립트를 불러오는 중입니다." : "STT 처리 대기 중입니다.")}</p>
           <FollowUpQuestionList questions={item.followUpQuestions} />
+          <AnswerPracticeGuideView guide={practiceGuide} />
           <dl className="report-answer-meta">
             <Definition label="답변 시간" value={`${item.durationSeconds}s`} />
           </dl>
@@ -3846,6 +3848,121 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
       </div>
     </article>
   );
+}
+
+type AnswerPracticeGuide = {
+  example: string;
+  gaps: string[];
+};
+
+function AnswerPracticeGuideView({ guide }: { guide: AnswerPracticeGuide }) {
+  return (
+    <section className="report-practice-guide">
+      <h4>고득점 답변 가이드</h4>
+      <div className="report-practice-guide__block">
+        <strong>좋은 답변 예시</strong>
+        <p>{guide.example}</p>
+      </div>
+      <div className="report-practice-guide__block">
+        <strong>내 답변 보완점</strong>
+        <ul>
+          {guide.gaps.map((gap) => (
+            <li key={gap}>{gap}</li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function buildMockAnswerPracticeGuide(item: CandidateMockReportMedia["media"][number]): AnswerPracticeGuide {
+  const transcript = item.transcript ?? "";
+  return {
+    example: buildMockAnswerExample(item),
+    gaps: buildMockAnswerGaps(item.questionType, item.questionContent, transcript),
+  };
+}
+
+function buildMockAnswerExample(item: CandidateMockReportMedia["media"][number]): string {
+  const question = item.questionContent ?? "";
+
+  if (item.questionType === "INTRO" || question.includes("자기소개")) {
+    return "저는 백엔드 개발자를 목표로 준비하고 있습니다. 최근 프로젝트에서 NestJS와 PostgreSQL 기반의 답변 저장, LocalStack S3 파일 저장, SQS worker 처리 흐름을 연결했고, 제가 맡은 역할은 녹음 Blob 검증부터 file_assets 저장, worker payload 전달, transcript 갱신 확인까지였습니다. 결과적으로 답변 저장 이후 STT와 꼬리질문이 화면에 자연스럽게 이어지도록 만들었습니다.";
+  }
+
+  if (item.questionType === "TECHNICAL" || question.includes("어려웠던") || question.includes("기술")) {
+    return "가장 어려웠던 문제는 음성 파일은 저장됐지만 worker STT가 실패하는 원인을 찾는 것이었습니다. Blob 크기, MIME type, S3 storageKey, file_assets row, SQS 메시지, worker inputRef를 순서대로 비교했고, 파일 저장이 아니라 payload의 파일 참조 누락이 원인임을 확인했습니다. 수정 후 같은 답변 흐름으로 STT 완료와 transcript 저장까지 재검증했습니다.";
+  }
+
+  if (item.questionType === "EXPERIENCE" || question.includes("학습") || question.includes("적용")) {
+    return "이번 프로젝트에서 SQS와 worker 기반 비동기 처리 구조를 빠르게 익혔습니다. 처음에는 API 응답 시점과 실제 결과 저장 시점이 달라 헷갈렸지만, processLogId, inputRef, outputRef를 기준으로 상태 전이를 추적했습니다. 작은 테스트 payload로 저장 계약을 먼저 검증한 뒤 STT, 꼬리질문, 리포트 생성 요청에 같은 패턴을 적용했습니다.";
+  }
+
+  if (item.questionType === "CLOSING" || question.includes("강점") || question.includes("기억")) {
+    return "제 강점은 문제를 감으로 추측하지 않고 데이터 흐름과 로그를 기준으로 좁혀가는 점입니다. 예를 들어 STT와 꼬리질문이 이어지지 않았을 때 /media 응답, interview_answers, file_assets, ai_process_logs, worker outputRef를 순서대로 확인했습니다. 이후 짧거나 작은 녹음은 업로드 전 차단하고 한 번의 재답변 기회를 제공해 의미 없는 답변 저장을 줄였습니다.";
+  }
+
+  if (item.questionType === "FOLLOW_UP") {
+    if (question.includes("어려웠던 점")) {
+      return "가장 어려웠던 점은 저장 성공과 STT 실패 사이의 원인을 구분하는 것이었습니다. answerId, audioFileId, audioS3Key가 같은 흐름에서 유지되는지 확인했고, DB의 transcript 저장 여부와 ai_process_logs 상태를 함께 보며 문제 지점을 좁혔습니다. 그 결과 화면에서도 transcript와 꼬리질문이 이어지도록 연결할 수 있었습니다.";
+    }
+    if (question.includes("구체적인 조치")) {
+      return "문제를 프론트 생성, API 업로드, DB 저장, queue 전달, worker 처리 다섯 단계로 나눴습니다. 각 단계에서 남는 id와 storageKey를 비교해 값이 끊기는 지점을 찾았고, 수정 후 같은 답변으로 STT 완료까지 재검증했습니다. 이 방식 덕분에 원인을 재현 가능하게 설명할 수 있었습니다.";
+    }
+    if (question.includes("SQS") || question.includes("비동기")) {
+      return "가장 중요하게 본 값은 processLogId와 inputRef였습니다. processLogId로 PENDING, RUNNING, COMPLETED 상태 전이를 확인했고, inputRef의 sessionId, answerId, fileAssetId가 실제 DB row와 맞는지 검증했습니다. 이 기준을 잡은 뒤 비동기 처리도 단계별로 디버깅할 수 있었습니다.";
+    }
+    return "질문에 바로 답한 뒤, 당시 상황과 본인이 취한 행동, 확인한 결과를 차례로 설명하는 것이 좋습니다. 예를 들어 문제를 어떤 기준으로 나눴는지, 어떤 로그나 DB 값을 확인했는지, 수정 후 어떤 결과로 검증했는지를 한 흐름으로 말하면 높은 점수를 받기 쉽습니다.";
+  }
+
+  return "좋은 답변은 상황을 간단히 설명한 뒤 본인이 맡은 역할, 직접 한 행동, 확인한 결과를 차례로 말합니다. 마지막에는 수치, 전후 비교, 재검증 결과 중 하나를 덧붙이면 답변의 신뢰도가 높아집니다.";
+}
+
+function buildMockAnswerGaps(questionType: QuestionType, questionContent: string | undefined, transcript: string): string[] {
+  const normalized = transcript.replace(/\s+/g, " ").trim();
+  if (!normalized || normalized.startsWith("[NO_ANSWER]")) {
+    return ["답변 내용이 없어 평가 근거가 부족합니다. 다음 연습에서는 상황, 행동, 결과를 각각 한 문장씩이라도 남겨 주세요."];
+  }
+
+  const gaps: string[] = [];
+  const hasMetric = /\d|%|ms|초|분|시간|건|배|회|명|개|KB|MB/i.test(normalized);
+  const hasRole = /(제가|저는|맡|담당|구현|수정|연결|확인|검증|분석|해결|비교|나눴|적용)/.test(normalized);
+  const hasResult = /(결과|완료|성공|통과|개선|해결|안정화|줄였|확인|검증|저장|갱신|연결|반영)/.test(normalized);
+  const hasProcess = /(먼저|이후|그 결과|순서|단계|기준|비교|추적|확인)/.test(normalized);
+
+  if (!hasRole) {
+    gaps.push("본인이 직접 맡은 역할과 행동을 더 분명히 말하면 점수가 올라갑니다.");
+  }
+  if (!hasProcess && questionType !== "CLOSING") {
+    gaps.push("문제를 어떤 순서와 기준으로 확인했는지 단계가 더 드러나면 좋습니다.");
+  }
+  if (!hasResult) {
+    gaps.push("수정 후 어떤 결과가 나왔는지, 어떻게 재검증했는지를 덧붙이면 좋습니다.");
+  }
+  if (!hasMetric) {
+    gaps.push("가능하면 처리 시간, 실패 조건, 파일 크기, 전후 비교처럼 확인 가능한 숫자 한 가지를 추가해 보세요.");
+  }
+  if (hasLikelyNoisyTranscript(normalized)) {
+    gaps.push("STT에서 어색하게 인식된 기술 용어가 보입니다. 핵심 용어는 천천히 또렷하게 말하면 평가 근거가 더 선명해집니다.");
+  }
+
+  if (questionType === "FOLLOW_UP" && gaps.length < 3) {
+    gaps.push("꼬리질문은 질문에 바로 답한 뒤, 구체적인 행동과 결과를 짧게 붙이면 더 좋습니다.");
+  }
+
+  if ((questionContent?.includes("강점") || questionType === "CLOSING") && !normalized.includes("예를 들어")) {
+    gaps.push("강점 답변에는 짧은 사례를 하나 붙이면 기억에 더 남습니다.");
+  }
+
+  if (!gaps.length) {
+    return ["전체 흐름은 좋습니다. 더 높은 점수를 위해 성과를 수치나 전후 비교로 한 번 더 압축해 말해 보세요."];
+  }
+
+  return gaps.slice(0, 3);
+}
+
+function hasLikelyNoisyTranscript(value: string): boolean {
+  return /(인적 답변|오퍼 처리|파일 레스셋|프로시스|인풋 레프|블랍|마인 타입|동신|인털|소사례)/.test(value);
 }
 
 function ApplicationStatusView({ status }: { status: CandidateApplicationStatusView }) {
