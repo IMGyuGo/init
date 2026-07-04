@@ -1,6 +1,26 @@
 import Image from "next/image";
 import Link from "next/link";
 
+import heroIllustration from "./assets/hero-illustration.png";
+
+const steps = [
+  {
+    no: "01",
+    title: "공고를 만듭니다",
+    description: "직접 입력하거나 AI 초안으로 공고를 빠르게 작성하고, 공개 지원 링크를 공유합니다.",
+  },
+  {
+    no: "02",
+    title: "지원자가 AI 인터뷰를 봅니다",
+    description: "지원자는 링크로 접속해 대화형 AI 인터뷰에 답합니다. 면접관 일정 조율이 필요 없습니다.",
+  },
+  {
+    no: "03",
+    title: "리포트로 결정합니다",
+    description: "답변과 서류 근거가 담긴 AI 평가 리포트를 확인하고 합격·보류·불합격을 정합니다.",
+  },
+];
+
 const featureCards = [
   {
     title: "더 많은 기회",
@@ -15,7 +35,7 @@ const featureCards = [
   },
   {
     title: "1차 검증 자동화",
-    description: "서류와 AI 면접을 기반으로 1차 검증을 자동화해 채용 운영 시간을 줄입니다.",
+    description: "서류와 AI 인터뷰를 기반으로 1차 검증을 자동화해 채용 운영 시간을 줄입니다.",
     icon: (
       <svg aria-hidden="true" fill="none" height="22" viewBox="0 0 24 24" width="22" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
@@ -50,14 +70,6 @@ export function LandingPage() {
           <Link className="brand" href="/" aria-label="init 홈">
             <Image src="/logo-init-v3.png" alt="init" width={1900} height={580} priority />
           </Link>
-          <nav className="gnb-menu" aria-label="랜딩 메뉴">
-            <div className="gnb-item">
-              <a className="gnb-link" href="#features">기능</a>
-            </div>
-            <div className="gnb-item">
-              <a className="gnb-link" href="#how">작동 방식</a>
-            </div>
-          </nav>
           <div className="gnb-right">
             <Link className="btn secondary" href="/login">
               로그인
@@ -70,27 +82,46 @@ export function LandingPage() {
       </header>
 
       <section className="landing-hero">
-        <h1>
-          면접을 잇다.
-          <br />
-          더 많은 지원자에게 <span>공정한 기회</span>를.
-        </h1>
+        <div className="landing-hero-figure">
+          <Image className="landing-hero-illustration" src={heroIllustration} alt="" aria-hidden="true" priority />
+          <div className="landing-hero-bubble">
+            <h1>
+              면접을 잇다.
+              <br />
+              더 많은 지원자에게 <span>공정한 기회</span>를.
+            </h1>
+          </div>
+        </div>
         <p className="landing-sub">
-          init은 AI 인터뷰로 1차 검증을 자동화하고, 답변·서류 근거가 담긴 리포트로 채용 결정을 돕습니다.
+          init은 지원자를 대화형 AI 인터뷰로 만나고, 답변·서류 근거가 담긴 리포트로 채용 결정을 돕습니다.
         </p>
         <div className="landing-cta">
           <Link className="btn primary lg" href="/signup">
-            무료로 시작하기
+            시작하기
           </Link>
-          <a className="btn secondary lg" href="#how">
-            작동 방식 보기
-          </a>
         </div>
       </section>
 
-      <section className="landing-how" id="how">
-        <div className="landing-how-head">
+      <section className="landing-steps">
+        <div className="landing-head">
+          <h2>3단계로 끝나는 채용</h2>
+          <p>복잡한 준비 없이, 링크 하나로 인터뷰부터 평가까지 이어집니다.</p>
+        </div>
+        <ol className="landing-step-grid">
+          {steps.map((step) => (
+            <li className="landing-step" key={step.no}>
+              <span className="landing-step-no">{step.no}</span>
+              <h3>{step.title}</h3>
+              <p>{step.description}</p>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className="landing-how">
+        <div className="landing-head">
           <h2>지원자는 대화하고, 기업은 리포트로 확인합니다</h2>
+          <p>실제 화면 흐름을 그대로 옮겼습니다.</p>
         </div>
         <div className="landing-preview-grid">
           <article className="landing-preview">
@@ -122,9 +153,10 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section className="landing-features" id="features">
-        <div className="landing-how-head">
+      <section className="landing-features">
+        <div className="landing-head">
           <h2>채용 경험을 더 선명하게</h2>
+          <p>지원자에게는 기회를, 기업에게는 근거를.</p>
         </div>
         <div className="landing-feature-grid">
           {featureCards.map((feature) => (
@@ -142,7 +174,7 @@ export function LandingPage() {
         <p>기업 회원가입 후 바로 공고를 만들고 AI 인터뷰를 운영할 수 있어요.</p>
         <div className="landing-cta">
           <Link className="btn primary lg" href="/signup">
-            무료로 시작하기
+            시작하기
           </Link>
           <Link className="btn secondary lg" href="/login">
             로그인
