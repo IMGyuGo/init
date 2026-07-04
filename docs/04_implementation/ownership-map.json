@@ -123,6 +123,7 @@
   "roles": {
     "A": [
       "^backend/common/",
+      "^backend/api/\\.env\\.example$",
       "^backend/api/prisma/",
       "^backend/api/src/modules/auth/",
       "^backend/api/src/modules/payment/",
@@ -134,6 +135,7 @@
       "^frontend/src/app/auth/google/callback/",
       "^frontend/src/app/(login|signup|password/reset)/",
       "^frontend/src/app/company/billing/",
+      "^frontend/\\.env\\.example$",
       "^frontend/src/features/auth/",
       "^frontend/src/features/payment/",
       "^infra/",
