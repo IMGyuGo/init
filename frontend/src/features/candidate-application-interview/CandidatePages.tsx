@@ -7,6 +7,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { DependencyList, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { getApiBaseUrl } from "../../api/api-base-url";
 import { getAccessToken } from "../../api/client";
 import { GnbAvatar, GnbLogoutButton } from "../auth/GnbAccountControls";
 import { createPaymentOrder, getCandidateMockInterviewPassSummary, grantCandidateMockInterviewDevPasses, listPaymentOrders } from "../payment/api";
@@ -88,7 +89,6 @@ import {
 import { candidateAccountBillingNav, candidateNavLabels, isCandidateAccountBillingPath } from "./candidate-nav-config";
 import { CandidateApplicationView, CandidateJobDetailView, CandidateJobsView } from "./views";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
 const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY ?? "";
 const SHOW_PAYMENT_DEV_TOOLS = process.env.NODE_ENV !== "production";
 const DEMO_CANDIDATE_ID = 1;
@@ -4729,7 +4729,7 @@ function useCandidateResource<T>(load: () => Promise<T>, dependencies: Dependenc
 
 function getCandidateApi() {
   return createCandidateApiClient({
-    baseUrl: API_BASE_URL,
+    baseUrl: getApiBaseUrl(),
     headers: getCandidateHeaders(),
   });
 }
@@ -4745,7 +4745,7 @@ export function setPublicInterviewAccessToken(token: string | null) {
 
 function getPublicInterviewApi() {
   return createPublicInterviewApiClient({
-    baseUrl: API_BASE_URL,
+    baseUrl: getApiBaseUrl(),
     publicAccessToken: readPublicInterviewAccessToken(),
   });
 }
@@ -5373,7 +5373,7 @@ async function checkInterviewNetworkQuality(): Promise<NetworkQualityResult> {
     return { ok: false, message: "네트워크 연결이 끊겨 있습니다." };
   }
 
-  const healthUrl = `${API_BASE_URL}/api/v1/health`;
+  const healthUrl = `${getApiBaseUrl()}/api/v1/health`;
   let successCount = 0;
   let totalDurationMs = 0;
 
