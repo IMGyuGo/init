@@ -5956,3 +5956,78 @@ p {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* ============================================================
+   로그인 — 노션 톤 (.app.auth.notion 스코프)
+   ============================================================ */
+.app.auth.notion {
+  overflow: visible;
+  background: #ffffff;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Pretendard", sans-serif;
+  color: #37352f;
+}
+.app.auth.notion::before,
+.app.auth.notion::after { display: none; content: none; }
+
+.app.auth.notion .auth-wrap {
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+  padding-top: 64px;
+}
+.app.auth.notion .auth-logo { display: block; }
+.app.auth.notion .auth-logo img { display: block; width: auto; height: 30px; }
+
+.app.auth.notion .form-card {
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 12px;
+  box-shadow: none;
+  padding: 30px;
+}
+.app.auth.notion .eyebrow {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: rgba(55, 53, 47, 0.45);
+}
+.app.auth.notion .form-card h2 { color: #191919; font-weight: 800; letter-spacing: -0.01em; }
+.app.auth.notion .lead { color: rgba(55, 53, 47, 0.6); }
+.app.auth.notion .label { color: #37352f; }
+
+.app.auth.notion .input {
+  border: 1px solid rgba(55, 53, 47, 0.16);
+  border-radius: 6px;
+  color: #37352f;
+}
+.app.auth.notion .input::placeholder { color: rgba(55, 53, 47, 0.35); }
+.app.auth.notion .input:focus {
+  border-color: #3b6fe0;
+  box-shadow: 0 0 0 2px rgba(59, 111, 224, 0.2);
+}
+
+.app.auth.notion .segment { background: #f1f1ef; border-radius: 8px; }
+.app.auth.notion .segment button { color: rgba(55, 53, 47, 0.55); border-radius: 6px; }
+.app.auth.notion .segment button.active { color: #191919; background: #fff; box-shadow: 0 1px 2px rgba(55, 53, 47, 0.12); }
+
+.app.auth.notion .link-row button { color: rgba(55, 53, 47, 0.55); }
+.app.auth.notion .link-row button:hover { color: #3b6fe0; }
+.app.auth.notion .divider { color: rgba(55, 53, 47, 0.4); }
+
+.app.auth.notion .btn.primary {
+  color: #fff;
+  background: #3b6fe0;
+  border: 0;
+  box-shadow: none;
+}
+.app.auth.notion .btn.primary:hover { background: #315fc6; }
+.app.auth.notion .btn {
+  border: 1px solid rgba(55, 53, 47, 0.16);
+  border-radius: 6px;
+  background: #fff;
+  color: #37352f;
+  box-shadow: none;
+}
+.app.auth.notion .btn:hover { background: #fbfbfa; }
+.app.auth.notion .pw-toggle { color: rgba(55, 53, 47, 0.45); }
