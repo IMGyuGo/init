@@ -176,12 +176,12 @@ async function runReportControllerAssertions() {
   const firstMockAnswer = mockAnswers[0];
   assert.ok(firstMockAnswer);
   mockAnswers.forEach((answer, index) => {
-    interviewRepository.saveAnswerTranscript(
-      answer.answerId,
-      index === 0
-        ? "I explained the project tradeoffs with concrete examples."
-        : "I described follow-up practice goals with measurable next steps.",
-    );
+    if (index === 0) {
+      interviewRepository.saveAnswerTranscript(
+        answer.answerId,
+        "I explained the project tradeoffs with concrete examples.",
+      );
+    }
   });
   candidateReportRepository.saveFollowUpQuestion({
     followUpId: 1,
@@ -236,6 +236,10 @@ async function runReportControllerAssertions() {
   assert.equal(media.data.media[0]?.videoFile?.status, "ACTIVE");
   assert.equal(media.data.media[0]?.transcriptStatus, "AVAILABLE");
   assert.equal(media.data.media[0]?.transcript, "I explained the project tradeoffs with concrete examples.");
+  assert.equal(media.data.media[1]?.transcriptStatus, "UNAVAILABLE");
+  assert.equal(media.data.media[1]?.evaluationStatus, "STT_UNAVAILABLE");
+  assert.equal(media.data.media[1]?.transcript, undefined);
+  assert.match(media.data.media[1]?.transcriptUnavailableReason ?? "", /STT 실패/);
   assert.equal(media.data.media[0]?.followUpQuestions[0]?.content, "Which tradeoff had the largest impact?");
   assert.ok(media.data.media[0]?.questionContent);
 

@@ -6,12 +6,17 @@ import { SqsAiJobQueue, createAiJobQueue } from "./queue";
 test("SqsAiJobQueue receives worker jobs from SQS messages", async () => {
   const client = {
     async send(command: unknown) {
-      assert.equal((command as { input: Record<string, unknown> }).input.QueueUrl, "https://sqs.local/init-ai");
+      const input = (command as { input: Record<string, unknown> }).input;
+      assert.equal(input.QueueUrl, "https://sqs.local/init-ai");
+      assert.deepEqual(input.MessageSystemAttributeNames, ["ApproximateReceiveCount"]);
       return {
         Messages: [
           {
             MessageId: "message-1",
             ReceiptHandle: "receipt-1",
+            Attributes: {
+              ApproximateReceiveCount: "2"
+            },
             Body: JSON.stringify({
               processLogId: 1,
               processType: "REPORT_GENERATE",
@@ -29,6 +34,7 @@ test("SqsAiJobQueue receives worker jobs from SQS messages", async () => {
 
   assert.equal(messages.length, 1);
   assert.equal(messages[0].messageId, "message-1");
+  assert.equal(messages[0].receiveCount, 2);
   assert.deepEqual(messages[0].job, {
     processLogId: 1,
     processType: "REPORT_GENERATE",

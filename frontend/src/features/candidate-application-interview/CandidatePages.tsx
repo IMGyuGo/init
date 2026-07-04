@@ -165,6 +165,9 @@ type AutoAiPipelineState = {
   insertedQuestionId?: number;
   transcript?: string;
   followUpQuestion?: string;
+  failureCategory?: string;
+  failureReason?: string;
+  failureRetryable?: boolean;
   error?: string;
 };
 type CandidateRecordingCacheEntry = {
@@ -1851,6 +1854,10 @@ function InterviewRuntimePanel({
   const [questionSpeechSupported, setQuestionSpeechSupported] = useState(true);
   const [answeredQuestionIds, setAnsweredQuestionIds] = useState<Set<number>>(() => new Set());
   const [replayedQuestionIds, setReplayedQuestionIds] = useState<Set<number>>(() => new Set());
+  const [reansweringQuestionId, setReansweringQuestionId] = useState<number | null>(null);
+  const [reansweredQuestionIds, setReansweredQuestionIds] = useState<Set<number>>(() => new Set());
+  const answeredQuestionIdsRef = useRef<Set<number>>(new Set());
+  const savingQuestionIdsRef = useRef<Set<number>>(new Set());
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -1879,8 +1886,34 @@ function InterviewRuntimePanel({
       (answeredQuestionIds.has(currentQuestion.questionId) ||
         data?.questions.questions.some((question) => question.questionId === currentQuestion.questionId && question.answered)),
   );
+  const isReansweringCurrentQuestion = Boolean(currentQuestion && reansweringQuestionId === currentQuestion.questionId);
+  const currentQuestionLocked = currentQuestionAnswered && !isReansweringCurrentQuestion;
   const currentQuestionReplayUsed = Boolean(currentQuestion && replayedQuestionIds.has(currentQuestion.questionId));
   const deviceTestSentence = useMemo(() => pickDeviceTestSentence(), []);
+
+  function isQuestionAlreadyAnswered(questionId: number): boolean {
+    return (
+      answeredQuestionIdsRef.current.has(questionId) ||
+      Boolean(data?.questions.questions.some((question) => question.questionId === questionId && question.answered))
+    );
+  }
+
+  function markQuestionAnswered(questionId: number) {
+    setAnsweredQuestionIds((current) => {
+      const next = new Set(current);
+      next.add(questionId);
+      answeredQuestionIdsRef.current = next;
+      return next;
+    });
+  }
+
+  function isQuestionStateConflict(error: unknown): boolean {
+    if (!(error instanceof CandidateApiError)) return false;
+    if (error.status !== 409 || error.body?.error.code !== "COMMON_CONFLICT") return false;
+    return error.body.error.details.some((detail) =>
+      ["current question", "question already answered"].some((reason) => detail.reason.includes(reason)),
+    );
+  }
 
   const stopQuestionSpeech = useCallback(() => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
@@ -2051,6 +2084,7 @@ function InterviewRuntimePanel({
   useEffect(() => {
     if (currentQuestion) {
       setAnswer((current) => ({ ...current, questionId: currentQuestion.questionId }));
+      setReansweringQuestionId((current) => (current === currentQuestion.questionId ? current : null));
       setRecordedFileName("");
       submitAfterRecordingStopRef.current = false;
       autoAdvanceAfterAnswerSubmitRef.current = false;
@@ -2103,6 +2137,7 @@ function InterviewRuntimePanel({
       data.questions.questions.forEach((question) => {
         if (question.answered) next.add(question.questionId);
       });
+      answeredQuestionIdsRef.current = next;
       return next.size === current.size ? current : next;
     });
   }, [data]);
@@ -2145,7 +2180,7 @@ function InterviewRuntimePanel({
       !cameraReady ||
       !microphoneReady ||
       !currentQuestion ||
-      currentQuestionAnswered
+      currentQuestionLocked
     ) {
       return;
     }
@@ -2155,7 +2190,7 @@ function InterviewRuntimePanel({
   }, [
     cameraReady,
     currentQuestion,
-    currentQuestionAnswered,
+    currentQuestionLocked,
     data,
     introCompleted,
     microphoneReady,
@@ -2164,7 +2199,7 @@ function InterviewRuntimePanel({
   ]);
 
   useEffect(() => {
-    if (!setupCompleted || !currentQuestion || currentQuestionAnswered) {
+    if (!setupCompleted || !currentQuestion || currentQuestionLocked) {
       stopQuestionSpeech();
       return;
     }
@@ -2174,7 +2209,7 @@ function InterviewRuntimePanel({
     autoSpokenQuestionRef.current = currentQuestion.questionId;
     const timer = window.setTimeout(() => speakCurrentQuestion("auto"), 250);
     return () => window.clearTimeout(timer);
-  }, [currentQuestion, currentQuestionAnswered, introCompleted, setupCompleted, speakCurrentQuestion, stopQuestionSpeech]);
+  }, [currentQuestion, currentQuestionLocked, introCompleted, setupCompleted, speakCurrentQuestion, stopQuestionSpeech]);
 
   useEffect(() => {
     if (
@@ -2183,7 +2218,7 @@ function InterviewRuntimePanel({
       !questionSpeechCompleted ||
       questionSpeechPlaying ||
       !currentQuestion ||
-      currentQuestionAnswered ||
+      currentQuestionLocked ||
       busy
     ) {
       return;
@@ -2195,7 +2230,7 @@ function InterviewRuntimePanel({
   }, [
     busy,
     currentQuestion,
-    currentQuestionAnswered,
+    currentQuestionLocked,
     introCompleted,
     questionSpeechCompleted,
     questionSpeechPlaying,
@@ -2246,7 +2281,7 @@ function InterviewRuntimePanel({
       !questionSpeechCompleted ||
       questionSpeechPlaying ||
       !currentQuestion ||
-      currentQuestionAnswered ||
+      currentQuestionLocked ||
       busy
     ) {
       return;
@@ -2259,7 +2294,7 @@ function InterviewRuntimePanel({
   }, [
     busy,
     currentQuestion,
-    currentQuestionAnswered,
+    currentQuestionLocked,
     introCompleted,
     questionSpeechCompleted,
     questionSpeechPlaying,
@@ -2278,7 +2313,7 @@ function InterviewRuntimePanel({
       !cameraReady ||
       !microphoneReady ||
       !currentQuestion ||
-      currentQuestionAnswered ||
+      currentQuestionLocked ||
       timerPhase !== "ANSWERING"
     ) {
       return;
@@ -2298,7 +2333,7 @@ function InterviewRuntimePanel({
     questionSpeechCompleted,
     questionSpeechPlaying,
     currentQuestion?.questionId,
-    currentQuestionAnswered,
+    currentQuestionLocked,
     timerPhase,
     recording,
     answer.videoFile,
@@ -2607,11 +2642,11 @@ function InterviewRuntimePanel({
         if (submitAfterRecordingStopRef.current) {
           submitAfterRecordingStopRef.current = false;
           void submitAnswerRequest(
-            toSaveInterviewAnswerRequest({
+            withReanswerFlag(toSaveInterviewAnswerRequest({
               questionId: currentQuestion.questionId,
               durationSeconds,
               videoFile,
-            }),
+            })),
             currentQuestion,
           );
           return;
@@ -2751,6 +2786,16 @@ function InterviewRuntimePanel({
 
   async function submitAnswerRequest(request: SaveInterviewAnswerRequest, question = currentQuestion) {
     if (!data) return;
+    if (savingQuestionIdsRef.current.has(request.questionId)) {
+      setMessage("답변 저장이 이미 진행 중입니다. 잠시만 기다려주세요.");
+      return;
+    }
+    if (!request.allowReanswer && !retryAnswerId && isQuestionAlreadyAnswered(request.questionId)) {
+      setMessage("이미 저장된 답변입니다. 질문 상태를 새로고침합니다.");
+      refresh();
+      return;
+    }
+    savingQuestionIdsRef.current.add(request.questionId);
     setBusy(true);
     setMessage("");
     try {
@@ -2784,11 +2829,15 @@ function InterviewRuntimePanel({
         sttStatus: "PENDING",
         followUpStatus: "IDLE",
       });
-      setAnsweredQuestionIds((current) => {
-        const next = new Set(current);
-        next.add(preparedRequest.questionId);
-        return next;
-      });
+      if (preparedRequest.allowReanswer) {
+        setReansweringQuestionId(null);
+        setReansweredQuestionIds((current) => {
+          const next = new Set(current);
+          next.add(preparedRequest.questionId);
+          return next;
+        });
+      }
+      markQuestionAnswered(preparedRequest.questionId);
       setRetryAnswerId(undefined);
       setRetryingQuestionId(undefined);
       const shouldAutoAdvance = autoAdvanceAfterAnswerSubmitRef.current;
@@ -2811,8 +2860,14 @@ function InterviewRuntimePanel({
       }
     } catch (submitError) {
       autoAdvanceAfterAnswerSubmitRef.current = false;
+      if (isQuestionStateConflict(submitError)) {
+        setMessage("답변은 이미 반영된 상태입니다. 질문 상태를 새로고침합니다.");
+        refresh();
+        return;
+      }
       setMessage(toErrorMessage(submitError));
     } finally {
+      savingQuestionIdsRef.current.delete(request.questionId);
       setBusy(false);
     }
   }
@@ -2823,11 +2878,11 @@ function InterviewRuntimePanel({
       setMessage("녹화 종료 후 답변 제출을 눌러주세요.");
       return;
     }
-    await submitAnswerRequest(toSaveInterviewAnswerRequest(answer));
+    await submitAnswerRequest(withReanswerFlag(toSaveInterviewAnswerRequest(answer)));
   }
 
   function handleAnswerComplete() {
-    if (currentQuestionAnswered) {
+    if (currentQuestionLocked) {
       setMessage("이미 저장된 답변입니다. 다음 질문으로 이동해주세요.");
       return;
     }
@@ -2839,11 +2894,31 @@ function InterviewRuntimePanel({
     }
 
     if (canSubmitAnswer) {
-      void submitAnswerRequest(toSaveInterviewAnswerRequest(answer));
+      void submitAnswerRequest(withReanswerFlag(toSaveInterviewAnswerRequest(answer)));
       return;
     }
 
     setMessage("답변 녹화가 아직 준비되지 않았습니다.");
+  }
+
+  function withReanswerFlag(request: SaveInterviewAnswerRequest): SaveInterviewAnswerRequest {
+    return isReansweringCurrentQuestion ? { ...request, allowReanswer: true } : request;
+  }
+
+  function handleStartReanswer() {
+    if (!currentQuestion) return;
+    stopQuestionSpeech();
+    setReansweringQuestionId(currentQuestion.questionId);
+    setAnswer({ ...defaultInterviewAnswerFormState, questionId: currentQuestion.questionId });
+    setRecordedFileName("");
+    setQuestionSpeechCompleted(true);
+    setQuestionSpeechPlaying(false);
+    setRemainingSeconds(getRuntimeAnswerTimeLimitSeconds(data?.runtime));
+    timeExpiredQuestionRef.current = null;
+    autoRecordingQuestionRef.current = null;
+    submitAfterRecordingStopRef.current = false;
+    autoAdvanceAfterAnswerSubmitRef.current = false;
+    setMessage("STT 결과가 비어 있어 같은 질문에 한 번 더 답변할 수 있습니다.");
   }
 
   function handleRetryAnswer() {
@@ -2888,6 +2963,9 @@ function InterviewRuntimePanel({
           ...current,
           sttStatus: "FAILED",
           followUpStatus: "IDLE",
+          failureCategory: undefined,
+          failureReason: undefined,
+          failureRetryable: undefined,
           error: "STT 작업 ID를 받지 못했습니다.",
         }));
         return;
@@ -2899,6 +2977,9 @@ function InterviewRuntimePanel({
         sttStatus: "RUNNING",
         followUpStatus: "IDLE",
         sttProcessLogId,
+        failureCategory: undefined,
+        failureReason: undefined,
+        failureRetryable: undefined,
         error: undefined,
       }));
 
@@ -2909,6 +2990,9 @@ function InterviewRuntimePanel({
           ...current,
           sttStatus: sttStatus.status === "FAILED" ? "FAILED" : "RUNNING",
           followUpStatus: "IDLE",
+          failureCategory: sttStatus.failure?.category,
+          failureReason: sttStatus.failure?.reason,
+          failureRetryable: sttStatus.failure?.retryable,
           error: sttStatus.status === "FAILED"
             ? sttStatus.failure?.reason ?? "STT 처리에 실패했습니다."
             : "STT 처리가 아직 진행 중입니다. 잠시 후 상태를 다시 확인해주세요.",
@@ -2960,6 +3044,9 @@ function InterviewRuntimePanel({
         followUpStatus: isFollowUpAnswer ? "IDLE" : "PENDING",
         sttProcessLogId,
         transcript: normalizedTranscript,
+        failureCategory: undefined,
+        failureReason: undefined,
+        failureRetryable: undefined,
         error: undefined,
       }));
 
@@ -3141,7 +3228,7 @@ function InterviewRuntimePanel({
   }
 
   async function handleQuestionTimeExpired() {
-    if (!data || !currentQuestion || currentQuestionAnswered) return;
+    if (!data || !currentQuestion || currentQuestionLocked) return;
     setMessage("답변 시간이 종료되어 현재 답변을 자동 제출합니다.");
     autoAdvanceAfterAnswerSubmitRef.current = true;
 
@@ -3153,7 +3240,7 @@ function InterviewRuntimePanel({
     }
 
     if (canSubmitAnswer) {
-      await submitAnswerRequest(toSaveInterviewAnswerRequest(answer));
+      await submitAnswerRequest(withReanswerFlag(toSaveInterviewAnswerRequest(answer)));
       return;
     }
 
@@ -3291,19 +3378,34 @@ function InterviewRuntimePanel({
           ? "답변 저장 완료"
           : "답변 대기";
   const answerProcessingReady = Boolean(lastAnswer && !answerProcessingBusy && !answerProcessingFailed);
+  const currentQuestionNeedsReanswer = Boolean(
+    currentQuestion &&
+      currentQuestionAnswered &&
+      lastAnswer?.questionId === currentQuestion.questionId &&
+      autoAiPipeline?.answerId === lastAnswer.answerId &&
+      autoAiPipeline?.sttStatus === "FAILED" &&
+      autoAiPipeline?.failureCategory === "REANSWER_REQUIRED" &&
+      !reansweredQuestionIds.has(currentQuestion.questionId),
+  );
+  const canStartCurrentQuestionReanswer = Boolean(
+    currentQuestionNeedsReanswer && !isReansweringCurrentQuestion && !busy && !recording,
+  );
   const canRetryCurrentAnswer = Boolean(
     answerProcessingFailed &&
       currentQuestion &&
       lastAnswer?.questionId === currentQuestion.questionId &&
       lastAnswer.answerId &&
+      !currentQuestionNeedsReanswer &&
       !retryingCurrentQuestion &&
       !recording,
   );
   const currentBaseQuestionWaitingForFollowUp = Boolean(
     currentQuestionAnswered &&
       currentQuestion?.questionType !== "FOLLOW_UP" &&
+      !isReansweringCurrentQuestion &&
       canAddRuntimeFollowUpQuestion &&
       lastAnswer?.questionId === currentQuestion?.questionId &&
+      !answerProcessingFailed &&
       !generatedFollowUpReady &&
       !followUpSkippedForCurrentAnswer,
   );
@@ -3313,6 +3415,7 @@ function InterviewRuntimePanel({
       !answerProcessingBusy &&
       !currentBaseQuestionWaitingForFollowUp &&
       (!isCurrentQuestionLast || generatedFollowUpReady) &&
+      !isReansweringCurrentQuestion &&
       !recording,
   );
   const canCompleteInterview = Boolean(
@@ -3321,6 +3424,7 @@ function InterviewRuntimePanel({
       isCurrentQuestionLast &&
       !generatedFollowUpReady &&
       answeredQuestionCount >= data.runtime.totalQuestions &&
+      !isReansweringCurrentQuestion &&
       !recording,
   );
   const showDeviceSetup = data
@@ -3476,7 +3580,7 @@ function InterviewRuntimePanel({
                 <button
                   className="btn primary"
                   type="button"
-                  disabled={busy || !currentQuestion || currentQuestionAnswered || (!recording && !canSubmitAnswer)}
+                  disabled={busy || !currentQuestion || currentQuestionLocked || (!recording && !canSubmitAnswer)}
                   onClick={handleAnswerComplete}
                 >
                   답변 완료
@@ -3494,6 +3598,15 @@ function InterviewRuntimePanel({
                 <button
                   className="btn"
                   type="button"
+                  disabled={!canStartCurrentQuestionReanswer}
+                  onClick={handleStartReanswer}
+                  hidden={!currentQuestionNeedsReanswer}
+                >
+                  다시 답변
+                </button>
+                <button
+                  className="btn"
+                  type="button"
                   disabled={busy || recording || !canMoveNextQuestion}
                   onClick={() => void handleNextQuestion()}
                 >
@@ -3508,6 +3621,7 @@ function InterviewRuntimePanel({
                   {subtitlesEnabled ? "자막 ON" : "자막 OFF"}
                 </button>
               </div>
+              <p className="field-hint">STT 실패 시 재답변은 문항당 1회만 가능합니다.</p>
               <div className="candidate-interview-complete-action">
                 <button
                   className="btn primary lg"
@@ -3996,7 +4110,12 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
         </div>
         <div className="script-box report-answer-card__script">
           <strong>스크립트</strong>
-          <p>{item.transcript ?? (item.transcriptStatus === "AVAILABLE" ? "스크립트를 불러오는 중입니다." : "STT 처리 대기 중입니다.")}</p>
+          <TranscriptText
+            transcript={item.transcript}
+            transcriptStatus={item.transcriptStatus}
+            evaluationStatus={item.evaluationStatus}
+            transcriptUnavailableReason={item.transcriptUnavailableReason}
+          />
           <FollowUpQuestionList questions={item.followUpQuestions} />
           <dl className="report-answer-meta">
             <Definition label="답변 시간" value={`${item.durationSeconds}s`} />
@@ -4107,7 +4226,12 @@ function ReportAnswerInsightList({ answers }: { answers: CandidateReportAnswerVi
             </div>
             <div className="script-box">
               <strong>STT 텍스트</strong>
-              <p>{answer.transcript ?? (answer.transcriptStatus === "AVAILABLE" ? "스크립트를 불러오는 중입니다." : "STT 처리 대기 중입니다.")}</p>
+              <TranscriptText
+                transcript={answer.transcript}
+                transcriptStatus={answer.transcriptStatus}
+                evaluationStatus={answer.evaluationStatus}
+                transcriptUnavailableReason={answer.transcriptUnavailableReason}
+              />
             </div>
             <FollowUpQuestionList questions={answer.followUpQuestions} />
             <EvidenceList evidences={answer.evidences} />
@@ -4116,6 +4240,29 @@ function ReportAnswerInsightList({ answers }: { answers: CandidateReportAnswerVi
       </div>
     </div>
   );
+}
+
+function TranscriptText({
+  transcript,
+  transcriptStatus,
+  evaluationStatus,
+  transcriptUnavailableReason,
+}: {
+  transcript?: string;
+  transcriptStatus: "PENDING" | "AVAILABLE" | "UNAVAILABLE";
+  evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
+  transcriptUnavailableReason?: string;
+}) {
+  if (evaluationStatus === "STT_UNAVAILABLE" || transcriptStatus === "UNAVAILABLE") {
+    return (
+      <>
+        <span className="badge warning">STT 미가용</span>
+        <p>{transcriptUnavailableReason ?? "음성 인식 실패로 실제 답변 텍스트를 확보하지 못했습니다."}</p>
+      </>
+    );
+  }
+
+  return <p>{transcript ?? (transcriptStatus === "AVAILABLE" ? "스크립트를 불러오는 중입니다." : "STT 처리 대기 중입니다.")}</p>;
 }
 
 function FollowUpQuestionList({ questions }: { questions: CandidateReportAnswerView["followUpQuestions"] }) {
@@ -4258,6 +4405,7 @@ async function prepareAnswerRequestWithUploadedMedia(
     videoFileId,
     audioFileId,
     durationSeconds: request.durationSeconds,
+    allowReanswer: request.allowReanswer,
     skipReason: request.skipReason,
     retryAnswerId: request.retryAnswerId,
   };
@@ -4523,7 +4671,7 @@ function ListBlock({ title, items }: { title: string; items: string[] }) {
       <h3 className="candidate-section-title">{title}</h3>
       {items.length ? (
         <ul className="candidate-feature__tags">
-          {items.map((item) => <li key={item}>{item}</li>)}
+          {items.map((item, index) => <li key={`${title}-${index}-${item}`}>{item}</li>)}
         </ul>
       ) : (
         <p className="empty">표시할 항목이 없습니다.</p>

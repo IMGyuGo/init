@@ -215,6 +215,82 @@ test("mock interview start consumes one candidate mock interview pass", async ()
   assert.deepEqual(passCalls, [{ candidateId: DEV_CANDIDATE_USER.candidateId, passAmount: 1 }]);
 });
 
+test("REANSWER_REQUIRED allows replacing the current answer once without creating a new answer", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["INTRO", "TECHNICAL"],
+    showQuestionText: false,
+  });
+  const questions = await controller.listMockQuestions(validCandidateRequest, String(started.data.sessionId));
+  const firstQuestionId = questions.data.questions[0]?.questionId ?? 0;
+
+  const answer = await controller.saveMockAnswer(validCandidateRequest, String(started.data.sessionId), {
+    questionId: firstQuestionId,
+    audioFile: {
+      storageKey: "candidate/1/mock-answer-before-reanswer.webm",
+      originalName: "mock-answer-before-reanswer.webm",
+      mimeType: "audio/webm",
+      sizeBytes: 1024,
+    },
+    durationSeconds: 12,
+  });
+  const originalAnswerId = answer.data.answer.answerId;
+  const originalAudioFileId = answer.data.answer.audioFileId;
+
+  interviewRepository.saveReanswerRequiredFailureForTest({
+    processLogId: 9101,
+    sessionId: started.data.sessionId,
+    answerId: originalAnswerId,
+    createdAt: new Date(Date.parse(answer.data.answer.submittedAt) + 1000).toISOString(),
+    failureReason: "transcript was empty",
+  });
+
+  const replaced = await controller.saveMockAnswer(validCandidateRequest, String(started.data.sessionId), {
+    questionId: firstQuestionId,
+    audioFile: {
+      storageKey: "candidate/1/mock-answer-after-reanswer.webm",
+      originalName: "mock-answer-after-reanswer.webm",
+      mimeType: "audio/webm",
+      sizeBytes: 2048,
+    },
+    durationSeconds: 20,
+    allowReanswer: true,
+  });
+  assert.equal(replaced.data.answer.answerId, originalAnswerId);
+  assert.equal(replaced.data.answer.questionId, firstQuestionId);
+  assert.notEqual(replaced.data.answer.audioFileId, originalAudioFileId);
+  assert.equal(await interviewRepository.countAnswersBySession(started.data.sessionId), 1);
+
+  interviewRepository.saveReanswerRequiredFailureForTest({
+    processLogId: 9102,
+    sessionId: started.data.sessionId,
+    answerId: originalAnswerId,
+    createdAt: new Date(Date.parse(replaced.data.answer.submittedAt) + 1000).toISOString(),
+    failureReason: "transcript was still empty after reanswer",
+  });
+
+  await assertInterviewHttpError(
+    () =>
+      controller.saveMockAnswer(validCandidateRequest, String(started.data.sessionId), {
+        questionId: firstQuestionId,
+        audioFile: {
+          storageKey: "candidate/1/mock-answer-third-reanswer.webm",
+          originalName: "mock-answer-third-reanswer.webm",
+          mimeType: "audio/webm",
+          sizeBytes: 2048,
+        },
+        durationSeconds: 20,
+        allowReanswer: true,
+      }),
+    409,
+    "COMMON_CONFLICT",
+  );
+});
+
 test("recording validation skip stores an unanswered answer and allows moving next", async () => {
   const repository = new InMemoryCandidateRepository();
   const candidateService = new CandidateService(repository);
@@ -380,6 +456,48 @@ test("retry answer replaces the saved answer for the current question", async ()
   const moved = await controller.moveMockNextQuestion(validCandidateRequest, String(started.data.sessionId));
   assert.equal(moved.data.previousQuestionId, firstQuestionId);
   assert.equal(moved.data.currentQuestion?.questionType, "TECHNICAL");
+});
+
+test("reanswer is rejected when the answer does not have a REANSWER_REQUIRED failure", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["INTRO"],
+    showQuestionText: false,
+  });
+  const questions = await controller.listMockQuestions(validCandidateRequest, String(started.data.sessionId));
+  const firstQuestionId = questions.data.questions[0]?.questionId ?? 0;
+
+  await controller.saveMockAnswer(validCandidateRequest, String(started.data.sessionId), {
+    questionId: firstQuestionId,
+    audioFile: {
+      storageKey: "candidate/1/mock-answer-no-reanswer-failure.webm",
+      originalName: "mock-answer-no-reanswer-failure.webm",
+      mimeType: "audio/webm",
+      sizeBytes: 1024,
+    },
+    durationSeconds: 12,
+  });
+
+  await assertInterviewHttpError(
+    () =>
+      controller.saveMockAnswer(validCandidateRequest, String(started.data.sessionId), {
+        questionId: firstQuestionId,
+        audioFile: {
+          storageKey: "candidate/1/mock-answer-rejected-reanswer.webm",
+          originalName: "mock-answer-rejected-reanswer.webm",
+          mimeType: "audio/webm",
+          sizeBytes: 2048,
+        },
+        durationSeconds: 20,
+        allowReanswer: true,
+      }),
+    409,
+    "COMMON_CONFLICT",
+  );
 });
 
 async function runControllerRuntimeAssertions() {

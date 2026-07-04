@@ -48,6 +48,7 @@ export async function createWorkerRuntime(queue: AiJobQueue, env: WorkerEnv): Pr
   return {
     runner: new AiWorkerRunner(queue, repositories.processLogs, handler, {
       maxMessages: env.workerBatchSize,
+      maxRetryableReceives: env.workerMaxRetryableReceives,
       onStart: createDocumentExtractionStartHandler(repositories.results),
       onFailure: createReportFailureHandler(repositories.results)
     }),
@@ -66,7 +67,8 @@ function createSttProvider(env: WorkerEnv): SttProvider | undefined {
     region: env.awsRegion,
     endpoint: env.awsEndpointUrl,
     model: env.openaiSttModel,
-    language: env.openaiSttLanguage
+    language: env.openaiSttLanguage,
+    timeoutMs: env.openaiSttTimeoutMs
   });
 }
 

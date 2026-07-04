@@ -8,6 +8,8 @@ import type {
   GeneratedFollowUpQuestion,
   InterviewQuestionFilter,
   InterviewRepository,
+  ReanswerRequiredFailure,
+  ReplaceInterviewAnswerInput,
 } from "./interview.repository";
 
 export class InMemoryInterviewRepository implements InterviewRepository {
@@ -123,6 +125,7 @@ export class InMemoryInterviewRepository implements InterviewRepository {
   private readonly answers: InterviewAnswer[] = [];
   private readonly followUpProcesses = new Map<number, CompletedFollowUpProcess>();
   private readonly followUpQuestions = new Map<string, GeneratedFollowUpQuestion>();
+  private readonly reanswerRequiredFailures: Array<ReanswerRequiredFailure & { sessionId: number; answerId: number }> = [];
 
   listQuestions(filter: InterviewQuestionFilter = {}): InterviewQuestion[] {
     return this.questions
@@ -233,6 +236,28 @@ export class InMemoryInterviewRepository implements InterviewRepository {
     return this.cloneAnswer(answer);
   }
 
+  replaceAnswer(input: ReplaceInterviewAnswerInput): InterviewAnswer {
+    const answer = this.answers.find((candidate) => candidate.answerId === input.answerId);
+    if (!answer) {
+      throw new Error(`answer ${input.answerId} was not found.`);
+    }
+
+    answer.videoFileId = input.videoFileId;
+    answer.audioFileId = input.audioFileId;
+    answer.durationSeconds = input.durationSeconds;
+    answer.submittedAt = input.submittedAt;
+    answer.transcript = undefined;
+    return this.cloneAnswer(answer);
+  }
+
+  listReanswerRequiredFailures(sessionId: number, answerId: number): ReanswerRequiredFailure[] {
+    return this.reanswerRequiredFailures
+      .filter((failure) => failure.failureCategory === "REANSWER_REQUIRED")
+      .filter((failure) => failure.sessionId === sessionId && failure.answerId === answerId)
+      .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt) || right.processLogId - left.processLogId)
+      .map(({ sessionId: _sessionId, answerId: _answerId, ...failure }) => ({ ...failure }));
+  }
+
   updateAnswer(input: CreateInterviewAnswerInput & { answerId: number }): InterviewAnswer {
     const index = this.answers.findIndex(
       (answer) => answer.sessionId === input.sessionId && answer.answerId === input.answerId,
@@ -312,6 +337,23 @@ export class InMemoryInterviewRepository implements InterviewRepository {
 
   saveCompletedFollowUpProcess(process: CompletedFollowUpProcess): void {
     this.followUpProcesses.set(process.processLogId, { ...process });
+  }
+
+  saveReanswerRequiredFailureForTest(input: {
+    processLogId: number;
+    sessionId: number;
+    answerId: number;
+    createdAt: string;
+    failureReason?: string;
+  }): ReanswerRequiredFailure {
+    const failure: ReanswerRequiredFailure = {
+      processLogId: input.processLogId,
+      createdAt: input.createdAt,
+      failureCategory: "REANSWER_REQUIRED",
+      failureReason: input.failureReason,
+    };
+    this.reanswerRequiredFailures.push({ ...failure, sessionId: input.sessionId, answerId: input.answerId });
+    return { ...failure };
   }
 
   private questionSortOrder(questionId: number): number {
