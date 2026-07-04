@@ -56,12 +56,14 @@ import {
   defaultPortfolioLinkFormState,
   defaultStartMockInterviewState,
   createResumeUploadStateFromFile,
+  getInterviewMediaFileExtension,
   getCandidateApplicationReportHref,
   getMockInterviewDeviceCheckHref,
   getMockReportHref,
   inferPortfolioLinkType,
-  isAllowedInterviewMediaMimeType,
+  normalizeInterviewMediaMimeType,
   requiredInterviewConsents,
+  resolveRecordedMimeType,
   shouldShowInterviewDeviceSetup,
   toDeviceCheckRequest,
   toCreatePortfolioLinkRequest,
@@ -2370,10 +2372,14 @@ function InterviewRuntimePanel({
       };
 
       recorder.onstop = () => {
-        const recordedMimeType = resolveRecordedMimeType(recorder, mimeType, recordingChunksRef.current);
+        const recordedMimeType = resolveRecordedMimeType({
+          chunkMimeTypes: recordingChunksRef.current.map((chunk) => chunk instanceof Blob ? chunk.type : ""),
+          recorderMimeType: recorder.mimeType,
+          requestedMimeType: mimeType,
+        });
         const blob = new Blob(recordingChunksRef.current, { type: recordedMimeType });
         const durationSeconds = Math.max(1, Math.round((Date.now() - recordingStartedAtRef.current) / 1000));
-        const fileName = `${mode}-answer-${data.runtime.sessionId}-${currentQuestion.questionId}.${mediaFileExtension(recordedMimeType)}`;
+        const fileName = `${mode}-answer-${data.runtime.sessionId}-${currentQuestion.questionId}.${getInterviewMediaFileExtension(recordedMimeType)}`;
 
         if (durationSeconds < MIN_INTERVIEW_RECORDING_DURATION_SECONDS) {
           clearInvalidRecordingDraft(
@@ -4773,11 +4779,6 @@ function getCandidateRecordingCache(): Map<string, CandidateRecordingCacheEntry>
   return cacheWindow.__candidateRecordingCache;
 }
 
-function normalizeInterviewMediaMimeType(mimeType: string): RuntimeFileAssetRequest["mimeType"] | undefined {
-  const baseMimeType = mimeType.split(";")[0]?.trim().toLowerCase();
-  return isAllowedInterviewMediaMimeType(baseMimeType) ? baseMimeType : undefined;
-}
-
 function getSupportedRecordingMimeType(): string | undefined {
   if (typeof MediaRecorder === "undefined") return undefined;
   return [
@@ -4787,32 +4788,6 @@ function getSupportedRecordingMimeType(): string | undefined {
     "video/mp4",
     "audio/mp4",
   ].find((mimeType) => MediaRecorder.isTypeSupported(mimeType));
-}
-
-function resolveRecordedMimeType(
-  recorder: MediaRecorder,
-  requestedMimeType: string | undefined,
-  chunks: BlobPart[],
-): RuntimeFileAssetRequest["mimeType"] | string {
-  const chunkMimeType = chunks
-    .map((chunk) => chunk instanceof Blob ? chunk.type : "")
-    .find((type) => normalizeInterviewMediaMimeType(type));
-  return normalizeInterviewMediaMimeType(chunkMimeType ?? "")
-    ?? normalizeInterviewMediaMimeType(recorder.mimeType)
-    ?? normalizeInterviewMediaMimeType(requestedMimeType ?? "")
-    ?? chunkMimeType
-    ?? recorder.mimeType
-    ?? requestedMimeType
-    ?? "";
-}
-
-function mediaFileExtension(mimeType: string): "m4a" | "mp3" | "mp4" | "wav" | "webm" {
-  const normalizedMimeType = normalizeInterviewMediaMimeType(mimeType);
-  if (normalizedMimeType === "audio/mp4") return "m4a";
-  if (normalizedMimeType === "audio/mpeg") return "mp3";
-  if (normalizedMimeType === "audio/wav") return "wav";
-  if (normalizedMimeType?.includes("mp4")) return "mp4";
-  return "webm";
 }
 
 function safeFileName(name: string): string {

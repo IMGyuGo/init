@@ -1164,6 +1164,9 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
 - 상태 코드: 201 Created
 - 비동기: N
 - Path Params: sessionId
+- 요청 데이터:
+  - 답변 파일 메타데이터 허용 MIME: `video/webm`, `video/mp4`, `audio/webm`, `audio/mp4`, `audio/mpeg`, `audio/wav`
+  - macOS/Safari 계열 오디오 fallback은 `audio/mp4` MIME과 `.m4a` 파일명을 허용한다.
 - 검증/전제조건:
   - publicAccessToken의 sessionId가 path sessionId와 일치해야 한다.
 - 성공 응답/처리:
@@ -2006,6 +2009,8 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
 - Path Params: sessionId
 - 요청 데이터:
   - 카메라 스트림, 마이크 스트림, 답변 시간
+  - 답변 파일 메타데이터 허용 MIME: `video/webm`, `video/mp4`, `audio/webm`, `audio/mp4`, `audio/mpeg`, `audio/wav`
+  - macOS/Safari 계열 오디오 fallback은 `audio/mp4` MIME과 `.m4a` 파일명을 허용한다.
 - 검증/전제조건:
   - 장치 권한 허용, 저장 공간 확보
 - 성공 응답/처리:
@@ -2509,6 +2514,8 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
 - Path Params: sessionId
 - 요청 데이터:
   - 카메라 스트림, 마이크 스트림, 답변 시간
+  - 답변 파일 메타데이터 허용 MIME: `video/webm`, `video/mp4`, `audio/webm`, `audio/mp4`, `audio/mpeg`, `audio/wav`
+  - macOS/Safari 계열 오디오 fallback은 `audio/mp4` MIME과 `.m4a` 파일명을 허용한다.
 - 검증/전제조건:
   - 장치 권한 허용, 저장 공간 확보
 - 성공 응답/처리:
