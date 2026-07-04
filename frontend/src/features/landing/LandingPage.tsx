@@ -4,9 +4,9 @@ import Link from "next/link";
 const featureCards = [
   {
     title: "더 많은 기회",
-    description: "면접 자원의 한계 없이 더 많은 지원자에게 면접 기회를 제공합니다.",
+    description: "면접 자원의 한계 없이 더 많은 지원자에게 공정한 면접 기회를 제공합니다.",
     icon: (
-      <svg aria-hidden="true" fill="none" height="20" viewBox="0 0 24 24" width="20">
+      <svg aria-hidden="true" fill="none" height="22" viewBox="0 0 24 24" width="22" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
         <circle cx="9" cy="7" r="4" />
         <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
@@ -15,9 +15,9 @@ const featureCards = [
   },
   {
     title: "1차 검증 자동화",
-    description: "서류와 면접을 기반으로 1차 검증을 자동화해 채용 운영 시간을 줄입니다.",
+    description: "서류와 AI 면접을 기반으로 1차 검증을 자동화해 채용 운영 시간을 줄입니다.",
     icon: (
-      <svg aria-hidden="true" fill="none" height="20" viewBox="0 0 24 24" width="20">
+      <svg aria-hidden="true" fill="none" height="22" viewBox="0 0 24 24" width="22" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
         <path d="M22 4 12 14.01l-3-3" />
       </svg>
@@ -27,7 +27,7 @@ const featureCards = [
     title: "근거 기반 리포트",
     description: "점수마다 답변과 서류 근거를 함께 제시하는 AI 평가 리포트를 제공합니다.",
     icon: (
-      <svg aria-hidden="true" fill="none" height="20" viewBox="0 0 24 24" width="20">
+      <svg aria-hidden="true" fill="none" height="22" viewBox="0 0 24 24" width="22" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
         <path d="M14 2v6h6M9 15l2 2 4-4" />
       </svg>
@@ -44,49 +44,60 @@ const reportBars = [
 
 export function LandingPage() {
   return (
-    <main className="app auth landing-page">
-      <div className="landing-glow landing-glow-a" />
-      <div className="landing-glow landing-glow-b" />
-      <div className="landing-glow landing-glow-c" />
-
-      <nav aria-label="랜딩 내비게이션" className="landing-nav">
-        <Link aria-label="init 홈" className="landing-logo" href="/">
-          <Image alt="init" height={32} priority src="/logo-init.png" width={86} />
-        </Link>
-        <div className="landing-links">
-          <a href="#service">서비스 소개</a>
-          <a href="#features">핵심 기능</a>
-          <Link className="landing-btn landing-btn-dark" href="/login">
-            로그인
+    <main className="landing notion">
+      <header className="gnb landing-gnb">
+        <div className="gnb-inner">
+          <Link className="brand" href="/" aria-label="init 홈">
+            <Image src="/logo-init-v3.png" alt="init" width={1900} height={580} priority />
           </Link>
+          <nav className="gnb-menu" aria-label="랜딩 메뉴">
+            <div className="gnb-item">
+              <a className="gnb-link" href="#features">기능</a>
+            </div>
+            <div className="gnb-item">
+              <a className="gnb-link" href="#how">작동 방식</a>
+            </div>
+          </nav>
+          <div className="gnb-right">
+            <Link className="btn secondary" href="/login">
+              로그인
+            </Link>
+            <Link className="btn primary" href="/signup">
+              시작하기
+            </Link>
+          </div>
         </div>
-      </nav>
+      </header>
 
       <section className="landing-hero">
-        <span className="landing-eyebrow">AI INTERVIEW PLATFORM</span>
         <h1>
-          <em>init</em>
+          면접을 잇다.
+          <br />
+          더 많은 지원자에게 <span>공정한 기회</span>를.
         </h1>
-        <p>인터뷰를 잇다.</p>
+        <p className="landing-sub">
+          init은 AI 인터뷰로 1차 검증을 자동화하고, 답변·서류 근거가 담긴 리포트로 채용 결정을 돕습니다.
+        </p>
         <div className="landing-cta">
-          <Link className="landing-btn landing-btn-dark landing-btn-lg" href="/login">
-            로그인하기
+          <Link className="btn primary lg" href="/signup">
+            무료로 시작하기
           </Link>
-          <a className="landing-btn landing-btn-pill landing-btn-lg" href="#service">
-            서비스 둘러보기
+          <a className="btn secondary lg" href="#how">
+            작동 방식 보기
           </a>
         </div>
       </section>
 
-
-      <section className="landing-section" id="service">
-        <h2>init은 무엇을 하나요</h2>
-        <div className="landing-mini-grid">
-          <article className="landing-mini">
-            <p className="landing-mini-caption">AI INTERVIEW</p>
-            <div className="landing-mini-inner">
+      <section className="landing-how" id="how">
+        <div className="landing-how-head">
+          <h2>지원자는 대화하고, 기업은 리포트로 확인합니다</h2>
+        </div>
+        <div className="landing-preview-grid">
+          <article className="landing-preview">
+            <p className="landing-preview-caption">AI INTERVIEW</p>
+            <div className="landing-preview-inner">
               <div className="landing-bubble landing-bubble-ai">최근 프로젝트에서 가장 어려웠던 기술적 문제는 무엇이었나요?</div>
-              <div className="landing-bubble landing-bubble-user">Redis Queue로 비동기 리포트 파이프라인을 설계했고...</div>
+              <div className="landing-bubble landing-bubble-user">Redis Queue로 비동기 리포트 파이프라인을 설계했고…</div>
               <p className="landing-recording">
                 <span />
                 답변 녹화 중 · 01:24
@@ -94,9 +105,9 @@ export function LandingPage() {
             </div>
           </article>
 
-          <article className="landing-mini">
-            <p className="landing-mini-caption">AI REPORT</p>
-            <div className="landing-mini-inner landing-report">
+          <article className="landing-preview">
+            <p className="landing-preview-caption">AI REPORT</p>
+            <div className="landing-preview-inner landing-report">
               {reportBars.map((bar) => (
                 <div className="landing-bar-row" key={bar.label}>
                   <span className="landing-bar-name">{bar.label}</span>
@@ -111,8 +122,10 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section className="landing-section landing-feature-section" id="features">
-        <h2>채용 경험을 더 선명하게</h2>
+      <section className="landing-features" id="features">
+        <div className="landing-how-head">
+          <h2>채용 경험을 더 선명하게</h2>
+        </div>
         <div className="landing-feature-grid">
           {featureCards.map((feature) => (
             <article className="landing-feature" key={feature.title}>
@@ -126,10 +139,24 @@ export function LandingPage() {
 
       <section className="landing-closing">
         <h2>지금 init에서 첫 면접을 시작하세요</h2>
-        <Link className="landing-btn landing-btn-pill landing-btn-lg" href="/login">
-          로그인하기
-        </Link>
+        <p>기업 회원가입 후 바로 공고를 만들고 AI 인터뷰를 운영할 수 있어요.</p>
+        <div className="landing-cta">
+          <Link className="btn primary lg" href="/signup">
+            무료로 시작하기
+          </Link>
+          <Link className="btn secondary lg" href="/login">
+            로그인
+          </Link>
+        </div>
       </section>
+
+      <footer className="landing-footer">
+        <span>© {new Date().getFullYear()} init()</span>
+        <div className="landing-footer-links">
+          <Link href="/login">로그인</Link>
+          <Link href="/signup">회원가입</Link>
+        </div>
+      </footer>
     </main>
   );
 }
