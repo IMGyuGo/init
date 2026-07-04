@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { InMemoryAiProcessLogRepository } from "./process-log.repository";
 import { InMemoryAiJobQueue } from "./queue";
 import { loadWorkerEnv } from "./worker-env";
-import { NonRetryableAiWorkerFailure, RetryableAiWorkerFailure } from "./worker-errors";
+import {
+  NonRetryableAiWorkerFailure,
+  ReanswerRequiredAiWorkerFailure,
+  RetryableAiWorkerFailure,
+  SttRetryableAiWorkerFailure
+} from "./worker-errors";
 import { AiWorkerRunner } from "./worker-runner";
 import { AiQueueMessage, AiTaskHandler } from "./worker.types";
 
@@ -138,6 +143,46 @@ test("keeps retryable failures on the queue for redelivery", async () => {
   assert.deepEqual(queue.deletedMessageIds, []);
 });
 
+test("keeps STT retryable failures on the queue for redelivery", async () => {
+  const queue = new InMemoryAiJobQueue([message(7, 2)]);
+  const repository = new InMemoryAiProcessLogRepository();
+  const handler: AiTaskHandler = {
+    async handle() {
+      throw new SttRetryableAiWorkerFailure("OpenAI STT timeout");
+    }
+  };
+
+  await new AiWorkerRunner(queue, repository, handler).processBatch();
+
+  assert.equal(repository.get(7).status, "FAILED");
+  assert.deepEqual(repository.get(7).failure, {
+    category: "STT_RETRYABLE",
+    reason: "OpenAI STT timeout",
+    retryable: true
+  });
+  assert.deepEqual(queue.deletedMessageIds, []);
+});
+
+test("acks retryable failures after the receive retry limit is exceeded", async () => {
+  const queue = new InMemoryAiJobQueue([message(9, 3)]);
+  const repository = new InMemoryAiProcessLogRepository();
+  const handler: AiTaskHandler = {
+    async handle() {
+      throw new SttRetryableAiWorkerFailure("OpenAI STT connection error");
+    }
+  };
+
+  await new AiWorkerRunner(queue, repository, handler).processBatch();
+
+  assert.equal(repository.get(9).status, "FAILED");
+  assert.deepEqual(repository.get(9).failure, {
+    category: "NON_RETRYABLE",
+    reason: "STT retry limit exceeded after 3 attempts: OpenAI STT connection error",
+    retryable: false
+  });
+  assert.deepEqual(queue.deletedMessageIds, ["message-9"]);
+});
+
 test("acks non-retryable failures after recording the reason", async () => {
   const queue = new InMemoryAiJobQueue([message(4)]);
   const repository = new InMemoryAiProcessLogRepository();
@@ -156,6 +201,26 @@ test("acks non-retryable failures after recording the reason", async () => {
     retryable: false
   });
   assert.deepEqual(queue.deletedMessageIds, ["message-4"]);
+});
+
+test("acks reanswer-required STT failures after recording the reason", async () => {
+  const queue = new InMemoryAiJobQueue([message(8)]);
+  const repository = new InMemoryAiProcessLogRepository();
+  const handler: AiTaskHandler = {
+    async handle() {
+      throw new ReanswerRequiredAiWorkerFailure("Audio file might be corrupted or unsupported");
+    }
+  };
+
+  await new AiWorkerRunner(queue, repository, handler).processBatch();
+
+  assert.equal(repository.get(8).status, "FAILED");
+  assert.deepEqual(repository.get(8).failure, {
+    category: "REANSWER_REQUIRED",
+    reason: "Audio file might be corrupted or unsupported",
+    retryable: false
+  });
+  assert.deepEqual(queue.deletedMessageIds, ["message-8"]);
 });
 
 test("loads SQS, S3 and AI provider settings from environment variables", () => {
@@ -180,8 +245,10 @@ test("loads SQS, S3 and AI provider settings from environment variables", () => 
       aiSttProviderMode: "mock",
       openaiSttModel: "gpt-4o-mini-transcribe",
       openaiSttLanguage: "ko",
+      openaiSttTimeoutMs: 30000,
       s3BucketName: "init-dev",
       workerBatchSize: 5,
+      workerMaxRetryableReceives: 3,
       workerPollIntervalMs: 2500,
       workerRepositoryMode: "prisma",
       prismaClientModule: "../api/node_modules/@prisma/client"
@@ -189,7 +256,7 @@ test("loads SQS, S3 and AI provider settings from environment variables", () => 
   );
 });
 
-function message(processLogId: number): AiQueueMessage {
+function message(processLogId: number, receiveCount?: number): AiQueueMessage {
   return {
     messageId: `message-${processLogId}`,
     receiptHandle: `receipt-${processLogId}`,
@@ -198,6 +265,7 @@ function message(processLogId: number): AiQueueMessage {
       processType: "REPORT_GENERATE",
       inputRef: `report:${processLogId}`,
       attempt: 1
-    }
+    },
+    receiveCount
   };
 }

@@ -16,6 +16,8 @@ import type {
   GeneratedFollowUpQuestion,
   InterviewQuestionFilter,
   InterviewRepository,
+  ReanswerRequiredFailure,
+  ReplaceInterviewAnswerInput,
 } from "./interview.repository";
 
 const FALLBACK_MOCK_QUESTIONS: Omit<InterviewQuestion, "questionId" | "isActive" | "interviewType">[] = [
@@ -204,6 +206,40 @@ export class PrismaInterviewRepository implements InterviewRepository {
       },
     });
     return this.toAnswer(answer);
+  }
+
+  async replaceAnswer(input: ReplaceInterviewAnswerInput): Promise<InterviewAnswer> {
+    const answer = await this.prisma.interviewAnswer.update({
+      where: { answerId: BigInt(input.answerId) },
+      data: {
+        videoFileId: input.videoFileId ? BigInt(input.videoFileId) : null,
+        audioFileId: input.audioFileId ? BigInt(input.audioFileId) : null,
+        durationSeconds: input.durationSeconds,
+        submittedAt: new Date(input.submittedAt),
+        transcript: null,
+      },
+    });
+    return this.toAnswer(answer);
+  }
+
+  async listReanswerRequiredFailures(sessionId: number, answerId: number): Promise<ReanswerRequiredFailure[]> {
+    const logs = await this.prisma.aiProcessLog.findMany({
+      where: {
+        sessionId: BigInt(sessionId),
+        processType: "STT",
+        status: "FAILED",
+        failureCategory: "REANSWER_REQUIRED",
+      },
+      orderBy: [{ createdAt: "desc" }, { processLogId: "desc" }],
+    });
+    return logs
+      .filter((log) => parseAiJobAnswerId(log.inputRef) === answerId)
+      .map((log) => ({
+        processLogId: Number(log.processLogId),
+        createdAt: log.createdAt.toISOString(),
+        failureCategory: "REANSWER_REQUIRED",
+        failureReason: log.failureReason ?? undefined,
+      }));
   }
 
   async findCompletedFollowUpProcess(processLogId: number): Promise<CompletedFollowUpProcess | undefined> {
@@ -518,6 +554,17 @@ function parseFollowUpOutput(outputRef: string): Omit<CompletedFollowUpProcess, 
       content,
       policy,
     };
+  } catch {
+    return undefined;
+  }
+}
+
+function parseAiJobAnswerId(inputRef: string | null): number | undefined {
+  if (!inputRef) return undefined;
+  try {
+    const input = JSON.parse(inputRef) as Record<string, unknown>;
+    const answerId = Number(input.answerId);
+    return Number.isInteger(answerId) && answerId > 0 ? answerId : undefined;
   } catch {
     return undefined;
   }

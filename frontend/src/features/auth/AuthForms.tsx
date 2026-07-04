@@ -179,8 +179,8 @@ function TermsModal({ userType, onClose }: { userType: UserType; onClose: () => 
           </button>
         </div>
         <div className="terms-body">
-          {terms.items.map((item) => (
-            <p key={item}>{item}</p>
+          {terms.items.map((item, index) => (
+            <p key={`${userType}-${index}-${item}`}>{item}</p>
           ))}
         </div>
         <button type="button" className="btn primary full lg" onClick={onClose}>

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
+import type { FailureCategory } from "./worker.types";
 
 export interface DocumentExtractionRecord {
   documentId: number;
@@ -106,6 +107,11 @@ export interface GeneratedQuestionEvaluationRecord {
   evidences: GeneratedReportEvidenceRecord[];
 }
 
+export type ReportAnswerEvaluationStatusRecord = "EVALUATED" | "STT_UNAVAILABLE";
+
+export const STT_UNAVAILABLE_TEMP_ZERO_REASON =
+  "STT transcript is unavailable; this answer is temporarily scored as 0 because speech recognition failed, not because of answer quality.";
+
 export interface GeneratedReportRecord {
   reportId: number;
   reportType: "RECRUITING_REPORT" | "MOCK_INTERVIEW_REPORT";
@@ -136,7 +142,7 @@ export interface ReportScoresRecord {
 export interface FailedReportRecord {
   reportId: number;
   reportType: "RECRUITING_REPORT" | "MOCK_INTERVIEW_REPORT";
-  failureCategory: "RETRYABLE" | "NON_RETRYABLE";
+  failureCategory: FailureCategory;
   failureReason: string;
 }
 
