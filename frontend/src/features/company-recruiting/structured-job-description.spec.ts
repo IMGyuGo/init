@@ -54,6 +54,16 @@ if (detailGallery.length !== 2 || detailGallery[1]?.name !== "culture-2.webp") {
   throw new Error("Recruitment detail should be able to read structured gallery images.");
 }
 
+const normalizedImageName = "스크린샷 2026-07-04 오전 11.36.41.png";
+const mojibakeImageName = utf8AsLatin1(normalizedImageName.normalize("NFD"));
+const brokenNameStructured = createEmptyStructuredJobDescription();
+brokenNameStructured.gallery = [{ url: "https://cdn.example.com/company/1/korean.png", name: mojibakeImageName }];
+const restoredGallery = getStructuredJobDescriptionGallery(structuredJobDescriptionToHtml(brokenNameStructured));
+
+if (restoredGallery[0]?.name !== normalizedImageName) {
+  throw new Error("Structured JD parser should restore mojibake Korean gallery image names.");
+}
+
 if (!parsed.structured.sections.requirements.includes("<strong>TypeScript</strong>")) {
   throw new Error("Structured JD parser should preserve rich text section HTML.");
 }
@@ -91,3 +101,7 @@ if (suggestedPostingTags.length !== 0) {
 
 const noSuggestedTags: readonly [] = suggestedPostingTags;
 void noSuggestedTags;
+
+function utf8AsLatin1(value: string) {
+  return Array.from(new TextEncoder().encode(value), (byte) => String.fromCharCode(byte)).join("");
+}

@@ -372,6 +372,41 @@ describe("CompanyRecruitingService", () => {
     ]);
   });
 
+  it("normalizes mojibake Korean JD image filenames before storing metadata", async () => {
+    const storageAdapter = createStorageAdapter();
+    const repository = createRepository({
+      async createFileAsset(input: unknown) {
+        repository.calls.createFileAsset = [input];
+        return {
+          fileId: 502,
+          ownerUserId: (input as { ownerUserId: number }).ownerUserId,
+          storageKey: (input as { storageKey: string }).storageKey,
+          originalName: (input as { originalName: string }).originalName,
+          mimeType: (input as { mimeType: string }).mimeType,
+          sizeBytes: (input as { sizeBytes: number }).sizeBytes,
+          status: "ACTIVE",
+          createdAt: new Date("2026-07-02T00:00:00.000Z"),
+        };
+      },
+    });
+    const service = new CompanyRecruitingService(repository, storageAdapter, {
+      jdImagePublicBaseUrl: "https://cdn.example.com/assets",
+    });
+    const normalizedName = "스크린샷 2026-07-04 오전 11.36.41.png";
+    const mojibakeName = Buffer.from(normalizedName.normalize("NFD"), "utf8").toString("latin1");
+
+    const result = await service.uploadJobDescriptionImage(companyUser, {
+      originalName: mojibakeName,
+      mimeType: "image/png",
+      sizeBytes: 245_760,
+      buffer: Buffer.from("image-bytes"),
+    });
+
+    assert.equal(result.originalName, normalizedName);
+    assert.equal((repository.calls.createFileAsset as Array<{ originalName: string }>)[0]?.originalName, normalizedName);
+    assert.doesNotMatch(result.storageKey, /á/);
+  });
+
   it("rejects JD editor image uploads with unsupported MIME types", async () => {
     const storageAdapter = createStorageAdapter();
     const repository = createRepository();

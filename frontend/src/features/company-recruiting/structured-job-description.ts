@@ -77,12 +77,12 @@ export function createEmptyStructuredJobDescription(): StructuredJobDescription 
 export function structuredJobDescriptionToHtml(value: StructuredJobDescription): string {
   const galleryHtml = value.gallery.length
     ? `<section data-init-structured-gallery="true">${value.gallery
-        .map(
-          (image) =>
-            `<figure data-init-structured-gallery-item="true"><img src="${escapeAttribute(image.url)}" alt="${escapeAttribute(
-              image.name || "공고 이미지",
-            )}" /><figcaption>${escapeHtml(image.name || "공고 이미지")}</figcaption></figure>`,
-        )
+        .map((image) => {
+          const imageName = normalizeStructuredJobImageName(image.name) || "공고 이미지";
+          return `<figure data-init-structured-gallery-item="true"><img src="${escapeAttribute(image.url)}" alt="${escapeAttribute(
+            imageName,
+          )}" /><figcaption>${escapeHtml(imageName)}</figcaption></figure>`;
+        })
         .join("")}</section>`
     : "";
 
@@ -141,7 +141,7 @@ export function extractStructuredJobDescription(jobDescription: string | null | 
   const structured = createEmptyStructuredJobDescription();
   structured.gallery = [...block.matchAll(/<img\b[^>]*\bsrc="([^"]+)"[^>]*\balt="([^"]*)"[^>]*>/gi)].map((match) => ({
     url: decodeHtml(match[1] ?? ""),
-    name: decodeHtml(match[2] ?? ""),
+    name: normalizeStructuredJobImageName(decodeHtml(match[2] ?? "")),
   }));
 
   for (const section of structuredJobSectionDefinitions) {
@@ -182,6 +182,16 @@ export function getStructuredJobDescriptionGallery(jobDescription: string | null
   return extractStructuredJobDescription(jobDescription).structured?.gallery ?? [];
 }
 
+export function normalizeStructuredJobImageName(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  const decoded = decodeLatin1MojibakeText(trimmed).trim();
+  return (decoded || trimmed).normalize("NFC");
+}
+
 export function stripStructuredJobDescriptionBlock(jobDescription: string | null | undefined) {
   return (jobDescription ?? "").replace(structuredBlockPattern, "");
 }
@@ -210,4 +220,14 @@ function decodeHtml(value: string) {
     .replace(/&gt;/g, ">")
     .replace(/&lt;/g, "<")
     .replace(/&amp;/g, "&");
+}
+
+function decodeLatin1MojibakeText(value: string) {
+  if (!/[\u0080-\u00ff]/.test(value)) {
+    return value;
+  }
+
+  const bytes = Uint8Array.from(Array.from(value, (char) => char.charCodeAt(0) & 0xff));
+  const decoded = new TextDecoder("utf-8").decode(bytes);
+  return decoded.includes("\uFFFD") ? value : decoded;
 }

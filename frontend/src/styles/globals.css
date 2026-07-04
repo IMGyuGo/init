@@ -852,8 +852,8 @@ a.gnb-link:focus-visible {
 .gnb-panel a:hover,
 .gnb-panel a:focus-visible,
 .gnb-panel a.active {
-  color: var(--brand-strong);
-  background: var(--surface-soft);
+  color: #3b6fe0;
+  background: rgba(55, 53, 47, 0.06);
 }
 
 .gnb-right {
@@ -3810,4 +3810,386 @@ td input {
   .list-filter-toolbar input:not([type="checkbox"]):not([type="radio"]) {
     grid-column: 1 / -1;
   }
+}
+
+/* NOTION — eyebrow 회색, destructive 레드 (공고 설정 등) */
+.notion .eyebrow { color: rgba(55, 53, 47, 0.5); }
+.app-shell .glass-page.notion .btn.destructive {
+  color: #fff;
+  background: #e03e3e;
+  border-color: #e03e3e;
+  box-shadow: none;
+}
+.app-shell .glass-page.notion .btn.destructive:hover {
+  background: #c0392b;
+  border-color: #c0392b;
+}
+
+/* NOTION — 계정(마이)페이지 전용 클래스 보라 → 파랑/중립 */
+.notion .company-logo-preview {
+  background: #eef2fb;
+  color: #3b6fe0;
+}
+.notion .company-logo-file-icon {
+  color: #3b6fe0;
+  background: #e7f0ff;
+}
+.notion .company-logo-file-action {
+  color: #3b6fe0;
+  background: #eef3ff;
+}
+.notion .company-logo-drop:hover,
+.notion .company-logo-drop:focus-within {
+  background: #f7f8fb;
+  border-color: #3b6fe0;
+}
+.notion .company-logo-drop.has-file {
+  background: #f7f8fb;
+}
+
+.notion .page-banner .banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+/* ---- 공고 카드 그리드 (컬러 헤더) ---- */
+.notion.list-page .posting-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  padding-top: 10px;
+}
+@media (max-width: 900px) {
+  .notion.list-page .posting-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .notion.list-page .posting-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.notion .posting-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #ffffff;
+  border: 1px solid rgba(55, 53, 47, 0.07);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(15, 15, 15, 0.04), 0 6px 18px rgba(15, 15, 15, 0.05);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.notion .posting-card.is-clickable {
+  cursor: pointer;
+}
+.notion .posting-card.is-clickable:hover {
+  transform: translateY(-2px);
+  border-color: rgba(55, 53, 47, 0.12);
+  box-shadow: 0 2px 4px rgba(15, 15, 15, 0.05), 0 12px 28px rgba(15, 15, 15, 0.1);
+}
+.notion .posting-card.is-clickable:focus-visible {
+  outline: 2px solid #3b6fe0;
+  outline-offset: 2px;
+}
+.notion .pc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 18px;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.notion .pc-code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notion .pc-date {
+  flex: none;
+  font-weight: 600;
+  opacity: 0.92;
+}
+.notion .pc-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+}
+.notion .pc-body-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.notion .pc-titlewrap {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.notion .pc-body-top .badge {
+  flex: none;
+  white-space: nowrap;
+}
+.notion .pc-org {
+  margin: 0 0 5px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(55, 53, 47, 0.55);
+}
+.notion .pc-titlewrap h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #191919;
+  line-height: 1.32;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.notion .pc-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid rgba(55, 53, 47, 0.08);
+}
+.notion .pc-stat strong {
+  display: block;
+  font-size: 24px;
+  font-weight: 800;
+  color: #191919;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.notion .pc-stat span {
+  font-size: 12px;
+  color: rgba(55, 53, 47, 0.5);
+}
+.notion .pc-action {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 15px;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  background: #191919;
+  border-radius: 8px;
+}
+.notion .posting-card.is-clickable:hover .pc-action {
+  background: #000000;
+}
+
+/* ---- 공고 카드 v2 (아바타+커버+태그+메타) ---- */
+.notion .posting-card {
+  display: flex;
+  flex-direction: column;
+  padding: 16px 16px 18px;
+  border-radius: 16px;
+}
+.notion .pc-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.notion .pc-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  overflow: hidden;
+  color: #5b5b66;
+  font-size: 13px;
+  font-weight: 700;
+  background: #eef0f3;
+  border-radius: 50%;
+}
+.notion .pc-avatar-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background-position: center;
+  background-size: cover;
+}
+.notion .pc-id {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.notion .pc-id strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  color: #191919;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notion .pc-id span {
+  font-size: 12px;
+  color: rgba(55, 53, 47, 0.5);
+}
+.notion .pc-top .badge {
+  flex: none;
+  white-space: nowrap;
+}
+.notion .pc-cover {
+  display: flex;
+  align-items: flex-end;
+  height: 96px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  border-radius: 12px;
+}
+.notion .pc-title {
+  display: -webkit-box;
+  margin: 0 0 12px;
+  overflow: hidden;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.32;
+  color: #191919;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.notion .pc-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.notion .pc-tags span {
+  padding: 5px 11px;
+  color: #37352f;
+  font-size: 12.5px;
+  font-weight: 500;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.14);
+  border-radius: 999px;
+}
+.notion .pc-tags span.is-danger {
+  color: #c4554d;
+  border-color: #f0cdcd;
+}
+.notion .pc-meta {
+  display: grid;
+  gap: 9px;
+  margin: auto 0 0;
+  padding-top: 14px;
+  list-style: none;
+  border-top: 1px solid rgba(55, 53, 47, 0.08);
+}
+.notion .pc-meta li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: #37352f;
+}
+.notion .pc-mi {
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* ---- 공고 카드 v3 (부동산 리스트식) ---- */
+.notion .posting-card {
+  padding: 0;
+  overflow: hidden;
+}
+.notion .pcard-cover {
+  position: relative;
+  height: 168px;
+  padding: 14px;
+}
+.notion .pcard-cover.has-image {
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+.notion .pcard-cover.has-image::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.28) 0%, rgba(0, 0, 0, 0) 45%);
+  pointer-events: none;
+}
+.notion .pcard-cover.is-placeholder {
+  background-size: 132px;
+  background-color: #f7f8fa;
+}
+.notion .pcard-cover.is-placeholder::before {
+  background: none;
+}
+.notion .pcard-cover-logo {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-size: cover;
+  opacity: 0.9;
+}
+.notion .pcard-cover-badges {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.notion .pcard-cover-badges .badge {
+  background: #ffffff;
+}
+.notion .pcard-dday {
+  display: inline-flex;
+  align-items: center;
+  height: 25px;
+  padding: 0 11px;
+  color: #37352f;
+  font-size: 12px;
+  font-weight: 600;
+  background: #ffffff;
+  border-radius: 999px;
+}
+.notion .pcard-dday.is-danger {
+  color: #c4554d;
+}
+.notion .pcard-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 18px 20px;
+}
+.notion .pcard-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #191919;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.notion .pcard-sub {
+  margin: 0;
+  font-size: 14px;
+  color: rgba(55, 53, 47, 0.6);
+}
+.notion .pcard-sub strong {
+  font-weight: 600;
+  color: #37352f;
+  font-variant-numeric: tabular-nums;
 }

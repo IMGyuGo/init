@@ -19,6 +19,7 @@ import { buildInterviewSettingsHref } from "./routes";
 import {
   composeStructuredJobDescription,
   createEmptyStructuredJobDescription,
+  normalizeStructuredJobImageName,
   structuredJobSectionDefinitions,
   type StructuredJobDescription,
   type StructuredJobImage,
@@ -140,7 +141,7 @@ export function RecruitmentCreatePage() {
           continue;
         }
         const result = await uploadJobDescriptionImage(file);
-        uploaded.push({ url: result.data.url, name: result.data.originalName });
+        uploaded.push({ url: result.data.url, name: normalizeStructuredJobImageName(result.data.originalName) });
       }
 
       if (uploaded.length > 0) {

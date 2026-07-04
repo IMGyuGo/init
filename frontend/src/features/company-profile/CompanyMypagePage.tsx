@@ -132,7 +132,7 @@ export function CompanyMypagePage() {
   }
 
   return (
-    <section className="app-page company-mypage-page">
+    <section className="app-page glass-page notion company-mypage-page">
       <div className="page-head">
         <div>
           <h1>계정</h1>

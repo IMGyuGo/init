@@ -11,14 +11,16 @@ import { formatRecruitmentPaginationSummary, getRecruitmentPaginationPages } fro
 import type { Recruitment, RecruitmentStatus } from "./types";
 import type { PageMeta } from "./types";
 import { getCompanyPostingActions } from "./company-posting-actions";
+import { getStructuredJobDescriptionGallery } from "./structured-job-description";
 import { getCompanyProfile } from "../company-profile/api";
-import { getCompanyDisplayName } from "../company-profile/company-profile-display";
+import { getCompanyDisplayName, getCompanyLogoUrl } from "../company-profile/company-profile-display";
 import type { CompanyProfile } from "../company-profile/types";
 import agreementIcon from "./assets/kpi-agreement.png";
 import expiredIcon from "./assets/kpi-expired.png";
 import personalGrowthIcon from "./assets/kpi-personal-growth.png";
 import taskPlanningIcon from "./assets/kpi-task-planning.png";
 import postingBanner from "./assets/posting-banner.png";
+import postingNoImage from "./assets/posting-no-image.png";
 
 type StatusFilter = "ALL" | RecruitmentStatus;
 
@@ -26,9 +28,9 @@ type CompletionStat = { rate: number; done: number; total: number };
 
 const ACTIVE_STATUSES: RecruitmentStatus[] = ["OPEN", "CLOSING_SOON"];
 const INTERVIEW_DONE_STATUSES = ["COMPLETED", "DONE"];
-const URGENT_DDAY = 3;
 const recruitmentPageSize = 10;
 
+// 카드 상단 컬러 헤더 (상태별)
 const STATUS_CHIPS: { value: StatusFilter; label: string }[] = [
   { value: "ALL", label: "전체" },
   { value: "OPEN", label: "모집중" },
@@ -130,6 +132,7 @@ export function CompanyPostingsPage() {
     ? Math.min(...closingItems.map((item) => daysUntil(item.endsOn) as number))
     : null;
   const companyDisplayName = getCompanyDisplayName(companyProfile);
+  const companyLogoUrl = getCompanyLogoUrl(companyProfile);
 
   return (
     <section className="app-page glass-page notion list-page">
@@ -215,40 +218,38 @@ export function CompanyPostingsPage() {
           ) : items.length === 0 ? (
             <div className="empty">공고가 없습니다. 오른쪽 상단에서 첫 공고를 생성하세요.</div>
           ) : (
-            <div className="posting-list">
+            <div className="posting-grid">
               {items.map((item) => {
                 const stat = completion[item.recruitmentId];
                 const rate = stat?.rate ?? 0;
                 const actions = getCompanyPostingActions(item);
                 const manageHref = actions.includes("manage") ? `/company/recruitments/${item.recruitmentId}` : null;
-                const left = daysUntil(item.endsOn);
-                const urgent = left !== null && left >= 0 && left <= URGENT_DDAY;
+                const galleryUrl = getStructuredJobDescriptionGallery(item.jobDescription)[0]?.url ?? null;
+                const coverUrl = galleryUrl ?? companyLogoUrl ?? postingNoImage.src;
+                const coverIsPlaceholder = !galleryUrl && !companyLogoUrl;
                 return (
                   <article
-                    className={`posting${manageHref ? " is-clickable" : ""}`}
+                    className={`posting-card${manageHref ? " is-clickable" : ""}`}
                     key={item.recruitmentId}
                     role={manageHref ? "link" : undefined}
                     tabIndex={manageHref ? 0 : undefined}
                     onClick={manageHref ? () => router.push(manageHref) : undefined}
                     onKeyDown={manageHref ? (event) => handleRowKey(event, () => router.push(manageHref)) : undefined}
                   >
-                    <div className="posting-info">
-                      <div className="posting-title-row">
-                        <h3>{item.title}</h3>
+                    <div
+                      className={`pcard-cover has-image${coverIsPlaceholder ? " is-placeholder" : ""}`}
+                      style={{ backgroundImage: `url(${coverUrl})` }}
+                    >
+                      <div className="pcard-cover-badges">
                         <StatusBadge value={item.status} />
+                        <span className={`pcard-dday${ddayLabel(item.endsOn) === "마감" ? " is-danger" : ""}`}>{ddayLabel(item.endsOn)}</span>
                       </div>
-                      <p>
-                        {item.jobRole} · {formatPeriod(item)} · <b className={`dday${urgent ? " dday-urgent" : ""}`}>{ddayLabel(item.endsOn)}</b>
+                    </div>
+                    <div className="pcard-body">
+                      <h3 className="pcard-title">{item.title}</h3>
+                      <p className="pcard-sub">
+                        지원 <strong>{item.applicantCount}</strong>명 · 완료 <strong>{rate}%</strong>
                       </p>
-                    </div>
-                    <div className="posting-progress">
-                      <div className="progress">
-                        <i style={{ width: `${rate}%` }} />
-                      </div>
-                      <span>{stat ? `응시 완료 ${rate}% · ${stat.done}/${stat.total}명` : "응시 완료 집계 중…"}</span>
-                    </div>
-                    <div className="posting-actions">
-                      {manageHref ? <span className="posting-chevron" aria-hidden="true">›</span> : null}
                     </div>
                   </article>
                 );
@@ -296,13 +297,6 @@ export function CompanyPostingsPage() {
   );
 }
 
-function formatPeriod(item: Recruitment) {
-  if (!item.startsOn && !item.endsOn) {
-    return "기간 미정";
-  }
-  return `${item.startsOn ?? "시작 미정"} ~ ${item.endsOn ?? "마감 미정"}`;
-}
-
 function daysUntil(endsOn: string | null): number | null {
   if (!endsOn) {
     return null;
@@ -319,7 +313,7 @@ function daysUntil(endsOn: string | null): number | null {
 function ddayLabel(endsOn: string | null): string {
   const left = daysUntil(endsOn);
   if (left === null) {
-    return "마감 미정";
+    return "상시";
   }
   if (left < 0) {
     return "마감";

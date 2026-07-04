@@ -63,7 +63,6 @@ export function CompanyNav({ active }: { active?: CompanyNavSection }) {
           </div>
         </nav>
         <div className="gnb-right">
-          <GnbLogoutButton />
           <button className="icon-btn" type="button" aria-label="알림">
             <svg
               width="18"
@@ -81,6 +80,7 @@ export function CompanyNav({ active }: { active?: CompanyNavSection }) {
             </svg>
           </button>
           <GnbAvatar accountLabel="기업 계정" />
+          <GnbLogoutButton />
         </div>
       </div>
     </header>

@@ -1,8 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
+
+import settingsBanner from "./assets/settings-banner.png";
 
 import { deleteRecruitment, getRecruitment, updateRecruitment, uploadJobDescriptionImage } from "./api";
 import { Breadcrumb } from "./CompanyRecruitingChrome";
@@ -22,6 +25,7 @@ import {
   createEmptyStructuredJobDescription,
   createStructuredJobDescriptionFromHtml,
   extractStructuredJobDescription,
+  normalizeStructuredJobImageName,
   structuredJobSectionDefinitions,
   type StructuredJobDescription,
   type StructuredJobImage,
@@ -205,7 +209,7 @@ export function RecruitmentSettingsPage({ recruitmentId }: { recruitmentId: numb
           continue;
         }
         const result = await uploadJobDescriptionImage(file);
-        uploaded.push({ url: result.data.url, name: result.data.originalName });
+        uploaded.push({ url: result.data.url, name: normalizeStructuredJobImageName(result.data.originalName) });
       }
 
       if (uploaded.length > 0) {
@@ -265,8 +269,8 @@ export function RecruitmentSettingsPage({ recruitmentId }: { recruitmentId: numb
 
   return (
     <section className="app-page glass-page posting-create-page notion">
-        <div className="page-head">
-          <div>
+        <div className="page-banner">
+          <div className="page-banner-copy">
             <Breadcrumb
               items={[
                 { label: "공고 목록", href: "/company/recruitments" },
@@ -275,41 +279,33 @@ export function RecruitmentSettingsPage({ recruitmentId }: { recruitmentId: numb
               ]}
             />
             <h1>공고 설정</h1>
+            <p className="page-sub">공고 제목·기간·상세 내용·이미지·태그를 수정하고 저장하면 공개 공고에 바로 반영됩니다.</p>
+            <div className="banner-actions">
+              <Link className="btn secondary" href={`/company/recruitments/${recruitmentId}`}>
+                대시보드
+              </Link>
+              {recruitment && canDeleteRecruitment(recruitment.status) ? (
+                <button
+                  className="btn destructive"
+                  type="button"
+                  disabled={loading}
+                  onClick={() => {
+                    setMessage("");
+                    setDeleteError("");
+                    setDeleteOpen(true);
+                  }}
+                >
+                  공고 삭제
+                </button>
+              ) : null}
+            </div>
           </div>
-          <div className="page-actions">
-            {recruitment && canDeleteRecruitment(recruitment.status) ? (
-              <button
-                className="btn destructive"
-                type="button"
-                disabled={loading}
-                onClick={() => {
-                  setMessage("");
-                  setDeleteError("");
-                  setDeleteOpen(true);
-                }}
-              >
-                공고 삭제
-              </button>
-            ) : null}
-            <Link className="btn secondary" href={`/company/recruitments/${recruitmentId}`}>
-              대시보드
-            </Link>
-          </div>
+          <Image className="page-banner-art" src={settingsBanner} alt="" width={300} height={300} aria-hidden="true" priority />
         </div>
 
         {message ? <p className="notice danger">{message}</p> : null}
 
         <form className="creation-flow posting-create-flow" onSubmit={handleSave}>
-          <section className="panel structured-create-hero">
-            <div className="panel-head">
-              <div>
-                <p className="eyebrow">JOB POSTING SETTINGS</p>
-                <h2>공개 공고 정보를 수정하세요</h2>
-                <p>이미지, 상세 JD, 태그를 수정하면 지원자에게 보이는 공고 화면에도 같은 내용이 반영됩니다.</p>
-              </div>
-            </div>
-          </section>
-
           <section className="panel">
             <div className="panel-head">
               <div>
