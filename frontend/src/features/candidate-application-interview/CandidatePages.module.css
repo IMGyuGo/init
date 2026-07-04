@@ -2364,6 +2364,17 @@
   font-weight: 800;
 }
 
+:global(.report-evidence-list__answer) {
+  margin: 2px 0 0;
+  padding: 8px 10px;
+  color: var(--ink-700);
+  font-size: 13px;
+  line-height: 1.55;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
 :global(.script-box) {
   min-height: 200px;
 }

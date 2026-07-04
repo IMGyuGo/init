@@ -84,10 +84,10 @@ const RUBRIC_LEVEL_LABELS: Record<number, string> = {
 
 const RUBRIC_LEVEL_SCORES: Record<number, number> = {
   1: 55,
-  2: 65,
-  3: 75,
-  4: 85,
-  5: 93,
+  2: 63,
+  3: 72,
+  4: 82,
+  5: 88,
 };
 
 export function normalizeReportCriterionName(name: string): string {

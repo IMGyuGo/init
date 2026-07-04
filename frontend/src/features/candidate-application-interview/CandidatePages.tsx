@@ -17,6 +17,7 @@ import {
   type CandidateApplicationStatusView,
   type CandidateApplicationSummary,
   type CandidateFileAsset,
+  type CandidateFollowUpQuestionView,
   type CandidateInterviewRuntimeView,
   type CandidateJobQuery,
   type CandidateMockInterviewHistoryItem,
@@ -1273,6 +1274,7 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
   const reportStatus = data?.feedback?.status ?? data?.media?.status ?? (generationRequested ? "GENERATING" : undefined);
   const reportStatusView = getMockReportStatusView(reportStatus, data?.feedbackError);
   const canRequestReport = !busy && reportStatus !== "GENERATING" && reportStatus !== "COMPLETED";
+  const showReportRequestButton = reportStatus !== "COMPLETED";
 
   useEffect(() => {
     if (reportStatus !== "GENERATING") return;
@@ -1310,9 +1312,11 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
             <h2>종합 피드백</h2>
             <p>합격/탈락 판단이나 내부 점수는 노출하지 않습니다.</p>
           </div>
-          <button className="btn secondary" type="button" disabled={!canRequestReport} onClick={() => void handleGenerate()}>
-            {reportStatus === "FAILED" ? "분석 다시 요청" : "AI 분석 시작"}
-          </button>
+          {showReportRequestButton ? (
+            <button className="btn secondary" type="button" disabled={!canRequestReport} onClick={() => void handleGenerate()}>
+              {reportStatus === "FAILED" ? "분석 다시 요청" : "AI 분석 시작"}
+            </button>
+          ) : null}
         </div>
         {data?.feedback && data.feedback.status === "COMPLETED"
           ? <MockFeedbackView feedback={data.feedback} />
@@ -1321,8 +1325,8 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
       <section className="panel">
         <div className="panel-head">
           <div>
-            <h2>영상 / 스크립트 동시 조회</h2>
-            <p>본인 세션의 file_assets 참조만 표시합니다.</p>
+            <h2>답변 스크립트</h2>
+            <p>녹음 답변에서 변환된 텍스트와 생성된 꼬리질문을 확인합니다.</p>
           </div>
         </div>
         {data?.media ? <MockMediaView media={data.media} /> : <p className="notice danger">{data?.mediaError ?? "미디어를 불러오지 못했습니다."}</p>}
@@ -3740,6 +3744,14 @@ function isReportNotReadyMessage(message: string): boolean {
 }
 
 function MockFeedbackView({ feedback }: { feedback: CandidateMockReportFeedback }) {
+  const scores = feedback.scores ?? [];
+  const improvementItems = feedback.improvements.length > 0
+    ? feedback.improvements
+    : buildMockReportImprovementItems(scores);
+  const nextPracticeItems = feedback.nextPractice.length > 0
+    ? feedback.nextPractice
+    : buildMockReportPracticeItems(scores);
+
   return (
     <div className="detail-stack">
       <dl className="candidate-feature__summary">
@@ -3750,17 +3762,39 @@ function MockFeedbackView({ feedback }: { feedback: CandidateMockReportFeedback 
       </dl>
       {feedback.aiProcess ? <AiProcessSummaryView process={feedback.aiProcess} /> : null}
       <p className="description-box">{feedback.summary ?? "리포트 생성 중입니다."}</p>
-      <ListBlock title="강점" items={feedback.strengths} />
-      <ListBlock title="개선점" items={feedback.improvements} />
-      <ListBlock title="다음 연습" items={feedback.nextPractice} />
-      <ReportScoreList scores={feedback.scores ?? []} />
+      {scores.length ? null : <ListBlock title="강점" items={feedback.strengths} />}
+      <ListBlock title="개선점" items={improvementItems} />
+      <ListBlock title="다음 연습" items={nextPracticeItems} />
+      <ReportScoreList scores={scores} />
     </div>
   );
 }
 
+function buildMockReportImprovementItems(scores: CandidateReportScoreView[]): string[] {
+  if (!scores.length) {
+    return ["답변별 상황, 본인 행동, 결과를 구분해서 말하면 피드백 정확도가 높아집니다."];
+  }
+
+  return [...scores]
+    .sort((left, right) => left.score - right.score)
+    .slice(0, 3)
+    .map((score) => `${score.criterionName} 답변은 사례의 배경, 본인 행동, 결과를 조금 더 분리해서 말하면 좋아집니다.`);
+}
+
+function buildMockReportPracticeItems(scores: CandidateReportScoreView[]): string[] {
+  if (!scores.length) {
+    return ["다음 연습에서는 한 답변 안에 문제 상황, 내가 한 일, 확인한 결과를 차례로 담아 보세요."];
+  }
+
+  const lowestScore = [...scores].sort((left, right) => left.score - right.score)[0];
+  return [
+    `${lowestScore.criterionName} 항목을 중심으로 STAR 방식으로 30초 답변을 다시 연습해 보세요.`,
+  ];
+}
+
 function MockMediaView({ media }: { media: CandidateMockReportMedia }) {
   if (!media.media.length) return <p className="empty">연결된 답변 파일이 없습니다.</p>;
-  const mediaItems = [...media.media].sort((left, right) => left.sortOrder - right.sortOrder);
+  const mediaItems = orderReportAnswersByInterviewFlow(media.media);
   return (
     <div className="detail-stack">
       <div className="report-media-list">
@@ -3793,7 +3827,7 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
             </video>
           ) : (
             <div className="report-media-placeholder">
-              <strong>{item.videoFile?.originalName ?? "답변 영상"}</strong>
+              <strong>답변 영상</strong>
               <span>현재 브라우저 세션에 녹화 원본이 없습니다.</span>
             </div>
           )}
@@ -3804,9 +3838,6 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
           <FollowUpQuestionList questions={item.followUpQuestions} />
           <dl className="report-answer-meta">
             <Definition label="답변 시간" value={`${item.durationSeconds}s`} />
-            <Definition label="영상 파일" value={item.videoFile?.originalName ?? "-"} />
-            <Definition label="음성 파일" value={item.audioFile?.originalName ?? "-"} />
-            <Definition label="제출 시각" value={formatDateTime(item.submittedAt)} />
           </dl>
           {audioUrl ? (
             <audio className="report-audio-player" controls preload="metadata" src={audioUrl}>
@@ -3894,12 +3925,60 @@ function ReportScoreList({ scores }: { scores: CandidateReportScoreView[] }) {
   );
 }
 
+function orderReportAnswersByInterviewFlow<T extends {
+  answerId: number;
+  questionContent?: string;
+  questionType?: QuestionType;
+  sortOrder?: number;
+  followUpQuestions: CandidateFollowUpQuestionView[];
+}>(answers: T[]): T[] {
+  const normalizedContentToAnswer = new Map<string, T>();
+  for (const answer of answers) {
+    const key = normalizeReportQuestionContent(answer.questionContent);
+    if (key) normalizedContentToAnswer.set(key, answer);
+  }
+
+  const baseAnswers = answers
+    .filter((answer) => answer.questionType !== "FOLLOW_UP")
+    .sort(compareReportAnswers);
+  const ordered: T[] = [];
+  const usedAnswerIds = new Set<number>();
+
+  for (const answer of baseAnswers) {
+    ordered.push(answer);
+    usedAnswerIds.add(answer.answerId);
+
+    for (const followUp of answer.followUpQuestions) {
+      const followUpAnswer = normalizedContentToAnswer.get(normalizeReportQuestionContent(followUp.content));
+      if (!followUpAnswer || usedAnswerIds.has(followUpAnswer.answerId)) continue;
+      ordered.push(followUpAnswer);
+      usedAnswerIds.add(followUpAnswer.answerId);
+    }
+  }
+
+  const remainingAnswers = answers
+    .filter((answer) => !usedAnswerIds.has(answer.answerId))
+    .sort(compareReportAnswers);
+  return [...ordered, ...remainingAnswers];
+}
+
+function normalizeReportQuestionContent(value?: string): string {
+  return value?.replace(/\s+/g, " ").trim().toLowerCase() ?? "";
+}
+
+function compareReportAnswers(
+  left: { sortOrder?: number; answerId: number },
+  right: { sortOrder?: number; answerId: number },
+): number {
+  return (left.sortOrder ?? left.answerId) - (right.sortOrder ?? right.answerId);
+}
+
 function ReportAnswerInsightList({ answers }: { answers: CandidateReportAnswerView[] }) {
   if (!answers.length) {
     return <p className="empty">표시할 면접 답변이 아직 없습니다.</p>;
   }
 
-  const sortedAnswers = [...answers].sort((left, right) => (left.sortOrder ?? left.answerId) - (right.sortOrder ?? right.answerId));
+  const sortedAnswers = orderReportAnswersByInterviewFlow(answers);
   return (
     <div>
       <h3 className="candidate-section-title">답변별 STT / 꼬리질문</h3>
@@ -3958,6 +4037,9 @@ function EvidenceList({ evidences, criterionName }: { evidences: CandidateReport
         {evidences.map((evidence) => (
           <li key={evidence.evidenceId}>
             <span>{formatEvidenceSummary(evidence, criterionName)}</span>
+            {evidence.evidenceText ? (
+              <p className="report-evidence-list__answer">{formatEvidenceReference(evidence)}</p>
+            ) : null}
             <small>{formatEvidenceSourceLabel(evidence)}</small>
           </li>
         ))}
@@ -3968,21 +4050,26 @@ function EvidenceList({ evidences, criterionName }: { evidences: CandidateReport
 
 function formatEvidenceSummary(evidence: CandidateReportEvidenceView, criterionName?: string): string {
   const focus = formatCriterionEvidenceFocus(criterionName);
-  const source = formatEvidenceSourceSubject(evidence.sourceType);
-  return `${focus} ${source} 확인되었습니다: "${shortenReportEvidence(evidence.evidenceText)}"`;
+  const source = formatEvidenceSourceNoun(evidence.sourceType);
+  return `${focus} ${source}를 참고했습니다.`;
 }
 
 function formatCriterionEvidenceFocus(criterionName?: string): string {
   const labels: Record<string, string> = {
-    "직무/기술 역량": "JD와 연결되는 기술 경험과 구현 판단이",
-    "문제 해결력": "문제를 나누어 확인하고 해결 방향을 찾은 과정이",
-    "실행력과 성과": "본인이 맡은 실행 과정과 결과가",
-    "협업/커뮤니케이션": "상황과 역할을 설명하는 흐름과 협업 방식이",
-    "학습/성장성": "새로운 내용을 학습하고 적용한 흐름이",
-    "책임감/신뢰성": "끝까지 확인하고 검증하려는 태도가",
+    "직무/기술 역량": "기술 경험과 직무 연관성을 판단하는 데",
+    "문제 해결력": "문제를 나누어 확인한 과정을 판단하는 데",
+    "실행력과 성과": "직접 수행한 작업과 결과를 판단하는 데",
+    "협업/커뮤니케이션": "상황 설명과 협업 방식을 판단하는 데",
+    "학습/성장성": "학습한 내용을 실제 문제에 적용한 흐름을 판단하는 데",
+    "책임감/신뢰성": "끝까지 확인하고 검증하는 태도를 판단하는 데",
   };
 
-  return criterionName ? labels[criterionName] ?? `${criterionName} 평가와 관련된 답변 내용이` : "리포트 평가와 관련된 답변 내용이";
+  return criterionName ? labels[criterionName] ?? `${criterionName} 항목을 판단하는 데` : "답변 흐름을 확인하는 데";
+}
+
+function formatEvidenceReference(evidence: CandidateReportEvidenceView): string {
+  const answerLabel = evidence.answerId ? `참고 답변 #${evidence.answerId}` : "참고 답변";
+  return `${answerLabel}: "${shortenReportEvidence(evidence.evidenceText)}"`;
 }
 
 function getReportScoreBand(score: number): { label: string; range: string; description: string } {
@@ -4001,20 +4088,20 @@ function getReportScoreBand(score: number): { label: string; range: string; desc
   return { label: "부족", range: "0~59", description: "질문과 직접 연결되는 평가 근거가 부족합니다." };
 }
 
-function shortenReportEvidence(value: string): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized.length > 90 ? `${normalized.slice(0, 87)}...` : normalized;
-}
-
-function formatEvidenceSourceSubject(sourceType: string): string {
+function formatEvidenceSourceNoun(sourceType: string): string {
   const labels: Record<string, string> = {
-    INTERVIEW_ANSWER: "면접 답변에서",
-    APPLICATION_DOCUMENT: "제출 자료에서",
-    DOCUMENT: "제출 자료에서",
-    FOLLOW_UP: "꼬리질문 답변에서",
+    INTERVIEW_ANSWER: "면접 답변",
+    APPLICATION_DOCUMENT: "제출 자료",
+    DOCUMENT: "제출 자료",
+    FOLLOW_UP: "꼬리질문 답변",
   };
 
-  return labels[sourceType] ?? "평가 자료에서";
+  return labels[sourceType] ?? "평가 자료";
+}
+
+function shortenReportEvidence(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
 }
 
 function formatEvidenceSourceLabel(evidence: CandidateReportEvidenceView): string {

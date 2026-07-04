@@ -933,40 +933,48 @@ function localizedCriterionName(name: string): string {
 function scoreRationale(
   criterionName: string,
   score: number,
-  transcript: string,
+  _transcript: string,
   assessment: ReturnType<typeof structuredAssessment>
 ): string {
-  const evidence = pickEvidence(transcript);
   const band = scoreBandFor(score);
   const improvement = assessment.uncertaintyReasons.includes("정량 성과나 전후 비교가 부족합니다.")
     ? "성과를 수치, 전후 비교, 검증 결과로 보강하면 더 설득력 있는 답변이 됩니다."
     : "행동과 결과가 함께 제시되어 답변 근거의 신뢰도가 비교적 높습니다.";
+  const subject = `${criterionName}${topicParticle(criterionName)}`;
 
   if (criterionName === "직무/기술 역량") {
-    return `${criterionName}은 ${score}점(${band.label})입니다. 답변에서 "${evidence}"를 통해 JD와 연결되는 기술 경험과 구현 판단을 확인했습니다. ${improvement}`;
+    return `${subject} ${score}점(${band.label})입니다. 사용 기술과 구현 경험이 직무와 연결되어 보입니다. ${improvement}`;
   }
 
   if (criterionName === "문제 해결력") {
-    return `${criterionName}은 ${score}점(${band.label})입니다. 문제를 확인 가능한 단위로 나누고 원인을 좁혀 가는 접근이 드러납니다. ${improvement}`;
+    return `${subject} ${score}점(${band.label})입니다. 문제를 확인 가능한 단위로 나누고 원인을 좁혀 가는 접근이 보입니다. ${improvement}`;
   }
 
   if (criterionName === "실행력과 성과") {
-    return `${criterionName}은 ${score}점(${band.label})입니다. 본인이 맡은 실행 과정과 결과를 답변 근거로 확인했습니다. ${improvement}`;
+    return `${subject} ${score}점(${band.label})입니다. 직접 맡은 작업 흐름과 결과가 일부 드러납니다. ${improvement}`;
   }
 
   if (criterionName === "협업/커뮤니케이션") {
-    return `${criterionName}은 ${score}점(${band.label})입니다. 상황과 역할을 전달하는 흐름을 확인했습니다. 이해관계자 조정 과정까지 더하면 전달력이 좋아집니다. ${improvement}`;
+    return `${subject} ${score}점(${band.label})입니다. 상황과 역할을 설명하는 흐름이 있습니다. 이해관계자 조정 과정까지 더하면 전달력이 좋아집니다. ${improvement}`;
   }
 
   if (criterionName === "학습/성장성") {
-    return `${criterionName}은 ${score}점(${band.label})입니다. 새로운 도구나 문제를 학습해 실제 흐름에 적용한 단서를 확인했습니다. ${improvement}`;
+    return `${subject} ${score}점(${band.label})입니다. 새로운 도구나 문제를 학습해 실제 흐름에 적용한 단서를 확인했습니다. ${improvement}`;
   }
 
   if (criterionName === "책임감/신뢰성") {
-    return `${criterionName}은 ${score}점(${band.label})입니다. 문제를 끝까지 확인하고 검증하려는 태도가 답변 근거에서 확인됩니다. ${improvement}`;
+    return `${subject} ${score}점(${band.label})입니다. 문제를 끝까지 확인하고 검증하려는 태도가 답변 근거에서 확인됩니다. ${improvement}`;
   }
 
-  return `${criterionName}은 ${score}점(${band.label})입니다. 답변에서 "${evidence}"를 근거로 관련 역량을 확인했습니다. ${improvement}`;
+  return `${subject} ${score}점(${band.label})입니다. 답변 흐름을 바탕으로 관련 역량을 평가했습니다. ${improvement}`;
+}
+
+function topicParticle(value: string): "은" | "는" {
+  const lastChar = value.trim().at(-1);
+  if (!lastChar) return "은";
+  const charCode = lastChar.charCodeAt(0);
+  if (charCode < 0xac00 || charCode > 0xd7a3) return "은";
+  return (charCode - 0xac00) % 28 === 0 ? "는" : "은";
 }
 
 function structuredAssessment(
