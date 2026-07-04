@@ -11,7 +11,8 @@ export type AiProcessType =
   | "GUARDRAIL_VALIDATE"
   | "CRITERIA_SUGGEST"
   | "QUESTION_GENERATE"
-  | "QUESTION_SET_GENERATE";
+  | "QUESTION_SET_GENERATE"
+  | "POSTING_DRAFT_GENERATE";
 export type AiProcessStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
 export type GuardrailResult = "PASS" | "BLOCKED" | "REGENERATED";
 export type ReportPipelineStep =

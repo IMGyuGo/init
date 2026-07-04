@@ -346,6 +346,70 @@ describe("ReportsController", () => {
     expect(statusResponse.body.data.output.postingId).toBe(2);
   });
 
+  it("queues company recruitment posting draft generation before draft save", async () => {
+    const response = await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS", "PostgreSQL", "Redis"],
+        summary: "대용량 채용 플랫폼 API를 함께 설계하고 운영합니다.",
+        careerRequirement: "신입 이상",
+        employmentType: "정규직",
+        workLocation: "서울"
+      })
+      .expect(202);
+
+    expect(response.body.data.processType).toBe("POSTING_DRAFT_GENERATE");
+    expect(response.body.data.status).toBe("PENDING");
+    expect(response.body.data.queued).toBe(true);
+    expect(response.body.data.inputRef).toContain("Backend Developer");
+    expect(response.body.data.inputRef).toContain("NestJS");
+    expect(response.body.data.inputRef).not.toContain("candidateId");
+  });
+
+  it("exposes parsed posting draft output for company recruitment form review", async () => {
+    const response = await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS", "PostgreSQL"],
+        summary: "채용 플랫폼 API를 함께 만듭니다."
+      })
+      .expect(202);
+
+    await repository.markQueuedProcessCompleted(
+      response.body.data.processLogId,
+      JSON.stringify({
+        kind: "POSTING_DRAFT_GENERATE",
+        sourceProcessLogId: response.body.data.processLogId,
+        items: ["포지션 상세", "주요 업무"],
+        postingDraft: {
+          title: "2026 신입 백엔드 채용",
+          jobRole: "Backend Developer",
+          sections: {
+            positionDetail: "<p>Backend Developer 포지션입니다.</p>",
+            responsibilities: "<ul><li>NestJS API 개발</li></ul>"
+          },
+          tags: ["NestJS", "PostgreSQL"]
+        },
+        reviewRequired: true,
+        reviewStatus: "PENDING_REVIEW",
+        targetTables: ["postings"]
+      })
+    );
+
+    const statusResponse = await companyGet(`/api/v1/ai/jobs/${response.body.data.processLogId}/status`).expect(200);
+
+    expect(statusResponse.body.data.status).toBe("COMPLETED");
+    expect(statusResponse.body.data.output.sourceProcessLogId).toBe(response.body.data.processLogId);
+    expect(statusResponse.body.data.output.reviewRequired).toBe(true);
+    expect(statusResponse.body.data.output.reviewStatus).toBe("PENDING_REVIEW");
+    expect(statusResponse.body.data.output.targetTables).toEqual(["postings"]);
+    expect(statusResponse.body.data.output.postingDraft.title).toBe("2026 신입 백엔드 채용");
+    expect(statusResponse.body.data.output.postingDraft.sections.positionDetail).toContain("Backend Developer");
+    expect(statusResponse.body.data.output.postingDraft.tags).toEqual(["NestJS", "PostgreSQL"]);
+  });
+
   it("exposes parsed company generation output through AI job status", async () => {
     const response = await companyRequest("/api/v1/company/interviews/questions/generate")
       .send({

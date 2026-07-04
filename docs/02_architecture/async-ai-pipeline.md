@@ -50,6 +50,7 @@ sequenceDiagram
 | API-035 | POST | /company/interviews/evaluation-criteria/suggest | AI 평가 역량 태그 추천 | companies, postings, criterion_tags, evaluation_criteria, interview_sessions, ai_process_logs, embeddings |
 | API-038 | POST | /company/interviews/questions/generate | JD 기반 직무 질문 생성 | companies, postings, criterion_tags, evaluation_criteria, question_bank, applications, interview_sessions, manual_evaluations, ai_process_logs |
 | API-039 | POST | /company/interviews/question-sets | 면접 질문 목록 구성 | companies, postings, criterion_tags, evaluation_criteria, question_bank, application_documents, interview_sessions, manual_evaluations, ai_process_logs |
+| API-085 | POST | /company/recruitments/ai-draft | 공고 생성 AI 초안 작성 | companies, postings, ai_process_logs, ai_guardrail_logs |
 | API-045 | POST | /candidate/mock-interviews/questions/generate | 연습용 질문 목록 구성 | candidate_profiles, question_bank, interview_sessions, ai_process_logs |
 | API-050 | POST | /candidate/mock-interviews/{sessionId}/stt | STT 처리 | candidate_profiles, file_assets, applications, interview_sessions, interview_answers, evaluation_reports, report_scores, report_evidences, ai_process_logs |
 | API-051 | POST | /candidate/mock-interviews/{sessionId}/follow-up-question | 꼬리질문 생성 | candidate_profiles, postings, question_bank, applications, interview_sessions, interview_answers, follow_up_questions, ai_process_logs |
@@ -70,4 +71,4 @@ sequenceDiagram
 - `FAILED` 상태는 `failure.category`, `failure.reason`, `failure.retryable`을 포함한다.
 - worker의 `finalSave`는 guardrail `PASS` 또는 `REGENERATED` 이후에만 실행된다.
 - `BLOCKED` 결과는 최종 저장 없이 `ai_guardrail_logs`와 `ai_process_logs.status=FAILED`로 기록한다.
-- C 화면에서 소비하는 AI draft output은 자동 저장하지 않는다. 평가 기준 추천은 `criteriaSuggestions`, JD 질문 생성은 `questionCandidates`, 질문 세트 구성은 `questionSetPreview`를 미리보기로 표시하고 사용자가 선택한 항목만 기존 C 저장 API로 반영한다. 질문 세트 preview는 후보별 포함/제외 선택을 거친 뒤 질문 뱅크의 활성 질문과 매칭되는 항목만 확정한다.
+- B/C 화면에서 소비하는 AI draft output은 자동 저장하지 않는다. 공고 초안은 `postingDraft`, 평가 기준 추천은 `criteriaSuggestions`, JD 질문 생성은 `questionCandidates`, 질문 세트 구성은 `questionSetPreview`를 미리보기로 표시하고 사용자가 선택/적용한 항목만 기존 저장 API로 반영한다. 질문 세트 preview는 후보별 포함/제외 선택을 거친 뒤 질문 뱅크의 활성 질문과 매칭되는 항목만 확정한다.

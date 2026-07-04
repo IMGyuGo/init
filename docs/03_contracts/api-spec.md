@@ -487,6 +487,36 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
   - 평가 기준/질문 연결은 C 영역이며 공고 생성 happy path에서는 연결하지 않는다.
   - JD 이미지 파일 업로드/S3/file_assets 저장은 `API-086 POST /company/recruitments/jd-images`에서 처리하고, 이 API에는 반환된 이미지 URL이 포함된 `jobDescription` HTML만 저장한다.
 
+### API-085 POST /company/recruitments/ai-draft
+- 도메인: 기업 - 채용공고
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 공고 생성 화면 (/company/recruitments/new)
+- UI Type: button, AI draft preview
+- 상태 코드: 202 Accepted
+- 비동기: Y
+- 요청 데이터:
+  - title, jobRole
+  - keywords: string[] optional
+  - summary: string optional
+  - careerRequirement, employmentType, workLocation optional
+- 검증/전제조건:
+  - `CurrentUser.userType=COMPANY`이고 `CurrentUser.companyId`가 존재해야 한다.
+  - title, jobRole은 필수다.
+  - 지원자 개인정보, 지원서, 면접 답변 등 후보자 데이터는 입력 payload에 포함하지 않는다.
+- 성공 응답/처리:
+  - `POSTING_DRAFT_GENERATE` AI 작업을 생성하고 `202 Accepted`와 `processLogId`를 반환한다.
+  - 화면은 `GET /ai/jobs/{processLogId}/status`로 polling한다.
+  - 완료 output은 `postingDraft.title`, `postingDraft.jobRole`, `postingDraft.sections`, `postingDraft.tags`, `reviewRequired=true`, `reviewStatus=PENDING_REVIEW`, `targetTables=["postings"]`를 포함한다.
+  - AI 초안은 `postings`에 자동 저장하지 않는다. 사용자가 초안 적용 후 수정/확인한 뒤 기존 `API-080 POST /company/recruitments`로 `DRAFT` 저장한다.
+- 오류/예외:
+  - 필수값 누락은 `COMMON_VALIDATION_FAILED`를 반환한다.
+  - 큐 발행 실패는 `queued=false`, `status=FAILED`, `failure.retryable=true`를 포함한다.
+  - 가드레일 `BLOCKED`는 최종 저장 없이 `AI_GUARDRAIL_BLOCKED` 성격의 실패 안내로 표시한다.
+- 관련 ERD 테이블:
+  - companies, postings, ai_process_logs, ai_guardrail_logs
+- 비고/미결:
+  - 이 API는 공고 `OPEN` 전환, 평가 기준 저장, 질문 뱅크 생성, 면접 세션 생성을 자동 수행하지 않는다.
+
 ### API-086 POST /company/recruitments/jd-images
 - 도메인: 기업 - 채용공고
 - 권한/인증: 기업 / 기업 사용자 로그인
