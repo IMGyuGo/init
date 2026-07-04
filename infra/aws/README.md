@@ -230,13 +230,41 @@ terraform -chdir=infra/aws init -backend-config=backend-main.hcl -reconfigure
 
 목적은 애플리케이션이 올라갈 AWS 리소스를 만든 뒤, 아직 ECS task는 띄우지 않는 것이다. 현재 `env/main.tfvars`의 `desired_counts`는 `0`이므로 apply 직후 앱은 아직 실행되지 않는다.
 
-실행:
+세부 진행:
+
+| Substep | 목적 | 실행/확인 | 중단 기준 |
+| --- | --- | --- | --- |
+| 5.1 Backend/init 재확인 | S3 backend와 AWS 계정 확인 | `aws sts get-caller-identity`, `terraform init` | 계정, region, backend bucket 불일치 |
+| 5.2 Static validation | Terraform 정적 검증과 ECS 비기동 확인 | `fmt`, `validate`, `desired_counts = 0` 확인 | validate 실패 또는 desired count가 0이 아님 |
+| 5.3 Main plan 생성 | 실제 변경 목록을 plan 파일로 저장 | `terraform plan ... -out=tfplan-main` | plan 생성 실패 |
+| 5.4 Plan 리뷰 | 위험 변경 확인 | 생성/수정/삭제, replacement, IAM trust, SES DNS, ECS desired count 확인 | RDS/Redis/VPC/CloudFront 삭제 또는 교체, IAM trust 확장, ECS desired count 증가 |
+| 5.5 사용자 apply 승인 | 비용 발생 전 명시 승인 확보 | 사용자가 plan 요약 확인 후 승인 | 승인 문구 없음 |
+| 5.6 Main apply 실행 | main AWS 리소스 생성 | `terraform apply tfplan-main` | apply 실패 또는 예상 밖 destroy/replacement |
+| 5.7 Output/Console 확인 | 다음 단계 입력값 확보 | Terraform output, AWS Console 상태 확인 | 필수 output 누락 또는 ACM/SES validation 실패 |
+| 5.8 세션 기록 | 이어받기 가능한 상태 기록 | `infra/APPLY_SESSION.md` 갱신 | secret/password/token 포함 출력 |
+
+5.1-5.3 실행:
 
 ```powershell
 terraform -chdir=infra/aws init -backend-config=backend-main.hcl -reconfigure
 terraform -chdir=infra/aws fmt -check -recursive
 terraform -chdir=infra/aws validate
 terraform -chdir=infra/aws plan -var-file=env/main.tfvars -out=tfplan-main
+terraform -chdir=infra/aws show -no-color tfplan-main
+```
+
+PowerShell에서 `-backend-config=...` 인자 해석 오류가 나면 `infra/aws`로 이동한 뒤 작은따옴표로 flag를 감싸 실행한다.
+
+```powershell
+Set-Location infra\aws
+terraform init '-backend-config=backend-main.hcl' '-reconfigure' '-input=false'
+terraform plan '-var-file=env/main.tfvars' '-out=tfplan-main'
+terraform show -no-color tfplan-main
+```
+
+5.5에서 사용자가 명시적으로 승인한 뒤에만 apply한다.
+
+```powershell
 terraform -chdir=infra/aws apply tfplan-main
 terraform -chdir=infra/aws output
 ```
