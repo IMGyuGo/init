@@ -11,8 +11,7 @@ import type {
   UpdateRecruitmentInput,
 } from "./types";
 import { authFetch } from "../../api/client";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
+import { getApiBaseUrl } from "../../api/api-base-url";
 
 type ListQuery = {
   page?: number;
@@ -94,7 +93,7 @@ async function request<T>(
     body?: unknown;
   } = {},
 ): Promise<ApiEnvelope<T>> {
-  const url = new URL(`/api/v1${path}`, API_BASE_URL);
+  const url = new URL(`/api/v1${path}`, getApiBaseUrl());
   Object.entries(options.query ?? {}).forEach(([key, value]) => {
     if (value !== undefined && value !== "") {
       url.searchParams.set(key, String(value));
@@ -119,7 +118,7 @@ async function request<T>(
 }
 
 async function requestFormData<T>(path: string, body: FormData): Promise<ApiEnvelope<T>> {
-  const url = new URL(`/api/v1${path}`, API_BASE_URL);
+  const url = new URL(`/api/v1${path}`, getApiBaseUrl());
 
   const response = await authFetch(url.toString(), {
     method: "POST",
