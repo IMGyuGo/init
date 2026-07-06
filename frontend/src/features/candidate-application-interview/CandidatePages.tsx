@@ -304,7 +304,7 @@ export function CandidateJobsPage() {
 
   return (
     <CandidatePageShell active="jobs">
-      <section className="candidate-jobs-page glass-page" aria-labelledby="candidate-jobs-heading">
+      <section className="candidate-jobs-page glass-page notion" aria-labelledby="candidate-jobs-heading">
         <div className="page-head">
           <div>
             <h1 id="candidate-jobs-heading">채용공고</h1>
@@ -398,7 +398,7 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
 
   return (
     <CandidatePageShell active="jobs">
-      <section className="candidate-apply-shell glass-page">
+      <section className="candidate-apply-shell glass-page notion">
         {data ? (
           <CandidatePageHead
             eyebrow=""
@@ -446,7 +446,7 @@ export function CandidateApplicationsPage() {
 
   return (
     <CandidatePageShell active="applications">
-      <section className="candidate-applications-page glass-page">
+      <section className="candidate-applications-page glass-page notion">
         <CandidatePageHead
           eyebrow=""
           title="지원현황"
@@ -1126,7 +1126,7 @@ export function CandidateMockInterviewStartPage() {
 
   return (
     <CandidatePageShell active="interview">
-      <section className="candidate-mock-start-page glass-page">
+      <section className="candidate-mock-start-page glass-page notion">
         <CandidatePageHead
           eyebrow="모의면접"
           title="개인 연습용 AI 모의면접"
@@ -1576,7 +1576,7 @@ export function CandidateMyPage() {
 
   return (
     <CandidatePageShell active="accountBilling">
-      <section className="candidate-mypage">
+      <section className="candidate-mypage glass-page notion">
         <header className="candidate-mypage__head">
           <h1>지원자 마이페이지</h1>
           <p>이력서와 포트폴리오를 관리합니다.</p>
@@ -4322,7 +4322,7 @@ function CandidatePageShell({ active, children }: { active: CandidateNavSection;
   return (
     <main className="app-shell candidate-app">
       <CandidateNav active={active} />
-      <section className="app-page">{children}</section>
+      <section className="app-page glass-page notion">{children}</section>
     </main>
   );
 }

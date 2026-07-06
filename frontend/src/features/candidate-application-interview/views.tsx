@@ -138,7 +138,7 @@ export function CandidateJobDetailView({ job }: CandidateJobDetailViewProps) {
   const actionHref = getCandidateJobDetailActionHref(job);
 
   return (
-    <section aria-labelledby="candidate-job-detail-heading" className="candidate-job-detail-page glass-page">
+    <section aria-labelledby="candidate-job-detail-heading" className="candidate-job-detail-page glass-page notion">
       <div className="page-head">
         <div className="candidate-job-detail-title">
           <CompanyLogoMark companyLogoUrl={job.companyLogoUrl} fallbackLabel={companyLogoLabelFromName(job.companyName)} />
@@ -231,7 +231,7 @@ export function CandidateApplicationView({
   }
 
   return (
-    <form aria-label="지원서 제출" className="candidate-apply-page" onSubmit={handleSubmit}>
+    <form aria-label="지원서 제출" className="candidate-apply-page glass-page notion" onSubmit={handleSubmit}>
       <section className="candidate-apply-overview">
         <div className="candidate-apply-info-grid">
           <div className="candidate-apply-info-box">
