@@ -88,6 +88,168 @@ describe("AiPerformanceService", () => {
     expect(prisma.clientPerformanceLog.create).not.toHaveBeenCalled();
   });
 
+  it("records client logs only when the question belongs to the candidate session", async () => {
+    const prisma = createPrisma();
+    prisma.interviewSession.findUnique
+      .mockResolvedValueOnce({
+        candidateId: BigInt(1),
+        application: null
+      })
+      .mockResolvedValueOnce({
+        interviewType: "MOCK",
+        application: null
+      });
+    prisma.interviewAnswer.findFirst.mockResolvedValue(null);
+    prisma.question.findUnique.mockResolvedValue({
+      questionType: "TECHNICAL",
+      postingId: null,
+      content: "Tell me about a backend issue."
+    });
+    prisma.clientPerformanceLog.create.mockResolvedValue({
+      clientPerformanceLogId: BigInt(79),
+      eventName: "ANSWER_TO_NEXT_QUESTION",
+      durationMs: 900,
+      createdAt: new Date("2026-07-06T10:02:00.000Z")
+    });
+
+    const service = new AiPerformanceService(prisma as unknown as PrismaService);
+    await service.recordClientLog(
+      {
+        eventName: "ANSWER_TO_NEXT_QUESTION",
+        durationMs: 900,
+        sessionId: 10,
+        questionId: 3
+      },
+      candidateUser
+    );
+
+    expect(prisma.clientPerformanceLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sessionId: BigInt(10),
+          questionId: BigInt(3)
+        })
+      })
+    );
+  });
+
+  it("rejects client logs when the question does not belong to the candidate session", async () => {
+    const prisma = createPrisma();
+    prisma.interviewSession.findUnique
+      .mockResolvedValueOnce({
+        candidateId: BigInt(1),
+        application: null
+      })
+      .mockResolvedValueOnce({
+        interviewType: "MOCK",
+        application: null
+      });
+    prisma.interviewAnswer.findFirst.mockResolvedValue(null);
+    prisma.question.findUnique.mockResolvedValue({
+      questionType: "TECHNICAL",
+      postingId: BigInt(50),
+      content: "This is a recruiting question."
+    });
+
+    const service = new AiPerformanceService(prisma as unknown as PrismaService);
+    await expect(
+      service.recordClientLog(
+        {
+          eventName: "ANSWER_TO_NEXT_QUESTION",
+          durationMs: 900,
+          sessionId: 10,
+          questionId: 50
+        },
+        candidateUser
+      )
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.clientPerformanceLog.create).not.toHaveBeenCalled();
+  });
+
+  it("records client logs for a generated follow-up question tied to the follow-up process", async () => {
+    const prisma = createPrisma();
+    prisma.interviewSession.findUnique
+      .mockResolvedValueOnce({
+        candidateId: BigInt(1),
+        application: null
+      })
+      .mockResolvedValueOnce({
+        interviewType: "MOCK",
+        application: null
+      });
+    prisma.aiProcessLog.findUnique
+      .mockResolvedValueOnce({
+        inputRef: JSON.stringify({
+          requestedBy: {
+            userId: 2,
+            userType: "CANDIDATE",
+            candidateId: 1
+          }
+        }),
+        application: null,
+        session: null
+      })
+      .mockResolvedValueOnce({
+        processType: "FOLLOW_UP",
+        status: "COMPLETED",
+        outputRef: JSON.stringify({
+          sessionId: 10,
+          content: "평가 항목 답변을 더 구체적인 사례와 수치로 보강해 보세요."
+        })
+      });
+    prisma.interviewAnswer.findFirst.mockResolvedValue(null);
+    prisma.question.findUnique.mockResolvedValue({
+      questionType: "FOLLOW_UP",
+      postingId: null,
+      content: "평가 항목 답변을 더 구체적인 사례와 수치로 보강해 보세요."
+    });
+    prisma.clientPerformanceLog.create.mockResolvedValue({
+      clientPerformanceLogId: BigInt(80),
+      eventName: "ANSWER_TO_NEXT_QUESTION",
+      durationMs: 1500,
+      createdAt: new Date("2026-07-06T10:03:00.000Z")
+    });
+
+    const service = new AiPerformanceService(prisma as unknown as PrismaService);
+    await service.recordClientLog(
+      {
+        eventName: "ANSWER_TO_NEXT_QUESTION",
+        durationMs: 1500,
+        processLogId: 31,
+        sessionId: 10,
+        questionId: 99
+      },
+      candidateUser
+    );
+
+    expect(prisma.clientPerformanceLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          processLogId: BigInt(31),
+          sessionId: BigInt(10),
+          questionId: BigInt(99)
+        })
+      })
+    );
+  });
+
+  it("rejects client logs when questionId is provided without a verifiable context", async () => {
+    const prisma = createPrisma();
+
+    const service = new AiPerformanceService(prisma as unknown as PrismaService);
+    await expect(
+      service.recordClientLog(
+        {
+          eventName: "ANSWER_TO_NEXT_QUESTION",
+          durationMs: 900,
+          questionId: 50
+        },
+        candidateUser
+      )
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.clientPerformanceLog.create).not.toHaveBeenCalled();
+  });
+
   it("records client logs for a company-owned AI process", async () => {
     const prisma = createPrisma();
     prisma.aiProcessLog.findUnique.mockResolvedValue({
@@ -168,6 +330,12 @@ function createPrisma() {
       findUnique: jest.fn()
     },
     application: {
+      findUnique: jest.fn()
+    },
+    interviewAnswer: {
+      findFirst: jest.fn()
+    },
+    question: {
       findUnique: jest.fn()
     }
   };

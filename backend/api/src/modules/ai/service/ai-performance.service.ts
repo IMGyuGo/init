@@ -16,7 +16,8 @@ export class AiPerformanceService {
     const processLogId = optionalBigInt(body.processLogId);
     const sessionId = optionalBigInt(body.sessionId);
     const applicationId = optionalBigInt(body.applicationId);
-    await this.assertClientLogRefsVisible({ processLogId, sessionId, applicationId }, currentUser);
+    const questionId = optionalBigInt(body.questionId);
+    await this.assertClientLogRefsVisible({ processLogId, sessionId, applicationId, questionId }, currentUser);
 
     const created = await this.prisma.clientPerformanceLog.create({
       data: {
@@ -24,7 +25,7 @@ export class AiPerformanceService {
         processLogId,
         sessionId,
         applicationId,
-        questionId: optionalBigInt(body.questionId),
+        questionId,
         durationMs,
         startedAt: optionalDate(body.startedAt, "startedAt"),
         completedAt: optionalDate(body.completedAt, "completedAt"),
@@ -146,10 +147,10 @@ export class AiPerformanceService {
   }
 
   private async assertClientLogRefsVisible(
-    refs: { processLogId?: bigint; sessionId?: bigint; applicationId?: bigint },
+    refs: { processLogId?: bigint; sessionId?: bigint; applicationId?: bigint; questionId?: bigint },
     currentUser?: CurrentUser
   ): Promise<void> {
-    if (!refs.processLogId && !refs.sessionId && !refs.applicationId) {
+    if (!refs.processLogId && !refs.sessionId && !refs.applicationId && !refs.questionId) {
       return;
     }
     if (!currentUser) {
@@ -162,7 +163,8 @@ export class AiPerformanceService {
     const visible = await Promise.all([
       refs.processLogId ? this.isProcessVisible(refs.processLogId, currentUser) : true,
       refs.sessionId ? this.isSessionVisible(refs.sessionId, currentUser) : true,
-      refs.applicationId ? this.isApplicationVisible(refs.applicationId, currentUser) : true
+      refs.applicationId ? this.isApplicationVisible(refs.applicationId, currentUser) : true,
+      refs.questionId ? this.isQuestionVisible(refs.questionId, refs) : true
     ]);
 
     if (visible.some((allowed) => !allowed)) {
@@ -257,6 +259,126 @@ export class AiPerformanceService {
       return idsEqual(application.posting.companyId, currentUser.companyId);
     }
     return false;
+  }
+
+  private async isQuestionVisible(
+    questionId: bigint,
+    refs: { processLogId?: bigint; sessionId?: bigint; applicationId?: bigint }
+  ): Promise<boolean> {
+    if (refs.sessionId && (await this.isQuestionInSession(questionId, refs.sessionId, refs.processLogId))) {
+      return true;
+    }
+    if (refs.applicationId && (await this.isQuestionInApplication(questionId, refs.applicationId))) {
+      return true;
+    }
+    if (refs.processLogId && (await this.isQuestionInProcess(questionId, refs.processLogId))) {
+      return true;
+    }
+    return false;
+  }
+
+  private async isQuestionInSession(questionId: bigint, sessionId: bigint, processLogId?: bigint): Promise<boolean> {
+    const answer = await this.prisma.interviewAnswer.findFirst({
+      where: { sessionId, questionId },
+      select: { answerId: true }
+    });
+    if (answer) {
+      return true;
+    }
+
+    const [session, question] = await Promise.all([
+      this.prisma.interviewSession.findUnique({
+        where: { sessionId },
+        select: {
+          interviewType: true,
+          application: { select: { postingId: true } }
+        }
+      }),
+      this.prisma.question.findUnique({
+        where: { questionId },
+        select: {
+          questionType: true,
+          postingId: true,
+          content: true
+        }
+      })
+    ]);
+    if (!session || !question) {
+      return false;
+    }
+
+    if (question.questionType !== "FOLLOW_UP") {
+      if (session.interviewType === "MOCK") {
+        return question.postingId === null;
+      }
+      return Boolean(session.application && idsEqual(question.postingId, session.application.postingId));
+    }
+
+    return Boolean(processLogId && (await this.followUpProcessMatchesQuestion(processLogId, sessionId, question)));
+  }
+
+  private async isQuestionInApplication(questionId: bigint, applicationId: bigint): Promise<boolean> {
+    const [application, question] = await Promise.all([
+      this.prisma.application.findUnique({
+        where: { applicationId },
+        select: { postingId: true }
+      }),
+      this.prisma.question.findUnique({
+        where: { questionId },
+        select: {
+          questionType: true,
+          postingId: true
+        }
+      })
+    ]);
+    if (!application || !question || question.questionType === "FOLLOW_UP") {
+      return false;
+    }
+    return idsEqual(question.postingId, application.postingId);
+  }
+
+  private async isQuestionInProcess(questionId: bigint, processLogId: bigint): Promise<boolean> {
+    const processLog = await this.prisma.aiProcessLog.findUnique({
+      where: { processLogId },
+      select: {
+        sessionId: true,
+        applicationId: true
+      }
+    });
+    if (!processLog) {
+      return false;
+    }
+    if (processLog.sessionId && (await this.isQuestionInSession(questionId, processLog.sessionId, processLogId))) {
+      return true;
+    }
+    return Boolean(processLog.applicationId && (await this.isQuestionInApplication(questionId, processLog.applicationId)));
+  }
+
+  private async followUpProcessMatchesQuestion(
+    processLogId: bigint,
+    sessionId: bigint,
+    question: { questionType: string; content: string }
+  ): Promise<boolean> {
+    const processLog = await this.prisma.aiProcessLog.findUnique({
+      where: { processLogId },
+      select: {
+        processType: true,
+        status: true,
+        outputRef: true
+      }
+    });
+    if (!processLog || processLog.processType !== "FOLLOW_UP" || processLog.status !== "COMPLETED" || !processLog.outputRef) {
+      return false;
+    }
+
+    const output = parseJsonRecord(processLog.outputRef);
+    return Boolean(
+      output &&
+        idsEqual(output.sessionId, sessionId) &&
+        typeof output.content === "string" &&
+        output.content.trim() === question.content.trim() &&
+        question.questionType === "FOLLOW_UP"
+    );
   }
 
   private inputRefMatchesUser(inputRef: string | null, currentUser: CurrentUser): boolean {
@@ -386,6 +508,15 @@ function idsEqual(left: unknown, right: unknown): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function forbiddenClientLog(): ForbiddenException {
