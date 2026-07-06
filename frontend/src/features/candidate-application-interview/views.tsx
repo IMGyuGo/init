@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   CandidateFileAsset,
@@ -31,6 +32,7 @@ const SORT_OPTIONS: { value: NonNullable<CandidateJobQuery["sort"]>; label: stri
   { value: "endsOn", label: "마감임박순" },
   { value: "title", label: "제목순" },
 ];
+
 
 const SEARCH_SUGGESTIONS = ["백엔드", "프론트엔드", "AI·ML", "DevOps", "신입"];
 
@@ -256,8 +258,8 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
   const draftCount = FILTER_KEYS.filter((key) => draft[key]).length;
   const activeCatMeta = FILTER_CATEGORIES.find((item) => item.key === activeCat);
 
-  function scrollToAllJobs() {
-    const el = document.getElementById("candidate-jobs-all");
+  function scrollToJobs() {
+    const el = document.getElementById("candidate-jobs-list");
     if (el) smoothScrollWindowTo(el.getBoundingClientRect().top + window.scrollY - CANDIDATE_HEADER_OFFSET);
   }
 
@@ -353,15 +355,13 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
               </button>
             ))}
           </div>
-          <div className="candidate-jobs-hero-cta">
-            <button type="button" className="candidate-jobs-browse" onClick={scrollToAllJobs}>
-              공고 목록
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-            </button>
-          </div>
         </div>
+        <button type="button" className="candidate-jobs-scrollcue" onClick={scrollToJobs}>
+          <span>공고 목록 보러가기</span>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
       </div>
 
       <div id="candidate-jobs-list" className="candidate-jobs-list">
@@ -369,17 +369,13 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
           <h3>인기 TOP 공고</h3>
           <div className="candidate-jobs-nav">
             <button type="button" className="candidate-jobs-navbtn" aria-label="이전 공고" onClick={() => scrollPopular(-1)}>
-              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="10" />
-                <path d="m12 8-4 4 4 4" />
-                <path d="M16 12H8" />
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m15 18-6-6 6-6" />
               </svg>
             </button>
             <button type="button" className="candidate-jobs-navbtn" aria-label="다음 공고" onClick={() => scrollPopular(1)}>
-              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="10" />
-                <path d="m12 16 4-4-4-4" />
-                <path d="M8 12h8" />
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m9 18 6-6-6-6" />
               </svg>
             </button>
           </div>
@@ -394,6 +390,14 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
         )}
 
         <div id="candidate-jobs-all" className="candidate-jobs-all">
+          <div className="page-banner candidate-jobs-listbanner">
+            <div className="page-banner-copy">
+              <p className="page-eyebrow">채용 정보</p>
+              <h1>공고 목록</h1>
+              <p className="page-sub">직무·경력·지역으로 원하는 공고를 골라 지원해보세요.</p>
+            </div>
+            <Image className="page-banner-art" src="/jobs-banner.png" alt="" width={300} height={300} aria-hidden="true" />
+          </div>
           <div className="candidate-jobs-toolbar">
             <div className="candidate-jobs-toolbar-left">
               <button type="button" className="candidate-jobs-filter-btn" onClick={openFilter}>
