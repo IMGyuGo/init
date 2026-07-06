@@ -69,6 +69,9 @@ export function LandingPage() {
             <Image src="/logo-init-v3.png" alt="init" width={1900} height={580} priority />
           </Link>
           <div className="gnb-right">
+            <Link className="btn secondary" href="/ai/performance">
+              AI 지표
+            </Link>
             <Link className="btn secondary" href="/login">
               로그인
             </Link>
@@ -92,9 +95,6 @@ export function LandingPage() {
         <div className="landing-cta">
           <Link className="btn primary lg" href="/signup">
             시작하기
-          </Link>
-          <Link className="btn secondary lg" href="/ai/performance">
-            AI 사용량 확인
           </Link>
         </div>
       </section>

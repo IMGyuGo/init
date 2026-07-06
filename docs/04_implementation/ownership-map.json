@@ -135,6 +135,15 @@
       "roles": ["E", "PM"]
     },
     {
+      "name": "AI performance global nav entry",
+      "patterns": [
+        "^frontend/src/features/company-recruiting/CompanyRecruitingChrome\\.tsx$",
+        "^frontend/src/features/company-recruiting/company-nav-config\\.ts$",
+        "^frontend/src/features/candidate-application-interview/candidate-nav-config\\.ts$"
+      ],
+      "roles": ["B", "D", "E"]
+    },
+    {
       "name": "company recruiting posting draft AI bridge",
       "patterns": [
         "^backend/api/prisma/schema\\.prisma$",

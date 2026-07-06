@@ -24,6 +24,7 @@ export function AiPerformancePage() {
 
   useEffect(() => {
     let alive = true;
+
     async function load() {
       try {
         const [summary, jobs, clientEvents] = await Promise.all([
@@ -31,6 +32,7 @@ export function AiPerformancePage() {
           listAiPerformanceJobs(),
           listClientPerformanceEvents()
         ]);
+
         if (!alive) return;
         setState({ summary, jobs, clientEvents, loading: false });
       } catch (error) {
@@ -39,11 +41,13 @@ export function AiPerformancePage() {
           jobs: [],
           clientEvents: [],
           loading: false,
-          error: error instanceof Error ? error.message : "AI 사용량 정보를 불러오지 못했습니다."
+          error: error instanceof Error ? error.message : "AI 지표 정보를 불러오지 못했습니다."
         });
       }
     }
+
     void load();
+
     return () => {
       alive = false;
     };
@@ -54,17 +58,17 @@ export function AiPerformancePage() {
       <header className="page-head">
         <div>
           <p className="page-eyebrow">Internal Monitoring</p>
-          <h1>AI 사용량 확인</h1>
+          <h1>AI 지표</h1>
           <p className="page-sub">AI 작업 시간, 사용자 체감 시간, 토큰/오디오 사용량과 추정 비용을 확인합니다.</p>
         </div>
         <div className="page-actions">
           <Link className="btn secondary" href="/">
-            랜딩으로
+            홈으로
           </Link>
         </div>
       </header>
 
-      {state.loading ? <p className="empty">AI 사용량 정보를 불러오는 중입니다.</p> : null}
+      {state.loading ? <p className="empty">AI 지표 정보를 불러오는 중입니다.</p> : null}
       {state.error ? <p className="notice danger">{state.error}</p> : null}
 
       {state.summary ? (
@@ -75,7 +79,10 @@ export function AiPerformancePage() {
             <Metric label="4초 초과율" value={formatRate(state.summary.jobs.over4sRate)} />
             <Metric label="실패율" value={formatRate(state.summary.jobs.failureRate)} />
             <Metric label="추정 비용" value={`$${state.summary.cost.estimatedCostUsd.toFixed(6)}`} />
-            <Metric label="토큰/오디오" value={`${state.summary.cost.inputTokens + state.summary.cost.outputTokens} tok · ${state.summary.cost.audioSeconds}s`} />
+            <Metric
+              label="토큰/오디오"
+              value={`${state.summary.cost.inputTokens + state.summary.cost.outputTokens} tok · ${state.summary.cost.audioSeconds}s`}
+            />
           </div>
 
           <section className="panel">
@@ -98,16 +105,22 @@ export function AiPerformancePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {state.summary.byProcessType.map((item) => (
-                    <tr key={item.processType}>
-                      <td><strong>{item.processType}</strong></td>
-                      <td>{item.count}</td>
-                      <td>{formatMs(item.averageDurationMs)}</td>
-                      <td>{formatMs(item.p95DurationMs)}</td>
-                      <td>{formatRate(item.over4sRate)}</td>
-                      <td>${item.estimatedCostUsd.toFixed(6)}</td>
-                    </tr>
-                  ))}
+                  {state.summary.byProcessType.length ? (
+                    state.summary.byProcessType.map((item) => (
+                      <tr key={item.processType}>
+                        <td>
+                          <strong>{item.processType}</strong>
+                        </td>
+                        <td>{item.count}</td>
+                        <td>{formatMs(item.averageDurationMs)}</td>
+                        <td>{formatMs(item.p95DurationMs)}</td>
+                        <td>{formatRate(item.over4sRate)}</td>
+                        <td>${item.estimatedCostUsd.toFixed(6)}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <EmptyRow colSpan={6} message="아직 집계할 AI 작업이 없습니다." />
+                  )}
                 </tbody>
               </table>
             </div>
@@ -136,17 +149,25 @@ export function AiPerformancePage() {
               </tr>
             </thead>
             <tbody>
-              {state.jobs.map((job) => (
-                <tr key={job.processLogId}>
-                  <td>{job.processLogId}</td>
-                  <td>{job.processType}</td>
-                  <td><span className={`badge ${job.status === "FAILED" ? "danger" : job.status === "COMPLETED" ? "success" : "warning"}`}>{job.status}</span></td>
-                  <td>{formatMs(job.durationMs)}</td>
-                  <td>{job.modelName ?? "-"}</td>
-                  <td>{formatUsage(job)}</td>
-                  <td>{job.estimatedCostUsd === undefined ? "단가 미설정" : `$${job.estimatedCostUsd.toFixed(6)}`}</td>
-                </tr>
-              ))}
+              {state.jobs.length ? (
+                state.jobs.map((job) => (
+                  <tr key={job.processLogId}>
+                    <td>{job.processLogId}</td>
+                    <td>{job.processType}</td>
+                    <td>
+                      <span className={`badge ${job.status === "FAILED" ? "danger" : job.status === "COMPLETED" ? "success" : "warning"}`}>
+                        {job.status}
+                      </span>
+                    </td>
+                    <td>{formatMs(job.durationMs)}</td>
+                    <td>{job.modelName ?? "-"}</td>
+                    <td>{formatUsage(job)}</td>
+                    <td>{job.estimatedCostUsd === undefined ? "가격 미설정" : `$${job.estimatedCostUsd.toFixed(6)}`}</td>
+                  </tr>
+                ))
+              ) : (
+                <EmptyRow colSpan={7} message="최근 AI 작업이 없습니다." />
+              )}
             </tbody>
           </table>
         </div>
@@ -171,15 +192,19 @@ export function AiPerformancePage() {
               </tr>
             </thead>
             <tbody>
-              {state.clientEvents.map((event) => (
-                <tr key={event.clientPerformanceLogId}>
-                  <td>{event.eventName}</td>
-                  <td>{event.sessionId ?? "-"}</td>
-                  <td>{event.questionId ?? "-"}</td>
-                  <td>{formatMs(event.durationMs)}</td>
-                  <td>{formatDateTime(event.createdAt)}</td>
-                </tr>
-              ))}
+              {state.clientEvents.length ? (
+                state.clientEvents.map((event) => (
+                  <tr key={event.clientPerformanceLogId}>
+                    <td>{event.eventName}</td>
+                    <td>{event.sessionId ?? "-"}</td>
+                    <td>{event.questionId ?? "-"}</td>
+                    <td>{formatMs(event.durationMs)}</td>
+                    <td>{formatDateTime(event.createdAt)}</td>
+                  </tr>
+                ))
+              ) : (
+                <EmptyRow colSpan={5} message="최근 사용자 체감 시간 기록이 없습니다." />
+              )}
             </tbody>
           </table>
         </div>
@@ -197,10 +222,19 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
+  return (
+    <tr>
+      <td colSpan={colSpan}>{message}</td>
+    </tr>
+  );
+}
+
 function formatMs(value: number | undefined): string {
   if (value === undefined) {
     return "-";
   }
+
   return value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${value}ms`;
 }
 
@@ -211,8 +245,10 @@ function formatRate(value: number | undefined): string {
 function formatUsage(job: AiPerformanceJob): string {
   const tokens = (job.inputTokens ?? 0) + (job.outputTokens ?? 0);
   const parts = [];
+
   if (tokens > 0) parts.push(`${tokens} tok`);
   if (job.audioSeconds) parts.push(`${job.audioSeconds}s audio`);
+
   return parts.length ? parts.join(" · ") : "-";
 }
 

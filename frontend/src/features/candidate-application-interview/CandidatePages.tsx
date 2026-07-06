@@ -97,7 +97,7 @@ import {
   toStartMockInterviewRequest,
   toUploadResumeRequest,
 } from "./view-model";
-import { candidateAccountBillingNav, candidateNavLabels, isCandidateAccountBillingPath } from "./candidate-nav-config";
+import { AI_PERFORMANCE_ROUTE, candidateAccountBillingNav, candidateNavLabels, isCandidateAccountBillingPath } from "./candidate-nav-config";
 import { CandidateApplicationView, CandidateJobDetailView, CandidateJobsView } from "./views";
 
 const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY ?? "";
@@ -115,7 +115,7 @@ const MIN_STT_TRANSCRIPT_MEANINGFUL_LENGTH = 10;
 const RUNTIME_PIP_RESERVED_TOP_HEIGHT = 96;
 const questionTypeOptions: QuestionType[] = ["INTRO", "TECHNICAL", "EXPERIENCE", "SITUATION", "CLOSING"];
 
-type CandidateNavSection = "jobs" | "applications" | "interview" | "reports" | "accountBilling";
+type CandidateNavSection = "jobs" | "applications" | "interview" | "reports" | "accountBilling" | "performance";
 type AsyncState<T> = {
   data?: T;
   loading: boolean;
@@ -4381,6 +4381,7 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
   const mockActive = active === "interview" || active === "reports";
   const recruitingActive = active === "jobs" || active === "applications";
   const accountBillingActive = active === "accountBilling" || isCandidateAccountBillingPath(pathname);
+  const performanceActive = active === "performance" || pathname?.startsWith(AI_PERFORMANCE_ROUTE);
 
   return (
     <header className="gnb">
@@ -4429,6 +4430,11 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
                 </Link>
               ))}
             </div>
+          </div>
+          <div className={`gnb-item ${performanceActive ? "active" : ""}`}>
+            <Link className="gnb-link" href={AI_PERFORMANCE_ROUTE} aria-current={performanceActive ? "page" : undefined}>
+              {candidateNavLabels.performance}
+            </Link>
           </div>
         </nav>
         <div className="gnb-right">
