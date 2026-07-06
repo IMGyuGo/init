@@ -221,34 +221,6 @@ type CameraFramingResult = {
   blocking: boolean;
   message: string;
 };
-type DetectedFace = {
-  boundingBox: DOMRectReadOnly;
-};
-type FaceDetectorConstructor = new (options?: { fastMode?: boolean; maxDetectedFaces?: number }) => {
-  detect: (source: CanvasImageSource) => Promise<DetectedFace[]>;
-};
-type FaceDetectorWindow = Window & {
-  FaceDetector?: FaceDetectorConstructor;
-};
-type FaceBoundingBox = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
-type MediaPipeFaceDetection = {
-  boundingBox?: {
-    originX?: number;
-    originY?: number;
-    x?: number;
-    y?: number;
-    width?: number;
-    height?: number;
-  };
-};
-type MediaPipeFaceDetectorInstance = {
-  detectForVideo: (video: HTMLVideoElement, timestampMs: number) => { detections?: MediaPipeFaceDetection[] };
-};
 const DEVICE_TEST_SENTENCES = [
   "나는 차분하게 듣고, 나의 생각을 분명하게 답할 수 있다.",
   "나는 준비한 만큼 침착하게 말하고, 끝까지 답할 수 있다.",
@@ -276,10 +248,6 @@ const DEVICE_TEST_SENTENCES = [
   "나는 나의 속도로 말하고, 나의 경험으로 충분히 답할 수 있다.",
   "나는 끝까지 집중하며, 오늘의 면접을 차분하게 마무리할 수 있다.",
 ] as const;
-const MEDIAPIPE_TASKS_VERSION = "0.10.35";
-const MEDIAPIPE_FACE_DETECTOR_MODEL_URL =
-  "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite";
-let mediaPipeFaceDetectorPromise: Promise<MediaPipeFaceDetectorInstance | null> | null = null;
 
 export function CandidateJobsPage() {
   const [query, setQuery] = useState<CandidateJobQuery>(defaultCandidateJobQuery);
@@ -690,7 +658,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
       setCameraFramingState(cameraFraming.state);
       setMicrophoneReady(audioEnabled);
       setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, fallbackLabel, cameraQuality, cameraFraming));
-      setMicrophoneStatus(audioEnabled ? formatMicrophoneQualityStatus(streamResult, microphoneQuality) : microphoneQuality.message);
+      setMicrophoneStatus(audioEnabled ? formatMicrophoneQualityStatus(streamResult) : microphoneQuality.message);
       setNetworkStatus(networkQuality.message);
       setDeviceState({
         cameraGranted: cameraOk,
@@ -2455,7 +2423,7 @@ function InterviewRuntimePanel({
       setNetworkReady(networkQuality.ok);
       setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, fallbackLabel, cameraQuality, cameraFraming));
       setMicrophoneStatus(
-        streamResult.audioEnabled ? formatMicrophoneQualityStatus(streamResult, microphoneQuality) : microphoneQuality.message,
+        streamResult.audioEnabled ? formatMicrophoneQualityStatus(streamResult) : microphoneQuality.message,
       );
       setNetworkStatus(networkQuality.message);
       startRuntimeCameraQualityMonitor(previewInfo, fallbackLabel);
@@ -5555,116 +5523,6 @@ function assessCameraQuality(video: HTMLVideoElement | null): CameraQualityResul
   return { ok: true, brightness, message: "카메라 밝기가 적정합니다." };
 }
 
-async function assessCameraFraming(video: HTMLVideoElement | null): Promise<CameraFramingResult> {
-  if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) {
-    return { state: "warn", blocking: true, message: "카메라 구도를 확인할 수 없습니다." };
-  }
-
-  const nativeFace = await detectNativeFace(video);
-  if (nativeFace) {
-    return evaluateCameraFraming(nativeFace, video);
-  }
-
-  const mediaPipeFace = await detectMediaPipeFace(video);
-  if (mediaPipeFace) {
-    return evaluateCameraFraming(mediaPipeFace, video);
-  }
-
-  if (isNativeFaceDetectorSupported()) {
-    return { state: "warn", blocking: true, message: "얼굴이 감지되지 않습니다. 카메라를 정면으로 바라봐주세요." };
-  }
-
-  const mediaPipeDetector = await getMediaPipeFaceDetector();
-  if (mediaPipeDetector) {
-    return { state: "warn", blocking: true, message: "얼굴이 감지되지 않습니다. 카메라를 정면으로 바라봐주세요." };
-  }
-
-  return { state: "unsupported", blocking: false, message: "자동 구도 판정을 사용할 수 없어 가이드만 표시합니다." };
-}
-
-function isNativeFaceDetectorSupported(): boolean {
-  return Boolean((window as FaceDetectorWindow).FaceDetector);
-}
-
-async function detectNativeFace(video: HTMLVideoElement): Promise<FaceBoundingBox | undefined> {
-  const FaceDetector = (window as FaceDetectorWindow).FaceDetector;
-  if (!FaceDetector) {
-    return undefined;
-  }
-
-  try {
-    const detector = new FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
-    const faces = await detector.detect(video);
-    const [face] = faces;
-    if (!face) return undefined;
-    const box = face.boundingBox;
-    return { x: box.x, y: box.y, width: box.width, height: box.height };
-  } catch {
-    return undefined;
-  }
-}
-
-async function detectMediaPipeFace(video: HTMLVideoElement): Promise<FaceBoundingBox | undefined> {
-  const detector = await getMediaPipeFaceDetector();
-  if (!detector) return undefined;
-
-  try {
-    const result = detector.detectForVideo(video, performance.now());
-    const box = result.detections?.[0]?.boundingBox;
-    if (!box || box.width === undefined || box.height === undefined) return undefined;
-    return {
-      x: box.originX ?? box.x ?? 0,
-      y: box.originY ?? box.y ?? 0,
-      width: box.width,
-      height: box.height,
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-async function getMediaPipeFaceDetector(): Promise<MediaPipeFaceDetectorInstance | null> {
-  if (typeof window === "undefined") return null;
-  mediaPipeFaceDetectorPromise ??= (async () => {
-    try {
-      const { FaceDetector, FilesetResolver } = await import("@mediapipe/tasks-vision");
-      const vision = await FilesetResolver.forVisionTasks(
-        `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_TASKS_VERSION}/wasm`,
-      );
-      return (await FaceDetector.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: MEDIAPIPE_FACE_DETECTOR_MODEL_URL,
-          delegate: "GPU",
-        },
-        runningMode: "VIDEO",
-      })) as MediaPipeFaceDetectorInstance;
-    } catch {
-      return null;
-    }
-  })();
-
-  return mediaPipeFaceDetectorPromise;
-}
-
-function evaluateCameraFraming(box: FaceBoundingBox, video: HTMLVideoElement): CameraFramingResult {
-  const centerX = (box.x + box.width / 2) / video.videoWidth;
-  const centerY = (box.y + box.height / 2) / video.videoHeight;
-  const widthRatio = box.width / video.videoWidth;
-  const inGuide =
-    centerX >= 0.38 &&
-    centerX <= 0.62 &&
-    centerY >= 0.22 &&
-    centerY <= 0.48 &&
-    widthRatio >= 0.12 &&
-    widthRatio <= 0.36;
-
-  if (!inGuide) {
-    return { state: "warn", blocking: true, message: "얼굴을 화면 중앙 가이드 안으로 맞춰주세요." };
-  }
-
-  return { state: "ok", blocking: false, message: "얼굴 위치가 적정합니다." };
-}
-
 async function measureMicrophoneQuality(
   stream: MediaStream,
   onLevel?: (level: number) => void,
@@ -5787,10 +5645,7 @@ function formatMicrophoneStatus(result: CameraStreamResult): string {
   return `마이크 실패: ${formatMediaError(result.audioError, "microphone")}`;
 }
 
-function formatMicrophoneQualityStatus(
-  result: CameraStreamResult,
-  quality: MicrophoneQualityResult,
-): string {
+function formatMicrophoneQualityStatus(result: CameraStreamResult): string {
   const label = result.audioLabel || "선택된 마이크";
   const state = result.audioState ?? "live";
   return `${label} · ${state} · 마이크 연결됨`;
