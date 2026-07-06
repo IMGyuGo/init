@@ -4346,16 +4346,8 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
           </div>
           <div className={`gnb-item ${recruitingActive ? "active" : ""}`}>
             <Link className="gnb-link" href={candidateApplicationInterviewRoutes.jobs} aria-current={recruitingActive ? "page" : undefined}>
-              채용정보
+              채용공고
             </Link>
-            <div className="gnb-panel">
-              <Link className={active === "jobs" ? "active" : ""} href={candidateApplicationInterviewRoutes.jobs}>
-                채용공고
-              </Link>
-              <Link className={active === "applications" ? "active" : ""} href={candidateApplicationInterviewRoutes.applications}>
-                지원현황
-              </Link>
-            </div>
           </div>
           <div className={`gnb-item ${accountBillingActive ? "active" : ""}`}>
             <Link className="gnb-link" href={candidateApplicationInterviewRoutes.mypage} aria-current={accountBillingActive ? "page" : undefined}>
