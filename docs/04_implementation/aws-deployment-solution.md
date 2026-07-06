@@ -199,6 +199,8 @@ ALB listener rule 초안:
 | Path `/api/*` | API ECS target group |
 | Default `/*` | Frontend ECS target group |
 
+업데이트: 운영 브라우저 런타임의 frontend API origin 정책은 `https://init-jungle.cloud/api/v1/*` 기준으로 정리됐다. HTTPS 환경에서 loopback build 값이 들어오면 client는 same-origin으로 fallback하며, production Docker build에서는 여전히 `--build-arg NEXT_PUBLIC_API_BASE_URL=https://init-jungle.cloud`를 명시적으로 전달해야 한다.
+
 현재 frontend 코드는 `NEXT_PUBLIC_API_BASE_URL`을 사용해 `http://localhost:3001` 형태로 API를 호출한다. 단일 도메인 배포에서는 가능하면 `/api/v1` 같은 same-origin relative path로 정리하는 것이 좋다. 이 변경은 Docker 문서 반영이 아니라 frontend API client 수정 작업으로 분리한다.
 
 ## ECS subnet 결정
