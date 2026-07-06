@@ -8,6 +8,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { DependencyList, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getAccessToken } from "../../api/client";
+import { sendClientPerformanceLog } from "../ai-performance/api";
 import { GnbAvatar, GnbLogoutButton } from "../auth/GnbAccountControls";
 import { createPaymentOrder, getCandidateMockInterviewPassSummary, grantCandidateMockInterviewDevPasses, listPaymentOrders } from "../payment/api";
 import { PaymentOrderPagination, formatDateTime as formatPaymentDateTime, formatWon } from "../payment/CompanyBillingPage";
@@ -147,6 +148,7 @@ type LastSavedAnswer = {
   questionId: number;
   questionText: string;
   transcript: string;
+  durationSeconds: number;
   fileAssetId?: number;
   audioFileId?: number;
   audioS3Key?: string;
@@ -1875,6 +1877,14 @@ function InterviewRuntimePanel({
   const timeExpiredQuestionRef = useRef<number | null>(null);
   const answerStartCueQuestionRef = useRef<number | null>(null);
   const invalidRecordingRetryCountsRef = useRef<Map<number, number>>(new Map());
+  const answerToNextQuestionPerfRef = useRef<{
+    startedAt: number;
+    startedAtIso: string;
+    sourceQuestionId: number;
+    sessionId: number;
+    applicationId?: number;
+    processLogId?: number;
+  } | null>(null);
   const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const videoAttachRunRef = useRef(0);
   const hasAnswerFile = Boolean(answer.videoFile || answer.audioFile || answer.videoFileId || answer.audioFileId);
@@ -2114,6 +2124,29 @@ function InterviewRuntimePanel({
       );
     }
   }, [currentQuestion, runtimeAnswerTimeSec, runtimeInterviewType, runtimePreparationTimeSec, runtimeRetryAllowed]);
+
+  useEffect(() => {
+    const metric = answerToNextQuestionPerfRef.current;
+    if (!metric || !currentQuestion || currentQuestion.questionId === metric.sourceQuestionId) {
+      return;
+    }
+
+    answerToNextQuestionPerfRef.current = null;
+    void sendClientPerformanceLog({
+      eventName: "ANSWER_TO_NEXT_QUESTION",
+      durationMs: Math.max(0, Math.round(performance.now() - metric.startedAt)),
+      processLogId: metric.processLogId,
+      sessionId: metric.sessionId,
+      applicationId: metric.applicationId,
+      questionId: currentQuestion.questionId,
+      startedAt: metric.startedAtIso,
+      completedAt: new Date().toISOString(),
+      metadata: {
+        mode,
+        sourceQuestionId: metric.sourceQuestionId
+      }
+    });
+  }, [currentQuestion, mode]);
 
   useEffect(() => {
     void refreshCameraDevices();
@@ -2730,6 +2763,7 @@ function InterviewRuntimePanel({
       });
       setLastAnswer({
         answerId: result.data.answer.answerId,
+        durationSeconds: result.data.answer.durationSeconds,
         questionId,
         questionText: skippedQuestion?.content ?? skippedQuestion?.audioPrompt ?? "이전 질문",
         transcript: "녹음 품질 문제로 미답변 처리되었습니다.",
@@ -2817,6 +2851,7 @@ function InterviewRuntimePanel({
         questionId: result.data.answer.questionId,
         questionText: question?.content ?? question?.audioPrompt ?? "이전 질문",
         transcript: `${formatQuestionTypeLabel(question?.questionType)} 답변 파일이 저장되었습니다.`,
+        durationSeconds: result.data.answer.durationSeconds,
         fileAssetId: answerFileAssetId,
         audioFileId,
         audioS3Key: result.data.audioFile?.storageKey,
@@ -3166,7 +3201,19 @@ function InterviewRuntimePanel({
         })
       : api.insertRecruitingFollowUpQuestion(data.runtime.sessionId, {
           processLogId: autoAiPipeline.followUpProcessLogId,
-        });
+    });
+  }
+
+  function beginAnswerToNextQuestionMetric(processLogId?: number) {
+    if (!data || !currentQuestion) return;
+    answerToNextQuestionPerfRef.current = {
+      startedAt: performance.now(),
+      startedAtIso: new Date().toISOString(),
+      sourceQuestionId: currentQuestion.questionId,
+      sessionId: data.runtime.sessionId,
+      applicationId: data.runtime.applicationId,
+      processLogId
+    };
   }
 
   async function handleAnswerFollowUpQuestion() {
@@ -3184,6 +3231,7 @@ function InterviewRuntimePanel({
         : current,
     );
     try {
+      beginAnswerToNextQuestionMetric(autoAiPipeline?.followUpProcessLogId);
       const result = await requestFollowUpQuestionInsert();
 
       setAutoAiPipeline((current) =>
@@ -3275,6 +3323,7 @@ function InterviewRuntimePanel({
     setBusy(true);
     setMessage("");
     try {
+      beginAnswerToNextQuestionMetric();
       const api = runtimeApi;
       await (mode === "mock"
         ? api.moveMockNextQuestion(data.runtime.sessionId)
@@ -4445,6 +4494,7 @@ function buildAiInterviewRequest(
       answerId: answer.answerId,
       audioFileId,
       audioS3Key,
+      durationSeconds: answer.durationSeconds,
     }) as AiInterviewRequest;
   }
 

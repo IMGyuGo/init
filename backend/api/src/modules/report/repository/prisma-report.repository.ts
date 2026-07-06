@@ -62,11 +62,15 @@ export class PrismaReportRepository implements ReportRepository {
   }
 
   async markQueuedProcessCompleted(processLogId: number, outputRef: string): Promise<QueuedAiProcessSnapshot> {
+    const completedAt = new Date();
+    const durationMs = await this.durationMs(processLogId, completedAt);
     const processLog = await this.prisma.aiProcessLog.update({
       where: { processLogId: BigInt(processLogId) },
       data: {
         status: "COMPLETED",
         outputRef,
+        completedAt,
+        durationMs,
         failureCategory: null,
         failureReason: null
       }
@@ -75,10 +79,14 @@ export class PrismaReportRepository implements ReportRepository {
   }
 
   async markQueuedProcessFailed(processLogId: number, failure: FailureReason): Promise<QueuedAiProcessSnapshot> {
+    const completedAt = new Date();
+    const durationMs = await this.durationMs(processLogId, completedAt);
     const processLog = await this.prisma.aiProcessLog.update({
       where: { processLogId: BigInt(processLogId) },
       data: {
         status: "FAILED",
+        completedAt,
+        durationMs,
         failureCategory: failure.category,
         failureReason: failure.reason
       }
@@ -102,26 +110,33 @@ export class PrismaReportRepository implements ReportRepository {
   }
 
   async markProcessRunning(processLogId: number): Promise<ProcessLogSnapshot> {
+    const startedAt = new Date();
     const processLog = await this.prisma.aiProcessLog.update({
       where: { processLogId: BigInt(processLogId) },
-      data: { status: "RUNNING" }
+      data: { status: "RUNNING", startedAt, completedAt: null, durationMs: null }
     });
     return this.toProcessSnapshot(processLog);
   }
 
   async markProcessCompleted(processLogId: number): Promise<ProcessLogSnapshot> {
+    const completedAt = new Date();
+    const durationMs = await this.durationMs(processLogId, completedAt);
     const processLog = await this.prisma.aiProcessLog.update({
       where: { processLogId: BigInt(processLogId) },
-      data: { status: "COMPLETED" }
+      data: { status: "COMPLETED", completedAt, durationMs }
     });
     return this.toProcessSnapshot(processLog);
   }
 
   async markProcessFailed(processLogId: number, failure: FailureReason): Promise<ProcessLogSnapshot> {
+    const completedAt = new Date();
+    const durationMs = await this.durationMs(processLogId, completedAt);
     const processLog = await this.prisma.aiProcessLog.update({
       where: { processLogId: BigInt(processLogId) },
       data: {
         status: "FAILED",
+        completedAt,
+        durationMs,
         failureCategory: failure.category,
         failureReason: failure.reason
       }
@@ -327,6 +342,15 @@ export class PrismaReportRepository implements ReportRepository {
     inputRef: string | null;
     failureCategory: string | null;
     failureReason: string | null;
+    startedAt?: Date | null;
+    completedAt?: Date | null;
+    durationMs?: number | null;
+    modelName?: string | null;
+    inputTokens?: number | null;
+    outputTokens?: number | null;
+    audioSeconds?: number | null;
+    estimatedCostUsd?: unknown | null;
+    costMetadataJson?: string | null;
   }): ProcessLogSnapshot {
     const input = processLog.inputRef ? JSON.parse(processLog.inputRef) : {};
     return {
@@ -334,6 +358,15 @@ export class PrismaReportRepository implements ReportRepository {
       processType: processLog.processType as AiProcessType,
       step: input.step ?? "REPORT_GENERATE",
       status: processLog.status as ProcessLogSnapshot["status"],
+      startedAt: processLog.startedAt?.toISOString(),
+      completedAt: processLog.completedAt?.toISOString(),
+      durationMs: processLog.durationMs ?? undefined,
+      modelName: processLog.modelName ?? undefined,
+      inputTokens: processLog.inputTokens ?? undefined,
+      outputTokens: processLog.outputTokens ?? undefined,
+      audioSeconds: processLog.audioSeconds ?? undefined,
+      estimatedCostUsd: toNumber(processLog.estimatedCostUsd),
+      costMetadataJson: processLog.costMetadataJson ?? undefined,
       failure:
         processLog.failureCategory && processLog.failureReason
           ? {
@@ -355,6 +388,15 @@ export class PrismaReportRepository implements ReportRepository {
     outputRef: string | null;
     failureCategory: string | null;
     failureReason: string | null;
+    startedAt?: Date | null;
+    completedAt?: Date | null;
+    durationMs?: number | null;
+    modelName?: string | null;
+    inputTokens?: number | null;
+    outputTokens?: number | null;
+    audioSeconds?: number | null;
+    estimatedCostUsd?: unknown | null;
+    costMetadataJson?: string | null;
   }): QueuedAiProcessSnapshot {
     return {
       processLogId: Number(processLog.processLogId),
@@ -365,6 +407,15 @@ export class PrismaReportRepository implements ReportRepository {
       output: parseAiJobOutput(processLog.outputRef),
       applicationId: processLog.applicationId ? Number(processLog.applicationId) : undefined,
       sessionId: processLog.sessionId ? Number(processLog.sessionId) : undefined,
+      startedAt: processLog.startedAt?.toISOString(),
+      completedAt: processLog.completedAt?.toISOString(),
+      durationMs: processLog.durationMs ?? undefined,
+      modelName: processLog.modelName ?? undefined,
+      inputTokens: processLog.inputTokens ?? undefined,
+      outputTokens: processLog.outputTokens ?? undefined,
+      audioSeconds: processLog.audioSeconds ?? undefined,
+      estimatedCostUsd: toNumber(processLog.estimatedCostUsd),
+      costMetadataJson: processLog.costMetadataJson ?? undefined,
       failure:
         processLog.failureCategory && processLog.failureReason
           ? {
@@ -402,6 +453,17 @@ export class PrismaReportRepository implements ReportRepository {
     };
   }
 
+  private async durationMs(processLogId: number, completedAt: Date): Promise<number | null> {
+    const processLog = await this.prisma.aiProcessLog.findUnique({
+      where: { processLogId: BigInt(processLogId) },
+      select: { startedAt: true }
+    });
+    if (!processLog?.startedAt) {
+      return null;
+    }
+    return Math.max(0, completedAt.getTime() - processLog.startedAt.getTime());
+  }
+
   private nextId(): bigint {
     return BigInt(Date.now()) * BigInt(1000) + BigInt(Math.floor(Math.random() * 1000));
   }
@@ -409,4 +471,12 @@ export class PrismaReportRepository implements ReportRepository {
   private guardrailFailureCategory(decision: GuardrailDecision): GuardrailDecision["failureCategory"] {
     return decision.failureCategory ?? (decision.result === "BLOCKED" ? "NON_RETRYABLE" : null);
   }
+}
+
+function toNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }

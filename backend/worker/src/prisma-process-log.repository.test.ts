@@ -23,6 +23,10 @@ test("PrismaAiProcessLogRepository writes process state transitions to ai_proces
         records.set(id, created);
         return created;
       },
+      async findUnique(args: any) {
+        calls.push({ method: "findUnique", args });
+        return records.get(args.where.processLogId) ?? null;
+      },
       async update(args: any) {
         calls.push({ method: "update", args });
         const id = args.where.processLogId;
@@ -61,12 +65,12 @@ test("PrismaAiProcessLogRepository writes process state transitions to ai_proces
   assert.equal(typeof guardrailLogId, "number");
   assert.deepEqual(
     calls.map((call) => call.method),
-    ["upsert", "update", "update", "guardrailCreate"]
+    ["upsert", "update", "findUnique", "update", "guardrailCreate"]
   );
   assert.equal(calls[1].args.data.status, "RUNNING");
-  assert.equal(calls[2].args.data.status, "COMPLETED");
-  assert.equal(calls[3].args.data.result, "PASS");
-  assert.equal(calls[3].args.data.failureCategory, null);
+  assert.equal(calls[3].args.data.status, "COMPLETED");
+  assert.equal(calls[4].args.data.result, "PASS");
+  assert.equal(calls[4].args.data.failureCategory, null);
 });
 
 test("PrismaAiProcessLogRepository records retryability on failed worker jobs", async () => {
@@ -82,6 +86,9 @@ test("PrismaAiProcessLogRepository records retryability on failed worker jobs", 
         };
         records.set(args.where.processLogId, created);
         return created;
+      },
+      async findUnique(args: any) {
+        return records.get(args.where.processLogId) ?? null;
       },
       async update(args: any) {
         const id = args.where.processLogId;
@@ -133,6 +140,9 @@ test("PrismaAiProcessLogRepository records guardrail retryability", async () => 
           failureReason: null
         };
       },
+      async findUnique(_args: any) {
+        return null;
+      },
       async update(args: any) {
         return {
           processLogId: args.where.processLogId,
@@ -141,7 +151,16 @@ test("PrismaAiProcessLogRepository records guardrail retryability", async () => 
           inputRef: "report:12",
           outputRef: null,
           failureCategory: args.data.failureCategory ?? null,
-          failureReason: args.data.failureReason ?? null
+          failureReason: args.data.failureReason ?? null,
+          startedAt: args.data.startedAt ?? null,
+          completedAt: args.data.completedAt ?? null,
+          durationMs: args.data.durationMs ?? null,
+          modelName: args.data.modelName ?? null,
+          inputTokens: args.data.inputTokens ?? null,
+          outputTokens: args.data.outputTokens ?? null,
+          audioSeconds: args.data.audioSeconds ?? null,
+          estimatedCostUsd: args.data.estimatedCostUsd ?? null,
+          costMetadataJson: args.data.costMetadataJson ?? null
         };
       }
     },

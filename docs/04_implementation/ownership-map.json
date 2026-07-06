@@ -118,6 +118,21 @@
         "^docs/04_implementation/ai-job-contracts\\.md$"
       ],
       "roles": ["D", "E", "PM"]
+    },
+    {
+      "name": "AI performance tracking schema bridge",
+      "patterns": [
+        "^backend/api/prisma/schema\\.prisma$",
+        "^backend/api/prisma/migrations/20260706090000_ai_performance_cost_tracking/"
+      ],
+      "roles": ["A", "E"]
+    },
+    {
+      "name": "AI performance landing entry",
+      "patterns": [
+        "^frontend/src/features/landing/LandingPage\\.tsx$"
+      ],
+      "roles": ["E", "PM"]
     }
   ],
   "roles": {
@@ -172,6 +187,7 @@
     ],
     "E": [
       "^frontend/src/features/ai-report/",
+      "^frontend/src/features/ai-performance/",
       "^frontend/src/app/(reports|ai)/",
       "^backend/worker/",
       "^backend/api/src/modules/(report|ai)/",
