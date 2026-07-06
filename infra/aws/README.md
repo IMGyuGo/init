@@ -238,11 +238,12 @@ terraform -chdir=infra/aws init -backend-config=backend-main.hcl -reconfigure
 | 5.2 Static validation | Terraform 정적 검증과 ECS 비기동 확인 | `fmt`, `validate`, `desired_counts = 0` 확인 | validate 실패 또는 desired count가 0이 아님 |
 | 5.3 Main plan 생성 | 실제 변경 목록을 plan 파일로 저장 | `terraform plan ... -out=tfplan-main` | plan 생성 실패 |
 | 5.4 Plan 리뷰 | 위험 변경 확인 | 생성/수정/삭제, replacement, IAM trust, SES DNS, ECS desired count 확인 | RDS/Valkey/VPC/CloudFront 삭제 또는 교체, IAM trust 확장, ECS desired count 증가 |
-| 5.4-A Application runtime AWS readiness | 실제 서비스 코드가 AWS 리소스를 쓰는지 확인 | frontend build env, runtime secret key, mock/in-memory fallback, managed service smoke 기준 확인 | 운영에서 localhost/mock/memory/localstack fallback이 남거나 필수 env key가 누락됨 |
-| 5.5 사용자 apply 승인 | 비용 발생 전 명시 승인 확보 | 사용자가 plan 요약과 runtime readiness 확인 후 승인 | 승인 문구 없음 |
-| 5.6 Main apply 실행 | main AWS 리소스 생성 | `terraform apply tfplan-main` | apply 실패 또는 예상 밖 destroy/replacement |
-| 5.7 Output/Console 확인 | 다음 단계 입력값 확보 | Terraform output, AWS Console 상태 확인 | 필수 output 누락 또는 ACM/SES validation 실패 |
-| 5.8 세션 기록 | 이어받기 가능한 상태 기록 | `infra/APPLY_SESSION.md` 갱신 | secret/password/token 포함 출력 |
+| 5.5 리소스 그룹 리뷰 | AWS Console 기준으로 plan 리소스를 묶음별 검토 | Network, Security, Edge/DNS/ACM/SES, ALB, ECS/ECR/IAM/Secrets, Data/Storage/Queue/Observability 확인 | 보안 경계, 비용, 삭제/교체, public 노출, 보호 설정 blocker |
+| 5.6 Application runtime AWS readiness | 실제 서비스 코드가 AWS 리소스를 쓰는지 확인 | frontend build env, runtime secret key, mock/in-memory fallback, managed service smoke 기준 확인 | 운영에서 localhost/mock/memory/localstack fallback이 남거나 필수 env key가 누락됨 |
+| 5.7 사용자 apply 승인 | 비용 발생 전 명시 승인 확보 | 사용자가 plan 요약, 리소스 그룹 리뷰, runtime readiness 확인 후 승인 | 승인 문구 없음 |
+| 5.8 Main apply 실행 | main AWS 리소스 생성 | `terraform apply tfplan-main` | apply 실패 또는 예상 밖 destroy/replacement |
+| 5.9 Output/Console 확인 | 다음 단계 입력값 확보 | Terraform output, AWS Console 상태 확인 | 필수 output 누락 또는 ACM/SES validation 실패 |
+| 5.10 세션 기록 | 이어받기 가능한 상태 기록 | `infra/APPLY_SESSION.md` 갱신 | secret/password/token 포함 출력 |
 
 5.1-5.3 실행:
 
@@ -263,7 +264,7 @@ terraform plan '-var-file=env/main.tfvars' '-out=tfplan-main'
 terraform show -no-color tfplan-main
 ```
 
-5.4-A는 Terraform 리소스 리뷰와 별도로, 실제 서비스 코드가 AWS 리소스를 바로 사용할 수 있는지 확인하는 gate다. 이 gate가 끝나기 전에는 “인프라는 먼저 만들고 앱 연결은 나중에 본다”로 넘어가지 않는다.
+5.6은 Terraform 리소스 그룹 리뷰와 별도로, 실제 서비스 코드가 AWS 리소스를 바로 사용할 수 있는지 확인하는 gate다. 이 gate가 끝나기 전에는 “인프라는 먼저 만들고 앱 연결은 나중에 본다”로 넘어가지 않는다.
 
 확인 항목:
 
@@ -274,6 +275,9 @@ terraform show -no-color tfplan-main
 | API runtime env | `infra/aws/locals.tf`의 secret key 목록이 코드에서 실제 사용하는 운영 env와 일치해야 한다. 결제, OAuth, public link, upload limit, CORS/origin 값도 포함한다. | 코드가 `TOSS_SECRET_KEY`, `APP_FRONTEND_URL`, `PUBLIC_APPLICATION_DOCUMENT_MAX_UPLOAD_BYTES` 등 운영 값을 요구하지만 secret mapping에 없음 |
 | AWS SDK local override | ECS production secret에는 `AWS_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` 같은 LocalStack/static key 값을 넣지 않는다. ECS task role/default credential chain을 사용한다. | production task가 LocalStack endpoint 또는 static access key를 사용함 |
 | S3 public/private split | CloudFront로 공개할 prefix는 회사 로고/JD 이미지처럼 bucket policy가 허용한 prefix와 맞아야 한다. 지원자 문서, 면접 음성/영상 원본은 public URL로 노출하지 않는다. | private object에 `S3_PUBLIC_BASE_URL` 기반 공개 URL을 제공함 |
+| S3 candidate file upload | candidate resume/portfolio 경로가 실제 S3 object를 생성하는지 확인한다. metadata-only 기록만으로 `file_assets`를 만들면 안 된다. | S3 object 없이 DB metadata만 생성됨 |
+| S3 AI key trust | document extract/STT dispatch에서 client-supplied `s3Key`/`audioS3Key`를 그대로 worker에 넘기지 않는다. DB file asset/application/answer 기준 canonical key를 재조회한다. | worker가 검증되지 않은 S3 key를 `GetObject`함 |
+| S3 public base URL | 회사 로고/JD 이미지 public URL은 CloudFront OAC 허용 prefix와 `S3_PUBLIC_BASE_URL=https://init-jungle.cloud`가 맞아야 한다. | private S3 direct URL을 public URL로 반환함 |
 | SQS real queue | API publisher와 worker consumer가 실제 `AI_SQS_QUEUE_URL`을 사용해야 한다. queue URL 누락으로 in-memory queue에 fallback되면 안 된다. | API가 SQS 대신 in-memory publisher로 기동됨 |
 | Worker real mode | worker는 `WORKER_REPOSITORY_MODE=prisma`, `AI_PROVIDER_MODE=openai`, `AI_STT_PROVIDER=openai` 등 실제 처리 모드와 provider key를 사용한다. | worker가 memory repository 또는 mock AI/STT provider로 운영 기동됨 |
 | Valkey cache required behavior | 인증 코드와 public magic link가 ElastiCache Valkey를 Redis protocol로 사용해야 한다. 운영에서 cache 장애를 조용히 memory fallback으로 숨기지 않는지 확인한다. | production에서 Valkey cache 없이 인증/매직링크가 성공한 것처럼 보임 |
@@ -288,7 +292,7 @@ Valkey/Redis protocol naming policy:
 - `REDIS_URL`, Terraform resource name의 `redis`, output `redis_primary_endpoint` 같은 이름은 Redis OSS 엔진 선택이 아니라 Redis protocol/client 호환 접속 관례를 뜻한다.
 - 새 문서에서 관리형 서비스 자체를 부를 때는 `ElastiCache Valkey`를 사용하고, env/URL/protocol/client 계약을 말할 때만 `Redis protocol` 또는 `REDIS_URL`을 사용한다.
 
-5.5에서 사용자가 명시적으로 승인한 뒤에만 apply한다.
+5.7에서 사용자가 명시적으로 승인한 뒤에만 apply한다.
 
 ```powershell
 terraform -chdir=infra/aws apply tfplan-main
