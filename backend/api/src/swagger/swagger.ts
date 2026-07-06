@@ -1,6 +1,8 @@
 import { INestApplication } from "@nestjs/common";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 
+import { enrichSwaggerDescriptions } from "./swagger-description-enricher";
+
 export function createSwaggerDocument(app: INestApplication) {
   const config = new DocumentBuilder()
     .setTitle("Final Weapon API")
@@ -59,7 +61,7 @@ export function createSwaggerDocument(app: INestApplication) {
     })
     .build();
 
-  return SwaggerModule.createDocument(app, config);
+  return enrichSwaggerDescriptions(SwaggerModule.createDocument(app, config));
 }
 
 export function setupSwagger(app: INestApplication) {

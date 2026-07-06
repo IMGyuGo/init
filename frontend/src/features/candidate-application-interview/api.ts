@@ -429,6 +429,27 @@ export interface AiInterviewHandoffResponse {
   callbackTopic?: string;
 }
 
+export interface CreateRealtimeInterviewSessionRequest {
+  mode?: "realtime-voice";
+  transport?: "webrtc";
+}
+
+export interface RealtimeInterviewSessionResponse {
+  accepted: true;
+  sessionId: number;
+  applicationId?: number;
+  interviewType: InterviewType;
+  mode: "realtime-voice";
+  provider: "mock" | "openai";
+  model: string;
+  voice: string;
+  transport: "webrtc";
+  clientSecret: string;
+  clientSecretType: "ephemeral";
+  expiresAt: string;
+  endpoint: string;
+}
+
 export interface InsertFollowUpQuestionRequest {
   processLogId: number;
 }
@@ -692,6 +713,7 @@ export const candidateApiPaths = {
   mockNextQuestion: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/next-question`,
   mockComplete: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/complete`,
   mockStt: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/stt`,
+  mockRealtimeSession: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/realtime-session`,
   mockFollowUpQuestion: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/follow-up-question`,
   mockFollowUpQuestionInsert: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/follow-up-questions/insert`,
   mockReports: "/api/v1/candidate/mock-interview/reports",
@@ -714,6 +736,7 @@ export const candidateApiPaths = {
   recruitingNextQuestion: (sessionId: number) => `/api/v1/candidate/interviews/${sessionId}/next-question`,
   recruitingComplete: (sessionId: number) => `/api/v1/candidate/interviews/${sessionId}/complete`,
   recruitingStt: (sessionId: number) => `/api/v1/candidate/interviews/${sessionId}/stt`,
+  recruitingRealtimeSession: (sessionId: number) => `/api/v1/candidate/interviews/${sessionId}/realtime-session`,
   recruitingFollowUpQuestion: (sessionId: number) => `/api/v1/candidate/interviews/${sessionId}/follow-up-question`,
   recruitingFollowUpQuestionInsert: (sessionId: number) => `/api/v1/candidate/interviews/${sessionId}/follow-up-questions/insert`,
   aiJobStatus: (processLogId: number) => `/api/v1/ai/jobs/${processLogId}/status`,
@@ -732,6 +755,7 @@ export const publicInterviewApiPaths = {
   nextQuestion: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/next-question`,
   complete: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/complete`,
   stt: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/stt`,
+  realtimeSession: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/realtime-session`,
   followUpQuestion: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/follow-up-question`,
 } as const;
 
@@ -765,6 +789,10 @@ export interface CandidateApiClient {
   moveMockNextQuestion(sessionId: number): Promise<ApiResponse<NextInterviewQuestionResponse>>;
   completeMockInterview(sessionId: number): Promise<ApiResponse<CompleteInterviewResponse>>;
   requestMockStt(sessionId: number, body: AiInterviewRequest): Promise<ApiResponse<AiInterviewHandoffResponse>>;
+  createMockRealtimeSession(
+    sessionId: number,
+    body: CreateRealtimeInterviewSessionRequest,
+  ): Promise<ApiResponse<RealtimeInterviewSessionResponse>>;
   requestMockFollowUpQuestion(
     sessionId: number,
     body: AiInterviewRequest,
@@ -799,6 +827,10 @@ export interface CandidateApiClient {
   moveRecruitingNextQuestion(sessionId: number): Promise<ApiResponse<NextInterviewQuestionResponse>>;
   completeRecruitingInterview(sessionId: number): Promise<ApiResponse<CompleteInterviewResponse>>;
   requestRecruitingStt(sessionId: number, body: AiInterviewRequest): Promise<ApiResponse<AiInterviewHandoffResponse>>;
+  createRecruitingRealtimeSession(
+    sessionId: number,
+    body: CreateRealtimeInterviewSessionRequest,
+  ): Promise<ApiResponse<RealtimeInterviewSessionResponse>>;
   requestRecruitingFollowUpQuestion(
     sessionId: number,
     body: AiInterviewRequest,
@@ -830,6 +862,8 @@ export type InterviewRuntimeApiClient = Pick<
   | "completeRecruitingInterview"
   | "requestMockStt"
   | "requestRecruitingStt"
+  | "createMockRealtimeSession"
+  | "createRecruitingRealtimeSession"
   | "requestMockFollowUpQuestion"
   | "requestRecruitingFollowUpQuestion"
 >;
@@ -919,6 +953,11 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
         method: "POST",
         body: JSON.stringify(body),
       }),
+    createMockRealtimeSession: (sessionId, body) =>
+      request<ApiResponse<RealtimeInterviewSessionResponse>>(candidateApiPaths.mockRealtimeSession(sessionId), {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
     requestMockFollowUpQuestion: (sessionId, body) =>
       request<ApiResponse<AiInterviewHandoffResponse>>(candidateApiPaths.mockFollowUpQuestion(sessionId), {
         method: "POST",
@@ -983,6 +1022,11 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
       }),
     requestRecruitingStt: (sessionId, body) =>
       request<ApiResponse<AiInterviewHandoffResponse>>(candidateApiPaths.recruitingStt(sessionId), {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    createRecruitingRealtimeSession: (sessionId, body) =>
+      request<ApiResponse<RealtimeInterviewSessionResponse>>(candidateApiPaths.recruitingRealtimeSession(sessionId), {
         method: "POST",
         body: JSON.stringify(body),
       }),
@@ -1107,6 +1151,11 @@ export function createPublicInterviewApiClient(
         method: "POST",
         body: JSON.stringify(body),
       }),
+    createRecruitingRealtimeSession: (sessionId, body) =>
+      request<ApiResponse<RealtimeInterviewSessionResponse>>(publicInterviewApiPaths.realtimeSession(sessionId), {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
     requestRecruitingFollowUpQuestion: (sessionId, body) =>
       request<ApiResponse<AiInterviewHandoffResponse>>(publicInterviewApiPaths.followUpQuestion(sessionId), {
         method: "POST",
@@ -1116,6 +1165,7 @@ export function createPublicInterviewApiClient(
     moveMockNextQuestion: unsupportedMockMethod,
     completeMockInterview: unsupportedMockMethod,
     requestMockStt: unsupportedMockMethod,
+    createMockRealtimeSession: unsupportedMockMethod,
     requestMockFollowUpQuestion: unsupportedMockMethod,
   };
 }

@@ -5,7 +5,13 @@ import { type RequestLike } from "../../../shared/response-envelope";
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
 import { resolveCurrentCandidate, CandidateDomainError } from "../../candidate";
 import { DeviceCheckDto } from "../dto/interview.device-check.dto";
-import { AiInterviewRequestDto, InsertFollowUpQuestionDto, SaveInterviewAnswerDto, StartMockInterviewDto } from "../dto/interview.runtime.dto";
+import {
+  AiInterviewRequestDto,
+  CreateRealtimeInterviewSessionDto,
+  InsertFollowUpQuestionDto,
+  SaveInterviewAnswerDto,
+  StartMockInterviewDto,
+} from "../dto/interview.runtime.dto";
 import { interviewApiRoutePrefix, interviewApiRoutes } from "../interview.routes";
 import { InterviewService } from "../service/interview.service";
 
@@ -98,6 +104,17 @@ export class InterviewController {
   ) {
     return this.handle(() =>
       this.interviewService.insertMockFollowUpQuestion(Number(sessionId), dto, resolveCurrentCandidate(request.currentUser)),
+    );
+  }
+
+  @Post(interviewApiRoutes.mockRealtimeSession)
+  createMockRealtimeSession(
+    @Req() request: CandidateRequest,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: CreateRealtimeInterviewSessionDto,
+  ) {
+    return this.handle(() =>
+      this.interviewService.createMockRealtimeSession(Number(sessionId), dto, resolveCurrentCandidate(request.currentUser)),
     );
   }
 
@@ -213,6 +230,17 @@ export class InterviewController {
   ) {
     return this.handle(() =>
       this.interviewService.insertRecruitingFollowUpQuestion(Number(sessionId), dto, resolveCurrentCandidate(request.currentUser)),
+    );
+  }
+
+  @Post(interviewApiRoutes.recruitingRealtimeSession)
+  createRecruitingRealtimeSession(
+    @Req() request: CandidateRequest,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: CreateRealtimeInterviewSessionDto,
+  ) {
+    return this.handle(() =>
+      this.interviewService.createRecruitingRealtimeSession(Number(sessionId), dto, resolveCurrentCandidate(request.currentUser)),
     );
   }
 

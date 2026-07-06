@@ -20,18 +20,42 @@ import type {
 } from "./api";
 import { candidateApiPaths } from "./api";
 import {
+  createRealtimeInterviewWebRtcConnection,
+  type RealtimePeerConnectionLike,
+} from "./realtime-webrtc";
+import {
   clampCameraPipPosition,
   createCameralessInterviewTestDeviceCheckState,
+  createInterviewerSessionActionEvent,
+  createInterviewerSessionEvent,
   formatAiInterviewerQuestionPrompt,
   getAiInterviewerProfile,
   getCandidateApplicationInterviewActionHref,
   getCandidateApplicationReportHref,
   getCandidateJobDetailActionHref,
   getDefaultCameraPipPosition,
+  getInterviewRuntimeFullscreenActive,
   getInterviewRuntimeLayoutState,
+  getInterviewRuntimePipShortcutState,
   getInterviewRuntimeScreenSwapState,
   getInterviewRuntimeShortcutHints,
+  getRuntimeDeviceRecheckState,
+  getInterviewRuntimeProgressionState,
   getInterviewRuntimeStatusChips,
+  getInterviewerSessionState,
+  getInvalidRecordingRecoveryAction,
+  getRealtimeSilenceEncouragementDecision,
+  getRealtimeSessionUserNotice,
+  getTimedOutAiJobStatus,
+  hasMeaningfulInterviewRecordingVoice,
+  isInterviewSpeechPlaybackEventCurrent,
+  resolveInterviewerSessionMode,
+  shouldAutoStartInterviewRecording,
+  shouldContinueInterviewWithoutFollowUp,
+  shouldEnableManualInterviewRecording,
+  shouldOpenRealtimeMicrophoneForRecordingStart,
+  shouldRunInterviewRuntimeCountdown,
+  trimInterviewerSessionEvents,
   getInterviewMediaFileExtension,
   getMockInterviewDeviceCheckHref,
   getMockInterviewHref,
@@ -74,7 +98,7 @@ const submitRequest: SubmitApplicationRequest = toSubmitApplicationRequest({
   phone: " 010-0000-0000 ",
   resumeFileId: 1,
   portfolioUrl: " https://portfolio.example.com/kim ",
-  consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
+  consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS", "AI_INTERVIEW_RECORDING"],
 });
 
 const resumeRequest: UploadResumeRequest = toUploadResumeRequest({
@@ -293,6 +317,34 @@ assert.deepEqual(
     },
   ],
 );
+assert.deepEqual(
+  getRuntimeDeviceRecheckState({
+    setupCompleted: true,
+    recording: false,
+    cameraReady: true,
+    microphoneReady: false,
+    networkReady: true,
+  }),
+  {
+    visible: true,
+    label: "마이크 다시 점검",
+    reason: "MICROPHONE",
+  },
+);
+assert.deepEqual(
+  getRuntimeDeviceRecheckState({
+    setupCompleted: true,
+    recording: false,
+    cameraReady: true,
+    microphoneReady: true,
+    networkReady: true,
+  }),
+  {
+    visible: false,
+    label: "장치 다시 점검",
+    reason: "NONE",
+  },
+);
 const visibleRuntimeShortcutHints: Array<{ key: "F"; label: string }> = getInterviewRuntimeShortcutHints();
 assert.deepEqual(visibleRuntimeShortcutHints, [
   { key: "F", label: "전체화면" },
@@ -329,6 +381,15 @@ assert.equal(immersiveViewportLockClassName, "ai-interviewer-stage--viewport-loc
 const immersiveInfoGapClassName: "ai-interviewer-stage--reserved-info-gap" =
   immersiveRuntimeLayoutState.infoGapClassName;
 assert.equal(immersiveInfoGapClassName, "ai-interviewer-stage--reserved-info-gap");
+assert.equal(
+  getInterviewRuntimeFullscreenActive({ fullscreenElement: null, stageElement: null }),
+  false,
+);
+const fakeStageElement = { nodeType: 1 } as Element;
+assert.equal(
+  getInterviewRuntimeFullscreenActive({ fullscreenElement: fakeStageElement, stageElement: fakeStageElement }),
+  true,
+);
 const interviewerPrimaryScreenState = getInterviewRuntimeScreenSwapState({ primaryScreen: "interviewer" });
 assert.deepEqual(interviewerPrimaryScreenState, {
   primaryScreen: "interviewer",
@@ -353,6 +414,695 @@ assert.deepEqual(candidatePrimaryScreenState, {
 });
 const candidatePrimarySwapShortcutKey: "S" = candidatePrimaryScreenState.swapShortcutKey;
 assert.equal(candidatePrimarySwapShortcutKey, "S");
+assert.deepEqual(
+  getInterviewRuntimePipShortcutState({
+    primaryScreen: "candidate",
+    cameraPreviewVisible: true,
+    interviewerPipVisible: true,
+  }),
+  {
+    primaryScreen: "candidate",
+    cameraPreviewVisible: true,
+    interviewerPipVisible: false,
+  },
+);
+assert.deepEqual(
+  getInterviewRuntimePipShortcutState({
+    primaryScreen: "interviewer",
+    cameraPreviewVisible: true,
+    interviewerPipVisible: true,
+  }),
+  {
+    primaryScreen: "interviewer",
+    cameraPreviewVisible: false,
+    interviewerPipVisible: true,
+  },
+);
+assert.deepEqual(
+  getTimedOutAiJobStatus({
+    processLogId: 77,
+    processType: "STT",
+    status: "RUNNING",
+  }),
+  {
+    processLogId: 77,
+    processType: "STT",
+    status: "FAILED",
+    failure: {
+      category: "TIMEOUT",
+      reason: "AI 작업 응답 시간이 초과되었습니다. 잠시 후 상태를 다시 확인해주세요.",
+      retryable: true,
+    },
+  },
+);
+assert.equal(shouldContinueInterviewWithoutFollowUp({ failureCategory: "TIMEOUT" }), true);
+assert.equal(shouldContinueInterviewWithoutFollowUp({ pipelineError: new Error("worker unavailable") }), true);
+assert.equal(shouldContinueInterviewWithoutFollowUp({ failureCategory: "REANSWER_REQUIRED" }), false);
+assert.equal(getRealtimeSessionUserNotice({ provider: "mock" }), "");
+assert.equal(getRealtimeSessionUserNotice({ provider: "openai" }), "실시간 AI 면접 연결을 준비했습니다.");
+assert.equal(
+  isInterviewSpeechPlaybackEventCurrent({
+    playbackId: 3,
+    activePlaybackId: 3,
+    questionId: 100,
+    currentQuestionId: 100,
+    sessionId: 1,
+    currentSessionId: 1,
+  }),
+  true,
+);
+assert.equal(
+  isInterviewSpeechPlaybackEventCurrent({
+    playbackId: 2,
+    activePlaybackId: 3,
+    questionId: 100,
+    currentQuestionId: 100,
+    sessionId: 1,
+    currentSessionId: 1,
+  }),
+  false,
+);
+assert.equal(
+  isInterviewSpeechPlaybackEventCurrent({
+    playbackId: 3,
+    activePlaybackId: 3,
+    questionId: 100,
+    currentQuestionId: 101,
+    sessionId: 1,
+    currentSessionId: 1,
+  }),
+  false,
+);
+assert.equal(
+  hasMeaningfulInterviewRecordingVoice({
+    peakLevel: 1,
+    activeFrameCount: 0,
+    minPeakLevel: 5,
+    minActiveFrameCount: 12,
+  }),
+  false,
+);
+assert.equal(
+  hasMeaningfulInterviewRecordingVoice({
+    peakLevel: 14,
+    activeFrameCount: 18,
+    minPeakLevel: 5,
+    minActiveFrameCount: 12,
+  }),
+  true,
+);
+assert.equal(
+  shouldAutoStartInterviewRecording({
+    setupCompleted: true,
+    introCompleted: true,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: false,
+    cameraReady: true,
+    microphoneReady: true,
+    hasCurrentQuestion: true,
+    currentQuestionLocked: false,
+    timerPhase: "ANSWERING",
+    recording: false,
+    hasAnswerFile: false,
+    microphoneLevel: 0,
+  }),
+  true,
+);
+assert.equal(
+  shouldAutoStartInterviewRecording({
+    setupCompleted: true,
+    introCompleted: true,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: false,
+    cameraReady: true,
+    microphoneReady: true,
+    hasCurrentQuestion: true,
+    currentQuestionLocked: false,
+    timerPhase: "ANSWERING",
+    recording: false,
+    hasAnswerFile: false,
+    microphoneLevel: 80,
+  }),
+  true,
+);
+assert.equal(
+  shouldAutoStartInterviewRecording({
+    setupCompleted: true,
+    introCompleted: true,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: true,
+    cameraReady: true,
+    microphoneReady: true,
+    hasCurrentQuestion: true,
+    currentQuestionLocked: false,
+    timerPhase: "ANSWERING",
+    recording: false,
+    hasAnswerFile: false,
+    microphoneLevel: 0,
+  }),
+  false,
+);
+assert.equal(
+  shouldAutoStartInterviewRecording({
+    setupCompleted: true,
+    introCompleted: true,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: false,
+    cameraReady: true,
+    microphoneReady: true,
+    hasCurrentQuestion: true,
+    currentQuestionLocked: false,
+    timerPhase: "PREPARING",
+    recording: false,
+    hasAnswerFile: false,
+    microphoneLevel: 20,
+  }),
+  false,
+);
+assert.equal(
+  shouldAutoStartInterviewRecording({
+    setupCompleted: true,
+    introCompleted: true,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: false,
+    cameraReady: true,
+    microphoneReady: true,
+    hasCurrentQuestion: true,
+    currentQuestionLocked: false,
+    timerPhase: "ANSWERING",
+    recording: true,
+    hasAnswerFile: false,
+    microphoneLevel: 20,
+  }),
+  false,
+);
+assert.equal(
+  shouldAutoStartInterviewRecording({
+    setupCompleted: true,
+    introCompleted: true,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: false,
+    cameraReady: true,
+    microphoneReady: true,
+    hasCurrentQuestion: true,
+    currentQuestionLocked: false,
+    timerPhase: "ANSWERING",
+    recording: false,
+    hasAnswerFile: true,
+    microphoneLevel: 20,
+  }),
+  false,
+);
+assert.equal(
+  shouldEnableManualInterviewRecording({
+    canRecord: true,
+    setupCompleted: true,
+    introCompleted: true,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: false,
+    cameraReady: true,
+    microphoneReady: false,
+    networkReady: true,
+    hasCurrentQuestion: true,
+    currentQuestionLocked: false,
+    timerPhase: "ANSWERING",
+    recording: false,
+    canSubmitAnswer: false,
+    busy: false,
+  }),
+  false,
+);
+assert.equal(
+  shouldEnableManualInterviewRecording({
+    canRecord: true,
+    setupCompleted: true,
+    introCompleted: true,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: false,
+    cameraReady: true,
+    microphoneReady: true,
+    networkReady: true,
+    hasCurrentQuestion: true,
+    currentQuestionLocked: false,
+    timerPhase: "ANSWERING",
+    recording: false,
+    canSubmitAnswer: false,
+    busy: false,
+  }),
+  true,
+);
+assert.equal(
+  shouldOpenRealtimeMicrophoneForRecordingStart({
+    realtimeSpeechReady: true,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: false,
+    timerPhase: "ANSWERING",
+  }),
+  true,
+);
+assert.equal(
+  shouldOpenRealtimeMicrophoneForRecordingStart({
+    realtimeSpeechReady: true,
+    questionSpeechCompleted: false,
+    questionSpeechPlaying: true,
+    timerPhase: "ANSWERING",
+  }),
+  false,
+);
+assert.equal(
+  shouldOpenRealtimeMicrophoneForRecordingStart({
+    realtimeSpeechReady: true,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: false,
+    timerPhase: "PREPARING",
+  }),
+  false,
+);
+assert.equal(
+  shouldRunInterviewRuntimeCountdown({
+    setupCompleted: true,
+    introCompleted: true,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: false,
+    hasCurrentQuestion: true,
+    currentQuestionLocked: false,
+    busy: false,
+    timerPhase: "PREPARING",
+    recording: false,
+  }),
+  true,
+);
+assert.equal(
+  shouldRunInterviewRuntimeCountdown({
+    setupCompleted: true,
+    introCompleted: true,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: false,
+    hasCurrentQuestion: true,
+    currentQuestionLocked: false,
+    busy: false,
+    timerPhase: "ANSWERING",
+    recording: false,
+  }),
+  false,
+);
+assert.equal(
+  shouldRunInterviewRuntimeCountdown({
+    setupCompleted: true,
+    introCompleted: true,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: false,
+    hasCurrentQuestion: true,
+    currentQuestionLocked: false,
+    busy: false,
+    timerPhase: "ANSWERING",
+    recording: true,
+  }),
+  true,
+);
+assert.equal(
+  shouldRunInterviewRuntimeCountdown({
+    setupCompleted: true,
+    introCompleted: true,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: true,
+    hasCurrentQuestion: true,
+    currentQuestionLocked: false,
+    busy: false,
+    timerPhase: "ANSWERING",
+    recording: true,
+  }),
+  false,
+);
+assert.equal(
+  getInvalidRecordingRecoveryAction({ failedAttemptCount: 1, maxAutoRetryCount: 1 }),
+  "retry",
+);
+assert.equal(
+  getInvalidRecordingRecoveryAction({ failedAttemptCount: 2, maxAutoRetryCount: 1 }),
+  "hold",
+);
+assert.deepEqual(
+  getRealtimeSilenceEncouragementDecision({
+    nowMs: 15000,
+    silenceStartedAtMs: 1000,
+    currentMicrophoneLevel: 0,
+    minimumVoiceLevel: 5,
+    hasDetectedVoiceDuringAnswer: false,
+    alreadyEncouraged: false,
+    remainingSeconds: 60,
+  }),
+  {
+    shouldEncourage: false,
+    nextSilenceStartedAtMs: 1000,
+  },
+);
+assert.deepEqual(
+  getRealtimeSilenceEncouragementDecision({
+    nowMs: 16000,
+    silenceStartedAtMs: 1000,
+    currentMicrophoneLevel: 0,
+    minimumVoiceLevel: 5,
+    hasDetectedVoiceDuringAnswer: false,
+    alreadyEncouraged: false,
+    remainingSeconds: 60,
+  }),
+  {
+    shouldEncourage: true,
+    nextSilenceStartedAtMs: 1000,
+    text: "괜찮습니다. 천천히 생각하고 말씀해보세요.",
+  },
+);
+assert.deepEqual(
+  getRealtimeSilenceEncouragementDecision({
+    nowMs: 16000,
+    silenceStartedAtMs: 1000,
+    currentMicrophoneLevel: 0,
+    minimumVoiceLevel: 5,
+    hasDetectedVoiceDuringAnswer: false,
+    alreadyEncouraged: false,
+    remainingSeconds: 60,
+    silenceGraceMs: 2000,
+  }),
+  {
+    shouldEncourage: false,
+    nextSilenceStartedAtMs: 1000,
+  },
+);
+assert.deepEqual(
+  getRealtimeSilenceEncouragementDecision({
+    nowMs: 18000,
+    silenceStartedAtMs: 1000,
+    currentMicrophoneLevel: 0,
+    minimumVoiceLevel: 5,
+    hasDetectedVoiceDuringAnswer: false,
+    alreadyEncouraged: false,
+    remainingSeconds: 60,
+    silenceGraceMs: 2000,
+  }),
+  {
+    shouldEncourage: true,
+    nextSilenceStartedAtMs: 1000,
+    text: "괜찮습니다. 천천히 생각하고 말씀해보세요.",
+  },
+);
+assert.deepEqual(
+  getRealtimeSilenceEncouragementDecision({
+    nowMs: 21000,
+    silenceStartedAtMs: 1000,
+    currentMicrophoneLevel: 0,
+    minimumVoiceLevel: 5,
+    hasDetectedVoiceDuringAnswer: true,
+    alreadyEncouraged: false,
+    remainingSeconds: 60,
+  }),
+  {
+    shouldEncourage: true,
+    nextSilenceStartedAtMs: 1000,
+    text: "좋습니다. 이어서 말씀해주셔도 됩니다.",
+  },
+);
+assert.deepEqual(
+  getRealtimeSilenceEncouragementDecision({
+    nowMs: 16000,
+    silenceStartedAtMs: 1000,
+    currentMicrophoneLevel: 0,
+    minimumVoiceLevel: 5,
+    hasDetectedVoiceDuringAnswer: false,
+    alreadyEncouraged: false,
+    remainingSeconds: 15,
+  }),
+  {
+    shouldEncourage: false,
+    nextSilenceStartedAtMs: 1000,
+  },
+);
+assert.deepEqual(
+  getInterviewRuntimeProgressionState({
+    hasRuntimeData: true,
+    currentQuestionAnswered: true,
+    isCurrentQuestionLast: false,
+    generatedFollowUpReady: false,
+    answerProcessingBusy: true,
+    isReansweringCurrentQuestion: false,
+    recording: false,
+    answeredQuestionCount: 1,
+    totalQuestions: 4,
+  }),
+  {
+    canMoveNextQuestion: false,
+    canCompleteInterview: false,
+  },
+);
+assert.deepEqual(
+  getInterviewRuntimeProgressionState({
+    hasRuntimeData: true,
+    currentQuestionAnswered: true,
+    isCurrentQuestionLast: false,
+    generatedFollowUpReady: false,
+    answerProcessingBusy: false,
+    isReansweringCurrentQuestion: false,
+    recording: false,
+    answeredQuestionCount: 1,
+    totalQuestions: 4,
+  }),
+  {
+    canMoveNextQuestion: true,
+    canCompleteInterview: false,
+  },
+);
+assert.deepEqual(
+  getInterviewRuntimeProgressionState({
+    hasRuntimeData: true,
+    currentQuestionAnswered: true,
+    isCurrentQuestionLast: true,
+    generatedFollowUpReady: false,
+    answerProcessingBusy: false,
+    isReansweringCurrentQuestion: false,
+    recording: false,
+    answeredQuestionCount: 4,
+    totalQuestions: 4,
+  }),
+  {
+    canMoveNextQuestion: false,
+    canCompleteInterview: true,
+  },
+);
+const defaultInterviewerSessionModePolicy = resolveInterviewerSessionMode({});
+assert.deepEqual(defaultInterviewerSessionModePolicy, {
+  requestedMode: "tts-file",
+  activeMode: "tts-file",
+});
+const realtimeDisabledInterviewerSessionModePolicy = resolveInterviewerSessionMode({
+  requestedMode: "realtime-voice",
+  realtimeVoiceEnabled: false,
+});
+assert.deepEqual(realtimeDisabledInterviewerSessionModePolicy, {
+  requestedMode: "realtime-voice",
+  activeMode: "tts-file",
+  fallbackReason: "REALTIME_VOICE_DISABLED",
+});
+const realtimeEnabledInterviewerSessionModePolicy = resolveInterviewerSessionMode({
+  requestedMode: "realtime-voice",
+  realtimeVoiceEnabled: true,
+});
+assert.deepEqual(realtimeEnabledInterviewerSessionModePolicy, {
+  requestedMode: "realtime-voice",
+  activeMode: "realtime-voice",
+});
+const avatarDisabledInterviewerSessionModePolicy = resolveInterviewerSessionMode({
+  requestedMode: "avatar-stream",
+  avatarStreamEnabled: false,
+});
+assert.deepEqual(avatarDisabledInterviewerSessionModePolicy, {
+  requestedMode: "avatar-stream",
+  activeMode: "tts-file",
+  fallbackReason: "AVATAR_STREAM_DISABLED",
+});
+const invalidInterviewerSessionModePolicy = resolveInterviewerSessionMode({
+  requestedMode: "unknown-mode",
+});
+assert.deepEqual(invalidInterviewerSessionModePolicy, {
+  requestedMode: "tts-file",
+  activeMode: "tts-file",
+  fallbackReason: "INVALID_MODE",
+});
+const disconnectedInterviewerSessionState = getInterviewerSessionState({
+  setupCompleted: false,
+  hasCurrentQuestion: false,
+  questionSpeechPlaying: false,
+  questionSpeechSupported: true,
+  recording: false,
+  answerProcessingBusy: false,
+  busy: false,
+  currentQuestionLocked: false,
+});
+assert.deepEqual(disconnectedInterviewerSessionState, {
+  mode: "tts-file",
+  phase: "DISCONNECTED",
+  label: "면접 준비 중",
+  description: "장치 점검과 면접 시작을 기다리고 있습니다.",
+  tone: "neutral",
+  stageClassName: "",
+  avatarClassName: "",
+});
+const speakingInterviewerSessionState = getInterviewerSessionState({
+  setupCompleted: true,
+  hasCurrentQuestion: true,
+  questionSpeechPlaying: true,
+  questionSpeechSupported: true,
+  recording: false,
+  answerProcessingBusy: false,
+  busy: false,
+  currentQuestionLocked: false,
+  mode: realtimeEnabledInterviewerSessionModePolicy.activeMode,
+});
+assert.deepEqual(speakingInterviewerSessionState, {
+  mode: "realtime-voice",
+  phase: "AI_SPEAKING",
+  label: "AI 안내 중",
+  description: "AI 면접관이 질문 음성을 안내하고 있습니다.",
+  tone: "speaking",
+  stageClassName: "ai-interviewer-stage--ai-speaking",
+  avatarClassName: "speaking",
+});
+const recordingInterviewerSessionState = getInterviewerSessionState({
+  setupCompleted: true,
+  hasCurrentQuestion: true,
+  questionSpeechPlaying: false,
+  questionSpeechSupported: true,
+  recording: true,
+  answerProcessingBusy: false,
+  busy: false,
+  currentQuestionLocked: false,
+});
+assert.deepEqual(recordingInterviewerSessionState, {
+  mode: "tts-file",
+  phase: "USER_SPEAKING",
+  label: "답변 녹화 중",
+  description: "지원자의 답변 녹화가 진행 중입니다.",
+  tone: "recording",
+  stageClassName: "ai-interviewer-stage--user-speaking",
+  avatarClassName: "",
+});
+const fallbackInterviewerSessionState = getInterviewerSessionState({
+  setupCompleted: true,
+  hasCurrentQuestion: true,
+  questionSpeechPlaying: false,
+  questionSpeechSupported: false,
+  recording: false,
+  answerProcessingBusy: false,
+  busy: false,
+  currentQuestionLocked: false,
+});
+assert.deepEqual(fallbackInterviewerSessionState, {
+  mode: "tts-file",
+  phase: "FALLBACK_TTS",
+  label: "질문 보기 필요",
+  description: "질문 음성 재생을 사용할 수 없어 텍스트 질문으로 진행합니다.",
+  tone: "warning",
+  stageClassName: "ai-interviewer-stage--fallback",
+  avatarClassName: "",
+});
+const thinkingInterviewerSessionState = getInterviewerSessionState({
+  setupCompleted: true,
+  hasCurrentQuestion: true,
+  questionSpeechPlaying: false,
+  questionSpeechSupported: true,
+  recording: false,
+  answerProcessingBusy: true,
+  busy: true,
+  currentQuestionLocked: true,
+});
+assert.deepEqual(thinkingInterviewerSessionState, {
+  mode: "tts-file",
+  phase: "AI_THINKING",
+  label: "답변 처리 중",
+  description: "AI 면접관이 답변 처리 결과를 기다리고 있습니다.",
+  tone: "thinking",
+  stageClassName: "ai-interviewer-stage--ai-thinking",
+  avatarClassName: "",
+});
+const firstInterviewerSessionEvent = createInterviewerSessionEvent({
+  sessionId: 10001,
+  questionId: 1,
+  state: speakingInterviewerSessionState,
+  sequence: 1,
+  occurredAt: "2026-07-06T00:00:00.000Z",
+});
+assert.deepEqual(firstInterviewerSessionEvent, {
+  id: "interviewer-session-10001-1",
+  sequence: 1,
+  sessionId: 10001,
+  questionId: 1,
+  mode: "realtime-voice",
+  phase: "AI_SPEAKING",
+  label: "AI 안내 중",
+  occurredAt: "2026-07-06T00:00:00.000Z",
+  source: "runtime-state",
+});
+const realtimeQuestionSpeechStartedEvent = createInterviewerSessionActionEvent({
+  sessionId: 10001,
+  questionId: 1,
+  mode: "realtime-voice",
+  phase: "AI_SPEAKING",
+  action: "speech:start",
+  label: "Realtime 질문 음성 시작",
+  sequence: 2,
+  occurredAt: "2026-07-06T00:00:01.000Z",
+});
+assert.deepEqual(realtimeQuestionSpeechStartedEvent, {
+  id: "interviewer-session-10001-2",
+  sequence: 2,
+  sessionId: 10001,
+  questionId: 1,
+  mode: "realtime-voice",
+  phase: "AI_SPEAKING",
+  action: "speech:start",
+  label: "Realtime 질문 음성 시작",
+  occurredAt: "2026-07-06T00:00:01.000Z",
+  source: "runtime-action",
+});
+assert.equal(
+  createInterviewerSessionEvent({
+    sessionId: 10001,
+    questionId: 1,
+    state: speakingInterviewerSessionState,
+    sequence: 2,
+    occurredAt: "2026-07-06T00:00:01.000Z",
+    previousEvent: firstInterviewerSessionEvent,
+  }),
+  undefined,
+);
+const secondInterviewerSessionEvent = createInterviewerSessionEvent({
+  sessionId: 10001,
+  questionId: 1,
+  state: recordingInterviewerSessionState,
+  sequence: 2,
+  occurredAt: "2026-07-06T00:00:02.000Z",
+  previousEvent: firstInterviewerSessionEvent,
+});
+assert.deepEqual(secondInterviewerSessionEvent, {
+  id: "interviewer-session-10001-2",
+  sequence: 2,
+  sessionId: 10001,
+  questionId: 1,
+  mode: "tts-file",
+  phase: "USER_SPEAKING",
+  label: "답변 녹화 중",
+  occurredAt: "2026-07-06T00:00:02.000Z",
+  source: "runtime-state",
+});
+assert.deepEqual(
+  trimInterviewerSessionEvents(
+    [
+      firstInterviewerSessionEvent,
+      secondInterviewerSessionEvent,
+    ],
+    1,
+  ),
+  [secondInterviewerSessionEvent],
+);
 
 const applicationSummary: CandidateApplicationSummary = {
   applicationId: 1,
@@ -497,6 +1247,7 @@ const mockCompletePath = candidateApiPaths.mockComplete(10001);
 const mockSttPath = candidateApiPaths.mockStt(10001);
 const mockFollowUpPath = candidateApiPaths.mockFollowUpQuestion(10001);
 const mockFollowUpInsertPath = candidateApiPaths.mockFollowUpQuestionInsert(10001);
+const mockRealtimeSessionPath = candidateApiPaths.mockRealtimeSession(10001);
 const mockReportsPath = candidateApiPaths.mockReports;
 const mockHistoryPath = candidateApiPaths.mockHistory;
 const mockReportFeedbackPath = candidateApiPaths.mockReportFeedback(10001);
@@ -517,6 +1268,90 @@ const recruitingCompletePath = candidateApiPaths.recruitingComplete(1);
 const recruitingSttPath = candidateApiPaths.recruitingStt(1);
 const recruitingFollowUpPath = candidateApiPaths.recruitingFollowUpQuestion(1);
 const recruitingFollowUpInsertPath = candidateApiPaths.recruitingFollowUpQuestionInsert(1);
+const recruitingRealtimeSessionPath = candidateApiPaths.recruitingRealtimeSession(1);
+assert.equal(mockRealtimeSessionPath, "/api/v1/candidate/mock-interviews/10001/realtime-session");
+assert.equal(recruitingRealtimeSessionPath, "/api/v1/candidate/interviews/1/realtime-session");
+
+function createContractRealtimeAudioTrack(enabled = true): MediaStreamTrack {
+  const track = {
+    kind: "audio",
+    readyState: "live" as MediaStreamTrackState,
+    enabled,
+    clone() {
+      return createContractRealtimeAudioTrack(track.enabled);
+    },
+    stop() {
+      track.readyState = "ended";
+    },
+  };
+  return track as MediaStreamTrack;
+}
+
+const realtimeConnectionStates: RTCPeerConnectionState[] = [];
+const realtimeDataChannelStates: RTCDataChannelState[] = [];
+const realtimeWebRtcConnectionPromise = createRealtimeInterviewWebRtcConnection({
+  session: {
+    accepted: true,
+    sessionId: 1,
+    interviewType: "MOCK",
+    mode: "realtime-voice",
+    provider: "openai",
+    model: "gpt-realtime-2",
+    voice: "marin",
+    transport: "webrtc",
+    clientSecret: "ephemeral-client-secret",
+    clientSecretType: "ephemeral",
+    expiresAt: "2026-07-06T00:00:00.000Z",
+    endpoint: "https://api.openai.com/v1/realtime/calls",
+  },
+  localStream: {
+    getAudioTracks: () => [createContractRealtimeAudioTrack()],
+  } as MediaStream,
+  onConnectionStateChange: (state) => realtimeConnectionStates.push(state),
+  onDataChannelStateChange: (state) => realtimeDataChannelStates.push(state),
+  fetcher: async (_input, init) => {
+    assert.equal(init?.method, "POST");
+    assert.equal(init?.body, "local-offer-sdp");
+    assert.deepEqual(init?.headers, {
+      Authorization: "Bearer ephemeral-client-secret",
+      "Content-Type": "application/sdp",
+    });
+    return new Response("remote-answer-sdp", { status: 200 });
+  },
+  peerConnectionFactory: () =>
+    ({
+      connectionState: "new",
+      onconnectionstatechange: null,
+      ontrack: null,
+      addTrack: () => ({} as RTCRtpSender),
+      createDataChannel: (label) => {
+        assert.equal(label, "oai-events");
+        const dataChannel: ReturnType<RealtimePeerConnectionLike["createDataChannel"]> = {
+          readyState: "connecting",
+          close: () => undefined,
+          send: () => undefined,
+          onmessage: null,
+          onopen: null,
+          onclose: null,
+          onerror: null,
+        };
+        queueMicrotask(() => {
+          dataChannel.readyState = "open";
+          dataChannel.onopen?.call(dataChannel as unknown as RTCDataChannel, {} as Event);
+        });
+        return dataChannel;
+      },
+      createOffer: async () => ({ type: "offer", sdp: "local-offer-sdp" }),
+      setLocalDescription: async (description) => {
+        assert.equal(description.sdp, "local-offer-sdp");
+      },
+      setRemoteDescription: async (description) => {
+        assert.equal(description.type, "answer");
+        assert.equal(description.sdp, "remote-answer-sdp");
+      },
+      close: () => undefined,
+    }) satisfies RealtimePeerConnectionLike,
+});
 
 const applyActionHref = getCandidateJobDetailActionHref({
   jobId: 1,
@@ -597,6 +1432,8 @@ void mockCompletePath;
 void mockSttPath;
 void mockFollowUpPath;
 void mockFollowUpInsertPath;
+void mockRealtimeSessionPath;
+void realtimeWebRtcConnectionPromise;
 void mockReportsPath;
 void mockHistoryPath;
 void mockReportFeedbackPath;
@@ -617,6 +1454,7 @@ void recruitingCompletePath;
 void recruitingSttPath;
 void recruitingFollowUpPath;
 void recruitingFollowUpInsertPath;
+void recruitingRealtimeSessionPath;
 void applyActionHref;
 void appliedActionHref;
 void disabledActionHref;
