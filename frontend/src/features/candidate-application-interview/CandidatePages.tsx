@@ -34,7 +34,6 @@ import {
   type CandidateInterviewRuntimeView,
   type CandidateJobQuery,
   type CandidateMockInterviewHistoryItem,
-  type CandidateReportGenerationHandoff,
   type CandidateMockReportFeedback,
   type CandidateMockReportMedia,
   type CandidateMockReportSummary,
@@ -5033,43 +5032,6 @@ function compareReportAnswers(
   return (left.sortOrder ?? left.answerId) - (right.sortOrder ?? right.answerId);
 }
 
-function ReportAnswerInsightList({ answers }: { answers: CandidateReportAnswerView[] }) {
-  if (!answers.length) {
-    return <p className="empty">표시할 면접 답변이 아직 없습니다.</p>;
-  }
-
-  const sortedAnswers = orderReportAnswersByInterviewFlow(answers);
-  return (
-    <div>
-      <h3 className="candidate-section-title">답변별 STT / 꼬리질문</h3>
-      <div className="report-answer-insight-list">
-        {sortedAnswers.map((answer, index) => (
-          <article className="report-answer-insight-card" key={answer.answerId}>
-            <div className="report-answer-card__head">
-              <div>
-                <span>질문 {index + 1}</span>
-                <strong>{answer.questionContent ?? `질문 #${answer.questionId}`}</strong>
-              </div>
-              {answer.questionType ? <StatusPill value={formatQuestionTypeLabel(answer.questionType)} /> : null}
-            </div>
-            <div className="script-box">
-              <strong>STT 텍스트</strong>
-              <TranscriptText
-                transcript={answer.transcript}
-                transcriptStatus={answer.transcriptStatus}
-                evaluationStatus={answer.evaluationStatus}
-                transcriptUnavailableReason={answer.transcriptUnavailableReason}
-              />
-            </div>
-            <FollowUpQuestionList questions={answer.followUpQuestions} />
-            <EvidenceList evidences={answer.evidences} />
-          </article>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function TranscriptText({
   transcript,
   transcriptStatus,
@@ -5207,43 +5169,6 @@ function formatEvidenceSourceLabel(evidence: CandidateReportEvidenceView): strin
   return labels[evidence.sourceType] ?? "평가 자료 기반";
 }
 
-function ReportGenerationHandoffView({ handoff }: { handoff: CandidateReportGenerationHandoff }) {
-  const payload = buildReportGenerationSharePayload(handoff);
-
-  return (
-    <div className="candidate-pipeline-card">
-      <div className="candidate-pipeline-card__head">
-        <div>
-          <strong>REPORT_GENERATE 요청 준비 완료</strong>
-          <p>{handoff.callbackTopic}</p>
-        </div>
-        <StatusPill value={handoff.status} />
-      </div>
-      <dl className="candidate-feature__summary">
-        <Definition label="queued" value={String(handoff.queued)} />
-        <Definition label="processLogId" value={handoff.processLogId} />
-        <Definition label="reportStatus" value={handoff.reportStatus} />
-        <Definition label="reportId" value={handoff.reportId} />
-        <Definition label="sessionId" value={handoff.sessionId} />
-        {handoff.applicationId ? <Definition label="applicationId" value={handoff.applicationId} /> : null}
-        <Definition label="reportType" value={handoff.reportType} />
-        <Definition label="answerIds" value={formatIdList(handoff.answerIds)} />
-        <Definition label="fileIds" value={formatIdList(handoff.fileIds)} />
-      </dl>
-      <PipelinePayloadPreview title="E 리포트 생성 공유 payload" payload={payload} />
-    </div>
-  );
-}
-
-function PipelinePayloadPreview({ title, payload }: { title: string; payload: Record<string, unknown> }) {
-  return (
-    <div className="candidate-pipeline-payload">
-      <div className="candidate-pipeline-payload__title">{title}</div>
-      <pre>{formatJsonPayload(payload)}</pre>
-    </div>
-  );
-}
-
 async function requestMockReportGenerationAfterComplete(reportId: number): Promise<void> {
   try {
     await getCandidateApi().requestMockReportGeneration(reportId);
@@ -5320,31 +5245,8 @@ function buildAiInterviewRequest(
   }) as AiInterviewRequest;
 }
 
-function buildReportGenerationSharePayload(handoff: CandidateReportGenerationHandoff): Record<string, unknown> {
-  return {
-    accepted: handoff.accepted,
-    queued: handoff.queued,
-    processType: handoff.processType,
-    status: handoff.status,
-    reportStatus: handoff.reportStatus,
-    callbackTopic: handoff.callbackTopic,
-    processLogId: handoff.processLogId,
-    reportId: handoff.reportId,
-    sessionId: handoff.sessionId,
-    applicationId: handoff.applicationId,
-    reportType: handoff.reportType,
-    answerIds: handoff.answerIds,
-    fileIds: handoff.fileIds,
-    inputRef: handoff.inputRef,
-  };
-}
-
 function compactPayload(payload: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined && value !== null));
-}
-
-function formatJsonPayload(payload: Record<string, unknown>): string {
-  return JSON.stringify(payload, null, 2);
 }
 
 async function pollAiJobUntilSettled(processLogId: number): Promise<AiJobStatusResponse> {
@@ -5396,10 +5298,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function formatIdList(ids: number[]): string {
-  return ids.length ? ids.join(", ") : "-";
 }
 
 function RecruitingReportFallbackView({
