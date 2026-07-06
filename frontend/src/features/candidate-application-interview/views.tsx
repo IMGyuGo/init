@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   CandidateFileAsset,
   CandidateJobDetail,
@@ -148,6 +148,15 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeCat, setActiveCat] = useState<FilterKey>("jobRole");
   const [draft, setDraft] = useState<FilterDraft>(EMPTY_DRAFT);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchSizerRef = useRef<HTMLSpanElement>(null);
+
+  // 입력 글자만큼 input 폭을 맞춰 블록 커서가 텍스트 바로 뒤에 오게 한다(한글 폭까지 정확히).
+  useEffect(() => {
+    if (searchInputRef.current && searchSizerRef.current) {
+      searchInputRef.current.style.width = `${searchSizerRef.current.offsetWidth}px`;
+    }
+  }, [query.q]);
 
   // 이 페이지에 있는 동안에만: 최상단(히어로)에서 아래로 스크롤하면 한 번에 공고 목록으로 부드럽게 이동.
   useEffect(() => {
@@ -242,25 +251,36 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
           </h2>
           <p>회사·공고 제목·직무로 검색하거나, 아래로 스크롤해 전체 공고를 살펴보세요.</p>
           <form
-            className="candidate-jobs-search"
+            className="candidate-jobs-codesearch"
             onSubmit={(event) => {
               event.preventDefault();
               onQueryChange({ ...query, page: 1 });
             }}
           >
-            <span className="candidate-jobs-search-icon" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="7" />
-                <path d="m21 21-4.3-4.3" />
-              </svg>
-            </span>
-            <input
-              name="q"
-              placeholder="어떤 공고를 찾으시나요?"
-              value={query.q ?? ""}
-              onChange={(event) => patch({ q: event.currentTarget.value })}
-            />
-            <button className="btn primary" type="submit">
+            <code className="cjs-code" onClick={() => searchInputRef.current?.focus()}>
+              <span className="cjs-fn">init</span>
+              <span className="cjs-punc">(</span>
+              <span className="cjs-quote" aria-hidden="true">&quot;</span>
+              <span className="cjs-field">
+                <input
+                  ref={searchInputRef}
+                  className="cjs-input"
+                  name="q"
+                  value={query.q ?? ""}
+                  onChange={(event) => patch({ q: event.currentTarget.value })}
+                  aria-label="공고 검색"
+                />
+                <span ref={searchSizerRef} className="cjs-sizer" aria-hidden="true">
+                  {query.q ?? ""}
+                </span>
+                <span className="cjs-cursor" aria-hidden="true" />
+                {query.q ? null : <span className="cjs-ghost" aria-hidden="true">어떤 공고를 찾으시나요</span>}
+              </span>
+              <span className="cjs-quote" aria-hidden="true">&quot;</span>
+              <span className="cjs-spacer" aria-hidden="true" />
+              <span className="cjs-punc">)</span>
+            </code>
+            <button className="btn primary cjs-run" type="submit">
               검색
             </button>
           </form>
