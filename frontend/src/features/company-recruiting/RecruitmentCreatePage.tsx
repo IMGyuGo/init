@@ -112,6 +112,7 @@ export function RecruitmentCreatePage() {
   const [aiFilled, setAiFilled] = useState(false);
   const [phase, setPhase] = useState<RecruitmentCreatePhase>("intro");
   const [entryMode, setEntryMode] = useState<"manual" | "ai">("manual");
+  const [createdRecruitmentId, setCreatedRecruitmentId] = useState<number | null>(null);
 
   function startForm() {
     navigateWizard({ phase: "form", step: 1 });
@@ -165,7 +166,8 @@ export function RecruitmentCreatePage() {
       if (typeof window !== "undefined") {
         window.sessionStorage.removeItem(RECRUITMENT_CREATE_DRAFT_STORAGE_KEY);
       }
-      router.push(buildInterviewSettingsHref(result.data.recruitmentId));
+      setCreatedRecruitmentId(result.data.recruitmentId);
+      navigateWizard({ phase: "done", step: 0 });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "공고 생성에 실패했습니다.");
     } finally {
@@ -698,6 +700,32 @@ export function RecruitmentCreatePage() {
             <button className="btn primary" type="button" onClick={startForm}>
               {aiFilled ? "작성 이어가기" : "초안 없이 시작"}
             </button>
+          </div>
+        </div>
+      ) : phase === "done" ? (
+        <div className="wizard-done">
+          <div className="wizard-done-icon" aria-hidden="true">✓</div>
+          <h1>공고가 생성되었어요</h1>
+          <p className="page-sub">
+            이제 이 공고의 <strong>면접을 설정</strong>할 차례예요. 평가 기준·질문·면접 시간을 정하면
+            지원자가 AI 인터뷰를 볼 수 있어요.
+          </p>
+          <div className="wizard-done-actions">
+            <button
+              className="btn primary lg"
+              type="button"
+              onClick={() => {
+                if (createdRecruitmentId !== null) {
+                  router.push(buildInterviewSettingsHref(createdRecruitmentId));
+                }
+              }}
+              disabled={createdRecruitmentId === null}
+            >
+              면접 설정하기
+            </button>
+            <Link className="btn secondary lg" href="/company/recruitments">
+              나중에 하기
+            </Link>
           </div>
         </div>
       ) : (

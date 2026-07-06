@@ -1,6 +1,6 @@
 import type { PostingExtraInfo } from "./posting-extra-info";
 
-export type RecruitmentCreatePhase = "intro" | "choice" | "ai" | "form";
+export type RecruitmentCreatePhase = "intro" | "choice" | "ai" | "form" | "done";
 
 export type RecruitmentCreateRouteState = {
   phase: RecruitmentCreatePhase;
@@ -30,6 +30,9 @@ export function normalizeRecruitmentCreateRoute(
   }
   if (phase === "ai") {
     return { phase: "ai", step: 0 };
+  }
+  if (phase === "done") {
+    return { phase: "done", step: 0 };
   }
   if (phase === "form" || (!phase && hasStep)) {
     return { phase: "form", step: clampStep(Number(params.step), totalFormSteps) };
