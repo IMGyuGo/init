@@ -155,6 +155,26 @@ type ApplicationReportData = {
   report?: CandidateRecruitingReportView;
   reportError?: string;
 };
+
+function shouldAutoRequestApplicationReport(data?: ApplicationReportData): boolean {
+  const status = data?.status;
+  if (!status || data?.report) {
+    return false;
+  }
+
+  if (data.reportError && !isReportNotReadyMessage(data.reportError)) {
+    return false;
+  }
+
+  const interviewCompleted =
+    status.interviewStatus === "COMPLETED" || status.interviewSessionStatus === "COMPLETED";
+  if (!interviewCompleted || status.reportAvailable) {
+    return false;
+  }
+
+  return status.reportStatus !== "GENERATING" && status.reportStatus !== "COMPLETED";
+}
+
 type LastSavedAnswer = {
   answerId: number;
   questionId: number;
@@ -1416,6 +1436,9 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
 }
 
 export function CandidateApplicationReportPage({ applicationId }: { applicationId: number }) {
+  const [generationBusy, setGenerationBusy] = useState(false);
+  const [generationMessage, setGenerationMessage] = useState("");
+  const requestedReportApplicationRef = useRef<number | null>(null);
   const load = useCallback(async (): Promise<ApplicationReportData> => {
     const api = getCandidateApi();
     const [statusResult, reportResult] = await Promise.allSettled([
@@ -1431,6 +1454,46 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
   }, [applicationId]);
   const { data, loading, error, refresh } = useCandidateResource(load, [applicationId]);
 
+  useEffect(() => {
+    if (!shouldAutoRequestApplicationReport(data)) {
+      return;
+    }
+
+    if (requestedReportApplicationRef.current === applicationId) {
+      return;
+    }
+
+    let cancelled = false;
+    requestedReportApplicationRef.current = applicationId;
+    setGenerationBusy(true);
+    setGenerationMessage("");
+
+    getCandidateApi()
+      .requestApplicationReportGeneration(applicationId)
+      .then(() => {
+        if (cancelled) {
+          return;
+        }
+        setGenerationMessage("AI 분석 요청이 접수되었습니다. 완료되면 기업 검토 화면에 반영됩니다.");
+        refresh();
+      })
+      .catch((reportGenerationError) => {
+        if (cancelled) {
+          return;
+        }
+        setGenerationMessage(toErrorMessage(reportGenerationError));
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setGenerationBusy(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applicationId, data, refresh]);
+
   return (
     <CandidatePageShell active="applications">
       <CandidatePageHead
@@ -1445,7 +1508,7 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
           </div>
         }
       />
-      <StatusNotice loading={loading} error={error} />
+      <StatusNotice loading={loading || generationBusy} error={error} message={generationMessage} />
       <section className="panel">
         <div className="panel-head">
           <div>
