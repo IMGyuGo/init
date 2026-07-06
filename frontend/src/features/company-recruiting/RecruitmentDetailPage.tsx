@@ -8,7 +8,7 @@ import detailApplicantsIcon from "./assets/detail-applicants.png";
 import detailCompletionIcon from "./assets/detail-completion.png";
 import detailReportIcon from "./assets/detail-report.png";
 
-import { getRecruitment, listRecruitmentApplicants, updateScreeningStatus } from "./api";
+import { getRecruitment, listRecruitmentApplicants, publishRecruitment, updateScreeningStatus } from "./api";
 import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
 import { JobDescriptionViewer } from "./JobDescriptionViewer";
 import { PostingExtraInfoSummary } from "./PostingExtraInfoFields";
@@ -45,6 +45,9 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
   const [autosaveState, setAutosaveState] = useState<ScreeningAutosaveState>({});
   const [publicLinkOrigin, setPublicLinkOrigin] = useState("");
   const [isRecruitmentInfoOpen, setIsRecruitmentInfoOpen] = useState(false);
+  const [openPromptOpen, setOpenPromptOpen] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -62,6 +65,9 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
         applicantList.data.items.map((item) => [item.applicationId, toScreeningDraft(item)]),
       );
       setRecruitment(detail.data);
+      if (detail.data.status === "DRAFT" && !isOpenPromptDismissed(recruitmentId)) {
+        setOpenPromptOpen(true);
+      }
       setApplicants(applicantList.data.items);
       setScreeningDrafts(nextDrafts);
       setSavedScreeningDrafts(nextDrafts);
@@ -98,6 +104,27 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
     } catch {
       window.alert("브라우저에서 복사를 허용하지 않았습니다. 링크를 직접 선택해 복사해주세요.");
     }
+  }
+
+  async function handleOpenConfirmed() {
+    setPublishing(true);
+    setPublishError("");
+    try {
+      await publishRecruitment(recruitmentId);
+      dismissOpenPrompt(recruitmentId);
+      setOpenPromptOpen(false);
+      await load({ clearMessage: false });
+      setMessage("공고를 OPEN 상태로 전환했습니다.");
+    } catch (error) {
+      setPublishError(error instanceof Error ? error.message : "공고를 열지 못했습니다.");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  function handleOpenDismissed() {
+    dismissOpenPrompt(recruitmentId);
+    setOpenPromptOpen(false);
   }
 
   async function handleDecisionChange(applicant: Applicant, decision: ScreeningDecision) {
@@ -352,8 +379,54 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
         ) : (
           <div className="empty">{loading ? "공고 대시보드를 불러오는 중입니다." : "공고 대시보드를 불러올 수 없습니다."}</div>
         )}
+
+        {openPromptOpen && recruitment ? (
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal" role="dialog" aria-modal="true" aria-labelledby="open-recruitment-title">
+              <div className="modal-head">
+                <div>
+                  <h2 id="open-recruitment-title">공고를 open하시겠습니까?</h2>
+                  <p>OPEN 상태로 전환하면 공개 지원 링크로 지원자가 지원할 수 있습니다. 지금은 임시저장(DRAFT) 상태예요.</p>
+                </div>
+              </div>
+              {publishError ? <p className="notice danger">{publishError}</p> : null}
+              <div className="confirm-box">
+                <strong>{recruitment.title}</strong>
+                <span>
+                  {recruitment.jobRole} · {formatPeriod(recruitment)}
+                </span>
+              </div>
+              <div className="modal-actions split-actions">
+                <button className="btn secondary" type="button" disabled={publishing} onClick={handleOpenDismissed}>
+                  아니오
+                </button>
+                <button className="btn primary" type="button" disabled={publishing} onClick={() => void handleOpenConfirmed()}>
+                  {publishing ? "여는 중…" : "네, open"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
     </section>
   );
+}
+
+function openPromptDismissKey(recruitmentId: number) {
+  return `recruitment-open-prompt-dismissed:${recruitmentId}`;
+}
+
+function isOpenPromptDismissed(recruitmentId: number) {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return window.sessionStorage.getItem(openPromptDismissKey(recruitmentId)) === "1";
+}
+
+function dismissOpenPrompt(recruitmentId: number) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.sessionStorage.setItem(openPromptDismissKey(recruitmentId), "1");
 }
 
 function formatPeriod(item: Recruitment) {
