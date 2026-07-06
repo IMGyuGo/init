@@ -226,9 +226,6 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
   return (
     <section aria-label="채용공고 목록" className="candidate-jobs-panel">
       <div className="candidate-jobs-hero">
-        <a className="candidate-jobs-myapps" href={candidateApplicationInterviewRoutes.applications}>
-          지원현황
-        </a>
         <div className="candidate-jobs-hero-inner">
           <h2>
             개발자를 위한 채용공고,

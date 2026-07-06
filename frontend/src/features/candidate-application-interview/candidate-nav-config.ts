@@ -1,18 +1,23 @@
 export const CANDIDATE_MYPAGE_ROUTE = "/candidate/mypage" as const;
 export const CANDIDATE_BILLING_ROUTE = "/candidate/billing" as const;
+export const CANDIDATE_APPLICATIONS_ROUTE = "/candidate/applications" as const;
 
 export const candidateNavLabels = {
-  accountBilling: "계정/결제",
+  accountBilling: "마이페이지",
 } as const;
 
 export const candidateAccountBillingNav = [
   {
-    label: "계정",
+    label: "마이페이지",
     href: CANDIDATE_MYPAGE_ROUTE,
   },
   {
     label: "결제",
     href: CANDIDATE_BILLING_ROUTE,
+  },
+  {
+    label: "지원현황",
+    href: CANDIDATE_APPLICATIONS_ROUTE,
   },
 ] as const;
 

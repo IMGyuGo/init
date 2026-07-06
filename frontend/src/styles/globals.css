@@ -6230,23 +6230,6 @@ p {
   scroll-snap-stop: always;
 }
 .notion .candidate-jobs-hero-inner { display: grid; gap: 16px; width: 100%; max-width: 620px; }
-.notion .candidate-jobs-myapps {
-  position: absolute;
-  top: 0;
-  right: 0;
-  display: inline-flex;
-  align-items: center;
-  height: 34px;
-  padding: 0 14px;
-  font-size: 13px;
-  font-weight: 600;
-  color: rgba(55, 53, 47, 0.7);
-  text-decoration: none;
-  background: #fff;
-  border: 1px solid rgba(55, 53, 47, 0.16);
-  border-radius: 999px;
-}
-.notion .candidate-jobs-myapps:hover { border-color: #3b6fe0; color: #3b6fe0; }
 .notion .candidate-jobs-hero h2 { margin: 0; font-size: 34px; font-weight: 800; line-height: 1.28; letter-spacing: -0.025em; color: #191919; }
 .notion .candidate-jobs-hero > .candidate-jobs-hero-inner > p { margin: 0; font-size: 15px; color: rgba(55, 53, 47, 0.6); }
 .notion .candidate-jobs-search {
