@@ -7,6 +7,9 @@ ses_domain_name                      = "init-jungle.cloud"
 ses_mail_from_subdomain              = "mail"
 ses_mail_from_behavior_on_mx_failure = "UseDefaultValue"
 
+slack_team_id    = "T0B8PCG46J0"
+slack_channel_id = "C0BF73MTGUT"
+
 vpc_cidr                 = "10.30.0.0/16"
 public_subnet_cidrs      = ["10.30.0.0/24", "10.30.1.0/24"]
 private_app_subnet_cidrs = ["10.30.10.0/24", "10.30.11.0/24"]

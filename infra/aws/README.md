@@ -36,7 +36,7 @@ main branch -> init-main-* resources -> init-jungle.cloud
 | 파일 | 책임 |
 | --- | --- |
 | `bootstrap/*` | remote state S3 bucket, Route53 hosted zone, 계정 단위 GitHub OIDC provider 최초 생성 |
-| `versions.tf`, `providers.tf` | Terraform/AWS provider 버전과 region 설정 |
+| `versions.tf`, `providers.tf` | Terraform/AWS provider 버전과 region 설정. CloudFront ACM은 `us-east-1`, Q Developer Slack channel configuration은 Chatbot endpoint가 확인된 `us-east-2` provider alias를 사용 |
 | `variables.tf`, `locals.tf` | main 실배포 입력값, naming, service/env/secret key 계약 |
 | `network.tf` | VPC, subnet, route table, NAT Gateway, VPC endpoint |
 | `security-groups.tf` | ALB, ECS, RDS, Valkey/Redis-protocol cache, VPC endpoint security group |
@@ -47,8 +47,8 @@ main branch -> init-main-* resources -> init-jungle.cloud
 | `rds.tf`, `redis.tf` | PostgreSQL RDS, ElastiCache Valkey |
 | `s3-sqs-ses.tf` | asset bucket, SQS/DLQ, optional SES domain identity, DKIM, custom MAIL FROM DNS |
 | `secrets.tf` | service별 Secrets Manager container |
-| `iam.tf` | ECS execution/task role, GitHub deploy role |
-| `cloudwatch.tf` | log group과 기본 alarm |
+| `iam.tf` | ECS execution/task role, GitHub deploy role, Q Developer/Chatbot Slack 알림용 role |
+| `cloudwatch.tf` | ECS log group, CloudWatch alarm, Slack 알림용 SNS topic/Q Developer channel configuration, CloudWatch dashboard |
 | `outputs.tf` | 적용 후 필요한 endpoint, ARN, URL 출력 |
 | `env/main.tfvars` | main 실배포 구체 property 값 |
 
@@ -62,6 +62,8 @@ main branch -> init-main-* resources -> init-jungle.cloud
 - Terraform state bucket 이름: `init-tfstate-<aws_account_id>-ap-northeast-2`
 - 가비아에서 구매한 root domain: `init-jungle.cloud`
 - Route53 hosted zone 생성 후 가비아 네임서버를 Route53 NS record로 위임할 권한
+- Amazon Q Developer in chat applications에 Slack workspace가 승인되어 있어야 함
+- Slack 알림을 받을 channel에 Amazon Q 앱을 초대할 권한
 - `dev`, `main` 브랜치가 같은 실배포 환경을 갱신한다는 팀 합의
 - AWS 비용 발생 가능성에 대한 승인
 
@@ -264,6 +266,20 @@ terraform plan '-var-file=env/main.tfvars' '-out=tfplan-main'
 terraform show -no-color tfplan-main
 ```
 
+5.5-F Observability 검토 기준:
+
+| 항목 | 확인할 것 | 중단 기준 |
+| --- | --- | --- |
+| Slack workspace | Amazon Q Developer in chat applications에서 Slack workspace `T0B8PCG46J0`가 승인되어 있어야 한다. CLI 확인은 `aws chatbot describe-slack-workspaces --region us-east-2`를 사용한다. | workspace가 `ENABLED`가 아니거나 Terraform이 Slack channel configuration을 생성할 수 없다. |
+| Slack channel | `infra/aws/env/main.tfvars`의 `slack_channel_id`가 실제 알림 channel ID여야 하고, Slack channel에 Amazon Q 앱이 초대되어 있어야 한다. | channel ID가 틀렸거나 private channel 접근 권한이 없다. |
+| SNS alert path | `init-main-ops-alerts` SNS topic이 생성되고 CloudWatch alarm의 `alarm_actions`/`ok_actions`가 이 topic을 참조해야 한다. | alarm은 생성되지만 Slack으로 전달될 action이 없다. |
+| 핵심 alarm | ALB target 5xx, frontend/API unhealthy host, ALB p95 latency, SQS oldest message, SQS DLQ visible, RDS CPU alarm이 포함되어야 한다. | worker 실패/DLQ나 ALB health 이상을 감지할 alarm이 없다. |
+| Dashboard | `init-main-overview` dashboard가 CloudFront, ALB, ECS, RDS, Valkey, SQS 지표를 보여야 한다. | dashboard가 없거나 alarm 목록만 있고 운영 상태를 볼 metric이 없다. |
+
+CloudFront 5xx는 1차 Pack에서 dashboard metric으로만 표시한다. CloudFront alarm을 Slack으로 보내려면 `us-east-1` CloudWatch alarm과 SNS topic을 별도로 설계해야 하므로 후속 변경으로 분리한다.
+
+Amazon Q Developer Slack channel configuration의 자체 logging은 `logging_level = "NONE"`으로 둔다. channel logging을 CloudWatch Logs로 보내면 별도 로그 비용이 생길 수 있으므로, 초기 pack에서는 Slack 알림 수신과 CloudWatch dashboard 확인에 집중한다.
+
 5.6은 Terraform 리소스 그룹 리뷰와 별도로, 실제 서비스 코드가 AWS 리소스를 바로 사용할 수 있는지 확인하는 gate다. 이 gate가 끝나기 전에는 “인프라는 먼저 만들고 앱 연결은 나중에 본다”로 넘어가지 않는다.
 
 확인 항목:
@@ -314,6 +330,9 @@ terraform -chdir=infra/aws output ses_domain_identity
 terraform -chdir=infra/aws output ses_domain_verification_record
 terraform -chdir=infra/aws output ses_dkim_records
 terraform -chdir=infra/aws output ses_mail_from_domain
+terraform -chdir=infra/aws output ops_alerts_topic_arn
+terraform -chdir=infra/aws output cloudwatch_dashboard_name
+terraform -chdir=infra/aws output chatbot_slack_channel_configuration_arn
 ```
 
 AWS Console 확인:
@@ -327,6 +346,10 @@ AWS Console 확인:
 - RDS, Valkey, S3, SQS, Secrets Manager container가 생성됨
 - SES verified identity: `init-jungle.cloud`
 - Route53 DNS records: `_amazonses.init-jungle.cloud`, DKIM CNAME 3개, `mail.init-jungle.cloud` MX/TXT
+- SNS topic: `init-main-ops-alerts`
+- Amazon Q Developer in chat applications Slack channel configuration: `init-main-ops-alerts`
+- CloudWatch alarms: `init-main-*`
+- CloudWatch dashboard: `init-main-overview`
 
 중단 기준:
 
@@ -334,6 +357,8 @@ AWS Console 확인:
 - CloudFront ACM validation이 완료되지 않는다.
 - IAM trust policy가 의도한 GitHub repository/branch보다 넓다.
 - SES verification, DKIM, custom MAIL FROM DNS record가 Route53 hosted zone에 생성되지 않는다.
+- CloudWatch alarm에 `alarm_actions`/`ok_actions`가 없거나 Slack channel configuration이 SNS topic을 참조하지 않는다.
+- Amazon Q Developer Slack channel configuration은 생성됐지만 Slack channel에서 알림 수신 테스트가 실패한다.
 
 ### 6. Secrets Manager 값 seed
 
@@ -705,6 +730,7 @@ AWS Console에서 직접 수정하지 않는 것을 원칙으로 한다. 리소�
 | SQS visibility timeout 변경 | `s3-sqs-ses.tf` | worker 처리 시간, DLQ redrive 기준 |
 | Secret key 추가/삭제 | `.env.example`, `locals.tf`, Secrets Manager JSON | task definition secret mapping과 실제 secret JSON 일치 |
 | GitHub Actions deploy 권한 변경 | `iam.tf` | OIDC trust, branch 제한, `iam:PassRole` 범위 |
+| Slack 운영 알림 변경 | `cloudwatch.tf`, `iam.tf`, `providers.tf`, `env/main.tfvars` | SNS topic, Q Developer Slack channel configuration, guardrail policy, `alarm_actions`/`ok_actions`, Slack workspace/channel ID |
 | VPC endpoint 추가 | `variables.tf`, `network.tf`, `env/*.tfvars` | hourly cost와 NAT 비용 절감 효과 |
 
 ## 변경 작업 표준 절차
@@ -755,6 +781,8 @@ terraform -chdir=infra/aws apply tfplan-main
 - ECS task desired count 증가
 - Secrets Manager secret 삭제
 - SQS queue replacement
+- CloudWatch alarm action 제거 또는 SNS topic 미연결
+- Q Developer/Chatbot IAM role 권한 확장
 
 ## rollback 기준
 

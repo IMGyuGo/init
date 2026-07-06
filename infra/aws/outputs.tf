@@ -82,3 +82,15 @@ output "ses_dkim_records" {
 output "ses_mail_from_domain" {
   value = local.ses_enabled && local.ses_mail_from_domain != "" ? local.ses_mail_from_domain : null
 }
+
+output "ops_alerts_topic_arn" {
+  value = aws_sns_topic.ops_alerts.arn
+}
+
+output "cloudwatch_dashboard_name" {
+  value = aws_cloudwatch_dashboard.overview.dashboard_name
+}
+
+output "chatbot_slack_channel_configuration_arn" {
+  value = aws_chatbot_slack_channel_configuration.ops_alerts.chat_configuration_arn
+}

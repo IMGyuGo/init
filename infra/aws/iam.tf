@@ -9,6 +9,17 @@ data "aws_iam_policy_document" "ecs_task_assume" {
   }
 }
 
+data "aws_iam_policy_document" "chatbot_assume" {
+  statement {
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["chatbot.amazonaws.com"]
+    }
+  }
+}
+
 resource "aws_iam_role" "ecs_execution" {
   name               = "${local.name_prefix}-ecs-execution"
   assume_role_policy = data.aws_iam_policy_document.ecs_task_assume.json
@@ -40,6 +51,21 @@ resource "aws_iam_role_policy" "ecs_execution_secrets" {
   name   = "${local.name_prefix}-ecs-execution-secrets"
   role   = aws_iam_role.ecs_execution.id
   policy = data.aws_iam_policy_document.ecs_execution_secrets.json
+}
+
+resource "aws_iam_role" "chatbot" {
+  name               = "${local.name_prefix}-chatbot"
+  assume_role_policy = data.aws_iam_policy_document.chatbot_assume.json
+
+  tags = {
+    Name = "${local.name_prefix}-chatbot"
+    Role = "chatbot"
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "chatbot_cloudwatch_readonly" {
+  role       = aws_iam_role.chatbot.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchReadOnlyAccess"
 }
 
 resource "aws_iam_role" "ecs_task" {

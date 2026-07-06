@@ -197,3 +197,23 @@ variable "ses_mail_from_behavior_on_mx_failure" {
     error_message = "ses_mail_from_behavior_on_mx_failure must be UseDefaultValue or RejectMessage."
   }
 }
+
+variable "slack_team_id" {
+  description = "Slack workspace/team ID authorized in Amazon Q Developer in chat applications."
+  type        = string
+
+  validation {
+    condition     = can(regex("^T[A-Z0-9]+$", var.slack_team_id))
+    error_message = "slack_team_id must look like a Slack workspace/team ID, for example T0123456789."
+  }
+}
+
+variable "slack_channel_id" {
+  description = "Slack channel ID that receives main environment operations alerts."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[CG][A-Z0-9]+$", var.slack_channel_id))
+    error_message = "slack_channel_id must look like a Slack public/private channel ID, for example C0123456789 or G0123456789."
+  }
+}

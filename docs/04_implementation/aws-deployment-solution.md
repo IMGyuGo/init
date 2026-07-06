@@ -17,7 +17,7 @@
 | SQS | LocalStack queue `init-ai-jobs` | SQS queue |
 | Mailpit | local SMTP inbox | Amazon SES |
 
-클라우드에서는 frontend, API, worker를 각각 Docker image로 만든다. 현재 `infra/docker`에는 `frontend.Dockerfile`, `api.Dockerfile`, `worker.Dockerfile`이 추가되어 AWS 배포 image 계약을 검증할 수 있다. `infra/aws`에는 `main` 단일 실배포 환경 기준 AWS 리소스 Terraform 초안이 추가되어 있다. 다만 실제 ECR push, ECS task definition 갱신, ECS service update workflow는 아직 후속 작업이다.
+클라우드에서는 frontend, API, worker를 각각 Docker image로 만든다. 현재 `infra/docker`에는 `frontend.Dockerfile`, `api.Dockerfile`, `worker.Dockerfile`이 추가되어 AWS 배포 image 계약을 검증할 수 있다. `infra/aws`에는 `main` 단일 실배포 환경 기준 AWS 리소스 Terraform 기준선이 추가되어 있다. 다만 실제 ECR push, ECS task definition 갱신, ECS service update workflow는 아직 후속 작업이다.
 
 ## 로컬 실행과 AWS 실행 계약 분리
 
@@ -28,7 +28,7 @@ Dockerfile을 추가해도 현재 로컬 개발 방식을 없애지 않는다. �
 | 로컬 개발 실행 | 빠른 개발과 디버깅 | `start-local.ps1`, `infra/local/docker-compose.yml`, 각 package `npm run dev` | 기존 로컬 하네스와 package별 test/build로 검증 |
 | Docker production 실행 | ECS에서 실행될 image 계약 | `infra/docker/*.Dockerfile`, root `.dockerignore` | PR/CI에서 Docker build를 실행해 drift 감지 |
 | DB schema 변경 | 테이블/컬럼/인덱스 변경 | `backend/api/prisma/schema.prisma`, `backend/api/prisma/migrations` | 배포 시 API image 기반 `npx prisma migrate deploy` 실행 |
-| AWS 리소스 변경 | RDS, ElastiCache, ECS, ALB, CloudFront 등 인프라 변경 | 후속 `infra/aws` Terraform 파일 | Terraform plan/apply로 변경 diff를 리뷰 |
+| AWS 리소스 변경 | RDS, ElastiCache, ECS, ALB, CloudFront 등 인프라 변경 | `infra/aws` Terraform 파일 | Terraform plan/apply로 변경 diff를 리뷰 |
 | 환경변수/secret 변경 | 런타임 설정 key와 실제 값 분리 | `.env.example`, AWS Secrets Manager | key 목록은 Git에서 리뷰, 실제 값은 Secrets Manager에서 관리 |
 
 중요한 점은 Dockerfile이나 Terraform 파일을 코드에서 자동 생성하지 않는다는 것이다. 대신 코드와 설정이 어긋나면 PR 단계에서 build, validation, plan이 실패하도록 만든다.
@@ -46,16 +46,18 @@ Dockerfile을 추가해도 현재 로컬 개발 방식을 없애지 않는다. �
 | ALB | 1개 ALB 사용, listener rule로 frontend/API 분기 |
 | ECS subnet | private subnet |
 | NAT Gateway | private subnet ECS task의 outbound 통신을 위해 사용 |
-| VPC endpoint | NAT Gateway 비용 최적화를 위해 후속 단계에서 도입 |
+| VPC endpoint | S3 Gateway Endpoint는 main stack에 포함. 추가 interface endpoint는 비용/운영 필요 시 후속 검토 |
 | Migration | 같은 VPC/private subnet에서 ECS one-off migration task를 1회 실행 |
 | Dockerfile 위치 | `infra/docker/*` 단일 경로에 모음 |
 | Docker build context | frontend/API/worker 모두 repo root |
 | Frontend image 방식 | Next.js `output: "standalone"` 기반 SSR container |
 | 로컬 app compose | 이번 Docker 기반 배포 준비 slice에서는 제외. Docker build 안정화 후 추가 |
-| AWS IaC 도구 | AWS 리소스 초안은 Terraform 기준으로 `infra/aws`에 구현 |
+| AWS IaC 도구 | AWS 리소스 기준선은 Terraform 기준으로 `infra/aws`에 구현 |
 | 환경변수와 secret | 모든 실제 값은 AWS Secrets Manager에서 관리 |
 | 환경변수 키 목록 | 별도 schema 파일 없이 `.env.example`을 기준으로 관리 |
 | Secrets Manager 환경명 | 단일 실배포 환경 기준 `main`만 사용. `dev`, `prod` 명칭은 쓰지 않음 |
+| 운영 알림 | Email subscription은 사용하지 않고 CloudWatch Alarm -> SNS Topic -> Amazon Q Developer in chat applications -> Slack 경로를 사용 |
+| 운영 dashboard | CloudWatch dashboard `init-main-overview`로 CloudFront, ALB, ECS, RDS, Valkey, SQS 지표를 한 화면에서 확인 |
 | 배포 approval | 사용하지 않음. `dev`, `main` 브랜치 모두 같은 실배포 환경에 자동 배포 |
 | CI/CD 성격 | 완성본 배포가 아니라 개발 중 schema/package/runtime 변경을 계속 흡수하는 pipeline |
 
@@ -80,7 +82,7 @@ Dockerfile을 추가해도 현재 로컬 개발 방식을 없애지 않는다. �
 | `Name` | 대부분의 태그 지원 리소스 | AWS Console, 비용 탐색, 운영 점검에서 사람이 식별 |
 | `Tier` | subnet | `public`, `private-app`, `private-data` 구분 |
 | `Service` | frontend/API/worker 관련 ECS, target group, security group rule, log group | 서비스별 비용과 장애 범위 추적 |
-| `Component` | CloudWatch alarm 등 공통 감시 리소스 | `alb`, `sqs`, `rds`처럼 감시 대상 구분 |
+| `Component` | CloudWatch/SNS/Q Developer 등 공통 감시 리소스 | `alb`, `sqs`, `rds`, `observability`처럼 감시 대상 구분 |
 | `Role` | IAM role | `ecs-execution`, `ecs-task`, `github-deploy` 역할 구분 |
 | `Source` | 일부 ingress rule | CloudFront 또는 admin CIDR 출처 구분 |
 
@@ -96,7 +98,7 @@ Dockerfile을 추가해도 현재 로컬 개발 방식을 없애지 않는다. �
 | Data | RDS subnet group, RDS instance, ElastiCache subnet group, ElastiCache replication group |
 | Storage/Queue | S3 assets bucket, SQS queue, SQS DLQ |
 | Runtime config | Secrets Manager secret |
-| Observability | CloudWatch log group, CloudWatch metric alarm |
+| Observability | CloudWatch log group, CloudWatch metric alarm, CloudWatch dashboard, SNS topic, Q Developer Slack channel configuration |
 | Bootstrap | Terraform state S3 bucket, GitHub OIDC provider |
 
 ECS service에는 `enable_ecs_managed_tags = true`, `propagate_tags = "SERVICE"`를 둔다. 이렇게 하면 ECS가 관리하는 task에도 service 기준 태그가 전파되어 어떤 service의 실행 task인지 추적하기 쉽다.
@@ -148,10 +150,15 @@ ECS API service
 -> SES
 
 ECS worker service
--> SQS polling
--> RDS PostgreSQL
--> S3
--> OpenAI/MediaPipe runtime dependency
+  -> SQS polling
+  -> RDS PostgreSQL
+  -> S3
+  -> OpenAI/MediaPipe runtime dependency
+
+CloudWatch Alarm
+-> SNS topic init-main-ops-alerts
+-> Amazon Q Developer in chat applications
+-> Slack channel
 ```
 
 사용자는 CloudFront에 연결된 `init-jungle.cloud` 단일 도메인만 바라본다. CloudFront와 ALB가 path 기준으로 frontend와 API를 나눈다. `dev`와 `main`은 서로 다른 AWS 환경을 만들지 않고, 같은 `init-main-*` CloudFront/ECS/RDS/Valkey/S3/SQS 세트를 갱신한다.
@@ -422,7 +429,9 @@ SES 발신 도메인은 `init-jungle.cloud` domain identity, Easy DKIM CNAME, cu
 | 새 task health check 실패 | ECS deployment circuit breaker rollback |
 | DB migration 실패 | ECS service update 전 중단, 기존 service 유지 |
 | frontend/API env 불일치 | smoke test에서 `/api/v1/health`, 주요 화면 접근 확인 |
-| SQS worker 장애 | CloudWatch alarm, DLQ 후속 도입 |
+| SQS worker 장애 | SQS oldest age/DLQ CloudWatch alarm, Slack 알림, DLQ 확인 |
+| ALB target 장애 | ALB 5xx/unhealthy/latency CloudWatch alarm, Slack 알림, ECS service/target group 확인 |
+| 운영 지표 확인 누락 | CloudWatch dashboard에서 CloudFront, ALB, ECS, RDS, Valkey, SQS 지표 확인 |
 | NAT 비용 증가 | VPC endpoint 단계적 추가 |
 | package lock 불일치 | PR CI에서 `npm ci` 실패 |
 | Prisma Client 누락 | Docker build 중 `prisma generate` 실행 |
@@ -500,6 +509,8 @@ Preflight
 
 - `infra/aws/bootstrap`과 `infra/aws` main stack의 `terraform plan/apply`가 성공한다.
 - 가비아 `init-jungle.cloud` 네임서버가 Route53 hosted zone NS로 위임된다.
+- Amazon Q Developer in chat applications의 Slack workspace/channel configuration이 SNS topic `init-main-ops-alerts`와 연결된다.
+- CloudWatch alarm action이 Slack 알림용 SNS topic을 바라보고 `init-main-overview` dashboard가 생성된다.
 - Secrets Manager `init/main/*` JSON 값이 `.env.example`과 task definition secret key 계약을 만족한다.
 - ECR에 frontend/API/worker image가 존재한다.
 - ECS one-off migration task가 성공한 뒤 ECS service update가 진행된다.
