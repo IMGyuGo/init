@@ -386,17 +386,11 @@ async function runReportControllerAssertions() {
     String(submitted.application.applicationId),
   );
   assert.equal(completedApplicationReport.data.status, "COMPLETED");
-  assert.equal(completedApplicationReport.data.totalScore, 84);
-  assert.equal(completedApplicationReport.data.scores[0]?.criterionName, "직무 적합성");
-  assert.equal(
-    completedApplicationReport.data.scores[0]?.evidences[0]?.evidenceText,
-    "improved API latency with caching and queue isolation",
-  );
-  assert.equal(completedApplicationReport.data.answers[0]?.transcriptStatus, "AVAILABLE");
-  assert.equal(
-    completedApplicationReport.data.answers[0]?.followUpQuestions[0]?.content,
-    "How did you measure the latency improvement?",
-  );
+  assert.equal(completedApplicationReport.data.totalScore, undefined);
+  assert.deepEqual(completedApplicationReport.data.scores, []);
+  assert.deepEqual(completedApplicationReport.data.answers, []);
+  assert.equal(completedApplicationReport.data.visibilityPolicy.excludesDetailedScores, true);
+  assert.equal(completedApplicationReport.data.visibilityPolicy.excludesEvaluationEvidence, true);
 
   await assertReportHttpError(
     () => controller.getApplicationStatus(otherCandidateRequest, String(submitted.application.applicationId)),

@@ -1417,9 +1417,6 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
 }
 
 export function CandidateApplicationReportPage({ applicationId }: { applicationId: number }) {
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [reportHandoff, setReportHandoff] = useState<CandidateReportGenerationHandoff>();
   const load = useCallback(async (): Promise<ApplicationReportData> => {
     const api = getCandidateApi();
     const [statusResult, reportResult] = await Promise.allSettled([
@@ -1435,46 +1432,21 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
   }, [applicationId]);
   const { data, loading, error, refresh } = useCandidateResource(load, [applicationId]);
 
-  async function handleGenerateApplicationReport() {
-    setBusy(true);
-    setMessage("");
-    try {
-      const result = await getCandidateApi().requestApplicationReportGeneration(applicationId);
-      setReportHandoff(result.data);
-      setMessage(
-        `REPORT_GENERATE queued=${String(result.data.queued)} processLogId=${result.data.processLogId} reportId=${result.data.reportId}`,
-      );
-      refresh();
-    } catch (generateError) {
-      setMessage(toErrorMessage(generateError));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <CandidatePageShell active="applications">
       <CandidatePageHead
         eyebrow="채용 결과"
         title="채용 AI 면접 결과"
-        description={data?.status ? `${data.status.companyName} · ${data.status.jobTitle}` : "지원자에게 공개 가능한 제한 결과와 전형 상태만 표시합니다."}
+        description={data?.status ? `${data.status.companyName} · ${data.status.jobTitle}` : "면접 제출 여부와 전형 진행 상태를 확인합니다."}
         actions={
           <div className="toolbar">
-            <StatusPill value="채용 리포트" />
-            <StatusPill value="지원자 제한 조회" />
-            <button
-              className="btn secondary"
-              type="button"
-              disabled={busy || data?.status?.interviewStatus !== "COMPLETED"}
-              onClick={() => void handleGenerateApplicationReport()}
-            >
-              AI 분석 요청
-            </button>
+            <StatusPill value="채용면접" />
+            <StatusPill value="기업 검토" />
             <button className="btn secondary" type="button" onClick={refresh}>새로고침</button>
           </div>
         }
       />
-      <StatusNotice loading={loading || busy} error={error} message={message} />
+      <StatusNotice loading={loading} error={error} />
       <section className="panel">
         <div className="panel-head">
           <div>
@@ -1484,22 +1456,11 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
         </div>
         {data?.status ? <ApplicationStatusView status={data.status} /> : <p className="notice danger">{data?.statusError ?? "전형 상태를 불러오지 못했습니다."}</p>}
       </section>
-      {reportHandoff ? (
-        <section className="panel">
-          <div className="panel-head">
-            <div>
-              <h2>E 리포트 생성 연결</h2>
-              <p>REPORT_GENERATE 큐 발행 결과와 worker가 참조할 ID를 확인합니다.</p>
-            </div>
-          </div>
-          <ReportGenerationHandoffView handoff={reportHandoff} />
-        </section>
-      ) : null}
       <section className="panel">
         <div className="panel-head">
           <div>
             <h2>지원자용 결과</h2>
-            <p>기업용 상세 점수, 평가 근거, 내부 메모는 노출하지 않습니다.</p>
+            <p>면접 제출과 분석 진행 상태를 안내합니다.</p>
           </div>
         </div>
         {data?.report ? (
@@ -4971,19 +4932,27 @@ function ApplicationStatusView({ status }: { status: CandidateApplicationStatusV
 }
 
 function RecruitingReportView({ report }: { report: CandidateRecruitingReportView }) {
+  const isCompleted = report.status === "COMPLETED";
+  const isFailed = report.status === "FAILED";
+  const statusMessage = isCompleted
+    ? "AI 분석이 완료되어 기업 검토 단계로 전달되었습니다."
+    : isFailed
+      ? "면접은 제출되었지만 AI 분석 상태 확인이 필요합니다. 기업 담당자가 확인 후 안내할 예정입니다."
+      : "면접이 정상적으로 제출되었습니다. AI 분석이 완료되면 기업 검토 단계로 전달됩니다.";
+
   return (
     <div className="detail-stack">
       <dl className="candidate-feature__summary">
         <Definition label="상태" value={<StatusPill value={report.status} />} />
         <Definition label="회사" value={report.companyName} />
         <Definition label="공고" value={report.jobTitle} />
-        {report.totalScore !== undefined ? <Definition label="총점" value={`${report.totalScore}점`} /> : null}
         <Definition label="다음 단계" value={report.nextStepLabel} />
       </dl>
-      <p className="description-box">{report.candidateMessage}</p>
-      {report.summary ? <p className="description-box">{report.summary}</p> : null}
-      <ReportScoreList scores={report.scores} />
-      <ReportAnswerInsightList answers={report.answers} />
+      <div className="description-box">
+        <strong>면접이 정상적으로 제출되었습니다.</strong>
+        <p>{statusMessage}</p>
+        <p>최종 결과는 기업 검토 후 안내됩니다.</p>
+      </div>
     </div>
   );
 }

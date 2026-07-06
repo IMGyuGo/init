@@ -352,9 +352,8 @@ export class ReportService {
       session.sessionId,
     );
     const status = this.resolveReportStatus(application.reportStatus, report, process);
-    const scores = report ? this.toCandidateScores(report.scores) : [];
-    const answers = await this.toCandidateReportAnswers(session, report);
-    const totalScore = report ? this.toCandidateFacingTotalScore(report.totalScore, scores) : undefined;
+    const scores: CandidateReportScoreView[] = [];
+    const answers: CandidateReportAnswerView[] = [];
 
     const base = {
       applicationId: application.applicationId,
@@ -368,11 +367,11 @@ export class ReportService {
       reportId: report?.reportId,
       aiProcess: this.toAiProcessView(process),
       generatedAt: report?.generatedAt,
-      totalScore,
-      summary: this.toCandidateFacingSummary(report?.summary, totalScore),
+      totalScore: undefined,
+      summary: undefined,
       scores,
       answers,
-      visibilityPolicy: this.recruitingVisibilityPolicy(scores.length > 0),
+      visibilityPolicy: this.recruitingVisibilityPolicy(),
     };
 
     if (status === "PENDING") {
@@ -386,7 +385,7 @@ export class ReportService {
     if (status === "GENERATING") {
       return this.envelope({
         ...base,
-        candidateMessage: "면접 분석이 진행 중입니다. STT와 꼬리질문이 먼저 도착하면 이 화면에 함께 표시됩니다.",
+        candidateMessage: "면접 분석이 진행 중입니다. 분석이 완료되면 기업 검토 단계로 전달됩니다.",
         nextStepLabel: "분석 진행 중",
       });
     }
@@ -401,8 +400,8 @@ export class ReportService {
 
     return this.envelope({
       ...base,
-      candidateMessage: "AI 면접 분석 결과가 준비되었습니다.",
-      nextStepLabel: "지원현황 확인",
+      candidateMessage: "AI 분석이 완료되어 기업 검토 단계로 전달되었습니다.",
+      nextStepLabel: "기업 검토 대기",
     });
   }
 
@@ -826,11 +825,11 @@ export class ReportService {
     };
   }
 
-  private recruitingVisibilityPolicy(hasScores: boolean): CandidateRecruitingReportView["visibilityPolicy"] {
+  private recruitingVisibilityPolicy(): CandidateRecruitingReportView["visibilityPolicy"] {
     return {
       candidateFacingOnly: true,
-      excludesDetailedScores: !hasScores,
-      excludesEvaluationEvidence: !hasScores,
+      excludesDetailedScores: true,
+      excludesEvaluationEvidence: true,
       excludesInternalMemo: true,
       excludesManualEvaluation: true,
     };
