@@ -114,12 +114,37 @@ export interface InterviewRuntimeShortcutHint {
   label: string;
 }
 
+export type InterviewRuntimePrimaryScreen = "interviewer" | "candidate";
+
 export interface InterviewRuntimeLayoutState {
   mode: "compact" | "immersive";
   showShortcutHints: boolean;
   fullscreenButtonLabel: string;
   stageClassName: string;
   viewportLockClassName: "ai-interviewer-stage--viewport-lock";
+  infoGapClassName: "" | "ai-interviewer-stage--reserved-info-gap";
+}
+
+export type CompactInterviewRuntimeLayoutState = InterviewRuntimeLayoutState & {
+  mode: "compact";
+  showShortcutHints: true;
+  infoGapClassName: "ai-interviewer-stage--reserved-info-gap";
+};
+
+export type ImmersiveInterviewRuntimeLayoutState = InterviewRuntimeLayoutState & {
+  mode: "immersive";
+  showShortcutHints: false;
+  infoGapClassName: "ai-interviewer-stage--reserved-info-gap";
+};
+
+export interface InterviewRuntimeScreenSwapState {
+  primaryScreen: InterviewRuntimePrimaryScreen;
+  stageClassName: "" | "ai-interviewer-stage--candidate-primary";
+  cameraPanelClassName: "" | "candidate-camera-pip--primary";
+  interviewerPanelClassName: "" | "ai-interviewer-figure--pip";
+  swapButtonLabel: string;
+  swapShortcutKey: "S";
+  swapButtonAriaLabel: string;
 }
 
 export const requiredApplicationConsents: ConsentType[] = [
@@ -524,6 +549,15 @@ export function getInterviewRuntimeShortcutHints(): InterviewRuntimeShortcutHint
   ];
 }
 
+export function getInterviewRuntimeLayoutState(args: {
+  fullscreenActive: false;
+}): CompactInterviewRuntimeLayoutState;
+export function getInterviewRuntimeLayoutState(args: {
+  fullscreenActive: true;
+}): ImmersiveInterviewRuntimeLayoutState;
+export function getInterviewRuntimeLayoutState(args: {
+  fullscreenActive: boolean;
+}): InterviewRuntimeLayoutState;
 export function getInterviewRuntimeLayoutState({
   fullscreenActive,
 }: {
@@ -535,6 +569,25 @@ export function getInterviewRuntimeLayoutState({
     fullscreenButtonLabel: fullscreenActive ? "전체화면 해제" : "전체화면",
     stageClassName: "ai-interviewer-stage",
     viewportLockClassName: "ai-interviewer-stage--viewport-lock",
+    infoGapClassName: "ai-interviewer-stage--reserved-info-gap",
+  };
+}
+
+export function getInterviewRuntimeScreenSwapState({
+  primaryScreen,
+}: {
+  primaryScreen: InterviewRuntimePrimaryScreen;
+}): InterviewRuntimeScreenSwapState {
+  const candidatePrimary = primaryScreen === "candidate";
+
+  return {
+    primaryScreen,
+    stageClassName: candidatePrimary ? "ai-interviewer-stage--candidate-primary" : "",
+    cameraPanelClassName: candidatePrimary ? "candidate-camera-pip--primary" : "",
+    interviewerPanelClassName: candidatePrimary ? "ai-interviewer-figure--pip" : "",
+    swapButtonLabel: "전환",
+    swapShortcutKey: "S",
+    swapButtonAriaLabel: candidatePrimary ? "AI 면접관을 큰 화면으로 전환" : "내 화면을 큰 화면으로 전환",
   };
 }
 

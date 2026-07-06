@@ -29,6 +29,7 @@ import {
   getCandidateJobDetailActionHref,
   getDefaultCameraPipPosition,
   getInterviewRuntimeLayoutState,
+  getInterviewRuntimeScreenSwapState,
   getInterviewRuntimeShortcutHints,
   getInterviewRuntimeStatusChips,
   getInterviewMediaFileExtension,
@@ -303,11 +304,15 @@ assert.deepEqual(compactRuntimeLayoutState, {
   fullscreenButtonLabel: "전체화면",
   stageClassName: "ai-interviewer-stage",
   viewportLockClassName: "ai-interviewer-stage--viewport-lock",
+  infoGapClassName: "ai-interviewer-stage--reserved-info-gap",
 });
 assert.equal(compactRuntimeLayoutState.stageClassName, "ai-interviewer-stage");
 const compactViewportLockClassName: "ai-interviewer-stage--viewport-lock" =
   compactRuntimeLayoutState.viewportLockClassName;
 assert.equal(compactViewportLockClassName, "ai-interviewer-stage--viewport-lock");
+const compactInfoGapClassName: "ai-interviewer-stage--reserved-info-gap" =
+  compactRuntimeLayoutState.infoGapClassName;
+assert.equal(compactInfoGapClassName, "ai-interviewer-stage--reserved-info-gap");
 const immersiveRuntimeLayoutState = getInterviewRuntimeLayoutState({ fullscreenActive: true });
 assert.deepEqual(immersiveRuntimeLayoutState, {
   mode: "immersive",
@@ -315,11 +320,39 @@ assert.deepEqual(immersiveRuntimeLayoutState, {
   fullscreenButtonLabel: "전체화면 해제",
   stageClassName: "ai-interviewer-stage",
   viewportLockClassName: "ai-interviewer-stage--viewport-lock",
+  infoGapClassName: "ai-interviewer-stage--reserved-info-gap",
 });
 assert.equal(immersiveRuntimeLayoutState.stageClassName, "ai-interviewer-stage");
 const immersiveViewportLockClassName: "ai-interviewer-stage--viewport-lock" =
   immersiveRuntimeLayoutState.viewportLockClassName;
 assert.equal(immersiveViewportLockClassName, "ai-interviewer-stage--viewport-lock");
+const immersiveInfoGapClassName: "ai-interviewer-stage--reserved-info-gap" =
+  immersiveRuntimeLayoutState.infoGapClassName;
+assert.equal(immersiveInfoGapClassName, "ai-interviewer-stage--reserved-info-gap");
+const interviewerPrimaryScreenState = getInterviewRuntimeScreenSwapState({ primaryScreen: "interviewer" });
+assert.deepEqual(interviewerPrimaryScreenState, {
+  primaryScreen: "interviewer",
+  stageClassName: "",
+  cameraPanelClassName: "",
+  interviewerPanelClassName: "",
+  swapButtonLabel: "전환",
+  swapShortcutKey: "S",
+  swapButtonAriaLabel: "내 화면을 큰 화면으로 전환",
+});
+const interviewerPrimarySwapShortcutKey: "S" = interviewerPrimaryScreenState.swapShortcutKey;
+assert.equal(interviewerPrimarySwapShortcutKey, "S");
+const candidatePrimaryScreenState = getInterviewRuntimeScreenSwapState({ primaryScreen: "candidate" });
+assert.deepEqual(candidatePrimaryScreenState, {
+  primaryScreen: "candidate",
+  stageClassName: "ai-interviewer-stage--candidate-primary",
+  cameraPanelClassName: "candidate-camera-pip--primary",
+  interviewerPanelClassName: "ai-interviewer-figure--pip",
+  swapButtonLabel: "전환",
+  swapShortcutKey: "S",
+  swapButtonAriaLabel: "AI 면접관을 큰 화면으로 전환",
+});
+const candidatePrimarySwapShortcutKey: "S" = candidatePrimaryScreenState.swapShortcutKey;
+assert.equal(candidatePrimarySwapShortcutKey, "S");
 
 const applicationSummary: CandidateApplicationSummary = {
   applicationId: 1,

@@ -61,6 +61,7 @@ import {
   type CandidatePortfolioLinkFormState,
   type CandidateResumeUploadState,
   type InterviewAnswerFormState,
+  type InterviewRuntimePrimaryScreen,
   type StartMockInterviewState,
   clampCameraPipPosition,
   defaultApplicationFormState,
@@ -77,6 +78,7 @@ import {
   getDefaultCameraPipPosition,
   getInterviewMediaFileExtension,
   getInterviewRuntimeLayoutState,
+  getInterviewRuntimeScreenSwapState,
   getInterviewRuntimeStatusChips,
   getCandidateApplicationReportHref,
   getMockInterviewDeviceCheckHref,
@@ -1940,6 +1942,9 @@ function InterviewRuntimePanel({
   const [cameralessTestEntry, setCameralessTestEntry] = useState(false);
   const [cameraPreviewVisible, setCameraPreviewVisible] = useState(true);
   const [cameraPipPosition, setCameraPipPosition] = useState<CameraPipPosition>();
+  const [runtimePrimaryScreen, setRuntimePrimaryScreen] = useState<InterviewRuntimePrimaryScreen>("interviewer");
+  const [interviewerPipVisible, setInterviewerPipVisible] = useState(true);
+  const [interviewerPipPosition, setInterviewerPipPosition] = useState<CameraPipPosition>();
   const [fullscreenActive, setFullscreenActive] = useState(false);
   const [interviewerInfoOpen, setInterviewerInfoOpen] = useState(false);
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(false);
@@ -1959,6 +1964,8 @@ function InterviewRuntimePanel({
   const interviewerStageRef = useRef<HTMLDivElement | null>(null);
   const cameraPipRef = useRef<HTMLDivElement | null>(null);
   const cameraPipDragRef = useRef<CameraPipDragState | null>(null);
+  const interviewerPipRef = useRef<HTMLDivElement | null>(null);
+  const interviewerPipDragRef = useRef<CameraPipDragState | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -2246,7 +2253,7 @@ function InterviewRuntimePanel({
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !setupCompleted || !cameraPreviewVisible) return;
+    if (typeof window === "undefined" || !setupCompleted || !cameraPreviewVisible || runtimePrimaryScreen !== "interviewer") return;
 
     const syncCameraPipPosition = () => {
       const stage = interviewerStageRef.current;
@@ -2279,7 +2286,43 @@ function InterviewRuntimePanel({
       window.cancelAnimationFrame(animationFrameId);
       window.removeEventListener("resize", syncCameraPipPosition);
     };
-  }, [cameraPreviewVisible, fullscreenActive, setupCompleted]);
+  }, [cameraPreviewVisible, fullscreenActive, runtimePrimaryScreen, setupCompleted]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !setupCompleted || !interviewerPipVisible || runtimePrimaryScreen !== "candidate") return;
+
+    const syncInterviewerPipPosition = () => {
+      const stage = interviewerStageRef.current;
+      const pip = interviewerPipRef.current;
+      if (!stage || !pip) return;
+
+      const stageRect = stage.getBoundingClientRect();
+      const pipRect = pip.getBoundingClientRect();
+      const padding = fullscreenActive ? 32 : 20;
+      const bounds = {
+        stageWidth: stageRect.width,
+        stageHeight: stageRect.height,
+        pipWidth: pipRect.width,
+        pipHeight: pipRect.height,
+        padding,
+        reservedTopHeight: RUNTIME_PIP_RESERVED_TOP_HEIGHT,
+      };
+
+      setInterviewerPipPosition((current) => (
+        current
+          ? clampCameraPipPosition(current, bounds)
+          : getDefaultCameraPipPosition(bounds)
+      ));
+    };
+
+    const animationFrameId = window.requestAnimationFrame(syncInterviewerPipPosition);
+    window.addEventListener("resize", syncInterviewerPipPosition);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+      window.removeEventListener("resize", syncInterviewerPipPosition);
+    };
+  }, [fullscreenActive, interviewerPipVisible, runtimePrimaryScreen, setupCompleted]);
 
   useEffect(() => {
     if (!data) return;
@@ -2624,6 +2667,7 @@ function InterviewRuntimePanel({
   }
 
   function handleCameraPipPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (runtimePrimaryScreen !== "interviewer") return;
     if (event.button !== 0) return;
 
     const stage = interviewerStageRef.current;
@@ -2676,6 +2720,86 @@ function InterviewRuntimePanel({
       // The browser may already release capture after pointer cancellation.
     }
     cameraPipDragRef.current = null;
+  }
+
+  function moveInterviewerPip(clientX: number, clientY: number, dragState: CameraPipDragState) {
+    const stage = interviewerStageRef.current;
+    const pip = interviewerPipRef.current;
+    if (!stage || !pip) return;
+
+    const stageRect = stage.getBoundingClientRect();
+    const pipRect = pip.getBoundingClientRect();
+    const padding = fullscreenActive ? 32 : 20;
+    setInterviewerPipPosition(clampCameraPipPosition(
+      {
+        x: clientX - stageRect.left - dragState.offsetX,
+        y: clientY - stageRect.top - dragState.offsetY,
+      },
+      {
+        stageWidth: stageRect.width,
+        stageHeight: stageRect.height,
+        pipWidth: pipRect.width,
+        pipHeight: pipRect.height,
+        padding,
+        reservedTopHeight: RUNTIME_PIP_RESERVED_TOP_HEIGHT,
+      },
+    ));
+  }
+
+  function handleInterviewerPipPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (runtimePrimaryScreen !== "candidate") return;
+    if (event.button !== 0) return;
+
+    const stage = interviewerStageRef.current;
+    const pip = interviewerPipRef.current;
+    if (!stage || !pip) return;
+
+    const stageRect = stage.getBoundingClientRect();
+    const pipRect = pip.getBoundingClientRect();
+    const padding = fullscreenActive ? 32 : 20;
+    const dragState = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - pipRect.left,
+      offsetY: event.clientY - pipRect.top,
+    };
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    interviewerPipDragRef.current = dragState;
+    setInterviewerPipPosition(clampCameraPipPosition(
+      {
+        x: pipRect.left - stageRect.left,
+        y: pipRect.top - stageRect.top,
+      },
+      {
+        stageWidth: stageRect.width,
+        stageHeight: stageRect.height,
+        pipWidth: pipRect.width,
+        pipHeight: pipRect.height,
+        padding,
+        reservedTopHeight: RUNTIME_PIP_RESERVED_TOP_HEIGHT,
+      },
+    ));
+  }
+
+  function handleInterviewerPipPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const dragState = interviewerPipDragRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    moveInterviewerPip(event.clientX, event.clientY, dragState);
+  }
+
+  function handleInterviewerPipPointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    const dragState = interviewerPipDragRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // The browser may already release capture after pointer cancellation.
+    }
+    interviewerPipDragRef.current = null;
   }
 
   async function handleCameralessRuntimeEntry() {
@@ -3746,10 +3870,17 @@ function InterviewRuntimePanel({
     question: currentQuestion,
     questionVisible: subtitlesEnabled,
   });
-  const cameraPipStyle = cameraPipPosition
+  const cameraPipStyle = cameraPipPosition && runtimePrimaryScreen === "interviewer"
     ? {
         left: `${cameraPipPosition.x}px`,
         top: `${cameraPipPosition.y}px`,
+      }
+    : undefined;
+  const interviewerPipStyle = interviewerPipPosition && runtimePrimaryScreen === "candidate"
+    ? {
+        left: `${interviewerPipPosition.x}px`,
+        top: `${interviewerPipPosition.y}px`,
+        right: "auto",
       }
     : undefined;
   const answerFileStatus = recordedFileName || answer.videoFile ? "답변 파일 준비 완료" : "답변 파일 대기";
@@ -3762,7 +3893,23 @@ function InterviewRuntimePanel({
     networkStatus,
   });
   const runtimeLayoutState = getInterviewRuntimeLayoutState({ fullscreenActive });
-  const runtimeStageClassName = `${runtimeLayoutState.stageClassName} ${runtimeLayoutState.viewportLockClassName}`;
+  const runtimeScreenSwapState = getInterviewRuntimeScreenSwapState({ primaryScreen: runtimePrimaryScreen });
+  const runtimeStageClassName = [
+    runtimeLayoutState.stageClassName,
+    runtimeLayoutState.viewportLockClassName,
+    runtimeLayoutState.infoGapClassName,
+    runtimeScreenSwapState.stageClassName,
+  ].filter(Boolean).join(" ");
+  const interviewerFigureClassName = [
+    "ai-interviewer-figure",
+    runtimeScreenSwapState.interviewerPanelClassName,
+  ].filter(Boolean).join(" ");
+  const showInterviewerPanel = runtimePrimaryScreen === "interviewer" || interviewerPipVisible;
+  const candidateCameraPanelClassName = [
+    "candidate-camera-pip",
+    cameraPipPosition && runtimePrimaryScreen === "interviewer" ? "positioned" : "",
+    runtimeScreenSwapState.cameraPanelClassName,
+  ].filter(Boolean).join(" ");
   const interviewerInfoPanelId = "ai-interviewer-info-panel";
 
   const handleToggleFullscreen = useCallback(async () => {
@@ -3781,6 +3928,25 @@ function InterviewRuntimePanel({
     }
   }, []);
 
+  const handleHideCameraPreview = useCallback(() => {
+    setRuntimePrimaryScreen("interviewer");
+    setCameraPreviewVisible(false);
+  }, []);
+
+  const handleToggleCameraPreview = useCallback(() => {
+    if (cameraPreviewVisible) {
+      handleHideCameraPreview();
+      return;
+    }
+    setCameraPreviewVisible(true);
+  }, [cameraPreviewVisible, handleHideCameraPreview]);
+
+  const handleToggleRuntimePrimaryScreen = useCallback(() => {
+    setCameraPreviewVisible(true);
+    setInterviewerPipVisible(true);
+    setRuntimePrimaryScreen((current) => (current === "candidate" ? "interviewer" : "candidate"));
+  }, []);
+
   useEffect(() => {
     answerCompleteShortcutRef.current = handleAnswerComplete;
     nextQuestionShortcutRef.current = () => {
@@ -3797,7 +3963,7 @@ function InterviewRuntimePanel({
       const key = event.key.toLowerCase();
       if (key === "p") {
         event.preventDefault();
-        setCameraPreviewVisible((current) => !current);
+        handleToggleCameraPreview();
         return;
       }
       if (key === "q") {
@@ -3808,6 +3974,11 @@ function InterviewRuntimePanel({
       if (key === "f") {
         event.preventDefault();
         void handleToggleFullscreen();
+        return;
+      }
+      if (key === "s") {
+        event.preventDefault();
+        handleToggleRuntimePrimaryScreen();
         return;
       }
       if (key === "m") {
@@ -3837,6 +4008,8 @@ function InterviewRuntimePanel({
     currentQuestion,
     currentQuestionAnswered,
     handleToggleFullscreen,
+    handleToggleCameraPreview,
+    handleToggleRuntimePrimaryScreen,
     recording,
     setupCompleted,
   ]);
@@ -3962,37 +4135,80 @@ function InterviewRuntimePanel({
                 ))}
               </div>
 
-              <div className="ai-interviewer-figure" aria-label={`${interviewerProfile.displayName} ${interviewerProfile.toneLabel}`}>
-                <div className={`ai-interviewer-avatar ${questionSpeechPlaying ? "speaking" : ""}`} aria-hidden="true">
-                  <span className="ai-interviewer-avatar__ring" />
-                  <span className="ai-interviewer-avatar__face">
-                    <span />
-                    <span />
-                  </span>
-                </div>
-                <div className="ai-interviewer-copy">
-                  <div className="ai-interviewer-title-row">
-                    <h1>{interviewerProfile.displayName}</h1>
-                    <button
-                      className={`ai-interviewer-info-button ${interviewerInfoOpen ? "open" : ""}`}
-                      type="button"
-                      aria-label={`${interviewerProfile.infoButtonLabel} ${interviewerInfoOpen ? "닫기" : "열기"}`}
-                      aria-expanded={interviewerInfoOpen}
-                      aria-controls={interviewerInfoPanelId}
-                      onClick={() => setInterviewerInfoOpen((current) => !current)}
+              {showInterviewerPanel ? (
+                <div
+                  className={interviewerFigureClassName}
+                  ref={runtimePrimaryScreen === "candidate" ? interviewerPipRef : undefined}
+                  style={interviewerPipStyle}
+                  aria-label={`${interviewerProfile.displayName} ${interviewerProfile.toneLabel}`}
+                >
+                  {runtimePrimaryScreen === "candidate" ? (
+                    <div
+                      className="ai-interviewer-pip__bar"
+                      onPointerDown={handleInterviewerPipPointerDown}
+                      onPointerMove={handleInterviewerPipPointerMove}
+                      onPointerUp={handleInterviewerPipPointerEnd}
+                      onPointerCancel={handleInterviewerPipPointerEnd}
                     >
-                      <kbd>{interviewerProfile.infoShortcutKey}</kbd>
-                    </button>
-                  </div>
-                  {interviewerInfoOpen ? (
-                    <div className="ai-interviewer-info-panel" id={interviewerInfoPanelId} role="note">
-                      <strong>{interviewerProfile.toneLabel}</strong>
-                      <span>{interviewerProfile.voiceGuide}</span>
-                      <p>{interviewerProfile.disclosure}</p>
+                      <span>AI 면접관</span>
+                      <button
+                        type="button"
+                        aria-label={runtimeScreenSwapState.swapButtonAriaLabel}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={handleToggleRuntimePrimaryScreen}
+                      >
+                        <span>{runtimeScreenSwapState.swapButtonLabel}</span>
+                        <kbd>{runtimeScreenSwapState.swapShortcutKey}</kbd>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="AI 면접관 PIP 숨기기"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={() => setInterviewerPipVisible(false)}
+                      >
+                        <span>숨김</span>
+                      </button>
                     </div>
                   ) : null}
+                  <div className={`ai-interviewer-avatar ${questionSpeechPlaying ? "speaking" : ""}`} aria-hidden="true">
+                    <span className="ai-interviewer-avatar__ring" />
+                    <span className="ai-interviewer-avatar__face">
+                      <span />
+                      <span />
+                    </span>
+                  </div>
+                  <div className="ai-interviewer-copy">
+                    <div className="ai-interviewer-title-row">
+                      <h1>{interviewerProfile.displayName}</h1>
+                      <button
+                        className={`ai-interviewer-info-button ${interviewerInfoOpen ? "open" : ""}`}
+                        type="button"
+                        aria-label={`${interviewerProfile.infoButtonLabel} ${interviewerInfoOpen ? "닫기" : "열기"}`}
+                        aria-expanded={interviewerInfoOpen}
+                        aria-controls={interviewerInfoPanelId}
+                        onClick={() => setInterviewerInfoOpen((current) => !current)}
+                      >
+                        <kbd>{interviewerProfile.infoShortcutKey}</kbd>
+                      </button>
+                    </div>
+                    {interviewerInfoOpen ? (
+                      <div className="ai-interviewer-info-panel" id={interviewerInfoPanelId} role="note">
+                        <strong>{interviewerProfile.toneLabel}</strong>
+                        <span>{interviewerProfile.voiceGuide}</span>
+                        <p>{interviewerProfile.disclosure}</p>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <button
+                  className="ai-interviewer-pip-toggle"
+                  type="button"
+                  onClick={() => setInterviewerPipVisible(true)}
+                >
+                  AI 면접관 열기
+                </button>
+              )}
 
               <div className={`ai-interviewer-question ${subtitlesEnabled ? "" : "muted"}`}>
                 <span>{subtitlesEnabled ? "질문 보기" : "질문 음성 안내"}</span>
@@ -4005,7 +4221,7 @@ function InterviewRuntimePanel({
 
               {cameraPreviewVisible ? (
                 <div
-                  className={`candidate-camera-pip ${cameraPipPosition ? "positioned" : ""}`}
+                  className={candidateCameraPanelClassName}
                   ref={cameraPipRef}
                   style={cameraPipStyle}
                 >
@@ -4019,9 +4235,19 @@ function InterviewRuntimePanel({
                     <span>내 화면</span>
                     <button
                       type="button"
+                      aria-label={runtimeScreenSwapState.swapButtonAriaLabel}
+                      aria-pressed={runtimePrimaryScreen === "candidate"}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={handleToggleRuntimePrimaryScreen}
+                    >
+                      <span>{runtimeScreenSwapState.swapButtonLabel}</span>
+                      <kbd>{runtimeScreenSwapState.swapShortcutKey}</kbd>
+                    </button>
+                    <button
+                      type="button"
                       aria-label="내 화면 preview 숨기기"
                       onPointerDown={(event) => event.stopPropagation()}
-                      onClick={() => setCameraPreviewVisible(false)}
+                      onClick={handleHideCameraPreview}
                     >
                       <span>숨김</span>
                       <kbd>P</kbd>
