@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { REPORT_SCORE_BANDS, SERVICE_INTERVIEW_RUBRIC, SERVICE_REPORT_POLICY } from "./service-interview-rubric";
 
 export type ReportGenerationPolicy = "MOCK" | "RECRUITING";
 
@@ -56,12 +57,15 @@ export class OpenAiReportProvider implements ReportAiProvider {
         {
           role: "system",
           content:
-            "You write concise Korean interview feedback reports. Return JSON only with keys summary and feedback. All JSON string values must be written in Korean. Use the answer transcripts as the main evidence. If an answer has evaluationStatus STT_UNAVAILABLE, state that it is temporarily scored as 0 because speech recognition failed and do not infer answer quality from it. Do not include hiring pass/fail judgments. For mock interview reports, never mention acceptance, rejection, hiring fit, or pass/fail."
+            "You write concise Korean interview feedback reports. Return JSON only with keys summary and feedback. All JSON string values must be written in Korean. Evaluate only evidence found in answer transcripts, JD, and submitted documents. If an answer has evaluationStatus STT_UNAVAILABLE, state that it is temporarily scored as 0 because speech recognition failed and do not infer answer quality from it. Do not include hiring pass/fail judgments. Do not infer or score sensitive attributes, appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, or health. For mock interview reports, never mention acceptance, rejection, hiring fit, or pass/fail."
         },
         {
           role: "user",
           content: JSON.stringify({
             task: "Generate a short interview report summary and one practice feedback sentence.",
+            serviceReportPolicy: SERVICE_REPORT_POLICY,
+            serviceRubric: SERVICE_INTERVIEW_RUBRIC,
+            scoreBands: REPORT_SCORE_BANDS,
             kind: input.kind,
             reportType: input.reportType,
             policy: input.policy,

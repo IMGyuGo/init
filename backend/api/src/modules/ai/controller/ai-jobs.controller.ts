@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Headers,
   HttpCode,
@@ -30,7 +31,7 @@ import {
 import { AiJobResponseDto } from "../../report/dto/report-response.dto";
 import { AiJobDispatcherService } from "../../report/service/ai-job-dispatcher.service";
 import { AiProcessNotFoundError, REPORT_REPOSITORY, ReportRepository } from "../../report/repository/report.repository";
-import { AiProcessType } from "../../report/report.types";
+import { AiProcessType, QueuedAiProcessSnapshot } from "../../report/report.types";
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
 
 type HeaderMap = Record<string, string | string[] | undefined>;
@@ -44,6 +45,12 @@ type CandidateAiRequest = {
   };
 };
 type CompanyAiRequest = CandidateAiRequest;
+type AiJobRequestedBy = {
+  userId?: unknown;
+  userType?: unknown;
+  companyId?: unknown;
+  candidateId?: unknown;
+};
 
 @ApiTags("Candidate AI Jobs")
 @ApiBearerAuth("bearer")
@@ -428,11 +435,14 @@ export class AiJobsStatusController {
   @ApiOperation({ summary: "AI 작업 상태 조회" })
   @ApiParamId("processLogId", "AI process log ID")
   @ApiEnvelopeResponse(AiJobResponseDto)
-  async getStatus(@Param("processLogId") processLogIdParam: string) {
+  async getStatus(@Req() request: CandidateAiRequest, @Param("processLogId") processLogIdParam: string) {
     const processLogId = this.parseId(processLogIdParam, "processLogId");
+    const currentUser = this.authenticatedUser(request);
 
     try {
-      return await this.repository.getProcess(processLogId);
+      const process = await this.repository.getProcess(processLogId);
+      this.assertProcessVisibleToUser(process, currentUser);
+      return process;
     } catch (error) {
       if (error instanceof AiProcessNotFoundError) {
         throw new NotFoundException({
@@ -442,6 +452,73 @@ export class AiJobsStatusController {
       }
       throw error;
     }
+  }
+
+  private authenticatedUser(request: CandidateAiRequest): CurrentUser {
+    if (!request.currentUser) {
+      throw new ForbiddenException({
+        code: "AI_PROCESS_FORBIDDEN",
+        message: "AI 작업 상태를 조회할 수 없습니다."
+      });
+    }
+    return {
+      userId: request.currentUser.userId,
+      userType: request.currentUser.userType,
+      companyId: request.currentUser.companyId ?? undefined,
+      candidateId: request.currentUser.candidateId ?? undefined
+    };
+  }
+
+  private assertProcessVisibleToUser(process: QueuedAiProcessSnapshot, currentUser: CurrentUser): void {
+    if (currentUser.userType === "ADMIN") return;
+
+    const requestedBy = this.readRequestedBy(process.inputRef);
+    if (!requestedBy || requestedBy.userType !== currentUser.userType) {
+      throw this.forbiddenProcess();
+    }
+
+    if (currentUser.userType === "COMPANY") {
+      const companyId = this.toPositiveNumber(requestedBy.companyId);
+      const userId = this.toPositiveNumber(requestedBy.userId);
+      if ((currentUser.companyId && companyId === currentUser.companyId) || userId === currentUser.userId) return;
+      throw this.forbiddenProcess();
+    }
+
+    if (currentUser.userType === "CANDIDATE") {
+      const candidateId = this.toPositiveNumber(requestedBy.candidateId);
+      const userId = this.toPositiveNumber(requestedBy.userId);
+      if ((currentUser.candidateId && candidateId === currentUser.candidateId) || userId === currentUser.userId) return;
+      throw this.forbiddenProcess();
+    }
+
+    throw this.forbiddenProcess();
+  }
+
+  private readRequestedBy(inputRef: string): AiJobRequestedBy | undefined {
+    try {
+      const parsed = JSON.parse(inputRef) as unknown;
+      if (!this.isRecord(parsed)) return undefined;
+      const requestedBy = parsed.requestedBy;
+      return this.isRecord(requestedBy) ? requestedBy : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+  }
+
+  private toPositiveNumber(value: unknown): number | undefined {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+  }
+
+  private forbiddenProcess(): ForbiddenException {
+    return new ForbiddenException({
+      code: "AI_PROCESS_FORBIDDEN",
+      message: "AI 작업 상태를 조회할 수 없습니다."
+    });
   }
 
   private parseId(value: string, name: string): number {

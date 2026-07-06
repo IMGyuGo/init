@@ -7,6 +7,7 @@ import type {
   CandidateStoredReport,
 } from "./candidate-report.repository";
 import type { AiProcessStatus, ReportType } from "../report.types";
+import { SERVICE_INTERVIEW_RUBRIC } from "../service/service-interview-rubric";
 
 export class InMemoryCandidateReportRepository implements CandidateReportRepository {
   private readonly mockReportStatuses = new Map<number, ReportStatus>();
@@ -23,29 +24,13 @@ export class InMemoryCandidateReportRepository implements CandidateReportReposit
   }
 
   listEvaluationCriteriaByPosting(postingId: number): CandidateReportCriterionRecord[] {
-    return [
-      {
-        criterionId: postingId * 100 + 1,
-        name: "Role fit",
-        description: "Matches interview evidence to the target role.",
-        weight: 40,
-        sortOrder: 1,
-      },
-      {
-        criterionId: postingId * 100 + 2,
-        name: "Problem solving",
-        description: "Explains tradeoffs, constraints, and outcomes clearly.",
-        weight: 35,
-        sortOrder: 2,
-      },
-      {
-        criterionId: postingId * 100 + 3,
-        name: "Communication",
-        description: "Communicates with structured, evidence-backed answers.",
-        weight: 25,
-        sortOrder: 3,
-      },
-    ];
+    return SERVICE_INTERVIEW_RUBRIC.map((criterion, index) => ({
+      criterionId: postingId * 100 + index + 1,
+      name: criterion.name,
+      description: criterion.description,
+      weight: criterion.weight,
+      sortOrder: index + 1,
+    }));
   }
 
   findLatestReportByApplication(applicationId: number, sessionId?: number): CandidateStoredReport | undefined {
