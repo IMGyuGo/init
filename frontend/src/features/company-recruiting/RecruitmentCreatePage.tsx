@@ -17,6 +17,7 @@ import {
 } from "./posting-extra-info";
 import { buildInterviewSettingsHref } from "./routes";
 import { extractPostingDraftFromJob, type PostingDraftResult } from "./posting-ai-draft";
+import { applyPostingDraftToFormState } from "./posting-ai-draft-form";
 import {
   composeStructuredJobDescription,
   createEmptyStructuredJobDescription,
@@ -80,10 +81,10 @@ export function RecruitmentCreatePage() {
   const [dir, setDir] = useState<1 | -1>(1);
   const [aiKeywords, setAiKeywords] = useState("");
   const [aiSummary, setAiSummary] = useState("");
-  const [aiFilled, setAiFilled] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiDraftMessage, setAiDraftMessage] = useState("");
   const [pendingPostingDraft, setPendingPostingDraft] = useState<PostingDraftResult | null>(null);
+  const [draftPreviewOpen, setDraftPreviewOpen] = useState(false);
   const [phase, setPhase] = useState<"intro" | "choice" | "ai" | "form">("intro");
   const [entryMode, setEntryMode] = useState<"manual" | "ai">("manual");
 
@@ -101,8 +102,8 @@ export function RecruitmentCreatePage() {
     }
 
     setAiGenerating(true);
-    setAiFilled(false);
     setPendingPostingDraft(null);
+    setDraftPreviewOpen(false);
     setAiDraftMessage("AI 초안 생성을 요청하고 있어요.");
     try {
       const requested = await generatePostingDraft({
@@ -120,8 +121,10 @@ export function RecruitmentCreatePage() {
         throw new Error("AI 초안 결과를 읽을 수 없습니다.");
       }
       setPendingPostingDraft(draft);
-      setAiDraftMessage("초안이 준비됐어요. 적용한 뒤 각 단계에서 수정하세요.");
+      setDraftPreviewOpen(true);
+      setAiDraftMessage("초안이 준비됐어요. 모달에서 확인한 뒤 적용하세요.");
     } catch (error) {
+      setDraftPreviewOpen(false);
       setAiDraftMessage(error instanceof Error ? error.message : "AI 초안 생성에 실패했습니다.");
     } finally {
       setAiGenerating(false);
@@ -145,19 +148,19 @@ export function RecruitmentCreatePage() {
 
   function applyPendingDraft() {
     if (!pendingPostingDraft) return;
-    setForm((current) => ({
-      ...current,
-      title: pendingPostingDraft.title || current.title,
-      jobRole: pendingPostingDraft.jobRole || current.jobRole,
-      structuredJobDescription: {
-        ...current.structuredJobDescription,
-        sections: { ...current.structuredJobDescription.sections, ...pendingPostingDraft.sections },
-        tags: Array.from(new Set([...current.structuredJobDescription.tags, ...pendingPostingDraft.tags])),
-      },
-    }));
-    setAiFilled(true);
+    setForm((current) => applyPostingDraftToFormState(current, pendingPostingDraft));
+    setDraftPreviewOpen(false);
     setPendingPostingDraft(null);
-    setAiDraftMessage("초안이 적용됐어요. 다음에서 각 단계를 확인·수정하세요.");
+    setAiDraftMessage("초안이 적용됐어요. 기본 정보부터 확인하세요.");
+    setEntryMode("ai");
+    setDir(1);
+    setStep(1);
+    setMessage("");
+    setPhase("form");
+  }
+
+  function closeDraftPreview() {
+    setDraftPreviewOpen(false);
   }
 
   async function handleCreate() {
@@ -446,6 +449,14 @@ export function RecruitmentCreatePage() {
   const currentFormIndex = step - 1;
   const currentStep = formSteps[currentFormIndex];
   const isLast = step === totalForm;
+  const pendingDraftSections = pendingPostingDraft
+    ? structuredJobSectionDefinitions.filter((section) => pendingPostingDraft.sections[section.key]?.trim())
+    : [];
+  const isAiDraftMessageError =
+    aiDraftMessage.includes("입력") ||
+    aiDraftMessage.includes("실패") ||
+    aiDraftMessage.includes("없습니다") ||
+    aiDraftMessage.includes("길어지고");
 
   function goTo(next: number) {
     setDir(next > step ? 1 : -1);
@@ -587,29 +598,40 @@ export function RecruitmentCreatePage() {
               <textarea value={aiSummary} onChange={(event) => setAiSummary(event.target.value)} placeholder="어떤 팀에서 어떤 문제를 푸는 포지션인지 간단히 적어주세요." />
             </label>
             <div className="wizard-ai-actions">
-              <button className="btn secondary" type="button" onClick={() => void handleGenerateDraft()} disabled={aiGenerating}>
-                {aiGenerating ? "초안 생성 중" : "AI로 초안 만들기"}
-              </button>
-              {aiDraftMessage ? <span className="wizard-ai-done">{aiDraftMessage}</span> : null}
+              {aiDraftMessage ? (
+                <span className={`wizard-ai-status${isAiDraftMessageError ? " is-error" : ""}`} aria-live="polite">
+                  {aiDraftMessage}
+                </span>
+              ) : null}
             </div>
-            {pendingPostingDraft ? (
-              <div className="wizard-ai-preview">
-                <strong>{pendingPostingDraft.title}</strong>
-                <span>{pendingPostingDraft.jobRole}</span>
-                {pendingPostingDraft.tags.length > 0 ? <p>{pendingPostingDraft.tags.join(", ")}</p> : null}
-                <button className="btn primary" type="button" onClick={applyPendingDraft}>
-                  초안 적용
-                </button>
-              </div>
-            ) : null}
           </div>
           <div className="wizard-nav">
             <button className="btn secondary" type="button" onClick={() => setPhase("choice")}>
               이전
             </button>
-            <button className="btn primary" type="button" onClick={startForm}>
-              {aiFilled ? "작성 이어가기" : "초안 없이 시작"}
-            </button>
+            <div className="wizard-nav-actions">
+              {pendingPostingDraft ? (
+                <button className="btn secondary" type="button" onClick={() => setDraftPreviewOpen(true)}>
+                  미리보기 다시 열기
+                </button>
+              ) : null}
+              <button
+                className={`btn primary${aiGenerating ? " is-loading" : ""}`}
+                type="button"
+                onClick={() => void handleGenerateDraft()}
+                disabled={aiGenerating}
+                aria-busy={aiGenerating}
+              >
+                {aiGenerating ? (
+                  <>
+                    <span className="btn-spinner" aria-hidden="true" />
+                    초안 생성 중
+                  </>
+                ) : (
+                  "AI로 초안 만들기"
+                )}
+              </button>
+            </div>
           </div>
         </div>
       ) : (
@@ -681,6 +703,62 @@ export function RecruitmentCreatePage() {
           </div>
         </div>
       )}
+      {draftPreviewOpen && pendingPostingDraft ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal wide-modal posting-draft-modal" role="dialog" aria-modal="true" aria-labelledby="posting-draft-preview-title">
+            <div className="modal-head">
+              <div>
+                <p className="page-eyebrow">AI 초안 미리보기</p>
+                <h2 id="posting-draft-preview-title">생성된 공고 초안</h2>
+                <p>전체 내용을 확인한 뒤 적용하면 기본 정보 단계부터 이어서 작성합니다.</p>
+              </div>
+              <button className="modal-close" type="button" onClick={closeDraftPreview} aria-label="초안 미리보기 닫기">
+                ×
+              </button>
+            </div>
+            <div className="posting-draft-summary">
+              <div>
+                <span>공고 제목</span>
+                <strong>{pendingPostingDraft.title}</strong>
+              </div>
+              <div>
+                <span>직무명</span>
+                <strong>{pendingPostingDraft.jobRole}</strong>
+              </div>
+              {pendingPostingDraft.tags.length > 0 ? (
+                <div className="posting-draft-tags">
+                  <span>태그</span>
+                  <div>
+                    {pendingPostingDraft.tags.map((tag) => (
+                      <em key={tag}>{tag}</em>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            {pendingDraftSections.length > 0 ? (
+              <div className="posting-draft-section-list">
+                {pendingDraftSections.map((section) => (
+                  <section className="posting-draft-section" key={section.key}>
+                    <h3>{section.title}</h3>
+                    <div className="wanted-rich-content" dangerouslySetInnerHTML={{ __html: pendingPostingDraft.sections[section.key] ?? "" }} />
+                  </section>
+                ))}
+              </div>
+            ) : (
+              <div className="empty">생성된 상세 섹션이 없습니다.</div>
+            )}
+            <div className="modal-actions">
+              <button className="btn secondary" type="button" onClick={closeDraftPreview}>
+                다시 수정
+              </button>
+              <button className="btn primary" type="button" onClick={applyPendingDraft}>
+                적용하기
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
