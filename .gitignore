@@ -37,3 +37,4 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 infra/aws/backend-*.hcl
+infra/aws/tfplan-*

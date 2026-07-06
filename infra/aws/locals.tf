@@ -178,4 +178,9 @@ locals {
     ? var.github_oidc_provider_arn
     : "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/token.actions.githubusercontent.com"
   )
+  github_deploy_environment_name = (
+    var.github_deploy_environment_name != ""
+    ? var.github_deploy_environment_name
+    : local.name_prefix
+  )
 }

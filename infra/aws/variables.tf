@@ -99,7 +99,7 @@ variable "capacity_provider_by_service" {
 }
 
 variable "image_tag" {
-  description = "Bootstrap image tag for task definitions. Deploy workflow will replace this with github.sha."
+  description = "Bootstrap image tag for task definitions. Deploy workflow replaces live ECS services with merge commit SHA tags."
   type        = string
   default     = "bootstrap"
 }
@@ -157,10 +157,10 @@ variable "github_repository" {
   default     = "seok3m4/init"
 }
 
-variable "github_allowed_branches" {
-  description = "Git branches allowed to assume the deploy role."
-  type        = list(string)
-  default     = ["dev", "main"]
+variable "github_deploy_environment_name" {
+  description = "GitHub Environment name allowed to assume the deploy role. Defaults to the Terraform name prefix, for example init-main."
+  type        = string
+  default     = ""
 }
 
 variable "github_oidc_provider_arn" {

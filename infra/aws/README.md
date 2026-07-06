@@ -709,34 +709,56 @@ aws cloudfront create-invalidation `
 
 ### 11. GitHub Actions deploy workflow 구현
 
-수동 구축이 한 번 성공한 뒤 자동 배포 workflow를 만든다. 목표는 `dev`, `main` branch push가 모두 같은 `init-main-*` 리소스를 갱신하는 것이다.
+수동 구축이 한 번 성공한 뒤 자동 배포 workflow를 만든다. 목표는 `dev`, `main` branch에 PR merge가 완료됐을 때 같은 `init-main-*` 리소스를 갱신하는 것이다. CD 안정성 확인 전까지는 임시 검증 branch `infra/test`도 같은 workflow trigger에 포함한다.
+
+GitHub Actions만 사용하되, 배포 권한 경계는 GitHub Environment `init-main`으로 둔다. AWS IAM OIDC trust는 branch ref가 아니라 `repo:seok3m4/init:environment:init-main` subject를 허용한다. 따라서 GitHub Environment의 deployment branch rule이 운영 branch와 임시 검증 branch만 허용해야 한다.
+
+사용자 사전 작업:
+
+1. GitHub repository `Settings > Environments`에서 `init-main` environment를 만든다.
+2. `init-main` environment의 deployment branch rule을 `Selected branches and tags`로 설정하고 `dev`, `main`, `infra/test`만 허용한다. `infra/test`는 CD 안정성 테스트가 끝나면 제거한다.
+3. merge 즉시 자동 배포가 목표라면 required reviewer는 설정하지 않는다.
+4. `Settings > Branches` 또는 `Rulesets`에서 `dev`, `main`, `infra/test`에 branch protection을 설정한다.
+   - PR merge 필수
+   - CI required checks 통과 필수
+   - direct push 제한
+   - 가능하면 admin bypass 제한
+5. `init-main` environment에 아래 값들을 등록한다.
 
 필수 workflow 계약:
 
 | 항목 | 기준 |
 | --- | --- |
-| trigger | `push` on `dev`, `main` |
-| AWS 인증 | GitHub OIDC로 `github_deploy_role_arn` assume |
+| trigger | `pull_request.closed` on base `dev`, `infra/test`, `main` + `github.event.pull_request.merged == true` |
+| AWS 인증 | GitHub Environment `init-main` subject로 `github_deploy_role_arn` assume |
 | concurrency | `aws-main-deploy` 단일 group |
-| image tag | `github.sha` |
+| image tag | `github.event.pull_request.merge_commit_sha` |
 | ECR | `init-main-frontend`, `init-main-api`, `init-main-worker` |
-| 변경 감지 | frontend/API/worker/common/prisma/env/infra 변경 경로 기준 |
+| 변경 감지 | frontend/API/worker/common/prisma/Dockerfile 변경 경로 기준 |
 | migration | API 또는 Prisma 변경 시 ECS one-off `npx prisma migrate deploy` |
 | service update | migration 성공 후 ECS task definition revision 등록 및 service update |
 | smoke | `https://init-jungle.cloud`, `/api/v1/health` |
-| cache | 필요 시 CloudFront invalidation |
+| cache | 기본/API cache는 disabled이므로 자동 invalidation은 하지 않음. stale 확인 시 수동 invalidation |
+
+Terraform 변경과 application 변경이 같은 PR에 섞이면 workflow는 배포를 중단한다. Terraform 변경은 별도 PR에서 plan/apply를 먼저 검토하고, 앱 배포는 다음 merge에서 수행한다.
+
+GitHub Actions는 ECS task definition revision을 직접 등록하고 service를 갱신한다. Terraform은 service의 `task_definition` drift를 무시해 이후 infra apply가 앱 image tag를 `bootstrap`으로 되돌리지 않게 한다. ECS task definition의 CPU/memory/env/secret 구조를 바꾼 Terraform 변경은 다음 앱 배포 때 새 live revision의 기준으로 사용된다.
 
 GitHub repository에 필요한 값:
 
 | 이름 | 위치 | 값 |
 | --- | --- | --- |
-| `AWS_REGION` | GitHub Actions variable | `ap-northeast-2` |
-| `AWS_DEPLOY_ROLE_ARN` | GitHub Actions variable 또는 secret | `terraform output github_deploy_role_arn` |
-| `APP_BASE_URL` | GitHub Actions variable | `https://init-jungle.cloud` |
+| `AWS_REGION` | GitHub Environment `init-main` variable | `ap-northeast-2` |
+| `AWS_DEPLOY_ROLE_ARN` | GitHub Environment `init-main` variable | `terraform output github_deploy_role_arn` |
+| `APP_BASE_URL` | GitHub Environment `init-main` variable | `https://init-jungle.cloud` |
+| `NEXT_PUBLIC_TOSS_CLIENT_KEY` | GitHub Environment `init-main` secret | Toss public client key |
 
 중단 기준:
 
+- GitHub Environment `init-main`이 없거나 deployment branch rule이 `dev`, `main`, 임시 `infra/test` 외 branch를 허용한다.
 - OIDC assume role이 실패한다.
+- GitHub Environment variable/secret이 누락됐다.
+- Terraform 변경과 application 배포 변경이 같은 PR에 섞여 있다.
 - secret key validation이 실패한다.
 - migration task가 실패한다.
 - smoke test가 실패한다.
@@ -745,16 +767,36 @@ GitHub repository에 필요한 값:
 
 자동화가 들어간 뒤에는 `dev`와 `main`이 서로 다른 서버가 아니라 같은 main 실배포 환경을 갱신한다는 점을 검증한다.
 
+정식 `dev`, `main` 검증 전에 CD 안정성을 먼저 확인하려면 임시 branch `infra/test`를 사용한다. 이 검증도 모의 실행이 아니라 실제 `init-main-*` ECS/ECR과 `https://init-jungle.cloud`를 갱신한다.
+
+임시 검증 흐름:
+
+```text
+feature/* -> infra/test PR merge
+-> deploy workflow 실행
+-> init-main-* ECR image push
+-> init-main-* ECS service update
+-> https://init-jungle.cloud smoke 통과
+```
+
+임시 검증 후 원복:
+
+1. `.github/workflows/deploy.yml` trigger에서 `infra/test`를 제거한다.
+2. `.github/workflows/ci.yml` trigger에서 `infra/test`를 제거한다.
+3. GitHub Environment `init-main` deployment branch rule에서 `infra/test`를 제거한다.
+4. GitHub branch protection/ruleset에서 `infra/test` 임시 rule을 제거한다.
+5. 원격 branch가 더 필요 없으면 `git push origin --delete infra/test`로 삭제한다.
+
 검증 흐름:
 
 ```text
-dev push
+feature/* -> dev PR merge
 -> deploy workflow 실행
 -> init-main-* ECR image push
 -> init-main-* ECS service update
 -> https://init-jungle.cloud smoke 통과
 
-main push
+dev -> main PR merge
 -> 같은 workflow 실행
 -> 같은 init-main-* 리소스 갱신
 -> https://init-jungle.cloud smoke 통과
@@ -763,8 +805,8 @@ main push
 완료 기준:
 
 - GitHub Actions deploy workflow log에서 `dev`, `main` 모두 성공한다.
-- ECS service task definition revision이 최신 commit image tag를 참조한다.
-- `https://init-jungle.cloud`가 최신 push 커밋 기준으로 갱신된다.
+- ECS service task definition revision이 최신 merge commit image tag를 참조한다.
+- `https://init-jungle.cloud`가 최신 merge commit 기준으로 갱신된다.
 
 ## AWS 변경 유지보수 원칙
 
@@ -788,7 +830,7 @@ AWS Console에서 직접 수정하지 않는 것을 원칙으로 한다. 리소�
 | S3 공개 asset prefix 변경 | `alb-cloudfront.tf`, `s3-sqs-ses.tf` | private bucket 유지, OAC policy 범위 |
 | SQS visibility timeout 변경 | `s3-sqs-ses.tf` | worker 처리 시간, DLQ redrive 기준 |
 | Secret key 추가/삭제 | `.env.example`, `locals.tf`, Secrets Manager JSON | task definition secret mapping과 실제 secret JSON 일치 |
-| GitHub Actions deploy 권한 변경 | `iam.tf` | OIDC trust, branch 제한, `iam:PassRole` 범위 |
+| GitHub Actions deploy 권한 변경 | `iam.tf` | OIDC trust, GitHub Environment 제한, `iam:PassRole` 범위 |
 | Slack 운영 알림 변경 | `cloudwatch.tf`, `iam.tf`, `providers.tf`, `env/main.tfvars` | SNS topic, Q Developer Slack channel configuration, guardrail policy, `alarm_actions`/`ok_actions`, Slack workspace/channel ID |
 | VPC endpoint 추가 | `variables.tf`, `network.tf`, `env/*.tfvars` | hourly cost와 NAT 비용 절감 효과 |
 

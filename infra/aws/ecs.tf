@@ -127,6 +127,12 @@ resource "aws_ecs_service" "service" {
     aws_ecs_cluster_capacity_providers.app
   ]
 
+  # App deploys register task definition revisions outside Terraform; infra applies
+  # should not roll ECS services back to the bootstrap image tag.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
+
   tags = {
     Name    = "${local.name_prefix}-${each.key}"
     Service = each.key

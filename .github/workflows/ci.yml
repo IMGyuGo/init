@@ -6,10 +6,12 @@ on:
       - main
       - dev
       - "feature/**"
+      - infra/test
   pull_request:
     branches:
       - main
       - dev
+      - infra/test
 
 jobs:
   docs-harness:
