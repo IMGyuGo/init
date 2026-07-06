@@ -6218,16 +6218,34 @@ p {
 /* --- 검색 히어로: 첫 화면을 꽉 채우는 풀블리드(카드 없음) --- */
 .notion .candidate-jobs-hero {
   position: relative;
+  z-index: 1;
   display: grid;
   place-items: start center;
   gap: 0;
-  min-height: calc(100dvh - 132px);
-  padding: 72px 8px 64px;
+  /* 한 화면에서 검색:목록 = 7:3 비율. 히어로가 약 70%를 차지하고 아래로 목록이 살짝 보인다. */
+  min-height: calc((100dvh - 56px) * 0.7);
+  padding: 64px 8px 40px;
   text-align: center;
   background: transparent;
   border: 0;
   scroll-snap-align: start;
   scroll-snap-stop: always;
+}
+/* 목록 peek 위에 흰색 페이드+블러를 덮어 "더 있으니 스크롤" 을 인지시킨다. */
+.notion .candidate-jobs-hero::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 100vw;
+  height: calc((100dvh - 56px) * 0.3);
+  transform: translateX(-50%);
+  pointer-events: none;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.55) 45%, #ffffff 92%);
+  -webkit-backdrop-filter: blur(1.5px);
+  backdrop-filter: blur(1.5px);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.35) 0%, #000 60%);
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.35) 0%, #000 60%);
 }
 .notion .candidate-jobs-hero-inner { display: grid; gap: 16px; width: 100%; max-width: 620px; }
 .notion .candidate-jobs-hero h2 { margin: 0; font-size: 34px; font-weight: 800; line-height: 1.28; letter-spacing: -0.025em; color: #191919; }
@@ -6299,7 +6317,7 @@ p {
 }
 
 /* --- 리스트 영역 --- */
-.notion .candidate-jobs-list { display: grid; gap: 16px; min-height: calc(100dvh - 132px); scroll-snap-align: start; scroll-snap-stop: always; scroll-margin-top: 72px; align-content: start; }
+.notion .candidate-jobs-list { position: relative; z-index: 0; display: grid; gap: 16px; min-height: calc(100dvh - 132px); scroll-snap-align: start; scroll-snap-stop: always; scroll-margin-top: 72px; align-content: start; }
 .notion .candidate-jobs-toolbar {
   display: flex;
   align-items: center;
