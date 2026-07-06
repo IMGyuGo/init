@@ -1,6 +1,10 @@
 "use client";
 
+import Image from "next/image";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+
+import interviewBanner from "../company-recruiting/assets/interview-banner.png";
 
 import { StatusBadge } from "../company-recruiting/CompanyRecruitingChrome";
 import {
@@ -110,6 +114,7 @@ const AI_JOB_SLOW_THRESHOLD_MS = 30_000;
 
 export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number }) {
   const [settings, setSettings] = useState<InterviewSettings | null>(null);
+  const [settingsStep, setSettingsStep] = useState(1);
   const [criteriaDrafts, setCriteriaDrafts] = useState<CriteriaDraft[]>([]);
   const [timePolicyDraft, setTimePolicyDraft] = useState<TimePolicyDraft | null>(null);
   const [selectedTagId, setSelectedTagId] = useState("");
@@ -238,11 +243,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     return JSON.stringify(criteriaDrafts) !== JSON.stringify(toCriteriaDrafts(settings));
   }, [criteriaDrafts, settings]);
 
-  const hasTimePolicyChanges = useMemo(() => {
-    if (!settings || !timePolicyDraft) return false;
-    return JSON.stringify(toTimePolicyComparable(timePolicyDraft)) !== JSON.stringify(toTimePolicyComparable(toTimePolicyDraft(settings)));
-  }, [settings, timePolicyDraft]);
-
   const availableTagOptions = useMemo(() => {
     if (!settings) return [];
     const selectedTagIds = new Set(criteriaDrafts.map((criterion) => criterion.tagId));
@@ -355,12 +355,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     updateTimePolicyDraft(field, toDigitsOnly(value));
   }
 
-  function resetTimePolicyDraft() {
-    if (!settings) return;
-    setTimePolicyError("");
-    setTimePolicyDraft(toTimePolicyDraft(settings));
-  }
-
   async function handleCriteriaSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!settings) return;
@@ -413,14 +407,13 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     }
   }
 
-  async function handleTimePolicySave(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!settings || !timePolicyDraft) return;
+  async function saveTimePolicy(): Promise<boolean> {
+    if (!settings || !timePolicyDraft) return true;
 
     const validationMessage = validateTimePolicyDraft(timePolicyDraft);
     if (validationMessage) {
       setTimePolicyError(validationMessage);
-      return;
+      return false;
     }
 
     setTimePolicySaving(true);
@@ -442,8 +435,10 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
           : current,
       );
       setTimePolicyDraft(toTimePolicyDraft({ ...settings, timePolicy: response.data.timePolicy }));
+      return true;
     } catch (error) {
       setTimePolicyError(error instanceof Error ? error.message : "면접 시간 정책 저장에 실패했습니다.");
+      return false;
     } finally {
       setTimePolicySaving(false);
     }
@@ -762,16 +757,17 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
   }
 
   return (
-    <section className="app-page">
-        <div className="page-head">
-          <div>
-            <p className="eyebrow">INTERVIEW SETTINGS</p>
+    <section className="app-page glass-page notion">
+        <div className="page-banner">
+          <div className="page-banner-copy">
+            <p className="page-eyebrow">면접 설정</p>
             <h1>면접 관리</h1>
-            <p>공고별 평가 기준, 질문 뱅크, 면접 시간을 확인합니다.</p>
+            <p className="page-sub">공고별 평가 기준, 질문 뱅크, 면접 시간을 확인합니다.</p>
+            <button className="btn secondary banner-cta" type="button" disabled={loading} onClick={() => void loadSettings()}>
+              새로고침
+            </button>
           </div>
-          <button className="btn secondary" type="button" disabled={loading} onClick={() => void loadSettings()}>
-            새로고침
-          </button>
+          <Image className="page-banner-art" src={interviewBanner} alt="" width={300} height={300} aria-hidden="true" priority />
         </div>
 
         {message ? <p className="notice">{message}</p> : null}
@@ -782,6 +778,20 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
           </section>
         ) : (
           <>
+            <div className="settings-steps" aria-label="면접 설정 단계">
+              <div className="settings-steps-meta">
+                <span className="settings-steps-step">단계 {settingsStep} / 3</span>
+                <span className="settings-steps-title">
+                  {settingsStep === 1 ? "면접 시간 설정" : settingsStep === 2 ? "AI 자동 구성 · 평가 기준" : "질문 뱅크"}
+                </span>
+              </div>
+              <div className="settings-steps-bar" role="presentation">
+                <span style={{ width: `${(settingsStep / 3) * 100}%` }} />
+              </div>
+            </div>
+
+            {settingsStep === 1 ? (
+              <>
             <section className="panel">
               <div className="panel-head">
                 <div>
@@ -806,7 +816,14 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
               </div>
             </section>
 
-            <form className="panel" style={{ padding: "18px 24px" }} onSubmit={handleTimePolicySave}>
+            <form
+              className="panel"
+              style={{ padding: "18px 24px" }}
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveTimePolicy();
+              }}
+            >
               <div className="panel-head" style={{ alignItems: "center", marginBottom: "12px" }}>
                 <div>
                   <h2>면접 시간 정책</h2>
@@ -868,23 +885,34 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                     />
                     <span>재시도 허용</span>
                   </label>
-                  <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
-                    <button className="btn secondary compact" type="button" disabled={!hasTimePolicyChanges || timePolicySaving} onClick={resetTimePolicyDraft}>
-                      되돌리기
-                    </button>
-                    <button className="btn primary compact" type="submit" disabled={!hasTimePolicyChanges || timePolicySaving}>
-                      {timePolicySaving ? "저장 중" : "저장"}
-                    </button>
-                  </div>
                 </div>
               ) : null}
             </form>
 
+            <div className="settings-step-nav">
+              <span />
+              <button
+                className="btn primary"
+                type="button"
+                disabled={timePolicySaving}
+                onClick={async () => {
+                  const ok = await saveTimePolicy();
+                  if (ok) setSettingsStep(2);
+                }}
+              >
+                {timePolicySaving ? "저장 중…" : "다음: 평가 기준 설정 →"}
+              </button>
+            </div>
+              </>
+            ) : null}
+
+            {settingsStep === 2 ? (
+              <>
             <section className="panel">
               <div className="panel-head">
                 <div>
-                  <h2>AI 요청 상태</h2>
-                  <p>평가 기준 추천, JD 기반 질문 생성, 질문 세트 구성을 요청합니다.</p>
+                  <h2>AI로 자동 구성</h2>
+                  <p>공고 내용을 바탕으로 평가 기준·질문·질문 세트를 AI가 초안으로 만들어줘요. 필요 없으면 건너뛰고 직접 입력해도 돼요.</p>
                 </div>
                 <div className="toolbar">
                   <button
@@ -893,7 +921,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                     disabled={isAiRequestBlocked("criteria", aiJobSubmitting, activeAiJobKinds)}
                     onClick={() => void handleSuggestCriteria()}
                   >
-                    {getAiRequestButtonLabel("criteria", "평가 기준 추천", aiJobSubmitting, activeAiJobKinds)}
+                    {getAiRequestButtonLabel("criteria", "평가 기준 추천받기", aiJobSubmitting, activeAiJobKinds)}
                   </button>
                   <button
                     className="btn secondary compact"
@@ -901,7 +929,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                     disabled={isAiRequestBlocked("questions", aiJobSubmitting, activeAiJobKinds)}
                     onClick={() => void handleGenerateQuestions()}
                   >
-                    {getAiRequestButtonLabel("questions", "JD 질문 생성", aiJobSubmitting, activeAiJobKinds)}
+                    {getAiRequestButtonLabel("questions", "질문 자동 생성", aiJobSubmitting, activeAiJobKinds)}
                   </button>
                   <button
                     className="btn primary compact"
@@ -909,7 +937,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                     disabled={isAiRequestBlocked("questionSet", aiJobSubmitting, activeAiJobKinds)}
                     onClick={() => void handleGenerateQuestionSet()}
                   >
-                    {getAiRequestButtonLabel("questionSet", "질문 세트 구성", aiJobSubmitting, activeAiJobKinds)}
+                    {getAiRequestButtonLabel("questionSet", "질문 세트 만들기", aiJobSubmitting, activeAiJobKinds)}
                   </button>
                 </div>
               </div>
@@ -1067,6 +1095,19 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
               </div>
             </form>
 
+            <div className="settings-step-nav">
+              <button className="btn secondary" type="button" onClick={() => setSettingsStep(1)}>
+                ← 이전
+              </button>
+              <button className="btn primary" type="button" onClick={() => setSettingsStep(3)}>
+                다음: 질문 뱅크 →
+              </button>
+            </div>
+              </>
+            ) : null}
+
+            {settingsStep === 3 ? (
+              <>
             <section className="panel">
               <div className="panel-head">
                 <div>
@@ -1198,6 +1239,17 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                 </>
               ) : null}
             </section>
+
+            <div className="settings-step-nav">
+              <button className="btn secondary" type="button" onClick={() => setSettingsStep(2)}>
+                ← 이전
+              </button>
+              <Link className="btn primary" href="/company/recruitments">
+                면접 설정 완료
+              </Link>
+            </div>
+              </>
+            ) : null}
           </>
         )}
     </section>
@@ -1297,7 +1349,7 @@ function Metric({ label, value, compact = false }: { label: string; value: numbe
               minWidth: 0,
               padding: "10px 12px",
               textAlign: "center",
-              background: "var(--surface-soft)",
+              background: "transparent",
               border: "1px solid var(--line-soft)",
               borderRadius: "12px",
             }
@@ -1998,14 +2050,6 @@ function toTimePolicyDraft(settings: InterviewSettings): TimePolicyDraft {
     answerTimeSec: String(settings.timePolicy.answerTimeSec),
     answerTimeMode: String(settings.timePolicy.answerTimeSec),
     retryAllowed: settings.timePolicy.retryAllowed,
-  };
-}
-
-function toTimePolicyComparable(draft: TimePolicyDraft) {
-  return {
-    preparationTimeSec: draft.preparationTimeSec,
-    answerTimeSec: draft.answerTimeSec,
-    retryAllowed: draft.retryAllowed,
   };
 }
 
