@@ -4337,13 +4337,12 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
     <header className="gnb">
       <div className="gnb-inner">
         <Link className="brand" href={candidateApplicationInterviewRoutes.jobs}>
-          <Image src="/logo-init.png" alt="init" width={1010} height={375} priority />
+          <Image src="/logo-init-v3.png" alt="init" width={1900} height={580} priority />
         </Link>
         <nav className="gnb-menu" aria-label="지원자 메뉴">
           <div className={`gnb-item ${mockActive ? "active" : ""}`}>
             <Link className="gnb-link" href={candidateApplicationInterviewRoutes.mockInterviewStart} aria-current={mockActive ? "page" : undefined}>
               AI 모의면접
-              <span className="gnb-caret" aria-hidden="true">⌄</span>
             </Link>
             <div className="gnb-panel">
               <Link className={active === "interview" ? "active" : ""} href={candidateApplicationInterviewRoutes.mockInterviewStart}>
@@ -4357,7 +4356,6 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
           <div className={`gnb-item ${recruitingActive ? "active" : ""}`}>
             <Link className="gnb-link" href={candidateApplicationInterviewRoutes.jobs} aria-current={recruitingActive ? "page" : undefined}>
               채용정보
-              <span className="gnb-caret" aria-hidden="true">⌄</span>
             </Link>
             <div className="gnb-panel">
               <Link className={active === "jobs" ? "active" : ""} href={candidateApplicationInterviewRoutes.jobs}>
@@ -4371,7 +4369,6 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
           <div className={`gnb-item ${accountBillingActive ? "active" : ""}`}>
             <Link className="gnb-link" href={candidateApplicationInterviewRoutes.mypage} aria-current={accountBillingActive ? "page" : undefined}>
               {candidateNavLabels.accountBilling}
-              <span className="gnb-caret" aria-hidden="true">⌄</span>
             </Link>
             <div className="gnb-panel">
               {candidateAccountBillingNav.map((item) => (
@@ -4383,13 +4380,13 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
           </div>
         </nav>
         <div className="gnb-right">
-          <GnbLogoutButton />
           <button className="icon-btn" aria-label="알림" type="button">
             <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
               <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
             </svg>
           </button>
           <GnbAvatar accountLabel="지원자 계정" />
+          <GnbLogoutButton />
         </div>
       </div>
     </header>
