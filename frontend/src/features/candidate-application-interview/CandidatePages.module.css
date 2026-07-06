@@ -1,5 +1,5 @@
-:global(.candidate-app .app-page) {
-  width: min(1200px, calc(100% - 96px));
+:global(.candidate-app .notion.app-page:not(.posting-create-page)) {
+  width: min(1200px, calc(100% - 64px));
   padding-right: 0;
   padding-left: 0;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type {
   CandidateFileAsset,
   CandidateJobDetail,
@@ -148,21 +148,12 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeCat, setActiveCat] = useState<FilterKey>("jobRole");
   const [draft, setDraft] = useState<FilterDraft>(EMPTY_DRAFT);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const searchSizerRef = useRef<HTMLSpanElement>(null);
   // 검색어는 로컬 상태로 관리해 타이핑마다 재조회하지 않는다. 조회는 제출(검색/Enter) 시에만.
   const [searchText, setSearchText] = useState(query.q ?? "");
 
   useEffect(() => {
     setSearchText(query.q ?? "");
   }, [query.q]);
-
-  // 입력 글자만큼 input 폭을 맞춰 블록 커서가 텍스트 바로 뒤에 오게 한다(한글 폭까지 정확히).
-  useEffect(() => {
-    if (searchInputRef.current && searchSizerRef.current) {
-      searchInputRef.current.style.width = `${searchSizerRef.current.offsetWidth}px`;
-    }
-  }, [searchText]);
 
   function submitSearch(nextText: string) {
     setSearchText(nextText);
@@ -193,17 +184,8 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
         window.setTimeout(() => (animating = false), 620);
       }
     }
-    // 스크롤을 내리면 히어로 하단의 블러 페이드를 사라지게 한다.
-    function onScroll() {
-      const hero = document.querySelector(".candidate-jobs-hero");
-      if (hero) hero.classList.toggle("is-hero-scrolled", window.scrollY > 24);
-    }
     window.addEventListener("wheel", onWheel, { passive: true });
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      window.removeEventListener("wheel", onWheel);
-      window.removeEventListener("scroll", onScroll);
-    };
+    return () => window.removeEventListener("wheel", onWheel);
   }, []);
 
   function patch(next: Partial<CandidateJobQuery>) {
@@ -241,11 +223,6 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
     patch({ [key]: undefined } as Partial<CandidateJobQuery>);
   }
 
-  function scrollToList() {
-    const list = document.getElementById("candidate-jobs-list");
-    if (list) smoothScrollWindowTo(list.getBoundingClientRect().top + window.scrollY - CANDIDATE_HEADER_OFFSET);
-  }
-
   const activeFilters = FILTER_KEYS.map((key) => ({ key, value: (query[key] as string | undefined) ?? "" })).filter(
     (item) => item.value,
   );
@@ -255,6 +232,9 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
   return (
     <section aria-label="채용공고 목록" className="candidate-jobs-panel">
       <div className="candidate-jobs-hero">
+        <video className="candidate-jobs-hero-video" autoPlay muted loop playsInline aria-hidden="true">
+          <source src="/candidate-search-bg.mp4" type="video/mp4" />
+        </video>
         <div className="candidate-jobs-hero-inner">
           <h2>
             개발자를 위한 채용공고,
@@ -262,55 +242,32 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
           </h2>
           <p>회사·공고 제목·직무로 검색하거나, 아래로 스크롤해 전체 공고를 살펴보세요.</p>
           <form
-            className="candidate-jobs-terminal"
+            className="candidate-jobs-searchbar"
             onSubmit={(event) => {
               event.preventDefault();
               submitSearch(searchText);
             }}
           >
-            <div className="cjs-titlebar">
-              <span className="cjs-lights" aria-hidden="true">
-                <i className="cjs-light red" />
-                <i className="cjs-light yellow" />
-                <i className="cjs-light green" />
-              </span>
-              <span className="cjs-title">init — 채용공고 검색</span>
-            </div>
-            <div className="cjs-body" onClick={() => searchInputRef.current?.focus()}>
-              <div className="cjs-line">
-                <span className="cjs-prompt" aria-hidden="true">➜</span>
-                <span className="cjs-path" aria-hidden="true">~/init</span>
-                <code className="cjs-cmd">
-                  <span className="cjs-fn">init</span>
-                  <span className="cjs-punc">(</span>
-                  <span className="cjs-quote" aria-hidden="true">&quot;</span>
-                  <span className="cjs-field">
-                    <input
-                      ref={searchInputRef}
-                      className="cjs-input"
-                      name="q"
-                      value={searchText}
-                      onChange={(event) => setSearchText(event.currentTarget.value)}
-                      aria-label="공고 검색"
-                    />
-                    <span ref={searchSizerRef} className="cjs-sizer" aria-hidden="true">
-                      {searchText}
-                    </span>
-                    <span className="cjs-cursor" aria-hidden="true" />
-                    {searchText ? null : <span className="cjs-ghost" aria-hidden="true">어떤 공고를 찾으시나요</span>}
-                  </span>
-                  <span className="cjs-quote" aria-hidden="true">&quot;</span>
-                  <span className="cjs-punc">)</span>
-                </code>
-              </div>
-              <div className="cjs-hint" aria-hidden="true"># Enter 를 눌러 검색하세요</div>
-            </div>
+            <span className="candidate-jobs-searchbar-icon" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
+            </span>
+            <input
+              className="candidate-jobs-searchbar-input"
+              name="q"
+              value={searchText}
+              onChange={(event) => setSearchText(event.currentTarget.value)}
+              placeholder="어떤 공고를 찾으시나요?"
+              aria-label="공고 검색"
+            />
             <button className="cjs-run-sr" type="submit">
               검색
             </button>
           </form>
           <div className="candidate-jobs-suggestions">
-            <span className="candidate-jobs-suggestions-label">추천 검색어</span>
+            <span className="candidate-jobs-suggestions-label">실시간 인기</span>
             {SEARCH_SUGGESTIONS.map((keyword) => (
               <button
                 key={keyword}
@@ -323,15 +280,13 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
             ))}
           </div>
         </div>
-        <button type="button" className="candidate-jobs-scrollcue" onClick={scrollToList}>
-          <span>공고 보기</span>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="m6 9 6 6 6-6" />
-          </svg>
-        </button>
       </div>
 
       <div id="candidate-jobs-list" className="candidate-jobs-list">
+        <div className="candidate-jobs-listhead">
+          <h3>인기 공고</h3>
+          <p>지금 지원자들이 많이 보는 공고예요</p>
+        </div>
         <div className="candidate-jobs-toolbar">
           <div className="candidate-jobs-toolbar-left">
             <button type="button" className="candidate-jobs-filter-btn" onClick={openFilter}>
