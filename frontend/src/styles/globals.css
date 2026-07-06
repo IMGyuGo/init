@@ -2482,6 +2482,58 @@ table {
   width: 25%;
 }
 
+.screening-report-cell {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.screening-report-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.screening-report-summary .badge {
+  flex: none;
+  white-space: nowrap;
+}
+
+.screening-report-score {
+  color: var(--ink-700);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.screening-report-link {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  color: #315fc6;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  background: #f7faff;
+  border: 1px solid #d9e4ff;
+  border-radius: 8px;
+}
+
+.screening-report-link:hover {
+  color: #244dad;
+  background: #edf3ff;
+  border-color: #bdd0ff;
+  text-decoration: none;
+}
+
 th {
   padding: 12px 14px;
   color: var(--ink-400);
