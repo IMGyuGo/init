@@ -476,6 +476,20 @@ const applicantDetailInclude = {
   },
 } satisfies Prisma.ApplicationInclude;
 
+type FollowUpAnswerCandidate = {
+  answerId: bigint | number;
+  submittedAt: Date | null;
+  question?: {
+    questionType?: string | null;
+    content?: string | null;
+  } | null;
+};
+
+type FollowUpQuestionCandidate = {
+  content: string;
+  createdAt: Date;
+};
+
 function buildPostingWhere(companyId: number, query: NormalizedListQuery): Prisma.PostingWhereInput {
   const q = query.q?.trim();
   return {
@@ -634,6 +648,7 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
     })),
     interviewSessions: application.interviewSessions.map((session) => {
       const sessionAnswers = "answers" in session ? session.answers : [];
+      const usedFollowUpAnswerIds = new Set<string>();
       return {
         sessionId: Number(session.sessionId),
         status: session.status,
@@ -649,12 +664,15 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
           durationSeconds: answer.durationSeconds,
           submittedAt: answer.submittedAt,
           followUpQuestions: answer.followUpQuestions.map((followUp) => {
-            const followUpAnswer = sessionAnswers.find(
-              (candidate) =>
-                candidate.answerId !== answer.answerId &&
-                candidate.question?.questionType === "FOLLOW_UP" &&
-                normalizeQuestionText(candidate.question.content) === normalizeQuestionText(followUp.content),
+            const followUpAnswer = findLinkedFollowUpAnswer(
+              answer,
+              followUp,
+              sessionAnswers,
+              usedFollowUpAnswerIds,
             );
+            if (followUpAnswer) {
+              usedFollowUpAnswerIds.add(answerIdKey(followUpAnswer.answerId));
+            }
             return {
               followUpId: Number(followUp.followUpId),
               content: followUp.content,
@@ -676,6 +694,92 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
   };
 }
 
-function normalizeQuestionText(value: string) {
-  return value.trim().replace(/\s+/g, " ");
+function findLinkedFollowUpAnswer<T extends FollowUpAnswerCandidate>(
+  parentAnswer: T,
+  followUp: FollowUpQuestionCandidate,
+  sessionAnswers: T[],
+  usedAnswerIds: Set<string>,
+): T | undefined {
+  const nextBaseAnswer = findNextBaseAnswer(parentAnswer, sessionAnswers);
+  return sessionAnswers
+    .filter((candidate) =>
+      isFollowUpAnswerForQuestion(candidate, parentAnswer, followUp, nextBaseAnswer, usedAnswerIds),
+    )
+    .sort((left, right) => compareFollowUpAnswerCandidates(left, right, followUp))[0];
+}
+
+function isFollowUpAnswerForQuestion<T extends FollowUpAnswerCandidate>(
+  candidate: T,
+  parentAnswer: T,
+  followUp: FollowUpQuestionCandidate,
+  nextBaseAnswer: T | undefined,
+  usedAnswerIds: Set<string>,
+): boolean {
+  if (
+    usedAnswerIds.has(answerIdKey(candidate.answerId)) ||
+    compareAnswerIds(candidate.answerId, parentAnswer.answerId) <= 0 ||
+    candidate.question?.questionType !== "FOLLOW_UP" ||
+    normalizeQuestionText(candidate.question.content) !== normalizeQuestionText(followUp.content)
+  ) {
+    return false;
+  }
+
+  if (nextBaseAnswer && compareAnswerIds(candidate.answerId, nextBaseAnswer.answerId) >= 0) {
+    return false;
+  }
+
+  if (candidate.submittedAt && candidate.submittedAt < followUp.createdAt) {
+    return false;
+  }
+
+  return true;
+}
+
+function findNextBaseAnswer<T extends FollowUpAnswerCandidate>(
+  parentAnswer: T,
+  sessionAnswers: T[],
+): T | undefined {
+  return sessionAnswers
+    .filter(
+      (candidate) =>
+        compareAnswerIds(candidate.answerId, parentAnswer.answerId) > 0 &&
+        candidate.question?.questionType !== "FOLLOW_UP",
+    )
+    .sort((left, right) => compareAnswerIds(left.answerId, right.answerId))[0];
+}
+
+function compareFollowUpAnswerCandidates(
+  left: FollowUpAnswerCandidate,
+  right: FollowUpAnswerCandidate,
+  followUp: FollowUpQuestionCandidate,
+) {
+  return (
+    followUpAnswerTimeDistance(left, followUp) -
+      followUpAnswerTimeDistance(right, followUp) ||
+    compareAnswerIds(left.answerId, right.answerId)
+  );
+}
+
+function followUpAnswerTimeDistance(answer: FollowUpAnswerCandidate, followUp: FollowUpQuestionCandidate) {
+  if (!answer.submittedAt) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return Math.max(0, answer.submittedAt.getTime() - followUp.createdAt.getTime());
+}
+
+function compareAnswerIds(left: bigint | number, right: bigint | number) {
+  const leftId = BigInt(left);
+  const rightId = BigInt(right);
+  if (leftId === rightId) {
+    return 0;
+  }
+  return leftId > rightId ? 1 : -1;
+}
+
+function answerIdKey(answerId: bigint | number) {
+  return answerId.toString();
+}
+
+function normalizeQuestionText(value: string | null | undefined) {
+  return (value ?? "").trim().replace(/\s+/g, " ");
 }
