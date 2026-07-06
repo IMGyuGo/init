@@ -1,5 +1,6 @@
 import { AiResultRepository } from "./ai-result.repository";
 import { FollowUpAiProvider } from "./openai-follow-up.provider";
+import { PostingDraftAiProvider, PostingDraftGenerationResult } from "./openai-posting-draft.provider";
 import { ReportAiProvider, ReportGenerationResult } from "./openai-report.provider";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import { AiTaskHandler, AiTaskResult, AiWorkerJob } from "./worker.types";
@@ -19,11 +20,12 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     private readonly fallback: AiTaskHandler,
     private readonly results: AiResultRepository,
     private readonly followUpProvider: FollowUpAiProvider,
-    private readonly reportProvider?: ReportAiProvider
+    private readonly reportProvider?: ReportAiProvider,
+    private readonly postingDraftProvider?: PostingDraftAiProvider
   ) {}
 
   async handle(job: AiWorkerJob): Promise<AiTaskResult> {
-    if (job.processType !== "FOLLOW_UP" && job.processType !== "REPORT_GENERATE") {
+    if (job.processType !== "FOLLOW_UP" && job.processType !== "REPORT_GENERATE" && job.processType !== "POSTING_DRAFT_GENERATE") {
       return this.fallback.handle(job);
     }
 
@@ -31,11 +33,56 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     const payload = input.payload ?? {};
     const kind = input.kind ?? (job.processType === "FOLLOW_UP" ? "RECRUITING_FOLLOW_UP" : "RECRUITING_REPORT_GENERATE");
 
+    if (job.processType === "POSTING_DRAFT_GENERATE") {
+      return this.postingDraftGenerate(job, payload);
+    }
+
     if (job.processType === "REPORT_GENERATE") {
       return this.reportGenerate(job, kind, payload);
     }
 
     return this.followUp(kind, payload);
+  }
+
+  private async postingDraftGenerate(job: AiWorkerJob, payload: Record<string, unknown>): Promise<AiTaskResult> {
+    if (!this.postingDraftProvider) {
+      return this.fallback.handle(job);
+    }
+
+    const generated = await this.postingDraftProvider.generatePostingDraft({
+      title: requiredText(payload.title, "title"),
+      jobRole: requiredText(payload.jobRole, "jobRole"),
+      keywords: stringArrayOf(payload.keywords, "keywords"),
+      summary: optionalText(payload.summary),
+      careerRequirement: optionalText(payload.careerRequirement),
+      employmentType: optionalText(payload.employmentType),
+      workLocation: optionalText(payload.workLocation)
+    });
+    const items = ["포지션 상세", "주요 업무", "자격 요건", "우대 사항", "복지 및 혜택", "채용 절차"];
+    const savedDraft = {
+      kind: "POSTING_DRAFT_GENERATE",
+      sourceProcessLogId: job.processLogId,
+      items,
+      postingDraft: {
+        title: generated.title,
+        jobRole: generated.jobRole,
+        sections: generated.sections,
+        tags: generated.tags
+      },
+      reviewRequired: true as const,
+      reviewStatus: "PENDING_REVIEW" as const,
+      targetTables: ["postings" as const]
+    };
+
+    return {
+      outputRef: JSON.stringify({
+        ...savedDraft,
+        draftSource: "OPENAI_POSTING_DRAFT_GENERATION",
+        model: generated.model
+      }),
+      guardrail: validatePostingDraft(generated),
+      finalSave: () => this.results.saveGeneratedDraft(savedDraft)
+    };
   }
 
   private async followUp(kind: string, payload: Record<string, unknown>): Promise<AiTaskResult> {
@@ -194,6 +241,23 @@ function answersOf(value: unknown): Array<{
   });
 }
 
+function stringArrayOf(value: unknown, name: string): string[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new NonRetryableAiWorkerFailure(`${name} must be an array`);
+  }
+  return value
+    .map((item, index) => {
+      if (typeof item !== "string") {
+        throw new NonRetryableAiWorkerFailure(`${name}[${index}] must be a string`);
+      }
+      return item.trim();
+    })
+    .filter((item) => item.length > 0);
+}
+
 function formatReportSummary(generated: ReportGenerationResult): string {
   return [generated.summary, generated.feedback ? `다음 연습 피드백: ${generated.feedback}` : undefined]
     .filter((value): value is string => Boolean(value))
@@ -255,4 +319,22 @@ function optionalText(value: unknown): string | undefined {
   }
   const normalized = value.replace(/\s+/g, " ").trim();
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function validatePostingDraft(generated: PostingDraftGenerationResult) {
+  if (!generated.title.trim() || !generated.jobRole.trim()) {
+    return {
+      result: "BLOCKED" as const,
+      reason: "posting draft title and jobRole are required",
+      failureCategory: "NON_RETRYABLE" as const
+    };
+  }
+  if (Object.values(generated.sections).some((section) => !section.trim())) {
+    return {
+      result: "BLOCKED" as const,
+      reason: "posting draft sections must be non-empty",
+      failureCategory: "NON_RETRYABLE" as const
+    };
+  }
+  return { result: "PASS" as const, reason: null };
 }

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Headers,
   HttpCode,
@@ -22,6 +23,7 @@ import {
   DocumentExtractRequestDto,
   FollowUpQuestionRequestDto,
   MockQuestionGenerateRequestDto,
+  POSTING_DRAFT_INPUT_LIMITS,
   PostingDraftGenerateRequestDto,
   QuestionGenerateRequestDto,
   QuestionSetGenerateRequestDto,
@@ -30,7 +32,7 @@ import {
 import { AiJobResponseDto } from "../../report/dto/report-response.dto";
 import { AiJobDispatcherService } from "../../report/service/ai-job-dispatcher.service";
 import { AiProcessNotFoundError, REPORT_REPOSITORY, ReportRepository } from "../../report/repository/report.repository";
-import { AiProcessType } from "../../report/report.types";
+import { AiProcessType, QueuedAiProcessSnapshot } from "../../report/report.types";
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
 
 type HeaderMap = Record<string, string | string[] | undefined>;
@@ -44,6 +46,13 @@ type CandidateAiRequest = {
   };
 };
 type CompanyAiRequest = CandidateAiRequest;
+type AiJobStatusRequest = CandidateAiRequest;
+type RequestedByRef = {
+  userId?: unknown;
+  userType?: unknown;
+  companyId?: unknown;
+  candidateId?: unknown;
+};
 
 @ApiTags("Candidate AI Jobs")
 @ApiBearerAuth("bearer")
@@ -251,8 +260,10 @@ export class CompanyRecruitmentAiJobsController {
   @ApiEnvelopeResponse(AiJobResponseDto, 202)
   async generatePostingDraft(@Req() request: CompanyAiRequest, @Body() body: PostingDraftGenerateRequestDto) {
     const currentUser = this.company(request);
-    this.requireText(body.title, "title");
-    this.requireText(body.jobRole, "jobRole");
+    const title = this.requiredBoundedText(body.title, "title", POSTING_DRAFT_INPUT_LIMITS.titleMaxLength);
+    const jobRole = this.requiredBoundedText(body.jobRole, "jobRole", POSTING_DRAFT_INPUT_LIMITS.jobRoleMaxLength);
+    const keywords = this.normalizedKeywords(body.keywords);
+    const summary = this.optionalBoundedText(body.summary, "summary", POSTING_DRAFT_INPUT_LIMITS.summaryMaxLength);
 
     return this.dispatcher.dispatch({
       processType: "POSTING_DRAFT_GENERATE",
@@ -264,10 +275,10 @@ export class CompanyRecruitmentAiJobsController {
           companyId: currentUser.companyId
         },
         payload: {
-          title: body.title.trim(),
-          jobRole: body.jobRole.trim(),
-          keywords: Array.isArray(body.keywords) ? body.keywords.filter((keyword) => typeof keyword === "string" && keyword.trim()).map((keyword) => keyword.trim()) : [],
-          summary: typeof body.summary === "string" ? body.summary.trim() : undefined,
+          title,
+          jobRole,
+          keywords,
+          summary,
           careerRequirement: typeof body.careerRequirement === "string" ? body.careerRequirement.trim() : undefined,
           employmentType: typeof body.employmentType === "string" ? body.employmentType.trim() : undefined,
           workLocation: typeof body.workLocation === "string" ? body.workLocation.trim() : undefined
@@ -293,6 +304,57 @@ export class CompanyRecruitmentAiJobsController {
     if (typeof value !== "string" || !value.trim()) {
       throw this.validation(`${name} is required.`);
     }
+  }
+
+  private requiredBoundedText(value: unknown, name: string, maxLength: number): string {
+    this.requireText(value, name);
+    const normalized = String(value).trim();
+    if (normalized.length > maxLength) {
+      throw this.validation(`${name} must be ${maxLength} characters or fewer.`);
+    }
+    return normalized;
+  }
+
+  private optionalBoundedText(value: unknown, name: string, maxLength: number): string | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    if (typeof value !== "string") {
+      throw this.validation(`${name} must be a string.`);
+    }
+    const normalized = value.trim();
+    if (!normalized) {
+      return undefined;
+    }
+    if (normalized.length > maxLength) {
+      throw this.validation(`${name} must be ${maxLength} characters or fewer.`);
+    }
+    return normalized;
+  }
+
+  private normalizedKeywords(value: unknown): string[] {
+    if (value === undefined || value === null) {
+      return [];
+    }
+    if (!Array.isArray(value)) {
+      throw this.validation("keywords must be an array.");
+    }
+    if (value.length > POSTING_DRAFT_INPUT_LIMITS.keywordMaxCount) {
+      throw this.validation(`keywords must contain ${POSTING_DRAFT_INPUT_LIMITS.keywordMaxCount} items or fewer.`);
+    }
+
+    return value
+      .map((keyword, index) => {
+        if (typeof keyword !== "string") {
+          throw this.validation(`keywords[${index}] must be a string.`);
+        }
+        const normalized = keyword.trim();
+        if (normalized.length > POSTING_DRAFT_INPUT_LIMITS.keywordMaxLength) {
+          throw this.validation(`keywords[${index}] must be ${POSTING_DRAFT_INPUT_LIMITS.keywordMaxLength} characters or fewer.`);
+        }
+        return normalized;
+      })
+      .filter((keyword) => keyword.length > 0);
   }
 
   private validation(message: string): BadRequestException {
@@ -420,6 +482,7 @@ export class CompanyAiJobsController {
 @Controller("ai/jobs")
 export class AiJobsStatusController {
   constructor(
+    @Inject(DevAuthAdapter) private readonly devAuthAdapter: DevAuthAdapter,
     @Inject(REPORT_REPOSITORY) private readonly repository: ReportRepository
   ) {}
 
@@ -428,11 +491,13 @@ export class AiJobsStatusController {
   @ApiOperation({ summary: "AI 작업 상태 조회" })
   @ApiParamId("processLogId", "AI process log ID")
   @ApiEnvelopeResponse(AiJobResponseDto)
-  async getStatus(@Param("processLogId") processLogIdParam: string) {
+  async getStatus(@Param("processLogId") processLogIdParam: string, @Req() request: AiJobStatusRequest) {
     const processLogId = this.parseId(processLogIdParam, "processLogId");
 
     try {
-      return await this.repository.getProcess(processLogId);
+      const process = await this.repository.getProcess(processLogId);
+      this.assertProcessOwner(process, this.currentUser(request));
+      return process;
     } catch (error) {
       if (error instanceof AiProcessNotFoundError) {
         throw new NotFoundException({
@@ -453,5 +518,58 @@ export class AiJobsStatusController {
       });
     }
     return parsed;
+  }
+
+  private currentUser(request: AiJobStatusRequest): CurrentUser {
+    if (request.currentUser) {
+      return {
+        userId: request.currentUser.userId,
+        userType: request.currentUser.userType,
+        companyId: request.currentUser.companyId ?? undefined,
+        candidateId: request.currentUser.candidateId ?? undefined,
+      };
+    }
+    return this.devAuthAdapter.parse(request.headers);
+  }
+
+  private assertProcessOwner(process: QueuedAiProcessSnapshot, currentUser: CurrentUser): void {
+    if (currentUser.userType === "ADMIN") {
+      return;
+    }
+
+    const requestedBy = this.parseRequestedBy(process.inputRef);
+    const isOwner =
+      currentUser.userType === "COMPANY"
+        ? requestedBy.userType === "COMPANY" &&
+          this.samePositiveNumber(requestedBy.userId, currentUser.userId) &&
+          this.samePositiveNumber(requestedBy.companyId, currentUser.companyId)
+        : requestedBy.userType === "CANDIDATE" &&
+          this.samePositiveNumber(requestedBy.userId, currentUser.userId) &&
+          this.samePositiveNumber(requestedBy.candidateId, currentUser.candidateId);
+
+    if (!isOwner) {
+      throw new ForbiddenException({
+        code: "COMMON_FORBIDDEN",
+        message: "AI job status is only available to the job owner."
+      });
+    }
+  }
+
+  private parseRequestedBy(inputRef: string): RequestedByRef {
+    try {
+      const parsed = JSON.parse(inputRef) as { requestedBy?: RequestedByRef };
+      if (!parsed || typeof parsed !== "object" || !parsed.requestedBy || typeof parsed.requestedBy !== "object") {
+        return {};
+      }
+      return parsed.requestedBy;
+    } catch {
+      return {};
+    }
+  }
+
+  private samePositiveNumber(left: unknown, right: unknown): boolean {
+    const leftNumber = Number(left);
+    const rightNumber = Number(right);
+    return Number.isInteger(leftNumber) && leftNumber > 0 && leftNumber === rightNumber;
   }
 }

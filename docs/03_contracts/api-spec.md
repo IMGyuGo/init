@@ -495,21 +495,24 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
 - 상태 코드: 202 Accepted
 - 비동기: Y
 - 요청 데이터:
-  - title, jobRole
-  - keywords: string[] optional
-  - summary: string optional
+  - title: string, max 120
+  - jobRole: string, max 80
+  - keywords: string[] optional, max 10 items, each max 40
+  - summary: string optional, max 1000
   - careerRequirement, employmentType, workLocation optional
 - 검증/전제조건:
   - `CurrentUser.userType=COMPANY`이고 `CurrentUser.companyId`가 존재해야 한다.
   - title, jobRole은 필수다.
+  - title, jobRole, summary, keywords는 OpenAI/worker 호출 전에 길이와 개수 제한을 검증한다.
   - 지원자 개인정보, 지원서, 면접 답변 등 후보자 데이터는 입력 payload에 포함하지 않는다.
 - 성공 응답/처리:
   - `POSTING_DRAFT_GENERATE` AI 작업을 생성하고 `202 Accepted`와 `processLogId`를 반환한다.
-  - 화면은 `GET /ai/jobs/{processLogId}/status`로 polling한다.
+  - 화면은 동일 사용자/회사 컨텍스트로 `GET /ai/jobs/{processLogId}/status`를 polling한다.
   - 완료 output은 `postingDraft.title`, `postingDraft.jobRole`, `postingDraft.sections`, `postingDraft.tags`, `reviewRequired=true`, `reviewStatus=PENDING_REVIEW`, `targetTables=["postings"]`를 포함한다.
   - AI 초안은 `postings`에 자동 저장하지 않는다. 사용자가 초안 적용 후 수정/확인한 뒤 기존 `API-080 POST /company/recruitments`로 `DRAFT` 저장한다.
 - 오류/예외:
-  - 필수값 누락은 `COMMON_VALIDATION_FAILED`를 반환한다.
+  - 필수값 누락 또는 입력 상한 초과는 `COMMON_VALIDATION_FAILED`를 반환한다.
+  - 상태 polling 주체가 AI job 생성자와 다르면 `COMMON_FORBIDDEN`을 반환한다.
   - 큐 발행 실패는 `queued=false`, `status=FAILED`, `failure.retryable=true`를 포함한다.
   - 가드레일 `BLOCKED`는 최종 저장 없이 `AI_GUARDRAIL_BLOCKED` 성격의 실패 안내로 표시한다.
 - 관련 ERD 테이블:

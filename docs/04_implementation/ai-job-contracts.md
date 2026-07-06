@@ -36,6 +36,8 @@ E 파트 AI 작업을 로컬 개발과 팀 연동에서 호출할 때 필요한 
 GET /api/v1/ai/jobs/101/status
 ```
 
+상태 조회는 job 생성자와 현재 사용자가 일치할 때만 허용한다. ADMIN은 운영 조회를 허용하고, COMPANY job은 `userId`와 `companyId`, CANDIDATE job은 `userId`와 `candidateId`를 모두 비교한다. 불일치하면 `403 COMMON_FORBIDDEN`을 반환한다.
+
 완료 응답 예시는 다음과 같다.
 
 ```json
@@ -101,7 +103,7 @@ GET /api/v1/ai/jobs/101/status
 | `POST /candidate/mock-interviews/{sessionId}/follow-up-questions/insert` | Candidate | processLogId | MVP 임시 브릿지. 완료된 FOLLOW_UP 작업 결과를 면접 질문 흐름에 추가 |
 | `POST /candidate/interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript, jobDescription 또는 documentSummary | 채용면접 표현 정책 적용 |
 | `POST /candidate/interviews/{sessionId}/follow-up-questions/insert` | Candidate | processLogId | MVP 임시 브릿지. 완료된 FOLLOW_UP 작업 결과를 면접 질문 흐름에 추가 |
-| `POST /company/recruitments/ai-draft` | Company | title, jobRole, keywords?, summary?, careerRequirement?, employmentType?, workLocation? | reviewRequired draft 반환, 확정 전 최종 저장 금지 |
+| `POST /company/recruitments/ai-draft` | Company | title(max 120), jobRole(max 80), keywords?(max 10, each max 40), summary?(max 1000), careerRequirement?, employmentType?, workLocation? | reviewRequired draft 반환, 확정 전 최종 저장 금지 |
 | `POST /company/interviews/evaluation-criteria/suggest` | Company | postingId, jobDescription, talentProfile, evaluationPolicy | reviewRequired draft 반환, 확정 전 최종 저장 금지 |
 | `POST /company/interviews/questions/generate` | Company | postingId, jobDescription, questionCount | reviewRequired draft 반환 |
 | `POST /company/interviews/question-sets` | Company | postingId, questionCount, criteria, questionTypes | reviewRequired draft 반환 |

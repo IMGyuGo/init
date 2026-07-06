@@ -8,7 +8,7 @@ The first layer is intentionally adapter-based:
 - `AiProcessLogRepository` abstracts `ai_process_logs` and `ai_guardrail_logs`.
 - `AiWorkerRunner` guarantees `RUNNING -> COMPLETED/FAILED` state transitions.
 - `AiWorkerLoop` polls SQS in a long-running process and exits on SIGINT/SIGTERM.
-- task handlers do the actual document/STT/follow-up/report/embedding work.
+- task handlers do the actual document/STT/follow-up/report/posting draft/embedding work.
 
 Runtime commands:
 
@@ -43,6 +43,8 @@ Deployment boundary with A:
 
 Optional runtime environment variables:
 
+- `AI_PROVIDER_MODE` defaults to `mock`; set `openai` to use OpenAI providers for follow-up questions, report summaries, and posting draft generation.
+- `OPENAI_MODEL` defaults to `gpt-4o-mini`.
 - `AI_STT_PROVIDER` defaults to `openai`; set `mock` only for isolated local tests that do not need real STT.
 - `OPENAI_STT_MODEL` defaults to `gpt-4o-mini-transcribe`.
 - `OPENAI_STT_LANGUAGE` defaults to `ko`.
