@@ -1,9 +1,14 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
+import type { CurrentUser } from "../../../common/dev-auth/current-user";
 import { ApiDevAuthHeaders, ApiEnvelopeResponse, ApiErrorResponses, ApiOperationId } from "../../../swagger/swagger.decorators";
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
 import { AiPerformanceLogResponseDto, AiPerformanceQueryDto, ClientPerformanceLogRequestDto } from "../dto/ai-performance.dto";
 import { AiPerformanceService } from "../service/ai-performance.service";
+
+type AiPerformanceRequest = {
+  currentUser?: CurrentUser;
+};
 
 @ApiTags("AI Performance")
 @ApiBearerAuth("bearer")
@@ -19,8 +24,8 @@ export class AiPerformanceController {
   @ApiOperationId("API-097")
   @ApiOperation({ summary: "AI client performance log save" })
   @ApiEnvelopeResponse(AiPerformanceLogResponseDto, 202)
-  recordClientLog(@Body() body: ClientPerformanceLogRequestDto) {
-    return this.performance.recordClientLog(body);
+  recordClientLog(@Req() request: AiPerformanceRequest, @Body() body: ClientPerformanceLogRequestDto) {
+    return this.performance.recordClientLog(body, request.currentUser);
   }
 
   @Get("performance/jobs")

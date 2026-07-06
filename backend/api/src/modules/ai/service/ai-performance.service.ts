@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
+import type { CurrentUser } from "../../../common/dev-auth/current-user";
 import { PrismaService } from "../../../shared/prisma.service";
 import { AiPerformanceQueryDto, ClientPerformanceLogRequestDto } from "../dto/ai-performance.dto";
 
@@ -9,15 +10,20 @@ const MAX_LIMIT = 500;
 export class AiPerformanceService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async recordClientLog(body: ClientPerformanceLogRequestDto) {
+  async recordClientLog(body: ClientPerformanceLogRequestDto, currentUser?: CurrentUser) {
     const eventName = requiredToken(body.eventName, "eventName");
     const durationMs = nonNegativeInteger(body.durationMs, "durationMs");
+    const processLogId = optionalBigInt(body.processLogId);
+    const sessionId = optionalBigInt(body.sessionId);
+    const applicationId = optionalBigInt(body.applicationId);
+    await this.assertClientLogRefsVisible({ processLogId, sessionId, applicationId }, currentUser);
+
     const created = await this.prisma.clientPerformanceLog.create({
       data: {
         eventName,
-        processLogId: optionalBigInt(body.processLogId),
-        sessionId: optionalBigInt(body.sessionId),
-        applicationId: optionalBigInt(body.applicationId),
+        processLogId,
+        sessionId,
+        applicationId,
         questionId: optionalBigInt(body.questionId),
         durationMs,
         startedAt: optionalDate(body.startedAt, "startedAt"),
@@ -138,6 +144,145 @@ export class AiPerformanceService {
     }
     return where;
   }
+
+  private async assertClientLogRefsVisible(
+    refs: { processLogId?: bigint; sessionId?: bigint; applicationId?: bigint },
+    currentUser?: CurrentUser
+  ): Promise<void> {
+    if (!refs.processLogId && !refs.sessionId && !refs.applicationId) {
+      return;
+    }
+    if (!currentUser) {
+      throw forbiddenClientLog();
+    }
+    if (currentUser.userType === "ADMIN") {
+      return;
+    }
+
+    const visible = await Promise.all([
+      refs.processLogId ? this.isProcessVisible(refs.processLogId, currentUser) : true,
+      refs.sessionId ? this.isSessionVisible(refs.sessionId, currentUser) : true,
+      refs.applicationId ? this.isApplicationVisible(refs.applicationId, currentUser) : true
+    ]);
+
+    if (visible.some((allowed) => !allowed)) {
+      throw forbiddenClientLog();
+    }
+  }
+
+  private async isProcessVisible(processLogId: bigint, currentUser: CurrentUser): Promise<boolean> {
+    const processLog = await this.prisma.aiProcessLog.findUnique({
+      where: { processLogId },
+      select: {
+        inputRef: true,
+        application: {
+          select: {
+            candidateId: true,
+            posting: { select: { companyId: true } }
+          }
+        },
+        session: {
+          select: {
+            candidateId: true,
+            application: {
+              select: {
+                candidateId: true,
+                posting: { select: { companyId: true } }
+              }
+            }
+          }
+        }
+      }
+    });
+    if (!processLog) {
+      return false;
+    }
+    if (this.inputRefMatchesUser(processLog.inputRef, currentUser)) {
+      return true;
+    }
+    if (processLog.application && this.applicationRecordVisible(processLog.application, currentUser)) {
+      return true;
+    }
+    return Boolean(processLog.session && this.sessionRecordVisible(processLog.session, currentUser));
+  }
+
+  private async isSessionVisible(sessionId: bigint, currentUser: CurrentUser): Promise<boolean> {
+    const session = await this.prisma.interviewSession.findUnique({
+      where: { sessionId },
+      select: {
+        candidateId: true,
+        application: {
+          select: {
+            candidateId: true,
+            posting: { select: { companyId: true } }
+          }
+        }
+      }
+    });
+    return Boolean(session && this.sessionRecordVisible(session, currentUser));
+  }
+
+  private async isApplicationVisible(applicationId: bigint, currentUser: CurrentUser): Promise<boolean> {
+    const application = await this.prisma.application.findUnique({
+      where: { applicationId },
+      select: {
+        candidateId: true,
+        posting: { select: { companyId: true } }
+      }
+    });
+    return Boolean(application && this.applicationRecordVisible(application, currentUser));
+  }
+
+  private sessionRecordVisible(
+    session: { candidateId: bigint; application: { candidateId: bigint; posting: { companyId: bigint } } | null },
+    currentUser: CurrentUser
+  ): boolean {
+    if (currentUser.userType === "CANDIDATE") {
+      return idsEqual(session.candidateId, currentUser.candidateId);
+    }
+    if (currentUser.userType === "COMPANY") {
+      return Boolean(session.application && idsEqual(session.application.posting.companyId, currentUser.companyId));
+    }
+    return false;
+  }
+
+  private applicationRecordVisible(
+    application: { candidateId: bigint; posting: { companyId: bigint } },
+    currentUser: CurrentUser
+  ): boolean {
+    if (currentUser.userType === "CANDIDATE") {
+      return idsEqual(application.candidateId, currentUser.candidateId);
+    }
+    if (currentUser.userType === "COMPANY") {
+      return idsEqual(application.posting.companyId, currentUser.companyId);
+    }
+    return false;
+  }
+
+  private inputRefMatchesUser(inputRef: string | null, currentUser: CurrentUser): boolean {
+    if (!inputRef) {
+      return false;
+    }
+    try {
+      const parsed = JSON.parse(inputRef) as unknown;
+      if (!isRecord(parsed) || !isRecord(parsed.requestedBy)) {
+        return false;
+      }
+      const requestedBy = parsed.requestedBy;
+      if (requestedBy.userType !== currentUser.userType || !idsEqual(requestedBy.userId, currentUser.userId)) {
+        return false;
+      }
+      if (currentUser.userType === "CANDIDATE") {
+        return idsEqual(requestedBy.candidateId, currentUser.candidateId);
+      }
+      if (currentUser.userType === "COMPANY") {
+        return idsEqual(requestedBy.companyId, currentUser.companyId);
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
 }
 
 function summarizeTimedItems(items: Array<{ durationMs?: number; status?: string }>) {
@@ -231,4 +376,21 @@ function round4(value: number): number {
 
 function round6(value: number): number {
   return Math.round(value * 1_000_000) / 1_000_000;
+}
+
+function idsEqual(left: unknown, right: unknown): boolean {
+  const leftNumber = Number(left);
+  const rightNumber = Number(right);
+  return Number.isInteger(leftNumber) && leftNumber > 0 && leftNumber === rightNumber;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function forbiddenClientLog(): ForbiddenException {
+  return new ForbiddenException({
+    code: "COMMON_FORBIDDEN",
+    message: "AI performance log references are not available to the current user."
+  });
 }
