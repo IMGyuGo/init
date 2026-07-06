@@ -147,7 +147,7 @@ export class AiPerformanceService {
   }
 
   private async assertClientLogRefsVisible(
-    refs: { processLogId?: bigint; sessionId?: bigint; applicationId?: bigint; questionId?: bigint },
+    refs: ClientPerformanceRefs,
     currentUser?: CurrentUser
   ): Promise<void> {
     if (!refs.processLogId && !refs.sessionId && !refs.applicationId && !refs.questionId) {
@@ -170,6 +170,70 @@ export class AiPerformanceService {
     if (visible.some((allowed) => !allowed)) {
       throw forbiddenClientLog();
     }
+
+    if (!(await this.clientLogRefsConsistent(refs))) {
+      throw forbiddenClientLog();
+    }
+  }
+
+  private async clientLogRefsConsistent(refs: ClientPerformanceRefs): Promise<boolean> {
+    if (refs.processLogId) {
+      const processLog = await this.prisma.aiProcessLog.findUnique({
+        where: { processLogId: refs.processLogId },
+        select: {
+          sessionId: true,
+          applicationId: true,
+          session: { select: { applicationId: true } }
+        }
+      });
+      if (!processLog) {
+        return false;
+      }
+
+      if (
+        processLog.applicationId &&
+        processLog.session?.applicationId &&
+        !idsEqual(processLog.applicationId, processLog.session.applicationId)
+      ) {
+        return false;
+      }
+
+      const processApplicationId = processLog.applicationId ?? processLog.session?.applicationId ?? undefined;
+      if (refs.sessionId) {
+        if (processLog.sessionId && !idsEqual(processLog.sessionId, refs.sessionId)) {
+          return false;
+        }
+        if (!processLog.sessionId && processApplicationId && !(await this.sessionMatchesApplication(refs.sessionId, processApplicationId))) {
+          return false;
+        }
+        if (!processLog.sessionId && !processApplicationId) {
+          return false;
+        }
+      }
+
+      if (refs.applicationId) {
+        if (!processApplicationId) {
+          return false;
+        }
+        if (!idsEqual(processApplicationId, refs.applicationId)) {
+          return false;
+        }
+      }
+    }
+
+    if (refs.sessionId && refs.applicationId && !(await this.sessionMatchesApplication(refs.sessionId, refs.applicationId))) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private async sessionMatchesApplication(sessionId: bigint, applicationId: bigint): Promise<boolean> {
+    const session = await this.prisma.interviewSession.findUnique({
+      where: { sessionId },
+      select: { applicationId: true }
+    });
+    return Boolean(session && idsEqual(session.applicationId, applicationId));
   }
 
   private async isProcessVisible(processLogId: bigint, currentUser: CurrentUser): Promise<boolean> {
@@ -406,6 +470,13 @@ export class AiPerformanceService {
     }
   }
 }
+
+type ClientPerformanceRefs = {
+  processLogId?: bigint;
+  sessionId?: bigint;
+  applicationId?: bigint;
+  questionId?: bigint;
+};
 
 function summarizeTimedItems(items: Array<{ durationMs?: number; status?: string }>) {
   const durations = items
