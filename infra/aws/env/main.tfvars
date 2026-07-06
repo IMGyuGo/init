@@ -19,9 +19,9 @@ private_data_subnet_cidrs = [
 ]
 
 desired_counts = {
-  frontend = 0
-  api      = 0
-  worker   = 0
+  frontend = 1
+  api      = 1
+  worker   = 1
 }
 
 capacity_provider_by_service = {
