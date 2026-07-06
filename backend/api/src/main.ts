@@ -5,16 +5,16 @@ import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./modules/app.module";
 import { ApiExceptionFilter } from "./shared/api-exception.filter";
 import { ApiResponseInterceptor } from "./shared/api-response.interceptor";
+import { createCorsOriginDelegate } from "./shared/cors-origin";
 import { setupSwagger } from "./swagger/swagger";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  const frontendOrigin = process.env.FRONTEND_ORIGIN ?? "http://localhost:3000";
 
   app.setGlobalPrefix("api/v1");
   app.use(cookieParser());
   app.enableCors({
-    origin: frontendOrigin,
+    origin: createCorsOriginDelegate(),
     credentials: true,
     allowedHeaders: [
       "Authorization",

@@ -48,6 +48,7 @@ import {
   type ReportType,
 } from "../report.types";
 import { AiJobDispatcherService } from "./ai-job-dispatcher.service";
+import { buildDefaultReportCriteria } from "./service-interview-rubric";
 
 type ReportAnswerSession = Pick<RuntimeInterviewSession, "sessionId" | "interviewType" | "showQuestionText">;
 type ReportGenerationKind = "MOCK_REPORT_GENERATE" | "RECRUITING_REPORT_GENERATE";
@@ -161,6 +162,7 @@ export class ReportService {
     }
 
     const scores = this.toCandidateScores(report.scores);
+    const totalScore = this.toCandidateFacingTotalScore(report.totalScore, scores);
     return this.envelope({
       reportId,
       sessionId: session.sessionId,
@@ -168,8 +170,8 @@ export class ReportService {
       status: report.status,
       aiProcess: this.toAiProcessView(process),
       generatedAt: report.generatedAt,
-      totalScore: report.totalScore,
-      summary: report.summary,
+      totalScore,
+      summary: this.toCandidateFacingSummary(report.summary, totalScore),
       strengths: this.deriveStrengths(report.scores),
       improvements: this.deriveImprovements(report.scores),
       nextPractice: this.deriveNextPractice(report.scores),
@@ -343,6 +345,7 @@ export class ReportService {
     const status = this.resolveReportStatus(application.reportStatus, report, process);
     const scores = report ? this.toCandidateScores(report.scores) : [];
     const answers = await this.toCandidateReportAnswers(session, report);
+    const totalScore = report ? this.toCandidateFacingTotalScore(report.totalScore, scores) : undefined;
 
     const base = {
       applicationId: application.applicationId,
@@ -356,8 +359,8 @@ export class ReportService {
       reportId: report?.reportId,
       aiProcess: this.toAiProcessView(process),
       generatedAt: report?.generatedAt,
-      totalScore: report?.totalScore,
-      summary: report?.summary,
+      totalScore,
+      summary: this.toCandidateFacingSummary(report?.summary, totalScore),
       scores,
       answers,
       visibilityPolicy: this.recruitingVisibilityPolicy(scores.length > 0),
@@ -496,27 +499,7 @@ export class ReportService {
   }
 
   private defaultReportCriteria(reportType: ReportType): EvaluationCriterionInput[] {
-    const prefix = reportType === "MOCK_INTERVIEW_REPORT" ? 9000 : 8000;
-    return [
-      {
-        criterionId: prefix + 1,
-        name: "Role fit",
-        description: "Connects experience and decisions to the target role.",
-        weight: 40,
-      },
-      {
-        criterionId: prefix + 2,
-        name: "Problem solving",
-        description: "Explains constraints, tradeoffs, and outcomes with concrete evidence.",
-        weight: 35,
-      },
-      {
-        criterionId: prefix + 3,
-        name: "Communication",
-        description: "Presents answers in a structured and understandable way.",
-        weight: 25,
-      },
-    ];
+    return buildDefaultReportCriteria(reportType);
   }
 
   private questionCriterionName(question: InterviewQuestion): string {
@@ -820,14 +803,81 @@ export class ReportService {
   }
 
   private toCandidateScores(scores: CandidateReportScoreRecord[]): CandidateReportScoreView[] {
-    return scores.map((score) => ({
-      scoreId: score.scoreId,
-      criterionId: score.criterionId,
-      criterionName: this.displayCriterionName(score),
-      score: score.score,
-      rationale: score.rationale,
-      evidences: score.evidences.map((evidence) => this.toCandidateEvidence(evidence)),
-    }));
+    return scores.map((score) => {
+      const criterionName = this.displayCriterionName(score);
+      const candidateScore = this.toCandidateFacingScore(score.score);
+      return {
+        scoreId: score.scoreId,
+        criterionId: score.criterionId,
+        criterionName,
+        score: candidateScore,
+        rationale: this.toCandidateFacingRationale(score.rationale, criterionName, candidateScore),
+        evidences: score.evidences.map((evidence) => this.toCandidateEvidence(evidence)),
+      };
+    });
+  }
+
+  private toCandidateFacingTotalScore(totalScore: number | undefined, scores: CandidateReportScoreView[]): number | undefined {
+    if (scores.length > 0) {
+      return Math.round(scores.reduce((sum, score) => sum + score.score, 0) / scores.length);
+    }
+    return totalScore === undefined ? undefined : this.toCandidateFacingScore(totalScore);
+  }
+
+  private toCandidateFacingScore(score: number): number {
+    if (score >= 90) {
+      return 88;
+    }
+    if (score === 85) {
+      return 82;
+    }
+    if (score === 75) {
+      return 72;
+    }
+    if (score === 65) {
+      return 63;
+    }
+    return score;
+  }
+
+  private toCandidateFacingRationale(
+    rationale: string | undefined,
+    criterionName: string | undefined,
+    score: number,
+  ): string | undefined {
+    if (!criterionName) {
+      return rationale ? `이 항목은 ${score}점입니다. 답변 내용과 제출된 근거를 바탕으로 산정했습니다.` : undefined;
+    }
+    const subject = `${criterionName}${this.topicParticle(criterionName)}`;
+    const base = `${subject} ${score}점입니다.`;
+
+    if (criterionName === "직무/기술 역량") {
+      return `${base} 사용 기술과 구현 경험이 직무와 연결되어 보입니다. 선택 이유와 적용 결과를 함께 말하면 더 설득력 있습니다.`;
+    }
+    if (criterionName === "문제 해결력") {
+      return `${base} 문제를 단계로 나누어 확인하려는 흐름이 보입니다. 원인, 시도한 방법, 최종 결과를 더 분명히 연결해 보세요.`;
+    }
+    if (criterionName === "실행력과 성과") {
+      return `${base} 직접 맡은 작업 흐름은 드러납니다. 완료 기준이나 개선 효과를 수치 또는 전후 비교로 보강하면 좋습니다.`;
+    }
+    if (criterionName === "협업/커뮤니케이션") {
+      return `${base} 상황과 역할을 설명하는 흐름이 있습니다. 함께 일한 대상, 조율 방식, 공유 결과를 덧붙이면 전달력이 좋아집니다.`;
+    }
+    if (criterionName === "학습/성장성") {
+      return `${base} 새로 익힌 내용을 실제 문제에 적용한 점이 보입니다. 학습 전후의 변화나 다음 적용 계획을 더하면 좋습니다.`;
+    }
+    if (criterionName === "책임감/신뢰성") {
+      return `${base} 문제를 확인하고 검증하려는 태도가 보입니다. 재발 방지나 공유 과정까지 설명하면 신뢰도가 더 높아집니다.`;
+    }
+
+    return `${base} 답변 내용과 제출된 근거를 바탕으로 산정했습니다. 구체적인 행동과 결과를 더 보강해 보세요.`;
+  }
+
+  private toCandidateFacingSummary(summary: string | undefined, score: number | undefined): string | undefined {
+    if (!summary || score === undefined) {
+      return summary;
+    }
+    return summary.replace(/총점은\s+\d+점/g, `총점은 ${score}점`);
   }
 
   private toCandidateEvidence(evidence: CandidateReportEvidenceRecord): CandidateReportEvidenceView {
@@ -879,15 +929,20 @@ export class ReportService {
 
   private deriveStrengths(scores: CandidateReportScoreRecord[]): string[] {
     return scores
-      .filter((score) => score.score >= 70)
-      .map((score) => this.scoreSentence(score))
+      .filter((score) => score.score >= 80)
+      .sort((left, right) => right.score - left.score)
+      .map((score) => `${this.displayCriterionName(score) ?? "평가 항목"}에서 답변 근거가 비교적 잘 드러났습니다.`)
       .slice(0, 3);
   }
 
   private deriveImprovements(scores: CandidateReportScoreRecord[]): string[] {
-    return scores
-      .filter((score) => score.score < 70)
-      .map((score) => this.scoreSentence(score))
+    const improvementTargets = scores
+      .filter((score) => score.score < 80)
+      .sort((left, right) => left.score - right.score);
+    const targets = improvementTargets.length > 0 ? improvementTargets : [...scores].sort((left, right) => left.score - right.score);
+
+    return targets
+      .map((score) => `${this.displayCriterionName(score) ?? "평가 항목"} 답변은 상황, 본인 행동, 결과를 더 구분해서 말하면 좋아집니다.`)
       .slice(0, 3);
   }
 
@@ -901,18 +956,21 @@ export class ReportService {
       .slice(0, 3);
   }
 
-  private scoreSentence(score: CandidateReportScoreRecord): string {
-    const label = this.displayCriterionName(score) ?? `평가 항목 #${score.criterionId ?? score.scoreId}`;
-    return `${label} ${score.score}점${score.rationale ? `: ${score.rationale}` : ""}`;
-  }
-
   private displayCriterionName(score: CandidateReportScoreRecord): string | undefined {
     return score.criterionName ?? this.criterionNameFromRationale(score.rationale);
   }
 
   private criterionNameFromRationale(rationale?: string): string | undefined {
-    const match = rationale?.match(/^(직무 적합성|문제 해결력|커뮤니케이션|기술 이해도)은\s+\d+점/);
+    const match = rationale?.match(/^(직무\/기술 역량|문제 해결력|실행력과 성과|협업\/커뮤니케이션|학습\/성장성|책임감\/신뢰성)(?:은|는)\s+\d+점/);
     return match?.[1];
+  }
+
+  private topicParticle(value: string): "은" | "는" {
+    const lastChar = value.trim().at(-1);
+    if (!lastChar) return "은";
+    const charCode = lastChar.charCodeAt(0);
+    if (charCode < 0xac00 || charCode > 0xd7a3) return "은";
+    return (charCode - 0xac00) % 28 === 0 ? "는" : "은";
   }
 
   private throwReportNotReady(id: number): never {

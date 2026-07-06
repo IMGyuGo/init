@@ -1,6 +1,5 @@
 import type { ApiEnvelope, ApiErrorEnvelope, Recruitment } from "./types";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
+import { getApiBaseUrl } from "../../api/api-base-url";
 
 export type PublicRecruitment = Pick<
   Recruitment,
@@ -144,7 +143,7 @@ async function request<T>(
     body?: unknown;
   } = {},
 ): Promise<ApiEnvelope<T>> {
-  const url = new URL(`/api/v1${path}`, API_BASE_URL);
+  const url = new URL(`/api/v1${path}`, getApiBaseUrl());
   const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   const requestBody: BodyInit | undefined = isFormData
     ? (options.body as FormData)

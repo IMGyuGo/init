@@ -453,6 +453,59 @@ test("question generation stores review-required drafts after guardrail pass", a
   assert.equal(output.items?.length, 2);
 });
 
+test("posting draft generation returns review-required posting draft without final save", async () => {
+  const results = new InMemoryAiResultRepository();
+
+  const repository = await run({
+    processLogId: 36,
+    processType: "POSTING_DRAFT_GENERATE",
+    input: {
+      kind: "POSTING_DRAFT_GENERATE",
+      payload: {
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS", "PostgreSQL", "Redis"],
+        summary: "대용량 채용 플랫폼 API를 함께 설계하고 운영합니다.",
+        careerRequirement: "신입 이상",
+        employmentType: "정규직",
+        workLocation: "서울"
+      }
+    },
+    results
+  });
+
+  assert.equal(results.generatedDrafts.length, 1);
+  assert.equal(results.generatedDrafts[0].kind, "POSTING_DRAFT_GENERATE");
+  assert.equal(results.generatedDrafts[0].sourceProcessLogId, 36);
+  assert.equal(results.generatedDrafts[0].reviewRequired, true);
+  assert.equal(results.generatedDrafts[0].reviewStatus, "PENDING_REVIEW");
+  assert.deepEqual(results.generatedDrafts[0].targetTables, ["postings"]);
+
+  const output = JSON.parse(repository.get(36).outputRef ?? "{}") as {
+    items?: string[];
+    sourceProcessLogId?: number;
+    reviewRequired?: boolean;
+    reviewStatus?: string;
+    targetTables?: string[];
+    postingDraft?: {
+      title?: string;
+      jobRole?: string;
+      sections?: Record<string, string>;
+      tags?: string[];
+    };
+  };
+  assert.equal(output.sourceProcessLogId, 36);
+  assert.equal(output.reviewRequired, true);
+  assert.equal(output.reviewStatus, "PENDING_REVIEW");
+  assert.deepEqual(output.targetTables, ["postings"]);
+  assert.equal(output.postingDraft?.title, "2026 신입 백엔드 채용");
+  assert.equal(output.postingDraft?.jobRole, "Backend Developer");
+  assert.match(output.postingDraft?.sections?.positionDetail ?? "", /Backend Developer/);
+  assert.match(output.postingDraft?.sections?.responsibilities ?? "", /NestJS/);
+  assert.deepEqual(output.postingDraft?.tags, ["NestJS", "PostgreSQL", "Redis"]);
+  assert.deepEqual(output.items, ["포지션 상세", "주요 업무", "자격 요건", "우대 사항", "복지 및 혜택", "채용 절차"]);
+});
+
 test("criteria suggestion uses JD, talent profile and evaluation policy", async () => {
   const results = new InMemoryAiResultRepository();
 
@@ -489,9 +542,16 @@ test("criteria suggestion uses JD, talent profile and evaluation policy", async 
   assert.deepEqual(output.targetTables, ["criterion_tags", "evaluation_criteria"]);
   assert.equal(output.postingId, 2);
   assert.deepEqual(output.items, results.generatedDrafts[0].items);
-  assert.equal(output.criteriaSuggestions?.length, 3);
-  assert.match(output.criteriaSuggestions?.map((item) => item.description).join("\n") ?? "", /Pragmatic problem solver/);
-  assert.match(output.criteriaSuggestions?.map((item) => item.description).join("\n") ?? "", /Evidence-backed backend ownership/);
+  assert.equal(output.criteriaSuggestions?.length, 6);
+  assert.deepEqual(output.items, ["직무/기술 역량", "문제 해결력", "실행력과 성과", "협업/커뮤니케이션", "학습/성장성", "책임감/신뢰성"]);
+  assert.match(
+    output.criteriaSuggestions?.map((item) => `${item.description}\n${item.suggestionReason}`).join("\n") ?? "",
+    /Pragmatic problem solver/,
+  );
+  assert.match(
+    output.criteriaSuggestions?.map((item) => `${item.description}\n${item.suggestionReason}`).join("\n") ?? "",
+    /Evidence-backed backend ownership/,
+  );
 });
 
 test("question set generation reflects criteria and question type conditions", async () => {

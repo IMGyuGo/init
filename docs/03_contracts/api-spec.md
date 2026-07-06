@@ -163,6 +163,56 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
 - 리포트 API는 `backend/api/src/modules/report`, AI 공통 API는 `backend/api/src/modules/ai`에 둔다.
 - 기존 구현에 임시 alias route가 있더라도 신규 service와 DTO는 baseline module 기준으로 정렬한다.
 
+## Interview Evaluation Rubric Baseline
+
+면접 리포트는 AI가 채용 결정을 대신하는 기능이 아니다. AI는 JD, 평가 기준, 면접 답변 transcript, 제출 자료에 있는 근거를 구조화해 사람이 검토할 수 있도록 돕는다. 합격/불합격, 채용 적합/부적합 같은 최종 판단 문구는 리포트 생성 결과에 포함하지 않는다.
+
+서비스 기본 평가 기준은 아래 6개를 사용한다. 기업이 별도 기준을 설정하지 않은 모의면접/채용면접 리포트 fallback도 같은 기준을 따른다.
+
+| 기준 | 기본 weight | 평가 관점 |
+| --- | ---: | --- |
+| 직무/기술 역량 | 30 | JD와 연결되는 기술 지식, 구현 경험, 설계 판단을 답변 근거로 확인한다. |
+| 문제 해결력 | 20 | 문제 원인을 나누어 확인하고 제약, 대안, 해결 과정을 설명하는지 확인한다. |
+| 실행력과 성과 | 20 | 본인이 맡은 행동, 완성도, 결과나 개선 효과가 답변에 드러나는지 확인한다. |
+| 협업/커뮤니케이션 | 15 | 상황, 역할, 의사소통 방식, 협업 조정 과정을 구조적으로 전달하는지 확인한다. |
+| 학습/성장성 | 10 | 새로운 도구나 도메인을 학습하고 실제 문제에 적용한 흐름을 확인한다. |
+| 책임감/신뢰성 | 5 | 맡은 범위를 끝까지 확인하고 재발 방지, 검증, 공유까지 수행했는지 확인한다. |
+
+점수는 100점 환산으로 저장하고, 화면에는 아래 구간 라벨을 함께 표시한다.
+
+| 점수 구간 | 라벨 | 의미 |
+| --- | --- | --- |
+| 90~100 | 매우 우수 | 근거가 풍부하고 결과와 재발 방지까지 명확하다. |
+| 80~89 | 우수 | 상황, 행동, 결과가 비교적 구체적으로 연결된다. |
+| 70~79 | 보통 이상 | 핵심 경험은 확인되지만 일부 근거 보강이 필요하다. |
+| 60~69 | 보완 필요 | 상황은 있으나 본인 역할, 과정, 결과가 부족하다. |
+| 0~59 | 부족 | 질문과 직접 연결되는 평가 근거가 부족하다. |
+
+내부 rubric anchor는 1~5단계로 계산할 수 있다.
+
+| 단계 | 기준 |
+| --- | --- |
+| 1 | 근거 없음 또는 질문과 거의 무관 |
+| 2 | 상황은 있으나 본인 역할/과정이 불명확 |
+| 3 | 상황과 행동은 있으나 결과나 구체성이 부족 |
+| 4 | 원인, 행동, 결과가 구체적 |
+| 5 | 제약, 대안 비교, 정량 성과, 재발 방지까지 명확 |
+
+STT 미인식 답변 처리:
+
+- 음성 인식 실패로 transcript가 생성되지 않은 답변은 `evaluationStatus=STT_UNAVAILABLE`로 구분한다.
+- 이 경우 리포트 점수는 임시 0점으로 저장할 수 있지만, 지원자의 답변 품질 자체를 0점으로 추정하지 않는다.
+- 화면 피드백은 "음성 인식 실패로 평가 근거가 부족함"과 "재답변 또는 재녹음 필요"를 구분해 표시한다.
+- 정상 transcript가 있는 답변만 서비스 기본 평가 기준과 점수 구간에 따라 품질 평가한다.
+
+AI 리포트 금지 기준:
+
+- 성별, 나이, 출신 학교, 외모, 지역, 장애 여부, 건강 상태 등 민감 속성을 평가하거나 추정하지 않는다.
+- 표정, 시선, 목소리 톤, 억양, 말투 같은 비언어 요소를 채용 점수로 사용하지 않는다.
+- 답변 transcript, JD, 제출 자료에 없는 사실을 추정하지 않는다.
+- 지원자에게 합격/불합격, 채용 가능성, 채용 적합/부적합을 단정하지 않는다.
+- 모의면접 리포트는 연습 피드백만 제공하며 채용 판단 표현을 사용하지 않는다.
+
 ## 인증/계정
 
 ### API-001 POST /auth/login
@@ -486,6 +536,42 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
 - 비고/미결:
   - 평가 기준/질문 연결은 C 영역이며 공고 생성 happy path에서는 연결하지 않는다.
   - JD 이미지 파일 업로드/S3/file_assets 저장은 `API-086 POST /company/recruitments/jd-images`에서 처리하고, 이 API에는 반환된 이미지 URL이 포함된 `jobDescription` HTML만 저장한다.
+
+### API-085 POST /company/recruitments/ai-draft
+- 도메인: 기업 - 채용공고
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 공고 생성 화면 (/company/recruitments/new)
+- UI Type: button, AI draft preview
+- 상태 코드: 202 Accepted
+- 비동기: Y
+- 요청 데이터:
+  - title: string, max 120
+  - jobRole: string, max 80
+  - keywords: string[] optional, max 10 items, each max 40
+  - summary: string optional, max 1000
+  - careerRequirement: string optional, max 80
+  - employmentType: string optional, max 40
+  - workLocation: string optional, max 120
+- 검증/전제조건:
+  - `CurrentUser.userType=COMPANY`이고 `CurrentUser.companyId`가 존재해야 한다.
+  - title, jobRole은 필수다.
+  - title, jobRole, summary, keywords, careerRequirement, employmentType, workLocation은 OpenAI/worker 호출 전에 길이와 개수 제한을 검증한다.
+  - 지원자 개인정보, 지원서, 면접 답변 등 후보자 데이터는 입력 payload에 포함하지 않는다.
+- 성공 응답/처리:
+  - `POSTING_DRAFT_GENERATE` AI 작업을 생성하고 `202 Accepted`와 `processLogId`를 반환한다.
+  - 화면은 동일 사용자/회사 컨텍스트로 `GET /ai/jobs/{processLogId}/status`를 polling한다.
+  - 완료 output은 `postingDraft.title`, `postingDraft.jobRole`, `postingDraft.sections`, `postingDraft.tags`, `reviewRequired=true`, `reviewStatus=PENDING_REVIEW`, `targetTables=["postings"]`를 포함한다.
+  - `postingDraft.sections` HTML은 `p`, `ul`, `li`, `strong`, `br` 태그만 허용하고 모든 속성을 제거한 뒤 미리보기/적용에 사용한다.
+  - AI 초안은 `postings`에 자동 저장하지 않는다. 사용자가 초안 적용 후 수정/확인한 뒤 기존 `API-080 POST /company/recruitments`로 `DRAFT` 저장한다.
+- 오류/예외:
+  - 필수값 누락 또는 입력 상한 초과는 `COMMON_VALIDATION_FAILED`를 반환한다.
+  - 상태 polling 주체가 AI job 생성자와 다르면 `COMMON_FORBIDDEN`을 반환한다.
+  - 큐 발행 실패는 `queued=false`, `status=FAILED`, `failure.retryable=true`를 포함한다.
+  - 가드레일 `BLOCKED`는 최종 저장 없이 `AI_GUARDRAIL_BLOCKED` 성격의 실패 안내로 표시한다.
+- 관련 ERD 테이블:
+  - companies, postings, ai_process_logs, ai_guardrail_logs
+- 비고/미결:
+  - 이 API는 공고 `OPEN` 전환, 평가 기준 저장, 질문 뱅크 생성, 면접 세션 생성을 자동 수행하지 않는다.
 
 ### API-086 POST /company/recruitments/jd-images
 - 도메인: 기업 - 채용공고

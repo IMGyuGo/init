@@ -2,8 +2,8 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
-  Headers,
   HttpCode,
   HttpStatus,
   Inject,
@@ -22,6 +22,8 @@ import {
   DocumentExtractRequestDto,
   FollowUpQuestionRequestDto,
   MockQuestionGenerateRequestDto,
+  POSTING_DRAFT_INPUT_LIMITS,
+  PostingDraftGenerateRequestDto,
   QuestionGenerateRequestDto,
   QuestionSetGenerateRequestDto,
   SttRequestDto,
@@ -29,7 +31,7 @@ import {
 import { AiJobResponseDto } from "../../report/dto/report-response.dto";
 import { AiJobDispatcherService } from "../../report/service/ai-job-dispatcher.service";
 import { AiProcessNotFoundError, REPORT_REPOSITORY, ReportRepository } from "../../report/repository/report.repository";
-import { AiProcessType } from "../../report/report.types";
+import { AiProcessType, QueuedAiProcessSnapshot } from "../../report/report.types";
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
 
 type HeaderMap = Record<string, string | string[] | undefined>;
@@ -43,6 +45,12 @@ type CandidateAiRequest = {
   };
 };
 type CompanyAiRequest = CandidateAiRequest;
+type AiJobRequestedBy = {
+  userId?: unknown;
+  userType?: unknown;
+  companyId?: unknown;
+  candidateId?: unknown;
+};
 
 @ApiTags("Candidate AI Jobs")
 @ApiBearerAuth("bearer")
@@ -236,6 +244,145 @@ export class CandidateAiJobsController {
 @ApiDevAuthHeaders()
 @ApiErrorResponses()
 @UseGuards(JwtAuthGuard)
+@Controller("company/recruitments")
+export class CompanyRecruitmentAiJobsController {
+  constructor(
+    @Inject(DevAuthAdapter) private readonly devAuthAdapter: DevAuthAdapter,
+    @Inject(AiJobDispatcherService) private readonly dispatcher: AiJobDispatcherService
+  ) {}
+
+  @Post("ai-draft")
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperationId("API-085")
+  @ApiOperation({ summary: "공고 생성 AI 초안 작성 작업 생성" })
+  @ApiEnvelopeResponse(AiJobResponseDto, 202)
+  async generatePostingDraft(@Req() request: CompanyAiRequest, @Body() body: PostingDraftGenerateRequestDto) {
+    const currentUser = this.company(request);
+    const title = this.requiredBoundedText(body.title, "title", POSTING_DRAFT_INPUT_LIMITS.titleMaxLength);
+    const jobRole = this.requiredBoundedText(body.jobRole, "jobRole", POSTING_DRAFT_INPUT_LIMITS.jobRoleMaxLength);
+    const keywords = this.normalizedKeywords(body.keywords);
+    const summary = this.optionalBoundedText(body.summary, "summary", POSTING_DRAFT_INPUT_LIMITS.summaryMaxLength);
+    const careerRequirement = this.optionalBoundedText(
+      body.careerRequirement,
+      "careerRequirement",
+      POSTING_DRAFT_INPUT_LIMITS.careerRequirementMaxLength
+    );
+    const employmentType = this.optionalBoundedText(
+      body.employmentType,
+      "employmentType",
+      POSTING_DRAFT_INPUT_LIMITS.employmentTypeMaxLength
+    );
+    const workLocation = this.optionalBoundedText(
+      body.workLocation,
+      "workLocation",
+      POSTING_DRAFT_INPUT_LIMITS.workLocationMaxLength
+    );
+
+    return this.dispatcher.dispatch({
+      processType: "POSTING_DRAFT_GENERATE",
+      input: {
+        kind: "POSTING_DRAFT_GENERATE",
+        requestedBy: {
+          userId: currentUser.userId,
+          userType: currentUser.userType,
+          companyId: currentUser.companyId
+        },
+        payload: {
+          title,
+          jobRole,
+          keywords,
+          summary,
+          careerRequirement,
+          employmentType,
+          workLocation
+        }
+      }
+    });
+  }
+
+  private company(request: CompanyAiRequest): CurrentUser {
+    const currentUser = request.currentUser
+      ? {
+          userId: request.currentUser.userId,
+          userType: request.currentUser.userType,
+          companyId: request.currentUser.companyId ?? undefined,
+          candidateId: request.currentUser.candidateId ?? undefined,
+        }
+      : this.devAuthAdapter.parse(request.headers);
+    this.devAuthAdapter.assertCompany(currentUser);
+    return currentUser;
+  }
+
+  private requireText(value: unknown, name: string): void {
+    if (typeof value !== "string" || !value.trim()) {
+      throw this.validation(`${name} is required.`);
+    }
+  }
+
+  private requiredBoundedText(value: unknown, name: string, maxLength: number): string {
+    this.requireText(value, name);
+    const normalized = String(value).trim();
+    if (normalized.length > maxLength) {
+      throw this.validation(`${name} must be ${maxLength} characters or fewer.`);
+    }
+    return normalized;
+  }
+
+  private optionalBoundedText(value: unknown, name: string, maxLength: number): string | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    if (typeof value !== "string") {
+      throw this.validation(`${name} must be a string.`);
+    }
+    const normalized = value.trim();
+    if (!normalized) {
+      return undefined;
+    }
+    if (normalized.length > maxLength) {
+      throw this.validation(`${name} must be ${maxLength} characters or fewer.`);
+    }
+    return normalized;
+  }
+
+  private normalizedKeywords(value: unknown): string[] {
+    if (value === undefined || value === null) {
+      return [];
+    }
+    if (!Array.isArray(value)) {
+      throw this.validation("keywords must be an array.");
+    }
+    if (value.length > POSTING_DRAFT_INPUT_LIMITS.keywordMaxCount) {
+      throw this.validation(`keywords must contain ${POSTING_DRAFT_INPUT_LIMITS.keywordMaxCount} items or fewer.`);
+    }
+
+    return value
+      .map((keyword, index) => {
+        if (typeof keyword !== "string") {
+          throw this.validation(`keywords[${index}] must be a string.`);
+        }
+        const normalized = keyword.trim();
+        if (normalized.length > POSTING_DRAFT_INPUT_LIMITS.keywordMaxLength) {
+          throw this.validation(`keywords[${index}] must be ${POSTING_DRAFT_INPUT_LIMITS.keywordMaxLength} characters or fewer.`);
+        }
+        return normalized;
+      })
+      .filter((keyword) => keyword.length > 0);
+  }
+
+  private validation(message: string): BadRequestException {
+    return new BadRequestException({
+      code: "COMMON_VALIDATION_FAILED",
+      message
+    });
+  }
+}
+
+@ApiTags("Company AI Jobs")
+@ApiBearerAuth("bearer")
+@ApiDevAuthHeaders()
+@ApiErrorResponses()
+@UseGuards(JwtAuthGuard)
 @Controller("company/interviews")
 export class CompanyAiJobsController {
   constructor(
@@ -356,11 +503,14 @@ export class AiJobsStatusController {
   @ApiOperation({ summary: "AI 작업 상태 조회" })
   @ApiParamId("processLogId", "AI process log ID")
   @ApiEnvelopeResponse(AiJobResponseDto)
-  async getStatus(@Param("processLogId") processLogIdParam: string) {
+  async getStatus(@Req() request: CandidateAiRequest, @Param("processLogId") processLogIdParam: string) {
     const processLogId = this.parseId(processLogIdParam, "processLogId");
+    const currentUser = this.authenticatedUser(request);
 
     try {
-      return await this.repository.getProcess(processLogId);
+      const process = await this.repository.getProcess(processLogId);
+      this.assertProcessVisibleToUser(process, currentUser);
+      return process;
     } catch (error) {
       if (error instanceof AiProcessNotFoundError) {
         throw new NotFoundException({
@@ -370,6 +520,73 @@ export class AiJobsStatusController {
       }
       throw error;
     }
+  }
+
+  private authenticatedUser(request: CandidateAiRequest): CurrentUser {
+    if (!request.currentUser) {
+      throw new ForbiddenException({
+        code: "COMMON_FORBIDDEN",
+        message: "AI job status is only available to the job owner."
+      });
+    }
+    return {
+      userId: request.currentUser.userId,
+      userType: request.currentUser.userType,
+      companyId: request.currentUser.companyId ?? undefined,
+      candidateId: request.currentUser.candidateId ?? undefined
+    };
+  }
+
+  private assertProcessVisibleToUser(process: QueuedAiProcessSnapshot, currentUser: CurrentUser): void {
+    if (currentUser.userType === "ADMIN") return;
+
+    const requestedBy = this.readRequestedBy(process.inputRef);
+    if (!requestedBy || requestedBy.userType !== currentUser.userType) {
+      throw this.forbiddenProcess();
+    }
+
+    if (currentUser.userType === "COMPANY") {
+      const companyId = this.toPositiveNumber(requestedBy.companyId);
+      const userId = this.toPositiveNumber(requestedBy.userId);
+      if (userId === currentUser.userId && currentUser.companyId && companyId === currentUser.companyId) return;
+      throw this.forbiddenProcess();
+    }
+
+    if (currentUser.userType === "CANDIDATE") {
+      const candidateId = this.toPositiveNumber(requestedBy.candidateId);
+      const userId = this.toPositiveNumber(requestedBy.userId);
+      if (userId === currentUser.userId && currentUser.candidateId && candidateId === currentUser.candidateId) return;
+      throw this.forbiddenProcess();
+    }
+
+    throw this.forbiddenProcess();
+  }
+
+  private readRequestedBy(inputRef: string): AiJobRequestedBy | undefined {
+    try {
+      const parsed = JSON.parse(inputRef) as unknown;
+      if (!this.isRecord(parsed)) return undefined;
+      const requestedBy = parsed.requestedBy;
+      return this.isRecord(requestedBy) ? requestedBy : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+  }
+
+  private toPositiveNumber(value: unknown): number | undefined {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+  }
+
+  private forbiddenProcess(): ForbiddenException {
+    return new ForbiddenException({
+      code: "COMMON_FORBIDDEN",
+      message: "AI job status is only available to the job owner."
+    });
   }
 
   private parseId(value: string, name: string): number {

@@ -1,6 +1,7 @@
 export * from "./ai-result.repository";
 export * from "./mock-ai-task.handler";
 export * from "./openai-follow-up.provider";
+export * from "./openai-posting-draft.provider";
 export * from "./openai-report.provider";
 export * from "./prisma-ai-result.repository";
 export * from "./prisma-process-log.repository";

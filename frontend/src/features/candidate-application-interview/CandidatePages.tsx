@@ -5,8 +5,9 @@ import "./CandidatePages.module.css";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { DependencyList, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DependencyList, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { getApiBaseUrl } from "../../api/api-base-url";
 import { getAccessToken } from "../../api/client";
 import { GnbAvatar, GnbLogoutButton } from "../auth/GnbAccountControls";
 import { createPaymentOrder, getCandidateMockInterviewPassSummary, grantCandidateMockInterviewDevPasses, listPaymentOrders } from "../payment/api";
@@ -29,11 +30,11 @@ import {
   type CandidateApplicationStatusView,
   type CandidateApplicationSummary,
   type CandidateFileAsset,
+  type CandidateFollowUpQuestionView,
   type CandidateInterviewRuntimeView,
   type CandidateJobQuery,
   type CandidateMockInterviewHistoryItem,
   type CandidateReportGenerationHandoff,
-  type CandidateAiProcessView,
   type CandidateMockReportFeedback,
   type CandidateMockReportMedia,
   type CandidateMockReportSummary,
@@ -53,13 +54,16 @@ import {
 } from "./api";
 import { candidateApplicationInterviewRoutes } from "./routes";
 import {
+  type CameraPipPosition,
   type CandidateApplicationFormState,
   type CandidateDeviceCheckState,
   type CandidateInterviewConsentState,
   type CandidatePortfolioLinkFormState,
   type CandidateResumeUploadState,
   type InterviewAnswerFormState,
+  type InterviewRuntimePrimaryScreen,
   type StartMockInterviewState,
+  clampCameraPipPosition,
   defaultApplicationFormState,
   defaultCandidateJobQuery,
   defaultDeviceCheckState,
@@ -67,8 +71,15 @@ import {
   defaultInterviewConsentState,
   defaultPortfolioLinkFormState,
   defaultStartMockInterviewState,
+  createCameralessInterviewTestDeviceCheckState,
   createResumeUploadStateFromFile,
+  formatAiInterviewerQuestionPrompt,
+  getAiInterviewerProfile,
+  getDefaultCameraPipPosition,
   getInterviewMediaFileExtension,
+  getInterviewRuntimeLayoutState,
+  getInterviewRuntimeScreenSwapState,
+  getInterviewRuntimeStatusChips,
   getCandidateApplicationReportHref,
   getMockInterviewDeviceCheckHref,
   getMockReportHref,
@@ -88,9 +99,11 @@ import {
 import { candidateAccountBillingNav, candidateNavLabels, isCandidateAccountBillingPath } from "./candidate-nav-config";
 import { CandidateApplicationView, CandidateJobDetailView, CandidateJobsView } from "./views";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
 const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY ?? "";
 const SHOW_PAYMENT_DEV_TOOLS = process.env.NODE_ENV !== "production";
+// DEV-ONLY camera bypass: remove this flag, storage helpers, and matching buttons together when it is no longer needed.
+const ENABLE_CAMERALESS_INTERVIEW_TEST_ENTRY = process.env.NODE_ENV !== "production";
+const CAMERALESS_INTERVIEW_TEST_ENTRY_STORAGE_KEY_PREFIX = "init.cameralessInterviewTestEntry";
 const DEMO_CANDIDATE_ID = 1;
 export const PUBLIC_INTERVIEW_ACCESS_TOKEN_STORAGE_KEY = "init.publicInterviewAccessToken";
 const DEFAULT_INTERVIEW_QUESTION_TIME_LIMIT_SECONDS = 90;
@@ -98,6 +111,7 @@ const DEFAULT_MOCK_INTERVIEW_PREPARATION_TIME_LIMIT_SECONDS = 5;
 const MIN_INTERVIEW_RECORDING_DURATION_SECONDS = 3;
 const MIN_INTERVIEW_RECORDING_BLOB_SIZE_BYTES = 10 * 1024;
 const MIN_STT_TRANSCRIPT_MEANINGFUL_LENGTH = 10;
+const RUNTIME_PIP_RESERVED_TOP_HEIGHT = 96;
 const questionTypeOptions: QuestionType[] = ["INTRO", "TECHNICAL", "EXPERIENCE", "SITUATION", "CLOSING"];
 
 type CandidateNavSection = "jobs" | "applications" | "interview" | "reports" | "accountBilling";
@@ -221,34 +235,40 @@ type CameraFramingResult = {
   blocking: boolean;
   message: string;
 };
-type DetectedFace = {
-  boundingBox: DOMRectReadOnly;
+
+type CameraPipDragState = {
+  pointerId: number;
+  offsetX: number;
+  offsetY: number;
 };
-type FaceDetectorConstructor = new (options?: { fastMode?: boolean; maxDetectedFaces?: number }) => {
-  detect: (source: CanvasImageSource) => Promise<DetectedFace[]>;
-};
-type FaceDetectorWindow = Window & {
-  FaceDetector?: FaceDetectorConstructor;
-};
-type FaceBoundingBox = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
-type MediaPipeFaceDetection = {
-  boundingBox?: {
-    originX?: number;
-    originY?: number;
-    x?: number;
-    y?: number;
-    width?: number;
-    height?: number;
-  };
-};
-type MediaPipeFaceDetectorInstance = {
-  detectForVideo: (video: HTMLVideoElement, timestampMs: number) => { detections?: MediaPipeFaceDetection[] };
-};
+
+function getCameralessInterviewTestEntryStorageKey(mode: RuntimeMode, sessionId: number): string {
+  return `${CAMERALESS_INTERVIEW_TEST_ENTRY_STORAGE_KEY_PREFIX}:${mode}:${sessionId}`;
+}
+
+function rememberCameralessInterviewTestEntry(mode: RuntimeMode, sessionId: number) {
+  if (!ENABLE_CAMERALESS_INTERVIEW_TEST_ENTRY || typeof window === "undefined") return;
+
+  try {
+    window.sessionStorage.setItem(getCameralessInterviewTestEntryStorageKey(mode, sessionId), "1");
+  } catch {
+    // Session storage can be unavailable in private or locked-down browsers.
+  }
+}
+
+function consumeCameralessInterviewTestEntry(mode: RuntimeMode, sessionId: number): boolean {
+  if (!ENABLE_CAMERALESS_INTERVIEW_TEST_ENTRY || typeof window === "undefined") return false;
+
+  try {
+    const key = getCameralessInterviewTestEntryStorageKey(mode, sessionId);
+    const enabled = window.sessionStorage.getItem(key) === "1";
+    if (enabled) window.sessionStorage.removeItem(key);
+    return enabled;
+  } catch {
+    return false;
+  }
+}
+
 const DEVICE_TEST_SENTENCES = [
   "나는 차분하게 듣고, 나의 생각을 분명하게 답할 수 있다.",
   "나는 준비한 만큼 침착하게 말하고, 끝까지 답할 수 있다.",
@@ -276,10 +296,6 @@ const DEVICE_TEST_SENTENCES = [
   "나는 나의 속도로 말하고, 나의 경험으로 충분히 답할 수 있다.",
   "나는 끝까지 집중하며, 오늘의 면접을 차분하게 마무리할 수 있다.",
 ] as const;
-const MEDIAPIPE_TASKS_VERSION = "0.10.35";
-const MEDIAPIPE_FACE_DETECTOR_MODEL_URL =
-  "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite";
-let mediaPipeFaceDetectorPromise: Promise<MediaPipeFaceDetectorInstance | null> | null = null;
 
 export function CandidateJobsPage() {
   const [query, setQuery] = useState<CandidateJobQuery>(defaultCandidateJobQuery);
@@ -680,21 +696,22 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
       }
       assertCameraPreviewHasFrame(previewInfo);
       const cameraQuality = assessCameraQuality(videoRef.current);
-      const cameraFraming = await assessCameraFraming(videoRef.current);
+      const cameraFraming = getCameraFramingNotice();
       const microphoneQuality = audioEnabled
         ? await measureMicrophoneQuality(stream, setMicrophoneLevel)
         : { ok: false, peakLevel: 0, message: formatMicrophoneStatus(streamResult) };
       const networkQuality = await checkInterviewNetworkQuality();
       const cameraOk = cameraQuality.ok && !cameraFraming.blocking;
+      const microphoneOk = audioEnabled && microphoneQuality.ok;
       setCameraReady(cameraOk);
       setCameraFramingState(cameraFraming.state);
-      setMicrophoneReady(audioEnabled && microphoneQuality.ok);
+      setMicrophoneReady(microphoneOk);
       setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, fallbackLabel, cameraQuality, cameraFraming));
       setMicrophoneStatus(audioEnabled ? formatMicrophoneQualityStatus(streamResult, microphoneQuality) : microphoneQuality.message);
       setNetworkStatus(networkQuality.message);
       setDeviceState({
         cameraGranted: cameraOk,
-        microphoneGranted: audioEnabled && microphoneQuality.ok,
+        microphoneGranted: microphoneOk,
         networkStable: networkQuality.ok,
       });
       startGuideCameraQualityMonitor(previewInfo, fallbackLabel);
@@ -707,7 +724,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
       setMessage(
         fallbackLabel
           ? `카메라를 연결했습니다. ${fallbackLabel} 마이크 권한을 확인한 뒤 면접을 시작해주세요.`
-          : cameraOk && audioEnabled && microphoneQuality.ok && networkQuality.ok
+          : cameraOk && microphoneOk && networkQuality.ok
             ? "카메라 밝기, 마이크 입력, 네트워크 상태가 적정합니다. 면접 시작을 눌러주세요."
             : "장치 점검 기준을 통과하지 못했습니다. 안내에 따라 카메라 위치, 조명, 마이크 입력을 조정해주세요.",
       );
@@ -761,6 +778,43 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
       stopGuideMicrophoneMeter();
       stopMediaStream(mediaStreamRef.current);
       mediaStreamRef.current = null;
+      router.push(candidateApplicationInterviewRoutes.interview(applicationId));
+    } catch (submitError) {
+      setMessage(toErrorMessage(submitError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCameralessGuideEntry() {
+    if (!guide || !ENABLE_CAMERALESS_INTERVIEW_TEST_ENTRY) return;
+
+    warmUpInterviewAudioOutput();
+    const testDeviceState = createCameralessInterviewTestDeviceCheckState();
+    setBusy(true);
+    setMessage("");
+    try {
+      stopGuideCameraQualityMonitor();
+      stopGuideMicrophoneMeter();
+      stopMediaStream(mediaStreamRef.current);
+      mediaStreamRef.current = null;
+      setDeviceState(testDeviceState);
+      setCameraReady(true);
+      setCameraFramingState("unsupported");
+      setMicrophoneReady(true);
+      setMicrophoneLevel(0);
+      setCameraPreviewStatus("개발 테스트 모드: 카메라 점검 우회");
+      setMicrophoneStatus("개발 테스트 모드: 마이크 점검 우회");
+      setNetworkStatus("개발 테스트 모드: 네트워크 점검 우회");
+
+      const api = getCandidateApi();
+      if (!guide.deviceCheckCompleted) {
+        await api.saveDeviceCheck(guide.sessionId, toDeviceCheckRequest(testDeviceState));
+      }
+      if (!guideInterviewAlreadyInProgress) {
+        await api.startInterview(applicationId);
+      }
+      rememberCameralessInterviewTestEntry("recruiting", guide.sessionId);
       router.push(candidateApplicationInterviewRoutes.interview(applicationId));
     } catch (submitError) {
       setMessage(toErrorMessage(submitError));
@@ -866,6 +920,16 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
                   <button className="btn secondary" type="button" disabled={busy} onClick={() => setStep("guide")}>
                     이전
                   </button>
+                  {ENABLE_CAMERALESS_INTERVIEW_TEST_ENTRY ? (
+                    <button
+                      className="btn secondary"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void handleCameralessGuideEntry()}
+                    >
+                      카메라 없이 테스트 진입
+                    </button>
+                  ) : null}
                   <button
                     className="btn primary"
                     type="button"
@@ -886,7 +950,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
                 <aside className="panel candidate-runtime-status-panel">
                   <p className="panel-title">장치 상태</p>
                   <div className="status-list">
-                    <div className="status-line"><span className={cameraReady ? "ok" : "wait"}>{cameraReady ? "✓" : "!"}</span> 카메라 {cameraReady ? "정상" : "구도 확인 필요"}</div>
+                    <div className="status-line"><span className={cameraReady ? "ok" : "wait"}>{cameraReady ? "✓" : "!"}</span> 카메라 {cameraReady ? "정상" : "연결 확인 필요"}</div>
                     <div className="status-line"><span className={microphoneReady ? "ok" : "wait"}>{microphoneReady ? "✓" : "!"}</span> {microphoneStatus}</div>
                     <div className="mic-meter" aria-label={`마이크 입력 ${microphoneLevel}%`}>
                       <span style={{ width: `${microphoneLevel}%` }} />
@@ -1291,6 +1355,7 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
   const reportStatus = data?.feedback?.status ?? data?.media?.status ?? (generationRequested ? "GENERATING" : undefined);
   const reportStatusView = getMockReportStatusView(reportStatus, data?.feedbackError);
   const canRequestReport = !busy && reportStatus !== "GENERATING" && reportStatus !== "COMPLETED";
+  const showReportRequestButton = reportStatus !== "COMPLETED";
 
   useEffect(() => {
     if (reportStatus !== "GENERATING") return;
@@ -1328,9 +1393,11 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
             <h2>종합 피드백</h2>
             <p>합격/탈락 판단이나 내부 점수는 노출하지 않습니다.</p>
           </div>
-          <button className="btn secondary" type="button" disabled={!canRequestReport} onClick={() => void handleGenerate()}>
-            {reportStatus === "FAILED" ? "분석 다시 요청" : "AI 분석 시작"}
-          </button>
+          {showReportRequestButton ? (
+            <button className="btn secondary" type="button" disabled={!canRequestReport} onClick={() => void handleGenerate()}>
+              {reportStatus === "FAILED" ? "분석 다시 요청" : "AI 분석 시작"}
+            </button>
+          ) : null}
         </div>
         {data?.feedback && data.feedback.status === "COMPLETED"
           ? <MockFeedbackView feedback={data.feedback} />
@@ -1339,8 +1406,8 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
       <section className="panel">
         <div className="panel-head">
           <div>
-            <h2>영상 / 스크립트 동시 조회</h2>
-            <p>본인 세션의 file_assets 참조만 표시합니다.</p>
+            <h2>답변 스크립트</h2>
+            <p>녹음 답변에서 변환된 텍스트와 생성된 꼬리질문을 확인합니다.</p>
           </div>
         </div>
         {data?.media ? <MockMediaView media={data.media} /> : <p className="notice danger">{data?.mediaError ?? "미디어를 불러오지 못했습니다."}</p>}
@@ -1844,7 +1911,15 @@ function InterviewRuntimePanel({
   const [recording, setRecording] = useState(false);
   const [recordedFileName, setRecordedFileName] = useState("");
   const [setupCompleted, setSetupCompleted] = useState(false);
-  const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
+  const [cameralessTestEntry, setCameralessTestEntry] = useState(false);
+  const [cameraPreviewVisible, setCameraPreviewVisible] = useState(true);
+  const [cameraPipPosition, setCameraPipPosition] = useState<CameraPipPosition>();
+  const [runtimePrimaryScreen, setRuntimePrimaryScreen] = useState<InterviewRuntimePrimaryScreen>("interviewer");
+  const [interviewerPipVisible, setInterviewerPipVisible] = useState(true);
+  const [interviewerPipPosition, setInterviewerPipPosition] = useState<CameraPipPosition>();
+  const [fullscreenActive, setFullscreenActive] = useState(false);
+  const [interviewerInfoOpen, setInterviewerInfoOpen] = useState(false);
+  const [subtitlesEnabled, setSubtitlesEnabled] = useState(false);
   const [remainingSeconds, setRemainingSeconds] = useState(DEFAULT_INTERVIEW_QUESTION_TIME_LIMIT_SECONDS);
   const [timerPhase, setTimerPhase] = useState<RuntimeTimerPhase>("ANSWERING");
   const [introCompleted, setIntroCompleted] = useState(false);
@@ -1858,6 +1933,11 @@ function InterviewRuntimePanel({
   const [reansweredQuestionIds, setReansweredQuestionIds] = useState<Set<number>>(() => new Set());
   const answeredQuestionIdsRef = useRef<Set<number>>(new Set());
   const savingQuestionIdsRef = useRef<Set<number>>(new Set());
+  const interviewerStageRef = useRef<HTMLDivElement | null>(null);
+  const cameraPipRef = useRef<HTMLDivElement | null>(null);
+  const cameraPipDragRef = useRef<CameraPipDragState | null>(null);
+  const interviewerPipRef = useRef<HTMLDivElement | null>(null);
+  const interviewerPipDragRef = useRef<CameraPipDragState | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -1868,6 +1948,8 @@ function InterviewRuntimePanel({
   const recordingStartedAtRef = useRef(0);
   const submitAfterRecordingStopRef = useRef(false);
   const autoAdvanceAfterAnswerSubmitRef = useRef(false);
+  const answerCompleteShortcutRef = useRef<() => void>(() => undefined);
+  const nextQuestionShortcutRef = useRef<() => void>(() => undefined);
   const startRuntimeAfterRefreshRef = useRef(false);
   const autoRecordingQuestionRef = useRef<number | null>(null);
   const autoSpokenQuestionRef = useRef<number | null>(null);
@@ -2057,14 +2139,14 @@ function InterviewRuntimePanel({
         assertCameraPreviewHasFrame(previewInfo);
         if (videoRef.current !== node || videoAttachRunRef.current !== attachRun) return;
         const cameraQuality = assessCameraQuality(node);
-        const cameraFraming = await assessCameraFraming(node);
+        const cameraFraming = getCameraFramingNotice();
         const cameraOk = cameraQuality.ok && !cameraFraming.blocking;
         setCameraReady(cameraOk);
         setCameraFramingState(cameraFraming.state);
         setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, undefined, cameraQuality, cameraFraming));
         cameraQualityIntervalRef.current = startCameraQualityMonitor(node, previewInfo, undefined, (quality, framing, status) => {
           if (videoRef.current !== node || videoAttachRunRef.current !== attachRun) return;
-          setCameraReady(quality.ok && !framing.blocking);
+          setCameraReady(quality.ok);
           setCameraFramingState(framing.state);
           setCameraPreviewStatus(status);
         });
@@ -2131,6 +2213,90 @@ function InterviewRuntimePanel({
   }, [stopQuestionSpeech]);
 
   useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const handleFullscreenChange = () => {
+      setFullscreenActive(document.fullscreenElement === interviewerStageRef.current);
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    handleFullscreenChange();
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !setupCompleted || !cameraPreviewVisible || runtimePrimaryScreen !== "interviewer") return;
+
+    const syncCameraPipPosition = () => {
+      const stage = interviewerStageRef.current;
+      const pip = cameraPipRef.current;
+      if (!stage || !pip) return;
+
+      const stageRect = stage.getBoundingClientRect();
+      const pipRect = pip.getBoundingClientRect();
+      const padding = fullscreenActive ? 32 : 20;
+      const bounds = {
+        stageWidth: stageRect.width,
+        stageHeight: stageRect.height,
+        pipWidth: pipRect.width,
+        pipHeight: pipRect.height,
+        padding,
+        reservedTopHeight: RUNTIME_PIP_RESERVED_TOP_HEIGHT,
+      };
+
+      setCameraPipPosition((current) => (
+        current
+          ? clampCameraPipPosition(current, bounds)
+          : getDefaultCameraPipPosition(bounds)
+      ));
+    };
+
+    const animationFrameId = window.requestAnimationFrame(syncCameraPipPosition);
+    window.addEventListener("resize", syncCameraPipPosition);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+      window.removeEventListener("resize", syncCameraPipPosition);
+    };
+  }, [cameraPreviewVisible, fullscreenActive, runtimePrimaryScreen, setupCompleted]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !setupCompleted || !interviewerPipVisible || runtimePrimaryScreen !== "candidate") return;
+
+    const syncInterviewerPipPosition = () => {
+      const stage = interviewerStageRef.current;
+      const pip = interviewerPipRef.current;
+      if (!stage || !pip) return;
+
+      const stageRect = stage.getBoundingClientRect();
+      const pipRect = pip.getBoundingClientRect();
+      const padding = fullscreenActive ? 32 : 20;
+      const bounds = {
+        stageWidth: stageRect.width,
+        stageHeight: stageRect.height,
+        pipWidth: pipRect.width,
+        pipHeight: pipRect.height,
+        padding,
+        reservedTopHeight: RUNTIME_PIP_RESERVED_TOP_HEIGHT,
+      };
+
+      setInterviewerPipPosition((current) => (
+        current
+          ? clampCameraPipPosition(current, bounds)
+          : getDefaultCameraPipPosition(bounds)
+      ));
+    };
+
+    const animationFrameId = window.requestAnimationFrame(syncInterviewerPipPosition);
+    window.addEventListener("resize", syncInterviewerPipPosition);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+      window.removeEventListener("resize", syncInterviewerPipPosition);
+    };
+  }, [fullscreenActive, interviewerPipVisible, runtimePrimaryScreen, setupCompleted]);
+
+  useEffect(() => {
     if (!data) return;
     setAnsweredQuestionIds((current) => {
       const next = new Set(current);
@@ -2141,6 +2307,15 @@ function InterviewRuntimePanel({
       return next.size === current.size ? current : next;
     });
   }, [data]);
+
+  useEffect(() => {
+    if (!data || !consumeCameralessInterviewTestEntry(mode, data.runtime.sessionId)) return;
+    completeCameralessRuntimeSetup(
+      "카메라 없이 테스트 모드로 면접 화면에 진입했습니다. 녹화와 답변 제출은 장치 연결 후 가능합니다.",
+    );
+    // Camera-less test entry intentionally consumes a one-shot session flag.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.runtime.sessionId, mode]);
 
   useEffect(() => {
     if (!data || data.runtime.status !== "IN_PROGRESS" || !startRuntimeAfterRefreshRef.current) return;
@@ -2310,6 +2485,7 @@ function InterviewRuntimePanel({
       !introCompleted ||
       !questionSpeechCompleted ||
       questionSpeechPlaying ||
+      cameralessTestEntry ||
       !cameraReady ||
       !microphoneReady ||
       !currentQuestion ||
@@ -2327,6 +2503,7 @@ function InterviewRuntimePanel({
   }, [
     data?.runtime.sessionId,
     setupCompleted,
+    cameralessTestEntry,
     cameraReady,
     microphoneReady,
     introCompleted,
@@ -2412,6 +2589,224 @@ function InterviewRuntimePanel({
     tick();
   }
 
+  function completeCameralessRuntimeSetup(nextMessage: string) {
+    warmUpInterviewAudioOutput();
+    stopQuestionSpeech();
+    stopRuntimeCameraQualityMonitor();
+    stopMicrophoneMeter();
+    stopMediaStream(streamRef.current);
+    streamRef.current = null;
+    setCameraReady(true);
+    setCameraFramingState("unsupported");
+    setMicrophoneReady(true);
+    setMicrophoneLevel(0);
+    setNetworkReady(true);
+    setCameraPreviewStatus("개발 테스트 모드: 카메라 점검 우회");
+    setMicrophoneStatus("개발 테스트 모드: 마이크 점검 우회");
+    setNetworkStatus("개발 테스트 모드: 네트워크 점검 우회");
+    setCameralessTestEntry(true);
+    setSetupCompleted(true);
+    setIntroCompleted(false);
+    setQuestionSpeechCompleted(false);
+    setQuestionSpeechPlaying(false);
+    setQuestionSpeechStatus("AI 안내 대기");
+    setMessage(nextMessage);
+    autoRecordingQuestionRef.current = null;
+  }
+
+  function moveCameraPip(clientX: number, clientY: number, dragState: CameraPipDragState) {
+    const stage = interviewerStageRef.current;
+    const pip = cameraPipRef.current;
+    if (!stage || !pip) return;
+
+    const stageRect = stage.getBoundingClientRect();
+    const pipRect = pip.getBoundingClientRect();
+    const padding = fullscreenActive ? 32 : 20;
+    setCameraPipPosition(clampCameraPipPosition(
+      {
+        x: clientX - stageRect.left - dragState.offsetX,
+        y: clientY - stageRect.top - dragState.offsetY,
+      },
+      {
+        stageWidth: stageRect.width,
+        stageHeight: stageRect.height,
+        pipWidth: pipRect.width,
+        pipHeight: pipRect.height,
+        padding,
+        reservedTopHeight: RUNTIME_PIP_RESERVED_TOP_HEIGHT,
+      },
+    ));
+  }
+
+  function handleCameraPipPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (runtimePrimaryScreen !== "interviewer") return;
+    if (event.button !== 0) return;
+
+    const stage = interviewerStageRef.current;
+    const pip = cameraPipRef.current;
+    if (!stage || !pip) return;
+
+    const stageRect = stage.getBoundingClientRect();
+    const pipRect = pip.getBoundingClientRect();
+    const padding = fullscreenActive ? 32 : 20;
+    const dragState = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - pipRect.left,
+      offsetY: event.clientY - pipRect.top,
+    };
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    cameraPipDragRef.current = dragState;
+    setCameraPipPosition(clampCameraPipPosition(
+      {
+        x: pipRect.left - stageRect.left,
+        y: pipRect.top - stageRect.top,
+      },
+      {
+        stageWidth: stageRect.width,
+        stageHeight: stageRect.height,
+        pipWidth: pipRect.width,
+        pipHeight: pipRect.height,
+        padding,
+        reservedTopHeight: RUNTIME_PIP_RESERVED_TOP_HEIGHT,
+      },
+    ));
+  }
+
+  function handleCameraPipPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const dragState = cameraPipDragRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    moveCameraPip(event.clientX, event.clientY, dragState);
+  }
+
+  function handleCameraPipPointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    const dragState = cameraPipDragRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // The browser may already release capture after pointer cancellation.
+    }
+    cameraPipDragRef.current = null;
+  }
+
+  function moveInterviewerPip(clientX: number, clientY: number, dragState: CameraPipDragState) {
+    const stage = interviewerStageRef.current;
+    const pip = interviewerPipRef.current;
+    if (!stage || !pip) return;
+
+    const stageRect = stage.getBoundingClientRect();
+    const pipRect = pip.getBoundingClientRect();
+    const padding = fullscreenActive ? 32 : 20;
+    setInterviewerPipPosition(clampCameraPipPosition(
+      {
+        x: clientX - stageRect.left - dragState.offsetX,
+        y: clientY - stageRect.top - dragState.offsetY,
+      },
+      {
+        stageWidth: stageRect.width,
+        stageHeight: stageRect.height,
+        pipWidth: pipRect.width,
+        pipHeight: pipRect.height,
+        padding,
+        reservedTopHeight: RUNTIME_PIP_RESERVED_TOP_HEIGHT,
+      },
+    ));
+  }
+
+  function handleInterviewerPipPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (runtimePrimaryScreen !== "candidate") return;
+    if (event.button !== 0) return;
+
+    const stage = interviewerStageRef.current;
+    const pip = interviewerPipRef.current;
+    if (!stage || !pip) return;
+
+    const stageRect = stage.getBoundingClientRect();
+    const pipRect = pip.getBoundingClientRect();
+    const padding = fullscreenActive ? 32 : 20;
+    const dragState = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - pipRect.left,
+      offsetY: event.clientY - pipRect.top,
+    };
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    interviewerPipDragRef.current = dragState;
+    setInterviewerPipPosition(clampCameraPipPosition(
+      {
+        x: pipRect.left - stageRect.left,
+        y: pipRect.top - stageRect.top,
+      },
+      {
+        stageWidth: stageRect.width,
+        stageHeight: stageRect.height,
+        pipWidth: pipRect.width,
+        pipHeight: pipRect.height,
+        padding,
+        reservedTopHeight: RUNTIME_PIP_RESERVED_TOP_HEIGHT,
+      },
+    ));
+  }
+
+  function handleInterviewerPipPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const dragState = interviewerPipDragRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    moveInterviewerPip(event.clientX, event.clientY, dragState);
+  }
+
+  function handleInterviewerPipPointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    const dragState = interviewerPipDragRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // The browser may already release capture after pointer cancellation.
+    }
+    interviewerPipDragRef.current = null;
+  }
+
+  async function handleCameralessRuntimeEntry() {
+    if (!data || !ENABLE_CAMERALESS_INTERVIEW_TEST_ENTRY) return;
+
+    const testDeviceState = createCameralessInterviewTestDeviceCheckState();
+    if (mode === "recruiting" && data.runtime.status !== "IN_PROGRESS") {
+      if (!data.runtime.applicationId) {
+        setMessage("지원서 정보를 확인할 수 없습니다.");
+        return;
+      }
+
+      setBusy(true);
+      setMessage("");
+      try {
+        await runtimeApi.saveDeviceCheck(data.runtime.sessionId, toDeviceCheckRequest(testDeviceState));
+        await runtimeApi.startInterview(data.runtime.applicationId);
+        rememberCameralessInterviewTestEntry("recruiting", data.runtime.sessionId);
+        startRuntimeAfterRefreshRef.current = true;
+        setMessage("카메라 없이 테스트 모드로 면접 화면으로 이동합니다.");
+        refresh();
+      } catch (submitError) {
+        startRuntimeAfterRefreshRef.current = false;
+        setMessage(toErrorMessage(submitError));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    completeCameralessRuntimeSetup(
+      "카메라 없이 테스트 모드로 면접 화면에 진입했습니다. 녹화와 답변 제출은 장치 연결 후 가능합니다.",
+    );
+  }
+
   async function handleEnableCamera() {
     warmUpInterviewAudioOutput();
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -2432,6 +2827,7 @@ function InterviewRuntimePanel({
       const streamResult = await getCameraMediaStream(selectedCameraId, selectedMicrophoneId);
       const { stream, fallbackLabel } = streamResult;
       streamRef.current = stream;
+      setCameralessTestEntry(false);
 
       let previewInfo: CameraPreviewInfo | undefined;
       if (videoRef.current) {
@@ -2440,15 +2836,16 @@ function InterviewRuntimePanel({
       assertCameraPreviewHasFrame(previewInfo);
 
       const cameraQuality = assessCameraQuality(videoRef.current);
-      const cameraFraming = await assessCameraFraming(videoRef.current);
+      const cameraFraming = getCameraFramingNotice();
       const microphoneQuality = streamResult.audioEnabled
         ? await measureMicrophoneQuality(stream, setMicrophoneLevel)
         : { ok: false, peakLevel: 0, message: formatMicrophoneStatus(streamResult) };
       const networkQuality = await checkInterviewNetworkQuality();
       const cameraOk = cameraQuality.ok && !cameraFraming.blocking;
+      const microphoneOk = streamResult.audioEnabled && microphoneQuality.ok;
       setCameraReady(cameraOk);
       setCameraFramingState(cameraFraming.state);
-      setMicrophoneReady(streamResult.audioEnabled && microphoneQuality.ok);
+      setMicrophoneReady(microphoneOk);
       setNetworkReady(networkQuality.ok);
       setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, fallbackLabel, cameraQuality, cameraFraming));
       setMicrophoneStatus(
@@ -2465,7 +2862,7 @@ function InterviewRuntimePanel({
       setMessage(
         fallbackLabel
           ? `카메라가 연결되었습니다. ${fallbackLabel}`
-          : cameraOk && streamResult.audioEnabled && microphoneQuality.ok && networkQuality.ok
+          : cameraOk && microphoneOk && networkQuality.ok
             ? "카메라 밝기, 마이크 입력, 네트워크 상태가 적정합니다."
             : "장치 점검 기준을 통과하지 못했습니다. 안내에 따라 카메라 위치, 조명, 마이크 입력을 조정해주세요.",
       );
@@ -2564,6 +2961,10 @@ function InterviewRuntimePanel({
     }
     if (typeof MediaRecorder === "undefined") {
       setMessage("이 브라우저에서는 녹화를 사용할 수 없습니다.");
+      return;
+    }
+    if (cameralessTestEntry && !streamRef.current) {
+      setMessage("카메라 없이 테스트 모드에서는 면접 화면 확인만 가능합니다. 녹화와 제출은 장치 연결 후 진행해주세요.");
       return;
     }
 
@@ -3437,6 +3838,154 @@ function InterviewRuntimePanel({
   const formattedRemainingTime = formatInterviewCountdown(remainingSeconds);
   const timerLabel = timerPhase === "PREPARING" ? "준비 시간" : "남은 시간";
   const timerDanger = timerPhase === "ANSWERING" && remainingSeconds <= 10;
+  const interviewerProfile = getAiInterviewerProfile(mode);
+  const interviewerQuestionPrompt = formatAiInterviewerQuestionPrompt({
+    question: currentQuestion,
+    questionVisible: subtitlesEnabled,
+  });
+  const cameraPipStyle = cameraPipPosition && runtimePrimaryScreen === "interviewer"
+    ? {
+        left: `${cameraPipPosition.x}px`,
+        top: `${cameraPipPosition.y}px`,
+      }
+    : undefined;
+  const interviewerPipStyle = interviewerPipPosition && runtimePrimaryScreen === "candidate"
+    ? {
+        left: `${interviewerPipPosition.x}px`,
+        top: `${interviewerPipPosition.y}px`,
+        right: "auto",
+      }
+    : undefined;
+  const answerFileStatus = recordedFileName || answer.videoFile ? "답변 파일 준비 완료" : "답변 파일 대기";
+  const runtimeAssistiveStatus = `${answerProcessingLabel}. ${answerProcessingReady ? "답변 처리 완료." : "답변 처리 대기."} ${answerFileStatus}`;
+  const runtimeStatusChips = getInterviewRuntimeStatusChips({
+    microphoneReady,
+    microphoneLevel,
+    cameraReady,
+    networkReady,
+    networkStatus,
+  });
+  const runtimeLayoutState = getInterviewRuntimeLayoutState({ fullscreenActive });
+  const runtimeScreenSwapState = getInterviewRuntimeScreenSwapState({ primaryScreen: runtimePrimaryScreen });
+  const runtimeStageClassName = [
+    runtimeLayoutState.stageClassName,
+    runtimeLayoutState.viewportLockClassName,
+    runtimeLayoutState.infoGapClassName,
+    runtimeScreenSwapState.stageClassName,
+  ].filter(Boolean).join(" ");
+  const interviewerFigureClassName = [
+    "ai-interviewer-figure",
+    runtimeScreenSwapState.interviewerPanelClassName,
+  ].filter(Boolean).join(" ");
+  const showInterviewerPanel = runtimePrimaryScreen === "interviewer" || interviewerPipVisible;
+  const candidateCameraPanelClassName = [
+    "candidate-camera-pip",
+    cameraPipPosition && runtimePrimaryScreen === "interviewer" ? "positioned" : "",
+    runtimeScreenSwapState.cameraPanelClassName,
+  ].filter(Boolean).join(" ");
+  const interviewerInfoPanelId = "ai-interviewer-info-panel";
+
+  const handleToggleFullscreen = useCallback(async () => {
+    if (typeof document === "undefined") return;
+    const stage = interviewerStageRef.current;
+    if (!stage) return;
+
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+        return;
+      }
+      await stage.requestFullscreen();
+    } catch {
+      setMessage("이 브라우저에서는 전체화면 전환을 사용할 수 없습니다.");
+    }
+  }, []);
+
+  const handleHideCameraPreview = useCallback(() => {
+    setRuntimePrimaryScreen("interviewer");
+    setCameraPreviewVisible(false);
+  }, []);
+
+  const handleToggleCameraPreview = useCallback(() => {
+    if (cameraPreviewVisible) {
+      handleHideCameraPreview();
+      return;
+    }
+    setCameraPreviewVisible(true);
+  }, [cameraPreviewVisible, handleHideCameraPreview]);
+
+  const handleToggleRuntimePrimaryScreen = useCallback(() => {
+    setCameraPreviewVisible(true);
+    setInterviewerPipVisible(true);
+    setRuntimePrimaryScreen((current) => (current === "candidate" ? "interviewer" : "candidate"));
+  }, []);
+
+  useEffect(() => {
+    answerCompleteShortcutRef.current = handleAnswerComplete;
+    nextQuestionShortcutRef.current = () => {
+      void handleNextQuestion();
+    };
+  });
+
+  useEffect(() => {
+    if (!setupCompleted) return;
+
+    const handleRuntimeShortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || isRuntimeShortcutIgnoredTarget(event.target)) return;
+
+      const key = event.key.toLowerCase();
+      if (key === "p") {
+        event.preventDefault();
+        handleToggleCameraPreview();
+        return;
+      }
+      if (key === "q") {
+        event.preventDefault();
+        setSubtitlesEnabled((current) => !current);
+        return;
+      }
+      if (key === "f") {
+        event.preventDefault();
+        void handleToggleFullscreen();
+        return;
+      }
+      if (key === "s") {
+        event.preventDefault();
+        handleToggleRuntimePrimaryScreen();
+        return;
+      }
+      if (key === "m") {
+        event.preventDefault();
+        setInterviewerInfoOpen((current) => !current);
+        return;
+      }
+      if (event.key === "Enter") {
+        if (busy || !currentQuestion || currentQuestionAnswered || (!recording && !canSubmitAnswer)) return;
+        event.preventDefault();
+        answerCompleteShortcutRef.current();
+        return;
+      }
+      if (key === "n") {
+        if (busy || recording || !canMoveNextQuestion) return;
+        event.preventDefault();
+        nextQuestionShortcutRef.current();
+      }
+    };
+
+    window.addEventListener("keydown", handleRuntimeShortcut);
+    return () => window.removeEventListener("keydown", handleRuntimeShortcut);
+  }, [
+    busy,
+    canMoveNextQuestion,
+    canSubmitAnswer,
+    currentQuestion,
+    currentQuestionAnswered,
+    handleToggleFullscreen,
+    handleToggleCameraPreview,
+    handleToggleRuntimePrimaryScreen,
+    recording,
+    setupCompleted,
+  ]);
 
   return (
     <main className="candidate-interview-app">
@@ -3461,9 +4010,21 @@ function InterviewRuntimePanel({
                     : "채용 AI 면접을 시작하거나 재개하기 전에 카메라와 마이크를 다시 점검합니다."}
                 </p>
               </div>
-              <button className="btn primary" type="button" disabled={busy || !cameraReady || !microphoneReady || !networkReady} onClick={() => void handleEnterInterview()}>
-                면접 시작
-              </button>
+              <div className="toolbar">
+                {ENABLE_CAMERALESS_INTERVIEW_TEST_ENTRY ? (
+                  <button
+                    className="btn secondary"
+                    type="button"
+                    disabled={busy || recording}
+                    onClick={() => void handleCameralessRuntimeEntry()}
+                  >
+                    카메라 없이 테스트 진입
+                  </button>
+                ) : null}
+                <button className="btn primary" type="button" disabled={busy || !cameraReady || !microphoneReady || !networkReady} onClick={() => void handleEnterInterview()}>
+                  면접 시작
+                </button>
+              </div>
             </div>
             <div className="candidate-device-setup__grid">
               <div className="candidate-device-main">
@@ -3475,7 +4036,7 @@ function InterviewRuntimePanel({
               <aside className="panel candidate-runtime-status-panel">
                 <p className="panel-title">장치 상태</p>
                 <div className="status-list">
-                  <div className="status-line"><span className={cameraReady ? "ok" : "wait"}>{cameraReady ? "✓" : "!"}</span> 카메라 {cameraReady ? "정상" : "구도 확인 필요"}</div>
+                  <div className="status-line"><span className={cameraReady ? "ok" : "wait"}>{cameraReady ? "✓" : "!"}</span> 카메라 {cameraReady ? "정상" : "연결 확인 필요"}</div>
                   <div className="status-line"><span className={microphoneReady ? "ok" : "wait"}>{microphoneReady ? "✓" : "!"}</span> {microphoneStatus}</div>
                   <div className="mic-meter" aria-label={`마이크 입력 ${microphoneLevel}%`}>
                     <span style={{ width: `${microphoneLevel}%` }} />
@@ -3522,57 +4083,171 @@ function InterviewRuntimePanel({
         ) : null}
         {data && setupCompleted ? (
           <>
-            <section className="q-card">
-              <div className="q-card-head">
-                <div>
-                  {mode === "recruiting" ? <div className="qm">채용 AI 면접</div> : null}
-                  <div className="qn">질문 {questionNumber} / {data.runtime.totalQuestions}</div>
+            <section className={runtimeStageClassName} ref={interviewerStageRef} aria-label="AI 면접관 진행 화면">
+              <div className="ai-interviewer-stage__top">
+                <div className="ai-interviewer-stage__meta">
+                  <strong>질문 {questionNumber} / {data.runtime.totalQuestions}</strong>
                 </div>
                 <div className={`question-timer ${timerDanger ? "danger" : ""}`} aria-label={`${timerLabel} ${formattedRemainingTime}`}>
                   <span>{timerLabel}</span>
                   <strong>{formattedRemainingTime}</strong>
                 </div>
+                <div className="ai-interviewer-stage__actions">
+                  <button className="stage-shortcut-button" type="button" onClick={() => void handleToggleFullscreen()}>
+                    <span>{runtimeLayoutState.fullscreenButtonLabel}</span>
+                    <kbd>F</kbd>
+                  </button>
+                </div>
               </div>
-              <div className="qt">
-                {currentQuestion
-                  ? subtitlesEnabled
-                    ? formatRuntimeQuestionPrompt(currentQuestion, true)
-                    : "자막이 꺼져 있습니다. 질문 음성을 듣고 답변해주세요."
-                  : "현재 질문을 불러올 수 없습니다."}
+
+              <div className="runtime-status-hud" aria-label="실시간 면접 상태">
+                {runtimeStatusChips.map((chip) => (
+                  <span key={chip.id} className={`runtime-status-chip runtime-status-chip--${chip.id} runtime-status-chip--${chip.tone}`}>
+                    {chip.label}
+                  </span>
+                ))}
               </div>
+
+              {showInterviewerPanel ? (
+                <div
+                  className={interviewerFigureClassName}
+                  ref={runtimePrimaryScreen === "candidate" ? interviewerPipRef : undefined}
+                  style={interviewerPipStyle}
+                  aria-label={`${interviewerProfile.displayName} ${interviewerProfile.toneLabel}`}
+                >
+                  {runtimePrimaryScreen === "candidate" ? (
+                    <div
+                      className="ai-interviewer-pip__bar"
+                      onPointerDown={handleInterviewerPipPointerDown}
+                      onPointerMove={handleInterviewerPipPointerMove}
+                      onPointerUp={handleInterviewerPipPointerEnd}
+                      onPointerCancel={handleInterviewerPipPointerEnd}
+                    >
+                      <span>AI 면접관</span>
+                      <button
+                        type="button"
+                        aria-label={runtimeScreenSwapState.swapButtonAriaLabel}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={handleToggleRuntimePrimaryScreen}
+                      >
+                        <span>{runtimeScreenSwapState.swapButtonLabel}</span>
+                        <kbd>{runtimeScreenSwapState.swapShortcutKey}</kbd>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="AI 면접관 PIP 숨기기"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={() => setInterviewerPipVisible(false)}
+                      >
+                        <span>숨김</span>
+                      </button>
+                    </div>
+                  ) : null}
+                  <div className={`ai-interviewer-avatar ${questionSpeechPlaying ? "speaking" : ""}`} aria-hidden="true">
+                    <span className="ai-interviewer-avatar__ring" />
+                    <span className="ai-interviewer-avatar__face">
+                      <span />
+                      <span />
+                    </span>
+                  </div>
+                  <div className="ai-interviewer-copy">
+                    <div className="ai-interviewer-title-row">
+                      <h1>{interviewerProfile.displayName}</h1>
+                      <button
+                        className={`ai-interviewer-info-button ${interviewerInfoOpen ? "open" : ""}`}
+                        type="button"
+                        aria-label={`${interviewerProfile.infoButtonLabel} ${interviewerInfoOpen ? "닫기" : "열기"}`}
+                        aria-expanded={interviewerInfoOpen}
+                        aria-controls={interviewerInfoPanelId}
+                        onClick={() => setInterviewerInfoOpen((current) => !current)}
+                      >
+                        <kbd>{interviewerProfile.infoShortcutKey}</kbd>
+                      </button>
+                    </div>
+                    {interviewerInfoOpen ? (
+                      <div className="ai-interviewer-info-panel" id={interviewerInfoPanelId} role="note">
+                        <strong>{interviewerProfile.toneLabel}</strong>
+                        <span>{interviewerProfile.voiceGuide}</span>
+                        <p>{interviewerProfile.disclosure}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                <button
+                  className="ai-interviewer-pip-toggle"
+                  type="button"
+                  onClick={() => setInterviewerPipVisible(true)}
+                >
+                  AI 면접관 열기
+                </button>
+              )}
+
+              <div className={`ai-interviewer-question ${subtitlesEnabled ? "" : "muted"}`}>
+                <span>{subtitlesEnabled ? "질문 보기" : "질문 음성 안내"}</span>
+                <strong>{interviewerQuestionPrompt}</strong>
+              </div>
+
               <div className={`question-voice-status ${questionSpeechSupported ? "" : "unsupported"}`} aria-live="polite">
                 {questionSpeechStatus}
               </div>
-            </section>
 
-            <section className="iv-grid">
-              <div className="video-box">
-                <video ref={attachRuntimeVideoRef} autoPlay muted playsInline />
-                {recording ? (
-                  <div className="recbadge"><span className="pulse" /> 녹화 중</div>
-                ) : null}
-              </div>
-
-              <aside className="panel candidate-runtime-status-panel">
-                <p className="panel-title">답변 상태</p>
-                <div className="status-list">
-                  <div className="status-line"><span className={cameraReady ? "ok" : "wait"}>{cameraReady ? "✓" : "!"}</span> 카메라 {cameraReady ? "정상" : "대기"}</div>
-                  <div className="status-line"><span className={microphoneReady ? "ok" : "wait"}>{microphoneReady ? "✓" : "!"}</span> {microphoneStatus}</div>
-                  <div className="mic-meter" aria-label={`마이크 입력 ${microphoneLevel}%`}>
-                    <span style={{ width: `${microphoneLevel}%` }} />
+              {cameraPreviewVisible ? (
+                <div
+                  className={candidateCameraPanelClassName}
+                  ref={cameraPipRef}
+                  style={cameraPipStyle}
+                >
+                  <div
+                    className="candidate-camera-pip__bar"
+                    onPointerDown={handleCameraPipPointerDown}
+                    onPointerMove={handleCameraPipPointerMove}
+                    onPointerUp={handleCameraPipPointerEnd}
+                    onPointerCancel={handleCameraPipPointerEnd}
+                  >
+                    <span>내 화면</span>
+                    <button
+                      type="button"
+                      aria-label={runtimeScreenSwapState.swapButtonAriaLabel}
+                      aria-pressed={runtimePrimaryScreen === "candidate"}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={handleToggleRuntimePrimaryScreen}
+                    >
+                      <span>{runtimeScreenSwapState.swapButtonLabel}</span>
+                      <kbd>{runtimeScreenSwapState.swapShortcutKey}</kbd>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="내 화면 preview 숨기기"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={handleHideCameraPreview}
+                    >
+                      <span>숨김</span>
+                      <kbd>P</kbd>
+                    </button>
                   </div>
-                  <div className="status-line"><span className={networkReady ? "ok" : "wait"}>{networkReady ? "✓" : "!"}</span> {networkStatus}</div>
-                  <div className="status-line"><span className={answerProcessingReady ? "ok" : "wait"}>{answerProcessingReady ? "✓" : "!"}</span> {answerProcessingLabel}</div>
-                  <div className="status-line"><span className={recordedFileName || answer.videoFile ? "ok" : "wait"}>{recordedFileName || answer.videoFile ? "✓" : "!"}</span> 답변 파일 {recordedFileName || answer.videoFile ? "준비 완료" : "대기"}</div>
+                  <div className="candidate-camera-pip__video">
+                    <video ref={attachRuntimeVideoRef} autoPlay muted playsInline />
+                    {recording ? (
+                      <div className="recbadge"><span className="pulse" /> 녹화 중</div>
+                    ) : null}
+                  </div>
                 </div>
-                <dl className="candidate-runtime-meta">
-                  <Definition label="진행" value={`${answeredQuestionCount}/${data.runtime.totalQuestions}`} />
-                  <Definition label="상태" value={<StatusPill value={data.runtime.status} />} />
-                </dl>
-              </aside>
+              ) : (
+                <button
+                  className={`candidate-camera-pip-toggle ${recording ? "recording" : ""}`}
+                  type="button"
+                  onClick={() => setCameraPreviewVisible(true)}
+                >
+                  <span>내 화면 열기</span>
+                  <kbd>P</kbd>
+                  {recording ? <strong>녹화 중</strong> : null}
+                </button>
+              )}
             </section>
 
             <form className="candidate-runtime-form" onSubmit={handleSaveAnswer}>
+              <p className="sr-only" aria-live="polite">{runtimeAssistiveStatus}</p>
               <div className="toolbar candidate-interview-controls">
                 <button className="btn" type="button" disabled={busy || !currentQuestion || !questionSpeechSupported || currentQuestionReplayUsed} onClick={handleReplayPrompt}>
                   {currentQuestionReplayUsed ? "다시 듣기 완료" : "질문 음성 다시 듣기"}
@@ -3583,7 +4258,8 @@ function InterviewRuntimePanel({
                   disabled={busy || !currentQuestion || currentQuestionLocked || (!recording && !canSubmitAnswer)}
                   onClick={handleAnswerComplete}
                 >
-                  답변 완료
+                  <span>답변 완료</span>
+                  <kbd>Enter</kbd>
                 </button>
                 {canRetryCurrentAnswer ? (
                   <button
@@ -3610,7 +4286,8 @@ function InterviewRuntimePanel({
                   disabled={busy || recording || !canMoveNextQuestion}
                   onClick={() => void handleNextQuestion()}
                 >
-                  다음 질문
+                  <span>다음 질문</span>
+                  <kbd>N</kbd>
                 </button>
                 <button
                   className={`subtitle-toggle ${subtitlesEnabled ? "on" : ""}`}
@@ -3618,7 +4295,8 @@ function InterviewRuntimePanel({
                   aria-pressed={subtitlesEnabled}
                   onClick={() => setSubtitlesEnabled((current) => !current)}
                 >
-                  {subtitlesEnabled ? "자막 ON" : "자막 OFF"}
+                  <span>{subtitlesEnabled ? "질문 숨기기" : "질문 보기"}</span>
+                  <kbd>Q</kbd>
                 </button>
               </div>
               <p className="field-hint">STT 실패 시 재답변은 문항당 1회만 가능합니다.</p>
@@ -4050,6 +4728,14 @@ function isReportNotReadyMessage(message: string): boolean {
 }
 
 function MockFeedbackView({ feedback }: { feedback: CandidateMockReportFeedback }) {
+  const scores = feedback.scores ?? [];
+  const improvementItems = feedback.improvements.length > 0
+    ? feedback.improvements
+    : buildMockReportImprovementItems(scores);
+  const nextPracticeItems = feedback.nextPractice.length > 0
+    ? feedback.nextPractice
+    : buildMockReportPracticeItems(scores);
+
   return (
     <div className="detail-stack">
       <dl className="candidate-feature__summary">
@@ -4058,19 +4744,40 @@ function MockFeedbackView({ feedback }: { feedback: CandidateMockReportFeedback 
         <Definition label="생성 시각" value={feedback.generatedAt ? formatDateTime(feedback.generatedAt) : "-"} />
         <Definition label="공개 범위" value={feedback.visibilityPolicy.candidateFacingOnly ? "지원자용" : "확인 필요"} />
       </dl>
-      {feedback.aiProcess ? <AiProcessSummaryView process={feedback.aiProcess} /> : null}
       <p className="description-box">{feedback.summary ?? "리포트 생성 중입니다."}</p>
-      <ListBlock title="강점" items={feedback.strengths} />
-      <ListBlock title="개선점" items={feedback.improvements} />
-      <ListBlock title="다음 연습" items={feedback.nextPractice} />
-      <ReportScoreList scores={feedback.scores ?? []} />
+      {scores.length ? null : <ListBlock title="강점" items={feedback.strengths} />}
+      <ListBlock title="개선점" items={improvementItems} />
+      <ListBlock title="다음 연습" items={nextPracticeItems} />
+      <ReportScoreList scores={scores} />
     </div>
   );
 }
 
+function buildMockReportImprovementItems(scores: CandidateReportScoreView[]): string[] {
+  if (!scores.length) {
+    return ["답변별 상황, 본인 행동, 결과를 구분해서 말하면 피드백 정확도가 높아집니다."];
+  }
+
+  return [...scores]
+    .sort((left, right) => left.score - right.score)
+    .slice(0, 3)
+    .map((score) => `${score.criterionName} 답변은 사례의 배경, 본인 행동, 결과를 조금 더 분리해서 말하면 좋아집니다.`);
+}
+
+function buildMockReportPracticeItems(scores: CandidateReportScoreView[]): string[] {
+  if (!scores.length) {
+    return ["다음 연습에서는 한 답변 안에 문제 상황, 내가 한 일, 확인한 결과를 차례로 담아 보세요."];
+  }
+
+  const lowestScore = [...scores].sort((left, right) => left.score - right.score)[0];
+  return [
+    `${lowestScore.criterionName} 항목을 중심으로 STAR 방식으로 30초 답변을 다시 연습해 보세요.`,
+  ];
+}
+
 function MockMediaView({ media }: { media: CandidateMockReportMedia }) {
   if (!media.media.length) return <p className="empty">연결된 답변 파일이 없습니다.</p>;
-  const mediaItems = [...media.media].sort((left, right) => left.sortOrder - right.sortOrder);
+  const mediaItems = orderReportAnswersByInterviewFlow(media.media);
   return (
     <div className="detail-stack">
       <div className="report-media-list">
@@ -4085,6 +4792,7 @@ function MockMediaView({ media }: { media: CandidateMockReportMedia }) {
 function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockReportMedia["media"][number]; questionNumber: number }) {
   const videoUrl = getCachedRecordingObjectUrl(item.videoFile?.storageKey);
   const audioUrl = getCachedRecordingObjectUrl(item.audioFile?.storageKey);
+  const practiceGuide = buildMockAnswerPracticeGuide(item);
 
   return (
     <article className="report-answer-card">
@@ -4103,7 +4811,7 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
             </video>
           ) : (
             <div className="report-media-placeholder">
-              <strong>{item.videoFile?.originalName ?? "답변 영상"}</strong>
+              <strong>답변 영상</strong>
               <span>현재 브라우저 세션에 녹화 원본이 없습니다.</span>
             </div>
           )}
@@ -4117,11 +4825,9 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
             transcriptUnavailableReason={item.transcriptUnavailableReason}
           />
           <FollowUpQuestionList questions={item.followUpQuestions} />
+          <AnswerPracticeGuideView guide={practiceGuide} />
           <dl className="report-answer-meta">
             <Definition label="답변 시간" value={`${item.durationSeconds}s`} />
-            <Definition label="영상 파일" value={item.videoFile?.originalName ?? "-"} />
-            <Definition label="음성 파일" value={item.audioFile?.originalName ?? "-"} />
-            <Definition label="제출 시각" value={formatDateTime(item.submittedAt)} />
           </dl>
           {audioUrl ? (
             <audio className="report-audio-player" controls preload="metadata" src={audioUrl}>
@@ -4132,6 +4838,121 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
       </div>
     </article>
   );
+}
+
+type AnswerPracticeGuide = {
+  example: string;
+  gaps: string[];
+};
+
+function AnswerPracticeGuideView({ guide }: { guide: AnswerPracticeGuide }) {
+  return (
+    <section className="report-practice-guide">
+      <h4>고득점 답변 예시 템플릿</h4>
+      <div className="report-practice-guide__block">
+        <strong>STAR 답변 예시</strong>
+        <p>{guide.example}</p>
+      </div>
+      <div className="report-practice-guide__block">
+        <strong>내 답변 보완점</strong>
+        <ul>
+          {guide.gaps.map((gap) => (
+            <li key={gap}>{gap}</li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function buildMockAnswerPracticeGuide(item: CandidateMockReportMedia["media"][number]): AnswerPracticeGuide {
+  const transcript = item.transcript ?? "";
+  return {
+    example: buildMockAnswerExample(item),
+    gaps: buildMockAnswerGaps(item.questionType, item.questionContent, transcript),
+  };
+}
+
+function buildMockAnswerExample(item: CandidateMockReportMedia["media"][number]): string {
+  const question = item.questionContent ?? "";
+
+  if (item.questionType === "INTRO" || question.includes("자기소개")) {
+    return "저는 지원 직무와 연결되는 프로젝트 경험을 통해 문제를 구조적으로 해결해 온 지원자입니다. 최근에는 사용자 흐름이 끊기는 문제를 맡아 원인을 단계별로 나누고, 제가 담당한 기능의 입력값, 처리 과정, 결과 화면을 끝까지 확인했습니다. 그 결과 반복되던 오류를 줄이고 사용자가 더 안정적으로 기능을 사용할 수 있도록 개선했습니다.";
+  }
+
+  if (item.questionType === "TECHNICAL" || question.includes("어려웠던") || question.includes("기술")) {
+    return "가장 어려웠던 문제는 기능 일부가 정상처럼 보이지만 최종 결과가 사용자에게 전달되지 않는 상황이었습니다. 저는 문제를 화면 입력, 서버 처리, 데이터 저장, 결과 표시 단계로 나누어 확인했고, 중간 단계에서 필요한 값이 누락되는 지점을 찾았습니다. 이후 누락 조건을 보완하고 같은 시나리오로 다시 검증해 정상 동작을 확인했습니다.";
+  }
+
+  if (item.questionType === "EXPERIENCE" || question.includes("학습") || question.includes("적용")) {
+    return "새로운 기술을 적용해야 했을 때 먼저 작은 예제로 동작 원리를 확인했습니다. 이후 실제 프로젝트 흐름에 맞춰 입력, 처리, 저장, 조회 기준을 정리했고, 실패했을 때 어느 단계에서 문제가 생겼는지 추적할 수 있게 했습니다. 덕분에 낯선 기술도 짧은 시간 안에 실제 기능으로 연결할 수 있었습니다.";
+  }
+
+  if (item.questionType === "CLOSING" || question.includes("강점") || question.includes("기억")) {
+    return "제 강점은 문제를 감으로 추측하지 않고 확인 가능한 근거를 기준으로 좁혀가는 점입니다. 문제가 생기면 사용자 동작, 요청 결과, 저장 상태, 화면 반영 순서로 확인하고, 원인이 확인되면 같은 경로로 다시 검증합니다. 이 방식으로 팀원이 보기에도 재현 가능하고 설명 가능한 해결 과정을 만들 수 있습니다.";
+  }
+
+  if (item.questionType === "FOLLOW_UP") {
+    if (question.includes("어려웠던 점")) {
+      return "가장 어려웠던 점은 겉으로는 일부 단계가 성공했지만 최종 결과가 나오지 않는 원인을 구분하는 것이었습니다. 저는 각 단계에서 반드시 남아야 하는 값과 상태를 정리하고, 어느 지점에서 흐름이 끊기는지 비교했습니다. 그 결과 문제 원인을 특정하고 사용자 화면까지 정상적으로 이어지도록 수정했습니다.";
+    }
+    if (question.includes("구체적인 조치")) {
+      return "먼저 문제를 입력, 요청, 처리, 저장, 화면 반영 단계로 나눴습니다. 각 단계에서 기대값과 실제 값을 비교해 값이 끊기는 지점을 찾았고, 수정 후 같은 시나리오를 다시 수행해 결과가 끝까지 이어지는지 확인했습니다. 이 방식 덕분에 원인을 재현 가능하게 설명할 수 있었습니다.";
+    }
+    if (question.includes("비동기") || question.includes("상태")) {
+      return "비동기 처리에서는 요청 직후 결과가 바로 보이지 않기 때문에 상태 변화와 저장 지점을 기준으로 확인했습니다. 작업이 접수됐는지, 처리 중인지, 완료 또는 실패했는지를 구분하고 각 단계의 결과가 다음 단계로 전달되는지 검증했습니다. 이 기준을 세운 뒤 문제 상황도 단계별로 재현할 수 있었습니다.";
+    }
+    return "질문에 바로 답한 뒤 당시 상황, 본인이 맡은 역할, 직접 한 행동, 확인한 결과를 차례로 설명하는 것이 좋습니다. 특히 문제를 어떤 기준으로 나눴는지, 수정 후 어떤 변화가 있었는지를 함께 말하면 답변의 신뢰도가 높아집니다.";
+  }
+
+  return "좋은 답변은 상황을 간단히 설명한 뒤 본인이 맡은 역할, 직접 한 행동, 확인한 결과를 차례로 말합니다. 마지막에는 수치, 전후 비교, 재검증 결과 중 하나를 덧붙이면 답변의 신뢰도가 높아집니다.";
+}
+
+function buildMockAnswerGaps(questionType: QuestionType, questionContent: string | undefined, transcript: string): string[] {
+  const normalized = transcript.replace(/\s+/g, " ").trim();
+  if (!normalized || normalized.startsWith("[NO_ANSWER]")) {
+    return ["답변 내용이 없어 평가 근거가 부족합니다. 다음 연습에서는 상황, 행동, 결과를 각각 한 문장씩이라도 남겨 주세요."];
+  }
+
+  const gaps: string[] = [];
+  const hasMetric = /\d|%|ms|초|분|시간|건|배|회|명|개|KB|MB/i.test(normalized);
+  const hasRole = /(제가|저는|맡|담당|구현|수정|연결|확인|검증|분석|해결|비교|나눴|적용)/.test(normalized);
+  const hasResult = /(결과|완료|성공|통과|개선|해결|안정화|줄였|확인|검증|저장|갱신|연결|반영)/.test(normalized);
+  const hasProcess = /(먼저|이후|그 결과|순서|단계|기준|비교|추적|확인)/.test(normalized);
+
+  if (!hasRole) {
+    gaps.push("본인이 직접 맡은 역할과 행동을 더 분명히 말하면 점수가 올라갑니다.");
+  }
+  if (!hasProcess && questionType !== "CLOSING") {
+    gaps.push("문제를 어떤 순서와 기준으로 확인했는지 단계가 더 드러나면 좋습니다.");
+  }
+  if (!hasResult) {
+    gaps.push("수정 후 어떤 결과가 나왔는지, 어떻게 재검증했는지를 덧붙이면 좋습니다.");
+  }
+  if (!hasMetric) {
+    gaps.push("가능하면 처리 시간, 실패 조건, 전후 비교, 개선 수치처럼 확인 가능한 근거 한 가지를 추가해 보세요.");
+  }
+  if (hasLikelyNoisyTranscript(normalized)) {
+    gaps.push("STT에서 어색하게 인식된 기술 용어가 보입니다. 핵심 용어는 천천히 또렷하게 말하면 평가 근거가 더 선명해집니다.");
+  }
+
+  if (questionType === "FOLLOW_UP" && gaps.length < 3) {
+    gaps.push("꼬리질문은 질문에 바로 답한 뒤, 구체적인 행동과 결과를 짧게 붙이면 더 좋습니다.");
+  }
+
+  if ((questionContent?.includes("강점") || questionType === "CLOSING") && !normalized.includes("예를 들어")) {
+    gaps.push("강점 답변에는 짧은 사례를 하나 붙이면 기억에 더 남습니다.");
+  }
+
+  if (!gaps.length) {
+    return ["전체 흐름은 좋습니다. 더 높은 점수를 위해 성과를 수치나 전후 비교로 한 번 더 압축해 말해 보세요."];
+  }
+
+  return gaps.slice(0, 3);
+}
+
+function hasLikelyNoisyTranscript(value: string): boolean {
+  return /(인적 답변|오퍼 처리|파일 레스셋|프로시스|인풋 레프|블랍|마인 타입|동신|인털|소사례)/.test(value);
 }
 
 function ApplicationStatusView({ status }: { status: CandidateApplicationStatusView }) {
@@ -4161,23 +4982,11 @@ function RecruitingReportView({ report }: { report: CandidateRecruitingReportVie
         <Definition label="생성 시각" value={report.generatedAt ? formatDateTime(report.generatedAt) : "-"} />
         <Definition label="다음 단계" value={report.nextStepLabel} />
       </dl>
-      {report.aiProcess ? <AiProcessSummaryView process={report.aiProcess} /> : null}
       <p className="description-box">{report.candidateMessage}</p>
       {report.summary ? <p className="description-box">{report.summary}</p> : null}
       <ReportScoreList scores={report.scores} />
       <ReportAnswerInsightList answers={report.answers} />
     </div>
-  );
-}
-
-function AiProcessSummaryView({ process }: { process: CandidateAiProcessView }) {
-  return (
-    <dl className="candidate-feature__summary compact report-ai-process">
-      <Definition label="AI 작업" value={formatProcessTypeLabel(process.processType)} />
-      <Definition label="작업 상태" value={<StatusPill value={process.status} />} />
-      <Definition label="요청 시각" value={formatDateTime(process.createdAt)} />
-      {process.failureReason ? <Definition label="실패 사유" value={process.failureReason} /> : null}
-    </dl>
   );
 }
 
@@ -4190,19 +4999,71 @@ function ReportScoreList({ scores }: { scores: CandidateReportScoreView[] }) {
     <div>
       <h3 className="candidate-section-title">AI 평가 결과</h3>
       <div className="report-score-list">
-        {scores.map((score) => (
-          <article className="report-score-card" key={score.scoreId}>
-            <div className="report-score-card__head">
-              <strong>{score.criterionName ?? `평가 항목 #${score.criterionId ?? score.scoreId}`}</strong>
-              <span>{score.score}점</span>
-            </div>
-            {score.rationale ? <p>{score.rationale}</p> : null}
-            <EvidenceList evidences={score.evidences} criterionName={score.criterionName} />
-          </article>
-        ))}
+        {scores.map((score) => {
+          const band = getReportScoreBand(score.score);
+          return (
+            <article className="report-score-card" key={score.scoreId}>
+              <div className="report-score-card__head">
+                <strong>{score.criterionName ?? `평가 항목 #${score.criterionId ?? score.scoreId}`}</strong>
+                <span>{score.score}점 · {band.label}</span>
+              </div>
+              <p className="report-score-card__band">{band.range} 구간 · {band.description}</p>
+              {score.rationale ? <p>{score.rationale}</p> : null}
+              <EvidenceList evidences={score.evidences} criterionName={score.criterionName} />
+            </article>
+          );
+        })}
       </div>
     </div>
   );
+}
+
+function orderReportAnswersByInterviewFlow<T extends {
+  answerId: number;
+  questionContent?: string;
+  questionType?: QuestionType;
+  sortOrder?: number;
+  followUpQuestions: CandidateFollowUpQuestionView[];
+}>(answers: T[]): T[] {
+  const normalizedContentToAnswer = new Map<string, T>();
+  for (const answer of answers) {
+    const key = normalizeReportQuestionContent(answer.questionContent);
+    if (key) normalizedContentToAnswer.set(key, answer);
+  }
+
+  const baseAnswers = answers
+    .filter((answer) => answer.questionType !== "FOLLOW_UP")
+    .sort(compareReportAnswers);
+  const ordered: T[] = [];
+  const usedAnswerIds = new Set<number>();
+
+  for (const answer of baseAnswers) {
+    ordered.push(answer);
+    usedAnswerIds.add(answer.answerId);
+
+    for (const followUp of answer.followUpQuestions) {
+      const followUpAnswer = normalizedContentToAnswer.get(normalizeReportQuestionContent(followUp.content));
+      if (!followUpAnswer || usedAnswerIds.has(followUpAnswer.answerId)) continue;
+      ordered.push(followUpAnswer);
+      usedAnswerIds.add(followUpAnswer.answerId);
+    }
+  }
+
+  const remainingAnswers = answers
+    .filter((answer) => !usedAnswerIds.has(answer.answerId))
+    .sort(compareReportAnswers);
+  return [...ordered, ...remainingAnswers];
+}
+
+function normalizeReportQuestionContent(value?: string): string {
+  return value?.replace(/\s+/g, " ").trim().toLowerCase() ?? "";
+}
+
+function compareReportAnswers(
+  left: { sortOrder?: number; answerId: number },
+  right: { sortOrder?: number; answerId: number },
+): number {
+  return (left.sortOrder ?? left.answerId) - (right.sortOrder ?? right.answerId);
 }
 
 function ReportAnswerInsightList({ answers }: { answers: CandidateReportAnswerView[] }) {
@@ -4210,7 +5071,7 @@ function ReportAnswerInsightList({ answers }: { answers: CandidateReportAnswerVi
     return <p className="empty">표시할 면접 답변이 아직 없습니다.</p>;
   }
 
-  const sortedAnswers = [...answers].sort((left, right) => (left.sortOrder ?? left.answerId) - (right.sortOrder ?? right.answerId));
+  const sortedAnswers = orderReportAnswersByInterviewFlow(answers);
   return (
     <div>
       <h3 className="candidate-section-title">답변별 STT / 꼬리질문</h3>
@@ -4297,6 +5158,9 @@ function EvidenceList({ evidences, criterionName }: { evidences: CandidateReport
         {evidences.map((evidence) => (
           <li key={evidence.evidenceId}>
             <span>{formatEvidenceSummary(evidence, criterionName)}</span>
+            {evidence.evidenceText ? (
+              <p className="report-evidence-list__answer">{formatEvidenceReference(evidence)}</p>
+            ) : null}
             <small>{formatEvidenceSourceLabel(evidence)}</small>
           </li>
         ))}
@@ -4307,29 +5171,58 @@ function EvidenceList({ evidences, criterionName }: { evidences: CandidateReport
 
 function formatEvidenceSummary(evidence: CandidateReportEvidenceView, criterionName?: string): string {
   const focus = formatCriterionEvidenceFocus(criterionName);
-  const source = formatEvidenceSourceSubject(evidence.sourceType);
-  return `${focus} ${source} 확인되었습니다.`;
+  const source = formatEvidenceSourceNoun(evidence.sourceType);
+  return `${focus} ${source}를 참고했습니다.`;
 }
 
 function formatCriterionEvidenceFocus(criterionName?: string): string {
   const labels: Record<string, string> = {
-    "직무 적합성": "지원 직무와 연결되는 경험, 관심 분야, 실무 역량의 단서가",
-    "문제 해결력": "문제를 나누어 확인하고 해결 방향을 찾은 과정이",
-    "커뮤니케이션": "경험을 설명하는 흐름과 전달 방식이",
+    "직무/기술 역량": "기술 경험과 직무 연관성을 판단하는 데",
+    "문제 해결력": "문제를 나누어 확인한 과정을 판단하는 데",
+    "실행력과 성과": "직접 수행한 작업과 결과를 판단하는 데",
+    "협업/커뮤니케이션": "상황 설명과 협업 방식을 판단하는 데",
+    "학습/성장성": "학습한 내용을 실제 문제에 적용한 흐름을 판단하는 데",
+    "책임감/신뢰성": "끝까지 확인하고 검증하는 태도를 판단하는 데",
   };
 
-  return criterionName ? labels[criterionName] ?? `${criterionName} 평가와 관련된 답변 내용이` : "리포트 평가와 관련된 답변 내용이";
+  return criterionName ? labels[criterionName] ?? `${criterionName} 항목을 판단하는 데` : "답변 흐름을 확인하는 데";
 }
 
-function formatEvidenceSourceSubject(sourceType: string): string {
+function formatEvidenceReference(evidence: CandidateReportEvidenceView): string {
+  const answerLabel = evidence.answerId ? `참고 답변 #${evidence.answerId}` : "참고 답변";
+  return `${answerLabel}: "${shortenReportEvidence(evidence.evidenceText)}"`;
+}
+
+function getReportScoreBand(score: number): { label: string; range: string; description: string } {
+  if (score >= 90) {
+    return { label: "매우 우수", range: "90~100", description: "근거가 풍부하고 결과와 재발 방지까지 명확합니다." };
+  }
+  if (score >= 80) {
+    return { label: "우수", range: "80~89", description: "상황, 행동, 결과가 비교적 구체적으로 연결됩니다." };
+  }
+  if (score >= 70) {
+    return { label: "보통 이상", range: "70~79", description: "핵심 경험은 확인되지만 일부 근거 보강이 필요합니다." };
+  }
+  if (score >= 60) {
+    return { label: "보완 필요", range: "60~69", description: "상황은 있으나 본인 역할, 과정, 결과가 부족합니다." };
+  }
+  return { label: "부족", range: "0~59", description: "질문과 직접 연결되는 평가 근거가 부족합니다." };
+}
+
+function formatEvidenceSourceNoun(sourceType: string): string {
   const labels: Record<string, string> = {
-    INTERVIEW_ANSWER: "면접 답변에서",
-    APPLICATION_DOCUMENT: "제출 자료에서",
-    DOCUMENT: "제출 자료에서",
-    FOLLOW_UP: "꼬리질문 답변에서",
+    INTERVIEW_ANSWER: "면접 답변",
+    APPLICATION_DOCUMENT: "제출 자료",
+    DOCUMENT: "제출 자료",
+    FOLLOW_UP: "꼬리질문 답변",
   };
 
-  return labels[sourceType] ?? "평가 자료에서";
+  return labels[sourceType] ?? "평가 자료";
+}
+
+function shortenReportEvidence(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
 }
 
 function formatEvidenceSourceLabel(evidence: CandidateReportEvidenceView): string {
@@ -4654,17 +5547,6 @@ function findKoreanSpeechVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisV
   );
 }
 
-function formatRuntimeQuestionPrompt(question: RuntimeQuestionView, showText: boolean): string {
-  if (showText && question.content) return question.content;
-  return formatAudioPrompt(question.audioPrompt);
-}
-
-function formatAudioPrompt(audioPrompt?: string): string {
-  if (!audioPrompt) return "질문을 준비 중입니다.";
-  if (audioPrompt.startsWith("audio://")) return "음성 질문을 듣고 답변해주세요.";
-  return audioPrompt;
-}
-
 function ListBlock({ title, items }: { title: string; items: string[] }) {
   return (
     <div>
@@ -4800,16 +5682,6 @@ function formatInterviewTypeLabel(interviewType: string): string {
   return labels[interviewType] ?? interviewType;
 }
 
-function formatProcessTypeLabel(processType: string): string {
-  const labels: Record<string, string> = {
-    STT: "음성 텍스트 변환",
-    FOLLOW_UP: "꼬리질문 생성",
-    REPORT_GENERATE: "리포트 생성",
-  };
-
-  return labels[processType] ?? processType;
-}
-
 function paymentStatusLabel(status: PaymentOrder["status"]) {
   const labels: Record<PaymentOrder["status"], string> = {
     READY: "대기",
@@ -4850,6 +5722,12 @@ function CameraFramingOverlay({ state, testSentence }: { state: CameraFramingSta
   );
 }
 
+function isRuntimeShortcutIgnoredTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  return ["BUTTON", "INPUT", "SELECT", "TEXTAREA"].includes(target.tagName);
+}
+
 function useCandidateResource<T>(load: () => Promise<T>, dependencies: DependencyList) {
   const [state, setState] = useState<AsyncState<T>>({ loading: true });
   const [refreshKey, setRefreshKey] = useState(0);
@@ -4877,7 +5755,7 @@ function useCandidateResource<T>(load: () => Promise<T>, dependencies: Dependenc
 
 function getCandidateApi() {
   return createCandidateApiClient({
-    baseUrl: API_BASE_URL,
+    baseUrl: getApiBaseUrl(),
     headers: getCandidateHeaders(),
   });
 }
@@ -4893,7 +5771,7 @@ export function setPublicInterviewAccessToken(token: string | null) {
 
 function getPublicInterviewApi() {
   return createPublicInterviewApiClient({
-    baseUrl: API_BASE_URL,
+    baseUrl: getApiBaseUrl(),
     publicAccessToken: readPublicInterviewAccessToken(),
   });
 }
@@ -5169,7 +6047,7 @@ function startCameraQualityMonitor(
 ): number {
   const update = async () => {
     const quality = assessCameraQuality(video);
-    const framing = await assessCameraFraming(video);
+    const framing = getCameraFramingNotice();
     onQualityChange(quality, framing, formatCameraPreviewStatus(previewInfo, fallbackLabel, quality, framing));
   };
 
@@ -5347,114 +6225,12 @@ function assessCameraQuality(video: HTMLVideoElement | null): CameraQualityResul
   return { ok: true, brightness, message: "카메라 밝기가 적정합니다." };
 }
 
-async function assessCameraFraming(video: HTMLVideoElement | null): Promise<CameraFramingResult> {
-  if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) {
-    return { state: "warn", blocking: true, message: "카메라 구도를 확인할 수 없습니다." };
-  }
-
-  const nativeFace = await detectNativeFace(video);
-  if (nativeFace) {
-    return evaluateCameraFraming(nativeFace, video);
-  }
-
-  const mediaPipeFace = await detectMediaPipeFace(video);
-  if (mediaPipeFace) {
-    return evaluateCameraFraming(mediaPipeFace, video);
-  }
-
-  if (isNativeFaceDetectorSupported()) {
-    return { state: "warn", blocking: true, message: "얼굴이 감지되지 않습니다. 카메라를 정면으로 바라봐주세요." };
-  }
-
-  const mediaPipeDetector = await getMediaPipeFaceDetector();
-  if (mediaPipeDetector) {
-    return { state: "warn", blocking: true, message: "얼굴이 감지되지 않습니다. 카메라를 정면으로 바라봐주세요." };
-  }
-
-  return { state: "unsupported", blocking: false, message: "자동 구도 판정을 사용할 수 없어 가이드만 표시합니다." };
-}
-
-function isNativeFaceDetectorSupported(): boolean {
-  return Boolean((window as FaceDetectorWindow).FaceDetector);
-}
-
-async function detectNativeFace(video: HTMLVideoElement): Promise<FaceBoundingBox | undefined> {
-  const FaceDetector = (window as FaceDetectorWindow).FaceDetector;
-  if (!FaceDetector) {
-    return undefined;
-  }
-
-  try {
-    const detector = new FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
-    const faces = await detector.detect(video);
-    const [face] = faces;
-    if (!face) return undefined;
-    const box = face.boundingBox;
-    return { x: box.x, y: box.y, width: box.width, height: box.height };
-  } catch {
-    return undefined;
-  }
-}
-
-async function detectMediaPipeFace(video: HTMLVideoElement): Promise<FaceBoundingBox | undefined> {
-  const detector = await getMediaPipeFaceDetector();
-  if (!detector) return undefined;
-
-  try {
-    const result = detector.detectForVideo(video, performance.now());
-    const box = result.detections?.[0]?.boundingBox;
-    if (!box || box.width === undefined || box.height === undefined) return undefined;
-    return {
-      x: box.originX ?? box.x ?? 0,
-      y: box.originY ?? box.y ?? 0,
-      width: box.width,
-      height: box.height,
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-async function getMediaPipeFaceDetector(): Promise<MediaPipeFaceDetectorInstance | null> {
-  if (typeof window === "undefined") return null;
-  mediaPipeFaceDetectorPromise ??= (async () => {
-    try {
-      const { FaceDetector, FilesetResolver } = await import("@mediapipe/tasks-vision");
-      const vision = await FilesetResolver.forVisionTasks(
-        `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_TASKS_VERSION}/wasm`,
-      );
-      return (await FaceDetector.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: MEDIAPIPE_FACE_DETECTOR_MODEL_URL,
-          delegate: "GPU",
-        },
-        runningMode: "VIDEO",
-      })) as MediaPipeFaceDetectorInstance;
-    } catch {
-      return null;
-    }
-  })();
-
-  return mediaPipeFaceDetectorPromise;
-}
-
-function evaluateCameraFraming(box: FaceBoundingBox, video: HTMLVideoElement): CameraFramingResult {
-  const centerX = (box.x + box.width / 2) / video.videoWidth;
-  const centerY = (box.y + box.height / 2) / video.videoHeight;
-  const widthRatio = box.width / video.videoWidth;
-  const inGuide =
-    centerX >= 0.38 &&
-    centerX <= 0.62 &&
-    centerY >= 0.22 &&
-    centerY <= 0.48 &&
-    widthRatio >= 0.12 &&
-    widthRatio <= 0.36;
-
-  if (!inGuide) {
-    return { state: "warn", blocking: true, message: "얼굴을 화면 중앙 가이드 안으로 맞춰주세요." };
-  }
-
-  return { state: "ok", blocking: false, message: "얼굴 위치가 적정합니다." };
+function getCameraFramingNotice(): CameraFramingResult {
+  return {
+    state: "unsupported",
+    blocking: false,
+    message: "구도 자동 판정 없이 화면 가이드만 표시합니다.",
+  };
 }
 
 async function measureMicrophoneQuality(
@@ -5521,7 +6297,7 @@ async function checkInterviewNetworkQuality(): Promise<NetworkQualityResult> {
     return { ok: false, message: "네트워크 연결이 끊겨 있습니다." };
   }
 
-  const healthUrl = `${API_BASE_URL}/api/v1/health`;
+  const healthUrl = `${getApiBaseUrl()}/api/v1/health`;
   let successCount = 0;
   let totalDurationMs = 0;
 
@@ -5579,10 +6355,7 @@ function formatMicrophoneStatus(result: CameraStreamResult): string {
   return `마이크 실패: ${formatMediaError(result.audioError, "microphone")}`;
 }
 
-function formatMicrophoneQualityStatus(
-  result: CameraStreamResult,
-  quality: MicrophoneQualityResult,
-): string {
+function formatMicrophoneQualityStatus(result: CameraStreamResult, quality: MicrophoneQualityResult): string {
   const label = result.audioLabel || "선택된 마이크";
   const state = result.audioState ?? "live";
   return `${label} · ${state} · 입력 ${quality.peakLevel}% · ${quality.message}`;
