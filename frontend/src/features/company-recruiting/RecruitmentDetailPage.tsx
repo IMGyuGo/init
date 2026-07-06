@@ -1,7 +1,12 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+
+import detailApplicantsIcon from "./assets/detail-applicants.png";
+import detailCompletionIcon from "./assets/detail-completion.png";
+import detailReportIcon from "./assets/detail-report.png";
 
 import { getRecruitment, listRecruitmentApplicants, updateScreeningStatus } from "./api";
 import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
@@ -202,14 +207,17 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
           <>
             <section className="kpi-row">
               <div className="kpi">
+                <Image className="kpi-icon" src={detailApplicantsIcon} alt="" width={28} height={28} aria-hidden="true" />
                 <span>지원자 수</span>
                 <strong>{recruitment.applicantCount}</strong>
               </div>
               <div className="kpi">
+                <Image className="kpi-icon" src={detailCompletionIcon} alt="" width={28} height={28} aria-hidden="true" />
                 <span>응시 완료율</span>
                 <strong>{completionRate}%</strong>
               </div>
               <div className="kpi">
+                <Image className="kpi-icon" src={detailReportIcon} alt="" width={28} height={28} aria-hidden="true" />
                 <span>리포트 생성 완료</span>
                 <strong>{reportCompleted}건</strong>
               </div>
