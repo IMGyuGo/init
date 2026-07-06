@@ -6254,7 +6254,7 @@ p {
   pointer-events: none;
 }
 .notion .candidate-jobs-hero-inner { position: relative; z-index: 1; display: grid; gap: 18px; width: 100%; max-width: 720px; }
-.notion .candidate-jobs-hero h2 { margin: 0; font-size: 34px; font-weight: 800; line-height: 1.28; letter-spacing: -0.025em; color: #191919; text-shadow: 0 1px 10px rgba(255, 255, 255, 0.4); }
+.notion .candidate-jobs-hero h2 { margin: 0; font-size: 40px; font-weight: 800; line-height: 1.22; letter-spacing: -0.03em; color: #191919; text-shadow: 0 1px 10px rgba(255, 255, 255, 0.4); }
 .notion .candidate-jobs-hero > .candidate-jobs-hero-inner > p { margin: 0; font-size: 15px; color: rgba(55, 53, 47, 0.7); }
 /* --- 흰색 라운드 검색바 (직행 스타일) --- */
 .notion .candidate-jobs-searchbar {
@@ -6351,9 +6351,18 @@ p {
 
 /* --- 리스트 영역 --- */
 .notion .candidate-jobs-list { position: relative; z-index: 0; display: grid; gap: 20px; min-height: calc(100dvh - 132px); scroll-snap-align: start; scroll-snap-stop: always; scroll-margin-top: 72px; align-content: start; }
-.notion .candidate-jobs-listhead { text-align: left; margin-bottom: 4px; }
-.notion .candidate-jobs-listhead h3 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; color: #191919; }
-.notion .candidate-jobs-listhead p { margin: 6px 0 0; font-size: 14px; color: rgba(55, 53, 47, 0.55); }
+.notion .candidate-jobs-listhead {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  text-align: left;
+  margin-bottom: 4px;
+}
+.notion .candidate-jobs-listhead-copy { min-width: 0; }
+.notion .candidate-jobs-listhead h3 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: #191919; }
+.notion .candidate-jobs-listhead p { margin: 4px 0 0; font-size: 13px; color: rgba(55, 53, 47, 0.55); }
+.notion .candidate-jobs-listhead-art { flex: none; width: 84px; height: 84px; object-fit: contain; }
 .notion .candidate-jobs-toolbar {
   display: flex;
   align-items: center;

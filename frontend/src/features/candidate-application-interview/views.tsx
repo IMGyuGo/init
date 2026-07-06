@@ -284,14 +284,16 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
 
       <div id="candidate-jobs-list" className="candidate-jobs-list">
         <div className="candidate-jobs-listhead">
-          <h3>인기 공고</h3>
-          <p>지금 지원자들이 많이 보는 공고예요</p>
+          <div className="candidate-jobs-listhead-copy">
+            <h3>인기 공고</h3>
+            <p>지금 지원자들이 많이 보는 공고예요</p>
+          </div>
         </div>
         <div className="candidate-jobs-toolbar">
           <div className="candidate-jobs-toolbar-left">
             <button type="button" className="candidate-jobs-filter-btn" onClick={openFilter}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M4 5h16M7 12h10M10 19h4" />
+                <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
               </svg>
               필터
               {activeFilters.length ? <em className="candidate-jobs-filter-count">{activeFilters.length}</em> : null}
