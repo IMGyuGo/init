@@ -262,36 +262,50 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
           </h2>
           <p>회사·공고 제목·직무로 검색하거나, 아래로 스크롤해 전체 공고를 살펴보세요.</p>
           <form
-            className="candidate-jobs-codesearch"
+            className="candidate-jobs-terminal"
             onSubmit={(event) => {
               event.preventDefault();
               submitSearch(searchText);
             }}
           >
-            <code className="cjs-code" onClick={() => searchInputRef.current?.focus()}>
-              <span className="cjs-fn">init</span>
-              <span className="cjs-punc">(</span>
-              <span className="cjs-quote" aria-hidden="true">&quot;</span>
-              <span className="cjs-field">
-                <input
-                  ref={searchInputRef}
-                  className="cjs-input"
-                  name="q"
-                  value={searchText}
-                  onChange={(event) => setSearchText(event.currentTarget.value)}
-                  aria-label="공고 검색"
-                />
-                <span ref={searchSizerRef} className="cjs-sizer" aria-hidden="true">
-                  {searchText}
-                </span>
-                <span className="cjs-cursor" aria-hidden="true" />
-                {searchText ? null : <span className="cjs-ghost" aria-hidden="true">어떤 공고를 찾으시나요</span>}
+            <div className="cjs-titlebar">
+              <span className="cjs-lights" aria-hidden="true">
+                <i className="cjs-light red" />
+                <i className="cjs-light yellow" />
+                <i className="cjs-light green" />
               </span>
-              <span className="cjs-quote" aria-hidden="true">&quot;</span>
-              <span className="cjs-spacer" aria-hidden="true" />
-              <span className="cjs-punc">)</span>
-            </code>
-            <button className="btn primary cjs-run" type="submit">
+              <span className="cjs-title">init — 채용공고 검색</span>
+            </div>
+            <div className="cjs-body" onClick={() => searchInputRef.current?.focus()}>
+              <div className="cjs-line">
+                <span className="cjs-prompt" aria-hidden="true">➜</span>
+                <span className="cjs-path" aria-hidden="true">~/init</span>
+                <code className="cjs-cmd">
+                  <span className="cjs-fn">init</span>
+                  <span className="cjs-punc">(</span>
+                  <span className="cjs-quote" aria-hidden="true">&quot;</span>
+                  <span className="cjs-field">
+                    <input
+                      ref={searchInputRef}
+                      className="cjs-input"
+                      name="q"
+                      value={searchText}
+                      onChange={(event) => setSearchText(event.currentTarget.value)}
+                      aria-label="공고 검색"
+                    />
+                    <span ref={searchSizerRef} className="cjs-sizer" aria-hidden="true">
+                      {searchText}
+                    </span>
+                    <span className="cjs-cursor" aria-hidden="true" />
+                    {searchText ? null : <span className="cjs-ghost" aria-hidden="true">어떤 공고를 찾으시나요</span>}
+                  </span>
+                  <span className="cjs-quote" aria-hidden="true">&quot;</span>
+                  <span className="cjs-punc">)</span>
+                </code>
+              </div>
+              <div className="cjs-hint" aria-hidden="true"># Enter 를 눌러 검색하세요</div>
+            </div>
+            <button className="cjs-run-sr" type="submit">
               검색
             </button>
           </form>
