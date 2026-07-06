@@ -325,14 +325,24 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                               <StatusBadge value={item.interviewStatus} />
                             </td>
                             <td>
-                              {item.report ? (
-                                <span className="status-with-note">
-                                  <StatusBadge value={item.report.status} />
-                                  <span>{item.report.totalScore ?? "점수 없음"}</span>
-                                </span>
-                              ) : (
-                                <StatusBadge value="NONE_OR_GENERATING" />
-                              )}
+                              <div className="screening-report-cell">
+                                {item.report ? (
+                                  <div className="screening-report-summary">
+                                    <StatusBadge value={item.report.status} />
+                                    <span className="screening-report-score">
+                                      {item.report.totalScore != null ? `${item.report.totalScore}점` : "점수 없음"}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="screening-report-summary">
+                                    <StatusBadge value="NONE_OR_GENERATING" />
+                                    <span className="screening-report-score">점수 없음</span>
+                                  </div>
+                                )}
+                                <Link className="screening-report-link" href={`/company/applicants/${item.applicationId}/evaluation`}>
+                                  평가 상세
+                                </Link>
+                              </div>
                             </td>
                             <td>
                               <div className={`autosave-field ${decisionState === "saving" ? "is-saving" : ""} ${decisionState === "error" ? "is-error" : ""}`}>

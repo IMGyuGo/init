@@ -35,7 +35,12 @@ export interface EvaluationCriterionInput {
 
 export interface InterviewAnswerInput {
   answerId: number;
+  questionId?: number;
   question: string;
+  questionType?: "INTRO" | "TECHNICAL" | "EXPERIENCE" | "SITUATION" | "FOLLOW_UP" | "CLOSING";
+  sortOrder?: number;
+  isFollowUpAnswer?: boolean;
+  parentAnswerId?: number;
   transcript?: string;
   evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
   transcriptUnavailableReason?: string;
@@ -90,6 +95,10 @@ export interface CommunicationAnalysisRequest {
 
 export interface GenerateReportRequest {
   reportType: ReportType;
+  companyName?: string;
+  jobTitle?: string;
+  jobRole?: string;
+  postingId?: number;
   jobDescription: string;
   documentText?: string;
   criteria: EvaluationCriterionInput[];

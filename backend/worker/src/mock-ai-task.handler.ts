@@ -33,10 +33,20 @@ interface StructuredReportEvaluation {
 
 interface ReportAnswerForScoring {
   answerId: number;
+  questionId?: number;
   question?: string;
+  questionType?: "INTRO" | "TECHNICAL" | "EXPERIENCE" | "SITUATION" | "FOLLOW_UP" | "CLOSING";
+  sortOrder?: number;
+  isFollowUpAnswer?: boolean;
+  parentAnswerId?: number;
   transcript: string;
   evaluationStatus: ReportAnswerEvaluationStatusRecord;
   transcriptUnavailableReason?: string;
+}
+
+interface ReportScoringContext {
+  reportType: "RECRUITING_REPORT" | "MOCK_INTERVIEW_REPORT";
+  jobDescription?: string;
 }
 
 const MOCK_HIRING_DECISION_TERMS = [
@@ -274,7 +284,11 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const { scores, questionEvaluations } = this.scoreReport(
       criteriaOf(payload.criteria),
       answersOf(payload.answers),
-      typeof payload.documentText === "string" ? payload.documentText : undefined
+      typeof payload.documentText === "string" ? payload.documentText : undefined,
+      {
+        reportType,
+        jobDescription: typeof payload.jobDescription === "string" ? payload.jobDescription : undefined
+      }
     );
     const guardrail = this.validateScores(reportType, scores);
     const evidences = scores.flatMap((score) => score.evidences);
@@ -356,10 +370,15 @@ export class MockAiTaskHandler implements AiTaskHandler {
         ? [{ answerId: 1, transcript: generatedSummary, evaluationStatus: "EVALUATED" as const }]
         : answersOf(payload.answers);
     const documentText = typeof payload.documentText === "string" ? payload.documentText : undefined;
-    const { scores, questionEvaluations } = this.scoreReport(criteria, answers, documentText);
+    const { scores, questionEvaluations } = this.scoreReport(criteria, answers, documentText, {
+      reportType,
+      jobDescription
+    });
     const totalScore = weightedTotalScore(scores, criteria);
+    const companyName = typeof payload.companyName === "string" && payload.companyName.trim() ? payload.companyName.trim() : undefined;
+    const jobTitle = typeof payload.jobTitle === "string" && payload.jobTitle.trim() ? payload.jobTitle.trim() : undefined;
     const summary = generatedSummary ?? (reportType === "RECRUITING_REPORT"
-        ? `채용 면접 리포트는 ${answers.length}개 답변과 JD(${shorten(jobDescription)})를 바탕으로 생성되었습니다. 최종 판단은 사람이 검토해야 합니다.`
+        ? `${companyName ? `${companyName} ` : ""}${jobTitle ?? "채용 공고"} 면접 리포트는 ${answers.length}개 답변, 확정 질문 세트, JD(${shorten(jobDescription)})를 바탕으로 생성되었습니다. 최종 채용 판단은 사람이 함께 검토해야 합니다.`
         : `모의면접 피드백은 ${answers.length}개 답변과 서비스 기본 평가 기준을 바탕으로 생성되었습니다.`);
     const report: GeneratedReportRecord = {
       reportId,
@@ -600,14 +619,28 @@ export class MockAiTaskHandler implements AiTaskHandler {
   private scoreReport(
     criteria: Array<{ criterionId: number; name: string; weight: number; description?: string }>,
     answers: ReportAnswerForScoring[],
-    documentText?: string
+    documentText?: string,
+    context: ReportScoringContext = { reportType: "RECRUITING_REPORT" }
   ): StructuredReportEvaluation {
     const scores: GeneratedReportScoreRecord[] = [];
     const questionEvaluations: GeneratedQuestionEvaluationRecord[] = [];
     const evaluatedAnswerIds = new Set<number>();
+    const childAnswersByParent = groupFollowUpAnswersByParent(answers);
+    const primaryEvaluatedAnswers = answers
+      .filter((answer) => answer.evaluationStatus !== "STT_UNAVAILABLE" && !answer.isFollowUpAnswer)
+      .sort(compareReportAnswersForScoring);
+    const fallbackEvaluatedAnswers = answers
+      .filter((answer) => answer.evaluationStatus !== "STT_UNAVAILABLE")
+      .sort(compareReportAnswersForScoring);
+    const usedPrimaryAnswerIds = new Set<number>();
 
     criteria.forEach((criterion, index) => {
-      const answer = answers[index % answers.length];
+      const criterionName = localizedCriterionName(criterion.name);
+      const answer =
+        selectAnswerForCriterion(criterionName, criterion, primaryEvaluatedAnswers, usedPrimaryAnswerIds) ??
+        primaryEvaluatedAnswers[index % Math.max(primaryEvaluatedAnswers.length, 1)] ??
+        fallbackEvaluatedAnswers[index % Math.max(fallbackEvaluatedAnswers.length, 1)] ??
+        answers[index % answers.length];
       if (answer.evaluationStatus === "STT_UNAVAILABLE") {
         const zeroEvaluation = zeroScoreForUnavailableTranscript(criterion, answer);
         scores.push(zeroEvaluation.score);
@@ -616,15 +649,25 @@ export class MockAiTaskHandler implements AiTaskHandler {
         return;
       }
 
-      const structured = structuredAssessment(answer.transcript, documentText, criterion.description);
-      const score = structured.score;
-      const criterionName = localizedCriterionName(criterion.name);
+      usedPrimaryAnswerIds.add(answer.answerId);
+      const supportingFollowUps = childAnswersByParent.get(answer.answerId) ?? [];
+      const transcriptForScoring = answerTranscriptWithFollowUps(answer, supportingFollowUps);
+      const structured = structuredAssessment(transcriptForScoring, documentText, criterion.description, context.jobDescription);
+      const quality = answerQualityAdjustment(criterionName, transcriptForScoring, context);
+      const score = Math.min(structured.score, quality.maxScore);
+      const uncertaintyReasons = uniqueStrings([...structured.uncertaintyReasons, ...quality.reasons]);
+      const confidence = quality.forceLowConfidence ? "LOW" : structured.confidence;
       const evidences: GeneratedReportScoreRecord["evidences"] = [
         {
           sourceType: "INTERVIEW_ANSWER",
           answerId: answer.answerId,
-          text: pickEvidence(answer.transcript)
+          text: answerEvidenceText(answer)
         },
+        ...supportingFollowUps.map((followUp) => ({
+          sourceType: "INTERVIEW_ANSWER" as const,
+          answerId: followUp.answerId,
+          text: answerEvidenceText(followUp, "꼬리질문 답변")
+        })),
         ...(documentText?.trim()
           ? [
               {
@@ -639,10 +682,10 @@ export class MockAiTaskHandler implements AiTaskHandler {
         criterionId: criterion.criterionId,
         criterionName,
         score,
-        rationale: scoreRationale(criterionName, score, answer.transcript, structured),
+        rationale: scoreRationale(criterionName, score, transcriptForScoring, structured, quality.reasons),
         rubricAnchor: structured.rubricAnchor,
-        confidence: structured.confidence,
-        uncertaintyReasons: structured.uncertaintyReasons,
+        confidence,
+        uncertaintyReasons,
         evidences
       };
 
@@ -653,8 +696,8 @@ export class MockAiTaskHandler implements AiTaskHandler {
         answerId: answer.answerId,
         question: answer.question ?? `Answer ${answer.answerId}`,
         rubricAnchor: structured.rubricAnchor,
-        confidence: structured.confidence,
-        uncertaintyReasons: structured.uncertaintyReasons,
+        confidence,
+        uncertaintyReasons,
         evidences
       });
       evaluatedAnswerIds.add(answer.answerId);
@@ -929,13 +972,199 @@ function answersOf(value: unknown): ReportAnswerForScoring[] {
 
     return {
       answerId: positiveNumber(record.answerId, "answerId"),
+      questionId: optionalPositiveNumber(record.questionId, "questionId"),
       question: typeof record.question === "string" ? record.question : undefined,
+      questionType: questionTypeOf(record.questionType),
+      sortOrder: Number.isFinite(Number(record.sortOrder)) ? Number(record.sortOrder) : undefined,
+      isFollowUpAnswer: record.isFollowUpAnswer === true,
+      parentAnswerId: optionalPositiveNumber(record.parentAnswerId, "parentAnswerId"),
       transcript,
       evaluationStatus,
       transcriptUnavailableReason: evaluationStatus === "STT_UNAVAILABLE" ? transcriptUnavailableReason : undefined
     };
   });
 }
+
+function questionTypeOf(value: unknown): ReportAnswerForScoring["questionType"] | undefined {
+  return value === "INTRO" ||
+    value === "TECHNICAL" ||
+    value === "EXPERIENCE" ||
+    value === "SITUATION" ||
+    value === "FOLLOW_UP" ||
+    value === "CLOSING"
+    ? value
+    : undefined;
+}
+
+function groupFollowUpAnswersByParent(answers: ReportAnswerForScoring[]): Map<number, ReportAnswerForScoring[]> {
+  const grouped = new Map<number, ReportAnswerForScoring[]>();
+  for (const answer of answers) {
+    if (!answer.isFollowUpAnswer || !answer.parentAnswerId || answer.evaluationStatus === "STT_UNAVAILABLE") {
+      continue;
+    }
+    const items = grouped.get(answer.parentAnswerId) ?? [];
+    items.push(answer);
+    grouped.set(answer.parentAnswerId, items.sort(compareReportAnswersForScoring));
+  }
+  return grouped;
+}
+
+function compareReportAnswersForScoring(left: ReportAnswerForScoring, right: ReportAnswerForScoring): number {
+  return (left.sortOrder ?? left.answerId) - (right.sortOrder ?? right.answerId);
+}
+
+function selectAnswerForCriterion(
+  criterionName: string,
+  criterion: { description?: string },
+  answers: ReportAnswerForScoring[],
+  usedAnswerIds: Set<number>
+): ReportAnswerForScoring | undefined {
+  const candidates = answers.length > usedAnswerIds.size
+    ? answers.filter((answer) => !usedAnswerIds.has(answer.answerId))
+    : answers;
+
+  return candidates
+    .map((answer) => ({
+      answer,
+      score: answerCriterionMatchScore(criterionName, criterion.description, answer)
+    }))
+    .sort((left, right) => right.score - left.score || compareReportAnswersForScoring(left.answer, right.answer))[0]?.answer;
+}
+
+function answerCriterionMatchScore(
+  criterionName: string,
+  criterionDescription: string | undefined,
+  answer: ReportAnswerForScoring
+): number {
+  const question = normalizeSpace(answer.question ?? "").toLowerCase();
+  const transcript = normalizeSpace(answer.transcript).toLowerCase();
+  const source = `${question} ${transcript} ${criterionDescription ?? ""}`;
+  let score = Math.min(40, transcript.length / 4);
+
+  if (criterionName === "직무 적합성") {
+    score += answer.questionType === "TECHNICAL" || answer.questionType === "INTRO" ? 30 : 0;
+    score += /(직무|지원|기술|구현|설계|api|db|backend|frontend|nestjs|postgresql|react|java|spring)/i.test(source) ? 30 : 0;
+  } else if (criterionName === "문제 해결력") {
+    score += answer.questionType === "SITUATION" || answer.questionType === "TECHNICAL" ? 25 : 0;
+    score += /(문제|어려|원인|해결|분석|검증|장애|오류|트러블슈팅|debug|issue)/i.test(source) ? 35 : 0;
+  } else if (criterionName === "실행력과 성과") {
+    score += /(맡|담당|구현|완료|개선|성과|결과|수치|전후|배포|운영)/i.test(source) ? 40 : 0;
+  } else if (criterionName === "학습 민첩성") {
+    score += answer.questionType === "EXPERIENCE" ? 20 : 0;
+    score += /(학습|익혔|새로운|적용|처음|빠르게|도입|러닝|learn)/i.test(source) ? 40 : 0;
+  } else if (criterionName === "커뮤니케이션") {
+    score += /(설명|공유|협업|조율|커뮤니케이션|팀|동료|논의|전달)/i.test(source) ? 35 : 0;
+  } else if (criterionName === "성장 가능성") {
+    score += answer.questionType === "CLOSING" ? 20 : 0;
+    score += /(강점|개선|회고|재발|다음|검증|책임|신뢰|성장|반복)/i.test(source) ? 40 : 0;
+  }
+
+  return score;
+}
+
+function answerTranscriptWithFollowUps(answer: ReportAnswerForScoring, followUps: ReportAnswerForScoring[]): string {
+  return [
+    answer.transcript,
+    ...followUps.map((followUp) => `꼬리질문 답변: ${followUp.transcript}`)
+  ].join("\n");
+}
+
+function answerQualityAdjustment(
+  criterionName: string,
+  transcript: string,
+  context: ReportScoringContext
+): { maxScore: number; reasons: string[]; forceLowConfidence: boolean } {
+  const normalized = normalizeSpace(transcript);
+  const reasons: string[] = [];
+  let maxScore = 86;
+  let forceLowConfidence = false;
+
+  if (normalized.length < 30) {
+    maxScore = Math.min(maxScore, 55);
+    reasons.push("답변이 매우 짧아 평가 근거가 부족합니다.");
+    forceLowConfidence = true;
+  } else if (normalized.length < 80) {
+    maxScore = Math.min(maxScore, 68);
+    reasons.push("답변 길이가 짧아 상황, 행동, 결과를 모두 확인하기 어렵습니다.");
+  }
+
+  if (looksLikeNoisyTranscript(normalized)) {
+    maxScore = Math.min(maxScore, 72);
+    reasons.push("STT에서 어색하게 인식된 표현이 있어 핵심 근거를 보수적으로 평가했습니다.");
+  }
+
+  if (
+    context.reportType === "RECRUITING_REPORT" &&
+    criterionName === "직무 적합성" &&
+    !hasKeywordOverlap(normalized, context.jobDescription)
+  ) {
+    maxScore = Math.min(maxScore, 68);
+    reasons.push("JD와 직접 연결되는 기술, 역할, 업무 키워드가 충분히 드러나지 않았습니다.");
+  }
+
+  return { maxScore, reasons, forceLowConfidence };
+}
+
+function looksLikeNoisyTranscript(value: string): boolean {
+  const fillerCount = (value.match(/(저기|그거|이거|그럼|음|어|뭐|그냥|약간|좀)/g) ?? []).length;
+  return fillerCount >= 4 || STT_NOISE_TERMS.some((term) => value.includes(term));
+}
+
+function hasKeywordOverlap(transcript: string, jobDescription?: string): boolean {
+  if (!jobDescription?.trim()) {
+    return false;
+  }
+  const transcriptTokens = new Set(keywordTokens(transcript));
+  return keywordTokens(jobDescription).some((token) => transcriptTokens.has(token));
+}
+
+function keywordTokens(value: string): string[] {
+  return normalizeSpace(value)
+    .toLowerCase()
+    .split(/[^a-z0-9가-힣+#.]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2 && !COMMON_KEYWORDS.has(token));
+}
+
+function answerEvidenceText(answer: ReportAnswerForScoring, label = "면접 답변"): string {
+  const question = answer.question ? `질문: ${answer.question}` : undefined;
+  return [question, `${label}: ${answer.transcript}`].filter((value): value is string => Boolean(value)).join("\n");
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter((value) => value.trim().length > 0))];
+}
+
+const STT_NOISE_TERMS = [
+  "블랍",
+  "마인 타입",
+  "로컬 스틱",
+  "오퍼 처리",
+  "힐름",
+  "인적 답변",
+  "인터뷰 애널",
+  "파일 레스셋",
+  "동계",
+];
+
+const COMMON_KEYWORDS = new Set([
+  "및",
+  "또는",
+  "그리고",
+  "에서",
+  "으로",
+  "하는",
+  "있습니다",
+  "경험",
+  "프로젝트",
+  "업무",
+  "지원자",
+  "개발자",
+  "the",
+  "and",
+  "with",
+  "for",
+]);
 
 function zeroScoreForUnavailableTranscript(
   criterion: { criterionId: number; name: string },
@@ -1092,16 +1321,18 @@ function scoreRationale(
   criterionName: string,
   score: number,
   _transcript: string,
-  assessment: ReturnType<typeof structuredAssessment>
+  assessment: ReturnType<typeof structuredAssessment>,
+  qualityReasons: string[] = []
 ): string {
   const band = scoreBandFor(score);
-  const improvement = assessment.uncertaintyReasons.includes("정량 성과나 전후 비교가 부족합니다.")
-    ? "성과를 수치, 전후 비교, 검증 결과로 보강하면 더 설득력 있는 답변이 됩니다."
+  const primaryCaveat = qualityReasons[0] ?? assessment.uncertaintyReasons[0];
+  const improvement = primaryCaveat
+    ? `${primaryCaveat} 다음 답변에서는 상황, 본인 행동, 결과를 한 번 더 분리해서 말하면 좋습니다.`
     : "행동과 결과가 함께 제시되어 답변 근거의 신뢰도가 비교적 높습니다.";
   const subject = `${criterionName}${topicParticle(criterionName)}`;
 
-  if (criterionName === "직무/기술 역량") {
-    return `${subject} ${score}점(${band.label})입니다. 사용 기술과 구현 경험이 직무와 연결되어 보입니다. ${improvement}`;
+  if (criterionName === "직무 적합성") {
+    return `${subject} ${score}점(${band.label})입니다. JD와 연결되는 기술 경험과 역할 이해를 답변 근거로 확인했습니다. ${improvement}`;
   }
 
   if (criterionName === "문제 해결력") {
@@ -1109,19 +1340,19 @@ function scoreRationale(
   }
 
   if (criterionName === "실행력과 성과") {
-    return `${subject} ${score}점(${band.label})입니다. 직접 맡은 작업 흐름과 결과가 일부 드러납니다. ${improvement}`;
+    return `${subject} ${score}점(${band.label})입니다. 직접 실행한 작업과 그 결과를 답변에서 확인했습니다. ${improvement}`;
   }
 
-  if (criterionName === "협업/커뮤니케이션") {
-    return `${subject} ${score}점(${band.label})입니다. 상황과 역할을 설명하는 흐름이 있습니다. 이해관계자 조정 과정까지 더하면 전달력이 좋아집니다. ${improvement}`;
+  if (criterionName === "학습 민첩성") {
+    return `${subject} ${score}점(${band.label})입니다. 새로 익힌 내용을 실제 문제에 적용한 흐름을 답변에서 확인했습니다. ${improvement}`;
   }
 
-  if (criterionName === "학습/성장성") {
-    return `${subject} ${score}점(${band.label})입니다. 새로운 도구나 문제를 학습해 실제 흐름에 적용한 단서를 확인했습니다. ${improvement}`;
+  if (criterionName === "커뮤니케이션") {
+    return `${subject} ${score}점(${band.label})입니다. 상황과 역할을 설명하는 흐름을 답변에서 확인했습니다. ${improvement}`;
   }
 
-  if (criterionName === "책임감/신뢰성") {
-    return `${subject} ${score}점(${band.label})입니다. 문제를 끝까지 확인하고 검증하려는 태도가 답변 근거에서 확인됩니다. ${improvement}`;
+  if (criterionName === "성장 가능성") {
+    return `${subject} ${score}점(${band.label})입니다. 문제를 검증하고 다음 개선으로 이어가려는 태도를 답변 근거로 확인했습니다. ${improvement}`;
   }
 
   return `${subject} ${score}점(${band.label})입니다. 답변 흐름을 바탕으로 관련 역량을 평가했습니다. ${improvement}`;
@@ -1138,9 +1369,10 @@ function topicParticle(value: string): "은" | "는" {
 function structuredAssessment(
   transcript: string,
   documentText?: string,
-  criterionDescription?: string
+  criterionDescription?: string,
+  jobDescription?: string
 ): ReturnType<typeof assessReportEvidence> {
-  return assessReportEvidence(transcript, documentText, criterionDescription);
+  return assessReportEvidence(transcript, documentText, criterionDescription, jobDescription);
 }
 
 function shorten(value: string): string {

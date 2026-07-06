@@ -35,7 +35,6 @@ import {
   type CandidateInterviewRuntimeView,
   type CandidateJobQuery,
   type CandidateMockInterviewHistoryItem,
-  type CandidateReportGenerationHandoff,
   type CandidateMockReportFeedback,
   type CandidateMockReportMedia,
   type CandidateMockReportSummary,
@@ -157,6 +156,26 @@ type ApplicationReportData = {
   report?: CandidateRecruitingReportView;
   reportError?: string;
 };
+
+function shouldAutoRequestApplicationReport(data?: ApplicationReportData): boolean {
+  const status = data?.status;
+  if (!status || data?.report) {
+    return false;
+  }
+
+  if (data.reportError && !isReportNotReadyMessage(data.reportError)) {
+    return false;
+  }
+
+  const interviewCompleted =
+    status.interviewStatus === "COMPLETED" || status.interviewSessionStatus === "COMPLETED";
+  if (!interviewCompleted || status.reportAvailable) {
+    return false;
+  }
+
+  return status.reportStatus !== "GENERATING" && status.reportStatus !== "COMPLETED";
+}
+
 type LastSavedAnswer = {
   answerId: number;
   questionId: number;
@@ -1419,9 +1438,9 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
 }
 
 export function CandidateApplicationReportPage({ applicationId }: { applicationId: number }) {
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [reportHandoff, setReportHandoff] = useState<CandidateReportGenerationHandoff>();
+  const [generationBusy, setGenerationBusy] = useState(false);
+  const [generationMessage, setGenerationMessage] = useState("");
+  const requestedReportApplicationRef = useRef<number | null>(null);
   const load = useCallback(async (): Promise<ApplicationReportData> => {
     const api = getCandidateApi();
     const [statusResult, reportResult] = await Promise.allSettled([
@@ -1437,46 +1456,61 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
   }, [applicationId]);
   const { data, loading, error, refresh } = useCandidateResource(load, [applicationId]);
 
-  async function handleGenerateApplicationReport() {
-    setBusy(true);
-    setMessage("");
-    try {
-      const result = await getCandidateApi().requestApplicationReportGeneration(applicationId);
-      setReportHandoff(result.data);
-      setMessage(
-        `REPORT_GENERATE queued=${String(result.data.queued)} processLogId=${result.data.processLogId} reportId=${result.data.reportId}`,
-      );
-      refresh();
-    } catch (generateError) {
-      setMessage(toErrorMessage(generateError));
-    } finally {
-      setBusy(false);
+  useEffect(() => {
+    if (!shouldAutoRequestApplicationReport(data)) {
+      return;
     }
-  }
+
+    if (requestedReportApplicationRef.current === applicationId) {
+      return;
+    }
+
+    let cancelled = false;
+    requestedReportApplicationRef.current = applicationId;
+    setGenerationBusy(true);
+    setGenerationMessage("");
+
+    getCandidateApi()
+      .requestApplicationReportGeneration(applicationId)
+      .then(() => {
+        if (cancelled) {
+          return;
+        }
+        setGenerationMessage("AI 분석 요청이 접수되었습니다. 완료되면 기업 검토 화면에 반영됩니다.");
+        refresh();
+      })
+      .catch((reportGenerationError) => {
+        if (cancelled) {
+          return;
+        }
+        setGenerationMessage(toErrorMessage(reportGenerationError));
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setGenerationBusy(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applicationId, data, refresh]);
 
   return (
     <CandidatePageShell active="applications">
       <CandidatePageHead
         eyebrow="채용 결과"
         title="채용 AI 면접 결과"
-        description={data?.status ? `${data.status.companyName} · ${data.status.jobTitle}` : "지원자에게 공개 가능한 제한 결과와 전형 상태만 표시합니다."}
+        description={data?.status ? `${data.status.companyName} · ${data.status.jobTitle}` : "면접 제출 여부와 전형 진행 상태를 확인합니다."}
         actions={
           <div className="toolbar">
-            <StatusPill value="채용 리포트" />
-            <StatusPill value="지원자 제한 조회" />
-            <button
-              className="btn secondary"
-              type="button"
-              disabled={busy || data?.status?.interviewStatus !== "COMPLETED"}
-              onClick={() => void handleGenerateApplicationReport()}
-            >
-              AI 분석 요청
-            </button>
+            <StatusPill value="채용면접" />
+            <StatusPill value="기업 검토" />
             <button className="btn secondary" type="button" onClick={refresh}>새로고침</button>
           </div>
         }
       />
-      <StatusNotice loading={loading || busy} error={error} message={message} />
+      <StatusNotice loading={loading || generationBusy} error={error} message={generationMessage} />
       <section className="panel">
         <div className="panel-head">
           <div>
@@ -1486,22 +1520,11 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
         </div>
         {data?.status ? <ApplicationStatusView status={data.status} /> : <p className="notice danger">{data?.statusError ?? "전형 상태를 불러오지 못했습니다."}</p>}
       </section>
-      {reportHandoff ? (
-        <section className="panel">
-          <div className="panel-head">
-            <div>
-              <h2>E 리포트 생성 연결</h2>
-              <p>REPORT_GENERATE 큐 발행 결과와 worker가 참조할 ID를 확인합니다.</p>
-            </div>
-          </div>
-          <ReportGenerationHandoffView handoff={reportHandoff} />
-        </section>
-      ) : null}
       <section className="panel">
         <div className="panel-head">
           <div>
             <h2>지원자용 결과</h2>
-            <p>기업용 상세 점수, 평가 근거, 내부 메모는 노출하지 않습니다.</p>
+            <p>면접 제출과 분석 진행 상태를 안내합니다.</p>
           </div>
         </div>
         {data?.report ? (
@@ -5026,21 +5049,27 @@ function ApplicationStatusView({ status }: { status: CandidateApplicationStatusV
 }
 
 function RecruitingReportView({ report }: { report: CandidateRecruitingReportView }) {
+  const isCompleted = report.status === "COMPLETED";
+  const isFailed = report.status === "FAILED";
+  const statusMessage = isCompleted
+    ? "AI 분석이 완료되어 기업 검토 단계로 전달되었습니다."
+    : isFailed
+      ? "면접은 제출되었지만 AI 분석 상태 확인이 필요합니다. 기업 담당자가 확인 후 안내할 예정입니다."
+      : "면접이 정상적으로 제출되었습니다. AI 분석이 완료되면 기업 검토 단계로 전달됩니다.";
+
   return (
     <div className="detail-stack">
       <dl className="candidate-feature__summary">
         <Definition label="상태" value={<StatusPill value={report.status} />} />
         <Definition label="회사" value={report.companyName} />
         <Definition label="공고" value={report.jobTitle} />
-        {report.reportId ? <Definition label="리포트 ID" value={`#${report.reportId}`} /> : null}
-        {report.totalScore !== undefined ? <Definition label="총점" value={`${report.totalScore}점`} /> : null}
-        <Definition label="생성 시각" value={report.generatedAt ? formatDateTime(report.generatedAt) : "-"} />
         <Definition label="다음 단계" value={report.nextStepLabel} />
       </dl>
-      <p className="description-box">{report.candidateMessage}</p>
-      {report.summary ? <p className="description-box">{report.summary}</p> : null}
-      <ReportScoreList scores={report.scores} />
-      <ReportAnswerInsightList answers={report.answers} />
+      <div className="description-box">
+        <strong>면접이 정상적으로 제출되었습니다.</strong>
+        <p>{statusMessage}</p>
+        <p>최종 결과는 기업 검토 후 안내됩니다.</p>
+      </div>
     </div>
   );
 }
@@ -5121,43 +5150,6 @@ function compareReportAnswers(
   return (left.sortOrder ?? left.answerId) - (right.sortOrder ?? right.answerId);
 }
 
-function ReportAnswerInsightList({ answers }: { answers: CandidateReportAnswerView[] }) {
-  if (!answers.length) {
-    return <p className="empty">표시할 면접 답변이 아직 없습니다.</p>;
-  }
-
-  const sortedAnswers = orderReportAnswersByInterviewFlow(answers);
-  return (
-    <div>
-      <h3 className="candidate-section-title">답변별 STT / 꼬리질문</h3>
-      <div className="report-answer-insight-list">
-        {sortedAnswers.map((answer, index) => (
-          <article className="report-answer-insight-card" key={answer.answerId}>
-            <div className="report-answer-card__head">
-              <div>
-                <span>질문 {index + 1}</span>
-                <strong>{answer.questionContent ?? `질문 #${answer.questionId}`}</strong>
-              </div>
-              {answer.questionType ? <StatusPill value={formatQuestionTypeLabel(answer.questionType)} /> : null}
-            </div>
-            <div className="script-box">
-              <strong>STT 텍스트</strong>
-              <TranscriptText
-                transcript={answer.transcript}
-                transcriptStatus={answer.transcriptStatus}
-                evaluationStatus={answer.evaluationStatus}
-                transcriptUnavailableReason={answer.transcriptUnavailableReason}
-              />
-            </div>
-            <FollowUpQuestionList questions={answer.followUpQuestions} />
-            <EvidenceList evidences={answer.evidences} />
-          </article>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function TranscriptText({
   transcript,
   transcriptStatus,
@@ -5232,19 +5224,23 @@ function formatEvidenceSummary(evidence: CandidateReportEvidenceView, criterionN
 
 function formatCriterionEvidenceFocus(criterionName?: string): string {
   const labels: Record<string, string> = {
-    "직무/기술 역량": "기술 경험과 직무 연관성을 판단하는 데",
+    "직무 적합성": "JD와 답변 경험의 연결성을 판단하는 데",
+    "직무/기술 역량": "JD와 답변 경험의 연결성을 판단하는 데",
     "문제 해결력": "문제를 나누어 확인한 과정을 판단하는 데",
     "실행력과 성과": "직접 수행한 작업과 결과를 판단하는 데",
+    "학습 민첩성": "학습한 내용을 실제 문제에 적용한 흐름을 판단하는 데",
     "협업/커뮤니케이션": "상황 설명과 협업 방식을 판단하는 데",
+    "커뮤니케이션": "상황 설명과 협업 방식을 판단하는 데",
     "학습/성장성": "학습한 내용을 실제 문제에 적용한 흐름을 판단하는 데",
-    "책임감/신뢰성": "끝까지 확인하고 검증하는 태도를 판단하는 데",
+    "책임감/신뢰성": "회고와 개선 가능성을 판단하는 데",
+    "성장 가능성": "회고와 개선 가능성을 판단하는 데",
   };
 
   return criterionName ? labels[criterionName] ?? `${criterionName} 항목을 판단하는 데` : "답변 흐름을 확인하는 데";
 }
 
 function formatEvidenceReference(evidence: CandidateReportEvidenceView): string {
-  const answerLabel = evidence.answerId ? `참고 답변 #${evidence.answerId}` : "참고 답변";
+  const answerLabel = evidence.answerId ? "관련 답변" : "참고 자료";
   return `${answerLabel}: "${shortenReportEvidence(evidence.evidenceText)}"`;
 }
 
@@ -5277,7 +5273,7 @@ function formatEvidenceSourceNoun(sourceType: string): string {
 
 function shortenReportEvidence(value: string): string {
   const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
+  return normalized.length > 220 ? `${normalized.slice(0, 217)}...` : normalized;
 }
 
 function formatEvidenceSourceLabel(evidence: CandidateReportEvidenceView): string {
@@ -5289,43 +5285,6 @@ function formatEvidenceSourceLabel(evidence: CandidateReportEvidenceView): strin
   };
 
   return labels[evidence.sourceType] ?? "평가 자료 기반";
-}
-
-function ReportGenerationHandoffView({ handoff }: { handoff: CandidateReportGenerationHandoff }) {
-  const payload = buildReportGenerationSharePayload(handoff);
-
-  return (
-    <div className="candidate-pipeline-card">
-      <div className="candidate-pipeline-card__head">
-        <div>
-          <strong>REPORT_GENERATE 요청 준비 완료</strong>
-          <p>{handoff.callbackTopic}</p>
-        </div>
-        <StatusPill value={handoff.status} />
-      </div>
-      <dl className="candidate-feature__summary">
-        <Definition label="queued" value={String(handoff.queued)} />
-        <Definition label="processLogId" value={handoff.processLogId} />
-        <Definition label="reportStatus" value={handoff.reportStatus} />
-        <Definition label="reportId" value={handoff.reportId} />
-        <Definition label="sessionId" value={handoff.sessionId} />
-        {handoff.applicationId ? <Definition label="applicationId" value={handoff.applicationId} /> : null}
-        <Definition label="reportType" value={handoff.reportType} />
-        <Definition label="answerIds" value={formatIdList(handoff.answerIds)} />
-        <Definition label="fileIds" value={formatIdList(handoff.fileIds)} />
-      </dl>
-      <PipelinePayloadPreview title="E 리포트 생성 공유 payload" payload={payload} />
-    </div>
-  );
-}
-
-function PipelinePayloadPreview({ title, payload }: { title: string; payload: Record<string, unknown> }) {
-  return (
-    <div className="candidate-pipeline-payload">
-      <div className="candidate-pipeline-payload__title">{title}</div>
-      <pre>{formatJsonPayload(payload)}</pre>
-    </div>
-  );
 }
 
 async function requestMockReportGenerationAfterComplete(reportId: number): Promise<void> {
@@ -5405,31 +5364,8 @@ function buildAiInterviewRequest(
   }) as AiInterviewRequest;
 }
 
-function buildReportGenerationSharePayload(handoff: CandidateReportGenerationHandoff): Record<string, unknown> {
-  return {
-    accepted: handoff.accepted,
-    queued: handoff.queued,
-    processType: handoff.processType,
-    status: handoff.status,
-    reportStatus: handoff.reportStatus,
-    callbackTopic: handoff.callbackTopic,
-    processLogId: handoff.processLogId,
-    reportId: handoff.reportId,
-    sessionId: handoff.sessionId,
-    applicationId: handoff.applicationId,
-    reportType: handoff.reportType,
-    answerIds: handoff.answerIds,
-    fileIds: handoff.fileIds,
-    inputRef: handoff.inputRef,
-  };
-}
-
 function compactPayload(payload: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined && value !== null));
-}
-
-function formatJsonPayload(payload: Record<string, unknown>): string {
-  return JSON.stringify(payload, null, 2);
 }
 
 async function pollAiJobUntilSettled(processLogId: number): Promise<AiJobStatusResponse> {
@@ -5481,10 +5417,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function formatIdList(ids: number[]): string {
-  return ids.length ? ids.join(", ") : "-";
 }
 
 function RecruitingReportFallbackView({

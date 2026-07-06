@@ -57,6 +57,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   }
 
   const report = evaluation?.report ?? null;
+  const displayAnswers = evaluation ? getDisplayAnswers(evaluation.answers) : [];
 
   return (
     <section className="app-page glass-page notion">
@@ -191,10 +192,93 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                 <div className="empty">리포트가 없거나 생성 중입니다.</div>
               )}
             </section>
+
+            <section className="panel">
+              <div className="panel-head">
+                <div>
+                  <h2>면접 답변</h2>
+                  <p>지원자가 실제로 받은 질문과 답변 스크립트를 확인합니다.</p>
+                </div>
+              </div>
+
+              {displayAnswers.length > 0 ? (
+                <div className="company-answer-list">
+                  {displayAnswers.map((answer, index) => (
+                    <article className="company-answer-card" key={answer.answerId}>
+                      <div className="company-answer-card-head">
+                        <div>
+                          <span>질문 {index + 1}</span>
+                          <h3>{answer.questionContent ?? "질문 정보 없음"}</h3>
+                        </div>
+                        <span className="company-question-type">{formatQuestionTypeLabel(answer.questionType)}</span>
+                      </div>
+
+                      <div className="company-answer-block">
+                        <strong>답변</strong>
+                        <p>{answer.transcript?.trim() ? answer.transcript : "답변 스크립트가 없습니다."}</p>
+                      </div>
+
+                      {answer.followUpQuestions.length > 0 ? (
+                        <div className="company-answer-block">
+                          <strong>생성된 꼬리질문</strong>
+                          <ul>
+                            {answer.followUpQuestions.map((followUp) => (
+                              <li key={followUp.followUpId}>
+                                <span className="company-follow-up-question">{followUp.content}</span>
+                                <div className="company-follow-up-answer">
+                                  <strong>꼬리질문 답변</strong>
+                                  <p>{followUp.answer?.transcript?.trim() ? followUp.answer.transcript : "저장된 꼬리질문 답변이 없습니다."}</p>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+
+                      {answer.durationSeconds != null ? (
+                        <div className="company-answer-meta">답변 시간 {answer.durationSeconds}초</div>
+                      ) : null}
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty">저장된 면접 답변이 없습니다.</div>
+              )}
+            </section>
           </>
         ) : (
           <div className="empty">평가 상세를 불러오는 중입니다.</div>
         )}
     </section>
   );
+}
+
+function formatQuestionTypeLabel(value?: string | null) {
+  const labels: Record<string, string> = {
+    INTRO: "자기소개",
+    TECHNICAL: "기술 질문",
+    EXPERIENCE: "경험 질문",
+    SITUATION: "상황 질문",
+    FOLLOW_UP: "꼬리질문",
+    CLOSING: "마무리",
+  };
+  return value ? labels[value] ?? value : "질문";
+}
+
+function getDisplayAnswers(answers: ApplicantEvaluation["answers"]) {
+  return answers.filter((answer) => answer.questionType !== "FOLLOW_UP" || !isLinkedFollowUpAnswer(answers, answer));
+}
+
+function isLinkedFollowUpAnswer(answers: ApplicantEvaluation["answers"], candidate: ApplicantEvaluation["answers"][number]) {
+  const content = normalizeQuestionText(candidate.questionContent);
+  if (!content) {
+    return false;
+  }
+  return answers.some((answer) =>
+    answer.followUpQuestions.some((followUp) => normalizeQuestionText(followUp.content) === content && followUp.answer?.answerId === candidate.answerId),
+  );
+}
+
+function normalizeQuestionText(value?: string | null) {
+  return value?.trim().replace(/\s+/g, " ") ?? "";
 }
