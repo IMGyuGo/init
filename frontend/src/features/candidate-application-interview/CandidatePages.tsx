@@ -4478,10 +4478,6 @@ function InterviewRuntimePanel({
       autoAiPipeline?.followUpStatus === "COMPLETED" &&
       autoAiPipeline?.followUpQuestion,
   );
-  const followUpSkippedForCurrentAnswer = Boolean(
-    autoAiPipeline?.answerId === lastAnswer?.answerId &&
-      autoAiPipeline?.followUpSkipped,
-  );
   const answerProcessingBusy = Boolean(
     autoAiPipeline?.sttStatus === "PENDING" ||
       autoAiPipeline?.sttStatus === "RUNNING" ||
