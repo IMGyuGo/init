@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type {
   CandidateFileAsset,
   CandidateJobDetail,
@@ -111,6 +111,27 @@ type FilterDraft = Record<FilterKey, string>;
 const EMPTY_DRAFT: FilterDraft = { jobRole: "", careerLevel: "", location: "", postingStatus: "" };
 const FILTER_KEYS: FilterKey[] = ["jobRole", "careerLevel", "location", "postingStatus"];
 
+// 이 앱에서는 CSS scroll-behavior:smooth 가 취소되므로 rAF 로 직접 부드럽게 스크롤한다.
+const CANDIDATE_HEADER_OFFSET = 64;
+function smoothScrollWindowTo(y: number, duration = 560): void {
+  const startY = window.scrollY;
+  const distance = y - startY;
+  if (Math.abs(distance) < 2) return;
+  // 탭이 숨겨져 있으면 rAF 가 멈추므로 즉시 이동(사용자가 보고 있지 않은 상태).
+  if (typeof requestAnimationFrame !== "function" || document.hidden) {
+    window.scrollTo(0, y);
+    return;
+  }
+  const startedAt = performance.now();
+  function step(now: number) {
+    const progress = Math.min((now - startedAt) / duration, 1);
+    const eased = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+    window.scrollTo(0, startY + distance * eased);
+    if (progress < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
 function candidateJobDday(endsOn: string): string | null {
   if (!endsOn) return null;
   const end = new Date(`${endsOn}T23:59:59`);
@@ -127,6 +148,34 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeCat, setActiveCat] = useState<FilterKey>("jobRole");
   const [draft, setDraft] = useState<FilterDraft>(EMPTY_DRAFT);
+
+  // 이 페이지에 있는 동안에만: 최상단(히어로)에서 아래로 스크롤하면 한 번에 공고 목록으로 부드럽게 이동.
+  useEffect(() => {
+    let animating = false;
+    function listTargetY(): number | null {
+      const list = document.getElementById("candidate-jobs-list");
+      if (!list) return null;
+      return list.getBoundingClientRect().top + window.scrollY - CANDIDATE_HEADER_OFFSET;
+    }
+    function onWheel(event: WheelEvent) {
+      if (animating || Math.abs(event.deltaY) < 4) return;
+      const target = listTargetY();
+      if (target == null) return;
+      const atTop = window.scrollY < 40;
+      const atList = Math.abs(window.scrollY - target) < 40;
+      if (event.deltaY > 0 && atTop) {
+        animating = true;
+        smoothScrollWindowTo(target);
+        window.setTimeout(() => (animating = false), 620);
+      } else if (event.deltaY < 0 && atList) {
+        animating = true;
+        smoothScrollWindowTo(0);
+        window.setTimeout(() => (animating = false), 620);
+      }
+    }
+    window.addEventListener("wheel", onWheel, { passive: true });
+    return () => window.removeEventListener("wheel", onWheel);
+  }, []);
 
   function patch(next: Partial<CandidateJobQuery>) {
     onQueryChange({ ...query, ...next, page: 1 });
@@ -164,7 +213,8 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
   }
 
   function scrollToList() {
-    document.getElementById("candidate-jobs-list")?.scrollIntoView({ behavior: "smooth" });
+    const list = document.getElementById("candidate-jobs-list");
+    if (list) smoothScrollWindowTo(list.getBoundingClientRect().top + window.scrollY - CANDIDATE_HEADER_OFFSET);
   }
 
   const activeFilters = FILTER_KEYS.map((key) => ({ key, value: (query[key] as string | undefined) ?? "" })).filter(
@@ -176,6 +226,9 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
   return (
     <section aria-label="채용공고 목록" className="candidate-jobs-panel">
       <div className="candidate-jobs-hero">
+        <a className="candidate-jobs-myapps" href={candidateApplicationInterviewRoutes.applications}>
+          지원현황
+        </a>
         <div className="candidate-jobs-hero-inner">
           <h2>
             개발자를 위한 채용공고,

@@ -6212,20 +6212,41 @@ p {
    ============================================================ */
 .notion .candidate-jobs-panel { display: grid; gap: 22px; background: transparent; border: 0; padding: 0; }
 
-/* --- 검색 히어로: 첫 화면을 꽉 채우고 아래로 스크롤 유도 --- */
+/* --- 히어로/목록 스크롤 스냅: 이 페이지 마운트 동안에만 적용 --- */
+/* 스크롤 이동은 JS rAF 트윈으로 처리(이 앱에서 CSS smooth 가 취소되는 문제 회피). */
+
+/* --- 검색 히어로: 첫 화면을 꽉 채우는 풀블리드(카드 없음) --- */
 .notion .candidate-jobs-hero {
   position: relative;
   display: grid;
   place-items: center;
   gap: 0;
-  min-height: calc(100vh - 220px);
-  padding: 48px 32px 72px;
+  min-height: calc(100dvh - 132px);
+  padding: 24px 8px 64px;
   text-align: center;
-  background: #fbfbfa;
-  border: 1px solid rgba(55, 53, 47, 0.1);
-  border-radius: 16px;
+  background: transparent;
+  border: 0;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
 }
 .notion .candidate-jobs-hero-inner { display: grid; gap: 16px; width: 100%; max-width: 620px; }
+.notion .candidate-jobs-myapps {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(55, 53, 47, 0.7);
+  text-decoration: none;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.16);
+  border-radius: 999px;
+}
+.notion .candidate-jobs-myapps:hover { border-color: #3b6fe0; color: #3b6fe0; }
 .notion .candidate-jobs-hero h2 { margin: 0; font-size: 34px; font-weight: 800; line-height: 1.28; letter-spacing: -0.025em; color: #191919; }
 .notion .candidate-jobs-hero > .candidate-jobs-hero-inner > p { margin: 0; font-size: 15px; color: rgba(55, 53, 47, 0.6); }
 .notion .candidate-jobs-search {
@@ -6295,7 +6316,7 @@ p {
 }
 
 /* --- 리스트 영역 --- */
-.notion .candidate-jobs-list { display: grid; gap: 16px; scroll-margin-top: 84px; }
+.notion .candidate-jobs-list { display: grid; gap: 16px; min-height: calc(100dvh - 132px); scroll-snap-align: start; scroll-snap-stop: always; scroll-margin-top: 72px; align-content: start; }
 .notion .candidate-jobs-toolbar {
   display: flex;
   align-items: center;

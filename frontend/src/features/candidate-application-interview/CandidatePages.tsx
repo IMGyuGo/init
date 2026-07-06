@@ -304,16 +304,7 @@ export function CandidateJobsPage() {
 
   return (
     <CandidatePageShell active="jobs">
-      <section className="candidate-jobs-page glass-page notion" aria-labelledby="candidate-jobs-heading">
-        <div className="page-head">
-          <div>
-            <h1 id="candidate-jobs-heading">채용공고</h1>
-            <p className="page-sub">지원 가능한 채용공고를 기업 공고 목록과 같은 기준으로 확인합니다.</p>
-          </div>
-          <Link className="btn secondary" href={candidateApplicationInterviewRoutes.applications}>
-            지원현황
-          </Link>
-        </div>
+      <section className="candidate-jobs-page glass-page notion" aria-label="채용공고">
         <StatusNotice loading={loading} error={error} />
         <CandidateJobsView
           jobs={data?.data.items ?? []}
