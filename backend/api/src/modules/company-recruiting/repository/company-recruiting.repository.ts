@@ -371,7 +371,7 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
   async findApplicationForCompany(applicationId: number, companyId: number): Promise<ApplicantRecord | null> {
     const application = await this.prisma.application.findFirst({
       where: { applicationId: BigInt(applicationId), posting: { companyId: BigInt(companyId) } },
-      include: applicantInclude,
+      include: applicantDetailInclude,
     });
     return application ? mapApplicant(application) : null;
   }
@@ -454,6 +454,25 @@ const applicantInclude = {
   interviewSessions: {
     orderBy: { sessionId: "desc" as const },
     take: 1,
+  },
+} satisfies Prisma.ApplicationInclude;
+
+const applicantDetailInclude = {
+  ...applicantInclude,
+  interviewSessions: {
+    orderBy: { sessionId: "desc" as const },
+    take: 1,
+    include: {
+      answers: {
+        orderBy: { answerId: "asc" as const },
+        include: {
+          question: true,
+          followUpQuestions: {
+            orderBy: { createdAt: "asc" as const },
+          },
+        },
+      },
+    },
   },
 } satisfies Prisma.ApplicationInclude;
 
@@ -548,6 +567,7 @@ function mapPublicPosting(posting: Prisma.PostingGetPayload<{ include: { company
 }
 
 type ApplicationWithIncludes = Prisma.ApplicationGetPayload<{ include: typeof applicantInclude }>;
+type ApplicationWithDetailIncludes = Prisma.ApplicationGetPayload<{ include: typeof applicantDetailInclude }>;
 type FileAssetRecord = Prisma.FileAssetGetPayload<Record<string, never>>;
 
 function mapFileAsset(fileAsset: FileAssetRecord): CompanyFileAssetRecord {
@@ -563,7 +583,7 @@ function mapFileAsset(fileAsset: FileAssetRecord): CompanyFileAssetRecord {
   };
 }
 
-function mapApplicant(application: ApplicationWithIncludes): ApplicantRecord {
+function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDetailIncludes): ApplicantRecord {
   return {
     applicationId: Number(application.applicationId),
     postingId: Number(application.postingId),
@@ -612,12 +632,50 @@ function mapApplicant(application: ApplicationWithIncludes): ApplicantRecord {
         })),
       })),
     })),
-    interviewSessions: application.interviewSessions.map((session) => ({
-      sessionId: Number(session.sessionId),
-      status: session.status,
-      interviewType: session.interviewType,
-      startedAt: session.startedAt,
-      completedAt: session.completedAt,
-    })),
+    interviewSessions: application.interviewSessions.map((session) => {
+      const sessionAnswers = "answers" in session ? session.answers : [];
+      return {
+        sessionId: Number(session.sessionId),
+        status: session.status,
+        interviewType: session.interviewType,
+        startedAt: session.startedAt,
+        completedAt: session.completedAt,
+        answers: sessionAnswers.map((answer) => ({
+          answerId: Number(answer.answerId),
+          questionId: answer.questionId == null ? null : Number(answer.questionId),
+          questionType: answer.question?.questionType ?? null,
+          questionContent: answer.question?.content ?? null,
+          transcript: answer.transcript,
+          durationSeconds: answer.durationSeconds,
+          submittedAt: answer.submittedAt,
+          followUpQuestions: answer.followUpQuestions.map((followUp) => {
+            const followUpAnswer = sessionAnswers.find(
+              (candidate) =>
+                candidate.answerId !== answer.answerId &&
+                candidate.question?.questionType === "FOLLOW_UP" &&
+                normalizeQuestionText(candidate.question.content) === normalizeQuestionText(followUp.content),
+            );
+            return {
+              followUpId: Number(followUp.followUpId),
+              content: followUp.content,
+              generationStatus: followUp.generationStatus,
+              policy: followUp.policy,
+              answer: followUpAnswer
+                ? {
+                    answerId: Number(followUpAnswer.answerId),
+                    transcript: followUpAnswer.transcript,
+                    durationSeconds: followUpAnswer.durationSeconds,
+                    submittedAt: followUpAnswer.submittedAt,
+                  }
+                : null,
+            };
+          }),
+        })),
+      };
+    }),
   };
+}
+
+function normalizeQuestionText(value: string) {
+  return value.trim().replace(/\s+/g, " ");
 }

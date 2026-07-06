@@ -347,6 +347,9 @@ export class ApplicantEvaluationResponseDto {
   @ApiProperty({ enum: ["AVAILABLE", "NONE_OR_GENERATING"], example: "AVAILABLE" })
   reportAvailability!: string;
 
+  @ApiProperty({ type: [Object] })
+  answers!: Array<Record<string, unknown>>;
+
   @ApiPropertyOptional({ type: ReportSummaryDto, nullable: true })
   report!: ReportSummaryDto | null;
 }
