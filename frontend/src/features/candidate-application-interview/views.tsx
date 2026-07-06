@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   CandidateFileAsset,
   CandidateJobDetail,
@@ -148,6 +148,33 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeCat, setActiveCat] = useState<FilterKey>("jobRole");
   const [draft, setDraft] = useState<FilterDraft>(EMPTY_DRAFT);
+  const popularGridRef = useRef<HTMLDivElement>(null);
+  // 다음/이전 버튼: 한 번에 3장(한 페이지)씩 부드럽게 슬라이드. rAF 로 직접 애니메이션.
+  function scrollPopular(direction: 1 | -1) {
+    const el = popularGridRef.current;
+    if (!el) return;
+    const gap = 20;
+    const pageWidth = el.clientWidth + gap; // 카드 3장 + 사이 여백 = 한 페이지
+    const maxLeft = el.scrollWidth - el.clientWidth;
+    const start = el.scrollLeft;
+    const target = Math.max(0, Math.min(maxLeft, start + direction * pageWidth));
+    if (Math.abs(target - start) < 1) return;
+    if (typeof requestAnimationFrame !== "function" || document.hidden) {
+      el.scrollLeft = target;
+      return;
+    }
+    const node = el;
+    const startedAt = performance.now();
+    const duration = 440;
+    function step(now: number) {
+      const p = Math.min((now - startedAt) / duration, 1);
+      const eased = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+      node.scrollLeft = start + (target - start) * eased;
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
   // 검색어는 로컬 상태로 관리해 타이핑마다 재조회하지 않는다. 조회는 제출(검색/Enter) 시에만.
   const [searchText, setSearchText] = useState(query.q ?? "");
 
@@ -229,6 +256,53 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
   const draftCount = FILTER_KEYS.filter((key) => draft[key]).length;
   const activeCatMeta = FILTER_CATEGORIES.find((item) => item.key === activeCat);
 
+  function scrollToAllJobs() {
+    const el = document.getElementById("candidate-jobs-all");
+    if (el) smoothScrollWindowTo(el.getBoundingClientRect().top + window.scrollY - CANDIDATE_HEADER_OFFSET);
+  }
+
+  function renderJobCard(job: CandidateJobSummary) {
+    const dday = candidateJobDday(job.endsOn);
+    const tags = Array.from(new Set([job.jobGroup, job.jobRole].filter(Boolean)));
+    return (
+      <a
+        className="candidate-job-card"
+        key={job.jobId}
+        role="listitem"
+        href={candidateApplicationInterviewRoutes.jobDetail(job.jobId)}
+      >
+        <div className="candidate-job-card-top">
+          <span className="candidate-job-logo" aria-hidden="true">
+            <CompanyLogoMark companyLogoUrl={job.companyLogoUrl} fallbackLabel={companyLogoLabelFromName(job.companyName)} />
+          </span>
+          <div className="candidate-job-card-companyinfo">
+            <p className="candidate-job-card-company">{job.companyName}</p>
+            <p className="candidate-job-card-sub">
+              {[job.careerLevel, job.employmentType, displayLocation(job.location)].filter(Boolean).join(" · ")}
+            </p>
+          </div>
+        </div>
+        <h3 className="candidate-job-card-title">{job.title}</h3>
+        {tags.length ? (
+          <div className="candidate-job-card-tags">
+            {tags.map((tag, tagIndex) => (
+              <span key={`${tag}-${tagIndex}`}>#{tag}</span>
+            ))}
+          </div>
+        ) : null}
+        <div className="candidate-job-card-foot">
+          <span className="candidate-job-card-foot-left">
+            {dday ? <span className={`candidate-job-dday${dday === "마감" ? " is-closed" : ""}`}>{dday}</span> : null}
+            <StatusBadge status={job.postingStatus} />
+          </span>
+          <span className={`candidate-job-available${job.alreadyApplied ? " is-applied" : ""}`}>
+            {job.alreadyApplied ? "지원 완료" : "지원 가능"}
+          </span>
+        </div>
+      </a>
+    );
+  }
+
   return (
     <section aria-label="채용공고 목록" className="candidate-jobs-panel">
       <div className="candidate-jobs-hero">
@@ -279,109 +353,96 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
               </button>
             ))}
           </div>
+          <div className="candidate-jobs-hero-cta">
+            <button type="button" className="candidate-jobs-browse" onClick={scrollToAllJobs}>
+              공고 목록
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
       <div id="candidate-jobs-list" className="candidate-jobs-list">
         <div className="candidate-jobs-listhead">
-          <div className="candidate-jobs-listhead-copy">
-            <h3>인기 공고</h3>
-            <p>지금 지원자들이 많이 보는 공고예요</p>
-          </div>
-        </div>
-        <div className="candidate-jobs-toolbar">
-          <div className="candidate-jobs-toolbar-left">
-            <button type="button" className="candidate-jobs-filter-btn" onClick={openFilter}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
+          <h3>인기 TOP 공고</h3>
+          <div className="candidate-jobs-nav">
+            <button type="button" className="candidate-jobs-navbtn" aria-label="이전 공고" onClick={() => scrollPopular(-1)}>
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" />
+                <path d="m12 8-4 4 4 4" />
+                <path d="M16 12H8" />
               </svg>
-              필터
-              {activeFilters.length ? <em className="candidate-jobs-filter-count">{activeFilters.length}</em> : null}
             </button>
-            <div className="candidate-jobs-active">
-              {activeFilters.length ? (
-                activeFilters.map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    className="candidate-jobs-chip"
-                    onClick={() => clearFilter(item.key)}
-                  >
-                    {filterOptionLabel(item.key, item.value)}
-                    <span aria-hidden="true">✕</span>
-                  </button>
-                ))
-              ) : (
-                <span className="candidate-jobs-active-empty">필터로 원하는 공고만 골라보세요</span>
-              )}
-            </div>
-          </div>
-          <div className="candidate-jobs-toolbar-right">
-            <span className="candidate-jobs-count">
-              공고 <strong>{totalItems}</strong>
-            </span>
-            <select
-              aria-label="정렬"
-              className="candidate-jobs-sort"
-              value={query.sort ?? "createdAt"}
-              onChange={(event) => patch({ sort: event.currentTarget.value as CandidateJobQuery["sort"] })}
-            >
-              {SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            <button type="button" className="candidate-jobs-navbtn" aria-label="다음 공고" onClick={() => scrollPopular(1)}>
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" />
+                <path d="m12 16 4-4-4-4" />
+                <path d="M8 12h8" />
+              </svg>
+            </button>
           </div>
         </div>
 
-      {jobs.length ? (
-        <div className="candidate-job-grid" role="list">
-          {jobs.map((job) => {
-            const dday = candidateJobDday(job.endsOn);
-            const tags = Array.from(new Set([job.jobGroup, job.jobRole].filter(Boolean)));
-            return (
-              <a
-                className="candidate-job-card"
-                key={job.jobId}
-                role="listitem"
-                href={candidateApplicationInterviewRoutes.jobDetail(job.jobId)}
+        {jobs.length ? (
+          <div className="candidate-jobs-carousel" role="list" ref={popularGridRef}>
+            {jobs.slice(0, 6).map(renderJobCard)}
+          </div>
+        ) : (
+          <p className="empty">조건에 맞는 채용공고가 없습니다.</p>
+        )}
+
+        <div id="candidate-jobs-all" className="candidate-jobs-all">
+          <div className="candidate-jobs-toolbar">
+            <div className="candidate-jobs-toolbar-left">
+              <button type="button" className="candidate-jobs-filter-btn" onClick={openFilter}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
+                </svg>
+                필터
+                {activeFilters.length ? <em className="candidate-jobs-filter-count">{activeFilters.length}</em> : null}
+              </button>
+              <div className="candidate-jobs-active">
+                {activeFilters.length ? (
+                  activeFilters.map((item) => (
+                    <button key={item.key} type="button" className="candidate-jobs-chip" onClick={() => clearFilter(item.key)}>
+                      {filterOptionLabel(item.key, item.value)}
+                      <span aria-hidden="true">✕</span>
+                    </button>
+                  ))
+                ) : (
+                  <span className="candidate-jobs-active-empty">필터로 원하는 공고만 골라보세요</span>
+                )}
+              </div>
+            </div>
+            <div className="candidate-jobs-toolbar-right">
+              <span className="candidate-jobs-count">
+                공고 <strong>{totalItems}</strong>
+              </span>
+              <select
+                aria-label="정렬"
+                className="candidate-jobs-sort"
+                value={query.sort ?? "createdAt"}
+                onChange={(event) => patch({ sort: event.currentTarget.value as CandidateJobQuery["sort"] })}
               >
-                <div className="candidate-job-card-top">
-                  <span className="candidate-job-logo" aria-hidden="true">
-                    <CompanyLogoMark companyLogoUrl={job.companyLogoUrl} fallbackLabel={companyLogoLabelFromName(job.companyName)} />
-                  </span>
-                  <div className="candidate-job-card-companyinfo">
-                    <p className="candidate-job-card-company">{job.companyName}</p>
-                    <p className="candidate-job-card-sub">
-                      {[job.careerLevel, job.employmentType, displayLocation(job.location)].filter(Boolean).join(" · ")}
-                    </p>
-                  </div>
-                </div>
-                <h3 className="candidate-job-card-title">{job.title}</h3>
-                {tags.length ? (
-                  <div className="candidate-job-card-tags">
-                    {tags.map((tag, tagIndex) => (
-                      <span key={`${tag}-${tagIndex}`}>#{tag}</span>
-                    ))}
-                  </div>
-                ) : null}
-                <div className="candidate-job-card-foot">
-                  <span className="candidate-job-card-foot-left">
-                    {dday ? <span className={`candidate-job-dday${dday === "마감" ? " is-closed" : ""}`}>{dday}</span> : null}
-                    <StatusBadge status={job.postingStatus} />
-                  </span>
-                  <span className={`candidate-job-available${job.alreadyApplied ? " is-applied" : ""}`}>
-                    {job.alreadyApplied ? "지원 완료" : "지원 가능"}
-                  </span>
-                </div>
-              </a>
-            );
-          })}
+                {SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {jobs.length ? (
+            <div className="candidate-job-grid" role="list">
+              {jobs.map(renderJobCard)}
+            </div>
+          ) : (
+            <p className="empty">조건에 맞는 채용공고가 없습니다.</p>
+          )}
         </div>
-      ) : (
-        <p className="empty">조건에 맞는 채용공고가 없습니다.</p>
-      )}
         <span className="sr-only">지원 가능한 공고 {totalItems}건</span>
       </div>
 
