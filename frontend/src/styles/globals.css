@@ -6269,18 +6269,16 @@ p {
   align-items: center;
   min-width: 0;
   height: 64px;
-  padding: 0 20px;
+  padding: 0;
   font-family: "SFMono-Regular", ui-monospace, "JetBrains Mono", "Menlo", "Consolas", monospace;
   font-size: 19px;
   line-height: 1;
   color: #37352f;
-  background: #f7f6f3;
-  border: 1px solid rgba(55, 53, 47, 0.12);
-  border-radius: 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   cursor: text;
-  transition: border-color 0.14s ease, box-shadow 0.14s ease, background 0.14s ease;
 }
-.notion .cjs-code:focus-within { background: #fff; border-color: #3b6fe0; box-shadow: 0 0 0 2px rgba(59, 111, 224, 0.18); }
 .notion .cjs-fn { color: #3b6fe0; font-weight: 600; }
 .notion .cjs-punc { color: rgba(55, 53, 47, 0.4); }
 .notion .cjs-quote { color: rgba(68, 131, 97, 0.7); margin: 0 1px; }
