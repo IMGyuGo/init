@@ -1,4 +1,5 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@latest/dist/web/variable/pretendardvariable-dynamic-subset.css");
 :root {
   --brand-1: #6e5bf6;
   --brand-2: #5b8cff;
@@ -685,7 +686,7 @@
 /* ---- 공개 지원 폼: 노션 스타일 ---- */
 .candidate-public-page.notion,
 .candidate-public-page.notion .candidate-posting-frame {
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Pretendard", sans-serif;
+  font-family: "Pretendard Variable", "Pretendard", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Pretendard", sans-serif;
   color: #37352f;
 }
 .candidate-public-page.notion .candidate-site-nav {
@@ -835,7 +836,7 @@ html body {
     linear-gradient(160deg, #f6f9fe 0%, #fafcff 55%, #ffffff 100%);
   background-attachment: fixed;
   color: var(--ink-800);
-  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+  font-family: "Pretendard Variable", "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -864,7 +865,7 @@ textarea {
   padding: 0;
   background: #ffffff;
   border-bottom: 1px solid rgba(55, 53, 47, 0.09);
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", sans-serif;
+  font-family: "Pretendard Variable", "Pretendard", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", sans-serif;
 }
 
 .gnb-inner {
@@ -1747,14 +1748,26 @@ input[type="radio"] {
 .info-toggle-meta {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid rgba(55, 53, 47, 0.12);
+  background: #fff;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.info-toggle-button:hover .info-toggle-meta {
+  background: #f7f7f5;
+  border-color: rgba(55, 53, 47, 0.2);
 }
 
 .info-toggle-chevron {
-  color: var(--ink-300);
-  font-size: 14px;
+  color: #37352f;
+  font-size: 22px;
   line-height: 1;
-  transition: transform 0.15s ease;
+  transition: transform 0.18s ease;
 }
 
 .info-toggle-panel.is-open .info-toggle-chevron {
@@ -3760,7 +3773,7 @@ td input {
    NOTION 테마 — 전 B 화면(.notion). Inter + 노션 색 + 플랫.
    ============================================================ */
 .notion {
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", sans-serif;
+  font-family: "Pretendard Variable", "Pretendard", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", sans-serif;
   color: #37352f;
 }
 
@@ -4550,7 +4563,7 @@ td input {
   min-height: 100vh;
   background: #ffffff;
   color: #37352f;
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Pretendard", sans-serif;
+  font-family: "Pretendard Variable", "Pretendard", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Pretendard", sans-serif;
 }
 .landing.notion .landing-gnb .gnb-right { margin-left: auto; gap: 8px; }
 .landing.notion .gnb-link { cursor: pointer; }
@@ -4809,7 +4822,7 @@ body {
   margin: 0;
   color: var(--ink-500);
   background: var(--bg);
-  font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
   letter-spacing: 0;
   line-height: 1.6;
 }
@@ -5964,7 +5977,7 @@ p {
 .app.auth.notion {
   overflow: visible;
   background: #ffffff;
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Pretendard", sans-serif;
+  font-family: "Pretendard Variable", "Pretendard", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Pretendard", sans-serif;
   color: #37352f;
 }
 .app.auth.notion::before,
