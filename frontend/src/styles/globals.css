@@ -6219,10 +6219,10 @@ p {
 .notion .candidate-jobs-hero {
   position: relative;
   display: grid;
-  place-items: center;
+  place-items: start center;
   gap: 0;
   min-height: calc(100dvh - 132px);
-  padding: 24px 8px 64px;
+  padding: 72px 8px 64px;
   text-align: center;
   background: transparent;
   border: 0;
