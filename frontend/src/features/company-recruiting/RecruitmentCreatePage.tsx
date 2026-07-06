@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChangeEvent, KeyboardEvent, useRef, useState } from "react";
+import { ChangeEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { createRecruitment, uploadJobDescriptionImage } from "./api";
 import { MiniRichTextEditor } from "./MiniRichTextEditor";
@@ -17,6 +17,16 @@ import {
 } from "./posting-extra-info";
 import { buildInterviewSettingsHref } from "./routes";
 import { generateMockPostingDraft } from "./posting-ai-draft";
+import {
+  buildRecruitmentCreateSearch,
+  getBasicRecruitmentInfoFromForm,
+  getBasicRecruitmentInfoValidation,
+  isRecruitmentEndDateBeforeStart,
+  normalizeRecruitmentCreateRoute,
+  RECRUITMENT_CREATE_DRAFT_STORAGE_KEY,
+  type RecruitmentCreatePhase,
+  type RecruitmentCreateRouteState,
+} from "./recruitment-create-wizard";
 import {
   composeStructuredJobDescription,
   createEmptyStructuredJobDescription,
@@ -41,6 +51,14 @@ type FormState = {
   structuredJobDescription: StructuredJobDescription;
 };
 
+type RecruitmentCreateDraft = {
+  form: FormState;
+  aiKeywords: string;
+  aiSummary: string;
+  aiFilled: boolean;
+  entryMode: "manual" | "ai";
+};
+
 function createInitialForm(): FormState {
   return {
     title: "",
@@ -49,6 +67,30 @@ function createInitialForm(): FormState {
     endsOn: "",
     extraInfo: createEmptyPostingExtraInfo(),
     structuredJobDescription: createEmptyStructuredJobDescription(),
+  };
+}
+
+function mergeStoredForm(stored: Partial<FormState>): FormState {
+  const initial = createInitialForm();
+  const structured = stored.structuredJobDescription ?? initial.structuredJobDescription;
+
+  return {
+    ...initial,
+    ...stored,
+    extraInfo: {
+      ...initial.extraInfo,
+      ...(stored.extraInfo ?? {}),
+    },
+    structuredJobDescription: {
+      ...initial.structuredJobDescription,
+      ...structured,
+      sections: {
+        ...initial.structuredJobDescription.sections,
+        ...(structured.sections ?? {}),
+      },
+      gallery: Array.isArray(structured.gallery) ? structured.gallery : [],
+      tags: Array.isArray(structured.tags) ? structured.tags : [],
+    },
   };
 }
 
@@ -62,18 +104,17 @@ export function RecruitmentCreatePage() {
   const [galleryMessage, setGalleryMessage] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [step, setStep] = useState(0);
+  const stepRef = useRef(0);
+  const [draftReady, setDraftReady] = useState(false);
   const [dir, setDir] = useState<1 | -1>(1);
   const [aiKeywords, setAiKeywords] = useState("");
   const [aiSummary, setAiSummary] = useState("");
   const [aiFilled, setAiFilled] = useState(false);
-  const [phase, setPhase] = useState<"intro" | "choice" | "ai" | "form">("intro");
+  const [phase, setPhase] = useState<RecruitmentCreatePhase>("intro");
   const [entryMode, setEntryMode] = useState<"manual" | "ai">("manual");
 
   function startForm() {
-    setDir(1);
-    setStep(1);
-    setMessage("");
-    setPhase("form");
+    navigateWizard({ phase: "form", step: 1 });
   }
 
   function handleGenerateDraft() {
@@ -95,6 +136,13 @@ export function RecruitmentCreatePage() {
   }
 
   async function handleCreate() {
+    const basicValidation = getBasicRecruitmentInfoValidation(getBasicRecruitmentInfoFromForm(form));
+    if (basicValidation) {
+      navigateWizard({ phase: "form", step: 1 });
+      setMessage(basicValidation);
+      return;
+    }
+
     setLoading(true);
     setMessage("");
     try {
@@ -114,6 +162,9 @@ export function RecruitmentCreatePage() {
         jobDescription: jobDescription || undefined,
         ...extraInfoFields,
       });
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(RECRUITMENT_CREATE_DRAFT_STORAGE_KEY);
+      }
       router.push(buildInterviewSettingsHref(result.data.recruitmentId));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "공고 생성에 실패했습니다.");
@@ -137,6 +188,24 @@ export function RecruitmentCreatePage() {
         },
       },
     }));
+  }
+
+  function updateStartsOn(value: string) {
+    setForm((current) => ({
+      ...current,
+      startsOn: value,
+      endsOn: current.endsOn && isRecruitmentEndDateBeforeStart(value, current.endsOn) ? "" : current.endsOn,
+    }));
+  }
+
+  function updateEndsOn(value: string) {
+    if (isRecruitmentEndDateBeforeStart(form.startsOn, value)) {
+      setMessage("채용 마감일은 채용 시작일보다 빠를 수 없습니다.");
+      updateField("endsOn", "");
+      return;
+    }
+    setMessage("");
+    updateField("endsOn", value);
   }
 
   function updateStructuredSection(key: StructuredJobSectionKey, value: string) {
@@ -254,7 +323,7 @@ export function RecruitmentCreatePage() {
   const basicStep = {
     key: "basic",
     title: "기본 정보",
-    guide: "공고 제목과 직무명은 필수예요. 채용 기간·근무지까지 채우면 지원자에게 더 정확하게 노출됩니다.",
+    guide: "공고 제목, 직무명, 요구 경력, 근무형태, 채용 기간, 근무지역을 모두 입력해야 다음 단계로 이동할 수 있어요.",
     body: (
       <div className="grid-2">
         <label>
@@ -267,23 +336,23 @@ export function RecruitmentCreatePage() {
         </label>
         <label>
           요구 경력
-          <input value={form.extraInfo.career.value} onChange={(event) => updateExtraInfo("career", event.target.value)} placeholder="신입 이상 / 1~2년차 / 5년 이상" />
+          <input required value={form.extraInfo.career.value} onChange={(event) => updateExtraInfo("career", event.target.value)} placeholder="신입 이상 / 1~2년차 / 5년 이상" />
         </label>
         <label>
           근무형태
-          <input value={form.extraInfo.employmentType.value} onChange={(event) => updateExtraInfo("employmentType", event.target.value)} placeholder="정규직 / 계약직 / 인턴" />
+          <input required value={form.extraInfo.employmentType.value} onChange={(event) => updateExtraInfo("employmentType", event.target.value)} placeholder="정규직 / 계약직 / 인턴" />
         </label>
         <label>
           채용 시작일
-          <input type="date" value={form.startsOn} onChange={(event) => updateField("startsOn", event.target.value)} />
+          <input required type="date" value={form.startsOn} onChange={(event) => updateStartsOn(event.target.value)} />
         </label>
         <label>
           채용 마감일
-          <input type="date" value={form.endsOn} onChange={(event) => updateField("endsOn", event.target.value)} />
+          <input required type="date" min={form.startsOn || undefined} value={form.endsOn} onChange={(event) => updateEndsOn(event.target.value)} />
         </label>
         <label className="wide">
           회사 위치 / 근무지역
-          <input value={form.extraInfo.location.value} onChange={(event) => updateExtraInfo("location", event.target.value)} placeholder="서울 강남구 테헤란로 123" />
+          <input required value={form.extraInfo.location.value} onChange={(event) => updateExtraInfo("location", event.target.value)} />
         </label>
       </div>
     ),
@@ -381,19 +450,114 @@ export function RecruitmentCreatePage() {
   const currentStep = formSteps[currentFormIndex];
   const isLast = step === totalForm;
 
-  function goTo(next: number) {
-    setDir(next > step ? 1 : -1);
-    setStep(next);
+  const writeWizardHistory = useCallback((route: RecruitmentCreateRouteState) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const nextHref = `${window.location.pathname}${buildRecruitmentCreateSearch(route)}`;
+    const currentHref = `${window.location.pathname}${window.location.search}`;
+    if (nextHref !== currentHref) {
+      window.history.pushState({ initRecruitmentCreateWizard: route }, "", nextHref);
+    }
+  }, []);
+
+  const applyWizardRoute = useCallback((route: RecruitmentCreateRouteState, options: { writeHistory?: boolean } = {}) => {
+    const nextStep = route.phase === "form" ? route.step : 0;
+    setDir(nextStep >= stepRef.current ? 1 : -1);
+    setStep(nextStep);
+    stepRef.current = nextStep;
+    setPhase(route.phase);
     setMessage("");
+
+    if (options.writeHistory) {
+      writeWizardHistory(route);
+    }
+  }, [writeWizardHistory]);
+
+  const navigateWizard = useCallback((route: RecruitmentCreateRouteState) => {
+    applyWizardRoute(route, { writeHistory: true });
+  }, [applyWizardRoute]);
+
+  function goTo(next: number) {
+    navigateWizard({ phase: "form", step: next });
   }
 
   function handleNext() {
-    if (currentStep?.key === "basic" && (!form.title.trim() || !form.jobRole.trim())) {
-      setMessage("공고 제목과 직무명을 입력해주세요.");
-      return;
+    if (currentStep?.key === "basic") {
+      const basicValidation = getBasicRecruitmentInfoValidation(getBasicRecruitmentInfoFromForm(form));
+      if (basicValidation) {
+        setMessage(basicValidation);
+        return;
+      }
     }
     goTo(step + 1);
   }
+
+  useEffect(() => {
+    stepRef.current = step;
+  }, [step]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const stored = window.sessionStorage.getItem(RECRUITMENT_CREATE_DRAFT_STORAGE_KEY);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored) as Partial<RecruitmentCreateDraft>;
+        if (parsed.form) {
+          setForm(mergeStoredForm(parsed.form));
+        }
+        if (typeof parsed.aiKeywords === "string") setAiKeywords(parsed.aiKeywords);
+        if (typeof parsed.aiSummary === "string") setAiSummary(parsed.aiSummary);
+        if (typeof parsed.aiFilled === "boolean") setAiFilled(parsed.aiFilled);
+        if (parsed.entryMode === "manual" || parsed.entryMode === "ai") setEntryMode(parsed.entryMode);
+      } catch {
+        window.sessionStorage.removeItem(RECRUITMENT_CREATE_DRAFT_STORAGE_KEY);
+      }
+    }
+    setDraftReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !draftReady) {
+      return;
+    }
+
+    const draft: RecruitmentCreateDraft = {
+      form,
+      aiKeywords,
+      aiSummary,
+      aiFilled,
+      entryMode,
+    };
+    window.sessionStorage.setItem(RECRUITMENT_CREATE_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+  }, [aiFilled, aiKeywords, aiSummary, draftReady, entryMode, form]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const syncFromLocation = () => {
+      const params = new URLSearchParams(window.location.search);
+      applyWizardRoute(
+        normalizeRecruitmentCreateRoute(
+          {
+            phase: params.get("phase"),
+            step: params.get("step"),
+          },
+          totalForm,
+        ),
+      );
+    };
+
+    syncFromLocation();
+    window.addEventListener("popstate", syncFromLocation);
+    return () => window.removeEventListener("popstate", syncFromLocation);
+  }, [applyWizardRoute, totalForm]);
 
   return (
     <section className="app-page glass-page posting-create-page posting-wizard notion">
@@ -439,7 +603,7 @@ export function RecruitmentCreatePage() {
             </ol>
 
             <div className="wizard-intro-actions">
-              <button className="btn primary" type="button" onClick={() => setPhase("choice")}>
+              <button className="btn primary" type="button" onClick={() => navigateWizard({ phase: "choice", step: 0 })}>
                 공고 생성하러 가기
               </button>
               <Link className="btn secondary" href="/company/recruitments">
@@ -473,7 +637,7 @@ export function RecruitmentCreatePage() {
               type="button"
               onClick={() => {
                 setEntryMode("ai");
-                setPhase("ai");
+                navigateWizard({ phase: "ai", step: 0 });
               }}
             >
               <span className="wizard-choice-badge">데모용 목업</span>
@@ -483,7 +647,7 @@ export function RecruitmentCreatePage() {
             </button>
           </div>
           <div className="wizard-intro-actions">
-            <button className="btn secondary" type="button" onClick={() => setPhase("intro")}>
+            <button className="btn secondary" type="button" onClick={() => navigateWizard({ phase: "intro", step: 0 })}>
               이전
             </button>
           </div>
@@ -528,7 +692,7 @@ export function RecruitmentCreatePage() {
             </div>
           </div>
           <div className="wizard-nav">
-            <button className="btn secondary" type="button" onClick={() => setPhase("choice")}>
+            <button className="btn secondary" type="button" onClick={() => navigateWizard({ phase: "choice", step: 0 })}>
               이전
             </button>
             <button className="btn primary" type="button" onClick={startForm}>
@@ -590,7 +754,7 @@ export function RecruitmentCreatePage() {
           {message ? <p className="notice danger">{message}</p> : null}
 
           <div className="wizard-nav">
-            <button className="btn secondary" type="button" onClick={() => (step > 1 ? goTo(step - 1) : setPhase("choice"))} disabled={loading}>
+            <button className="btn secondary" type="button" onClick={() => (step > 1 ? goTo(step - 1) : navigateWizard({ phase: "choice", step: 0 }))} disabled={loading}>
               이전
             </button>
             {isLast ? (
