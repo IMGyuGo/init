@@ -3817,6 +3817,7 @@ function InterviewRuntimePanel({
         questionId,
         questionText: skippedQuestion?.content ?? skippedQuestion?.audioPrompt ?? "이전 질문",
         transcript: "녹음 품질 문제로 미답변 처리되었습니다.",
+        durationSeconds: result.data.answer.durationSeconds ?? 0,
       });
       setAutoAiPipeline({
         answerId: result.data.answer.answerId,
