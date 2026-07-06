@@ -4331,6 +4331,11 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
           <Image src="/logo-init-v3.png" alt="init" width={1900} height={580} priority />
         </Link>
         <nav className="gnb-menu" aria-label="지원자 메뉴">
+          <div className={`gnb-item ${recruitingActive ? "active" : ""}`}>
+            <Link className="gnb-link" href={candidateApplicationInterviewRoutes.jobs} aria-current={recruitingActive ? "page" : undefined}>
+              채용공고
+            </Link>
+          </div>
           <div className={`gnb-item ${mockActive ? "active" : ""}`}>
             <Link className="gnb-link" href={candidateApplicationInterviewRoutes.mockInterviewStart} aria-current={mockActive ? "page" : undefined}>
               AI 모의면접
@@ -4343,11 +4348,6 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
                 평가 리포트
               </Link>
             </div>
-          </div>
-          <div className={`gnb-item ${recruitingActive ? "active" : ""}`}>
-            <Link className="gnb-link" href={candidateApplicationInterviewRoutes.jobs} aria-current={recruitingActive ? "page" : undefined}>
-              채용공고
-            </Link>
           </div>
           <div className={`gnb-item ${accountBillingActive ? "active" : ""}`}>
             <Link className="gnb-link" href={candidateApplicationInterviewRoutes.mypage} aria-current={accountBillingActive ? "page" : undefined}>
