@@ -21,7 +21,7 @@ export interface CandidateDocumentAssetsViewProps {
   portfolioLinks?: CandidatePortfolioLink[];
   onResumeStateChange: (state: CandidateResumeUploadState) => void;
   onPortfolioStateChange: (state: CandidatePortfolioLinkFormState) => void;
-  onResumeSubmit: (request: ReturnType<typeof toUploadResumeRequest>) => void | Promise<void>;
+  onResumeSubmit: (file: File) => void | Promise<void>;
   onPortfolioSubmit: (request: ReturnType<typeof toCreatePortfolioLinkRequest>) => void | Promise<void>;
 }
 
@@ -46,7 +46,8 @@ export function CandidateDocumentAssetsView({
 
   async function handleResumeSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await onResumeSubmit(toUploadResumeRequest(resumeState));
+    if (!resumeState.file) return;
+    await onResumeSubmit(resumeState.file);
   }
 
   async function handlePortfolioSubmit(event: FormEvent<HTMLFormElement>) {

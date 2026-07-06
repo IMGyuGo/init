@@ -100,7 +100,7 @@ export interface CandidateDocumentPolicy {
   allowedMimeTypes: string[];
   maxSizeBytes: number;
   storageKeyPrefix: string;
-  metadataOnly: true;
+  metadataOnly: boolean;
 }
 
 export interface CandidateApplyView {

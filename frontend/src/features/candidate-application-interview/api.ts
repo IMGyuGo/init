@@ -109,7 +109,7 @@ export interface CandidateDocumentPolicy {
   allowedMimeTypes: string[];
   maxSizeBytes: number;
   storageKeyPrefix: string;
-  metadataOnly: true;
+  metadataOnly: boolean;
 }
 
 export interface CandidateApplyView {
@@ -843,7 +843,7 @@ export interface CandidateApiClient {
   getApplicationReport(applicationId: number): Promise<ApiResponse<CandidateRecruitingReportView>>;
   requestApplicationReportGeneration(applicationId: number): Promise<ApiResponse<CandidateReportGenerationHandoff>>;
   getApplicationStatus(applicationId: number): Promise<ApiResponse<CandidateApplicationStatusView>>;
-  uploadResume(body: UploadResumeRequest): Promise<ApiResponse<CandidateFileAsset>>;
+  uploadResume(input: File | UploadResumeRequest): Promise<ApiResponse<CandidateFileAsset>>;
   createPortfolioLink(
     body: CreatePortfolioLinkRequest,
   ): Promise<ApiResponse<CandidatePortfolioLink>>;
@@ -1050,11 +1050,18 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
       }),
     getApplicationStatus: (applicationId) =>
       request<ApiResponse<CandidateApplicationStatusView>>(candidateApiPaths.applicationStatus(applicationId)),
-    uploadResume: (body) =>
-      request<ApiResponse<CandidateFileAsset>>(candidateApiPaths.resume, {
+    uploadResume: (input) => {
+      if (typeof File !== "undefined" && input instanceof File) {
+        const formData = new FormData();
+        formData.append("file", input);
+        return requestFormData<ApiResponse<CandidateFileAsset>>(candidateApiPaths.resume, formData);
+      }
+
+      return request<ApiResponse<CandidateFileAsset>>(candidateApiPaths.resume, {
         method: "POST",
-        body: JSON.stringify(body),
-      }),
+        body: JSON.stringify(input),
+      });
+    },
     createPortfolioLink: (body) =>
       request<ApiResponse<CandidatePortfolioLink>>(candidateApiPaths.portfolioLinks, {
         method: "POST",

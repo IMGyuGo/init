@@ -6,6 +6,7 @@ import { AppModule } from "../../app.module";
 import { ApiExceptionFilter } from "../../../shared/api-exception.filter";
 import { ApiResponseInterceptor } from "../../../shared/api-response.interceptor";
 import { PrismaService } from "../../../shared/prisma.service";
+import { CANDIDATE_REPOSITORY, type CandidateRepository } from "../../candidate";
 import { POSTING_DRAFT_INPUT_LIMITS } from "../../ai/dto/ai-job.dto";
 import { InMemoryInterviewRepository } from "../../interview/repository/in-memory-interview.repository";
 import { INTERVIEW_REPOSITORY } from "../../interview/repository/interview.repository";
@@ -47,8 +48,12 @@ describe("ReportsController", () => {
     app.useGlobalInterceptors(new ApiResponseInterceptor());
     await app.init();
     repository = app.get(InMemoryReportRepository);
+    const candidateRepository = app.get<CandidateRepository>(CANDIDATE_REPOSITORY);
     const interviewRepository = app.get<InMemoryInterviewRepository>(INTERVIEW_REPOSITORY);
-    ({ mockAiFixture, mockAnswerWithoutFileFixture, recruitingAiFixture } = seedInterviewAiFixtures(interviewRepository));
+    ({ mockAiFixture, mockAnswerWithoutFileFixture, recruitingAiFixture } = await seedInterviewAiFixtures(
+      interviewRepository,
+      candidateRepository,
+    ));
   });
 
   afterAll(async () => {
@@ -183,17 +188,18 @@ describe("ReportsController", () => {
   it("queues candidate document extraction without storing raw file content", async () => {
     const response = await candidateRequest("/api/v1/candidate/documents/extract")
       .send({
-        applicationId: 3,
-        documentId: 8,
-        fileId: 9,
-        s3Key: "candidate/4/resume.pdf"
+        applicationId: 1,
+        documentId: 1,
+        fileId: 1,
+        s3Key: "candidate/1/tampered.pdf"
       })
       .expect(202);
 
     expect(response.body.data.processType).toBe("DOCUMENT_EXTRACT");
     expect(response.body.data.status).toBe("PENDING");
     expect(response.body.data.queued).toBe(true);
-    expect(response.body.data.inputRef).toContain("candidate/4/resume.pdf");
+    expect(response.body.data.inputRef).toContain("candidate/1/resume/jiwon-resume.pdf");
+    expect(response.body.data.inputRef).not.toContain("candidate/1/tampered.pdf");
     expect(response.body.data.inputRef).not.toContain("fileContent");
 
     const statusResponse = await candidateGet(`/api/v1/ai/jobs/${response.body.data.processLogId}/status`).expect(200);
@@ -204,9 +210,8 @@ describe("ReportsController", () => {
   it("rejects document extraction without a file asset reference", async () => {
     await candidateRequest("/api/v1/candidate/documents/extract")
       .send({
-        applicationId: 3,
-        documentId: 8,
-        s3Key: "candidate/4/resume.pdf"
+        applicationId: 1,
+        documentId: 1
       })
       .expect(400);
   });
@@ -214,10 +219,9 @@ describe("ReportsController", () => {
   it("rejects document extraction raw file content before it can enter process logs", async () => {
     await candidateRequest("/api/v1/candidate/documents/extract")
       .send({
-        applicationId: 3,
-        documentId: 8,
-        fileId: 9,
-        s3Key: "candidate/4/resume.pdf",
+        applicationId: 1,
+        documentId: 1,
+        fileId: 1,
         fileContent: "raw pdf bytes"
       })
       .expect(400);
@@ -228,13 +232,15 @@ describe("ReportsController", () => {
       .send({
         answerId: mockAiFixture.answerId,
         audioFileId: mockAiFixture.audioFileId,
-        audioS3Key: mockAiFixture.audioS3Key
+        audioS3Key: "candidate/1/tampered.wav"
       })
       .expect(202);
 
     expect(response.body.data.processType).toBe("STT");
     expect(response.body.data.status).toBe("PENDING");
     expect(response.body.data.queued).toBe(true);
+    expect(response.body.data.inputRef).toContain(mockAiFixture.audioS3Key);
+    expect(response.body.data.inputRef).not.toContain("candidate/1/tampered.wav");
   });
 
   it("rejects STT without an audio file asset reference", async () => {
@@ -251,7 +257,6 @@ describe("ReportsController", () => {
       .send({
         answerId: mockAiFixture.answerId,
         audioFileId: mockAiFixture.audioFileId,
-        audioS3Key: mockAiFixture.audioS3Key,
         audioContent: "raw wav bytes"
       })
       .expect(400);
@@ -846,8 +851,25 @@ type AiInterviewFixture = {
   audioS3Key: string;
 };
 
-function seedInterviewAiFixtures(interviewRepository: InMemoryInterviewRepository) {
+async function seedInterviewAiFixtures(
+  interviewRepository: InMemoryInterviewRepository,
+  candidateRepository: CandidateRepository,
+) {
   const now = new Date().toISOString();
+  const mockAudioFile = await candidateRepository.createFileAsset({
+    ownerUserId: 2,
+    storageKey: "candidate/1/answer-mock.wav",
+    originalName: "answer-mock.wav",
+    mimeType: "audio/wav",
+    sizeBytes: 1000
+  });
+  const recruitingAudioFile = await candidateRepository.createFileAsset({
+    ownerUserId: 2,
+    storageKey: "candidate/1/answer-recruiting.wav",
+    originalName: "answer-recruiting.wav",
+    mimeType: "audio/wav",
+    sizeBytes: 1000
+  });
   const mockSession = interviewRepository.createMockSession({
     candidateId: 1,
     showQuestionText: true,
@@ -858,7 +880,7 @@ function seedInterviewAiFixtures(interviewRepository: InMemoryInterviewRepositor
   const mockAnswer = interviewRepository.createAnswer({
     sessionId: mockSession.sessionId,
     questionId: 1,
-    audioFileId: 11,
+    audioFileId: mockAudioFile.fileId,
     durationSeconds: 30,
     submittedAt: now
   });
@@ -892,7 +914,7 @@ function seedInterviewAiFixtures(interviewRepository: InMemoryInterviewRepositor
   const recruitingAnswer = interviewRepository.createAnswer({
     sessionId: 1,
     questionId: 101,
-    audioFileId: 12,
+    audioFileId: recruitingAudioFile.fileId,
     durationSeconds: 45,
     submittedAt: now
   });
@@ -902,7 +924,7 @@ function seedInterviewAiFixtures(interviewRepository: InMemoryInterviewRepositor
       sessionId: mockSession.sessionId,
       answerId: mockAnswer.answerId,
       audioFileId: mockAnswer.audioFileId,
-      audioS3Key: "candidate/1/answer-mock.wav"
+      audioS3Key: mockAudioFile.storageKey
     },
     mockAnswerWithoutFileFixture: {
       sessionId: mockSessionWithoutFile.sessionId,
@@ -913,7 +935,7 @@ function seedInterviewAiFixtures(interviewRepository: InMemoryInterviewRepositor
       sessionId: 1,
       answerId: recruitingAnswer.answerId,
       audioFileId: recruitingAnswer.audioFileId,
-      audioS3Key: "candidate/1/answer-recruiting.wav"
+      audioS3Key: recruitingAudioFile.storageKey
     }
   };
 }

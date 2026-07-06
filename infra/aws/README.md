@@ -403,6 +403,20 @@ aws secretsmanager put-secret-value `
   "AUTH_COOKIE_SECURE": "true",
   "AUTH_COOKIE_SAME_SITE": "lax",
   "FRONTEND_ORIGIN": "https://init-jungle.cloud",
+  "FRONTEND_ALLOWED_ORIGINS": "https://init-jungle.cloud",
+  "APP_FRONTEND_URL": "https://init-jungle.cloud",
+  "PUBLIC_APPLICATION_MAGIC_LINK_TTL_SECONDS": "900",
+  "PUBLIC_APPLICATION_TOKEN_VERIFY_URL": "https://init-jungle.cloud/public/applications/verify",
+  "PUBLIC_APPLICATION_TOKEN_VERIFY_SECRET": "<public-application-token-verify-secret>",
+  "PUBLIC_APPLICATION_TOKEN_SECRET": "<public-application-token-secret>",
+  "PUBLIC_INTERVIEW_ACCESS_TOKEN_SECRET": "<public-interview-access-token-secret>",
+  "PUBLIC_INTERVIEW_ACCESS_TOKEN_TTL_SECONDS": "604800",
+  "GOOGLE_CLIENT_ID": "<google-client-id>",
+  "GOOGLE_CLIENT_SECRET": "<google-client-secret>",
+  "GOOGLE_CALLBACK_URL": "https://init-jungle.cloud/api/v1/auth/google/callback",
+  "TOSS_SECRET_KEY": "<toss-secret-key>",
+  "TOSS_API_BASE_URL": "https://api.tosspayments.com",
+  "PAYMENT_DEV_PASS_GRANT_ENABLED": "false",
   "AWS_REGION": "ap-northeast-2",
   "S3_BUCKET": "init-main-assets-<aws_account_id>",
   "S3_BUCKET_NAME": "init-main-assets-<aws_account_id>",
@@ -411,23 +425,64 @@ aws secretsmanager put-secret-value `
   "SQS_QUEUE_URL": "<sqs-url>",
   "OPENAI_API_KEY": "<openai-key>",
   "AI_PROVIDER_API_KEY": "<openai-key>",
+  "AI_PROVIDER_MODE": "openai",
   "OPENAI_MODEL": "<model>",
   "OPENAI_EMBEDDING_MODEL": "<embedding-model>",
   "AI_STT_PROVIDER": "openai",
   "OPENAI_STT_MODEL": "<stt-model>",
   "OPENAI_STT_LANGUAGE": "ko",
+  "OPENAI_STT_TIMEOUT_MS": "120000",
   "SMTP_HOST": "<ses-smtp-host>",
   "SMTP_PORT": "587",
   "SMTP_SECURE": "false",
   "SMTP_USER": "<ses-smtp-user>",
   "SMTP_PASS": "<ses-smtp-pass>",
-  "SMTP_FROM": "no-reply@init-jungle.cloud"
+  "SMTP_FROM": "no-reply@init-jungle.cloud",
+  "MAX_UPLOAD_BYTES": "10485760",
+  "COMPANY_LOGO_MAX_UPLOAD_BYTES": "10485760",
+  "JD_IMAGE_MAX_UPLOAD_BYTES": "10485760",
+  "PUBLIC_APPLICATION_DOCUMENT_MAX_UPLOAD_BYTES": "20971520",
+  "SIGNED_URL_TTL_SECONDS": "300"
 }
 ```
 
 위 JSON은 형식 예시다. 실제 `api.main.secret.json`에는 `infra/aws/locals.tf`의 `secret_keys.api`에 있는 모든 key를 포함해야 한다.
 
 frontend와 worker도 같은 방식으로 넣는다.
+
+`frontend.main.secret.json` example:
+
+```json
+{
+  "NEXT_PUBLIC_API_BASE_URL": "https://init-jungle.cloud"
+}
+```
+
+`worker.main.secret.json` example:
+
+```json
+{
+  "DATABASE_URL": "postgresql://init_admin:<password>@<rds-endpoint>:5432/init?schema=public",
+  "AWS_REGION": "ap-northeast-2",
+  "S3_BUCKET": "init-main-assets-<aws_account_id>",
+  "S3_BUCKET_NAME": "init-main-assets-<aws_account_id>",
+  "AI_SQS_QUEUE_URL": "<sqs-url>",
+  "SQS_QUEUE_URL": "<sqs-url>",
+  "OPENAI_API_KEY": "<openai-key>",
+  "AI_PROVIDER_API_KEY": "<openai-key>",
+  "AI_PROVIDER_MODE": "openai",
+  "OPENAI_MODEL": "<model>",
+  "OPENAI_EMBEDDING_MODEL": "<embedding-model>",
+  "AI_STT_PROVIDER": "openai",
+  "OPENAI_STT_MODEL": "<stt-model>",
+  "OPENAI_STT_LANGUAGE": "ko",
+  "OPENAI_STT_TIMEOUT_MS": "120000",
+  "WORKER_CONCURRENCY": "1",
+  "WORKER_BATCH_SIZE": "1",
+  "WORKER_MAX_RETRYABLE_RECEIVES": "3",
+  "WORKER_POLL_INTERVAL_MS": "1000"
+}
+```
 
 ```powershell
 aws secretsmanager put-secret-value `
@@ -469,7 +524,11 @@ aws ecr get-login-password --region $region | docker login --username AWS --pass
 
 $ecr = terraform -chdir=infra/aws output -json ecr_repository_urls | ConvertFrom-Json
 
-docker build -f infra/docker/frontend.Dockerfile -t "$($ecr.frontend):$tag" .
+docker build `
+  -f infra/docker/frontend.Dockerfile `
+  --build-arg NEXT_PUBLIC_API_BASE_URL=https://init-jungle.cloud `
+  --build-arg NEXT_PUBLIC_TOSS_CLIENT_KEY="<toss-client-key>" `
+  -t "$($ecr.frontend):$tag" .
 docker build -f infra/docker/api.Dockerfile -t "$($ecr.api):$tag" .
 docker build -f infra/docker/worker.Dockerfile -t "$($ecr.worker):$tag" .
 

@@ -425,12 +425,10 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
     setBusy(true);
     setMessage("");
     try {
-      const uploadState = createResumeUploadStateFromFile(candidateId, file);
-      const request = toUploadResumeRequest(uploadState);
-      const result = await getCandidateApi().uploadResume(request);
+      const result = await getCandidateApi().uploadResume(file);
       setLatestResumeFile(result.data);
       setForm((current) => ({ ...current, resumeFileId: result.data.fileId }));
-      setMessage("이력서 파일 메타데이터가 등록되었습니다.");
+      setMessage("이력서 파일이 업로드되었습니다.");
     } catch (submitError) {
       setMessage(toErrorMessage(submitError));
     } finally {
@@ -1613,8 +1611,10 @@ export function CandidateMyPage() {
     setBusy(true);
     setMessage("");
     try {
-      const request = toUploadResumeRequest(resumeState);
-      const result = await getCandidateApi().uploadResume(request);
+      if (!resumeState.file) {
+        throw new Error("이력서 파일을 다시 선택해주세요.");
+      }
+      const result = await getCandidateApi().uploadResume(resumeState.file);
       setLatestResumeFile(result.data);
       setMessage("이력서가 업로드되었습니다.");
     } catch (submitError) {
@@ -1631,8 +1631,8 @@ export function CandidateMyPage() {
     try {
       const api = getCandidateApi();
       let fileId = portfolioState.fileId;
-      if (portfolioFileState.storageKey) {
-        const fileResult = await api.uploadResume(toUploadResumeRequest(portfolioFileState));
+      if (portfolioFileState.file) {
+        const fileResult = await api.uploadResume(portfolioFileState.file);
         fileId = fileResult.data.fileId;
       }
       await api.createPortfolioLink(toCreatePortfolioLinkRequest({ ...portfolioState, fileId }));
