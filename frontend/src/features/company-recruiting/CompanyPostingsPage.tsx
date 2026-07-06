@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { listRecruitmentApplicants, listRecruitments } from "./api";
 import { StatusBadge } from "./CompanyRecruitingChrome";
@@ -52,6 +52,8 @@ export function CompanyPostingsPage() {
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const filterAnchorRef = useRef<HTMLDivElement>(null);
+  const pendingFilterTopRef = useRef<number | null>(null);
   const paginationPages = getRecruitmentPaginationPages(pageMeta);
 
   // list API에는 응시 완료율이 없어 현재 페이지 공고별 지원자를 읽어 카드에 표시할 면접 완료 비율을 계산한다.
@@ -101,8 +103,11 @@ export function CompanyPostingsPage() {
     }
   }, []);
 
-  const loadRecruitments = useCallback(async (search: string, status: StatusFilter, options: { page?: number } = {}) => {
+  const loadRecruitments = useCallback(async (search: string, status: StatusFilter, options: { page?: number; preserveFilterPosition?: boolean } = {}) => {
     const requestedPage = options.page ?? 1;
+    if (options.preserveFilterPosition) {
+      pendingFilterTopRef.current = filterAnchorRef.current?.getBoundingClientRect().top ?? null;
+    }
     setLoading(true);
     setMessage("");
     try {
@@ -122,6 +127,21 @@ export function CompanyPostingsPage() {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    const previousTop = pendingFilterTopRef.current;
+    if (loading || previousTop === null) {
+      return;
+    }
+
+    pendingFilterTopRef.current = null;
+    window.requestAnimationFrame(() => {
+      const nextTop = filterAnchorRef.current?.getBoundingClientRect().top;
+      if (typeof nextTop === "number") {
+        window.scrollBy(0, nextTop - previousTop);
+      }
+    });
+  }, [items, loading, pageMeta]);
 
   const loadCompanyProfile = useCallback(async () => {
     try {
@@ -222,7 +242,7 @@ export function CompanyPostingsPage() {
             </form>
           </div>
 
-          <div className="posting-filter-chips" role="group" aria-label="상태 필터">
+          <div className="posting-filter-chips" ref={filterAnchorRef} role="group" aria-label="상태 필터">
             {STATUS_CHIPS.map((chip) => (
               <button
                 key={chip.value}
@@ -231,7 +251,7 @@ export function CompanyPostingsPage() {
                 aria-pressed={statusFilter === chip.value}
                 onClick={() => {
                   setStatusFilter(chip.value);
-                  void loadRecruitments(q, chip.value, { page: 1 });
+                  void loadRecruitments(q, chip.value, { page: 1, preserveFilterPosition: true });
                 }}
               >
                 {chip.label}
@@ -241,49 +261,51 @@ export function CompanyPostingsPage() {
 
           {message ? <p className="notice">{message}</p> : null}
 
-          {loading && items.length === 0 ? (
-            <div className="empty">공고를 불러오는 중입니다…</div>
-          ) : items.length === 0 ? (
-            <div className="empty">공고가 없습니다. 오른쪽 상단에서 첫 공고를 생성하세요.</div>
-          ) : (
-            <div className="posting-grid">
-              {items.map((item) => {
-                const stat = completion[item.recruitmentId];
-                const rate = stat?.rate ?? 0;
-                const actions = getCompanyPostingActions(item);
-                const manageHref = actions.includes("manage") ? `/company/recruitments/${item.recruitmentId}` : null;
-                const galleryUrl = getStructuredJobDescriptionGallery(item.jobDescription)[0]?.url ?? null;
-                const coverUrl = galleryUrl ?? companyLogoUrl ?? postingNoImage.src;
-                const coverIsPlaceholder = !galleryUrl && !companyLogoUrl;
-                return (
-                  <article
-                    className={`posting-card${manageHref ? " is-clickable" : ""}`}
-                    key={item.recruitmentId}
-                    role={manageHref ? "link" : undefined}
-                    tabIndex={manageHref ? 0 : undefined}
-                    onClick={manageHref ? () => router.push(manageHref) : undefined}
-                    onKeyDown={manageHref ? (event) => handleRowKey(event, () => router.push(manageHref)) : undefined}
-                  >
-                    <div
-                      className={`pcard-cover has-image${coverIsPlaceholder ? " is-placeholder" : ""}`}
-                      style={{ backgroundImage: `url(${coverUrl})` }}
-                      aria-hidden="true"
-                    />
-                    <div className="pcard-body">
-                      <div className="pcard-tags">
-                        <StatusBadge value={item.status} />
-                        <span className={`pcard-dday${ddayLabel(item.endsOn) === "마감" ? " is-danger" : ""}`}>{ddayLabel(item.endsOn)}</span>
+          <div className="posting-results">
+            {loading && items.length === 0 ? (
+              <div className="empty">공고를 불러오는 중입니다…</div>
+            ) : items.length === 0 ? (
+              <div className="empty">공고가 없습니다. 오른쪽 상단에서 첫 공고를 생성하세요.</div>
+            ) : (
+              <div className="posting-grid">
+                {items.map((item) => {
+                  const stat = completion[item.recruitmentId];
+                  const rate = stat?.rate ?? 0;
+                  const actions = getCompanyPostingActions(item);
+                  const manageHref = actions.includes("manage") ? `/company/recruitments/${item.recruitmentId}` : null;
+                  const galleryUrl = getStructuredJobDescriptionGallery(item.jobDescription)[0]?.url ?? null;
+                  const coverUrl = galleryUrl ?? companyLogoUrl ?? postingNoImage.src;
+                  const coverIsPlaceholder = !galleryUrl && !companyLogoUrl;
+                  return (
+                    <article
+                      className={`posting-card${manageHref ? " is-clickable" : ""}`}
+                      key={item.recruitmentId}
+                      role={manageHref ? "link" : undefined}
+                      tabIndex={manageHref ? 0 : undefined}
+                      onClick={manageHref ? () => router.push(manageHref) : undefined}
+                      onKeyDown={manageHref ? (event) => handleRowKey(event, () => router.push(manageHref)) : undefined}
+                    >
+                      <div
+                        className={`pcard-cover has-image${coverIsPlaceholder ? " is-placeholder" : ""}`}
+                        style={{ backgroundImage: `url(${coverUrl})` }}
+                        aria-hidden="true"
+                      />
+                      <div className="pcard-body">
+                        <div className="pcard-tags">
+                          <StatusBadge value={item.status} />
+                          <span className={`pcard-dday${ddayLabel(item.endsOn) === "마감" ? " is-danger" : ""}`}>{ddayLabel(item.endsOn)}</span>
+                        </div>
+                        <h3 className="pcard-title">{item.title}</h3>
+                        <p className="pcard-sub">
+                          지원 <strong>{item.applicantCount}</strong>명 · 완료 <strong>{rate}%</strong>
+                        </p>
                       </div>
-                      <h3 className="pcard-title">{item.title}</h3>
-                      <p className="pcard-sub">
-                        지원 <strong>{item.applicantCount}</strong>명 · 완료 <strong>{rate}%</strong>
-                      </p>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           {pageMeta && pageMeta.totalItems > 0 ? (
             <div className="pagination" aria-label="공고 목록 페이지네이션">
