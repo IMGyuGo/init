@@ -150,13 +150,24 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
   const [draft, setDraft] = useState<FilterDraft>(EMPTY_DRAFT);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchSizerRef = useRef<HTMLSpanElement>(null);
+  // 검색어는 로컬 상태로 관리해 타이핑마다 재조회하지 않는다. 조회는 제출(검색/Enter) 시에만.
+  const [searchText, setSearchText] = useState(query.q ?? "");
+
+  useEffect(() => {
+    setSearchText(query.q ?? "");
+  }, [query.q]);
 
   // 입력 글자만큼 input 폭을 맞춰 블록 커서가 텍스트 바로 뒤에 오게 한다(한글 폭까지 정확히).
   useEffect(() => {
     if (searchInputRef.current && searchSizerRef.current) {
       searchInputRef.current.style.width = `${searchSizerRef.current.offsetWidth}px`;
     }
-  }, [query.q]);
+  }, [searchText]);
+
+  function submitSearch(nextText: string) {
+    setSearchText(nextText);
+    onQueryChange({ ...query, q: nextText || undefined, page: 1 });
+  }
 
   // 이 페이지에 있는 동안에만: 최상단(히어로)에서 아래로 스크롤하면 한 번에 공고 목록으로 부드럽게 이동.
   useEffect(() => {
@@ -254,7 +265,7 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
             className="candidate-jobs-codesearch"
             onSubmit={(event) => {
               event.preventDefault();
-              onQueryChange({ ...query, page: 1 });
+              submitSearch(searchText);
             }}
           >
             <code className="cjs-code" onClick={() => searchInputRef.current?.focus()}>
@@ -266,15 +277,15 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
                   ref={searchInputRef}
                   className="cjs-input"
                   name="q"
-                  value={query.q ?? ""}
-                  onChange={(event) => patch({ q: event.currentTarget.value })}
+                  value={searchText}
+                  onChange={(event) => setSearchText(event.currentTarget.value)}
                   aria-label="공고 검색"
                 />
                 <span ref={searchSizerRef} className="cjs-sizer" aria-hidden="true">
-                  {query.q ?? ""}
+                  {searchText}
                 </span>
                 <span className="cjs-cursor" aria-hidden="true" />
-                {query.q ? null : <span className="cjs-ghost" aria-hidden="true">어떤 공고를 찾으시나요</span>}
+                {searchText ? null : <span className="cjs-ghost" aria-hidden="true">어떤 공고를 찾으시나요</span>}
               </span>
               <span className="cjs-quote" aria-hidden="true">&quot;</span>
               <span className="cjs-spacer" aria-hidden="true" />
@@ -291,7 +302,7 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
                 key={keyword}
                 type="button"
                 className={`candidate-jobs-suggestion${query.q === keyword ? " is-active" : ""}`}
-                onClick={() => patch({ q: keyword })}
+                onClick={() => submitSearch(keyword)}
               >
                 {keyword}
               </button>
