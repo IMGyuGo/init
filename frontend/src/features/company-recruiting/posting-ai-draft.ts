@@ -1,5 +1,6 @@
 import type { AiJobStatusResponse } from "./types";
 import type { StructuredJobSectionKey } from "./structured-job-description";
+import { sanitizePostingDraftHtml } from "./posting-draft-html";
 
 export type PostingDraftResult = {
   title: string;
@@ -64,7 +65,10 @@ function normalizeSections(value: unknown): Partial<Record<StructuredJobSectionK
   for (const key of ["positionDetail", "responsibilities", "requirements", "preferredQualifications", "benefits", "hiringProcess"] as const) {
     const section = record[key];
     if (typeof section === "string" && section.trim()) {
-      sections[key] = section;
+      const sanitized = sanitizePostingDraftHtml(section);
+      if (sanitized) {
+        sections[key] = sanitized;
+      }
     }
   }
   return sections;

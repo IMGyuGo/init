@@ -1,6 +1,29 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { Type } from "class-transformer";
-import { IsArray, IsBoolean, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Min, ValidateNested } from "class-validator";
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  ValidateNested
+} from "class-validator";
+
+export const POSTING_DRAFT_INPUT_LIMITS = {
+  titleMaxLength: 120,
+  jobRoleMaxLength: 80,
+  summaryMaxLength: 1000,
+  careerRequirementMaxLength: 80,
+  employmentTypeMaxLength: 40,
+  workLocationMaxLength: 120,
+  keywordMaxCount: 10,
+  keywordMaxLength: 40
+} as const;
 
 export class DocumentExtractRequestDto {
   @ApiProperty({ example: 3 })
@@ -155,40 +178,53 @@ export class QuestionSetGenerateRequestDto {
 }
 
 export class PostingDraftGenerateRequestDto {
-  @ApiProperty({ example: "2026 신입 백엔드 채용" })
+  @ApiProperty({ example: "2026 신입 백엔드 채용", maxLength: POSTING_DRAFT_INPUT_LIMITS.titleMaxLength })
   @IsString()
   @IsNotEmpty()
+  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.titleMaxLength)
   title!: string;
 
-  @ApiProperty({ example: "Backend Developer" })
+  @ApiProperty({ example: "Backend Developer", maxLength: POSTING_DRAFT_INPUT_LIMITS.jobRoleMaxLength })
   @IsString()
   @IsNotEmpty()
+  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.jobRoleMaxLength)
   jobRole!: string;
 
-  @ApiPropertyOptional({ type: [String], example: ["NestJS", "PostgreSQL", "Redis"] })
+  @ApiPropertyOptional({
+    type: [String],
+    example: ["NestJS", "PostgreSQL", "Redis"],
+    maxItems: POSTING_DRAFT_INPUT_LIMITS.keywordMaxCount,
+    maxLength: POSTING_DRAFT_INPUT_LIMITS.keywordMaxLength
+  })
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(POSTING_DRAFT_INPUT_LIMITS.keywordMaxCount)
   @IsString({ each: true })
+  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.keywordMaxLength, { each: true })
   keywords?: string[];
 
-  @ApiPropertyOptional({ example: "대용량 채용 플랫폼 API를 함께 설계하고 운영합니다." })
+  @ApiPropertyOptional({ example: "대용량 채용 플랫폼 API를 함께 설계하고 운영합니다.", maxLength: POSTING_DRAFT_INPUT_LIMITS.summaryMaxLength })
   @IsOptional()
   @IsString()
+  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.summaryMaxLength)
   summary?: string;
 
-  @ApiPropertyOptional({ example: "신입 이상" })
+  @ApiPropertyOptional({ example: "신입 이상", maxLength: POSTING_DRAFT_INPUT_LIMITS.careerRequirementMaxLength })
   @IsOptional()
   @IsString()
+  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.careerRequirementMaxLength)
   careerRequirement?: string;
 
-  @ApiPropertyOptional({ example: "정규직" })
+  @ApiPropertyOptional({ example: "정규직", maxLength: POSTING_DRAFT_INPUT_LIMITS.employmentTypeMaxLength })
   @IsOptional()
   @IsString()
+  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.employmentTypeMaxLength)
   employmentType?: string;
 
-  @ApiPropertyOptional({ example: "서울" })
+  @ApiPropertyOptional({ example: "서울", maxLength: POSTING_DRAFT_INPUT_LIMITS.workLocationMaxLength })
   @IsOptional()
   @IsString()
+  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.workLocationMaxLength)
   workLocation?: string;
 }
 

@@ -4,7 +4,6 @@ import {
   Controller,
   ForbiddenException,
   Get,
-  Headers,
   HttpCode,
   HttpStatus,
   Inject,
@@ -23,6 +22,7 @@ import {
   DocumentExtractRequestDto,
   FollowUpQuestionRequestDto,
   MockQuestionGenerateRequestDto,
+  POSTING_DRAFT_INPUT_LIMITS,
   PostingDraftGenerateRequestDto,
   QuestionGenerateRequestDto,
   QuestionSetGenerateRequestDto,
@@ -258,8 +258,25 @@ export class CompanyRecruitmentAiJobsController {
   @ApiEnvelopeResponse(AiJobResponseDto, 202)
   async generatePostingDraft(@Req() request: CompanyAiRequest, @Body() body: PostingDraftGenerateRequestDto) {
     const currentUser = this.company(request);
-    this.requireText(body.title, "title");
-    this.requireText(body.jobRole, "jobRole");
+    const title = this.requiredBoundedText(body.title, "title", POSTING_DRAFT_INPUT_LIMITS.titleMaxLength);
+    const jobRole = this.requiredBoundedText(body.jobRole, "jobRole", POSTING_DRAFT_INPUT_LIMITS.jobRoleMaxLength);
+    const keywords = this.normalizedKeywords(body.keywords);
+    const summary = this.optionalBoundedText(body.summary, "summary", POSTING_DRAFT_INPUT_LIMITS.summaryMaxLength);
+    const careerRequirement = this.optionalBoundedText(
+      body.careerRequirement,
+      "careerRequirement",
+      POSTING_DRAFT_INPUT_LIMITS.careerRequirementMaxLength
+    );
+    const employmentType = this.optionalBoundedText(
+      body.employmentType,
+      "employmentType",
+      POSTING_DRAFT_INPUT_LIMITS.employmentTypeMaxLength
+    );
+    const workLocation = this.optionalBoundedText(
+      body.workLocation,
+      "workLocation",
+      POSTING_DRAFT_INPUT_LIMITS.workLocationMaxLength
+    );
 
     return this.dispatcher.dispatch({
       processType: "POSTING_DRAFT_GENERATE",
@@ -271,13 +288,13 @@ export class CompanyRecruitmentAiJobsController {
           companyId: currentUser.companyId
         },
         payload: {
-          title: body.title.trim(),
-          jobRole: body.jobRole.trim(),
-          keywords: Array.isArray(body.keywords) ? body.keywords.filter((keyword) => typeof keyword === "string" && keyword.trim()).map((keyword) => keyword.trim()) : [],
-          summary: typeof body.summary === "string" ? body.summary.trim() : undefined,
-          careerRequirement: typeof body.careerRequirement === "string" ? body.careerRequirement.trim() : undefined,
-          employmentType: typeof body.employmentType === "string" ? body.employmentType.trim() : undefined,
-          workLocation: typeof body.workLocation === "string" ? body.workLocation.trim() : undefined
+          title,
+          jobRole,
+          keywords,
+          summary,
+          careerRequirement,
+          employmentType,
+          workLocation
         }
       }
     });
@@ -300,6 +317,57 @@ export class CompanyRecruitmentAiJobsController {
     if (typeof value !== "string" || !value.trim()) {
       throw this.validation(`${name} is required.`);
     }
+  }
+
+  private requiredBoundedText(value: unknown, name: string, maxLength: number): string {
+    this.requireText(value, name);
+    const normalized = String(value).trim();
+    if (normalized.length > maxLength) {
+      throw this.validation(`${name} must be ${maxLength} characters or fewer.`);
+    }
+    return normalized;
+  }
+
+  private optionalBoundedText(value: unknown, name: string, maxLength: number): string | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    if (typeof value !== "string") {
+      throw this.validation(`${name} must be a string.`);
+    }
+    const normalized = value.trim();
+    if (!normalized) {
+      return undefined;
+    }
+    if (normalized.length > maxLength) {
+      throw this.validation(`${name} must be ${maxLength} characters or fewer.`);
+    }
+    return normalized;
+  }
+
+  private normalizedKeywords(value: unknown): string[] {
+    if (value === undefined || value === null) {
+      return [];
+    }
+    if (!Array.isArray(value)) {
+      throw this.validation("keywords must be an array.");
+    }
+    if (value.length > POSTING_DRAFT_INPUT_LIMITS.keywordMaxCount) {
+      throw this.validation(`keywords must contain ${POSTING_DRAFT_INPUT_LIMITS.keywordMaxCount} items or fewer.`);
+    }
+
+    return value
+      .map((keyword, index) => {
+        if (typeof keyword !== "string") {
+          throw this.validation(`keywords[${index}] must be a string.`);
+        }
+        const normalized = keyword.trim();
+        if (normalized.length > POSTING_DRAFT_INPUT_LIMITS.keywordMaxLength) {
+          throw this.validation(`keywords[${index}] must be ${POSTING_DRAFT_INPUT_LIMITS.keywordMaxLength} characters or fewer.`);
+        }
+        return normalized;
+      })
+      .filter((keyword) => keyword.length > 0);
   }
 
   private validation(message: string): BadRequestException {
@@ -457,8 +525,8 @@ export class AiJobsStatusController {
   private authenticatedUser(request: CandidateAiRequest): CurrentUser {
     if (!request.currentUser) {
       throw new ForbiddenException({
-        code: "AI_PROCESS_FORBIDDEN",
-        message: "AI 작업 상태를 조회할 수 없습니다."
+        code: "COMMON_FORBIDDEN",
+        message: "AI job status is only available to the job owner."
       });
     }
     return {
@@ -480,14 +548,14 @@ export class AiJobsStatusController {
     if (currentUser.userType === "COMPANY") {
       const companyId = this.toPositiveNumber(requestedBy.companyId);
       const userId = this.toPositiveNumber(requestedBy.userId);
-      if ((currentUser.companyId && companyId === currentUser.companyId) || userId === currentUser.userId) return;
+      if (userId === currentUser.userId && currentUser.companyId && companyId === currentUser.companyId) return;
       throw this.forbiddenProcess();
     }
 
     if (currentUser.userType === "CANDIDATE") {
       const candidateId = this.toPositiveNumber(requestedBy.candidateId);
       const userId = this.toPositiveNumber(requestedBy.userId);
-      if ((currentUser.candidateId && candidateId === currentUser.candidateId) || userId === currentUser.userId) return;
+      if (userId === currentUser.userId && currentUser.candidateId && candidateId === currentUser.candidateId) return;
       throw this.forbiddenProcess();
     }
 
@@ -516,8 +584,8 @@ export class AiJobsStatusController {
 
   private forbiddenProcess(): ForbiddenException {
     return new ForbiddenException({
-      code: "AI_PROCESS_FORBIDDEN",
-      message: "AI 작업 상태를 조회할 수 없습니다."
+      code: "COMMON_FORBIDDEN",
+      message: "AI job status is only available to the job owner."
     });
   }
 

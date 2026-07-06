@@ -67,6 +67,7 @@ sequenceDiagram
 
 - 장기 작업 생성 API는 `202 Accepted`와 `processLogId`를 반환한다.
 - 화면은 `GET /ai/jobs/{processLogId}/status`로 `PENDING`, `RUNNING`, `COMPLETED`, `FAILED` 상태와 `output`, `failure`를 조회한다.
+- 상태 조회는 `inputRef.requestedBy`와 현재 로그인 사용자를 비교한다. ADMIN은 운영 조회를 허용하고, COMPANY job은 `userId`와 `companyId`, CANDIDATE job은 `userId`와 `candidateId`가 모두 일치해야 한다.
 - 사용자 화면은 AI 상태를 한글로 표시한다. `PENDING=대기 중`, `RUNNING=처리 중`, `COMPLETED=완료`, `FAILED=실패`를 기본 라벨로 사용한다.
 - `FAILED` 상태는 `failure.category`, `failure.reason`, `failure.retryable`을 포함한다.
 - worker의 `finalSave`는 guardrail `PASS` 또는 `REGENERATED` 이후에만 실행된다.

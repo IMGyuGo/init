@@ -6,6 +6,7 @@ import { AppModule } from "../../app.module";
 import { ApiExceptionFilter } from "../../../shared/api-exception.filter";
 import { ApiResponseInterceptor } from "../../../shared/api-response.interceptor";
 import { PrismaService } from "../../../shared/prisma.service";
+import { POSTING_DRAFT_INPUT_LIMITS } from "../../ai/dto/ai-job.dto";
 import { InMemoryInterviewRepository } from "../../interview/repository/in-memory-interview.repository";
 import { INTERVIEW_REPOSITORY } from "../../interview/repository/interview.repository";
 import { InMemoryReportRepository } from "../repository/in-memory-report.repository";
@@ -410,6 +411,77 @@ describe("ReportsController", () => {
     expect(statusResponse.body.data.output.postingDraft.tags).toEqual(["NestJS", "PostgreSQL"]);
   });
 
+  it("prevents other users from polling posting draft AI job output", async () => {
+    const response = await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS", "PostgreSQL"],
+        summary: "채용 플랫폼 API를 함께 만듭니다."
+      })
+      .expect(202);
+
+    await repository.markQueuedProcessCompleted(
+      response.body.data.processLogId,
+      JSON.stringify({
+        kind: "POSTING_DRAFT_GENERATE",
+        sourceProcessLogId: response.body.data.processLogId,
+        postingDraft: {
+          title: "2026 신입 백엔드 채용",
+          jobRole: "Backend Developer",
+          sections: { positionDetail: "<p>Backend Developer 포지션입니다.</p>" },
+          tags: ["NestJS", "PostgreSQL"]
+        }
+      })
+    );
+
+    const sameCompanyDifferentUser = await sameCompanyOtherUserGet(`/api/v1/ai/jobs/${response.body.data.processLogId}/status`).expect(403);
+    expect(sameCompanyDifferentUser.body.error.code).toBe("COMMON_FORBIDDEN");
+
+    const differentCompany = await otherCompanyGet(`/api/v1/ai/jobs/${response.body.data.processLogId}/status`).expect(403);
+    expect(differentCompany.body.error.code).toBe("COMMON_FORBIDDEN");
+  });
+
+  it("rejects oversized posting draft inputs before queuing AI work", async () => {
+    const tooManyKeywords = await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["k1", "k2", "k3", "k4", "k5", "k6", "k7", "k8", "k9", "k10", "k11"],
+        summary: "채용 플랫폼 API를 함께 만듭니다."
+      })
+      .expect(400);
+    expect(tooManyKeywords.body.error.code).toBe("COMMON_VALIDATION_FAILED");
+
+    const tooLongSummary = await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS"],
+        summary: "a".repeat(1001)
+      })
+      .expect(400);
+    expect(tooLongSummary.body.error.code).toBe("COMMON_VALIDATION_FAILED");
+
+    const boundedOptionalInputs = [
+      ["careerRequirement", "a".repeat(POSTING_DRAFT_INPUT_LIMITS.careerRequirementMaxLength + 1)],
+      ["employmentType", "a".repeat(POSTING_DRAFT_INPUT_LIMITS.employmentTypeMaxLength + 1)],
+      ["workLocation", "a".repeat(POSTING_DRAFT_INPUT_LIMITS.workLocationMaxLength + 1)]
+    ] as const;
+
+    for (const [field, value] of boundedOptionalInputs) {
+      const response = await companyRequest("/api/v1/company/recruitments/ai-draft")
+        .send({
+          title: "2026 신입 백엔드 채용",
+          jobRole: "Backend Developer",
+          keywords: ["NestJS"],
+          [field]: value
+        })
+        .expect(400);
+      expect(response.body.error.code).toBe("COMMON_VALIDATION_FAILED");
+    }
+  });
+
   it("exposes parsed company generation output through AI job status", async () => {
     const response = await companyRequest("/api/v1/company/interviews/questions/generate")
       .send({
@@ -582,7 +654,7 @@ describe("ReportsController", () => {
       .expect(202);
 
     const companyAccess = await companyGet(`/api/v1/ai/jobs/${candidateJob.body.data.processLogId}/status`).expect(403);
-    expect(companyAccess.body.error.code).toBe("AI_PROCESS_FORBIDDEN");
+    expect(companyAccess.body.error.code).toBe("COMMON_FORBIDDEN");
 
     const companyJob = await companyRequest("/api/v1/company/interviews/questions/generate")
       .send({
@@ -598,7 +670,7 @@ describe("ReportsController", () => {
       .set("X-Dev-User-Type", "COMPANY")
       .set("X-Dev-Company-Id", "2")
       .expect(403);
-    expect(otherCompanyAccess.body.error.code).toBe("AI_PROCESS_FORBIDDEN");
+    expect(otherCompanyAccess.body.error.code).toBe("COMMON_FORBIDDEN");
   });
 
   it("separates recruiting and mock report endpoint report types", async () => {
@@ -691,6 +763,22 @@ describe("ReportsController", () => {
       .set("X-Dev-User-Id", "1")
       .set("X-Dev-User-Type", "COMPANY")
       .set("X-Dev-Company-Id", "1");
+  }
+
+  function sameCompanyOtherUserGet(path: string) {
+    return request(app.getHttpServer())
+      .get(path)
+      .set("X-Dev-User-Id", "3")
+      .set("X-Dev-User-Type", "COMPANY")
+      .set("X-Dev-Company-Id", "1");
+  }
+
+  function otherCompanyGet(path: string) {
+    return request(app.getHttpServer())
+      .get(path)
+      .set("X-Dev-User-Id", "4")
+      .set("X-Dev-User-Type", "COMPANY")
+      .set("X-Dev-Company-Id", "2");
   }
 
   function adminRequest(path: string) {
