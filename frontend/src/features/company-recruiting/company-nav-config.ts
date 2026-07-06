@@ -1,10 +1,12 @@
 import { COMPANY_MYPAGE_ROUTE } from "../company-profile/routes";
 
 const COMPANY_BILLING_ROUTE = "/company/billing" as const;
+export const AI_PERFORMANCE_ROUTE = "/ai/performance" as const;
 
 export const companyNavLabels = {
   postings: "공고 목록",
   accountBilling: "계정/결제",
+  performance: "지표",
 } as const;
 
 export const companyAccountBillingNav = [

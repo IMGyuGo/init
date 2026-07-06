@@ -62,6 +62,12 @@ export class SttRequestDto {
   @IsString()
   @IsNotEmpty()
   audioS3Key!: string;
+
+  @ApiPropertyOptional({ example: 42 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  durationSeconds?: number;
 }
 
 export class FollowUpQuestionRequestDto {

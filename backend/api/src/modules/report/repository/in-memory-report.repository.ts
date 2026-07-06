@@ -78,6 +78,14 @@ export class InMemoryReportRepository implements ReportRepository {
       status: processLog.status,
       inputRef: JSON.stringify({ step: processLog.step }),
       output: undefined,
+      startedAt: processLog.startedAt,
+      completedAt: processLog.completedAt,
+      durationMs: processLog.durationMs,
+      modelName: processLog.modelName,
+      inputTokens: processLog.inputTokens,
+      outputTokens: processLog.outputTokens,
+      audioSeconds: processLog.audioSeconds,
+      estimatedCostUsd: processLog.estimatedCostUsd,
       failure: processLog.failure
     };
   }
@@ -91,7 +99,8 @@ export class InMemoryReportRepository implements ReportRepository {
     const updated: QueuedAiProcessSnapshot = {
       ...queuedProcess,
       status: "COMPLETED",
-      outputRef
+      outputRef,
+      completedAt: new Date().toISOString()
     };
     this.queuedProcesses.set(processLogId, updated);
     return this.withParsedOutput(updated);
@@ -106,7 +115,8 @@ export class InMemoryReportRepository implements ReportRepository {
     const updated: QueuedAiProcessSnapshot = {
       ...queuedProcess,
       status: "FAILED",
-      failure
+      failure,
+      completedAt: new Date().toISOString()
     };
     this.queuedProcesses.set(processLogId, updated);
     return this.withParsedOutput(updated);
@@ -126,15 +136,19 @@ export class InMemoryReportRepository implements ReportRepository {
   }
 
   async markProcessRunning(processLogId: number): Promise<ProcessLogSnapshot> {
-    return this.updateProcess(processLogId, { status: "RUNNING" });
+    return this.updateProcess(processLogId, { status: "RUNNING", startedAt: new Date().toISOString() });
   }
 
   async markProcessCompleted(processLogId: number): Promise<ProcessLogSnapshot> {
-    return this.updateProcess(processLogId, { status: "COMPLETED" });
+    const processLog = this.processLogs.get(processLogId);
+    const completedAt = new Date().toISOString();
+    return this.updateProcess(processLogId, { status: "COMPLETED", completedAt, durationMs: durationMs(processLog?.startedAt, completedAt) });
   }
 
   async markProcessFailed(processLogId: number, failure: FailureReason): Promise<ProcessLogSnapshot> {
-    return this.updateProcess(processLogId, { status: "FAILED", failure });
+    const processLog = this.processLogs.get(processLogId);
+    const completedAt = new Date().toISOString();
+    return this.updateProcess(processLogId, { status: "FAILED", failure, completedAt, durationMs: durationMs(processLog?.startedAt, completedAt) });
   }
 
   async markReportGenerating(reportId: number, reportType: ReportType): Promise<EvaluationReportSnapshot> {
@@ -271,4 +285,13 @@ export class InMemoryReportRepository implements ReportRepository {
       output: parseAiJobOutput(process.outputRef)
     };
   }
+}
+
+function durationMs(startedAt: string | undefined, completedAt: string): number | undefined {
+  if (!startedAt) {
+    return undefined;
+  }
+  const started = Date.parse(startedAt);
+  const completed = Date.parse(completedAt);
+  return Number.isFinite(started) && Number.isFinite(completed) ? Math.max(0, completed - started) : undefined;
 }

@@ -344,25 +344,26 @@ model InterviewTimePolicy {
 }
 
 model Application {
-  applicationId     BigInt                @id @default(autoincrement()) @map("application_id")
-  postingId         BigInt                @map("posting_id")
-  candidateId       BigInt                @map("candidate_id")
-  applicationStatus ApplicationStatus     @default(SUBMITTED) @map("application_status")
-  documentStatus    DocumentStatus        @default(NOT_SUBMITTED) @map("document_status")
-  interviewStatus   InterviewStatus       @default(NOT_READY) @map("interview_status")
-  reportStatus      ReportStatus          @default(PENDING) @map("report_status")
-  screeningDecision ScreeningDecision?    @default(UNDECIDED) @map("screening_decision")
-  screeningMemo     String?               @map("screening_memo")
-  submittedAt       DateTime?             @map("submitted_at")
-  updatedAt         DateTime              @updatedAt @map("updated_at")
-  posting           Posting               @relation(fields: [postingId], references: [postingId])
-  candidate         CandidateProfile      @relation(fields: [candidateId], references: [candidateId])
-  documents         ApplicationDocument[]
-  consentRecords    ConsentRecord[]
-  interviewSessions InterviewSession[]
-  evaluationReports EvaluationReport[]
-  notifications     Notification[]
-  aiProcessLogs     AiProcessLog[]
+  applicationId         BigInt                 @id @default(autoincrement()) @map("application_id")
+  postingId             BigInt                 @map("posting_id")
+  candidateId           BigInt                 @map("candidate_id")
+  applicationStatus     ApplicationStatus      @default(SUBMITTED) @map("application_status")
+  documentStatus        DocumentStatus         @default(NOT_SUBMITTED) @map("document_status")
+  interviewStatus       InterviewStatus        @default(NOT_READY) @map("interview_status")
+  reportStatus          ReportStatus           @default(PENDING) @map("report_status")
+  screeningDecision     ScreeningDecision?     @default(UNDECIDED) @map("screening_decision")
+  screeningMemo         String?                @map("screening_memo")
+  submittedAt           DateTime?              @map("submitted_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+  posting               Posting                @relation(fields: [postingId], references: [postingId])
+  candidate             CandidateProfile       @relation(fields: [candidateId], references: [candidateId])
+  documents             ApplicationDocument[]
+  consentRecords        ConsentRecord[]
+  interviewSessions     InterviewSession[]
+  evaluationReports     EvaluationReport[]
+  notifications         Notification[]
+  aiProcessLogs         AiProcessLog[]
+  clientPerformanceLogs ClientPerformanceLog[]
 
   @@unique([postingId, candidateId])
   @@index([postingId, applicationStatus])
@@ -395,20 +396,21 @@ model ConsentRecord {
 }
 
 model InterviewSession {
-  sessionId         BigInt             @id @default(autoincrement()) @map("session_id")
-  applicationId     BigInt?            @map("application_id")
-  candidateId       BigInt             @map("candidate_id")
-  interviewType     InterviewType      @map("interview_type")
-  status            InterviewStatus    @default(NOT_READY)
-  showQuestionText  Boolean            @default(false) @map("show_question_text")
-  startedAt         DateTime?          @map("started_at")
-  completedAt       DateTime?          @map("completed_at")
-  application       Application?       @relation(fields: [applicationId], references: [applicationId])
-  candidate         CandidateProfile   @relation(fields: [candidateId], references: [candidateId])
-  answers           InterviewAnswer[]
-  evaluationReports EvaluationReport[]
-  aiProcessLogs     AiProcessLog[]
-  mockPassUsages    CandidateMockInterviewPassLedger[]
+  sessionId             BigInt                             @id @default(autoincrement()) @map("session_id")
+  applicationId         BigInt?                            @map("application_id")
+  candidateId           BigInt                             @map("candidate_id")
+  interviewType         InterviewType                      @map("interview_type")
+  status                InterviewStatus                    @default(NOT_READY)
+  showQuestionText      Boolean                            @default(false) @map("show_question_text")
+  startedAt             DateTime?                          @map("started_at")
+  completedAt           DateTime?                          @map("completed_at")
+  application           Application?                       @relation(fields: [applicationId], references: [applicationId])
+  candidate             CandidateProfile                   @relation(fields: [candidateId], references: [candidateId])
+  answers               InterviewAnswer[]
+  evaluationReports     EvaluationReport[]
+  aiProcessLogs         AiProcessLog[]
+  clientPerformanceLogs ClientPerformanceLog[]
+  mockPassUsages        CandidateMockInterviewPassLedger[]
 
   @@map("interview_sessions")
 }
@@ -538,22 +540,71 @@ model Notification {
 }
 
 model AiProcessLog {
-  processLogId        BigInt                 @id @default(autoincrement()) @map("process_log_id")
-  applicationId       BigInt?                @map("application_id")
-  sessionId           BigInt?                @map("session_id")
-  processType         AiProcessType          @map("process_type")
-  status              AiProcessStatus        @default(PENDING)
-  inputRef            String?                @map("input_ref")
-  outputRef           String?                @map("output_ref")
-  failureCategory     String?                @map("failure_category") @db.VarChar(40)
-  failureReason       String?                @map("failure_reason")
-  createdAt           DateTime               @default(now()) @map("created_at")
-  application         Application?           @relation(fields: [applicationId], references: [applicationId])
-  session             InterviewSession?      @relation(fields: [sessionId], references: [sessionId])
-  guardrailLogs       AiGuardrailLog[]
-  createdQuestionSets InterviewQuestionSet[]
+  processLogId          BigInt                 @id @default(autoincrement()) @map("process_log_id")
+  applicationId         BigInt?                @map("application_id")
+  sessionId             BigInt?                @map("session_id")
+  processType           AiProcessType          @map("process_type")
+  status                AiProcessStatus        @default(PENDING)
+  inputRef              String?                @map("input_ref")
+  outputRef             String?                @map("output_ref")
+  failureCategory       String?                @map("failure_category") @db.VarChar(40)
+  failureReason         String?                @map("failure_reason")
+  startedAt             DateTime?              @map("started_at")
+  completedAt           DateTime?              @map("completed_at")
+  durationMs            Int?                   @map("duration_ms")
+  modelName             String?                @map("model_name") @db.VarChar(120)
+  inputTokens           Int?                   @map("input_tokens")
+  outputTokens          Int?                   @map("output_tokens")
+  audioSeconds          Int?                   @map("audio_seconds")
+  estimatedCostUsd      Decimal?               @map("estimated_cost_usd") @db.Decimal(12, 6)
+  costMetadataJson      String?                @map("cost_metadata_json")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  application           Application?           @relation(fields: [applicationId], references: [applicationId])
+  session               InterviewSession?      @relation(fields: [sessionId], references: [sessionId])
+  guardrailLogs         AiGuardrailLog[]
+  timingEvents          AiProcessTimingEvent[]
+  clientPerformanceLogs ClientPerformanceLog[]
+  createdQuestionSets   InterviewQuestionSet[]
 
   @@map("ai_process_logs")
+}
+
+model AiProcessTimingEvent {
+  timingEventId BigInt       @id @default(autoincrement()) @map("timing_event_id")
+  processLogId  BigInt       @map("process_log_id")
+  eventName     String       @map("event_name") @db.VarChar(80)
+  startedAt     DateTime?    @map("started_at")
+  completedAt   DateTime?    @map("completed_at")
+  durationMs    Int?         @map("duration_ms")
+  metadataJson  String?      @map("metadata_json")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  processLog    AiProcessLog @relation(fields: [processLogId], references: [processLogId])
+
+  @@index([processLogId, eventName], map: "idx_ai_process_timing_events_process_event")
+  @@index([eventName, createdAt], map: "idx_ai_process_timing_events_event_created")
+  @@map("ai_process_timing_events")
+}
+
+model ClientPerformanceLog {
+  clientPerformanceLogId BigInt            @id @default(autoincrement()) @map("client_performance_log_id")
+  eventName              String            @map("event_name") @db.VarChar(80)
+  processLogId           BigInt?           @map("process_log_id")
+  sessionId              BigInt?           @map("session_id")
+  applicationId          BigInt?           @map("application_id")
+  questionId             BigInt?           @map("question_id")
+  durationMs             Int               @map("duration_ms")
+  startedAt              DateTime?         @map("started_at")
+  completedAt            DateTime?         @map("completed_at")
+  metadataJson           String?           @map("metadata_json")
+  createdAt              DateTime          @default(now()) @map("created_at")
+  processLog             AiProcessLog?     @relation(fields: [processLogId], references: [processLogId])
+  session                InterviewSession? @relation(fields: [sessionId], references: [sessionId])
+  application            Application?      @relation(fields: [applicationId], references: [applicationId])
+
+  @@index([eventName, createdAt], map: "idx_client_performance_logs_event_created")
+  @@index([sessionId, eventName], map: "idx_client_performance_logs_session_event")
+  @@index([processLogId], map: "idx_client_performance_logs_process_log")
+  @@map("client_performance_logs")
 }
 
 model AiGuardrailLog {

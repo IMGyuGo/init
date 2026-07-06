@@ -9,6 +9,7 @@ import {
   STT_UNAVAILABLE_TEMP_ZERO_REASON,
   hashSourceText
 } from "./ai-result.repository";
+import { createAiProcessUsage } from "./ai-usage";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import { AiTaskHandler, AiTaskResult, AiWorkerJob } from "./worker.types";
 import { SttProvider } from "./stt-provider";
@@ -113,6 +114,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const answerId = positiveNumber(payload.answerId, "answerId");
     const audioFileId = positiveNumber(payload.audioFileId, "audioFileId");
     const audioS3Key = requiredText(payload.audioS3Key, "audioS3Key");
+    const audioSeconds = optionalPositiveNumber(payload.durationSeconds, "durationSeconds");
     const providerResult = this.options.sttProvider
       ? await this.options.sttProvider.transcribe({ audioFileId, audioS3Key })
       : {
@@ -127,11 +129,17 @@ export class MockAiTaskHandler implements AiTaskHandler {
         transcript: providerResult.transcript,
         transcriptSource: providerResult.transcriptSource,
         model: providerResult.model,
+        audioSeconds,
         transcriptTarget: "interview_answers.transcript",
         dedupeKey: `answer:${answerId}:transcript`,
         duplicatePolicy: "KEEP_EXISTING_TRANSCRIPT"
       }),
       guardrail: { result: "PASS", reason: null },
+      usage: createAiProcessUsage({
+        modelName: providerResult.model,
+        audioSeconds,
+        metadata: { processType: "STT" }
+      }),
       finalSave: () =>
         this.results.saveTranscript({
           answerId,

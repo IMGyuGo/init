@@ -13,6 +13,9 @@ import { interviewApiRoutePrefix, interviewApiRoutes } from "../interview.routes
 import { InMemoryInterviewRepository } from "../repository/in-memory-interview.repository";
 import { InterviewService } from "../service/interview.service";
 import type { CandidateMockInterviewPassPort } from "../../payment/service/candidate-mock-interview-pass.service";
+import { InMemoryReportRepository } from "../../report/repository/in-memory-report.repository";
+import { AiJobDispatcherService } from "../../report/service/ai-job-dispatcher.service";
+import { InMemoryAiJobQueuePublisher } from "../../report/service/ai-job-queue.publisher";
 
 type InterviewControllerRoute =
   | "startMockInterview"
@@ -84,6 +87,40 @@ assertRoute("completeRecruitingInterview", interviewApiRoutes.recruitingComplete
 assertRoute("requestRecruitingStt", interviewApiRoutes.recruitingStt, RequestMethod.POST);
 assertRoute("requestRecruitingFollowUpQuestion", interviewApiRoutes.recruitingFollowUpQuestion, RequestMethod.POST);
 assertRoute("insertRecruitingFollowUpQuestion", interviewApiRoutes.recruitingFollowUpQuestionInsert, RequestMethod.POST);
+
+test("mock STT handoff includes answer duration for worker usage tracking", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const dispatcher = new AiJobDispatcherService(new InMemoryReportRepository(), new InMemoryAiJobQueuePublisher());
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository, dispatcher));
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["INTRO"],
+    showQuestionText: false,
+  });
+  const questions = await controller.listMockQuestions(validCandidateRequest, String(started.data.sessionId));
+  const questionId = questions.data.questions[0]?.questionId ?? 0;
+  const answer = await controller.saveMockAnswer(validCandidateRequest, String(started.data.sessionId), {
+    questionId,
+    audioFile: {
+      storageKey: "candidate/1/stt-duration-answer.webm",
+      originalName: "stt-duration-answer.webm",
+      mimeType: "audio/webm",
+      sizeBytes: 2048,
+    },
+    durationSeconds: 37,
+  });
+
+  const stt = await controller.requestMockStt(validCandidateRequest, String(started.data.sessionId), {
+    answerId: answer.data.answer.answerId,
+    fileAssetId: answer.data.audioFile?.fileId,
+    audioS3Key: answer.data.audioFile?.storageKey,
+  });
+  assert.equal(stt.data.accepted, true);
+  assert.equal(stt.data.processType, "STT");
+  assert.ok(stt.data.inputRef?.includes('"durationSeconds":37'));
+});
 
 async function assertInterviewHttpError(
   action: () => Promise<unknown>,

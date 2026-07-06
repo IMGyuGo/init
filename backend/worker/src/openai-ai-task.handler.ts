@@ -1,4 +1,5 @@
 import { AiResultRepository } from "./ai-result.repository";
+import { createAiProcessUsage } from "./ai-usage";
 import { FollowUpAiProvider } from "./openai-follow-up.provider";
 import { PostingDraftAiProvider, PostingDraftGenerationResult } from "./openai-posting-draft.provider";
 import { ReportAiProvider, ReportGenerationResult } from "./openai-report.provider";
@@ -122,6 +123,12 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
         duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP"
       }),
       guardrail,
+      usage: createAiProcessUsage({
+        modelName: generated.model,
+        inputTokens: generated.usage?.inputTokens,
+        outputTokens: generated.usage?.outputTokens,
+        metadata: { processType: "FOLLOW_UP" }
+      }),
       finalSave: () => this.results.saveFollowUpQuestion({ sessionId, answerId, content: generated.content, policy })
     };
   }
@@ -159,7 +166,13 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
 
     return {
       ...fallbackResult,
-      outputRef: appendReportProviderMetadata(fallbackResult.outputRef, generated)
+      outputRef: appendReportProviderMetadata(fallbackResult.outputRef, generated),
+      usage: createAiProcessUsage({
+        modelName: generated.model,
+        inputTokens: generated.usage?.inputTokens,
+        outputTokens: generated.usage?.outputTokens,
+        metadata: { processType: "REPORT_GENERATE" }
+      })
     };
   }
 

@@ -203,6 +203,15 @@ export interface ProcessLogSnapshot {
   step: ReportPipelineStep;
   status: AiProcessStatus;
   failure?: FailureReason;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
+  modelName?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  audioSeconds?: number;
+  estimatedCostUsd?: number;
+  costMetadataJson?: string;
 }
 
 export interface QueuedAiProcessSnapshot {
@@ -215,6 +224,15 @@ export interface QueuedAiProcessSnapshot {
   applicationId?: number;
   sessionId?: number;
   failure?: FailureReason;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
+  modelName?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  audioSeconds?: number;
+  estimatedCostUsd?: number;
+  costMetadataJson?: string;
 }
 
 export interface EvaluationReportSnapshot {

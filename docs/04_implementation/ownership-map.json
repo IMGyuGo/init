@@ -120,6 +120,30 @@
       "roles": ["D", "E", "PM"]
     },
     {
+      "name": "AI performance tracking schema bridge",
+      "patterns": [
+        "^backend/api/prisma/schema\\.prisma$",
+        "^backend/api/prisma/migrations/20260706090000_ai_performance_cost_tracking/"
+      ],
+      "roles": ["A", "E"]
+    },
+    {
+      "name": "AI performance landing entry",
+      "patterns": [
+        "^frontend/src/features/landing/LandingPage\\.tsx$"
+      ],
+      "roles": ["E", "PM"]
+    },
+    {
+      "name": "AI performance global nav entry",
+      "patterns": [
+        "^frontend/src/features/company-recruiting/CompanyRecruitingChrome\\.tsx$",
+        "^frontend/src/features/company-recruiting/company-nav-config\\.ts$",
+        "^frontend/src/features/candidate-application-interview/candidate-nav-config\\.ts$"
+      ],
+      "roles": ["B", "D", "E"]
+    },
+    {
       "name": "company recruiting posting draft AI bridge",
       "patterns": [
         "^backend/api/prisma/schema\\.prisma$",
@@ -190,6 +214,7 @@
     ],
     "E": [
       "^frontend/src/features/ai-report/",
+      "^frontend/src/features/ai-performance/",
       "^frontend/src/app/(reports|ai)/",
       "^backend/worker/",
       "^backend/api/src/modules/(report|ai)/",

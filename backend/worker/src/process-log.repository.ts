@@ -1,6 +1,7 @@
 import {
   AiProcessLogSnapshot,
   AiProcessStatus,
+  AiProcessUsage,
   AiWorkerJob,
   FailureReason,
   GuardrailDecision
@@ -9,7 +10,7 @@ import {
 export interface AiProcessLogRepository {
   ensurePending(job: AiWorkerJob): Promise<AiProcessLogSnapshot>;
   markRunning(processLogId: number): Promise<AiProcessLogSnapshot>;
-  markCompleted(processLogId: number, outputRef?: string): Promise<AiProcessLogSnapshot>;
+  markCompleted(processLogId: number, outputRef?: string, usage?: AiProcessUsage): Promise<AiProcessLogSnapshot>;
   markFailed(processLogId: number, failure: FailureReason): Promise<AiProcessLogSnapshot>;
   saveGuardrailLog(processLogId: number, policyName: string, decision: GuardrailDecision): Promise<number>;
 }
@@ -45,15 +46,26 @@ export class InMemoryAiProcessLogRepository implements AiProcessLogRepository {
   }
 
   async markRunning(processLogId: number): Promise<AiProcessLogSnapshot> {
-    return this.update(processLogId, { status: "RUNNING" });
+    return this.update(processLogId, { status: "RUNNING", startedAt: new Date().toISOString() });
   }
 
-  async markCompleted(processLogId: number, outputRef?: string): Promise<AiProcessLogSnapshot> {
-    return this.update(processLogId, { status: "COMPLETED", outputRef, failure: undefined });
+  async markCompleted(processLogId: number, outputRef?: string, usage?: AiProcessUsage): Promise<AiProcessLogSnapshot> {
+    const existing = this.get(processLogId);
+    const completedAt = new Date().toISOString();
+    return this.update(processLogId, {
+      status: "COMPLETED",
+      outputRef,
+      failure: undefined,
+      completedAt,
+      durationMs: durationMs(existing.startedAt, completedAt),
+      ...usage
+    });
   }
 
   async markFailed(processLogId: number, failure: FailureReason): Promise<AiProcessLogSnapshot> {
-    return this.update(processLogId, { status: "FAILED", failure });
+    const existing = this.get(processLogId);
+    const completedAt = new Date().toISOString();
+    return this.update(processLogId, { status: "FAILED", failure, completedAt, durationMs: durationMs(existing.startedAt, completedAt) });
   }
 
   async saveGuardrailLog(processLogId: number, policyName: string, decision: GuardrailDecision): Promise<number> {
@@ -91,4 +103,13 @@ export class InMemoryAiProcessLogRepository implements AiProcessLogRepository {
   private guardrailFailureCategory(decision: GuardrailDecision): GuardrailDecision["failureCategory"] {
     return decision.failureCategory ?? (decision.result === "BLOCKED" ? "NON_RETRYABLE" : null);
   }
+}
+
+function durationMs(startedAt: string | undefined, completedAt: string): number | undefined {
+  if (!startedAt) {
+    return undefined;
+  }
+  const started = Date.parse(startedAt);
+  const completed = Date.parse(completedAt);
+  return Number.isFinite(started) && Number.isFinite(completed) ? Math.max(0, completed - started) : undefined;
 }
