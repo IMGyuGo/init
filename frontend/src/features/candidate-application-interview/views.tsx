@@ -1,6 +1,6 @@
 "use client";
 
-import type { FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import type {
   CandidateFileAsset,
   CandidateJobDetail,
@@ -26,106 +26,367 @@ export interface CandidateJobsViewProps {
   onQueryChange: (query: CandidateJobQuery) => void;
 }
 
+const SORT_OPTIONS: { value: NonNullable<CandidateJobQuery["sort"]>; label: string }[] = [
+  { value: "createdAt", label: "최신순" },
+  { value: "endsOn", label: "마감임박순" },
+  { value: "title", label: "제목순" },
+];
+
+const SEARCH_SUGGESTIONS = ["백엔드", "프론트엔드", "AI·ML", "DevOps", "신입"];
+
+type FilterKey = "jobRole" | "careerLevel" | "location" | "postingStatus";
+
+interface FilterOption {
+  value: string;
+  label: string;
+}
+
+interface FilterCategory {
+  key: FilterKey;
+  label: string;
+  hint: string;
+  options: FilterOption[];
+}
+
+// 개발자 전용 사이트 → 직무는 IT·개발 하위만 노출. value 는 백엔드 jobRole 값과 맞춰야 함(D 영역 정렬 필요).
+const IT_DEV_ROLES: FilterOption[] = [
+  "서버·백엔드",
+  "프론트엔드",
+  "웹풀스택",
+  "안드로이드",
+  "iOS",
+  "크로스플랫폼",
+  "DevOps·SRE",
+  "데이터 엔지니어",
+  "AI·ML",
+  "QA·테스트",
+  "시스템·네트워크",
+  "보안",
+  "블록체인",
+  "개발 PM",
+  "기타 IT·개발",
+].map((value) => ({ value, label: value }));
+
+const FILTER_CATEGORIES: FilterCategory[] = [
+  { key: "jobRole", label: "직무", hint: "IT·개발 직무 중 하나를 선택하세요", options: IT_DEV_ROLES },
+  {
+    key: "careerLevel",
+    label: "경력",
+    hint: "경력 수준을 선택하세요",
+    options: [
+      { value: "신입", label: "신입" },
+      { value: "주니어", label: "주니어 · 1~3년" },
+      { value: "미들", label: "미들 · 4~7년" },
+      { value: "시니어", label: "시니어 · 8년+" },
+    ],
+  },
+  {
+    key: "location",
+    label: "지역",
+    hint: "근무 지역을 선택하세요",
+    options: [
+      { value: "Seoul", label: "서울" },
+      { value: "Pangyo", label: "판교" },
+      { value: "Gyeonggi", label: "경기" },
+      { value: "Remote", label: "원격" },
+    ],
+  },
+  {
+    key: "postingStatus",
+    label: "채용 상태",
+    hint: "공고 상태를 선택하세요",
+    options: [
+      { value: "OPEN", label: "모집중" },
+      { value: "CLOSING_SOON", label: "마감임박" },
+    ],
+  },
+];
+
+function filterOptionLabel(key: FilterKey, value: string): string {
+  const category = FILTER_CATEGORIES.find((item) => item.key === key);
+  return category?.options.find((option) => option.value === value)?.label ?? value;
+}
+
+type FilterDraft = Record<FilterKey, string>;
+const EMPTY_DRAFT: FilterDraft = { jobRole: "", careerLevel: "", location: "", postingStatus: "" };
+const FILTER_KEYS: FilterKey[] = ["jobRole", "careerLevel", "location", "postingStatus"];
+
+function candidateJobDday(endsOn: string): string | null {
+  if (!endsOn) return null;
+  const end = new Date(`${endsOn}T23:59:59`);
+  if (Number.isNaN(end.getTime())) return null;
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = Math.ceil((end.getTime() - startOfToday.getTime()) / 86_400_000);
+  if (days < 0) return "마감";
+  if (days === 0) return "D-day";
+  return `D-${days}`;
+}
+
 export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: CandidateJobsViewProps) {
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [activeCat, setActiveCat] = useState<FilterKey>("jobRole");
+  const [draft, setDraft] = useState<FilterDraft>(EMPTY_DRAFT);
+
+  function patch(next: Partial<CandidateJobQuery>) {
+    onQueryChange({ ...query, ...next, page: 1 });
+  }
+
+  function openFilter() {
+    setDraft({
+      jobRole: query.jobRole ?? "",
+      careerLevel: query.careerLevel ?? "",
+      location: query.location ?? "",
+      postingStatus: query.postingStatus ?? "",
+    });
+    setActiveCat("jobRole");
+    setFilterOpen(true);
+  }
+
+  function toggleDraft(key: FilterKey, value: string) {
+    setDraft((prev) => ({ ...prev, [key]: prev[key] === value ? "" : value }));
+  }
+
+  function applyFilter() {
+    onQueryChange({
+      ...query,
+      page: 1,
+      jobRole: draft.jobRole || undefined,
+      careerLevel: draft.careerLevel || undefined,
+      location: draft.location || undefined,
+      postingStatus: toOptionalPostingStatus(draft.postingStatus),
+    });
+    setFilterOpen(false);
+  }
+
+  function clearFilter(key: FilterKey) {
+    patch({ [key]: undefined } as Partial<CandidateJobQuery>);
+  }
+
+  function scrollToList() {
+    document.getElementById("candidate-jobs-list")?.scrollIntoView({ behavior: "smooth" });
+  }
+
+  const activeFilters = FILTER_KEYS.map((key) => ({ key, value: (query[key] as string | undefined) ?? "" })).filter(
+    (item) => item.value,
+  );
+  const draftCount = FILTER_KEYS.filter((key) => draft[key]).length;
+  const activeCatMeta = FILTER_CATEGORIES.find((item) => item.key === activeCat);
+
   return (
-    <section aria-label="채용공고 목록" className="panel candidate-jobs-panel">
-      <div className="panel-head">
-        <div className="panel-title">
-          <h2>채용 공고</h2>
-          <span className="count-pill">{totalItems}</span>
-        </div>
-        <form
-          className="toolbar candidate-jobs-filter"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onQueryChange({ ...query, page: 1 });
-          }}
-        >
-          <label className="candidate-jobs-search">
-            <span className="sr-only">검색어</span>
+    <section aria-label="채용공고 목록" className="candidate-jobs-panel">
+      <div className="candidate-jobs-hero">
+        <div className="candidate-jobs-hero-inner">
+          <h2>
+            개발자를 위한 채용공고,
+            <br />한곳에서 확인하세요
+          </h2>
+          <p>회사·공고 제목·직무로 검색하거나, 아래로 스크롤해 전체 공고를 살펴보세요.</p>
+          <form
+            className="candidate-jobs-search"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onQueryChange({ ...query, page: 1 });
+            }}
+          >
+            <span className="candidate-jobs-search-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
+            </span>
             <input
               name="q"
-              placeholder="회사·직무 검색"
+              placeholder="어떤 공고를 찾으시나요?"
               value={query.q ?? ""}
-              onChange={(event) => onQueryChange({ ...query, q: event.currentTarget.value, page: 1 })}
+              onChange={(event) => patch({ q: event.currentTarget.value })}
             />
-          </label>
-          <label>
-            <span className="sr-only">직무</span>
-            <select
-              name="jobRole"
-              value={query.jobRole ?? ""}
-              onChange={(event) => onQueryChange({ ...query, jobRole: event.currentTarget.value, page: 1 })}
-            >
-              <option value="">전체 직무</option>
-              <option value="Backend">백엔드</option>
-              <option value="Android">안드로이드</option>
-              <option value="Frontend">프론트엔드</option>
-              <option value="AI Engineer">AI 엔지니어</option>
-            </select>
-          </label>
-          <label>
-            <span className="sr-only">지역</span>
-            <select
-              name="location"
-              value={query.location ?? ""}
-              onChange={(event) => onQueryChange({ ...query, location: event.currentTarget.value, page: 1 })}
-            >
-              <option value="">전체 지역</option>
-              <option value="Seoul">서울</option>
-              <option value="Pangyo">판교</option>
-              <option value="Remote">원격</option>
-            </select>
-          </label>
-          <label>
-            <span className="sr-only">채용 상태</span>
-            <select
-              name="postingStatus"
-              value={query.postingStatus ?? ""}
-              onChange={(event) =>
-                onQueryChange({
-                  ...query,
-                  postingStatus: toOptionalPostingStatus(event.currentTarget.value),
-                  page: 1,
-                })
-              }
-            >
-              <option value="">전체 상태</option>
-              <option value="OPEN">모집중</option>
-              <option value="CLOSING_SOON">마감임박</option>
-            </select>
-          </label>
-          <button className="btn secondary" type="submit">조회</button>
-        </form>
+            <button className="btn primary" type="submit">
+              검색
+            </button>
+          </form>
+          <div className="candidate-jobs-suggestions">
+            <span className="candidate-jobs-suggestions-label">추천 검색어</span>
+            {SEARCH_SUGGESTIONS.map((keyword) => (
+              <button
+                key={keyword}
+                type="button"
+                className={`candidate-jobs-suggestion${query.q === keyword ? " is-active" : ""}`}
+                onClick={() => patch({ q: keyword })}
+              >
+                {keyword}
+              </button>
+            ))}
+          </div>
+        </div>
+        <button type="button" className="candidate-jobs-scrollcue" onClick={scrollToList}>
+          <span>공고 보기</span>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
       </div>
 
+      <div id="candidate-jobs-list" className="candidate-jobs-list">
+        <div className="candidate-jobs-toolbar">
+          <div className="candidate-jobs-toolbar-left">
+            <button type="button" className="candidate-jobs-filter-btn" onClick={openFilter}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4 5h16M7 12h10M10 19h4" />
+              </svg>
+              필터
+              {activeFilters.length ? <em className="candidate-jobs-filter-count">{activeFilters.length}</em> : null}
+            </button>
+            <div className="candidate-jobs-active">
+              {activeFilters.length ? (
+                activeFilters.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className="candidate-jobs-chip"
+                    onClick={() => clearFilter(item.key)}
+                  >
+                    {filterOptionLabel(item.key, item.value)}
+                    <span aria-hidden="true">✕</span>
+                  </button>
+                ))
+              ) : (
+                <span className="candidate-jobs-active-empty">필터로 원하는 공고만 골라보세요</span>
+              )}
+            </div>
+          </div>
+          <div className="candidate-jobs-toolbar-right">
+            <span className="candidate-jobs-count">
+              공고 <strong>{totalItems}</strong>
+            </span>
+            <select
+              aria-label="정렬"
+              className="candidate-jobs-sort"
+              value={query.sort ?? "createdAt"}
+              onChange={(event) => patch({ sort: event.currentTarget.value as CandidateJobQuery["sort"] })}
+            >
+              {SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
       {jobs.length ? (
-        <div className="posting-list candidate-job-list" role="list">
-          {jobs.map((job, index) => (
-            <article className="posting candidate-job-row" key={job.jobId} role="listitem">
-              <CompanyLogoMark companyLogoUrl={job.companyLogoUrl} fallbackLabel={companyLogoLabel(index)} />
-              <div className="posting-info">
-                <div className="posting-title-row">
-                  <h3>{job.title}</h3>
-                  <StatusBadge status={job.postingStatus} />
+        <div className="candidate-job-grid" role="list">
+          {jobs.map((job) => {
+            const dday = candidateJobDday(job.endsOn);
+            const tags = Array.from(new Set([job.jobGroup, job.jobRole].filter(Boolean)));
+            return (
+              <a
+                className="candidate-job-card"
+                key={job.jobId}
+                role="listitem"
+                href={candidateApplicationInterviewRoutes.jobDetail(job.jobId)}
+              >
+                <div className="candidate-job-card-top">
+                  <span className="candidate-job-logo" aria-hidden="true">
+                    <CompanyLogoMark companyLogoUrl={job.companyLogoUrl} fallbackLabel={companyLogoLabelFromName(job.companyName)} />
+                  </span>
+                  <div className="candidate-job-card-companyinfo">
+                    <p className="candidate-job-card-company">{job.companyName}</p>
+                    <p className="candidate-job-card-sub">
+                      {[job.careerLevel, job.employmentType, displayLocation(job.location)].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
                 </div>
-                <p>{job.companyName} · {displayLocation(job.location)}</p>
-              </div>
-              <span className={`candidate-job-available${job.alreadyApplied ? " is-applied" : ""}`}>
-                {job.alreadyApplied ? "지원 완료" : "지원 가능"}
-              </span>
-              <div className="posting-actions">
-                <a className="btn secondary compact" href={candidateApplicationInterviewRoutes.jobDetail(job.jobId)}>
-                  상세 보기
-                </a>
-              </div>
-            </article>
-          ))}
+                <h3 className="candidate-job-card-title">{job.title}</h3>
+                {tags.length ? (
+                  <div className="candidate-job-card-tags">
+                    {tags.map((tag, tagIndex) => (
+                      <span key={`${tag}-${tagIndex}`}>#{tag}</span>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="candidate-job-card-foot">
+                  <span className="candidate-job-card-foot-left">
+                    {dday ? <span className={`candidate-job-dday${dday === "마감" ? " is-closed" : ""}`}>{dday}</span> : null}
+                    <StatusBadge status={job.postingStatus} />
+                  </span>
+                  <span className={`candidate-job-available${job.alreadyApplied ? " is-applied" : ""}`}>
+                    {job.alreadyApplied ? "지원 완료" : "지원 가능"}
+                  </span>
+                </div>
+              </a>
+            );
+          })}
         </div>
       ) : (
         <p className="empty">조건에 맞는 채용공고가 없습니다.</p>
       )}
-      <span className="sr-only">지원 가능한 공고 {totalItems}건</span>
+        <span className="sr-only">지원 가능한 공고 {totalItems}건</span>
+      </div>
+
+      {filterOpen ? (
+        <div
+          className="candidate-filter-overlay"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setFilterOpen(false);
+          }}
+        >
+          <div className="candidate-filter-modal" role="dialog" aria-modal="true" aria-label="공고 필터">
+            <header className="candidate-filter-head">
+              <h3>필터 선택</h3>
+              <button type="button" className="candidate-filter-close" onClick={() => setFilterOpen(false)} aria-label="닫기">
+                ✕
+              </button>
+            </header>
+            <div className="candidate-filter-body">
+              <nav className="candidate-filter-cats" aria-label="필터 카테고리">
+                {FILTER_CATEGORIES.map((category) => (
+                  <button
+                    key={category.key}
+                    type="button"
+                    className={`candidate-filter-cat${activeCat === category.key ? " is-active" : ""}`}
+                    onClick={() => setActiveCat(category.key)}
+                  >
+                    {category.label}
+                    {draft[category.key] ? <em className="candidate-filter-cat-dot" aria-hidden="true" /> : null}
+                  </button>
+                ))}
+              </nav>
+              <div className="candidate-filter-options">
+                {activeCatMeta ? (
+                  <>
+                    <div className="candidate-filter-options-head">
+                      <strong>{activeCatMeta.label}</strong>
+                      <span>{activeCatMeta.hint}</span>
+                    </div>
+                    <div className="candidate-filter-chips">
+                      {activeCatMeta.options.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          className={`candidate-filter-chip${draft[activeCat] === option.value ? " is-selected" : ""}`}
+                          onClick={() => toggleDraft(activeCat, option.value)}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </div>
+            <footer className="candidate-filter-foot">
+              <button type="button" className="candidate-filter-reset" onClick={() => setDraft(EMPTY_DRAFT)}>
+                초기화{draftCount ? ` ${draftCount}` : ""}
+              </button>
+              <button type="button" className="btn primary" onClick={applyFilter}>
+                공고 보기
+              </button>
+            </footer>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -439,10 +700,6 @@ function CompanyLogoMark({
 
 function toOptionalPostingStatus(value: string): CandidateJobListPostingStatus | undefined {
   return value === "OPEN" || value === "CLOSING_SOON" ? value : undefined;
-}
-
-function companyLogoLabel(index: number): string {
-  return `${String.fromCharCode(65 + (index % 26))}사`;
 }
 
 function companyLogoLabelFromName(companyName: string): string {
