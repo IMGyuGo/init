@@ -31,6 +31,7 @@ export class PublicInterviewService {
   constructor(
     @Inject(PUBLIC_APPLICATION_ACCESS_VERIFIER)
     private readonly applicationAccessVerifier: PublicApplicationAccessVerifier,
+    @Inject(PublicInterviewAccessTokenService)
     private readonly accessTokenService: PublicInterviewAccessTokenService,
     @Inject(CandidateService) private readonly candidateService: CandidateService,
     @Inject(InterviewService) private readonly interviewService: InterviewService,
