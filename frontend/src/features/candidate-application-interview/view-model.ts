@@ -76,6 +76,77 @@ export interface InterviewAnswerFormState {
 
 export type InterviewDeviceSetupMode = "mock" | "recruiting";
 
+export interface AiInterviewerProfile {
+  displayName: "AI 면접관";
+  toneLabel: string;
+  voiceGuide: string;
+  disclosure: string;
+  infoButtonLabel: string;
+  infoShortcutKey: "M";
+}
+
+export interface CameraPipPosition {
+  x: number;
+  y: number;
+}
+
+export interface CameraPipBounds {
+  stageWidth: number;
+  stageHeight: number;
+  pipWidth: number;
+  pipHeight: number;
+  padding?: number;
+  reservedTopHeight?: number;
+}
+
+export type InterviewRuntimeStatusChipId = "microphone" | "camera" | "network";
+export type InterviewRuntimeStatusChipTone = "success" | "warning";
+
+export interface InterviewRuntimeStatusChip {
+  id: InterviewRuntimeStatusChipId;
+  label: string;
+  tone: InterviewRuntimeStatusChipTone;
+  visible: boolean;
+}
+
+export interface InterviewRuntimeShortcutHint {
+  key: "F";
+  label: string;
+}
+
+export type InterviewRuntimePrimaryScreen = "interviewer" | "candidate";
+
+export interface InterviewRuntimeLayoutState {
+  mode: "compact" | "immersive";
+  showShortcutHints: boolean;
+  fullscreenButtonLabel: string;
+  stageClassName: string;
+  viewportLockClassName: "ai-interviewer-stage--viewport-lock";
+  infoGapClassName: "" | "ai-interviewer-stage--reserved-info-gap";
+}
+
+export type CompactInterviewRuntimeLayoutState = InterviewRuntimeLayoutState & {
+  mode: "compact";
+  showShortcutHints: true;
+  infoGapClassName: "ai-interviewer-stage--reserved-info-gap";
+};
+
+export type ImmersiveInterviewRuntimeLayoutState = InterviewRuntimeLayoutState & {
+  mode: "immersive";
+  showShortcutHints: false;
+  infoGapClassName: "ai-interviewer-stage--reserved-info-gap";
+};
+
+export interface InterviewRuntimeScreenSwapState {
+  primaryScreen: InterviewRuntimePrimaryScreen;
+  stageClassName: "" | "ai-interviewer-stage--candidate-primary";
+  cameraPanelClassName: "" | "candidate-camera-pip--primary";
+  interviewerPanelClassName: "" | "ai-interviewer-figure--pip";
+  swapButtonLabel: string;
+  swapShortcutKey: "S";
+  swapButtonAriaLabel: string;
+}
+
 export const requiredApplicationConsents: ConsentType[] = [
   "PRIVACY_COLLECTION",
   "AI_DOCUMENT_ANALYSIS",
@@ -130,6 +201,14 @@ export const defaultDeviceCheckState: CandidateDeviceCheckState = {
   microphoneGranted: false,
   networkStable: false,
 };
+
+export function createCameralessInterviewTestDeviceCheckState(): CandidateDeviceCheckState {
+  return {
+    cameraGranted: true,
+    microphoneGranted: true,
+    networkStable: true,
+  };
+}
 
 export const defaultStartMockInterviewState: StartMockInterviewState = {
   jobRole: "Backend",
@@ -365,6 +444,151 @@ export function toRuntimeQuestionSpeechText(question: Pick<RuntimeQuestionView, 
   if (!audioPrompt) return "질문을 준비 중입니다.";
   if (audioPrompt.startsWith("audio://")) return "음성 질문을 듣고 답변해주세요.";
   return audioPrompt;
+}
+
+export function getAiInterviewerProfile(mode: InterviewDeviceSetupMode): AiInterviewerProfile {
+  return {
+    displayName: "AI 면접관",
+    toneLabel: mode === "mock" ? "연습 코치형" : "공식 진행형",
+    voiceGuide: mode === "mock" ? "편안하고 차분한 목소리" : "중립적이고 공식적인 목소리",
+    disclosure: "이 면접관의 음성은 AI로 생성됩니다.",
+    infoButtonLabel: "AI 면접관 설명",
+    infoShortcutKey: "M",
+  };
+}
+
+export function formatAiInterviewerQuestionPrompt({
+  question,
+  questionVisible,
+}: {
+  question?: Pick<RuntimeQuestionView, "content" | "audioPrompt">;
+  questionVisible: boolean;
+}): string {
+  if (!question) return "현재 질문을 불러올 수 없습니다.";
+  if (questionVisible) return toRuntimeQuestionSpeechText(question);
+
+  const audioPrompt = question.audioPrompt?.trim();
+  const content = question.content?.trim();
+  return audioPrompt || content ? "질문 음성을 듣고 답변해주세요." : "질문을 준비 중입니다.";
+}
+
+export function clampCameraPipPosition(
+  position: CameraPipPosition,
+  bounds: CameraPipBounds,
+): CameraPipPosition {
+  const padding = bounds.padding ?? 16;
+  const minX = padding;
+  const minY = padding + (bounds.reservedTopHeight ?? 0);
+  const maxX = Math.max(minX, bounds.stageWidth - bounds.pipWidth - padding);
+  const maxY = Math.max(minY, bounds.stageHeight - bounds.pipHeight - padding);
+
+  return {
+    x: Math.min(Math.max(position.x, minX), maxX),
+    y: Math.min(Math.max(position.y, minY), maxY),
+  };
+}
+
+export function getDefaultCameraPipPosition(bounds: CameraPipBounds): CameraPipPosition {
+  const padding = bounds.padding ?? 16;
+
+  return clampCameraPipPosition(
+    {
+      x: bounds.stageWidth - bounds.pipWidth - padding,
+      y: Math.round((bounds.stageHeight - bounds.pipHeight) / 2),
+    },
+    bounds,
+  );
+}
+
+export function getInterviewRuntimeStatusChips({
+  microphoneReady,
+  microphoneLevel,
+  cameraReady,
+  networkReady,
+  networkStatus,
+}: {
+  microphoneReady: boolean;
+  microphoneLevel: number;
+  cameraReady: boolean;
+  networkReady: boolean;
+  networkStatus?: string;
+}): InterviewRuntimeStatusChip[] {
+  const chips: InterviewRuntimeStatusChip[] = [
+    {
+      id: "microphone",
+      label: microphoneReady ? `음성 입력 ${Math.max(0, Math.min(100, Math.round(microphoneLevel)))}%` : "음성 확인 필요",
+      tone: microphoneReady ? "success" : "warning",
+      visible: true,
+    },
+  ];
+
+  if (!cameraReady) {
+    chips.push({
+      id: "camera",
+      label: "카메라 확인 필요",
+      tone: "warning",
+      visible: true,
+    });
+  }
+
+  if (!networkReady) {
+    chips.push({
+      id: "network",
+      label: networkStatus?.trim() || "네트워크 확인 필요",
+      tone: "warning",
+      visible: true,
+    });
+  }
+
+  return chips;
+}
+
+export function getInterviewRuntimeShortcutHints(): InterviewRuntimeShortcutHint[] {
+  return [
+    { key: "F", label: "전체화면" },
+  ];
+}
+
+export function getInterviewRuntimeLayoutState(args: {
+  fullscreenActive: false;
+}): CompactInterviewRuntimeLayoutState;
+export function getInterviewRuntimeLayoutState(args: {
+  fullscreenActive: true;
+}): ImmersiveInterviewRuntimeLayoutState;
+export function getInterviewRuntimeLayoutState(args: {
+  fullscreenActive: boolean;
+}): InterviewRuntimeLayoutState;
+export function getInterviewRuntimeLayoutState({
+  fullscreenActive,
+}: {
+  fullscreenActive: boolean;
+}): InterviewRuntimeLayoutState {
+  return {
+    mode: fullscreenActive ? "immersive" : "compact",
+    showShortcutHints: !fullscreenActive,
+    fullscreenButtonLabel: fullscreenActive ? "전체화면 해제" : "전체화면",
+    stageClassName: "ai-interviewer-stage",
+    viewportLockClassName: "ai-interviewer-stage--viewport-lock",
+    infoGapClassName: "ai-interviewer-stage--reserved-info-gap",
+  };
+}
+
+export function getInterviewRuntimeScreenSwapState({
+  primaryScreen,
+}: {
+  primaryScreen: InterviewRuntimePrimaryScreen;
+}): InterviewRuntimeScreenSwapState {
+  const candidatePrimary = primaryScreen === "candidate";
+
+  return {
+    primaryScreen,
+    stageClassName: candidatePrimary ? "ai-interviewer-stage--candidate-primary" : "",
+    cameraPanelClassName: candidatePrimary ? "candidate-camera-pip--primary" : "",
+    interviewerPanelClassName: candidatePrimary ? "ai-interviewer-figure--pip" : "",
+    swapButtonLabel: "전환",
+    swapShortcutKey: "S",
+    swapButtonAriaLabel: candidatePrimary ? "AI 면접관을 큰 화면으로 전환" : "내 화면을 큰 화면으로 전환",
+  };
 }
 
 export function toUploadResumeRequest(state: CandidateResumeUploadState): UploadResumeRequest {

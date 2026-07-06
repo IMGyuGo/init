@@ -1,6 +1,7 @@
 "use client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
+import { getApiBaseUrl } from "./api-base-url";
+
 const TOKEN_KEY = "init.accessToken";
 export const AUTH_SESSION_CLEARED_EVENT = "init:auth-session-cleared";
 
@@ -94,7 +95,7 @@ function isFormDataBody(body: BodyInit | null | undefined) {
 }
 
 export async function apiFetch<T>(path: string, options: RequestInit = {}, retry = true): Promise<T> {
-  const response = await authFetch(`${API_BASE}/api/v1${path}`, options, retry);
+  const response = await authFetch(`${getApiBaseUrl()}/api/v1${path}`, options, retry);
 
   const json = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -104,7 +105,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, retry
 }
 
 export async function apiFetchEnvelope<T, M = ApiMeta>(path: string, options: RequestInit = {}, retry = true): Promise<ApiEnvelope<T, M>> {
-  const response = await authFetch(`${API_BASE}/api/v1${path}`, options, retry);
+  const response = await authFetch(`${getApiBaseUrl()}/api/v1${path}`, options, retry);
 
   const json = await response.json().catch(() => ({}));
   if (!response.ok) {
