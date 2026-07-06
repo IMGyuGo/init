@@ -171,7 +171,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                         <tbody>
                           {report.scores.map((score) => (
                             <tr key={score.scoreId}>
-                              <td>{score.criterionName ?? "기준 없음"}</td>
+                              <td>{formatScoreCriterionName(score.criterionName, score.rationale)}</td>
                               <td>{score.score}</td>
                               <td>
                                 {score.rationale ?? "근거 없음"}
@@ -263,6 +263,15 @@ function formatQuestionTypeLabel(value?: string | null) {
     CLOSING: "마무리",
   };
   return value ? labels[value] ?? value : "질문";
+}
+
+function formatScoreCriterionName(criterionName: string | null, rationale: string | null) {
+  if (criterionName?.trim()) {
+    return criterionName;
+  }
+
+  const match = rationale?.match(/^(.+?)(?:은|는)\s*\d+점/);
+  return match?.[1]?.trim() || "기준 없음";
 }
 
 function getDisplayAnswers(answers: ApplicantEvaluation["answers"]) {
