@@ -154,6 +154,44 @@ export class QuestionSetGenerateRequestDto {
   questionTypes!: string[];
 }
 
+export class PostingDraftGenerateRequestDto {
+  @ApiProperty({ example: "2026 신입 백엔드 채용" })
+  @IsString()
+  @IsNotEmpty()
+  title!: string;
+
+  @ApiProperty({ example: "Backend Developer" })
+  @IsString()
+  @IsNotEmpty()
+  jobRole!: string;
+
+  @ApiPropertyOptional({ type: [String], example: ["NestJS", "PostgreSQL", "Redis"] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  keywords?: string[];
+
+  @ApiPropertyOptional({ example: "대용량 채용 플랫폼 API를 함께 설계하고 운영합니다." })
+  @IsOptional()
+  @IsString()
+  summary?: string;
+
+  @ApiPropertyOptional({ example: "신입 이상" })
+  @IsOptional()
+  @IsString()
+  careerRequirement?: string;
+
+  @ApiPropertyOptional({ example: "정규직" })
+  @IsOptional()
+  @IsString()
+  employmentType?: string;
+
+  @ApiPropertyOptional({ example: "서울" })
+  @IsOptional()
+  @IsString()
+  workLocation?: string;
+}
+
 export class GuardrailEvidenceDto {
   @ApiProperty({ enum: ["INTERVIEW_ANSWER", "APPLICATION_DOCUMENT"], example: "INTERVIEW_ANSWER" })
   @IsIn(["INTERVIEW_ANSWER", "APPLICATION_DOCUMENT"])

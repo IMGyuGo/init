@@ -25,7 +25,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | Module Folder | Controller Baseline | Route Prefix | Primary Owner | API Range |
 | --- | --- | --- | --- | --- |
 | `backend/api/src/modules/auth` | `AuthController` | `/api/v1/auth` | A | API-001..009 |
-| `backend/api/src/modules/company-recruiting` | `CompanyRecruitingController`, `PublicRecruitmentController`, `PublicApplicationController` | `/api/v1/company/recruitments`, `/api/v1/company/applicants`, `/api/v1/public/recruitments`, `/api/v1/public/applications` | B | API-010..033 중 공고/지원자 운영, API-080, API-086..089 |
+| `backend/api/src/modules/company-recruiting` | `CompanyRecruitingController`, `PublicRecruitmentController`, `PublicApplicationController` | `/api/v1/company/recruitments`, `/api/v1/company/applicants`, `/api/v1/public/recruitments`, `/api/v1/public/applications` | B | API-010..033 중 공고/지원자 운영, API-080, API-085, API-086..089 |
 | `backend/api/src/modules/company-interview` | `CompanyInterviewController` | `/api/v1/company/interviews` | C | API-034..040 |
 | `backend/api/src/modules/company-profile` | `CompanyProfileController` | `/api/v1/company/profile`, `/api/v1/company/notifications` | A/B | API-041..043 |
 | `backend/api/src/modules/candidate` | `CandidateController` | `/api/v1/candidate/jobs`, `/api/v1/candidate/applications`, `/api/v1/candidate/resume`, `/api/v1/candidate/portfolio-links` | D | API-058..078 중 지원/마이페이지 |
@@ -52,6 +52,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-010 | 기업 - 대시보드 | GET | /company/dashboard | 공고 목록 및 운영 현황 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-011 | 기업 - 채용공고 | GET | /company/recruitments | 회사별 공고 목록 조회 / 채용 공고 목록 조회 / 채용 공고 리스트 표시 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-080 | 기업 - 채용공고 | POST | /company/recruitments | 기업 공고 생성 | 기업 / 기업 사용자 로그인 | N | 201 Created |
+| API-085 | 기업 - 채용공고 | POST | /company/recruitments/ai-draft | 공고 생성 AI 초안 작성 | 기업 / 기업 사용자 로그인 | Y | 202 Accepted |
 | API-012 | 기업 - 지원자/리포트 | PATCH | /company/applicants/{applicantId}/screening-status | 전형 상태 지정 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-013 | 기업 - 채용공고 | GET | /company/recruitments/{recruitmentId} | 공고 상세 및 지원자 관리 진입 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-083 | 기업 - 채용공고 | PATCH | /company/recruitments/{recruitmentId} | 공고 설정 수정 | 기업 / 기업 사용자 로그인 | N | 200 OK |

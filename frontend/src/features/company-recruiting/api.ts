@@ -3,8 +3,10 @@ import type {
   ApiErrorEnvelope,
   Applicant,
   ApplicantEvaluation,
+  AiJobStatusResponse,
   CreateRecruitmentInput,
   JobDescriptionImageUploadResponse,
+  PostingDraftGenerateInput,
   Recruitment,
   RecruitmentStatus,
   UpdateScreeningStatusInput,
@@ -68,6 +70,17 @@ export async function uploadJobDescriptionImage(file: File) {
   formData.append("file", file);
 
   return requestFormData<JobDescriptionImageUploadResponse>("/company/recruitments/jd-images", formData);
+}
+
+export async function generatePostingDraft(input: PostingDraftGenerateInput) {
+  return request<AiJobStatusResponse>("/company/recruitments/ai-draft", {
+    method: "POST",
+    body: input,
+  });
+}
+
+export async function getAiJobStatus(processLogId: number) {
+  return request<AiJobStatusResponse>(`/ai/jobs/${processLogId}/status`);
 }
 
 export async function listRecruitmentApplicants(recruitmentId: number, query: ListQuery = {}) {

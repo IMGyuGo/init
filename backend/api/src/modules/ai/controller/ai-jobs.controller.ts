@@ -22,6 +22,7 @@ import {
   DocumentExtractRequestDto,
   FollowUpQuestionRequestDto,
   MockQuestionGenerateRequestDto,
+  PostingDraftGenerateRequestDto,
   QuestionGenerateRequestDto,
   QuestionSetGenerateRequestDto,
   SttRequestDto,
@@ -220,6 +221,77 @@ export class CandidateAiJobsController {
     const providedName = names.find((name) => payload[name] !== undefined && payload[name] !== null);
     if (providedName) {
       throw this.validation(`${providedName} must not be sent. Use fileId and S3 object key references.`);
+    }
+  }
+
+  private validation(message: string): BadRequestException {
+    return new BadRequestException({
+      code: "COMMON_VALIDATION_FAILED",
+      message
+    });
+  }
+}
+
+@ApiTags("Company AI Jobs")
+@ApiBearerAuth("bearer")
+@ApiDevAuthHeaders()
+@ApiErrorResponses()
+@UseGuards(JwtAuthGuard)
+@Controller("company/recruitments")
+export class CompanyRecruitmentAiJobsController {
+  constructor(
+    @Inject(DevAuthAdapter) private readonly devAuthAdapter: DevAuthAdapter,
+    @Inject(AiJobDispatcherService) private readonly dispatcher: AiJobDispatcherService
+  ) {}
+
+  @Post("ai-draft")
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperationId("API-085")
+  @ApiOperation({ summary: "공고 생성 AI 초안 작성 작업 생성" })
+  @ApiEnvelopeResponse(AiJobResponseDto, 202)
+  async generatePostingDraft(@Req() request: CompanyAiRequest, @Body() body: PostingDraftGenerateRequestDto) {
+    const currentUser = this.company(request);
+    this.requireText(body.title, "title");
+    this.requireText(body.jobRole, "jobRole");
+
+    return this.dispatcher.dispatch({
+      processType: "POSTING_DRAFT_GENERATE",
+      input: {
+        kind: "POSTING_DRAFT_GENERATE",
+        requestedBy: {
+          userId: currentUser.userId,
+          userType: currentUser.userType,
+          companyId: currentUser.companyId
+        },
+        payload: {
+          title: body.title.trim(),
+          jobRole: body.jobRole.trim(),
+          keywords: Array.isArray(body.keywords) ? body.keywords.filter((keyword) => typeof keyword === "string" && keyword.trim()).map((keyword) => keyword.trim()) : [],
+          summary: typeof body.summary === "string" ? body.summary.trim() : undefined,
+          careerRequirement: typeof body.careerRequirement === "string" ? body.careerRequirement.trim() : undefined,
+          employmentType: typeof body.employmentType === "string" ? body.employmentType.trim() : undefined,
+          workLocation: typeof body.workLocation === "string" ? body.workLocation.trim() : undefined
+        }
+      }
+    });
+  }
+
+  private company(request: CompanyAiRequest): CurrentUser {
+    const currentUser = request.currentUser
+      ? {
+          userId: request.currentUser.userId,
+          userType: request.currentUser.userType,
+          companyId: request.currentUser.companyId ?? undefined,
+          candidateId: request.currentUser.candidateId ?? undefined,
+        }
+      : this.devAuthAdapter.parse(request.headers);
+    this.devAuthAdapter.assertCompany(currentUser);
+    return currentUser;
+  }
+
+  private requireText(value: unknown, name: string): void {
+    if (typeof value !== "string" || !value.trim()) {
+      throw this.validation(`${name} is required.`);
     }
   }
 

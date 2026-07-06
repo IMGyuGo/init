@@ -68,6 +68,8 @@ export class MockAiTaskHandler implements AiTaskHandler {
         return this.questionGenerate(input.kind ?? "RECRUITING_QUESTION_GENERATE", payload, job.processLogId);
       case "QUESTION_SET_GENERATE":
         return this.questionSetGenerate(payload, job.processLogId);
+      case "POSTING_DRAFT_GENERATE":
+        return this.postingDraftGenerate(payload, job.processLogId);
       case "EMBEDDING":
         return this.embedding(payload);
       default:
@@ -419,6 +421,63 @@ export class MockAiTaskHandler implements AiTaskHandler {
     });
   }
 
+  private postingDraftGenerate(payload: Record<string, unknown>, processLogId: number): AiTaskResult {
+    const title = requiredText(payload.title, "title");
+    const jobRole = requiredText(payload.jobRole, "jobRole");
+    const keywords = stringArrayOf(payload.keywords);
+    const tags = keywords.length > 0 ? keywords : [jobRole];
+    const summary = typeof payload.summary === "string" && payload.summary.trim()
+      ? payload.summary.trim()
+      : `${jobRole} 포지션의 핵심 역할과 협업 방식을 정리한 공고입니다.`;
+    const careerRequirement = typeof payload.careerRequirement === "string" && payload.careerRequirement.trim()
+      ? payload.careerRequirement.trim()
+      : "경력무관";
+    const employmentType = typeof payload.employmentType === "string" && payload.employmentType.trim()
+      ? payload.employmentType.trim()
+      : "정규직";
+    const workLocation = typeof payload.workLocation === "string" && payload.workLocation.trim()
+      ? payload.workLocation.trim()
+      : "협의";
+    const sections = {
+      positionDetail: [
+        `<p>${escapeHtml(title)} — ${escapeHtml(jobRole)} 포지션입니다.</p>`,
+        `<p>${escapeHtml(summary)}</p>`,
+        `<p>근무 형태: ${escapeHtml(employmentType)} / 경력 조건: ${escapeHtml(careerRequirement)} / 근무지: ${escapeHtml(workLocation)}</p>`
+      ].join(""),
+      responsibilities: bulletList(
+        tags.map((tag) => `${tag} 기반 서비스 개발과 운영 품질 개선을 주도합니다.`)
+      ),
+      requirements: bulletList([
+        `${jobRole} 직무에 필요한 기본기를 갖춘 분`,
+        ...tags.map((tag) => `${tag}에 대한 실무 경험 또는 학습 경험`),
+        "문제를 구조화하고 동료와 명확하게 소통할 수 있는 분"
+      ]),
+      preferredQualifications: bulletList([
+        "채용, 평가, 인터뷰 도메인에 관심이 있는 분",
+        "데이터 기반으로 제품과 운영 프로세스를 개선한 경험",
+        `${tags[0]} 관련 성능 개선 또는 장애 대응 경험`
+      ]),
+      benefits: bulletList([
+        "업무에 몰입할 수 있는 장비와 도구 지원",
+        "동료와 함께 배우는 코드 리뷰와 스터디 문화",
+        "성장 단계에 맞춘 역할 확장 기회"
+      ]),
+      hiringProcess: bulletList(["서류 검토", "직무 인터뷰", "최종 인터뷰", "처우 협의 및 입사"])
+    };
+    const items = ["포지션 상세", "주요 업무", "자격 요건", "우대 사항", "복지 및 혜택", "채용 절차"];
+
+    return this.generatedDraft("POSTING_DRAFT_GENERATE", items, {
+      sourceProcessLogId: processLogId,
+      targetTables: ["postings"],
+      postingDraft: {
+        title,
+        jobRole,
+        sections,
+        tags
+      }
+    });
+  }
+
   private questionSetGenerate(payload: Record<string, unknown>, processLogId: number): AiTaskResult {
     const postingId = positiveNumber(payload.postingId, "postingId");
     const questionCount = positiveNumber(payload.questionCount, "questionCount");
@@ -499,6 +558,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
       sourceProcessLogId: number;
       targetTables: GeneratedDraftRecord["targetTables"];
       postingId?: number;
+      postingDraft?: GeneratedDraftRecord["postingDraft"];
       criteriaSuggestions?: GeneratedDraftRecord["criteriaSuggestions"];
       questionCandidates?: GeneratedDraftRecord["questionCandidates"];
       questionSetPreview?: GeneratedDraftRecord["questionSetPreview"];
@@ -509,6 +569,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
       kind,
       sourceProcessLogId: options.sourceProcessLogId,
       items,
+      postingDraft: options.postingDraft,
       criteriaSuggestions: options.criteriaSuggestions,
       questionCandidates: options.questionCandidates,
       questionSetPreview: options.questionSetPreview,
@@ -798,6 +859,17 @@ function nonEmptyStringArrayOf(value: unknown, name: string): string[] {
     throw new NonRetryableAiWorkerFailure(`${name} is required`);
   }
   return values;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function bulletList(items: string[]): string {
+  return `<ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
 }
 
 function reportSnapshot(reportId: number, reportType: GeneratedReportRecord["reportType"]) {

@@ -46,7 +46,18 @@ export type QuestionType = (typeof QUESTION_TYPES)[number];
 export const NOTIFICATION_CHANNELS = ["EMAIL", "IN_APP"] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
-export const AI_PROCESS_TYPES = ["DOCUMENT_EXTRACT", "STT", "FOLLOW_UP", "REPORT_GENERATE", "EMBEDDING"] as const;
+export const AI_PROCESS_TYPES = [
+  "DOCUMENT_EXTRACT",
+  "STT",
+  "FOLLOW_UP",
+  "REPORT_GENERATE",
+  "EMBEDDING",
+  "GUARDRAIL_VALIDATE",
+  "CRITERIA_SUGGEST",
+  "QUESTION_GENERATE",
+  "QUESTION_SET_GENERATE",
+  "POSTING_DRAFT_GENERATE",
+] as const;
 export type AiProcessType = (typeof AI_PROCESS_TYPES)[number];
 
 export const AI_PROCESS_STATUSES = ["PENDING", "RUNNING", "COMPLETED", "FAILED"] as const;

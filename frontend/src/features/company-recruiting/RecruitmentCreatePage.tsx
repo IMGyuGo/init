@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChangeEvent, KeyboardEvent, useRef, useState } from "react";
 
-import { createRecruitment, uploadJobDescriptionImage } from "./api";
+import { createRecruitment, generatePostingDraft, getAiJobStatus, uploadJobDescriptionImage } from "./api";
 import { MiniRichTextEditor } from "./MiniRichTextEditor";
 import { JOB_DESCRIPTION_IMAGE_ACCEPT, validateJobDescriptionImageFile } from "./job-description-image-upload";
 import {
@@ -16,7 +16,7 @@ import {
   type PostingExtraInfo,
 } from "./posting-extra-info";
 import { buildInterviewSettingsHref } from "./routes";
-import { generateMockPostingDraft } from "./posting-ai-draft";
+import { extractPostingDraftFromJob, type PostingDraftResult } from "./posting-ai-draft";
 import {
   composeStructuredJobDescription,
   createEmptyStructuredJobDescription,
@@ -31,6 +31,8 @@ import choiceManual from "./assets/choice-manual.png";
 import choiceAi from "./assets/choice-ai.png";
 
 const MAX_GALLERY_IMAGES = 5;
+const AI_DRAFT_MAX_POLL_ATTEMPTS = 20;
+const AI_DRAFT_POLL_INTERVAL_MS = 1000;
 
 type FormState = {
   title: string;
@@ -52,6 +54,19 @@ function createInitialForm(): FormState {
   };
 }
 
+function splitDraftKeywords(raw: string): string[] {
+  return raw
+    .split(/[,\n]/)
+    .map((keyword) => keyword.trim())
+    .filter(Boolean);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 export function RecruitmentCreatePage() {
   const router = useRouter();
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
@@ -66,6 +81,9 @@ export function RecruitmentCreatePage() {
   const [aiKeywords, setAiKeywords] = useState("");
   const [aiSummary, setAiSummary] = useState("");
   const [aiFilled, setAiFilled] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiDraftMessage, setAiDraftMessage] = useState("");
+  const [pendingPostingDraft, setPendingPostingDraft] = useState<PostingDraftResult | null>(null);
   const [phase, setPhase] = useState<"intro" | "choice" | "ai" | "form">("intro");
   const [entryMode, setEntryMode] = useState<"manual" | "ai">("manual");
 
@@ -76,22 +94,70 @@ export function RecruitmentCreatePage() {
     setPhase("form");
   }
 
-  function handleGenerateDraft() {
-    const draft = generateMockPostingDraft({
-      title: form.title,
-      jobRole: form.jobRole,
-      keywords: aiKeywords,
-      summary: aiSummary,
-    });
+  async function handleGenerateDraft() {
+    if (!form.title.trim() || !form.jobRole.trim()) {
+      setAiDraftMessage("공고 제목과 직무명을 먼저 입력해주세요.");
+      return;
+    }
+
+    setAiGenerating(true);
+    setAiFilled(false);
+    setPendingPostingDraft(null);
+    setAiDraftMessage("AI 초안 생성을 요청하고 있어요.");
+    try {
+      const requested = await generatePostingDraft({
+        title: form.title,
+        jobRole: form.jobRole,
+        keywords: splitDraftKeywords(aiKeywords),
+        summary: aiSummary || undefined,
+        careerRequirement: form.extraInfo.career.value || undefined,
+        employmentType: form.extraInfo.employmentType.value || undefined,
+        workLocation: form.extraInfo.location.value || undefined,
+      });
+      const completed = await waitForPostingDraft(requested.data.processLogId);
+      const draft = extractPostingDraftFromJob(completed);
+      if (!draft) {
+        throw new Error("AI 초안 결과를 읽을 수 없습니다.");
+      }
+      setPendingPostingDraft(draft);
+      setAiDraftMessage("초안이 준비됐어요. 적용한 뒤 각 단계에서 수정하세요.");
+    } catch (error) {
+      setAiDraftMessage(error instanceof Error ? error.message : "AI 초안 생성에 실패했습니다.");
+    } finally {
+      setAiGenerating(false);
+    }
+  }
+
+  async function waitForPostingDraft(processLogId: number) {
+    for (let attempt = 0; attempt < AI_DRAFT_MAX_POLL_ATTEMPTS; attempt += 1) {
+      const result = await getAiJobStatus(processLogId);
+      if (result.data.status === "COMPLETED") {
+        return result.data;
+      }
+      if (result.data.status === "FAILED") {
+        const reason = result.data.failure?.reason || "AI 초안 생성에 실패했습니다.";
+        throw new Error(reason);
+      }
+      await delay(AI_DRAFT_POLL_INTERVAL_MS);
+    }
+    throw new Error("AI 초안 생성 시간이 길어지고 있습니다. 잠시 후 다시 시도해주세요.");
+  }
+
+  function applyPendingDraft() {
+    if (!pendingPostingDraft) return;
     setForm((current) => ({
       ...current,
+      title: pendingPostingDraft.title || current.title,
+      jobRole: pendingPostingDraft.jobRole || current.jobRole,
       structuredJobDescription: {
         ...current.structuredJobDescription,
-        sections: { ...current.structuredJobDescription.sections, ...draft.sections },
-        tags: Array.from(new Set([...current.structuredJobDescription.tags, ...draft.tags])),
+        sections: { ...current.structuredJobDescription.sections, ...pendingPostingDraft.sections },
+        tags: Array.from(new Set([...current.structuredJobDescription.tags, ...pendingPostingDraft.tags])),
       },
     }));
     setAiFilled(true);
+    setPendingPostingDraft(null);
+    setAiDraftMessage("초안이 적용됐어요. 다음에서 각 단계를 확인·수정하세요.");
   }
 
   async function handleCreate() {
@@ -476,7 +542,7 @@ export function RecruitmentCreatePage() {
                 setPhase("ai");
               }}
             >
-              <span className="wizard-choice-badge">데모용 목업</span>
+              <span className="wizard-choice-badge">AI 초안</span>
               <Image className="wizard-choice-art" src={choiceAi} alt="" width={200} height={200} aria-hidden="true" />
               <strong>AI로 초안 만들기</strong>
               <span>제목·키워드를 넣으면 공고 상세 초안을 채워줍니다.</span>
@@ -496,7 +562,7 @@ export function RecruitmentCreatePage() {
               <h1>AI로 초안 만들기</h1>
               <p className="page-sub">
                 제목·직무와 키워드, 핵심 내용을 넣고 초안을 채운 뒤 시작하세요.
-                <span className="wizard-ai-badge">데모용 목업 · 실제 AI 아님</span>
+                <span className="wizard-ai-badge">검토 후 적용</span>
               </p>
             </div>
             <Image className="page-banner-art" src={choiceAi} alt="" width={300} height={300} aria-hidden="true" priority />
@@ -521,11 +587,21 @@ export function RecruitmentCreatePage() {
               <textarea value={aiSummary} onChange={(event) => setAiSummary(event.target.value)} placeholder="어떤 팀에서 어떤 문제를 푸는 포지션인지 간단히 적어주세요." />
             </label>
             <div className="wizard-ai-actions">
-              <button className="btn secondary" type="button" onClick={handleGenerateDraft}>
-                ✨ AI로 초안 채우기
+              <button className="btn secondary" type="button" onClick={() => void handleGenerateDraft()} disabled={aiGenerating}>
+                {aiGenerating ? "초안 생성 중" : "AI로 초안 만들기"}
               </button>
-              {aiFilled ? <span className="wizard-ai-done">초안이 채워졌어요. 다음에서 각 단계를 확인·수정하세요.</span> : null}
+              {aiDraftMessage ? <span className="wizard-ai-done">{aiDraftMessage}</span> : null}
             </div>
+            {pendingPostingDraft ? (
+              <div className="wizard-ai-preview">
+                <strong>{pendingPostingDraft.title}</strong>
+                <span>{pendingPostingDraft.jobRole}</span>
+                {pendingPostingDraft.tags.length > 0 ? <p>{pendingPostingDraft.tags.join(", ")}</p> : null}
+                <button className="btn primary" type="button" onClick={applyPendingDraft}>
+                  초안 적용
+                </button>
+              </div>
+            ) : null}
           </div>
           <div className="wizard-nav">
             <button className="btn secondary" type="button" onClick={() => setPhase("choice")}>

@@ -37,6 +37,12 @@ export interface GeneratedDraftRecord {
   kind: string;
   sourceProcessLogId: number;
   items: string[];
+  postingDraft?: {
+    title: string;
+    jobRole: string;
+    sections: Record<string, string>;
+    tags: string[];
+  };
   criteriaSuggestions?: Array<{
     title: string;
     description: string;
@@ -71,7 +77,7 @@ export interface GeneratedDraftRecord {
   }>;
   reviewRequired: true;
   reviewStatus: "PENDING_REVIEW";
-  targetTables: Array<"criterion_tags" | "evaluation_criteria" | "question_bank">;
+  targetTables: Array<"criterion_tags" | "evaluation_criteria" | "question_bank" | "postings">;
   postingId?: number;
 }
 
