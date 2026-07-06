@@ -4106,7 +4106,7 @@ function InterviewRuntimePanel({
         setAutoAiPipeline((current) => ({
           answerId: savedAnswer.answerId,
           ...current,
-          sttStatus: sttStatus.status === "FAILED" ? "FAILED" : "RUNNING",
+          sttStatus: "FAILED",
           followUpStatus: "IDLE",
           followUpSkipped: shouldSkipFollowUp,
           failureCategory: sttStatus.failure?.category,
@@ -4129,7 +4129,8 @@ function InterviewRuntimePanel({
           answerId: savedAnswer.answerId,
           ...current,
           sttStatus: "COMPLETED",
-          followUpStatus: "FAILED",
+          followUpStatus: "IDLE",
+          followUpSkipped: true,
           sttProcessLogId,
           error: "STT 결과에서 transcript를 찾지 못했습니다.",
         }));
@@ -4217,13 +4218,13 @@ function InterviewRuntimePanel({
           answerId: savedAnswer.answerId,
           ...current,
           sttStatus: current?.sttStatus ?? "COMPLETED",
-          followUpStatus: followUpStatus.status === "FAILED" ? "FAILED" : "RUNNING",
+          followUpStatus: shouldSkipFollowUp ? "IDLE" : followUpStatus.status === "FAILED" ? "FAILED" : "RUNNING",
           followUpSkipped: shouldSkipFollowUp,
           error: shouldSkipFollowUp
             ? undefined
             : followUpStatus.status === "FAILED"
             ? followUpStatus.failure?.reason ?? "꼬리질문 생성에 실패했습니다."
-            : "꼬리질문 생성이 아직 진행 중입니다. 잠시 후 상태를 다시 확인해주세요.",
+            : undefined,
         }));
         return;
       }
