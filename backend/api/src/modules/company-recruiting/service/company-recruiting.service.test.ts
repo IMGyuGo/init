@@ -1046,6 +1046,87 @@ describe("CompanyRecruitingService", () => {
     assert.equal(result.report?.scores[0]?.evidences[0]?.evidenceText, "NestJS 기반 API 구축 경험");
   });
 
+  it("returns evaluation detail with interview answers and linked follow-up answers", async () => {
+    const repository = createRepository({
+      async findApplicationForCompany(applicationId: number, companyId: number) {
+        return createApplicantRecord({
+          interviewSessions: [
+            {
+              sessionId: 901,
+              status: "COMPLETED",
+              interviewType: "RECRUITING",
+              startedAt: new Date("2026-07-01T00:00:00.000Z"),
+              completedAt: new Date("2026-07-01T00:10:00.000Z"),
+              answers: [
+                {
+                  answerId: 1001,
+                  questionId: 501,
+                  questionType: "TECHNICAL",
+                  questionContent: "지원 직무와 관련된 프로젝트에서 맡은 역할을 설명해주세요.",
+                  transcript: "API 업로드, DB 저장, worker 처리 흐름을 연결했습니다.",
+                  durationSeconds: 42,
+                  submittedAt: new Date("2026-07-01T00:02:00.000Z"),
+                  followUpQuestions: [
+                    {
+                      followUpId: 7001,
+                      content: "worker 처리 흐름에서 가장 중요하게 확인한 값은 무엇인가요?",
+                      generationStatus: "GENERATED",
+                      policy: "RECRUITING",
+                      answer: {
+                        answerId: 1002,
+                        transcript: "answerId와 audioFileId가 payload와 DB에서 일치하는지 확인했습니다.",
+                        durationSeconds: 21,
+                        submittedAt: new Date("2026-07-01T00:04:00.000Z"),
+                      },
+                    },
+                  ],
+                },
+                {
+                  answerId: 1002,
+                  questionId: 502,
+                  questionType: "FOLLOW_UP",
+                  questionContent: "worker 처리 흐름에서 가장 중요하게 확인한 값은 무엇인가요?",
+                  transcript: "answerId와 audioFileId가 payload와 DB에서 일치하는지 확인했습니다.",
+                  durationSeconds: 21,
+                  submittedAt: new Date("2026-07-01T00:04:00.000Z"),
+                  followUpQuestions: [],
+                },
+              ],
+            },
+          ],
+        });
+      },
+    });
+    const service = new CompanyRecruitingService(repository);
+
+    const result = await service.getApplicantEvaluation(companyUser, 77);
+
+    assert.equal(result.answers.length, 2);
+    assert.deepEqual(result.answers[0], {
+      answerId: 1001,
+      questionId: 501,
+      questionType: "TECHNICAL",
+      questionContent: "지원 직무와 관련된 프로젝트에서 맡은 역할을 설명해주세요.",
+      transcript: "API 업로드, DB 저장, worker 처리 흐름을 연결했습니다.",
+      durationSeconds: 42,
+      submittedAt: "2026-07-01T00:02:00.000Z",
+      followUpQuestions: [
+        {
+          followUpId: 7001,
+          content: "worker 처리 흐름에서 가장 중요하게 확인한 값은 무엇인가요?",
+          generationStatus: "GENERATED",
+          policy: "RECRUITING",
+          answer: {
+            answerId: 1002,
+            transcript: "answerId와 audioFileId가 payload와 DB에서 일치하는지 확인했습니다.",
+            durationSeconds: 21,
+            submittedAt: "2026-07-01T00:04:00.000Z",
+          },
+        },
+      ],
+    });
+  });
+
   it("stores only allowed screening decisions and memo through the B-owned fields", async () => {
     const repository = createRepository();
     const service = new CompanyRecruitingService(repository);
