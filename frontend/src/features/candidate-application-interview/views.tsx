@@ -173,8 +173,17 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
         window.setTimeout(() => (animating = false), 620);
       }
     }
+    // 스크롤을 내리면 히어로 하단의 블러 페이드를 사라지게 한다.
+    function onScroll() {
+      const hero = document.querySelector(".candidate-jobs-hero");
+      if (hero) hero.classList.toggle("is-hero-scrolled", window.scrollY > 24);
+    }
     window.addEventListener("wheel", onWheel, { passive: true });
-    return () => window.removeEventListener("wheel", onWheel);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("scroll", onScroll);
+    };
   }, []);
 
   function patch(next: Partial<CandidateJobQuery>) {
