@@ -629,6 +629,31 @@ describe("ReportsController", () => {
     expect(statusResponse.body.data.status).toBe("PENDING");
   });
 
+  it("forbids AI job status polling by non-owners", async () => {
+    const candidateJob = await candidateRequest("/api/v1/candidate/mock-interviews/questions/generate")
+      .send({ questionCount: 2 })
+      .expect(202);
+
+    const companyAccess = await companyGet(`/api/v1/ai/jobs/${candidateJob.body.data.processLogId}/status`).expect(403);
+    expect(companyAccess.body.error.code).toBe("COMMON_FORBIDDEN");
+
+    const companyJob = await companyRequest("/api/v1/company/interviews/questions/generate")
+      .send({
+        postingId: 2,
+        jobDescription: "Backend engineer with queue processing experience.",
+        questionCount: 2
+      })
+      .expect(202);
+
+    const otherCompanyAccess = await request(app.getHttpServer())
+      .get(`/api/v1/ai/jobs/${companyJob.body.data.processLogId}/status`)
+      .set("X-Dev-User-Id", "3")
+      .set("X-Dev-User-Type", "COMPANY")
+      .set("X-Dev-Company-Id", "2")
+      .expect(403);
+    expect(otherCompanyAccess.body.error.code).toBe("COMMON_FORBIDDEN");
+  });
+
   it("separates recruiting and mock report endpoint report types", async () => {
     await companyRequest("/api/v1/reports/1/evaluation-context")
       .send({ ...validContextPayload(), reportType: "MOCK_INTERVIEW_REPORT" })

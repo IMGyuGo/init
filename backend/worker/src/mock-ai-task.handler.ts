@@ -4,7 +4,6 @@ import {
   GeneratedDraftRecord,
   GeneratedQuestionEvaluationRecord,
   GeneratedReportRecord,
-  GeneratedReportConfidenceRecord,
   GeneratedReportScoreRecord,
   ReportAnswerEvaluationStatusRecord,
   STT_UNAVAILABLE_TEMP_ZERO_REASON,
@@ -13,6 +12,13 @@ import {
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import { AiTaskHandler, AiTaskResult, AiWorkerJob } from "./worker.types";
 import { SttProvider } from "./stt-provider";
+import {
+  assessReportEvidence,
+  normalizeReportCriterionName,
+  scoreBandFor,
+  SERVICE_INTERVIEW_RUBRIC,
+  weightedTotalScore
+} from "./service-interview-rubric";
 
 interface WorkerInput {
   kind?: string;
@@ -185,32 +191,14 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const jobDescription = requiredText(payload.jobDescription, "jobDescription");
     const talentProfile = requiredText(payload.talentProfile, "talentProfile");
     const evaluationPolicy = requiredText(payload.evaluationPolicy, "evaluationPolicy");
-    const criteriaSuggestions = [
-      {
-        title: "문제 해결력",
-        description: `JD 맥락: ${shorten(jobDescription)}`,
-        weight: 40,
-        order: 1,
-        suggestionReason: "직무 요구사항에서 문제 분석과 해결 역량 검증이 필요합니다.",
-        category: "직무 역량"
-      },
-      {
-        title: "조직 적합도",
-        description: `인재상 맥락: ${shorten(talentProfile)}`,
-        weight: 30,
-        order: 2,
-        suggestionReason: "팀 협업 방식과 인재상 부합 여부를 확인해야 합니다.",
-        category: "태도"
-      },
-      {
-        title: "근거 기반 판단",
-        description: `평가 정책: ${shorten(evaluationPolicy)}`,
-        weight: 30,
-        order: 3,
-        suggestionReason: "평가 정책에 맞춰 답변 근거와 의사결정 과정을 확인합니다.",
-        category: "커뮤니케이션"
-      }
-    ];
+    const criteriaSuggestions = SERVICE_INTERVIEW_RUBRIC.map((criterion, index) => ({
+      title: criterion.name,
+      description: `${criterion.description} JD: ${shorten(jobDescription)}`,
+      weight: criterion.weight,
+      order: index + 1,
+      suggestionReason: `인재상(${shorten(talentProfile)})과 평가 정책(${shorten(evaluationPolicy)})을 답변 근거 중심으로 검증하기 위한 기본 기준입니다.`,
+      category: "서비스 기본 평가"
+    }));
     const items = criteriaSuggestions.map((candidate) => candidate.title);
 
     return this.generatedDraft("CRITERIA_SUGGEST", items, {
@@ -361,10 +349,10 @@ export class MockAiTaskHandler implements AiTaskHandler {
         : answersOf(payload.answers);
     const documentText = typeof payload.documentText === "string" ? payload.documentText : undefined;
     const { scores, questionEvaluations } = this.scoreReport(criteria, answers, documentText);
-    const totalScore = Math.round(scores.reduce((sum, score) => sum + score.score, 0) / scores.length);
+    const totalScore = weightedTotalScore(scores, criteria);
     const summary = generatedSummary ?? (reportType === "RECRUITING_REPORT"
-        ? `Recruiting report generated from ${answers.length} answer(s) for ${shorten(jobDescription)}.`
-        : `Mock interview feedback generated from ${answers.length} answer(s).`);
+        ? `채용 면접 리포트는 ${answers.length}개 답변과 JD(${shorten(jobDescription)})를 바탕으로 생성되었습니다. 최종 판단은 사람이 검토해야 합니다.`
+        : `모의면접 피드백은 ${answers.length}개 답변과 서비스 기본 평가 기준을 바탕으로 생성되었습니다.`);
     const report: GeneratedReportRecord = {
       reportId,
       reportType,
@@ -620,9 +608,8 @@ export class MockAiTaskHandler implements AiTaskHandler {
         return;
       }
 
-      const evidenceText = pickEvidence(answer.transcript, documentText);
-      const score = Math.min(95, 70 + Math.min(10, Math.round(criterion.weight / 10)) + Math.min(10, Math.floor(evidenceText.length / 30)));
       const structured = structuredAssessment(answer.transcript, documentText, criterion.description);
+      const score = structured.score;
       const criterionName = localizedCriterionName(criterion.name);
       const evidences: GeneratedReportScoreRecord["evidences"] = [
         {
@@ -1090,86 +1077,62 @@ function pickEvidence(transcript: string, documentText?: string): string {
 }
 
 function localizedCriterionName(name: string): string {
-  const normalized = name.toLowerCase();
-  if (normalized.includes("role") || normalized.includes("fit")) {
-    return "직무 적합성";
-  }
-  if (normalized.includes("problem") || normalized.includes("solving")) {
-    return "문제 해결력";
-  }
-  if (normalized.includes("communication")) {
-    return "커뮤니케이션";
-  }
-  if (normalized.includes("technical")) {
-    return "기술 이해도";
-  }
-  return name;
+  return normalizeReportCriterionName(name);
 }
 
 function scoreRationale(
   criterionName: string,
   score: number,
-  transcript: string,
+  _transcript: string,
   assessment: ReturnType<typeof structuredAssessment>
 ): string {
-  const evidence = pickEvidence(transcript);
-  const improvement = assessment.uncertaintyReasons.includes("No explicit measurable outcome was provided.")
-    ? "성과나 결과를 수치 또는 전후 비교로 보강하면 더 설득력 있는 답변이 됩니다."
-    : "행동과 결과가 함께 제시되어 답변의 신뢰도가 비교적 높습니다.";
+  const band = scoreBandFor(score);
+  const improvement = assessment.uncertaintyReasons.includes("정량 성과나 전후 비교가 부족합니다.")
+    ? "성과를 수치, 전후 비교, 검증 결과로 보강하면 더 설득력 있는 답변이 됩니다."
+    : "행동과 결과가 함께 제시되어 답변 근거의 신뢰도가 비교적 높습니다.";
+  const subject = `${criterionName}${topicParticle(criterionName)}`;
 
-  if (criterionName === "직무 적합성") {
-    return `${criterionName}은 ${score}점입니다. 답변에서 "${evidence}"를 통해 지원 직무와 연결되는 경험과 관심 분야가 확인됩니다. ${improvement}`;
+  if (criterionName === "직무/기술 역량") {
+    return `${subject} ${score}점(${band.label})입니다. 사용 기술과 구현 경험이 직무와 연결되어 보입니다. ${improvement}`;
   }
 
   if (criterionName === "문제 해결력") {
-    return `${criterionName}은 ${score}점입니다. 문제 상황을 확인 가능한 단위로 나누고 원인을 좁혀 가는 접근이 드러납니다. ${improvement}`;
+    return `${subject} ${score}점(${band.label})입니다. 문제를 확인 가능한 단위로 나누고 원인을 좁혀 가는 접근이 보입니다. ${improvement}`;
   }
 
-  if (criterionName === "커뮤니케이션") {
-    return `${criterionName}은 ${score}점입니다. 경험을 차분하게 설명해 흐름은 이해하기 쉽지만, 상황-행동-결과 순서로 조금 더 압축하면 전달력이 좋아집니다. ${improvement}`;
+  if (criterionName === "실행력과 성과") {
+    return `${subject} ${score}점(${band.label})입니다. 직접 맡은 작업 흐름과 결과가 일부 드러납니다. ${improvement}`;
   }
 
-  return `${criterionName}은 ${score}점입니다. 답변에서 "${evidence}"를 근거로 관련 역량을 확인할 수 있습니다. ${improvement}`;
+  if (criterionName === "협업/커뮤니케이션") {
+    return `${subject} ${score}점(${band.label})입니다. 상황과 역할을 설명하는 흐름이 있습니다. 이해관계자 조정 과정까지 더하면 전달력이 좋아집니다. ${improvement}`;
+  }
+
+  if (criterionName === "학습/성장성") {
+    return `${subject} ${score}점(${band.label})입니다. 새로운 도구나 문제를 학습해 실제 흐름에 적용한 단서를 확인했습니다. ${improvement}`;
+  }
+
+  if (criterionName === "책임감/신뢰성") {
+    return `${subject} ${score}점(${band.label})입니다. 문제를 끝까지 확인하고 검증하려는 태도가 답변 근거에서 확인됩니다. ${improvement}`;
+  }
+
+  return `${subject} ${score}점(${band.label})입니다. 답변 흐름을 바탕으로 관련 역량을 평가했습니다. ${improvement}`;
+}
+
+function topicParticle(value: string): "은" | "는" {
+  const lastChar = value.trim().at(-1);
+  if (!lastChar) return "은";
+  const charCode = lastChar.charCodeAt(0);
+  if (charCode < 0xac00 || charCode > 0xd7a3) return "은";
+  return (charCode - 0xac00) % 28 === 0 ? "는" : "은";
 }
 
 function structuredAssessment(
   transcript: string,
   documentText?: string,
   criterionDescription?: string
-): {
-  rubricAnchor: string;
-  confidence: GeneratedReportConfidenceRecord;
-  uncertaintyReasons: string[];
-} {
-  const combined = `${transcript}\n${documentText ?? ""}`.toLowerCase();
-  const hasAction = /\b(found|analyzed|improved|optimized|built|designed|implemented|resolved|added|reduced)\b/.test(
-    combined
-  );
-  const hasResult = /\b(result|performance|latency|cache|ttl|policy|policies|reduced|improved|increased)\b/.test(
-    combined
-  );
-  const hasMetric = /\d|%|ms|sec|minute|hour|x\b/.test(combined);
-  const hasDocumentContext = Boolean(documentText?.trim());
-  const uncertaintyReasons = [
-    ...(hasMetric ? [] : ["No explicit measurable outcome was provided."]),
-    ...(hasDocumentContext ? [] : ["Application document evidence was not provided."]),
-    ...(hasAction ? [] : ["Candidate action is not explicit in the answer."]),
-    ...(hasResult ? [] : ["Result or impact is not explicit in the answer."])
-  ];
-  const confidence: GeneratedReportConfidenceRecord =
-    hasAction && hasResult && hasDocumentContext
-      ? "HIGH"
-      : hasAction && (hasResult || hasDocumentContext)
-        ? "MEDIUM"
-        : "LOW";
-
-  return {
-    rubricAnchor: criterionDescription?.trim()
-      ? `Matches criterion: ${shorten(criterionDescription)}`
-      : "Structured interview evidence is mapped to the requested evaluation criterion.",
-    confidence,
-    uncertaintyReasons
-  };
+): ReturnType<typeof assessReportEvidence> {
+  return assessReportEvidence(transcript, documentText, criterionDescription);
 }
 
 function shorten(value: string): string {

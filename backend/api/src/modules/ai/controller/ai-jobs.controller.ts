@@ -4,7 +4,6 @@ import {
   Controller,
   ForbiddenException,
   Get,
-  Headers,
   HttpCode,
   HttpStatus,
   Inject,
@@ -46,8 +45,7 @@ type CandidateAiRequest = {
   };
 };
 type CompanyAiRequest = CandidateAiRequest;
-type AiJobStatusRequest = CandidateAiRequest;
-type RequestedByRef = {
+type AiJobRequestedBy = {
   userId?: unknown;
   userType?: unknown;
   companyId?: unknown;
@@ -482,7 +480,6 @@ export class CompanyAiJobsController {
 @Controller("ai/jobs")
 export class AiJobsStatusController {
   constructor(
-    @Inject(DevAuthAdapter) private readonly devAuthAdapter: DevAuthAdapter,
     @Inject(REPORT_REPOSITORY) private readonly repository: ReportRepository
   ) {}
 
@@ -491,12 +488,13 @@ export class AiJobsStatusController {
   @ApiOperation({ summary: "AI 작업 상태 조회" })
   @ApiParamId("processLogId", "AI process log ID")
   @ApiEnvelopeResponse(AiJobResponseDto)
-  async getStatus(@Param("processLogId") processLogIdParam: string, @Req() request: AiJobStatusRequest) {
+  async getStatus(@Req() request: CandidateAiRequest, @Param("processLogId") processLogIdParam: string) {
     const processLogId = this.parseId(processLogIdParam, "processLogId");
+    const currentUser = this.authenticatedUser(request);
 
     try {
       const process = await this.repository.getProcess(processLogId);
-      this.assertProcessOwner(process, this.currentUser(request));
+      this.assertProcessVisibleToUser(process, currentUser);
       return process;
     } catch (error) {
       if (error instanceof AiProcessNotFoundError) {
@@ -509,6 +507,73 @@ export class AiJobsStatusController {
     }
   }
 
+  private authenticatedUser(request: CandidateAiRequest): CurrentUser {
+    if (!request.currentUser) {
+      throw new ForbiddenException({
+        code: "COMMON_FORBIDDEN",
+        message: "AI job status is only available to the job owner."
+      });
+    }
+    return {
+      userId: request.currentUser.userId,
+      userType: request.currentUser.userType,
+      companyId: request.currentUser.companyId ?? undefined,
+      candidateId: request.currentUser.candidateId ?? undefined
+    };
+  }
+
+  private assertProcessVisibleToUser(process: QueuedAiProcessSnapshot, currentUser: CurrentUser): void {
+    if (currentUser.userType === "ADMIN") return;
+
+    const requestedBy = this.readRequestedBy(process.inputRef);
+    if (!requestedBy || requestedBy.userType !== currentUser.userType) {
+      throw this.forbiddenProcess();
+    }
+
+    if (currentUser.userType === "COMPANY") {
+      const companyId = this.toPositiveNumber(requestedBy.companyId);
+      const userId = this.toPositiveNumber(requestedBy.userId);
+      if (userId === currentUser.userId && currentUser.companyId && companyId === currentUser.companyId) return;
+      throw this.forbiddenProcess();
+    }
+
+    if (currentUser.userType === "CANDIDATE") {
+      const candidateId = this.toPositiveNumber(requestedBy.candidateId);
+      const userId = this.toPositiveNumber(requestedBy.userId);
+      if (userId === currentUser.userId && currentUser.candidateId && candidateId === currentUser.candidateId) return;
+      throw this.forbiddenProcess();
+    }
+
+    throw this.forbiddenProcess();
+  }
+
+  private readRequestedBy(inputRef: string): AiJobRequestedBy | undefined {
+    try {
+      const parsed = JSON.parse(inputRef) as unknown;
+      if (!this.isRecord(parsed)) return undefined;
+      const requestedBy = parsed.requestedBy;
+      return this.isRecord(requestedBy) ? requestedBy : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+  }
+
+  private toPositiveNumber(value: unknown): number | undefined {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+  }
+
+  private forbiddenProcess(): ForbiddenException {
+    return new ForbiddenException({
+      code: "COMMON_FORBIDDEN",
+      message: "AI job status is only available to the job owner."
+    });
+  }
+
   private parseId(value: string, name: string): number {
     const parsed = Number(value);
     if (!Number.isInteger(parsed) || parsed <= 0) {
@@ -518,58 +583,5 @@ export class AiJobsStatusController {
       });
     }
     return parsed;
-  }
-
-  private currentUser(request: AiJobStatusRequest): CurrentUser {
-    if (request.currentUser) {
-      return {
-        userId: request.currentUser.userId,
-        userType: request.currentUser.userType,
-        companyId: request.currentUser.companyId ?? undefined,
-        candidateId: request.currentUser.candidateId ?? undefined,
-      };
-    }
-    return this.devAuthAdapter.parse(request.headers);
-  }
-
-  private assertProcessOwner(process: QueuedAiProcessSnapshot, currentUser: CurrentUser): void {
-    if (currentUser.userType === "ADMIN") {
-      return;
-    }
-
-    const requestedBy = this.parseRequestedBy(process.inputRef);
-    const isOwner =
-      currentUser.userType === "COMPANY"
-        ? requestedBy.userType === "COMPANY" &&
-          this.samePositiveNumber(requestedBy.userId, currentUser.userId) &&
-          this.samePositiveNumber(requestedBy.companyId, currentUser.companyId)
-        : requestedBy.userType === "CANDIDATE" &&
-          this.samePositiveNumber(requestedBy.userId, currentUser.userId) &&
-          this.samePositiveNumber(requestedBy.candidateId, currentUser.candidateId);
-
-    if (!isOwner) {
-      throw new ForbiddenException({
-        code: "COMMON_FORBIDDEN",
-        message: "AI job status is only available to the job owner."
-      });
-    }
-  }
-
-  private parseRequestedBy(inputRef: string): RequestedByRef {
-    try {
-      const parsed = JSON.parse(inputRef) as { requestedBy?: RequestedByRef };
-      if (!parsed || typeof parsed !== "object" || !parsed.requestedBy || typeof parsed.requestedBy !== "object") {
-        return {};
-      }
-      return parsed.requestedBy;
-    } catch {
-      return {};
-    }
-  }
-
-  private samePositiveNumber(left: unknown, right: unknown): boolean {
-    const leftNumber = Number(left);
-    const rightNumber = Number(right);
-    return Number.isInteger(leftNumber) && leftNumber > 0 && leftNumber === rightNumber;
   }
 }

@@ -8,17 +8,17 @@ export class EvaluationCriterionInputDto {
   @Min(1)
   criterionId!: number;
 
-  @ApiProperty({ example: "Problem solving" })
+  @ApiProperty({ example: "문제 해결력" })
   @IsString()
   @IsNotEmpty()
   name!: string;
 
-  @ApiPropertyOptional({ example: "Ability to analyze and solve technical problems." })
+  @ApiPropertyOptional({ example: "문제 원인을 나누어 확인하고 제약, 대안, 해결 과정을 설명하는지 확인한다." })
   @IsOptional()
   @IsString()
   description?: string;
 
-  @ApiProperty({ example: 40 })
+  @ApiProperty({ example: 20 })
   @IsInt()
   @Min(0)
   @Max(100)
