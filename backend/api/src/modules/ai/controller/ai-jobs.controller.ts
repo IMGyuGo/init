@@ -262,6 +262,21 @@ export class CompanyRecruitmentAiJobsController {
     const jobRole = this.requiredBoundedText(body.jobRole, "jobRole", POSTING_DRAFT_INPUT_LIMITS.jobRoleMaxLength);
     const keywords = this.normalizedKeywords(body.keywords);
     const summary = this.optionalBoundedText(body.summary, "summary", POSTING_DRAFT_INPUT_LIMITS.summaryMaxLength);
+    const careerRequirement = this.optionalBoundedText(
+      body.careerRequirement,
+      "careerRequirement",
+      POSTING_DRAFT_INPUT_LIMITS.careerRequirementMaxLength
+    );
+    const employmentType = this.optionalBoundedText(
+      body.employmentType,
+      "employmentType",
+      POSTING_DRAFT_INPUT_LIMITS.employmentTypeMaxLength
+    );
+    const workLocation = this.optionalBoundedText(
+      body.workLocation,
+      "workLocation",
+      POSTING_DRAFT_INPUT_LIMITS.workLocationMaxLength
+    );
 
     return this.dispatcher.dispatch({
       processType: "POSTING_DRAFT_GENERATE",
@@ -277,9 +292,9 @@ export class CompanyRecruitmentAiJobsController {
           jobRole,
           keywords,
           summary,
-          careerRequirement: typeof body.careerRequirement === "string" ? body.careerRequirement.trim() : undefined,
-          employmentType: typeof body.employmentType === "string" ? body.employmentType.trim() : undefined,
-          workLocation: typeof body.workLocation === "string" ? body.workLocation.trim() : undefined
+          careerRequirement,
+          employmentType,
+          workLocation
         }
       }
     });

@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { sanitizePostingDraftHtml } from "./posting-draft-html";
 
 const POSTING_DRAFT_SECTION_KEYS = [
   "positionDetail",
@@ -108,13 +109,22 @@ function parseJsonObject(content: string): Record<string, unknown> {
 
 function sectionsOf(value: unknown, input: PostingDraftGenerationInput): Record<PostingDraftSectionKey, string> {
   const record = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const section = (key: PostingDraftSectionKey, fallback: string) => {
+    const normalized = normalizeText(record[key]);
+    if (!normalized) {
+      return fallback;
+    }
+    const sanitized = sanitizePostingDraftHtml(normalized);
+    return sanitized.length > 0 ? sanitized : fallback;
+  };
+
   return {
-    positionDetail: normalizeText(record.positionDetail) ?? `<p>${escapeHtml(input.title)} ${escapeHtml(input.jobRole)} 포지션입니다.</p>`,
-    responsibilities: normalizeText(record.responsibilities) ?? list([`${input.jobRole} 직무의 핵심 업무를 수행합니다.`]),
-    requirements: normalizeText(record.requirements) ?? list([`${input.jobRole} 직무에 필요한 기본 역량을 갖춘 분`]),
-    preferredQualifications: normalizeText(record.preferredQualifications) ?? list(["관련 도메인 또는 협업 경험이 있는 분"]),
-    benefits: normalizeText(record.benefits) ?? list(["업무에 필요한 도구와 성장 기회를 지원합니다."]),
-    hiringProcess: normalizeText(record.hiringProcess) ?? list(["서류 검토", "직무 인터뷰", "최종 인터뷰"])
+    positionDetail: section("positionDetail", `<p>${escapeHtml(input.title)} ${escapeHtml(input.jobRole)} 포지션입니다.</p>`),
+    responsibilities: section("responsibilities", list([`${input.jobRole} 직무의 핵심 업무를 수행합니다.`])),
+    requirements: section("requirements", list([`${input.jobRole} 직무에 필요한 기본 역량을 갖춘 분`])),
+    preferredQualifications: section("preferredQualifications", list(["관련 도메인 또는 협업 경험이 있는 분"])),
+    benefits: section("benefits", list(["업무에 필요한 도구와 성장 기회를 지원합니다."])),
+    hiringProcess: section("hiringProcess", list(["서류 검토", "직무 인터뷰", "최종 인터뷰"]))
   };
 }
 

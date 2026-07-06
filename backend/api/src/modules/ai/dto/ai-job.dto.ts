@@ -18,6 +18,9 @@ export const POSTING_DRAFT_INPUT_LIMITS = {
   titleMaxLength: 120,
   jobRoleMaxLength: 80,
   summaryMaxLength: 1000,
+  careerRequirementMaxLength: 80,
+  employmentTypeMaxLength: 40,
+  workLocationMaxLength: 120,
   keywordMaxCount: 10,
   keywordMaxLength: 40
 } as const;
@@ -206,19 +209,22 @@ export class PostingDraftGenerateRequestDto {
   @MaxLength(POSTING_DRAFT_INPUT_LIMITS.summaryMaxLength)
   summary?: string;
 
-  @ApiPropertyOptional({ example: "신입 이상" })
+  @ApiPropertyOptional({ example: "신입 이상", maxLength: POSTING_DRAFT_INPUT_LIMITS.careerRequirementMaxLength })
   @IsOptional()
   @IsString()
+  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.careerRequirementMaxLength)
   careerRequirement?: string;
 
-  @ApiPropertyOptional({ example: "정규직" })
+  @ApiPropertyOptional({ example: "정규직", maxLength: POSTING_DRAFT_INPUT_LIMITS.employmentTypeMaxLength })
   @IsOptional()
   @IsString()
+  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.employmentTypeMaxLength)
   employmentType?: string;
 
-  @ApiPropertyOptional({ example: "서울" })
+  @ApiPropertyOptional({ example: "서울", maxLength: POSTING_DRAFT_INPUT_LIMITS.workLocationMaxLength })
   @IsOptional()
   @IsString()
+  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.workLocationMaxLength)
   workLocation?: string;
 }
 

@@ -6,6 +6,7 @@ import { AppModule } from "../../app.module";
 import { ApiExceptionFilter } from "../../../shared/api-exception.filter";
 import { ApiResponseInterceptor } from "../../../shared/api-response.interceptor";
 import { PrismaService } from "../../../shared/prisma.service";
+import { POSTING_DRAFT_INPUT_LIMITS } from "../../ai/dto/ai-job.dto";
 import { InMemoryInterviewRepository } from "../../interview/repository/in-memory-interview.repository";
 import { INTERVIEW_REPOSITORY } from "../../interview/repository/interview.repository";
 import { InMemoryReportRepository } from "../repository/in-memory-report.repository";
@@ -461,6 +462,24 @@ describe("ReportsController", () => {
       })
       .expect(400);
     expect(tooLongSummary.body.error.code).toBe("COMMON_VALIDATION_FAILED");
+
+    const boundedOptionalInputs = [
+      ["careerRequirement", "a".repeat(POSTING_DRAFT_INPUT_LIMITS.careerRequirementMaxLength + 1)],
+      ["employmentType", "a".repeat(POSTING_DRAFT_INPUT_LIMITS.employmentTypeMaxLength + 1)],
+      ["workLocation", "a".repeat(POSTING_DRAFT_INPUT_LIMITS.workLocationMaxLength + 1)]
+    ] as const;
+
+    for (const [field, value] of boundedOptionalInputs) {
+      const response = await companyRequest("/api/v1/company/recruitments/ai-draft")
+        .send({
+          title: "2026 신입 백엔드 채용",
+          jobRole: "Backend Developer",
+          keywords: ["NestJS"],
+          [field]: value
+        })
+        .expect(400);
+      expect(response.body.error.code).toBe("COMMON_VALIDATION_FAILED");
+    }
   });
 
   it("exposes parsed company generation output through AI job status", async () => {

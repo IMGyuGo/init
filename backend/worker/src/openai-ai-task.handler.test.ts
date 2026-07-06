@@ -169,7 +169,7 @@ test("OpenAiAiTaskHandler uses provider for posting draft generation and keeps r
         sections: {
           positionDetail: "<p>Backend Developer 포지션입니다.</p>",
           responsibilities: "<ul><li>NestJS API를 개발합니다.</li></ul>",
-          requirements: "<ul><li>TypeScript 경험</li></ul>",
+          requirements: '<p onclick="alert(1)">TypeScript 경험<img src=x onerror="alert(1)"></p><script>alert(1)</script>',
           preferredQualifications: "<ul><li>PostgreSQL 운영 경험</li></ul>",
           benefits: "<ul><li>성장 지원</li></ul>",
           hiringProcess: "<ul><li>서류 검토</li></ul>"
@@ -217,6 +217,7 @@ test("OpenAiAiTaskHandler uses provider for posting draft generation and keeps r
   assert.equal(output.model, "posting-draft-model");
   assert.equal(output.postingDraft?.title, "2026 신입 백엔드 채용");
   assert.match(output.postingDraft?.sections?.positionDetail ?? "", /Backend Developer/);
+  assert.equal(output.postingDraft?.sections?.requirements, "<p>TypeScript 경험</p>");
   assert.deepEqual(output.postingDraft?.tags, ["NestJS", "PostgreSQL"]);
   assert.equal(results.generatedDrafts[0]?.postingDraft?.title, output.postingDraft?.title);
   assert.equal(results.generatedDrafts[0]?.reviewRequired, true);

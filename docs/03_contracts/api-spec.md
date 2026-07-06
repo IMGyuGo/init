@@ -549,16 +549,19 @@ AI 리포트 금지 기준:
   - jobRole: string, max 80
   - keywords: string[] optional, max 10 items, each max 40
   - summary: string optional, max 1000
-  - careerRequirement, employmentType, workLocation optional
+  - careerRequirement: string optional, max 80
+  - employmentType: string optional, max 40
+  - workLocation: string optional, max 120
 - 검증/전제조건:
   - `CurrentUser.userType=COMPANY`이고 `CurrentUser.companyId`가 존재해야 한다.
   - title, jobRole은 필수다.
-  - title, jobRole, summary, keywords는 OpenAI/worker 호출 전에 길이와 개수 제한을 검증한다.
+  - title, jobRole, summary, keywords, careerRequirement, employmentType, workLocation은 OpenAI/worker 호출 전에 길이와 개수 제한을 검증한다.
   - 지원자 개인정보, 지원서, 면접 답변 등 후보자 데이터는 입력 payload에 포함하지 않는다.
 - 성공 응답/처리:
   - `POSTING_DRAFT_GENERATE` AI 작업을 생성하고 `202 Accepted`와 `processLogId`를 반환한다.
   - 화면은 동일 사용자/회사 컨텍스트로 `GET /ai/jobs/{processLogId}/status`를 polling한다.
   - 완료 output은 `postingDraft.title`, `postingDraft.jobRole`, `postingDraft.sections`, `postingDraft.tags`, `reviewRequired=true`, `reviewStatus=PENDING_REVIEW`, `targetTables=["postings"]`를 포함한다.
+  - `postingDraft.sections` HTML은 `p`, `ul`, `li`, `strong`, `br` 태그만 허용하고 모든 속성을 제거한 뒤 미리보기/적용에 사용한다.
   - AI 초안은 `postings`에 자동 저장하지 않는다. 사용자가 초안 적용 후 수정/확인한 뒤 기존 `API-080 POST /company/recruitments`로 `DRAFT` 저장한다.
 - 오류/예외:
   - 필수값 누락 또는 입력 상한 초과는 `COMMON_VALIDATION_FAILED`를 반환한다.

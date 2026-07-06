@@ -2,6 +2,7 @@ import { AiResultRepository } from "./ai-result.repository";
 import { FollowUpAiProvider } from "./openai-follow-up.provider";
 import { PostingDraftAiProvider, PostingDraftGenerationResult } from "./openai-posting-draft.provider";
 import { ReportAiProvider, ReportGenerationResult } from "./openai-report.provider";
+import { sanitizePostingDraftHtml } from "./posting-draft-html";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import { AiTaskHandler, AiTaskResult, AiWorkerJob } from "./worker.types";
 
@@ -49,7 +50,7 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       return this.fallback.handle(job);
     }
 
-    const generated = await this.postingDraftProvider.generatePostingDraft({
+    const generatedDraft = await this.postingDraftProvider.generatePostingDraft({
       title: requiredText(payload.title, "title"),
       jobRole: requiredText(payload.jobRole, "jobRole"),
       keywords: stringArrayOf(payload.keywords, "keywords"),
@@ -58,6 +59,7 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       employmentType: optionalText(payload.employmentType),
       workLocation: optionalText(payload.workLocation)
     });
+    const generated = sanitizePostingDraftResult(generatedDraft);
     const items = ["포지션 상세", "주요 업무", "자격 요건", "우대 사항", "복지 및 혜택", "채용 절차"];
     const savedDraft = {
       kind: "POSTING_DRAFT_GENERATE",
@@ -337,4 +339,14 @@ function validatePostingDraft(generated: PostingDraftGenerationResult) {
     };
   }
   return { result: "PASS" as const, reason: null };
+}
+
+function sanitizePostingDraftResult(generated: PostingDraftGenerationResult): PostingDraftGenerationResult {
+  const sections = Object.fromEntries(
+    Object.entries(generated.sections).map(([key, section]) => [key, sanitizePostingDraftHtml(section)])
+  ) as PostingDraftGenerationResult["sections"];
+  return {
+    ...generated,
+    sections
+  };
 }
