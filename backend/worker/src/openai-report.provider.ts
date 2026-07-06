@@ -12,7 +12,12 @@ export interface ReportGenerationCriterion {
 
 export interface ReportGenerationAnswer {
   answerId: number;
+  questionId?: number;
   question?: string;
+  questionType?: "INTRO" | "TECHNICAL" | "EXPERIENCE" | "SITUATION" | "FOLLOW_UP" | "CLOSING";
+  sortOrder?: number;
+  isFollowUpAnswer?: boolean;
+  parentAnswerId?: number;
   transcript: string;
   evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
   transcriptUnavailableReason?: string;
@@ -22,6 +27,10 @@ export interface ReportGenerationInput {
   kind: string;
   reportType: "RECRUITING_REPORT" | "MOCK_INTERVIEW_REPORT";
   policy: ReportGenerationPolicy;
+  companyName?: string;
+  jobTitle?: string;
+  jobRole?: string;
+  postingId?: number;
   jobDescription: string;
   criteria: ReportGenerationCriterion[];
   answers: ReportGenerationAnswer[];
@@ -32,6 +41,10 @@ export interface ReportGenerationResult {
   summary: string;
   feedback?: string;
   model: string;
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+  };
 }
 
 export interface ReportAiProvider {
@@ -57,7 +70,7 @@ export class OpenAiReportProvider implements ReportAiProvider {
         {
           role: "system",
           content:
-            "You write concise Korean interview feedback reports. Return JSON only with keys summary and feedback. All JSON string values must be written in Korean. Evaluate only evidence found in answer transcripts, JD, and submitted documents. If an answer has evaluationStatus STT_UNAVAILABLE, state that it is temporarily scored as 0 because speech recognition failed and do not infer answer quality from it. Do not include hiring pass/fail judgments. Do not infer or score sensitive attributes, appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, or health. For mock interview reports, never mention acceptance, rejection, hiring fit, or pass/fail."
+            "You write concise Korean interview feedback reports. Return JSON only with keys summary and feedback. All JSON string values must be written in Korean. Evaluate only evidence found in answer transcripts, follow-up answer transcripts, JD, posting metadata, and submitted documents. For recruiting reports, connect feedback to the JD and the confirmed question set, but never make a final hiring pass/fail judgment. If an answer has evaluationStatus STT_UNAVAILABLE, state that it is temporarily scored as 0 because speech recognition failed and do not infer answer quality from it. Penalize very short answers, vague answers, and transcripts that appear noisy or misrecognized. Do not infer or score sensitive attributes, appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, or health. For mock interview reports, never mention acceptance, rejection, hiring fit, or pass/fail."
         },
         {
           role: "user",
@@ -69,6 +82,10 @@ export class OpenAiReportProvider implements ReportAiProvider {
             kind: input.kind,
             reportType: input.reportType,
             policy: input.policy,
+            companyName: input.companyName,
+            jobTitle: input.jobTitle,
+            jobRole: input.jobRole,
+            postingId: input.postingId,
             jobDescription: input.jobDescription,
             criteria: input.criteria,
             answers: input.answers,
@@ -84,7 +101,11 @@ export class OpenAiReportProvider implements ReportAiProvider {
 
     return {
       ...parseReportContent(content),
-      model: this.model
+      model: this.model,
+      usage: {
+        inputTokens: response.usage?.prompt_tokens,
+        outputTokens: response.usage?.completion_tokens
+      }
     };
   }
 }

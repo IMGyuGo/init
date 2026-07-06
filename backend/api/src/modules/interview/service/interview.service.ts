@@ -1056,6 +1056,7 @@ export class InterviewService {
         answerId: answer.answerId,
         audioFileId,
         audioS3Key,
+        durationSeconds: requestBody.durationSeconds ?? answer.durationSeconds,
         sessionId: session.sessionId,
       };
     }

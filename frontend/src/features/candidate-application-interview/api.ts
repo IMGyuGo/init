@@ -404,6 +404,7 @@ export interface AiInterviewRequest {
   fileAssetId?: number;
   audioFileId?: number;
   audioS3Key?: string;
+  durationSeconds?: number;
   previousQuestion?: string;
   transcript?: string;
   jobDescription?: string;
@@ -474,6 +475,14 @@ export interface AiJobStatusResponse {
   output?: unknown;
   sessionId?: number;
   applicationId?: number;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
+  modelName?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  audioSeconds?: number;
+  estimatedCostUsd?: number;
   failure?: {
     category: string;
     reason: string;

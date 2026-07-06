@@ -155,6 +155,27 @@ export type ApplicantEvaluation = {
     memo: string | null;
   };
   reportAvailability: "AVAILABLE" | "NONE_OR_GENERATING";
+  answers: Array<{
+    answerId: number;
+    questionId: number | null;
+    questionType: string | null;
+    questionContent: string | null;
+    transcript: string | null;
+    durationSeconds: number | null;
+    submittedAt: string | null;
+    followUpQuestions: Array<{
+      followUpId: number;
+      content: string;
+      generationStatus: string;
+      policy: string;
+      answer: {
+        answerId: number;
+        transcript: string | null;
+        durationSeconds: number | null;
+        submittedAt: string | null;
+      } | null;
+    }>;
+  }>;
   report: {
     reportId: number;
     status: string;

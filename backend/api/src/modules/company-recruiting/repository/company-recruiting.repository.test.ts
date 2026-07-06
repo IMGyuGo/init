@@ -191,4 +191,118 @@ describe("PrismaCompanyRecruitingRepository", () => {
     assert.equal(result.storageKey, "company/7/jd-images/image.webp");
     assert.equal(result.status, "ACTIVE");
   });
+
+  it("does not attach duplicate follow-up answer text to the wrong parent answer", async () => {
+    const duplicateFollowUp = "구체적인 실행 과정을 설명해 주세요.";
+    const prisma = {
+      application: {
+        async findFirst() {
+          return {
+            applicationId: 77n,
+            postingId: 101n,
+            candidateId: 44n,
+            applicationStatus: "SUBMITTED",
+            documentStatus: "SUBMITTED",
+            interviewStatus: "COMPLETED",
+            reportStatus: "COMPLETED",
+            screeningDecision: "UNDECIDED",
+            screeningMemo: null,
+            submittedAt: new Date("2026-07-01T00:00:00.000Z"),
+            updatedAt: new Date("2026-07-01T00:20:00.000Z"),
+            candidate: {
+              candidateId: 44n,
+              user: {
+                userId: 88n,
+                email: "kim@example.com",
+                name: "Kim Applicant",
+                phone: null,
+              },
+            },
+            posting: {
+              postingId: 101n,
+              title: "Backend Developer",
+              jobRole: "Backend",
+            },
+            evaluationReports: [],
+            interviewSessions: [
+              {
+                sessionId: 901n,
+                status: "COMPLETED",
+                interviewType: "RECRUITING",
+                startedAt: new Date("2026-07-01T00:01:00.000Z"),
+                completedAt: new Date("2026-07-01T00:10:00.000Z"),
+                answers: [
+                  {
+                    answerId: 1001n,
+                    questionId: 501n,
+                    question: {
+                      questionId: 501n,
+                      questionType: "TECHNICAL",
+                      content: "첫 번째 기본 질문",
+                    },
+                    transcript: "첫 번째 기본 답변",
+                    durationSeconds: 30,
+                    submittedAt: new Date("2026-07-01T00:02:00.000Z"),
+                    followUpQuestions: [
+                      {
+                        followUpId: 7001n,
+                        answerId: 1001n,
+                        content: duplicateFollowUp,
+                        generationStatus: "GENERATED",
+                        policy: "RECRUITING",
+                        createdAt: new Date("2026-07-01T00:02:10.000Z"),
+                      },
+                    ],
+                  },
+                  {
+                    answerId: 1002n,
+                    questionId: 502n,
+                    question: {
+                      questionId: 502n,
+                      questionType: "TECHNICAL",
+                      content: "두 번째 기본 질문",
+                    },
+                    transcript: "두 번째 기본 답변",
+                    durationSeconds: 32,
+                    submittedAt: new Date("2026-07-01T00:04:00.000Z"),
+                    followUpQuestions: [
+                      {
+                        followUpId: 7002n,
+                        answerId: 1002n,
+                        content: duplicateFollowUp,
+                        generationStatus: "GENERATED",
+                        policy: "RECRUITING",
+                        createdAt: new Date("2026-07-01T00:04:10.000Z"),
+                      },
+                    ],
+                  },
+                  {
+                    answerId: 1003n,
+                    questionId: 503n,
+                    question: {
+                      questionId: 503n,
+                      questionType: "FOLLOW_UP",
+                      content: duplicateFollowUp,
+                    },
+                    transcript: "두 번째 꼬리질문 답변",
+                    durationSeconds: 18,
+                    submittedAt: new Date("2026-07-01T00:05:00.000Z"),
+                    followUpQuestions: [],
+                  },
+                ],
+              },
+            ],
+          };
+        },
+      },
+    };
+    const repository = new PrismaCompanyRecruitingRepository(prisma as never);
+
+    const result = await repository.findApplicationForCompany(77, 7);
+
+    const answers = result?.interviewSessions[0]?.answers ?? [];
+    assert.equal(answers[0]?.followUpQuestions[0]?.answer, null);
+    assert.equal(answers[1]?.followUpQuestions[0]?.answer?.answerId, 1003);
+    assert.equal(answers[1]?.followUpQuestions[0]?.answer?.transcript, "두 번째 꼬리질문 답변");
+  });
 });

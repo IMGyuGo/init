@@ -95,6 +95,11 @@ export class AiInterviewRequestDto {
   audioS3Key?: string;
 
   @IsOptional()
+  @IsInt()
+  @IsPositive()
+  durationSeconds?: number;
+
+  @IsOptional()
   @IsString()
   previousQuestion?: string;
 

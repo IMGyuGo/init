@@ -1,8 +1,10 @@
 export const CANDIDATE_MYPAGE_ROUTE = "/candidate/mypage" as const;
 export const CANDIDATE_BILLING_ROUTE = "/candidate/billing" as const;
+export const AI_PERFORMANCE_ROUTE = "/ai/performance" as const;
 
 export const candidateNavLabels = {
   accountBilling: "계정/결제",
+  performance: "지표",
 } as const;
 
 export const candidateAccountBillingNav = [

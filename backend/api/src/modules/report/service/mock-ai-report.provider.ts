@@ -68,7 +68,8 @@ export class MockAiReportProvider {
     const { scores, questionEvaluations } = this.buildStructuredEvaluation(
       input.criteria,
       input.answers,
-      input.documentText
+      input.documentText,
+      input.jobDescription
     );
     const totalScore = weightedTotalScore(scores, input.criteria);
 
@@ -83,7 +84,8 @@ export class MockAiReportProvider {
   private buildStructuredEvaluation(
     criteria: AnswerEvaluationRequest["criteria"],
     answers: AnswerEvaluationRequest["answers"],
-    documentText?: string
+    documentText?: string,
+    jobDescription?: string
   ): StructuredEvaluation {
     const scores: ReportScore[] = [];
     const questionEvaluations: QuestionEvaluation[] = [];
@@ -101,7 +103,7 @@ export class MockAiReportProvider {
 
       const transcript = answer.transcript ?? "";
       const evidences = this.buildEvidences(answer.answerId, transcript, documentText);
-      const structured = this.assessEvidence(transcript, documentText, criterion.description);
+      const structured = this.assessEvidence(transcript, documentText, criterion.description, jobDescription);
       const score = structured.score;
       const criterionName = this.localizedCriterionName(criterion.name);
 
@@ -221,8 +223,8 @@ export class MockAiReportProvider {
       : "행동과 결과가 함께 제시되어 답변 근거의 신뢰도가 비교적 높습니다.";
     const subject = `${criterionName}${topicParticle(criterionName)}`;
 
-    if (criterionName === "직무/기술 역량") {
-      return `${subject} ${score}점(${band.label})입니다. 사용 기술과 구현 경험이 직무와 연결되어 보입니다. ${improvement}`;
+    if (criterionName === "직무 적합성") {
+      return `${subject} ${score}점(${band.label})입니다. JD와 연결되는 기술 경험과 역할 이해를 답변 근거로 확인했습니다. ${improvement}`;
     }
 
     if (criterionName === "문제 해결력") {
@@ -230,19 +232,19 @@ export class MockAiReportProvider {
     }
 
     if (criterionName === "실행력과 성과") {
-      return `${subject} ${score}점(${band.label})입니다. 직접 맡은 작업 흐름과 결과가 일부 드러납니다. ${improvement}`;
+      return `${subject} ${score}점(${band.label})입니다. 직접 실행한 작업과 그 결과를 답변에서 확인했습니다. ${improvement}`;
     }
 
-    if (criterionName === "협업/커뮤니케이션") {
-      return `${subject} ${score}점(${band.label})입니다. 상황과 역할을 설명하는 흐름이 있습니다. 이해관계자 조정 과정까지 더하면 전달력이 좋아집니다. ${improvement}`;
+    if (criterionName === "학습 민첩성") {
+      return `${subject} ${score}점(${band.label})입니다. 새로 익힌 내용을 실제 문제에 적용한 흐름을 답변에서 확인했습니다. ${improvement}`;
     }
 
-    if (criterionName === "학습/성장성") {
-      return `${subject} ${score}점(${band.label})입니다. 새로운 도구나 문제를 학습해 실제 흐름에 적용한 단서를 확인했습니다. ${improvement}`;
+    if (criterionName === "커뮤니케이션") {
+      return `${subject} ${score}점(${band.label})입니다. 상황과 역할을 설명하는 흐름을 답변에서 확인했습니다. 이해관계자 조정 과정까지 더하면 전달력이 좋아집니다. ${improvement}`;
     }
 
-    if (criterionName === "책임감/신뢰성") {
-      return `${subject} ${score}점(${band.label})입니다. 문제를 끝까지 확인하고 검증하려는 태도가 답변 근거에서 확인됩니다. ${improvement}`;
+    if (criterionName === "성장 가능성") {
+      return `${subject} ${score}점(${band.label})입니다. 문제를 검증하고 다음 개선으로 이어가려는 태도를 답변 근거로 확인했습니다. ${improvement}`;
     }
 
     return `${subject} ${score}점(${band.label})입니다. 답변 흐름을 바탕으로 관련 역량을 평가했습니다. ${improvement}`;
@@ -251,9 +253,10 @@ export class MockAiReportProvider {
   private assessEvidence(
     transcript: string,
     documentText?: string,
-    criterionDescription?: string
+    criterionDescription?: string,
+    jobDescription?: string
   ): ReportEvidenceAssessment {
-    return assessReportEvidence(transcript, documentText, criterionDescription);
+    return assessReportEvidence(transcript, documentText, criterionDescription, jobDescription);
   }
 
   private summary(input: GenerateReportRequest, totalScore: number): string {
