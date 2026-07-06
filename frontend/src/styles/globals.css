@@ -6268,10 +6268,10 @@ p {
   display: flex;
   align-items: center;
   min-width: 0;
-  height: 64px;
+  height: 72px;
   padding: 0;
   font-family: "SFMono-Regular", ui-monospace, "JetBrains Mono", "Menlo", "Consolas", monospace;
-  font-size: 19px;
+  font-size: 30px;
   line-height: 1;
   color: #37352f;
   background: transparent;
@@ -6312,9 +6312,9 @@ p {
 }
 .notion .cjs-cursor {
   display: inline-block;
-  width: 9px;
+  width: 13px;
   height: 1.15em;
-  margin-left: 1px;
+  margin-left: 2px;
   background: #3b6fe0;
   border-radius: 1px;
   animation: cjsBlink 1.05s steps(1) infinite;
@@ -6328,7 +6328,7 @@ p {
 }
 .notion .cjs-ghost { margin-left: 4px; color: rgba(55, 53, 47, 0.3); pointer-events: none; white-space: nowrap; }
 .notion .cjs-spacer { flex: 1 1 auto; min-width: 28px; }
-.notion .cjs-run { height: 64px; flex: none; min-width: 92px; border-radius: 12px; }
+.notion .cjs-run { height: 72px; flex: none; min-width: 104px; font-size: 16px; border-radius: 14px; }
 .notion .candidate-jobs-suggestions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
 .notion .candidate-jobs-suggestions-label { font-size: 13px; font-weight: 600; color: rgba(55, 53, 47, 0.45); margin-right: 2px; }
 .notion .candidate-jobs-suggestion {
