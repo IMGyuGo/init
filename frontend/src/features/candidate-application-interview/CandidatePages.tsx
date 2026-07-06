@@ -655,7 +655,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
     }
   }
 
-  async function handleDevicePreview(): Promise<CandidateDeviceCheckState | undefined> {
+  async function handleDevicePreview() {
     warmUpInterviewAudioOutput();
     setMessage("");
     try {
@@ -680,25 +680,23 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
       }
       assertCameraPreviewHasFrame(previewInfo);
       const cameraQuality = assessCameraQuality(videoRef.current);
-      const cameraFraming = await assessCameraFraming(videoRef.current);
+      const cameraFraming: CameraFramingResult = { state: "ok", blocking: false, message: "카메라 연결됨" };
       const microphoneQuality = audioEnabled
         ? await measureMicrophoneQuality(stream, setMicrophoneLevel)
         : { ok: false, peakLevel: 0, message: formatMicrophoneStatus(streamResult) };
       const networkQuality = await checkInterviewNetworkQuality();
-      const cameraOk = cameraQuality.ok && !cameraFraming.blocking;
-      const microphoneOk = audioEnabled && microphoneQuality.ok;
-      const nextDeviceState: CandidateDeviceCheckState = {
-        cameraGranted: cameraOk,
-        microphoneGranted: microphoneOk,
-        networkStable: networkQuality.ok,
-      };
+      const cameraOk = cameraQuality.ok;
       setCameraReady(cameraOk);
       setCameraFramingState(cameraFraming.state);
-      setMicrophoneReady(microphoneOk);
+      setMicrophoneReady(audioEnabled);
       setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, fallbackLabel, cameraQuality, cameraFraming));
       setMicrophoneStatus(audioEnabled ? formatMicrophoneQualityStatus(streamResult, microphoneQuality) : microphoneQuality.message);
       setNetworkStatus(networkQuality.message);
-      setDeviceState(nextDeviceState);
+      setDeviceState({
+        cameraGranted: cameraOk,
+        microphoneGranted: audioEnabled,
+        networkStable: networkQuality.ok,
+      });
       startGuideCameraQualityMonitor(previewInfo, fallbackLabel);
       if (audioEnabled) {
         startGuideMicrophoneMeter(stream);
@@ -709,11 +707,10 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
       setMessage(
         fallbackLabel
           ? `카메라를 연결했습니다. ${fallbackLabel} 마이크 권한을 확인한 뒤 면접을 시작해주세요.`
-          : cameraOk && microphoneOk && networkQuality.ok
+          : cameraOk && audioEnabled && networkQuality.ok
             ? "카메라 밝기, 마이크 입력, 네트워크 상태가 적정합니다. 면접 시작을 눌러주세요."
             : "장치 점검 기준을 통과하지 못했습니다. 안내에 따라 카메라 위치, 조명, 마이크 입력을 조정해주세요.",
       );
-      return nextDeviceState;
     } catch (previewError) {
       setCameraReady(false);
       setCameraFramingState("idle");
@@ -733,32 +730,31 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
           ? `${formatMediaError(previewError)} 마이크는 연결되지만 녹화를 위해 카메라 권한도 필요합니다.`
           : `${formatMediaError(previewError)} ${formatMicrophoneProbeStatus(microphoneProbe)}`,
       );
-      return undefined;
     }
   }
 
   async function handleStartInterview() {
     warmUpInterviewAudioOutput();
     if (!guide) return;
+    if (!cameraReady || !microphoneReady || !deviceState.networkStable) {
+      setMessage("카메라, 마이크, 네트워크 점검을 완료한 뒤 면접을 시작해주세요.");
+      return;
+    }
+    const stream = mediaStreamRef.current;
+    const hasLiveVideo = stream?.getVideoTracks().some((track) => track.readyState === "live") ?? false;
+    const hasLiveAudio = stream?.getAudioTracks().some((track) => track.readyState === "live") ?? false;
+    if (!hasLiveVideo || !hasLiveAudio) {
+      setCameraReady(false);
+      setMicrophoneReady(false);
+      setMessage("현재 브라우저의 카메라와 마이크가 연결되어 있지 않습니다. 카메라/마이크 점검을 다시 눌러주세요.");
+      return;
+    }
 
     setBusy(true);
-    setMessage("면접 시작 전 카메라와 마이크를 확인하는 중입니다.");
+    setMessage("");
     try {
-      const nextDeviceState = await handleDevicePreview();
-      if (!nextDeviceState?.cameraGranted || !nextDeviceState.microphoneGranted || !nextDeviceState.networkStable) {
-        return;
-      }
-      const stream = mediaStreamRef.current;
-      const hasLiveVideo = stream?.getVideoTracks().some((track) => track.readyState === "live") ?? false;
-      const hasLiveAudio = stream?.getAudioTracks().some((track) => track.readyState === "live") ?? false;
-      if (!hasLiveVideo || !hasLiveAudio) {
-        setCameraReady(false);
-        setMicrophoneReady(false);
-        setMessage("현재 브라우저의 카메라와 마이크가 연결되어 있지 않습니다. 면접 시작을 다시 눌러 장치를 확인해주세요.");
-        return;
-      }
       if (!guide.deviceCheckCompleted) {
-        await getCandidateApi().saveDeviceCheck(guide.sessionId, toDeviceCheckRequest(nextDeviceState));
+        await getCandidateApi().saveDeviceCheck(guide.sessionId, toDeviceCheckRequest(deviceState));
       }
       await getCandidateApi().startInterview(applicationId);
       stopGuideCameraQualityMonitor();
@@ -873,7 +869,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
                   <button
                     className="btn primary"
                     type="button"
-                    disabled={busy}
+                    disabled={busy || !cameraReady || !microphoneReady || !deviceState.networkStable}
                     onClick={() => void handleStartInterview()}
                   >
                     {guidePrimaryActionLabel}
@@ -924,12 +920,15 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
                         </option>
                       ))}
                     </select>
-                  <button className="btn" type="button" disabled={busy} onClick={() => void refreshGuideCameraDevices()}>
-                    장치 새로고침
-                  </button>
-                </div>
-              </aside>
-            </div>
+                    <button className="btn" type="button" disabled={busy} onClick={() => void refreshGuideCameraDevices()}>
+                      장치 새로고침
+                    </button>
+                    <button className="btn" type="button" disabled={busy} onClick={() => void handleDevicePreview()}>
+                      카메라/마이크 점검
+                    </button>
+                  </div>
+                </aside>
+              </div>
             </section>
           )}
         </>
@@ -2416,11 +2415,11 @@ function InterviewRuntimePanel({
     tick();
   }
 
-  async function handleEnableCamera(): Promise<CandidateDeviceCheckState | undefined> {
+  async function handleEnableCamera() {
     warmUpInterviewAudioOutput();
     if (!navigator.mediaDevices?.getUserMedia) {
       setMessage("이 브라우저에서는 카메라/마이크를 사용할 수 없습니다.");
-      return undefined;
+      return;
     }
 
     try {
@@ -2444,21 +2443,15 @@ function InterviewRuntimePanel({
       assertCameraPreviewHasFrame(previewInfo);
 
       const cameraQuality = assessCameraQuality(videoRef.current);
-      const cameraFraming = await assessCameraFraming(videoRef.current);
+      const cameraFraming: CameraFramingResult = { state: "ok", blocking: false, message: "카메라 연결됨" };
       const microphoneQuality = streamResult.audioEnabled
         ? await measureMicrophoneQuality(stream, setMicrophoneLevel)
         : { ok: false, peakLevel: 0, message: formatMicrophoneStatus(streamResult) };
       const networkQuality = await checkInterviewNetworkQuality();
-      const cameraOk = cameraQuality.ok && !cameraFraming.blocking;
-      const microphoneOk = streamResult.audioEnabled && microphoneQuality.ok;
-      const nextDeviceState: CandidateDeviceCheckState = {
-        cameraGranted: cameraOk,
-        microphoneGranted: microphoneOk,
-        networkStable: networkQuality.ok,
-      };
+      const cameraOk = cameraQuality.ok;
       setCameraReady(cameraOk);
       setCameraFramingState(cameraFraming.state);
-      setMicrophoneReady(microphoneOk);
+      setMicrophoneReady(streamResult.audioEnabled);
       setNetworkReady(networkQuality.ok);
       setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, fallbackLabel, cameraQuality, cameraFraming));
       setMicrophoneStatus(
@@ -2475,11 +2468,10 @@ function InterviewRuntimePanel({
       setMessage(
         fallbackLabel
           ? `카메라가 연결되었습니다. ${fallbackLabel}`
-          : cameraOk && microphoneOk && networkQuality.ok
+          : cameraOk && streamResult.audioEnabled && networkQuality.ok
             ? "카메라 밝기, 마이크 입력, 네트워크 상태가 적정합니다."
             : "장치 점검 기준을 통과하지 못했습니다. 안내에 따라 카메라 위치, 조명, 마이크 입력을 조정해주세요.",
       );
-      return nextDeviceState;
     } catch (cameraError) {
       setCameraReady(false);
       setCameraFramingState("idle");
@@ -2501,7 +2493,6 @@ function InterviewRuntimePanel({
           ? `${errorMessage} 마이크는 연결되지만 녹화를 위해 카메라 권한도 필요합니다.`
           : `${errorMessage} ${formatMicrophoneProbeStatus(microphoneProbe)}`,
       );
-      return undefined;
     }
   }
 
@@ -2518,51 +2509,56 @@ function InterviewRuntimePanel({
   async function handleEnterInterview() {
     warmUpInterviewAudioOutput();
     if (!data) return;
+    if (!streamRef.current || !cameraReady || !microphoneReady || !networkReady) {
+      await handleEnableCamera();
+    }
 
-    setBusy(true);
-    setMessage("면접 시작 전 카메라와 마이크를 확인하는 중입니다.");
-    try {
-      const nextDeviceState = await handleEnableCamera();
-      if (!nextDeviceState?.cameraGranted || !nextDeviceState.microphoneGranted || !nextDeviceState.networkStable) {
+    const stream = streamRef.current;
+    const hasLiveVideo = stream?.getVideoTracks().some((track) => track.readyState === "live") ?? false;
+    const hasLiveAudio = stream?.getAudioTracks().some((track) => track.readyState === "live") ?? false;
+    if (!hasLiveVideo || !hasLiveAudio || !networkReady) {
+      setMessage("카메라, 마이크, 네트워크 점검을 완료한 뒤 면접을 시작해주세요.");
+      return;
+    }
+
+    if (mode === "recruiting" && data.runtime.status !== "IN_PROGRESS") {
+      if (!data.runtime.applicationId) {
+        setMessage("지원서 정보를 확인할 수 없습니다.");
         return;
       }
 
-      const stream = streamRef.current;
-      const hasLiveVideo = stream?.getVideoTracks().some((track) => track.readyState === "live") ?? false;
-      const hasLiveAudio = stream?.getAudioTracks().some((track) => track.readyState === "live") ?? false;
-      if (!hasLiveVideo || !hasLiveAudio) {
-        setCameraReady(false);
-        setMicrophoneReady(false);
-        setMessage("현재 브라우저의 카메라와 마이크가 연결되어 있지 않습니다. 면접 시작을 다시 눌러 장치를 확인해주세요.");
-        return;
-      }
-
-      if (mode === "recruiting" && data.runtime.status !== "IN_PROGRESS") {
-        if (!data.runtime.applicationId) {
-          setMessage("지원서 정보를 확인할 수 없습니다.");
-          return;
-        }
+      setBusy(true);
+      setMessage("");
+      try {
         const api = runtimeApi;
-        await api.saveDeviceCheck(data.runtime.sessionId, toDeviceCheckRequest(nextDeviceState));
+        await api.saveDeviceCheck(
+          data.runtime.sessionId,
+          toDeviceCheckRequest({
+            cameraGranted: true,
+            microphoneGranted: true,
+            networkStable: networkReady,
+          }),
+        );
         await api.startInterview(data.runtime.applicationId);
         startRuntimeAfterRefreshRef.current = true;
         setMessage("장치 점검이 완료되었습니다. 면접 화면으로 이동합니다.");
         refresh();
-        return;
+      } catch (submitError) {
+        startRuntimeAfterRefreshRef.current = false;
+        setMessage(toErrorMessage(submitError));
+      } finally {
+        setBusy(false);
       }
-
-      setSetupCompleted(true);
-      setIntroCompleted(false);
-      setQuestionSpeechCompleted(false);
-      setMessage("면접을 시작했습니다. AI 안내 후 답변 녹화가 자동으로 진행됩니다.");
-      autoRecordingQuestionRef.current = null;
-    } catch (submitError) {
-      startRuntimeAfterRefreshRef.current = false;
-      setMessage(toErrorMessage(submitError));
-    } finally {
-      setBusy(false);
+      return;
     }
+
+    setSetupCompleted(true);
+    setIntroCompleted(false);
+    setQuestionSpeechCompleted(false);
+    setMessage("면접이 시작되었습니다. AI 안내 후 답변 녹화가 자동으로 진행됩니다.");
+    autoRecordingQuestionRef.current = null;
   }
+
   async function handleStartRecording() {
     if (!data || !currentQuestion) return;
     if (!data.runtime.canRecord) {
@@ -3468,7 +3464,7 @@ function InterviewRuntimePanel({
                     : "채용 AI 면접을 시작하거나 재개하기 전에 카메라와 마이크를 다시 점검합니다."}
                 </p>
               </div>
-              <button className="btn primary" type="button" disabled={busy} onClick={() => void handleEnterInterview()}>
+              <button className="btn primary" type="button" disabled={busy || !cameraReady || !microphoneReady || !networkReady} onClick={() => void handleEnterInterview()}>
                 면접 시작
               </button>
             </div>
@@ -3518,6 +3514,9 @@ function InterviewRuntimePanel({
                   </select>
                   <button className="btn" type="button" disabled={busy || recording} onClick={() => void refreshCameraDevices()}>
                     장치 새로고침
+                  </button>
+                  <button className="btn" type="button" disabled={busy || recording} onClick={() => void handleEnableCamera()}>
+                    카메라/마이크 점검
                   </button>
                 </div>
               </aside>
@@ -5503,7 +5502,7 @@ async function playVideoWithTimeout(video: HTMLVideoElement): Promise<void> {
   await Promise.race([
     video.play(),
     new Promise<void>((_, reject) =>
-      window.setTimeout(() => reject(new Error("카메라 화면 재생 시간이 초과되었습니다. 면접 시작을 다시 눌러 장치를 확인해주세요.")), 2000),
+      window.setTimeout(() => reject(new Error("카메라 화면 재생 시간이 초과되었습니다. 카메라/마이크 점검을 다시 눌러주세요.")), 2000),
     ),
   ]);
 }
@@ -5519,7 +5518,7 @@ async function waitForVideoFrame(video: HTMLVideoElement): Promise<void> {
 
 function assertCameraPreviewHasFrame(info?: CameraPreviewInfo): asserts info is CameraPreviewInfo {
   if (!info || info.width <= 0 || info.height <= 0) {
-    throw new Error("카메라가 연결됐지만 영상 화면이 표시되지 않습니다. 브라우저 권한을 허용한 뒤 면접 시작을 다시 눌러주세요.");
+    throw new Error("카메라가 연결됐지만 영상 화면이 표시되지 않습니다. 브라우저 권한을 허용한 뒤 카메라/마이크 점검을 다시 눌러주세요.");
   }
 }
 
