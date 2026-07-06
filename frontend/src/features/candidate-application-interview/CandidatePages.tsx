@@ -696,21 +696,22 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
       }
       assertCameraPreviewHasFrame(previewInfo);
       const cameraQuality = assessCameraQuality(videoRef.current);
-      const cameraFraming: CameraFramingResult = { state: "ok", blocking: false, message: "카메라 연결됨" };
+      const cameraFraming = getCameraFramingNotice();
       const microphoneQuality = audioEnabled
         ? await measureMicrophoneQuality(stream, setMicrophoneLevel)
         : { ok: false, peakLevel: 0, message: formatMicrophoneStatus(streamResult) };
       const networkQuality = await checkInterviewNetworkQuality();
-      const cameraOk = cameraQuality.ok;
+      const cameraOk = cameraQuality.ok && !cameraFraming.blocking;
+      const microphoneOk = audioEnabled && microphoneQuality.ok;
       setCameraReady(cameraOk);
       setCameraFramingState(cameraFraming.state);
-      setMicrophoneReady(audioEnabled);
+      setMicrophoneReady(microphoneOk);
       setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, fallbackLabel, cameraQuality, cameraFraming));
-      setMicrophoneStatus(audioEnabled ? formatMicrophoneQualityStatus(streamResult) : microphoneQuality.message);
+      setMicrophoneStatus(audioEnabled ? formatMicrophoneQualityStatus(streamResult, microphoneQuality) : microphoneQuality.message);
       setNetworkStatus(networkQuality.message);
       setDeviceState({
         cameraGranted: cameraOk,
-        microphoneGranted: audioEnabled,
+        microphoneGranted: microphoneOk,
         networkStable: networkQuality.ok,
       });
       startGuideCameraQualityMonitor(previewInfo, fallbackLabel);
@@ -723,7 +724,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
       setMessage(
         fallbackLabel
           ? `카메라를 연결했습니다. ${fallbackLabel} 마이크 권한을 확인한 뒤 면접을 시작해주세요.`
-          : cameraOk && audioEnabled && networkQuality.ok
+          : cameraOk && microphoneOk && networkQuality.ok
             ? "카메라 밝기, 마이크 입력, 네트워크 상태가 적정합니다. 면접 시작을 눌러주세요."
             : "장치 점검 기준을 통과하지 못했습니다. 안내에 따라 카메라 위치, 조명, 마이크 입력을 조정해주세요.",
       );
@@ -2138,8 +2139,8 @@ function InterviewRuntimePanel({
         assertCameraPreviewHasFrame(previewInfo);
         if (videoRef.current !== node || videoAttachRunRef.current !== attachRun) return;
         const cameraQuality = assessCameraQuality(node);
-        const cameraFraming: CameraFramingResult = { state: "ok", blocking: false, message: "카메라 연결됨" };
-        const cameraOk = cameraQuality.ok;
+        const cameraFraming = getCameraFramingNotice();
+        const cameraOk = cameraQuality.ok && !cameraFraming.blocking;
         setCameraReady(cameraOk);
         setCameraFramingState(cameraFraming.state);
         setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, undefined, cameraQuality, cameraFraming));
@@ -2835,19 +2836,20 @@ function InterviewRuntimePanel({
       assertCameraPreviewHasFrame(previewInfo);
 
       const cameraQuality = assessCameraQuality(videoRef.current);
-      const cameraFraming: CameraFramingResult = { state: "ok", blocking: false, message: "카메라 연결됨" };
+      const cameraFraming = getCameraFramingNotice();
       const microphoneQuality = streamResult.audioEnabled
         ? await measureMicrophoneQuality(stream, setMicrophoneLevel)
         : { ok: false, peakLevel: 0, message: formatMicrophoneStatus(streamResult) };
       const networkQuality = await checkInterviewNetworkQuality();
-      const cameraOk = cameraQuality.ok;
+      const cameraOk = cameraQuality.ok && !cameraFraming.blocking;
+      const microphoneOk = streamResult.audioEnabled && microphoneQuality.ok;
       setCameraReady(cameraOk);
       setCameraFramingState(cameraFraming.state);
-      setMicrophoneReady(streamResult.audioEnabled);
+      setMicrophoneReady(microphoneOk);
       setNetworkReady(networkQuality.ok);
       setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, fallbackLabel, cameraQuality, cameraFraming));
       setMicrophoneStatus(
-        streamResult.audioEnabled ? formatMicrophoneQualityStatus(streamResult) : microphoneQuality.message,
+        streamResult.audioEnabled ? formatMicrophoneQualityStatus(streamResult, microphoneQuality) : microphoneQuality.message,
       );
       setNetworkStatus(networkQuality.message);
       startRuntimeCameraQualityMonitor(previewInfo, fallbackLabel);
@@ -2860,7 +2862,7 @@ function InterviewRuntimePanel({
       setMessage(
         fallbackLabel
           ? `카메라가 연결되었습니다. ${fallbackLabel}`
-          : cameraOk && streamResult.audioEnabled && networkQuality.ok
+          : cameraOk && microphoneOk && networkQuality.ok
             ? "카메라 밝기, 마이크 입력, 네트워크 상태가 적정합니다."
             : "장치 점검 기준을 통과하지 못했습니다. 안내에 따라 카메라 위치, 조명, 마이크 입력을 조정해주세요.",
       );
@@ -4846,9 +4848,9 @@ type AnswerPracticeGuide = {
 function AnswerPracticeGuideView({ guide }: { guide: AnswerPracticeGuide }) {
   return (
     <section className="report-practice-guide">
-      <h4>고득점 답변 가이드</h4>
+      <h4>고득점 답변 예시 템플릿</h4>
       <div className="report-practice-guide__block">
-        <strong>좋은 답변 예시</strong>
+        <strong>STAR 답변 예시</strong>
         <p>{guide.example}</p>
       </div>
       <div className="report-practice-guide__block">
@@ -4875,32 +4877,32 @@ function buildMockAnswerExample(item: CandidateMockReportMedia["media"][number])
   const question = item.questionContent ?? "";
 
   if (item.questionType === "INTRO" || question.includes("자기소개")) {
-    return "저는 백엔드 개발자를 목표로 준비하고 있습니다. 최근 프로젝트에서 NestJS와 PostgreSQL 기반의 답변 저장, LocalStack S3 파일 저장, SQS worker 처리 흐름을 연결했고, 제가 맡은 역할은 녹음 Blob 검증부터 file_assets 저장, worker payload 전달, transcript 갱신 확인까지였습니다. 결과적으로 답변 저장 이후 STT와 꼬리질문이 화면에 자연스럽게 이어지도록 만들었습니다.";
+    return "저는 지원 직무와 연결되는 프로젝트 경험을 통해 문제를 구조적으로 해결해 온 지원자입니다. 최근에는 사용자 흐름이 끊기는 문제를 맡아 원인을 단계별로 나누고, 제가 담당한 기능의 입력값, 처리 과정, 결과 화면을 끝까지 확인했습니다. 그 결과 반복되던 오류를 줄이고 사용자가 더 안정적으로 기능을 사용할 수 있도록 개선했습니다.";
   }
 
   if (item.questionType === "TECHNICAL" || question.includes("어려웠던") || question.includes("기술")) {
-    return "가장 어려웠던 문제는 음성 파일은 저장됐지만 worker STT가 실패하는 원인을 찾는 것이었습니다. Blob 크기, MIME type, S3 storageKey, file_assets row, SQS 메시지, worker inputRef를 순서대로 비교했고, 파일 저장이 아니라 payload의 파일 참조 누락이 원인임을 확인했습니다. 수정 후 같은 답변 흐름으로 STT 완료와 transcript 저장까지 재검증했습니다.";
+    return "가장 어려웠던 문제는 기능 일부가 정상처럼 보이지만 최종 결과가 사용자에게 전달되지 않는 상황이었습니다. 저는 문제를 화면 입력, 서버 처리, 데이터 저장, 결과 표시 단계로 나누어 확인했고, 중간 단계에서 필요한 값이 누락되는 지점을 찾았습니다. 이후 누락 조건을 보완하고 같은 시나리오로 다시 검증해 정상 동작을 확인했습니다.";
   }
 
   if (item.questionType === "EXPERIENCE" || question.includes("학습") || question.includes("적용")) {
-    return "이번 프로젝트에서 SQS와 worker 기반 비동기 처리 구조를 빠르게 익혔습니다. 처음에는 API 응답 시점과 실제 결과 저장 시점이 달라 헷갈렸지만, processLogId, inputRef, outputRef를 기준으로 상태 전이를 추적했습니다. 작은 테스트 payload로 저장 계약을 먼저 검증한 뒤 STT, 꼬리질문, 리포트 생성 요청에 같은 패턴을 적용했습니다.";
+    return "새로운 기술을 적용해야 했을 때 먼저 작은 예제로 동작 원리를 확인했습니다. 이후 실제 프로젝트 흐름에 맞춰 입력, 처리, 저장, 조회 기준을 정리했고, 실패했을 때 어느 단계에서 문제가 생겼는지 추적할 수 있게 했습니다. 덕분에 낯선 기술도 짧은 시간 안에 실제 기능으로 연결할 수 있었습니다.";
   }
 
   if (item.questionType === "CLOSING" || question.includes("강점") || question.includes("기억")) {
-    return "제 강점은 문제를 감으로 추측하지 않고 데이터 흐름과 로그를 기준으로 좁혀가는 점입니다. 예를 들어 STT와 꼬리질문이 이어지지 않았을 때 /media 응답, interview_answers, file_assets, ai_process_logs, worker outputRef를 순서대로 확인했습니다. 이후 짧거나 작은 녹음은 업로드 전 차단하고 한 번의 재답변 기회를 제공해 의미 없는 답변 저장을 줄였습니다.";
+    return "제 강점은 문제를 감으로 추측하지 않고 확인 가능한 근거를 기준으로 좁혀가는 점입니다. 문제가 생기면 사용자 동작, 요청 결과, 저장 상태, 화면 반영 순서로 확인하고, 원인이 확인되면 같은 경로로 다시 검증합니다. 이 방식으로 팀원이 보기에도 재현 가능하고 설명 가능한 해결 과정을 만들 수 있습니다.";
   }
 
   if (item.questionType === "FOLLOW_UP") {
     if (question.includes("어려웠던 점")) {
-      return "가장 어려웠던 점은 저장 성공과 STT 실패 사이의 원인을 구분하는 것이었습니다. answerId, audioFileId, audioS3Key가 같은 흐름에서 유지되는지 확인했고, DB의 transcript 저장 여부와 ai_process_logs 상태를 함께 보며 문제 지점을 좁혔습니다. 그 결과 화면에서도 transcript와 꼬리질문이 이어지도록 연결할 수 있었습니다.";
+      return "가장 어려웠던 점은 겉으로는 일부 단계가 성공했지만 최종 결과가 나오지 않는 원인을 구분하는 것이었습니다. 저는 각 단계에서 반드시 남아야 하는 값과 상태를 정리하고, 어느 지점에서 흐름이 끊기는지 비교했습니다. 그 결과 문제 원인을 특정하고 사용자 화면까지 정상적으로 이어지도록 수정했습니다.";
     }
     if (question.includes("구체적인 조치")) {
-      return "문제를 프론트 생성, API 업로드, DB 저장, queue 전달, worker 처리 다섯 단계로 나눴습니다. 각 단계에서 남는 id와 storageKey를 비교해 값이 끊기는 지점을 찾았고, 수정 후 같은 답변으로 STT 완료까지 재검증했습니다. 이 방식 덕분에 원인을 재현 가능하게 설명할 수 있었습니다.";
+      return "먼저 문제를 입력, 요청, 처리, 저장, 화면 반영 단계로 나눴습니다. 각 단계에서 기대값과 실제 값을 비교해 값이 끊기는 지점을 찾았고, 수정 후 같은 시나리오를 다시 수행해 결과가 끝까지 이어지는지 확인했습니다. 이 방식 덕분에 원인을 재현 가능하게 설명할 수 있었습니다.";
     }
-    if (question.includes("SQS") || question.includes("비동기")) {
-      return "가장 중요하게 본 값은 processLogId와 inputRef였습니다. processLogId로 PENDING, RUNNING, COMPLETED 상태 전이를 확인했고, inputRef의 sessionId, answerId, fileAssetId가 실제 DB row와 맞는지 검증했습니다. 이 기준을 잡은 뒤 비동기 처리도 단계별로 디버깅할 수 있었습니다.";
+    if (question.includes("비동기") || question.includes("상태")) {
+      return "비동기 처리에서는 요청 직후 결과가 바로 보이지 않기 때문에 상태 변화와 저장 지점을 기준으로 확인했습니다. 작업이 접수됐는지, 처리 중인지, 완료 또는 실패했는지를 구분하고 각 단계의 결과가 다음 단계로 전달되는지 검증했습니다. 이 기준을 세운 뒤 문제 상황도 단계별로 재현할 수 있었습니다.";
     }
-    return "질문에 바로 답한 뒤, 당시 상황과 본인이 취한 행동, 확인한 결과를 차례로 설명하는 것이 좋습니다. 예를 들어 문제를 어떤 기준으로 나눴는지, 어떤 로그나 DB 값을 확인했는지, 수정 후 어떤 결과로 검증했는지를 한 흐름으로 말하면 높은 점수를 받기 쉽습니다.";
+    return "질문에 바로 답한 뒤 당시 상황, 본인이 맡은 역할, 직접 한 행동, 확인한 결과를 차례로 설명하는 것이 좋습니다. 특히 문제를 어떤 기준으로 나눴는지, 수정 후 어떤 변화가 있었는지를 함께 말하면 답변의 신뢰도가 높아집니다.";
   }
 
   return "좋은 답변은 상황을 간단히 설명한 뒤 본인이 맡은 역할, 직접 한 행동, 확인한 결과를 차례로 말합니다. 마지막에는 수치, 전후 비교, 재검증 결과 중 하나를 덧붙이면 답변의 신뢰도가 높아집니다.";
@@ -4928,7 +4930,7 @@ function buildMockAnswerGaps(questionType: QuestionType, questionContent: string
     gaps.push("수정 후 어떤 결과가 나왔는지, 어떻게 재검증했는지를 덧붙이면 좋습니다.");
   }
   if (!hasMetric) {
-    gaps.push("가능하면 처리 시간, 실패 조건, 파일 크기, 전후 비교처럼 확인 가능한 숫자 한 가지를 추가해 보세요.");
+    gaps.push("가능하면 처리 시간, 실패 조건, 전후 비교, 개선 수치처럼 확인 가능한 근거 한 가지를 추가해 보세요.");
   }
   if (hasLikelyNoisyTranscript(normalized)) {
     gaps.push("STT에서 어색하게 인식된 기술 용어가 보입니다. 핵심 용어는 천천히 또렷하게 말하면 평가 근거가 더 선명해집니다.");
@@ -6045,7 +6047,7 @@ function startCameraQualityMonitor(
 ): number {
   const update = async () => {
     const quality = assessCameraQuality(video);
-    const framing: CameraFramingResult = { state: "ok", blocking: false, message: "카메라 연결됨" };
+    const framing = getCameraFramingNotice();
     onQualityChange(quality, framing, formatCameraPreviewStatus(previewInfo, fallbackLabel, quality, framing));
   };
 
@@ -6223,6 +6225,14 @@ function assessCameraQuality(video: HTMLVideoElement | null): CameraQualityResul
   return { ok: true, brightness, message: "카메라 밝기가 적정합니다." };
 }
 
+function getCameraFramingNotice(): CameraFramingResult {
+  return {
+    state: "unsupported",
+    blocking: false,
+    message: "구도 자동 판정 없이 화면 가이드만 표시합니다.",
+  };
+}
+
 async function measureMicrophoneQuality(
   stream: MediaStream,
   onLevel?: (level: number) => void,
@@ -6345,10 +6355,10 @@ function formatMicrophoneStatus(result: CameraStreamResult): string {
   return `마이크 실패: ${formatMediaError(result.audioError, "microphone")}`;
 }
 
-function formatMicrophoneQualityStatus(result: CameraStreamResult): string {
+function formatMicrophoneQualityStatus(result: CameraStreamResult, quality: MicrophoneQualityResult): string {
   const label = result.audioLabel || "선택된 마이크";
   const state = result.audioState ?? "live";
-  return `${label} · ${state} · 마이크 연결됨`;
+  return `${label} · ${state} · 입력 ${quality.peakLevel}% · ${quality.message}`;
 }
 
 function formatMicrophoneProbeStatus(result: MicrophoneProbeResult): string {
