@@ -1,9 +1,12 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { AuthTokenResponse, UserType, apiFetch, getDefaultEntryPath } from "../../api/client";
 import { useAuth } from "./AuthProvider";
+import signupCompanyIcon from "./assets/signup-company.png";
+import signupCandidateIcon from "./assets/signup-candidate.png";
 
 function EyeIcon() {
   return (
@@ -125,23 +128,11 @@ function GoogleIcon() {
 }
 
 function CompanySignupIcon() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 21V7l8-4 8 4v14" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-      <path d="M9 21v-6h6v6" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-      <path d="M8 9h.01M12 9h.01M16 9h.01M8 12h.01M12 12h.01M16 12h.01" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4" />
-    </svg>
-  );
+  return <Image src={signupCompanyIcon} alt="" width={26} height={26} aria-hidden="true" />;
 }
 
 function CandidateSignupIcon() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-      <path d="M5 21a7 7 0 0 1 14 0" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-      <path d="M17.5 5.5 20 3M20 3v4M20 3h-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-    </svg>
-  );
+  return <Image src={signupCandidateIcon} alt="" width={26} height={26} aria-hidden="true" />;
 }
 
 const termsContent = {
