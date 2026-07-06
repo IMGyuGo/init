@@ -12,6 +12,7 @@ assert.equal(interviewApiRoutes.mockComplete, "mock-interviews/:sessionId/comple
 assert.equal(interviewApiRoutes.mockStt, "mock-interviews/:sessionId/stt");
 assert.equal(interviewApiRoutes.mockFollowUpQuestion, "mock-interviews/:sessionId/follow-up-question");
 assert.equal(interviewApiRoutes.mockFollowUpQuestionInsert, "mock-interviews/:sessionId/follow-up-questions/insert");
+assert.equal(interviewApiRoutes.mockRealtimeSession, "mock-interviews/:sessionId/realtime-session");
 assert.equal(interviewApiRoutes.deviceCheck, "interviews/:sessionId/device-check");
 assert.equal(interviewApiRoutes.startInterview, "applications/:applicationId/interview/start");
 assert.equal(interviewApiRoutes.interviewRuntime, "applications/:applicationId/interview");
@@ -23,6 +24,7 @@ assert.equal(interviewApiRoutes.recruitingComplete, "interviews/:sessionId/compl
 assert.equal(interviewApiRoutes.recruitingStt, "interviews/:sessionId/stt");
 assert.equal(interviewApiRoutes.recruitingFollowUpQuestion, "interviews/:sessionId/follow-up-question");
 assert.equal(interviewApiRoutes.recruitingFollowUpQuestionInsert, "interviews/:sessionId/follow-up-questions/insert");
+assert.equal(interviewApiRoutes.recruitingRealtimeSession, "interviews/:sessionId/realtime-session");
 
 test("interview routes contract", () => {
   assert.ok(interviewApiRoutes.mockInterviews);

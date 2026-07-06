@@ -111,6 +111,16 @@ export class AiInterviewRequestDto {
   documentSummary?: string;
 }
 
+export class CreateRealtimeInterviewSessionDto {
+  @IsOptional()
+  @IsIn(["realtime-voice"])
+  mode?: "realtime-voice";
+
+  @IsOptional()
+  @IsIn(["webrtc"])
+  transport?: "webrtc";
+}
+
 export class InsertFollowUpQuestionDto {
   @IsInt()
   @IsPositive()

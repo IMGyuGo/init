@@ -25,6 +25,7 @@ type InterviewControllerRoute =
   | "requestMockStt"
   | "requestMockFollowUpQuestion"
   | "insertMockFollowUpQuestion"
+  | "createMockRealtimeSession"
   | "saveDeviceCheck"
   | "startInterview"
   | "getInterviewRuntime"
@@ -35,7 +36,8 @@ type InterviewControllerRoute =
   | "completeRecruitingInterview"
   | "requestRecruitingStt"
   | "requestRecruitingFollowUpQuestion"
-  | "insertRecruitingFollowUpQuestion";
+  | "insertRecruitingFollowUpQuestion"
+  | "createRecruitingRealtimeSession";
 
 const validCandidateRequest = {
   headers: {},
@@ -73,6 +75,7 @@ assertRoute("completeMockInterview", interviewApiRoutes.mockComplete, RequestMet
 assertRoute("requestMockStt", interviewApiRoutes.mockStt, RequestMethod.POST);
 assertRoute("requestMockFollowUpQuestion", interviewApiRoutes.mockFollowUpQuestion, RequestMethod.POST);
 assertRoute("insertMockFollowUpQuestion", interviewApiRoutes.mockFollowUpQuestionInsert, RequestMethod.POST);
+assertRoute("createMockRealtimeSession", interviewApiRoutes.mockRealtimeSession, RequestMethod.POST);
 assertRoute("saveDeviceCheck", interviewApiRoutes.deviceCheck, RequestMethod.POST);
 assertRoute("startInterview", interviewApiRoutes.startInterview, RequestMethod.POST);
 assertRoute("getInterviewRuntime", interviewApiRoutes.interviewRuntime, RequestMethod.GET);
@@ -84,6 +87,7 @@ assertRoute("completeRecruitingInterview", interviewApiRoutes.recruitingComplete
 assertRoute("requestRecruitingStt", interviewApiRoutes.recruitingStt, RequestMethod.POST);
 assertRoute("requestRecruitingFollowUpQuestion", interviewApiRoutes.recruitingFollowUpQuestion, RequestMethod.POST);
 assertRoute("insertRecruitingFollowUpQuestion", interviewApiRoutes.recruitingFollowUpQuestionInsert, RequestMethod.POST);
+assertRoute("createRecruitingRealtimeSession", interviewApiRoutes.recruitingRealtimeSession, RequestMethod.POST);
 
 async function assertInterviewHttpError(
   action: () => Promise<unknown>,
@@ -213,6 +217,92 @@ test("mock interview start consumes one candidate mock interview pass", async ()
 
   assert.equal(started.data.interviewType, "MOCK");
   assert.deepEqual(passCalls, [{ candidateId: DEV_CANDIDATE_USER.candidateId, passAmount: 1 }]);
+});
+
+test("mock realtime session creates a client handoff for an active interview session", async () => {
+  const originalProvider = process.env.AI_INTERVIEWER_REALTIME_PROVIDER;
+  process.env.AI_INTERVIEWER_REALTIME_PROVIDER = "mock";
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+
+  try {
+    const started = await controller.startMockInterview(validCandidateRequest, {
+      questionTypes: ["INTRO"],
+      showQuestionText: false,
+    });
+    const realtime = await controller.createMockRealtimeSession(
+      validCandidateRequest,
+      String(started.data.sessionId),
+      { mode: "realtime-voice" },
+    );
+
+    assert.equal(realtime.data.accepted, true);
+    assert.equal(realtime.data.sessionId, started.data.sessionId);
+    assert.equal(realtime.data.interviewType, "MOCK");
+    assert.equal(realtime.data.mode, "realtime-voice");
+    assert.equal(realtime.data.provider, "mock");
+    assert.equal(realtime.data.transport, "webrtc");
+    assert.equal(realtime.data.clientSecretType, "ephemeral");
+    assert.match(realtime.data.clientSecret, /^mock-realtime-client-secret-/);
+  } finally {
+    process.env.AI_INTERVIEWER_REALTIME_PROVIDER = originalProvider;
+  }
+});
+
+test("openai realtime session reads client supplied speech events without automatic VAD responses", async () => {
+  const originalProvider = process.env.AI_INTERVIEWER_REALTIME_PROVIDER;
+  const originalApiKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  const requestBodies: string[] = [];
+  process.env.AI_INTERVIEWER_REALTIME_PROVIDER = "openai";
+  process.env.OPENAI_API_KEY = "test-openai-key";
+  globalThis.fetch = (async (_input, init) => {
+    requestBodies.push(String(init?.body ?? ""));
+    return new Response(JSON.stringify({ value: "ephemeral-client-secret", expires_at: 1783300000 }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const repository = new InMemoryCandidateRepository();
+    const candidateService = new CandidateService(repository);
+    const interviewRepository = new InMemoryInterviewRepository();
+    const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+
+    const started = await controller.startMockInterview(validCandidateRequest, {
+      questionTypes: ["INTRO"],
+      showQuestionText: false,
+    });
+    const realtime = await controller.createMockRealtimeSession(
+      validCandidateRequest,
+      String(started.data.sessionId),
+      { mode: "realtime-voice" },
+    );
+    const body = JSON.parse(requestBodies[0] ?? "{}") as {
+      session?: {
+        instructions?: string;
+        audio?: {
+          input?: {
+            turn_detection?: {
+              create_response?: boolean;
+              interrupt_response?: boolean;
+            };
+          };
+        };
+      };
+    };
+
+    assert.equal(realtime.data.provider, "openai");
+    assert.match(body.session?.instructions ?? "", /Read the provided Korean interview question exactly once/i);
+    assert.match(body.session?.instructions ?? "", /backend-generated follow-up question exactly once/i);
+    assert.match(body.session?.instructions ?? "", /Do not generate realtime follow-up questions/i);
+    assert.equal(body.session?.audio?.input?.turn_detection?.create_response, false);
+    assert.equal(body.session?.audio?.input?.turn_detection?.interrupt_response, false);
+  } finally {
+    process.env.AI_INTERVIEWER_REALTIME_PROVIDER = originalProvider;
+    process.env.OPENAI_API_KEY = originalApiKey;
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("REANSWER_REQUIRED allows replacing the current answer once without creating a new answer", async () => {

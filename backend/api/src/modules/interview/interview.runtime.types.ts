@@ -118,6 +118,24 @@ export interface AiHandoffResult {
   callbackTopic: string;
 }
 
+export type RealtimeInterviewProvider = "mock" | "openai";
+
+export interface RealtimeInterviewSessionResult {
+  accepted: true;
+  sessionId: number;
+  applicationId?: number;
+  interviewType: InterviewType;
+  mode: "realtime-voice";
+  provider: RealtimeInterviewProvider;
+  model: string;
+  voice: string;
+  transport: "webrtc";
+  clientSecret: string;
+  clientSecretType: "ephemeral";
+  expiresAt: string;
+  endpoint: string;
+}
+
 export interface InsertFollowUpQuestionResult {
   sessionId: number;
   processLogId: number;

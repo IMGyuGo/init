@@ -102,4 +102,136 @@ describe("Swagger setup", () => {
       expect((mockGenerate.parameters ?? []).map((parameter: { name: string }) => parameter.name)).not.toContain(headerName);
     }
   });
+
+  it("documents descriptions for operations, parameters, responses, request bodies, and schema properties", async () => {
+    const response = await request(app.getHttpServer()).get("/api-docs-json").expect(200);
+    const missingDescriptions = collectMissingSwaggerDescriptions(response.body);
+
+    expect(missingDescriptions).toEqual({
+      operations: [],
+      parameters: [],
+      responses: [],
+      requestBodies: [],
+      schemaProperties: [],
+      inlineProperties: [],
+    });
+  });
 });
+
+function collectMissingSwaggerDescriptions(document: {
+  paths?: Record<string, Record<string, Record<string, unknown>>>;
+  components?: { schemas?: Record<string, { properties?: Record<string, unknown> }> };
+}) {
+  const missing = {
+    operations: [] as string[],
+    parameters: [] as string[],
+    responses: [] as string[],
+    requestBodies: [] as string[],
+    schemaProperties: [] as string[],
+    inlineProperties: [] as string[],
+  };
+
+  for (const [path, methods] of Object.entries(document.paths ?? {})) {
+    for (const [method, operation] of Object.entries(methods)) {
+      if (!isHttpMethod(method)) {
+        continue;
+      }
+
+      const label = `${method.toUpperCase()} ${path}`;
+      if (!hasDescription(operation)) {
+        missing.operations.push(label);
+      }
+
+      const parameters = Array.isArray(operation.parameters) ? operation.parameters : [];
+      for (const parameterValue of parameters) {
+        const parameter = asSwaggerObject(parameterValue);
+        if (parameter && !hasDescription(parameter)) {
+          missing.parameters.push(`${label} param:${String(parameter.name)}`);
+        }
+      }
+
+      const requestBody = asSwaggerObject(operation.requestBody);
+      if (requestBody && !hasDescription(requestBody)) {
+        missing.requestBodies.push(label);
+      }
+
+      const responses = asSwaggerObject(operation.responses);
+      for (const [status, responseValue] of Object.entries(responses ?? {})) {
+        const apiResponse = asSwaggerObject(responseValue);
+        if (apiResponse && !hasDescription(apiResponse)) {
+          missing.responses.push(`${label} response:${status}`);
+        }
+      }
+
+      for (const [contentType, media] of Object.entries(asSwaggerObject(requestBody?.content) ?? {})) {
+        collectInlinePropertyDescriptions(
+          asSwaggerObject(asSwaggerObject(media)?.schema),
+          `${label} requestBody:${contentType}`,
+          missing.inlineProperties,
+        );
+      }
+
+      for (const [status, responseValue] of Object.entries(responses ?? {})) {
+        const apiResponse = asSwaggerObject(responseValue);
+        for (const [contentType, media] of Object.entries(asSwaggerObject(apiResponse?.content) ?? {})) {
+          collectInlinePropertyDescriptions(
+            asSwaggerObject(asSwaggerObject(media)?.schema),
+            `${label} response:${status}:${contentType}`,
+            missing.inlineProperties,
+          );
+        }
+      }
+    }
+  }
+
+  for (const [schemaName, schema] of Object.entries(document.components?.schemas ?? {})) {
+    for (const [propertyName, propertyValue] of Object.entries(schema.properties ?? {})) {
+      const property = asSwaggerObject(propertyValue);
+      if (property && !hasDescription(property)) {
+        missing.schemaProperties.push(`${schemaName}.${propertyName}`);
+      }
+    }
+  }
+
+  return missing;
+}
+
+function collectInlinePropertyDescriptions(schema: Record<string, unknown> | undefined, location: string, missing: string[]) {
+  if (!schema) {
+    return;
+  }
+
+  const properties = asSwaggerObject(schema.properties);
+  for (const [propertyName, propertyValue] of Object.entries(properties ?? {})) {
+    const property = asSwaggerObject(propertyValue);
+    if (property && !hasDescription(property)) {
+      missing.push(`${location}.${propertyName}`);
+    }
+    collectInlinePropertyDescriptions(property, `${location}.${propertyName}`, missing);
+  }
+
+  collectInlinePropertyDescriptions(asSwaggerObject(schema.items), `${location}[]`, missing);
+
+  for (const unionKey of ["allOf", "oneOf", "anyOf"]) {
+    const unionSchemas = schema[unionKey];
+    if (!Array.isArray(unionSchemas)) {
+      continue;
+    }
+
+    unionSchemas.forEach((child, index) => {
+      collectInlinePropertyDescriptions(asSwaggerObject(child), `${location}.${unionKey}[${index}]`, missing);
+    });
+  }
+}
+
+function hasDescription(value: Record<string, unknown>) {
+  return typeof value.description === "string" && value.description.trim().length > 0;
+}
+
+function asSwaggerObject(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+function isHttpMethod(method: string) {
+  return ["get", "post", "put", "patch", "delete", "options", "head", "trace"].includes(method);
+}

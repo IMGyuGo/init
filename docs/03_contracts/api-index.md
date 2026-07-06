@@ -101,6 +101,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-048 | 지원자 - 모의면접 | POST | /candidate/mock-interviews/{sessionId}/answers | 영상/음성 답변 녹화 | 지원자 / 지원자 사용자 로그인 | N | 201 Created |
 | API-049 | 지원자 - 모의면접 | POST | /candidate/mock-interviews/{sessionId}/next-question | 다음 질문 이동 및 단축키 지원 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-050 | 지원자 - 모의면접 | POST | /candidate/mock-interviews/{sessionId}/stt | STT 처리 | 지원자 / 지원자 사용자 로그인 | Y | 202 Accepted |
+| API-050-RT | 지원자 - 모의면접 | POST | /candidate/mock-interviews/{sessionId}/realtime-session | 실시간 AI 면접 세션 생성 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-051 | 지원자 - 모의면접 | POST | /candidate/mock-interviews/{sessionId}/follow-up-question | 꼬리질문 생성 | 지원자 / 지원자 사용자 로그인 | Y | 202 Accepted |
 | API-051-TMP | 지원자 - 모의면접 | POST | /candidate/mock-interviews/{sessionId}/follow-up-questions/insert | 생성된 꼬리질문을 면접 질문 흐름에 추가 (MVP 임시 브릿지) | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-052 | 지원자 - 모의면접 | PATCH | /candidate/mock-interviews/{sessionId}/complete | 면접 종료 및 분석 상태 전환 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
@@ -122,6 +123,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-068 | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/answers | 영상/음성 답변 녹화 | 지원자 / 지원자 사용자 로그인 | N | 201 Created |
 | API-069 | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/next-question | 다음 질문 이동 및 단축키 지원 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-070 | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/stt | STT 처리 | 지원자 / 지원자 사용자 로그인 | Y | 202 Accepted |
+| API-070-RT | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/realtime-session | 실시간 AI 면접 세션 생성 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-071 | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/follow-up-question | 꼬리질문 생성 | 지원자 / 지원자 사용자 로그인 | Y | 202 Accepted |
 | API-071-TMP | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/follow-up-questions/insert | 생성된 꼬리질문을 면접 질문 흐름에 추가 (MVP 임시 브릿지) | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-072 | 지원자 - 채용면접 | PATCH | /candidate/interviews/{sessionId}/complete | 면접 종료 및 분석 상태 전환 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
@@ -133,6 +135,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-092 | 지원자 - Public 채용면접 | POST | /public/interviews/{sessionId}/answers | public 면접 답변 저장 | publicAccessToken | N | 201 Created |
 | API-093 | 지원자 - Public 채용면접 | POST | /public/interviews/{sessionId}/next-question | public 면접 다음 질문 이동 | publicAccessToken | N | 200 OK |
 | API-094 | 지원자 - Public 채용면접 | POST | /public/interviews/{sessionId}/stt | public 면접 STT 처리 | publicAccessToken | Y | 202 Accepted |
+| API-094-RT | 지원자 - Public 채용면접 | POST | /public/interviews/{sessionId}/realtime-session | public 실시간 AI 면접 세션 생성 | publicAccessToken | N | 200 OK |
 | API-095 | 지원자 - Public 채용면접 | POST | /public/interviews/{sessionId}/follow-up-question | public 면접 꼬리질문 생성 | publicAccessToken | Y | 202 Accepted |
 | API-096 | 지원자 - Public 채용면접 | PATCH | /public/interviews/{sessionId}/complete | public 면접 종료 및 분석 상태 전환 | publicAccessToken | N | 200 OK |
 | API-073 | 지원자 - 지원현황/채용면접 | GET | /candidate/applications/{applicationId}/report | 지원자용 제한 결과 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
