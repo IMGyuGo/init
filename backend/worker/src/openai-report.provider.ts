@@ -31,6 +31,10 @@ export interface ReportGenerationResult {
   summary: string;
   feedback?: string;
   model: string;
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+  };
 }
 
 export interface ReportAiProvider {
@@ -80,7 +84,11 @@ export class OpenAiReportProvider implements ReportAiProvider {
 
     return {
       ...parseReportContent(content),
-      model: this.model
+      model: this.model,
+      usage: {
+        inputTokens: response.usage?.prompt_tokens,
+        outputTokens: response.usage?.completion_tokens
+      }
     };
   }
 }

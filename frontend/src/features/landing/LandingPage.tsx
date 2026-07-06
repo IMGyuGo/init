@@ -93,6 +93,9 @@ export function LandingPage() {
           <Link className="btn primary lg" href="/signup">
             시작하기
           </Link>
+          <Link className="btn secondary lg" href="/ai/performance">
+            AI 사용량 확인
+          </Link>
         </div>
       </section>
 
