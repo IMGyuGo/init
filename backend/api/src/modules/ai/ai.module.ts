@@ -4,7 +4,12 @@ import { ReportModule } from "../report/report.module";
 import { PrismaService } from "../../shared/prisma.service";
 import { AiGuardrailsController } from "./controller/ai-guardrails.controller";
 import { AiPerformanceController } from "./controller/ai-performance.controller";
-import { AiJobsStatusController, CandidateAiJobsController, CompanyAiJobsController } from "./controller/ai-jobs.controller";
+import {
+  AiJobsStatusController,
+  CandidateAiJobsController,
+  CompanyAiJobsController,
+  CompanyRecruitmentAiJobsController,
+} from "./controller/ai-jobs.controller";
 import { AiPerformanceService } from "./service/ai-performance.service";
 
 @Module({
@@ -12,6 +17,7 @@ import { AiPerformanceService } from "./service/ai-performance.service";
   controllers: [
     AiGuardrailsController,
     CandidateAiJobsController,
+    CompanyRecruitmentAiJobsController,
     CompanyAiJobsController,
     AiJobsStatusController,
     AiPerformanceController

@@ -77,6 +77,31 @@ export type CreateRecruitmentInput = {
 
 export type UpdateRecruitmentInput = CreateRecruitmentInput;
 
+export type PostingDraftGenerateInput = {
+  title: string;
+  jobRole: string;
+  keywords?: string[];
+  summary?: string;
+  careerRequirement?: string | null;
+  employmentType?: string | null;
+  workLocation?: string | null;
+};
+
+export type AiJobStatusResponse = {
+  processLogId: number;
+  processType: string;
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+  queued: boolean;
+  inputRef: string;
+  outputRef?: string;
+  output?: unknown;
+  failure?: {
+    category: string;
+    reason: string;
+    retryable: boolean;
+  };
+};
+
 export type Applicant = {
   applicantId: number;
   applicationId: number;

@@ -3,16 +3,17 @@ import type {
   ApiErrorEnvelope,
   Applicant,
   ApplicantEvaluation,
+  AiJobStatusResponse,
   CreateRecruitmentInput,
   JobDescriptionImageUploadResponse,
+  PostingDraftGenerateInput,
   Recruitment,
   RecruitmentStatus,
   UpdateScreeningStatusInput,
   UpdateRecruitmentInput,
 } from "./types";
 import { authFetch } from "../../api/client";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
+import { getApiBaseUrl } from "../../api/api-base-url";
 
 type ListQuery = {
   page?: number;
@@ -71,6 +72,17 @@ export async function uploadJobDescriptionImage(file: File) {
   return requestFormData<JobDescriptionImageUploadResponse>("/company/recruitments/jd-images", formData);
 }
 
+export async function generatePostingDraft(input: PostingDraftGenerateInput) {
+  return request<AiJobStatusResponse>("/company/recruitments/ai-draft", {
+    method: "POST",
+    body: input,
+  });
+}
+
+export async function getAiJobStatus(processLogId: number) {
+  return request<AiJobStatusResponse>(`/ai/jobs/${processLogId}/status`);
+}
+
 export async function listRecruitmentApplicants(recruitmentId: number, query: ListQuery = {}) {
   return request<{ items: Applicant[] }>(`/company/recruitments/${recruitmentId}/applicants`, { query });
 }
@@ -94,7 +106,7 @@ async function request<T>(
     body?: unknown;
   } = {},
 ): Promise<ApiEnvelope<T>> {
-  const url = new URL(`/api/v1${path}`, API_BASE_URL);
+  const url = new URL(`/api/v1${path}`, getApiBaseUrl());
   Object.entries(options.query ?? {}).forEach(([key, value]) => {
     if (value !== undefined && value !== "") {
       url.searchParams.set(key, String(value));
@@ -119,7 +131,7 @@ async function request<T>(
 }
 
 async function requestFormData<T>(path: string, body: FormData): Promise<ApiEnvelope<T>> {
-  const url = new URL(`/api/v1${path}`, API_BASE_URL);
+  const url = new URL(`/api/v1${path}`, getApiBaseUrl());
 
   const response = await authFetch(url.toString(), {
     method: "POST",

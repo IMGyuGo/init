@@ -103,6 +103,7 @@ init v0.5의 화면/기능 정의를 구현 단위로 정리한다.
 | 채용 공고 관리 화면 | /company/recruitments | button | 공고 상세 버튼 | 공고 상세 화면 이동 | 공고 ID | 공고 상세 화면으로 이동 | /company/recruitments/{recruitmentId} | v1.0 | 각 공고 리스트 항목 우측에 배치 |
 | 채용 공고 관리 화면 | /company/recruitments | button | 공고 수정 버튼 | 공고 수정 화면 이동 | 공고 ID | 공고 수정 화면으로 이동 | /company/recruitments/{recruitmentId}/edit | v1.0 | 진행중/임시저장 상태에서 노출 |
 | 채용 공고 관리 화면 | /company/recruitments | button | 공고 복사 버튼 | 마감 공고 복사 | 공고 ID | 복사된 공고 생성 화면으로 이동 | POST /company/recruitments/{recruitmentId}/copy | v1.0 | 마감 상태에서 수정 버튼 대신 노출 |
+| 공고 생성 화면 | /company/recruitments/new | system process | 공고 AI 초안 작성 | 제목, 직무명, 키워드 기반 공고 초안 생성 | title, jobRole, keywords, summary | 사용자가 검토 가능한 postingDraft 반환 | POST /company/recruitments/ai-draft / GET /ai/jobs/{processLogId}/status | v1.0 | AI 초안은 자동 저장하지 않고 사용자가 적용 후 POST /company/recruitments로 DRAFT 저장 |
 | 면접 관리 화면 | /company/interviews/settings | page | 면접 관리 | 면접 설정 관리 | 채용 공고, 평가 기준, 질문 세트, 시간 정책 | 면접 관리 화면 표시 | GET /company/interviews/settings | v1.0 | 기존 SNB 삭제. 2-depth는 GNB hover dropdown으로 노출 |
 | 면접 관리 화면 | /company/interviews/settings | section | AI 평가 역량 제안 | AI 평가 역량 태그 추천 | JD, 인재상, 평가 템플릿 | 평가 역량 후보 표시 | POST /company/interviews/evaluation-criteria/suggest | v1.0 | 태그 추천 세부 정책 확정 필요 |
 | 면접 관리 화면 | /company/interviews/settings | form | 평가 기준 설정 | 평가 기준 편집 | 평가 항목명, 설명, 배점, 기준 점수 | 평가 기준 저장 | PATCH /company/interviews/evaluation-criteria | v1.0 | 저장 버튼은 평가 기준 설정 영역 우측 상단 배치 |
