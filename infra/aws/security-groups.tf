@@ -187,7 +187,7 @@ resource "aws_vpc_security_group_egress_rule" "rds_all" {
 
 resource "aws_security_group" "redis" {
   name        = "${local.name_prefix}-redis"
-  description = "Redis access from API and worker ECS tasks"
+  description = "Valkey Redis-protocol access from API and worker ECS tasks"
   vpc_id      = aws_vpc.main.id
 
   tags = {

@@ -17,7 +17,7 @@ AWS 배포 설계의 source of truth는 두 문서로 나눈다.
 
 ## 구성 원칙
 
-AWS environment는 `main` 단일 실배포 환경만 둔다. `dev`와 `main` Git branch는 모두 같은 VPC, CloudFront distribution, ALB, ECS service, RDS, Redis, S3 bucket, SQS queue, Secrets Manager path를 갱신한다.
+AWS environment는 `main` 단일 실배포 환경만 둔다. `dev`와 `main` Git branch는 모두 같은 VPC, CloudFront distribution, ALB, ECS service, RDS, Valkey, S3 bucket, SQS queue, Secrets Manager path를 갱신한다.
 
 ```text
 dev branch  -> init-main-* resources -> init-jungle.cloud
@@ -39,12 +39,12 @@ main branch -> init-main-* resources -> init-jungle.cloud
 | `versions.tf`, `providers.tf` | Terraform/AWS provider 버전과 region 설정 |
 | `variables.tf`, `locals.tf` | main 실배포 입력값, naming, service/env/secret key 계약 |
 | `network.tf` | VPC, subnet, route table, NAT Gateway, VPC endpoint |
-| `security-groups.tf` | ALB, ECS, RDS, Redis, VPC endpoint security group |
+| `security-groups.tf` | ALB, ECS, RDS, Valkey/Redis-protocol cache, VPC endpoint security group |
 | `alb-cloudfront.tf` | ALB listener/target group, CloudFront behavior, S3 OAC |
 | `route53-acm.tf` | Route53 app record, CloudFront용 us-east-1 ACM 인증서, DNS validation record |
 | `ecs.tf` | ECS cluster, task definition, service |
 | `ecr.tf` | main 실배포 ECR repository와 lifecycle policy |
-| `rds.tf`, `redis.tf` | PostgreSQL RDS, ElastiCache Redis |
+| `rds.tf`, `redis.tf` | PostgreSQL RDS, ElastiCache Valkey |
 | `s3-sqs-ses.tf` | asset bucket, SQS/DLQ, optional SES domain identity, DKIM, custom MAIL FROM DNS |
 | `secrets.tf` | service별 Secrets Manager container |
 | `iam.tf` | ECS execution/task role, GitHub deploy role |
@@ -237,8 +237,9 @@ terraform -chdir=infra/aws init -backend-config=backend-main.hcl -reconfigure
 | 5.1 Backend/init 재확인 | S3 backend와 AWS 계정 확인 | `aws sts get-caller-identity`, `terraform init` | 계정, region, backend bucket 불일치 |
 | 5.2 Static validation | Terraform 정적 검증과 ECS 비기동 확인 | `fmt`, `validate`, `desired_counts = 0` 확인 | validate 실패 또는 desired count가 0이 아님 |
 | 5.3 Main plan 생성 | 실제 변경 목록을 plan 파일로 저장 | `terraform plan ... -out=tfplan-main` | plan 생성 실패 |
-| 5.4 Plan 리뷰 | 위험 변경 확인 | 생성/수정/삭제, replacement, IAM trust, SES DNS, ECS desired count 확인 | RDS/Redis/VPC/CloudFront 삭제 또는 교체, IAM trust 확장, ECS desired count 증가 |
-| 5.5 사용자 apply 승인 | 비용 발생 전 명시 승인 확보 | 사용자가 plan 요약 확인 후 승인 | 승인 문구 없음 |
+| 5.4 Plan 리뷰 | 위험 변경 확인 | 생성/수정/삭제, replacement, IAM trust, SES DNS, ECS desired count 확인 | RDS/Valkey/VPC/CloudFront 삭제 또는 교체, IAM trust 확장, ECS desired count 증가 |
+| 5.4-A Application runtime AWS readiness | 실제 서비스 코드가 AWS 리소스를 쓰는지 확인 | frontend build env, runtime secret key, mock/in-memory fallback, managed service smoke 기준 확인 | 운영에서 localhost/mock/memory/localstack fallback이 남거나 필수 env key가 누락됨 |
+| 5.5 사용자 apply 승인 | 비용 발생 전 명시 승인 확보 | 사용자가 plan 요약과 runtime readiness 확인 후 승인 | 승인 문구 없음 |
 | 5.6 Main apply 실행 | main AWS 리소스 생성 | `terraform apply tfplan-main` | apply 실패 또는 예상 밖 destroy/replacement |
 | 5.7 Output/Console 확인 | 다음 단계 입력값 확보 | Terraform output, AWS Console 상태 확인 | 필수 output 누락 또는 ACM/SES validation 실패 |
 | 5.8 세션 기록 | 이어받기 가능한 상태 기록 | `infra/APPLY_SESSION.md` 갱신 | secret/password/token 포함 출력 |
@@ -261,6 +262,31 @@ terraform init '-backend-config=backend-main.hcl' '-reconfigure' '-input=false'
 terraform plan '-var-file=env/main.tfvars' '-out=tfplan-main'
 terraform show -no-color tfplan-main
 ```
+
+5.4-A는 Terraform 리소스 리뷰와 별도로, 실제 서비스 코드가 AWS 리소스를 바로 사용할 수 있는지 확인하는 gate다. 이 gate가 끝나기 전에는 “인프라는 먼저 만들고 앱 연결은 나중에 본다”로 넘어가지 않는다.
+
+확인 항목:
+
+| 영역 | 확인할 것 | 중단 기준 |
+| --- | --- | --- |
+| Frontend API origin | Next.js client가 `https://init-jungle.cloud/api/v1/*`로 호출되도록 build-time 값 또는 same-origin 상대 경로를 확정한다. `NEXT_PUBLIC_*`는 Secrets Manager runtime 값만으로 바뀌지 않는다. | frontend image가 `http://localhost:3001` 또는 `:3001` API origin을 품고 build됨 |
+| Frontend public payment key | 결제 화면을 운영에 노출한다면 `NEXT_PUBLIC_TOSS_CLIENT_KEY` build-time 주입 방식을 확정한다. | Toss client key가 빈 값인 image를 운영 배포함 |
+| API runtime env | `infra/aws/locals.tf`의 secret key 목록이 코드에서 실제 사용하는 운영 env와 일치해야 한다. 결제, OAuth, public link, upload limit, CORS/origin 값도 포함한다. | 코드가 `TOSS_SECRET_KEY`, `APP_FRONTEND_URL`, `PUBLIC_APPLICATION_DOCUMENT_MAX_UPLOAD_BYTES` 등 운영 값을 요구하지만 secret mapping에 없음 |
+| AWS SDK local override | ECS production secret에는 `AWS_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` 같은 LocalStack/static key 값을 넣지 않는다. ECS task role/default credential chain을 사용한다. | production task가 LocalStack endpoint 또는 static access key를 사용함 |
+| S3 public/private split | CloudFront로 공개할 prefix는 회사 로고/JD 이미지처럼 bucket policy가 허용한 prefix와 맞아야 한다. 지원자 문서, 면접 음성/영상 원본은 public URL로 노출하지 않는다. | private object에 `S3_PUBLIC_BASE_URL` 기반 공개 URL을 제공함 |
+| SQS real queue | API publisher와 worker consumer가 실제 `AI_SQS_QUEUE_URL`을 사용해야 한다. queue URL 누락으로 in-memory queue에 fallback되면 안 된다. | API가 SQS 대신 in-memory publisher로 기동됨 |
+| Worker real mode | worker는 `WORKER_REPOSITORY_MODE=prisma`, `AI_PROVIDER_MODE=openai`, `AI_STT_PROVIDER=openai` 등 실제 처리 모드와 provider key를 사용한다. | worker가 memory repository 또는 mock AI/STT provider로 운영 기동됨 |
+| Valkey cache required behavior | 인증 코드와 public magic link가 ElastiCache Valkey를 Redis protocol로 사용해야 한다. 운영에서 cache 장애를 조용히 memory fallback으로 숨기지 않는지 확인한다. | production에서 Valkey cache 없이 인증/매직링크가 성공한 것처럼 보임 |
+| SES/SMTP | SES SMTP credential, `SMTP_FROM`, sandbox/production access 상태를 확인한다. | 인증 메일 또는 public application magic link 발송이 실패함 |
+| OAuth/payment callbacks | Google callback URL, Toss success/fail URL의 base가 `https://init-jungle.cloud` 기준인지 확인한다. | 외부 provider callback이 localhost 또는 잘못된 origin으로 설정됨 |
+| Health/smoke | `/api/v1/health`만으로 충분하지 않다. DB, Valkey, S3 put/read, SQS publish/consume, SES send, worker 처리까지 실제 smoke 시나리오를 준비한다. | 단순 health는 성공하지만 핵심 managed service 경로가 검증되지 않음 |
+
+Valkey/Redis protocol naming policy:
+
+- AWS managed cache engine은 ElastiCache Valkey 7.2로 고정한다.
+- API 서버는 `ioredis` client로 Redis protocol을 사용한다. 현재 확인된 명령은 `GET`, `SET ... EX`, `EXISTS`, `DEL`뿐이며 Lua/EVAL, Streams, Pub/Sub, Cluster 전용 명령은 사용하지 않는다.
+- `REDIS_URL`, Terraform resource name의 `redis`, output `redis_primary_endpoint` 같은 이름은 Redis OSS 엔진 선택이 아니라 Redis protocol/client 호환 접속 관례를 뜻한다.
+- 새 문서에서 관리형 서비스 자체를 부를 때는 `ElastiCache Valkey`를 사용하고, env/URL/protocol/client 계약을 말할 때만 `Redis protocol` 또는 `REDIS_URL`을 사용한다.
 
 5.5에서 사용자가 명시적으로 승인한 뒤에만 apply한다.
 
@@ -294,13 +320,13 @@ AWS Console 확인:
 - ECR repositories: `init-main-frontend`, `init-main-api`, `init-main-worker`
 - ECS cluster: `init-main`
 - ECS services: `init-main-frontend`, `init-main-api`, `init-main-worker`
-- RDS, Redis, S3, SQS, Secrets Manager container가 생성됨
+- RDS, Valkey, S3, SQS, Secrets Manager container가 생성됨
 - SES verified identity: `init-jungle.cloud`
 - Route53 DNS records: `_amazonses.init-jungle.cloud`, DKIM CNAME 3개, `mail.init-jungle.cloud` MX/TXT
 
 중단 기준:
 
-- plan에 RDS/Redis 삭제 또는 교체가 포함된다.
+- plan에 RDS/Valkey 삭제 또는 교체가 포함된다.
 - CloudFront ACM validation이 완료되지 않는다.
 - IAM trust policy가 의도한 GitHub repository/branch보다 넓다.
 - SES verification, DKIM, custom MAIL FROM DNS record가 Route53 hosted zone에 생성되지 않는다.
@@ -555,7 +581,7 @@ aws elbv2 describe-target-health --target-group-arn $apiTgArn
 
 - ECS service가 stable 상태가 되지 않는다.
 - ALB target health가 `healthy`가 아니다.
-- API task가 secret, DB, Redis 연결 오류로 반복 재시작한다.
+- API task가 secret, DB, Valkey 연결 오류로 반복 재시작한다.
 - worker가 real AI provider traffic을 받을 예정인데 `ChangeMessageVisibility` heartbeat와 duplicate `processLogId` skip/claim 테스트가 없다.
 
 ### 10. Domain smoke test
@@ -663,14 +689,14 @@ AWS Console에서 직접 수정하지 않는 것을 원칙으로 한다. 리소�
 | 변경 유형 | 수정 위치 | 확인할 것 |
 | --- | --- | --- |
 | VPC/subnet/NAT 변경 | `network.tf`, `env/*.tfvars` | CIDR 충돌, route table, NAT 비용 |
-| Security group 변경 | `security-groups.tf` | public ingress 확장 여부, ECS/RDS/Redis 접근 경계 |
+| Security group 변경 | `security-groups.tf` | public ingress 확장 여부, ECS/RDS/Valkey 접근 경계 |
 | CloudFront/ALB path 변경 | `alb-cloudfront.tf` | `/api/*`, `/_next/static/*`, S3 asset prefix가 frontend route를 가리지 않는지 |
 | Route53/ACM/domain 변경 | `route53-acm.tf`, `providers.tf`, `env/main.tfvars` | 가비아 NS 위임, us-east-1 ACM, A/AAAA alias, DNS validation 완료 여부 |
 | ECS CPU/memory/port 변경 | `locals.tf`, `ecs.tf` | Dockerfile exposed port, ALB target group, Fargate 지원 조합 |
 | ECS desired count 변경 | `env/main.tfvars` | image와 secret 값이 먼저 준비됐는지 |
 | ECR repository 정책 변경 | `ecr.tf` | immutable tag 정책과 deploy workflow tag 전략 |
 | RDS class/storage/backup 변경 | `rds.tf`, `env/*.tfvars` | downtime, backup retention, deletion protection |
-| Redis TLS/auth 변경 | `redis.tf` | 앱 `REDIS_URL`을 `rediss://`로 바꾸는 코드/secret 변경 필요 |
+| Redis protocol cache TLS/auth 변경 | `redis.tf` | 앱 `REDIS_URL`을 `rediss://`로 바꾸는 코드/secret 변경 필요 |
 | S3 공개 asset prefix 변경 | `alb-cloudfront.tf`, `s3-sqs-ses.tf` | private bucket 유지, OAC policy 범위 |
 | SQS visibility timeout 변경 | `s3-sqs-ses.tf` | worker 처리 시간, DLQ redrive 기준 |
 | Secret key 추가/삭제 | `.env.example`, `locals.tf`, Secrets Manager JSON | task definition secret mapping과 실제 secret JSON 일치 |
@@ -716,7 +742,7 @@ terraform -chdir=infra/aws apply tfplan-main
 아래 항목이 보이면 apply 전에 한 번 더 확인한다.
 
 - RDS replacement 또는 deletion
-- Redis replacement
+- Valkey replacement
 - VPC/subnet replacement
 - ALB/CloudFront distribution replacement
 - IAM trust policy 확장
@@ -733,7 +759,7 @@ Terraform은 application rollback과 다르다. 인프라 변경 rollback은 이
 단, 아래 리소스는 rollback 전에 별도 판단이 필요하다.
 
 - RDS: data loss 가능성이 있으므로 삭제/교체 rollback 금지
-- Redis: cache 유실 가능성 확인
+- Valkey: cache 유실 가능성 확인
 - S3: object 삭제 policy 변경 주의
 - IAM: 권한 축소 시 deploy workflow가 막힐 수 있음
 - CloudFront: propagation 시간이 걸려 즉시 반영되지 않을 수 있음

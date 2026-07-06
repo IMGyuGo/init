@@ -9,13 +9,13 @@ resource "aws_elasticache_subnet_group" "redis" {
 
 resource "aws_elasticache_replication_group" "redis" {
   replication_group_id = "${local.name_prefix}-redis"
-  description          = "${local.name_prefix} Redis"
+  description          = "${local.name_prefix} Valkey cache"
 
-  engine               = "redis"
-  engine_version       = "7.1"
+  engine               = "valkey"
+  engine_version       = "7.2"
   node_type            = "cache.t4g.micro"
   port                 = 6379
-  parameter_group_name = "default.redis7"
+  parameter_group_name = "default.valkey7"
 
   num_cache_clusters         = 1
   automatic_failover_enabled = false

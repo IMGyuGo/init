@@ -12,7 +12,7 @@
 | API | `backend/api`, `npm run dev`, port `3001` | ECS Fargate API service |
 | Worker | `backend/worker`, `npm run start:dev` | ECS Fargate worker service |
 | PostgreSQL + pgvector | `infra/local/docker-compose.yml` | RDS PostgreSQL + pgvector |
-| Redis | `infra/local/docker-compose.yml` | ElastiCache Redis |
+| Redis protocol cache | `infra/local/docker-compose.yml` | ElastiCache Valkey |
 | S3 | LocalStack bucket `init-local-assets` | S3 bucket |
 | SQS | LocalStack queue `init-ai-jobs` | SQS queue |
 | Mailpit | local SMTP inbox | Amazon SES |
@@ -142,7 +142,7 @@ ECS frontend service
 
 ECS API service
 -> RDS PostgreSQL
--> ElastiCache Redis
+-> ElastiCache Valkey
 -> S3
 -> SQS
 -> SES
@@ -154,7 +154,7 @@ ECS worker service
 -> OpenAI/MediaPipe runtime dependency
 ```
 
-사용자는 CloudFront에 연결된 `init-jungle.cloud` 단일 도메인만 바라본다. CloudFront와 ALB가 path 기준으로 frontend와 API를 나눈다. `dev`와 `main`은 서로 다른 AWS 환경을 만들지 않고, 같은 `init-main-*` CloudFront/ECS/RDS/Redis/S3/SQS 세트를 갱신한다.
+사용자는 CloudFront에 연결된 `init-jungle.cloud` 단일 도메인만 바라본다. CloudFront와 ALB가 path 기준으로 frontend와 API를 나눈다. `dev`와 `main`은 서로 다른 AWS 환경을 만들지 않고, 같은 `init-main-*` CloudFront/ECS/RDS/Valkey/S3/SQS 세트를 갱신한다.
 
 도메인 소유권은 `init-jungle.cloud`를 기준으로 한다. DNS 관리는 Route53 hosted zone으로 위임한다. bootstrap Terraform이 Route53 hosted zone을 만들고, 출력된 NS record를 가비아 네임서버 설정에 등록해야 한다. 이 위임이 끝나지 않으면 Terraform이 ACM DNS validation record를 만들어도 CloudFront 인증서 검증이 완료되지 않을 수 있다.
 
@@ -204,7 +204,7 @@ ECS task는 private subnet으로 확정한다.
 | ALB | public subnet |
 | ECS frontend/API/worker task | private subnet |
 | RDS PostgreSQL | private subnet |
-| ElastiCache Redis | private subnet |
+| ElastiCache Valkey | private subnet |
 | NAT Gateway | public subnet |
 
 public subnet에 ECS task를 두면 초기 실습은 쉽지만 task가 인터넷 경계에 가까워진다. 운영 배포에서는 ALB만 public subnet에 두고 ECS task는 private subnet에 두는 편이 명확하다.
@@ -241,8 +241,8 @@ GitHub Actions가 `dev` 또는 `main` push/merge trigger를 받아 같은 AWS en
 
 | Trigger | 갱신되는 AWS 리소스 | 갱신되지 않는 리소스 |
 | --- | --- | --- |
-| `dev` push/merge | `init-main-*` ECR/ECS, main RDS/Redis/S3/SQS, main CloudFront | 없음 |
-| `main` push/merge | `init-main-*` ECR/ECS, main RDS/Redis/S3/SQS, main CloudFront | 없음 |
+| `dev` push/merge | `init-main-*` ECR/ECS, main RDS/Valkey/S3/SQS, main CloudFront | 없음 |
+| `main` push/merge | `init-main-*` ECR/ECS, main RDS/Valkey/S3/SQS, main CloudFront | 없음 |
 
 따라서 `dev`와 `main` 중 어느 브랜치든 배포가 성공하면 `init-jungle.cloud`의 실제 서비스가 갱신된다. 두 브랜치 배포가 겹치면 마지막으로 성공한 배포가 최종 상태가 되므로, 향후 deploy workflow에는 같은 concurrency group을 두어 중복 배포를 직렬화한다.
 
@@ -510,7 +510,7 @@ Preflight
 
 - `aws sts get-caller-identity`가 의도한 AWS 계정이 아니다.
 - 가비아 네임서버 위임이 완료되지 않아 ACM DNS validation이 장시간 대기 상태다.
-- Terraform plan에 RDS, Redis, CloudFront, IAM의 의도하지 않은 교체 또는 삭제가 포함된다.
+- Terraform plan에 RDS, Valkey, CloudFront, IAM의 의도하지 않은 교체 또는 삭제가 포함된다.
 - Secrets Manager에 필요한 runtime key가 누락되어 task 기동이 실패한다.
 - Prisma migration task가 실패한다.
 - ECS service update 후 ALB target health가 정상화되지 않는다.
