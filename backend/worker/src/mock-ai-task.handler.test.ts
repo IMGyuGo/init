@@ -543,7 +543,7 @@ test("criteria suggestion uses JD, talent profile and evaluation policy", async 
   assert.equal(output.postingId, 2);
   assert.deepEqual(output.items, results.generatedDrafts[0].items);
   assert.equal(output.criteriaSuggestions?.length, 6);
-  assert.deepEqual(output.items, ["직무/기술 역량", "문제 해결력", "실행력과 성과", "협업/커뮤니케이션", "학습/성장성", "책임감/신뢰성"]);
+  assert.deepEqual(output.items, ["직무 적합성", "문제 해결력", "실행력과 성과", "학습 민첩성", "커뮤니케이션", "성장 가능성"]);
   assert.match(
     output.criteriaSuggestions?.map((item) => `${item.description}\n${item.suggestionReason}`).join("\n") ?? "",
     /Pragmatic problem solver/,

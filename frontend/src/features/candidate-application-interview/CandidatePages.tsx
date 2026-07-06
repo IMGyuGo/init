@@ -4977,9 +4977,7 @@ function RecruitingReportView({ report }: { report: CandidateRecruitingReportVie
         <Definition label="상태" value={<StatusPill value={report.status} />} />
         <Definition label="회사" value={report.companyName} />
         <Definition label="공고" value={report.jobTitle} />
-        {report.reportId ? <Definition label="리포트 ID" value={`#${report.reportId}`} /> : null}
         {report.totalScore !== undefined ? <Definition label="총점" value={`${report.totalScore}점`} /> : null}
-        <Definition label="생성 시각" value={report.generatedAt ? formatDateTime(report.generatedAt) : "-"} />
         <Definition label="다음 단계" value={report.nextStepLabel} />
       </dl>
       <p className="description-box">{report.candidateMessage}</p>
@@ -5177,19 +5175,23 @@ function formatEvidenceSummary(evidence: CandidateReportEvidenceView, criterionN
 
 function formatCriterionEvidenceFocus(criterionName?: string): string {
   const labels: Record<string, string> = {
-    "직무/기술 역량": "기술 경험과 직무 연관성을 판단하는 데",
+    "직무 적합성": "JD와 답변 경험의 연결성을 판단하는 데",
+    "직무/기술 역량": "JD와 답변 경험의 연결성을 판단하는 데",
     "문제 해결력": "문제를 나누어 확인한 과정을 판단하는 데",
     "실행력과 성과": "직접 수행한 작업과 결과를 판단하는 데",
+    "학습 민첩성": "학습한 내용을 실제 문제에 적용한 흐름을 판단하는 데",
     "협업/커뮤니케이션": "상황 설명과 협업 방식을 판단하는 데",
+    "커뮤니케이션": "상황 설명과 협업 방식을 판단하는 데",
     "학습/성장성": "학습한 내용을 실제 문제에 적용한 흐름을 판단하는 데",
-    "책임감/신뢰성": "끝까지 확인하고 검증하는 태도를 판단하는 데",
+    "책임감/신뢰성": "회고와 개선 가능성을 판단하는 데",
+    "성장 가능성": "회고와 개선 가능성을 판단하는 데",
   };
 
   return criterionName ? labels[criterionName] ?? `${criterionName} 항목을 판단하는 데` : "답변 흐름을 확인하는 데";
 }
 
 function formatEvidenceReference(evidence: CandidateReportEvidenceView): string {
-  const answerLabel = evidence.answerId ? `참고 답변 #${evidence.answerId}` : "참고 답변";
+  const answerLabel = evidence.answerId ? "관련 답변" : "참고 자료";
   return `${answerLabel}: "${shortenReportEvidence(evidence.evidenceText)}"`;
 }
 
@@ -5222,7 +5224,7 @@ function formatEvidenceSourceNoun(sourceType: string): string {
 
 function shortenReportEvidence(value: string): string {
   const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
+  return normalized.length > 220 ? `${normalized.slice(0, 217)}...` : normalized;
 }
 
 function formatEvidenceSourceLabel(evidence: CandidateReportEvidenceView): string {

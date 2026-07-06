@@ -48,7 +48,7 @@ import {
   type ReportType,
 } from "../report.types";
 import { AiJobDispatcherService } from "./ai-job-dispatcher.service";
-import { buildDefaultReportCriteria } from "./service-interview-rubric";
+import { buildDefaultReportCriteria, normalizeReportCriterionName } from "./service-interview-rubric";
 
 type ReportAnswerSession = Pick<RuntimeInterviewSession, "sessionId" | "interviewType" | "showQuestionText">;
 type ReportGenerationKind = "MOCK_REPORT_GENERATE" | "RECRUITING_REPORT_GENERATE";
@@ -61,6 +61,9 @@ type ReportGenerationInput = {
   kind: ReportGenerationKind;
   session: ReportAnswerSession;
   postingId?: number;
+  companyName?: string;
+  jobTitle?: string;
+  jobRole?: string;
   jobDescription: string;
   currentUser: CurrentCandidateUser;
 };
@@ -238,6 +241,9 @@ export class ReportService {
       reportType: "MOCK_INTERVIEW_REPORT",
       kind: "MOCK_REPORT_GENERATE",
       session,
+      companyName: "모의면접",
+      jobTitle: "연습 면접",
+      jobRole: "Practice",
       jobDescription: "Mock interview practice session",
       currentUser,
     });
@@ -272,6 +278,9 @@ export class ReportService {
       kind: "RECRUITING_REPORT_GENERATE",
       session,
       postingId: application.postingId,
+      companyName: job.companyName,
+      jobTitle: job.title,
+      jobRole: job.jobRole,
       jobDescription: job.jobDescription,
       currentUser,
     });
@@ -407,6 +416,10 @@ export class ReportService {
 
     const body: GenerateReportRequest = {
       reportType: args.reportType,
+      ...(args.companyName ? { companyName: args.companyName } : {}),
+      ...(args.jobTitle ? { jobTitle: args.jobTitle } : {}),
+      ...(args.jobRole ? { jobRole: args.jobRole } : {}),
+      ...(args.postingId !== undefined ? { postingId: args.postingId } : {}),
       jobDescription: this.cleanOptionalText(args.jobDescription) ?? "Interview report generation",
       criteria: await this.reportCriteria(args.reportType, args.postingId, answers),
       answers: await this.reportAnswerInputs(answers),
@@ -437,14 +450,31 @@ export class ReportService {
   }
 
   private async reportAnswerInputs(answers: InterviewAnswer[]): Promise<ReportInterviewAnswerInput[]> {
+    const followUpsByAnswerId = await this.followUpsByAnswerId(answers);
+    const parentAnswerIdByFollowUpContent = new Map<string, number>();
+    for (const [answerId, followUps] of followUpsByAnswerId.entries()) {
+      for (const followUp of followUps) {
+        parentAnswerIdByFollowUpContent.set(this.normalizeQuestionContent(followUp.content), answerId);
+      }
+    }
+
     return Promise.all(
       answers.map(async (answer) => {
         const transcript = this.cleanOptionalText(answer.transcript);
         const question = await this.interviewRepository.findQuestion(answer.questionId);
+        const isFollowUpAnswer = question?.questionType === "FOLLOW_UP";
+        const parentAnswerId = isFollowUpAnswer
+          ? parentAnswerIdByFollowUpContent.get(this.normalizeQuestionContent(question?.content))
+          : undefined;
         const unavailableReason = DEFAULT_STT_UNAVAILABLE_REASON;
         return {
           answerId: answer.answerId,
+          questionId: answer.questionId,
           question: question?.content ?? `Interview question ${answer.questionId}`,
+          ...(question?.questionType ? { questionType: question.questionType } : {}),
+          ...(question?.sortOrder !== undefined ? { sortOrder: question.sortOrder } : {}),
+          ...(isFollowUpAnswer ? { isFollowUpAnswer: true } : {}),
+          ...(parentAnswerId !== undefined ? { parentAnswerId } : {}),
           ...(transcript ? { transcript } : {}),
           evaluationStatus: transcript ? "EVALUATED" : "STT_UNAVAILABLE",
           transcriptUnavailableReason: transcript ? undefined : unavailableReason,
@@ -463,6 +493,10 @@ export class ReportService {
       if (storedCriteria.length > 0) {
         return storedCriteria.map((criterion) => this.toEvaluationCriterionInput(criterion));
       }
+    }
+
+    if (reportType === "RECRUITING_REPORT") {
+      return this.defaultReportCriteria(reportType);
     }
 
     const questionCriteria = await this.reportCriteriaFromQuestions(answers);
@@ -826,16 +860,16 @@ export class ReportService {
 
   private toCandidateFacingScore(score: number): number {
     if (score >= 90) {
-      return 88;
+      return 86;
     }
-    if (score === 85) {
-      return 82;
+    if (score >= 85) {
+      return score - 4;
     }
-    if (score === 75) {
-      return 72;
+    if (score >= 80) {
+      return score - 3;
     }
-    if (score === 65) {
-      return 63;
+    if (score >= 75) {
+      return score - 2;
     }
     return score;
   }
@@ -851,8 +885,8 @@ export class ReportService {
     const subject = `${criterionName}${this.topicParticle(criterionName)}`;
     const base = `${subject} ${score}점입니다.`;
 
-    if (criterionName === "직무/기술 역량") {
-      return `${base} 사용 기술과 구현 경험이 직무와 연결되어 보입니다. 선택 이유와 적용 결과를 함께 말하면 더 설득력 있습니다.`;
+    if (criterionName === "직무 적합성") {
+      return `${base} JD와 연결되는 기술 경험과 역할 이해가 답변에서 확인됩니다. 선택 이유와 적용 결과를 함께 말하면 더 설득력 있습니다.`;
     }
     if (criterionName === "문제 해결력") {
       return `${base} 문제를 단계로 나누어 확인하려는 흐름이 보입니다. 원인, 시도한 방법, 최종 결과를 더 분명히 연결해 보세요.`;
@@ -860,14 +894,14 @@ export class ReportService {
     if (criterionName === "실행력과 성과") {
       return `${base} 직접 맡은 작업 흐름은 드러납니다. 완료 기준이나 개선 효과를 수치 또는 전후 비교로 보강하면 좋습니다.`;
     }
-    if (criterionName === "협업/커뮤니케이션") {
-      return `${base} 상황과 역할을 설명하는 흐름이 있습니다. 함께 일한 대상, 조율 방식, 공유 결과를 덧붙이면 전달력이 좋아집니다.`;
-    }
-    if (criterionName === "학습/성장성") {
+    if (criterionName === "학습 민첩성") {
       return `${base} 새로 익힌 내용을 실제 문제에 적용한 점이 보입니다. 학습 전후의 변화나 다음 적용 계획을 더하면 좋습니다.`;
     }
-    if (criterionName === "책임감/신뢰성") {
-      return `${base} 문제를 확인하고 검증하려는 태도가 보입니다. 재발 방지나 공유 과정까지 설명하면 신뢰도가 더 높아집니다.`;
+    if (criterionName === "커뮤니케이션") {
+      return `${base} 상황과 역할을 설명하는 흐름이 있습니다. 함께 일한 대상, 조율 방식, 공유 결과를 덧붙이면 전달력이 좋아집니다.`;
+    }
+    if (criterionName === "성장 가능성") {
+      return `${base} 문제를 검증하고 개선하려는 태도가 보입니다. 회고, 재발 방지, 다음 계획까지 설명하면 성장 가능성이 더 잘 드러납니다.`;
     }
 
     return `${base} 답변 내용과 제출된 근거를 바탕으로 산정했습니다. 구체적인 행동과 결과를 더 보강해 보세요.`;
@@ -927,6 +961,10 @@ export class ReportService {
     return trimmed ? trimmed : undefined;
   }
 
+  private normalizeQuestionContent(value?: string): string {
+    return value?.replace(/\s+/g, " ").trim().toLowerCase() ?? "";
+  }
+
   private deriveStrengths(scores: CandidateReportScoreRecord[]): string[] {
     return scores
       .filter((score) => score.score >= 80)
@@ -957,11 +995,14 @@ export class ReportService {
   }
 
   private displayCriterionName(score: CandidateReportScoreRecord): string | undefined {
-    return score.criterionName ?? this.criterionNameFromRationale(score.rationale);
+    const name = score.criterionName ?? this.criterionNameFromRationale(score.rationale);
+    return name ? normalizeReportCriterionName(name) : undefined;
   }
 
   private criterionNameFromRationale(rationale?: string): string | undefined {
-    const match = rationale?.match(/^(직무\/기술 역량|문제 해결력|실행력과 성과|협업\/커뮤니케이션|학습\/성장성|책임감\/신뢰성)(?:은|는)\s+\d+점/);
+    const match = rationale?.match(
+      /^(직무 적합성|직무\/기술 역량|문제 해결력|실행력과 성과|학습 민첩성|협업\/커뮤니케이션|커뮤니케이션|학습\/성장성|책임감\/신뢰성|성장 가능성)(?:은|는)\s+\d+점/,
+    );
     return match?.[1];
   }
 

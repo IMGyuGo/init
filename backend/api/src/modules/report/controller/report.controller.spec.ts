@@ -221,7 +221,7 @@ async function runReportControllerAssertions() {
   const feedback = await controller.getMockReportFeedback(validCandidateRequest, String(mockReportId));
   assert.equal(feedback.data.reportType, "MOCK_INTERVIEW_REPORT");
   assert.equal(feedback.data.status, "COMPLETED");
-  assert.equal(feedback.data.totalScore, 82);
+  assert.equal(feedback.data.totalScore, 79);
   assert.equal(feedback.data.scores?.[0]?.evidences[0]?.evidenceText, "project tradeoffs with concrete examples");
   assert.equal(feedback.data.visibilityPolicy.excludesHiringDecision, true);
   assert.equal(/합격|탈락|pass|fail|hire|reject/i.test([
@@ -386,8 +386,8 @@ async function runReportControllerAssertions() {
     String(submitted.application.applicationId),
   );
   assert.equal(completedApplicationReport.data.status, "COMPLETED");
-  assert.equal(completedApplicationReport.data.totalScore, 88);
-  assert.equal(completedApplicationReport.data.scores[0]?.criterionName, "Backend ownership");
+  assert.equal(completedApplicationReport.data.totalScore, 84);
+  assert.equal(completedApplicationReport.data.scores[0]?.criterionName, "직무 적합성");
   assert.equal(
     completedApplicationReport.data.scores[0]?.evidences[0]?.evidenceText,
     "improved API latency with caching and queue isolation",
