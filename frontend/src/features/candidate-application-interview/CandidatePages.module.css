@@ -4,65 +4,8 @@
   padding-left: 0;
 }
 
-:global(.candidate-app .gnb-panel) {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  z-index: 20;
-  display: grid;
-  gap: 6px;
-  min-width: 220px;
-  padding: 10px;
-  pointer-events: none;
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid var(--line-soft);
-  border-radius: 14px;
-  opacity: 0;
-  box-shadow: 0 16px 40px rgba(20, 18, 45, 0.12);
-  transform: translateY(-4px);
-  transition: opacity 0.14s ease, transform 0.14s ease;
-}
-
-:global(.candidate-app .gnb-item:hover > .gnb-panel),
-:global(.candidate-app .gnb-item:focus-within > .gnb-panel) {
-  pointer-events: auto;
-  opacity: 1;
-  transform: translateY(0);
-}
-
-:global(.candidate-app .gnb-panel::before) {
-  position: absolute;
-  right: 0;
-  bottom: 100%;
-  left: 0;
-  height: 10px;
-  content: "";
-}
-
-:global(.candidate-app .gnb-panel a) {
-  display: flex;
-  align-items: center;
-  min-height: 40px;
-  padding: 0 12px;
-  color: var(--ink-700);
-  font-size: 14px;
-  font-weight: 500;
-  white-space: nowrap;
-  border-radius: 10px;
-}
-
-:global(.candidate-app .gnb-panel a:hover),
-:global(.candidate-app .gnb-panel a:focus-visible),
-:global(.candidate-app .gnb-panel a.active) {
-  color: var(--brand-strong);
-  background: var(--surface-soft);
-}
-
-:global(.candidate-app .gnb-caret) {
-  color: currentColor;
-  font-size: 12px;
-  line-height: 1;
-}
+/* GNB(헤더)는 기업 페이지와 동일하게 공유 .gnb 스타일을 그대로 사용한다.
+   지원자 전용 override(패널 크기/보라색 hover 등)는 제거해 두 헤더를 완전히 일치시킴. */
 
 :global(.candidate-feature),
 :global(.candidate-feature__stack) {
