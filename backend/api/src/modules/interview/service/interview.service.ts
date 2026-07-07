@@ -322,6 +322,27 @@ export class InterviewService {
     return this.envelope(fileAsset);
   }
 
+  async buildCanonicalSttPayload(
+    sessionId: number,
+    answerId: number,
+    audioFileId: number,
+    currentUser: CurrentCandidateUser,
+  ): Promise<Record<string, unknown>> {
+    this.assertPositiveIntegerId(sessionId, "sessionId");
+    this.assertPositiveIntegerId(answerId, "answerId");
+    this.assertPositiveIntegerId(audioFileId, "audioFileId");
+
+    const session = await this.getOwnedRuntimeSession(sessionId, currentUser);
+    const answer = await this.interviewRepository.findAnswerById(session.sessionId, answerId);
+    if (!answer) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "Interview answer was not found.", 404, [
+        { field: "answerId", reason: "answer not found for session" },
+      ]);
+    }
+
+    return this.buildCanonicalSttPayloadForAnswer(session, answer, audioFileId, undefined, currentUser);
+  }
+
   private async getOwnedRuntimeSession(
     sessionId: number,
     currentUser: CurrentCandidateUser,
@@ -673,7 +694,7 @@ export class InterviewService {
               userType: currentUser.userType,
               candidateId: currentUser.candidateId,
             },
-            payload: await this.buildAiJobPayload(session, answer, requestBody, processType),
+            payload: await this.buildAiJobPayload(session, answer, requestBody, processType, currentUser),
           },
           refs: {
             sessionId: session.sessionId,
@@ -1041,24 +1062,16 @@ export class InterviewService {
     answer: InterviewAnswer,
     requestBody: AiInterviewRequestDto,
     processType: "STT" | "FOLLOW_UP",
+    currentUser: CurrentCandidateUser,
   ): Promise<Record<string, unknown>> {
     if (processType === "STT") {
-      const audioFileId = requestBody.audioFileId ?? requestBody.fileAssetId ?? answer.audioFileId ?? answer.videoFileId;
-      const audioS3Key = requestBody.audioS3Key;
-      if (!audioFileId || !audioS3Key) {
-        throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "STT audio file reference is required.", 400, [
-          { field: "audioFileId", reason: "audioFileId or fileAssetId is required" },
-          { field: "audioS3Key", reason: "audioS3Key is required" },
-        ]);
-      }
-
-      return {
-        answerId: answer.answerId,
-        audioFileId,
-        audioS3Key,
-        durationSeconds: requestBody.durationSeconds ?? answer.durationSeconds,
-        sessionId: session.sessionId,
-      };
+      return this.buildCanonicalSttPayloadForAnswer(
+        session,
+        answer,
+        requestBody.audioFileId ?? requestBody.fileAssetId,
+        requestBody.durationSeconds,
+        currentUser,
+      );
     }
 
     const previousQuestion = requestBody.previousQuestion ?? (await this.requiredQuestion(answer.questionId)).content;
@@ -1084,6 +1097,41 @@ export class InterviewService {
       transcript,
       jobDescription,
       documentSummary,
+      sessionId: session.sessionId,
+    };
+  }
+
+  private async buildCanonicalSttPayloadForAnswer(
+    session: RuntimeInterviewSession,
+    answer: InterviewAnswer,
+    requestedFileId: unknown,
+    requestedDurationSeconds: unknown,
+    currentUser: CurrentCandidateUser,
+  ): Promise<Record<string, unknown>> {
+    if (requestedFileId !== undefined && !this.isPositiveInteger(requestedFileId)) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "STT audio file reference is invalid.", 400, [
+        { field: "audioFileId", reason: "audioFileId or fileAssetId must be a positive integer" },
+      ]);
+    }
+
+    const audioFileId = (requestedFileId as number | undefined) ?? answer.audioFileId ?? answer.videoFileId;
+    if (!audioFileId) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "STT audio file reference is required.", 400, [
+        { field: "audioFileId", reason: "audioFileId or fileAssetId is required" },
+      ]);
+    }
+    if (audioFileId !== answer.audioFileId && audioFileId !== answer.videoFileId) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "File asset does not belong to the selected interview answer.", 409, [
+        { field: "audioFileId", reason: "audioFileId must match the answer audioFileId or videoFileId" },
+      ]);
+    }
+
+    const audioFile = await this.candidateService.getInterviewFileAsset(audioFileId, currentUser, "audioFileId");
+    return {
+      answerId: answer.answerId,
+      audioFileId,
+      audioS3Key: audioFile.storageKey,
+      durationSeconds: requestedDurationSeconds ?? answer.durationSeconds,
       sessionId: session.sessionId,
     };
   }

@@ -1,5 +1,7 @@
 import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
+import { CandidateModule } from "../candidate";
+import { InterviewModule } from "../interview";
 import { ReportModule } from "../report/report.module";
 import { PrismaService } from "../../shared/prisma.service";
 import { AiGuardrailsController } from "./controller/ai-guardrails.controller";
@@ -13,7 +15,7 @@ import {
 import { AiPerformanceService } from "./service/ai-performance.service";
 
 @Module({
-  imports: [ReportModule, AuthModule],
+  imports: [ReportModule, AuthModule, CandidateModule, InterviewModule],
   controllers: [
     AiGuardrailsController,
     CandidateAiJobsController,

@@ -4,6 +4,7 @@ import { MODULE_METADATA } from "@nestjs/common/constants";
 import { CandidateController } from "./controller/candidate.controller";
 import { CandidateModule } from "./candidate.module";
 import { CANDIDATE_REPOSITORY, CandidateService } from "./service/candidate.service";
+import { CANDIDATE_DOCUMENT_STORAGE } from "./service/candidate-document-storage.adapter";
 
 interface ProviderDefinition {
   provide: unknown;
@@ -25,6 +26,15 @@ assert.ok(exportsMetadata.includes(CandidateService));
 const repositoryProvider = providers.find(isProviderDefinition);
 assert.equal(repositoryProvider?.provide, CANDIDATE_REPOSITORY);
 assert.equal(typeof repositoryProvider?.useFactory, "function");
+assert.ok(
+  providers.some(
+    (provider) =>
+      typeof provider === "object" &&
+      provider !== null &&
+      "provide" in provider &&
+      provider.provide === CANDIDATE_DOCUMENT_STORAGE,
+  ),
+);
 
 test("candidate module metadata", () => {
   assert.ok(controllers.includes(CandidateController));

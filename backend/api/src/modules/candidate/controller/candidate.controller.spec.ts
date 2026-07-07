@@ -1,11 +1,14 @@
 import "reflect-metadata";
 import { strict as assert } from "node:assert";
-import { HttpException, RequestMethod } from "@nestjs/common";
+import { HttpException, RequestMethod, type INestApplication } from "@nestjs/common";
 import { HTTP_CODE_METADATA, METHOD_METADATA, PATH_METADATA } from "@nestjs/common/constants";
+import { Test } from "@nestjs/testing";
+import request from "supertest";
 import { CandidateController } from "./candidate.controller";
 import { candidateApiRoutePrefix, candidateApiRoutes } from "../candidate.routes";
 import { InMemoryCandidateRepository } from "../repository/in-memory-candidate.repository";
-import { CandidateService, DEV_CANDIDATE_USER } from "../service/candidate.service";
+import { CANDIDATE_REPOSITORY, CandidateService, DEV_CANDIDATE_USER, MAX_DOCUMENT_SIZE_BYTES } from "../service/candidate.service";
+import { CANDIDATE_DOCUMENT_STORAGE, InMemoryCandidateDocumentStorageAdapter } from "../service/candidate-document-storage.adapter";
 
 type CandidateControllerRoute =
   | "listJobs"
@@ -73,7 +76,8 @@ async function assertCandidateHttpError(
 }
 
 async function runControllerRuntimeAssertions() {
-  const controller = new CandidateController(new CandidateService(new InMemoryCandidateRepository()));
+  const documentStorage = new InMemoryCandidateDocumentStorageAdapter();
+  const controller = new CandidateController(new CandidateService(new InMemoryCandidateRepository(), documentStorage));
 
   const listResponse = await controller.listJobs(validCandidateRequest, {
     page: 1,
@@ -119,6 +123,19 @@ async function runControllerRuntimeAssertions() {
     400,
     "FILE_SIZE_EXCEEDED",
   );
+
+  const multipartResume = await controller.uploadResume(
+    validCandidateRequest,
+    {} as never,
+    {
+      originalname: "controller-uploaded-resume.pdf",
+      mimetype: "application/pdf",
+      size: 1000,
+      buffer: Buffer.from("pdf"),
+    },
+  );
+  assert.match(multipartResume.data.storageKey, /^candidate\/1\/documents\/\d+-controller-uploaded-resume\.pdf$/);
+  assert.equal(documentStorage.objects[0]?.key, multipartResume.data.storageKey);
 
   const resume = await controller.uploadResume(validCandidateRequest, {
     storageKey: "candidate/1/controller-resume.pdf",
@@ -193,3 +210,49 @@ async function runControllerRuntimeAssertions() {
 test("candidate controller contract", async () => {
   await runControllerRuntimeAssertions();
 });
+
+test("candidate resume multipart upload rejects oversized files before storage", async () => {
+  const documentStorage = new InMemoryCandidateDocumentStorageAdapter();
+  const app = await createCandidateHttpTestApp(documentStorage);
+
+  try {
+    const response = await request(app.getHttpServer())
+      .post(`/${candidateApiRoutePrefix}/${candidateApiRoutes.resume}`)
+      .set("x-dev-user-id", String(DEV_CANDIDATE_USER.userId))
+      .set("x-dev-user-type", DEV_CANDIDATE_USER.userType)
+      .set("x-dev-candidate-id", String(DEV_CANDIDATE_USER.candidateId))
+      .attach("file", Buffer.alloc(MAX_DOCUMENT_SIZE_BYTES + 1), {
+        filename: "oversized-resume.pdf",
+        contentType: "application/pdf",
+      })
+      .expect(400);
+
+    assert.equal(response.body.error.code, "FILE_SIZE_EXCEEDED");
+    assert.equal(documentStorage.objects.length, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+async function createCandidateHttpTestApp(
+  documentStorage: InMemoryCandidateDocumentStorageAdapter,
+): Promise<INestApplication> {
+  const moduleRef = await Test.createTestingModule({
+    controllers: [CandidateController],
+    providers: [
+      {
+        provide: CANDIDATE_REPOSITORY,
+        useValue: new InMemoryCandidateRepository(),
+      },
+      {
+        provide: CANDIDATE_DOCUMENT_STORAGE,
+        useValue: documentStorage,
+      },
+      CandidateService,
+    ],
+  }).compile();
+
+  const app = moduleRef.createNestApplication();
+  await app.init();
+  return app;
+}

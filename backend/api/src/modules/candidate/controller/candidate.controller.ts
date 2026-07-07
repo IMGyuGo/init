@@ -1,11 +1,32 @@
-import { Body, Controller, Get, HttpCode, HttpException, Inject, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import {
+  ArgumentsHost,
+  Body,
+  Catch,
+  Controller,
+  ExceptionFilter,
+  Get,
+  HttpCode,
+  HttpException,
+  Inject,
+  Param,
+  PayloadTooLargeException,
+  Post,
+  Query,
+  Req,
+  UploadedFile,
+  UseFilters,
+  UseGuards,
+  UseInterceptors,
+} from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import type { CurrentUser } from "@init/common";
+import type { Response } from "express";
 import { type RequestLike } from "../../../shared/response-envelope";
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
 import { resolveCurrentCandidate } from "./candidate.auth";
 import { candidateApiRoutePrefix, candidateApiRoutes } from "../candidate.routes";
-import { CandidateDomainError } from "../candidate.errors";
-import { CandidateService } from "../service/candidate.service";
+import { CandidateDomainError, createCandidateErrorResponse } from "../candidate.errors";
+import { CandidateService, MAX_DOCUMENT_SIZE_BYTES } from "../service/candidate.service";
 import { CandidateJobListQueryDto } from "../dto/candidate-job-list-query.dto";
 import { CreatePortfolioLinkDto } from "../dto/create-portfolio-link.dto";
 import { SaveInterviewConsentDto } from "../dto/save-interview-consent.dto";
@@ -13,6 +34,24 @@ import { SubmitApplicationDto } from "../dto/submit-application.dto";
 import { UploadResumeDto } from "../dto/upload-resume.dto";
 
 type CandidateRequest = RequestLike & { currentUser: CurrentUser };
+type UploadedResumeFile = {
+  originalname: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+};
+
+@Catch(PayloadTooLargeException)
+class CandidateDocumentUploadExceptionFilter implements ExceptionFilter {
+  catch(_exception: PayloadTooLargeException, host: ArgumentsHost): void {
+    const response = host.switchToHttp().getResponse<Response>();
+    const error = new CandidateDomainError("FILE_SIZE_EXCEEDED", "File size exceeds the allowed limit.", 400, [
+      { field: "file", reason: `file must be ${MAX_DOCUMENT_SIZE_BYTES} bytes or smaller` },
+    ]);
+
+    response.status(error.statusCode).json(createCandidateErrorResponse(error));
+  }
+}
 
 @UseGuards(JwtAuthGuard)
 @Controller(candidateApiRoutePrefix)
@@ -58,10 +97,26 @@ export class CandidateController {
 
   @Post(candidateApiRoutes.resume)
   @HttpCode(201)
-  uploadResume(@Req() request: CandidateRequest, @Body() dto: UploadResumeDto) {
+  @UseFilters(new CandidateDocumentUploadExceptionFilter())
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_DOCUMENT_SIZE_BYTES } }))
+  uploadResume(
+    @Req() request: CandidateRequest,
+    @Body() dto: UploadResumeDto,
+    @UploadedFile() file?: UploadedResumeFile,
+  ) {
     return this.handle(() => {
       const currentUser = resolveCurrentCandidate(request.currentUser);
-      return this.candidateService.uploadResume(dto, currentUser);
+      return file
+        ? this.candidateService.uploadResumeFile(
+            {
+              originalName: file.originalname,
+              mimeType: file.mimetype,
+              sizeBytes: file.size,
+              buffer: file.buffer,
+            },
+            currentUser,
+          )
+        : this.candidateService.uploadResume(dto, currentUser);
     });
   }
 

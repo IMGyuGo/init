@@ -6,6 +6,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  HttpException,
   Inject,
   NotFoundException,
   Param,
@@ -33,6 +34,8 @@ import { AiJobDispatcherService } from "../../report/service/ai-job-dispatcher.s
 import { AiProcessNotFoundError, REPORT_REPOSITORY, ReportRepository } from "../../report/repository/report.repository";
 import { AiProcessType, QueuedAiProcessSnapshot } from "../../report/report.types";
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
+import { CandidateDomainError, CandidateService, type CurrentCandidateUser } from "../../candidate";
+import { InterviewService } from "../../interview";
 
 type HeaderMap = Record<string, string | string[] | undefined>;
 type CandidateAiRequest = {
@@ -61,7 +64,9 @@ type AiJobRequestedBy = {
 export class CandidateAiJobsController {
   constructor(
     @Inject(DevAuthAdapter) private readonly devAuthAdapter: DevAuthAdapter,
-    @Inject(AiJobDispatcherService) private readonly dispatcher: AiJobDispatcherService
+    @Inject(AiJobDispatcherService) private readonly dispatcher: AiJobDispatcherService,
+    @Inject(CandidateService) private readonly candidateService: CandidateService,
+    @Inject(InterviewService) private readonly interviewService: InterviewService
   ) {}
 
   @Post("documents/extract")
@@ -70,17 +75,27 @@ export class CandidateAiJobsController {
   @ApiOperation({ summary: "서류 텍스트 추출 작업 생성" })
   @ApiEnvelopeResponse(AiJobResponseDto, 202)
   async extractDocument(@Req() request: CandidateAiRequest, @Body() body: DocumentExtractRequestDto) {
-    const currentUser = this.candidate(request);
-    this.requirePositive(body.applicationId, "applicationId");
-    this.requirePositive(body.documentId, "documentId");
-    this.requirePositive(body.fileId, "fileId");
-    this.requireText(body.s3Key, "s3Key");
-    this.forbidRawPayload(body, ["fileContent", "rawContent", "base64", "fileBytes"]);
+    return this.handleCandidateDomain(async () => {
+      const currentUser = this.candidate(request);
+      this.requirePositive(body.applicationId, "applicationId");
+      this.requirePositive(body.documentId, "documentId");
+      this.requirePositive(body.fileId, "fileId");
+      this.forbidRawPayload(body, ["fileContent", "rawContent", "base64", "fileBytes"]);
 
-    return this.dispatcher.dispatch({
-      processType: "DOCUMENT_EXTRACT",
-      input: this.input("DOCUMENT_EXTRACT", body, currentUser),
-      refs: { applicationId: Number(body.applicationId) }
+      const payload = await this.candidateService.buildDocumentExtractAiPayload(
+        {
+          applicationId: Number(body.applicationId),
+          documentId: Number(body.documentId),
+          fileId: Number(body.fileId),
+        },
+        currentUser,
+      );
+
+      return this.dispatcher.dispatch({
+        processType: "DOCUMENT_EXTRACT",
+        input: this.input("DOCUMENT_EXTRACT", payload, currentUser),
+        refs: { applicationId: Number(body.applicationId) }
+      });
     });
   }
 
@@ -140,17 +155,25 @@ export class CandidateAiJobsController {
   }
 
   private async transcribe(kind: string, sessionIdParam: string, request: CandidateAiRequest, body: SttRequestDto) {
-    const currentUser = this.candidate(request);
-    const sessionId = this.parseId(sessionIdParam, "sessionId");
-    this.requirePositive(body.answerId, "answerId");
-    this.requirePositive(body.audioFileId, "audioFileId");
-    this.requireText(body.audioS3Key, "audioS3Key");
-    this.forbidRawPayload(body, ["audioContent", "audioBase64", "fileContent", "rawContent", "base64", "fileBytes"]);
+    return this.handleCandidateDomain(async () => {
+      const currentUser = this.candidate(request);
+      const sessionId = this.parseId(sessionIdParam, "sessionId");
+      this.requirePositive(body.answerId, "answerId");
+      this.requirePositive(body.audioFileId, "audioFileId");
+      this.forbidRawPayload(body, ["audioContent", "audioBase64", "fileContent", "rawContent", "base64", "fileBytes"]);
 
-    return this.dispatcher.dispatch({
-      processType: "STT",
-      input: this.input(kind, { ...body, sessionId }, currentUser),
-      refs: { sessionId }
+      const payload = await this.interviewService.buildCanonicalSttPayload(
+        sessionId,
+        Number(body.answerId),
+        Number(body.audioFileId),
+        currentUser,
+      );
+
+      return this.dispatcher.dispatch({
+        processType: "STT",
+        input: this.input(kind, payload, currentUser),
+        refs: { sessionId }
+      });
     });
   }
 
@@ -171,7 +194,7 @@ export class CandidateAiJobsController {
     });
   }
 
-  private candidate(request: CandidateAiRequest): CurrentUser {
+  private candidate(request: CandidateAiRequest): CurrentCandidateUser {
     const currentUser = request.currentUser
       ? {
           userId: request.currentUser.userId,
@@ -181,7 +204,18 @@ export class CandidateAiJobsController {
         }
       : this.devAuthAdapter.parse(request.headers);
     this.devAuthAdapter.assertCandidate(currentUser);
-    return currentUser;
+    const candidateId = Number(currentUser.candidateId);
+    if (currentUser.userType !== "CANDIDATE" || !Number.isInteger(candidateId) || candidateId <= 0) {
+      throw new ForbiddenException({
+        code: "COMMON_FORBIDDEN",
+        message: "Candidate permission is required.",
+      });
+    }
+    return {
+      userId: currentUser.userId,
+      userType: "CANDIDATE",
+      candidateId,
+    };
   }
 
   private input(kind: string, body: object, currentUser: CurrentUser) {
@@ -227,7 +261,21 @@ export class CandidateAiJobsController {
     const payload = body as Record<string, unknown>;
     const providedName = names.find((name) => payload[name] !== undefined && payload[name] !== null);
     if (providedName) {
-      throw this.validation(`${providedName} must not be sent. Use fileId and S3 object key references.`);
+      throw this.validation(`${providedName} must not be sent. Use fileId references.`);
+    }
+  }
+
+  private async handleCandidateDomain<T>(action: () => Promise<T>): Promise<T> {
+    try {
+      return await action();
+    } catch (error) {
+      if (error instanceof CandidateDomainError) {
+        throw new HttpException(
+          { code: error.code, message: error.message, details: error.details },
+          error.statusCode,
+        );
+      }
+      throw error;
     }
   }
 
