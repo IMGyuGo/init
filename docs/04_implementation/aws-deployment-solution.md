@@ -236,17 +236,16 @@ public subnet에 ECS task를 두면 초기 실습은 쉽지만 task가 인터넷
 
 ## dev, main 브랜치의 단일 실배포 정책
 
-초기 AWS 환경은 `main` 실배포 환경 하나만 둔다. `dev` 브랜치는 별도 AWS dev 환경이 아니라, 실배포 환경에 자동 배포되는 또 하나의 trigger다. `infra/test`는 CD 안정성 확인을 위한 임시 trigger이며 테스트가 끝나면 workflow와 GitHub Environment branch rule에서 제거한다. `staging`은 발표 전 리허설 또는 운영 검증 환경이 필요해지는 시점에 별도 작업으로 추가한다.
+초기 AWS 환경은 `main` 실배포 환경 하나만 둔다. `dev` 브랜치는 별도 AWS dev 환경이 아니라, 실배포 환경에 자동 배포되는 또 하나의 trigger다. CD 안정성 확인용 임시 branch였던 `infra/test`는 검증 완료 후 workflow trigger와 branch에서 제거했다. `staging`은 발표 전 리허설 또는 운영 검증 환경이 필요해지는 시점에 별도 작업으로 추가한다.
 
-GitHub Actions가 `dev`, 임시 `infra/test`, `main` PR merge로 생성된 protected branch push를 받아 같은 AWS environment를 갱신한다. AWS가 repository의 branch를 직접 감시하는 것이 아니라, GitHub Actions가 target branch와 GitHub Environment `init-main` 권한 경계를 확인한 뒤 동일한 배포 target을 사용한다.
+GitHub Actions가 `dev`, `main` PR merge로 생성된 protected branch push를 받아 같은 AWS environment를 갱신한다. AWS가 repository의 branch를 직접 감시하는 것이 아니라, GitHub Actions가 target branch와 GitHub Environment `init-main` 권한 경계를 확인한 뒤 동일한 배포 target을 사용한다.
 
-trigger는 `pull_request.closed`가 아니라 `push`를 사용한다. `pull_request.closed` 이벤트에서 Environment protection rule은 base branch가 아니라 `refs/pull/<number>/merge` ref를 평가할 수 있어 `dev`/`infra/test`/`main` branch rule에 막힌다. 따라서 protected branch에 merge 결과가 반영된 `push` 이벤트를 배포 시작점으로 삼고, workflow 내부에서 해당 commit이 merged PR과 연결되어 있는지 확인해 direct push 배포를 차단한다.
+trigger는 `pull_request.closed`가 아니라 `push`를 사용한다. `pull_request.closed` 이벤트에서 Environment protection rule은 base branch가 아니라 `refs/pull/<number>/merge` ref를 평가할 수 있어 `dev`/`main` branch rule에 막힌다. 따라서 protected branch에 merge 결과가 반영된 `push` 이벤트를 배포 시작점으로 삼고, workflow 내부에서 해당 commit이 merged PR과 연결되어 있는지 확인해 direct push 배포를 차단한다.
 
 | Git branch | AWS environment | 배포 정책 | Migration 정책 |
 | --- | --- | --- | --- |
 | Pull Request | 없음 | 배포하지 않음. test/build/docker build만 수행 | 실제 DB migration 없음. `prisma validate/generate`만 수행 |
 | `dev` | main | merge 후 자동 실배포 | ECS one-off migration task 자동 실행 |
-| `infra/test` | main | 임시 CD 안정성 검증용 자동 실배포 | ECS one-off migration task 자동 실행 |
 | `main` | main | merge 후 자동 실배포 | ECS one-off migration task 자동 실행 |
 
 환경별 갱신 범위:
@@ -254,10 +253,9 @@ trigger는 `pull_request.closed`가 아니라 `push`를 사용한다. `pull_requ
 | Trigger | 갱신되는 AWS 리소스 | 갱신되지 않는 리소스 |
 | --- | --- | --- |
 | `dev` PR merge | `init-main-*` ECR/ECS, main RDS/Valkey/S3/SQS, main CloudFront | 없음 |
-| `infra/test` PR merge | `init-main-*` ECR/ECS, main RDS/Valkey/S3/SQS, main CloudFront | 없음 |
 | `main` PR merge | `init-main-*` ECR/ECS, main RDS/Valkey/S3/SQS, main CloudFront | 없음 |
 
-따라서 `dev`, 임시 `infra/test`, `main` 중 어느 브랜치든 배포가 성공하면 `init-jungle.cloud`의 실제 서비스가 갱신된다. 여러 브랜치 배포가 겹치면 마지막으로 성공한 배포가 최종 상태가 되므로 deploy workflow에는 같은 concurrency group을 두어 중복 배포를 직렬화한다.
+따라서 `dev`, `main` 중 어느 브랜치든 배포가 성공하면 `init-jungle.cloud`의 실제 서비스가 갱신된다. 여러 브랜치 배포가 겹치면 마지막으로 성공한 배포가 최종 상태가 되므로 deploy workflow에는 같은 concurrency group을 두어 중복 배포를 직렬화한다.
 
 ## 서비스별 자동 배포 흐름
 
@@ -285,7 +283,6 @@ branch별 동작:
 | --- | --- |
 | Pull Request to `dev`/`main` | test/build/docker build 검증만 수행. ECR push와 ECS update는 하지 않음 |
 | Merge to `dev` | 변경된 service만 main ECR/ECS에 자동 실배포 |
-| Merge to `infra/test` | 임시 CD 안정성 검증용으로 변경된 service만 main ECR/ECS에 자동 실배포 |
 | Merge to `main` | 변경된 service만 main ECR/ECS에 자동 실배포 |
 
 서비스별 변경 감지 기준:
@@ -300,7 +297,7 @@ branch별 동작:
 | `.env.example` | image build는 변경 service 기준 | 필요 service만 update | Secrets Manager key validation. secret mapping 자체 변경은 Terraform PR로 처리 |
 | `infra/aws/**` | 없음 | 없음 | Terraform plan/apply 대상. application image deploy workflow와 분리 |
 
-ECR image tag는 mutable한 `latest`를 배포 기준으로 쓰지 않는다. 기본 tag는 PR merge 후 target branch head인 `github.sha`를 사용하고, 필요하면 사람이 보기 쉬운 branch alias tag를 추가로 붙인다. ECS task definition에는 항상 immutable한 SHA tag image URI를 반영한다. `dev`, 임시 `infra/test`, `main` 모두 같은 ECR repository에 push하므로 SHA tag를 기준으로 배포 이력을 추적한다.
+ECR image tag는 mutable한 `latest`를 배포 기준으로 쓰지 않는다. 기본 tag는 PR merge 후 target branch head인 `github.sha`를 사용하고, 필요하면 사람이 보기 쉬운 branch alias tag를 추가로 붙인다. ECS task definition에는 항상 immutable한 SHA tag image URI를 반영한다. `dev`, `main` 모두 같은 ECR repository에 push하므로 SHA tag를 기준으로 배포 이력을 추적한다.
 
 예를 들어 팀원이 API 코드만 수정해 `dev`에 merge하면 자동화는 아래처럼 동작한다.
 
@@ -320,7 +317,7 @@ backend/api/** 변경 감지
 자동 실배포 절차:
 
 ```text
-1. PR -> dev, 임시 infra/test, main merge
+1. PR -> dev 또는 main merge
 2. GitHub Actions deploy workflow 자동 시작
 3. concurrency group에서 이전 배포 완료 대기
 4. 변경된 service image build
@@ -473,7 +470,7 @@ smoke check는 이번 slice에서 AWS endpoint가 아니라 Docker image 내부 
 
 rollback 기준은 단순하다. bash harness 변경으로 macOS/Linux role harness가 실패하면 `scripts/check-local.sh`의 Docker 탐색/빌드 부분만 되돌리고, PowerShell과 GitHub Actions의 repo root context 기준은 유지한다. 문서가 Terraform/ECS deploy workflow를 구현 완료처럼 표현하면 `aws-deployment-solution.md`와 `test-strategy.md`만 보정한다.
 
-남은 release risk는 실제 cloud deploy workflow가 임시 `infra/test`에서는 성공했지만 정식 `dev`/`main` merge 흐름과 임시 branch 제거까지는 아직 끝나지 않았다는 점이다. `infra/test` re-run all jobs 기준 ECR push, ECS frontend service update, domain smoke는 통과했으나, 최종 완료 판정은 `dev`와 `main` PR merge에서도 같은 workflow가 성공하고 `infra/test` 임시 trigger/rule/branch를 제거한 뒤 내린다.
+남은 release risk는 실제 cloud deploy workflow가 임시 `infra/test`에서는 성공했지만 정식 `dev`/`main` merge 흐름은 아직 별도로 검증해야 한다는 점이다. `infra/test` re-run all jobs 기준 ECR push, ECS frontend service update, domain smoke는 통과했고, 임시 workflow trigger와 branch는 제거했다. 최종 완료 판정은 `dev`와 `main` PR merge에서도 같은 workflow가 성공한 뒤 내린다.
 
 ## 완료된 작업 단위
 
@@ -522,13 +519,13 @@ Preflight
 - ECR에 frontend/API/worker image가 존재한다.
 - ECS one-off migration task가 성공한 뒤 ECS service update가 진행된다.
 - ALB target group health check와 `https://init-jungle.cloud` smoke test가 통과한다.
-- GitHub Actions deploy workflow가 `dev`, 임시 `infra/test`, `main` PR merge에서 같은 main 실배포 환경을 갱신한다.
+- GitHub Actions deploy workflow가 `dev`, `main` PR merge에서 같은 main 실배포 환경을 갱신한다.
 
 임시 검증 현황:
 
 - `infra/test` GitHub Actions run `28840157083`은 `Re-run all jobs` 후 `Success`로 완료됐다.
 - 확인된 결과는 frontend 변경 기준 ECR image tag `4c8ba7b1f4bfedca05cb274cf9613beb0878cbd5` push, ECS `init-main-frontend:2` service update, API health 200, CloudWatch alarm 7개 `OK`다.
-- 남은 작업은 `dev`/`main` merge 검증과 `infra/test` 임시 trigger/rule/branch 제거다.
+- 남은 작업은 `dev`/`main` merge 검증이다. `infra/test` 임시 workflow trigger와 branch는 제거했다.
 
 중단 기준:
 

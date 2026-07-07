@@ -709,18 +709,18 @@ aws cloudfront create-invalidation `
 
 ### 11. GitHub Actions deploy workflow 구현
 
-수동 구축이 한 번 성공한 뒤 자동 배포 workflow를 만든다. 목표는 `dev`, `main` branch에 PR merge가 완료됐을 때 같은 `init-main-*` 리소스를 갱신하는 것이다. CD 안정성 확인 전까지는 임시 검증 branch `infra/test`도 같은 workflow trigger에 포함한다.
+수동 구축이 한 번 성공한 뒤 자동 배포 workflow를 만든다. 목표는 `dev`, `main` branch에 PR merge가 완료됐을 때 같은 `init-main-*` 리소스를 갱신하는 것이다. CD 안정성 확인용 임시 branch였던 `infra/test`는 검증 완료 후 workflow trigger에서 제거했다.
 
-GitHub Actions만 사용하되, 배포 권한 경계는 GitHub Environment `init-main`으로 둔다. AWS IAM OIDC trust는 branch ref가 아니라 `repo:seok3m4/init:environment:init-main` subject를 허용한다. 따라서 GitHub Environment의 deployment branch rule이 운영 branch와 임시 검증 branch만 허용해야 한다.
+GitHub Actions만 사용하되, 배포 권한 경계는 GitHub Environment `init-main`으로 둔다. AWS IAM OIDC trust는 branch ref가 아니라 `repo:seok3m4/init:environment:init-main` subject를 허용한다. 따라서 GitHub Environment의 deployment branch rule은 운영 branch인 `dev`, `main`만 허용해야 한다.
 
-배포 workflow의 GitHub trigger는 `pull_request.closed`가 아니라 `push` on `dev`, `infra/test`, `main`이다. PR merge가 완료되면 GitHub가 base branch에 push 이벤트를 만들고, 이때 Environment protection rule은 `refs/heads/infra/test` 같은 실제 branch ref를 평가한다. `pull_request.closed`를 쓰면 Environment가 `refs/pull/<number>/merge`를 평가해 branch rule에 막힐 수 있다. workflow 내부에서는 push commit이 merged PR과 연결되어 있는지 다시 확인해 direct push 배포를 차단한다.
+배포 workflow의 GitHub trigger는 `pull_request.closed`가 아니라 `push` on `dev`, `main`이다. PR merge가 완료되면 GitHub가 base branch에 push 이벤트를 만들고, 이때 Environment protection rule은 `refs/heads/dev` 같은 실제 branch ref를 평가한다. `pull_request.closed`를 쓰면 Environment가 `refs/pull/<number>/merge`를 평가해 branch rule에 막힐 수 있다. workflow 내부에서는 push commit이 merged PR과 연결되어 있는지 다시 확인해 direct push 배포를 차단한다.
 
 사용자 사전 작업:
 
 1. GitHub repository `Settings > Environments`에서 `init-main` environment를 만든다.
-2. `init-main` environment의 deployment branch rule을 `Selected branches and tags`로 설정하고 `dev`, `main`, `infra/test`만 허용한다. `infra/test`는 CD 안정성 테스트가 끝나면 제거한다.
+2. `init-main` environment의 deployment branch rule을 `Selected branches and tags`로 설정하고 `dev`, `main`만 허용한다.
 3. merge 즉시 자동 배포가 목표라면 required reviewer는 설정하지 않는다.
-4. `Settings > Branches` 또는 `Rulesets`에서 `dev`, `main`, `infra/test`에 branch protection을 설정한다.
+4. `Settings > Branches` 또는 `Rulesets`에서 `dev`, `main`에 branch protection을 설정한다.
    - PR merge 필수
    - CI required checks 통과 필수
    - direct push 제한
@@ -731,7 +731,7 @@ GitHub Actions만 사용하되, 배포 권한 경계는 GitHub Environment `init
 
 | 항목 | 기준 |
 | --- | --- |
-| trigger | `push` on protected branch `dev`, `infra/test`, `main`; workflow 내부에서 associated merged PR 확인 |
+| trigger | `push` on protected branch `dev`, `main`; workflow 내부에서 associated merged PR 확인 |
 | AWS 인증 | GitHub Environment `init-main` subject로 `github_deploy_role_arn` assume |
 | concurrency | `aws-main-deploy` 단일 group |
 | image tag | push 후 target branch head SHA인 `github.sha` |
@@ -758,8 +758,8 @@ GitHub repository에 필요한 값:
 
 중단 기준:
 
-- GitHub Environment `init-main`이 없거나 deployment branch rule이 `dev`, `main`, 임시 `infra/test` 외 branch를 허용한다.
-- `dev`, `main`, 임시 `infra/test`에서 direct push가 가능해 PR merge 기준이 깨진다.
+- GitHub Environment `init-main`이 없거나 deployment branch rule이 `dev`, `main` 외 branch를 허용한다.
+- `dev`, `main`에서 direct push가 가능해 PR merge 기준이 깨진다.
 - OIDC assume role이 실패한다.
 - GitHub Environment variable/secret이 누락됐다.
 - Terraform 변경과 application 배포 변경이 같은 PR에 섞여 있다.
@@ -772,9 +772,9 @@ GitHub repository에 필요한 값:
 
 자동화가 들어간 뒤에는 `dev`와 `main`이 서로 다른 서버가 아니라 같은 main 실배포 환경을 갱신한다는 점을 검증한다.
 
-정식 `dev`, `main` 검증 전에 CD 안정성을 먼저 확인하려면 임시 branch `infra/test`를 사용한다. 이 검증도 모의 실행이 아니라 실제 `init-main-*` ECS/ECR과 `https://init-jungle.cloud`를 갱신한다.
+정식 `dev`, `main` 검증 전에 CD 안정성을 확인하기 위해 임시 branch `infra/test`를 사용했다. 이 검증은 모의 실행이 아니라 실제 `init-main-*` ECS/ECR과 `https://init-jungle.cloud`를 갱신했다.
 
-임시 검증 흐름:
+완료된 임시 검증 흐름:
 
 ```text
 feature/* -> infra/test PR merge
@@ -793,13 +793,13 @@ feature/* -> infra/test PR merge
 - `https://init-jungle.cloud/api/v1/health`는 200 응답이며, CloudWatch alarm `init-main-*` 7개는 모두 `OK` 상태다.
 - GitHub Actions annotations에는 Node.js 20 deprecation warning이 남아 있다. 배포 성공 blocker는 아니지만 `actions/github-script`, `actions/checkout`, `aws-actions/configure-aws-credentials` 업그레이드 후보로 관리한다.
 
-임시 검증 후 원복:
+임시 검증 후 정리 상태:
 
-1. `.github/workflows/deploy.yml` trigger에서 `infra/test`를 제거한다.
-2. `.github/workflows/ci.yml` trigger에서 `infra/test`를 제거한다.
-3. GitHub Environment `init-main` deployment branch rule에서 `infra/test`를 제거한다.
-4. GitHub branch protection/ruleset에서 `infra/test` 임시 rule을 제거한다.
-5. 원격 branch가 더 필요 없으면 `git push origin --delete infra/test`로 삭제한다.
+1. `.github/workflows/deploy.yml` trigger에서 `infra/test`를 제거했다.
+2. `.github/workflows/ci.yml` trigger에서 `infra/test`를 제거했다.
+3. 원격 branch는 `git push origin --delete infra/test`로 삭제했다.
+4. 로컬 branch는 다른 branch로 이동한 뒤 `git branch -D infra/test`로 삭제했다.
+5. GitHub Environment `init-main` deployment branch rule과 branch protection/ruleset에 `infra/test` 임시 rule이 남아 있으면 제거한다.
 
 검증 흐름:
 
@@ -818,7 +818,7 @@ dev -> main PR merge
 
 완료 기준:
 
-- GitHub Actions deploy workflow log에서 임시 `infra/test`, `dev`, `main` 모두 성공한다.
+- GitHub Actions deploy workflow log에서 `dev`, `main` 모두 성공한다.
 - ECS service task definition revision이 최신 target branch head SHA image tag를 참조한다.
 - `https://init-jungle.cloud`가 최신 PR merge commit 기준으로 갱신된다.
 
