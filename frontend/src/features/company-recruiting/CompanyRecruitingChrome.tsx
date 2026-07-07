@@ -6,14 +6,14 @@ import { usePathname } from "next/navigation";
 
 import { GnbAvatar, GnbLogoutButton } from "../auth/GnbAccountControls";
 import { COMPANY_MYPAGE_ROUTE } from "../company-profile/routes";
-import { companyAccountBillingNav, companyNavLabels, isCompanyAccountBillingPath } from "./company-nav-config";
+import { AI_PERFORMANCE_ROUTE, companyAccountBillingNav, companyNavLabels, isCompanyAccountBillingPath } from "./company-nav-config";
 import { formatRecruitingStatusLabel, getRecruitingStatusTone } from "./status-labels";
 
-type CompanyNavSection = "postings" | "accountBilling";
+type CompanyNavSection = "postings" | "accountBilling" | "performance";
 
 export function CompanyNav({ active }: { active?: CompanyNavSection }) {
   const pathname = usePathname();
-  const current = active ?? (isCompanyAccountBillingPath(pathname) ? "accountBilling" : "postings");
+  const current = active ?? (pathname?.startsWith(AI_PERFORMANCE_ROUTE) ? "performance" : isCompanyAccountBillingPath(pathname) ? "accountBilling" : "postings");
 
   return (
     <header className="gnb">
@@ -53,6 +53,11 @@ export function CompanyNav({ active }: { active?: CompanyNavSection }) {
                 );
               })}
             </div>
+          </div>
+          <div className={`gnb-item ${current === "performance" ? "active" : ""}`}>
+            <Link className="gnb-link" href={AI_PERFORMANCE_ROUTE} aria-current={current === "performance" ? "page" : undefined}>
+              {companyNavLabels.performance}
+            </Link>
           </div>
         </nav>
         <div className="gnb-right">

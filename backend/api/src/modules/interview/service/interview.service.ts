@@ -9,6 +9,7 @@ import {
 import { DeviceCheckDto } from "../dto/interview.device-check.dto";
 import {
   AiInterviewRequestDto,
+  CreateRealtimeInterviewSessionDto,
   InsertFollowUpQuestionDto,
   RuntimeFileAssetDto,
   SaveInterviewAnswerDto,
@@ -24,6 +25,8 @@ import {
   InterviewRuntimeView,
   InsertFollowUpQuestionResult,
   NextInterviewQuestionResult,
+  RealtimeInterviewProvider,
+  RealtimeInterviewSessionResult,
   RuntimeInterviewSession,
   SaveInterviewAnswerResult,
   StartMockInterviewResult,
@@ -41,6 +44,10 @@ import {
 } from "./interview-media-storage.adapter";
 
 const DEFAULT_MOCK_QUESTION_TYPES = ["INTRO", "TECHNICAL", "EXPERIENCE", "CLOSING"] as const;
+const DEFAULT_REALTIME_MODEL = "gpt-realtime-2";
+const DEFAULT_REALTIME_VOICE = "marin";
+const DEFAULT_REALTIME_API_BASE_URL = "https://api.openai.com";
+const MOCK_REALTIME_CLIENT_SECRET_TTL_MS = 2 * 60 * 1000;
 export type UploadedInterviewMediaFile = {
   originalName: string;
   mimeType: string;
@@ -58,6 +65,18 @@ type AnswerRequestBody = {
   allowReanswer: boolean;
   skipReason?: "RECORDING_VALIDATION_FAILED";
   retryAnswerId?: number;
+};
+
+type OpenAiRealtimeClientSecretResponse = {
+  value?: string;
+  expires_at?: number;
+  client_secret?: {
+    value?: string;
+    expires_at?: number;
+  };
+  error?: {
+    message?: string;
+  };
 };
 
 @Injectable()
@@ -185,6 +204,15 @@ export class InterviewService {
     return this.createAiHandoff(session, dto, "FOLLOW_UP", currentUser);
   }
 
+  async createMockRealtimeSession(
+    sessionId: number,
+    dto: CreateRealtimeInterviewSessionDto,
+    currentUser: CurrentCandidateUser,
+  ) {
+    const session = await this.getOwnedMockSession(sessionId, currentUser);
+    return this.createRealtimeSession(session, dto, currentUser);
+  }
+
   async insertMockFollowUpQuestion(
     sessionId: number,
     dto: InsertFollowUpQuestionDto,
@@ -240,6 +268,15 @@ export class InterviewService {
   async requestRecruitingFollowUpQuestion(sessionId: number, dto: AiInterviewRequestDto, currentUser: CurrentCandidateUser) {
     const session = await this.getRecruitingRuntimeSession(sessionId, currentUser);
     return this.createAiHandoff(session, dto, "FOLLOW_UP", currentUser);
+  }
+
+  async createRecruitingRealtimeSession(
+    sessionId: number,
+    dto: CreateRealtimeInterviewSessionDto,
+    currentUser: CurrentCandidateUser,
+  ) {
+    const session = await this.getRecruitingRuntimeSession(sessionId, currentUser);
+    return this.createRealtimeSession(session, dto, currentUser);
   }
 
   async insertRecruitingFollowUpQuestion(
@@ -664,6 +701,188 @@ export class InterviewService {
     });
   }
 
+  private async createRealtimeSession(
+    session: RuntimeInterviewSession,
+    dto: CreateRealtimeInterviewSessionDto,
+    currentUser: CurrentCandidateUser,
+  ): Promise<{ data: RealtimeInterviewSessionResult; meta: { traceId: string; timestamp: string } }> {
+    this.assertInProgress(session);
+    this.assertRealtimeSessionRequest(dto);
+
+    const provider = this.realtimeSessionProvider();
+    const result = provider === "openai"
+      ? await this.createOpenAiRealtimeSession(session, currentUser)
+      : this.createMockRealtimeSessionResult(session, currentUser);
+
+    return this.envelope(result);
+  }
+
+  private assertRealtimeSessionRequest(dto: CreateRealtimeInterviewSessionDto): void {
+    const requestBody = this.toRequestBody(dto ?? {}, "realtimeSession");
+    if (requestBody.mode !== undefined && requestBody.mode !== "realtime-voice") {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "Realtime session mode is invalid.", 400, [
+        { field: "mode", reason: "mode must be realtime-voice" },
+      ]);
+    }
+    if (requestBody.transport !== undefined && requestBody.transport !== "webrtc") {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "Realtime session transport is invalid.", 400, [
+        { field: "transport", reason: "transport must be webrtc" },
+      ]);
+    }
+  }
+
+  private realtimeSessionProvider(): RealtimeInterviewProvider {
+    return process.env.AI_INTERVIEWER_REALTIME_PROVIDER === "openai" ? "openai" : "mock";
+  }
+
+  private createMockRealtimeSessionResult(
+    session: RuntimeInterviewSession,
+    currentUser: CurrentCandidateUser,
+  ): RealtimeInterviewSessionResult {
+    const expiresAt = new Date(Date.now() + MOCK_REALTIME_CLIENT_SECRET_TTL_MS).toISOString();
+    return {
+      accepted: true,
+      sessionId: session.sessionId,
+      applicationId: session.applicationId,
+      interviewType: session.interviewType,
+      mode: "realtime-voice",
+      provider: "mock",
+      model: "mock-realtime-interviewer",
+      voice: session.interviewType === "MOCK" ? "mock-ko-coach" : "mock-ko-recruiting",
+      transport: "webrtc",
+      clientSecret: `mock-realtime-client-secret-${session.sessionId}-${currentUser.candidateId}`,
+      clientSecretType: "ephemeral",
+      expiresAt,
+      endpoint: "mock://realtime/calls",
+    };
+  }
+
+  private async createOpenAiRealtimeSession(
+    session: RuntimeInterviewSession,
+    currentUser: CurrentCandidateUser,
+  ): Promise<RealtimeInterviewSessionResult> {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "OpenAI realtime session provider is not configured.", 409, [
+        { field: "OPENAI_API_KEY", reason: "OPENAI_API_KEY is required when AI_INTERVIEWER_REALTIME_PROVIDER=openai" },
+      ]);
+    }
+
+    const model = process.env.OPENAI_REALTIME_MODEL || DEFAULT_REALTIME_MODEL;
+    const voice = process.env.OPENAI_REALTIME_VOICE || DEFAULT_REALTIME_VOICE;
+    const response = await fetch(this.realtimeClientSecretsEndpoint(), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "OpenAI-Safety-Identifier": `candidate-${currentUser.candidateId}`,
+      },
+      body: JSON.stringify({
+        session: {
+          type: "realtime",
+          model,
+          instructions: this.buildRealtimeInterviewInstructions(session),
+          audio: {
+            input: {
+              turn_detection: {
+                type: "server_vad",
+                create_response: false,
+                interrupt_response: false,
+              },
+            },
+            output: {
+              voice,
+            },
+          },
+        },
+      }),
+    });
+    const rawBody = await response.text();
+    const payload = this.parseOpenAiRealtimeClientSecret(rawBody);
+    if (!response.ok) {
+      const errorReason = payload.error?.message ?? (rawBody.slice(0, 200) || `status ${response.status}`);
+      throw new CandidateDomainError("COMMON_EXTERNAL_SERVICE_FAILED", "OpenAI realtime session creation failed.", 502, [
+        { field: "openai", reason: errorReason },
+      ]);
+    }
+
+    const clientSecret = payload.value ?? payload.client_secret?.value;
+    if (!clientSecret) {
+      throw new CandidateDomainError("COMMON_EXTERNAL_SERVICE_FAILED", "OpenAI realtime client secret was not returned.", 502, [
+        { field: "clientSecret", reason: "OpenAI response did not include an ephemeral client secret" },
+      ]);
+    }
+
+    return {
+      accepted: true,
+      sessionId: session.sessionId,
+      applicationId: session.applicationId,
+      interviewType: session.interviewType,
+      mode: "realtime-voice",
+      provider: "openai",
+      model,
+      voice,
+      transport: "webrtc",
+      clientSecret,
+      clientSecretType: "ephemeral",
+      expiresAt: this.realtimeExpiresAt(payload.expires_at ?? payload.client_secret?.expires_at),
+      endpoint: this.realtimeCallsEndpoint(),
+    };
+  }
+
+  private parseOpenAiRealtimeClientSecret(rawBody: string): OpenAiRealtimeClientSecretResponse {
+    if (!rawBody) return {};
+    try {
+      return JSON.parse(rawBody) as OpenAiRealtimeClientSecretResponse;
+    } catch {
+      return {};
+    }
+  }
+
+  private realtimeExpiresAt(expiresAt?: number): string {
+    if (expiresAt && Number.isFinite(expiresAt)) {
+      return new Date(expiresAt * 1000).toISOString();
+    }
+    return new Date(Date.now() + MOCK_REALTIME_CLIENT_SECRET_TTL_MS).toISOString();
+  }
+
+  private realtimeClientSecretsEndpoint(): string {
+    return `${this.realtimeApiBaseUrl()}/v1/realtime/client_secrets`;
+  }
+
+  private realtimeCallsEndpoint(): string {
+    return `${this.realtimeApiBaseUrl()}/v1/realtime/calls`;
+  }
+
+  private realtimeApiBaseUrl(): string {
+    return (process.env.OPENAI_REALTIME_API_BASE_URL || DEFAULT_REALTIME_API_BASE_URL).replace(/\/+$/, "");
+  }
+
+  private buildRealtimeInterviewInstructions(session: RuntimeInterviewSession): string {
+    if (session.interviewType === "MOCK") {
+      return [
+        "You are an AI mock interviewer for Korean interview practice.",
+        "Stay silent until the browser client sends a response.create event over the realtime data channel.",
+        "Read the provided Korean interview question exactly once, or read the backend-generated follow-up question exactly once, when the client asks you to read a question.",
+        "Say only the provided encouragement line when the client asks you to encourage a silent candidate.",
+        "Do not generate realtime follow-up questions, answer evaluations, or extra coaching during the session.",
+        "Keep a calm coaching tone and do not make hiring decisions.",
+        "Do not infer protected attributes or evaluate appearance, accent, gender, age, school, region, disability, or health.",
+      ].join(" ");
+    }
+
+    return [
+      "You are an AI recruiting interviewer for a structured Korean hiring interview.",
+      "Stay silent until the browser client sends a response.create event over the realtime data channel.",
+      "Read the provided Korean interview question exactly once, or read the backend-generated follow-up question exactly once, when the client asks you to read a question.",
+      "Say only the provided encouragement line when the client asks you to encourage a silent candidate.",
+      "Do not generate realtime follow-up questions, answer evaluations, or extra coaching during the session.",
+      "The backend follow-up pipeline handles follow-up question generation after answer submission.",
+      "Keep a neutral interview tone and do not make final hiring decisions.",
+      "Do not infer protected attributes or evaluate appearance, accent, gender, age, school, region, disability, or health.",
+    ].join(" ");
+  }
+
   private async insertFollowUpQuestion(
     session: RuntimeInterviewSession,
     dto: InsertFollowUpQuestionDto,
@@ -837,6 +1056,7 @@ export class InterviewService {
         answerId: answer.answerId,
         audioFileId,
         audioS3Key,
+        durationSeconds: requestBody.durationSeconds ?? answer.durationSeconds,
         sessionId: session.sessionId,
       };
     }

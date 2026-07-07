@@ -23,8 +23,8 @@ export interface ReportEvidenceAssessment {
 
 export const SERVICE_INTERVIEW_RUBRIC: ServiceInterviewRubricItem[] = [
   {
-    name: "직무/기술 역량",
-    description: "JD와 연결되는 기술 지식, 구현 경험, 설계 판단을 답변 근거로 확인한다.",
+    name: "직무 적합성",
+    description: "JD의 역할, 기술 스택, 업무 맥락과 답변 경험이 실제로 연결되는지 확인한다.",
     weight: 30,
   },
   {
@@ -38,19 +38,19 @@ export const SERVICE_INTERVIEW_RUBRIC: ServiceInterviewRubricItem[] = [
     weight: 20,
   },
   {
-    name: "협업/커뮤니케이션",
-    description: "상황, 역할, 의사소통 방식, 협업 조정 과정을 구조적으로 전달하는지 확인한다.",
-    weight: 15,
-  },
-  {
-    name: "학습/성장성",
-    description: "새로운 도구나 도메인을 학습하고 실제 문제에 적용한 흐름을 확인한다.",
+    name: "학습 민첩성",
+    description: "새로운 도구나 도메인을 빠르게 학습하고 실제 문제에 적용한 흐름을 확인한다.",
     weight: 10,
   },
   {
-    name: "책임감/신뢰성",
-    description: "맡은 범위를 끝까지 확인하고 재발 방지, 검증, 공유까지 수행했는지 확인한다.",
-    weight: 5,
+    name: "커뮤니케이션",
+    description: "상황, 역할, 의사소통 방식, 협업 조정 과정을 구조적으로 전달하는지 확인한다.",
+    weight: 10,
+  },
+  {
+    name: "성장 가능성",
+    description: "검증, 회고, 재발 방지, 다음 개선 계획까지 이어지는 성장 가능성을 확인한다.",
+    weight: 10,
   },
 ];
 
@@ -71,11 +71,11 @@ const RUBRIC_LEVEL_LABELS: Record<number, string> = {
 };
 
 const RUBRIC_LEVEL_SCORES: Record<number, number> = {
-  1: 55,
-  2: 63,
-  3: 72,
-  4: 82,
-  5: 88,
+  1: 45,
+  2: 58,
+  3: 68,
+  4: 78,
+  5: 86,
 };
 
 export function buildDefaultReportCriteria(reportType: "MOCK_INTERVIEW_REPORT" | "RECRUITING_REPORT"): EvaluationCriterionInput[] {
@@ -94,6 +94,7 @@ export function normalizeReportCriterionName(name: string): string {
 
   if (
     compact.includes("직무") ||
+    compact.includes("적합") ||
     compact.includes("기술") ||
     compact.includes("role") ||
     compact.includes("fit") ||
@@ -103,7 +104,7 @@ export function normalizeReportCriterionName(name: string): string {
     compact.includes("backend") ||
     compact.includes("frontend")
   ) {
-    return "직무/기술 역량";
+    return "직무 적합성";
   }
   if (compact.includes("문제") || compact.includes("해결") || compact.includes("problem") || compact.includes("solving")) {
     return "문제 해결력";
@@ -118,25 +119,27 @@ export function normalizeReportCriterionName(name: string): string {
   ) {
     return "실행력과 성과";
   }
+  if (compact.includes("학습") || compact.includes("민첩") || compact.includes("learning") || compact.includes("agility")) {
+    return "학습 민첩성";
+  }
   if (
     compact.includes("협업") ||
     compact.includes("커뮤니케이션") ||
     compact.includes("communication") ||
     compact.includes("collaboration")
   ) {
-    return "협업/커뮤니케이션";
-  }
-  if (compact.includes("학습") || compact.includes("성장") || compact.includes("learning") || compact.includes("growth")) {
-    return "학습/성장성";
+    return "커뮤니케이션";
   }
   if (
+    compact.includes("성장") ||
     compact.includes("책임") ||
     compact.includes("신뢰") ||
     compact.includes("responsibility") ||
     compact.includes("trust") ||
+    compact.includes("growth") ||
     compact.includes("ownership")
   ) {
-    return "책임감/신뢰성";
+    return "성장 가능성";
   }
 
   return name;
@@ -162,9 +165,11 @@ export function assessReportEvidence(
   transcript: string,
   documentText?: string,
   criterionDescription?: string,
+  jobDescription?: string,
 ): ReportEvidenceAssessment {
   const combined = `${transcript}\n${documentText ?? ""}`.toLowerCase();
-  const hasSituation = normalizeSpace(transcript).length >= 20;
+  const normalizedTranscript = normalizeSpace(transcript);
+  const hasSituation = normalizedTranscript.length >= 20;
   const hasAction =
     /\b(found|analyzed|improved|optimized|built|designed|implemented|resolved|added|reduced|owned|led|tested)\b/.test(
       combined,
@@ -175,20 +180,31 @@ export function assessReportEvidence(
     ) || /(결과|성과|완료|성공|통과|개선|감소|증가|해결|안정화|확인|저장|생성|연동)/.test(combined);
   const hasMetric = /\d|%|ms|sec|minute|hour|x\b|초|분|시간|건|배|회|명|개/.test(combined);
   const hasDocumentContext = Boolean(documentText?.trim());
+  const hasEnoughSubstance = normalizedTranscript.length >= 60;
+  const hasJobAlignment = hasKeywordOverlap(normalizedTranscript, jobDescription);
   const level = Math.min(
     5,
-    Math.max(1, 1 + Number(hasSituation) + Number(hasAction) + Number(hasResult) + Number(hasMetric || hasDocumentContext)),
+    Math.max(
+      1,
+      1 +
+        Number(hasSituation) +
+        Number(hasAction) +
+        Number(hasResult) +
+        Number(hasEnoughSubstance && (hasMetric || hasDocumentContext || hasJobAlignment)),
+    ),
   );
   const uncertaintyReasons = [
     ...(hasMetric ? [] : ["정량 성과나 전후 비교가 부족합니다."]),
     ...(hasDocumentContext ? [] : ["제출 서류 근거가 함께 제공되지 않았습니다."]),
+    ...(hasJobAlignment ? [] : ["JD와 직접 연결되는 키워드나 업무 맥락이 부족합니다."]),
+    ...(hasEnoughSubstance ? [] : ["답변 길이가 짧아 판단 근거가 제한적입니다."]),
     ...(hasAction ? [] : ["본인이 직접 수행한 행동이 충분히 드러나지 않습니다."]),
     ...(hasResult ? [] : ["결과나 영향이 충분히 드러나지 않습니다."]),
   ];
   const confidence: ReportEvaluationConfidence =
-    hasAction && hasResult && (hasMetric || hasDocumentContext)
+    hasAction && hasResult && (hasMetric || hasDocumentContext || hasJobAlignment)
       ? "HIGH"
-      : hasAction && (hasResult || hasDocumentContext)
+      : hasAction && (hasResult || hasDocumentContext || hasJobAlignment)
         ? "MEDIUM"
         : "LOW";
   const levelLabel = RUBRIC_LEVEL_LABELS[level];
@@ -228,3 +244,41 @@ function shorten(value: string): string {
   const normalized = normalizeSpace(value);
   return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
 }
+
+function hasKeywordOverlap(transcript: string, jobDescription?: string): boolean {
+  if (!jobDescription?.trim()) {
+    return false;
+  }
+  const transcriptTokens = new Set(keywordTokens(transcript));
+  if (transcriptTokens.size === 0) {
+    return false;
+  }
+  return keywordTokens(jobDescription).some((token) => transcriptTokens.has(token));
+}
+
+function keywordTokens(value: string): string[] {
+  return normalizeSpace(value)
+    .toLowerCase()
+    .split(/[^a-z0-9가-힣+#.]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2 && !COMMON_KEYWORDS.has(token));
+}
+
+const COMMON_KEYWORDS = new Set([
+  "및",
+  "또는",
+  "그리고",
+  "에서",
+  "으로",
+  "하는",
+  "있습니다",
+  "경험",
+  "프로젝트",
+  "업무",
+  "지원자",
+  "개발자",
+  "the",
+  "and",
+  "with",
+  "for",
+]);

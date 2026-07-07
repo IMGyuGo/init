@@ -7,7 +7,7 @@ import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState } fr
 
 import settingsBanner from "./assets/settings-banner.png";
 
-import { deleteRecruitment, getRecruitment, updateRecruitment, uploadJobDescriptionImage } from "./api";
+import { changeRecruitmentStatus, deleteRecruitment, getRecruitment, updateRecruitment, uploadJobDescriptionImage } from "./api";
 import { Breadcrumb } from "./CompanyRecruitingChrome";
 import { MiniRichTextEditor } from "./MiniRichTextEditor";
 import { JOB_DESCRIPTION_IMAGE_ACCEPT, validateJobDescriptionImageFile } from "./job-description-image-upload";
@@ -146,6 +146,9 @@ export function RecruitmentSettingsPage({ recruitmentId }: { recruitmentId: numb
     setLoading(true);
     setDeleteError("");
     try {
+      if (requiresDraftBeforeDelete(recruitment.status)) {
+        await changeRecruitmentStatus(recruitment.recruitmentId, "DRAFT");
+      }
       await deleteRecruitment(recruitment.recruitmentId);
       router.push("/company/recruitments");
     } catch (error) {
@@ -301,7 +304,7 @@ export function RecruitmentSettingsPage({ recruitmentId }: { recruitmentId: numb
               <Link className="btn secondary" href={`/company/recruitments/${recruitmentId}`}>
                 대시보드
               </Link>
-              {recruitment && canDeleteRecruitment(recruitment.status) ? (
+              {recruitment && canShowDeleteButton(recruitment.status) ? (
                 <button
                   className="btn destructive"
                   type="button"
@@ -488,7 +491,11 @@ export function RecruitmentSettingsPage({ recruitmentId }: { recruitmentId: numb
               <div className="modal-head">
                 <div>
                   <h2 id="delete-recruitment-title">공고 삭제</h2>
-                  <p>삭제하면 공고 목록에서 숨겨지고 상태가 ARCHIVED로 변경됩니다.</p>
+                  <p>
+                    {requiresDraftBeforeDelete(recruitment.status)
+                      ? "이 공고는 공개(OPEN) 상태입니다. 삭제하려면 먼저 임시저장(DRAFT)으로 전환한 뒤 삭제됩니다. 공개 지원 링크는 더 이상 접수되지 않습니다."
+                      : "삭제하면 공고 목록에서 숨겨지고 상태가 ARCHIVED로 변경됩니다."}
+                  </p>
                 </div>
                 <button className="btn secondary compact" type="button" disabled={loading} onClick={() => setDeleteOpen(false)}>
                   닫기
@@ -523,6 +530,10 @@ function formatPeriod(item: Recruitment) {
   return `${item.startsOn ?? "시작 미정"} ~ ${item.endsOn ?? "마감 미정"}`;
 }
 
-function canDeleteRecruitment(status: Recruitment["status"]) {
-  return status === "DRAFT" || status === "CLOSED";
+function canShowDeleteButton(status: Recruitment["status"]) {
+  return status !== "ARCHIVED";
+}
+
+function requiresDraftBeforeDelete(status: Recruitment["status"]) {
+  return status === "OPEN" || status === "CLOSING_SOON";
 }

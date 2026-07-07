@@ -28,6 +28,7 @@ assertRoute("moveNextQuestion", "interviews/:sessionId/next-question", RequestMe
 assertRoute("completeInterview", "interviews/:sessionId/complete", RequestMethod.PATCH);
 assertRoute("requestStt", "interviews/:sessionId/stt", RequestMethod.POST);
 assertRoute("requestFollowUpQuestion", "interviews/:sessionId/follow-up-question", RequestMethod.POST);
+assertRoute("createRealtimeSession", "interviews/:sessionId/realtime-session", RequestMethod.POST);
 
 function createPublicInterviewFixture() {
   const candidateRepository = new InMemoryCandidateRepository();

@@ -11,6 +11,10 @@ export interface FollowUpGenerationInput {
 export interface FollowUpGenerationResult {
   content: string;
   model: string;
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+  };
 }
 
 export interface FollowUpAiProvider {
@@ -58,7 +62,11 @@ export class OpenAiFollowUpProvider implements FollowUpAiProvider {
 
     return {
       content: normalizeQuestion(content),
-      model: this.model
+      model: this.model,
+      usage: {
+        inputTokens: response.usage?.prompt_tokens,
+        outputTokens: response.usage?.completion_tokens
+      }
     };
   }
 }

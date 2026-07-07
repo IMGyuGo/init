@@ -1,4 +1,5 @@
 import { AiResultRepository } from "./ai-result.repository";
+import { createAiProcessUsage } from "./ai-usage";
 import { FollowUpAiProvider } from "./openai-follow-up.provider";
 import { PostingDraftAiProvider, PostingDraftGenerationResult } from "./openai-posting-draft.provider";
 import { ReportAiProvider, ReportGenerationResult } from "./openai-report.provider";
@@ -122,6 +123,12 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
         duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP"
       }),
       guardrail,
+      usage: createAiProcessUsage({
+        modelName: generated.model,
+        inputTokens: generated.usage?.inputTokens,
+        outputTokens: generated.usage?.outputTokens,
+        metadata: { processType: "FOLLOW_UP" }
+      }),
       finalSave: () => this.results.saveFollowUpQuestion({ sessionId, answerId, content: generated.content, policy })
     };
   }
@@ -141,6 +148,10 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       kind,
       reportType,
       policy,
+      companyName: optionalText(payload.companyName),
+      jobTitle: optionalText(payload.jobTitle),
+      jobRole: optionalText(payload.jobRole),
+      postingId: optionalPositiveNumber(payload.postingId, "postingId"),
       jobDescription: requiredText(payload.jobDescription, "jobDescription"),
       criteria: criteriaOf(payload.criteria),
       answers: answersOf(payload.answers),
@@ -159,7 +170,13 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
 
     return {
       ...fallbackResult,
-      outputRef: appendReportProviderMetadata(fallbackResult.outputRef, generated)
+      outputRef: appendReportProviderMetadata(fallbackResult.outputRef, generated),
+      usage: createAiProcessUsage({
+        modelName: generated.model,
+        inputTokens: generated.usage?.inputTokens,
+        outputTokens: generated.usage?.outputTokens,
+        metadata: { processType: "REPORT_GENERATE" }
+      })
     };
   }
 
@@ -211,7 +228,12 @@ function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; 
 
 function answersOf(value: unknown): Array<{
   answerId: number;
+  questionId?: number;
   question?: string;
+  questionType?: "INTRO" | "TECHNICAL" | "EXPERIENCE" | "SITUATION" | "FOLLOW_UP" | "CLOSING";
+  sortOrder?: number;
+  isFollowUpAnswer?: boolean;
+  parentAnswerId?: number;
   transcript: string;
   evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
   transcriptUnavailableReason?: string;
@@ -235,7 +257,12 @@ function answersOf(value: unknown): Array<{
 
     return {
       answerId: positiveNumber(record.answerId, "answerId"),
+      questionId: optionalPositiveNumber(record.questionId, "questionId"),
       question: typeof record.question === "string" ? record.question : undefined,
+      questionType: questionTypeOf(record.questionType),
+      sortOrder: Number.isFinite(Number(record.sortOrder)) ? Number(record.sortOrder) : undefined,
+      isFollowUpAnswer: record.isFollowUpAnswer === true,
+      parentAnswerId: optionalPositiveNumber(record.parentAnswerId, "parentAnswerId"),
       transcript,
       evaluationStatus,
       transcriptUnavailableReason: evaluationStatus === "STT_UNAVAILABLE" ? transcriptUnavailableReason : undefined
@@ -302,6 +329,24 @@ function positiveNumber(value: unknown, name: string): number {
     throw new NonRetryableAiWorkerFailure(`${name} must be a positive integer`);
   }
   return parsed;
+}
+
+function questionTypeOf(value: unknown): "INTRO" | "TECHNICAL" | "EXPERIENCE" | "SITUATION" | "FOLLOW_UP" | "CLOSING" | undefined {
+  return value === "INTRO" ||
+    value === "TECHNICAL" ||
+    value === "EXPERIENCE" ||
+    value === "SITUATION" ||
+    value === "FOLLOW_UP" ||
+    value === "CLOSING"
+    ? value
+    : undefined;
+}
+
+function optionalPositiveNumber(value: unknown, name: string): number | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  return positiveNumber(value, name);
 }
 
 function requiredText(value: unknown, name: string): string {

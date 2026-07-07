@@ -40,10 +40,20 @@ export interface FailureReason {
   retryable: boolean;
 }
 
+export interface AiProcessUsage {
+  modelName?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  audioSeconds?: number;
+  estimatedCostUsd?: number;
+  costMetadataJson?: string;
+}
+
 export interface AiTaskResult {
   outputRef?: string;
   guardrail?: GuardrailDecision;
   finalSave?: () => Promise<void>;
+  usage?: AiProcessUsage;
 }
 
 export interface AiTaskHandler {
@@ -57,4 +67,13 @@ export interface AiProcessLogSnapshot {
   inputRef: string;
   outputRef?: string;
   failure?: FailureReason;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
+  modelName?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  audioSeconds?: number;
+  estimatedCostUsd?: number;
+  costMetadataJson?: string;
 }

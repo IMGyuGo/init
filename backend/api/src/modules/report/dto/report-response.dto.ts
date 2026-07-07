@@ -59,6 +59,30 @@ export class AiJobResponseDto {
   @ApiPropertyOptional({ example: 7 })
   sessionId?: number;
 
+  @ApiPropertyOptional({ example: "2026-07-06T10:00:00.000Z" })
+  startedAt?: string;
+
+  @ApiPropertyOptional({ example: "2026-07-06T10:00:03.200Z" })
+  completedAt?: string;
+
+  @ApiPropertyOptional({ example: 3200 })
+  durationMs?: number;
+
+  @ApiPropertyOptional({ example: "gpt-4o-mini" })
+  modelName?: string;
+
+  @ApiPropertyOptional({ example: 1532 })
+  inputTokens?: number;
+
+  @ApiPropertyOptional({ example: 240 })
+  outputTokens?: number;
+
+  @ApiPropertyOptional({ example: 42 })
+  audioSeconds?: number;
+
+  @ApiPropertyOptional({ example: 0.001234 })
+  estimatedCostUsd?: number;
+
   @ApiPropertyOptional({ type: FailureReasonDto })
   failure?: FailureReasonDto;
 

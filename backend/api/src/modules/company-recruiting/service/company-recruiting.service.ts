@@ -859,6 +859,7 @@ function toApplicantResponse(application: ApplicantRecord) {
 
 function toApplicantEvaluationResponse(application: ApplicantRecord) {
   const latestReport = application.evaluationReports[0] ?? null;
+  const latestSession = application.interviewSessions[0] ?? null;
   const applicant = toApplicantResponse(application);
 
   return {
@@ -880,6 +881,31 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
       memo: application.screeningMemo,
     },
     reportAvailability: latestReport ? "AVAILABLE" : "NONE_OR_GENERATING",
+    answers: latestSession
+      ? (latestSession.answers ?? []).map((answer) => ({
+          answerId: answer.answerId,
+          questionId: answer.questionId,
+          questionType: answer.questionType,
+          questionContent: answer.questionContent,
+          transcript: answer.transcript,
+          durationSeconds: answer.durationSeconds,
+          submittedAt: answer.submittedAt?.toISOString() ?? null,
+          followUpQuestions: answer.followUpQuestions.map((followUp) => ({
+            followUpId: followUp.followUpId,
+            content: followUp.content,
+            generationStatus: followUp.generationStatus,
+            policy: followUp.policy,
+            answer: followUp.answer
+              ? {
+                  answerId: followUp.answer.answerId,
+                  transcript: followUp.answer.transcript,
+                  durationSeconds: followUp.answer.durationSeconds,
+                  submittedAt: followUp.answer.submittedAt?.toISOString() ?? null,
+                }
+              : null,
+          })),
+        }))
+      : [],
     report: latestReport
       ? {
           reportId: latestReport.reportId,

@@ -1357,6 +1357,24 @@ AI 리포트 금지 기준:
 - 관련 ERD 테이블:
   - file_assets, applications, interview_sessions, interview_answers, ai_process_logs
 
+### API-094-RT POST /public/interviews/{sessionId}/realtime-session
+- 도메인: 지원자 - Public 채용면접
+- 권한/인증: Authorization Bearer publicAccessToken
+- 관련 화면: D public runtime
+- UI Type: system process
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: sessionId
+- 요청 데이터:
+  - `{ "mode": "realtime-voice", "transport": "webrtc" }`
+- 성공 응답/처리:
+  - publicAccessToken으로 접근 가능한 채용면접 세션에 대해 브라우저용 실시간 AI 면접 handoff 정보를 반환한다.
+- 검증/전제조건:
+  - publicAccessToken의 sessionId와 path sessionId가 일치해야 한다.
+  - 면접 세션은 `IN_PROGRESS` 상태여야 한다.
+- 관련 ERD 테이블:
+  - applications, interview_sessions
+
 ### API-095 POST /public/interviews/{sessionId}/follow-up-question
 - 도메인: 지원자 - Public 채용면접
 - 권한/인증: Authorization Bearer publicAccessToken
@@ -2221,6 +2239,27 @@ AI 리포트 금지 기준:
 - 비고/미결:
   - 독립 화면 아님. 리포트 상세에서 결과 확인
 
+### API-050-RT POST /candidate/mock-interviews/{sessionId}/realtime-session
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: AI 모의면접 진행 화면 (/candidate/mock-interviews/{sessionId})
+- UI Type: system process
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: sessionId
+- 요청 데이터:
+  - `{ "mode": "realtime-voice", "transport": "webrtc" }`
+- 성공 응답/처리:
+  - 브라우저용 실시간 AI 면접 세션 handoff 정보를 반환한다.
+  - 응답 데이터: `accepted`, `sessionId`, `interviewType`, `mode`, `provider`, `model`, `voice`, `transport`, `clientSecret`, `clientSecretType`, `expiresAt`, `endpoint`
+- 검증/전제조건:
+  - 면접 세션은 `IN_PROGRESS` 상태여야 한다.
+  - 브라우저에는 `OPENAI_API_KEY`를 전달하지 않는다. 실제 OpenAI 사용 시 backend가 ephemeral client secret을 발급해 전달한다.
+- 관련 ERD 테이블:
+  - candidate_profiles, interview_sessions
+- 비고/미결:
+  - 기본 provider는 local/CI 안전성을 위해 `mock`이다. `AI_INTERVIEWER_REALTIME_PROVIDER=openai` 설정 시 OpenAI Realtime provider를 사용한다.
+
 ### API-051 POST /candidate/mock-interviews/{sessionId}/follow-up-question
 - 도메인: 지원자 - 모의면접
 - 권한/인증: 지원자 / 지원자 사용자 로그인
@@ -2725,6 +2764,27 @@ AI 리포트 금지 기준:
   - companies, candidate_profiles, file_assets, postings, applications, interview_sessions, interview_answers, ai_process_logs
 - 비고/미결:
   - 독립 화면 아님. 기업 지원자 평가 상세에서 결과 확인
+
+### API-070-RT POST /candidate/interviews/{sessionId}/realtime-session
+- 도메인: 지원자 - 채용면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 채용 AI 면접 진행 화면 (/candidate/applications/{applicationId}/interview)
+- UI Type: system process
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: sessionId
+- 요청 데이터:
+  - `{ "mode": "realtime-voice", "transport": "webrtc" }`
+- 성공 응답/처리:
+  - 브라우저용 실시간 AI 면접 세션 handoff 정보를 반환한다.
+  - 응답 데이터: `accepted`, `sessionId`, `applicationId`, `interviewType`, `mode`, `provider`, `model`, `voice`, `transport`, `clientSecret`, `clientSecretType`, `expiresAt`, `endpoint`
+- 검증/전제조건:
+  - 면접 세션은 `IN_PROGRESS` 상태여야 한다.
+  - 브라우저에는 `OPENAI_API_KEY`를 전달하지 않는다. 실제 OpenAI 사용 시 backend가 ephemeral client secret을 발급해 전달한다.
+- 관련 ERD 테이블:
+  - candidate_profiles, applications, interview_sessions
+- 비고/미결:
+  - 기본 provider는 local/CI 안전성을 위해 `mock`이다. `AI_INTERVIEWER_REALTIME_PROVIDER=openai` 설정 시 OpenAI Realtime provider를 사용한다.
 
 ### API-071 POST /candidate/interviews/{sessionId}/follow-up-question
 - 도메인: 지원자 - 채용면접

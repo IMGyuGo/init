@@ -70,7 +70,7 @@ export class AiWorkerRunner {
         await result.finalSave();
       }
 
-      await this.repository.markCompleted(message.job.processLogId, result.outputRef);
+      await this.repository.markCompleted(message.job.processLogId, result.outputRef, result.usage);
       await this.queue.delete(message);
     } catch (error) {
       const failure = toFailureReason(error);

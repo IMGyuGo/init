@@ -371,7 +371,7 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
   async findApplicationForCompany(applicationId: number, companyId: number): Promise<ApplicantRecord | null> {
     const application = await this.prisma.application.findFirst({
       where: { applicationId: BigInt(applicationId), posting: { companyId: BigInt(companyId) } },
-      include: applicantInclude,
+      include: applicantDetailInclude,
     });
     return application ? mapApplicant(application) : null;
   }
@@ -456,6 +456,39 @@ const applicantInclude = {
     take: 1,
   },
 } satisfies Prisma.ApplicationInclude;
+
+const applicantDetailInclude = {
+  ...applicantInclude,
+  interviewSessions: {
+    orderBy: { sessionId: "desc" as const },
+    take: 1,
+    include: {
+      answers: {
+        orderBy: { answerId: "asc" as const },
+        include: {
+          question: true,
+          followUpQuestions: {
+            orderBy: { createdAt: "asc" as const },
+          },
+        },
+      },
+    },
+  },
+} satisfies Prisma.ApplicationInclude;
+
+type FollowUpAnswerCandidate = {
+  answerId: bigint | number;
+  submittedAt: Date | null;
+  question?: {
+    questionType?: string | null;
+    content?: string | null;
+  } | null;
+};
+
+type FollowUpQuestionCandidate = {
+  content: string;
+  createdAt: Date;
+};
 
 function buildPostingWhere(companyId: number, query: NormalizedListQuery): Prisma.PostingWhereInput {
   const q = query.q?.trim();
@@ -548,6 +581,7 @@ function mapPublicPosting(posting: Prisma.PostingGetPayload<{ include: { company
 }
 
 type ApplicationWithIncludes = Prisma.ApplicationGetPayload<{ include: typeof applicantInclude }>;
+type ApplicationWithDetailIncludes = Prisma.ApplicationGetPayload<{ include: typeof applicantDetailInclude }>;
 type FileAssetRecord = Prisma.FileAssetGetPayload<Record<string, never>>;
 
 function mapFileAsset(fileAsset: FileAssetRecord): CompanyFileAssetRecord {
@@ -563,7 +597,7 @@ function mapFileAsset(fileAsset: FileAssetRecord): CompanyFileAssetRecord {
   };
 }
 
-function mapApplicant(application: ApplicationWithIncludes): ApplicantRecord {
+function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDetailIncludes): ApplicantRecord {
   return {
     applicationId: Number(application.applicationId),
     postingId: Number(application.postingId),
@@ -612,12 +646,140 @@ function mapApplicant(application: ApplicationWithIncludes): ApplicantRecord {
         })),
       })),
     })),
-    interviewSessions: application.interviewSessions.map((session) => ({
-      sessionId: Number(session.sessionId),
-      status: session.status,
-      interviewType: session.interviewType,
-      startedAt: session.startedAt,
-      completedAt: session.completedAt,
-    })),
+    interviewSessions: application.interviewSessions.map((session) => {
+      const sessionAnswers = "answers" in session ? session.answers : [];
+      const usedFollowUpAnswerIds = new Set<string>();
+      return {
+        sessionId: Number(session.sessionId),
+        status: session.status,
+        interviewType: session.interviewType,
+        startedAt: session.startedAt,
+        completedAt: session.completedAt,
+        answers: sessionAnswers.map((answer) => ({
+          answerId: Number(answer.answerId),
+          questionId: answer.questionId == null ? null : Number(answer.questionId),
+          questionType: answer.question?.questionType ?? null,
+          questionContent: answer.question?.content ?? null,
+          transcript: answer.transcript,
+          durationSeconds: answer.durationSeconds,
+          submittedAt: answer.submittedAt,
+          followUpQuestions: answer.followUpQuestions.map((followUp) => {
+            const followUpAnswer = findLinkedFollowUpAnswer(
+              answer,
+              followUp,
+              sessionAnswers,
+              usedFollowUpAnswerIds,
+            );
+            if (followUpAnswer) {
+              usedFollowUpAnswerIds.add(answerIdKey(followUpAnswer.answerId));
+            }
+            return {
+              followUpId: Number(followUp.followUpId),
+              content: followUp.content,
+              generationStatus: followUp.generationStatus,
+              policy: followUp.policy,
+              answer: followUpAnswer
+                ? {
+                    answerId: Number(followUpAnswer.answerId),
+                    transcript: followUpAnswer.transcript,
+                    durationSeconds: followUpAnswer.durationSeconds,
+                    submittedAt: followUpAnswer.submittedAt,
+                  }
+                : null,
+            };
+          }),
+        })),
+      };
+    }),
   };
+}
+
+function findLinkedFollowUpAnswer<T extends FollowUpAnswerCandidate>(
+  parentAnswer: T,
+  followUp: FollowUpQuestionCandidate,
+  sessionAnswers: T[],
+  usedAnswerIds: Set<string>,
+): T | undefined {
+  const nextBaseAnswer = findNextBaseAnswer(parentAnswer, sessionAnswers);
+  return sessionAnswers
+    .filter((candidate) =>
+      isFollowUpAnswerForQuestion(candidate, parentAnswer, followUp, nextBaseAnswer, usedAnswerIds),
+    )
+    .sort((left, right) => compareFollowUpAnswerCandidates(left, right, followUp))[0];
+}
+
+function isFollowUpAnswerForQuestion<T extends FollowUpAnswerCandidate>(
+  candidate: T,
+  parentAnswer: T,
+  followUp: FollowUpQuestionCandidate,
+  nextBaseAnswer: T | undefined,
+  usedAnswerIds: Set<string>,
+): boolean {
+  if (
+    usedAnswerIds.has(answerIdKey(candidate.answerId)) ||
+    compareAnswerIds(candidate.answerId, parentAnswer.answerId) <= 0 ||
+    candidate.question?.questionType !== "FOLLOW_UP" ||
+    normalizeQuestionText(candidate.question.content) !== normalizeQuestionText(followUp.content)
+  ) {
+    return false;
+  }
+
+  if (nextBaseAnswer && compareAnswerIds(candidate.answerId, nextBaseAnswer.answerId) >= 0) {
+    return false;
+  }
+
+  if (candidate.submittedAt && candidate.submittedAt < followUp.createdAt) {
+    return false;
+  }
+
+  return true;
+}
+
+function findNextBaseAnswer<T extends FollowUpAnswerCandidate>(
+  parentAnswer: T,
+  sessionAnswers: T[],
+): T | undefined {
+  return sessionAnswers
+    .filter(
+      (candidate) =>
+        compareAnswerIds(candidate.answerId, parentAnswer.answerId) > 0 &&
+        candidate.question?.questionType !== "FOLLOW_UP",
+    )
+    .sort((left, right) => compareAnswerIds(left.answerId, right.answerId))[0];
+}
+
+function compareFollowUpAnswerCandidates(
+  left: FollowUpAnswerCandidate,
+  right: FollowUpAnswerCandidate,
+  followUp: FollowUpQuestionCandidate,
+) {
+  return (
+    followUpAnswerTimeDistance(left, followUp) -
+      followUpAnswerTimeDistance(right, followUp) ||
+    compareAnswerIds(left.answerId, right.answerId)
+  );
+}
+
+function followUpAnswerTimeDistance(answer: FollowUpAnswerCandidate, followUp: FollowUpQuestionCandidate) {
+  if (!answer.submittedAt) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return Math.max(0, answer.submittedAt.getTime() - followUp.createdAt.getTime());
+}
+
+function compareAnswerIds(left: bigint | number, right: bigint | number) {
+  const leftId = BigInt(left);
+  const rightId = BigInt(right);
+  if (leftId === rightId) {
+    return 0;
+  }
+  return leftId > rightId ? 1 : -1;
+}
+
+function answerIdKey(answerId: bigint | number) {
+  return answerId.toString();
+}
+
+function normalizeQuestionText(value: string | null | undefined) {
+  return (value ?? "").trim().replace(/\s+/g, " ");
 }

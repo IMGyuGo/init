@@ -147,6 +147,264 @@ export interface InterviewRuntimeScreenSwapState {
   swapButtonAriaLabel: string;
 }
 
+export interface InterviewRuntimeFullscreenActiveInput {
+  fullscreenElement: Element | null;
+  stageElement: Element | null;
+}
+
+export interface InterviewRuntimePipShortcutStateInput {
+  primaryScreen: InterviewRuntimePrimaryScreen;
+  cameraPreviewVisible: boolean;
+  interviewerPipVisible: boolean;
+}
+
+export interface InterviewRuntimePipShortcutState {
+  primaryScreen: InterviewRuntimePrimaryScreen;
+  cameraPreviewVisible: boolean;
+  interviewerPipVisible: boolean;
+}
+
+export interface InterviewRuntimeProgressionStateInput {
+  hasRuntimeData: boolean;
+  currentQuestionAnswered: boolean;
+  isCurrentQuestionLast: boolean;
+  generatedFollowUpReady: boolean;
+  answerProcessingBusy: boolean;
+  isReansweringCurrentQuestion: boolean;
+  recording: boolean;
+  answeredQuestionCount: number;
+  totalQuestions: number;
+}
+
+export interface InterviewRuntimeProgressionState {
+  canMoveNextQuestion: boolean;
+  canCompleteInterview: boolean;
+}
+
+export type InterviewerSessionMode = "tts-file" | "realtime-voice" | "avatar-stream";
+export type InterviewerSessionModeFallbackReason =
+  | "INVALID_MODE"
+  | "REALTIME_VOICE_DISABLED"
+  | "AVATAR_STREAM_DISABLED";
+export type InterviewerSessionPhase =
+  | "DISCONNECTED"
+  | "CONNECTING"
+  | "AI_SPEAKING"
+  | "USER_SPEAKING"
+  | "AI_THINKING"
+  | "RECOVERING"
+  | "FALLBACK_TTS";
+export type InterviewerSessionTone = "neutral" | "speaking" | "recording" | "thinking" | "warning";
+export type InterviewerSessionStageClassName =
+  | ""
+  | "ai-interviewer-stage--connecting"
+  | "ai-interviewer-stage--ai-speaking"
+  | "ai-interviewer-stage--user-speaking"
+  | "ai-interviewer-stage--ai-thinking"
+  | "ai-interviewer-stage--recovering"
+  | "ai-interviewer-stage--fallback";
+export type InterviewerSessionAvatarClassName = "" | "speaking";
+
+export interface InterviewerSessionStateInput {
+  mode?: InterviewerSessionMode;
+  setupCompleted: boolean;
+  hasCurrentQuestion: boolean;
+  questionSpeechPlaying: boolean;
+  questionSpeechSupported: boolean;
+  recording: boolean;
+  answerProcessingBusy: boolean;
+  busy: boolean;
+  currentQuestionLocked: boolean;
+}
+
+export interface InterviewerSessionState {
+  mode: InterviewerSessionMode;
+  phase: InterviewerSessionPhase;
+  label: string;
+  description: string;
+  tone: InterviewerSessionTone;
+  stageClassName: InterviewerSessionStageClassName;
+  avatarClassName: InterviewerSessionAvatarClassName;
+}
+
+export interface InterviewerSessionModePolicyInput {
+  requestedMode?: string;
+  realtimeVoiceEnabled?: boolean;
+  avatarStreamEnabled?: boolean;
+}
+
+export interface InterviewerSessionModePolicy {
+  requestedMode: InterviewerSessionMode;
+  activeMode: InterviewerSessionMode;
+  fallbackReason?: InterviewerSessionModeFallbackReason;
+}
+
+export interface InterviewerSessionEvent {
+  id: string;
+  sequence: number;
+  sessionId: number;
+  questionId?: number;
+  mode: InterviewerSessionMode;
+  phase: InterviewerSessionPhase;
+  action?: InterviewerSessionAction;
+  label: string;
+  occurredAt: string;
+  source: "runtime-state" | "runtime-action";
+}
+
+export type InterviewerSessionAction =
+  | "speech:start"
+  | "speech:completed"
+  | "speech:fallback"
+  | "recording:start";
+
+export interface CreateInterviewerSessionEventInput {
+  sessionId: number;
+  questionId?: number;
+  state: Pick<InterviewerSessionState, "mode" | "phase" | "label">;
+  sequence: number;
+  occurredAt: string;
+  previousEvent?: Pick<InterviewerSessionEvent, "sessionId" | "questionId" | "mode" | "phase">;
+}
+
+export interface CreateInterviewerSessionActionEventInput {
+  sessionId: number;
+  questionId?: number;
+  mode: InterviewerSessionMode;
+  phase: InterviewerSessionPhase;
+  action: InterviewerSessionAction;
+  label: string;
+  sequence: number;
+  occurredAt: string;
+}
+
+export interface TimedOutAiJobStatusInput {
+  processLogId: number;
+  processType: string;
+  status: string;
+  failure?: {
+    category: string;
+    reason: string;
+    retryable: boolean;
+  };
+}
+
+export interface RealtimeSessionUserNoticeInput {
+  provider: "mock" | "openai" | string;
+}
+
+export interface InterviewSpeechPlaybackEventCurrentInput {
+  playbackId: number;
+  activePlaybackId: number;
+  questionId?: number;
+  currentQuestionId?: number;
+  sessionId?: number;
+  currentSessionId?: number;
+}
+
+export interface MeaningfulInterviewRecordingVoiceInput {
+  peakLevel: number;
+  activeFrameCount: number;
+  minPeakLevel: number;
+  minActiveFrameCount: number;
+}
+
+export interface AutoStartInterviewRecordingInput {
+  setupCompleted: boolean;
+  introCompleted: boolean;
+  questionSpeechCompleted: boolean;
+  questionSpeechPlaying: boolean;
+  cameraReady: boolean;
+  microphoneReady: boolean;
+  hasCurrentQuestion: boolean;
+  currentQuestionLocked: boolean;
+  timerPhase: "PREPARING" | "ANSWERING";
+  recording: boolean;
+  hasAnswerFile: boolean;
+  microphoneLevel: number;
+}
+
+export interface ManualInterviewRecordingInput {
+  canRecord: boolean;
+  setupCompleted: boolean;
+  introCompleted: boolean;
+  questionSpeechCompleted: boolean;
+  questionSpeechPlaying: boolean;
+  cameraReady: boolean;
+  microphoneReady: boolean;
+  networkReady: boolean;
+  hasCurrentQuestion: boolean;
+  currentQuestionLocked: boolean;
+  timerPhase: "PREPARING" | "ANSWERING";
+  recording: boolean;
+  canSubmitAnswer: boolean;
+  busy: boolean;
+}
+
+export interface RuntimeDeviceRecheckStateInput {
+  setupCompleted: boolean;
+  recording: boolean;
+  cameraReady: boolean;
+  microphoneReady: boolean;
+  networkReady: boolean;
+}
+
+export type RuntimeDeviceRecheckReason = "NONE" | "MICROPHONE" | "CAMERA" | "NETWORK" | "DEVICE";
+
+export interface RuntimeDeviceRecheckState {
+  visible: boolean;
+  label: string;
+  reason: RuntimeDeviceRecheckReason;
+}
+
+export interface RealtimeMicrophoneRecordingStartInput {
+  realtimeSpeechReady: boolean;
+  questionSpeechCompleted: boolean;
+  questionSpeechPlaying: boolean;
+  timerPhase: "PREPARING" | "ANSWERING";
+}
+
+export interface InterviewRuntimeCountdownInput {
+  setupCompleted: boolean;
+  introCompleted: boolean;
+  questionSpeechCompleted: boolean;
+  questionSpeechPlaying: boolean;
+  hasCurrentQuestion: boolean;
+  currentQuestionLocked: boolean;
+  busy: boolean;
+  timerPhase: "PREPARING" | "ANSWERING";
+  recording: boolean;
+}
+
+export interface RealtimeSilenceEncouragementDecisionInput {
+  nowMs: number;
+  silenceStartedAtMs: number | null;
+  currentMicrophoneLevel: number;
+  minimumVoiceLevel: number;
+  hasDetectedVoiceDuringAnswer: boolean;
+  alreadyEncouraged: boolean;
+  remainingSeconds: number;
+  silenceGraceMs?: number;
+}
+
+export type RealtimeSilenceEncouragementDecision =
+  | {
+      shouldEncourage: false;
+      nextSilenceStartedAtMs: number | null;
+    }
+  | {
+      shouldEncourage: true;
+      nextSilenceStartedAtMs: number;
+      text: string;
+    };
+
+export type InvalidRecordingRecoveryAction = "retry" | "hold";
+
+export interface InvalidRecordingRecoveryActionInput {
+  failedAttemptCount: number;
+  maxAutoRetryCount: number;
+}
+
 export const requiredApplicationConsents: ConsentType[] = [
   "PRIVACY_COLLECTION",
   "AI_DOCUMENT_ANALYSIS",
@@ -591,6 +849,480 @@ export function getInterviewRuntimeScreenSwapState({
   };
 }
 
+export function getInterviewRuntimeFullscreenActive({
+  fullscreenElement,
+  stageElement,
+}: InterviewRuntimeFullscreenActiveInput): boolean {
+  return Boolean(stageElement && fullscreenElement === stageElement);
+}
+
+export function getInterviewRuntimePipShortcutState({
+  primaryScreen,
+  cameraPreviewVisible,
+  interviewerPipVisible,
+}: InterviewRuntimePipShortcutStateInput): InterviewRuntimePipShortcutState {
+  if (primaryScreen === "candidate") {
+    return {
+      primaryScreen,
+      cameraPreviewVisible: true,
+      interviewerPipVisible: !interviewerPipVisible,
+    };
+  }
+
+  return {
+    primaryScreen: "interviewer",
+    cameraPreviewVisible: !cameraPreviewVisible,
+    interviewerPipVisible,
+  };
+}
+
+export function getInterviewRuntimeProgressionState({
+  hasRuntimeData,
+  currentQuestionAnswered,
+  isCurrentQuestionLast,
+  generatedFollowUpReady,
+  answerProcessingBusy,
+  isReansweringCurrentQuestion,
+  recording,
+  answeredQuestionCount,
+  totalQuestions,
+}: InterviewRuntimeProgressionStateInput): InterviewRuntimeProgressionState {
+  const canMoveNextQuestion = Boolean(
+    hasRuntimeData &&
+      currentQuestionAnswered &&
+      (!isCurrentQuestionLast || generatedFollowUpReady) &&
+      !answerProcessingBusy &&
+      !isReansweringCurrentQuestion &&
+      !recording,
+  );
+  const canCompleteInterview = Boolean(
+    hasRuntimeData &&
+      currentQuestionAnswered &&
+      isCurrentQuestionLast &&
+      !generatedFollowUpReady &&
+      !answerProcessingBusy &&
+      answeredQuestionCount >= totalQuestions &&
+      !isReansweringCurrentQuestion &&
+      !recording,
+  );
+
+  return {
+    canMoveNextQuestion,
+    canCompleteInterview,
+  };
+}
+
+export function getTimedOutAiJobStatus<T extends TimedOutAiJobStatusInput>(latest: T): T & {
+  status: "FAILED";
+  failure: {
+    category: "TIMEOUT";
+    reason: string;
+    retryable: true;
+  };
+} {
+  return {
+    ...latest,
+    status: "FAILED",
+    failure: {
+      category: "TIMEOUT",
+      reason: "AI 작업 응답 시간이 초과되었습니다. 잠시 후 상태를 다시 확인해주세요.",
+      retryable: true,
+    },
+  };
+}
+
+export function shouldContinueInterviewWithoutFollowUp(args: {
+  failureCategory?: string;
+  pipelineError?: unknown;
+}): boolean {
+  return Boolean(args.pipelineError || args.failureCategory === "TIMEOUT");
+}
+
+export function getRealtimeSessionUserNotice({
+  provider,
+}: RealtimeSessionUserNoticeInput): string {
+  return provider === "openai" ? "실시간 AI 면접 연결을 준비했습니다." : "";
+}
+
+export function isInterviewSpeechPlaybackEventCurrent({
+  playbackId,
+  activePlaybackId,
+  questionId,
+  currentQuestionId,
+  sessionId,
+  currentSessionId,
+}: InterviewSpeechPlaybackEventCurrentInput): boolean {
+  if (playbackId !== activePlaybackId) return false;
+  if (typeof questionId === "number" && questionId !== currentQuestionId) return false;
+  if (typeof sessionId === "number" && sessionId !== currentSessionId) return false;
+  return true;
+}
+
+export function hasMeaningfulInterviewRecordingVoice({
+  peakLevel,
+  activeFrameCount,
+  minPeakLevel,
+  minActiveFrameCount,
+}: MeaningfulInterviewRecordingVoiceInput): boolean {
+  return peakLevel >= minPeakLevel && activeFrameCount >= minActiveFrameCount;
+}
+
+export function shouldAutoStartInterviewRecording(input: AutoStartInterviewRecordingInput): boolean {
+  return (
+    input.setupCompleted &&
+    input.introCompleted &&
+    input.questionSpeechCompleted &&
+    !input.questionSpeechPlaying &&
+    input.cameraReady &&
+    input.microphoneReady &&
+    input.hasCurrentQuestion &&
+    !input.currentQuestionLocked &&
+    input.timerPhase === "ANSWERING" &&
+    !input.recording &&
+    !input.hasAnswerFile
+  );
+}
+
+export function shouldEnableManualInterviewRecording(input: ManualInterviewRecordingInput): boolean {
+  return (
+    input.canRecord &&
+    input.setupCompleted &&
+    input.introCompleted &&
+    input.questionSpeechCompleted &&
+    !input.questionSpeechPlaying &&
+    input.cameraReady &&
+    input.microphoneReady &&
+    input.networkReady &&
+    input.hasCurrentQuestion &&
+    !input.currentQuestionLocked &&
+    input.timerPhase === "ANSWERING" &&
+    !input.recording &&
+    !input.canSubmitAnswer &&
+    !input.busy
+  );
+}
+
+export function getRuntimeDeviceRecheckState({
+  setupCompleted,
+  recording,
+  cameraReady,
+  microphoneReady,
+  networkReady,
+}: RuntimeDeviceRecheckStateInput): RuntimeDeviceRecheckState {
+  if (!setupCompleted || recording || (cameraReady && microphoneReady && networkReady)) {
+    return {
+      visible: false,
+      label: "장치 다시 점검",
+      reason: "NONE",
+    };
+  }
+
+  if (!microphoneReady && cameraReady && networkReady) {
+    return {
+      visible: true,
+      label: "마이크 다시 점검",
+      reason: "MICROPHONE",
+    };
+  }
+
+  if (!cameraReady && microphoneReady && networkReady) {
+    return {
+      visible: true,
+      label: "카메라 다시 점검",
+      reason: "CAMERA",
+    };
+  }
+
+  if (!networkReady && cameraReady && microphoneReady) {
+    return {
+      visible: true,
+      label: "네트워크 다시 점검",
+      reason: "NETWORK",
+    };
+  }
+
+  return {
+    visible: true,
+    label: "카메라/마이크 다시 점검",
+    reason: "DEVICE",
+  };
+}
+
+export function shouldOpenRealtimeMicrophoneForRecordingStart({
+  realtimeSpeechReady,
+  questionSpeechCompleted,
+  questionSpeechPlaying,
+  timerPhase,
+}: RealtimeMicrophoneRecordingStartInput): boolean {
+  return realtimeSpeechReady && questionSpeechCompleted && !questionSpeechPlaying && timerPhase === "ANSWERING";
+}
+
+export function shouldRunInterviewRuntimeCountdown({
+  setupCompleted,
+  introCompleted,
+  questionSpeechCompleted,
+  questionSpeechPlaying,
+  hasCurrentQuestion,
+  currentQuestionLocked,
+  busy,
+  timerPhase,
+  recording,
+}: InterviewRuntimeCountdownInput): boolean {
+  if (
+    !setupCompleted ||
+    !introCompleted ||
+    !questionSpeechCompleted ||
+    questionSpeechPlaying ||
+    !hasCurrentQuestion ||
+    currentQuestionLocked ||
+    busy
+  ) {
+    return false;
+  }
+
+  return timerPhase === "PREPARING" || recording;
+}
+
+export function getRealtimeSilenceEncouragementDecision({
+  nowMs,
+  silenceStartedAtMs,
+  currentMicrophoneLevel,
+  minimumVoiceLevel,
+  hasDetectedVoiceDuringAnswer,
+  alreadyEncouraged,
+  remainingSeconds,
+  silenceGraceMs = 0,
+}: RealtimeSilenceEncouragementDecisionInput): RealtimeSilenceEncouragementDecision {
+  if (currentMicrophoneLevel >= minimumVoiceLevel) {
+    return { shouldEncourage: false, nextSilenceStartedAtMs: null };
+  }
+
+  const nextSilenceStartedAtMs = silenceStartedAtMs ?? nowMs;
+  if (alreadyEncouraged || remainingSeconds <= 15) {
+    return { shouldEncourage: false, nextSilenceStartedAtMs };
+  }
+
+  const thresholdMs = hasDetectedVoiceDuringAnswer ? 20000 : 15000;
+  if (nowMs - nextSilenceStartedAtMs < thresholdMs + Math.max(0, silenceGraceMs)) {
+    return { shouldEncourage: false, nextSilenceStartedAtMs };
+  }
+
+  return {
+    shouldEncourage: true,
+    nextSilenceStartedAtMs,
+    text: hasDetectedVoiceDuringAnswer
+      ? "좋습니다. 이어서 말씀해주셔도 됩니다."
+      : "괜찮습니다. 천천히 생각하고 말씀해보세요.",
+  };
+}
+
+export function getInvalidRecordingRecoveryAction({
+  failedAttemptCount,
+  maxAutoRetryCount,
+}: InvalidRecordingRecoveryActionInput): InvalidRecordingRecoveryAction {
+  return failedAttemptCount <= maxAutoRetryCount ? "retry" : "hold";
+}
+
+export function resolveInterviewerSessionMode({
+  requestedMode,
+  realtimeVoiceEnabled = false,
+  avatarStreamEnabled = false,
+}: InterviewerSessionModePolicyInput): InterviewerSessionModePolicy {
+  const parsedMode = parseInterviewerSessionMode(requestedMode);
+
+  if (!parsedMode) {
+    return {
+      requestedMode: "tts-file",
+      activeMode: "tts-file",
+      fallbackReason: "INVALID_MODE",
+    };
+  }
+
+  if (parsedMode === "realtime-voice" && !realtimeVoiceEnabled) {
+    return {
+      requestedMode: parsedMode,
+      activeMode: "tts-file",
+      fallbackReason: "REALTIME_VOICE_DISABLED",
+    };
+  }
+
+  if (parsedMode === "avatar-stream" && !avatarStreamEnabled) {
+    return {
+      requestedMode: parsedMode,
+      activeMode: "tts-file",
+      fallbackReason: "AVATAR_STREAM_DISABLED",
+    };
+  }
+
+  return {
+    requestedMode: parsedMode,
+    activeMode: parsedMode,
+  };
+}
+
+export function getInterviewerSessionState({
+  mode = "tts-file",
+  setupCompleted,
+  hasCurrentQuestion,
+  questionSpeechPlaying,
+  questionSpeechSupported,
+  recording,
+  answerProcessingBusy,
+  busy,
+  currentQuestionLocked,
+}: InterviewerSessionStateInput): InterviewerSessionState {
+  if (!setupCompleted) {
+    return createInterviewerSessionState({
+      mode,
+      phase: "DISCONNECTED",
+      label: "면접 준비 중",
+      description: "장치 점검과 면접 시작을 기다리고 있습니다.",
+      tone: "neutral",
+      stageClassName: "",
+      avatarClassName: "",
+    });
+  }
+
+  if (answerProcessingBusy || (busy && currentQuestionLocked)) {
+    return createInterviewerSessionState({
+      mode,
+      phase: "AI_THINKING",
+      label: "답변 처리 중",
+      description: "AI 면접관이 답변 처리 결과를 기다리고 있습니다.",
+      tone: "thinking",
+      stageClassName: "ai-interviewer-stage--ai-thinking",
+      avatarClassName: "",
+    });
+  }
+
+  if (!hasCurrentQuestion) {
+    return createInterviewerSessionState({
+      mode,
+      phase: busy ? "CONNECTING" : "RECOVERING",
+      label: busy ? "질문 준비 중" : "질문 복구 중",
+      description: busy
+        ? "AI 면접관이 다음 질문을 준비하고 있습니다."
+        : "현재 질문 정보를 다시 불러오고 있습니다.",
+      tone: busy ? "neutral" : "warning",
+      stageClassName: busy ? "ai-interviewer-stage--connecting" : "ai-interviewer-stage--recovering",
+      avatarClassName: "",
+    });
+  }
+
+  if (questionSpeechPlaying) {
+    return createInterviewerSessionState({
+      mode,
+      phase: "AI_SPEAKING",
+      label: "AI 안내 중",
+      description: "AI 면접관이 질문 음성을 안내하고 있습니다.",
+      tone: "speaking",
+      stageClassName: "ai-interviewer-stage--ai-speaking",
+      avatarClassName: "speaking",
+    });
+  }
+
+  if (recording) {
+    return createInterviewerSessionState({
+      mode,
+      phase: "USER_SPEAKING",
+      label: "답변 녹화 중",
+      description: "지원자의 답변 녹화가 진행 중입니다.",
+      tone: "recording",
+      stageClassName: "ai-interviewer-stage--user-speaking",
+      avatarClassName: "",
+    });
+  }
+
+  if (!questionSpeechSupported) {
+    return createInterviewerSessionState({
+      mode,
+      phase: "FALLBACK_TTS",
+      label: "질문 보기 필요",
+      description: "질문 음성 재생을 사용할 수 없어 텍스트 질문으로 진행합니다.",
+      tone: "warning",
+      stageClassName: "ai-interviewer-stage--fallback",
+      avatarClassName: "",
+    });
+  }
+
+  return createInterviewerSessionState({
+    mode,
+    phase: "CONNECTING",
+    label: "질문 대기 중",
+    description: "AI 면접관이 질문 안내를 시작할 준비를 하고 있습니다.",
+    tone: "neutral",
+    stageClassName: "ai-interviewer-stage--connecting",
+    avatarClassName: "",
+  });
+}
+
+export function createInterviewerSessionEvent({
+  sessionId,
+  questionId,
+  state,
+  sequence,
+  occurredAt,
+  previousEvent,
+}: CreateInterviewerSessionEventInput): InterviewerSessionEvent | undefined {
+  if (
+    previousEvent &&
+    previousEvent.sessionId === sessionId &&
+    previousEvent.questionId === questionId &&
+    previousEvent.mode === state.mode &&
+    previousEvent.phase === state.phase
+  ) {
+    return undefined;
+  }
+
+  const normalizedSequence = Math.max(1, Math.floor(sequence));
+
+  return {
+    id: `interviewer-session-${sessionId}-${normalizedSequence}`,
+    sequence: normalizedSequence,
+    sessionId,
+    questionId,
+    mode: state.mode,
+    phase: state.phase,
+    label: state.label,
+    occurredAt,
+    source: "runtime-state",
+  };
+}
+
+export function createInterviewerSessionActionEvent({
+  sessionId,
+  questionId,
+  mode,
+  phase,
+  action,
+  label,
+  sequence,
+  occurredAt,
+}: CreateInterviewerSessionActionEventInput): InterviewerSessionEvent {
+  const normalizedSequence = Math.max(1, Math.floor(sequence));
+
+  return {
+    id: `interviewer-session-${sessionId}-${normalizedSequence}`,
+    sequence: normalizedSequence,
+    sessionId,
+    questionId,
+    mode,
+    phase,
+    action,
+    label,
+    occurredAt,
+    source: "runtime-action",
+  };
+}
+
+export function trimInterviewerSessionEvents(
+  events: InterviewerSessionEvent[],
+  limit = 40,
+): InterviewerSessionEvent[] {
+  const normalizedLimit = Math.max(1, Math.floor(limit));
+  return events.slice(Math.max(0, events.length - normalizedLimit));
+}
+
 export function toUploadResumeRequest(state: CandidateResumeUploadState): UploadResumeRequest {
   if (!state.storageKey.startsWith(`candidate/${state.candidateId}/`)) {
     throw new Error("resume storageKey must be under the current candidate prefix.");
@@ -725,4 +1457,19 @@ function assertInterviewMediaFile(file: RuntimeFileAssetRequest): void {
   if (!file.storageKey || !file.originalName.trim()) {
     throw new Error("interview answer file metadata is required.");
   }
+}
+
+function createInterviewerSessionState(
+  state: InterviewerSessionState,
+): InterviewerSessionState {
+  return state;
+}
+
+function parseInterviewerSessionMode(value?: string): InterviewerSessionMode | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return "tts-file";
+  if (normalized === "tts-file" || normalized === "realtime-voice" || normalized === "avatar-stream") {
+    return normalized;
+  }
+  return undefined;
 }

@@ -100,6 +100,27 @@ export type ApplicantRecord = {
     interviewType: string;
     startedAt: Date | null;
     completedAt: Date | null;
+    answers?: Array<{
+      answerId: number;
+      questionId: number | null;
+      questionType: string | null;
+      questionContent: string | null;
+      transcript: string | null;
+      durationSeconds: number | null;
+      submittedAt: Date | null;
+      followUpQuestions: Array<{
+        followUpId: number;
+        content: string;
+        generationStatus: string;
+        policy: string;
+        answer: {
+          answerId: number;
+          transcript: string | null;
+          durationSeconds: number | null;
+          submittedAt: Date | null;
+        } | null;
+      }>;
+    }>;
   }>;
 };
 

@@ -69,6 +69,9 @@ export function LandingPage() {
             <Image src="/logo-init-v4.png" alt="init" width={1900} height={580} priority />
           </Link>
           <div className="gnb-right">
+            <Link className="btn secondary" href="/ai/performance">
+              AI 지표
+            </Link>
             <Link className="btn secondary" href="/login">
               로그인
             </Link>

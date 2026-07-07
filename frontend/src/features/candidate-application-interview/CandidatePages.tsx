@@ -9,6 +9,7 @@ import { DependencyList, FormEvent, PointerEvent as ReactPointerEvent, ReactNode
 
 import { getApiBaseUrl } from "../../api/api-base-url";
 import { getAccessToken } from "../../api/client";
+import { sendClientPerformanceLog } from "../ai-performance/api";
 import { GnbAvatar, GnbLogoutButton } from "../auth/GnbAccountControls";
 import { createPaymentOrder, getCandidateMockInterviewPassSummary, grantCandidateMockInterviewDevPasses, listPaymentOrders } from "../payment/api";
 import { PaymentOrderPagination, formatDateTime as formatPaymentDateTime, formatWon } from "../payment/CompanyBillingPage";
@@ -34,7 +35,6 @@ import {
   type CandidateInterviewRuntimeView,
   type CandidateJobQuery,
   type CandidateMockInterviewHistoryItem,
-  type CandidateReportGenerationHandoff,
   type CandidateMockReportFeedback,
   type CandidateMockReportMedia,
   type CandidateMockReportSummary,
@@ -48,10 +48,22 @@ import {
   type RuntimeQuestionListResponse,
   type RuntimeQuestionView,
   type SaveInterviewAnswerRequest,
+  type RealtimeInterviewSessionResponse,
   createCandidateApiClient,
   createPublicInterviewApiClient,
   type InterviewRuntimeApiClient,
 } from "./api";
+import {
+  createRealtimeInterviewSpeechResponseEvent,
+  createRealtimeInterviewWebRtcConnection,
+  getRealtimeAudioCompletedResponseId,
+  getRealtimeResponseMetadata,
+  sendRealtimeSpeechClientEvent,
+  setRealtimeInterviewMicrophoneEnabled,
+  shouldRestoreRealtimeMicrophoneAfterSpeechResponse,
+  type RealtimeInterviewWebRtcConnection,
+  type RealtimeResponseMetadata,
+} from "./realtime-webrtc";
 import { candidateApplicationInterviewRoutes } from "./routes";
 import {
   type CameraPipPosition,
@@ -62,8 +74,10 @@ import {
   type CandidateResumeUploadState,
   type InterviewAnswerFormState,
   type InterviewRuntimePrimaryScreen,
+  type InterviewerSessionEvent,
   type StartMockInterviewState,
   clampCameraPipPosition,
+  createInterviewerSessionActionEvent,
   defaultApplicationFormState,
   defaultCandidateJobQuery,
   defaultDeviceCheckState,
@@ -72,22 +86,41 @@ import {
   defaultPortfolioLinkFormState,
   defaultStartMockInterviewState,
   createCameralessInterviewTestDeviceCheckState,
+  createInterviewerSessionEvent,
   createResumeUploadStateFromFile,
   formatAiInterviewerQuestionPrompt,
   getAiInterviewerProfile,
   getDefaultCameraPipPosition,
   getInterviewMediaFileExtension,
+  getInterviewRuntimeFullscreenActive,
   getInterviewRuntimeLayoutState,
+  getInterviewRuntimePipShortcutState,
+  getInterviewRuntimeProgressionState,
   getInterviewRuntimeScreenSwapState,
   getInterviewRuntimeStatusChips,
+  getInterviewerSessionState,
+  getInvalidRecordingRecoveryAction,
+  getRealtimeSilenceEncouragementDecision,
+  getRealtimeSessionUserNotice,
+  getRuntimeDeviceRecheckState,
+  getTimedOutAiJobStatus,
   getCandidateApplicationReportHref,
   getMockInterviewDeviceCheckHref,
   getMockReportHref,
+  hasMeaningfulInterviewRecordingVoice,
   inferPortfolioLinkType,
+  isInterviewSpeechPlaybackEventCurrent,
   normalizeInterviewMediaMimeType,
   requiredInterviewConsents,
   resolveRecordedMimeType,
+  resolveInterviewerSessionMode,
+  shouldAutoStartInterviewRecording,
+  shouldContinueInterviewWithoutFollowUp,
+  shouldEnableManualInterviewRecording,
+  shouldOpenRealtimeMicrophoneForRecordingStart,
+  shouldRunInterviewRuntimeCountdown,
   shouldShowInterviewDeviceSetup,
+  trimInterviewerSessionEvents,
   toDeviceCheckRequest,
   toCreatePortfolioLinkRequest,
   toRuntimeQuestionSpeechText,
@@ -96,10 +129,15 @@ import {
   toStartMockInterviewRequest,
   toUploadResumeRequest,
 } from "./view-model";
-import { candidateAccountBillingNav, candidateNavLabels, isCandidateAccountBillingPath } from "./candidate-nav-config";
+import { AI_PERFORMANCE_ROUTE, candidateAccountBillingNav, candidateNavLabels, isCandidateAccountBillingPath } from "./candidate-nav-config";
 import { CandidateApplicationView, CandidateJobDetailView, CandidateJobsView } from "./views";
 
 const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY ?? "";
+const AI_INTERVIEWER_SESSION_MODE_POLICY = resolveInterviewerSessionMode({
+  requestedMode: process.env.NEXT_PUBLIC_AI_INTERVIEWER_SESSION_MODE,
+  realtimeVoiceEnabled: process.env.NEXT_PUBLIC_AI_INTERVIEWER_REALTIME_ENABLED === "true",
+  avatarStreamEnabled: process.env.NEXT_PUBLIC_AI_INTERVIEWER_AVATAR_STREAM_ENABLED === "true",
+});
 const SHOW_PAYMENT_DEV_TOOLS = process.env.NODE_ENV !== "production";
 // DEV-ONLY camera bypass: remove this flag, storage helpers, and matching buttons together when it is no longer needed.
 const ENABLE_CAMERALESS_INTERVIEW_TEST_ENTRY = process.env.NODE_ENV !== "production";
@@ -110,11 +148,17 @@ const DEFAULT_INTERVIEW_QUESTION_TIME_LIMIT_SECONDS = 90;
 const DEFAULT_MOCK_INTERVIEW_PREPARATION_TIME_LIMIT_SECONDS = 5;
 const MIN_INTERVIEW_RECORDING_DURATION_SECONDS = 3;
 const MIN_INTERVIEW_RECORDING_BLOB_SIZE_BYTES = 10 * 1024;
+const MIN_INTERVIEW_RECORDING_VOICE_LEVEL = 3;
+const MIN_INTERVIEW_RECORDING_VOICE_FRAME_COUNT = 6;
+const MAX_INVALID_RECORDING_AUTO_RETRY_COUNT = 1;
+const REALTIME_SILENCE_GRACE_MS = 2000;
+const REALTIME_SPEECH_RESPONSE_TIMEOUT_MS = 30000;
 const MIN_STT_TRANSCRIPT_MEANINGFUL_LENGTH = 10;
 const RUNTIME_PIP_RESERVED_TOP_HEIGHT = 96;
+const MAX_INTERVIEWER_SESSION_EVENTS = 40;
 const questionTypeOptions: QuestionType[] = ["INTRO", "TECHNICAL", "EXPERIENCE", "SITUATION", "CLOSING"];
 
-type CandidateNavSection = "jobs" | "applications" | "interview" | "reports" | "accountBilling";
+type CandidateNavSection = "jobs" | "applications" | "interview" | "reports" | "accountBilling" | "performance";
 type AsyncState<T> = {
   data?: T;
   loading: boolean;
@@ -122,6 +166,8 @@ type AsyncState<T> = {
 };
 type RuntimeMode = "mock" | "recruiting";
 type RuntimeTimerPhase = "PREPARING" | "ANSWERING";
+type RealtimeSessionStatus = "idle" | "requesting" | "connecting" | "ready" | "failed";
+type RealtimeProviderState = RealtimeInterviewSessionResponse["provider"] | "none";
 type InterviewGuideStep = "guide" | "device";
 type CandidateApplicationStatusFilter = "ALL" | "WAITING" | "IN_PROGRESS" | "COMPLETED" | "REPORTING";
 type ApplicationBadgeTone = "green" | "yellow" | "purple" | "neutral";
@@ -156,11 +202,32 @@ type ApplicationReportData = {
   report?: CandidateRecruitingReportView;
   reportError?: string;
 };
+
+function shouldAutoRequestApplicationReport(data?: ApplicationReportData): boolean {
+  const status = data?.status;
+  if (!status || data?.report) {
+    return false;
+  }
+
+  if (data.reportError && !isReportNotReadyMessage(data.reportError)) {
+    return false;
+  }
+
+  const interviewCompleted =
+    status.interviewStatus === "COMPLETED" || status.interviewSessionStatus === "COMPLETED";
+  if (!interviewCompleted || status.reportAvailable) {
+    return false;
+  }
+
+  return status.reportStatus !== "GENERATING" && status.reportStatus !== "COMPLETED";
+}
+
 type LastSavedAnswer = {
   answerId: number;
   questionId: number;
   questionText: string;
   transcript: string;
+  durationSeconds: number;
   fileAssetId?: number;
   audioFileId?: number;
   audioS3Key?: string;
@@ -630,7 +697,8 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
       samples.forEach((sample) => {
         peak = Math.max(peak, Math.abs(sample - 128));
       });
-      setMicrophoneLevel(Math.min(100, Math.round((peak / 128) * 100)));
+      const level = Math.min(100, Math.round((peak / 128) * 100));
+      setMicrophoneLevel(level);
       microphoneFrameRef.current = window.requestAnimationFrame(tick);
     };
 
@@ -1408,9 +1476,9 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
 }
 
 export function CandidateApplicationReportPage({ applicationId }: { applicationId: number }) {
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [reportHandoff, setReportHandoff] = useState<CandidateReportGenerationHandoff>();
+  const [generationBusy, setGenerationBusy] = useState(false);
+  const [generationMessage, setGenerationMessage] = useState("");
+  const requestedReportApplicationRef = useRef<number | null>(null);
   const load = useCallback(async (): Promise<ApplicationReportData> => {
     const api = getCandidateApi();
     const [statusResult, reportResult] = await Promise.allSettled([
@@ -1426,46 +1494,61 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
   }, [applicationId]);
   const { data, loading, error, refresh } = useCandidateResource(load, [applicationId]);
 
-  async function handleGenerateApplicationReport() {
-    setBusy(true);
-    setMessage("");
-    try {
-      const result = await getCandidateApi().requestApplicationReportGeneration(applicationId);
-      setReportHandoff(result.data);
-      setMessage(
-        `REPORT_GENERATE queued=${String(result.data.queued)} processLogId=${result.data.processLogId} reportId=${result.data.reportId}`,
-      );
-      refresh();
-    } catch (generateError) {
-      setMessage(toErrorMessage(generateError));
-    } finally {
-      setBusy(false);
+  useEffect(() => {
+    if (!shouldAutoRequestApplicationReport(data)) {
+      return;
     }
-  }
+
+    if (requestedReportApplicationRef.current === applicationId) {
+      return;
+    }
+
+    let cancelled = false;
+    requestedReportApplicationRef.current = applicationId;
+    setGenerationBusy(true);
+    setGenerationMessage("");
+
+    getCandidateApi()
+      .requestApplicationReportGeneration(applicationId)
+      .then(() => {
+        if (cancelled) {
+          return;
+        }
+        setGenerationMessage("AI 분석 요청이 접수되었습니다. 완료되면 기업 검토 화면에 반영됩니다.");
+        refresh();
+      })
+      .catch((reportGenerationError) => {
+        if (cancelled) {
+          return;
+        }
+        setGenerationMessage(toErrorMessage(reportGenerationError));
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setGenerationBusy(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applicationId, data, refresh]);
 
   return (
     <CandidatePageShell active="applications">
       <CandidatePageHead
         eyebrow="채용 결과"
         title="채용 AI 면접 결과"
-        description={data?.status ? `${data.status.companyName} · ${data.status.jobTitle}` : "지원자에게 공개 가능한 제한 결과와 전형 상태만 표시합니다."}
+        description={data?.status ? `${data.status.companyName} · ${data.status.jobTitle}` : "면접 제출 여부와 전형 진행 상태를 확인합니다."}
         actions={
           <div className="toolbar">
-            <StatusPill value="채용 리포트" />
-            <StatusPill value="지원자 제한 조회" />
-            <button
-              className="btn secondary"
-              type="button"
-              disabled={busy || data?.status?.interviewStatus !== "COMPLETED"}
-              onClick={() => void handleGenerateApplicationReport()}
-            >
-              AI 분석 요청
-            </button>
+            <StatusPill value="채용면접" />
+            <StatusPill value="기업 검토" />
             <button className="btn secondary" type="button" onClick={refresh}>새로고침</button>
           </div>
         }
       />
-      <StatusNotice loading={loading || busy} error={error} message={message} />
+      <StatusNotice loading={loading || generationBusy} error={error} message={generationMessage} />
       <section className="panel">
         <div className="panel-head">
           <div>
@@ -1475,22 +1558,11 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
         </div>
         {data?.status ? <ApplicationStatusView status={data.status} /> : <p className="notice danger">{data?.statusError ?? "전형 상태를 불러오지 못했습니다."}</p>}
       </section>
-      {reportHandoff ? (
-        <section className="panel">
-          <div className="panel-head">
-            <div>
-              <h2>E 리포트 생성 연결</h2>
-              <p>REPORT_GENERATE 큐 발행 결과와 worker가 참조할 ID를 확인합니다.</p>
-            </div>
-          </div>
-          <ReportGenerationHandoffView handoff={reportHandoff} />
-        </section>
-      ) : null}
       <section className="panel">
         <div className="panel-head">
           <div>
             <h2>지원자용 결과</h2>
-            <p>기업용 상세 점수, 평가 근거, 내부 메모는 노출하지 않습니다.</p>
+            <p>면접 제출과 분석 진행 상태를 안내합니다.</p>
           </div>
         </div>
         {data?.report ? (
@@ -1918,6 +1990,16 @@ function InterviewRuntimePanel({
   const [questionSpeechPlaying, setQuestionSpeechPlaying] = useState(false);
   const [questionSpeechStatus, setQuestionSpeechStatus] = useState("AI 안내 대기");
   const [questionSpeechSupported, setQuestionSpeechSupported] = useState(true);
+  const [interviewerSessionEventCount, setInterviewerSessionEventCount] = useState(0);
+  const [realtimeSessionStatus, setRealtimeSessionStatus] = useState<RealtimeSessionStatus>("idle");
+  const [realtimeProvider, setRealtimeProvider] = useState<RealtimeProviderState>("none");
+  const [realtimeModel, setRealtimeModel] = useState("");
+  const [realtimeVoice, setRealtimeVoice] = useState("");
+  const [realtimeLastError, setRealtimeLastError] = useState("");
+  const [realtimeConnectionState, setRealtimeConnectionState] = useState<RTCPeerConnectionState>("new");
+  const [realtimeDataChannelState, setRealtimeDataChannelState] = useState<RTCDataChannelState>("closed");
+  const [realtimeDataEventCount, setRealtimeDataEventCount] = useState(0);
+  const [realtimeRemoteAudioReady, setRealtimeRemoteAudioReady] = useState(false);
   const [answeredQuestionIds, setAnsweredQuestionIds] = useState<Set<number>>(() => new Set());
   const [replayedQuestionIds, setReplayedQuestionIds] = useState<Set<number>>(() => new Set());
   const [reansweringQuestionId, setReansweringQuestionId] = useState<number | null>(null);
@@ -1948,7 +2030,32 @@ function InterviewRuntimePanel({
   const timeExpiredQuestionRef = useRef<number | null>(null);
   const answerStartCueQuestionRef = useRef<number | null>(null);
   const invalidRecordingRetryCountsRef = useRef<Map<number, number>>(new Map());
+  const answerToNextQuestionPerfRef = useRef<{
+    startedAt: number;
+    startedAtIso: string;
+    sourceQuestionId: number;
+    sessionId: number;
+    applicationId?: number;
+    processLogId?: number;
+  } | null>(null);
+  const interviewerSessionEventsRef = useRef<InterviewerSessionEvent[]>([]);
+  const interviewerSessionEventSequenceRef = useRef(0);
+  const interviewerSessionIdRef = useRef<number | undefined>(undefined);
+  const currentRuntimeSessionIdRef = useRef<number | undefined>(undefined);
+  const currentRuntimeQuestionIdRef = useRef<number | undefined>(undefined);
+  const realtimeSessionRequestKeyRef = useRef<string | null>(null);
+  const realtimeConnectionRef = useRef<RealtimeInterviewWebRtcConnection | null>(null);
+  const realtimeRemoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const realtimeSpeechTimeoutRef = useRef<number | null>(null);
+  const realtimeSpeechResponseMetadataByIdRef = useRef<Map<string, RealtimeResponseMetadata>>(new Map());
+  const realtimeAudioCompletedResponseIdsRef = useRef<Set<string>>(new Set());
+  const speechPlaybackIdRef = useRef(0);
   const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const microphoneLevelRef = useRef(0);
+  const recordingVoicePeakRef = useRef(0);
+  const recordingVoiceFrameCountRef = useRef(0);
+  const realtimeSilenceStartedAtRef = useRef<number | null>(null);
+  const realtimeEncouragedQuestionRef = useRef<number | null>(null);
   const videoAttachRunRef = useRef(0);
   const hasAnswerFile = Boolean(answer.videoFile || answer.audioFile || answer.videoFileId || answer.audioFileId);
   const canSubmitAnswer = Boolean(currentQuestion && hasAnswerFile && answer.durationSeconds > 0 && !recording);
@@ -1961,8 +2068,109 @@ function InterviewRuntimePanel({
   );
   const isReansweringCurrentQuestion = Boolean(currentQuestion && reansweringQuestionId === currentQuestion.questionId);
   const currentQuestionLocked = currentQuestionAnswered && !isReansweringCurrentQuestion;
+  const realtimeSpeechReady =
+    AI_INTERVIEWER_SESSION_MODE_POLICY.activeMode === "realtime-voice" &&
+    realtimeProvider === "openai" &&
+    realtimeSessionStatus === "ready" &&
+    realtimeDataChannelState === "open" &&
+    Boolean(realtimeConnectionRef.current);
+  const shouldWaitForRealtimeSpeech =
+    AI_INTERVIEWER_SESSION_MODE_POLICY.activeMode === "realtime-voice" &&
+    realtimeProvider !== "mock" &&
+    realtimeSessionStatus !== "failed" &&
+    !realtimeSpeechReady;
+  const canStartManualRecording = shouldEnableManualInterviewRecording({
+    canRecord: Boolean(data?.runtime.canRecord),
+    setupCompleted,
+    introCompleted,
+    questionSpeechCompleted,
+    questionSpeechPlaying,
+    cameraReady,
+    microphoneReady,
+    networkReady,
+    hasCurrentQuestion: Boolean(currentQuestion),
+    currentQuestionLocked,
+    timerPhase,
+    recording,
+    canSubmitAnswer,
+    busy,
+  });
+  const shouldShowRecordingStartLabel = Boolean(
+    data?.runtime.canRecord &&
+      currentQuestion &&
+      setupCompleted &&
+      introCompleted &&
+      questionSpeechCompleted &&
+      !questionSpeechPlaying &&
+      timerPhase === "ANSWERING" &&
+      !currentQuestionLocked &&
+      !recording &&
+      !canSubmitAnswer,
+  );
   const currentQuestionReplayUsed = Boolean(currentQuestion && replayedQuestionIds.has(currentQuestion.questionId));
   const deviceTestSentence = useMemo(() => pickDeviceTestSentence(), []);
+  currentRuntimeSessionIdRef.current = data?.runtime.sessionId;
+  currentRuntimeQuestionIdRef.current = currentQuestion?.questionId;
+
+  const appendInterviewerSessionActionEvent = useCallback((input: {
+    action: NonNullable<InterviewerSessionEvent["action"]>;
+    phase: InterviewerSessionEvent["phase"];
+    label: string;
+    questionId?: number;
+  }) => {
+    const sessionId = currentRuntimeSessionIdRef.current;
+    if (typeof sessionId !== "number") return;
+
+    const event = createInterviewerSessionActionEvent({
+      sessionId,
+      questionId: input.questionId ?? currentRuntimeQuestionIdRef.current,
+      mode: AI_INTERVIEWER_SESSION_MODE_POLICY.activeMode,
+      phase: input.phase,
+      action: input.action,
+      label: input.label,
+      sequence: interviewerSessionEventSequenceRef.current + 1,
+      occurredAt: new Date().toISOString(),
+    });
+
+    interviewerSessionEventSequenceRef.current = event.sequence;
+    interviewerSessionEventsRef.current = trimInterviewerSessionEvents(
+      [
+        ...interviewerSessionEventsRef.current,
+        event,
+      ],
+      MAX_INTERVIEWER_SESSION_EVENTS,
+    );
+    setInterviewerSessionEventCount(interviewerSessionEventsRef.current.length);
+  }, []);
+
+  const clearRealtimeSpeechTimeout = useCallback(() => {
+    if (realtimeSpeechTimeoutRef.current === null) return;
+    window.clearTimeout(realtimeSpeechTimeoutRef.current);
+    realtimeSpeechTimeoutRef.current = null;
+  }, []);
+
+  const clearRealtimeSpeechCompletionState = useCallback(() => {
+    realtimeSpeechResponseMetadataByIdRef.current.clear();
+    realtimeAudioCompletedResponseIdsRef.current.clear();
+  }, []);
+
+  const closeRealtimeConnection = useCallback(() => {
+    clearRealtimeSpeechTimeout();
+    clearRealtimeSpeechCompletionState();
+    const connection = realtimeConnectionRef.current;
+    setRealtimeInterviewMicrophoneEnabled(connection, true);
+    connection?.close();
+    realtimeConnectionRef.current = null;
+    if (connection) {
+      setRealtimeConnectionState("closed");
+      setRealtimeDataChannelState("closed");
+      setRealtimeRemoteAudioReady(false);
+    }
+  }, [clearRealtimeSpeechCompletionState, clearRealtimeSpeechTimeout]);
+
+  const setRealtimeMicrophoneOpen = useCallback((open: boolean) => {
+    setRealtimeInterviewMicrophoneEnabled(realtimeConnectionRef.current, open);
+  }, []);
 
   function isQuestionAlreadyAnswered(questionId: number): boolean {
     return (
@@ -1988,28 +2196,38 @@ function InterviewRuntimePanel({
     );
   }
 
-  const stopQuestionSpeech = useCallback(() => {
+  const isCurrentSpeechPlayback = useCallback((playbackId: number, questionId?: number, sessionId?: number): boolean => {
+    return isInterviewSpeechPlaybackEventCurrent({
+      playbackId,
+      activePlaybackId: speechPlaybackIdRef.current,
+      questionId,
+      currentQuestionId: currentRuntimeQuestionIdRef.current,
+      sessionId,
+      currentSessionId: currentRuntimeSessionIdRef.current,
+    });
+  }, []);
+
+  const stopQuestionSpeech = useCallback((options: { restoreRealtimeMicrophone?: boolean } = {}) => {
+    const restoreRealtimeMicrophone = options.restoreRealtimeMicrophone ?? true;
+    clearRealtimeSpeechTimeout();
+    clearRealtimeSpeechCompletionState();
+    speechPlaybackIdRef.current += 1;
+    if (restoreRealtimeMicrophone) {
+      setRealtimeMicrophoneOpen(true);
+    }
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     window.speechSynthesis.cancel();
     speechUtteranceRef.current = null;
     setQuestionSpeechPlaying(false);
-  }, []);
+  }, [clearRealtimeSpeechCompletionState, clearRealtimeSpeechTimeout, setRealtimeMicrophoneOpen]);
 
-  const speakInterviewIntro = useCallback(() => {
+  const speakInterviewIntro = useCallback((options: { forceBrowserSpeech?: boolean } = {}) => {
     if (!data) return;
     if (introSpokenSessionRef.current === data.runtime.sessionId) {
       setIntroCompleted(true);
       return;
     }
 
-    if (!isQuestionSpeechSupported()) {
-      setQuestionSpeechSupported(false);
-      setIntroCompleted(true);
-      setQuestionSpeechStatus("이 브라우저에서는 AI 음성 안내를 지원하지 않아 질문으로 바로 이동합니다.");
-      return;
-    }
-
-    stopQuestionSpeech();
     const preparationTimeSec = getRuntimePreparationTimeLimitSeconds(data.runtime);
     const timingGuide =
       preparationTimeSec > 0
@@ -2019,6 +2237,65 @@ function InterviewRuntimePanel({
       mode === "recruiting"
         ? `안녕하세요. 지금부터 채용 AI 면접을 시작하겠습니다. ${timingGuide}`
         : `안녕하세요. 지금부터 AI 모의면접을 시작하겠습니다. ${timingGuide}`;
+
+    const forceBrowserSpeech = options.forceBrowserSpeech ?? false;
+    stopQuestionSpeech({ restoreRealtimeMicrophone: !realtimeSpeechReady && !forceBrowserSpeech });
+    const playbackId = ++speechPlaybackIdRef.current;
+    const sessionId = data.runtime.sessionId;
+
+    if (realtimeSpeechReady && !forceBrowserSpeech) {
+      setRealtimeMicrophoneOpen(false);
+      const sent = sendRealtimeSpeechClientEvent(
+        realtimeConnectionRef.current,
+        createRealtimeInterviewSpeechResponseEvent({
+          purpose: "interview_intro",
+          text,
+          playbackId,
+        }),
+      );
+      if (sent) {
+        setQuestionSpeechSupported(true);
+        setQuestionSpeechPlaying(true);
+        setQuestionSpeechStatus("Realtime AI 안내를 재생 중입니다.");
+        appendInterviewerSessionActionEvent({
+          action: "speech:start",
+          phase: "AI_SPEAKING",
+          label: "Realtime AI 안내 시작",
+        });
+        realtimeSpeechTimeoutRef.current = window.setTimeout(() => {
+          realtimeSpeechTimeoutRef.current = null;
+          if (!isCurrentSpeechPlayback(playbackId, undefined, sessionId)) return;
+          appendInterviewerSessionActionEvent({
+            action: "speech:fallback",
+            phase: "FALLBACK_TTS",
+            label: "Realtime AI 안내 완료 이벤트 timeout",
+          });
+          setQuestionSpeechPlaying(false);
+          setQuestionSpeechStatus("Realtime AI 안내 완료 이벤트를 받지 못해 브라우저 음성으로 전환합니다.");
+          speakInterviewIntro({ forceBrowserSpeech: true });
+        }, REALTIME_SPEECH_RESPONSE_TIMEOUT_MS);
+        return;
+      }
+      appendInterviewerSessionActionEvent({
+        action: "speech:fallback",
+        phase: "FALLBACK_TTS",
+        label: "Realtime AI 안내 전송 실패",
+      });
+      setQuestionSpeechStatus("Realtime AI 안내를 시작하지 못해 브라우저 음성으로 전환합니다.");
+    }
+
+    if (!isQuestionSpeechSupported()) {
+      setQuestionSpeechSupported(false);
+      setIntroCompleted(true);
+      setQuestionSpeechStatus("이 브라우저에서는 AI 음성 안내를 지원하지 않아 질문으로 바로 이동합니다.");
+      appendInterviewerSessionActionEvent({
+        action: "speech:fallback",
+        phase: "FALLBACK_TTS",
+        label: "AI 안내 음성 미지원",
+      });
+      return;
+    }
+
     const utterance = new SpeechSynthesisUtterance(text);
     const koreanVoice = findKoreanSpeechVoice(window.speechSynthesis.getVoices());
     utterance.lang = "ko-KR";
@@ -2026,19 +2303,30 @@ function InterviewRuntimePanel({
     utterance.pitch = 1;
     if (koreanVoice) utterance.voice = koreanVoice;
     utterance.onstart = () => {
+      if (!isCurrentSpeechPlayback(playbackId, undefined, sessionId)) return;
       setQuestionSpeechPlaying(true);
       setQuestionSpeechStatus("AI 안내를 재생 중입니다.");
+      appendInterviewerSessionActionEvent({
+        action: "speech:start",
+        phase: "AI_SPEAKING",
+        label: forceBrowserSpeech ? "브라우저 fallback AI 안내 시작" : "브라우저 AI 안내 시작",
+      });
     };
     utterance.onend = () => {
-      if (speechUtteranceRef.current !== utterance) return;
+      if (speechUtteranceRef.current !== utterance || !isCurrentSpeechPlayback(playbackId, undefined, sessionId)) return;
       speechUtteranceRef.current = null;
       introSpokenSessionRef.current = data.runtime.sessionId;
       setQuestionSpeechPlaying(false);
       setIntroCompleted(true);
       setQuestionSpeechStatus("AI 안내 완료. 질문 음성을 준비합니다.");
+      appendInterviewerSessionActionEvent({
+        action: "speech:completed",
+        phase: "CONNECTING",
+        label: forceBrowserSpeech ? "브라우저 fallback AI 안내 완료" : "브라우저 AI 안내 완료",
+      });
     };
     utterance.onerror = () => {
-      if (speechUtteranceRef.current !== utterance) return;
+      if (speechUtteranceRef.current !== utterance || !isCurrentSpeechPlayback(playbackId, undefined, sessionId)) return;
       speechUtteranceRef.current = null;
       introSpokenSessionRef.current = data.runtime.sessionId;
       setQuestionSpeechPlaying(false);
@@ -2050,23 +2338,13 @@ function InterviewRuntimePanel({
     setQuestionSpeechSupported(true);
     setQuestionSpeechStatus("AI 안내 재생 준비 중입니다.");
     window.speechSynthesis.speak(utterance);
-  }, [data, mode, stopQuestionSpeech]);
+  }, [appendInterviewerSessionActionEvent, data, isCurrentSpeechPlayback, mode, realtimeSpeechReady, setRealtimeMicrophoneOpen, stopQuestionSpeech]);
 
   const speakCurrentQuestion = useCallback(
-    (source: "auto" | "manual") => {
+    (source: "auto" | "manual", options: { forceBrowserSpeech?: boolean } = {}) => {
       if (!currentQuestion) {
         setQuestionSpeechStatus("현재 질문을 불러올 수 없습니다.");
         setQuestionSpeechCompleted(true);
-        return;
-      }
-
-      if (!isQuestionSpeechSupported()) {
-        setQuestionSpeechSupported(false);
-        setQuestionSpeechStatus("이 브라우저에서는 질문 음성 안내를 지원하지 않습니다.");
-        setQuestionSpeechCompleted(true);
-        if (source === "manual") {
-          setMessage("이 브라우저에서는 질문 음성 안내를 지원하지 않습니다.");
-        }
         return;
       }
 
@@ -2077,8 +2355,79 @@ function InterviewRuntimePanel({
         return;
       }
 
-      stopQuestionSpeech();
+      const forceBrowserSpeech = options.forceBrowserSpeech ?? false;
+      stopQuestionSpeech({ restoreRealtimeMicrophone: !realtimeSpeechReady && !forceBrowserSpeech });
+      const playbackId = ++speechPlaybackIdRef.current;
+      const questionId = currentQuestion.questionId;
+      const sessionId = data?.runtime.sessionId;
+      const realtimeQuestionSpeechPurpose =
+        currentQuestion.questionType === "FOLLOW_UP" ? "interview_follow_up_question" : "interview_question";
+      const realtimeQuestionSpeechLabel =
+        currentQuestion.questionType === "FOLLOW_UP" ? "Realtime 꼬리질문 음성" : "Realtime 질문 음성";
       setQuestionSpeechCompleted(false);
+
+      if (realtimeSpeechReady && !forceBrowserSpeech) {
+        setRealtimeMicrophoneOpen(false);
+        const sent = sendRealtimeSpeechClientEvent(
+          realtimeConnectionRef.current,
+          createRealtimeInterviewSpeechResponseEvent({
+            purpose: realtimeQuestionSpeechPurpose,
+            text,
+            questionId,
+            playbackId,
+          }),
+        );
+        if (sent) {
+          setQuestionSpeechSupported(true);
+          setQuestionSpeechPlaying(true);
+          setQuestionSpeechStatus(source === "manual" ? `${realtimeQuestionSpeechLabel}을 다시 재생 중입니다.` : `${realtimeQuestionSpeechLabel}을 재생 중입니다.`);
+          appendInterviewerSessionActionEvent({
+            action: "speech:start",
+            phase: "AI_SPEAKING",
+            label: source === "manual" ? `${realtimeQuestionSpeechLabel} 재생 시작` : `${realtimeQuestionSpeechLabel} 시작`,
+            questionId,
+          });
+          realtimeSpeechTimeoutRef.current = window.setTimeout(() => {
+            realtimeSpeechTimeoutRef.current = null;
+            if (!isCurrentSpeechPlayback(playbackId, questionId, sessionId)) return;
+            appendInterviewerSessionActionEvent({
+              action: "speech:fallback",
+              phase: "FALLBACK_TTS",
+              label: `${realtimeQuestionSpeechLabel} 완료 이벤트 timeout`,
+              questionId,
+            });
+            setQuestionSpeechPlaying(false);
+            setQuestionSpeechCompleted(false);
+            setQuestionSpeechStatus(`${realtimeQuestionSpeechLabel} 완료 이벤트를 받지 못해 브라우저 음성으로 전환합니다.`);
+            speakCurrentQuestion(source, { forceBrowserSpeech: true });
+          }, REALTIME_SPEECH_RESPONSE_TIMEOUT_MS);
+          return;
+        }
+        appendInterviewerSessionActionEvent({
+          action: "speech:fallback",
+          phase: "FALLBACK_TTS",
+          label: `${realtimeQuestionSpeechLabel} 전송 실패`,
+          questionId,
+        });
+        setQuestionSpeechStatus(`${realtimeQuestionSpeechLabel}을 시작하지 못해 브라우저 음성으로 전환합니다.`);
+      }
+
+      if (!isQuestionSpeechSupported()) {
+        setQuestionSpeechSupported(false);
+        setQuestionSpeechStatus("이 브라우저에서는 질문 음성 안내를 지원하지 않습니다.");
+        setQuestionSpeechCompleted(true);
+        appendInterviewerSessionActionEvent({
+          action: "speech:fallback",
+          phase: "FALLBACK_TTS",
+          label: "질문 음성 미지원",
+          questionId,
+        });
+        if (source === "manual") {
+          setMessage("이 브라우저에서는 질문 음성 안내를 지원하지 않습니다.");
+        }
+        return;
+      }
+
       const utterance = new SpeechSynthesisUtterance(text);
       const koreanVoice = findKoreanSpeechVoice(window.speechSynthesis.getVoices());
       utterance.lang = "ko-KR";
@@ -2086,18 +2435,31 @@ function InterviewRuntimePanel({
       utterance.pitch = 1;
       if (koreanVoice) utterance.voice = koreanVoice;
       utterance.onstart = () => {
+        if (!isCurrentSpeechPlayback(playbackId, questionId, sessionId)) return;
         setQuestionSpeechPlaying(true);
         setQuestionSpeechStatus(source === "manual" ? "질문 음성을 다시 재생 중입니다." : "질문 음성을 재생 중입니다.");
+        appendInterviewerSessionActionEvent({
+          action: "speech:start",
+          phase: "AI_SPEAKING",
+          label: forceBrowserSpeech ? "브라우저 fallback 질문 음성 시작" : "브라우저 질문 음성 시작",
+          questionId,
+        });
       };
       utterance.onend = () => {
-        if (speechUtteranceRef.current !== utterance) return;
+        if (speechUtteranceRef.current !== utterance || !isCurrentSpeechPlayback(playbackId, questionId, sessionId)) return;
         speechUtteranceRef.current = null;
         setQuestionSpeechPlaying(false);
         setQuestionSpeechCompleted(true);
         setQuestionSpeechStatus("질문 음성 재생 완료");
+        appendInterviewerSessionActionEvent({
+          action: "speech:completed",
+          phase: "CONNECTING",
+          label: forceBrowserSpeech ? "브라우저 fallback 질문 음성 완료" : "브라우저 질문 음성 완료",
+          questionId,
+        });
       };
       utterance.onerror = () => {
-        if (speechUtteranceRef.current !== utterance) return;
+        if (speechUtteranceRef.current !== utterance || !isCurrentSpeechPlayback(playbackId, questionId, sessionId)) return;
         speechUtteranceRef.current = null;
         setQuestionSpeechPlaying(false);
         setQuestionSpeechCompleted(true);
@@ -2109,7 +2471,135 @@ function InterviewRuntimePanel({
       setQuestionSpeechStatus("질문 음성 재생 준비 중입니다.");
       window.speechSynthesis.speak(utterance);
     },
-    [currentQuestion, stopQuestionSpeech],
+    [appendInterviewerSessionActionEvent, currentQuestion, data?.runtime.sessionId, isCurrentSpeechPlayback, realtimeSpeechReady, setRealtimeMicrophoneOpen, stopQuestionSpeech],
+  );
+
+  const completeRealtimeSpeechPlayback = useCallback((metadata: RealtimeResponseMetadata) => {
+    const sessionId = currentRuntimeSessionIdRef.current;
+
+    if (metadata.purpose === "interview_intro") {
+      clearRealtimeSpeechTimeout();
+      if (typeof metadata.responseId === "string") {
+        realtimeSpeechResponseMetadataByIdRef.current.delete(metadata.responseId);
+        realtimeAudioCompletedResponseIdsRef.current.delete(metadata.responseId);
+      }
+      if (typeof sessionId === "number") {
+        introSpokenSessionRef.current = sessionId;
+      }
+      setQuestionSpeechPlaying(false);
+      setIntroCompleted(true);
+      setQuestionSpeechStatus("Realtime AI 안내 완료. 질문 음성을 준비합니다.");
+      appendInterviewerSessionActionEvent({
+        action: "speech:completed",
+        phase: "CONNECTING",
+        label: "Realtime AI 안내 완료",
+      });
+      return;
+    }
+
+    if (isRealtimeQuestionSpeechPurpose(metadata.purpose)) {
+      clearRealtimeSpeechTimeout();
+      if (typeof metadata.responseId === "string") {
+        realtimeSpeechResponseMetadataByIdRef.current.delete(metadata.responseId);
+        realtimeAudioCompletedResponseIdsRef.current.delete(metadata.responseId);
+      }
+      setQuestionSpeechPlaying(false);
+      setQuestionSpeechCompleted(true);
+      setQuestionSpeechStatus(
+        metadata.purpose === "interview_follow_up_question"
+          ? "Realtime 꼬리질문 음성 재생 완료"
+          : "Realtime 질문 음성 재생 완료",
+      );
+      appendInterviewerSessionActionEvent({
+        action: "speech:completed",
+        phase: "CONNECTING",
+        label: metadata.purpose === "interview_follow_up_question" ? "Realtime 꼬리질문 음성 완료" : "Realtime 질문 음성 완료",
+        questionId: metadata.questionId,
+      });
+      return;
+    }
+
+    setQuestionSpeechStatus("Realtime 격려 안내를 재생했습니다.");
+  }, [appendInterviewerSessionActionEvent, clearRealtimeSpeechTimeout]);
+
+  const handleRealtimeDataEvent = useCallback(
+    (event: unknown) => {
+      setRealtimeDataEventCount((count) => count + 1);
+      const audioCompletedResponseId = getRealtimeAudioCompletedResponseId(event);
+      if (audioCompletedResponseId) {
+        realtimeAudioCompletedResponseIdsRef.current.add(audioCompletedResponseId);
+        const completedMetadata = realtimeSpeechResponseMetadataByIdRef.current.get(audioCompletedResponseId);
+        if (!completedMetadata) return;
+
+        const sessionId = currentRuntimeSessionIdRef.current;
+        if (!isCurrentSpeechPlayback(completedMetadata.playbackId, completedMetadata.questionId, sessionId)) return;
+        completeRealtimeSpeechPlayback(completedMetadata);
+        return;
+      }
+
+      const metadata = getRealtimeResponseMetadata(event);
+      if (!metadata) return;
+
+      const sessionId = currentRuntimeSessionIdRef.current;
+      if (!isCurrentSpeechPlayback(metadata.playbackId, metadata.questionId, sessionId)) return;
+      if (shouldRestoreRealtimeMicrophoneAfterSpeechResponse(metadata)) {
+        setRealtimeMicrophoneOpen(true);
+      }
+
+      if (!metadata.completed) {
+        if (metadata.purpose === "interview_intro" || isRealtimeQuestionSpeechPurpose(metadata.purpose)) {
+          clearRealtimeSpeechTimeout();
+        }
+        setQuestionSpeechPlaying(false);
+        setQuestionSpeechCompleted(false);
+
+        if (metadata.purpose === "interview_intro") {
+          setIntroCompleted(false);
+          appendInterviewerSessionActionEvent({
+            action: "speech:fallback",
+            phase: "FALLBACK_TTS",
+            label: `Realtime AI 안내 중단 (${metadata.status})`,
+          });
+          setQuestionSpeechStatus(`Realtime AI 안내가 중단되어 브라우저 음성으로 전환합니다. (${metadata.status})`);
+          window.setTimeout(() => speakInterviewIntro({ forceBrowserSpeech: true }), 250);
+          return;
+        }
+
+        if (isRealtimeQuestionSpeechPurpose(metadata.purpose)) {
+          const realtimeQuestionSpeechLabel =
+            metadata.purpose === "interview_follow_up_question" ? "Realtime 꼬리질문 음성" : "Realtime 질문 음성";
+          appendInterviewerSessionActionEvent({
+            action: "speech:fallback",
+            phase: "FALLBACK_TTS",
+            label: `${realtimeQuestionSpeechLabel} 중단 (${metadata.status})`,
+            questionId: metadata.questionId,
+          });
+          setQuestionSpeechStatus(`${realtimeQuestionSpeechLabel}이 중단되어 브라우저 음성으로 전환합니다. (${metadata.status})`);
+          window.setTimeout(() => speakCurrentQuestion("auto", { forceBrowserSpeech: true }), 250);
+          return;
+        }
+
+        setQuestionSpeechStatus(`Realtime 격려 안내가 중단되었습니다. (${metadata.status})`);
+        return;
+      }
+
+      if ((metadata.purpose === "interview_intro" || isRealtimeQuestionSpeechPurpose(metadata.purpose)) && metadata.responseId) {
+        realtimeSpeechResponseMetadataByIdRef.current.set(metadata.responseId, metadata);
+        if (!realtimeAudioCompletedResponseIdsRef.current.has(metadata.responseId)) {
+          setQuestionSpeechStatus("Realtime 질문 음성 출력 완료를 기다리는 중입니다.");
+          return;
+        }
+      }
+
+      if (metadata.purpose === "interview_intro" || isRealtimeQuestionSpeechPurpose(metadata.purpose)) {
+        completeRealtimeSpeechPlayback(metadata);
+        return;
+      }
+
+      clearRealtimeSpeechTimeout();
+      setQuestionSpeechStatus("Realtime 격려 안내를 재생했습니다.");
+    },
+    [appendInterviewerSessionActionEvent, clearRealtimeSpeechTimeout, completeRealtimeSpeechPlayback, isCurrentSpeechPlayback, setRealtimeMicrophoneOpen, speakCurrentQuestion, speakInterviewIntro],
   );
 
   const attachRuntimeVideoRef = useCallback((node: HTMLVideoElement | null) => {
@@ -2164,6 +2654,8 @@ function InterviewRuntimePanel({
       timeExpiredQuestionRef.current = null;
       answerStartCueQuestionRef.current = null;
       invalidRecordingRetryCountsRef.current.delete(currentQuestion.questionId);
+      realtimeSilenceStartedAtRef.current = null;
+      realtimeEncouragedQuestionRef.current = null;
       setRetryAnswerId(undefined);
       setRetryingQuestionId(undefined);
       setQuestionSpeechCompleted(false);
@@ -2189,6 +2681,29 @@ function InterviewRuntimePanel({
   }, [currentQuestion, runtimeAnswerTimeSec, runtimeInterviewType, runtimePreparationTimeSec, runtimeRetryAllowed]);
 
   useEffect(() => {
+    const metric = answerToNextQuestionPerfRef.current;
+    if (!metric || !currentQuestion || currentQuestion.questionId === metric.sourceQuestionId) {
+      return;
+    }
+
+    answerToNextQuestionPerfRef.current = null;
+    void sendClientPerformanceLog({
+      eventName: "ANSWER_TO_NEXT_QUESTION",
+      durationMs: Math.max(0, Math.round(performance.now() - metric.startedAt)),
+      processLogId: metric.processLogId,
+      sessionId: metric.sessionId,
+      applicationId: metric.applicationId,
+      questionId: currentQuestion.questionId,
+      startedAt: metric.startedAtIso,
+      completedAt: new Date().toISOString(),
+      metadata: {
+        mode,
+        sourceQuestionId: metric.sourceQuestionId
+      }
+    });
+  }, [currentQuestion, mode]);
+
+  useEffect(() => {
     void refreshCameraDevices();
     return () => {
       if (recorderRef.current?.state === "recording") {
@@ -2207,7 +2722,12 @@ function InterviewRuntimePanel({
     if (typeof document === "undefined") return;
 
     const handleFullscreenChange = () => {
-      setFullscreenActive(document.fullscreenElement === interviewerStageRef.current);
+      setFullscreenActive(
+        getInterviewRuntimeFullscreenActive({
+          fullscreenElement: document.fullscreenElement,
+          stageElement: interviewerStageRef.current,
+        }),
+      );
     };
 
     document.addEventListener("fullscreenchange", handleFullscreenChange);
@@ -2333,7 +2853,7 @@ function InterviewRuntimePanel({
   }, [data, mode, setupCompleted]);
 
   useEffect(() => {
-    const supported = isQuestionSpeechSupported();
+    const supported = AI_INTERVIEWER_SESSION_MODE_POLICY.activeMode === "realtime-voice" || isQuestionSpeechSupported();
     setQuestionSpeechSupported(supported);
     setQuestionSpeechStatus(supported ? "AI 안내 대기" : "이 브라우저에서는 질문 음성 안내를 지원하지 않습니다.");
   }, [mode]);
@@ -2351,6 +2871,10 @@ function InterviewRuntimePanel({
       return;
     }
     if (introCompleted) return;
+    if (shouldWaitForRealtimeSpeech) {
+      setQuestionSpeechStatus("실시간 AI 음성 연결을 준비 중입니다.");
+      return;
+    }
     const timer = window.setTimeout(() => speakInterviewIntro(), 250);
     return () => window.clearTimeout(timer);
   }, [
@@ -2360,6 +2884,7 @@ function InterviewRuntimePanel({
     data,
     introCompleted,
     microphoneReady,
+    shouldWaitForRealtimeSpeech,
     setupCompleted,
     speakInterviewIntro,
   ]);
@@ -2371,22 +2896,37 @@ function InterviewRuntimePanel({
     }
     if (!introCompleted) return;
     if (autoSpokenQuestionRef.current === currentQuestion.questionId) return;
-    stopQuestionSpeech();
+    if (shouldWaitForRealtimeSpeech) {
+      setQuestionSpeechStatus("질문 음성을 위한 실시간 AI 연결을 준비 중입니다.");
+      return;
+    }
+    stopQuestionSpeech({ restoreRealtimeMicrophone: !realtimeSpeechReady });
     autoSpokenQuestionRef.current = currentQuestion.questionId;
     const timer = window.setTimeout(() => speakCurrentQuestion("auto"), 250);
     return () => window.clearTimeout(timer);
-  }, [currentQuestion, currentQuestionLocked, introCompleted, setupCompleted, speakCurrentQuestion, stopQuestionSpeech]);
+  }, [
+    currentQuestion,
+    currentQuestionLocked,
+    introCompleted,
+    realtimeSpeechReady,
+    setupCompleted,
+    shouldWaitForRealtimeSpeech,
+    speakCurrentQuestion,
+    stopQuestionSpeech,
+  ]);
 
   useEffect(() => {
-    if (
-      !setupCompleted ||
-      !introCompleted ||
-      !questionSpeechCompleted ||
-      questionSpeechPlaying ||
-      !currentQuestion ||
-      currentQuestionLocked ||
-      busy
-    ) {
+    if (!shouldRunInterviewRuntimeCountdown({
+      setupCompleted,
+      introCompleted,
+      questionSpeechCompleted,
+      questionSpeechPlaying,
+      hasCurrentQuestion: Boolean(currentQuestion),
+      currentQuestionLocked,
+      busy,
+      timerPhase,
+      recording,
+    })) {
       return;
     }
     const intervalId = window.setInterval(() => {
@@ -2400,7 +2940,9 @@ function InterviewRuntimePanel({
     introCompleted,
     questionSpeechCompleted,
     questionSpeechPlaying,
+    recording,
     setupCompleted,
+    timerPhase,
   ]);
 
   useEffect(() => {
@@ -2421,7 +2963,6 @@ function InterviewRuntimePanel({
     if (answerStartCueQuestionRef.current !== currentQuestion.questionId) {
       answerStartCueQuestionRef.current = currentQuestion.questionId;
       playAnswerStartCue();
-      setQuestionSpeechStatus("준비 시간이 끝났습니다. 답변을 시작해주세요.");
     }
     setTimerPhase("ANSWERING");
     setRemainingSeconds(getRuntimeAnswerTimeLimitSeconds(data?.runtime));
@@ -2442,6 +2983,7 @@ function InterviewRuntimePanel({
     if (
       remainingSeconds > 0 ||
       timerPhase !== "ANSWERING" ||
+      !recording ||
       !setupCompleted ||
       !introCompleted ||
       !questionSpeechCompleted ||
@@ -2464,6 +3006,7 @@ function InterviewRuntimePanel({
     introCompleted,
     questionSpeechCompleted,
     questionSpeechPlaying,
+    recording,
     remainingSeconds,
     setupCompleted,
     timerPhase,
@@ -2485,11 +3028,29 @@ function InterviewRuntimePanel({
     ) {
       return;
     }
+    if (
+      !shouldAutoStartInterviewRecording({
+        setupCompleted,
+        introCompleted,
+        questionSpeechCompleted,
+        questionSpeechPlaying,
+        cameraReady,
+        microphoneReady,
+        hasCurrentQuestion: Boolean(currentQuestion),
+        currentQuestionLocked,
+        timerPhase,
+        recording,
+        hasAnswerFile: Boolean(answer.videoFile || answer.audioFile),
+        microphoneLevel: microphoneLevelRef.current,
+      })
+    ) {
+      return;
+    }
     if (recording || answer.videoFile || answer.audioFile) return;
     if (autoRecordingQuestionRef.current === currentQuestion.questionId) return;
     autoRecordingQuestionRef.current = currentQuestion.questionId;
     void handleStartRecording();
-    // Auto-recording is guarded by refs and should not restart on every function identity change.
+    // Auto-start only after the interviewer speech and preparation timer have both finished.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     data?.runtime.sessionId,
@@ -2506,6 +3067,72 @@ function InterviewRuntimePanel({
     recording,
     answer.videoFile,
     answer.audioFile,
+  ]);
+
+  useEffect(() => {
+    if (
+      !realtimeSpeechReady ||
+      !recording ||
+      !currentQuestion ||
+      currentQuestionLocked ||
+      timerPhase !== "ANSWERING" ||
+      !introCompleted ||
+      !questionSpeechCompleted ||
+      questionSpeechPlaying ||
+      busy
+    ) {
+      realtimeSilenceStartedAtRef.current = null;
+      return;
+    }
+
+    const questionId = currentQuestion.questionId;
+    if (realtimeEncouragedQuestionRef.current === questionId) return;
+
+    const intervalId = window.setInterval(() => {
+      const decision = getRealtimeSilenceEncouragementDecision({
+        nowMs: Date.now(),
+        silenceStartedAtMs: realtimeSilenceStartedAtRef.current,
+        currentMicrophoneLevel: microphoneLevelRef.current,
+        minimumVoiceLevel: MIN_INTERVIEW_RECORDING_VOICE_LEVEL,
+        hasDetectedVoiceDuringAnswer: recordingVoiceFrameCountRef.current >= MIN_INTERVIEW_RECORDING_VOICE_FRAME_COUNT,
+        alreadyEncouraged: realtimeEncouragedQuestionRef.current === questionId,
+        remainingSeconds,
+        silenceGraceMs: REALTIME_SILENCE_GRACE_MS,
+      });
+      realtimeSilenceStartedAtRef.current = decision.nextSilenceStartedAtMs;
+      if (!decision.shouldEncourage) {
+        return;
+      }
+
+      const playbackId = ++speechPlaybackIdRef.current;
+      const sent = sendRealtimeSpeechClientEvent(
+        realtimeConnectionRef.current,
+        createRealtimeInterviewSpeechResponseEvent({
+          purpose: "interview_encouragement",
+          text: decision.text,
+          questionId,
+          playbackId,
+        }),
+      );
+      if (!sent) return;
+
+      realtimeEncouragedQuestionRef.current = questionId;
+      setQuestionSpeechStatus("답변을 기다리며 짧은 격려 안내를 재생합니다.");
+      window.clearInterval(intervalId);
+    }, 500);
+
+    return () => window.clearInterval(intervalId);
+  }, [
+    busy,
+    currentQuestion,
+    currentQuestionLocked,
+    introCompleted,
+    questionSpeechCompleted,
+    questionSpeechPlaying,
+    realtimeSpeechReady,
+    recording,
+    remainingSeconds,
+    timerPhase,
   ]);
 
   async function refreshCameraDevices() {
@@ -2530,6 +3157,7 @@ function InterviewRuntimePanel({
     }
     void audioContextRef.current?.close();
     audioContextRef.current = null;
+    microphoneLevelRef.current = 0;
     setMicrophoneLevel(0);
   }
 
@@ -2573,7 +3201,15 @@ function InterviewRuntimePanel({
       samples.forEach((sample) => {
         peak = Math.max(peak, Math.abs(sample - 128));
       });
-      setMicrophoneLevel(Math.min(100, Math.round((peak / 128) * 100)));
+      const level = Math.min(100, Math.round((peak / 128) * 100));
+      microphoneLevelRef.current = level;
+      setMicrophoneLevel(level);
+      if (recorderRef.current?.state === "recording") {
+        recordingVoicePeakRef.current = Math.max(recordingVoicePeakRef.current, level);
+        if (level >= MIN_INTERVIEW_RECORDING_VOICE_LEVEL) {
+          recordingVoiceFrameCountRef.current += 1;
+        }
+      }
       microphoneFrameRef.current = window.requestAnimationFrame(tick);
     };
 
@@ -2946,6 +3582,10 @@ function InterviewRuntimePanel({
 
   async function handleStartRecording() {
     if (!data || !currentQuestion) return;
+    if (!questionSpeechCompleted || questionSpeechPlaying || timerPhase !== "ANSWERING") {
+      setMessage("질문 음성 안내가 끝난 뒤 녹화를 시작해주세요.");
+      return;
+    }
     if (!data.runtime.canRecord) {
       setMessage("이 세션은 녹화를 시작할 수 없는 상태입니다.");
       return;
@@ -2971,12 +3611,16 @@ function InterviewRuntimePanel({
       return;
     }
 
+    let realtimeMicrophoneOpenedForRecording = false;
     try {
       const mimeType = getSupportedRecordingMimeType();
       const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       recorderRef.current = recorder;
       recordingChunksRef.current = [];
+      recordingVoicePeakRef.current = 0;
+      recordingVoiceFrameCountRef.current = 0;
       recordingStartedAtRef.current = Date.now();
+      timeExpiredQuestionRef.current = null;
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -2985,6 +3629,7 @@ function InterviewRuntimePanel({
       };
 
       recorder.onstop = () => {
+        setRealtimeMicrophoneOpen(false);
         const recordedMimeType = resolveRecordedMimeType({
           chunkMimeTypes: recordingChunksRef.current.map((chunk) => chunk instanceof Blob ? chunk.type : ""),
           recorderMimeType: recorder.mimeType,
@@ -2998,6 +3643,19 @@ function InterviewRuntimePanel({
           clearInvalidRecordingDraft(
             currentQuestion.questionId,
             `답변 녹음이 너무 짧습니다. 최소 ${MIN_INTERVIEW_RECORDING_DURATION_SECONDS}초 이상 답변한 뒤 다시 제출해주세요.`,
+          );
+          return;
+        }
+
+        if (!hasMeaningfulInterviewRecordingVoice({
+          peakLevel: recordingVoicePeakRef.current,
+          activeFrameCount: recordingVoiceFrameCountRef.current,
+          minPeakLevel: MIN_INTERVIEW_RECORDING_VOICE_LEVEL,
+          minActiveFrameCount: MIN_INTERVIEW_RECORDING_VOICE_FRAME_COUNT,
+        })) {
+          clearInvalidRecordingDraft(
+            currentQuestion.questionId,
+            "답변 음성이 감지되지 않았습니다. 마이크 입력을 확인한 뒤 다시 답변해주세요.",
           );
           return;
         }
@@ -3046,11 +3704,29 @@ function InterviewRuntimePanel({
         setMessage("녹화가 준비되었습니다. 답변 제출을 눌러 저장하세요.");
       };
 
+      realtimeMicrophoneOpenedForRecording = shouldOpenRealtimeMicrophoneForRecordingStart({
+        realtimeSpeechReady,
+        questionSpeechCompleted,
+        questionSpeechPlaying,
+        timerPhase,
+      });
+      if (realtimeMicrophoneOpenedForRecording) {
+        setRealtimeMicrophoneOpen(true);
+      }
       recorder.start();
       setRecordedFileName("");
       setRecording(true);
+      appendInterviewerSessionActionEvent({
+        action: "recording:start",
+        phase: "USER_SPEAKING",
+        label: "답변 녹화 시작",
+        questionId: currentQuestion.questionId,
+      });
       setMessage("녹화 중입니다. 답변을 마치면 녹화 종료를 눌러주세요.");
     } catch (recordError) {
+      if (realtimeMicrophoneOpenedForRecording) {
+        setRealtimeMicrophoneOpen(false);
+      }
       setRecording(false);
       setMessage(toErrorMessage(recordError));
     }
@@ -3059,9 +3735,11 @@ function InterviewRuntimePanel({
   function handleStopRecording() {
     const recorder = recorderRef.current;
     if (recorder?.state === "recording") {
+      setRealtimeMicrophoneOpen(false);
       recorder.stop();
       return;
     }
+    setRealtimeMicrophoneOpen(false);
     setRecording(false);
   }
 
@@ -3084,12 +3762,17 @@ function InterviewRuntimePanel({
     }));
     setRecording(false);
 
-    if (nextRetryCount <= 1) {
-      autoRecordingQuestionRef.current = null;
+    const recoveryAction = getInvalidRecordingRecoveryAction({
+      failedAttemptCount: nextRetryCount,
+      maxAutoRetryCount: MAX_INVALID_RECORDING_AUTO_RETRY_COUNT,
+    });
+
+    if (recoveryAction === "retry") {
+      autoRecordingQuestionRef.current = questionId;
       timeExpiredQuestionRef.current = null;
       setTimerPhase("ANSWERING");
       setRemainingSeconds(getRuntimeAnswerTimeLimitSeconds(data?.runtime));
-      setMessage(`${message} 한 번 더 녹음 기회를 드릴게요. 잠시 후 다시 녹음이 시작됩니다.`);
+      setMessage(`${message} 한 번 더 녹음 기회를 드릴게요. 녹화 시작을 눌러 다시 답변해주세요.`);
       return;
     }
 
@@ -3125,6 +3808,7 @@ function InterviewRuntimePanel({
         questionId,
         questionText: skippedQuestion?.content ?? skippedQuestion?.audioPrompt ?? "이전 질문",
         transcript: "녹음 품질 문제로 미답변 처리되었습니다.",
+        durationSeconds: result.data.answer.durationSeconds ?? 0,
       });
       setAutoAiPipeline({
         answerId: result.data.answer.answerId,
@@ -3209,6 +3893,7 @@ function InterviewRuntimePanel({
         questionId: result.data.answer.questionId,
         questionText: question?.content ?? question?.audioPrompt ?? "이전 질문",
         transcript: `${formatQuestionTypeLabel(question?.questionType)} 답변 파일이 저장되었습니다.`,
+        durationSeconds: result.data.answer.durationSeconds,
         fileAssetId: answerFileAssetId,
         audioFileId,
         audioS3Key: result.data.audioFile?.storageKey,
@@ -3246,9 +3931,12 @@ function InterviewRuntimePanel({
           ? "답변이 저장되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
           : "답변이 저장되었습니다. 다음 질문을 준비하고 있습니다.",
       );
-      await runAutomaticAiPipeline(savedAnswer, question);
+      const automaticPipeline = runAutomaticAiPipeline(savedAnswer, question);
       if (shouldAutoAdvance) {
+        await automaticPipeline;
         await advanceAfterTimedAnswer(question);
+      } else {
+        void automaticPipeline;
       }
     } catch (submitError) {
       autoAdvanceAfterAnswerSubmitRef.current = false;
@@ -3287,6 +3975,11 @@ function InterviewRuntimePanel({
 
     if (canSubmitAnswer) {
       void submitAnswerRequest(withReanswerFlag(toSaveInterviewAnswerRequest(answer)));
+      return;
+    }
+
+    if (canStartManualRecording) {
+      void handleStartRecording();
       return;
     }
 
@@ -3377,15 +4070,21 @@ function InterviewRuntimePanel({
 
       const sttStatus = await pollAiJobUntilSettled(sttProcessLogId);
       if (sttStatus.status !== "COMPLETED") {
+        const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({
+          failureCategory: sttStatus.failure?.category,
+        });
         setAutoAiPipeline((current) => ({
           answerId: savedAnswer.answerId,
           ...current,
           sttStatus: sttStatus.status === "FAILED" ? "FAILED" : "RUNNING",
           followUpStatus: "IDLE",
+          followUpSkipped: shouldSkipFollowUp,
           failureCategory: sttStatus.failure?.category,
           failureReason: sttStatus.failure?.reason,
           failureRetryable: sttStatus.failure?.retryable,
-          error: sttStatus.status === "FAILED"
+          error: shouldSkipFollowUp
+            ? undefined
+            : sttStatus.status === "FAILED"
             ? sttStatus.failure?.reason ?? "STT 처리에 실패했습니다."
             : "STT 처리가 아직 진행 중입니다. 잠시 후 상태를 다시 확인해주세요.",
         }));
@@ -3481,12 +4180,18 @@ function InterviewRuntimePanel({
 
       const followUpStatus = await pollAiJobUntilSettled(followUpProcessLogId);
       if (followUpStatus.status !== "COMPLETED") {
+        const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({
+          failureCategory: followUpStatus.failure?.category,
+        });
         setAutoAiPipeline((current) => ({
           answerId: savedAnswer.answerId,
           ...current,
           sttStatus: current?.sttStatus ?? "COMPLETED",
           followUpStatus: followUpStatus.status === "FAILED" ? "FAILED" : "RUNNING",
-          error: followUpStatus.status === "FAILED"
+          followUpSkipped: shouldSkipFollowUp,
+          error: shouldSkipFollowUp
+            ? undefined
+            : followUpStatus.status === "FAILED"
             ? followUpStatus.failure?.reason ?? "꼬리질문 생성에 실패했습니다."
             : "꼬리질문 생성이 아직 진행 중입니다. 잠시 후 상태를 다시 확인해주세요.",
         }));
@@ -3513,14 +4218,15 @@ function InterviewRuntimePanel({
           : "답변 처리가 완료되었습니다.",
       );
     } catch (pipelineError) {
+      const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({ pipelineError });
       setAutoAiPipeline((current) => ({
         answerId: savedAnswer.answerId,
         ...current,
         sttStatus: current?.sttStatus ?? "FAILED",
         followUpStatus: current?.followUpStatus ?? "IDLE",
-        error: toErrorMessage(pipelineError),
+        followUpSkipped: shouldSkipFollowUp,
+        error: shouldSkipFollowUp ? undefined : toErrorMessage(pipelineError),
       }));
-      setMessage(toErrorMessage(pipelineError));
     }
   }
 
@@ -3558,7 +4264,19 @@ function InterviewRuntimePanel({
         })
       : api.insertRecruitingFollowUpQuestion(data.runtime.sessionId, {
           processLogId: autoAiPipeline.followUpProcessLogId,
-        });
+    });
+  }
+
+  function beginAnswerToNextQuestionMetric(processLogId?: number) {
+    if (!data || !currentQuestion) return;
+    answerToNextQuestionPerfRef.current = {
+      startedAt: performance.now(),
+      startedAtIso: new Date().toISOString(),
+      sourceQuestionId: currentQuestion.questionId,
+      sessionId: data.runtime.sessionId,
+      applicationId: data.runtime.applicationId,
+      processLogId
+    };
   }
 
   async function handleAnswerFollowUpQuestion() {
@@ -3576,6 +4294,7 @@ function InterviewRuntimePanel({
         : current,
     );
     try {
+      beginAnswerToNextQuestionMetric(autoAiPipeline?.followUpProcessLogId);
       const result = await requestFollowUpQuestionInsert();
 
       setAutoAiPipeline((current) =>
@@ -3659,6 +4378,10 @@ function InterviewRuntimePanel({
 
   async function handleNextQuestion() {
     if (!data) return;
+    if (answerProcessingBusy) {
+      setMessage("꼬리질문 생성이 완료된 뒤 다음 질문으로 이동할 수 있습니다.");
+      return;
+    }
     if (generatedFollowUpReady) {
       await handleAnswerFollowUpQuestion();
       return;
@@ -3667,6 +4390,7 @@ function InterviewRuntimePanel({
     setBusy(true);
     setMessage("");
     try {
+      beginAnswerToNextQuestionMetric();
       const api = runtimeApi;
       await (mode === "mock"
         ? api.moveMockNextQuestion(data.runtime.sessionId)
@@ -3745,10 +4469,6 @@ function InterviewRuntimePanel({
       autoAiPipeline?.followUpStatus === "COMPLETED" &&
       autoAiPipeline?.followUpQuestion,
   );
-  const followUpSkippedForCurrentAnswer = Boolean(
-    autoAiPipeline?.answerId === lastAnswer?.answerId &&
-      autoAiPipeline?.followUpSkipped,
-  );
   const answerProcessingBusy = Boolean(
     autoAiPipeline?.sttStatus === "PENDING" ||
       autoAiPipeline?.sttStatus === "RUNNING" ||
@@ -3756,9 +4476,10 @@ function InterviewRuntimePanel({
       autoAiPipeline?.followUpStatus === "RUNNING",
   );
   const answerProcessingFailed = Boolean(
-    autoAiPipeline?.error ||
-      autoAiPipeline?.sttStatus === "FAILED" ||
-      autoAiPipeline?.followUpStatus === "FAILED",
+    !autoAiPipeline?.followUpSkipped &&
+      (autoAiPipeline?.error ||
+        autoAiPipeline?.sttStatus === "FAILED" ||
+        autoAiPipeline?.followUpStatus === "FAILED"),
   );
   const answerProcessingLabel = answerProcessingFailed
     ? "답변 처리 확인 필요"
@@ -3791,34 +4512,19 @@ function InterviewRuntimePanel({
       !retryingCurrentQuestion &&
       !recording,
   );
-  const currentBaseQuestionWaitingForFollowUp = Boolean(
-    currentQuestionAnswered &&
-      currentQuestion?.questionType !== "FOLLOW_UP" &&
-      !isReansweringCurrentQuestion &&
-      canAddRuntimeFollowUpQuestion &&
-      lastAnswer?.questionId === currentQuestion?.questionId &&
-      !answerProcessingFailed &&
-      !generatedFollowUpReady &&
-      !followUpSkippedForCurrentAnswer,
-  );
-  const canMoveNextQuestion = Boolean(
-    data &&
-      currentQuestionAnswered &&
-      !answerProcessingBusy &&
-      !currentBaseQuestionWaitingForFollowUp &&
-      (!isCurrentQuestionLast || generatedFollowUpReady) &&
-      !isReansweringCurrentQuestion &&
-      !recording,
-  );
-  const canCompleteInterview = Boolean(
-    data &&
-      currentQuestionAnswered &&
-      isCurrentQuestionLast &&
-      !generatedFollowUpReady &&
-      answeredQuestionCount >= data.runtime.totalQuestions &&
-      !isReansweringCurrentQuestion &&
-      !recording,
-  );
+  const runtimeProgressionState = getInterviewRuntimeProgressionState({
+    hasRuntimeData: Boolean(data),
+    currentQuestionAnswered,
+    isCurrentQuestionLast,
+    generatedFollowUpReady,
+    answerProcessingBusy,
+    isReansweringCurrentQuestion,
+    recording,
+    answeredQuestionCount,
+    totalQuestions: data?.runtime.totalQuestions ?? 0,
+  });
+  const canMoveNextQuestion = runtimeProgressionState.canMoveNextQuestion;
+  const canCompleteInterview = runtimeProgressionState.canCompleteInterview;
   const showDeviceSetup = data
     ? shouldShowInterviewDeviceSetup({
         mode,
@@ -3856,6 +4562,24 @@ function InterviewRuntimePanel({
     networkReady,
     networkStatus,
   });
+  const runtimeDeviceRecheckState = getRuntimeDeviceRecheckState({
+    setupCompleted,
+    recording,
+    cameraReady,
+    microphoneReady,
+    networkReady,
+  });
+  const interviewerSessionState = getInterviewerSessionState({
+    mode: AI_INTERVIEWER_SESSION_MODE_POLICY.activeMode,
+    setupCompleted,
+    hasCurrentQuestion: Boolean(currentQuestion),
+    questionSpeechPlaying,
+    questionSpeechSupported,
+    recording,
+    answerProcessingBusy,
+    busy,
+    currentQuestionLocked,
+  });
   const runtimeLayoutState = getInterviewRuntimeLayoutState({ fullscreenActive });
   const runtimeScreenSwapState = getInterviewRuntimeScreenSwapState({ primaryScreen: runtimePrimaryScreen });
   const runtimeStageClassName = [
@@ -3863,10 +4587,15 @@ function InterviewRuntimePanel({
     runtimeLayoutState.viewportLockClassName,
     runtimeLayoutState.infoGapClassName,
     runtimeScreenSwapState.stageClassName,
+    interviewerSessionState.stageClassName,
   ].filter(Boolean).join(" ");
   const interviewerFigureClassName = [
     "ai-interviewer-figure",
     runtimeScreenSwapState.interviewerPanelClassName,
+  ].filter(Boolean).join(" ");
+  const interviewerAvatarClassName = [
+    "ai-interviewer-avatar",
+    interviewerSessionState.avatarClassName,
   ].filter(Boolean).join(" ");
   const showInterviewerPanel = runtimePrimaryScreen === "interviewer" || interviewerPipVisible;
   const candidateCameraPanelClassName = [
@@ -3875,6 +4604,132 @@ function InterviewRuntimePanel({
     runtimeScreenSwapState.cameraPanelClassName,
   ].filter(Boolean).join(" ");
   const interviewerInfoPanelId = "ai-interviewer-info-panel";
+
+  useEffect(() => {
+    if (!data) return;
+
+    const sessionId = data.runtime.sessionId;
+    if (interviewerSessionIdRef.current !== sessionId) {
+      interviewerSessionIdRef.current = sessionId;
+      interviewerSessionEventsRef.current = [];
+      interviewerSessionEventSequenceRef.current = 0;
+      setInterviewerSessionEventCount(0);
+    }
+
+    const previousEvent = interviewerSessionEventsRef.current.at(-1);
+    const event = createInterviewerSessionEvent({
+      sessionId,
+      questionId: currentQuestion?.questionId,
+      state: {
+        mode: interviewerSessionState.mode,
+        phase: interviewerSessionState.phase,
+        label: interviewerSessionState.label,
+      },
+      sequence: interviewerSessionEventSequenceRef.current + 1,
+      occurredAt: new Date().toISOString(),
+      previousEvent,
+    });
+    if (!event) return;
+
+    interviewerSessionEventSequenceRef.current = event.sequence;
+    interviewerSessionEventsRef.current = trimInterviewerSessionEvents(
+      [
+        ...interviewerSessionEventsRef.current,
+        event,
+      ],
+      MAX_INTERVIEWER_SESSION_EVENTS,
+    );
+    setInterviewerSessionEventCount(interviewerSessionEventsRef.current.length);
+  }, [
+    currentQuestion?.questionId,
+    data,
+    interviewerSessionState.label,
+    interviewerSessionState.mode,
+    interviewerSessionState.phase,
+  ]);
+
+  useEffect(() => closeRealtimeConnection, [closeRealtimeConnection]);
+
+  useEffect(() => {
+    if (!data || !setupCompleted || data.runtime.status !== "IN_PROGRESS") return;
+    if (AI_INTERVIEWER_SESSION_MODE_POLICY.activeMode !== "realtime-voice") return;
+
+    const requestKey = `${mode}:${data.runtime.sessionId}`;
+    if (realtimeSessionRequestKeyRef.current === requestKey) return;
+    closeRealtimeConnection();
+    realtimeSessionRequestKeyRef.current = requestKey;
+    setRealtimeSessionStatus("requesting");
+    setRealtimeConnectionState("new");
+    setRealtimeDataChannelState("closed");
+    setRealtimeDataEventCount(0);
+    setRealtimeRemoteAudioReady(false);
+    setRealtimeProvider("none");
+    setRealtimeModel("");
+    setRealtimeVoice("");
+    setRealtimeLastError("");
+
+    const body = { mode: "realtime-voice" as const, transport: "webrtc" as const };
+    const request =
+      mode === "mock"
+        ? runtimeApi.createMockRealtimeSession(data.runtime.sessionId, body)
+        : runtimeApi.createRecruitingRealtimeSession(data.runtime.sessionId, body);
+
+    void request
+      .then(async (result) => {
+        const realtimeSession = result.data;
+        setRealtimeProvider(realtimeSession.provider);
+        setRealtimeModel(realtimeSession.model);
+        setRealtimeVoice(realtimeSession.voice);
+
+        if (realtimeSession.provider === "openai") {
+          const localStream = streamRef.current;
+          if (!localStream) {
+            throw new Error("실시간 AI 면접 연결을 위한 마이크 스트림을 찾지 못했습니다.");
+          }
+
+          setRealtimeSessionStatus("connecting");
+          const connection = await createRealtimeInterviewWebRtcConnection({
+            session: realtimeSession,
+            localStream,
+            remoteAudioElement: realtimeRemoteAudioRef.current,
+            onConnectionStateChange: setRealtimeConnectionState,
+            onDataChannelStateChange: setRealtimeDataChannelState,
+            onRemoteStream: () => setRealtimeRemoteAudioReady(true),
+            onEvent: handleRealtimeDataEvent,
+            onConnectionFailure: (connectionError) => {
+              const realtimeMessage = `실시간 AI 면접 연결이 끊겼습니다: ${connectionError.message}`;
+              setRealtimeSessionStatus("failed");
+              setRealtimeLastError(realtimeMessage);
+              setMessage(realtimeMessage);
+            },
+          });
+          realtimeConnectionRef.current = connection;
+        }
+
+        setRealtimeSessionStatus("ready");
+        const realtimeUserNotice = getRealtimeSessionUserNotice({ provider: realtimeSession.provider });
+        if (realtimeUserNotice) {
+          setMessage(realtimeUserNotice);
+        }
+      })
+      .catch((sessionError) => {
+        realtimeSessionRequestKeyRef.current = null;
+        closeRealtimeConnection();
+        setRealtimeSessionStatus("failed");
+        const realtimeMessage = toErrorMessage(sessionError);
+        setRealtimeLastError(realtimeMessage);
+        setMessage(realtimeMessage);
+      });
+  }, [
+    closeRealtimeConnection,
+    data,
+    data?.runtime.sessionId,
+    data?.runtime.status,
+    handleRealtimeDataEvent,
+    mode,
+    runtimeApi,
+    setupCompleted,
+  ]);
 
   const handleToggleFullscreen = useCallback(async () => {
     if (typeof document === "undefined") return;
@@ -3898,12 +4753,15 @@ function InterviewRuntimePanel({
   }, []);
 
   const handleToggleCameraPreview = useCallback(() => {
-    if (cameraPreviewVisible) {
-      handleHideCameraPreview();
-      return;
-    }
-    setCameraPreviewVisible(true);
-  }, [cameraPreviewVisible, handleHideCameraPreview]);
+    const nextState = getInterviewRuntimePipShortcutState({
+      primaryScreen: runtimePrimaryScreen,
+      cameraPreviewVisible,
+      interviewerPipVisible,
+    });
+    setRuntimePrimaryScreen(nextState.primaryScreen);
+    setCameraPreviewVisible(nextState.cameraPreviewVisible);
+    setInterviewerPipVisible(nextState.interviewerPipVisible);
+  }, [cameraPreviewVisible, interviewerPipVisible, runtimePrimaryScreen]);
 
   const handleToggleRuntimePrimaryScreen = useCallback(() => {
     setCameraPreviewVisible(true);
@@ -3951,7 +4809,7 @@ function InterviewRuntimePanel({
         return;
       }
       if (event.key === "Enter") {
-        if (busy || !currentQuestion || currentQuestionAnswered || (!recording && !canSubmitAnswer)) return;
+        if (busy || !currentQuestion || currentQuestionAnswered || (!recording && !canSubmitAnswer && !canStartManualRecording)) return;
         event.preventDefault();
         answerCompleteShortcutRef.current();
         return;
@@ -3968,6 +4826,7 @@ function InterviewRuntimePanel({
   }, [
     busy,
     canMoveNextQuestion,
+    canStartManualRecording,
     canSubmitAnswer,
     currentQuestion,
     currentQuestionAnswered,
@@ -4074,7 +4933,26 @@ function InterviewRuntimePanel({
         ) : null}
         {data && setupCompleted ? (
           <>
-            <section className={runtimeStageClassName} ref={interviewerStageRef} aria-label="AI 면접관 진행 화면">
+            <section
+              className={runtimeStageClassName}
+              ref={interviewerStageRef}
+              aria-label="AI 면접관 진행 화면"
+              data-session-mode={interviewerSessionState.mode}
+              data-session-phase={interviewerSessionState.phase}
+              data-session-event-count={interviewerSessionEventCount}
+              data-realtime-session-status={realtimeSessionStatus}
+              data-realtime-provider={realtimeProvider}
+              data-realtime-model={realtimeModel}
+              data-realtime-voice={realtimeVoice}
+              data-realtime-last-error={realtimeLastError}
+              data-realtime-connection-state={realtimeConnectionState}
+              data-realtime-data-channel-state={realtimeDataChannelState}
+              data-realtime-event-count={realtimeDataEventCount}
+              data-realtime-remote-audio={realtimeRemoteAudioReady ? "ready" : "pending"}
+              data-requested-session-mode={AI_INTERVIEWER_SESSION_MODE_POLICY.requestedMode}
+              data-session-mode-fallback={AI_INTERVIEWER_SESSION_MODE_POLICY.fallbackReason ?? ""}
+            >
+              <audio ref={realtimeRemoteAudioRef} className="sr-only" autoPlay aria-hidden="true" />
               <div className="ai-interviewer-stage__top">
                 <div className="ai-interviewer-stage__meta">
                   <strong>질문 {questionNumber} / {data.runtime.totalQuestions}</strong>
@@ -4134,7 +5012,7 @@ function InterviewRuntimePanel({
                       </button>
                     </div>
                   ) : null}
-                  <div className={`ai-interviewer-avatar ${questionSpeechPlaying ? "speaking" : ""}`} aria-hidden="true">
+                  <div className={interviewerAvatarClassName} aria-hidden="true">
                     <span className="ai-interviewer-avatar__ring" />
                     <span className="ai-interviewer-avatar__face">
                       <span />
@@ -4155,6 +5033,12 @@ function InterviewRuntimePanel({
                         <kbd>{interviewerProfile.infoShortcutKey}</kbd>
                       </button>
                     </div>
+                    <span
+                      className={`ai-interviewer-session-chip ai-interviewer-session-chip--${interviewerSessionState.tone}`}
+                      title={interviewerSessionState.description}
+                    >
+                      {interviewerSessionState.label}
+                    </span>
                     {interviewerInfoOpen ? (
                       <div className="ai-interviewer-info-panel" id={interviewerInfoPanelId} role="note">
                         <strong>{interviewerProfile.toneLabel}</strong>
@@ -4243,13 +5127,23 @@ function InterviewRuntimePanel({
                 <button className="btn" type="button" disabled={busy || !currentQuestion || !questionSpeechSupported || currentQuestionReplayUsed} onClick={handleReplayPrompt}>
                   {currentQuestionReplayUsed ? "다시 듣기 완료" : "질문 음성 다시 듣기"}
                 </button>
+                {runtimeDeviceRecheckState.visible ? (
+                  <button
+                    className="btn"
+                    type="button"
+                    disabled={busy || recording}
+                    onClick={() => void handleEnableCamera()}
+                  >
+                    {runtimeDeviceRecheckState.label}
+                  </button>
+                ) : null}
                 <button
                   className="btn primary"
                   type="button"
-                  disabled={busy || !currentQuestion || currentQuestionLocked || (!recording && !canSubmitAnswer)}
+                  disabled={busy || !currentQuestion || currentQuestionLocked || (!recording && !canSubmitAnswer && !canStartManualRecording)}
                   onClick={handleAnswerComplete}
                 >
-                  <span>답변 완료</span>
+                  <span>{shouldShowRecordingStartLabel ? "녹화 시작" : "답변 완료"}</span>
                   <kbd>Enter</kbd>
                 </button>
                 {canRetryCurrentAnswer ? (
@@ -4323,6 +5217,7 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
   const mockActive = active === "interview" || active === "reports";
   const recruitingActive = active === "jobs" || active === "applications";
   const accountBillingActive = active === "accountBilling" || isCandidateAccountBillingPath(pathname);
+  const performanceActive = active === "performance" || pathname?.startsWith(AI_PERFORMANCE_ROUTE);
 
   return (
     <header className="gnb">
@@ -4360,6 +5255,11 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
                 </Link>
               ))}
             </div>
+          </div>
+          <div className={`gnb-item ${performanceActive ? "active" : ""}`}>
+            <Link className="gnb-link" href={AI_PERFORMANCE_ROUTE} aria-current={performanceActive ? "page" : undefined}>
+              {candidateNavLabels.performance}
+            </Link>
           </div>
         </nav>
         <div className="gnb-right">
@@ -4951,21 +5851,27 @@ function ApplicationStatusView({ status }: { status: CandidateApplicationStatusV
 }
 
 function RecruitingReportView({ report }: { report: CandidateRecruitingReportView }) {
+  const isCompleted = report.status === "COMPLETED";
+  const isFailed = report.status === "FAILED";
+  const statusMessage = isCompleted
+    ? "AI 분석이 완료되어 기업 검토 단계로 전달되었습니다."
+    : isFailed
+      ? "면접은 제출되었지만 AI 분석 상태 확인이 필요합니다. 기업 담당자가 확인 후 안내할 예정입니다."
+      : "면접이 정상적으로 제출되었습니다. AI 분석이 완료되면 기업 검토 단계로 전달됩니다.";
+
   return (
     <div className="detail-stack">
       <dl className="candidate-feature__summary">
         <Definition label="상태" value={<StatusPill value={report.status} />} />
         <Definition label="회사" value={report.companyName} />
         <Definition label="공고" value={report.jobTitle} />
-        {report.reportId ? <Definition label="리포트 ID" value={`#${report.reportId}`} /> : null}
-        {report.totalScore !== undefined ? <Definition label="총점" value={`${report.totalScore}점`} /> : null}
-        <Definition label="생성 시각" value={report.generatedAt ? formatDateTime(report.generatedAt) : "-"} />
         <Definition label="다음 단계" value={report.nextStepLabel} />
       </dl>
-      <p className="description-box">{report.candidateMessage}</p>
-      {report.summary ? <p className="description-box">{report.summary}</p> : null}
-      <ReportScoreList scores={report.scores} />
-      <ReportAnswerInsightList answers={report.answers} />
+      <div className="description-box">
+        <strong>면접이 정상적으로 제출되었습니다.</strong>
+        <p>{statusMessage}</p>
+        <p>최종 결과는 기업 검토 후 안내됩니다.</p>
+      </div>
     </div>
   );
 }
@@ -5046,43 +5952,6 @@ function compareReportAnswers(
   return (left.sortOrder ?? left.answerId) - (right.sortOrder ?? right.answerId);
 }
 
-function ReportAnswerInsightList({ answers }: { answers: CandidateReportAnswerView[] }) {
-  if (!answers.length) {
-    return <p className="empty">표시할 면접 답변이 아직 없습니다.</p>;
-  }
-
-  const sortedAnswers = orderReportAnswersByInterviewFlow(answers);
-  return (
-    <div>
-      <h3 className="candidate-section-title">답변별 STT / 꼬리질문</h3>
-      <div className="report-answer-insight-list">
-        {sortedAnswers.map((answer, index) => (
-          <article className="report-answer-insight-card" key={answer.answerId}>
-            <div className="report-answer-card__head">
-              <div>
-                <span>질문 {index + 1}</span>
-                <strong>{answer.questionContent ?? `질문 #${answer.questionId}`}</strong>
-              </div>
-              {answer.questionType ? <StatusPill value={formatQuestionTypeLabel(answer.questionType)} /> : null}
-            </div>
-            <div className="script-box">
-              <strong>STT 텍스트</strong>
-              <TranscriptText
-                transcript={answer.transcript}
-                transcriptStatus={answer.transcriptStatus}
-                evaluationStatus={answer.evaluationStatus}
-                transcriptUnavailableReason={answer.transcriptUnavailableReason}
-              />
-            </div>
-            <FollowUpQuestionList questions={answer.followUpQuestions} />
-            <EvidenceList evidences={answer.evidences} />
-          </article>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function TranscriptText({
   transcript,
   transcriptStatus,
@@ -5157,19 +6026,23 @@ function formatEvidenceSummary(evidence: CandidateReportEvidenceView, criterionN
 
 function formatCriterionEvidenceFocus(criterionName?: string): string {
   const labels: Record<string, string> = {
-    "직무/기술 역량": "기술 경험과 직무 연관성을 판단하는 데",
+    "직무 적합성": "JD와 답변 경험의 연결성을 판단하는 데",
+    "직무/기술 역량": "JD와 답변 경험의 연결성을 판단하는 데",
     "문제 해결력": "문제를 나누어 확인한 과정을 판단하는 데",
     "실행력과 성과": "직접 수행한 작업과 결과를 판단하는 데",
+    "학습 민첩성": "학습한 내용을 실제 문제에 적용한 흐름을 판단하는 데",
     "협업/커뮤니케이션": "상황 설명과 협업 방식을 판단하는 데",
+    "커뮤니케이션": "상황 설명과 협업 방식을 판단하는 데",
     "학습/성장성": "학습한 내용을 실제 문제에 적용한 흐름을 판단하는 데",
-    "책임감/신뢰성": "끝까지 확인하고 검증하는 태도를 판단하는 데",
+    "책임감/신뢰성": "회고와 개선 가능성을 판단하는 데",
+    "성장 가능성": "회고와 개선 가능성을 판단하는 데",
   };
 
   return criterionName ? labels[criterionName] ?? `${criterionName} 항목을 판단하는 데` : "답변 흐름을 확인하는 데";
 }
 
 function formatEvidenceReference(evidence: CandidateReportEvidenceView): string {
-  const answerLabel = evidence.answerId ? `참고 답변 #${evidence.answerId}` : "참고 답변";
+  const answerLabel = evidence.answerId ? "관련 답변" : "참고 자료";
   return `${answerLabel}: "${shortenReportEvidence(evidence.evidenceText)}"`;
 }
 
@@ -5202,7 +6075,7 @@ function formatEvidenceSourceNoun(sourceType: string): string {
 
 function shortenReportEvidence(value: string): string {
   const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
+  return normalized.length > 220 ? `${normalized.slice(0, 217)}...` : normalized;
 }
 
 function formatEvidenceSourceLabel(evidence: CandidateReportEvidenceView): string {
@@ -5214,43 +6087,6 @@ function formatEvidenceSourceLabel(evidence: CandidateReportEvidenceView): strin
   };
 
   return labels[evidence.sourceType] ?? "평가 자료 기반";
-}
-
-function ReportGenerationHandoffView({ handoff }: { handoff: CandidateReportGenerationHandoff }) {
-  const payload = buildReportGenerationSharePayload(handoff);
-
-  return (
-    <div className="candidate-pipeline-card">
-      <div className="candidate-pipeline-card__head">
-        <div>
-          <strong>REPORT_GENERATE 요청 준비 완료</strong>
-          <p>{handoff.callbackTopic}</p>
-        </div>
-        <StatusPill value={handoff.status} />
-      </div>
-      <dl className="candidate-feature__summary">
-        <Definition label="queued" value={String(handoff.queued)} />
-        <Definition label="processLogId" value={handoff.processLogId} />
-        <Definition label="reportStatus" value={handoff.reportStatus} />
-        <Definition label="reportId" value={handoff.reportId} />
-        <Definition label="sessionId" value={handoff.sessionId} />
-        {handoff.applicationId ? <Definition label="applicationId" value={handoff.applicationId} /> : null}
-        <Definition label="reportType" value={handoff.reportType} />
-        <Definition label="answerIds" value={formatIdList(handoff.answerIds)} />
-        <Definition label="fileIds" value={formatIdList(handoff.fileIds)} />
-      </dl>
-      <PipelinePayloadPreview title="E 리포트 생성 공유 payload" payload={payload} />
-    </div>
-  );
-}
-
-function PipelinePayloadPreview({ title, payload }: { title: string; payload: Record<string, unknown> }) {
-  return (
-    <div className="candidate-pipeline-payload">
-      <div className="candidate-pipeline-payload__title">{title}</div>
-      <pre>{formatJsonPayload(payload)}</pre>
-    </div>
-  );
 }
 
 async function requestMockReportGenerationAfterComplete(reportId: number): Promise<void> {
@@ -5318,6 +6154,7 @@ function buildAiInterviewRequest(
       answerId: answer.answerId,
       audioFileId,
       audioS3Key,
+      durationSeconds: answer.durationSeconds,
     }) as AiInterviewRequest;
   }
 
@@ -5329,31 +6166,8 @@ function buildAiInterviewRequest(
   }) as AiInterviewRequest;
 }
 
-function buildReportGenerationSharePayload(handoff: CandidateReportGenerationHandoff): Record<string, unknown> {
-  return {
-    accepted: handoff.accepted,
-    queued: handoff.queued,
-    processType: handoff.processType,
-    status: handoff.status,
-    reportStatus: handoff.reportStatus,
-    callbackTopic: handoff.callbackTopic,
-    processLogId: handoff.processLogId,
-    reportId: handoff.reportId,
-    sessionId: handoff.sessionId,
-    applicationId: handoff.applicationId,
-    reportType: handoff.reportType,
-    answerIds: handoff.answerIds,
-    fileIds: handoff.fileIds,
-    inputRef: handoff.inputRef,
-  };
-}
-
 function compactPayload(payload: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined && value !== null));
-}
-
-function formatJsonPayload(payload: Record<string, unknown>): string {
-  return JSON.stringify(payload, null, 2);
 }
 
 async function pollAiJobUntilSettled(processLogId: number): Promise<AiJobStatusResponse> {
@@ -5368,7 +6182,7 @@ async function pollAiJobUntilSettled(processLogId: number): Promise<AiJobStatusR
     latest = (await api.getAiJobStatus(processLogId)).data;
   }
 
-  return latest;
+  return getTimedOutAiJobStatus(latest);
 }
 
 function extractAiJobText(output: unknown, keys: string[]): string | undefined {
@@ -5405,10 +6219,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function formatIdList(ids: number[]): string {
-  return ids.length ? ids.join(", ") : "-";
 }
 
 function RecruitingReportFallbackView({
@@ -5929,6 +6739,10 @@ function playAnswerStartCue() {
   window.setTimeout(() => {
     void audioContext.close().catch(() => undefined);
   }, 650);
+}
+
+function isRealtimeQuestionSpeechPurpose(purpose: string): purpose is "interview_question" | "interview_follow_up_question" {
+  return purpose === "interview_question" || purpose === "interview_follow_up_question";
 }
 
 function createRuntimeFileAssetFromMetadata(

@@ -47,16 +47,20 @@ export async function updateRecruitment(recruitmentId: number, input: UpdateRecr
   });
 }
 
-export async function publishRecruitment(recruitmentId: number) {
+export async function changeRecruitmentStatus(recruitmentId: number, status: "OPEN" | "DRAFT") {
   const current = await getRecruitment(recruitmentId);
   return updateRecruitment(recruitmentId, {
     title: current.data.title,
     jobRole: current.data.jobRole,
     startsOn: current.data.startsOn ?? undefined,
     endsOn: current.data.endsOn ?? undefined,
-    status: "OPEN",
+    status,
     jobDescription: current.data.jobDescription ?? undefined,
   });
+}
+
+export async function publishRecruitment(recruitmentId: number) {
+  return changeRecruitmentStatus(recruitmentId, "OPEN");
 }
 
 export async function deleteRecruitment(recruitmentId: number) {

@@ -95,6 +95,11 @@ export class AiInterviewRequestDto {
   audioS3Key?: string;
 
   @IsOptional()
+  @IsInt()
+  @IsPositive()
+  durationSeconds?: number;
+
+  @IsOptional()
   @IsString()
   previousQuestion?: string;
 
@@ -109,6 +114,16 @@ export class AiInterviewRequestDto {
   @IsOptional()
   @IsString()
   documentSummary?: string;
+}
+
+export class CreateRealtimeInterviewSessionDto {
+  @IsOptional()
+  @IsIn(["realtime-voice"])
+  mode?: "realtime-voice";
+
+  @IsOptional()
+  @IsIn(["webrtc"])
+  transport?: "webrtc";
 }
 
 export class InsertFollowUpQuestionDto {
