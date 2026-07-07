@@ -11,6 +11,8 @@ import {
   Post,
   Query,
   Req,
+  Res,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -18,6 +20,7 @@ import {
 import { FileInterceptor } from "@nestjs/platform-express";
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { CurrentUser } from "@init/common";
+import type { Response } from "express";
 
 import { ok, okList, type RequestLike } from "../../../shared/response-envelope";
 import { ApiEnvelopeResponse, ApiErrorResponses, ApiListEnvelopeResponse, ApiOperationId, ApiParamId } from "../../../swagger/swagger.decorators";
@@ -206,6 +209,23 @@ export class CompanyRecruitingController {
   ) {
     const data = await this.companyRecruitingService.getApplicantEvaluation(request.currentUser, applicantId);
     return ok(request, data);
+  }
+
+  @Get("applicants/:applicantId/media/:fileId")
+  @ApiOperationId("API-020-MEDIA")
+  @ApiOperation({ summary: "기업 지원자 면접 답변 녹화 조회" })
+  async getApplicantInterviewMedia(
+    @Req() request: CompanyRequest,
+    @Param("applicantId", ParseIntPipe) applicantId: number,
+    @Param("fileId", ParseIntPipe) fileId: number,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const media = await this.companyRecruitingService.getApplicantInterviewMedia(request.currentUser, applicantId, fileId);
+    response.setHeader("Content-Type", media.contentType);
+    response.setHeader("Content-Length", String(media.contentLength));
+    response.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(media.originalName)}"`);
+    response.setHeader("Cache-Control", "private, max-age=60");
+    return new StreamableFile(media.body);
   }
 
   @Patch("applicants/:applicantId/screening-status")

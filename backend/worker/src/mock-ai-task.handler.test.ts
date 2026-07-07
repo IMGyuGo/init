@@ -767,6 +767,32 @@ test("report generation stores scores and evidences after guardrail pass", async
   assert.equal(report?.scores[0].evidences.length, 2);
 });
 
+test("recruiting report summarizes answer evidence while mock report keeps transcript evidence", async () => {
+  const transcript = "I implemented NestJS APIs and confirmed the result with PostgreSQL query logs.";
+  const recruitingResults = new InMemoryAiResultRepository();
+  const mockResults = new InMemoryAiResultRepository();
+
+  await run({
+    processLogId: 35,
+    processType: "REPORT_GENERATE",
+    input: reportGenerateInput("RECRUITING_REPORT", transcript),
+    results: recruitingResults
+  });
+  await run({
+    processLogId: 36,
+    processType: "REPORT_GENERATE",
+    input: reportGenerateInput("MOCK_INTERVIEW_REPORT", transcript),
+    results: mockResults
+  });
+
+  const recruitingEvidence = recruitingResults.generatedReports.get(30)?.scores[0]?.evidences[0]?.text ?? "";
+  const mockEvidence = mockResults.generatedReports.get(30)?.scores[0]?.evidences[0]?.text ?? "";
+  assert.match(recruitingEvidence, /답변 #10/);
+  assert.doesNotMatch(recruitingEvidence, /I implemented NestJS APIs/);
+  assert.match(recruitingResults.generatedReports.get(30)?.scores[0]?.rationale ?? "", /문제를 나누어 원인을 좁힌 과정/);
+  assert.match(mockEvidence, /I implemented NestJS APIs/);
+});
+
 test("report generation uses temporary zero score when STT transcript is unavailable", async () => {
   const results = new InMemoryAiResultRepository();
 

@@ -757,6 +757,7 @@ export const publicInterviewApiPaths = {
   stt: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/stt`,
   realtimeSession: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/realtime-session`,
   followUpQuestion: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/follow-up-question`,
+  followUpQuestionInsert: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/follow-up-questions/insert`,
 } as const;
 
 export class CandidateApiError extends Error {
@@ -866,6 +867,8 @@ export type InterviewRuntimeApiClient = Pick<
   | "createRecruitingRealtimeSession"
   | "requestMockFollowUpQuestion"
   | "requestRecruitingFollowUpQuestion"
+  | "insertMockFollowUpQuestion"
+  | "insertRecruitingFollowUpQuestion"
 >;
 
 export interface PublicInterviewApiClient extends InterviewRuntimeApiClient {
@@ -1168,12 +1171,18 @@ export function createPublicInterviewApiClient(
         method: "POST",
         body: JSON.stringify(body),
       }),
+    insertRecruitingFollowUpQuestion: (sessionId, body) =>
+      request<ApiResponse<InsertFollowUpQuestionResponse>>(publicInterviewApiPaths.followUpQuestionInsert(sessionId), {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
     saveMockAnswer: unsupportedMockMethod,
     moveMockNextQuestion: unsupportedMockMethod,
     completeMockInterview: unsupportedMockMethod,
     requestMockStt: unsupportedMockMethod,
     createMockRealtimeSession: unsupportedMockMethod,
     requestMockFollowUpQuestion: unsupportedMockMethod,
+    insertMockFollowUpQuestion: unsupportedMockMethod,
   };
 }
 

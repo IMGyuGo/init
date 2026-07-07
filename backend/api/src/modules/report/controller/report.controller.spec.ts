@@ -297,7 +297,7 @@ async function runReportControllerAssertions() {
   );
   assert.equal(applicationStatus.data.interviewStatus, "COMPLETED");
   assert.equal(applicationStatus.data.interviewSessionStatus, "COMPLETED");
-  assert.equal(applicationStatus.data.reportStatus, "GENERATING");
+  assert.equal(applicationStatus.data.reportStatus, "PENDING");
   assert.equal(applicationStatus.data.reportAvailable, false);
 
   const applicationReport = await controller.getApplicationReport(
@@ -305,7 +305,7 @@ async function runReportControllerAssertions() {
     String(submitted.application.applicationId),
   );
   assert.equal(applicationReport.data.reportType, "RECRUITING_REPORT");
-  assert.equal(applicationReport.data.status, "GENERATING");
+  assert.equal(applicationReport.data.status, "PENDING");
   assert.deepEqual(applicationReport.data.scores, []);
   assert.equal(applicationReport.data.visibilityPolicy.excludesInternalMemo, true);
   assert.equal(applicationReport.data.visibilityPolicy.excludesManualEvaluation, true);

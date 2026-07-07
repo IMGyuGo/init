@@ -21,6 +21,7 @@ import type { UpdateScreeningStatusDto } from "../dto/update-screening-status.dt
 import type { CompanyRecruitingRepositoryPort } from "../repository/company-recruiting.repository";
 import type {
   ApplicantRecord,
+  CompanyFileAssetRecord,
   JobDescriptionImageUploadFile,
   JobDescriptionImageUploadResponse,
   NormalizedListQuery,
@@ -42,8 +43,15 @@ export type CompanyRecruitingStoragePutObjectInput = {
   contentLength: number;
 };
 
+export type CompanyRecruitingStorageObject = {
+  body: Buffer;
+  contentType?: string;
+  contentLength?: number;
+};
+
 export type CompanyRecruitingStorageAdapterPort = {
   putObject(input: CompanyRecruitingStoragePutObjectInput): Promise<void>;
+  getObject?(key: string): Promise<CompanyRecruitingStorageObject>;
 };
 
 export type CompanyRecruitingUploadConfig = {
@@ -64,6 +72,10 @@ type PublicApplicationDocumentUploadFiles = {
 
 class MissingCompanyRecruitingStorageAdapter implements CompanyRecruitingStorageAdapterPort {
   async putObject(): Promise<void> {
+    throw new CompanyRecruitingException(500, ERROR_CODES.COMMON_VALIDATION_FAILED, "파일 저장소 설정이 필요합니다.");
+  }
+
+  async getObject(): Promise<CompanyRecruitingStorageObject> {
     throw new CompanyRecruitingException(500, ERROR_CODES.COMMON_VALIDATION_FAILED, "파일 저장소 설정이 필요합니다.");
   }
 }
@@ -440,6 +452,49 @@ export class CompanyRecruitingService {
     return toApplicantEvaluationResponse(application);
   }
 
+  async getApplicantInterviewMedia(user: CurrentUser, applicantId: number, fileId: number) {
+    const companyId = requireCompanyId(user);
+    const application = await this.repository.findApplicationForCompany(applicantId, companyId);
+    if (!application) {
+      throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "지원자를 찾을 수 없습니다.");
+    }
+
+    const fileAsset = findApplicantInterviewMediaFile(application, fileId);
+    if (!fileAsset) {
+      throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "면접 녹화 파일을 찾을 수 없습니다.");
+    }
+    if (!this.storageAdapter.getObject) {
+      throw new CompanyRecruitingException(500, ERROR_CODES.COMMON_VALIDATION_FAILED, "파일 저장소 조회 설정이 필요합니다.");
+    }
+
+    let object: CompanyRecruitingStorageObject;
+    try {
+      object = await this.storageAdapter.getObject(fileAsset.storageKey);
+    } catch (error) {
+      if (error instanceof CompanyRecruitingException) {
+        throw error;
+      }
+      if (isStorageObjectNotFound(error)) {
+        throw new CompanyRecruitingException(
+          404,
+          ERROR_CODES.COMMON_NOT_FOUND,
+          "면접 녹화 원본이 로컬 파일 저장소에 없습니다.",
+        );
+      }
+      throw new CompanyRecruitingException(
+        500,
+        ERROR_CODES.COMMON_VALIDATION_FAILED,
+        "면접 녹화 파일을 불러올 수 없습니다.",
+      );
+    }
+    return {
+      body: object.body,
+      contentType: object.contentType ?? fileAsset.mimeType,
+      contentLength: object.contentLength ?? object.body.byteLength,
+      originalName: fileAsset.originalName,
+    };
+  }
+
   async updateScreeningStatus(user: CurrentUser, applicantId: number, dto: UpdateScreeningStatusDto) {
     const companyId = requireCompanyId(user);
     const screeningDecision = parseScreeningDecision(dto.screeningDecision);
@@ -576,6 +631,57 @@ function requireCompanyId(user: CurrentUser): number {
     throw new CompanyRecruitingException(403, ERROR_CODES.COMMON_FORBIDDEN, "기업 사용자만 접근할 수 있습니다.");
   }
   return user.companyId;
+}
+
+function findApplicantInterviewMediaFile(application: ApplicantRecord, fileId: number): CompanyFileAssetRecord | null {
+  for (const session of application.interviewSessions) {
+    for (const answer of session.answers ?? []) {
+      const directMatch = [answer.videoFile, answer.audioFile].find((file) => isActiveInterviewMediaFile(file, fileId));
+      if (directMatch) {
+        return directMatch;
+      }
+      for (const followUp of answer.followUpQuestions) {
+        const followUpAnswer = followUp.answer;
+        const followUpMatch = [followUpAnswer?.videoFile, followUpAnswer?.audioFile].find((file) =>
+          isActiveInterviewMediaFile(file, fileId),
+        );
+        if (followUpMatch) {
+          return followUpMatch;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function isActiveInterviewMediaFile(
+  file: CompanyFileAssetRecord | null | undefined,
+  fileId: number,
+): file is CompanyFileAssetRecord {
+  return file?.fileId === fileId && file.status === "ACTIVE";
+}
+
+function isStorageObjectNotFound(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const storageError = error as {
+    $metadata?: { httpStatusCode?: number };
+    Code?: unknown;
+    code?: unknown;
+    message?: unknown;
+    name?: unknown;
+  };
+  const errorSignals = [storageError.name, storageError.Code, storageError.code]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.toLowerCase());
+
+  return (
+    storageError.$metadata?.httpStatusCode === 404 ||
+    errorSignals.some((value) => value === "nosuchkey" || value === "notfound") ||
+    (typeof storageError.message === "string" && storageError.message.toLowerCase().includes("nosuchkey"))
+  );
 }
 
 export function getConfiguredJdImageMaxUploadBytes() {
@@ -882,9 +988,13 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
     },
     reportAvailability: latestReport ? "AVAILABLE" : "NONE_OR_GENERATING",
     answers: latestSession
-      ? (latestSession.answers ?? []).map((answer) => ({
+        ? (latestSession.answers ?? []).map((answer) => ({
           answerId: answer.answerId,
           questionId: answer.questionId,
+          videoFileId: answer.videoFileId,
+          audioFileId: answer.audioFileId,
+          videoFile: toCompanyEvaluationFileAsset(answer.videoFile),
+          audioFile: toCompanyEvaluationFileAsset(answer.audioFile),
           questionType: answer.questionType,
           questionContent: answer.questionContent,
           transcript: answer.transcript,
@@ -895,9 +1005,13 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
             content: followUp.content,
             generationStatus: followUp.generationStatus,
             policy: followUp.policy,
-            answer: followUp.answer
+              answer: followUp.answer
               ? {
                   answerId: followUp.answer.answerId,
+                  videoFileId: followUp.answer.videoFileId,
+                  audioFileId: followUp.answer.audioFileId,
+                  videoFile: toCompanyEvaluationFileAsset(followUp.answer.videoFile),
+                  audioFile: toCompanyEvaluationFileAsset(followUp.answer.audioFile),
                   transcript: followUp.answer.transcript,
                   durationSeconds: followUp.answer.durationSeconds,
                   submittedAt: followUp.answer.submittedAt?.toISOString() ?? null,
@@ -926,6 +1040,22 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
           })),
         }
       : null,
+  };
+}
+
+function toCompanyEvaluationFileAsset(fileAsset: CompanyFileAssetRecord | null | undefined) {
+  if (!fileAsset) {
+    return null;
+  }
+  return {
+    fileId: fileAsset.fileId,
+    ownerUserId: fileAsset.ownerUserId,
+    storageKey: fileAsset.storageKey,
+    originalName: fileAsset.originalName,
+    mimeType: fileAsset.mimeType,
+    sizeBytes: fileAsset.sizeBytes,
+    status: fileAsset.status,
+    createdAt: fileAsset.createdAt.toISOString(),
   };
 }
 

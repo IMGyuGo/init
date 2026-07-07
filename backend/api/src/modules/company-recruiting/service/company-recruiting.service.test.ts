@@ -1061,6 +1061,19 @@ describe("CompanyRecruitingService", () => {
                 {
                   answerId: 1001,
                   questionId: 501,
+                  videoFileId: 8001,
+                  audioFileId: null,
+                  videoFile: {
+                    fileId: 8001,
+                    ownerUserId: 88,
+                    storageKey: "candidate/44/interviews/recruiting-answer-1001.webm",
+                    originalName: "recruiting-answer-1001.webm",
+                    mimeType: "video/webm",
+                    sizeBytes: 123456,
+                    status: "ACTIVE",
+                    createdAt: new Date("2026-07-01T00:01:30.000Z"),
+                  },
+                  audioFile: null,
                   questionType: "TECHNICAL",
                   questionContent: "지원 직무와 관련된 프로젝트에서 맡은 역할을 설명해주세요.",
                   transcript: "API 업로드, DB 저장, worker 처리 흐름을 연결했습니다.",
@@ -1074,6 +1087,19 @@ describe("CompanyRecruitingService", () => {
                       policy: "RECRUITING",
                       answer: {
                         answerId: 1002,
+                        videoFileId: 8002,
+                        audioFileId: null,
+                        videoFile: {
+                          fileId: 8002,
+                          ownerUserId: 88,
+                          storageKey: "candidate/44/interviews/recruiting-follow-up-answer-1002.webm",
+                          originalName: "recruiting-follow-up-answer-1002.webm",
+                          mimeType: "video/webm",
+                          sizeBytes: 65432,
+                          status: "ACTIVE",
+                          createdAt: new Date("2026-07-01T00:03:30.000Z"),
+                        },
+                        audioFile: null,
                         transcript: "answerId와 audioFileId가 payload와 DB에서 일치하는지 확인했습니다.",
                         durationSeconds: 21,
                         submittedAt: new Date("2026-07-01T00:04:00.000Z"),
@@ -1084,6 +1110,19 @@ describe("CompanyRecruitingService", () => {
                 {
                   answerId: 1002,
                   questionId: 502,
+                  videoFileId: 8002,
+                  audioFileId: null,
+                  videoFile: {
+                    fileId: 8002,
+                    ownerUserId: 88,
+                    storageKey: "candidate/44/interviews/recruiting-follow-up-answer-1002.webm",
+                    originalName: "recruiting-follow-up-answer-1002.webm",
+                    mimeType: "video/webm",
+                    sizeBytes: 65432,
+                    status: "ACTIVE",
+                    createdAt: new Date("2026-07-01T00:03:30.000Z"),
+                  },
+                  audioFile: null,
                   questionType: "FOLLOW_UP",
                   questionContent: "worker 처리 흐름에서 가장 중요하게 확인한 값은 무엇인가요?",
                   transcript: "answerId와 audioFileId가 payload와 DB에서 일치하는지 확인했습니다.",
@@ -1105,6 +1144,19 @@ describe("CompanyRecruitingService", () => {
     assert.deepEqual(result.answers[0], {
       answerId: 1001,
       questionId: 501,
+      videoFileId: 8001,
+      audioFileId: null,
+      videoFile: {
+        fileId: 8001,
+        ownerUserId: 88,
+        storageKey: "candidate/44/interviews/recruiting-answer-1001.webm",
+        originalName: "recruiting-answer-1001.webm",
+        mimeType: "video/webm",
+        sizeBytes: 123456,
+        status: "ACTIVE",
+        createdAt: "2026-07-01T00:01:30.000Z",
+      },
+      audioFile: null,
       questionType: "TECHNICAL",
       questionContent: "지원 직무와 관련된 프로젝트에서 맡은 역할을 설명해주세요.",
       transcript: "API 업로드, DB 저장, worker 처리 흐름을 연결했습니다.",
@@ -1118,6 +1170,19 @@ describe("CompanyRecruitingService", () => {
           policy: "RECRUITING",
           answer: {
             answerId: 1002,
+            videoFileId: 8002,
+            audioFileId: null,
+            videoFile: {
+              fileId: 8002,
+              ownerUserId: 88,
+              storageKey: "candidate/44/interviews/recruiting-follow-up-answer-1002.webm",
+              originalName: "recruiting-follow-up-answer-1002.webm",
+              mimeType: "video/webm",
+              sizeBytes: 65432,
+              status: "ACTIVE",
+              createdAt: "2026-07-01T00:03:30.000Z",
+            },
+            audioFile: null,
             transcript: "answerId와 audioFileId가 payload와 DB에서 일치하는지 확인했습니다.",
             durationSeconds: 21,
             submittedAt: "2026-07-01T00:04:00.000Z",
@@ -1125,6 +1190,202 @@ describe("CompanyRecruitingService", () => {
         },
       ],
     });
+  });
+
+  it("streams applicant interview media only after company ownership and answer file checks", async () => {
+    const repository = createRepository({
+      async findApplicationForCompany(applicationId: number, companyId: number) {
+        assert.equal(applicationId, 77);
+        assert.equal(companyId, 7);
+        return createApplicantRecord({
+          interviewSessions: [
+            {
+              sessionId: 901,
+              status: "COMPLETED",
+              interviewType: "RECRUITING",
+              startedAt: new Date("2026-07-01T00:00:00.000Z"),
+              completedAt: new Date("2026-07-01T00:10:00.000Z"),
+              answers: [
+                {
+                  answerId: 1001,
+                  questionId: 501,
+                  videoFileId: 8001,
+                  audioFileId: null,
+                  videoFile: {
+                    fileId: 8001,
+                    ownerUserId: 88,
+                    storageKey: "candidate/44/interviews/recruiting-answer-1001.webm",
+                    originalName: "recruiting-answer-1001.webm",
+                    mimeType: "video/webm",
+                    sizeBytes: 123456,
+                    status: "ACTIVE",
+                    createdAt: new Date("2026-07-01T00:01:30.000Z"),
+                  },
+                  audioFile: null,
+                  questionType: "TECHNICAL",
+                  questionContent: "지원 직무와 관련된 프로젝트에서 맡은 역할을 설명해주세요.",
+                  transcript: "API 업로드, DB 저장, worker 처리 흐름을 연결했습니다.",
+                  durationSeconds: 42,
+                  submittedAt: new Date("2026-07-01T00:02:00.000Z"),
+                  followUpQuestions: [],
+                },
+              ],
+            },
+          ],
+        });
+      },
+    });
+    const storage = {
+      requestedKey: "",
+      async putObject() {},
+      async getObject(key: string) {
+        this.requestedKey = key;
+        return {
+          body: Buffer.from("video-bytes"),
+          contentType: "video/webm",
+          contentLength: 11,
+        };
+      },
+    };
+    const service = new CompanyRecruitingService(repository, storage);
+
+    const media = await service.getApplicantInterviewMedia(companyUser, 77, 8001);
+
+    assert.equal(storage.requestedKey, "candidate/44/interviews/recruiting-answer-1001.webm");
+    assert.equal(media.contentType, "video/webm");
+    assert.equal(media.contentLength, 11);
+    assert.equal(media.originalName, "recruiting-answer-1001.webm");
+    assert.equal(media.body.toString(), "video-bytes");
+  });
+
+  it("rejects inactive applicant interview media files before storage access", async () => {
+    const repository = createRepository({
+      async findApplicationForCompany() {
+        return createApplicantRecord({
+          interviewSessions: [
+            {
+              sessionId: 901,
+              status: "COMPLETED",
+              interviewType: "RECRUITING",
+              startedAt: new Date("2026-07-01T00:00:00.000Z"),
+              completedAt: new Date("2026-07-01T00:10:00.000Z"),
+              answers: [
+                {
+                  answerId: 1001,
+                  questionId: 501,
+                  videoFileId: 8001,
+                  audioFileId: null,
+                  videoFile: {
+                    fileId: 8001,
+                    ownerUserId: 88,
+                    storageKey: "candidate/44/interviews/recruiting-answer-1001.webm",
+                    originalName: "recruiting-answer-1001.webm",
+                    mimeType: "video/webm",
+                    sizeBytes: 123456,
+                    status: "DELETED",
+                    createdAt: new Date("2026-07-01T00:01:30.000Z"),
+                  },
+                  audioFile: null,
+                  questionType: "TECHNICAL",
+                  questionContent: "지원 직무와 관련된 프로젝트에서 맡은 역할을 설명해주세요.",
+                  transcript: "API 업로드, DB 저장, worker 처리 흐름을 연결했습니다.",
+                  durationSeconds: 42,
+                  submittedAt: new Date("2026-07-01T00:02:00.000Z"),
+                  followUpQuestions: [],
+                },
+              ],
+            },
+          ],
+        });
+      },
+    });
+    let storageReadCount = 0;
+    const service = new CompanyRecruitingService(repository, {
+      async putObject() {},
+      async getObject() {
+        storageReadCount += 1;
+        return {
+          body: Buffer.from("video-bytes"),
+        };
+      },
+    });
+
+    await assert.rejects(
+      service.getApplicantInterviewMedia(companyUser, 77, 8001),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "COMMON_NOT_FOUND" &&
+        "getStatus" in error &&
+        typeof error.getStatus === "function" &&
+        error.getStatus() === 404,
+    );
+    assert.equal(storageReadCount, 0);
+  });
+
+  it("reports missing applicant interview media object as not found", async () => {
+    const repository = createRepository({
+      findApplicationForCompany: async () => {
+        return createApplicantRecord({
+          applicationId: 77,
+          interviewSessions: [
+            {
+              sessionId: 100,
+              status: "COMPLETED",
+              interviewType: "RECRUITING",
+              startedAt: new Date("2026-07-01T00:00:00.000Z"),
+              completedAt: new Date("2026-07-01T00:10:00.000Z"),
+              answers: [
+                {
+                  answerId: 1001,
+                  questionId: 501,
+                  questionType: "INTRO",
+                  questionContent: "지원 동기를 설명해주세요.",
+                  transcript: "지원 동기 답변입니다.",
+                  durationSeconds: 30,
+                  submittedAt: new Date("2026-07-01T00:01:00.000Z"),
+                  videoFileId: 8001,
+                  audioFileId: null,
+                  videoFile: {
+                    fileId: 8001,
+                    ownerUserId: 44,
+                    storageKey: "candidate/44/interviews/recruiting-answer-1001.webm",
+                    originalName: "recruiting-answer-1001.webm",
+                    mimeType: "video/webm",
+                    sizeBytes: 1024,
+                    status: "ACTIVE",
+                    createdAt: new Date("2026-07-01T00:01:00.000Z"),
+                  },
+                  audioFile: null,
+                  followUpQuestions: [],
+                },
+              ],
+            },
+          ],
+        });
+      },
+    });
+    const service = new CompanyRecruitingService(repository, {
+      async putObject() {},
+      async getObject() {
+        const error = new Error("NoSuchKey");
+        Object.assign(error, { name: "NoSuchKey", $metadata: { httpStatusCode: 404 } });
+        throw error;
+      },
+    });
+
+    await assert.rejects(
+      service.getApplicantInterviewMedia(companyUser, 77, 8001),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "COMMON_NOT_FOUND" &&
+        "getStatus" in error &&
+        typeof error.getStatus === "function" &&
+        error.getStatus() === 404,
+    );
   });
 
   it("stores only allowed screening decisions and memo through the B-owned fields", async () => {

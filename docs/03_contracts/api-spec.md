@@ -1083,6 +1083,44 @@ AI 리포트 금지 기준:
 - 비고/미결:
   - 기존 9번 서류 평가 상세과 10번 채용 리포트 상세을 9번으로 통합
 
+### API-020-MEDIA GET /company/applicants/{applicantId}/media/{fileId}
+- 도메인: 기업 - 지원자/리포트
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 지원자 평가 상세 화면 (/company/applicants/{applicantId}/evaluation)
+- UI Type: section media
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params:
+  - applicantId: 지원서/application ID
+  - fileId: interview_answers에 연결된 videoFileId 또는 audioFileId
+- 요청 데이터:
+  - 없음
+- 검증/전제조건:
+  - 요청 사용자는 기업 계정이어야 한다.
+  - applicantId는 요청 기업이 소유한 공고의 지원서여야 한다.
+  - fileId는 해당 지원자의 채용면접 답변 또는 꼬리질문 답변에 연결된 videoFile/audioFile이어야 한다.
+  - file_assets.status는 ACTIVE여야 한다.
+  - 원본 객체가 LocalStack S3 또는 AWS S3에 존재해야 한다.
+- 성공 응답/처리:
+  - 이 API는 JSON envelope를 사용하지 않고 파일 스트림을 직접 반환한다.
+  - 응답 헤더:
+    - Content-Type: file_assets.mime_type 또는 S3 ContentType
+    - Content-Length: 원본 파일 크기
+    - Content-Disposition: inline; filename="{originalName}"
+    - Cache-Control: private, max-age=60
+  - 응답 바디:
+    - 녹화 영상 또는 음성 바이너리 스트림
+- 오류/예외:
+  - 403 COMMON_FORBIDDEN: 기업 계정이 아니거나 접근 권한이 없는 경우
+  - 404 COMMON_NOT_FOUND: 지원자를 찾을 수 없거나, 해당 답변에 연결된 ACTIVE 파일이 아니거나, 원본 객체가 파일 저장소에 없는 경우
+  - 500 COMMON_VALIDATION_FAILED: 파일 저장소 조회 설정이 없거나 S3 조회 중 알 수 없는 오류가 발생한 경우
+  - 오류 응답은 공통 API error envelope를 따른다.
+- 관련 ERD 테이블:
+  - companies, postings, applications, candidate_profiles, interview_sessions, interview_answers, follow_up_questions, file_assets
+- 비고/미결:
+  - 면접 녹화/음성 파일은 민감 데이터이므로 presigned public URL을 노출하지 않고 기업 권한 확인 후 서버가 스트리밍한다.
+  - 로컬 개발에서 DB file_assets 메타데이터만 남고 LocalStack S3 객체가 사라진 경우 404로 처리하고 화면에는 원본 없음 상태를 표시한다.
+
 ### API-021 GET /company/applicants/{applicantId}/document-evaluation
 - 도메인: 기업 - 지원자/리포트
 - 권한/인증: 기업 / 기업 사용자 로그인

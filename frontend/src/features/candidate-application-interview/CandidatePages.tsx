@@ -757,7 +757,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
         : { ok: false, peakLevel: 0, message: formatMicrophoneStatus(streamResult) };
       const networkQuality = await checkInterviewNetworkQuality();
       const cameraOk = cameraQuality.ok && !cameraFraming.blocking;
-      const microphoneOk = audioEnabled && microphoneQuality.ok;
+      const microphoneOk = audioEnabled && isMicrophoneTrackReady(stream);
       setCameraReady(cameraOk);
       setCameraFramingState(cameraFraming.state);
       setMicrophoneReady(microphoneOk);
@@ -2615,21 +2615,30 @@ function InterviewRuntimePanel({
       try {
         const stream = streamRef.current;
         if (!stream) return;
+        const skipRuntimeQualityCheck = mode === "recruiting";
         const previewInfo = await attachMediaStreamToVideo(node, stream);
-        assertCameraPreviewHasFrame(previewInfo);
+        if (!skipRuntimeQualityCheck) {
+          assertCameraPreviewHasFrame(previewInfo);
+        }
         if (videoRef.current !== node || videoAttachRunRef.current !== attachRun) return;
-        const cameraQuality = assessCameraQuality(node);
-        const cameraFraming = getCameraFramingNotice();
-        const cameraOk = cameraQuality.ok && !cameraFraming.blocking;
+        const cameraQuality = skipRuntimeQualityCheck
+          ? { ok: true, message: "초기 장치 점검 완료" }
+          : assessCameraQuality(node);
+        const cameraFraming = skipRuntimeQualityCheck
+          ? { state: "unsupported" as const, blocking: false, message: "초기 장치 점검 결과를 사용합니다." }
+          : getCameraFramingNotice();
+        const cameraOk = skipRuntimeQualityCheck ? isCameraTrackReady(stream) : cameraQuality.ok && !cameraFraming.blocking;
         setCameraReady(cameraOk);
         setCameraFramingState(cameraFraming.state);
         setCameraPreviewStatus(formatCameraPreviewStatus(previewInfo, undefined, cameraQuality, cameraFraming));
-        cameraQualityIntervalRef.current = startCameraQualityMonitor(node, previewInfo, undefined, (quality, framing, status) => {
-          if (videoRef.current !== node || videoAttachRunRef.current !== attachRun) return;
-          setCameraReady(quality.ok);
-          setCameraFramingState(framing.state);
-          setCameraPreviewStatus(status);
-        });
+        if (!skipRuntimeQualityCheck) {
+          cameraQualityIntervalRef.current = startCameraQualityMonitor(node, previewInfo, undefined, (quality, framing, status) => {
+            if (videoRef.current !== node || videoAttachRunRef.current !== attachRun) return;
+            setCameraReady(quality.ok);
+            setCameraFramingState(framing.state);
+            setCameraPreviewStatus(status);
+          });
+        }
       } catch (previewError) {
         if (videoRef.current !== node || videoAttachRunRef.current !== attachRun) return;
         setCameraReady(false);
@@ -3433,7 +3442,7 @@ function InterviewRuntimePanel({
     );
   }
 
-  async function handleEnableCamera() {
+  async function handleEnableCamera(options: { skipQualityCheck?: boolean } = {}) {
     warmUpInterviewAudioOutput();
     if (!navigator.mediaDevices?.getUserMedia) {
       setMessage("이 브라우저에서는 카메라/마이크를 사용할 수 없습니다.");
@@ -3459,16 +3468,26 @@ function InterviewRuntimePanel({
       if (videoRef.current) {
         previewInfo = await attachMediaStreamToVideo(videoRef.current, stream);
       }
-      assertCameraPreviewHasFrame(previewInfo);
+      if (!options.skipQualityCheck) {
+        assertCameraPreviewHasFrame(previewInfo);
+      }
 
-      const cameraQuality = assessCameraQuality(videoRef.current);
-      const cameraFraming = getCameraFramingNotice();
+      const cameraQuality = options.skipQualityCheck
+        ? { ok: true, message: "초기 장치 점검 완료" }
+        : assessCameraQuality(videoRef.current);
+      const cameraFraming = options.skipQualityCheck
+        ? { state: "unsupported" as const, blocking: false, message: "초기 장치 점검 결과를 사용합니다." }
+        : getCameraFramingNotice();
       const microphoneQuality = streamResult.audioEnabled
-        ? await measureMicrophoneQuality(stream, setMicrophoneLevel)
+        ? options.skipQualityCheck
+          ? { ok: true, peakLevel: 0, message: "초기 장치 점검 완료" }
+          : await measureMicrophoneQuality(stream, setMicrophoneLevel)
         : { ok: false, peakLevel: 0, message: formatMicrophoneStatus(streamResult) };
-      const networkQuality = await checkInterviewNetworkQuality();
-      const cameraOk = cameraQuality.ok && !cameraFraming.blocking;
-      const microphoneOk = streamResult.audioEnabled && microphoneQuality.ok;
+      const networkQuality = options.skipQualityCheck
+        ? { ok: true, message: "초기 장치 점검 결과를 사용합니다." }
+        : await checkInterviewNetworkQuality();
+      const cameraOk = options.skipQualityCheck ? isCameraTrackReady(stream) : cameraQuality.ok && !cameraFraming.blocking;
+      const microphoneOk = streamResult.audioEnabled && isMicrophoneTrackReady(stream);
       setCameraReady(cameraOk);
       setCameraFramingState(cameraFraming.state);
       setMicrophoneReady(microphoneOk);
@@ -3478,7 +3497,9 @@ function InterviewRuntimePanel({
         streamResult.audioEnabled ? formatMicrophoneQualityStatus(streamResult, microphoneQuality) : microphoneQuality.message,
       );
       setNetworkStatus(networkQuality.message);
-      startRuntimeCameraQualityMonitor(previewInfo, fallbackLabel);
+      if (!options.skipQualityCheck && previewInfo) {
+        startRuntimeCameraQualityMonitor(previewInfo, fallbackLabel);
+      }
       if (streamResult.audioEnabled) {
         startMicrophoneMeter(stream);
       } else {
@@ -3521,7 +3542,7 @@ function InterviewRuntimePanel({
       return;
     }
 
-    void handleEnableCamera();
+    void handleEnableCamera({ skipQualityCheck: mode === "recruiting" });
     // Runtime camera binding should run once after the interview screen opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.runtime.sessionId, setupCompleted]);
@@ -3530,7 +3551,7 @@ function InterviewRuntimePanel({
     warmUpInterviewAudioOutput();
     if (!data) return;
     if (!streamRef.current || !cameraReady || !microphoneReady || !networkReady) {
-      await handleEnableCamera();
+      await handleEnableCamera({ skipQualityCheck: mode === "recruiting" });
     }
 
     const stream = streamRef.current;
@@ -3599,7 +3620,7 @@ function InterviewRuntimePanel({
     }
 
     if (!streamRef.current) {
-      await handleEnableCamera();
+      await handleEnableCamera({ skipQualityCheck: mode === "recruiting" });
     }
 
     const stream = streamRef.current;
@@ -4067,7 +4088,7 @@ function InterviewRuntimePanel({
         error: undefined,
       }));
 
-      const sttStatus = await pollAiJobUntilSettled(sttProcessLogId);
+      const sttStatus = await pollAiJobUntilSettled(sttProcessLogId, { attempts: 90, intervalMs: 1000 });
       if (sttStatus.status !== "COMPLETED") {
         const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({
           failureCategory: sttStatus.failure?.category,
@@ -4075,7 +4096,7 @@ function InterviewRuntimePanel({
         setAutoAiPipeline((current) => ({
           answerId: savedAnswer.answerId,
           ...current,
-          sttStatus: sttStatus.status === "FAILED" ? "FAILED" : "RUNNING",
+          sttStatus: "FAILED",
           followUpStatus: "IDLE",
           followUpSkipped: shouldSkipFollowUp,
           failureCategory: sttStatus.failure?.category,
@@ -4098,7 +4119,8 @@ function InterviewRuntimePanel({
           answerId: savedAnswer.answerId,
           ...current,
           sttStatus: "COMPLETED",
-          followUpStatus: "FAILED",
+          followUpStatus: "IDLE",
+          followUpSkipped: true,
           sttProcessLogId,
           error: "STT 결과에서 transcript를 찾지 못했습니다.",
         }));
@@ -4177,7 +4199,7 @@ function InterviewRuntimePanel({
         error: undefined,
       }));
 
-      const followUpStatus = await pollAiJobUntilSettled(followUpProcessLogId);
+      const followUpStatus = await pollAiJobUntilSettled(followUpProcessLogId, { attempts: 90, intervalMs: 1000 });
       if (followUpStatus.status !== "COMPLETED") {
         const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({
           failureCategory: followUpStatus.failure?.category,
@@ -4186,13 +4208,13 @@ function InterviewRuntimePanel({
           answerId: savedAnswer.answerId,
           ...current,
           sttStatus: current?.sttStatus ?? "COMPLETED",
-          followUpStatus: followUpStatus.status === "FAILED" ? "FAILED" : "RUNNING",
+          followUpStatus: shouldSkipFollowUp ? "IDLE" : followUpStatus.status === "FAILED" ? "FAILED" : "RUNNING",
           followUpSkipped: shouldSkipFollowUp,
           error: shouldSkipFollowUp
             ? undefined
             : followUpStatus.status === "FAILED"
             ? followUpStatus.failure?.reason ?? "꼬리질문 생성에 실패했습니다."
-            : "꼬리질문 생성이 아직 진행 중입니다. 잠시 후 상태를 다시 확인해주세요.",
+            : undefined,
         }));
         return;
       }
@@ -4256,7 +4278,7 @@ function InterviewRuntimePanel({
       throw new Error("질문으로 추가할 꼬리질문 작업이 없습니다.");
     }
 
-    const api = getCandidateApi();
+    const api = runtimeApi;
     return mode === "mock"
       ? api.insertMockFollowUpQuestion(data.runtime.sessionId, {
           processLogId: autoAiPipeline.followUpProcessLogId,
@@ -6187,15 +6209,20 @@ function compactPayload(payload: Record<string, unknown>): Record<string, unknow
   return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined && value !== null));
 }
 
-async function pollAiJobUntilSettled(processLogId: number): Promise<AiJobStatusResponse> {
+async function pollAiJobUntilSettled(
+  processLogId: number,
+  options: { attempts?: number; intervalMs?: number } = {},
+): Promise<AiJobStatusResponse> {
   const api = getCandidateApi();
+  const attempts = options.attempts ?? 20;
+  const intervalMs = options.intervalMs ?? 700;
   let latest = (await api.getAiJobStatus(processLogId)).data;
 
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (latest.status === "COMPLETED" || latest.status === "FAILED") {
       return latest;
     }
-    await sleep(700);
+    await sleep(intervalMs);
     latest = (await api.getAiJobStatus(processLogId)).data;
   }
 
@@ -7159,6 +7186,16 @@ function formatCameraPreviewStatus(
     .join(" · ");
 }
 
+function isMicrophoneTrackReady(stream: MediaStream): boolean {
+  const [audioTrack] = stream.getAudioTracks();
+  return Boolean(audioTrack && audioTrack.enabled && audioTrack.readyState === "live");
+}
+
+function isCameraTrackReady(stream: MediaStream): boolean {
+  const [videoTrack] = stream.getVideoTracks();
+  return Boolean(videoTrack && videoTrack.enabled && videoTrack.readyState === "live");
+}
+
 function formatMicrophoneStatus(result: CameraStreamResult): string {
   if (result.audioEnabled) {
     return `${result.audioLabel || "선택된 마이크"} · ${result.audioState ?? "live"}`;
@@ -7169,7 +7206,8 @@ function formatMicrophoneStatus(result: CameraStreamResult): string {
 function formatMicrophoneQualityStatus(result: CameraStreamResult, quality: MicrophoneQualityResult): string {
   const label = result.audioLabel || "선택된 마이크";
   const state = result.audioState ?? "live";
-  return `${label} · ${state} · 입력 ${quality.peakLevel}% · ${quality.message}`;
+  const message = quality.ok ? quality.message : "마이크가 연결되었습니다. 입력이 작으면 실제 답변 때 조금 더 크게 말해주세요.";
+  return `${label} · ${state} · 입력 ${quality.peakLevel}% · ${message}`;
 }
 
 function formatMicrophoneProbeStatus(result: MicrophoneProbeResult): string {
