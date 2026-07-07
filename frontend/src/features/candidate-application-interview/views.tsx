@@ -18,6 +18,7 @@ import {
   toSubmitApplicationRequest,
 } from "./view-model";
 import { JobDescriptionViewer } from "../company-recruiting/JobDescriptionViewer";
+import { extractPostingExtraInfo, postingExtraInfoFields } from "../company-recruiting/posting-extra-info";
 
 export interface CandidateJobsViewProps {
   jobs: CandidateJobSummary[];
@@ -561,61 +562,123 @@ export interface CandidateJobDetailViewProps {
   job: CandidateJobDetail;
 }
 
+// JD(리치텍스트 HTML)에 삽입된 이미지 src 를 추출한다(상단 캐러셀용, API 변경 없음).
+function extractJobImages(jobDescription: string | null | undefined): string[] {
+  if (!jobDescription || typeof window === "undefined") return [];
+  const doc = new DOMParser().parseFromString(jobDescription, "text/html");
+  return Array.from(doc.querySelectorAll("img"))
+    .map((img) => img.getAttribute("src") ?? "")
+    .filter(Boolean);
+}
+
 export function CandidateJobDetailView({ job }: CandidateJobDetailViewProps) {
   const actionHref = getCandidateJobDetailActionHref(job);
+  const dday = candidateJobDday(job.endsOn);
+  const galleryRef = useRef<HTMLDivElement>(null);
+  const [images, setImages] = useState<string[]>([]);
+
+  // JD 에서 "공고 조건" 블록을 분리해 요약 그리드로 보여주고, 본문에는 제거된 JD 만 렌더한다.
+  const { jobDescription: jdBody, extraInfo } = extractPostingExtraInfo(job.jobDescription);
+  const summaryRows = postingExtraInfoFields
+    .map((field) => ({ label: field.label, value: extraInfo[field.key].enabled ? extraInfo[field.key].value : "" }))
+    .filter((row) => row.value);
+
+  useEffect(() => {
+    setImages(extractJobImages(job.jobDescription));
+  }, [job.jobDescription]);
+
+  function slideGallery(direction: 1 | -1) {
+    const el = galleryRef.current;
+    if (!el) return;
+    el.scrollBy({ left: direction * Math.round(el.clientWidth * 0.9), behavior: "smooth" });
+  }
 
   return (
     <section aria-labelledby="candidate-job-detail-heading" className="candidate-job-detail-page glass-page notion">
-      <div className="page-head">
-        <div className="candidate-job-detail-title">
-          <CompanyLogoMark companyLogoUrl={job.companyLogoUrl} fallbackLabel={companyLogoLabelFromName(job.companyName)} />
-          <div>
-            <h1 id="candidate-job-detail-heading">{job.companyName}</h1>
-            <p>{job.title} · <StatusBadge status={job.postingStatus} /></p>
+      {images.length ? (
+        <div className="jobdetail-gallery-wrap">
+          <div className="jobdetail-gallery" ref={galleryRef} aria-label="공고 이미지">
+            {images.map((src, index) => (
+              // JD 에 삽입된 원본 이미지 URL 을 그대로 사용(외부/스토리지 URL 이라 next/image 최적화 대상 아님)
+              // eslint-disable-next-line @next/next/no-img-element
+              <img key={`${src}-${index}`} src={src} alt={`공고 이미지 ${index + 1}`} loading={index > 2 ? "lazy" : undefined} />
+            ))}
           </div>
+          {images.length > 3 ? (
+            <>
+              <button type="button" className="jobdetail-gallery-nav prev" aria-label="이전 이미지" onClick={() => slideGallery(-1)}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="m15 18-6-6 6-6" />
+                </svg>
+              </button>
+              <button type="button" className="jobdetail-gallery-nav next" aria-label="다음 이미지" onClick={() => slideGallery(1)}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="m9 18 6-6-6-6" />
+                </svg>
+              </button>
+            </>
+          ) : null}
         </div>
-        <div className="page-actions">
-          <a className="btn secondary" href={candidateApplicationInterviewRoutes.jobs}>목록</a>
-          <a aria-disabled={!actionHref} className="btn primary" href={actionHref || "#"} tabIndex={actionHref ? undefined : -1}>
+      ) : null}
+
+      <div className="jobdetail-layout">
+        <div className="jobdetail-main">
+          <header className="jobdetail-head">
+            <div className="jobdetail-company">
+              <span className="jobdetail-company-name">{job.companyName}</span>
+              <span className="jobdetail-company-meta">
+                {[displayLocation(job.location), job.careerLevel, job.employmentType].filter(Boolean).join(" · ")}
+              </span>
+            </div>
+            <h1 id="candidate-job-detail-heading" className="jobdetail-title">{job.title}</h1>
+            {job.techStacks.length ? (
+              <div className="jobdetail-tags">
+                {job.techStacks.map((techStack) => (
+                  <span key={techStack}>#{techStack}</span>
+                ))}
+              </div>
+            ) : null}
+          </header>
+
+          {summaryRows.length ? (
+            <div className="jobdetail-summary">
+              {summaryRows.map((row) => (
+                <div className="jobdetail-summary-row" key={row.label}>
+                  <span>{row.label}</span>
+                  <strong>{row.value}</strong>
+                </div>
+              ))}
+              <div className="jobdetail-summary-row">
+                <span>마감일</span>
+                <strong>
+                  {dday ?? "-"}
+                </strong>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="jobdetail-jd">
+            <JobDescriptionViewer value={jdBody} emptyMessage="등록된 JD가 없습니다." />
+          </div>
+
+          {job.companyProfile ? (
+            <section className="jobdetail-companyinfo">
+              <h2>회사 소개</h2>
+              <p>{job.companyProfile}</p>
+            </section>
+          ) : null}
+        </div>
+
+        <aside className="jobdetail-aside">
+          <a
+            aria-disabled={!actionHref}
+            className="btn primary jobdetail-apply-cta"
+            href={actionHref || "#"}
+            tabIndex={actionHref ? undefined : -1}
+          >
             {job.alreadyApplied ? "지원 완료" : "지원하기"}
           </a>
-        </div>
-      </div>
-
-      <div className="candidate-job-detail-grid">
-        <section className="panel candidate-job-detail-card">
-          <div className="panel-head">
-            <div className="panel-title">
-              <h2>회사 정보</h2>
-            </div>
-          </div>
-          <div className="candidate-job-detail-box">{job.companyProfile || "산업군, 규모, 주요 서비스 등"}</div>
-        </section>
-        <section className="panel candidate-job-detail-card">
-          <div className="panel-head">
-            <div className="panel-title">
-              <h2>채용 공고</h2>
-            </div>
-          </div>
-          <div className="candidate-job-detail-box">
-            <JobDescriptionViewer value={job.jobDescription} emptyMessage="등록된 JD가 없습니다." />
-            <ul className="candidate-feature__tags">
-              {job.techStacks.map((techStack) => (
-                <li key={techStack}>{techStack}</li>
-              ))}
-            </ul>
-          </div>
-        </section>
-        <section className="panel candidate-job-detail-meta">
-          <div>
-            <CompanyLogoMark companyLogoUrl={job.companyLogoUrl} fallbackLabel={companyLogoLabelFromName(job.companyName)} />
-            <div>
-              <strong>{job.title}</strong>
-              <span>{job.companyName}</span>
-            </div>
-          </div>
-          <p>채용 기간 · {formatDateForDisplay(job.startsOn)} ~ {formatDateForDisplay(job.endsOn)}</p>
-        </section>
+        </aside>
       </div>
     </section>
   );
@@ -917,10 +980,6 @@ function SortDropdown({
   );
 }
 
-function StatusBadge({ status }: { status: CandidateJobSummary["postingStatus"] }) {
-  return <span className="candidate-detail-status" data-status={status}>{statusLabel[status]}</span>;
-}
-
 function CompanyLogoMark({
   companyLogoUrl,
   fallbackLabel,
@@ -976,14 +1035,6 @@ function toggleConsent(consentTypes: ConsentType[], consentType: ConsentType): C
     ? consentTypes.filter((current) => current !== consentType)
     : [...consentTypes, consentType];
 }
-
-const statusLabel: Record<CandidateJobSummary["postingStatus"], string> = {
-  DRAFT: "비공개",
-  OPEN: "채용중",
-  CLOSING_SOON: "마감 임박",
-  CLOSED: "마감",
-  ARCHIVED: "보관",
-};
 
 const consentLabel: Record<ConsentType, string> = {
   PRIVACY_COLLECTION: "개인정보 수집·이용 동의",
