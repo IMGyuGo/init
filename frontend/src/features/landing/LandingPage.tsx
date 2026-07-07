@@ -85,8 +85,7 @@ export function LandingPage() {
       <section className="landing-hero">
         <span className="landing-pill">AI 인터뷰로 채용의 1차 검증을 자동화</span>
         <h1>
-          {/* 면접을 잇다. */}
-          배포 테스트 입니다(2차).
+          면접을 잇다.
           <br />
           더 많은 지원자에게 <span>공정한 기회</span>를.
         </h1>
