@@ -121,6 +121,8 @@ export const STT_UNAVAILABLE_TEMP_ZERO_REASON =
 export interface GeneratedReportRecord {
   reportId: number;
   reportType: "RECRUITING_REPORT" | "MOCK_INTERVIEW_REPORT";
+  applicationId?: number;
+  sessionId?: number;
   summary: string;
   totalScore: number;
   scores: GeneratedReportScoreRecord[];
@@ -148,6 +150,8 @@ export interface ReportScoresRecord {
 export interface FailedReportRecord {
   reportId: number;
   reportType: "RECRUITING_REPORT" | "MOCK_INTERVIEW_REPORT";
+  applicationId?: number;
+  sessionId?: number;
   failureCategory: FailureCategory;
   failureReason: string;
 }

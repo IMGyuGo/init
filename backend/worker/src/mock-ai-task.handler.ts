@@ -383,6 +383,8 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const report: GeneratedReportRecord = {
       reportId,
       reportType,
+      applicationId: optionalPositiveNumber(payload.applicationId, "applicationId"),
+      sessionId: optionalPositiveNumber(payload.sessionId, "sessionId"),
       summary,
       totalScore,
       scores,

@@ -805,6 +805,9 @@ export class ReportService {
     if (process) {
       return "GENERATING";
     }
+    if (fallback === "GENERATING") {
+      return "PENDING";
+    }
     return overriddenStatus ?? fallback;
   }
 

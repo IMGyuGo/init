@@ -322,6 +322,48 @@ test("PrismaAiResultRepository stores generated reports after guardrail pass", a
   assert.equal(calls[4].args.data.evidences.create[0].sourceType, "INTERVIEW_ANSWER");
 });
 
+test("PrismaAiResultRepository marks recruiting application report completed with generated report", async () => {
+  const calls: Array<{ model: string; method: string; args: any }> = [];
+  const repository = new PrismaAiResultRepository(fakePrisma(calls));
+
+  await repository.saveGeneratedReport({
+    reportId: 30,
+    reportType: "RECRUITING_REPORT",
+    applicationId: 22,
+    sessionId: 65,
+    summary: "summary",
+    totalScore: 82,
+    scores: [
+      {
+        criterionId: 1,
+        criterionName: "Problem solving",
+        score: 82,
+        rationale: "evidence-based score",
+        rubricAnchor: "Structured interview evidence is mapped to the requested evaluation criterion.",
+        confidence: "MEDIUM",
+        uncertaintyReasons: [],
+        evidences: [{ sourceType: "INTERVIEW_ANSWER", answerId: 10, text: "answer evidence" }]
+      }
+    ],
+    questionEvaluations: [
+      {
+        criterionId: 1,
+        criterionName: "Problem solving",
+        answerId: 10,
+        question: "Describe your Redis experience.",
+        rubricAnchor: "Structured interview evidence is mapped to the requested evaluation criterion.",
+        confidence: "MEDIUM",
+        uncertaintyReasons: [],
+        evidences: [{ sourceType: "INTERVIEW_ANSWER", answerId: 10, text: "answer evidence" }]
+      }
+    ]
+  });
+
+  const applicationUpdate = calls.find((call) => call.model === "application" && call.method === "updateMany");
+  assert.deepEqual(applicationUpdate?.args.where, { applicationId: BigInt(22) });
+  assert.deepEqual(applicationUpdate?.args.data, { reportStatus: "COMPLETED" });
+});
+
 test("PrismaAiResultRepository marks generated reports failed with retryability", async () => {
   const calls: Array<{ model: string; method: string; args: any }> = [];
   const repository = new PrismaAiResultRepository(fakePrisma(calls));
@@ -339,8 +381,31 @@ test("PrismaAiResultRepository marks generated reports failed with retryability"
   assert.equal(calls[0].args.update.failureCategory, "NON_RETRYABLE");
 });
 
+test("PrismaAiResultRepository marks recruiting application report failed with generated report failure", async () => {
+  const calls: Array<{ model: string; method: string; args: any }> = [];
+  const repository = new PrismaAiResultRepository(fakePrisma(calls));
+
+  await repository.markReportFailed({
+    reportId: 30,
+    reportType: "RECRUITING_REPORT",
+    applicationId: 22,
+    sessionId: 65,
+    failureCategory: "RETRYABLE",
+    failureReason: "provider timeout"
+  });
+
+  const applicationUpdate = calls.find((call) => call.model === "application" && call.method === "updateMany");
+  assert.deepEqual(applicationUpdate?.args.where, { applicationId: BigInt(22) });
+  assert.deepEqual(applicationUpdate?.args.data, { reportStatus: "FAILED" });
+});
+
 function fakePrisma(calls: Array<{ model: string; method: string; args: any }>) {
   return {
+    application: {
+      async updateMany(args: any) {
+        calls.push({ model: "application", method: "updateMany", args });
+      }
+    },
     applicationDocument: {
       async updateMany(args: any) {
         calls.push({ model: "applicationDocument", method: "updateMany", args });

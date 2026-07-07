@@ -31,7 +31,9 @@ test("report failure handler records report retryability from process input", as
   const job = workerJob("REPORT_GENERATE", {
     payload: {
       reportId: 30,
-      reportType: "MOCK_INTERVIEW_REPORT"
+      reportType: "RECRUITING_REPORT",
+      applicationId: 22,
+      sessionId: 65
     }
   });
 
@@ -39,7 +41,9 @@ test("report failure handler records report retryability from process input", as
 
   assert.deepEqual(results.failedReports.get(30), {
     reportId: 30,
-    reportType: "MOCK_INTERVIEW_REPORT",
+    reportType: "RECRUITING_REPORT",
+    applicationId: 22,
+    sessionId: 65,
     failureCategory: "RETRYABLE",
     failureReason: "provider timeout"
   });
