@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, HttpException, Param, Patch, Post, Req
 import { FileInterceptor } from "@nestjs/platform-express";
 import { CandidateDomainError } from "../../candidate";
 import { DeviceCheckDto } from "../dto/interview.device-check.dto";
-import { AiInterviewRequestDto, CreateRealtimeInterviewSessionDto, SaveInterviewAnswerDto } from "../dto/interview.runtime.dto";
+import { AiInterviewRequestDto, CreateRealtimeInterviewSessionDto, InsertFollowUpQuestionDto, SaveInterviewAnswerDto } from "../dto/interview.runtime.dto";
 import { PublicInterviewAccessGuard, type PublicInterviewRequest } from "./public-interview-access.guard";
 import { PublicInterviewStartDto } from "./public-interview.dto";
 import { PublicInterviewService } from "./public-interview.service";
@@ -126,6 +126,18 @@ export class PublicInterviewController {
   ) {
     return this.handle(() =>
       this.publicInterviewService.requestFollowUpQuestion(Number(sessionId), dto, request.publicInterviewAccess),
+    );
+  }
+
+  @UseGuards(PublicInterviewAccessGuard)
+  @Post("interviews/:sessionId/follow-up-questions/insert")
+  insertFollowUpQuestion(
+    @Req() request: PublicInterviewRequest,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: InsertFollowUpQuestionDto,
+  ) {
+    return this.handle(() =>
+      this.publicInterviewService.insertFollowUpQuestion(Number(sessionId), dto, request.publicInterviewAccess),
     );
   }
 

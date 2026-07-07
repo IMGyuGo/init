@@ -4098,7 +4098,7 @@ function InterviewRuntimePanel({
         error: undefined,
       }));
 
-      const sttStatus = await pollAiJobUntilSettled(sttProcessLogId);
+      const sttStatus = await pollAiJobUntilSettled(sttProcessLogId, { attempts: 90, intervalMs: 1000 });
       if (sttStatus.status !== "COMPLETED") {
         const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({
           failureCategory: sttStatus.failure?.category,
@@ -4209,7 +4209,7 @@ function InterviewRuntimePanel({
         error: undefined,
       }));
 
-      const followUpStatus = await pollAiJobUntilSettled(followUpProcessLogId);
+      const followUpStatus = await pollAiJobUntilSettled(followUpProcessLogId, { attempts: 90, intervalMs: 1000 });
       if (followUpStatus.status !== "COMPLETED") {
         const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({
           failureCategory: followUpStatus.failure?.category,
@@ -4288,7 +4288,7 @@ function InterviewRuntimePanel({
       throw new Error("질문으로 추가할 꼬리질문 작업이 없습니다.");
     }
 
-    const api = getCandidateApi();
+    const api = runtimeApi;
     return mode === "mock"
       ? api.insertMockFollowUpQuestion(data.runtime.sessionId, {
           processLogId: autoAiPipeline.followUpProcessLogId,
@@ -6212,15 +6212,20 @@ function compactPayload(payload: Record<string, unknown>): Record<string, unknow
   return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined && value !== null));
 }
 
-async function pollAiJobUntilSettled(processLogId: number): Promise<AiJobStatusResponse> {
+async function pollAiJobUntilSettled(
+  processLogId: number,
+  options: { attempts?: number; intervalMs?: number } = {},
+): Promise<AiJobStatusResponse> {
   const api = getCandidateApi();
+  const attempts = options.attempts ?? 20;
+  const intervalMs = options.intervalMs ?? 700;
   let latest = (await api.getAiJobStatus(processLogId)).data;
 
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (latest.status === "COMPLETED" || latest.status === "FAILED") {
       return latest;
     }
-    await sleep(700);
+    await sleep(intervalMs);
     latest = (await api.getAiJobStatus(processLogId)).data;
   }
 
