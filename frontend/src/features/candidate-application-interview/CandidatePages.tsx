@@ -1778,6 +1778,24 @@ export function CandidateMyPage() {
   const resumeInputRef = useRef<HTMLInputElement | null>(null);
   const portfolioInputRef = useRef<HTMLInputElement | null>(null);
 
+  const loadApplications = useCallback(() => getCandidateApi().listApplications(), []);
+  const { data: applicationsData, loading: applicationsLoading, error: applicationsError } =
+    useCandidateResource(loadApplications, []);
+  const applications = applicationsData?.data.items ?? [];
+  const recentApplications = [...applications]
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 4);
+  const summary = {
+    total: applications.length,
+    waiting: applications.filter(
+      (application) =>
+        application.applicationStatus !== "CANCELED" &&
+        (application.interviewStatus === "READY" || application.interviewStatus === "NOT_READY"),
+    ).length,
+    completed: applications.filter((application) => application.interviewStatus === "COMPLETED").length,
+    reports: applications.filter((application) => application.reportStatus === "COMPLETED").length,
+  };
+
   async function handleResumeSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -1822,11 +1840,92 @@ export function CandidateMyPage() {
     <CandidatePageShell active="accountBilling">
       <section className="candidate-mypage glass-page notion">
         <header className="candidate-mypage__head">
-          <h1>지원자 마이페이지</h1>
-          <p>이력서와 포트폴리오를 관리합니다.</p>
+          <h1>마이페이지</h1>
         </header>
         <CandidateMypageTabs />
-      <StatusNotice loading={busy} message={message} />
+
+        <section className="kpi-row kpi-summary" aria-label="지원 요약">
+          <div className="kpi">
+            <MypageStatIcon name="applications" />
+            <span>전체 지원</span>
+            <strong>{summary.total}</strong>
+          </div>
+          <div className="kpi">
+            <MypageStatIcon name="waiting" />
+            <span>응시 대기</span>
+            <strong>{summary.waiting}</strong>
+          </div>
+          <div className="kpi primary">
+            <MypageStatIcon name="completed" />
+            <span>응시 완료</span>
+            <strong>{summary.completed}</strong>
+          </div>
+          <div className="kpi">
+            <MypageStatIcon name="reports" />
+            <span>리포트 확인</span>
+            <strong>{summary.reports}</strong>
+          </div>
+        </section>
+
+        <section className="candidate-mypage-recent">
+          <div className="candidate-mypage-recent__head">
+            <h2>최근 지원 내역</h2>
+            <Link className="candidate-mypage-recent__more" href={candidateApplicationInterviewRoutes.applications}>
+              전체 보기 →
+            </Link>
+          </div>
+          {applicationsError ? (
+            <p className="candidate-mypage-recent__notice is-danger">{applicationsError}</p>
+          ) : applicationsLoading ? (
+            <p className="candidate-mypage-recent__notice">지원 내역을 불러오는 중이에요.</p>
+          ) : recentApplications.length ? (
+            <ul className="candidate-mypage-recent__list">
+              {recentApplications.map((application) => {
+                const action = getSelectedApplicationAction(application);
+                return (
+                  <li key={application.applicationId} className="candidate-mypage-recent__item">
+                    <div className="candidate-mypage-recent__info">
+                      <strong>{application.jobTitle}</strong>
+                      <span className="candidate-mypage-recent__company">
+                        {application.companyName}
+                        <em>·</em>
+                        {formatDateOnly(application.updatedAt)} 업데이트
+                      </span>
+                    </div>
+                    <div className="candidate-mypage-recent__badges">
+                      <ApplicationStatusBadge
+                        label={formatCandidateApplicationStatusLabel(application.applicationStatus)}
+                        tone={getCandidateApplicationStatusTone(application.applicationStatus)}
+                      />
+                      <ApplicationStatusBadge
+                        label={formatCandidateInterviewStatusLabel(application.interviewStatus)}
+                        tone={getCandidateInterviewStatusTone(application.interviewStatus)}
+                      />
+                    </div>
+                    {action.href ? (
+                      <Link className="candidate-mypage-recent__cta" href={action.href}>
+                        {action.label}
+                      </Link>
+                    ) : (
+                      <span className="candidate-mypage-recent__cta is-disabled" aria-disabled="true">
+                        {action.label}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <div className="candidate-mypage-recent__empty">
+              아직 지원한 공고가 없어요.
+              <Link className="candidate-mypage-recent__empty-cta" href={candidateApplicationInterviewRoutes.jobs}>
+                채용공고 둘러보기 →
+              </Link>
+            </div>
+          )}
+        </section>
+
+        <StatusNotice loading={busy} message={message} />
         <div className="candidate-mypage__cards">
           <form className="candidate-mypage-card candidate-resume-card" onSubmit={handleResumeSubmit}>
             <h2>이력서 업로드</h2>
@@ -1890,11 +1989,16 @@ export function CandidateMyPage() {
             <label>
               파일 첨부
               <button
-                className="candidate-file-picker"
+                className="candidate-upload-drop"
                 type="button"
                 onClick={() => portfolioInputRef.current?.click()}
               >
-                {portfolioFileState.originalName || "파일 선택"}
+                <span className="candidate-upload-icon" aria-hidden="true">
+                  <svg fill="none" height="22" viewBox="0 0 24 24" width="22">
+                    <path d="M12 16V4m0 0-5 5m5-5 5 5M5 20h14" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" />
+                  </svg>
+                </span>
+                <span>{portfolioFileState.originalName || "PDF, DOCX 파일을 선택하세요"}</span>
               </button>
               <input
                 ref={portfolioInputRef}
@@ -1912,36 +2016,24 @@ export function CandidateMyPage() {
             </button>
           </form>
         </div>
-
-        <section className="candidate-alert-card">
-          <div className="candidate-alert-card__head">
-            <h2>응시 안내 알림</h2>
-            <span>v2.0</span>
-          </div>
-          <div className="candidate-alert-table" role="table" aria-label="응시 안내 알림">
-            <div className="candidate-alert-row candidate-alert-row--head" role="row">
-              <span role="columnheader">회사</span>
-              <span role="columnheader">응시 링크</span>
-              <span role="columnheader">마감일</span>
-              <span role="columnheader">상태</span>
-            </div>
-            <div className="candidate-alert-row" role="row">
-              <span role="cell">A사</span>
-              <span role="cell">
-                <Link className="candidate-alert-link" href={candidateApplicationInterviewRoutes.applications}>
-                  면접 응시
-                </Link>
-              </span>
-              <span role="cell">07.01</span>
-              <span role="cell">
-                <span className="candidate-alert-status">발송 완료</span>
-              </span>
-            </div>
-          </div>
-        </section>
       </section>
     </CandidatePageShell>
   );
+}
+
+function MypageStatIcon({ name }: { name: "applications" | "waiting" | "completed" | "reports" }) {
+  const icons: Record<typeof name, string> = {
+    applications: "/candidate-stat-applications-v2.png",
+    waiting: "/candidate-stat-waiting-v2.png",
+    completed: "/candidate-stat-completed-v2.png",
+    reports: "/candidate-stat-reports-v2.png",
+  };
+  return <Image className="kpi-icon" src={icons[name]} alt="" width={28} height={28} aria-hidden="true" />;
+}
+
+function formatDateOnly(value: string | null) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric" }).format(new Date(value));
 }
 
 export function CandidateBillingPage() {
