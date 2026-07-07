@@ -33,7 +33,6 @@ const SORT_OPTIONS: { value: NonNullable<CandidateJobQuery["sort"]>; label: stri
 ];
 
 
-const SEARCH_SUGGESTIONS = ["백엔드", "프론트엔드", "AI·ML", "DevOps", "신입"];
 
 type FilterKey = "jobRole" | "careerLevel" | "location" | "postingStatus";
 
@@ -150,12 +149,12 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
   const [activeCat, setActiveCat] = useState<FilterKey>("jobRole");
   const [draft, setDraft] = useState<FilterDraft>(EMPTY_DRAFT);
   const popularGridRef = useRef<HTMLDivElement>(null);
-  // 다음/이전 버튼: 한 번에 3장(한 페이지)씩 부드럽게 슬라이드. rAF 로 직접 애니메이션.
-  function scrollPopular(direction: 1 | -1) {
-    const el = popularGridRef.current;
+  const quickGridRef = useRef<HTMLDivElement>(null);
+
+  // 가로 스크롤 컨테이너를 한 페이지씩 rAF 로 부드럽게 슬라이드.
+  function slideX(el: HTMLDivElement | null, direction: 1 | -1, gap = 20) {
     if (!el) return;
-    const gap = 20;
-    const pageWidth = el.clientWidth + gap; // 카드 3장 + 사이 여백 = 한 페이지
+    const pageWidth = el.clientWidth + gap;
     const maxLeft = el.scrollWidth - el.clientWidth;
     const start = el.scrollLeft;
     const target = Math.max(0, Math.min(maxLeft, start + direction * pageWidth));
@@ -175,6 +174,33 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
     }
     requestAnimationFrame(step);
   }
+  function scrollPopular(direction: 1 | -1) {
+    slideX(popularGridRef.current, direction);
+  }
+  function scrollQuick(direction: 1 | -1) {
+    slideX(quickGridRef.current, direction, 12);
+  }
+
+  // 직무 바로가기 캐러셀의 좌/우 끝 위치(버튼·페이드 표시 제어).
+  const [quickEdge, setQuickEdge] = useState({ start: true, end: false });
+  useEffect(() => {
+    const el = quickGridRef.current;
+    if (!el) return;
+    function update() {
+      if (!el) return;
+      setQuickEdge({
+        start: el.scrollLeft <= 1,
+        end: el.scrollLeft >= el.scrollWidth - el.clientWidth - 1,
+      });
+    }
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      el.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
 
   // 검색어는 로컬 상태로 관리해 타이핑마다 재조회하지 않는다. 조회는 제출(검색/Enter) 시에만.
   const [searchText, setSearchText] = useState(query.q ?? "");
@@ -293,6 +319,7 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
             ))}
           </div>
         ) : null}
+        <p className="candidate-job-card-period">접수 {formatDateRangeCompact(job.startsOn, job.endsOn)}</p>
         <div className="candidate-job-card-foot">
           <span className="candidate-job-card-foot-left">
             {dday ? <span className={`candidate-job-dday${dday === "마감" ? " is-closed" : ""}`}>{dday}</span> : null}
@@ -309,10 +336,13 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
     <section aria-label="채용공고 목록" className="candidate-jobs-panel">
       <div className="candidate-jobs-page1">
       <div className="candidate-jobs-hero">
-        <video className="candidate-jobs-hero-video" autoPlay muted loop playsInline aria-hidden="true">
-          <source src="/candidate-search-bg.mp4" type="video/mp4" />
-        </video>
+        <span className="candidate-jobs-hero-videowrap" aria-hidden="true">
+          <video className="candidate-jobs-hero-video" autoPlay muted loop playsInline>
+            <source src="/candidate-search-bg.mp4" type="video/mp4" />
+          </video>
+        </span>
         <div className="candidate-jobs-hero-inner">
+          <p className="candidate-jobs-hero-eyebrow">init, 인터뷰로 잇다.</p>
           <h2>개발자 채용공고, 한곳에서 확인하세요</h2>
           <form
             className="candidate-jobs-searchbar"
@@ -339,19 +369,6 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
               검색
             </button>
           </form>
-          <div className="candidate-jobs-suggestions">
-            <span className="candidate-jobs-suggestions-label">실시간 인기</span>
-            {SEARCH_SUGGESTIONS.map((keyword) => (
-              <button
-                key={keyword}
-                type="button"
-                className={`candidate-jobs-suggestion${query.q === keyword ? " is-active" : ""}`}
-                onClick={() => submitSearch(keyword)}
-              >
-                {keyword}
-              </button>
-            ))}
-          </div>
         </div>
         <button type="button" className="candidate-jobs-scrollcue" onClick={scrollToJobs}>
           <span>공고 목록 보러가기</span>
@@ -359,6 +376,42 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
             <path d="m6 9 6 6 6-6" />
           </svg>
         </button>
+      </div>
+
+      <div className={`candidate-jobs-quickwrap${quickEdge.start ? " is-start" : ""}${quickEdge.end ? " is-end" : ""}`}>
+        <div className="candidate-jobs-quicklinks" role="list" aria-label="직무 바로가기" ref={quickGridRef}>
+          {IT_DEV_ROLES.map((role) => (
+            <button
+              key={role.value}
+              type="button"
+              role="listitem"
+              className={`candidate-jobs-quicklink${query.jobRole === role.value ? " is-active" : ""}`}
+              onClick={() => {
+                patch({ jobRole: role.value });
+                window.setTimeout(() => scrollToJobs(), 60);
+              }}
+            >
+              <span>{role.label}</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+            </button>
+          ))}
+        </div>
+        {quickEdge.start ? null : (
+          <button type="button" className="candidate-jobs-quick-nav prev" aria-label="이전 직무" onClick={() => scrollQuick(-1)}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+          </button>
+        )}
+        {quickEdge.end ? null : (
+          <button type="button" className="candidate-jobs-quick-nav next" aria-label="다음 직무" onClick={() => scrollQuick(1)}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+          </button>
+        )}
       </div>
 
       <div id="candidate-jobs-list" className="candidate-jobs-list">
