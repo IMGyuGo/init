@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   CandidateFileAsset,
@@ -187,13 +186,15 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
   function submitSearch(nextText: string) {
     setSearchText(nextText);
     onQueryChange({ ...query, q: nextText || undefined, page: 1 });
+    // 검색하면 아래 공고 목록(2번째 화면)으로 이동해 결과를 바로 보여준다.
+    window.setTimeout(() => scrollToJobs(), 60);
   }
 
   // 이 페이지에 있는 동안에만: 최상단(히어로)에서 아래로 스크롤하면 한 번에 공고 목록으로 부드럽게 이동.
   useEffect(() => {
     let animating = false;
     function listTargetY(): number | null {
-      const list = document.getElementById("candidate-jobs-list");
+      const list = document.getElementById("candidate-jobs-all");
       if (!list) return null;
       return list.getBoundingClientRect().top + window.scrollY - CANDIDATE_HEADER_OFFSET;
     }
@@ -259,7 +260,7 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
   const activeCatMeta = FILTER_CATEGORIES.find((item) => item.key === activeCat);
 
   function scrollToJobs() {
-    const el = document.getElementById("candidate-jobs-list");
+    const el = document.getElementById("candidate-jobs-all");
     if (el) smoothScrollWindowTo(el.getBoundingClientRect().top + window.scrollY - CANDIDATE_HEADER_OFFSET);
   }
 
@@ -295,7 +296,6 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
         <div className="candidate-job-card-foot">
           <span className="candidate-job-card-foot-left">
             {dday ? <span className={`candidate-job-dday${dday === "마감" ? " is-closed" : ""}`}>{dday}</span> : null}
-            <StatusBadge status={job.postingStatus} />
           </span>
           <span className={`candidate-job-available${job.alreadyApplied ? " is-applied" : ""}`}>
             {job.alreadyApplied ? "지원 완료" : "지원 가능"}
@@ -307,16 +307,13 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
 
   return (
     <section aria-label="채용공고 목록" className="candidate-jobs-panel">
+      <div className="candidate-jobs-page1">
       <div className="candidate-jobs-hero">
         <video className="candidate-jobs-hero-video" autoPlay muted loop playsInline aria-hidden="true">
           <source src="/candidate-search-bg.mp4" type="video/mp4" />
         </video>
         <div className="candidate-jobs-hero-inner">
-          <h2>
-            개발자를 위한 채용공고,
-            <br />한곳에서 확인하세요
-          </h2>
-          <p>회사·공고 제목·직무로 검색하거나, 아래로 스크롤해 전체 공고를 살펴보세요.</p>
+          <h2>개발자 채용공고, 한곳에서 확인하세요</h2>
           <form
             className="candidate-jobs-searchbar"
             onSubmit={(event) => {
@@ -388,15 +385,18 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
         ) : (
           <p className="empty">조건에 맞는 채용공고가 없습니다.</p>
         )}
+      </div>
+      </div>
 
-        <div id="candidate-jobs-all" className="candidate-jobs-all">
+      <div id="candidate-jobs-all" className="candidate-jobs-all">
           <div className="page-banner candidate-jobs-listbanner">
+            <video className="candidate-jobs-listbanner-video" autoPlay muted loop playsInline aria-hidden="true">
+              <source src="/jobs-banner-bg.mp4" type="video/mp4" />
+            </video>
             <div className="page-banner-copy">
-              <p className="page-eyebrow">채용 정보</p>
               <h1>공고 목록</h1>
               <p className="page-sub">직무·경력·지역으로 원하는 공고를 골라 지원해보세요.</p>
             </div>
-            <Image className="page-banner-art" src="/jobs-banner.png" alt="" width={300} height={300} aria-hidden="true" />
           </div>
           <div className="candidate-jobs-toolbar">
             <div className="candidate-jobs-toolbar-left">
@@ -408,34 +408,19 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
                 {activeFilters.length ? <em className="candidate-jobs-filter-count">{activeFilters.length}</em> : null}
               </button>
               <div className="candidate-jobs-active">
-                {activeFilters.length ? (
-                  activeFilters.map((item) => (
-                    <button key={item.key} type="button" className="candidate-jobs-chip" onClick={() => clearFilter(item.key)}>
-                      {filterOptionLabel(item.key, item.value)}
-                      <span aria-hidden="true">✕</span>
-                    </button>
-                  ))
-                ) : (
-                  <span className="candidate-jobs-active-empty">필터로 원하는 공고만 골라보세요</span>
-                )}
+                {activeFilters.map((item) => (
+                  <button key={item.key} type="button" className="candidate-jobs-chip" onClick={() => clearFilter(item.key)}>
+                    {filterOptionLabel(item.key, item.value)}
+                    <span aria-hidden="true">✕</span>
+                  </button>
+                ))}
               </div>
             </div>
             <div className="candidate-jobs-toolbar-right">
               <span className="candidate-jobs-count">
                 공고 <strong>{totalItems}</strong>
               </span>
-              <select
-                aria-label="정렬"
-                className="candidate-jobs-sort"
-                value={query.sort ?? "createdAt"}
-                onChange={(event) => patch({ sort: event.currentTarget.value as CandidateJobQuery["sort"] })}
-              >
-                {SORT_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+              <SortDropdown value={query.sort ?? "createdAt"} onChange={(next) => patch({ sort: next })} />
             </div>
           </div>
 
@@ -444,11 +429,13 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
               {jobs.map(renderJobCard)}
             </div>
           ) : (
-            <p className="empty">조건에 맞는 채용공고가 없습니다.</p>
+            <div className="candidate-jobs-empty">
+              <strong>검색 결과가 없습니다</strong>
+              <span>다른 키워드나 필터로 다시 검색해보세요.</span>
+            </div>
           )}
         </div>
-        <span className="sr-only">지원 가능한 공고 {totalItems}건</span>
-      </div>
+      <span className="sr-only">지원 가능한 공고 {totalItems}건</span>
 
       {filterOpen ? (
         <div
@@ -798,6 +785,81 @@ function StatusCheck({
       <strong className={ready ? "is-ready" : "is-pending"} role="cell">
         <span>{ready ? readyText : pendingText}</span>
       </strong>
+    </div>
+  );
+}
+
+function SortDropdown({
+  value,
+  onChange,
+}: {
+  value: NonNullable<CandidateJobQuery["sort"]>;
+  onChange: (value: NonNullable<CandidateJobQuery["sort"]>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(event: MouseEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  const current = SORT_OPTIONS.find((option) => option.value === value) ?? SORT_OPTIONS[0];
+
+  return (
+    <div className="candidate-sort" ref={ref}>
+      <button
+        type="button"
+        className="candidate-sort-trigger"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        {current.label}
+        <svg
+          className={`candidate-sort-caret${open ? " is-open" : ""}`}
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+      {open ? (
+        <ul className="candidate-sort-menu" role="listbox">
+          {SORT_OPTIONS.map((option) => (
+            <li key={option.value}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={option.value === value}
+                className={`candidate-sort-item${option.value === value ? " is-active" : ""}`}
+                onClick={() => {
+                  onChange(option.value);
+                  setOpen(false);
+                }}
+              >
+                {option.label}
+                {option.value === value ? (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                ) : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }

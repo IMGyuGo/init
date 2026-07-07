@@ -4328,7 +4328,7 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
     <header className="gnb">
       <div className="gnb-inner">
         <Link className="brand" href={candidateApplicationInterviewRoutes.jobs}>
-          <Image src="/logo-init-v3.png" alt="init" width={1900} height={580} priority />
+          <Image src="/logo-init-v4.png" alt="init" width={1900} height={580} priority />
         </Link>
         <nav className="gnb-menu" aria-label="지원자 메뉴">
           <div className={`gnb-item ${recruitingActive ? "active" : ""}`}>

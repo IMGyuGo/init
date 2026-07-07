@@ -6222,8 +6222,8 @@ p {
   display: grid;
   place-items: center;
   gap: 0;
-  min-height: clamp(360px, 48vh, 520px);
-  padding: 48px 24px;
+  min-height: clamp(320px, 40vh, 440px);
+  padding: 40px 24px;
   text-align: center;
   color: #fff;
   border: 0;
@@ -6374,7 +6374,9 @@ p {
 }
 
 /* --- 리스트 영역 --- */
-.notion .candidate-jobs-list { position: relative; z-index: 0; display: grid; gap: 20px; min-height: calc(100dvh - 132px); scroll-snap-align: start; scroll-snap-stop: always; scroll-margin-top: 72px; align-content: start; }
+/* 페이지1: 검색 히어로 + 인기 공고가 화면(뷰포트)을 채워, 공고 목록은 스크롤 전엔 안 보이게 */
+.notion .candidate-jobs-page1 { display: flex; flex-direction: column; justify-content: center; gap: 32px; min-height: calc(100dvh - 96px); }
+.notion .candidate-jobs-list { position: relative; z-index: 0; display: grid; gap: 20px; align-content: start; }
 .notion .candidate-jobs-listhead {
   display: flex;
   align-items: center;
@@ -6461,20 +6463,58 @@ p {
 .notion .candidate-jobs-chip:hover { background: rgba(59, 111, 224, 0.14); }
 .notion .candidate-jobs-count { font-size: 14px; font-weight: 600; color: rgba(55, 53, 47, 0.65); white-space: nowrap; }
 .notion .candidate-jobs-count strong { color: #3b6fe0; font-weight: 700; }
-.notion .candidate-jobs-sort {
-  width: auto;
-  min-width: 0;
-  height: 38px;
-  min-height: 38px;
-  padding: 0 30px 0 13px;
+/* 커스텀 정렬 드롭다운 */
+.notion .candidate-sort { position: relative; }
+.notion .candidate-sort-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
   font-size: 13px;
+  font-weight: 600;
   color: #37352f;
-  background: #fff;
-  border: 1px solid rgba(55, 53, 47, 0.16);
-  border-radius: 10px;
+  background: #f1f1f2;
+  border: 0;
+  border-radius: 8px;
   cursor: pointer;
+  transition: background 0.12s ease;
 }
-.notion .candidate-jobs-sort:focus { border-color: #3b6fe0; box-shadow: 0 0 0 2px rgba(59, 111, 224, 0.2); outline: none; }
+.notion .candidate-sort-trigger:hover { background: #e8e8ea; }
+.notion .candidate-sort-caret { transition: transform 0.15s ease; }
+.notion .candidate-sort-caret.is-open { transform: rotate(180deg); }
+.notion .candidate-sort-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 180px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
+}
+.notion .candidate-sort-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  font-size: 14px;
+  color: #37352f;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+.notion .candidate-sort-item:hover { background: rgba(55, 53, 47, 0.05); }
+.notion .candidate-sort-item.is-active { background: rgba(55, 53, 47, 0.06); font-weight: 600; }
+.notion .candidate-sort-item svg { color: rgba(55, 53, 47, 0.55); }
 
 /* --- 필터 모달 --- */
 .notion .candidate-filter-overlay {
@@ -6560,8 +6600,40 @@ p {
 @media (max-width: 540px) { .notion .candidate-jobs-carousel > .candidate-job-card { flex-basis: 100%; } }
 
 /* 전체 공고 목록: 라인으로 구분 + 필터/정렬 + 그리드 */
-.notion .candidate-jobs-all { display: grid; gap: 20px; margin-top: 28px; padding-top: 28px; border-top: 1px solid rgba(55, 53, 47, 0.1); }
-.notion .candidate-jobs-listbanner { margin-bottom: 8px; }
+.notion .candidate-jobs-all { display: grid; gap: 20px; margin-top: 28px; padding-top: 28px; border-top: 1px solid rgba(55, 53, 47, 0.1); min-height: calc(100dvh - 96px); align-content: start; scroll-margin-top: 72px; }
+.notion .candidate-jobs-empty { display: grid; gap: 6px; place-items: center; padding: 72px 20px; text-align: center; }
+.notion .candidate-jobs-empty strong { font-size: 18px; font-weight: 700; color: #191919; }
+.notion .candidate-jobs-empty span { font-size: 14px; color: rgba(55, 53, 47, 0.55); }
+.notion .candidate-jobs-listbanner {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 8px;
+  padding: 28px 32px;
+  border: 0;
+  border-radius: 16px;
+  color: #fff;
+}
+.notion .candidate-jobs-listbanner-video {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+.notion .candidate-jobs-listbanner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0.5) 55%, rgba(255, 255, 255, 0.32) 100%);
+  pointer-events: none;
+}
+.notion .candidate-jobs-listbanner .page-banner-copy { position: relative; z-index: 1; }
+.notion .candidate-jobs-listbanner .page-eyebrow { color: rgba(55, 53, 47, 0.6); }
+.notion .candidate-jobs-listbanner h1 { color: #191919; }
+.notion .candidate-jobs-listbanner .page-sub { color: rgba(55, 53, 47, 0.72); }
 .notion .candidate-job-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -6609,8 +6681,8 @@ p {
   background-repeat: no-repeat;
 }
 .notion .candidate-job-card-companyinfo { min-width: 0; }
-.notion .candidate-job-card-company { margin: 0; font-size: 13.5px; font-weight: 600; color: #191919; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.notion .candidate-job-card-sub { margin: 1px 0 0; font-size: 12px; color: rgba(55, 53, 47, 0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.notion .candidate-job-card-company { margin: 0; font-size: 13.5px; font-weight: 500; color: #191919; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.notion .candidate-job-card-sub { margin: 1px 0 0; font-size: 12px; font-weight: 500; color: #3b6fe0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .notion .candidate-job-card-title {
   margin: 2px 0 0;
   font-size: 15px;
@@ -6627,7 +6699,18 @@ p {
 .notion .candidate-job-card-tags span { font-size: 12px; color: rgba(55, 53, 47, 0.55); }
 .notion .candidate-job-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; padding-top: 12px; border-top: 1px solid rgba(55, 53, 47, 0.08); }
 .notion .candidate-job-card-foot-left { display: inline-flex; align-items: center; gap: 8px; }
-.notion .candidate-job-dday { font-size: 12.5px; font-weight: 700; color: #37352f; font-variant-numeric: tabular-nums; }
-.notion .candidate-job-dday.is-closed { color: rgba(55, 53, 47, 0.4); }
+.notion .candidate-job-dday {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #37352f;
+  background: #f1f1f2;
+  border-radius: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.notion .candidate-job-dday.is-closed { color: rgba(55, 53, 47, 0.45); }
 .notion .candidate-job-available { font-size: 12px; font-weight: 600; color: #0f7a43; }
 .notion .candidate-job-available.is-applied { color: rgba(55, 53, 47, 0.45); }
