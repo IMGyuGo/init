@@ -1212,14 +1212,89 @@ export function PublicCandidateInterviewPage({ applicationId }: { applicationId:
   );
 }
 
+const MOCK_GUIDE_STEPS = [
+  {
+    image: "/mock-step-settings.png",
+    step: "STEP 1",
+    title: "설정 선택",
+    description: "직무·난이도·질문 유형을 골라 연습을 준비해요.",
+  },
+  {
+    image: "/mock-step-device.png",
+    step: "STEP 2",
+    title: "장치 점검",
+    description: "카메라와 마이크 입력을 미리 확인해요.",
+  },
+  {
+    image: "/mock-step-answer.png",
+    step: "STEP 3",
+    title: "답변 진행",
+    description: "질문을 듣고 정해진 시간 안에 답변을 녹화해요.",
+  },
+] as const;
+
+const MOCK_JOB_ROLES: { value: string; label: string }[] = [
+  { value: "Backend", label: "백엔드" },
+  { value: "Frontend", label: "프론트엔드" },
+  { value: "Full Stack", label: "풀스택" },
+  { value: "Android", label: "안드로이드" },
+  { value: "iOS", label: "iOS" },
+  { value: "Cross Platform", label: "크로스플랫폼" },
+  { value: "AI", label: "AI/ML" },
+  { value: "Data Engineer", label: "데이터 엔지니어" },
+  { value: "DevOps", label: "DevOps·SRE" },
+  { value: "QA", label: "QA·테스트" },
+  { value: "Security", label: "보안" },
+  { value: "Embedded", label: "임베디드" },
+  { value: "Game", label: "게임 개발" },
+  { value: "Blockchain", label: "블록체인" },
+  { value: "System Network", label: "시스템·네트워크" },
+];
+
+const MOCK_DIFFICULTIES: { value: StartMockInterviewState["difficulty"]; label: string; description: string }[] = [
+  { value: "EASY", label: "초급", description: "기초 개념을 확인하는 질문" },
+  { value: "NORMAL", label: "중급", description: "실무 경험 중심의 질문" },
+  { value: "HARD", label: "고급", description: "심화 개념과 설계 질문" },
+];
+
 export function CandidateMockInterviewStartPage() {
   const router = useRouter();
   const [state, setState] = useState<StartMockInterviewState>(defaultStartMockInterviewState);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const historyLoad = useCallback(() => getCandidateApi().listMockInterviewHistory(), []);
   const historyResource = useCandidateResource(historyLoad, []);
+
+  // 직무 캐러셀: 스크롤 위치에 따라 좌/우 넘김 버튼과 페이드를 토글한다.
+  const roleRowRef = useRef<HTMLDivElement>(null);
+  const [roleEdge, setRoleEdge] = useState({ start: true, end: false });
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const el = roleRowRef.current;
+    if (!el) return;
+    function update() {
+      if (!el) return;
+      setRoleEdge({
+        start: el.scrollLeft <= 1,
+        end: el.scrollLeft >= el.scrollWidth - el.clientWidth - 1,
+      });
+    }
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      el.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, [settingsOpen]);
+
+  function slideRoles(direction: 1 | -1) {
+    const el = roleRowRef.current;
+    if (!el) return;
+    el.scrollBy({ left: direction * Math.round(el.clientWidth * 0.8), behavior: "smooth" });
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1239,7 +1314,7 @@ export function CandidateMockInterviewStartPage() {
     <CandidatePageShell active="interview">
       <section className="candidate-mock-start-page glass-page notion">
         <CandidatePageHead
-          eyebrow="모의면접"
+          eyebrow=""
           title="개인 연습용 AI 모의면접"
           description="합격/탈락 판단 없이 연습 피드백만 제공합니다."
           actions={
@@ -1249,130 +1324,182 @@ export function CandidateMockInterviewStartPage() {
           }
         />
         <StatusNotice loading={busy && !settingsOpen} message={message && !settingsOpen ? message : undefined} />
-        <section className="panel candidate-mock-guide">
-          <div>
-            <p className="eyebrow">진행 방식</p>
-            <h2>실제 면접처럼 장치 점검 후 답변을 녹화합니다.</h2>
-            <p>
-              질문 유형과 난이도를 고르면 카메라와 마이크를 먼저 확인한 뒤 AI 안내에 따라 답변을 진행합니다.
-            </p>
+        <section className="mock-guide">
+          <div className="mock-guide-head">
+            <h2>이렇게 진행돼요</h2>
           </div>
-          <ol className="candidate-mock-flow" aria-label="모의면접 진행 순서">
-            <li>
-              <span>1</span>
-              <strong>설정 선택</strong>
-              <p>직무, 난이도, 질문 유형을 선택합니다.</p>
-            </li>
-            <li>
-              <span>2</span>
-              <strong>장치 점검</strong>
-              <p>카메라와 마이크 입력을 확인합니다.</p>
-            </li>
-            <li>
-              <span>3</span>
-              <strong>답변 진행</strong>
-              <p>질문을 듣고 정해진 시간 안에 답변합니다.</p>
-            </li>
+          <ol className="mock-guide-cards" aria-label="모의면접 진행 순서">
+            {MOCK_GUIDE_STEPS.map((item) => (
+              <li className="mock-guide-card" key={item.step}>
+                <span className="mock-guide-step">{item.step}</span>
+                <Image
+                  className="mock-guide-art"
+                  src={item.image}
+                  alt=""
+                  width={180}
+                  height={180}
+                  aria-hidden="true"
+                />
+                <strong>{item.title}</strong>
+                <p>{item.description}</p>
+              </li>
+            ))}
           </ol>
-          <div className="candidate-mock-guide-actions">
+          <div className="mock-guide-actions">
+            <button className="btn secondary" type="button" onClick={() => setHistoryOpen(true)}>
+              이어하기
+            </button>
             <button className="btn primary" type="button" onClick={() => setSettingsOpen(true)}>
               모의면접 설정하기
             </button>
           </div>
         </section>
-        <section className="panel">
-          <div className="panel-head">
-            <div>
-              <h2>연습 이력</h2>
-              <p>이전 모의면접 기록과 리포트를 확인합니다.</p>
+        {historyOpen ? (
+          <div
+            className="modal-backdrop"
+            role="presentation"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) setHistoryOpen(false);
+            }}
+          >
+            <div className="modal wide-modal candidate-mock-history-modal" role="dialog" aria-modal="true" aria-labelledby="candidate-mock-history-title">
+              <div className="modal-head">
+                <div>
+                  <h2 id="candidate-mock-history-title">연습 이력</h2>
+                  <p>진행 중인 연습은 이어서 하고, 완료된 연습은 리포트를 확인할 수 있어요.</p>
+                </div>
+                <button className="btn secondary compact" type="button" onClick={() => setHistoryOpen(false)}>
+                  닫기
+                </button>
+              </div>
+              <StatusNotice loading={historyResource.loading} error={historyResource.error} />
+              {historyResource.data?.data.items.length ? (
+                <MockHistoryTable history={historyResource.data.data.items} />
+              ) : (
+                <p className="empty">아직 모의면접 이력이 없어요.</p>
+              )}
             </div>
           </div>
-          <StatusNotice loading={historyResource.loading} error={historyResource.error} />
-          {historyResource.data?.data.items.length ? (
-            <MockHistoryTable history={historyResource.data.data.items} />
-          ) : (
-            <p className="empty">모의면접 이력이 없습니다.</p>
-          )}
-        </section>
+        ) : null}
         {settingsOpen ? (
-          <div className="modal-backdrop" role="presentation">
+          <div
+            className="mocksettings-overlay"
+            role="presentation"
+            onClick={(event) => {
+              if (event.target === event.currentTarget && !busy) setSettingsOpen(false);
+            }}
+          >
             <form
-              className="modal wide-modal candidate-mock-settings-modal"
+              className="mocksettings-modal"
               role="dialog"
               aria-modal="true"
               aria-labelledby="candidate-mock-settings-title"
               onSubmit={handleSubmit}
             >
-              <div className="modal-head">
+              <header className="mocksettings-head">
                 <div>
                   <h2 id="candidate-mock-settings-title">모의면접 설정</h2>
-                  <p>설정이 완료되면 카메라와 마이크 점검 화면으로 이동합니다.</p>
+                  <p>설정을 마치면 카메라·마이크 점검 화면으로 이동해요.</p>
                 </div>
-                <button className="btn secondary compact" type="button" disabled={busy} onClick={() => setSettingsOpen(false)}>
-                  닫기
+                <button type="button" className="mocksettings-close" aria-label="닫기" disabled={busy} onClick={() => setSettingsOpen(false)}>
+                  ✕
                 </button>
-              </div>
-              <StatusNotice loading={busy} message={message} />
-              <div className="candidate-mock-filters">
-                <label className="candidate-filter-field">
-                  <span>직무</span>
-                  <select
-                    value={state.jobRole}
-                    onChange={(event) => setState((current) => ({ ...current, jobRole: event.target.value }))}
-                  >
-                    <option value="Backend">백엔드</option>
-                    <option value="Frontend">프론트엔드</option>
-                    <option value="Android">안드로이드</option>
-                    <option value="iOS">iOS</option>
-                    <option value="Full Stack">풀스택</option>
-                    <option value="AI">AI/ML</option>
-                  </select>
-                </label>
-                <label className="candidate-filter-field">
-                  <span>난이도</span>
-                  <select
-                    value={state.difficulty}
-                    onChange={(event) =>
-                      setState((current) => ({
-                        ...current,
-                        difficulty: event.target.value as StartMockInterviewState["difficulty"],
-                      }))
-                    }
-                  >
-                    <option value="EASY">초급</option>
-                    <option value="NORMAL">중급</option>
-                    <option value="HARD">고급</option>
-                  </select>
-                </label>
-                <fieldset className="candidate-filter-field candidate-question-type-filter">
-                  <legend>질문 유형</legend>
-                  <div className="candidate-filter-chips">
-                    {questionTypeOptions.map((questionType) => (
-                      <label key={questionType}>
-                        <input
-                          type="checkbox"
-                          checked={state.questionTypes?.includes(questionType) ?? false}
-                          onChange={() =>
-                            setState((current) => ({
-                              ...current,
-                              questionTypes: toggleValue(current.questionTypes ?? [], questionType),
-                            }))
-                          }
-                        />
-                        <span>{formatQuestionTypeLabel(questionType)}</span>
-                      </label>
+              </header>
+
+              <div className="mocksettings-body">
+                {message ? <p className="notice danger">{message}</p> : null}
+
+                <div className="mocksettings-field">
+                  <span className="mocksettings-label">직무</span>
+                  <div className={`mocksettings-rolewrap${roleEdge.start ? " is-start" : ""}${roleEdge.end ? " is-end" : ""}`}>
+                    <div className="mocksettings-roles" ref={roleRowRef}>
+                      {MOCK_JOB_ROLES.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          className={`mocksettings-pill${state.jobRole === option.value ? " is-active" : ""}`}
+                          onClick={() => setState((current) => ({ ...current, jobRole: option.value }))}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                    {roleEdge.start ? null : (
+                      <button type="button" className="mocksettings-role-nav prev" aria-label="이전 직무" onClick={() => slideRoles(-1)}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="m15 18-6-6 6-6" />
+                        </svg>
+                      </button>
+                    )}
+                    {roleEdge.end ? null : (
+                      <button type="button" className="mocksettings-role-nav next" aria-label="다음 직무" onClick={() => slideRoles(1)}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="m9 18 6-6-6-6" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mocksettings-field">
+                  <span className="mocksettings-label">난이도</span>
+                  <div className="mocksettings-levels" role="radiogroup" aria-label="난이도">
+                    {MOCK_DIFFICULTIES.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={state.difficulty === option.value}
+                        className={`mocksettings-level${state.difficulty === option.value ? " is-active" : ""}`}
+                        onClick={() => setState((current) => ({ ...current, difficulty: option.value }))}
+                      >
+                        <strong>{option.label}</strong>
+                        <span>{option.description}</span>
+                      </button>
                     ))}
                   </div>
-                </fieldset>
+                </div>
+
+                <div className="mocksettings-field">
+                  <div className="mocksettings-label-row">
+                    <span className="mocksettings-label">질문 유형</span>
+                    <span className="mocksettings-hint">선택하지 않으면 전체 유형에서 출제돼요</span>
+                  </div>
+                  <div className="mocksettings-pills">
+                    {questionTypeOptions.map((questionType) => (
+                      <button
+                        key={questionType}
+                        type="button"
+                        aria-pressed={state.questionTypes?.includes(questionType) ?? false}
+                        className={`mocksettings-pill${state.questionTypes?.includes(questionType) ? " is-active" : ""}`}
+                        onClick={() =>
+                          setState((current) => ({
+                            ...current,
+                            questionTypes: toggleValue(current.questionTypes ?? [], questionType),
+                          }))
+                        }
+                      >
+                        {formatQuestionTypeLabel(questionType)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <div className="modal-actions split-actions">
-                <button className="btn secondary" type="button" disabled={busy} onClick={() => setSettingsOpen(false)}>
-                  취소
+
+              <footer className="mocksettings-foot">
+                <p className="mocksettings-summary" aria-live="polite">
+                  {MOCK_JOB_ROLES.find((option) => option.value === state.jobRole)?.label ?? state.jobRole}
+                  {" · "}
+                  {MOCK_DIFFICULTIES.find((option) => option.value === state.difficulty)?.label}
+                  {" · "}
+                  {state.questionTypes?.length
+                    ? `질문 유형 ${state.questionTypes.length}개`
+                    : "전체 유형"}
+                </p>
+                <button className="btn primary mocksettings-start" type="submit" disabled={busy}>
+                  {busy ? "시작하는 중…" : "모의면접 시작"}
                 </button>
-                <button className="btn primary" type="submit" disabled={busy}>
-                  모의면접 시작
-                </button>
-              </div>
+              </footer>
             </form>
           </div>
         ) : null}

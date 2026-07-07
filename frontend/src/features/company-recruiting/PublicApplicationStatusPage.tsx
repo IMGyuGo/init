@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
@@ -34,67 +35,79 @@ export function PublicApplicationStatusPage({ token, backHref = "/" }: { token?:
     void loadStatus();
   }, [loadStatus]);
 
+  const data = state.data;
+  const interviewEnabled = Boolean(token && data?.interviewEntry.enabled);
+
   return (
-    <main className="app-shell">
-      <section className="app-page glass-page">
-        <header className="page-head">
-          <div>
-            <p className="eyebrow">APPLICATION STATUS</p>
-            <h1>지원 현황 확인</h1>
-            <p className="page-sub">이 화면은 지원서 접수 후 이메일로 받은 확인 링크에서 접근할 수 있습니다.</p>
+    <main className="candidate-public-page notion">
+      <section className="pubstatus">
+        <header className="pubstatus-banner">
+          <div className="pubstatus-banner-copy">
+            <h1>{data ? `${data.name}님의 지원 현황` : "지원 현황"}</h1>
+            <p>지원서 접수 후 이메일로 받은 링크에서 진행 상태를 확인할 수 있어요.</p>
           </div>
-          <Link className="btn secondary" href={backHref}>
-            돌아가기
-          </Link>
+          <Image
+            className="pubstatus-banner-art"
+            src="/pubstatus-banner.png"
+            alt=""
+            width={160}
+            height={160}
+            aria-hidden="true"
+            priority
+          />
         </header>
 
-        {state.loading ? <p className="notice">지원 현황을 확인하는 중입니다.</p> : null}
-        {state.error ? <p className="notice danger">{state.error}</p> : null}
+        {state.loading ? <p className="pubstatus-notice">지원 현황을 불러오는 중이에요.</p> : null}
+        {state.error ? <p className="pubstatus-notice is-danger">{state.error}</p> : null}
 
-        <section className="panel">
-          <div className="panel-head">
-            <div>
-              <h2>{state.data ? `${state.data.name}님의 지원 현황` : "이메일 링크 확인"}</h2>
-              <p>지원 현황은 이메일 소유 확인이 끝난 지원자에게만 공개됩니다.</p>
-            </div>
+        {!token && !state.loading ? (
+          <div className="pubstatus-empty">
+            지원 현황은 접수 완료 메일에 담긴 링크에서만 확인할 수 있어요.
+            <br />
+            지원서를 제출한 뒤 받은 이메일의 링크로 다시 접속해주세요.
           </div>
-          {!token ? (
-            <div className="empty">
-              지원 현황은 접수 완료 메일에 포함된 링크에서 확인할 수 있습니다. 지원서를 제출한 뒤 받은 이메일의 링크로
-              다시 접속해주세요.
+        ) : null}
+
+        {data ? (
+          <div className="pubstatus-body">
+            <div className="pubstatus-cards" aria-label="지원 진행 상태">
+              <StatusCard label="지원 상태" value={data.applicationStatus} />
+              <StatusCard label="서류 상태" value={data.documentStatus} />
+              <StatusCard label="면접 상태" value={data.interviewStatus} />
+              <StatusCard label="리포트 상태" value={data.reportStatus} />
             </div>
-          ) : null}
-          {state.data ? (
-            <>
-              <div className="public-status-grid" aria-label="지원 진행 상태">
-                <StatusCard label="지원 상태" value={state.data.applicationStatus} />
-                <StatusCard label="서류 상태" value={state.data.documentStatus} />
-                <StatusCard label="면접 상태" value={state.data.interviewStatus} />
-                <StatusCard label="리포트 상태" value={state.data.reportStatus} />
-              </div>
-              <dl className="detail-list public-status-meta">
-                <DetailItem label="지원자" value={state.data.name} />
-                <DetailItem label="이메일" value={state.data.email} />
-                <DetailItem label="직무" value={state.data.jobRole} />
-                <DetailItem label="최종 갱신" value={formatDateTime(state.data.updatedAt)} />
-              </dl>
-              <div className="form-actions">
-                {token && state.data.interviewEntry.enabled ? (
+
+            <dl className="pubstatus-rows">
+              <StatusRow label="지원자" value={data.name} />
+              <StatusRow label="이메일" value={data.email} />
+              <StatusRow label="직무" value={data.jobRole} />
+              <StatusRow label="최종 갱신" value={formatDateTime(data.updatedAt)} />
+            </dl>
+
+            <div className="pubstatus-actions">
+              <Link className="pubstatus-back" href={backHref}>
+                ← 돌아가기
+              </Link>
+              <div className="pubstatus-actions-right">
+                {!interviewEnabled ? (
+                  <p className="pubstatus-hint">면접 세션이 준비되면 이 화면에서 바로 시작할 수 있어요.</p>
+                ) : null}
+                {interviewEnabled ? (
                   <Link
-                    className="btn primary"
-                    href={buildPublicApplicationInterviewHref(state.data.applicationId, token)}
+                    className="btn primary pubstatus-cta"
+                    href={buildPublicApplicationInterviewHref(data.applicationId, token as string)}
                   >
-                    {state.data.interviewEntry.label}
+                    {data.interviewEntry.label}
                   </Link>
                 ) : (
-                  <button className="btn secondary" disabled type="button">
-                    {state.data.interviewEntry.label}
+                  <button className="btn secondary pubstatus-cta" disabled type="button">
+                    {data.interviewEntry.label}
                   </button>
                 )}
               </div>
-            </>
-          ) : null}
-        </section>
+            </div>
+          </div>
+        ) : null}
       </section>
     </main>
   );
@@ -102,19 +115,19 @@ export function PublicApplicationStatusPage({ token, backHref = "/" }: { token?:
 
 function StatusCard({ label, value }: { label: string; value?: string | null }) {
   return (
-    <article className={`public-status-card ${getRecruitingStatusTone(value)}`}>
+    <article className={`pubstatus-card ${getRecruitingStatusTone(value)}`}>
       <span>{label}</span>
       <strong>{formatRecruitingStatusLabel(value)}</strong>
     </article>
   );
 }
 
-function DetailItem({ label, value }: { label: string; value?: string | null }) {
+function StatusRow({ label, value }: { label: string; value?: string | null }) {
   return (
-    <>
+    <div className="pubstatus-row">
       <dt>{label}</dt>
       <dd>{value || "-"}</dd>
-    </>
+    </div>
   );
 }
 
@@ -127,5 +140,5 @@ function formatDateTime(value: string | null) {
 }
 
 function toErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "요청 처리 중 오류가 발생했습니다.";
+  return error instanceof Error ? error.message : "요청 처리 중 오류가 발생했어요.";
 }
