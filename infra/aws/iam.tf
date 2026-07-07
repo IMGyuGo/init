@@ -220,6 +220,14 @@ data "aws_iam_policy_document" "github_deploy" {
   }
 
   statement {
+    actions = ["ecs:TagResource"]
+    resources = [
+      for service in keys(local.services) :
+      "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/${local.name_prefix}-${service}:*"
+    ]
+  }
+
+  statement {
     actions = ["iam:PassRole"]
     resources = concat(
       [aws_iam_role.ecs_execution.arn],

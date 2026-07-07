@@ -99,7 +99,7 @@ variable "capacity_provider_by_service" {
 }
 
 variable "image_tag" {
-  description = "Bootstrap image tag for task definitions. Deploy workflow replaces live ECS services with merge commit SHA tags."
+  description = "Bootstrap image tag for task definitions. Deploy workflow replaces live ECS services with target branch head SHA tags."
   type        = string
   default     = "bootstrap"
 }

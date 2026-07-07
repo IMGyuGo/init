@@ -739,6 +739,7 @@ GitHub Actions만 사용하되, 배포 권한 경계는 GitHub Environment `init
 | 변경 감지 | frontend/API/worker/common/prisma/Dockerfile 변경 경로 기준 |
 | migration | API 또는 Prisma 변경 시 ECS one-off `npx prisma migrate deploy` |
 | service update | migration 성공 후 ECS task definition revision 등록 및 service update |
+| task definition tag | 기존 task definition tags를 새 revision에 보존. GitHub deploy role은 `init-main-*` task definition revision에 `ecs:TagResource` 허용 |
 | smoke | `https://init-jungle.cloud`, `/api/v1/health` |
 | cache | 기본/API cache는 disabled이므로 자동 invalidation은 하지 않음. stale 확인 시 수동 invalidation |
 
@@ -763,6 +764,7 @@ GitHub repository에 필요한 값:
 - GitHub Environment variable/secret이 누락됐다.
 - Terraform 변경과 application 배포 변경이 같은 PR에 섞여 있다.
 - secret key validation이 실패한다.
+- `RegisterTaskDefinition` 중 `ecs:TagResource` 권한 오류가 발생한다.
 - migration task가 실패한다.
 - smoke test가 실패한다.
 
