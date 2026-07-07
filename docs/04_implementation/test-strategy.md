@@ -121,6 +121,7 @@ Docker build 검증은 image가 만들어지는지 확인하는 단계이고, cl
 
 | Check | 기준 | 실패 의미 |
 | --- | --- | --- |
+| Merged PR guard | commit association 또는 merged PR `merge_commit_sha`로 target branch PR merge 여부 확인 | PR merge push를 direct push로 오판하거나 direct push 배포를 허용 |
 | Changed service detection | 변경 경로에 맞는 service만 build/push/update | 불필요한 service 재시작 또는 필요한 service 누락 |
 | ECR push | `init-main-frontend`, `init-main-api`, `init-main-worker`에 `github.sha` tag push | ECS가 새 image를 pull할 수 없음 |
 | ECS task definition revision | 기존 task definition 기반으로 image URI만 새 SHA tag로 갱신 | env, secret, IAM, log 설정 drift 가능 |
