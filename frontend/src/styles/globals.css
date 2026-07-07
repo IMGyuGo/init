@@ -759,11 +759,10 @@
   border-radius: 8px;
 }
 .candidate-public-page.notion .candidate-apply-rail {
-  position: sticky;
-  top: 88px;
-  max-height: calc(100vh - 112px);
-  overflow: auto;
-  overscroll-behavior: contain;
+  position: static;
+  max-height: none;
+  overflow: visible;
+  overscroll-behavior: auto;
 }
 .candidate-public-page.notion .wanted-posting-head {
   border-bottom: 1px solid rgba(55, 53, 47, 0.1);
