@@ -560,6 +560,8 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
 
 export interface CandidateJobDetailViewProps {
   job: CandidateJobDetail;
+  /** 지정하면 지원하기 버튼이 페이지 이동 대신 이 핸들러(모달 열기)를 호출한다. */
+  onApplyClick?: () => void;
 }
 
 // JD(리치텍스트 HTML)에 삽입된 이미지 src 를 추출한다(상단 캐러셀용, API 변경 없음).
@@ -571,7 +573,7 @@ function extractJobImages(jobDescription: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
-export function CandidateJobDetailView({ job }: CandidateJobDetailViewProps) {
+export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetailViewProps) {
   const actionHref = getCandidateJobDetailActionHref(job);
   const dday = candidateJobDday(job.endsOn);
   const galleryRef = useRef<HTMLDivElement>(null);
@@ -670,14 +672,25 @@ export function CandidateJobDetailView({ job }: CandidateJobDetailViewProps) {
         </div>
 
         <aside className="jobdetail-aside">
-          <a
-            aria-disabled={!actionHref}
-            className="btn primary jobdetail-apply-cta"
-            href={actionHref || "#"}
-            tabIndex={actionHref ? undefined : -1}
-          >
-            {job.alreadyApplied ? "지원 완료" : "지원하기"}
-          </a>
+          {onApplyClick ? (
+            <button
+              type="button"
+              className="btn primary jobdetail-apply-cta"
+              disabled={!job.canApply || job.alreadyApplied}
+              onClick={onApplyClick}
+            >
+              {job.alreadyApplied ? "지원 완료" : "지원하기"}
+            </button>
+          ) : (
+            <a
+              aria-disabled={!actionHref}
+              className="btn primary jobdetail-apply-cta"
+              href={actionHref || "#"}
+              tabIndex={actionHref ? undefined : -1}
+            >
+              {job.alreadyApplied ? "지원 완료" : "지원하기"}
+            </a>
+          )}
         </aside>
       </div>
     </section>
@@ -750,7 +763,7 @@ export function CandidateApplicationView({
           <label>
             이름 *
             <input
-              placeholder="김지원"
+              placeholder="이름을 입력하세요"
               required
               value={state.candidateName}
               onChange={(event) => onStateChange({ ...state, candidateName: event.currentTarget.value })}
@@ -759,7 +772,7 @@ export function CandidateApplicationView({
           <label>
             이메일 *
             <input
-              placeholder="jiwon@example.com"
+              placeholder="example@email.com"
               required
               type="email"
               value={state.email}
@@ -778,7 +791,7 @@ export function CandidateApplicationView({
           <label>
             깃허브 / 블로그
             <input
-              placeholder="github.com/jiwon"
+              placeholder="https://github.com/example"
               type="url"
               value={state.portfolioUrl ?? ""}
               onChange={(event) => onStateChange({ ...state, portfolioUrl: event.currentTarget.value })}
@@ -815,7 +828,7 @@ export function CandidateApplicationView({
           <label>
             포트폴리오
             <input
-              placeholder="포트폴리오 파일 또는 주소"
+              placeholder="https://portfolio.example.com"
               type="url"
               value={state.portfolioUrl ?? ""}
               onChange={(event) => onStateChange({ ...state, portfolioUrl: event.currentTarget.value })}
@@ -882,6 +895,234 @@ export function CandidateApplicationView({
       </footer>
     </form>
   );
+}
+
+export interface CandidateApplyModalProps {
+  job: CandidateJobDetail;
+  state: CandidateApplicationFormState;
+  latestResumeFile?: CandidateFileAsset;
+  busy?: boolean;
+  errorMessage?: string;
+  onResumeFileSelect?: (file: File) => void | Promise<void>;
+  onStateChange: (state: CandidateApplicationFormState) => void;
+  onSubmit: (request: ReturnType<typeof toSubmitApplicationRequest>) => void | Promise<void>;
+  onClose: () => void;
+}
+
+const APPLY_STEPS = ["기본 정보", "서류", "동의 및 제출"] as const;
+
+// 공고 상세 위에서 단계별로 지원서를 작성하는 모달(이슈 #207). 기존 제출 API 흐름을 그대로 사용한다.
+export function CandidateApplyModal({
+  job,
+  state,
+  latestResumeFile,
+  busy = false,
+  errorMessage,
+  onResumeFileSelect,
+  onStateChange,
+  onSubmit,
+  onClose,
+}: CandidateApplyModalProps) {
+  const [step, setStep] = useState(0);
+  const [validationMessage, setValidationMessage] = useState("");
+
+  useEffect(() => {
+    setValidationMessage("");
+  }, [state]);
+
+  const basicComplete = Boolean(state.candidateName.trim() && state.email.trim() && state.phone.trim());
+  const resumeComplete = Boolean(state.resumeFileId);
+  const portfolioComplete = hasPortfolioArtifact(state);
+  const consentsComplete = hasRequiredConsents(state.consentTypes);
+  const canNext = step === 0 ? basicComplete && portfolioComplete : step === 1 ? resumeComplete : false;
+  const canSubmit =
+    basicComplete && resumeComplete && portfolioComplete && consentsComplete && job.canApply && !job.alreadyApplied && !busy;
+
+  function requestClose() {
+    const dirty = Boolean(state.resumeFileId || state.coverLetter?.trim() || state.consentTypes.length);
+    if (dirty && !window.confirm("작성 중인 내용이 있습니다. 지원서를 닫을까요?")) return;
+    onClose();
+  }
+
+  async function handleFinalSubmit() {
+    setValidationMessage("");
+    try {
+      await onSubmit(toSubmitApplicationRequest(state));
+    } catch (error) {
+      setValidationMessage(toApplyValidationMessage(error));
+    }
+  }
+
+  return (
+    <div
+      className="candidate-apply-overlay"
+      role="presentation"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) requestClose();
+      }}
+    >
+      <div className="candidate-apply-modal" role="dialog" aria-modal="true" aria-label="지원서 작성">
+        <header className="candidate-apply-modal-head">
+          <div>
+            <h3>지원서 작성</h3>
+            <p>{job.companyName} · {job.title}</p>
+          </div>
+          <button type="button" className="candidate-filter-close" aria-label="닫기" onClick={requestClose}>
+            ✕
+          </button>
+        </header>
+
+        <div className="candidate-apply-steps-bar" aria-label="지원 단계">
+          {APPLY_STEPS.map((label, index) => (
+            <span key={label} className={`candidate-apply-step${index === step ? " is-current" : ""}${index < step ? " is-done" : ""}`}>
+              <b>{index + 1}</b> {label}
+            </span>
+          ))}
+        </div>
+
+        <div className="candidate-apply-modal-body">
+          {errorMessage || validationMessage ? <p className="notice danger">{errorMessage || validationMessage}</p> : null}
+
+          {step === 0 ? (
+            <div className="candidate-apply-modal-fields">
+              <label>
+                이름 *
+                <input
+                  placeholder="이름을 입력하세요"
+                  required
+                  value={state.candidateName}
+                  onChange={(event) => onStateChange({ ...state, candidateName: event.currentTarget.value })}
+                />
+              </label>
+              <label>
+                이메일 *
+                <input
+                  placeholder="example@email.com"
+                  required
+                  type="email"
+                  value={state.email}
+                  onChange={(event) => onStateChange({ ...state, email: event.currentTarget.value })}
+                />
+              </label>
+              <label>
+                연락처 *
+                <input
+                  placeholder="010-0000-0000"
+                  required
+                  value={state.phone}
+                  onChange={(event) => onStateChange({ ...state, phone: event.currentTarget.value })}
+                />
+              </label>
+              <label>
+                깃허브 / 블로그 / 포트폴리오 URL *
+                <input
+                  placeholder="https://github.com/example"
+                  required
+                  type="url"
+                  value={state.portfolioUrl ?? ""}
+                  onChange={(event) => onStateChange({ ...state, portfolioUrl: event.currentTarget.value })}
+                />
+              </label>
+            </div>
+          ) : null}
+
+          {step === 1 ? (
+            <div className="candidate-apply-modal-fields">
+              <label className="candidate-apply-file-label">
+                이력서 *
+                <span className="candidate-apply-file-row">
+                  <input
+                    accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    className="candidate-hidden-file"
+                    type="file"
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0];
+                      if (file && onResumeFileSelect) {
+                        void onResumeFileSelect(file);
+                      }
+                    }}
+                  />
+                  <span>{latestResumeFile?.originalName ?? "이력서 파일을 선택하세요 (PDF, DOCX · 20MB 이하)"}</span>
+                  <strong>{latestResumeFile ? "업로드 완료" : "파일 선택"}</strong>
+                </span>
+              </label>
+              <label>
+                지원 동기 / 추가 설명
+                <textarea
+                  placeholder="지원 직무 관련 경험, AI 면접에서 강조하고 싶은 내용을 입력하세요."
+                  value={state.coverLetter ?? ""}
+                  onChange={(event) => onStateChange({ ...state, coverLetter: event.currentTarget.value })}
+                />
+              </label>
+            </div>
+          ) : null}
+
+          {step === 2 ? (
+            <div className="candidate-apply-modal-fields">
+              <div className="candidate-apply-review">
+                <div><span>이름</span><strong>{state.candidateName || "-"}</strong></div>
+                <div><span>이메일</span><strong>{state.email || "-"}</strong></div>
+                <div><span>연락처</span><strong>{state.phone || "-"}</strong></div>
+                <div><span>이력서</span><strong>{latestResumeFile?.originalName ?? "-"}</strong></div>
+                <div><span>포트폴리오 URL</span><strong>{state.portfolioUrl || "-"}</strong></div>
+              </div>
+              <fieldset className="candidate-apply-modal-consents">
+                <legend>동의 항목</legend>
+                {applicationConsentOptions.map((consentType) => (
+                  <label key={consentType}>
+                    <input
+                      checked={state.consentTypes.includes(consentType)}
+                      type="checkbox"
+                      onChange={() => onStateChange({ ...state, consentTypes: toggleConsent(state.consentTypes, consentType) })}
+                    />
+                    {consentLabel[consentType]}
+                  </label>
+                ))}
+              </fieldset>
+            </div>
+          ) : null}
+        </div>
+
+        <footer className="candidate-apply-modal-foot">
+          <button
+            type="button"
+            className="btn secondary"
+            onClick={() => (step === 0 ? requestClose() : setStep(step - 1))}
+            disabled={busy}
+          >
+            {step === 0 ? "취소" : "이전"}
+          </button>
+          {step < APPLY_STEPS.length - 1 ? (
+            <button type="button" className="btn primary" disabled={!canNext || busy} onClick={() => setStep(step + 1)}>
+              다음
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn primary"
+              disabled={!canSubmit}
+              onClick={() => void handleFinalSubmit()}
+            >
+              {busy ? "제출 중…" : "지원서 제출"}
+            </button>
+          )}
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function toApplyValidationMessage(error: unknown): string {
+  if (!(error instanceof Error)) return "지원서 입력값을 확인해주세요.";
+  if (error.message.includes("portfolioFileId") || error.message.includes("portfolioUrl")) {
+    return "깃허브, 블로그 또는 포트폴리오 URL을 입력해주세요.";
+  }
+  if (error.message.includes("resumeFileId")) return "이력서 파일을 업로드해주세요.";
+  if (error.message.includes("candidateName") || error.message.includes("email") || error.message.includes("phone")) {
+    return "이름, 이메일, 연락처를 모두 입력해주세요.";
+  }
+  if (error.message.includes("consentTypes")) return "필수 동의 항목을 모두 체크해주세요.";
+  return error.message;
 }
 
 function StatusCheck({

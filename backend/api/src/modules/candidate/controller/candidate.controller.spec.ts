@@ -137,6 +137,20 @@ async function runControllerRuntimeAssertions() {
   assert.match(multipartResume.data.storageKey, /^candidate\/1\/documents\/\d+-controller-uploaded-resume\.pdf$/);
   assert.equal(documentStorage.objects[0]?.key, multipartResume.data.storageKey);
 
+  const koreanResumeName = "김민철 이력서.pdf";
+  const mojibakeResumeName = Buffer.from(koreanResumeName, "utf8").toString("latin1");
+  const koreanMultipartResume = await controller.uploadResume(
+    validCandidateRequest,
+    {} as never,
+    {
+      originalname: mojibakeResumeName,
+      mimetype: "application/pdf",
+      size: 1000,
+      buffer: Buffer.from("pdf"),
+    },
+  );
+  assert.equal(koreanMultipartResume.data.originalName, koreanResumeName);
+
   const resume = await controller.uploadResume(validCandidateRequest, {
     storageKey: "candidate/1/controller-resume.pdf",
     originalName: "controller-resume.pdf",

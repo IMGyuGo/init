@@ -40,21 +40,36 @@
         "^backend/api/src/modules/app\\.module\\.ts$",
         "^backend/api/src/main\\.ts$"
       ],
-      "roles": ["A", "B", "C", "D", "E"]
+      "roles": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ]
     },
     {
       "name": "company app shell",
       "patterns": [
         "^frontend/src/app/company/layout\\.tsx$"
       ],
-      "roles": ["A", "B", "C"]
+      "roles": [
+        "A",
+        "B",
+        "C"
+      ]
     },
     {
       "name": "frontend api client",
       "patterns": [
         "^frontend/src/api/"
       ],
-      "roles": ["A", "B", "D", "E"]
+      "roles": [
+        "A",
+        "B",
+        "D",
+        "E"
+      ]
     },
     {
       "name": "company logo candidate exposure bridge",
@@ -65,7 +80,10 @@
         "^backend/api/src/modules/candidate/repository/(in-memory-candidate|prisma-candidate)\\.repository(\\.test)?\\.ts$",
         "^frontend/src/features/candidate-application-interview/(api\\.ts|contract\\.spec\\.ts|views\\.tsx|CandidatePages\\.module\\.css)$"
       ],
-      "roles": ["B", "D"]
+      "roles": [
+        "B",
+        "D"
+      ]
     },
     {
       "name": "candidate-facing interview report bridge",
@@ -80,21 +98,30 @@
         "^backend/api/src/modules/report/service/ai-job-dispatcher\\.service\\.ts$",
         "^backend/api/src/modules/report/service/report\\.service\\.ts$"
       ],
-      "roles": ["D", "E"]
+      "roles": [
+        "D",
+        "E"
+      ]
     },
     {
       "name": "candidate report worker persistence bridge",
       "patterns": [
         "^backend/worker/src/prisma-ai-result\\.repository(\\.test)?\\.ts$"
       ],
-      "roles": ["D", "E"]
+      "roles": [
+        "D",
+        "E"
+      ]
     },
     {
       "name": "candidate interview AI worker output bridge",
       "patterns": [
         "^backend/worker/src/mock-ai-task\\.handler\\.ts$"
       ],
-      "roles": ["D", "E"]
+      "roles": [
+        "D",
+        "E"
+      ]
     },
     {
       "name": "candidate interview AI handoff bridge",
@@ -107,7 +134,10 @@
         "^backend/api/src/modules/interview/service/interview\\.service\\.ts$",
         "^frontend/src/features/candidate-application-interview/(api|CandidatePages|contract\\.spec)\\.(ts|tsx)$"
       ],
-      "roles": ["D", "E"]
+      "roles": [
+        "D",
+        "E"
+      ]
     },
     {
       "name": "aws runtime readiness candidate upload and ai key bridge",
@@ -120,7 +150,11 @@
         "^backend/api/src/modules/interview/service/interview\\.service\\.ts$",
         "^frontend/src/features/candidate-application-interview/(api|CandidatePages|documents-view|view-model)\\.(ts|tsx)$"
       ],
-      "roles": ["A", "D", "E"]
+      "roles": [
+        "A",
+        "D",
+        "E"
+      ]
     },
     {
       "name": "candidate interview AI bridge docs",
@@ -130,7 +164,11 @@
         "^docs/03_contracts/(api-index|api-spec)\\.md$",
         "^docs/04_implementation/ai-job-contracts\\.md$"
       ],
-      "roles": ["D", "E", "PM"]
+      "roles": [
+        "D",
+        "E",
+        "PM"
+      ]
     },
     {
       "name": "AI performance tracking schema bridge",
@@ -138,14 +176,20 @@
         "^backend/api/prisma/schema\\.prisma$",
         "^backend/api/prisma/migrations/20260706090000_ai_performance_cost_tracking/"
       ],
-      "roles": ["A", "E"]
+      "roles": [
+        "A",
+        "E"
+      ]
     },
     {
       "name": "AI performance landing entry",
       "patterns": [
         "^frontend/src/features/landing/LandingPage\\.tsx$"
       ],
-      "roles": ["E", "PM"]
+      "roles": [
+        "E",
+        "PM"
+      ]
     },
     {
       "name": "AI performance global nav entry",
@@ -154,7 +198,11 @@
         "^frontend/src/features/company-recruiting/company-nav-config\\.ts$",
         "^frontend/src/features/candidate-application-interview/candidate-nav-config\\.ts$"
       ],
-      "roles": ["B", "D", "E"]
+      "roles": [
+        "B",
+        "D",
+        "E"
+      ]
     },
     {
       "name": "company recruiting posting draft AI bridge",
@@ -172,7 +220,22 @@
         "^docs/03_contracts/(api-index|api-spec|enums)\\.md$",
         "^docs/04_implementation/ai-job-contracts\\.md$"
       ],
-      "roles": ["A", "B", "E", "PM"]
+      "roles": [
+        "A",
+        "B",
+        "E",
+        "PM"
+      ]
+    },
+    {
+      "name": "candidate screen UI revamp bridge",
+      "patterns": [
+        "^frontend/src/features/candidate-application-interview/CandidatePages\\.tsx$"
+      ],
+      "roles": [
+        "B",
+        "D"
+      ]
     }
   ],
   "roles": {
