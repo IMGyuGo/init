@@ -36,6 +36,20 @@ jobs:
             const repo = context.repo.repo;
             const deploySha = context.sha;
             const baseBranch = context.ref.replace("refs/heads/", "");
+            const sortByMergedAtDesc = (left, right) =>
+              new Date(right.pull.merged_at) - new Date(left.pull.merged_at);
+            const isMergedIntoBase = ({ pull }) =>
+              Boolean(pull.merged_at) && pull.base.ref === baseBranch;
+            const uniqueByPullNumber = (entries) => {
+              const seen = new Set();
+              return entries.filter(({ pull }) => {
+                if (seen.has(pull.number)) {
+                  return false;
+                }
+                seen.add(pull.number);
+                return true;
+              });
+            };
 
             const associatedPulls = await github.paginate(
               github.rest.repos.listPullRequestsAssociatedWithCommit,
@@ -46,18 +60,39 @@ jobs:
                 per_page: 100
               }
             );
-            const mergedPulls = associatedPulls
-              .filter((pull) => pull.merged_at && pull.base.ref === baseBranch)
-              .sort((left, right) => new Date(right.merged_at) - new Date(left.merged_at));
+            const associatedEntries = associatedPulls.map((pull) => ({
+              pull,
+              source: "commit association"
+            }));
 
-            if (mergedPulls.length === 0) {
+            const closedPulls = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: "closed",
+              base: baseBranch,
+              sort: "updated",
+              direction: "desc",
+              per_page: 100
+            });
+            const mergeCommitEntries = closedPulls
+              .filter((pull) => pull.merge_commit_sha === deploySha)
+              .map((pull) => ({
+                pull,
+                source: "merge_commit_sha"
+              }));
+
+            const mergedPullEntries = uniqueByPullNumber([...associatedEntries, ...mergeCommitEntries])
+              .filter(isMergedIntoBase)
+              .sort(sortByMergedAtDesc);
+
+            if (mergedPullEntries.length === 0) {
               core.setFailed(
-                `No merged PR associated with ${deploySha} on ${baseBranch}. Direct push deployment is blocked.`
+                `No merged PR associated with ${deploySha} on ${baseBranch}. Checked commit associations and merged PR merge_commit_sha values. Direct push deployment is blocked.`
               );
               return;
             }
 
-            const pullRequest = mergedPulls[0];
+            const { pull: pullRequest, source: pullRequestSource } = mergedPullEntries[0];
             const files = await github.paginate(github.rest.pulls.listFiles, {
               owner,
               repo,
@@ -102,7 +137,7 @@ jobs:
             }
 
             core.info(`Base branch: ${baseBranch}`);
-            core.info(`Associated merged PR: #${pullRequest.number}`);
+            core.info(`Associated merged PR: #${pullRequest.number} via ${pullRequestSource}`);
             core.info(`Changed files: ${changedPaths.join(", ") || "(none)"}`);
             core.info(`Deploy SHA: ${deploySha}`);
             core.info(`Deploy scope: ${JSON.stringify(outputs)}`);
