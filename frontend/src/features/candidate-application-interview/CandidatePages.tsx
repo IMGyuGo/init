@@ -129,7 +129,7 @@ import {
   toStartMockInterviewRequest,
   toUploadResumeRequest,
 } from "./view-model";
-import { AI_PERFORMANCE_ROUTE, candidateAccountBillingNav, candidateNavLabels, isCandidateAccountBillingPath } from "./candidate-nav-config";
+import { candidateAccountBillingNav, candidateNavLabels, isCandidateAccountBillingPath } from "./candidate-nav-config";
 import { CandidateApplicationView, CandidateJobDetailView, CandidateJobsView } from "./views";
 
 const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY ?? "";
@@ -1644,6 +1644,7 @@ export function CandidateMyPage() {
           <h1>지원자 마이페이지</h1>
           <p>이력서와 포트폴리오를 관리합니다.</p>
         </header>
+        <CandidateMypageTabs />
       <StatusNotice loading={busy} message={message} />
         <div className="candidate-mypage__cards">
           <form className="candidate-mypage-card candidate-resume-card" onSubmit={handleResumeSubmit}>
@@ -5212,12 +5213,35 @@ function CandidatePageShell({ active, children }: { active: CandidateNavSection;
   );
 }
 
+// 마이페이지 하위 탭: 마이페이지 / 결제 / 지원현황 / 지표(AI 지표 페이지로 이동)
+function CandidateMypageTabs() {
+  const pathname = usePathname();
+  return (
+    <nav className="candidate-mypage-tabs" aria-label="마이페이지 하위 탭">
+      {candidateAccountBillingNav.map((item) => {
+        const isActive = pathname?.startsWith(item.href);
+        return (
+          <Link
+            key={item.href}
+            className={`candidate-mypage-tab${isActive ? " is-active" : ""}`}
+            href={item.href}
+            aria-current={isActive ? "page" : undefined}
+          >
+            {item.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
 function CandidateNav({ active }: { active: CandidateNavSection }) {
   const pathname = usePathname();
   const mockActive = active === "interview" || active === "reports";
   const recruitingActive = active === "jobs" || active === "applications";
-  const accountBillingActive = active === "accountBilling" || isCandidateAccountBillingPath(pathname);
-  const performanceActive = active === "performance" || pathname?.startsWith(AI_PERFORMANCE_ROUTE);
+  // 지표는 마이페이지 하위 흐름으로 배치되어 GNB 최상위 탭에서는 제외한다(마이페이지 활성으로 묶임).
+  const accountBillingActive =
+    active === "accountBilling" || active === "performance" || isCandidateAccountBillingPath(pathname);
 
   return (
     <header className="gnb">
@@ -5255,11 +5279,6 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
                 </Link>
               ))}
             </div>
-          </div>
-          <div className={`gnb-item ${performanceActive ? "active" : ""}`}>
-            <Link className="gnb-link" href={AI_PERFORMANCE_ROUTE} aria-current={performanceActive ? "page" : undefined}>
-              {candidateNavLabels.performance}
-            </Link>
           </div>
         </nav>
         <div className="gnb-right">
