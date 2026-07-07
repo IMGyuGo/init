@@ -41,7 +41,7 @@ export function PublicApplicationStatusPage({ token, backHref = "/" }: { token?:
           <div>
             <p className="eyebrow">APPLICATION STATUS</p>
             <h1>지원 현황 확인</h1>
-            <p className="page-sub">이 화면은 이메일로 받은 매직링크를 통해 접근하는 지원자 전용 화면입니다.</p>
+            <p className="page-sub">이 화면은 지원서 접수 후 이메일로 받은 확인 링크에서 접근할 수 있습니다.</p>
           </div>
           <Link className="btn secondary" href={backHref}>
             돌아가기
@@ -54,14 +54,14 @@ export function PublicApplicationStatusPage({ token, backHref = "/" }: { token?:
         <section className="panel">
           <div className="panel-head">
             <div>
-              <h2>{state.data ? `${state.data.name}님의 지원 현황` : "매직링크 확인"}</h2>
+              <h2>{state.data ? `${state.data.name}님의 지원 현황` : "이메일 링크 확인"}</h2>
               <p>지원 현황은 이메일 소유 확인이 끝난 지원자에게만 공개됩니다.</p>
             </div>
           </div>
           {!token ? (
             <div className="empty">
-              지원 현황은 이메일로 받은 매직링크에서만 확인할 수 있습니다. 지원서를 제출한 뒤 받은 메일의 링크로 다시
-              접속해주세요.
+              지원 현황은 접수 완료 메일에 포함된 링크에서 확인할 수 있습니다. 지원서를 제출한 뒤 받은 이메일의 링크로
+              다시 접속해주세요.
             </div>
           ) : null}
           {state.data ? (

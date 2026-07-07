@@ -233,7 +233,7 @@ export class CompanyRecruitingService {
         { field: "email", reason: "DUPLICATED_IN_RECRUITMENT" },
       ]);
     }
-    await this.assertPublicApplicationEmailIsNew(email);
+    await this.assertPublicApplicationEmailCanBeUsed(email);
     this.assertPublicApplicationDocumentFile(files.resumeFile, "resumeFile", "이력서 PDF 파일을 업로드해주세요.");
     if (files.portfolioFile) {
       this.assertPublicApplicationDocumentFile(files.portfolioFile, "portfolioFile", "포트폴리오 PDF 파일을 확인해주세요.");
@@ -510,7 +510,7 @@ export class CompanyRecruitingService {
     return toApplicantResponse(application);
   }
 
-  private async assertPublicApplicationEmailIsNew(email: string) {
+  private async assertPublicApplicationEmailCanBeUsed(email: string) {
     const account = await this.repository.findUserAccountByEmail(email);
     if (!account) {
       return;
@@ -520,9 +520,6 @@ export class CompanyRecruitingService {
         { field: "email", reason: "USER_TYPE_MISMATCH" },
       ]);
     }
-    throw new CompanyRecruitingException(409, ERROR_CODES.COMMON_CONFLICT, "이미 가입된 이메일은 공개 지원 폼에서 사용할 수 없습니다.", [
-      { field: "email", reason: "EXISTING_USER_REQUIRES_VERIFICATION" },
-    ]);
   }
 
   private assertJobDescriptionImageFile(

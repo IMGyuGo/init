@@ -16,6 +16,19 @@ interface WorkerInput {
 }
 
 const MOCK_HIRING_DECISION_TERMS = ["합격", "탈락", "채용 적합", "채용 부적합", "선별", "hiring decision", "pass/fail"];
+const POSTING_DRAFT_UNSAFE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
+  { pattern: /젊(?:은|고|음|게|은층|은\s*인재)/i, reason: "age preference" },
+  { pattern: /\b(?:20대|30대)\b/i, reason: "age preference" },
+  { pattern: /\d{2}\s*세\s*(?:이하|미만|우대|선호)/i, reason: "age preference" },
+  { pattern: /(?:남성|여성|남자|여자)\s*(?:우대|선호|만|지원 가능)/i, reason: "gender preference" },
+  { pattern: /명문대|상위권\s*대학|학벌/i, reason: "school prestige preference" },
+  { pattern: /사진\s*첨부|외모|용모/i, reason: "appearance or photo request" },
+  { pattern: /(?:미혼|기혼|결혼|임신|출산\s*계획)/i, reason: "family status preference" },
+  { pattern: /(?:장애\s*없|신체\s*건강|건강한\s*신체)/i, reason: "disability-related preference" },
+  { pattern: /(?:합격|채용)\s*보장/i, reason: "hiring outcome guarantee" },
+  { pattern: /최종\s*선발\s*확정|무조건\s*채용/i, reason: "final hiring decision wording" },
+  { pattern: /무조건\s*성장|100%\s*성장|최고의\s*회사/i, reason: "exaggerated benefit claim" }
+];
 
 export class OpenAiAiTaskHandler implements AiTaskHandler {
   constructor(
@@ -398,7 +411,27 @@ function validatePostingDraft(generated: PostingDraftGenerationResult) {
       failureCategory: "NON_RETRYABLE" as const
     };
   }
+  const unsafeReason = findUnsafePostingDraftReason(generated);
+  if (unsafeReason) {
+    return {
+      result: "BLOCKED" as const,
+      reason: `posting draft contains unsafe hiring language: ${unsafeReason}`,
+      failureCategory: "NON_RETRYABLE" as const
+    };
+  }
   return { result: "PASS" as const, reason: null };
+}
+
+function findUnsafePostingDraftReason(generated: PostingDraftGenerationResult): string | null {
+  const text = [
+    generated.title,
+    generated.jobRole,
+    ...Object.values(generated.sections),
+    ...generated.tags
+  ].join("\n");
+  const normalized = text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  const matched = POSTING_DRAFT_UNSAFE_PATTERNS.find(({ pattern }) => pattern.test(normalized));
+  return matched?.reason ?? null;
 }
 
 function sanitizePostingDraftResult(generated: PostingDraftGenerationResult): PostingDraftGenerationResult {
