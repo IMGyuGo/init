@@ -473,7 +473,7 @@ smoke check는 이번 slice에서 AWS endpoint가 아니라 Docker image 내부 
 
 rollback 기준은 단순하다. bash harness 변경으로 macOS/Linux role harness가 실패하면 `scripts/check-local.sh`의 Docker 탐색/빌드 부분만 되돌리고, PowerShell과 GitHub Actions의 repo root context 기준은 유지한다. 문서가 Terraform/ECS deploy workflow를 구현 완료처럼 표현하면 `aws-deployment-solution.md`와 `test-strategy.md`만 보정한다.
 
-남은 release risk는 실제 cloud deploy workflow가 GitHub Environment와 IAM trust 적용 후 아직 merge 이벤트로 검증되지 않았다는 점이다. 따라서 현재 Docker build 통과는 image 계약 검증일 뿐, ECR push, ECS service update, ALB target health, CloudFront smoke 성공을 의미하지 않는다.
+남은 release risk는 실제 cloud deploy workflow가 임시 `infra/test`에서는 성공했지만 정식 `dev`/`main` merge 흐름과 임시 branch 제거까지는 아직 끝나지 않았다는 점이다. `infra/test` re-run all jobs 기준 ECR push, ECS frontend service update, domain smoke는 통과했으나, 최종 완료 판정은 `dev`와 `main` PR merge에서도 같은 workflow가 성공하고 `infra/test` 임시 trigger/rule/branch를 제거한 뒤 내린다.
 
 ## 완료된 작업 단위
 
@@ -523,6 +523,12 @@ Preflight
 - ECS one-off migration task가 성공한 뒤 ECS service update가 진행된다.
 - ALB target group health check와 `https://init-jungle.cloud` smoke test가 통과한다.
 - GitHub Actions deploy workflow가 `dev`, 임시 `infra/test`, `main` PR merge에서 같은 main 실배포 환경을 갱신한다.
+
+임시 검증 현황:
+
+- `infra/test` GitHub Actions run `28840157083`은 `Re-run all jobs` 후 `Success`로 완료됐다.
+- 확인된 결과는 frontend 변경 기준 ECR image tag `4c8ba7b1f4bfedca05cb274cf9613beb0878cbd5` push, ECS `init-main-frontend:2` service update, API health 200, CloudWatch alarm 7개 `OK`다.
+- 남은 작업은 `dev`/`main` merge 검증과 `infra/test` 임시 trigger/rule/branch 제거다.
 
 중단 기준:
 

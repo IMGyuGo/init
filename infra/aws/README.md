@@ -784,6 +784,15 @@ feature/* -> infra/test PR merge
 -> https://init-jungle.cloud smoke 통과
 ```
 
+임시 검증 결과:
+
+- GitHub Actions run `28840157083`을 `Re-run all jobs`로 재실행한 결과 `Success`로 완료됐다.
+- run summary 기준 workflow는 `Deploy AWS Main`, event는 `on: push`, branch는 `infra/test`, commit은 `4c8ba7b`, total duration은 `3m 13s`다.
+- `Detect Deploy Scope`와 `Deploy to init-main` job이 모두 성공했다.
+- AWS 확인 기준 ECR `init-main-frontend`에 image tag `4c8ba7b1f4bfedca05cb274cf9613beb0878cbd5`가 push됐고, ECS `init-main-frontend` service는 task definition `init-main-frontend:2`로 desired/running/pending `1/1/0` 상태다.
+- `https://init-jungle.cloud/api/v1/health`는 200 응답이며, CloudWatch alarm `init-main-*` 7개는 모두 `OK` 상태다.
+- GitHub Actions annotations에는 Node.js 20 deprecation warning이 남아 있다. 배포 성공 blocker는 아니지만 `actions/github-script`, `actions/checkout`, `aws-actions/configure-aws-credentials` 업그레이드 후보로 관리한다.
+
 임시 검증 후 원복:
 
 1. `.github/workflows/deploy.yml` trigger에서 `infra/test`를 제거한다.
@@ -809,9 +818,9 @@ dev -> main PR merge
 
 완료 기준:
 
-- GitHub Actions deploy workflow log에서 `dev`, `main` 모두 성공한다.
-- ECS service task definition revision이 최신 merge commit image tag를 참조한다.
-- `https://init-jungle.cloud`가 최신 merge commit 기준으로 갱신된다.
+- GitHub Actions deploy workflow log에서 임시 `infra/test`, `dev`, `main` 모두 성공한다.
+- ECS service task definition revision이 최신 target branch head SHA image tag를 참조한다.
+- `https://init-jungle.cloud`가 최신 PR merge commit 기준으로 갱신된다.
 
 ## AWS 변경 유지보수 원칙
 
