@@ -62,7 +62,7 @@ export function AiPerformancePage() {
           <p className="page-sub">AI 작업 시간, 사용자 체감 시간, 토큰/오디오 사용량과 추정 비용을 확인합니다.</p>
         </div>
         <div className="page-actions">
-          <Link className="btn secondary" href="/candidate/jobs">
+          <Link className="btn secondary" href="/">
             홈으로
           </Link>
         </div>
