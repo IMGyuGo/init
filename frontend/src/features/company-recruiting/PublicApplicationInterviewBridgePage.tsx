@@ -71,54 +71,35 @@ export function PublicApplicationInterviewBridgePage({
   }, [prepareInterview]);
 
   return (
-    <main className="app-shell">
-      <section className="app-page glass-page">
-        <header className="page-head">
-          <div>
-            <p className="eyebrow">PUBLIC INTERVIEW</p>
-            <h1>채용 AI 면접</h1>
-            <p className="page-sub">비회원 지원자의 채용 면접 진입을 준비하는 화면입니다.</p>
+    <main className="candidate-public-page notion">
+      <section className="pubbridge">
+        {state.error ? (
+          <div className="pubbridge-error">
+            <h1>면접에 진입할 수 없어요</h1>
+            <p>{state.error}</p>
+            <Link className="btn secondary pubbridge-home" href="/">
+              홈으로
+            </Link>
           </div>
-          <Link className="btn secondary" href="/">
-            INIT 홈
-          </Link>
-        </header>
-
-        {state.loading ? <p className="notice">{state.phase ?? "면접 진입을 준비하는 중입니다."}</p> : null}
-        {state.error ? <p className="notice danger">{state.error}</p> : null}
-
-        {state.data ? (
-          <section className="panel">
-            <div className="panel-head">
-              <div>
-                <h2>{state.data.name}님의 면접 진입 준비</h2>
-                <p>면접 환경을 확인한 뒤 자동으로 면접 화면으로 이동합니다.</p>
-              </div>
-            </div>
-            <dl className="detail-list">
-              <DetailItem label="지원 직무" value={state.data.jobRole} />
-              <DetailItem label="면접 상태" value={formatRecruitingStatusLabel(state.data.interviewStatus)} />
-              <DetailItem label="진입 상태" value={formatRecruitingStatusLabel(state.data.interviewEntry.integrationStatus)} />
-            </dl>
-            <div className="empty">
-              면접 세션을 준비했습니다. 잠시 후 면접 화면으로 이동합니다.
-            </div>
-          </section>
-        ) : null}
+        ) : (
+          <div className="pubbridge-loading">
+            <span className="pubbridge-spinner" aria-hidden="true" />
+            <h1>{state.data ? `${state.data.name}님, 면접을 준비하고 있어요` : "면접을 준비하고 있어요"}</h1>
+            <p>{state.phase ?? "면접 진입을 준비하는 중이에요."}</p>
+            {state.data ? (
+              <dl className="pubbridge-meta">
+                <div><dt>지원 직무</dt><dd>{state.data.jobRole || "-"}</dd></div>
+                <div><dt>면접 상태</dt><dd>{formatRecruitingStatusLabel(state.data.interviewStatus)}</dd></div>
+              </dl>
+            ) : null}
+            <p className="pubbridge-note">준비가 끝나면 장치 점검 화면으로 자동 이동해요.</p>
+          </div>
+        )}
       </section>
     </main>
   );
 }
 
-function DetailItem({ label, value }: { label: string; value?: string | null }) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd>{value || "-"}</dd>
-    </>
-  );
-}
-
 function toErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "요청 처리 중 오류가 발생했습니다.";
+  return error instanceof Error ? error.message : "요청 처리 중 오류가 발생했어요.";
 }

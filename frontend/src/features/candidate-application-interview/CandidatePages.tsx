@@ -1212,10 +1212,32 @@ export function PublicCandidateInterviewPage({ applicationId }: { applicationId:
   );
 }
 
+const MOCK_GUIDE_STEPS = [
+  {
+    image: "/mock-step-settings.png",
+    step: "STEP 1",
+    title: "설정 선택",
+    description: "직무·난이도·질문 유형을 골라 연습을 준비해요.",
+  },
+  {
+    image: "/mock-step-device.png",
+    step: "STEP 2",
+    title: "장치 점검",
+    description: "카메라와 마이크 입력을 미리 확인해요.",
+  },
+  {
+    image: "/mock-step-answer.png",
+    step: "STEP 3",
+    title: "답변 진행",
+    description: "질문을 듣고 정해진 시간 안에 답변을 녹화해요.",
+  },
+] as const;
+
 export function CandidateMockInterviewStartPage() {
   const router = useRouter();
   const [state, setState] = useState<StartMockInterviewState>(defaultStartMockInterviewState);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const historyLoad = useCallback(() => getCandidateApi().listMockInterviewHistory(), []);
@@ -1249,51 +1271,64 @@ export function CandidateMockInterviewStartPage() {
           }
         />
         <StatusNotice loading={busy && !settingsOpen} message={message && !settingsOpen ? message : undefined} />
-        <section className="panel candidate-mock-guide">
-          <div>
-            <p className="eyebrow">진행 방식</p>
-            <h2>실제 면접처럼 장치 점검 후 답변을 녹화합니다.</h2>
-            <p>
-              질문 유형과 난이도를 고르면 카메라와 마이크를 먼저 확인한 뒤 AI 안내에 따라 답변을 진행합니다.
-            </p>
+        <section className="mock-guide">
+          <div className="mock-guide-head">
+            <h2>이렇게 진행돼요</h2>
+            <p>설정을 고르면 장치를 확인한 뒤 AI 안내에 따라 답변을 녹화합니다.</p>
           </div>
-          <ol className="candidate-mock-flow" aria-label="모의면접 진행 순서">
-            <li>
-              <span>1</span>
-              <strong>설정 선택</strong>
-              <p>직무, 난이도, 질문 유형을 선택합니다.</p>
-            </li>
-            <li>
-              <span>2</span>
-              <strong>장치 점검</strong>
-              <p>카메라와 마이크 입력을 확인합니다.</p>
-            </li>
-            <li>
-              <span>3</span>
-              <strong>답변 진행</strong>
-              <p>질문을 듣고 정해진 시간 안에 답변합니다.</p>
-            </li>
+          <ol className="mock-guide-cards" aria-label="모의면접 진행 순서">
+            {MOCK_GUIDE_STEPS.map((item) => (
+              <li className="mock-guide-card" key={item.step}>
+                <span className="mock-guide-step">{item.step}</span>
+                <Image
+                  className="mock-guide-art"
+                  src={item.image}
+                  alt=""
+                  width={180}
+                  height={180}
+                  aria-hidden="true"
+                />
+                <strong>{item.title}</strong>
+                <p>{item.description}</p>
+              </li>
+            ))}
           </ol>
-          <div className="candidate-mock-guide-actions">
+          <div className="mock-guide-actions">
+            <button className="btn secondary" type="button" onClick={() => setHistoryOpen(true)}>
+              이어하기
+            </button>
             <button className="btn primary" type="button" onClick={() => setSettingsOpen(true)}>
               모의면접 설정하기
             </button>
           </div>
         </section>
-        <section className="panel">
-          <div className="panel-head">
-            <div>
-              <h2>연습 이력</h2>
-              <p>이전 모의면접 기록과 리포트를 확인합니다.</p>
+        {historyOpen ? (
+          <div
+            className="modal-backdrop"
+            role="presentation"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) setHistoryOpen(false);
+            }}
+          >
+            <div className="modal wide-modal candidate-mock-history-modal" role="dialog" aria-modal="true" aria-labelledby="candidate-mock-history-title">
+              <div className="modal-head">
+                <div>
+                  <h2 id="candidate-mock-history-title">연습 이력</h2>
+                  <p>진행 중인 연습은 이어서 하고, 완료된 연습은 리포트를 확인할 수 있어요.</p>
+                </div>
+                <button className="btn secondary compact" type="button" onClick={() => setHistoryOpen(false)}>
+                  닫기
+                </button>
+              </div>
+              <StatusNotice loading={historyResource.loading} error={historyResource.error} />
+              {historyResource.data?.data.items.length ? (
+                <MockHistoryTable history={historyResource.data.data.items} />
+              ) : (
+                <p className="empty">아직 모의면접 이력이 없어요.</p>
+              )}
             </div>
           </div>
-          <StatusNotice loading={historyResource.loading} error={historyResource.error} />
-          {historyResource.data?.data.items.length ? (
-            <MockHistoryTable history={historyResource.data.data.items} />
-          ) : (
-            <p className="empty">모의면접 이력이 없습니다.</p>
-          )}
-        </section>
+        ) : null}
         {settingsOpen ? (
           <div className="modal-backdrop" role="presentation">
             <form
