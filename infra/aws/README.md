@@ -713,6 +713,8 @@ aws cloudfront create-invalidation `
 
 GitHub Actions만 사용하되, 배포 권한 경계는 GitHub Environment `init-main`으로 둔다. AWS IAM OIDC trust는 branch ref가 아니라 `repo:seok3m4/init:environment:init-main` subject를 허용한다. 따라서 GitHub Environment의 deployment branch rule이 운영 branch와 임시 검증 branch만 허용해야 한다.
 
+배포 workflow의 GitHub trigger는 `pull_request.closed`가 아니라 `push` on `dev`, `infra/test`, `main`이다. PR merge가 완료되면 GitHub가 base branch에 push 이벤트를 만들고, 이때 Environment protection rule은 `refs/heads/infra/test` 같은 실제 branch ref를 평가한다. `pull_request.closed`를 쓰면 Environment가 `refs/pull/<number>/merge`를 평가해 branch rule에 막힐 수 있다. workflow 내부에서는 push commit이 merged PR과 연결되어 있는지 다시 확인해 direct push 배포를 차단한다.
+
 사용자 사전 작업:
 
 1. GitHub repository `Settings > Environments`에서 `init-main` environment를 만든다.
@@ -729,10 +731,10 @@ GitHub Actions만 사용하되, 배포 권한 경계는 GitHub Environment `init
 
 | 항목 | 기준 |
 | --- | --- |
-| trigger | `pull_request.closed` on base `dev`, `infra/test`, `main` + `github.event.pull_request.merged == true` |
+| trigger | `push` on protected branch `dev`, `infra/test`, `main`; workflow 내부에서 associated merged PR 확인 |
 | AWS 인증 | GitHub Environment `init-main` subject로 `github_deploy_role_arn` assume |
 | concurrency | `aws-main-deploy` 단일 group |
-| image tag | `github.event.pull_request.merge_commit_sha` |
+| image tag | push 후 target branch head SHA인 `github.sha` |
 | ECR | `init-main-frontend`, `init-main-api`, `init-main-worker` |
 | 변경 감지 | frontend/API/worker/common/prisma/Dockerfile 변경 경로 기준 |
 | migration | API 또는 Prisma 변경 시 ECS one-off `npx prisma migrate deploy` |
@@ -756,6 +758,7 @@ GitHub repository에 필요한 값:
 중단 기준:
 
 - GitHub Environment `init-main`이 없거나 deployment branch rule이 `dev`, `main`, 임시 `infra/test` 외 branch를 허용한다.
+- `dev`, `main`, 임시 `infra/test`에서 direct push가 가능해 PR merge 기준이 깨진다.
 - OIDC assume role이 실패한다.
 - GitHub Environment variable/secret이 누락됐다.
 - Terraform 변경과 application 배포 변경이 같은 PR에 섞여 있다.

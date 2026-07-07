@@ -1,13 +1,11 @@
 name: Deploy AWS Main
 
 on:
-  pull_request:
+  push:
     branches:
-      - main
       - dev
       - infra/test
-    types:
-      - closed
+      - main
 
 concurrency:
   group: aws-main-deploy
@@ -16,7 +14,7 @@ concurrency:
 jobs:
   detect:
     name: Detect Deploy Scope
-    if: github.event.pull_request.merged == true
+    if: github.event.created != true && github.event.deleted != true
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -35,10 +33,36 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const deploySha = context.sha;
+            const baseBranch = context.ref.replace("refs/heads/", "");
+
+            const associatedPulls = await github.paginate(
+              github.rest.repos.listPullRequestsAssociatedWithCommit,
+              {
+                owner,
+                repo,
+                commit_sha: deploySha,
+                per_page: 100
+              }
+            );
+            const mergedPulls = associatedPulls
+              .filter((pull) => pull.merged_at && pull.base.ref === baseBranch)
+              .sort((left, right) => new Date(right.merged_at) - new Date(left.merged_at));
+
+            if (mergedPulls.length === 0) {
+              core.setFailed(
+                `No merged PR associated with ${deploySha} on ${baseBranch}. Direct push deployment is blocked.`
+              );
+              return;
+            }
+
+            const pullRequest = mergedPulls[0];
             const files = await github.paginate(github.rest.pulls.listFiles, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.payload.pull_request.number,
+              owner,
+              repo,
+              pull_number: pullRequest.number,
               per_page: 100
             });
 
@@ -64,9 +88,6 @@ jobs:
               path.startsWith("infra/aws/env/")
             );
             const deployRequired = frontend || api || worker;
-            const deploySha =
-              context.payload.pull_request.merge_commit_sha || context.sha;
-
             const outputs = {
               deploy_required: deployRequired,
               deploy_sha: deploySha,
@@ -81,6 +102,8 @@ jobs:
               core.setOutput(key, String(value));
             }
 
+            core.info(`Base branch: ${baseBranch}`);
+            core.info(`Associated merged PR: #${pullRequest.number}`);
             core.info(`Changed files: ${changedPaths.join(", ") || "(none)"}`);
             core.info(`Deploy SHA: ${deploySha}`);
             core.info(`Deploy scope: ${JSON.stringify(outputs)}`);

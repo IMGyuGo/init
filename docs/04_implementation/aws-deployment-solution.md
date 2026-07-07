@@ -238,7 +238,9 @@ public subnet에 ECS task를 두면 초기 실습은 쉽지만 task가 인터넷
 
 초기 AWS 환경은 `main` 실배포 환경 하나만 둔다. `dev` 브랜치는 별도 AWS dev 환경이 아니라, 실배포 환경에 자동 배포되는 또 하나의 trigger다. `infra/test`는 CD 안정성 확인을 위한 임시 trigger이며 테스트가 끝나면 workflow와 GitHub Environment branch rule에서 제거한다. `staging`은 발표 전 리허설 또는 운영 검증 환경이 필요해지는 시점에 별도 작업으로 추가한다.
 
-GitHub Actions가 `dev`, 임시 `infra/test`, `main` PR merge 완료 이벤트를 받아 같은 AWS environment를 갱신한다. AWS가 repository의 branch를 직접 감시하는 것이 아니라, GitHub Actions가 merge 대상 branch와 GitHub Environment `init-main` 권한 경계를 확인한 뒤 동일한 배포 target을 사용한다.
+GitHub Actions가 `dev`, 임시 `infra/test`, `main` PR merge로 생성된 protected branch push를 받아 같은 AWS environment를 갱신한다. AWS가 repository의 branch를 직접 감시하는 것이 아니라, GitHub Actions가 target branch와 GitHub Environment `init-main` 권한 경계를 확인한 뒤 동일한 배포 target을 사용한다.
+
+trigger는 `pull_request.closed`가 아니라 `push`를 사용한다. `pull_request.closed` 이벤트에서 Environment protection rule은 base branch가 아니라 `refs/pull/<number>/merge` ref를 평가할 수 있어 `dev`/`infra/test`/`main` branch rule에 막힌다. 따라서 protected branch에 merge 결과가 반영된 `push` 이벤트를 배포 시작점으로 삼고, workflow 내부에서 해당 commit이 merged PR과 연결되어 있는지 확인해 direct push 배포를 차단한다.
 
 | Git branch | AWS environment | 배포 정책 | Migration 정책 |
 | --- | --- | --- | --- |
@@ -264,7 +266,7 @@ GitHub Actions의 배포 workflow는 `docker-compose`를 생성해서 클라우�
 기본 흐름:
 
 ```text
-PR merge to dev/main
+PR merge로 생성된 target branch push
 -> GitHub Actions deploy workflow
 -> changed service detection
 -> Docker build
@@ -298,14 +300,14 @@ branch별 동작:
 | `.env.example` | image build는 변경 service 기준 | 필요 service만 update | Secrets Manager key validation. secret mapping 자체 변경은 Terraform PR로 처리 |
 | `infra/aws/**` | 없음 | 없음 | Terraform plan/apply 대상. application image deploy workflow와 분리 |
 
-ECR image tag는 mutable한 `latest`를 배포 기준으로 쓰지 않는다. 기본 tag는 PR merge 결과 commit인 `github.event.pull_request.merge_commit_sha`를 사용하고, 필요하면 사람이 보기 쉬운 branch alias tag를 추가로 붙인다. ECS task definition에는 항상 immutable한 SHA tag image URI를 반영한다. `dev`와 `main` 모두 같은 ECR repository에 push하므로 SHA tag를 기준으로 배포 이력을 추적한다.
+ECR image tag는 mutable한 `latest`를 배포 기준으로 쓰지 않는다. 기본 tag는 PR merge 후 target branch head인 `github.sha`를 사용하고, 필요하면 사람이 보기 쉬운 branch alias tag를 추가로 붙인다. ECS task definition에는 항상 immutable한 SHA tag image URI를 반영한다. `dev`, 임시 `infra/test`, `main` 모두 같은 ECR repository에 push하므로 SHA tag를 기준으로 배포 이력을 추적한다.
 
 예를 들어 팀원이 API 코드만 수정해 `dev`에 merge하면 자동화는 아래처럼 동작한다.
 
 ```text
 backend/api/** 변경 감지
 -> infra/docker/api.Dockerfile 기준 Docker build
--> ECR init-main-api:<merge_commit_sha> push
+-> ECR init-main-api:<github.sha> push
 -> init-main-api task definition 새 revision 등록
 -> npx prisma migrate deploy one-off task 실행
 -> init-main-api ECS service update
@@ -318,11 +320,11 @@ backend/api/** 변경 감지
 자동 실배포 절차:
 
 ```text
-1. PR -> dev 또는 main merge
+1. PR -> dev, 임시 infra/test, main merge
 2. GitHub Actions deploy workflow 자동 시작
 3. concurrency group에서 이전 배포 완료 대기
 4. 변경된 service image build
-5. init-main-* ECR repository에 merge commit SHA tag push
+5. init-main-* ECR repository에 target branch head SHA tag push
 6. API/Prisma 변경이면 main 환경 migration task 실행
 7. migration 성공 후 ECS service update
 8. smoke test 통과 후 배포 완료
