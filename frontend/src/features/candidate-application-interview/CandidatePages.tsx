@@ -129,7 +129,7 @@ import {
   toStartMockInterviewRequest,
 } from "./view-model";
 import { candidateAccountBillingNav, candidateNavLabels, isCandidateAccountBillingPath } from "./candidate-nav-config";
-import { CandidateApplicationView, CandidateJobDetailView, CandidateJobsView } from "./views";
+import { CandidateApplicationView, CandidateApplyModal, CandidateJobDetailView, CandidateJobsView } from "./views";
 
 const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY ?? "";
 const AI_INTERVIEWER_SESSION_MODE_POLICY = resolveInterviewerSessionMode({
@@ -385,25 +385,81 @@ export function CandidateJobsPage() {
 
 export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
   const load = useCallback(() => getCandidateApi().getJobDetail(jobId), [jobId]);
-  const { data, loading, error } = useCandidateResource(load, [jobId]);
+  const { data, loading, error, refresh } = useCandidateResource(load, [jobId]);
+
+  // 지원서 제출 모달(이슈 #207): 공고 상세 위에서 단계별로 작성하고, 성공 시 상세를 갱신한다.
+  const [applyOpen, setApplyOpen] = useState(false);
+  const [applyForm, setApplyForm] = useState<CandidateApplicationFormState>(defaultApplicationFormState);
+  const [latestResumeFile, setLatestResumeFile] = useState<CandidateFileAsset>();
+  const [applyBusy, setApplyBusy] = useState(false);
+  const [applyError, setApplyError] = useState("");
+  const [message, setMessage] = useState("");
+
+  async function handleResumeFileSelect(file: File) {
+    setApplyBusy(true);
+    setApplyError("");
+    try {
+      const result = await getCandidateApi().uploadResume(file);
+      setLatestResumeFile(result.data);
+      setApplyForm((current) => ({ ...current, resumeFileId: result.data.fileId }));
+    } catch (submitError) {
+      setApplyError(toErrorMessage(submitError));
+    } finally {
+      setApplyBusy(false);
+    }
+  }
+
+  async function handleApplicationSubmit(request: Parameters<ReturnType<typeof getCandidateApi>["submitApplication"]>[1]) {
+    setApplyBusy(true);
+    setApplyError("");
+    try {
+      const api = getCandidateApi();
+      if (request.portfolioUrl) {
+        await api.createPortfolioLink(
+          toCreatePortfolioLinkRequest({
+            ...defaultPortfolioLinkFormState,
+            url: request.portfolioUrl,
+            linkType: inferPortfolioLinkType(request.portfolioUrl),
+            description: request.coverLetter ?? "",
+          }),
+        );
+      }
+      const result = await api.submitApplication(jobId, request);
+      setApplyOpen(false);
+      setMessage(`지원서가 제출되었습니다. 접수 번호는 ${result.data.application.applicationId}번입니다.`);
+      refresh();
+    } catch (submitError) {
+      // 실패 시 모달을 유지하고 입력값을 보존한 채 에러만 보여준다.
+      setApplyError(toErrorMessage(submitError));
+    } finally {
+      setApplyBusy(false);
+    }
+  }
 
   return (
     <CandidatePageShell active="jobs">
-      <StatusNotice loading={loading} error={error} />
-      {data ? <CandidateJobDetailView job={data.data} /> : null}
+      <StatusNotice loading={loading} error={error} message={message} />
+      {data ? <CandidateJobDetailView job={data.data} onApplyClick={() => setApplyOpen(true)} /> : null}
+      {applyOpen && data ? (
+        <CandidateApplyModal
+          job={data.data}
+          state={applyForm}
+          latestResumeFile={latestResumeFile}
+          busy={applyBusy}
+          errorMessage={applyError}
+          onResumeFileSelect={handleResumeFileSelect}
+          onStateChange={setApplyForm}
+          onSubmit={handleApplicationSubmit}
+          onClose={() => setApplyOpen(false)}
+        />
+      ) : null}
     </CandidatePageShell>
   );
 }
 
 export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
   const router = useRouter();
-  const [form, setForm] = useState<CandidateApplicationFormState>({
-    ...defaultApplicationFormState,
-    candidateName: "김지원",
-    email: "jiwon@example.com",
-    phone: "010-0000-0000",
-    portfolioUrl: "https://github.com/jiwon",
-  });
+  const [form, setForm] = useState<CandidateApplicationFormState>(defaultApplicationFormState);
   const [latestResumeFile, setLatestResumeFile] = useState<CandidateFileAsset>();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);

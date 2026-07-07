@@ -1445,7 +1445,7 @@ function assertHttpUrl(url: string): string {
     }
     return parsed.hostname.toLowerCase();
   } catch {
-    throw new Error("portfolio url must be http or https.");
+    throw new Error("포트폴리오 URL은 http:// 또는 https://로 시작해야 합니다.");
   }
 }
 

@@ -195,10 +195,11 @@ export class CandidateService {
     this.assertDocumentFile(dto.mimeType, dto.sizeBytes);
     this.assertObjectStorageKey(dto.storageKey, currentUser.candidateId);
     this.assertMetadataOnlyUploadAllowed();
+    const originalName = normalizeUploadedFileName(dto.originalName);
     const fileAsset = await this.repository.createFileAsset({
       ownerUserId: currentUser.userId,
       storageKey: dto.storageKey,
-      originalName: dto.originalName,
+      originalName,
       mimeType: dto.mimeType,
       sizeBytes: dto.sizeBytes,
     });
@@ -217,7 +218,8 @@ export class CandidateService {
     }
 
     this.assertDocumentFile(file.mimeType, file.sizeBytes);
-    const storageKey = this.buildCandidateDocumentStorageKey(currentUser.candidateId, file.originalName);
+    const originalName = normalizeUploadedFileName(file.originalName);
+    const storageKey = this.buildCandidateDocumentStorageKey(currentUser.candidateId, originalName);
 
     await this.documentStorage.putObject({
       key: storageKey,
@@ -229,7 +231,7 @@ export class CandidateService {
     const fileAsset = await this.repository.createFileAsset({
       ownerUserId: currentUser.userId,
       storageKey,
-      originalName: file.originalName,
+      originalName,
       mimeType: file.mimeType,
       sizeBytes: file.sizeBytes,
     });
@@ -1399,4 +1401,21 @@ export class CandidateService {
       },
     };
   }
+}
+
+function normalizeUploadedFileName(originalName: string) {
+  const trimmed = originalName.trim();
+  if (!trimmed) return trimmed;
+
+  const decoded = decodeLatin1MojibakeFileName(trimmed).trim();
+  return (decoded || trimmed).normalize("NFC");
+}
+
+function decodeLatin1MojibakeFileName(fileName: string) {
+  if (!/[\u0080-\u00ff]/.test(fileName)) {
+    return fileName;
+  }
+
+  const decoded = Buffer.from(fileName, "latin1").toString("utf8");
+  return decoded.includes("\uFFFD") ? fileName : decoded;
 }
