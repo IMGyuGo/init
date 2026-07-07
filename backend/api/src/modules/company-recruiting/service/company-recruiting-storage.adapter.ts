@@ -1,7 +1,11 @@
 import { Injectable } from "@nestjs/common";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
-import type { CompanyRecruitingStorageAdapterPort, CompanyRecruitingStoragePutObjectInput } from "./company-recruiting.service";
+import type {
+  CompanyRecruitingStorageAdapterPort,
+  CompanyRecruitingStorageObject,
+  CompanyRecruitingStoragePutObjectInput,
+} from "./company-recruiting.service";
 
 @Injectable()
 export class S3CompanyRecruitingStorageAdapter implements CompanyRecruitingStorageAdapterPort {
@@ -34,5 +38,29 @@ export class S3CompanyRecruitingStorageAdapter implements CompanyRecruitingStora
         ContentType: input.contentType,
       }),
     );
+  }
+
+  async getObject(key: string): Promise<CompanyRecruitingStorageObject> {
+    if (!this.bucket) {
+      throw new Error("S3_BUCKET or S3_BUCKET_NAME is required.");
+    }
+
+    const result = await this.client.send(
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      }),
+    );
+    const body = result.Body;
+    if (!body || typeof body.transformToByteArray !== "function") {
+      throw new Error("S3 object body is not readable.");
+    }
+
+    const bytes = await body.transformToByteArray();
+    return {
+      body: Buffer.from(bytes),
+      contentType: result.ContentType ?? undefined,
+      contentLength: result.ContentLength ?? bytes.byteLength,
+    };
   }
 }

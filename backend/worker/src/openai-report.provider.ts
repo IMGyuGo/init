@@ -70,12 +70,14 @@ export class OpenAiReportProvider implements ReportAiProvider {
         {
           role: "system",
           content:
-            "You write concise Korean interview feedback reports. Return JSON only with keys summary and feedback. All JSON string values must be written in Korean. Evaluate only evidence found in answer transcripts, follow-up answer transcripts, JD, posting metadata, and submitted documents. For recruiting reports, connect feedback to the JD and the confirmed question set, but never make a final hiring pass/fail judgment. If an answer has evaluationStatus STT_UNAVAILABLE, state that it is temporarily scored as 0 because speech recognition failed and do not infer answer quality from it. Penalize very short answers, vague answers, and transcripts that appear noisy or misrecognized. Do not infer or score sensitive attributes, appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, or health. For mock interview reports, never mention acceptance, rejection, hiring fit, or pass/fail."
+            "You write concise Korean interview reports. For recruiting reports, return JSON only with keys summary and reviewNote. For mock interview reports, return JSON only with keys summary and feedback. All JSON string values must be written in Korean. Evaluate only evidence found in answer transcripts, follow-up answer transcripts, JD, posting metadata, and submitted documents. For recruiting reports, write for company reviewers. The reviewNote is an internal company review note, not candidate advice. Connect the evaluation to JD requirements and the confirmed question set, and never make a final hiring pass/fail judgment. For recruiting reports, do not quote raw STT text when it looks noisy or misrecognized; summarize the meaning conservatively and mention uncertainty instead. Avoid repeating the same strength in summary, score rationale, and review note. If an answer has evaluationStatus STT_UNAVAILABLE, state that it is temporarily scored as 0 because speech recognition failed and do not infer answer quality from it. Penalize very short answers, vague answers, missing results, missing owned actions, and transcripts that appear noisy or misrecognized. Do not infer or score sensitive attributes, appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, or health. For mock interview reports, write practice feedback, and never mention acceptance, rejection, hiring fit, or pass/fail."
         },
         {
           role: "user",
           content: JSON.stringify({
-            task: "Generate a short interview report summary and one practice feedback sentence.",
+            task: input.reportType === "RECRUITING_REPORT"
+              ? "Generate a short company-facing interview evaluation summary and one internal review note. Do not write candidate coaching feedback."
+              : "Generate a short interview report summary and one practice feedback sentence.",
             serviceReportPolicy: SERVICE_REPORT_POLICY,
             serviceRubric: SERVICE_INTERVIEW_RUBRIC,
             scoreBands: REPORT_SCORE_BANDS,
@@ -113,14 +115,14 @@ export class OpenAiReportProvider implements ReportAiProvider {
 function parseReportContent(content: string): Omit<ReportGenerationResult, "model"> {
   const jsonText = stripMarkdownFence(content);
   try {
-    const parsed = JSON.parse(jsonText) as { summary?: unknown; feedback?: unknown };
+    const parsed = JSON.parse(jsonText) as { summary?: unknown; feedback?: unknown; reviewNote?: unknown };
     const summary = normalizeText(parsed.summary);
     if (!summary) {
       throw new Error("summary is required");
     }
     return {
       summary,
-      feedback: normalizeText(parsed.feedback)
+      feedback: normalizeText(parsed.reviewNote) ?? normalizeText(parsed.feedback)
     };
   } catch {
     return {

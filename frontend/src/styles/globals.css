@@ -2451,6 +2451,78 @@ td span {
   border-radius: 999px;
 }
 
+.company-answer-media {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: #111827;
+  border: 1px solid rgba(17, 24, 39, 0.16);
+  border-radius: 10px;
+}
+
+.company-answer-media.compact {
+  margin-top: 8px;
+  padding: 10px;
+}
+
+.company-answer-media-head,
+.company-answer-media-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.company-answer-media-head strong {
+  color: #fff;
+  font-size: 13px;
+}
+
+.company-answer-media-head span,
+.company-answer-media-meta span {
+  min-width: 0;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.company-answer-media video {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  aspect-ratio: 16 / 9;
+  background: #050816;
+  border-radius: 8px;
+}
+
+.company-answer-media audio {
+  width: 100%;
+}
+
+.company-answer-media-placeholder {
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+  padding: 18px;
+  color: rgba(255, 255, 255, 0.72);
+  text-align: center;
+  background: #0b1020;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+}
+
+.company-answer-media-placeholder strong {
+  color: #fff;
+  font-size: 14px;
+}
+
+.company-answer-media-placeholder span {
+  margin-top: 6px;
+  font-size: 12.5px;
+}
+
 .company-answer-block {
   display: grid;
   gap: 8px;

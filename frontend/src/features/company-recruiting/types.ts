@@ -136,6 +136,17 @@ export type Applicant = {
 
 export type ScreeningDecision = "UNDECIDED" | "PASS" | "HOLD" | "FAIL";
 
+export type ApplicantInterviewFileAsset = {
+  fileId: number;
+  ownerUserId: number;
+  storageKey: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: string;
+  createdAt: string;
+};
+
 export type ApplicantEvaluation = {
   applicant: Applicant;
   recruitment: {
@@ -158,6 +169,10 @@ export type ApplicantEvaluation = {
   answers: Array<{
     answerId: number;
     questionId: number | null;
+    videoFileId: number | null;
+    audioFileId: number | null;
+    videoFile: ApplicantInterviewFileAsset | null;
+    audioFile: ApplicantInterviewFileAsset | null;
     questionType: string | null;
     questionContent: string | null;
     transcript: string | null;
@@ -170,6 +185,10 @@ export type ApplicantEvaluation = {
       policy: string;
       answer: {
         answerId: number;
+        videoFileId: number | null;
+        audioFileId: number | null;
+        videoFile: ApplicantInterviewFileAsset | null;
+        audioFile: ApplicantInterviewFileAsset | null;
         transcript: string | null;
         durationSeconds: number | null;
         submittedAt: string | null;

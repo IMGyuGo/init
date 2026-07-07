@@ -95,6 +95,24 @@ export async function getApplicantEvaluation(applicantId: number) {
   return request<ApplicantEvaluation>(`/company/applicants/${applicantId}/evaluation`);
 }
 
+export async function fetchApplicantInterviewMedia(applicantId: number, fileId: number) {
+  const url = new URL(`/api/v1/company/applicants/${applicantId}/media/${fileId}`, getApiBaseUrl());
+  const response = await authFetch(url.toString());
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "면접 녹화 파일을 불러올 수 없습니다."));
+  }
+  return response.blob();
+}
+
+async function readErrorMessage(response: Response, fallback: string) {
+  try {
+    const payload = (await response.json()) as { error?: { message?: string } };
+    return payload.error?.message || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export async function updateScreeningStatus(applicantId: number, input: UpdateScreeningStatusInput) {
   return request<Applicant>(`/company/applicants/${applicantId}/screening-status`, {
     method: "PATCH",

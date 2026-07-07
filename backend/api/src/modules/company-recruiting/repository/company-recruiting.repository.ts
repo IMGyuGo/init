@@ -467,6 +467,8 @@ const applicantDetailInclude = {
         orderBy: { answerId: "asc" as const },
         include: {
           question: true,
+          videoFile: true,
+          audioFile: true,
           followUpQuestions: {
             orderBy: { createdAt: "asc" as const },
           },
@@ -658,6 +660,10 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
         answers: sessionAnswers.map((answer) => ({
           answerId: Number(answer.answerId),
           questionId: answer.questionId == null ? null : Number(answer.questionId),
+          videoFileId: answer.videoFileId == null ? null : Number(answer.videoFileId),
+          audioFileId: answer.audioFileId == null ? null : Number(answer.audioFileId),
+          videoFile: answer.videoFile ? mapFileAsset(answer.videoFile) : null,
+          audioFile: answer.audioFile ? mapFileAsset(answer.audioFile) : null,
           questionType: answer.question?.questionType ?? null,
           questionContent: answer.question?.content ?? null,
           transcript: answer.transcript,
@@ -681,6 +687,10 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
               answer: followUpAnswer
                 ? {
                     answerId: Number(followUpAnswer.answerId),
+                    videoFileId: followUpAnswer.videoFileId == null ? null : Number(followUpAnswer.videoFileId),
+                    audioFileId: followUpAnswer.audioFileId == null ? null : Number(followUpAnswer.audioFileId),
+                    videoFile: followUpAnswer.videoFile ? mapFileAsset(followUpAnswer.videoFile) : null,
+                    audioFile: followUpAnswer.audioFile ? mapFileAsset(followUpAnswer.audioFile) : null,
                     transcript: followUpAnswer.transcript,
                     durationSeconds: followUpAnswer.durationSeconds,
                     submittedAt: followUpAnswer.submittedAt,

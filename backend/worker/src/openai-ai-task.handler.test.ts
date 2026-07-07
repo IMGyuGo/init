@@ -109,6 +109,63 @@ test("OpenAiAiTaskHandler uses provider for final report generation and keeps sa
   assert.equal(handled.guardrail?.result, "PASS");
 });
 
+test("OpenAiAiTaskHandler stores recruiting report provider notes as company review points", async () => {
+  const results = new InMemoryAiResultRepository();
+  const reportProvider: ReportAiProvider = {
+    async generateReport() {
+      return {
+        summary: "지원자의 답변은 JD의 백엔드 API 운영 경험과 일부 연결됩니다.",
+        feedback: "추가 면접에서는 실제 운영 장애 대응 범위를 확인하는 것이 좋습니다.",
+        model: "report-model"
+      };
+    }
+  };
+  const handler = new OpenAiAiTaskHandler(new MockAiTaskHandler(results), results, provider, reportProvider);
+
+  const handled = await handler.handle({
+    processLogId: 22,
+    processType: "REPORT_GENERATE",
+    attempt: 1,
+    inputRef: JSON.stringify({
+      kind: "RECRUITING_REPORT_GENERATE",
+      payload: {
+        reportId: 52,
+        reportType: "RECRUITING_REPORT",
+        applicationId: 7,
+        companyName: "테스트 기업",
+        jobTitle: "백엔드 개발자",
+        jobDescription: "NestJS API와 PostgreSQL 기반 백엔드 운영 경험을 요구합니다.",
+        criteria: [
+          {
+            criterionId: 1,
+            name: "직무 적합성",
+            weight: 40
+          }
+        ],
+        answers: [
+          {
+            answerId: 10,
+            question: "지원 직무와 관련된 경험을 설명해주세요.",
+            transcript: "NestJS API와 PostgreSQL 기반 답변 저장 흐름을 구현하고 운영 로그를 확인했습니다."
+          }
+        ]
+      }
+    })
+  });
+
+  await handled.finalSave?.();
+  const output = JSON.parse(handled.outputRef ?? "{}") as {
+    reportFeedback?: string;
+    reportReviewNote?: string;
+  };
+  const report = results.generatedReports.get(52);
+
+  assert.equal(output.reportFeedback, undefined);
+  assert.equal(output.reportReviewNote, "추가 면접에서는 실제 운영 장애 대응 범위를 확인하는 것이 좋습니다.");
+  assert.match(report?.summary ?? "", /기업 검토 포인트/);
+  assert.doesNotMatch(report?.summary ?? "", /다음 연습 피드백/);
+});
+
 test("OpenAiAiTaskHandler leaves report pipeline steps on the fallback handler", async () => {
   const results = new InMemoryAiResultRepository();
   let reportProviderCalls = 0;

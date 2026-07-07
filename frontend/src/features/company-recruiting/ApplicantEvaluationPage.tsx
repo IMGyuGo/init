@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
-import { getApplicantEvaluation, updateScreeningStatus } from "./api";
+import { fetchApplicantInterviewMedia, getApplicantEvaluation, updateScreeningStatus } from "./api";
 import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
 import { formatRecruitingStatusLabel } from "./status-labels";
-import type { ApplicantEvaluation, ScreeningDecision } from "./types";
+import type { ApplicantEvaluation, ApplicantInterviewFileAsset, ScreeningDecision } from "./types";
 
 const decisions: ScreeningDecision[] = ["UNDECIDED", "PASS", "HOLD", "FAIL"];
 
@@ -213,6 +213,13 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                         <span className="company-question-type">{formatQuestionTypeLabel(answer.questionType)}</span>
                       </div>
 
+                      <CompanyAnswerMedia
+                        applicantId={applicantId}
+                        audioFile={answer.audioFile}
+                        title="답변 녹화"
+                        videoFile={answer.videoFile}
+                      />
+
                       <div className="company-answer-block">
                         <strong>답변</strong>
                         <p>{answer.transcript?.trim() ? answer.transcript : "답변 스크립트가 없습니다."}</p>
@@ -227,6 +234,13 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                                 <span className="company-follow-up-question">{followUp.content}</span>
                                 <div className="company-follow-up-answer">
                                   <strong>꼬리질문 답변</strong>
+                                  <CompanyAnswerMedia
+                                    applicantId={applicantId}
+                                    audioFile={followUp.answer?.audioFile ?? null}
+                                    compact
+                                    title="꼬리질문 답변 녹화"
+                                    videoFile={followUp.answer?.videoFile ?? null}
+                                  />
                                   <p>{followUp.answer?.transcript?.trim() ? followUp.answer.transcript : "저장된 꼬리질문 답변이 없습니다."}</p>
                                 </div>
                               </li>
@@ -250,6 +264,101 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
           <div className="empty">평가 상세를 불러오는 중입니다.</div>
         )}
     </section>
+  );
+}
+
+function CompanyAnswerMedia({
+  applicantId,
+  audioFile,
+  compact = false,
+  title,
+  videoFile,
+}: {
+  applicantId: number;
+  audioFile: ApplicantInterviewFileAsset | null;
+  compact?: boolean;
+  title: string;
+  videoFile: ApplicantInterviewFileAsset | null;
+}) {
+  const videoUrl = getCachedRecordingObjectUrl(videoFile?.storageKey);
+  const audioUrl = getCachedRecordingObjectUrl(audioFile?.storageKey);
+  const primaryFile = videoFile ?? audioFile;
+  const cachedUrl = videoUrl ?? audioUrl;
+  const [fetchedUrl, setFetchedUrl] = useState<string | null>(null);
+  const [mediaError, setMediaError] = useState("");
+  const [mediaLoading, setMediaLoading] = useState(false);
+
+  useEffect(() => {
+    if (!primaryFile || cachedUrl) {
+      setFetchedUrl(null);
+      setMediaError("");
+      setMediaLoading(false);
+      return;
+    }
+
+    let disposed = false;
+    let objectUrl: string | null = null;
+    setMediaLoading(true);
+    setMediaError("");
+
+    fetchApplicantInterviewMedia(applicantId, primaryFile.fileId)
+      .then((blob) => {
+        if (disposed) {
+          return;
+        }
+        objectUrl = URL.createObjectURL(blob);
+        setFetchedUrl(objectUrl);
+      })
+      .catch((error) => {
+        if (!disposed) {
+          setMediaError(error instanceof Error ? error.message : "면접 녹화 파일을 불러올 수 없습니다.");
+        }
+      })
+      .finally(() => {
+        if (!disposed) {
+          setMediaLoading(false);
+        }
+      });
+
+    return () => {
+      disposed = true;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [applicantId, cachedUrl, primaryFile]);
+
+  if (!primaryFile) {
+    return null;
+  }
+
+  const playableUrl = cachedUrl ?? fetchedUrl ?? undefined;
+
+  return (
+    <div className={`company-answer-media ${compact ? "compact" : ""}`}>
+      <div className="company-answer-media-head">
+        <strong>{title}</strong>
+        <span>{primaryFile.originalName}</span>
+      </div>
+      {playableUrl && videoFile ? (
+        <video controls preload="metadata" src={playableUrl}>
+          답변 영상을 재생할 수 없습니다.
+        </video>
+      ) : playableUrl ? (
+        <audio controls preload="metadata" src={playableUrl}>
+          답변 음성을 재생할 수 없습니다.
+        </audio>
+      ) : (
+        <div className="company-answer-media-placeholder">
+          <strong>{mediaLoading ? "녹화 파일을 불러오는 중" : videoFile ? "영상 파일 저장됨" : "음성 파일 저장됨"}</strong>
+          <span>{mediaError || "기업 권한을 확인한 뒤 녹화 파일을 재생합니다."}</span>
+        </div>
+      )}
+      <div className="company-answer-media-meta">
+        <span>{primaryFile.mimeType}</span>
+        <span>{formatFileSize(primaryFile.sizeBytes)}</span>
+      </div>
+    </div>
   );
 }
 
@@ -290,4 +399,35 @@ function isLinkedFollowUpAnswer(answers: ApplicantEvaluation["answers"], candida
 
 function normalizeQuestionText(value?: string | null) {
   return value?.trim().replace(/\s+/g, " ") ?? "";
+}
+
+type CandidateRecordingCacheEntry = {
+  url: string;
+  blob: Blob;
+  mimeType: string;
+  originalName: string;
+  sizeBytes: number;
+  createdAt: number;
+};
+
+type CandidateRecordingCacheWindow = Window & {
+  __candidateRecordingCache?: Map<string, CandidateRecordingCacheEntry>;
+};
+
+function getCachedRecordingObjectUrl(storageKey?: string | null): string | undefined {
+  if (!storageKey || typeof window === "undefined") {
+    return undefined;
+  }
+  const cacheWindow = window as CandidateRecordingCacheWindow;
+  return cacheWindow.__candidateRecordingCache?.get(storageKey)?.url;
+}
+
+function formatFileSize(sizeBytes: number): string {
+  if (sizeBytes >= 1024 * 1024) {
+    return `${(sizeBytes / 1024 / 1024).toFixed(1)}MB`;
+  }
+  if (sizeBytes >= 1024) {
+    return `${Math.round(sizeBytes / 1024)}KB`;
+  }
+  return `${sizeBytes}B`;
 }
