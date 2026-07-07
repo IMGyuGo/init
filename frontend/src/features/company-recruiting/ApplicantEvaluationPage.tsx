@@ -280,10 +280,9 @@ function CompanyAnswerMedia({
   title: string;
   videoFile: ApplicantInterviewFileAsset | null;
 }) {
-  const videoUrl = getCachedRecordingObjectUrl(videoFile?.storageKey);
-  const audioUrl = getCachedRecordingObjectUrl(audioFile?.storageKey);
   const primaryFile = videoFile ?? audioFile;
-  const cachedUrl = videoUrl ?? audioUrl;
+  const primaryMediaType = videoFile ? "video" : "audio";
+  const cachedUrl = getCachedRecordingObjectUrl(primaryFile?.storageKey);
   const [fetchedUrl, setFetchedUrl] = useState<string | null>(null);
   const [mediaError, setMediaError] = useState("");
   const [mediaLoading, setMediaLoading] = useState(false);
@@ -340,7 +339,7 @@ function CompanyAnswerMedia({
         <strong>{title}</strong>
         <span>{primaryFile.originalName}</span>
       </div>
-      {playableUrl && videoFile ? (
+      {playableUrl && primaryMediaType === "video" ? (
         <video controls preload="metadata" src={playableUrl}>
           답변 영상을 재생할 수 없습니다.
         </video>

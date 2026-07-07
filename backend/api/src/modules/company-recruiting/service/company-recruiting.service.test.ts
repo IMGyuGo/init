@@ -1258,6 +1258,72 @@ describe("CompanyRecruitingService", () => {
     assert.equal(media.body.toString(), "video-bytes");
   });
 
+  it("rejects inactive applicant interview media files before storage access", async () => {
+    const repository = createRepository({
+      async findApplicationForCompany() {
+        return createApplicantRecord({
+          interviewSessions: [
+            {
+              sessionId: 901,
+              status: "COMPLETED",
+              interviewType: "RECRUITING",
+              startedAt: new Date("2026-07-01T00:00:00.000Z"),
+              completedAt: new Date("2026-07-01T00:10:00.000Z"),
+              answers: [
+                {
+                  answerId: 1001,
+                  questionId: 501,
+                  videoFileId: 8001,
+                  audioFileId: null,
+                  videoFile: {
+                    fileId: 8001,
+                    ownerUserId: 88,
+                    storageKey: "candidate/44/interviews/recruiting-answer-1001.webm",
+                    originalName: "recruiting-answer-1001.webm",
+                    mimeType: "video/webm",
+                    sizeBytes: 123456,
+                    status: "DELETED",
+                    createdAt: new Date("2026-07-01T00:01:30.000Z"),
+                  },
+                  audioFile: null,
+                  questionType: "TECHNICAL",
+                  questionContent: "지원 직무와 관련된 프로젝트에서 맡은 역할을 설명해주세요.",
+                  transcript: "API 업로드, DB 저장, worker 처리 흐름을 연결했습니다.",
+                  durationSeconds: 42,
+                  submittedAt: new Date("2026-07-01T00:02:00.000Z"),
+                  followUpQuestions: [],
+                },
+              ],
+            },
+          ],
+        });
+      },
+    });
+    let storageReadCount = 0;
+    const service = new CompanyRecruitingService(repository, {
+      async putObject() {},
+      async getObject() {
+        storageReadCount += 1;
+        return {
+          body: Buffer.from("video-bytes"),
+        };
+      },
+    });
+
+    await assert.rejects(
+      service.getApplicantInterviewMedia(companyUser, 77, 8001),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "COMMON_NOT_FOUND" &&
+        "getStatus" in error &&
+        typeof error.getStatus === "function" &&
+        error.getStatus() === 404,
+    );
+    assert.equal(storageReadCount, 0);
+  });
+
   it("reports missing applicant interview media object as not found", async () => {
     const repository = createRepository({
       findApplicationForCompany: async () => {

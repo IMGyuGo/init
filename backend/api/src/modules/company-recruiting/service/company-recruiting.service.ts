@@ -636,13 +636,15 @@ function requireCompanyId(user: CurrentUser): number {
 function findApplicantInterviewMediaFile(application: ApplicantRecord, fileId: number): CompanyFileAssetRecord | null {
   for (const session of application.interviewSessions) {
     for (const answer of session.answers ?? []) {
-      const directMatch = [answer.videoFile, answer.audioFile].find((file) => file?.fileId === fileId);
+      const directMatch = [answer.videoFile, answer.audioFile].find((file) => isActiveInterviewMediaFile(file, fileId));
       if (directMatch) {
         return directMatch;
       }
       for (const followUp of answer.followUpQuestions) {
         const followUpAnswer = followUp.answer;
-        const followUpMatch = [followUpAnswer?.videoFile, followUpAnswer?.audioFile].find((file) => file?.fileId === fileId);
+        const followUpMatch = [followUpAnswer?.videoFile, followUpAnswer?.audioFile].find((file) =>
+          isActiveInterviewMediaFile(file, fileId),
+        );
         if (followUpMatch) {
           return followUpMatch;
         }
@@ -650,6 +652,13 @@ function findApplicantInterviewMediaFile(application: ApplicantRecord, fileId: n
     }
   }
   return null;
+}
+
+function isActiveInterviewMediaFile(
+  file: CompanyFileAssetRecord | null | undefined,
+  fileId: number,
+): file is CompanyFileAssetRecord {
+  return file?.fileId === fileId && file.status === "ACTIVE";
 }
 
 function isStorageObjectNotFound(error: unknown): boolean {
