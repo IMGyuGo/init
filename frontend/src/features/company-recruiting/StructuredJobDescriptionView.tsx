@@ -4,6 +4,7 @@ import Image from "next/image";
 import type { ReactNode } from "react";
 
 import { JobDescriptionViewer } from "./JobDescriptionViewer";
+import { extractPostingExtraInfo, postingExtraInfoFromApiFields } from "./posting-extra-info";
 import {
   extractStructuredJobDescription,
   structuredJobSectionDefinitions,
@@ -16,6 +17,7 @@ type StructuredJobDescriptionViewProps = {
   jobRole: string;
   jobDescription: string | null | undefined;
   careerRequirement?: string | null;
+  salaryInfo?: string | null;
   workLocation?: string | null;
   employmentType?: string | null;
   endsOn?: string | null;
@@ -28,12 +30,29 @@ export function StructuredJobDescriptionView({
   jobRole,
   jobDescription,
   careerRequirement,
+  salaryInfo,
   workLocation,
   employmentType,
   endsOn,
   rightRail,
 }: StructuredJobDescriptionViewProps) {
-  const parsed = extractStructuredJobDescription(jobDescription);
+  const parsedExtraInfo = extractPostingExtraInfo(jobDescription);
+  const postingExtraInfo = postingExtraInfoFromApiFields(
+    {
+      careerRequirement,
+      salaryInfo,
+      workLocation,
+      employmentType,
+    },
+    parsedExtraInfo.extraInfo,
+  );
+  const displayInfo = {
+    careerRequirement: postingExtraInfo.career.value.trim() || careerRequirement || "",
+    salaryInfo: postingExtraInfo.salary.value.trim() || salaryInfo || "",
+    workLocation: postingExtraInfo.location.value.trim() || workLocation || "",
+    employmentType: postingExtraInfo.employmentType.value.trim() || employmentType || "",
+  };
+  const parsed = extractStructuredJobDescription(parsedExtraInfo.jobDescription);
 
   if (!parsed.structured) {
     return (
@@ -45,14 +64,19 @@ export function StructuredJobDescriptionView({
               companyName={companyName}
               title={title}
               jobRole={jobRole}
-              careerRequirement={careerRequirement}
-              workLocation={workLocation}
-              employmentType={employmentType}
+              careerRequirement={displayInfo.careerRequirement}
+              salaryInfo={displayInfo.salaryInfo}
+              employmentType={displayInfo.employmentType}
+            />
+            <PostingSummary
+              careerRequirement={displayInfo.careerRequirement}
+              workLocation={displayInfo.workLocation}
+              employmentType={displayInfo.employmentType}
+              endsOn={endsOn}
             />
             <section className="wanted-section">
               <JobDescriptionViewer value={parsed.fallbackHtml} emptyMessage="등록된 공고 상세가 없습니다." />
             </section>
-            <PostingDeadline endsOn={endsOn} />
           </article>
           <aside className="candidate-apply-rail">{rightRail ?? <DefaultApplyRail />}</aside>
         </div>
@@ -70,14 +94,18 @@ export function StructuredJobDescriptionView({
             companyName={companyName}
             title={title}
             jobRole={jobRole}
-            careerRequirement={careerRequirement}
-            workLocation={workLocation}
-            employmentType={employmentType}
+            careerRequirement={displayInfo.careerRequirement}
+            salaryInfo={displayInfo.salaryInfo}
+            employmentType={displayInfo.employmentType}
+          />
+          <PostingSummary
+            careerRequirement={displayInfo.careerRequirement}
+            workLocation={displayInfo.workLocation}
+            employmentType={displayInfo.employmentType}
+            endsOn={endsOn}
           />
           <PostingSections structured={parsed.structured} />
           <PostingTags tags={parsed.structured.tags} />
-          <PostingDeadline endsOn={endsOn} />
-          <PostingLocation location={parsed.structured.locationNote || workLocation} />
         </article>
         <aside className="candidate-apply-rail">{rightRail ?? <DefaultApplyRail />}</aside>
       </div>
@@ -103,7 +131,7 @@ function PostingGallery({ gallery }: { gallery: StructuredJobDescription["galler
   return (
     <div className={`wanted-gallery wanted-gallery-${Math.min(gallery.length, 3)}`}>
       {gallery.slice(0, 3).map((image, index) => (
-        <figure className={index === 0 ? "is-primary" : ""} key={`${image.url}-${index}`}>
+        <figure className={getGalleryImageClassName(image.name, index)} key={`${image.url}-${index}`}>
           <span
             role="img"
             aria-label={image.name || "공고 이미지"}
@@ -124,25 +152,47 @@ function PostingHeading({
   title,
   jobRole,
   careerRequirement,
-  workLocation,
+  salaryInfo,
   employmentType,
-}: Omit<StructuredJobDescriptionViewProps, "jobDescription" | "endsOn">) {
-  const meta = [companyName, workLocation, careerRequirement, employmentType].filter(Boolean);
+}: Omit<StructuredJobDescriptionViewProps, "jobDescription" | "endsOn" | "workLocation" | "rightRail">) {
+  const secondaryMeta = [salaryInfo, careerRequirement, employmentType].filter(Boolean);
+  const meta = [companyName, ...(secondaryMeta.length > 0 ? secondaryMeta : [jobRole].filter(Boolean))].filter(Boolean);
+
   return (
     <header className="wanted-posting-head">
       <p className="wanted-posting-meta">{meta.join(" · ")}</p>
       <h2>{title}</h2>
-      {jobRole ? <p className="wanted-posting-role">{jobRole}</p> : null}
     </header>
   );
 }
 
-function PostingDeadline({ endsOn }: { endsOn?: string | null }) {
+function PostingSummary({
+  careerRequirement,
+  workLocation,
+  employmentType,
+  endsOn,
+}: {
+  careerRequirement?: string | null;
+  workLocation?: string | null;
+  employmentType?: string | null;
+  endsOn?: string | null;
+}) {
+  const items = [
+    { label: "경력", value: careerRequirement || "협의" },
+    { label: "근무지역", value: workLocation || "협의" },
+    { label: "근무형태", value: employmentType || "협의" },
+    { label: "마감일", value: formatDeadlineLabel(endsOn) },
+  ];
+
   return (
-    <section className="wanted-section">
-      <h3>마감일</h3>
-      <p className="wanted-deadline">{endsOn ? endsOn : "상시 채용"}</p>
-    </section>
+    <dl className="wanted-summary-grid" aria-label="공고 요약 정보">
+      {items.map((item) => (
+        <div className="wanted-summary-item" key={item.label}>
+          <dt>{item.label}</dt>
+          <dd>{item.value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -182,15 +232,30 @@ function PostingTags({ tags }: { tags: string[] }) {
   );
 }
 
-function PostingLocation({ location }: { location?: string | null }) {
-  if (!location) {
-    return null;
+function formatDeadlineLabel(endsOn?: string | null) {
+  if (!endsOn) {
+    return "상시 채용";
   }
 
-  return (
-    <section className="wanted-section">
-      <h3>근무지역</h3>
-      <p className="wanted-location">{location}</p>
-    </section>
-  );
+  const deadline = new Date(`${endsOn}T23:59:59`);
+  if (Number.isNaN(deadline.getTime())) {
+    return endsOn;
+  }
+
+  const now = new Date();
+  const diffDays = Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays > 0) {
+    return `D-${diffDays}`;
+  }
+
+  if (diffDays === 0) {
+    return "오늘 마감";
+  }
+
+  return "마감";
+}
+
+function getGalleryImageClassName(name: string | undefined, index: number) {
+  return [index === 0 ? "is-primary" : "", name && /logo|로고/i.test(name) ? "is-logo" : ""].filter(Boolean).join(" ");
 }
