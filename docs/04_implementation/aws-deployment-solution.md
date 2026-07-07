@@ -240,7 +240,7 @@ public subnet에 ECS task를 두면 초기 실습은 쉽지만 task가 인터넷
 
 GitHub Actions가 `dev`, `main` PR merge로 생성된 protected branch push를 받아 같은 AWS environment를 갱신한다. AWS가 repository의 branch를 직접 감시하는 것이 아니라, GitHub Actions가 target branch와 GitHub Environment `init-main` 권한 경계를 확인한 뒤 동일한 배포 target을 사용한다.
 
-trigger는 `pull_request.closed`가 아니라 `push`를 사용한다. `pull_request.closed` 이벤트에서 Environment protection rule은 base branch가 아니라 `refs/pull/<number>/merge` ref를 평가할 수 있어 `dev`/`main` branch rule에 막힌다. 따라서 protected branch에 merge 결과가 반영된 `push` 이벤트를 배포 시작점으로 삼고, workflow 내부에서 해당 commit이 merged PR과 연결되어 있는지 확인해 direct push 배포를 차단한다.
+trigger는 `pull_request.closed`가 아니라 `push`를 사용한다. `pull_request.closed` 이벤트에서 Environment protection rule은 base branch가 아니라 `refs/pull/<number>/merge` ref를 평가할 수 있어 `dev`/`main` branch rule에 막힌다. 따라서 protected branch에 merge 결과가 반영된 `push` 이벤트를 배포 시작점으로 삼고, workflow 내부에서 해당 commit이 merged PR과 연결되어 있는지 확인해 direct push 배포를 차단한다. 이 확인은 commit association 조회를 먼저 사용하고, merge commit이 association 조회에서 누락되는 경우를 보완하기 위해 merged PR의 `merge_commit_sha`가 `github.sha`와 같은지도 함께 확인한다.
 
 | Git branch | AWS environment | 배포 정책 | Migration 정책 |
 | --- | --- | --- | --- |

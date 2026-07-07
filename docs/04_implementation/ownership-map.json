@@ -213,7 +213,7 @@
         "^backend/api/src/modules/report/(report\\.types|controller/reports\\.controller\\.spec)\\.ts$",
         "^backend/common/src/enums/index\\.ts$",
         "^backend/worker/README\\.md$",
-        "^backend/worker/src/(ai-result\\.repository|mock-ai-task\\.handler|mock-ai-task\\.handler\\.test|worker\\.types|openai-ai-task\\.handler|openai-ai-task\\.handler\\.test|openai-posting-draft\\.provider|worker-bootstrap|index)\\.ts$",
+        "^backend/worker/src/(ai-result\\.repository|mock-ai-task\\.handler|mock-ai-task\\.handler\\.test|worker\\.types|openai-ai-task\\.handler|openai-ai-task\\.handler\\.test|openai-posting-draft\\.provider|openai-posting-draft\\.provider\\.test|worker-bootstrap|index)\\.ts$",
         "^docs/01_product/(screen-flow|feature-spec)\\.md$",
         "^docs/02_architecture/(async-ai-pipeline|data-model)\\.md$",
         "^docs/02_architecture/erdcloud/init_erd_v0\\.5_refined_erdcloud\\.sql$",

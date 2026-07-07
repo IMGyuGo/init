@@ -134,6 +134,7 @@ export function PublicRecruitmentApplyPage({ recruitmentId }: { recruitmentId: n
           jobRole={state.data.jobRole}
           jobDescription={state.data.jobDescription}
           careerRequirement={state.data.careerRequirement}
+          salaryInfo={state.data.salaryInfo}
           workLocation={state.data.workLocation}
           employmentType={state.data.employmentType}
           endsOn={state.data.endsOn}
@@ -143,26 +144,26 @@ export function PublicRecruitmentApplyPage({ recruitmentId }: { recruitmentId: n
                 <section className="candidate-application-card" id={applicationFormId}>
                   <div className="candidate-card-head">
                     <h2>지원서 접수 완료</h2>
-                    <p>입력한 이메일로 지원 현황과 면접 안내를 다시 확인할 수 있습니다.</p>
+                    <p>입력한 이메일로 지원 접수 내역과 면접 안내를 확인할 수 있습니다.</p>
                   </div>
                   <div className="creation-flow">
                     <p className="notice">{message || "지원서가 접수되었습니다. 이메일 안내를 확인해주세요."}</p>
                     <dl className="detail-list">
                       <DetailItem label="지원 이메일" value={submittedEmail} />
                       <DetailItem label="메일 발송 상태" value={formatDeliveryStatus(deliveryStatus)} />
-                      <DetailItem label="다음 단계" value="이메일 매직링크 확인" />
+                      <DetailItem label="다음 단계" value="이메일에서 지원 현황 확인" />
                       <DetailItem label="면접 안내" value="면접 세션이 준비되면 지원 현황 화면에서 확인" />
                     </dl>
                     <div className="empty">
-                      지원 현황은 이메일로 받은 매직링크에서만 확인할 수 있습니다. 링크가 만료되었거나 메일을 받지 못했다면
-                      아래 버튼으로 다시 요청해주세요.
+                      지원 현황은 접수 완료 메일에 포함된 링크에서 확인할 수 있습니다. 링크가 만료되었거나 메일을 받지
+                      못했다면 아래 버튼으로 안내 메일을 다시 요청해주세요.
                     </div>
                     <div className="form-actions">
                       <button className="btn secondary" type="button" onClick={resetSubmittedState}>
                         다른 이메일로 지원
                       </button>
                       <button className="btn primary" disabled={resending} type="button" onClick={handleResendAccessLink}>
-                        {resending ? "발송 중" : "매직링크 다시 보내기"}
+                        {resending ? "발송 중" : "안내 메일 다시 보내기"}
                       </button>
                     </div>
                   </div>
@@ -365,12 +366,12 @@ function emptyToUndefined(value?: string) {
 
 function buildDeliveryMessage(status: "SENT" | "FAILED" | "NOT_SENT_TEMPORARY") {
   if (status === "SENT") {
-    return "지원서가 접수되었습니다. 이메일로 보낸 매직링크에서 지원 현황과 면접 안내를 확인할 수 있습니다.";
+    return "지원서가 접수되었습니다. 이메일로 보낸 지원 현황 확인 링크에서 면접 안내를 확인할 수 있습니다.";
   }
   if (status === "FAILED") {
-    return "지원서가 접수되었지만 메일 발송에 실패했습니다. 매직링크 다시 보내기를 눌러 재요청해주세요.";
+    return "지원서가 접수되었지만 안내 메일 발송에 실패했습니다. 아래 버튼으로 다시 요청해주세요.";
   }
-  return "지원서가 접수되었습니다. 이메일 인증과 매직링크 발송은 현재 임시 처리 상태입니다.";
+  return "지원서가 접수되었습니다. 현재 안내 메일 발송은 임시 처리 상태입니다.";
 }
 
 function formatDeliveryStatus(status: "SENT" | "FAILED" | "NOT_SENT_TEMPORARY" | "") {

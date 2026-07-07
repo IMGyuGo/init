@@ -33,7 +33,7 @@ export function PublicApplicationInterviewBridgePage({
   const startedRef = useRef(false);
   const [state, setState] = useState<AsyncState<PublicApplicationStatus>>({
     loading: Boolean(token),
-    phase: token ? "매직링크 권한을 확인하는 중입니다." : undefined,
+    phase: token ? "이메일 링크를 확인하는 중입니다." : undefined,
   });
 
   const prepareInterview = useCallback(async () => {
@@ -41,17 +41,17 @@ export function PublicApplicationInterviewBridgePage({
     startedRef.current = true;
 
     if (!token) {
-      setState({ loading: false, error: "면접 진입은 이메일 매직링크로만 가능합니다." });
+      setState({ loading: false, error: "면접 진입은 지원서 접수 후 이메일로 받은 링크에서만 가능합니다." });
       return;
     }
 
     persistPublicInterviewAccessToken(null);
-    setState({ loading: true, phase: "매직링크 권한을 확인하는 중입니다." });
+    setState({ loading: true, phase: "이메일 링크를 확인하는 중입니다." });
 
     try {
       const result = await getPublicApplicationStatus(token);
       if (result.data.applicationId !== applicationId) {
-        setState({ loading: false, error: "매직링크가 지원서 정보와 일치하지 않습니다." });
+        setState({ loading: false, error: "이메일 링크가 지원서 정보와 일치하지 않습니다." });
         return;
       }
 

@@ -765,30 +765,46 @@ describe("CompanyRecruitingService", () => {
     );
   });
 
-  it("rejects public submissions for existing accounts before mutating candidate profiles", async () => {
+  it("allows existing candidate emails to submit to a different public recruitment", async () => {
+    const storageAdapter = createStorageAdapter();
     const repository = createRepository({
       async findUserAccountByEmail(email: string) {
         repository.calls.findUserAccountByEmail = [email];
         return { userId: 88, userType: "CANDIDATE", hasCandidateProfile: true };
       },
+      async findOrCreatePublicCandidate(input: unknown) {
+        repository.calls.findOrCreatePublicCandidate = [input];
+        return { candidateId: 44, userId: 88 };
+      },
     });
-    const service = new CompanyRecruitingService(repository);
+    const publicApplicationAuthAdapter = createPublicApplicationAuthAdapter();
+    const service = new CompanyRecruitingService(repository, storageAdapter, {}, publicApplicationAuthAdapter);
 
-    await assert.rejects(
-      () =>
-        service.submitPublicApplication(101, {
-          name: "김지원",
-          email: "existing@example.com",
-          phone: "010-0000-0000",
-          portfolioUrl: "https://attacker.example.com",
-          resumeText: "변조 시도",
-          consentAgreed: true,
-        }),
-      /이미 가입된 이메일/,
+    const result = await service.submitPublicApplication(
+      202,
+      {
+        name: "김지원",
+        email: "existing@example.com",
+        phone: "010-0000-0000",
+        consentAgreed: true,
+      },
+      { resumeFile: createUploadFile("resume.pdf") },
     );
+
+    assert.deepEqual(repository.calls.findApplicationByPostingAndEmail, [202, "existing@example.com"]);
     assert.deepEqual(repository.calls.findUserAccountByEmail, ["existing@example.com"]);
-    assert.equal(repository.calls.findOrCreatePublicCandidate, undefined);
-    assert.equal(repository.calls.createApplication, undefined);
+    assert.deepEqual(repository.calls.findOrCreatePublicCandidate, [
+      {
+        name: "김지원",
+        email: "existing@example.com",
+        phone: "010-0000-0000",
+        githubUrl: null,
+        portfolioUrl: null,
+        summary: null,
+      },
+    ]);
+    assert.deepEqual(repository.calls.createApplication, [{ postingId: 202, candidateId: 44, screeningMemo: null, documentStatus: "SUBMITTED" }]);
+    assert.equal(result.applicationStatus, "SUBMITTED");
   });
 
   it("rejects public submissions with company account emails", async () => {

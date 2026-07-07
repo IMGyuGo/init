@@ -193,7 +193,13 @@
   height: 100%;
   min-height: 260px;
   background-position: center;
+  background-repeat: no-repeat;
   background-size: cover;
+}
+
+.wanted-gallery figure.is-logo span {
+  background-color: #fff;
+  background-size: contain;
 }
 
 .wanted-gallery-1 {
@@ -271,6 +277,40 @@
   color: var(--ink-400);
   font-size: 15px;
   font-weight: 700;
+}
+
+.wanted-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 56px;
+  margin: 28px 0 28px;
+  padding: 20px 24px;
+  background: #f7f7f5;
+  border-radius: 10px;
+}
+
+.wanted-summary-item {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 14px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.wanted-summary-item dt {
+  color: rgba(55, 53, 47, 0.45);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.wanted-summary-item dd {
+  min-width: 0;
+  margin: 0;
+  color: #37352f;
+  font-size: 15px;
+  font-weight: 700;
+  overflow-wrap: break-word;
+  word-break: keep-all;
 }
 
 .wanted-deadline {
@@ -709,6 +749,22 @@
   width: auto;
   height: 34px;
 }
+.candidate-public-page.notion .candidate-posting-body {
+  grid-template-columns: minmax(0, 760px) minmax(360px, 400px);
+  gap: 64px;
+  width: min(1280px, calc(100% - 72px));
+}
+.candidate-public-page.notion .wanted-gallery {
+  margin-bottom: 30px;
+  border-radius: 8px;
+}
+.candidate-public-page.notion .candidate-apply-rail {
+  position: sticky;
+  top: 88px;
+  max-height: calc(100vh - 112px);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
 .candidate-public-page.notion .wanted-posting-head {
   border-bottom: 1px solid rgba(55, 53, 47, 0.1);
 }
@@ -724,19 +780,17 @@
   color: #3b6fe0;
   font-weight: 600;
 }
+.candidate-public-page.notion .wanted-summary-grid {
+  margin-top: 28px;
+}
 .candidate-public-page.notion .wanted-section h3 {
   color: #191919;
   font-size: 18px;
   font-weight: 700;
 }
 .candidate-public-page.notion .wanted-rich-content,
-.candidate-public-page.notion .wanted-deadline,
-.candidate-public-page.notion .wanted-location {
+.candidate-public-page.notion .wanted-deadline {
   color: #37352f;
-}
-.candidate-public-page.notion .wanted-location {
-  margin: 0;
-  font-size: 15px;
 }
 .candidate-public-page.notion .wanted-tag-list span {
   color: #37352f;
@@ -760,6 +814,17 @@
   border-radius: 10px;
   box-shadow: none;
 }
+.candidate-public-page.notion .candidate-application-card .form-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+}
+.candidate-public-page.notion .candidate-application-card .form-actions .btn {
+  width: 100%;
+  min-width: 0;
+  white-space: normal;
+  text-align: center;
+  word-break: keep-all;
+}
 .candidate-public-page.notion .candidate-card-head h2 {
   color: #191919;
   font-size: 18px;
@@ -767,6 +832,26 @@
 }
 .candidate-public-page.notion .candidate-card-head p {
   color: rgba(55, 53, 47, 0.6);
+}
+.candidate-public-page.notion .candidate-card-head p,
+.candidate-public-page.notion .notice,
+.candidate-public-page.notion .empty,
+.candidate-public-page.notion .detail-list dt,
+.candidate-public-page.notion .detail-list dd {
+  line-height: 1.65;
+  overflow-wrap: break-word;
+  word-break: keep-all;
+}
+.candidate-public-page.notion .notice {
+  margin: 0;
+}
+.candidate-public-page.notion .empty {
+  text-align: left;
+}
+.candidate-public-page.notion .detail-list {
+  grid-template-columns: 126px minmax(0, 1fr);
+  gap: 12px 16px;
+  margin-bottom: 0;
 }
 .candidate-public-page.notion label {
   color: #37352f;
@@ -827,6 +912,79 @@
 .candidate-public-page.notion .segmented-control input:checked + span {
   color: #191919;
   background: #fff;
+}
+
+@media (max-width: 1180px) {
+  .candidate-public-page.notion .candidate-posting-body {
+    grid-template-columns: 1fr;
+    gap: 32px;
+    width: min(920px, calc(100% - 32px));
+  }
+
+  .candidate-public-page.notion .candidate-apply-rail {
+    width: 100%;
+  }
+
+  .candidate-public-page.notion .candidate-apply-rail {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 760px) {
+  .candidate-public-page.notion .candidate-site-nav-inner {
+    width: calc(100% - 32px);
+  }
+
+  .candidate-public-page.notion .candidate-posting-body {
+    padding-top: 24px;
+  }
+
+  .candidate-public-page.notion .wanted-gallery {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .candidate-public-page.notion .wanted-gallery figure span {
+    min-height: 190px;
+  }
+
+  .candidate-public-page.notion .wanted-posting-head h2 {
+    font-size: 28px;
+    line-height: 1.25;
+  }
+
+  .candidate-public-page.notion .wanted-summary-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    padding: 18px;
+  }
+
+  .candidate-public-page.notion .candidate-application-card {
+    padding: 20px;
+  }
+
+  .candidate-public-page.notion .file-picker {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .candidate-public-page.notion .file-picker-action {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}
+
+@media (max-width: 560px) {
+  .candidate-public-page.notion .detail-list,
+  .wanted-summary-item {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .candidate-public-page.notion .candidate-application-card .form-actions {
+    grid-template-columns: 1fr;
+  }
 }
 
 * {

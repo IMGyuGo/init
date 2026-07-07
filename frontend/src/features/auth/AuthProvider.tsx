@@ -1,9 +1,20 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
-import { AUTH_SESSION_CLEARED_EVENT, AuthTokenResponse, AuthUser, fetchCurrentUser, getAccessToken, logoutAuthSession, setAccessToken } from "../../api/client";
+import {
+  AUTH_SESSION_CLEARED_EVENT,
+  AUTH_SESSION_CLEARED_STORAGE_KEY,
+  AuthTokenResponse,
+  AuthUser,
+  broadcastAuthSessionCleared,
+  fetchCurrentUser,
+  getAccessToken,
+  logoutAuthSession,
+  refreshAuthSession,
+  setAccessToken,
+} from "../../api/client";
 import {
   getRedirectForUnauthorizedRole,
   getRouteAccess,
@@ -25,9 +36,12 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("checking");
   const [user, setUser] = useState<AuthUser | null>(null);
+  const sessionClearVersionRef = useRef(0);
 
   const clearSession = useCallback(() => {
+    sessionClearVersionRef.current += 1;
     setAccessToken(null);
+    broadcastAuthSessionCleared();
     setUser(null);
     setStatus("unauthenticated");
   }, []);
@@ -52,19 +66,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let canceled = false;
 
     async function restoreSession() {
-      if (!getAccessToken()) {
-        setUser(null);
-        setStatus("unauthenticated");
-        return;
-      }
+      const restoreVersion = sessionClearVersionRef.current;
 
       try {
-        const currentUser = await fetchCurrentUser();
-        if (canceled) return;
-        setUser(currentUser);
+        const existingToken = getAccessToken();
+        const session = existingToken ? { user: await fetchCurrentUser() } : await refreshAuthSession();
+        if (canceled || sessionClearVersionRef.current !== restoreVersion) return;
+        setUser(session.user);
         setStatus("authenticated");
       } catch {
-        if (canceled) return;
+        if (canceled || sessionClearVersionRef.current !== restoreVersion) return;
         setAccessToken(null);
         setUser(null);
         setStatus("unauthenticated");
@@ -80,12 +91,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     function handleSessionCleared() {
+      sessionClearVersionRef.current += 1;
       setUser(null);
       setStatus("unauthenticated");
     }
 
     window.addEventListener(AUTH_SESSION_CLEARED_EVENT, handleSessionCleared);
     return () => window.removeEventListener(AUTH_SESSION_CLEARED_EVENT, handleSessionCleared);
+  }, []);
+
+  useEffect(() => {
+    function handleCrossTabSessionCleared(event: StorageEvent) {
+      if (event.key !== AUTH_SESSION_CLEARED_STORAGE_KEY || !event.newValue) return;
+
+      sessionClearVersionRef.current += 1;
+      setAccessToken(null);
+      setUser(null);
+      setStatus("unauthenticated");
+    }
+
+    window.addEventListener("storage", handleCrossTabSessionCleared);
+    return () => window.removeEventListener("storage", handleCrossTabSessionCleared);
   }, []);
 
   const value = useMemo<AuthContextValue>(

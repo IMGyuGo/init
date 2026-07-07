@@ -4,6 +4,7 @@ import { getApiBaseUrl } from "./api-base-url";
 
 const TOKEN_KEY = "init.accessToken";
 export const AUTH_SESSION_CLEARED_EVENT = "init:auth-session-cleared";
+export const AUTH_SESSION_CLEARED_STORAGE_KEY = "init.authSessionClearedAt";
 
 export type UserType = "COMPANY" | "CANDIDATE";
 export type AuthUserType = "ADMIN" | UserType;
@@ -55,6 +56,16 @@ export function setAccessToken(token: string | null) {
 
   window.sessionStorage.removeItem(TOKEN_KEY);
   window.dispatchEvent(new Event(AUTH_SESSION_CLEARED_EVENT));
+}
+
+export function broadcastAuthSessionCleared() {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(AUTH_SESSION_CLEARED_STORAGE_KEY, `${Date.now()}:${Math.random()}`);
+  } catch {
+    // Some browsers can block localStorage; current-tab logout should still succeed.
+  }
 }
 
 export function getDefaultEntryPath(userType: "COMPANY"): "/company/applications/dashboard";
