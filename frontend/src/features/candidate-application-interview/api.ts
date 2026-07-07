@@ -109,7 +109,7 @@ export interface CandidateDocumentPolicy {
   allowedMimeTypes: string[];
   maxSizeBytes: number;
   storageKeyPrefix: string;
-  metadataOnly: true;
+  metadataOnly: boolean;
 }
 
 export interface CandidateApplyView {
@@ -757,6 +757,7 @@ export const publicInterviewApiPaths = {
   stt: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/stt`,
   realtimeSession: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/realtime-session`,
   followUpQuestion: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/follow-up-question`,
+  followUpQuestionInsert: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/follow-up-questions/insert`,
 } as const;
 
 export class CandidateApiError extends Error {
@@ -843,7 +844,7 @@ export interface CandidateApiClient {
   getApplicationReport(applicationId: number): Promise<ApiResponse<CandidateRecruitingReportView>>;
   requestApplicationReportGeneration(applicationId: number): Promise<ApiResponse<CandidateReportGenerationHandoff>>;
   getApplicationStatus(applicationId: number): Promise<ApiResponse<CandidateApplicationStatusView>>;
-  uploadResume(body: UploadResumeRequest): Promise<ApiResponse<CandidateFileAsset>>;
+  uploadResume(input: File | UploadResumeRequest): Promise<ApiResponse<CandidateFileAsset>>;
   createPortfolioLink(
     body: CreatePortfolioLinkRequest,
   ): Promise<ApiResponse<CandidatePortfolioLink>>;
@@ -866,6 +867,8 @@ export type InterviewRuntimeApiClient = Pick<
   | "createRecruitingRealtimeSession"
   | "requestMockFollowUpQuestion"
   | "requestRecruitingFollowUpQuestion"
+  | "insertMockFollowUpQuestion"
+  | "insertRecruitingFollowUpQuestion"
 >;
 
 export interface PublicInterviewApiClient extends InterviewRuntimeApiClient {
@@ -1050,11 +1053,18 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
       }),
     getApplicationStatus: (applicationId) =>
       request<ApiResponse<CandidateApplicationStatusView>>(candidateApiPaths.applicationStatus(applicationId)),
-    uploadResume: (body) =>
-      request<ApiResponse<CandidateFileAsset>>(candidateApiPaths.resume, {
+    uploadResume: (input) => {
+      if (typeof File !== "undefined" && input instanceof File) {
+        const formData = new FormData();
+        formData.append("file", input);
+        return requestFormData<ApiResponse<CandidateFileAsset>>(candidateApiPaths.resume, formData);
+      }
+
+      return request<ApiResponse<CandidateFileAsset>>(candidateApiPaths.resume, {
         method: "POST",
-        body: JSON.stringify(body),
-      }),
+        body: JSON.stringify(input),
+      });
+    },
     createPortfolioLink: (body) =>
       request<ApiResponse<CandidatePortfolioLink>>(candidateApiPaths.portfolioLinks, {
         method: "POST",
@@ -1161,12 +1171,18 @@ export function createPublicInterviewApiClient(
         method: "POST",
         body: JSON.stringify(body),
       }),
+    insertRecruitingFollowUpQuestion: (sessionId, body) =>
+      request<ApiResponse<InsertFollowUpQuestionResponse>>(publicInterviewApiPaths.followUpQuestionInsert(sessionId), {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
     saveMockAnswer: unsupportedMockMethod,
     moveMockNextQuestion: unsupportedMockMethod,
     completeMockInterview: unsupportedMockMethod,
     requestMockStt: unsupportedMockMethod,
     createMockRealtimeSession: unsupportedMockMethod,
     requestMockFollowUpQuestion: unsupportedMockMethod,
+    insertMockFollowUpQuestion: unsupportedMockMethod,
   };
 }
 

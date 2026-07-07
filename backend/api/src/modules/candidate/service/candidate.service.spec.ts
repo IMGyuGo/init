@@ -5,6 +5,7 @@ import {
   CandidateService,
   DEV_CANDIDATE_USER,
 } from "./candidate.service";
+import { InMemoryCandidateDocumentStorageAdapter } from "./candidate-document-storage.adapter";
 import { createCandidateValidationException } from "../candidate.validation";
 import { InMemoryCandidateRepository } from "../repository/in-memory-candidate.repository";
 
@@ -229,7 +230,7 @@ async function run() {
   assert.equal(applyView.data.job.jobId, 2);
   assert.equal(applyView.data.job.companyLogoUrl, null);
   assert.equal(applyView.data.documentPolicy.storageProvider, "S3");
-  assert.equal(applyView.data.documentPolicy.metadataOnly, true);
+  assert.equal(applyView.data.documentPolicy.metadataOnly, false);
   assert.equal(applyView.data.documentPolicy.maxSizeBytes, 20 * 1024 * 1024);
   assert.equal(applyView.data.documentPolicy.storageKeyPrefix, "candidate/1/");
   assert.deepEqual(applyView.data.requiredConsentTypes, ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"]);
@@ -350,6 +351,39 @@ async function run() {
   assert.equal("content" in resume.data, false);
   assert.equal("buffer" in resume.data, false);
   assert.equal("base64" in resume.data, false);
+
+  const documentStorage = new InMemoryCandidateDocumentStorageAdapter();
+  const uploadService = new CandidateService(new InMemoryCandidateRepository(), documentStorage);
+  const uploadedResume = await uploadService.uploadResumeFile({
+    originalName: "uploaded-resume.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 1000,
+    buffer: Buffer.from("pdf"),
+  }, currentUser);
+  assert.match(uploadedResume.data.storageKey, /^candidate\/1\/documents\/\d+-uploaded-resume\.pdf$/);
+  assert.equal(documentStorage.objects[0]?.key, uploadedResume.data.storageKey);
+  assert.equal(documentStorage.objects[0]?.contentType, "application/pdf");
+
+  const originalNodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = "production";
+  try {
+    await assert.rejects(
+      () =>
+        service.uploadResume({
+          storageKey: "candidate/1/metadata-only.pdf",
+          originalName: "metadata-only.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 1000,
+        }, currentUser),
+      (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
+    );
+  } finally {
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  }
 
   await assert.rejects(
     () =>

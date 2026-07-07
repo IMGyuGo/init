@@ -10,6 +10,18 @@ The first layer is intentionally adapter-based:
 - `AiWorkerLoop` polls SQS in a long-running process and exits on SIGINT/SIGTERM.
 - task handlers do the actual document/STT/follow-up/report/posting draft/embedding work.
 
+Production SQS contract:
+
+- AWS production uses SQS Standard Queue, not FIFO. AI jobs are independent by
+  `processLogId`; queue ordering is not a correctness requirement.
+- SQS Standard can redeliver a message. Treat `processLogId` as the idempotency
+  key and skip expensive AI provider calls when a redelivered job is already
+  `COMPLETED`.
+- Long-running jobs must either finish within the queue visibility timeout or
+  extend it with `ChangeMessageVisibility` heartbeat. Do not connect real AI
+  provider traffic until heartbeat and duplicate `processLogId` claim/skip tests
+  are present.
+
 Runtime commands:
 
 - `npm run build`

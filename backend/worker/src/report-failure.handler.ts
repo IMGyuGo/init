@@ -5,6 +5,8 @@ interface ReportJobInput {
   payload?: {
     reportId?: unknown;
     reportType?: unknown;
+    applicationId?: unknown;
+    sessionId?: unknown;
     documentId?: unknown;
     fileId?: unknown;
   };
@@ -77,6 +79,8 @@ function failedReportFromJob(job: AiWorkerJob, failure: FailureReason): FailedRe
     return {
       reportId,
       reportType,
+      ...positiveRef(input.payload?.applicationId, "applicationId"),
+      ...positiveRef(input.payload?.sessionId, "sessionId"),
       failureCategory: failure.category,
       failureReason: failure.reason
     };
@@ -87,4 +91,9 @@ function failedReportFromJob(job: AiWorkerJob, failure: FailureReason): FailedRe
 
 function isReportType(value: unknown): value is FailedReportRecord["reportType"] {
   return value === "RECRUITING_REPORT" || value === "MOCK_INTERVIEW_REPORT";
+}
+
+function positiveRef(value: unknown, key: "applicationId" | "sessionId"): Partial<Pick<FailedReportRecord, "applicationId" | "sessionId">> {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? { [key]: parsed } : {};
 }

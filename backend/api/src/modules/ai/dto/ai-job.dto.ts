@@ -41,10 +41,10 @@ export class DocumentExtractRequestDto {
   @Min(1)
   fileId!: number;
 
-  @ApiProperty({ example: "candidate/4/resume.pdf" })
+  @ApiPropertyOptional({ example: "candidate/4/resume.pdf" })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  s3Key!: string;
+  s3Key?: string;
 }
 
 export class SttRequestDto {
@@ -58,10 +58,10 @@ export class SttRequestDto {
   @Min(1)
   audioFileId!: number;
 
-  @ApiProperty({ example: "candidate/4/answer-10.wav" })
+  @ApiPropertyOptional({ example: "candidate/4/answer-10.wav" })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  audioS3Key!: string;
+  audioS3Key?: string;
 
   @ApiPropertyOptional({ example: 42 })
   @IsOptional()

@@ -1,6 +1,6 @@
 const DEFAULT_API_BASE_URL = "http://localhost:3001";
 
-type BrowserLocationLike = Pick<Location, "hostname" | "protocol">;
+type BrowserLocationLike = Pick<Location, "hostname" | "protocol"> & Partial<Pick<Location, "origin">>;
 
 export function getApiBaseUrl() {
   return resolveApiBaseUrl(
@@ -19,6 +19,10 @@ export function resolveApiBaseUrl(configuredBaseUrl?: string, browserLocation?: 
     const url = new URL(baseUrl);
     if (!isLoopbackHost(url.hostname)) {
       return baseUrl;
+    }
+
+    if (browserLocation.protocol === "https:") {
+      return normalizeBaseUrl(browserLocation.origin ?? `${browserLocation.protocol}//${browserLocation.hostname}`);
     }
 
     url.hostname = browserLocation.hostname;

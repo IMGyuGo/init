@@ -176,14 +176,14 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
         kind,
         payload: {
           ...payload,
-          summary: formatReportSummary(generated)
+          summary: formatReportSummary(generated, reportType)
         }
       })
     });
 
     return {
       ...fallbackResult,
-      outputRef: appendReportProviderMetadata(fallbackResult.outputRef, generated),
+      outputRef: appendReportProviderMetadata(fallbackResult.outputRef, generated, reportType),
       usage: createAiProcessUsage({
         modelName: generated.model,
         inputTokens: generated.usage?.inputTokens,
@@ -300,13 +300,26 @@ function stringArrayOf(value: unknown, name: string): string[] {
     .filter((item) => item.length > 0);
 }
 
-function formatReportSummary(generated: ReportGenerationResult): string {
-  return [generated.summary, generated.feedback ? `다음 연습 피드백: ${generated.feedback}` : undefined]
+function formatReportSummary(
+  generated: ReportGenerationResult,
+  reportType: "RECRUITING_REPORT" | "MOCK_INTERVIEW_REPORT"
+): string {
+  const trailingNote = generated.feedback
+    ? reportType === "RECRUITING_REPORT"
+      ? `기업 검토 포인트: ${generated.feedback}`
+      : `다음 연습 피드백: ${generated.feedback}`
+    : undefined;
+
+  return [generated.summary, trailingNote]
     .filter((value): value is string => Boolean(value))
     .join("\n\n");
 }
 
-function appendReportProviderMetadata(outputRef: string | undefined, generated: ReportGenerationResult): string | undefined {
+function appendReportProviderMetadata(
+  outputRef: string | undefined,
+  generated: ReportGenerationResult,
+  reportType: "RECRUITING_REPORT" | "MOCK_INTERVIEW_REPORT"
+): string | undefined {
   if (!outputRef) {
     return outputRef;
   }
@@ -317,7 +330,9 @@ function appendReportProviderMetadata(outputRef: string | undefined, generated: 
       ...output,
       summarySource: "OPENAI_REPORT_GENERATION",
       model: generated.model,
-      reportFeedback: generated.feedback
+      ...(reportType === "RECRUITING_REPORT"
+        ? { reportReviewNote: generated.feedback }
+        : { reportFeedback: generated.feedback })
     });
   } catch {
     return outputRef;

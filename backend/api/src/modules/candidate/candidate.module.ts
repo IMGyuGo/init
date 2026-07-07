@@ -4,6 +4,7 @@ import { AuthModule } from "../auth/auth.module";
 import { CandidateController } from "./controller/candidate.controller";
 import { InMemoryCandidateRepository } from "./repository/in-memory-candidate.repository";
 import { PrismaCandidateRepository } from "./repository/prisma-candidate.repository";
+import { CANDIDATE_DOCUMENT_STORAGE, S3CandidateDocumentStorageAdapter } from "./service/candidate-document-storage.adapter";
 import { CANDIDATE_REPOSITORY, CandidateService } from "./service/candidate.service";
 
 @Module({
@@ -22,6 +23,10 @@ import { CANDIDATE_REPOSITORY, CandidateService } from "./service/candidate.serv
         }
         return new PrismaCandidateRepository(prisma);
       },
+    },
+    {
+      provide: CANDIDATE_DOCUMENT_STORAGE,
+      useClass: S3CandidateDocumentStorageAdapter,
     },
     CandidateService,
   ],

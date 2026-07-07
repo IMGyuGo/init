@@ -103,6 +103,10 @@ export type ApplicantRecord = {
     answers?: Array<{
       answerId: number;
       questionId: number | null;
+      videoFileId: number | null;
+      audioFileId: number | null;
+      videoFile: CompanyFileAssetRecord | null;
+      audioFile: CompanyFileAssetRecord | null;
       questionType: string | null;
       questionContent: string | null;
       transcript: string | null;
@@ -115,6 +119,10 @@ export type ApplicantRecord = {
         policy: string;
         answer: {
           answerId: number;
+          videoFileId: number | null;
+          audioFileId: number | null;
+          videoFile: CompanyFileAssetRecord | null;
+          audioFile: CompanyFileAssetRecord | null;
           transcript: string | null;
           durationSeconds: number | null;
           submittedAt: Date | null;

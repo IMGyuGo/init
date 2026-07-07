@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import { CandidateJobListQueryDto } from "../dto/candidate-job-list-query.dto";
 import { CreatePortfolioLinkDto } from "../dto/create-portfolio-link.dto";
 import { SaveInterviewConsentDto } from "../dto/save-interview-consent.dto";
@@ -6,6 +6,11 @@ import { SubmitApplicationDto } from "../dto/submit-application.dto";
 import { UploadResumeDto } from "../dto/upload-resume.dto";
 import { FORBIDDEN_FILE_PAYLOAD_FIELDS } from "../candidate.constants";
 import { CandidateDomainError } from "../candidate.errors";
+import {
+  CANDIDATE_DOCUMENT_STORAGE,
+  CandidateDocumentStoragePort,
+  InMemoryCandidateDocumentStorageAdapter,
+} from "./candidate-document-storage.adapter";
 import {
   ApiListResponse,
   ApiResponse,
@@ -32,7 +37,7 @@ import {
   StartInterviewResult,
 } from "../candidate.types";
 
-const MAX_DOCUMENT_SIZE_BYTES = 20 * 1024 * 1024;
+export const MAX_DOCUMENT_SIZE_BYTES = 20 * 1024 * 1024;
 const MAX_INTERVIEW_MEDIA_SIZE_BYTES = 500 * 1024 * 1024;
 const REQUIRED_APPLICATION_CONSENTS = ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"] as const;
 const REQUIRED_INTERVIEW_CONSENTS = [
@@ -72,6 +77,13 @@ interface NormalizedCandidateJobListQuery {
   order: CandidateListSortOrder;
 }
 
+interface UploadedCandidateDocumentFile {
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  buffer: Buffer;
+}
+
 export const CANDIDATE_REPOSITORY = Symbol("CANDIDATE_REPOSITORY");
 
 export { CandidateDomainError } from "../candidate.errors";
@@ -79,7 +91,12 @@ export { DEV_CANDIDATE_USER } from "../candidate.constants";
 
 @Injectable()
 export class CandidateService {
-  constructor(@Inject(CANDIDATE_REPOSITORY) private readonly repository: CandidateRepository) {}
+  constructor(
+    @Inject(CANDIDATE_REPOSITORY) private readonly repository: CandidateRepository,
+    @Optional()
+    @Inject(CANDIDATE_DOCUMENT_STORAGE)
+    private readonly documentStorage: CandidateDocumentStoragePort = new InMemoryCandidateDocumentStorageAdapter(),
+  ) {}
 
   async listJobs(
     query: CandidateJobListQueryDto,
@@ -122,7 +139,7 @@ export class CandidateService {
         allowedMimeTypes: this.allowedDocumentMimeTypes(),
         maxSizeBytes: MAX_DOCUMENT_SIZE_BYTES,
         storageKeyPrefix: `candidate/${currentUser.candidateId}/`,
-        metadataOnly: true,
+        metadataOnly: false,
       },
       requiredConsentTypes: [...REQUIRED_APPLICATION_CONSENTS],
       portfolioRequired: true,
@@ -177,12 +194,44 @@ export class CandidateService {
     this.assertFileAssetMetadataOnly(dto);
     this.assertDocumentFile(dto.mimeType, dto.sizeBytes);
     this.assertObjectStorageKey(dto.storageKey, currentUser.candidateId);
+    this.assertMetadataOnlyUploadAllowed();
     const fileAsset = await this.repository.createFileAsset({
       ownerUserId: currentUser.userId,
       storageKey: dto.storageKey,
       originalName: dto.originalName,
       mimeType: dto.mimeType,
       sizeBytes: dto.sizeBytes,
+    });
+
+    return this.envelope(fileAsset);
+  }
+
+  async uploadResumeFile(
+    file: UploadedCandidateDocumentFile | undefined,
+    currentUser: CurrentCandidateUser,
+  ): Promise<ApiResponse<FileAsset>> {
+    if (!file) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "Resume file is required.", 400, [
+        { field: "file", reason: "multipart file is required" },
+      ]);
+    }
+
+    this.assertDocumentFile(file.mimeType, file.sizeBytes);
+    const storageKey = this.buildCandidateDocumentStorageKey(currentUser.candidateId, file.originalName);
+
+    await this.documentStorage.putObject({
+      key: storageKey,
+      body: file.buffer,
+      contentLength: file.sizeBytes,
+      contentType: file.mimeType,
+    });
+
+    const fileAsset = await this.repository.createFileAsset({
+      ownerUserId: currentUser.userId,
+      storageKey,
+      originalName: file.originalName,
+      mimeType: file.mimeType,
+      sizeBytes: file.sizeBytes,
     });
 
     return this.envelope(fileAsset);
@@ -454,6 +503,41 @@ export class CandidateService {
     }
 
     return { application, session, job };
+  }
+
+  async buildDocumentExtractAiPayload(
+    input: { applicationId: number; documentId: number; fileId: number },
+    currentUser: CurrentCandidateUser,
+  ): Promise<Record<string, unknown>> {
+    this.assertPositiveIntegerId(input.applicationId, "applicationId");
+    this.assertPositiveIntegerId(input.documentId, "documentId");
+    this.assertPositiveIntegerId(input.fileId, "fileId");
+
+    const application = await this.getOwnedApplication(input.applicationId, currentUser);
+    const document = (await this.repository.listDocuments(application.applicationId)).find(
+      (candidateDocument) => candidateDocument.documentId === input.documentId,
+    );
+    if (!document) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "Application document was not found.", 404, [
+        { field: "documentId", reason: "document not found for application" },
+      ]);
+    }
+    if (document.fileId !== input.fileId) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "File asset does not belong to the selected document.", 409, [
+        { field: "fileId", reason: "fileId must match the application document" },
+      ]);
+    }
+
+    const fileAsset = await this.assertFileAssetForCurrentUser(input.fileId, currentUser.userId, "fileId");
+    this.assertDocumentFile(fileAsset.mimeType, fileAsset.sizeBytes);
+    this.assertObjectStorageKey(fileAsset.storageKey, currentUser.candidateId);
+
+    return {
+      applicationId: application.applicationId,
+      documentId: document.documentId,
+      fileId: fileAsset.fileId,
+      s3Key: fileAsset.storageKey,
+    };
   }
 
   async createInterviewFileAsset(
@@ -1170,6 +1254,28 @@ export class CandidateService {
         { field: forbiddenField, reason: "raw file payload must be uploaded to object storage first" },
       ]);
     }
+  }
+
+  private assertMetadataOnlyUploadAllowed(): void {
+    if (process.env.NODE_ENV !== "production") {
+      return;
+    }
+
+    throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "Production resume upload must use multipart file upload.", 400, [
+      { field: "file", reason: "multipart file is required in production" },
+    ]);
+  }
+
+  private buildCandidateDocumentStorageKey(candidateId: number, originalName: string): string {
+    const safeName =
+      originalName
+        .replace(/\\/g, "/")
+        .split("/")
+        .pop()
+        ?.replace(/[^a-zA-Z0-9._-]/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "") || "resume";
+    return `candidate/${candidateId}/documents/${Date.now()}-${safeName}`;
   }
 
   private assertObjectStorageKey(storageKey: string, candidateId: number): void {

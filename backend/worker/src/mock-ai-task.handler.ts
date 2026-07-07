@@ -383,6 +383,8 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const report: GeneratedReportRecord = {
       reportId,
       reportType,
+      applicationId: optionalPositiveNumber(payload.applicationId, "applicationId"),
+      sessionId: optionalPositiveNumber(payload.sessionId, "sessionId"),
       summary,
       totalScore,
       scores,
@@ -661,12 +663,12 @@ export class MockAiTaskHandler implements AiTaskHandler {
         {
           sourceType: "INTERVIEW_ANSWER",
           answerId: answer.answerId,
-          text: answerEvidenceText(answer)
+          text: answerEvidenceText(answer, "면접 답변", context.reportType)
         },
         ...supportingFollowUps.map((followUp) => ({
           sourceType: "INTERVIEW_ANSWER" as const,
           answerId: followUp.answerId,
-          text: answerEvidenceText(followUp, "꼬리질문 답변")
+          text: answerEvidenceText(followUp, "꼬리질문 답변", context.reportType)
         })),
         ...(documentText?.trim()
           ? [
@@ -682,7 +684,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
         criterionId: criterion.criterionId,
         criterionName,
         score,
-        rationale: scoreRationale(criterionName, score, transcriptForScoring, structured, quality.reasons),
+        rationale: scoreRationale(criterionName, score, transcriptForScoring, structured, quality.reasons, context.reportType),
         rubricAnchor: structured.rubricAnchor,
         confidence,
         uncertaintyReasons,
@@ -1076,21 +1078,41 @@ function answerQualityAdjustment(
 ): { maxScore: number; reasons: string[]; forceLowConfidence: boolean } {
   const normalized = normalizeSpace(transcript);
   const reasons: string[] = [];
-  let maxScore = 86;
+  const isRecruitingReport = context.reportType === "RECRUITING_REPORT";
+  let maxScore = isRecruitingReport ? 82 : 86;
   let forceLowConfidence = false;
+  const hasConcreteResult = /(결과|성과|완료|통과|해결했|해결했습니다|안정화|확인했|확인했습니다|줄였|감소|증가|수치|전후|%|\d)/.test(normalized);
+  const hasOwnedAction = /(제가|저는|직접|맡았|맡고|담당했|담당하고|구현했|구현했습니다|설계했|설계했습니다|분석했|분석했습니다|확인했|확인했습니다|검증했|검증했습니다|수정했|수정했습니다|연결했|연결했습니다|나누었|나눴|비교했|비교했습니다|도입했|도입했습니다|처리했|처리했습니다)/.test(normalized);
 
   if (normalized.length < 30) {
-    maxScore = Math.min(maxScore, 55);
+    maxScore = Math.min(maxScore, isRecruitingReport ? 50 : 55);
     reasons.push("답변이 매우 짧아 평가 근거가 부족합니다.");
     forceLowConfidence = true;
   } else if (normalized.length < 80) {
-    maxScore = Math.min(maxScore, 68);
+    maxScore = Math.min(maxScore, isRecruitingReport ? 62 : 68);
     reasons.push("답변 길이가 짧아 상황, 행동, 결과를 모두 확인하기 어렵습니다.");
   }
 
   if (looksLikeNoisyTranscript(normalized)) {
-    maxScore = Math.min(maxScore, 72);
+    maxScore = Math.min(maxScore, isRecruitingReport ? 62 : 72);
     reasons.push("STT에서 어색하게 인식된 표현이 있어 핵심 근거를 보수적으로 평가했습니다.");
+    forceLowConfidence = isRecruitingReport || forceLowConfidence;
+  }
+
+  if (isRecruitingReport && looksLowInformationRecruitingAnswer(normalized, hasOwnedAction, hasConcreteResult)) {
+    maxScore = Math.min(maxScore, 58);
+    reasons.push("답변이 모호해 직무 역량을 판단할 수 있는 구체 근거가 제한적입니다.");
+    forceLowConfidence = true;
+  }
+
+  if (isRecruitingReport && !hasOwnedAction) {
+    maxScore = Math.min(maxScore, 66);
+    reasons.push("본인이 직접 맡은 행동이 충분히 구체적으로 드러나지 않습니다.");
+  }
+
+  if (isRecruitingReport && !hasConcreteResult) {
+    maxScore = Math.min(maxScore, 72);
+    reasons.push("성과나 결과가 수치, 전후 비교, 완료 기준으로 충분히 제시되지 않았습니다.");
   }
 
   if (
@@ -1098,7 +1120,7 @@ function answerQualityAdjustment(
     criterionName === "직무 적합성" &&
     !hasKeywordOverlap(normalized, context.jobDescription)
   ) {
-    maxScore = Math.min(maxScore, 68);
+    maxScore = Math.min(maxScore, 64);
     reasons.push("JD와 직접 연결되는 기술, 역할, 업무 키워드가 충분히 드러나지 않았습니다.");
   }
 
@@ -1108,6 +1130,13 @@ function answerQualityAdjustment(
 function looksLikeNoisyTranscript(value: string): boolean {
   const fillerCount = (value.match(/(저기|그거|이거|그럼|음|어|뭐|그냥|약간|좀)/g) ?? []).length;
   return fillerCount >= 4 || STT_NOISE_TERMS.some((term) => value.includes(term));
+}
+
+function looksLowInformationRecruitingAnswer(value: string, hasOwnedAction: boolean, hasConcreteResult: boolean): boolean {
+  const vaguePhraseCount = (value.match(/(것 같습니다|잘 모르|아무튼|그런 것|이런 상황|그냥|약간|좀|뭐)/g) ?? []).length;
+  const shortWithoutStructure = value.length < 120 && (!hasOwnedAction || !hasConcreteResult);
+  const noActionAndNoResult = !hasOwnedAction && !hasConcreteResult;
+  return noActionAndNoResult || (shortWithoutStructure && (looksLikeNoisyTranscript(value) || vaguePhraseCount > 0));
 }
 
 function hasKeywordOverlap(transcript: string, jobDescription?: string): boolean {
@@ -1126,9 +1155,31 @@ function keywordTokens(value: string): string[] {
     .filter((token) => token.length >= 2 && !COMMON_KEYWORDS.has(token));
 }
 
-function answerEvidenceText(answer: ReportAnswerForScoring, label = "면접 답변"): string {
+function answerEvidenceText(
+  answer: ReportAnswerForScoring,
+  label = "면접 답변",
+  reportType: "RECRUITING_REPORT" | "MOCK_INTERVIEW_REPORT" = "MOCK_INTERVIEW_REPORT"
+): string {
   const question = answer.question ? `질문: ${answer.question}` : undefined;
-  return [question, `${label}: ${answer.transcript}`].filter((value): value is string => Boolean(value)).join("\n");
+  if (reportType !== "RECRUITING_REPORT") {
+    return [question, `${label}: ${answer.transcript}`].filter((value): value is string => Boolean(value)).join("\n");
+  }
+
+  return [
+    question,
+    `${label}: 답변 #${answer.answerId}에서 ${evidenceFocus(answer.transcript)} 확인했습니다.`,
+    "원문과 녹화는 기업 평가 상세의 답변 영역에서 확인할 수 있습니다."
+  ].filter((value): value is string => Boolean(value)).join("\n");
+}
+
+function evidenceFocus(transcript: string): string {
+  const normalized = normalizeSpace(transcript);
+  const parts = [
+    /(맡|담당|제가|저는)/.test(normalized) ? "본인 역할" : undefined,
+    /(구현|설계|분석|확인|검증|수정|연결|비교|분리)/.test(normalized) ? "수행 과정" : undefined,
+    /(결과|완료|통과|개선|안정화|수치|전후|\d)/.test(normalized) ? "결과 근거" : undefined,
+  ].filter((value): value is string => Boolean(value));
+  return parts.length > 0 ? parts.join(", ") : "질문과 연결되는 답변 근거";
 }
 
 function uniqueStrings(values: string[]): string[] {
@@ -1145,6 +1196,15 @@ const STT_NOISE_TERMS = [
   "인터뷰 애널",
   "파일 레스셋",
   "동계",
+  "인진",
+  "전자인",
+  "익사구",
+  "제이콥",
+  "못해주지마",
+  "자기 나이",
+  "수능까지",
+  "하위로",
+  "조서",
 ];
 
 const COMMON_KEYWORDS = new Set([
@@ -1322,40 +1382,94 @@ function scoreRationale(
   score: number,
   _transcript: string,
   assessment: ReturnType<typeof structuredAssessment>,
-  qualityReasons: string[] = []
+  qualityReasons: string[] = [],
+  reportType: "RECRUITING_REPORT" | "MOCK_INTERVIEW_REPORT" = "MOCK_INTERVIEW_REPORT"
 ): string {
   const band = scoreBandFor(score);
   const primaryCaveat = qualityReasons[0] ?? assessment.uncertaintyReasons[0];
-  const improvement = primaryCaveat
-    ? `${primaryCaveat} 다음 답변에서는 상황, 본인 행동, 결과를 한 번 더 분리해서 말하면 좋습니다.`
-    : "행동과 결과가 함께 제시되어 답변 근거의 신뢰도가 비교적 높습니다.";
+  const trailingNote = reportType === "RECRUITING_REPORT"
+    ? companyReviewPoint(criterionName, primaryCaveat)
+    : primaryCaveat
+      ? `${primaryCaveat} 다음 답변에서는 상황, 본인 행동, 결과를 한 번 더 분리해서 말하면 좋습니다.`
+      : "행동과 결과가 함께 제시되어 답변 근거의 신뢰도가 비교적 높습니다.";
   const subject = `${criterionName}${topicParticle(criterionName)}`;
 
+  if (reportType !== "RECRUITING_REPORT") {
+    if (criterionName === "직무 적합성") {
+      return `${subject} ${score}점(${band.label})입니다. JD와 연결되는 기술 경험과 역할 이해를 답변 근거로 확인했습니다. ${trailingNote}`;
+    }
+
+    if (criterionName === "문제 해결력") {
+      return `${subject} ${score}점(${band.label})입니다. 문제를 확인 가능한 단위로 나누고 원인을 좁혀 가는 접근이 보입니다. ${trailingNote}`;
+    }
+
+    if (criterionName === "실행력과 성과") {
+      return `${subject} ${score}점(${band.label})입니다. 직접 실행한 작업과 그 결과를 답변에서 확인했습니다. ${trailingNote}`;
+    }
+
+    if (criterionName === "학습 민첩성") {
+      return `${subject} ${score}점(${band.label})입니다. 새로 익힌 내용을 실제 문제에 적용한 흐름을 답변에서 확인했습니다. ${trailingNote}`;
+    }
+
+    if (criterionName === "커뮤니케이션") {
+      return `${subject} ${score}점(${band.label})입니다. 상황과 역할을 설명하는 흐름을 답변에서 확인했습니다. ${trailingNote}`;
+    }
+
+    if (criterionName === "성장 가능성") {
+      return `${subject} ${score}점(${band.label})입니다. 문제를 검증하고 다음 개선으로 이어가려는 태도를 답변 근거로 확인했습니다. ${trailingNote}`;
+    }
+
+    return `${subject} ${score}점(${band.label})입니다. 답변 흐름을 바탕으로 관련 역량을 평가했습니다. ${trailingNote}`;
+  }
+
   if (criterionName === "직무 적합성") {
-    return `${subject} ${score}점(${band.label})입니다. JD와 연결되는 기술 경험과 역할 이해를 답변 근거로 확인했습니다. ${improvement}`;
+    return `${subject} ${score}점(${band.label})입니다. JD 요구사항과 연결되는 기술 경험, 역할 범위, 업무 맥락을 중심으로 평가했습니다. ${trailingNote}`;
   }
 
   if (criterionName === "문제 해결력") {
-    return `${subject} ${score}점(${band.label})입니다. 문제를 확인 가능한 단위로 나누고 원인을 좁혀 가는 접근이 보입니다. ${improvement}`;
+    return `${subject} ${score}점(${band.label})입니다. 문제를 나누어 원인을 좁힌 과정과 검증 방식의 구체성을 중심으로 평가했습니다. ${trailingNote}`;
   }
 
   if (criterionName === "실행력과 성과") {
-    return `${subject} ${score}점(${band.label})입니다. 직접 실행한 작업과 그 결과를 답변에서 확인했습니다. ${improvement}`;
+    return `${subject} ${score}점(${band.label})입니다. 본인이 실행한 작업, 완료 기준, 결과나 개선 효과가 얼마나 분명한지 평가했습니다. ${trailingNote}`;
   }
 
   if (criterionName === "학습 민첩성") {
-    return `${subject} ${score}점(${band.label})입니다. 새로 익힌 내용을 실제 문제에 적용한 흐름을 답변에서 확인했습니다. ${improvement}`;
+    return `${subject} ${score}점(${band.label})입니다. 새로 익힌 내용을 실제 문제에 적용하고 재사용 가능한 방식으로 정리했는지 평가했습니다. ${trailingNote}`;
   }
 
   if (criterionName === "커뮤니케이션") {
-    return `${subject} ${score}점(${band.label})입니다. 상황과 역할을 설명하는 흐름을 답변에서 확인했습니다. ${improvement}`;
+    return `${subject} ${score}점(${band.label})입니다. 상황, 본인 역할, 조율 방식이 듣는 사람이 이해하기 쉬운 구조로 전달됐는지 평가했습니다. ${trailingNote}`;
   }
 
   if (criterionName === "성장 가능성") {
-    return `${subject} ${score}점(${band.label})입니다. 문제를 검증하고 다음 개선으로 이어가려는 태도를 답변 근거로 확인했습니다. ${improvement}`;
+    return `${subject} ${score}점(${band.label})입니다. 문제를 검증하고 회고와 다음 개선으로 이어가는 태도가 드러나는지 평가했습니다. ${trailingNote}`;
   }
 
-  return `${subject} ${score}점(${band.label})입니다. 답변 흐름을 바탕으로 관련 역량을 평가했습니다. ${improvement}`;
+  return `${subject} ${score}점(${band.label})입니다. 답변 흐름을 바탕으로 관련 역량을 평가했습니다. ${trailingNote}`;
+}
+
+function companyReviewPoint(criterionName: string, caveat?: string): string {
+  const prefix = caveat ? `${caveat} ` : "";
+  if (criterionName === "직무 적합성") {
+    return `${prefix}기업 검토 포인트는 JD 핵심 요구와 실제 담당 범위가 어느 정도 직접 연결되는지입니다.`;
+  }
+  if (criterionName === "문제 해결력") {
+    return `${prefix}기업 검토 포인트는 문제 원인 파악 방식과 재현 가능한 검증 절차가 충분한지입니다.`;
+  }
+  if (criterionName === "실행력과 성과") {
+    return `${prefix}기업 검토 포인트는 본인이 실행한 작업의 완료 기준과 결과 근거가 분명한지입니다.`;
+  }
+  if (criterionName === "학습 민첩성") {
+    return `${prefix}기업 검토 포인트는 새로 익힌 내용을 실제 업무 흐름에 적용하고 반복 가능하게 만들었는지입니다.`;
+  }
+  if (criterionName === "커뮤니케이션") {
+    return `${prefix}기업 검토 포인트는 상황, 역할, 협업 또는 조율 방식이 평가자가 이해할 수 있게 정리됐는지입니다.`;
+  }
+  if (criterionName === "성장 가능성") {
+    return `${prefix}기업 검토 포인트는 문제 해결 이후 회고와 재발 방지 관점까지 드러나는지입니다.`;
+  }
+  return `${prefix}기업 검토 포인트는 답변의 상황, 본인 행동, 결과 근거가 분리되어 확인되는지입니다.`;
 }
 
 function topicParticle(value: string): "은" | "는" {

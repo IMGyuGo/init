@@ -110,6 +110,19 @@
       "roles": ["D", "E"]
     },
     {
+      "name": "aws runtime readiness candidate upload and ai key bridge",
+      "patterns": [
+        "^backend/api/src/modules/candidate/candidate\\.module(\\.spec)?\\.ts$",
+        "^backend/api/src/modules/candidate/candidate\\.types\\.ts$",
+        "^backend/api/src/modules/candidate/controller/candidate\\.controller(\\.spec)?\\.ts$",
+        "^backend/api/src/modules/candidate/service/candidate\\.service(\\.spec)?\\.ts$",
+        "^backend/api/src/modules/candidate/service/candidate-document-storage\\.adapter\\.ts$",
+        "^backend/api/src/modules/interview/service/interview\\.service\\.ts$",
+        "^frontend/src/features/candidate-application-interview/(api|CandidatePages|documents-view|view-model)\\.(ts|tsx)$"
+      ],
+      "roles": ["A", "D", "E"]
+    },
+    {
       "name": "candidate interview AI bridge docs",
       "patterns": [
         "^docs/01_product/(screen-flow|feature-spec)\\.md$",

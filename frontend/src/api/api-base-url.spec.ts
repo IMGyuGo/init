@@ -29,3 +29,12 @@ expectEqual(
   }),
   "https://api.example.com",
 );
+
+expectEqual(
+  resolveApiBaseUrl("http://localhost:3001", {
+    protocol: "https:",
+    hostname: "init-jungle.cloud",
+    origin: "https://init-jungle.cloud",
+  }),
+  "https://init-jungle.cloud",
+);

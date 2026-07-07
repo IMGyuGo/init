@@ -3,7 +3,16 @@
 import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
-import { AUTH_SESSION_CLEARED_EVENT, AuthTokenResponse, AuthUser, fetchCurrentUser, getAccessToken, logoutAuthSession, setAccessToken } from "../../api/client";
+import {
+  AUTH_SESSION_CLEARED_EVENT,
+  AuthTokenResponse,
+  AuthUser,
+  fetchCurrentUser,
+  getAccessToken,
+  logoutAuthSession,
+  refreshAuthSession,
+  setAccessToken,
+} from "../../api/client";
 import {
   getRedirectForUnauthorizedRole,
   getRouteAccess,
@@ -42,20 +51,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [clearSession]);
 
+  const completeLogin = useCallback((session: AuthTokenResponse) => {
+    setAccessToken(session.accessToken);
+    setUser(session.user);
+    setStatus("authenticated");
+  }, []);
+
   useEffect(() => {
     let canceled = false;
 
     async function restoreSession() {
-      if (!getAccessToken()) {
-        setUser(null);
-        setStatus("unauthenticated");
-        return;
-      }
-
       try {
-        const currentUser = await fetchCurrentUser();
+        const existingToken = getAccessToken();
+        const session = existingToken ? { user: await fetchCurrentUser() } : await refreshAuthSession();
         if (canceled) return;
-        setUser(currentUser);
+        setUser(session.user);
         setStatus("authenticated");
       } catch {
         if (canceled) return;
@@ -86,17 +96,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       status,
       user,
-      completeLogin: (session) => {
-        setAccessToken(session.accessToken);
-        setUser(session.user);
-        setStatus("authenticated");
-      },
+      completeLogin,
       clearSession: () => {
         clearSession();
       },
       logout,
     }),
-    [clearSession, logout, status, user],
+    [clearSession, completeLogin, logout, status, user],
   );
 
   return (

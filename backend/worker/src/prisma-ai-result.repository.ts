@@ -17,6 +17,9 @@ import {
 } from "./ai-result.repository";
 
 interface PrismaAiResultClient {
+  application: {
+    updateMany(args: unknown): Promise<unknown>;
+  };
   applicationDocument: {
     updateMany(args: unknown): Promise<unknown>;
   };
@@ -177,6 +180,7 @@ export class PrismaAiResultRepository implements AiResultRepository {
     });
 
     await this.replaceReportScores(record.reportId, record.scores);
+    await this.updateApplicationReportStatus(record, "COMPLETED");
   }
 
   async markReportFailed(record: FailedReportRecord): Promise<void> {
@@ -195,6 +199,21 @@ export class PrismaAiResultRepository implements AiResultRepository {
         failureCategory: record.failureCategory,
         failureReason: record.failureReason
       }
+    });
+    await this.updateApplicationReportStatus(record, "FAILED");
+  }
+
+  private async updateApplicationReportStatus(
+    record: { applicationId?: number; reportType: "RECRUITING_REPORT" | "MOCK_INTERVIEW_REPORT" },
+    status: "COMPLETED" | "FAILED"
+  ): Promise<void> {
+    if (record.reportType !== "RECRUITING_REPORT" || !record.applicationId) {
+      return;
+    }
+
+    await this.prisma.application.updateMany({
+      where: { applicationId: BigInt(record.applicationId) },
+      data: { reportStatus: status }
     });
   }
 
