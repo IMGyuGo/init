@@ -127,7 +127,6 @@ import {
   toSaveInterviewAnswerRequest,
   toSaveInterviewConsentRequest,
   toStartMockInterviewRequest,
-  toUploadResumeRequest,
 } from "./view-model";
 import { AI_PERFORMANCE_ROUTE, candidateAccountBillingNav, candidateNavLabels, isCandidateAccountBillingPath } from "./candidate-nav-config";
 import { CandidateApplicationView, CandidateJobDetailView, CandidateJobsView } from "./views";
@@ -407,7 +406,6 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
 
 export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
   const router = useRouter();
-  const candidateId = getCurrentCandidateId();
   const [form, setForm] = useState<CandidateApplicationFormState>({
     ...defaultApplicationFormState,
     candidateName: "김지원",

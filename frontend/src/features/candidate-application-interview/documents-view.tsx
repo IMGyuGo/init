@@ -10,7 +10,6 @@ import {
   isAllowedCandidateDocumentMimeType,
   maxCandidateDocumentSizeBytes,
   toCreatePortfolioLinkRequest,
-  toUploadResumeRequest,
 } from "./view-model";
 
 export interface CandidateDocumentAssetsViewProps {
