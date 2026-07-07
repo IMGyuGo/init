@@ -371,16 +371,7 @@ export function CandidateJobsPage() {
 
   return (
     <CandidatePageShell active="jobs">
-      <section className="candidate-jobs-page glass-page" aria-labelledby="candidate-jobs-heading">
-        <div className="page-head">
-          <div>
-            <h1 id="candidate-jobs-heading">채용공고</h1>
-            <p className="page-sub">지원 가능한 채용공고를 기업 공고 목록과 같은 기준으로 확인합니다.</p>
-          </div>
-          <Link className="btn secondary" href={candidateApplicationInterviewRoutes.applications}>
-            지원현황
-          </Link>
-        </div>
+      <section className="candidate-jobs-page glass-page notion" aria-label="채용공고">
         <StatusNotice loading={loading} error={error} />
         <CandidateJobsView
           jobs={data?.data.items ?? []}
@@ -465,7 +456,7 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
 
   return (
     <CandidatePageShell active="jobs">
-      <section className="candidate-apply-shell glass-page">
+      <section className="candidate-apply-shell glass-page notion">
         {data ? (
           <CandidatePageHead
             eyebrow=""
@@ -513,7 +504,7 @@ export function CandidateApplicationsPage() {
 
   return (
     <CandidatePageShell active="applications">
-      <section className="candidate-applications-page glass-page">
+      <section className="candidate-applications-page glass-page notion">
         <CandidatePageHead
           eyebrow=""
           title="지원현황"
@@ -1194,7 +1185,7 @@ export function CandidateMockInterviewStartPage() {
 
   return (
     <CandidatePageShell active="interview">
-      <section className="candidate-mock-start-page glass-page">
+      <section className="candidate-mock-start-page glass-page notion">
         <CandidatePageHead
           eyebrow="모의면접"
           title="개인 연습용 AI 모의면접"
@@ -1648,7 +1639,7 @@ export function CandidateMyPage() {
 
   return (
     <CandidatePageShell active="accountBilling">
-      <section className="candidate-mypage">
+      <section className="candidate-mypage glass-page notion">
         <header className="candidate-mypage__head">
           <h1>지원자 마이페이지</h1>
           <p>이력서와 포트폴리오를 관리합니다.</p>
@@ -5216,7 +5207,7 @@ function CandidatePageShell({ active, children }: { active: CandidateNavSection;
   return (
     <main className="app-shell candidate-app">
       <CandidateNav active={active} />
-      <section className="app-page">{children}</section>
+      <section className="app-page glass-page notion">{children}</section>
     </main>
   );
 }
@@ -5232,13 +5223,17 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
     <header className="gnb">
       <div className="gnb-inner">
         <Link className="brand" href={candidateApplicationInterviewRoutes.jobs}>
-          <Image src="/logo-init.png" alt="init" width={1010} height={375} priority />
+          <Image src="/logo-init-v4.png" alt="init" width={1900} height={580} priority />
         </Link>
         <nav className="gnb-menu" aria-label="지원자 메뉴">
+          <div className={`gnb-item ${recruitingActive ? "active" : ""}`}>
+            <Link className="gnb-link" href={candidateApplicationInterviewRoutes.jobs} aria-current={recruitingActive ? "page" : undefined}>
+              채용공고
+            </Link>
+          </div>
           <div className={`gnb-item ${mockActive ? "active" : ""}`}>
             <Link className="gnb-link" href={candidateApplicationInterviewRoutes.mockInterviewStart} aria-current={mockActive ? "page" : undefined}>
               AI 모의면접
-              <span className="gnb-caret" aria-hidden="true">⌄</span>
             </Link>
             <div className="gnb-panel">
               <Link className={active === "interview" ? "active" : ""} href={candidateApplicationInterviewRoutes.mockInterviewStart}>
@@ -5249,24 +5244,9 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
               </Link>
             </div>
           </div>
-          <div className={`gnb-item ${recruitingActive ? "active" : ""}`}>
-            <Link className="gnb-link" href={candidateApplicationInterviewRoutes.jobs} aria-current={recruitingActive ? "page" : undefined}>
-              채용정보
-              <span className="gnb-caret" aria-hidden="true">⌄</span>
-            </Link>
-            <div className="gnb-panel">
-              <Link className={active === "jobs" ? "active" : ""} href={candidateApplicationInterviewRoutes.jobs}>
-                채용공고
-              </Link>
-              <Link className={active === "applications" ? "active" : ""} href={candidateApplicationInterviewRoutes.applications}>
-                지원현황
-              </Link>
-            </div>
-          </div>
           <div className={`gnb-item ${accountBillingActive ? "active" : ""}`}>
             <Link className="gnb-link" href={candidateApplicationInterviewRoutes.mypage} aria-current={accountBillingActive ? "page" : undefined}>
               {candidateNavLabels.accountBilling}
-              <span className="gnb-caret" aria-hidden="true">⌄</span>
             </Link>
             <div className="gnb-panel">
               {candidateAccountBillingNav.map((item) => (
@@ -5283,13 +5263,13 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
           </div>
         </nav>
         <div className="gnb-right">
-          <GnbLogoutButton />
           <button className="icon-btn" aria-label="알림" type="button">
             <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
               <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
             </svg>
           </button>
           <GnbAvatar accountLabel="지원자 계정" />
+          <GnbLogoutButton />
         </div>
       </div>
     </header>
