@@ -42,6 +42,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [clearSession]);
 
+  const completeLogin = useCallback((session: AuthTokenResponse) => {
+    setAccessToken(session.accessToken);
+    setUser(session.user);
+    setStatus("authenticated");
+  }, []);
+
   useEffect(() => {
     let canceled = false;
 
@@ -86,17 +92,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       status,
       user,
-      completeLogin: (session) => {
-        setAccessToken(session.accessToken);
-        setUser(session.user);
-        setStatus("authenticated");
-      },
+      completeLogin,
       clearSession: () => {
         clearSession();
       },
       logout,
     }),
-    [clearSession, logout, status, user],
+    [clearSession, completeLogin, logout, status, user],
   );
 
   return (
