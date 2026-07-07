@@ -488,7 +488,6 @@ export class CandidateService {
         ? session
         : await this.repository.updateInterviewSessionStatus(session.sessionId, "COMPLETED", now);
     await this.repository.updateApplicationInterviewStatus(application.applicationId, "COMPLETED");
-    await this.repository.updateApplicationReportStatus(application.applicationId, "GENERATING");
     return completedSession;
   }
 

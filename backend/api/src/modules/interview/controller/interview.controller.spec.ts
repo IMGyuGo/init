@@ -894,6 +894,7 @@ async function runControllerRuntimeAssertions() {
   const applications = await candidateService.listApplications(DEV_CANDIDATE_USER);
   assert.equal(applications.data.items[0]?.interviewStatus, "COMPLETED");
   assert.equal(applications.data.items[0]?.interviewSessionStatus, "COMPLETED");
+  assert.equal(applications.data.items[0]?.reportStatus, "PENDING");
 }
 
 test("interview controller contract", async () => {
