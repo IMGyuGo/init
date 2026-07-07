@@ -6,6 +6,9 @@ import { OpenAiAiTaskHandler } from "./openai-ai-task.handler";
 import { FollowUpAiProvider } from "./openai-follow-up.provider";
 import { PostingDraftAiProvider, PostingDraftGenerationInput } from "./openai-posting-draft.provider";
 import { ReportAiProvider, ReportGenerationInput } from "./openai-report.provider";
+import { InMemoryAiProcessLogRepository } from "./process-log.repository";
+import { InMemoryAiJobQueue } from "./queue";
+import { AiWorkerRunner } from "./worker-runner";
 
 const provider: FollowUpAiProvider = {
   async generateFollowUpQuestion() {
@@ -222,6 +225,65 @@ test("OpenAiAiTaskHandler uses provider for posting draft generation and keeps r
   assert.equal(results.generatedDrafts[0]?.postingDraft?.title, output.postingDraft?.title);
   assert.equal(results.generatedDrafts[0]?.reviewRequired, true);
   assert.equal(handled.guardrail?.result, "PASS");
+});
+
+test("OpenAiAiTaskHandler blocks unsafe posting draft language before final save", async () => {
+  const results = new InMemoryAiResultRepository();
+  const repository = new InMemoryAiProcessLogRepository();
+  const postingDraftProvider: PostingDraftAiProvider = {
+    async generatePostingDraft() {
+      return {
+        title: "젊고 에너지 넘치는 남성 백엔드 개발자 채용",
+        jobRole: "Backend Developer",
+        sections: {
+          positionDetail: "<p>합격 보장형 채용 공고입니다.</p>",
+          responsibilities: "<ul><li>NestJS API를 개발합니다.</li></ul>",
+          requirements: "<ul><li>명문대 졸업자, 20대 우대</li></ul>",
+          preferredQualifications: "<ul><li>PostgreSQL 운영 경험</li></ul>",
+          benefits: "<ul><li>무조건 성장할 수 있는 최고의 회사입니다.</li></ul>",
+          hiringProcess: "<ul><li>서류 검토</li></ul>"
+        },
+        tags: ["NestJS"],
+        model: "posting-draft-model"
+      };
+    }
+  };
+  const handler = new OpenAiAiTaskHandler(
+    new MockAiTaskHandler(results),
+    results,
+    provider,
+    undefined,
+    postingDraftProvider
+  );
+
+  await new AiWorkerRunner(
+    new InMemoryAiJobQueue([
+      {
+        messageId: "message-6",
+        receiptHandle: "receipt-6",
+        job: {
+          processLogId: 6,
+          processType: "POSTING_DRAFT_GENERATE",
+          attempt: 1,
+          inputRef: JSON.stringify({
+            kind: "POSTING_DRAFT_GENERATE",
+            payload: {
+              title: "2026 신입 백엔드 채용",
+              jobRole: "Backend Developer",
+              keywords: ["NestJS"]
+            }
+          })
+        }
+      }
+    ]),
+    repository,
+    handler
+  ).processBatch();
+
+  assert.equal(repository.get(6).status, "FAILED");
+  assert.equal(repository.guardrailLogs.at(-1)?.decision.result, "BLOCKED");
+  assert.match(repository.get(6).failure?.reason ?? "", /posting draft contains unsafe hiring language/);
+  assert.equal(results.generatedDrafts.length, 0);
 });
 
 test("OpenAiAiTaskHandler keeps mock report expression guardrail after provider output", async () => {
