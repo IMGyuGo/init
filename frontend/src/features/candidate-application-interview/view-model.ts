@@ -695,14 +695,65 @@ export function toSaveInterviewAnswerRequest(state: InterviewAnswerFormState): S
   };
 }
 
+const DEFAULT_RUNTIME_QUESTION_SPEECH_TEXT = "지원 직무와 관련된 경험을 구체적인 사례와 함께 말씀해주세요.";
+
 export function toRuntimeQuestionSpeechText(question: Pick<RuntimeQuestionView, "content" | "audioPrompt">): string {
-  const content = question.content?.trim();
+  const content = normalizeRuntimeQuestionSpeechText(question.content);
   if (content) return content;
 
   const audioPrompt = question.audioPrompt?.trim();
-  if (!audioPrompt) return "질문을 준비 중입니다.";
-  if (audioPrompt.startsWith("audio://")) return "음성 질문을 듣고 답변해주세요.";
-  return audioPrompt;
+  if (!audioPrompt || audioPrompt.startsWith("audio://")) return DEFAULT_RUNTIME_QUESTION_SPEECH_TEXT;
+
+  return normalizeRuntimeQuestionSpeechText(audioPrompt) || DEFAULT_RUNTIME_QUESTION_SPEECH_TEXT;
+}
+
+function normalizeRuntimeQuestionSpeechText(value?: string | null): string {
+  const text = value?.trim();
+  if (!text || text.startsWith("audio://")) return "";
+
+  const embeddedQuestion = extractEmbeddedRuntimeQuestion(text);
+  if (embeddedQuestion) return embeddedQuestion;
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => stripRuntimeQuestionPromptArtifact(line.trim()))
+    .filter((line) => line && !isRuntimeQuestionPromptMetadataLine(line));
+
+  return lines.find(isReadableRuntimeQuestionLine) ?? lines[0] ?? "";
+}
+
+function extractEmbeddedRuntimeQuestion(text: string): string {
+  const embeddedQuestionPatterns = [
+    /(?:^|[\n\r.。])\s*(?:질문|question|interview\s+question)\s*\d*\s*[:：\-]\s*([^\n\r]+)/i,
+    /(?:^|[\n\r.。])\s*(?:recruiting|mock)\s+interview\s+question\s*\d*\s*[:：\-]\s*([^\n\r]+)/i,
+  ];
+
+  for (const pattern of embeddedQuestionPatterns) {
+    const match = text.match(pattern);
+    const question = stripRuntimeQuestionPromptArtifact(match?.[1]?.trim() ?? "");
+    if (question && !isRuntimeQuestionPromptMetadataLine(question)) return question;
+  }
+
+  return "";
+}
+
+function stripRuntimeQuestionPromptArtifact(line: string): string {
+  return line
+    .replace(/^[-*•]\s*/, "")
+    .replace(/^(?:recruiting|mock)\s+interview\s+question\s*\d*\s*[:：\-]\s*/i, "")
+    .replace(/^q(?:uestion)?\s*\d*\s*[\).:：\-]\s*/i, "")
+    .replace(/^질문\s*\d*\s*[:：\-]\s*/, "")
+    .trim();
+}
+
+function isRuntimeQuestionPromptMetadataLine(line: string): boolean {
+  return /^(?:공고명|직무|평가\s*기준|질문\s*뱅크|지원서|이력서|criteria|job\s*description|resume|candidate|instructions?)\s*[:：]/i.test(line)
+    || /^(?:다음|아래).*(?:질문|문항).*(?:생성|작성)/.test(line)
+    || /^(?:generate|create|write).*(?:question|interview)/i.test(line);
+}
+
+function isReadableRuntimeQuestionLine(line: string): boolean {
+  return /[?？]$/.test(line) || /(말씀|설명|소개|경험|사례|어떻게|무엇|왜|해보세요|주세요)/.test(line);
 }
 
 export function getAiInterviewerProfile(mode: InterviewDeviceSetupMode): AiInterviewerProfile {
