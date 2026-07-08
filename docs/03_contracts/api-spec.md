@@ -1083,12 +1083,40 @@ AI 리포트 금지 기준:
 - 비고/미결:
   - 기존 9번 서류 평가 상세과 10번 채용 리포트 상세을 9번으로 통합
 
-### API-020-MEDIA GET /company/applicants/{applicantId}/media/{fileId}
+### API-020-MEDIA-SESSION POST /company/applicants/{applicantId}/media/{fileId}/session
 - 도메인: 기업 - 지원자/리포트
 - 권한/인증: 기업 / 기업 사용자 로그인
 - 관련 화면: 지원자 평가 상세 화면 (/company/applicants/{applicantId}/evaluation)
 - UI Type: section media
 - 상태 코드: 200 OK
+- 비동기: N
+- Path Params:
+  - applicantId: 지원서/application ID
+  - fileId: interview_answers에 연결된 videoFileId 또는 audioFileId
+- 요청 데이터:
+  - 없음
+- 검증/전제조건:
+  - 요청 사용자는 기업 계정이어야 한다.
+  - applicantId는 요청 기업이 소유한 공고의 지원서여야 한다.
+  - fileId는 해당 지원자의 채용면접 답변 또는 꼬리질문 답변에 연결된 ACTIVE videoFile/audioFile이어야 한다.
+- 성공 응답/처리:
+  - 짧은 수명의 HttpOnly media 재생 쿠키를 발급한다.
+  - 응답 body는 `mediaUrl`, `expiresInSeconds`를 포함한다.
+  - 브라우저 `<video>`/`<audio>`는 반환된 `mediaUrl`로 `API-020-MEDIA`를 직접 호출한다.
+- 오류/예외:
+  - 403 COMMON_FORBIDDEN: 기업 계정이 아니거나 접근 권한이 없는 경우
+  - 404 COMMON_NOT_FOUND: 지원자를 찾을 수 없거나, 해당 답변에 연결된 ACTIVE 파일이 아닌 경우
+- 관련 ERD 테이블:
+  - companies, postings, applications, candidate_profiles, interview_sessions, interview_answers, follow_up_questions, file_assets
+- 비고/미결:
+  - `<video>` 요청은 Authorization header를 붙일 수 없으므로, 민감 영상 공개 URL 대신 path-scoped 재생 쿠키를 사용한다.
+
+### API-020-MEDIA GET /company/applicants/{applicantId}/media/{fileId}
+- 도메인: 기업 - 지원자/리포트
+- 권한/인증: 기업 / 기업 사용자 로그인 또는 API-020-MEDIA-SESSION media 재생 쿠키
+- 관련 화면: 지원자 평가 상세 화면 (/company/applicants/{applicantId}/evaluation)
+- UI Type: section media
+- 상태 코드: 200 OK, 206 Partial Content, 416 Range Not Satisfiable
 - 비동기: N
 - Path Params:
   - applicantId: 지원서/application ID
@@ -1105,7 +1133,9 @@ AI 리포트 금지 기준:
   - 이 API는 JSON envelope를 사용하지 않고 파일 스트림을 직접 반환한다.
   - 응답 헤더:
     - Content-Type: file_assets.mime_type 또는 S3 ContentType
-    - Content-Length: 원본 파일 크기
+    - Content-Length: 전체 또는 Range 응답 byte 길이
+    - Accept-Ranges: bytes
+    - Content-Range: Range 요청 시 `bytes start-end/total`
     - Content-Disposition: inline; filename="{originalName}"
     - Cache-Control: private, max-age=60
   - 응답 바디:
@@ -1113,6 +1143,7 @@ AI 리포트 금지 기준:
 - 오류/예외:
   - 403 COMMON_FORBIDDEN: 기업 계정이 아니거나 접근 권한이 없는 경우
   - 404 COMMON_NOT_FOUND: 지원자를 찾을 수 없거나, 해당 답변에 연결된 ACTIVE 파일이 아니거나, 원본 객체가 파일 저장소에 없는 경우
+  - 416 COMMON_VALIDATION_FAILED: Range 요청 범위가 유효하지 않은 경우
   - 500 COMMON_VALIDATION_FAILED: 파일 저장소 조회 설정이 없거나 S3 조회 중 알 수 없는 오류가 발생한 경우
   - 오류 응답은 공통 API error envelope를 따른다.
 - 관련 ERD 테이블:

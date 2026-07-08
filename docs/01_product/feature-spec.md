@@ -84,7 +84,7 @@ init v0.5의 화면/기능 정의를 구현 단위로 정리한다.
 | 지원자 평가 상세 화면 | /company/applicants/{applicantId}/evaluation | section | 서류 평가 근거 영역 | 서류 평가 근거 조회 | 평가 결과, 근거 문장 | 평가 근거 표시 | GET /company/applicants/{applicantId}/document-evaluation | v1.0 | - |
 | 지원자 평가 상세 화면 | /company/applicants/{applicantId}/evaluation | section | 역량별 점수 영역 | 역량별 점수 조회 | 지원자 ID, 평가 기준 | 역량별 점수 표시 | GET /company/reports/{reportId} | v1.0 | reportType=RECRUITING_REPORT |
 | 지원자 평가 상세 화면 | /company/applicants/{applicantId}/evaluation | section | 평가 근거 영역 | 근거 기반 평가 조회 | 평가 결과, 근거 데이터 | 평가 근거 표시 | GET /company/reports/{reportId}/evidence | v1.0 | - |
-| 지원자 평가 상세 화면 | /company/applicants/{applicantId}/evaluation | section | 영상/스크립트 동시 조회 영역 | 영상/스크립트 조회 | 영상 파일, 스크립트 | 영상과 스크립트 동시 표시 | GET /company/reports/{reportId}/media | v1.0 | 문제별 타임스탬프 기능 추가 여부 검토 필요 |
+| 지원자 평가 상세 화면 | /company/applicants/{applicantId}/evaluation | section | 영상/스크립트 동시 조회 영역 | 영상/스크립트 조회 | 영상 파일, 스크립트 | 영상과 스크립트 동시 표시 | POST /company/applicants/{applicantId}/media/{fileId}/session / GET /company/applicants/{applicantId}/media/{fileId} | v1.0 | 문제별 타임스탬프 기능 추가 여부 검토 필요 |
 | 지원자 평가 상세 화면 | /company/applicants/{applicantId}/evaluation | section | 지원자 비교 영역 | 지원자 비교 | 공고, 지원자 목록, 평가 항목 | 지원자 비교 결과 표시 | GET /company/applicants/compare | v1.0 | - |
 | 지원자 평가 상세 화면 | /company/applicants/{applicantId}/evaluation | form | 면접관 수동 평가/메모 | 수동 평가 입력 | 수동 점수, 메모, 최종 상태 | 수동 평가 저장 | PATCH /company/applicants/{applicantId}/manual-evaluation | v1.0 | - |
 | 지원자 평가 상세 화면 | /company/applicants/{applicantId}/evaluation | button | 리포트 다운로드 버튼 | 리포트 다운로드 | 지원자 ID, 파일 형식 | PDF 또는 Excel 파일 다운로드 | GET /company/reports/{reportId}/download | v2.0 | MVP 후순위 |
