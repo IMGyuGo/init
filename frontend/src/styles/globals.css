@@ -7883,3 +7883,109 @@ p {
 @media (max-width: 640px) {
   .notion.candidate-mypage .billing-plan-cards { grid-template-columns: 1fr; }
 }
+
+/* 지원현황: 툴바 + 필터 pill + 지원 행 리스트 */
+.notion.candidate-mypage .applications-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.notion.candidate-mypage .applications-filter { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.notion.candidate-mypage .applications-filter__chip {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(55, 53, 47, 0.7);
+  padding: 7px 14px;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.14);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.notion.candidate-mypage .applications-filter__chip:hover { border-color: rgba(55, 53, 47, 0.3); }
+.notion.candidate-mypage .applications-filter__chip.is-active {
+  color: #fff;
+  background: #3b6fe0;
+  border-color: #3b6fe0;
+}
+
+.notion.candidate-mypage .applications-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.notion.candidate-mypage .application-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 20px;
+  transition: background 0.12s ease;
+}
+.notion.candidate-mypage .application-row:hover { background: #fbfbfa; }
+.notion.candidate-mypage .application-row + .application-row { border-top: 1px solid rgba(55, 53, 47, 0.08); }
+.notion.candidate-mypage .application-row__main { display: grid; gap: 5px; min-width: 0; }
+.notion.candidate-mypage .application-row__main strong {
+  font-size: 15px;
+  font-weight: 600;
+  color: #191919;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notion.candidate-mypage .application-row__company {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: rgba(55, 53, 47, 0.55);
+}
+.notion.candidate-mypage .application-row__company em { font-style: normal; opacity: 0.4; }
+.notion.candidate-mypage .application-row__badges { display: inline-flex; align-items: center; gap: 6px; }
+.notion.candidate-mypage .application-row__cta {
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+  padding: 9px 18px;
+  background: #3b6fe0;
+  border: 1px solid #3b6fe0;
+  border-radius: 8px;
+  white-space: nowrap;
+  transition: background 0.12s ease;
+}
+.notion.candidate-mypage .application-row__cta:hover { background: #2f5fd0; }
+.notion.candidate-mypage .application-row__cta.is-disabled {
+  color: rgba(55, 53, 47, 0.4);
+  background: #f4f4f2;
+  border-color: rgba(55, 53, 47, 0.1);
+  cursor: default;
+}
+
+.notion.candidate-mypage .applications-empty {
+  font-size: 14px;
+  color: rgba(55, 53, 47, 0.6);
+  padding: 20px 4px;
+}
+.notion.candidate-mypage .applications-empty.is-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 44px 24px;
+  border: 1px dashed rgba(55, 53, 47, 0.2);
+  border-radius: 14px;
+}
+.notion.candidate-mypage .applications-empty__cta { font-size: 13px; color: #3b6fe0; font-weight: 500; }
+.notion.candidate-mypage .applications-empty__cta:hover { text-decoration: underline; }
+
+@media (max-width: 640px) {
+  .notion.candidate-mypage .application-row { grid-template-columns: 1fr auto; }
+  .notion.candidate-mypage .application-row__cta { grid-column: 1 / -1; justify-self: start; }
+}
