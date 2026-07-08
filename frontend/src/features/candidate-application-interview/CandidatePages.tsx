@@ -1983,6 +1983,7 @@ export function CandidateBillingPage() {
   const [paying, setPaying] = useState(false);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"danger" | "success">("danger");
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const loadBillingData = useCallback(async (page = 1) => {
     setLoading(true);
@@ -2044,77 +2045,91 @@ export function CandidateBillingPage() {
 
   return (
     <CandidatePageShell active="accountBilling">
-      <CandidatePageHead
-        eyebrow=""
-        title="결제 정보"
-        description="모의면접 이용권과 결제 내역을 확인합니다."
-      />
-      {message ? <p className={`notice ${messageTone}`}>{message}</p> : null}
-      <section className="panel">
-        <div className="grid-2">
-          <div className="candidate-mypage-card">
-            <div className="panel-head">
-              <div>
-                <h2>신규 지원자 무료 이용권</h2>
-                <p>처음 시작하는 사용자는 모의면접을 먼저 경험할 수 있습니다.</p>
-              </div>
-              <span className="badge success">보유 {passSummary?.availablePasses ?? CANDIDATE_FREE_MOCK_INTERVIEW_POLICY.freePasses}회</span>
-            </div>
-            <div className="candidate-selected-application__notice">
-              가입 또는 첫 로그인 시 AI 모의면접 {CANDIDATE_FREE_MOCK_INTERVIEW_POLICY.freePasses}회를 무료로 제공합니다. 무료 이용권은 지급일로부터 {CANDIDATE_FREE_MOCK_INTERVIEW_POLICY.expiresInDays}일 동안 사용할 수 있습니다.
+      <section className="candidate-mypage glass-page notion">
+        <header className="candidate-mypage__head billing-head">
+          <h1>결제 정보</h1>
+          <button className="billing-history-open" type="button" onClick={() => setHistoryOpen(true)}>
+            최근 결제 내역
+          </button>
+        </header>
+        <CandidateMypageTabs />
+        {message ? <p className={`notice ${messageTone}`}>{message}</p> : null}
+
+        <section className="mypage-block">
+          <div className="mypage-block__title">
+            <h2>모의면접 이용권</h2>
+            <p>무료 이용권 현황을 확인하고 추가 이용권을 구매하세요.</p>
+          </div>
+          <div className="billing-plan-cards">
+            <div className="billing-plan-card">
+              <span className="badge success billing-plan-badge">보유 {passSummary?.availablePasses ?? CANDIDATE_FREE_MOCK_INTERVIEW_POLICY.freePasses}회</span>
+              <Image className="billing-plan-art" src="/billing-free-pass-v2.png" alt="" width={200} height={200} aria-hidden="true" />
+              <strong>신규 지원자 무료 이용권</strong>
+              <p className="billing-plan-desc">
+                가입 또는 첫 로그인 시 AI 모의면접 {CANDIDATE_FREE_MOCK_INTERVIEW_POLICY.freePasses}회를 무료로 제공합니다. 지급일로부터 {CANDIDATE_FREE_MOCK_INTERVIEW_POLICY.expiresInDays}일 동안 사용할 수 있어요.
+              </p>
               {passSummary ? (
-                <>
-                  <br />
-                  현재 사용 가능 {passSummary.availablePasses}회 · 사용 {passSummary.usedPasses}회
-                  {passSummary.freeExpiresAt ? ` · 무료권 만료 ${formatPaymentDateTime(passSummary.freeExpiresAt)}` : ""}
-                </>
+                <p className="billing-plan-meta">
+                  사용 가능 {passSummary.availablePasses}회 · 사용 {passSummary.usedPasses}회
+                  {passSummary.freeExpiresAt ? ` · 만료 ${formatPaymentDateTime(passSummary.freeExpiresAt)}` : ""}
+                </p>
+              ) : null}
+              {SHOW_PAYMENT_DEV_TOOLS ? (
+                <button
+                  className="btn secondary billing-plan-action"
+                  type="button"
+                  onClick={() => void handleDevelopmentPassGrant()}
+                  disabled={loading || paying}
+                >
+                  테스트 이용권 5회 추가
+                </button>
               ) : null}
             </div>
-            {SHOW_PAYMENT_DEV_TOOLS ? (
-              <button
-                className="btn secondary candidate-mypage-action"
-                type="button"
-                onClick={() => void handleDevelopmentPassGrant()}
-                disabled={loading || paying}
-              >
-                테스트 이용권 5회 추가
+            <div className="billing-plan-card">
+              <span className="badge info billing-plan-badge">{CANDIDATE_MOCK_INTERVIEW_PASS_PRODUCT.label}</span>
+              <Image className="billing-plan-art" src="/billing-buy-pass-v2.png" alt="" width={200} height={200} aria-hidden="true" />
+              <strong>{CANDIDATE_MOCK_INTERVIEW_PASS_PRODUCT.orderName}</strong>
+              <p className="billing-plan-price">{formatWon(CANDIDATE_MOCK_INTERVIEW_PASS_PRODUCT.amount)}</p>
+              <p className="billing-plan-desc">모의면접 1회 응시와 AI 피드백 리포트를 포함합니다.</p>
+              <button className="btn primary billing-plan-action" type="button" onClick={() => void handlePayment()} disabled={paying}>
+                {paying ? "결제창 여는 중" : "토스페이먼츠로 결제"}
               </button>
-            ) : null}
+            </div>
           </div>
-          <div className="candidate-mypage-card">
-            <div className="panel-head">
-              <div>
-                <h2>{CANDIDATE_MOCK_INTERVIEW_PASS_PRODUCT.orderName}</h2>
-                <p>무료 이용권 소진 후 추가 연습이 필요할 때 구매합니다.</p>
+        </section>
+      </section>
+
+      {historyOpen ? (
+        <div className="billing-modal-overlay" role="dialog" aria-modal="true" onClick={() => setHistoryOpen(false)}>
+          <div className="billing-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="billing-modal__head">
+              <div className="billing-modal__title">
+                <h2>최근 결제 내역</h2>
+                <p>모의면접 이용권 결제 상태를 확인합니다.</p>
               </div>
-              <span className="badge info">{CANDIDATE_MOCK_INTERVIEW_PASS_PRODUCT.label}</span>
+              <div className="billing-modal__head-actions">
+                <button
+                  className="btn secondary"
+                  type="button"
+                  onClick={() => void loadBillingData(orderPage.page)}
+                  disabled={loading || paying}
+                >
+                  새로고침
+                </button>
+                <button className="billing-modal__close" type="button" aria-label="닫기" onClick={() => setHistoryOpen(false)}>
+                  ✕
+                </button>
+              </div>
             </div>
-            <div className="candidate-selected-application__notice">
-              <strong>{formatWon(CANDIDATE_MOCK_INTERVIEW_PASS_PRODUCT.amount)}</strong>
-              <br />
-              모의면접 1회 응시와 AI 피드백 리포트를 포함합니다.
+            <div className="billing-modal__body">
+              {loading ? <p className="empty">결제 내역을 불러오는 중입니다.</p> : <CandidatePaymentOrderList orders={orders} />}
+              {!loading ? (
+                <PaymentOrderPagination page={orderPage} disabled={paying} onPageChange={(nextPage) => void loadBillingData(nextPage)} />
+              ) : null}
             </div>
-            <button className="btn primary candidate-mypage-action" type="button" onClick={() => void handlePayment()} disabled={paying}>
-              {paying ? "결제창 여는 중" : "토스페이먼츠로 결제"}
-            </button>
           </div>
         </div>
-      </section>
-      <section className="panel">
-        <div className="panel-head">
-          <div>
-            <h2>최근 결제 내역</h2>
-            <p>모의면접 이용권 결제 상태를 확인합니다.</p>
-          </div>
-          <button className="btn secondary" type="button" onClick={() => void loadBillingData(orderPage.page)} disabled={loading || paying}>
-            새로고침
-          </button>
-        </div>
-        {loading ? <p className="empty">결제 내역을 불러오는 중입니다.</p> : <CandidatePaymentOrderList orders={orders} />}
-        {!loading ? (
-          <PaymentOrderPagination page={orderPage} disabled={paying} onPageChange={(nextPage) => void loadBillingData(nextPage)} />
-        ) : null}
-      </section>
+      ) : null}
     </CandidatePageShell>
   );
 }

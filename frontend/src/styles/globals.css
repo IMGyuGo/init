@@ -7776,3 +7776,110 @@ p {
   .notion.candidate-mypage .candidate-mypage__cards { grid-template-columns: 1fr; }
 }
 
+
+/* 결제 정보: 헤더 버튼 + 카드 헤드 + 최근 결제 내역 모달 */
+.notion.candidate-mypage .billing-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.notion.candidate-mypage .billing-history-open {
+  flex: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: #37352f;
+  padding: 9px 16px;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.16);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease;
+}
+.notion.candidate-mypage .billing-history-open:hover { border-color: #3b6fe0; color: #3b6fe0; }
+
+.billing-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 15, 15, 0.4);
+}
+.billing-modal {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  width: 100%;
+  max-width: 640px;
+  max-height: min(640px, 88vh);
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+  overflow: hidden;
+}
+.billing-modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px;
+  border-bottom: 1px solid rgba(55, 53, 47, 0.1);
+}
+.billing-modal__title h2 { margin: 0; font-size: 17px; font-weight: 600; color: #191919; }
+.billing-modal__title p { margin: 4px 0 0; font-size: 13px; color: rgba(55, 53, 47, 0.55); }
+.billing-modal__head-actions { display: inline-flex; align-items: center; gap: 8px; }
+.billing-modal__close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  font-size: 15px;
+  color: rgba(55, 53, 47, 0.6);
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.14);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.billing-modal__close:hover { color: #191919; border-color: rgba(55, 53, 47, 0.3); }
+.billing-modal__body { padding: 20px 24px 24px; overflow-y: auto; }
+
+/* 결제 정보: 이용권 plan 카드 (공고생성 choice 카드 톤) */
+.notion.candidate-mypage .billing-plan-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  margin-top: 18px;
+}
+.notion.candidate-mypage .billing-plan-card {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 10px;
+  min-height: 380px;
+  padding: 34px 28px;
+  text-align: center;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.12);
+  border-radius: 16px;
+}
+.notion.candidate-mypage .billing-plan-badge { position: absolute; top: 16px; right: 16px; }
+.notion.candidate-mypage .billing-plan-art { width: 168px; height: 168px; object-fit: contain; margin-bottom: 2px; }
+.notion.candidate-mypage .billing-plan-card > strong { font-size: 19px; font-weight: 700; color: #191919; }
+.notion.candidate-mypage .billing-plan-price { margin: 0; font-size: 26px; font-weight: 800; color: #191919; letter-spacing: -0.01em; }
+.notion.candidate-mypage .billing-plan-desc {
+  margin: 0;
+  max-width: 300px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: rgba(55, 53, 47, 0.6);
+  word-break: keep-all;
+}
+.notion.candidate-mypage .billing-plan-meta { margin: 0; font-size: 12.5px; color: rgba(55, 53, 47, 0.45); }
+.notion.candidate-mypage .billing-plan-action { margin-top: auto; align-self: stretch; max-width: 260px; justify-self: center; }
+
+@media (max-width: 640px) {
+  .notion.candidate-mypage .billing-plan-cards { grid-template-columns: 1fr; }
+}
