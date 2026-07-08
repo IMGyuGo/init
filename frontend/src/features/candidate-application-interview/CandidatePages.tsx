@@ -540,89 +540,111 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
   );
 }
 
+const APPLICATION_STATUS_FILTERS: { value: CandidateApplicationStatusFilter; label: string }[] = [
+  { value: "ALL", label: "전체" },
+  { value: "WAITING", label: "응시 대기" },
+  { value: "IN_PROGRESS", label: "진행 중" },
+  { value: "COMPLETED", label: "응시 완료" },
+  { value: "REPORTING", label: "리포트" },
+];
+
 export function CandidateApplicationsPage() {
   const load = useCallback(() => getCandidateApi().listApplications(), []);
-  const { data, loading, error, refresh } = useCandidateResource(load, []);
+  const { data, loading, error } = useCandidateResource(load, []);
   const applications = data?.data.items ?? [];
   const [statusFilter, setStatusFilter] = useState<CandidateApplicationStatusFilter>("ALL");
-  const [selectedApplicationId, setSelectedApplicationId] = useState<number | undefined>();
   const filteredApplications = applications.filter((application) =>
     matchesCandidateApplicationStatusFilter(application, statusFilter),
   );
-  const selectedApplication =
-    filteredApplications.find((application) => application.applicationId === selectedApplicationId) ??
-    filteredApplications[0];
-  const selectedApplicationAction = selectedApplication
-    ? getSelectedApplicationAction(selectedApplication)
-    : undefined;
 
   return (
     <CandidatePageShell active="applications">
-      <section className="candidate-applications-page glass-page notion">
-        <CandidatePageHead
-          eyebrow=""
-          title="지원현황"
-          description="지원한 공고의 진행 상태를 확인합니다."
-          actions={
-            <label className="candidate-status-filter">
-              <span className="sr-only">지원현황 상태 필터</span>
-              <select
-                value={statusFilter}
-                onChange={(event) => {
-                  setStatusFilter(event.target.value as CandidateApplicationStatusFilter);
-                  setSelectedApplicationId(undefined);
-                  refresh();
-                }}
-              >
-                <option value="ALL">상태 필터</option>
-                <option value="WAITING">응시 대기</option>
-                <option value="IN_PROGRESS">진행 중</option>
-                <option value="COMPLETED">응시 완료</option>
-                <option value="REPORTING">리포트 진행</option>
-              </select>
-            </label>
-          }
-        />
+      <section className="candidate-mypage candidate-applications-page glass-page notion">
+        <header className="candidate-mypage__head">
+          <h1>지원현황</h1>
+        </header>
+        <CandidateMypageTabs />
         <StatusNotice loading={loading} error={error} />
-        <section className="panel candidate-applications-panel">
-          {filteredApplications.length ? (
-            <ApplicationsTable
-              applications={filteredApplications}
-              selectedApplicationId={selectedApplication?.applicationId}
-              onSelect={(applicationId) => setSelectedApplicationId(applicationId)}
-            />
+
+        <section className="mypage-block">
+          <div className="applications-toolbar">
+            <div className="mypage-block__title">
+              <h2>지원한 공고</h2>
+              <p>지원한 공고의 진행 상태를 확인하고 면접을 이어가세요.</p>
+            </div>
+            <div className="applications-filter" role="tablist" aria-label="지원 상태 필터">
+              {APPLICATION_STATUS_FILTERS.map((filter) => (
+                <button
+                  key={filter.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={statusFilter === filter.value}
+                  className={`applications-filter__chip${statusFilter === filter.value ? " is-active" : ""}`}
+                  onClick={() => setStatusFilter(filter.value)}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {loading ? (
+            <p className="applications-empty">지원 내역을 불러오는 중이에요.</p>
+          ) : filteredApplications.length ? (
+            <ul className="applications-list">
+              {filteredApplications.map((application) => {
+                const action = getSelectedApplicationAction(application);
+                return (
+                  <li key={application.applicationId} className="application-row">
+                    <div className="application-row__main">
+                      <strong>{application.jobTitle}</strong>
+                      <span className="application-row__company">
+                        {application.companyName}
+                        <em>·</em>
+                        {formatShortDate(application.updatedAt)} 업데이트
+                      </span>
+                    </div>
+                    <div className="application-row__badges">
+                      <ApplicationStatusBadge
+                        label={formatCandidateApplicationStatusLabel(application.applicationStatus)}
+                        tone={getCandidateApplicationStatusTone(application.applicationStatus)}
+                      />
+                      <ApplicationStatusBadge
+                        label={formatCandidateInterviewStatusLabel(application.interviewStatus)}
+                        tone={getCandidateInterviewStatusTone(application.interviewStatus)}
+                      />
+                      {renderCandidateReportStatus(application.reportStatus)}
+                    </div>
+                    {action.href ? (
+                      <Link className="application-row__cta" href={action.href}>
+                        {action.label}
+                      </Link>
+                    ) : (
+                      <span className="application-row__cta is-disabled" aria-disabled="true">
+                        {action.label}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
           ) : (
-            <p className="empty">조건에 맞는 지원 건이 없습니다.</p>
+            <div className="applications-empty is-block">
+              {statusFilter === "ALL" ? "아직 지원한 공고가 없어요." : "조건에 맞는 지원 건이 없어요."}
+              <Link className="applications-empty__cta" href={candidateApplicationInterviewRoutes.jobs}>
+                채용공고 둘러보기 →
+              </Link>
+            </div>
           )}
         </section>
-        {selectedApplication ? (
-          <section className="panel candidate-selected-application">
-            <div className="candidate-selected-application__head">
-              <p className="panel-title">
-                선택한 지원 건 · {selectedApplication.companyName} / {selectedApplication.jobTitle}
-              </p>
-              <ApplicationStatusBadge
-                label={formatCandidateInterviewStatusLabel(selectedApplication.interviewStatus)}
-                tone={getCandidateInterviewStatusTone(selectedApplication.interviewStatus)}
-              />
-            </div>
-            <div className="candidate-selected-application__notice">
-              AI 면접 방식, 유의사항, 답변 절차를 안내합니다.
-            </div>
-            {selectedApplicationAction?.href ? (
-              <Link className="btn primary candidate-application-start-button" href={selectedApplicationAction.href}>
-                {selectedApplicationAction.label}
-              </Link>
-            ) : (
-              <span aria-disabled="true" className="btn primary candidate-application-start-button">
-                {selectedApplicationAction?.label ?? "진행 불가"}
-              </span>
-            )}
-          </section>
-        ) : null}
       </section>
     </CandidatePageShell>
   );
+}
+
+function formatShortDate(value: string | null) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric" }).format(new Date(value));
 }
 
 export function CandidateInterviewGuidePage({ applicationId }: { applicationId: number }) {
@@ -1780,6 +1802,20 @@ export function CandidateMyPage() {
   const resumeInputRef = useRef<HTMLInputElement | null>(null);
   const portfolioInputRef = useRef<HTMLInputElement | null>(null);
 
+  const loadApplications = useCallback(() => getCandidateApi().listApplications(), []);
+  const { data: applicationsData } = useCandidateResource(loadApplications, []);
+  const applications = applicationsData?.data.items ?? [];
+  const summary = {
+    total: applications.length,
+    waiting: applications.filter(
+      (application) =>
+        application.applicationStatus !== "CANCELED" &&
+        (application.interviewStatus === "READY" || application.interviewStatus === "NOT_READY"),
+    ).length,
+    completed: applications.filter((application) => application.interviewStatus === "COMPLETED").length,
+    reports: applications.filter((application) => application.reportStatus === "COMPLETED").length,
+  };
+
   async function handleResumeSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -1824,12 +1860,24 @@ export function CandidateMyPage() {
     <CandidatePageShell active="accountBilling">
       <section className="candidate-mypage glass-page notion">
         <header className="candidate-mypage__head">
-          <h1>지원자 마이페이지</h1>
-          <p>이력서와 포트폴리오를 관리합니다.</p>
+          <h1>마이페이지</h1>
         </header>
         <CandidateMypageTabs />
-      <StatusNotice loading={busy} message={message} />
-        <div className="candidate-mypage__cards">
+
+        <section className="mypage-stats" aria-label="지원 요약">
+          <MypageStat name="applications" label="전체 지원" value={summary.total} />
+          <MypageStat name="waiting" label="응시 대기" value={summary.waiting} />
+          <MypageStat name="completed" label="응시 완료" value={summary.completed} />
+          <MypageStat name="reports" label="리포트 확인" value={summary.reports} />
+        </section>
+
+        <section className="mypage-block">
+          <div className="mypage-block__title">
+            <h2>서류 관리</h2>
+            <p>이력서와 포트폴리오를 등록해 지원 시 바로 사용하세요.</p>
+          </div>
+          <StatusNotice loading={busy} message={message} />
+          <div className="candidate-mypage__cards">
           <form className="candidate-mypage-card candidate-resume-card" onSubmit={handleResumeSubmit}>
             <h2>이력서 업로드</h2>
             <button
@@ -1892,11 +1940,16 @@ export function CandidateMyPage() {
             <label>
               파일 첨부
               <button
-                className="candidate-file-picker"
+                className="candidate-upload-drop"
                 type="button"
                 onClick={() => portfolioInputRef.current?.click()}
               >
-                {portfolioFileState.originalName || "파일 선택"}
+                <span className="candidate-upload-icon" aria-hidden="true">
+                  <svg fill="none" height="22" viewBox="0 0 24 24" width="22">
+                    <path d="M12 16V4m0 0-5 5m5-5 5 5M5 20h14" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" />
+                  </svg>
+                </span>
+                <span>{portfolioFileState.originalName || "PDF, DOCX 파일을 선택하세요"}</span>
               </button>
               <input
                 ref={portfolioInputRef}
@@ -1913,36 +1966,36 @@ export function CandidateMyPage() {
               등록
             </button>
           </form>
-        </div>
-
-        <section className="candidate-alert-card">
-          <div className="candidate-alert-card__head">
-            <h2>응시 안내 알림</h2>
-            <span>v2.0</span>
-          </div>
-          <div className="candidate-alert-table" role="table" aria-label="응시 안내 알림">
-            <div className="candidate-alert-row candidate-alert-row--head" role="row">
-              <span role="columnheader">회사</span>
-              <span role="columnheader">응시 링크</span>
-              <span role="columnheader">마감일</span>
-              <span role="columnheader">상태</span>
-            </div>
-            <div className="candidate-alert-row" role="row">
-              <span role="cell">A사</span>
-              <span role="cell">
-                <Link className="candidate-alert-link" href={candidateApplicationInterviewRoutes.applications}>
-                  면접 응시
-                </Link>
-              </span>
-              <span role="cell">07.01</span>
-              <span role="cell">
-                <span className="candidate-alert-status">발송 완료</span>
-              </span>
-            </div>
           </div>
         </section>
       </section>
     </CandidatePageShell>
+  );
+}
+
+function MypageStat({
+  name,
+  label,
+  value,
+}: {
+  name: "applications" | "waiting" | "completed" | "reports";
+  label: string;
+  value: number;
+}) {
+  const icons: Record<typeof name, string> = {
+    applications: "/candidate-stat-applications-v2.png",
+    waiting: "/candidate-stat-waiting-v2.png",
+    completed: "/candidate-stat-completed-v2.png",
+    reports: "/candidate-stat-reports-v2.png",
+  };
+  return (
+    <article className="mypage-stat">
+      <span className="mypage-stat__icon">
+        <Image src={icons[name]} alt="" width={22} height={22} aria-hidden="true" />
+      </span>
+      <span className="mypage-stat__label">{label}</span>
+      <strong className="mypage-stat__value">{value}</strong>
+    </article>
   );
 }
 
@@ -1952,28 +2005,31 @@ export function CandidateBillingPage() {
   const [passSummary, setPassSummary] = useState<CandidateMockInterviewPassSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [paying, setPaying] = useState(false);
-  const [message, setMessage] = useState("");
-  const [messageTone, setMessageTone] = useState<"danger" | "success">("danger");
+  const [historyOpen, setHistoryOpen] = useState(false);
 
-  const loadBillingData = useCallback(async (page = 1) => {
-    setLoading(true);
-    setMessage("");
-    setMessageTone("danger");
-    try {
-      const [orderData, passData] = await Promise.all([
-        listPaymentOrders({ page, limit: PAYMENT_HISTORY_PAGE_LIMIT }),
-        getCandidateMockInterviewPassSummary(),
-      ]);
-      setOrders(orderData.items);
-      setOrderPage(orderData.page);
-      setPassSummary(passData);
-    } catch (error) {
-      setMessageTone("danger");
-      setMessage(error instanceof Error ? error.message : "결제 정보를 불러오지 못했습니다.");
-    } finally {
-      setLoading(false);
-    }
+  const notifyAlert = useCallback((text: string) => {
+    if (typeof window !== "undefined") window.alert(text);
   }, []);
+
+  const loadBillingData = useCallback(
+    async (page = 1) => {
+      setLoading(true);
+      try {
+        const [orderData, passData] = await Promise.all([
+          listPaymentOrders({ page, limit: PAYMENT_HISTORY_PAGE_LIMIT }),
+          getCandidateMockInterviewPassSummary(),
+        ]);
+        setOrders(orderData.items);
+        setOrderPage(orderData.page);
+        setPassSummary(passData);
+      } catch (error) {
+        notifyAlert(error instanceof Error ? error.message : "결제 정보를 불러오지 못했습니다.");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [notifyAlert],
+  );
 
   useEffect(() => {
     void loadBillingData();
@@ -1981,8 +2037,6 @@ export function CandidateBillingPage() {
 
   async function handlePayment() {
     setPaying(true);
-    setMessage("");
-    setMessageTone("danger");
     try {
       const order = await createPaymentOrder({
         productCode: CANDIDATE_MOCK_INTERVIEW_PASS_PRODUCT.productCode,
@@ -1990,24 +2044,19 @@ export function CandidateBillingPage() {
       });
       await requestTossCardPayment(TOSS_CLIENT_KEY, order);
     } catch (error) {
-      setMessageTone("danger");
-      setMessage(error instanceof Error ? error.message : "결제창을 열지 못했습니다.");
+      notifyAlert(error instanceof Error ? error.message : "결제창을 열지 못했습니다.");
       setPaying(false);
     }
   }
 
   async function handleDevelopmentPassGrant() {
     setLoading(true);
-    setMessage("");
-    setMessageTone("danger");
     try {
       const summary = await grantCandidateMockInterviewDevPasses({ passAmount: 5 });
       setPassSummary(summary);
-      setMessageTone("success");
-      setMessage(`테스트용 모의면접 이용권 5회를 추가했습니다. 현재 사용 가능 ${summary.availablePasses}회`);
+      notifyAlert(`테스트용 모의면접 이용권 5회를 추가했습니다. 현재 사용 가능 ${summary.availablePasses}회`);
     } catch (error) {
-      setMessageTone("danger");
-      setMessage(error instanceof Error ? error.message : "테스트 이용권을 추가하지 못했습니다.");
+      notifyAlert(error instanceof Error ? error.message : "테스트 이용권을 추가하지 못했습니다.");
     } finally {
       setLoading(false);
     }
@@ -2015,77 +2064,90 @@ export function CandidateBillingPage() {
 
   return (
     <CandidatePageShell active="accountBilling">
-      <CandidatePageHead
-        eyebrow=""
-        title="결제 정보"
-        description="모의면접 이용권과 결제 내역을 확인합니다."
-      />
-      {message ? <p className={`notice ${messageTone}`}>{message}</p> : null}
-      <section className="panel">
-        <div className="grid-2">
-          <div className="candidate-mypage-card">
-            <div className="panel-head">
-              <div>
-                <h2>신규 지원자 무료 이용권</h2>
-                <p>처음 시작하는 사용자는 모의면접을 먼저 경험할 수 있습니다.</p>
-              </div>
-              <span className="badge success">보유 {passSummary?.availablePasses ?? CANDIDATE_FREE_MOCK_INTERVIEW_POLICY.freePasses}회</span>
-            </div>
-            <div className="candidate-selected-application__notice">
-              가입 또는 첫 로그인 시 AI 모의면접 {CANDIDATE_FREE_MOCK_INTERVIEW_POLICY.freePasses}회를 무료로 제공합니다. 무료 이용권은 지급일로부터 {CANDIDATE_FREE_MOCK_INTERVIEW_POLICY.expiresInDays}일 동안 사용할 수 있습니다.
+      <section className="candidate-mypage glass-page notion">
+        <header className="candidate-mypage__head billing-head">
+          <h1>결제 정보</h1>
+          <button className="billing-history-open" type="button" onClick={() => setHistoryOpen(true)}>
+            최근 결제 내역
+          </button>
+        </header>
+        <CandidateMypageTabs />
+
+        <section className="mypage-block">
+          <div className="mypage-block__title">
+            <h2>모의면접 이용권</h2>
+            <p>무료 이용권 현황을 확인하고 추가 이용권을 구매하세요.</p>
+          </div>
+          <div className="billing-plan-cards">
+            <div className="billing-plan-card">
+              <span className="badge success billing-plan-badge">보유 {passSummary?.availablePasses ?? CANDIDATE_FREE_MOCK_INTERVIEW_POLICY.freePasses}회</span>
+              <Image className="billing-plan-art" src="/billing-free-pass-v2.png" alt="" width={200} height={200} aria-hidden="true" />
+              <strong>신규 지원자 무료 이용권</strong>
+              <p className="billing-plan-desc">
+                가입 또는 첫 로그인 시 AI 모의면접 {CANDIDATE_FREE_MOCK_INTERVIEW_POLICY.freePasses}회를 무료로 제공합니다. 지급일로부터 {CANDIDATE_FREE_MOCK_INTERVIEW_POLICY.expiresInDays}일 동안 사용할 수 있어요.
+              </p>
               {passSummary ? (
-                <>
-                  <br />
-                  현재 사용 가능 {passSummary.availablePasses}회 · 사용 {passSummary.usedPasses}회
-                  {passSummary.freeExpiresAt ? ` · 무료권 만료 ${formatPaymentDateTime(passSummary.freeExpiresAt)}` : ""}
-                </>
+                <p className="billing-plan-meta">
+                  사용 가능 {passSummary.availablePasses}회 · 사용 {passSummary.usedPasses}회
+                  {passSummary.freeExpiresAt ? ` · 만료 ${formatPaymentDateTime(passSummary.freeExpiresAt)}` : ""}
+                </p>
+              ) : null}
+              {SHOW_PAYMENT_DEV_TOOLS ? (
+                <button
+                  className="btn secondary billing-plan-action"
+                  type="button"
+                  onClick={() => void handleDevelopmentPassGrant()}
+                  disabled={loading || paying}
+                >
+                  테스트 이용권 5회 추가
+                </button>
               ) : null}
             </div>
-            {SHOW_PAYMENT_DEV_TOOLS ? (
-              <button
-                className="btn secondary candidate-mypage-action"
-                type="button"
-                onClick={() => void handleDevelopmentPassGrant()}
-                disabled={loading || paying}
-              >
-                테스트 이용권 5회 추가
+            <div className="billing-plan-card">
+              <span className="badge info billing-plan-badge">{CANDIDATE_MOCK_INTERVIEW_PASS_PRODUCT.label}</span>
+              <Image className="billing-plan-art" src="/billing-buy-pass-v2.png" alt="" width={200} height={200} aria-hidden="true" />
+              <strong>{CANDIDATE_MOCK_INTERVIEW_PASS_PRODUCT.orderName}</strong>
+              <p className="billing-plan-price">{formatWon(CANDIDATE_MOCK_INTERVIEW_PASS_PRODUCT.amount)}</p>
+              <p className="billing-plan-desc">모의면접 1회 응시와 AI 피드백 리포트를 포함합니다.</p>
+              <button className="btn primary billing-plan-action" type="button" onClick={() => void handlePayment()} disabled={paying}>
+                {paying ? "결제창 여는 중" : "토스페이먼츠로 결제"}
               </button>
-            ) : null}
+            </div>
           </div>
-          <div className="candidate-mypage-card">
-            <div className="panel-head">
-              <div>
-                <h2>{CANDIDATE_MOCK_INTERVIEW_PASS_PRODUCT.orderName}</h2>
-                <p>무료 이용권 소진 후 추가 연습이 필요할 때 구매합니다.</p>
+        </section>
+      </section>
+
+      {historyOpen ? (
+        <div className="billing-modal-overlay" role="dialog" aria-modal="true" onClick={() => setHistoryOpen(false)}>
+          <div className="billing-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="billing-modal__head">
+              <div className="billing-modal__title">
+                <h2>최근 결제 내역</h2>
+                <p>모의면접 이용권 결제 상태를 확인합니다.</p>
               </div>
-              <span className="badge info">{CANDIDATE_MOCK_INTERVIEW_PASS_PRODUCT.label}</span>
+              <div className="billing-modal__head-actions">
+                <button
+                  className="btn secondary"
+                  type="button"
+                  onClick={() => void loadBillingData(orderPage.page)}
+                  disabled={loading || paying}
+                >
+                  새로고침
+                </button>
+                <button className="billing-modal__close" type="button" aria-label="닫기" onClick={() => setHistoryOpen(false)}>
+                  ✕
+                </button>
+              </div>
             </div>
-            <div className="candidate-selected-application__notice">
-              <strong>{formatWon(CANDIDATE_MOCK_INTERVIEW_PASS_PRODUCT.amount)}</strong>
-              <br />
-              모의면접 1회 응시와 AI 피드백 리포트를 포함합니다.
+            <div className="billing-modal__body">
+              {loading ? <p className="empty">결제 내역을 불러오는 중입니다.</p> : <CandidatePaymentOrderList orders={orders} />}
+              {!loading ? (
+                <PaymentOrderPagination page={orderPage} disabled={paying} onPageChange={(nextPage) => void loadBillingData(nextPage)} />
+              ) : null}
             </div>
-            <button className="btn primary candidate-mypage-action" type="button" onClick={() => void handlePayment()} disabled={paying}>
-              {paying ? "결제창 여는 중" : "토스페이먼츠로 결제"}
-            </button>
           </div>
         </div>
-      </section>
-      <section className="panel">
-        <div className="panel-head">
-          <div>
-            <h2>최근 결제 내역</h2>
-            <p>모의면접 이용권 결제 상태를 확인합니다.</p>
-          </div>
-          <button className="btn secondary" type="button" onClick={() => void loadBillingData(orderPage.page)} disabled={loading || paying}>
-            새로고침
-          </button>
-        </div>
-        {loading ? <p className="empty">결제 내역을 불러오는 중입니다.</p> : <CandidatePaymentOrderList orders={orders} />}
-        {!loading ? (
-          <PaymentOrderPagination page={orderPage} disabled={paying} onPageChange={(nextPage) => void loadBillingData(nextPage)} />
-        ) : null}
-      </section>
+      ) : null}
     </CandidatePageShell>
   );
 }
@@ -5585,54 +5647,6 @@ function StatusNotice({ loading, error, message }: { loading?: boolean; error?: 
   if (message) return <p className="notice">{message}</p>;
   if (loading) return <p className="notice">불러오는 중입니다.</p>;
   return null;
-}
-
-function ApplicationsTable({
-  applications,
-  selectedApplicationId,
-  onSelect,
-}: {
-  applications: CandidateApplicationSummary[];
-  selectedApplicationId?: number;
-  onSelect?: (applicationId: number) => void;
-}) {
-  return (
-    <div className="candidate-applications-table">
-      <div className="candidate-applications-table__row candidate-applications-table__head">
-        <span>회사</span>
-        <span>채용공고</span>
-        <span>지원</span>
-        <span>면접</span>
-        <span>리포트</span>
-      </div>
-      {applications.map((application) => (
-        <button
-          key={application.applicationId}
-          type="button"
-          className={`candidate-applications-table__row ${
-            application.applicationId === selectedApplicationId ? "selected" : ""
-          }`}
-          onClick={() => onSelect?.(application.applicationId)}
-        >
-          <span>{application.companyName}</span>
-          <span>{application.jobTitle}</span>
-          <span>
-            <ApplicationStatusBadge
-              label={formatCandidateApplicationStatusLabel(application.applicationStatus)}
-              tone={getCandidateApplicationStatusTone(application.applicationStatus)}
-            />
-          </span>
-          <span>
-            <ApplicationStatusBadge
-              label={formatCandidateInterviewStatusLabel(application.interviewStatus)}
-              tone={getCandidateInterviewStatusTone(application.interviewStatus)}
-            />
-          </span>
-          <span>{renderCandidateReportStatus(application.reportStatus)}</span>
-        </button>
-      ))}
-    </div>
-  );
 }
 
 function ApplicationStatusBadge({ label, tone }: { label: string; tone: ApplicationBadgeTone }) {
