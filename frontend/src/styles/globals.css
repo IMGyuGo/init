@@ -7670,120 +7670,66 @@ p {
 /* 모의면접 시작: 페이지 헤더 아래 구분 라인 */
 .notion.candidate-mock-start-page .page-head { padding-bottom: 22px; border-bottom: 1px solid rgba(55, 53, 47, 0.12); }
 
-/* 마이페이지 대시보드: 지원 요약(kpi 박스 재사용) + 최근 지원 내역 */
-.notion .kpi-summary { margin: 22px 0 8px; }
+/* 마이페이지 대시보드 */
+.notion.candidate-mypage .candidate-mypage__head h1 { font-size: 26px; font-weight: 700; color: #191919; }
 
-.notion .candidate-mypage-recent { margin: 26px 0; }
-.notion .candidate-mypage-recent__head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 12px;
+.notion.candidate-mypage .mypage-block { margin-top: 36px; }
+.notion.candidate-mypage .mypage-block__title h2 { margin: 0; font-size: 17px; font-weight: 600; color: #191919; }
+.notion.candidate-mypage .mypage-block__title p { margin: 4px 0 0; font-size: 13px; color: rgba(55, 53, 47, 0.55); }
+
+/* 지원 요약 스탯 카드 */
+.notion.candidate-mypage .mypage-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 24px 0 4px;
 }
-.notion .candidate-mypage-recent__head h2 { font-size: 16px; font-weight: 600; color: #191919; }
-.notion .candidate-mypage-recent__more { font-size: 13px; color: #3b6fe0; }
-.notion .candidate-mypage-recent__more:hover { text-decoration: underline; }
-.notion .candidate-mypage-recent__notice {
+.notion.candidate-mypage .mypage-stat {
+  display: grid;
+  gap: 12px;
   padding: 20px;
-  font-size: 14px;
-  color: rgba(55, 53, 47, 0.6);
-  border: 1px solid rgba(55, 53, 47, 0.1);
-  border-radius: 12px;
-}
-.notion .candidate-mypage-recent__notice.is-danger { color: #c0392b; border-color: rgba(192, 57, 43, 0.28); }
-.notion .candidate-mypage-recent__list {
-  display: grid;
-  gap: 0;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border: 1px solid rgba(55, 53, 47, 0.12);
-  border-radius: 12px;
-  overflow: hidden;
-}
-.notion .candidate-mypage-recent__item {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  align-items: center;
-  gap: 16px;
-  padding: 14px 18px;
   background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 14px;
 }
-.notion .candidate-mypage-recent__item + .candidate-mypage-recent__item { border-top: 1px solid rgba(55, 53, 47, 0.08); }
-.notion .candidate-mypage-recent__info { display: grid; gap: 4px; min-width: 0; }
-.notion .candidate-mypage-recent__info strong {
-  font-size: 14px;
-  font-weight: 600;
+.notion.candidate-mypage .mypage-stat__icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  background: #f4f4f2;
+  border-radius: 10px;
+}
+.notion.candidate-mypage .mypage-stat__icon img { width: 22px; height: 22px; object-fit: contain; }
+.notion.candidate-mypage .mypage-stat__label { font-size: 13px; color: rgba(55, 53, 47, 0.6); }
+.notion.candidate-mypage .mypage-stat__value {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
   color: #191919;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
-.notion .candidate-mypage-recent__company {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: rgba(55, 53, 47, 0.55);
-}
-.notion .candidate-mypage-recent__company em { font-style: normal; opacity: 0.5; }
-.notion .candidate-mypage-recent__badges { display: inline-flex; gap: 6px; }
-.notion .candidate-mypage-recent__cta {
-  font-size: 13px;
-  font-weight: 500;
-  color: #37352f;
-  padding: 7px 14px;
-  border: 1px solid rgba(55, 53, 47, 0.16);
-  border-radius: 8px;
-  white-space: nowrap;
-}
-.notion .candidate-mypage-recent__cta:hover { border-color: #3b6fe0; color: #3b6fe0; }
-.notion .candidate-mypage-recent__cta.is-disabled { color: rgba(55, 53, 47, 0.4); border-color: rgba(55, 53, 47, 0.1); cursor: default; }
-.notion .candidate-mypage-recent__empty {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 32px 20px;
-  font-size: 14px;
-  color: rgba(55, 53, 47, 0.6);
-  border: 1px dashed rgba(55, 53, 47, 0.2);
-  border-radius: 12px;
-}
-.notion .candidate-mypage-recent__empty-cta { font-size: 13px; color: #3b6fe0; font-weight: 500; }
-.notion .candidate-mypage-recent__empty-cta:hover { text-decoration: underline; }
-
-/* 마이페이지: 이력서/포트폴리오 관리 카드 (Notion 톤) */
-.notion .candidate-mypage__cards {
+/* 서류 관리 카드 */
+.notion.candidate-mypage .candidate-mypage__cards {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
-  margin-top: 22px;
+  margin-top: 18px;
 }
-.notion .candidate-mypage-card {
+.notion.candidate-mypage .candidate-mypage-card {
   display: grid;
   gap: 14px;
   align-content: start;
   padding: 22px;
   background: #fff;
-  border: 1px solid rgba(55, 53, 47, 0.12);
+  border: 1px solid rgba(55, 53, 47, 0.1);
   border-radius: 14px;
 }
-.notion .candidate-mypage-card h2 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: #191919;
-}
-.notion .candidate-mypage-card label {
-  display: grid;
-  gap: 6px;
-  font-size: 13px;
-  color: rgba(55, 53, 47, 0.7);
-}
-.notion .candidate-mypage-card input[type="url"],
-.notion .candidate-mypage-card input:not([type]),
-.notion .candidate-mypage-card input[type="text"] {
+.notion.candidate-mypage .candidate-mypage-card h2 { margin: 0; font-size: 15px; font-weight: 600; color: #191919; }
+.notion.candidate-mypage .candidate-mypage-card label { display: grid; gap: 6px; font-size: 13px; color: rgba(55, 53, 47, 0.7); }
+.notion.candidate-mypage .candidate-mypage-card input[type="url"],
+.notion.candidate-mypage .candidate-mypage-card input:not([type]),
+.notion.candidate-mypage .candidate-mypage-card input[type="text"] {
   width: 100%;
   padding: 10px 12px;
   font-size: 14px;
@@ -7792,11 +7738,8 @@ p {
   border: 1px solid rgba(55, 53, 47, 0.16);
   border-radius: 8px;
 }
-.notion .candidate-mypage-card input:focus {
-  outline: none;
-  border-color: #3b6fe0;
-}
-.notion .candidate-upload-drop {
+.notion.candidate-mypage .candidate-mypage-card input:focus { outline: none; border-color: #3b6fe0; }
+.notion.candidate-mypage .candidate-upload-drop {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -7809,9 +7752,10 @@ p {
   border: 1px dashed rgba(55, 53, 47, 0.2);
   border-radius: 10px;
   cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease;
 }
-.notion .candidate-upload-drop:hover { border-color: #3b6fe0; color: #3b6fe0; }
-.notion .candidate-upload-icon {
+.notion.candidate-mypage .candidate-upload-drop:hover { border-color: #3b6fe0; color: #3b6fe0; }
+.notion.candidate-mypage .candidate-upload-icon {
   display: grid;
   place-items: center;
   width: 34px;
@@ -7821,19 +7765,14 @@ p {
   background: rgba(59, 111, 224, 0.1);
   border-radius: 8px;
 }
-.notion .candidate-hidden-file { display: none; }
-.notion .candidate-mypage-action {
-  justify-self: start;
-  min-width: 120px;
-}
-.notion .candidate-mypage-note {
-  margin: 0;
-  font-size: 12px;
-  color: rgba(55, 53, 47, 0.5);
-  line-height: 1.5;
-}
+.notion.candidate-mypage .candidate-hidden-file { display: none; }
+.notion.candidate-mypage .candidate-mypage-action { justify-self: start; min-width: 120px; }
+.notion.candidate-mypage .candidate-mypage-note { margin: 0; font-size: 12px; color: rgba(55, 53, 47, 0.5); line-height: 1.5; }
 
+@media (max-width: 860px) {
+  .notion.candidate-mypage .mypage-stats { grid-template-columns: repeat(2, 1fr); }
+}
 @media (max-width: 720px) {
-  .notion .candidate-mypage__cards { grid-template-columns: 1fr; }
+  .notion.candidate-mypage .candidate-mypage__cards { grid-template-columns: 1fr; }
 }
 

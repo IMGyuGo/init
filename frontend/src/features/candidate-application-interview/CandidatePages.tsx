@@ -1779,12 +1779,8 @@ export function CandidateMyPage() {
   const portfolioInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadApplications = useCallback(() => getCandidateApi().listApplications(), []);
-  const { data: applicationsData, loading: applicationsLoading, error: applicationsError } =
-    useCandidateResource(loadApplications, []);
+  const { data: applicationsData } = useCandidateResource(loadApplications, []);
   const applications = applicationsData?.data.items ?? [];
-  const recentApplications = [...applications]
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-    .slice(0, 4);
   const summary = {
     total: applications.length,
     waiting: applications.filter(
@@ -1844,89 +1840,20 @@ export function CandidateMyPage() {
         </header>
         <CandidateMypageTabs />
 
-        <section className="kpi-row kpi-summary" aria-label="지원 요약">
-          <div className="kpi">
-            <MypageStatIcon name="applications" />
-            <span>전체 지원</span>
-            <strong>{summary.total}</strong>
-          </div>
-          <div className="kpi">
-            <MypageStatIcon name="waiting" />
-            <span>응시 대기</span>
-            <strong>{summary.waiting}</strong>
-          </div>
-          <div className="kpi primary">
-            <MypageStatIcon name="completed" />
-            <span>응시 완료</span>
-            <strong>{summary.completed}</strong>
-          </div>
-          <div className="kpi">
-            <MypageStatIcon name="reports" />
-            <span>리포트 확인</span>
-            <strong>{summary.reports}</strong>
-          </div>
+        <section className="mypage-stats" aria-label="지원 요약">
+          <MypageStat name="applications" label="전체 지원" value={summary.total} />
+          <MypageStat name="waiting" label="응시 대기" value={summary.waiting} />
+          <MypageStat name="completed" label="응시 완료" value={summary.completed} />
+          <MypageStat name="reports" label="리포트 확인" value={summary.reports} />
         </section>
 
-        <section className="candidate-mypage-recent">
-          <div className="candidate-mypage-recent__head">
-            <h2>최근 지원 내역</h2>
-            <Link className="candidate-mypage-recent__more" href={candidateApplicationInterviewRoutes.applications}>
-              전체 보기 →
-            </Link>
+        <section className="mypage-block">
+          <div className="mypage-block__title">
+            <h2>서류 관리</h2>
+            <p>이력서와 포트폴리오를 등록해 지원 시 바로 사용하세요.</p>
           </div>
-          {applicationsError ? (
-            <p className="candidate-mypage-recent__notice is-danger">{applicationsError}</p>
-          ) : applicationsLoading ? (
-            <p className="candidate-mypage-recent__notice">지원 내역을 불러오는 중이에요.</p>
-          ) : recentApplications.length ? (
-            <ul className="candidate-mypage-recent__list">
-              {recentApplications.map((application) => {
-                const action = getSelectedApplicationAction(application);
-                return (
-                  <li key={application.applicationId} className="candidate-mypage-recent__item">
-                    <div className="candidate-mypage-recent__info">
-                      <strong>{application.jobTitle}</strong>
-                      <span className="candidate-mypage-recent__company">
-                        {application.companyName}
-                        <em>·</em>
-                        {formatDateOnly(application.updatedAt)} 업데이트
-                      </span>
-                    </div>
-                    <div className="candidate-mypage-recent__badges">
-                      <ApplicationStatusBadge
-                        label={formatCandidateApplicationStatusLabel(application.applicationStatus)}
-                        tone={getCandidateApplicationStatusTone(application.applicationStatus)}
-                      />
-                      <ApplicationStatusBadge
-                        label={formatCandidateInterviewStatusLabel(application.interviewStatus)}
-                        tone={getCandidateInterviewStatusTone(application.interviewStatus)}
-                      />
-                    </div>
-                    {action.href ? (
-                      <Link className="candidate-mypage-recent__cta" href={action.href}>
-                        {action.label}
-                      </Link>
-                    ) : (
-                      <span className="candidate-mypage-recent__cta is-disabled" aria-disabled="true">
-                        {action.label}
-                      </span>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <div className="candidate-mypage-recent__empty">
-              아직 지원한 공고가 없어요.
-              <Link className="candidate-mypage-recent__empty-cta" href={candidateApplicationInterviewRoutes.jobs}>
-                채용공고 둘러보기 →
-              </Link>
-            </div>
-          )}
-        </section>
-
-        <StatusNotice loading={busy} message={message} />
-        <div className="candidate-mypage__cards">
+          <StatusNotice loading={busy} message={message} />
+          <div className="candidate-mypage__cards">
           <form className="candidate-mypage-card candidate-resume-card" onSubmit={handleResumeSubmit}>
             <h2>이력서 업로드</h2>
             <button
@@ -2015,25 +1942,37 @@ export function CandidateMyPage() {
               등록
             </button>
           </form>
-        </div>
+          </div>
+        </section>
       </section>
     </CandidatePageShell>
   );
 }
 
-function MypageStatIcon({ name }: { name: "applications" | "waiting" | "completed" | "reports" }) {
+function MypageStat({
+  name,
+  label,
+  value,
+}: {
+  name: "applications" | "waiting" | "completed" | "reports";
+  label: string;
+  value: number;
+}) {
   const icons: Record<typeof name, string> = {
     applications: "/candidate-stat-applications-v2.png",
     waiting: "/candidate-stat-waiting-v2.png",
     completed: "/candidate-stat-completed-v2.png",
     reports: "/candidate-stat-reports-v2.png",
   };
-  return <Image className="kpi-icon" src={icons[name]} alt="" width={28} height={28} aria-hidden="true" />;
-}
-
-function formatDateOnly(value: string | null) {
-  if (!value) return "-";
-  return new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric" }).format(new Date(value));
+  return (
+    <article className="mypage-stat">
+      <span className="mypage-stat__icon">
+        <Image src={icons[name]} alt="" width={22} height={22} aria-hidden="true" />
+      </span>
+      <span className="mypage-stat__label">{label}</span>
+      <strong className="mypage-stat__value">{value}</strong>
+    </article>
+  );
 }
 
 export function CandidateBillingPage() {
