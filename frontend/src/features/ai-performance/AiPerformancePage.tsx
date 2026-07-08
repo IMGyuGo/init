@@ -177,7 +177,7 @@ export function AiPerformancePage() {
         <div className="panel-head">
           <div>
             <h2>최근 사용자 체감 시간</h2>
-            <p>브라우저에서 측정한 답변 완료 후 다음 질문 표시까지의 시간입니다.</p>
+            <p>브라우저에서 측정한 답변 제출 후 다음 질문 준비 완료까지의 시간입니다.</p>
           </div>
         </div>
         <div className="table-wrap">

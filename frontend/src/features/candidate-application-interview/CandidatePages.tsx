@@ -2220,6 +2220,14 @@ function InterviewRuntimePanel({
     applicationId?: number;
     processLogId?: number;
   } | null>(null);
+  const answerSubmitToNextReadyPerfRef = useRef<{
+    startedAt: number;
+    startedAtIso: string;
+    sourceQuestionId: number;
+    sessionId: number;
+    applicationId?: number;
+    origin: string;
+  } | null>(null);
   const interviewerSessionEventsRef = useRef<InterviewerSessionEvent[]>([]);
   const interviewerSessionEventSequenceRef = useRef(0);
   const interviewerSessionIdRef = useRef<number | undefined>(undefined);
@@ -3901,6 +3909,7 @@ function InterviewRuntimePanel({
               videoFile,
             })),
             currentQuestion,
+            "answer_complete_button",
           );
           return;
         }
@@ -3951,6 +3960,7 @@ function InterviewRuntimePanel({
     const nextRetryCount = retryCount + 1;
     invalidRecordingRetryCountsRef.current.set(questionId, nextRetryCount);
 
+    clearAnswerSubmitToNextReadyMetric(questionId);
     submitAfterRecordingStopRef.current = false;
     autoAdvanceAfterAnswerSubmitRef.current = false;
     setRecordedFileName("");
@@ -4063,7 +4073,11 @@ function InterviewRuntimePanel({
     speakCurrentQuestion("manual");
   }
 
-  async function submitAnswerRequest(request: SaveInterviewAnswerRequest, question = currentQuestion) {
+  async function submitAnswerRequest(
+    request: SaveInterviewAnswerRequest,
+    question = currentQuestion,
+    metricOrigin = "answer_submit",
+  ) {
     if (!data) return;
     if (savingQuestionIdsRef.current.has(request.questionId)) {
       setMessage("답변 저장이 이미 진행 중입니다. 잠시만 기다려주세요.");
@@ -4075,6 +4089,7 @@ function InterviewRuntimePanel({
       return;
     }
     savingQuestionIdsRef.current.add(request.questionId);
+    beginAnswerSubmitToNextReadyMetric(request.questionId, metricOrigin);
     setBusy(true);
     setMessage("");
     try {
@@ -4143,6 +4158,11 @@ function InterviewRuntimePanel({
       }
     } catch (submitError) {
       autoAdvanceAfterAnswerSubmitRef.current = false;
+      completeAnswerSubmitToNextReadyMetric({
+        questionId: request.questionId,
+        outcome: "ANSWER_SAVE_FAILED",
+        nextReady: false,
+      });
       if (isQuestionStateConflict(submitError)) {
         setMessage("답변은 이미 반영된 상태입니다. 질문 상태를 새로고침합니다.");
         refresh();
@@ -4161,7 +4181,7 @@ function InterviewRuntimePanel({
       setMessage("녹화 종료 후 답변 제출을 눌러주세요.");
       return;
     }
-    await submitAnswerRequest(withReanswerFlag(toSaveInterviewAnswerRequest(answer)));
+    await submitAnswerRequest(withReanswerFlag(toSaveInterviewAnswerRequest(answer)), currentQuestion, "answer_form_submit");
   }
 
   function handleAnswerComplete() {
@@ -4171,13 +4191,19 @@ function InterviewRuntimePanel({
     }
 
     if (recording) {
+      if (currentQuestion) {
+        beginAnswerSubmitToNextReadyMetric(currentQuestion.questionId, "answer_complete_button");
+      }
       submitAfterRecordingStopRef.current = true;
       handleStopRecording();
       return;
     }
 
     if (canSubmitAnswer) {
-      void submitAnswerRequest(withReanswerFlag(toSaveInterviewAnswerRequest(answer)));
+      if (currentQuestion) {
+        beginAnswerSubmitToNextReadyMetric(currentQuestion.questionId, "answer_complete_button");
+      }
+      void submitAnswerRequest(withReanswerFlag(toSaveInterviewAnswerRequest(answer)), currentQuestion, "answer_complete_button");
       return;
     }
 
@@ -4242,9 +4268,12 @@ function InterviewRuntimePanel({
   async function runAutomaticAiPipeline(savedAnswer: LastSavedAnswer, question = currentQuestion) {
     if (!data) return;
 
+    let sttProcessLogId: number | undefined;
+    let followUpProcessLogId: number | undefined;
+
     try {
       const sttHandoff = await requestAiPipeline("STT", savedAnswer);
-      const sttProcessLogId = sttHandoff.processLogId;
+      sttProcessLogId = sttHandoff.processLogId;
       if (!sttProcessLogId) {
         setAutoAiPipeline((current) => ({
           answerId: savedAnswer.answerId,
@@ -4256,6 +4285,11 @@ function InterviewRuntimePanel({
           failureRetryable: undefined,
           error: "STT 작업 ID를 받지 못했습니다.",
         }));
+        completeAnswerSubmitToNextReadyMetric({
+          questionId: savedAnswer.questionId,
+          outcome: "STT_HANDOFF_MISSING",
+          nextReady: false,
+        });
         return;
       }
 
@@ -4291,6 +4325,13 @@ function InterviewRuntimePanel({
             ? sttStatus.failure?.reason ?? "STT 처리에 실패했습니다."
             : "STT 처리가 아직 진행 중입니다. 잠시 후 상태를 다시 확인해주세요.",
         }));
+        completeAnswerSubmitToNextReadyMetric({
+          questionId: savedAnswer.questionId,
+          processLogId: sttProcessLogId,
+          sttProcessLogId,
+          outcome: shouldSkipFollowUp ? "STT_FAILED_CONTINUE" : "STT_FAILED_BLOCKED",
+          nextReady: shouldSkipFollowUp,
+        });
         return;
       }
 
@@ -4307,6 +4348,13 @@ function InterviewRuntimePanel({
           sttProcessLogId,
           error: "STT 결과에서 transcript를 찾지 못했습니다.",
         }));
+        completeAnswerSubmitToNextReadyMetric({
+          questionId: savedAnswer.questionId,
+          processLogId: sttProcessLogId,
+          sttProcessLogId,
+          outcome: "STT_EMPTY_TRANSCRIPT",
+          nextReady: true,
+        });
         return;
       }
 
@@ -4325,6 +4373,13 @@ function InterviewRuntimePanel({
           error: transcriptRetryReason,
         }));
         setMessage(`${transcriptRetryReason} 다시 답변하기를 눌러 현재 질문을 다시 녹음해주세요.`);
+        completeAnswerSubmitToNextReadyMetric({
+          questionId: savedAnswer.questionId,
+          processLogId: sttProcessLogId,
+          sttProcessLogId,
+          outcome: "STT_TRANSCRIPT_REANSWER_REQUIRED",
+          nextReady: false,
+        });
         return;
       }
 
@@ -4357,11 +4412,18 @@ function InterviewRuntimePanel({
             ? "마지막 답변 처리가 완료되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
             : "답변 처리가 완료되었습니다. 다음 질문으로 이동해주세요.",
         );
+        completeAnswerSubmitToNextReadyMetric({
+          questionId: savedAnswer.questionId,
+          processLogId: sttProcessLogId,
+          sttProcessLogId,
+          outcome: isLastFollowUpQuestion ? "INTERVIEW_COMPLETE_READY" : "NEXT_QUESTION_READY",
+          nextReady: true,
+        });
         return;
       }
 
       const followUpHandoff = await requestAiPipeline("FOLLOW_UP", answerWithTranscript);
-      const followUpProcessLogId = followUpHandoff.processLogId;
+      followUpProcessLogId = followUpHandoff.processLogId;
       if (!followUpProcessLogId) {
         setAutoAiPipeline((current) => ({
           answerId: savedAnswer.answerId,
@@ -4370,6 +4432,13 @@ function InterviewRuntimePanel({
           followUpStatus: "FAILED",
           error: "꼬리질문 작업 ID를 받지 못했습니다.",
         }));
+        completeAnswerSubmitToNextReadyMetric({
+          questionId: savedAnswer.questionId,
+          processLogId: sttProcessLogId,
+          sttProcessLogId,
+          outcome: "FOLLOW_UP_HANDOFF_MISSING",
+          nextReady: false,
+        });
         return;
       }
 
@@ -4399,6 +4468,14 @@ function InterviewRuntimePanel({
             ? followUpStatus.failure?.reason ?? "꼬리질문 생성에 실패했습니다."
             : undefined,
         }));
+        completeAnswerSubmitToNextReadyMetric({
+          questionId: savedAnswer.questionId,
+          processLogId: followUpProcessLogId,
+          sttProcessLogId,
+          followUpProcessLogId,
+          outcome: shouldSkipFollowUp ? "FOLLOW_UP_FAILED_CONTINUE" : "FOLLOW_UP_FAILED_BLOCKED",
+          nextReady: shouldSkipFollowUp,
+        });
         return;
       }
 
@@ -4421,6 +4498,14 @@ function InterviewRuntimePanel({
           ? "다음 질문이 준비되었습니다."
           : "답변 처리가 완료되었습니다.",
       );
+      completeAnswerSubmitToNextReadyMetric({
+        questionId: savedAnswer.questionId,
+        processLogId: followUpProcessLogId,
+        sttProcessLogId,
+        followUpProcessLogId,
+        outcome: followUpQuestion ? "FOLLOW_UP_READY" : "FOLLOW_UP_MISSING_CONTENT",
+        nextReady: Boolean(followUpQuestion),
+      });
     } catch (pipelineError) {
       const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({ pipelineError });
       setAutoAiPipeline((current) => ({
@@ -4431,6 +4516,14 @@ function InterviewRuntimePanel({
         followUpSkipped: shouldSkipFollowUp,
         error: shouldSkipFollowUp ? undefined : toErrorMessage(pipelineError),
       }));
+      completeAnswerSubmitToNextReadyMetric({
+        questionId: savedAnswer.questionId,
+        processLogId: followUpProcessLogId ?? sttProcessLogId,
+        sttProcessLogId,
+        followUpProcessLogId,
+        outcome: shouldSkipFollowUp ? "PIPELINE_ERROR_CONTINUE" : "PIPELINE_ERROR_BLOCKED",
+        nextReady: shouldSkipFollowUp,
+      });
     }
   }
 
@@ -4481,6 +4574,67 @@ function InterviewRuntimePanel({
       applicationId: data.runtime.applicationId,
       processLogId
     };
+  }
+
+  function beginAnswerSubmitToNextReadyMetric(questionId: number, origin: string) {
+    if (!data) return;
+    const currentMetric = answerSubmitToNextReadyPerfRef.current;
+    if (currentMetric?.sourceQuestionId === questionId) return;
+
+    answerSubmitToNextReadyPerfRef.current = {
+      startedAt: performance.now(),
+      startedAtIso: new Date().toISOString(),
+      sourceQuestionId: questionId,
+      sessionId: data.runtime.sessionId,
+      applicationId: data.runtime.applicationId,
+      origin,
+    };
+  }
+
+  function completeAnswerSubmitToNextReadyMetric({
+    questionId,
+    processLogId,
+    sttProcessLogId,
+    followUpProcessLogId,
+    outcome,
+    nextReady,
+  }: {
+    questionId: number;
+    processLogId?: number;
+    sttProcessLogId?: number;
+    followUpProcessLogId?: number;
+    outcome: string;
+    nextReady: boolean;
+  }) {
+    const metric = answerSubmitToNextReadyPerfRef.current;
+    if (!metric || metric.sourceQuestionId !== questionId) return;
+
+    answerSubmitToNextReadyPerfRef.current = null;
+    void sendClientPerformanceLog({
+      eventName: "ANSWER_SUBMIT_TO_NEXT_READY",
+      durationMs: Math.max(0, Math.round(performance.now() - metric.startedAt)),
+      processLogId,
+      sessionId: metric.sessionId,
+      applicationId: metric.applicationId,
+      questionId,
+      startedAt: metric.startedAtIso,
+      completedAt: new Date().toISOString(),
+      metadata: {
+        mode,
+        origin: metric.origin,
+        sourceQuestionId: metric.sourceQuestionId,
+        outcome,
+        nextReady,
+        sttProcessLogId,
+        followUpProcessLogId,
+      },
+    });
+  }
+
+  function clearAnswerSubmitToNextReadyMetric(questionId: number) {
+    if (answerSubmitToNextReadyPerfRef.current?.sourceQuestionId === questionId) {
+      answerSubmitToNextReadyPerfRef.current = null;
+    }
   }
 
   async function handleAnswerFollowUpQuestion() {
@@ -4549,13 +4703,14 @@ function InterviewRuntimePanel({
 
     const recorder = recorderRef.current;
     if (recorder?.state === "recording") {
+      beginAnswerSubmitToNextReadyMetric(currentQuestion.questionId, "time_expired");
       submitAfterRecordingStopRef.current = true;
       handleStopRecording();
       return;
     }
 
     if (canSubmitAnswer) {
-      await submitAnswerRequest(withReanswerFlag(toSaveInterviewAnswerRequest(answer)));
+      await submitAnswerRequest(withReanswerFlag(toSaveInterviewAnswerRequest(answer)), currentQuestion, "time_expired");
       return;
     }
 
