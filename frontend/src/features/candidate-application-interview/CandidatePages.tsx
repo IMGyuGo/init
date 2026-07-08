@@ -107,7 +107,6 @@ import {
   getCandidateApplicationReportHref,
   getMockInterviewDeviceCheckHref,
   getMockReportHref,
-  hasMeaningfulInterviewRecordingVoice,
   inferPortfolioLinkType,
   isInterviewSpeechPlaybackEventCurrent,
   normalizeInterviewMediaMimeType,
@@ -152,6 +151,9 @@ const MIN_INTERVIEW_RECORDING_VOICE_FRAME_COUNT = 6;
 const MAX_INVALID_RECORDING_AUTO_RETRY_COUNT = 1;
 const REALTIME_SILENCE_GRACE_MS = 2000;
 const REALTIME_SPEECH_RESPONSE_TIMEOUT_MS = 30000;
+const BROWSER_SPEECH_START_TIMEOUT_MS = 2500;
+const BROWSER_SPEECH_MIN_COMPLETION_TIMEOUT_MS = 8000;
+const BROWSER_SPEECH_MAX_COMPLETION_TIMEOUT_MS = 45000;
 const MIN_STT_TRANSCRIPT_MEANINGFUL_LENGTH = 10;
 const RUNTIME_PIP_RESERVED_TOP_HEIGHT = 96;
 const MAX_INTERVIEWER_SESSION_EVENTS = 40;
@@ -2233,6 +2235,8 @@ function InterviewRuntimePanel({
   const realtimeAudioCompletedResponseIdsRef = useRef<Set<string>>(new Set());
   const speechPlaybackIdRef = useRef(0);
   const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const browserSpeechStartTimeoutRef = useRef<number | null>(null);
+  const browserSpeechCompletionTimeoutRef = useRef<number | null>(null);
   const microphoneLevelRef = useRef(0);
   const recordingVoicePeakRef = useRef(0);
   const recordingVoiceFrameCountRef = useRef(0);
@@ -2331,6 +2335,17 @@ function InterviewRuntimePanel({
     realtimeSpeechTimeoutRef.current = null;
   }, []);
 
+  const clearBrowserSpeechTimeouts = useCallback(() => {
+    if (browserSpeechStartTimeoutRef.current !== null) {
+      window.clearTimeout(browserSpeechStartTimeoutRef.current);
+      browserSpeechStartTimeoutRef.current = null;
+    }
+    if (browserSpeechCompletionTimeoutRef.current !== null) {
+      window.clearTimeout(browserSpeechCompletionTimeoutRef.current);
+      browserSpeechCompletionTimeoutRef.current = null;
+    }
+  }, []);
+
   const clearRealtimeSpeechCompletionState = useCallback(() => {
     realtimeSpeechResponseMetadataByIdRef.current.clear();
     realtimeAudioCompletedResponseIdsRef.current.clear();
@@ -2392,6 +2407,7 @@ function InterviewRuntimePanel({
   const stopQuestionSpeech = useCallback((options: { restoreRealtimeMicrophone?: boolean } = {}) => {
     const restoreRealtimeMicrophone = options.restoreRealtimeMicrophone ?? true;
     clearRealtimeSpeechTimeout();
+    clearBrowserSpeechTimeouts();
     clearRealtimeSpeechCompletionState();
     speechPlaybackIdRef.current += 1;
     if (restoreRealtimeMicrophone) {
@@ -2401,7 +2417,7 @@ function InterviewRuntimePanel({
     window.speechSynthesis.cancel();
     speechUtteranceRef.current = null;
     setQuestionSpeechPlaying(false);
-  }, [clearRealtimeSpeechCompletionState, clearRealtimeSpeechTimeout, setRealtimeMicrophoneOpen]);
+  }, [clearBrowserSpeechTimeouts, clearRealtimeSpeechCompletionState, clearRealtimeSpeechTimeout, setRealtimeMicrophoneOpen]);
 
   const speakInterviewIntro = useCallback((options: { forceBrowserSpeech?: boolean } = {}) => {
     if (!data) return;
@@ -2523,7 +2539,7 @@ function InterviewRuntimePanel({
   }, [appendInterviewerSessionActionEvent, data, isCurrentSpeechPlayback, mode, realtimeSpeechReady, setRealtimeMicrophoneOpen, stopQuestionSpeech]);
 
   const speakCurrentQuestion = useCallback(
-    (source: "auto" | "manual", options: { forceBrowserSpeech?: boolean } = {}) => {
+    (source: "auto" | "manual", options: { forceBrowserSpeech?: boolean; browserRetryCount?: number } = {}) => {
       if (!currentQuestion) {
         setQuestionSpeechStatus("현재 질문을 불러올 수 없습니다.");
         setQuestionSpeechCompleted(true);
@@ -2538,6 +2554,7 @@ function InterviewRuntimePanel({
       }
 
       const forceBrowserSpeech = options.forceBrowserSpeech ?? false;
+      const browserRetryCount = options.browserRetryCount ?? 0;
       stopQuestionSpeech({ restoreRealtimeMicrophone: !realtimeSpeechReady && !forceBrowserSpeech });
       const playbackId = ++speechPlaybackIdRef.current;
       const questionId = currentQuestion.questionId;
@@ -2611,6 +2628,33 @@ function InterviewRuntimePanel({
       }
 
       const utterance = new SpeechSynthesisUtterance(text);
+      const retryOrCompleteBrowserSpeech = (reason: string) => {
+        if (speechUtteranceRef.current !== utterance || !isCurrentSpeechPlayback(playbackId, questionId, sessionId)) return;
+        speechUtteranceRef.current = null;
+        clearBrowserSpeechTimeouts();
+        window.speechSynthesis.cancel();
+        setQuestionSpeechPlaying(false);
+        appendInterviewerSessionActionEvent({
+          action: "speech:fallback",
+          phase: "FALLBACK_TTS",
+          label: browserRetryCount < 1 ? `${reason} 질문 음성 재시도` : `${reason} 답변 단계 전환`,
+          questionId,
+        });
+
+        if (browserRetryCount < 1) {
+          setQuestionSpeechCompleted(false);
+          setQuestionSpeechStatus(`${reason} 질문 음성을 다시 시도합니다.`);
+          window.setTimeout(() => {
+            if (!isCurrentSpeechPlayback(playbackId, questionId, sessionId)) return;
+            speakCurrentQuestion(source, { forceBrowserSpeech: true, browserRetryCount: browserRetryCount + 1 });
+          }, 150);
+          return;
+        }
+
+        setQuestionSpeechCompleted(true);
+        setQuestionSpeechStatus(`${reason} 답변을 시작할 수 있습니다.`);
+      };
+
       const koreanVoice = findKoreanSpeechVoice(window.speechSynthesis.getVoices());
       utterance.lang = "ko-KR";
       utterance.rate = 0.95;
@@ -2618,6 +2662,7 @@ function InterviewRuntimePanel({
       if (koreanVoice) utterance.voice = koreanVoice;
       utterance.onstart = () => {
         if (!isCurrentSpeechPlayback(playbackId, questionId, sessionId)) return;
+        clearBrowserSpeechTimeouts();
         setQuestionSpeechPlaying(true);
         setQuestionSpeechStatus(source === "manual" ? "질문 음성을 다시 재생 중입니다." : "질문 음성을 재생 중입니다.");
         appendInterviewerSessionActionEvent({
@@ -2626,9 +2671,25 @@ function InterviewRuntimePanel({
           label: forceBrowserSpeech ? "브라우저 fallback 질문 음성 시작" : "브라우저 질문 음성 시작",
           questionId,
         });
+        browserSpeechCompletionTimeoutRef.current = window.setTimeout(() => {
+          if (speechUtteranceRef.current !== utterance || !isCurrentSpeechPlayback(playbackId, questionId, sessionId)) return;
+          speechUtteranceRef.current = null;
+          clearBrowserSpeechTimeouts();
+          window.speechSynthesis.cancel();
+          setQuestionSpeechPlaying(false);
+          setQuestionSpeechCompleted(true);
+          setQuestionSpeechStatus("질문 음성 완료 확인이 지연되어 답변 단계로 전환합니다.");
+          appendInterviewerSessionActionEvent({
+            action: "speech:fallback",
+            phase: "FALLBACK_TTS",
+            label: "브라우저 질문 음성 완료 이벤트 timeout",
+            questionId,
+          });
+        }, getBrowserSpeechCompletionTimeoutMs(text));
       };
       utterance.onend = () => {
         if (speechUtteranceRef.current !== utterance || !isCurrentSpeechPlayback(playbackId, questionId, sessionId)) return;
+        clearBrowserSpeechTimeouts();
         speechUtteranceRef.current = null;
         setQuestionSpeechPlaying(false);
         setQuestionSpeechCompleted(true);
@@ -2641,19 +2702,22 @@ function InterviewRuntimePanel({
         });
       };
       utterance.onerror = () => {
-        if (speechUtteranceRef.current !== utterance || !isCurrentSpeechPlayback(playbackId, questionId, sessionId)) return;
-        speechUtteranceRef.current = null;
-        setQuestionSpeechPlaying(false);
-        setQuestionSpeechCompleted(true);
-        setQuestionSpeechStatus("질문 음성을 재생할 수 없습니다.");
+        retryOrCompleteBrowserSpeech("질문 음성을 재생하지 못했습니다.");
       };
 
       speechUtteranceRef.current = utterance;
       setQuestionSpeechSupported(true);
       setQuestionSpeechStatus("질문 음성 재생 준비 중입니다.");
-      window.speechSynthesis.speak(utterance);
+      browserSpeechStartTimeoutRef.current = window.setTimeout(() => {
+        retryOrCompleteBrowserSpeech("질문 음성 시작 이벤트를 받지 못했습니다.");
+      }, BROWSER_SPEECH_START_TIMEOUT_MS);
+      try {
+        window.speechSynthesis.speak(utterance);
+      } catch {
+        retryOrCompleteBrowserSpeech("질문 음성을 시작하지 못했습니다.");
+      }
     },
-    [appendInterviewerSessionActionEvent, currentQuestion, data?.runtime.sessionId, isCurrentSpeechPlayback, realtimeSpeechReady, setRealtimeMicrophoneOpen, stopQuestionSpeech],
+    [appendInterviewerSessionActionEvent, clearBrowserSpeechTimeouts, currentQuestion, data?.runtime.sessionId, isCurrentSpeechPlayback, realtimeSpeechReady, setRealtimeMicrophoneOpen, stopQuestionSpeech],
   );
 
   const completeRealtimeSpeechPlayback = useCallback((metadata: RealtimeResponseMetadata) => {
@@ -3846,19 +3910,6 @@ function InterviewRuntimePanel({
           clearInvalidRecordingDraft(
             currentQuestion.questionId,
             `답변 녹음이 너무 짧습니다. 최소 ${MIN_INTERVIEW_RECORDING_DURATION_SECONDS}초 이상 답변한 뒤 다시 제출해주세요.`,
-          );
-          return;
-        }
-
-        if (!hasMeaningfulInterviewRecordingVoice({
-          peakLevel: recordingVoicePeakRef.current,
-          activeFrameCount: recordingVoiceFrameCountRef.current,
-          minPeakLevel: MIN_INTERVIEW_RECORDING_VOICE_LEVEL,
-          minActiveFrameCount: MIN_INTERVIEW_RECORDING_VOICE_FRAME_COUNT,
-        })) {
-          clearInvalidRecordingDraft(
-            currentQuestion.questionId,
-            "답변 음성이 감지되지 않았습니다. 마이크 입력을 확인한 뒤 다시 답변해주세요.",
           );
           return;
         }
@@ -6554,6 +6605,14 @@ function formatInterviewCountdown(seconds: number): string {
 
 function isQuestionSpeechSupported(): boolean {
   return typeof window !== "undefined" && "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined";
+}
+
+function getBrowserSpeechCompletionTimeoutMs(text: string): number {
+  const estimatedMs = text.length * 120 + 4000;
+  return Math.min(
+    BROWSER_SPEECH_MAX_COMPLETION_TIMEOUT_MS,
+    Math.max(BROWSER_SPEECH_MIN_COMPLETION_TIMEOUT_MS, estimatedMs),
+  );
 }
 
 function findKoreanSpeechVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | undefined {
