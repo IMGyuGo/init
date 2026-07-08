@@ -2,11 +2,12 @@
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { AuthTokenResponse, UserType, apiFetch, getDefaultEntryPath } from "../../api/client";
 import { useAuth } from "./AuthProvider";
 import signupCompanyIcon from "./assets/signup-company.png";
 import signupCandidateIcon from "./assets/signup-candidate.png";
+import { getOAuthLoginMessageState } from "./oauth-login-message";
 
 function EyeIcon() {
   return (
@@ -189,6 +190,14 @@ export function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const state = getOAuthLoginMessageState(window.location.href);
+    if (!state.message) return;
+
+    setMessage(state.message);
+    window.history.replaceState(null, "", state.cleanPath);
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
