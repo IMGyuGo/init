@@ -4,6 +4,7 @@ import { PrismaService } from "../../shared/prisma.service";
 import { AuthModule } from "../auth/auth.module";
 import { MailService } from "../auth/service/mail.service";
 import { CompanyRecruitingController } from "./controller/company-recruiting.controller";
+import { CompanyRecruitingMediaController } from "./controller/company-recruiting-media.controller";
 import { PublicApplicationController } from "./controller/public-application.controller";
 import { PublicRecruitmentController } from "./controller/public-recruitment.controller";
 import { S3CompanyRecruitingStorageAdapter } from "./service/company-recruiting-storage.adapter";
@@ -27,7 +28,7 @@ import {
 
 @Module({
   imports: [AuthModule],
-  controllers: [CompanyRecruitingController, PublicRecruitmentController, PublicApplicationController],
+  controllers: [CompanyRecruitingController, CompanyRecruitingMediaController, PublicRecruitmentController, PublicApplicationController],
   providers: [
     PrismaService,
     MailService,

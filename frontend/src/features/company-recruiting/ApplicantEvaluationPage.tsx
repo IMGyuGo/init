@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
-import { fetchApplicantInterviewMedia, getApplicantEvaluation, updateScreeningStatus } from "./api";
+import { createApplicantInterviewMediaSession, getApplicantEvaluation, updateScreeningStatus } from "./api";
 import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
 import { formatRecruitingStatusLabel } from "./status-labels";
 import type { ApplicantEvaluation, ApplicantInterviewFileAsset, ScreeningDecision } from "./types";
@@ -283,30 +283,28 @@ function CompanyAnswerMedia({
   const primaryFile = videoFile ?? audioFile;
   const primaryMediaType = videoFile ? "video" : "audio";
   const cachedUrl = getCachedRecordingObjectUrl(primaryFile?.storageKey);
-  const [fetchedUrl, setFetchedUrl] = useState<string | null>(null);
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const [mediaError, setMediaError] = useState("");
   const [mediaLoading, setMediaLoading] = useState(false);
 
   useEffect(() => {
     if (!primaryFile || cachedUrl) {
-      setFetchedUrl(null);
+      setMediaUrl(null);
       setMediaError("");
       setMediaLoading(false);
       return;
     }
 
     let disposed = false;
-    let objectUrl: string | null = null;
     setMediaLoading(true);
     setMediaError("");
 
-    fetchApplicantInterviewMedia(applicantId, primaryFile.fileId)
-      .then((blob) => {
+    createApplicantInterviewMediaSession(applicantId, primaryFile.fileId)
+      .then((session) => {
         if (disposed) {
           return;
         }
-        objectUrl = URL.createObjectURL(blob);
-        setFetchedUrl(objectUrl);
+        setMediaUrl(session.mediaUrl);
       })
       .catch((error) => {
         if (!disposed) {
@@ -321,9 +319,6 @@ function CompanyAnswerMedia({
 
     return () => {
       disposed = true;
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
-      }
     };
   }, [applicantId, cachedUrl, primaryFile]);
 
@@ -331,7 +326,7 @@ function CompanyAnswerMedia({
     return null;
   }
 
-  const playableUrl = cachedUrl ?? fetchedUrl ?? undefined;
+  const playableUrl = cachedUrl ?? mediaUrl ?? undefined;
 
   return (
     <div className={`company-answer-media ${compact ? "compact" : ""}`}>
@@ -340,11 +335,11 @@ function CompanyAnswerMedia({
         <span>{primaryFile.originalName}</span>
       </div>
       {playableUrl && primaryMediaType === "video" ? (
-        <video controls preload="metadata" src={playableUrl}>
+        <video controls crossOrigin="use-credentials" preload="metadata" src={playableUrl}>
           답변 영상을 재생할 수 없습니다.
         </video>
       ) : playableUrl ? (
-        <audio controls preload="metadata" src={playableUrl}>
+        <audio controls crossOrigin="use-credentials" preload="metadata" src={playableUrl}>
           답변 음성을 재생할 수 없습니다.
         </audio>
       ) : (

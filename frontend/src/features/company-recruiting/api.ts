@@ -95,13 +95,23 @@ export async function getApplicantEvaluation(applicantId: number) {
   return request<ApplicantEvaluation>(`/company/applicants/${applicantId}/evaluation`);
 }
 
-export async function fetchApplicantInterviewMedia(applicantId: number, fileId: number) {
-  const url = new URL(`/api/v1/company/applicants/${applicantId}/media/${fileId}`, getApiBaseUrl());
-  const response = await authFetch(url.toString());
+export async function createApplicantInterviewMediaSession(applicantId: number, fileId: number) {
+  const path = `/company/applicants/${applicantId}/media/${fileId}/session`;
+  const response = await authFetch(`${getApiBaseUrl()}/api/v1${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: "{}",
+  });
   if (!response.ok) {
     throw new Error(await readErrorMessage(response, "면접 녹화 파일을 불러올 수 없습니다."));
   }
-  return response.blob();
+  const payload = (await response.json()) as ApiEnvelope<{ mediaUrl: string; expiresInSeconds: number }>;
+  return {
+    expiresInSeconds: payload.data.expiresInSeconds,
+    mediaUrl: new URL(payload.data.mediaUrl, getApiBaseUrl()).toString(),
+  };
 }
 
 async function readErrorMessage(response: Response, fallback: string) {

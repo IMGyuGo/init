@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import { randomUUID } from "crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "crypto";
+import { Readable } from "stream";
 import { ERROR_CODES, type CurrentUser, type ErrorCode } from "@init/common";
 import { DocumentStatus, DocumentType, PostingStatus, ScreeningDecision, UserType } from "@prisma/client";
 
@@ -44,14 +45,15 @@ export type CompanyRecruitingStoragePutObjectInput = {
 };
 
 export type CompanyRecruitingStorageObject = {
-  body: Buffer;
+  body: Buffer | Readable;
   contentType?: string;
   contentLength?: number;
+  contentRange?: string;
 };
 
 export type CompanyRecruitingStorageAdapterPort = {
   putObject(input: CompanyRecruitingStoragePutObjectInput): Promise<void>;
-  getObject?(key: string): Promise<CompanyRecruitingStorageObject>;
+  getObject?(key: string, options?: { range?: string }): Promise<CompanyRecruitingStorageObject>;
 };
 
 export type CompanyRecruitingUploadConfig = {
@@ -64,10 +66,20 @@ const ALLOWED_JD_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/w
 const DEFAULT_JD_IMAGE_MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const ALLOWED_PUBLIC_APPLICATION_DOCUMENT_MIME_TYPES = new Set(["application/pdf"]);
 const DEFAULT_PUBLIC_APPLICATION_DOCUMENT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+export const APPLICANT_MEDIA_COOKIE_NAME = "companyMediaAccess";
+const APPLICANT_MEDIA_COOKIE_MAX_AGE_SECONDS = 15 * 60;
 
 type PublicApplicationDocumentUploadFiles = {
   resumeFile?: PublicApplicationDocumentUploadFile;
   portfolioFile?: PublicApplicationDocumentUploadFile;
+};
+
+type ApplicantMediaTokenPayload = {
+  applicantId: number;
+  companyId: number;
+  expiresAt: number;
+  fileId: number;
+  userId: number;
 };
 
 class MissingCompanyRecruitingStorageAdapter implements CompanyRecruitingStorageAdapterPort {
@@ -452,24 +464,50 @@ export class CompanyRecruitingService {
     return toApplicantEvaluationResponse(application);
   }
 
-  async getApplicantInterviewMedia(user: CurrentUser, applicantId: number, fileId: number) {
+  async createApplicantInterviewMediaSession(user: CurrentUser, applicantId: number, fileId: number) {
     const companyId = requireCompanyId(user);
-    const application = await this.repository.findApplicationForCompany(applicantId, companyId);
-    if (!application) {
-      throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "지원자를 찾을 수 없습니다.");
+    const fileAsset = await this.findApplicantInterviewMediaFileForCompany(applicantId, companyId, fileId);
+    const expiresAt = Math.floor(Date.now() / 1000) + APPLICANT_MEDIA_COOKIE_MAX_AGE_SECONDS;
+
+    return {
+      cookieName: APPLICANT_MEDIA_COOKIE_NAME,
+      token: this.signApplicantMediaToken({
+        applicantId,
+        companyId,
+        expiresAt,
+        fileId: fileAsset.fileId,
+        userId: user.userId,
+      }),
+      maxAgeSeconds: APPLICANT_MEDIA_COOKIE_MAX_AGE_SECONDS,
+      mediaPath: `/api/v1/company/applicants/${applicantId}/media/${fileAsset.fileId}`,
+    };
+  }
+
+  verifyApplicantInterviewMediaSession(token: string | undefined, applicantId: number, fileId: number): CurrentUser {
+    const payload = this.verifyApplicantMediaToken(token);
+    if (payload.applicantId !== applicantId || payload.fileId !== fileId) {
+      throw new CompanyRecruitingException(403, ERROR_CODES.COMMON_FORBIDDEN, "면접 녹화 재생 권한이 없습니다.");
     }
 
-    const fileAsset = findApplicantInterviewMediaFile(application, fileId);
-    if (!fileAsset) {
-      throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "면접 녹화 파일을 찾을 수 없습니다.");
-    }
+    return {
+      userId: payload.userId,
+      userType: "COMPANY",
+      companyId: payload.companyId,
+      candidateId: null,
+    };
+  }
+
+  async getApplicantInterviewMedia(user: CurrentUser, applicantId: number, fileId: number, options: { range?: string } = {}) {
+    const companyId = requireCompanyId(user);
+    const fileAsset = await this.findApplicantInterviewMediaFileForCompany(applicantId, companyId, fileId);
+    const range = normalizeMediaRange(options.range, fileAsset.sizeBytes);
     if (!this.storageAdapter.getObject) {
       throw new CompanyRecruitingException(500, ERROR_CODES.COMMON_VALIDATION_FAILED, "파일 저장소 조회 설정이 필요합니다.");
     }
 
     let object: CompanyRecruitingStorageObject;
     try {
-      object = await this.storageAdapter.getObject(fileAsset.storageKey);
+      object = await this.storageAdapter.getObject(fileAsset.storageKey, range ? { range } : undefined);
     } catch (error) {
       if (error instanceof CompanyRecruitingException) {
         throw error;
@@ -481,18 +519,76 @@ export class CompanyRecruitingService {
           "면접 녹화 원본이 로컬 파일 저장소에 없습니다.",
         );
       }
+      if (isStorageInvalidRange(error)) {
+        throw invalidMediaRange();
+      }
       throw new CompanyRecruitingException(
         500,
         ERROR_CODES.COMMON_VALIDATION_FAILED,
         "면접 녹화 파일을 불러올 수 없습니다.",
       );
     }
+
     return {
       body: object.body,
       contentType: object.contentType ?? fileAsset.mimeType,
-      contentLength: object.contentLength ?? object.body.byteLength,
+      contentLength: object.contentLength ?? (Buffer.isBuffer(object.body) ? object.body.byteLength : fileAsset.sizeBytes),
+      contentRange: object.contentRange,
       originalName: fileAsset.originalName,
+      statusCode: range ? 206 : 200,
     };
+  }
+
+  private async findApplicantInterviewMediaFileForCompany(applicantId: number, companyId: number, fileId: number) {
+    const application = await this.repository.findApplicationForCompany(applicantId, companyId);
+    if (!application) {
+      throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "지원자를 찾을 수 없습니다.");
+    }
+
+    const fileAsset = findApplicantInterviewMediaFile(application, fileId);
+    if (!fileAsset) {
+      throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "면접 녹화 파일을 찾을 수 없습니다.");
+    }
+    return fileAsset;
+  }
+
+  private signApplicantMediaToken(payload: ApplicantMediaTokenPayload) {
+    const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+    const signature = signApplicantMediaTokenBody(body);
+    return `${body}.${signature}`;
+  }
+
+  private verifyApplicantMediaToken(token: string | undefined): ApplicantMediaTokenPayload {
+    if (!token?.includes(".")) {
+      throw new CompanyRecruitingException(401, ERROR_CODES.COMMON_UNAUTHORIZED, "면접 녹화 재생 인증이 필요합니다.");
+    }
+
+    const [body, signature] = token.split(".", 2);
+    if (!body || !signature || !isEqualSignature(signature, signApplicantMediaTokenBody(body))) {
+      throw new CompanyRecruitingException(401, ERROR_CODES.COMMON_UNAUTHORIZED, "면접 녹화 재생 인증이 유효하지 않습니다.");
+    }
+
+    let payload: ApplicantMediaTokenPayload;
+    try {
+      payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as ApplicantMediaTokenPayload;
+    } catch {
+      throw new CompanyRecruitingException(401, ERROR_CODES.COMMON_UNAUTHORIZED, "면접 녹화 재생 인증이 유효하지 않습니다.");
+    }
+
+    if (
+      !isPositiveInteger(payload.applicantId) ||
+      !isPositiveInteger(payload.companyId) ||
+      !isPositiveInteger(payload.expiresAt) ||
+      !isPositiveInteger(payload.fileId) ||
+      !isPositiveInteger(payload.userId)
+    ) {
+      throw new CompanyRecruitingException(401, ERROR_CODES.COMMON_UNAUTHORIZED, "면접 녹화 재생 인증이 유효하지 않습니다.");
+    }
+    if (payload.expiresAt < Math.floor(Date.now() / 1000)) {
+      throw new CompanyRecruitingException(401, ERROR_CODES.COMMON_UNAUTHORIZED, "면접 녹화 재생 인증이 만료되었습니다.");
+    }
+
+    return payload;
   }
 
   async updateScreeningStatus(user: CurrentUser, applicantId: number, dto: UpdateScreeningStatusDto) {
@@ -658,6 +754,38 @@ function isActiveInterviewMediaFile(
   return file?.fileId === fileId && file.status === "ACTIVE";
 }
 
+function normalizeMediaRange(range: string | undefined, sizeBytes: number): string | undefined {
+  if (!range) {
+    return undefined;
+  }
+
+  const match = range.match(/^bytes=(\d*)-(\d*)$/);
+  if (!match) {
+    throw invalidMediaRange();
+  }
+
+  const start = match[1];
+  const end = match[2];
+  if (!start && !end) {
+    throw invalidMediaRange();
+  }
+  if (start && Number(start) >= sizeBytes) {
+    throw invalidMediaRange();
+  }
+  if (start && end && Number(start) > Number(end)) {
+    throw invalidMediaRange();
+  }
+  if (!start && Number(end) <= 0) {
+    throw invalidMediaRange();
+  }
+
+  return range;
+}
+
+function invalidMediaRange() {
+  return new CompanyRecruitingException(416, ERROR_CODES.COMMON_VALIDATION_FAILED, "요청한 미디어 범위가 유효하지 않습니다.");
+}
+
 function isStorageObjectNotFound(error: unknown): boolean {
   if (typeof error !== "object" || error === null) {
     return false;
@@ -679,6 +807,31 @@ function isStorageObjectNotFound(error: unknown): boolean {
     errorSignals.some((value) => value === "nosuchkey" || value === "notfound") ||
     (typeof storageError.message === "string" && storageError.message.toLowerCase().includes("nosuchkey"))
   );
+}
+
+function isStorageInvalidRange(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  const storageError = error as { $metadata?: { httpStatusCode?: number }; Code?: unknown; code?: unknown; name?: unknown };
+  const errorSignals = [storageError.name, storageError.Code, storageError.code]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.toLowerCase());
+  return storageError.$metadata?.httpStatusCode === 416 || errorSignals.some((value) => value === "invalidrange");
+}
+
+function signApplicantMediaTokenBody(body: string) {
+  return createHmac("sha256", process.env.JWT_SECRET ?? "local-dev-jwt-secret-change-me").update(body).digest("base64url");
+}
+
+function isEqualSignature(actual: string, expected: string) {
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(expected);
+  return actualBuffer.byteLength === expectedBuffer.byteLength && timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return Number.isInteger(value) && Number(value) > 0;
 }
 
 export function getConfiguredJdImageMaxUploadBytes() {

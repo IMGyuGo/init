@@ -68,7 +68,8 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-018 | 기업 - 지원자/리포트 | GET | /company/applicants | 지원 상태 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-019 | 기업 - 지원자/리포트 | GET | /company/reports | 리포트 상태 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-020 | 기업 - 지원자/리포트 | GET | /company/applicants/{applicantId}/evaluation | 서류 평가와 채용 리포트 통합 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
-| API-020-MEDIA | 기업 - 지원자/리포트 | GET | /company/applicants/{applicantId}/media/{fileId} | 지원자 채용면접 답변 녹화/음성 스트림 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
+| API-020-MEDIA-SESSION | 기업 - 지원자/리포트 | POST | /company/applicants/{applicantId}/media/{fileId}/session | 지원자 채용면접 답변 녹화/음성 재생 세션 발급 | 기업 / 기업 사용자 로그인 | N | 200 OK |
+| API-020-MEDIA | 기업 - 지원자/리포트 | GET | /company/applicants/{applicantId}/media/{fileId} | 지원자 채용면접 답변 녹화/음성 스트림 조회 | 기업 / 기업 사용자 로그인 또는 media 재생 쿠키 | N | 200 OK, 206 Partial Content |
 | API-021 | 기업 - 지원자/리포트 | GET | /company/applicants/{applicantId}/document-evaluation | 서류 평가 근거 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-022 | 기업 - 지원자/리포트 | GET | /company/reports/{reportId} | 역량별 점수 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-023 | 기업 - 지원자/리포트 | GET | /company/reports/{reportId}/evidence | 근거 기반 평가 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |

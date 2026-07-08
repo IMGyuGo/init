@@ -1253,9 +1253,11 @@ describe("CompanyRecruitingService", () => {
     });
     const storage = {
       requestedKey: "",
+      requestedRange: undefined as string | undefined,
       async putObject() {},
-      async getObject(key: string) {
+      async getObject(key: string, options?: { range?: string }) {
         this.requestedKey = key;
+        this.requestedRange = options?.range;
         return {
           body: Buffer.from("video-bytes"),
           contentType: "video/webm",
@@ -1268,10 +1270,137 @@ describe("CompanyRecruitingService", () => {
     const media = await service.getApplicantInterviewMedia(companyUser, 77, 8001);
 
     assert.equal(storage.requestedKey, "candidate/44/interviews/recruiting-answer-1001.webm");
+    assert.equal(storage.requestedRange, undefined);
     assert.equal(media.contentType, "video/webm");
     assert.equal(media.contentLength, 11);
     assert.equal(media.originalName, "recruiting-answer-1001.webm");
+    assert.equal(media.statusCode, 200);
     assert.equal(media.body.toString(), "video-bytes");
+  });
+
+  it("passes valid Range requests to storage and returns partial media metadata", async () => {
+    const repository = createRepository({
+      async findApplicationForCompany() {
+        return createApplicantRecord({
+          interviewSessions: [
+            {
+              sessionId: 901,
+              status: "COMPLETED",
+              interviewType: "RECRUITING",
+              startedAt: new Date("2026-07-01T00:00:00.000Z"),
+              completedAt: new Date("2026-07-01T00:10:00.000Z"),
+              answers: [
+                {
+                  answerId: 1001,
+                  questionId: 501,
+                  videoFileId: 8001,
+                  audioFileId: null,
+                  videoFile: {
+                    fileId: 8001,
+                    ownerUserId: 88,
+                    storageKey: "candidate/44/interviews/recruiting-answer-1001.webm",
+                    originalName: "recruiting-answer-1001.webm",
+                    mimeType: "video/webm",
+                    sizeBytes: 123456,
+                    status: "ACTIVE",
+                    createdAt: new Date("2026-07-01T00:01:30.000Z"),
+                  },
+                  audioFile: null,
+                  questionType: "TECHNICAL",
+                  questionContent: "지원 직무와 관련된 프로젝트에서 맡은 역할을 설명해주세요.",
+                  transcript: "API 업로드, DB 저장, worker 처리 흐름을 연결했습니다.",
+                  durationSeconds: 42,
+                  submittedAt: new Date("2026-07-01T00:02:00.000Z"),
+                  followUpQuestions: [],
+                },
+              ],
+            },
+          ],
+        });
+      },
+    });
+    const storage = {
+      requestedRange: undefined as string | undefined,
+      async putObject() {},
+      async getObject(_key: string, options?: { range?: string }) {
+        this.requestedRange = options?.range;
+        return {
+          body: Buffer.from("video"),
+          contentType: "video/webm",
+          contentLength: 5,
+          contentRange: "bytes 0-4/123456",
+        };
+      },
+    };
+    const service = new CompanyRecruitingService(repository, storage);
+
+    const media = await service.getApplicantInterviewMedia(companyUser, 77, 8001, { range: "bytes=0-4" });
+
+    assert.equal(storage.requestedRange, "bytes=0-4");
+    assert.equal(media.statusCode, 206);
+    assert.equal(media.contentRange, "bytes 0-4/123456");
+    assert.equal(media.contentLength, 5);
+  });
+
+  it("issues applicant interview media sessions scoped to the requested file", async () => {
+    const repository = createRepository({
+      async findApplicationForCompany() {
+        return createApplicantRecord({
+          interviewSessions: [
+            {
+              sessionId: 901,
+              status: "COMPLETED",
+              interviewType: "RECRUITING",
+              startedAt: new Date("2026-07-01T00:00:00.000Z"),
+              completedAt: new Date("2026-07-01T00:10:00.000Z"),
+              answers: [
+                {
+                  answerId: 1001,
+                  questionId: 501,
+                  videoFileId: 8001,
+                  audioFileId: null,
+                  videoFile: {
+                    fileId: 8001,
+                    ownerUserId: 88,
+                    storageKey: "candidate/44/interviews/recruiting-answer-1001.webm",
+                    originalName: "recruiting-answer-1001.webm",
+                    mimeType: "video/webm",
+                    sizeBytes: 123456,
+                    status: "ACTIVE",
+                    createdAt: new Date("2026-07-01T00:01:30.000Z"),
+                  },
+                  audioFile: null,
+                  questionType: "TECHNICAL",
+                  questionContent: "지원 직무와 관련된 프로젝트에서 맡은 역할을 설명해주세요.",
+                  transcript: "API 업로드, DB 저장, worker 처리 흐름을 연결했습니다.",
+                  durationSeconds: 42,
+                  submittedAt: new Date("2026-07-01T00:02:00.000Z"),
+                  followUpQuestions: [],
+                },
+              ],
+            },
+          ],
+        });
+      },
+    });
+    const service = new CompanyRecruitingService(repository);
+
+    const session = await service.createApplicantInterviewMediaSession(companyUser, 77, 8001);
+    const currentUser = service.verifyApplicantInterviewMediaSession(session.token, 77, 8001);
+
+    assert.equal(session.cookieName, "companyMediaAccess");
+    assert.equal(session.maxAgeSeconds, 900);
+    assert.equal(session.mediaPath, "/api/v1/company/applicants/77/media/8001");
+    assert.equal(currentUser.userType, "COMPANY");
+    assert.equal(currentUser.companyId, 7);
+    await assert.rejects(
+      async () => service.verifyApplicantInterviewMediaSession(session.token, 77, 9001),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "COMMON_FORBIDDEN",
+    );
   });
 
   it("rejects inactive applicant interview media files before storage access", async () => {

@@ -12,7 +12,6 @@ import {
   Query,
   Req,
   Res,
-  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -211,21 +210,31 @@ export class CompanyRecruitingController {
     return ok(request, data);
   }
 
-  @Get("applicants/:applicantId/media/:fileId")
-  @ApiOperationId("API-020-MEDIA")
-  @ApiOperation({ summary: "기업 지원자 면접 답변 녹화 조회" })
-  async getApplicantInterviewMedia(
+  @Post("applicants/:applicantId/media/:fileId/session")
+  @ApiOperationId("API-020-MEDIA-SESSION")
+  @ApiOperation({ summary: "기업 지원자 면접 답변 녹화 재생 세션 발급" })
+  async createApplicantInterviewMediaSession(
     @Req() request: CompanyRequest,
     @Param("applicantId", ParseIntPipe) applicantId: number,
     @Param("fileId", ParseIntPipe) fileId: number,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const media = await this.companyRecruitingService.getApplicantInterviewMedia(request.currentUser, applicantId, fileId);
-    response.setHeader("Content-Type", media.contentType);
-    response.setHeader("Content-Length", String(media.contentLength));
-    response.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(media.originalName)}"`);
-    response.setHeader("Cache-Control", "private, max-age=60");
-    return new StreamableFile(media.body);
+    const session = await this.companyRecruitingService.createApplicantInterviewMediaSession(
+      request.currentUser,
+      applicantId,
+      fileId,
+    );
+    response.cookie(session.cookieName, session.token, {
+      httpOnly: true,
+      maxAge: session.maxAgeSeconds * 1000,
+      path: session.mediaPath,
+      sameSite: (process.env.AUTH_COOKIE_SAME_SITE ?? "lax") as "lax" | "strict" | "none",
+      secure: (process.env.AUTH_COOKIE_SECURE ?? "false") === "true",
+    });
+    return ok(request, {
+      expiresInSeconds: session.maxAgeSeconds,
+      mediaUrl: session.mediaPath,
+    });
   }
 
   @Patch("applicants/:applicantId/screening-status")
