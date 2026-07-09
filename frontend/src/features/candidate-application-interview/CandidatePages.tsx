@@ -6241,8 +6241,10 @@ function buildMockReportPracticeItems(scores: CandidateReportScoreView[]): strin
 function MockMediaView({ media }: { media: CandidateMockReportMedia }) {
   if (!media.media.length) return <p className="empty">연결된 답변 파일이 없습니다.</p>;
   const mediaItems = orderReportAnswersByInterviewFlow(media.media);
+  const nonverbalSummary = buildMockNonverbalSummary(mediaItems);
   return (
     <div className="detail-stack">
+      <MockNonverbalSummaryPanel summary={nonverbalSummary} />
       <div className="report-media-list">
         {mediaItems.map((item, index) => (
           <MockMediaAnswerCard key={item.answerId} item={item} questionNumber={index + 1} />
@@ -6308,6 +6310,107 @@ type AnswerPracticeGuide = {
   example: string;
   gaps: string[];
 };
+
+type MockNonverbalSummary = {
+  answerCount: number;
+  answersWithMetadata: number;
+  stableAnswerCount: number;
+  cameraSignalAnswers: number;
+  microphoneSignalAnswers: number;
+  silenceSignalAnswers: number;
+  shortAnswerSignalAnswers: number;
+  testModeAnswers: number;
+};
+
+function MockNonverbalSummaryPanel({ summary }: { summary: MockNonverbalSummary }) {
+  if (summary.answersWithMetadata === 0) return null;
+
+  const guideItems = buildMockNonverbalSummaryGuide(summary);
+  const statusLabel = summary.stableAnswerCount === summary.answersWithMetadata ? "안정" : "확인 필요";
+
+  return (
+    <section className="report-nonverbal-summary">
+      <div className="report-nonverbal-summary__head">
+        <div>
+          <span>비언어 요약</span>
+          <strong>모의면접 집중도 참고 신호</strong>
+          <p>부정행위 판정이 아니라 카메라, 음성, 무음, 답변 길이를 바탕으로 한 연습용 피드백입니다.</p>
+        </div>
+        <StatusPill value={statusLabel} />
+      </div>
+      <dl className="candidate-feature__summary compact report-nonverbal-summary__metrics">
+        <Definition label="분석 답변" value={`${summary.answersWithMetadata}/${summary.answerCount}`} />
+        <Definition label="안정 답변" value={`${summary.stableAnswerCount}`} />
+        <Definition label="카메라 확인" value={`${summary.cameraSignalAnswers}`} />
+        <Definition label="음성/무음 확인" value={`${summary.microphoneSignalAnswers + summary.silenceSignalAnswers}`} />
+        <Definition label="짧은 답변" value={`${summary.shortAnswerSignalAnswers}`} />
+      </dl>
+      <ul className="report-nonverbal-summary__guide">
+        {guideItems.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function buildMockNonverbalSummary(items: CandidateMockReportMedia["media"]): MockNonverbalSummary {
+  return items.reduce<MockNonverbalSummary>((summary, item) => {
+    const metadata = item.nonverbalMetadata;
+    summary.answerCount += 1;
+    if (!metadata) return summary;
+
+    summary.answersWithMetadata += 1;
+    const cameraSignal =
+      readNonverbalNumber(metadata, "cameraWarnings") > 0 || readNonverbalBoolean(metadata, "testModeUsed");
+    const microphoneSignal = readNonverbalNumber(metadata, "microphoneWarnings") > 0;
+    const silenceSignal = readNonverbalNumber(metadata, "longSilenceCount") > 0;
+    const shortAnswerSignal = readNonverbalNumber(metadata, "shortAnswerCount") > 0;
+    const testModeSignal = readNonverbalBoolean(metadata, "testModeUsed");
+
+    if (cameraSignal) summary.cameraSignalAnswers += 1;
+    if (microphoneSignal) summary.microphoneSignalAnswers += 1;
+    if (silenceSignal) summary.silenceSignalAnswers += 1;
+    if (shortAnswerSignal) summary.shortAnswerSignalAnswers += 1;
+    if (testModeSignal) summary.testModeAnswers += 1;
+    if (!cameraSignal && !microphoneSignal && !silenceSignal && !shortAnswerSignal) {
+      summary.stableAnswerCount += 1;
+    }
+
+    return summary;
+  }, {
+    answerCount: 0,
+    answersWithMetadata: 0,
+    stableAnswerCount: 0,
+    cameraSignalAnswers: 0,
+    microphoneSignalAnswers: 0,
+    silenceSignalAnswers: 0,
+    shortAnswerSignalAnswers: 0,
+    testModeAnswers: 0,
+  });
+}
+
+function buildMockNonverbalSummaryGuide(summary: MockNonverbalSummary): string[] {
+  const items: string[] = [];
+
+  if (summary.stableAnswerCount === summary.answersWithMetadata) {
+    return ["전체 답변에서 카메라와 음성 입력이 전반적으로 안정적이었습니다."];
+  }
+  if (summary.cameraSignalAnswers > 0) {
+    items.push(`${summary.cameraSignalAnswers}개 답변에서 카메라 연결 또는 화면 상태 확인 신호가 있었습니다.`);
+  }
+  if (summary.microphoneSignalAnswers > 0 || summary.silenceSignalAnswers > 0) {
+    items.push("음성 입력이 낮거나 긴 무음이 있었던 답변은 핵심 문장을 더 또렷하고 이어서 말해 보세요.");
+  }
+  if (summary.shortAnswerSignalAnswers > 0) {
+    items.push(`${summary.shortAnswerSignalAnswers}개 답변은 길이가 짧아 상황, 행동, 결과 근거가 부족하게 전달될 수 있습니다.`);
+  }
+  if (summary.testModeAnswers > 0) {
+    items.push("일부 답변은 개발 테스트 모드에서 수집되어 실제 카메라 상태 판단에는 제한이 있습니다.");
+  }
+
+  return items;
+}
 
 function MockNonverbalFeedbackView({ metadata }: { metadata?: Record<string, unknown> }) {
   const feedbackItems = buildMockNonverbalFeedbackItems(metadata);
