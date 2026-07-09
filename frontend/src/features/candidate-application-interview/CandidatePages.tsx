@@ -172,6 +172,25 @@ type RuntimeTimerPhase = "PREPARING" | "ANSWERING";
 type RealtimeSessionStatus = "idle" | "requesting" | "connecting" | "ready" | "failed";
 type RealtimeProviderState = RealtimeInterviewSessionResponse["provider"] | "none";
 type InterviewGuideStep = "guide" | "device";
+type InterviewIntegrityEventType =
+  | "TAB_HIDDEN"
+  | "WINDOW_BLUR"
+  | "CAMERA_LOST";
+type InterviewIntegritySuspicionLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH";
+type InterviewIntegrityEvent = {
+  type: InterviewIntegrityEventType;
+  occurredAt: string;
+  durationMs?: number;
+};
+type InterviewIntegritySummary = {
+  screenAwayCount: number;
+  tabHiddenCount: number;
+  windowBlurCount: number;
+  cameraLostCount: number;
+  totalAwayDurationMs: number;
+  maxAwayDurationMs: number;
+  suspicionLevel: InterviewIntegritySuspicionLevel;
+};
 type InterviewAnswerNonverbalMetadata = {
   cameraWarnings: number;
   microphoneWarnings: number;
@@ -182,11 +201,19 @@ type InterviewAnswerNonverbalMetadata = {
   lowAudioFrameCount: number;
   observedAudioFrameCount: number;
   cameraDisconnectedCount: number;
+  integrityEvents?: InterviewIntegrityEvent[];
+  integritySummary?: InterviewIntegritySummary;
 };
 type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   questionId: number;
   silenceStartedAtMs?: number;
   silenceSegmentCounted: boolean;
+  tabHiddenStartedAtMs?: number;
+  windowBlurStartedAtMs?: number;
+  cameraLostStartedAtMs?: number;
+  totalAwayDurationMs: number;
+  maxAwayDurationMs: number;
+  integrityEvents: InterviewIntegrityEvent[];
 };
 type CandidateApplicationStatusFilter = "ALL" | "WAITING" | "IN_PROGRESS" | "COMPLETED" | "REPORTING";
 type ApplicationBadgeTone = "green" | "yellow" | "purple" | "neutral";
@@ -2296,6 +2323,7 @@ function InterviewRuntimePanel({
   const invalidRecordingRetryCountsRef = useRef<Map<number, number>>(new Map());
   const recordingNonverbalTrackerRef = useRef<RecordingNonverbalTracker | null>(null);
   const nonverbalCameraMonitorRef = useRef<number | null>(null);
+  const nonverbalIntegrityCleanupRef = useRef<(() => void) | null>(null);
   const lastInvalidRecordingMetadataRef = useRef<Map<number, InterviewAnswerNonverbalMetadata>>(new Map());
   const answerToNextQuestionPerfRef = useRef<{
     startedAt: number;
@@ -3058,6 +3086,7 @@ function InterviewRuntimePanel({
       stopQuestionSpeech();
       stopRuntimeCameraQualityMonitor();
       stopNonverbalCameraMonitor();
+      stopNonverbalIntegrityListeners();
       recordingNonverbalTrackerRef.current = null;
       stopMicrophoneMeter();
       stopMediaStream(streamRef.current);
@@ -3523,10 +3552,96 @@ function InterviewRuntimePanel({
     }
   }
 
+  function stopNonverbalIntegrityListeners() {
+    nonverbalIntegrityCleanupRef.current?.();
+    nonverbalIntegrityCleanupRef.current = null;
+  }
+
+  function recordIntegrityEvent(type: InterviewIntegrityEventType, options: { durationMs?: number; occurredAtMs?: number } = {}) {
+    const tracker = recordingNonverbalTrackerRef.current;
+    if (!tracker) return;
+
+    tracker.integrityEvents.push({
+      type,
+      occurredAt: new Date(options.occurredAtMs ?? Date.now()).toISOString(),
+      ...(options.durationMs !== undefined ? { durationMs: Math.max(0, Math.round(options.durationMs)) } : {}),
+    });
+  }
+
+  function closeTimedIntegrityEvent(
+    tracker: RecordingNonverbalTracker,
+    type: Extract<InterviewIntegrityEventType, "TAB_HIDDEN" | "WINDOW_BLUR" | "CAMERA_LOST">,
+    startedAtMs: number | undefined,
+    nowMs = Date.now(),
+  ) {
+    if (startedAtMs === undefined) return;
+
+    const durationMs = Math.max(0, nowMs - startedAtMs);
+    tracker.integrityEvents.push({
+      type,
+      occurredAt: new Date(startedAtMs).toISOString(),
+      durationMs: Math.round(durationMs),
+    });
+
+    if (type === "TAB_HIDDEN" || type === "WINDOW_BLUR") {
+      tracker.totalAwayDurationMs += durationMs;
+      tracker.maxAwayDurationMs = Math.max(tracker.maxAwayDurationMs, durationMs);
+    }
+  }
+
+  function startNonverbalIntegrityListeners(questionId: number) {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+
+    stopNonverbalIntegrityListeners();
+
+    const currentTracker = () => {
+      const tracker = recordingNonverbalTrackerRef.current;
+      return tracker?.questionId === questionId ? tracker : undefined;
+    };
+    const handleVisibilityChange = () => {
+      const tracker = currentTracker();
+      if (!tracker) return;
+
+      if (document.visibilityState === "hidden") {
+        tracker.tabHiddenStartedAtMs ??= Date.now();
+        return;
+      }
+
+      closeTimedIntegrityEvent(tracker, "TAB_HIDDEN", tracker.tabHiddenStartedAtMs);
+      tracker.tabHiddenStartedAtMs = undefined;
+    };
+    const handleBlur = () => {
+      const tracker = currentTracker();
+      if (!tracker) return;
+      tracker.windowBlurStartedAtMs ??= Date.now();
+    };
+    const handleFocus = () => {
+      const tracker = currentTracker();
+      if (!tracker) return;
+      closeTimedIntegrityEvent(tracker, "WINDOW_BLUR", tracker.windowBlurStartedAtMs);
+      tracker.windowBlurStartedAtMs = undefined;
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", handleBlur);
+    window.addEventListener("focus", handleFocus);
+
+    const tracker = currentTracker();
+    if (document.visibilityState === "hidden" && tracker) {
+      tracker.tabHiddenStartedAtMs = Date.now();
+    }
+
+    nonverbalIntegrityCleanupRef.current = () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", handleBlur);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }
+
   function startNonverbalTracking(questionId: number, stream: MediaStream) {
     if (mode !== "mock") return;
 
     stopNonverbalCameraMonitor();
+    stopNonverbalIntegrityListeners();
     const tracker: RecordingNonverbalTracker = {
       questionId,
       cameraWarnings: cameralessTestEntry ? 1 : 0,
@@ -3539,8 +3654,12 @@ function InterviewRuntimePanel({
       observedAudioFrameCount: 0,
       cameraDisconnectedCount: 0,
       silenceSegmentCounted: false,
+      totalAwayDurationMs: 0,
+      maxAwayDurationMs: 0,
+      integrityEvents: [],
     };
     recordingNonverbalTrackerRef.current = tracker;
+    startNonverbalIntegrityListeners(questionId);
 
     const sampleCamera = () => {
       const current = recordingNonverbalTrackerRef.current;
@@ -3553,7 +3672,12 @@ function InterviewRuntimePanel({
       if (!cameraLive) {
         current.cameraWarnings += 1;
         current.cameraDisconnectedCount += 1;
+        current.cameraLostStartedAtMs ??= Date.now();
+        return;
       }
+
+      closeTimedIntegrityEvent(current, "CAMERA_LOST", current.cameraLostStartedAtMs);
+      current.cameraLostStartedAtMs = undefined;
     };
 
     sampleCamera();
@@ -3589,10 +3713,16 @@ function InterviewRuntimePanel({
     durationSeconds: number,
   ): InterviewAnswerNonverbalMetadata | undefined {
     stopNonverbalCameraMonitor();
+    stopNonverbalIntegrityListeners();
     const tracker = recordingNonverbalTrackerRef.current;
     recordingNonverbalTrackerRef.current = null;
 
     if (!tracker || tracker.questionId !== questionId) return undefined;
+
+    const nowMs = Date.now();
+    closeTimedIntegrityEvent(tracker, "TAB_HIDDEN", tracker.tabHiddenStartedAtMs, nowMs);
+    closeTimedIntegrityEvent(tracker, "WINDOW_BLUR", tracker.windowBlurStartedAtMs, nowMs);
+    closeTimedIntegrityEvent(tracker, "CAMERA_LOST", tracker.cameraLostStartedAtMs, nowMs);
 
     const observedFrameCount = tracker.observedAudioFrameCount;
     const lowAudioRatio = observedFrameCount > 0 ? tracker.lowAudioFrameCount / observedFrameCount : 1;
@@ -3611,6 +3741,39 @@ function InterviewRuntimePanel({
       lowAudioFrameCount: tracker.lowAudioFrameCount,
       observedAudioFrameCount: observedFrameCount,
       cameraDisconnectedCount: tracker.cameraDisconnectedCount,
+      integrityEvents: tracker.integrityEvents,
+      integritySummary: buildInterviewIntegritySummary(tracker),
+    };
+  }
+
+  function buildInterviewIntegritySummary(tracker: RecordingNonverbalTracker): InterviewIntegritySummary {
+    const tabHiddenCount = tracker.integrityEvents.filter((event) => event.type === "TAB_HIDDEN").length;
+    const windowBlurCount = tracker.integrityEvents.filter((event) => event.type === "WINDOW_BLUR").length;
+    const cameraLostCount = tracker.integrityEvents.filter((event) => event.type === "CAMERA_LOST").length;
+    const screenAwayCount = tabHiddenCount + windowBlurCount;
+    const severeAwaySignal = tracker.maxAwayDurationMs >= 5000 || tracker.totalAwayDurationMs >= 10000;
+    const integritySignalGroups = [
+      screenAwayCount > 0,
+      cameraLostCount > 0,
+      tracker.testModeUsed,
+    ].filter(Boolean).length;
+    const suspicionLevel: InterviewIntegritySuspicionLevel =
+      integritySignalGroups >= 2 || tracker.totalAwayDurationMs >= 30000
+        ? "HIGH"
+        : cameraLostCount > 0 || severeAwaySignal
+          ? "MEDIUM"
+          : screenAwayCount > 0 || tracker.testModeUsed
+            ? "LOW"
+            : "NONE";
+
+    return {
+      screenAwayCount,
+      tabHiddenCount,
+      windowBlurCount,
+      cameraLostCount,
+      totalAwayDurationMs: Math.round(tracker.totalAwayDurationMs),
+      maxAwayDurationMs: Math.round(tracker.maxAwayDurationMs),
+      suspicionLevel,
     };
   }
 
@@ -4186,6 +4349,7 @@ function InterviewRuntimePanel({
         setRealtimeMicrophoneOpen(false);
       }
       stopNonverbalCameraMonitor();
+      stopNonverbalIntegrityListeners();
       recordingNonverbalTrackerRef.current = null;
       setRecording(false);
       setMessage(toErrorMessage(recordError));
@@ -6315,35 +6479,32 @@ type MockNonverbalSummary = {
   answerCount: number;
   answersWithMetadata: number;
   stableAnswerCount: number;
-  cameraSignalAnswers: number;
-  microphoneSignalAnswers: number;
-  silenceSignalAnswers: number;
-  shortAnswerSignalAnswers: number;
-  testModeAnswers: number;
+  integritySignalAnswers: number;
+  screenAwaySignalAnswers: number;
+  cameraIntegritySignalAnswers: number;
 };
 
 function MockNonverbalSummaryPanel({ summary }: { summary: MockNonverbalSummary }) {
   if (summary.answersWithMetadata === 0) return null;
 
   const guideItems = buildMockNonverbalSummaryGuide(summary);
-  const statusLabel = summary.stableAnswerCount === summary.answersWithMetadata ? "안정" : "확인 필요";
+  const statusLabel = summary.integritySignalAnswers === 0 ? "무결성 안정" : "무결성 확인 필요";
 
   return (
     <section className="report-nonverbal-summary">
       <div className="report-nonverbal-summary__head">
         <div>
-          <span>비언어 요약</span>
-          <strong>모의면접 집중도 참고 신호</strong>
-          <p>부정행위 판정이 아니라 카메라, 음성, 무음, 답변 길이를 바탕으로 한 연습용 피드백입니다.</p>
+          <span>응시 무결성</span>
+          <strong>모의면접 부정행위 의심 신호</strong>
+          <p>화면 이탈과 카메라 이탈처럼 면접 중 응시 무결성 확인이 필요한 신호를 기록합니다. 확정 판정이 아니라 연습용 피드백입니다.</p>
         </div>
         <StatusPill value={statusLabel} />
       </div>
       <dl className="candidate-feature__summary compact report-nonverbal-summary__metrics">
         <Definition label="분석 답변" value={`${summary.answersWithMetadata}/${summary.answerCount}`} />
-        <Definition label="안정 답변" value={`${summary.stableAnswerCount}`} />
-        <Definition label="카메라 확인" value={`${summary.cameraSignalAnswers}`} />
-        <Definition label="음성/무음 확인" value={`${summary.microphoneSignalAnswers + summary.silenceSignalAnswers}`} />
-        <Definition label="짧은 답변" value={`${summary.shortAnswerSignalAnswers}`} />
+        <Definition label="무결성 확인" value={`${summary.integritySignalAnswers}`} />
+        <Definition label="화면 이탈" value={`${summary.screenAwaySignalAnswers}`} />
+        <Definition label="카메라 이탈" value={`${summary.cameraIntegritySignalAnswers}`} />
       </dl>
       <ul className="report-nonverbal-summary__guide">
         {guideItems.map((item) => (
@@ -6361,18 +6522,14 @@ function buildMockNonverbalSummary(items: CandidateMockReportMedia["media"]): Mo
     if (!metadata) return summary;
 
     summary.answersWithMetadata += 1;
-    const cameraSignal = hasNonverbalCameraSignal(metadata);
-    const microphoneSignal = hasNonverbalMicrophoneSignal(metadata);
-    const silenceSignal = readNonverbalLongSilenceCount(metadata) > 0;
-    const shortAnswerSignal = hasNonverbalShortAnswerSignal(metadata);
-    const testModeSignal = readNonverbalTestModeUsed(metadata);
+    const screenAwaySignal = readNonverbalScreenAwayCount(metadata) > 0;
+    const cameraIntegritySignal = readNonverbalCameraLostCount(metadata) > 0 || readNonverbalTestModeUsed(metadata);
+    const integritySignal = screenAwaySignal || cameraIntegritySignal;
 
-    if (cameraSignal) summary.cameraSignalAnswers += 1;
-    if (microphoneSignal) summary.microphoneSignalAnswers += 1;
-    if (silenceSignal) summary.silenceSignalAnswers += 1;
-    if (shortAnswerSignal) summary.shortAnswerSignalAnswers += 1;
-    if (testModeSignal) summary.testModeAnswers += 1;
-    if (!cameraSignal && !microphoneSignal && !silenceSignal && !shortAnswerSignal) {
+    if (integritySignal) summary.integritySignalAnswers += 1;
+    if (screenAwaySignal) summary.screenAwaySignalAnswers += 1;
+    if (cameraIntegritySignal) summary.cameraIntegritySignalAnswers += 1;
+    if (!integritySignal) {
       summary.stableAnswerCount += 1;
     }
 
@@ -6381,31 +6538,23 @@ function buildMockNonverbalSummary(items: CandidateMockReportMedia["media"]): Mo
     answerCount: 0,
     answersWithMetadata: 0,
     stableAnswerCount: 0,
-    cameraSignalAnswers: 0,
-    microphoneSignalAnswers: 0,
-    silenceSignalAnswers: 0,
-    shortAnswerSignalAnswers: 0,
-    testModeAnswers: 0,
+    integritySignalAnswers: 0,
+    screenAwaySignalAnswers: 0,
+    cameraIntegritySignalAnswers: 0,
   });
 }
 
 function buildMockNonverbalSummaryGuide(summary: MockNonverbalSummary): string[] {
   const items: string[] = [];
 
-  if (summary.stableAnswerCount === summary.answersWithMetadata) {
-    return ["전체 답변에서 카메라와 음성 입력이 전반적으로 안정적이었습니다."];
+  if (summary.integritySignalAnswers === 0) {
+    return ["전체 답변에서 화면 이탈이나 카메라 이탈 같은 응시 무결성 신호가 감지되지 않았습니다."];
   }
-  if (summary.cameraSignalAnswers > 0) {
-    items.push(`${summary.cameraSignalAnswers}개 답변에서 카메라 연결 또는 화면 상태 확인 신호가 있었습니다.`);
+  if (summary.screenAwaySignalAnswers > 0) {
+    items.push(`${summary.screenAwaySignalAnswers}개 답변에서 면접 화면을 벗어나거나 탭이 숨겨진 신호가 감지되었습니다.`);
   }
-  if (summary.microphoneSignalAnswers > 0 || summary.silenceSignalAnswers > 0) {
-    items.push("음성 입력이 낮거나 긴 무음이 있었던 답변은 핵심 문장을 더 또렷하고 이어서 말해 보세요.");
-  }
-  if (summary.shortAnswerSignalAnswers > 0) {
-    items.push(`${summary.shortAnswerSignalAnswers}개 답변은 길이가 짧아 상황, 행동, 결과 근거가 부족하게 전달될 수 있습니다.`);
-  }
-  if (summary.testModeAnswers > 0) {
-    items.push("일부 답변은 개발 테스트 모드에서 수집되어 실제 카메라 상태 판단에는 제한이 있습니다.");
+  if (summary.cameraIntegritySignalAnswers > 0) {
+    items.push(`${summary.cameraIntegritySignalAnswers}개 답변에서 카메라 끊김 또는 카메라 판단 제한 신호가 감지되었습니다.`);
   }
 
   return items;
@@ -6417,7 +6566,7 @@ function MockNonverbalFeedbackView({ metadata }: { metadata?: Record<string, unk
 
   return (
     <section className="report-practice-guide">
-      <h4>연습용 비언어 피드백</h4>
+      <h4>응시 무결성 피드백</h4>
       <div className="report-practice-guide__block">
         <strong>참고 신호</strong>
         <ul>
@@ -6425,7 +6574,7 @@ function MockNonverbalFeedbackView({ metadata }: { metadata?: Record<string, unk
             <li key={item}>{item}</li>
           ))}
         </ul>
-        <p>부정행위 판정이 아니라 모의면접 답변 연습을 돕기 위한 참고 신호입니다.</p>
+        <p>확정 판정이 아니라 모의면접 중 부정행위로 오해받을 수 있는 행동을 줄이기 위한 연습용 신호입니다.</p>
       </div>
     </section>
   );
@@ -6434,28 +6583,23 @@ function MockNonverbalFeedbackView({ metadata }: { metadata?: Record<string, unk
 function buildMockNonverbalFeedbackItems(metadata?: Record<string, unknown>): string[] {
   if (!metadata) return [];
 
-  const cameraWarnings = readNonverbalCameraWarningCount(metadata);
-  const microphoneWarnings = readNonverbalMicrophoneWarningCount(metadata);
-  const longSilenceCount = readNonverbalLongSilenceCount(metadata);
-  const shortAnswerCount = hasNonverbalShortAnswerSignal(metadata) ? 1 : 0;
+  const screenAwayCount = readNonverbalScreenAwayCount(metadata);
+  const cameraLostCount = readNonverbalCameraLostCount(metadata);
+  const suspicionLevel = readNonverbalIntegritySuspicionLevel(metadata);
   const testModeUsed = readNonverbalTestModeUsed(metadata);
-  const voicePeakLevel = readNonverbalNumber(metadata, "voicePeakLevel");
   const items: string[] = [];
 
-  if (cameraWarnings > 0 || testModeUsed) {
-    items.push("카메라 연결 또는 화면 상태가 불안정한 구간이 있었습니다. 화면 이탈 여부를 직접 점검해 보세요.");
+  if (screenAwayCount > 0) {
+    items.push("면접 중 화면 이탈 또는 탭 숨김 신호가 감지되었습니다. 실제 면접에서는 답변 화면을 유지하는 습관을 연습해 보세요.");
   }
-  if (microphoneWarnings > 0 || longSilenceCount > 0) {
-    items.push("긴 무음 또는 낮은 음성 입력 구간이 감지되었습니다. 핵심 문장은 조금 더 또렷하게 말해 보세요.");
+  if (cameraLostCount > 0 || testModeUsed) {
+    items.push("카메라가 끊기거나 카메라 판단이 제한된 구간이 있었습니다. 실제 면접에서는 얼굴과 상반신이 안정적으로 보이는 환경을 유지해 주세요.");
   }
-  if (shortAnswerCount > 0) {
-    items.push("답변 시간이 짧아 상황, 행동, 결과가 충분히 드러나지 않을 수 있습니다.");
+  if (suspicionLevel === "HIGH") {
+    items.push("여러 응시 무결성 신호가 겹쳐 감지되었습니다. 실제 면접에서는 화면 이탈과 외부 자료 참고로 오해받을 수 있는 행동을 피하는 것이 좋습니다.");
   }
   if (!items.length) {
-    items.push("녹화 중 카메라와 음성 입력이 전반적으로 안정적이었습니다.");
-  }
-  if (voicePeakLevel > 0 && voicePeakLevel < MIN_INTERVIEW_RECORDING_VOICE_LEVEL) {
-    items.push("음성 피크가 낮게 측정되었습니다. 마이크 거리나 입력 장치를 확인하면 좋습니다.");
+    items.push("면접 중 화면 이탈이나 카메라 이탈 같은 응시 무결성 신호가 감지되지 않았습니다.");
   }
 
   return items;
@@ -6475,46 +6619,43 @@ function readNonverbalRecord(metadata: Record<string, unknown>, key: string): Re
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
-function readNonverbalStringArrayCount(metadata: Record<string, unknown> | undefined, key: string): number {
-  const value = metadata?.[key];
-  return Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.trim()).length : 0;
+function readNonverbalIntegritySummary(metadata: Record<string, unknown>): Record<string, unknown> | undefined {
+  return readNonverbalRecord(metadata, "integritySummary");
 }
 
-function readNonverbalCameraWarningCount(metadata: Record<string, unknown>): number {
-  const camera = readNonverbalRecord(metadata, "camera");
-  const nestedWarningCount = readNonverbalStringArrayCount(camera, "warnings");
-  const notReadyRatio = camera ? readNonverbalNumber(camera, "notReadyRatio") : 0;
-  return readNonverbalNumber(metadata, "cameraWarnings") + nestedWarningCount + (notReadyRatio >= 0.3 ? 1 : 0);
+function readNonverbalIntegrityEvents(metadata: Record<string, unknown>): Array<Record<string, unknown>> {
+  const value = metadata.integrityEvents;
+  return Array.isArray(value)
+    ? value.filter((event): event is Record<string, unknown> => Boolean(event) && typeof event === "object" && !Array.isArray(event))
+    : [];
 }
 
-function readNonverbalMicrophoneWarningCount(metadata: Record<string, unknown>): number {
-  const audio = readNonverbalRecord(metadata, "audio");
-  const nestedWarningCount = readNonverbalStringArrayCount(audio, "warnings");
-  const lowInputRatio = audio ? readNonverbalNumber(audio, "lowInputRatio") : 0;
-  return readNonverbalNumber(metadata, "microphoneWarnings") + nestedWarningCount + (lowInputRatio >= 0.3 ? 1 : 0);
+function readNonverbalEventCount(metadata: Record<string, unknown>, types: InterviewIntegrityEventType[]): number {
+  const events = readNonverbalIntegrityEvents(metadata);
+  return events.filter((event) => typeof event.type === "string" && types.includes(event.type as InterviewIntegrityEventType)).length;
 }
 
-function readNonverbalLongSilenceCount(metadata: Record<string, unknown>): number {
-  const audio = readNonverbalRecord(metadata, "audio");
-  return readNonverbalNumber(metadata, "longSilenceCount") + (audio ? readNonverbalNumber(audio, "longSilenceCount") : 0);
+function readNonverbalScreenAwayCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "screenAwayCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["TAB_HIDDEN", "WINDOW_BLUR"]);
+}
+
+function readNonverbalCameraLostCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "cameraLostCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["CAMERA_LOST"]);
+}
+
+function readNonverbalIntegritySuspicionLevel(metadata: Record<string, unknown>): InterviewIntegritySuspicionLevel {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const level = summary?.suspicionLevel;
+  return level === "LOW" || level === "MEDIUM" || level === "HIGH" ? level : "NONE";
 }
 
 function readNonverbalTestModeUsed(metadata: Record<string, unknown>): boolean {
   const risk = readNonverbalRecord(metadata, "risk");
   return readNonverbalBoolean(metadata, "testModeUsed") || Boolean(risk?.testModeUsed);
-}
-
-function hasNonverbalShortAnswerSignal(metadata: Record<string, unknown>): boolean {
-  const risk = readNonverbalRecord(metadata, "risk");
-  return readNonverbalNumber(metadata, "shortAnswerCount") > 0 || risk?.shortAnswer === true;
-}
-
-function hasNonverbalCameraSignal(metadata: Record<string, unknown>): boolean {
-  return readNonverbalCameraWarningCount(metadata) > 0 || readNonverbalTestModeUsed(metadata);
-}
-
-function hasNonverbalMicrophoneSignal(metadata: Record<string, unknown>): boolean {
-  return readNonverbalMicrophoneWarningCount(metadata) > 0;
 }
 
 function AnswerPracticeGuideView({ guide }: { guide: AnswerPracticeGuide }) {

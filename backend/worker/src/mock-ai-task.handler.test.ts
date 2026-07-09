@@ -795,7 +795,19 @@ test("mock report generation applies nonverbal metadata as auxiliary practice si
               cameraWarnings: 1,
               microphoneWarnings: 1,
               longSilenceCount: 1,
-              shortAnswerCount: 1
+              shortAnswerCount: 1,
+              integrityEvents: [
+                {
+                  type: "TAB_HIDDEN",
+                  occurredAt: "2026-07-09T10:00:00.000Z",
+                  durationMs: 6200
+                }
+              ],
+              integritySummary: {
+                screenAwayCount: 1,
+                cameraLostCount: 0,
+                suspicionLevel: "MEDIUM"
+              }
             }
           }
         ]
@@ -809,6 +821,7 @@ test("mock report generation applies nonverbal metadata as auxiliary practice si
   assert.equal(report?.reportType, "MOCK_INTERVIEW_REPORT");
   assert.ok((score?.score ?? 100) <= 74);
   assert.ok((score?.uncertaintyReasons.length ?? 0) >= 2);
+  assert.ok(score?.uncertaintyReasons.some((reason) => reason.includes("응시 무결성")));
 });
 
 test("recruiting report summarizes answer evidence while mock report keeps transcript evidence", async () => {

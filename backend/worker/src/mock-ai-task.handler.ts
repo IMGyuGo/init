@@ -60,6 +60,12 @@ interface ReportAnswerNonverbalMetadata {
   lowAudioFrameCount?: number;
   observedAudioFrameCount?: number;
   cameraDisconnectedCount?: number;
+  integrityEvents?: unknown[];
+  integritySummary?: {
+    screenAwayCount?: number;
+    cameraLostCount?: number;
+    suspicionLevel?: string;
+  };
   [key: string]: unknown;
 }
 
@@ -69,6 +75,9 @@ interface NonverbalSignalSummary {
   longSilenceCount: number;
   shortAnswerCount: number;
   testModeUsed: boolean;
+  screenAwayCount: number;
+  cameraLostCount: number;
+  highSuspicionCount: number;
 }
 
 const MOCK_HIRING_DECISION_TERMS = [
@@ -1108,7 +1117,10 @@ function nonverbalSignalsForAnswers(answers: ReportAnswerForScoring[]): Nonverba
     microphoneWarnings: 0,
     longSilenceCount: 0,
     shortAnswerCount: 0,
-    testModeUsed: false
+    testModeUsed: false,
+    screenAwayCount: 0,
+    cameraLostCount: 0,
+    highSuspicionCount: 0
   };
 
   for (const answer of answers) {
@@ -1120,6 +1132,9 @@ function nonverbalSignalsForAnswers(answers: ReportAnswerForScoring[]): Nonverba
     summary.longSilenceCount += nonverbalNumber(metadata.longSilenceCount);
     summary.shortAnswerCount += nonverbalNumber(metadata.shortAnswerCount);
     summary.testModeUsed = summary.testModeUsed || metadata.testModeUsed === true;
+    summary.screenAwayCount += nonverbalScreenAwayCount(metadata);
+    summary.cameraLostCount += nonverbalCameraLostCount(metadata);
+    summary.highSuspicionCount += nonverbalSuspicionLevel(metadata) === "HIGH" ? 1 : 0;
   }
 
   return found ? summary : undefined;
@@ -1127,6 +1142,33 @@ function nonverbalSignalsForAnswers(answers: ReportAnswerForScoring[]): Nonverba
 
 function nonverbalNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function nonverbalRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function nonverbalEventCount(metadata: ReportAnswerNonverbalMetadata, types: string[]): number {
+  const events = Array.isArray(metadata.integrityEvents) ? metadata.integrityEvents : [];
+  return events.filter((event) => {
+    const record = nonverbalRecord(event);
+    return typeof record?.type === "string" && types.includes(record.type);
+  }).length;
+}
+
+function nonverbalScreenAwayCount(metadata: ReportAnswerNonverbalMetadata): number {
+  const summary = metadata.integritySummary;
+  return nonverbalNumber(summary?.screenAwayCount) || nonverbalEventCount(metadata, ["TAB_HIDDEN", "WINDOW_BLUR"]);
+}
+
+function nonverbalCameraLostCount(metadata: ReportAnswerNonverbalMetadata): number {
+  const summary = metadata.integritySummary;
+  return nonverbalNumber(summary?.cameraLostCount) || nonverbalEventCount(metadata, ["CAMERA_LOST"]);
+}
+
+function nonverbalSuspicionLevel(metadata: ReportAnswerNonverbalMetadata): string {
+  const level = metadata.integritySummary?.suspicionLevel;
+  return typeof level === "string" ? level : "NONE";
 }
 
 function answerQualityAdjustment(
@@ -1184,6 +1226,14 @@ function answerQualityAdjustment(
   }
 
   if (context.reportType === "MOCK_INTERVIEW_REPORT" && nonverbalSignals) {
+    if (
+      nonverbalSignals.screenAwayCount > 0 ||
+      nonverbalSignals.cameraLostCount > 0 ||
+      nonverbalSignals.highSuspicionCount > 0
+    ) {
+      reasons.push("화면 이탈 또는 카메라 끊김 같은 응시 무결성 확인 신호가 있어 실제 면접에서는 주의가 필요합니다.");
+    }
+
     if (nonverbalSignals.shortAnswerCount > 0) {
       maxScore = Math.min(maxScore, 74);
       reasons.push("답변 시간이 짧게 기록되어 상황, 행동, 결과 근거를 더 보강하면 좋습니다.");

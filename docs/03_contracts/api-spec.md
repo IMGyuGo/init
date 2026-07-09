@@ -3008,7 +3008,9 @@ AI 리포트 금지 기준:
   - API-068 `POST /candidate/interviews/{sessionId}/answers`
   - API-092 `POST /public/interviews/{sessionId}/answers`
 - Optional request field: `nonverbalMetadata`
-- Shape: JSON object. Initial MVP keys may include `cameraWarnings`, `microphoneWarnings`, `longSilenceCount`, `shortAnswerCount`, `testModeUsed`, `voicePeakLevel`, `lowAudioFrameCount`, `observedAudioFrameCount`, and `cameraDisconnectedCount`.
+- Shape: JSON object. Initial MVP keys may include `cameraWarnings`, `microphoneWarnings`, `longSilenceCount`, `shortAnswerCount`, `testModeUsed`, `voicePeakLevel`, `lowAudioFrameCount`, `observedAudioFrameCount`, `cameraDisconnectedCount`, `integrityEvents`, and `integritySummary`.
+- `integrityEvents` may include browser-runtime events such as `TAB_HIDDEN`, `WINDOW_BLUR`, and `CAMERA_LOST`.
+- `integritySummary` may include counts derived from those events, such as `screenAwayCount`, `cameraLostCount`, `totalAwayDurationMs`, `maxAwayDurationMs`, and `suspicionLevel`.
 - Storage: saved on `interview_answers.nonverbal_metadata`.
 - Report read:
   - API-056 `GET /candidate/mock-interview/reports/{reportId}/media` may expose `media[].nonverbalMetadata`.
@@ -3016,11 +3018,12 @@ AI 리포트 금지 기준:
 - AI report generation:
   - API-057 `POST /candidate/mock-interview/reports/{reportId}/generate` includes each answer's `nonverbalMetadata` in the `REPORT_GENERATE` payload when available.
   - OpenAI/mock worker prompts must treat the field as auxiliary practice metadata only.
-  - For mock interview reports, `shortAnswerCount`, `microphoneWarnings`, and `longSilenceCount` may inform practice feedback and conservative delivery-quality scoring caps.
+  - For mock interview reports, `integrityEvents` and `integritySummary` may inform practice feedback about cheating-suspicion signals such as screen/tab leaving or camera loss during recording.
+  - For mock interview reports, `shortAnswerCount`, `microphoneWarnings`, and `longSilenceCount` may inform practice feedback and conservative delivery-quality scoring caps, but they are answer/recording-quality signals, not cheating signals.
   - `cameraWarnings` and `testModeUsed` may only produce setup/focus review guidance. They must not be treated as proof of cheating.
 - Policy:
   - For mock interviews, the value is practice feedback metadata only.
   - For recruiting interviews, the value is auxiliary metadata only.
-  - It must not be used as a cheating decision, hiring pass/fail signal, or direct hiring score input.
+  - It may surface cheating-suspicion practice feedback for mock interviews, but it must not be used as a final cheating decision, hiring pass/fail signal, or direct hiring score input.
   - It must not be used to infer appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, health, or other sensitive attributes.
   - Recruiting/company-facing reports must not use `nonverbalMetadata` as a hiring score input. If shown later, it must be separated as auxiliary communication/media-quality context.
