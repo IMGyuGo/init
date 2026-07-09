@@ -8254,3 +8254,29 @@ p {
   padding: 0 24px;
   box-shadow: 0 10px 26px rgba(59, 111, 224, 0.32);
 }
+
+/* 아이콘 버튼 호버 툴팁(아래로) */
+.notion .detail-action-icon[data-tooltip] { position: relative; }
+.notion .detail-action-icon[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-3px);
+  z-index: 30;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  color: #fff;
+  background: rgba(15, 23, 42, 0.9);
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.notion .detail-action-icon[data-tooltip]:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}

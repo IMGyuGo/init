@@ -232,7 +232,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
               type="button"
               disabled={!recruitment}
               aria-label="공개 지원 링크 복사"
-              title="공개 지원 링크 복사"
+              data-tooltip="공개 지원 링크 복사"
               onClick={() => void handlePublicApplicationLinkCopy()}
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -247,6 +247,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                 aria-haspopup="menu"
                 aria-expanded={actionMenuOpen}
                 aria-label="공고 관리 메뉴"
+                data-tooltip="공고 관리"
                 onClick={() => setActionMenuOpen((current) => !current)}
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
