@@ -378,6 +378,7 @@ export function CandidateJobsPage() {
           jobs={data?.data.items ?? []}
           query={query}
           totalItems={data?.meta.page.totalItems ?? 0}
+          pageMeta={data?.meta.page}
           onQueryChange={setQuery}
         />
       </section>

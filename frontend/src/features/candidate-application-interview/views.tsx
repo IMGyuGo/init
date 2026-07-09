@@ -4,10 +4,10 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   CandidateFileAsset,
   CandidateJobDetail,
-  CandidateJobListPostingStatus,
   CandidateJobQuery,
   CandidateJobSummary,
   ConsentType,
+  PageMeta,
 } from "./api";
 import { candidateApplicationInterviewRoutes } from "./routes";
 import {
@@ -24,6 +24,7 @@ export interface CandidateJobsViewProps {
   jobs: CandidateJobSummary[];
   query: CandidateJobQuery;
   totalItems: number;
+  pageMeta?: PageMeta;
   onQueryChange: (query: CandidateJobQuery) => void;
 }
 
@@ -35,7 +36,7 @@ const SORT_OPTIONS: { value: NonNullable<CandidateJobQuery["sort"]>; label: stri
 
 
 
-type FilterKey = "jobRole" | "careerLevel" | "location" | "postingStatus";
+type FilterKey = "jobRole" | "careerLevel" | "location";
 
 interface FilterOption {
   value: string;
@@ -92,15 +93,6 @@ const FILTER_CATEGORIES: FilterCategory[] = [
       { value: "Remote", label: "원격" },
     ],
   },
-  {
-    key: "postingStatus",
-    label: "채용 상태",
-    hint: "공고 상태를 선택하세요",
-    options: [
-      { value: "OPEN", label: "모집중" },
-      { value: "CLOSING_SOON", label: "마감임박" },
-    ],
-  },
 ];
 
 function filterOptionLabel(key: FilterKey, value: string): string {
@@ -109,8 +101,8 @@ function filterOptionLabel(key: FilterKey, value: string): string {
 }
 
 type FilterDraft = Record<FilterKey, string>;
-const EMPTY_DRAFT: FilterDraft = { jobRole: "", careerLevel: "", location: "", postingStatus: "" };
-const FILTER_KEYS: FilterKey[] = ["jobRole", "careerLevel", "location", "postingStatus"];
+const EMPTY_DRAFT: FilterDraft = { jobRole: "", careerLevel: "", location: "" };
+const FILTER_KEYS: FilterKey[] = ["jobRole", "careerLevel", "location"];
 
 // 이 앱에서는 CSS scroll-behavior:smooth 가 취소되므로 rAF 로 직접 부드럽게 스크롤한다.
 const CANDIDATE_HEADER_OFFSET = 64;
@@ -145,7 +137,7 @@ function candidateJobDday(endsOn: string): string | null {
   return `D-${days}`;
 }
 
-export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: CandidateJobsViewProps) {
+export function CandidateJobsView({ jobs, query, totalItems, pageMeta, onQueryChange }: CandidateJobsViewProps) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeCat, setActiveCat] = useState<FilterKey>("jobRole");
   const [draft, setDraft] = useState<FilterDraft>(EMPTY_DRAFT);
@@ -217,36 +209,13 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
     window.setTimeout(() => scrollToJobs(), 60);
   }
 
-  // 이 페이지에 있는 동안에만: 최상단(히어로)에서 아래로 스크롤하면 한 번에 공고 목록으로 부드럽게 이동.
-  useEffect(() => {
-    let animating = false;
-    function listTargetY(): number | null {
-      const list = document.getElementById("candidate-jobs-all");
-      if (!list) return null;
-      return list.getBoundingClientRect().top + window.scrollY - CANDIDATE_HEADER_OFFSET;
-    }
-    function onWheel(event: WheelEvent) {
-      if (animating || Math.abs(event.deltaY) < 4) return;
-      const target = listTargetY();
-      if (target == null) return;
-      const atTop = window.scrollY < 40;
-      const atList = Math.abs(window.scrollY - target) < 40;
-      if (event.deltaY > 0 && atTop) {
-        animating = true;
-        smoothScrollWindowTo(target);
-        window.setTimeout(() => (animating = false), 620);
-      } else if (event.deltaY < 0 && atList) {
-        animating = true;
-        smoothScrollWindowTo(0);
-        window.setTimeout(() => (animating = false), 620);
-      }
-    }
-    window.addEventListener("wheel", onWheel, { passive: true });
-    return () => window.removeEventListener("wheel", onWheel);
-  }, []);
-
   function patch(next: Partial<CandidateJobQuery>) {
     onQueryChange({ ...query, ...next, page: 1 });
+  }
+
+  function goPage(nextPage: number) {
+    onQueryChange({ ...query, page: nextPage });
+    window.setTimeout(() => scrollToJobs(), 60);
   }
 
   function openFilter() {
@@ -254,7 +223,6 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
       jobRole: query.jobRole ?? "",
       careerLevel: query.careerLevel ?? "",
       location: query.location ?? "",
-      postingStatus: query.postingStatus ?? "",
     });
     setActiveCat("jobRole");
     setFilterOpen(true);
@@ -271,7 +239,6 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
       jobRole: draft.jobRole || undefined,
       careerLevel: draft.careerLevel || undefined,
       location: draft.location || undefined,
-      postingStatus: toOptionalPostingStatus(draft.postingStatus),
     });
     setFilterOpen(false);
   }
@@ -417,7 +384,12 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
 
       <div id="candidate-jobs-list" className="candidate-jobs-list">
         <div className="candidate-jobs-listhead">
-          <h3>인기 TOP 공고</h3>
+          <h3>
+            <svg className="candidate-jobs-star" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M11.48 3.5a.6.6 0 0 1 1.04 0l2.28 4.62a.6.6 0 0 0 .45.33l5.1.74a.6.6 0 0 1 .33 1.02l-3.69 3.6a.6.6 0 0 0-.17.53l.87 5.08a.6.6 0 0 1-.87.63l-4.56-2.4a.6.6 0 0 0-.56 0l-4.56 2.4a.6.6 0 0 1-.87-.63l.87-5.08a.6.6 0 0 0-.17-.53l-3.69-3.6a.6.6 0 0 1 .33-1.02l5.1-.74a.6.6 0 0 0 .45-.33L11.48 3.5z" />
+            </svg>
+            인기 TOP 공고
+          </h3>
           <div className="candidate-jobs-nav">
             <button type="button" className="candidate-jobs-navbtn" aria-label="이전 공고" onClick={() => scrollPopular(-1)}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -471,12 +443,13 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
               </div>
             </div>
             <div className="candidate-jobs-toolbar-right">
-              <span className="candidate-jobs-count">
-                공고 <strong>{totalItems}</strong>
-              </span>
               <SortDropdown value={query.sort ?? "createdAt"} onChange={(next) => patch({ sort: next })} />
             </div>
           </div>
+
+          <p className="candidate-jobs-count-line">
+            해당 공고 <strong>{totalItems}</strong>개
+          </p>
 
           {jobs.length ? (
             <div className="candidate-job-grid" role="list">
@@ -488,6 +461,9 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
               <span>다른 키워드나 필터로 다시 검색해보세요.</span>
             </div>
           )}
+          {pageMeta && pageMeta.totalPages > 1 ? (
+            <JobsPagination page={pageMeta.page} totalPages={pageMeta.totalPages} onPageChange={goPage} />
+          ) : null}
         </div>
       <span className="sr-only">지원 가능한 공고 {totalItems}건</span>
 
@@ -548,13 +524,68 @@ export function CandidateJobsView({ jobs, query, totalItems, onQueryChange }: Ca
                 초기화{draftCount ? ` ${draftCount}` : ""}
               </button>
               <button type="button" className="btn primary" onClick={applyFilter}>
-                공고 보기
+                공고 적용
               </button>
             </footer>
           </div>
         </div>
       ) : null}
     </section>
+  );
+}
+
+function JobsPagination({
+  page,
+  totalPages,
+  onPageChange,
+}: {
+  page: number;
+  totalPages: number;
+  onPageChange: (nextPage: number) => void;
+}) {
+  // 현재 페이지 주변으로 최대 5개 번호만 노출한다.
+  const windowSize = 5;
+  let start = Math.max(1, page - Math.floor(windowSize / 2));
+  const end = Math.min(totalPages, start + windowSize - 1);
+  start = Math.max(1, end - windowSize + 1);
+  const pages = Array.from({ length: end - start + 1 }, (_, index) => start + index);
+
+  return (
+    <nav className="candidate-jobs-pagination" aria-label="공고 목록 페이지">
+      <button
+        type="button"
+        className="candidate-jobs-page-btn"
+        onClick={() => onPageChange(page - 1)}
+        disabled={page <= 1}
+        aria-label="이전 페이지"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m15 18-6-6 6-6" />
+        </svg>
+      </button>
+      {pages.map((pageNumber) => (
+        <button
+          key={pageNumber}
+          type="button"
+          className={`candidate-jobs-page-num${pageNumber === page ? " is-active" : ""}`}
+          aria-current={pageNumber === page ? "page" : undefined}
+          onClick={() => onPageChange(pageNumber)}
+        >
+          {pageNumber}
+        </button>
+      ))}
+      <button
+        type="button"
+        className="candidate-jobs-page-btn"
+        onClick={() => onPageChange(page + 1)}
+        disabled={page >= totalPages}
+        aria-label="다음 페이지"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+      </button>
+    </nav>
   );
 }
 
@@ -1237,10 +1268,6 @@ function CompanyLogoMark({
   }
 
   return <span className="candidate-jobcard__logo">{fallbackLabel}</span>;
-}
-
-function toOptionalPostingStatus(value: string): CandidateJobListPostingStatus | undefined {
-  return value === "OPEN" || value === "CLOSING_SOON" ? value : undefined;
 }
 
 function companyLogoLabelFromName(companyName: string): string {
