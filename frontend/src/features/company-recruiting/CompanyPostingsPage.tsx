@@ -35,7 +35,7 @@ const STATUS_CHIPS: { value: StatusFilter; label: string }[] = [
   { value: "ALL", label: "전체" },
   { value: "OPEN", label: "모집중" },
   { value: "CLOSING_SOON", label: "마감임박" },
-  { value: "DRAFT", label: "작성중" },
+  { value: "DRAFT", label: "대기중" },
   { value: "CLOSED", label: "마감" },
   { value: "ARCHIVED", label: "보관" },
 ];
@@ -289,16 +289,26 @@ export function CompanyPostingsPage() {
                         className={`pcard-cover has-image${coverIsPlaceholder ? " is-placeholder" : ""}`}
                         style={{ backgroundImage: `url(${coverUrl})` }}
                         aria-hidden="true"
-                      />
+                      >
+                        <span className={`pcard-dday${ddayLabel(item.endsOn) === "마감" ? " is-danger" : ""}`}>
+                          {ddayLabel(item.endsOn)}
+                        </span>
+                      </div>
                       <div className="pcard-body">
                         <div className="pcard-tags">
                           <StatusBadge value={item.status} />
-                          <span className={`pcard-dday${ddayLabel(item.endsOn) === "마감" ? " is-danger" : ""}`}>{ddayLabel(item.endsOn)}</span>
                         </div>
                         <h3 className="pcard-title">{item.title}</h3>
-                        <p className="pcard-sub">
-                          지원 <strong>{item.applicantCount}</strong>명 · 완료 <strong>{rate}%</strong>
-                        </p>
+                        <p className="pcard-period">채용 {formatRecruitPeriod(item.startsOn, item.endsOn)}</p>
+                        <div className="pcard-progress">
+                          <div className="pcard-progress-head">
+                            <span>지원 <strong>{item.applicantCount}</strong>명</span>
+                            <span>완료 <strong>{rate}%</strong></span>
+                          </div>
+                          <div className="pcard-progress-bar" aria-hidden="true">
+                            <span style={{ width: `${Math.min(100, Math.max(0, rate))}%` }} />
+                          </div>
+                        </div>
                       </div>
                     </article>
                   );
@@ -372,6 +382,20 @@ function ddayLabel(endsOn: string | null): string {
     return "D-day";
   }
   return `D-${left}`;
+}
+
+function formatRecruitPeriod(startsOn: string | null, endsOn: string | null): string {
+  const format = (value: string | null, withYear: boolean) => {
+    if (!value) return null;
+    const formatted = value.replace(/-/g, ".");
+    return withYear ? formatted : formatted.replace(/^\d{4}\./, "");
+  };
+  const start = format(startsOn, true);
+  const end = format(endsOn, false);
+  if (start && end) return `${start} ~ ${end}`;
+  if (start) return `${start} ~ 상시`;
+  if (end) return `~ ${end}`;
+  return "상시 채용";
 }
 
 function handleRowKey(event: KeyboardEvent<HTMLElement>, run: () => void) {
