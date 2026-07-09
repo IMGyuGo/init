@@ -35,6 +35,7 @@ import {
   type CandidateInterviewRuntimeView,
   type CandidateJobQuery,
   type CandidateMockInterviewHistoryItem,
+  type CandidateMockReportSummary,
   type CandidateMockReportFeedback,
   type CandidateMockReportMedia,
   type CandidateReportAnswerView,
@@ -1552,8 +1553,12 @@ export function CandidateMockInterviewRuntimePage({ sessionId }: { sessionId: nu
 
 export function CandidateMockReportsPage() {
   const load = useCallback(async () => {
-    const history = await getCandidateApi().listMockInterviewHistory();
-    return { history: history.data.items };
+    const api = getCandidateApi();
+    const [history, reports] = await Promise.all([
+      api.listMockInterviewHistory(),
+      api.listMockReports(),
+    ]);
+    return { history: mergeMockHistoryWithReports(history.data.items, reports.data.items) };
   }, []);
   const { data, loading, error, refresh } = useCandidateResource(load, []);
 
@@ -1582,6 +1587,24 @@ export function CandidateMockReportsPage() {
       </section>
     </CandidatePageShell>
   );
+}
+
+function mergeMockHistoryWithReports(
+  history: CandidateMockInterviewHistoryItem[],
+  reports: CandidateMockReportSummary[],
+): CandidateMockInterviewHistoryItem[] {
+  const reportsBySessionId = new Map(reports.map((report) => [report.sessionId, report]));
+
+  return history.map((item) => {
+    const report = reportsBySessionId.get(item.sessionId);
+    if (!report) return item;
+
+    return {
+      ...item,
+      reportId: report.reportId,
+      reportStatus: report.reportStatus,
+    };
+  });
 }
 
 export function CandidateMockReportDetailPage({ reportId }: { reportId: number }) {
@@ -5924,7 +5947,9 @@ function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryI
                 {item.status === "IN_PROGRESS" ? (
                   <Link className="btn secondary compact" href={candidateApplicationInterviewRoutes.mockInterview(item.sessionId)}>이어하기</Link>
                 ) : item.reportId ? (
-                  <Link className="btn secondary compact" href={candidateApplicationInterviewRoutes.mockReportDetail(item.reportId)}>상세</Link>
+                  <Link className="btn secondary compact" href={candidateApplicationInterviewRoutes.mockReportDetail(item.reportId)}>
+                    {formatMockHistoryActionLabel(item.reportStatus)}
+                  </Link>
                 ) : (
                   <span className="btn secondary compact is-disabled" aria-disabled="true">준비 중</span>
                 )}
@@ -5935,6 +5960,13 @@ function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryI
       </table>
     </div>
   );
+}
+
+function formatMockHistoryActionLabel(status: CandidateMockInterviewHistoryItem["reportStatus"]): string {
+  if (status === "COMPLETED") return "상세";
+  if (status === "GENERATING") return "분석 중";
+  if (status === "FAILED") return "다시 요청";
+  return "AI 분석 시작";
 }
 
 type MockReportStatusView = {
