@@ -5,6 +5,7 @@ import { MockAiTaskHandler } from "./mock-ai-task.handler";
 import { OpenAiAiTaskHandler } from "./openai-ai-task.handler";
 import { OpenAiFollowUpProvider } from "./openai-follow-up.provider";
 import { OpenAiPostingDraftProvider } from "./openai-posting-draft.provider";
+import { OpenAiQuestionProvider } from "./openai-question.provider";
 import { OpenAiReportProvider } from "./openai-report.provider";
 import { AiProcessLogRepository, InMemoryAiProcessLogRepository } from "./process-log.repository";
 import { PrismaAiResultRepository } from "./prisma-ai-result.repository";
@@ -43,7 +44,8 @@ export async function createWorkerRuntime(queue: AiJobQueue, env: WorkerEnv): Pr
           repositories.results,
           new OpenAiFollowUpProvider(env.aiProviderApiKey, env.openaiModel),
           new OpenAiReportProvider(env.aiProviderApiKey, env.openaiModel),
-          new OpenAiPostingDraftProvider(env.aiProviderApiKey, env.openaiModel)
+          new OpenAiPostingDraftProvider(env.aiProviderApiKey, env.openaiModel),
+          new OpenAiQuestionProvider(env.aiProviderApiKey, env.openaiModel)
         )
       : mockHandler;
 
