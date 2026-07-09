@@ -73,6 +73,7 @@ export interface InterviewAnswerFormState {
   audioFileId?: number;
   audioFile?: RuntimeFileAssetRequest;
   durationSeconds: number;
+  nonverbalMetadata?: Record<string, unknown>;
 }
 
 export type InterviewDeviceSetupMode = "mock" | "recruiting";
@@ -692,6 +693,7 @@ export function toSaveInterviewAnswerRequest(state: InterviewAnswerFormState): S
     audioFileId: state.audioFileId,
     audioFile: state.audioFile,
     durationSeconds: state.durationSeconds,
+    nonverbalMetadata: state.nonverbalMetadata,
   };
 }
 

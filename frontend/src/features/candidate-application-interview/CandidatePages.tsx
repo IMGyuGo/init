@@ -150,6 +150,8 @@ const MIN_INTERVIEW_RECORDING_VOICE_LEVEL = 3;
 const MIN_INTERVIEW_RECORDING_VOICE_FRAME_COUNT = 6;
 const MAX_INVALID_RECORDING_AUTO_RETRY_COUNT = 1;
 const REALTIME_SILENCE_GRACE_MS = 2000;
+const NONVERBAL_SHORT_ANSWER_SECONDS = 10;
+const NONVERBAL_CAMERA_SAMPLE_INTERVAL_MS = 1000;
 const REALTIME_SPEECH_RESPONSE_TIMEOUT_MS = 30000;
 const BROWSER_SPEECH_START_TIMEOUT_MS = 2500;
 const BROWSER_SPEECH_MIN_COMPLETION_TIMEOUT_MS = 8000;
@@ -170,6 +172,22 @@ type RuntimeTimerPhase = "PREPARING" | "ANSWERING";
 type RealtimeSessionStatus = "idle" | "requesting" | "connecting" | "ready" | "failed";
 type RealtimeProviderState = RealtimeInterviewSessionResponse["provider"] | "none";
 type InterviewGuideStep = "guide" | "device";
+type InterviewAnswerNonverbalMetadata = {
+  cameraWarnings: number;
+  microphoneWarnings: number;
+  longSilenceCount: number;
+  shortAnswerCount: number;
+  testModeUsed: boolean;
+  voicePeakLevel: number;
+  lowAudioFrameCount: number;
+  observedAudioFrameCount: number;
+  cameraDisconnectedCount: number;
+};
+type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
+  questionId: number;
+  silenceStartedAtMs?: number;
+  silenceSegmentCounted: boolean;
+};
 type CandidateApplicationStatusFilter = "ALL" | "WAITING" | "IN_PROGRESS" | "COMPLETED" | "REPORTING";
 type ApplicationBadgeTone = "green" | "yellow" | "purple" | "neutral";
 type RuntimePageData = {
@@ -2276,6 +2294,9 @@ function InterviewRuntimePanel({
   const timeExpiredQuestionRef = useRef<number | null>(null);
   const answerStartCueQuestionRef = useRef<number | null>(null);
   const invalidRecordingRetryCountsRef = useRef<Map<number, number>>(new Map());
+  const recordingNonverbalTrackerRef = useRef<RecordingNonverbalTracker | null>(null);
+  const nonverbalCameraMonitorRef = useRef<number | null>(null);
+  const lastInvalidRecordingMetadataRef = useRef<Map<number, InterviewAnswerNonverbalMetadata>>(new Map());
   const answerToNextQuestionPerfRef = useRef<{
     startedAt: number;
     startedAtIso: string;
@@ -3036,6 +3057,8 @@ function InterviewRuntimePanel({
       }
       stopQuestionSpeech();
       stopRuntimeCameraQualityMonitor();
+      stopNonverbalCameraMonitor();
+      recordingNonverbalTrackerRef.current = null;
       stopMicrophoneMeter();
       stopMediaStream(streamRef.current);
     };
@@ -3493,6 +3516,104 @@ function InterviewRuntimePanel({
     }
   }
 
+  function stopNonverbalCameraMonitor() {
+    if (nonverbalCameraMonitorRef.current !== null) {
+      window.clearInterval(nonverbalCameraMonitorRef.current);
+      nonverbalCameraMonitorRef.current = null;
+    }
+  }
+
+  function startNonverbalTracking(questionId: number, stream: MediaStream) {
+    if (mode !== "mock") return;
+
+    stopNonverbalCameraMonitor();
+    const tracker: RecordingNonverbalTracker = {
+      questionId,
+      cameraWarnings: cameralessTestEntry ? 1 : 0,
+      microphoneWarnings: 0,
+      longSilenceCount: 0,
+      shortAnswerCount: 0,
+      testModeUsed: cameralessTestEntry,
+      voicePeakLevel: 0,
+      lowAudioFrameCount: 0,
+      observedAudioFrameCount: 0,
+      cameraDisconnectedCount: 0,
+      silenceSegmentCounted: false,
+    };
+    recordingNonverbalTrackerRef.current = tracker;
+
+    const sampleCamera = () => {
+      const current = recordingNonverbalTrackerRef.current;
+      if (!current || current.questionId !== questionId) return;
+
+      const videoTracks = stream.getVideoTracks();
+      const cameraLive = videoTracks.length === 0
+        ? cameralessTestEntry
+        : videoTracks.some((track) => track.readyState === "live" && track.enabled);
+      if (!cameraLive) {
+        current.cameraWarnings += 1;
+        current.cameraDisconnectedCount += 1;
+      }
+    };
+
+    sampleCamera();
+    nonverbalCameraMonitorRef.current = window.setInterval(sampleCamera, NONVERBAL_CAMERA_SAMPLE_INTERVAL_MS);
+  }
+
+  function registerNonverbalAudioLevel(level: number) {
+    const tracker = recordingNonverbalTrackerRef.current;
+    if (!tracker) return;
+
+    tracker.observedAudioFrameCount += 1;
+    tracker.voicePeakLevel = Math.max(tracker.voicePeakLevel, level);
+
+    if (level < MIN_INTERVIEW_RECORDING_VOICE_LEVEL) {
+      tracker.lowAudioFrameCount += 1;
+      const now = Date.now();
+      if (tracker.silenceStartedAtMs === undefined) {
+        tracker.silenceStartedAtMs = now;
+        tracker.silenceSegmentCounted = false;
+      } else if (!tracker.silenceSegmentCounted && now - tracker.silenceStartedAtMs >= REALTIME_SILENCE_GRACE_MS) {
+        tracker.longSilenceCount += 1;
+        tracker.silenceSegmentCounted = true;
+      }
+      return;
+    }
+
+    tracker.silenceStartedAtMs = undefined;
+    tracker.silenceSegmentCounted = false;
+  }
+
+  function finishNonverbalTracking(
+    questionId: number,
+    durationSeconds: number,
+  ): InterviewAnswerNonverbalMetadata | undefined {
+    stopNonverbalCameraMonitor();
+    const tracker = recordingNonverbalTrackerRef.current;
+    recordingNonverbalTrackerRef.current = null;
+
+    if (!tracker || tracker.questionId !== questionId) return undefined;
+
+    const observedFrameCount = tracker.observedAudioFrameCount;
+    const lowAudioRatio = observedFrameCount > 0 ? tracker.lowAudioFrameCount / observedFrameCount : 1;
+    const microphoneWarnings =
+      tracker.microphoneWarnings +
+      (recordingVoiceFrameCountRef.current < MIN_INTERVIEW_RECORDING_VOICE_FRAME_COUNT ? 1 : 0) +
+      (observedFrameCount > 0 && lowAudioRatio > 0.8 ? 1 : 0);
+
+    return {
+      cameraWarnings: tracker.cameraWarnings,
+      microphoneWarnings,
+      longSilenceCount: tracker.longSilenceCount,
+      shortAnswerCount: durationSeconds < NONVERBAL_SHORT_ANSWER_SECONDS ? 1 : 0,
+      testModeUsed: tracker.testModeUsed,
+      voicePeakLevel: Math.round(Math.max(tracker.voicePeakLevel, recordingVoicePeakRef.current)),
+      lowAudioFrameCount: tracker.lowAudioFrameCount,
+      observedAudioFrameCount: observedFrameCount,
+      cameraDisconnectedCount: tracker.cameraDisconnectedCount,
+    };
+  }
+
   function startRuntimeCameraQualityMonitor(previewInfo: CameraPreviewInfo, fallbackLabel?: string) {
     stopRuntimeCameraQualityMonitor();
     const video = videoRef.current;
@@ -3531,6 +3652,7 @@ function InterviewRuntimePanel({
       setMicrophoneLevel(level);
       if (recorderRef.current?.state === "recording") {
         recordingVoicePeakRef.current = Math.max(recordingVoicePeakRef.current, level);
+        registerNonverbalAudioLevel(level);
         if (level >= MIN_INTERVIEW_RECORDING_VOICE_LEVEL) {
           recordingVoiceFrameCountRef.current += 1;
         }
@@ -3958,6 +4080,7 @@ function InterviewRuntimePanel({
       recordingVoiceFrameCountRef.current = 0;
       recordingStartedAtRef.current = Date.now();
       timeExpiredQuestionRef.current = null;
+      startNonverbalTracking(currentQuestion.questionId, stream);
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -3974,9 +4097,13 @@ function InterviewRuntimePanel({
         });
         const blob = new Blob(recordingChunksRef.current, { type: recordedMimeType });
         const durationSeconds = Math.max(1, Math.round((Date.now() - recordingStartedAtRef.current) / 1000));
+        const nonverbalMetadata = finishNonverbalTracking(currentQuestion.questionId, durationSeconds);
         const fileName = `${mode}-answer-${data.runtime.sessionId}-${currentQuestion.questionId}.${getInterviewMediaFileExtension(recordedMimeType)}`;
 
         if (durationSeconds < MIN_INTERVIEW_RECORDING_DURATION_SECONDS) {
+          if (nonverbalMetadata) {
+            lastInvalidRecordingMetadataRef.current.set(currentQuestion.questionId, nonverbalMetadata);
+          }
           clearInvalidRecordingDraft(
             currentQuestion.questionId,
             `답변 녹음이 너무 짧습니다. 최소 ${MIN_INTERVIEW_RECORDING_DURATION_SECONDS}초 이상 답변한 뒤 다시 제출해주세요.`,
@@ -3985,6 +4112,9 @@ function InterviewRuntimePanel({
         }
 
         if (blob.size < MIN_INTERVIEW_RECORDING_BLOB_SIZE_BYTES) {
+          if (nonverbalMetadata) {
+            lastInvalidRecordingMetadataRef.current.set(currentQuestion.questionId, nonverbalMetadata);
+          }
           clearInvalidRecordingDraft(
             currentQuestion.questionId,
             "녹음 파일이 너무 작아 저장되지 않았습니다. 마이크 입력을 확인한 뒤 다시 답변해주세요.",
@@ -4001,6 +4131,7 @@ function InterviewRuntimePanel({
         }
 
         cacheRecordedInterviewBlob(videoFile, blob);
+        lastInvalidRecordingMetadataRef.current.delete(currentQuestion.questionId);
 
         setAnswer((current) => ({
           ...current,
@@ -4010,6 +4141,7 @@ function InterviewRuntimePanel({
           videoFileId: undefined,
           audioFile: undefined,
           audioFileId: undefined,
+          nonverbalMetadata,
         }));
         setRecordedFileName(fileName);
         setRecording(false);
@@ -4020,6 +4152,7 @@ function InterviewRuntimePanel({
               questionId: currentQuestion.questionId,
               durationSeconds,
               videoFile,
+              nonverbalMetadata,
             })),
             currentQuestion,
             "answer_complete_button",
@@ -4052,6 +4185,8 @@ function InterviewRuntimePanel({
       if (realtimeMicrophoneOpenedForRecording) {
         setRealtimeMicrophoneOpen(false);
       }
+      stopNonverbalCameraMonitor();
+      recordingNonverbalTrackerRef.current = null;
       setRecording(false);
       setMessage(toErrorMessage(recordError));
     }
@@ -4085,6 +4220,7 @@ function InterviewRuntimePanel({
       videoFileId: undefined,
       audioFile: undefined,
       audioFileId: undefined,
+      nonverbalMetadata: undefined,
     }));
     setRecording(false);
 
@@ -4112,11 +4248,14 @@ function InterviewRuntimePanel({
     setMessage("녹음 품질 문제로 현재 질문을 미답변 처리하고 다음 질문으로 이동합니다.");
     try {
       const api = runtimeApi;
+      const skippedNonverbalMetadata =
+        mode === "mock" ? lastInvalidRecordingMetadataRef.current.get(questionId) : undefined;
       const skipRequest: SaveInterviewAnswerRequest = {
         questionId,
         durationSeconds: 0,
         skipReason: "RECORDING_VALIDATION_FAILED",
         ...(retryAnswerId ? { retryAnswerId } : {}),
+        ...(skippedNonverbalMetadata ? { nonverbalMetadata: skippedNonverbalMetadata } : {}),
       };
       const result = await (mode === "mock"
         ? api.saveMockAnswer(data.runtime.sessionId, skipRequest)
@@ -4144,6 +4283,7 @@ function InterviewRuntimePanel({
       });
       setRetryAnswerId(undefined);
       setRetryingQuestionId(undefined);
+      lastInvalidRecordingMetadataRef.current.delete(questionId);
 
       const questionIndex = data.questions.questions.findIndex((candidateQuestion) => candidateQuestion.questionId === questionId);
       const isLastQuestion = questionIndex >= 0
@@ -4367,6 +4507,7 @@ function InterviewRuntimePanel({
     });
     setRecordedFileName("");
     invalidRecordingRetryCountsRef.current.delete(currentQuestion.questionId);
+    lastInvalidRecordingMetadataRef.current.delete(currentQuestion.questionId);
     submitAfterRecordingStopRef.current = false;
     autoAdvanceAfterAnswerSubmitRef.current = false;
     autoRecordingQuestionRef.current = null;
@@ -6147,6 +6288,7 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
             transcriptUnavailableReason={item.transcriptUnavailableReason}
           />
           <FollowUpQuestionList questions={item.followUpQuestions} />
+          <MockNonverbalFeedbackView metadata={item.nonverbalMetadata} />
           <AnswerPracticeGuideView guide={practiceGuide} />
           <dl className="report-answer-meta">
             <Definition label="답변 시간" value={`${item.durationSeconds}s`} />
@@ -6166,6 +6308,65 @@ type AnswerPracticeGuide = {
   example: string;
   gaps: string[];
 };
+
+function MockNonverbalFeedbackView({ metadata }: { metadata?: Record<string, unknown> }) {
+  const feedbackItems = buildMockNonverbalFeedbackItems(metadata);
+  if (!feedbackItems.length) return null;
+
+  return (
+    <section className="report-practice-guide">
+      <h4>연습용 비언어 피드백</h4>
+      <div className="report-practice-guide__block">
+        <strong>참고 신호</strong>
+        <ul>
+          {feedbackItems.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+        <p>부정행위 판정이 아니라 모의면접 답변 연습을 돕기 위한 참고 신호입니다.</p>
+      </div>
+    </section>
+  );
+}
+
+function buildMockNonverbalFeedbackItems(metadata?: Record<string, unknown>): string[] {
+  if (!metadata) return [];
+
+  const cameraWarnings = readNonverbalNumber(metadata, "cameraWarnings");
+  const microphoneWarnings = readNonverbalNumber(metadata, "microphoneWarnings");
+  const longSilenceCount = readNonverbalNumber(metadata, "longSilenceCount");
+  const shortAnswerCount = readNonverbalNumber(metadata, "shortAnswerCount");
+  const testModeUsed = readNonverbalBoolean(metadata, "testModeUsed");
+  const voicePeakLevel = readNonverbalNumber(metadata, "voicePeakLevel");
+  const items: string[] = [];
+
+  if (cameraWarnings > 0 || testModeUsed) {
+    items.push("카메라 연결 또는 화면 상태가 불안정한 구간이 있었습니다. 화면 이탈 여부를 직접 점검해 보세요.");
+  }
+  if (microphoneWarnings > 0 || longSilenceCount > 0) {
+    items.push("긴 무음 또는 낮은 음성 입력 구간이 감지되었습니다. 핵심 문장은 조금 더 또렷하게 말해 보세요.");
+  }
+  if (shortAnswerCount > 0) {
+    items.push("답변 시간이 짧아 상황, 행동, 결과가 충분히 드러나지 않을 수 있습니다.");
+  }
+  if (!items.length) {
+    items.push("녹화 중 카메라와 음성 입력이 전반적으로 안정적이었습니다.");
+  }
+  if (voicePeakLevel > 0 && voicePeakLevel < MIN_INTERVIEW_RECORDING_VOICE_LEVEL) {
+    items.push("음성 피크가 낮게 측정되었습니다. 마이크 거리나 입력 장치를 확인하면 좋습니다.");
+  }
+
+  return items;
+}
+
+function readNonverbalNumber(metadata: Record<string, unknown>, key: string): number {
+  const value = metadata[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function readNonverbalBoolean(metadata: Record<string, unknown>, key: string): boolean {
+  return metadata[key] === true;
+}
 
 function AnswerPracticeGuideView({ guide }: { guide: AnswerPracticeGuide }) {
   return (
