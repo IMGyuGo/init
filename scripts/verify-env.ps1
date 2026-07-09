@@ -34,4 +34,12 @@ foreach ($name in $required) {
   }
 }
 
+$awsReadme = Join-Path $root "infra/aws/README.md"
+if (Test-Path -LiteralPath $awsReadme) {
+  $awsReadmeContent = Get-Content -Encoding UTF8 -LiteralPath $awsReadme -Raw
+  if ($awsReadmeContent -match '"PAYMENT_DEV_PASS_GRANT_ENABLED"\s*:\s*"false"') {
+    throw "infra/aws/README.md sets PAYMENT_DEV_PASS_GRANT_ENABLED to false, but API-PAY-007 should keep demo/QA mock interview pass grants enabled by default"
+  }
+}
+
 Write-Host "[ok] verify-env passed"
