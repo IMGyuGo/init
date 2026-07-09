@@ -69,6 +69,10 @@ interface ReportAnswerNonverbalMetadata {
     multipleFacesCount?: number;
     facePositionShiftCount?: number;
     gazeAwayCount?: number;
+    voiceMouthMismatchCount?: number;
+    voiceWithoutFaceCount?: number;
+    staticVideoFrameCount?: number;
+    earlyScreenAwayCount?: number;
     suspicionLevel?: string;
   };
   [key: string]: unknown;
@@ -87,6 +91,10 @@ interface NonverbalSignalSummary {
   multipleFacesCount: number;
   facePositionShiftCount: number;
   gazeAwayCount: number;
+  voiceMouthMismatchCount: number;
+  voiceWithoutFaceCount: number;
+  staticVideoFrameCount: number;
+  earlyScreenAwayCount: number;
   highSuspicionCount: number;
 }
 
@@ -1135,6 +1143,10 @@ function nonverbalSignalsForAnswers(answers: ReportAnswerForScoring[]): Nonverba
     multipleFacesCount: 0,
     facePositionShiftCount: 0,
     gazeAwayCount: 0,
+    voiceMouthMismatchCount: 0,
+    voiceWithoutFaceCount: 0,
+    staticVideoFrameCount: 0,
+    earlyScreenAwayCount: 0,
     highSuspicionCount: 0
   };
 
@@ -1154,6 +1166,10 @@ function nonverbalSignalsForAnswers(answers: ReportAnswerForScoring[]): Nonverba
     summary.multipleFacesCount += nonverbalMultipleFacesCount(metadata);
     summary.facePositionShiftCount += nonverbalFacePositionShiftCount(metadata);
     summary.gazeAwayCount += nonverbalGazeAwayCount(metadata);
+    summary.voiceMouthMismatchCount += nonverbalVoiceMouthMismatchCount(metadata);
+    summary.voiceWithoutFaceCount += nonverbalVoiceWithoutFaceCount(metadata);
+    summary.staticVideoFrameCount += nonverbalStaticVideoFrameCount(metadata);
+    summary.earlyScreenAwayCount += nonverbalEarlyScreenAwayCount(metadata);
     summary.highSuspicionCount += nonverbalSuspicionLevel(metadata) === "HIGH" ? 1 : 0;
   }
 
@@ -1209,6 +1225,26 @@ function nonverbalFacePositionShiftCount(metadata: ReportAnswerNonverbalMetadata
 function nonverbalGazeAwayCount(metadata: ReportAnswerNonverbalMetadata): number {
   const summary = metadata.integritySummary;
   return nonverbalNumber(summary?.gazeAwayCount) || nonverbalEventCount(metadata, ["GAZE_AWAY"]);
+}
+
+function nonverbalVoiceMouthMismatchCount(metadata: ReportAnswerNonverbalMetadata): number {
+  const summary = metadata.integritySummary;
+  return nonverbalNumber(summary?.voiceMouthMismatchCount) || nonverbalEventCount(metadata, ["VOICE_MOUTH_MISMATCH"]);
+}
+
+function nonverbalVoiceWithoutFaceCount(metadata: ReportAnswerNonverbalMetadata): number {
+  const summary = metadata.integritySummary;
+  return nonverbalNumber(summary?.voiceWithoutFaceCount) || nonverbalEventCount(metadata, ["VOICE_WITHOUT_FACE"]);
+}
+
+function nonverbalStaticVideoFrameCount(metadata: ReportAnswerNonverbalMetadata): number {
+  const summary = metadata.integritySummary;
+  return nonverbalNumber(summary?.staticVideoFrameCount) || nonverbalEventCount(metadata, ["STATIC_VIDEO_FRAME"]);
+}
+
+function nonverbalEarlyScreenAwayCount(metadata: ReportAnswerNonverbalMetadata): number {
+  const summary = metadata.integritySummary;
+  return nonverbalNumber(summary?.earlyScreenAwayCount) || nonverbalEventCount(metadata, ["EARLY_SCREEN_AWAY"]);
 }
 
 function nonverbalSuspicionLevel(metadata: ReportAnswerNonverbalMetadata): string {
@@ -1279,6 +1315,10 @@ function answerQualityAdjustment(
       nonverbalSignals.multipleFacesCount > 0 ||
       nonverbalSignals.facePositionShiftCount > 0 ||
       nonverbalSignals.gazeAwayCount > 0 ||
+      nonverbalSignals.voiceMouthMismatchCount > 0 ||
+      nonverbalSignals.voiceWithoutFaceCount > 0 ||
+      nonverbalSignals.staticVideoFrameCount > 0 ||
+      nonverbalSignals.earlyScreenAwayCount > 0 ||
       nonverbalSignals.highSuspicionCount > 0
     ) {
       reasons.push("화면 이탈, 얼굴 화면 밖, 여러 얼굴 감지, 시선 이탈 같은 응시 무결성 확인 신호가 있어 실제 면접에서는 주의가 필요합니다.");

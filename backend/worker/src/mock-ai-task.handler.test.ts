@@ -812,6 +812,25 @@ test("mock report generation applies nonverbal metadata as auxiliary practice si
                   occurredAt: "2026-07-09T10:00:12.000Z",
                   durationMs: 3200,
                   direction: "LEFT"
+                },
+                {
+                  type: "VOICE_MOUTH_MISMATCH",
+                  occurredAt: "2026-07-09T10:00:16.000Z",
+                  durationMs: 3000
+                },
+                {
+                  type: "VOICE_WITHOUT_FACE",
+                  occurredAt: "2026-07-09T10:00:20.000Z",
+                  durationMs: 2800
+                },
+                {
+                  type: "STATIC_VIDEO_FRAME",
+                  occurredAt: "2026-07-09T10:00:24.000Z",
+                  durationMs: 5200
+                },
+                {
+                  type: "EARLY_SCREEN_AWAY",
+                  occurredAt: "2026-07-09T10:00:02.000Z"
                 }
               ],
               integritySummary: {
@@ -822,6 +841,10 @@ test("mock report generation applies nonverbal metadata as auxiliary practice si
                 multipleFacesCount: 1,
                 facePositionShiftCount: 0,
                 gazeAwayCount: 1,
+                voiceMouthMismatchCount: 1,
+                voiceWithoutFaceCount: 1,
+                staticVideoFrameCount: 1,
+                earlyScreenAwayCount: 1,
                 suspicionLevel: "HIGH"
               }
             }

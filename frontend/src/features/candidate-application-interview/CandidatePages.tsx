@@ -158,6 +158,17 @@ const NONVERBAL_FACE_EDGE_MARGIN_RATIO = 0.08;
 const NONVERBAL_FACE_MIN_AREA_RATIO = 0.04;
 const NONVERBAL_FACE_SHIFT_RATIO = 0.22;
 const NONVERBAL_GAZE_AWAY_THRESHOLD = 0.22;
+const NONVERBAL_AUDIO_SPEAKING_LEVEL = 6;
+const NONVERBAL_AUDIO_SPEAKING_RATIO_THRESHOLD = 0.35;
+const NONVERBAL_MOUTH_OPEN_RATIO_THRESHOLD = 0.06;
+const NONVERBAL_MOUTH_MOVEMENT_DELTA_THRESHOLD = 0.015;
+const NONVERBAL_MOUTH_SYNC_MISMATCH_GRACE_MS = 2500;
+const NONVERBAL_VOICE_WITHOUT_FACE_GRACE_MS = 2500;
+const NONVERBAL_EARLY_SCREEN_AWAY_WINDOW_MS = 10000;
+const NONVERBAL_STATIC_FRAME_SAMPLE_WIDTH = 32;
+const NONVERBAL_STATIC_FRAME_SAMPLE_HEIGHT = 18;
+const NONVERBAL_STATIC_FRAME_DIFF_THRESHOLD = 2.5;
+const NONVERBAL_STATIC_FRAME_GRACE_MS = 5000;
 const RUNTIME_INTEGRITY_WARNING_DURATION_MS = 5000;
 const RUNTIME_INTEGRITY_WARNING_REPEAT_COOLDOWN_MS = 3500;
 const MEDIAPIPE_TASKS_VISION_VERSION = "0.10.35";
@@ -192,7 +203,11 @@ type InterviewIntegrityEventType =
   | "FACE_OUT_OF_FRAME"
   | "MULTIPLE_FACES"
   | "FACE_POSITION_SHIFT"
-  | "GAZE_AWAY";
+  | "GAZE_AWAY"
+  | "VOICE_MOUTH_MISMATCH"
+  | "VOICE_WITHOUT_FACE"
+  | "STATIC_VIDEO_FRAME"
+  | "EARLY_SCREEN_AWAY";
 type InterviewIntegritySuspicionLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH";
 type InterviewIntegrityEvent = {
   type: InterviewIntegrityEventType;
@@ -229,10 +244,20 @@ type InterviewIntegritySummary = {
   multipleFacesCount: number;
   facePositionShiftCount: number;
   gazeAwayCount: number;
+  voiceMouthMismatchCount: number;
+  voiceWithoutFaceCount: number;
+  staticVideoFrameCount: number;
+  earlyScreenAwayCount: number;
   faceDetectionSupported: boolean;
   faceDetectionFrameCount: number;
   gazeDetectionSupported: boolean;
   gazeDetectionFrameCount: number;
+  mouthSyncSupported: boolean;
+  mouthSyncFrameCount: number;
+  mouthSyncMismatchFrameCount: number;
+  videoFrameMotionSupported: boolean;
+  videoFrameSampleCount: number;
+  staticVideoFrameSampleCount: number;
   totalAwayDurationMs: number;
   maxAwayDurationMs: number;
   suspicionLevel: InterviewIntegritySuspicionLevel;
@@ -252,6 +277,7 @@ type InterviewAnswerNonverbalMetadata = {
 };
 type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   questionId: number;
+  recordingStartedAtMs: number;
   silenceStartedAtMs?: number;
   silenceSegmentCounted: boolean;
   tabHiddenStartedAtMs?: number;
@@ -262,12 +288,29 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   multipleFacesStartedAtMs?: number;
   facePositionShiftStartedAtMs?: number;
   gazeAwayStartedAtMs?: number;
+  voiceMouthMismatchStartedAtMs?: number;
+  voiceMouthMismatchCandidateStartedAtMs?: number;
+  voiceWithoutFaceStartedAtMs?: number;
+  voiceWithoutFaceCandidateStartedAtMs?: number;
+  staticVideoFrameStartedAtMs?: number;
+  staticVideoFrameCandidateStartedAtMs?: number;
+  earlyScreenAwayRecorded: boolean;
   lastGazeDirection?: GazeDirection;
   faceBaseline?: FaceBoxSnapshot;
+  lastVideoFrameSample?: number[];
   faceDetectionSupported: boolean;
   faceDetectionFrameCount: number;
   gazeDetectionSupported: boolean;
   gazeDetectionFrameCount: number;
+  mouthSyncSupported: boolean;
+  mouthSyncFrameCount: number;
+  mouthSyncMismatchFrameCount: number;
+  videoFrameMotionSupported: boolean;
+  videoFrameSampleCount: number;
+  staticVideoFrameSampleCount: number;
+  lastMouthOpenRatio?: number;
+  audioFramesSinceLastMouthSample: number;
+  speakingAudioFramesSinceLastMouthSample: number;
   totalAwayDurationMs: number;
   maxAwayDurationMs: number;
   integrityEvents: InterviewIntegrityEvent[];
@@ -3650,6 +3693,14 @@ function InterviewRuntimePanel({
           "화면 밖";
         return `시선이 ${directionLabel}으로 오래 벗어난 신호가 감지되었습니다.`;
       }
+      case "VOICE_MOUTH_MISMATCH":
+        return "음성은 감지되지만 화면 속 입 움직임이 거의 없는 신호가 감지되었습니다.";
+      case "VOICE_WITHOUT_FACE":
+        return "얼굴이 감지되지 않는 상태에서 음성 입력이 지속되는 신호가 감지되었습니다.";
+      case "STATIC_VIDEO_FRAME":
+        return "답변 중 영상 변화가 거의 없는 구간이 감지되었습니다.";
+      case "EARLY_SCREEN_AWAY":
+        return "질문 직후 면접 화면을 벗어난 신호가 감지되었습니다.";
       default:
         return "응시 무결성 확인이 필요한 신호가 감지되었습니다.";
     }
@@ -3705,6 +3756,9 @@ function InterviewRuntimePanel({
       | "MULTIPLE_FACES"
       | "FACE_POSITION_SHIFT"
       | "GAZE_AWAY"
+      | "VOICE_MOUTH_MISMATCH"
+      | "VOICE_WITHOUT_FACE"
+      | "STATIC_VIDEO_FRAME"
     >,
     startedAtMs: number | undefined,
     nowMs = Date.now(),
@@ -3837,6 +3891,98 @@ function InterviewRuntimePanel({
     };
   }
 
+  function landmarkDistance(left: NormalizedLandmark, right: NormalizedLandmark): number {
+    return Math.hypot(left.x - right.x, left.y - right.y);
+  }
+
+  function estimateMouthOpenRatio(landmarks: NormalizedLandmark[]): number | undefined {
+    const upperLip = landmarks[13];
+    const lowerLip = landmarks[14];
+    const leftCorner = landmarks[61];
+    const rightCorner = landmarks[291];
+    if (!upperLip || !lowerLip || !leftCorner || !rightCorner) return undefined;
+
+    const mouthWidth = landmarkDistance(leftCorner, rightCorner);
+    if (mouthWidth <= 0) return undefined;
+    return landmarkDistance(upperLip, lowerLip) / mouthWidth;
+  }
+
+  function recentAudioSpeakingRatio(tracker: RecordingNonverbalTracker): number {
+    return tracker.audioFramesSinceLastMouthSample > 0
+      ? tracker.speakingAudioFramesSinceLastMouthSample / tracker.audioFramesSinceLastMouthSample
+      : 0;
+  }
+
+  function resetRecentAudioSpeechWindow(tracker: RecordingNonverbalTracker) {
+    tracker.audioFramesSinceLastMouthSample = 0;
+    tracker.speakingAudioFramesSinceLastMouthSample = 0;
+  }
+
+  function registerEarlyScreenAwaySignal(tracker: RecordingNonverbalTracker) {
+    if (tracker.earlyScreenAwayRecorded) return;
+
+    const nowMs = Date.now();
+    if (nowMs - tracker.recordingStartedAtMs > NONVERBAL_EARLY_SCREEN_AWAY_WINDOW_MS) return;
+
+    tracker.earlyScreenAwayRecorded = true;
+    tracker.integrityEvents.push({
+      type: "EARLY_SCREEN_AWAY",
+      occurredAt: new Date(nowMs).toISOString(),
+    });
+    showRuntimeIntegrityWarning("EARLY_SCREEN_AWAY");
+  }
+
+  function registerVoiceWithoutFaceSample(tracker: RecordingNonverbalTracker, faceMissing: boolean) {
+    const nowMs = Date.now();
+    const audioSpeaking = recentAudioSpeakingRatio(tracker) >= NONVERBAL_AUDIO_SPEAKING_RATIO_THRESHOLD;
+    if (faceMissing && audioSpeaking) {
+      tracker.voiceWithoutFaceCandidateStartedAtMs ??= nowMs;
+    } else {
+      tracker.voiceWithoutFaceCandidateStartedAtMs = undefined;
+    }
+
+    const mismatchActive =
+      tracker.voiceWithoutFaceCandidateStartedAtMs !== undefined &&
+      nowMs - tracker.voiceWithoutFaceCandidateStartedAtMs >= NONVERBAL_VOICE_WITHOUT_FACE_GRACE_MS;
+    updateTimedFaceSignal(tracker, "voiceWithoutFaceStartedAtMs", "VOICE_WITHOUT_FACE", mismatchActive);
+  }
+
+  function sampleStaticVideoFrame(tracker: RecordingNonverbalTracker, video: HTMLVideoElement) {
+    const canvas = getNonverbalFaceCanvas();
+    canvas.width = NONVERBAL_STATIC_FRAME_SAMPLE_WIDTH;
+    canvas.height = NONVERBAL_STATIC_FRAME_SAMPLE_HEIGHT;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) return;
+
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const currentSample: number[] = [];
+    for (let index = 0; index < imageData.length; index += 4) {
+      currentSample.push(Math.round((imageData[index] + imageData[index + 1] + imageData[index + 2]) / 3));
+    }
+
+    tracker.videoFrameMotionSupported = true;
+    tracker.videoFrameSampleCount += 1;
+
+    const previousSample = tracker.lastVideoFrameSample;
+    tracker.lastVideoFrameSample = currentSample;
+    if (!previousSample || previousSample.length !== currentSample.length) return;
+
+    const averageDiff = currentSample.reduce((sum, value, index) => sum + Math.abs(value - previousSample[index]), 0) / currentSample.length;
+    const nowMs = Date.now();
+    if (averageDiff <= NONVERBAL_STATIC_FRAME_DIFF_THRESHOLD) {
+      tracker.staticVideoFrameSampleCount += 1;
+      tracker.staticVideoFrameCandidateStartedAtMs ??= nowMs;
+    } else {
+      tracker.staticVideoFrameCandidateStartedAtMs = undefined;
+    }
+
+    const staticFrameActive =
+      tracker.staticVideoFrameCandidateStartedAtMs !== undefined &&
+      nowMs - tracker.staticVideoFrameCandidateStartedAtMs >= NONVERBAL_STATIC_FRAME_GRACE_MS;
+    updateTimedFaceSignal(tracker, "staticVideoFrameStartedAtMs", "STATIC_VIDEO_FRAME", staticFrameActive);
+  }
+
   function estimateGazeAwayDirection(landmarks: NormalizedLandmark[]): GazeDirection | undefined {
     if (landmarks.length < 478) return undefined;
 
@@ -3885,8 +4031,21 @@ function InterviewRuntimePanel({
       | "faceOutOfFrameStartedAtMs"
       | "multipleFacesStartedAtMs"
       | "facePositionShiftStartedAtMs"
-      | "gazeAwayStartedAtMs",
-    type: Extract<InterviewIntegrityEventType, "FACE_MISSING" | "FACE_OUT_OF_FRAME" | "MULTIPLE_FACES" | "FACE_POSITION_SHIFT" | "GAZE_AWAY">,
+      | "gazeAwayStartedAtMs"
+      | "voiceMouthMismatchStartedAtMs"
+      | "voiceWithoutFaceStartedAtMs"
+      | "staticVideoFrameStartedAtMs",
+    type: Extract<
+      InterviewIntegrityEventType,
+      | "FACE_MISSING"
+      | "FACE_OUT_OF_FRAME"
+      | "MULTIPLE_FACES"
+      | "FACE_POSITION_SHIFT"
+      | "GAZE_AWAY"
+      | "VOICE_MOUTH_MISMATCH"
+      | "VOICE_WITHOUT_FACE"
+      | "STATIC_VIDEO_FRAME"
+    >,
     active: boolean,
     options: { direction?: GazeDirection } = {},
   ) {
@@ -3901,6 +4060,39 @@ function InterviewRuntimePanel({
     tracker[key] = undefined;
   }
 
+  function registerVoiceMouthSyncSample(tracker: RecordingNonverbalTracker, landmarks: NormalizedLandmark[]) {
+    const mouthOpenRatio = estimateMouthOpenRatio(landmarks);
+    if (mouthOpenRatio === undefined) return;
+
+    tracker.mouthSyncSupported = true;
+    tracker.mouthSyncFrameCount += 1;
+
+    const previousMouthOpenRatio = tracker.lastMouthOpenRatio;
+    const speakingRatio = recentAudioSpeakingRatio(tracker);
+    const audioSpeaking = speakingRatio >= NONVERBAL_AUDIO_SPEAKING_RATIO_THRESHOLD;
+    const mouthMoving = previousMouthOpenRatio === undefined
+      ? true
+      : mouthOpenRatio >= NONVERBAL_MOUTH_OPEN_RATIO_THRESHOLD ||
+        Math.abs(mouthOpenRatio - previousMouthOpenRatio) >= NONVERBAL_MOUTH_MOVEMENT_DELTA_THRESHOLD;
+
+    const nowMs = Date.now();
+    const mismatchCandidate = previousMouthOpenRatio !== undefined && audioSpeaking && !mouthMoving;
+    if (mismatchCandidate) {
+      tracker.mouthSyncMismatchFrameCount += 1;
+      tracker.voiceMouthMismatchCandidateStartedAtMs ??= nowMs;
+    } else {
+      tracker.voiceMouthMismatchCandidateStartedAtMs = undefined;
+    }
+
+    const mismatchActive =
+      tracker.voiceMouthMismatchCandidateStartedAtMs !== undefined &&
+      nowMs - tracker.voiceMouthMismatchCandidateStartedAtMs >= NONVERBAL_MOUTH_SYNC_MISMATCH_GRACE_MS;
+    updateTimedFaceSignal(tracker, "voiceMouthMismatchStartedAtMs", "VOICE_MOUTH_MISMATCH", mismatchActive);
+
+    tracker.lastMouthOpenRatio = mouthOpenRatio;
+    resetRecentAudioSpeechWindow(tracker);
+  }
+
   async function sampleFaceIntegrity(tracker: RecordingNonverbalTracker, questionId: number) {
     if (nonverbalFaceDetectionPendingRef.current) return;
 
@@ -3909,6 +4101,11 @@ function InterviewRuntimePanel({
 
     nonverbalFaceDetectionPendingRef.current = true;
     try {
+      const activeTracker = recordingNonverbalTrackerRef.current;
+      if (activeTracker && activeTracker === tracker && activeTracker.questionId === questionId) {
+        sampleStaticVideoFrame(activeTracker, video);
+      }
+
       const landmarker = await getMediaPipeFaceLandmarker();
       if (landmarker) {
         tracker.faceDetectionSupported = true;
@@ -3928,6 +4125,15 @@ function InterviewRuntimePanel({
 
         const gazeDirection = primaryLandmarks ? estimateGazeAwayDirection(primaryLandmarks) : undefined;
         if (gazeDirection) current.lastGazeDirection = gazeDirection;
+        registerVoiceWithoutFaceSample(current, faces.length === 0);
+        if (primaryLandmarks) {
+          registerVoiceMouthSyncSample(current, primaryLandmarks);
+        } else {
+          updateTimedFaceSignal(current, "voiceMouthMismatchStartedAtMs", "VOICE_MOUTH_MISMATCH", false);
+          current.voiceMouthMismatchCandidateStartedAtMs = undefined;
+          current.lastMouthOpenRatio = undefined;
+          resetRecentAudioSpeechWindow(current);
+        }
 
         updateTimedFaceSignal(current, "faceMissingStartedAtMs", "FACE_MISSING", faces.length === 0);
         updateTimedFaceSignal(current, "multipleFacesStartedAtMs", "MULTIPLE_FACES", faces.length > 1);
@@ -3966,6 +4172,8 @@ function InterviewRuntimePanel({
       if (snapshot && !current.faceBaseline && !isFaceOutOfFrame(snapshot)) {
         current.faceBaseline = snapshot;
       }
+      registerVoiceWithoutFaceSample(current, faces.length === 0);
+      resetRecentAudioSpeechWindow(current);
 
       updateTimedFaceSignal(current, "faceMissingStartedAtMs", "FACE_MISSING", faces.length === 0);
       updateTimedFaceSignal(current, "multipleFacesStartedAtMs", "MULTIPLE_FACES", faces.length > 1);
@@ -3999,6 +4207,7 @@ function InterviewRuntimePanel({
       if (document.visibilityState === "hidden") {
         if (tracker.tabHiddenStartedAtMs === undefined) {
           tracker.tabHiddenStartedAtMs = Date.now();
+          registerEarlyScreenAwaySignal(tracker);
           showRuntimeIntegrityWarning("TAB_HIDDEN");
         }
         return;
@@ -4015,6 +4224,7 @@ function InterviewRuntimePanel({
       if (!tracker) return;
       if (tracker.windowBlurStartedAtMs === undefined) {
         tracker.windowBlurStartedAtMs = Date.now();
+        registerEarlyScreenAwaySignal(tracker);
         showRuntimeIntegrityWarning("WINDOW_BLUR");
       }
     };
@@ -4034,6 +4244,7 @@ function InterviewRuntimePanel({
     const tracker = currentTracker();
     if (document.visibilityState === "hidden" && tracker) {
       tracker.tabHiddenStartedAtMs = Date.now();
+      registerEarlyScreenAwaySignal(tracker);
       showRuntimeIntegrityWarning("TAB_HIDDEN");
     }
 
@@ -4051,6 +4262,7 @@ function InterviewRuntimePanel({
     stopNonverbalIntegrityListeners();
     const tracker: RecordingNonverbalTracker = {
       questionId,
+      recordingStartedAtMs: Date.now(),
       cameraWarnings: cameralessTestEntry ? 1 : 0,
       microphoneWarnings: 0,
       longSilenceCount: 0,
@@ -4065,6 +4277,15 @@ function InterviewRuntimePanel({
       faceDetectionFrameCount: 0,
       gazeDetectionSupported: false,
       gazeDetectionFrameCount: 0,
+      mouthSyncSupported: false,
+      mouthSyncFrameCount: 0,
+      mouthSyncMismatchFrameCount: 0,
+      videoFrameMotionSupported: false,
+      videoFrameSampleCount: 0,
+      staticVideoFrameSampleCount: 0,
+      audioFramesSinceLastMouthSample: 0,
+      speakingAudioFramesSinceLastMouthSample: 0,
+      earlyScreenAwayRecorded: false,
       totalAwayDurationMs: 0,
       maxAwayDurationMs: 0,
       integrityEvents: [],
@@ -4105,6 +4326,10 @@ function InterviewRuntimePanel({
 
     tracker.observedAudioFrameCount += 1;
     tracker.voicePeakLevel = Math.max(tracker.voicePeakLevel, level);
+    tracker.audioFramesSinceLastMouthSample += 1;
+    if (level >= NONVERBAL_AUDIO_SPEAKING_LEVEL) {
+      tracker.speakingAudioFramesSinceLastMouthSample += 1;
+    }
 
     if (level < MIN_INTERVIEW_RECORDING_VOICE_LEVEL) {
       tracker.lowAudioFrameCount += 1;
@@ -4143,6 +4368,9 @@ function InterviewRuntimePanel({
     closeTimedIntegrityEvent(tracker, "MULTIPLE_FACES", tracker.multipleFacesStartedAtMs, nowMs);
     closeTimedIntegrityEvent(tracker, "FACE_POSITION_SHIFT", tracker.facePositionShiftStartedAtMs, nowMs);
     closeTimedIntegrityEvent(tracker, "GAZE_AWAY", tracker.gazeAwayStartedAtMs, nowMs, { direction: tracker.lastGazeDirection });
+    closeTimedIntegrityEvent(tracker, "VOICE_MOUTH_MISMATCH", tracker.voiceMouthMismatchStartedAtMs, nowMs);
+    closeTimedIntegrityEvent(tracker, "VOICE_WITHOUT_FACE", tracker.voiceWithoutFaceStartedAtMs, nowMs);
+    closeTimedIntegrityEvent(tracker, "STATIC_VIDEO_FRAME", tracker.staticVideoFrameStartedAtMs, nowMs);
 
     const observedFrameCount = tracker.observedAudioFrameCount;
     const lowAudioRatio = observedFrameCount > 0 ? tracker.lowAudioFrameCount / observedFrameCount : 1;
@@ -4175,9 +4403,22 @@ function InterviewRuntimePanel({
     const multipleFacesCount = tracker.integrityEvents.filter((event) => event.type === "MULTIPLE_FACES").length;
     const facePositionShiftCount = tracker.integrityEvents.filter((event) => event.type === "FACE_POSITION_SHIFT").length;
     const gazeAwayCount = tracker.integrityEvents.filter((event) => event.type === "GAZE_AWAY").length;
+    const voiceMouthMismatchCount = tracker.integrityEvents.filter((event) => event.type === "VOICE_MOUTH_MISMATCH").length;
+    const voiceWithoutFaceCount = tracker.integrityEvents.filter((event) => event.type === "VOICE_WITHOUT_FACE").length;
+    const staticVideoFrameCount = tracker.integrityEvents.filter((event) => event.type === "STATIC_VIDEO_FRAME").length;
+    const earlyScreenAwayCount = tracker.integrityEvents.filter((event) => event.type === "EARLY_SCREEN_AWAY").length;
     const screenAwayCount = tabHiddenCount + windowBlurCount;
     const severeAwaySignal = tracker.maxAwayDurationMs >= 5000 || tracker.totalAwayDurationMs >= 10000;
-    const faceSignalCount = faceMissingCount + faceOutOfFrameCount + multipleFacesCount + facePositionShiftCount + gazeAwayCount;
+    const faceSignalCount =
+      faceMissingCount +
+      faceOutOfFrameCount +
+      multipleFacesCount +
+      facePositionShiftCount +
+      gazeAwayCount +
+      voiceMouthMismatchCount +
+      voiceWithoutFaceCount +
+      staticVideoFrameCount +
+      earlyScreenAwayCount;
     const integritySignalGroups = [
       screenAwayCount > 0,
       cameraLostCount > 0,
@@ -4185,7 +4426,15 @@ function InterviewRuntimePanel({
       tracker.testModeUsed,
     ].filter(Boolean).length;
     const suspicionLevel: InterviewIntegritySuspicionLevel =
-      integritySignalGroups >= 2 || tracker.totalAwayDurationMs >= 30000 || multipleFacesCount > 0 || facePositionShiftCount > 0 || gazeAwayCount > 0
+      integritySignalGroups >= 2 ||
+      tracker.totalAwayDurationMs >= 30000 ||
+      multipleFacesCount > 0 ||
+      facePositionShiftCount > 0 ||
+      gazeAwayCount > 0 ||
+      voiceMouthMismatchCount > 0 ||
+      voiceWithoutFaceCount > 0 ||
+      staticVideoFrameCount > 0 ||
+      earlyScreenAwayCount > 0
         ? "HIGH"
         : cameraLostCount > 0 || severeAwaySignal || faceMissingCount > 0 || faceOutOfFrameCount > 0
           ? "MEDIUM"
@@ -4203,10 +4452,20 @@ function InterviewRuntimePanel({
       multipleFacesCount,
       facePositionShiftCount,
       gazeAwayCount,
+      voiceMouthMismatchCount,
+      voiceWithoutFaceCount,
+      staticVideoFrameCount,
+      earlyScreenAwayCount,
       faceDetectionSupported: tracker.faceDetectionSupported,
       faceDetectionFrameCount: tracker.faceDetectionFrameCount,
       gazeDetectionSupported: tracker.gazeDetectionSupported,
       gazeDetectionFrameCount: tracker.gazeDetectionFrameCount,
+      mouthSyncSupported: tracker.mouthSyncSupported,
+      mouthSyncFrameCount: tracker.mouthSyncFrameCount,
+      mouthSyncMismatchFrameCount: tracker.mouthSyncMismatchFrameCount,
+      videoFrameMotionSupported: tracker.videoFrameMotionSupported,
+      videoFrameSampleCount: tracker.videoFrameSampleCount,
+      staticVideoFrameSampleCount: tracker.staticVideoFrameSampleCount,
       totalAwayDurationMs: Math.round(tracker.totalAwayDurationMs),
       maxAwayDurationMs: Math.round(tracker.maxAwayDurationMs),
       suspicionLevel,
@@ -6929,6 +7188,10 @@ type MockNonverbalSummary = {
   multipleFaceSignalAnswers: number;
   faceShiftSignalAnswers: number;
   gazeAwaySignalAnswers: number;
+  voiceMouthMismatchSignalAnswers: number;
+  voiceWithoutFaceSignalAnswers: number;
+  staticVideoFrameSignalAnswers: number;
+  earlyScreenAwaySignalAnswers: number;
 };
 
 function MockNonverbalSummaryPanel({ summary }: { summary: MockNonverbalSummary }) {
@@ -6956,6 +7219,10 @@ function MockNonverbalSummaryPanel({ summary }: { summary: MockNonverbalSummary 
         <Definition label="여러 얼굴" value={`${summary.multipleFaceSignalAnswers}`} />
         <Definition label="위치 급변" value={`${summary.faceShiftSignalAnswers}`} />
         <Definition label="시선 이탈" value={`${summary.gazeAwaySignalAnswers}`} />
+        <Definition label="음성-입모양" value={`${summary.voiceMouthMismatchSignalAnswers}`} />
+        <Definition label="음성-얼굴" value={`${summary.voiceWithoutFaceSignalAnswers}`} />
+        <Definition label="영상 고정" value={`${summary.staticVideoFrameSignalAnswers}`} />
+        <Definition label="초반 이탈" value={`${summary.earlyScreenAwaySignalAnswers}`} />
       </dl>
       <ul className="report-nonverbal-summary__guide">
         {guideItems.map((item) => (
@@ -6979,7 +7246,21 @@ function buildMockNonverbalSummary(items: CandidateMockReportMedia["media"]): Mo
     const multipleFaceSignal = readNonverbalMultipleFaceCount(metadata) > 0;
     const faceShiftSignal = readNonverbalFacePositionShiftCount(metadata) > 0;
     const gazeAwaySignal = readNonverbalGazeAwayCount(metadata) > 0;
-    const integritySignal = screenAwaySignal || cameraIntegritySignal || faceAwaySignal || multipleFaceSignal || faceShiftSignal || gazeAwaySignal;
+    const voiceMouthMismatchSignal = readNonverbalVoiceMouthMismatchCount(metadata) > 0;
+    const voiceWithoutFaceSignal = readNonverbalVoiceWithoutFaceCount(metadata) > 0;
+    const staticVideoFrameSignal = readNonverbalStaticVideoFrameCount(metadata) > 0;
+    const earlyScreenAwaySignal = readNonverbalEarlyScreenAwayCount(metadata) > 0;
+    const integritySignal =
+      screenAwaySignal ||
+      cameraIntegritySignal ||
+      faceAwaySignal ||
+      multipleFaceSignal ||
+      faceShiftSignal ||
+      gazeAwaySignal ||
+      voiceMouthMismatchSignal ||
+      voiceWithoutFaceSignal ||
+      staticVideoFrameSignal ||
+      earlyScreenAwaySignal;
 
     if (integritySignal) summary.integritySignalAnswers += 1;
     if (screenAwaySignal) summary.screenAwaySignalAnswers += 1;
@@ -6988,6 +7269,10 @@ function buildMockNonverbalSummary(items: CandidateMockReportMedia["media"]): Mo
     if (multipleFaceSignal) summary.multipleFaceSignalAnswers += 1;
     if (faceShiftSignal) summary.faceShiftSignalAnswers += 1;
     if (gazeAwaySignal) summary.gazeAwaySignalAnswers += 1;
+    if (voiceMouthMismatchSignal) summary.voiceMouthMismatchSignalAnswers += 1;
+    if (voiceWithoutFaceSignal) summary.voiceWithoutFaceSignalAnswers += 1;
+    if (staticVideoFrameSignal) summary.staticVideoFrameSignalAnswers += 1;
+    if (earlyScreenAwaySignal) summary.earlyScreenAwaySignalAnswers += 1;
     if (!integritySignal) {
       summary.stableAnswerCount += 1;
     }
@@ -7004,6 +7289,10 @@ function buildMockNonverbalSummary(items: CandidateMockReportMedia["media"]): Mo
     multipleFaceSignalAnswers: 0,
     faceShiftSignalAnswers: 0,
     gazeAwaySignalAnswers: 0,
+    voiceMouthMismatchSignalAnswers: 0,
+    voiceWithoutFaceSignalAnswers: 0,
+    staticVideoFrameSignalAnswers: 0,
+    earlyScreenAwaySignalAnswers: 0,
   });
 }
 
@@ -7030,6 +7319,18 @@ function buildMockNonverbalSummaryGuide(summary: MockNonverbalSummary): string[]
   }
   if (summary.gazeAwaySignalAnswers > 0) {
     items.push(`${summary.gazeAwaySignalAnswers}개 답변에서 시선이 화면 밖으로 오래 벗어난 신호가 감지되었습니다.`);
+  }
+  if (summary.voiceMouthMismatchSignalAnswers > 0) {
+    items.push(`${summary.voiceMouthMismatchSignalAnswers}개 답변에서 음성은 감지됐지만 화면 속 입 움직임이 거의 없는 구간이 기록되었습니다.`);
+  }
+  if (summary.voiceWithoutFaceSignalAnswers > 0) {
+    items.push(`${summary.voiceWithoutFaceSignalAnswers}개 답변에서 얼굴이 감지되지 않는 상태로 음성 입력이 지속된 구간이 기록되었습니다.`);
+  }
+  if (summary.staticVideoFrameSignalAnswers > 0) {
+    items.push(`${summary.staticVideoFrameSignalAnswers}개 답변에서 영상 변화가 거의 없는 구간이 기록되었습니다.`);
+  }
+  if (summary.earlyScreenAwaySignalAnswers > 0) {
+    items.push(`${summary.earlyScreenAwaySignalAnswers}개 답변에서 질문 직후 면접 화면을 벗어난 신호가 기록되었습니다.`);
   }
 
   return items;
@@ -7064,6 +7365,10 @@ function buildMockNonverbalFeedbackItems(metadata?: Record<string, unknown>): st
   const multipleFaceCount = readNonverbalMultipleFaceCount(metadata);
   const faceShiftCount = readNonverbalFacePositionShiftCount(metadata);
   const gazeAwayCount = readNonverbalGazeAwayCount(metadata);
+  const voiceMouthMismatchCount = readNonverbalVoiceMouthMismatchCount(metadata);
+  const voiceWithoutFaceCount = readNonverbalVoiceWithoutFaceCount(metadata);
+  const staticVideoFrameCount = readNonverbalStaticVideoFrameCount(metadata);
+  const earlyScreenAwayCount = readNonverbalEarlyScreenAwayCount(metadata);
   const suspicionLevel = readNonverbalIntegritySuspicionLevel(metadata);
   const testModeUsed = readNonverbalTestModeUsed(metadata);
   const items: string[] = [];
@@ -7085,6 +7390,18 @@ function buildMockNonverbalFeedbackItems(metadata?: Record<string, unknown>): st
   }
   if (gazeAwayCount > 0) {
     items.push("시선이 화면 밖으로 오래 벗어난 구간이 감지되었습니다. 다른 모니터, 휴대폰, 메모를 참고하는 행동으로 오해받을 수 있습니다.");
+  }
+  if (voiceMouthMismatchCount > 0) {
+    items.push("음성은 감지됐지만 화면 속 입 움직임이 거의 없는 구간이 있었습니다. 실제 면접에서는 녹음 재생이나 외부 음성으로 오해받지 않도록 카메라를 정면에 두고 본인이 직접 말하는 모습이 보이게 해주세요.");
+  }
+  if (voiceWithoutFaceCount > 0) {
+    items.push("얼굴이 감지되지 않는 상태에서 음성 입력이 지속된 구간이 있었습니다. 실제 면접에서는 카메라 안에 얼굴이 안정적으로 보이는 상태에서 답변해 주세요.");
+  }
+  if (staticVideoFrameCount > 0) {
+    items.push("답변 중 영상 변화가 거의 없는 구간이 있었습니다. 카메라가 멈춘 화면이나 가려진 화면처럼 보이지 않도록 조명과 카메라 상태를 확인해 주세요.");
+  }
+  if (earlyScreenAwayCount > 0) {
+    items.push("질문 직후 면접 화면을 벗어난 신호가 있었습니다. 실제 면접에서는 질문 확인 후 바로 면접 화면 안에서 답변을 준비하는 편이 좋습니다.");
   }
   if (suspicionLevel === "HIGH") {
     items.push("여러 응시 무결성 신호가 겹쳐 감지되었습니다. 실제 면접에서는 화면 이탈과 외부 자료 참고로 오해받을 수 있는 행동을 피하는 것이 좋습니다.");
@@ -7170,6 +7487,30 @@ function readNonverbalGazeAwayCount(metadata: Record<string, unknown>): number {
   const summary = readNonverbalIntegritySummary(metadata);
   const summaryCount = summary ? readNonverbalNumber(summary, "gazeAwayCount") : 0;
   return summaryCount || readNonverbalEventCount(metadata, ["GAZE_AWAY"]);
+}
+
+function readNonverbalVoiceMouthMismatchCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "voiceMouthMismatchCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["VOICE_MOUTH_MISMATCH"]);
+}
+
+function readNonverbalVoiceWithoutFaceCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "voiceWithoutFaceCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["VOICE_WITHOUT_FACE"]);
+}
+
+function readNonverbalStaticVideoFrameCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "staticVideoFrameCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["STATIC_VIDEO_FRAME"]);
+}
+
+function readNonverbalEarlyScreenAwayCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "earlyScreenAwayCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["EARLY_SCREEN_AWAY"]);
 }
 
 function readNonverbalIntegritySuspicionLevel(metadata: Record<string, unknown>): InterviewIntegritySuspicionLevel {
