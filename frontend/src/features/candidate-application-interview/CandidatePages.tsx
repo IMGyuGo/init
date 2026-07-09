@@ -158,6 +158,8 @@ const NONVERBAL_FACE_EDGE_MARGIN_RATIO = 0.08;
 const NONVERBAL_FACE_MIN_AREA_RATIO = 0.04;
 const NONVERBAL_FACE_SHIFT_RATIO = 0.22;
 const NONVERBAL_GAZE_AWAY_THRESHOLD = 0.22;
+const RUNTIME_INTEGRITY_WARNING_DURATION_MS = 5000;
+const RUNTIME_INTEGRITY_WARNING_REPEAT_COOLDOWN_MS = 3500;
 const MEDIAPIPE_TASKS_VISION_VERSION = "0.10.35";
 const MEDIAPIPE_TASKS_VISION_WASM_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_TASKS_VISION_VERSION}/wasm`;
 const MEDIAPIPE_FACE_LANDMARKER_MODEL_URL =
@@ -197,6 +199,11 @@ type InterviewIntegrityEvent = {
   occurredAt: string;
   durationMs?: number;
   direction?: GazeDirection;
+};
+type RuntimeIntegrityWarning = {
+  type: InterviewIntegrityEventType;
+  message: string;
+  occurredAt: string;
 };
 type BrowserDetectedFace = {
   boundingBox: DOMRectReadOnly;
@@ -2297,6 +2304,7 @@ function InterviewRuntimePanel({
   const [retryAnswerId, setRetryAnswerId] = useState<number>();
   const [retryingQuestionId, setRetryingQuestionId] = useState<number>();
   const [message, setMessage] = useState("");
+  const [integrityWarning, setIntegrityWarning] = useState<RuntimeIntegrityWarning | null>(null);
   const [busy, setBusy] = useState(false);
   const [lastAnswer, setLastAnswer] = useState<LastSavedAnswer>();
   const [autoAiPipeline, setAutoAiPipeline] = useState<AutoAiPipelineState>();
@@ -2379,6 +2387,8 @@ function InterviewRuntimePanel({
   const nonverbalFaceLandmarkerRef = useRef<MediaPipeFaceLandmarker | null | undefined>(undefined);
   const nonverbalFaceLandmarkerPromiseRef = useRef<Promise<MediaPipeFaceLandmarker | null> | null>(null);
   const nonverbalFaceDetectionPendingRef = useRef(false);
+  const integrityWarningTimeoutRef = useRef<number | null>(null);
+  const integrityWarningLastShownAtRef = useRef<Map<InterviewIntegrityEventType, number>>(new Map());
   const lastInvalidRecordingMetadataRef = useRef<Map<number, InterviewAnswerNonverbalMetadata>>(new Map());
   const answerToNextQuestionPerfRef = useRef<{
     startedAt: number;
@@ -3143,6 +3153,10 @@ function InterviewRuntimePanel({
       stopNonverbalCameraMonitor();
       stopNonverbalIntegrityListeners();
       recordingNonverbalTrackerRef.current = null;
+      if (integrityWarningTimeoutRef.current !== null) {
+        window.clearTimeout(integrityWarningTimeoutRef.current);
+        integrityWarningTimeoutRef.current = null;
+      }
       stopMicrophoneMeter();
       stopMediaStream(streamRef.current);
     };
@@ -3612,6 +3626,58 @@ function InterviewRuntimePanel({
     nonverbalIntegrityCleanupRef.current = null;
   }
 
+  function formatRuntimeIntegrityWarning(type: InterviewIntegrityEventType, direction?: GazeDirection): string {
+    switch (type) {
+      case "TAB_HIDDEN":
+      case "WINDOW_BLUR":
+        return "면접 화면을 벗어난 신호가 감지되었습니다.";
+      case "CAMERA_LOST":
+        return "카메라 연결이 끊기거나 비활성화된 신호가 감지되었습니다.";
+      case "FACE_MISSING":
+        return "얼굴이 화면에서 감지되지 않습니다.";
+      case "FACE_OUT_OF_FRAME":
+        return "얼굴이 화면 밖이나 가장자리로 벗어난 신호가 감지되었습니다.";
+      case "MULTIPLE_FACES":
+        return "여러 얼굴이 감지되었습니다.";
+      case "FACE_POSITION_SHIFT":
+        return "얼굴 위치가 기준 위치와 크게 달라졌습니다.";
+      case "GAZE_AWAY": {
+        const directionLabel =
+          direction === "LEFT" ? "왼쪽" :
+          direction === "RIGHT" ? "오른쪽" :
+          direction === "UP" ? "위쪽" :
+          direction === "DOWN" ? "아래쪽" :
+          "화면 밖";
+        return `시선이 ${directionLabel}으로 오래 벗어난 신호가 감지되었습니다.`;
+      }
+      default:
+        return "응시 무결성 확인이 필요한 신호가 감지되었습니다.";
+    }
+  }
+
+  function showRuntimeIntegrityWarning(type: InterviewIntegrityEventType, options: { direction?: GazeDirection } = {}) {
+    if (mode !== "mock" || typeof window === "undefined") return;
+
+    const nowMs = Date.now();
+    const lastShownAtMs = integrityWarningLastShownAtRef.current.get(type) ?? 0;
+    if (nowMs - lastShownAtMs < RUNTIME_INTEGRITY_WARNING_REPEAT_COOLDOWN_MS) return;
+
+    integrityWarningLastShownAtRef.current.set(type, nowMs);
+    setIntegrityWarning({
+      type,
+      message: formatRuntimeIntegrityWarning(type, options.direction),
+      occurredAt: new Date(nowMs).toISOString(),
+    });
+
+    if (integrityWarningTimeoutRef.current !== null) {
+      window.clearTimeout(integrityWarningTimeoutRef.current);
+    }
+    integrityWarningTimeoutRef.current = window.setTimeout(() => {
+      setIntegrityWarning(null);
+      integrityWarningTimeoutRef.current = null;
+    }, RUNTIME_INTEGRITY_WARNING_DURATION_MS);
+  }
+
   function recordIntegrityEvent(
     type: InterviewIntegrityEventType,
     options: { durationMs?: number; occurredAtMs?: number; direction?: GazeDirection } = {},
@@ -3825,7 +3891,10 @@ function InterviewRuntimePanel({
     options: { direction?: GazeDirection } = {},
   ) {
     if (active) {
-      tracker[key] ??= Date.now();
+      if (tracker[key] === undefined) {
+        tracker[key] = Date.now();
+        showRuntimeIntegrityWarning(type, options);
+      }
       return;
     }
     closeTimedIntegrityEvent(tracker, type, tracker[key], Date.now(), options);
@@ -3928,21 +3997,33 @@ function InterviewRuntimePanel({
       if (!tracker) return;
 
       if (document.visibilityState === "hidden") {
-        tracker.tabHiddenStartedAtMs ??= Date.now();
+        if (tracker.tabHiddenStartedAtMs === undefined) {
+          tracker.tabHiddenStartedAtMs = Date.now();
+          showRuntimeIntegrityWarning("TAB_HIDDEN");
+        }
         return;
       }
 
+      if (tracker.tabHiddenStartedAtMs !== undefined) {
+        showRuntimeIntegrityWarning("TAB_HIDDEN");
+      }
       closeTimedIntegrityEvent(tracker, "TAB_HIDDEN", tracker.tabHiddenStartedAtMs);
       tracker.tabHiddenStartedAtMs = undefined;
     };
     const handleBlur = () => {
       const tracker = currentTracker();
       if (!tracker) return;
-      tracker.windowBlurStartedAtMs ??= Date.now();
+      if (tracker.windowBlurStartedAtMs === undefined) {
+        tracker.windowBlurStartedAtMs = Date.now();
+        showRuntimeIntegrityWarning("WINDOW_BLUR");
+      }
     };
     const handleFocus = () => {
       const tracker = currentTracker();
       if (!tracker) return;
+      if (tracker.windowBlurStartedAtMs !== undefined) {
+        showRuntimeIntegrityWarning("WINDOW_BLUR");
+      }
       closeTimedIntegrityEvent(tracker, "WINDOW_BLUR", tracker.windowBlurStartedAtMs);
       tracker.windowBlurStartedAtMs = undefined;
     };
@@ -3953,6 +4034,7 @@ function InterviewRuntimePanel({
     const tracker = currentTracker();
     if (document.visibilityState === "hidden" && tracker) {
       tracker.tabHiddenStartedAtMs = Date.now();
+      showRuntimeIntegrityWarning("TAB_HIDDEN");
     }
 
     nonverbalIntegrityCleanupRef.current = () => {
@@ -4001,7 +4083,10 @@ function InterviewRuntimePanel({
       if (!cameraLive) {
         current.cameraWarnings += 1;
         current.cameraDisconnectedCount += 1;
-        current.cameraLostStartedAtMs ??= Date.now();
+        if (current.cameraLostStartedAtMs === undefined) {
+          current.cameraLostStartedAtMs = Date.now();
+          showRuntimeIntegrityWarning("CAMERA_LOST");
+        }
         return;
       }
 
@@ -6104,6 +6189,13 @@ function InterviewRuntimePanel({
                   </span>
                 ))}
               </div>
+
+              {integrityWarning ? (
+                <div className="runtime-integrity-warning" role="status" aria-live="polite">
+                  <strong>응시 무결성 확인</strong>
+                  <span>{integrityWarning.message}</span>
+                </div>
+              ) : null}
 
               {showInterviewerPanel ? (
                 <div
