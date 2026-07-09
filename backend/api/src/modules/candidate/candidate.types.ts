@@ -68,6 +68,13 @@ export interface CandidateJob {
   employmentType: string;
   techStacks: string[];
   postingStatus: PostingStatus;
+  // 필터용 구조화 필드(공고 생성 시 선택). null 이면 미분류(필터 미대상).
+  jobRoleCode: string | null;
+  regionCode: string | null;
+  careerMinYears: number | null;
+  careerMaxYears: number | null;
+  employmentTypeCode: string | null;
+  recruitmentType: string | null;
   startsOn: string;
   endsOn: string;
   createdAt: string;

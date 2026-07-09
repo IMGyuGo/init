@@ -69,9 +69,13 @@ interface NormalizedCandidateJobListQuery {
   limit: number;
   q?: string;
   jobRole?: string;
+  jobRoles?: string[];
   jobGroup?: string;
   location?: string;
   careerLevel?: string;
+  careerMinYears?: number;
+  careerMaxYears?: number;
+  recruitmentType?: string;
   postingStatus?: CandidateListPostingStatus;
   sort: CandidateListSortField;
   order: CandidateListSortOrder;
@@ -887,13 +891,31 @@ export class CandidateService {
       limit,
       q: this.toOptionalQueryString(requestBody.q),
       jobRole: this.toOptionalQueryString(requestBody.jobRole),
+      jobRoles: this.toOptionalStringArray(requestBody.jobRoles),
       jobGroup: this.toOptionalQueryString(requestBody.jobGroup),
       location: this.toOptionalQueryString(requestBody.location),
       careerLevel: this.toOptionalQueryString(requestBody.careerLevel),
+      careerMinYears: this.toOptionalIntQueryValue(requestBody.careerMinYears),
+      careerMaxYears: this.toOptionalIntQueryValue(requestBody.careerMaxYears),
+      recruitmentType: this.toOptionalQueryString(requestBody.recruitmentType as string | null | undefined),
       postingStatus: requestBody.postingStatus ?? undefined,
       sort,
       order,
     };
+  }
+
+  private toOptionalStringArray(value: unknown): string[] | undefined {
+    if (value === undefined) return undefined;
+    const list = (Array.isArray(value) ? value : [value]).filter(
+      (item): item is string => typeof item === "string" && item.trim() !== "",
+    );
+    return list.length ? list : undefined;
+  }
+
+  private toOptionalIntQueryValue(value: unknown): number | undefined {
+    if (value === undefined || value === "" || value === null) return undefined;
+    const parsed = typeof value === "number" ? value : Number(value);
+    return Number.isInteger(parsed) ? parsed : undefined;
   }
 
   private matchesListQuery(job: CandidateJob, query: NormalizedCandidateJobListQuery): boolean {
@@ -917,12 +939,38 @@ export class CandidateService {
     }
 
     return (
+      this.matchesJobRoles(job, query) &&
       this.matchesOptional(job.jobRole, query.jobRole) &&
       this.matchesOptional(job.jobGroup, query.jobGroup) &&
-      this.matchesOptional(job.location, query.location) &&
-      this.matchesOptional(job.careerLevel, query.careerLevel) &&
+      this.matchesRegion(job, query) &&
+      this.matchesCareerRange(job, query) &&
+      this.matchesOptional(job.recruitmentType ?? "", query.recruitmentType) &&
       (!query.postingStatus || job.postingStatus === query.postingStatus)
     );
+  }
+
+  // 직무 다중(any-of): 선택된 코드 중 하나라도 일치하면 통과. 공고에 코드가 없으면 제외.
+  private matchesJobRoles(job: CandidateJob, query: NormalizedCandidateJobListQuery): boolean {
+    if (!query.jobRoles || query.jobRoles.length === 0) return true;
+    if (!job.jobRoleCode) return false;
+    return query.jobRoles.includes(job.jobRoleCode);
+  }
+
+  private matchesRegion(job: CandidateJob, query: NormalizedCandidateJobListQuery): boolean {
+    if (!query.location) return true;
+    if (!job.regionCode) return false;
+    return job.regionCode === query.location;
+  }
+
+  // 경력 range 겹침: [공고 min,max] 과 [필터 min,max] 이 겹치면 통과. 공고에 경력 정보가 없으면 제외.
+  private matchesCareerRange(job: CandidateJob, query: NormalizedCandidateJobListQuery): boolean {
+    if (query.careerMinYears === undefined && query.careerMaxYears === undefined) return true;
+    if (job.careerMinYears === null && job.careerMaxYears === null) return false;
+    const filterMin = query.careerMinYears ?? 0;
+    const filterMax = query.careerMaxYears ?? Number.MAX_SAFE_INTEGER;
+    const jobMin = job.careerMinYears ?? 0;
+    const jobMax = job.careerMaxYears ?? Number.MAX_SAFE_INTEGER;
+    return jobMin <= filterMax && jobMax >= filterMin;
   }
 
   private matchesOptional(value: string, queryValue?: string): boolean {

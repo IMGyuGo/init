@@ -8014,3 +8014,68 @@ p {
 .notion .candidate-jobs-page-num:hover { border-color: rgba(55, 53, 47, 0.3); color: #191919; }
 .notion .candidate-jobs-page-btn:disabled { opacity: 0.4; cursor: default; }
 .notion .candidate-jobs-page-num.is-active { color: #fff; background: #3b6fe0; border-color: #3b6fe0; }
+
+/* 지원자 공고 필터: 추천 태그 + 경력 슬라이더 + 다중선택 */
+.notion .candidate-jobs-rec { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+.notion .candidate-jobs-rec-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 180px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #37352f;
+  padding: 8px 14px;
+  background: #f1f2f4;
+  border-radius: 999px;
+}
+.notion .candidate-jobs-rec-icon { display: inline-flex; flex: none; color: #3b6fe0; }
+.notion .candidate-jobs-rec-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.notion .candidate-filter-career { display: grid; gap: 20px; padding-top: 6px; }
+.notion .candidate-filter-anycheck { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #37352f; cursor: pointer; }
+.notion .candidate-filter-anycheck input { width: 16px; height: 16px; accent-color: #3b6fe0; }
+
+.notion .career-slider { display: grid; gap: 14px; }
+.notion .career-slider.is-disabled { opacity: 0.5; }
+.notion .career-slider-value { text-align: center; font-size: 17px; font-weight: 700; color: #3b6fe0; }
+.notion .career-slider-track { position: relative; height: 24px; }
+.notion .career-slider-rail { position: absolute; top: 50%; left: 0; right: 0; height: 6px; transform: translateY(-50%); background: #ececeb; border-radius: 999px; }
+.notion .career-slider-fill { position: absolute; top: 50%; height: 6px; transform: translateY(-50%); background: #3b6fe0; border-radius: 999px; }
+.notion .career-slider-track input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 24px;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: none;
+}
+.notion .career-slider-track input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: #fff;
+  border: 2px solid #3b6fe0;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.notion .career-slider-track input::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: #fff;
+  border: 2px solid #3b6fe0;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.notion .career-slider-ends { display: flex; justify-content: space-between; font-size: 12.5px; color: rgba(55, 53, 47, 0.55); }
+
+.notion .posting-filter-note { font-weight: 400; font-size: 12px; color: rgba(55, 53, 47, 0.5); }

@@ -36,18 +36,11 @@ const SORT_OPTIONS: { value: NonNullable<CandidateJobQuery["sort"]>; label: stri
 
 
 
-type FilterKey = "jobRole" | "careerLevel" | "location";
+type FilterCatKey = "jobRole" | "career" | "location" | "recruitment";
 
 interface FilterOption {
   value: string;
   label: string;
-}
-
-interface FilterCategory {
-  key: FilterKey;
-  label: string;
-  hint: string;
-  options: FilterOption[];
 }
 
 // 개발자 전용 사이트 → 직무는 IT·개발 하위만 노출. value 는 백엔드 jobRole 값과 맞춰야 함(D 영역 정렬 필요).
@@ -69,40 +62,133 @@ const IT_DEV_ROLES: FilterOption[] = [
   "기타 IT·개발",
 ].map((value) => ({ value, label: value }));
 
-const FILTER_CATEGORIES: FilterCategory[] = [
-  { key: "jobRole", label: "직무", hint: "IT·개발 직무 중 하나를 선택하세요", options: IT_DEV_ROLES },
-  {
-    key: "careerLevel",
-    label: "경력",
-    hint: "경력 수준을 선택하세요",
-    options: [
-      { value: "신입", label: "신입" },
-      { value: "주니어", label: "주니어 · 1~3년" },
-      { value: "미들", label: "미들 · 4~7년" },
-      { value: "시니어", label: "시니어 · 8년+" },
-    ],
-  },
-  {
-    key: "location",
-    label: "지역",
-    hint: "근무 지역을 선택하세요",
-    options: [
-      { value: "Seoul", label: "서울" },
-      { value: "Pangyo", label: "판교" },
-      { value: "Gyeonggi", label: "경기" },
-      { value: "Remote", label: "원격" },
-    ],
-  },
+// 지역 19종. value 는 표시 라벨과 동일한 한글(백엔드 location 값과 정렬 필요, D 협의).
+const LOCATION_OPTIONS: FilterOption[] = [
+  "서울",
+  "경기",
+  "인천",
+  "부산",
+  "대구",
+  "광주",
+  "대전",
+  "울산",
+  "세종",
+  "강원",
+  "경남",
+  "경북",
+  "전남",
+  "전북",
+  "충남",
+  "충북",
+  "제주",
+  "해외",
+].map((value) => ({ value, label: value }));
+
+const RECRUITMENT_OPTIONS: FilterOption[] = [
+  { value: "상시", label: "상시 채용" },
+  { value: "마감형", label: "마감형 채용" },
 ];
 
-function filterOptionLabel(key: FilterKey, value: string): string {
-  const category = FILTER_CATEGORIES.find((item) => item.key === key);
-  return category?.options.find((option) => option.value === value)?.label ?? value;
+// 필터 옆 발견형 추천 태그(하드코딩·시각용, 동작 없음). ※ PR 미반영 데모.
+type RecTagIcon = "rocket" | "badge" | "home" | "star" | "bolt" | "cap";
+const RECOMMENDED_TAGS: { icon: RecTagIcon; label: string }[] = [
+  { icon: "rocket", label: "네카라쿠배 공채만" },
+  { icon: "badge", label: "2026 공채" },
+  { icon: "home", label: "재택 가능" },
+  { icon: "star", label: "성장기 스타트업" },
+  { icon: "bolt", label: "적극 채용 중" },
+  { icon: "cap", label: "신입 환영" },
+];
+
+function RecTagIcon({ name }: { name: RecTagIcon }) {
+  const common = {
+    width: 15,
+    height: 15,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+  switch (name) {
+    case "rocket":
+      return (
+        <svg {...common}>
+          <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
+          <path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+        </svg>
+      );
+    case "badge":
+      return (
+        <svg {...common}>
+          <path d="m12 2 2.4 1.8 3-.3 1 2.8 2.6 1.5-1 2.9 1 2.9-2.6 1.5-1 2.8-3-.3L12 22l-2.4-1.8-3 .3-1-2.8L3 15.4l1-2.9-1-2.9 2.6-1.5 1-2.8 3 .3z" />
+          <path d="m9 12 2 2 4-4" />
+        </svg>
+      );
+    case "home":
+      return (
+        <svg {...common}>
+          <path d="m3 10 9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />
+        </svg>
+      );
+    case "star":
+      return (
+        <svg {...common} fill="currentColor" stroke="none">
+          <path d="M12 3.5l2.5 5.3 5.5.6-4.1 3.8 1.1 5.4L12 15.9 7 18.6l1.1-5.4L4 9.4l5.5-.6z" />
+        </svg>
+      );
+    case "bolt":
+      return (
+        <svg {...common} fill="currentColor" stroke="none">
+          <path d="M13 2 4 13h6l-1 9 10-12h-7z" />
+        </svg>
+      );
+    case "cap":
+      return (
+        <svg {...common}>
+          <path d="m22 10-10-5L2 10l10 5 10-5z" />
+          <path d="M6 12v5c0 1 3 2 6 2s6-1 6-2v-5" />
+        </svg>
+      );
+  }
 }
 
-type FilterDraft = Record<FilterKey, string>;
-const EMPTY_DRAFT: FilterDraft = { jobRole: "", careerLevel: "", location: "" };
-const FILTER_KEYS: FilterKey[] = ["jobRole", "careerLevel", "location"];
+const FILTER_CATS: { key: FilterCatKey; label: string; hint: string }[] = [
+  { key: "jobRole", label: "직무", hint: "관심 직무를 여러 개 선택할 수 있어요" },
+  { key: "career", label: "경력", hint: "경력 범위를 지정하거나 무관을 선택하세요" },
+  { key: "location", label: "지역", hint: "근무 지역을 선택하세요" },
+  { key: "recruitment", label: "채용 형태", hint: "상시/마감형 채용을 선택하세요" },
+];
+
+// 경력 슬라이더: 0 = 신입 … CAREER_MAX = 상한(+)
+const CAREER_MAX = 10;
+function careerRangeLabel(min: number, max: number): string {
+  if (min <= 0 && max >= CAREER_MAX) return "전체";
+  if (min <= 0 && max === 0) return "신입";
+  const maxText = max >= CAREER_MAX ? `${CAREER_MAX}년 이상` : `${max}년`;
+  if (min <= 0) return `신입~${maxText}`;
+  if (min === max) return `${min}년`;
+  return `${min}~${maxText}`;
+}
+
+interface FilterDraft {
+  jobRoles: string[];
+  careerAny: boolean;
+  careerMin: number;
+  careerMax: number;
+  location: string;
+  recruitment: string;
+}
+const EMPTY_DRAFT: FilterDraft = {
+  jobRoles: [],
+  careerAny: true,
+  careerMin: 0,
+  careerMax: CAREER_MAX,
+  location: "",
+  recruitment: "",
+};
 
 // 이 앱에서는 CSS scroll-behavior:smooth 가 취소되므로 rAF 로 직접 부드럽게 스크롤한다.
 const CANDIDATE_HEADER_OFFSET = 64;
@@ -139,7 +225,7 @@ function candidateJobDday(endsOn: string): string | null {
 
 export function CandidateJobsView({ jobs, query, totalItems, pageMeta, onQueryChange }: CandidateJobsViewProps) {
   const [filterOpen, setFilterOpen] = useState(false);
-  const [activeCat, setActiveCat] = useState<FilterKey>("jobRole");
+  const [activeCat, setActiveCat] = useState<FilterCatKey>("jobRole");
   const [draft, setDraft] = useState<FilterDraft>(EMPTY_DRAFT);
   const popularGridRef = useRef<HTMLDivElement>(null);
   const quickGridRef = useRef<HTMLDivElement>(null);
@@ -219,16 +305,29 @@ export function CandidateJobsView({ jobs, query, totalItems, pageMeta, onQueryCh
   }
 
   function openFilter() {
+    const hasCareer = query.careerMinYears != null || query.careerMaxYears != null;
     setDraft({
-      jobRole: query.jobRole ?? "",
-      careerLevel: query.careerLevel ?? "",
+      jobRoles: query.jobRoles ?? (query.jobRole ? [query.jobRole] : []),
+      careerAny: !hasCareer,
+      careerMin: query.careerMinYears ?? 0,
+      careerMax: query.careerMaxYears ?? CAREER_MAX,
       location: query.location ?? "",
+      recruitment: query.recruitmentType ?? "",
     });
     setActiveCat("jobRole");
     setFilterOpen(true);
   }
 
-  function toggleDraft(key: FilterKey, value: string) {
+  function toggleDraftJobRole(value: string) {
+    setDraft((prev) => ({
+      ...prev,
+      jobRoles: prev.jobRoles.includes(value)
+        ? prev.jobRoles.filter((item) => item !== value)
+        : [...prev.jobRoles, value],
+    }));
+  }
+
+  function setDraftSingle(key: "location" | "recruitment", value: string) {
     setDraft((prev) => ({ ...prev, [key]: prev[key] === value ? "" : value }));
   }
 
@@ -236,22 +335,47 @@ export function CandidateJobsView({ jobs, query, totalItems, pageMeta, onQueryCh
     onQueryChange({
       ...query,
       page: 1,
-      jobRole: draft.jobRole || undefined,
-      careerLevel: draft.careerLevel || undefined,
+      jobRole: undefined,
+      jobRoles: draft.jobRoles.length ? draft.jobRoles : undefined,
+      careerMinYears: draft.careerAny ? undefined : draft.careerMin,
+      careerMaxYears: draft.careerAny ? undefined : draft.careerMax,
       location: draft.location || undefined,
+      recruitmentType: (draft.recruitment as CandidateJobQuery["recruitmentType"]) || undefined,
     });
     setFilterOpen(false);
   }
 
-  function clearFilter(key: FilterKey) {
-    patch({ [key]: undefined } as Partial<CandidateJobQuery>);
+  // 툴바에 노출할 적용된 필터 칩(각각 개별 해제 가능).
+  const activeFilterChips: { id: string; label: string; onClear: () => void }[] = [];
+  const appliedRoles = query.jobRoles ?? (query.jobRole ? [query.jobRole] : []);
+  appliedRoles.forEach((role) => {
+    activeFilterChips.push({
+      id: `role-${role}`,
+      label: role,
+      onClear: () => patch({ jobRole: undefined, jobRoles: appliedRoles.filter((item) => item !== role) }),
+    });
+  });
+  if (query.careerMinYears != null || query.careerMaxYears != null) {
+    activeFilterChips.push({
+      id: "career",
+      label: careerRangeLabel(query.careerMinYears ?? 0, query.careerMaxYears ?? CAREER_MAX),
+      onClear: () => patch({ careerMinYears: undefined, careerMaxYears: undefined }),
+    });
+  }
+  if (query.location) {
+    activeFilterChips.push({ id: "location", label: query.location, onClear: () => patch({ location: undefined }) });
+  }
+  if (query.recruitmentType) {
+    activeFilterChips.push({
+      id: "recruitment",
+      label: query.recruitmentType === "상시" ? "상시 채용" : "마감형 채용",
+      onClear: () => patch({ recruitmentType: undefined }),
+    });
   }
 
-  const activeFilters = FILTER_KEYS.map((key) => ({ key, value: (query[key] as string | undefined) ?? "" })).filter(
-    (item) => item.value,
-  );
-  const draftCount = FILTER_KEYS.filter((key) => draft[key]).length;
-  const activeCatMeta = FILTER_CATEGORIES.find((item) => item.key === activeCat);
+  const draftCount =
+    draft.jobRoles.length + (draft.careerAny ? 0 : 1) + (draft.location ? 1 : 0) + (draft.recruitment ? 1 : 0);
+  const activeCatMeta = FILTER_CATS.find((item) => item.key === activeCat);
 
   function scrollToJobs() {
     const el = document.getElementById("candidate-jobs-all");
@@ -431,12 +555,24 @@ export function CandidateJobsView({ jobs, query, totalItems, pageMeta, onQueryCh
                   <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
                 </svg>
                 필터
-                {activeFilters.length ? <em className="candidate-jobs-filter-count">{activeFilters.length}</em> : null}
+                {activeFilterChips.length ? <em className="candidate-jobs-filter-count">{activeFilterChips.length}</em> : null}
               </button>
+              {activeFilterChips.length === 0 ? (
+                <div className="candidate-jobs-rec" aria-label="추천 태그">
+                  {RECOMMENDED_TAGS.map((tag) => (
+                    <span key={tag.label} className="candidate-jobs-rec-tag">
+                      <span className="candidate-jobs-rec-icon" aria-hidden="true">
+                        <RecTagIcon name={tag.icon} />
+                      </span>
+                      <span className="candidate-jobs-rec-label">{tag.label}</span>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               <div className="candidate-jobs-active">
-                {activeFilters.map((item) => (
-                  <button key={item.key} type="button" className="candidate-jobs-chip" onClick={() => clearFilter(item.key)}>
-                    {filterOptionLabel(item.key, item.value)}
+                {activeFilterChips.map((chip) => (
+                  <button key={chip.id} type="button" className="candidate-jobs-chip" onClick={chip.onClear}>
+                    {chip.label}
                     <span aria-hidden="true">✕</span>
                   </button>
                 ))}
@@ -484,38 +620,100 @@ export function CandidateJobsView({ jobs, query, totalItems, pageMeta, onQueryCh
             </header>
             <div className="candidate-filter-body">
               <nav className="candidate-filter-cats" aria-label="필터 카테고리">
-                {FILTER_CATEGORIES.map((category) => (
-                  <button
-                    key={category.key}
-                    type="button"
-                    className={`candidate-filter-cat${activeCat === category.key ? " is-active" : ""}`}
-                    onClick={() => setActiveCat(category.key)}
-                  >
-                    {category.label}
-                    {draft[category.key] ? <em className="candidate-filter-cat-dot" aria-hidden="true" /> : null}
-                  </button>
-                ))}
+                {FILTER_CATS.map((category) => {
+                  const hasValue =
+                    category.key === "jobRole"
+                      ? draft.jobRoles.length > 0
+                      : category.key === "career"
+                        ? !draft.careerAny
+                        : category.key === "location"
+                          ? Boolean(draft.location)
+                          : Boolean(draft.recruitment);
+                  return (
+                    <button
+                      key={category.key}
+                      type="button"
+                      className={`candidate-filter-cat${activeCat === category.key ? " is-active" : ""}`}
+                      onClick={() => setActiveCat(category.key)}
+                    >
+                      {category.label}
+                      {hasValue ? <em className="candidate-filter-cat-dot" aria-hidden="true" /> : null}
+                    </button>
+                  );
+                })}
               </nav>
               <div className="candidate-filter-options">
                 {activeCatMeta ? (
-                  <>
-                    <div className="candidate-filter-options-head">
-                      <strong>{activeCatMeta.label}</strong>
-                      <span>{activeCatMeta.hint}</span>
-                    </div>
-                    <div className="candidate-filter-chips">
-                      {activeCatMeta.options.map((option) => (
-                        <button
-                          key={option.value}
-                          type="button"
-                          className={`candidate-filter-chip${draft[activeCat] === option.value ? " is-selected" : ""}`}
-                          onClick={() => toggleDraft(activeCat, option.value)}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  </>
+                  <div className="candidate-filter-options-head">
+                    <strong>{activeCatMeta.label}</strong>
+                    <span>{activeCatMeta.hint}</span>
+                  </div>
+                ) : null}
+
+                {activeCat === "jobRole" ? (
+                  <div className="candidate-filter-chips">
+                    {IT_DEV_ROLES.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={`candidate-filter-chip${draft.jobRoles.includes(option.value) ? " is-selected" : ""}`}
+                        onClick={() => toggleDraftJobRole(option.value)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                {activeCat === "career" ? (
+                  <div className="candidate-filter-career">
+                    <CareerRangeSlider
+                      min={draft.careerMin}
+                      max={draft.careerMax}
+                      disabled={draft.careerAny}
+                      onChange={(nextMin, nextMax) =>
+                        setDraft((prev) => ({ ...prev, careerMin: nextMin, careerMax: nextMax }))
+                      }
+                    />
+                    <label className="candidate-filter-anycheck">
+                      <input
+                        type="checkbox"
+                        checked={draft.careerAny}
+                        onChange={(event) => setDraft((prev) => ({ ...prev, careerAny: event.currentTarget.checked }))}
+                      />
+                      경력 무관
+                    </label>
+                  </div>
+                ) : null}
+
+                {activeCat === "location" ? (
+                  <div className="candidate-filter-chips">
+                    {LOCATION_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={`candidate-filter-chip${draft.location === option.value ? " is-selected" : ""}`}
+                        onClick={() => setDraftSingle("location", option.value)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                {activeCat === "recruitment" ? (
+                  <div className="candidate-filter-chips">
+                    {RECRUITMENT_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={`candidate-filter-chip${draft.recruitment === option.value ? " is-selected" : ""}`}
+                        onClick={() => setDraftSingle("recruitment", option.value)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
                 ) : null}
               </div>
             </div>
@@ -531,6 +729,53 @@ export function CandidateJobsView({ jobs, query, totalItems, pageMeta, onQueryCh
         </div>
       ) : null}
     </section>
+  );
+}
+
+function CareerRangeSlider({
+  min,
+  max,
+  disabled,
+  onChange,
+}: {
+  min: number;
+  max: number;
+  disabled: boolean;
+  onChange: (min: number, max: number) => void;
+}) {
+  const pct = (value: number) => (value / CAREER_MAX) * 100;
+  return (
+    <div className={`career-slider${disabled ? " is-disabled" : ""}`}>
+      <div className="career-slider-value">{disabled ? "경력 무관" : careerRangeLabel(min, max)}</div>
+      <div className="career-slider-track">
+        <span className="career-slider-rail" aria-hidden="true" />
+        <span className="career-slider-fill" style={{ left: `${pct(min)}%`, right: `${100 - pct(max)}%` }} aria-hidden="true" />
+        <input
+          type="range"
+          min={0}
+          max={CAREER_MAX}
+          step={1}
+          value={min}
+          disabled={disabled}
+          aria-label="최소 경력"
+          onChange={(event) => onChange(Math.min(Number(event.currentTarget.value), max), max)}
+        />
+        <input
+          type="range"
+          min={0}
+          max={CAREER_MAX}
+          step={1}
+          value={max}
+          disabled={disabled}
+          aria-label="최대 경력"
+          onChange={(event) => onChange(min, Math.max(Number(event.currentTarget.value), min))}
+        />
+      </div>
+      <div className="career-slider-ends">
+        <span>신입</span>
+        <span>{CAREER_MAX}년+</span>
+      </div>
+    </div>
   );
 }
 
