@@ -1,7 +1,6 @@
 import { CompanyPostingsPage } from "./CompanyPostingsPage";
 import { ApplicantEvaluationPage } from "./ApplicantEvaluationPage";
 import { RecruitmentCreatePage } from "./RecruitmentCreatePage";
-import { RecruitmentApplicantsPage } from "./RecruitmentApplicantsPage";
 import { RecruitmentInterviewSettingsBridgePage } from "./RecruitmentInterviewSettingsBridgePage";
 import { RecruitmentSettingsPage } from "./RecruitmentSettingsPage";
 import { buildInterviewSettingsHref } from "./routes";
@@ -12,7 +11,6 @@ const companyRecruitingEntryRoutes = {
   recruitmentDashboard: "/company/recruitments/:recruitmentId",
   recruitmentSettings: "/company/recruitments/:recruitmentId/settings",
   recruitmentInterviewSettings: "/company/recruitments/:recruitmentId/interview-settings",
-  recruitmentApplicants: "/company/recruitments/:recruitmentId/applicants",
   applicantEvaluation: "/company/applicants/:applicantId/evaluation",
 } as const satisfies {
   dashboard: "/company/applications/dashboard";
@@ -20,7 +18,6 @@ const companyRecruitingEntryRoutes = {
   recruitmentDashboard: "/company/recruitments/:recruitmentId";
   recruitmentSettings: "/company/recruitments/:recruitmentId/settings";
   recruitmentInterviewSettings: "/company/recruitments/:recruitmentId/interview-settings";
-  recruitmentApplicants: "/company/recruitments/:recruitmentId/applicants";
   applicantEvaluation: "/company/applicants/:applicantId/evaluation";
 };
 
@@ -30,7 +27,6 @@ void CompanyPostingsPage;
 void RecruitmentCreatePage;
 void RecruitmentInterviewSettingsBridgePage;
 void RecruitmentSettingsPage;
-void RecruitmentApplicantsPage;
 void ApplicantEvaluationPage;
 void interviewSettingsHref;
 void companyRecruitingEntryRoutes;

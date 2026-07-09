@@ -7,7 +7,7 @@ import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } fr
 
 import { listRecruitmentApplicants, listRecruitments } from "./api";
 import { StatusBadge } from "./CompanyRecruitingChrome";
-import { formatRecruitmentPaginationSummary, getRecruitmentPaginationPages } from "./recruitment-list-pagination";
+import { getRecruitmentPaginationPages } from "./recruitment-list-pagination";
 import type { Recruitment, RecruitmentStatus } from "./types";
 import type { PageMeta } from "./types";
 import { getCompanyPostingActions } from "./company-posting-actions";
@@ -319,15 +319,15 @@ export function CompanyPostingsPage() {
 
           {pageMeta && pageMeta.totalItems > 0 ? (
             <div className="pagination" aria-label="공고 목록 페이지네이션">
-              <div className="pagination-summary">{formatRecruitmentPaginationSummary(pageMeta)}</div>
               <div className="pagination-actions">
                 <button
-                  className="btn secondary compact"
+                  className="page-button page-arrow"
                   type="button"
+                  aria-label="이전 페이지"
                   disabled={loading || pageMeta.page <= 1}
                   onClick={() => void loadRecruitments(q, statusFilter, { page: pageMeta.page - 1 })}
                 >
-                  이전
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5" /><path d="m12 19-7-7 7-7" /></svg>
                 </button>
                 {paginationPages.map((pageNumber) => (
                   <button
@@ -342,12 +342,13 @@ export function CompanyPostingsPage() {
                   </button>
                 ))}
                 <button
-                  className="btn secondary compact"
+                  className="page-button page-arrow"
                   type="button"
+                  aria-label="다음 페이지"
                   disabled={loading || !pageMeta.hasNext}
                   onClick={() => void loadRecruitments(q, statusFilter, { page: pageMeta.page + 1 })}
                 >
-                  다음
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
                 </button>
               </div>
             </div>

@@ -72,10 +72,6 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                         label: evaluation.recruitment.title,
                         href: `/company/recruitments/${evaluation.recruitment.recruitmentId}`,
                       },
-                      {
-                        label: "지원자 관리",
-                        href: `/company/recruitments/${evaluation.recruitment.recruitmentId}/applicants`,
-                      },
                     ]
                   : []),
                 { label: evaluation?.applicant.name ?? "평가 상세" },
@@ -85,8 +81,8 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
             {evaluation ? <p className="page-sub">{evaluation.applicant.email}</p> : null}
           </div>
           {evaluation ? (
-            <Link className="btn secondary" href={`/company/recruitments/${evaluation.recruitment.recruitmentId}/applicants`}>
-              지원자 목록
+            <Link className="btn secondary" href={`/company/recruitments/${evaluation.recruitment.recruitmentId}`}>
+              공고 대시보드
             </Link>
           ) : null}
         </div>

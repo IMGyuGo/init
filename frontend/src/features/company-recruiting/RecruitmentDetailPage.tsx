@@ -52,6 +52,15 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
   const [loading, setLoading] = useState(false);
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const actionMenuRef = useRef<HTMLDivElement>(null);
+  const [applicantPage, setApplicantPage] = useState(1);
+  const APPLICANTS_PAGE_SIZE = 10;
+  const totalApplicantPages = Math.max(1, Math.ceil(applicants.length / APPLICANTS_PAGE_SIZE));
+  const currentApplicantPage = Math.min(applicantPage, totalApplicantPages);
+  const pagedApplicants = applicants.slice(
+    (currentApplicantPage - 1) * APPLICANTS_PAGE_SIZE,
+    currentApplicantPage * APPLICANTS_PAGE_SIZE,
+  );
+  const applicantPageWindow = buildPageWindow(currentApplicantPage, totalApplicantPages, 5);
 
   useEffect(() => {
     if (!actionMenuOpen) return;
@@ -350,7 +359,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                       </tr>
                     </thead>
                     <tbody>
-                      {applicants.map((item) => {
+                      {pagedApplicants.map((item) => {
                         const decisionState = getScreeningAutosaveFieldState(autosaveState, item.applicationId, "decision");
                         const memoState = getScreeningAutosaveFieldState(autosaveState, item.applicationId, "memo");
 
@@ -422,6 +431,39 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                   </table>
                 </div>
               )}
+              {totalApplicantPages > 1 ? (
+                <nav className="applicant-pagination" aria-label="지원자 목록 페이지">
+                  <button
+                    type="button"
+                    className="applicant-page-btn"
+                    disabled={currentApplicantPage <= 1}
+                    aria-label="이전 페이지"
+                    onClick={() => setApplicantPage(currentApplicantPage - 1)}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5" /><path d="m12 19-7-7 7-7" /></svg>
+                  </button>
+                  {applicantPageWindow.map((pageNumber) => (
+                    <button
+                      key={pageNumber}
+                      type="button"
+                      className={`applicant-page-num${pageNumber === currentApplicantPage ? " is-active" : ""}`}
+                      aria-current={pageNumber === currentApplicantPage ? "page" : undefined}
+                      onClick={() => setApplicantPage(pageNumber)}
+                    >
+                      {pageNumber}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="applicant-page-btn"
+                    disabled={currentApplicantPage >= totalApplicantPages}
+                    aria-label="다음 페이지"
+                    onClick={() => setApplicantPage(currentApplicantPage + 1)}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
+                  </button>
+                </nav>
+              ) : null}
             </section>
 
           </>
@@ -458,6 +500,13 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
         ) : null}
     </section>
   );
+}
+
+function buildPageWindow(page: number, totalPages: number, windowSize: number): number[] {
+  let start = Math.max(1, page - Math.floor(windowSize / 2));
+  const end = Math.min(totalPages, start + windowSize - 1);
+  start = Math.max(1, end - windowSize + 1);
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
 }
 
 function openPromptDismissKey(recruitmentId: number) {

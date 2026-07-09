@@ -3246,12 +3246,14 @@ td input {
 .pagination {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   margin-top: 18px;
   padding-top: 14px;
   border-top: 1px solid var(--line-soft);
 }
+.page-button.page-arrow > svg { display: block; }
+.page-button:disabled { opacity: 0.4; cursor: default; }
 
 .pagination-summary {
   color: var(--ink-400);
@@ -3273,21 +3275,26 @@ td input {
   justify-content: center;
   min-width: 34px;
   height: 34px;
-  padding: 0 10px;
-  color: var(--ink-500);
-  background: #fff;
-  border: 1px solid var(--line-soft);
-  border-radius: 10px;
-  font-size: 13px;
-  font-weight: 800;
+  padding: 0 8px;
+  color: rgba(55, 53, 47, 0.55);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
 }
 
-.page-button:hover:not(:disabled),
+.page-button:hover:not(:disabled):not(.active) {
+  color: #191919;
+  background: rgba(55, 53, 47, 0.05);
+}
 .page-button.active {
-  color: var(--primary);
-  background: #f5f4ff;
-  border-color: rgba(101, 94, 255, 0.28);
+  color: #191919;
+  background: #fff;
+  border-color: rgba(55, 53, 47, 0.2);
+  font-weight: 600;
+  cursor: default;
 }
 
 .page-button:disabled {
@@ -4272,8 +4279,8 @@ td input {
 .glass-page.notion .modal { background: #fff; border: 1px solid rgba(55, 53, 47, 0.12); border-radius: 10px; }
 .glass-page.notion .modal-head h2 { color: #191919; }
 .glass-page.notion .confirm-box { background: #fbfbfa; border-color: rgba(55, 53, 47, 0.08); }
-.glass-page.notion .page-button { color: #37352f; background: #fff; border: 1px solid rgba(55, 53, 47, 0.14); border-radius: 6px; }
-.glass-page.notion .page-button.active { color: #fff; background: #191919; border-color: #191919; }
+.glass-page.notion .page-button { color: rgba(55, 53, 47, 0.55); background: transparent; border: 1px solid transparent; border-radius: 8px; }
+.glass-page.notion .page-button.active { color: #191919; background: #fff; border-color: rgba(55, 53, 47, 0.2); }
 
 /* 상태 뱃지 파스텔 */
 .glass-page.notion .badge { font-weight: 500; }
@@ -8071,27 +8078,33 @@ p {
 .notion .candidate-jobs-count-line strong { color: #3b6fe0; font-weight: 700; }
 
 /* 지원자 공고 목록: 페이지네이션 */
-.notion .candidate-jobs-pagination { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 12px; }
+.notion .candidate-jobs-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 12px; }
 .notion .candidate-jobs-page-btn,
 .notion .candidate-jobs-page-num {
   display: grid;
   place-items: center;
-  min-width: 34px;
-  height: 34px;
+  min-width: 36px;
+  height: 36px;
   padding: 0 8px;
-  font-size: 13.5px;
+  font-size: 15px;
   font-weight: 500;
-  color: rgba(55, 53, 47, 0.7);
-  background: #fff;
-  border: 1px solid rgba(55, 53, 47, 0.14);
-  border-radius: 8px;
+  color: rgba(55, 53, 47, 0.55);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
   cursor: pointer;
   transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
 .notion .candidate-jobs-page-btn:hover:not(:disabled),
-.notion .candidate-jobs-page-num:hover { border-color: rgba(55, 53, 47, 0.3); color: #191919; }
-.notion .candidate-jobs-page-btn:disabled { opacity: 0.4; cursor: default; }
-.notion .candidate-jobs-page-num.is-active { color: #fff; background: #3b6fe0; border-color: #3b6fe0; }
+.notion .candidate-jobs-page-num:hover:not(.is-active) { background: rgba(55, 53, 47, 0.05); color: #191919; }
+.notion .candidate-jobs-page-btn:disabled { opacity: 0.35; cursor: default; }
+.notion .candidate-jobs-page-num.is-active {
+  color: #191919;
+  background: #fff;
+  border-color: rgba(55, 53, 47, 0.22);
+  font-weight: 600;
+  cursor: default;
+}
 
 /* 지원자 공고 필터: 추천 태그 + 경력 슬라이더 + 다중선택 */
 .notion .candidate-jobs-rec { display: inline-flex; gap: 8px; flex-wrap: wrap; }
@@ -8280,3 +8293,26 @@ p {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+
+/* 공고 상세: 지원자 리스트 페이지네이션 */
+.notion .applicant-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 16px; }
+.notion .applicant-page-btn,
+.notion .applicant-page-num {
+  display: grid;
+  place-items: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(55, 53, 47, 0.55);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.notion .applicant-page-btn:hover:not(:disabled),
+.notion .applicant-page-num:hover:not(.is-active) { background: rgba(55, 53, 47, 0.05); color: #191919; }
+.notion .applicant-page-btn:disabled { opacity: 0.35; cursor: default; }
+.notion .applicant-page-num.is-active { color: #191919; background: #fff; border-color: rgba(55, 53, 47, 0.2); font-weight: 600; cursor: default; }
