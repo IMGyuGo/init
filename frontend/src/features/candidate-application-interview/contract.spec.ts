@@ -1138,6 +1138,7 @@ const candidateJobSummary: CandidateJobSummary = {
   location: "Seoul",
   careerLevel: "Junior",
   employmentType: "Full-time",
+  tags: ["Node.js", "NestJS"],
   postingStatus: "OPEN",
   startsOn: "2026-07-01",
   endsOn: "2026-07-31",

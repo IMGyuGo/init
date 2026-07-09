@@ -94,6 +94,7 @@ export interface CandidateJobSummary {
   location: string;
   careerLevel: string;
   employmentType: string;
+  tags: string[];
   postingStatus: PostingStatus;
   startsOn: string;
   endsOn: string;

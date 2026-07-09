@@ -1417,6 +1417,7 @@ export class CandidateService {
       location: job.location,
       careerLevel: job.careerLevel,
       employmentType: job.employmentType,
+      tags: job.techStacks,
       postingStatus: job.postingStatus,
       startsOn: job.startsOn,
       endsOn: job.endsOn,

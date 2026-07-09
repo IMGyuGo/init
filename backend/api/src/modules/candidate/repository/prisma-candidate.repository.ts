@@ -378,7 +378,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
       location: posting.regionCode ?? posting.workLocation ?? "협의",
       careerLevel: formatCareerLevel(posting.careerMinYears, posting.careerMaxYears),
       employmentType: posting.employmentTypeCode ?? posting.employmentType ?? "정규직",
-      techStacks: [],
+      techStacks: parseStructuredTags(posting.jobDescription),
       postingStatus: posting.status,
       jobRoleCode: posting.jobRoleCode,
       regionCode: posting.regionCode,
@@ -506,4 +506,25 @@ function formatCareerLevel(minYears: number | null, maxYears: number | null): st
   if (min <= 0) return `신입~${maxText}`;
   if (min === max) return `${min}년`;
   return `${min}~${maxText}`;
+}
+
+// 공고 JD(구조화 HTML)에 저장된 태그를 추출한다. 프론트 composeStructuredJobDescription 인코딩과 대응.
+function parseStructuredTags(jobDescription: string | null): string[] {
+  if (!jobDescription) return [];
+  const matches = jobDescription.matchAll(/data-init-structured-tag="([^"]*)"/gi);
+  const tags: string[] = [];
+  for (const match of matches) {
+    const value = decodeHtmlAttribute(match[1]).trim();
+    if (value && !tags.includes(value)) tags.push(value);
+  }
+  return tags;
+}
+
+function decodeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
 }

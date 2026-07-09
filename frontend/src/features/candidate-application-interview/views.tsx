@@ -384,7 +384,10 @@ export function CandidateJobsView({ jobs, query, totalItems, pageMeta, onQueryCh
 
   function renderJobCard(job: CandidateJobSummary) {
     const dday = candidateJobDday(job.endsOn);
-    const tags = Array.from(new Set([job.jobGroup, job.jobRole].filter(Boolean)));
+    const meta = [job.careerLevel, job.employmentType, displayLocation(job.location)].filter(Boolean);
+    // 공고에 등록된 태그가 있으면 태그를, 없으면 직무를 기본 태그로 노출한다.
+    const tags = job.tags.length ? job.tags : Array.from(new Set([job.jobRole, job.jobGroup].filter(Boolean)));
+    const recruitLabel = !job.endsOn ? "상시" : dday && dday !== "마감" ? dday : "마감";
     return (
       <a
         className="candidate-job-card"
@@ -392,15 +395,18 @@ export function CandidateJobsView({ jobs, query, totalItems, pageMeta, onQueryCh
         role="listitem"
         href={candidateApplicationInterviewRoutes.jobDetail(job.jobId)}
       >
-        <div className="candidate-job-card-top">
-          <span className="candidate-job-logo" aria-hidden="true">
+        <span className="candidate-job-card-bookmark" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z" />
+          </svg>
+        </span>
+        <div className="candidate-job-card-head">
+          <span className="candidate-job-card-logo" aria-hidden="true">
             <CompanyLogoMark companyLogoUrl={job.companyLogoUrl} fallbackLabel={companyLogoLabelFromName(job.companyName)} />
           </span>
-          <div className="candidate-job-card-companyinfo">
+          <div className="candidate-job-card-headinfo">
             <p className="candidate-job-card-company">{job.companyName}</p>
-            <p className="candidate-job-card-sub">
-              {[job.careerLevel, job.employmentType, displayLocation(job.location)].filter(Boolean).join(" · ")}
-            </p>
+            {meta.length ? <p className="candidate-job-card-meta">{meta.join(" · ")}</p> : null}
           </div>
         </div>
         <h3 className="candidate-job-card-title">{job.title}</h3>
@@ -411,11 +417,8 @@ export function CandidateJobsView({ jobs, query, totalItems, pageMeta, onQueryCh
             ))}
           </div>
         ) : null}
-        <p className="candidate-job-card-period">접수 {formatDateRangeCompact(job.startsOn, job.endsOn)}</p>
         <div className="candidate-job-card-foot">
-          <span className="candidate-job-card-foot-left">
-            {dday ? <span className={`candidate-job-dday${dday === "마감" ? " is-closed" : ""}`}>{dday}</span> : null}
-          </span>
+          <span className={`candidate-job-card-recruit${dday === "마감" ? " is-closed" : ""}`}>{recruitLabel}</span>
           <span className={`candidate-job-available${job.alreadyApplied ? " is-applied" : ""}`}>
             {job.alreadyApplied ? "지원 완료" : "지원 가능"}
           </span>
@@ -541,7 +544,7 @@ export function CandidateJobsView({ jobs, query, totalItems, pageMeta, onQueryCh
       <div id="candidate-jobs-all" className="candidate-jobs-all">
           <div className="page-banner candidate-jobs-listbanner">
             <video className="candidate-jobs-listbanner-video" autoPlay muted loop playsInline aria-hidden="true">
-              <source src="/jobs-banner-bg.mp4" type="video/mp4" />
+              <source src="/jobs-banner-bg-v2.mp4" type="video/mp4" />
             </video>
             <div className="page-banner-copy">
               <h1>공고 목록</h1>
