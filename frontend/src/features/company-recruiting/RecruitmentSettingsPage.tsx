@@ -8,6 +8,15 @@ import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState } fr
 import settingsBanner from "./assets/settings-banner.png";
 
 import { changeRecruitmentStatus, deleteRecruitment, getRecruitment, updateRecruitment, uploadJobDescriptionImage } from "./api";
+import {
+  POSTING_CAREER_MAX_YEARS,
+  POSTING_CAREER_YEAR_OPTIONS,
+  POSTING_EMPLOYMENT_TYPE_CODE_OPTIONS,
+  POSTING_JOB_ROLE_CODE_OPTIONS,
+  POSTING_RECRUITMENT_TYPE_OPTIONS,
+  POSTING_REGION_CODE_OPTIONS,
+  formatCareerRangeLabel,
+} from "./posting-filter-taxonomy";
 import { Breadcrumb } from "./CompanyRecruitingChrome";
 import { MiniRichTextEditor } from "./MiniRichTextEditor";
 import { JOB_DESCRIPTION_IMAGE_ACCEPT, validateJobDescriptionImageFile } from "./job-description-image-upload";
@@ -41,6 +50,12 @@ type FormState = {
   startsOn: string;
   endsOn: string;
   status: "DRAFT" | "OPEN";
+  jobRoleCode: string;
+  regionCode: string;
+  careerMinYears: number;
+  careerMaxYears: number;
+  employmentTypeCode: string;
+  recruitmentType: string;
   extraInfo: PostingExtraInfo;
   structuredJobDescription: StructuredJobDescription;
   fallbackJobDescription: string;
@@ -53,6 +68,12 @@ function createInitialForm(): FormState {
     startsOn: "",
     endsOn: "",
     status: "OPEN",
+    jobRoleCode: "",
+    regionCode: "",
+    careerMinYears: 0,
+    careerMaxYears: POSTING_CAREER_MAX_YEARS,
+    employmentTypeCode: "",
+    recruitmentType: "",
     extraInfo: createEmptyPostingExtraInfo(),
     structuredJobDescription: createEmptyStructuredJobDescription(),
     fallbackJobDescription: "",
@@ -93,6 +114,12 @@ export function RecruitmentSettingsPage({ recruitmentId }: { recruitmentId: numb
           startsOn: result.data.startsOn ?? "",
           endsOn: result.data.endsOn ?? "",
           status: result.data.status === "DRAFT" ? "DRAFT" : "OPEN",
+          jobRoleCode: result.data.jobRoleCode ?? "",
+          regionCode: result.data.regionCode ?? "",
+          careerMinYears: result.data.careerMinYears ?? 0,
+          careerMaxYears: result.data.careerMaxYears ?? POSTING_CAREER_MAX_YEARS,
+          employmentTypeCode: result.data.employmentTypeCode ?? "",
+          recruitmentType: result.data.recruitmentType ?? "",
           extraInfo,
           structuredJobDescription: {
             ...structuredJobDescription,
@@ -129,6 +156,12 @@ export function RecruitmentSettingsPage({ recruitmentId }: { recruitmentId: numb
         status: form.status,
         jobDescription: jobDescription || undefined,
         ...extraInfoFields,
+        jobRoleCode: form.jobRoleCode || undefined,
+        regionCode: form.regionCode || undefined,
+        careerMinYears: form.careerMinYears,
+        careerMaxYears: form.careerMaxYears,
+        employmentTypeCode: form.employmentTypeCode || undefined,
+        recruitmentType: (form.recruitmentType || undefined) as "상시" | "마감형" | undefined,
       });
       router.push(`/company/recruitments/${recruitmentId}`);
     } catch (error) {
@@ -162,16 +195,28 @@ export function RecruitmentSettingsPage({ recruitmentId }: { recruitmentId: numb
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  function updateExtraInfo(key: PostingExtraInfoKey, value: string) {
+  // 직무 select 하나로 표시용 jobRole 과 필터용 jobRoleCode 를 함께 설정한다.
+  function updateJobRoleSelection(code: string) {
+    setForm((current) => ({ ...current, jobRoleCode: code, jobRole: code }));
+  }
+
+  // 지역·근무형태 select 는 필터 코드와 JD 표시용 extraInfo 를 함께 갱신한다.
+  function updateStructuredWithExtraInfo(field: "regionCode" | "employmentTypeCode", extraKey: PostingExtraInfoKey, value: string) {
     setForm((current) => ({
       ...current,
-      extraInfo: {
-        ...current.extraInfo,
-        [key]: {
-          enabled: Boolean(value.trim()),
-          value,
-        },
-      },
+      [field]: value,
+      extraInfo: { ...current.extraInfo, [extraKey]: { enabled: Boolean(value), value } },
+    }));
+  }
+
+  // 경력 min/max select 는 필터값과 JD 표시용 경력 라벨을 함께 갱신한다.
+  function updateCareerRange(nextMin: number, nextMax: number) {
+    const label = formatCareerRangeLabel(nextMin, nextMax);
+    setForm((current) => ({
+      ...current,
+      careerMinYears: nextMin,
+      careerMaxYears: nextMax,
+      extraInfo: { ...current.extraInfo, career: { enabled: true, value: label } },
     }));
   }
 
@@ -335,29 +380,93 @@ export function RecruitmentSettingsPage({ recruitmentId }: { recruitmentId: numb
             </div>
 
             <div className="grid-2">
-              <label>
+              <label className="wide">
                 공고 제목
                 <input required value={form.title} onChange={(event) => updateField("title", event.target.value)} />
               </label>
               <label>
-                직무명
-                <input required value={form.jobRole} onChange={(event) => updateField("jobRole", event.target.value)} />
+                직무
+                <select required value={form.jobRoleCode} onChange={(event) => updateJobRoleSelection(event.target.value)}>
+                  <option value="" disabled>
+                    직무를 선택하세요
+                  </option>
+                  {POSTING_JOB_ROLE_CODE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label>
-                요구 경력
-                <input
-                  value={form.extraInfo.career.value}
-                  onChange={(event) => updateExtraInfo("career", event.target.value)}
-                  placeholder="신입 이상 / 1~2년차 / 5년 이상"
-                />
+                근무 지역
+                <select required value={form.regionCode} onChange={(event) => updateStructuredWithExtraInfo("regionCode", "location", event.target.value)}>
+                  <option value="" disabled>
+                    지역을 선택하세요
+                  </option>
+                  {POSTING_REGION_CODE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label>
-                근무형태
-                <input
-                  value={form.extraInfo.employmentType.value}
-                  onChange={(event) => updateExtraInfo("employmentType", event.target.value)}
-                  placeholder="정규직 / 계약직 / 인턴"
-                />
+                근무 형태
+                <select required value={form.employmentTypeCode} onChange={(event) => updateStructuredWithExtraInfo("employmentTypeCode", "employmentType", event.target.value)}>
+                  <option value="" disabled>
+                    근무 형태를 선택하세요
+                  </option>
+                  {POSTING_EMPLOYMENT_TYPE_CODE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                채용 형태
+                <select required value={form.recruitmentType} onChange={(event) => updateField("recruitmentType", event.target.value)}>
+                  <option value="" disabled>
+                    채용 형태를 선택하세요
+                  </option>
+                  {POSTING_RECRUITMENT_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                경력 최소
+                <select
+                  value={form.careerMinYears}
+                  onChange={(event) => {
+                    const nextMin = Number(event.target.value);
+                    updateCareerRange(nextMin, Math.max(nextMin, form.careerMaxYears));
+                  }}
+                >
+                  {POSTING_CAREER_YEAR_OPTIONS.map((year) => (
+                    <option key={year} value={year}>
+                      {year === 0 ? "신입" : `${year}년`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                경력 최대
+                <select
+                  value={form.careerMaxYears}
+                  onChange={(event) => {
+                    const nextMax = Number(event.target.value);
+                    updateCareerRange(Math.min(form.careerMinYears, nextMax), nextMax);
+                  }}
+                >
+                  {POSTING_CAREER_YEAR_OPTIONS.filter((year) => year >= form.careerMinYears).map((year) => (
+                    <option key={year} value={year}>
+                      {year >= POSTING_CAREER_MAX_YEARS ? `${POSTING_CAREER_MAX_YEARS}년+` : `${year}년`}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label>
                 채용 시작일
@@ -373,14 +482,6 @@ export function RecruitmentSettingsPage({ recruitmentId }: { recruitmentId: numb
                   <option value="OPEN">OPEN</option>
                   <option value="DRAFT">DRAFT</option>
                 </select>
-              </label>
-              <label className="wide">
-                회사 위치 / 근무지역
-                <input
-                  value={form.extraInfo.location.value}
-                  onChange={(event) => updateExtraInfo("location", event.target.value)}
-                  placeholder="서울 강남구 테헤란로 123"
-                />
               </label>
             </div>
           </section>

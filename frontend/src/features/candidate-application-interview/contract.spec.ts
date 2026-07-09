@@ -55,6 +55,7 @@ import {
   shouldEnableManualInterviewRecording,
   shouldOpenRealtimeMicrophoneForRecordingStart,
   shouldRunInterviewRuntimeCountdown,
+  shouldShowPaymentDevTools,
   trimInterviewerSessionEvents,
   getInterviewMediaFileExtension,
   getMockInterviewDeviceCheckHref,
@@ -128,6 +129,7 @@ const cameralessTestDeviceCheckState = createCameralessInterviewTestDeviceCheckS
 const cameralessTestDeviceCheckRequest: InterviewDeviceCheckRequest = toDeviceCheckRequest(
   cameralessTestDeviceCheckState,
 );
+assert.equal(shouldShowPaymentDevTools({ nodeEnv: "production" }), true);
 assert.deepEqual(cameralessTestDeviceCheckRequest, {
   cameraGranted: true,
   microphoneGranted: true,
@@ -1138,6 +1140,7 @@ const candidateJobSummary: CandidateJobSummary = {
   location: "Seoul",
   careerLevel: "Junior",
   employmentType: "Full-time",
+  tags: ["Node.js", "NestJS"],
   postingStatus: "OPEN",
   startsOn: "2026-07-01",
   endsOn: "2026-07-31",

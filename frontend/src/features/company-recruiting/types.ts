@@ -39,6 +39,12 @@ export type Recruitment = {
   salaryInfo: string | null;
   workLocation: string | null;
   employmentType: string | null;
+  jobRoleCode: string | null;
+  regionCode: string | null;
+  careerMinYears: number | null;
+  careerMaxYears: number | null;
+  employmentTypeCode: string | null;
+  recruitmentType: string | null;
   startsOn: string | null;
   endsOn: string | null;
   status: "DRAFT" | "OPEN" | "CLOSING_SOON" | "CLOSED" | "ARCHIVED";
@@ -70,6 +76,13 @@ export type CreateRecruitmentInput = {
   salaryInfo?: string | null;
   workLocation?: string | null;
   employmentType?: string | null;
+  // 지원자 필터용 구조화 필드(선택 입력).
+  jobRoleCode?: string;
+  regionCode?: string;
+  careerMinYears?: number;
+  careerMaxYears?: number;
+  employmentTypeCode?: string;
+  recruitmentType?: "상시" | "마감형";
   startsOn?: string;
   endsOn?: string;
   status: "DRAFT" | "OPEN";

@@ -28,6 +28,12 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         salaryInfo: (input as { salaryInfo?: string | null }).salaryInfo ?? null,
         workLocation: (input as { workLocation?: string | null }).workLocation ?? null,
         employmentType: (input as { employmentType?: string | null }).employmentType ?? null,
+        jobRoleCode: (input as { jobRoleCode?: string | null }).jobRoleCode ?? null,
+        regionCode: (input as { regionCode?: string | null }).regionCode ?? null,
+        careerMinYears: (input as { careerMinYears?: number | null }).careerMinYears ?? null,
+        careerMaxYears: (input as { careerMaxYears?: number | null }).careerMaxYears ?? null,
+        employmentTypeCode: (input as { employmentTypeCode?: string | null }).employmentTypeCode ?? null,
+        recruitmentType: (input as { recruitmentType?: string | null }).recruitmentType ?? null,
         startsOn: new Date("2026-06-29T00:00:00.000Z"),
         endsOn: new Date("2026-07-15T00:00:00.000Z"),
         status: "OPEN",
@@ -49,6 +55,12 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         salaryInfo: (input as { salaryInfo?: string | null }).salaryInfo ?? null,
         workLocation: (input as { workLocation?: string | null }).workLocation ?? null,
         employmentType: (input as { employmentType?: string | null }).employmentType ?? null,
+        jobRoleCode: (input as { jobRoleCode?: string | null }).jobRoleCode ?? null,
+        regionCode: (input as { regionCode?: string | null }).regionCode ?? null,
+        careerMinYears: (input as { careerMinYears?: number | null }).careerMinYears ?? null,
+        careerMaxYears: (input as { careerMaxYears?: number | null }).careerMaxYears ?? null,
+        employmentTypeCode: (input as { employmentTypeCode?: string | null }).employmentTypeCode ?? null,
+        recruitmentType: (input as { recruitmentType?: string | null }).recruitmentType ?? null,
         startsOn: (input as { startsOn: Date | null }).startsOn,
         endsOn: (input as { endsOn: Date | null }).endsOn,
         status: (input as { status: string }).status,
@@ -70,6 +82,12 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         salaryInfo: null,
         workLocation: null,
         employmentType: null,
+        jobRoleCode: null,
+        regionCode: null,
+        careerMinYears: null,
+        careerMaxYears: null,
+        employmentTypeCode: null,
+        recruitmentType: null,
         startsOn: null,
         endsOn: null,
         status: "ARCHIVED",
@@ -99,6 +117,12 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         salaryInfo: null,
         workLocation: null,
         employmentType: null,
+        jobRoleCode: null,
+        regionCode: null,
+        careerMinYears: null,
+        careerMaxYears: null,
+        employmentTypeCode: null,
+        recruitmentType: null,
         startsOn: null,
         endsOn: null,
         status: "OPEN",
@@ -120,6 +144,12 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         salaryInfo: "회사 내규에 따름",
         workLocation: "서울",
         employmentType: "정규직",
+        jobRoleCode: "서버·백엔드",
+        regionCode: "서울",
+        careerMinYears: null,
+        careerMaxYears: null,
+        employmentTypeCode: "정규직",
+        recruitmentType: "마감형",
         startsOn: new Date("2026-06-29T00:00:00.000Z"),
         endsOn: new Date("2026-07-15T00:00:00.000Z"),
         status: "OPEN",
@@ -310,11 +340,123 @@ describe("CompanyRecruitingService", () => {
         salaryInfo: "연봉 4,000만원 이상",
         workLocation: "판교",
         employmentType: "정규직",
+        jobRoleCode: undefined,
+        regionCode: undefined,
+        careerMinYears: undefined,
+        careerMaxYears: undefined,
+        employmentTypeCode: undefined,
+        recruitmentType: undefined,
         startsOn: new Date("2026-06-29T00:00:00.000Z"),
         endsOn: new Date("2026-07-15T00:00:00.000Z"),
         status: "OPEN",
       },
     ]);
+  });
+
+  it("rejects recruitment creation when careerMinYears is greater than careerMaxYears", async () => {
+    const repository = createRepository();
+    const service = new CompanyRecruitingService(repository);
+
+    await assert.rejects(
+      service.createRecruitment(companyUser, {
+        title: "Backend Developer",
+        jobRole: "Backend",
+        careerMinYears: 5,
+        careerMaxYears: 2,
+        status: "OPEN",
+      }),
+      (error: unknown) =>
+        typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
+    assert.equal(repository.calls.createPosting, undefined);
+  });
+
+  it("rejects recruitment update when careerMinYears is greater than careerMaxYears", async () => {
+    const repository = createRepository();
+    const service = new CompanyRecruitingService(repository);
+
+    await assert.rejects(
+      service.updateRecruitment(companyUser, 101, {
+        title: "Backend Developer",
+        jobRole: "Backend",
+        careerMinYears: 8,
+        careerMaxYears: 3,
+        status: "OPEN",
+      }),
+      (error: unknown) =>
+        typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
+    assert.equal(repository.calls.updatePosting, undefined);
+  });
+
+  it("rejects update when only careerMinYears is sent and inverts existing careerMaxYears", async () => {
+    const repository = createRepository({
+      async findPostingForCompany(postingId: number, companyId: number) {
+        return {
+          postingId,
+          companyId,
+          title: "Backend Developer",
+          jobRole: "Backend",
+          jobDescription: "Build APIs",
+          careerMinYears: null,
+          careerMaxYears: 3,
+          startsOn: null,
+          endsOn: null,
+          status: "OPEN",
+          createdAt: new Date("2026-06-29T00:00:00.000Z"),
+          updatedAt: new Date("2026-06-29T00:00:00.000Z"),
+          applicantCount: 0,
+        };
+      },
+    });
+    const service = new CompanyRecruitingService(repository);
+
+    await assert.rejects(
+      service.updateRecruitment(companyUser, 101, {
+        title: "Backend Developer",
+        jobRole: "Backend",
+        careerMinYears: 8,
+        status: "OPEN",
+      }),
+      (error: unknown) =>
+        typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
+    assert.equal(repository.calls.updatePosting, undefined);
+  });
+
+  it("rejects update when only careerMaxYears is sent and inverts existing careerMinYears", async () => {
+    const repository = createRepository({
+      async findPostingForCompany(postingId: number, companyId: number) {
+        return {
+          postingId,
+          companyId,
+          title: "Backend Developer",
+          jobRole: "Backend",
+          jobDescription: "Build APIs",
+          careerMinYears: 5,
+          careerMaxYears: null,
+          startsOn: null,
+          endsOn: null,
+          status: "OPEN",
+          createdAt: new Date("2026-06-29T00:00:00.000Z"),
+          updatedAt: new Date("2026-06-29T00:00:00.000Z"),
+          applicantCount: 0,
+        };
+      },
+    });
+    const service = new CompanyRecruitingService(repository);
+
+    await assert.rejects(
+      service.updateRecruitment(companyUser, 101, {
+        title: "Backend Developer",
+        jobRole: "Backend",
+        careerMaxYears: 3,
+        status: "OPEN",
+      }),
+      (error: unknown) =>
+        typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
+    assert.equal(repository.calls.updatePosting, undefined);
   });
 
   it("uploads JD editor images to object storage and stores file_assets metadata", async () => {
@@ -882,6 +1024,12 @@ describe("CompanyRecruitingService", () => {
         salaryInfo: "회사 내규에 따름",
         workLocation: "서울",
         employmentType: "계약직",
+        jobRoleCode: undefined,
+        regionCode: undefined,
+        careerMinYears: undefined,
+        careerMaxYears: undefined,
+        employmentTypeCode: undefined,
+        recruitmentType: undefined,
         startsOn: new Date("2026-07-01T00:00:00.000Z"),
         endsOn: new Date("2026-07-31T00:00:00.000Z"),
         status: "OPEN",
@@ -947,6 +1095,12 @@ describe("CompanyRecruitingService", () => {
           salaryInfo: "협의 가능",
           workLocation: "판교",
           employmentType: "정규직",
+          jobRoleCode: "서버·백엔드",
+          regionCode: "서울",
+          careerMinYears: 5,
+          careerMaxYears: 10,
+          employmentTypeCode: "정규직",
+          recruitmentType: "마감형",
           startsOn: new Date("2026-06-01T00:00:00.000Z"),
           endsOn: new Date("2026-06-15T00:00:00.000Z"),
           status: "CLOSED",
@@ -994,6 +1148,12 @@ describe("CompanyRecruitingService", () => {
         salaryInfo: "협의 가능",
         workLocation: "판교",
         employmentType: "정규직",
+        jobRoleCode: "서버·백엔드",
+        regionCode: "서울",
+        careerMinYears: 5,
+        careerMaxYears: 10,
+        employmentTypeCode: "정규직",
+        recruitmentType: "마감형",
         startsOn: null,
         endsOn: null,
         status: "DRAFT",

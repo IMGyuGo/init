@@ -344,7 +344,7 @@ export class PaymentService {
       throw new PaymentException(403, ERROR_CODES.COMMON_FORBIDDEN, "지원자 계정만 모의면접 테스트 이용권을 받을 수 있습니다.");
     }
     if (!isDevelopmentPaymentToolEnabled()) {
-      throw new PaymentException(403, ERROR_CODES.COMMON_FORBIDDEN, "개발용 모의면접 이용권 지급은 local/dev/test 환경에서만 사용할 수 있습니다.");
+      throw new PaymentException(403, ERROR_CODES.COMMON_FORBIDDEN, "모의면접 테스트 이용권 지급이 비활성화되어 있습니다.");
     }
     if (!this.candidateMockInterviewPasses?.grantDevelopmentPasses) {
       throw new PaymentException(409, ERROR_CODES.COMMON_CONFLICT, "모의면접 이용권 장부가 준비되지 않았습니다.");
@@ -476,7 +476,6 @@ function normalizeFailureText(value: string | undefined, fallback: string) {
 }
 
 function isDevelopmentPaymentToolEnabled() {
-  if (process.env.NODE_ENV === "production") return false;
   return process.env.PAYMENT_DEV_PASS_GRANT_ENABLED !== "false";
 }
 

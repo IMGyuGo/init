@@ -179,8 +179,9 @@ async function run() {
     limit: 20,
     q: "android",
     jobGroup: "Engineering",
-    location: "Pangyo",
-    careerLevel: "Entry",
+    location: "경기",
+    careerMinYears: 0,
+    careerMaxYears: 1,
     postingStatus: "CLOSING_SOON",
     sort: "endsOn",
     order: "asc",
@@ -188,8 +189,23 @@ async function run() {
   assert.equal(filteredJobs.data.items.length, 1);
   assert.equal(filteredJobs.data.items[0]?.jobId, 2);
 
+  const jobRolesFiltered = await service.listJobs({
+    page: 1,
+    limit: 20,
+    jobRoles: ["안드로이드", "프론트엔드"],
+    sort: "createdAt",
+    order: "desc",
+  });
+  assert.equal(jobRolesFiltered.data.items.length, 1);
+  assert.equal(jobRolesFiltered.data.items[0]?.jobId, 2);
+
   await assert.rejects(
     () => service.listJobs({ page: 0, limit: 20, sort: "createdAt", order: "desc" }),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
+  );
+
+  await assert.rejects(
+    () => service.listJobs({ page: 1, limit: 20, careerMinYears: 5, careerMaxYears: 2, sort: "createdAt", order: "desc" }),
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
   );
 

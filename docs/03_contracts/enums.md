@@ -30,6 +30,10 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | `ai_process_status` | `AiProcessStatus` |
 | `guardrail_result` | `GuardrailResult` |
 | `embedding_source_type` | `EmbeddingSourceType` |
+| `posting_job_role_code` | `PostingJobRoleCode` |
+| `posting_region_code` | `PostingRegionCode` |
+| `posting_employment_type_code` | `PostingEmploymentTypeCode` |
+| `posting_recruitment_type` | `PostingRecruitmentType` |
 
 금지 이름: `EvaluationCriteria`, `QuestionBank`, `AIProcessLog`, `AIGuardrailLog`를 Prisma model/class 이름으로 새로 만들지 않는다.
 
@@ -42,6 +46,19 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 - enum value: `UPPER_SNAKE_CASE`
 - frontend는 API 응답 string literal을 임의로 재정의하지 않고 `backend/common/src/enums`에서 공유 가능한 타입 또는 API client adapter 타입을 사용한다.
 - enum 추가/삭제/rename은 이 문서, Prisma schema, `backend/common/src/enums`, API 계약을 같은 PR에서 수정한다.
+
+### Posting Filter Taxonomy
+
+지원자 공고 필터용 구조화 값이다. 지원자에게 그대로 노출되는 라벨이므로 예외적으로 value를 한글 라벨로 사용한다(UPPER_SNAKE_CASE 규칙 예외). 원천은 `backend/common/src/enums`이며 공고 생성/수정 DTO와 지원자 공고 목록 필터가 공유한다. 값이 없으면 `postings`의 해당 컬럼은 NULL이고 해당 필터 대상에서 제외된다.
+
+| Prisma/TypeScript Enum | Values |
+| --- | --- |
+| `PostingJobRoleCode` | 서버·백엔드, 프론트엔드, 웹풀스택, 안드로이드, iOS, 크로스플랫폼, DevOps·SRE, 데이터 엔지니어, AI·ML, QA·테스트, 시스템·네트워크, 보안, 블록체인, 개발 PM, 기타 IT·개발 |
+| `PostingRegionCode` | 서울, 경기, 인천, 부산, 대구, 광주, 대전, 울산, 세종, 강원, 경남, 경북, 전남, 전북, 충남, 충북, 제주, 해외 |
+| `PostingEmploymentTypeCode` | 정규직, 계약직, 인턴, 프리랜서 |
+| `PostingRecruitmentType` | 상시, 마감형 |
+
+경력 범위는 enum이 아닌 정수(`career_min_years`, `career_max_years`)로 표현하며 상한 상수는 `POSTING_CAREER_MAX_YEARS`(=10)다. 둘 다 있으면 `career_min_years <= career_max_years`를 만족해야 한다.
 
 ## Status Transition Baseline
 
