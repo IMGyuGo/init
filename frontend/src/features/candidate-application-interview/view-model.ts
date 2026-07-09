@@ -484,7 +484,8 @@ export const defaultInterviewAnswerFormState: InterviewAnswerFormState = {
   durationSeconds: 0,
 };
 
-export function shouldShowPaymentDevTools(_env: PaymentDevToolsVisibilityEnv = {}): boolean {
+export function shouldShowPaymentDevTools(env: PaymentDevToolsVisibilityEnv = {}): boolean {
+  if (env.nodeEnv === "production") return true;
   return true;
 }
 
