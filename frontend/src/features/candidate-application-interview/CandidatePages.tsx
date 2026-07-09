@@ -6361,12 +6361,11 @@ function buildMockNonverbalSummary(items: CandidateMockReportMedia["media"]): Mo
     if (!metadata) return summary;
 
     summary.answersWithMetadata += 1;
-    const cameraSignal =
-      readNonverbalNumber(metadata, "cameraWarnings") > 0 || readNonverbalBoolean(metadata, "testModeUsed");
-    const microphoneSignal = readNonverbalNumber(metadata, "microphoneWarnings") > 0;
-    const silenceSignal = readNonverbalNumber(metadata, "longSilenceCount") > 0;
-    const shortAnswerSignal = readNonverbalNumber(metadata, "shortAnswerCount") > 0;
-    const testModeSignal = readNonverbalBoolean(metadata, "testModeUsed");
+    const cameraSignal = hasNonverbalCameraSignal(metadata);
+    const microphoneSignal = hasNonverbalMicrophoneSignal(metadata);
+    const silenceSignal = readNonverbalLongSilenceCount(metadata) > 0;
+    const shortAnswerSignal = hasNonverbalShortAnswerSignal(metadata);
+    const testModeSignal = readNonverbalTestModeUsed(metadata);
 
     if (cameraSignal) summary.cameraSignalAnswers += 1;
     if (microphoneSignal) summary.microphoneSignalAnswers += 1;
@@ -6435,11 +6434,11 @@ function MockNonverbalFeedbackView({ metadata }: { metadata?: Record<string, unk
 function buildMockNonverbalFeedbackItems(metadata?: Record<string, unknown>): string[] {
   if (!metadata) return [];
 
-  const cameraWarnings = readNonverbalNumber(metadata, "cameraWarnings");
-  const microphoneWarnings = readNonverbalNumber(metadata, "microphoneWarnings");
-  const longSilenceCount = readNonverbalNumber(metadata, "longSilenceCount");
-  const shortAnswerCount = readNonverbalNumber(metadata, "shortAnswerCount");
-  const testModeUsed = readNonverbalBoolean(metadata, "testModeUsed");
+  const cameraWarnings = readNonverbalCameraWarningCount(metadata);
+  const microphoneWarnings = readNonverbalMicrophoneWarningCount(metadata);
+  const longSilenceCount = readNonverbalLongSilenceCount(metadata);
+  const shortAnswerCount = hasNonverbalShortAnswerSignal(metadata) ? 1 : 0;
+  const testModeUsed = readNonverbalTestModeUsed(metadata);
   const voicePeakLevel = readNonverbalNumber(metadata, "voicePeakLevel");
   const items: string[] = [];
 
@@ -6469,6 +6468,53 @@ function readNonverbalNumber(metadata: Record<string, unknown>, key: string): nu
 
 function readNonverbalBoolean(metadata: Record<string, unknown>, key: string): boolean {
   return metadata[key] === true;
+}
+
+function readNonverbalRecord(metadata: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
+  const value = metadata[key];
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function readNonverbalStringArrayCount(metadata: Record<string, unknown> | undefined, key: string): number {
+  const value = metadata?.[key];
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.trim()).length : 0;
+}
+
+function readNonverbalCameraWarningCount(metadata: Record<string, unknown>): number {
+  const camera = readNonverbalRecord(metadata, "camera");
+  const nestedWarningCount = readNonverbalStringArrayCount(camera, "warnings");
+  const notReadyRatio = camera ? readNonverbalNumber(camera, "notReadyRatio") : 0;
+  return readNonverbalNumber(metadata, "cameraWarnings") + nestedWarningCount + (notReadyRatio >= 0.3 ? 1 : 0);
+}
+
+function readNonverbalMicrophoneWarningCount(metadata: Record<string, unknown>): number {
+  const audio = readNonverbalRecord(metadata, "audio");
+  const nestedWarningCount = readNonverbalStringArrayCount(audio, "warnings");
+  const lowInputRatio = audio ? readNonverbalNumber(audio, "lowInputRatio") : 0;
+  return readNonverbalNumber(metadata, "microphoneWarnings") + nestedWarningCount + (lowInputRatio >= 0.3 ? 1 : 0);
+}
+
+function readNonverbalLongSilenceCount(metadata: Record<string, unknown>): number {
+  const audio = readNonverbalRecord(metadata, "audio");
+  return readNonverbalNumber(metadata, "longSilenceCount") + (audio ? readNonverbalNumber(audio, "longSilenceCount") : 0);
+}
+
+function readNonverbalTestModeUsed(metadata: Record<string, unknown>): boolean {
+  const risk = readNonverbalRecord(metadata, "risk");
+  return readNonverbalBoolean(metadata, "testModeUsed") || Boolean(risk?.testModeUsed);
+}
+
+function hasNonverbalShortAnswerSignal(metadata: Record<string, unknown>): boolean {
+  const risk = readNonverbalRecord(metadata, "risk");
+  return readNonverbalNumber(metadata, "shortAnswerCount") > 0 || risk?.shortAnswer === true;
+}
+
+function hasNonverbalCameraSignal(metadata: Record<string, unknown>): boolean {
+  return readNonverbalCameraWarningCount(metadata) > 0 || readNonverbalTestModeUsed(metadata);
+}
+
+function hasNonverbalMicrophoneSignal(metadata: Record<string, unknown>): boolean {
+  return readNonverbalMicrophoneWarningCount(metadata) > 0;
 }
 
 function AnswerPracticeGuideView({ guide }: { guide: AnswerPracticeGuide }) {
