@@ -70,13 +70,17 @@ import {
   type CandidateApplicationFormState,
   type CandidateDeviceCheckState,
   type CandidateInterviewConsentState,
+  type CandidateNotificationItem,
   type CandidatePortfolioLinkFormState,
   type CandidateResumeUploadState,
   type InterviewAnswerFormState,
   type InterviewRuntimePrimaryScreen,
   type InterviewerSessionEvent,
   type StartMockInterviewState,
+  buildCandidateReportCompleteNotification,
+  buildCandidateReportCompleteNotifications,
   clampCameraPipPosition,
+  countUnreadCandidateNotifications,
   createInterviewerSessionActionEvent,
   defaultApplicationFormState,
   defaultCandidateJobQuery,
@@ -100,6 +104,7 @@ import {
   getInterviewRuntimeStatusChips,
   getInterviewerSessionState,
   getInvalidRecordingRecoveryAction,
+  getRecruitingReportPollingIntervalMs,
   getRealtimeSilenceEncouragementDecision,
   getRealtimeSessionUserNotice,
   getRuntimeDeviceRecheckState,
@@ -117,6 +122,7 @@ import {
   shouldContinueInterviewWithoutFollowUp,
   shouldEnableManualInterviewRecording,
   shouldOpenRealtimeMicrophoneForRecordingStart,
+  shouldPollRecruitingReportCompletion,
   shouldRunInterviewRuntimeCountdown,
   shouldShowPaymentDevTools,
   shouldShowInterviewDeviceSetup,
@@ -141,6 +147,9 @@ const SHOW_PAYMENT_DEV_TOOLS = shouldShowPaymentDevTools({ nodeEnv: process.env.
 // DEV-ONLY camera bypass: remove this flag, storage helpers, and matching buttons together when it is no longer needed.
 const ENABLE_CAMERALESS_INTERVIEW_TEST_ENTRY = process.env.NODE_ENV !== "production";
 const CAMERALESS_INTERVIEW_TEST_ENTRY_STORAGE_KEY_PREFIX = "init.cameralessInterviewTestEntry";
+const CANDIDATE_NOTIFICATION_READ_IDS_STORAGE_KEY = "init.candidateNotificationReadIds";
+const CANDIDATE_NOTIFICATION_DISMISSED_IDS_STORAGE_KEY = "init.candidateNotificationDismissedIds";
+const CANDIDATE_REPORT_NOTIFICATION_EVENT = "init:candidate-report-complete";
 const DEMO_CANDIDATE_ID = 1;
 export const PUBLIC_INTERVIEW_ACCESS_TOKEN_STORAGE_KEY = "init.publicInterviewAccessToken";
 const DEFAULT_INTERVIEW_QUESTION_TIME_LIMIT_SECONDS = 90;
@@ -1683,7 +1692,9 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
 export function CandidateApplicationReportPage({ applicationId }: { applicationId: number }) {
   const [generationBusy, setGenerationBusy] = useState(false);
   const [generationMessage, setGenerationMessage] = useState("");
+  const [toastMessage, setToastMessage] = useState("");
   const requestedReportApplicationRef = useRef<number | null>(null);
+  const notifiedReportApplicationRef = useRef<number | null>(null);
   const load = useCallback(async (): Promise<ApplicationReportData> => {
     const api = getCandidateApi();
     const [statusResult, reportResult] = await Promise.allSettled([
@@ -1698,6 +1709,9 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
     };
   }, [applicationId]);
   const { data, loading, error, refresh } = useCandidateResource(load, [applicationId]);
+  const pollingInterviewStatus = data?.status?.interviewStatus;
+  const pollingInterviewSessionStatus = data?.status?.interviewSessionStatus;
+  const pollingReportStatus = data?.status?.reportStatus;
 
   useEffect(() => {
     if (!shouldAutoRequestApplicationReport(data)) {
@@ -1739,6 +1753,88 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
     };
   }, [applicationId, data, refresh]);
 
+  useEffect(() => {
+    const pollingStatus = pollingReportStatus
+      ? {
+          interviewStatus: pollingInterviewStatus ?? "",
+          interviewSessionStatus: pollingInterviewSessionStatus ?? "",
+          reportStatus: pollingReportStatus,
+        }
+      : undefined;
+
+    if (!shouldPollRecruitingReportCompletion(pollingStatus)) {
+      return;
+    }
+
+    let cancelled = false;
+    const startedAt = Date.now();
+
+    async function pollReportCompletion() {
+      while (!cancelled) {
+        await sleep(getRecruitingReportPollingIntervalMs(Date.now() - startedAt));
+        if (cancelled) {
+          return;
+        }
+
+        try {
+          const latest = await load();
+          if (cancelled) {
+            return;
+          }
+
+          if (latest.status?.reportStatus === "COMPLETED") {
+            const notification = buildCandidateReportCompleteNotification(latest.status, new Set());
+            if (notification) {
+              setToastMessage(notification.message);
+              if (notifiedReportApplicationRef.current !== latest.status.applicationId) {
+                emitCandidateReportNotification(notification);
+                notifiedReportApplicationRef.current = latest.status.applicationId;
+              }
+            }
+            setGenerationMessage("");
+            refresh();
+            return;
+          }
+
+          if (latest.status?.reportStatus === "FAILED") {
+            setGenerationMessage("리포트 생성에 실패했습니다. 잠시 후 새로고침하거나 기업 담당자에게 문의해주세요.");
+            refresh();
+            return;
+          }
+
+          refresh();
+        } catch (pollError) {
+          if (!cancelled) {
+            setGenerationMessage(toErrorMessage(pollError));
+          }
+          return;
+        }
+      }
+    }
+
+    void pollReportCompletion();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    applicationId,
+    pollingInterviewStatus,
+    pollingInterviewSessionStatus,
+    pollingReportStatus,
+    load,
+    refresh,
+  ]);
+
+  useEffect(() => {
+    if (!toastMessage) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => setToastMessage(""), 5000);
+    return () => window.clearTimeout(timer);
+  }, [toastMessage]);
+
   return (
     <CandidatePageShell active="applications">
       <CandidatePageHead
@@ -1754,6 +1850,7 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
         }
       />
       <StatusNotice loading={loading || generationBusy} error={error} message={generationMessage} />
+      {toastMessage ? <div className="candidate-toast" role="status" aria-live="polite">{toastMessage}</div> : null}
       <section className="panel">
         <div className="panel-head">
           <div>
@@ -5755,16 +5852,198 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
           </div>
         </nav>
         <div className="gnb-right">
-          <button className="icon-btn" aria-label="알림" type="button">
-            <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
-              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-            </svg>
-          </button>
+          <CandidateNotificationCenter />
           <GnbAvatar accountLabel="지원자 계정" />
           <GnbLogoutButton />
         </div>
       </div>
     </header>
+  );
+}
+
+function CandidateNotificationCenter() {
+  const [open, setOpen] = useState(false);
+  const [readIds, setReadIds] = useState<Set<string>>(() => readCandidateNotificationReadIds());
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => readCandidateNotificationDismissedIds());
+  const [notifications, setNotifications] = useState<CandidateNotificationItem[]>([]);
+  const unreadCount = countUnreadCandidateNotifications(notifications);
+
+  useEffect(() => {
+    let cancelled = false;
+    const nextReadIds = readCandidateNotificationReadIds();
+    const nextDismissedIds = readCandidateNotificationDismissedIds();
+    setReadIds(nextReadIds);
+    setDismissedIds(nextDismissedIds);
+
+    getCandidateApi()
+      .listApplications()
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+        setNotifications(buildCandidateReportCompleteNotifications(response.data.items, nextReadIds, nextDismissedIds));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setNotifications([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    function handleReportNotification(event: Event) {
+      const notification = (event as CustomEvent<CandidateNotificationItem>).detail;
+      if (!notification?.id || dismissedIds.has(notification.id)) {
+        return;
+      }
+
+      setNotifications((current) =>
+        mergeCandidateNotifications(current, [
+          {
+            ...notification,
+            read: readIds.has(notification.id),
+          },
+        ]),
+      );
+    }
+
+    window.addEventListener(CANDIDATE_REPORT_NOTIFICATION_EVENT, handleReportNotification);
+    return () => window.removeEventListener(CANDIDATE_REPORT_NOTIFICATION_EVENT, handleReportNotification);
+  }, [dismissedIds, readIds]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open]);
+
+  function handleToggle() {
+    if (!open) {
+      markNotificationsRead();
+    }
+    setOpen((current) => !current);
+  }
+
+  function markNotificationsRead() {
+    if (!notifications.length) {
+      return;
+    }
+
+    const nextReadIds = new Set(readIds);
+    notifications.forEach((notification) => nextReadIds.add(notification.id));
+    setReadIds(nextReadIds);
+    writeCandidateNotificationReadIds(nextReadIds);
+    setNotifications((current) => current.map((notification) => ({ ...notification, read: true })));
+  }
+
+  function dismissNotification(notificationId: string) {
+    const nextDismissedIds = new Set(dismissedIds);
+    nextDismissedIds.add(notificationId);
+    setDismissedIds(nextDismissedIds);
+    writeCandidateNotificationDismissedIds(nextDismissedIds);
+
+    const nextReadIds = new Set(readIds);
+    nextReadIds.add(notificationId);
+    setReadIds(nextReadIds);
+    writeCandidateNotificationReadIds(nextReadIds);
+
+    setNotifications((current) => current.filter((notification) => notification.id !== notificationId));
+  }
+
+  function dismissAllNotifications() {
+    if (!notifications.length) {
+      return;
+    }
+
+    const nextDismissedIds = new Set(dismissedIds);
+    const nextReadIds = new Set(readIds);
+    notifications.forEach((notification) => {
+      nextDismissedIds.add(notification.id);
+      nextReadIds.add(notification.id);
+    });
+    setDismissedIds(nextDismissedIds);
+    setReadIds(nextReadIds);
+    writeCandidateNotificationDismissedIds(nextDismissedIds);
+    writeCandidateNotificationReadIds(nextReadIds);
+    setNotifications([]);
+  }
+
+  return (
+    <div className="candidate-notification-center">
+      <button
+        className="icon-btn candidate-notification-button"
+        aria-expanded={open}
+        aria-label={unreadCount > 0 ? `알림 ${unreadCount}개` : "알림"}
+        type="button"
+        onClick={handleToggle}
+      >
+        <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
+          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+        </svg>
+        {unreadCount > 0 ? <span className="candidate-notification-badge">{formatUnreadNotificationCount(unreadCount)}</span> : null}
+      </button>
+      {open ? (
+        <div className="candidate-notification-popover" role="dialog" aria-modal="false" aria-labelledby="candidate-notification-title">
+          <div className="candidate-notification-popover__head">
+            <div>
+              <h2 id="candidate-notification-title">알림</h2>
+              <p>채용 면접과 리포트 진행 상태를 확인합니다.</p>
+            </div>
+            <div className="candidate-notification-popover__actions">
+              {notifications.length ? (
+                <button className="candidate-notification-clear" type="button" onClick={dismissAllNotifications}>
+                  모두 지우기
+                </button>
+              ) : null}
+              <button className="candidate-notification-close" type="button" aria-label="알림 닫기" onClick={() => setOpen(false)}>
+                ×
+              </button>
+            </div>
+          </div>
+          {notifications.length ? (
+            <ul className="candidate-notification-list">
+              {notifications.map((notification) => (
+                <li className="candidate-notification-item" key={notification.id}>
+                  <div>
+                    <strong>{notification.title}</strong>
+                    <p>{notification.message}</p>
+                    {notification.createdAt ? <small>{formatDateTime(notification.createdAt)}</small> : null}
+                  </div>
+                  <div className="candidate-notification-item__actions">
+                    <Link className="text-link" href={notification.href} onClick={() => setOpen(false)}>
+                      결과 확인
+                    </Link>
+                    <button
+                      className="candidate-notification-delete"
+                      type="button"
+                      aria-label={`${notification.title} 삭제`}
+                      onClick={() => dismissNotification(notification.id)}
+                    >
+                      삭제
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="candidate-notification-empty">새 알림이 없습니다.</div>
+          )}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -7644,6 +7923,74 @@ function formatMediaError(error: unknown, device: "camera" | "microphone" = "cam
 
 function toggleValue<T>(values: T[], value: T): T[] {
   return values.includes(value) ? values.filter((current) => current !== value) : [...values, value];
+}
+
+function emitCandidateReportNotification(notification: CandidateNotificationItem) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent<CandidateNotificationItem>(CANDIDATE_REPORT_NOTIFICATION_EVENT, {
+    detail: notification,
+  }));
+}
+
+function readCandidateNotificationReadIds(): Set<string> {
+  return readCandidateNotificationIds(CANDIDATE_NOTIFICATION_READ_IDS_STORAGE_KEY);
+}
+
+function writeCandidateNotificationReadIds(readIds: ReadonlySet<string>) {
+  writeCandidateNotificationIds(CANDIDATE_NOTIFICATION_READ_IDS_STORAGE_KEY, readIds);
+}
+
+function readCandidateNotificationDismissedIds(): Set<string> {
+  return readCandidateNotificationIds(CANDIDATE_NOTIFICATION_DISMISSED_IDS_STORAGE_KEY);
+}
+
+function writeCandidateNotificationDismissedIds(dismissedIds: ReadonlySet<string>) {
+  writeCandidateNotificationIds(CANDIDATE_NOTIFICATION_DISMISSED_IDS_STORAGE_KEY, dismissedIds);
+}
+
+function readCandidateNotificationIds(storageKey: string): Set<string> {
+  if (typeof window === "undefined") {
+    return new Set();
+  }
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(storageKey) ?? "[]") as unknown;
+    if (!Array.isArray(parsed)) {
+      return new Set();
+    }
+    return new Set(parsed.filter((item): item is string => typeof item === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
+function writeCandidateNotificationIds(storageKey: string, notificationIds: ReadonlySet<string>) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify([...notificationIds]));
+  } catch {
+    // 저장이 막혀도 현재 탭의 알림 확인 흐름은 유지한다.
+  }
+}
+
+function mergeCandidateNotifications(
+  current: CandidateNotificationItem[],
+  incoming: CandidateNotificationItem[],
+): CandidateNotificationItem[] {
+  const merged = new Map<string, CandidateNotificationItem>();
+  current.forEach((notification) => merged.set(notification.id, notification));
+  incoming.forEach((notification) => merged.set(notification.id, notification));
+  return [...merged.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+function formatUnreadNotificationCount(count: number): string {
+  return count > 9 ? "9+" : String(count);
 }
 
 function formatDateTime(value?: string) {
