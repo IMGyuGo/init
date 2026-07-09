@@ -1481,6 +1481,18 @@ input[type="radio"] {
   font-size: 12.5px;
 }
 
+.btn.is-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: default;
+}
+
+/* 연습 이력 테이블: 헤더·값 정렬 통일(세션 left · 상태/답변/액션 center) */
+.mock-history-table th:nth-child(2), .mock-history-table td:nth-child(2),
+.mock-history-table th:nth-child(3), .mock-history-table td:nth-child(3),
+.mock-history-table th:nth-child(4), .mock-history-table td:nth-child(4),
+.mock-history-table th:last-child, .mock-history-table td:last-child { text-align: center; }
+
 .btn:disabled {
   color: var(--ink-200);
   background: var(--surface-soft);

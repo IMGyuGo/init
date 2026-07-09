@@ -37,7 +37,6 @@ import {
   type CandidateMockInterviewHistoryItem,
   type CandidateMockReportFeedback,
   type CandidateMockReportMedia,
-  type CandidateMockReportSummary,
   type CandidateReportAnswerView,
   type CandidateReportEvidenceView,
   type CandidateReportScoreView,
@@ -106,7 +105,6 @@ import {
   getTimedOutAiJobStatus,
   getCandidateApplicationReportHref,
   getMockInterviewDeviceCheckHref,
-  getMockReportHref,
   inferPortfolioLinkType,
   isInterviewSpeechPlaybackEventCurrent,
   normalizeInterviewMediaMimeType,
@@ -1346,7 +1344,7 @@ export function CandidateMockInterviewStartPage() {
           description="합격/탈락 판단 없이 연습 피드백만 제공합니다."
           actions={
             <Link className="btn secondary" href={candidateApplicationInterviewRoutes.mockReports}>
-              리포트 보기
+              연습 이력
             </Link>
           }
         />
@@ -1554,21 +1552,17 @@ export function CandidateMockInterviewRuntimePage({ sessionId }: { sessionId: nu
 
 export function CandidateMockReportsPage() {
   const load = useCallback(async () => {
-    const api = getCandidateApi();
-    const [reports, history] = await Promise.all([api.listMockReports(), api.listMockInterviewHistory()]);
-    return {
-      reports: reports.data.items,
-      history: history.data.items,
-    };
+    const history = await getCandidateApi().listMockInterviewHistory();
+    return { history: history.data.items };
   }, []);
   const { data, loading, error, refresh } = useCandidateResource(load, []);
 
   return (
     <CandidatePageShell active="reports">
       <CandidatePageHead
-        eyebrow="모의면접 리포트"
-        title="모의면접 리포트"
-        description="연습 이력과 생성된 피드백 리포트를 확인합니다."
+        eyebrow="모의면접"
+        title="연습 이력"
+        description="진행 중인 연습은 이어서 하고, 완료된 연습은 리포트를 확인할 수 있어요."
         actions={
           <>
             <button className="btn secondary" type="button" onClick={refresh}>새로고침</button>
@@ -1580,20 +1574,11 @@ export function CandidateMockReportsPage() {
       <section className="panel">
         <div className="panel-head">
           <div>
-            <h2>리포트 목록</h2>
-            <p>지원자에게 허용된 모의면접 피드백만 표시합니다.</p>
-          </div>
-        </div>
-        {data?.reports.length ? <MockReportsTable reports={data.reports} /> : <p className="empty">아직 생성된 모의면접 리포트가 없습니다.</p>}
-      </section>
-      <section className="panel">
-        <div className="panel-head">
-          <div>
             <h2>연습 이력</h2>
-            <p>모의면접 세션 진행 상태를 확인합니다.</p>
+            <p>모의면접 세션별 진행 상태와 피드백 리포트를 확인합니다.</p>
           </div>
         </div>
-        {data?.history.length ? <MockHistoryTable history={data.history} /> : <p className="empty">모의면접 이력이 없습니다.</p>}
+        {data?.history.length ? <MockHistoryTable history={data.history} /> : <p className="empty">아직 모의면접 이력이 없어요.</p>}
       </section>
     </CandidatePageShell>
   );
@@ -5915,43 +5900,10 @@ function getSelectedApplicationAction(application: CandidateApplicationSummary):
   };
 }
 
-function MockReportsTable({ reports }: { reports: CandidateMockReportSummary[] }) {
-  return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>리포트</th>
-            <th>세션</th>
-            <th>면접 상태</th>
-            <th>리포트 상태</th>
-            <th>답변</th>
-            <th>액션</th>
-          </tr>
-        </thead>
-        <tbody>
-          {reports.map((report) => (
-            <tr key={report.reportId}>
-              <td>#{report.reportId}<span>{formatDateTime(report.updatedAt)}</span></td>
-              <td>세션 #{report.sessionId}</td>
-              <td><StatusPill value={report.status} /></td>
-              <td><StatusPill value={report.reportStatus} /></td>
-              <td>{report.answeredCount}/{report.totalQuestions}</td>
-              <td>
-                <Link className="btn secondary compact" href={getMockReportHref(report)}>상세</Link>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryItem[] }) {
   return (
     <div className="table-wrap">
-      <table>
+      <table className="mock-history-table">
         <thead>
           <tr>
             <th>세션</th>
@@ -5964,15 +5916,17 @@ function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryI
         <tbody>
           {history.map((item) => (
             <tr key={item.sessionId}>
-              <td>#{item.sessionId}<span>{formatDateTime(item.updatedAt)}</span></td>
+              <td>세션 #{item.sessionId}<span>{formatDateTime(item.updatedAt)}</span></td>
               <td><StatusPill value={item.status} /></td>
               <td><StatusPill value={item.reportStatus} /></td>
               <td>{item.answeredCount}/{item.totalQuestions}</td>
               <td>
                 {item.status === "IN_PROGRESS" ? (
                   <Link className="btn secondary compact" href={candidateApplicationInterviewRoutes.mockInterview(item.sessionId)}>이어하기</Link>
+                ) : item.reportId ? (
+                  <Link className="btn secondary compact" href={candidateApplicationInterviewRoutes.mockReportDetail(item.reportId)}>상세</Link>
                 ) : (
-                  <Link className="btn secondary compact" href={candidateApplicationInterviewRoutes.mockReportDetail(item.reportId)}>리포트</Link>
+                  <span className="btn secondary compact is-disabled" aria-disabled="true">준비 중</span>
                 )}
               </td>
             </tr>
