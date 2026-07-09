@@ -498,7 +498,13 @@ export function RecruitmentCreatePage() {
         </label>
         <label>
           경력 최소
-          <select value={form.careerMinYears} onChange={(event) => updateCareerRange(Number(event.target.value), form.careerMaxYears)}>
+          <select
+            value={form.careerMinYears}
+            onChange={(event) => {
+              const nextMin = Number(event.target.value);
+              updateCareerRange(nextMin, Math.max(nextMin, form.careerMaxYears));
+            }}
+          >
             {CAREER_YEAR_OPTIONS.map((year) => (
               <option key={year} value={year}>
                 {year === 0 ? "신입" : `${year}년`}
@@ -508,8 +514,14 @@ export function RecruitmentCreatePage() {
         </label>
         <label>
           경력 최대
-          <select value={form.careerMaxYears} onChange={(event) => updateCareerRange(form.careerMinYears, Number(event.target.value))}>
-            {CAREER_YEAR_OPTIONS.map((year) => (
+          <select
+            value={form.careerMaxYears}
+            onChange={(event) => {
+              const nextMax = Number(event.target.value);
+              updateCareerRange(Math.min(form.careerMinYears, nextMax), nextMax);
+            }}
+          >
+            {CAREER_YEAR_OPTIONS.filter((year) => year >= form.careerMinYears).map((year) => (
               <option key={year} value={year}>
                 {year >= CAREER_MAX_YEARS ? `${CAREER_MAX_YEARS}년+` : `${year}년`}
               </option>

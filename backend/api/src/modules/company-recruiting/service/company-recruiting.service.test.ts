@@ -353,6 +353,112 @@ describe("CompanyRecruitingService", () => {
     ]);
   });
 
+  it("rejects recruitment creation when careerMinYears is greater than careerMaxYears", async () => {
+    const repository = createRepository();
+    const service = new CompanyRecruitingService(repository);
+
+    await assert.rejects(
+      service.createRecruitment(companyUser, {
+        title: "Backend Developer",
+        jobRole: "Backend",
+        careerMinYears: 5,
+        careerMaxYears: 2,
+        status: "OPEN",
+      }),
+      (error: unknown) =>
+        typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
+    assert.equal(repository.calls.createPosting, undefined);
+  });
+
+  it("rejects recruitment update when careerMinYears is greater than careerMaxYears", async () => {
+    const repository = createRepository();
+    const service = new CompanyRecruitingService(repository);
+
+    await assert.rejects(
+      service.updateRecruitment(companyUser, 101, {
+        title: "Backend Developer",
+        jobRole: "Backend",
+        careerMinYears: 8,
+        careerMaxYears: 3,
+        status: "OPEN",
+      }),
+      (error: unknown) =>
+        typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
+    assert.equal(repository.calls.updatePosting, undefined);
+  });
+
+  it("rejects update when only careerMinYears is sent and inverts existing careerMaxYears", async () => {
+    const repository = createRepository({
+      async findPostingForCompany(postingId: number, companyId: number) {
+        return {
+          postingId,
+          companyId,
+          title: "Backend Developer",
+          jobRole: "Backend",
+          jobDescription: "Build APIs",
+          careerMinYears: null,
+          careerMaxYears: 3,
+          startsOn: null,
+          endsOn: null,
+          status: "OPEN",
+          createdAt: new Date("2026-06-29T00:00:00.000Z"),
+          updatedAt: new Date("2026-06-29T00:00:00.000Z"),
+          applicantCount: 0,
+        };
+      },
+    });
+    const service = new CompanyRecruitingService(repository);
+
+    await assert.rejects(
+      service.updateRecruitment(companyUser, 101, {
+        title: "Backend Developer",
+        jobRole: "Backend",
+        careerMinYears: 8,
+        status: "OPEN",
+      }),
+      (error: unknown) =>
+        typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
+    assert.equal(repository.calls.updatePosting, undefined);
+  });
+
+  it("rejects update when only careerMaxYears is sent and inverts existing careerMinYears", async () => {
+    const repository = createRepository({
+      async findPostingForCompany(postingId: number, companyId: number) {
+        return {
+          postingId,
+          companyId,
+          title: "Backend Developer",
+          jobRole: "Backend",
+          jobDescription: "Build APIs",
+          careerMinYears: 5,
+          careerMaxYears: null,
+          startsOn: null,
+          endsOn: null,
+          status: "OPEN",
+          createdAt: new Date("2026-06-29T00:00:00.000Z"),
+          updatedAt: new Date("2026-06-29T00:00:00.000Z"),
+          applicantCount: 0,
+        };
+      },
+    });
+    const service = new CompanyRecruitingService(repository);
+
+    await assert.rejects(
+      service.updateRecruitment(companyUser, 101, {
+        title: "Backend Developer",
+        jobRole: "Backend",
+        careerMaxYears: 3,
+        status: "OPEN",
+      }),
+      (error: unknown) =>
+        typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
+    assert.equal(repository.calls.updatePosting, undefined);
+  });
+
   it("uploads JD editor images to object storage and stores file_assets metadata", async () => {
     const storageAdapter = createStorageAdapter();
     const repository = createRepository({

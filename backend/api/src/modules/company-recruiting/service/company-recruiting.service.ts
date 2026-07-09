@@ -111,6 +111,7 @@ export class CompanyRecruitingService {
         { field: "startsOn", reason: "AFTER_ENDS_ON" },
       ]);
     }
+    this.assertCareerRange(dto.careerMinYears, dto.careerMaxYears);
 
     const posting = await this.repository.createPosting({
       companyId,
@@ -123,6 +124,15 @@ export class CompanyRecruitingService {
       status: (dto.status ?? PostingStatus.DRAFT) as PostingStatus,
     });
     return toRecruitmentResponse(posting);
+  }
+
+  // 경력 최소/최대가 둘 다 있을 때 최소 <= 최대를 보장한다.
+  private assertCareerRange(minYears?: number | null, maxYears?: number | null) {
+    if (minYears != null && maxYears != null && minYears > maxYears) {
+      throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, "경력 최소 연차는 최대 연차보다 클 수 없습니다.", [
+        { field: "careerMinYears", reason: "GREATER_THAN_MAX" },
+      ]);
+    }
   }
 
   async uploadJobDescriptionImage(
@@ -168,6 +178,11 @@ export class CompanyRecruitingService {
         { field: "startsOn", reason: "AFTER_ENDS_ON" },
       ]);
     }
+    // 부분 수정 시 한쪽 값만 오면 기존 공고 값과 조합한 effective range 로 검증한다.
+    this.assertCareerRange(
+      dto.careerMinYears ?? posting.careerMinYears,
+      dto.careerMaxYears ?? posting.careerMaxYears,
+    );
 
     const updated = await this.repository.updatePosting(recruitmentId, companyId, {
       title: dto.title.trim(),

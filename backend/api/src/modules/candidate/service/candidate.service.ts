@@ -886,6 +886,14 @@ export class CandidateService {
       ]);
     }
 
+    const careerMinYears = this.toOptionalIntQueryValue(requestBody.careerMinYears);
+    const careerMaxYears = this.toOptionalIntQueryValue(requestBody.careerMaxYears);
+    if (careerMinYears !== undefined && careerMaxYears !== undefined && careerMinYears > careerMaxYears) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "경력 범위를 확인해주세요.", 400, [
+        { field: "careerMinYears", reason: "careerMinYears must be less than or equal to careerMaxYears" },
+      ]);
+    }
+
     return {
       page,
       limit,
@@ -895,8 +903,8 @@ export class CandidateService {
       jobGroup: this.toOptionalQueryString(requestBody.jobGroup),
       location: this.toOptionalQueryString(requestBody.location),
       careerLevel: this.toOptionalQueryString(requestBody.careerLevel),
-      careerMinYears: this.toOptionalIntQueryValue(requestBody.careerMinYears),
-      careerMaxYears: this.toOptionalIntQueryValue(requestBody.careerMaxYears),
+      careerMinYears,
+      careerMaxYears,
       recruitmentType: this.toOptionalQueryString(requestBody.recruitmentType as string | null | undefined),
       postingStatus: requestBody.postingStatus ?? undefined,
       sort,

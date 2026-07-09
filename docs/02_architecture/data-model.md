@@ -151,6 +151,12 @@ local/dev/test QA 지급은 결제와 분리해 `DEV_GRANT`로만 기록한다.
 | salary_info | VARCHAR(150) | 선택 입력 급여 정보. 예: 회사 내규에 따름, 연봉 4,000만원 이상 |
 | work_location | VARCHAR(150) | 선택 입력 근무지역. 예: 서울, 판교, 원격 |
 | employment_type | VARCHAR(150) | 선택 입력 근무형태. 예: 정규직, 계약직, 인턴 |
+| job_role_code | VARCHAR(50) | 지원자 필터용 직무 분류 코드. `PostingJobRoleCode` taxonomy 값(한글). 미분류면 NULL |
+| region_code | VARCHAR(30) | 지원자 필터용 근무 지역 코드. `PostingRegionCode` taxonomy 값(한글). 미분류면 NULL |
+| career_min_years | INTEGER | 지원자 필터용 요구 경력 최소(년). 0~10. 경력무관이면 NULL |
+| career_max_years | INTEGER | 지원자 필터용 요구 경력 최대(년). 0~10. career_min_years 이상 |
+| employment_type_code | VARCHAR(20) | 지원자 필터용 근무형태 코드. `PostingEmploymentTypeCode` taxonomy 값. 미분류면 NULL |
+| recruitment_type | VARCHAR(20) | 지원자 필터용 채용형태 코드. `PostingRecruitmentType`(상시/마감형). 미분류면 NULL |
 | starts_on | DATE | 지원 시작일 |
 | ends_on | DATE | 지원 마감일 |
 | status | VARCHAR(30) NOT NULL | 공고 상태: DRAFT, OPEN, CLOSING_SOON, CLOSED, ARCHIVED |

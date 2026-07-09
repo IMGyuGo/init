@@ -205,6 +205,11 @@ async function run() {
   );
 
   await assert.rejects(
+    () => service.listJobs({ page: 1, limit: 20, careerMinYears: 5, careerMaxYears: 2, sort: "createdAt", order: "desc" }),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
+  );
+
+  await assert.rejects(
     () => service.listJobs({ page: 1, limit: 101, sort: "createdAt", order: "desc" }),
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
   );
