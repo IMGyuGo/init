@@ -300,6 +300,15 @@ async function runReportControllerAssertions() {
   assert.equal(applicationStatus.data.reportStatus, "PENDING");
   assert.equal(applicationStatus.data.reportAvailable, false);
 
+  await repository.updateApplicationReportStatus(submitted.application.applicationId, "GENERATING");
+  const generatingApplicationStatus = await controller.getApplicationStatus(
+    validCandidateRequest,
+    String(submitted.application.applicationId),
+  );
+  assert.equal(generatingApplicationStatus.data.reportStatus, "GENERATING");
+  assert.equal(generatingApplicationStatus.data.reportAvailable, false);
+  await repository.updateApplicationReportStatus(submitted.application.applicationId, "PENDING");
+
   const applicationReport = await controller.getApplicationReport(
     validCandidateRequest,
     String(submitted.application.applicationId),
