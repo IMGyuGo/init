@@ -55,6 +55,7 @@ import {
   shouldEnableManualInterviewRecording,
   shouldOpenRealtimeMicrophoneForRecordingStart,
   shouldRunInterviewRuntimeCountdown,
+  shouldShowPaymentDevTools,
   trimInterviewerSessionEvents,
   getInterviewMediaFileExtension,
   getMockInterviewDeviceCheckHref,
@@ -128,6 +129,7 @@ const cameralessTestDeviceCheckState = createCameralessInterviewTestDeviceCheckS
 const cameralessTestDeviceCheckRequest: InterviewDeviceCheckRequest = toDeviceCheckRequest(
   cameralessTestDeviceCheckState,
 );
+assert.equal(shouldShowPaymentDevTools({ nodeEnv: "production" }), true);
 assert.deepEqual(cameralessTestDeviceCheckRequest, {
   cameraGranted: true,
   microphoneGranted: true,
