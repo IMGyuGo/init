@@ -158,6 +158,24 @@ async function run() {
   assert.equal(allJobs.data.items.some((job) => job.postingStatus === "CLOSED"), false);
   assert.equal(allJobs.data.items.some((job) => job.jobId === 4), false);
 
+  const closedPostingRepository = new InMemoryCandidateRepository();
+  const closedPostingService = new CandidateService(closedPostingRepository);
+  const closedPostingApplication = await closedPostingRepository.createApplication({
+    postingId: 3,
+    candidateId: currentUser.candidateId,
+    resumeFileId: 100,
+    consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
+  });
+  const closedPostingApplications = await closedPostingService.listApplications(currentUser);
+  assert.equal(closedPostingApplications.data.items[0]?.postingId, 3);
+  assert.equal(closedPostingApplications.data.items[0]?.jobTitle, "Closed Frontend Developer");
+  const closedPostingReportContext = await closedPostingService.getOwnedApplicationReportContext(
+    closedPostingApplication.application.applicationId,
+    currentUser,
+  );
+  assert.equal(closedPostingReportContext.job.postingStatus, "CLOSED");
+  assert.equal(closedPostingReportContext.job.title, "Closed Frontend Developer");
+
   const httpQueryJobs = await service.listJobs({
     page: "1",
     limit: "20",

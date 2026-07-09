@@ -207,7 +207,7 @@ type ApplicationReportData = {
 
 function shouldAutoRequestApplicationReport(data?: ApplicationReportData): boolean {
   const status = data?.status;
-  if (!status || data?.report) {
+  if (!status) {
     return false;
   }
 
@@ -221,7 +221,8 @@ function shouldAutoRequestApplicationReport(data?: ApplicationReportData): boole
     return false;
   }
 
-  return status.reportStatus !== "GENERATING" && status.reportStatus !== "COMPLETED";
+  const reportStatus = data.report?.status ?? status.reportStatus;
+  return reportStatus !== "GENERATING" && reportStatus !== "COMPLETED";
 }
 
 type LastSavedAnswer = {

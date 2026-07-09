@@ -233,7 +233,7 @@ export class InMemoryCompanyInterviewRepository
 
   async listQuestions(postingId: number): Promise<QuestionRecord[]> {
     return this.questions
-      .filter((question) => question.postingId === postingId && question.isActive)
+      .filter((question) => question.postingId === postingId && question.isActive && question.questionType !== 'FOLLOW_UP')
       .sort((a, b) => a.questionId - b.questionId);
   }
 
