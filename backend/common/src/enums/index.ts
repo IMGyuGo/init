@@ -71,3 +71,54 @@ export type EmbeddingSourceType = (typeof EMBEDDING_SOURCE_TYPES)[number];
 
 export const isUserType = (value: unknown): value is UserType =>
   typeof value === "string" && USER_TYPES.includes(value as UserType);
+
+// 공고 필터용 구조화 taxonomy(한글 라벨 코드). 공고 생성/지원자 필터가 공유한다.
+export const POSTING_JOB_ROLE_CODES = [
+  "서버·백엔드",
+  "프론트엔드",
+  "웹풀스택",
+  "안드로이드",
+  "iOS",
+  "크로스플랫폼",
+  "DevOps·SRE",
+  "데이터 엔지니어",
+  "AI·ML",
+  "QA·테스트",
+  "시스템·네트워크",
+  "보안",
+  "블록체인",
+  "개발 PM",
+  "기타 IT·개발",
+] as const;
+export type PostingJobRoleCode = (typeof POSTING_JOB_ROLE_CODES)[number];
+
+export const POSTING_REGION_CODES = [
+  "서울",
+  "경기",
+  "인천",
+  "부산",
+  "대구",
+  "광주",
+  "대전",
+  "울산",
+  "세종",
+  "강원",
+  "경남",
+  "경북",
+  "전남",
+  "전북",
+  "충남",
+  "충북",
+  "제주",
+  "해외",
+] as const;
+export type PostingRegionCode = (typeof POSTING_REGION_CODES)[number];
+
+export const POSTING_EMPLOYMENT_TYPE_CODES = ["정규직", "계약직", "인턴", "프리랜서"] as const;
+export type PostingEmploymentTypeCode = (typeof POSTING_EMPLOYMENT_TYPE_CODES)[number];
+
+export const POSTING_RECRUITMENT_TYPES = ["상시", "마감형"] as const;
+export type PostingRecruitmentType = (typeof POSTING_RECRUITMENT_TYPES)[number];
+
+// 경력 필터 상한(년). 프론트 슬라이더와 동일하게 유지한다.
+export const POSTING_CAREER_MAX_YEARS = 10;

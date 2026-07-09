@@ -433,7 +433,7 @@ export const allowedInterviewMediaMimeTypes: RuntimeFileAssetRequest["mimeType"]
 
 export const defaultCandidateJobQuery: CandidateJobQuery = {
   page: 1,
-  limit: 20,
+  limit: 9,
   sort: "createdAt",
   order: "desc",
 };

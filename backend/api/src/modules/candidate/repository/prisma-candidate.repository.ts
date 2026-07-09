@@ -375,11 +375,17 @@ export class PrismaCandidateRepository implements CandidateRepository {
       jobGroup: posting.jobRole,
       jobRole: posting.jobRole,
       jobDescription: posting.jobDescription ?? "",
-      location: "협의",
-      careerLevel: "경력무관",
-      employmentType: "정규직",
-      techStacks: [],
+      location: posting.regionCode ?? posting.workLocation ?? "협의",
+      careerLevel: formatCareerLevel(posting.careerMinYears, posting.careerMaxYears),
+      employmentType: posting.employmentTypeCode ?? posting.employmentType ?? "정규직",
+      techStacks: parseStructuredTags(posting.jobDescription),
       postingStatus: posting.status,
+      jobRoleCode: posting.jobRoleCode,
+      regionCode: posting.regionCode,
+      careerMinYears: posting.careerMinYears,
+      careerMaxYears: posting.careerMaxYears,
+      employmentTypeCode: posting.employmentTypeCode,
+      recruitmentType: posting.recruitmentType,
       startsOn: this.toDateOnly(startsOn),
       endsOn: this.toDateOnly(endsOn),
       createdAt: posting.createdAt.toISOString(),
@@ -487,4 +493,38 @@ function buildDefaultS3PublicBaseUrl() {
 
 function encodeStorageKeyPath(storageKey: string) {
   return storageKey.split("/").map(encodeURIComponent).join("/");
+}
+
+// 경력 range(년)를 지원자 표시용 한글 라벨로 변환한다.
+function formatCareerLevel(minYears: number | null, maxYears: number | null): string {
+  if (minYears == null && maxYears == null) return "경력무관";
+  const min = minYears ?? 0;
+  const max = maxYears ?? 10;
+  if (min <= 0 && max >= 10) return "경력무관";
+  if (min <= 0 && max === 0) return "신입";
+  const maxText = max >= 10 ? "10년 이상" : `${max}년`;
+  if (min <= 0) return `신입~${maxText}`;
+  if (min === max) return `${min}년`;
+  return `${min}~${maxText}`;
+}
+
+// 공고 JD(구조화 HTML)에 저장된 태그를 추출한다. 프론트 composeStructuredJobDescription 인코딩과 대응.
+function parseStructuredTags(jobDescription: string | null): string[] {
+  if (!jobDescription) return [];
+  const matches = jobDescription.matchAll(/data-init-structured-tag="([^"]*)"/gi);
+  const tags: string[] = [];
+  for (const match of matches) {
+    const value = decodeHtmlAttribute(match[1]).trim();
+    if (value && !tags.includes(value)) tags.push(value);
+  }
+  return tags;
+}
+
+function decodeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
 }
