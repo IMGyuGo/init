@@ -29,6 +29,33 @@ function schemaRows(input: { postingColumns?: string[]; companyColumns?: string[
   ];
 }
 
+function postingRow(input: Partial<Record<string, unknown>> = {}) {
+  return {
+    postingId: 101n,
+    companyId: 7n,
+    postingStatus: "OPEN",
+    startsOn: new Date("2026-07-01T00:00:00.000Z"),
+    endsOn: new Date("2026-07-31T00:00:00.000Z"),
+    createdAt: new Date("2026-07-01T00:00:00.000Z"),
+    title: "Backend Developer",
+    jobRole: "Backend",
+    jobDescription: "NestJS API",
+    workLocation: "Seoul",
+    employmentType: "Full-time",
+    jobRoleCode: "Backend",
+    regionCode: "Seoul",
+    careerMinYears: 1,
+    careerMaxYears: 3,
+    employmentTypeCode: "Full-time",
+    recruitmentType: "Deadline",
+    companyName: "Init Labs",
+    companyIndustry: "SaaS",
+    companyProfile: "AI recruiting workflow",
+    companyLogoStorageKey: null,
+    ...input,
+  };
+}
+
 describe("PrismaCandidateRepository", () => {
   it("queries only candidate-visible postings from the shared postings table", async () => {
     const calls: Array<{ sql: string; params: unknown[] }> = [];
@@ -50,6 +77,36 @@ describe("PrismaCandidateRepository", () => {
     assert.match(listQuery.sql, /NULL::integer AS "careerMinYears"/);
     assert.doesNotMatch(listQuery.sql, /career_requirement/);
     assert.deepEqual(listQuery.params, []);
+  });
+
+  it("finds a posting by id without candidate-visible status filtering", async () => {
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
+    const prisma = {
+      async $queryRawUnsafe(sql: string, ...params: unknown[]) {
+        calls.push({ sql, params });
+        if (sql.includes("information_schema.columns")) {
+          return schemaRows();
+        }
+        return [
+          postingRow({
+            postingId: 303n,
+            postingStatus: "CLOSED",
+            title: "Closed Backend Developer",
+          }),
+        ];
+      },
+    };
+    const repository = new PrismaCandidateRepository(prisma as never);
+
+    const job = await repository.findJob(303);
+
+    const detailQuery = calls[1];
+    assert.ok(detailQuery);
+    assert.match(detailQuery.sql, /p\."posting_id" = \$1/);
+    assert.doesNotMatch(detailQuery.sql, /p\."status" IN \('OPEN', 'CLOSING_SOON'\)/);
+    assert.deepEqual(detailQuery.params, [303n]);
+    assert.equal(job?.postingStatus, "CLOSED");
+    assert.equal(job?.title, "Closed Backend Developer");
   });
 
   it("maps company logo file storage key to a public candidate job logo URL", async () => {

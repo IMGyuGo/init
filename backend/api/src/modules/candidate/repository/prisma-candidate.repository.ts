@@ -72,7 +72,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
   }
 
   async findJob(jobId: number): Promise<CandidateJob | undefined> {
-    const postings = await this.findCandidatePostingRows({ postingId: jobId });
+    const postings = await this.findCandidatePostingRows({ postingId: jobId, visibleOnly: false });
     return postings[0] ? this.toCandidateJob(postings[0]) : undefined;
   }
 
@@ -378,7 +378,9 @@ export class PrismaCandidateRepository implements CandidateRepository {
     };
   }
 
-  private async findCandidatePostingRows(filter: { postingId?: number } = {}): Promise<CandidatePostingRow[]> {
+  private async findCandidatePostingRows(
+    filter: { postingId?: number; visibleOnly?: boolean } = {},
+  ): Promise<CandidatePostingRow[]> {
     const shape = await this.getCandidatePostingSchemaShape();
     const logoJoin = shape.companyColumns.has("logo_file_id")
       ? 'LEFT JOIN "file_assets" fa ON fa."file_id" = c."logo_file_id"'
@@ -386,10 +388,16 @@ export class PrismaCandidateRepository implements CandidateRepository {
     const logoSelect = shape.companyColumns.has("logo_file_id")
       ? 'fa."storage_key" AS "companyLogoStorageKey"'
       : 'NULL::text AS "companyLogoStorageKey"';
-    const where = filter.postingId
-      ? 'p."status" IN (\'OPEN\', \'CLOSING_SOON\') AND p."posting_id" = $1'
-      : 'p."status" IN (\'OPEN\', \'CLOSING_SOON\')';
-    const params = filter.postingId ? [BigInt(filter.postingId)] : [];
+    const params: unknown[] = [];
+    const whereParts: string[] = [];
+    if (filter.visibleOnly ?? true) {
+      whereParts.push('p."status" IN (\'OPEN\', \'CLOSING_SOON\')');
+    }
+    if (filter.postingId) {
+      params.push(BigInt(filter.postingId));
+      whereParts.push(`p."posting_id" = $${params.length}`);
+    }
+    const where = whereParts.length > 0 ? whereParts.join(" AND ") : "TRUE";
 
     return this.prisma.$queryRawUnsafe<CandidatePostingRow[]>(
       `
