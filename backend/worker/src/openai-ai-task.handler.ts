@@ -2,6 +2,7 @@ import { AiResultRepository } from "./ai-result.repository";
 import { createAiProcessUsage } from "./ai-usage";
 import { FollowUpAiProvider } from "./openai-follow-up.provider";
 import { PostingDraftAiProvider, PostingDraftGenerationResult } from "./openai-posting-draft.provider";
+import { QuestionAiProvider, QuestionGenerationResult } from "./openai-question.provider";
 import { ReportAiProvider, ReportGenerationResult } from "./openai-report.provider";
 import { sanitizePostingDraftHtml } from "./posting-draft-html";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
@@ -36,11 +37,17 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     private readonly results: AiResultRepository,
     private readonly followUpProvider: FollowUpAiProvider,
     private readonly reportProvider?: ReportAiProvider,
-    private readonly postingDraftProvider?: PostingDraftAiProvider
+    private readonly postingDraftProvider?: PostingDraftAiProvider,
+    private readonly questionProvider?: QuestionAiProvider
   ) {}
 
   async handle(job: AiWorkerJob): Promise<AiTaskResult> {
-    if (job.processType !== "FOLLOW_UP" && job.processType !== "REPORT_GENERATE" && job.processType !== "POSTING_DRAFT_GENERATE") {
+    if (
+      job.processType !== "FOLLOW_UP" &&
+      job.processType !== "REPORT_GENERATE" &&
+      job.processType !== "POSTING_DRAFT_GENERATE" &&
+      job.processType !== "QUESTION_GENERATE"
+    ) {
       return this.fallback.handle(job);
     }
 
@@ -54,6 +61,10 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
 
     if (job.processType === "REPORT_GENERATE") {
       return this.reportGenerate(job, kind, payload);
+    }
+
+    if (job.processType === "QUESTION_GENERATE") {
+      return this.questionGenerate(job, kind, payload);
     }
 
     return this.followUp(kind, payload);
@@ -146,6 +157,53 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     };
   }
 
+  private async questionGenerate(
+    job: AiWorkerJob,
+    kind: string,
+    payload: Record<string, unknown>
+  ): Promise<AiTaskResult> {
+    if (!this.questionProvider || kind.startsWith("MOCK")) {
+      return this.fallback.handle(job);
+    }
+
+    const postingId = positiveNumber(payload.postingId, "postingId");
+    const questionCount = positiveNumber(payload.questionCount, "questionCount");
+    const generated = await this.questionProvider.generateQuestions({
+      kind,
+      postingId,
+      jobDescription: requiredText(payload.jobDescription, "jobDescription"),
+      questionCount,
+      criteria: criteriaOf(payload.criteria)
+    });
+    const questionCandidates = sanitizeQuestionGenerationResult(generated);
+    const savedDraft = {
+      kind: "RECRUITING_QUESTION_GENERATE",
+      sourceProcessLogId: job.processLogId,
+      items: questionCandidates.map((candidate) => candidate.content),
+      questionCandidates,
+      reviewRequired: true as const,
+      reviewStatus: "PENDING_REVIEW" as const,
+      targetTables: ["question_bank" as const],
+      postingId
+    };
+
+    return {
+      outputRef: JSON.stringify({
+        ...savedDraft,
+        draftSource: "OPENAI_QUESTION_GENERATION",
+        model: generated.model
+      }),
+      guardrail: { result: "PASS", reason: null },
+      usage: createAiProcessUsage({
+        modelName: generated.model,
+        inputTokens: generated.usage?.inputTokens,
+        outputTokens: generated.usage?.outputTokens,
+        metadata: { processType: "QUESTION_GENERATE" }
+      }),
+      finalSave: () => this.results.saveGeneratedDraft(savedDraft)
+    };
+  }
+
   private async reportGenerate(
     job: AiWorkerJob,
     kind: string,
@@ -220,7 +278,7 @@ function reportTypeOf(value: unknown): "RECRUITING_REPORT" | "MOCK_INTERVIEW_REP
   throw new NonRetryableAiWorkerFailure("reportType is invalid");
 }
 
-function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; weight?: number; description?: string }> {
+function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; category?: string; weight?: number; description?: string }> {
   if (!Array.isArray(value) || value.length === 0) {
     throw new NonRetryableAiWorkerFailure("criteria is required");
   }
@@ -233,8 +291,34 @@ function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; 
     return {
       criterionId: positiveNumber(record.criterionId, "criterionId"),
       name: requiredText(record.name, "criterion name"),
+      category: optionalText(record.category),
       description: typeof record.description === "string" ? record.description : undefined,
       weight: Number.isFinite(Number(record.weight)) ? Number(record.weight) : undefined
+    };
+  });
+}
+
+function sanitizeQuestionGenerationResult(generated: QuestionGenerationResult) {
+  if (!Array.isArray(generated.questionCandidates) || generated.questionCandidates.length === 0) {
+    throw new NonRetryableAiWorkerFailure("question candidates are required");
+  }
+
+  return generated.questionCandidates.map((candidate) => {
+    if (!candidate.criterionId || !candidate.criterionTitle.trim()) {
+      throw new NonRetryableAiWorkerFailure("question candidate criterionId and criterionTitle are required");
+    }
+    if (!candidate.content.trim()) {
+      throw new NonRetryableAiWorkerFailure(`question candidate content is required for criterion ${candidate.criterionId}`);
+    }
+    return {
+      content: candidate.content,
+      category: candidate.category,
+      difficulty: candidate.difficulty,
+      criterionId: candidate.criterionId,
+      criterionTitle: candidate.criterionTitle,
+      expectedKeywords: candidate.expectedKeywords,
+      suggestionReason: candidate.suggestionReason,
+      questionType: candidate.questionType
     };
   });
 }

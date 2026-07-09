@@ -69,9 +69,16 @@ export interface CandidateJobQuery {
   limit?: number;
   q?: string;
   jobRole?: string;
+  /** 직무 다중 선택 필터. 백엔드에서 배열(any-of) 매칭 지원 필요(D 협의). */
+  jobRoles?: string[];
   jobGroup?: string;
   location?: string;
   careerLevel?: string;
+  /** 경력 range 필터(년). 백엔드 range 매칭 지원 필요(D 협의). */
+  careerMinYears?: number;
+  careerMaxYears?: number;
+  /** 상시 채용 / 마감형 채용 구분(한글 코드). */
+  recruitmentType?: "상시" | "마감형";
   postingStatus?: CandidateJobListPostingStatus;
   sort?: "createdAt" | "endsOn" | "title";
   order?: SortOrder;
@@ -87,6 +94,7 @@ export interface CandidateJobSummary {
   location: string;
   careerLevel: string;
   employmentType: string;
+  tags: string[];
   postingStatus: PostingStatus;
   startsOn: string;
   endsOn: string;
@@ -1194,16 +1202,22 @@ function fetchWithAuth(input: RequestInfo | URL, init?: RequestInit) {
   return authFetch(input instanceof Request ? input.url : input, init);
 }
 
-type CandidateJobQueryParams = Partial<Record<keyof CandidateJobQuery, string | number | undefined>>;
+type CandidateJobQueryParams = Partial<Record<keyof CandidateJobQuery, string | number | string[] | undefined>>;
 
 function toUrl(baseUrl: string | undefined, path: string, query?: CandidateJobQueryParams): string {
   const url = `${baseUrl ?? ""}${path}`;
   const params = new URLSearchParams();
 
   Object.entries(query ?? {}).forEach(([key, value]) => {
-    if (value !== undefined && value !== "") {
-      params.set(key, String(value));
+    if (value === undefined || value === "") return;
+    if (Array.isArray(value)) {
+      // 다중 선택 필터는 key 를 반복 노출(jobRoles=a&jobRoles=b). 백엔드 any-of 매칭 필요.
+      value.forEach((item) => {
+        if (item !== "") params.append(key, String(item));
+      });
+      return;
     }
+    params.set(key, String(value));
   });
 
   const suffix = params.toString();

@@ -20,6 +20,16 @@ import type {
   RecruitmentRecord,
 } from "../company-recruiting.types";
 
+// update 시 값이 없는 필드는 prisma 에서 건드리지 않도록 undefined 를 허용한다(발행 등 부분 수정에서 기존 값 보존).
+export type PostingFilterFields = {
+  jobRoleCode?: string | null;
+  regionCode?: string | null;
+  careerMinYears?: number | null;
+  careerMaxYears?: number | null;
+  employmentTypeCode?: string | null;
+  recruitmentType?: string | null;
+};
+
 export type CreatePostingInput = {
   companyId: number;
   title: string;
@@ -33,7 +43,7 @@ export type CreatePostingInput = {
   startsOn: Date | null;
   endsOn: Date | null;
   status: PostingStatus;
-};
+} & PostingFilterFields;
 
 export type UpdatePostingInput = {
   title: string;
@@ -47,7 +57,7 @@ export type UpdatePostingInput = {
   startsOn: Date | null;
   endsOn: Date | null;
   status: PostingStatus;
-};
+} & PostingFilterFields;
 
 export type CreateCandidateInput = {
   name: string;
@@ -555,6 +565,12 @@ function mapPosting(posting: Prisma.PostingGetPayload<{ include: { _count: { sel
     salaryInfo: posting.salaryInfo,
     workLocation: posting.workLocation,
     employmentType: posting.employmentType,
+    jobRoleCode: posting.jobRoleCode,
+    regionCode: posting.regionCode,
+    careerMinYears: posting.careerMinYears,
+    careerMaxYears: posting.careerMaxYears,
+    employmentTypeCode: posting.employmentTypeCode,
+    recruitmentType: posting.recruitmentType,
     startsOn: posting.startsOn,
     endsOn: posting.endsOn,
     status: posting.status,
@@ -575,6 +591,12 @@ function mapPublicPosting(posting: Prisma.PostingGetPayload<{ include: { company
     salaryInfo: posting.salaryInfo,
     workLocation: posting.workLocation,
     employmentType: posting.employmentType,
+    jobRoleCode: posting.jobRoleCode,
+    regionCode: posting.regionCode,
+    careerMinYears: posting.careerMinYears,
+    careerMaxYears: posting.careerMaxYears,
+    employmentTypeCode: posting.employmentTypeCode,
+    recruitmentType: posting.recruitmentType,
     startsOn: posting.startsOn,
     endsOn: posting.endsOn,
     status: posting.status,

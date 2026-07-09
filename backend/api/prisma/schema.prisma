@@ -239,6 +239,13 @@ model Posting {
   salaryInfo           String?                @map("salary_info") @db.VarChar(150)
   workLocation         String?                @map("work_location") @db.VarChar(150)
   employmentType       String?                @map("employment_type") @db.VarChar(150)
+  // 지원자 필터용 구조화 필드(한글 라벨 코드). 값 검증은 애플리케이션단(IsIn)에서 수행.
+  jobRoleCode          String?                @map("job_role_code") @db.VarChar(50)
+  regionCode           String?                @map("region_code") @db.VarChar(30)
+  careerMinYears       Int?                   @map("career_min_years")
+  careerMaxYears       Int?                   @map("career_max_years")
+  employmentTypeCode   String?                @map("employment_type_code") @db.VarChar(20)
+  recruitmentType      String?                @map("recruitment_type") @db.VarChar(20)
   startsOn             DateTime?              @map("starts_on") @db.Date
   endsOn               DateTime?              @map("ends_on") @db.Date
   status               PostingStatus          @default(DRAFT)

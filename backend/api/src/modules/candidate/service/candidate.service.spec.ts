@@ -158,6 +158,24 @@ async function run() {
   assert.equal(allJobs.data.items.some((job) => job.postingStatus === "CLOSED"), false);
   assert.equal(allJobs.data.items.some((job) => job.jobId === 4), false);
 
+  const closedPostingRepository = new InMemoryCandidateRepository();
+  const closedPostingService = new CandidateService(closedPostingRepository);
+  const closedPostingApplication = await closedPostingRepository.createApplication({
+    postingId: 3,
+    candidateId: currentUser.candidateId,
+    resumeFileId: 100,
+    consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
+  });
+  const closedPostingApplications = await closedPostingService.listApplications(currentUser);
+  assert.equal(closedPostingApplications.data.items[0]?.postingId, 3);
+  assert.equal(closedPostingApplications.data.items[0]?.jobTitle, "Closed Frontend Developer");
+  const closedPostingReportContext = await closedPostingService.getOwnedApplicationReportContext(
+    closedPostingApplication.application.applicationId,
+    currentUser,
+  );
+  assert.equal(closedPostingReportContext.job.postingStatus, "CLOSED");
+  assert.equal(closedPostingReportContext.job.title, "Closed Frontend Developer");
+
   const httpQueryJobs = await service.listJobs({
     page: "1",
     limit: "20",
@@ -179,8 +197,9 @@ async function run() {
     limit: 20,
     q: "android",
     jobGroup: "Engineering",
-    location: "Pangyo",
-    careerLevel: "Entry",
+    location: "경기",
+    careerMinYears: 0,
+    careerMaxYears: 1,
     postingStatus: "CLOSING_SOON",
     sort: "endsOn",
     order: "asc",
@@ -188,8 +207,23 @@ async function run() {
   assert.equal(filteredJobs.data.items.length, 1);
   assert.equal(filteredJobs.data.items[0]?.jobId, 2);
 
+  const jobRolesFiltered = await service.listJobs({
+    page: 1,
+    limit: 20,
+    jobRoles: ["안드로이드", "프론트엔드"],
+    sort: "createdAt",
+    order: "desc",
+  });
+  assert.equal(jobRolesFiltered.data.items.length, 1);
+  assert.equal(jobRolesFiltered.data.items[0]?.jobId, 2);
+
   await assert.rejects(
     () => service.listJobs({ page: 0, limit: 20, sort: "createdAt", order: "desc" }),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
+  );
+
+  await assert.rejects(
+    () => service.listJobs({ page: 1, limit: 20, careerMinYears: 5, careerMaxYears: 2, sort: "createdAt", order: "desc" }),
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
   );
 

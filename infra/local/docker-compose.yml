@@ -36,11 +36,14 @@ services:
     image: localstack/localstack:3
     depends_on:
       - localstack
+    environment:
+      AWS_DEFAULT_REGION: ap-northeast-2
+      AWS_REGION: ap-northeast-2
     entrypoint: >
       /bin/sh -c '
-        until awslocal --endpoint-url=http://localstack:4566 sqs list-queues >/dev/null 2>&1; do sleep 2; done;
-        awslocal --endpoint-url=http://localstack:4566 sqs create-queue --queue-name init-ai-jobs >/dev/null;
-        awslocal --endpoint-url=http://localstack:4566 s3 mb s3://init-local-assets >/dev/null 2>&1 || true;
+        until awslocal --endpoint-url=http://localstack:4566 --region ap-northeast-2 sqs list-queues >/dev/null 2>&1; do sleep 2; done;
+        awslocal --endpoint-url=http://localstack:4566 --region ap-northeast-2 sqs create-queue --queue-name init-ai-jobs >/dev/null;
+        awslocal --endpoint-url=http://localstack:4566 --region ap-northeast-2 s3 mb s3://init-local-assets >/dev/null 2>&1 || true;
       '
 
 volumes:

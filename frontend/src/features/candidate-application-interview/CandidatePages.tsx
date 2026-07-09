@@ -119,6 +119,7 @@ import {
   shouldEnableManualInterviewRecording,
   shouldOpenRealtimeMicrophoneForRecordingStart,
   shouldRunInterviewRuntimeCountdown,
+  shouldShowPaymentDevTools,
   shouldShowInterviewDeviceSetup,
   trimInterviewerSessionEvents,
   toDeviceCheckRequest,
@@ -137,7 +138,7 @@ const AI_INTERVIEWER_SESSION_MODE_POLICY = resolveInterviewerSessionMode({
   realtimeVoiceEnabled: process.env.NEXT_PUBLIC_AI_INTERVIEWER_REALTIME_ENABLED === "true",
   avatarStreamEnabled: process.env.NEXT_PUBLIC_AI_INTERVIEWER_AVATAR_STREAM_ENABLED === "true",
 });
-const SHOW_PAYMENT_DEV_TOOLS = process.env.NODE_ENV !== "production";
+const SHOW_PAYMENT_DEV_TOOLS = shouldShowPaymentDevTools({ nodeEnv: process.env.NODE_ENV });
 // DEV-ONLY camera bypass: remove this flag, storage helpers, and matching buttons together when it is no longer needed.
 const ENABLE_CAMERALESS_INTERVIEW_TEST_ENTRY = process.env.NODE_ENV !== "production";
 const CAMERALESS_INTERVIEW_TEST_ENTRY_STORAGE_KEY_PREFIX = "init.cameralessInterviewTestEntry";
@@ -351,7 +352,7 @@ type ApplicationReportData = {
 
 function shouldAutoRequestApplicationReport(data?: ApplicationReportData): boolean {
   const status = data?.status;
-  if (!status || data?.report) {
+  if (!status) {
     return false;
   }
 
@@ -365,7 +366,8 @@ function shouldAutoRequestApplicationReport(data?: ApplicationReportData): boole
     return false;
   }
 
-  return status.reportStatus !== "GENERATING" && status.reportStatus !== "COMPLETED";
+  const reportStatus = data.report?.status ?? status.reportStatus;
+  return reportStatus !== "GENERATING" && reportStatus !== "COMPLETED";
 }
 
 type LastSavedAnswer = {
@@ -523,6 +525,7 @@ export function CandidateJobsPage() {
           jobs={data?.data.items ?? []}
           query={query}
           totalItems={data?.meta.page.totalItems ?? 0}
+          pageMeta={data?.meta.page}
           onQueryChange={setQuery}
         />
       </section>

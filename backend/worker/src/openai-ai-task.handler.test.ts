@@ -5,6 +5,7 @@ import { MockAiTaskHandler } from "./mock-ai-task.handler";
 import { OpenAiAiTaskHandler } from "./openai-ai-task.handler";
 import { FollowUpAiProvider } from "./openai-follow-up.provider";
 import { PostingDraftAiProvider, PostingDraftGenerationInput } from "./openai-posting-draft.provider";
+import { QuestionAiProvider } from "./openai-question.provider";
 import { ReportAiProvider, ReportGenerationInput } from "./openai-report.provider";
 import { InMemoryAiProcessLogRepository } from "./process-log.repository";
 import { InMemoryAiJobQueue } from "./queue";
@@ -177,6 +178,132 @@ test("OpenAiAiTaskHandler stores recruiting report provider notes as company rev
   assert.equal(output.reportReviewNote, "추가 면접에서는 실제 운영 장애 대응 범위를 확인하는 것이 좋습니다.");
   assert.match(report?.summary ?? "", /기업 검토 포인트/);
   assert.doesNotMatch(report?.summary ?? "", /다음 연습 피드백/);
+});
+
+test("OpenAiAiTaskHandler uses provider for recruiting question generation and keeps criterion links", async () => {
+  const results = new InMemoryAiResultRepository();
+  const questionProvider: QuestionAiProvider = {
+    async generateQuestions(input) {
+      const criterion = input.criteria[0]!;
+      return {
+        questionCandidates: [
+          {
+            content: "NestJS API 운영 중 문제를 구조화해 해결한 경험을 설명해주세요?",
+            category: "직무역량",
+            difficulty: "MEDIUM",
+            criterionId: criterion.criterionId,
+            criterionTitle: criterion.name,
+            expectedKeywords: ["상황", "행동", "결과"],
+            suggestionReason: "JD의 NestJS 운영 경험과 문제 해결 기준을 함께 확인합니다.",
+            questionType: "EXPERIENCE"
+          }
+        ],
+        model: "question-model"
+      };
+    }
+  };
+  const handler = new OpenAiAiTaskHandler(
+    new MockAiTaskHandler(results),
+    results,
+    provider,
+    undefined,
+    undefined,
+    questionProvider
+  );
+
+  const handled = await handler.handle({
+    processLogId: 24,
+    processType: "QUESTION_GENERATE",
+    attempt: 1,
+    inputRef: JSON.stringify({
+      kind: "RECRUITING_QUESTION_GENERATE",
+      payload: {
+        postingId: 2,
+        jobDescription: "NestJS API와 PostgreSQL 기반 백엔드 운영 경험을 요구합니다.",
+        questionCount: 1,
+        criteria: [
+          {
+            criterionId: 1,
+            name: "문제 해결력",
+            category: "직무역량",
+            weight: 40
+          }
+        ]
+      }
+    })
+  });
+
+  await handled.finalSave?.();
+  const output = JSON.parse(handled.outputRef ?? "{}") as {
+    draftSource?: string;
+    model?: string;
+    questionCandidates?: Array<{ criterionId?: number; criterionTitle?: string; category?: string }>;
+  };
+
+  assert.equal(output.draftSource, "OPENAI_QUESTION_GENERATION");
+  assert.equal(output.model, "question-model");
+  assert.equal(output.questionCandidates?.[0]?.criterionId, 1);
+  assert.equal(output.questionCandidates?.[0]?.criterionTitle, "문제 해결력");
+  assert.equal(output.questionCandidates?.[0]?.category, "직무역량");
+  assert.equal(results.generatedDrafts[0]?.questionCandidates?.[0]?.criterionId, 1);
+  assert.equal(handled.guardrail?.result, "PASS");
+});
+
+test("OpenAiAiTaskHandler rejects provider question candidates without criterionId", async () => {
+  const results = new InMemoryAiResultRepository();
+  const questionProvider: QuestionAiProvider = {
+    async generateQuestions() {
+      return {
+        questionCandidates: [
+          {
+            content: "기준 없는 질문입니다?",
+            category: "직무역량",
+            difficulty: "MEDIUM",
+            criterionId: 0,
+            criterionTitle: "",
+            expectedKeywords: [],
+            suggestionReason: "invalid"
+          }
+        ],
+        model: "question-model"
+      };
+    }
+  };
+  const handler = new OpenAiAiTaskHandler(
+    new MockAiTaskHandler(results),
+    results,
+    provider,
+    undefined,
+    undefined,
+    questionProvider
+  );
+
+  await assert.rejects(
+    () =>
+      handler.handle({
+        processLogId: 25,
+        processType: "QUESTION_GENERATE",
+        attempt: 1,
+        inputRef: JSON.stringify({
+          kind: "RECRUITING_QUESTION_GENERATE",
+          payload: {
+            postingId: 2,
+            jobDescription: "NestJS API와 PostgreSQL 기반 백엔드 운영 경험을 요구합니다.",
+            questionCount: 1,
+            criteria: [
+              {
+                criterionId: 1,
+                name: "문제 해결력",
+                category: "직무역량",
+                weight: 40
+              }
+            ]
+          }
+        })
+      }),
+    /question candidate criterionId and criterionTitle are required/
+  );
+  assert.equal(results.generatedDrafts.length, 0);
 });
 
 test("OpenAiAiTaskHandler leaves report pipeline steps on the fallback handler", async () => {

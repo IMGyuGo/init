@@ -62,13 +62,13 @@
 - Rule: first access lazily grants the initial free 3 passes with a 30-day expiry.
 - Response data: `{ "availablePasses": 3, "grantedPasses": 3, "usedPasses": 0, "freeExpiresAt": "..." }`
 
-### API-PAY-007 Grant Development Mock Interview Passes
+### API-PAY-007 Grant Test Mock Interview Passes
 
 - Method: `POST`
 - Path: `/payments/candidate/mock-interview-passes/dev-grant`
 - Auth: candidate user
 - Request: `{ "passAmount": 5 }`
-- Rule: local/dev/test only. Production rejects this API regardless of request body. The backend can disable it in non-production with `PAYMENT_DEV_PASS_GRANT_ENABLED=false`.
+- Rule: grants test mock interview passes in deployed demo/QA as well as local/dev/test. The backend can disable it with `PAYMENT_DEV_PASS_GRANT_ENABLED=false`.
 - Response data: updated candidate mock interview pass summary. Ledger source is `DEV_GRANT`, not `PURCHASE`.
 
 > Source: `init/docs/00_source` 기준. Generated at 2026-06-27.
@@ -516,20 +516,24 @@ AI 리포트 금지 기준:
 - 요청 데이터:
   - title, jobRole, jobDescription, startsOn, endsOn, status
   - careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType
+  - 지원자 필터용 구조화 필드: jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType
   - `jobDescription`은 Tiptap 기반 rich text HTML 문자열을 저장할 수 있다.
   - careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType은 선택 입력 항목이며 모두 optional이다.
+  - jobRoleCode/regionCode/employmentTypeCode/recruitmentType은 선택 입력이며 각각 `PostingJobRoleCode`/`PostingRegionCode`/`PostingEmploymentTypeCode`/`PostingRecruitmentType` taxonomy 값만 허용한다(enums.md 참고).
+  - careerMinYears, careerMaxYears는 선택 입력 정수이며 0 이상 `POSTING_CAREER_MAX_YEARS`(=10) 이하다.
 - 검증/전제조건:
   - `CurrentUser.userType=COMPANY`이고 `CurrentUser.companyId`가 존재해야 한다.
   - 공고는 항상 `CurrentUser.companyId`의 회사에 생성한다.
   - title, jobRole은 필수다.
   - startsOn과 endsOn이 함께 있으면 startsOn은 endsOn보다 늦을 수 없다.
+  - careerMinYears와 careerMaxYears가 둘 다 있으면 careerMinYears는 careerMaxYears보다 클 수 없다.
   - status는 MVP 생성 흐름에서 `DRAFT` 또는 `OPEN`만 허용한다.
 - 성공 응답/처리:
   - 생성된 공고 상세 데이터를 `{ data, meta }` envelope로 반환한다.
-  - 선택 입력 항목이 저장된 경우 응답에 careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType을 포함한다.
+  - 선택 입력 항목이 저장된 경우 응답에 careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType과 jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType을 포함한다.
   - `OPEN` 공고만 지원자용 공개 공고 조회 대상이 된다.
 - 오류/예외:
-  - 필수값 누락 또는 날짜 오류는 `COMMON_VALIDATION_FAILED`를 반환한다.
+  - 필수값 누락, 날짜 오류, careerMinYears > careerMaxYears 역전은 `COMMON_VALIDATION_FAILED`를 반환한다.
   - 기업 권한이 아니거나 자기 회사 컨텍스트가 없으면 `COMMON_FORBIDDEN`을 반환한다.
 - 관련 ERD 테이블:
   - companies, postings
@@ -655,21 +659,24 @@ AI 리포트 금지 기준:
 - 요청 데이터:
   - title, jobRole, jobDescription, startsOn, endsOn, status
   - careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType
+  - 지원자 필터용 구조화 필드: jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType (create와 동일 규칙)
   - `jobDescription`은 Tiptap 기반 rich text HTML 문자열을 저장할 수 있다.
   - careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType은 선택 입력 항목이며 모두 optional이다.
+  - 구조화 필터 필드는 전달된 값만 갱신하며, 요청 본문에 없으면 기존 값을 유지한다(발행 등 부분 수정 시 덮어쓰지 않는다).
 - 검증/전제조건:
   - `CurrentUser.userType=COMPANY`이고 `CurrentUser.companyId`가 존재해야 한다.
   - 수정 대상 공고는 로그인 기업 소유여야 한다.
   - title, jobRole은 필수다.
   - startsOn과 endsOn이 함께 있으면 startsOn은 endsOn보다 늦을 수 없다.
+  - careerMinYears와 careerMaxYears가 둘 다 있으면 careerMinYears는 careerMaxYears보다 클 수 없다.
   - status는 MVP 설정 흐름에서 `DRAFT` 또는 `OPEN`만 허용한다.
   - JD 이미지 파일 업로드는 `API-086`에서 처리하고, 이 API는 `jobDescription` rich text HTML 문자열만 저장한다.
 - 성공 응답/처리:
   - 수정된 공고 상세 데이터를 `{ data, meta }` envelope로 반환한다.
-  - 선택 입력 항목이 저장된 경우 응답에 careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType을 포함한다.
+  - 선택 입력 항목이 저장된 경우 응답에 careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType과 jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType을 포함한다.
   - 설정 저장 후 프론트는 공고 대시보드로 이동한다.
 - 오류/예외:
-  - 필수값 누락 또는 날짜 오류는 `COMMON_VALIDATION_FAILED`를 반환한다.
+  - 필수값 누락, 날짜 오류, careerMinYears > careerMaxYears 역전은 `COMMON_VALIDATION_FAILED`를 반환한다.
   - 기업 권한이 아니거나 자기 회사 컨텍스트가 없으면 `COMMON_FORBIDDEN`을 반환한다.
   - 자기 회사 공고가 아니거나 공고가 없으면 `COMMON_NOT_FOUND`를 반환한다.
 - 관련 ERD 테이블:
@@ -1754,17 +1761,19 @@ AI 리포트 금지 기준:
 - 상태 코드: 202 Accepted
 - 비동기: Y
 - 요청 데이터:
-  - JD, 직무명세서, 평가 역량
+  - JD, 직무명세서, 저장된 평가 기준
 - 검증/전제조건:
   - 직무명세서 생성 완료
+  - 해당 공고의 평가 기준이 저장되어 있음
 - 성공 응답/처리:
-  - JD 기반 질문 생성 AI job 생성
+  - 저장된 평가 기준과 JD를 기반으로 공통 질문 추천 AI job 생성
 - 오류/예외:
   - 질문 품질 검증 실패 시 재생성 또는 수동 검토를 요청한다.
 - 관련 ERD 테이블:
   - companies, postings, criterion_tags, evaluation_criteria, question_bank, applications, interview_sessions, manual_evaluations, ai_process_logs
 - 비고/미결:
-  - 생성 결과는 질문 뱅크 관리 영역에 표시
+  - 생성 결과는 질문 뱅크 관리 영역에 표시한다.
+  - 일반 공통 질문 후보는 가능한 경우 `criterionId`를 포함해 저장된 평가 기준과 직접 연결한다.
 
 #### Contract Baseline
 - Route Owner:
@@ -1775,6 +1784,11 @@ AI 리포트 금지 기준:
   - `postingId`: number, required
   - `jobDescription`: string, required
   - `questionCount`: number, required, 1~
+  - `criteria`: array, required, 1~
+    - `criterionId`: number, required
+    - `name`: string, required
+    - `category?: string`
+    - `weight?: number`
 - Response Body:
   - `processLogId`: number
   - `status`: `PENDING`
@@ -1794,12 +1808,15 @@ AI 리포트 금지 기준:
   - 평가 기준 매칭 실패 시 사용자 화면에는 `연결할 평가 기준 선택 필요`를 표시한다.
   - C 화면 적용 규칙:
     - `criterionId`가 있으면 같은 공고의 평가 기준과 먼저 매칭한다.
+    - 정상 생성된 공통 질문 후보는 가능한 경우 저장된 평가 기준의 `criterionId`를 포함한다.
     - `criterionTitle`이 있으면 평가 기준 이름 또는 카테고리와 매칭한다.
     - 같은 공고의 활성 질문과 내용이 같으면 `저장됨`으로 표시하고 중복 저장하지 않는다.
     - 저장 가능한 후보가 없으면 `저장 가능한 질문 후보가 없습니다` 계열의 안내를 표시한다.
 - Processing:
   - API 서버는 장기 AI 생성을 직접 수행하지 않고 `ai_process_logs` 추적 ID만 반환한다.
-  - worker/SQS 페이로드와 AI 품질 검증은 E/A 리뷰 후 확정한다.
+  - worker/SQS 페이로드는 `criteria[]`를 포함해야 하며, mock/openai provider 모두 질문 후보에 저장된 평가 기준의 `criterionId`를 포함해야 한다.
+  - OpenAI provider 응답에서 입력 `criteria[].criterionId`와 매칭되지 않는 질문 후보는 저장 가능한 후보로 사용하지 않는다.
+  - AI 품질 검증 세부 기준은 E/A 리뷰 후 확장한다.
 - Error Codes:
   - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`, `AI_PROCESS_FAILED`
 
@@ -2506,21 +2523,28 @@ AI 리포트 금지 기준:
 - UI Type: page, section, list
 - 상태 코드: 200 OK
 - 비동기: N
-- 요청 데이터:
-  - 검색어, 직무/직군, 지역, 경력, 고용형태, 기술스택, 채용 상태, 정렬 기준
-  - 공고 ID
+- 요청 데이터(query):
+  - page, limit, q, sort, order
+  - jobRole(단일), jobRoles(다중, 반복 파라미터 `jobRoles=a&jobRoles=b`), jobGroup
+  - location(= regionCode 값), careerLevel
+  - careerMinYears, careerMaxYears (0~`POSTING_CAREER_MAX_YEARS`(10) 정수)
+  - recruitmentType (`PostingRecruitmentType` = `상시`|`마감형`)
+  - postingStatus
+  - 필터 매칭 기준: jobRoles는 공고 `jobRoleCode` any-of, location은 `regionCode` 정확 일치, careerMinYears/careerMaxYears는 공고 경력 range와 겹침(overlap), recruitmentType은 정확 일치. 공고에 해당 구조화 값이 없으면(null) 해당 필터에서 제외된다.
 - 검증/전제조건:
   - 조회 권한 보유
   - 유효한 검색 조건
+  - careerMinYears와 careerMaxYears가 둘 다 있으면 careerMinYears는 careerMaxYears보다 클 수 없다.
   - 공개 상태의 채용공고
 - 성공 응답/처리:
   - 회사/채용공고 목록 표시
   - 검색 결과 갱신
   - 채용공고 리스트 표시
   - 응답 항목에는 `companyLogoUrl`을 포함한다. 회사 로고가 없으면 `null`을 반환한다.
+  - 응답 항목에는 `tags: string[]`를 포함한다. 공고 생성 시 등록한 태그(구조화 JD 태그)이며, 태그가 없으면 빈 배열을 반환한다(카드에서는 태그가 없을 때 직무를 기본 태그로 노출).
 - 오류/예외:
   - 조회 결과가 없으면 빈 상태 안내를 표시한다.
-  - 검색 조건 오류 시 기본 조건으로 조회하거나 안내 메시지를 표시한다.
+  - careerMinYears > careerMaxYears 등 잘못된 검색 조건은 `COMMON_VALIDATION_FAILED`를 반환한다.
   - 공고가 마감되었으면 마감 상태를 표시한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, applications, embeddings

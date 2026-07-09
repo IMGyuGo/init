@@ -352,8 +352,6 @@ export class ReportService {
       session.sessionId,
     );
     const status = this.resolveReportStatus(application.reportStatus, report, process);
-    const scores: CandidateReportScoreView[] = [];
-    const answers: CandidateReportAnswerView[] = [];
 
     const base = {
       applicationId: application.applicationId,
@@ -369,8 +367,8 @@ export class ReportService {
       generatedAt: report?.generatedAt,
       totalScore: undefined,
       summary: undefined,
-      scores,
-      answers,
+      scores: [] as CandidateReportScoreView[],
+      answers: [] as CandidateReportAnswerView[],
       visibilityPolicy: this.recruitingVisibilityPolicy(),
     };
 
@@ -807,9 +805,6 @@ export class ReportService {
     }
     if (process) {
       return "GENERATING";
-    }
-    if (fallback === "GENERATING") {
-      return "PENDING";
     }
     return overriddenStatus ?? fallback;
   }

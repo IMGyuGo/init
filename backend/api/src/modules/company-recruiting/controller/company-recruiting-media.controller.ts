@@ -2,6 +2,7 @@ import { Controller, Get, Headers, Inject, Param, ParseIntPipe, Req, Res } from 
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { CurrentUser } from "@init/common";
 import type { Request, Response } from "express";
+import type { Readable } from "stream";
 
 import { ApiErrorResponses, ApiOperationId } from "../../../swagger/swagger.decorators";
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
@@ -52,7 +53,21 @@ export class CompanyRecruitingMediaController {
       response.end(media.body);
       return;
     }
-    media.body.pipe(response);
+    this.pipeMediaBody(media.body, response);
+  }
+
+  private pipeMediaBody(body: Readable, response: Response): void {
+    body.once("error", (error) => {
+      if (response.headersSent) {
+        response.destroy(error instanceof Error ? error : undefined);
+        return;
+      }
+
+      response.removeHeader("Content-Length");
+      response.removeHeader("Content-Range");
+      response.status(502).end();
+    });
+    body.pipe(response);
   }
 
   private resolveMediaUser(

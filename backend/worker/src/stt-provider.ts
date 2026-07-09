@@ -5,6 +5,7 @@ import {
   ReanswerRequiredAiWorkerFailure,
   SttRetryableAiWorkerFailure
 } from "./worker-errors";
+import { buildS3ClientOptions } from "./s3-client-options";
 
 export interface SttProviderInput {
   audioFileId: number;
@@ -38,18 +39,11 @@ export class OpenAiS3SttProvider implements SttProvider {
   private readonly language: string;
 
   constructor(private readonly options: OpenAiS3SttProviderOptions) {
-    this.s3 = new S3Client({
-      region: options.region,
-      endpoint: options.endpoint,
-      forcePathStyle: Boolean(options.endpoint),
-      credentials:
-        process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
-          ? {
-              accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-              secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
-            }
-          : undefined
-    });
+    this.s3 = new S3Client(buildS3ClientOptions({
+      ...process.env,
+      AWS_REGION: options.region,
+      AWS_ENDPOINT_URL: options.endpoint
+    }));
     this.openai = new OpenAI({ apiKey: options.apiKey, timeout: options.timeoutMs ?? 30_000 });
     this.model = options.model ?? "gpt-4o-mini-transcribe";
     this.language = options.language ?? "ko";

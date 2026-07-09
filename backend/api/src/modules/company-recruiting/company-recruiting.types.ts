@@ -36,6 +36,12 @@ export type RecruitmentRecord = {
   salaryInfo: string | null;
   workLocation: string | null;
   employmentType: string | null;
+  jobRoleCode: string | null;
+  regionCode: string | null;
+  careerMinYears: number | null;
+  careerMaxYears: number | null;
+  employmentTypeCode: string | null;
+  recruitmentType: string | null;
   startsOn: Date | null;
   endsOn: Date | null;
   status: string;

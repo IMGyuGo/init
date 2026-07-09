@@ -123,6 +123,25 @@ describe('CompanyInterviewService', () => {
     );
   });
 
+  it('hides runtime follow-up questions from interview management settings', async () => {
+    const service = createService();
+    await service.createQuestion(companyUser, {
+      postingId: 1,
+      criterionId: 1,
+      questionType: 'FOLLOW_UP',
+      content: 'Which tradeoff did you consider after that answer?',
+    });
+
+    const settings = await service.getSettings(companyUser, { postingId: 1 });
+
+    assert.equal(settings.questions.length, 3);
+    assert.ok(settings.questions.every((question) => question.questionType !== 'FOLLOW_UP'));
+    assert.equal(
+      settings.questions.some((question) => question.content === 'Which tradeoff did you consider after that answer?'),
+      false,
+    );
+  });
+
   it('updates and deactivates interview questions', async () => {
     const service = createService();
     const updated = await service.updateQuestion(companyUser, 1, {

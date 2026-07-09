@@ -236,6 +236,16 @@
         "B",
         "D"
       ]
+    },
+    {
+      "name": "company interview settings back button bridge",
+      "patterns": [
+        "^frontend/src/features/company-interview-criteria/CompanyInterviewSettingsPage\\.tsx$"
+      ],
+      "roles": [
+        "B",
+        "C"
+      ]
     }
   ],
   "roles": {

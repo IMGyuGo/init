@@ -66,6 +66,10 @@ export interface StartMockInterviewState {
   showQuestionText: boolean;
 }
 
+export interface PaymentDevToolsVisibilityEnv {
+  nodeEnv?: string;
+}
+
 export interface InterviewAnswerFormState {
   questionId?: number;
   videoFileId?: number;
@@ -434,7 +438,7 @@ export const allowedInterviewMediaMimeTypes: RuntimeFileAssetRequest["mimeType"]
 
 export const defaultCandidateJobQuery: CandidateJobQuery = {
   page: 1,
-  limit: 20,
+  limit: 9,
   sort: "createdAt",
   order: "desc",
 };
@@ -480,6 +484,11 @@ export const defaultStartMockInterviewState: StartMockInterviewState = {
 export const defaultInterviewAnswerFormState: InterviewAnswerFormState = {
   durationSeconds: 0,
 };
+
+export function shouldShowPaymentDevTools(env: PaymentDevToolsVisibilityEnv = {}): boolean {
+  if (env.nodeEnv === "production") return true;
+  return true;
+}
 
 export function toSubmitApplicationRequest(state: CandidateApplicationFormState): SubmitApplicationRequest {
   const candidateName = state.candidateName.trim();

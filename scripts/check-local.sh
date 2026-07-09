@@ -309,6 +309,12 @@ verify_env() {
     fi
   done
 
+  local aws_readme="$ROOT/infra/aws/README.md"
+  if [[ -f "$aws_readme" ]] && grep -Eq '"PAYMENT_DEV_PASS_GRANT_ENABLED"[[:space:]]*:[[:space:]]*"false"' "$aws_readme"; then
+    echo "[fail] infra/aws/README.md sets PAYMENT_DEV_PASS_GRANT_ENABLED to false, but API-PAY-007 should keep demo/QA mock interview pass grants enabled by default"
+    return 1
+  fi
+
   echo "[ok] verify-env passed"
 }
 
