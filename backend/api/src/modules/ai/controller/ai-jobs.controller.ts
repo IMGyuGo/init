@@ -461,6 +461,7 @@ export class CompanyAiJobsController {
     this.requirePositive(body.postingId, "postingId");
     this.requireText(body.jobDescription, "jobDescription");
     this.requirePositive(body.questionCount, "questionCount");
+    this.requireNonEmptyArray(body.criteria, "criteria");
 
     return this.dispatchCompanyJob("QUESTION_GENERATE", "RECRUITING_QUESTION_GENERATE", request, body);
   }

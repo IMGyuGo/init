@@ -12,7 +12,7 @@ Detailed PM-facing payment contract: `.PM/payments/결제-api-명세.md`.
 | API-PAY-004 | Payments | POST | /payments/confirm | Confirm Toss payment after success redirect | Company/Candidate user | N | 200 OK |
 | API-PAY-005 | Payments | POST | /payments/orders/{orderId}/fail | Record Toss fail redirect | Company/Candidate user | N | 200 OK |
 | API-PAY-006 | Payments | GET | /payments/candidate/mock-interview-passes | Get candidate mock interview pass summary | Candidate user | N | 200 OK |
-| API-PAY-007 | Payments | POST | /payments/candidate/mock-interview-passes/dev-grant | Grant development-only candidate mock interview passes | Candidate user(local/dev/test only) | N | 200 OK |
+| API-PAY-007 | Payments | POST | /payments/candidate/mock-interview-passes/dev-grant | Grant test candidate mock interview passes | Candidate user | N | 200 OK |
 
 > Source: `init/docs/00_source` 기준. Generated at 2026-06-27.
 
@@ -87,7 +87,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-035 | 기업 - 면접관리 | POST | /company/interviews/evaluation-criteria/suggest | AI 평가 역량 태그 추천 | 기업 / 기업 사용자 로그인 | Y | 202 Accepted |
 | API-036 | 기업 - 면접관리 | PATCH | /company/interviews/evaluation-criteria | 평가 기준 편집 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-037 | 기업 - 면접관리 | POST | /company/interviews/questions | 질문 등록/연결 | 기업 / 기업 사용자 로그인 | N | 200 OK |
-| API-038 | 기업 - 면접관리 | POST | /company/interviews/questions/generate | JD 기반 직무 질문 생성 | 기업 / 기업 사용자 로그인 | Y | 202 Accepted |
+| API-038 | 기업 - 면접관리 | POST | /company/interviews/questions/generate | 저장된 평가 기준 기반 공통 질문 추천 | 기업 / 기업 사용자 로그인 | Y | 202 Accepted |
 | API-039 | 기업 - 면접관리 | POST | /company/interviews/question-sets | 면접 질문 목록 구성 | 기업 / 기업 사용자 로그인 | Y | 202 Accepted |
 | API-039A | 기업 - 면접관리 | POST | /company/interviews/question-sets/confirm | 면접 질문 세트 확정 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-039B | 기업 - 면접관리 | GET | /company/interviews/question-sets/active | 활성 면접 질문 세트 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |

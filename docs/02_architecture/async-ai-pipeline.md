@@ -51,7 +51,7 @@ sequenceDiagram
 | API-030 | POST | /reports/{reportId}/communication-analysis | 비언어/음성 지표 보조 분석 | companies, candidate_profiles, file_assets, postings, applications, consent_records, evaluation_reports, report_scores, report_evidences, ai_process_logs |
 | API-031 | POST | /reports/{reportId}/generate | 리포트 생성 | companies, candidate_profiles, postings, criterion_tags, evaluation_criteria, applications, application_documents, interview_sessions, interview_answers, evaluation_reports, report_scores, report_evidences, ai_process_logs |
 | API-035 | POST | /company/interviews/evaluation-criteria/suggest | AI 평가 역량 태그 추천 | companies, postings, criterion_tags, evaluation_criteria, interview_sessions, ai_process_logs, embeddings |
-| API-038 | POST | /company/interviews/questions/generate | JD 기반 직무 질문 생성 | companies, postings, criterion_tags, evaluation_criteria, question_bank, applications, interview_sessions, manual_evaluations, ai_process_logs |
+| API-038 | POST | /company/interviews/questions/generate | 저장된 평가 기준 기반 공통 질문 추천 | companies, postings, criterion_tags, evaluation_criteria, question_bank, applications, interview_sessions, manual_evaluations, ai_process_logs |
 | API-039 | POST | /company/interviews/question-sets | 면접 질문 목록 구성 | companies, postings, criterion_tags, evaluation_criteria, question_bank, application_documents, interview_sessions, manual_evaluations, ai_process_logs |
 | API-085 | POST | /company/recruitments/ai-draft | 공고 생성 AI 초안 작성 | companies, postings, ai_process_logs, ai_guardrail_logs |
 | API-045 | POST | /candidate/mock-interviews/questions/generate | 연습용 질문 목록 구성 | candidate_profiles, question_bank, interview_sessions, ai_process_logs |

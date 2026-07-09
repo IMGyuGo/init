@@ -62,13 +62,13 @@
 - Rule: first access lazily grants the initial free 3 passes with a 30-day expiry.
 - Response data: `{ "availablePasses": 3, "grantedPasses": 3, "usedPasses": 0, "freeExpiresAt": "..." }`
 
-### API-PAY-007 Grant Development Mock Interview Passes
+### API-PAY-007 Grant Test Mock Interview Passes
 
 - Method: `POST`
 - Path: `/payments/candidate/mock-interview-passes/dev-grant`
 - Auth: candidate user
 - Request: `{ "passAmount": 5 }`
-- Rule: local/dev/test only. Production rejects this API regardless of request body. The backend can disable it in non-production with `PAYMENT_DEV_PASS_GRANT_ENABLED=false`.
+- Rule: grants test mock interview passes in deployed demo/QA as well as local/dev/test. The backend can disable it with `PAYMENT_DEV_PASS_GRANT_ENABLED=false`.
 - Response data: updated candidate mock interview pass summary. Ledger source is `DEV_GRANT`, not `PURCHASE`.
 
 > Source: `init/docs/00_source` 기준. Generated at 2026-06-27.
@@ -1761,17 +1761,19 @@ AI 리포트 금지 기준:
 - 상태 코드: 202 Accepted
 - 비동기: Y
 - 요청 데이터:
-  - JD, 직무명세서, 평가 역량
+  - JD, 직무명세서, 저장된 평가 기준
 - 검증/전제조건:
   - 직무명세서 생성 완료
+  - 해당 공고의 평가 기준이 저장되어 있음
 - 성공 응답/처리:
-  - JD 기반 질문 생성 AI job 생성
+  - 저장된 평가 기준과 JD를 기반으로 공통 질문 추천 AI job 생성
 - 오류/예외:
   - 질문 품질 검증 실패 시 재생성 또는 수동 검토를 요청한다.
 - 관련 ERD 테이블:
   - companies, postings, criterion_tags, evaluation_criteria, question_bank, applications, interview_sessions, manual_evaluations, ai_process_logs
 - 비고/미결:
-  - 생성 결과는 질문 뱅크 관리 영역에 표시
+  - 생성 결과는 질문 뱅크 관리 영역에 표시한다.
+  - 일반 공통 질문 후보는 가능한 경우 `criterionId`를 포함해 저장된 평가 기준과 직접 연결한다.
 
 #### Contract Baseline
 - Route Owner:
@@ -1782,6 +1784,11 @@ AI 리포트 금지 기준:
   - `postingId`: number, required
   - `jobDescription`: string, required
   - `questionCount`: number, required, 1~
+  - `criteria`: array, required, 1~
+    - `criterionId`: number, required
+    - `name`: string, required
+    - `category?: string`
+    - `weight?: number`
 - Response Body:
   - `processLogId`: number
   - `status`: `PENDING`
@@ -1801,12 +1808,15 @@ AI 리포트 금지 기준:
   - 평가 기준 매칭 실패 시 사용자 화면에는 `연결할 평가 기준 선택 필요`를 표시한다.
   - C 화면 적용 규칙:
     - `criterionId`가 있으면 같은 공고의 평가 기준과 먼저 매칭한다.
+    - 정상 생성된 공통 질문 후보는 가능한 경우 저장된 평가 기준의 `criterionId`를 포함한다.
     - `criterionTitle`이 있으면 평가 기준 이름 또는 카테고리와 매칭한다.
     - 같은 공고의 활성 질문과 내용이 같으면 `저장됨`으로 표시하고 중복 저장하지 않는다.
     - 저장 가능한 후보가 없으면 `저장 가능한 질문 후보가 없습니다` 계열의 안내를 표시한다.
 - Processing:
   - API 서버는 장기 AI 생성을 직접 수행하지 않고 `ai_process_logs` 추적 ID만 반환한다.
-  - worker/SQS 페이로드와 AI 품질 검증은 E/A 리뷰 후 확정한다.
+  - worker/SQS 페이로드는 `criteria[]`를 포함해야 하며, mock/openai provider 모두 질문 후보에 저장된 평가 기준의 `criterionId`를 포함해야 한다.
+  - OpenAI provider 응답에서 입력 `criteria[].criterionId`와 매칭되지 않는 질문 후보는 저장 가능한 후보로 사용하지 않는다.
+  - AI 품질 검증 세부 기준은 E/A 리뷰 후 확장한다.
 - Error Codes:
   - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`, `AI_PROCESS_FAILED`
 
