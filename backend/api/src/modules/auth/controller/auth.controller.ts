@@ -1,7 +1,7 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Post, Query, Req, Res, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, HttpException, HttpStatus, Inject, Post, Query, Req, Res, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiCookieAuth, ApiFoundResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { Request, Response } from "express";
-import { isUserType, type CurrentUser } from "@init/common";
+import { ERROR_CODES, isUserType, type CurrentUser } from "@init/common";
 import { ApiException } from "../../../shared/api-exception";
 import { ApiDevAuthHeaders, ApiEnvelopeResponse, ApiErrorResponses, ApiOperationId } from "../../../swagger/swagger.decorators";
 import { CurrentUserResponseDto } from "../../../swagger/swagger.dto";
@@ -58,9 +58,13 @@ export class AuthController {
     @Query("state") state: string | undefined,
     @Res() response: Response,
   ) {
-    const result = await this.auth.googleCallback(code, state);
-    this.setRefreshCookie(response, result.refreshToken);
-    response.redirect(HttpStatus.FOUND, this.frontendGoogleCallbackUrl());
+    try {
+      const result = await this.auth.googleCallback(code, state);
+      this.setRefreshCookie(response, result.refreshToken);
+      response.redirect(HttpStatus.FOUND, this.frontendGoogleCallbackUrl());
+    } catch (error) {
+      response.redirect(HttpStatus.FOUND, this.frontendLoginErrorUrl(error));
+    }
   }
 
   @Post("signup/candidate")
@@ -182,5 +186,46 @@ export class AuthController {
 
   private frontendGoogleCallbackUrl() {
     return new URL("/auth/google/callback", process.env.FRONTEND_ORIGIN ?? "http://localhost:3000").toString();
+  }
+
+  private frontendLoginErrorUrl(error: unknown) {
+    const loginUrl = new URL("/login", process.env.FRONTEND_ORIGIN ?? "http://localhost:3000");
+    const payload = this.oauthErrorPayload(error);
+    loginUrl.searchParams.set("errorCode", payload.code);
+    loginUrl.searchParams.set("message", payload.message);
+    return loginUrl.toString();
+  }
+
+  private oauthErrorPayload(error: unknown) {
+    if (error instanceof ApiException) {
+      return { code: error.code, message: this.httpExceptionMessage(error) };
+    }
+
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+      if (typeof response === "object" && response !== null) {
+        const body = response as { code?: string; message?: string };
+        return {
+          code: body.code ?? ERROR_CODES.COMMON_UNAUTHORIZED,
+          message: body.message ?? "Google 로그인에 실패했습니다.",
+        };
+      }
+      if (typeof response === "string" && response.trim()) {
+        return { code: ERROR_CODES.COMMON_UNAUTHORIZED, message: response };
+      }
+    }
+
+    return { code: ERROR_CODES.COMMON_UNAUTHORIZED, message: "Google 로그인에 실패했습니다." };
+  }
+
+  private httpExceptionMessage(error: HttpException) {
+    const response = error.getResponse();
+    if (typeof response === "object" && response !== null && "message" in response) {
+      return String((response as { message?: unknown }).message ?? "Google 로그인에 실패했습니다.");
+    }
+    if (typeof response === "string" && response.trim()) {
+      return response;
+    }
+    return "Google 로그인에 실패했습니다.";
   }
 }
