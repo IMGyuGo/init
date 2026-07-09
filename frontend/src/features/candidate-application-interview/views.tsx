@@ -682,7 +682,10 @@ export function CandidateJobsView({ jobs, query, totalItems, pageMeta, onQueryCh
                       <input
                         type="checkbox"
                         checked={draft.careerAny}
-                        onChange={(event) => setDraft((prev) => ({ ...prev, careerAny: event.currentTarget.checked }))}
+                        onChange={(event) => {
+                          const { checked } = event.currentTarget;
+                          setDraft((prev) => ({ ...prev, careerAny: checked }));
+                        }}
                       />
                       경력 무관
                     </label>

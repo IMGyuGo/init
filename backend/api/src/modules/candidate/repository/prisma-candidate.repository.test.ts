@@ -3,30 +3,53 @@ import assert from "node:assert/strict";
 import { CandidateDomainError } from "../candidate.errors";
 import { PrismaCandidateRepository } from "./prisma-candidate.repository";
 
+const postingCoreColumns = [
+  "posting_id",
+  "company_id",
+  "title",
+  "job_role",
+  "job_description",
+  "starts_on",
+  "ends_on",
+  "status",
+  "created_at",
+];
+const companyCoreColumns = ["company_id", "name", "industry", "profile"];
+
+function schemaRows(input: { postingColumns?: string[]; companyColumns?: string[] } = {}) {
+  return [
+    ...(input.postingColumns ?? postingCoreColumns).map((columnName) => ({
+      tableName: "postings",
+      columnName,
+    })),
+    ...(input.companyColumns ?? companyCoreColumns).map((columnName) => ({
+      tableName: "companies",
+      columnName,
+    })),
+  ];
+}
+
 describe("PrismaCandidateRepository", () => {
   it("queries only candidate-visible postings from the shared postings table", async () => {
-    let capturedArgs: unknown;
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
     const prisma = {
-      posting: {
-        async findMany(args: unknown) {
-          capturedArgs = args;
-          return [];
-        },
+      async $queryRawUnsafe(sql: string, ...params: unknown[]) {
+        calls.push({ sql, params });
+        return sql.includes("information_schema.columns") ? schemaRows() : [];
       },
     };
     const repository = new PrismaCandidateRepository(prisma as never);
 
     await repository.listJobs();
 
-    assert.deepEqual(capturedArgs, {
-      where: {
-        status: {
-          in: ["OPEN", "CLOSING_SOON"],
-        },
-      },
-      include: { company: { include: { logoFile: true } } },
-      orderBy: { createdAt: "desc" },
-    });
+    const listQuery = calls[1];
+    assert.ok(listQuery);
+    assert.match(listQuery.sql, /FROM "postings" p/);
+    assert.match(listQuery.sql, /p\."status" IN \('OPEN', 'CLOSING_SOON'\)/);
+    assert.match(listQuery.sql, /NULL::text AS "workLocation"/);
+    assert.match(listQuery.sql, /NULL::integer AS "careerMinYears"/);
+    assert.doesNotMatch(listQuery.sql, /career_requirement/);
+    assert.deepEqual(listQuery.params, []);
   });
 
   it("maps company logo file storage key to a public candidate job logo URL", async () => {
@@ -34,30 +57,49 @@ describe("PrismaCandidateRepository", () => {
     process.env.S3_PUBLIC_BASE_URL = "https://cdn.example.com/assets";
     const createdAt = new Date("2026-07-01T00:00:00.000Z");
     const prisma = {
-      posting: {
-        async findMany() {
-          return [
-            {
-              postingId: 101n,
-              companyId: 7n,
-              status: "OPEN",
-              startsOn: new Date("2026-07-01T00:00:00.000Z"),
-              endsOn: new Date("2026-07-31T00:00:00.000Z"),
-              createdAt,
-              title: "Backend Developer",
-              jobRole: "Backend",
-              jobDescription: "NestJS API",
-              company: {
-                name: "Init Labs",
-                industry: "SaaS",
-                profile: "AI recruiting workflow",
-                logoFile: {
-                  storageKey: "company/7/profile-logo/init logo.png",
-                },
-              },
-            },
-          ];
-        },
+      async $queryRawUnsafe(sql: string) {
+        if (sql.includes("information_schema.columns")) {
+          return schemaRows({
+            postingColumns: [
+              ...postingCoreColumns,
+              "work_location",
+              "employment_type",
+              "job_role_code",
+              "region_code",
+              "career_min_years",
+              "career_max_years",
+              "employment_type_code",
+              "recruitment_type",
+            ],
+            companyColumns: [...companyCoreColumns, "logo_file_id"],
+          });
+        }
+
+        return [
+          {
+            postingId: 101n,
+            companyId: 7n,
+            postingStatus: "OPEN",
+            startsOn: new Date("2026-07-01T00:00:00.000Z"),
+            endsOn: new Date("2026-07-31T00:00:00.000Z"),
+            createdAt,
+            title: "Backend Developer",
+            jobRole: "Backend",
+            jobDescription: "NestJS API",
+            workLocation: "Seoul",
+            employmentType: "Full-time",
+            jobRoleCode: "서버·백엔드",
+            regionCode: "서울",
+            careerMinYears: 1,
+            careerMaxYears: 3,
+            employmentTypeCode: "정규직",
+            recruitmentType: "마감형",
+            companyName: "Init Labs",
+            companyIndustry: "SaaS",
+            companyProfile: "AI recruiting workflow",
+            companyLogoStorageKey: "company/7/profile-logo/init logo.png",
+          },
+        ];
       },
     };
     const repository = new PrismaCandidateRepository(prisma as never);
