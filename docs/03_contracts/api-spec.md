@@ -62,13 +62,13 @@
 - Rule: first access lazily grants the initial free 3 passes with a 30-day expiry.
 - Response data: `{ "availablePasses": 3, "grantedPasses": 3, "usedPasses": 0, "freeExpiresAt": "..." }`
 
-### API-PAY-007 Grant Development Mock Interview Passes
+### API-PAY-007 Grant Test Mock Interview Passes
 
 - Method: `POST`
 - Path: `/payments/candidate/mock-interview-passes/dev-grant`
 - Auth: candidate user
 - Request: `{ "passAmount": 5 }`
-- Rule: local/dev/test only. Production rejects this API regardless of request body. The backend can disable it in non-production with `PAYMENT_DEV_PASS_GRANT_ENABLED=false`.
+- Rule: grants test mock interview passes in deployed demo/QA as well as local/dev/test. The backend can disable it with `PAYMENT_DEV_PASS_GRANT_ENABLED=false`.
 - Response data: updated candidate mock interview pass summary. Ledger source is `DEV_GRANT`, not `PURCHASE`.
 
 > Source: `init/docs/00_source` 기준. Generated at 2026-06-27.

@@ -516,9 +516,29 @@ describe("PaymentService", () => {
     }
   });
 
-  it("rejects development mock interview pass grants in production", async () => {
+  it("grants mock interview test passes in production when the grant flag is enabled", async () => {
     const previousNodeEnv = process.env.NODE_ENV;
+    const previousDevGrantFlag = process.env.PAYMENT_DEV_PASS_GRANT_ENABLED;
     process.env.NODE_ENV = "production";
+    delete process.env.PAYMENT_DEV_PASS_GRANT_ENABLED;
+    try {
+      const { service, passCalls } = createService();
+
+      const result = await service.grantCandidateMockInterviewDevPasses(candidateUser, { passAmount: 5 });
+
+      assert.equal(result.availablePasses, 9);
+      assert.deepEqual(passCalls, [{ fn: "grantDevelopmentPasses", candidateId: 3, passAmount: 5 }]);
+    } finally {
+      restoreEnv("NODE_ENV", previousNodeEnv);
+      restoreEnv("PAYMENT_DEV_PASS_GRANT_ENABLED", previousDevGrantFlag);
+    }
+  });
+
+  it("rejects mock interview test pass grants when the grant flag is disabled", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousDevGrantFlag = process.env.PAYMENT_DEV_PASS_GRANT_ENABLED;
+    process.env.NODE_ENV = "production";
+    process.env.PAYMENT_DEV_PASS_GRANT_ENABLED = "false";
     try {
       const { service, passCalls } = createService();
 
@@ -529,6 +549,7 @@ describe("PaymentService", () => {
       assert.deepEqual(passCalls, []);
     } finally {
       restoreEnv("NODE_ENV", previousNodeEnv);
+      restoreEnv("PAYMENT_DEV_PASS_GRANT_ENABLED", previousDevGrantFlag);
     }
   });
 
