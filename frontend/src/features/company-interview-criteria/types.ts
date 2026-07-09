@@ -168,6 +168,12 @@ export type GenerateInterviewQuestionsInput = {
   postingId: number;
   jobDescription: string;
   questionCount: number;
+  criteria: Array<{
+    criterionId: number;
+    name: string;
+    category?: string;
+    weight?: number;
+  }>;
 };
 
 export type GenerateQuestionSetInput = {

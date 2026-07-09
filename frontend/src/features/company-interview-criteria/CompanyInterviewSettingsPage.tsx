@@ -574,6 +574,16 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     if (!settings) return;
     if (isAiRequestBlocked("questions", aiJobSubmitting, activeAiJobKinds)) return;
 
+    if (hasCriteriaChanges) {
+      setAiJobError("공통 질문을 추천받으려면 먼저 평가 기준 변경사항을 저장해주세요.");
+      return;
+    }
+
+    if (settings.criteria.length === 0) {
+      setAiJobError("공통 질문을 추천받으려면 먼저 JD 기반 평가 기준을 생성하고 저장해주세요.");
+      return;
+    }
+
     setAiJobSubmitting("questions");
     setAiJobError("");
     try {
@@ -581,10 +591,16 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
         postingId: settings.posting.postingId,
         jobDescription: buildJobDescription(settings),
         questionCount: Math.max(3, settings.criteria.length || 3),
+        criteria: settings.criteria.map((criterion) => ({
+          criterionId: criterion.criterionId,
+          name: criterion.tagName,
+          category: criterion.category,
+          weight: criterion.weight,
+        })),
       });
-      rememberAiJob("questions", "JD 기반 질문 생성", response.data);
+      rememberAiJob("questions", "공통 질문 추천", response.data);
     } catch (error) {
-      setAiJobError(formatAiRequestError(error instanceof Error ? error.message : "JD 기반 질문 생성 요청에 실패했습니다."));
+      setAiJobError(formatAiRequestError(error instanceof Error ? error.message : "공통 질문 추천 요청에 실패했습니다."));
     } finally {
       setAiJobSubmitting(null);
     }
