@@ -1,6 +1,6 @@
 const STATUS_LABELS: Record<string, string> = {
   OPEN: "모집중",
-  DRAFT: "작성중",
+  DRAFT: "대기중",
   CLOSING_SOON: "마감임박",
   CLOSED: "마감",
   ARCHIVED: "보관",

@@ -17,7 +17,7 @@ import {
   POSTING_REGION_CODE_OPTIONS,
   formatCareerRangeLabel,
 } from "./posting-filter-taxonomy";
-import { Breadcrumb } from "./CompanyRecruitingChrome";
+import { BackButton, Breadcrumb } from "./CompanyRecruitingChrome";
 import { MiniRichTextEditor } from "./MiniRichTextEditor";
 import { JOB_DESCRIPTION_IMAGE_ACCEPT, validateJobDescriptionImageFile } from "./job-description-image-upload";
 import {
@@ -336,13 +336,16 @@ export function RecruitmentSettingsPage({ recruitmentId }: { recruitmentId: numb
     <section className="app-page glass-page posting-create-page notion">
         <div className="page-banner">
           <div className="page-banner-copy">
-            <Breadcrumb
-              items={[
-                { label: "공고 목록", href: "/company/recruitments" },
-                { label: recruitment?.title ?? "공고", href: `/company/recruitments/${recruitmentId}` },
-                { label: "공고 설정" },
-              ]}
-            />
+            <div className="page-head-lead">
+              <BackButton fallbackHref={`/company/recruitments/${recruitmentId}`} />
+              <Breadcrumb
+                items={[
+                  { label: "공고 목록", href: "/company/recruitments" },
+                  { label: recruitment?.title ?? "공고", href: `/company/recruitments/${recruitmentId}` },
+                  { label: "공고 설정" },
+                ]}
+              />
+            </div>
             <h1>공고 설정</h1>
             <p className="page-sub">공고 제목·기간·상세 내용·이미지·태그를 수정하고 저장하면 공개 공고에 바로 반영됩니다.</p>
             <div className="banner-actions">
@@ -579,7 +582,7 @@ export function RecruitmentSettingsPage({ recruitmentId }: { recruitmentId: numb
             </div>
           </section>
 
-          <div className="sticky-actions">
+          <div className="settings-save-bar">
             <button className="btn primary" type="submit" disabled={loading}>
               설정 저장
             </button>
