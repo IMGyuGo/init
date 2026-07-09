@@ -1865,6 +1865,10 @@ input[type="radio"] {
 }
 
 .info-toggle-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   width: 100%;
   margin: 0;
   padding: 12px 16px;
@@ -3242,12 +3246,14 @@ td input {
 .pagination {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   margin-top: 18px;
   padding-top: 14px;
   border-top: 1px solid var(--line-soft);
 }
+.page-button.page-arrow > svg { display: block; }
+.page-button:disabled { opacity: 0.4; cursor: default; }
 
 .pagination-summary {
   color: var(--ink-400);
@@ -3269,21 +3275,26 @@ td input {
   justify-content: center;
   min-width: 34px;
   height: 34px;
-  padding: 0 10px;
-  color: var(--ink-500);
-  background: #fff;
-  border: 1px solid var(--line-soft);
-  border-radius: 10px;
-  font-size: 13px;
-  font-weight: 800;
+  padding: 0 8px;
+  color: rgba(55, 53, 47, 0.55);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
 }
 
-.page-button:hover:not(:disabled),
+.page-button:hover:not(:disabled):not(.active) {
+  color: #191919;
+  background: rgba(55, 53, 47, 0.05);
+}
 .page-button.active {
-  color: var(--primary);
-  background: #f5f4ff;
-  border-color: rgba(101, 94, 255, 0.28);
+  color: #191919;
+  background: #fff;
+  border-color: rgba(55, 53, 47, 0.2);
+  font-weight: 600;
+  cursor: default;
 }
 
 .page-button:disabled {
@@ -4268,8 +4279,8 @@ td input {
 .glass-page.notion .modal { background: #fff; border: 1px solid rgba(55, 53, 47, 0.12); border-radius: 10px; }
 .glass-page.notion .modal-head h2 { color: #191919; }
 .glass-page.notion .confirm-box { background: #fbfbfa; border-color: rgba(55, 53, 47, 0.08); }
-.glass-page.notion .page-button { color: #37352f; background: #fff; border: 1px solid rgba(55, 53, 47, 0.14); border-radius: 6px; }
-.glass-page.notion .page-button.active { color: #fff; background: #191919; border-color: #191919; }
+.glass-page.notion .page-button { color: rgba(55, 53, 47, 0.55); background: transparent; border: 1px solid transparent; border-radius: 8px; }
+.glass-page.notion .page-button.active { color: #191919; background: #fff; border-color: rgba(55, 53, 47, 0.2); }
 
 /* 상태 뱃지 파스텔 */
 .glass-page.notion .badge { font-weight: 500; }
@@ -4724,14 +4735,9 @@ td input {
 /* ---- 공고 카드 그리드 (컬러 헤더) ---- */
 .notion.list-page .posting-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
   padding-top: 10px;
-}
-@media (max-width: 1100px) {
-  .notion.list-page .posting-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
 }
 @media (max-width: 900px) {
   .notion.list-page .posting-grid {
@@ -5036,16 +5042,26 @@ td input {
   height: 6px;
 }
 .notion .pcard-dday {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
-  height: 20px;
+  height: 24px;
+  padding: 0 10px;
   font-size: 12px;
   line-height: 1;
-  font-weight: 500;
-  color: rgba(55, 53, 47, 0.5);
+  font-weight: 700;
+  color: rgba(55, 53, 47, 0.75);
+  background: rgba(255, 255, 255, 0.88);
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  backdrop-filter: blur(2px);
 }
 .notion .pcard-dday.is-danger {
   color: #c4554d;
+  background: rgba(255, 255, 255, 0.9);
 }
 .notion .pcard-title {
   margin: 2px 0 0;
@@ -5059,16 +5075,41 @@ td input {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.notion .pcard-sub {
-  margin: auto 0 0;
-  padding-top: 6px;
-  font-size: 13px;
+.notion .pcard-period {
+  margin: 0;
+  font-size: 12.5px;
+  color: rgba(55, 53, 47, 0.55);
+  font-variant-numeric: tabular-nums;
+}
+.notion .pcard-progress {
+  display: grid;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 10px;
+}
+.notion .pcard-progress-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12.5px;
   color: rgba(55, 53, 47, 0.55);
 }
-.notion .pcard-sub strong {
-  font-weight: 600;
-  color: rgba(55, 53, 47, 0.75);
+.notion .pcard-progress-head strong {
+  font-weight: 700;
+  color: rgba(55, 53, 47, 0.8);
   font-variant-numeric: tabular-nums;
+}
+.notion .pcard-progress-bar {
+  height: 6px;
+  background: #ececeb;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.notion .pcard-progress-bar > span {
+  display: block;
+  height: 100%;
+  background: #3b6fe0;
+  border-radius: 999px;
+  transition: width 0.2s ease;
 }
 
 /* ============================================================
@@ -8047,27 +8088,33 @@ p {
 .notion .candidate-jobs-count-line strong { color: #3b6fe0; font-weight: 700; }
 
 /* 지원자 공고 목록: 페이지네이션 */
-.notion .candidate-jobs-pagination { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 12px; }
+.notion .candidate-jobs-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 12px; }
 .notion .candidate-jobs-page-btn,
 .notion .candidate-jobs-page-num {
   display: grid;
   place-items: center;
-  min-width: 34px;
-  height: 34px;
+  min-width: 36px;
+  height: 36px;
   padding: 0 8px;
-  font-size: 13.5px;
+  font-size: 15px;
   font-weight: 500;
-  color: rgba(55, 53, 47, 0.7);
-  background: #fff;
-  border: 1px solid rgba(55, 53, 47, 0.14);
-  border-radius: 8px;
+  color: rgba(55, 53, 47, 0.55);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
   cursor: pointer;
   transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
 .notion .candidate-jobs-page-btn:hover:not(:disabled),
-.notion .candidate-jobs-page-num:hover { border-color: rgba(55, 53, 47, 0.3); color: #191919; }
-.notion .candidate-jobs-page-btn:disabled { opacity: 0.4; cursor: default; }
-.notion .candidate-jobs-page-num.is-active { color: #fff; background: #3b6fe0; border-color: #3b6fe0; }
+.notion .candidate-jobs-page-num:hover:not(.is-active) { background: rgba(55, 53, 47, 0.05); color: #191919; }
+.notion .candidate-jobs-page-btn:disabled { opacity: 0.35; cursor: default; }
+.notion .candidate-jobs-page-num.is-active {
+  color: #191919;
+  background: #fff;
+  border-color: rgba(55, 53, 47, 0.22);
+  font-weight: 600;
+  cursor: default;
+}
 
 /* 지원자 공고 필터: 추천 태그 + 경력 슬라이더 + 다중선택 */
 .notion .candidate-jobs-rec { display: inline-flex; gap: 8px; flex-wrap: wrap; }
@@ -8159,3 +8206,127 @@ p {
 /* 공고 상세: 하단 태그 섹션 */
 .notion .jobdetail-tagsection { margin-top: 4px; }
 .notion .jobdetail-tagsection h2 { margin: 0 0 10px; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: #191919; }
+
+/* 공고 상세: 우측 상단 아이콘 액션 + 드롭다운 */
+.notion .detail-actions { display: inline-flex; align-items: center; gap: 8px; }
+.notion .detail-action-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  color: #37352f;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.16);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.notion .detail-action-icon:hover:not(:disabled) { border-color: #3b6fe0; color: #3b6fe0; }
+.notion .detail-action-icon:disabled { opacity: 0.45; cursor: default; }
+.notion .detail-action-menu { position: relative; }
+.notion .detail-action-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 148px;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  display: grid;
+  gap: 2px;
+}
+.notion .detail-action-item {
+  display: block;
+  padding: 9px 12px;
+  font-size: 14px;
+  color: #37352f;
+  border-radius: 7px;
+  text-decoration: none;
+}
+.notion .detail-action-item:hover { background: rgba(55, 53, 47, 0.05); }
+
+/* 페이지 좌측 상단 뒤로가기 버튼 */
+.notion .page-head-lead { display: flex; flex-direction: column; align-items: flex-start; gap: 22px; }
+.notion .page-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+  margin-left: -6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(55, 53, 47, 0.45);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.notion .page-back-btn:hover { color: rgba(55, 53, 47, 0.75); background: rgba(55, 53, 47, 0.04); }
+.notion .page-back-btn svg { flex: none; }
+
+/* 공고 설정: 저장 버튼 우측 하단 고정 */
+.notion .settings-save-bar {
+  position: fixed;
+  right: 28px;
+  bottom: 24px;
+  z-index: 40;
+}
+.notion .settings-save-bar .btn.primary {
+  min-width: 140px;
+  height: 48px;
+  padding: 0 24px;
+  box-shadow: 0 10px 26px rgba(59, 111, 224, 0.32);
+}
+
+/* 아이콘 버튼 호버 툴팁(아래로) */
+.notion .detail-action-icon[data-tooltip] { position: relative; }
+.notion .detail-action-icon[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-3px);
+  z-index: 30;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  color: #fff;
+  background: rgba(15, 23, 42, 0.9);
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.notion .detail-action-icon[data-tooltip]:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* 공고 상세: 지원자 리스트 페이지네이션 */
+.notion .applicant-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 16px; }
+.notion .applicant-page-btn,
+.notion .applicant-page-num {
+  display: grid;
+  place-items: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(55, 53, 47, 0.55);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.notion .applicant-page-btn:hover:not(:disabled),
+.notion .applicant-page-num:hover:not(.is-active) { background: rgba(55, 53, 47, 0.05); color: #191919; }
+.notion .applicant-page-btn:disabled { opacity: 0.35; cursor: default; }
+.notion .applicant-page-num.is-active { color: #191919; background: #fff; border-color: rgba(55, 53, 47, 0.2); font-weight: 600; cursor: default; }

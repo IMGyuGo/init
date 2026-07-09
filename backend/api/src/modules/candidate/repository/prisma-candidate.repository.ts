@@ -6,7 +6,6 @@ import {
   DocumentType as PrismaDocumentType,
   InterviewStatus as PrismaInterviewStatus,
   InterviewType as PrismaInterviewType,
-  PostingStatus as PrismaPostingStatus,
   ReportStatus as PrismaReportStatus,
   type Prisma,
 } from "@prisma/client";
@@ -26,7 +25,35 @@ import {
   type ReportStatus,
 } from "../candidate.types";
 
-type PostingWithCompany = Prisma.PostingGetPayload<{ include: { company: { include: { logoFile: true } } } }>;
+interface CandidatePostingRow {
+  postingId: bigint;
+  companyId: bigint;
+  title: string;
+  jobRole: string;
+  jobDescription: string | null;
+  workLocation: string | null;
+  employmentType: string | null;
+  jobRoleCode: string | null;
+  regionCode: string | null;
+  careerMinYears: number | null;
+  careerMaxYears: number | null;
+  employmentTypeCode: string | null;
+  recruitmentType: string | null;
+  startsOn: Date | null;
+  endsOn: Date | null;
+  postingStatus: string;
+  createdAt: Date;
+  companyName: string;
+  companyIndustry: string | null;
+  companyProfile: string | null;
+  companyLogoStorageKey: string | null;
+}
+
+interface CandidatePostingSchemaShape {
+  postingColumns: Set<string>;
+  companyColumns: Set<string>;
+}
+
 type ApplicationRecord = Prisma.ApplicationGetPayload<Record<string, never>>;
 type ApplicationDocumentRecord = Prisma.ApplicationDocumentGetPayload<Record<string, never>>;
 type ConsentRecordModel = Prisma.ConsentRecordGetPayload<Record<string, never>>;
@@ -35,27 +62,18 @@ type InterviewSessionRecord = Prisma.InterviewSessionGetPayload<{ include: { app
 
 @Injectable()
 export class PrismaCandidateRepository implements CandidateRepository {
+  private candidatePostingSchemaShape?: Promise<CandidatePostingSchemaShape>;
+
   constructor(private readonly prisma: PrismaService) {}
 
   async listJobs(): Promise<CandidateJob[]> {
-    const postings = await this.prisma.posting.findMany({
-      where: {
-        status: {
-          in: [PrismaPostingStatus.OPEN, PrismaPostingStatus.CLOSING_SOON],
-        },
-      },
-      include: { company: { include: { logoFile: true } } },
-      orderBy: { createdAt: "desc" },
-    });
+    const postings = await this.findCandidatePostingRows();
     return postings.map((posting) => this.toCandidateJob(posting));
   }
 
   async findJob(jobId: number): Promise<CandidateJob | undefined> {
-    const posting = await this.prisma.posting.findUnique({
-      where: { postingId: BigInt(jobId) },
-      include: { company: { include: { logoFile: true } } },
-    });
-    return posting ? this.toCandidateJob(posting) : undefined;
+    const postings = await this.findCandidatePostingRows({ postingId: jobId, visibleOnly: false });
+    return postings[0] ? this.toCandidateJob(postings[0]) : undefined;
   }
 
   async getInterviewTimePolicy(postingId: number) {
@@ -360,17 +378,105 @@ export class PrismaCandidateRepository implements CandidateRepository {
     };
   }
 
-  private toCandidateJob(posting: PostingWithCompany): CandidateJob {
+  private async findCandidatePostingRows(
+    filter: { postingId?: number; visibleOnly?: boolean } = {},
+  ): Promise<CandidatePostingRow[]> {
+    const shape = await this.getCandidatePostingSchemaShape();
+    const logoJoin = shape.companyColumns.has("logo_file_id")
+      ? 'LEFT JOIN "file_assets" fa ON fa."file_id" = c."logo_file_id"'
+      : "";
+    const logoSelect = shape.companyColumns.has("logo_file_id")
+      ? 'fa."storage_key" AS "companyLogoStorageKey"'
+      : 'NULL::text AS "companyLogoStorageKey"';
+    const params: unknown[] = [];
+    const whereParts: string[] = [];
+    if (filter.visibleOnly ?? true) {
+      whereParts.push('p."status" IN (\'OPEN\', \'CLOSING_SOON\')');
+    }
+    if (filter.postingId) {
+      params.push(BigInt(filter.postingId));
+      whereParts.push(`p."posting_id" = $${params.length}`);
+    }
+    const where = whereParts.length > 0 ? whereParts.join(" AND ") : "TRUE";
+
+    return this.prisma.$queryRawUnsafe<CandidatePostingRow[]>(
+      `
+      SELECT
+        p."posting_id" AS "postingId",
+        p."company_id" AS "companyId",
+        p."title" AS "title",
+        p."job_role" AS "jobRole",
+        p."job_description" AS "jobDescription",
+        ${this.selectPostingColumn(shape.postingColumns, "work_location", "workLocation")},
+        ${this.selectPostingColumn(shape.postingColumns, "employment_type", "employmentType")},
+        ${this.selectPostingColumn(shape.postingColumns, "job_role_code", "jobRoleCode")},
+        ${this.selectPostingColumn(shape.postingColumns, "region_code", "regionCode")},
+        ${this.selectPostingColumn(shape.postingColumns, "career_min_years", "careerMinYears", "integer")},
+        ${this.selectPostingColumn(shape.postingColumns, "career_max_years", "careerMaxYears", "integer")},
+        ${this.selectPostingColumn(shape.postingColumns, "employment_type_code", "employmentTypeCode")},
+        ${this.selectPostingColumn(shape.postingColumns, "recruitment_type", "recruitmentType")},
+        p."starts_on" AS "startsOn",
+        p."ends_on" AS "endsOn",
+        p."status"::text AS "postingStatus",
+        p."created_at" AS "createdAt",
+        c."name" AS "companyName",
+        c."industry" AS "companyIndustry",
+        c."profile" AS "companyProfile",
+        ${logoSelect}
+      FROM "postings" p
+      INNER JOIN "companies" c ON c."company_id" = p."company_id"
+      ${logoJoin}
+      WHERE ${where}
+      ORDER BY p."created_at" DESC
+      `,
+      ...params,
+    );
+  }
+
+  private async getCandidatePostingSchemaShape(): Promise<CandidatePostingSchemaShape> {
+    this.candidatePostingSchemaShape ??= this.prisma
+      .$queryRawUnsafe<Array<{ tableName: string; columnName: string }>>(
+        `
+        SELECT table_name AS "tableName", column_name AS "columnName"
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name IN ('postings', 'companies')
+        `,
+      )
+      .then((rows) => ({
+        postingColumns: new Set(
+          rows.filter((row) => row.tableName === "postings").map((row) => row.columnName),
+        ),
+        companyColumns: new Set(
+          rows.filter((row) => row.tableName === "companies").map((row) => row.columnName),
+        ),
+      }));
+
+    return this.candidatePostingSchemaShape;
+  }
+
+  private selectPostingColumn(
+    columns: Set<string>,
+    columnName: string,
+    alias: keyof CandidatePostingRow,
+    fallbackType = "text",
+  ): string {
+    return columns.has(columnName)
+      ? `p."${columnName}" AS "${alias}"`
+      : `NULL::${fallbackType} AS "${alias}"`;
+  }
+
+  private toCandidateJob(posting: CandidatePostingRow): CandidateJob {
     const startsOn = posting.startsOn ?? posting.createdAt;
     const endsOn = posting.endsOn ?? new Date(startsOn.getTime() + 30 * 24 * 60 * 60 * 1000);
     return {
       jobId: Number(posting.postingId),
       companyId: Number(posting.companyId),
-      isPublic: posting.status !== PrismaPostingStatus.DRAFT && posting.status !== PrismaPostingStatus.ARCHIVED,
-      companyName: posting.company.name,
-      companyLogoUrl: posting.company.logoFile ? buildPublicFileUrl(posting.company.logoFile.storageKey) : null,
-      companyIndustry: posting.company.industry ?? "미입력",
-      companyProfile: posting.company.profile ?? "",
+      isPublic: posting.postingStatus !== "DRAFT" && posting.postingStatus !== "ARCHIVED",
+      companyName: posting.companyName,
+      companyLogoUrl: posting.companyLogoStorageKey ? buildPublicFileUrl(posting.companyLogoStorageKey) : null,
+      companyIndustry: posting.companyIndustry ?? "미입력",
+      companyProfile: posting.companyProfile ?? "",
       title: posting.title,
       jobGroup: posting.jobRole,
       jobRole: posting.jobRole,
@@ -379,7 +485,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
       careerLevel: formatCareerLevel(posting.careerMinYears, posting.careerMaxYears),
       employmentType: posting.employmentTypeCode ?? posting.employmentType ?? "정규직",
       techStacks: parseStructuredTags(posting.jobDescription),
-      postingStatus: posting.status,
+      postingStatus: posting.postingStatus as CandidateJob["postingStatus"],
       jobRoleCode: posting.jobRoleCode,
       regionCode: posting.regionCode,
       careerMinYears: posting.careerMinYears,

@@ -57,7 +57,11 @@ export class PrismaCompanyInterviewRepository
 
   async listQuestions(postingId: number): Promise<QuestionRecord[]> {
     const questions = await this.prisma.question.findMany({
-      where: { postingId: BigInt(postingId), isActive: true },
+      where: {
+        postingId: BigInt(postingId),
+        isActive: true,
+        questionType: { not: 'FOLLOW_UP' },
+      },
       orderBy: { questionId: 'asc' },
     });
     return questions.map(mapQuestion);

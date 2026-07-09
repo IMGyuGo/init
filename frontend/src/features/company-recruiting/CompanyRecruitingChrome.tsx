@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { GnbAvatar, GnbLogoutButton } from "../auth/GnbAccountControls";
 import { COMPANY_MYPAGE_ROUTE } from "../company-profile/routes";
@@ -89,6 +89,25 @@ type CrumbItem = {
   label: string;
   href?: string;
 };
+
+export function BackButton({ fallbackHref }: { fallbackHref?: string }) {
+  const router = useRouter();
+  return (
+    <button
+      type="button"
+      className="page-back-btn"
+      onClick={() => {
+        if (typeof window !== "undefined" && window.history.length > 1) router.back();
+        else if (fallbackHref) router.push(fallbackHref);
+      }}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="m15 18-6-6 6-6" />
+      </svg>
+      뒤로가기
+    </button>
+  );
+}
 
 export function Breadcrumb({ items }: { items: CrumbItem[] }) {
   return (

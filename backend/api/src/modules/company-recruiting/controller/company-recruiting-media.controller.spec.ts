@@ -2,6 +2,8 @@ import cookieParser from "cookie-parser";
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
+import { PassThrough, Writable } from "stream";
+import type { Response } from "express";
 
 import { ApiExceptionFilter } from "../../../shared/api-exception.filter";
 import { ApiResponseInterceptor } from "../../../shared/api-response.interceptor";
@@ -11,6 +13,7 @@ import { CompanyRecruitingMediaController } from "./company-recruiting-media.con
 
 describe("CompanyRecruitingMediaController", () => {
   let app: INestApplication;
+  let controller: CompanyRecruitingMediaController;
   const companyUser = {
     userId: 1,
     userType: "COMPANY" as const,
@@ -35,6 +38,7 @@ describe("CompanyRecruitingMediaController", () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
+    controller = moduleRef.get(CompanyRecruitingMediaController);
     app.setGlobalPrefix("api/v1");
     app.use(cookieParser());
     app.useGlobalFilters(new ApiExceptionFilter());
@@ -73,5 +77,42 @@ describe("CompanyRecruitingMediaController", () => {
 
     expect(service.verifyApplicantInterviewMediaSession).toHaveBeenCalledWith("media-token", 77, 8001);
     expect(service.getApplicantInterviewMedia).toHaveBeenCalledWith(companyUser, 77, 8001, { range: "bytes=0-4" });
+  });
+
+  it("attaches an error handler before piping streamed media", async () => {
+    const body = new PassThrough();
+    service.verifyApplicantInterviewMediaSession.mockReturnValue(companyUser);
+    service.getApplicantInterviewMedia.mockResolvedValue({
+      body,
+      contentLength: 5,
+      contentType: "video/webm",
+      originalName: "recruiting-answer.webm",
+      statusCode: 200,
+    });
+
+    const response = new Writable({
+      write(_chunk, _encoding, callback) {
+        callback();
+      },
+    }) as Writable & Pick<Response, "destroy" | "end" | "headersSent" | "removeHeader" | "setHeader" | "status">;
+    response.status = jest.fn().mockReturnValue(response);
+    response.removeHeader = jest.fn();
+    response.setHeader = jest.fn();
+    response.end = jest.fn();
+    response.destroy = jest.fn();
+    response.headersSent = false;
+
+    await controller.getApplicantInterviewMedia(
+      {
+        headers: {},
+        cookies: { [APPLICANT_MEDIA_COOKIE_NAME]: "media-token" },
+      } as never,
+      undefined,
+      77,
+      8001,
+      response as unknown as Response,
+    );
+
+    expect(body.listenerCount("error")).toBeGreaterThan(0);
   });
 });
