@@ -1,4 +1,9 @@
-import type { InterviewAnswer, InterviewQuestion, RuntimeInterviewSession } from "../interview.runtime.types";
+import type {
+  InterviewAnswer,
+  InterviewAnswerNonverbalMetadata,
+  InterviewQuestion,
+  RuntimeInterviewSession,
+} from "../interview.runtime.types";
 
 export const INTERVIEW_REPOSITORY = Symbol("INTERVIEW_REPOSITORY");
 
@@ -18,6 +23,7 @@ export interface CreateInterviewAnswerInput {
   videoFileId?: number;
   audioFileId?: number;
   transcript?: string;
+  nonverbalMetadata?: InterviewAnswerNonverbalMetadata;
   durationSeconds: number;
   submittedAt: string;
 }
@@ -26,6 +32,7 @@ export interface ReplaceInterviewAnswerInput {
   answerId: number;
   videoFileId?: number;
   audioFileId?: number;
+  nonverbalMetadata?: InterviewAnswerNonverbalMetadata;
   durationSeconds: number;
   submittedAt: string;
 }

@@ -441,6 +441,7 @@ model InterviewAnswer {
   videoFileId       BigInt?            @map("video_file_id")
   audioFileId       BigInt?            @map("audio_file_id")
   transcript        String?
+  nonverbalMetadata Json?              @map("nonverbal_metadata")
   durationSeconds   Int?               @map("duration_seconds")
   submittedAt       DateTime?          @map("submitted_at")
   session           InterviewSession   @relation(fields: [sessionId], references: [sessionId])

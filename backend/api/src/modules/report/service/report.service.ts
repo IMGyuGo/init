@@ -475,6 +475,7 @@ export class ReportService {
           ...(isFollowUpAnswer ? { isFollowUpAnswer: true } : {}),
           ...(parentAnswerId !== undefined ? { parentAnswerId } : {}),
           ...(transcript ? { transcript } : {}),
+          ...(answer.nonverbalMetadata ? { nonverbalMetadata: answer.nonverbalMetadata } : {}),
           evaluationStatus: transcript ? "EVALUATED" : "STT_UNAVAILABLE",
           transcriptUnavailableReason: transcript ? undefined : unavailableReason,
         };
@@ -651,6 +652,7 @@ export class ReportService {
       submittedAt: answer.submittedAt,
       transcriptStatus: this.toTranscriptStatus(answer.transcript, transcriptUnavailableReason),
       transcript: this.cleanOptionalText(answer.transcript),
+      nonverbalMetadata: answer.nonverbalMetadata,
       evaluationStatus: transcriptUnavailableReason ? "STT_UNAVAILABLE" : this.cleanOptionalText(answer.transcript) ? "EVALUATED" : undefined,
       transcriptUnavailableReason,
       followUpQuestions: followUpsByAnswerId.get(answer.answerId) ?? [],
@@ -686,6 +688,7 @@ export class ReportService {
           submittedAt: answer.submittedAt,
           transcriptStatus: this.toTranscriptStatus(answer.transcript, transcriptUnavailableReason),
           transcript,
+          nonverbalMetadata: answer.nonverbalMetadata,
           evaluationStatus: transcriptUnavailableReason ? "STT_UNAVAILABLE" : transcript ? "EVALUATED" : undefined,
           transcriptUnavailableReason,
           followUpQuestions: followUpsByAnswerId.get(answer.answerId) ?? [],

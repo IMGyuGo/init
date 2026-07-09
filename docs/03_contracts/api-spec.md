@@ -3001,3 +3001,16 @@ AI 리포트 금지 기준:
   - candidate_profiles, postings, applications, application_documents, interview_sessions, notifications, ai_process_logs
 - 비고/미결:
   - MVP 후순위
+
+### Answer Nonverbal Metadata Addendum
+- Applies to:
+  - API-048 `POST /candidate/mock-interviews/{sessionId}/answers`
+  - API-068 `POST /candidate/interviews/{sessionId}/answers`
+  - API-092 `POST /public/interviews/{sessionId}/answers`
+- Optional request field: `nonverbalMetadata`
+- Shape: JSON object. Initial MVP keys may include `cameraWarnings`, `microphoneWarnings`, `longSilenceCount`, `shortAnswerCount`, and `testModeUsed`.
+- Storage: saved on `interview_answers.nonverbal_metadata`.
+- Policy:
+  - For mock interviews, the value is practice feedback metadata only.
+  - For recruiting interviews, the value is auxiliary metadata only.
+  - It must not be used as a cheating decision, hiring pass/fail signal, or direct hiring score input.

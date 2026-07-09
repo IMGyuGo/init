@@ -6558,6 +6558,7 @@ async function prepareAnswerRequestWithUploadedMedia(
     durationSeconds: request.durationSeconds,
     allowReanswer: request.allowReanswer,
     skipReason: request.skipReason,
+    nonverbalMetadata: request.nonverbalMetadata,
     retryAnswerId: request.retryAnswerId,
   };
 }

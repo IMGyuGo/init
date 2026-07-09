@@ -19,6 +19,7 @@ import {
   AiHandoffResult,
   CompleteInterviewResult,
   InterviewAnswer,
+  InterviewAnswerNonverbalMetadata,
   InterviewQuestion,
   InterviewQuestionListResult,
   InterviewQuestionView,
@@ -64,6 +65,7 @@ type AnswerRequestBody = {
   durationSeconds: number;
   allowReanswer: boolean;
   skipReason?: "RECORDING_VALIDATION_FAILED";
+  nonverbalMetadata?: InterviewAnswerNonverbalMetadata;
   retryAnswerId?: number;
 };
 
@@ -505,6 +507,7 @@ export class InterviewService {
       videoFileId: videoFile?.fileId,
       audioFileId: audioFile?.fileId,
       transcript: skippedForRecordingValidation ? "[NO_ANSWER] Recording validation failed twice." : undefined,
+      nonverbalMetadata: requestBody.nonverbalMetadata,
       durationSeconds: requestBody.durationSeconds,
       submittedAt,
     };
@@ -512,6 +515,7 @@ export class InterviewService {
       ? await this.replaceAnswerAfterReanswerRequest(session, existingAnswer, {
           videoFileId: videoFile?.fileId,
           audioFileId: audioFile?.fileId,
+          nonverbalMetadata: requestBody.nonverbalMetadata,
           durationSeconds: requestBody.durationSeconds,
           submittedAt,
         })
@@ -1008,6 +1012,7 @@ export class InterviewService {
     input: {
       videoFileId?: number;
       audioFileId?: number;
+      nonverbalMetadata?: InterviewAnswerNonverbalMetadata;
       durationSeconds: number;
       submittedAt: string;
     },
@@ -1017,6 +1022,7 @@ export class InterviewService {
       answerId: answer.answerId,
       videoFileId: input.videoFileId,
       audioFileId: input.audioFileId,
+      nonverbalMetadata: input.nonverbalMetadata,
       durationSeconds: input.durationSeconds,
       submittedAt: input.submittedAt,
     });
@@ -1354,10 +1360,21 @@ export class InterviewService {
         { field: "audioFileId", reason: "audioFileId must be a positive integer" },
       ]);
     }
+    if (
+      requestBody.nonverbalMetadata !== undefined &&
+      (typeof requestBody.nonverbalMetadata !== "object" ||
+        requestBody.nonverbalMetadata === null ||
+        Array.isArray(requestBody.nonverbalMetadata))
+    ) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "nonverbalMetadata is invalid.", 400, [
+        { field: "nonverbalMetadata", reason: "nonverbalMetadata must be a JSON object" },
+      ]);
+    }
 
     return {
       ...(requestBody as Omit<AnswerRequestBody, "allowReanswer">),
       allowReanswer: requestBody.allowReanswer === true,
+      nonverbalMetadata: requestBody.nonverbalMetadata as InterviewAnswerNonverbalMetadata | undefined,
     };
   }
 

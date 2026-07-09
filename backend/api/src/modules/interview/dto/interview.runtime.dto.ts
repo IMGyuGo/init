@@ -1,4 +1,4 @@
-import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsPositive, IsString, Min } from "class-validator";
+import { IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsPositive, IsString, Min } from "class-validator";
 import type { QuestionType } from "../interview.runtime.types";
 
 export class RuntimeFileAssetDto {
@@ -67,6 +67,10 @@ export class SaveInterviewAnswerDto {
   @IsOptional()
   @IsIn(["RECORDING_VALIDATION_FAILED"])
   skipReason?: "RECORDING_VALIDATION_FAILED";
+
+  @IsOptional()
+  @IsObject()
+  nonverbalMetadata?: Record<string, unknown>;
 
   @IsOptional()
   @IsInt()

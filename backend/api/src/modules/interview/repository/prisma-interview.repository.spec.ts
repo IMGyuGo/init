@@ -4,6 +4,12 @@ import { PrismaInterviewRepository } from "./prisma-interview.repository";
 test("prisma interview repository persists answers through interview_answers", async () => {
   const createCalls: unknown[] = [];
   const submittedAt = "2026-07-01T00:00:00.000Z";
+  const nonverbalMetadata = {
+    cameraWarnings: 1,
+    microphoneWarnings: 0,
+    longSilenceCount: 2,
+    testModeUsed: false,
+  };
   const repository = new PrismaInterviewRepository({
     interviewAnswer: {
       create: async (args: unknown) => {
@@ -15,6 +21,7 @@ test("prisma interview repository persists answers through interview_answers", a
           videoFileId: 30001n,
           audioFileId: null,
           transcript: null,
+          nonverbalMetadata,
           durationSeconds: 42,
           submittedAt: new Date(submittedAt),
         };
@@ -26,6 +33,7 @@ test("prisma interview repository persists answers through interview_answers", a
     sessionId: 10001,
     questionId: 20001,
     videoFileId: 30001,
+    nonverbalMetadata,
     durationSeconds: 42,
     submittedAt,
   });
@@ -37,6 +45,7 @@ test("prisma interview repository persists answers through interview_answers", a
         questionId: 20001n,
         videoFileId: 30001n,
         audioFileId: null,
+        nonverbalMetadata,
         durationSeconds: 42,
         submittedAt: new Date(submittedAt),
       },
@@ -46,4 +55,5 @@ test("prisma interview repository persists answers through interview_answers", a
   assert.equal(answer.sessionId, 10001);
   assert.equal(answer.questionId, 20001);
   assert.equal(answer.videoFileId, 30001);
+  assert.deepEqual(answer.nonverbalMetadata, nonverbalMetadata);
 });

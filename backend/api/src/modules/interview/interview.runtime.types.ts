@@ -28,6 +28,8 @@ export interface RuntimeInterviewSession {
   updatedAt: string;
 }
 
+export type InterviewAnswerNonverbalMetadata = Record<string, unknown>;
+
 export interface InterviewAnswer {
   answerId: number;
   sessionId: number;
@@ -35,6 +37,7 @@ export interface InterviewAnswer {
   videoFileId?: number;
   audioFileId?: number;
   transcript?: string;
+  nonverbalMetadata?: InterviewAnswerNonverbalMetadata;
   durationSeconds: number;
   submittedAt: string;
 }
