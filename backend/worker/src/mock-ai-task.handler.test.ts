@@ -801,12 +801,21 @@ test("mock report generation applies nonverbal metadata as auxiliary practice si
                   type: "TAB_HIDDEN",
                   occurredAt: "2026-07-09T10:00:00.000Z",
                   durationMs: 6200
+                },
+                {
+                  type: "MULTIPLE_FACES",
+                  occurredAt: "2026-07-09T10:00:08.000Z",
+                  durationMs: 2100
                 }
               ],
               integritySummary: {
                 screenAwayCount: 1,
                 cameraLostCount: 0,
-                suspicionLevel: "MEDIUM"
+                faceMissingCount: 0,
+                faceOutOfFrameCount: 0,
+                multipleFacesCount: 1,
+                facePositionShiftCount: 0,
+                suspicionLevel: "HIGH"
               }
             }
           }

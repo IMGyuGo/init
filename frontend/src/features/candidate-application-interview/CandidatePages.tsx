@@ -152,6 +152,10 @@ const MAX_INVALID_RECORDING_AUTO_RETRY_COUNT = 1;
 const REALTIME_SILENCE_GRACE_MS = 2000;
 const NONVERBAL_SHORT_ANSWER_SECONDS = 10;
 const NONVERBAL_CAMERA_SAMPLE_INTERVAL_MS = 1000;
+const NONVERBAL_FACE_SAMPLE_SIZE = 240;
+const NONVERBAL_FACE_EDGE_MARGIN_RATIO = 0.08;
+const NONVERBAL_FACE_MIN_AREA_RATIO = 0.04;
+const NONVERBAL_FACE_SHIFT_RATIO = 0.22;
 const REALTIME_SPEECH_RESPONSE_TIMEOUT_MS = 30000;
 const BROWSER_SPEECH_START_TIMEOUT_MS = 2500;
 const BROWSER_SPEECH_MIN_COMPLETION_TIMEOUT_MS = 8000;
@@ -175,18 +179,40 @@ type InterviewGuideStep = "guide" | "device";
 type InterviewIntegrityEventType =
   | "TAB_HIDDEN"
   | "WINDOW_BLUR"
-  | "CAMERA_LOST";
+  | "CAMERA_LOST"
+  | "FACE_MISSING"
+  | "FACE_OUT_OF_FRAME"
+  | "MULTIPLE_FACES"
+  | "FACE_POSITION_SHIFT";
 type InterviewIntegritySuspicionLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH";
 type InterviewIntegrityEvent = {
   type: InterviewIntegrityEventType;
   occurredAt: string;
   durationMs?: number;
 };
+type BrowserDetectedFace = {
+  boundingBox: DOMRectReadOnly;
+};
+type BrowserFaceDetector = {
+  detect(image: CanvasImageSource): Promise<BrowserDetectedFace[]>;
+};
+type BrowserFaceDetectorConstructor = new (options?: { fastMode?: boolean; maxDetectedFaces?: number }) => BrowserFaceDetector;
+type FaceBoxSnapshot = {
+  centerX: number;
+  centerY: number;
+  areaRatio: number;
+};
 type InterviewIntegritySummary = {
   screenAwayCount: number;
   tabHiddenCount: number;
   windowBlurCount: number;
   cameraLostCount: number;
+  faceMissingCount: number;
+  faceOutOfFrameCount: number;
+  multipleFacesCount: number;
+  facePositionShiftCount: number;
+  faceDetectionSupported: boolean;
+  faceDetectionFrameCount: number;
   totalAwayDurationMs: number;
   maxAwayDurationMs: number;
   suspicionLevel: InterviewIntegritySuspicionLevel;
@@ -211,6 +237,13 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   tabHiddenStartedAtMs?: number;
   windowBlurStartedAtMs?: number;
   cameraLostStartedAtMs?: number;
+  faceMissingStartedAtMs?: number;
+  faceOutOfFrameStartedAtMs?: number;
+  multipleFacesStartedAtMs?: number;
+  facePositionShiftStartedAtMs?: number;
+  faceBaseline?: FaceBoxSnapshot;
+  faceDetectionSupported: boolean;
+  faceDetectionFrameCount: number;
   totalAwayDurationMs: number;
   maxAwayDurationMs: number;
   integrityEvents: InterviewIntegrityEvent[];
@@ -2324,6 +2357,9 @@ function InterviewRuntimePanel({
   const recordingNonverbalTrackerRef = useRef<RecordingNonverbalTracker | null>(null);
   const nonverbalCameraMonitorRef = useRef<number | null>(null);
   const nonverbalIntegrityCleanupRef = useRef<(() => void) | null>(null);
+  const nonverbalFaceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const nonverbalFaceDetectorRef = useRef<BrowserFaceDetector | null | undefined>(undefined);
+  const nonverbalFaceDetectionPendingRef = useRef(false);
   const lastInvalidRecordingMetadataRef = useRef<Map<number, InterviewAnswerNonverbalMetadata>>(new Map());
   const answerToNextQuestionPerfRef = useRef<{
     startedAt: number;
@@ -3570,7 +3606,10 @@ function InterviewRuntimePanel({
 
   function closeTimedIntegrityEvent(
     tracker: RecordingNonverbalTracker,
-    type: Extract<InterviewIntegrityEventType, "TAB_HIDDEN" | "WINDOW_BLUR" | "CAMERA_LOST">,
+    type: Extract<
+      InterviewIntegrityEventType,
+      "TAB_HIDDEN" | "WINDOW_BLUR" | "CAMERA_LOST" | "FACE_MISSING" | "FACE_OUT_OF_FRAME" | "MULTIPLE_FACES" | "FACE_POSITION_SHIFT"
+    >,
     startedAtMs: number | undefined,
     nowMs = Date.now(),
   ) {
@@ -3586,6 +3625,119 @@ function InterviewRuntimePanel({
     if (type === "TAB_HIDDEN" || type === "WINDOW_BLUR") {
       tracker.totalAwayDurationMs += durationMs;
       tracker.maxAwayDurationMs = Math.max(tracker.maxAwayDurationMs, durationMs);
+    }
+  }
+
+  function getBrowserFaceDetector(): BrowserFaceDetector | null {
+    if (nonverbalFaceDetectorRef.current !== undefined) return nonverbalFaceDetectorRef.current;
+
+    const FaceDetectorConstructor = (window as unknown as { FaceDetector?: BrowserFaceDetectorConstructor }).FaceDetector;
+    if (!FaceDetectorConstructor) {
+      nonverbalFaceDetectorRef.current = null;
+      return null;
+    }
+
+    try {
+      nonverbalFaceDetectorRef.current = new FaceDetectorConstructor({ fastMode: true, maxDetectedFaces: 4 });
+    } catch {
+      nonverbalFaceDetectorRef.current = null;
+    }
+    return nonverbalFaceDetectorRef.current;
+  }
+
+  function getNonverbalFaceCanvas(): HTMLCanvasElement {
+    if (!nonverbalFaceCanvasRef.current) {
+      nonverbalFaceCanvasRef.current = document.createElement("canvas");
+    }
+    return nonverbalFaceCanvasRef.current;
+  }
+
+  function toFaceSnapshot(face: BrowserDetectedFace, width: number, height: number): FaceBoxSnapshot {
+    const box = face.boundingBox;
+    return {
+      centerX: (box.x + box.width / 2) / width,
+      centerY: (box.y + box.height / 2) / height,
+      areaRatio: (box.width * box.height) / (width * height),
+    };
+  }
+
+  function isFaceOutOfFrame(snapshot: FaceBoxSnapshot): boolean {
+    return (
+      snapshot.areaRatio < NONVERBAL_FACE_MIN_AREA_RATIO ||
+      snapshot.centerX < NONVERBAL_FACE_EDGE_MARGIN_RATIO ||
+      snapshot.centerX > 1 - NONVERBAL_FACE_EDGE_MARGIN_RATIO ||
+      snapshot.centerY < NONVERBAL_FACE_EDGE_MARGIN_RATIO ||
+      snapshot.centerY > 1 - NONVERBAL_FACE_EDGE_MARGIN_RATIO
+    );
+  }
+
+  function isFacePositionShifted(baseline: FaceBoxSnapshot, current: FaceBoxSnapshot): boolean {
+    return (
+      Math.abs(current.centerX - baseline.centerX) >= NONVERBAL_FACE_SHIFT_RATIO ||
+      Math.abs(current.centerY - baseline.centerY) >= NONVERBAL_FACE_SHIFT_RATIO ||
+      Math.abs(current.areaRatio - baseline.areaRatio) >= Math.max(0.08, baseline.areaRatio * 1.4)
+    );
+  }
+
+  function updateTimedFaceSignal(
+    tracker: RecordingNonverbalTracker,
+    key: "faceMissingStartedAtMs" | "faceOutOfFrameStartedAtMs" | "multipleFacesStartedAtMs" | "facePositionShiftStartedAtMs",
+    type: Extract<InterviewIntegrityEventType, "FACE_MISSING" | "FACE_OUT_OF_FRAME" | "MULTIPLE_FACES" | "FACE_POSITION_SHIFT">,
+    active: boolean,
+  ) {
+    if (active) {
+      tracker[key] ??= Date.now();
+      return;
+    }
+    closeTimedIntegrityEvent(tracker, type, tracker[key]);
+    tracker[key] = undefined;
+  }
+
+  async function sampleFaceIntegrity(tracker: RecordingNonverbalTracker, questionId: number) {
+    if (nonverbalFaceDetectionPendingRef.current) return;
+
+    const detector = getBrowserFaceDetector();
+    tracker.faceDetectionSupported = Boolean(detector);
+    if (!detector) return;
+
+    const video = videoRef.current;
+    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth <= 0 || video.videoHeight <= 0) return;
+
+    nonverbalFaceDetectionPendingRef.current = true;
+    try {
+      const canvas = getNonverbalFaceCanvas();
+      const width = NONVERBAL_FACE_SAMPLE_SIZE;
+      const height = Math.max(1, Math.round((video.videoHeight / video.videoWidth) * width));
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) return;
+
+      context.drawImage(video, 0, 0, width, height);
+      const faces = await detector.detect(canvas);
+      const current = recordingNonverbalTrackerRef.current;
+      if (!current || current !== tracker || current.questionId !== questionId) return;
+
+      current.faceDetectionFrameCount += 1;
+      const primaryFace = faces[0];
+      const snapshot = primaryFace ? toFaceSnapshot(primaryFace, width, height) : undefined;
+      if (snapshot && !current.faceBaseline && !isFaceOutOfFrame(snapshot)) {
+        current.faceBaseline = snapshot;
+      }
+
+      updateTimedFaceSignal(current, "faceMissingStartedAtMs", "FACE_MISSING", faces.length === 0);
+      updateTimedFaceSignal(current, "multipleFacesStartedAtMs", "MULTIPLE_FACES", faces.length > 1);
+      updateTimedFaceSignal(current, "faceOutOfFrameStartedAtMs", "FACE_OUT_OF_FRAME", Boolean(snapshot && isFaceOutOfFrame(snapshot)));
+      updateTimedFaceSignal(
+        current,
+        "facePositionShiftStartedAtMs",
+        "FACE_POSITION_SHIFT",
+        Boolean(snapshot && current.faceBaseline && isFacePositionShifted(current.faceBaseline, snapshot)),
+      );
+    } catch {
+      tracker.faceDetectionSupported = false;
+    } finally {
+      nonverbalFaceDetectionPendingRef.current = false;
     }
   }
 
@@ -3654,6 +3806,8 @@ function InterviewRuntimePanel({
       observedAudioFrameCount: 0,
       cameraDisconnectedCount: 0,
       silenceSegmentCounted: false,
+      faceDetectionSupported: false,
+      faceDetectionFrameCount: 0,
       totalAwayDurationMs: 0,
       maxAwayDurationMs: 0,
       integrityEvents: [],
@@ -3678,6 +3832,7 @@ function InterviewRuntimePanel({
 
       closeTimedIntegrityEvent(current, "CAMERA_LOST", current.cameraLostStartedAtMs);
       current.cameraLostStartedAtMs = undefined;
+      void sampleFaceIntegrity(current, questionId);
     };
 
     sampleCamera();
@@ -3723,6 +3878,10 @@ function InterviewRuntimePanel({
     closeTimedIntegrityEvent(tracker, "TAB_HIDDEN", tracker.tabHiddenStartedAtMs, nowMs);
     closeTimedIntegrityEvent(tracker, "WINDOW_BLUR", tracker.windowBlurStartedAtMs, nowMs);
     closeTimedIntegrityEvent(tracker, "CAMERA_LOST", tracker.cameraLostStartedAtMs, nowMs);
+    closeTimedIntegrityEvent(tracker, "FACE_MISSING", tracker.faceMissingStartedAtMs, nowMs);
+    closeTimedIntegrityEvent(tracker, "FACE_OUT_OF_FRAME", tracker.faceOutOfFrameStartedAtMs, nowMs);
+    closeTimedIntegrityEvent(tracker, "MULTIPLE_FACES", tracker.multipleFacesStartedAtMs, nowMs);
+    closeTimedIntegrityEvent(tracker, "FACE_POSITION_SHIFT", tracker.facePositionShiftStartedAtMs, nowMs);
 
     const observedFrameCount = tracker.observedAudioFrameCount;
     const lowAudioRatio = observedFrameCount > 0 ? tracker.lowAudioFrameCount / observedFrameCount : 1;
@@ -3750,17 +3909,23 @@ function InterviewRuntimePanel({
     const tabHiddenCount = tracker.integrityEvents.filter((event) => event.type === "TAB_HIDDEN").length;
     const windowBlurCount = tracker.integrityEvents.filter((event) => event.type === "WINDOW_BLUR").length;
     const cameraLostCount = tracker.integrityEvents.filter((event) => event.type === "CAMERA_LOST").length;
+    const faceMissingCount = tracker.integrityEvents.filter((event) => event.type === "FACE_MISSING").length;
+    const faceOutOfFrameCount = tracker.integrityEvents.filter((event) => event.type === "FACE_OUT_OF_FRAME").length;
+    const multipleFacesCount = tracker.integrityEvents.filter((event) => event.type === "MULTIPLE_FACES").length;
+    const facePositionShiftCount = tracker.integrityEvents.filter((event) => event.type === "FACE_POSITION_SHIFT").length;
     const screenAwayCount = tabHiddenCount + windowBlurCount;
     const severeAwaySignal = tracker.maxAwayDurationMs >= 5000 || tracker.totalAwayDurationMs >= 10000;
+    const faceSignalCount = faceMissingCount + faceOutOfFrameCount + multipleFacesCount + facePositionShiftCount;
     const integritySignalGroups = [
       screenAwayCount > 0,
       cameraLostCount > 0,
+      faceSignalCount > 0,
       tracker.testModeUsed,
     ].filter(Boolean).length;
     const suspicionLevel: InterviewIntegritySuspicionLevel =
-      integritySignalGroups >= 2 || tracker.totalAwayDurationMs >= 30000
+      integritySignalGroups >= 2 || tracker.totalAwayDurationMs >= 30000 || multipleFacesCount > 0 || facePositionShiftCount > 0
         ? "HIGH"
-        : cameraLostCount > 0 || severeAwaySignal
+        : cameraLostCount > 0 || severeAwaySignal || faceMissingCount > 0 || faceOutOfFrameCount > 0
           ? "MEDIUM"
           : screenAwayCount > 0 || tracker.testModeUsed
             ? "LOW"
@@ -3771,6 +3936,12 @@ function InterviewRuntimePanel({
       tabHiddenCount,
       windowBlurCount,
       cameraLostCount,
+      faceMissingCount,
+      faceOutOfFrameCount,
+      multipleFacesCount,
+      facePositionShiftCount,
+      faceDetectionSupported: tracker.faceDetectionSupported,
+      faceDetectionFrameCount: tracker.faceDetectionFrameCount,
       totalAwayDurationMs: Math.round(tracker.totalAwayDurationMs),
       maxAwayDurationMs: Math.round(tracker.maxAwayDurationMs),
       suspicionLevel,
@@ -6482,6 +6653,9 @@ type MockNonverbalSummary = {
   integritySignalAnswers: number;
   screenAwaySignalAnswers: number;
   cameraIntegritySignalAnswers: number;
+  faceAwaySignalAnswers: number;
+  multipleFaceSignalAnswers: number;
+  faceShiftSignalAnswers: number;
 };
 
 function MockNonverbalSummaryPanel({ summary }: { summary: MockNonverbalSummary }) {
@@ -6496,7 +6670,7 @@ function MockNonverbalSummaryPanel({ summary }: { summary: MockNonverbalSummary 
         <div>
           <span>응시 무결성</span>
           <strong>모의면접 부정행위 의심 신호</strong>
-          <p>화면 이탈과 카메라 이탈처럼 면접 중 응시 무결성 확인이 필요한 신호를 기록합니다. 확정 판정이 아니라 연습용 피드백입니다.</p>
+          <p>화면 이탈, 얼굴 화면 밖, 여러 얼굴 감지처럼 면접 중 응시 무결성 확인이 필요한 신호를 기록합니다. 확정 판정이 아니라 연습용 피드백입니다.</p>
         </div>
         <StatusPill value={statusLabel} />
       </div>
@@ -6505,6 +6679,9 @@ function MockNonverbalSummaryPanel({ summary }: { summary: MockNonverbalSummary 
         <Definition label="무결성 확인" value={`${summary.integritySignalAnswers}`} />
         <Definition label="화면 이탈" value={`${summary.screenAwaySignalAnswers}`} />
         <Definition label="카메라 이탈" value={`${summary.cameraIntegritySignalAnswers}`} />
+        <Definition label="얼굴 이탈" value={`${summary.faceAwaySignalAnswers}`} />
+        <Definition label="여러 얼굴" value={`${summary.multipleFaceSignalAnswers}`} />
+        <Definition label="위치 급변" value={`${summary.faceShiftSignalAnswers}`} />
       </dl>
       <ul className="report-nonverbal-summary__guide">
         {guideItems.map((item) => (
@@ -6524,11 +6701,17 @@ function buildMockNonverbalSummary(items: CandidateMockReportMedia["media"]): Mo
     summary.answersWithMetadata += 1;
     const screenAwaySignal = readNonverbalScreenAwayCount(metadata) > 0;
     const cameraIntegritySignal = readNonverbalCameraLostCount(metadata) > 0 || readNonverbalTestModeUsed(metadata);
-    const integritySignal = screenAwaySignal || cameraIntegritySignal;
+    const faceAwaySignal = readNonverbalFaceAwayCount(metadata) > 0;
+    const multipleFaceSignal = readNonverbalMultipleFaceCount(metadata) > 0;
+    const faceShiftSignal = readNonverbalFacePositionShiftCount(metadata) > 0;
+    const integritySignal = screenAwaySignal || cameraIntegritySignal || faceAwaySignal || multipleFaceSignal || faceShiftSignal;
 
     if (integritySignal) summary.integritySignalAnswers += 1;
     if (screenAwaySignal) summary.screenAwaySignalAnswers += 1;
     if (cameraIntegritySignal) summary.cameraIntegritySignalAnswers += 1;
+    if (faceAwaySignal) summary.faceAwaySignalAnswers += 1;
+    if (multipleFaceSignal) summary.multipleFaceSignalAnswers += 1;
+    if (faceShiftSignal) summary.faceShiftSignalAnswers += 1;
     if (!integritySignal) {
       summary.stableAnswerCount += 1;
     }
@@ -6541,6 +6724,9 @@ function buildMockNonverbalSummary(items: CandidateMockReportMedia["media"]): Mo
     integritySignalAnswers: 0,
     screenAwaySignalAnswers: 0,
     cameraIntegritySignalAnswers: 0,
+    faceAwaySignalAnswers: 0,
+    multipleFaceSignalAnswers: 0,
+    faceShiftSignalAnswers: 0,
   });
 }
 
@@ -6548,13 +6734,22 @@ function buildMockNonverbalSummaryGuide(summary: MockNonverbalSummary): string[]
   const items: string[] = [];
 
   if (summary.integritySignalAnswers === 0) {
-    return ["전체 답변에서 화면 이탈이나 카메라 이탈 같은 응시 무결성 신호가 감지되지 않았습니다."];
+    return ["전체 답변에서 화면 이탈, 얼굴 화면 밖, 여러 얼굴 감지 같은 응시 무결성 신호가 감지되지 않았습니다."];
   }
   if (summary.screenAwaySignalAnswers > 0) {
     items.push(`${summary.screenAwaySignalAnswers}개 답변에서 면접 화면을 벗어나거나 탭이 숨겨진 신호가 감지되었습니다.`);
   }
   if (summary.cameraIntegritySignalAnswers > 0) {
     items.push(`${summary.cameraIntegritySignalAnswers}개 답변에서 카메라 끊김 또는 카메라 판단 제한 신호가 감지되었습니다.`);
+  }
+  if (summary.faceAwaySignalAnswers > 0) {
+    items.push(`${summary.faceAwaySignalAnswers}개 답변에서 얼굴이 화면 밖으로 나가거나 카메라 안에서 안정적으로 감지되지 않았습니다.`);
+  }
+  if (summary.multipleFaceSignalAnswers > 0) {
+    items.push(`${summary.multipleFaceSignalAnswers}개 답변에서 여러 얼굴이 감지되어 대리 응시나 주변 도움 여부를 확인할 필요가 있습니다.`);
+  }
+  if (summary.faceShiftSignalAnswers > 0) {
+    items.push(`${summary.faceShiftSignalAnswers}개 답변에서 얼굴 위치가 기준 위치와 크게 달라져 응시자 변경 또는 자리 이탈 의심 신호로 참고할 수 있습니다.`);
   }
 
   return items;
@@ -6585,6 +6780,9 @@ function buildMockNonverbalFeedbackItems(metadata?: Record<string, unknown>): st
 
   const screenAwayCount = readNonverbalScreenAwayCount(metadata);
   const cameraLostCount = readNonverbalCameraLostCount(metadata);
+  const faceAwayCount = readNonverbalFaceAwayCount(metadata);
+  const multipleFaceCount = readNonverbalMultipleFaceCount(metadata);
+  const faceShiftCount = readNonverbalFacePositionShiftCount(metadata);
   const suspicionLevel = readNonverbalIntegritySuspicionLevel(metadata);
   const testModeUsed = readNonverbalTestModeUsed(metadata);
   const items: string[] = [];
@@ -6595,11 +6793,20 @@ function buildMockNonverbalFeedbackItems(metadata?: Record<string, unknown>): st
   if (cameraLostCount > 0 || testModeUsed) {
     items.push("카메라가 끊기거나 카메라 판단이 제한된 구간이 있었습니다. 실제 면접에서는 얼굴과 상반신이 안정적으로 보이는 환경을 유지해 주세요.");
   }
+  if (faceAwayCount > 0) {
+    items.push("얼굴이 화면 밖으로 나가거나 일정 시간 감지되지 않았습니다. 스크립트, 휴대폰, 다른 모니터를 보는 행동으로 오해받을 수 있습니다.");
+  }
+  if (multipleFaceCount > 0) {
+    items.push("여러 얼굴이 감지되었습니다. 실제 면접에서는 주변 사람이 화면에 들어오거나 답변을 돕는 상황을 피해야 합니다.");
+  }
+  if (faceShiftCount > 0) {
+    items.push("얼굴 위치가 기준 위치와 크게 달라졌습니다. 자리 이탈이나 응시자 변경으로 오해받지 않도록 화면 중앙을 유지해 주세요.");
+  }
   if (suspicionLevel === "HIGH") {
     items.push("여러 응시 무결성 신호가 겹쳐 감지되었습니다. 실제 면접에서는 화면 이탈과 외부 자료 참고로 오해받을 수 있는 행동을 피하는 것이 좋습니다.");
   }
   if (!items.length) {
-    items.push("면접 중 화면 이탈이나 카메라 이탈 같은 응시 무결성 신호가 감지되지 않았습니다.");
+    items.push("면접 중 화면 이탈, 얼굴 화면 밖, 여러 얼굴 감지 같은 응시 무결성 신호가 감지되지 않았습니다.");
   }
 
   return items;
@@ -6645,6 +6852,34 @@ function readNonverbalCameraLostCount(metadata: Record<string, unknown>): number
   const summary = readNonverbalIntegritySummary(metadata);
   const summaryCount = summary ? readNonverbalNumber(summary, "cameraLostCount") : 0;
   return summaryCount || readNonverbalEventCount(metadata, ["CAMERA_LOST"]);
+}
+
+function readNonverbalFaceMissingCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "faceMissingCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["FACE_MISSING"]);
+}
+
+function readNonverbalFaceOutOfFrameCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "faceOutOfFrameCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["FACE_OUT_OF_FRAME"]);
+}
+
+function readNonverbalFaceAwayCount(metadata: Record<string, unknown>): number {
+  return readNonverbalFaceMissingCount(metadata) + readNonverbalFaceOutOfFrameCount(metadata);
+}
+
+function readNonverbalMultipleFaceCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "multipleFacesCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["MULTIPLE_FACES"]);
+}
+
+function readNonverbalFacePositionShiftCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "facePositionShiftCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["FACE_POSITION_SHIFT"]);
 }
 
 function readNonverbalIntegritySuspicionLevel(metadata: Record<string, unknown>): InterviewIntegritySuspicionLevel {

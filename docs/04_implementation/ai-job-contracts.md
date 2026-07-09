@@ -142,6 +142,12 @@ Example answer input:
     "integritySummary": {
       "screenAwayCount": 1,
       "cameraLostCount": 0,
+      "faceMissingCount": 0,
+      "faceOutOfFrameCount": 0,
+      "multipleFacesCount": 0,
+      "facePositionShiftCount": 0,
+      "faceDetectionSupported": true,
+      "faceDetectionFrameCount": 12,
       "totalAwayDurationMs": 4200,
       "maxAwayDurationMs": 4200,
       "suspicionLevel": "LOW"
@@ -153,7 +159,7 @@ Example answer input:
 Policy:
 
 - The metadata is auxiliary practice context. It may surface cheating-suspicion signals for mock interview practice, but it is not a final cheating decision.
-- For `MOCK_INTERVIEW_REPORT`, the worker may use `integrityEvents` and `integritySummary` to produce practice feedback about screen/tab leaving or camera loss during recording.
+- For `MOCK_INTERVIEW_REPORT`, the worker may use `integrityEvents` and `integritySummary` to produce practice feedback about screen/tab leaving, camera loss, face missing/out of frame, multiple faces, or large face-position shift during recording.
 - For `MOCK_INTERVIEW_REPORT`, short-answer, long-silence, and low-audio signals are recording or answer-quality signals, not cheating signals. They may apply conservative delivery-quality caps, but they must be explained as practice feedback.
 - For `RECRUITING_REPORT`, the metadata must not be used as a hiring score input or pass/fail signal. If a future company-facing UI exposes it, it must be separated as auxiliary media/communication quality context.
 - The worker must not infer appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, health, or other sensitive attributes from this metadata.
