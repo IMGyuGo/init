@@ -82,6 +82,11 @@ test("OpenAiAiTaskHandler uses provider for final report generation and keeps sa
         answers: [
           {
             answerId: 10,
+            nonverbalMetadata: {
+              microphoneWarnings: 1,
+              longSilenceCount: 1,
+              shortAnswerCount: 0
+            },
             question: "프로젝트 경험을 설명해주세요.",
             transcript: "NestJS와 PostgreSQL을 사용해 답변 저장 흐름을 구현했습니다."
           }
@@ -102,6 +107,11 @@ test("OpenAiAiTaskHandler uses provider for final report generation and keeps sa
   assert.equal(reportInputs.length, 1);
   assert.equal(reportInputs[0]?.policy, "MOCK");
   assert.equal(reportInputs[0]?.answers[0]?.answerId, 10);
+  assert.deepEqual(reportInputs[0]?.answers[0]?.nonverbalMetadata, {
+    microphoneWarnings: 1,
+    longSilenceCount: 1,
+    shortAnswerCount: 0
+  });
   assert.equal(output.summarySource, "OPENAI_REPORT_GENERATION");
   assert.equal(output.model, "report-model");
   assert.equal(output.reportFeedback, "다음 연습에서는 문제 해결 과정의 결과를 더 구체적으로 말해보세요.");

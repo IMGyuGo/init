@@ -767,6 +767,50 @@ test("report generation stores scores and evidences after guardrail pass", async
   assert.equal(report?.scores[0].evidences.length, 2);
 });
 
+test("mock report generation applies nonverbal metadata as auxiliary practice signal", async () => {
+  const results = new InMemoryAiResultRepository();
+
+  await run({
+    processLogId: 37,
+    processType: "REPORT_GENERATE",
+    input: {
+      payload: {
+        reportId: 37,
+        reportType: "MOCK_INTERVIEW_REPORT",
+        jobDescription: "Mock interview practice session",
+        criteria: [
+          {
+            criterionId: 1,
+            name: "Problem solving",
+            weight: 40
+          }
+        ],
+        answers: [
+          {
+            answerId: 10,
+            question: "Describe a technical problem and how you solved it.",
+            transcript:
+              "I separated the upload request, server logs, database update, queue handoff, and worker result, then fixed the missing state update and verified the result with tests.",
+            nonverbalMetadata: {
+              cameraWarnings: 1,
+              microphoneWarnings: 1,
+              longSilenceCount: 1,
+              shortAnswerCount: 1
+            }
+          }
+        ]
+      }
+    },
+    results
+  });
+
+  const report = results.generatedReports.get(37);
+  const score = report?.scores[0];
+  assert.equal(report?.reportType, "MOCK_INTERVIEW_REPORT");
+  assert.ok((score?.score ?? 100) <= 74);
+  assert.ok((score?.uncertaintyReasons.length ?? 0) >= 2);
+});
+
 test("recruiting report summarizes answer evidence while mock report keeps transcript evidence", async () => {
   const transcript = "I implemented NestJS APIs and confirmed the result with PostgreSQL query logs.";
   const recruitingResults = new InMemoryAiResultRepository();

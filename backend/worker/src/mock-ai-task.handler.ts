@@ -42,11 +42,33 @@ interface ReportAnswerForScoring {
   transcript: string;
   evaluationStatus: ReportAnswerEvaluationStatusRecord;
   transcriptUnavailableReason?: string;
+  nonverbalMetadata?: ReportAnswerNonverbalMetadata;
 }
 
 interface ReportScoringContext {
   reportType: "RECRUITING_REPORT" | "MOCK_INTERVIEW_REPORT";
   jobDescription?: string;
+}
+
+interface ReportAnswerNonverbalMetadata {
+  cameraWarnings?: number;
+  microphoneWarnings?: number;
+  longSilenceCount?: number;
+  shortAnswerCount?: number;
+  testModeUsed?: boolean;
+  voicePeakLevel?: number;
+  lowAudioFrameCount?: number;
+  observedAudioFrameCount?: number;
+  cameraDisconnectedCount?: number;
+  [key: string]: unknown;
+}
+
+interface NonverbalSignalSummary {
+  cameraWarnings: number;
+  microphoneWarnings: number;
+  longSilenceCount: number;
+  shortAnswerCount: number;
+  testModeUsed: boolean;
 }
 
 const MOCK_HIRING_DECISION_TERMS = [
@@ -654,8 +676,9 @@ export class MockAiTaskHandler implements AiTaskHandler {
       usedPrimaryAnswerIds.add(answer.answerId);
       const supportingFollowUps = childAnswersByParent.get(answer.answerId) ?? [];
       const transcriptForScoring = answerTranscriptWithFollowUps(answer, supportingFollowUps);
+      const nonverbalSignals = nonverbalSignalsForAnswers([answer, ...supportingFollowUps]);
       const structured = structuredAssessment(transcriptForScoring, documentText, criterion.description, context.jobDescription);
-      const quality = answerQualityAdjustment(criterionName, transcriptForScoring, context);
+      const quality = answerQualityAdjustment(criterionName, transcriptForScoring, context, nonverbalSignals);
       const score = Math.min(structured.score, quality.maxScore);
       const uncertaintyReasons = uniqueStrings([...structured.uncertaintyReasons, ...quality.reasons]);
       const confidence = quality.forceLowConfidence ? "LOW" : structured.confidence;
@@ -982,9 +1005,16 @@ function answersOf(value: unknown): ReportAnswerForScoring[] {
       parentAnswerId: optionalPositiveNumber(record.parentAnswerId, "parentAnswerId"),
       transcript,
       evaluationStatus,
-      transcriptUnavailableReason: evaluationStatus === "STT_UNAVAILABLE" ? transcriptUnavailableReason : undefined
+      transcriptUnavailableReason: evaluationStatus === "STT_UNAVAILABLE" ? transcriptUnavailableReason : undefined,
+      nonverbalMetadata: optionalNonverbalMetadata(record.nonverbalMetadata)
     };
   });
+}
+
+function optionalNonverbalMetadata(value: unknown): ReportAnswerNonverbalMetadata | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as ReportAnswerNonverbalMetadata
+    : undefined;
 }
 
 function questionTypeOf(value: unknown): ReportAnswerForScoring["questionType"] | undefined {
@@ -1071,10 +1101,39 @@ function answerTranscriptWithFollowUps(answer: ReportAnswerForScoring, followUps
   ].join("\n");
 }
 
+function nonverbalSignalsForAnswers(answers: ReportAnswerForScoring[]): NonverbalSignalSummary | undefined {
+  let found = false;
+  const summary: NonverbalSignalSummary = {
+    cameraWarnings: 0,
+    microphoneWarnings: 0,
+    longSilenceCount: 0,
+    shortAnswerCount: 0,
+    testModeUsed: false
+  };
+
+  for (const answer of answers) {
+    const metadata = answer.nonverbalMetadata;
+    if (!metadata) continue;
+    found = true;
+    summary.cameraWarnings += nonverbalNumber(metadata.cameraWarnings);
+    summary.microphoneWarnings += nonverbalNumber(metadata.microphoneWarnings);
+    summary.longSilenceCount += nonverbalNumber(metadata.longSilenceCount);
+    summary.shortAnswerCount += nonverbalNumber(metadata.shortAnswerCount);
+    summary.testModeUsed = summary.testModeUsed || metadata.testModeUsed === true;
+  }
+
+  return found ? summary : undefined;
+}
+
+function nonverbalNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
 function answerQualityAdjustment(
   criterionName: string,
   transcript: string,
-  context: ReportScoringContext
+  context: ReportScoringContext,
+  nonverbalSignals?: NonverbalSignalSummary
 ): { maxScore: number; reasons: string[]; forceLowConfidence: boolean } {
   const normalized = normalizeSpace(transcript);
   const reasons: string[] = [];
@@ -1122,6 +1181,22 @@ function answerQualityAdjustment(
   ) {
     maxScore = Math.min(maxScore, 64);
     reasons.push("JD와 직접 연결되는 기술, 역할, 업무 키워드가 충분히 드러나지 않았습니다.");
+  }
+
+  if (context.reportType === "MOCK_INTERVIEW_REPORT" && nonverbalSignals) {
+    if (nonverbalSignals.shortAnswerCount > 0) {
+      maxScore = Math.min(maxScore, 74);
+      reasons.push("답변 시간이 짧게 기록되어 상황, 행동, 결과 근거를 더 보강하면 좋습니다.");
+    }
+
+    if (nonverbalSignals.microphoneWarnings > 0 || nonverbalSignals.longSilenceCount > 0) {
+      maxScore = Math.min(maxScore, 78);
+      reasons.push("음성 입력이 낮거나 긴 무음 구간이 있어 핵심 문장을 더 또렷하고 이어서 말하는 연습이 필요합니다.");
+    }
+
+    if (nonverbalSignals.cameraWarnings > 0 || nonverbalSignals.testModeUsed) {
+      reasons.push("카메라 연결 또는 화면 상태 확인 신호가 있어 다음 연습에서는 화면 구도와 장치 상태를 먼저 점검해 보세요.");
+    }
   }
 
   return { maxScore, reasons, forceLowConfidence };

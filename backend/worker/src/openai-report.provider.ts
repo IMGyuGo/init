@@ -21,6 +21,20 @@ export interface ReportGenerationAnswer {
   transcript: string;
   evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
   transcriptUnavailableReason?: string;
+  nonverbalMetadata?: ReportAnswerNonverbalMetadata;
+}
+
+export interface ReportAnswerNonverbalMetadata {
+  cameraWarnings?: number;
+  microphoneWarnings?: number;
+  longSilenceCount?: number;
+  shortAnswerCount?: number;
+  testModeUsed?: boolean;
+  voicePeakLevel?: number;
+  lowAudioFrameCount?: number;
+  observedAudioFrameCount?: number;
+  cameraDisconnectedCount?: number;
+  [key: string]: unknown;
 }
 
 export interface ReportGenerationInput {
@@ -70,7 +84,7 @@ export class OpenAiReportProvider implements ReportAiProvider {
         {
           role: "system",
           content:
-            "You write concise Korean interview reports. For recruiting reports, return JSON only with keys summary and reviewNote. For mock interview reports, return JSON only with keys summary and feedback. All JSON string values must be written in Korean. Evaluate only evidence found in answer transcripts, follow-up answer transcripts, JD, posting metadata, and submitted documents. For recruiting reports, write for company reviewers. The reviewNote is an internal company review note, not candidate advice. Connect the evaluation to JD requirements and the confirmed question set, and never make a final hiring pass/fail judgment. For recruiting reports, do not quote raw STT text when it looks noisy or misrecognized; summarize the meaning conservatively and mention uncertainty instead. Avoid repeating the same strength in summary, score rationale, and review note. If an answer has evaluationStatus STT_UNAVAILABLE, state that it is temporarily scored as 0 because speech recognition failed and do not infer answer quality from it. Penalize very short answers, vague answers, missing results, missing owned actions, and transcripts that appear noisy or misrecognized. Do not infer or score sensitive attributes, appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, or health. For mock interview reports, write practice feedback, and never mention acceptance, rejection, hiring fit, or pass/fail."
+            "You write concise Korean interview reports. For recruiting reports, return JSON only with keys summary and reviewNote. For mock interview reports, return JSON only with keys summary and feedback. All JSON string values must be written in Korean. Evaluate only evidence found in answer transcripts, follow-up answer transcripts, JD, posting metadata, submitted documents, and nonverbalMetadata when it is explicitly provided. nonverbalMetadata is auxiliary practice metadata, not a cheating detector and not a hiring signal. Use nonverbalMetadata only for mock interview practice feedback: cameraWarnings/testModeUsed may suggest screen or camera setup review, microphoneWarnings/longSilenceCount may suggest clearer continuous speech, and shortAnswerCount may suggest adding situation-action-result detail. Do not use nonverbalMetadata to infer appearance, facial expression, eye contact, voice tone, disability, health, age, gender, school, region, or other sensitive attributes. For recruiting reports, write for company reviewers. The reviewNote is an internal company review note, not candidate advice. Connect the evaluation to JD requirements and the confirmed question set, and never make a final hiring pass/fail judgment. For recruiting reports, do not quote raw STT text when it looks noisy or misrecognized; summarize the meaning conservatively and mention uncertainty instead. Avoid repeating the same strength in summary, score rationale, and review note. If an answer has evaluationStatus STT_UNAVAILABLE, state that it is temporarily scored as 0 because speech recognition failed and do not infer answer quality from it. Penalize very short answers, vague answers, missing results, missing owned actions, and transcripts that appear noisy or misrecognized. Do not infer or score sensitive attributes, appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, or health. For mock interview reports, write practice feedback, and never mention acceptance, rejection, hiring fit, or pass/fail."
         },
         {
           role: "user",
@@ -91,6 +105,24 @@ export class OpenAiReportProvider implements ReportAiProvider {
             jobDescription: input.jobDescription,
             criteria: input.criteria,
             answers: input.answers,
+            nonverbalMetadataPolicy: {
+              usage: "MOCK_PRACTICE_AUXILIARY_ONLY",
+              notCheatingDetection: true,
+              notHiringSignal: true,
+              allowedFeedbackSignals: [
+                "camera setup review",
+                "low microphone input",
+                "long silence",
+                "short answer"
+              ],
+              prohibitedInferences: [
+                "appearance",
+                "facial expression",
+                "eye contact",
+                "voice tone",
+                "sensitive attributes"
+              ]
+            },
             documentText: input.documentText
           })
         }

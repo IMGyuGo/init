@@ -250,6 +250,7 @@ function answersOf(value: unknown): Array<{
   transcript: string;
   evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
   transcriptUnavailableReason?: string;
+  nonverbalMetadata?: Record<string, unknown>;
 }> {
   if (!Array.isArray(value) || value.length === 0) {
     throw new NonRetryableAiWorkerFailure("answers is required");
@@ -278,7 +279,8 @@ function answersOf(value: unknown): Array<{
       parentAnswerId: optionalPositiveNumber(record.parentAnswerId, "parentAnswerId"),
       transcript,
       evaluationStatus,
-      transcriptUnavailableReason: evaluationStatus === "STT_UNAVAILABLE" ? transcriptUnavailableReason : undefined
+      transcriptUnavailableReason: evaluationStatus === "STT_UNAVAILABLE" ? transcriptUnavailableReason : undefined,
+      nonverbalMetadata: optionalRecord(record.nonverbalMetadata)
     };
   });
 }
@@ -375,6 +377,12 @@ function optionalPositiveNumber(value: unknown, name: string): number | undefine
     return undefined;
   }
   return positiveNumber(value, name);
+}
+
+function optionalRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 function requiredText(value: unknown, name: string): string {
