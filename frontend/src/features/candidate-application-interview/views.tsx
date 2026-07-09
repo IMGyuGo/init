@@ -211,6 +211,13 @@ function smoothScrollWindowTo(y: number, duration = 560): void {
   requestAnimationFrame(step);
 }
 
+// JD 본문에서 이미지 갤러리(파일명 노출)와 태그 섹션만 제거한다. JD 본문 섹션은 유지.
+function stripStructuredJobMediaSections(jobDescription: string): string {
+  return jobDescription
+    .replace(/<section\b[^>]*data-init-structured-gallery="true"[^>]*>[\s\S]*?<\/section>/gi, "")
+    .replace(/<section\b[^>]*data-init-structured-tags="true"[^>]*>[\s\S]*?<\/section>/gi, "");
+}
+
 function candidateJobDday(endsOn: string): string | null {
   if (!endsOn) return null;
   const end = new Date(`${endsOn}T23:59:59`);
@@ -859,7 +866,9 @@ export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetail
   const [images, setImages] = useState<string[]>([]);
 
   // JD 에서 "공고 조건" 블록을 분리해 요약 그리드로 보여주고, 본문에는 제거된 JD 만 렌더한다.
-  const { jobDescription: jdBody, extraInfo } = extractPostingExtraInfo(job.jobDescription);
+  // 이미지 갤러리(파일명 노출)와 태그 섹션은 상단 캐러셀/헤더 태그로 이미 보여주므로 본문에서만 제거한다(JD 섹션은 유지).
+  const { jobDescription: jdWithoutExtraInfo, extraInfo } = extractPostingExtraInfo(job.jobDescription);
+  const jdBody = stripStructuredJobMediaSections(jdWithoutExtraInfo);
   const summaryRows = postingExtraInfoFields
     .map((field) => ({ label: field.label, value: extraInfo[field.key].enabled ? extraInfo[field.key].value : "" }))
     .filter((row) => row.value);
@@ -912,13 +921,6 @@ export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetail
               </span>
             </div>
             <h1 id="candidate-job-detail-heading" className="jobdetail-title">{job.title}</h1>
-            {job.techStacks.length ? (
-              <div className="jobdetail-tags">
-                {job.techStacks.map((techStack) => (
-                  <span key={techStack}>#{techStack}</span>
-                ))}
-              </div>
-            ) : null}
           </header>
 
           {summaryRows.length ? (
@@ -946,6 +948,17 @@ export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetail
             <section className="jobdetail-companyinfo">
               <h2>회사 소개</h2>
               <p>{job.companyProfile}</p>
+            </section>
+          ) : null}
+
+          {job.techStacks.length ? (
+            <section className="jobdetail-tagsection">
+              <h2>태그</h2>
+              <div className="jobdetail-tags">
+                {job.techStacks.map((techStack) => (
+                  <span key={techStack}>{techStack}</span>
+                ))}
+              </div>
             </section>
           ) : null}
         </div>
