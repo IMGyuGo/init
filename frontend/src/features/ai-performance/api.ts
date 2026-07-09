@@ -2,6 +2,8 @@
 
 import { apiFetch } from "@/api/client";
 
+const USER_PERCEIVED_NEXT_READY_EVENT = "ANSWER_SUBMIT_TO_NEXT_READY";
+
 export interface AiPerformanceSummary {
   jobs: PerformanceSummaryBlock;
   clientEvents: PerformanceSummaryBlock;
@@ -68,7 +70,7 @@ export interface ClientPerformanceLogRequest {
 }
 
 export function getAiPerformanceSummary() {
-  return apiFetch<AiPerformanceSummary>("/ai/performance/summary?limit=200");
+  return apiFetch<AiPerformanceSummary>(`/ai/performance/summary?limit=200&eventName=${USER_PERCEIVED_NEXT_READY_EVENT}`);
 }
 
 export function listAiPerformanceJobs() {
@@ -76,7 +78,7 @@ export function listAiPerformanceJobs() {
 }
 
 export function listClientPerformanceEvents() {
-  return apiFetch<ClientPerformanceEvent[]>("/ai/performance/client-events?limit=30");
+  return apiFetch<ClientPerformanceEvent[]>(`/ai/performance/client-events?limit=30&eventName=${USER_PERCEIVED_NEXT_READY_EVENT}`);
 }
 
 export async function sendClientPerformanceLog(request: ClientPerformanceLogRequest): Promise<void> {
