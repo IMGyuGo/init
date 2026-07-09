@@ -7302,7 +7302,7 @@ p {
 .notion .jobdetail-jd .jd-content h2:first-of-type { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; margin-top: 2px; }
 
 .notion .jobdetail-companyinfo { display: grid; gap: 10px; padding-top: 24px; border-top: 1px solid rgba(55, 53, 47, 0.1); }
-.notion .jobdetail-companyinfo h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: #191919; }
+.notion .jobdetail-companyinfo h2 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; color: #191919; }
 .notion .jobdetail-companyinfo p { margin: 0; font-size: 15px; line-height: 1.7; color: rgba(55, 53, 47, 0.75); white-space: pre-wrap; }
 
 /* 공고 요약(직행식): 라벨-값 2열 그리드 */
@@ -8205,7 +8205,7 @@ p {
 
 /* 공고 상세: 하단 태그 섹션 */
 .notion .jobdetail-tagsection { margin-top: 4px; }
-.notion .jobdetail-tagsection h2 { margin: 0 0 10px; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: #191919; }
+.notion .jobdetail-tagsection h2 { margin: 0 0 10px; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; color: #191919; }
 
 /* 공고 상세: 우측 상단 아이콘 액션 + 드롭다운 */
 .notion .detail-actions { display: inline-flex; align-items: center; gap: 8px; }
