@@ -2,14 +2,14 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import detailApplicantsIcon from "./assets/detail-applicants.png";
 import detailCompletionIcon from "./assets/detail-completion.png";
 import detailReportIcon from "./assets/detail-report.png";
 
 import { getRecruitment, listRecruitmentApplicants, publishRecruitment, updateScreeningStatus } from "./api";
-import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
+import { BackButton, Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
 import { JobDescriptionViewer } from "./JobDescriptionViewer";
 import { PostingExtraInfoSummary } from "./PostingExtraInfoFields";
 import { extractPostingExtraInfo, postingExtraInfoFromApiFields } from "./posting-extra-info";
@@ -50,6 +50,26 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
   const [publishError, setPublishError] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [actionMenuOpen, setActionMenuOpen] = useState(false);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
+  const [applicantPage, setApplicantPage] = useState(1);
+  const APPLICANTS_PAGE_SIZE = 10;
+  const totalApplicantPages = Math.max(1, Math.ceil(applicants.length / APPLICANTS_PAGE_SIZE));
+  const currentApplicantPage = Math.min(applicantPage, totalApplicantPages);
+  const pagedApplicants = applicants.slice(
+    (currentApplicantPage - 1) * APPLICANTS_PAGE_SIZE,
+    currentApplicantPage * APPLICANTS_PAGE_SIZE,
+  );
+  const applicantPageWindow = buildPageWindow(currentApplicantPage, totalApplicantPages, 5);
+
+  useEffect(() => {
+    if (!actionMenuOpen) return;
+    function onDocClick(event: MouseEvent) {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(event.target as Node)) setActionMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [actionMenuOpen]);
 
   const load = useCallback(async (options: { clearMessage?: boolean } = {}) => {
     setLoading(true);
@@ -203,29 +223,58 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
   return (
     <section className="app-page glass-page notion">
         <div className="page-head">
-          <div>
-            <Breadcrumb
-              items={[
-                { label: "공고 목록", href: "/company/recruitments" },
-                { label: recruitment?.title ?? "공고 대시보드" },
-              ]}
-            />
-            <h1>{recruitment?.title ?? "공고 대시보드"}</h1>
-            <p className="page-sub">공고 운영 현황과 다음 전형 대상자를 확인합니다.</p>
+          <div className="page-head-lead">
+            <BackButton fallbackHref="/company/recruitments" />
+            <div>
+              <Breadcrumb
+                items={[
+                  { label: "공고 목록", href: "/company/recruitments" },
+                  { label: recruitment?.title ?? "공고 대시보드" },
+                ]}
+              />
+              <h1>{recruitment?.title ?? "공고 대시보드"}</h1>
+            </div>
           </div>
-          <div className="page-actions">
-            <button className="btn secondary" type="button" disabled={!recruitment} onClick={() => void handlePublicApplicationLinkCopy()}>
-              공개 지원 링크
+          <div className="page-actions detail-actions">
+            <button
+              className="detail-action-icon"
+              type="button"
+              disabled={!recruitment}
+              aria-label="공개 지원 링크 복사"
+              data-tooltip="공개 지원 링크 복사"
+              onClick={() => void handlePublicApplicationLinkCopy()}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              </svg>
             </button>
-            <Link className="btn secondary" href={`/company/recruitments/${recruitmentId}/settings`}>
-              공고 설정
-            </Link>
-            <Link className="btn secondary" href={buildInterviewSettingsHref(recruitmentId)}>
-              면접 관리
-            </Link>
-            <Link className="btn primary" href={`/company/recruitments/${recruitmentId}/applicants`}>
-              지원자 관리
-            </Link>
+            <div className="detail-action-menu" ref={actionMenuRef}>
+              <button
+                className="detail-action-icon"
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded={actionMenuOpen}
+                aria-label="공고 관리 메뉴"
+                data-tooltip="공고 관리"
+                onClick={() => setActionMenuOpen((current) => !current)}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg>
+              </button>
+              {actionMenuOpen ? (
+                <div className="detail-action-dropdown" role="menu">
+                  <Link className="detail-action-item" role="menuitem" href={`/company/recruitments/${recruitmentId}/settings`}>
+                    공고 설정
+                  </Link>
+                  <Link className="detail-action-item" role="menuitem" href={buildInterviewSettingsHref(recruitmentId)}>
+                    면접 설정
+                  </Link>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
 
@@ -285,12 +334,11 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
               <div className="panel-head">
                 <div>
                   <h2>다음 전형 대상자 선별</h2>
-                  <p>전형 상태와 수동 메모는 B 소유 필드만 저장합니다.</p>
                 </div>
               </div>
 
               {applicants.length === 0 ? (
-                <div className="empty">등록된 지원자가 없습니다. 우측 상단의 지원자 관리에서 먼저 등록하세요.</div>
+                <div className="empty">아직 지원한 지원자가 없습니다.</div>
               ) : (
                 <div className="table-wrap">
                   <table className="screening-table">
@@ -311,7 +359,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                       </tr>
                     </thead>
                     <tbody>
-                      {applicants.map((item) => {
+                      {pagedApplicants.map((item) => {
                         const decisionState = getScreeningAutosaveFieldState(autosaveState, item.applicationId, "decision");
                         const memoState = getScreeningAutosaveFieldState(autosaveState, item.applicationId, "memo");
 
@@ -383,6 +431,39 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                   </table>
                 </div>
               )}
+              {totalApplicantPages > 1 ? (
+                <nav className="applicant-pagination" aria-label="지원자 목록 페이지">
+                  <button
+                    type="button"
+                    className="applicant-page-btn"
+                    disabled={currentApplicantPage <= 1}
+                    aria-label="이전 페이지"
+                    onClick={() => setApplicantPage(currentApplicantPage - 1)}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5" /><path d="m12 19-7-7 7-7" /></svg>
+                  </button>
+                  {applicantPageWindow.map((pageNumber) => (
+                    <button
+                      key={pageNumber}
+                      type="button"
+                      className={`applicant-page-num${pageNumber === currentApplicantPage ? " is-active" : ""}`}
+                      aria-current={pageNumber === currentApplicantPage ? "page" : undefined}
+                      onClick={() => setApplicantPage(pageNumber)}
+                    >
+                      {pageNumber}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="applicant-page-btn"
+                    disabled={currentApplicantPage >= totalApplicantPages}
+                    aria-label="다음 페이지"
+                    onClick={() => setApplicantPage(currentApplicantPage + 1)}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
+                  </button>
+                </nav>
+              ) : null}
             </section>
 
           </>
@@ -419,6 +500,13 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
         ) : null}
     </section>
   );
+}
+
+function buildPageWindow(page: number, totalPages: number, windowSize: number): number[] {
+  let start = Math.max(1, page - Math.floor(windowSize / 2));
+  const end = Math.min(totalPages, start + windowSize - 1);
+  start = Math.max(1, end - windowSize + 1);
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
 }
 
 function openPromptDismissKey(recruitmentId: number) {
