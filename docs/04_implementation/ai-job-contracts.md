@@ -110,6 +110,40 @@ GET /api/v1/ai/jobs/101/status
 | `POST /candidate/mock-interviews/questions/generate` | Candidate | questionCount | JD/posting/기업 기준 없이 동작 |
 | `POST /ai/guardrails/validate` | Admin/System | reportType, target, scores, summary? | PASS/BLOCKED/REGENERATED 기록 |
 
+## REPORT_GENERATE Nonverbal Metadata
+
+`REPORT_GENERATE` jobs may receive `answers[].nonverbalMetadata` when the answer was recorded through the browser interview runtime.
+
+Example answer input:
+
+```json
+{
+  "answerId": 10,
+  "questionId": 1,
+  "question": "Describe a technical problem and how you solved it.",
+  "transcript": "I separated upload, API, DB, queue, and worker stages and fixed the missing state transition.",
+  "nonverbalMetadata": {
+    "cameraWarnings": 0,
+    "microphoneWarnings": 1,
+    "longSilenceCount": 1,
+    "shortAnswerCount": 0,
+    "testModeUsed": false,
+    "voicePeakLevel": 12,
+    "lowAudioFrameCount": 48,
+    "observedAudioFrameCount": 320,
+    "cameraDisconnectedCount": 0
+  }
+}
+```
+
+Policy:
+
+- The metadata is auxiliary practice context, not a cheating detector.
+- For `MOCK_INTERVIEW_REPORT`, the worker may use it to produce practice feedback about answer delivery, such as short answers, long silence, low microphone input, or camera setup review.
+- For `MOCK_INTERVIEW_REPORT`, short-answer or low-audio signals may apply conservative delivery-quality caps, but they must be explained as practice feedback.
+- For `RECRUITING_REPORT`, the metadata must not be used as a hiring score input or pass/fail signal. If a future company-facing UI exposes it, it must be separated as auxiliary media/communication quality context.
+- The worker must not infer appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, health, or other sensitive attributes from this metadata.
+
 ## Payload Examples
 
 평가 컨텍스트 입력:
