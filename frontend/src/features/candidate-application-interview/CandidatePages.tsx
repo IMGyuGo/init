@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { DependencyList, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { FaceLandmarker as MediaPipeFaceLandmarker, NormalizedLandmark } from "@mediapipe/tasks-vision";
 
 import { getApiBaseUrl } from "../../api/api-base-url";
 import { getAccessToken } from "../../api/client";
@@ -156,6 +157,11 @@ const NONVERBAL_FACE_SAMPLE_SIZE = 240;
 const NONVERBAL_FACE_EDGE_MARGIN_RATIO = 0.08;
 const NONVERBAL_FACE_MIN_AREA_RATIO = 0.04;
 const NONVERBAL_FACE_SHIFT_RATIO = 0.22;
+const NONVERBAL_GAZE_AWAY_THRESHOLD = 0.22;
+const MEDIAPIPE_TASKS_VISION_VERSION = "0.10.35";
+const MEDIAPIPE_TASKS_VISION_WASM_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_TASKS_VISION_VERSION}/wasm`;
+const MEDIAPIPE_FACE_LANDMARKER_MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
 const REALTIME_SPEECH_RESPONSE_TIMEOUT_MS = 30000;
 const BROWSER_SPEECH_START_TIMEOUT_MS = 2500;
 const BROWSER_SPEECH_MIN_COMPLETION_TIMEOUT_MS = 8000;
@@ -183,12 +189,14 @@ type InterviewIntegrityEventType =
   | "FACE_MISSING"
   | "FACE_OUT_OF_FRAME"
   | "MULTIPLE_FACES"
-  | "FACE_POSITION_SHIFT";
+  | "FACE_POSITION_SHIFT"
+  | "GAZE_AWAY";
 type InterviewIntegritySuspicionLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH";
 type InterviewIntegrityEvent = {
   type: InterviewIntegrityEventType;
   occurredAt: string;
   durationMs?: number;
+  direction?: GazeDirection;
 };
 type BrowserDetectedFace = {
   boundingBox: DOMRectReadOnly;
@@ -202,6 +210,8 @@ type FaceBoxSnapshot = {
   centerY: number;
   areaRatio: number;
 };
+type GazeDirection = "LEFT" | "RIGHT" | "UP" | "DOWN";
+type MediaPipeFaceLandmarkerModule = typeof import("@mediapipe/tasks-vision");
 type InterviewIntegritySummary = {
   screenAwayCount: number;
   tabHiddenCount: number;
@@ -211,8 +221,11 @@ type InterviewIntegritySummary = {
   faceOutOfFrameCount: number;
   multipleFacesCount: number;
   facePositionShiftCount: number;
+  gazeAwayCount: number;
   faceDetectionSupported: boolean;
   faceDetectionFrameCount: number;
+  gazeDetectionSupported: boolean;
+  gazeDetectionFrameCount: number;
   totalAwayDurationMs: number;
   maxAwayDurationMs: number;
   suspicionLevel: InterviewIntegritySuspicionLevel;
@@ -241,9 +254,13 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   faceOutOfFrameStartedAtMs?: number;
   multipleFacesStartedAtMs?: number;
   facePositionShiftStartedAtMs?: number;
+  gazeAwayStartedAtMs?: number;
+  lastGazeDirection?: GazeDirection;
   faceBaseline?: FaceBoxSnapshot;
   faceDetectionSupported: boolean;
   faceDetectionFrameCount: number;
+  gazeDetectionSupported: boolean;
+  gazeDetectionFrameCount: number;
   totalAwayDurationMs: number;
   maxAwayDurationMs: number;
   integrityEvents: InterviewIntegrityEvent[];
@@ -2359,6 +2376,8 @@ function InterviewRuntimePanel({
   const nonverbalIntegrityCleanupRef = useRef<(() => void) | null>(null);
   const nonverbalFaceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const nonverbalFaceDetectorRef = useRef<BrowserFaceDetector | null | undefined>(undefined);
+  const nonverbalFaceLandmarkerRef = useRef<MediaPipeFaceLandmarker | null | undefined>(undefined);
+  const nonverbalFaceLandmarkerPromiseRef = useRef<Promise<MediaPipeFaceLandmarker | null> | null>(null);
   const nonverbalFaceDetectionPendingRef = useRef(false);
   const lastInvalidRecordingMetadataRef = useRef<Map<number, InterviewAnswerNonverbalMetadata>>(new Map());
   const answerToNextQuestionPerfRef = useRef<{
@@ -3593,7 +3612,10 @@ function InterviewRuntimePanel({
     nonverbalIntegrityCleanupRef.current = null;
   }
 
-  function recordIntegrityEvent(type: InterviewIntegrityEventType, options: { durationMs?: number; occurredAtMs?: number } = {}) {
+  function recordIntegrityEvent(
+    type: InterviewIntegrityEventType,
+    options: { durationMs?: number; occurredAtMs?: number; direction?: GazeDirection } = {},
+  ) {
     const tracker = recordingNonverbalTrackerRef.current;
     if (!tracker) return;
 
@@ -3601,6 +3623,7 @@ function InterviewRuntimePanel({
       type,
       occurredAt: new Date(options.occurredAtMs ?? Date.now()).toISOString(),
       ...(options.durationMs !== undefined ? { durationMs: Math.max(0, Math.round(options.durationMs)) } : {}),
+      ...(options.direction ? { direction: options.direction } : {}),
     });
   }
 
@@ -3608,10 +3631,18 @@ function InterviewRuntimePanel({
     tracker: RecordingNonverbalTracker,
     type: Extract<
       InterviewIntegrityEventType,
-      "TAB_HIDDEN" | "WINDOW_BLUR" | "CAMERA_LOST" | "FACE_MISSING" | "FACE_OUT_OF_FRAME" | "MULTIPLE_FACES" | "FACE_POSITION_SHIFT"
+      | "TAB_HIDDEN"
+      | "WINDOW_BLUR"
+      | "CAMERA_LOST"
+      | "FACE_MISSING"
+      | "FACE_OUT_OF_FRAME"
+      | "MULTIPLE_FACES"
+      | "FACE_POSITION_SHIFT"
+      | "GAZE_AWAY"
     >,
     startedAtMs: number | undefined,
     nowMs = Date.now(),
+    options: { direction?: GazeDirection } = {},
   ) {
     if (startedAtMs === undefined) return;
 
@@ -3620,12 +3651,44 @@ function InterviewRuntimePanel({
       type,
       occurredAt: new Date(startedAtMs).toISOString(),
       durationMs: Math.round(durationMs),
+      ...(options.direction ? { direction: options.direction } : {}),
     });
 
     if (type === "TAB_HIDDEN" || type === "WINDOW_BLUR") {
       tracker.totalAwayDurationMs += durationMs;
       tracker.maxAwayDurationMs = Math.max(tracker.maxAwayDurationMs, durationMs);
     }
+  }
+
+  async function getMediaPipeFaceLandmarker(): Promise<MediaPipeFaceLandmarker | null> {
+    if (nonverbalFaceLandmarkerRef.current !== undefined) return nonverbalFaceLandmarkerRef.current;
+    if (nonverbalFaceLandmarkerPromiseRef.current) return nonverbalFaceLandmarkerPromiseRef.current;
+
+    nonverbalFaceLandmarkerPromiseRef.current = (async () => {
+      try {
+        const tasks = await import("@mediapipe/tasks-vision") as MediaPipeFaceLandmarkerModule;
+        const vision = await tasks.FilesetResolver.forVisionTasks(MEDIAPIPE_TASKS_VISION_WASM_URL);
+        const landmarker = await tasks.FaceLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: MEDIAPIPE_FACE_LANDMARKER_MODEL_URL,
+          },
+          runningMode: "VIDEO",
+          numFaces: 3,
+          minFaceDetectionConfidence: 0.5,
+          minFacePresenceConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+        });
+        nonverbalFaceLandmarkerRef.current = landmarker;
+        return landmarker;
+      } catch {
+        nonverbalFaceLandmarkerRef.current = null;
+        return null;
+      } finally {
+        nonverbalFaceLandmarkerPromiseRef.current = null;
+      }
+    })();
+
+    return nonverbalFaceLandmarkerPromiseRef.current;
   }
 
   function getBrowserFaceDetector(): BrowserFaceDetector | null {
@@ -3661,6 +3724,24 @@ function InterviewRuntimePanel({
     };
   }
 
+  function toFaceSnapshotFromLandmarks(landmarks: NormalizedLandmark[]): FaceBoxSnapshot | undefined {
+    if (!landmarks.length) return undefined;
+
+    const xs = landmarks.map((landmark) => landmark.x).filter((value) => Number.isFinite(value));
+    const ys = landmarks.map((landmark) => landmark.y).filter((value) => Number.isFinite(value));
+    if (!xs.length || !ys.length) return undefined;
+
+    const minX = Math.max(0, Math.min(...xs));
+    const maxX = Math.min(1, Math.max(...xs));
+    const minY = Math.max(0, Math.min(...ys));
+    const maxY = Math.min(1, Math.max(...ys));
+    return {
+      centerX: (minX + maxX) / 2,
+      centerY: (minY + maxY) / 2,
+      areaRatio: Math.max(0, maxX - minX) * Math.max(0, maxY - minY),
+    };
+  }
+
   function isFaceOutOfFrame(snapshot: FaceBoxSnapshot): boolean {
     return (
       snapshot.areaRatio < NONVERBAL_FACE_MIN_AREA_RATIO ||
@@ -3679,32 +3760,124 @@ function InterviewRuntimePanel({
     );
   }
 
+  function averageLandmarks(landmarks: NormalizedLandmark[], indexes: number[]): NormalizedLandmark | undefined {
+    const points = indexes.map((index) => landmarks[index]).filter(Boolean);
+    if (!points.length) return undefined;
+    return {
+      x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
+      y: points.reduce((sum, point) => sum + point.y, 0) / points.length,
+      z: points.reduce((sum, point) => sum + (point.z ?? 0), 0) / points.length,
+      visibility: points.reduce((sum, point) => sum + (point.visibility ?? 0), 0) / points.length,
+    };
+  }
+
+  function estimateGazeAwayDirection(landmarks: NormalizedLandmark[]): GazeDirection | undefined {
+    if (landmarks.length < 478) return undefined;
+
+    const rightIris = averageLandmarks(landmarks, [468, 469, 470, 471, 472]);
+    const leftIris = averageLandmarks(landmarks, [473, 474, 475, 476, 477]);
+    const rightLeft = landmarks[33];
+    const rightRight = landmarks[133];
+    const rightTop = landmarks[159];
+    const rightBottom = landmarks[145];
+    const leftLeft = landmarks[362];
+    const leftRight = landmarks[263];
+    const leftTop = landmarks[386];
+    const leftBottom = landmarks[374];
+    if (!rightIris || !leftIris || !rightLeft || !rightRight || !rightTop || !rightBottom || !leftLeft || !leftRight || !leftTop || !leftBottom) {
+      return undefined;
+    }
+
+    const rightMinX = Math.min(rightLeft.x, rightRight.x);
+    const rightMaxX = Math.max(rightLeft.x, rightRight.x);
+    const leftMinX = Math.min(leftLeft.x, leftRight.x);
+    const leftMaxX = Math.max(leftLeft.x, leftRight.x);
+    const rightMinY = Math.min(rightTop.y, rightBottom.y);
+    const rightMaxY = Math.max(rightTop.y, rightBottom.y);
+    const leftMinY = Math.min(leftTop.y, leftBottom.y);
+    const leftMaxY = Math.max(leftTop.y, leftBottom.y);
+    const rightWidth = rightMaxX - rightMinX;
+    const leftWidth = leftMaxX - leftMinX;
+    const rightHeight = rightMaxY - rightMinY;
+    const leftHeight = leftMaxY - leftMinY;
+    if (rightWidth <= 0 || leftWidth <= 0 || rightHeight <= 0 || leftHeight <= 0) return undefined;
+
+    const horizontalRatio = ((rightIris.x - rightMinX) / rightWidth + (leftIris.x - leftMinX) / leftWidth) / 2;
+    const verticalRatio = ((rightIris.y - rightMinY) / rightHeight + (leftIris.y - leftMinY) / leftHeight) / 2;
+
+    if (horizontalRatio <= 0.5 - NONVERBAL_GAZE_AWAY_THRESHOLD) return "LEFT";
+    if (horizontalRatio >= 0.5 + NONVERBAL_GAZE_AWAY_THRESHOLD) return "RIGHT";
+    if (verticalRatio <= 0.5 - NONVERBAL_GAZE_AWAY_THRESHOLD) return "UP";
+    if (verticalRatio >= 0.5 + NONVERBAL_GAZE_AWAY_THRESHOLD) return "DOWN";
+    return undefined;
+  }
+
   function updateTimedFaceSignal(
     tracker: RecordingNonverbalTracker,
-    key: "faceMissingStartedAtMs" | "faceOutOfFrameStartedAtMs" | "multipleFacesStartedAtMs" | "facePositionShiftStartedAtMs",
-    type: Extract<InterviewIntegrityEventType, "FACE_MISSING" | "FACE_OUT_OF_FRAME" | "MULTIPLE_FACES" | "FACE_POSITION_SHIFT">,
+    key:
+      | "faceMissingStartedAtMs"
+      | "faceOutOfFrameStartedAtMs"
+      | "multipleFacesStartedAtMs"
+      | "facePositionShiftStartedAtMs"
+      | "gazeAwayStartedAtMs",
+    type: Extract<InterviewIntegrityEventType, "FACE_MISSING" | "FACE_OUT_OF_FRAME" | "MULTIPLE_FACES" | "FACE_POSITION_SHIFT" | "GAZE_AWAY">,
     active: boolean,
+    options: { direction?: GazeDirection } = {},
   ) {
     if (active) {
       tracker[key] ??= Date.now();
       return;
     }
-    closeTimedIntegrityEvent(tracker, type, tracker[key]);
+    closeTimedIntegrityEvent(tracker, type, tracker[key], Date.now(), options);
     tracker[key] = undefined;
   }
 
   async function sampleFaceIntegrity(tracker: RecordingNonverbalTracker, questionId: number) {
     if (nonverbalFaceDetectionPendingRef.current) return;
 
-    const detector = getBrowserFaceDetector();
-    tracker.faceDetectionSupported = Boolean(detector);
-    if (!detector) return;
-
     const video = videoRef.current;
     if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth <= 0 || video.videoHeight <= 0) return;
 
     nonverbalFaceDetectionPendingRef.current = true;
     try {
+      const landmarker = await getMediaPipeFaceLandmarker();
+      if (landmarker) {
+        tracker.faceDetectionSupported = true;
+        tracker.gazeDetectionSupported = true;
+        const result = landmarker.detectForVideo(video, performance.now());
+        const current = recordingNonverbalTrackerRef.current;
+        if (!current || current !== tracker || current.questionId !== questionId) return;
+
+        const faces = result.faceLandmarks ?? [];
+        current.faceDetectionFrameCount += 1;
+        current.gazeDetectionFrameCount += 1;
+        const primaryLandmarks = faces[0];
+        const snapshot = primaryLandmarks ? toFaceSnapshotFromLandmarks(primaryLandmarks) : undefined;
+        if (snapshot && !current.faceBaseline && !isFaceOutOfFrame(snapshot)) {
+          current.faceBaseline = snapshot;
+        }
+
+        const gazeDirection = primaryLandmarks ? estimateGazeAwayDirection(primaryLandmarks) : undefined;
+        if (gazeDirection) current.lastGazeDirection = gazeDirection;
+
+        updateTimedFaceSignal(current, "faceMissingStartedAtMs", "FACE_MISSING", faces.length === 0);
+        updateTimedFaceSignal(current, "multipleFacesStartedAtMs", "MULTIPLE_FACES", faces.length > 1);
+        updateTimedFaceSignal(current, "faceOutOfFrameStartedAtMs", "FACE_OUT_OF_FRAME", Boolean(snapshot && isFaceOutOfFrame(snapshot)));
+        updateTimedFaceSignal(
+          current,
+          "facePositionShiftStartedAtMs",
+          "FACE_POSITION_SHIFT",
+          Boolean(snapshot && current.faceBaseline && isFacePositionShifted(current.faceBaseline, snapshot)),
+        );
+        updateTimedFaceSignal(current, "gazeAwayStartedAtMs", "GAZE_AWAY", Boolean(gazeDirection), { direction: current.lastGazeDirection });
+        return;
+      }
+
+      const detector = getBrowserFaceDetector();
+      tracker.faceDetectionSupported = Boolean(detector);
+      tracker.gazeDetectionSupported = false;
+      if (!detector) return;
+
       const canvas = getNonverbalFaceCanvas();
       const width = NONVERBAL_FACE_SAMPLE_SIZE;
       const height = Math.max(1, Math.round((video.videoHeight / video.videoWidth) * width));
@@ -3808,6 +3981,8 @@ function InterviewRuntimePanel({
       silenceSegmentCounted: false,
       faceDetectionSupported: false,
       faceDetectionFrameCount: 0,
+      gazeDetectionSupported: false,
+      gazeDetectionFrameCount: 0,
       totalAwayDurationMs: 0,
       maxAwayDurationMs: 0,
       integrityEvents: [],
@@ -3882,6 +4057,7 @@ function InterviewRuntimePanel({
     closeTimedIntegrityEvent(tracker, "FACE_OUT_OF_FRAME", tracker.faceOutOfFrameStartedAtMs, nowMs);
     closeTimedIntegrityEvent(tracker, "MULTIPLE_FACES", tracker.multipleFacesStartedAtMs, nowMs);
     closeTimedIntegrityEvent(tracker, "FACE_POSITION_SHIFT", tracker.facePositionShiftStartedAtMs, nowMs);
+    closeTimedIntegrityEvent(tracker, "GAZE_AWAY", tracker.gazeAwayStartedAtMs, nowMs, { direction: tracker.lastGazeDirection });
 
     const observedFrameCount = tracker.observedAudioFrameCount;
     const lowAudioRatio = observedFrameCount > 0 ? tracker.lowAudioFrameCount / observedFrameCount : 1;
@@ -3913,9 +4089,10 @@ function InterviewRuntimePanel({
     const faceOutOfFrameCount = tracker.integrityEvents.filter((event) => event.type === "FACE_OUT_OF_FRAME").length;
     const multipleFacesCount = tracker.integrityEvents.filter((event) => event.type === "MULTIPLE_FACES").length;
     const facePositionShiftCount = tracker.integrityEvents.filter((event) => event.type === "FACE_POSITION_SHIFT").length;
+    const gazeAwayCount = tracker.integrityEvents.filter((event) => event.type === "GAZE_AWAY").length;
     const screenAwayCount = tabHiddenCount + windowBlurCount;
     const severeAwaySignal = tracker.maxAwayDurationMs >= 5000 || tracker.totalAwayDurationMs >= 10000;
-    const faceSignalCount = faceMissingCount + faceOutOfFrameCount + multipleFacesCount + facePositionShiftCount;
+    const faceSignalCount = faceMissingCount + faceOutOfFrameCount + multipleFacesCount + facePositionShiftCount + gazeAwayCount;
     const integritySignalGroups = [
       screenAwayCount > 0,
       cameraLostCount > 0,
@@ -3923,7 +4100,7 @@ function InterviewRuntimePanel({
       tracker.testModeUsed,
     ].filter(Boolean).length;
     const suspicionLevel: InterviewIntegritySuspicionLevel =
-      integritySignalGroups >= 2 || tracker.totalAwayDurationMs >= 30000 || multipleFacesCount > 0 || facePositionShiftCount > 0
+      integritySignalGroups >= 2 || tracker.totalAwayDurationMs >= 30000 || multipleFacesCount > 0 || facePositionShiftCount > 0 || gazeAwayCount > 0
         ? "HIGH"
         : cameraLostCount > 0 || severeAwaySignal || faceMissingCount > 0 || faceOutOfFrameCount > 0
           ? "MEDIUM"
@@ -3940,8 +4117,11 @@ function InterviewRuntimePanel({
       faceOutOfFrameCount,
       multipleFacesCount,
       facePositionShiftCount,
+      gazeAwayCount,
       faceDetectionSupported: tracker.faceDetectionSupported,
       faceDetectionFrameCount: tracker.faceDetectionFrameCount,
+      gazeDetectionSupported: tracker.gazeDetectionSupported,
+      gazeDetectionFrameCount: tracker.gazeDetectionFrameCount,
       totalAwayDurationMs: Math.round(tracker.totalAwayDurationMs),
       maxAwayDurationMs: Math.round(tracker.maxAwayDurationMs),
       suspicionLevel,
@@ -6656,6 +6836,7 @@ type MockNonverbalSummary = {
   faceAwaySignalAnswers: number;
   multipleFaceSignalAnswers: number;
   faceShiftSignalAnswers: number;
+  gazeAwaySignalAnswers: number;
 };
 
 function MockNonverbalSummaryPanel({ summary }: { summary: MockNonverbalSummary }) {
@@ -6682,6 +6863,7 @@ function MockNonverbalSummaryPanel({ summary }: { summary: MockNonverbalSummary 
         <Definition label="얼굴 이탈" value={`${summary.faceAwaySignalAnswers}`} />
         <Definition label="여러 얼굴" value={`${summary.multipleFaceSignalAnswers}`} />
         <Definition label="위치 급변" value={`${summary.faceShiftSignalAnswers}`} />
+        <Definition label="시선 이탈" value={`${summary.gazeAwaySignalAnswers}`} />
       </dl>
       <ul className="report-nonverbal-summary__guide">
         {guideItems.map((item) => (
@@ -6704,7 +6886,8 @@ function buildMockNonverbalSummary(items: CandidateMockReportMedia["media"]): Mo
     const faceAwaySignal = readNonverbalFaceAwayCount(metadata) > 0;
     const multipleFaceSignal = readNonverbalMultipleFaceCount(metadata) > 0;
     const faceShiftSignal = readNonverbalFacePositionShiftCount(metadata) > 0;
-    const integritySignal = screenAwaySignal || cameraIntegritySignal || faceAwaySignal || multipleFaceSignal || faceShiftSignal;
+    const gazeAwaySignal = readNonverbalGazeAwayCount(metadata) > 0;
+    const integritySignal = screenAwaySignal || cameraIntegritySignal || faceAwaySignal || multipleFaceSignal || faceShiftSignal || gazeAwaySignal;
 
     if (integritySignal) summary.integritySignalAnswers += 1;
     if (screenAwaySignal) summary.screenAwaySignalAnswers += 1;
@@ -6712,6 +6895,7 @@ function buildMockNonverbalSummary(items: CandidateMockReportMedia["media"]): Mo
     if (faceAwaySignal) summary.faceAwaySignalAnswers += 1;
     if (multipleFaceSignal) summary.multipleFaceSignalAnswers += 1;
     if (faceShiftSignal) summary.faceShiftSignalAnswers += 1;
+    if (gazeAwaySignal) summary.gazeAwaySignalAnswers += 1;
     if (!integritySignal) {
       summary.stableAnswerCount += 1;
     }
@@ -6727,6 +6911,7 @@ function buildMockNonverbalSummary(items: CandidateMockReportMedia["media"]): Mo
     faceAwaySignalAnswers: 0,
     multipleFaceSignalAnswers: 0,
     faceShiftSignalAnswers: 0,
+    gazeAwaySignalAnswers: 0,
   });
 }
 
@@ -6750,6 +6935,9 @@ function buildMockNonverbalSummaryGuide(summary: MockNonverbalSummary): string[]
   }
   if (summary.faceShiftSignalAnswers > 0) {
     items.push(`${summary.faceShiftSignalAnswers}개 답변에서 얼굴 위치가 기준 위치와 크게 달라져 응시자 변경 또는 자리 이탈 의심 신호로 참고할 수 있습니다.`);
+  }
+  if (summary.gazeAwaySignalAnswers > 0) {
+    items.push(`${summary.gazeAwaySignalAnswers}개 답변에서 시선이 화면 밖으로 오래 벗어난 신호가 감지되었습니다.`);
   }
 
   return items;
@@ -6783,6 +6971,7 @@ function buildMockNonverbalFeedbackItems(metadata?: Record<string, unknown>): st
   const faceAwayCount = readNonverbalFaceAwayCount(metadata);
   const multipleFaceCount = readNonverbalMultipleFaceCount(metadata);
   const faceShiftCount = readNonverbalFacePositionShiftCount(metadata);
+  const gazeAwayCount = readNonverbalGazeAwayCount(metadata);
   const suspicionLevel = readNonverbalIntegritySuspicionLevel(metadata);
   const testModeUsed = readNonverbalTestModeUsed(metadata);
   const items: string[] = [];
@@ -6801,6 +6990,9 @@ function buildMockNonverbalFeedbackItems(metadata?: Record<string, unknown>): st
   }
   if (faceShiftCount > 0) {
     items.push("얼굴 위치가 기준 위치와 크게 달라졌습니다. 자리 이탈이나 응시자 변경으로 오해받지 않도록 화면 중앙을 유지해 주세요.");
+  }
+  if (gazeAwayCount > 0) {
+    items.push("시선이 화면 밖으로 오래 벗어난 구간이 감지되었습니다. 다른 모니터, 휴대폰, 메모를 참고하는 행동으로 오해받을 수 있습니다.");
   }
   if (suspicionLevel === "HIGH") {
     items.push("여러 응시 무결성 신호가 겹쳐 감지되었습니다. 실제 면접에서는 화면 이탈과 외부 자료 참고로 오해받을 수 있는 행동을 피하는 것이 좋습니다.");
@@ -6880,6 +7072,12 @@ function readNonverbalFacePositionShiftCount(metadata: Record<string, unknown>):
   const summary = readNonverbalIntegritySummary(metadata);
   const summaryCount = summary ? readNonverbalNumber(summary, "facePositionShiftCount") : 0;
   return summaryCount || readNonverbalEventCount(metadata, ["FACE_POSITION_SHIFT"]);
+}
+
+function readNonverbalGazeAwayCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "gazeAwayCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["GAZE_AWAY"]);
 }
 
 function readNonverbalIntegritySuspicionLevel(metadata: Record<string, unknown>): InterviewIntegritySuspicionLevel {

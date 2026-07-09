@@ -806,6 +806,12 @@ test("mock report generation applies nonverbal metadata as auxiliary practice si
                   type: "MULTIPLE_FACES",
                   occurredAt: "2026-07-09T10:00:08.000Z",
                   durationMs: 2100
+                },
+                {
+                  type: "GAZE_AWAY",
+                  occurredAt: "2026-07-09T10:00:12.000Z",
+                  durationMs: 3200,
+                  direction: "LEFT"
                 }
               ],
               integritySummary: {
@@ -815,6 +821,7 @@ test("mock report generation applies nonverbal metadata as auxiliary practice si
                 faceOutOfFrameCount: 0,
                 multipleFacesCount: 1,
                 facePositionShiftCount: 0,
+                gazeAwayCount: 1,
                 suspicionLevel: "HIGH"
               }
             }

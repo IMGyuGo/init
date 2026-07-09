@@ -68,6 +68,7 @@ interface ReportAnswerNonverbalMetadata {
     faceOutOfFrameCount?: number;
     multipleFacesCount?: number;
     facePositionShiftCount?: number;
+    gazeAwayCount?: number;
     suspicionLevel?: string;
   };
   [key: string]: unknown;
@@ -85,6 +86,7 @@ interface NonverbalSignalSummary {
   faceOutOfFrameCount: number;
   multipleFacesCount: number;
   facePositionShiftCount: number;
+  gazeAwayCount: number;
   highSuspicionCount: number;
 }
 
@@ -1132,6 +1134,7 @@ function nonverbalSignalsForAnswers(answers: ReportAnswerForScoring[]): Nonverba
     faceOutOfFrameCount: 0,
     multipleFacesCount: 0,
     facePositionShiftCount: 0,
+    gazeAwayCount: 0,
     highSuspicionCount: 0
   };
 
@@ -1150,6 +1153,7 @@ function nonverbalSignalsForAnswers(answers: ReportAnswerForScoring[]): Nonverba
     summary.faceOutOfFrameCount += nonverbalFaceOutOfFrameCount(metadata);
     summary.multipleFacesCount += nonverbalMultipleFacesCount(metadata);
     summary.facePositionShiftCount += nonverbalFacePositionShiftCount(metadata);
+    summary.gazeAwayCount += nonverbalGazeAwayCount(metadata);
     summary.highSuspicionCount += nonverbalSuspicionLevel(metadata) === "HIGH" ? 1 : 0;
   }
 
@@ -1200,6 +1204,11 @@ function nonverbalMultipleFacesCount(metadata: ReportAnswerNonverbalMetadata): n
 function nonverbalFacePositionShiftCount(metadata: ReportAnswerNonverbalMetadata): number {
   const summary = metadata.integritySummary;
   return nonverbalNumber(summary?.facePositionShiftCount) || nonverbalEventCount(metadata, ["FACE_POSITION_SHIFT"]);
+}
+
+function nonverbalGazeAwayCount(metadata: ReportAnswerNonverbalMetadata): number {
+  const summary = metadata.integritySummary;
+  return nonverbalNumber(summary?.gazeAwayCount) || nonverbalEventCount(metadata, ["GAZE_AWAY"]);
 }
 
 function nonverbalSuspicionLevel(metadata: ReportAnswerNonverbalMetadata): string {
@@ -1269,9 +1278,10 @@ function answerQualityAdjustment(
       nonverbalSignals.faceOutOfFrameCount > 0 ||
       nonverbalSignals.multipleFacesCount > 0 ||
       nonverbalSignals.facePositionShiftCount > 0 ||
+      nonverbalSignals.gazeAwayCount > 0 ||
       nonverbalSignals.highSuspicionCount > 0
     ) {
-      reasons.push("화면 이탈, 얼굴 화면 밖, 여러 얼굴 감지 같은 응시 무결성 확인 신호가 있어 실제 면접에서는 주의가 필요합니다.");
+      reasons.push("화면 이탈, 얼굴 화면 밖, 여러 얼굴 감지, 시선 이탈 같은 응시 무결성 확인 신호가 있어 실제 면접에서는 주의가 필요합니다.");
     }
 
     if (nonverbalSignals.shortAnswerCount > 0) {
