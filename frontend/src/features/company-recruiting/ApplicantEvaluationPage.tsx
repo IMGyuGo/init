@@ -59,6 +59,8 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   const report = evaluation?.report ?? null;
   const displayAnswers = evaluation ? getDisplayAnswers(evaluation.answers) : [];
   const integritySummary = evaluation ? buildRecruitingIntegritySummary(displayAnswers) : null;
+  const reportIntegrityAdjustment = report?.integrityAdjustment ?? null;
+  const displayedTotalScore = reportIntegrityAdjustment?.adjustedTotalScore ?? report?.adjustedTotalScore ?? report?.totalScore ?? null;
 
   return (
     <section className="app-page glass-page notion">
@@ -151,8 +153,25 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
               {report ? (
                 <div className="detail-stack">
                   <div className="score-summary">
-                    <span>총점</span>
-                    <strong>{report.totalScore ?? "점수 없음"}</strong>
+                    <span>최종 평가 점수</span>
+                    <strong>{displayedTotalScore ?? "점수 없음"}</strong>
+                    {reportIntegrityAdjustment ? (
+                      <div className="score-adjustment-grid">
+                        <div>
+                          <span>AI 원점수</span>
+                          <strong>{reportIntegrityAdjustment.rawTotalScore ?? report.totalScore ?? "없음"}</strong>
+                        </div>
+                        <div>
+                          <span>신뢰도 보정</span>
+                          <strong>{reportIntegrityAdjustment.penalty > 0 ? `-${reportIntegrityAdjustment.penalty}` : "0"}</strong>
+                        </div>
+                        <div>
+                          <span>보정 단계</span>
+                          <strong>{formatIntegrityAdjustmentLevel(reportIntegrityAdjustment.level)}</strong>
+                        </div>
+                      </div>
+                    ) : null}
+                    {reportIntegrityAdjustment?.reason ? <p className="score-adjustment-reason">{reportIntegrityAdjustment.reason}</p> : null}
                     <p>{report.summary ?? "요약이 아직 없습니다."}</p>
                   </div>
                   {report.scores.length > 0 ? (
@@ -379,6 +398,19 @@ function formatScoreCriterionName(criterionName: string | null, rationale: strin
 
   const match = rationale?.match(/^(.+?)(?:은|는)\s*\d+점/);
   return match?.[1]?.trim() || "기준 없음";
+}
+
+function formatIntegrityAdjustmentLevel(level: "NONE" | "LOW" | "MEDIUM" | "HIGH") {
+  switch (level) {
+    case "HIGH":
+      return "높음";
+    case "MEDIUM":
+      return "중간";
+    case "LOW":
+      return "낮음";
+    default:
+      return "없음";
+  }
 }
 
 type RecruitingIntegrityCounts = {

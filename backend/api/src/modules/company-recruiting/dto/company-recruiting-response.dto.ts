@@ -271,6 +271,23 @@ export class ReportSummaryDto {
   @ApiPropertyOptional({ nullable: true, example: 82 })
   totalScore!: number | null;
 
+  @ApiPropertyOptional({ nullable: true, example: 80 })
+  adjustedTotalScore!: number | null;
+
+  @ApiPropertyOptional({
+    type: Object,
+    nullable: true,
+    example: {
+      rawTotalScore: 82,
+      adjustedTotalScore: 80,
+      penalty: 2,
+      level: "MEDIUM",
+      reason: "응시 무결성 신호가 중간 수준으로 감지되어 총점에서 2점을 보정했습니다.",
+      reasons: ["화면/탭 이탈 2회"],
+    },
+  })
+  integrityAdjustment!: Record<string, unknown> | null;
+
   @ApiPropertyOptional({ nullable: true, example: "지원 직무와 경험이 잘 맞습니다." })
   summary!: string | null;
 

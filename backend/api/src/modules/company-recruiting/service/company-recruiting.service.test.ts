@@ -1222,6 +1222,122 @@ describe("CompanyRecruitingService", () => {
     assert.equal(result.report?.scores[0]?.evidences[0]?.evidenceText, "NestJS 기반 API 구축 경험");
   });
 
+  it("applies capped integrity adjustment to recruiting evaluation scores", async () => {
+    const repository = createRepository({
+      async findApplicationForCompany(applicationId: number, companyId: number) {
+        return createApplicantRecord({
+          evaluationReports: [
+            {
+              reportId: 501,
+              status: "COMPLETED",
+              totalScore: 82,
+              summary: "Recruiting report summary",
+              generatedAt: new Date("2026-06-30T08:00:00.000Z"),
+              scores: [],
+            },
+          ],
+          interviewSessions: [
+            {
+              sessionId: 901,
+              status: "COMPLETED",
+              interviewType: "RECRUITING",
+              startedAt: new Date("2026-07-01T00:00:00.000Z"),
+              completedAt: new Date("2026-07-01T00:10:00.000Z"),
+              answers: [
+                {
+                  answerId: 1001,
+                  questionId: 501,
+                  videoFileId: null,
+                  audioFileId: null,
+                  videoFile: null,
+                  audioFile: null,
+                  questionType: "TECHNICAL",
+                  questionContent: "Explain a difficult technical problem.",
+                  transcript: "I debugged upload state transitions.",
+                  durationSeconds: 31,
+                  submittedAt: new Date("2026-07-01T00:02:00.000Z"),
+                  nonverbalMetadata: {
+                    integritySummary: { screenAwayCount: 1, gazeAwayCount: 1 },
+                    integrityEvents: [{ type: "TAB_HIDDEN" }, { type: "GAZE_AWAY" }],
+                  },
+                  followUpQuestions: [],
+                },
+                {
+                  answerId: 1002,
+                  questionId: 502,
+                  videoFileId: null,
+                  audioFileId: null,
+                  videoFile: null,
+                  audioFile: null,
+                  questionType: "EXPERIENCE",
+                  questionContent: "Explain backend project experience.",
+                  transcript: "I connected API, DB, and worker flows.",
+                  durationSeconds: 28,
+                  submittedAt: new Date("2026-07-01T00:04:00.000Z"),
+                  nonverbalMetadata: {
+                    integritySummary: { gazeAwayCount: 2 },
+                    integrityEvents: [{ type: "GAZE_AWAY" }, { type: "GAZE_AWAY" }],
+                  },
+                  followUpQuestions: [],
+                },
+                {
+                  answerId: 1003,
+                  questionId: 503,
+                  videoFileId: null,
+                  audioFileId: null,
+                  videoFile: null,
+                  audioFile: null,
+                  questionType: "SITUATION",
+                  questionContent: "Explain how you handle pressure.",
+                  transcript: "I split problems into observable steps.",
+                  durationSeconds: 24,
+                  submittedAt: new Date("2026-07-01T00:06:00.000Z"),
+                  nonverbalMetadata: {
+                    integritySummary: { multipleFacesCount: 1 },
+                    integrityEvents: [{ type: "MULTIPLE_FACES" }],
+                  },
+                  followUpQuestions: [],
+                },
+                {
+                  answerId: 1004,
+                  questionId: 504,
+                  videoFileId: null,
+                  audioFileId: null,
+                  videoFile: null,
+                  audioFile: null,
+                  questionType: "EXPERIENCE",
+                  questionContent: "Explain how you validate completed work.",
+                  transcript: "I verify the same path with tests and logs.",
+                  durationSeconds: 26,
+                  submittedAt: new Date("2026-07-01T00:08:00.000Z"),
+                  nonverbalMetadata: {
+                    integritySummary: { staticVideoFrameCount: 1 },
+                    integrityEvents: [{ type: "STATIC_VIDEO_FRAME" }],
+                  },
+                  followUpQuestions: [],
+                },
+              ],
+            },
+          ],
+        });
+      },
+    });
+    const service = new CompanyRecruitingService(repository);
+
+    const result = await service.getApplicantEvaluation(companyUser, 77);
+    const adjustment = result.report?.integrityAdjustment;
+
+    assert.equal(result.report?.totalScore, 82);
+    assert.equal(result.report?.adjustedTotalScore, 72);
+    assert.ok(adjustment);
+    assert.equal(adjustment.penalty, 10);
+    assert.equal(adjustment.level, "HIGH");
+    assert.equal(adjustment.rawTotalScore, 82);
+    assert.equal(adjustment.adjustedTotalScore, 72);
+    assert.ok(adjustment.reasons.includes("화면/탭 이탈 1회"));
+    assert.ok(adjustment.reasons.includes("여러 얼굴 감지 1회"));
+  });
+
   it("returns evaluation detail with interview answers and linked follow-up answers", async () => {
     const repository = createRepository({
       async findApplicationForCompany(applicationId: number, companyId: number) {
@@ -1338,6 +1454,7 @@ describe("CompanyRecruitingService", () => {
       transcript: "API 업로드, DB 저장, worker 처리 흐름을 연결했습니다.",
       durationSeconds: 42,
       submittedAt: "2026-07-01T00:02:00.000Z",
+      nonverbalMetadata: null,
       followUpQuestions: [
         {
           followUpId: 7001,
@@ -1362,6 +1479,7 @@ describe("CompanyRecruitingService", () => {
             transcript: "answerId와 audioFileId가 payload와 DB에서 일치하는지 확인했습니다.",
             durationSeconds: 21,
             submittedAt: "2026-07-01T00:04:00.000Z",
+            nonverbalMetadata: null,
           },
         },
       ],

@@ -1072,6 +1072,14 @@ AI 리포트 금지 기준:
 - 권한/인증: 기업 / 기업 사용자 로그인
 - 관련 화면: 지원자 평가 상세 화면 (/company/applicants/{applicantId}/evaluation)
 - UI Type: page
+- Report response:
+  - `report.totalScore` is the raw AI evaluation score.
+  - `report.adjustedTotalScore` is the company-facing final score after capped integrity adjustment.
+  - `report.integrityAdjustment` may include `rawTotalScore`, `adjustedTotalScore`, `penalty`, `level`, `reason`, and `reasons`.
+  - Integrity levels are `NONE`, `LOW`, `MEDIUM`, and `HIGH`.
+  - `LOW` signals are shown as reference only and do not reduce the score.
+  - `MEDIUM` and `HIGH` signals may reduce the displayed score by 2 or 5 points per affected answer, capped at 10 total points.
+  - The adjustment is an interview-integrity review signal, not an automated pass/fail decision.
 - 상태 코드: 200 OK
 - 비동기: N
 - Path Params: applicantId
@@ -3047,7 +3055,8 @@ AI 리포트 금지 기준:
   - `cameraWarnings` and `testModeUsed` may only produce setup/focus review guidance. They must not be treated as proof of cheating.
 - Policy:
   - For mock interviews, the value is practice feedback metadata only.
-  - For recruiting interviews, the value is auxiliary metadata only.
+  - For recruiting interviews, the value is auxiliary integrity metadata and may be surfaced to company reviewers as a review signal.
   - It may surface cheating-suspicion practice feedback for mock interviews, but it must not be used as a final cheating decision, hiring pass/fail signal, or direct hiring score input.
   - It must not be used to infer appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, health, or other sensitive attributes.
-  - Recruiting/company-facing reports must not use `nonverbalMetadata` as a hiring score input. If shown later, it must be separated as auxiliary communication/media-quality context.
+  - Recruiting/company-facing reports may apply a capped integrity score adjustment only when repeated or high-risk integrity signals are detected.
+  - The recruiting integrity adjustment must be shown separately from the raw AI score, capped at 10 total points, and must not be used as an automatic rejection decision.

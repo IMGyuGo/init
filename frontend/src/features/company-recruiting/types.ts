@@ -141,6 +141,15 @@ export type Applicant = {
     reportId: number;
     status: string;
     totalScore: number | null;
+    adjustedTotalScore?: number | null;
+    integrityAdjustment?: {
+      rawTotalScore: number | null;
+      adjustedTotalScore: number | null;
+      penalty: number;
+      level: "NONE" | "LOW" | "MEDIUM" | "HIGH";
+      reason: string;
+      reasons: string[];
+    } | null;
     summary: string | null;
     generatedAt: string | null;
   } | null;
@@ -214,6 +223,15 @@ export type ApplicantEvaluation = {
     reportId: number;
     status: string;
     totalScore: number | null;
+    adjustedTotalScore?: number | null;
+    integrityAdjustment?: {
+      rawTotalScore: number | null;
+      adjustedTotalScore: number | null;
+      penalty: number;
+      level: "NONE" | "LOW" | "MEDIUM" | "HIGH";
+      reason: string;
+      reasons: string[];
+    } | null;
     summary: string | null;
     generatedAt: string | null;
     scores: Array<{

@@ -1150,6 +1150,10 @@ function toApplicantResponse(application: ApplicantRecord) {
 function toApplicantEvaluationResponse(application: ApplicantRecord) {
   const latestReport = application.evaluationReports[0] ?? null;
   const latestSession = application.interviewSessions[0] ?? null;
+  const answers = latestSession?.answers ?? [];
+  const integrityAdjustment = latestReport
+    ? buildRecruitingIntegrityScoreAdjustment(answers, latestReport.totalScore)
+    : null;
   const applicant = toApplicantResponse(application);
 
   return {
@@ -1172,7 +1176,7 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
     },
     reportAvailability: latestReport ? "AVAILABLE" : "NONE_OR_GENERATING",
     answers: latestSession
-        ? (latestSession.answers ?? []).map((answer) => ({
+        ? answers.map((answer) => ({
           answerId: answer.answerId,
           questionId: answer.questionId,
           videoFileId: answer.videoFileId,
@@ -1184,7 +1188,7 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
           transcript: answer.transcript,
           durationSeconds: answer.durationSeconds,
           submittedAt: answer.submittedAt?.toISOString() ?? null,
-          nonverbalMetadata: answer.nonverbalMetadata,
+          nonverbalMetadata: answer.nonverbalMetadata ?? null,
           followUpQuestions: answer.followUpQuestions.map((followUp) => ({
             followUpId: followUp.followUpId,
             content: followUp.content,
@@ -1200,7 +1204,7 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
                   transcript: followUp.answer.transcript,
                   durationSeconds: followUp.answer.durationSeconds,
                   submittedAt: followUp.answer.submittedAt?.toISOString() ?? null,
-                  nonverbalMetadata: followUp.answer.nonverbalMetadata,
+                  nonverbalMetadata: followUp.answer.nonverbalMetadata ?? null,
                 }
               : null,
           })),
@@ -1211,6 +1215,8 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
           reportId: latestReport.reportId,
           status: latestReport.status,
           totalScore: latestReport.totalScore,
+          adjustedTotalScore: integrityAdjustment?.adjustedTotalScore ?? latestReport.totalScore,
+          integrityAdjustment,
           summary: latestReport.summary,
           generatedAt: latestReport.generatedAt?.toISOString() ?? null,
           scores: (latestReport.scores ?? []).map((score) => ({
@@ -1243,6 +1249,174 @@ function toCompanyEvaluationFileAsset(fileAsset: CompanyFileAssetRecord | null |
     status: fileAsset.status,
     createdAt: fileAsset.createdAt.toISOString(),
   };
+}
+
+type ApplicantEvaluationAnswerRecord = NonNullable<ApplicantRecord["interviewSessions"][number]["answers"]>[number];
+type RecruitingIntegrityLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH";
+
+const RECRUITING_INTEGRITY_MEDIUM_PENALTY = 2;
+const RECRUITING_INTEGRITY_HIGH_PENALTY = 5;
+const RECRUITING_INTEGRITY_MAX_PENALTY = 10;
+
+type RecruitingIntegrityCounts = {
+  screenAway: number;
+  cameraLost: number;
+  faceMissing: number;
+  faceOutOfFrame: number;
+  multipleFaces: number;
+  facePositionShift: number;
+  gazeAway: number;
+  voiceMouthMismatch: number;
+  voiceWithoutFace: number;
+  staticVideoFrame: number;
+  earlyScreenAway: number;
+};
+
+function buildRecruitingIntegrityScoreAdjustment(answers: ApplicantEvaluationAnswerRecord[], rawTotalScore: number | null) {
+  const answerMetadataById = new Map<number, Record<string, unknown>>();
+
+  for (const answer of answers) {
+    collectAnswerMetadata(answerMetadataById, answer.answerId, answer.nonverbalMetadata);
+    for (const followUp of answer.followUpQuestions) {
+      if (followUp.answer) {
+        collectAnswerMetadata(answerMetadataById, followUp.answer.answerId, followUp.answer.nonverbalMetadata);
+      }
+    }
+  }
+
+  const evaluations = [...answerMetadataById.values()].map(evaluateRecruitingIntegrityMetadata);
+  const penalty = Math.min(
+    RECRUITING_INTEGRITY_MAX_PENALTY,
+    evaluations.reduce((sum, evaluation) => sum + evaluation.penalty, 0),
+  );
+  const hasSignal = evaluations.some((evaluation) => evaluation.level !== "NONE");
+  const hasHigh = evaluations.some((evaluation) => evaluation.level === "HIGH");
+  const level: RecruitingIntegrityLevel = hasHigh || penalty >= 10
+    ? "HIGH"
+    : penalty > 0
+      ? "MEDIUM"
+      : hasSignal
+        ? "LOW"
+        : "NONE";
+  const reasons = [...new Set(evaluations.flatMap((evaluation) => evaluation.reasons))];
+  const adjustedTotalScore = rawTotalScore === null ? null : Math.max(0, Math.min(100, rawTotalScore - penalty));
+
+  return {
+    rawTotalScore,
+    adjustedTotalScore,
+    penalty,
+    level,
+    reasons,
+    reason: buildRecruitingIntegrityAdjustmentReason(level, penalty, reasons),
+  };
+}
+
+function collectAnswerMetadata(target: Map<number, Record<string, unknown>>, answerId: number, metadata: Record<string, unknown> | null | undefined) {
+  if (!metadata) return;
+  target.set(answerId, metadata);
+}
+
+function evaluateRecruitingIntegrityMetadata(metadata: Record<string, unknown>) {
+  const counts = readRecruitingIntegrityCounts(metadata);
+  const reasons = buildRecruitingIntegrityReasons(counts);
+  const hasSignal = reasons.length > 0;
+
+  if (!hasSignal) {
+    return { level: "NONE" as RecruitingIntegrityLevel, penalty: 0, reasons: [] };
+  }
+
+  const severeFaceSignal = counts.faceMissing + counts.faceOutOfFrame >= 2 || counts.cameraLost >= 2;
+  const severeAudioVisualSignal = counts.voiceMouthMismatch >= 2 || counts.voiceWithoutFace >= 2 || counts.staticVideoFrame > 0;
+  const high =
+    counts.screenAway >= 4 ||
+    counts.multipleFaces > 0 ||
+    counts.facePositionShift > 0 ||
+    severeFaceSignal ||
+    severeAudioVisualSignal;
+  if (high) {
+    return { level: "HIGH" as RecruitingIntegrityLevel, penalty: RECRUITING_INTEGRITY_HIGH_PENALTY, reasons };
+  }
+
+  const medium =
+    counts.screenAway >= 2 ||
+    counts.gazeAway >= 2 ||
+    counts.cameraLost > 0 ||
+    counts.faceMissing > 0 ||
+    counts.faceOutOfFrame > 0 ||
+    counts.voiceMouthMismatch > 0 ||
+    counts.voiceWithoutFace > 0 ||
+    counts.earlyScreenAway >= 2;
+  if (medium) {
+    return { level: "MEDIUM" as RecruitingIntegrityLevel, penalty: RECRUITING_INTEGRITY_MEDIUM_PENALTY, reasons };
+  }
+
+  return { level: "LOW" as RecruitingIntegrityLevel, penalty: 0, reasons };
+}
+
+function readRecruitingIntegrityCounts(metadata: Record<string, unknown>): RecruitingIntegrityCounts {
+  return {
+    screenAway: Math.max(readSummaryCount(metadata, "screenAwayCount"), readEventCount(metadata, ["TAB_HIDDEN", "WINDOW_BLUR"])),
+    cameraLost: Math.max(readSummaryCount(metadata, "cameraLostCount"), readEventCount(metadata, ["CAMERA_LOST"])),
+    faceMissing: Math.max(readSummaryCount(metadata, "faceMissingCount"), readEventCount(metadata, ["FACE_MISSING"])),
+    faceOutOfFrame: Math.max(readSummaryCount(metadata, "faceOutOfFrameCount"), readEventCount(metadata, ["FACE_OUT_OF_FRAME"])),
+    multipleFaces: Math.max(readSummaryCount(metadata, "multipleFacesCount"), readEventCount(metadata, ["MULTIPLE_FACES"])),
+    facePositionShift: Math.max(readSummaryCount(metadata, "facePositionShiftCount"), readEventCount(metadata, ["FACE_POSITION_SHIFT"])),
+    gazeAway: Math.max(readSummaryCount(metadata, "gazeAwayCount"), readEventCount(metadata, ["GAZE_AWAY"])),
+    voiceMouthMismatch: Math.max(readSummaryCount(metadata, "voiceMouthMismatchCount"), readEventCount(metadata, ["VOICE_MOUTH_MISMATCH"])),
+    voiceWithoutFace: Math.max(readSummaryCount(metadata, "voiceWithoutFaceCount"), readEventCount(metadata, ["VOICE_WITHOUT_FACE"])),
+    staticVideoFrame: Math.max(readSummaryCount(metadata, "staticVideoFrameCount"), readEventCount(metadata, ["STATIC_VIDEO_FRAME"])),
+    earlyScreenAway: Math.max(readSummaryCount(metadata, "earlyScreenAwayCount"), readEventCount(metadata, ["EARLY_SCREEN_AWAY"])),
+  };
+}
+
+function buildRecruitingIntegrityReasons(counts: RecruitingIntegrityCounts) {
+  const reasons: string[] = [];
+  if (counts.screenAway > 0) reasons.push(`화면/탭 이탈 ${counts.screenAway}회`);
+  if (counts.earlyScreenAway > 0) reasons.push(`질문 직후 화면 이탈 ${counts.earlyScreenAway}회`);
+  if (counts.cameraLost > 0) reasons.push(`카메라 연결 이탈 ${counts.cameraLost}회`);
+  if (counts.faceMissing > 0) reasons.push(`얼굴 미검출 ${counts.faceMissing}회`);
+  if (counts.faceOutOfFrame > 0) reasons.push(`얼굴 화면 밖 ${counts.faceOutOfFrame}회`);
+  if (counts.multipleFaces > 0) reasons.push(`여러 얼굴 감지 ${counts.multipleFaces}회`);
+  if (counts.facePositionShift > 0) reasons.push(`얼굴 위치 급변 ${counts.facePositionShift}회`);
+  if (counts.gazeAway > 0) reasons.push(`시선 이탈 ${counts.gazeAway}회`);
+  if (counts.voiceMouthMismatch > 0) reasons.push(`음성-입모양 불일치 ${counts.voiceMouthMismatch}회`);
+  if (counts.voiceWithoutFace > 0) reasons.push(`얼굴 미검출 중 음성 입력 ${counts.voiceWithoutFace}회`);
+  if (counts.staticVideoFrame > 0) reasons.push(`영상 프레임 고정 ${counts.staticVideoFrame}회`);
+  return reasons;
+}
+
+function buildRecruitingIntegrityAdjustmentReason(level: RecruitingIntegrityLevel, penalty: number, reasons: string[]) {
+  if (level === "NONE") {
+    return "응시 무결성 보정이 필요한 신호가 감지되지 않았습니다.";
+  }
+  if (level === "LOW") {
+    return `낮은 수준의 응시 무결성 참고 신호가 감지되었지만 점수 감점은 적용하지 않았습니다. ${reasons.join(", ")}`;
+  }
+  return `응시 무결성 신호가 ${level === "HIGH" ? "높은 수준" : "중간 수준"}으로 감지되어 총점에서 ${penalty}점을 보정했습니다. ${reasons.join(", ")}`;
+}
+
+function readSummaryCount(metadata: Record<string, unknown>, key: string) {
+  const summary = readRecord(metadata.integritySummary);
+  return readNumber(summary?.[key]);
+}
+
+function readEventCount(metadata: Record<string, unknown>, types: string[]) {
+  const events = Array.isArray(metadata.integrityEvents) ? metadata.integrityEvents : [];
+  return events.filter((event) => {
+    const record = readRecord(event);
+    return typeof record?.type === "string" && types.includes(record.type);
+  }).length;
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function readNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function toPublicApplicationStatusResponse(application: ApplicantRecord, interviewEntry: ReturnType<PublicInterviewEntryAdapterPort["buildEntry"]>) {

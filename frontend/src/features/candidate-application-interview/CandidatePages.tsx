@@ -4259,7 +4259,7 @@ function InterviewRuntimePanel({
   }
 
   function startNonverbalTracking(questionId: number, stream: MediaStream) {
-    if (mode !== "mock") return;
+    if (mode !== "mock" && mode !== "recruiting") return;
 
     stopNonverbalCameraMonitor();
     stopNonverbalIntegrityListeners();
