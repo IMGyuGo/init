@@ -46,6 +46,8 @@ import {
   type StructuredJobImage,
   type StructuredJobSectionKey,
 } from "./structured-job-description";
+import { CandidateJobDetailView } from "../candidate-application-interview/views";
+import type { CandidateJobDetail } from "../candidate-application-interview/api";
 import createBanner from "./assets/create-banner.png";
 import choiceManual from "./assets/choice-manual.png";
 import choiceAi from "./assets/choice-ai.png";
@@ -96,6 +98,43 @@ function createInitialForm(): FormState {
       career: { enabled: true, value: formatCareerRangeLabel(0, CAREER_MAX_YEARS) },
     },
     structuredJobDescription: createEmptyStructuredJobDescription(),
+  };
+}
+
+// 생성 폼 데이터를 지원자 공고 상세 뷰(CandidateJobDetailView)가 그대로 렌더할 수 있는
+// 형태로 변환한다. jobDescription 은 실제 생성 시와 동일한 방식으로 조립해 화면을 일치시킨다.
+function buildRecruitmentPreviewJob(form: FormState, companyName: string): CandidateJobDetail {
+  const structuredJobDescription = {
+    ...form.structuredJobDescription,
+    locationNote: form.extraInfo.location.value.trim(),
+  };
+  const structuredHtml = composeStructuredJobDescription("", structuredJobDescription);
+  const jobDescription = composeJobDescriptionWithExtraInfo(structuredHtml, form.extraInfo);
+  const tags = form.structuredJobDescription.tags;
+
+  return {
+    jobId: 0,
+    companyName,
+    companyLogoUrl: null,
+    title: form.title || "(제목 미입력)",
+    jobGroup: "",
+    jobRole: form.jobRole,
+    location: form.extraInfo.location.value,
+    careerLevel: form.extraInfo.career.value,
+    employmentType: form.extraInfo.employmentType.value,
+    tags,
+    postingStatus: "OPEN",
+    startsOn: form.startsOn,
+    endsOn: form.endsOn,
+    canApply: false,
+    alreadyApplied: false,
+    companyId: 0,
+    isPublic: false,
+    companyIndustry: "",
+    companyProfile: "",
+    jobDescription,
+    techStacks: tags,
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -156,6 +195,7 @@ export function RecruitmentCreatePage() {
   const [aiDraftMessage, setAiDraftMessage] = useState("");
   const [pendingPostingDraft, setPendingPostingDraft] = useState<PostingDraftResult | null>(null);
   const [draftPreviewOpen, setDraftPreviewOpen] = useState(false);
+  const [postingPreviewOpen, setPostingPreviewOpen] = useState(false);
   const [phase, setPhase] = useState<RecruitmentCreatePhase>("intro");
   const [entryMode, setEntryMode] = useState<"manual" | "ai">("manual");
   const [createdRecruitmentId, setCreatedRecruitmentId] = useState<number | null>(null);
@@ -996,9 +1036,14 @@ export function RecruitmentCreatePage() {
               이전
             </button>
             {isLast ? (
-              <button className="btn primary" type="button" onClick={() => void handleCreate()} disabled={loading}>
-                {loading ? "생성 중" : "생성하기"}
-              </button>
+              <div className="wizard-nav-final">
+                <button className="btn secondary" type="button" onClick={() => setPostingPreviewOpen(true)} disabled={loading}>
+                  미리보기
+                </button>
+                <button className="btn primary" type="button" onClick={() => void handleCreate()} disabled={loading}>
+                  {loading ? "생성 중" : "생성하기"}
+                </button>
+              </div>
             ) : (
               <button className="btn primary" type="button" onClick={handleNext} disabled={loading}>
                 다음
@@ -1059,6 +1104,25 @@ export function RecruitmentCreatePage() {
               <button className="btn primary" type="button" onClick={applyPendingDraft}>
                 적용하기
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {postingPreviewOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={(event) => { if (event.target === event.currentTarget) setPostingPreviewOpen(false); }}>
+          <div className="modal wide-modal posting-preview-modal" role="dialog" aria-modal="true" aria-labelledby="posting-preview-title">
+            <div className="modal-head">
+              <div>
+                <p className="page-eyebrow">미리보기</p>
+                <h2 id="posting-preview-title">지원자에게 보이는 공고</h2>
+                <p>지원자 화면과 동일하게 표시됩니다. 지원 버튼은 미리보기에서 동작하지 않아요.</p>
+              </div>
+              <button className="modal-close" type="button" onClick={() => setPostingPreviewOpen(false)} aria-label="미리보기 닫기">
+                ×
+              </button>
+            </div>
+            <div className="posting-preview-body">
+              <CandidateJobDetailView job={buildRecruitmentPreviewJob(form, "우리 회사")} />
             </div>
           </div>
         </div>
