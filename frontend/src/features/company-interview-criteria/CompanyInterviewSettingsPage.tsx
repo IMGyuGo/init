@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import interviewBanner from "../company-recruiting/assets/interview-banner.png";
 
@@ -20,6 +20,7 @@ import {
   updateInterviewQuestion,
   updateInterviewTimePolicy,
 } from "./api";
+import { hasActiveAiJobs, startAiJobPolling } from "./ai-job-polling";
 import type {
   AiJobOutput,
   AiJobResult,
@@ -133,6 +134,8 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
   const [aiJobNotices, setAiJobNotices] = useState<AiJobNotice[]>([]);
   const [questionSetConfirming, setQuestionSetConfirming] = useState(false);
   const [showQuestionSetPreview, setShowQuestionSetPreview] = useState(false);
+  const aiJobNoticesRef = useRef(aiJobNotices);
+  const hasActiveAiJobNotices = useMemo(() => hasActiveAiJobs(aiJobNotices), [aiJobNotices]);
 
   const loadSettings = useCallback(async () => {
     setLoading(true);
@@ -165,11 +168,17 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
   }, [loadSettings]);
 
   useEffect(() => {
-    const activeJobs = aiJobNotices.filter((notice) => !isTerminalAiStatus(notice.status));
-    if (activeJobs.length === 0) return undefined;
+    aiJobNoticesRef.current = aiJobNotices;
+  }, [aiJobNotices]);
+
+  useEffect(() => {
+    if (!hasActiveAiJobNotices) return undefined;
 
     let canceled = false;
-    const poll = async () => {
+    const poll = async (): Promise<void> => {
+      const activeJobs = aiJobNoticesRef.current.filter((notice) => !isTerminalAiStatus(notice.status));
+      if (activeJobs.length === 0) return;
+
       const results: Array<{ kind: AiJobKind; data: AiJobResult } | { kind: AiJobKind; error: string }> = await Promise.all(
         activeJobs.map(async (notice) => {
           try {
@@ -224,14 +233,16 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       }
     };
 
-    void poll();
-    const timer = window.setInterval(() => void poll(), 3000);
+    const stopPolling = startAiJobPolling({
+      poll,
+      hasWork: () => hasActiveAiJobs(aiJobNoticesRef.current),
+    });
 
     return () => {
       canceled = true;
-      window.clearInterval(timer);
+      stopPolling();
     };
-  }, [aiJobNotices]);
+  }, [hasActiveAiJobNotices]);
 
   const criteriaTotalWeight = useMemo(
     () => criteriaDrafts.reduce((sum, criterion) => sum + toNumber(criterion.weight), 0),

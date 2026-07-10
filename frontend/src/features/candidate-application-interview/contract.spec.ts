@@ -28,7 +28,10 @@ import {
   createCameralessInterviewTestDeviceCheckState,
   createInterviewerSessionActionEvent,
   createInterviewerSessionEvent,
+  buildCandidateReportCompleteNotifications,
+  countUnreadCandidateNotifications,
   formatAiInterviewerQuestionPrompt,
+  getRecruitingReportPollingIntervalMs,
   getAiInterviewerProfile,
   getCandidateApplicationInterviewActionHref,
   getCandidateApplicationReportHref,
@@ -52,6 +55,7 @@ import {
   resolveInterviewerSessionMode,
   shouldAutoStartInterviewRecording,
   shouldContinueInterviewWithoutFollowUp,
+  shouldPollRecruitingReportCompletion,
   shouldEnableManualInterviewRecording,
   shouldOpenRealtimeMicrophoneForRecordingStart,
   shouldRunInterviewRuntimeCountdown,
@@ -1130,6 +1134,104 @@ const applicationSummary: CandidateApplicationSummary = {
   deviceCheckCompleted: true,
   canStartInterview: true,
 };
+
+const completedReportApplicationSummary: CandidateApplicationSummary = {
+  ...applicationSummary,
+  applicationId: 12,
+  companyName: "Init Labs",
+  jobTitle: "Backend Developer",
+  reportStatus: "COMPLETED",
+  updatedAt: "2026-07-09T10:00:00.000Z",
+};
+const laterCompletedReportApplicationSummary: CandidateApplicationSummary = {
+  ...applicationSummary,
+  applicationId: 14,
+  companyName: "Jungle Cloud",
+  jobTitle: "Data Engineer",
+  reportStatus: "COMPLETED",
+  updatedAt: "2026-07-09T11:00:00.000Z",
+};
+const generatingReportApplicationSummary: CandidateApplicationSummary = {
+  ...applicationSummary,
+  applicationId: 13,
+  companyName: "Other Labs",
+  jobTitle: "Frontend Developer",
+  reportStatus: "GENERATING",
+  updatedAt: "2026-07-09T10:01:00.000Z",
+};
+const unreadReportNotifications = buildCandidateReportCompleteNotifications(
+  [generatingReportApplicationSummary, completedReportApplicationSummary],
+  new Set(),
+);
+assert.deepEqual(unreadReportNotifications, [
+  {
+    id: "candidate-report-complete-12",
+    applicationId: 12,
+    title: "채용 리포트 전송 완료",
+    message: "\"Init Labs\" 면접 결과 전송이 정상적으로 이루어졌습니다. 합격을 빕니다.",
+    href: "/candidate/applications/12/report",
+    createdAt: "2026-07-09T10:00:00.000Z",
+    read: false,
+  },
+]);
+assert.equal(countUnreadCandidateNotifications(unreadReportNotifications), 1);
+assert.equal(
+  countUnreadCandidateNotifications(
+    buildCandidateReportCompleteNotifications(
+      [completedReportApplicationSummary],
+      new Set(["candidate-report-complete-12"]),
+    ),
+  ),
+  0,
+);
+assert.deepEqual(
+  buildCandidateReportCompleteNotifications(
+    [completedReportApplicationSummary],
+    new Set(),
+    new Set(["candidate-report-complete-12"]),
+  ),
+  [],
+);
+assert.deepEqual(
+  buildCandidateReportCompleteNotifications(
+    [completedReportApplicationSummary, laterCompletedReportApplicationSummary],
+    new Set(["candidate-report-complete-12"]),
+  ).map((notification) => ({
+    id: notification.id,
+    message: notification.message,
+    read: notification.read,
+  })),
+  [
+    {
+      id: "candidate-report-complete-14",
+      message: "\"Jungle Cloud\" 면접 결과 전송이 정상적으로 이루어졌습니다. 합격을 빕니다.",
+      read: false,
+    },
+    {
+      id: "candidate-report-complete-12",
+      message: "\"Init Labs\" 면접 결과 전송이 정상적으로 이루어졌습니다. 합격을 빕니다.",
+      read: true,
+    },
+  ],
+);
+assert.equal(
+  shouldPollRecruitingReportCompletion({
+    interviewStatus: "COMPLETED",
+    interviewSessionStatus: "COMPLETED",
+    reportStatus: "GENERATING",
+  }),
+  true,
+);
+assert.equal(
+  shouldPollRecruitingReportCompletion({
+    interviewStatus: "COMPLETED",
+    interviewSessionStatus: "COMPLETED",
+    reportStatus: "COMPLETED",
+  }),
+  false,
+);
+assert.equal(getRecruitingReportPollingIntervalMs(119_999), 10_000);
+assert.equal(getRecruitingReportPollingIntervalMs(120_000), 30_000);
 
 const candidateJobSummary: CandidateJobSummary = {
   jobId: 1,

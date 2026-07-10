@@ -295,6 +295,30 @@ export interface TimedOutAiJobStatusInput {
   };
 }
 
+export interface CandidateReportNotificationSource {
+  applicationId: number;
+  companyName: string;
+  jobTitle: string;
+  reportStatus: ReportStatus;
+  updatedAt?: string;
+}
+
+export interface CandidateReportCompletionPollingStatus {
+  interviewStatus: string;
+  interviewSessionStatus: string;
+  reportStatus: ReportStatus;
+}
+
+export interface CandidateNotificationItem {
+  id: string;
+  applicationId: number;
+  title: string;
+  message: string;
+  href: string;
+  createdAt: string;
+  read: boolean;
+}
+
 export interface RealtimeSessionUserNoticeInput {
   provider: "mock" | "openai" | string;
 }
@@ -570,6 +594,68 @@ export function getCandidateApplicationReportHref(
   application: Pick<CandidateApplicationSummary, "applicationId">,
 ): string {
   return candidateApplicationInterviewRoutes.applicationReport(application.applicationId);
+}
+
+export function getCandidateReportNotificationId(applicationId: number): string {
+  return `candidate-report-complete-${applicationId}`;
+}
+
+export function buildCandidateReportCompleteNotifications(
+  applications: CandidateReportNotificationSource[],
+  readIds: ReadonlySet<string>,
+  dismissedIds: ReadonlySet<string> = new Set(),
+): CandidateNotificationItem[] {
+  return applications
+    .map((application) => buildCandidateReportCompleteNotification(application, readIds, dismissedIds))
+    .filter((notification): notification is CandidateNotificationItem => Boolean(notification))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+export function buildCandidateReportCompleteNotification(
+  application: CandidateReportNotificationSource,
+  readIds: ReadonlySet<string>,
+  dismissedIds: ReadonlySet<string> = new Set(),
+): CandidateNotificationItem | null {
+  if (application.reportStatus !== "COMPLETED") {
+    return null;
+  }
+
+  const id = getCandidateReportNotificationId(application.applicationId);
+  if (dismissedIds.has(id)) {
+    return null;
+  }
+
+  const companyName = application.companyName.trim() || "기업";
+
+  return {
+    id,
+    applicationId: application.applicationId,
+    title: "채용 리포트 전송 완료",
+    message: `"${companyName}" 면접 결과 전송이 정상적으로 이루어졌습니다. 합격을 빕니다.`,
+    href: candidateApplicationInterviewRoutes.applicationReport(application.applicationId),
+    createdAt: application.updatedAt ?? "",
+    read: readIds.has(id),
+  };
+}
+
+export function countUnreadCandidateNotifications(notifications: CandidateNotificationItem[]): number {
+  return notifications.filter((notification) => !notification.read).length;
+}
+
+export function shouldPollRecruitingReportCompletion(
+  status?: CandidateReportCompletionPollingStatus,
+): boolean {
+  if (!status) {
+    return false;
+  }
+
+  const interviewCompleted =
+    status.interviewStatus === "COMPLETED" || status.interviewSessionStatus === "COMPLETED";
+  return interviewCompleted && status.reportStatus === "GENERATING";
+}
+
+export function getRecruitingReportPollingIntervalMs(elapsedMs: number): number {
+  return elapsedMs < 120_000 ? 10_000 : 30_000;
 }
 
 export function isReportReady(status: ReportStatus): boolean {
