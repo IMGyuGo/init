@@ -9,6 +9,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   ValidateNested
@@ -101,6 +102,7 @@ export class MockQuestionGenerateRequestDto {
   @ApiProperty({ example: 2 })
   @IsInt()
   @Min(1)
+  @Max(6)
   questionCount!: number;
 
   @ApiPropertyOptional({ example: 3 })

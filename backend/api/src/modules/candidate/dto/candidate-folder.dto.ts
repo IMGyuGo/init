@@ -27,10 +27,12 @@ export class CreateCandidateFolderDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(3000)
   motivation?: string | null;
 
   @IsOptional()
   @IsString()
+  @MaxLength(5000)
   extraNote?: string | null;
 }
 
@@ -62,9 +64,11 @@ export class UpdateCandidateFolderDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(3000)
   motivation?: string | null;
 
   @IsOptional()
   @IsString()
+  @MaxLength(5000)
   extraNote?: string | null;
 }

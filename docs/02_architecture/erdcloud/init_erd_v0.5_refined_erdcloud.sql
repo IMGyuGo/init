@@ -393,6 +393,9 @@ CREATE TABLE interview_answers (
     -- 답변한 질문 FK
     question_id BIGINT,
 
+    -- 세션 질문 연결 FK
+    session_question_id BIGINT,
+
     -- 답변 영상 파일 FK
     video_file_id BIGINT,
 
@@ -410,18 +413,28 @@ CREATE TABLE interview_answers (
 );
 
 CREATE TABLE interview_session_questions (
+    -- 세션 질문 행 PK
+    session_question_id BIGINT PRIMARY KEY,
+
     -- 면접 세션 FK
     session_id BIGINT NOT NULL,
 
-    -- 세션에서 사용할 질문 FK
-    question_id BIGINT NOT NULL,
+    -- 기업 질문 은행 질문 FK. 개인 런타임 질문은 NULL
+    question_id BIGINT,
+
+    -- 전용 시퀀스에서 발급하는 개인 런타임 질문 ID
+    runtime_question_id BIGINT,
+
+    question_type VARCHAR(40),
+
+    -- 개인 모의면접 런타임 질문 본문
+    content TEXT,
 
     -- 세션 안의 질문 표시 순서
     sort_order INTEGER NOT NULL,
 
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    PRIMARY KEY (session_id, question_id),
     CONSTRAINT uq_interview_session_questions_order UNIQUE (session_id, sort_order)
 );
 
@@ -757,6 +770,11 @@ ALTER TABLE interview_answers
     ADD CONSTRAINT fk_interview_answers_session
     FOREIGN KEY (session_id) REFERENCES interview_sessions(session_id);
 
+ALTER TABLE interview_answers
+    ADD CONSTRAINT fk_interview_answers_session_question
+    FOREIGN KEY (session_question_id) REFERENCES interview_session_questions(session_question_id)
+    ON DELETE SET NULL;
+
 ALTER TABLE interview_session_questions
     ADD CONSTRAINT fk_interview_session_questions_session
     FOREIGN KEY (session_id) REFERENCES interview_sessions(session_id)
@@ -883,6 +901,9 @@ CREATE INDEX idx_question_bank_posting ON question_bank(posting_id);
 CREATE INDEX idx_applications_posting ON applications(posting_id);
 CREATE INDEX idx_applications_candidate ON applications(candidate_id);
 CREATE INDEX idx_interview_sessions_application ON interview_sessions(application_id);
+CREATE INDEX idx_interview_answers_session_question ON interview_answers(session_question_id);
+CREATE UNIQUE INDEX uq_interview_session_questions_runtime_question
+    ON interview_session_questions(runtime_question_id);
 CREATE INDEX idx_interview_session_questions_question ON interview_session_questions(question_id);
 CREATE INDEX idx_evaluation_reports_application ON evaluation_reports(application_id);
 CREATE INDEX idx_ai_process_logs_application ON ai_process_logs(application_id);

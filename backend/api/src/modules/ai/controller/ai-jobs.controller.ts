@@ -149,15 +149,18 @@ export class CandidateAiJobsController {
       const currentUser = this.candidate(request);
       this.requirePositive(body.questionCount, "questionCount");
       const payload: Record<string, unknown> = { ...body };
+      const persistedPayload: Record<string, unknown> = { ...body };
       if (body.folderId !== undefined && body.folderId !== null) {
         this.requirePositive(body.folderId, "folderId");
         const folderContext = await this.candidateService.getMockInterviewFolderContext(Number(body.folderId), currentUser);
         payload.folderContext = this.toMockQuestionFolderContext(folderContext);
+        persistedPayload.folderContext = this.toMockQuestionFolderLogRef(folderContext);
       }
 
       return this.dispatcher.dispatch({
         processType: "QUESTION_GENERATE",
-        input: this.input("MOCK_QUESTION_GENERATE", payload, currentUser)
+        input: this.input("MOCK_QUESTION_GENERATE", payload, currentUser),
+        persistedInput: this.input("MOCK_QUESTION_GENERATE", persistedPayload, currentUser),
       });
     });
   }
@@ -291,6 +294,22 @@ export class CandidateAiJobsController {
           }
         : null,
       resumeExtractedText: folder.resumeExtractedText,
+    };
+  }
+
+  private toMockQuestionFolderLogRef(folder: CandidateFolderContext): Record<string, unknown> {
+    return {
+      folderId: folder.id,
+      resumeFileId: folder.resumeFile?.fileId ?? null,
+      fields: {
+        githubUrl: Boolean(folder.githubUrl),
+        blogUrl: Boolean(folder.blogUrl),
+        portfolioUrl: Boolean(folder.portfolioUrl),
+        motivationLength: folder.motivation?.length ?? 0,
+        extraNoteLength: folder.extraNote?.length ?? 0,
+        resumeExtractedTextLength: folder.resumeExtractedText?.length ?? 0,
+      },
+      scrubbed: true,
     };
   }
 

@@ -3,6 +3,27 @@ import { AiJobQueuePublisher } from "./ai-job-queue.publisher";
 import { InMemoryReportRepository } from "../repository/in-memory-report.repository";
 
 describe("AiJobDispatcherService", () => {
+  it("publishes private input without persisting it in inputRef", async () => {
+    const repository = new InMemoryReportRepository();
+    let publishedInputRef = "";
+    const publisher: AiJobQueuePublisher = {
+      async publish(job) {
+        publishedInputRef = job.inputRef;
+      },
+    };
+    const service = new AiJobDispatcherService(repository, publisher);
+
+    const result = await service.dispatch({
+      processType: "QUESTION_GENERATE",
+      input: { requestedBy: { userId: 2 }, payload: { motivation: "private motivation" } },
+      persistedInput: { requestedBy: { userId: 2 }, payload: { folderId: 3, scrubbed: true } },
+    });
+
+    expect(publishedInputRef).toContain("private motivation");
+    expect(result.inputRef).not.toContain("private motivation");
+    expect(result.inputRef).toContain("\"scrubbed\":true");
+  });
+
   it("marks queued process failed when SQS publish fails", async () => {
     const repository = new InMemoryReportRepository();
     const publisher: AiJobQueuePublisher = {

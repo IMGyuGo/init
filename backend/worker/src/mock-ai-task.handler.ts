@@ -441,7 +441,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
 
       return {
         content,
-        category: kind.startsWith("MOCK") ? folderContext?.name ?? "모의면접" : criterion.category ?? "채용면접",
+        category: kind.startsWith("MOCK") ? "지원서 기반 모의면접" : criterion.category ?? "채용면접",
         difficulty: index % 3 === 0 ? "MEDIUM" as const : "HARD" as const,
         criterionId: criterion?.criterionId,
         criterionTitle: criterion?.name ?? "",
@@ -459,7 +459,8 @@ export class MockAiTaskHandler implements AiTaskHandler {
     return this.generatedDraft(kind, items, {
       sourceProcessLogId: processLogId,
       postingId,
-      targetTables: ["question_bank"],
+      // 모의면접 질문은 미리보기 결과일 뿐 기업 질문 은행에 저장하지 않는다.
+      targetTables: kind.startsWith("MOCK") ? [] : ["question_bank"],
       questionCandidates
     });
   }
@@ -946,20 +947,15 @@ function buildMockQuestionCandidate(index: number, folder?: MockQuestionFolderCo
     return `Mock interview practice question ${index + 1}`;
   }
 
-  const resume = folder.resumeExtractedText
-    ? `이력서 내용(${shorten(folder.resumeExtractedText)})`
-    : folder.resumeFile?.originalName
-      ? `이력서 파일(${folder.resumeFile.originalName})`
-      : "등록된 이력서";
-  const links = [folder.githubUrl, folder.blogUrl, folder.portfolioUrl]
-    .filter((link): link is string => typeof link === "string" && link.trim().length > 0)
-    .map(shorten)
-    .join(", ");
-  const motivation = folder.motivation ? `지원동기(${shorten(folder.motivation)})` : "지원동기";
-  const extraNote = folder.extraNote ? `추가설명(${shorten(folder.extraNote)})` : "추가설명";
-  const context = [folder.name ? `지원서 세트 ${folder.name}` : "지원서 세트", resume, links ? `URL(${links})` : undefined, motivation, extraNote]
-    .filter((item): item is string => Boolean(item))
-    .join(" · ");
+  const sources = [
+    folder.resumeExtractedText || folder.resumeFile ? "이력서" : undefined,
+    folder.githubUrl ? "GitHub" : undefined,
+    folder.blogUrl ? "기술 블로그" : undefined,
+    folder.portfolioUrl ? "포트폴리오" : undefined,
+    folder.motivation ? "지원동기" : undefined,
+    folder.extraNote ? "추가 설명" : undefined,
+  ].filter((source): source is string => Boolean(source));
+  const context = sources.length > 0 ? `제출한 ${sources.join(", ")} 자료` : "지원서 세트";
 
   if (index % 2 === 0) {
     return `${context}를 바탕으로 실제 기술 경험 하나를 골라 본인 역할, 의사결정, 성과를 설명해주세요.`;

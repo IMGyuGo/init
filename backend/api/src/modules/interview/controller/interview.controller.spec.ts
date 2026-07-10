@@ -158,10 +158,13 @@ test("mock interview start builds questions from candidate folder context", asyn
   const questions = await controller.listMockQuestions(validCandidateRequest, String(started.data.sessionId));
   const content = questions.data.questions.map((question) => question.content).join("\n");
 
-  assert.match(content, /결제 플랫폼 백엔드 지원 세트/);
-  assert.match(content, /payment-resume\.pdf/);
-  assert.match(content, /github\.com\/init\/payment-api/);
-  assert.match(content, /대규모 결제 트래픽/);
+  assert.match(content, /이력서/);
+  assert.match(content, /GitHub/);
+  assert.match(content, /지원동기/);
+  assert.doesNotMatch(content, /결제 플랫폼 백엔드 지원 세트/);
+  assert.doesNotMatch(content, /payment-resume\.pdf/);
+  assert.doesNotMatch(content, /github\.com\/init\/payment-api/);
+  assert.doesNotMatch(content, /대규모 결제 트래픽/);
 });
 
 async function assertInterviewHttpError(

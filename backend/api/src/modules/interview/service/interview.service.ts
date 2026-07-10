@@ -40,6 +40,7 @@ import {
 import {
   INTERVIEW_REPOSITORY,
   type CreateMockContextQuestionInput,
+  type CreateMockInterviewSessionInput,
   type FollowUpQuestionPolicy,
   type InterviewRepository,
 } from "../repository/interview.repository";
@@ -127,18 +128,22 @@ export class InterviewService {
     const showQuestionText = requestBody.showQuestionText === true;
     const questionTypes = this.resolveMockQuestionTypes(requestBody);
     const folderId = this.normalizeOptionalFolderId(requestBody.folderId);
-    const questionIds = folderId
-      ? await this.createFolderMockQuestionIds(folderId, questionTypes, currentUser)
-      : await this.selectMockQuestionIds(questionTypes);
+    const contextQuestions = folderId
+      ? await this.buildFolderMockQuestionsForCurrentUser(folderId, questionTypes, currentUser)
+      : undefined;
+    const questionIds = contextQuestions ? undefined : await this.selectMockQuestionIds(questionTypes);
     const now = new Date().toISOString();
-    await this.mockInterviewPasses?.consumePass(currentUser.candidateId, 1, undefined, new Date(now));
-    const session = await this.interviewRepository.createMockSession({
+    const input = {
       candidateId: currentUser.candidateId,
       showQuestionText,
       questionIds,
+      contextQuestions,
       startedAt: now,
       updatedAt: now,
-    });
+    };
+    const session = this.interviewRepository.createMockSessionWithPass
+      ? await this.interviewRepository.createMockSessionWithPass(input)
+      : await this.createMockSessionWithExternalPass(input, new Date(now));
 
     return this.envelope({
       ...(await this.toRuntimeView(session, "mock")),
@@ -1296,6 +1301,11 @@ export class InterviewService {
         { field: "questionTypes", reason: "unsupported question type" },
       ]);
     }
+    if (requestedTypes.length > 6 || new Set(requestedTypes).size !== requestedTypes.length) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "Question types are invalid.", 400, [
+        { field: "questionTypes", reason: "questionTypes must contain at most 6 unique values" },
+      ]);
+    }
 
     return requestedTypes as MockQuestionType[];
   }
@@ -1323,16 +1333,21 @@ export class InterviewService {
     return questions.map((question) => question.questionId);
   }
 
-  private async createFolderMockQuestionIds(
+  private async buildFolderMockQuestionsForCurrentUser(
     folderId: number,
     questionTypes: readonly MockQuestionType[],
     currentUser: CurrentCandidateUser,
-  ): Promise<number[]> {
+  ): Promise<CreateMockContextQuestionInput[]> {
     const folder = await this.candidateService.getMockInterviewFolderContext(folderId, currentUser);
-    const questions = await this.interviewRepository.createMockContextQuestions(
-      this.buildFolderMockQuestions(folder, questionTypes),
-    );
-    return questions.map((question) => question.questionId);
+    return this.buildFolderMockQuestions(folder, questionTypes);
+  }
+
+  private async createMockSessionWithExternalPass(
+    input: CreateMockInterviewSessionInput,
+    now: Date,
+  ): Promise<RuntimeInterviewSession> {
+    await this.mockInterviewPasses?.consumePass(input.candidateId, 1, undefined, now);
+    return this.interviewRepository.createMockSession(input);
   }
 
   private buildFolderMockQuestions(
@@ -1347,22 +1362,15 @@ export class InterviewService {
   }
 
   private buildFolderMockQuestionContent(folder: CandidateFolderContext, questionType: MockQuestionType): string {
-    const folderName = folder.name;
-    const resume = folder.resumeFile
-      ? `${folder.resumeFile.originalName} (${folder.resumeFile.mimeType}, ${folder.resumeFile.sizeBytes} bytes)`
-      : "등록된 이력서 없음";
-    const resumeText = folder.resumeExtractedText
-      ? `, 이력서 추출 텍스트: ${this.shortenFolderContext(folder.resumeExtractedText)}`
-      : "";
-    const links = [
-      folder.githubUrl ? `GitHub: ${folder.githubUrl}` : undefined,
-      folder.blogUrl ? `블로그: ${folder.blogUrl}` : undefined,
-      folder.portfolioUrl ? `포트폴리오: ${folder.portfolioUrl}` : undefined,
-    ].filter((value): value is string => Boolean(value)).join(", ") || "등록된 URL 없음";
-    const motivation = folder.motivation ?? "지원 동기 미입력";
-    const extraNote = folder.extraNote ?? "추가 설명 미입력";
-
-    const context = `지원서 세트 "${folderName}", 이력서 ${resume}${resumeText}, ${links}, 지원동기: ${motivation}, 추가설명: ${extraNote}`;
+    const sources = [
+      folder.resumeFile ? "이력서" : undefined,
+      folder.githubUrl ? "GitHub" : undefined,
+      folder.blogUrl ? "기술 블로그" : undefined,
+      folder.portfolioUrl ? "포트폴리오" : undefined,
+      folder.motivation ? "지원동기" : undefined,
+      folder.extraNote ? "추가 설명" : undefined,
+    ].filter((value): value is string => Boolean(value));
+    const context = sources.length > 0 ? `제출한 ${sources.join(", ")} 자료` : "등록한 지원서 세트";
 
     if (questionType === "INTRO") {
       return `${context}를 바탕으로 본인을 소개하고 이 포지션을 준비한 이유를 설명해주세요.`;
@@ -1380,11 +1388,6 @@ export class InterviewService {
       return `${context}에서 면접관이 추가로 확인해야 할 약한 근거나 빈칸을 하나 짚고 더 구체적인 사례를 설명해주세요.`;
     }
     return `${context}를 바탕으로 면접관에게 마지막으로 강조하고 싶은 강점과 보완 계획을 말해주세요.`;
-  }
-
-  private shortenFolderContext(value: string): string {
-    const normalized = value.replace(/\s+/g, " ").trim();
-    return normalized.length > 300 ? `${normalized.slice(0, 300)}...` : normalized;
   }
 
   private async selectRecruitingQuestionIds(postingId: number): Promise<number[]> {

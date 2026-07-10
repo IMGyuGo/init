@@ -502,12 +502,15 @@ test("mock question generation uses candidate folder context when provided", asy
       category?: string;
       suggestionReason?: string;
     }>;
+    targetTables?: string[];
   };
-  assert.match(output.items?.[0] ?? "", /게임 서버 지원 세트/);
-  assert.match(output.items?.[0] ?? "", /NestJS 기반 매칭 서버/);
-  assert.match(output.items?.[1] ?? "", /대규모 게임 트래픽/);
-  assert.equal(output.questionCandidates?.[0]?.category, "게임 서버 지원 세트");
+  assert.match(output.items?.[0] ?? "", /이력서/);
+  assert.match(output.items?.[0] ?? "", /GitHub/);
+  assert.doesNotMatch(output.items?.[0] ?? "", /게임 서버 지원 세트|NestJS 기반 매칭 서버|https:\/\/github\.com\/init\/game-server/);
+  assert.doesNotMatch(output.items?.[1] ?? "", /대규모 게임 트래픽|Redis와 PostgreSQL/);
+  assert.equal(output.questionCandidates?.[0]?.category, "지원서 기반 모의면접");
   assert.match(output.questionCandidates?.[0]?.suggestionReason ?? "", /지원서 세트/);
+  assert.deepEqual(output.targetTables, []);
 });
 
 test("posting draft generation returns review-required posting draft without final save", async () => {

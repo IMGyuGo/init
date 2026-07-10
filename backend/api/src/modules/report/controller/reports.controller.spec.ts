@@ -649,9 +649,10 @@ describe("ReportsController", () => {
 
     expect(response.body.data.inputRef).toContain("\"folderId\":");
     expect(response.body.data.inputRef).toContain("\"folderContext\"");
-    expect(response.body.data.inputRef).toContain("게임 서버 지원 세트");
-    expect(response.body.data.inputRef).toContain("github.com/init/game-server");
-    expect(response.body.data.inputRef).toContain("대규모 게임 트래픽");
+    expect(response.body.data.inputRef).toContain("\"scrubbed\":true");
+    expect(response.body.data.inputRef).not.toContain("게임 서버 지원 세트");
+    expect(response.body.data.inputRef).not.toContain("github.com/init/game-server");
+    expect(response.body.data.inputRef).not.toContain("대규모 게임 트래픽");
     expect(response.body.data.inputRef).not.toContain("fileContent");
     expect(response.body.data.inputRef).not.toContain("base64");
   });

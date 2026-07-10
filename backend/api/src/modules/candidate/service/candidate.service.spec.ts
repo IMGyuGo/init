@@ -134,6 +134,14 @@ async function run() {
 
   const folderOwnershipRepository = new InMemoryCandidateRepository();
   const folderOwnershipService = new CandidateService(folderOwnershipRepository);
+  await assert.rejects(
+    () => folderOwnershipService.createFolder({ name: "길이 제한", motivation: "가".repeat(3_001) }, currentUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
+  );
+  await assert.rejects(
+    () => folderOwnershipService.createFolder({ name: "길이 제한", extraNote: "나".repeat(5_001) }, currentUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
+  );
   const otherUserResume = await folderOwnershipRepository.createFileAsset({
     ownerUserId: 999,
     storageKey: "candidate/999/folders/resume.pdf",

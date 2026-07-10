@@ -454,14 +454,19 @@ model InterviewSession {
 }
 
 model InterviewSessionQuestion {
-  sessionId  BigInt           @map("session_id")
-  questionId BigInt           @map("question_id")
-  sortOrder  Int              @map("sort_order")
-  createdAt  DateTime         @default(now()) @map("created_at")
-  session    InterviewSession @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
-  question   Question         @relation(fields: [questionId], references: [questionId], onDelete: Restrict)
+  sessionQuestionId BigInt            @id @default(autoincrement()) @map("session_question_id")
+  sessionId         BigInt            @map("session_id")
+  questionId        BigInt?           @map("question_id")
+  runtimeQuestionId BigInt?           @unique(map: "uq_interview_session_questions_runtime_question") @map("runtime_question_id")
+  questionType      QuestionType?     @map("question_type")
+  content           String?
+  sortOrder         Int               @map("sort_order")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  session           InterviewSession  @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
+  question          Question?         @relation(fields: [questionId], references: [questionId], onDelete: Restrict)
+  answers           InterviewAnswer[]
 
-  @@id([sessionId, questionId])
+  @@unique([sessionId, questionId], map: "uq_interview_session_questions_question")
   @@unique([sessionId, sortOrder], map: "uq_interview_session_questions_order")
   @@index([questionId], map: "idx_interview_session_questions_question")
   @@map("interview_session_questions")
@@ -490,6 +495,7 @@ model InterviewAnswer {
   answerId          BigInt             @id @default(autoincrement()) @map("answer_id")
   sessionId         BigInt             @map("session_id")
   questionId        BigInt?            @map("question_id")
+  sessionQuestionId BigInt?            @map("session_question_id")
   videoFileId       BigInt?            @map("video_file_id")
   audioFileId       BigInt?            @map("audio_file_id")
   transcript        String?
@@ -497,11 +503,13 @@ model InterviewAnswer {
   submittedAt       DateTime?          @map("submitted_at")
   session           InterviewSession   @relation(fields: [sessionId], references: [sessionId])
   question          Question?          @relation(fields: [questionId], references: [questionId])
+  sessionQuestion   InterviewSessionQuestion? @relation(fields: [sessionQuestionId], references: [sessionQuestionId], onDelete: SetNull)
   videoFile         FileAsset?         @relation("VideoFile", fields: [videoFileId], references: [fileId])
   audioFile         FileAsset?         @relation("AudioFile", fields: [audioFileId], references: [fileId])
   followUpQuestions FollowUpQuestion[]
   reportEvidences   ReportEvidence[]
 
+  @@index([sessionQuestionId], map: "idx_interview_answers_session_question")
   @@map("interview_answers")
 }
 

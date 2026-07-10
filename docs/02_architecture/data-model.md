@@ -320,12 +320,16 @@
 
 | Column | Definition | Description |
 | --- |--- |--- |
+| session_question_id | BIGINT PRIMARY KEY | 세션 질문 행 PK |
 | session_id | BIGINT NOT NULL | 연결된 면접 세션 FK |
-| question_id | BIGINT NOT NULL | 세션에서 사용하는 질문 FK |
+| question_id | BIGINT | 기업 `question_bank` 질문을 사용할 때의 FK. 개인 모의면접 런타임 질문은 NULL |
+| runtime_question_id | BIGINT | API에서 사용하는 질문 ID. 개인 런타임 질문 전용 시퀀스에서 발급해 기업 질문 ID와 분리 |
+| question_type | VARCHAR(40) | 개인 모의면접 런타임 질문 유형 |
+| content | TEXT | 개인 모의면접 런타임 질문 본문. 지원서 원문 전체가 아니라 제한된 컨텍스트로 만든 질문만 저장 |
 | sort_order | INTEGER NOT NULL | 세션 안의 질문 표시 순서 |
 | created_at | TIMESTAMP NOT NULL | 세션 질문 연결 생성 시각 |
 
-`(session_id, question_id)`를 복합 PK로 사용하고 `(session_id, sort_order)`는 unique다. 세션 삭제 시 연결 행은 함께 삭제하며 질문은 면접 이력 보존을 위해 연결된 동안 삭제할 수 없다.
+`(session_id, sort_order)`는 unique다. 기업 질문은 `question_id`를 참조하고, 지원자 개인 모의면접 질문은 `question_id=NULL`과 자체 `runtime_question_id`, `question_type`, `content`를 사용한다. 세션 삭제 시 런타임 질문도 함께 삭제한다.
 
 ### interview_answers
 
@@ -334,6 +338,7 @@
 | answer_id | BIGINT PRIMARY KEY | 질문별 답변 PK |
 | session_id | BIGINT NOT NULL | 연결된 면접 세션 FK |
 | question_id | BIGINT | 답변한 질문 FK |
+| session_question_id | BIGINT | 개인 런타임 질문 또는 세션 질문 연결 FK |
 | video_file_id | BIGINT | 답변 영상 파일 FK |
 | audio_file_id | BIGINT | 답변 음성 파일 FK |
 | transcript | TEXT | STT로 변환된 답변 스크립트 |

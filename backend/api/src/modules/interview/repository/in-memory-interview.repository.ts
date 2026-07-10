@@ -148,7 +148,7 @@ export class InMemoryInterviewRepository implements InterviewRepository {
     return question ? this.cloneQuestion(question) : undefined;
   }
 
-  createMockContextQuestions(input: CreateMockContextQuestionInput[]): InterviewQuestion[] {
+  private createMockContextQuestions(input: CreateMockContextQuestionInput[]): InterviewQuestion[] {
     const nextQuestionId = () => 50_000 + this.runtimeQuestionIds.size + 1;
     const questions = input.map((item) => {
       const question: InterviewQuestion = {
@@ -179,6 +179,10 @@ export class InMemoryInterviewRepository implements InterviewRepository {
   }
 
   createMockSession(input: CreateMockInterviewSessionInput): RuntimeInterviewSession {
+    const contextQuestionIds = input.contextQuestions
+      ? this.createMockContextQuestions(input.contextQuestions).map((question) => question.questionId)
+      : [];
+    const questionIds = input.questionIds ?? contextQuestionIds;
     const session: RuntimeInterviewSession = {
       sessionId: 10000 + this.mockSessions.size + 1,
       candidateId: input.candidateId,
@@ -186,7 +190,7 @@ export class InMemoryInterviewRepository implements InterviewRepository {
       status: "IN_PROGRESS",
       showQuestionText: input.showQuestionText,
       currentQuestionIndex: 0,
-      questionIds: [...input.questionIds],
+      questionIds: [...questionIds],
       startedAt: input.startedAt,
       updatedAt: input.updatedAt,
     };

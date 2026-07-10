@@ -2215,6 +2215,8 @@ AI 리포트 금지 기준:
 - 성공 응답/처리:
   - 모의면접 세션 생성
   - `folderId`가 있으면 폴더의 이력서 파일 메타데이터, 추출 텍스트(`application_documents.extracted_text`가 존재하는 경우), GitHub/블로그/포트폴리오 URL, 지원동기, 추가설명을 모의면접 질문 생성 컨텍스트로 사용한다.
+  - 개인 맞춤 질문은 기업 `question_bank`에 저장하지 않고 현재 지원자 세션 소유의 `interview_session_questions`에 본문과 유형을 저장한다.
+  - 세션 생성, 이용권 차감, 개인 질문 저장은 하나의 DB 트랜잭션으로 처리하고 실패 시 모두 rollback한다.
   - 생성된 질문 ID와 표시 순서는 `interview_session_questions`에 저장하며, API 서버 재시작 후에도 동일한 질문 흐름을 복원한다.
 - 오류/예외:
   - 질문 생성 실패 시 기본 질문 세트를 제공한다.
@@ -2330,6 +2332,14 @@ CandidateFolder 응답 필드:
 }
 ```
 
+CandidateFolder 입력 제한:
+
+- `name`: 1~100자
+- `githubUrl`, `blogUrl`, `portfolioUrl`: 각각 최대 500자, HTTP/HTTPS URL
+- `motivation`: 최대 3,000자
+- `extraNote`: 최대 5,000자
+- 질문 생성에 사용하는 폴더 컨텍스트는 정규화 후 최대 12,000자로 제한한다.
+
 ### API-045 POST /candidate/mock-interviews/questions/generate
 - 도메인: 지원자 - 모의면접
 - 권한/인증: 지원자 / 지원자 사용자 로그인
@@ -2345,13 +2355,16 @@ CandidateFolder 응답 필드:
 - 성공 응답/처리:
   - 모의면접 질문 목록 생성 작업 큐잉
   - `folderId`가 있으면 폴더의 이력서 파일 메타데이터, 추출 텍스트(`application_documents.extracted_text`가 존재하는 경우), GitHub/블로그/포트폴리오 URL, 지원동기, 추가설명을 worker 입력 컨텍스트로 전달한다.
+  - 원문 컨텍스트는 SQS 작업 메시지에서만 처리하고 `ai_process_logs.input_ref`에는 `folderId`, 파일 ID, 필드 존재 여부와 길이만 저장한다.
+  - 생성 질문 후보와 AI 작업 결과에는 이력서 추출 텍스트, URL, 지원동기, 추가 설명 원문을 그대로 반복 저장하지 않는다.
+  - SQS 메시지는 처리 완료 후 삭제하며 DLQ 보존 기간은 운영 인프라 정책을 따른다.
 - 오류/예외:
   - 질문 생성 실패 시 기본 질문 세트를 제공한다.
 - 관련 ERD 테이블:
-  - candidate_profiles, candidate_folders, file_assets, application_documents, question_bank, ai_process_logs
+  - candidate_profiles, candidate_folders, file_assets, application_documents, ai_process_logs
 - 비고/미결:
   - 채용 질문과 달리 JD/기업 평가 기준을 사용하지 않음
-  - 원본 파일 바이트/본문은 직접 전달하지 않고 file_assets 메타데이터와 기존 추출 텍스트만 사용한다.
+  - 원본 파일 바이트는 직접 전달하지 않고 file_assets 메타데이터와 길이 제한된 기존 추출 텍스트만 사용한다.
 
 ### API-046 GET /candidate/mock-interviews/{sessionId}
 - 도메인: 지원자 - 모의면접

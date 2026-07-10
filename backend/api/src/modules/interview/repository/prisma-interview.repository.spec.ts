@@ -5,6 +5,9 @@ test("prisma interview repository persists answers through interview_answers", a
   const createCalls: unknown[] = [];
   const submittedAt = "2026-07-01T00:00:00.000Z";
   const repository = new PrismaInterviewRepository({
+    interviewSessionQuestion: {
+      findFirst: async () => ({ sessionQuestionId: 501n, questionId: 20001n }),
+    },
     interviewAnswer: {
       create: async (args: unknown) => {
         createCalls.push(args);
@@ -12,11 +15,13 @@ test("prisma interview repository persists answers through interview_answers", a
           answerId: 101n,
           sessionId: 10001n,
           questionId: 20001n,
+          sessionQuestionId: 501n,
           videoFileId: 30001n,
           audioFileId: null,
           transcript: null,
           durationSeconds: 42,
           submittedAt: new Date(submittedAt),
+          sessionQuestion: { runtimeQuestionId: null },
         };
       },
     },
@@ -35,11 +40,13 @@ test("prisma interview repository persists answers through interview_answers", a
       data: {
         sessionId: 10001n,
         questionId: 20001n,
+        sessionQuestionId: 501n,
         videoFileId: 30001n,
         audioFileId: null,
         durationSeconds: 42,
         submittedAt: new Date(submittedAt),
       },
+      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
     },
   ]);
   assert.equal(answer.answerId, 101);
@@ -97,6 +104,163 @@ test("prisma interview repository persists mock session question order", async (
   assert.deepEqual(created.questionIds, [301, 205]);
 });
 
+test("prisma interview repository starts private mock session and consumes pass atomically", async () => {
+  const sessionQuestionCreates: unknown[] = [];
+  const ledgerCreates: unknown[] = [];
+  const session = {
+    sessionId: 10002n,
+    applicationId: null,
+    candidateId: 7n,
+    interviewType: "MOCK",
+    status: "IN_PROGRESS",
+    showQuestionText: true,
+    startedAt: new Date("2026-07-10T00:00:00.000Z"),
+    completedAt: null,
+  };
+  let sequence = 9000n;
+  const transactionClient = {
+    $executeRaw: async () => 1,
+    $queryRaw: async () => [{ questionId: sequence++ }],
+    candidateMockInterviewPassLedger: {
+      findFirst: async () => ({ ledgerId: 1n }),
+      findMany: async () => [{ changeAmount: 3 }],
+      create: async (args: unknown) => {
+        ledgerCreates.push(args);
+        return {};
+      },
+    },
+    interviewSession: { create: async () => session },
+    interviewSessionQuestion: {
+      create: async (args: unknown) => {
+        sessionQuestionCreates.push(args);
+        return {};
+      },
+    },
+  };
+  const repository = new PrismaInterviewRepository({
+    $transaction: async (callback: (client: typeof transactionClient) => Promise<unknown>) => callback(transactionClient),
+    interviewAnswer: { findMany: async () => [] },
+  } as never);
+
+  const created = await repository.createMockSessionWithPass({
+    candidateId: 7,
+    showQuestionText: true,
+    contextQuestions: [
+      { questionType: "INTRO", content: "제출한 이력서 자료를 바탕으로 소개해주세요.", sortOrder: 1 },
+      { questionType: "TECHNICAL", content: "제출한 프로젝트 자료의 기술 선택을 설명해주세요.", sortOrder: 2 },
+    ],
+    startedAt: "2026-07-10T00:00:00.000Z",
+    updatedAt: "2026-07-10T00:00:00.000Z",
+  });
+
+  assert.deepEqual(created.questionIds, [9000, 9001]);
+  assert.deepEqual(ledgerCreates, [{
+    data: {
+      candidateId: 7n,
+      usedSessionId: 10002n,
+      source: "USAGE",
+      changeAmount: -1,
+      expiresAt: null,
+    },
+  }]);
+  assert.equal(sessionQuestionCreates.length, 2);
+  assert.deepEqual(sessionQuestionCreates[0], {
+    data: {
+      sessionId: 10002n,
+      questionId: null,
+      runtimeQuestionId: 9000n,
+      questionType: "INTRO",
+      content: "제출한 이력서 자료를 바탕으로 소개해주세요.",
+      sortOrder: 1,
+    },
+  });
+});
+
+test("prisma interview repository resolves private session question without company question bank", async () => {
+  const repository = new PrismaInterviewRepository({
+    question: { findUnique: async () => null },
+    interviewSessionQuestion: {
+      findUnique: async () => ({
+        runtimeQuestionId: 9000n,
+        questionType: "INTRO",
+        content: "개인 세션 질문",
+        sortOrder: 1,
+      }),
+    },
+  } as never);
+
+  const question = await repository.findQuestion(9000);
+
+  assert.equal(question?.content, "개인 세션 질문");
+  assert.equal(question?.interviewType, "MOCK");
+});
+
+test("prisma interview repository stores mock follow-up questions in the owning session", async () => {
+  const sessionQuestionCreates: unknown[] = [];
+  const transactionClient = {
+    $queryRaw: async () => [{ questionId: 1000000000000000n }],
+    interviewSessionQuestion: {
+      create: async (args: unknown) => {
+        sessionQuestionCreates.push(args);
+        return {
+          runtimeQuestionId: 1000000000000000n,
+          questionType: "FOLLOW_UP",
+          content: "구체적인 기술 선택 근거를 설명해주세요.",
+          sortOrder: 3,
+        };
+      },
+    },
+  };
+  const repository = new PrismaInterviewRepository({
+    $transaction: async (callback: (client: typeof transactionClient) => Promise<unknown>) => callback(transactionClient),
+    question: {
+      findUnique: async () => {
+        throw new Error("mock follow-up must not read question_bank");
+      },
+    },
+    company: {
+      findFirst: async () => {
+        throw new Error("mock follow-up must not select a company");
+      },
+    },
+  } as never);
+
+  const question = await repository.createRuntimeFollowUpQuestion({
+    session: {
+      sessionId: 10002,
+      candidateId: 7,
+      interviewType: "MOCK",
+      status: "IN_PROGRESS",
+      showQuestionText: true,
+      currentQuestionIndex: 1,
+      questionIds: [1000000000000001, 1000000000000002],
+      startedAt: "2026-07-10T00:00:00.000Z",
+      updatedAt: "2026-07-10T00:00:00.000Z",
+    },
+    sourceAnswer: {
+      answerId: 11,
+      sessionId: 10002,
+      questionId: 1000000000000002,
+      durationSeconds: 42,
+      submittedAt: "2026-07-10T00:01:00.000Z",
+    },
+    content: "구체적인 기술 선택 근거를 설명해주세요.",
+  });
+
+  assert.equal(question.questionId, 1000000000000000);
+  assert.equal(question.questionType, "FOLLOW_UP");
+  assert.deepEqual(sessionQuestionCreates, [{
+    data: {
+      sessionId: 10002n,
+      questionId: null,
+      runtimeQuestionId: 1000000000000000n,
+      questionType: "FOLLOW_UP",
+      content: "구체적인 기술 선택 근거를 설명해주세요.",
+      sortOrder: 3,
+    },
+  }]);
+});
+
 test("prisma interview repository restores persisted questions after restart", async () => {
   const repository = new PrismaInterviewRepository({
     interviewSession: {
@@ -112,7 +276,10 @@ test("prisma interview repository restores persisted questions after restart", a
       }),
     },
     interviewSessionQuestion: {
-      findMany: async () => [{ questionId: 301n }, { questionId: 205n }],
+      findMany: async () => [
+        { questionId: 301n, runtimeQuestionId: null },
+        { questionId: 205n, runtimeQuestionId: null },
+      ],
     },
     interviewAnswer: {
       findMany: async () => [],
@@ -126,7 +293,8 @@ test("prisma interview repository restores persisted questions after restart", a
 
 test("prisma interview repository persists appended runtime questions", async () => {
   const deleteManyCalls: unknown[] = [];
-  const createManyCalls: unknown[] = [];
+  const createCalls: unknown[] = [];
+  const updateCalls: unknown[] = [];
   const savedSession = {
     sessionId: 10001n,
     applicationId: null,
@@ -143,13 +311,22 @@ test("prisma interview repository persists appended runtime questions", async ()
       update: async () => savedSession,
     },
     interviewSessionQuestion: {
+      findMany: async () => [
+        { sessionQuestionId: 1n, questionId: 301n, runtimeQuestionId: null },
+        { sessionQuestionId: 2n, questionId: 205n, runtimeQuestionId: null },
+      ],
+      updateMany: async () => ({ count: 2 }),
+      update: async (args: unknown) => {
+        updateCalls.push(args);
+        return {};
+      },
       deleteMany: async (args: unknown) => {
         deleteManyCalls.push(args);
-        return { count: 2 };
+        return { count: 0 };
       },
-      createMany: async (args: unknown) => {
-        createManyCalls.push(args);
-        return { count: 3 };
+      create: async (args: unknown) => {
+        createCalls.push(args);
+        return {};
       },
     },
   };
@@ -169,14 +346,14 @@ test("prisma interview repository persists appended runtime questions", async ()
     updatedAt: "2026-07-10T00:01:00.000Z",
   });
 
-  assert.deepEqual(deleteManyCalls, [{ where: { sessionId: 10001n } }]);
-  assert.deepEqual(createManyCalls, [
+  assert.deepEqual(deleteManyCalls, []);
+  assert.deepEqual(updateCalls, [
+    { where: { sessionQuestionId: 1n }, data: { sortOrder: 1 } },
+    { where: { sessionQuestionId: 2n }, data: { sortOrder: 2 } },
+  ]);
+  assert.deepEqual(createCalls, [
     {
-      data: [
-        { sessionId: 10001n, questionId: 301n, sortOrder: 1 },
-        { sessionId: 10001n, questionId: 205n, sortOrder: 2 },
-        { sessionId: 10001n, questionId: 999n, sortOrder: 3 },
-      ],
+      data: { sessionId: 10001n, questionId: 999n, sortOrder: 3 },
     },
   ]);
 });

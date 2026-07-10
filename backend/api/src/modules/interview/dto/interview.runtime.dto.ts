@@ -1,4 +1,4 @@
-import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsPositive, IsString, Min } from "class-validator";
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsPositive, IsString, MaxLength, Min } from "class-validator";
 import type { QuestionType } from "../interview.runtime.types";
 
 export class RuntimeFileAssetDto {
@@ -24,6 +24,7 @@ export class StartMockInterviewDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   jobRole?: string;
 
   @IsOptional()
@@ -32,6 +33,7 @@ export class StartMockInterviewDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(6)
   @IsIn(["INTRO", "TECHNICAL", "EXPERIENCE", "SITUATION", "FOLLOW_UP", "CLOSING"], { each: true })
   questionTypes?: QuestionType[];
 

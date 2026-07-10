@@ -7,7 +7,8 @@ export type MaybePromise<T> = T | Promise<T>;
 export interface CreateMockInterviewSessionInput {
   candidateId: number;
   showQuestionText: boolean;
-  questionIds: number[];
+  questionIds?: number[];
+  contextQuestions?: CreateMockContextQuestionInput[];
   startedAt: string;
   updatedAt: string;
 }
@@ -83,8 +84,8 @@ export interface InterviewRepository {
   findQuestion(questionId: number): MaybePromise<InterviewQuestion | undefined>;
   listOwnedMockSessions(candidateId: number): MaybePromise<RuntimeInterviewSession[]>;
   findMockSession(sessionId: number): MaybePromise<RuntimeInterviewSession | undefined>;
-  createMockContextQuestions(input: CreateMockContextQuestionInput[]): MaybePromise<InterviewQuestion[]>;
   createMockSession(input: CreateMockInterviewSessionInput): MaybePromise<RuntimeInterviewSession>;
+  createMockSessionWithPass?(input: CreateMockInterviewSessionInput): Promise<RuntimeInterviewSession>;
   findRecruitingRuntimeSession(sessionId: number): MaybePromise<RuntimeInterviewSession | undefined>;
   saveRecruitingRuntimeSession(session: RuntimeInterviewSession): MaybePromise<RuntimeInterviewSession>;
   saveRuntimeSession(session: RuntimeInterviewSession): MaybePromise<RuntimeInterviewSession>;

@@ -59,6 +59,7 @@ type CandidateListSortField = (typeof CANDIDATE_LIST_SORT_FIELDS)[number];
 type CandidateListSortOrder = (typeof SORT_ORDERS)[number];
 type CandidateFolderMutableField = "name" | "githubUrl" | "blogUrl" | "portfolioUrl" | "resumeFileId" | "motivation" | "extraNote";
 type CandidateFolderMutableInput = Pick<CandidateFolder, CandidateFolderMutableField>;
+const MAX_MOCK_FOLDER_CONTEXT_CHARS = 12_000;
 
 interface ValidatedSubmitApplication {
   candidateName: string;
@@ -347,11 +348,11 @@ export class CandidateService {
     const resumeExtractedText = folder.resumeFileId
       ? await this.repository.findLatestExtractedTextByFileId(folder.resumeFileId)
       : null;
-    return {
+    return this.limitMockFolderContext({
       ...folder,
       resumeFile: resumeFile ?? null,
-      resumeExtractedText,
-    };
+      resumeExtractedText: resumeExtractedText ? resumeExtractedText.slice(0, 2_000) : null,
+    });
   }
 
   async listApplications(currentUser: CurrentCandidateUser): Promise<ApiListResponse<CandidateApplicationSummary>> {
@@ -1298,9 +1299,11 @@ export class CandidateService {
       input[field] = value;
     }
 
-    for (const field of ["motivation", "extraNote"] as const) {
-      if (!Object.hasOwn(requestBody, field)) continue;
-      input[field] = this.normalizeNullableString(requestBody[field], field);
+    if (Object.hasOwn(requestBody, "motivation")) {
+      input.motivation = this.normalizeNullableString(requestBody.motivation, "motivation", 3_000);
+    }
+    if (Object.hasOwn(requestBody, "extraNote")) {
+      input.extraNote = this.normalizeNullableString(requestBody.extraNote, "extraNote", 5_000);
     }
 
     if (Object.hasOwn(requestBody, "resumeFileId")) {
@@ -1323,6 +1326,34 @@ export class CandidateService {
       ]);
     }
     return name;
+  }
+
+  private limitMockFolderContext(context: CandidateFolderContext): CandidateFolderContext {
+    const limited = { ...context };
+    let overflow = this.mockFolderContextChars(limited) - MAX_MOCK_FOLDER_CONTEXT_CHARS;
+    for (const field of ["resumeExtractedText", "extraNote", "motivation"] as const) {
+      if (overflow <= 0) break;
+      const value = limited[field];
+      if (!value) continue;
+      const keepLength = Math.max(0, value.length - overflow);
+      limited[field] = keepLength > 0 ? value.slice(0, keepLength) : null;
+      overflow = this.mockFolderContextChars(limited) - MAX_MOCK_FOLDER_CONTEXT_CHARS;
+    }
+    return limited;
+  }
+
+  private mockFolderContextChars(context: CandidateFolderContext): number {
+    return [
+      context.name,
+      context.githubUrl,
+      context.blogUrl,
+      context.portfolioUrl,
+      context.motivation,
+      context.extraNote,
+      context.resumeExtractedText,
+      context.resumeFile?.originalName,
+      context.resumeFile?.mimeType,
+    ].reduce((total, value) => total + (value?.length ?? 0), 0);
   }
 
   private normalizeNullableString(value: unknown, field: string, maxLength?: number): string | null {
