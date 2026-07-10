@@ -231,7 +231,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
         audioFileId: input.audioFileId ? BigInt(input.audioFileId) : null,
         durationSeconds: input.durationSeconds,
         submittedAt: new Date(input.submittedAt),
-        transcript: null,
+        transcript: input.transcript ?? null,
       },
     });
     return this.toAnswer(answer);

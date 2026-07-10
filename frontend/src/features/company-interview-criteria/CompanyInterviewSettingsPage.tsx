@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState, type DragEvent, type FormEve
 
 import interviewBanner from "../company-recruiting/assets/interview-banner.png";
 
-import { StatusBadge } from "../company-recruiting/CompanyRecruitingChrome";
+import { BackButton, StatusBadge } from "../company-recruiting/CompanyRecruitingChrome";
 import {
   confirmQuestionSet,
   createCriterionTag,
@@ -1061,6 +1061,9 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     <section className="app-page glass-page notion">
         <div className="page-banner">
           <div className="page-banner-copy">
+            <div className="page-head-lead">
+              <BackButton fallbackHref={postingId ? `/company/recruitments/${postingId}` : "/company/recruitments"} />
+            </div>
             <h1>면접 설정</h1>
             <p className="page-sub">공고별 평가 기준, 면접 질문, 면접 시간을 확인합니다.</p>
             <button className="btn secondary banner-cta" type="button" disabled={loading} onClick={() => void loadSettings()}>

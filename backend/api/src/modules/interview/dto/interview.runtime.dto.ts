@@ -72,6 +72,10 @@ export class SaveInterviewAnswerDto {
   @IsInt()
   @IsPositive()
   retryAnswerId?: number;
+
+  @IsOptional()
+  @IsString()
+  transcript?: string;
 }
 
 export class AiInterviewRequestDto {

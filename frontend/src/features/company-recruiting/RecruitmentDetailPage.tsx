@@ -134,7 +134,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
       dismissOpenPrompt(recruitmentId);
       setOpenPromptOpen(false);
       await load({ clearMessage: false });
-      setMessage("공고를 OPEN 상태로 전환했습니다.");
+      window.alert("공고를 OPEN 상태로 전환했습니다.");
     } catch (error) {
       setPublishError(error instanceof Error ? error.message : "공고를 열지 못했습니다.");
     } finally {
@@ -473,26 +473,22 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
 
         {openPromptOpen && recruitment ? (
           <div className="modal-backdrop" role="presentation">
-            <div className="modal" role="dialog" aria-modal="true" aria-labelledby="open-recruitment-title">
-              <div className="modal-head">
-                <div>
-                  <h2 id="open-recruitment-title">공고를 open하시겠습니까?</h2>
-                  <p>OPEN 상태로 전환하면 공개 지원 링크로 지원자가 지원할 수 있습니다. 지금은 임시저장(DRAFT) 상태예요.</p>
-                </div>
+            <div className="modal open-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="open-recruitment-title">
+              <div className="open-confirm-icon" aria-hidden="true">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="8" x2="12" y2="13" />
+                  <line x1="12" y1="16.5" x2="12.01" y2="16.5" />
+                </svg>
               </div>
+              <h2 id="open-recruitment-title" className="open-confirm-title">공고를 여시겠습니까?</h2>
+              <p className="open-confirm-desc">공고를 열면 공개 지원 링크로 지원자가 지원할 수 있습니다.</p>
               {publishError ? <p className="notice danger">{publishError}</p> : null}
-              <div className="confirm-box">
-                <strong>{recruitment.title}</strong>
-                <span>
-                  {recruitment.jobRole} · {formatPeriod(recruitment)}
-                </span>
-              </div>
-              <div className="modal-actions split-actions">
+              <div className="open-confirm-actions">
                 <button className="btn secondary" type="button" disabled={publishing} onClick={handleOpenDismissed}>
                   아니오
                 </button>
                 <button className="btn primary" type="button" disabled={publishing} onClick={() => void handleOpenConfirmed()}>
-                  {publishing ? "여는 중…" : "네, open"}
+                  {publishing ? "여는 중…" : "네"}
                 </button>
               </div>
             </div>

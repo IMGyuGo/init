@@ -120,6 +120,23 @@
   border-radius: 14px;
 }
 
+.posting-gallery-editor .gallery-cover-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  width: auto;
+  aspect-ratio: auto;
+  padding: 4px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: rgba(25, 25, 25, 0.82);
+  border: 0;
+  border-radius: 7px;
+}
+
 .posting-gallery-editor figcaption {
   overflow: hidden;
   color: var(--ink-500);
@@ -130,11 +147,12 @@
 
 .posting-gallery-editor button {
   width: fit-content;
-  padding: 5px 9px;
+  padding: 3px 8px;
+  font-size: 12px;
   color: #d43f3e;
   background: #fff3f3;
   border: 1px solid #f3cdcd;
-  border-radius: 9px;
+  border-radius: 7px;
 }
 
 .posting-tag-picker {
@@ -1503,6 +1521,18 @@ input[type="radio"] {
   padding: 0 12px;
   font-size: 12.5px;
 }
+
+.btn.is-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: default;
+}
+
+/* 연습 이력 테이블: 헤더·값 정렬 통일(세션 left · 상태/답변/액션 center) */
+.mock-history-table th:nth-child(2), .mock-history-table td:nth-child(2),
+.mock-history-table th:nth-child(3), .mock-history-table td:nth-child(3),
+.mock-history-table th:nth-child(4), .mock-history-table td:nth-child(4),
+.mock-history-table th:last-child, .mock-history-table td:last-child { text-align: center; }
 
 .btn:disabled {
   color: var(--ink-200);
@@ -3845,9 +3875,16 @@ td input {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(20, 19, 28, 0.4);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  background: rgba(20, 19, 28, 0.55);
+  animation: modalBackdropIn 0.16s ease;
+}
+@keyframes modalBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes modalPopIn {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to { opacity: 1; transform: none; }
 }
 
 .modal {
@@ -3859,10 +3896,82 @@ td input {
   border: 1px solid var(--line-soft);
   border-radius: var(--r-card);
   box-shadow: 0 28px 70px rgba(20, 18, 45, 0.24);
+  animation: modalPopIn 0.18s cubic-bezier(0.34, 1.4, 0.5, 1);
 }
 
 .wide-modal {
   width: min(820px, 100%);
+}
+
+.posting-preview-modal {
+  animation: none;
+}
+.posting-preview-modal .posting-preview-body {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(55, 53, 47, 0.1);
+}
+/* 모달 안에서는 지원자 상세 뷰의 페이지 크롬(배경·그림자·외곽 여백)을 제거해 콘텐츠만 보여준다. */
+.posting-preview-modal .candidate-job-detail-page {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  min-height: 0;
+}
+/* 모달 폭에 맞춰 지원자 상세 요소를 전반적으로 축소한다.
+   원본 .notion .jobdetail-* 규칙이 소스 뒤에 있어, .candidate-job-detail-page 를 끼워 specificity 를 높인다. */
+.posting-preview-modal .candidate-job-detail-page .jobdetail-layout { grid-template-columns: minmax(0, 1fr) 220px; gap: 24px; }
+.posting-preview-modal .candidate-job-detail-page .jobdetail-main { gap: 18px; }
+.posting-preview-modal .candidate-job-detail-page .jobdetail-head { padding-bottom: 14px; }
+.posting-preview-modal .candidate-job-detail-page .jobdetail-title { font-size: 22px; }
+.posting-preview-modal .candidate-job-detail-page .jobdetail-gallery img { height: 200px; }
+.posting-preview-modal .candidate-job-detail-page .jobdetail-aside { position: static; margin-top: 0; }
+.posting-preview-modal .candidate-job-detail-page .jobdetail-apply-cta {
+  height: 44px !important;
+  min-height: 44px !important;
+  font-size: 14px !important;
+  border-radius: 10px !important;
+}
+
+.open-confirm-modal {
+  width: min(400px, 100%);
+  padding: 32px 28px 24px;
+  text-align: center;
+}
+.open-confirm-icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 18px;
+  color: rgba(55, 53, 47, 0.5);
+  background: rgba(55, 53, 47, 0.06);
+  border-radius: 50%;
+}
+.open-confirm-title {
+  margin: 0 0 8px;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #191919;
+}
+.open-confirm-desc {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: rgba(55, 53, 47, 0.6);
+}
+.open-confirm-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 24px;
+}
+.open-confirm-actions .btn {
+  flex: 1;
+  height: 48px;
+  border-radius: 12px;
+  font-size: 15px;
 }
 
 .modal-head {
@@ -5493,7 +5602,8 @@ td input {
 .notion .wizard-ai-phase .wizard-choice-head { text-align: left; }
 .notion .wizard-ai-phase .wizard-choice-head .page-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .notion .wizard-choice-head h1 { margin: 0; font-size: 30px; font-weight: 800; letter-spacing: -0.02em; color: #191919; }
-.notion .wizard-choice-head .page-sub { margin: 0; font-size: 15px; line-height: 1.6; color: rgba(55, 53, 47, 0.65); word-break: keep-all; }
+.notion .wizard-choice-head .page-sub { max-width: 460px; margin: 0 auto; font-size: 15px; line-height: 1.6; color: rgba(55, 53, 47, 0.65); word-break: keep-all; }
+.notion .wizard-ai-phase .wizard-choice-head .page-sub { max-width: none; margin: 0; }
 .notion .wizard-choice-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .notion .wizard-choice-card {
   position: relative;
@@ -5573,6 +5683,7 @@ td input {
 .notion .wizard-slide .panel-head { margin-bottom: 16px; }
 
 .notion .wizard-nav { display: flex; justify-content: space-between; gap: 12px; }
+.notion .wizard-nav-final { display: flex; gap: 10px; }
 .notion .wizard-nav .btn { min-width: 132px; }
 .notion .wizard-nav-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 
@@ -5703,6 +5814,11 @@ td input {
   object-fit: contain;
   flex: none;
   margin: -24px -4px -24px 0;
+}
+.notion.posting-wizard .page-banner-art {
+  width: 200px;
+  height: 200px;
+  margin: 0;
 }
 .notion .page-banner-art.applicants-art {
   width: 420px;
@@ -6943,8 +7059,7 @@ p {
   padding: 24px;
   display: grid;
   place-items: center;
-  background: rgba(16, 15, 31, 0.45);
-  backdrop-filter: blur(2px);
+  background: rgba(30, 30, 34, 0.6);
 }
 
 .terms-modal {
@@ -8358,14 +8473,24 @@ p {
 .notion .jobdetail-company-name { font-size: 15px; font-weight: 700; color: #191919; }
 .notion .jobdetail-company-meta { font-size: 14px; color: rgba(55, 53, 47, 0.6); }
 .notion .jobdetail-title { margin: 2px 0 0; font-size: 30px; font-weight: 800; line-height: 1.3; letter-spacing: -0.02em; color: #191919; }
-.notion .jobdetail-tags { display: flex; flex-wrap: wrap; gap: 8px; }
-.notion .jobdetail-tags span { font-size: 13px; font-weight: 500; color: rgba(55, 53, 47, 0.6); }
+.notion .jobdetail-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.notion .jobdetail-tags span {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(55, 53, 47, 0.75);
+  padding: 4px 10px;
+  background: #f4f4f2;
+  border-radius: 6px;
+}
 
 .notion .jobdetail-jd .jd-content { font-size: 15px; line-height: 1.75; color: #37352f; }
 .notion .jobdetail-jd .jd-content img { max-width: 100%; border-radius: 12px; }
+/* JD 섹션 위계: 첫 섹션(포지션 상세) = 상위 제목, 이후(주요 업무·자격 요건 등) = 하위 소제목 */
+.notion .jobdetail-jd .jd-content h2 { font-size: 16px; font-weight: 700; margin: 26px 0 8px; line-height: 1.4; color: #191919; }
+.notion .jobdetail-jd .jd-content h2:first-of-type { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; margin-top: 2px; }
 
 .notion .jobdetail-companyinfo { display: grid; gap: 10px; padding-top: 24px; border-top: 1px solid rgba(55, 53, 47, 0.1); }
-.notion .jobdetail-companyinfo h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: #191919; }
+.notion .jobdetail-companyinfo h2 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; color: #191919; }
 .notion .jobdetail-companyinfo p { margin: 0; font-size: 15px; line-height: 1.7; color: rgba(55, 53, 47, 0.75); white-space: pre-wrap; }
 
 /* 공고 요약(직행식): 라벨-값 2열 그리드 */
@@ -9265,6 +9390,10 @@ p {
   .notion .candidate-jobs-rec-tag { flex: none; }
   .notion .candidate-jobs-active { flex-wrap: nowrap; }
 }
+
+/* 공고 상세: 하단 태그 섹션 */
+.notion .jobdetail-tagsection { margin-top: 4px; }
+.notion .jobdetail-tagsection h2 { margin: 0 0 10px; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; color: #191919; }
 
 /* 공고 상세: 우측 상단 아이콘 액션 + 드롭다운 */
 .notion .detail-actions { display: inline-flex; align-items: center; gap: 8px; }
