@@ -141,6 +141,7 @@ const startMockRequest: StartMockInterviewRequest = toStartMockInterviewRequest(
   difficulty: "NORMAL",
   questionTypes: ["INTRO", "TECHNICAL"],
   showQuestionText: false,
+  folderId: null,
 });
 
 const answerRequest: SaveInterviewAnswerRequest = toSaveInterviewAnswerRequest({

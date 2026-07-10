@@ -64,6 +64,7 @@ export interface StartMockInterviewState {
   difficulty: StartMockInterviewRequest["difficulty"];
   questionTypes: StartMockInterviewRequest["questionTypes"];
   showQuestionText: boolean;
+  folderId: number | null;
 }
 
 export interface PaymentDevToolsVisibilityEnv {
@@ -478,6 +479,7 @@ export const defaultStartMockInterviewState: StartMockInterviewState = {
   difficulty: "NORMAL",
   questionTypes: ["INTRO", "TECHNICAL", "EXPERIENCE", "CLOSING"],
   showQuestionText: false,
+  folderId: null,
 };
 
 export const defaultInterviewAnswerFormState: InterviewAnswerFormState = {
@@ -674,6 +676,7 @@ export function toStartMockInterviewRequest(state: StartMockInterviewState): Sta
     difficulty: state.difficulty,
     questionTypes: state.questionTypes?.length ? state.questionTypes : undefined,
     showQuestionText: true,
+    folderId: state.folderId ?? undefined,
   };
 }
 

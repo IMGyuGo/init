@@ -31,6 +31,8 @@ import {
   type CandidateApplicationStatusView,
   type CandidateApplicationSummary,
   type CandidateFileAsset,
+  type CandidateFolder,
+  type CandidateFolderInput,
   type CandidateFollowUpQuestionView,
   type CandidateInterviewRuntimeView,
   type CandidateJobQuery,
@@ -1292,6 +1294,9 @@ export function CandidateMockInterviewStartPage() {
   const [busy, setBusy] = useState(false);
   const historyLoad = useCallback(() => getCandidateApi().listMockInterviewHistory(), []);
   const historyResource = useCandidateResource(historyLoad, []);
+  const foldersLoad = useCallback(() => getCandidateApi().listFolders(), []);
+  const foldersResource = useCandidateResource(foldersLoad, []);
+  const folders = foldersResource.data?.data.items ?? [];
 
   // 직무 캐러셀: 스크롤 위치에 따라 좌/우 넘김 버튼과 페이드를 토글한다.
   const roleRowRef = useRef<HTMLDivElement>(null);
@@ -1434,6 +1439,31 @@ export function CandidateMockInterviewStartPage() {
 
               <div className="mocksettings-body">
                 {message ? <p className="notice danger">{message}</p> : null}
+
+                {folders.length > 0 ? (
+                  <div className="mocksettings-field">
+                    <span className="mocksettings-label">지원서 세트 <em className="mocksettings-optional">(선택)</em></span>
+                    <div className="mocksettings-folders">
+                      <button
+                        type="button"
+                        className={`mocksettings-pill${state.folderId === null ? " is-active" : ""}`}
+                        onClick={() => setState((current) => ({ ...current, folderId: null }))}
+                      >
+                        선택 안 함
+                      </button>
+                      {folders.map((folder) => (
+                        <button
+                          key={folder.id}
+                          type="button"
+                          className={`mocksettings-pill${state.folderId === folder.id ? " is-active" : ""}`}
+                          onClick={() => setState((current) => ({ ...current, folderId: folder.id }))}
+                        >
+                          {folder.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="mocksettings-field">
                   <span className="mocksettings-label">직무</span>
@@ -1979,6 +2009,8 @@ export function CandidateMyPage() {
           </form>
           </div>
         </section>
+
+        <CandidateFoldersSection />
       </section>
     </CandidatePageShell>
   );
@@ -5967,6 +5999,221 @@ function formatMockHistoryActionLabel(status: CandidateMockInterviewHistoryItem[
   if (status === "GENERATING") return "분석 중";
   if (status === "FAILED") return "다시 요청";
   return "AI 분석 시작";
+}
+
+// 기업별 지원서 세트(폴더) 관리 — 마이페이지 (#228)
+const EMPTY_FOLDER_INPUT: CandidateFolderInput = {
+  name: "",
+  githubUrl: "",
+  blogUrl: "",
+  portfolioUrl: "",
+  resumeFileId: null,
+  motivation: "",
+  extraNote: "",
+};
+
+function CandidateFoldersSection() {
+  const load = useCallback(() => getCandidateApi().listFolders(), []);
+  const { data, loading, error, refresh } = useCandidateResource(load, []);
+  const folders = data?.data.items ?? [];
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<CandidateFolder | null>(null);
+  const [message, setMessage] = useState("");
+
+  function openCreate() {
+    setEditing(null);
+    setFormOpen(true);
+  }
+  function openEdit(folder: CandidateFolder) {
+    setEditing(folder);
+    setFormOpen(true);
+  }
+  async function handleDelete(folder: CandidateFolder) {
+    if (!window.confirm(`'${folder.name}' 지원서 세트를 삭제할까요?`)) return;
+    try {
+      await getCandidateApi().deleteFolder(folder.id);
+      setMessage("지원서 세트를 삭제했습니다.");
+      refresh();
+    } catch (deleteError) {
+      setMessage(toErrorMessage(deleteError));
+    }
+  }
+
+  return (
+    <section className="mypage-block">
+      <div className="mypage-block__title">
+        <h2>지원서 세트</h2>
+        <p>기업별로 이력서·링크·지원 동기를 세트로 저장해 두고, 모의면접에서 골라 연습할 수 있어요.</p>
+      </div>
+      <StatusNotice loading={loading} error={error} message={message} />
+      <div className="folder-grid">
+        {folders.map((folder) => (
+          <article className="folder-card" key={folder.id}>
+            <header className="folder-card__head">
+              <h3>{folder.name}</h3>
+              <div className="folder-card__actions">
+                <button type="button" className="btn secondary compact" onClick={() => openEdit(folder)}>편집</button>
+                <button type="button" className="btn secondary compact folder-card__delete" onClick={() => void handleDelete(folder)}>삭제</button>
+              </div>
+            </header>
+            <dl className="folder-card__meta">
+              {folder.resumeFileName ? (
+                <div><dt>이력서</dt><dd>{folder.resumeFileName}</dd></div>
+              ) : null}
+              {folder.githubUrl ? (<div><dt>GitHub</dt><dd className="folder-card__url">{folder.githubUrl}</dd></div>) : null}
+              {folder.blogUrl ? (<div><dt>블로그</dt><dd className="folder-card__url">{folder.blogUrl}</dd></div>) : null}
+              {folder.portfolioUrl ? (<div><dt>포트폴리오</dt><dd className="folder-card__url">{folder.portfolioUrl}</dd></div>) : null}
+              {folder.motivation ? (<div><dt>지원 동기</dt><dd className="folder-card__note">{folder.motivation}</dd></div>) : null}
+            </dl>
+          </article>
+        ))}
+        <button type="button" className="folder-add" onClick={openCreate}>
+          <span aria-hidden="true">+</span> 새 지원서 세트
+        </button>
+      </div>
+      {formOpen ? (
+        <FolderFormModal
+          folder={editing}
+          onClose={() => setFormOpen(false)}
+          onSaved={(savedMessage) => {
+            setFormOpen(false);
+            setMessage(savedMessage);
+            refresh();
+          }}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function FolderFormModal({
+  folder,
+  onClose,
+  onSaved,
+}: {
+  folder: CandidateFolder | null;
+  onClose: () => void;
+  onSaved: (message: string) => void;
+}) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [form, setForm] = useState<CandidateFolderInput>(() =>
+    folder
+      ? {
+          name: folder.name,
+          githubUrl: folder.githubUrl ?? "",
+          blogUrl: folder.blogUrl ?? "",
+          portfolioUrl: folder.portfolioUrl ?? "",
+          resumeFileId: folder.resumeFileId,
+          motivation: folder.motivation ?? "",
+          extraNote: folder.extraNote ?? "",
+        }
+      : { ...EMPTY_FOLDER_INPUT },
+  );
+  const [resumeFileName, setResumeFileName] = useState(folder?.resumeFileName ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  function update<K extends keyof CandidateFolderInput>(key: K, value: CandidateFolderInput[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function handleFile(file: File) {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await getCandidateApi().uploadResume(file);
+      update("resumeFileId", result.data.fileId);
+      setResumeFileName(file.name);
+    } catch (uploadError) {
+      setError(toErrorMessage(uploadError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!form.name.trim()) {
+      setError("지원서 세트 이름을 입력하세요.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      if (folder) {
+        await getCandidateApi().updateFolder(folder.id, form);
+        onSaved("지원서 세트를 수정했습니다.");
+      } else {
+        await getCandidateApi().createFolder(form);
+        onSaved("지원서 세트를 만들었습니다.");
+      }
+    } catch (submitError) {
+      setError(toErrorMessage(submitError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <form className="modal folder-form-modal" role="dialog" aria-modal="true" aria-labelledby="folder-form-title" onSubmit={handleSubmit}>
+        <div className="modal-head">
+          <div>
+            <p className="page-eyebrow">지원서 세트</p>
+            <h2 id="folder-form-title">{folder ? "세트 편집" : "새 지원서 세트"}</h2>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose} aria-label="닫기">×</button>
+        </div>
+        {error ? <p className="notice danger">{error}</p> : null}
+        <label className="folder-field">
+          <span>세트 이름</span>
+          <input type="text" value={form.name} placeholder="예: 카카오 백엔드" onChange={(e) => update("name", e.target.value)} maxLength={100} />
+        </label>
+        <label className="folder-field">
+          <span>이력서</span>
+          <button type="button" className="candidate-upload-drop" onClick={() => fileInputRef.current?.click()} disabled={busy}>
+            {resumeFileName || "PDF, DOCX 파일을 선택하세요"}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="candidate-hidden-file"
+            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            onChange={(e) => {
+              const file = e.currentTarget.files?.[0];
+              if (file) void handleFile(file);
+            }}
+          />
+        </label>
+        <div className="folder-field-row">
+          <label className="folder-field">
+            <span>GitHub</span>
+            <input type="url" value={form.githubUrl ?? ""} placeholder="https://github.com/…" onChange={(e) => update("githubUrl", e.target.value)} />
+          </label>
+          <label className="folder-field">
+            <span>블로그</span>
+            <input type="url" value={form.blogUrl ?? ""} placeholder="https://…" onChange={(e) => update("blogUrl", e.target.value)} />
+          </label>
+        </div>
+        <label className="folder-field">
+          <span>포트폴리오</span>
+          <input type="url" value={form.portfolioUrl ?? ""} placeholder="https://…" onChange={(e) => update("portfolioUrl", e.target.value)} />
+        </label>
+        <label className="folder-field">
+          <span>지원 동기</span>
+          <textarea rows={3} value={form.motivation ?? ""} placeholder="이 기업/직무에 지원하는 이유" onChange={(e) => update("motivation", e.target.value)} />
+        </label>
+        <label className="folder-field">
+          <span>추가 설명</span>
+          <textarea rows={3} value={form.extraNote ?? ""} placeholder="강조하고 싶은 경험·자기소개 등" onChange={(e) => update("extraNote", e.target.value)} />
+        </label>
+        <div className="modal-actions">
+          <button type="button" className="btn secondary" onClick={onClose} disabled={busy}>취소</button>
+          <button type="submit" className="btn primary" disabled={busy}>{busy ? "저장 중…" : "저장"}</button>
+        </div>
+      </form>
+    </div>
+  );
 }
 
 type MockReportStatusView = {

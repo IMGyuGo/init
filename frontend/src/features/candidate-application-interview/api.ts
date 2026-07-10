@@ -322,6 +322,8 @@ export interface StartMockInterviewRequest {
   difficulty?: "EASY" | "NORMAL" | "HARD";
   questionTypes?: QuestionType[];
   showQuestionText?: boolean;
+  // 선택한 지원서 세트(폴더). 있으면 폴더 자료를 질문 생성 컨텍스트로 사용 (#228).
+  folderId?: number;
 }
 
 export interface RuntimeQuestionView {
@@ -709,6 +711,31 @@ export interface SubmitApplicationResponse {
   portfolioLink?: CandidatePortfolioLink;
 }
 
+// 기업별 지원서 세트(폴더). 모의면접 전용, 기존 CandidateProfile 과 별도 (#228).
+export interface CandidateFolder {
+  id: number;
+  name: string;
+  githubUrl: string | null;
+  blogUrl: string | null;
+  portfolioUrl: string | null;
+  resumeFileId: number | null;
+  resumeFileName: string | null;
+  motivation: string | null;
+  extraNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CandidateFolderInput {
+  name: string;
+  githubUrl?: string | null;
+  blogUrl?: string | null;
+  portfolioUrl?: string | null;
+  resumeFileId?: number | null;
+  motivation?: string | null;
+  extraNote?: string | null;
+}
+
 export const candidateApiPaths = {
   jobs: "/api/v1/candidate/jobs",
   jobDetail: (jobId: number) => `/api/v1/candidate/jobs/${jobId}`,
@@ -750,6 +777,8 @@ export const candidateApiPaths = {
   aiJobStatus: (processLogId: number) => `/api/v1/ai/jobs/${processLogId}/status`,
   resume: "/api/v1/candidate/resume",
   portfolioLinks: "/api/v1/candidate/portfolio-links",
+  folders: "/api/v1/candidate/folders",
+  folder: (folderId: number) => `/api/v1/candidate/folders/${folderId}`,
 } as const;
 
 export const publicInterviewApiPaths = {
@@ -856,6 +885,11 @@ export interface CandidateApiClient {
   createPortfolioLink(
     body: CreatePortfolioLinkRequest,
   ): Promise<ApiResponse<CandidatePortfolioLink>>;
+  listFolders(): Promise<ApiResponse<{ items: CandidateFolder[] }>>;
+  createFolder(body: CandidateFolderInput): Promise<ApiResponse<CandidateFolder>>;
+  getFolder(folderId: number): Promise<ApiResponse<CandidateFolder>>;
+  updateFolder(folderId: number, body: Partial<CandidateFolderInput>): Promise<ApiResponse<CandidateFolder>>;
+  deleteFolder(folderId: number): Promise<void>;
 }
 
 export type InterviewRuntimeApiClient = Pick<
@@ -907,6 +941,10 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
 
     if (!response.ok) {
       throw new CandidateApiError(response.status, await readErrorBody(response));
+    }
+
+    if (response.status === 204) {
+      return undefined as T;
     }
 
     return (await response.json()) as T;
@@ -1078,6 +1116,22 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
         method: "POST",
         body: JSON.stringify(body),
       }),
+    listFolders: () => request<ApiResponse<{ items: CandidateFolder[] }>>(candidateApiPaths.folders),
+    createFolder: (body) =>
+      request<ApiResponse<CandidateFolder>>(candidateApiPaths.folders, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    getFolder: (folderId) => request<ApiResponse<CandidateFolder>>(candidateApiPaths.folder(folderId)),
+    updateFolder: (folderId, body) =>
+      request<ApiResponse<CandidateFolder>>(candidateApiPaths.folder(folderId), {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    deleteFolder: (folderId) =>
+      request<void>(candidateApiPaths.folder(folderId), {
+        method: "DELETE",
+      }),
   };
 }
 
@@ -1100,6 +1154,10 @@ export function createPublicInterviewApiClient(
 
     if (!response.ok) {
       throw new CandidateApiError(response.status, await readErrorBody(response));
+    }
+
+    if (response.status === 204) {
+      return undefined as T;
     }
 
     return (await response.json()) as T;
