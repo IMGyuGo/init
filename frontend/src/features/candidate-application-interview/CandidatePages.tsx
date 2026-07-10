@@ -77,8 +77,6 @@ import {
   type CandidateApplicationFormState,
   type CandidateDeviceCheckState,
   type CandidateInterviewConsentState,
-  type CandidatePortfolioLinkFormState,
-  type CandidateResumeUploadState,
   type InterviewAnswerFormState,
   type InterviewRuntimePrimaryScreen,
   type InterviewerSessionEvent,
@@ -94,7 +92,6 @@ import {
   defaultStartMockInterviewState,
   createCameralessInterviewTestDeviceCheckState,
   createInterviewerSessionEvent,
-  createResumeUploadStateFromFile,
   formatAiInterviewerQuestionPrompt,
   getAiInterviewerProfile,
   getDefaultCameraPipPosition,
@@ -1828,28 +1825,6 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
 }
 
 export function CandidateMyPage() {
-  const candidateId = getCurrentCandidateId();
-  const [resumeState, setResumeState] = useState<CandidateResumeUploadState>({
-    candidateId,
-    storageKey: "",
-    originalName: "",
-    mimeType: "",
-    sizeBytes: 0,
-  });
-  const [portfolioFileState, setPortfolioFileState] = useState<CandidateResumeUploadState>({
-    candidateId,
-    storageKey: "",
-    originalName: "",
-    mimeType: "",
-    sizeBytes: 0,
-  });
-  const [portfolioState, setPortfolioState] = useState<CandidatePortfolioLinkFormState>(defaultPortfolioLinkFormState);
-  const [latestResumeFile, setLatestResumeFile] = useState<CandidateFileAsset>();
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-  const resumeInputRef = useRef<HTMLInputElement | null>(null);
-  const portfolioInputRef = useRef<HTMLInputElement | null>(null);
-
   const loadApplications = useCallback(() => getCandidateApi().listApplications(), []);
   const { data: applicationsData } = useCandidateResource(loadApplications, []);
   const applications = applicationsData?.data.items ?? [];
@@ -1863,46 +1838,6 @@ export function CandidateMyPage() {
     completed: applications.filter((application) => application.interviewStatus === "COMPLETED").length,
     reports: applications.filter((application) => application.reportStatus === "COMPLETED").length,
   };
-
-  async function handleResumeSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setMessage("");
-    try {
-      if (!resumeState.file) {
-        throw new Error("이력서 파일을 다시 선택해주세요.");
-      }
-      const result = await getCandidateApi().uploadResume(resumeState.file);
-      setLatestResumeFile(result.data);
-      setMessage("이력서가 업로드되었습니다.");
-    } catch (submitError) {
-      setMessage(toErrorMessage(submitError));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handlePortfolioSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setMessage("");
-    try {
-      const api = getCandidateApi();
-      let fileId = portfolioState.fileId;
-      if (portfolioFileState.file) {
-        const fileResult = await api.uploadResume(portfolioFileState.file);
-        fileId = fileResult.data.fileId;
-      }
-      await api.createPortfolioLink(toCreatePortfolioLinkRequest({ ...portfolioState, fileId }));
-      setPortfolioState(defaultPortfolioLinkFormState);
-      setPortfolioFileState({ candidateId, storageKey: "", originalName: "", mimeType: "", sizeBytes: 0 });
-      setMessage("포트폴리오/깃허브가 등록되었습니다.");
-    } catch (submitError) {
-      setMessage(toErrorMessage(submitError));
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
     <CandidatePageShell active="accountBilling">
@@ -1919,103 +1854,6 @@ export function CandidateMyPage() {
           <MypageStat name="reports" label="리포트 확인" value={summary.reports} />
         </section>
 
-        <section className="mypage-block">
-          <div className="mypage-block__title">
-            <h2>서류 관리</h2>
-            <p>이력서와 포트폴리오를 등록해 지원 시 바로 사용하세요.</p>
-          </div>
-          <StatusNotice loading={busy} message={message} />
-          <div className="candidate-mypage__cards">
-          <form className="candidate-mypage-card candidate-resume-card" onSubmit={handleResumeSubmit}>
-            <h2>이력서 업로드</h2>
-            <button
-              className="candidate-upload-drop"
-              type="button"
-              onClick={() => resumeInputRef.current?.click()}
-            >
-              <span className="candidate-upload-icon" aria-hidden="true">
-                <svg fill="none" height="22" viewBox="0 0 24 24" width="22">
-                  <path d="M12 16V4m0 0-5 5m5-5 5 5M5 20h14" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" />
-                </svg>
-              </span>
-              <span>{resumeState.originalName || "PDF, DOCX 파일을 선택하세요"}</span>
-            </button>
-            <input
-              ref={resumeInputRef}
-              accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              className="candidate-hidden-file"
-              type="file"
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0];
-                if (file) setResumeState(createResumeUploadStateFromFile(candidateId, file));
-              }}
-            />
-            <button className="btn primary candidate-mypage-action" type="submit" disabled={busy}>
-              업로드
-            </button>
-            <p className="candidate-mypage-note">
-              {latestResumeFile
-                ? `${latestResumeFile.originalName} 업로드 완료`
-                : "업로드 후 서류 텍스트 추출 및 분석 대기 상태로 전환됩니다."}
-            </p>
-          </form>
-
-          <form className="candidate-mypage-card candidate-portfolio-card" onSubmit={handlePortfolioSubmit}>
-            <h2>포트폴리오 / 깃허브 등록</h2>
-            <label>
-              주소
-              <input
-                placeholder="https://github.com/..."
-                type="url"
-                value={portfolioState.url}
-                onChange={(event) =>
-                  setPortfolioState({
-                    ...portfolioState,
-                    url: event.currentTarget.value,
-                    linkType: inferPortfolioLinkType(event.currentTarget.value),
-                  })
-                }
-              />
-            </label>
-            <label>
-              설명
-              <input
-                placeholder="프로젝트 설명"
-                value={portfolioState.description}
-                onChange={(event) => setPortfolioState({ ...portfolioState, description: event.currentTarget.value })}
-              />
-            </label>
-            <label>
-              파일 첨부
-              <button
-                className="candidate-upload-drop"
-                type="button"
-                onClick={() => portfolioInputRef.current?.click()}
-              >
-                <span className="candidate-upload-icon" aria-hidden="true">
-                  <svg fill="none" height="22" viewBox="0 0 24 24" width="22">
-                    <path d="M12 16V4m0 0-5 5m5-5 5 5M5 20h14" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" />
-                  </svg>
-                </span>
-                <span>{portfolioFileState.originalName || "PDF, DOCX 파일을 선택하세요"}</span>
-              </button>
-              <input
-                ref={portfolioInputRef}
-                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                className="candidate-hidden-file"
-                type="file"
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
-                  if (file) setPortfolioFileState(createResumeUploadStateFromFile(candidateId, file));
-                }}
-              />
-            </label>
-            <button className="btn primary candidate-mypage-action" type="submit" disabled={busy}>
-              등록
-            </button>
-          </form>
-          </div>
-        </section>
 
         <CandidateFoldersSection />
       </section>
@@ -6244,7 +6082,8 @@ const EMPTY_FOLDER_INPUT: CandidateFolderInput = {
 function CandidateFoldersSection() {
   const load = useCallback(() => getCandidateApi().listFolders(), []);
   const { data, loading, error, refresh } = useCandidateResource(load, []);
-  const folders = data?.data.items ?? [];
+  // 새로 만든 세트가 목록 맨 뒤(추가 버튼 앞)에 오도록 id 오름차순 정렬.
+  const folders = [...(data?.data.items ?? [])].sort((a, b) => a.id - b.id);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<CandidateFolder | null>(null);
   const [message, setMessage] = useState("");
@@ -6276,28 +6115,51 @@ function CandidateFoldersSection() {
       </div>
       <StatusNotice loading={loading} error={error} message={message} />
       <div className="folder-grid">
-        {folders.map((folder) => (
-          <article className="folder-card" key={folder.id}>
-            <header className="folder-card__head">
-              <h3>{folder.name}</h3>
-              <div className="folder-card__actions">
-                <button type="button" className="btn secondary compact" onClick={() => openEdit(folder)}>편집</button>
-                <button type="button" className="btn secondary compact folder-card__delete" onClick={() => void handleDelete(folder)}>삭제</button>
+        {folders.map((folder) => {
+          const links = [
+            folder.githubUrl ? { label: "GitHub", url: folder.githubUrl } : null,
+            folder.blogUrl ? { label: "블로그", url: folder.blogUrl } : null,
+            folder.portfolioUrl ? { label: "포트폴리오", url: folder.portfolioUrl } : null,
+          ].filter((link): link is { label: string; url: string } => link !== null);
+          return (
+            <article className="folder-card" key={folder.id}>
+              <div className="folder-card__top">
+                <span className="folder-card__icon" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 5h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
+                  </svg>
+                </span>
+                <h3 className="folder-card__name">{folder.name}</h3>
+                <div className="folder-card__actions">
+                  <button type="button" className="folder-icon-btn" aria-label="편집" onClick={() => openEdit(folder)}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+                  </button>
+                  <button type="button" className="folder-icon-btn folder-icon-btn--danger" aria-label="삭제" onClick={() => void handleDelete(folder)}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6" /></svg>
+                  </button>
+                </div>
               </div>
-            </header>
-            <dl className="folder-card__meta">
-              {folder.resumeFileName ? (
-                <div><dt>이력서</dt><dd>{folder.resumeFileName}</dd></div>
+
+              <div className={`folder-card__resume${folder.resumeFileName ? "" : " is-empty"}`}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
+                <span>{folder.resumeFileName ?? "이력서 미첨부"}</span>
+              </div>
+
+              {links.length ? (
+                <div className="folder-card__links">
+                  {links.map((link) => (
+                    <a key={link.label} className="folder-link" href={link.url} target="_blank" rel="noreferrer">{link.label}</a>
+                  ))}
+                </div>
               ) : null}
-              {folder.githubUrl ? (<div><dt>GitHub</dt><dd className="folder-card__url">{folder.githubUrl}</dd></div>) : null}
-              {folder.blogUrl ? (<div><dt>블로그</dt><dd className="folder-card__url">{folder.blogUrl}</dd></div>) : null}
-              {folder.portfolioUrl ? (<div><dt>포트폴리오</dt><dd className="folder-card__url">{folder.portfolioUrl}</dd></div>) : null}
-              {folder.motivation ? (<div><dt>지원 동기</dt><dd className="folder-card__note">{folder.motivation}</dd></div>) : null}
-            </dl>
-          </article>
-        ))}
+
+              {folder.motivation ? <p className="folder-card__motivation">{folder.motivation}</p> : null}
+            </article>
+          );
+        })}
         <button type="button" className="folder-add" onClick={openCreate}>
-          <span aria-hidden="true">+</span> 새 지원서 세트
+          <span className="folder-add__plus" aria-hidden="true">+</span>
+          <span>새 지원서 세트</span>
         </button>
       </div>
       {formOpen ? (
