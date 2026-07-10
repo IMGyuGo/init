@@ -52,7 +52,7 @@ ERDCloud SQL을 사람이 읽는 테이블/관계 문서로 변환한다.
 | postings | posting_id | 10 | 채용 공고/JD | company_id -> companies.company_id |
 | criterion_tags | tag_id | 7 | 평가 태그 후보 |  |
 | evaluation_criteria | criterion_id | 6 | 공고별 평가 기준과 가중치 | posting_id -> postings.posting_id / tag_id -> criterion_tags.tag_id |
-| question_bank | question_id | 7 | 면접 질문 뱅크 | company_id -> companies.company_id / posting_id -> postings.posting_id / criterion_id -> evaluation_criteria.criterion_id |
+| question_bank | question_id | 9 | 면접 질문 뱅크 | company_id -> companies.company_id / posting_id -> postings.posting_id / criterion_id -> evaluation_criteria.criterion_id |
 | interview_question_sets | question_set_id | 7 | 공고별 면접 질문 세트 | posting_id -> postings.posting_id / created_by_process_log_id -> ai_process_logs.process_log_id |
 | interview_question_set_items | question_set_item_id | 5 | 면접 질문 세트 항목 | question_set_id -> interview_question_sets.question_set_id / question_id -> question_bank.question_id / criterion_id -> evaluation_criteria.criterion_id |
 | interview_time_policies | posting_id | 6 | 공고별 면접 시간 정책 | posting_id -> postings.posting_id |

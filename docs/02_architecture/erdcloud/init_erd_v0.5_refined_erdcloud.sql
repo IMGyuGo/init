@@ -234,6 +234,12 @@ CREATE TABLE question_bank (
     -- 실제 질문 문장
     content TEXT NOT NULL,
 
+    -- 최초 작성 출처: MANUAL, AI_GENERATED
+    origin VARCHAR(30) NOT NULL DEFAULT 'MANUAL',
+
+    -- AI 생성 질문이 사용자에 의해 수정되었는지 여부
+    is_ai_edited BOOLEAN NOT NULL DEFAULT FALSE,
+
     -- 현재 사용 가능한 질문인지 여부
     is_active BOOLEAN NOT NULL DEFAULT TRUE
 );

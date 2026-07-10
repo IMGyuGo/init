@@ -1,6 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { CurrentUser } from '@init/common';
 import {
+  CreateCriterionTagDto,
+  CreateCriterionTagResponseDto,
+  CriterionTagResponseItemDto,
+} from './dto/criterion-tag.dto';
+import {
   EvaluationCriterionResponseDto,
   UpdateEvaluationCriterionDto,
 } from './dto/evaluation-criterion.dto';
@@ -29,6 +34,7 @@ import {
   validationFailed,
 } from './company-interview.errors';
 import {
+  CriterionTagRecord,
   EvaluationCriterionRecord,
   QuestionRecord,
   QuestionSetRecord,
@@ -74,9 +80,52 @@ export class CompanyInterviewService {
         criterionId: question.criterionId,
         questionType: question.questionType,
         content: question.content,
+        origin: question.origin,
+        isAiEdited: question.isAiEdited,
         isActive: question.isActive,
       })),
       timePolicy: await this.toTimePolicyDto(posting.postingId),
+    };
+  }
+
+  async createCriterionTag(
+    currentUser: CurrentUser,
+    dto: CreateCriterionTagDto,
+  ): Promise<CreateCriterionTagResponseDto> {
+    const posting = await this.getOwnedPosting(currentUser, dto.postingId);
+    const tagName = dto.tagName.trim();
+    const category = dto.category.trim();
+    const description = dto.description?.trim() || null;
+
+    if (!tagName) {
+      validationFailed('평가 태그명을 입력해주세요.', [
+        { field: 'tagName', reason: 'REQUIRED' },
+      ]);
+    }
+
+    if (!category) {
+      validationFailed('평가 태그 분류를 입력해주세요.', [
+        { field: 'category', reason: 'REQUIRED' },
+      ]);
+    }
+
+    const existingTag = (await this.repository.listTags()).find(
+      (tag) =>
+        normalizeCriterionTagText(tag.name) === normalizeCriterionTagText(tagName) &&
+        normalizeCriterionTagText(tag.category) === normalizeCriterionTagText(category),
+    );
+    const tag =
+      existingTag ??
+      (await this.repository.createTag({
+        jobRole: posting.jobRole || 'Common',
+        name: tagName,
+        description,
+        category,
+      }));
+
+    return {
+      postingId: posting.postingId,
+      tag: this.mapCriterionTag(tag),
     };
   }
 
@@ -161,6 +210,7 @@ export class CompanyInterviewService {
       criterionId: criterion.criterionId,
       questionType: dto.questionType,
       content: dto.content,
+      origin: dto.origin ?? 'MANUAL',
     });
 
     return {
@@ -197,6 +247,8 @@ export class CompanyInterviewService {
       criterionId: criterion.criterionId,
       questionType: dto.questionType,
       content: dto.content,
+      isAiEdited:
+        question.origin === 'AI_GENERATED' ? true : question.isAiEdited,
     });
 
     return {
@@ -421,7 +473,20 @@ export class CompanyInterviewService {
       criterionId: question.criterionId,
       questionType: question.questionType,
       content: question.content,
+      origin: question.origin,
+      isAiEdited: question.isAiEdited,
       isActive: question.isActive,
+    };
+  }
+
+  private mapCriterionTag(tag: CriterionTagRecord): CriterionTagResponseItemDto {
+    return {
+      tagId: tag.tagId,
+      jobRole: tag.jobRole,
+      tagName: tag.name,
+      category: tag.category,
+      description: tag.description,
+      sortOrder: tag.sortOrder,
     };
   }
 
@@ -443,4 +508,8 @@ export class CompanyInterviewService {
       })),
     };
   }
+}
+
+function normalizeCriterionTagText(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase();
 }

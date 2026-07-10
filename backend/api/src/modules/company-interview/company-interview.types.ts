@@ -22,6 +22,13 @@ export const QUESTION_TYPES: QuestionType[] = [
   'CLOSING',
 ];
 
+export type QuestionOrigin = 'MANUAL' | 'AI_GENERATED';
+
+export const QUESTION_ORIGINS: QuestionOrigin[] = [
+  'MANUAL',
+  'AI_GENERATED',
+];
+
 export type AiProcessStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 
 export type PostingRecord = {
@@ -59,6 +66,8 @@ export type QuestionRecord = {
   criterionId: number | null;
   questionType: QuestionType;
   content: string;
+  origin: QuestionOrigin;
+  isAiEdited: boolean;
   isActive: boolean;
 };
 

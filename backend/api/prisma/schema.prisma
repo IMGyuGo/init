@@ -103,6 +103,11 @@ enum QuestionType {
   CLOSING
 }
 
+enum QuestionOrigin {
+  MANUAL
+  AI_GENERATED
+}
+
 enum NotificationChannel {
   EMAIL
   IN_APP
@@ -298,6 +303,8 @@ model Question {
   criterionId      BigInt?                    @map("criterion_id")
   questionType     QuestionType               @map("question_type")
   content          String
+  origin           QuestionOrigin             @default(MANUAL)
+  isAiEdited       Boolean                    @default(false) @map("is_ai_edited")
   isActive         Boolean                    @default(true) @map("is_active")
   company          Company                    @relation(fields: [companyId], references: [companyId])
   posting          Posting?                   @relation(fields: [postingId], references: [postingId])

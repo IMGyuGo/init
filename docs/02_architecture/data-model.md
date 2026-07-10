@@ -196,6 +196,8 @@
 | criterion_id | BIGINT | 어떤 공고별 평가 기준과 연결된 질문인지 |
 | question_type | VARCHAR(50) NOT NULL | 질문 유형: INTRO, TECHNICAL, EXPERIENCE, SITUATION, FOLLOW_UP, CLOSING |
 | content | TEXT NOT NULL | 실제 질문 문장 |
+| origin | QuestionOrigin NOT NULL DEFAULT MANUAL | 최초 작성 출처: MANUAL, AI_GENERATED |
+| is_ai_edited | BOOLEAN NOT NULL DEFAULT FALSE | AI 생성 질문이 사용자에 의해 수정되었는지 여부 |
 | is_active | BOOLEAN NOT NULL DEFAULT TRUE | 현재 사용 가능한 질문인지 여부 |
 
 ### interview_question_sets

@@ -1,6 +1,7 @@
 export type PostingStatus = "DRAFT" | "OPEN" | "CLOSING_SOON" | "CLOSED" | "ARCHIVED";
 
 export type QuestionType = "INTRO" | "TECHNICAL" | "EXPERIENCE" | "SITUATION" | "FOLLOW_UP" | "CLOSING";
+export type QuestionOrigin = "MANUAL" | "AI_GENERATED";
 
 export type InterviewSettings = {
   posting: {
@@ -31,6 +32,8 @@ export type InterviewSettings = {
     criterionId: number | null;
     questionType: QuestionType;
     content: string;
+    origin: QuestionOrigin;
+    isAiEdited: boolean;
     isActive: boolean;
   }>;
   timePolicy: {
@@ -38,6 +41,20 @@ export type InterviewSettings = {
     answerTimeSec: number;
     retryAllowed: boolean;
   };
+};
+
+export type CriterionTag = InterviewSettings["availableTags"][number];
+
+export type CreateCriterionTagInput = {
+  postingId: number;
+  tagName: string;
+  category: string;
+  description?: string | null;
+};
+
+export type CreateCriterionTagResult = {
+  postingId: number;
+  tag: CriterionTag;
 };
 
 export type UpdateEvaluationCriteriaInput = {
@@ -132,6 +149,7 @@ export type CreateInterviewQuestionInput = {
   criterionId: number;
   questionType: QuestionType;
   content: string;
+  origin?: QuestionOrigin;
 };
 
 export type UpdateInterviewQuestionInput = {
@@ -148,6 +166,8 @@ export type CreateInterviewQuestionResult = {
     criterionId: number | null;
     questionType: QuestionType;
     content: string;
+    origin: QuestionOrigin;
+    isAiEdited: boolean;
     isActive: boolean;
   };
 };

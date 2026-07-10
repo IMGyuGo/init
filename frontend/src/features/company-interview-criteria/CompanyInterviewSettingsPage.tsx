@@ -1,12 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type DragEvent, type FormEvent } from "react";
 
 import interviewBanner from "../company-recruiting/assets/interview-banner.png";
 
-import { BackButton, StatusBadge } from "../company-recruiting/CompanyRecruitingChrome";
+import { StatusBadge } from "../company-recruiting/CompanyRecruitingChrome";
 import {
   confirmQuestionSet,
   createCriterionTag,
@@ -111,14 +110,19 @@ const AI_STATUS_LABELS: Record<AiProcessStatus, string> = {
 };
 const AI_JOB_SLOW_THRESHOLD_MS = 30_000;
 
+function getSettingsStepStorageKey(postingId: number) {
+  return `company-interview-settings-step:${postingId}`;
+}
+
 export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number }) {
   const [settings, setSettings] = useState<InterviewSettings | null>(null);
   const [settingsStep, setSettingsStep] = useState(1);
   const [criteriaDrafts, setCriteriaDrafts] = useState<CriteriaDraft[]>([]);
-  const [isCriteriaEditing, setIsCriteriaEditing] = useState(false);
   const [timePolicyDraft, setTimePolicyDraft] = useState<TimePolicyDraft | null>(null);
   const [questionForm, setQuestionForm] = useState<QuestionForm>(initialQuestionForm);
   const [editingQuestionId, setEditingQuestionId] = useState<number | null>(null);
+  const [questionEditDraft, setQuestionEditDraft] = useState<QuestionForm | null>(null);
+  const [openQuestionMenuId, setOpenQuestionMenuId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [criteriaSaving, setCriteriaSaving] = useState(false);
@@ -134,6 +138,12 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
   const [showQuestionSetPreview, setShowQuestionSetPreview] = useState(false);
   const [editingTimePolicyField, setEditingTimePolicyField] = useState<TimePolicyField | null>(null);
   const [draggedCriteriaId, setDraggedCriteriaId] = useState<string | null>(null);
+  const [autoAppliedCriteriaProcessIds, setAutoAppliedCriteriaProcessIds] = useState<number[]>([]);
+  const [autoAppliedQuestionProcessIds, setAutoAppliedQuestionProcessIds] = useState<number[]>([]);
+  const [isQuestionDrawerOpen, setIsQuestionDrawerOpen] = useState(false);
+  const [editingCriteriaDetailId, setEditingCriteriaDetailId] = useState<string | null>(null);
+  const [selectedCriteriaDraftIds, setSelectedCriteriaDraftIds] = useState<string[]>([]);
+  const [settingsStepRestored, setSettingsStepRestored] = useState(false);
 
   const loadSettings = useCallback(async () => {
     setLoading(true);
@@ -146,9 +156,12 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       const response = await getInterviewSettings(postingId);
       setSettings(response.data);
       setCriteriaDrafts(toCriteriaDrafts(response.data));
-      setIsCriteriaEditing(false);
+      setSelectedCriteriaDraftIds([]);
       setTimePolicyDraft(toTimePolicyDraft(response.data));
       setEditingQuestionId(null);
+      setQuestionEditDraft(null);
+      setOpenQuestionMenuId(null);
+      setIsQuestionDrawerOpen(false);
       setEditingTimePolicyField(null);
       setShowQuestionSetPreview(false);
       setQuestionForm({
@@ -161,6 +174,23 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       setLoading(false);
     }
   }, [postingId]);
+
+  const settingsPostingId = settings?.posting.postingId;
+
+  useEffect(() => {
+    if (!settingsPostingId) return;
+
+    setSettingsStepRestored(false);
+    const storedStep = window.sessionStorage.getItem(getSettingsStepStorageKey(settingsPostingId));
+    const parsedStep = Number(storedStep);
+    setSettingsStep(parsedStep === 2 || parsedStep === 3 ? parsedStep : 1);
+    setSettingsStepRestored(true);
+  }, [settingsPostingId]);
+
+  useEffect(() => {
+    if (!settingsPostingId || !settingsStepRestored) return;
+    window.sessionStorage.setItem(getSettingsStepStorageKey(settingsPostingId), String(settingsStep));
+  }, [settingsPostingId, settingsStep, settingsStepRestored]);
 
   useEffect(() => {
     void loadSettings();
@@ -263,6 +293,64 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
   );
   const criteriaAiNotices = useMemo(() => aiJobNotices.filter((notice) => notice.kind === "criteria"), [aiJobNotices]);
   const questionAiNotices = useMemo(() => aiJobNotices.filter((notice) => notice.kind === "questions"), [aiJobNotices]);
+  const editingCriteriaDetail = useMemo(
+    () => criteriaDrafts.find((criterion) => criterion.draftId === editingCriteriaDetailId) ?? null,
+    [criteriaDrafts, editingCriteriaDetailId],
+  );
+
+  useEffect(() => {
+    if (!settings) return;
+
+    const completedNotices = criteriaAiNotices.filter(
+      (notice) => notice.status === "COMPLETED" && !autoAppliedCriteriaProcessIds.includes(notice.processLogId),
+    );
+    if (completedNotices.length === 0) return;
+
+    const processLogIds = completedNotices.map((notice) => notice.processLogId);
+    setAutoAppliedCriteriaProcessIds((current) => [...current, ...processLogIds.filter((processLogId) => !current.includes(processLogId))]);
+
+    void (async () => {
+      try {
+        for (const notice of completedNotices) {
+          const candidates = getCriteriaSuggestions(notice.output);
+          if (candidates.length === 0) {
+            setCriteriaError("저장 가능한 평가 기준 추천 결과가 없습니다. JD나 인재상 조건을 보강한 뒤 다시 요청해주세요.");
+            continue;
+          }
+          await applyCriteriaSuggestions(candidates);
+        }
+      } catch (error) {
+        setCriteriaError(error instanceof Error ? error.message : "AI 추천 기준을 평가 기준 표에 반영하지 못했습니다.");
+      }
+    })();
+  }, [autoAppliedCriteriaProcessIds, criteriaAiNotices, settings]);
+
+  useEffect(() => {
+    if (!settings) return;
+
+    const completedNotices = questionAiNotices.filter(
+      (notice) => notice.status === "COMPLETED" && !autoAppliedQuestionProcessIds.includes(notice.processLogId),
+    );
+    if (completedNotices.length === 0) return;
+
+    const processLogIds = completedNotices.map((notice) => notice.processLogId);
+    setAutoAppliedQuestionProcessIds((current) => [...current, ...processLogIds.filter((processLogId) => !current.includes(processLogId))]);
+
+    void (async () => {
+      try {
+        for (const notice of completedNotices) {
+          const candidates = getQuestionCandidates(notice.output);
+          if (candidates.length === 0) {
+            setQuestionError("저장 가능한 AI 추천 질문이 없습니다. 평가 기준이나 JD 조건을 보강한 뒤 다시 요청해주세요.");
+            continue;
+          }
+          await applyQuestionCandidatesToList(candidates);
+        }
+      } catch (error) {
+        setQuestionError(error instanceof Error ? error.message : "AI 추천 질문을 면접 질문 목록에 반영하지 못했습니다.");
+      }
+    })();
+  }, [autoAppliedQuestionProcessIds, questionAiNotices, settings]);
 
   function addCustomCriteriaDraft() {
     setCriteriaError("");
@@ -284,29 +372,45 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
         },
       ];
     });
-    setIsCriteriaEditing(true);
   }
 
-  function removeCriteriaDraft(draftId: string) {
-    if (!settings) return;
-    const criterion = criteriaDrafts.find((item) => item.draftId === draftId);
-    const linkedQuestionCount =
-      criterion?.criterionId === undefined
-        ? 0
-        : settings.questions.filter((question) => question.criterionId === criterion.criterionId).length;
+  function toggleCriteriaDraftSelection(draftId: string, checked: boolean) {
+    setSelectedCriteriaDraftIds((current) =>
+      checked ? Array.from(new Set([...current, draftId])) : current.filter((item) => item !== draftId),
+    );
+  }
+
+  function toggleAllCriteriaDraftSelection(checked: boolean) {
+    setSelectedCriteriaDraftIds(checked ? criteriaDrafts.map((criterion) => criterion.draftId) : []);
+  }
+
+  function removeSelectedCriteriaDrafts() {
+    if (!settings || selectedCriteriaDraftIds.length === 0) return;
+
+    const selectedSet = new Set(selectedCriteriaDraftIds);
+    const selectedCriteria = criteriaDrafts.filter((criterion) => selectedSet.has(criterion.draftId));
+    const linkedQuestionCount = selectedCriteria.reduce(
+      (count, criterion) =>
+        criterion.criterionId === undefined
+          ? count
+          : count + settings.questions.filter((question) => question.criterionId === criterion.criterionId).length,
+      0,
+    );
+
     if (
       linkedQuestionCount > 0 &&
       !window.confirm(
-        `이 평가 기준에 연결된 질문 ${linkedQuestionCount}개가 있습니다. 계속 진행하면 저장 시 연결된 질문이 비활성화됩니다. 계속하시겠습니까?`,
+        `선택한 평가 기준에 연결된 질문 ${linkedQuestionCount}개가 있습니다. 계속 진행하면 저장 시 연결된 질문이 비활성화됩니다. 계속하시겠습니까?`,
       )
     ) {
       return;
     }
 
     setCriteriaError("");
-    const nextCriteriaDrafts = normalizeCriteriaOrder(criteriaDrafts.filter((criterion) => criterion.draftId !== draftId));
+    const nextCriteriaDrafts = normalizeCriteriaOrder(criteriaDrafts.filter((criterion) => !selectedSet.has(criterion.draftId)));
     setCriteriaDrafts(nextCriteriaDrafts);
-    if (criterion?.criterionId !== undefined && questionForm.criterionId === String(criterion.criterionId)) {
+    setSelectedCriteriaDraftIds([]);
+    if (selectedCriteria.some((criterion) => criterion.criterionId !== undefined && questionForm.criterionId === String(criterion.criterionId))) {
       resetQuestionEditor(String(nextCriteriaDrafts.find((item) => item.criterionId !== undefined)?.criterionId ?? ""));
     }
   }
@@ -351,10 +455,22 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     setDraggedCriteriaId(null);
   }
 
-  function updateCriteriaDraft(draftId: string, field: "tagName" | "category" | "weight" | "passScore" | "sortOrder", value: string) {
+  function updateCriteriaDraft(
+    draftId: string,
+    field: "tagName" | "category" | "description" | "weight" | "passScore" | "sortOrder",
+    value: string,
+  ) {
     setCriteriaError("");
     setCriteriaDrafts((current) =>
-      current.map((criterion) => (criterion.draftId === draftId ? { ...criterion, [field]: value } : criterion)),
+      current.map((criterion) =>
+        criterion.draftId === draftId
+          ? {
+              ...criterion,
+              [field]: field === "description" && value.trim() === "" ? null : value,
+              isCustomTag: field === "tagName" || field === "category" || field === "description" ? true : criterion.isCustomTag,
+            }
+          : criterion,
+      ),
     );
   }
 
@@ -449,7 +565,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
           sortOrder: String(criterion.sortOrder),
         })),
       );
-      setIsCriteriaEditing(false);
       return true;
     } catch (error) {
       setCriteriaError(error instanceof Error ? error.message : "평가 기준 저장에 실패했습니다.");
@@ -507,8 +622,28 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     setQuestionForm((current) => ({ ...current, [field]: value }));
   }
 
-  function resetQuestionEditor(nextCriterionId = questionForm.criterionId) {
+  function updateQuestionEditDraft<K extends keyof QuestionForm>(field: K, value: QuestionForm[K]) {
+    setQuestionError("");
+    setQuestionEditDraft((current) => (current ? { ...current, [field]: value } : current));
+  }
+
+  function resetQuestionEditor(_nextCriterionId = questionForm.criterionId) {
     setEditingQuestionId(null);
+    setQuestionEditDraft(null);
+  }
+
+  function closeQuestionDrawer() {
+    setIsQuestionDrawerOpen(false);
+    resetQuestionEditor();
+  }
+
+  function openQuestionCreateDrawer() {
+    resetQuestionEditor();
+    setQuestionError("");
+    setIsQuestionDrawerOpen(true);
+  }
+
+  function resetQuestionForm(nextCriterionId = questionForm.criterionId) {
     setQuestionForm({
       ...initialQuestionForm,
       criterionId: nextCriterionId,
@@ -522,11 +657,12 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     }
     setEditingQuestionId(question.questionId);
     setQuestionError("");
-    setQuestionForm({
+    setQuestionEditDraft({
       criterionId: String(question.criterionId),
       questionType: question.questionType,
       content: question.content,
     });
+    setIsQuestionDrawerOpen(true);
   }
 
   async function handleCreateQuestion(event: FormEvent<HTMLFormElement>) {
@@ -535,7 +671,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
 
     const criterionId = Number(questionForm.criterionId);
     const content = questionForm.content.trim();
-    const validationMessage = validateQuestionForm(settings, criterionId, content, editingQuestionId);
+    const validationMessage = validateQuestionForm(settings, criterionId, content, null);
     if (validationMessage) {
       setQuestionError(validationMessage);
       return;
@@ -544,34 +680,23 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     setQuestionSaving(true);
     setQuestionError("");
     try {
-      const response =
-        editingQuestionId === null
-          ? await createInterviewQuestion({
-              postingId: settings.posting.postingId,
-              criterionId,
-              questionType: questionForm.questionType,
-              content,
-            })
-          : await updateInterviewQuestion(editingQuestionId, {
-              criterionId,
-              questionType: questionForm.questionType,
-              content,
-            });
+      const response = await createInterviewQuestion({
+        postingId: settings.posting.postingId,
+        criterionId,
+        questionType: questionForm.questionType,
+        content,
+      });
 
       setSettings((current) =>
         current
           ? {
               ...current,
-              questions:
-                editingQuestionId === null
-                  ? [...current.questions, response.data.question]
-                  : current.questions.map((question) =>
-                      question.questionId === response.data.question.questionId ? response.data.question : question,
-                    ),
+              questions: [...current.questions, response.data.question],
             }
           : current,
       );
-      resetQuestionEditor(String(criterionId));
+      resetQuestionForm(String(criterionId));
+      setIsQuestionDrawerOpen(false);
     } catch (error) {
       setQuestionError(error instanceof Error ? error.message : "질문 저장에 실패했습니다.");
     } finally {
@@ -579,8 +704,46 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     }
   }
 
+  async function handleUpdateQuestion(questionId: number) {
+    if (!settings || !questionEditDraft) return;
+
+    const criterionId = Number(questionEditDraft.criterionId);
+    const content = questionEditDraft.content.trim();
+    const validationMessage = validateQuestionForm(settings, criterionId, content, questionId);
+    if (validationMessage) {
+      setQuestionError(validationMessage);
+      return;
+    }
+
+    setQuestionSaving(true);
+    setQuestionError("");
+    try {
+      const response = await updateInterviewQuestion(questionId, {
+        criterionId,
+        questionType: questionEditDraft.questionType,
+        content,
+      });
+
+      setSettings((current) =>
+        current
+          ? {
+              ...current,
+              questions: current.questions.map((question) =>
+                question.questionId === response.data.question.questionId ? response.data.question : question,
+              ),
+            }
+          : current,
+      );
+      closeQuestionDrawer();
+    } catch (error) {
+      setQuestionError(error instanceof Error ? error.message : "질문 수정에 실패했습니다.");
+    } finally {
+      setQuestionSaving(false);
+    }
+  }
+
   async function handleDeleteQuestion(questionId: number) {
-    if (!window.confirm("이 질문을 삭제하시겠습니까? 삭제된 질문은 질문 뱅크 목록에서 제외됩니다.")) {
+    if (!window.confirm("이 질문을 삭제하시겠습니까? 삭제된 질문은 면접 질문 구성 목록에서 제외됩니다.")) {
       return;
     }
 
@@ -618,7 +781,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
         postingId: settings.posting.postingId,
         jobDescription,
         talentProfile: "문제 해결력과 협업 태도를 갖춘 지원자",
-        evaluationPolicy: "평가 기준과 질문 뱅크를 기반으로 근거 중심 평가 항목을 추천합니다.",
+        evaluationPolicy: "평가 기준과 면접 질문 구성을 기반으로 근거 중심 평가 항목을 추천합니다.",
       });
       rememberAiJob("criteria", "AI 평가 기준 추천", response.data);
     } catch (error) {
@@ -640,16 +803,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       return;
     }
 
-    if (hasCriteriaChanges) {
-      setAiJobError("공통 질문을 추천받으려면 먼저 평가 기준 변경사항을 저장해주세요.");
-      return;
-    }
-
-    if (settings.criteria.length === 0) {
-      setAiJobError("공통 질문을 추천받으려면 먼저 JD 기반 평가 기준을 생성하고 저장해주세요.");
-      return;
-    }
-
     setAiJobSubmitting("questions");
     setAiJobError("");
     try {
@@ -664,9 +817,9 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
           weight: criterion.weight,
         })),
       });
-      rememberAiJob("questions", "공통 질문 추천", response.data);
+      rememberAiJob("questions", "AI 질문 추천", response.data);
     } catch (error) {
-      setAiJobError(formatAiRequestError(error instanceof Error ? error.message : "공통 질문 추천 요청에 실패했습니다."));
+      setAiJobError(formatAiRequestError(error instanceof Error ? error.message : "AI 질문 추천 요청에 실패했습니다."));
     } finally {
       setAiJobSubmitting(null);
     }
@@ -679,7 +832,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     setShowQuestionSetPreview(true);
 
     if (settings.criteria.length === 0 || settings.questions.length === 0) {
-      setAiJobError("질문 세트를 구성하려면 평가 기준과 질문 뱅크가 필요합니다.");
+      setAiJobError("질문 세트를 구성하려면 평가 기준과 면접 질문 구성이 필요합니다.");
       return;
     }
 
@@ -722,76 +875,79 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
   }
 
   async function applyCriteriaSuggestion(candidate: CriteriaSuggestionCandidate, selectedTagId?: number) {
+    await applyCriteriaSuggestions([candidate], selectedTagId);
+  }
+
+  async function applyCriteriaSuggestions(candidates: CriteriaSuggestionCandidate[], selectedTagId?: number) {
     if (!settings) return;
 
-    let matchedTag = findSuggestionTag(settings, criteriaDrafts, candidate, selectedTagId);
-    const projectedTotalWeight = criteriaTotalWeight + normalizeCriteriaSuggestionWeight(candidate.weight);
-    if (projectedTotalWeight > 100) {
-      setCriteriaError("추천 기준을 적용하면 배점 합계가 100을 초과합니다. 기존 기준의 배점을 먼저 조정해주세요.");
-      return;
-    }
+    let nextCriteriaDrafts = normalizeCriteriaOrder(criteriaDrafts);
 
-    if (!matchedTag) {
-      try {
-        const response = await createCriterionTag({
-          postingId: settings.posting.postingId,
-          tagName: candidate.title.trim(),
-          category: candidate.category?.trim() || "JD 기반 평가",
-          description: candidate.description?.trim() || candidate.suggestionReason?.trim() || null,
-        });
-        matchedTag = response.data.tag;
-        setSettings((current) =>
-          current
-            ? {
-                ...current,
-                availableTags: current.availableTags.some((tag) => tag.tagId === response.data.tag.tagId)
-                  ? current.availableTags
-                  : [...current.availableTags, response.data.tag],
-              }
-            : current,
-        );
-      } catch (error) {
-        setCriteriaError(error instanceof Error ? error.message : "JD 기반 평가 태그 생성에 실패했습니다.");
-        return;
+    for (const candidate of candidates) {
+      if (findAppliedSuggestionCriteria(nextCriteriaDrafts, candidate)) {
+        continue;
       }
-    }
 
-    setCriteriaError("");
-    setCriteriaDrafts((current) => {
-      if (current.some((criterion) => criterion.tagId === matchedTag.tagId)) {
-        return current;
+      let matchedTag = findSuggestionTag(settings, nextCriteriaDrafts, candidate, selectedTagId);
+      const projectedTotalWeight = getCriteriaTotalWeight(nextCriteriaDrafts) + normalizeCriteriaSuggestionWeight(candidate.weight);
+      if (projectedTotalWeight > 100) {
+        setCriteriaError("추천 기준을 적용하면 배점 합계가 100을 초과합니다. 기존 기준의 배점을 먼저 조정해주세요.");
+        continue;
       }
-      const normalizedCriteria = normalizeCriteriaOrder(current);
-      return [
-        ...normalizedCriteria,
+
+      if (!matchedTag) {
+        nextCriteriaDrafts = [
+          ...nextCriteriaDrafts,
+          {
+            draftId: `ai-custom-${Date.now()}-${nextCriteriaDrafts.length}`,
+            tagId: -Date.now() - nextCriteriaDrafts.length,
+            tagName: candidate.title.trim(),
+            category: candidate.category?.trim() || "JD 기반 평가",
+            description: candidate.description?.trim() || candidate.suggestionReason?.trim() || null,
+            weight: String(normalizeCriteriaSuggestionWeight(candidate.weight)),
+            passScore: "",
+            sortOrder: String(nextCriteriaDrafts.length + 1),
+            isCustomTag: true,
+          },
+        ];
+        continue;
+      }
+
+      if (nextCriteriaDrafts.some((criterion) => criterion.tagId === matchedTag.tagId)) continue;
+
+      nextCriteriaDrafts = [
+        ...nextCriteriaDrafts,
         {
-          draftId: `ai-${matchedTag.tagId}-${Date.now()}`,
+          draftId: `ai-${matchedTag.tagId}-${Date.now()}-${nextCriteriaDrafts.length}`,
           tagId: matchedTag.tagId,
           tagName: matchedTag.tagName,
           category: matchedTag.category,
           description: matchedTag.description ?? candidate.description,
           weight: String(normalizeCriteriaSuggestionWeight(candidate.weight)),
           passScore: "",
-          sortOrder: String(normalizedCriteria.length + 1),
+          sortOrder: String(nextCriteriaDrafts.length + 1),
         },
       ];
-    });
+    }
+
+    setCriteriaError("");
+    setCriteriaDrafts(normalizeCriteriaOrder(nextCriteriaDrafts));
   }
 
-  async function applyQuestionCandidate(candidate: GeneratedQuestionCandidate, selectedCriterionId?: number) {
-    if (!settings) return;
+  async function applyQuestionCandidate(candidate: GeneratedQuestionCandidate, selectedCriterionId?: number, source: "manual" | "ai" = "manual") {
+    if (!settings) return null;
 
     const criterionId = selectedCriterionId ?? findCandidateCriterionId(settings, candidate);
     if (!criterionId) {
       setQuestionError("연결할 평가 기준 선택 필요");
-      return;
+      return null;
     }
 
     const content = candidate.content.trim();
     const validationMessage = validateQuestionForm(settings, criterionId, content, null);
     if (validationMessage) {
       setQuestionError(validationMessage);
-      return;
+      return null;
     }
 
     setQuestionSaving(true);
@@ -802,6 +958,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
         criterionId,
         questionType: normalizeQuestionType(candidate.questionType),
         content,
+        origin: source === "ai" ? "AI_GENERATED" : "MANUAL",
       });
 
       setSettings((current) =>
@@ -812,10 +969,51 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
             }
           : current,
       );
+      return response.data.question.questionId;
     } catch (error) {
       setQuestionError(error instanceof Error ? error.message : "질문 후보 저장에 실패했습니다.");
+      return null;
     } finally {
       setQuestionSaving(false);
+    }
+  }
+
+  async function applyQuestionCandidatesToList(candidates: GeneratedQuestionCandidate[]) {
+    if (!settings) return;
+
+    let savedCount = 0;
+    let skippedCount = 0;
+    const seenContents = new Set(settings.questions.map((question) => normalizeText(question.content)));
+
+    for (const candidate of candidates) {
+      const normalizedContent = normalizeText(candidate.content);
+      if (!normalizedContent || seenContents.has(normalizedContent)) {
+        skippedCount += 1;
+        continue;
+      }
+
+      const criterionId = findCandidateCriterionId(settings, candidate);
+      if (!criterionId) {
+        skippedCount += 1;
+        continue;
+      }
+
+      const questionId = await applyQuestionCandidate(candidate, criterionId, "ai");
+      if (questionId) {
+        savedCount += 1;
+        seenContents.add(normalizedContent);
+      } else {
+        skippedCount += 1;
+      }
+    }
+
+    if (savedCount > 0) {
+      setMessage(`AI 추천 질문 ${savedCount}개를 면접 질문 구성에 추가했습니다.`);
+      return;
+    }
+
+    if (skippedCount > 0) {
+      setQuestionError("AI 추천 질문을 자동 추가하지 못했습니다. 중복 질문이거나 연결할 평가 기준을 찾지 못했습니다.");
     }
   }
 
@@ -838,7 +1036,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
 
     const items = buildQuestionSetConfirmItems(settings, groups);
     if (items.length === 0) {
-      setAiJobError("확정할 수 있는 질문이 없습니다. 질문 뱅크에 저장된 질문만 질문 세트로 확정할 수 있습니다.");
+      setAiJobError("확정할 수 있는 질문이 없습니다. 면접 질문 구성에 저장된 질문만 질문 세트로 확정할 수 있습니다.");
       return;
     }
 
@@ -863,12 +1061,8 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     <section className="app-page glass-page notion">
         <div className="page-banner">
           <div className="page-banner-copy">
-            <div className="page-head-lead">
-              <BackButton />
-            </div>
-            <p className="page-eyebrow">면접 설정</p>
-            <h1>면접 관리</h1>
-            <p className="page-sub">공고별 평가 기준, 질문 뱅크, 면접 시간을 확인합니다.</p>
+            <h1>면접 설정</h1>
+            <p className="page-sub">공고별 평가 기준, 면접 질문, 면접 시간을 확인합니다.</p>
             <button className="btn secondary banner-cta" type="button" disabled={loading} onClick={() => void loadSettings()}>
               새로고침
             </button>
@@ -888,7 +1082,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
               <div className="settings-steps-meta">
                 <span className="settings-steps-step">단계 {settingsStep} / 3</span>
                 <span className="settings-steps-title">
-                  {settingsStep === 1 ? "면접 시간 설정" : settingsStep === 2 ? "평가 기준 추천" : "질문 뱅크"}
+                  {settingsStep === 1 ? "평가 기준 추천" : settingsStep === 2 ? "면접 질문 구성" : "면접 시간 설정"}
                 </span>
               </div>
               <div className="settings-steps-bar" role="presentation">
@@ -896,7 +1090,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
               </div>
             </div>
 
-            {settingsStep === 1 ? (
+            {settingsStep === 3 ? (
               <>
             <section className="panel">
               <div className="panel-head">
@@ -952,29 +1146,33 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
             </section>
 
             <div className="settings-step-nav">
-              <span />
+              <button className="btn secondary" type="button" onClick={() => setSettingsStep(2)}>
+                ← 이전
+              </button>
               <button
-                className="btn primary"
+                className="btn primary settings-next-large"
                 type="button"
                 disabled={timePolicySaving}
                 onClick={async () => {
                   const ok = await saveTimePolicy();
-                  if (ok) setSettingsStep(2);
+                  if (ok) {
+                    window.location.href = "/company/recruitments";
+                  }
                 }}
               >
-                {timePolicySaving ? "저장 중…" : "다음: 평가 기준 설정 →"}
+                {timePolicySaving ? "저장 중…" : "면접 설정 완료"}
               </button>
             </div>
               </>
             ) : null}
 
-            {settingsStep === 2 ? (
+            {settingsStep === 1 ? (
               <>
             <section className="panel criteria-ai-legacy-panel" hidden>
               <div className="panel-head">
                 <div>
                   <h2>AI로 자동 구성</h2>
-                  <p>공고 내용을 바탕으로 평가 기준·질문·질문 세트를 AI가 초안으로 만들어줘요. 필요 없으면 건너뛰고 직접 입력해도 돼요.</p>
+                  <p>공고 내용을 바탕으로 평가 기준과 면접 질문을 AI가 초안으로 만들어줘요. 필요 없으면 건너뛰고 직접 입력해도 돼요.</p>
                 </div>
                 <div className="toolbar">
                   <button
@@ -983,7 +1181,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                     disabled={isAiRequestBlocked("questions", aiJobSubmitting, activeAiJobKinds)}
                     onClick={() => void handleGenerateQuestions()}
                   >
-                    {getAiRequestButtonLabel("questions", "공통 질문 추천", aiJobSubmitting, activeAiJobKinds)}
+                    {getAiRequestButtonLabel("questions", "AI 질문 추천받기", aiJobSubmitting, activeAiJobKinds)}
                   </button>
                   <button
                     className="btn primary compact"
@@ -1051,67 +1249,41 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                   >
                     {getAiRequestButtonLabel("criteria", "평가 기준 추천받기", aiJobSubmitting, activeAiJobKinds)}
                   </button>
-                  <button className="btn primary compact" type="submit" disabled={!hasCriteriaChanges || criteriaSaving}>
-                    {criteriaSaving ? "저장 중" : "평가 기준 저장"}
-                  </button>
                 </div>
               </div>
               {criteriaError ? <p className="notice danger">{criteriaError}</p> : null}
               {aiJobError ? <p className="notice danger">{aiJobError}</p> : null}
-              {criteriaAiNotices.length > 0 ? (
-                <div className="posting-list ai-job-list criteria-ai-results">
-                  {criteriaAiNotices.map((notice) => (
-                    <article className="posting ai-job-card" key={notice.kind}>
-                      <div className="ai-job-card-body">
-                        <div className="ai-job-card-head">
-                          <h3>{notice.label}</h3>
-                          {notice.status === "FAILED" ? (
-                            <button
-                              className="btn secondary compact"
-                              type="button"
-                              disabled={isAiRequestBlocked(notice.kind, aiJobSubmitting, activeAiJobKinds)}
-                              onClick={() => retryAiJob(notice.kind)}
-                            >
-                              다시 요청
-                            </button>
-                          ) : null}
-                          <AiStatusBadge status={notice.status} />
-                        </div>
-                        {notice.status === "COMPLETED" ? (
-                          <AiJobPreview
-                            notice={notice}
-                            settings={settings}
-                            criteriaDrafts={criteriaDrafts}
-                            questionSaving={questionSaving}
-                            questionSetConfirming={questionSetConfirming}
-                            onApplyCriteria={(candidate, selectedTagId) => void applyCriteriaSuggestion(candidate, selectedTagId)}
-                            onApplyQuestion={(candidate, selectedCriterionId) => void applyQuestionCandidate(candidate, selectedCriterionId)}
-                            onConfirmQuestionSet={(groups) => void confirmAiQuestionSet(notice, groups)}
-                          />
-                        ) : null}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : null}
               <div className="criteria-table-summary">
+                <button
+                  className="btn secondary compact"
+                  type="button"
+                  disabled={selectedCriteriaDraftIds.length === 0 || criteriaSaving}
+                  onClick={removeSelectedCriteriaDrafts}
+                >
+                  선택 삭제
+                </button>
                 <span className={`badge ${criteriaTotalWeight > 0 && criteriaTotalWeight <= 100 ? "info" : "danger"}`}>
                   배점 합계 {criteriaTotalWeight}
                 </span>
-                <button className="btn secondary compact" type="button" disabled={criteriaSaving} onClick={() => setIsCriteriaEditing(true)}>
-                  수정
-                </button>
               </div>
               <div className="table-wrap">
                 <table className="data-table criteria-table">
                   <thead>
                     <tr>
+                      <th className="criteria-col-select">
+                        <input
+                          aria-label="평가 기준 전체 선택"
+                          checked={criteriaDrafts.length > 0 && selectedCriteriaDraftIds.length === criteriaDrafts.length}
+                          disabled={criteriaDrafts.length === 0 || criteriaSaving}
+                          type="checkbox"
+                          onChange={(event) => toggleAllCriteriaDraftSelection(event.target.checked)}
+                        />
+                      </th>
                       <th className="criteria-col-order">순서</th>
                       <th>태그</th>
                       <th>분류</th>
                       <th className="criteria-col-score">배점</th>
                       <th className="criteria-col-score">합격점</th>
-                      <th className="criteria-col-actions" aria-label="평가 기준 관리" />
                     </tr>
                   </thead>
                   <tbody>
@@ -1123,6 +1295,15 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                         onDragOver={handleCriteriaDragOver}
                         onDrop={(event) => handleCriteriaDrop(event, criterion.draftId)}
                       >
+                        <td className="criteria-cell-select">
+                          <input
+                            aria-label={`${criterion.tagName || "평가 기준"} 선택`}
+                            checked={selectedCriteriaDraftIds.includes(criterion.draftId)}
+                            disabled={criteriaSaving}
+                            type="checkbox"
+                            onChange={(event) => toggleCriteriaDraftSelection(criterion.draftId, event.target.checked)}
+                          />
+                        </td>
                         <td className="criteria-cell-order">
                           <button
                             className="criteria-drag-handle"
@@ -1136,28 +1317,16 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                           <span>{criterion.sortOrder}</span>
                         </td>
                         <td className="criteria-cell-tag">
-                          {criterion.isCustomTag ? (
-                            <input
-                              aria-label="커스텀 평가 태그"
-                              placeholder="태그 입력"
-                              value={criterion.tagName}
-                              onChange={(event) => updateCriteriaDraft(criterion.draftId, "tagName", event.target.value)}
-                            />
-                          ) : (
-                            criterion.tagName
-                          )}
+                          <button
+                            className="criteria-tag-button"
+                            type="button"
+                            onClick={() => setEditingCriteriaDetailId(criterion.draftId)}
+                          >
+                            {criterion.tagName || "태그 입력"}
+                          </button>
                         </td>
                         <td className="criteria-cell-category">
-                          {criterion.isCustomTag ? (
-                            <input
-                              aria-label="커스텀 평가 분류"
-                              placeholder="분류 입력"
-                              value={criterion.category}
-                              onChange={(event) => updateCriteriaDraft(criterion.draftId, "category", event.target.value)}
-                            />
-                          ) : (
-                            criterion.category
-                          )}
+                          {criterion.category || "-"}
                         </td>
                         <td className="criteria-cell-score">
                           <input
@@ -1182,15 +1351,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                             onChange={(event) => updateCriteriaDraft(criterion.draftId, "passScore", event.target.value)}
                           />
                         </td>
-                        <td className="criteria-cell-actions">
-                          {isCriteriaEditing ? (
-                            <button className="btn secondary compact" type="button" disabled={criteriaSaving} onClick={() => removeCriteriaDraft(criterion.draftId)}>
-                              삭제
-                            </button>
-                          ) : (
-                            <span className="criteria-action-placeholder" aria-hidden="true" />
-                          )}
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1208,9 +1368,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
             </form>
 
             <div className="settings-step-nav">
-              <button className="btn secondary" type="button" onClick={() => setSettingsStep(1)}>
-                ← 이전
-              </button>
+              <span />
               <button
                 className="btn primary settings-next-large"
                 type="button"
@@ -1220,22 +1378,22 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                     const ok = await saveCriteriaDrafts();
                     if (!ok) return;
                   }
-                  setSettingsStep(3);
+                  setSettingsStep(2);
                 }}
               >
-                {criteriaSaving ? "저장 중…" : "다음: 질문 뱅크 →"}
+                {criteriaSaving ? "저장 중…" : "다음: 면접 질문 구성 →"}
               </button>
             </div>
               </>
             ) : null}
 
-            {settingsStep === 3 ? (
+            {settingsStep === 2 ? (
               <>
             <section className="panel">
               <div className="panel-head">
                 <div>
-                  <h2>질문 뱅크</h2>
-                  <p>평가 기준에 연결할 면접 질문을 직접 등록합니다.</p>
+                  <h2>면접 질문 구성</h2>
+                  <p>평가 기준에 연결할 공통 면접 질문을 직접 작성하거나 AI 추천으로 추가합니다.</p>
                 </div>
                 <div className="toolbar">
                   <button
@@ -1244,129 +1402,85 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                     disabled={isAiRequestBlocked("questions", aiJobSubmitting, activeAiJobKinds)}
                     onClick={() => void handleGenerateQuestions()}
                   >
-                    {getAiRequestButtonLabel("questions", "공통 생성 질문", aiJobSubmitting, activeAiJobKinds)}
+                    {getAiRequestButtonLabel("questions", "AI 질문 추천받기", aiJobSubmitting, activeAiJobKinds)}
+                  </button>
+                  <button
+                    className="btn secondary compact"
+                    type="button"
+                    disabled={questionSaving || settings.criteria.length === 0 || hasCriteriaChanges}
+                    onClick={openQuestionCreateDrawer}
+                  >
+                    직접 질문 추가
                   </button>
                 </div>
               </div>
               {aiJobError ? <p className="notice danger">{aiJobError}</p> : null}
-              {questionAiNotices.length > 0 ? (
-                <div className="posting-list ai-job-list question-ai-results">
-                  {questionAiNotices.map((notice) => (
-                    <article className="posting ai-job-card" key={notice.kind}>
-                      <div className="ai-job-card-body">
-                        <div className="ai-job-card-head">
-                          <h3>{notice.label}</h3>
-                          {notice.status === "FAILED" ? (
+              <div className="question-workflow-block">
+                <div className="question-section-head">
+                  <h3>확정 질문 목록</h3>
+                  <p>면접에서 사용할 공통 질문입니다. 기본은 AI 추천으로 구성하고, 필요한 질문만 직접 추가합니다.</p>
+                </div>
+              <div className="posting-list question-list">
+                {visibleQuestions.map((question) => {
+                  const isAiQuestion = question.origin === "AI_GENERATED";
+                  return (
+                    <article className="posting question-bank-item" key={question.questionId}>
+                      <div className="question-bank-main">
+                        <h3>{question.content}</h3>
+                        <p>{getCriterionLabel(settings, question.criterionId)} · {getQuestionTypeLabel(question.questionType)}</p>
+                      </div>
+                      <div className="question-bank-meta">
+                        <span className={`badge ${isAiQuestion ? "info" : "neutral"}`}>
+                          {question.isAiEdited ? "AI 기반 수정" : isAiQuestion ? "AI 추천" : "직접 작성"}
+                        </span>
+                      </div>
+                      <div className="posting-actions question-bank-actions">
+                        <button
+                          aria-label="질문 수정"
+                          className="question-action-icon-button"
+                          title="질문 수정"
+                          type="button"
+                          disabled={questionSaving}
+                          onClick={() => startQuestionEdit(question)}
+                        >
+                          <PencilIcon />
+                        </button>
+                        <div className="question-action-menu">
+                          <button
+                            aria-expanded={openQuestionMenuId === question.questionId}
+                            aria-label="질문 작업 더보기"
+                            className="question-action-icon-button"
+                            title="질문 작업 더보기"
+                            type="button"
+                            onClick={() => setOpenQuestionMenuId((current) => current === question.questionId ? null : question.questionId)}
+                          >
+                            <MoreVerticalIcon />
+                          </button>
+                          {openQuestionMenuId === question.questionId ? (
+                            <div className="question-action-menu-popover">
                             <button
-                              className="btn secondary compact"
+                              className="question-action-menu-item is-danger"
                               type="button"
-                              disabled={isAiRequestBlocked(notice.kind, aiJobSubmitting, activeAiJobKinds)}
-                              onClick={() => retryAiJob(notice.kind)}
+                              disabled={questionSaving}
+                              onClick={() => {
+                                setOpenQuestionMenuId(null);
+                                void handleDeleteQuestion(question.questionId);
+                              }}
                             >
-                              다시 요청
+                              <TrashIcon />
+                              삭제
                             </button>
+                            </div>
                           ) : null}
-                          <AiStatusBadge status={notice.status} />
                         </div>
-                        {notice.status === "COMPLETED" ? (
-                          <AiJobPreview
-                            notice={notice}
-                            settings={settings}
-                            criteriaDrafts={criteriaDrafts}
-                            questionSaving={questionSaving}
-                            questionSetConfirming={questionSetConfirming}
-                            onApplyCriteria={(candidate, selectedTagId) => void applyCriteriaSuggestion(candidate, selectedTagId)}
-                            onApplyQuestion={(candidate, selectedCriterionId) => void applyQuestionCandidate(candidate, selectedCriterionId)}
-                            onConfirmQuestionSet={(groups) => void confirmAiQuestionSet(notice, groups)}
-                          />
-                        ) : null}
                       </div>
                     </article>
-                  ))}
-                </div>
-              ) : null}
-              <form className="creation-flow" onSubmit={handleCreateQuestion}>
-                <div className="grid-2">
-                  <label>
-                    평가 기준
-                    <select
-                      required
-                      disabled={settings.criteria.length === 0 || questionSaving}
-                      value={questionForm.criterionId}
-                      onChange={(event) => updateQuestionForm("criterionId", event.target.value)}
-                    >
-                      <option value="" disabled>
-                        {settings.criteria.length === 0 ? "먼저 평가 기준을 저장해주세요" : "평가 기준 선택"}
-                      </option>
-                      {settings.criteria.map((criterion) => (
-                        <option key={criterion.criterionId} value={criterion.criterionId}>
-                          {criterion.tagName} · {criterion.category}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    질문 유형
-                    <select
-                      disabled={questionSaving}
-                      value={questionForm.questionType}
-                      onChange={(event) => updateQuestionForm("questionType", event.target.value as QuestionType)}
-                    >
-                      {QUESTION_TYPE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="grid-full">
-                    질문 내용
-                    <textarea
-                      required
-                      maxLength={500}
-                      placeholder="예: 최근 프로젝트에서 기술적 의사결정을 내렸던 경험을 설명해주세요."
-                      value={questionForm.content}
-                      onChange={(event) => updateQuestionForm("content", event.target.value)}
-                    />
-                    <span className="field-hint">{questionForm.content.trim().length}/500자</span>
-                  </label>
-                </div>
-                {questionError ? <p className="notice danger">{questionError}</p> : null}
-                {settings.criteria.length === 0 ? <p className="notice">질문을 등록하려면 먼저 평가 기준을 추가하고 저장해주세요.</p> : null}
-                {hasCriteriaChanges ? <p className="notice">평가 기준 변경사항을 저장하면 질문 등록 대상에 반영됩니다.</p> : null}
-                <div className="toolbar">
-                  <button className="btn primary" type="submit" disabled={questionSaving || settings.criteria.length === 0 || hasCriteriaChanges}>
-                    {questionSaving ? "저장 중" : editingQuestionId === null ? "질문 저장" : "질문 수정"}
-                  </button>
-                  {editingQuestionId !== null ? (
-                    <button className="btn secondary" type="button" disabled={questionSaving} onClick={() => resetQuestionEditor()}>
-                      수정 취소
-                    </button>
-                  ) : null}
-                </div>
-              </form>
-              <div className="posting-list question-list">
-                {visibleQuestions.map((question) => (
-                  <article className="posting" key={question.questionId}>
-                    <div className="logo-chip">{question.questionType}</div>
-                    <div>
-                      <h3>{question.content}</h3>
-                      <p>{getCriterionLabel(settings, question.criterionId)}</p>
-                    </div>
-                    <StatusBadge value={question.isActive ? "ACTIVE" : "INACTIVE"} />
-                    <div className="posting-actions">
-                      <button className="btn secondary compact" type="button" disabled={questionSaving} onClick={() => startQuestionEdit(question)}>
-                        수정
-                      </button>
-                      <button className="btn destructive compact" type="button" disabled={questionSaving} onClick={() => void handleDeleteQuestion(question.questionId)}>
-                        삭제
-                      </button>
-                    </div>
-                  </article>
-                ))}
+                  );
+                })}
                 {visibleQuestions.length === 0 ? (
                   <div className="empty">등록된 질문이 없습니다.</div>
                 ) : null}
+              </div>
               </div>
               {showQuestionSetPreview ? (
                 <>
@@ -1394,7 +1508,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                           <h3>{item.content}</h3>
                           <p>{item.criterionLabel}</p>
                           {item.questionId === null ? (
-                            <p>질문 뱅크에 활성 질문을 추가하면 질문 세트에 포함할 수 있습니다.</p>
+                            <p>면접 질문 구성에 활성 질문을 추가하면 질문 세트에 포함할 수 있습니다.</p>
                           ) : null}
                         </div>
                         <span className={`badge ${item.questionId === null ? "warning" : "success"}`}>
@@ -1411,17 +1525,159 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
             </section>
 
             <div className="settings-step-nav">
-              <button className="btn secondary" type="button" onClick={() => setSettingsStep(2)}>
+              <button className="btn secondary" type="button" onClick={() => setSettingsStep(1)}>
                 ← 이전
               </button>
-              <Link className="btn primary" href="/company/recruitments">
-                면접 설정 완료
-              </Link>
+              <button className="btn primary settings-next-large" type="button" onClick={() => setSettingsStep(3)}>
+                다음: 면접 시간 설정 →
+              </button>
             </div>
               </>
             ) : null}
           </>
         )}
+        {editingCriteriaDetail ? (
+          <div className="modal-backdrop" role="presentation" onMouseDown={() => setEditingCriteriaDetailId(null)}>
+            <section
+              className="modal criteria-detail-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="criteria-detail-title"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div className="modal-head">
+                <div>
+                  <h2 id="criteria-detail-title">평가 기준 상세</h2>
+                  <p>태그명, 분류, 상세 설명을 수정합니다.</p>
+                </div>
+                <button className="btn secondary compact" type="button" onClick={() => setEditingCriteriaDetailId(null)}>
+                  닫기
+                </button>
+              </div>
+              <div className="criteria-detail-fields">
+                <label>
+                  태그
+                  <input
+                    value={editingCriteriaDetail.tagName}
+                    onChange={(event) => updateCriteriaDraft(editingCriteriaDetail.draftId, "tagName", event.target.value)}
+                  />
+                </label>
+                <label>
+                  분류
+                  <input
+                    value={editingCriteriaDetail.category}
+                    onChange={(event) => updateCriteriaDraft(editingCriteriaDetail.draftId, "category", event.target.value)}
+                  />
+                </label>
+                <label className="grid-full">
+                  상세 설명
+                  <textarea
+                    value={editingCriteriaDetail.description ?? ""}
+                    onChange={(event) => updateCriteriaDraft(editingCriteriaDetail.draftId, "description", event.target.value)}
+                  />
+                </label>
+              </div>
+              <div className="modal-actions">
+                <button className="btn primary" type="button" onClick={() => setEditingCriteriaDetailId(null)}>
+                  적용
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+        {isQuestionDrawerOpen && settings ? (
+          <div className="drawer-backdrop" role="presentation" onMouseDown={closeQuestionDrawer}>
+            <aside
+              className="question-drawer"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="question-drawer-title"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div className="drawer-head">
+                <div>
+                  <h2 id="question-drawer-title">{editingQuestionId === null ? "직접 질문 추가" : "질문 수정"}</h2>
+                  <p>{editingQuestionId === null ? "AI 추천으로 부족한 질문만 직접 보강합니다." : "평가 기준, 유형, 질문 내용을 수정합니다."}</p>
+                </div>
+                <button className="btn secondary compact" type="button" onClick={closeQuestionDrawer}>
+                  닫기
+                </button>
+              </div>
+              <form
+                className="question-drawer-form"
+                onSubmit={editingQuestionId === null
+                  ? handleCreateQuestion
+                  : (event) => {
+                      event.preventDefault();
+                      void handleUpdateQuestion(editingQuestionId);
+                    }}
+              >
+                <label>
+                  평가 기준
+                  <select
+                    required
+                    disabled={settings.criteria.length === 0 || questionSaving}
+                    value={editingQuestionId === null ? questionForm.criterionId : (questionEditDraft?.criterionId ?? "")}
+                    onChange={(event) => editingQuestionId === null
+                      ? updateQuestionForm("criterionId", event.target.value)
+                      : updateQuestionEditDraft("criterionId", event.target.value)}
+                  >
+                    <option value="" disabled>
+                      {settings.criteria.length === 0 ? "먼저 평가 기준을 저장해주세요" : "평가 기준 선택"}
+                    </option>
+                    {settings.criteria.map((criterion) => (
+                      <option key={criterion.criterionId} value={criterion.criterionId}>
+                        {criterion.tagName} · {criterion.category}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  질문 유형
+                  <select
+                    disabled={questionSaving}
+                    value={editingQuestionId === null ? questionForm.questionType : (questionEditDraft?.questionType ?? "TECHNICAL")}
+                    onChange={(event) => editingQuestionId === null
+                      ? updateQuestionForm("questionType", event.target.value as QuestionType)
+                      : updateQuestionEditDraft("questionType", event.target.value as QuestionType)}
+                  >
+                    {QUESTION_TYPE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  질문 내용
+                  <textarea
+                    required
+                    maxLength={500}
+                    placeholder="예: 최근 프로젝트에서 기술적 의사결정을 내렸던 경험을 설명해주세요."
+                    value={editingQuestionId === null ? questionForm.content : (questionEditDraft?.content ?? "")}
+                    onChange={(event) => editingQuestionId === null
+                      ? updateQuestionForm("content", event.target.value)
+                      : updateQuestionEditDraft("content", event.target.value)}
+                  />
+                  <span className="field-hint">
+                    {(editingQuestionId === null ? questionForm.content : (questionEditDraft?.content ?? "")).trim().length}/500자
+                  </span>
+                </label>
+                {questionError ? <p className="notice danger">{questionError}</p> : null}
+                {settings.criteria.length === 0 ? <p className="notice">질문을 등록하려면 먼저 평가 기준을 추가하고 저장해주세요.</p> : null}
+                {hasCriteriaChanges ? <p className="notice">평가 기준 변경사항을 저장하면 질문 등록 대상에 반영됩니다.</p> : null}
+                <div className="drawer-actions">
+                  <button className="btn secondary" type="button" disabled={questionSaving} onClick={closeQuestionDrawer}>
+                    취소
+                  </button>
+                  <button className="btn primary" type="submit" disabled={questionSaving || settings.criteria.length === 0 || hasCriteriaChanges}>
+                    {questionSaving ? "저장 중" : editingQuestionId === null ? "질문 추가" : "변경사항 저장"}
+                  </button>
+                </div>
+              </form>
+            </aside>
+          </div>
+        ) : null}
     </section>
   );
 }
@@ -1439,7 +1695,7 @@ function buildJobDescription(settings: InterviewSettings) {
           .join(" / ")
       : "등록된 질문 없음";
 
-  return `공고명: ${settings.posting.title}\n평가 기준: ${criteriaText}\n질문 뱅크: ${questionText}`;
+  return `공고명: ${settings.posting.title}\n평가 기준: ${criteriaText}\n면접 질문 구성: ${questionText}`;
 }
 
 function uniqueQuestionTypes(questions: InterviewSettings["questions"]) {
@@ -1620,6 +1876,24 @@ function PencilIcon() {
   );
 }
 
+function MoreVerticalIcon() {
+  return (
+    <svg aria-hidden="true" fill="currentColor" height="18" viewBox="0 0 24 24" width="18">
+      <circle cx="12" cy="5" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="12" cy="19" r="1.8" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+      <path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+    </svg>
+  );
+}
+
 function CheckIcon() {
   return (
     <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
@@ -1742,7 +2016,7 @@ function AiJobPreview({
                 <h3>{candidate.content}</h3>
                 <p>
                   {isSaved
-                    ? `이미 ${criterionId ? getCriterionLabel(settings, criterionId) : "질문 뱅크"}에 저장된 질문입니다.`
+                    ? `이미 ${criterionId ? getCriterionLabel(settings, criterionId) : "면접 질문 구성"}에 저장된 질문입니다.`
                     : criterionId
                       ? getCriterionLabel(settings, criterionId)
                       : "저장하려면 연결할 평가 기준을 선택해야 합니다."}
@@ -1833,7 +2107,7 @@ function AiJobPreview({
                           <span>
                             {question
                               ? `${getQuestionTypeLabel(question.questionType)} · ${getCriterionLabel(settings, question.criterionId)}`
-                              : "질문 뱅크에 저장된 활성 질문과 매칭되지 않아 확정할 수 없습니다."}
+                              : "면접 질문 구성에 저장된 활성 질문과 매칭되지 않아 확정할 수 없습니다."}
                           </span>
                         </span>
                       </label>
@@ -1846,7 +2120,7 @@ function AiJobPreview({
               {groupSummary.confirmableCount > 0 ? (
                 <p>선택된 활성 질문 {groupSummary.confirmableCount}개가 확정 대상입니다.</p>
               ) : (
-                <p>선택된 확정 대상이 없습니다. 질문을 포함하거나 질문 뱅크에 먼저 저장해주세요.</p>
+                <p>선택된 확정 대상이 없습니다. 질문을 포함하거나 면접 질문 구성에 먼저 저장해주세요.</p>
               )}
             </div>
             <span className={`badge ${firstConfirmableQuestion ? "success" : "warning"}`}>
@@ -1874,7 +2148,7 @@ function QuestionSetConfirmNotice({ summary }: { summary: QuestionSetConfirmSumm
   if (summary.confirmableCount === 0) {
     return (
       <div className="empty">
-        질문 세트로 확정할 수 있는 활성 질문이 없습니다. 질문 뱅크에 평가 기준과 연결된 활성 질문을 먼저 추가해주세요.
+        질문 세트로 확정할 수 있는 활성 질문이 없습니다. 면접 질문 구성에 평가 기준과 연결된 활성 질문을 먼저 추가해주세요.
       </div>
     );
   }
@@ -1955,7 +2229,7 @@ function getEmptyAiOutputMessage(notice: AiJobNotice) {
   if (notice.kind === "questions") {
     return "저장 가능한 질문 후보가 없습니다. 평가 기준을 저장하거나 JD 내용을 보강한 뒤 다시 요청해주세요.";
   }
-  return "확정 가능한 질문 세트 결과가 없습니다. 질문 후보를 질문 뱅크에 저장한 뒤 다시 구성해주세요.";
+  return "확정 가능한 질문 세트 결과가 없습니다. 질문 후보를 면접 질문 구성에 저장한 뒤 다시 구성해주세요.";
 }
 
 function normalizeAiJobOutput(output: unknown): AiJobOutput | undefined {

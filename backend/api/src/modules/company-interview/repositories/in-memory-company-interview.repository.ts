@@ -10,6 +10,7 @@ import {
 import {
   CompanyInterviewRepository,
   ConfirmQuestionSetInput,
+  CreateCriterionTagInput,
   CreateQuestionInput,
   UpdateCriterionInput,
   UpdateQuestionInput,
@@ -39,7 +40,7 @@ export class InMemoryCompanyInterviewRepository
     },
   ];
 
-  private readonly criterionTags: CriterionTagRecord[] = [
+  private criterionTags: CriterionTagRecord[] = [
     {
       tagId: 1,
       jobRole: 'Common',
@@ -163,6 +164,8 @@ export class InMemoryCompanyInterviewRepository
       criterionId: 1,
       questionType: 'TECHNICAL',
       content: 'REST API 계약을 먼저 문서화해야 하는 이유를 설명해주세요.',
+      origin: 'MANUAL',
+      isAiEdited: false,
       isActive: true,
     },
     {
@@ -172,6 +175,8 @@ export class InMemoryCompanyInterviewRepository
       criterionId: 2,
       questionType: 'TECHNICAL',
       content: '평가 기준과 질문 뱅크의 관계를 어떻게 모델링하시겠습니까?',
+      origin: 'MANUAL',
+      isAiEdited: false,
       isActive: true,
     },
     {
@@ -181,6 +186,8 @@ export class InMemoryCompanyInterviewRepository
       criterionId: 3,
       questionType: 'EXPERIENCE',
       content: '다른 담당자와 API 계약 충돌을 조정했던 경험을 말해주세요.',
+      origin: 'MANUAL',
+      isAiEdited: false,
       isActive: true,
     },
     {
@@ -190,6 +197,8 @@ export class InMemoryCompanyInterviewRepository
       criterionId: 7,
       questionType: 'TECHNICAL',
       content: 'Next.js App Router의 서버/클라이언트 컴포넌트 경계를 설명해주세요.',
+      origin: 'MANUAL',
+      isAiEdited: false,
       isActive: true,
     },
   ];
@@ -204,6 +213,7 @@ export class InMemoryCompanyInterviewRepository
   ];
 
   private nextCriterionId = 8;
+  private nextTagId = 7;
   private nextQuestionId = 5;
   private nextQuestionSetId = 1;
   private nextQuestionSetItemId = 1;
@@ -265,6 +275,21 @@ export class InMemoryCompanyInterviewRepository
     return this.criterionTags.find(
       (tag) => tag.tagId === tagId && tag.isActive,
     );
+  }
+
+  async createTag(input: CreateCriterionTagInput): Promise<CriterionTagRecord> {
+    const tag: CriterionTagRecord = {
+      tagId: this.nextTagId++,
+      jobRole: input.jobRole,
+      name: input.name.trim(),
+      description: input.description,
+      category: input.category.trim(),
+      isActive: true,
+      sortOrder: Math.max(0, ...this.criterionTags.map((item) => item.sortOrder)) + 1,
+    };
+
+    this.criterionTags = [...this.criterionTags, tag];
+    return tag;
   }
 
   async getTimePolicy(postingId: number): Promise<TimePolicyRecord> {
@@ -330,6 +355,8 @@ export class InMemoryCompanyInterviewRepository
       criterionId: input.criterionId,
       questionType: input.questionType,
       content: input.content.trim(),
+      origin: input.origin,
+      isAiEdited: false,
       isActive: true,
     };
 
@@ -351,6 +378,7 @@ export class InMemoryCompanyInterviewRepository
       criterionId: input.criterionId,
       questionType: input.questionType,
       content: input.content.trim(),
+      isAiEdited: input.isAiEdited,
     };
     this.questions = this.questions.map((item) =>
       item.questionId === questionId ? updated : item,
