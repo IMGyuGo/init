@@ -26,6 +26,7 @@ export interface ReplaceInterviewAnswerInput {
   answerId: number;
   videoFileId?: number;
   audioFileId?: number;
+  transcript?: string;
   durationSeconds: number;
   submittedAt: string;
 }
