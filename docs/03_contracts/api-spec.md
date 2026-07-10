@@ -2186,17 +2186,125 @@ AI 리포트 금지 기준:
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - 직무 선택, 난이도, 질문 유형
+  - 직무 선택, 난이도, 질문 유형, `folderId?`
 - 검증/전제조건:
   - 로그인 사용자
+  - `folderId`가 있으면 현재 지원자 소유 `candidate_folders.id`여야 한다.
 - 성공 응답/처리:
   - 모의면접 세션 생성
+  - `folderId`가 있으면 폴더의 이력서 파일 메타데이터, 추출 텍스트(`application_documents.extracted_text`가 존재하는 경우), GitHub/블로그/포트폴리오 URL, 지원동기, 추가설명을 모의면접 질문 생성 컨텍스트로 사용한다.
 - 오류/예외:
   - 질문 생성 실패 시 기본 질문 세트를 제공한다.
 - 관련 ERD 테이블:
-  - candidate_profiles, question_bank, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, ai_process_logs
+  - candidate_profiles, candidate_folders, file_assets, question_bank, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, ai_process_logs
 - 비고/미결:
   - 기존 SNB 삭제. 2-depth는 GNB hover dropdown으로 노출. 연습 이력은 평가 리포트 항목으로 이동
+
+### API-057A GET /candidate/folders
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: AI 모의면접 시작 화면 (/candidate/mock-interview/start)
+- UI Type: page
+- 상태 코드: 200 OK
+- 비동기: N
+- 요청 데이터: 없음
+- 검증/전제조건:
+  - 로그인 사용자
+- 성공 응답/처리:
+  - `{ data: { items: CandidateFolder[] }, meta }`
+- 관련 ERD 테이블:
+  - candidate_folders, file_assets
+
+### API-057B POST /candidate/folders
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: AI 모의면접 시작 화면 (/candidate/mock-interview/start)
+- UI Type: page
+- 상태 코드: 201 Created
+- 비동기: N
+- 요청 데이터:
+  - `{ name, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, motivation?, extraNote? }`
+- 검증/전제조건:
+  - `name`은 필수이며 100자 이하
+  - URL 필드는 http/https URL이며 500자 이하
+  - `resumeFileId`가 있으면 현재 사용자 소유 file_assets이며 문서 MIME 타입이어야 한다.
+  - 지원자별 폴더는 최대 20개까지 생성할 수 있다.
+- 성공 응답/처리:
+  - `{ data: CandidateFolder, meta }`
+- 오류/예외:
+  - 20개 초과 또는 필드 검증 실패 시 `COMMON_VALIDATION_FAILED`
+  - 타 사용자 파일 참조 시 `COMMON_FORBIDDEN`
+- 관련 ERD 테이블:
+  - candidate_folders, file_assets
+
+### API-057C GET /candidate/folders/{id}
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: AI 모의면접 시작 화면 (/candidate/mock-interview/start)
+- UI Type: page
+- 상태 코드: 200 OK
+- 비동기: N
+- 요청 데이터: 없음
+- 검증/전제조건:
+  - `{id}`는 현재 지원자 소유 폴더여야 한다.
+- 성공 응답/처리:
+  - `{ data: CandidateFolder, meta }`
+- 오류/예외:
+  - 미존재 `COMMON_NOT_FOUND`
+  - 타 지원자 소유 `COMMON_FORBIDDEN`
+- 관련 ERD 테이블:
+  - candidate_folders, file_assets
+
+### API-057D PATCH /candidate/folders/{id}
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: AI 모의면접 시작 화면 (/candidate/mock-interview/start)
+- UI Type: page
+- 상태 코드: 200 OK
+- 비동기: N
+- 요청 데이터:
+  - `{ name?, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, motivation?, extraNote? }`
+  - nullable 필드는 `null`로 초기화 가능
+- 검증/전제조건:
+  - `{id}`는 현재 지원자 소유 폴더여야 한다.
+  - 필드 검증은 생성 API와 동일
+- 성공 응답/처리:
+  - `{ data: CandidateFolder, meta }`
+- 관련 ERD 테이블:
+  - candidate_folders, file_assets
+
+### API-057E DELETE /candidate/folders/{id}
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: AI 모의면접 시작 화면 (/candidate/mock-interview/start)
+- UI Type: page
+- 상태 코드: 204 No Content
+- 비동기: N
+- 요청 데이터: 없음
+- 검증/전제조건:
+  - `{id}`는 현재 지원자 소유 폴더여야 한다.
+- 성공 응답/처리:
+  - 응답 본문 없음
+- 관련 ERD 테이블:
+  - candidate_folders
+
+CandidateFolder 응답 필드:
+
+```json
+{
+  "id": 1,
+  "candidateId": 1,
+  "name": "백엔드 포지션 지원 세트",
+  "githubUrl": "https://github.com/init/backend",
+  "blogUrl": null,
+  "portfolioUrl": "https://portfolio.example.com/backend",
+  "resumeFileId": 10,
+  "motivation": "지원 동기",
+  "extraNote": "추가 설명",
+  "createdAt": "2026-07-10T00:00:00.000Z",
+  "updatedAt": "2026-07-10T00:00:00.000Z"
+}
+```
 
 ### API-045 POST /candidate/mock-interviews/questions/generate
 - 도메인: 지원자 - 모의면접
@@ -2206,17 +2314,20 @@ AI 리포트 금지 기준:
 - 상태 코드: 202 Accepted
 - 비동기: Y
 - 요청 데이터:
-  - 직무, 난이도, 질문 유형
+  - `{ questionCount, folderId? }`
 - 검증/전제조건:
-  - 선택값이 존재해야 함
+  - `questionCount`는 양의 정수
+  - `folderId`가 있으면 현재 지원자 소유 `candidate_folders.id`여야 한다.
 - 성공 응답/처리:
-  - 모의면접 질문 목록 생성
+  - 모의면접 질문 목록 생성 작업 큐잉
+  - `folderId`가 있으면 폴더의 이력서 파일 메타데이터, 추출 텍스트(`application_documents.extracted_text`가 존재하는 경우), GitHub/블로그/포트폴리오 URL, 지원동기, 추가설명을 worker 입력 컨텍스트로 전달한다.
 - 오류/예외:
   - 질문 생성 실패 시 기본 질문 세트를 제공한다.
 - 관련 ERD 테이블:
-  - companies, candidate_profiles, postings, criterion_tags, evaluation_criteria, question_bank, applications, interview_sessions, ai_process_logs
+  - candidate_profiles, candidate_folders, file_assets, application_documents, question_bank, ai_process_logs
 - 비고/미결:
   - 채용 질문과 달리 JD/기업 평가 기준을 사용하지 않음
+  - 원본 파일 바이트/본문은 직접 전달하지 않고 file_assets 메타데이터와 기존 추출 텍스트만 사용한다.
 
 ### API-046 GET /candidate/mock-interviews/{sessionId}
 - 도메인: 지원자 - 모의면접

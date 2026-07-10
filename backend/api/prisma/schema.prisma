@@ -201,6 +201,7 @@ model FileAsset {
   owner             User                  @relation(fields: [ownerUserId], references: [userId])
   companyLogos      Company[]             @relation("CompanyLogo")
   candidateProfiles CandidateProfile[]
+  candidateFolders  CandidateFolder[]      @relation("CandidateFolderResume")
   documents         ApplicationDocument[]
   videoAnswers      InterviewAnswer[]     @relation("VideoFile")
   audioAnswers      InterviewAnswer[]     @relation("AudioFile")
@@ -221,11 +222,31 @@ model CandidateProfile {
   defaultResumeFile   FileAsset?         @relation(fields: [defaultResumeFileId], references: [fileId])
   applications        Application[]
   interviewSessions   InterviewSession[]
+  candidateFolders     CandidateFolder[]
   mockPassLedgers     CandidateMockInterviewPassLedger[]
   paymentCustomers    PaymentCustomer[]
   paymentOrders       PaymentOrder[]
 
   @@map("candidate_profiles")
+}
+
+model CandidateFolder {
+  id            BigInt           @id @default(autoincrement())
+  candidateId   BigInt           @map("candidate_id")
+  name          String           @db.VarChar(100)
+  githubUrl     String?          @map("github_url") @db.VarChar(500)
+  blogUrl       String?          @map("blog_url") @db.VarChar(500)
+  portfolioUrl  String?          @map("portfolio_url") @db.VarChar(500)
+  resumeFileId  BigInt?          @map("resume_file_id")
+  motivation    String?
+  extraNote     String?          @map("extra_note")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+  candidate     CandidateProfile @relation(fields: [candidateId], references: [candidateId], onDelete: Cascade)
+  resumeFile    FileAsset?       @relation("CandidateFolderResume", fields: [resumeFileId], references: [fileId], onDelete: SetNull)
+
+  @@index([candidateId], map: "idx_candidate_folders_candidate_id")
+  @@map("candidate_folders")
 }
 
 model Posting {

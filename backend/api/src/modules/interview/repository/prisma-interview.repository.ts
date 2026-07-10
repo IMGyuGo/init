@@ -10,6 +10,7 @@ import type { InterviewAnswer, InterviewQuestion, RuntimeInterviewSession } from
 import type {
   CompletedFollowUpProcess,
   CreateInterviewAnswerInput,
+  CreateMockContextQuestionInput,
   CreateMockInterviewSessionInput,
   CreateRuntimeFollowUpQuestionInput,
   FollowUpQuestionPolicy,
@@ -70,6 +71,7 @@ const FALLBACK_RECRUITING_QUESTIONS: Omit<InterviewQuestion, "questionId" | "isA
 export class PrismaInterviewRepository implements InterviewRepository {
   private readonly mockSessionQuestionIds = new Map<number, number[]>();
   private readonly recruitingSessionQuestionIds = new Map<number, number[]>();
+  private readonly runtimeQuestionIds = new Set<number>();
   private mockFallbackQuestionsReady = false;
 
   constructor(private readonly prisma: PrismaService) {}
@@ -93,7 +95,9 @@ export class PrismaInterviewRepository implements InterviewRepository {
 
   async findQuestion(questionId: number): Promise<InterviewQuestion | undefined> {
     const question = await this.prisma.question.findUnique({ where: { questionId: BigInt(questionId) } });
-    return question && question.isActive ? this.toQuestion(question) : undefined;
+    return question && (question.isActive || this.runtimeQuestionIds.has(Number(question.questionId)))
+      ? this.toQuestion(question, question.postingId === null ? "MOCK" : "RECRUITING")
+      : undefined;
   }
 
   async listOwnedMockSessions(candidateId: number): Promise<RuntimeInterviewSession[]> {
@@ -109,6 +113,35 @@ export class PrismaInterviewRepository implements InterviewRepository {
       where: { sessionId: BigInt(sessionId), interviewType: PrismaInterviewType.MOCK },
     });
     return session ? this.toRuntimeSession(session) : undefined;
+  }
+
+  async createMockContextQuestions(input: CreateMockContextQuestionInput[]): Promise<InterviewQuestion[]> {
+    if (input.length === 0) return [];
+
+    const company = await this.prisma.company.findFirst({ orderBy: { companyId: "asc" }, select: { companyId: true } });
+    if (!company) {
+      throw new Error("Company is required to create mock interview context questions.");
+    }
+
+    const created: InterviewQuestion[] = [];
+    for (const item of input) {
+      const question = await this.prisma.question.create({
+        data: {
+          companyId: company.companyId,
+          postingId: null,
+          criterionId: null,
+          questionType: item.questionType as PrismaQuestionType,
+          content: item.content,
+          isActive: false,
+        },
+      });
+      this.runtimeQuestionIds.add(Number(question.questionId));
+      created.push({
+        ...this.toQuestion(question, "MOCK"),
+        sortOrder: item.sortOrder,
+      });
+    }
+    return created;
   }
 
   async createMockSession(input: CreateMockInterviewSessionInput): Promise<RuntimeInterviewSession> {

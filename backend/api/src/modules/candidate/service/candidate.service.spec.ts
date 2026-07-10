@@ -65,6 +65,68 @@ async function run() {
   });
   assert.equal("content" in repositoryFileAsset, false);
 
+  const folderRepository = new InMemoryCandidateRepository();
+  const folderService = new CandidateService(folderRepository);
+  const folderResume = await folderRepository.createFileAsset({
+    ownerUserId: currentUser.userId,
+    storageKey: "candidate/1/folders/backend-resume.pdf",
+    originalName: "backend-resume.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 1000,
+  });
+  const folder = await folderService.createFolder(
+    {
+      name: "백엔드 포지션 지원 세트",
+      githubUrl: "https://github.com/init/backend",
+      blogUrl: "https://blog.example.com/backend",
+      portfolioUrl: "https://portfolio.example.com/backend",
+      resumeFileId: folderResume.fileId,
+      motivation: "백엔드 플랫폼을 안정적으로 만들고 싶습니다.",
+      extraNote: "NestJS와 PostgreSQL 경험이 있습니다.",
+    },
+    currentUser,
+  );
+  assert.equal(folder.data.candidateId, currentUser.candidateId);
+  assert.equal(folder.data.resumeFileId, folderResume.fileId);
+  assert.equal(folder.data.motivation, "백엔드 플랫폼을 안정적으로 만들고 싶습니다.");
+
+  const updatedFolder = await folderService.updateFolder(
+    folder.data.id,
+    {
+      name: "수정된 지원 세트",
+      blogUrl: null,
+    },
+    currentUser,
+  );
+  assert.equal(updatedFolder.data.name, "수정된 지원 세트");
+  assert.equal(updatedFolder.data.blogUrl, null);
+
+  await folderService.deleteFolder(folder.data.id, currentUser);
+  const foldersAfterDelete = await folderService.listFolders(currentUser);
+  assert.equal(foldersAfterDelete.data.items.length, 0);
+
+  for (let index = 0; index < 20; index += 1) {
+    await folderService.createFolder({ name: `지원 세트 ${index + 1}` }, currentUser);
+  }
+  await assert.rejects(
+    () => folderService.createFolder({ name: "초과 지원 세트" }, currentUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
+  );
+
+  const folderOwnershipRepository = new InMemoryCandidateRepository();
+  const folderOwnershipService = new CandidateService(folderOwnershipRepository);
+  const otherUserResume = await folderOwnershipRepository.createFileAsset({
+    ownerUserId: 999,
+    storageKey: "candidate/999/folders/resume.pdf",
+    originalName: "resume.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 1000,
+  });
+  await assert.rejects(
+    () => folderOwnershipService.createFolder({ name: "권한 없는 파일", resumeFileId: otherUserResume.fileId }, currentUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_FORBIDDEN",
+  );
+
   await assert.rejects(
     () =>
       repository.createFileAsset({

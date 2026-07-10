@@ -147,6 +147,7 @@ export interface ApplicationDocument {
   fileId: number;
   documentType: DocumentType;
   parseStatus: DocumentStatus;
+  extractedText?: string | null;
   uploadedAt: string;
 }
 
@@ -159,6 +160,25 @@ export interface PortfolioLink {
   description?: string;
   fileId?: number;
   createdAt: string;
+}
+
+export interface CandidateFolder {
+  id: number;
+  candidateId: number;
+  name: string;
+  githubUrl: string | null;
+  blogUrl: string | null;
+  portfolioUrl: string | null;
+  resumeFileId: number | null;
+  motivation: string | null;
+  extraNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CandidateFolderContext extends CandidateFolder {
+  resumeFile: FileAsset | null;
+  resumeExtractedText: string | null;
 }
 
 export interface ConsentRecord {
@@ -290,6 +310,7 @@ export interface CandidateRepository {
   findJob(jobId: number): Promise<CandidateJob | undefined>;
   getInterviewTimePolicy(postingId: number): Promise<InterviewTimePolicy>;
   findFileAsset(fileId: number): Promise<FileAsset | undefined>;
+  findLatestExtractedTextByFileId(fileId: number): Promise<string | null>;
   listApplications(candidateId: number): Promise<Application[]>;
   findApplication(applicationId: number): Promise<Application | undefined>;
   findCandidateUserId(candidateId: number): Promise<number | undefined>;
@@ -314,4 +335,10 @@ export interface CandidateRepository {
   }): Promise<ApplicationSubmissionResult>;
   createFileAsset(input: Omit<FileAsset, "fileId" | "createdAt" | "status">): Promise<FileAsset>;
   createPortfolioLink(input: Omit<PortfolioLink, "portfolioLinkId" | "createdAt">): Promise<PortfolioLink>;
+  countFolders(candidateId: number): Promise<number>;
+  listFolders(candidateId: number): Promise<CandidateFolder[]>;
+  findFolder(folderId: number): Promise<CandidateFolder | undefined>;
+  createFolder(input: Omit<CandidateFolder, "id" | "createdAt" | "updatedAt">): Promise<CandidateFolder>;
+  updateFolder(folderId: number, input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "createdAt" | "updatedAt">>): Promise<CandidateFolder>;
+  deleteFolder(folderId: number): Promise<void>;
 }

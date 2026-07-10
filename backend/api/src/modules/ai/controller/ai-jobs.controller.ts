@@ -34,7 +34,7 @@ import { AiJobDispatcherService } from "../../report/service/ai-job-dispatcher.s
 import { AiProcessNotFoundError, REPORT_REPOSITORY, ReportRepository } from "../../report/repository/report.repository";
 import { AiProcessType, QueuedAiProcessSnapshot } from "../../report/report.types";
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
-import { CandidateDomainError, CandidateService, type CurrentCandidateUser } from "../../candidate";
+import { CandidateDomainError, CandidateService, type CandidateFolderContext, type CurrentCandidateUser } from "../../candidate";
 import { InterviewService } from "../../interview";
 
 type HeaderMap = Record<string, string | string[] | undefined>;
@@ -145,12 +145,20 @@ export class CandidateAiJobsController {
   @ApiOperation({ summary: "연습용 질문 목록 구성 작업 생성" })
   @ApiEnvelopeResponse(AiJobResponseDto, 202)
   async generateMockQuestions(@Req() request: CandidateAiRequest, @Body() body: MockQuestionGenerateRequestDto) {
-    const currentUser = this.candidate(request);
-    this.requirePositive(body.questionCount, "questionCount");
+    return this.handleCandidateDomain(async () => {
+      const currentUser = this.candidate(request);
+      this.requirePositive(body.questionCount, "questionCount");
+      const payload: Record<string, unknown> = { ...body };
+      if (body.folderId !== undefined && body.folderId !== null) {
+        this.requirePositive(body.folderId, "folderId");
+        const folderContext = await this.candidateService.getMockInterviewFolderContext(Number(body.folderId), currentUser);
+        payload.folderContext = this.toMockQuestionFolderContext(folderContext);
+      }
 
-    return this.dispatcher.dispatch({
-      processType: "QUESTION_GENERATE",
-      input: this.input("MOCK_QUESTION_GENERATE", body, currentUser)
+      return this.dispatcher.dispatch({
+        processType: "QUESTION_GENERATE",
+        input: this.input("MOCK_QUESTION_GENERATE", payload, currentUser)
+      });
     });
   }
 
@@ -263,6 +271,27 @@ export class CandidateAiJobsController {
     if (providedName) {
       throw this.validation(`${providedName} must not be sent. Use fileId references.`);
     }
+  }
+
+  private toMockQuestionFolderContext(folder: CandidateFolderContext): Record<string, unknown> {
+    return {
+      folderId: folder.id,
+      name: folder.name,
+      githubUrl: folder.githubUrl,
+      blogUrl: folder.blogUrl,
+      portfolioUrl: folder.portfolioUrl,
+      motivation: folder.motivation,
+      extraNote: folder.extraNote,
+      resumeFile: folder.resumeFile
+        ? {
+            fileId: folder.resumeFile.fileId,
+            originalName: folder.resumeFile.originalName,
+            mimeType: folder.resumeFile.mimeType,
+            sizeBytes: folder.resumeFile.sizeBytes,
+          }
+        : null,
+      resumeExtractedText: folder.resumeExtractedText,
+    };
   }
 
   private async handleCandidateDomain<T>(action: () => Promise<T>): Promise<T> {

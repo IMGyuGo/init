@@ -11,6 +11,8 @@ assert.equal(candidateApiRoutes.interviewGuide, "applications/:applicationId/int
 assert.equal(candidateApiRoutes.interviewConsent, "applications/:applicationId/consent");
 assert.equal(candidateApiRoutes.resume, "resume");
 assert.equal(candidateApiRoutes.portfolioLinks, "portfolio-links");
+assert.equal(candidateApiRoutes.folders, "folders");
+assert.equal(candidateApiRoutes.folderDetail, "folders/:folderId");
 
 test("candidate routes contract", () => {
   assert.ok(candidateApiRoutes.jobs);

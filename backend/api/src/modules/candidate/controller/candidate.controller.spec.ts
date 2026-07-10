@@ -17,6 +17,11 @@ type CandidateControllerRoute =
   | "submitApplication"
   | "uploadResume"
   | "createPortfolioLink"
+  | "listFolders"
+  | "createFolder"
+  | "getFolder"
+  | "updateFolder"
+  | "deleteFolder"
   | "listApplications"
   | "getInterviewGuide"
   | "saveInterviewConsent";
@@ -43,6 +48,11 @@ assertRoute("getApplyView", candidateApiRoutes.applyView, RequestMethod.GET);
 assertRoute("submitApplication", candidateApiRoutes.submitApplication, RequestMethod.POST, 201);
 assertRoute("uploadResume", candidateApiRoutes.resume, RequestMethod.POST, 201);
 assertRoute("createPortfolioLink", candidateApiRoutes.portfolioLinks, RequestMethod.POST, 201);
+assertRoute("listFolders", candidateApiRoutes.folders, RequestMethod.GET);
+assertRoute("createFolder", candidateApiRoutes.folders, RequestMethod.POST, 201);
+assertRoute("getFolder", candidateApiRoutes.folderDetail, RequestMethod.GET);
+assertRoute("updateFolder", candidateApiRoutes.folderDetail, RequestMethod.PATCH);
+assertRoute("deleteFolder", candidateApiRoutes.folderDetail, RequestMethod.DELETE, 204);
 assertRoute("listApplications", candidateApiRoutes.applications, RequestMethod.GET);
 assertRoute("getInterviewGuide", candidateApiRoutes.interviewGuide, RequestMethod.GET);
 assertRoute("saveInterviewConsent", candidateApiRoutes.interviewConsent, RequestMethod.POST);
@@ -157,6 +167,37 @@ async function runControllerRuntimeAssertions() {
     mimeType: "application/pdf",
     sizeBytes: 1000,
   });
+
+  const createdFolder = await controller.createFolder(validCandidateRequest, {
+    name: "네이버 백엔드 지원 세트",
+    githubUrl: "https://github.com/init/backend",
+    blogUrl: "https://blog.example.com/init",
+    portfolioUrl: "https://portfolio.example.com/init",
+    resumeFileId: resume.data.fileId,
+    motivation: "대규모 트래픽 API를 만들고 싶습니다.",
+    extraNote: "NestJS와 Prisma 프로젝트 경험이 있습니다.",
+  });
+  assert.equal(createdFolder.data.name, "네이버 백엔드 지원 세트");
+  assert.equal(createdFolder.data.resumeFileId, resume.data.fileId);
+  assert.equal(createdFolder.data.githubUrl, "https://github.com/init/backend");
+
+  const folders = await controller.listFolders(validCandidateRequest);
+  assert.equal(folders.data.items.length, 1);
+  assert.equal(folders.data.items[0]?.id, createdFolder.data.id);
+
+  const folderDetail = await controller.getFolder(validCandidateRequest, String(createdFolder.data.id));
+  assert.equal(folderDetail.data.motivation, "대규모 트래픽 API를 만들고 싶습니다.");
+
+  const updatedFolder = await controller.updateFolder(validCandidateRequest, String(createdFolder.data.id), {
+    name: "쿠팡 백엔드 지원 세트",
+    portfolioUrl: null,
+  });
+  assert.equal(updatedFolder.data.name, "쿠팡 백엔드 지원 세트");
+  assert.equal(updatedFolder.data.portfolioUrl, null);
+
+  await controller.deleteFolder(validCandidateRequest, String(createdFolder.data.id));
+  const foldersAfterDelete = await controller.listFolders(validCandidateRequest);
+  assert.equal(foldersAfterDelete.data.items.length, 0);
 
   await assertCandidateHttpError(
     () =>

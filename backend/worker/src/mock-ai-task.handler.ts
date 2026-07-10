@@ -49,6 +49,21 @@ interface ReportScoringContext {
   jobDescription?: string;
 }
 
+interface MockQuestionFolderContext {
+  name?: string;
+  githubUrl?: string;
+  blogUrl?: string;
+  portfolioUrl?: string;
+  motivation?: string;
+  extraNote?: string;
+  resumeFile?: {
+    originalName?: string;
+    mimeType?: string;
+    sizeBytes?: number;
+  };
+  resumeExtractedText?: string;
+}
+
 const MOCK_HIRING_DECISION_TERMS = [
   "합격",
   "불합격",
@@ -416,23 +431,26 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const postingId = kind.startsWith("MOCK") ? undefined : positiveNumber(payload.postingId, "postingId");
     const criteria = kind.startsWith("MOCK") ? [] : criteriaOf(payload.criteria);
     const jobDescription = kind.startsWith("MOCK") ? undefined : requiredText(payload.jobDescription, "jobDescription");
+    const folderContext = kind.startsWith("MOCK") ? mockQuestionFolderContextOf(payload.folderContext) : undefined;
 
     const questionCandidates = Array.from({ length: questionCount }, (_, index) => {
       const criterion = criteria[index % Math.max(criteria.length, 1)];
       const content = kind.startsWith("MOCK")
-        ? `Mock interview practice question ${index + 1}`
+        ? buildMockQuestionCandidate(index, folderContext)
         : `${criterion.name} 기준으로 ${shorten(jobDescription ?? "")} 경험을 검증할 수 있는 사례를 설명해주세요.`;
 
       return {
         content,
-        category: kind.startsWith("MOCK") ? "모의면접" : criterion.category ?? "채용면접",
+        category: kind.startsWith("MOCK") ? folderContext?.name ?? "모의면접" : criterion.category ?? "채용면접",
         difficulty: index % 3 === 0 ? "MEDIUM" as const : "HARD" as const,
         criterionId: criterion?.criterionId,
         criterionTitle: criterion?.name ?? "",
         expectedKeywords: ["경험", "근거", "성과"],
         suggestionReason: criterion
           ? `${criterion.name} 평가 기준과 JD 맥락을 함께 확인하기 위한 공통 질문 후보입니다.`
-          : "면접 연습을 위해 검증 가능한 답변을 유도합니다.",
+          : folderContext
+            ? "지원서 세트의 이력서, URL, 지원 동기, 추가 설명을 바탕으로 검증 가능한 답변을 유도합니다."
+            : "면접 연습을 위해 검증 가능한 답변을 유도합니다.",
         questionType: index % 2 === 0 ? "TECHNICAL" : "EXPERIENCE"
       };
     });
@@ -892,6 +910,61 @@ function requiredObject(value: unknown, name: string): Record<string, unknown> {
     throw new NonRetryableAiWorkerFailure(`${name} is required`);
   }
   return value as Record<string, unknown>;
+}
+
+function optionalObject(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function mockQuestionFolderContextOf(value: unknown): MockQuestionFolderContext | undefined {
+  const record = optionalObject(value);
+  if (!record) return undefined;
+  const resumeFileRecord = optionalObject(record.resumeFile);
+  return {
+    name: optionalText(record.name),
+    githubUrl: optionalText(record.githubUrl),
+    blogUrl: optionalText(record.blogUrl),
+    portfolioUrl: optionalText(record.portfolioUrl),
+    motivation: optionalText(record.motivation),
+    extraNote: optionalText(record.extraNote),
+    resumeFile: resumeFileRecord
+      ? {
+          originalName: optionalText(resumeFileRecord.originalName),
+          mimeType: optionalText(resumeFileRecord.mimeType),
+          sizeBytes: Number.isFinite(Number(resumeFileRecord.sizeBytes)) ? Number(resumeFileRecord.sizeBytes) : undefined
+        }
+      : undefined,
+    resumeExtractedText: optionalText(record.resumeExtractedText)
+  };
+}
+
+function buildMockQuestionCandidate(index: number, folder?: MockQuestionFolderContext): string {
+  if (!folder) {
+    return `Mock interview practice question ${index + 1}`;
+  }
+
+  const resume = folder.resumeExtractedText
+    ? `이력서 내용(${shorten(folder.resumeExtractedText)})`
+    : folder.resumeFile?.originalName
+      ? `이력서 파일(${folder.resumeFile.originalName})`
+      : "등록된 이력서";
+  const links = [folder.githubUrl, folder.blogUrl, folder.portfolioUrl]
+    .filter((link): link is string => typeof link === "string" && link.trim().length > 0)
+    .map(shorten)
+    .join(", ");
+  const motivation = folder.motivation ? `지원동기(${shorten(folder.motivation)})` : "지원동기";
+  const extraNote = folder.extraNote ? `추가설명(${shorten(folder.extraNote)})` : "추가설명";
+  const context = [folder.name ? `지원서 세트 ${folder.name}` : "지원서 세트", resume, links ? `URL(${links})` : undefined, motivation, extraNote]
+    .filter((item): item is string => Boolean(item))
+    .join(" · ");
+
+  if (index % 2 === 0) {
+    return `${context}를 바탕으로 실제 기술 경험 하나를 골라 본인 역할, 의사결정, 성과를 설명해주세요.`;
+  }
+  return `${context}에서 면접관이 더 확인해야 할 약한 근거를 하나 짚고 구체적인 사례로 보완해서 설명해주세요.`;
 }
 
 function stringArrayOf(value: unknown): string[] {

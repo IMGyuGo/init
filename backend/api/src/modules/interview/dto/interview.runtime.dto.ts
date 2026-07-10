@@ -18,6 +18,11 @@ export class RuntimeFileAssetDto {
 
 export class StartMockInterviewDto {
   @IsOptional()
+  @IsInt()
+  @IsPositive()
+  folderId?: number;
+
+  @IsOptional()
   @IsString()
   jobRole?: string;
 

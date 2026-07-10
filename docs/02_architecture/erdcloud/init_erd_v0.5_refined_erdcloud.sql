@@ -136,6 +136,41 @@ CREATE TABLE candidate_profiles (
     updated_at TIMESTAMP NOT NULL
 );
 
+CREATE TABLE candidate_folders (
+    -- 기업별 지원서 세트 PK
+    id BIGINT PRIMARY KEY,
+
+    -- 지원자 프로필 FK
+    candidate_id BIGINT NOT NULL,
+
+    -- 지원서 세트 이름
+    name VARCHAR(100) NOT NULL,
+
+    -- GitHub URL
+    github_url VARCHAR(500),
+
+    -- 블로그 URL
+    blog_url VARCHAR(500),
+
+    -- 포트폴리오 URL
+    portfolio_url VARCHAR(500),
+
+    -- 폴더 이력서 파일 FK
+    resume_file_id BIGINT,
+
+    -- 지원 동기
+    motivation TEXT,
+
+    -- 추가 설명
+    extra_note TEXT,
+
+    -- 폴더 생성 시각
+    created_at TIMESTAMP NOT NULL,
+
+    -- 폴더 수정 시각
+    updated_at TIMESTAMP NOT NULL
+);
+
 -- =========================================================
 -- 2. 채용 공고/평가 태그/질문
 -- =========================================================
@@ -641,6 +676,14 @@ ALTER TABLE candidate_profiles
 ALTER TABLE candidate_profiles
     ADD CONSTRAINT fk_candidate_profiles_default_resume
     FOREIGN KEY (default_resume_file_id) REFERENCES file_assets(file_id);
+
+ALTER TABLE candidate_folders
+    ADD CONSTRAINT fk_candidate_folders_candidate
+    FOREIGN KEY (candidate_id) REFERENCES candidate_profiles(candidate_id) ON DELETE CASCADE;
+
+ALTER TABLE candidate_folders
+    ADD CONSTRAINT fk_candidate_folders_resume_file
+    FOREIGN KEY (resume_file_id) REFERENCES file_assets(file_id) ON DELETE SET NULL;
 
 ALTER TABLE postings
     ADD CONSTRAINT fk_postings_company

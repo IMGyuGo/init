@@ -102,6 +102,12 @@ export class MockQuestionGenerateRequestDto {
   @IsInt()
   @Min(1)
   questionCount!: number;
+
+  @ApiPropertyOptional({ example: 3 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  folderId?: number;
 }
 
 export class CriteriaSuggestRequestDto {

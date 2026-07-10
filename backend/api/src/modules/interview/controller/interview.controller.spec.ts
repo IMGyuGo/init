@@ -126,6 +126,44 @@ test("mock STT handoff includes answer duration for worker usage tracking", asyn
   assert.ok(stt.data.inputRef?.includes('"durationSeconds":37'));
 });
 
+test("mock interview start builds questions from candidate folder context", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+  const resume = await repository.createFileAsset({
+    ownerUserId: DEV_CANDIDATE_USER.userId,
+    storageKey: "candidate/1/folders/payment-resume.pdf",
+    originalName: "payment-resume.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 2048,
+  });
+  const folder = await candidateService.createFolder(
+    {
+      name: "결제 플랫폼 백엔드 지원 세트",
+      githubUrl: "https://github.com/init/payment-api",
+      portfolioUrl: "https://portfolio.example.com/payment",
+      resumeFileId: resume.fileId,
+      motivation: "대규모 결제 트래픽을 안정적으로 처리하고 싶습니다.",
+      extraNote: "NestJS와 PostgreSQL 기반 장애 대응 경험이 있습니다.",
+    },
+    DEV_CANDIDATE_USER,
+  );
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    folderId: folder.data.id,
+    questionTypes: ["INTRO", "TECHNICAL", "EXPERIENCE"],
+    showQuestionText: true,
+  });
+  const questions = await controller.listMockQuestions(validCandidateRequest, String(started.data.sessionId));
+  const content = questions.data.questions.map((question) => question.content).join("\n");
+
+  assert.match(content, /결제 플랫폼 백엔드 지원 세트/);
+  assert.match(content, /payment-resume\.pdf/);
+  assert.match(content, /github\.com\/init\/payment-api/);
+  assert.match(content, /대규모 결제 트래픽/);
+});
+
 async function assertInterviewHttpError(
   action: () => Promise<unknown>,
   expectedStatus: number,

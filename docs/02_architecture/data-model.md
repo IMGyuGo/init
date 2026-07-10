@@ -41,6 +41,7 @@
 | `users` | `User` | A |
 | `companies` | `Company` | A |
 | `candidate_profiles` | `CandidateProfile` | A/D |
+| `candidate_folders` | `CandidateFolder` | D |
 | `file_assets` | `FileAsset` | A/D/E |
 | `postings` | `Posting` | B |
 | `criterion_tags` | `CriterionTag` | C |
@@ -136,6 +137,22 @@
 | summary | TEXT | 지원자 자기소개/요약 정보. AI 분석 또는 프로필 표시용 |
 | created_at | TIMESTAMP NOT NULL | 지원자 프로필 생성 시각 |
 | updated_at | TIMESTAMP NOT NULL | 지원자 프로필 수정 시각 |
+
+### candidate_folders
+
+| Column | Definition | Description |
+| --- |--- |--- |
+| id | BIGINT PRIMARY KEY | 기업별 지원서 세트 PK |
+| candidate_id | BIGINT NOT NULL | 지원자 프로필 FK. 지원자 삭제 시 cascade |
+| name | VARCHAR(100) NOT NULL | 지원서 세트 이름 |
+| github_url | VARCHAR(500) | GitHub URL |
+| blog_url | VARCHAR(500) | 블로그 URL |
+| portfolio_url | VARCHAR(500) | 포트폴리오 URL |
+| resume_file_id | BIGINT | 폴더에 연결된 이력서 file_assets FK. 파일 삭제 시 NULL |
+| motivation | TEXT | 지원 동기 |
+| extra_note | TEXT | 추가 설명 |
+| created_at | TIMESTAMP NOT NULL | 폴더 생성 시각 |
+| updated_at | TIMESTAMP NOT NULL | 폴더 수정 시각 |
 
 ### postings
 

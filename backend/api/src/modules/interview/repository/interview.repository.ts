@@ -12,6 +12,12 @@ export interface CreateMockInterviewSessionInput {
   updatedAt: string;
 }
 
+export interface CreateMockContextQuestionInput {
+  questionType: InterviewQuestion["questionType"];
+  content: string;
+  sortOrder: number;
+}
+
 export interface CreateInterviewAnswerInput {
   sessionId: number;
   questionId: number;
@@ -77,6 +83,7 @@ export interface InterviewRepository {
   findQuestion(questionId: number): MaybePromise<InterviewQuestion | undefined>;
   listOwnedMockSessions(candidateId: number): MaybePromise<RuntimeInterviewSession[]>;
   findMockSession(sessionId: number): MaybePromise<RuntimeInterviewSession | undefined>;
+  createMockContextQuestions(input: CreateMockContextQuestionInput[]): MaybePromise<InterviewQuestion[]>;
   createMockSession(input: CreateMockInterviewSessionInput): MaybePromise<RuntimeInterviewSession>;
   findRecruitingRuntimeSession(sessionId: number): MaybePromise<RuntimeInterviewSession | undefined>;
   saveRecruitingRuntimeSession(session: RuntimeInterviewSession): MaybePromise<RuntimeInterviewSession>;

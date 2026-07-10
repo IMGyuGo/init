@@ -112,6 +112,11 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-055 | 지원자 - 모의면접 | GET | /candidate/mock-interview/reports/{reportId}/feedback | 모의면접 피드백 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-056 | 지원자 - 모의면접 | GET | /candidate/mock-interview/reports/{reportId}/media | 영상/스크립트 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-057 | 지원자 - 모의면접 | POST | /candidate/mock-interview/reports/{reportId}/generate | 피드백 리포트 생성 | 지원자 / 지원자 사용자 로그인 | Y | 202 Accepted |
+| API-057A | 지원자 - 모의면접 | GET | /candidate/folders | 기업별 지원서 세트 목록 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
+| API-057B | 지원자 - 모의면접 | POST | /candidate/folders | 기업별 지원서 세트 생성 | 지원자 / 지원자 사용자 로그인 | N | 201 Created |
+| API-057C | 지원자 - 모의면접 | GET | /candidate/folders/{id} | 기업별 지원서 세트 상세 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
+| API-057D | 지원자 - 모의면접 | PATCH | /candidate/folders/{id} | 기업별 지원서 세트 수정 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
+| API-057E | 지원자 - 모의면접 | DELETE | /candidate/folders/{id} | 기업별 지원서 세트 삭제 | 지원자 / 지원자 사용자 로그인 | N | 204 No Content |
 | API-058 | 지원자 - 채용공고/지원 | GET | /candidate/jobs | 채용공고 목록 조회 / 채용공고 검색 / 채용공고 리스트 표시 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-059 | 지원자 - 채용공고/지원 | GET | /candidate/jobs/{jobId} | 채용공고 상세 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-060 | 지원자 - 채용공고/지원 | POST | /candidate/jobs/{jobId}/applications | 기업별 지원 서류 제출 | 지원자 / 지원자 사용자 로그인 | N | 201 Created |

@@ -469,6 +469,47 @@ test("question generation stores review-required drafts after guardrail pass", a
   assert.equal(output.questionCandidates?.[0]?.category, "직무역량");
 });
 
+test("mock question generation uses candidate folder context when provided", async () => {
+  const results = new InMemoryAiResultRepository();
+
+  const repository = await run({
+    processLogId: 15,
+    processType: "QUESTION_GENERATE",
+    input: {
+      kind: "MOCK_QUESTION_GENERATE",
+      payload: {
+        questionCount: 2,
+        folderContext: {
+          name: "게임 서버 지원 세트",
+          githubUrl: "https://github.com/init/game-server",
+          motivation: "대규모 게임 트래픽을 안정적으로 다루고 싶습니다.",
+          extraNote: "Redis와 PostgreSQL 운영 경험이 있습니다.",
+          resumeFile: {
+            originalName: "game-server-resume.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 4096
+          },
+          resumeExtractedText: "NestJS 기반 매칭 서버와 Redis 캐시를 운영했습니다."
+        }
+      }
+    },
+    results
+  });
+
+  const output = JSON.parse(repository.get(15).outputRef ?? "{}") as {
+    items?: string[];
+    questionCandidates?: Array<{
+      category?: string;
+      suggestionReason?: string;
+    }>;
+  };
+  assert.match(output.items?.[0] ?? "", /게임 서버 지원 세트/);
+  assert.match(output.items?.[0] ?? "", /NestJS 기반 매칭 서버/);
+  assert.match(output.items?.[1] ?? "", /대규모 게임 트래픽/);
+  assert.equal(output.questionCandidates?.[0]?.category, "게임 서버 지원 세트");
+  assert.match(output.questionCandidates?.[0]?.suggestionReason ?? "", /지원서 세트/);
+});
+
 test("posting draft generation returns review-required posting draft without final save", async () => {
   const results = new InMemoryAiResultRepository();
 
