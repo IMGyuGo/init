@@ -182,6 +182,7 @@
 | criterion_id | BIGINT PRIMARY KEY | 공고별 선택 평가 기준 PK |
 | posting_id | BIGINT NOT NULL | 이 기준이 적용되는 채용 공고 FK |
 | tag_id | BIGINT NOT NULL | 선택된 평가 태그 FK |
+| description | TEXT | 이 공고에서 사용하는 평가 기준 상세 설명 스냅샷. 공용 태그 설명과 독립적으로 수정 가능 |
 | weight | INTEGER NOT NULL | 가중치. 예: 30 |
 | pass_score | INTEGER | 이 항목에서 통과로 볼 최소 점수 |
 | sort_order | INTEGER NOT NULL | 화면 표시 순서 |
@@ -196,6 +197,8 @@
 | criterion_id | BIGINT | 어떤 공고별 평가 기준과 연결된 질문인지 |
 | question_type | VARCHAR(50) NOT NULL | 질문 유형: INTRO, TECHNICAL, EXPERIENCE, SITUATION, FOLLOW_UP, CLOSING |
 | content | TEXT NOT NULL | 실제 질문 문장 |
+| origin | QuestionOrigin NOT NULL DEFAULT MANUAL | 최초 작성 출처: MANUAL, AI_GENERATED |
+| is_ai_edited | BOOLEAN NOT NULL DEFAULT FALSE | AI 생성 질문이 사용자에 의해 수정되었는지 여부 |
 | is_active | BOOLEAN NOT NULL DEFAULT TRUE | 현재 사용 가능한 질문인지 여부 |
 
 ### interview_question_sets

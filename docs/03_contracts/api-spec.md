@@ -1544,6 +1544,8 @@ AI 리포트 금지 기준:
     - `criterionId: number | null`
     - `questionType: QuestionType`
     - `content: string`
+    - `origin: MANUAL | AI_GENERATED`
+    - `isAiEdited: boolean`
     - `isActive: boolean`
   - `data.timePolicy`
     - `preparationTimeSec: number`
@@ -1630,6 +1632,7 @@ AI 리포트 금지 기준:
   - `criteria: EvaluationCriterionItemDto[]`
   - `criteria[].criterionId?: number`
   - `criteria[].tagId: number`
+  - `criteria[].description?: string | null`
   - `criteria[].weight: number`
   - `criteria[].passScore?: number | null`
   - `criteria[].sortOrder: number`
@@ -1640,6 +1643,8 @@ AI 리포트 금지 기준:
   - `criterionId`가 있으면 해당 공고의 `evaluation_criteria`에 존재해야 함
   - `sortOrder`는 요청 배열 안에서 중복될 수 없음
   - `passScore`는 nullable이며 값이 있으면 정책 점수 범위 안이어야 함
+  - `description`은 공용 태그 설명을 변경하지 않고 해당 공고의 평가 기준 설명 스냅샷으로 저장한다.
+  - `description`을 생략하면 기존 기준 설명을 유지하며, 신규 기준이면 태그 기본 설명을 사용한다.
   - `weight` 합계 정책은 구현 전 PM/A와 확정한다.
 - 성공 응답/처리:
   - 평가 기준 저장
@@ -1678,7 +1683,7 @@ AI 리포트 금지 기준:
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - 질문 내용, 질문 유형, 평가 역량
+  - 질문 내용, 질문 유형, 평가 역량, 최초 작성 출처
 - 검증/전제조건:
   - 질문 내용과 평가 역량 필수
 - 성공 응답/처리:
@@ -1696,9 +1701,10 @@ AI 리포트 금지 기준:
   - `criterionId`: number, required
   - `questionType`: `INTRO | TECHNICAL | EXPERIENCE | SITUATION | FOLLOW_UP | CLOSING`, required
   - `content`: string, required, 10~1000 chars
+  - `origin`: `MANUAL | AI_GENERATED`, optional, 기본값 `MANUAL`
 - Response Body:
   - `postingId`: number
-  - `question`: `{ questionId, postingId, criterionId, questionType, content, isActive }`
+  - `question`: `{ questionId, postingId, criterionId, questionType, content, origin, isAiEdited, isActive }`
 - Validation:
   - `postingId`는 로그인한 기업의 공고여야 한다.
   - `criterionId`는 같은 `postingId`에 연결된 평가 기준이어야 한다.
@@ -1723,7 +1729,10 @@ AI 리포트 금지 기준:
   - `content`: string, required, 10~1000 chars
 - Response Body:
   - `postingId`: number
-  - `question`: `{ questionId, postingId, criterionId, questionType, content, isActive }`
+  - `question`: `{ questionId, postingId, criterionId, questionType, content, origin, isAiEdited, isActive }`
+- Processing:
+  - `origin=AI_GENERATED`인 질문을 수정하면 `isAiEdited=true`로 저장한다.
+  - 직접 작성 질문은 수정 후에도 `origin=MANUAL`, `isAiEdited=false`를 유지한다.
 - Validation:
   - `questionId`는 로그인한 기업 소유 질문이어야 한다.
   - `criterionId`는 해당 질문과 같은 공고의 평가 기준이어야 한다.
@@ -1744,7 +1753,7 @@ AI 리포트 금지 기준:
   - `questionId`: number, required
 - Response Body:
   - `postingId`: number
-  - `question`: `{ questionId, postingId, criterionId, questionType, content, isActive }`
+  - `question`: `{ questionId, postingId, criterionId, questionType, content, origin, isAiEdited, isActive }`
 - Processing:
   - 질문은 물리 삭제하지 않고 `isActive=false`로 비활성화한다.
   - 면접 설정 조회의 질문 목록에는 활성 질문만 노출한다.

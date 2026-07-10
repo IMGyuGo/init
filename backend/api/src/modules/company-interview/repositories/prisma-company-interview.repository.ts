@@ -5,6 +5,7 @@ import {
   CriterionTagRecord,
   EvaluationCriterionRecord,
   PostingRecord,
+  QuestionOrigin,
   QuestionRecord,
   QuestionSetRecord,
   TimePolicyRecord,
@@ -12,6 +13,7 @@ import {
 import {
   CompanyInterviewRepository,
   ConfirmQuestionSetInput,
+  CreateCriterionTagInput,
   UpdateTimePolicyInput,
   UpdateCriterionInput,
   UpdateQuestionInput,
@@ -103,6 +105,24 @@ export class PrismaCompanyInterviewRepository
     return tag ? mapTag(tag) : undefined;
   }
 
+  async createTag(input: CreateCriterionTagInput): Promise<CriterionTagRecord> {
+    const lastTag = await this.prisma.criterionTag.findFirst({
+      orderBy: [{ sortOrder: 'desc' }, { tagId: 'desc' }],
+      select: { sortOrder: true },
+    });
+    const tag = await this.prisma.criterionTag.create({
+      data: {
+        jobRole: input.jobRole,
+        name: input.name.trim(),
+        description: input.description,
+        category: input.category.trim(),
+        isActive: true,
+        sortOrder: (lastTag?.sortOrder ?? 0) + 1,
+      },
+    });
+    return mapTag(tag);
+  }
+
   async getTimePolicy(postingId: number): Promise<TimePolicyRecord> {
     const timePolicy = await this.prisma.interviewTimePolicy.findUnique({
       where: { postingId: BigInt(postingId) },
@@ -132,6 +152,7 @@ export class PrismaCompanyInterviewRepository
             where: { criterionId: BigInt(criterion.criterionId) },
             data: {
               tagId: BigInt(criterion.tagId),
+              description: criterion.description,
               weight: criterion.weight,
               passScore: criterion.passScore ?? null,
               sortOrder: criterion.sortOrder,
@@ -145,6 +166,7 @@ export class PrismaCompanyInterviewRepository
           data: {
             postingId: BigInt(postingId),
             tagId: BigInt(criterion.tagId),
+            description: criterion.description,
             weight: criterion.weight,
             passScore: criterion.passScore ?? null,
             sortOrder: criterion.sortOrder,
@@ -197,6 +219,7 @@ export class PrismaCompanyInterviewRepository
     criterionId: number;
     questionType: QuestionType;
     content: string;
+    origin: QuestionOrigin;
   }): Promise<QuestionRecord> {
     const question = await this.prisma.question.create({
       data: {
@@ -205,6 +228,8 @@ export class PrismaCompanyInterviewRepository
         criterionId: BigInt(input.criterionId),
         questionType: input.questionType,
         content: input.content.trim(),
+        origin: input.origin,
+        isAiEdited: false,
         isActive: true,
       },
     });
@@ -221,6 +246,7 @@ export class PrismaCompanyInterviewRepository
         criterionId: BigInt(input.criterionId),
         questionType: input.questionType,
         content: input.content.trim(),
+        isAiEdited: input.isAiEdited,
       },
     });
     return mapQuestion(question);
@@ -355,6 +381,7 @@ function mapCriterion(criterion: {
   criterionId: bigint;
   postingId: bigint;
   tagId: bigint;
+  description: string | null;
   weight: number;
   passScore: number | null;
   sortOrder: number;
@@ -363,6 +390,7 @@ function mapCriterion(criterion: {
     criterionId: Number(criterion.criterionId),
     postingId: Number(criterion.postingId),
     tagId: Number(criterion.tagId),
+    description: criterion.description,
     weight: criterion.weight,
     passScore: criterion.passScore,
     sortOrder: criterion.sortOrder,
@@ -376,6 +404,8 @@ function mapQuestion(question: {
   criterionId: bigint | null;
   questionType: QuestionType;
   content: string;
+  origin: QuestionOrigin;
+  isAiEdited: boolean;
   isActive: boolean;
 }): QuestionRecord {
   return {
@@ -386,6 +416,8 @@ function mapQuestion(question: {
       question.criterionId === null ? null : Number(question.criterionId),
     questionType: question.questionType,
     content: question.content,
+    origin: question.origin,
+    isAiEdited: question.isAiEdited,
     isActive: question.isActive,
   };
 }
@@ -422,6 +454,8 @@ function mapQuestionSet(questionSet: {
       criterionId: bigint | null;
       questionType: QuestionType;
       content: string;
+      origin: QuestionOrigin;
+      isAiEdited: boolean;
       isActive: boolean;
     };
   }>;

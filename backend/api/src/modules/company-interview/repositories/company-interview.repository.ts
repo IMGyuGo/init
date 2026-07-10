@@ -3,6 +3,7 @@ import {
   EvaluationCriterionRecord,
   PostingRecord,
   QuestionRecord,
+  QuestionOrigin,
   QuestionSetRecord,
   QuestionType,
   TimePolicyRecord,
@@ -15,9 +16,17 @@ export const COMPANY_INTERVIEW_REPOSITORY = Symbol(
 export type UpdateCriterionInput = {
   criterionId?: number;
   tagId: number;
+  description: string | null;
   weight: number;
   passScore?: number | null;
   sortOrder: number;
+};
+
+export type CreateCriterionTagInput = {
+  jobRole: string;
+  name: string;
+  description: string | null;
+  category: string;
 };
 
 export type CreateQuestionInput = {
@@ -26,12 +35,14 @@ export type CreateQuestionInput = {
   criterionId: number;
   questionType: QuestionType;
   content: string;
+  origin: QuestionOrigin;
 };
 
 export type UpdateQuestionInput = {
   criterionId: number;
   questionType: QuestionType;
   content: string;
+  isAiEdited: boolean;
 };
 
 export type UpdateTimePolicyInput = {
@@ -64,6 +75,7 @@ export interface CompanyInterviewRepository {
   ): Promise<QuestionRecord | undefined>;
   listTags(): Promise<CriterionTagRecord[]>;
   findTag(tagId: number): Promise<CriterionTagRecord | undefined>;
+  createTag(input: CreateCriterionTagInput): Promise<CriterionTagRecord>;
   getTimePolicy(postingId: number): Promise<TimePolicyRecord>;
   replaceCriteria(
     postingId: number,
