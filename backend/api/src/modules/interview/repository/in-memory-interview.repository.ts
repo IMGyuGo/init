@@ -246,7 +246,7 @@ export class InMemoryInterviewRepository implements InterviewRepository {
     answer.audioFileId = input.audioFileId;
     answer.durationSeconds = input.durationSeconds;
     answer.submittedAt = input.submittedAt;
-    answer.transcript = undefined;
+    answer.transcript = input.transcript;
     return this.cloneAnswer(answer);
   }
 
