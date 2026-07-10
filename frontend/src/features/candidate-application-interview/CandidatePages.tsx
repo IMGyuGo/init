@@ -441,7 +441,7 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
       const result = await api.submitApplication(jobId, request);
       setApplyOpen(false);
       setMessage(`지원서가 제출되었습니다. 접수 번호는 ${result.data.application.applicationId}번입니다.`);
-      refresh();
+      void refresh().catch(() => undefined);
     } catch (submitError) {
       // 실패 시 모달을 유지하고 입력값을 보존한 채 에러만 보여준다.
       setApplyError(toErrorMessage(submitError));
@@ -1580,7 +1580,7 @@ export function CandidateMockReportsPage() {
         description="연습 이력과 생성된 피드백 리포트를 확인합니다."
         actions={
           <>
-            <button className="btn secondary" type="button" onClick={refresh}>새로고침</button>
+            <button className="btn secondary" type="button" onClick={() => void refresh().catch(() => undefined)}>새로고침</button>
             <Link className="btn primary" href={candidateApplicationInterviewRoutes.mockInterviewStart}>모의면접 시작</Link>
           </>
         }
@@ -1644,7 +1644,7 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
       await getCandidateApi().requestMockReportGeneration(reportId);
       setGenerationRequested(true);
       setMessage("AI 분석 요청이 접수되었습니다. 분석이 완료되면 리포트가 자동으로 갱신됩니다.");
-      refresh();
+      void refresh().catch(() => undefined);
     } catch (generateError) {
       setMessage(toErrorMessage(generateError));
     } finally {
@@ -1735,7 +1735,7 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
           return;
         }
         setGenerationMessage("AI 분석 요청이 접수되었습니다. 완료되면 기업 검토 화면에 반영됩니다.");
-        refresh();
+        void refresh().catch(() => undefined);
       })
       .catch((reportGenerationError) => {
         if (cancelled) {
@@ -1778,7 +1778,7 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
         }
 
         try {
-          const latest = await load();
+          const latest = await refresh();
           if (cancelled) {
             return;
           }
@@ -1793,17 +1793,13 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
               }
             }
             setGenerationMessage("");
-            refresh();
             return;
           }
 
           if (latest.status?.reportStatus === "FAILED") {
             setGenerationMessage("리포트 생성에 실패했습니다. 잠시 후 새로고침하거나 기업 담당자에게 문의해주세요.");
-            refresh();
             return;
           }
-
-          refresh();
         } catch (pollError) {
           if (!cancelled) {
             setGenerationMessage(toErrorMessage(pollError));
@@ -1846,7 +1842,7 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
           <div className="toolbar">
             <StatusPill value="채용면접" />
             <StatusPill value="기업 검토" />
-            <button className="btn secondary" type="button" onClick={refresh}>새로고침</button>
+            <button className="btn secondary" type="button" onClick={() => void refresh().catch(() => undefined)}>새로고침</button>
           </div>
         }
       />
@@ -3844,7 +3840,7 @@ function InterviewRuntimePanel({
         rememberCameralessInterviewTestEntry("recruiting", data.runtime.sessionId);
         startRuntimeAfterRefreshRef.current = true;
         setMessage("카메라 없이 테스트 모드로 면접 화면으로 이동합니다.");
-        refresh();
+        void refresh().catch(() => undefined);
       } catch (submitError) {
         startRuntimeAfterRefreshRef.current = false;
         setMessage(toErrorMessage(submitError));
@@ -4000,7 +3996,7 @@ function InterviewRuntimePanel({
         await api.startInterview(data.runtime.applicationId);
         startRuntimeAfterRefreshRef.current = true;
         setMessage("장치 점검이 완료되었습니다. 면접 화면으로 이동합니다.");
-        refresh();
+        void refresh().catch(() => undefined);
       } catch (submitError) {
         startRuntimeAfterRefreshRef.current = false;
         setMessage(toErrorMessage(submitError));
@@ -4266,7 +4262,7 @@ function InterviewRuntimePanel({
       resetRuntimeQuestionTimer(data.runtime, setTimerPhase, setRemainingSeconds);
       timeExpiredQuestionRef.current = null;
       autoRecordingQuestionRef.current = null;
-      refresh();
+      void refresh().catch(() => undefined);
       setMessage(`${reasonMessage} 현재 질문은 미답변 처리하고 다음 질문으로 이동했습니다.`);
     } catch (submitError) {
       setMessage(toErrorMessage(submitError));
@@ -4298,7 +4294,7 @@ function InterviewRuntimePanel({
     }
     if (!request.allowReanswer && !retryAnswerId && isQuestionAlreadyAnswered(request.questionId)) {
       setMessage("이미 저장된 답변입니다. 질문 상태를 새로고침합니다.");
-      refresh();
+      void refresh().catch(() => undefined);
       return;
     }
     savingQuestionIdsRef.current.add(request.questionId);
@@ -4378,7 +4374,7 @@ function InterviewRuntimePanel({
       });
       if (isQuestionStateConflict(submitError)) {
         setMessage("답변은 이미 반영된 상태입니다. 질문 상태를 새로고침합니다.");
-        refresh();
+        void refresh().catch(() => undefined);
         return;
       }
       setMessage(toErrorMessage(submitError));
@@ -4892,7 +4888,7 @@ function InterviewRuntimePanel({
           ? "생성된 꼬리질문으로 이동했습니다. 답변을 시작해주세요."
           : "이미 추가된 꼬리질문으로 이동했습니다. 답변을 시작해주세요.",
       );
-      refresh();
+      void refresh().catch(() => undefined);
     } catch (submitError) {
       setAutoAiPipeline((current) =>
         current
@@ -4976,7 +4972,7 @@ function InterviewRuntimePanel({
       resetRuntimeQuestionTimer(data.runtime, setTimerPhase, setRemainingSeconds);
       timeExpiredQuestionRef.current = null;
       autoRecordingQuestionRef.current = null;
-      refresh();
+      void refresh().catch(() => undefined);
     } catch (submitError) {
       setMessage(toErrorMessage(submitError));
     } finally {
@@ -5867,33 +5863,61 @@ function CandidateNotificationCenter() {
   const [readIds, setReadIds] = useState<Set<string>>(() => readCandidateNotificationReadIds());
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => readCandidateNotificationDismissedIds());
   const [notifications, setNotifications] = useState<CandidateNotificationItem[]>([]);
+  const notificationMountedRef = useRef(false);
   const unreadCount = countUnreadCandidateNotifications(notifications);
 
-  useEffect(() => {
-    let cancelled = false;
+  const refreshNotifications = useCallback(async (options?: { clearOnError?: boolean; markReadAfterLoad?: boolean }) => {
     const nextReadIds = readCandidateNotificationReadIds();
     const nextDismissedIds = readCandidateNotificationDismissedIds();
     setReadIds(nextReadIds);
     setDismissedIds(nextDismissedIds);
 
-    getCandidateApi()
-      .listApplications()
-      .then((response) => {
-        if (cancelled) {
-          return;
-        }
-        setNotifications(buildCandidateReportCompleteNotifications(response.data.items, nextReadIds, nextDismissedIds));
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setNotifications([]);
-        }
-      });
+    try {
+      const response = await getCandidateApi().listApplications();
+      if (!notificationMountedRef.current) {
+        return;
+      }
+
+      const latestReadIds = readCandidateNotificationReadIds();
+      const latestDismissedIds = readCandidateNotificationDismissedIds();
+      let nextNotifications = buildCandidateReportCompleteNotifications(response.data.items, latestReadIds, latestDismissedIds);
+
+      if (options?.markReadAfterLoad && nextNotifications.length) {
+        const readAfterOpenIds = new Set(latestReadIds);
+        nextNotifications.forEach((notification) => readAfterOpenIds.add(notification.id));
+        setReadIds(readAfterOpenIds);
+        writeCandidateNotificationReadIds(readAfterOpenIds);
+        nextNotifications = nextNotifications.map((notification) => ({ ...notification, read: true }));
+      } else {
+        setReadIds(latestReadIds);
+      }
+
+      setDismissedIds(latestDismissedIds);
+      setNotifications(nextNotifications);
+    } catch {
+      if (options?.clearOnError && notificationMountedRef.current) {
+        setNotifications([]);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    notificationMountedRef.current = true;
+    void refreshNotifications({ clearOnError: true });
 
     return () => {
-      cancelled = true;
+      notificationMountedRef.current = false;
     };
-  }, []);
+  }, [refreshNotifications]);
+
+  useEffect(() => {
+    function handleWindowFocus() {
+      void refreshNotifications();
+    }
+
+    window.addEventListener("focus", handleWindowFocus);
+    return () => window.removeEventListener("focus", handleWindowFocus);
+  }, [refreshNotifications]);
 
   useEffect(() => {
     function handleReportNotification(event: Event) {
@@ -5934,6 +5958,7 @@ function CandidateNotificationCenter() {
   function handleToggle() {
     if (!open) {
       markNotificationsRead();
+      void refreshNotifications({ markReadAfterLoad: true });
     }
     setOpen((current) => !current);
   }
@@ -7257,8 +7282,17 @@ function isRuntimeShortcutIgnoredTarget(target: EventTarget | null): boolean {
 
 function useCandidateResource<T>(load: () => Promise<T>, dependencies: DependencyList) {
   const [state, setState] = useState<AsyncState<T>>({ loading: true });
-  const [refreshKey, setRefreshKey] = useState(0);
-  const refresh = useCallback(() => setRefreshKey((current) => current + 1), []);
+  const refresh = useCallback(async () => {
+    setState((current) => ({ ...current, loading: true, error: undefined }));
+    try {
+      const data = await load();
+      setState({ data, loading: false });
+      return data;
+    } catch (error) {
+      setState({ loading: false, error: toErrorMessage(error) });
+      throw error;
+    }
+  }, [load]);
 
   useEffect(() => {
     let alive = true;
@@ -7275,7 +7309,7 @@ function useCandidateResource<T>(load: () => Promise<T>, dependencies: Dependenc
     };
     // The dependency list is supplied by each caller, mirroring React's hook API.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [load, refreshKey, ...dependencies]);
+  }, [load, ...dependencies]);
 
   return { ...state, refresh };
 }
