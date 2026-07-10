@@ -16,6 +16,7 @@ export const COMPANY_INTERVIEW_REPOSITORY = Symbol(
 export type UpdateCriterionInput = {
   criterionId?: number;
   tagId: number;
+  description: string | null;
   weight: number;
   passScore?: number | null;
   sortOrder: number;

@@ -182,6 +182,7 @@
 | criterion_id | BIGINT PRIMARY KEY | 공고별 선택 평가 기준 PK |
 | posting_id | BIGINT NOT NULL | 이 기준이 적용되는 채용 공고 FK |
 | tag_id | BIGINT NOT NULL | 선택된 평가 태그 FK |
+| description | TEXT | 이 공고에서 사용하는 평가 기준 상세 설명 스냅샷. 공용 태그 설명과 독립적으로 수정 가능 |
 | weight | INTEGER NOT NULL | 가중치. 예: 30 |
 | pass_score | INTEGER | 이 항목에서 통과로 볼 최소 점수 |
 | sort_order | INTEGER NOT NULL | 화면 표시 순서 |

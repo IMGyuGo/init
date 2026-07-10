@@ -152,6 +152,7 @@ export class PrismaCompanyInterviewRepository
             where: { criterionId: BigInt(criterion.criterionId) },
             data: {
               tagId: BigInt(criterion.tagId),
+              description: criterion.description,
               weight: criterion.weight,
               passScore: criterion.passScore ?? null,
               sortOrder: criterion.sortOrder,
@@ -165,6 +166,7 @@ export class PrismaCompanyInterviewRepository
           data: {
             postingId: BigInt(postingId),
             tagId: BigInt(criterion.tagId),
+            description: criterion.description,
             weight: criterion.weight,
             passScore: criterion.passScore ?? null,
             sortOrder: criterion.sortOrder,
@@ -379,6 +381,7 @@ function mapCriterion(criterion: {
   criterionId: bigint;
   postingId: bigint;
   tagId: bigint;
+  description: string | null;
   weight: number;
   passScore: number | null;
   sortOrder: number;
@@ -387,6 +390,7 @@ function mapCriterion(criterion: {
     criterionId: Number(criterion.criterionId),
     postingId: Number(criterion.postingId),
     tagId: Number(criterion.tagId),
+    description: criterion.description,
     weight: criterion.weight,
     passScore: criterion.passScore,
     sortOrder: criterion.sortOrder,

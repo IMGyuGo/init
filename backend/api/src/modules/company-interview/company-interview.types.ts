@@ -54,6 +54,7 @@ export type EvaluationCriterionRecord = {
   criterionId: number;
   postingId: number;
   tagId: number;
+  description: string | null;
   weight: number;
   passScore: number | null;
   sortOrder: number;

@@ -1632,6 +1632,7 @@ AI 리포트 금지 기준:
   - `criteria: EvaluationCriterionItemDto[]`
   - `criteria[].criterionId?: number`
   - `criteria[].tagId: number`
+  - `criteria[].description?: string | null`
   - `criteria[].weight: number`
   - `criteria[].passScore?: number | null`
   - `criteria[].sortOrder: number`
@@ -1642,6 +1643,8 @@ AI 리포트 금지 기준:
   - `criterionId`가 있으면 해당 공고의 `evaluation_criteria`에 존재해야 함
   - `sortOrder`는 요청 배열 안에서 중복될 수 없음
   - `passScore`는 nullable이며 값이 있으면 정책 점수 범위 안이어야 함
+  - `description`은 공용 태그 설명을 변경하지 않고 해당 공고의 평가 기준 설명 스냅샷으로 저장한다.
+  - `description`을 생략하면 기존 기준 설명을 유지하며, 신규 기준이면 태그 기본 설명을 사용한다.
   - `weight` 합계 정책은 구현 전 PM/A와 확정한다.
 - 성공 응답/처리:
   - 평가 기준 저장

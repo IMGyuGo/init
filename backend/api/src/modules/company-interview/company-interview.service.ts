@@ -42,6 +42,7 @@ import {
 import {
   COMPANY_INTERVIEW_REPOSITORY,
   CompanyInterviewRepository,
+  type UpdateCriterionInput,
 } from './repositories/company-interview.repository';
 
 @Injectable()
@@ -137,6 +138,7 @@ export class CompanyInterviewService {
     const existingCriteria = await this.repository.listCriteria(posting.postingId);
     const seenSortOrders = new Set<number>();
     const seenTagIds = new Set<number>();
+    const normalizedCriteria: UpdateCriterionInput[] = [];
 
     for (const criterion of dto.criteria) {
       if (seenSortOrders.has(criterion.sortOrder)) {
@@ -152,18 +154,28 @@ export class CompanyInterviewService {
       }
       seenTagIds.add(criterion.tagId);
 
-      if (!(await this.repository.findTag(criterion.tagId))) {
+      const tag = await this.repository.findTag(criterion.tagId);
+      if (!tag) {
         notFound('평가 태그를 찾을 수 없습니다.');
       }
 
+      let existingCriterion: EvaluationCriterionRecord | undefined;
       if (criterion.criterionId !== undefined) {
-        const exists = existingCriteria.some(
+        existingCriterion = existingCriteria.find(
           (item) => item.criterionId === criterion.criterionId,
         );
-        if (!exists) {
+        if (!existingCriterion) {
           notFound('평가 기준을 찾을 수 없습니다.');
         }
       }
+
+      normalizedCriteria.push({
+        ...criterion,
+        description:
+          criterion.description === undefined
+            ? existingCriterion?.description ?? tag.description
+            : criterion.description?.trim() || null,
+      });
     }
 
     const totalWeight = dto.criteria.reduce(
@@ -181,7 +193,7 @@ export class CompanyInterviewService {
 
     const saved = await this.repository.replaceCriteria(
       posting.postingId,
-      dto.criteria,
+      normalizedCriteria,
     );
     return {
       postingId: posting.postingId,
@@ -448,7 +460,7 @@ export class CompanyInterviewService {
           tagId: criterion.tagId,
           tagName: tag.name,
           category: tag.category,
-          description: tag.description,
+          description: criterion.description,
           weight: criterion.weight,
           passScore: criterion.passScore,
           sortOrder: criterion.sortOrder,

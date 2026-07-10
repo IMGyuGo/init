@@ -93,6 +93,43 @@ describe('CompanyInterviewService', () => {
     assert.equal(settings.questions.length, 0);
   });
 
+  it('persists a posting-specific criterion description without changing the shared tag', async () => {
+    const service = createService();
+    const originalSettings = await service.getSettings(companyUser, { postingId: 1 });
+    const originalTagDescription = originalSettings.availableTags.find(
+      (tag) => tag.tagId === 1,
+    )?.description;
+
+    const result = await service.updateEvaluationCriteria(companyUser, {
+      postingId: 1,
+      criteria: [
+        {
+          criterionId: 1,
+          tagId: 1,
+          description: '이 공고에서만 사용하는 수정된 평가 설명',
+          weight: 100,
+          passScore: 70,
+          sortOrder: 1,
+        },
+      ],
+    });
+
+    assert.equal(
+      result.criteria[0].description,
+      '이 공고에서만 사용하는 수정된 평가 설명',
+    );
+
+    const refreshedSettings = await service.getSettings(companyUser, { postingId: 1 });
+    assert.equal(
+      refreshedSettings.criteria[0].description,
+      '이 공고에서만 사용하는 수정된 평가 설명',
+    );
+    assert.equal(
+      refreshedSettings.availableTags.find((tag) => tag.tagId === 1)?.description,
+      originalTagDescription,
+    );
+  });
+
   it('returns the default time policy', async () => {
     const timePolicy = (await createService().getSettings(companyUser, {})).timePolicy;
  

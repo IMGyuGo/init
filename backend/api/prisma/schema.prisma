@@ -284,6 +284,7 @@ model EvaluationCriterion {
   criterionId      BigInt                     @id @default(autoincrement()) @map("criterion_id")
   postingId        BigInt                     @map("posting_id")
   tagId            BigInt                     @map("tag_id")
+  description      String?
   weight           Int
   passScore        Int?                       @map("pass_score")
   sortOrder        Int                        @map("sort_order")

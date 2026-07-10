@@ -472,7 +472,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
           ? {
               ...criterion,
               [field]: field === "description" && value.trim() === "" ? null : value,
-              isCustomTag: field === "tagName" || field === "category" || field === "description" ? true : criterion.isCustomTag,
+              isCustomTag: field === "tagName" || field === "category" ? true : criterion.isCustomTag,
             }
           : criterion,
       ),
@@ -523,7 +523,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
             tagId: response.data.tag.tagId,
             tagName: response.data.tag.tagName,
             category: response.data.tag.category,
-            description: response.data.tag.description,
+            description: criterion.description,
             isCustomTag: false,
           });
         } else {
@@ -536,6 +536,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
         criteria: resolvedCriteria.map((criterion) => ({
           criterionId: criterion.criterionId,
           tagId: criterion.tagId,
+          description: criterion.description,
           weight: toNumber(criterion.weight),
           passScore: criterion.passScore.trim() === "" ? null : toNumber(criterion.passScore),
           sortOrder: toNumber(criterion.sortOrder),

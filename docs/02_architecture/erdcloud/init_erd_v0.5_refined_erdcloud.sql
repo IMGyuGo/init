@@ -205,6 +205,9 @@ CREATE TABLE evaluation_criteria (
     -- 선택된 평가 태그 FK
     tag_id BIGINT NOT NULL,
 
+    -- 이 공고에서 사용하는 평가 기준 상세 설명 스냅샷
+    description TEXT,
+
     -- 가중치. 예: 30
     weight INTEGER NOT NULL,
 

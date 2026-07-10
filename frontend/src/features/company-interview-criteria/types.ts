@@ -62,6 +62,7 @@ export type UpdateEvaluationCriteriaInput = {
   criteria: Array<{
     criterionId?: number;
     tagId: number;
+    description?: string | null;
     weight: number;
     passScore?: number | null;
     sortOrder: number;
