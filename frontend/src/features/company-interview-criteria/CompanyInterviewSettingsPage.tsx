@@ -108,7 +108,6 @@ const AI_STATUS_LABELS: Record<AiProcessStatus, string> = {
   COMPLETED: "완료",
   FAILED: "실패",
 };
-const AI_JOB_SLOW_THRESHOLD_MS = 30_000;
 
 function getSettingsStepStorageKey(postingId: number) {
   return `company-interview-settings-step:${postingId}`;
@@ -323,6 +322,8 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
         setCriteriaError(error instanceof Error ? error.message : "AI 추천 기준을 평가 기준 표에 반영하지 못했습니다.");
       }
     })();
+    // AI 결과는 processLogId당 한 번만 적용하므로 handler identity로 effect를 재실행하지 않는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoAppliedCriteriaProcessIds, criteriaAiNotices, settings]);
 
   useEffect(() => {
@@ -350,6 +351,8 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
         setQuestionError(error instanceof Error ? error.message : "AI 추천 질문을 면접 질문 목록에 반영하지 못했습니다.");
       }
     })();
+    // AI 결과는 processLogId당 한 번만 적용하므로 handler identity로 effect를 재실행하지 않는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoAppliedQuestionProcessIds, questionAiNotices, settings]);
 
   function addCustomCriteriaDraft() {
@@ -411,7 +414,9 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     setCriteriaDrafts(nextCriteriaDrafts);
     setSelectedCriteriaDraftIds([]);
     if (selectedCriteria.some((criterion) => criterion.criterionId !== undefined && questionForm.criterionId === String(criterion.criterionId))) {
-      resetQuestionEditor(String(nextCriteriaDrafts.find((item) => item.criterionId !== undefined)?.criterionId ?? ""));
+      const nextCriterionId = String(nextCriteriaDrafts.find((item) => item.criterionId !== undefined)?.criterionId ?? "");
+      resetQuestionEditor();
+      resetQuestionForm(nextCriterionId);
     }
   }
 
@@ -627,7 +632,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     setQuestionEditDraft((current) => (current ? { ...current, [field]: value } : current));
   }
 
-  function resetQuestionEditor(_nextCriterionId = questionForm.criterionId) {
+  function resetQuestionEditor() {
     setEditingQuestionId(null);
     setQuestionEditDraft(null);
   }
@@ -888,7 +893,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
         continue;
       }
 
-      let matchedTag = findSuggestionTag(settings, nextCriteriaDrafts, candidate, selectedTagId);
+      const matchedTag = findSuggestionTag(settings, nextCriteriaDrafts, candidate, selectedTagId);
       const projectedTotalWeight = getCriteriaTotalWeight(nextCriteriaDrafts) + normalizeCriteriaSuggestionWeight(candidate.weight);
       if (projectedTotalWeight > 100) {
         setCriteriaError("추천 기준을 적용하면 배점 합계가 100을 초과합니다. 기존 기준의 배점을 먼저 조정해주세요.");
@@ -2183,39 +2188,6 @@ function getAiRequestButtonLabel(
   if (submitting === kind) return "요청 중";
   if (activeKinds.has(kind)) return "처리 대기 중";
   return defaultLabel;
-}
-
-function getAiJobStatusMessage(notice: AiJobNotice) {
-  if (notice.status === "FAILED") {
-    return notice.failure?.reason
-      ? formatAiFailureReason(notice.failure.reason)
-      : "AI 요청 처리에 실패했습니다. 다시 요청할 수 있습니다.";
-  }
-  if (notice.status === "COMPLETED") {
-    const guardrailResult = notice.output?.guardrail?.result?.toUpperCase();
-    if (guardrailResult === "BLOCKED") {
-      return "생성 결과가 검수 정책을 통과하지 못했습니다. 조건을 수정한 뒤 다시 요청해주세요.";
-    }
-    if (!hasAiOutputForKind(notice)) {
-      return getEmptyAiOutputMessage(notice);
-    }
-    return "AI 요청 처리가 완료되었습니다. 아래 결과를 검토한 뒤 적용해주세요.";
-  }
-
-  const elapsedMs = notice.lastCheckedAt - notice.requestedAt;
-  if (elapsedMs >= AI_JOB_SLOW_THRESHOLD_MS) {
-    return "처리가 예상보다 오래 걸리고 있습니다. 계속 대기 중이면 worker와 LocalStack queue 실행 상태를 확인해주세요.";
-  }
-  if (notice.status === "RUNNING") {
-    return "AI가 요청을 처리하고 있습니다. 완료되면 결과가 자동으로 표시됩니다.";
-  }
-  return "요청이 접수되었습니다. worker가 작업을 가져가면 처리 상태로 변경됩니다.";
-}
-
-function hasAiOutputForKind(notice: AiJobNotice) {
-  if (notice.kind === "criteria") return getCriteriaSuggestions(notice.output).length > 0;
-  if (notice.kind === "questions") return getQuestionCandidates(notice.output).length > 0;
-  return getGeneratedQuestionSetPreview(notice.output).length > 0;
 }
 
 function getEmptyAiOutputMessage(notice: AiJobNotice) {
