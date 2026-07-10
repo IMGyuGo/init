@@ -325,6 +325,7 @@ model Question {
   criterion        EvaluationCriterion?       @relation(fields: [criterionId], references: [criterionId])
   answers          InterviewAnswer[]
   questionSetItems InterviewQuestionSetItem[]
+  sessionQuestions InterviewSessionQuestion[]
 
   @@map("question_bank")
 }
@@ -435,12 +436,27 @@ model InterviewSession {
   application           Application?                       @relation(fields: [applicationId], references: [applicationId])
   candidate             CandidateProfile                   @relation(fields: [candidateId], references: [candidateId])
   answers               InterviewAnswer[]
+  sessionQuestions      InterviewSessionQuestion[]
   evaluationReports     EvaluationReport[]
   aiProcessLogs         AiProcessLog[]
   clientPerformanceLogs ClientPerformanceLog[]
   mockPassUsages        CandidateMockInterviewPassLedger[]
 
   @@map("interview_sessions")
+}
+
+model InterviewSessionQuestion {
+  sessionId  BigInt           @map("session_id")
+  questionId BigInt           @map("question_id")
+  sortOrder  Int              @map("sort_order")
+  createdAt  DateTime         @default(now()) @map("created_at")
+  session    InterviewSession @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
+  question   Question         @relation(fields: [questionId], references: [questionId], onDelete: Restrict)
+
+  @@id([sessionId, questionId])
+  @@unique([sessionId, sortOrder], map: "uq_interview_session_questions_order")
+  @@index([questionId], map: "idx_interview_session_questions_question")
+  @@map("interview_session_questions")
 }
 
 model CandidateMockInterviewPassLedger {

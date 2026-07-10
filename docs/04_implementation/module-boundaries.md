@@ -92,6 +92,7 @@ DTO와 API client 타입은 아래 naming을 따른다. 같은 요청/응답 타
 | `applications` | `report_status` | E | B/D |
 | `applications` | `screening_decision`, `screening_memo` | B | D/E 제한 조회 |
 | `interview_sessions` | 세션 생성/시작/완료, `status` | D | E |
+| `interview_session_questions` | 세션별 질문 연결과 표시 순서 | D | E |
 | `interview_answers` | 답변 파일, 제출 시각, 질문 이동 | D | E |
 | `interview_answers` | `transcript` | E | B/D |
 | `evaluation_reports` | 생성, 상태, 요약, 총점 | E | B/D 제한 조회 |
@@ -124,7 +125,7 @@ DTO와 API client 타입은 아래 naming을 따른다. 같은 요청/응답 타
 | --- |--- |--- |--- |--- |
 | auth-common | users, companies, candidate_profiles | Redis/TTL cache | /auth/* | 이메일 인증 코드는 DB 저장 금지 |
 | company | postings, evaluation_criteria, question_bank, applications screening fields | reports, candidate_profiles | /company/* | 기업은 자기 회사 공고/지원자만 접근 |
-| candidate-interview | interview_sessions, interview_answers, consent_records | applications, postings | /candidate/*interview* | 모의면접과 채용면접은 `interview_type`으로 분리 |
+| candidate-interview | interview_sessions, interview_session_questions, interview_answers, consent_records | applications, postings, question_bank | /candidate/*interview* | 모의면접과 채용면접은 `interview_type`으로 분리 |
 | ai-report | evaluation_reports, report_scores, report_evidences, ai_process_logs, ai_guardrail_logs, embeddings | documents, answers, criteria | /reports/*, /ai/* | 가드레일 통과 전 결과 저장 금지 |
 | file-storage | file_assets | users | /candidate/resume, /company/profile/logo | 원본 파일은 Object Storage |
 | notification | notifications | users, applications | invitation/notification endpoints | 메일 발송 실패 상태 기록 |

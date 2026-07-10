@@ -9,7 +9,7 @@
 | A | Auth/Common + CI/CD/AWS | 로그인, 회원가입, 이메일 인증, 비밀번호 재설정, JWT/권한, 공통 에러, Docker, GitHub Actions, AWS 배포 | `users`, `companies`, `candidate_profiles`, Redis, `/auth/*`, ECR, ECS, CloudFront, RDS PostgreSQL, Redis, S3, SQS |
 | B | Company Recruiting | 기업 공고, 공고 상세, 지원자 등록/CSV, 초대 메일, 전형 상태 | `postings`, `applications`, `notifications`, `/company/recruitments`, `/company/applicants` |
 | C | Company Interview/Criteria | 면접 설정, 평가 기준, 질문 뱅크, JD 기반 질문 생성 요청부 | `criterion_tags`, `evaluation_criteria`, `question_bank`, `/company/interviews/*` |
-| D | Candidate/Application/Interview | 공고 조회, 지원서 제출, 지원현황, 모의/채용 면접 진행, 답변 업로드 | `applications`, `application_documents`, `interview_sessions`, `interview_answers`, `/candidate/*` |
+| D | Candidate/Application/Interview | 공고 조회, 지원서 제출, 지원현황, 모의/채용 면접 진행, 답변 업로드 | `applications`, `application_documents`, `interview_sessions`, `interview_session_questions`, `interview_answers`, `/candidate/*` |
 | E | AI Report/Pipeline | 서류 추출, STT, 꼬리질문, 리포트 생성, 가드레일, 임베딩, worker/SQS 연동 | `ai_process_logs`, `ai_guardrail_logs`, `evaluation_reports`, `report_scores`, `report_evidences`, `embeddings`, `/reports/*`, `/ai/*` |
 | PM | 발표/검증 PM | 요구사항 우선순위, API 계약 변경 관리, 테스트 시나리오, 발표 자료, 데모 플로우, QA 체크리스트, PR 검증 기준 | `docs/*`, 발표/검증 산출물 |
 
@@ -138,11 +138,11 @@ B와 D가 함께 사용한다.
 
 상태 전이 규칙은 구현 전에 문서로 합의해야 한다.
 
-### `interview_sessions`, `interview_answers`
+### `interview_sessions`, `interview_session_questions`, `interview_answers`
 
 D와 E가 함께 사용한다.
 
-- D: 세션 진행, 질문 이동, 답변 파일 저장
+- D: 세션 진행, 세션별 질문 순서, 질문 이동, 답변 파일 저장
 - E: STT, 분석, 꼬리질문, 리포트 생성
 
 D는 면접 런타임까지, E는 AI 분석 이후를 담당한다.

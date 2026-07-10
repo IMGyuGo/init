@@ -409,6 +409,22 @@ CREATE TABLE interview_answers (
     submitted_at TIMESTAMP
 );
 
+CREATE TABLE interview_session_questions (
+    -- 면접 세션 FK
+    session_id BIGINT NOT NULL,
+
+    -- 세션에서 사용할 질문 FK
+    question_id BIGINT NOT NULL,
+
+    -- 세션 안의 질문 표시 순서
+    sort_order INTEGER NOT NULL,
+
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (session_id, question_id),
+    CONSTRAINT uq_interview_session_questions_order UNIQUE (session_id, sort_order)
+);
+
 CREATE TABLE follow_up_questions (
     -- 꼬리질문 PK
     follow_up_id BIGINT PRIMARY KEY,
@@ -741,6 +757,16 @@ ALTER TABLE interview_answers
     ADD CONSTRAINT fk_interview_answers_session
     FOREIGN KEY (session_id) REFERENCES interview_sessions(session_id);
 
+ALTER TABLE interview_session_questions
+    ADD CONSTRAINT fk_interview_session_questions_session
+    FOREIGN KEY (session_id) REFERENCES interview_sessions(session_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE interview_session_questions
+    ADD CONSTRAINT fk_interview_session_questions_question
+    FOREIGN KEY (question_id) REFERENCES question_bank(question_id)
+    ON DELETE RESTRICT;
+
 ALTER TABLE interview_answers
     ADD CONSTRAINT fk_interview_answers_question
     FOREIGN KEY (question_id) REFERENCES question_bank(question_id);
@@ -857,6 +883,7 @@ CREATE INDEX idx_question_bank_posting ON question_bank(posting_id);
 CREATE INDEX idx_applications_posting ON applications(posting_id);
 CREATE INDEX idx_applications_candidate ON applications(candidate_id);
 CREATE INDEX idx_interview_sessions_application ON interview_sessions(application_id);
+CREATE INDEX idx_interview_session_questions_question ON interview_session_questions(question_id);
 CREATE INDEX idx_evaluation_reports_application ON evaluation_reports(application_id);
 CREATE INDEX idx_ai_process_logs_application ON ai_process_logs(application_id);
 CREATE INDEX idx_embeddings_source_type ON embeddings(source_type);

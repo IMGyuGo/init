@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "@jest/globals";
+import { SELF_DECLARED_DEPS_METADATA } from "@nestjs/common/constants";
 
 import { PrismaService } from "../../../shared/prisma.service";
 import {
@@ -19,6 +20,14 @@ type FakeLedgerRecord = {
 };
 
 describe("CandidateMockInterviewPassService", () => {
+  it("declares the PrismaService injection token for start:dev runtimes", () => {
+    const dependencies = Reflect.getMetadata(SELF_DECLARED_DEPS_METADATA, CandidateMockInterviewPassService) as
+      | Array<{ index: number; param: unknown }>
+      | undefined;
+
+    assert.deepEqual(dependencies, [{ index: 0, param: PrismaService }]);
+  });
+
   it("grants the initial free passes once when concurrent requests race", async () => {
     const { prisma, records, createAttempts } = createConcurrentInitialFreePassPrisma();
     const service = new CandidateMockInterviewPassService(prisma as unknown as PrismaService);

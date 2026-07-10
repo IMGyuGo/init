@@ -52,6 +52,7 @@
 | `application_documents` | `ApplicationDocument` | D/E |
 | `consent_records` | `ConsentRecord` | D |
 | `interview_sessions` | `InterviewSession` | D/E |
+| `interview_session_questions` | `InterviewSessionQuestion` | D/E |
 | `interview_answers` | `InterviewAnswer` | D/E |
 | `follow_up_questions` | `FollowUpQuestion` | E |
 | `evaluation_reports` | `EvaluationReport` | E |
@@ -72,7 +73,7 @@
 | Account | users, companies, candidate_profiles | 로그인 계정, 기업/지원자 프로필, 기본 파일 참조 |
 | Recruiting | postings, criterion_tags, evaluation_criteria, question_bank, interview_time_policies | 공고, JD, 평가 기준, 질문, 면접 시간 정책 관리 |
 | Application | applications, application_documents, consent_records | 지원서 제출, 서류 파싱, 동의 이력 |
-| Interview | interview_sessions, interview_answers, follow_up_questions | 모의/채용 AI 면접 실행과 답변 |
+| Interview | interview_sessions, interview_session_questions, interview_answers, follow_up_questions | 모의/채용 AI 면접 실행, 세션별 질문 순서와 답변 |
 | Report | evaluation_reports, report_scores, report_evidences, manual_evaluations | AI 평가 결과와 면접관 검토 |
 | AI Infra | ai_process_logs, ai_guardrail_logs, embeddings | AI 처리 상태, 안전성 검증, 검색/추천 |
 | Notification/File | notifications, file_assets | 알림과 업로드 파일 메타데이터 |
@@ -304,6 +305,17 @@
 | show_question_text | BOOLEAN NOT NULL DEFAULT FALSE | 면접 질문 텍스트 표시 여부 |
 | started_at | TIMESTAMP | 면접 시작 시각 |
 | completed_at | TIMESTAMP | 면접 완료 시각 |
+
+### interview_session_questions
+
+| Column | Definition | Description |
+| --- |--- |--- |
+| session_id | BIGINT NOT NULL | 연결된 면접 세션 FK |
+| question_id | BIGINT NOT NULL | 세션에서 사용하는 질문 FK |
+| sort_order | INTEGER NOT NULL | 세션 안의 질문 표시 순서 |
+| created_at | TIMESTAMP NOT NULL | 세션 질문 연결 생성 시각 |
+
+`(session_id, question_id)`를 복합 PK로 사용하고 `(session_id, sort_order)`는 unique다. 세션 삭제 시 연결 행은 함께 삭제하며 질문은 면접 이력 보존을 위해 연결된 동안 삭제할 수 없다.
 
 ### interview_answers
 

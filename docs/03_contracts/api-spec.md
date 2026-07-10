@@ -2193,10 +2193,11 @@ AI 리포트 금지 기준:
 - 성공 응답/처리:
   - 모의면접 세션 생성
   - `folderId`가 있으면 폴더의 이력서 파일 메타데이터, 추출 텍스트(`application_documents.extracted_text`가 존재하는 경우), GitHub/블로그/포트폴리오 URL, 지원동기, 추가설명을 모의면접 질문 생성 컨텍스트로 사용한다.
+  - 생성된 질문 ID와 표시 순서는 `interview_session_questions`에 저장하며, API 서버 재시작 후에도 동일한 질문 흐름을 복원한다.
 - 오류/예외:
   - 질문 생성 실패 시 기본 질문 세트를 제공한다.
 - 관련 ERD 테이블:
-  - candidate_profiles, candidate_folders, file_assets, question_bank, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, ai_process_logs
+  - candidate_profiles, candidate_folders, file_assets, question_bank, applications, interview_sessions, interview_session_questions, evaluation_reports, report_scores, report_evidences, ai_process_logs
 - 비고/미결:
   - 기존 SNB 삭제. 2-depth는 GNB hover dropdown으로 노출. 연습 이력은 평가 리포트 항목으로 이동
 
@@ -2299,6 +2300,7 @@ CandidateFolder 응답 필드:
   "blogUrl": null,
   "portfolioUrl": "https://portfolio.example.com/backend",
   "resumeFileId": 10,
+  "resumeFileName": "김민철 이력서.pdf",
   "motivation": "지원 동기",
   "extraNote": "추가 설명",
   "createdAt": "2026-07-10T00:00:00.000Z",
@@ -2346,7 +2348,7 @@ CandidateFolder 응답 필드:
 - 오류/예외:
   - 권한 거부, 녹화 실패, 네트워크 오류 시 재시도 안내를 표시한다.
 - 관련 ERD 테이블:
-  - candidate_profiles, file_assets, question_bank, applications, interview_sessions, interview_answers, ai_process_logs
+  - candidate_profiles, file_assets, question_bank, applications, interview_sessions, interview_session_questions, interview_answers, ai_process_logs
 - 비고/미결:
   - interviewType=MOCK. 질문 표시 토글은 CC 자막이 아니라 면접 질문 텍스트 표시 여부를 의미함
 
@@ -2367,7 +2369,7 @@ CandidateFolder 응답 필드:
 - 오류/예외:
   - 질문 로딩 실패 시 안내 메시지를 표시하고 재시도를 제공한다.
 - 관련 ERD 테이블:
-  - candidate_profiles, file_assets, question_bank, applications, interview_sessions, ai_process_logs
+  - candidate_profiles, file_assets, question_bank, applications, interview_sessions, interview_session_questions, ai_process_logs
 - 비고/미결:
   - 질문 음성 다시 듣기 버튼 삭제. 면접 질문 표시 기본값 OFF. CC 자막 기능 아님
 

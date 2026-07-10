@@ -392,11 +392,14 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     return folder ? { ...folder } : undefined;
   }
 
-  async createFolder(input: Omit<CandidateFolder, "id" | "createdAt" | "updatedAt">): Promise<CandidateFolder> {
+  async createFolder(
+    input: Omit<CandidateFolder, "id" | "resumeFileName" | "createdAt" | "updatedAt">,
+  ): Promise<CandidateFolder> {
     const now = new Date().toISOString();
     const folder: CandidateFolder = {
       ...input,
       id: this.folders.length + 1,
+      resumeFileName: this.resolveFolderResumeFileName(input.resumeFileId),
       createdAt: now,
       updatedAt: now,
     };
@@ -406,7 +409,7 @@ export class InMemoryCandidateRepository implements CandidateRepository {
 
   async updateFolder(
     folderId: number,
-    input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "createdAt" | "updatedAt">>,
+    input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "createdAt" | "updatedAt">>,
   ): Promise<CandidateFolder> {
     const index = this.folders.findIndex((folder) => folder.id === folderId);
     if (index < 0) {
@@ -416,6 +419,9 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     const updated: CandidateFolder = {
       ...current,
       ...input,
+      ...(input.resumeFileId !== undefined
+        ? { resumeFileName: this.resolveFolderResumeFileName(input.resumeFileId) }
+        : {}),
       updatedAt: new Date().toISOString(),
     };
     this.folders[index] = updated;
@@ -427,6 +433,11 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     if (index >= 0) {
       this.folders.splice(index, 1);
     }
+  }
+
+  private resolveFolderResumeFileName(resumeFileId: number | null): string | null {
+    if (!resumeFileId) return null;
+    return this.fileAssets.find((fileAsset) => fileAsset.fileId === resumeFileId)?.originalName ?? null;
   }
 
   private createRecruitingInterviewSession(application: Application, createdAt: string): InterviewSession {

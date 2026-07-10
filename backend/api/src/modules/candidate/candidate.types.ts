@@ -170,6 +170,7 @@ export interface CandidateFolder {
   blogUrl: string | null;
   portfolioUrl: string | null;
   resumeFileId: number | null;
+  resumeFileName: string | null;
   motivation: string | null;
   extraNote: string | null;
   createdAt: string;
@@ -338,7 +339,7 @@ export interface CandidateRepository {
   countFolders(candidateId: number): Promise<number>;
   listFolders(candidateId: number): Promise<CandidateFolder[]>;
   findFolder(folderId: number): Promise<CandidateFolder | undefined>;
-  createFolder(input: Omit<CandidateFolder, "id" | "createdAt" | "updatedAt">): Promise<CandidateFolder>;
-  updateFolder(folderId: number, input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "createdAt" | "updatedAt">>): Promise<CandidateFolder>;
+  createFolder(input: Omit<CandidateFolder, "id" | "resumeFileName" | "createdAt" | "updatedAt">): Promise<CandidateFolder>;
+  updateFolder(folderId: number, input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "createdAt" | "updatedAt">>): Promise<CandidateFolder>;
   deleteFolder(folderId: number): Promise<void>;
 }

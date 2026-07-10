@@ -95,7 +95,20 @@ export class PrismaInterviewRepository implements InterviewRepository {
 
   async findQuestion(questionId: number): Promise<InterviewQuestion | undefined> {
     const question = await this.prisma.question.findUnique({ where: { questionId: BigInt(questionId) } });
-    return question && (question.isActive || this.runtimeQuestionIds.has(Number(question.questionId)))
+    if (!question) return undefined;
+
+    const isRuntimeQuestion = this.runtimeQuestionIds.has(Number(question.questionId));
+    const isPersistedSessionQuestion =
+      !question.isActive && !isRuntimeQuestion
+        ? Boolean(
+            await this.prisma.interviewSessionQuestion.findFirst({
+              where: { questionId: question.questionId },
+              select: { sessionId: true },
+            }),
+          )
+        : false;
+
+    return question.isActive || isRuntimeQuestion || isPersistedSessionQuestion
       ? this.toQuestion(question, question.postingId === null ? "MOCK" : "RECRUITING")
       : undefined;
   }
@@ -145,14 +158,26 @@ export class PrismaInterviewRepository implements InterviewRepository {
   }
 
   async createMockSession(input: CreateMockInterviewSessionInput): Promise<RuntimeInterviewSession> {
-    const session = await this.prisma.interviewSession.create({
-      data: {
-        candidateId: BigInt(input.candidateId),
-        interviewType: PrismaInterviewType.MOCK,
-        status: PrismaInterviewStatus.IN_PROGRESS,
-        showQuestionText: input.showQuestionText,
-        startedAt: new Date(input.startedAt),
-      },
+    const session = await this.prisma.$transaction(async (transaction) => {
+      const created = await transaction.interviewSession.create({
+        data: {
+          candidateId: BigInt(input.candidateId),
+          interviewType: PrismaInterviewType.MOCK,
+          status: PrismaInterviewStatus.IN_PROGRESS,
+          showQuestionText: input.showQuestionText,
+          startedAt: new Date(input.startedAt),
+        },
+      });
+      if (input.questionIds.length > 0) {
+        await transaction.interviewSessionQuestion.createMany({
+          data: input.questionIds.map((questionId, index) => ({
+            sessionId: created.sessionId,
+            questionId: BigInt(questionId),
+            sortOrder: index + 1,
+          })),
+        });
+      }
+      return created;
     });
     this.mockSessionQuestionIds.set(Number(session.sessionId), [...input.questionIds]);
     return this.toRuntimeSession(session, input.questionIds);
@@ -179,15 +204,30 @@ export class PrismaInterviewRepository implements InterviewRepository {
       this.recruitingSessionQuestionIds.set(session.sessionId, [...session.questionIds]);
     }
 
-    const updated = await this.prisma.interviewSession.update({
-      where: { sessionId: BigInt(session.sessionId) },
-      data: {
-        status: session.status as PrismaInterviewStatus,
-        showQuestionText: session.showQuestionText,
-        startedAt: session.startedAt ? new Date(session.startedAt) : undefined,
-        completedAt: session.completedAt ? new Date(session.completedAt) : null,
-      },
-      include: { application: true },
+    const updated = await this.prisma.$transaction(async (transaction) => {
+      const saved = await transaction.interviewSession.update({
+        where: { sessionId: BigInt(session.sessionId) },
+        data: {
+          status: session.status as PrismaInterviewStatus,
+          showQuestionText: session.showQuestionText,
+          startedAt: session.startedAt ? new Date(session.startedAt) : undefined,
+          completedAt: session.completedAt ? new Date(session.completedAt) : null,
+        },
+        include: { application: true },
+      });
+      await transaction.interviewSessionQuestion.deleteMany({
+        where: { sessionId: BigInt(session.sessionId) },
+      });
+      if (session.questionIds.length > 0) {
+        await transaction.interviewSessionQuestion.createMany({
+          data: session.questionIds.map((questionId, index) => ({
+            sessionId: BigInt(session.sessionId),
+            questionId: BigInt(questionId),
+            sortOrder: index + 1,
+          })),
+        });
+      }
+      return saved;
     });
     return this.toRuntimeSession(updated, session.questionIds, session.currentQuestionIndex);
   }
@@ -507,6 +547,15 @@ export class PrismaInterviewRepository implements InterviewRepository {
 
   private async resolveSessionQuestionIds(session: InterviewSessionRecord): Promise<number[]> {
     const sessionId = Number(session.sessionId);
+    const persisted = await this.prisma.interviewSessionQuestion.findMany({
+      where: { sessionId: session.sessionId },
+      orderBy: { sortOrder: "asc" },
+      select: { questionId: true },
+    });
+    if (persisted.length > 0) {
+      return persisted.map((item) => Number(item.questionId));
+    }
+
     if (session.interviewType === PrismaInterviewType.MOCK) {
       const cached = this.mockSessionQuestionIds.get(sessionId);
       if (cached) return [...cached];

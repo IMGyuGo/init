@@ -179,14 +179,17 @@ async function runControllerRuntimeAssertions() {
   });
   assert.equal(createdFolder.data.name, "네이버 백엔드 지원 세트");
   assert.equal(createdFolder.data.resumeFileId, resume.data.fileId);
+  assert.equal(createdFolder.data.resumeFileName, "controller-resume.pdf");
   assert.equal(createdFolder.data.githubUrl, "https://github.com/init/backend");
 
   const folders = await controller.listFolders(validCandidateRequest);
   assert.equal(folders.data.items.length, 1);
   assert.equal(folders.data.items[0]?.id, createdFolder.data.id);
+  assert.equal(folders.data.items[0]?.resumeFileName, "controller-resume.pdf");
 
   const folderDetail = await controller.getFolder(validCandidateRequest, String(createdFolder.data.id));
   assert.equal(folderDetail.data.motivation, "대규모 트래픽 API를 만들고 싶습니다.");
+  assert.equal(folderDetail.data.resumeFileName, "controller-resume.pdf");
 
   const updatedFolder = await controller.updateFolder(validCandidateRequest, String(createdFolder.data.id), {
     name: "쿠팡 백엔드 지원 세트",
@@ -194,6 +197,7 @@ async function runControllerRuntimeAssertions() {
   });
   assert.equal(updatedFolder.data.name, "쿠팡 백엔드 지원 세트");
   assert.equal(updatedFolder.data.portfolioUrl, null);
+  assert.equal(updatedFolder.data.resumeFileName, "controller-resume.pdf");
 
   await controller.deleteFolder(validCandidateRequest, String(createdFolder.data.id));
   const foldersAfterDelete = await controller.listFolders(validCandidateRequest);

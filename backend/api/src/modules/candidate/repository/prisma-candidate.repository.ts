@@ -57,7 +57,9 @@ interface CandidatePostingSchemaShape {
 
 type ApplicationRecord = Prisma.ApplicationGetPayload<Record<string, never>>;
 type ApplicationDocumentRecord = Prisma.ApplicationDocumentGetPayload<Record<string, never>>;
-type CandidateFolderRecord = Prisma.CandidateFolderGetPayload<Record<string, never>>;
+type CandidateFolderRecord = Prisma.CandidateFolderGetPayload<{
+  include: { resumeFile: { select: { originalName: true } } };
+}>;
 type ConsentRecordModel = Prisma.ConsentRecordGetPayload<Record<string, never>>;
 type FileAssetRecord = Prisma.FileAssetGetPayload<Record<string, never>>;
 type InterviewSessionRecord = Prisma.InterviewSessionGetPayload<{ include: { application: true } }>;
@@ -403,6 +405,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
     const folders = await this.prisma.candidateFolder.findMany({
       where: { candidateId: BigInt(candidateId) },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      include: { resumeFile: { select: { originalName: true } } },
     });
     return folders.map((folder) => this.toCandidateFolder(folder));
   }
@@ -410,11 +413,14 @@ export class PrismaCandidateRepository implements CandidateRepository {
   async findFolder(folderId: number): Promise<CandidateFolder | undefined> {
     const folder = await this.prisma.candidateFolder.findUnique({
       where: { id: BigInt(folderId) },
+      include: { resumeFile: { select: { originalName: true } } },
     });
     return folder ? this.toCandidateFolder(folder) : undefined;
   }
 
-  async createFolder(input: Omit<CandidateFolder, "id" | "createdAt" | "updatedAt">): Promise<CandidateFolder> {
+  async createFolder(
+    input: Omit<CandidateFolder, "id" | "resumeFileName" | "createdAt" | "updatedAt">,
+  ): Promise<CandidateFolder> {
     const folder = await this.prisma.candidateFolder.create({
       data: {
         candidateId: BigInt(input.candidateId),
@@ -426,13 +432,14 @@ export class PrismaCandidateRepository implements CandidateRepository {
         motivation: input.motivation,
         extraNote: input.extraNote,
       },
+      include: { resumeFile: { select: { originalName: true } } },
     });
     return this.toCandidateFolder(folder);
   }
 
   async updateFolder(
     folderId: number,
-    input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "createdAt" | "updatedAt">>,
+    input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "createdAt" | "updatedAt">>,
   ): Promise<CandidateFolder> {
     const folder = await this.prisma.candidateFolder.update({
       where: { id: BigInt(folderId) },
@@ -445,6 +452,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
         ...(input.motivation !== undefined ? { motivation: input.motivation } : {}),
         ...(input.extraNote !== undefined ? { extraNote: input.extraNote } : {}),
       },
+      include: { resumeFile: { select: { originalName: true } } },
     });
     return this.toCandidateFolder(folder);
   }
@@ -632,6 +640,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
       blogUrl: folder.blogUrl,
       portfolioUrl: folder.portfolioUrl,
       resumeFileId: folder.resumeFileId ? Number(folder.resumeFileId) : null,
+      resumeFileName: folder.resumeFile?.originalName ?? null,
       motivation: folder.motivation,
       extraNote: folder.extraNote,
       createdAt: folder.createdAt.toISOString(),

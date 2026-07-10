@@ -88,6 +88,7 @@ async function run() {
   );
   assert.equal(folder.data.candidateId, currentUser.candidateId);
   assert.equal(folder.data.resumeFileId, folderResume.fileId);
+  assert.equal(folder.data.resumeFileName, "backend-resume.pdf");
   assert.equal(folder.data.motivation, "백엔드 플랫폼을 안정적으로 만들고 싶습니다.");
 
   const updatedFolder = await folderService.updateFolder(
@@ -100,6 +101,7 @@ async function run() {
   );
   assert.equal(updatedFolder.data.name, "수정된 지원 세트");
   assert.equal(updatedFolder.data.blogUrl, null);
+  assert.equal(updatedFolder.data.resumeFileName, "backend-resume.pdf");
 
   await folderService.deleteFolder(folder.data.id, currentUser);
   const foldersAfterDelete = await folderService.listFolders(currentUser);
