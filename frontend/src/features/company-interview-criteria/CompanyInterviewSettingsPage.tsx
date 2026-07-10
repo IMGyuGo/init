@@ -2433,23 +2433,6 @@ function toOptionalNumber(value: string | undefined) {
   return Number.isInteger(numeric) && numeric > 0 ? numeric : undefined;
 }
 
-function formatAiFailureReason(reason: string) {
-  const normalized = reason.toLowerCase();
-  if (reason.includes("AI queue publish failed")) {
-    return "AI 작업 대기열에 연결하지 못했습니다. LocalStack과 worker 실행 상태를 확인해주세요.";
-  }
-  if (normalized.includes("dev auth headers are required") || normalized.includes("unauthorized") || normalized.includes("forbidden")) {
-    return "인증 정보가 만료되었거나 요청 권한이 없습니다. 다시 로그인한 뒤 요청해주세요.";
-  }
-  if (normalized.includes("timeout") || normalized.includes("network") || normalized.includes("fetch")) {
-    return "AI 작업 상태를 확인하는 중 네트워크 문제가 발생했습니다. 잠시 후 다시 요청해주세요.";
-  }
-  if (normalized.includes("guardrail")) {
-    return "생성 결과가 검수 정책을 통과하지 못했습니다. 조건을 수정한 뒤 다시 요청해주세요.";
-  }
-  return "AI 결과 생성 중 오류가 발생했습니다. 다시 요청할 수 있습니다.";
-}
-
 function formatAiRequestError(message: string) {
   const normalized = message.toLowerCase();
   if (message.includes("AI queue publish failed")) {
