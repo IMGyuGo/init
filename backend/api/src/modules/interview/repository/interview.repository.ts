@@ -32,6 +32,7 @@ export interface ReplaceInterviewAnswerInput {
   answerId: number;
   videoFileId?: number;
   audioFileId?: number;
+  transcript?: string;
   nonverbalMetadata?: InterviewAnswerNonverbalMetadata;
   durationSeconds: number;
   submittedAt: string;

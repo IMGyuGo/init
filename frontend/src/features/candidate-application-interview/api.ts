@@ -371,6 +371,7 @@ export interface SaveInterviewAnswerRequest {
   skipReason?: "RECORDING_VALIDATION_FAILED";
   nonverbalMetadata?: Record<string, unknown>;
   retryAnswerId?: number;
+  transcript?: string;
 }
 
 export interface InterviewAnswer {
@@ -379,6 +380,7 @@ export interface InterviewAnswer {
   questionId: number;
   videoFileId?: number;
   audioFileId?: number;
+  transcript?: string;
   nonverbalMetadata?: Record<string, unknown>;
   durationSeconds: number;
   submittedAt: string;

@@ -7,6 +7,8 @@ import { ApiExceptionFilter } from "./shared/api-exception.filter";
 import { ApiResponseInterceptor } from "./shared/api-response.interceptor";
 import { createCorsOriginDelegate } from "./shared/cors-origin";
 import { setupSwagger } from "./swagger/swagger";
+import { InterviewService } from "./modules/interview/service/interview.service";
+import { attachRealtimeSttRelayServer } from "./modules/interview/realtime-stt-relay.server";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -42,6 +44,10 @@ async function bootstrap() {
       new Logger("Swagger").warn(`Swagger setup skipped: ${message}`);
     }
   }
+
+  attachRealtimeSttRelayServer(app.getHttpServer(), {
+    interviewService: app.get(InterviewService),
+  });
 
   const port = Number(process.env.PORT ?? 3001);
   await app.listen(port);

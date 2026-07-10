@@ -126,6 +126,46 @@ test("mock STT handoff includes answer duration for worker usage tracking", asyn
   assert.ok(stt.data.inputRef?.includes('"durationSeconds":37'));
 });
 
+test("mock answer keeps realtime transcript and nonverbal metadata together", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+  const transcript = "실시간 STT로 변환된 답변입니다.";
+  const nonverbalMetadata = {
+    cameraWarnings: 0,
+    microphoneWarnings: 0,
+    longSilenceCount: 0,
+    testModeUsed: false,
+    integritySummary: {
+      gazeAwayCount: 1,
+      suspicionLevel: "LOW",
+    },
+  };
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["INTRO"],
+    showQuestionText: false,
+  });
+  const questions = await controller.listMockQuestions(validCandidateRequest, String(started.data.sessionId));
+  const questionId = questions.data.questions[0]?.questionId ?? 0;
+  const answer = await controller.saveMockAnswer(validCandidateRequest, String(started.data.sessionId), {
+    questionId,
+    audioFile: {
+      storageKey: "candidate/1/realtime-stt-nonverbal-answer.webm",
+      originalName: "realtime-stt-nonverbal-answer.webm",
+      mimeType: "audio/webm",
+      sizeBytes: 2048,
+    },
+    transcript,
+    nonverbalMetadata,
+    durationSeconds: 37,
+  });
+
+  assert.equal(answer.data.answer.transcript, transcript);
+  assert.deepEqual(answer.data.answer.nonverbalMetadata, nonverbalMetadata);
+});
+
 async function assertInterviewHttpError(
   action: () => Promise<unknown>,
   expectedStatus: number,

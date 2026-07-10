@@ -234,7 +234,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
         nonverbalMetadata: this.toNullablePrismaJson(input.nonverbalMetadata),
         durationSeconds: input.durationSeconds,
         submittedAt: new Date(input.submittedAt),
-        transcript: null,
+        transcript: input.transcript ?? null,
       },
     });
     return this.toAnswer(answer);

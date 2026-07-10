@@ -211,6 +211,24 @@ function smoothScrollWindowTo(y: number, duration = 560): void {
   requestAnimationFrame(step);
 }
 
+// JD 본문에서 이미지 갤러리(파일명 노출)·태그·근무지역 섹션을 제거한다.
+// 태그와 근무지역은 본문 아래에 태그 → 근무지역 순으로 다시 배치한다(JD 섹션은 유지).
+function stripStructuredJobMediaSections(jobDescription: string): string {
+  return jobDescription
+    .replace(/<section\b[^>]*data-init-structured-gallery="true"[^>]*>[\s\S]*?<\/section>/gi, "")
+    .replace(/<section\b[^>]*data-init-structured-tags="true"[^>]*>[\s\S]*?<\/section>/gi, "")
+    .replace(/<section\b[^>]*data-init-structured-location="true"[^>]*>[\s\S]*?<\/section>/gi, "");
+}
+
+// JD 본문의 근무지역 섹션 텍스트만 추출한다(태그 아래로 재배치용).
+function extractStructuredLocationNote(jobDescription: string): string {
+  const raw =
+    jobDescription.match(
+      /<section\b[^>]*data-init-structured-location="true"[^>]*>[\s\S]*?<p>([\s\S]*?)<\/p>[\s\S]*?<\/section>/i,
+    )?.[1] ?? "";
+  return raw.replace(/<[^>]*>/g, "").trim();
+}
+
 function candidateJobDday(endsOn: string): string | null {
   if (!endsOn) return null;
   const end = new Date(`${endsOn}T23:59:59`);
@@ -864,7 +882,10 @@ export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetail
   const [images, setImages] = useState<string[]>([]);
 
   // JD 에서 "공고 조건" 블록을 분리해 요약 그리드로 보여주고, 본문에는 제거된 JD 만 렌더한다.
-  const { jobDescription: jdBody, extraInfo } = extractPostingExtraInfo(job.jobDescription);
+  // 이미지 갤러리(파일명 노출)와 태그 섹션은 상단 캐러셀/헤더 태그로 이미 보여주므로 본문에서만 제거한다(JD 섹션은 유지).
+  const { jobDescription: jdWithoutExtraInfo, extraInfo } = extractPostingExtraInfo(job.jobDescription);
+  const jdBody = stripStructuredJobMediaSections(jdWithoutExtraInfo);
+  const locationNote = extractStructuredLocationNote(jdWithoutExtraInfo);
   const summaryRows = postingExtraInfoFields
     .map((field) => ({ label: field.label, value: extraInfo[field.key].enabled ? extraInfo[field.key].value : "" }))
     .filter((row) => row.value);
@@ -917,13 +938,6 @@ export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetail
               </span>
             </div>
             <h1 id="candidate-job-detail-heading" className="jobdetail-title">{job.title}</h1>
-            {job.techStacks.length ? (
-              <div className="jobdetail-tags">
-                {job.techStacks.map((techStack) => (
-                  <span key={techStack}>#{techStack}</span>
-                ))}
-              </div>
-            ) : null}
           </header>
 
           {summaryRows.length ? (
@@ -946,6 +960,24 @@ export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetail
           <div className="jobdetail-jd">
             <JobDescriptionViewer value={jdBody} emptyMessage="등록된 JD가 없습니다." />
           </div>
+
+          {job.techStacks.length ? (
+            <section className="jobdetail-tagsection">
+              <h2>태그</h2>
+              <div className="jobdetail-tags">
+                {job.techStacks.map((techStack) => (
+                  <span key={techStack}>{techStack}</span>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {locationNote ? (
+            <section className="jobdetail-companyinfo">
+              <h2>근무지역</h2>
+              <p>{locationNote}</p>
+            </section>
+          ) : null}
 
           {job.companyProfile ? (
             <section className="jobdetail-companyinfo">

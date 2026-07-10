@@ -299,7 +299,7 @@ export function CompanyPostingsPage() {
                           <StatusBadge value={item.status} />
                         </div>
                         <h3 className="pcard-title">{item.title}</h3>
-                        <p className="pcard-period">채용 {formatRecruitPeriod(item.startsOn, item.endsOn)}</p>
+                        <p className="pcard-period">{formatRecruitPeriod(item.startsOn, item.endsOn)}</p>
                         <div className="pcard-progress">
                           <div className="pcard-progress-head">
                             <span>지원 <strong>{item.applicantCount}</strong>명</span>

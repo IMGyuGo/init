@@ -36,9 +36,9 @@ import {
   type CandidateInterviewRuntimeView,
   type CandidateJobQuery,
   type CandidateMockInterviewHistoryItem,
+  type CandidateMockReportSummary,
   type CandidateMockReportFeedback,
   type CandidateMockReportMedia,
-  type CandidateMockReportSummary,
   type CandidateReportAnswerView,
   type CandidateReportEvidenceView,
   type CandidateReportScoreView,
@@ -65,6 +65,11 @@ import {
   type RealtimeInterviewWebRtcConnection,
   type RealtimeResponseMetadata,
 } from "./realtime-webrtc";
+import {
+  createRealtimeSttRelaySession,
+  type RealtimeSttRelayMetric,
+  type RealtimeSttRelaySession,
+} from "./realtime-stt-relay";
 import { candidateApplicationInterviewRoutes } from "./routes";
 import {
   GAZE_CALIBRATION_REQUIRED_SAMPLES,
@@ -81,13 +86,17 @@ import {
   type CandidateApplicationFormState,
   type CandidateDeviceCheckState,
   type CandidateInterviewConsentState,
+  type CandidateNotificationItem,
   type CandidatePortfolioLinkFormState,
   type CandidateResumeUploadState,
   type InterviewAnswerFormState,
   type InterviewRuntimePrimaryScreen,
   type InterviewerSessionEvent,
   type StartMockInterviewState,
+  buildCandidateReportCompleteNotification,
+  buildCandidateReportCompleteNotifications,
   clampCameraPipPosition,
+  countUnreadCandidateNotifications,
   createInterviewerSessionActionEvent,
   defaultApplicationFormState,
   defaultCandidateJobQuery,
@@ -111,13 +120,13 @@ import {
   getInterviewRuntimeStatusChips,
   getInterviewerSessionState,
   getInvalidRecordingRecoveryAction,
+  getRecruitingReportPollingIntervalMs,
   getRealtimeSilenceEncouragementDecision,
   getRealtimeSessionUserNotice,
   getRuntimeDeviceRecheckState,
   getTimedOutAiJobStatus,
   getCandidateApplicationReportHref,
   getMockInterviewDeviceCheckHref,
-  getMockReportHref,
   inferPortfolioLinkType,
   isInterviewSpeechPlaybackEventCurrent,
   normalizeInterviewMediaMimeType,
@@ -128,6 +137,7 @@ import {
   shouldContinueInterviewWithoutFollowUp,
   shouldEnableManualInterviewRecording,
   shouldOpenRealtimeMicrophoneForRecordingStart,
+  shouldPollRecruitingReportCompletion,
   shouldRunInterviewRuntimeCountdown,
   shouldShowPaymentDevTools,
   shouldShowInterviewDeviceSetup,
@@ -152,10 +162,14 @@ const SHOW_PAYMENT_DEV_TOOLS = shouldShowPaymentDevTools({ nodeEnv: process.env.
 // DEV-ONLY camera bypass: remove this flag, storage helpers, and matching buttons together when it is no longer needed.
 const ENABLE_CAMERALESS_INTERVIEW_TEST_ENTRY = process.env.NODE_ENV !== "production";
 const CAMERALESS_INTERVIEW_TEST_ENTRY_STORAGE_KEY_PREFIX = "init.cameralessInterviewTestEntry";
+const CANDIDATE_NOTIFICATION_READ_IDS_STORAGE_KEY = "init.candidateNotificationReadIds";
+const CANDIDATE_NOTIFICATION_DISMISSED_IDS_STORAGE_KEY = "init.candidateNotificationDismissedIds";
+const CANDIDATE_REPORT_NOTIFICATION_EVENT = "init:candidate-report-complete";
 const DEMO_CANDIDATE_ID = 1;
 export const PUBLIC_INTERVIEW_ACCESS_TOKEN_STORAGE_KEY = "init.publicInterviewAccessToken";
 const DEFAULT_INTERVIEW_QUESTION_TIME_LIMIT_SECONDS = 90;
-const DEFAULT_MOCK_INTERVIEW_PREPARATION_TIME_LIMIT_SECONDS = 5;
+const DEFAULT_MOCK_INTERVIEW_PREPARATION_TIME_LIMIT_SECONDS = 0;
+const REALTIME_STT_RELAY_ENABLED = process.env.NEXT_PUBLIC_OPENAI_REALTIME_STT_RELAY_ENABLED !== "false";
 const MIN_INTERVIEW_RECORDING_DURATION_SECONDS = 3;
 const MIN_INTERVIEW_RECORDING_BLOB_SIZE_BYTES = 10 * 1024;
 const MIN_INTERVIEW_RECORDING_VOICE_LEVEL = 3;
@@ -405,6 +419,7 @@ type LastSavedAnswer = {
   audioS3Key?: string;
   videoFileId?: number;
   videoS3Key?: string;
+  transcriptSource?: "OPENAI_REALTIME_STT_RELAY";
 };
 type AutoAiStepStatus = "IDLE" | "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
 type AutoAiPipelineState = {
@@ -601,7 +616,7 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
       const result = await api.submitApplication(jobId, request);
       setApplyOpen(false);
       setMessage(`지원서가 제출되었습니다. 접수 번호는 ${result.data.application.applicationId}번입니다.`);
-      refresh();
+      void refresh().catch(() => undefined);
     } catch (submitError) {
       // 실패 시 모달을 유지하고 입력값을 보존한 채 에러만 보여준다.
       setApplyError(toErrorMessage(submitError));
@@ -1516,7 +1531,7 @@ export function CandidateMockInterviewStartPage() {
           description="합격/탈락 판단 없이 연습 피드백만 제공합니다."
           actions={
             <Link className="btn secondary" href={candidateApplicationInterviewRoutes.mockReports}>
-              리포트 보기
+              연습 이력
             </Link>
           }
         />
@@ -1725,23 +1740,23 @@ export function CandidateMockInterviewRuntimePage({ sessionId }: { sessionId: nu
 export function CandidateMockReportsPage() {
   const load = useCallback(async () => {
     const api = getCandidateApi();
-    const [reports, history] = await Promise.all([api.listMockReports(), api.listMockInterviewHistory()]);
-    return {
-      reports: reports.data.items,
-      history: history.data.items,
-    };
+    const [history, reports] = await Promise.all([
+      api.listMockInterviewHistory(),
+      api.listMockReports(),
+    ]);
+    return { history: mergeMockHistoryWithReports(history.data.items, reports.data.items) };
   }, []);
   const { data, loading, error, refresh } = useCandidateResource(load, []);
 
   return (
     <CandidatePageShell active="reports">
       <CandidatePageHead
-        eyebrow="모의면접 리포트"
-        title="모의면접 리포트"
-        description="연습 이력과 생성된 피드백 리포트를 확인합니다."
+        eyebrow="모의면접"
+        title="연습 이력"
+        description="진행 중인 연습은 이어서 하고, 완료된 연습은 리포트를 확인할 수 있어요."
         actions={
           <>
-            <button className="btn secondary" type="button" onClick={refresh}>새로고침</button>
+            <button className="btn secondary" type="button" onClick={() => void refresh().catch(() => undefined)}>새로고침</button>
             <Link className="btn primary" href={candidateApplicationInterviewRoutes.mockInterviewStart}>모의면접 시작</Link>
           </>
         }
@@ -1750,23 +1765,32 @@ export function CandidateMockReportsPage() {
       <section className="panel">
         <div className="panel-head">
           <div>
-            <h2>리포트 목록</h2>
-            <p>지원자에게 허용된 모의면접 피드백만 표시합니다.</p>
-          </div>
-        </div>
-        {data?.reports.length ? <MockReportsTable reports={data.reports} /> : <p className="empty">아직 생성된 모의면접 리포트가 없습니다.</p>}
-      </section>
-      <section className="panel">
-        <div className="panel-head">
-          <div>
             <h2>연습 이력</h2>
-            <p>모의면접 세션 진행 상태를 확인합니다.</p>
+            <p>모의면접 세션별 진행 상태와 피드백 리포트를 확인합니다.</p>
           </div>
         </div>
-        {data?.history.length ? <MockHistoryTable history={data.history} /> : <p className="empty">모의면접 이력이 없습니다.</p>}
+        {data?.history.length ? <MockHistoryTable history={data.history} /> : <p className="empty">아직 모의면접 이력이 없어요.</p>}
       </section>
     </CandidatePageShell>
   );
+}
+
+function mergeMockHistoryWithReports(
+  history: CandidateMockInterviewHistoryItem[],
+  reports: CandidateMockReportSummary[],
+): CandidateMockInterviewHistoryItem[] {
+  const reportsBySessionId = new Map(reports.map((report) => [report.sessionId, report]));
+
+  return history.map((item) => {
+    const report = reportsBySessionId.get(item.sessionId);
+    if (!report) return item;
+
+    return {
+      ...item,
+      reportId: report.reportId,
+      reportStatus: report.reportStatus,
+    };
+  });
 }
 
 export function CandidateMockReportDetailPage({ reportId }: { reportId: number }) {
@@ -1805,7 +1829,7 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
       await getCandidateApi().requestMockReportGeneration(reportId);
       setGenerationRequested(true);
       setMessage("AI 분석 요청이 접수되었습니다. 분석이 완료되면 리포트가 자동으로 갱신됩니다.");
-      refresh();
+      void refresh().catch(() => undefined);
     } catch (generateError) {
       setMessage(toErrorMessage(generateError));
     } finally {
@@ -1854,7 +1878,9 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
 export function CandidateApplicationReportPage({ applicationId }: { applicationId: number }) {
   const [generationBusy, setGenerationBusy] = useState(false);
   const [generationMessage, setGenerationMessage] = useState("");
+  const [toastMessage, setToastMessage] = useState("");
   const requestedReportApplicationRef = useRef<number | null>(null);
+  const notifiedReportApplicationRef = useRef<number | null>(null);
   const load = useCallback(async (): Promise<ApplicationReportData> => {
     const api = getCandidateApi();
     const [statusResult, reportResult] = await Promise.allSettled([
@@ -1869,6 +1895,9 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
     };
   }, [applicationId]);
   const { data, loading, error, refresh } = useCandidateResource(load, [applicationId]);
+  const pollingInterviewStatus = data?.status?.interviewStatus;
+  const pollingInterviewSessionStatus = data?.status?.interviewSessionStatus;
+  const pollingReportStatus = data?.status?.reportStatus;
 
   useEffect(() => {
     if (!shouldAutoRequestApplicationReport(data)) {
@@ -1891,7 +1920,7 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
           return;
         }
         setGenerationMessage("AI 분석 요청이 접수되었습니다. 완료되면 기업 검토 화면에 반영됩니다.");
-        refresh();
+        void refresh().catch(() => undefined);
       })
       .catch((reportGenerationError) => {
         if (cancelled) {
@@ -1910,6 +1939,84 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
     };
   }, [applicationId, data, refresh]);
 
+  useEffect(() => {
+    const pollingStatus = pollingReportStatus
+      ? {
+          interviewStatus: pollingInterviewStatus ?? "",
+          interviewSessionStatus: pollingInterviewSessionStatus ?? "",
+          reportStatus: pollingReportStatus,
+        }
+      : undefined;
+
+    if (!shouldPollRecruitingReportCompletion(pollingStatus)) {
+      return;
+    }
+
+    let cancelled = false;
+    const startedAt = Date.now();
+
+    async function pollReportCompletion() {
+      while (!cancelled) {
+        await sleep(getRecruitingReportPollingIntervalMs(Date.now() - startedAt));
+        if (cancelled) {
+          return;
+        }
+
+        try {
+          const latest = await refresh();
+          if (cancelled) {
+            return;
+          }
+
+          if (latest.status?.reportStatus === "COMPLETED") {
+            const notification = buildCandidateReportCompleteNotification(latest.status, new Set());
+            if (notification) {
+              setToastMessage(notification.message);
+              if (notifiedReportApplicationRef.current !== latest.status.applicationId) {
+                emitCandidateReportNotification(notification);
+                notifiedReportApplicationRef.current = latest.status.applicationId;
+              }
+            }
+            setGenerationMessage("");
+            return;
+          }
+
+          if (latest.status?.reportStatus === "FAILED") {
+            setGenerationMessage("리포트 생성에 실패했습니다. 잠시 후 새로고침하거나 기업 담당자에게 문의해주세요.");
+            return;
+          }
+        } catch (pollError) {
+          if (!cancelled) {
+            setGenerationMessage(toErrorMessage(pollError));
+          }
+          return;
+        }
+      }
+    }
+
+    void pollReportCompletion();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    applicationId,
+    pollingInterviewStatus,
+    pollingInterviewSessionStatus,
+    pollingReportStatus,
+    load,
+    refresh,
+  ]);
+
+  useEffect(() => {
+    if (!toastMessage) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => setToastMessage(""), 5000);
+    return () => window.clearTimeout(timer);
+  }, [toastMessage]);
+
   return (
     <CandidatePageShell active="applications">
       <CandidatePageHead
@@ -1920,11 +2027,12 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
           <div className="toolbar">
             <StatusPill value="채용면접" />
             <StatusPill value="기업 검토" />
-            <button className="btn secondary" type="button" onClick={refresh}>새로고침</button>
+            <button className="btn secondary" type="button" onClick={() => void refresh().catch(() => undefined)}>새로고침</button>
           </div>
         }
       />
       <StatusNotice loading={loading || generationBusy} error={error} message={generationMessage} />
+      {toastMessage ? <div className="candidate-toast" role="status" aria-live="polite">{toastMessage}</div> : null}
       <section className="panel">
         <div className="panel-head">
           <div>
@@ -2439,6 +2547,8 @@ function InterviewRuntimePanel({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<BlobPart[]>([]);
   const recordingStartedAtRef = useRef(0);
+  const realtimeSttRelayRef = useRef<RealtimeSttRelaySession | null>(null);
+  const realtimeSttTranscriptByQuestionRef = useRef<Map<number, string>>(new Map());
   const submitAfterRecordingStopRef = useRef(false);
   const autoAdvanceAfterAnswerSubmitRef = useRef(false);
   const answerCompleteShortcutRef = useRef<() => void>(() => undefined);
@@ -3219,6 +3329,7 @@ function InterviewRuntimePanel({
       if (recorderRef.current?.state === "recording") {
         recorderRef.current.stop();
       }
+      discardRealtimeSttRelay();
       stopQuestionSpeech();
       stopRuntimeCameraQualityMonitor();
       stopNonverbalCameraMonitor();
@@ -4832,7 +4943,7 @@ function InterviewRuntimePanel({
         rememberCameralessInterviewTestEntry("recruiting", data.runtime.sessionId);
         startRuntimeAfterRefreshRef.current = true;
         setMessage("카메라 없이 테스트 모드로 면접 화면으로 이동합니다.");
-        refresh();
+        void refresh().catch(() => undefined);
       } catch (submitError) {
         startRuntimeAfterRefreshRef.current = false;
         setMessage(toErrorMessage(submitError));
@@ -4988,7 +5099,7 @@ function InterviewRuntimePanel({
         await api.startInterview(data.runtime.applicationId);
         startRuntimeAfterRefreshRef.current = true;
         setMessage("장치 점검이 완료되었습니다. 면접 화면으로 이동합니다.");
-        refresh();
+        void refresh().catch(() => undefined);
       } catch (submitError) {
         startRuntimeAfterRefreshRef.current = false;
         setMessage(toErrorMessage(submitError));
@@ -5003,6 +5114,69 @@ function InterviewRuntimePanel({
     setQuestionSpeechCompleted(false);
     setMessage("면접이 시작되었습니다. AI 안내 후 답변 녹화가 자동으로 진행됩니다.");
     autoRecordingQuestionRef.current = null;
+  }
+
+  function startRealtimeSttRelayForRecording(stream: MediaStream, questionId: number) {
+    if (!REALTIME_STT_RELAY_ENABLED) return;
+    if (!stream.getAudioTracks().some((track) => track.readyState === "live")) return;
+
+    discardRealtimeSttRelay();
+    realtimeSttTranscriptByQuestionRef.current.delete(questionId);
+    try {
+      realtimeSttRelayRef.current = createRealtimeSttRelaySession({
+        mode,
+        sessionId: data?.runtime.sessionId ?? 0,
+        stream,
+        publicAccessToken: readPublicInterviewAccessToken(),
+        onMetric: (metric) => recordRealtimeSttRelayMetric(questionId, metric),
+      });
+    } catch {
+      realtimeSttRelayRef.current = null;
+    }
+  }
+
+  async function finishRealtimeSttRelay(questionId: number): Promise<string | undefined> {
+    const relay = realtimeSttRelayRef.current;
+    realtimeSttRelayRef.current = null;
+    if (!relay) return undefined;
+
+    try {
+      const transcript = (await relay.stopAndGetTranscript())?.trim();
+      if (transcript) {
+        realtimeSttTranscriptByQuestionRef.current.set(questionId, transcript);
+        return transcript;
+      }
+    } catch {
+      return undefined;
+    }
+
+    return undefined;
+  }
+
+  function discardRealtimeSttRelay() {
+    realtimeSttRelayRef.current?.discard();
+    realtimeSttRelayRef.current = null;
+  }
+
+  function attachRealtimeTranscriptToRequest(request: SaveInterviewAnswerRequest): SaveInterviewAnswerRequest {
+    const transcript = request.transcript?.trim() || realtimeSttTranscriptByQuestionRef.current.get(request.questionId)?.trim();
+    return transcript ? { ...request, transcript } : request;
+  }
+
+  function recordRealtimeSttRelayMetric(questionId: number, metric: RealtimeSttRelayMetric) {
+    if (!data) return;
+    void sendClientPerformanceLog({
+      eventName: metric.eventName,
+      durationMs: Math.max(0, Math.round(metric.durationMs)),
+      sessionId: data.runtime.sessionId,
+      applicationId: data.runtime.applicationId,
+      questionId,
+      metadata: {
+        mode,
+        sourceQuestionId: questionId,
+        ...metric.metadata,
+      },
+    });
   }
 
   async function handleStartRecording() {
@@ -5054,7 +5228,7 @@ function InterviewRuntimePanel({
         }
       };
 
-      recorder.onstop = () => {
+      recorder.onstop = async () => {
         setRealtimeMicrophoneOpen(false);
         const recordedMimeType = resolveRecordedMimeType({
           chunkMimeTypes: recordingChunksRef.current.map((chunk) => chunk instanceof Blob ? chunk.type : ""),
@@ -5070,6 +5244,7 @@ function InterviewRuntimePanel({
           if (nonverbalMetadata) {
             lastInvalidRecordingMetadataRef.current.set(currentQuestion.questionId, nonverbalMetadata);
           }
+          discardRealtimeSttRelay();
           clearInvalidRecordingDraft(
             currentQuestion.questionId,
             `답변 녹음이 너무 짧습니다. 최소 ${MIN_INTERVIEW_RECORDING_DURATION_SECONDS}초 이상 답변한 뒤 다시 제출해주세요.`,
@@ -5081,6 +5256,7 @@ function InterviewRuntimePanel({
           if (nonverbalMetadata) {
             lastInvalidRecordingMetadataRef.current.set(currentQuestion.questionId, nonverbalMetadata);
           }
+          discardRealtimeSttRelay();
           clearInvalidRecordingDraft(
             currentQuestion.questionId,
             "녹음 파일이 너무 작아 저장되지 않았습니다. 마이크 입력을 확인한 뒤 다시 답변해주세요.",
@@ -5091,6 +5267,7 @@ function InterviewRuntimePanel({
         const videoFile = createRuntimeFileAssetFromMetadata(fileName, recordedMimeType, blob.size);
 
         if (!videoFile) {
+          discardRealtimeSttRelay();
           setMessage("지원하지 않는 녹화 파일 형식입니다.");
           setRecording(false);
           return;
@@ -5098,6 +5275,7 @@ function InterviewRuntimePanel({
 
         cacheRecordedInterviewBlob(videoFile, blob);
         lastInvalidRecordingMetadataRef.current.delete(currentQuestion.questionId);
+        await finishRealtimeSttRelay(currentQuestion.questionId);
 
         setAnswer((current) => ({
           ...current,
@@ -5137,6 +5315,7 @@ function InterviewRuntimePanel({
       if (realtimeMicrophoneOpenedForRecording) {
         setRealtimeMicrophoneOpen(true);
       }
+      startRealtimeSttRelayForRecording(stream, currentQuestion.questionId);
       recorder.start();
       setRecordedFileName("");
       setRecording(true);
@@ -5148,6 +5327,7 @@ function InterviewRuntimePanel({
       });
       setMessage("녹화 중입니다. 답변을 마치면 녹화 종료를 눌러주세요.");
     } catch (recordError) {
+      discardRealtimeSttRelay();
       if (realtimeMicrophoneOpenedForRecording) {
         setRealtimeMicrophoneOpen(false);
       }
@@ -5273,7 +5453,7 @@ function InterviewRuntimePanel({
       resetRuntimeQuestionTimer(data.runtime, setTimerPhase, setRemainingSeconds);
       timeExpiredQuestionRef.current = null;
       autoRecordingQuestionRef.current = null;
-      refresh();
+      void refresh().catch(() => undefined);
       setMessage(`${reasonMessage} 현재 질문은 미답변 처리하고 다음 질문으로 이동했습니다.`);
     } catch (submitError) {
       setMessage(toErrorMessage(submitError));
@@ -5305,7 +5485,7 @@ function InterviewRuntimePanel({
     }
     if (!request.allowReanswer && !retryAnswerId && isQuestionAlreadyAnswered(request.questionId)) {
       setMessage("이미 저장된 답변입니다. 질문 상태를 새로고침합니다.");
-      refresh();
+      void refresh().catch(() => undefined);
       return;
     }
     savingQuestionIdsRef.current.add(request.questionId);
@@ -5314,15 +5494,17 @@ function InterviewRuntimePanel({
     setMessage("");
     try {
       const api = runtimeApi;
+      const requestWithTranscript = attachRealtimeTranscriptToRequest(request);
       const requestWithRetry =
         retryAnswerId && question?.questionId === request.questionId
-          ? { ...request, retryAnswerId }
-          : request;
+          ? { ...requestWithTranscript, retryAnswerId }
+          : requestWithTranscript;
       const preparedRequest = await prepareAnswerRequestWithUploadedMedia(api, data.runtime.sessionId, requestWithRetry);
       const result =
         mode === "mock"
           ? await api.saveMockAnswer(data.runtime.sessionId, preparedRequest)
           : await api.saveRecruitingAnswer(data.runtime.sessionId, preparedRequest);
+      realtimeSttTranscriptByQuestionRef.current.delete(preparedRequest.questionId);
       const audioFileId = result.data.audioFile?.fileId ?? result.data.answer.audioFileId;
       const videoFileId = result.data.videoFile?.fileId ?? result.data.answer.videoFileId;
       const answerFileAssetId = audioFileId ?? videoFileId;
@@ -5338,11 +5520,16 @@ function InterviewRuntimePanel({
         videoFileId,
         videoS3Key: result.data.videoFile?.storageKey,
       };
+      if (preparedRequest.transcript) {
+        savedAnswer.transcript = preparedRequest.transcript;
+        savedAnswer.transcriptSource = "OPENAI_REALTIME_STT_RELAY";
+      }
       setLastAnswer(savedAnswer);
       setAutoAiPipeline({
         answerId: savedAnswer.answerId,
-        sttStatus: "PENDING",
+        sttStatus: savedAnswer.transcriptSource === "OPENAI_REALTIME_STT_RELAY" ? "COMPLETED" : "PENDING",
         followUpStatus: "IDLE",
+        transcript: savedAnswer.transcriptSource === "OPENAI_REALTIME_STT_RELAY" ? savedAnswer.transcript : undefined,
       });
       if (preparedRequest.allowReanswer) {
         setReansweringQuestionId(null);
@@ -5385,7 +5572,7 @@ function InterviewRuntimePanel({
       });
       if (isQuestionStateConflict(submitError)) {
         setMessage("답변은 이미 반영된 상태입니다. 질문 상태를 새로고침합니다.");
-        refresh();
+        void refresh().catch(() => undefined);
         return;
       }
       setMessage(toErrorMessage(submitError));
@@ -5493,6 +5680,149 @@ function InterviewRuntimePanel({
     let followUpProcessLogId: number | undefined;
 
     try {
+      const realtimeTranscript =
+        savedAnswer.transcriptSource === "OPENAI_REALTIME_STT_RELAY"
+          ? savedAnswer.transcript.trim()
+          : "";
+      if (realtimeTranscript) {
+        const transcriptRetryReason = getInterviewTranscriptRetryReason(realtimeTranscript);
+        const answerWithTranscript = { ...savedAnswer, transcript: realtimeTranscript };
+        if (transcriptRetryReason) {
+          setLastAnswer(answerWithTranscript);
+          setAutoAiPipeline((current) => ({
+            answerId: savedAnswer.answerId,
+            ...current,
+            sttStatus: "COMPLETED",
+            followUpStatus: "FAILED",
+            transcript: realtimeTranscript,
+            error: transcriptRetryReason,
+          }));
+          setMessage(`${transcriptRetryReason} 다시 답변하기를 눌러 현재 질문을 다시 녹음해주세요.`);
+          completeAnswerSubmitToNextReadyMetric({
+            questionId: savedAnswer.questionId,
+            outcome: "REALTIME_STT_TRANSCRIPT_REANSWER_REQUIRED",
+            nextReady: false,
+          });
+          return;
+        }
+
+        const isFollowUpAnswer = question?.questionType === "FOLLOW_UP";
+        setLastAnswer(answerWithTranscript);
+        setAutoAiPipeline((current) => ({
+          answerId: savedAnswer.answerId,
+          ...current,
+          sttStatus: "COMPLETED",
+          followUpStatus: isFollowUpAnswer ? "IDLE" : "PENDING",
+          transcript: realtimeTranscript,
+          failureCategory: undefined,
+          failureReason: undefined,
+          failureRetryable: undefined,
+          error: undefined,
+        }));
+
+        if (isFollowUpAnswer) {
+          const questionIndex = question
+            ? data.questions.questions.findIndex((candidateQuestion) => candidateQuestion.questionId === question.questionId)
+            : -1;
+          const isLastFollowUpQuestion = questionIndex >= 0
+            ? questionIndex >= data.runtime.totalQuestions - 1
+            : false;
+          setMessage(
+            isLastFollowUpQuestion
+              ? "마지막 답변 처리가 완료되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
+              : "답변 처리가 완료되었습니다. 다음 질문으로 이동해주세요.",
+          );
+          completeAnswerSubmitToNextReadyMetric({
+            questionId: savedAnswer.questionId,
+            outcome: isLastFollowUpQuestion ? "INTERVIEW_COMPLETE_READY" : "NEXT_QUESTION_READY",
+            nextReady: true,
+          });
+          return;
+        }
+
+        const followUpHandoff = await requestAiPipeline("FOLLOW_UP", answerWithTranscript);
+        followUpProcessLogId = followUpHandoff.processLogId;
+        if (!followUpProcessLogId) {
+          setAutoAiPipeline((current) => ({
+            answerId: savedAnswer.answerId,
+            ...current,
+            sttStatus: "COMPLETED",
+            followUpStatus: "FAILED",
+            error: "꼬리질문 작업 ID를 받지 못했습니다.",
+          }));
+          completeAnswerSubmitToNextReadyMetric({
+            questionId: savedAnswer.questionId,
+            outcome: "REALTIME_STT_FOLLOW_UP_HANDOFF_MISSING",
+            nextReady: false,
+          });
+          return;
+        }
+
+        setAutoAiPipeline((current) => ({
+          answerId: savedAnswer.answerId,
+          ...current,
+          sttStatus: "COMPLETED",
+          followUpStatus: "RUNNING",
+          followUpProcessLogId,
+          error: undefined,
+        }));
+
+        const followUpStatus = await pollAiJobUntilSettled(followUpProcessLogId, { attempts: 90, intervalMs: 1000 });
+        if (followUpStatus.status !== "COMPLETED") {
+          const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({
+            failureCategory: followUpStatus.failure?.category,
+          });
+          setAutoAiPipeline((current) => ({
+            answerId: savedAnswer.answerId,
+            ...current,
+            sttStatus: "COMPLETED",
+            followUpStatus: shouldSkipFollowUp ? "IDLE" : followUpStatus.status === "FAILED" ? "FAILED" : "RUNNING",
+            followUpSkipped: shouldSkipFollowUp,
+            error: shouldSkipFollowUp
+              ? undefined
+              : followUpStatus.status === "FAILED"
+              ? followUpStatus.failure?.reason ?? "꼬리질문 생성에 실패했습니다."
+              : undefined,
+          }));
+          completeAnswerSubmitToNextReadyMetric({
+            questionId: savedAnswer.questionId,
+            processLogId: followUpProcessLogId,
+            followUpProcessLogId,
+            outcome: shouldSkipFollowUp ? "REALTIME_STT_FOLLOW_UP_FAILED_CONTINUE" : "REALTIME_STT_FOLLOW_UP_FAILED_BLOCKED",
+            nextReady: shouldSkipFollowUp,
+          });
+          return;
+        }
+
+        const followUpQuestion =
+          extractAiJobText(followUpStatus.output, ["content", "followUpQuestion", "question"]) ??
+          extractAiJobText(followUpStatus.outputRef, ["content", "followUpQuestion", "question"]);
+
+        setAutoAiPipeline((current) => ({
+          answerId: savedAnswer.answerId,
+          ...current,
+          sttStatus: "COMPLETED",
+          followUpStatus: "COMPLETED",
+          followUpProcessLogId,
+          followUpQuestion,
+          error: followUpQuestion ? undefined : "꼬리질문 결과에서 content를 찾지 못했습니다.",
+        }));
+
+        setMessage(
+          followUpQuestion
+            ? "다음 질문이 준비되었습니다."
+            : "답변 처리가 완료되었습니다.",
+        );
+        completeAnswerSubmitToNextReadyMetric({
+          questionId: savedAnswer.questionId,
+          processLogId: followUpProcessLogId,
+          followUpProcessLogId,
+          outcome: followUpQuestion ? "REALTIME_STT_FOLLOW_UP_READY" : "REALTIME_STT_FOLLOW_UP_MISSING_CONTENT",
+          nextReady: Boolean(followUpQuestion),
+        });
+        return;
+      }
+
       const sttHandoff = await requestAiPipeline("STT", savedAnswer);
       sttProcessLogId = sttHandoff.processLogId;
       if (!sttProcessLogId) {
@@ -5900,7 +6230,7 @@ function InterviewRuntimePanel({
           ? "생성된 꼬리질문으로 이동했습니다. 답변을 시작해주세요."
           : "이미 추가된 꼬리질문으로 이동했습니다. 답변을 시작해주세요.",
       );
-      refresh();
+      void refresh().catch(() => undefined);
     } catch (submitError) {
       setAutoAiPipeline((current) =>
         current
@@ -5984,7 +6314,7 @@ function InterviewRuntimePanel({
       resetRuntimeQuestionTimer(data.runtime, setTimerPhase, setRemainingSeconds);
       timeExpiredQuestionRef.current = null;
       autoRecordingQuestionRef.current = null;
-      refresh();
+      void refresh().catch(() => undefined);
     } catch (submitError) {
       setMessage(toErrorMessage(submitError));
     } finally {
@@ -6869,16 +7199,227 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
           </div>
         </nav>
         <div className="gnb-right">
-          <button className="icon-btn" aria-label="알림" type="button">
-            <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
-              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-            </svg>
-          </button>
+          <CandidateNotificationCenter />
           <GnbAvatar accountLabel="지원자 계정" />
           <GnbLogoutButton />
         </div>
       </div>
     </header>
+  );
+}
+
+function CandidateNotificationCenter() {
+  const [open, setOpen] = useState(false);
+  const [readIds, setReadIds] = useState<Set<string>>(() => readCandidateNotificationReadIds());
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => readCandidateNotificationDismissedIds());
+  const [notifications, setNotifications] = useState<CandidateNotificationItem[]>([]);
+  const notificationMountedRef = useRef(false);
+  const unreadCount = countUnreadCandidateNotifications(notifications);
+
+  const refreshNotifications = useCallback(async (options?: { clearOnError?: boolean; markReadAfterLoad?: boolean }) => {
+    const nextReadIds = readCandidateNotificationReadIds();
+    const nextDismissedIds = readCandidateNotificationDismissedIds();
+    setReadIds(nextReadIds);
+    setDismissedIds(nextDismissedIds);
+
+    try {
+      const response = await getCandidateApi().listApplications();
+      if (!notificationMountedRef.current) {
+        return;
+      }
+
+      const latestReadIds = readCandidateNotificationReadIds();
+      const latestDismissedIds = readCandidateNotificationDismissedIds();
+      let nextNotifications = buildCandidateReportCompleteNotifications(response.data.items, latestReadIds, latestDismissedIds);
+
+      if (options?.markReadAfterLoad && nextNotifications.length) {
+        const readAfterOpenIds = new Set(latestReadIds);
+        nextNotifications.forEach((notification) => readAfterOpenIds.add(notification.id));
+        setReadIds(readAfterOpenIds);
+        writeCandidateNotificationReadIds(readAfterOpenIds);
+        nextNotifications = nextNotifications.map((notification) => ({ ...notification, read: true }));
+      } else {
+        setReadIds(latestReadIds);
+      }
+
+      setDismissedIds(latestDismissedIds);
+      setNotifications(nextNotifications);
+    } catch {
+      if (options?.clearOnError && notificationMountedRef.current) {
+        setNotifications([]);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    notificationMountedRef.current = true;
+    void refreshNotifications({ clearOnError: true });
+
+    return () => {
+      notificationMountedRef.current = false;
+    };
+  }, [refreshNotifications]);
+
+  useEffect(() => {
+    function handleWindowFocus() {
+      void refreshNotifications();
+    }
+
+    window.addEventListener("focus", handleWindowFocus);
+    return () => window.removeEventListener("focus", handleWindowFocus);
+  }, [refreshNotifications]);
+
+  useEffect(() => {
+    function handleReportNotification(event: Event) {
+      const notification = (event as CustomEvent<CandidateNotificationItem>).detail;
+      if (!notification?.id || dismissedIds.has(notification.id)) {
+        return;
+      }
+
+      setNotifications((current) =>
+        mergeCandidateNotifications(current, [
+          {
+            ...notification,
+            read: readIds.has(notification.id),
+          },
+        ]),
+      );
+    }
+
+    window.addEventListener(CANDIDATE_REPORT_NOTIFICATION_EVENT, handleReportNotification);
+    return () => window.removeEventListener(CANDIDATE_REPORT_NOTIFICATION_EVENT, handleReportNotification);
+  }, [dismissedIds, readIds]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open]);
+
+  function handleToggle() {
+    if (!open) {
+      markNotificationsRead();
+      void refreshNotifications({ markReadAfterLoad: true });
+    }
+    setOpen((current) => !current);
+  }
+
+  function markNotificationsRead() {
+    if (!notifications.length) {
+      return;
+    }
+
+    const nextReadIds = new Set(readIds);
+    notifications.forEach((notification) => nextReadIds.add(notification.id));
+    setReadIds(nextReadIds);
+    writeCandidateNotificationReadIds(nextReadIds);
+    setNotifications((current) => current.map((notification) => ({ ...notification, read: true })));
+  }
+
+  function dismissNotification(notificationId: string) {
+    const nextDismissedIds = new Set(dismissedIds);
+    nextDismissedIds.add(notificationId);
+    setDismissedIds(nextDismissedIds);
+    writeCandidateNotificationDismissedIds(nextDismissedIds);
+
+    const nextReadIds = new Set(readIds);
+    nextReadIds.add(notificationId);
+    setReadIds(nextReadIds);
+    writeCandidateNotificationReadIds(nextReadIds);
+
+    setNotifications((current) => current.filter((notification) => notification.id !== notificationId));
+  }
+
+  function dismissAllNotifications() {
+    if (!notifications.length) {
+      return;
+    }
+
+    const nextDismissedIds = new Set(dismissedIds);
+    const nextReadIds = new Set(readIds);
+    notifications.forEach((notification) => {
+      nextDismissedIds.add(notification.id);
+      nextReadIds.add(notification.id);
+    });
+    setDismissedIds(nextDismissedIds);
+    setReadIds(nextReadIds);
+    writeCandidateNotificationDismissedIds(nextDismissedIds);
+    writeCandidateNotificationReadIds(nextReadIds);
+    setNotifications([]);
+  }
+
+  return (
+    <div className="candidate-notification-center">
+      <button
+        className="icon-btn candidate-notification-button"
+        aria-expanded={open}
+        aria-label={unreadCount > 0 ? `알림 ${unreadCount}개` : "알림"}
+        type="button"
+        onClick={handleToggle}
+      >
+        <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
+          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+        </svg>
+        {unreadCount > 0 ? <span className="candidate-notification-badge">{formatUnreadNotificationCount(unreadCount)}</span> : null}
+      </button>
+      {open ? (
+        <div className="candidate-notification-popover" role="dialog" aria-modal="false" aria-labelledby="candidate-notification-title">
+          <div className="candidate-notification-popover__head">
+            <div>
+              <h2 id="candidate-notification-title">알림</h2>
+              <p>채용 면접과 리포트 진행 상태를 확인합니다.</p>
+            </div>
+            <div className="candidate-notification-popover__actions">
+              {notifications.length ? (
+                <button className="candidate-notification-clear" type="button" onClick={dismissAllNotifications}>
+                  모두 지우기
+                </button>
+              ) : null}
+              <button className="candidate-notification-close" type="button" aria-label="알림 닫기" onClick={() => setOpen(false)}>
+                ×
+              </button>
+            </div>
+          </div>
+          {notifications.length ? (
+            <ul className="candidate-notification-list">
+              {notifications.map((notification) => (
+                <li className="candidate-notification-item" key={notification.id}>
+                  <div>
+                    <strong>{notification.title}</strong>
+                    <p>{notification.message}</p>
+                    {notification.createdAt ? <small>{formatDateTime(notification.createdAt)}</small> : null}
+                  </div>
+                  <div className="candidate-notification-item__actions">
+                    <Link className="text-link" href={notification.href} onClick={() => setOpen(false)}>
+                      결과 확인
+                    </Link>
+                    <button
+                      className="candidate-notification-delete"
+                      type="button"
+                      aria-label={`${notification.title} 삭제`}
+                      onClick={() => dismissNotification(notification.id)}
+                    >
+                      삭제
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="candidate-notification-empty">새 알림이 없습니다.</div>
+          )}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -7028,43 +7569,10 @@ function getSelectedApplicationAction(application: CandidateApplicationSummary):
   };
 }
 
-function MockReportsTable({ reports }: { reports: CandidateMockReportSummary[] }) {
-  return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>리포트</th>
-            <th>세션</th>
-            <th>면접 상태</th>
-            <th>리포트 상태</th>
-            <th>답변</th>
-            <th>액션</th>
-          </tr>
-        </thead>
-        <tbody>
-          {reports.map((report) => (
-            <tr key={report.reportId}>
-              <td>#{report.reportId}<span>{formatDateTime(report.updatedAt)}</span></td>
-              <td>세션 #{report.sessionId}</td>
-              <td><StatusPill value={report.status} /></td>
-              <td><StatusPill value={report.reportStatus} /></td>
-              <td>{report.answeredCount}/{report.totalQuestions}</td>
-              <td>
-                <Link className="btn secondary compact" href={getMockReportHref(report)}>상세</Link>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryItem[] }) {
   return (
     <div className="table-wrap">
-      <table>
+      <table className="mock-history-table">
         <thead>
           <tr>
             <th>세션</th>
@@ -7077,15 +7585,19 @@ function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryI
         <tbody>
           {history.map((item) => (
             <tr key={item.sessionId}>
-              <td>#{item.sessionId}<span>{formatDateTime(item.updatedAt)}</span></td>
+              <td>세션 #{item.sessionId}<span>{formatDateTime(item.updatedAt)}</span></td>
               <td><StatusPill value={item.status} /></td>
               <td><StatusPill value={item.reportStatus} /></td>
               <td>{item.answeredCount}/{item.totalQuestions}</td>
               <td>
                 {item.status === "IN_PROGRESS" ? (
                   <Link className="btn secondary compact" href={candidateApplicationInterviewRoutes.mockInterview(item.sessionId)}>이어하기</Link>
+                ) : item.reportId ? (
+                  <Link className="btn secondary compact" href={candidateApplicationInterviewRoutes.mockReportDetail(item.reportId)}>
+                    {formatMockHistoryActionLabel(item.reportStatus)}
+                  </Link>
                 ) : (
-                  <Link className="btn secondary compact" href={candidateApplicationInterviewRoutes.mockReportDetail(item.reportId)}>리포트</Link>
+                  <span className="btn secondary compact is-disabled" aria-disabled="true">준비 중</span>
                 )}
               </td>
             </tr>
@@ -7094,6 +7606,13 @@ function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryI
       </table>
     </div>
   );
+}
+
+function formatMockHistoryActionLabel(status: CandidateMockInterviewHistoryItem["reportStatus"]): string {
+  if (status === "COMPLETED") return "상세";
+  if (status === "GENERATING") return "분석 중";
+  if (status === "FAILED") return "다시 요청";
+  return "AI 분석 시작";
 }
 
 type MockReportStatusView = {
@@ -8026,6 +8545,7 @@ async function prepareAnswerRequestWithUploadedMedia(
     skipReason: request.skipReason,
     nonverbalMetadata: request.nonverbalMetadata,
     retryAnswerId: request.retryAnswerId,
+    transcript: request.transcript,
   };
 }
 
@@ -8458,8 +8978,17 @@ function isRuntimeShortcutIgnoredTarget(target: EventTarget | null): boolean {
 
 function useCandidateResource<T>(load: () => Promise<T>, dependencies: DependencyList) {
   const [state, setState] = useState<AsyncState<T>>({ loading: true });
-  const [refreshKey, setRefreshKey] = useState(0);
-  const refresh = useCallback(() => setRefreshKey((current) => current + 1), []);
+  const refresh = useCallback(async () => {
+    setState((current) => ({ ...current, loading: true, error: undefined }));
+    try {
+      const data = await load();
+      setState({ data, loading: false });
+      return data;
+    } catch (error) {
+      setState({ loading: false, error: toErrorMessage(error) });
+      throw error;
+    }
+  }, [load]);
 
   useEffect(() => {
     let alive = true;
@@ -8476,7 +9005,7 @@ function useCandidateResource<T>(load: () => Promise<T>, dependencies: Dependenc
     };
     // The dependency list is supplied by each caller, mirroring React's hook API.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [load, refreshKey, ...dependencies]);
+  }, [load, ...dependencies]);
 
   return { ...state, refresh };
 }
@@ -9125,6 +9654,74 @@ function formatMediaError(error: unknown, device: "camera" | "microphone" = "cam
 
 function toggleValue<T>(values: T[], value: T): T[] {
   return values.includes(value) ? values.filter((current) => current !== value) : [...values, value];
+}
+
+function emitCandidateReportNotification(notification: CandidateNotificationItem) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent<CandidateNotificationItem>(CANDIDATE_REPORT_NOTIFICATION_EVENT, {
+    detail: notification,
+  }));
+}
+
+function readCandidateNotificationReadIds(): Set<string> {
+  return readCandidateNotificationIds(CANDIDATE_NOTIFICATION_READ_IDS_STORAGE_KEY);
+}
+
+function writeCandidateNotificationReadIds(readIds: ReadonlySet<string>) {
+  writeCandidateNotificationIds(CANDIDATE_NOTIFICATION_READ_IDS_STORAGE_KEY, readIds);
+}
+
+function readCandidateNotificationDismissedIds(): Set<string> {
+  return readCandidateNotificationIds(CANDIDATE_NOTIFICATION_DISMISSED_IDS_STORAGE_KEY);
+}
+
+function writeCandidateNotificationDismissedIds(dismissedIds: ReadonlySet<string>) {
+  writeCandidateNotificationIds(CANDIDATE_NOTIFICATION_DISMISSED_IDS_STORAGE_KEY, dismissedIds);
+}
+
+function readCandidateNotificationIds(storageKey: string): Set<string> {
+  if (typeof window === "undefined") {
+    return new Set();
+  }
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(storageKey) ?? "[]") as unknown;
+    if (!Array.isArray(parsed)) {
+      return new Set();
+    }
+    return new Set(parsed.filter((item): item is string => typeof item === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
+function writeCandidateNotificationIds(storageKey: string, notificationIds: ReadonlySet<string>) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify([...notificationIds]));
+  } catch {
+    // 저장이 막혀도 현재 탭의 알림 확인 흐름은 유지한다.
+  }
+}
+
+function mergeCandidateNotifications(
+  current: CandidateNotificationItem[],
+  incoming: CandidateNotificationItem[],
+): CandidateNotificationItem[] {
+  const merged = new Map<string, CandidateNotificationItem>();
+  current.forEach((notification) => merged.set(notification.id, notification));
+  incoming.forEach((notification) => merged.set(notification.id, notification));
+  return [...merged.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+function formatUnreadNotificationCount(count: number): string {
+  return count > 9 ? "9+" : String(count);
 }
 
 function formatDateTime(value?: string) {
