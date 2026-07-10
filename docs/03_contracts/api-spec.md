@@ -858,17 +858,18 @@ AI 리포트 금지 기준:
   - `name`: string, required
   - `email`: string, required
   - `phone`: string, required
-  - `githubBlogUrl`: string, optional
-  - `portfolioMode`: `URL` 또는 `FILE`, optional
+  - `githubUrl`: string, required
+  - `blogUrl`: string, required
   - `portfolioUrl`: string, optional
   - `portfolioFile`: file, optional, `application/pdf`
   - `resumeFile`: file, required, `application/pdf`
-  - `motivation`: string, optional
-  - `additionalInfo`: string, optional
+  - `motivation`: string, required
+  - `additionalInfo`: string, required
   - `consentAgreed`: boolean, required
 - 검증/전제조건:
   - 공고 상태가 `OPEN`이어야 한다.
-  - `name`, `email`, `phone`, `resumeFile`, `consentAgreed`는 필수다.
+  - `name`, `email`, `phone`, `githubUrl`, `blogUrl`, `resumeFile`, `motivation`, `additionalInfo`, `consentAgreed`는 필수다.
+  - 포트폴리오 URL 또는 PDF 중 하나를 반드시 제출하며, 둘 다 제출할 수도 있다.
   - `email`은 이메일 형식이어야 한다.
   - `consentAgreed`는 `true`여야 한다.
   - `resumeFile`과 `portfolioFile`은 PDF만 허용한다.
@@ -876,9 +877,8 @@ AI 리포트 금지 기준:
 - 성공 응답/처리:
   - 공개 지원용 비회원 지원자 최소 row를 생성한다.
   - `users.user_type=CANDIDATE`, `users.status=PENDING` 기준으로 생성한다.
-  - `candidate_profiles.github_url`에는 `githubBlogUrl`을 저장한다.
-  - `candidate_profiles.portfolio_url`에는 `portfolioUrl`을 저장한다.
-  - `candidate_profiles.summary`에는 공개 지원 폼의 `motivation/additionalInfo`를 요약 저장한다.
+  - 제출 당시 기본정보, URL, 지원동기, 추가설명은 `applications` 스냅샷 필드에 저장한다.
+  - 신규 비회원 지원자의 `candidate_profiles.github_url`, `portfolio_url`, `summary`에도 대표 프로필 값을 함께 저장한다.
   - 파일 원본은 저장소에 저장하고 DB에는 `file_assets` 메타데이터만 저장한다.
   - 이력서/포트폴리오 파일은 `application_documents.document_type=RESUME/PORTFOLIO`로 연결한다.
   - `applications.application_status=SUBMITTED`, `document_status=SUBMITTED`, `screening_decision=UNDECIDED`로 생성한다.
@@ -1081,6 +1081,9 @@ AI 리포트 금지 기준:
   - 지원자 조회 권한 보유
 - 성공 응답/처리:
   - 지원자 기본 정보, 지원/면접/리포트 상태, 전형 상태/메모 표시
+  - `submission`에 제출 당시 `name`, `email`, `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `motivation`, `additionalInfo`를 반환한다.
+  - `submission.documents`에 `documentId`, `fileId`, `documentType`, `originalName`, `mimeType`, `sizeBytes`, `uploadedAt`을 반환한다.
+  - 기존 지원서의 스냅샷 필드가 NULL이면 지원자 계정/프로필의 현재 값을 fallback으로 반환한다.
   - 리포트가 있으면 점수, 근거, 요약 표시
   - 리포트가 없으면 없음/생성중 상태로 표시
 - 오류/예외:
@@ -1089,6 +1092,25 @@ AI 리포트 금지 기준:
   - companies, candidate_profiles, postings, applications, application_documents, interview_sessions, evaluation_reports, report_scores, report_evidences, manual_evaluations, ai_process_logs
 - 비고/미결:
   - 기존 9번 서류 평가 상세과 10번 채용 리포트 상세을 9번으로 통합
+
+### API-020-DOCUMENT GET /company/applicants/{applicantId}/documents/{fileId}
+- 도메인: 기업 - 지원자/리포트
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 지원자 평가 상세 화면 (/company/applicants/{applicantId}/evaluation)
+- UI Type: file preview/download
+- 상태 코드: 200 OK
+- 비동기: N
+- 검증/전제조건:
+  - applicantId는 요청 기업이 소유한 공고의 지원서여야 한다.
+  - fileId는 해당 지원서의 `application_documents`에 연결된 ACTIVE 파일이어야 한다.
+- 성공 응답/처리:
+  - JSON envelope 없이 PDF 파일 스트림을 반환한다.
+  - `Content-Type`, `Content-Length`, `Content-Disposition: inline`, `Cache-Control: private` 헤더를 반환한다.
+- 오류/예외:
+  - 기업 권한이 없으면 `COMMON_FORBIDDEN`을 반환한다.
+  - 자기 회사 지원서가 아니거나 지원서 또는 파일이 없으면 `COMMON_NOT_FOUND`를 반환한다.
+- 관련 ERD 테이블:
+  - companies, postings, applications, application_documents, file_assets
 
 ### API-020-MEDIA-SESSION POST /company/applicants/{applicantId}/media/{fileId}/session
 - 도메인: 기업 - 지원자/리포트
@@ -2696,12 +2718,26 @@ CandidateFolder 응답 필드:
 - 상태 코드: 201 Created
 - 비동기: N
 - Path Params: jobId
-- 요청 데이터:
-  - 채용공고 ID, 이력서 파일, 포트폴리오 링크, 지원자 ID
+- 요청 데이터: `application/json`
+  - `candidateName`: string, required
+  - `email`: string, required
+  - `phone`: string, required
+  - `githubUrl`: string, required
+  - `blogUrl`: string, required
+  - `resumeFileId`: number, required, PDF FileAsset
+  - `portfolioFileId`: number, optional, PDF FileAsset
+  - `portfolioUrl`: string, optional
+  - `motivation`: string, required
+  - `additionalInfo`: string, required
+  - `consentTypes`: array, required
 - 검증/전제조건:
-  - 허용 파일 형식과 용량 조건 충족, 공고 지원 가능 상태
+  - 공고가 지원 가능 상태여야 한다.
+  - 기본정보, GitHub URL, 블로그 URL, 이력서 PDF, 지원동기, 추가설명을 모두 입력해야 한다.
+  - 포트폴리오 URL 또는 PDF FileAsset 중 하나 이상을 제출해야 하며, 둘 다 제출할 수도 있다.
+  - 제출 파일은 현재 지원자 소유의 ACTIVE FileAsset이어야 한다.
 - 성공 응답/처리:
-  - 지원서 제출 완료
+  - 지원서 제출 당시 정보를 `applications` 스냅샷 필드에 저장한다.
+  - 이력서/포트폴리오 PDF를 `application_documents`에 연결하고 지원서 제출을 완료한다.
 - 오류/예외:
   - 파일 형식 오류, 용량 초과, 이미 지원한 공고, 마감 공고이면 제출을 제한한다.
 - 관련 ERD 테이블:

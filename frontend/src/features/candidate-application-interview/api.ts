@@ -131,10 +131,13 @@ export interface SubmitApplicationRequest {
   candidateName: string;
   email: string;
   phone: string;
+  githubUrl: string;
+  blogUrl: string;
   resumeFileId: number;
   portfolioFileId?: number;
   portfolioUrl?: string;
-  coverLetter?: string;
+  motivation: string;
+  additionalInfo: string;
   consentTypes: ConsentType[];
 }
 

@@ -247,6 +247,16 @@ export class CompanyRecruitingService {
 
     validateApplicantName(dto.name);
     validateRequiredString(dto.phone, "phone", "연락처를 입력해주세요.");
+    const githubUrl = validateRequiredUrl(dto.githubUrl, "githubUrl", "GitHub URL을 입력해주세요.");
+    const blogUrl = validateRequiredUrl(dto.blogUrl, "blogUrl", "블로그 URL을 입력해주세요.");
+    const portfolioUrl = normalizeOptionalString(dto.portfolioUrl);
+    if (portfolioUrl) {
+      validateHttpUrl(portfolioUrl, "portfolioUrl", "포트폴리오 URL을 확인해주세요.");
+    }
+    validateRequiredString(dto.motivation, "motivation", "지원동기를 입력해주세요.");
+    validateRequiredString(dto.additionalInfo, "additionalInfo", "추가 설명을 입력해주세요.");
+    const motivation = normalizeOptionalString(dto.motivation);
+    const additionalInfo = normalizeOptionalString(dto.additionalInfo);
     const email = normalizeEmail(dto.email);
     if (!isValidEmail(email)) {
       throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, "이메일 형식이 올바르지 않습니다.", [
@@ -265,14 +275,19 @@ export class CompanyRecruitingService {
     if (files.portfolioFile) {
       this.assertPublicApplicationDocumentFile(files.portfolioFile, "portfolioFile", "포트폴리오 PDF 파일을 확인해주세요.");
     }
+    if (!portfolioUrl && !files.portfolioFile) {
+      throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, "포트폴리오 URL 또는 PDF 파일을 제출해주세요.", [
+        { field: "portfolio", reason: "URL_OR_FILE_REQUIRED" },
+      ]);
+    }
 
     try {
       const candidate = await this.repository.findOrCreatePublicCandidate({
         name: dto.name.trim(),
         email,
         phone: normalizeNullableString(dto.phone),
-        githubUrl: normalizeNullableString(dto.githubBlogUrl),
-        portfolioUrl: normalizeNullableString(dto.portfolioUrl),
+        githubUrl,
+        portfolioUrl: portfolioUrl || null,
         summary: buildPublicApplicationSummary(dto),
       });
       const uploadedDocuments = [
@@ -298,6 +313,14 @@ export class CompanyRecruitingService {
       const application = await this.repository.createApplication({
         postingId: recruitmentId,
         candidateId: candidate.candidateId,
+        applicantName: dto.name.trim(),
+        applicantEmail: email,
+        applicantPhone: dto.phone.trim(),
+        githubUrl,
+        blogUrl,
+        portfolioUrl: portfolioUrl || null,
+        motivation,
+        additionalInfo,
         screeningMemo: null,
         documentStatus: DocumentStatus.SUBMITTED,
       });
@@ -485,6 +508,31 @@ export class CompanyRecruitingService {
     return toApplicantEvaluationResponse(application);
   }
 
+  async getApplicantDocument(user: CurrentUser, applicantId: number, fileId: number) {
+    const companyId = requireCompanyId(user);
+    const fileAsset = await this.findApplicantDocumentFileForCompany(applicantId, companyId, fileId);
+    if (!this.storageAdapter.getObject) {
+      throw new CompanyRecruitingException(500, ERROR_CODES.COMMON_VALIDATION_FAILED, "파일 저장소 조회 설정이 필요합니다.");
+    }
+
+    let object: CompanyRecruitingStorageObject;
+    try {
+      object = await this.storageAdapter.getObject(fileAsset.storageKey);
+    } catch (error) {
+      if (isStorageObjectNotFound(error)) {
+        throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "제출 서류 파일을 찾을 수 없습니다.");
+      }
+      throw error;
+    }
+
+    return {
+      body: object.body,
+      contentLength: object.contentLength ?? (Buffer.isBuffer(object.body) ? object.body.byteLength : fileAsset.sizeBytes),
+      contentType: object.contentType ?? fileAsset.mimeType,
+      originalName: fileAsset.originalName,
+    };
+  }
+
   async createApplicantInterviewMediaSession(user: CurrentUser, applicantId: number, fileId: number) {
     const companyId = requireCompanyId(user);
     const fileAsset = await this.findApplicantInterviewMediaFileForCompany(applicantId, companyId, fileId);
@@ -569,6 +617,20 @@ export class CompanyRecruitingService {
     const fileAsset = findApplicantInterviewMediaFile(application, fileId);
     if (!fileAsset) {
       throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "면접 녹화 파일을 찾을 수 없습니다.");
+    }
+    return fileAsset;
+  }
+
+  private async findApplicantDocumentFileForCompany(applicantId: number, companyId: number, fileId: number) {
+    const application = await this.repository.findApplicationForCompany(applicantId, companyId);
+    if (!application) {
+      throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "지원자를 찾을 수 없습니다.");
+    }
+    const fileAsset = application.documents
+      ?.find((document) => document.fileId === fileId)
+      ?.file;
+    if (!fileAsset || fileAsset.status !== "ACTIVE") {
+      throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "제출 서류 파일을 찾을 수 없습니다.");
     }
     return fileAsset;
   }
@@ -1012,6 +1074,28 @@ function validateRequiredString(value: string | undefined, field: string, messag
   }
 }
 
+function validateRequiredUrl(value: string | undefined, field: string, message: string) {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) {
+    throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, message, [
+      { field, reason: "REQUIRED" },
+    ]);
+  }
+  validateHttpUrl(normalized, field, message);
+  return normalized;
+}
+
+function validateHttpUrl(value: string, field: string, message: string) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("invalid protocol");
+  } catch {
+    throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, message, [
+      { field, reason: "INVALID_URL" },
+    ]);
+  }
+}
+
 function buildPublicApplicationSummary(dto: SubmitPublicApplicationDto) {
   const sections = [
     ["지원동기", normalizeOptionalString(dto.motivation)],
@@ -1115,9 +1199,9 @@ function toApplicantResponse(application: ApplicantRecord) {
     applicationId: application.applicationId,
     recruitmentId: application.postingId,
     candidateId: application.candidateId,
-    name: application.candidate.user.name,
-    email: application.candidate.user.email,
-    phone: application.candidate.user.phone,
+    name: application.applicantName ?? application.candidate.user.name,
+    email: application.applicantEmail ?? application.candidate.user.email,
+    phone: application.applicantPhone ?? application.candidate.user.phone,
     jobRole: application.posting.jobRole,
     applicationStatus: application.applicationStatus,
     documentStatus: application.documentStatus,
@@ -1169,6 +1253,27 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
     screening: {
       decision: application.screeningDecision ?? "UNDECIDED",
       memo: application.screeningMemo,
+    },
+    submission: {
+      name: application.applicantName ?? application.candidate.user.name,
+      email: application.applicantEmail ?? application.candidate.user.email,
+      phone: application.applicantPhone ?? application.candidate.user.phone,
+      githubUrl: application.githubUrl ?? application.candidate.githubUrl,
+      blogUrl: application.blogUrl,
+      portfolioUrl: application.portfolioUrl ?? application.candidate.portfolioUrl,
+      motivation: application.motivation,
+      additionalInfo: application.additionalInfo ?? application.candidate.summary,
+      documents: (application.documents ?? [])
+        .filter((document) => document.fileId !== null && document.file?.status === "ACTIVE")
+        .map((document) => ({
+          documentId: document.documentId,
+          fileId: document.fileId,
+          documentType: document.documentType,
+          originalName: document.file?.originalName ?? "제출 서류",
+          mimeType: document.file?.mimeType ?? "application/octet-stream",
+          sizeBytes: document.file?.sizeBytes ?? 0,
+          uploadedAt: document.uploadedAt.toISOString(),
+        })),
     },
     reportAvailability: latestReport ? "AVAILABLE" : "NONE_OR_GENERATING",
     answers: latestSession

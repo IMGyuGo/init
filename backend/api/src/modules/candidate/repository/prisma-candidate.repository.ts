@@ -265,9 +265,16 @@ export class PrismaCandidateRepository implements CandidateRepository {
   async createApplication(input: {
     postingId: number;
     candidateId: number;
+    candidateName?: string;
+    email?: string;
+    phone?: string;
+    githubUrl?: string;
+    blogUrl?: string;
     resumeFileId: number;
     portfolioFileId?: number;
     portfolioUrl?: string;
+    motivation?: string;
+    additionalInfo?: string;
     consentTypes: ConsentRecord["consentType"][];
   }): Promise<ApplicationSubmissionResult> {
     try {
@@ -277,6 +284,14 @@ export class PrismaCandidateRepository implements CandidateRepository {
         data: {
           postingId: BigInt(input.postingId),
           candidateId: BigInt(input.candidateId),
+          applicantName: input.candidateName,
+          applicantEmail: input.email,
+          applicantPhone: input.phone,
+          githubUrl: input.githubUrl,
+          blogUrl: input.blogUrl,
+          portfolioUrl: input.portfolioUrl,
+          motivation: input.motivation,
+          additionalInfo: input.additionalInfo,
           applicationStatus: PrismaApplicationStatus.SUBMITTED,
           documentStatus: PrismaDocumentStatus.SUBMITTED,
           interviewStatus: PrismaInterviewStatus.NOT_READY,
@@ -587,6 +602,14 @@ export class PrismaCandidateRepository implements CandidateRepository {
       applicationId: Number(application.applicationId),
       postingId: Number(application.postingId),
       candidateId: Number(application.candidateId),
+      applicantName: application.applicantName,
+      applicantEmail: application.applicantEmail,
+      applicantPhone: application.applicantPhone,
+      githubUrl: application.githubUrl,
+      blogUrl: application.blogUrl,
+      portfolioUrl: application.portfolioUrl,
+      motivation: application.motivation,
+      additionalInfo: application.additionalInfo,
       applicationStatus: application.applicationStatus,
       documentStatus: application.documentStatus,
       interviewStatus: application.interviewStatus,

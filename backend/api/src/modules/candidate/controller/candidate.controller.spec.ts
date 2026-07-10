@@ -62,6 +62,17 @@ const validCandidateRequest = {
   currentUser: { ...DEV_CANDIDATE_USER, companyId: null },
 };
 
+const validSubmitApplication = {
+  candidateName: "Kim",
+  email: "kim@example.com",
+  phone: "010-0000-0000",
+  githubUrl: "https://github.com/kim",
+  blogUrl: "https://blog.example.com/kim",
+  portfolioUrl: "https://portfolio.example.com/kim",
+  motivation: "지원 동기입니다.",
+  additionalInfo: "추가 설명입니다.",
+};
+
 const missingCandidateRequest = {
   headers: {},
   currentUser: undefined,
@@ -206,11 +217,8 @@ async function runControllerRuntimeAssertions() {
   await assertCandidateHttpError(
     () =>
       controller.submitApplication(validCandidateRequest, "1", {
-        candidateName: "Kim",
-        email: "kim@example.com",
-        phone: "010-0000-0000",
+        ...validSubmitApplication,
         resumeFileId: resume.data.fileId,
-        portfolioUrl: "https://portfolio.example.com/kim",
         consentTypes: ["PRIVACY_COLLECTION"],
       }),
     400,
@@ -218,11 +226,8 @@ async function runControllerRuntimeAssertions() {
   );
 
   const submitted = await controller.submitApplication(validCandidateRequest, "1", {
-    candidateName: "Kim",
-    email: "kim@example.com",
-    phone: "010-0000-0000",
+    ...validSubmitApplication,
     resumeFileId: resume.data.fileId,
-    portfolioUrl: "https://portfolio.example.com/kim",
     consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
   });
 
@@ -254,11 +259,8 @@ async function runControllerRuntimeAssertions() {
   await assertCandidateHttpError(
     () =>
       controller.submitApplication(validCandidateRequest, "1", {
-        candidateName: "Kim",
-        email: "kim@example.com",
-        phone: "010-0000-0000",
+        ...validSubmitApplication,
         resumeFileId: resume.data.fileId,
-        portfolioUrl: "https://portfolio.example.com/kim",
         consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
       }),
     409,

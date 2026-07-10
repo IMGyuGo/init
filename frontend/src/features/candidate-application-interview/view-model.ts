@@ -26,10 +26,13 @@ export interface CandidateApplicationFormState {
   candidateName: string;
   email: string;
   phone: string;
+  githubUrl: string;
+  blogUrl: string;
   resumeFileId?: number;
   portfolioFileId?: number;
   portfolioUrl?: string;
-  coverLetter?: string;
+  motivation: string;
+  additionalInfo: string;
   consentTypes: ConsentType[];
 }
 
@@ -471,6 +474,10 @@ export const defaultApplicationFormState: CandidateApplicationFormState = {
   candidateName: "",
   email: "",
   phone: "",
+  githubUrl: "",
+  blogUrl: "",
+  motivation: "",
+  additionalInfo: "",
   consentTypes: [],
 };
 
@@ -519,6 +526,10 @@ export function toSubmitApplicationRequest(state: CandidateApplicationFormState)
   const candidateName = state.candidateName.trim();
   const email = state.email.trim();
   const phone = state.phone.trim();
+  const githubUrl = state.githubUrl.trim();
+  const blogUrl = state.blogUrl.trim();
+  const motivation = state.motivation.trim();
+  const additionalInfo = state.additionalInfo.trim();
 
   if (!candidateName || !email || !phone) {
     throw new Error("candidateName, email, and phone are required before submitting an application.");
@@ -530,6 +541,14 @@ export function toSubmitApplicationRequest(state: CandidateApplicationFormState)
 
   if (!state.resumeFileId) {
     throw new Error("resumeFileId is required before submitting an application.");
+  }
+
+  if (!githubUrl || !blogUrl) {
+    throw new Error("githubUrl and blogUrl are required before submitting an application.");
+  }
+
+  if (!motivation || !additionalInfo) {
+    throw new Error("motivation and additionalInfo are required before submitting an application.");
   }
 
   if (!hasPortfolioArtifact(state)) {
@@ -544,10 +563,13 @@ export function toSubmitApplicationRequest(state: CandidateApplicationFormState)
     candidateName,
     email,
     phone,
+    githubUrl,
+    blogUrl,
     resumeFileId: state.resumeFileId,
     portfolioFileId: state.portfolioFileId,
     portfolioUrl: state.portfolioUrl?.trim() || undefined,
-    coverLetter: state.coverLetter?.trim() || undefined,
+    motivation,
+    additionalInfo,
     consentTypes: state.consentTypes,
   };
 }

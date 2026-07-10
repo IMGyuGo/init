@@ -262,6 +262,14 @@
 | application_id | BIGINT PRIMARY KEY | 지원서/지원 이력 PK |
 | posting_id | BIGINT NOT NULL | 어떤 공고에 지원했는지 |
 | candidate_id | BIGINT NOT NULL | 누가 지원했는지 |
+| applicant_name | VARCHAR(100) | 제출 당시 지원자 이름 스냅샷. 기존 데이터는 NULL 가능 |
+| applicant_email | VARCHAR(255) | 제출 당시 이메일 스냅샷. 기존 데이터는 NULL 가능 |
+| applicant_phone | VARCHAR(50) | 제출 당시 연락처 스냅샷. 기존 데이터는 NULL 가능 |
+| github_url | VARCHAR(500) | 해당 지원서에 제출한 GitHub URL |
+| blog_url | VARCHAR(500) | 해당 지원서에 제출한 블로그 URL |
+| portfolio_url | VARCHAR(500) | 해당 지원서에 제출한 포트폴리오 URL. 포트폴리오 PDF 제출 시 NULL 가능 |
+| motivation | TEXT | 해당 공고 지원동기 |
+| additional_info | TEXT | 지원자가 함께 제출한 추가 설명 |
 | application_status | VARCHAR(40) NOT NULL | 지원 전체 진행 상태: DRAFT, SUBMITTED, IN_REVIEW, INTERVIEW_WAITING, INTERVIEW_DONE, COMPLETED, CANCELED |
 | document_status | VARCHAR(40) NOT NULL | 서류 제출/분석 상태: NOT_SUBMITTED, SUBMITTED, EXTRACTING, EXTRACTED, FAILED |
 | interview_status | VARCHAR(40) NOT NULL | AI 면접 응시 상태: NOT_READY, READY, IN_PROGRESS, COMPLETED, FAILED |
@@ -270,6 +278,8 @@
 | screening_memo | TEXT | 기업 담당자 메모 |
 | submitted_at | TIMESTAMP | 지원서 최종 제출 시각 |
 | updated_at | TIMESTAMP NOT NULL | 지원 건 마지막 수정 시각 |
+
+신규 지원서는 이름, 이메일, 연락처, GitHub URL, 블로그 URL, 이력서 PDF, 지원동기, 추가 설명을 반드시 제출한다. 포트폴리오는 URL 또는 PDF 중 하나 이상을 제출한다. 프로필 값이 이후 변경되어도 기업은 지원 당시 내용을 확인할 수 있도록 위 필드를 지원서 스냅샷으로 사용한다.
 
 ### application_documents
 

@@ -58,6 +58,14 @@ export type ApplicantRecord = {
   applicationId: number;
   postingId: number;
   candidateId: number;
+  applicantName?: string | null;
+  applicantEmail?: string | null;
+  applicantPhone?: string | null;
+  githubUrl?: string | null;
+  blogUrl?: string | null;
+  portfolioUrl?: string | null;
+  motivation?: string | null;
+  additionalInfo?: string | null;
   applicationStatus: string;
   documentStatus: string;
   interviewStatus: string;
@@ -68,6 +76,9 @@ export type ApplicantRecord = {
   updatedAt: Date;
   candidate: {
     candidateId: number;
+    githubUrl?: string | null;
+    portfolioUrl?: string | null;
+    summary?: string | null;
     user: {
       userId: number;
       email: string;
@@ -75,6 +86,15 @@ export type ApplicantRecord = {
       phone: string | null;
     };
   };
+  documents?: Array<{
+    documentId: number;
+    applicationId: number;
+    fileId: number | null;
+    documentType: string;
+    parseStatus: string;
+    uploadedAt: Date;
+    file: CompanyFileAssetRecord | null;
+  }>;
   posting: {
     postingId: number;
     title: string;

@@ -64,9 +64,13 @@ interface ValidatedSubmitApplication {
   candidateName: string;
   email: string;
   phone: string;
+  githubUrl: string;
+  blogUrl: string;
   resumeFileId: number;
   portfolioFileId?: number;
   portfolioUrl?: string;
+  motivation: string;
+  additionalInfo: string;
   consentTypes: ConsentRecord["consentType"][];
 }
 
@@ -168,7 +172,7 @@ export class CandidateService {
       currentUser.userId,
       "resumeFileId",
     );
-    this.assertDocumentFile(resumeFileAsset.mimeType, resumeFileAsset.sizeBytes);
+    this.assertApplicationPdf(resumeFileAsset.mimeType, resumeFileAsset.sizeBytes, "resumeFileId");
     this.assertObjectStorageKey(resumeFileAsset.storageKey, currentUser.candidateId);
     if (applicationFields.portfolioFileId) {
       const portfolioFileAsset = await this.assertFileAssetForCurrentUser(
@@ -176,7 +180,7 @@ export class CandidateService {
         currentUser.userId,
         "portfolioFileId",
       );
-      this.assertDocumentFile(portfolioFileAsset.mimeType, portfolioFileAsset.sizeBytes);
+      this.assertApplicationPdf(portfolioFileAsset.mimeType, portfolioFileAsset.sizeBytes, "portfolioFileId");
       this.assertObjectStorageKey(portfolioFileAsset.storageKey, currentUser.candidateId);
     }
     if (applicationFields.portfolioUrl) {
@@ -190,9 +194,16 @@ export class CandidateService {
     const result = await this.repository.createApplication({
       postingId: jobId,
       candidateId: currentUser.candidateId,
+      candidateName: applicationFields.candidateName,
+      email: applicationFields.email,
+      phone: applicationFields.phone,
+      githubUrl: applicationFields.githubUrl,
+      blogUrl: applicationFields.blogUrl,
       resumeFileId: applicationFields.resumeFileId,
       portfolioFileId: applicationFields.portfolioFileId,
       portfolioUrl: applicationFields.portfolioUrl,
+      motivation: applicationFields.motivation,
+      additionalInfo: applicationFields.additionalInfo,
       consentTypes: applicationFields.consentTypes,
     });
 
@@ -1077,9 +1088,13 @@ export class CandidateService {
     const candidateName = requestBody.candidateName;
     const email = requestBody.email;
     const phone = requestBody.phone;
+    const githubUrl = requestBody.githubUrl;
+    const blogUrl = requestBody.blogUrl;
     const resumeFileId = requestBody.resumeFileId;
     const portfolioFileId = requestBody.portfolioFileId;
     const portfolioUrl = requestBody.portfolioUrl;
+    const motivation = requestBody.motivation;
+    const additionalInfo = requestBody.additionalInfo;
     const consentTypes = requestBody.consentTypes;
 
     if (
@@ -1096,6 +1111,22 @@ export class CandidateService {
     if (!this.isEmail(normalizedEmail)) {
       throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "기본 정보를 확인해주세요.", 400, [
         { field: "email", reason: "email must be a valid email address" },
+      ]);
+    }
+
+    if (!this.isNonEmptyString(githubUrl) || !this.isNonEmptyString(blogUrl)) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "GitHub와 블로그 URL을 확인해주세요.", 400, [
+        { field: "links", reason: "githubUrl and blogUrl are required" },
+      ]);
+    }
+    const normalizedGithubUrl = githubUrl.trim();
+    const normalizedBlogUrl = blogUrl.trim();
+    this.assertUrl(normalizedGithubUrl, "githubUrl");
+    this.assertUrl(normalizedBlogUrl, "blogUrl");
+
+    if (!this.isNonEmptyString(motivation) || !this.isNonEmptyString(additionalInfo)) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "지원동기와 추가 설명을 입력해주세요.", 400, [
+        { field: "applicationDetails", reason: "motivation and additionalInfo are required" },
       ]);
     }
 
@@ -1159,9 +1190,13 @@ export class CandidateService {
       candidateName: candidateName.trim(),
       email: normalizedEmail,
       phone: phone.trim(),
+      githubUrl: normalizedGithubUrl,
+      blogUrl: normalizedBlogUrl,
       resumeFileId,
       portfolioFileId: normalizedPortfolioFileId,
       portfolioUrl: normalizedPortfolioUrl,
+      motivation: motivation.trim(),
+      additionalInfo: additionalInfo.trim(),
       consentTypes: validatedConsentTypes,
     };
   }
@@ -1446,6 +1481,15 @@ export class CandidateService {
 
     if (sizeBytes > MAX_DOCUMENT_SIZE_BYTES) {
       throw new CandidateDomainError("FILE_SIZE_EXCEEDED", "파일 용량이 허용 범위를 초과했습니다.", 400);
+    }
+  }
+
+  private assertApplicationPdf(mimeType: string, sizeBytes: number, field: string): void {
+    this.assertDocumentFile(mimeType, sizeBytes);
+    if (mimeType !== "application/pdf") {
+      throw new CandidateDomainError("FILE_INVALID_TYPE", "지원서에는 PDF 파일만 제출할 수 있습니다.", 400, [
+        { field, reason: "application/pdf is required" },
+      ]);
     }
   }
 

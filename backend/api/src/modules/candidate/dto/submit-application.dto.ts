@@ -1,15 +1,28 @@
-import { IsArray, IsEmail, IsIn, IsInt, IsOptional, IsString, IsUrl, Min } from "class-validator";
+import { IsArray, IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUrl, MaxLength, Min } from "class-validator";
 import type { ConsentType } from "../candidate.types";
 
 export class SubmitApplicationDto {
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
   candidateName!: string;
 
   @IsEmail()
+  @MaxLength(255)
   email!: string;
 
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(50)
   phone!: string;
+
+  @IsUrl({ require_protocol: true })
+  @MaxLength(500)
+  githubUrl!: string;
+
+  @IsUrl({ require_protocol: true })
+  @MaxLength(500)
+  blogUrl!: string;
 
   @IsInt()
   @Min(1)
@@ -22,11 +35,18 @@ export class SubmitApplicationDto {
 
   @IsOptional()
   @IsUrl({ require_protocol: true })
+  @MaxLength(500)
   portfolioUrl?: string;
 
-  @IsOptional()
   @IsString()
-  coverLetter?: string;
+  @IsNotEmpty()
+  @MaxLength(3000)
+  motivation!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(5000)
+  additionalInfo!: string;
 
   @IsArray()
   @IsIn(["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS", "AI_INTERVIEW_RECORDING"], { each: true })

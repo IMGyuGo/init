@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
-import { createApplicantInterviewMediaSession, getApplicantEvaluation, updateScreeningStatus } from "./api";
+import { createApplicantInterviewMediaSession, getApplicantDocument, getApplicantEvaluation, updateScreeningStatus } from "./api";
 import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
 import { formatRecruitingStatusLabel } from "./status-labels";
 import type { ApplicantEvaluation, ApplicantInterviewFileAsset, ScreeningDecision } from "./types";
@@ -16,6 +16,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   const [memo, setMemo] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [openingDocumentId, setOpeningDocumentId] = useState<number | null>(null);
 
   const load = useCallback(async (options: { clearMessage?: boolean } = {}) => {
     setLoading(true);
@@ -53,6 +54,31 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
       setMessage(error instanceof Error ? error.message : "전형 상태 저장에 실패했습니다.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleOpenDocument(fileId: number) {
+    const previewWindow = window.open("about:blank", "_blank");
+    if (previewWindow) previewWindow.opener = null;
+    setOpeningDocumentId(fileId);
+    setMessage("");
+    try {
+      const blob = await getApplicantDocument(applicantId, fileId);
+      const objectUrl = URL.createObjectURL(blob);
+      if (previewWindow) {
+        previewWindow.location.href = objectUrl;
+      } else {
+        const anchor = document.createElement("a");
+        anchor.href = objectUrl;
+        anchor.target = "_blank";
+        anchor.click();
+      }
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (error) {
+      previewWindow?.close();
+      setMessage(error instanceof Error ? error.message : "제출 서류를 불러오지 못했습니다.");
+    } finally {
+      setOpeningDocumentId(null);
     }
   }
 
@@ -107,6 +133,48 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
               <div className="kpi">
                 <span>리포트 상태</span>
                 <strong>{formatRecruitingStatusLabel(evaluation.statuses.reportStatus)}</strong>
+              </div>
+            </section>
+
+            <section className="panel applicant-submission-panel">
+              <div className="panel-head">
+                <div>
+                  <h2>지원 정보</h2>
+                  <p>지원자가 이 공고에 제출한 정보와 서류입니다.</p>
+                </div>
+              </div>
+              <dl className="applicant-submission-details">
+                <SubmissionItem label="이름" value={evaluation.submission.name} />
+                <SubmissionItem label="이메일" value={evaluation.submission.email} />
+                <SubmissionItem label="연락처" value={evaluation.submission.phone} />
+                <SubmissionLink label="GitHub" value={evaluation.submission.githubUrl} />
+                <SubmissionLink label="블로그" value={evaluation.submission.blogUrl} />
+                <SubmissionLink label="포트폴리오 URL" value={evaluation.submission.portfolioUrl} />
+                <SubmissionItem label="지원동기" value={evaluation.submission.motivation} multiline />
+                <SubmissionItem label="추가 설명" value={evaluation.submission.additionalInfo} multiline />
+              </dl>
+              <div className="applicant-submission-documents">
+                <h3>제출 서류</h3>
+                {evaluation.submission.documents.length ? (
+                  evaluation.submission.documents.map((documentItem) => (
+                    <div className="applicant-document-row" key={documentItem.documentId}>
+                      <div>
+                        <strong>{documentItem.documentType === "RESUME" ? "이력서" : "포트폴리오"}</strong>
+                        <span>{documentItem.originalName} · {formatFileSize(documentItem.sizeBytes)}</span>
+                      </div>
+                      <button
+                        className="btn secondary compact"
+                        type="button"
+                        disabled={openingDocumentId === documentItem.fileId}
+                        onClick={() => void handleOpenDocument(documentItem.fileId)}
+                      >
+                        {openingDocumentId === documentItem.fileId ? "여는 중" : "파일 열기"}
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="empty">제출된 파일을 찾을 수 없습니다.</div>
+                )}
               </div>
             </section>
 
@@ -375,6 +443,43 @@ function formatScoreCriterionName(criterionName: string | null, rationale: strin
 
 function getDisplayAnswers(answers: ApplicantEvaluation["answers"]) {
   return answers.filter((answer) => answer.questionType !== "FOLLOW_UP" || !isLinkedFollowUpAnswer(answers, answer));
+}
+
+function SubmissionItem({
+  label,
+  value,
+  multiline = false,
+}: {
+  label: string;
+  value: string | null;
+  multiline?: boolean;
+}) {
+  return (
+    <div className={multiline ? "is-wide" : undefined}>
+      <dt>{label}</dt>
+      <dd>{value || "미입력"}</dd>
+    </div>
+  );
+}
+
+function SubmissionLink({ label, value }: { label: string; value: string | null }) {
+  const safeUrl = toSafeExternalUrl(value);
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{safeUrl ? <a href={safeUrl} target="_blank" rel="noreferrer">링크 열기</a> : "미입력"}</dd>
+    </div>
+  );
+}
+
+function toSafeExternalUrl(value: string | null) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 function isLinkedFollowUpAnswer(answers: ApplicantEvaluation["answers"], candidate: ApplicantEvaluation["answers"][number]) {

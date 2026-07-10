@@ -92,7 +92,6 @@ import {
   defaultDeviceCheckState,
   defaultInterviewAnswerFormState,
   defaultInterviewConsentState,
-  defaultPortfolioLinkFormState,
   defaultStartMockInterviewState,
   createCameralessInterviewTestDeviceCheckState,
   createInterviewerSessionEvent,
@@ -115,7 +114,6 @@ import {
   getTimedOutAiJobStatus,
   getCandidateApplicationReportHref,
   getMockInterviewDeviceCheckHref,
-  inferPortfolioLinkType,
   isInterviewSpeechPlaybackEventCurrent,
   normalizeInterviewMediaMimeType,
   requiredInterviewConsents,
@@ -131,7 +129,6 @@ import {
   shouldShowInterviewDeviceSetup,
   trimInterviewerSessionEvents,
   toDeviceCheckRequest,
-  toCreatePortfolioLinkRequest,
   toRuntimeQuestionSpeechText,
   toSaveInterviewAnswerRequest,
   toSaveInterviewConsentRequest,
@@ -410,6 +407,7 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
   const [applyOpen, setApplyOpen] = useState(false);
   const [applyForm, setApplyForm] = useState<CandidateApplicationFormState>(defaultApplicationFormState);
   const [latestResumeFile, setLatestResumeFile] = useState<CandidateFileAsset>();
+  const [latestPortfolioFile, setLatestPortfolioFile] = useState<CandidateFileAsset>();
   const [applyBusy, setApplyBusy] = useState(false);
   const [applyError, setApplyError] = useState("");
   const [message, setMessage] = useState("");
@@ -428,22 +426,25 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
     }
   }
 
+  async function handlePortfolioFileSelect(file: File) {
+    setApplyBusy(true);
+    setApplyError("");
+    try {
+      const result = await getCandidateApi().uploadResume(file);
+      setLatestPortfolioFile(result.data);
+      setApplyForm((current) => ({ ...current, portfolioFileId: result.data.fileId }));
+    } catch (submitError) {
+      setApplyError(toErrorMessage(submitError));
+    } finally {
+      setApplyBusy(false);
+    }
+  }
+
   async function handleApplicationSubmit(request: Parameters<ReturnType<typeof getCandidateApi>["submitApplication"]>[1]) {
     setApplyBusy(true);
     setApplyError("");
     try {
-      const api = getCandidateApi();
-      if (request.portfolioUrl) {
-        await api.createPortfolioLink(
-          toCreatePortfolioLinkRequest({
-            ...defaultPortfolioLinkFormState,
-            url: request.portfolioUrl,
-            linkType: inferPortfolioLinkType(request.portfolioUrl),
-            description: request.coverLetter ?? "",
-          }),
-        );
-      }
-      const result = await api.submitApplication(jobId, request);
+      const result = await getCandidateApi().submitApplication(jobId, request);
       setApplyOpen(false);
       setMessage(`지원서가 제출되었습니다. 접수 번호는 ${result.data.application.applicationId}번입니다.`);
       void refresh().catch(() => undefined);
@@ -464,9 +465,11 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
           job={data.data}
           state={applyForm}
           latestResumeFile={latestResumeFile}
+          latestPortfolioFile={latestPortfolioFile}
           busy={applyBusy}
           errorMessage={applyError}
           onResumeFileSelect={handleResumeFileSelect}
+          onPortfolioFileSelect={handlePortfolioFileSelect}
           onStateChange={setApplyForm}
           onSubmit={handleApplicationSubmit}
           onClose={() => setApplyOpen(false)}
@@ -480,6 +483,7 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
   const router = useRouter();
   const [form, setForm] = useState<CandidateApplicationFormState>(defaultApplicationFormState);
   const [latestResumeFile, setLatestResumeFile] = useState<CandidateFileAsset>();
+  const [latestPortfolioFile, setLatestPortfolioFile] = useState<CandidateFileAsset>();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => getCandidateApi().getApplyView(jobId), [jobId]);
@@ -500,22 +504,26 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
     }
   }
 
+  async function handlePortfolioFileSelect(file: File) {
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await getCandidateApi().uploadResume(file);
+      setLatestPortfolioFile(result.data);
+      setForm((current) => ({ ...current, portfolioFileId: result.data.fileId }));
+      setMessage("포트폴리오 PDF가 업로드되었습니다.");
+    } catch (submitError) {
+      setMessage(toErrorMessage(submitError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleApplicationSubmit(request: Parameters<ReturnType<typeof getCandidateApi>["submitApplication"]>[1]) {
     setBusy(true);
     setMessage("");
     try {
-      const api = getCandidateApi();
-      if (request.portfolioUrl) {
-        await api.createPortfolioLink(
-          toCreatePortfolioLinkRequest({
-            ...defaultPortfolioLinkFormState,
-            url: request.portfolioUrl,
-            linkType: inferPortfolioLinkType(request.portfolioUrl),
-            description: request.coverLetter ?? "",
-          }),
-        );
-      }
-      const result = await api.submitApplication(jobId, request);
+      const result = await getCandidateApi().submitApplication(jobId, request);
       setMessage(`지원서가 제출되었습니다. 접수 번호는 ${result.data.application.applicationId}번입니다.`);
       router.push(candidateApplicationInterviewRoutes.applications);
     } catch (submitError) {
@@ -546,8 +554,10 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
             busy={busy}
             job={data.data.job}
             latestResumeFile={latestResumeFile}
+            latestPortfolioFile={latestPortfolioFile}
             state={form}
             onResumeFileSelect={handleResumeFileSelect}
+            onPortfolioFileSelect={handlePortfolioFileSelect}
             onStateChange={setForm}
             onSubmit={handleApplicationSubmit}
           />

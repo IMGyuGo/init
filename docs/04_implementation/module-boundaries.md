@@ -87,6 +87,7 @@ DTO와 API client 타입은 아래 naming을 따른다. 같은 요청/응답 타
 | Table | Field Group | Write Owner | Read Owner |
 | --- | --- | --- | --- |
 | `applications` | 생성, `submitted_at`, `document_status` | D | B/E |
+| `applications` | 제출 스냅샷(`applicant_*`, URL, 지원동기, 추가설명) | B/D | B/D/E |
 | `applications` | `application_status`, 초대/운영 상태 | B | D/E |
 | `applications` | `interview_status` | D | B/E |
 | `applications` | `report_status` | E | B/D |

@@ -133,6 +133,14 @@ export interface Application {
   applicationId: number;
   postingId: number;
   candidateId: number;
+  applicantName?: string | null;
+  applicantEmail?: string | null;
+  applicantPhone?: string | null;
+  githubUrl?: string | null;
+  blogUrl?: string | null;
+  portfolioUrl?: string | null;
+  motivation?: string | null;
+  additionalInfo?: string | null;
   applicationStatus: ApplicationStatus;
   documentStatus: DocumentStatus;
   interviewStatus: InterviewStatus;
@@ -329,9 +337,16 @@ export interface CandidateRepository {
   createApplication(input: {
     postingId: number;
     candidateId: number;
+    candidateName?: string;
+    email?: string;
+    phone?: string;
+    githubUrl?: string;
+    blogUrl?: string;
     resumeFileId: number;
     portfolioFileId?: number;
     portfolioUrl?: string;
+    motivation?: string;
+    additionalInfo?: string;
     consentTypes: ConsentType[];
   }): Promise<ApplicationSubmissionResult>;
   createFileAsset(input: Omit<FileAsset, "fileId" | "createdAt" | "status">): Promise<FileAsset>;

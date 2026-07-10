@@ -289,9 +289,16 @@ export class InMemoryCandidateRepository implements CandidateRepository {
   async createApplication(input: {
     postingId: number;
     candidateId: number;
+    candidateName?: string;
+    email?: string;
+    phone?: string;
+    githubUrl?: string;
+    blogUrl?: string;
     resumeFileId: number;
     portfolioFileId?: number;
     portfolioUrl?: string;
+    motivation?: string;
+    additionalInfo?: string;
     consentTypes: ConsentRecord["consentType"][];
   }): Promise<ApplicationSubmissionResult> {
     if (await this.hasApplication(input.candidateId, input.postingId)) {
@@ -303,6 +310,14 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       applicationId: this.applications.length + 1,
       postingId: input.postingId,
       candidateId: input.candidateId,
+      applicantName: input.candidateName ?? null,
+      applicantEmail: input.email ?? null,
+      applicantPhone: input.phone ?? null,
+      githubUrl: input.githubUrl ?? null,
+      blogUrl: input.blogUrl ?? null,
+      portfolioUrl: input.portfolioUrl ?? null,
+      motivation: input.motivation ?? null,
+      additionalInfo: input.additionalInfo ?? null,
       applicationStatus: "SUBMITTED",
       documentStatus: "SUBMITTED",
       interviewStatus: "NOT_READY",

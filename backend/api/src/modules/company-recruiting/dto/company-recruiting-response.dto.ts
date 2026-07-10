@@ -344,6 +344,9 @@ export class ApplicantEvaluationResponseDto {
   @ApiProperty({ type: Object })
   screening!: Record<string, unknown>;
 
+  @ApiProperty({ type: Object })
+  submission!: Record<string, unknown>;
+
   @ApiProperty({ enum: ["AVAILABLE", "NONE_OR_GENERATING"], example: "AVAILABLE" })
   reportAvailability!: string;
 
