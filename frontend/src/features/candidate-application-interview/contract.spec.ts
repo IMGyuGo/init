@@ -42,6 +42,7 @@ import {
   getCandidateJobDetailActionHref,
   getDefaultCameraPipPosition,
   getInterviewRuntimeFullscreenActive,
+  getInterviewAiPollingPolicy,
   getInterviewRuntimeLayoutState,
   getInterviewRuntimePipShortcutState,
   getInterviewRuntimeScreenSwapState,
@@ -537,6 +538,14 @@ assert.deepEqual(
     },
   },
 );
+assert.deepEqual(getInterviewAiPollingPolicy({ timedAutoAdvance: false }), {
+  attempts: 90,
+  intervalMs: 1000,
+});
+assert.deepEqual(getInterviewAiPollingPolicy({ timedAutoAdvance: true }), {
+  attempts: 8,
+  intervalMs: 500,
+});
 assert.equal(shouldContinueInterviewWithoutFollowUp({ failureCategory: "TIMEOUT" }), true);
 assert.equal(shouldContinueInterviewWithoutFollowUp({ pipelineError: new Error("worker unavailable") }), true);
 assert.equal(shouldContinueInterviewWithoutFollowUp({ failureCategory: "REANSWER_REQUIRED" }), false);

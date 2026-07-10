@@ -187,6 +187,15 @@ export interface InterviewRuntimeProgressionState {
   canCompleteInterview: boolean;
 }
 
+export interface InterviewAiPollingPolicyInput {
+  timedAutoAdvance: boolean;
+}
+
+export interface InterviewAiPollingPolicy {
+  attempts: number;
+  intervalMs: number;
+}
+
 export type InterviewerSessionMode = "tts-file" | "realtime-voice" | "avatar-stream";
 export type InterviewerSessionModeFallbackReason =
   | "INVALID_MODE"
@@ -1059,6 +1068,14 @@ export function getInterviewRuntimeProgressionState({
     canMoveNextQuestion,
     canCompleteInterview,
   };
+}
+
+export function getInterviewAiPollingPolicy({
+  timedAutoAdvance,
+}: InterviewAiPollingPolicyInput): InterviewAiPollingPolicy {
+  return timedAutoAdvance
+    ? { attempts: 8, intervalMs: 500 }
+    : { attempts: 90, intervalMs: 1000 };
 }
 
 export function getTimedOutAiJobStatus<T extends TimedOutAiJobStatusInput>(latest: T): T & {

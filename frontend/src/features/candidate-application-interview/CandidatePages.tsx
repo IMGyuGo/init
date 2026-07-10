@@ -114,6 +114,7 @@ import {
   getInterviewMediaFileExtension,
   getInterviewRuntimeFullscreenActive,
   getInterviewRuntimeLayoutState,
+  getInterviewAiPollingPolicy,
   getInterviewRuntimePipShortcutState,
   getInterviewRuntimeProgressionState,
   getInterviewRuntimeScreenSwapState,
@@ -5556,7 +5557,11 @@ function InterviewRuntimePanel({
           ? "답변이 저장되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
           : "답변이 저장되었습니다. 다음 질문을 준비하고 있습니다.",
       );
-      const automaticPipeline = runAutomaticAiPipeline(savedAnswer, question);
+      const automaticPipeline = runAutomaticAiPipeline(
+        savedAnswer,
+        question,
+        getInterviewAiPollingPolicy({ timedAutoAdvance: shouldAutoAdvance }),
+      );
       if (shouldAutoAdvance) {
         await automaticPipeline;
         await advanceAfterTimedAnswer(question);
@@ -5673,7 +5678,11 @@ function InterviewRuntimePanel({
     setMessage("현재 질문을 다시 답변합니다. 잠시 후 녹음이 다시 시작됩니다.");
   }
 
-  async function runAutomaticAiPipeline(savedAnswer: LastSavedAnswer, question = currentQuestion) {
+  async function runAutomaticAiPipeline(
+    savedAnswer: LastSavedAnswer,
+    question = currentQuestion,
+    pollingPolicy = getInterviewAiPollingPolicy({ timedAutoAdvance: false }),
+  ) {
     if (!data) return;
 
     let sttProcessLogId: number | undefined;
@@ -5767,7 +5776,7 @@ function InterviewRuntimePanel({
           error: undefined,
         }));
 
-        const followUpStatus = await pollAiJobUntilSettled(followUpProcessLogId, { attempts: 90, intervalMs: 1000 });
+        const followUpStatus = await pollAiJobUntilSettled(followUpProcessLogId, pollingPolicy);
         if (followUpStatus.status !== "COMPLETED") {
           const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({
             failureCategory: followUpStatus.failure?.category,
@@ -5856,7 +5865,7 @@ function InterviewRuntimePanel({
         error: undefined,
       }));
 
-      const sttStatus = await pollAiJobUntilSettled(sttProcessLogId, { attempts: 90, intervalMs: 1000 });
+      const sttStatus = await pollAiJobUntilSettled(sttProcessLogId, pollingPolicy);
       if (sttStatus.status !== "COMPLETED") {
         const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({
           failureCategory: sttStatus.failure?.category,
@@ -6002,7 +6011,7 @@ function InterviewRuntimePanel({
         error: undefined,
       }));
 
-      const followUpStatus = await pollAiJobUntilSettled(followUpProcessLogId, { attempts: 90, intervalMs: 1000 });
+      const followUpStatus = await pollAiJobUntilSettled(followUpProcessLogId, pollingPolicy);
       if (followUpStatus.status !== "COMPLETED") {
         const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({
           failureCategory: followUpStatus.failure?.category,
