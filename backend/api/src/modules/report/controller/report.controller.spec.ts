@@ -118,6 +118,19 @@ async function answerAllRecruitingQuestions(interviewService: InterviewService, 
         sizeBytes: 2048,
       },
       durationSeconds: 45 + index,
+      ...(index === 0
+        ? {
+            nonverbalMetadata: {
+              integrityEvents: [
+                {
+                  type: "TAB_HIDDEN",
+                  occurredAt: "2026-07-10T10:00:00.000Z",
+                  durationMs: 2000,
+                },
+              ],
+            },
+          }
+        : {}),
     }, DEV_CANDIDATE_USER);
 
     if (index < questions.data.questions.length - 1) {
@@ -323,6 +336,7 @@ async function runReportControllerAssertions() {
   const recruitingAnswers = interviewRepository.listAnswersBySession(session.sessionId);
   const firstRecruitingAnswer = recruitingAnswers[0];
   assert.ok(firstRecruitingAnswer);
+  assert.equal(firstRecruitingAnswer.nonverbalMetadata?.source, "CLIENT_RUNTIME_UNVERIFIED");
   recruitingAnswers.forEach((answer, index) => {
     interviewRepository.saveAnswerTranscript(
       answer.answerId,
@@ -354,6 +368,16 @@ async function runReportControllerAssertions() {
   assert.equal(applicationGeneration.data.reportId, session.sessionId);
   assert.equal(applicationGeneration.data.answerIds.length, recruitingAnswers.length);
   assert.equal(queuePublisher.messages.length, 2);
+  const recruitingReportJob = queuePublisher.messages.filter((message) => message.processType === "REPORT_GENERATE").at(-1);
+  assert.ok(recruitingReportJob);
+  const recruitingReportInput = JSON.parse(recruitingReportJob.inputRef) as {
+    payload?: { answers?: Array<Record<string, unknown>> };
+  };
+  assert.ok(recruitingReportInput.payload?.answers?.length);
+  assert.equal(
+    recruitingReportInput.payload?.answers?.some((answer) => "nonverbalMetadata" in answer),
+    false,
+  );
 
   candidateReportRepository.saveReport({
     reportId: submitted.application.applicationId,

@@ -271,7 +271,7 @@ export class ReportSummaryDto {
   @ApiPropertyOptional({ nullable: true, example: 82 })
   totalScore!: number | null;
 
-  @ApiPropertyOptional({ nullable: true, example: 80 })
+  @ApiPropertyOptional({ nullable: true, example: 82 })
   adjustedTotalScore!: number | null;
 
   @ApiPropertyOptional({
@@ -279,10 +279,12 @@ export class ReportSummaryDto {
     nullable: true,
     example: {
       rawTotalScore: 82,
-      adjustedTotalScore: 80,
-      penalty: 2,
+      adjustedTotalScore: 82,
+      penalty: 0,
+      scoreApplied: false,
+      source: "CLIENT_RUNTIME_UNVERIFIED",
       level: "MEDIUM",
-      reason: "응시 무결성 신호가 중간 수준으로 감지되어 총점에서 2점을 보정했습니다.",
+      reason: "브라우저에서 수집된 미검증 참고 신호이며 평가 점수에는 반영하지 않았습니다.",
       reasons: ["화면/탭 이탈 2회"],
     },
   })

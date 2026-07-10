@@ -28,7 +28,76 @@ export interface RuntimeInterviewSession {
   updatedAt: string;
 }
 
-export type InterviewAnswerNonverbalMetadata = Record<string, unknown>;
+export type InterviewIntegrityEventType =
+  | "TAB_HIDDEN"
+  | "WINDOW_BLUR"
+  | "CAMERA_LOST"
+  | "FACE_MISSING"
+  | "FACE_OUT_OF_FRAME"
+  | "MULTIPLE_FACES"
+  | "FACE_POSITION_SHIFT"
+  | "GAZE_AWAY"
+  | "VOICE_MOUTH_MISMATCH"
+  | "VOICE_WITHOUT_FACE"
+  | "STATIC_VIDEO_FRAME"
+  | "EARLY_SCREEN_AWAY";
+
+export type InterviewIntegritySuspicionLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH";
+
+export interface InterviewIntegrityEvent {
+  type: InterviewIntegrityEventType;
+  occurredAt: string;
+  durationMs?: number;
+  direction?: "LEFT" | "RIGHT" | "UP" | "DOWN";
+  source?: "IRIS" | "HEAD_POSE" | "COMBINED";
+}
+
+export interface InterviewIntegritySummary {
+  screenAwayCount?: number;
+  tabHiddenCount?: number;
+  windowBlurCount?: number;
+  cameraLostCount?: number;
+  faceMissingCount?: number;
+  faceOutOfFrameCount?: number;
+  multipleFacesCount?: number;
+  facePositionShiftCount?: number;
+  gazeAwayCount?: number;
+  voiceMouthMismatchCount?: number;
+  voiceWithoutFaceCount?: number;
+  staticVideoFrameCount?: number;
+  earlyScreenAwayCount?: number;
+  faceDetectionSupported?: boolean;
+  faceDetectionFrameCount?: number;
+  gazeDetectionSupported?: boolean;
+  gazeDetectionFrameCount?: number;
+  headPoseDetectionSupported?: boolean;
+  headPoseDetectionFrameCount?: number;
+  mouthSyncSupported?: boolean;
+  mouthSyncFrameCount?: number;
+  mouthSyncMismatchFrameCount?: number;
+  videoFrameMotionSupported?: boolean;
+  videoFrameSampleCount?: number;
+  staticVideoFrameSampleCount?: number;
+  totalAwayDurationMs?: number;
+  maxAwayDurationMs?: number;
+  suspicionLevel?: InterviewIntegritySuspicionLevel;
+}
+
+export interface InterviewAnswerNonverbalMetadata extends Record<string, unknown> {
+  schemaVersion?: 1;
+  source?: "CLIENT_RUNTIME_UNVERIFIED";
+  cameraWarnings?: number;
+  microphoneWarnings?: number;
+  longSilenceCount?: number;
+  shortAnswerCount?: number;
+  testModeUsed?: boolean;
+  voicePeakLevel?: number;
+  lowAudioFrameCount?: number;
+  observedAudioFrameCount?: number;
+  cameraDisconnectedCount?: number;
+  integrityEvents?: InterviewIntegrityEvent[];
+  integritySummary?: InterviewIntegritySummary;
+}
 
 export interface InterviewAnswer {
   answerId: number;

@@ -71,7 +71,7 @@ test("prisma interview repository replaces transcript and nonverbal metadata tog
     microphoneWarnings: 0,
     longSilenceCount: 0,
     testModeUsed: false,
-    integritySummary: { gazeAwayCount: 1, suspicionLevel: "LOW" },
+    integritySummary: { gazeAwayCount: 1, suspicionLevel: "LOW" as const },
   };
   const repository = new PrismaInterviewRepository({
     interviewAnswer: {

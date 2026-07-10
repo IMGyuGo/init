@@ -78,6 +78,7 @@ import {
   toRuntimeQuestionSpeechText,
   toDeviceCheckRequest,
   toCreatePortfolioLinkRequest,
+  toRecordingValidationSkipRequest,
   toSaveInterviewAnswerRequest,
   toSaveInterviewConsentRequest,
   toStartMockInterviewRequest,
@@ -234,6 +235,30 @@ const answerRequest: SaveInterviewAnswerRequest = toSaveInterviewAnswerRequest({
   },
   durationSeconds: 30,
 });
+
+const skippedAnswerMetadata = {
+  integrityEvents: [
+    {
+      type: "TAB_HIDDEN",
+      occurredAt: "2026-07-10T10:00:00.000Z",
+      durationMs: 3200,
+    },
+  ],
+};
+assert.deepEqual(
+  toRecordingValidationSkipRequest({
+    questionId: 3,
+    retryAnswerId: 99,
+    nonverbalMetadata: skippedAnswerMetadata,
+  }),
+  {
+    questionId: 3,
+    durationSeconds: 0,
+    skipReason: "RECORDING_VALIDATION_FAILED",
+    retryAnswerId: 99,
+    nonverbalMetadata: skippedAnswerMetadata,
+  },
+);
 
 const macosAudioAnswerRequest: SaveInterviewAnswerRequest = toSaveInterviewAnswerRequest({
   questionId: 2,
@@ -542,6 +567,7 @@ assert.deepEqual(getInterviewAiPollingPolicy({ timedAutoAdvance: false }), {
   attempts: 90,
   intervalMs: 1000,
 });
+
 assert.deepEqual(getInterviewAiPollingPolicy({ timedAutoAdvance: true }), {
   attempts: 8,
   intervalMs: 500,

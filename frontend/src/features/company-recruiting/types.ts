@@ -146,6 +146,8 @@ export type Applicant = {
       rawTotalScore: number | null;
       adjustedTotalScore: number | null;
       penalty: number;
+      scoreApplied?: boolean;
+      source?: "CLIENT_RUNTIME_UNVERIFIED";
       level: "NONE" | "LOW" | "MEDIUM" | "HIGH";
       reason: string;
       reasons: string[];
@@ -228,6 +230,8 @@ export type ApplicantEvaluation = {
       rawTotalScore: number | null;
       adjustedTotalScore: number | null;
       penalty: number;
+      scoreApplied?: boolean;
+      source?: "CLIENT_RUNTIME_UNVERIFIED";
       level: "NONE" | "LOW" | "MEDIUM" | "HIGH";
       reason: string;
       reasons: string[];

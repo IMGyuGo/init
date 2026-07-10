@@ -146,6 +146,7 @@ import {
   toDeviceCheckRequest,
   toCreatePortfolioLinkRequest,
   toRuntimeQuestionSpeechText,
+  toRecordingValidationSkipRequest,
   toSaveInterviewAnswerRequest,
   toSaveInterviewConsentRequest,
   toStartMockInterviewRequest,
@@ -5396,15 +5397,12 @@ function InterviewRuntimePanel({
     setMessage("녹음 품질 문제로 현재 질문을 미답변 처리하고 다음 질문으로 이동합니다.");
     try {
       const api = runtimeApi;
-      const skippedNonverbalMetadata =
-        mode === "mock" ? lastInvalidRecordingMetadataRef.current.get(questionId) : undefined;
-      const skipRequest: SaveInterviewAnswerRequest = {
+      const skippedNonverbalMetadata = lastInvalidRecordingMetadataRef.current.get(questionId);
+      const skipRequest = toRecordingValidationSkipRequest({
         questionId,
-        durationSeconds: 0,
-        skipReason: "RECORDING_VALIDATION_FAILED",
-        ...(retryAnswerId ? { retryAnswerId } : {}),
-        ...(skippedNonverbalMetadata ? { nonverbalMetadata: skippedNonverbalMetadata } : {}),
-      };
+        retryAnswerId,
+        nonverbalMetadata: skippedNonverbalMetadata,
+      });
       const result = await (mode === "mock"
         ? api.saveMockAnswer(data.runtime.sessionId, skipRequest)
         : api.saveRecruitingAnswer(data.runtime.sessionId, skipRequest));
@@ -8812,7 +8810,7 @@ function RecruitingIntegrityNotice() {
       </div>
       <ul>
         <li>화면·탭 이탈, 얼굴 미검출·복수 얼굴, 카메라 연결, 시선 이탈, 음성과 입 모양의 불일치 등을 답변별 참고 신호로 확인합니다.</li>
-        <li>반복되거나 높은 수준의 신호는 채용 담당자 검토 화면에 표시되며 평가 점수 보정에 반영될 수 있습니다.</li>
+        <li>감지 신호는 브라우저에서 수집된 미검증 참고 정보로 채용 담당자 검토 화면에 표시되며 평가 점수에는 반영되지 않습니다.</li>
         <li>감지 신호만으로 부정행위를 확정하거나 자동 탈락 처리하지 않으며, 채용 담당자가 답변 내용과 녹화 영상을 함께 검토합니다.</li>
       </ul>
     </aside>

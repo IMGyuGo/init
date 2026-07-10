@@ -1222,7 +1222,7 @@ describe("CompanyRecruitingService", () => {
     assert.equal(result.report?.scores[0]?.evidences[0]?.evidenceText, "NestJS 기반 API 구축 경험");
   });
 
-  it("applies capped integrity adjustment to recruiting evaluation scores", async () => {
+  it("keeps recruiting telemetry as an unverified reference without changing scores", async () => {
     const repository = createRepository({
       async findApplicationForCompany(applicationId: number, companyId: number) {
         return createApplicantRecord({
@@ -1328,17 +1328,20 @@ describe("CompanyRecruitingService", () => {
     const adjustment = result.report?.integrityAdjustment;
 
     assert.equal(result.report?.totalScore, 82);
-    assert.equal(result.report?.adjustedTotalScore, 72);
+    assert.equal(result.report?.adjustedTotalScore, 82);
     assert.ok(adjustment);
-    assert.equal(adjustment.penalty, 10);
+    assert.equal(adjustment.penalty, 0);
+    assert.equal(adjustment.scoreApplied, false);
+    assert.equal(adjustment.source, "CLIENT_RUNTIME_UNVERIFIED");
     assert.equal(adjustment.level, "HIGH");
     assert.equal(adjustment.rawTotalScore, 82);
-    assert.equal(adjustment.adjustedTotalScore, 72);
+    assert.equal(adjustment.adjustedTotalScore, 82);
     assert.ok(adjustment.reasons.includes("화면/탭 이탈 1회"));
     assert.ok(adjustment.reasons.includes("여러 얼굴 감지 1회"));
+    assert.match(adjustment.reason, /평가 점수에는 반영하지 않았습니다/);
   });
 
-  it("classifies recruiting integrity signal boundaries without over-penalizing gaze", async () => {
+  it("classifies recruiting integrity reference boundaries without changing scores", async () => {
     const evaluate = async (integritySummary: Record<string, number>) => {
       const repository = createRepository({
         async findApplicationForCompany() {
@@ -1388,26 +1391,27 @@ describe("CompanyRecruitingService", () => {
     };
 
     const scenarios = [
-      { name: "single gaze", summary: { gazeAwayCount: 1 }, level: "LOW", penalty: 0 },
-      { name: "repeated gaze", summary: { gazeAwayCount: 2 }, level: "MEDIUM", penalty: 2 },
-      { name: "single screen away", summary: { screenAwayCount: 1 }, level: "LOW", penalty: 0 },
-      { name: "repeated screen away", summary: { screenAwayCount: 2 }, level: "MEDIUM", penalty: 2 },
-      { name: "frequent screen away", summary: { screenAwayCount: 4 }, level: "HIGH", penalty: 5 },
-      { name: "single face missing", summary: { faceMissingCount: 1 }, level: "MEDIUM", penalty: 2 },
-      { name: "repeated face missing", summary: { faceMissingCount: 2 }, level: "HIGH", penalty: 5 },
-      { name: "multiple faces", summary: { multipleFacesCount: 1 }, level: "HIGH", penalty: 5 },
-      { name: "face position shift", summary: { facePositionShiftCount: 1 }, level: "HIGH", penalty: 5 },
-      { name: "single voice mouth mismatch", summary: { voiceMouthMismatchCount: 1 }, level: "MEDIUM", penalty: 2 },
-      { name: "repeated voice mouth mismatch", summary: { voiceMouthMismatchCount: 2 }, level: "HIGH", penalty: 5 },
-      { name: "static video frame", summary: { staticVideoFrameCount: 1 }, level: "HIGH", penalty: 5 },
+      { name: "single gaze", summary: { gazeAwayCount: 1 }, level: "LOW" },
+      { name: "repeated gaze", summary: { gazeAwayCount: 2 }, level: "MEDIUM" },
+      { name: "single screen away", summary: { screenAwayCount: 1 }, level: "LOW" },
+      { name: "repeated screen away", summary: { screenAwayCount: 2 }, level: "MEDIUM" },
+      { name: "frequent screen away", summary: { screenAwayCount: 4 }, level: "HIGH" },
+      { name: "single face missing", summary: { faceMissingCount: 1 }, level: "MEDIUM" },
+      { name: "repeated face missing", summary: { faceMissingCount: 2 }, level: "HIGH" },
+      { name: "multiple faces", summary: { multipleFacesCount: 1 }, level: "HIGH" },
+      { name: "face position shift", summary: { facePositionShiftCount: 1 }, level: "HIGH" },
+      { name: "single voice mouth mismatch", summary: { voiceMouthMismatchCount: 1 }, level: "MEDIUM" },
+      { name: "repeated voice mouth mismatch", summary: { voiceMouthMismatchCount: 2 }, level: "HIGH" },
+      { name: "static video frame", summary: { staticVideoFrameCount: 1 }, level: "HIGH" },
     ] as const;
 
     for (const scenario of scenarios) {
       const adjustment = await evaluate(scenario.summary);
       assert.ok(adjustment, scenario.name);
       assert.equal(adjustment.level, scenario.level, scenario.name);
-      assert.equal(adjustment.penalty, scenario.penalty, scenario.name);
-      assert.equal(adjustment.adjustedTotalScore, 80 - scenario.penalty, scenario.name);
+      assert.equal(adjustment.penalty, 0, scenario.name);
+      assert.equal(adjustment.scoreApplied, false, scenario.name);
+      assert.equal(adjustment.adjustedTotalScore, 80, scenario.name);
     }
   });
 

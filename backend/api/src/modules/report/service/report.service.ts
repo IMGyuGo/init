@@ -419,7 +419,7 @@ export class ReportService {
       ...(args.postingId !== undefined ? { postingId: args.postingId } : {}),
       jobDescription: this.cleanOptionalText(args.jobDescription) ?? "Interview report generation",
       criteria: await this.reportCriteria(args.reportType, args.postingId, answers),
-      answers: await this.reportAnswerInputs(answers),
+      answers: await this.reportAnswerInputs(answers, args.reportType),
     };
 
     return {
@@ -446,7 +446,10 @@ export class ReportService {
     };
   }
 
-  private async reportAnswerInputs(answers: InterviewAnswer[]): Promise<ReportInterviewAnswerInput[]> {
+  private async reportAnswerInputs(
+    answers: InterviewAnswer[],
+    reportType: ReportType,
+  ): Promise<ReportInterviewAnswerInput[]> {
     const followUpsByAnswerId = await this.followUpsByAnswerId(answers);
     const parentAnswerIdByFollowUpContent = new Map<string, number>();
     for (const [answerId, followUps] of followUpsByAnswerId.entries()) {
@@ -473,7 +476,9 @@ export class ReportService {
           ...(isFollowUpAnswer ? { isFollowUpAnswer: true } : {}),
           ...(parentAnswerId !== undefined ? { parentAnswerId } : {}),
           ...(transcript ? { transcript } : {}),
-          ...(answer.nonverbalMetadata ? { nonverbalMetadata: answer.nonverbalMetadata } : {}),
+          ...(reportType === "MOCK_INTERVIEW_REPORT" && answer.nonverbalMetadata
+            ? { nonverbalMetadata: answer.nonverbalMetadata }
+            : {}),
           evaluationStatus: transcript ? "EVALUATED" : "STT_UNAVAILABLE",
           transcriptUnavailableReason: transcript ? undefined : unavailableReason,
         };

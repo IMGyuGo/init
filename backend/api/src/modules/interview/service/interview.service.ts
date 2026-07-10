@@ -43,6 +43,10 @@ import {
   INTERVIEW_MEDIA_STORAGE,
   type InterviewMediaStoragePort,
 } from "./interview-media-storage.adapter";
+import {
+  InterviewNonverbalMetadataValidationError,
+  normalizeInterviewNonverbalMetadata,
+} from "./interview-nonverbal-metadata";
 
 const DEFAULT_MOCK_QUESTION_TYPES = ["INTRO", "TECHNICAL", "EXPERIENCE", "CLOSING"] as const;
 const DEFAULT_REALTIME_MODEL = "gpt-realtime-2";
@@ -1365,21 +1369,22 @@ export class InterviewService {
         { field: "audioFileId", reason: "audioFileId must be a positive integer" },
       ]);
     }
-    if (
-      requestBody.nonverbalMetadata !== undefined &&
-      (typeof requestBody.nonverbalMetadata !== "object" ||
-        requestBody.nonverbalMetadata === null ||
-        Array.isArray(requestBody.nonverbalMetadata))
-    ) {
+    let nonverbalMetadata: InterviewAnswerNonverbalMetadata | undefined;
+    try {
+      nonverbalMetadata = normalizeInterviewNonverbalMetadata(requestBody.nonverbalMetadata);
+    } catch (error) {
+      const reason = error instanceof InterviewNonverbalMetadataValidationError
+        ? error.reason
+        : "nonverbalMetadata is invalid";
       throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "nonverbalMetadata is invalid.", 400, [
-        { field: "nonverbalMetadata", reason: "nonverbalMetadata must be a JSON object" },
+        { field: "nonverbalMetadata", reason },
       ]);
     }
 
     return {
       ...(requestBody as Omit<AnswerRequestBody, "allowReanswer">),
       allowReanswer: requestBody.allowReanswer === true,
-      nonverbalMetadata: requestBody.nonverbalMetadata as InterviewAnswerNonverbalMetadata | undefined,
+      nonverbalMetadata,
     };
   }
 

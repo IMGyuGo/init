@@ -1073,13 +1073,12 @@ AI 리포트 금지 기준:
 - 관련 화면: 지원자 평가 상세 화면 (/company/applicants/{applicantId}/evaluation)
 - UI Type: page
 - Report response:
-  - `report.totalScore` is the raw AI evaluation score.
-  - `report.adjustedTotalScore` is the company-facing final score after capped integrity adjustment.
-  - `report.integrityAdjustment` may include `rawTotalScore`, `adjustedTotalScore`, `penalty`, `level`, `reason`, and `reasons`.
-  - Integrity levels are `NONE`, `LOW`, `MEDIUM`, and `HIGH`.
-  - `LOW` signals are shown as reference only and do not reduce the score.
-  - `MEDIUM` and `HIGH` signals may reduce the displayed score by 2 or 5 points per affected answer, capped at 10 total points.
-  - The adjustment is an interview-integrity review signal, not an automated pass/fail decision.
+  - `report.totalScore` is the AI evaluation score and is the company-facing displayed score.
+  - `report.adjustedTotalScore` is retained for compatibility and has the same value as `report.totalScore`.
+  - `report.integrityAdjustment` is a legacy-compatible field name for unverified browser telemetry. It may include `rawTotalScore`, `adjustedTotalScore`, `penalty`, `scoreApplied`, `source`, `level`, `reason`, and `reasons`.
+  - `penalty` is always `0`, `scoreApplied` is `false`, and `source` is `CLIENT_RUNTIME_UNVERIFIED`.
+  - Reference levels are `NONE`, `LOW`, `MEDIUM`, and `HIGH`; they indicate human review urgency only.
+  - Browser telemetry must not reduce the score, change pass/fail state, or be sent to the recruiting report AI input.
 - 상태 코드: 200 OK
 - 비동기: N
 - Path Params: applicantId
@@ -3041,10 +3040,17 @@ AI 리포트 금지 기준:
   - API-092 `POST /public/interviews/{sessionId}/answers`
 - Optional request field: `nonverbalMetadata`
 - Shape: JSON object. Initial MVP keys may include `cameraWarnings`, `microphoneWarnings`, `longSilenceCount`, `shortAnswerCount`, `testModeUsed`, `voicePeakLevel`, `lowAudioFrameCount`, `observedAudioFrameCount`, `cameraDisconnectedCount`, `integrityEvents`, and `integritySummary`.
+- Maximum serialized UTF-8 size: 32 KiB.
+- `integrityEvents` maximum length: 100.
+- Unknown top-level, summary, or event keys; unsupported event types; malformed timestamps; and out-of-range numeric values are rejected with `400 COMMON_VALIDATION_FAILED`.
 - `integrityEvents` may include browser-runtime events such as `TAB_HIDDEN`, `WINDOW_BLUR`, `CAMERA_LOST`, `FACE_MISSING`, `FACE_OUT_OF_FRAME`, `MULTIPLE_FACES`, `FACE_POSITION_SHIFT`, `GAZE_AWAY`, `VOICE_MOUTH_MISMATCH`, `VOICE_WITHOUT_FACE`, `STATIC_VIDEO_FRAME`, and `EARLY_SCREEN_AWAY`.
 - `GAZE_AWAY` events may include `direction` and `source`. `source` is one of `IRIS`, `HEAD_POSE`, or `COMBINED` and identifies whether the calibrated iris position, facial transformation matrix, or both produced the signal.
 - `integritySummary` may include counts derived from those events, such as `screenAwayCount`, `cameraLostCount`, `faceMissingCount`, `faceOutOfFrameCount`, `multipleFacesCount`, `facePositionShiftCount`, `gazeAwayCount`, `voiceMouthMismatchCount`, `voiceWithoutFaceCount`, `staticVideoFrameCount`, `earlyScreenAwayCount`, `faceDetectionSupported`, `faceDetectionFrameCount`, `gazeDetectionSupported`, `gazeDetectionFrameCount`, `headPoseDetectionSupported`, `headPoseDetectionFrameCount`, `mouthSyncSupported`, `mouthSyncFrameCount`, `mouthSyncMismatchFrameCount`, `videoFrameMotionSupported`, `videoFrameSampleCount`, `staticVideoFrameSampleCount`, `totalAwayDurationMs`, `maxAwayDurationMs`, and `suspicionLevel`.
-- Storage: saved on `interview_answers.nonverbal_metadata`.
+- Normalization and storage:
+  - The API rebuilds event-derived counts, away durations, and `suspicionLevel` from the allowlisted events instead of trusting client summary counts.
+  - The API writes `schemaVersion: 1` and `source: CLIENT_RUNTIME_UNVERIFIED` before saving on `interview_answers.nonverbal_metadata`.
+  - Empty metadata objects are treated as absent.
+  - When recording validation fails twice, the already collected metadata is preserved for both mock and recruiting answers.
 - Report read:
   - API-056 `GET /candidate/mock-interview/reports/{reportId}/media` may expose `media[].nonverbalMetadata`.
   - Candidate UI may aggregate the values into a mock interview nonverbal summary card and per-answer practice feedback.
@@ -3056,9 +3062,9 @@ AI 리포트 금지 기준:
   - `cameraWarnings` and `testModeUsed` may only produce setup/focus review guidance. They must not be treated as proof of cheating.
 - Policy:
   - For mock interviews, the value is practice feedback metadata only.
-  - For recruiting interviews, the value is auxiliary integrity metadata and may be surfaced to company reviewers as a review signal.
+  - For recruiting interviews, the value is unverified client telemetry and may be surfaced to company reviewers as a reference signal alongside the recorded answer.
   - It may surface cheating-suspicion practice feedback for mock interviews, but it must not be used as a final cheating decision, hiring pass/fail signal, or direct hiring score input.
   - It must not be used to infer appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, health, or other sensitive attributes.
-  - Recruiting/company-facing reports may apply a capped integrity score adjustment only when repeated or high-risk integrity signals are detected.
-  - The recruiting integrity adjustment must be shown separately from the raw AI score, capped at 10 total points, and must not be used as an automatic rejection decision.
-  - Before a recruiting interview starts, the candidate UI must disclose the integrity signals being collected, that repeated or high-risk signals may affect the company-facing adjusted score, and that signals alone do not trigger automatic rejection.
+  - Recruiting report generation must omit `nonverbalMetadata` from the API queue payload and strip it again at the worker/provider boundary.
+  - Recruiting/company-facing reports must not apply an automatic score adjustment from browser telemetry.
+  - Before a recruiting interview starts, the candidate UI must disclose which signals are collected, that they are unverified human-review references, and that they do not affect the evaluation score or trigger automatic rejection.

@@ -209,12 +209,20 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     kind: string,
     payload: Record<string, unknown>
   ): Promise<AiTaskResult> {
+    const sanitizedPayload = payload.reportType === "RECRUITING_REPORT"
+      ? { ...payload, answers: stripNonverbalMetadata(payload.answers) }
+      : payload;
+    const sanitizedJob = {
+      ...job,
+      inputRef: JSON.stringify({ kind, payload: sanitizedPayload })
+    };
     if (!this.reportProvider || payload.step || !isFinalReportKind(kind)) {
-      return this.fallback.handle(job);
+      return this.fallback.handle(sanitizedJob);
     }
 
-    const reportType = reportTypeOf(payload.reportType);
+    const reportType = reportTypeOf(sanitizedPayload.reportType);
     const policy = reportType === "MOCK_INTERVIEW_REPORT" ? "MOCK" : "RECRUITING";
+    const reportAnswers = answersOf(sanitizedPayload.answers);
     const generated = await this.reportProvider.generateReport({
       kind,
       reportType,
@@ -225,15 +233,15 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       postingId: optionalPositiveNumber(payload.postingId, "postingId"),
       jobDescription: requiredText(payload.jobDescription, "jobDescription"),
       criteria: criteriaOf(payload.criteria),
-      answers: answersOf(payload.answers),
+      answers: reportAnswers,
       documentText: typeof payload.documentText === "string" ? payload.documentText : undefined
     });
     const fallbackResult = await this.fallback.handle({
-      ...job,
+      ...sanitizedJob,
       inputRef: JSON.stringify({
         kind,
         payload: {
-          ...payload,
+          ...sanitizedPayload,
           summary: formatReportSummary(generated, reportType)
         }
       })
@@ -265,6 +273,15 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
         }
       : { result: "PASS" as const, reason: null };
   }
+}
+
+function stripNonverbalMetadata(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+    const { nonverbalMetadata: _nonverbalMetadata, ...answer } = item as Record<string, unknown>;
+    return answer;
+  });
 }
 
 function isFinalReportKind(kind: string): boolean {

@@ -1152,7 +1152,7 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
   const latestSession = application.interviewSessions[0] ?? null;
   const answers = latestSession?.answers ?? [];
   const integrityAdjustment = latestReport
-    ? buildRecruitingIntegrityScoreAdjustment(answers, latestReport.totalScore)
+    ? buildRecruitingIntegrityReference(answers, latestReport.totalScore)
     : null;
   const applicant = toApplicantResponse(application);
 
@@ -1254,10 +1254,6 @@ function toCompanyEvaluationFileAsset(fileAsset: CompanyFileAssetRecord | null |
 type ApplicantEvaluationAnswerRecord = NonNullable<ApplicantRecord["interviewSessions"][number]["answers"]>[number];
 type RecruitingIntegrityLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH";
 
-const RECRUITING_INTEGRITY_MEDIUM_PENALTY = 2;
-const RECRUITING_INTEGRITY_HIGH_PENALTY = 5;
-const RECRUITING_INTEGRITY_MAX_PENALTY = 10;
-
 type RecruitingIntegrityCounts = {
   screenAway: number;
   cameraLost: number;
@@ -1272,7 +1268,7 @@ type RecruitingIntegrityCounts = {
   earlyScreenAway: number;
 };
 
-function buildRecruitingIntegrityScoreAdjustment(answers: ApplicantEvaluationAnswerRecord[], rawTotalScore: number | null) {
+function buildRecruitingIntegrityReference(answers: ApplicantEvaluationAnswerRecord[], rawTotalScore: number | null) {
   const answerMetadataById = new Map<number, Record<string, unknown>>();
 
   for (const answer of answers) {
@@ -1285,29 +1281,27 @@ function buildRecruitingIntegrityScoreAdjustment(answers: ApplicantEvaluationAns
   }
 
   const evaluations = [...answerMetadataById.values()].map(evaluateRecruitingIntegrityMetadata);
-  const penalty = Math.min(
-    RECRUITING_INTEGRITY_MAX_PENALTY,
-    evaluations.reduce((sum, evaluation) => sum + evaluation.penalty, 0),
-  );
   const hasSignal = evaluations.some((evaluation) => evaluation.level !== "NONE");
   const hasHigh = evaluations.some((evaluation) => evaluation.level === "HIGH");
-  const level: RecruitingIntegrityLevel = hasHigh || penalty >= 10
+  const hasMedium = evaluations.some((evaluation) => evaluation.level === "MEDIUM");
+  const level: RecruitingIntegrityLevel = hasHigh
     ? "HIGH"
-    : penalty > 0
+    : hasMedium
       ? "MEDIUM"
       : hasSignal
         ? "LOW"
         : "NONE";
   const reasons = [...new Set(evaluations.flatMap((evaluation) => evaluation.reasons))];
-  const adjustedTotalScore = rawTotalScore === null ? null : Math.max(0, Math.min(100, rawTotalScore - penalty));
 
   return {
     rawTotalScore,
-    adjustedTotalScore,
-    penalty,
+    adjustedTotalScore: rawTotalScore,
+    penalty: 0,
+    scoreApplied: false,
+    source: "CLIENT_RUNTIME_UNVERIFIED" as const,
     level,
     reasons,
-    reason: buildRecruitingIntegrityAdjustmentReason(level, penalty, reasons),
+    reason: buildRecruitingIntegrityReferenceReason(level, reasons),
   };
 }
 
@@ -1322,7 +1316,7 @@ function evaluateRecruitingIntegrityMetadata(metadata: Record<string, unknown>) 
   const hasSignal = reasons.length > 0;
 
   if (!hasSignal) {
-    return { level: "NONE" as RecruitingIntegrityLevel, penalty: 0, reasons: [] };
+    return { level: "NONE" as RecruitingIntegrityLevel, reasons: [] };
   }
 
   const severeFaceSignal = counts.faceMissing + counts.faceOutOfFrame >= 2 || counts.cameraLost >= 2;
@@ -1334,7 +1328,7 @@ function evaluateRecruitingIntegrityMetadata(metadata: Record<string, unknown>) 
     severeFaceSignal ||
     severeAudioVisualSignal;
   if (high) {
-    return { level: "HIGH" as RecruitingIntegrityLevel, penalty: RECRUITING_INTEGRITY_HIGH_PENALTY, reasons };
+    return { level: "HIGH" as RecruitingIntegrityLevel, reasons };
   }
 
   const medium =
@@ -1347,10 +1341,10 @@ function evaluateRecruitingIntegrityMetadata(metadata: Record<string, unknown>) 
     counts.voiceWithoutFace > 0 ||
     counts.earlyScreenAway >= 2;
   if (medium) {
-    return { level: "MEDIUM" as RecruitingIntegrityLevel, penalty: RECRUITING_INTEGRITY_MEDIUM_PENALTY, reasons };
+    return { level: "MEDIUM" as RecruitingIntegrityLevel, reasons };
   }
 
-  return { level: "LOW" as RecruitingIntegrityLevel, penalty: 0, reasons };
+  return { level: "LOW" as RecruitingIntegrityLevel, reasons };
 }
 
 function readRecruitingIntegrityCounts(metadata: Record<string, unknown>): RecruitingIntegrityCounts {
@@ -1385,14 +1379,11 @@ function buildRecruitingIntegrityReasons(counts: RecruitingIntegrityCounts) {
   return reasons;
 }
 
-function buildRecruitingIntegrityAdjustmentReason(level: RecruitingIntegrityLevel, penalty: number, reasons: string[]) {
+function buildRecruitingIntegrityReferenceReason(level: RecruitingIntegrityLevel, reasons: string[]) {
   if (level === "NONE") {
-    return "응시 무결성 보정이 필요한 신호가 감지되지 않았습니다.";
+    return "브라우저에서 수집된 응시 무결성 참고 신호가 없습니다. 이 정보는 평가 점수에 반영되지 않습니다.";
   }
-  if (level === "LOW") {
-    return `낮은 수준의 응시 무결성 참고 신호가 감지되었지만 점수 감점은 적용하지 않았습니다. ${reasons.join(", ")}`;
-  }
-  return `응시 무결성 신호가 ${level === "HIGH" ? "높은 수준" : "중간 수준"}으로 감지되어 총점에서 ${penalty}점을 보정했습니다. ${reasons.join(", ")}`;
+  return `브라우저에서 수집된 미검증 참고 신호입니다. 부정행위로 단정할 수 없으며 평가 점수에는 반영하지 않았습니다. ${reasons.join(", ")}`;
 }
 
 function readSummaryCount(metadata: Record<string, unknown>, key: string) {

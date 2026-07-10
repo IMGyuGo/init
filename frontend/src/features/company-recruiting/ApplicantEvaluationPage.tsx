@@ -59,8 +59,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   const report = evaluation?.report ?? null;
   const displayAnswers = evaluation ? getDisplayAnswers(evaluation.answers) : [];
   const integritySummary = evaluation ? buildRecruitingIntegritySummary(displayAnswers) : null;
-  const reportIntegrityAdjustment = report?.integrityAdjustment ?? null;
-  const displayedTotalScore = reportIntegrityAdjustment?.adjustedTotalScore ?? report?.adjustedTotalScore ?? report?.totalScore ?? null;
+  const displayedTotalScore = report?.totalScore ?? null;
 
   return (
     <section className="app-page glass-page notion">
@@ -155,23 +154,6 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                   <div className="score-summary">
                     <span>최종 평가 점수</span>
                     <strong>{displayedTotalScore ?? "점수 없음"}</strong>
-                    {reportIntegrityAdjustment ? (
-                      <div className="score-adjustment-grid">
-                        <div>
-                          <span>AI 원점수</span>
-                          <strong>{reportIntegrityAdjustment.rawTotalScore ?? report.totalScore ?? "없음"}</strong>
-                        </div>
-                        <div>
-                          <span>신뢰도 보정</span>
-                          <strong>{reportIntegrityAdjustment.penalty > 0 ? `-${reportIntegrityAdjustment.penalty}` : "0"}</strong>
-                        </div>
-                        <div>
-                          <span>보정 단계</span>
-                          <strong>{formatIntegrityAdjustmentLevel(reportIntegrityAdjustment.level)}</strong>
-                        </div>
-                      </div>
-                    ) : null}
-                    {reportIntegrityAdjustment?.reason ? <p className="score-adjustment-reason">{reportIntegrityAdjustment.reason}</p> : null}
                     <p>{report.summary ?? "요약이 아직 없습니다."}</p>
                   </div>
                   {report.scores.length > 0 ? (
@@ -400,19 +382,6 @@ function formatScoreCriterionName(criterionName: string | null, rationale: strin
   return match?.[1]?.trim() || "기준 없음";
 }
 
-function formatIntegrityAdjustmentLevel(level: "NONE" | "LOW" | "MEDIUM" | "HIGH") {
-  switch (level) {
-    case "HIGH":
-      return "높음";
-    case "MEDIUM":
-      return "중간";
-    case "LOW":
-      return "낮음";
-    default:
-      return "없음";
-  }
-}
-
 type RecruitingIntegrityCounts = {
   screenAway: number;
   cameraLost: number;
@@ -447,7 +416,7 @@ function RecruitingIntegrityReviewPanel({ summary }: { summary: RecruitingIntegr
       <div className="panel-head company-integrity-panel-head">
         <div>
           <h2>응시 무결성 참고 신호</h2>
-          <p>화면 이탈, 얼굴 화면 밖, 여러 얼굴, 시선 이탈, 음성-입모양 불일치처럼 채용 담당자가 추가 확인할 수 있는 신호입니다. 부정행위 확정 판정은 아닙니다.</p>
+          <p>브라우저에서 수집된 미검증 참고 정보입니다. 부정행위 확정 판정이나 평가 점수에 사용하지 말고 답변 영상과 함께 확인해 주세요.</p>
         </div>
         <StatusBadge value={status} />
       </div>

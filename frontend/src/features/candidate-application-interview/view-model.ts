@@ -80,6 +80,12 @@ export interface InterviewAnswerFormState {
   nonverbalMetadata?: Record<string, unknown>;
 }
 
+export interface RecordingValidationSkipState {
+  questionId: number;
+  retryAnswerId?: number;
+  nonverbalMetadata?: Record<string, unknown>;
+}
+
 export type InterviewDeviceSetupMode = "mock" | "recruiting";
 
 export interface AiInterviewerProfile {
@@ -798,6 +804,20 @@ export function toSaveInterviewAnswerRequest(state: InterviewAnswerFormState): S
     audioFile: state.audioFile,
     durationSeconds: state.durationSeconds,
     nonverbalMetadata: state.nonverbalMetadata,
+  };
+}
+
+export function toRecordingValidationSkipRequest(state: RecordingValidationSkipState): SaveInterviewAnswerRequest {
+  if (!state.questionId) {
+    throw new Error("questionId is required before skipping an interview answer.");
+  }
+
+  return {
+    questionId: state.questionId,
+    durationSeconds: 0,
+    skipReason: "RECORDING_VALIDATION_FAILED",
+    ...(state.retryAnswerId ? { retryAnswerId: state.retryAnswerId } : {}),
+    ...(state.nonverbalMetadata ? { nonverbalMetadata: state.nonverbalMetadata } : {}),
   };
 }
 
