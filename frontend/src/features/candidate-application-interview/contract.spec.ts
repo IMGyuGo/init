@@ -24,6 +24,10 @@ import {
   type RealtimePeerConnectionLike,
 } from "./realtime-webrtc";
 import {
+  estimateHeadPoseAngles,
+  resolveCombinedGazeSignal,
+} from "./nonverbal-integrity";
+import {
   clampCameraPipPosition,
   createCameralessInterviewTestDeviceCheckState,
   createInterviewerSessionActionEvent,
@@ -75,6 +79,78 @@ import {
   toSubmitApplicationRequest,
   toUploadResumeRequest,
 } from "./view-model";
+
+const identityHeadPose = estimateHeadPoseAngles({
+  rows: 4,
+  columns: 4,
+  data: [
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1,
+  ],
+});
+assert.ok(identityHeadPose);
+assert.ok(Math.abs(identityHeadPose.yawDegrees) < 0.001);
+assert.ok(Math.abs(identityHeadPose.pitchDegrees) < 0.001);
+
+const yawRadians = 30 * Math.PI / 180;
+const turnedHeadPose = estimateHeadPoseAngles({
+  rows: 4,
+  columns: 4,
+  data: [
+    Math.cos(yawRadians), 0, -Math.sin(yawRadians), 0,
+    0, 1, 0, 0,
+    Math.sin(yawRadians), 0, Math.cos(yawRadians), 0,
+    0, 0, 0, 1,
+  ],
+});
+assert.ok(turnedHeadPose);
+assert.ok(Math.abs(turnedHeadPose.yawDegrees - 30) < 0.001);
+
+const normalCombinedGazeSignal = resolveCombinedGazeSignal({
+  irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  irisPosition: { horizontalRatio: 0.55, verticalRatio: 0.53 },
+  headPoseBaseline: { yawDegrees: 0, pitchDegrees: 0 },
+  headPose: { yawDegrees: 8, pitchDegrees: 6 },
+});
+assert.equal(normalCombinedGazeSignal, undefined);
+
+const phoneLookupHeadSignal = resolveCombinedGazeSignal({
+  irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  irisPosition: { horizontalRatio: 0.52, verticalRatio: 0.52 },
+  headPoseBaseline: { yawDegrees: 0, pitchDegrees: 0 },
+  headPose: { yawDegrees: 25, pitchDegrees: 20 },
+});
+assert.equal(phoneLookupHeadSignal?.source, "HEAD_POSE");
+assert.equal(phoneLookupHeadSignal?.direction, "RIGHT");
+
+const subtlePhoneLookupCombinedSignal = resolveCombinedGazeSignal({
+  irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  irisPosition: { horizontalRatio: 0.6, verticalRatio: 0.52 },
+  headPoseBaseline: { yawDegrees: 0, pitchDegrees: 0 },
+  headPose: { yawDegrees: 12, pitchDegrees: 4 },
+});
+assert.equal(subtlePhoneLookupCombinedSignal?.source, "COMBINED");
+assert.equal(subtlePhoneLookupCombinedSignal?.direction, "RIGHT");
+
+const downwardPhoneLookupCombinedSignal = resolveCombinedGazeSignal({
+  irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  irisPosition: { horizontalRatio: 0.52, verticalRatio: 0.62 },
+  headPoseBaseline: { yawDegrees: 0, pitchDegrees: 0 },
+  headPose: { yawDegrees: 4, pitchDegrees: 10 },
+});
+assert.equal(downwardPhoneLookupCombinedSignal?.source, "COMBINED");
+assert.equal(downwardPhoneLookupCombinedSignal?.direction, "DOWN");
+
+const phoneLookupCombinedSignal = resolveCombinedGazeSignal({
+  irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  irisPosition: { horizontalRatio: 0.75, verticalRatio: 0.72 },
+  headPoseBaseline: { yawDegrees: 0, pitchDegrees: 0 },
+  headPose: { yawDegrees: 25, pitchDegrees: 20 },
+});
+assert.equal(phoneLookupCombinedSignal?.source, "COMBINED");
+assert.equal(phoneLookupCombinedSignal?.direction, "RIGHT");
 
 const listPostingStatus: CandidateJobListPostingStatus = "OPEN";
 const query: CandidateJobQuery = {

@@ -67,6 +67,16 @@ import {
 } from "./realtime-webrtc";
 import { candidateApplicationInterviewRoutes } from "./routes";
 import {
+  GAZE_CALIBRATION_REQUIRED_SAMPLES,
+  estimateHeadPoseAngles,
+  estimateIrisGazePosition,
+  resolveCombinedGazeSignal,
+  type GazeDirection,
+  type GazeSignalSource,
+  type HeadPoseAngles,
+  type IrisGazePosition,
+} from "./nonverbal-integrity";
+import {
   type CameraPipPosition,
   type CandidateApplicationFormState,
   type CandidateDeviceCheckState,
@@ -153,12 +163,13 @@ const MIN_INTERVIEW_RECORDING_VOICE_FRAME_COUNT = 6;
 const MAX_INVALID_RECORDING_AUTO_RETRY_COUNT = 1;
 const REALTIME_SILENCE_GRACE_MS = 2000;
 const NONVERBAL_SHORT_ANSWER_SECONDS = 10;
-const NONVERBAL_CAMERA_SAMPLE_INTERVAL_MS = 1000;
+const NONVERBAL_CAMERA_SAMPLE_INTERVAL_MS = 500;
 const NONVERBAL_FACE_SAMPLE_SIZE = 240;
 const NONVERBAL_FACE_EDGE_MARGIN_RATIO = 0.08;
 const NONVERBAL_FACE_MIN_AREA_RATIO = 0.04;
 const NONVERBAL_FACE_SHIFT_RATIO = 0.22;
-const NONVERBAL_GAZE_AWAY_THRESHOLD = 0.22;
+const NONVERBAL_GAZE_AWAY_CONFIRMATION_MS = 1500;
+const NONVERBAL_GAZE_CENTERED_CONFIRMATION_MS = 750;
 const NONVERBAL_AUDIO_SPEAKING_LEVEL = 6;
 const NONVERBAL_AUDIO_SPEAKING_RATIO_THRESHOLD = 0.35;
 const NONVERBAL_MOUTH_OPEN_RATIO_THRESHOLD = 0.06;
@@ -215,6 +226,7 @@ type InterviewIntegrityEvent = {
   occurredAt: string;
   durationMs?: number;
   direction?: GazeDirection;
+  source?: GazeSignalSource;
 };
 type RuntimeIntegrityWarning = {
   type: InterviewIntegrityEventType;
@@ -233,7 +245,6 @@ type FaceBoxSnapshot = {
   centerY: number;
   areaRatio: number;
 };
-type GazeDirection = "LEFT" | "RIGHT" | "UP" | "DOWN";
 type MediaPipeFaceLandmarkerModule = typeof import("@mediapipe/tasks-vision");
 type InterviewIntegritySummary = {
   screenAwayCount: number;
@@ -253,6 +264,8 @@ type InterviewIntegritySummary = {
   faceDetectionFrameCount: number;
   gazeDetectionSupported: boolean;
   gazeDetectionFrameCount: number;
+  headPoseDetectionSupported: boolean;
+  headPoseDetectionFrameCount: number;
   mouthSyncSupported: boolean;
   mouthSyncFrameCount: number;
   mouthSyncMismatchFrameCount: number;
@@ -289,6 +302,8 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   multipleFacesStartedAtMs?: number;
   facePositionShiftStartedAtMs?: number;
   gazeAwayStartedAtMs?: number;
+  gazeAwayCandidateStartedAtMs?: number;
+  gazeCenteredCandidateStartedAtMs?: number;
   voiceMouthMismatchStartedAtMs?: number;
   voiceMouthMismatchCandidateStartedAtMs?: number;
   voiceWithoutFaceStartedAtMs?: number;
@@ -297,12 +312,21 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   staticVideoFrameCandidateStartedAtMs?: number;
   earlyScreenAwayRecorded: boolean;
   lastGazeDirection?: GazeDirection;
+  lastGazeSource?: GazeSignalSource;
+  gazeCalibrationSampleCount: number;
+  gazeBaselineHorizontalRatio?: number;
+  gazeBaselineVerticalRatio?: number;
+  headPoseCalibrationSampleCount: number;
+  headPoseBaselineYawDegrees?: number;
+  headPoseBaselinePitchDegrees?: number;
   faceBaseline?: FaceBoxSnapshot;
   lastVideoFrameSample?: number[];
   faceDetectionSupported: boolean;
   faceDetectionFrameCount: number;
   gazeDetectionSupported: boolean;
   gazeDetectionFrameCount: number;
+  headPoseDetectionSupported: boolean;
+  headPoseDetectionFrameCount: number;
   mouthSyncSupported: boolean;
   mouthSyncFrameCount: number;
   mouthSyncMismatchFrameCount: number;
@@ -3695,7 +3719,7 @@ function InterviewRuntimePanel({
           direction === "UP" ? "위쪽" :
           direction === "DOWN" ? "아래쪽" :
           "화면 밖";
-        return `시선이 ${directionLabel}으로 오래 벗어난 신호가 감지되었습니다.`;
+        return `시선 또는 고개 방향이 ${directionLabel}으로 오래 벗어난 신호가 감지되었습니다.`;
       }
       case "VOICE_MOUTH_MISMATCH":
         return "음성은 감지되지만 화면 속 입 움직임이 거의 없는 신호가 감지되었습니다.";
@@ -3733,21 +3757,6 @@ function InterviewRuntimePanel({
     }, RUNTIME_INTEGRITY_WARNING_DURATION_MS);
   }
 
-  function recordIntegrityEvent(
-    type: InterviewIntegrityEventType,
-    options: { durationMs?: number; occurredAtMs?: number; direction?: GazeDirection } = {},
-  ) {
-    const tracker = recordingNonverbalTrackerRef.current;
-    if (!tracker) return;
-
-    tracker.integrityEvents.push({
-      type,
-      occurredAt: new Date(options.occurredAtMs ?? Date.now()).toISOString(),
-      ...(options.durationMs !== undefined ? { durationMs: Math.max(0, Math.round(options.durationMs)) } : {}),
-      ...(options.direction ? { direction: options.direction } : {}),
-    });
-  }
-
   function closeTimedIntegrityEvent(
     tracker: RecordingNonverbalTracker,
     type: Extract<
@@ -3766,7 +3775,7 @@ function InterviewRuntimePanel({
     >,
     startedAtMs: number | undefined,
     nowMs = Date.now(),
-    options: { direction?: GazeDirection } = {},
+    options: { direction?: GazeDirection; source?: GazeSignalSource } = {},
   ) {
     if (startedAtMs === undefined) return;
 
@@ -3776,6 +3785,7 @@ function InterviewRuntimePanel({
       occurredAt: new Date(startedAtMs).toISOString(),
       durationMs: Math.round(durationMs),
       ...(options.direction ? { direction: options.direction } : {}),
+      ...(options.source ? { source: options.source } : {}),
     });
 
     if (type === "TAB_HIDDEN" || type === "WINDOW_BLUR") {
@@ -3801,6 +3811,7 @@ function InterviewRuntimePanel({
           minFaceDetectionConfidence: 0.5,
           minFacePresenceConfidence: 0.5,
           minTrackingConfidence: 0.5,
+          outputFacialTransformationMatrixes: true,
         });
         nonverbalFaceLandmarkerRef.current = landmarker;
         return landmarker;
@@ -3882,17 +3893,6 @@ function InterviewRuntimePanel({
       Math.abs(current.centerY - baseline.centerY) >= NONVERBAL_FACE_SHIFT_RATIO ||
       Math.abs(current.areaRatio - baseline.areaRatio) >= Math.max(0.08, baseline.areaRatio * 1.4)
     );
-  }
-
-  function averageLandmarks(landmarks: NormalizedLandmark[], indexes: number[]): NormalizedLandmark | undefined {
-    const points = indexes.map((index) => landmarks[index]).filter(Boolean);
-    if (!points.length) return undefined;
-    return {
-      x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
-      y: points.reduce((sum, point) => sum + point.y, 0) / points.length,
-      z: points.reduce((sum, point) => sum + (point.z ?? 0), 0) / points.length,
-      visibility: points.reduce((sum, point) => sum + (point.visibility ?? 0), 0) / points.length,
-    };
   }
 
   function landmarkDistance(left: NormalizedLandmark, right: NormalizedLandmark): number {
@@ -3987,45 +3987,134 @@ function InterviewRuntimePanel({
     updateTimedFaceSignal(tracker, "staticVideoFrameStartedAtMs", "STATIC_VIDEO_FRAME", staticFrameActive);
   }
 
-  function estimateGazeAwayDirection(landmarks: NormalizedLandmark[]): GazeDirection | undefined {
-    if (landmarks.length < 478) return undefined;
+  function updateCalibrationAverage(current: number | undefined, sampleCount: number, next: number) {
+    return current === undefined ? next : (current * sampleCount + next) / (sampleCount + 1);
+  }
 
-    const rightIris = averageLandmarks(landmarks, [468, 469, 470, 471, 472]);
-    const leftIris = averageLandmarks(landmarks, [473, 474, 475, 476, 477]);
-    const rightLeft = landmarks[33];
-    const rightRight = landmarks[133];
-    const rightTop = landmarks[159];
-    const rightBottom = landmarks[145];
-    const leftLeft = landmarks[362];
-    const leftRight = landmarks[263];
-    const leftTop = landmarks[386];
-    const leftBottom = landmarks[374];
-    if (!rightIris || !leftIris || !rightLeft || !rightRight || !rightTop || !rightBottom || !leftLeft || !leftRight || !leftTop || !leftBottom) {
-      return undefined;
+  function registerCombinedGazeSample(
+    tracker: RecordingNonverbalTracker,
+    irisPosition: IrisGazePosition | undefined,
+    headPose: HeadPoseAngles | undefined,
+  ) {
+    const irisCalibrated = tracker.gazeCalibrationSampleCount >= GAZE_CALIBRATION_REQUIRED_SAMPLES;
+    const headPoseCalibrated = tracker.headPoseCalibrationSampleCount >= GAZE_CALIBRATION_REQUIRED_SAMPLES;
+    let calibrationUpdated = false;
+
+    if (irisPosition) {
+      tracker.gazeDetectionSupported = true;
+      tracker.gazeDetectionFrameCount += 1;
+      if (!irisCalibrated) {
+        const sampleCount = tracker.gazeCalibrationSampleCount;
+        tracker.gazeBaselineHorizontalRatio = updateCalibrationAverage(
+          tracker.gazeBaselineHorizontalRatio,
+          sampleCount,
+          irisPosition.horizontalRatio,
+        );
+        tracker.gazeBaselineVerticalRatio = updateCalibrationAverage(
+          tracker.gazeBaselineVerticalRatio,
+          sampleCount,
+          irisPosition.verticalRatio,
+        );
+        tracker.gazeCalibrationSampleCount += 1;
+        calibrationUpdated = true;
+      }
     }
 
-    const rightMinX = Math.min(rightLeft.x, rightRight.x);
-    const rightMaxX = Math.max(rightLeft.x, rightRight.x);
-    const leftMinX = Math.min(leftLeft.x, leftRight.x);
-    const leftMaxX = Math.max(leftLeft.x, leftRight.x);
-    const rightMinY = Math.min(rightTop.y, rightBottom.y);
-    const rightMaxY = Math.max(rightTop.y, rightBottom.y);
-    const leftMinY = Math.min(leftTop.y, leftBottom.y);
-    const leftMaxY = Math.max(leftTop.y, leftBottom.y);
-    const rightWidth = rightMaxX - rightMinX;
-    const leftWidth = leftMaxX - leftMinX;
-    const rightHeight = rightMaxY - rightMinY;
-    const leftHeight = leftMaxY - leftMinY;
-    if (rightWidth <= 0 || leftWidth <= 0 || rightHeight <= 0 || leftHeight <= 0) return undefined;
+    if (headPose) {
+      tracker.headPoseDetectionSupported = true;
+      tracker.headPoseDetectionFrameCount += 1;
+      if (!headPoseCalibrated) {
+        const sampleCount = tracker.headPoseCalibrationSampleCount;
+        tracker.headPoseBaselineYawDegrees = updateCalibrationAverage(
+          tracker.headPoseBaselineYawDegrees,
+          sampleCount,
+          headPose.yawDegrees,
+        );
+        tracker.headPoseBaselinePitchDegrees = updateCalibrationAverage(
+          tracker.headPoseBaselinePitchDegrees,
+          sampleCount,
+          headPose.pitchDegrees,
+        );
+        tracker.headPoseCalibrationSampleCount += 1;
+        calibrationUpdated = true;
+      }
+    }
 
-    const horizontalRatio = ((rightIris.x - rightMinX) / rightWidth + (leftIris.x - leftMinX) / leftWidth) / 2;
-    const verticalRatio = ((rightIris.y - rightMinY) / rightHeight + (leftIris.y - leftMinY) / leftHeight) / 2;
+    if (calibrationUpdated) {
+      updateCombinedGazeSignal(tracker, undefined);
+      return;
+    }
 
-    if (horizontalRatio <= 0.5 - NONVERBAL_GAZE_AWAY_THRESHOLD) return "LEFT";
-    if (horizontalRatio >= 0.5 + NONVERBAL_GAZE_AWAY_THRESHOLD) return "RIGHT";
-    if (verticalRatio <= 0.5 - NONVERBAL_GAZE_AWAY_THRESHOLD) return "UP";
-    if (verticalRatio >= 0.5 + NONVERBAL_GAZE_AWAY_THRESHOLD) return "DOWN";
-    return undefined;
+    const irisBaseline =
+      tracker.gazeCalibrationSampleCount >= GAZE_CALIBRATION_REQUIRED_SAMPLES &&
+      tracker.gazeBaselineHorizontalRatio !== undefined &&
+      tracker.gazeBaselineVerticalRatio !== undefined
+        ? {
+            horizontalRatio: tracker.gazeBaselineHorizontalRatio,
+            verticalRatio: tracker.gazeBaselineVerticalRatio,
+          }
+        : undefined;
+    const headPoseBaseline =
+      tracker.headPoseCalibrationSampleCount >= GAZE_CALIBRATION_REQUIRED_SAMPLES &&
+      tracker.headPoseBaselineYawDegrees !== undefined &&
+      tracker.headPoseBaselinePitchDegrees !== undefined
+        ? {
+            yawDegrees: tracker.headPoseBaselineYawDegrees,
+            pitchDegrees: tracker.headPoseBaselinePitchDegrees,
+          }
+        : undefined;
+    const signal = resolveCombinedGazeSignal({ irisPosition, irisBaseline, headPose, headPoseBaseline });
+    updateCombinedGazeSignal(tracker, signal);
+  }
+
+  function updateCombinedGazeSignal(
+    tracker: RecordingNonverbalTracker,
+    signal: ReturnType<typeof resolveCombinedGazeSignal>,
+  ) {
+    const nowMs = Date.now();
+    if (signal) {
+      tracker.gazeCenteredCandidateStartedAtMs = undefined;
+      tracker.gazeAwayCandidateStartedAtMs ??= nowMs;
+      tracker.lastGazeDirection = signal.direction;
+      tracker.lastGazeSource = mergeGazeSignalSource(tracker.lastGazeSource, signal.source);
+
+      if (
+        tracker.gazeAwayStartedAtMs === undefined &&
+        nowMs - tracker.gazeAwayCandidateStartedAtMs >= NONVERBAL_GAZE_AWAY_CONFIRMATION_MS
+      ) {
+        tracker.gazeAwayStartedAtMs = tracker.gazeAwayCandidateStartedAtMs;
+        showRuntimeIntegrityWarning("GAZE_AWAY", { direction: tracker.lastGazeDirection });
+      }
+      return;
+    }
+
+    tracker.gazeAwayCandidateStartedAtMs = undefined;
+    if (tracker.gazeAwayStartedAtMs === undefined) {
+      tracker.gazeCenteredCandidateStartedAtMs = undefined;
+      tracker.lastGazeDirection = undefined;
+      tracker.lastGazeSource = undefined;
+      return;
+    }
+
+    tracker.gazeCenteredCandidateStartedAtMs ??= nowMs;
+    if (nowMs - tracker.gazeCenteredCandidateStartedAtMs < NONVERBAL_GAZE_CENTERED_CONFIRMATION_MS) return;
+
+    closeTimedIntegrityEvent(
+      tracker,
+      "GAZE_AWAY",
+      tracker.gazeAwayStartedAtMs,
+      tracker.gazeCenteredCandidateStartedAtMs,
+      { direction: tracker.lastGazeDirection, source: tracker.lastGazeSource },
+    );
+    tracker.gazeAwayStartedAtMs = undefined;
+    tracker.gazeCenteredCandidateStartedAtMs = undefined;
+    tracker.lastGazeDirection = undefined;
+    tracker.lastGazeSource = undefined;
+  }
+
+  function mergeGazeSignalSource(current: GazeSignalSource | undefined, next: GazeSignalSource): GazeSignalSource {
+    if (!current || current === next) return next;
+    return "COMBINED";
   }
 
   function updateTimedFaceSignal(
@@ -4113,22 +4202,24 @@ function InterviewRuntimePanel({
       const landmarker = await getMediaPipeFaceLandmarker();
       if (landmarker) {
         tracker.faceDetectionSupported = true;
-        tracker.gazeDetectionSupported = true;
         const result = landmarker.detectForVideo(video, performance.now());
         const current = recordingNonverbalTrackerRef.current;
         if (!current || current !== tracker || current.questionId !== questionId) return;
 
         const faces = result.faceLandmarks ?? [];
         current.faceDetectionFrameCount += 1;
-        current.gazeDetectionFrameCount += 1;
         const primaryLandmarks = faces[0];
+        const primaryTransformationMatrix = result.facialTransformationMatrixes?.[0];
         const snapshot = primaryLandmarks ? toFaceSnapshotFromLandmarks(primaryLandmarks) : undefined;
         if (snapshot && !current.faceBaseline && !isFaceOutOfFrame(snapshot)) {
           current.faceBaseline = snapshot;
         }
 
-        const gazeDirection = primaryLandmarks ? estimateGazeAwayDirection(primaryLandmarks) : undefined;
-        if (gazeDirection) current.lastGazeDirection = gazeDirection;
+        registerCombinedGazeSample(
+          current,
+          primaryLandmarks ? estimateIrisGazePosition(primaryLandmarks) : undefined,
+          estimateHeadPoseAngles(primaryTransformationMatrix),
+        );
         registerVoiceWithoutFaceSample(current, faces.length === 0);
         if (primaryLandmarks) {
           registerVoiceMouthSyncSample(current, primaryLandmarks);
@@ -4148,13 +4239,13 @@ function InterviewRuntimePanel({
           "FACE_POSITION_SHIFT",
           Boolean(snapshot && current.faceBaseline && isFacePositionShifted(current.faceBaseline, snapshot)),
         );
-        updateTimedFaceSignal(current, "gazeAwayStartedAtMs", "GAZE_AWAY", Boolean(gazeDirection), { direction: current.lastGazeDirection });
         return;
       }
 
       const detector = getBrowserFaceDetector();
       tracker.faceDetectionSupported = Boolean(detector);
       tracker.gazeDetectionSupported = false;
+      tracker.headPoseDetectionSupported = false;
       if (!detector) return;
 
       const canvas = getNonverbalFaceCanvas();
@@ -4171,6 +4262,7 @@ function InterviewRuntimePanel({
       if (!current || current !== tracker || current.questionId !== questionId) return;
 
       current.faceDetectionFrameCount += 1;
+      updateCombinedGazeSignal(current, undefined);
       const primaryFace = faces[0];
       const snapshot = primaryFace ? toFaceSnapshot(primaryFace, width, height) : undefined;
       if (snapshot && !current.faceBaseline && !isFaceOutOfFrame(snapshot)) {
@@ -4281,6 +4373,10 @@ function InterviewRuntimePanel({
       faceDetectionFrameCount: 0,
       gazeDetectionSupported: false,
       gazeDetectionFrameCount: 0,
+      headPoseDetectionSupported: false,
+      headPoseDetectionFrameCount: 0,
+      gazeCalibrationSampleCount: 0,
+      headPoseCalibrationSampleCount: 0,
       mouthSyncSupported: false,
       mouthSyncFrameCount: 0,
       mouthSyncMismatchFrameCount: 0,
@@ -4371,7 +4467,10 @@ function InterviewRuntimePanel({
     closeTimedIntegrityEvent(tracker, "FACE_OUT_OF_FRAME", tracker.faceOutOfFrameStartedAtMs, nowMs);
     closeTimedIntegrityEvent(tracker, "MULTIPLE_FACES", tracker.multipleFacesStartedAtMs, nowMs);
     closeTimedIntegrityEvent(tracker, "FACE_POSITION_SHIFT", tracker.facePositionShiftStartedAtMs, nowMs);
-    closeTimedIntegrityEvent(tracker, "GAZE_AWAY", tracker.gazeAwayStartedAtMs, nowMs, { direction: tracker.lastGazeDirection });
+    closeTimedIntegrityEvent(tracker, "GAZE_AWAY", tracker.gazeAwayStartedAtMs, nowMs, {
+      direction: tracker.lastGazeDirection,
+      source: tracker.lastGazeSource,
+    });
     closeTimedIntegrityEvent(tracker, "VOICE_MOUTH_MISMATCH", tracker.voiceMouthMismatchStartedAtMs, nowMs);
     closeTimedIntegrityEvent(tracker, "VOICE_WITHOUT_FACE", tracker.voiceWithoutFaceStartedAtMs, nowMs);
     closeTimedIntegrityEvent(tracker, "STATIC_VIDEO_FRAME", tracker.staticVideoFrameStartedAtMs, nowMs);
@@ -4434,15 +4533,18 @@ function InterviewRuntimePanel({
       tracker.totalAwayDurationMs >= 30000 ||
       multipleFacesCount > 0 ||
       facePositionShiftCount > 0 ||
-      gazeAwayCount > 0 ||
       voiceMouthMismatchCount > 0 ||
       voiceWithoutFaceCount > 0 ||
       staticVideoFrameCount > 0 ||
       earlyScreenAwayCount > 0
         ? "HIGH"
-        : cameraLostCount > 0 || severeAwaySignal || faceMissingCount > 0 || faceOutOfFrameCount > 0
+        : cameraLostCount > 0 ||
+            severeAwaySignal ||
+            faceMissingCount > 0 ||
+            faceOutOfFrameCount > 0 ||
+            gazeAwayCount >= 2
           ? "MEDIUM"
-          : screenAwayCount > 0 || tracker.testModeUsed
+          : screenAwayCount > 0 || gazeAwayCount > 0 || tracker.testModeUsed
             ? "LOW"
             : "NONE";
 
@@ -4464,6 +4566,8 @@ function InterviewRuntimePanel({
       faceDetectionFrameCount: tracker.faceDetectionFrameCount,
       gazeDetectionSupported: tracker.gazeDetectionSupported,
       gazeDetectionFrameCount: tracker.gazeDetectionFrameCount,
+      headPoseDetectionSupported: tracker.headPoseDetectionSupported,
+      headPoseDetectionFrameCount: tracker.headPoseDetectionFrameCount,
       mouthSyncSupported: tracker.mouthSyncSupported,
       mouthSyncFrameCount: tracker.mouthSyncFrameCount,
       mouthSyncMismatchFrameCount: tracker.mouthSyncMismatchFrameCount,
