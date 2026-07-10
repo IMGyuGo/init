@@ -120,6 +120,23 @@
   border-radius: 14px;
 }
 
+.posting-gallery-editor .gallery-cover-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  width: auto;
+  aspect-ratio: auto;
+  padding: 4px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: rgba(25, 25, 25, 0.82);
+  border: 0;
+  border-radius: 7px;
+}
+
 .posting-gallery-editor figcaption {
   overflow: hidden;
   color: var(--ink-500);

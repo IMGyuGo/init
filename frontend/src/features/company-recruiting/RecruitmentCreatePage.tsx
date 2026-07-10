@@ -568,6 +568,7 @@ export function RecruitmentCreatePage() {
             {form.structuredJobDescription.gallery.map((image, index) => (
               <figure key={`${image.url}-${index}`}>
                 <span style={{ backgroundImage: `url(${image.url})` }} aria-hidden="true" />
+                {index === 0 ? <span className="gallery-cover-badge">대표 이미지</span> : null}
                 <figcaption>{image.name}</figcaption>
                 <button type="button" onClick={() => removeGalleryImage(index)}>
                   삭제
