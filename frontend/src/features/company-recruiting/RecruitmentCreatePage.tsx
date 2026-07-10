@@ -48,6 +48,9 @@ import {
 } from "./structured-job-description";
 import { CandidateJobDetailView } from "../candidate-application-interview/views";
 import type { CandidateJobDetail } from "../candidate-application-interview/api";
+import { getCompanyProfile } from "../company-profile/api";
+import { getCompanyDisplayName, getCompanyLogoUrl } from "../company-profile/company-profile-display";
+import type { CompanyProfile } from "../company-profile/types";
 import createBanner from "./assets/create-banner.png";
 import choiceManual from "./assets/choice-manual.png";
 import choiceAi from "./assets/choice-ai.png";
@@ -103,7 +106,7 @@ function createInitialForm(): FormState {
 
 // 생성 폼 데이터를 지원자 공고 상세 뷰(CandidateJobDetailView)가 그대로 렌더할 수 있는
 // 형태로 변환한다. jobDescription 은 실제 생성 시와 동일한 방식으로 조립해 화면을 일치시킨다.
-function buildRecruitmentPreviewJob(form: FormState, companyName: string): CandidateJobDetail {
+function buildRecruitmentPreviewJob(form: FormState, companyName: string, companyLogoUrl: string | null): CandidateJobDetail {
   const structuredJobDescription = {
     ...form.structuredJobDescription,
     locationNote: form.extraInfo.location.value.trim(),
@@ -115,7 +118,7 @@ function buildRecruitmentPreviewJob(form: FormState, companyName: string): Candi
   return {
     jobId: 0,
     companyName,
-    companyLogoUrl: null,
+    companyLogoUrl,
     title: form.title || "(제목 미입력)",
     jobGroup: "",
     jobRole: form.jobRole,
@@ -196,9 +199,19 @@ export function RecruitmentCreatePage() {
   const [pendingPostingDraft, setPendingPostingDraft] = useState<PostingDraftResult | null>(null);
   const [draftPreviewOpen, setDraftPreviewOpen] = useState(false);
   const [postingPreviewOpen, setPostingPreviewOpen] = useState(false);
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
   const [phase, setPhase] = useState<RecruitmentCreatePhase>("intro");
   const [entryMode, setEntryMode] = useState<"manual" | "ai">("manual");
   const [createdRecruitmentId, setCreatedRecruitmentId] = useState<number | null>(null);
+
+  // 미리보기 모달에 실제 회사명·로고를 표시하기 위해 회사 프로필을 로드한다.
+  useEffect(() => {
+    let active = true;
+    getCompanyProfile()
+      .then((profile) => { if (active) setCompanyProfile(profile); })
+      .catch(() => { if (active) setCompanyProfile(null); });
+    return () => { active = false; };
+  }, []);
 
   function startForm() {
     navigateWizard({ phase: "form", step: 1 });
@@ -1122,7 +1135,7 @@ export function RecruitmentCreatePage() {
               </button>
             </div>
             <div className="posting-preview-body">
-              <CandidateJobDetailView job={buildRecruitmentPreviewJob(form, "우리 회사")} />
+              <CandidateJobDetailView job={buildRecruitmentPreviewJob(form, getCompanyDisplayName(companyProfile) || "우리 회사", getCompanyLogoUrl(companyProfile))} />
             </div>
           </div>
         </div>
