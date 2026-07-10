@@ -492,7 +492,15 @@ describe("ReportsController", () => {
       .send({
         postingId: 2,
         jobDescription: "Backend engineer with NestJS and PostgreSQL experience.",
-        questionCount: 2
+        questionCount: 2,
+        criteria: [
+          {
+            criterionId: 1,
+            name: "Problem solving",
+            category: "직무역량",
+            weight: 40
+          }
+        ]
       })
       .expect(202);
 
@@ -665,7 +673,15 @@ describe("ReportsController", () => {
       .send({
         postingId: 2,
         jobDescription: "Backend engineer with queue processing experience.",
-        questionCount: 2
+        questionCount: 2,
+        criteria: [
+          {
+            criterionId: 1,
+            name: "Problem solving",
+            category: "직무역량",
+            weight: 40
+          }
+        ]
       })
       .expect(202);
 

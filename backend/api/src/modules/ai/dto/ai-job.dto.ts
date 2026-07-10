@@ -126,6 +126,28 @@ export class CriteriaSuggestRequestDto {
   evaluationPolicy!: string;
 }
 
+export class QuestionGenerateCriterionDto {
+  @ApiProperty({ example: 1 })
+  @IsInt()
+  @Min(1)
+  criterionId!: number;
+
+  @ApiProperty({ example: "Problem solving" })
+  @IsString()
+  @IsNotEmpty()
+  name!: string;
+
+  @ApiPropertyOptional({ example: "직무역량" })
+  @IsOptional()
+  @IsString()
+  category?: string;
+
+  @ApiPropertyOptional({ example: 40 })
+  @IsOptional()
+  @IsInt()
+  weight?: number;
+}
+
 export class QuestionGenerateRequestDto {
   @ApiProperty({ example: 2 })
   @IsInt()
@@ -141,6 +163,12 @@ export class QuestionGenerateRequestDto {
   @IsInt()
   @Min(1)
   questionCount!: number;
+
+  @ApiProperty({ type: [QuestionGenerateCriterionDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => QuestionGenerateCriterionDto)
+  criteria!: QuestionGenerateCriterionDto[];
 }
 
 export class QuestionSetCriterionDto {

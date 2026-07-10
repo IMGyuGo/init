@@ -414,21 +414,29 @@ export class MockAiTaskHandler implements AiTaskHandler {
       throw new NonRetryableAiWorkerFailure("questionCount must be a positive integer");
     }
     const postingId = kind.startsWith("MOCK") ? undefined : positiveNumber(payload.postingId, "postingId");
+    const criteria = kind.startsWith("MOCK") ? [] : criteriaOf(payload.criteria);
+    const jobDescription = kind.startsWith("MOCK") ? undefined : requiredText(payload.jobDescription, "jobDescription");
 
-    const items = Array.from({ length: questionCount }, (_, index) =>
-      kind.startsWith("MOCK")
+    const questionCandidates = Array.from({ length: questionCount }, (_, index) => {
+      const criterion = criteria[index % Math.max(criteria.length, 1)];
+      const content = kind.startsWith("MOCK")
         ? `Mock interview practice question ${index + 1}`
-        : `Recruiting interview question ${index + 1}: ${shorten(requiredText(payload.jobDescription, "jobDescription"))}`
-    );
-    const questionCandidates = items.map((content, index) => ({
-      content,
-      category: kind.startsWith("MOCK") ? "모의면접" : "채용면접",
-      difficulty: index % 3 === 0 ? "MEDIUM" as const : "HARD" as const,
-      criterionTitle: "",
-      expectedKeywords: ["경험", "근거", "성과"],
-      suggestionReason: "JD와 평가 기준을 기준으로 검증 가능한 답변을 유도합니다.",
-      questionType: index % 2 === 0 ? "TECHNICAL" : "EXPERIENCE"
-    }));
+        : `${criterion.name} 기준으로 ${shorten(jobDescription ?? "")} 경험을 검증할 수 있는 사례를 설명해주세요.`;
+
+      return {
+        content,
+        category: kind.startsWith("MOCK") ? "모의면접" : criterion.category ?? "채용면접",
+        difficulty: index % 3 === 0 ? "MEDIUM" as const : "HARD" as const,
+        criterionId: criterion?.criterionId,
+        criterionTitle: criterion?.name ?? "",
+        expectedKeywords: ["경험", "근거", "성과"],
+        suggestionReason: criterion
+          ? `${criterion.name} 평가 기준과 JD 맥락을 함께 확인하기 위한 공통 질문 후보입니다.`
+          : "면접 연습을 위해 검증 가능한 답변을 유도합니다.",
+        questionType: index % 2 === 0 ? "TECHNICAL" : "EXPERIENCE"
+      };
+    });
+    const items = questionCandidates.map((candidate) => candidate.content);
 
     return this.generatedDraft(kind, items, {
       sourceProcessLogId: processLogId,
@@ -934,7 +942,7 @@ function reportTypeOf(value: unknown): GeneratedReportRecord["reportType"] {
   throw new NonRetryableAiWorkerFailure("reportType is invalid");
 }
 
-function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; weight: number; description?: string }> {
+function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; weight: number; category?: string; description?: string }> {
   if (!Array.isArray(value) || value.length === 0) {
     throw new NonRetryableAiWorkerFailure("criteria is required");
   }
@@ -947,6 +955,7 @@ function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; 
     return {
       criterionId: positiveNumber(record.criterionId, "criterionId"),
       name: requiredText(record.name, "criterion name"),
+      category: typeof record.category === "string" ? record.category : undefined,
       description: typeof record.description === "string" ? record.description : undefined,
       weight: Number.isFinite(Number(record.weight)) ? Number(record.weight) : 0
     };

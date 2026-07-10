@@ -115,7 +115,7 @@ describe("AuthController Google OAuth callback", () => {
     expect(authService.googleCallback).toHaveBeenCalledWith("4/0AbCdEf", "CANDIDATE");
   });
 
-  it("passes provider error callbacks to the auth service instead of failing query validation", async () => {
+  it("redirects provider error callbacks back to login with a visible message", async () => {
     authService.googleCallback.mockRejectedValue(
       new ApiException(ERROR_CODES.COMMON_VALIDATION_FAILED, "Google 인증 코드가 필요합니다.", HttpStatus.BAD_REQUEST),
     );
@@ -128,10 +128,12 @@ describe("AuthController Google OAuth callback", () => {
         error_description: "The user denied access.",
         error_uri: "https://developers.google.com/identity/protocols/oauth2",
       })
-      .expect(400)
+      .expect(302)
       .expect((response) => {
-        expect(response.body.error.code).toBe(ERROR_CODES.COMMON_VALIDATION_FAILED);
-        expect(response.body.error.message).toBe("Google 인증 코드가 필요합니다.");
+        const location = new URL(response.headers.location);
+        expect(`${location.origin}${location.pathname}`).toBe("http://localhost:3000/login");
+        expect(location.searchParams.get("errorCode")).toBe(ERROR_CODES.COMMON_VALIDATION_FAILED);
+        expect(location.searchParams.get("message")).toBe("Google 인증 코드가 필요합니다.");
       });
 
     expect(authService.googleCallback).toHaveBeenCalledWith(undefined, "CANDIDATE");

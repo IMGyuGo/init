@@ -99,7 +99,7 @@ export class PaymentController {
 
   @Post("candidate/mock-interview-passes/dev-grant")
   @ApiOperationId("API-PAY-007")
-  @ApiOperation({ summary: "개발 환경용 지원자 모의면접 이용권 지급" })
+  @ApiOperation({ summary: "테스트용 지원자 모의면접 이용권 지급" })
   @ApiEnvelopeResponse(CandidateMockInterviewPassSummaryDto)
   async grantCandidateMockInterviewDevPasses(
     @Req() request: PaymentRequest,

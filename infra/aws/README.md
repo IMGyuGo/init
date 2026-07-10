@@ -416,7 +416,7 @@ aws secretsmanager put-secret-value `
   "GOOGLE_CALLBACK_URL": "https://init-jungle.cloud/api/v1/auth/google/callback",
   "TOSS_SECRET_KEY": "<toss-secret-key>",
   "TOSS_API_BASE_URL": "https://api.tosspayments.com",
-  "PAYMENT_DEV_PASS_GRANT_ENABLED": "false",
+  "PAYMENT_DEV_PASS_GRANT_ENABLED": "true",
   "AWS_REGION": "ap-northeast-2",
   "S3_BUCKET": "init-main-assets-<aws_account_id>",
   "S3_BUCKET_NAME": "init-main-assets-<aws_account_id>",

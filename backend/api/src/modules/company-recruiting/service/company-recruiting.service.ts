@@ -111,6 +111,7 @@ export class CompanyRecruitingService {
         { field: "startsOn", reason: "AFTER_ENDS_ON" },
       ]);
     }
+    this.assertCareerRange(dto.careerMinYears, dto.careerMaxYears);
 
     const posting = await this.repository.createPosting({
       companyId,
@@ -123,6 +124,15 @@ export class CompanyRecruitingService {
       status: (dto.status ?? PostingStatus.DRAFT) as PostingStatus,
     });
     return toRecruitmentResponse(posting);
+  }
+
+  // 경력 최소/최대가 둘 다 있을 때 최소 <= 최대를 보장한다.
+  private assertCareerRange(minYears?: number | null, maxYears?: number | null) {
+    if (minYears != null && maxYears != null && minYears > maxYears) {
+      throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, "경력 최소 연차는 최대 연차보다 클 수 없습니다.", [
+        { field: "careerMinYears", reason: "GREATER_THAN_MAX" },
+      ]);
+    }
   }
 
   async uploadJobDescriptionImage(
@@ -168,6 +178,11 @@ export class CompanyRecruitingService {
         { field: "startsOn", reason: "AFTER_ENDS_ON" },
       ]);
     }
+    // 부분 수정 시 한쪽 값만 오면 기존 공고 값과 조합한 effective range 로 검증한다.
+    this.assertCareerRange(
+      dto.careerMinYears ?? posting.careerMinYears,
+      dto.careerMaxYears ?? posting.careerMaxYears,
+    );
 
     const updated = await this.repository.updatePosting(recruitmentId, companyId, {
       title: dto.title.trim(),
@@ -430,6 +445,12 @@ export class CompanyRecruitingService {
       salaryInfo: posting.salaryInfo,
       workLocation: posting.workLocation,
       employmentType: posting.employmentType,
+      jobRoleCode: posting.jobRoleCode,
+      regionCode: posting.regionCode,
+      careerMinYears: posting.careerMinYears,
+      careerMaxYears: posting.careerMaxYears,
+      employmentTypeCode: posting.employmentTypeCode,
+      recruitmentType: posting.recruitmentType,
       startsOn: null,
       endsOn: null,
       status: PostingStatus.DRAFT,
@@ -968,6 +989,13 @@ function buildPostingExtraInfoInput(dto: CreateRecruitmentDto | UpdateRecruitmen
     salaryInfo: normalizeNullableString(dto.salaryInfo),
     workLocation: normalizeNullableString(dto.workLocation),
     employmentType: normalizeNullableString(dto.employmentType),
+    // 값이 없으면 undefined 로 전달해 prisma 가 해당 컬럼을 건드리지 않게 한다(부분 수정 시 기존 값 보존).
+    jobRoleCode: dto.jobRoleCode,
+    regionCode: dto.regionCode,
+    careerMinYears: dto.careerMinYears,
+    careerMaxYears: dto.careerMaxYears,
+    employmentTypeCode: dto.employmentTypeCode,
+    recruitmentType: dto.recruitmentType,
   };
 }
 
@@ -1045,6 +1073,12 @@ function toRecruitmentResponse(posting: RecruitmentRecord) {
     salaryInfo: posting.salaryInfo,
     workLocation: posting.workLocation,
     employmentType: posting.employmentType,
+    jobRoleCode: posting.jobRoleCode,
+    regionCode: posting.regionCode,
+    careerMinYears: posting.careerMinYears,
+    careerMaxYears: posting.careerMaxYears,
+    employmentTypeCode: posting.employmentTypeCode,
+    recruitmentType: posting.recruitmentType,
     startsOn: posting.startsOn ? formatDate(posting.startsOn) : null,
     endsOn: posting.endsOn ? formatDate(posting.endsOn) : null,
     status: posting.status,

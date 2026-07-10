@@ -424,7 +424,15 @@ test("question generation stores review-required drafts after guardrail pass", a
       payload: {
         postingId: 2,
         jobDescription: "Backend engineer with NestJS and PostgreSQL.",
-        questionCount: 2
+        questionCount: 2,
+        criteria: [
+          {
+            criterionId: 1,
+            name: "Problem solving",
+            category: "직무역량",
+            weight: 40
+          }
+        ]
       }
     },
     results
@@ -444,6 +452,11 @@ test("question generation stores review-required drafts after guardrail pass", a
     reviewStatus?: string;
     targetTables?: string[];
     postingId?: number;
+    questionCandidates?: Array<{
+      criterionId?: number;
+      criterionTitle?: string;
+      category?: string;
+    }>;
   };
   assert.equal(output.sourceProcessLogId, 14);
   assert.equal(output.reviewRequired, true);
@@ -451,6 +464,9 @@ test("question generation stores review-required drafts after guardrail pass", a
   assert.deepEqual(output.targetTables, ["question_bank"]);
   assert.equal(output.postingId, 2);
   assert.equal(output.items?.length, 2);
+  assert.equal(output.questionCandidates?.[0]?.criterionId, 1);
+  assert.equal(output.questionCandidates?.[0]?.criterionTitle, "Problem solving");
+  assert.equal(output.questionCandidates?.[0]?.category, "직무역량");
 });
 
 test("posting draft generation returns review-required posting draft without final save", async () => {
