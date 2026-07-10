@@ -1149,6 +1149,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
                 </dl>
                 <ListBlock title="진행 방식" items={guide.method} />
                 <ListBlock title="필수 준비 사항" items={guide.requiredPreparations} />
+                <RecruitingIntegrityNotice />
               </section>
 
               <section className="panel">
@@ -6351,6 +6352,7 @@ function InterviewRuntimePanel({
                 </button>
               </div>
             </div>
+            {mode === "recruiting" ? <RecruitingIntegrityNotice /> : null}
             <div className="candidate-device-setup__grid">
               <div className="candidate-device-main">
                 <div className="video-box candidate-device-preview">
@@ -8165,6 +8167,22 @@ function ListBlock({ title, items }: { title: string; items: string[] }) {
         <p className="empty">표시할 항목이 없습니다.</p>
       )}
     </div>
+  );
+}
+
+function RecruitingIntegrityNotice() {
+  return (
+    <aside className="candidate-integrity-notice" role="note" aria-label="응시 무결성 안내">
+      <div className="candidate-integrity-notice__heading">
+        <span>응시 무결성 안내</span>
+        <strong>면접 중 응시 환경 신호가 기록됩니다</strong>
+      </div>
+      <ul>
+        <li>화면·탭 이탈, 얼굴 미검출·복수 얼굴, 카메라 연결, 시선 이탈, 음성과 입 모양의 불일치 등을 답변별 참고 신호로 확인합니다.</li>
+        <li>반복되거나 높은 수준의 신호는 채용 담당자 검토 화면에 표시되며 평가 점수 보정에 반영될 수 있습니다.</li>
+        <li>감지 신호만으로 부정행위를 확정하거나 자동 탈락 처리하지 않으며, 채용 담당자가 답변 내용과 녹화 영상을 함께 검토합니다.</li>
+      </ul>
+    </aside>
   );
 }
 

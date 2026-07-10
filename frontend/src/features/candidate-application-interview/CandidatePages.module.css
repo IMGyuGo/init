@@ -964,6 +964,54 @@
   border-color: var(--brand-strong);
 }
 
+:global(.candidate-integrity-notice) {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.38fr) minmax(0, 1fr);
+  gap: 24px;
+  padding: 20px 22px;
+  color: #49422f;
+  background: #fffaf0;
+  border: 1px solid #eadfbd;
+  border-left: 4px solid #ad7b19;
+  border-radius: 8px;
+}
+
+:global(.candidate-integrity-notice__heading) {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+:global(.candidate-integrity-notice__heading span) {
+  color: #8a6418;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+:global(.candidate-integrity-notice__heading strong) {
+  color: #2f2b22;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+:global(.candidate-integrity-notice ul) {
+  display: grid;
+  gap: 8px;
+  padding-left: 20px;
+  margin: 0;
+  color: #5c5544;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+@media (max-width: 760px) {
+  :global(.candidate-integrity-notice) {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    padding: 18px;
+  }
+}
+
 :global(.candidate-submit-toolbar .btn.primary) {
   margin-left: auto;
 }

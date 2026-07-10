@@ -3060,3 +3060,4 @@ AI 리포트 금지 기준:
   - It must not be used to infer appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, health, or other sensitive attributes.
   - Recruiting/company-facing reports may apply a capped integrity score adjustment only when repeated or high-risk integrity signals are detected.
   - The recruiting integrity adjustment must be shown separately from the raw AI score, capped at 10 total points, and must not be used as an automatic rejection decision.
+  - Before a recruiting interview starts, the candidate UI must disclose the integrity signals being collected, that repeated or high-risk signals may affect the company-facing adjusted score, and that signals alone do not trigger automatic rejection.
