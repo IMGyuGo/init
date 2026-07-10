@@ -1184,6 +1184,7 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
           transcript: answer.transcript,
           durationSeconds: answer.durationSeconds,
           submittedAt: answer.submittedAt?.toISOString() ?? null,
+          nonverbalMetadata: answer.nonverbalMetadata,
           followUpQuestions: answer.followUpQuestions.map((followUp) => ({
             followUpId: followUp.followUpId,
             content: followUp.content,
@@ -1199,6 +1200,7 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
                   transcript: followUp.answer.transcript,
                   durationSeconds: followUp.answer.durationSeconds,
                   submittedAt: followUp.answer.submittedAt?.toISOString() ?? null,
+                  nonverbalMetadata: followUp.answer.nonverbalMetadata,
                 }
               : null,
           })),

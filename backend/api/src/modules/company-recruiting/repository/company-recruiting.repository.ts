@@ -621,6 +621,13 @@ function mapFileAsset(fileAsset: FileAssetRecord): CompanyFileAssetRecord {
   };
 }
 
+function mapJsonObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
 function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDetailIncludes): ApplicantRecord {
   return {
     applicationId: Number(application.applicationId),
@@ -691,6 +698,7 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
           transcript: answer.transcript,
           durationSeconds: answer.durationSeconds,
           submittedAt: answer.submittedAt,
+          nonverbalMetadata: mapJsonObject(answer.nonverbalMetadata),
           followUpQuestions: answer.followUpQuestions.map((followUp) => {
             const followUpAnswer = findLinkedFollowUpAnswer(
               answer,
@@ -716,6 +724,7 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
                     transcript: followUpAnswer.transcript,
                     durationSeconds: followUpAnswer.durationSeconds,
                     submittedAt: followUpAnswer.submittedAt,
+                    nonverbalMetadata: mapJsonObject(followUpAnswer.nonverbalMetadata),
                   }
                 : null,
             };

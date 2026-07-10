@@ -58,6 +58,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
 
   const report = evaluation?.report ?? null;
   const displayAnswers = evaluation ? getDisplayAnswers(evaluation.answers) : [];
+  const integritySummary = evaluation ? buildRecruitingIntegritySummary(displayAnswers) : null;
 
   return (
     <section className="app-page glass-page notion">
@@ -189,6 +190,10 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
               )}
             </section>
 
+            {integritySummary && integritySummary.answersWithMetadata > 0 ? (
+              <RecruitingIntegrityReviewPanel summary={integritySummary} />
+            ) : null}
+
             <section className="panel">
               <div className="panel-head">
                 <div>
@@ -221,6 +226,8 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                         <p>{answer.transcript?.trim() ? answer.transcript : "답변 스크립트가 없습니다."}</p>
                       </div>
 
+                      <RecruitingIntegritySignalView metadata={answer.nonverbalMetadata} />
+
                       {answer.followUpQuestions.length > 0 ? (
                         <div className="company-answer-block">
                           <strong>생성된 꼬리질문</strong>
@@ -238,6 +245,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                                     videoFile={followUp.answer?.videoFile ?? null}
                                   />
                                   <p>{followUp.answer?.transcript?.trim() ? followUp.answer.transcript : "저장된 꼬리질문 답변이 없습니다."}</p>
+                                  <RecruitingIntegritySignalView metadata={followUp.answer?.nonverbalMetadata ?? null} compact />
                                 </div>
                               </li>
                             ))}
@@ -371,6 +379,232 @@ function formatScoreCriterionName(criterionName: string | null, rationale: strin
 
   const match = rationale?.match(/^(.+?)(?:은|는)\s*\d+점/);
   return match?.[1]?.trim() || "기준 없음";
+}
+
+type RecruitingIntegrityCounts = {
+  screenAway: number;
+  cameraLost: number;
+  faceAway: number;
+  multipleFaces: number;
+  faceShift: number;
+  gazeAway: number;
+  voiceMouthMismatch: number;
+  voiceWithoutFace: number;
+  staticVideoFrame: number;
+  earlyScreenAway: number;
+};
+
+type RecruitingIntegritySummary = {
+  answerCount: number;
+  answersWithMetadata: number;
+  signalAnswers: number;
+  screenAwayAnswers: number;
+  faceAwayAnswers: number;
+  multipleFaceAnswers: number;
+  gazeAwayAnswers: number;
+  audioVisualAnswers: number;
+  staticVideoAnswers: number;
+};
+
+function RecruitingIntegrityReviewPanel({ summary }: { summary: RecruitingIntegritySummary }) {
+  const guideItems = buildRecruitingIntegrityGuide(summary);
+  const status = summary.signalAnswers > 0 ? "확인 필요" : "특이 신호 없음";
+
+  return (
+    <section className="panel company-integrity-panel">
+      <div className="panel-head company-integrity-panel-head">
+        <div>
+          <h2>응시 무결성 참고 신호</h2>
+          <p>화면 이탈, 얼굴 화면 밖, 여러 얼굴, 시선 이탈, 음성-입모양 불일치처럼 채용 담당자가 추가 확인할 수 있는 신호입니다. 부정행위 확정 판정은 아닙니다.</p>
+        </div>
+        <StatusBadge value={status} />
+      </div>
+      <div className="company-integrity-metrics">
+        <div>
+          <span>분석 답변</span>
+          <strong>{summary.answersWithMetadata}/{summary.answerCount}</strong>
+        </div>
+        <div>
+          <span>검토 필요 답변</span>
+          <strong>{summary.signalAnswers}</strong>
+        </div>
+        <div>
+          <span>화면 이탈</span>
+          <strong>{summary.screenAwayAnswers}</strong>
+        </div>
+        <div>
+          <span>얼굴 이탈</span>
+          <strong>{summary.faceAwayAnswers}</strong>
+        </div>
+        <div>
+          <span>여러 얼굴</span>
+          <strong>{summary.multipleFaceAnswers}</strong>
+        </div>
+        <div>
+          <span>시선 이탈</span>
+          <strong>{summary.gazeAwayAnswers}</strong>
+        </div>
+        <div>
+          <span>음성/입모양</span>
+          <strong>{summary.audioVisualAnswers}</strong>
+        </div>
+        <div>
+          <span>영상 고정</span>
+          <strong>{summary.staticVideoAnswers}</strong>
+        </div>
+      </div>
+      <ul className="company-integrity-guide">
+        {guideItems.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function RecruitingIntegritySignalView({
+  compact = false,
+  metadata,
+}: {
+  compact?: boolean;
+  metadata?: Record<string, unknown> | null;
+}) {
+  const flags = buildRecruitingIntegrityFlags(metadata);
+  if (flags.length === 0) return null;
+
+  return (
+    <div className={`company-integrity-signals ${compact ? "compact" : ""}`}>
+      <strong>응시 무결성 확인 신호</strong>
+      <div>
+        {flags.map((flag) => (
+          <span className="company-integrity-chip" key={flag.key}>
+            {flag.label}{flag.count > 1 ? ` ${flag.count}회` : ""}
+          </span>
+        ))}
+      </div>
+      <p>자동 감지 신호이므로 부정행위로 단정하지 말고, 답변 영상과 스크립트를 함께 확인해 주세요.</p>
+    </div>
+  );
+}
+
+function buildRecruitingIntegritySummary(answers: ApplicantEvaluation["answers"]): RecruitingIntegritySummary {
+  const reviewTargets = answers.flatMap((answer) => [
+    { nonverbalMetadata: answer.nonverbalMetadata },
+    ...answer.followUpQuestions
+      .map((followUp) => followUp.answer)
+      .filter((answer): answer is NonNullable<typeof answer> => Boolean(answer))
+      .map((answer) => ({ nonverbalMetadata: answer.nonverbalMetadata })),
+  ]);
+
+  return reviewTargets.reduce<RecruitingIntegritySummary>((summary, item) => {
+    summary.answerCount += 1;
+    if (!item.nonverbalMetadata) return summary;
+
+    summary.answersWithMetadata += 1;
+    const counts = readRecruitingIntegrityCounts(item.nonverbalMetadata);
+    const hasSignal = hasRecruitingIntegritySignal(counts);
+
+    if (hasSignal) summary.signalAnswers += 1;
+    if (counts.screenAway > 0 || counts.earlyScreenAway > 0) summary.screenAwayAnswers += 1;
+    if (counts.faceAway > 0 || counts.cameraLost > 0 || counts.faceShift > 0) summary.faceAwayAnswers += 1;
+    if (counts.multipleFaces > 0) summary.multipleFaceAnswers += 1;
+    if (counts.gazeAway > 0) summary.gazeAwayAnswers += 1;
+    if (counts.voiceMouthMismatch > 0 || counts.voiceWithoutFace > 0) summary.audioVisualAnswers += 1;
+    if (counts.staticVideoFrame > 0) summary.staticVideoAnswers += 1;
+
+    return summary;
+  }, {
+    answerCount: 0,
+    answersWithMetadata: 0,
+    signalAnswers: 0,
+    screenAwayAnswers: 0,
+    faceAwayAnswers: 0,
+    multipleFaceAnswers: 0,
+    gazeAwayAnswers: 0,
+    audioVisualAnswers: 0,
+    staticVideoAnswers: 0,
+  });
+}
+
+function buildRecruitingIntegrityGuide(summary: RecruitingIntegritySummary) {
+  if (summary.signalAnswers === 0) {
+    return ["면접 답변에서 화면 이탈, 얼굴 이탈, 여러 얼굴, 시선 이탈 같은 주요 응시 무결성 신호가 감지되지 않았습니다."];
+  }
+
+  const items = [`총 ${summary.signalAnswers}개 답변에서 채용 담당자 확인이 필요한 신호가 감지되었습니다.`];
+  if (summary.screenAwayAnswers > 0) items.push(`${summary.screenAwayAnswers}개 답변에서 화면/탭 이탈 신호가 있습니다.`);
+  if (summary.faceAwayAnswers > 0) items.push(`${summary.faceAwayAnswers}개 답변에서 얼굴 화면 밖, 카메라 이탈, 위치 급변 신호가 있습니다.`);
+  if (summary.multipleFaceAnswers > 0) items.push(`${summary.multipleFaceAnswers}개 답변에서 여러 얼굴 감지 신호가 있습니다.`);
+  if (summary.gazeAwayAnswers > 0) items.push(`${summary.gazeAwayAnswers}개 답변에서 긴 시선 이탈 신호가 있습니다.`);
+  if (summary.audioVisualAnswers > 0) items.push(`${summary.audioVisualAnswers}개 답변에서 음성-입모양 또는 얼굴 미검출 중 음성 신호가 있습니다.`);
+  if (summary.staticVideoAnswers > 0) items.push(`${summary.staticVideoAnswers}개 답변에서 영상 프레임 고정 신호가 있습니다.`);
+  return items;
+}
+
+function buildRecruitingIntegrityFlags(metadata?: Record<string, unknown> | null) {
+  if (!metadata) return [];
+
+  const counts = readRecruitingIntegrityCounts(metadata);
+  const flags = [
+    { key: "screenAway", label: "화면/탭 이탈", count: counts.screenAway },
+    { key: "earlyScreenAway", label: "질문 직후 이탈", count: counts.earlyScreenAway },
+    { key: "cameraLost", label: "카메라 이탈", count: counts.cameraLost },
+    { key: "faceAway", label: "얼굴 미검출/화면 밖", count: counts.faceAway },
+    { key: "multipleFaces", label: "여러 얼굴", count: counts.multipleFaces },
+    { key: "faceShift", label: "얼굴 위치 급변", count: counts.faceShift },
+    { key: "gazeAway", label: "시선 이탈", count: counts.gazeAway },
+    { key: "voiceMouthMismatch", label: "음성-입모양 불일치", count: counts.voiceMouthMismatch },
+    { key: "voiceWithoutFace", label: "얼굴 미검출 중 음성", count: counts.voiceWithoutFace },
+    { key: "staticVideoFrame", label: "영상 프레임 고정", count: counts.staticVideoFrame },
+  ];
+
+  return flags.filter((flag) => flag.count > 0);
+}
+
+function readRecruitingIntegrityCounts(metadata: Record<string, unknown>): RecruitingIntegrityCounts {
+  return {
+    screenAway: readSummaryCount(metadata, "screenAwayCount") || readEventCount(metadata, ["TAB_HIDDEN", "WINDOW_BLUR"]),
+    cameraLost: readSummaryCount(metadata, "cameraLostCount") || readEventCount(metadata, ["CAMERA_LOST"]),
+    faceAway:
+      readSummaryCount(metadata, "faceMissingCount") +
+      readSummaryCount(metadata, "faceOutOfFrameCount") ||
+      readEventCount(metadata, ["FACE_MISSING", "FACE_OUT_OF_FRAME"]),
+    multipleFaces: readSummaryCount(metadata, "multipleFacesCount") || readEventCount(metadata, ["MULTIPLE_FACES"]),
+    faceShift: readSummaryCount(metadata, "facePositionShiftCount") || readEventCount(metadata, ["FACE_POSITION_SHIFT"]),
+    gazeAway: readSummaryCount(metadata, "gazeAwayCount") || readEventCount(metadata, ["GAZE_AWAY"]),
+    voiceMouthMismatch: readSummaryCount(metadata, "voiceMouthMismatchCount") || readEventCount(metadata, ["VOICE_MOUTH_MISMATCH"]),
+    voiceWithoutFace: readSummaryCount(metadata, "voiceWithoutFaceCount") || readEventCount(metadata, ["VOICE_WITHOUT_FACE"]),
+    staticVideoFrame: readSummaryCount(metadata, "staticVideoFrameCount") || readEventCount(metadata, ["STATIC_VIDEO_FRAME"]),
+    earlyScreenAway: readSummaryCount(metadata, "earlyScreenAwayCount") || readEventCount(metadata, ["EARLY_SCREEN_AWAY"]),
+  };
+}
+
+function hasRecruitingIntegritySignal(counts: RecruitingIntegrityCounts) {
+  return Object.values(counts).some((count) => count > 0);
+}
+
+function readSummaryCount(metadata: Record<string, unknown>, key: string) {
+  const summary = readRecord(metadata.integritySummary);
+  return readNumber(summary?.[key]);
+}
+
+function readEventCount(metadata: Record<string, unknown>, types: string[]) {
+  const events = Array.isArray(metadata.integrityEvents) ? metadata.integrityEvents : [];
+  return events.filter((event) => {
+    const record = readRecord(event);
+    return typeof record?.type === "string" && types.includes(record.type);
+  }).length;
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function readNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function getDisplayAnswers(answers: ApplicantEvaluation["answers"]) {

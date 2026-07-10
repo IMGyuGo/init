@@ -191,6 +191,7 @@ export type ApplicantEvaluation = {
     transcript: string | null;
     durationSeconds: number | null;
     submittedAt: string | null;
+    nonverbalMetadata?: Record<string, unknown> | null;
     followUpQuestions: Array<{
       followUpId: number;
       content: string;
@@ -205,6 +206,7 @@ export type ApplicantEvaluation = {
         transcript: string | null;
         durationSeconds: number | null;
         submittedAt: string | null;
+        nonverbalMetadata?: Record<string, unknown> | null;
       } | null;
     }>;
   }>;
