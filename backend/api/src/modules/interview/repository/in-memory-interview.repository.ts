@@ -229,6 +229,7 @@ export class InMemoryInterviewRepository implements InterviewRepository {
       videoFileId: input.videoFileId,
       audioFileId: input.audioFileId,
       transcript: input.transcript,
+      nonverbalMetadata: input.nonverbalMetadata,
       durationSeconds: input.durationSeconds,
       submittedAt: input.submittedAt,
     };
@@ -244,6 +245,7 @@ export class InMemoryInterviewRepository implements InterviewRepository {
 
     answer.videoFileId = input.videoFileId;
     answer.audioFileId = input.audioFileId;
+    answer.nonverbalMetadata = input.nonverbalMetadata;
     answer.durationSeconds = input.durationSeconds;
     answer.submittedAt = input.submittedAt;
     answer.transcript = input.transcript;
@@ -273,6 +275,7 @@ export class InMemoryInterviewRepository implements InterviewRepository {
       videoFileId: input.videoFileId,
       audioFileId: input.audioFileId,
       transcript: input.transcript,
+      nonverbalMetadata: input.nonverbalMetadata,
       durationSeconds: input.durationSeconds,
       submittedAt: input.submittedAt,
     };

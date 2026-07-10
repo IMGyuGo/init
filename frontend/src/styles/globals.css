@@ -2834,6 +2834,97 @@ td span {
   font-weight: 700;
 }
 
+.company-integrity-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.company-integrity-panel-head {
+  align-items: flex-start;
+}
+
+.company-integrity-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.company-integrity-metrics > div {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.78);
+  padding: 12px 14px;
+}
+
+.company-integrity-metrics span {
+  display: block;
+  color: var(--ink-400);
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.company-integrity-metrics strong {
+  color: var(--ink-900);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.company-integrity-guide {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ink-500);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.company-integrity-signals {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.24);
+  border-radius: 8px;
+  background: rgba(255, 251, 235, 0.64);
+  padding: 14px 16px;
+}
+
+.company-integrity-signals.compact {
+  margin-top: 10px;
+  padding: 12px 14px;
+}
+
+.company-integrity-signals strong {
+  color: #92400e;
+  font-size: 14px;
+}
+
+.company-integrity-signals > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.company-integrity-signals p {
+  margin: 0;
+  color: var(--ink-500);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.company-integrity-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(217, 119, 6, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 7px 10px;
+}
+
 .setup-card-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

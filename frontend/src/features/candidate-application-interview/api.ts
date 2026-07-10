@@ -369,6 +369,7 @@ export interface SaveInterviewAnswerRequest {
   durationSeconds: number;
   allowReanswer?: boolean;
   skipReason?: "RECORDING_VALIDATION_FAILED";
+  nonverbalMetadata?: Record<string, unknown>;
   retryAnswerId?: number;
   transcript?: string;
 }
@@ -380,6 +381,7 @@ export interface InterviewAnswer {
   videoFileId?: number;
   audioFileId?: number;
   transcript?: string;
+  nonverbalMetadata?: Record<string, unknown>;
   durationSeconds: number;
   submittedAt: string;
 }
@@ -550,6 +552,7 @@ export interface CandidateReportAnswerView {
   submittedAt: string;
   transcriptStatus: TranscriptStatus;
   transcript?: string;
+  nonverbalMetadata?: Record<string, unknown>;
   evaluationStatus?: CandidateAnswerEvaluationStatus;
   transcriptUnavailableReason?: string;
   followUpQuestions: CandidateFollowUpQuestionView[];
@@ -619,6 +622,7 @@ export interface CandidateMockReportMediaItem {
   submittedAt: string;
   transcriptStatus: TranscriptStatus;
   transcript?: string;
+  nonverbalMetadata?: Record<string, unknown>;
   evaluationStatus?: CandidateAnswerEvaluationStatus;
   transcriptUnavailableReason?: string;
   followUpQuestions: CandidateFollowUpQuestionView[];

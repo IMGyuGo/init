@@ -42,6 +42,7 @@ export interface InterviewAnswerInput {
   isFollowUpAnswer?: boolean;
   parentAnswerId?: number;
   transcript?: string;
+  nonverbalMetadata?: Record<string, unknown>;
   evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
   transcriptUnavailableReason?: string;
 }
