@@ -11,6 +11,23 @@ import {
   listClientPerformanceEvents
 } from "./api";
 
+const PROCESS_TYPE_LABELS: Readonly<Record<string, string>> = {
+  DOCUMENT_EXTRACT: "문서 내용 읽기",
+  STT: "음성 답변을 글로 변환",
+  FOLLOW_UP: "꼬리질문 만들기",
+  REPORT_GENERATE: "면접 결과 리포트 만들기",
+  EMBEDDING: "AI 검색용 데이터 준비",
+  GUARDRAIL_VALIDATE: "AI 결과 검사",
+  CRITERIA_SUGGEST: "평가 항목 추천하기",
+  QUESTION_GENERATE: "면접 질문 만들기",
+  QUESTION_SET_GENERATE: "면접 질문 세트 만들기",
+  POSTING_DRAFT_GENERATE: "채용공고 초안 만들기"
+};
+
+const CLIENT_EVENT_LABELS: Readonly<Record<string, string>> = {
+  ANSWER_SUBMIT_TO_NEXT_READY: "답변 완료 후 다음 질문 표시"
+};
+
 type PageState = {
   summary?: AiPerformanceSummary;
   jobs: AiPerformanceJob[];
@@ -89,7 +106,7 @@ export function AiPerformancePage() {
             <div className="panel-head">
               <div>
                 <h2>작업 타입별 요약</h2>
-                <p>STT, 꼬리질문, 보고서 생성 등 작업 단위로 성능을 비교합니다.</p>
+                <p>음성 답변 변환, 꼬리질문, 보고서 생성 등 작업 단위로 성능을 비교합니다.</p>
               </div>
             </div>
             <div className="table-wrap">
@@ -109,7 +126,7 @@ export function AiPerformancePage() {
                     state.summary.byProcessType.map((item) => (
                       <tr key={item.processType}>
                         <td>
-                          <strong>{item.processType}</strong>
+                          <strong>{formatProcessType(item.processType)}</strong>
                         </td>
                         <td>{item.count}</td>
                         <td>{formatMs(item.averageDurationMs)}</td>
@@ -153,7 +170,7 @@ export function AiPerformancePage() {
                 state.jobs.map((job) => (
                   <tr key={job.processLogId}>
                     <td>{job.processLogId}</td>
-                    <td>{job.processType}</td>
+                    <td>{formatProcessType(job.processType)}</td>
                     <td>
                       <span className={`badge ${job.status === "FAILED" ? "danger" : job.status === "COMPLETED" ? "success" : "warning"}`}>
                         {job.status}
@@ -195,7 +212,7 @@ export function AiPerformancePage() {
               {state.clientEvents.length ? (
                 state.clientEvents.map((event) => (
                   <tr key={event.clientPerformanceLogId}>
-                    <td>{event.eventName}</td>
+                    <td>{formatClientEvent(event.eventName)}</td>
                     <td>{event.sessionId ?? "-"}</td>
                     <td>{event.questionId ?? "-"}</td>
                     <td>{formatMs(event.durationMs)}</td>
@@ -240,6 +257,14 @@ function formatMs(value: number | undefined): string {
 
 function formatRate(value: number | undefined): string {
   return value === undefined ? "-" : `${Math.round(value * 100)}%`;
+}
+
+function formatProcessType(processType: string): string {
+  return PROCESS_TYPE_LABELS[processType] ?? processType;
+}
+
+function formatClientEvent(eventName: string): string {
+  return CLIENT_EVENT_LABELS[eventName] ?? eventName;
 }
 
 function formatUsage(job: AiPerformanceJob): string {
