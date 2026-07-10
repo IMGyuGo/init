@@ -61,6 +61,7 @@ type AnswerRequestBody = {
   videoFile?: RuntimeFileAssetDto;
   audioFileId?: number;
   audioFile?: RuntimeFileAssetDto;
+  transcript?: string;
   durationSeconds: number;
   allowReanswer: boolean;
   skipReason?: "RECORDING_VALIDATION_FAILED";
@@ -499,12 +500,13 @@ export class InterviewService {
     }
 
     const submittedAt = new Date().toISOString();
+    const submittedTranscript = requestBody.transcript?.trim() || undefined;
     const answerInput = {
       sessionId: session.sessionId,
       questionId: requestBody.questionId,
       videoFileId: videoFile?.fileId,
       audioFileId: audioFile?.fileId,
-      transcript: skippedForRecordingValidation ? "[NO_ANSWER] Recording validation failed twice." : undefined,
+      transcript: skippedForRecordingValidation ? "[NO_ANSWER] Recording validation failed twice." : submittedTranscript,
       durationSeconds: requestBody.durationSeconds,
       submittedAt,
     };
@@ -512,6 +514,7 @@ export class InterviewService {
       ? await this.replaceAnswerAfterReanswerRequest(session, existingAnswer, {
           videoFileId: videoFile?.fileId,
           audioFileId: audioFile?.fileId,
+          transcript: submittedTranscript,
           durationSeconds: requestBody.durationSeconds,
           submittedAt,
         })
@@ -1008,6 +1011,7 @@ export class InterviewService {
     input: {
       videoFileId?: number;
       audioFileId?: number;
+      transcript?: string;
       durationSeconds: number;
       submittedAt: string;
     },
@@ -1017,6 +1021,7 @@ export class InterviewService {
       answerId: answer.answerId,
       videoFileId: input.videoFileId,
       audioFileId: input.audioFileId,
+      transcript: input.transcript,
       durationSeconds: input.durationSeconds,
       submittedAt: input.submittedAt,
     });
