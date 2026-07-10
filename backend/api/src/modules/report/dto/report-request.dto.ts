@@ -41,6 +41,18 @@ export class InterviewAnswerInputDto {
   @IsString()
   transcript?: string;
 
+  @ApiPropertyOptional({
+    example: {
+      cameraWarnings: 1,
+      microphoneWarnings: 0,
+      longSilenceCount: 2,
+      testModeUsed: false
+    }
+  })
+  @IsOptional()
+  @IsObject()
+  nonverbalMetadata?: Record<string, unknown>;
+
   @ApiPropertyOptional({ enum: ["EVALUATED", "STT_UNAVAILABLE"], example: "EVALUATED" })
   @IsOptional()
   @IsIn(["EVALUATED", "STT_UNAVAILABLE"])

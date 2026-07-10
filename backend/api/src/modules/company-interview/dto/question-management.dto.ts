@@ -2,12 +2,18 @@ import { Type } from 'class-transformer';
 import {
   IsIn,
   IsInt,
+  IsOptional,
   IsString,
   MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
-import { QUESTION_TYPES, QuestionType } from '../company-interview.types';
+import {
+  QUESTION_ORIGINS,
+  QUESTION_TYPES,
+  QuestionOrigin,
+  QuestionType,
+} from '../company-interview.types';
 
 export class CreateInterviewQuestionDto {
   @Type(() => Number)
@@ -27,6 +33,10 @@ export class CreateInterviewQuestionDto {
   @MinLength(10)
   @MaxLength(1000)
   content!: string;
+
+  @IsOptional()
+  @IsIn(QUESTION_ORIGINS)
+  origin?: QuestionOrigin;
 }
 
 export class UpdateInterviewQuestionDto {
@@ -50,6 +60,8 @@ export class InterviewQuestionResponseItemDto {
   criterionId!: number | null;
   questionType!: QuestionType;
   content!: string;
+  origin!: QuestionOrigin;
+  isAiEdited!: boolean;
   isActive!: boolean;
 }
 

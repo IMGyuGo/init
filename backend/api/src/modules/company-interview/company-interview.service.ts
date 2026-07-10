@@ -1,6 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { CurrentUser } from '@init/common';
 import {
+  CreateCriterionTagDto,
+  CreateCriterionTagResponseDto,
+  CriterionTagResponseItemDto,
+} from './dto/criterion-tag.dto';
+import {
   EvaluationCriterionResponseDto,
   UpdateEvaluationCriterionDto,
 } from './dto/evaluation-criterion.dto';
@@ -29,6 +34,7 @@ import {
   validationFailed,
 } from './company-interview.errors';
 import {
+  CriterionTagRecord,
   EvaluationCriterionRecord,
   QuestionRecord,
   QuestionSetRecord,
@@ -36,6 +42,7 @@ import {
 import {
   COMPANY_INTERVIEW_REPOSITORY,
   CompanyInterviewRepository,
+  type UpdateCriterionInput,
 } from './repositories/company-interview.repository';
 
 @Injectable()
@@ -74,9 +81,52 @@ export class CompanyInterviewService {
         criterionId: question.criterionId,
         questionType: question.questionType,
         content: question.content,
+        origin: question.origin,
+        isAiEdited: question.isAiEdited,
         isActive: question.isActive,
       })),
       timePolicy: await this.toTimePolicyDto(posting.postingId),
+    };
+  }
+
+  async createCriterionTag(
+    currentUser: CurrentUser,
+    dto: CreateCriterionTagDto,
+  ): Promise<CreateCriterionTagResponseDto> {
+    const posting = await this.getOwnedPosting(currentUser, dto.postingId);
+    const tagName = dto.tagName.trim();
+    const category = dto.category.trim();
+    const description = dto.description?.trim() || null;
+
+    if (!tagName) {
+      validationFailed('평가 태그명을 입력해주세요.', [
+        { field: 'tagName', reason: 'REQUIRED' },
+      ]);
+    }
+
+    if (!category) {
+      validationFailed('평가 태그 분류를 입력해주세요.', [
+        { field: 'category', reason: 'REQUIRED' },
+      ]);
+    }
+
+    const existingTag = (await this.repository.listTags()).find(
+      (tag) =>
+        normalizeCriterionTagText(tag.name) === normalizeCriterionTagText(tagName) &&
+        normalizeCriterionTagText(tag.category) === normalizeCriterionTagText(category),
+    );
+    const tag =
+      existingTag ??
+      (await this.repository.createTag({
+        jobRole: posting.jobRole || 'Common',
+        name: tagName,
+        description,
+        category,
+      }));
+
+    return {
+      postingId: posting.postingId,
+      tag: this.mapCriterionTag(tag),
     };
   }
 
@@ -88,6 +138,7 @@ export class CompanyInterviewService {
     const existingCriteria = await this.repository.listCriteria(posting.postingId);
     const seenSortOrders = new Set<number>();
     const seenTagIds = new Set<number>();
+    const normalizedCriteria: UpdateCriterionInput[] = [];
 
     for (const criterion of dto.criteria) {
       if (seenSortOrders.has(criterion.sortOrder)) {
@@ -103,18 +154,28 @@ export class CompanyInterviewService {
       }
       seenTagIds.add(criterion.tagId);
 
-      if (!(await this.repository.findTag(criterion.tagId))) {
+      const tag = await this.repository.findTag(criterion.tagId);
+      if (!tag) {
         notFound('평가 태그를 찾을 수 없습니다.');
       }
 
+      let existingCriterion: EvaluationCriterionRecord | undefined;
       if (criterion.criterionId !== undefined) {
-        const exists = existingCriteria.some(
+        existingCriterion = existingCriteria.find(
           (item) => item.criterionId === criterion.criterionId,
         );
-        if (!exists) {
+        if (!existingCriterion) {
           notFound('평가 기준을 찾을 수 없습니다.');
         }
       }
+
+      normalizedCriteria.push({
+        ...criterion,
+        description:
+          criterion.description === undefined
+            ? existingCriterion?.description ?? tag.description
+            : criterion.description?.trim() || null,
+      });
     }
 
     const totalWeight = dto.criteria.reduce(
@@ -132,7 +193,7 @@ export class CompanyInterviewService {
 
     const saved = await this.repository.replaceCriteria(
       posting.postingId,
-      dto.criteria,
+      normalizedCriteria,
     );
     return {
       postingId: posting.postingId,
@@ -161,6 +222,7 @@ export class CompanyInterviewService {
       criterionId: criterion.criterionId,
       questionType: dto.questionType,
       content: dto.content,
+      origin: dto.origin ?? 'MANUAL',
     });
 
     return {
@@ -197,6 +259,8 @@ export class CompanyInterviewService {
       criterionId: criterion.criterionId,
       questionType: dto.questionType,
       content: dto.content,
+      isAiEdited:
+        question.origin === 'AI_GENERATED' ? true : question.isAiEdited,
     });
 
     return {
@@ -396,7 +460,7 @@ export class CompanyInterviewService {
           tagId: criterion.tagId,
           tagName: tag.name,
           category: tag.category,
-          description: tag.description,
+          description: criterion.description,
           weight: criterion.weight,
           passScore: criterion.passScore,
           sortOrder: criterion.sortOrder,
@@ -421,7 +485,20 @@ export class CompanyInterviewService {
       criterionId: question.criterionId,
       questionType: question.questionType,
       content: question.content,
+      origin: question.origin,
+      isAiEdited: question.isAiEdited,
       isActive: question.isActive,
+    };
+  }
+
+  private mapCriterionTag(tag: CriterionTagRecord): CriterionTagResponseItemDto {
+    return {
+      tagId: tag.tagId,
+      jobRole: tag.jobRole,
+      tagName: tag.name,
+      category: tag.category,
+      description: tag.description,
+      sortOrder: tag.sortOrder,
     };
   }
 
@@ -443,4 +520,8 @@ export class CompanyInterviewService {
       })),
     };
   }
+}
+
+function normalizeCriterionTagText(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase();
 }

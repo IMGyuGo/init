@@ -42,6 +42,7 @@ interface ReportAnswerForScoring {
   transcript: string;
   evaluationStatus: ReportAnswerEvaluationStatusRecord;
   transcriptUnavailableReason?: string;
+  nonverbalMetadata?: ReportAnswerNonverbalMetadata;
 }
 
 interface ReportScoringContext {
@@ -62,6 +63,54 @@ interface MockQuestionFolderContext {
     sizeBytes?: number;
   };
   resumeExtractedText?: string;
+}
+
+interface ReportAnswerNonverbalMetadata {
+  cameraWarnings?: number;
+  microphoneWarnings?: number;
+  longSilenceCount?: number;
+  shortAnswerCount?: number;
+  testModeUsed?: boolean;
+  voicePeakLevel?: number;
+  lowAudioFrameCount?: number;
+  observedAudioFrameCount?: number;
+  cameraDisconnectedCount?: number;
+  integrityEvents?: unknown[];
+  integritySummary?: {
+    screenAwayCount?: number;
+    cameraLostCount?: number;
+    faceMissingCount?: number;
+    faceOutOfFrameCount?: number;
+    multipleFacesCount?: number;
+    facePositionShiftCount?: number;
+    gazeAwayCount?: number;
+    voiceMouthMismatchCount?: number;
+    voiceWithoutFaceCount?: number;
+    staticVideoFrameCount?: number;
+    earlyScreenAwayCount?: number;
+    suspicionLevel?: string;
+  };
+  [key: string]: unknown;
+}
+
+interface NonverbalSignalSummary {
+  cameraWarnings: number;
+  microphoneWarnings: number;
+  longSilenceCount: number;
+  shortAnswerCount: number;
+  testModeUsed: boolean;
+  screenAwayCount: number;
+  cameraLostCount: number;
+  faceMissingCount: number;
+  faceOutOfFrameCount: number;
+  multipleFacesCount: number;
+  facePositionShiftCount: number;
+  gazeAwayCount: number;
+  voiceMouthMismatchCount: number;
+  voiceWithoutFaceCount: number;
+  staticVideoFrameCount: number;
+  earlyScreenAwayCount: number;
+  highSuspicionCount: number;
 }
 
 const MOCK_HIRING_DECISION_TERMS = [
@@ -681,8 +730,9 @@ export class MockAiTaskHandler implements AiTaskHandler {
       usedPrimaryAnswerIds.add(answer.answerId);
       const supportingFollowUps = childAnswersByParent.get(answer.answerId) ?? [];
       const transcriptForScoring = answerTranscriptWithFollowUps(answer, supportingFollowUps);
+      const nonverbalSignals = nonverbalSignalsForAnswers([answer, ...supportingFollowUps]);
       const structured = structuredAssessment(transcriptForScoring, documentText, criterion.description, context.jobDescription);
-      const quality = answerQualityAdjustment(criterionName, transcriptForScoring, context);
+      const quality = answerQualityAdjustment(criterionName, transcriptForScoring, context, nonverbalSignals);
       const score = Math.min(structured.score, quality.maxScore);
       const uncertaintyReasons = uniqueStrings([...structured.uncertaintyReasons, ...quality.reasons]);
       const confidence = quality.forceLowConfidence ? "LOW" : structured.confidence;
@@ -1060,9 +1110,16 @@ function answersOf(value: unknown): ReportAnswerForScoring[] {
       parentAnswerId: optionalPositiveNumber(record.parentAnswerId, "parentAnswerId"),
       transcript,
       evaluationStatus,
-      transcriptUnavailableReason: evaluationStatus === "STT_UNAVAILABLE" ? transcriptUnavailableReason : undefined
+      transcriptUnavailableReason: evaluationStatus === "STT_UNAVAILABLE" ? transcriptUnavailableReason : undefined,
+      nonverbalMetadata: optionalNonverbalMetadata(record.nonverbalMetadata)
     };
   });
+}
+
+function optionalNonverbalMetadata(value: unknown): ReportAnswerNonverbalMetadata | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as ReportAnswerNonverbalMetadata
+    : undefined;
 }
 
 function questionTypeOf(value: unknown): ReportAnswerForScoring["questionType"] | undefined {
@@ -1149,10 +1206,135 @@ function answerTranscriptWithFollowUps(answer: ReportAnswerForScoring, followUps
   ].join("\n");
 }
 
+function nonverbalSignalsForAnswers(answers: ReportAnswerForScoring[]): NonverbalSignalSummary | undefined {
+  let found = false;
+  const summary: NonverbalSignalSummary = {
+    cameraWarnings: 0,
+    microphoneWarnings: 0,
+    longSilenceCount: 0,
+    shortAnswerCount: 0,
+    testModeUsed: false,
+    screenAwayCount: 0,
+    cameraLostCount: 0,
+    faceMissingCount: 0,
+    faceOutOfFrameCount: 0,
+    multipleFacesCount: 0,
+    facePositionShiftCount: 0,
+    gazeAwayCount: 0,
+    voiceMouthMismatchCount: 0,
+    voiceWithoutFaceCount: 0,
+    staticVideoFrameCount: 0,
+    earlyScreenAwayCount: 0,
+    highSuspicionCount: 0
+  };
+
+  for (const answer of answers) {
+    const metadata = answer.nonverbalMetadata;
+    if (!metadata) continue;
+    found = true;
+    summary.cameraWarnings += nonverbalNumber(metadata.cameraWarnings);
+    summary.microphoneWarnings += nonverbalNumber(metadata.microphoneWarnings);
+    summary.longSilenceCount += nonverbalNumber(metadata.longSilenceCount);
+    summary.shortAnswerCount += nonverbalNumber(metadata.shortAnswerCount);
+    summary.testModeUsed = summary.testModeUsed || metadata.testModeUsed === true;
+    summary.screenAwayCount += nonverbalScreenAwayCount(metadata);
+    summary.cameraLostCount += nonverbalCameraLostCount(metadata);
+    summary.faceMissingCount += nonverbalFaceMissingCount(metadata);
+    summary.faceOutOfFrameCount += nonverbalFaceOutOfFrameCount(metadata);
+    summary.multipleFacesCount += nonverbalMultipleFacesCount(metadata);
+    summary.facePositionShiftCount += nonverbalFacePositionShiftCount(metadata);
+    summary.gazeAwayCount += nonverbalGazeAwayCount(metadata);
+    summary.voiceMouthMismatchCount += nonverbalVoiceMouthMismatchCount(metadata);
+    summary.voiceWithoutFaceCount += nonverbalVoiceWithoutFaceCount(metadata);
+    summary.staticVideoFrameCount += nonverbalStaticVideoFrameCount(metadata);
+    summary.earlyScreenAwayCount += nonverbalEarlyScreenAwayCount(metadata);
+    summary.highSuspicionCount += nonverbalSuspicionLevel(metadata) === "HIGH" ? 1 : 0;
+  }
+
+  return found ? summary : undefined;
+}
+
+function nonverbalNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function nonverbalRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function nonverbalEventCount(metadata: ReportAnswerNonverbalMetadata, types: string[]): number {
+  const events = Array.isArray(metadata.integrityEvents) ? metadata.integrityEvents : [];
+  return events.filter((event) => {
+    const record = nonverbalRecord(event);
+    return typeof record?.type === "string" && types.includes(record.type);
+  }).length;
+}
+
+function nonverbalScreenAwayCount(metadata: ReportAnswerNonverbalMetadata): number {
+  const summary = metadata.integritySummary;
+  return nonverbalNumber(summary?.screenAwayCount) || nonverbalEventCount(metadata, ["TAB_HIDDEN", "WINDOW_BLUR"]);
+}
+
+function nonverbalCameraLostCount(metadata: ReportAnswerNonverbalMetadata): number {
+  const summary = metadata.integritySummary;
+  return nonverbalNumber(summary?.cameraLostCount) || nonverbalEventCount(metadata, ["CAMERA_LOST"]);
+}
+
+function nonverbalFaceMissingCount(metadata: ReportAnswerNonverbalMetadata): number {
+  const summary = metadata.integritySummary;
+  return nonverbalNumber(summary?.faceMissingCount) || nonverbalEventCount(metadata, ["FACE_MISSING"]);
+}
+
+function nonverbalFaceOutOfFrameCount(metadata: ReportAnswerNonverbalMetadata): number {
+  const summary = metadata.integritySummary;
+  return nonverbalNumber(summary?.faceOutOfFrameCount) || nonverbalEventCount(metadata, ["FACE_OUT_OF_FRAME"]);
+}
+
+function nonverbalMultipleFacesCount(metadata: ReportAnswerNonverbalMetadata): number {
+  const summary = metadata.integritySummary;
+  return nonverbalNumber(summary?.multipleFacesCount) || nonverbalEventCount(metadata, ["MULTIPLE_FACES"]);
+}
+
+function nonverbalFacePositionShiftCount(metadata: ReportAnswerNonverbalMetadata): number {
+  const summary = metadata.integritySummary;
+  return nonverbalNumber(summary?.facePositionShiftCount) || nonverbalEventCount(metadata, ["FACE_POSITION_SHIFT"]);
+}
+
+function nonverbalGazeAwayCount(metadata: ReportAnswerNonverbalMetadata): number {
+  const summary = metadata.integritySummary;
+  return nonverbalNumber(summary?.gazeAwayCount) || nonverbalEventCount(metadata, ["GAZE_AWAY"]);
+}
+
+function nonverbalVoiceMouthMismatchCount(metadata: ReportAnswerNonverbalMetadata): number {
+  const summary = metadata.integritySummary;
+  return nonverbalNumber(summary?.voiceMouthMismatchCount) || nonverbalEventCount(metadata, ["VOICE_MOUTH_MISMATCH"]);
+}
+
+function nonverbalVoiceWithoutFaceCount(metadata: ReportAnswerNonverbalMetadata): number {
+  const summary = metadata.integritySummary;
+  return nonverbalNumber(summary?.voiceWithoutFaceCount) || nonverbalEventCount(metadata, ["VOICE_WITHOUT_FACE"]);
+}
+
+function nonverbalStaticVideoFrameCount(metadata: ReportAnswerNonverbalMetadata): number {
+  const summary = metadata.integritySummary;
+  return nonverbalNumber(summary?.staticVideoFrameCount) || nonverbalEventCount(metadata, ["STATIC_VIDEO_FRAME"]);
+}
+
+function nonverbalEarlyScreenAwayCount(metadata: ReportAnswerNonverbalMetadata): number {
+  const summary = metadata.integritySummary;
+  return nonverbalNumber(summary?.earlyScreenAwayCount) || nonverbalEventCount(metadata, ["EARLY_SCREEN_AWAY"]);
+}
+
+function nonverbalSuspicionLevel(metadata: ReportAnswerNonverbalMetadata): string {
+  const level = metadata.integritySummary?.suspicionLevel;
+  return typeof level === "string" ? level : "NONE";
+}
+
 function answerQualityAdjustment(
   criterionName: string,
   transcript: string,
-  context: ReportScoringContext
+  context: ReportScoringContext,
+  nonverbalSignals?: NonverbalSignalSummary
 ): { maxScore: number; reasons: string[]; forceLowConfidence: boolean } {
   const normalized = normalizeSpace(transcript);
   const reasons: string[] = [];
@@ -1200,6 +1382,39 @@ function answerQualityAdjustment(
   ) {
     maxScore = Math.min(maxScore, 64);
     reasons.push("JD와 직접 연결되는 기술, 역할, 업무 키워드가 충분히 드러나지 않았습니다.");
+  }
+
+  if (context.reportType === "MOCK_INTERVIEW_REPORT" && nonverbalSignals) {
+    if (
+      nonverbalSignals.screenAwayCount > 0 ||
+      nonverbalSignals.cameraLostCount > 0 ||
+      nonverbalSignals.faceMissingCount > 0 ||
+      nonverbalSignals.faceOutOfFrameCount > 0 ||
+      nonverbalSignals.multipleFacesCount > 0 ||
+      nonverbalSignals.facePositionShiftCount > 0 ||
+      nonverbalSignals.gazeAwayCount > 0 ||
+      nonverbalSignals.voiceMouthMismatchCount > 0 ||
+      nonverbalSignals.voiceWithoutFaceCount > 0 ||
+      nonverbalSignals.staticVideoFrameCount > 0 ||
+      nonverbalSignals.earlyScreenAwayCount > 0 ||
+      nonverbalSignals.highSuspicionCount > 0
+    ) {
+      reasons.push("화면 이탈, 얼굴 화면 밖, 여러 얼굴 감지, 시선 이탈 같은 응시 무결성 확인 신호가 있어 실제 면접에서는 주의가 필요합니다.");
+    }
+
+    if (nonverbalSignals.shortAnswerCount > 0) {
+      maxScore = Math.min(maxScore, 74);
+      reasons.push("답변 시간이 짧게 기록되어 상황, 행동, 결과 근거를 더 보강하면 좋습니다.");
+    }
+
+    if (nonverbalSignals.microphoneWarnings > 0 || nonverbalSignals.longSilenceCount > 0) {
+      maxScore = Math.min(maxScore, 78);
+      reasons.push("음성 입력이 낮거나 긴 무음 구간이 있어 핵심 문장을 더 또렷하고 이어서 말하는 연습이 필요합니다.");
+    }
+
+    if (nonverbalSignals.cameraWarnings > 0 || nonverbalSignals.testModeUsed) {
+      reasons.push("카메라 연결 또는 화면 상태 확인 신호가 있어 다음 연습에서는 화면 구도와 장치 상태를 먼저 점검해 보세요.");
+    }
   }
 
   return { maxScore, reasons, forceLowConfidence };

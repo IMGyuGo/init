@@ -110,6 +110,93 @@ GET /api/v1/ai/jobs/101/status
 | `POST /candidate/mock-interviews/questions/generate` | Candidate | questionCount | JD/posting/기업 기준 없이 동작 |
 | `POST /ai/guardrails/validate` | Admin/System | reportType, target, scores, summary? | PASS/BLOCKED/REGENERATED 기록 |
 
+## REPORT_GENERATE Nonverbal Metadata
+
+`REPORT_GENERATE` jobs may receive `answers[].nonverbalMetadata` when the answer was recorded through the browser interview runtime.
+
+Example answer input:
+
+```json
+{
+  "answerId": 10,
+  "questionId": 1,
+  "question": "Describe a technical problem and how you solved it.",
+  "transcript": "I separated upload, API, DB, queue, and worker stages and fixed the missing state transition.",
+  "nonverbalMetadata": {
+    "cameraWarnings": 0,
+    "microphoneWarnings": 1,
+    "longSilenceCount": 1,
+    "shortAnswerCount": 0,
+    "testModeUsed": false,
+    "voicePeakLevel": 12,
+    "lowAudioFrameCount": 48,
+    "observedAudioFrameCount": 320,
+    "cameraDisconnectedCount": 0,
+    "integrityEvents": [
+      {
+        "type": "TAB_HIDDEN",
+        "occurredAt": "2026-07-09T10:00:00.000Z",
+        "durationMs": 4200
+      },
+      {
+        "type": "VOICE_MOUTH_MISMATCH",
+        "occurredAt": "2026-07-09T10:00:08.000Z",
+        "durationMs": 3100
+      },
+      {
+        "type": "VOICE_WITHOUT_FACE",
+        "occurredAt": "2026-07-09T10:00:12.000Z",
+        "durationMs": 2800
+      },
+      {
+        "type": "STATIC_VIDEO_FRAME",
+        "occurredAt": "2026-07-09T10:00:18.000Z",
+        "durationMs": 5200
+      },
+      {
+        "type": "EARLY_SCREEN_AWAY",
+        "occurredAt": "2026-07-09T10:00:02.000Z"
+      }
+    ],
+    "integritySummary": {
+      "screenAwayCount": 1,
+      "cameraLostCount": 0,
+      "faceMissingCount": 0,
+      "faceOutOfFrameCount": 0,
+      "multipleFacesCount": 0,
+      "facePositionShiftCount": 0,
+      "gazeAwayCount": 0,
+      "voiceMouthMismatchCount": 1,
+      "voiceWithoutFaceCount": 1,
+      "staticVideoFrameCount": 1,
+      "earlyScreenAwayCount": 1,
+      "faceDetectionSupported": true,
+      "faceDetectionFrameCount": 12,
+      "gazeDetectionSupported": true,
+      "gazeDetectionFrameCount": 12,
+      "mouthSyncSupported": true,
+      "mouthSyncFrameCount": 12,
+      "mouthSyncMismatchFrameCount": 3,
+      "videoFrameMotionSupported": true,
+      "videoFrameSampleCount": 12,
+      "staticVideoFrameSampleCount": 6,
+      "totalAwayDurationMs": 4200,
+      "maxAwayDurationMs": 4200,
+      "suspicionLevel": "HIGH"
+    }
+  }
+}
+```
+
+Policy:
+
+- The metadata is auxiliary practice context. It may surface cheating-suspicion signals for mock interview practice, but it is not a final cheating decision.
+- For `MOCK_INTERVIEW_REPORT`, the worker may use `integrityEvents` and `integritySummary` to produce practice feedback about screen/tab leaving, early screen leaving right after the question starts, camera loss, face missing/out of frame, audio input while no face is detected, multiple faces, large face-position shift, long gaze away from the screen, static video frames, or voice-mouth mismatch during recording.
+- For `MOCK_INTERVIEW_REPORT`, short-answer, long-silence, and low-audio signals are recording or answer-quality signals, not cheating signals. They may apply conservative delivery-quality caps, but they must be explained as practice feedback.
+- The worker must not claim that the voice is AI-generated. `VOICE_MOUTH_MISMATCH` only means audio was detected while mouth movement was missing or too weak in sampled frames.
+- For `RECRUITING_REPORT`, the metadata must not be used as a hiring score input or pass/fail signal. If a future company-facing UI exposes it, it must be separated as auxiliary media/communication quality context.
+- The worker must not infer appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, health, or other sensitive attributes from this metadata.
+
 ## Payload Examples
 
 평가 컨텍스트 입력:

@@ -141,6 +141,17 @@ export type Applicant = {
     reportId: number;
     status: string;
     totalScore: number | null;
+    adjustedTotalScore?: number | null;
+    integrityAdjustment?: {
+      rawTotalScore: number | null;
+      adjustedTotalScore: number | null;
+      penalty: number;
+      scoreApplied?: boolean;
+      source?: "CLIENT_RUNTIME_UNVERIFIED";
+      level: "NONE" | "LOW" | "MEDIUM" | "HIGH";
+      reason: string;
+      reasons: string[];
+    } | null;
     summary: string | null;
     generatedAt: string | null;
   } | null;
@@ -210,6 +221,7 @@ export type ApplicantEvaluation = {
     transcript: string | null;
     durationSeconds: number | null;
     submittedAt: string | null;
+    nonverbalMetadata?: Record<string, unknown> | null;
     followUpQuestions: Array<{
       followUpId: number;
       content: string;
@@ -224,6 +236,7 @@ export type ApplicantEvaluation = {
         transcript: string | null;
         durationSeconds: number | null;
         submittedAt: string | null;
+        nonverbalMetadata?: Record<string, unknown> | null;
       } | null;
     }>;
   }>;
@@ -231,6 +244,17 @@ export type ApplicantEvaluation = {
     reportId: number;
     status: string;
     totalScore: number | null;
+    adjustedTotalScore?: number | null;
+    integrityAdjustment?: {
+      rawTotalScore: number | null;
+      adjustedTotalScore: number | null;
+      penalty: number;
+      scoreApplied?: boolean;
+      source?: "CLIENT_RUNTIME_UNVERIFIED";
+      level: "NONE" | "LOW" | "MEDIUM" | "HIGH";
+      reason: string;
+      reasons: string[];
+    } | null;
     summary: string | null;
     generatedAt: string | null;
     scores: Array<{

@@ -1072,6 +1072,13 @@ AI 리포트 금지 기준:
 - 권한/인증: 기업 / 기업 사용자 로그인
 - 관련 화면: 지원자 평가 상세 화면 (/company/applicants/{applicantId}/evaluation)
 - UI Type: page
+- Report response:
+  - `report.totalScore` is the AI evaluation score and is the company-facing displayed score.
+  - `report.adjustedTotalScore` is retained for compatibility and has the same value as `report.totalScore`.
+  - `report.integrityAdjustment` is a legacy-compatible field name for unverified browser telemetry. It may include `rawTotalScore`, `adjustedTotalScore`, `penalty`, `scoreApplied`, `source`, `level`, `reason`, and `reasons`.
+  - `penalty` is always `0`, `scoreApplied` is `false`, and `source` is `CLIENT_RUNTIME_UNVERIFIED`.
+  - Reference levels are `NONE`, `LOW`, `MEDIUM`, and `HIGH`; they indicate human review urgency only.
+  - Browser telemetry must not reduce the score, change pass/fail state, or be sent to the recruiting report AI input.
 - 상태 코드: 200 OK
 - 비동기: N
 - Path Params: applicantId
@@ -1566,6 +1573,8 @@ AI 리포트 금지 기준:
     - `criterionId: number | null`
     - `questionType: QuestionType`
     - `content: string`
+    - `origin: MANUAL | AI_GENERATED`
+    - `isAiEdited: boolean`
     - `isActive: boolean`
   - `data.timePolicy`
     - `preparationTimeSec: number`
@@ -1652,6 +1661,7 @@ AI 리포트 금지 기준:
   - `criteria: EvaluationCriterionItemDto[]`
   - `criteria[].criterionId?: number`
   - `criteria[].tagId: number`
+  - `criteria[].description?: string | null`
   - `criteria[].weight: number`
   - `criteria[].passScore?: number | null`
   - `criteria[].sortOrder: number`
@@ -1662,6 +1672,8 @@ AI 리포트 금지 기준:
   - `criterionId`가 있으면 해당 공고의 `evaluation_criteria`에 존재해야 함
   - `sortOrder`는 요청 배열 안에서 중복될 수 없음
   - `passScore`는 nullable이며 값이 있으면 정책 점수 범위 안이어야 함
+  - `description`은 공용 태그 설명을 변경하지 않고 해당 공고의 평가 기준 설명 스냅샷으로 저장한다.
+  - `description`을 생략하면 기존 기준 설명을 유지하며, 신규 기준이면 태그 기본 설명을 사용한다.
   - `weight` 합계 정책은 구현 전 PM/A와 확정한다.
 - 성공 응답/처리:
   - 평가 기준 저장
@@ -1700,7 +1712,7 @@ AI 리포트 금지 기준:
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - 질문 내용, 질문 유형, 평가 역량
+  - 질문 내용, 질문 유형, 평가 역량, 최초 작성 출처
 - 검증/전제조건:
   - 질문 내용과 평가 역량 필수
 - 성공 응답/처리:
@@ -1718,9 +1730,10 @@ AI 리포트 금지 기준:
   - `criterionId`: number, required
   - `questionType`: `INTRO | TECHNICAL | EXPERIENCE | SITUATION | FOLLOW_UP | CLOSING`, required
   - `content`: string, required, 10~1000 chars
+  - `origin`: `MANUAL | AI_GENERATED`, optional, 기본값 `MANUAL`
 - Response Body:
   - `postingId`: number
-  - `question`: `{ questionId, postingId, criterionId, questionType, content, isActive }`
+  - `question`: `{ questionId, postingId, criterionId, questionType, content, origin, isAiEdited, isActive }`
 - Validation:
   - `postingId`는 로그인한 기업의 공고여야 한다.
   - `criterionId`는 같은 `postingId`에 연결된 평가 기준이어야 한다.
@@ -1745,7 +1758,10 @@ AI 리포트 금지 기준:
   - `content`: string, required, 10~1000 chars
 - Response Body:
   - `postingId`: number
-  - `question`: `{ questionId, postingId, criterionId, questionType, content, isActive }`
+  - `question`: `{ questionId, postingId, criterionId, questionType, content, origin, isAiEdited, isActive }`
+- Processing:
+  - `origin=AI_GENERATED`인 질문을 수정하면 `isAiEdited=true`로 저장한다.
+  - 직접 작성 질문은 수정 후에도 `origin=MANUAL`, `isAiEdited=false`를 유지한다.
 - Validation:
   - `questionId`는 로그인한 기업 소유 질문이어야 한다.
   - `criterionId`는 해당 질문과 같은 공고의 평가 기준이어야 한다.
@@ -1766,7 +1782,7 @@ AI 리포트 금지 기준:
   - `questionId`: number, required
 - Response Body:
   - `postingId`: number
-  - `question`: `{ questionId, postingId, criterionId, questionType, content, isActive }`
+  - `question`: `{ questionId, postingId, criterionId, questionType, content, origin, isAiEdited, isActive }`
 - Processing:
   - 질문은 물리 삭제하지 않고 `isActive=false`로 비활성화한다.
   - 면접 설정 조회의 질문 목록에는 활성 질문만 노출한다.
@@ -3187,3 +3203,39 @@ CandidateFolder 입력 제한:
   - candidate_profiles, postings, applications, application_documents, interview_sessions, notifications, ai_process_logs
 - 비고/미결:
   - MVP 후순위
+
+### Answer Nonverbal Metadata Addendum
+- Applies to:
+  - API-048 `POST /candidate/mock-interviews/{sessionId}/answers`
+  - API-068 `POST /candidate/interviews/{sessionId}/answers`
+  - API-092 `POST /public/interviews/{sessionId}/answers`
+- Optional request field: `nonverbalMetadata`
+- Shape: JSON object. Initial MVP keys may include `cameraWarnings`, `microphoneWarnings`, `longSilenceCount`, `shortAnswerCount`, `testModeUsed`, `voicePeakLevel`, `lowAudioFrameCount`, `observedAudioFrameCount`, `cameraDisconnectedCount`, `integrityEvents`, and `integritySummary`.
+- Maximum serialized UTF-8 size: 32 KiB.
+- `integrityEvents` maximum length: 100.
+- Unknown top-level, summary, or event keys; unsupported event types; malformed timestamps; and out-of-range numeric values are rejected with `400 COMMON_VALIDATION_FAILED`.
+- `integrityEvents` may include browser-runtime events such as `TAB_HIDDEN`, `WINDOW_BLUR`, `CAMERA_LOST`, `FACE_MISSING`, `FACE_OUT_OF_FRAME`, `MULTIPLE_FACES`, `FACE_POSITION_SHIFT`, `GAZE_AWAY`, `VOICE_MOUTH_MISMATCH`, `VOICE_WITHOUT_FACE`, `STATIC_VIDEO_FRAME`, and `EARLY_SCREEN_AWAY`.
+- `GAZE_AWAY` events may include `direction` and `source`. `source` is one of `IRIS`, `HEAD_POSE`, or `COMBINED` and identifies whether the calibrated iris position, facial transformation matrix, or both produced the signal.
+- `integritySummary` may include counts derived from those events, such as `screenAwayCount`, `cameraLostCount`, `faceMissingCount`, `faceOutOfFrameCount`, `multipleFacesCount`, `facePositionShiftCount`, `gazeAwayCount`, `voiceMouthMismatchCount`, `voiceWithoutFaceCount`, `staticVideoFrameCount`, `earlyScreenAwayCount`, `faceDetectionSupported`, `faceDetectionFrameCount`, `gazeDetectionSupported`, `gazeDetectionFrameCount`, `headPoseDetectionSupported`, `headPoseDetectionFrameCount`, `mouthSyncSupported`, `mouthSyncFrameCount`, `mouthSyncMismatchFrameCount`, `videoFrameMotionSupported`, `videoFrameSampleCount`, `staticVideoFrameSampleCount`, `totalAwayDurationMs`, `maxAwayDurationMs`, and `suspicionLevel`.
+- Normalization and storage:
+  - The API rebuilds event-derived counts, away durations, and `suspicionLevel` from the allowlisted events instead of trusting client summary counts.
+  - The API writes `schemaVersion: 1` and `source: CLIENT_RUNTIME_UNVERIFIED` before saving on `interview_answers.nonverbal_metadata`.
+  - Empty metadata objects are treated as absent.
+  - When recording validation fails twice, the already collected metadata is preserved for both mock and recruiting answers.
+- Report read:
+  - API-056 `GET /candidate/mock-interview/reports/{reportId}/media` may expose `media[].nonverbalMetadata`.
+  - Candidate UI may aggregate the values into a mock interview nonverbal summary card and per-answer practice feedback.
+- AI report generation:
+  - API-057 `POST /candidate/mock-interview/reports/{reportId}/generate` includes each answer's `nonverbalMetadata` in the `REPORT_GENERATE` payload when available.
+  - OpenAI/mock worker prompts must treat the field as auxiliary practice metadata only.
+  - For mock interview reports, `integrityEvents` and `integritySummary` may inform practice feedback about cheating-suspicion signals such as screen/tab leaving, early screen leaving right after the question starts, camera loss, face missing/out of frame, audio input while no face is detected, multiple faces, large face-position shift, long gaze away from the screen, static video frames, or voice-mouth mismatch during recording.
+  - For mock interview reports, `shortAnswerCount`, `microphoneWarnings`, and `longSilenceCount` may inform practice feedback and conservative delivery-quality scoring caps, but they are answer/recording-quality signals, not cheating signals.
+  - `cameraWarnings` and `testModeUsed` may only produce setup/focus review guidance. They must not be treated as proof of cheating.
+- Policy:
+  - For mock interviews, the value is practice feedback metadata only.
+  - For recruiting interviews, the value is unverified client telemetry and may be surfaced to company reviewers as a reference signal alongside the recorded answer.
+  - It may surface cheating-suspicion practice feedback for mock interviews, but it must not be used as a final cheating decision, hiring pass/fail signal, or direct hiring score input.
+  - It must not be used to infer appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, health, or other sensitive attributes.
+  - Recruiting report generation must omit `nonverbalMetadata` from the API queue payload and strip it again at the worker/provider boundary.
+  - Recruiting/company-facing reports must not apply an automatic score adjustment from browser telemetry.
+  - Before a recruiting interview starts, the candidate UI must disclose which signals are collected, that they are unverified human-review references, and that they do not affect the evaluation score or trigger automatic rejection.

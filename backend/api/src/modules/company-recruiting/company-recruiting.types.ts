@@ -138,6 +138,7 @@ export type ApplicantRecord = {
       transcript: string | null;
       durationSeconds: number | null;
       submittedAt: Date | null;
+      nonverbalMetadata?: Record<string, unknown> | null;
       followUpQuestions: Array<{
         followUpId: number;
         content: string;
@@ -152,6 +153,7 @@ export type ApplicantRecord = {
           transcript: string | null;
           durationSeconds: number | null;
           submittedAt: Date | null;
+          nonverbalMetadata?: Record<string, unknown> | null;
         } | null;
       }>;
     }>;

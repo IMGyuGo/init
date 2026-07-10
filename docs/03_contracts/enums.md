@@ -25,6 +25,7 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | `document_type` | `DocumentType` |
 | `consent_type` | `ConsentType` |
 | `question_type` | `QuestionType` |
+| `question_origin` | `QuestionOrigin` |
 | `notification_channel` | `NotificationChannel` |
 | `ai_process_type` | `AiProcessType` |
 | `ai_process_status` | `AiProcessStatus` |
@@ -93,6 +94,7 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | document_type | RESUME, PORTFOLIO | 지원 서류 유형 |
 | consent_type | PRIVACY_COLLECTION, AI_DOCUMENT_ANALYSIS, AI_INTERVIEW_RECORDING | 필수 동의 유형 |
 | question_type | INTRO, TECHNICAL, EXPERIENCE, SITUATION, FOLLOW_UP, CLOSING | 면접 질문 유형 |
+| question_origin | MANUAL, AI_GENERATED | 질문 최초 작성 출처 |
 | notification_channel | EMAIL, IN_APP | 알림 채널 |
 | ai_process_type | DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING, GUARDRAIL_VALIDATE, CRITERIA_SUGGEST, QUESTION_GENERATE, QUESTION_SET_GENERATE, POSTING_DRAFT_GENERATE | AI 처리 유형 |
 | ai_process_status | PENDING, RUNNING, COMPLETED, FAILED | AI 처리 상태 |

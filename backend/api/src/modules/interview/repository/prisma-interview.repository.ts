@@ -419,6 +419,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
         videoFileId: input.videoFileId ? BigInt(input.videoFileId) : null,
         audioFileId: input.audioFileId ? BigInt(input.audioFileId) : null,
         ...(input.transcript !== undefined ? { transcript: input.transcript } : {}),
+        ...(input.nonverbalMetadata !== undefined ? { nonverbalMetadata: this.toPrismaJson(input.nonverbalMetadata) } : {}),
         durationSeconds: input.durationSeconds,
         submittedAt: new Date(input.submittedAt),
       },
@@ -434,6 +435,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
         videoFileId: input.videoFileId ? BigInt(input.videoFileId) : null,
         audioFileId: input.audioFileId ? BigInt(input.audioFileId) : null,
         transcript: input.transcript ?? null,
+        nonverbalMetadata: this.toNullablePrismaJson(input.nonverbalMetadata),
         durationSeconds: input.durationSeconds,
         submittedAt: new Date(input.submittedAt),
       },
@@ -448,6 +450,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
       data: {
         videoFileId: input.videoFileId ? BigInt(input.videoFileId) : null,
         audioFileId: input.audioFileId ? BigInt(input.audioFileId) : null,
+        nonverbalMetadata: this.toNullablePrismaJson(input.nonverbalMetadata),
         durationSeconds: input.durationSeconds,
         submittedAt: new Date(input.submittedAt),
         transcript: input.transcript ?? null,
@@ -845,9 +848,27 @@ export class PrismaInterviewRepository implements InterviewRepository {
       videoFileId: answer.videoFileId ? Number(answer.videoFileId) : undefined,
       audioFileId: answer.audioFileId ? Number(answer.audioFileId) : undefined,
       transcript: answer.transcript ?? undefined,
+      nonverbalMetadata: this.toAnswerNonverbalMetadata(answer.nonverbalMetadata),
       durationSeconds: answer.durationSeconds ?? 0,
       submittedAt: (answer.submittedAt ?? new Date()).toISOString(),
     };
+  }
+
+  private toPrismaJson(value: Record<string, unknown>): Prisma.InputJsonObject {
+    return value as Prisma.InputJsonObject;
+  }
+
+  private toNullablePrismaJson(
+    value: Record<string, unknown> | undefined,
+  ): Prisma.InputJsonObject | typeof Prisma.JsonNull {
+    return value === undefined ? Prisma.JsonNull : this.toPrismaJson(value);
+  }
+
+  private toAnswerNonverbalMetadata(value: unknown): Record<string, unknown> | undefined {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return undefined;
+    }
+    return value as Record<string, unknown>;
   }
 
   private questionSortOrder(questionType: PrismaQuestionType): number {
@@ -928,6 +949,7 @@ type AnswerRecord = {
   videoFileId: bigint | null;
   audioFileId: bigint | null;
   transcript: string | null;
+  nonverbalMetadata: unknown;
   durationSeconds: number | null;
   submittedAt: Date | null;
   sessionQuestion?: { runtimeQuestionId: bigint | null } | null;

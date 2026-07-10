@@ -93,6 +93,43 @@ describe('CompanyInterviewService', () => {
     assert.equal(settings.questions.length, 0);
   });
 
+  it('persists a posting-specific criterion description without changing the shared tag', async () => {
+    const service = createService();
+    const originalSettings = await service.getSettings(companyUser, { postingId: 1 });
+    const originalTagDescription = originalSettings.availableTags.find(
+      (tag) => tag.tagId === 1,
+    )?.description;
+
+    const result = await service.updateEvaluationCriteria(companyUser, {
+      postingId: 1,
+      criteria: [
+        {
+          criterionId: 1,
+          tagId: 1,
+          description: '이 공고에서만 사용하는 수정된 평가 설명',
+          weight: 100,
+          passScore: 70,
+          sortOrder: 1,
+        },
+      ],
+    });
+
+    assert.equal(
+      result.criteria[0].description,
+      '이 공고에서만 사용하는 수정된 평가 설명',
+    );
+
+    const refreshedSettings = await service.getSettings(companyUser, { postingId: 1 });
+    assert.equal(
+      refreshedSettings.criteria[0].description,
+      '이 공고에서만 사용하는 수정된 평가 설명',
+    );
+    assert.equal(
+      refreshedSettings.availableTags.find((tag) => tag.tagId === 1)?.description,
+      originalTagDescription,
+    );
+  });
+
   it('returns the default time policy', async () => {
     const timePolicy = (await createService().getSettings(companyUser, {})).timePolicy;
  
@@ -112,6 +149,8 @@ describe('CompanyInterviewService', () => {
     assert.equal(question.postingId, 1);
     assert.equal(question.question.questionType, 'TECHNICAL');
     assert.equal(question.question.criterionId, 1);
+    assert.equal(question.question.origin, 'MANUAL');
+    assert.equal(question.question.isAiEdited, false);
 
     await assertConflict(() =>
       service.createQuestion(companyUser, {
@@ -121,6 +160,40 @@ describe('CompanyInterviewService', () => {
         content: 'NestJS 모듈 경계를 어떤 기준으로 나누는지 설명해주세요.',
       }),
     );
+  });
+
+  it('persists AI question origin and marks it edited after user changes', async () => {
+    const service = createService();
+    const created = await service.createQuestion(companyUser, {
+      postingId: 1,
+      criterionId: 1,
+      questionType: 'TECHNICAL',
+      content: '비동기 AI 작업의 실패 복구 전략을 설명해주세요.',
+      origin: 'AI_GENERATED',
+    });
+
+    assert.equal(created.question.origin, 'AI_GENERATED');
+    assert.equal(created.question.isAiEdited, false);
+
+    const updated = await service.updateQuestion(
+      companyUser,
+      created.question.questionId,
+      {
+        criterionId: 1,
+        questionType: 'TECHNICAL',
+        content: '비동기 AI 작업의 실패 복구와 재시도 전략을 설명해주세요.',
+      },
+    );
+
+    assert.equal(updated.question.origin, 'AI_GENERATED');
+    assert.equal(updated.question.isAiEdited, true);
+
+    const settings = await service.getSettings(companyUser, { postingId: 1 });
+    const persisted = settings.questions.find(
+      (question) => question.questionId === created.question.questionId,
+    );
+    assert.equal(persisted?.origin, 'AI_GENERATED');
+    assert.equal(persisted?.isAiEdited, true);
   });
 
   it('hides runtime follow-up questions from interview management settings', async () => {

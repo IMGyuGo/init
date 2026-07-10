@@ -81,6 +81,13 @@ export interface InterviewAnswerFormState {
   audioFileId?: number;
   audioFile?: RuntimeFileAssetRequest;
   durationSeconds: number;
+  nonverbalMetadata?: Record<string, unknown>;
+}
+
+export interface RecordingValidationSkipState {
+  questionId: number;
+  retryAnswerId?: number;
+  nonverbalMetadata?: Record<string, unknown>;
 }
 
 export type InterviewDeviceSetupMode = "mock" | "recruiting";
@@ -188,6 +195,15 @@ export interface InterviewRuntimeProgressionStateInput {
 export interface InterviewRuntimeProgressionState {
   canMoveNextQuestion: boolean;
   canCompleteInterview: boolean;
+}
+
+export interface InterviewAiPollingPolicyInput {
+  timedAutoAdvance: boolean;
+}
+
+export interface InterviewAiPollingPolicy {
+  attempts: number;
+  intervalMs: number;
 }
 
 export type InterviewerSessionMode = "tts-file" | "realtime-voice" | "avatar-stream";
@@ -812,6 +828,21 @@ export function toSaveInterviewAnswerRequest(state: InterviewAnswerFormState): S
     audioFileId: state.audioFileId,
     audioFile: state.audioFile,
     durationSeconds: state.durationSeconds,
+    nonverbalMetadata: state.nonverbalMetadata,
+  };
+}
+
+export function toRecordingValidationSkipRequest(state: RecordingValidationSkipState): SaveInterviewAnswerRequest {
+  if (!state.questionId) {
+    throw new Error("questionId is required before skipping an interview answer.");
+  }
+
+  return {
+    questionId: state.questionId,
+    durationSeconds: 0,
+    skipReason: "RECORDING_VALIDATION_FAILED",
+    ...(state.retryAnswerId ? { retryAnswerId: state.retryAnswerId } : {}),
+    ...(state.nonverbalMetadata ? { nonverbalMetadata: state.nonverbalMetadata } : {}),
   };
 }
 
@@ -1082,6 +1113,14 @@ export function getInterviewRuntimeProgressionState({
     canMoveNextQuestion,
     canCompleteInterview,
   };
+}
+
+export function getInterviewAiPollingPolicy({
+  timedAutoAdvance,
+}: InterviewAiPollingPolicyInput): InterviewAiPollingPolicy {
+  return timedAutoAdvance
+    ? { attempts: 8, intervalMs: 500 }
+    : { attempts: 90, intervalMs: 1000 };
 }
 
 export function getTimedOutAiJobStatus<T extends TimedOutAiJobStatusInput>(latest: T): T & {

@@ -103,6 +103,11 @@ enum QuestionType {
   CLOSING
 }
 
+enum QuestionOrigin {
+  MANUAL
+  AI_GENERATED
+}
+
 enum NotificationChannel {
   EMAIL
   IN_APP
@@ -300,6 +305,7 @@ model EvaluationCriterion {
   criterionId      BigInt                     @id @default(autoincrement()) @map("criterion_id")
   postingId        BigInt                     @map("posting_id")
   tagId            BigInt                     @map("tag_id")
+  description      String?
   weight           Int
   passScore        Int?                       @map("pass_score")
   sortOrder        Int                        @map("sort_order")
@@ -319,6 +325,8 @@ model Question {
   criterionId      BigInt?                    @map("criterion_id")
   questionType     QuestionType               @map("question_type")
   content          String
+  origin           QuestionOrigin             @default(MANUAL)
+  isAiEdited       Boolean                    @default(false) @map("is_ai_edited")
   isActive         Boolean                    @default(true) @map("is_active")
   company          Company                    @relation(fields: [companyId], references: [companyId])
   posting          Posting?                   @relation(fields: [postingId], references: [postingId])
@@ -499,6 +507,7 @@ model InterviewAnswer {
   videoFileId       BigInt?            @map("video_file_id")
   audioFileId       BigInt?            @map("audio_file_id")
   transcript        String?
+  nonverbalMetadata Json?              @map("nonverbal_metadata")
   durationSeconds   Int?               @map("duration_seconds")
   submittedAt       DateTime?          @map("submitted_at")
   session           InterviewSession   @relation(fields: [sessionId], references: [sessionId])

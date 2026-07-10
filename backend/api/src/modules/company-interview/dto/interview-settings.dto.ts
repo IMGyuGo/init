@@ -1,6 +1,10 @@
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, Min } from 'class-validator';
-import { PostingStatus, QuestionType } from '../company-interview.types';
+import {
+  PostingStatus,
+  QuestionOrigin,
+  QuestionType,
+} from '../company-interview.types';
 
 export class InterviewSettingsQueryDto {
   @IsOptional()
@@ -41,6 +45,8 @@ export class InterviewSettingsQuestionDto {
   criterionId!: number | null;
   questionType!: QuestionType;
   content!: string;
+  origin!: QuestionOrigin;
+  isAiEdited!: boolean;
   isActive!: boolean;
 }
 

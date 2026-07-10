@@ -4,6 +4,8 @@ import type {
   ConfirmQuestionSetInput,
   ConfirmQuestionSetResult,
   AiJobResult,
+  CreateCriterionTagInput,
+  CreateCriterionTagResult,
   CreateInterviewQuestionInput,
   CreateInterviewQuestionResult,
   EvaluationCriteriaResult,
@@ -22,6 +24,13 @@ import { getApiBaseUrl } from "../../api/api-base-url";
 export async function getInterviewSettings(postingId?: number) {
   return request<InterviewSettings>("/company/interviews/settings", {
     query: { postingId },
+  });
+}
+
+export async function createCriterionTag(input: CreateCriterionTagInput) {
+  return request<CreateCriterionTagResult>("/company/interviews/criterion-tags", {
+    method: "POST",
+    body: input,
   });
 }
 

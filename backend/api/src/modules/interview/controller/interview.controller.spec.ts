@@ -167,6 +167,87 @@ test("mock interview start builds questions from candidate folder context", asyn
   assert.doesNotMatch(content, /대규모 결제 트래픽/);
 });
 
+test("mock answer keeps realtime transcript and nonverbal metadata together", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+  const transcript = "실시간 STT로 변환된 답변입니다.";
+  const nonverbalMetadata = {
+    cameraWarnings: 0,
+    microphoneWarnings: 0,
+    longSilenceCount: 0,
+    testModeUsed: false,
+    integrityEvents: [
+      {
+        type: "GAZE_AWAY",
+        occurredAt: "2026-07-10T10:00:00.000Z",
+        durationMs: 1800,
+        direction: "RIGHT",
+        source: "COMBINED",
+      },
+    ],
+    integritySummary: {
+      gazeAwayCount: 1,
+      suspicionLevel: "LOW",
+    },
+  };
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["INTRO"],
+    showQuestionText: false,
+  });
+  const questions = await controller.listMockQuestions(validCandidateRequest, String(started.data.sessionId));
+  const questionId = questions.data.questions[0]?.questionId ?? 0;
+  const answer = await controller.saveMockAnswer(validCandidateRequest, String(started.data.sessionId), {
+    questionId,
+    audioFile: {
+      storageKey: "candidate/1/realtime-stt-nonverbal-answer.webm",
+      originalName: "realtime-stt-nonverbal-answer.webm",
+      mimeType: "audio/webm",
+      sizeBytes: 2048,
+    },
+    transcript,
+    nonverbalMetadata,
+    durationSeconds: 37,
+  });
+
+  assert.equal(answer.data.answer.transcript, transcript);
+  assert.equal(answer.data.answer.nonverbalMetadata?.source, "CLIENT_RUNTIME_UNVERIFIED");
+  assert.equal(answer.data.answer.nonverbalMetadata?.cameraWarnings, 0);
+  assert.equal(answer.data.answer.nonverbalMetadata?.integritySummary?.gazeAwayCount, 1);
+  assert.equal(answer.data.answer.nonverbalMetadata?.integritySummary?.suspicionLevel, "LOW");
+});
+
+test("mock answer rejects unsupported nonverbal metadata fields at the service boundary", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["INTRO"],
+    showQuestionText: false,
+  });
+  const questions = await controller.listMockQuestions(validCandidateRequest, String(started.data.sessionId));
+  const questionId = questions.data.questions[0]?.questionId ?? 0;
+
+  await assertInterviewHttpError(
+    () => controller.saveMockAnswer(validCandidateRequest, String(started.data.sessionId), {
+      questionId,
+      audioFile: {
+        storageKey: "candidate/1/invalid-nonverbal-answer.webm",
+        originalName: "invalid-nonverbal-answer.webm",
+        mimeType: "audio/webm",
+        sizeBytes: 2048,
+      },
+      durationSeconds: 20,
+      nonverbalMetadata: { forgedScore: 100 },
+    }),
+    400,
+    "COMMON_VALIDATION_FAILED",
+  );
+});
+
 async function assertInterviewHttpError(
   action: () => Promise<unknown>,
   expectedStatus: number,
@@ -476,9 +557,20 @@ test("recording validation skip stores an unanswered answer and allows moving ne
     questionId: firstQuestionId,
     durationSeconds: 0,
     skipReason: "RECORDING_VALIDATION_FAILED",
+    nonverbalMetadata: {
+      integrityEvents: [
+        {
+          type: "TAB_HIDDEN",
+          occurredAt: "2026-07-10T10:00:00.000Z",
+          durationMs: 2500,
+        },
+      ],
+    },
   });
   assert.equal(skipped.data.answer.durationSeconds, 0);
   assert.equal(skipped.data.answer.transcript, "[NO_ANSWER] Recording validation failed twice.");
+  assert.equal(skipped.data.answer.nonverbalMetadata?.source, "CLIENT_RUNTIME_UNVERIFIED");
+  assert.equal(skipped.data.answer.nonverbalMetadata?.integritySummary?.screenAwayCount, 1);
 
   const moved = await controller.moveMockNextQuestion(validCandidateRequest, String(started.data.sessionId));
   assert.equal(moved.data.previousQuestionId, firstQuestionId);
