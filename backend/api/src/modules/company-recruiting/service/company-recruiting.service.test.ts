@@ -1338,6 +1338,79 @@ describe("CompanyRecruitingService", () => {
     assert.ok(adjustment.reasons.includes("여러 얼굴 감지 1회"));
   });
 
+  it("classifies recruiting integrity signal boundaries without over-penalizing gaze", async () => {
+    const evaluate = async (integritySummary: Record<string, number>) => {
+      const repository = createRepository({
+        async findApplicationForCompany() {
+          return createApplicantRecord({
+            evaluationReports: [
+              {
+                reportId: 501,
+                status: "COMPLETED",
+                totalScore: 80,
+                summary: "Recruiting report summary",
+                generatedAt: new Date("2026-06-30T08:00:00.000Z"),
+                scores: [],
+              },
+            ],
+            interviewSessions: [
+              {
+                sessionId: 901,
+                status: "COMPLETED",
+                interviewType: "RECRUITING",
+                startedAt: new Date("2026-07-01T00:00:00.000Z"),
+                completedAt: new Date("2026-07-01T00:10:00.000Z"),
+                answers: [
+                  {
+                    answerId: 1001,
+                    questionId: 501,
+                    videoFileId: null,
+                    audioFileId: null,
+                    videoFile: null,
+                    audioFile: null,
+                    questionType: "TECHNICAL",
+                    questionContent: "Explain a difficult technical problem.",
+                    transcript: "I debugged upload state transitions.",
+                    durationSeconds: 31,
+                    submittedAt: new Date("2026-07-01T00:02:00.000Z"),
+                    nonverbalMetadata: { integritySummary },
+                    followUpQuestions: [],
+                  },
+                ],
+              },
+            ],
+          });
+        },
+      });
+      const service = new CompanyRecruitingService(repository);
+      const result = await service.getApplicantEvaluation(companyUser, 77);
+      return result.report?.integrityAdjustment;
+    };
+
+    const scenarios = [
+      { name: "single gaze", summary: { gazeAwayCount: 1 }, level: "LOW", penalty: 0 },
+      { name: "repeated gaze", summary: { gazeAwayCount: 2 }, level: "MEDIUM", penalty: 2 },
+      { name: "single screen away", summary: { screenAwayCount: 1 }, level: "LOW", penalty: 0 },
+      { name: "repeated screen away", summary: { screenAwayCount: 2 }, level: "MEDIUM", penalty: 2 },
+      { name: "frequent screen away", summary: { screenAwayCount: 4 }, level: "HIGH", penalty: 5 },
+      { name: "single face missing", summary: { faceMissingCount: 1 }, level: "MEDIUM", penalty: 2 },
+      { name: "repeated face missing", summary: { faceMissingCount: 2 }, level: "HIGH", penalty: 5 },
+      { name: "multiple faces", summary: { multipleFacesCount: 1 }, level: "HIGH", penalty: 5 },
+      { name: "face position shift", summary: { facePositionShiftCount: 1 }, level: "HIGH", penalty: 5 },
+      { name: "single voice mouth mismatch", summary: { voiceMouthMismatchCount: 1 }, level: "MEDIUM", penalty: 2 },
+      { name: "repeated voice mouth mismatch", summary: { voiceMouthMismatchCount: 2 }, level: "HIGH", penalty: 5 },
+      { name: "static video frame", summary: { staticVideoFrameCount: 1 }, level: "HIGH", penalty: 5 },
+    ] as const;
+
+    for (const scenario of scenarios) {
+      const adjustment = await evaluate(scenario.summary);
+      assert.ok(adjustment, scenario.name);
+      assert.equal(adjustment.level, scenario.level, scenario.name);
+      assert.equal(adjustment.penalty, scenario.penalty, scenario.name);
+      assert.equal(adjustment.adjustedTotalScore, 80 - scenario.penalty, scenario.name);
+    }
+  });
+
   it("returns evaluation detail with interview answers and linked follow-up answers", async () => {
     const repository = createRepository({
       async findApplicationForCompany(applicationId: number, companyId: number) {
