@@ -777,7 +777,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
         <div className="page-banner">
           <div className="page-banner-copy">
             <div className="page-head-lead">
-              <BackButton />
+              <BackButton fallbackHref={postingId ? `/company/recruitments/${postingId}` : "/company/recruitments"} />
             </div>
             <p className="page-eyebrow">면접 설정</p>
             <h1>면접 관리</h1>
