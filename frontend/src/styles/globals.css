@@ -3024,9 +3024,16 @@ td input {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(20, 19, 28, 0.4);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  background: rgba(20, 19, 28, 0.44);
+  animation: modalBackdropIn 0.16s ease;
+}
+@keyframes modalBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes modalPopIn {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to { opacity: 1; transform: none; }
 }
 
 .modal {
@@ -3038,10 +3045,51 @@ td input {
   border: 1px solid var(--line-soft);
   border-radius: var(--r-card);
   box-shadow: 0 28px 70px rgba(20, 18, 45, 0.24);
+  animation: modalPopIn 0.18s cubic-bezier(0.34, 1.4, 0.5, 1);
 }
 
 .wide-modal {
   width: min(820px, 100%);
+}
+
+.open-confirm-modal {
+  width: min(400px, 100%);
+  padding: 32px 28px 24px;
+  text-align: center;
+}
+.open-confirm-icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 18px;
+  color: rgba(55, 53, 47, 0.5);
+  background: rgba(55, 53, 47, 0.06);
+  border-radius: 50%;
+}
+.open-confirm-title {
+  margin: 0 0 8px;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #191919;
+}
+.open-confirm-desc {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: rgba(55, 53, 47, 0.6);
+}
+.open-confirm-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 24px;
+}
+.open-confirm-actions .btn {
+  flex: 1;
+  height: 48px;
+  border-radius: 12px;
+  font-size: 15px;
 }
 
 .modal-head {
