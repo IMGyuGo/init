@@ -8603,6 +8603,39 @@ p {
 
 /* 우측 스티키 지원 버튼 */
 .notion .jobdetail-aside { position: sticky; top: 84px; margin-top: 30px; }
+
+/* 우측 사이드 비슷한 공고 추천 (#270) */
+.notion .jobdetail-related { margin-top: 24px; padding-top: 20px; border-top: 1px solid rgba(55, 53, 47, 0.1); }
+.notion .jobdetail-related-title { margin: 0 0 12px; font-size: 15px; font-weight: 700; color: #191919; }
+.notion .jobdetail-related-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.notion .jobdetail-related-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 8px;
+  border-bottom: 1px solid rgba(55, 53, 47, 0.07);
+  text-decoration: none;
+  transition: background 0.12s ease;
+}
+.notion .jobdetail-related-list li:last-child .jobdetail-related-card { border-bottom: 0; }
+.notion .jobdetail-related-card:hover { background: rgba(55, 53, 47, 0.03); }
+.notion .jobdetail-related-logo {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  overflow: hidden;
+  background: #f4f4f2;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 50%;
+}
+.notion .jobdetail-related-logo img { width: 100%; height: 100%; object-fit: cover; }
+.notion .jobdetail-related-logo-fallback { font-size: 16px; font-weight: 700; color: rgba(55, 53, 47, 0.5); }
+.notion .jobdetail-related-text { display: grid; gap: 2px; min-width: 0; }
+.notion .jobdetail-related-company { overflow: hidden; font-size: 12px; font-weight: 500; color: rgba(55, 53, 47, 0.55); text-overflow: ellipsis; white-space: nowrap; }
+.notion .jobdetail-related-name { overflow: hidden; font-size: 14px; font-weight: 700; color: #191919; text-overflow: ellipsis; white-space: nowrap; }
+.notion .jobdetail-related-meta { overflow: hidden; font-size: 12.5px; font-weight: 500; color: #3b6fe0; text-overflow: ellipsis; white-space: nowrap; }
 .app-shell .glass-page.notion .btn.primary.jobdetail-apply-cta {
   display: inline-flex;
   align-items: center;

@@ -870,6 +870,8 @@ function JobsPagination({
 
 export interface CandidateJobDetailViewProps {
   job: CandidateJobDetail;
+  /** 같은 직무의 추천 공고(우측 사이드). */
+  relatedJobs?: CandidateJobSummary[];
   /** 지정하면 지원하기 버튼이 페이지 이동 대신 이 핸들러(모달 열기)를 호출한다. */
   onApplyClick?: () => void;
 }
@@ -883,7 +885,24 @@ function extractJobImages(jobDescription: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
-export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetailViewProps) {
+// 추천 공고 로고 — URL 없거나 로드 실패 시 회사명 첫 글자 이니셜로 대체.
+function RelatedJobLogo({ logoUrl, companyName }: { logoUrl: string | null; companyName: string }) {
+  const [failed, setFailed] = useState(false);
+  const initial = companyName.trim().charAt(0) || "?";
+  return (
+    <span className="jobdetail-related-logo" aria-hidden="true">
+      {logoUrl && !failed ? (
+        // 외부/스토리지 URL 이라 next/image 최적화 대상 아님
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={logoUrl} alt="" onError={() => setFailed(true)} />
+      ) : (
+        <span className="jobdetail-related-logo-fallback">{initial}</span>
+      )}
+    </span>
+  );
+}
+
+export function CandidateJobDetailView({ job, relatedJobs = [], onApplyClick }: CandidateJobDetailViewProps) {
   const actionHref = getCandidateJobDetailActionHref(job);
   const galleryRef = useRef<HTMLDivElement>(null);
   const [images, setImages] = useState<string[]>([]);
@@ -1014,6 +1033,28 @@ export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetail
               {job.alreadyApplied ? "지원 완료" : "지원하기"}
             </a>
           )}
+
+          {relatedJobs.length ? (
+            <section className="jobdetail-related" aria-label="비슷한 공고">
+              <h2 className="jobdetail-related-title">비슷한 공고</h2>
+              <ul className="jobdetail-related-list">
+                {relatedJobs.map((related) => (
+                  <li key={related.jobId}>
+                    <a className="jobdetail-related-card" href={candidateApplicationInterviewRoutes.jobDetail(related.jobId)}>
+                      <RelatedJobLogo logoUrl={related.companyLogoUrl} companyName={related.companyName} />
+                      <span className="jobdetail-related-text">
+                        <span className="jobdetail-related-company">{related.companyName}</span>
+                        <span className="jobdetail-related-name">{related.title}</span>
+                        <span className="jobdetail-related-meta">
+                          {[related.careerLevel, related.employmentType, displayLocation(related.location)].filter(Boolean).join(", ")}
+                        </span>
+                      </span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
         </aside>
       </div>
     </section>

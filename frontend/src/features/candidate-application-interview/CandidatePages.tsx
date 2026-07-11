@@ -37,6 +37,7 @@ import {
   type CandidateFollowUpQuestionView,
   type CandidateInterviewRuntimeView,
   type CandidateJobQuery,
+  type CandidateJobSummary,
   type CandidateMockInterviewHistoryItem,
   type CandidateMockReportSummary,
   type CandidateMockReportFeedback,
@@ -583,6 +584,29 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
   const [applyError, setApplyError] = useState("");
   const [message, setMessage] = useState("");
 
+  // 같은 직무의 다른 공고를 추천으로 노출한다(우측 사이드). 별도 추천 API 없이 목록 API 재사용.
+  const [relatedJobs, setRelatedJobs] = useState<CandidateJobSummary[]>([]);
+  const relatedRole = data?.data.jobRole;
+  const currentJobId = data?.data.jobId;
+  useEffect(() => {
+    if (!relatedRole || !currentJobId) {
+      setRelatedJobs([]);
+      return;
+    }
+    let active = true;
+    getCandidateApi()
+      .listJobs({ jobRoles: [relatedRole], limit: 8, sort: "createdAt", order: "desc" })
+      .then((res) => {
+        if (active) setRelatedJobs(res.data.items.filter((item) => item.jobId !== currentJobId).slice(0, 5));
+      })
+      .catch(() => {
+        if (active) setRelatedJobs([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [relatedRole, currentJobId]);
+
   async function handleResumeFileSelect(file: File) {
     setApplyBusy(true);
     setApplyError("");
@@ -630,7 +654,7 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
   return (
     <CandidatePageShell active="jobs">
       <StatusNotice loading={loading} error={error} message={message} />
-      {data ? <CandidateJobDetailView job={data.data} onApplyClick={() => setApplyOpen(true)} /> : null}
+      {data ? <CandidateJobDetailView job={data.data} relatedJobs={relatedJobs} onApplyClick={() => setApplyOpen(true)} /> : null}
       {applyOpen && data ? (
         <CandidateApplyModal
           job={data.data}
