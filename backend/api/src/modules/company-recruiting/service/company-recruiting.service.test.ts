@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import { CompanyRecruitingService } from "./company-recruiting.service";
 import type { ApplicantRecord } from "../company-recruiting.types";
+import type { SubmitPublicApplicationDto } from "../dto/submit-public-application.dto";
 
 const companyUser = {
   userId: 1,
@@ -229,6 +230,14 @@ function createApplicantRecord(overrides: Partial<ApplicantRecord> = {}): Applic
     applicationId: 77,
     postingId: 101,
     candidateId: 44,
+    applicantName: "Kim Applicant",
+    applicantEmail: "kim@example.com",
+    applicantPhone: "010-0000-0000",
+    githubUrl: "https://github.com/kim",
+    blogUrl: "https://blog.example.com/kim",
+    portfolioUrl: "https://portfolio.example.com/kim",
+    motivation: "지원 동기입니다.",
+    additionalInfo: "추가 설명입니다.",
     applicationStatus: "SUBMITTED",
     documentStatus: "NOT_SUBMITTED",
     interviewStatus: "NOT_READY",
@@ -239,6 +248,9 @@ function createApplicantRecord(overrides: Partial<ApplicantRecord> = {}): Applic
     updatedAt: new Date("2026-06-29T00:00:00.000Z"),
     candidate: {
       candidateId: 44,
+      githubUrl: "https://github.com/kim",
+      portfolioUrl: "https://portfolio.example.com/kim",
+      summary: "지원자 소개",
       user: {
         userId: 88,
         email: "kim@example.com",
@@ -246,6 +258,26 @@ function createApplicantRecord(overrides: Partial<ApplicantRecord> = {}): Applic
         phone: "010-0000-0000",
       },
     },
+    documents: [
+      {
+        documentId: 901,
+        applicationId: 77,
+        fileId: 701,
+        documentType: "RESUME",
+        parseStatus: "SUBMITTED",
+        uploadedAt: new Date("2026-06-29T00:00:00.000Z"),
+        file: {
+          fileId: 701,
+          ownerUserId: 88,
+          storageKey: "public-applications/101/candidate-44/resume/resume.pdf",
+          originalName: "resume.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 2048,
+          status: "ACTIVE",
+          createdAt: new Date("2026-06-29T00:00:00.000Z"),
+        },
+      },
+    ],
     posting: {
       postingId: 101,
       title: "Backend Developer",
@@ -303,6 +335,23 @@ function createUploadFile(originalName: string, mimeType = "application/pdf") {
     mimeType,
     sizeBytes: 2048,
     buffer: Buffer.from(`${originalName}-bytes`),
+  };
+}
+
+function createPublicApplicationDto(
+  overrides: Partial<SubmitPublicApplicationDto> = {},
+): SubmitPublicApplicationDto {
+  return {
+    name: "김지원",
+    email: "jiwon@example.com",
+    phone: "010-0000-0000",
+    githubUrl: "https://github.com/jiwon",
+    blogUrl: "https://blog.example.com/jiwon",
+    portfolioUrl: "https://portfolio.example.com/jiwon",
+    motivation: "지원 동기입니다.",
+    additionalInfo: "추가 설명입니다.",
+    consentAgreed: true,
+    ...overrides,
   };
 }
 
@@ -671,14 +720,12 @@ describe("CompanyRecruitingService", () => {
 
     const result = await service.submitPublicApplication(
       101,
-      {
-        name: "김지원",
+      createPublicApplicationDto({
         email: " JIWON@EXAMPLE.COM ",
-        phone: "010-0000-0000",
         portfolioUrl: "https://github.com/jiwon",
-        resumeText: "백엔드 프로젝트 경험이 있습니다.",
-        consentAgreed: true,
-      },
+        motivation: "백엔드 프로젝트 경험을 활용하고 싶습니다.",
+        additionalInfo: "백엔드 프로젝트 경험이 있습니다.",
+      }),
       {
         resumeFile: createUploadFile("resume.pdf"),
       },
@@ -691,12 +738,25 @@ describe("CompanyRecruitingService", () => {
         name: "김지원",
         email: "jiwon@example.com",
         phone: "010-0000-0000",
-        githubUrl: null,
+        githubUrl: "https://github.com/jiwon",
         portfolioUrl: "https://github.com/jiwon",
-        summary: "백엔드 프로젝트 경험이 있습니다.",
+        summary: "지원동기:\n백엔드 프로젝트 경험을 활용하고 싶습니다.\n\n추가 설명:\n백엔드 프로젝트 경험이 있습니다.",
       },
     ]);
-    assert.deepEqual(repository.calls.createApplication, [{ postingId: 101, candidateId: 44, screeningMemo: null, documentStatus: "SUBMITTED" }]);
+    assert.deepEqual(repository.calls.createApplication, [{
+      postingId: 101,
+      candidateId: 44,
+      applicantName: "김지원",
+      applicantEmail: "jiwon@example.com",
+      applicantPhone: "010-0000-0000",
+      githubUrl: "https://github.com/jiwon",
+      blogUrl: "https://blog.example.com/jiwon",
+      portfolioUrl: "https://github.com/jiwon",
+      motivation: "백엔드 프로젝트 경험을 활용하고 싶습니다.",
+      additionalInfo: "백엔드 프로젝트 경험이 있습니다.",
+      screeningMemo: null,
+      documentStatus: "SUBMITTED",
+    }]);
     assert.deepEqual(publicApplicationAuthAdapter.calls.requestEmailVerification, [
       {
         applicationId: 77,
@@ -731,16 +791,11 @@ describe("CompanyRecruitingService", () => {
 
     await service.submitPublicApplication(
       101,
-      {
-        name: "김지원",
-        email: "jiwon@example.com",
-        phone: "010-0000-0000",
-        githubBlogUrl: "https://github.com/jiwon",
-        portfolioMode: "FILE",
+      createPublicApplicationDto({
+        portfolioUrl: undefined,
         motivation: "크래프톤 백엔드 직무에 지원합니다.",
         additionalInfo: "대규모 트래픽 프로젝트 경험이 있습니다.",
-        consentAgreed: true,
-      },
+      }),
       {
         resumeFile: createUploadFile("resume.pdf"),
         portfolioFile: createUploadFile("portfolio.pdf"),
@@ -774,12 +829,7 @@ describe("CompanyRecruitingService", () => {
       () =>
         service.submitPublicApplication(
           101,
-          {
-            name: "김지원",
-            email: "jiwon@example.com",
-            phone: "010-0000-0000",
-            consentAgreed: true,
-          },
+          createPublicApplicationDto(),
           { resumeFile: createUploadFile("resume.txt", "text/plain") },
         ),
       (error: unknown) =>
@@ -790,6 +840,29 @@ describe("CompanyRecruitingService", () => {
     );
     assert.equal(storageAdapter.calls.putObject, undefined);
     assert.equal(repository.calls.createApplication, undefined);
+  });
+
+  it("requires links, application text, and at least one portfolio artifact", async () => {
+    const storageAdapter = createStorageAdapter();
+    const repository = createRepository();
+    const service = new CompanyRecruitingService(repository, storageAdapter);
+
+    await assert.rejects(
+      () => service.submitPublicApplication(
+        101,
+        createPublicApplicationDto({ portfolioUrl: undefined }),
+        { resumeFile: createUploadFile("resume.pdf") },
+      ),
+      (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
+    await assert.rejects(
+      () => service.submitPublicApplication(
+        101,
+        createPublicApplicationDto({ blogUrl: undefined }),
+        { resumeFile: createUploadFile("resume.pdf"), portfolioFile: createUploadFile("portfolio.pdf") },
+      ),
+      (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
   });
 
   it("returns public application status only after magic link token verification", async () => {
@@ -862,12 +935,7 @@ describe("CompanyRecruitingService", () => {
 
     await assert.rejects(
       () =>
-        service.submitPublicApplication(101, {
-          name: "김지원",
-          email: "jiwon@example.com",
-          phone: "010-0000-0000",
-          consentAgreed: true,
-        }),
+        service.submitPublicApplication(101, createPublicApplicationDto()),
       /이미 이 공고에 지원한 이메일입니다/,
     );
     assert.equal(repository.calls.findOrCreatePublicCandidate, undefined);
@@ -891,12 +959,7 @@ describe("CompanyRecruitingService", () => {
       () =>
         service.submitPublicApplication(
           101,
-          {
-            name: "김지원",
-            email: "jiwon@example.com",
-            phone: "010-0000-0000",
-            consentAgreed: true,
-          },
+          createPublicApplicationDto(),
           { resumeFile: createUploadFile("resume.pdf") },
         ),
       (error: unknown) =>
@@ -924,12 +987,7 @@ describe("CompanyRecruitingService", () => {
 
     const result = await service.submitPublicApplication(
       202,
-      {
-        name: "김지원",
-        email: "existing@example.com",
-        phone: "010-0000-0000",
-        consentAgreed: true,
-      },
+      createPublicApplicationDto({ email: "existing@example.com" }),
       { resumeFile: createUploadFile("resume.pdf") },
     );
 
@@ -940,12 +998,25 @@ describe("CompanyRecruitingService", () => {
         name: "김지원",
         email: "existing@example.com",
         phone: "010-0000-0000",
-        githubUrl: null,
-        portfolioUrl: null,
-        summary: null,
+        githubUrl: "https://github.com/jiwon",
+        portfolioUrl: "https://portfolio.example.com/jiwon",
+        summary: "지원동기:\n지원 동기입니다.\n\n추가 설명:\n추가 설명입니다.",
       },
     ]);
-    assert.deepEqual(repository.calls.createApplication, [{ postingId: 202, candidateId: 44, screeningMemo: null, documentStatus: "SUBMITTED" }]);
+    assert.deepEqual(repository.calls.createApplication, [{
+      postingId: 202,
+      candidateId: 44,
+      applicantName: "김지원",
+      applicantEmail: "existing@example.com",
+      applicantPhone: "010-0000-0000",
+      githubUrl: "https://github.com/jiwon",
+      blogUrl: "https://blog.example.com/jiwon",
+      portfolioUrl: "https://portfolio.example.com/jiwon",
+      motivation: "지원 동기입니다.",
+      additionalInfo: "추가 설명입니다.",
+      screeningMemo: null,
+      documentStatus: "SUBMITTED",
+    }]);
     assert.equal(result.applicationStatus, "SUBMITTED");
   });
 
@@ -960,12 +1031,7 @@ describe("CompanyRecruitingService", () => {
 
     await assert.rejects(
       () =>
-        service.submitPublicApplication(101, {
-          name: "김지원",
-          email: "company@example.com",
-          phone: "010-0000-0000",
-          consentAgreed: true,
-        }),
+        service.submitPublicApplication(101, createPublicApplicationDto({ email: "company@example.com" })),
       /지원자 계정이 아닌 이메일/,
     );
     assert.equal(repository.calls.findOrCreatePublicCandidate, undefined);
@@ -978,12 +1044,7 @@ describe("CompanyRecruitingService", () => {
 
     await assert.rejects(
       () =>
-        service.submitPublicApplication(101, {
-          name: "김지원",
-          email: "jiwon@example.com",
-          phone: "010-0000-0000",
-          consentAgreed: false,
-        }),
+        service.submitPublicApplication(101, createPublicApplicationDto({ consentAgreed: false })),
       /동의가 필요합니다/,
     );
     assert.equal(repository.calls.findApplicationByPostingAndEmail, undefined);
@@ -1186,6 +1247,31 @@ describe("CompanyRecruitingService", () => {
     assert.equal(result.reportAvailability, "NONE_OR_GENERATING");
     assert.equal(result.report, null);
     assert.equal(result.screening.decision, "UNDECIDED");
+    assert.equal(result.submission.githubUrl, "https://github.com/kim");
+    assert.equal(result.submission.blogUrl, "https://blog.example.com/kim");
+    assert.equal(result.submission.motivation, "지원 동기입니다.");
+    assert.equal(result.submission.documents[0]?.originalName, "resume.pdf");
+  });
+
+  it("streams only documents attached to the current company application", async () => {
+    const repository = createRepository();
+    const storageAdapter = {
+      async putObject() {},
+      async getObject(key: string) {
+        assert.equal(key, "public-applications/101/candidate-44/resume/resume.pdf");
+        return { body: Buffer.from("pdf-bytes"), contentType: "application/pdf", contentLength: 9 };
+      },
+    };
+    const service = new CompanyRecruitingService(repository, storageAdapter);
+
+    const document = await service.getApplicantDocument(companyUser, 77, 701);
+    assert.equal(document.originalName, "resume.pdf");
+    assert.equal(document.contentType, "application/pdf");
+
+    await assert.rejects(
+      () => service.getApplicantDocument({ ...companyUser, companyId: 8 }, 77, 701),
+      (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_NOT_FOUND",
+    );
   });
 
   it("returns evaluation detail with report summary, score, and evidence when available", async () => {

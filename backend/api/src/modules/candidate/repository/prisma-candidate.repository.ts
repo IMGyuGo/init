@@ -15,6 +15,7 @@ import {
   type Application,
   type ApplicationDocument,
   type ApplicationSubmissionResult,
+  type CandidateFolder,
   type CandidateJob,
   type CandidateRepository,
   type ConsentRecord,
@@ -56,6 +57,9 @@ interface CandidatePostingSchemaShape {
 
 type ApplicationRecord = Prisma.ApplicationGetPayload<Record<string, never>>;
 type ApplicationDocumentRecord = Prisma.ApplicationDocumentGetPayload<Record<string, never>>;
+type CandidateFolderRecord = Prisma.CandidateFolderGetPayload<{
+  include: { resumeFile: { select: { originalName: true } } };
+}>;
 type ConsentRecordModel = Prisma.ConsentRecordGetPayload<Record<string, never>>;
 type FileAssetRecord = Prisma.FileAssetGetPayload<Record<string, never>>;
 type InterviewSessionRecord = Prisma.InterviewSessionGetPayload<{ include: { application: true } }>;
@@ -121,6 +125,19 @@ export class PrismaCandidateRepository implements CandidateRepository {
       orderBy: { uploadedAt: "asc" },
     });
     return documents.map((document) => this.toApplicationDocument(document));
+  }
+
+  async findLatestExtractedTextByFileId(fileId: number): Promise<string | null> {
+    const document = await this.prisma.applicationDocument.findFirst({
+      where: {
+        fileId: BigInt(fileId),
+        parseStatus: "EXTRACTED",
+        extractedText: { not: null },
+      },
+      orderBy: { uploadedAt: "desc" },
+      select: { extractedText: true },
+    });
+    return document?.extractedText ?? null;
   }
 
   async listConsentRecords(applicationId: number): Promise<ConsentRecord[]> {
@@ -248,9 +265,16 @@ export class PrismaCandidateRepository implements CandidateRepository {
   async createApplication(input: {
     postingId: number;
     candidateId: number;
+    candidateName?: string;
+    email?: string;
+    phone?: string;
+    githubUrl?: string;
+    blogUrl?: string;
     resumeFileId: number;
     portfolioFileId?: number;
     portfolioUrl?: string;
+    motivation?: string;
+    additionalInfo?: string;
     consentTypes: ConsentRecord["consentType"][];
   }): Promise<ApplicationSubmissionResult> {
     try {
@@ -260,6 +284,14 @@ export class PrismaCandidateRepository implements CandidateRepository {
         data: {
           postingId: BigInt(input.postingId),
           candidateId: BigInt(input.candidateId),
+          applicantName: input.candidateName,
+          applicantEmail: input.email,
+          applicantPhone: input.phone,
+          githubUrl: input.githubUrl,
+          blogUrl: input.blogUrl,
+          portfolioUrl: input.portfolioUrl,
+          motivation: input.motivation,
+          additionalInfo: input.additionalInfo,
           applicationStatus: PrismaApplicationStatus.SUBMITTED,
           documentStatus: PrismaDocumentStatus.SUBMITTED,
           interviewStatus: PrismaInterviewStatus.NOT_READY,
@@ -376,6 +408,72 @@ export class PrismaCandidateRepository implements CandidateRepository {
       portfolioLinkId: input.fileId ?? input.candidateId,
       createdAt: new Date().toISOString(),
     };
+  }
+
+  countFolders(candidateId: number): Promise<number> {
+    return this.prisma.candidateFolder.count({
+      where: { candidateId: BigInt(candidateId) },
+    });
+  }
+
+  async listFolders(candidateId: number): Promise<CandidateFolder[]> {
+    const folders = await this.prisma.candidateFolder.findMany({
+      where: { candidateId: BigInt(candidateId) },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      include: { resumeFile: { select: { originalName: true } } },
+    });
+    return folders.map((folder) => this.toCandidateFolder(folder));
+  }
+
+  async findFolder(folderId: number): Promise<CandidateFolder | undefined> {
+    const folder = await this.prisma.candidateFolder.findUnique({
+      where: { id: BigInt(folderId) },
+      include: { resumeFile: { select: { originalName: true } } },
+    });
+    return folder ? this.toCandidateFolder(folder) : undefined;
+  }
+
+  async createFolder(
+    input: Omit<CandidateFolder, "id" | "resumeFileName" | "createdAt" | "updatedAt">,
+  ): Promise<CandidateFolder> {
+    const folder = await this.prisma.candidateFolder.create({
+      data: {
+        candidateId: BigInt(input.candidateId),
+        name: input.name,
+        githubUrl: input.githubUrl,
+        blogUrl: input.blogUrl,
+        portfolioUrl: input.portfolioUrl,
+        resumeFileId: input.resumeFileId ? BigInt(input.resumeFileId) : null,
+        motivation: input.motivation,
+        extraNote: input.extraNote,
+      },
+      include: { resumeFile: { select: { originalName: true } } },
+    });
+    return this.toCandidateFolder(folder);
+  }
+
+  async updateFolder(
+    folderId: number,
+    input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "createdAt" | "updatedAt">>,
+  ): Promise<CandidateFolder> {
+    const folder = await this.prisma.candidateFolder.update({
+      where: { id: BigInt(folderId) },
+      data: {
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.githubUrl !== undefined ? { githubUrl: input.githubUrl } : {}),
+        ...(input.blogUrl !== undefined ? { blogUrl: input.blogUrl } : {}),
+        ...(input.portfolioUrl !== undefined ? { portfolioUrl: input.portfolioUrl } : {}),
+        ...(input.resumeFileId !== undefined ? { resumeFileId: input.resumeFileId ? BigInt(input.resumeFileId) : null } : {}),
+        ...(input.motivation !== undefined ? { motivation: input.motivation } : {}),
+        ...(input.extraNote !== undefined ? { extraNote: input.extraNote } : {}),
+      },
+      include: { resumeFile: { select: { originalName: true } } },
+    });
+    return this.toCandidateFolder(folder);
+  }
+
+  async deleteFolder(folderId: number): Promise<void> {
+    await this.prisma.candidateFolder.delete({ where: { id: BigInt(folderId) } });
   }
 
   private async findCandidatePostingRows(
@@ -504,6 +602,14 @@ export class PrismaCandidateRepository implements CandidateRepository {
       applicationId: Number(application.applicationId),
       postingId: Number(application.postingId),
       candidateId: Number(application.candidateId),
+      applicantName: application.applicantName,
+      applicantEmail: application.applicantEmail,
+      applicantPhone: application.applicantPhone,
+      githubUrl: application.githubUrl,
+      blogUrl: application.blogUrl,
+      portfolioUrl: application.portfolioUrl,
+      motivation: application.motivation,
+      additionalInfo: application.additionalInfo,
       applicationStatus: application.applicationStatus,
       documentStatus: application.documentStatus,
       interviewStatus: application.interviewStatus,
@@ -520,6 +626,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
       fileId: Number(document.fileId ?? 0),
       documentType: document.documentType,
       parseStatus: document.parseStatus,
+      extractedText: document.extractedText,
       uploadedAt: document.uploadedAt.toISOString(),
     };
   }
@@ -544,6 +651,23 @@ export class PrismaCandidateRepository implements CandidateRepository {
       sizeBytes: Number(fileAsset.sizeBytes),
       status: "ACTIVE",
       createdAt: fileAsset.createdAt.toISOString(),
+    };
+  }
+
+  private toCandidateFolder(folder: CandidateFolderRecord): CandidateFolder {
+    return {
+      id: Number(folder.id),
+      candidateId: Number(folder.candidateId),
+      name: folder.name,
+      githubUrl: folder.githubUrl,
+      blogUrl: folder.blogUrl,
+      portfolioUrl: folder.portfolioUrl,
+      resumeFileId: folder.resumeFileId ? Number(folder.resumeFileId) : null,
+      resumeFileName: folder.resumeFile?.originalName ?? null,
+      motivation: folder.motivation,
+      extraNote: folder.extraNote,
+      createdAt: folder.createdAt.toISOString(),
+      updatedAt: folder.updatedAt.toISOString(),
     };
   }
 

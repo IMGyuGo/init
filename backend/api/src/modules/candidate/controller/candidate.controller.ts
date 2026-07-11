@@ -3,12 +3,14 @@ import {
   Body,
   Catch,
   Controller,
+  Delete,
   ExceptionFilter,
   Get,
   HttpCode,
   HttpException,
   Inject,
   Param,
+  Patch,
   PayloadTooLargeException,
   Post,
   Query,
@@ -28,6 +30,7 @@ import { candidateApiRoutePrefix, candidateApiRoutes } from "../candidate.routes
 import { CandidateDomainError, createCandidateErrorResponse } from "../candidate.errors";
 import { CandidateService, MAX_DOCUMENT_SIZE_BYTES } from "../service/candidate.service";
 import { CandidateJobListQueryDto } from "../dto/candidate-job-list-query.dto";
+import { CreateCandidateFolderDto, UpdateCandidateFolderDto } from "../dto/candidate-folder.dto";
 import { CreatePortfolioLinkDto } from "../dto/create-portfolio-link.dto";
 import { SaveInterviewConsentDto } from "../dto/save-interview-consent.dto";
 import { SubmitApplicationDto } from "../dto/submit-application.dto";
@@ -126,6 +129,52 @@ export class CandidateController {
     return this.handle(() => {
       const currentUser = resolveCurrentCandidate(request.currentUser);
       return this.candidateService.createPortfolioLink(dto, currentUser);
+    });
+  }
+
+  @Get(candidateApiRoutes.folders)
+  listFolders(@Req() request: CandidateRequest) {
+    return this.handle(() => {
+      const currentUser = resolveCurrentCandidate(request.currentUser);
+      return this.candidateService.listFolders(currentUser);
+    });
+  }
+
+  @Post(candidateApiRoutes.folders)
+  @HttpCode(201)
+  createFolder(@Req() request: CandidateRequest, @Body() dto: CreateCandidateFolderDto) {
+    return this.handle(() => {
+      const currentUser = resolveCurrentCandidate(request.currentUser);
+      return this.candidateService.createFolder(dto, currentUser);
+    });
+  }
+
+  @Get(candidateApiRoutes.folderDetail)
+  getFolder(@Req() request: CandidateRequest, @Param("folderId") folderId: string) {
+    return this.handle(() => {
+      const currentUser = resolveCurrentCandidate(request.currentUser);
+      return this.candidateService.getFolder(Number(folderId), currentUser);
+    });
+  }
+
+  @Patch(candidateApiRoutes.folderDetail)
+  updateFolder(
+    @Req() request: CandidateRequest,
+    @Param("folderId") folderId: string,
+    @Body() dto: UpdateCandidateFolderDto,
+  ) {
+    return this.handle(() => {
+      const currentUser = resolveCurrentCandidate(request.currentUser);
+      return this.candidateService.updateFolder(Number(folderId), dto, currentUser);
+    });
+  }
+
+  @Delete(candidateApiRoutes.folderDetail)
+  @HttpCode(204)
+  deleteFolder(@Req() request: CandidateRequest, @Param("folderId") folderId: string) {
+    return this.handle(async () => {
+      const currentUser = resolveCurrentCandidate(request.currentUser);
+      await this.candidateService.deleteFolder(Number(folderId), currentUser);
     });
   }
 

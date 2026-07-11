@@ -2,6 +2,7 @@ import { Inject, Injectable, Optional } from "@nestjs/common";
 import {
   CandidateDomainError,
   CandidateService,
+  type CandidateFolderContext,
   type CurrentCandidateUser,
   type FileAsset,
   type InterviewSession,
@@ -37,7 +38,13 @@ import {
   CandidateMockInterviewPassService,
   type CandidateMockInterviewPassPort,
 } from "../../payment/service/candidate-mock-interview-pass.service";
-import { INTERVIEW_REPOSITORY, type FollowUpQuestionPolicy, type InterviewRepository } from "../repository/interview.repository";
+import {
+  INTERVIEW_REPOSITORY,
+  type CreateMockContextQuestionInput,
+  type CreateMockInterviewSessionInput,
+  type FollowUpQuestionPolicy,
+  type InterviewRepository,
+} from "../repository/interview.repository";
 import {
   InMemoryInterviewMediaStorageAdapter,
   INTERVIEW_MEDIA_STORAGE,
@@ -73,6 +80,7 @@ type AnswerRequestBody = {
   nonverbalMetadata?: InterviewAnswerNonverbalMetadata;
   retryAnswerId?: number;
 };
+type MockQuestionType = InterviewQuestion["questionType"];
 
 type OpenAiRealtimeClientSecretResponse = {
   value?: string;
@@ -124,16 +132,24 @@ export class InterviewService {
   ): Promise<{ data: StartMockInterviewResult; meta: { traceId: string; timestamp: string } }> {
     const requestBody = this.toRequestBody(dto, "mockInterview");
     const showQuestionText = requestBody.showQuestionText === true;
-    const questionIds = await this.selectMockQuestionIds(dto);
+    const questionTypes = this.resolveMockQuestionTypes(requestBody);
+    const folderId = this.normalizeOptionalFolderId(requestBody.folderId);
+    const contextQuestions = folderId
+      ? await this.buildFolderMockQuestionsForCurrentUser(folderId, questionTypes, currentUser)
+      : undefined;
+    const questionIds = contextQuestions ? undefined : await this.selectMockQuestionIds(questionTypes);
     const now = new Date().toISOString();
-    await this.mockInterviewPasses?.consumePass(currentUser.candidateId, 1, undefined, new Date(now));
-    const session = await this.interviewRepository.createMockSession({
+    const input = {
       candidateId: currentUser.candidateId,
       showQuestionText,
       questionIds,
+      contextQuestions,
       startedAt: now,
       updatedAt: now,
-    });
+    };
+    const session = this.interviewRepository.createMockSessionWithPass
+      ? await this.interviewRepository.createMockSessionWithPass(input)
+      : await this.createMockSessionWithExternalPass(input, new Date(now));
 
     return this.envelope({
       ...(await this.toRuntimeView(session, "mock")),
@@ -1286,9 +1302,8 @@ export class InterviewService {
     return session.interviewType === "RECRUITING" || session.showQuestionText;
   }
 
-  private async selectMockQuestionIds(dto: StartMockInterviewDto): Promise<number[]> {
-    const requestBody = this.toRequestBody(dto, "mockInterview");
-    const requestedTypes = Array.isArray(requestBody.questionTypes)
+  private resolveMockQuestionTypes(requestBody: Record<string, unknown>): MockQuestionType[] {
+    const requestedTypes = Array.isArray(requestBody.questionTypes) && requestBody.questionTypes.length > 0
       ? requestBody.questionTypes
       : [...DEFAULT_MOCK_QUESTION_TYPES];
     if (!requestedTypes.every((questionType) => this.isQuestionType(questionType))) {
@@ -1296,7 +1311,28 @@ export class InterviewService {
         { field: "questionTypes", reason: "unsupported question type" },
       ]);
     }
+    if (requestedTypes.length > 6 || new Set(requestedTypes).size !== requestedTypes.length) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "Question types are invalid.", 400, [
+        { field: "questionTypes", reason: "questionTypes must contain at most 6 unique values" },
+      ]);
+    }
 
+    return requestedTypes as MockQuestionType[];
+  }
+
+  private normalizeOptionalFolderId(value: unknown): number | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    if (!this.isPositiveInteger(value)) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "folderId is invalid.", 400, [
+        { field: "folderId", reason: "folderId must be a positive integer" },
+      ]);
+    }
+    return value;
+  }
+
+  private async selectMockQuestionIds(requestedTypes: readonly MockQuestionType[]): Promise<number[]> {
     const questions = await this.interviewRepository.listQuestions({
       interviewType: "MOCK",
       questionTypes: requestedTypes,
@@ -1305,6 +1341,63 @@ export class InterviewService {
       return (await this.interviewRepository.listQuestions({ interviewType: "MOCK" })).map((question) => question.questionId);
     }
     return questions.map((question) => question.questionId);
+  }
+
+  private async buildFolderMockQuestionsForCurrentUser(
+    folderId: number,
+    questionTypes: readonly MockQuestionType[],
+    currentUser: CurrentCandidateUser,
+  ): Promise<CreateMockContextQuestionInput[]> {
+    const folder = await this.candidateService.getMockInterviewFolderContext(folderId, currentUser);
+    return this.buildFolderMockQuestions(folder, questionTypes);
+  }
+
+  private async createMockSessionWithExternalPass(
+    input: CreateMockInterviewSessionInput,
+    now: Date,
+  ): Promise<RuntimeInterviewSession> {
+    await this.mockInterviewPasses?.consumePass(input.candidateId, 1, undefined, now);
+    return this.interviewRepository.createMockSession(input);
+  }
+
+  private buildFolderMockQuestions(
+    folder: CandidateFolderContext,
+    questionTypes: readonly MockQuestionType[],
+  ): CreateMockContextQuestionInput[] {
+    return questionTypes.map((questionType, index) => ({
+      questionType,
+      sortOrder: index + 1,
+      content: this.buildFolderMockQuestionContent(folder, questionType),
+    }));
+  }
+
+  private buildFolderMockQuestionContent(folder: CandidateFolderContext, questionType: MockQuestionType): string {
+    const sources = [
+      folder.resumeFile ? "이력서" : undefined,
+      folder.githubUrl ? "GitHub" : undefined,
+      folder.blogUrl ? "기술 블로그" : undefined,
+      folder.portfolioUrl ? "포트폴리오" : undefined,
+      folder.motivation ? "지원동기" : undefined,
+      folder.extraNote ? "추가 설명" : undefined,
+    ].filter((value): value is string => Boolean(value));
+    const context = sources.length > 0 ? `제출한 ${sources.join(", ")} 자료` : "등록한 지원서 세트";
+
+    if (questionType === "INTRO") {
+      return `${context}를 바탕으로 본인을 소개하고 이 포지션을 준비한 이유를 설명해주세요.`;
+    }
+    if (questionType === "TECHNICAL") {
+      return `${context} 중 이력서와 프로젝트 URL에서 가장 강하게 드러나는 기술 경험 하나를 골라 설계 의사결정과 트레이드오프를 설명해주세요.`;
+    }
+    if (questionType === "EXPERIENCE") {
+      return `${context}와 연결되는 프로젝트나 협업 경험을 STAR 구조로 설명하고 본인이 직접 만든 결과를 말해주세요.`;
+    }
+    if (questionType === "SITUATION") {
+      return `${context}를 기준으로 장애, 일정 압박, 요구사항 변경 중 하나를 겪었다고 가정하고 어떻게 판단하고 대응할지 설명해주세요.`;
+    }
+    if (questionType === "FOLLOW_UP") {
+      return `${context}에서 면접관이 추가로 확인해야 할 약한 근거나 빈칸을 하나 짚고 더 구체적인 사례를 설명해주세요.`;
+    }
+    return `${context}를 바탕으로 면접관에게 마지막으로 강조하고 싶은 강점과 보완 계획을 말해주세요.`;
   }
 
   private async selectRecruitingQuestionIds(postingId: number): Promise<number[]> {

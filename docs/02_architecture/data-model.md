@@ -41,6 +41,7 @@
 | `users` | `User` | A |
 | `companies` | `Company` | A |
 | `candidate_profiles` | `CandidateProfile` | A/D |
+| `candidate_folders` | `CandidateFolder` | D |
 | `file_assets` | `FileAsset` | A/D/E |
 | `postings` | `Posting` | B |
 | `criterion_tags` | `CriterionTag` | C |
@@ -51,6 +52,7 @@
 | `application_documents` | `ApplicationDocument` | D/E |
 | `consent_records` | `ConsentRecord` | D |
 | `interview_sessions` | `InterviewSession` | D/E |
+| `interview_session_questions` | `InterviewSessionQuestion` | D/E |
 | `interview_answers` | `InterviewAnswer` | D/E |
 | `follow_up_questions` | `FollowUpQuestion` | E |
 | `evaluation_reports` | `EvaluationReport` | E |
@@ -71,7 +73,7 @@
 | Account | users, companies, candidate_profiles | 로그인 계정, 기업/지원자 프로필, 기본 파일 참조 |
 | Recruiting | postings, criterion_tags, evaluation_criteria, question_bank, interview_time_policies | 공고, JD, 평가 기준, 질문, 면접 시간 정책 관리 |
 | Application | applications, application_documents, consent_records | 지원서 제출, 서류 파싱, 동의 이력 |
-| Interview | interview_sessions, interview_answers, follow_up_questions | 모의/채용 AI 면접 실행과 답변 |
+| Interview | interview_sessions, interview_session_questions, interview_answers, follow_up_questions | 모의/채용 AI 면접 실행, 세션별 질문 순서와 답변 |
 | Report | evaluation_reports, report_scores, report_evidences, manual_evaluations | AI 평가 결과와 면접관 검토 |
 | AI Infra | ai_process_logs, ai_guardrail_logs, embeddings | AI 처리 상태, 안전성 검증, 검색/추천 |
 | Notification/File | notifications, file_assets | 알림과 업로드 파일 메타데이터 |
@@ -136,6 +138,22 @@
 | summary | TEXT | 지원자 자기소개/요약 정보. AI 분석 또는 프로필 표시용 |
 | created_at | TIMESTAMP NOT NULL | 지원자 프로필 생성 시각 |
 | updated_at | TIMESTAMP NOT NULL | 지원자 프로필 수정 시각 |
+
+### candidate_folders
+
+| Column | Definition | Description |
+| --- |--- |--- |
+| id | BIGINT PRIMARY KEY | 기업별 지원서 세트 PK |
+| candidate_id | BIGINT NOT NULL | 지원자 프로필 FK. 지원자 삭제 시 cascade |
+| name | VARCHAR(100) NOT NULL | 지원서 세트 이름 |
+| github_url | VARCHAR(500) | GitHub URL |
+| blog_url | VARCHAR(500) | 블로그 URL |
+| portfolio_url | VARCHAR(500) | 포트폴리오 URL |
+| resume_file_id | BIGINT | 폴더에 연결된 이력서 file_assets FK. 파일 삭제 시 NULL |
+| motivation | TEXT | 지원 동기 |
+| extra_note | TEXT | 추가 설명 |
+| created_at | TIMESTAMP NOT NULL | 폴더 생성 시각 |
+| updated_at | TIMESTAMP NOT NULL | 폴더 수정 시각 |
 
 ### postings
 
@@ -247,6 +265,14 @@
 | application_id | BIGINT PRIMARY KEY | 지원서/지원 이력 PK |
 | posting_id | BIGINT NOT NULL | 어떤 공고에 지원했는지 |
 | candidate_id | BIGINT NOT NULL | 누가 지원했는지 |
+| applicant_name | VARCHAR(100) | 제출 당시 지원자 이름 스냅샷. 기존 데이터는 NULL 가능 |
+| applicant_email | VARCHAR(255) | 제출 당시 이메일 스냅샷. 기존 데이터는 NULL 가능 |
+| applicant_phone | VARCHAR(50) | 제출 당시 연락처 스냅샷. 기존 데이터는 NULL 가능 |
+| github_url | VARCHAR(500) | 해당 지원서에 제출한 GitHub URL |
+| blog_url | VARCHAR(500) | 해당 지원서에 제출한 블로그 URL |
+| portfolio_url | VARCHAR(500) | 해당 지원서에 제출한 포트폴리오 URL. 포트폴리오 PDF 제출 시 NULL 가능 |
+| motivation | TEXT | 해당 공고 지원동기 |
+| additional_info | TEXT | 지원자가 함께 제출한 추가 설명 |
 | application_status | VARCHAR(40) NOT NULL | 지원 전체 진행 상태: DRAFT, SUBMITTED, IN_REVIEW, INTERVIEW_WAITING, INTERVIEW_DONE, COMPLETED, CANCELED |
 | document_status | VARCHAR(40) NOT NULL | 서류 제출/분석 상태: NOT_SUBMITTED, SUBMITTED, EXTRACTING, EXTRACTED, FAILED |
 | interview_status | VARCHAR(40) NOT NULL | AI 면접 응시 상태: NOT_READY, READY, IN_PROGRESS, COMPLETED, FAILED |
@@ -255,6 +281,8 @@
 | screening_memo | TEXT | 기업 담당자 메모 |
 | submitted_at | TIMESTAMP | 지원서 최종 제출 시각 |
 | updated_at | TIMESTAMP NOT NULL | 지원 건 마지막 수정 시각 |
+
+신규 지원서는 이름, 이메일, 연락처, GitHub URL, 블로그 URL, 이력서 PDF, 지원동기, 추가 설명을 반드시 제출한다. 포트폴리오는 URL 또는 PDF 중 하나 이상을 제출한다. 프로필 값이 이후 변경되어도 기업은 지원 당시 내용을 확인할 수 있도록 위 필드를 지원서 스냅샷으로 사용한다.
 
 ### application_documents
 
@@ -291,6 +319,21 @@
 | started_at | TIMESTAMP | 면접 시작 시각 |
 | completed_at | TIMESTAMP | 면접 완료 시각 |
 
+### interview_session_questions
+
+| Column | Definition | Description |
+| --- |--- |--- |
+| session_question_id | BIGINT PRIMARY KEY | 세션 질문 행 PK |
+| session_id | BIGINT NOT NULL | 연결된 면접 세션 FK |
+| question_id | BIGINT | 기업 `question_bank` 질문을 사용할 때의 FK. 개인 모의면접 런타임 질문은 NULL |
+| runtime_question_id | BIGINT | API에서 사용하는 질문 ID. 개인 런타임 질문 전용 시퀀스에서 발급해 기업 질문 ID와 분리 |
+| question_type | VARCHAR(40) | 개인 모의면접 런타임 질문 유형 |
+| content | TEXT | 개인 모의면접 런타임 질문 본문. 지원서 원문 전체가 아니라 제한된 컨텍스트로 만든 질문만 저장 |
+| sort_order | INTEGER NOT NULL | 세션 안의 질문 표시 순서 |
+| created_at | TIMESTAMP NOT NULL | 세션 질문 연결 생성 시각 |
+
+`(session_id, sort_order)`는 unique다. 기업 질문은 `question_id`를 참조하고, 지원자 개인 모의면접 질문은 `question_id=NULL`과 자체 `runtime_question_id`, `question_type`, `content`를 사용한다. 세션 삭제 시 런타임 질문도 함께 삭제한다.
+
 ### interview_answers
 
 | Column | Definition | Description |
@@ -298,6 +341,7 @@
 | answer_id | BIGINT PRIMARY KEY | 질문별 답변 PK |
 | session_id | BIGINT NOT NULL | 연결된 면접 세션 FK |
 | question_id | BIGINT | 답변한 질문 FK |
+| session_question_id | BIGINT | 개인 런타임 질문 또는 세션 질문 연결 FK |
 | video_file_id | BIGINT | 답변 영상 파일 FK |
 | audio_file_id | BIGINT | 답변 음성 파일 FK |
 | transcript | TEXT | STT로 변환된 답변 스크립트 |

@@ -24,13 +24,13 @@ export type PublicApplicationInput = {
   name: string;
   email: string;
   phone: string;
-  githubBlogUrl?: string;
-  portfolioMode: "URL" | "FILE";
+  githubUrl: string;
+  blogUrl: string;
   portfolioUrl?: string;
   portfolioFile?: File | null;
   resumeFile?: File | null;
-  motivation?: string;
-  additionalInfo?: string;
+  motivation: string;
+  additionalInfo: string;
   resumeText?: string;
   consentAgreed: boolean;
 };
@@ -98,16 +98,16 @@ export async function submitPublicApplication(recruitmentId: number, input: Publ
   appendFormValue(body, "name", input.name);
   appendFormValue(body, "email", input.email);
   appendFormValue(body, "phone", input.phone);
-  appendFormValue(body, "githubBlogUrl", input.githubBlogUrl);
-  appendFormValue(body, "portfolioMode", input.portfolioMode);
-  appendFormValue(body, "portfolioUrl", input.portfolioMode === "URL" ? input.portfolioUrl : undefined);
+  appendFormValue(body, "githubUrl", input.githubUrl);
+  appendFormValue(body, "blogUrl", input.blogUrl);
+  appendFormValue(body, "portfolioUrl", input.portfolioUrl);
   appendFormValue(body, "motivation", input.motivation);
   appendFormValue(body, "additionalInfo", input.additionalInfo);
   appendFormValue(body, "consentAgreed", String(input.consentAgreed));
   if (input.resumeFile) {
     body.append("resumeFile", input.resumeFile);
   }
-  if (input.portfolioMode === "FILE" && input.portfolioFile) {
+  if (input.portfolioFile) {
     body.append("portfolioFile", input.portfolioFile);
   }
 

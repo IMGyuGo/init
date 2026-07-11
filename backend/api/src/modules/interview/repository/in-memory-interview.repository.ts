@@ -1,6 +1,7 @@
 import type { InterviewAnswer, InterviewQuestion, RuntimeInterviewSession } from "../interview.runtime.types";
 import type {
   CompletedFollowUpProcess,
+  CreateMockContextQuestionInput,
   CreateInterviewAnswerInput,
   CreateMockInterviewSessionInput,
   CreateRuntimeFollowUpQuestionInput,
@@ -123,6 +124,7 @@ export class InMemoryInterviewRepository implements InterviewRepository {
   private readonly mockSessions = new Map<number, RuntimeInterviewSession>();
   private readonly recruitingSessions = new Map<number, RuntimeInterviewSession>();
   private readonly answers: InterviewAnswer[] = [];
+  private readonly runtimeQuestionIds = new Set<number>();
   private readonly followUpProcesses = new Map<number, CompletedFollowUpProcess>();
   private readonly followUpQuestions = new Map<string, GeneratedFollowUpQuestion>();
   private readonly reanswerRequiredFailures: Array<ReanswerRequiredFailure & { sessionId: number; answerId: number }> = [];
@@ -130,6 +132,7 @@ export class InMemoryInterviewRepository implements InterviewRepository {
   listQuestions(filter: InterviewQuestionFilter = {}): InterviewQuestion[] {
     return this.questions
       .filter((question) => question.isActive)
+      .filter((question) => !this.runtimeQuestionIds.has(question.questionId))
       .filter((question) => !filter.interviewType || question.interviewType === filter.interviewType)
       .filter((question) => filter.postingId === undefined || question.postingId === filter.postingId)
       .filter((question) => !filter.questionTypes || filter.questionTypes.includes(question.questionType))
@@ -139,8 +142,28 @@ export class InMemoryInterviewRepository implements InterviewRepository {
   }
 
   findQuestion(questionId: number): InterviewQuestion | undefined {
-    const question = this.questions.find((candidate) => candidate.questionId === questionId && candidate.isActive);
+    const question = this.questions.find(
+      (candidate) => candidate.questionId === questionId && (candidate.isActive || this.runtimeQuestionIds.has(candidate.questionId)),
+    );
     return question ? this.cloneQuestion(question) : undefined;
+  }
+
+  private createMockContextQuestions(input: CreateMockContextQuestionInput[]): InterviewQuestion[] {
+    const nextQuestionId = () => 50_000 + this.runtimeQuestionIds.size + 1;
+    const questions = input.map((item) => {
+      const question: InterviewQuestion = {
+        questionId: nextQuestionId(),
+        questionType: item.questionType,
+        content: item.content,
+        sortOrder: item.sortOrder,
+        interviewType: "MOCK",
+        isActive: false,
+      };
+      this.runtimeQuestionIds.add(question.questionId);
+      this.questions.push(question);
+      return this.cloneQuestion(question);
+    });
+    return questions;
   }
 
   listOwnedMockSessions(candidateId: number): RuntimeInterviewSession[] {
@@ -156,6 +179,10 @@ export class InMemoryInterviewRepository implements InterviewRepository {
   }
 
   createMockSession(input: CreateMockInterviewSessionInput): RuntimeInterviewSession {
+    const contextQuestionIds = input.contextQuestions
+      ? this.createMockContextQuestions(input.contextQuestions).map((question) => question.questionId)
+      : [];
+    const questionIds = input.questionIds ?? contextQuestionIds;
     const session: RuntimeInterviewSession = {
       sessionId: 10000 + this.mockSessions.size + 1,
       candidateId: input.candidateId,
@@ -163,7 +190,7 @@ export class InMemoryInterviewRepository implements InterviewRepository {
       status: "IN_PROGRESS",
       showQuestionText: input.showQuestionText,
       currentQuestionIndex: 0,
-      questionIds: [...input.questionIds],
+      questionIds: [...questionIds],
       startedAt: input.startedAt,
       updatedAt: input.updatedAt,
     };

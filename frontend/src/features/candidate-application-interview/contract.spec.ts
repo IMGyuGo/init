@@ -179,8 +179,12 @@ const submitRequest: SubmitApplicationRequest = toSubmitApplicationRequest({
   candidateName: " Kim ",
   email: " kim@example.com ",
   phone: " 010-0000-0000 ",
+  githubUrl: " https://github.com/kim ",
+  blogUrl: " https://blog.example.com/kim ",
   resumeFileId: 1,
   portfolioUrl: " https://portfolio.example.com/kim ",
+  motivation: " 지원 동기 ",
+  additionalInfo: " 추가 설명 ",
   consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS", "AI_INTERVIEW_RECORDING"],
 });
 
@@ -223,6 +227,7 @@ const startMockRequest: StartMockInterviewRequest = toStartMockInterviewRequest(
   difficulty: "NORMAL",
   questionTypes: ["INTRO", "TECHNICAL"],
   showQuestionText: false,
+  folderId: null,
 });
 
 const answerRequest: SaveInterviewAnswerRequest = toSaveInterviewAnswerRequest({

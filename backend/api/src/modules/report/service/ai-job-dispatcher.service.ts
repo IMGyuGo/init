@@ -13,6 +13,7 @@ import {
 export interface DispatchAiJobCommand {
   processType: AiProcessType;
   input: unknown;
+  persistedInput?: unknown;
   refs?: AiProcessRefs;
 }
 
@@ -39,14 +40,15 @@ export class AiJobDispatcherService {
   ) {}
 
   async dispatch(command: DispatchAiJobCommand): Promise<DispatchAiJobResult> {
-    const inputRef = JSON.stringify(command.input);
-    const process = await this.repository.createQueuedProcess(command.processType, inputRef, command.refs);
+    const queueInputRef = JSON.stringify(command.input);
+    const persistedInputRef = JSON.stringify(command.persistedInput ?? command.input);
+    const process = await this.repository.createQueuedProcess(command.processType, persistedInputRef, command.refs);
 
     try {
       await this.queuePublisher.publish({
         processLogId: process.processLogId,
         processType: process.processType,
-        inputRef: process.inputRef,
+        inputRef: queueInputRef,
         attempt: 1
       });
     } catch (error) {

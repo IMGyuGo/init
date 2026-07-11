@@ -68,6 +68,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-018 | 기업 - 지원자/리포트 | GET | /company/applicants | 지원 상태 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-019 | 기업 - 지원자/리포트 | GET | /company/reports | 리포트 상태 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-020 | 기업 - 지원자/리포트 | GET | /company/applicants/{applicantId}/evaluation | 서류 평가와 채용 리포트, 미검증 응시 무결성 참고 신호 통합 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
+| API-020-DOCUMENT | 기업 - 지원자/리포트 | GET | /company/applicants/{applicantId}/documents/{fileId} | 지원자가 제출한 이력서/포트폴리오 PDF 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-020-MEDIA-SESSION | 기업 - 지원자/리포트 | POST | /company/applicants/{applicantId}/media/{fileId}/session | 지원자 채용면접 답변 녹화/음성 재생 세션 발급 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-020-MEDIA | 기업 - 지원자/리포트 | GET | /company/applicants/{applicantId}/media/{fileId} | 지원자 채용면접 답변 녹화/음성 스트림 조회 | 기업 / 기업 사용자 로그인 또는 media 재생 쿠키 | N | 200 OK, 206 Partial Content |
 | API-021 | 기업 - 지원자/리포트 | GET | /company/applicants/{applicantId}/document-evaluation | 서류 평가 근거 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
@@ -112,6 +113,11 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-055 | 지원자 - 모의면접 | GET | /candidate/mock-interview/reports/{reportId}/feedback | 모의면접 피드백 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-056 | 지원자 - 모의면접 | GET | /candidate/mock-interview/reports/{reportId}/media | 영상/스크립트 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-057 | 지원자 - 모의면접 | POST | /candidate/mock-interview/reports/{reportId}/generate | 피드백 리포트 생성 | 지원자 / 지원자 사용자 로그인 | Y | 202 Accepted |
+| API-057A | 지원자 - 모의면접 | GET | /candidate/folders | 기업별 지원서 세트 목록 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
+| API-057B | 지원자 - 모의면접 | POST | /candidate/folders | 기업별 지원서 세트 생성 | 지원자 / 지원자 사용자 로그인 | N | 201 Created |
+| API-057C | 지원자 - 모의면접 | GET | /candidate/folders/{id} | 기업별 지원서 세트 상세 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
+| API-057D | 지원자 - 모의면접 | PATCH | /candidate/folders/{id} | 기업별 지원서 세트 수정 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
+| API-057E | 지원자 - 모의면접 | DELETE | /candidate/folders/{id} | 기업별 지원서 세트 삭제 | 지원자 / 지원자 사용자 로그인 | N | 204 No Content |
 | API-058 | 지원자 - 채용공고/지원 | GET | /candidate/jobs | 채용공고 목록 조회 / 채용공고 검색 / 채용공고 리스트 표시 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-059 | 지원자 - 채용공고/지원 | GET | /candidate/jobs/{jobId} | 채용공고 상세 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-060 | 지원자 - 채용공고/지원 | POST | /candidate/jobs/{jobId}/applications | 기업별 지원 서류 제출 | 지원자 / 지원자 사용자 로그인 | N | 201 Created |

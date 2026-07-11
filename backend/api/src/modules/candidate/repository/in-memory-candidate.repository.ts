@@ -5,6 +5,7 @@ import {
   type Application,
   type ApplicationDocument,
   type ApplicationSubmissionResult,
+  type CandidateFolder,
   type CandidateJob,
   type CandidateRepository,
   type ConsentRecord,
@@ -132,6 +133,7 @@ export class InMemoryCandidateRepository implements CandidateRepository {
   private readonly interviewSessions: InterviewSession[] = [];
   private readonly fileAssets: FileAsset[] = [];
   private readonly portfolioLinks: PortfolioLink[] = [];
+  private readonly folders: CandidateFolder[] = [];
 
   constructor(options: { seedDemoApplication?: boolean } = {}) {
     if (options.seedDemoApplication) {
@@ -157,6 +159,13 @@ export class InMemoryCandidateRepository implements CandidateRepository {
 
   async findFileAsset(fileId: number): Promise<FileAsset | undefined> {
     return this.fileAssets.find((fileAsset) => fileAsset.fileId === fileId);
+  }
+
+  async findLatestExtractedTextByFileId(fileId: number): Promise<string | null> {
+    const document = [...this.documents]
+      .reverse()
+      .find((candidateDocument) => candidateDocument.fileId === fileId && candidateDocument.parseStatus === "EXTRACTED");
+    return document?.extractedText ?? null;
   }
 
   async listApplications(candidateId: number): Promise<Application[]> {
@@ -280,9 +289,16 @@ export class InMemoryCandidateRepository implements CandidateRepository {
   async createApplication(input: {
     postingId: number;
     candidateId: number;
+    candidateName?: string;
+    email?: string;
+    phone?: string;
+    githubUrl?: string;
+    blogUrl?: string;
     resumeFileId: number;
     portfolioFileId?: number;
     portfolioUrl?: string;
+    motivation?: string;
+    additionalInfo?: string;
     consentTypes: ConsentRecord["consentType"][];
   }): Promise<ApplicationSubmissionResult> {
     if (await this.hasApplication(input.candidateId, input.postingId)) {
@@ -294,6 +310,14 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       applicationId: this.applications.length + 1,
       postingId: input.postingId,
       candidateId: input.candidateId,
+      applicantName: input.candidateName ?? null,
+      applicantEmail: input.email ?? null,
+      applicantPhone: input.phone ?? null,
+      githubUrl: input.githubUrl ?? null,
+      blogUrl: input.blogUrl ?? null,
+      portfolioUrl: input.portfolioUrl ?? null,
+      motivation: input.motivation ?? null,
+      additionalInfo: input.additionalInfo ?? null,
       applicationStatus: "SUBMITTED",
       documentStatus: "SUBMITTED",
       interviewStatus: "NOT_READY",
@@ -365,6 +389,70 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     };
     this.portfolioLinks.push(portfolioLink);
     return portfolioLink;
+  }
+
+  async countFolders(candidateId: number): Promise<number> {
+    return this.folders.filter((folder) => folder.candidateId === candidateId).length;
+  }
+
+  async listFolders(candidateId: number): Promise<CandidateFolder[]> {
+    return this.folders
+      .filter((folder) => folder.candidateId === candidateId)
+      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt) || right.id - left.id)
+      .map((folder) => ({ ...folder }));
+  }
+
+  async findFolder(folderId: number): Promise<CandidateFolder | undefined> {
+    const folder = this.folders.find((candidate) => candidate.id === folderId);
+    return folder ? { ...folder } : undefined;
+  }
+
+  async createFolder(
+    input: Omit<CandidateFolder, "id" | "resumeFileName" | "createdAt" | "updatedAt">,
+  ): Promise<CandidateFolder> {
+    const now = new Date().toISOString();
+    const folder: CandidateFolder = {
+      ...input,
+      id: this.folders.length + 1,
+      resumeFileName: this.resolveFolderResumeFileName(input.resumeFileId),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.folders.push(folder);
+    return { ...folder };
+  }
+
+  async updateFolder(
+    folderId: number,
+    input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "createdAt" | "updatedAt">>,
+  ): Promise<CandidateFolder> {
+    const index = this.folders.findIndex((folder) => folder.id === folderId);
+    if (index < 0) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "지원서 세트를 찾을 수 없습니다.", 404);
+    }
+    const current = this.folders[index]!;
+    const updated: CandidateFolder = {
+      ...current,
+      ...input,
+      ...(input.resumeFileId !== undefined
+        ? { resumeFileName: this.resolveFolderResumeFileName(input.resumeFileId) }
+        : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    this.folders[index] = updated;
+    return { ...updated };
+  }
+
+  async deleteFolder(folderId: number): Promise<void> {
+    const index = this.folders.findIndex((folder) => folder.id === folderId);
+    if (index >= 0) {
+      this.folders.splice(index, 1);
+    }
+  }
+
+  private resolveFolderResumeFileName(resumeFileId: number | null): string | null {
+    if (!resumeFileId) return null;
+    return this.fileAssets.find((fileAsset) => fileAsset.fileId === resumeFileId)?.originalName ?? null;
   }
 
   private createRecruitingInterviewSession(application: Application, createdAt: string): InterviewSession {

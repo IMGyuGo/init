@@ -858,17 +858,18 @@ AI 리포트 금지 기준:
   - `name`: string, required
   - `email`: string, required
   - `phone`: string, required
-  - `githubBlogUrl`: string, optional
-  - `portfolioMode`: `URL` 또는 `FILE`, optional
+  - `githubUrl`: string, required
+  - `blogUrl`: string, required
   - `portfolioUrl`: string, optional
   - `portfolioFile`: file, optional, `application/pdf`
   - `resumeFile`: file, required, `application/pdf`
-  - `motivation`: string, optional
-  - `additionalInfo`: string, optional
+  - `motivation`: string, required
+  - `additionalInfo`: string, required
   - `consentAgreed`: boolean, required
 - 검증/전제조건:
   - 공고 상태가 `OPEN`이어야 한다.
-  - `name`, `email`, `phone`, `resumeFile`, `consentAgreed`는 필수다.
+  - `name`, `email`, `phone`, `githubUrl`, `blogUrl`, `resumeFile`, `motivation`, `additionalInfo`, `consentAgreed`는 필수다.
+  - 포트폴리오 URL 또는 PDF 중 하나를 반드시 제출하며, 둘 다 제출할 수도 있다.
   - `email`은 이메일 형식이어야 한다.
   - `consentAgreed`는 `true`여야 한다.
   - `resumeFile`과 `portfolioFile`은 PDF만 허용한다.
@@ -876,9 +877,8 @@ AI 리포트 금지 기준:
 - 성공 응답/처리:
   - 공개 지원용 비회원 지원자 최소 row를 생성한다.
   - `users.user_type=CANDIDATE`, `users.status=PENDING` 기준으로 생성한다.
-  - `candidate_profiles.github_url`에는 `githubBlogUrl`을 저장한다.
-  - `candidate_profiles.portfolio_url`에는 `portfolioUrl`을 저장한다.
-  - `candidate_profiles.summary`에는 공개 지원 폼의 `motivation/additionalInfo`를 요약 저장한다.
+  - 제출 당시 기본정보, URL, 지원동기, 추가설명은 `applications` 스냅샷 필드에 저장한다.
+  - 신규 비회원 지원자의 `candidate_profiles.github_url`, `portfolio_url`, `summary`에도 대표 프로필 값을 함께 저장한다.
   - 파일 원본은 저장소에 저장하고 DB에는 `file_assets` 메타데이터만 저장한다.
   - 이력서/포트폴리오 파일은 `application_documents.document_type=RESUME/PORTFOLIO`로 연결한다.
   - `applications.application_status=SUBMITTED`, `document_status=SUBMITTED`, `screening_decision=UNDECIDED`로 생성한다.
@@ -1088,6 +1088,9 @@ AI 리포트 금지 기준:
   - 지원자 조회 권한 보유
 - 성공 응답/처리:
   - 지원자 기본 정보, 지원/면접/리포트 상태, 전형 상태/메모 표시
+  - `submission`에 제출 당시 `name`, `email`, `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `motivation`, `additionalInfo`를 반환한다.
+  - `submission.documents`에 `documentId`, `fileId`, `documentType`, `originalName`, `mimeType`, `sizeBytes`, `uploadedAt`을 반환한다.
+  - 기존 지원서의 스냅샷 필드가 NULL이면 지원자 계정/프로필의 현재 값을 fallback으로 반환한다.
   - 리포트가 있으면 점수, 근거, 요약 표시
   - 리포트가 없으면 없음/생성중 상태로 표시
 - 오류/예외:
@@ -1096,6 +1099,25 @@ AI 리포트 금지 기준:
   - companies, candidate_profiles, postings, applications, application_documents, interview_sessions, evaluation_reports, report_scores, report_evidences, manual_evaluations, ai_process_logs
 - 비고/미결:
   - 기존 9번 서류 평가 상세과 10번 채용 리포트 상세을 9번으로 통합
+
+### API-020-DOCUMENT GET /company/applicants/{applicantId}/documents/{fileId}
+- 도메인: 기업 - 지원자/리포트
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 지원자 평가 상세 화면 (/company/applicants/{applicantId}/evaluation)
+- UI Type: file preview/download
+- 상태 코드: 200 OK
+- 비동기: N
+- 검증/전제조건:
+  - applicantId는 요청 기업이 소유한 공고의 지원서여야 한다.
+  - fileId는 해당 지원서의 `application_documents`에 연결된 ACTIVE 파일이어야 한다.
+- 성공 응답/처리:
+  - JSON envelope 없이 PDF 파일 스트림을 반환한다.
+  - `Content-Type`, `Content-Length`, `Content-Disposition: inline`, `Cache-Control: private` 헤더를 반환한다.
+- 오류/예외:
+  - 기업 권한이 없으면 `COMMON_FORBIDDEN`을 반환한다.
+  - 자기 회사 지원서가 아니거나 지원서 또는 파일이 없으면 `COMMON_NOT_FOUND`를 반환한다.
+- 관련 ERD 테이블:
+  - companies, postings, applications, application_documents, file_assets
 
 ### API-020-MEDIA-SESSION POST /company/applicants/{applicantId}/media/{fileId}/session
 - 도메인: 기업 - 지원자/리포트
@@ -2202,17 +2224,137 @@ AI 리포트 금지 기준:
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - 직무 선택, 난이도, 질문 유형
+  - 직무 선택, 난이도, 질문 유형, `folderId?`
 - 검증/전제조건:
   - 로그인 사용자
+  - `folderId`가 있으면 현재 지원자 소유 `candidate_folders.id`여야 한다.
 - 성공 응답/처리:
   - 모의면접 세션 생성
+  - `folderId`가 있으면 폴더의 이력서 파일 메타데이터, 추출 텍스트(`application_documents.extracted_text`가 존재하는 경우), GitHub/블로그/포트폴리오 URL, 지원동기, 추가설명을 모의면접 질문 생성 컨텍스트로 사용한다.
+  - 개인 맞춤 질문은 기업 `question_bank`에 저장하지 않고 현재 지원자 세션 소유의 `interview_session_questions`에 본문과 유형을 저장한다.
+  - 세션 생성, 이용권 차감, 개인 질문 저장은 하나의 DB 트랜잭션으로 처리하고 실패 시 모두 rollback한다.
+  - 생성된 질문 ID와 표시 순서는 `interview_session_questions`에 저장하며, API 서버 재시작 후에도 동일한 질문 흐름을 복원한다.
 - 오류/예외:
   - 질문 생성 실패 시 기본 질문 세트를 제공한다.
 - 관련 ERD 테이블:
-  - candidate_profiles, question_bank, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, ai_process_logs
+  - candidate_profiles, candidate_folders, file_assets, question_bank, applications, interview_sessions, interview_session_questions, evaluation_reports, report_scores, report_evidences, ai_process_logs
 - 비고/미결:
   - 기존 SNB 삭제. 2-depth는 GNB hover dropdown으로 노출. 연습 이력은 평가 리포트 항목으로 이동
+
+### API-057A GET /candidate/folders
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: AI 모의면접 시작 화면 (/candidate/mock-interview/start)
+- UI Type: page
+- 상태 코드: 200 OK
+- 비동기: N
+- 요청 데이터: 없음
+- 검증/전제조건:
+  - 로그인 사용자
+- 성공 응답/처리:
+  - `{ data: { items: CandidateFolder[] }, meta }`
+- 관련 ERD 테이블:
+  - candidate_folders, file_assets
+
+### API-057B POST /candidate/folders
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: AI 모의면접 시작 화면 (/candidate/mock-interview/start)
+- UI Type: page
+- 상태 코드: 201 Created
+- 비동기: N
+- 요청 데이터:
+  - `{ name, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, motivation?, extraNote? }`
+- 검증/전제조건:
+  - `name`은 필수이며 100자 이하
+  - URL 필드는 http/https URL이며 500자 이하
+  - `resumeFileId`가 있으면 현재 사용자 소유 file_assets이며 문서 MIME 타입이어야 한다.
+  - 지원자별 폴더는 최대 20개까지 생성할 수 있다.
+- 성공 응답/처리:
+  - `{ data: CandidateFolder, meta }`
+- 오류/예외:
+  - 20개 초과 또는 필드 검증 실패 시 `COMMON_VALIDATION_FAILED`
+  - 타 사용자 파일 참조 시 `COMMON_FORBIDDEN`
+- 관련 ERD 테이블:
+  - candidate_folders, file_assets
+
+### API-057C GET /candidate/folders/{id}
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: AI 모의면접 시작 화면 (/candidate/mock-interview/start)
+- UI Type: page
+- 상태 코드: 200 OK
+- 비동기: N
+- 요청 데이터: 없음
+- 검증/전제조건:
+  - `{id}`는 현재 지원자 소유 폴더여야 한다.
+- 성공 응답/처리:
+  - `{ data: CandidateFolder, meta }`
+- 오류/예외:
+  - 미존재 `COMMON_NOT_FOUND`
+  - 타 지원자 소유 `COMMON_FORBIDDEN`
+- 관련 ERD 테이블:
+  - candidate_folders, file_assets
+
+### API-057D PATCH /candidate/folders/{id}
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: AI 모의면접 시작 화면 (/candidate/mock-interview/start)
+- UI Type: page
+- 상태 코드: 200 OK
+- 비동기: N
+- 요청 데이터:
+  - `{ name?, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, motivation?, extraNote? }`
+  - nullable 필드는 `null`로 초기화 가능
+- 검증/전제조건:
+  - `{id}`는 현재 지원자 소유 폴더여야 한다.
+  - 필드 검증은 생성 API와 동일
+- 성공 응답/처리:
+  - `{ data: CandidateFolder, meta }`
+- 관련 ERD 테이블:
+  - candidate_folders, file_assets
+
+### API-057E DELETE /candidate/folders/{id}
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: AI 모의면접 시작 화면 (/candidate/mock-interview/start)
+- UI Type: page
+- 상태 코드: 204 No Content
+- 비동기: N
+- 요청 데이터: 없음
+- 검증/전제조건:
+  - `{id}`는 현재 지원자 소유 폴더여야 한다.
+- 성공 응답/처리:
+  - 응답 본문 없음
+- 관련 ERD 테이블:
+  - candidate_folders
+
+CandidateFolder 응답 필드:
+
+```json
+{
+  "id": 1,
+  "candidateId": 1,
+  "name": "백엔드 포지션 지원 세트",
+  "githubUrl": "https://github.com/init/backend",
+  "blogUrl": null,
+  "portfolioUrl": "https://portfolio.example.com/backend",
+  "resumeFileId": 10,
+  "resumeFileName": "김민철 이력서.pdf",
+  "motivation": "지원 동기",
+  "extraNote": "추가 설명",
+  "createdAt": "2026-07-10T00:00:00.000Z",
+  "updatedAt": "2026-07-10T00:00:00.000Z"
+}
+```
+
+CandidateFolder 입력 제한:
+
+- `name`: 1~100자
+- `githubUrl`, `blogUrl`, `portfolioUrl`: 각각 최대 500자, HTTP/HTTPS URL
+- `motivation`: 최대 3,000자
+- `extraNote`: 최대 5,000자
+- 질문 생성에 사용하는 폴더 컨텍스트는 정규화 후 최대 12,000자로 제한한다.
 
 ### API-045 POST /candidate/mock-interviews/questions/generate
 - 도메인: 지원자 - 모의면접
@@ -2222,17 +2364,23 @@ AI 리포트 금지 기준:
 - 상태 코드: 202 Accepted
 - 비동기: Y
 - 요청 데이터:
-  - 직무, 난이도, 질문 유형
+  - `{ questionCount, folderId? }`
 - 검증/전제조건:
-  - 선택값이 존재해야 함
+  - `questionCount`는 양의 정수
+  - `folderId`가 있으면 현재 지원자 소유 `candidate_folders.id`여야 한다.
 - 성공 응답/처리:
-  - 모의면접 질문 목록 생성
+  - 모의면접 질문 목록 생성 작업 큐잉
+  - `folderId`가 있으면 폴더의 이력서 파일 메타데이터, 추출 텍스트(`application_documents.extracted_text`가 존재하는 경우), GitHub/블로그/포트폴리오 URL, 지원동기, 추가설명을 worker 입력 컨텍스트로 전달한다.
+  - 원문 컨텍스트는 SQS 작업 메시지에서만 처리하고 `ai_process_logs.input_ref`에는 `folderId`, 파일 ID, 필드 존재 여부와 길이만 저장한다.
+  - 생성 질문 후보와 AI 작업 결과에는 이력서 추출 텍스트, URL, 지원동기, 추가 설명 원문을 그대로 반복 저장하지 않는다.
+  - SQS 메시지는 처리 완료 후 삭제하며 DLQ 보존 기간은 운영 인프라 정책을 따른다.
 - 오류/예외:
   - 질문 생성 실패 시 기본 질문 세트를 제공한다.
 - 관련 ERD 테이블:
-  - companies, candidate_profiles, postings, criterion_tags, evaluation_criteria, question_bank, applications, interview_sessions, ai_process_logs
+  - candidate_profiles, candidate_folders, file_assets, application_documents, ai_process_logs
 - 비고/미결:
   - 채용 질문과 달리 JD/기업 평가 기준을 사용하지 않음
+  - 원본 파일 바이트는 직접 전달하지 않고 file_assets 메타데이터와 길이 제한된 기존 추출 텍스트만 사용한다.
 
 ### API-046 GET /candidate/mock-interviews/{sessionId}
 - 도메인: 지원자 - 모의면접
@@ -2251,7 +2399,7 @@ AI 리포트 금지 기준:
 - 오류/예외:
   - 권한 거부, 녹화 실패, 네트워크 오류 시 재시도 안내를 표시한다.
 - 관련 ERD 테이블:
-  - candidate_profiles, file_assets, question_bank, applications, interview_sessions, interview_answers, ai_process_logs
+  - candidate_profiles, file_assets, question_bank, applications, interview_sessions, interview_session_questions, interview_answers, ai_process_logs
 - 비고/미결:
   - interviewType=MOCK. 질문 표시 토글은 CC 자막이 아니라 면접 질문 텍스트 표시 여부를 의미함
 
@@ -2272,7 +2420,7 @@ AI 리포트 금지 기준:
 - 오류/예외:
   - 질문 로딩 실패 시 안내 메시지를 표시하고 재시도를 제공한다.
 - 관련 ERD 테이블:
-  - candidate_profiles, file_assets, question_bank, applications, interview_sessions, ai_process_logs
+  - candidate_profiles, file_assets, question_bank, applications, interview_sessions, interview_session_questions, ai_process_logs
 - 비고/미결:
   - 질문 음성 다시 듣기 버튼 삭제. 면접 질문 표시 기본값 OFF. CC 자막 기능 아님
 
@@ -2599,12 +2747,26 @@ AI 리포트 금지 기준:
 - 상태 코드: 201 Created
 - 비동기: N
 - Path Params: jobId
-- 요청 데이터:
-  - 채용공고 ID, 이력서 파일, 포트폴리오 링크, 지원자 ID
+- 요청 데이터: `application/json`
+  - `candidateName`: string, required
+  - `email`: string, required
+  - `phone`: string, required
+  - `githubUrl`: string, required
+  - `blogUrl`: string, required
+  - `resumeFileId`: number, required, PDF FileAsset
+  - `portfolioFileId`: number, optional, PDF FileAsset
+  - `portfolioUrl`: string, optional
+  - `motivation`: string, required
+  - `additionalInfo`: string, required
+  - `consentTypes`: array, required
 - 검증/전제조건:
-  - 허용 파일 형식과 용량 조건 충족, 공고 지원 가능 상태
+  - 공고가 지원 가능 상태여야 한다.
+  - 기본정보, GitHub URL, 블로그 URL, 이력서 PDF, 지원동기, 추가설명을 모두 입력해야 한다.
+  - 포트폴리오 URL 또는 PDF FileAsset 중 하나 이상을 제출해야 하며, 둘 다 제출할 수도 있다.
+  - 제출 파일은 현재 지원자 소유의 ACTIVE FileAsset이어야 한다.
 - 성공 응답/처리:
-  - 지원서 제출 완료
+  - 지원서 제출 당시 정보를 `applications` 스냅샷 필드에 저장한다.
+  - 이력서/포트폴리오 PDF를 `application_documents`에 연결하고 지원서 제출을 완료한다.
 - 오류/예외:
   - 파일 형식 오류, 용량 초과, 이미 지원한 공고, 마감 공고이면 제출을 제한한다.
 - 관련 ERD 테이블:

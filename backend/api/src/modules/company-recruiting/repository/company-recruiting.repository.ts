@@ -80,6 +80,14 @@ export type RecruitingUserAccount = {
 export type CreateApplicationInput = {
   postingId: number;
   candidateId: number;
+  applicantName?: string;
+  applicantEmail?: string;
+  applicantPhone?: string;
+  githubUrl?: string;
+  blogUrl?: string;
+  portfolioUrl?: string | null;
+  motivation?: string;
+  additionalInfo?: string;
   screeningMemo: string | null;
   documentStatus?: DocumentStatus;
 };
@@ -347,6 +355,14 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
       data: {
         postingId: BigInt(input.postingId),
         candidateId: BigInt(input.candidateId),
+        ...(input.applicantName !== undefined ? { applicantName: input.applicantName } : {}),
+        ...(input.applicantEmail !== undefined ? { applicantEmail: input.applicantEmail } : {}),
+        ...(input.applicantPhone !== undefined ? { applicantPhone: input.applicantPhone } : {}),
+        ...(input.githubUrl !== undefined ? { githubUrl: input.githubUrl } : {}),
+        ...(input.blogUrl !== undefined ? { blogUrl: input.blogUrl } : {}),
+        ...(input.portfolioUrl !== undefined ? { portfolioUrl: input.portfolioUrl } : {}),
+        ...(input.motivation !== undefined ? { motivation: input.motivation } : {}),
+        ...(input.additionalInfo !== undefined ? { additionalInfo: input.additionalInfo } : {}),
         applicationStatus: ApplicationStatus.SUBMITTED,
         documentStatus: input.documentStatus ?? DocumentStatus.NOT_SUBMITTED,
         screeningDecision: ScreeningDecision.UNDECIDED,
@@ -469,6 +485,10 @@ const applicantInclude = {
 
 const applicantDetailInclude = {
   ...applicantInclude,
+  documents: {
+    orderBy: { documentId: "asc" as const },
+    include: { file: true },
+  },
   interviewSessions: {
     orderBy: { sessionId: "desc" as const },
     take: 1,
@@ -629,10 +649,19 @@ function mapJsonObject(value: unknown): Record<string, unknown> | null {
 }
 
 function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDetailIncludes): ApplicantRecord {
+  const documents = "documents" in application ? application.documents : [];
   return {
     applicationId: Number(application.applicationId),
     postingId: Number(application.postingId),
     candidateId: Number(application.candidateId),
+    applicantName: application.applicantName,
+    applicantEmail: application.applicantEmail,
+    applicantPhone: application.applicantPhone,
+    githubUrl: application.githubUrl,
+    blogUrl: application.blogUrl,
+    portfolioUrl: application.portfolioUrl,
+    motivation: application.motivation,
+    additionalInfo: application.additionalInfo,
     applicationStatus: application.applicationStatus,
     documentStatus: application.documentStatus,
     interviewStatus: application.interviewStatus,
@@ -643,6 +672,9 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
     updatedAt: application.updatedAt,
     candidate: {
       candidateId: Number(application.candidate.candidateId),
+      githubUrl: application.candidate.githubUrl,
+      portfolioUrl: application.candidate.portfolioUrl,
+      summary: application.candidate.summary,
       user: {
         userId: Number(application.candidate.user.userId),
         email: application.candidate.user.email,
@@ -650,6 +682,15 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
         phone: application.candidate.user.phone,
       },
     },
+    documents: documents.map((document) => ({
+      documentId: Number(document.documentId),
+      applicationId: Number(document.applicationId),
+      fileId: document.fileId == null ? null : Number(document.fileId),
+      documentType: document.documentType,
+      parseStatus: document.parseStatus,
+      uploadedAt: document.uploadedAt,
+      file: document.file ? mapFileAsset(document.file) : null,
+    })),
     posting: {
       postingId: Number(application.posting.postingId),
       title: application.posting.title,

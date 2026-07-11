@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { ERROR_CODES } from "@init/common";
 
 import { ApiException } from "../../../shared/api-exception";
@@ -43,7 +43,7 @@ type CandidateMockInterviewPassLedgerRecord = {
 
 @Injectable()
 export class CandidateMockInterviewPassService implements CandidateMockInterviewPassPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async ensureInitialFreePasses(
     candidateId: number,

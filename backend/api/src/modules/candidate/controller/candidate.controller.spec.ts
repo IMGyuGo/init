@@ -17,6 +17,11 @@ type CandidateControllerRoute =
   | "submitApplication"
   | "uploadResume"
   | "createPortfolioLink"
+  | "listFolders"
+  | "createFolder"
+  | "getFolder"
+  | "updateFolder"
+  | "deleteFolder"
   | "listApplications"
   | "getInterviewGuide"
   | "saveInterviewConsent";
@@ -43,6 +48,11 @@ assertRoute("getApplyView", candidateApiRoutes.applyView, RequestMethod.GET);
 assertRoute("submitApplication", candidateApiRoutes.submitApplication, RequestMethod.POST, 201);
 assertRoute("uploadResume", candidateApiRoutes.resume, RequestMethod.POST, 201);
 assertRoute("createPortfolioLink", candidateApiRoutes.portfolioLinks, RequestMethod.POST, 201);
+assertRoute("listFolders", candidateApiRoutes.folders, RequestMethod.GET);
+assertRoute("createFolder", candidateApiRoutes.folders, RequestMethod.POST, 201);
+assertRoute("getFolder", candidateApiRoutes.folderDetail, RequestMethod.GET);
+assertRoute("updateFolder", candidateApiRoutes.folderDetail, RequestMethod.PATCH);
+assertRoute("deleteFolder", candidateApiRoutes.folderDetail, RequestMethod.DELETE, 204);
 assertRoute("listApplications", candidateApiRoutes.applications, RequestMethod.GET);
 assertRoute("getInterviewGuide", candidateApiRoutes.interviewGuide, RequestMethod.GET);
 assertRoute("saveInterviewConsent", candidateApiRoutes.interviewConsent, RequestMethod.POST);
@@ -50,6 +60,17 @@ assertRoute("saveInterviewConsent", candidateApiRoutes.interviewConsent, Request
 const validCandidateRequest = {
   headers: {},
   currentUser: { ...DEV_CANDIDATE_USER, companyId: null },
+};
+
+const validSubmitApplication = {
+  candidateName: "Kim",
+  email: "kim@example.com",
+  phone: "010-0000-0000",
+  githubUrl: "https://github.com/kim",
+  blogUrl: "https://blog.example.com/kim",
+  portfolioUrl: "https://portfolio.example.com/kim",
+  motivation: "지원 동기입니다.",
+  additionalInfo: "추가 설명입니다.",
 };
 
 const missingCandidateRequest = {
@@ -158,14 +179,46 @@ async function runControllerRuntimeAssertions() {
     sizeBytes: 1000,
   });
 
+  const createdFolder = await controller.createFolder(validCandidateRequest, {
+    name: "네이버 백엔드 지원 세트",
+    githubUrl: "https://github.com/init/backend",
+    blogUrl: "https://blog.example.com/init",
+    portfolioUrl: "https://portfolio.example.com/init",
+    resumeFileId: resume.data.fileId,
+    motivation: "대규모 트래픽 API를 만들고 싶습니다.",
+    extraNote: "NestJS와 Prisma 프로젝트 경험이 있습니다.",
+  });
+  assert.equal(createdFolder.data.name, "네이버 백엔드 지원 세트");
+  assert.equal(createdFolder.data.resumeFileId, resume.data.fileId);
+  assert.equal(createdFolder.data.resumeFileName, "controller-resume.pdf");
+  assert.equal(createdFolder.data.githubUrl, "https://github.com/init/backend");
+
+  const folders = await controller.listFolders(validCandidateRequest);
+  assert.equal(folders.data.items.length, 1);
+  assert.equal(folders.data.items[0]?.id, createdFolder.data.id);
+  assert.equal(folders.data.items[0]?.resumeFileName, "controller-resume.pdf");
+
+  const folderDetail = await controller.getFolder(validCandidateRequest, String(createdFolder.data.id));
+  assert.equal(folderDetail.data.motivation, "대규모 트래픽 API를 만들고 싶습니다.");
+  assert.equal(folderDetail.data.resumeFileName, "controller-resume.pdf");
+
+  const updatedFolder = await controller.updateFolder(validCandidateRequest, String(createdFolder.data.id), {
+    name: "쿠팡 백엔드 지원 세트",
+    portfolioUrl: null,
+  });
+  assert.equal(updatedFolder.data.name, "쿠팡 백엔드 지원 세트");
+  assert.equal(updatedFolder.data.portfolioUrl, null);
+  assert.equal(updatedFolder.data.resumeFileName, "controller-resume.pdf");
+
+  await controller.deleteFolder(validCandidateRequest, String(createdFolder.data.id));
+  const foldersAfterDelete = await controller.listFolders(validCandidateRequest);
+  assert.equal(foldersAfterDelete.data.items.length, 0);
+
   await assertCandidateHttpError(
     () =>
       controller.submitApplication(validCandidateRequest, "1", {
-        candidateName: "Kim",
-        email: "kim@example.com",
-        phone: "010-0000-0000",
+        ...validSubmitApplication,
         resumeFileId: resume.data.fileId,
-        portfolioUrl: "https://portfolio.example.com/kim",
         consentTypes: ["PRIVACY_COLLECTION"],
       }),
     400,
@@ -173,11 +226,8 @@ async function runControllerRuntimeAssertions() {
   );
 
   const submitted = await controller.submitApplication(validCandidateRequest, "1", {
-    candidateName: "Kim",
-    email: "kim@example.com",
-    phone: "010-0000-0000",
+    ...validSubmitApplication,
     resumeFileId: resume.data.fileId,
-    portfolioUrl: "https://portfolio.example.com/kim",
     consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
   });
 
@@ -209,11 +259,8 @@ async function runControllerRuntimeAssertions() {
   await assertCandidateHttpError(
     () =>
       controller.submitApplication(validCandidateRequest, "1", {
-        candidateName: "Kim",
-        email: "kim@example.com",
-        phone: "010-0000-0000",
+        ...validSubmitApplication,
         resumeFileId: resume.data.fileId,
-        portfolioUrl: "https://portfolio.example.com/kim",
         consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
       }),
     409,

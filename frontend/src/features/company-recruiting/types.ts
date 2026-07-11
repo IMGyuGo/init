@@ -189,6 +189,25 @@ export type ApplicantEvaluation = {
     decision: ScreeningDecision;
     memo: string | null;
   };
+  submission: {
+    name: string;
+    email: string;
+    phone: string | null;
+    githubUrl: string | null;
+    blogUrl: string | null;
+    portfolioUrl: string | null;
+    motivation: string | null;
+    additionalInfo: string | null;
+    documents: Array<{
+      documentId: number;
+      fileId: number;
+      documentType: "RESUME" | "PORTFOLIO";
+      originalName: string;
+      mimeType: string;
+      sizeBytes: number;
+      uploadedAt: string;
+    }>;
+  };
   reportAvailability: "AVAILABLE" | "NONE_OR_GENERATING";
   answers: Array<{
     answerId: number;

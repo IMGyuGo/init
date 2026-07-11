@@ -32,6 +32,8 @@ import {
   type CandidateApplicationStatusView,
   type CandidateApplicationSummary,
   type CandidateFileAsset,
+  type CandidateFolder,
+  type CandidateFolderInput,
   type CandidateFollowUpQuestionView,
   type CandidateInterviewRuntimeView,
   type CandidateJobQuery,
@@ -87,8 +89,6 @@ import {
   type CandidateDeviceCheckState,
   type CandidateInterviewConsentState,
   type CandidateNotificationItem,
-  type CandidatePortfolioLinkFormState,
-  type CandidateResumeUploadState,
   type InterviewAnswerFormState,
   type InterviewRuntimePrimaryScreen,
   type InterviewerSessionEvent,
@@ -103,11 +103,9 @@ import {
   defaultDeviceCheckState,
   defaultInterviewAnswerFormState,
   defaultInterviewConsentState,
-  defaultPortfolioLinkFormState,
   defaultStartMockInterviewState,
   createCameralessInterviewTestDeviceCheckState,
   createInterviewerSessionEvent,
-  createResumeUploadStateFromFile,
   formatAiInterviewerQuestionPrompt,
   getAiInterviewerProfile,
   getDefaultCameraPipPosition,
@@ -128,7 +126,6 @@ import {
   getTimedOutAiJobStatus,
   getCandidateApplicationReportHref,
   getMockInterviewDeviceCheckHref,
-  inferPortfolioLinkType,
   isInterviewSpeechPlaybackEventCurrent,
   normalizeInterviewMediaMimeType,
   requiredInterviewConsents,
@@ -144,7 +141,6 @@ import {
   shouldShowInterviewDeviceSetup,
   trimInterviewerSessionEvents,
   toDeviceCheckRequest,
-  toCreatePortfolioLinkRequest,
   toRuntimeQuestionSpeechText,
   toRecordingValidationSkipRequest,
   toSaveInterviewAnswerRequest,
@@ -582,6 +578,7 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
   const [applyOpen, setApplyOpen] = useState(false);
   const [applyForm, setApplyForm] = useState<CandidateApplicationFormState>(defaultApplicationFormState);
   const [latestResumeFile, setLatestResumeFile] = useState<CandidateFileAsset>();
+  const [latestPortfolioFile, setLatestPortfolioFile] = useState<CandidateFileAsset>();
   const [applyBusy, setApplyBusy] = useState(false);
   const [applyError, setApplyError] = useState("");
   const [message, setMessage] = useState("");
@@ -600,22 +597,25 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
     }
   }
 
+  async function handlePortfolioFileSelect(file: File) {
+    setApplyBusy(true);
+    setApplyError("");
+    try {
+      const result = await getCandidateApi().uploadResume(file);
+      setLatestPortfolioFile(result.data);
+      setApplyForm((current) => ({ ...current, portfolioFileId: result.data.fileId }));
+    } catch (submitError) {
+      setApplyError(toErrorMessage(submitError));
+    } finally {
+      setApplyBusy(false);
+    }
+  }
+
   async function handleApplicationSubmit(request: Parameters<ReturnType<typeof getCandidateApi>["submitApplication"]>[1]) {
     setApplyBusy(true);
     setApplyError("");
     try {
-      const api = getCandidateApi();
-      if (request.portfolioUrl) {
-        await api.createPortfolioLink(
-          toCreatePortfolioLinkRequest({
-            ...defaultPortfolioLinkFormState,
-            url: request.portfolioUrl,
-            linkType: inferPortfolioLinkType(request.portfolioUrl),
-            description: request.coverLetter ?? "",
-          }),
-        );
-      }
-      const result = await api.submitApplication(jobId, request);
+      const result = await getCandidateApi().submitApplication(jobId, request);
       setApplyOpen(false);
       setMessage(`지원서가 제출되었습니다. 접수 번호는 ${result.data.application.applicationId}번입니다.`);
       void refresh().catch(() => undefined);
@@ -636,9 +636,11 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
           job={data.data}
           state={applyForm}
           latestResumeFile={latestResumeFile}
+          latestPortfolioFile={latestPortfolioFile}
           busy={applyBusy}
           errorMessage={applyError}
           onResumeFileSelect={handleResumeFileSelect}
+          onPortfolioFileSelect={handlePortfolioFileSelect}
           onStateChange={setApplyForm}
           onSubmit={handleApplicationSubmit}
           onClose={() => setApplyOpen(false)}
@@ -652,6 +654,7 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
   const router = useRouter();
   const [form, setForm] = useState<CandidateApplicationFormState>(defaultApplicationFormState);
   const [latestResumeFile, setLatestResumeFile] = useState<CandidateFileAsset>();
+  const [latestPortfolioFile, setLatestPortfolioFile] = useState<CandidateFileAsset>();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => getCandidateApi().getApplyView(jobId), [jobId]);
@@ -672,22 +675,26 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
     }
   }
 
+  async function handlePortfolioFileSelect(file: File) {
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await getCandidateApi().uploadResume(file);
+      setLatestPortfolioFile(result.data);
+      setForm((current) => ({ ...current, portfolioFileId: result.data.fileId }));
+      setMessage("포트폴리오 PDF가 업로드되었습니다.");
+    } catch (submitError) {
+      setMessage(toErrorMessage(submitError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleApplicationSubmit(request: Parameters<ReturnType<typeof getCandidateApi>["submitApplication"]>[1]) {
     setBusy(true);
     setMessage("");
     try {
-      const api = getCandidateApi();
-      if (request.portfolioUrl) {
-        await api.createPortfolioLink(
-          toCreatePortfolioLinkRequest({
-            ...defaultPortfolioLinkFormState,
-            url: request.portfolioUrl,
-            linkType: inferPortfolioLinkType(request.portfolioUrl),
-            description: request.coverLetter ?? "",
-          }),
-        );
-      }
-      const result = await api.submitApplication(jobId, request);
+      const result = await getCandidateApi().submitApplication(jobId, request);
       setMessage(`지원서가 제출되었습니다. 접수 번호는 ${result.data.application.applicationId}번입니다.`);
       router.push(candidateApplicationInterviewRoutes.applications);
     } catch (submitError) {
@@ -718,8 +725,10 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
             busy={busy}
             job={data.data.job}
             latestResumeFile={latestResumeFile}
+            latestPortfolioFile={latestPortfolioFile}
             state={form}
             onResumeFileSelect={handleResumeFileSelect}
+            onPortfolioFileSelect={handlePortfolioFileSelect}
             onStateChange={setForm}
             onSubmit={handleApplicationSubmit}
           />
@@ -1480,6 +1489,9 @@ export function CandidateMockInterviewStartPage() {
   const [busy, setBusy] = useState(false);
   const historyLoad = useCallback(() => getCandidateApi().listMockInterviewHistory(), []);
   const historyResource = useCandidateResource(historyLoad, []);
+  const foldersLoad = useCallback(() => getCandidateApi().listFolders(), []);
+  const foldersResource = useCandidateResource(foldersLoad, []);
+  const folders = foldersResource.data?.data.items ?? [];
 
   // 직무 캐러셀: 스크롤 위치에 따라 좌/우 넘김 버튼과 페이드를 토글한다.
   const roleRowRef = useRef<HTMLDivElement>(null);
@@ -1622,6 +1634,31 @@ export function CandidateMockInterviewStartPage() {
 
               <div className="mocksettings-body">
                 {message ? <p className="notice danger">{message}</p> : null}
+
+                {folders.length > 0 ? (
+                  <div className="mocksettings-field">
+                    <span className="mocksettings-label">지원서 세트 <em className="mocksettings-optional">(선택)</em></span>
+                    <div className="mocksettings-folders">
+                      <button
+                        type="button"
+                        className={`mocksettings-pill${state.folderId === null ? " is-active" : ""}`}
+                        onClick={() => setState((current) => ({ ...current, folderId: null }))}
+                      >
+                        선택 안 함
+                      </button>
+                      {folders.map((folder) => (
+                        <button
+                          key={folder.id}
+                          type="button"
+                          className={`mocksettings-pill${state.folderId === folder.id ? " is-active" : ""}`}
+                          onClick={() => setState((current) => ({ ...current, folderId: folder.id }))}
+                        >
+                          {folder.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="mocksettings-field">
                   <span className="mocksettings-label">직무</span>
@@ -2063,28 +2100,6 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
 }
 
 export function CandidateMyPage() {
-  const candidateId = getCurrentCandidateId();
-  const [resumeState, setResumeState] = useState<CandidateResumeUploadState>({
-    candidateId,
-    storageKey: "",
-    originalName: "",
-    mimeType: "",
-    sizeBytes: 0,
-  });
-  const [portfolioFileState, setPortfolioFileState] = useState<CandidateResumeUploadState>({
-    candidateId,
-    storageKey: "",
-    originalName: "",
-    mimeType: "",
-    sizeBytes: 0,
-  });
-  const [portfolioState, setPortfolioState] = useState<CandidatePortfolioLinkFormState>(defaultPortfolioLinkFormState);
-  const [latestResumeFile, setLatestResumeFile] = useState<CandidateFileAsset>();
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-  const resumeInputRef = useRef<HTMLInputElement | null>(null);
-  const portfolioInputRef = useRef<HTMLInputElement | null>(null);
-
   const loadApplications = useCallback(() => getCandidateApi().listApplications(), []);
   const { data: applicationsData } = useCandidateResource(loadApplications, []);
   const applications = applicationsData?.data.items ?? [];
@@ -2098,46 +2113,6 @@ export function CandidateMyPage() {
     completed: applications.filter((application) => application.interviewStatus === "COMPLETED").length,
     reports: applications.filter((application) => application.reportStatus === "COMPLETED").length,
   };
-
-  async function handleResumeSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setMessage("");
-    try {
-      if (!resumeState.file) {
-        throw new Error("이력서 파일을 다시 선택해주세요.");
-      }
-      const result = await getCandidateApi().uploadResume(resumeState.file);
-      setLatestResumeFile(result.data);
-      setMessage("이력서가 업로드되었습니다.");
-    } catch (submitError) {
-      setMessage(toErrorMessage(submitError));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handlePortfolioSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setMessage("");
-    try {
-      const api = getCandidateApi();
-      let fileId = portfolioState.fileId;
-      if (portfolioFileState.file) {
-        const fileResult = await api.uploadResume(portfolioFileState.file);
-        fileId = fileResult.data.fileId;
-      }
-      await api.createPortfolioLink(toCreatePortfolioLinkRequest({ ...portfolioState, fileId }));
-      setPortfolioState(defaultPortfolioLinkFormState);
-      setPortfolioFileState({ candidateId, storageKey: "", originalName: "", mimeType: "", sizeBytes: 0 });
-      setMessage("포트폴리오/깃허브가 등록되었습니다.");
-    } catch (submitError) {
-      setMessage(toErrorMessage(submitError));
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
     <CandidatePageShell active="accountBilling">
@@ -2154,103 +2129,8 @@ export function CandidateMyPage() {
           <MypageStat name="reports" label="리포트 확인" value={summary.reports} />
         </section>
 
-        <section className="mypage-block">
-          <div className="mypage-block__title">
-            <h2>서류 관리</h2>
-            <p>이력서와 포트폴리오를 등록해 지원 시 바로 사용하세요.</p>
-          </div>
-          <StatusNotice loading={busy} message={message} />
-          <div className="candidate-mypage__cards">
-          <form className="candidate-mypage-card candidate-resume-card" onSubmit={handleResumeSubmit}>
-            <h2>이력서 업로드</h2>
-            <button
-              className="candidate-upload-drop"
-              type="button"
-              onClick={() => resumeInputRef.current?.click()}
-            >
-              <span className="candidate-upload-icon" aria-hidden="true">
-                <svg fill="none" height="22" viewBox="0 0 24 24" width="22">
-                  <path d="M12 16V4m0 0-5 5m5-5 5 5M5 20h14" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" />
-                </svg>
-              </span>
-              <span>{resumeState.originalName || "PDF, DOCX 파일을 선택하세요"}</span>
-            </button>
-            <input
-              ref={resumeInputRef}
-              accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              className="candidate-hidden-file"
-              type="file"
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0];
-                if (file) setResumeState(createResumeUploadStateFromFile(candidateId, file));
-              }}
-            />
-            <button className="btn primary candidate-mypage-action" type="submit" disabled={busy}>
-              업로드
-            </button>
-            <p className="candidate-mypage-note">
-              {latestResumeFile
-                ? `${latestResumeFile.originalName} 업로드 완료`
-                : "업로드 후 서류 텍스트 추출 및 분석 대기 상태로 전환됩니다."}
-            </p>
-          </form>
 
-          <form className="candidate-mypage-card candidate-portfolio-card" onSubmit={handlePortfolioSubmit}>
-            <h2>포트폴리오 / 깃허브 등록</h2>
-            <label>
-              주소
-              <input
-                placeholder="https://github.com/..."
-                type="url"
-                value={portfolioState.url}
-                onChange={(event) =>
-                  setPortfolioState({
-                    ...portfolioState,
-                    url: event.currentTarget.value,
-                    linkType: inferPortfolioLinkType(event.currentTarget.value),
-                  })
-                }
-              />
-            </label>
-            <label>
-              설명
-              <input
-                placeholder="프로젝트 설명"
-                value={portfolioState.description}
-                onChange={(event) => setPortfolioState({ ...portfolioState, description: event.currentTarget.value })}
-              />
-            </label>
-            <label>
-              파일 첨부
-              <button
-                className="candidate-upload-drop"
-                type="button"
-                onClick={() => portfolioInputRef.current?.click()}
-              >
-                <span className="candidate-upload-icon" aria-hidden="true">
-                  <svg fill="none" height="22" viewBox="0 0 24 24" width="22">
-                    <path d="M12 16V4m0 0-5 5m5-5 5 5M5 20h14" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" />
-                  </svg>
-                </span>
-                <span>{portfolioFileState.originalName || "PDF, DOCX 파일을 선택하세요"}</span>
-              </button>
-              <input
-                ref={portfolioInputRef}
-                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                className="candidate-hidden-file"
-                type="file"
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
-                  if (file) setPortfolioFileState(createResumeUploadStateFromFile(candidateId, file));
-                }}
-              />
-            </label>
-            <button className="btn primary candidate-mypage-action" type="submit" disabled={busy}>
-              등록
-            </button>
-          </form>
-          </div>
-        </section>
+        <CandidateFoldersSection />
       </section>
     </CandidatePageShell>
   );
@@ -7620,6 +7500,245 @@ function formatMockHistoryActionLabel(status: CandidateMockInterviewHistoryItem[
   if (status === "GENERATING") return "분석 중";
   if (status === "FAILED") return "다시 요청";
   return "AI 분석 시작";
+}
+
+// 기업별 지원서 세트(폴더) 관리 — 마이페이지 (#228)
+const EMPTY_FOLDER_INPUT: CandidateFolderInput = {
+  name: "",
+  githubUrl: "",
+  blogUrl: "",
+  portfolioUrl: "",
+  resumeFileId: null,
+  motivation: "",
+  extraNote: "",
+};
+
+function CandidateFoldersSection() {
+  const load = useCallback(() => getCandidateApi().listFolders(), []);
+  const { data, loading, error, refresh } = useCandidateResource(load, []);
+  // 새로 만든 세트가 목록 맨 뒤(추가 버튼 앞)에 오도록 id 오름차순 정렬.
+  const folders = [...(data?.data.items ?? [])].sort((a, b) => a.id - b.id);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<CandidateFolder | null>(null);
+  const [message, setMessage] = useState("");
+
+  function openCreate() {
+    setEditing(null);
+    setFormOpen(true);
+  }
+  function openEdit(folder: CandidateFolder) {
+    setEditing(folder);
+    setFormOpen(true);
+  }
+  async function handleDelete(folder: CandidateFolder) {
+    if (!window.confirm(`'${folder.name}' 지원서 세트를 삭제할까요?`)) return;
+    try {
+      await getCandidateApi().deleteFolder(folder.id);
+      setMessage("지원서 세트를 삭제했습니다.");
+      refresh();
+    } catch (deleteError) {
+      setMessage(toErrorMessage(deleteError));
+    }
+  }
+
+  return (
+    <section className="mypage-block">
+      <div className="mypage-block__title">
+        <h2>지원서 세트</h2>
+        <p>기업별로 이력서·링크·지원 동기를 세트로 저장해 두고, 모의면접에서 골라 연습할 수 있어요.</p>
+      </div>
+      <StatusNotice loading={loading} error={error} message={message} />
+      <div className="folder-grid">
+        {folders.map((folder) => {
+          const links = [
+            folder.githubUrl ? { label: "GitHub", url: folder.githubUrl } : null,
+            folder.blogUrl ? { label: "블로그", url: folder.blogUrl } : null,
+            folder.portfolioUrl ? { label: "포트폴리오", url: folder.portfolioUrl } : null,
+          ].filter((link): link is { label: string; url: string } => link !== null);
+          return (
+            <article className="folder-card" key={folder.id}>
+              <div className="folder-card__top">
+                <span className="folder-card__icon" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 5h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
+                  </svg>
+                </span>
+                <h3 className="folder-card__name">{folder.name}</h3>
+                <div className="folder-card__actions">
+                  <button type="button" className="folder-icon-btn" aria-label="편집" onClick={() => openEdit(folder)}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+                  </button>
+                  <button type="button" className="folder-icon-btn folder-icon-btn--danger" aria-label="삭제" onClick={() => void handleDelete(folder)}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6" /></svg>
+                  </button>
+                </div>
+              </div>
+
+              <div className={`folder-card__resume${folder.resumeFileName ? "" : " is-empty"}`}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
+                <span>{folder.resumeFileName ?? "이력서 미첨부"}</span>
+              </div>
+
+              {links.length ? (
+                <div className="folder-card__links">
+                  {links.map((link) => (
+                    <a key={link.label} className="folder-link" href={link.url} target="_blank" rel="noreferrer">{link.label}</a>
+                  ))}
+                </div>
+              ) : null}
+
+              {folder.motivation ? <p className="folder-card__motivation">{folder.motivation}</p> : null}
+            </article>
+          );
+        })}
+        <button type="button" className="folder-add" onClick={openCreate}>
+          <span className="folder-add__plus" aria-hidden="true">+</span>
+          <span>새 지원서 세트</span>
+        </button>
+      </div>
+      {formOpen ? (
+        <FolderFormModal
+          folder={editing}
+          onClose={() => setFormOpen(false)}
+          onSaved={(savedMessage) => {
+            setFormOpen(false);
+            setMessage(savedMessage);
+            refresh();
+          }}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function FolderFormModal({
+  folder,
+  onClose,
+  onSaved,
+}: {
+  folder: CandidateFolder | null;
+  onClose: () => void;
+  onSaved: (message: string) => void;
+}) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [form, setForm] = useState<CandidateFolderInput>(() =>
+    folder
+      ? {
+          name: folder.name,
+          githubUrl: folder.githubUrl ?? "",
+          blogUrl: folder.blogUrl ?? "",
+          portfolioUrl: folder.portfolioUrl ?? "",
+          resumeFileId: folder.resumeFileId,
+          motivation: folder.motivation ?? "",
+          extraNote: folder.extraNote ?? "",
+        }
+      : { ...EMPTY_FOLDER_INPUT },
+  );
+  const [resumeFileName, setResumeFileName] = useState(folder?.resumeFileName ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  function update<K extends keyof CandidateFolderInput>(key: K, value: CandidateFolderInput[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function handleFile(file: File) {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await getCandidateApi().uploadResume(file);
+      update("resumeFileId", result.data.fileId);
+      setResumeFileName(file.name);
+    } catch (uploadError) {
+      setError(toErrorMessage(uploadError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!form.name.trim()) {
+      setError("지원서 세트 이름을 입력하세요.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      if (folder) {
+        await getCandidateApi().updateFolder(folder.id, form);
+        onSaved("지원서 세트를 수정했습니다.");
+      } else {
+        await getCandidateApi().createFolder(form);
+        onSaved("지원서 세트를 만들었습니다.");
+      }
+    } catch (submitError) {
+      setError(toErrorMessage(submitError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <form className="modal folder-form-modal" role="dialog" aria-modal="true" aria-labelledby="folder-form-title" onSubmit={handleSubmit}>
+        <div className="modal-head">
+          <div>
+            <p className="page-eyebrow">지원서 세트</p>
+            <h2 id="folder-form-title">{folder ? "세트 편집" : "새 지원서 세트"}</h2>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose} aria-label="닫기">×</button>
+        </div>
+        {error ? <p className="notice danger">{error}</p> : null}
+        <label className="folder-field">
+          <span>세트 이름</span>
+          <input type="text" value={form.name} placeholder="예: 카카오 백엔드" onChange={(e) => update("name", e.target.value)} maxLength={100} />
+        </label>
+        <label className="folder-field">
+          <span>이력서</span>
+          <button type="button" className="candidate-upload-drop" onClick={() => fileInputRef.current?.click()} disabled={busy}>
+            {resumeFileName || "PDF, DOCX 파일을 선택하세요"}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="candidate-hidden-file"
+            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            onChange={(e) => {
+              const file = e.currentTarget.files?.[0];
+              if (file) void handleFile(file);
+            }}
+          />
+        </label>
+        <div className="folder-field-row">
+          <label className="folder-field">
+            <span>GitHub</span>
+            <input type="url" value={form.githubUrl ?? ""} placeholder="https://github.com/…" onChange={(e) => update("githubUrl", e.target.value)} />
+          </label>
+          <label className="folder-field">
+            <span>블로그</span>
+            <input type="url" value={form.blogUrl ?? ""} placeholder="https://…" onChange={(e) => update("blogUrl", e.target.value)} />
+          </label>
+        </div>
+        <label className="folder-field">
+          <span>포트폴리오</span>
+          <input type="url" value={form.portfolioUrl ?? ""} placeholder="https://…" onChange={(e) => update("portfolioUrl", e.target.value)} />
+        </label>
+        <label className="folder-field">
+          <span>지원 동기</span>
+          <textarea rows={3} value={form.motivation ?? ""} placeholder="이 기업/직무에 지원하는 이유" onChange={(e) => update("motivation", e.target.value)} />
+        </label>
+        <label className="folder-field">
+          <span>추가 설명</span>
+          <textarea rows={3} value={form.extraNote ?? ""} placeholder="강조하고 싶은 경험·자기소개 등" onChange={(e) => update("extraNote", e.target.value)} />
+        </label>
+        <div className="modal-actions">
+          <button type="button" className="btn secondary" onClick={onClose} disabled={busy}>취소</button>
+          <button type="submit" className="btn primary" disabled={busy}>{busy ? "저장 중…" : "저장"}</button>
+        </div>
+      </form>
+    </div>
+  );
 }
 
 type MockReportStatusView = {

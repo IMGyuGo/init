@@ -1,4 +1,4 @@
-import { Controller, Get, Headers, Inject, Param, ParseIntPipe, Req, Res } from "@nestjs/common";
+import { Controller, Get, Headers, Inject, Param, ParseIntPipe, Req, Res, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { CurrentUser } from "@init/common";
 import type { Request, Response } from "express";
@@ -14,6 +14,7 @@ import {
 type MediaRequest = Request & {
   cookies?: Record<string, string | undefined>;
 };
+type CompanyDocumentRequest = Request & { currentUser: CurrentUser };
 
 @ApiTags("Company Recruiting")
 @ApiBearerAuth("bearer")
@@ -24,6 +25,33 @@ export class CompanyRecruitingMediaController {
     @Inject(CompanyRecruitingService) private readonly companyRecruitingService: CompanyRecruitingService,
     private readonly jwtAuthGuard: JwtAuthGuard,
   ) {}
+
+  @Get("applicants/:applicantId/documents/:fileId")
+  @UseGuards(JwtAuthGuard)
+  @ApiOperationId("API-020-DOCUMENT")
+  @ApiOperation({ summary: "기업 지원자 제출 서류 조회" })
+  async getApplicantDocument(
+    @Req() request: CompanyDocumentRequest,
+    @Param("applicantId", ParseIntPipe) applicantId: number,
+    @Param("fileId", ParseIntPipe) fileId: number,
+    @Res() response: Response,
+  ) {
+    const document = await this.companyRecruitingService.getApplicantDocument(
+      request.currentUser,
+      applicantId,
+      fileId,
+    );
+    response.status(200);
+    response.setHeader("Cache-Control", "private, max-age=60");
+    response.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(document.originalName)}`);
+    response.setHeader("Content-Length", String(document.contentLength));
+    response.setHeader("Content-Type", document.contentType);
+    if (Buffer.isBuffer(document.body)) {
+      response.end(document.body);
+      return;
+    }
+    this.pipeMediaBody(document.body, response);
+  }
 
   @Get("applicants/:applicantId/media/:fileId")
   @ApiOperationId("API-020-MEDIA")

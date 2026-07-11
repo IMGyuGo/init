@@ -195,6 +195,44 @@ describe("PrismaCandidateRepository", () => {
     });
   });
 
+  it("includes the linked resume original name in candidate folder responses", async () => {
+    let capturedArgs: unknown;
+    const now = new Date("2026-07-10T00:00:00.000Z");
+    const prisma = {
+      candidateFolder: {
+        async findMany(args: unknown) {
+          capturedArgs = args;
+          return [
+            {
+              id: 1n,
+              candidateId: 44n,
+              name: "백엔드 지원 세트",
+              githubUrl: null,
+              blogUrl: null,
+              portfolioUrl: null,
+              resumeFileId: 9n,
+              motivation: null,
+              extraNote: null,
+              createdAt: now,
+              updatedAt: now,
+              resumeFile: { originalName: "김민철 이력서.pdf" },
+            },
+          ];
+        },
+      },
+    };
+    const repository = new PrismaCandidateRepository(prisma as never);
+
+    const folders = await repository.listFolders(44);
+
+    assert.deepEqual(capturedArgs, {
+      where: { candidateId: 44n },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      include: { resumeFile: { select: { originalName: true } } },
+    });
+    assert.equal(folders[0]?.resumeFileName, "김민철 이력서.pdf");
+  });
+
   it("stores D-owned application documents, consent records, and recruiting interview session", async () => {
     const now = new Date("2026-07-01T00:00:00.000Z");
     let applicationData: Record<string, unknown> | undefined;
