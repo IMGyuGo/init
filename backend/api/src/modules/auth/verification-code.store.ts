@@ -47,6 +47,18 @@ export class VerificationCodeStore {
     }
   }
 
+  async clear(email: string, purpose: VerificationPurpose) {
+    const codeKey = this.key(email, purpose);
+    const cooldownKey = this.cooldownKey(email, purpose);
+    this.memory.delete(codeKey);
+    this.memory.delete(cooldownKey);
+    try {
+      await this.redis?.del(codeKey, cooldownKey);
+    } catch {
+      // SMTP failure must still clear the local fallback and return a delivery error.
+    }
+  }
+
   async setCooldown(email: string, purpose: VerificationPurpose) {
     const key = this.cooldownKey(email, purpose);
     this.memory.set(key, { expiresAt: Date.now() + 60_000, value: { code: "1", attempts: 0, verified: false } });

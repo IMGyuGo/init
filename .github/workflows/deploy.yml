@@ -158,6 +158,7 @@ jobs:
       AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
       APP_BASE_URL: ${{ vars.APP_BASE_URL }}
       NEXT_PUBLIC_TOSS_CLIENT_KEY: ${{ secrets.NEXT_PUBLIC_TOSS_CLIENT_KEY }}
+      SMTP_SMOKE_TO: ${{ secrets.SMTP_SMOKE_TO }}
       IMAGE_TAG: ${{ needs.detect.outputs.deploy_sha }}
       CLUSTER_NAME: init-main
     steps:
@@ -178,6 +179,11 @@ jobs:
               missing=1
             fi
           done
+
+          if [ "${{ needs.detect.outputs.api }}" = "true" ] && [ -z "${SMTP_SMOKE_TO:-}" ]; then
+            echo "::error::SMTP_SMOKE_TO is not configured in the init-main GitHub Environment."
+            missing=1
+          fi
 
           if [ "$missing" -ne 0 ]; then
             exit 1
@@ -437,6 +443,61 @@ jobs:
             --query taskDefinition.taskDefinitionArn \
             --output text)"
           echo "task_definition=$task_definition" >> "$GITHUB_OUTPUT"
+
+      - name: Verify SMTP from the API task
+        if: needs.detect.outputs.api == 'true'
+        shell: bash
+        env:
+          API_TASK_DEFINITION: ${{ steps.register_api.outputs.task_definition }}
+        run: |
+          set -euo pipefail
+
+          aws ecs describe-services \
+            --cluster "$CLUSTER_NAME" \
+            --services init-main-api \
+            --query 'services[0].networkConfiguration' \
+            --output json > /tmp/api-network-configuration.json
+
+          node <<'NODE'
+          const fs = require("fs");
+          const smokeTo = process.env.SMTP_SMOKE_TO;
+          if (!smokeTo) throw new Error("SMTP_SMOKE_TO is required");
+          fs.writeFileSync("/tmp/smtp-smoke-overrides.json", JSON.stringify({
+            containerOverrides: [{
+              name: "api",
+              command: ["node", "dist/src/scripts/smtp-smoke.js"],
+              environment: [{ name: "SMTP_SMOKE_TO", value: smokeTo }]
+            }]
+          }));
+          NODE
+
+          task_arn="$(aws ecs run-task \
+            --cluster "$CLUSTER_NAME" \
+            --launch-type FARGATE \
+            --task-definition "$API_TASK_DEFINITION" \
+            --network-configuration file:///tmp/api-network-configuration.json \
+            --overrides file:///tmp/smtp-smoke-overrides.json \
+            --query 'tasks[0].taskArn' \
+            --output text)"
+
+          if [ -z "$task_arn" ] || [ "$task_arn" = "None" ]; then
+            echo "::error::SMTP smoke task was not started."
+            exit 1
+          fi
+
+          aws ecs wait tasks-stopped --cluster "$CLUSTER_NAME" --tasks "$task_arn"
+          exit_code="$(aws ecs describe-tasks \
+            --cluster "$CLUSTER_NAME" \
+            --tasks "$task_arn" \
+            --query "tasks[0].containers[?name=='api'].exitCode | [0]" \
+            --output text)"
+
+          echo "SMTP smoke task: $task_arn"
+          echo "SMTP smoke exit code: $exit_code"
+          if [ "$exit_code" != "0" ]; then
+            echo "::error::SMTP smoke failed before API service update."
+            exit 1
+          fi
 
       - name: Run database migration
         if: needs.detect.outputs.migration == 'true'

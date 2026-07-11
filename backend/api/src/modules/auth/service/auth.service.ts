@@ -4,9 +4,9 @@ import jwt, { SignOptions } from "jsonwebtoken";
 import { randomInt } from "crypto";
 import { ERROR_CODES, type CurrentUser, type UserType } from "@init/common";
 import { ApiException } from "../../../shared/api-exception";
+import { MailService } from "../../mail/mail.service";
 import { JwtAuthGuard } from "../jwt-auth.guard";
 import { AuthRepository } from "../repository/auth.repository";
-import { MailService } from "./mail.service";
 import type { JwtPayload, TokenPair, VerificationPurpose } from "../auth.types";
 import { VerificationCodeStore } from "../verification-code.store";
 
@@ -198,7 +198,21 @@ export class AuthService {
     const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
     await this.codeStore.set(email, purpose, code);
     await this.codeStore.setCooldown(email, purpose);
-    await this.mailer.sendVerificationCode(email, code, purpose);
+    try {
+      await this.mailer.send({
+        kind: purpose === "PASSWORD_RESET" ? "PASSWORD_RESET_VERIFICATION" : "SIGNUP_VERIFICATION",
+        to: email,
+        subject: purpose === "PASSWORD_RESET" ? "INIT 비밀번호 재설정 인증 코드" : "INIT 이메일 인증 코드",
+        text: `인증 코드는 ${code} 입니다. 5분 안에 입력해 주세요.`,
+      });
+    } catch {
+      await this.codeStore.clear(email, purpose);
+      throw new ApiException(
+        ERROR_CODES.MAIL_DELIVERY_FAILED,
+        "이메일 발송에 실패했습니다. 잠시 후 다시 시도해 주세요.",
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
   }
 
   private async verifyCode(email: string, purpose: VerificationPurpose, code: string) {
