@@ -5550,6 +5550,17 @@ td input {
 .glass-page.notion .notice { color: #37352f; background: #f5f5f3; }
 .glass-page.notion .notice.danger { color: #c0392b; background: #fdecea; }
 .glass-page.notion .empty, .glass-page.notion .description-box { color: rgba(55, 53, 47, 0.6); background: #fbfbfa; border: 1px solid rgba(55, 53, 47, 0.08); }
+/* 리포트 요약 노션 콜아웃 (#270) */
+.glass-page.notion .report-summary-callout {
+  display: flex;
+  gap: 12px;
+  padding: 16px 18px;
+  background: #fbfbfa;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 12px;
+}
+.glass-page.notion .report-summary-callout__icon { flex: none; margin-top: 1px; color: #3b6fe0; }
+.glass-page.notion .report-summary-callout p { margin: 0; font-size: 14.5px; line-height: 1.7; color: #37352f; }
 .glass-page.notion .setup-card, .glass-page.notion .score-summary { background: #fbfbfa; border: 1px solid rgba(55, 53, 47, 0.08); }
 .glass-page.notion .setup-card strong, .glass-page.notion .score-summary strong { color: #191919; }
 .glass-page.notion .setup-card span { color: rgba(55, 53, 47, 0.6); background: #fff; border-color: rgba(55, 53, 47, 0.12); }

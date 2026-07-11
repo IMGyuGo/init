@@ -7845,13 +7845,12 @@ function MockFeedbackView({ feedback }: { feedback: CandidateMockReportFeedback 
 
   return (
     <div className="detail-stack">
-      <dl className="candidate-feature__summary">
-        <Definition label="상태" value={<StatusPill value={feedback.status} />} />
-        {feedback.totalScore !== undefined ? <Definition label="총점" value={`${feedback.totalScore}점`} /> : null}
-        <Definition label="생성 시각" value={feedback.generatedAt ? formatDateTime(feedback.generatedAt) : "-"} />
-        <Definition label="공개 범위" value={feedback.visibilityPolicy.candidateFacingOnly ? "지원자용" : "확인 필요"} />
-      </dl>
-      <p className="description-box">{feedback.summary ?? "리포트 생성 중입니다."}</p>
+      <div className="report-summary-callout">
+        <span className="report-summary-callout__icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a7 7 0 0 0-4 12.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3A7 7 0 0 0 12 2z" /><path d="M9 21h6" /></svg>
+        </span>
+        <p>{feedback.summary ?? "리포트 생성 중입니다."}</p>
+      </div>
       {scores.length ? null : <ListBlock title="강점" items={feedback.strengths} />}
       <ListBlock title="개선점" items={improvementItems} />
       <ListBlock title="다음 연습" items={nextPracticeItems} />
