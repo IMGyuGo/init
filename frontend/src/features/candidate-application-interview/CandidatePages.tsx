@@ -6,7 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { DependencyList, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FaceLandmarker as MediaPipeFaceLandmarker, NormalizedLandmark } from "@mediapipe/tasks-vision";
+import type { FaceLandmarker as MediaPipeFaceLandmarker, NormalizedLandmark, ObjectDetector as MediaPipeObjectDetector } from "@mediapipe/tasks-vision";
 
 import { getApiBaseUrl } from "../../api/api-base-url";
 import { getAccessToken } from "../../api/client";
@@ -73,9 +73,11 @@ import {
 import { candidateApplicationInterviewRoutes } from "./routes";
 import {
   GAZE_CALIBRATION_REQUIRED_SAMPLES,
+  countPersonDetections,
   estimateHeadPoseAngles,
   estimateIrisGazePosition,
   resolveCombinedGazeSignal,
+  updateMultiplePeopleDetectionState,
   type GazeDirection,
   type GazeSignalSource,
   type HeadPoseAngles,
@@ -203,6 +205,13 @@ const MEDIAPIPE_TASKS_VISION_VERSION = "0.10.35";
 const MEDIAPIPE_TASKS_VISION_WASM_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_TASKS_VISION_VERSION}/wasm`;
 const MEDIAPIPE_FACE_LANDMARKER_MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
+const MEDIAPIPE_PERSON_DETECTOR_MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite";
+const NONVERBAL_PERSON_DETECTION_SCORE_THRESHOLD = 0.35;
+const NONVERBAL_PERSON_SAMPLE_INTERVAL_MS = 500;
+const NONVERBAL_MULTIPLE_PEOPLE_CONFIRMATION_WINDOW_MS = 1500;
+const NONVERBAL_MULTIPLE_PEOPLE_REQUIRED_SAMPLES = 2;
+const NONVERBAL_MULTIPLE_PEOPLE_RELEASE_GRACE_MS = 1500;
 const REALTIME_SPEECH_RESPONSE_TIMEOUT_MS = 30000;
 const BROWSER_SPEECH_START_TIMEOUT_MS = 2500;
 const BROWSER_SPEECH_MIN_COMPLETION_TIMEOUT_MS = 8000;
@@ -278,6 +287,8 @@ type InterviewIntegritySummary = {
   earlyScreenAwayCount: number;
   faceDetectionSupported: boolean;
   faceDetectionFrameCount: number;
+  personDetectionSupported: boolean;
+  personDetectionFrameCount: number;
   gazeDetectionSupported: boolean;
   gazeDetectionFrameCount: number;
   headPoseDetectionSupported: boolean;
@@ -316,6 +327,9 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   faceMissingStartedAtMs?: number;
   faceOutOfFrameStartedAtMs?: number;
   multipleFacesStartedAtMs?: number;
+  multiplePeoplePositiveSampleTimesMs: number[];
+  multiplePeopleLastDetectedAtMs?: number;
+  lastPersonDetectionAtMs?: number;
   facePositionShiftStartedAtMs?: number;
   gazeAwayStartedAtMs?: number;
   gazeAwayCandidateStartedAtMs?: number;
@@ -339,6 +353,8 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   lastVideoFrameSample?: number[];
   faceDetectionSupported: boolean;
   faceDetectionFrameCount: number;
+  personDetectionSupported: boolean;
+  personDetectionFrameCount: number;
   gazeDetectionSupported: boolean;
   gazeDetectionFrameCount: number;
   headPoseDetectionSupported: boolean;
@@ -2569,6 +2585,8 @@ function InterviewRuntimePanel({
   const nonverbalFaceDetectorRef = useRef<BrowserFaceDetector | null | undefined>(undefined);
   const nonverbalFaceLandmarkerRef = useRef<MediaPipeFaceLandmarker | null | undefined>(undefined);
   const nonverbalFaceLandmarkerPromiseRef = useRef<Promise<MediaPipeFaceLandmarker | null> | null>(null);
+  const nonverbalPersonDetectorRef = useRef<MediaPipeObjectDetector | null | undefined>(undefined);
+  const nonverbalPersonDetectorPromiseRef = useRef<Promise<MediaPipeObjectDetector | null> | null>(null);
   const nonverbalFaceDetectionPendingRef = useRef(false);
   const integrityWarningTimeoutRef = useRef<number | null>(null);
   const integrityWarningLastShownAtRef = useRef<Map<InterviewIntegrityEventType, number>>(new Map());
@@ -3822,7 +3840,7 @@ function InterviewRuntimePanel({
       case "FACE_OUT_OF_FRAME":
         return "얼굴이 화면 밖이나 가장자리로 벗어난 신호가 감지되었습니다.";
       case "MULTIPLE_FACES":
-        return "여러 얼굴이 감지되었습니다.";
+        return "여러 사람이 감지되었습니다.";
       case "FACE_POSITION_SHIFT":
         return "얼굴 위치가 기준 위치와 크게 달라졌습니다.";
       case "GAZE_AWAY": {
@@ -3937,6 +3955,36 @@ function InterviewRuntimePanel({
     })();
 
     return nonverbalFaceLandmarkerPromiseRef.current;
+  }
+
+  async function getMediaPipePersonDetector(): Promise<MediaPipeObjectDetector | null> {
+    if (nonverbalPersonDetectorRef.current !== undefined) return nonverbalPersonDetectorRef.current;
+    if (nonverbalPersonDetectorPromiseRef.current) return nonverbalPersonDetectorPromiseRef.current;
+
+    nonverbalPersonDetectorPromiseRef.current = (async () => {
+      try {
+        const tasks = await import("@mediapipe/tasks-vision") as MediaPipeFaceLandmarkerModule;
+        const vision = await tasks.FilesetResolver.forVisionTasks(MEDIAPIPE_TASKS_VISION_WASM_URL);
+        const detector = await tasks.ObjectDetector.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: MEDIAPIPE_PERSON_DETECTOR_MODEL_URL,
+          },
+          runningMode: "VIDEO",
+          maxResults: 4,
+          scoreThreshold: NONVERBAL_PERSON_DETECTION_SCORE_THRESHOLD,
+          categoryAllowlist: ["person"],
+        });
+        nonverbalPersonDetectorRef.current = detector;
+        return detector;
+      } catch {
+        nonverbalPersonDetectorRef.current = null;
+        return null;
+      } finally {
+        nonverbalPersonDetectorPromiseRef.current = null;
+      }
+    })();
+
+    return nonverbalPersonDetectorPromiseRef.current;
   }
 
   function getBrowserFaceDetector(): BrowserFaceDetector | null {
@@ -4299,6 +4347,62 @@ function InterviewRuntimePanel({
     resetRecentAudioSpeechWindow(tracker);
   }
 
+  async function detectMultiplePeople(
+    tracker: RecordingNonverbalTracker,
+    questionId: number,
+    video: HTMLVideoElement,
+    detectedFaceCount: number,
+  ): Promise<boolean | undefined> {
+    if (detectedFaceCount > 1) return true;
+
+    const nowMs = Date.now();
+    if (
+      tracker.lastPersonDetectionAtMs !== undefined &&
+      nowMs - tracker.lastPersonDetectionAtMs < NONVERBAL_PERSON_SAMPLE_INTERVAL_MS
+    ) {
+      return undefined;
+    }
+    tracker.lastPersonDetectionAtMs = nowMs;
+
+    const detector = await getMediaPipePersonDetector();
+    const current = recordingNonverbalTrackerRef.current;
+    if (!current || current !== tracker || current.questionId !== questionId) return undefined;
+    if (!detector) {
+      current.personDetectionSupported = false;
+      return false;
+    }
+
+    try {
+      const result = detector.detectForVideo(video, performance.now());
+      current.personDetectionSupported = true;
+      current.personDetectionFrameCount += 1;
+      return countPersonDetections(result.detections, NONVERBAL_PERSON_DETECTION_SCORE_THRESHOLD) > 1;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function updateMultiplePeopleSignal(
+    tracker: RecordingNonverbalTracker,
+    multiplePeopleDetected: boolean | undefined,
+  ) {
+    if (multiplePeopleDetected === undefined) return;
+
+    const state = updateMultiplePeopleDetectionState({
+      detected: multiplePeopleDetected,
+      nowMs: Date.now(),
+      positiveSampleTimesMs: tracker.multiplePeoplePositiveSampleTimesMs,
+      lastDetectedAtMs: tracker.multiplePeopleLastDetectedAtMs,
+      active: tracker.multipleFacesStartedAtMs !== undefined,
+      confirmationWindowMs: NONVERBAL_MULTIPLE_PEOPLE_CONFIRMATION_WINDOW_MS,
+      requiredPositiveSamples: NONVERBAL_MULTIPLE_PEOPLE_REQUIRED_SAMPLES,
+      releaseGraceMs: NONVERBAL_MULTIPLE_PEOPLE_RELEASE_GRACE_MS,
+    });
+    tracker.multiplePeoplePositiveSampleTimesMs = state.positiveSampleTimesMs;
+    tracker.multiplePeopleLastDetectedAtMs = state.lastDetectedAtMs;
+    updateTimedFaceSignal(tracker, "multipleFacesStartedAtMs", "MULTIPLE_FACES", state.active);
+  }
+
   async function sampleFaceIntegrity(tracker: RecordingNonverbalTracker, questionId: number) {
     if (nonverbalFaceDetectionPendingRef.current) return;
 
@@ -4344,7 +4448,7 @@ function InterviewRuntimePanel({
         }
 
         updateTimedFaceSignal(current, "faceMissingStartedAtMs", "FACE_MISSING", faces.length === 0);
-        updateTimedFaceSignal(current, "multipleFacesStartedAtMs", "MULTIPLE_FACES", faces.length > 1);
+
         updateTimedFaceSignal(current, "faceOutOfFrameStartedAtMs", "FACE_OUT_OF_FRAME", Boolean(snapshot && isFaceOutOfFrame(snapshot)));
         updateTimedFaceSignal(
           current,
@@ -4352,6 +4456,10 @@ function InterviewRuntimePanel({
           "FACE_POSITION_SHIFT",
           Boolean(snapshot && current.faceBaseline && isFacePositionShifted(current.faceBaseline, snapshot)),
         );
+        const multiplePeopleDetected = await detectMultiplePeople(current, questionId, video, faces.length);
+        const currentAfterPersonDetection = recordingNonverbalTrackerRef.current;
+        if (!currentAfterPersonDetection || currentAfterPersonDetection !== tracker || currentAfterPersonDetection.questionId !== questionId) return;
+        updateMultiplePeopleSignal(currentAfterPersonDetection, multiplePeopleDetected);
         return;
       }
 
@@ -4385,7 +4493,7 @@ function InterviewRuntimePanel({
       resetRecentAudioSpeechWindow(current);
 
       updateTimedFaceSignal(current, "faceMissingStartedAtMs", "FACE_MISSING", faces.length === 0);
-      updateTimedFaceSignal(current, "multipleFacesStartedAtMs", "MULTIPLE_FACES", faces.length > 1);
+
       updateTimedFaceSignal(current, "faceOutOfFrameStartedAtMs", "FACE_OUT_OF_FRAME", Boolean(snapshot && isFaceOutOfFrame(snapshot)));
       updateTimedFaceSignal(
         current,
@@ -4393,6 +4501,10 @@ function InterviewRuntimePanel({
         "FACE_POSITION_SHIFT",
         Boolean(snapshot && current.faceBaseline && isFacePositionShifted(current.faceBaseline, snapshot)),
       );
+      const multiplePeopleDetected = await detectMultiplePeople(current, questionId, video, faces.length);
+      const currentAfterPersonDetection = recordingNonverbalTrackerRef.current;
+      if (!currentAfterPersonDetection || currentAfterPersonDetection !== tracker || currentAfterPersonDetection.questionId !== questionId) return;
+      updateMultiplePeopleSignal(currentAfterPersonDetection, multiplePeopleDetected);
     } catch {
       tracker.faceDetectionSupported = false;
     } finally {
@@ -4482,8 +4594,11 @@ function InterviewRuntimePanel({
       observedAudioFrameCount: 0,
       cameraDisconnectedCount: 0,
       silenceSegmentCounted: false,
+      multiplePeoplePositiveSampleTimesMs: [],
       faceDetectionSupported: false,
       faceDetectionFrameCount: 0,
+      personDetectionSupported: false,
+      personDetectionFrameCount: 0,
       gazeDetectionSupported: false,
       gazeDetectionFrameCount: 0,
       headPoseDetectionSupported: false,
@@ -4505,6 +4620,7 @@ function InterviewRuntimePanel({
     };
     recordingNonverbalTrackerRef.current = tracker;
     startNonverbalIntegrityListeners(questionId);
+    void getMediaPipePersonDetector();
 
     const sampleCamera = () => {
       const current = recordingNonverbalTrackerRef.current;
@@ -4677,6 +4793,8 @@ function InterviewRuntimePanel({
       earlyScreenAwayCount,
       faceDetectionSupported: tracker.faceDetectionSupported,
       faceDetectionFrameCount: tracker.faceDetectionFrameCount,
+      personDetectionSupported: tracker.personDetectionSupported,
+      personDetectionFrameCount: tracker.personDetectionFrameCount,
       gazeDetectionSupported: tracker.gazeDetectionSupported,
       gazeDetectionFrameCount: tracker.gazeDetectionFrameCount,
       headPoseDetectionSupported: tracker.headPoseDetectionSupported,
@@ -7841,7 +7959,7 @@ function MockNonverbalSummaryPanel({ summary }: { summary: MockNonverbalSummary 
         <div>
           <span>응시 무결성</span>
           <strong>모의면접 부정행위 의심 신호</strong>
-          <p>화면 이탈, 얼굴 화면 밖, 여러 얼굴 감지처럼 면접 중 응시 무결성 확인이 필요한 신호를 기록합니다. 확정 판정이 아니라 연습용 피드백입니다.</p>
+          <p>화면 이탈, 얼굴 화면 밖, 여러 사람 감지처럼 면접 중 응시 무결성 확인이 필요한 신호를 기록합니다. 확정 판정이 아니라 연습용 피드백입니다.</p>
         </div>
         <StatusPill value={statusLabel} />
       </div>
@@ -7851,7 +7969,7 @@ function MockNonverbalSummaryPanel({ summary }: { summary: MockNonverbalSummary 
         <Definition label="화면 이탈" value={`${summary.screenAwaySignalAnswers}`} />
         <Definition label="카메라 이탈" value={`${summary.cameraIntegritySignalAnswers}`} />
         <Definition label="얼굴 이탈" value={`${summary.faceAwaySignalAnswers}`} />
-        <Definition label="여러 얼굴" value={`${summary.multipleFaceSignalAnswers}`} />
+        <Definition label="여러 사람" value={`${summary.multipleFaceSignalAnswers}`} />
         <Definition label="위치 급변" value={`${summary.faceShiftSignalAnswers}`} />
         <Definition label="시선 이탈" value={`${summary.gazeAwaySignalAnswers}`} />
         <Definition label="음성-입모양" value={`${summary.voiceMouthMismatchSignalAnswers}`} />
@@ -7935,7 +8053,7 @@ function buildMockNonverbalSummaryGuide(summary: MockNonverbalSummary): string[]
   const items: string[] = [];
 
   if (summary.integritySignalAnswers === 0) {
-    return ["전체 답변에서 화면 이탈, 얼굴 화면 밖, 여러 얼굴 감지 같은 응시 무결성 신호가 감지되지 않았습니다."];
+    return ["전체 답변에서 화면 이탈, 얼굴 화면 밖, 여러 사람 감지 같은 응시 무결성 신호가 감지되지 않았습니다."];
   }
   if (summary.screenAwaySignalAnswers > 0) {
     items.push(`${summary.screenAwaySignalAnswers}개 답변에서 면접 화면을 벗어나거나 탭이 숨겨진 신호가 감지되었습니다.`);
@@ -7947,7 +8065,7 @@ function buildMockNonverbalSummaryGuide(summary: MockNonverbalSummary): string[]
     items.push(`${summary.faceAwaySignalAnswers}개 답변에서 얼굴이 화면 밖으로 나가거나 카메라 안에서 안정적으로 감지되지 않았습니다.`);
   }
   if (summary.multipleFaceSignalAnswers > 0) {
-    items.push(`${summary.multipleFaceSignalAnswers}개 답변에서 여러 얼굴이 감지되어 대리 응시나 주변 도움 여부를 확인할 필요가 있습니다.`);
+    items.push(`${summary.multipleFaceSignalAnswers}개 답변에서 여러 사람이 감지되어 대리 응시나 주변 도움 여부를 확인할 필요가 있습니다.`);
   }
   if (summary.faceShiftSignalAnswers > 0) {
     items.push(`${summary.faceShiftSignalAnswers}개 답변에서 얼굴 위치가 기준 위치와 크게 달라져 응시자 변경 또는 자리 이탈 의심 신호로 참고할 수 있습니다.`);
@@ -8018,7 +8136,7 @@ function buildMockNonverbalFeedbackItems(metadata?: Record<string, unknown>): st
     items.push("얼굴이 화면 밖으로 나가거나 일정 시간 감지되지 않았습니다. 스크립트, 휴대폰, 다른 모니터를 보는 행동으로 오해받을 수 있습니다.");
   }
   if (multipleFaceCount > 0) {
-    items.push("여러 얼굴이 감지되었습니다. 실제 면접에서는 주변 사람이 화면에 들어오거나 답변을 돕는 상황을 피해야 합니다.");
+    items.push("여러 사람이 감지되었습니다. 실제 면접에서는 주변 사람이 화면에 들어오거나 답변을 돕는 상황을 피해야 합니다.");
   }
   if (faceShiftCount > 0) {
     items.push("얼굴 위치가 기준 위치와 크게 달라졌습니다. 자리 이탈이나 응시자 변경으로 오해받지 않도록 화면 중앙을 유지해 주세요.");
@@ -8042,7 +8160,7 @@ function buildMockNonverbalFeedbackItems(metadata?: Record<string, unknown>): st
     items.push("여러 응시 무결성 신호가 겹쳐 감지되었습니다. 실제 면접에서는 화면 이탈과 외부 자료 참고로 오해받을 수 있는 행동을 피하는 것이 좋습니다.");
   }
   if (!items.length) {
-    items.push("면접 중 화면 이탈, 얼굴 화면 밖, 여러 얼굴 감지 같은 응시 무결성 신호가 감지되지 않았습니다.");
+    items.push("면접 중 화면 이탈, 얼굴 화면 밖, 여러 사람 감지 같은 응시 무결성 신호가 감지되지 않았습니다.");
   }
 
   return items;

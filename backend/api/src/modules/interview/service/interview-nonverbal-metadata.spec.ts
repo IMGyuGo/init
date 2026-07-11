@@ -30,6 +30,8 @@ describe("normalizeInterviewNonverbalMetadata", () => {
         suspicionLevel: "NONE",
         faceDetectionSupported: true,
         faceDetectionFrameCount: 12,
+        personDetectionSupported: true,
+        personDetectionFrameCount: 6,
       },
     });
 
@@ -45,6 +47,8 @@ describe("normalizeInterviewNonverbalMetadata", () => {
       maxAwayDurationMs: 3200,
       faceDetectionSupported: true,
       faceDetectionFrameCount: 12,
+      personDetectionSupported: true,
+      personDetectionFrameCount: 6,
       suspicionLevel: "HIGH",
     });
   });

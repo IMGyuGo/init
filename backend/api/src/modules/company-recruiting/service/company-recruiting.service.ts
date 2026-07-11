@@ -1370,7 +1370,7 @@ function buildRecruitingIntegrityReasons(counts: RecruitingIntegrityCounts) {
   if (counts.cameraLost > 0) reasons.push(`카메라 연결 이탈 ${counts.cameraLost}회`);
   if (counts.faceMissing > 0) reasons.push(`얼굴 미검출 ${counts.faceMissing}회`);
   if (counts.faceOutOfFrame > 0) reasons.push(`얼굴 화면 밖 ${counts.faceOutOfFrame}회`);
-  if (counts.multipleFaces > 0) reasons.push(`여러 얼굴 감지 ${counts.multipleFaces}회`);
+  if (counts.multipleFaces > 0) reasons.push(`여러 사람 감지 ${counts.multipleFaces}회`);
   if (counts.facePositionShift > 0) reasons.push(`얼굴 위치 급변 ${counts.facePositionShift}회`);
   if (counts.gazeAway > 0) reasons.push(`시선 이탈 ${counts.gazeAway}회`);
   if (counts.voiceMouthMismatch > 0) reasons.push(`음성-입모양 불일치 ${counts.voiceMouthMismatch}회`);

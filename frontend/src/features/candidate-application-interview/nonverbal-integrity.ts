@@ -1,4 +1,4 @@
-import type { Matrix, NormalizedLandmark } from "@mediapipe/tasks-vision";
+import type { Detection, Matrix, NormalizedLandmark } from "@mediapipe/tasks-vision";
 
 export type GazeDirection = "LEFT" | "RIGHT" | "UP" | "DOWN";
 export type GazeSignalSource = "IRIS" | "HEAD_POSE" | "COMBINED";
@@ -20,6 +20,58 @@ export type CombinedGazeSignal = {
 };
 
 export const GAZE_CALIBRATION_REQUIRED_SAMPLES = 4;
+export function countPersonDetections(detections: Detection[], minimumScore = 0.45): number {
+  return detections.filter((detection) =>
+    detection.categories.some((category) =>
+      category.categoryName.toLowerCase() === "person" && category.score >= minimumScore,
+    ),
+  ).length;
+}
+
+
+export type MultiplePeopleDetectionState = {
+  positiveSampleTimesMs: number[];
+  lastDetectedAtMs?: number;
+  active: boolean;
+};
+
+export function updateMultiplePeopleDetectionState(input: {
+  detected: boolean;
+  nowMs: number;
+  positiveSampleTimesMs: number[];
+  lastDetectedAtMs?: number;
+  active: boolean;
+  confirmationWindowMs?: number;
+  requiredPositiveSamples?: number;
+  releaseGraceMs?: number;
+}): MultiplePeopleDetectionState {
+  const confirmationWindowMs = input.confirmationWindowMs ?? 1500;
+  const requiredPositiveSamples = input.requiredPositiveSamples ?? 2;
+  const releaseGraceMs = input.releaseGraceMs ?? 1500;
+  const positiveSampleTimesMs = input.positiveSampleTimesMs.filter(
+    (sampleTimeMs) => sampleTimeMs <= input.nowMs && input.nowMs - sampleTimeMs <= confirmationWindowMs,
+  );
+  let lastDetectedAtMs = input.lastDetectedAtMs;
+
+  if (input.detected) {
+    if (positiveSampleTimesMs[positiveSampleTimesMs.length - 1] !== input.nowMs) {
+      positiveSampleTimesMs.push(input.nowMs);
+    }
+    lastDetectedAtMs = input.nowMs;
+  }
+
+  const confirmed = positiveSampleTimesMs.length >= requiredPositiveSamples;
+  const heldDuringBriefMiss =
+    input.active &&
+    lastDetectedAtMs !== undefined &&
+    input.nowMs - lastDetectedAtMs <= releaseGraceMs;
+
+  return {
+    positiveSampleTimesMs,
+    lastDetectedAtMs,
+    active: confirmed || heldDuringBriefMiss,
+  };
+}
 
 const IRIS_HORIZONTAL_AWAY_THRESHOLD = 0.18;
 const IRIS_VERTICAL_AWAY_THRESHOLD = 0.2;

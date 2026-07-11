@@ -24,8 +24,10 @@ import {
   type RealtimePeerConnectionLike,
 } from "./realtime-webrtc";
 import {
+  countPersonDetections,
   estimateHeadPoseAngles,
   resolveCombinedGazeSignal,
+  updateMultiplePeopleDetectionState,
 } from "./nonverbal-integrity";
 import {
   clampCameraPipPosition,
@@ -85,6 +87,64 @@ import {
   toSubmitApplicationRequest,
   toUploadResumeRequest,
 } from "./view-model";
+
+const detectedPersonCount = countPersonDetections([
+  {
+    categories: [{ categoryName: "person", displayName: "", index: 0, score: 0.92 }],
+    keypoints: [],
+  },
+  {
+    categories: [{ categoryName: "person", displayName: "", index: 0, score: 0.68 }],
+    keypoints: [],
+  },
+  {
+    categories: [{ categoryName: "cat", displayName: "", index: 16, score: 0.99 }],
+    keypoints: [],
+  },
+]);
+assert.equal(detectedPersonCount, 2);
+assert.equal(countPersonDetections([
+  {
+    categories: [{ categoryName: "person", displayName: "", index: 0, score: 0.34 }],
+    keypoints: [],
+  },
+], 0.35), 0);
+
+let multiplePeopleState = updateMultiplePeopleDetectionState({
+  detected: true,
+  nowMs: 0,
+  positiveSampleTimesMs: [],
+  active: false,
+});
+assert.equal(multiplePeopleState.active, false);
+
+multiplePeopleState = updateMultiplePeopleDetectionState({
+  ...multiplePeopleState,
+  detected: false,
+  nowMs: 500,
+});
+assert.equal(multiplePeopleState.active, false);
+
+multiplePeopleState = updateMultiplePeopleDetectionState({
+  ...multiplePeopleState,
+  detected: true,
+  nowMs: 1000,
+});
+assert.equal(multiplePeopleState.active, true);
+
+multiplePeopleState = updateMultiplePeopleDetectionState({
+  ...multiplePeopleState,
+  detected: false,
+  nowMs: 1500,
+});
+assert.equal(multiplePeopleState.active, true);
+
+multiplePeopleState = updateMultiplePeopleDetectionState({
+  ...multiplePeopleState,
+  detected: false,
+  nowMs: 3000,
+});
+assert.equal(multiplePeopleState.active, false);
 
 const identityHeadPose = estimateHeadPoseAngles({
   rows: 4,
