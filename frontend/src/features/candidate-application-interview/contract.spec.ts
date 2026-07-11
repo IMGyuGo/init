@@ -1508,6 +1508,10 @@ const candidateJobDetail: CandidateJobDetail = {
   jobDescription: "NestJS API",
   techStacks: ["Node.js", "NestJS"],
   createdAt: "2026-07-01T00:00:00.000Z",
+  jobRoleCode: "서버·백엔드",
+  workplaceAddress: null,
+  workplaceLat: null,
+  workplaceLng: null,
 };
 
 const mockReport: CandidateMockReportSummary = {

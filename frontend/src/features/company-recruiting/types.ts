@@ -45,6 +45,9 @@ export type Recruitment = {
   careerMaxYears: number | null;
   employmentTypeCode: string | null;
   recruitmentType: string | null;
+  workplaceAddress: string | null;
+  workplaceLat: number | null;
+  workplaceLng: number | null;
   startsOn: string | null;
   endsOn: string | null;
   status: "DRAFT" | "OPEN" | "CLOSING_SOON" | "CLOSED" | "ARCHIVED";
@@ -83,6 +86,9 @@ export type CreateRecruitmentInput = {
   careerMaxYears?: number;
   employmentTypeCode?: string;
   recruitmentType?: "상시" | "마감형";
+  workplaceAddress?: string;
+  workplaceLat?: number;
+  workplaceLng?: number;
   startsOn?: string;
   endsOn?: string;
   status: "DRAFT" | "OPEN";

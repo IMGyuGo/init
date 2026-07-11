@@ -75,6 +75,10 @@ export interface CandidateJob {
   careerMaxYears: number | null;
   employmentTypeCode: string | null;
   recruitmentType: string | null;
+  // 회사 위치(공고 상세 지도 핀용). 좌표 없으면 지도 미표시.
+  workplaceAddress: string | null;
+  workplaceLat: number | null;
+  workplaceLng: number | null;
   startsOn: string;
   endsOn: string;
   createdAt: string;

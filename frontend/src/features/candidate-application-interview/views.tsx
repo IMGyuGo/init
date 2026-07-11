@@ -19,6 +19,7 @@ import {
 } from "./view-model";
 import { JobDescriptionViewer } from "../company-recruiting/JobDescriptionViewer";
 import { extractPostingExtraInfo, postingExtraInfoFields } from "../company-recruiting/posting-extra-info";
+import { loadKakaoMaps } from "../../lib/kakao-maps";
 
 export interface CandidateJobsViewProps {
   jobs: CandidateJobSummary[];
@@ -239,6 +240,14 @@ function candidateJobDday(endsOn: string): string | null {
   if (days < 0) return "마감";
   if (days === 0) return "D-day";
   return `D-${days}`;
+}
+
+// 공고 상세 마감일은 D-day 대신 실제 날짜(YYYY. MM. DD)로 표기한다. 마감일 없으면 상시 채용.
+function formatDeadlineDate(endsOn: string): string {
+  if (!endsOn) return "상시 채용";
+  const end = new Date(`${endsOn}T00:00:00`);
+  if (Number.isNaN(end.getTime())) return endsOn;
+  return `${end.getFullYear()}. ${String(end.getMonth() + 1).padStart(2, "0")}. ${String(end.getDate()).padStart(2, "0")}`;
 }
 
 export function CandidateJobsView({ jobs, query, totalItems, pageMeta, onQueryChange }: CandidateJobsViewProps) {
@@ -862,6 +871,8 @@ function JobsPagination({
 
 export interface CandidateJobDetailViewProps {
   job: CandidateJobDetail;
+  /** 같은 직무의 추천 공고(우측 사이드). */
+  relatedJobs?: CandidateJobSummary[];
   /** 지정하면 지원하기 버튼이 페이지 이동 대신 이 핸들러(모달 열기)를 호출한다. */
   onApplyClick?: () => void;
 }
@@ -875,9 +886,68 @@ function extractJobImages(jobDescription: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
-export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetailViewProps) {
+// 회사 위치 — 주소 표시 + 좌표가 있으면 카카오 지도에 핀.
+// 키 없거나 SDK 로드 실패 시에는 빈 지도 박스 대신 주소만 보여준다.
+function WorkplaceMap({ address, lat, lng }: { address: string | null; lat: number | null; lng: number | null }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const [mapStatus, setMapStatus] = useState<"loading" | "ready" | "failed">("loading");
+  const hasCoords = lat != null && lng != null;
+
+  useEffect(() => {
+    if (lat == null || lng == null) {
+      setMapStatus("failed");
+      return;
+    }
+    setMapStatus("loading");
+    let cancelled = false;
+    const container = mapRef.current;
+    if (!container) return;
+    loadKakaoMaps()
+      .then((maps) => {
+        if (cancelled) return;
+        const center = new maps.LatLng(lat, lng);
+        const map = new maps.Map(container, { center, level: 3 });
+        new maps.Marker({ position: center, map });
+        setMapStatus("ready");
+      })
+      .catch(() => {
+        if (!cancelled) setMapStatus("failed");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [lat, lng]);
+
+  if (!address) return null;
+  return (
+    <section className="jobdetail-companyinfo">
+      <h2>근무지 위치</h2>
+      <p>{address}</p>
+      {/* 로드 성공/진행 중에만 지도 컨테이너 렌더(실패 시 제거 → 주소만). ref 부착을 위해 실패 전까진 유지. */}
+      {hasCoords && mapStatus !== "failed" ? <div className="jobdetail-map" ref={mapRef} aria-label="근무지 지도" /> : null}
+    </section>
+  );
+}
+
+// 추천 공고 로고 — URL 없거나 로드 실패 시 회사명 첫 글자 이니셜로 대체.
+function RelatedJobLogo({ logoUrl, companyName }: { logoUrl: string | null; companyName: string }) {
+  const [failed, setFailed] = useState(false);
+  const initial = companyName.trim().charAt(0) || "?";
+  return (
+    <span className="jobdetail-related-logo" aria-hidden="true">
+      {logoUrl && !failed ? (
+        // 외부/스토리지 URL 이라 next/image 최적화 대상 아님
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={logoUrl} alt="" onError={() => setFailed(true)} />
+      ) : (
+        <span className="jobdetail-related-logo-fallback">{initial}</span>
+      )}
+    </span>
+  );
+}
+
+export function CandidateJobDetailView({ job, relatedJobs = [], onApplyClick }: CandidateJobDetailViewProps) {
   const actionHref = getCandidateJobDetailActionHref(job);
-  const dday = candidateJobDday(job.endsOn);
   const galleryRef = useRef<HTMLDivElement>(null);
   const [images, setImages] = useState<string[]>([]);
 
@@ -951,7 +1021,7 @@ export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetail
               <div className="jobdetail-summary-row">
                 <span>마감일</span>
                 <strong>
-                  {dday ?? "-"}
+                  {formatDeadlineDate(job.endsOn)}
                 </strong>
               </div>
             </div>
@@ -985,6 +1055,8 @@ export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetail
               <p>{job.companyProfile}</p>
             </section>
           ) : null}
+
+          <WorkplaceMap address={job.workplaceAddress} lat={job.workplaceLat} lng={job.workplaceLng} />
         </div>
 
         <aside className="jobdetail-aside">
@@ -1007,6 +1079,28 @@ export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetail
               {job.alreadyApplied ? "지원 완료" : "지원하기"}
             </a>
           )}
+
+          {relatedJobs.length ? (
+            <section className="jobdetail-related" aria-label="비슷한 공고">
+              <h2 className="jobdetail-related-title">비슷한 공고</h2>
+              <ul className="jobdetail-related-list">
+                {relatedJobs.map((related) => (
+                  <li key={related.jobId}>
+                    <a className="jobdetail-related-card" href={candidateApplicationInterviewRoutes.jobDetail(related.jobId)}>
+                      <RelatedJobLogo logoUrl={related.companyLogoUrl} companyName={related.companyName} />
+                      <span className="jobdetail-related-text">
+                        <span className="jobdetail-related-company">{related.companyName}</span>
+                        <span className="jobdetail-related-name">{related.title}</span>
+                        <span className="jobdetail-related-meta">
+                          {[related.careerLevel, related.employmentType, displayLocation(related.location)].filter(Boolean).join(", ")}
+                        </span>
+                      </span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
         </aside>
       </div>
     </section>
