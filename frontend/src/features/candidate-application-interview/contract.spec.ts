@@ -182,6 +182,24 @@ const normalCombinedGazeSignal = resolveCombinedGazeSignal({
 });
 assert.equal(normalCombinedGazeSignal, undefined);
 
+const horizontalIrisOnlySignal = resolveCombinedGazeSignal({
+  irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  irisPosition: { horizontalRatio: 0.63, verticalRatio: 0.52 },
+  headPoseBaseline: { yawDegrees: 0, pitchDegrees: 0 },
+  headPose: { yawDegrees: 2, pitchDegrees: 1 },
+});
+assert.equal(horizontalIrisOnlySignal?.source, "IRIS");
+assert.equal(horizontalIrisOnlySignal?.direction, "RIGHT");
+
+const downwardIrisOnlySignal = resolveCombinedGazeSignal({
+  irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  irisPosition: { horizontalRatio: 0.52, verticalRatio: 0.65 },
+  headPoseBaseline: { yawDegrees: 0, pitchDegrees: 0 },
+  headPose: { yawDegrees: 1, pitchDegrees: 2 },
+});
+assert.equal(downwardIrisOnlySignal?.source, "IRIS");
+assert.equal(downwardIrisOnlySignal?.direction, "DOWN");
+
 const phoneLookupHeadSignal = resolveCombinedGazeSignal({
   irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
   irisPosition: { horizontalRatio: 0.52, verticalRatio: 0.52 },
