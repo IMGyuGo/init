@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   CandidateFileAsset,
+  CandidateFolder,
   CandidateJobDetail,
   CandidateJobQuery,
   CandidateJobSummary,
@@ -12,6 +13,7 @@ import type {
 import { candidateApplicationInterviewRoutes } from "./routes";
 import {
   type CandidateApplicationFormState,
+  applyFolderToApplicationForm,
   getCandidateJobDetailActionHref,
   hasPortfolioArtifact,
   hasRequiredConsents,
@@ -1121,11 +1123,64 @@ export function CandidateJobDetailView({ job, relatedJobs = [], onApplyClick }: 
   );
 }
 
+function formatSetUpdatedAt(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}.${String(date.getDate()).padStart(2, "0")}`;
+}
+
+interface ApplicationSetLoaderProps {
+  folders: CandidateFolder[];
+  activeSetId: number | null;
+  onLoad: (folder: CandidateFolder) => void;
+}
+
+// 저장한 지원서 세트를 지원 폼에 불러오는 패널. 불러온 내용은 수정 가능하고 원본 세트는 바뀌지 않는다. (#272)
+function ApplicationSetLoader({ folders, activeSetId, onLoad }: ApplicationSetLoaderProps) {
+  if (folders.length === 0) {
+    return null;
+  }
+  return (
+    <section className="candidate-apply-card candidate-apply-setloader" aria-label="지원서 세트 불러오기">
+      <p className="panel-title">지원서 세트 불러오기</p>
+      <p className="candidate-apply-note">
+        저장한 지원서 세트를 불러와 자동으로 채울 수 있어요. 불러온 내용은 자유롭게 수정할 수 있고, 원본 세트는 변경되지 않습니다.
+      </p>
+      <ul className="candidate-apply-setlist">
+        {folders.map((folder) => {
+          const updatedAt = formatSetUpdatedAt(folder.updatedAt);
+          return (
+            <li key={folder.id}>
+              <button
+                type="button"
+                className={`candidate-apply-set${activeSetId === folder.id ? " is-active" : ""}`}
+                onClick={() => onLoad(folder)}
+              >
+                <span className="candidate-apply-set__body">
+                  <span className="candidate-apply-set__name">{folder.name}</span>
+                  <span className="candidate-apply-set__meta">
+                    {folder.resumeFileName ? `이력서 · ${folder.resumeFileName}` : "이력서 없음"}
+                    {updatedAt ? ` · 수정 ${updatedAt}` : ""}
+                  </span>
+                </span>
+                <strong>{activeSetId === folder.id ? "불러옴" : "불러오기"}</strong>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 export interface CandidateApplicationViewProps {
   job: CandidateJobDetail;
   state: CandidateApplicationFormState;
   latestResumeFile?: CandidateFileAsset;
   latestPortfolioFile?: CandidateFileAsset;
+  folders?: CandidateFolder[];
   busy?: boolean;
   onResumeFileSelect?: (file: File) => void | Promise<void>;
   onPortfolioFileSelect?: (file: File) => void | Promise<void>;
@@ -1138,12 +1193,22 @@ export function CandidateApplicationView({
   state,
   latestResumeFile,
   latestPortfolioFile,
+  folders = [],
   busy = false,
   onResumeFileSelect,
   onPortfolioFileSelect,
   onStateChange,
   onSubmit,
 }: CandidateApplicationViewProps) {
+  const [activeSetId, setActiveSetId] = useState<number | null>(null);
+  const [loadedResumeName, setLoadedResumeName] = useState<string | null>(null);
+
+  function handleLoadSet(folder: CandidateFolder) {
+    onStateChange(applyFolderToApplicationForm(state, folder));
+    setActiveSetId(folder.id);
+    setLoadedResumeName(folder.resumeFileId ? folder.resumeFileName : null);
+  }
+
   const basicComplete = Boolean(
     state.candidateName.trim() && state.email.trim() && state.phone.trim() && state.githubUrl.trim() && state.blogUrl.trim(),
   );
@@ -1191,6 +1256,7 @@ export function CandidateApplicationView({
       </section>
 
       <div className="candidate-apply-grid">
+        <ApplicationSetLoader folders={folders} activeSetId={activeSetId} onLoad={handleLoadSet} />
         <section aria-labelledby="candidate-basic-info-heading" className="candidate-apply-card">
           <p className="panel-title" id="candidate-basic-info-heading">기본 정보</p>
           <label>
@@ -1265,8 +1331,8 @@ export function CandidateApplicationView({
                   <path d="M14 4v5h5" stroke="currentColor" strokeLinejoin="round" strokeWidth="2" />
                 </svg>
               </span>
-              <span>{latestResumeFile?.originalName ?? "이력서 파일을 선택하세요"}</span>
-              <strong>{latestResumeFile ? "업로드 완료" : "파일 선택"}</strong>
+              <span>{latestResumeFile?.originalName ?? loadedResumeName ?? "이력서 파일을 선택하세요"}</span>
+              <strong>{latestResumeFile ? "업로드 완료" : loadedResumeName ? "세트 이력서" : "파일 선택"}</strong>
             </span>
           </label>
           <label>
@@ -1370,6 +1436,7 @@ export interface CandidateApplyModalProps {
   state: CandidateApplicationFormState;
   latestResumeFile?: CandidateFileAsset;
   latestPortfolioFile?: CandidateFileAsset;
+  folders?: CandidateFolder[];
   busy?: boolean;
   errorMessage?: string;
   onResumeFileSelect?: (file: File) => void | Promise<void>;
@@ -1387,6 +1454,7 @@ export function CandidateApplyModal({
   state,
   latestResumeFile,
   latestPortfolioFile,
+  folders = [],
   busy = false,
   errorMessage,
   onResumeFileSelect,
@@ -1397,6 +1465,14 @@ export function CandidateApplyModal({
 }: CandidateApplyModalProps) {
   const [step, setStep] = useState(0);
   const [validationMessage, setValidationMessage] = useState("");
+  const [activeSetId, setActiveSetId] = useState<number | null>(null);
+  const [loadedResumeName, setLoadedResumeName] = useState<string | null>(null);
+
+  function handleLoadSet(folder: CandidateFolder) {
+    onStateChange(applyFolderToApplicationForm(state, folder));
+    setActiveSetId(folder.id);
+    setLoadedResumeName(folder.resumeFileId ? folder.resumeFileName : null);
+  }
 
   useEffect(() => {
     setValidationMessage("");
@@ -1462,6 +1538,7 @@ export function CandidateApplyModal({
 
           {step === 0 ? (
             <div className="candidate-apply-modal-fields">
+              <ApplicationSetLoader folders={folders} activeSetId={activeSetId} onLoad={handleLoadSet} />
               <label>
                 이름 *
                 <input
@@ -1529,8 +1606,8 @@ export function CandidateApplyModal({
                       }
                     }}
                   />
-                  <span>{latestResumeFile?.originalName ?? "이력서 PDF를 선택하세요 (20MB 이하)"}</span>
-                  <strong>{latestResumeFile ? "업로드 완료" : "파일 선택"}</strong>
+                  <span>{latestResumeFile?.originalName ?? loadedResumeName ?? "이력서 PDF를 선택하세요 (20MB 이하)"}</span>
+                  <strong>{latestResumeFile ? "업로드 완료" : loadedResumeName ? "세트 이력서" : "파일 선택"}</strong>
                 </span>
               </label>
               <label>

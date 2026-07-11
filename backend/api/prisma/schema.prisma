@@ -220,6 +220,7 @@ model CandidateProfile {
   defaultResumeFileId BigInt?            @map("default_resume_file_id")
   portfolioUrl        String?            @map("portfolio_url") @db.VarChar(500)
   githubUrl           String?            @map("github_url") @db.VarChar(500)
+  blogUrl             String?            @map("blog_url") @db.VarChar(500)
   summary             String?
   createdAt           DateTime           @default(now()) @map("created_at")
   updatedAt           DateTime           @updatedAt @map("updated_at")

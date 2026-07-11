@@ -2685,6 +2685,34 @@ CandidateFolder 입력 제한:
 
 ## 지원자 - 채용공고/지원
 
+### API-057F GET /candidate/profile
+- 도메인: 지원자 - 프로필(내 정보)
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 마이페이지 - 내 정보 (/candidate/mypage)
+- UI Type: section
+- 상태 코드: 200 OK
+- 응답 데이터: `application/json`
+  - `name`, `email`(읽기전용), `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `summary`
+  - 이름/이메일/연락처는 `users`, GitHub/블로그/포트폴리오/한줄소개는 `candidate_profiles` 에서 조회한다.
+- 비고: 지원 화면 기본정보 자동 입력의 정본(source of truth). (#272)
+- 관련 ERD 테이블: users, candidate_profiles
+
+### API-057G PUT /candidate/profile
+- 도메인: 지원자 - 프로필(내 정보)
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 마이페이지 - 내 정보 (/candidate/mypage)
+- UI Type: section
+- 상태 코드: 200 OK
+- 요청 데이터: `application/json` (모두 optional, 부분 수정)
+  - `name`, `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `summary`
+  - 이메일은 로그인 정보라 수정 대상에서 제외한다.
+- 검증/전제조건:
+  - 빈 문자열/공백만 입력하면 `null` 로 저장한다. 이름은 공백만이면 무시한다.
+- 성공 응답/처리:
+  - `users`(name/phone)와 `candidate_profiles`(github/blog/portfolio/summary)를 갱신하고 갱신된 프로필을 반환한다.
+- 비고: 저장 값은 이후 지원 화면 자동 입력에 재사용된다. (#272)
+- 관련 ERD 테이블: users, candidate_profiles
+
 ### API-058 GET /candidate/jobs
 - 도메인: 지원자 - 채용공고/지원
 - 권한/인증: 지원자 / 지원자 사용자 로그인
@@ -2774,6 +2802,10 @@ CandidateFolder 입력 제한:
 - 성공 응답/처리:
   - 지원서 제출 당시 정보를 `applications` 스냅샷 필드에 저장한다.
   - 이력서/포트폴리오 PDF를 `application_documents`에 연결하고 지원서 제출을 완료한다.
+  - (#272) 입력한 연락처(`phone`)를 회원(`users.phone`)에 저장하여 다음 지원 화면에서 자동 입력에 재사용한다.
+- 관련 조회(#272): `GET /candidate/jobs/{jobId}/apply`
+  - 지원 화면 진입 시 회원 기본정보 자동 입력용 `applicant: { name, email, phone }`(User 조회, 저장된 연락처 없으면 `phone`은 null)을 함께 반환한다.
+  - 지원서 세트(폴더)는 `GET /candidate/folders`로 조회하며, 세트를 불러오면 링크/이력서/동기/추가설명이 폼에 복사된다(회원 기본정보는 유지, 원본 세트는 불변).
 - 오류/예외:
   - 파일 형식 오류, 용량 초과, 이미 지원한 공고, 마감 공고이면 제출을 제한한다.
 - 관련 ERD 테이블:

@@ -1,6 +1,7 @@
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import { CandidateJobListQueryDto } from "../dto/candidate-job-list-query.dto";
 import { CreateCandidateFolderDto, UpdateCandidateFolderDto } from "../dto/candidate-folder.dto";
+import { UpdateCandidateProfileDto } from "../dto/update-candidate-profile.dto";
 import { CreatePortfolioLinkDto } from "../dto/create-portfolio-link.dto";
 import { SaveInterviewConsentDto } from "../dto/save-interview-consent.dto";
 import { SubmitApplicationDto } from "../dto/submit-application.dto";
@@ -27,9 +28,11 @@ import {
   CandidateJob,
   CandidateJobDetail,
   CandidateJobSummary,
+  CandidateProfileView,
   CandidateRepository,
   ConsentRecord,
   CurrentCandidateUser,
+  UpdateCandidateProfileInput,
   FileAsset,
   InterviewDeviceCheckResult,
   InterviewSession,
@@ -147,6 +150,12 @@ export class CandidateService {
 
   async getApplyView(jobId: number, currentUser: CurrentCandidateUser): Promise<ApiResponse<CandidateApplyView>> {
     const jobDetail = await this.getJobDetail(jobId, currentUser);
+    // 로그인 회원 기본정보(이름/이메일/연락처) 자동 입력용. 없으면 빈 값으로 직접 작성. (#272)
+    const applicant = (await this.repository.findApplicantContact(currentUser.userId)) ?? {
+      name: "",
+      email: "",
+      phone: null,
+    };
     return this.envelope({
       job: jobDetail.data,
       documentPolicy: {
@@ -158,6 +167,7 @@ export class CandidateService {
       },
       requiredConsentTypes: [...REQUIRED_APPLICATION_CONSENTS],
       portfolioRequired: true,
+      applicant,
     });
   }
 
@@ -207,6 +217,11 @@ export class CandidateService {
       additionalInfo: applicationFields.additionalInfo,
       consentTypes: applicationFields.consentTypes,
     });
+
+    // 최초 입력한 연락처를 회원정보에 저장하여 다음 지원 시 자동 입력에 재사용. (#272)
+    if (applicationFields.phone) {
+      await this.repository.saveApplicantPhone(currentUser.userId, applicationFields.phone);
+    }
 
     return this.envelope(result);
   }
@@ -284,6 +299,54 @@ export class CandidateService {
     });
 
     return this.envelope(portfolioLink);
+  }
+
+  // 지원자 프로필(내 정보) 조회. 자동 입력의 정본이 되는 값을 그대로 돌려준다. (#272)
+  async getProfile(currentUser: CurrentCandidateUser): Promise<ApiResponse<CandidateProfileView>> {
+    const profile = await this.repository.getCandidateProfile(currentUser.candidateId);
+    if (!profile) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "지원자 프로필을 찾을 수 없습니다.", 404);
+    }
+    return this.envelope(profile);
+  }
+
+  // 지원자 프로필 수정. 빈 문자열은 null 로 저장하고, 이름은 공백만 있으면 무시한다. (#272)
+  async updateProfile(
+    dto: UpdateCandidateProfileDto,
+    currentUser: CurrentCandidateUser,
+  ): Promise<ApiResponse<CandidateProfileView>> {
+    const input: UpdateCandidateProfileInput = {};
+    if (dto.name !== undefined) {
+      const name = dto.name.trim();
+      if (name.length > 0) {
+        input.name = name;
+      }
+    }
+    if (dto.phone !== undefined) {
+      input.phone = this.normalizeProfileText(dto.phone);
+    }
+    if (dto.githubUrl !== undefined) {
+      input.githubUrl = this.normalizeProfileText(dto.githubUrl);
+    }
+    if (dto.blogUrl !== undefined) {
+      input.blogUrl = this.normalizeProfileText(dto.blogUrl);
+    }
+    if (dto.portfolioUrl !== undefined) {
+      input.portfolioUrl = this.normalizeProfileText(dto.portfolioUrl);
+    }
+    if (dto.summary !== undefined) {
+      input.summary = this.normalizeProfileText(dto.summary);
+    }
+    const profile = await this.repository.updateCandidateProfile(currentUser.candidateId, input);
+    return this.envelope(profile);
+  }
+
+  private normalizeProfileText(value: string | null | undefined): string | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
   }
 
   async listFolders(currentUser: CurrentCandidateUser): Promise<ApiListResponse<CandidateFolder>> {

@@ -135,6 +135,7 @@
 | default_resume_file_id | BIGINT | 기본 이력서 파일 FK |
 | portfolio_url | VARCHAR(500) | 대표 포트폴리오 URL |
 | github_url | VARCHAR(500) | GitHub 주소 |
+| blog_url | VARCHAR(500) | 블로그 URL (#272 프로필 정본화로 추가) |
 | summary | TEXT | 지원자 자기소개/요약 정보. AI 분석 또는 프로필 표시용 |
 | created_at | TIMESTAMP NOT NULL | 지원자 프로필 생성 시각 |
 | updated_at | TIMESTAMP NOT NULL | 지원자 프로필 수정 시각 |

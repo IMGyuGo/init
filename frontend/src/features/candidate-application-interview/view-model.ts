@@ -1,5 +1,6 @@
 import type {
   CandidateApplicationSummary,
+  CandidateFolder,
   CandidateJobDetail,
   CandidateJobQuery,
   CandidateJobSummary,
@@ -496,6 +497,23 @@ export const defaultApplicationFormState: CandidateApplicationFormState = {
   additionalInfo: "",
   consentTypes: [],
 };
+
+// 지원서 세트(폴더)를 지원 폼에 복사한다. 회원 기본정보(이름/이메일/연락처)는 유지하고,
+// 지원서 콘텐츠(링크/이력서/동기/추가설명)만 덮어쓴다. 원본 세트는 변경되지 않는다. (#272)
+export function applyFolderToApplicationForm(
+  state: CandidateApplicationFormState,
+  folder: CandidateFolder,
+): CandidateApplicationFormState {
+  return {
+    ...state,
+    githubUrl: folder.githubUrl ?? "",
+    blogUrl: folder.blogUrl ?? "",
+    portfolioUrl: folder.portfolioUrl ?? undefined,
+    resumeFileId: folder.resumeFileId ?? undefined,
+    motivation: folder.motivation ?? "",
+    additionalInfo: folder.extraNote ?? "",
+  };
+}
 
 export const defaultPortfolioLinkFormState: CandidatePortfolioLinkFormState = {
   linkType: "PORTFOLIO",

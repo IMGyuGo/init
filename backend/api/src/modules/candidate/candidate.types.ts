@@ -115,11 +115,40 @@ export interface CandidateDocumentPolicy {
   metadataOnly: boolean;
 }
 
+// 지원 화면 기본정보 자동 입력용 회원 연락처(User 에서 조회). (#272)
+export interface ApplicantContact {
+  name: string;
+  email: string;
+  phone: string | null;
+}
+
+// 지원자 프로필(내 정보) 정본. 이름/이메일/연락처는 User, 나머지는 CandidateProfile. (#272 프로필 편집)
+export interface CandidateProfileView {
+  name: string;
+  email: string;
+  phone: string | null;
+  githubUrl: string | null;
+  blogUrl: string | null;
+  portfolioUrl: string | null;
+  summary: string | null;
+}
+
+// 이메일은 로그인 정보라 수정 대상에서 제외한다.
+export interface UpdateCandidateProfileInput {
+  name?: string;
+  phone?: string | null;
+  githubUrl?: string | null;
+  blogUrl?: string | null;
+  portfolioUrl?: string | null;
+  summary?: string | null;
+}
+
 export interface CandidateApplyView {
   job: CandidateJobDetail;
   documentPolicy: CandidateDocumentPolicy;
   requiredConsentTypes: ConsentType[];
   portfolioRequired: true;
+  applicant: ApplicantContact;
 }
 
 export interface FileAsset {
@@ -327,6 +356,10 @@ export interface CandidateRepository {
   listApplications(candidateId: number): Promise<Application[]>;
   findApplication(applicationId: number): Promise<Application | undefined>;
   findCandidateUserId(candidateId: number): Promise<number | undefined>;
+  findApplicantContact(userId: number): Promise<ApplicantContact | undefined>;
+  saveApplicantPhone(userId: number, phone: string): Promise<void>;
+  getCandidateProfile(candidateId: number): Promise<CandidateProfileView | undefined>;
+  updateCandidateProfile(candidateId: number, input: UpdateCandidateProfileInput): Promise<CandidateProfileView>;
   listDocuments(applicationId: number): Promise<ApplicationDocument[]>;
   listConsentRecords(applicationId: number): Promise<ConsentRecord[]>;
   saveConsentRecords(applicationId: number, consentTypes: ConsentType[]): Promise<ConsentRecord[]>;

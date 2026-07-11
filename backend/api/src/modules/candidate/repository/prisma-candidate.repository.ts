@@ -12,10 +12,13 @@ import {
 import { PrismaService } from "../../../shared/prisma.service";
 import { CandidateDomainError } from "../candidate.errors";
 import {
+  type ApplicantContact,
   type Application,
   type ApplicationDocument,
   type ApplicationSubmissionResult,
   type CandidateFolder,
+  type CandidateProfileView,
+  type UpdateCandidateProfileInput,
   type CandidateJob,
   type CandidateRepository,
   type ConsentRecord,
@@ -120,6 +123,77 @@ export class PrismaCandidateRepository implements CandidateRepository {
       select: { userId: true },
     });
     return profile ? Number(profile.userId) : undefined;
+  }
+
+  async findApplicantContact(userId: number): Promise<ApplicantContact | undefined> {
+    const user = await this.prisma.user.findUnique({
+      where: { userId: BigInt(userId) },
+      select: { name: true, email: true, phone: true },
+    });
+    return user ? { name: user.name, email: user.email, phone: user.phone ?? null } : undefined;
+  }
+
+  async saveApplicantPhone(userId: number, phone: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { userId: BigInt(userId) },
+      data: { phone },
+    });
+  }
+
+  async getCandidateProfile(candidateId: number): Promise<CandidateProfileView | undefined> {
+    const profile = await this.prisma.candidateProfile.findUnique({
+      where: { candidateId: BigInt(candidateId) },
+      include: { user: { select: { name: true, email: true, phone: true } } },
+    });
+    if (!profile) {
+      return undefined;
+    }
+    return {
+      name: profile.user.name,
+      email: profile.user.email,
+      phone: profile.user.phone ?? null,
+      githubUrl: profile.githubUrl ?? null,
+      blogUrl: profile.blogUrl ?? null,
+      portfolioUrl: profile.portfolioUrl ?? null,
+      summary: profile.summary ?? null,
+    };
+  }
+
+  async updateCandidateProfile(
+    candidateId: number,
+    input: UpdateCandidateProfileInput,
+  ): Promise<CandidateProfileView> {
+    const existing = await this.prisma.candidateProfile.findUnique({
+      where: { candidateId: BigInt(candidateId) },
+      select: { userId: true },
+    });
+    if (!existing) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "지원자 프로필을 찾을 수 없습니다.", 404);
+    }
+
+    const userData = {
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.phone !== undefined ? { phone: input.phone } : {}),
+    };
+    const profileData = {
+      ...(input.githubUrl !== undefined ? { githubUrl: input.githubUrl } : {}),
+      ...(input.blogUrl !== undefined ? { blogUrl: input.blogUrl } : {}),
+      ...(input.portfolioUrl !== undefined ? { portfolioUrl: input.portfolioUrl } : {}),
+      ...(input.summary !== undefined ? { summary: input.summary } : {}),
+    };
+
+    await this.prisma.$transaction([
+      ...(Object.keys(userData).length > 0
+        ? [this.prisma.user.update({ where: { userId: existing.userId }, data: userData })]
+        : []),
+      this.prisma.candidateProfile.update({ where: { candidateId: BigInt(candidateId) }, data: profileData }),
+    ]);
+
+    const updated = await this.getCandidateProfile(candidateId);
+    if (!updated) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "지원자 프로필을 찾을 수 없습니다.", 404);
+    }
+    return updated;
   }
 
   async listDocuments(applicationId: number): Promise<ApplicationDocument[]> {

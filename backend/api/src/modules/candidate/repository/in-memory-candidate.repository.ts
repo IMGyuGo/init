@@ -2,10 +2,13 @@ import { Injectable } from "@nestjs/common";
 import { DEV_CANDIDATE_USER, FORBIDDEN_FILE_PAYLOAD_FIELDS } from "../candidate.constants";
 import { CandidateDomainError } from "../candidate.errors";
 import {
+  type ApplicantContact,
   type Application,
   type ApplicationDocument,
   type ApplicationSubmissionResult,
   type CandidateFolder,
+  type CandidateProfileView,
+  type UpdateCandidateProfileInput,
   type CandidateJob,
   type CandidateRepository,
   type ConsentRecord,
@@ -142,6 +145,8 @@ export class InMemoryCandidateRepository implements CandidateRepository {
   private readonly applications: Application[] = [];
   private readonly documents: ApplicationDocument[] = [];
   private readonly consentRecords: ConsentRecord[] = [];
+  private readonly applicantContacts = new Map<number, ApplicantContact>();
+  private readonly candidateProfiles = new Map<number, CandidateProfileView>();
   private readonly interviewSessions: InterviewSession[] = [];
   private readonly fileAssets: FileAsset[] = [];
   private readonly portfolioLinks: PortfolioLink[] = [];
@@ -193,6 +198,51 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       return DEV_CANDIDATE_USER.userId;
     }
     return candidateId;
+  }
+
+  async findApplicantContact(userId: number): Promise<ApplicantContact | undefined> {
+    return this.applicantContacts.get(userId) ?? { name: "테스트 지원자", email: "candidate@example.com", phone: null };
+  }
+
+  async saveApplicantPhone(userId: number, phone: string): Promise<void> {
+    const prev = this.applicantContacts.get(userId) ?? {
+      name: "테스트 지원자",
+      email: "candidate@example.com",
+      phone: null,
+    };
+    this.applicantContacts.set(userId, { ...prev, phone });
+  }
+
+  async getCandidateProfile(candidateId: number): Promise<CandidateProfileView | undefined> {
+    return (
+      this.candidateProfiles.get(candidateId) ?? {
+        name: "테스트 지원자",
+        email: "candidate@example.com",
+        phone: null,
+        githubUrl: null,
+        blogUrl: null,
+        portfolioUrl: null,
+        summary: null,
+      }
+    );
+  }
+
+  async updateCandidateProfile(
+    candidateId: number,
+    input: UpdateCandidateProfileInput,
+  ): Promise<CandidateProfileView> {
+    const prev = (await this.getCandidateProfile(candidateId)) as CandidateProfileView;
+    const next: CandidateProfileView = {
+      ...prev,
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.phone !== undefined ? { phone: input.phone } : {}),
+      ...(input.githubUrl !== undefined ? { githubUrl: input.githubUrl } : {}),
+      ...(input.blogUrl !== undefined ? { blogUrl: input.blogUrl } : {}),
+      ...(input.portfolioUrl !== undefined ? { portfolioUrl: input.portfolioUrl } : {}),
+      ...(input.summary !== undefined ? { summary: input.summary } : {}),
+    };
+    this.candidateProfiles.set(candidateId, next);
+    return next;
   }
 
   async listDocuments(applicationId: number): Promise<ApplicationDocument[]> {
