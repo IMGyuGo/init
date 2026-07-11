@@ -4000,6 +4000,7 @@ td input {
 .posting-preview-modal .posting-preview-body {
   margin-top: 18px;
   padding-top: 18px;
+  min-width: 0;
   border-top: 1px solid rgba(55, 53, 47, 0.1);
 }
 /* 모달 안에서는 지원자 상세 뷰의 페이지 크롬(배경·그림자·외곽 여백)을 제거해 콘텐츠만 보여준다. */
@@ -4009,7 +4010,12 @@ td input {
   border: 0;
   box-shadow: none;
   min-height: 0;
+  min-width: 0;
+  max-width: 100%;
 }
+/* 이미지가 많아도 갤러리는 폭을 넘기지 않고 내부에서 가로 스크롤한다(모달 전체 폭 확장·지원 버튼 밀림 방지). */
+.posting-preview-modal .candidate-job-detail-page .jobdetail-gallery-wrap { min-width: 0; max-width: 100%; overflow: hidden; }
+.posting-preview-modal .candidate-job-detail-page .jobdetail-main { min-width: 0; }
 /* 모달 폭에 맞춰 지원자 상세 요소를 전반적으로 축소한다.
    원본 .notion .jobdetail-* 규칙이 소스 뒤에 있어, .candidate-job-detail-page 를 끼워 specificity 를 높인다. */
 .posting-preview-modal .candidate-job-detail-page .jobdetail-layout { grid-template-columns: minmax(0, 1fr) 220px; gap: 24px; }
