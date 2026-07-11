@@ -4,6 +4,9 @@
 .env.local
 .env*.local
 .gitignore
+
+# 로컬 개발 서버 로그·PID
+.local/
 \nogitdocs
 
 # Local Toss Payments sandbox artifacts.
