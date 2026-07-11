@@ -950,6 +950,8 @@ export function CandidateJobDetailView({ job, relatedJobs = [], onApplyClick }: 
   const actionHref = getCandidateJobDetailActionHref(job);
   const galleryRef = useRef<HTMLDivElement>(null);
   const [images, setImages] = useState<string[]>([]);
+  // 갤러리가 가로로 넘칠 때(보이는 것보다 이미지가 많을 때)만 좌우 넘김 버튼을 노출한다.
+  const [galleryCanScroll, setGalleryCanScroll] = useState(false);
 
   // JD 에서 "공고 조건" 블록을 분리해 요약 그리드로 보여주고, 본문에는 제거된 JD 만 렌더한다.
   // 이미지 갤러리(파일명 노출)와 태그 섹션은 상단 캐러셀/헤더 태그로 이미 보여주므로 본문에서만 제거한다(JD 섹션은 유지).
@@ -963,6 +965,18 @@ export function CandidateJobDetailView({ job, relatedJobs = [], onApplyClick }: 
   useEffect(() => {
     setImages(extractJobImages(job.jobDescription));
   }, [job.jobDescription]);
+
+  useEffect(() => {
+    const el = galleryRef.current;
+    if (!el) {
+      setGalleryCanScroll(false);
+      return;
+    }
+    const update = () => setGalleryCanScroll(el.scrollWidth > el.clientWidth + 2);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [images]);
 
   function slideGallery(direction: 1 | -1) {
     const el = galleryRef.current;
@@ -981,7 +995,7 @@ export function CandidateJobDetailView({ job, relatedJobs = [], onApplyClick }: 
               <img key={`${src}-${index}`} src={src} alt={`공고 이미지 ${index + 1}`} loading={index > 2 ? "lazy" : undefined} />
             ))}
           </div>
-          {images.length > 3 ? (
+          {galleryCanScroll ? (
             <>
               <button type="button" className="jobdetail-gallery-nav prev" aria-label="이전 이미지" onClick={() => slideGallery(-1)}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
