@@ -1423,7 +1423,7 @@ describe("CompanyRecruitingService", () => {
     assert.equal(adjustment.rawTotalScore, 82);
     assert.equal(adjustment.adjustedTotalScore, 82);
     assert.ok(adjustment.reasons.includes("화면/탭 이탈 1회"));
-    assert.ok(adjustment.reasons.includes("여러 얼굴 감지 1회"));
+    assert.ok(adjustment.reasons.includes("여러 사람 감지 1회"));
     assert.match(adjustment.reason, /평가 점수에는 반영하지 않았습니다/);
   });
 
@@ -1484,7 +1484,7 @@ describe("CompanyRecruitingService", () => {
       { name: "frequent screen away", summary: { screenAwayCount: 4 }, level: "HIGH" },
       { name: "single face missing", summary: { faceMissingCount: 1 }, level: "MEDIUM" },
       { name: "repeated face missing", summary: { faceMissingCount: 2 }, level: "HIGH" },
-      { name: "multiple faces", summary: { multipleFacesCount: 1 }, level: "HIGH" },
+      { name: "multiple people", summary: { multipleFacesCount: 1 }, level: "HIGH" },
       { name: "face position shift", summary: { facePositionShiftCount: 1 }, level: "HIGH" },
       { name: "single voice mouth mismatch", summary: { voiceMouthMismatchCount: 1 }, level: "MEDIUM" },
       { name: "repeated voice mouth mismatch", summary: { voiceMouthMismatchCount: 2 }, level: "HIGH" },

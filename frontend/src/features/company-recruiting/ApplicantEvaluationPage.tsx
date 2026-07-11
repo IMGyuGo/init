@@ -506,7 +506,7 @@ function RecruitingIntegrityReviewPanel({ summary }: { summary: RecruitingIntegr
           <strong>{summary.faceAwayAnswers}</strong>
         </div>
         <div>
-          <span>여러 얼굴</span>
+          <span>여러 사람</span>
           <strong>{summary.multipleFaceAnswers}</strong>
         </div>
         <div>
@@ -597,13 +597,13 @@ function buildRecruitingIntegritySummary(answers: ApplicantEvaluation["answers"]
 
 function buildRecruitingIntegrityGuide(summary: RecruitingIntegritySummary) {
   if (summary.signalAnswers === 0) {
-    return ["면접 답변에서 화면 이탈, 얼굴 이탈, 여러 얼굴, 시선 이탈 같은 주요 응시 무결성 신호가 감지되지 않았습니다."];
+    return ["면접 답변에서 화면 이탈, 얼굴 이탈, 여러 사람, 시선 이탈 같은 주요 응시 무결성 신호가 감지되지 않았습니다."];
   }
 
   const items = [`총 ${summary.signalAnswers}개 답변에서 채용 담당자 확인이 필요한 신호가 감지되었습니다.`];
   if (summary.screenAwayAnswers > 0) items.push(`${summary.screenAwayAnswers}개 답변에서 화면/탭 이탈 신호가 있습니다.`);
   if (summary.faceAwayAnswers > 0) items.push(`${summary.faceAwayAnswers}개 답변에서 얼굴 화면 밖, 카메라 이탈, 위치 급변 신호가 있습니다.`);
-  if (summary.multipleFaceAnswers > 0) items.push(`${summary.multipleFaceAnswers}개 답변에서 여러 얼굴 감지 신호가 있습니다.`);
+  if (summary.multipleFaceAnswers > 0) items.push(`${summary.multipleFaceAnswers}개 답변에서 여러 사람 감지 신호가 있습니다.`);
   if (summary.gazeAwayAnswers > 0) items.push(`${summary.gazeAwayAnswers}개 답변에서 긴 시선 이탈 신호가 있습니다.`);
   if (summary.audioVisualAnswers > 0) items.push(`${summary.audioVisualAnswers}개 답변에서 음성-입모양 또는 얼굴 미검출 중 음성 신호가 있습니다.`);
   if (summary.staticVideoAnswers > 0) items.push(`${summary.staticVideoAnswers}개 답변에서 영상 프레임 고정 신호가 있습니다.`);
@@ -619,7 +619,7 @@ function buildRecruitingIntegrityFlags(metadata?: Record<string, unknown> | null
     { key: "earlyScreenAway", label: "질문 직후 이탈", count: counts.earlyScreenAway },
     { key: "cameraLost", label: "카메라 이탈", count: counts.cameraLost },
     { key: "faceAway", label: "얼굴 미검출/화면 밖", count: counts.faceAway },
-    { key: "multipleFaces", label: "여러 얼굴", count: counts.multipleFaces },
+    { key: "multipleFaces", label: "여러 사람", count: counts.multipleFaces },
     { key: "faceShift", label: "얼굴 위치 급변", count: counts.faceShift },
     { key: "gazeAway", label: "시선 이탈", count: counts.gazeAway },
     { key: "voiceMouthMismatch", label: "음성-입모양 불일치", count: counts.voiceMouthMismatch },
