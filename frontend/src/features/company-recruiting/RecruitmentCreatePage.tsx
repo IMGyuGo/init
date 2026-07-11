@@ -24,6 +24,7 @@ import {
   type PostingExtraInfoKey,
   type PostingExtraInfo,
 } from "./posting-extra-info";
+import { BackButton } from "./CompanyRecruitingChrome";
 import { buildInterviewSettingsHref } from "./routes";
 import { extractPostingDraftFromJob, type PostingDraftResult } from "./posting-ai-draft";
 import { applyPostingDraftToFormState } from "./posting-ai-draft-form";
@@ -808,7 +809,9 @@ export function RecruitmentCreatePage() {
       {phase === "intro" ? (
         <div className="wizard-intro">
           <div className="wizard-intro-copy">
-            <p className="page-eyebrow">채용 관리</p>
+            <div className="page-head-lead">
+              <BackButton fallbackHref="/company/recruitments" />
+            </div>
             <h1>공고 생성</h1>
             <p className="page-sub">
               구직자가 보는 공고 그대로, 한 단계씩 채워 나가는 방식이에요. 아래 순서대로 진행한 뒤 마지막에 면접 설정까지 이어집니다.
@@ -850,9 +853,6 @@ export function RecruitmentCreatePage() {
               <button className="btn primary" type="button" onClick={() => navigateWizard({ phase: "choice", step: 0 })}>
                 공고 생성하러 가기
               </button>
-              <Link className="btn secondary" href="/company/recruitments">
-                공고 목록
-              </Link>
             </div>
           </div>
           <Image className="wizard-intro-art" src={createBanner} alt="" width={320} height={320} aria-hidden="true" priority />
@@ -916,8 +916,17 @@ export function RecruitmentCreatePage() {
                 <input value={form.title} onChange={(event) => updateField("title", event.target.value)} placeholder="2026 신입 백엔드 채용" />
               </label>
               <label>
-                직무명
-                <input value={form.jobRole} onChange={(event) => updateField("jobRole", event.target.value)} placeholder="Backend Developer" />
+                직무
+                <select value={form.jobRoleCode} onChange={(event) => updateJobRoleSelection(event.target.value)}>
+                  <option value="" disabled>
+                    직무를 선택하세요
+                  </option>
+                  {JOB_ROLE_CODE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
             <label>
