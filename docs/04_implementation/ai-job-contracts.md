@@ -172,6 +172,8 @@ Example answer input:
       "earlyScreenAwayCount": 1,
       "faceDetectionSupported": true,
       "faceDetectionFrameCount": 12,
+      "personDetectionSupported": true,
+      "personDetectionFrameCount": 6,
       "gazeDetectionSupported": true,
       "gazeDetectionFrameCount": 12,
       "mouthSyncSupported": true,
@@ -191,7 +193,7 @@ Example answer input:
 Policy:
 
 - The metadata is auxiliary practice context. It may surface cheating-suspicion signals for mock interview practice, but it is not a final cheating decision.
-- For `MOCK_INTERVIEW_REPORT`, the worker may use `integrityEvents` and `integritySummary` to produce practice feedback about screen/tab leaving, early screen leaving right after the question starts, camera loss, face missing/out of frame, audio input while no face is detected, multiple faces, large face-position shift, long gaze away from the screen, static video frames, or voice-mouth mismatch during recording.
+- For `MOCK_INTERVIEW_REPORT`, the worker may use `integrityEvents` and `integritySummary` to produce practice feedback about screen/tab leaving, early screen leaving right after the question starts, camera loss, face missing/out of frame, audio input while no face is detected, multiple people detected by face or person-object detection, large face-position shift, long gaze away from the screen, static video frames, or voice-mouth mismatch during recording.
 - For `MOCK_INTERVIEW_REPORT`, short-answer, long-silence, and low-audio signals are recording or answer-quality signals, not cheating signals. They may apply conservative delivery-quality caps, but they must be explained as practice feedback.
 - The worker must not claim that the voice is AI-generated. `VOICE_MOUTH_MISMATCH` only means audio was detected while mouth movement was missing or too weak in sampled frames.
 - For `RECRUITING_REPORT`, the metadata must not be used as a hiring score input or pass/fail signal. If a future company-facing UI exposes it, it must be separated as auxiliary media/communication quality context.

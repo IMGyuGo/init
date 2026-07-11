@@ -68,6 +68,8 @@ export interface InterviewIntegritySummary {
   earlyScreenAwayCount?: number;
   faceDetectionSupported?: boolean;
   faceDetectionFrameCount?: number;
+  personDetectionSupported?: boolean;
+  personDetectionFrameCount?: number;
   gazeDetectionSupported?: boolean;
   gazeDetectionFrameCount?: number;
   headPoseDetectionSupported?: boolean;

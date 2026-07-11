@@ -1399,7 +1399,7 @@ function answerQualityAdjustment(
       nonverbalSignals.earlyScreenAwayCount > 0 ||
       nonverbalSignals.highSuspicionCount > 0
     ) {
-      reasons.push("화면 이탈, 얼굴 화면 밖, 여러 얼굴 감지, 시선 이탈 같은 응시 무결성 확인 신호가 있어 실제 면접에서는 주의가 필요합니다.");
+      reasons.push("화면 이탈, 얼굴 화면 밖, 여러 사람 감지, 시선 이탈 같은 응시 무결성 확인 신호가 있어 실제 면접에서는 주의가 필요합니다.");
     }
 
     if (nonverbalSignals.shortAnswerCount > 0) {

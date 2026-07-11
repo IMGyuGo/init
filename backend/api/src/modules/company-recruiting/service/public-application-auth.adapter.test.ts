@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { MailService } from "../../auth/service/mail.service";
+import { MailService } from "../../mail/mail.service";
 import { PublicApplicationAuthAdapter, PublicApplicationMagicLinkStore } from "./public-application-auth.adapter";
 
 describe("PublicApplicationAuthAdapter", () => {
@@ -35,12 +35,10 @@ describe("PublicApplicationAuthAdapter", () => {
   it("sends a public application magic link and verifies the issued token", async () => {
     const captured: { email?: string; magicLink?: string; expiresInSeconds?: number } = {};
     const mailService = {
-      transporter: {
-        async sendMail(message: { to: string; text: string }) {
-          captured.email = message.to;
-          captured.magicLink = message.text.match(/http:\/\/localhost:3000\/public\/recruitments\/101\/applications\/status\?token=\S+/)?.[0];
-          captured.expiresInSeconds = 604800;
-        },
+      async send(message: { to: string; text: string }) {
+        captured.email = message.to;
+        captured.magicLink = message.text.match(/http:\/\/localhost:3000\/public\/recruitments\/101\/applications\/status\?token=\S+/)?.[0];
+        captured.expiresInSeconds = 604800;
       },
     } as unknown as MailService;
     const adapter = new PublicApplicationAuthAdapter(new PublicApplicationMagicLinkStore(), mailService);
@@ -76,10 +74,8 @@ describe("PublicApplicationAuthAdapter", () => {
 
   it("returns failed delivery status when SMTP sending fails", async () => {
     const mailService = {
-      transporter: {
-        async sendMail() {
-          throw new Error("smtp unavailable");
-        },
+      async send() {
+        throw new Error("smtp unavailable");
       },
     } as unknown as MailService;
     const adapter = new PublicApplicationAuthAdapter(new PublicApplicationMagicLinkStore(), mailService);
@@ -96,10 +92,8 @@ describe("PublicApplicationAuthAdapter", () => {
   it("does not send a magic link when token storage fails", async () => {
     let mailSent = false;
     const mailService = {
-      transporter: {
-        async sendMail() {
-          mailSent = true;
-        },
+      async send() {
+        mailSent = true;
       },
     } as unknown as MailService;
     const magicLinkStore = {

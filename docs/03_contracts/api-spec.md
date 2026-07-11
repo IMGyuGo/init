@@ -298,7 +298,8 @@ AI 리포트 금지 기준:
 - 성공 응답/처리:
   - 인증 코드 입력 영역 활성화
 - 오류/예외:
-  - 이미 가입된 이메일, 이메일 형식 오류, 메일 발송 실패 시 오류 메시지를 표시한다.
+  - 이미 가입된 이메일, 이메일 형식 오류 시 오류 메시지를 표시한다.
+  - SMTP 발송 실패 또는 타임아웃이면 `MAIL_DELIVERY_FAILED`를 반환하고 저장한 인증 코드와 재발송 cooldown을 정리한다.
 - 관련 ERD 테이블:
   - users, companies, candidate_profiles, applications, notifications, ai_process_logs, Redis/TTL cache
 - 비고/미결:
@@ -375,7 +376,8 @@ AI 리포트 금지 기준:
 - 성공 응답/처리:
   - 인증 코드 입력 영역 활성화
 - 오류/예외:
-  - 미가입 이메일, 발송 실패, 요청 횟수 초과 시 오류 메시지를 표시한다.
+  - 미가입 이메일, 요청 횟수 초과 시 오류 메시지를 표시한다.
+  - SMTP 발송 실패 또는 타임아웃이면 `MAIL_DELIVERY_FAILED`를 반환하고 저장한 인증 코드와 재발송 cooldown을 정리한다.
 - 관련 ERD 테이블:
   - users, notifications, Redis/TTL cache
 
@@ -3215,8 +3217,9 @@ CandidateFolder 입력 제한:
 - `integrityEvents` maximum length: 100.
 - Unknown top-level, summary, or event keys; unsupported event types; malformed timestamps; and out-of-range numeric values are rejected with `400 COMMON_VALIDATION_FAILED`.
 - `integrityEvents` may include browser-runtime events such as `TAB_HIDDEN`, `WINDOW_BLUR`, `CAMERA_LOST`, `FACE_MISSING`, `FACE_OUT_OF_FRAME`, `MULTIPLE_FACES`, `FACE_POSITION_SHIFT`, `GAZE_AWAY`, `VOICE_MOUTH_MISMATCH`, `VOICE_WITHOUT_FACE`, `STATIC_VIDEO_FRAME`, and `EARLY_SCREEN_AWAY`.
+- `MULTIPLE_FACES` is retained as the legacy event code for compatibility. The runtime emits it when either face landmarks or the MediaPipe person-object detector finds more than one person in at least two samples within 1.5 seconds. Person-object samples use a `0.35` confidence threshold, run every `0.5` seconds, and keep an active signal for a `1.5`-second miss grace period so a covered face does not cause the warning to flicker.
 - `GAZE_AWAY` events may include `direction` and `source`. `source` is one of `IRIS`, `HEAD_POSE`, or `COMBINED` and identifies whether the calibrated iris position, facial transformation matrix, or both produced the signal.
-- `integritySummary` may include counts derived from those events, such as `screenAwayCount`, `cameraLostCount`, `faceMissingCount`, `faceOutOfFrameCount`, `multipleFacesCount`, `facePositionShiftCount`, `gazeAwayCount`, `voiceMouthMismatchCount`, `voiceWithoutFaceCount`, `staticVideoFrameCount`, `earlyScreenAwayCount`, `faceDetectionSupported`, `faceDetectionFrameCount`, `gazeDetectionSupported`, `gazeDetectionFrameCount`, `headPoseDetectionSupported`, `headPoseDetectionFrameCount`, `mouthSyncSupported`, `mouthSyncFrameCount`, `mouthSyncMismatchFrameCount`, `videoFrameMotionSupported`, `videoFrameSampleCount`, `staticVideoFrameSampleCount`, `totalAwayDurationMs`, `maxAwayDurationMs`, and `suspicionLevel`.
+- `integritySummary` may include counts derived from those events, such as `screenAwayCount`, `cameraLostCount`, `faceMissingCount`, `faceOutOfFrameCount`, `multipleFacesCount`, `facePositionShiftCount`, `gazeAwayCount`, `voiceMouthMismatchCount`, `voiceWithoutFaceCount`, `staticVideoFrameCount`, `earlyScreenAwayCount`, `faceDetectionSupported`, `faceDetectionFrameCount`, `personDetectionSupported`, `personDetectionFrameCount`, `gazeDetectionSupported`, `gazeDetectionFrameCount`, `headPoseDetectionSupported`, `headPoseDetectionFrameCount`, `mouthSyncSupported`, `mouthSyncFrameCount`, `mouthSyncMismatchFrameCount`, `videoFrameMotionSupported`, `videoFrameSampleCount`, `staticVideoFrameSampleCount`, `totalAwayDurationMs`, `maxAwayDurationMs`, and `suspicionLevel`.
 - Normalization and storage:
   - The API rebuilds event-derived counts, away durations, and `suspicionLevel` from the allowlisted events instead of trusting client summary counts.
   - The API writes `schemaVersion: 1` and `source: CLIENT_RUNTIME_UNVERIFIED` before saving on `interview_answers.nonverbal_metadata`.
@@ -3228,7 +3231,7 @@ CandidateFolder 입력 제한:
 - AI report generation:
   - API-057 `POST /candidate/mock-interview/reports/{reportId}/generate` includes each answer's `nonverbalMetadata` in the `REPORT_GENERATE` payload when available.
   - OpenAI/mock worker prompts must treat the field as auxiliary practice metadata only.
-  - For mock interview reports, `integrityEvents` and `integritySummary` may inform practice feedback about cheating-suspicion signals such as screen/tab leaving, early screen leaving right after the question starts, camera loss, face missing/out of frame, audio input while no face is detected, multiple faces, large face-position shift, long gaze away from the screen, static video frames, or voice-mouth mismatch during recording.
+  - For mock interview reports, `integrityEvents` and `integritySummary` may inform practice feedback about cheating-suspicion signals such as screen/tab leaving, early screen leaving right after the question starts, camera loss, face missing/out of frame, audio input while no face is detected, multiple people detected by face or person-object detection, large face-position shift, long gaze away from the screen, static video frames, or voice-mouth mismatch during recording.
   - For mock interview reports, `shortAnswerCount`, `microphoneWarnings`, and `longSilenceCount` may inform practice feedback and conservative delivery-quality scoring caps, but they are answer/recording-quality signals, not cheating signals.
   - `cameraWarnings` and `testModeUsed` may only produce setup/focus review guidance. They must not be treated as proof of cheating.
 - Policy:
