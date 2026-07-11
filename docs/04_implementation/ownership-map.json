@@ -293,6 +293,7 @@
       "^frontend/src/app/public/applications/",
       "^frontend/src/app/company/mypage/",
       "^frontend/src/styles/",
+      "^frontend/src/lib/kakao-maps\\.ts$",
       "^frontend/public/",
       "^backend/api/src/modules/company-recruiting/",
       "^backend/api/src/modules/company-profile/",
