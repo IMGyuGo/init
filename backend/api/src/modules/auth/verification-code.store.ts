@@ -4,13 +4,52 @@ import type { VerificationPurpose } from "./auth.types";
 
 type VerificationRecord = {
   code: string;
+  issueId: string;
   attempts: number;
   verified: boolean;
 };
 
+const ISSUE_SCRIPT = `
+if redis.call("EXISTS", KEYS[2]) == 1 then
+  return 0
+end
+redis.call("SET", KEYS[1], ARGV[1], "EX", ARGV[2])
+redis.call("SET", KEYS[2], ARGV[3], "EX", ARGV[4])
+return 1
+`;
+
+const CLEAR_IF_OWNED_SCRIPT = `
+local deleted = 0
+local raw = redis.call("GET", KEYS[1])
+if raw then
+  local record = cjson.decode(raw)
+  if record.issueId == ARGV[1] then
+    deleted = deleted + redis.call("DEL", KEYS[1])
+  end
+end
+if redis.call("GET", KEYS[2]) == ARGV[1] then
+  deleted = deleted + redis.call("DEL", KEYS[2])
+end
+return deleted
+`;
+
+const UPDATE_IF_OWNED_SCRIPT = `
+local raw = redis.call("GET", KEYS[1])
+if not raw then
+  return 0
+end
+local current = cjson.decode(raw)
+if current.issueId ~= ARGV[1] then
+  return 0
+end
+redis.call("SET", KEYS[1], ARGV[2], "KEEPTTL")
+return 1
+`;
+
 @Injectable()
 export class VerificationCodeStore {
   private readonly ttlSeconds = 300;
+  private readonly cooldownSeconds = 60;
   private readonly redis =
     process.env.REDIS_URL
       ? new Redis(process.env.REDIS_URL, {
@@ -19,10 +58,41 @@ export class VerificationCodeStore {
           enableOfflineQueue: false,
         })
       : null;
+  private redisConnectPromise: Promise<void> | null = null;
   private readonly memory = new Map<string, { expiresAt: number; value: VerificationRecord }>();
+  private readonly cooldownMemory = new Map<string, { expiresAt: number; issueId: string }>();
 
-  async set(email: string, purpose: VerificationPurpose, code: string) {
-    await this.write(this.key(email, purpose), { code, attempts: 0, verified: false });
+  constructor() {
+    this.redis?.on("error", () => undefined);
+  }
+
+  async issue(email: string, purpose: VerificationPurpose, code: string, issueId: string) {
+    const codeKey = this.key(email, purpose);
+    const cooldownKey = this.cooldownKey(email, purpose);
+    const record: VerificationRecord = { code, issueId, attempts: 0, verified: false };
+
+    const redis = await this.redisClient();
+    if (redis) {
+      const result = await redis.eval(
+        ISSUE_SCRIPT,
+        2,
+        codeKey,
+        cooldownKey,
+        JSON.stringify(record),
+        String(this.ttlSeconds),
+        issueId,
+        String(this.cooldownSeconds),
+      );
+      return Number(result) === 1;
+    }
+
+    const now = Date.now();
+    const cooldown = this.cooldownMemory.get(cooldownKey);
+    if (cooldown && cooldown.expiresAt > now) return false;
+    this.cooldownMemory.delete(cooldownKey);
+    this.memory.set(codeKey, { expiresAt: now + this.ttlSeconds * 1000, value: record });
+    this.cooldownMemory.set(cooldownKey, { expiresAt: now + this.cooldownSeconds * 1000, issueId });
+    return true;
   }
 
   async get(email: string, purpose: VerificationPurpose): Promise<VerificationRecord | null> {
@@ -30,80 +100,96 @@ export class VerificationCodeStore {
   }
 
   async markVerified(email: string, purpose: VerificationPurpose, record: VerificationRecord) {
-    await this.write(this.key(email, purpose), { ...record, verified: true });
+    return this.updateIfOwned(this.key(email, purpose), record.issueId, { ...record, verified: true });
   }
 
   async incrementAttempts(email: string, purpose: VerificationPurpose, record: VerificationRecord) {
-    await this.write(this.key(email, purpose), { ...record, attempts: record.attempts + 1 });
+    return this.updateIfOwned(
+      this.key(email, purpose),
+      record.issueId,
+      { ...record, attempts: record.attempts + 1 },
+    );
   }
 
   async delete(email: string, purpose: VerificationPurpose) {
     const key = this.key(email, purpose);
-    this.memory.delete(key);
-    try {
-      await this.redis?.del(key);
-    } catch {
-      // Memory fallback is enough for local/test when Redis is unavailable.
+    const redis = await this.redisClient();
+    if (redis) {
+      await redis.del(key);
+      return;
     }
+    this.memory.delete(key);
   }
 
-  async clear(email: string, purpose: VerificationPurpose) {
+  async clearIfOwned(email: string, purpose: VerificationPurpose, issueId: string) {
     const codeKey = this.key(email, purpose);
     const cooldownKey = this.cooldownKey(email, purpose);
-    this.memory.delete(codeKey);
-    this.memory.delete(cooldownKey);
-    try {
-      await this.redis?.del(codeKey, cooldownKey);
-    } catch {
-      // SMTP failure must still clear the local fallback and return a delivery error.
+    const redis = await this.redisClient();
+    if (redis) {
+      await redis.eval(CLEAR_IF_OWNED_SCRIPT, 2, codeKey, cooldownKey, issueId);
+      return;
     }
-  }
 
-  async setCooldown(email: string, purpose: VerificationPurpose) {
-    const key = this.cooldownKey(email, purpose);
-    this.memory.set(key, { expiresAt: Date.now() + 60_000, value: { code: "1", attempts: 0, verified: false } });
-    try {
-      await this.redis?.set(key, "1", "EX", 60);
-    } catch {
-      // fall back to memory
-    }
+    if (this.memory.get(codeKey)?.value.issueId === issueId) this.memory.delete(codeKey);
+    if (this.cooldownMemory.get(cooldownKey)?.issueId === issueId) this.cooldownMemory.delete(cooldownKey);
   }
 
   async hasCooldown(email: string, purpose: VerificationPurpose) {
     const key = this.cooldownKey(email, purpose);
-    const memoryValue = this.memory.get(key);
-    if (memoryValue && memoryValue.expiresAt > Date.now()) return true;
-    try {
-      return (await this.redis?.exists(key)) === 1;
-    } catch {
-      return false;
-    }
+    const redis = await this.redisClient();
+    if (redis) return (await redis.exists(key)) === 1;
+
+    const cooldown = this.cooldownMemory.get(key);
+    if (!cooldown) return false;
+    if (cooldown.expiresAt > Date.now()) return true;
+    this.cooldownMemory.delete(key);
+    return false;
   }
 
   private async read(key: string): Promise<VerificationRecord | null> {
-    const memoryValue = this.memory.get(key);
-    if (memoryValue) {
-      if (memoryValue.expiresAt <= Date.now()) {
-        this.memory.delete(key);
-        return null;
-      }
-      return memoryValue.value;
-    }
-    try {
-      const raw = await this.redis?.get(key);
+    const redis = await this.redisClient();
+    if (redis) {
+      const raw = await redis.get(key);
       return raw ? (JSON.parse(raw) as VerificationRecord) : null;
-    } catch {
+    }
+
+    const memoryValue = this.memory.get(key);
+    if (!memoryValue) return null;
+    if (memoryValue.expiresAt <= Date.now()) {
+      this.memory.delete(key);
       return null;
     }
+    return memoryValue.value;
   }
 
-  private async write(key: string, value: VerificationRecord) {
-    this.memory.set(key, { expiresAt: Date.now() + this.ttlSeconds * 1000, value });
-    try {
-      await this.redis?.set(key, JSON.stringify(value), "EX", this.ttlSeconds);
-    } catch {
-      // fall back to memory
+  private async updateIfOwned(key: string, issueId: string, value: VerificationRecord) {
+    const redis = await this.redisClient();
+    if (redis) {
+      const result = await redis.eval(UPDATE_IF_OWNED_SCRIPT, 1, key, issueId, JSON.stringify(value));
+      return Number(result) === 1;
     }
+
+    const current = this.memory.get(key);
+    if (!current) return false;
+    if (current.expiresAt <= Date.now()) {
+      this.memory.delete(key);
+      return false;
+    }
+    if (current.value.issueId !== issueId) return false;
+    this.memory.set(key, { expiresAt: current.expiresAt, value });
+    return true;
+  }
+
+  private async redisClient() {
+    if (!this.redis) return null;
+    if (this.redis.status === "wait" && !this.redisConnectPromise) {
+      const connecting = this.redis.connect();
+      this.redisConnectPromise = connecting.finally(() => {
+        this.redisConnectPromise = null;
+      });
+    }
+    if (this.redisConnectPromise) await this.redisConnectPromise;
+    return this.redis;
   }
 
   private key(email: string, purpose: VerificationPurpose) {

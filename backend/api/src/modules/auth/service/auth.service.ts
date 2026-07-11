@@ -1,7 +1,7 @@
 import { HttpStatus, Inject, Injectable } from "@nestjs/common";
 import bcrypt from "bcryptjs";
 import jwt, { SignOptions } from "jsonwebtoken";
-import { randomInt } from "crypto";
+import { randomInt, randomUUID } from "crypto";
 import { ERROR_CODES, type CurrentUser, type UserType } from "@init/common";
 import { ApiException } from "../../../shared/api-exception";
 import { MailService } from "../../mail/mail.service";
@@ -192,12 +192,11 @@ export class AuthService {
   }
 
   private async sendCode(email: string, purpose: VerificationPurpose) {
-    if (await this.codeStore.hasCooldown(email, purpose)) {
+    const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+    const issueId = randomUUID();
+    if (!await this.codeStore.issue(email, purpose, code, issueId)) {
       throw new ApiException(ERROR_CODES.COMMON_RATE_LIMITED, "인증 코드는 60초 후 다시 요청할 수 있습니다.", HttpStatus.TOO_MANY_REQUESTS);
     }
-    const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
-    await this.codeStore.set(email, purpose, code);
-    await this.codeStore.setCooldown(email, purpose);
     try {
       await this.mailer.send({
         kind: purpose === "PASSWORD_RESET" ? "PASSWORD_RESET_VERIFICATION" : "SIGNUP_VERIFICATION",
@@ -206,7 +205,7 @@ export class AuthService {
         text: `인증 코드는 ${code} 입니다. 5분 안에 입력해 주세요.`,
       });
     } catch {
-      await this.codeStore.clear(email, purpose);
+      await this.codeStore.clearIfOwned(email, purpose, issueId);
       throw new ApiException(
         ERROR_CODES.MAIL_DELIVERY_FAILED,
         "이메일 발송에 실패했습니다. 잠시 후 다시 시도해 주세요.",
@@ -224,7 +223,9 @@ export class AuthService {
       await this.codeStore.incrementAttempts(email, purpose, record);
       throw new ApiException(ERROR_CODES.AUTH_EMAIL_CODE_INVALID, "인증 코드를 확인해 주세요.", HttpStatus.BAD_REQUEST);
     }
-    await this.codeStore.markVerified(email, purpose, record);
+    if (!await this.codeStore.markVerified(email, purpose, record)) {
+      throw new ApiException(ERROR_CODES.AUTH_EMAIL_CODE_INVALID, "인증 코드가 변경되었습니다. 다시 확인해 주세요.", HttpStatus.BAD_REQUEST);
+    }
   }
 
   private async ensureVerified(email: string, purpose: VerificationPurpose, code: string) {
