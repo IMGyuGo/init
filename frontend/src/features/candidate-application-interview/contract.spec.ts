@@ -25,9 +25,12 @@ import {
 } from "./realtime-webrtc";
 import {
   countPersonDetections,
+  isFacePositionShifted,
   estimateHeadPoseAngles,
   resolveCombinedGazeSignal,
+  updateFacePositionBaseline,
   updateMultiplePeopleDetectionState,
+  updateSustainedDetectionState,
 } from "./nonverbal-integrity";
 import {
   clampCameraPipPosition,
@@ -145,6 +148,58 @@ multiplePeopleState = updateMultiplePeopleDetectionState({
   nowMs: 3000,
 });
 assert.equal(multiplePeopleState.active, false);
+
+let facePositionBaseline = updateFacePositionBaseline(undefined, 0, {
+  centerX: 0.48,
+  centerY: 0.49,
+  areaRatio: 0.1,
+});
+facePositionBaseline = updateFacePositionBaseline(facePositionBaseline, 1, {
+  centerX: 0.52,
+  centerY: 0.51,
+  areaRatio: 0.12,
+});
+assert.ok(Math.abs(facePositionBaseline.centerX - 0.5) < 0.001);
+assert.ok(Math.abs(facePositionBaseline.centerY - 0.5) < 0.001);
+assert.ok(Math.abs(facePositionBaseline.areaRatio - 0.11) < 0.001);
+assert.equal(isFacePositionShifted(facePositionBaseline, {
+  centerX: 0.75,
+  centerY: 0.5,
+  areaRatio: 0.19,
+}), false);
+assert.equal(isFacePositionShifted(facePositionBaseline, {
+  centerX: 0.79,
+  centerY: 0.5,
+  areaRatio: 0.11,
+}), true);
+
+let faceShiftState = updateSustainedDetectionState({
+  detected: true,
+  nowMs: 0,
+  confirmationMs: 1000,
+});
+assert.equal(faceShiftState.active, false);
+faceShiftState = updateSustainedDetectionState({
+  detected: true,
+  nowMs: 500,
+  candidateStartedAtMs: faceShiftState.candidateStartedAtMs,
+  confirmationMs: 1000,
+});
+assert.equal(faceShiftState.active, false);
+faceShiftState = updateSustainedDetectionState({
+  detected: true,
+  nowMs: 1000,
+  candidateStartedAtMs: faceShiftState.candidateStartedAtMs,
+  confirmationMs: 1000,
+});
+assert.equal(faceShiftState.active, true);
+faceShiftState = updateSustainedDetectionState({
+  detected: false,
+  nowMs: 1500,
+  candidateStartedAtMs: faceShiftState.candidateStartedAtMs,
+  confirmationMs: 1000,
+});
+assert.equal(faceShiftState.active, false);
 
 const identityHeadPose = estimateHeadPoseAngles({
   rows: 4,

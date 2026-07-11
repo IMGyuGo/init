@@ -74,10 +74,14 @@ import { candidateApplicationInterviewRoutes } from "./routes";
 import {
   GAZE_CALIBRATION_REQUIRED_SAMPLES,
   countPersonDetections,
+  isFacePositionShifted,
   estimateHeadPoseAngles,
   estimateIrisGazePosition,
   resolveCombinedGazeSignal,
+  updateFacePositionBaseline,
   updateMultiplePeopleDetectionState,
+  updateSustainedDetectionState,
+  type FacePositionSnapshot,
   type GazeDirection,
   type GazeSignalSource,
   type HeadPoseAngles,
@@ -185,7 +189,11 @@ const NONVERBAL_CAMERA_SAMPLE_INTERVAL_MS = 500;
 const NONVERBAL_FACE_SAMPLE_SIZE = 240;
 const NONVERBAL_FACE_EDGE_MARGIN_RATIO = 0.08;
 const NONVERBAL_FACE_MIN_AREA_RATIO = 0.04;
-const NONVERBAL_FACE_SHIFT_RATIO = 0.22;
+const NONVERBAL_FACE_BASELINE_REQUIRED_SAMPLES = 4;
+const NONVERBAL_FACE_SHIFT_RATIO = 0.28;
+const NONVERBAL_FACE_SHIFT_MINIMUM_AREA_DELTA = 0.1;
+const NONVERBAL_FACE_SHIFT_RELATIVE_AREA_MULTIPLIER = 1.6;
+const NONVERBAL_FACE_SHIFT_CONFIRMATION_MS = 1000;
 const NONVERBAL_GAZE_AWAY_CONFIRMATION_MS = 1500;
 const NONVERBAL_GAZE_CENTERED_CONFIRMATION_MS = 750;
 const NONVERBAL_AUDIO_SPEAKING_LEVEL = 6;
@@ -265,11 +273,7 @@ type BrowserFaceDetector = {
   detect(image: CanvasImageSource): Promise<BrowserDetectedFace[]>;
 };
 type BrowserFaceDetectorConstructor = new (options?: { fastMode?: boolean; maxDetectedFaces?: number }) => BrowserFaceDetector;
-type FaceBoxSnapshot = {
-  centerX: number;
-  centerY: number;
-  areaRatio: number;
-};
+
 type MediaPipeFaceLandmarkerModule = typeof import("@mediapipe/tasks-vision");
 type InterviewIntegritySummary = {
   screenAwayCount: number;
@@ -331,6 +335,7 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   multiplePeopleLastDetectedAtMs?: number;
   lastPersonDetectionAtMs?: number;
   facePositionShiftStartedAtMs?: number;
+  facePositionShiftCandidateStartedAtMs?: number;
   gazeAwayStartedAtMs?: number;
   gazeAwayCandidateStartedAtMs?: number;
   gazeCenteredCandidateStartedAtMs?: number;
@@ -349,7 +354,8 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   headPoseCalibrationSampleCount: number;
   headPoseBaselineYawDegrees?: number;
   headPoseBaselinePitchDegrees?: number;
-  faceBaseline?: FaceBoxSnapshot;
+  faceBaseline?: FacePositionSnapshot;
+  faceBaselineSampleCount: number;
   lastVideoFrameSample?: number[];
   faceDetectionSupported: boolean;
   faceDetectionFrameCount: number;
@@ -4011,7 +4017,7 @@ function InterviewRuntimePanel({
     return nonverbalFaceCanvasRef.current;
   }
 
-  function toFaceSnapshot(face: BrowserDetectedFace, width: number, height: number): FaceBoxSnapshot {
+  function toFaceSnapshot(face: BrowserDetectedFace, width: number, height: number): FacePositionSnapshot {
     const box = face.boundingBox;
     return {
       centerX: (box.x + box.width / 2) / width,
@@ -4020,7 +4026,7 @@ function InterviewRuntimePanel({
     };
   }
 
-  function toFaceSnapshotFromLandmarks(landmarks: NormalizedLandmark[]): FaceBoxSnapshot | undefined {
+  function toFaceSnapshotFromLandmarks(landmarks: NormalizedLandmark[]): FacePositionSnapshot | undefined {
     if (!landmarks.length) return undefined;
 
     const xs = landmarks.map((landmark) => landmark.x).filter((value) => Number.isFinite(value));
@@ -4038,7 +4044,7 @@ function InterviewRuntimePanel({
     };
   }
 
-  function isFaceOutOfFrame(snapshot: FaceBoxSnapshot): boolean {
+  function isFaceOutOfFrame(snapshot: FacePositionSnapshot): boolean {
     return (
       snapshot.areaRatio < NONVERBAL_FACE_MIN_AREA_RATIO ||
       snapshot.centerX < NONVERBAL_FACE_EDGE_MARGIN_RATIO ||
@@ -4048,11 +4054,41 @@ function InterviewRuntimePanel({
     );
   }
 
-  function isFacePositionShifted(baseline: FaceBoxSnapshot, current: FaceBoxSnapshot): boolean {
-    return (
-      Math.abs(current.centerX - baseline.centerX) >= NONVERBAL_FACE_SHIFT_RATIO ||
-      Math.abs(current.centerY - baseline.centerY) >= NONVERBAL_FACE_SHIFT_RATIO ||
-      Math.abs(current.areaRatio - baseline.areaRatio) >= Math.max(0.08, baseline.areaRatio * 1.4)
+  function registerFaceBaselineSample(
+    tracker: RecordingNonverbalTracker,
+    snapshot: FacePositionSnapshot | undefined,
+  ) {
+    if (
+      !snapshot ||
+      isFaceOutOfFrame(snapshot) ||
+      tracker.faceBaselineSampleCount >= NONVERBAL_FACE_BASELINE_REQUIRED_SAMPLES
+    ) {
+      return;
+    }
+    tracker.faceBaseline = updateFacePositionBaseline(
+      tracker.faceBaseline,
+      tracker.faceBaselineSampleCount,
+      snapshot,
+    );
+    tracker.faceBaselineSampleCount += 1;
+  }
+
+  function updateFacePositionShiftSignal(
+    tracker: RecordingNonverbalTracker,
+    positionShifted: boolean,
+  ) {
+    const state = updateSustainedDetectionState({
+      detected: positionShifted,
+      nowMs: Date.now(),
+      candidateStartedAtMs: tracker.facePositionShiftCandidateStartedAtMs,
+      confirmationMs: NONVERBAL_FACE_SHIFT_CONFIRMATION_MS,
+    });
+    tracker.facePositionShiftCandidateStartedAtMs = state.candidateStartedAtMs;
+    updateTimedFaceSignal(
+      tracker,
+      "facePositionShiftStartedAtMs",
+      "FACE_POSITION_SHIFT",
+      state.active,
     );
   }
 
@@ -4428,9 +4464,7 @@ function InterviewRuntimePanel({
         const primaryLandmarks = faces[0];
         const primaryTransformationMatrix = result.facialTransformationMatrixes?.[0];
         const snapshot = primaryLandmarks ? toFaceSnapshotFromLandmarks(primaryLandmarks) : undefined;
-        if (snapshot && !current.faceBaseline && !isFaceOutOfFrame(snapshot)) {
-          current.faceBaseline = snapshot;
-        }
+        registerFaceBaselineSample(current, snapshot);
 
         registerCombinedGazeSample(
           current,
@@ -4450,11 +4484,18 @@ function InterviewRuntimePanel({
         updateTimedFaceSignal(current, "faceMissingStartedAtMs", "FACE_MISSING", faces.length === 0);
 
         updateTimedFaceSignal(current, "faceOutOfFrameStartedAtMs", "FACE_OUT_OF_FRAME", Boolean(snapshot && isFaceOutOfFrame(snapshot)));
-        updateTimedFaceSignal(
+        updateFacePositionShiftSignal(
           current,
-          "facePositionShiftStartedAtMs",
-          "FACE_POSITION_SHIFT",
-          Boolean(snapshot && current.faceBaseline && isFacePositionShifted(current.faceBaseline, snapshot)),
+          Boolean(
+            snapshot &&
+            current.faceBaseline &&
+            current.faceBaselineSampleCount >= NONVERBAL_FACE_BASELINE_REQUIRED_SAMPLES &&
+            isFacePositionShifted(current.faceBaseline, snapshot, {
+              centerShiftRatio: NONVERBAL_FACE_SHIFT_RATIO,
+              minimumAreaDelta: NONVERBAL_FACE_SHIFT_MINIMUM_AREA_DELTA,
+              relativeAreaDeltaMultiplier: NONVERBAL_FACE_SHIFT_RELATIVE_AREA_MULTIPLIER,
+            }),
+          ),
         );
         const multiplePeopleDetected = await detectMultiplePeople(current, questionId, video, faces.length);
         const currentAfterPersonDetection = recordingNonverbalTrackerRef.current;
@@ -4486,20 +4527,25 @@ function InterviewRuntimePanel({
       updateCombinedGazeSignal(current, undefined);
       const primaryFace = faces[0];
       const snapshot = primaryFace ? toFaceSnapshot(primaryFace, width, height) : undefined;
-      if (snapshot && !current.faceBaseline && !isFaceOutOfFrame(snapshot)) {
-        current.faceBaseline = snapshot;
-      }
+      registerFaceBaselineSample(current, snapshot);
       registerVoiceWithoutFaceSample(current, faces.length === 0);
       resetRecentAudioSpeechWindow(current);
 
       updateTimedFaceSignal(current, "faceMissingStartedAtMs", "FACE_MISSING", faces.length === 0);
 
       updateTimedFaceSignal(current, "faceOutOfFrameStartedAtMs", "FACE_OUT_OF_FRAME", Boolean(snapshot && isFaceOutOfFrame(snapshot)));
-      updateTimedFaceSignal(
+      updateFacePositionShiftSignal(
         current,
-        "facePositionShiftStartedAtMs",
-        "FACE_POSITION_SHIFT",
-        Boolean(snapshot && current.faceBaseline && isFacePositionShifted(current.faceBaseline, snapshot)),
+        Boolean(
+          snapshot &&
+          current.faceBaseline &&
+          current.faceBaselineSampleCount >= NONVERBAL_FACE_BASELINE_REQUIRED_SAMPLES &&
+          isFacePositionShifted(current.faceBaseline, snapshot, {
+            centerShiftRatio: NONVERBAL_FACE_SHIFT_RATIO,
+            minimumAreaDelta: NONVERBAL_FACE_SHIFT_MINIMUM_AREA_DELTA,
+            relativeAreaDeltaMultiplier: NONVERBAL_FACE_SHIFT_RELATIVE_AREA_MULTIPLIER,
+          }),
+        ),
       );
       const multiplePeopleDetected = await detectMultiplePeople(current, questionId, video, faces.length);
       const currentAfterPersonDetection = recordingNonverbalTrackerRef.current;
@@ -4605,6 +4651,7 @@ function InterviewRuntimePanel({
       headPoseDetectionFrameCount: 0,
       gazeCalibrationSampleCount: 0,
       headPoseCalibrationSampleCount: 0,
+      faceBaselineSampleCount: 0,
       mouthSyncSupported: false,
       mouthSyncFrameCount: 0,
       mouthSyncMismatchFrameCount: 0,

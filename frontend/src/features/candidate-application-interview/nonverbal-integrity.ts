@@ -73,6 +73,65 @@ export function updateMultiplePeopleDetectionState(input: {
   };
 }
 
+export type FacePositionSnapshot = {
+  centerX: number;
+  centerY: number;
+  areaRatio: number;
+};
+
+export type SustainedDetectionState = {
+  candidateStartedAtMs?: number;
+  active: boolean;
+};
+
+export function updateFacePositionBaseline(
+  baseline: FacePositionSnapshot | undefined,
+  sampleCount: number,
+  sample: FacePositionSnapshot,
+): FacePositionSnapshot {
+  if (!baseline || sampleCount <= 0) return sample;
+  const nextSampleCount = sampleCount + 1;
+  return {
+    centerX: (baseline.centerX * sampleCount + sample.centerX) / nextSampleCount,
+    centerY: (baseline.centerY * sampleCount + sample.centerY) / nextSampleCount,
+    areaRatio: (baseline.areaRatio * sampleCount + sample.areaRatio) / nextSampleCount,
+  };
+}
+
+export function isFacePositionShifted(
+  baseline: FacePositionSnapshot,
+  current: FacePositionSnapshot,
+  options: {
+    centerShiftRatio?: number;
+    minimumAreaDelta?: number;
+    relativeAreaDeltaMultiplier?: number;
+  } = {},
+): boolean {
+  const centerShiftRatio = options.centerShiftRatio ?? 0.28;
+  const minimumAreaDelta = options.minimumAreaDelta ?? 0.1;
+  const relativeAreaDeltaMultiplier = options.relativeAreaDeltaMultiplier ?? 1.6;
+  return (
+    Math.abs(current.centerX - baseline.centerX) >= centerShiftRatio ||
+    Math.abs(current.centerY - baseline.centerY) >= centerShiftRatio ||
+    Math.abs(current.areaRatio - baseline.areaRatio) >=
+      Math.max(minimumAreaDelta, baseline.areaRatio * relativeAreaDeltaMultiplier)
+  );
+}
+
+export function updateSustainedDetectionState(input: {
+  detected: boolean;
+  nowMs: number;
+  candidateStartedAtMs?: number;
+  confirmationMs: number;
+}): SustainedDetectionState {
+  if (!input.detected) return { active: false };
+  const candidateStartedAtMs = input.candidateStartedAtMs ?? input.nowMs;
+  return {
+    candidateStartedAtMs,
+    active: input.nowMs - candidateStartedAtMs >= input.confirmationMs,
+  };
+}
+
 const IRIS_HORIZONTAL_AWAY_THRESHOLD = 0.12;
 const IRIS_VERTICAL_AWAY_THRESHOLD = 0.14;
 const HEAD_YAW_AWAY_THRESHOLD_DEGREES = 20;
