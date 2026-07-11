@@ -474,6 +474,9 @@ export class CompanyRecruitingService {
       careerMaxYears: posting.careerMaxYears,
       employmentTypeCode: posting.employmentTypeCode,
       recruitmentType: posting.recruitmentType,
+      workplaceAddress: posting.workplaceAddress,
+      workplaceLat: posting.workplaceLat,
+      workplaceLng: posting.workplaceLng,
       startsOn: null,
       endsOn: null,
       status: PostingStatus.DRAFT,
@@ -1058,6 +1061,9 @@ function buildPostingExtraInfoInput(dto: CreateRecruitmentDto | UpdateRecruitmen
     careerMaxYears: dto.careerMaxYears,
     employmentTypeCode: dto.employmentTypeCode,
     recruitmentType: dto.recruitmentType,
+    workplaceAddress: dto.workplaceAddress,
+    workplaceLat: dto.workplaceLat,
+    workplaceLng: dto.workplaceLng,
   };
 }
 
@@ -1163,6 +1169,9 @@ function toRecruitmentResponse(posting: RecruitmentRecord) {
     careerMaxYears: posting.careerMaxYears,
     employmentTypeCode: posting.employmentTypeCode,
     recruitmentType: posting.recruitmentType,
+    workplaceAddress: posting.workplaceAddress,
+    workplaceLat: posting.workplaceLat,
+    workplaceLng: posting.workplaceLng,
     startsOn: posting.startsOn ? formatDate(posting.startsOn) : null,
     endsOn: posting.endsOn ? formatDate(posting.endsOn) : null,
     status: posting.status,

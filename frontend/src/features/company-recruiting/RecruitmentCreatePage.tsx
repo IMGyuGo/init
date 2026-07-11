@@ -24,6 +24,7 @@ import {
   type PostingExtraInfoKey,
   type PostingExtraInfo,
 } from "./posting-extra-info";
+import { geocodeAddress } from "../../lib/kakao-maps";
 import { BackButton } from "./CompanyRecruitingChrome";
 import { buildInterviewSettingsHref } from "./routes";
 import { extractPostingDraftFromJob, type PostingDraftResult } from "./posting-ai-draft";
@@ -117,8 +118,10 @@ type FormState = {
   careerMaxYears: number;
   employmentTypeCode: string;
   recruitmentType: string;
-  // 회사 위치 도로명 주소(우편번호 검색으로 채움). 지도 핀·저장은 백엔드 필드 준비 후 연동.
+  // 회사 위치 도로명 주소(우편번호 검색으로 채움) + 위경도(지도 SDK geocoder 로 변환).
   workplaceAddress: string;
+  workplaceLat: number | null;
+  workplaceLng: number | null;
   extraInfo: PostingExtraInfo;
   structuredJobDescription: StructuredJobDescription;
 };
@@ -144,6 +147,8 @@ function createInitialForm(): FormState {
     employmentTypeCode: "",
     recruitmentType: "",
     workplaceAddress: "",
+    workplaceLat: null,
+    workplaceLng: null,
     // 경력 기본값(신입~상한)은 "경력무관" 라벨로 채워 기본 정보 검증을 통과시킨다.
     extraInfo: {
       ...createEmptyPostingExtraInfo(),
@@ -187,6 +192,9 @@ function buildRecruitmentPreviewJob(form: FormState, companyName: string, compan
     jobDescription,
     techStacks: tags,
     createdAt: new Date().toISOString(),
+    workplaceAddress: form.workplaceAddress || null,
+    workplaceLat: form.workplaceLat,
+    workplaceLng: form.workplaceLng,
   };
 }
 
@@ -364,6 +372,9 @@ export function RecruitmentCreatePage() {
         careerMaxYears: form.careerMaxYears,
         employmentTypeCode: form.employmentTypeCode || undefined,
         recruitmentType: (form.recruitmentType || undefined) as "상시" | "마감형" | undefined,
+        workplaceAddress: form.workplaceAddress || undefined,
+        workplaceLat: form.workplaceLat ?? undefined,
+        workplaceLng: form.workplaceLng ?? undefined,
       });
       if (typeof window !== "undefined") {
         window.sessionStorage.removeItem(RECRUITMENT_CREATE_DRAFT_STORAGE_KEY);
@@ -396,7 +407,17 @@ export function RecruitmentCreatePage() {
       new window.daum.Postcode({
         oncomplete: (data) => {
           const address = data.roadAddress || data.jibunAddress;
-          setForm((current) => ({ ...current, workplaceAddress: address }));
+          // 주소를 먼저 채우고, 지도 SDK(키가 있으면)로 좌표를 변환해 채운다. 키 없으면 좌표는 null 유지.
+          setForm((current) => ({ ...current, workplaceAddress: address, workplaceLat: null, workplaceLng: null }));
+          void geocodeAddress(address).then((coords) => {
+            if (coords) {
+              setForm((current) =>
+                current.workplaceAddress === address
+                  ? { ...current, workplaceLat: coords.lat, workplaceLng: coords.lng }
+                  : current,
+              );
+            }
+          });
         },
       }).open();
     } catch {

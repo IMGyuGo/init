@@ -8605,6 +8605,7 @@ p {
 .notion .jobdetail-companyinfo { display: grid; gap: 10px; padding-top: 24px; border-top: 1px solid rgba(55, 53, 47, 0.1); }
 .notion .jobdetail-companyinfo h2 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; color: #191919; }
 .notion .jobdetail-companyinfo p { margin: 0; font-size: 15px; line-height: 1.7; color: rgba(55, 53, 47, 0.75); white-space: pre-wrap; }
+.notion .jobdetail-map { height: 280px; margin-top: 12px; border: 1px solid rgba(55, 53, 47, 0.1); border-radius: 12px; overflow: hidden; }
 
 /* 공고 요약(직행식): 라벨-값 2열 그리드 */
 .notion .jobdetail-summary {

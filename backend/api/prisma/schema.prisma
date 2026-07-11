@@ -272,6 +272,10 @@ model Posting {
   careerMaxYears       Int?                   @map("career_max_years")
   employmentTypeCode   String?                @map("employment_type_code") @db.VarChar(20)
   recruitmentType      String?                @map("recruitment_type") @db.VarChar(20)
+  // 회사 위치: 도로명 주소 + 위경도(지원자 공고 상세 지도 핀용). 좌표는 프론트 geocoder 로 채워 저장.
+  workplaceAddress     String?                @map("workplace_address") @db.VarChar(300)
+  workplaceLat         Float?                 @map("workplace_lat")
+  workplaceLng         Float?                 @map("workplace_lng")
   startsOn             DateTime?              @map("starts_on") @db.Date
   endsOn               DateTime?              @map("ends_on") @db.Date
   status               PostingStatus          @default(DRAFT)

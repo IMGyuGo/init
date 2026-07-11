@@ -19,6 +19,7 @@ import {
 } from "./view-model";
 import { JobDescriptionViewer } from "../company-recruiting/JobDescriptionViewer";
 import { extractPostingExtraInfo, postingExtraInfoFields } from "../company-recruiting/posting-extra-info";
+import { loadKakaoMaps } from "../../lib/kakao-maps";
 
 export interface CandidateJobsViewProps {
   jobs: CandidateJobSummary[];
@@ -885,6 +886,37 @@ function extractJobImages(jobDescription: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
+// 회사 위치 — 주소 표시 + 좌표가 있으면 카카오 지도에 핀. (키 없거나 좌표 없으면 주소만)
+function WorkplaceMap({ address, lat, lng }: { address: string | null; lat: number | null; lng: number | null }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (lat == null || lng == null || !mapRef.current) return;
+    let cancelled = false;
+    const container = mapRef.current;
+    loadKakaoMaps()
+      .then((maps) => {
+        if (cancelled) return;
+        const center = new maps.LatLng(lat, lng);
+        const map = new maps.Map(container, { center, level: 3 });
+        new maps.Marker({ position: center, map });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [lat, lng]);
+
+  if (!address) return null;
+  return (
+    <section className="jobdetail-companyinfo">
+      <h2>근무지 위치</h2>
+      <p>{address}</p>
+      {lat != null && lng != null ? <div className="jobdetail-map" ref={mapRef} aria-label="근무지 지도" /> : null}
+    </section>
+  );
+}
+
 // 추천 공고 로고 — URL 없거나 로드 실패 시 회사명 첫 글자 이니셜로 대체.
 function RelatedJobLogo({ logoUrl, companyName }: { logoUrl: string | null; companyName: string }) {
   const [failed, setFailed] = useState(false);
@@ -1011,6 +1043,8 @@ export function CandidateJobDetailView({ job, relatedJobs = [], onApplyClick }: 
               <p>{job.companyProfile}</p>
             </section>
           ) : null}
+
+          <WorkplaceMap address={job.workplaceAddress} lat={job.workplaceLat} lng={job.workplaceLng} />
         </div>
 
         <aside className="jobdetail-aside">

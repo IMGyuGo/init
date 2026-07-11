@@ -1375,6 +1375,9 @@ const candidateJobDetail: CandidateJobDetail = {
   jobDescription: "NestJS API",
   techStacks: ["Node.js", "NestJS"],
   createdAt: "2026-07-01T00:00:00.000Z",
+  workplaceAddress: null,
+  workplaceLat: null,
+  workplaceLng: null,
 };
 
 const mockReport: CandidateMockReportSummary = {

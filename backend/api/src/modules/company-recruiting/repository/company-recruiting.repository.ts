@@ -28,6 +28,9 @@ export type PostingFilterFields = {
   careerMaxYears?: number | null;
   employmentTypeCode?: string | null;
   recruitmentType?: string | null;
+  workplaceAddress?: string | null;
+  workplaceLat?: number | null;
+  workplaceLng?: number | null;
 };
 
 export type CreatePostingInput = {
@@ -591,6 +594,9 @@ function mapPosting(posting: Prisma.PostingGetPayload<{ include: { _count: { sel
     careerMaxYears: posting.careerMaxYears,
     employmentTypeCode: posting.employmentTypeCode,
     recruitmentType: posting.recruitmentType,
+    workplaceAddress: posting.workplaceAddress,
+    workplaceLat: posting.workplaceLat,
+    workplaceLng: posting.workplaceLng,
     startsOn: posting.startsOn,
     endsOn: posting.endsOn,
     status: posting.status,
@@ -617,6 +623,9 @@ function mapPublicPosting(posting: Prisma.PostingGetPayload<{ include: { company
     careerMaxYears: posting.careerMaxYears,
     employmentTypeCode: posting.employmentTypeCode,
     recruitmentType: posting.recruitmentType,
+    workplaceAddress: posting.workplaceAddress,
+    workplaceLat: posting.workplaceLat,
+    workplaceLng: posting.workplaceLng,
     startsOn: posting.startsOn,
     endsOn: posting.endsOn,
     status: posting.status,

@@ -1,0 +1,180 @@
+
+> final-weapon-backend-api@0.1.0 dev
+> nest start --watch
+
+[2J[3J[H[[90mPM 5:18:04[0m] Starting compilation in watch mode...
+
+[[90mPM 5:18:07[0m] Found 0 errors. Watching for file changes.
+
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:07 [32m    LOG[39m [38;5;3m[NestFactory] [39m[32mStarting Nest application...[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAppModule dependencies initialized[39m[38;5;3m +63ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mConfigHostModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mConfigModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAiModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAuthModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mPaymentModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mCompanyProfileModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mCandidateModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mCompanyInterviewModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mReportModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mCompanyRecruitingModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mInterviewModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mHealthController {/api/v1}:[39m[38;5;3m +31ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/health, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mAuthController {/api/v1/auth}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/auth/login, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/auth/google, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/auth/google/callback, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/auth/signup/candidate, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/auth/signup/company, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/auth/email/send-code, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/auth/email/verify-code, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/auth/password/send-code, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/auth/password/verify-code, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/auth/password/reset, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/auth/me, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/auth/refresh, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/auth/logout, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mCompanyProfileController {/api/v1/company}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/profile, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/profile, PATCH} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/profile/logo, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mCompanyRecruitingController {/api/v1/company}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/recruitments, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/recruitments/jd-images, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/recruitments, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/recruitments/:recruitmentId, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/recruitments/:recruitmentId, PATCH} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/recruitments/:recruitmentId, DELETE} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/recruitments/:recruitmentId/copy, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/recruitments/:recruitmentId/applicants, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/applicants, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/applicants/:applicantId/evaluation, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/applicants/:applicantId/media/:fileId/session, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/applicants/:applicantId/screening-status, PATCH} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mCompanyRecruitingMediaController {/api/v1/company}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/applicants/:applicantId/documents/:fileId, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/applicants/:applicantId/media/:fileId, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mPublicRecruitmentController {/api/v1/public/recruitments}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/public/recruitments/:recruitmentId, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/public/recruitments/:recruitmentId/applications, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/public/recruitments/:recruitmentId/applications/access-link, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mPublicApplicationController {/api/v1/public/applications}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/public/applications/status, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/public/applications/token/verify, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mCandidateController {/api/v1/candidate}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/jobs, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/jobs/:jobId, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/jobs/:jobId/apply, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/jobs/:jobId/applications, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/resume, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/portfolio-links, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/folders, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/folders, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/folders/:folderId, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/folders/:folderId, PATCH} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/folders/:folderId, DELETE} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/applications, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/applications/:applicationId/interview-guide, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/applications/:applicationId/consent, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mInterviewController {/api/v1/candidate}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/mock-interviews, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/mock-interviews/history, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/mock-interviews/:sessionId, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/mock-interviews/:sessionId/questions, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/mock-interviews/:sessionId/answers, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/mock-interviews/:sessionId/next-question, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/mock-interviews/:sessionId/complete, PATCH} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/mock-interviews/:sessionId/stt, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/mock-interviews/:sessionId/follow-up-question, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/mock-interviews/:sessionId/follow-up-questions/insert, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/mock-interviews/:sessionId/realtime-session, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/interviews/:sessionId/device-check, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/applications/:applicationId/interview/start, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/applications/:applicationId/interview, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/interviews/:sessionId/questions, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/interviews/:sessionId/answers, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/interviews/:sessionId/media, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/interviews/:sessionId/next-question, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/interviews/:sessionId/complete, PATCH} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/interviews/:sessionId/stt, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/interviews/:sessionId/follow-up-question, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/interviews/:sessionId/follow-up-questions/insert, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/interviews/:sessionId/realtime-session, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mPublicInterviewController {/api/v1/public}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/public/applications/:applicationId/interview/start, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/public/applications/:applicationId/interview/begin, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/public/applications/:applicationId/interview, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/public/interviews/:sessionId/device-check, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/public/interviews/:sessionId/questions, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/public/interviews/:sessionId/answers, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/public/interviews/:sessionId/media, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/public/interviews/:sessionId/next-question, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/public/interviews/:sessionId/complete, PATCH} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/public/interviews/:sessionId/stt, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/public/interviews/:sessionId/follow-up-question, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/public/interviews/:sessionId/follow-up-questions/insert, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/public/interviews/:sessionId/realtime-session, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mPaymentController {/api/v1/payments}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/payments/orders, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/payments/orders, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/payments/orders/:orderId, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/payments/confirm, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/payments/orders/:orderId/fail, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/payments/candidate/mock-interview-passes, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/payments/candidate/mock-interview-passes/dev-grant, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mReportsController {/api/v1/reports}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/reports/:reportId/evaluation-context, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/reports/:reportId/answer-evaluation, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/reports/:reportId/communication-analysis, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/reports/:reportId/generate, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mReportController {/api/v1/candidate}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/mock-interview/reports, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/mock-interview/reports/:reportId/feedback, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/mock-interview/reports/:reportId/media, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/mock-interview/reports/:reportId/generate, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/applications/:applicationId/report, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/applications/:applicationId/report/generate, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/applications/:applicationId/status, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mAiGuardrailsController {/api/v1/ai/guardrails}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/ai/guardrails/validate, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mCandidateAiJobsController {/api/v1/candidate}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/documents/extract, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/mock-interviews/:sessionId/stt, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/interviews/:sessionId/stt, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/mock-interviews/:sessionId/follow-up-question, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/interviews/:sessionId/follow-up-question, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/candidate/mock-interviews/questions/generate, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mCompanyRecruitmentAiJobsController {/api/v1/company/recruitments}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/recruitments/ai-draft, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mCompanyAiJobsController {/api/v1/company/interviews}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/interviews/evaluation-criteria/suggest, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/interviews/questions/generate, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/interviews/question-sets, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mAiJobsStatusController {/api/v1/ai/jobs}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/ai/jobs/:processLogId/status, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mAiPerformanceController {/api/v1/ai}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/ai/performance-logs, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/ai/performance/jobs, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/ai/performance/client-events, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/ai/performance/summary, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mCompanyInterviewController {/api/v1/company/interviews}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/interviews/settings, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/interviews/criterion-tags, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/interviews/evaluation-criteria, PATCH} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/interviews/questions, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/interviews/questions/:questionId, PATCH} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/interviews/questions/:questionId, DELETE} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/interviews/time-policy, PATCH} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/interviews/question-sets/active, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/v1/company/interviews/question-sets/confirm, POST} route[39m[38;5;3m +0ms[39m
+(node:74749) Warning: NodeVersionSupportWarning: The AWS SDK for JavaScript (v3)
+versions published after the first week of January 2027
+will require node >=22. You are running node v20.20.2.
+
+To continue receiving updates to AWS services, bug fixes,
+and security updates please upgrade to node >=22.
+
+More information can be found at: https://a.co/c895JFp
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m[Nest] 74749  - [39m2026. 07. 11. PM 5:18:08 [32m    LOG[39m [38;5;3m[NestApplication] [39m[32mNest application successfully started[39m[38;5;3m +85ms[39m

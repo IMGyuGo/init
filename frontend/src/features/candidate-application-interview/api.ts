@@ -110,6 +110,10 @@ export interface CandidateJobDetail extends CandidateJobSummary {
   jobDescription: string;
   techStacks: string[];
   createdAt: string;
+  // 회사 위치(공고 상세 지도 핀). 좌표가 있어야 지도 표시.
+  workplaceAddress: string | null;
+  workplaceLat: number | null;
+  workplaceLng: number | null;
 }
 
 export interface CandidateDocumentPolicy {
