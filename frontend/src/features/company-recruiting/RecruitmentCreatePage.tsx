@@ -60,6 +60,51 @@ const MAX_GALLERY_IMAGES = 5;
 const AI_DRAFT_MAX_POLL_ATTEMPTS = 20;
 const AI_DRAFT_POLL_INTERVAL_MS = 1000;
 
+// 다음(카카오) 우편번호 서비스 — API 키 불필요, 클라이언트 팝업. (#270 회사 위치 주소 검색)
+const DAUM_POSTCODE_SRC = "https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js";
+
+interface DaumPostcodeData {
+  roadAddress: string;
+  jibunAddress: string;
+  zonecode: string;
+}
+interface DaumPostcodeInstance {
+  open: () => void;
+}
+interface DaumPostcodeConstructor {
+  new (options: { oncomplete: (data: DaumPostcodeData) => void }): DaumPostcodeInstance;
+}
+declare global {
+  interface Window {
+    daum?: { Postcode: DaumPostcodeConstructor };
+  }
+}
+
+function loadDaumPostcode(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (typeof window === "undefined") {
+      reject(new Error("window unavailable"));
+      return;
+    }
+    if (window.daum?.Postcode) {
+      resolve();
+      return;
+    }
+    const existing = document.querySelector<HTMLScriptElement>(`script[src="${DAUM_POSTCODE_SRC}"]`);
+    if (existing) {
+      existing.addEventListener("load", () => resolve());
+      existing.addEventListener("error", () => reject(new Error("postcode load failed")));
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = DAUM_POSTCODE_SRC;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("postcode load failed"));
+    document.body.appendChild(script);
+  });
+}
+
 type FormState = {
   title: string;
   jobRole: string;
@@ -72,6 +117,8 @@ type FormState = {
   careerMaxYears: number;
   employmentTypeCode: string;
   recruitmentType: string;
+  // 회사 위치 도로명 주소(우편번호 검색으로 채움). 지도 핀·저장은 백엔드 필드 준비 후 연동.
+  workplaceAddress: string;
   extraInfo: PostingExtraInfo;
   structuredJobDescription: StructuredJobDescription;
 };
@@ -96,6 +143,7 @@ function createInitialForm(): FormState {
     careerMaxYears: CAREER_MAX_YEARS,
     employmentTypeCode: "",
     recruitmentType: "",
+    workplaceAddress: "",
     // 경력 기본값(신입~상한)은 "경력무관" 라벨로 채워 기본 정보 검증을 통과시킨다.
     extraInfo: {
       ...createEmptyPostingExtraInfo(),
@@ -336,6 +384,24 @@ export function RecruitmentCreatePage() {
   // 직무 select 하나로 표시용 jobRole 과 필터용 jobRoleCode 를 함께 설정한다.
   function updateJobRoleSelection(code: string) {
     setForm((current) => ({ ...current, jobRoleCode: code, jobRole: code }));
+  }
+
+  // 다음 우편번호 팝업으로 회사 위치(도로명 주소)를 검색해 채운다.
+  async function handleWorkplaceAddressSearch() {
+    try {
+      await loadDaumPostcode();
+      if (!window.daum?.Postcode) {
+        throw new Error("postcode unavailable");
+      }
+      new window.daum.Postcode({
+        oncomplete: (data) => {
+          const address = data.roadAddress || data.jibunAddress;
+          setForm((current) => ({ ...current, workplaceAddress: address }));
+        },
+      }).open();
+    } catch {
+      setMessage("주소 검색을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.");
+    }
   }
 
   // 지역·근무형태 select 는 필터 코드와 JD 표시용 extraInfo 를 함께 갱신한다.
@@ -589,6 +655,20 @@ export function RecruitmentCreatePage() {
         <label>
           채용 마감일
           <input required type="date" min={form.startsOn || undefined} value={form.endsOn} onChange={(event) => updateEndsOn(event.target.value)} />
+        </label>
+        <label className="wide">
+          회사 위치
+          <div className="address-search-row">
+            <input
+              readOnly
+              value={form.workplaceAddress}
+              placeholder="주소 검색 버튼을 눌러 도로명 주소를 선택하세요"
+              onClick={() => void handleWorkplaceAddressSearch()}
+            />
+            <button className="btn secondary" type="button" onClick={() => void handleWorkplaceAddressSearch()}>
+              주소 검색
+            </button>
+          </div>
         </label>
       </div>
     ),

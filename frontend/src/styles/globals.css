@@ -137,6 +137,11 @@
   border-radius: 7px;
 }
 
+/* 회사 위치 주소 검색 행 (#270) */
+.address-search-row { display: flex; gap: 8px; }
+.address-search-row input { flex: 1; min-width: 0; cursor: pointer; }
+.address-search-row .btn { flex: none; white-space: nowrap; }
+
 .posting-gallery-editor figcaption {
   overflow: hidden;
   color: var(--ink-500);
