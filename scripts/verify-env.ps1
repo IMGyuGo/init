@@ -19,7 +19,11 @@ if ($existing.Count -eq 0) {
   exit 0
 }
 
-$required = @("DATABASE_URL", "REDIS_URL", "AWS_REGION", "S3_BUCKET", "SQS_QUEUE_URL", "OPENAI_API_KEY", "JWT_SECRET")
+$required = @(
+  "DATABASE_URL", "REDIS_URL", "AWS_REGION", "S3_BUCKET", "SQS_QUEUE_URL", "OPENAI_API_KEY", "JWT_SECRET",
+  "SMTP_HOST", "SMTP_PORT", "SMTP_SECURE", "SMTP_REQUIRE_TLS", "SMTP_USER", "SMTP_PASS", "SMTP_FROM",
+  "SMTP_CONNECTION_TIMEOUT_MS", "SMTP_GREETING_TIMEOUT_MS", "SMTP_SOCKET_TIMEOUT_MS", "SMTP_SMOKE_TO"
+)
 $combined = ""
 foreach ($file in $existing) {
   $combined += "`n" + (Get-Content -Encoding UTF8 -LiteralPath $file -Raw)

@@ -298,7 +298,8 @@ AI 리포트 금지 기준:
 - 성공 응답/처리:
   - 인증 코드 입력 영역 활성화
 - 오류/예외:
-  - 이미 가입된 이메일, 이메일 형식 오류, 메일 발송 실패 시 오류 메시지를 표시한다.
+  - 이미 가입된 이메일, 이메일 형식 오류 시 오류 메시지를 표시한다.
+  - SMTP 발송 실패 또는 타임아웃이면 `MAIL_DELIVERY_FAILED`를 반환하고 저장한 인증 코드와 재발송 cooldown을 정리한다.
 - 관련 ERD 테이블:
   - users, companies, candidate_profiles, applications, notifications, ai_process_logs, Redis/TTL cache
 - 비고/미결:
@@ -375,7 +376,8 @@ AI 리포트 금지 기준:
 - 성공 응답/처리:
   - 인증 코드 입력 영역 활성화
 - 오류/예외:
-  - 미가입 이메일, 발송 실패, 요청 횟수 초과 시 오류 메시지를 표시한다.
+  - 미가입 이메일, 요청 횟수 초과 시 오류 메시지를 표시한다.
+  - SMTP 발송 실패 또는 타임아웃이면 `MAIL_DELIVERY_FAILED`를 반환하고 저장한 인증 코드와 재발송 cooldown을 정리한다.
 - 관련 ERD 테이블:
   - users, notifications, Redis/TTL cache
 

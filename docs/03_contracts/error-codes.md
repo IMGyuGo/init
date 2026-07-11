@@ -16,6 +16,7 @@
 | AUTH_USER_TYPE_MISMATCH | 403 | 선택한 사용자 유형과 계정 유형 불일치 | 기업/지원자 선택값 확인 |
 | AUTH_EMAIL_DUPLICATED | 409 | 이미 가입된 이메일 | 회원가입 이메일 인증 전에 차단 |
 | AUTH_EMAIL_CODE_INVALID | 400 | 인증 코드 불일치 또는 만료 | Redis TTL 코드 기준 |
+| MAIL_DELIVERY_FAILED | 503 | SMTP 서버가 메일을 접수하지 못함 | 인증 코드 상태를 정리하고 잠시 후 재시도를 안내 |
 | FILE_INVALID_TYPE | 400 | 허용하지 않는 파일 형식 | PDF/DOCX/JD 이미지 정책에 맞춰 검증 |
 | FILE_SIZE_EXCEEDED | 400 | 파일 용량 초과 | 업로드 제한 안내 |
 | APPLICATION_ALREADY_SUBMITTED | 409 | 이미 지원한 공고 | 중복 지원 방지 |

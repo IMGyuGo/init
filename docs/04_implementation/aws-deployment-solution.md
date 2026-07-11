@@ -15,7 +15,7 @@
 | Redis protocol cache | `infra/local/docker-compose.yml` | ElastiCache Valkey |
 | S3 | LocalStack bucket `init-local-assets` | S3 bucket |
 | SQS | LocalStack queue `init-ai-jobs` | SQS queue |
-| Mailpit | local SMTP inbox | Amazon SES |
+| Mailpit | local SMTP inbox | 외부 관리형 SMTP provider |
 
 클라우드에서는 frontend, API, worker를 각각 Docker image로 만든다. 현재 `infra/docker`에는 `frontend.Dockerfile`, `api.Dockerfile`, `worker.Dockerfile`이 추가되어 AWS 배포 image 계약을 검증할 수 있다. `infra/aws`에는 `main` 단일 실배포 환경 기준 AWS 리소스 Terraform 기준선이 추가되어 있다. 실제 ECR push, ECS task definition 갱신, ECS service update는 GitHub Actions deploy workflow가 담당한다.
 
@@ -39,7 +39,7 @@ Dockerfile을 추가해도 현재 로컬 개발 방식을 없애지 않는다. �
 | --- | --- |
 | 도메인 | `init-jungle.cloud` 단일 실배포 도메인 + `/api/*` path routing |
 | Frontend 배포 | Next.js SSR이므로 S3 정적 배포가 아니라 ECS container로 배포 |
-| 메일 서비스 | 별도 SMTP 서버 없이 Amazon SES 사용. domain identity, Easy DKIM, custom MAIL FROM은 Route53 DNS record와 함께 Terraform으로 관리 |
+| 메일 서비스 | provider-neutral Nodemailer SMTP 사용. 실제 provider credential은 Secrets Manager에 두고 발신 도메인/SPF/DKIM/DMARC는 provider 절차로 검증 |
 | CloudFront | 처음부터 사용 |
 | Route53 | `init-jungle.cloud`를 Route53 hosted zone으로 위임 |
 | CloudFront 인증서 | us-east-1 ACM 인증서를 DNS validation으로 발급 |
@@ -422,9 +422,15 @@ Secrets Manager 경로는 단일 실배포 환경인 `main`만 사용한다.
 
 배포 전 secret 검증은 `.env.example`에 있는 키 중 service별로 필요한 키가 Secrets Manager에 존재하는지 확인하는 방식으로 둔다. 실제 값은 Git에 저장하지 않는다.
 
-SES는 초기에는 현재 API 코드 변경 범위를 줄이기 위해 SES SMTP endpoint를 사용한다. 현재 API는 `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` 환경변수를 사용한다. AWS SDK SES client로 전환하는 작업은 별도 refactoring으로 분리한다.
+API는 `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_REQUIRE_TLS`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`으로 provider-neutral SMTP 연결을 만든다. 운영에서는 implicit TLS 또는 STARTTLS를 강제하고, 연결/인사/socket timeout을 제한한다. provider 자격증명과 발신 도메인 검증 정보는 Git에 저장하지 않는다.
 
-SES 발신 도메인은 `init-jungle.cloud` domain identity, Easy DKIM CNAME, custom MAIL FROM(`mail.init-jungle.cloud`) MX/SPF TXT record를 Terraform으로 생성한다. DMARC record와 SES SMTP credential 발급/주입은 별도 운영 작업으로 다룬다.
+개인 Gmail/Naver SMTP를 저용량 MVP에 사용하는 경우 `SMTP_FROM`은 인증한 계정 주소와 동일하게 둔다. 별도 `no-reply` 주소는 provider에서 alias 또는 발신 도메인 검증이 완료된 경우에만 사용한다. 일반 로그인 비밀번호 대신 2단계 인증 기반 애플리케이션 비밀번호를 사용한다.
+
+배포 workflow는 새 API task definition을 서비스에 적용하기 전에 ECS one-off SMTP smoke를 실행한다. smoke가 실패하면 서비스 갱신을 중단하며 `/api/v1/health`에는 SMTP 네트워크 상태를 결합하지 않는다.
+
+`SMTP_SMOKE_TO`는 GitHub Environment `init-main`의 secret으로 두며, 실제로 확인 가능한 팀 전용 수신함을 사용한다. workflow 성공은 SMTP 접수까지의 자동 검증이므로 최초 전환과 credential 교체 시에는 수신함 도착과 스팸 분류를 수동 확인한다.
+
+기존 SES Terraform 리소스와 IAM 권한은 새 SMTP provider로 실제 발송을 검증하는 동안 rollback 용도로 유지한다. 세 발송 흐름 검증과 운영 관찰이 끝난 뒤 Terraform-only 변경으로 제거하며 애플리케이션 변경 PR과 섞지 않는다.
 
 ## 실패 모드와 제어
 

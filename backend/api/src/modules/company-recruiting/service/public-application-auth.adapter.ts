@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import Redis from "ioredis";
 
-import { MailService } from "../../auth/service/mail.service";
+import { MailService } from "../../mail/mail.service";
 
 export type PublicApplicationAuthRequest = {
   applicationId: number;
@@ -185,12 +185,6 @@ function buildPublicApplicationStatusLink(recruitmentId: number, token: string) 
   return url.toString();
 }
 
-type MailServiceWithTransporter = {
-  transporter: {
-    sendMail(message: { from: string; to: string; subject: string; text: string }): Promise<unknown>;
-  };
-};
-
 async function sendPublicApplicationMagicLink(
   mailService: MailService,
   email: string,
@@ -198,9 +192,8 @@ async function sendPublicApplicationMagicLink(
   expiresInSeconds: number,
 ) {
   const expiresInHours = Math.max(1, Math.ceil(expiresInSeconds / 3600));
-  const smtp = mailService as unknown as MailServiceWithTransporter;
-  await smtp.transporter.sendMail({
-    from: process.env.SMTP_FROM ?? "no-reply@init.local",
+  await mailService.send({
+    kind: "PUBLIC_APPLICATION_STATUS",
     to: email,
     subject: "INIT 지원 현황 확인 링크",
     text: [
