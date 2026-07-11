@@ -175,6 +175,9 @@
 | career_max_years | INTEGER | 지원자 필터용 요구 경력 최대(년). 0~10. career_min_years 이상 |
 | employment_type_code | VARCHAR(20) | 지원자 필터용 근무형태 코드. `PostingEmploymentTypeCode` taxonomy 값. 미분류면 NULL |
 | recruitment_type | VARCHAR(20) | 지원자 필터용 채용형태 코드. `PostingRecruitmentType`(상시/마감형). 미분류면 NULL |
+| workplace_address | VARCHAR(300) | 회사 위치 도로명 주소(공고 생성 시 주소 검색). 미입력이면 NULL |
+| workplace_lat | DOUBLE PRECISION | 회사 위치 위도(지원자 상세 지도 핀). 좌표 없으면 NULL. workplace_lng와 함께 저장 |
+| workplace_lng | DOUBLE PRECISION | 회사 위치 경도. 좌표 없으면 NULL. workplace_lat와 함께 저장 |
 | starts_on | DATE | 지원 시작일 |
 | ends_on | DATE | 지원 마감일 |
 | status | VARCHAR(30) NOT NULL | 공고 상태: DRAFT, OPEN, CLOSING_SOON, CLOSED, ARCHIVED |

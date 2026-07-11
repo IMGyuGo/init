@@ -607,17 +607,18 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
   const [message, setMessage] = useState("");
 
   // 같은 직무의 다른 공고를 추천으로 노출한다(우측 사이드). 별도 추천 API 없이 목록 API 재사용.
+  // 목록 jobRoles 필터는 jobRoleCode 와 매칭하므로 표시명(jobRole)이 아닌 jobRoleCode 로 조회한다.
   const [relatedJobs, setRelatedJobs] = useState<CandidateJobSummary[]>([]);
-  const relatedRole = data?.data.jobRole;
+  const relatedRoleCode = data?.data.jobRoleCode ?? undefined;
   const currentJobId = data?.data.jobId;
   useEffect(() => {
-    if (!relatedRole || !currentJobId) {
+    if (!relatedRoleCode || !currentJobId) {
       setRelatedJobs([]);
       return;
     }
     let active = true;
     getCandidateApi()
-      .listJobs({ jobRoles: [relatedRole], limit: 8, sort: "createdAt", order: "desc" })
+      .listJobs({ jobRoles: [relatedRoleCode], limit: 8, sort: "createdAt", order: "desc" })
       .then((res) => {
         if (active) setRelatedJobs(res.data.items.filter((item) => item.jobId !== currentJobId).slice(0, 5));
       })
@@ -627,7 +628,7 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
     return () => {
       active = false;
     };
-  }, [relatedRole, currentJobId]);
+  }, [relatedRoleCode, currentJobId]);
 
   async function handleResumeFileSelect(file: File) {
     setApplyBusy(true);

@@ -110,6 +110,8 @@ export interface CandidateJobDetail extends CandidateJobSummary {
   jobDescription: string;
   techStacks: string[];
   createdAt: string;
+  // 유사 공고 추천은 필터용 직무 코드(jobRoleCode) 기준으로 조회한다.
+  jobRoleCode: string | null;
   // 회사 위치(공고 상세 지도 핀). 좌표가 있어야 지도 표시.
   workplaceAddress: string | null;
   workplaceLat: number | null;

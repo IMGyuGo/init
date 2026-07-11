@@ -438,6 +438,57 @@ describe("CompanyRecruitingService", () => {
     assert.equal(repository.calls.createPosting, undefined);
   });
 
+  it("rejects recruitment creation when only one workplace coordinate is provided", async () => {
+    const repository = createRepository();
+    const service = new CompanyRecruitingService(repository);
+
+    await assert.rejects(
+      service.createRecruitment(companyUser, {
+        title: "Backend Developer",
+        jobRole: "Backend",
+        workplaceAddress: "서울 강남구 테헤란로 123",
+        workplaceLat: 37.4979,
+        status: "OPEN",
+      }),
+      (error: unknown) =>
+        typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
+    assert.equal(repository.calls.createPosting, undefined);
+  });
+
+  it("rejects recruitment creation when coordinates are provided without an address", async () => {
+    const repository = createRepository();
+    const service = new CompanyRecruitingService(repository);
+
+    await assert.rejects(
+      service.createRecruitment(companyUser, {
+        title: "Backend Developer",
+        jobRole: "Backend",
+        workplaceLat: 37.4979,
+        workplaceLng: 127.0276,
+        status: "OPEN",
+      }),
+      (error: unknown) =>
+        typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
+    assert.equal(repository.calls.createPosting, undefined);
+  });
+
+  it("allows recruitment creation with an address but no coordinates", async () => {
+    const repository = createRepository();
+    const service = new CompanyRecruitingService(repository);
+
+    const result = await service.createRecruitment(companyUser, {
+      title: "Backend Developer",
+      jobRole: "Backend",
+      workplaceAddress: "서울 강남구 테헤란로 123",
+      status: "OPEN",
+    });
+
+    assert.equal(result.status, "OPEN");
+    assert.deepEqual((repository.calls.createPosting?.[0] as { workplaceAddress?: string }).workplaceAddress, "서울 강남구 테헤란로 123");
+  });
+
   it("rejects recruitment update when careerMinYears is greater than careerMaxYears", async () => {
     const repository = createRepository();
     const service = new CompanyRecruitingService(repository);

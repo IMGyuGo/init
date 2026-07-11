@@ -192,6 +192,7 @@ function buildRecruitmentPreviewJob(form: FormState, companyName: string, compan
     jobDescription,
     techStacks: tags,
     createdAt: new Date().toISOString(),
+    jobRoleCode: form.jobRoleCode || null,
     workplaceAddress: form.workplaceAddress || null,
     workplaceLat: form.workplaceLat,
     workplaceLng: form.workplaceLng,
@@ -358,6 +359,16 @@ export function RecruitmentCreatePage() {
       const structuredHtml = composeStructuredJobDescription("", structuredJobDescription);
       const jobDescription = composeJobDescriptionWithExtraInfo(structuredHtml, form.extraInfo);
       const extraInfoFields = postingExtraInfoToApiFields(form.extraInfo);
+      // 좌표 변환이 아직 끝나지 않았으면(주소만 있고 좌표 없음) 제출 시점에 동기로 변환해 누락을 막는다.
+      let workplaceLat = form.workplaceLat;
+      let workplaceLng = form.workplaceLng;
+      if (form.workplaceAddress && (workplaceLat === null || workplaceLng === null)) {
+        const coords = await geocodeAddress(form.workplaceAddress);
+        if (coords) {
+          workplaceLat = coords.lat;
+          workplaceLng = coords.lng;
+        }
+      }
       const result = await createRecruitment({
         title: form.title,
         jobRole: form.jobRole,
@@ -373,8 +384,8 @@ export function RecruitmentCreatePage() {
         employmentTypeCode: form.employmentTypeCode || undefined,
         recruitmentType: (form.recruitmentType || undefined) as "상시" | "마감형" | undefined,
         workplaceAddress: form.workplaceAddress || undefined,
-        workplaceLat: form.workplaceLat ?? undefined,
-        workplaceLng: form.workplaceLng ?? undefined,
+        workplaceLat: workplaceLat ?? undefined,
+        workplaceLng: workplaceLng ?? undefined,
       });
       if (typeof window !== "undefined") {
         window.sessionStorage.removeItem(RECRUITMENT_CREATE_DRAFT_STORAGE_KEY);

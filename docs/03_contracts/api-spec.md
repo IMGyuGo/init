@@ -519,20 +519,23 @@ AI 리포트 금지 기준:
   - title, jobRole, jobDescription, startsOn, endsOn, status
   - careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType
   - 지원자 필터용 구조화 필드: jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType
+  - 회사 위치: workplaceAddress(도로명 주소), workplaceLat(위도), workplaceLng(경도)
   - `jobDescription`은 Tiptap 기반 rich text HTML 문자열을 저장할 수 있다.
   - careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType은 선택 입력 항목이며 모두 optional이다.
   - jobRoleCode/regionCode/employmentTypeCode/recruitmentType은 선택 입력이며 각각 `PostingJobRoleCode`/`PostingRegionCode`/`PostingEmploymentTypeCode`/`PostingRecruitmentType` taxonomy 값만 허용한다(enums.md 참고).
   - careerMinYears, careerMaxYears는 선택 입력 정수이며 0 이상 `POSTING_CAREER_MAX_YEARS`(=10) 이하다.
+  - workplaceAddress/workplaceLat/workplaceLng는 선택 입력이다. 좌표는 클라이언트 지도 SDK(카카오) geocoder로 주소를 변환해 채운다. workplaceLat/workplaceLng는 함께 있어야 하며, 좌표가 있으면 workplaceAddress도 필요하다(주소만 저장은 허용).
 - 검증/전제조건:
   - `CurrentUser.userType=COMPANY`이고 `CurrentUser.companyId`가 존재해야 한다.
   - 공고는 항상 `CurrentUser.companyId`의 회사에 생성한다.
   - title, jobRole은 필수다.
   - startsOn과 endsOn이 함께 있으면 startsOn은 endsOn보다 늦을 수 없다.
   - careerMinYears와 careerMaxYears가 둘 다 있으면 careerMinYears는 careerMaxYears보다 클 수 없다.
+  - workplaceLat와 workplaceLng는 함께 있어야 하고, 좌표가 있으면 workplaceAddress가 필요하다.
   - status는 MVP 생성 흐름에서 `DRAFT` 또는 `OPEN`만 허용한다.
 - 성공 응답/처리:
   - 생성된 공고 상세 데이터를 `{ data, meta }` envelope로 반환한다.
-  - 선택 입력 항목이 저장된 경우 응답에 careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType과 jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType을 포함한다.
+  - 선택 입력 항목이 저장된 경우 응답에 careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType과 jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType, workplaceAddress, workplaceLat, workplaceLng를 포함한다.
   - `OPEN` 공고만 지원자용 공개 공고 조회 대상이 된다.
 - 오류/예외:
   - 필수값 누락, 날짜 오류, careerMinYears > careerMaxYears 역전은 `COMMON_VALIDATION_FAILED`를 반환한다.
@@ -675,7 +678,7 @@ AI 리포트 금지 기준:
   - JD 이미지 파일 업로드는 `API-086`에서 처리하고, 이 API는 `jobDescription` rich text HTML 문자열만 저장한다.
 - 성공 응답/처리:
   - 수정된 공고 상세 데이터를 `{ data, meta }` envelope로 반환한다.
-  - 선택 입력 항목이 저장된 경우 응답에 careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType과 jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType을 포함한다.
+  - 선택 입력 항목이 저장된 경우 응답에 careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType과 jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType, workplaceAddress, workplaceLat, workplaceLng를 포함한다.
   - 설정 저장 후 프론트는 공고 대시보드로 이동한다.
 - 오류/예외:
   - 필수값 누락, 날짜 오류, careerMinYears > careerMaxYears 역전은 `COMMON_VALIDATION_FAILED`를 반환한다.
@@ -2734,6 +2737,8 @@ CandidateFolder 입력 제한:
 - 성공 응답/처리:
   - 회사 상세 팝업 표시 또는 이력서 제출 화면으로 이동
   - 회사 상세 응답에는 `companyLogoUrl`을 포함한다. 회사 로고가 없으면 `null`을 반환한다.
+  - 응답에 `jobRoleCode`를 포함한다. 프론트는 이 값으로 같은 직무의 비슷한 공고를 추천 조회한다(우측 사이드).
+  - 회사 위치는 `workplaceAddress`, `workplaceLat`, `workplaceLng`를 포함한다. 좌표가 있으면 지원자 상세에서 카카오 지도 핀으로 표시하고, 없으면 주소만 표시한다.
 - 오류/예외:
   - 공고가 마감되었거나 접근 권한이 없으면 안내 메시지를 표시한다.
 - 관련 ERD 테이블:

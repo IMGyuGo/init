@@ -886,22 +886,33 @@ function extractJobImages(jobDescription: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
-// 회사 위치 — 주소 표시 + 좌표가 있으면 카카오 지도에 핀. (키 없거나 좌표 없으면 주소만)
+// 회사 위치 — 주소 표시 + 좌표가 있으면 카카오 지도에 핀.
+// 키 없거나 SDK 로드 실패 시에는 빈 지도 박스 대신 주소만 보여준다.
 function WorkplaceMap({ address, lat, lng }: { address: string | null; lat: number | null; lng: number | null }) {
   const mapRef = useRef<HTMLDivElement>(null);
+  const [mapStatus, setMapStatus] = useState<"loading" | "ready" | "failed">("loading");
+  const hasCoords = lat != null && lng != null;
 
   useEffect(() => {
-    if (lat == null || lng == null || !mapRef.current) return;
+    if (lat == null || lng == null) {
+      setMapStatus("failed");
+      return;
+    }
+    setMapStatus("loading");
     let cancelled = false;
     const container = mapRef.current;
+    if (!container) return;
     loadKakaoMaps()
       .then((maps) => {
         if (cancelled) return;
         const center = new maps.LatLng(lat, lng);
         const map = new maps.Map(container, { center, level: 3 });
         new maps.Marker({ position: center, map });
+        setMapStatus("ready");
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) setMapStatus("failed");
+      });
     return () => {
       cancelled = true;
     };
@@ -912,7 +923,8 @@ function WorkplaceMap({ address, lat, lng }: { address: string | null; lat: numb
     <section className="jobdetail-companyinfo">
       <h2>근무지 위치</h2>
       <p>{address}</p>
-      {lat != null && lng != null ? <div className="jobdetail-map" ref={mapRef} aria-label="근무지 지도" /> : null}
+      {/* 로드 성공/진행 중에만 지도 컨테이너 렌더(실패 시 제거 → 주소만). ref 부착을 위해 실패 전까진 유지. */}
+      {hasCoords && mapStatus !== "failed" ? <div className="jobdetail-map" ref={mapRef} aria-label="근무지 지도" /> : null}
     </section>
   );
 }
