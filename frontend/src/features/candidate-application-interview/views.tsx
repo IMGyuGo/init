@@ -241,6 +241,14 @@ function candidateJobDday(endsOn: string): string | null {
   return `D-${days}`;
 }
 
+// 공고 상세 마감일은 D-day 대신 실제 날짜(YYYY. MM. DD)로 표기한다. 마감일 없으면 상시 채용.
+function formatDeadlineDate(endsOn: string): string {
+  if (!endsOn) return "상시 채용";
+  const end = new Date(`${endsOn}T00:00:00`);
+  if (Number.isNaN(end.getTime())) return endsOn;
+  return `${end.getFullYear()}. ${String(end.getMonth() + 1).padStart(2, "0")}. ${String(end.getDate()).padStart(2, "0")}`;
+}
+
 export function CandidateJobsView({ jobs, query, totalItems, pageMeta, onQueryChange }: CandidateJobsViewProps) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeCat, setActiveCat] = useState<FilterCatKey>("jobRole");
@@ -877,7 +885,6 @@ function extractJobImages(jobDescription: string | null | undefined): string[] {
 
 export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetailViewProps) {
   const actionHref = getCandidateJobDetailActionHref(job);
-  const dday = candidateJobDday(job.endsOn);
   const galleryRef = useRef<HTMLDivElement>(null);
   const [images, setImages] = useState<string[]>([]);
 
@@ -951,7 +958,7 @@ export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetail
               <div className="jobdetail-summary-row">
                 <span>마감일</span>
                 <strong>
-                  {dday ?? "-"}
+                  {formatDeadlineDate(job.endsOn)}
                 </strong>
               </div>
             </div>
