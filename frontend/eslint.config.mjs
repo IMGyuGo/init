@@ -5,7 +5,14 @@ import nextTypescript from "eslint-config-next/typescript";
 export default defineConfig([
   ...nextVitals,
   ...nextTypescript,
-  globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts"]),
+  globalIgnores([
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+    "public/assets/interviewer-cubism/**",
+    "vendor/**",
+  ]),
   {
     rules: {
       "react-hooks/set-state-in-effect": "off",

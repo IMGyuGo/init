@@ -67,6 +67,7 @@ import {
   sendRealtimeSpeechClientEvent,
   setRealtimeInterviewMicrophoneEnabled,
   shouldRestoreRealtimeMicrophoneAfterSpeechResponse,
+  shouldStartRealtimeSession,
   type RealtimeInterviewWebRtcConnection,
   type RealtimeResponseMetadata,
 } from "./realtime-webrtc";
@@ -75,6 +76,7 @@ import {
   type RealtimeSttRelayMetric,
   type RealtimeSttRelaySession,
 } from "./realtime-stt-relay";
+import { InterviewAvatar } from "./InterviewAvatar";
 import { candidateApplicationInterviewRoutes } from "./routes";
 import {
   GAZE_CALIBRATION_REQUIRED_SAMPLES,
@@ -2723,6 +2725,8 @@ function InterviewRuntimePanel({
   const [realtimeDataChannelState, setRealtimeDataChannelState] = useState<RTCDataChannelState>("closed");
   const [realtimeDataEventCount, setRealtimeDataEventCount] = useState(0);
   const [realtimeRemoteAudioReady, setRealtimeRemoteAudioReady] = useState(false);
+  const [realtimeRemoteAudioElement, setRealtimeRemoteAudioElement] = useState<HTMLAudioElement | null>(null);
+  const [realtimeRemoteAudioStream, setRealtimeRemoteAudioStream] = useState<MediaStream | null>(null);
   const [answeredQuestionIds, setAnsweredQuestionIds] = useState<Set<number>>(() => new Set());
   const [replayedQuestionIds, setReplayedQuestionIds] = useState<Set<number>>(() => new Set());
   const [reansweringQuestionId, setReansweringQuestionId] = useState<number | null>(null);
@@ -2805,6 +2809,10 @@ function InterviewRuntimePanel({
   const realtimeSilenceStartedAtRef = useRef<number | null>(null);
   const realtimeEncouragedQuestionRef = useRef<number | null>(null);
   const videoAttachRunRef = useRef(0);
+  const bindRealtimeRemoteAudio = useCallback((element: HTMLAudioElement | null) => {
+    realtimeRemoteAudioRef.current = element;
+    setRealtimeRemoteAudioElement(element);
+  }, []);
   const hasAnswerFile = Boolean(answer.videoFile || answer.audioFile || answer.videoFileId || answer.audioFileId);
   const canSubmitAnswer = Boolean(currentQuestion && hasAnswerFile && answer.durationSeconds > 0 && !recording);
   const retryingCurrentQuestion = Boolean(currentQuestion && retryingQuestionId === currentQuestion.questionId);
@@ -2924,6 +2932,7 @@ function InterviewRuntimePanel({
       setRealtimeConnectionState("closed");
       setRealtimeDataChannelState("closed");
       setRealtimeRemoteAudioReady(false);
+      setRealtimeRemoteAudioStream(null);
     }
   }, [clearRealtimeSpeechCompletionState, clearRealtimeSpeechTimeout]);
 
@@ -6800,6 +6809,7 @@ function InterviewRuntimePanel({
     question: currentQuestion,
     questionVisible: subtitlesEnabled,
   });
+  const interviewerSpeechText = currentQuestion?.content ?? "";
   const cameraPipStyle = cameraPipPosition && runtimePrimaryScreen === "interviewer"
     ? {
         left: `${cameraPipPosition.x}px`,
@@ -6911,8 +6921,15 @@ function InterviewRuntimePanel({
   useEffect(() => closeRealtimeConnection, [closeRealtimeConnection]);
 
   useEffect(() => {
-    if (!data || !setupCompleted || data.runtime.status !== "IN_PROGRESS") return;
+    if (!data) return;
     if (AI_INTERVIEWER_SESSION_MODE_POLICY.activeMode !== "realtime-voice") return;
+    const localStream = streamRef.current;
+    if (!localStream) return;
+    if (!shouldStartRealtimeSession({
+      setupCompleted,
+      runtimeStatus: data.runtime.status,
+      localStream,
+    })) return;
 
     const requestKey = `${mode}:${data.runtime.sessionId}`;
     if (realtimeSessionRequestKeyRef.current === requestKey) return;
@@ -6923,6 +6940,7 @@ function InterviewRuntimePanel({
     setRealtimeDataChannelState("closed");
     setRealtimeDataEventCount(0);
     setRealtimeRemoteAudioReady(false);
+    setRealtimeRemoteAudioStream(null);
     setRealtimeProvider("none");
     setRealtimeModel("");
     setRealtimeVoice("");
@@ -6942,11 +6960,6 @@ function InterviewRuntimePanel({
         setRealtimeVoice(realtimeSession.voice);
 
         if (realtimeSession.provider === "openai") {
-          const localStream = streamRef.current;
-          if (!localStream) {
-            throw new Error("실시간 AI 면접 연결을 위한 마이크 스트림을 찾지 못했습니다.");
-          }
-
           setRealtimeSessionStatus("connecting");
           const connection = await createRealtimeInterviewWebRtcConnection({
             session: realtimeSession,
@@ -6954,7 +6967,10 @@ function InterviewRuntimePanel({
             remoteAudioElement: realtimeRemoteAudioRef.current,
             onConnectionStateChange: setRealtimeConnectionState,
             onDataChannelStateChange: setRealtimeDataChannelState,
-            onRemoteStream: () => setRealtimeRemoteAudioReady(true),
+            onRemoteStream: (stream) => {
+              setRealtimeRemoteAudioReady(true);
+              setRealtimeRemoteAudioStream(stream);
+            },
             onEvent: handleRealtimeDataEvent,
             onConnectionFailure: (connectionError) => {
               const realtimeMessage = `실시간 AI 면접 연결이 끊겼습니다: ${connectionError.message}`;
@@ -6986,6 +7002,7 @@ function InterviewRuntimePanel({
     data?.runtime.sessionId,
     data?.runtime.status,
     handleRealtimeDataEvent,
+    microphoneReady,
     mode,
     runtimeApi,
     setupCompleted,
@@ -7213,7 +7230,7 @@ function InterviewRuntimePanel({
               data-requested-session-mode={AI_INTERVIEWER_SESSION_MODE_POLICY.requestedMode}
               data-session-mode-fallback={AI_INTERVIEWER_SESSION_MODE_POLICY.fallbackReason ?? ""}
             >
-              <audio ref={realtimeRemoteAudioRef} className="sr-only" autoPlay aria-hidden="true" />
+              <audio ref={bindRealtimeRemoteAudio} className="sr-only" autoPlay aria-hidden="true" />
               <div className="ai-interviewer-stage__top">
                 <div className="ai-interviewer-stage__meta">
                   <strong>질문 {questionNumber} / {data.runtime.totalQuestions}</strong>
@@ -7280,13 +7297,13 @@ function InterviewRuntimePanel({
                       </button>
                     </div>
                   ) : null}
-                  <div className={interviewerAvatarClassName} aria-hidden="true">
-                    <span className="ai-interviewer-avatar__ring" />
-                    <span className="ai-interviewer-avatar__face">
-                      <span />
-                      <span />
-                    </span>
-                  </div>
+                  <InterviewAvatar
+                    className={interviewerAvatarClassName}
+                    phase={interviewerSessionState.phase}
+                    audioSource={realtimeRemoteAudioElement}
+                    audioStream={realtimeRemoteAudioStream}
+                    speechText={interviewerSpeechText}
+                  />
                   <div className="ai-interviewer-copy">
                     <div className="ai-interviewer-title-row">
                       <h1>{interviewerProfile.displayName}</h1>

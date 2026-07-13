@@ -10,6 +10,8 @@
     "dev": "next dev",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . --max-warnings=0",
+    "audit:avatar-assets": "node ../scripts/audit-interviewer-avatar-assets.mjs",
+    "test:candidate-avatar": "tsx src/features/candidate-application-interview/LipSyncDriver.spec.ts && tsx src/features/candidate-application-interview/CubismMouthOpacity.spec.ts && tsx src/features/candidate-application-interview/LocalInterviewerAvatar.spec.tsx && tsx src/features/candidate-application-interview/LocalInterviewerAvatarCss.spec.ts && tsx src/features/candidate-application-interview/InterviewerRiggingPreview.spec.tsx && tsx src/features/candidate-application-interview/CubismSdkRuntime.spec.ts && node ../scripts/audit-interviewer-avatar-assets.spec.mjs",
     "test": "npm run typecheck && npm run test:signup-payload && npm run test:ai-job-polling && npm run test:ai-performance && npm run test:apply-set-override",
     "test:signup-payload": "tsc -p src/features/auth/tsconfig.spec.json && node .next/tests/auth/signup-payload.spec.js",
     "test:ai-job-polling": "tsc -p src/features/company-interview-criteria/tsconfig.spec.json && node .next/tests/company-interview-criteria/ai-job-polling.spec.js",
@@ -27,6 +29,7 @@
     "@tiptap/extension-underline": "^3.27.1",
     "@tiptap/react": "^3.27.1",
     "@tiptap/starter-kit": "^3.27.1",
+    "ag-psd": "^31.0.2",
     "next": "16.2.9",
     "react": "19.2.7",
     "react-dom": "19.2.7"
@@ -37,6 +40,7 @@
     "@types/react-dom": "19.2.3",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.9",
+    "tsx": "4.22.4",
     "typescript": "5.9.3"
   }
 }
