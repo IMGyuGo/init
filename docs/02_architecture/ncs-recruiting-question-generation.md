@@ -4,10 +4,11 @@
 
 - Milestone: `NQ-M0`
 - Scope: logical contract and ownership freeze
-- Physical implementation: `NQ-M3`
-- Review required: C, D, E, A, PM
+- Physical implementation: `NQ-M1` through `NQ-M4`, resource별 단계 적용
+- Review required: C, B, D, E, A, PM
+- Review checklist: `docs/04_implementation/ncs-recruiting-question-generation-review-requests.md`
 
-이 문서는 NCS 기반 JD 공통 질문과 지원자별 이력서 질문의 저장 경계, 비동기 상태, 멱등성을 정의한다. NQ-M0에서는 Prisma schema, ERDCloud SQL, migration을 변경하지 않는다. 아래 logical model이 리뷰된 뒤 NQ-M3에서 물리 스키마를 반영한다.
+이 문서는 NCS 기반 JD 공통 질문과 지원자별 이력서 질문의 저장 경계, 비동기 상태, 멱등성을 정의한다. NQ-M0에서는 Prisma schema, ERDCloud SQL, migration을 변경하지 않는다. 정책·평가 기준 snapshot은 NQ-M1, 공통 질문 metadata는 NQ-M2, 지원자별 질문은 NQ-M3, 세션 snapshot은 NQ-M4에서 순차 반영한다.
 
 ## Design Decisions
 
@@ -46,12 +47,12 @@ Prisma model 이름은 `InterviewQuestionGenerationPolicy`로 고정한다. 공�
 | evaluation_framework | VARCHAR(50) NOT NULL DEFAULT 'LEGACY' | `LEGACY` 또는 `NCS_3_PROFILE_V1` |
 | jd_criteria_question_count | INTEGER NOT NULL DEFAULT 0 | JD·평가 기준 공통 질문 수 |
 | resume_question_count | INTEGER NOT NULL DEFAULT 0 | 지원자별 이력서 질문 수 |
-| policy_version | INTEGER NOT NULL DEFAULT 1 | 질문 개수·framework 변경 시 증가 |
-| criteria_version | INTEGER NOT NULL DEFAULT 1 | 평가 기준 저장 성공 시 증가 |
+| policy_version | INTEGER NOT NULL DEFAULT 0 | 0은 질문 개수 정책 미설정, 유효 정책 저장 시 1부터 증가 |
+| criteria_version | INTEGER NOT NULL DEFAULT 0 | 평가 기준 저장 성공 시 1부터 증가 |
 | created_at | TIMESTAMP NOT NULL | 생성 시각 |
 | updated_at | TIMESTAMP NOT NULL | 수정 시각 |
 
-두 질문 수의 합은 1~20이다. NCS framework에서는 합계가 3 이상이어야 한다. source/profile별 allocation은 전체 질문을 평가 기준 `sort_order` 순환에 먼저 배치한 뒤 앞에서부터 JD 개수, 이력서 개수 순으로 source를 나눈다. 따라서 두 source를 합친 profile별 개수 차이는 최대 1이고 source별 요청 개수는 정확히 유지된다. allocation은 별도 row로 중복 저장하지 않고 API 응답에서 계산한다.
+`policy_version=0`인 미설정 row는 두 질문 수가 모두 0일 수 있다. 유효 정책을 저장하면 합계는 1~20이고, NCS framework에서는 3~20이어야 한다. source/profile별 allocation은 전체 질문을 평가 기준 `sort_order` 순환에 먼저 배치한 뒤 앞에서부터 JD 개수, 이력서 개수 순으로 source를 나눈다. 따라서 두 source를 합친 profile별 개수 차이는 최대 1이고 source별 요청 개수는 정확히 유지된다. allocation은 별도 row로 중복 저장하지 않고 API 응답에서 계산한다.
 
 ### question_bank extension
 
@@ -172,13 +173,13 @@ Prisma model 이름은 `ApplicationInterviewQuestion`으로 고정한다. 이 ta
 - 질문에는 학교, 나이, 성별, 외모 등 민감 속성을 포함하지 않는다.
 - `alignment_reason`, `failure_reason`, log에는 이력서 원문 전체를 넣지 않는다.
 
-## Physical Implementation Gate
+## Physical Implementation Gates
 
-NQ-M3에서 Prisma/SQL을 변경하기 전에 다음을 다시 확인한다.
+각 단계에서 Prisma/SQL을 변경하기 전에 다음을 확인한다.
 
-- E의 NCS profile ID, mode, evaluator output/version 최종 계약
-- D의 지원 완료·문서 추출 완료 이벤트와 세션 생성 transaction 경계
-- A의 SQS idempotency/lease와 개인정보 로그 정책
-- PM의 질문 개수 상한, 검토 필요 상태의 운영 UX
+- NQ-M1: A의 migration/shared enum 위치, PM의 질문 개수와 NCS 태그 정책
+- NQ-M2: E의 NCS profile ID, mode, alignment output/version 최종 계약
+- NQ-M3: D의 지원 완료·문서 추출 이벤트, A/E의 SQS idempotency/lease와 개인정보 로그 정책
+- NQ-M4: D의 세션 생성 transaction과 공통·개인화 질문 순서
 
 이 검토 전에는 같은 enum이나 table을 각 담당 브랜치에서 별도로 구현하지 않는다.

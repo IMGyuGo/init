@@ -17,3 +17,5 @@ v0.5를 MVP 구현 단계로 나눈다.
 ## Feature Milestones
 
 - [NCS 채용면접 질문 생성 준비 마일스톤](./ncs-recruiting-question-generation-milestones.md)
+  - [NQ-M0 팀원 리뷰 요청](./ncs-recruiting-question-generation-review-requests.md)
+  - [NQ-M0 준비도 재점검](./ncs-recruiting-question-generation-readiness-audit.md)

@@ -1588,6 +1588,11 @@ AI 리포트 금지 기준:
     - `origin: MANUAL | AI_GENERATED`
     - `isAiEdited: boolean`
     - `isActive: boolean`
+    - `generationSource: QuestionGenerationSource | null`
+    - `ncsProfileId: NcsProfileId | null`
+    - `ncsQuestionMode: NcsQuestionMode | null`
+    - `ncsProfileVersion: string | null`
+    - `alignmentStatus: QuestionAlignmentStatus | null`
   - `data.timePolicy`
     - `preparationTimeSec: number`
     - `answerTimeSec: number`
@@ -1601,6 +1606,10 @@ AI 리포트 금지 기준:
     - `criteriaVersion: number`
     - `allocations[]: { source: QuestionGenerationSource, ncsProfileId: NcsProfileId, ncsQuestionMode: NcsQuestionMode, count: number }`
     - `resumeQuestionStatus: ResumeQuestionGenerationStatus`
+- Default Projection:
+  - 정책 row가 아직 없으면 `evaluationFramework=LEGACY`, 두 질문 수와 version은 모두 0, `allocations=[]`로 응답한다.
+  - posting 범위 설정 조회의 `resumeQuestionStatus`는 지원자별 상태를 집계하지 않는다. `resumeQuestionCount=0`이면 `DISABLED`, 1 이상이면 `WAITING_APPLICATION`을 반환한다.
+  - 지원자별 실제 생성 상태는 API-098에서만 조회한다.
 - 오류/예외:
   - 권한 없음 또는 공고 정보 없음 시 접근 제한 메시지를 표시한다.
   - 인증 누락: `COMMON_UNAUTHORIZED`
@@ -1699,7 +1708,7 @@ AI 리포트 금지 기준:
   - `passScore`는 nullable이며 값이 있으면 정책 점수 범위 안이어야 함
   - `description`은 공용 태그 설명을 변경하지 않고 해당 공고의 평가 기준 설명 스냅샷으로 저장한다.
   - `description`을 생략하면 기존 기준 설명을 유지하며, 신규 기준이면 태그 기본 설명을 사용한다.
-  - `weight` 합계 정책은 구현 전 PM/A와 확정한다.
+  - `evaluationFramework=LEGACY`이면 현재 동작을 유지해 빈 criteria를 허용하고, 1개 이상이면 `weight` 합계가 1~100이어야 한다.
   - `evaluationFramework=NCS_3_PROFILE_V1`이면 criteria는 정확히 3개이며 각 tag는 서버의 NCS binding 기준으로 `PROBLEM_SOLVING`, `COMMUNICATION`, `DIGITAL`에 하나씩 연결되어야 한다.
   - NCS profile과 기본 question mode는 서버가 tag binding에서 결정하며 클라이언트 입력으로 임의 변경하지 않는다.
   - NCS 3개 기준의 `weight` 합계는 100이어야 한다.
@@ -1724,6 +1733,8 @@ AI 리포트 금지 기준:
   - `data.totalWeight: number`
   - `data.evaluationFramework: EvaluationFramework`
   - `data.criteriaVersion: number`, 평가 기준 저장 성공 시 1 증가한다.
+  - 정책 row가 없으면 같은 transaction에서 기본 정책 row를 생성하고 첫 저장 결과의 `criteriaVersion=1`로 응답한다.
+  - 평가 기준 변경과 `criteriaVersion` 증가는 하나의 transaction으로 처리한다.
 - 오류/예외:
   - 배점 합계 오류 또는 필수 평가 항목 삭제 시 저장을 제한한다.
   - 인증 누락: `COMMON_UNAUTHORIZED`
@@ -1764,13 +1775,17 @@ AI 리포트 금지 기준:
   - `questionType`: `INTRO | TECHNICAL | EXPERIENCE | SITUATION | FOLLOW_UP | CLOSING`, required
   - `content`: string, required, 10~1000 chars
   - `origin`: `MANUAL | AI_GENERATED`, optional, 기본값 `MANUAL`
+  - `sourceProcessLogId?: number`, `origin=AI_GENERATED`이면 required
 - Response Body:
   - `postingId`: number
-  - `question`: `{ questionId, postingId, criterionId, questionType, content, origin, isAiEdited, isActive }`
+  - `question`: `{ questionId, postingId, criterionId, questionType, content, origin, isAiEdited, isActive, generationSource, ncsProfileId, ncsQuestionMode, ncsProfileVersion, alignmentStatus }`
 - Validation:
   - `postingId`는 로그인한 기업의 공고여야 한다.
   - `criterionId`는 같은 `postingId`에 연결된 평가 기준이어야 한다.
   - 같은 공고 안에서 같은 `content`의 활성 질문은 중복 등록하지 않는다.
+  - NCS framework에서는 profile/mode/version을 클라이언트가 직접 지정하지 않고 연결된 criterion snapshot에서 가져온다.
+  - NCS AI 후보 적용은 `sourceProcessLogId`의 완료 output에서 content와 criterion이 일치하고 `alignmentStatus=ALIGNED`인 결과만 허용한다.
+  - 수동 작성 질문은 `generationSource=null`, `alignmentStatus=NOT_EVALUATED`, `sourceProcessLogId=null`로 저장한다.
 - Error Codes:
   - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_CONFLICT`, `COMMON_VALIDATION_FAILED`
 
@@ -1791,10 +1806,11 @@ AI 리포트 금지 기준:
   - `content`: string, required, 10~1000 chars
 - Response Body:
   - `postingId`: number
-  - `question`: `{ questionId, postingId, criterionId, questionType, content, origin, isAiEdited, isActive }`
+  - `question`: `{ questionId, postingId, criterionId, questionType, content, origin, isAiEdited, isActive, generationSource, ncsProfileId, ncsQuestionMode, ncsProfileVersion, alignmentStatus }`
 - Processing:
   - `origin=AI_GENERATED`인 질문을 수정하면 `isAiEdited=true`로 저장한다.
   - 직접 작성 질문은 수정 후에도 `origin=MANUAL`, `isAiEdited=false`를 유지한다.
+  - criterion을 변경하면 NCS profile/mode/version snapshot을 새 criterion 값으로 교체하고 기존 alignment 결과는 `NOT_EVALUATED`로 초기화한다.
 - Validation:
   - `questionId`는 로그인한 기업 소유 질문이어야 한다.
   - `criterionId`는 해당 질문과 같은 공고의 평가 기준이어야 한다.
@@ -1882,9 +1898,9 @@ AI 리포트 금지 기준:
     - `criterionId?: number`
     - `criterionTitle?: string`
     - `source: "JD_CRITERIA"`
-    - `ncsProfileId: NcsProfileId`
-    - `ncsQuestionMode: NcsQuestionMode`
-    - `ncsProfileVersion: string`
+    - `ncsProfileId: NcsProfileId | null`, NCS framework에서는 required
+    - `ncsQuestionMode: NcsQuestionMode | null`, NCS framework에서는 required
+    - `ncsProfileVersion: string | null`, NCS framework에서는 required
     - `alignmentStatus: QuestionAlignmentStatus`
     - `alignmentScore?: number | null`
     - `alignmentReason?: string | null`
@@ -2085,12 +2101,24 @@ AI 리포트 금지 기준:
   - 두 질문 수의 합은 1~20이어야 한다.
   - `evaluationFramework=NCS_3_PROFILE_V1`이면 전체 질문 수는 3 이상이고 평가 기준은 NCS 3개 profile에 정확히 하나씩 연결되어 있어야 한다.
   - 동시 수정 충돌 방지를 위해 `expectedPolicyVersion` 불일치 시 `COMMON_CONFLICT`를 반환한다.
+  - 정책 row가 없으면 현재 version은 0으로 본다. 최초 저장은 `expectedPolicyVersion=0` 또는 생략을 허용하고 결과 version은 1이다.
 - Processing:
   - 저장 성공 시 `policyVersion`을 1 증가시킨다.
   - 전체 질문 수만큼 평가 기준 `sortOrder` 순환 배열을 만든다. 예: 총 6개면 `1,2,3,1,2,3`이다.
   - 순환 배열의 앞 `jdCriteriaQuestionCount`개를 `JD_CRITERIA`, 나머지를 `RESUME_PERSONALIZED`에 배정한다.
   - 두 source를 합친 profile별 질문 수 차이는 최대 1이며, source별 요청 개수는 정확히 보존한다. 동일 입력과 version은 항상 같은 allocation을 만든다.
   - 이 API는 생성 정책만 저장하며 AI job을 시작하지 않는다.
+  - 정책 저장과 version 증가는 하나의 transaction으로 처리한다.
+
+Allocation Examples:
+
+| JD | Resume | Allocation by criteria sortOrder |
+| --- | --- | --- |
+| 3 | 0 | `JD: 1,2,3` |
+| 0 | 3 | `RESUME: 1,2,3` |
+| 1 | 2 | `JD: 1`, `RESUME: 2,3` |
+| 2 | 1 | `JD: 1,2`, `RESUME: 3` |
+| 4 | 2 | `JD: 1,2,3,1`, `RESUME: 2,3` |
 - Response Body:
   - `postingId: number`
   - `evaluationFramework: EvaluationFramework`
@@ -2967,7 +2995,7 @@ CandidateFolder 입력 제한:
   - 지원서 제출 당시 정보를 `applications` 스냅샷 필드에 저장한다.
   - 이력서/포트폴리오 PDF를 `application_documents`에 연결하고 지원서 제출을 완료한다.
   - (#272) 입력한 연락처(`phone`)를 회원(`users.phone`)에 저장하여 다음 지원 화면에서 자동 입력에 재사용한다.
-  - 공고의 `resumeQuestionCount`가 1 이상이면 이력서 문서의 추출 상태를 기준으로 `resumeQuestionStatus=WAITING_DOCUMENT`를 기록한다. 0이면 `DISABLED`를 기록한다.
+  - 공고의 `resumeQuestionCount`가 1 이상이면 응답 projection의 `resumeQuestionStatus=WAITING_DOCUMENT`, 0이면 `DISABLED`로 반환한다. batch row는 문서 추출 완료 후 생성한다.
   - 문서 추출 job은 기존 `DOCUMENT_EXTRACT` 흐름으로 시작하며, 지원서 제출 트랜잭션 안에서 이력서 질문을 직접 생성하지 않는다.
   - Response에는 `applicationId`, `documentExtractionStatus`, `resumeQuestionStatus`를 포함한다.
 - 관련 조회(#272): `GET /candidate/jobs/{jobId}/apply`

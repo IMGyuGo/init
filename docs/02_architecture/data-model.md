@@ -26,7 +26,7 @@
 
 도메인별 데이터 소유권과 주요 필드를 정리한다.
 
-NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recruiting-question-generation.md](./ncs-recruiting-question-generation.md)를 따른다. 해당 문서의 신규 table/column은 NQ-M3 Prisma·SQL migration 전까지 물리 구현 baseline이 아니다.
+NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recruiting-question-generation.md](./ncs-recruiting-question-generation.md)를 따른다. 해당 문서의 신규 table/column은 표에 지정된 milestone의 Prisma·SQL migration 전까지 물리 구현 baseline이 아니다.
 
 ## Implementation Naming Baseline
 
@@ -70,11 +70,11 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 
 ### NQ-M0 Planned Naming
 
-아래 이름은 계약 단계에서 고정한 logical target이다. NQ-M3 전에는 ERDCloud SQL이나 Prisma schema에 존재한다고 가정하지 않는다.
+아래 이름은 계약 단계에서 고정한 logical target이다. 각 Physical Milestone 전에는 ERDCloud SQL이나 Prisma schema에 존재한다고 가정하지 않는다.
 
 | DB Table | Prisma Model | Primary Owner | Physical Milestone |
 | --- | --- | --- | --- |
-| `interview_question_generation_policies` | `InterviewQuestionGenerationPolicy` | C | NQ-M3 |
+| `interview_question_generation_policies` | `InterviewQuestionGenerationPolicy` | C | NQ-M1 |
 | `application_interview_question_batches` | `ApplicationInterviewQuestionBatch` | E | NQ-M3 |
 | `application_interview_questions` | `ApplicationInterviewQuestion` | E | NQ-M3 |
 

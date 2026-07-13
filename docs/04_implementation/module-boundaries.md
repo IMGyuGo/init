@@ -101,7 +101,7 @@ DTO와 API client 타입은 아래 naming을 따른다. 같은 요청/응답 타
 | `question_bank` | NCS binding/alignment snapshot 최종 적용 | C | D/E |
 | `evaluation_criteria` | CRUD, weight/pass score | C | B/E |
 | `evaluation_criteria` | NCS profile/mode/version snapshot, criteria version 증가 | C | D/E |
-| `interview_question_generation_policies` (NQ-M3 예정) | framework, 출처별 질문 수, policy/criteria version | C | D/E |
+| `interview_question_generation_policies` (NQ-M1 예정) | framework, 출처별 질문 수, policy/criteria version | C | D/E |
 | `application_interview_question_batches` (NQ-M3 예정) | 생성 상태, 입력 version, 멱등 key, 실패 사유 | E | C/D/A |
 | `application_interview_questions` (NQ-M3 예정) | 개인화 질문, NCS 정렬 결과, 생성 snapshot | E | C/D |
 | `interview_session_questions` (NQ-M4 예정) | 공통·개인화 질문 합성 및 NCS snapshot | D | C/E |

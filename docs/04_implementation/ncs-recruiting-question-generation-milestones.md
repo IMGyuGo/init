@@ -73,11 +73,11 @@
 
 초기 검증 정책은 다음과 같다.
 
-- 각 값은 0 이상이며 합계는 기존 질문 세트 최대값인 20 이하로 제한한다.
-- 합계는 1 이상이어야 한다.
-- 세 평가 기준을 모두 평가하려면 총 3개 이상을 권장한다.
-- 생성기는 질문을 세 평가 기준에 가능한 한 균등 배분한다.
-- 특정 기준에 질문이 하나도 배정되지 않으면 저장 전에 `평가 기회 없음` 경고를 표시한다.
+- 정책 미설정 projection은 두 값 0, `policyVersion=0`으로 표현한다.
+- 저장 시 각 값은 0~20이고 합계는 1~20이어야 한다.
+- `NCS_3_PROFILE_V1`은 세 평가 기준을 모두 평가하도록 합계 3~20을 강제한다.
+- 전체 질문을 평가 기준 순서로 순환 배치한 뒤 앞쪽을 JD, 나머지를 이력서 source에 배정한다.
+- NCS 저장 결과에서 특정 기준의 질문 수가 0이면 계약 위반으로 처리하며 경고만 표시하고 저장하지 않는다.
 - 이력서 질문 수가 0이면 개인화 생성 작업을 만들지 않는다.
 - NCS 평가기의 최종 커버리지 정책이 확정되면 권장 개수와 차단 조건을 adapter 결과로 교체한다.
 
@@ -135,41 +135,45 @@ NCS 구현이 완료되기 전에는 아래 인터페이스 경계만 정의하�
 ```ts
 type NcsQuestionBinding = {
   criterionId: number;
-  profileId: "problem-solving" | "communication" | "digital";
-  questionMode: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
-  profileVersion?: string;
+  ncsProfileId: "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL";
+  ncsQuestionMode: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
+  ncsProfileVersion: string | null;
 };
 
 type QuestionGenerationPolicy = {
   postingId: number;
+  evaluationFramework: "LEGACY" | "NCS_3_PROFILE_V1";
   jdCriteriaQuestionCount: number;
   resumeQuestionCount: number;
   policyVersion: number;
+  criteriaVersion: number;
 };
 
 type QuestionAlignmentResult = {
   status: "ALIGNED" | "LOW_ALIGNMENT" | "REVIEW_REQUIRED";
-  score?: number;
-  reason?: string;
-  evaluatorVersion?: string;
+  score?: number | null;
+  reason?: string | null;
+  evaluatorVersion?: string | null;
 };
 ```
 
-최종 필드명과 enum은 E 담당 NCS 계약을 우선한다. 위 타입은 C 화면과 API가 준비해야 할 최소 경계를 설명하기 위한 초안이다.
+C API/DB는 uppercase enum을 사용하고 E adapter 경계에서 lowercase profile ID로 매핑한다. E의 최종 adapter shape는 [review requests](./ncs-recruiting-question-generation-review-requests.md)의 R-E-01 승인 결과를 따른다.
 
 ## 8. 권장 데이터 경계
 
 ### 공고 설정
 
-공고별 질문 생성 정책을 별도 설정으로 관리한다.
+공고별 질문 생성 정책은 `interview_question_generation_policies`로 관리하고 NQ-M1에서 물리 구현한다.
 
 - `posting_id`
 - `jd_criteria_question_count`
 - `resume_question_count`
 - `policy_version`
+- `criteria_version`
+- `evaluation_framework`
 - `created_at`, `updated_at`
 
-테이블 추가 여부와 이름은 계약 단계에서 C/PM 검토 후 확정한다. 기존 `interview_time_policies`에는 시간 정책과 무관한 질문 생성 설정을 섞지 않는다.
+`policy_version=0`은 질문 개수 정책 미설정 상태다. 기존 `interview_time_policies`에는 시간 정책과 무관한 질문 생성 설정을 섞지 않는다.
 
 ### 지원자 개인화 질문
 
@@ -185,7 +189,7 @@ type QuestionAlignmentResult = {
 - `alignment_status`, `alignment_score`
 - `source_process_log_id`
 - `criteria_snapshot_version`, `policy_version`, `evaluator_version`
-- `status=PENDING|GENERATING|READY|REVIEW_REQUIRED|FAILED`
+- `batch status=GENERATING|READY|REVIEW_REQUIRED|FAILED`
 - `sort_order`
 
 최종 질문은 면접 세션 생성 시 `interview_session_questions`에 content와 연결 메타데이터를 스냅샷으로 복사한다. 세션 생성 후 평가 기준이나 질문 정책이 바뀌어도 기존 세션 질문은 변경하지 않는다.
@@ -213,8 +217,8 @@ applicationId + criteriaSnapshotVersion + policyVersion + resumeDocumentHash
 
 | Milestone | 범위 | 주요 산출물 | 선행 조건 | Exit Criteria | Owner / Review |
 | --- | --- | --- | --- | --- | --- |
-| NQ-M0 | 계약·용어 동결 | 두 질문 출처, 개수 정책, NCS binding, 상태 enum, 개인정보 경계 | NCS 담당 브랜치 계약 초안 | C/E/D/PM이 요청·응답과 저장 범위 합의 | C / E,D,PM |
-| NQ-M1 | 현재 페이지 준비 | 2단계 질문 수 입력 UI, 출처별 상태, nullable NCS binding adapter, feature flag | NQ-M0 최소 타입 | NCS evaluator 없이 기존 JD 질문 생성이 회귀 없이 동작 | C / PM,E |
+| NQ-M0 | 계약·용어 동결 | 두 질문 출처, 개수 정책, NCS binding, 상태 enum, 개인정보 경계 | NCS 담당 브랜치 계약 초안 | C/B/D/E/A/PM이 review request의 M0 blocker 승인 | C / 전 owner |
+| NQ-M1 | 설정 정책 기반 준비 | NCS 기준 snapshot, 정책 table/API, 2단계 질문 수 UI, 출처별 projection, nullable adapter, feature flag | NQ-M0 최소 타입 | 정책이 저장되고 NCS evaluator 없이 기존 JD 질문 생성이 회귀 없이 동작 | C / A,PM,E |
 | NQ-M2 | JD 공통 질문 확장 | 기준별 균등 배분, profile/question mode 메타데이터, 정렬 결과 미리보기 | NCS alignment adapter 사용 가능 | 생성 질문이 기준 하나에 연결되고 미달 질문이 자동 확정되지 않음 | C/E / PM |
 | NQ-M3 | 지원 완료 이벤트와 개인화 생성 | 지원서 제출→문서 추출→SQS job, 멱등 처리, application 전용 저장 | NQ-M0, 문서 추출 계약 | 동일 지원서 중복 생성 없음, 이력서 질문의 지원자 간 격리 | D/E / C,A |
 | NQ-M4 | 세션 질문 합성 | 공통 질문 + 개인화 질문을 세션 스냅샷으로 확정, 순서와 개수 검증 | NQ-M2, NQ-M3 | 세션 생성 이후 설정 변경이 기존 질문에 영향 없음 | D / C,E |
@@ -275,6 +279,8 @@ NQ-M3의 DB·이벤트 구현과 NQ-M5의 실제 평가 연결은 계약 없이 
 
 ## 13. 리뷰 필수 영역
 
+세부 결정 질문, 권장안, 차단 milestone은 [ncs-recruiting-question-generation-review-requests.md](./ncs-recruiting-question-generation-review-requests.md)에서 단일 관리한다.
+
 - C: 평가 기준, 질문 개수 설정, 질문 검토 UX, 공통 질문 저장
 - B: JD와 공고 스냅샷 제공 시점
 - D: 지원 완료 이벤트, 지원서 문서, 세션 질문 소비
@@ -310,7 +316,8 @@ NQ-M3의 DB·이벤트 구현과 NQ-M5의 실제 평가 연결은 계약 없이 
 | Logical data model, version, privacy boundary | 작성 완료 | `docs/02_architecture/ncs-recruiting-question-generation.md` |
 | Async trigger, retry, idempotency | 작성 완료 | `docs/02_architecture/async-ai-pipeline.md` |
 | Product flow and acceptance gates | 작성 완료 | `docs/01_product/screen-flow.md`, `feature-spec.md`, `docs/04_implementation/test-strategy.md` |
-| C/E/D/PM contract sign-off | 리뷰 대기 | 각 owner review 필요 |
+| Readiness audit and owner review requests | 작성 완료 | `ncs-recruiting-question-generation-readiness-audit.md`, `ncs-recruiting-question-generation-review-requests.md` |
+| C/B/D/E/A/PM contract sign-off | 리뷰 대기 | `ncs-recruiting-question-generation-review-requests.md` |
 | Prisma/SQL/API/UI implementation | NQ-M0 제외 | NQ-M1~M4에서 진행 |
 
-NQ-M0 문서 작성은 완료됐지만 milestone exit는 C/E/D/PM 리뷰가 끝나야 충족된다. 리뷰 중 E evaluator의 profile ID, mode, version shape가 달라지면 E 계약을 기준으로 adapter mapping과 문서를 갱신한다.
+NQ-M0 문서 작성은 완료됐지만 milestone exit는 review request의 모든 M0 blocker가 승인·반영되어야 충족된다. 리뷰 중 E evaluator의 profile ID, mode, version shape가 달라지면 E 계약을 기준으로 adapter mapping과 문서를 갱신한다.
