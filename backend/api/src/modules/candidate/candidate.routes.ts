@@ -1,4 +1,5 @@
 export const candidateApiRoutePrefix = "candidate";
+export const publicCandidateApiRoutePrefix = "public";
 
 export const candidateApiRoutes = {
   profile: "profile",
@@ -13,4 +14,8 @@ export const candidateApiRoutes = {
   portfolioLinks: "portfolio-links",
   folders: "folders",
   folderDetail: "folders/:folderId",
+} as const;
+
+export const publicCandidateApiRoutes = {
+  jobs: "jobs",
 } as const;

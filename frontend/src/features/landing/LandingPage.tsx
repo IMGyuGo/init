@@ -4,18 +4,18 @@ import Link from "next/link";
 const steps = [
   {
     no: "01",
-    title: "공고를 만듭니다",
-    description: "직접 입력하거나 AI 초안으로 공고를 빠르게 작성하고, 공개 지원 링크를 공유합니다.",
+    title: "채용공고를 찾습니다",
+    description: "관심 있는 직무와 기업의 공고를 확인하고 나에게 맞는 기회를 찾아보세요.",
   },
   {
     no: "02",
-    title: "지원자가 AI 인터뷰를 봅니다",
-    description: "지원자는 링크로 접속해 대화형 AI 인터뷰에 답합니다. 면접관 일정 조율이 필요 없습니다.",
+    title: "AI 면접을 준비합니다",
+    description: "실전처럼 연습하고 답변을 점검하며 내 속도에 맞춰 면접 감각을 높일 수 있어요.",
   },
   {
     no: "03",
-    title: "리포트로 결정합니다",
-    description: "답변과 서류 근거가 담긴 AI 평가 리포트를 확인하고 합격·보류·불합격을 정합니다.",
+    title: "지원 현황을 이어봅니다",
+    description: "지원부터 면접, 결과까지 흩어지지 않게 한곳에서 확인하고 다음 단계를 준비하세요.",
   },
 ];
 
@@ -69,40 +69,40 @@ export function LandingPage() {
             <Image src="/logo-init-v4.png" alt="init" width={1900} height={580} priority />
           </Link>
           <div className="gnb-right">
-            <Link className="btn secondary" href="/ai/performance">
-              AI 지표
-            </Link>
             <Link className="btn secondary" href="/login">
               로그인
             </Link>
-            <Link className="btn primary" href="/signup">
-              시작하기
+            <Link className="btn primary" href="/company/login">
+              기업 서비스
             </Link>
           </div>
         </div>
       </header>
 
       <section className="landing-hero">
-        <span className="landing-pill">AI 인터뷰로 채용의 1차 검증을 자동화</span>
+        <span className="landing-pill">지원부터 면접까지 이어지는 커리어 여정</span>
         <h1>
-          면접을 잇다.
+          가능성을 발견하고,
           <br />
-          더 많은 지원자에게 <span>공정한 기회</span>를.
+          더 나은 기회와 <span>이어지세요.</span>
         </h1>
         <p className="landing-sub">
-          init은 지원자를 대화형 AI 인터뷰로 만나고, 답변·서류 근거가 담긴 리포트로 채용 결정을 돕습니다.
+          init은 나에게 맞는 채용공고를 찾고, AI 면접을 준비하고, 지원 과정을 관리하는 지원자 서비스입니다.
         </p>
         <div className="landing-cta">
-          <Link className="btn primary lg" href="/signup">
-            시작하기
+          <Link className="btn primary lg" href="/candidate/jobs">
+            채용공고 보기
+          </Link>
+          <Link className="btn secondary lg" href="/candidate/mock-interview/start">
+            AI 모의면접
           </Link>
         </div>
       </section>
 
       <section className="landing-steps">
         <div className="landing-head">
-          <h2>3단계로 끝나는 채용</h2>
-          <p>복잡한 준비 없이, 링크 하나로 인터뷰부터 평가까지 이어집니다.</p>
+          <h2>지원자의 다음 단계를 한곳에서</h2>
+          <p>기회를 찾는 순간부터 면접을 마칠 때까지 자연스럽게 이어집니다.</p>
         </div>
         <ol className="landing-step-grid">
           {steps.map((step) => (
@@ -117,8 +117,8 @@ export function LandingPage() {
 
       <section className="landing-how">
         <div className="landing-head">
-          <h2>지원자는 대화하고, 기업은 리포트로 확인합니다</h2>
-          <p>실제 화면 흐름을 그대로 옮겼습니다.</p>
+          <h2>연습할수록 선명해지는 나의 답변</h2>
+          <p>AI 면접과 리포트로 강점과 개선점을 직접 확인하세요.</p>
         </div>
         <div className="landing-preview-grid">
           <article className="landing-preview">
@@ -152,8 +152,8 @@ export function LandingPage() {
 
       <section className="landing-features">
         <div className="landing-head">
-          <h2>채용 경험을 더 선명하게</h2>
-          <p>지원자에게는 기회를, 기업에게는 근거를.</p>
+          <h2>내 커리어에 필요한 준비를 더 가깝게</h2>
+          <p>공고 탐색, 면접 연습, 지원 관리가 하나의 경험으로 이어집니다.</p>
         </div>
         <div className="landing-feature-grid">
           {featureCards.map((feature) => (
@@ -167,11 +167,11 @@ export function LandingPage() {
       </section>
 
       <section className="landing-closing">
-        <h2>지금 init에서 첫 면접을 시작하세요</h2>
-        <p>기업 회원가입 후 바로 공고를 만들고 AI 인터뷰를 운영할 수 있어요.</p>
+        <h2>지금 init에서 다음 기회를 준비하세요</h2>
+        <p>지원자 회원가입 후 채용공고와 AI 모의면접을 바로 이용할 수 있어요.</p>
         <div className="landing-cta">
-          <Link className="btn primary lg" href="/signup">
-            시작하기
+          <Link className="btn primary lg" href="/signup/candidate">
+            지원자 회원가입
           </Link>
           <Link className="btn secondary lg" href="/login">
             로그인
@@ -183,7 +183,8 @@ export function LandingPage() {
         <span>© {new Date().getFullYear()} init()</span>
         <div className="landing-footer-links">
           <Link href="/login">로그인</Link>
-          <Link href="/signup">회원가입</Link>
+          <Link href="/signup/candidate">지원자 회원가입</Link>
+          <Link href="/company/login">기업 서비스</Link>
         </div>
       </footer>
     </main>

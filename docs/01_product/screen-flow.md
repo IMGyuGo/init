@@ -95,8 +95,9 @@ flowchart TD
 
 | HTML ID | Title | Path | Primary Buttons | Input Labels | Panels |
 | --- |--- |--- |--- |--- |--- |
-| landing | 1. 랜딩 화면 | / | 로그인, 로그인하기 |  |  |
-| login | 2. 로그인 화면 | /login | 기업, 지원자, 보기, 로그인, Google로 로그인(지원자 선택 시) | 로그인 사용자 유형, 이메일, 비밀번호 |  |
+| landing | 1. 지원자 메인 채용공고 화면 | / | 로그인, 기업 서비스 | 검색어, 직무, 경력, 지역 | 비로그인 상태에서 공개 공고 목록 표시. 로그인은 /login, 기업 서비스는 /company/login으로 이동 |
+| login | 2. 지원자 로그인 화면 | /login | 보기, 로그인, Google로 로그인, 지원자 회원가입 | 이메일, 비밀번호 | 로그인 성공 시 /candidate/jobs로 이동 |
+| company-login | 2-1. 기업 로그인 화면 | /company/login | 보기, 기업 로그인, 기업 회원가입, 지원자 서비스로 돌아가기 | 이메일, 비밀번호 | 로그인 성공 시 /company/applications/dashboard로 이동 |
 | signup | 3. 회원가입 유형 선택 | /signup | 다음 |  |  |
 | signup-candidate | 4. 지원자 회원가입 | /signup/candidate | 인증 메일 발송, 인증 확인, 보기, 가입하기 | 이름, 이메일, 인증 코드, 비밀번호, 비밀번호 확인 |  |
 | signup-company | 5. 기업 회원가입 | /signup/company | 인증 메일 발송, 인증 확인, 보기, 가입하기 | 담당자 이름, 회사명, 이메일, 인증 코드, 비밀번호, 비밀번호 확인 |  |

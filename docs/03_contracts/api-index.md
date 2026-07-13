@@ -121,6 +121,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-057F | 지원자 - 프로필(내 정보) | GET | /candidate/profile | 지원자 프로필(내 정보) 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-057G | 지원자 - 프로필(내 정보) | PUT | /candidate/profile | 지원자 프로필(내 정보) 수정 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-058 | 지원자 - 채용공고/지원 | GET | /candidate/jobs | 채용공고 목록 조회 / 채용공고 검색 / 채용공고 리스트 표시 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
+| API-058A | 지원자 - 공개 채용공고 | GET | /public/jobs | 메인 화면 공개 채용공고 목록 조회 / 검색 | 공개 | N | 200 OK |
 | API-059 | 지원자 - 채용공고/지원 | GET | /candidate/jobs/{jobId} | 채용공고 상세 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-060 | 지원자 - 채용공고/지원 | POST | /candidate/jobs/{jobId}/applications | 기업별 지원 서류 제출 | 지원자 / 지원자 사용자 로그인 | N | 201 Created |
 | API-061 | 지원자 - 지원현황/채용면접 | GET | /candidate/applications | 지원 상태 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |

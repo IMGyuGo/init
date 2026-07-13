@@ -847,6 +847,10 @@ export const publicInterviewApiPaths = {
   followUpQuestionInsert: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/follow-up-questions/insert`,
 } as const;
 
+export const publicCandidateApiPaths = {
+  jobs: "/api/v1/public/jobs",
+} as const;
+
 export class CandidateApiError extends Error {
   readonly status: number;
   readonly body?: ApiErrorBody;
@@ -863,6 +867,7 @@ export interface CandidateApiClientOptions {
   baseUrl?: string;
   headers?: HeadersInit;
   fetcher?: typeof fetch;
+  jobsPath?: string;
 }
 
 export interface CandidateApiClient {
@@ -1025,7 +1030,8 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
         method: "PUT",
         body: JSON.stringify(body),
       }),
-    listJobs: (query = {}) => request<ApiListResponse<CandidateJobSummary>>(candidateApiPaths.jobs, {}, query),
+    listJobs: (query = {}) =>
+      request<ApiListResponse<CandidateJobSummary>>(options.jobsPath ?? candidateApiPaths.jobs, {}, query),
     getJobDetail: (jobId) => request<ApiResponse<CandidateJobDetail>>(candidateApiPaths.jobDetail(jobId)),
     getApplyView: (jobId) => request<ApiResponse<CandidateApplyView>>(candidateApiPaths.applyView(jobId)),
     submitApplication: (jobId, body) =>

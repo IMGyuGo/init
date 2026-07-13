@@ -184,10 +184,10 @@ function TermsModal({ userType, onClose }: { userType: UserType; onClose: () => 
   );
 }
 
-export function LoginForm() {
+export function LoginForm({ fixedUserType }: { fixedUserType?: UserType } = {}) {
   const router = useRouter();
   const { completeLogin } = useAuth();
-  const [userType, setUserType] = useState<UserType>("CANDIDATE");
+  const [userType, setUserType] = useState<UserType>(fixedUserType ?? "CANDIDATE");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -227,21 +227,27 @@ export function LoginForm() {
 
   return (
     <form className="form-card" onSubmit={submit}>
-      <span className="eyebrow">WELCOME BACK</span>
-      <h2>init 로그인</h2>
-      <p className="lead">계정 유형을 선택하고 로그인하세요.</p>
+      {userType === "CANDIDATE" ? <span className="eyebrow">WELCOME BACK</span> : null}
+      <h2>{userType === "COMPANY" ? "기업 회원 로그인" : "지원자 로그인"}</h2>
+      <p className="lead">
+        {userType === "COMPANY"
+          ? "채용 공고와 지원자 평가를 한곳에서 관리하세요."
+          : "채용공고 확인과 AI 면접을 계속 진행하세요."}
+      </p>
 
-      <div className="field">
-        <span className="label">로그인 사용자 유형</span>
-        <div className="segment" aria-label="로그인 사용자 유형">
-          <button type="button" className={userType === "COMPANY" ? "active" : ""} onClick={() => setUserType("COMPANY")}>
-            기업
-          </button>
-          <button type="button" className={userType === "CANDIDATE" ? "active" : ""} onClick={() => setUserType("CANDIDATE")}>
-            지원자
-          </button>
+      {!fixedUserType ? (
+        <div className="field">
+          <span className="label">로그인 사용자 유형</span>
+          <div className="segment" aria-label="로그인 사용자 유형">
+            <button type="button" className={userType === "COMPANY" ? "active" : ""} onClick={() => setUserType("COMPANY")}>
+              기업
+            </button>
+            <button type="button" className={userType === "CANDIDATE" ? "active" : ""} onClick={() => setUserType("CANDIDATE")}>
+              지원자
+            </button>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <label className="field">
         <span className="label">이메일</span>
@@ -256,7 +262,7 @@ export function LoginForm() {
         <span className="link-separator" aria-hidden="true">
           |
         </span>
-        <button type="button" onClick={() => router.push("/signup")}>
+        <button type="button" onClick={() => router.push(userType === "COMPANY" ? "/signup/company" : "/signup/candidate")}>
           회원가입
         </button>
       </div>
