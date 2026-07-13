@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import detailApplicantsIcon from "./assets/detail-applicants.png";
@@ -37,7 +38,40 @@ import type { Applicant, Recruitment, ScreeningDecision } from "./types";
 
 const decisions: ScreeningDecision[] = ["UNDECIDED", "PASS", "HOLD", "FAIL"];
 
+type ApplicantSort = "recent" | "scoreDesc" | "scoreAsc" | "nameAsc";
+
+const APPLICANT_SORT_OPTIONS: ReadonlyArray<{ value: ApplicantSort; label: string }> = [
+  { value: "recent", label: "최신순" },
+  { value: "scoreDesc", label: "점수 높은순" },
+  { value: "scoreAsc", label: "점수 낮은순" },
+  { value: "nameAsc", label: "이름순" },
+];
+
+function compareByScore(a: Applicant, b: Applicant, dir: "asc" | "desc") {
+  const sa = a.report?.totalScore ?? null;
+  const sb = b.report?.totalScore ?? null;
+  if (sa == null && sb == null) return 0;
+  if (sa == null) return 1;
+  if (sb == null) return -1;
+  return dir === "desc" ? sb - sa : sa - sb;
+}
+
+function sortApplicants(list: Applicant[], sort: ApplicantSort): Applicant[] {
+  const copy = [...list];
+  switch (sort) {
+    case "scoreDesc":
+      return copy.sort((a, b) => compareByScore(a, b, "desc"));
+    case "scoreAsc":
+      return copy.sort((a, b) => compareByScore(a, b, "asc"));
+    case "nameAsc":
+      return copy.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+    default:
+      return copy;
+  }
+}
+
 export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number }) {
+  const router = useRouter();
   const [recruitment, setRecruitment] = useState<Recruitment | null>(null);
   const [applicants, setApplicants] = useState<Applicant[]>([]);
   const [screeningDrafts, setScreeningDrafts] = useState<Record<number, ScreeningDraft>>({});
@@ -53,10 +87,12 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const actionMenuRef = useRef<HTMLDivElement>(null);
   const [applicantPage, setApplicantPage] = useState(1);
+  const [applicantSort, setApplicantSort] = useState<ApplicantSort>("recent");
   const APPLICANTS_PAGE_SIZE = 10;
-  const totalApplicantPages = Math.max(1, Math.ceil(applicants.length / APPLICANTS_PAGE_SIZE));
+  const sortedApplicants = sortApplicants(applicants, applicantSort);
+  const totalApplicantPages = Math.max(1, Math.ceil(sortedApplicants.length / APPLICANTS_PAGE_SIZE));
   const currentApplicantPage = Math.min(applicantPage, totalApplicantPages);
-  const pagedApplicants = applicants.slice(
+  const pagedApplicants = sortedApplicants.slice(
     (currentApplicantPage - 1) * APPLICANTS_PAGE_SIZE,
     currentApplicantPage * APPLICANTS_PAGE_SIZE,
   );
@@ -335,6 +371,24 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                 <div>
                   <h2>다음 전형 대상자 선별</h2>
                 </div>
+                {applicants.length > 0 ? (
+                  <label className="screening-sort">
+                    <span>정렬</span>
+                    <select
+                      value={applicantSort}
+                      onChange={(event) => {
+                        setApplicantSort(event.target.value as ApplicantSort);
+                        setApplicantPage(1);
+                      }}
+                    >
+                      {APPLICANT_SORT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
               </div>
 
               {applicants.length === 0 ? (
@@ -346,6 +400,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                       <col className="screening-col-candidate" />
                       <col className="screening-col-interview" />
                       <col className="screening-col-report" />
+                      <col className="screening-col-score" />
                       <col className="screening-col-decision" />
                       <col className="screening-col-memo" />
                     </colgroup>
@@ -354,6 +409,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                         <th>지원자</th>
                         <th>면접</th>
                         <th>리포트</th>
+                        <th>점수</th>
                         <th>전형 상태</th>
                         <th>메모</th>
                       </tr>
@@ -363,36 +419,38 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                         const decisionState = getScreeningAutosaveFieldState(autosaveState, item.applicationId, "decision");
                         const memoState = getScreeningAutosaveFieldState(autosaveState, item.applicationId, "memo");
 
+                        const evaluationHref = `/company/applicants/${item.applicationId}/evaluation`;
+
                         return (
-                          <tr key={item.applicationId}>
+                          <tr
+                            key={item.applicationId}
+                            className="screening-row"
+                            onClick={() => router.push(evaluationHref)}
+                          >
                             <td>
-                              <strong>{item.name}</strong>
-                              <span>{item.email}</span>
+                              <Link
+                                className="screening-candidate-link"
+                                href={evaluationHref}
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <strong>{item.name}</strong>
+                                <span>{item.email}</span>
+                              </Link>
                             </td>
                             <td>
                               <StatusBadge value={item.interviewStatus} />
                             </td>
                             <td>
-                              <div className="screening-report-cell">
-                                {item.report ? (
-                                  <div className="screening-report-summary">
-                                    <StatusBadge value={item.report.status} />
-                                    <span className="screening-report-score">
-                                      {item.report.totalScore != null ? `${item.report.totalScore}점` : "점수 없음"}
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <div className="screening-report-summary">
-                                    <StatusBadge value="NONE_OR_GENERATING" />
-                                    <span className="screening-report-score">점수 없음</span>
-                                  </div>
-                                )}
-                                <Link className="screening-report-link" href={`/company/applicants/${item.applicationId}/evaluation`}>
-                                  평가 상세
-                                </Link>
-                              </div>
+                              <StatusBadge value={item.report ? item.report.status : "NONE_OR_GENERATING"} />
                             </td>
                             <td>
+                              {item.report?.totalScore != null ? (
+                                <span className="screening-report-score">{item.report.totalScore}점</span>
+                              ) : (
+                                <span className="screening-report-score is-empty">—</span>
+                              )}
+                            </td>
+                            <td onClick={(event) => event.stopPropagation()}>
                               <div className={`autosave-field ${decisionState === "saving" ? "is-saving" : ""} ${decisionState === "error" ? "is-error" : ""}`}>
                                 <select
                                   aria-label={`${item.name} 전형 상태`}
@@ -410,7 +468,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                                 </span>
                               </div>
                             </td>
-                            <td>
+                            <td onClick={(event) => event.stopPropagation()}>
                               <div className={`autosave-field ${memoState === "saving" ? "is-saving" : ""} ${memoState === "error" ? "is-error" : ""}`}>
                                 <input
                                   aria-label={`${item.name} 메모`}

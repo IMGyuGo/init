@@ -146,26 +146,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
 
             {tab === "overview" ? (
               <div className="report-tabpanel" role="tabpanel">
-                <section className="kpi-row status-row">
-                  <div className="kpi">
-                    <span>지원 상태</span>
-                    <strong>{formatRecruitingStatusLabel(evaluation.statuses.applicationStatus)}</strong>
-                  </div>
-                  <div className="kpi">
-                    <span>서류 상태</span>
-                    <strong>{formatRecruitingStatusLabel(evaluation.statuses.documentStatus)}</strong>
-                  </div>
-                  <div className="kpi">
-                    <span>면접 상태</span>
-                    <strong>{formatRecruitingStatusLabel(evaluation.statuses.interviewStatus)}</strong>
-                  </div>
-                  <div className="kpi">
-                    <span>리포트 상태</span>
-                    <strong>{formatRecruitingStatusLabel(evaluation.statuses.reportStatus)}</strong>
-                  </div>
-                </section>
-
-                <ReportOverview applicantName={evaluation.applicant.name} report={report} />
+                <ReportOverview report={report} />
               </div>
             ) : null}
 
@@ -278,24 +259,25 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
               {displayAnswers.length > 0 ? (
                 <div className="company-answer-list">
                   {displayAnswers.map((answer, index) => (
-                    <article className="company-answer-card" key={answer.answerId}>
-                      <div className="company-answer-card-head">
-                        <div>
-                          <span>질문 {index + 1}</span>
+                    <article className="company-answer-item" key={answer.answerId}>
+                      <header className="company-answer-qhead">
+                        <span className="company-answer-qnum">{index + 1}</span>
+                        <div className="company-answer-qtitle">
+                          <span className="company-answer-qmeta">
+                            질문 {index + 1} · {formatQuestionTypeLabel(answer.questionType)}
+                          </span>
                           <h3>{answer.questionContent ?? "질문 정보 없음"}</h3>
                         </div>
-                        <span className="company-question-type">{formatQuestionTypeLabel(answer.questionType)}</span>
-                      </div>
+                      </header>
 
                       <CompanyAnswerMedia
                         applicantId={applicantId}
                         audioFile={answer.audioFile}
-                        title="답변 녹화"
                         videoFile={answer.videoFile}
                       />
 
                       <div className="company-answer-block">
-                        <strong>답변</strong>
+                        <span className="company-answer-label">답변</span>
                         <p>{answer.transcript?.trim() ? answer.transcript : "답변 스크립트가 없습니다."}</p>
                       </div>
 
@@ -303,18 +285,17 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
 
                       {answer.followUpQuestions.length > 0 ? (
                         <div className="company-answer-block">
-                          <strong>생성된 꼬리질문</strong>
-                          <ul>
+                          <span className="company-answer-label">꼬리질문</span>
+                          <ol className="company-followup-list">
                             {answer.followUpQuestions.map((followUp) => (
                               <li key={followUp.followUpId}>
-                                <span className="company-follow-up-question">{followUp.content}</span>
+                                <p className="company-follow-up-question">{followUp.content}</p>
                                 <div className="company-follow-up-answer">
-                                  <strong>꼬리질문 답변</strong>
+                                  <span className="company-answer-label is-sub">답변</span>
                                   <CompanyAnswerMedia
                                     applicantId={applicantId}
                                     audioFile={followUp.answer?.audioFile ?? null}
                                     compact
-                                    title="꼬리질문 답변 녹화"
                                     videoFile={followUp.answer?.videoFile ?? null}
                                   />
                                   <p>{followUp.answer?.transcript?.trim() ? followUp.answer.transcript : "저장된 꼬리질문 답변이 없습니다."}</p>
@@ -322,7 +303,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                                 </div>
                               </li>
                             ))}
-                          </ul>
+                          </ol>
                         </div>
                       ) : null}
 
@@ -346,7 +327,19 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   );
 }
 
-function ReportOverview({ applicantName, report }: { applicantName: string; report: ApplicantEvaluation["report"] }) {
+function ReportOverview({ report }: { report: ApplicantEvaluation["report"] }) {
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
+  const toggleExpanded = (scoreId: number) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(scoreId)) {
+        next.delete(scoreId);
+      } else {
+        next.add(scoreId);
+      }
+      return next;
+    });
+
   if (!report) {
     return (
       <section className="panel">
@@ -372,7 +365,6 @@ function ReportOverview({ applicantName, report }: { applicantName: string; repo
       <div className="panel-head">
         <div>
           <h2>종합 평가</h2>
-          <p>{applicantName} 님의 면접 결과를 요약합니다.</p>
         </div>
         <StatusBadge value={report.status ?? "NONE_OR_GENERATING"} />
       </div>
@@ -427,6 +419,8 @@ function ReportOverview({ applicantName, report }: { applicantName: string; repo
           <ul className="report-competency-list">
             {report.scores.map((score) => {
               const pct = clampPercent(score.score);
+              const hasDetail = Boolean(score.rationale?.trim()) || score.evidences.length > 0;
+              const isOpen = expanded.has(score.scoreId);
               return (
                 <li className="report-competency-item" key={score.scoreId}>
                   <div className="report-competency-row">
@@ -436,13 +430,30 @@ function ReportOverview({ applicantName, report }: { applicantName: string; repo
                   <div className="report-competency-bar" aria-hidden="true">
                     <span style={{ width: `${pct}%` }} />
                   </div>
-                  {score.rationale?.trim() ? <p className="report-competency-rationale">{score.rationale}</p> : null}
-                  {score.evidences.length > 0 ? (
-                    <div className="report-competency-evidence">
-                      {score.evidences.map((evidence) => (
-                        <blockquote key={evidence.evidenceId}>{evidence.evidenceText}</blockquote>
-                      ))}
-                    </div>
+                  {hasDetail ? (
+                    <>
+                      <button
+                        type="button"
+                        className="report-competency-toggle"
+                        aria-expanded={isOpen}
+                        onClick={() => toggleExpanded(score.scoreId)}
+                      >
+                        {isOpen ? "근거 숨기기" : "근거 보기"}
+                        <span className={`report-competency-caret${isOpen ? " is-open" : ""}`} aria-hidden="true">⌄</span>
+                      </button>
+                      {isOpen ? (
+                        <div className="report-competency-detail">
+                          {score.rationale?.trim() ? <p className="report-competency-rationale">{score.rationale}</p> : null}
+                          {score.evidences.length > 0 ? (
+                            <div className="report-competency-evidence">
+                              {score.evidences.map((evidence) => (
+                                <blockquote key={evidence.evidenceId}>{evidence.evidenceText}</blockquote>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </>
                   ) : null}
                 </li>
               );
@@ -479,13 +490,11 @@ function CompanyAnswerMedia({
   applicantId,
   audioFile,
   compact = false,
-  title,
   videoFile,
 }: {
   applicantId: number;
   audioFile: ApplicantInterviewFileAsset | null;
   compact?: boolean;
-  title: string;
   videoFile: ApplicantInterviewFileAsset | null;
 }) {
   const primaryFile = videoFile ?? audioFile;
@@ -538,10 +547,6 @@ function CompanyAnswerMedia({
 
   return (
     <div className={`company-answer-media ${compact ? "compact" : ""}`}>
-      <div className="company-answer-media-head">
-        <strong>{title}</strong>
-        <span>{primaryFile.originalName}</span>
-      </div>
       {playableUrl && primaryMediaType === "video" ? (
         <video controls crossOrigin="use-credentials" preload="metadata" src={playableUrl}>
           답변 영상을 재생할 수 없습니다.
@@ -556,10 +561,6 @@ function CompanyAnswerMedia({
           <span>{mediaError || "기업 권한을 확인한 뒤 녹화 파일을 재생합니다."}</span>
         </div>
       )}
-      <div className="company-answer-media-meta">
-        <span>{primaryFile.mimeType}</span>
-        <span>{formatFileSize(primaryFile.sizeBytes)}</span>
-      </div>
     </div>
   );
 }
@@ -612,56 +613,56 @@ type RecruitingIntegritySummary = {
 
 function RecruitingIntegrityReviewPanel({ summary }: { summary: RecruitingIntegritySummary }) {
   const guideItems = buildRecruitingIntegrityGuide(summary);
-  const status = summary.signalAnswers > 0 ? "확인 필요" : "특이 신호 없음";
+  const hasSignal = summary.signalAnswers > 0;
+  const signalTypes = [
+    { label: "화면·탭 이탈", count: summary.screenAwayAnswers },
+    { label: "얼굴 이탈", count: summary.faceAwayAnswers },
+    { label: "여러 사람 감지", count: summary.multipleFaceAnswers },
+    { label: "시선 이탈", count: summary.gazeAwayAnswers },
+    { label: "음성·입모양 불일치", count: summary.audioVisualAnswers },
+    { label: "영상 프레임 고정", count: summary.staticVideoAnswers },
+  ];
 
   return (
-    <section className="panel company-integrity-panel">
-      <div className="panel-head company-integrity-panel-head">
+    <section className="panel integrity-review">
+      <div className="panel-head">
         <div>
           <h2>응시 무결성 참고 신호</h2>
-          <p>브라우저에서 수집된 미검증 참고 정보입니다. 부정행위 확정 판정이나 평가 점수에 사용하지 말고 답변 영상과 함께 확인해 주세요.</p>
-        </div>
-        <StatusBadge value={status} />
-      </div>
-      <div className="company-integrity-metrics">
-        <div>
-          <span>분석 답변</span>
-          <strong>{summary.answersWithMetadata}/{summary.answerCount}</strong>
-        </div>
-        <div>
-          <span>검토 필요 답변</span>
-          <strong>{summary.signalAnswers}</strong>
-        </div>
-        <div>
-          <span>화면 이탈</span>
-          <strong>{summary.screenAwayAnswers}</strong>
-        </div>
-        <div>
-          <span>얼굴 이탈</span>
-          <strong>{summary.faceAwayAnswers}</strong>
-        </div>
-        <div>
-          <span>여러 사람</span>
-          <strong>{summary.multipleFaceAnswers}</strong>
-        </div>
-        <div>
-          <span>시선 이탈</span>
-          <strong>{summary.gazeAwayAnswers}</strong>
-        </div>
-        <div>
-          <span>음성/입모양</span>
-          <strong>{summary.audioVisualAnswers}</strong>
-        </div>
-        <div>
-          <span>영상 고정</span>
-          <strong>{summary.staticVideoAnswers}</strong>
+          <p>브라우저에서 수집된 미검증 참고 정보입니다. 점수·부정행위 확정에 쓰지 말고 답변 영상과 함께 확인하세요.</p>
         </div>
       </div>
-      <ul className="company-integrity-guide">
-        {guideItems.map((item) => (
-          <li key={item}>{item}</li>
+
+      <div className={`integrity-hero${hasSignal ? " is-flagged" : " is-clean"}`}>
+        <span className="integrity-hero-icon" aria-hidden="true">{hasSignal ? "!" : "✓"}</span>
+        <div className="integrity-hero-text">
+          <strong>{hasSignal ? "확인이 필요한 신호가 있습니다" : "특이 신호 없음"}</strong>
+          <span>
+            분석 답변 {summary.answersWithMetadata}/{summary.answerCount}
+            {hasSignal ? ` · 검토 필요 ${summary.signalAnswers}개` : ""}
+          </span>
+        </div>
+      </div>
+
+      <div className="integrity-breakdown">
+        {signalTypes.map((item) => (
+          <div key={item.label} className={`integrity-signal-row${item.count > 0 ? " is-active" : ""}`}>
+            <span className="integrity-signal-name">{item.label}</span>
+            {item.count > 0 ? (
+              <span className="integrity-signal-count">{item.count}개 답변</span>
+            ) : (
+              <span className="integrity-signal-none">감지 안 됨</span>
+            )}
+          </div>
         ))}
-      </ul>
+      </div>
+
+      {hasSignal ? (
+        <ul className="integrity-guide-notes">
+          {guideItems.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      ) : null}
     </section>
   );
 }
