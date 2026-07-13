@@ -84,7 +84,7 @@ const SUMMARY_FIELDS = new Set([
   "suspicionLevel",
 ]);
 
-const EVENT_FIELDS = new Set(["type", "occurredAt", "durationMs", "direction", "source"]);
+const EVENT_FIELDS = new Set(["type", "occurredAt", "offsetMs", "durationMs", "direction", "source"]);
 const GAZE_TIMELINE_FIELDS = new Set(["tMs", "horizontalOffset", "verticalOffset", "direction"]);
 const HEAD_POSE_TIMELINE_FIELDS = new Set(["tMs", "yawDegrees", "pitchDegrees", "rollDegrees"]);
 const GAZE_DIRECTIONS: readonly InterviewGazeDirection[] = ["CENTER", "LEFT", "RIGHT", "UP", "DOWN"];
@@ -293,6 +293,12 @@ function normalizeEvents(value: unknown): InterviewIntegrityEvent[] | undefined 
       type: event.type as InterviewIntegrityEventType,
       occurredAt: new Date(occurredAtMs).toISOString(),
     };
+    const offsetMs = optionalInteger(
+      event.offsetMs,
+      `nonverbalMetadata.integrityEvents[${index}].offsetMs`,
+      MAX_TIMELINE_TIME_MS,
+    );
+    if (offsetMs !== undefined) normalizedEvent.offsetMs = offsetMs;
     const durationMs = optionalInteger(
       event.durationMs,
       `nonverbalMetadata.integrityEvents[${index}].durationMs`,

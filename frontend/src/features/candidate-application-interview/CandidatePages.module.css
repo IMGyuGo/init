@@ -3614,6 +3614,12 @@
   stroke-width: 1.5;
 }
 
+:global(.report-visual-chart__highlight) {
+  fill: rgba(239, 68, 68, 0.1);
+  stroke: rgba(220, 38, 38, 0.35);
+  stroke-width: 1;
+}
+
 :global(.report-visual-chart__legend) {
   display: flex;
   flex-wrap: wrap;
@@ -3634,6 +3640,53 @@
   width: 14px;
   height: 3px;
   border-radius: 2px;
+}
+
+:global(.report-visual-chart__events) {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #eceef3;
+}
+
+:global(.report-visual-chart__events > strong) {
+  color: var(--ink-700);
+  font-size: 12px;
+}
+
+:global(.report-visual-chart__events > div) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+:global(.report-visual-chart__events button) {
+  min-height: 30px;
+  padding: 5px 9px;
+  color: #b42318;
+  font-size: 12px;
+  font-weight: 750;
+  background: #fff5f4;
+  border: 1px solid #f2b8b5;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+:global(.report-visual-chart__events button:hover:not(:disabled)) {
+  background: #fee8e7;
+}
+
+:global(.report-visual-chart__events button:focus-visible) {
+  outline: 3px solid rgba(239, 68, 68, 0.2);
+  outline-offset: 2px;
+}
+
+:global(.report-visual-chart__events button:disabled) {
+  color: var(--ink-500);
+  background: #f7f8fa;
+  border-color: #e1e5ed;
+  cursor: default;
 }
 
 :global(.report-visual-chart__center-zone) {

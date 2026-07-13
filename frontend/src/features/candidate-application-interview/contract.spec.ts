@@ -37,6 +37,7 @@ import {
   updateSustainedDetectionState,
 } from "./nonverbal-integrity";
 import {
+  readGazeAwayIntervals,
   readGazeTimeline,
   readHeadPoseTimeline,
   summarizeGazeTimeline,
@@ -269,6 +270,21 @@ assert.deepEqual(summarizeGazeTimeline(gazeTimeline), {
   verticalRange: 0.03,
   dominantAwayDirection: "RIGHT",
 });
+
+assert.deepEqual(
+  readGazeAwayIntervals({
+    integrityEvents: [
+      { type: "GAZE_AWAY", offsetMs: 4000, durationMs: 1800, direction: "RIGHT" },
+      { type: "GAZE_AWAY", occurredAt: "2026-07-10T10:00:00.000Z" },
+      { type: "TAB_HIDDEN", offsetMs: 7000, durationMs: 1000 },
+      { type: "GAZE_AWAY", offsetMs: 9500, durationMs: 2000, direction: "DOWN" },
+    ],
+  }, 10000),
+  [
+    { startMs: 4000, endMs: 5800, direction: "RIGHT" },
+    { startMs: 9500, endMs: 10000, direction: "DOWN" },
+  ],
+);
 
 const headPoseTimeline = readHeadPoseTimeline({
   headPoseTimeline: [

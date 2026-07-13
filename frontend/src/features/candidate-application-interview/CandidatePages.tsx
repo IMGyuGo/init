@@ -95,10 +95,12 @@ import {
 } from "./nonverbal-integrity";
 import {
   INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES,
+  readGazeAwayIntervals,
   readGazeTimeline,
   readHeadPoseTimeline,
   summarizeGazeTimeline,
   summarizeHeadPoseTimeline,
+  type InterviewGazeAwayInterval,
   type InterviewGazeTimelineSample,
   type InterviewHeadPoseTimelineSample,
 } from "./nonverbal-analysis";
@@ -268,6 +270,7 @@ type InterviewIntegritySuspicionLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH";
 type InterviewIntegrityEvent = {
   type: InterviewIntegrityEventType;
   occurredAt: string;
+  offsetMs?: number;
   durationMs?: number;
   direction?: GazeDirection;
   source?: GazeSignalSource;
@@ -3896,6 +3899,7 @@ function InterviewRuntimePanel({
     tracker.integrityEvents.push({
       type,
       occurredAt: new Date(startedAtMs).toISOString(),
+      offsetMs: Math.max(0, Math.round(startedAtMs - tracker.recordingStartedAtMs)),
       durationMs: Math.round(durationMs),
       ...(options.direction ? { direction: options.direction } : {}),
       ...(options.source ? { source: options.source } : {}),
@@ -4107,6 +4111,7 @@ function InterviewRuntimePanel({
     tracker.integrityEvents.push({
       type: "EARLY_SCREEN_AWAY",
       occurredAt: new Date(nowMs).toISOString(),
+      offsetMs: Math.max(0, Math.round(nowMs - tracker.recordingStartedAtMs)),
     });
     showRuntimeIntegrityWarning("EARLY_SCREEN_AWAY");
   }
@@ -8342,6 +8347,10 @@ function MockVisualAnalysisPanel({
     gazeTimeline[gazeTimeline.length - 1]?.tMs ?? 0,
     headPoseTimeline[headPoseTimeline.length - 1]?.tMs ?? 0,
   );
+  const gazeAwayIntervals = useMemo(
+    () => readGazeAwayIntervals(metadata, analysisDurationMs),
+    [analysisDurationMs, metadata],
+  );
   const activeTimelineEmpty = activeTab === "gaze" ? gazeTimeline.length === 0 : headPoseTimeline.length === 0;
 
   return (
@@ -8395,6 +8404,8 @@ function MockVisualAnalysisPanel({
                 { label: "상하", color: "#159a8c", value: (sample) => sample.verticalOffset },
               ]}
               minimumScale={0.2}
+              highlights={gazeAwayIntervals}
+              highlightLabel="시선 이탈"
               videoAvailable={videoAvailable}
               onSeek={onSeek}
             />
@@ -8441,6 +8452,8 @@ function VisualTimelineChart<T extends TimelineSample>({
   series,
   minimumScale,
   unit = "",
+  highlights = [],
+  highlightLabel = "참고 구간",
   videoAvailable,
   onSeek,
 }: {
@@ -8451,6 +8464,8 @@ function VisualTimelineChart<T extends TimelineSample>({
   series: TimelineSeries<T>[];
   minimumScale: number;
   unit?: string;
+  highlights?: InterviewGazeAwayInterval[];
+  highlightLabel?: string;
   videoAvailable: boolean;
   onSeek(timeMs: number): void;
 }) {
@@ -8474,7 +8489,8 @@ function VisualTimelineChart<T extends TimelineSample>({
   const seekFromPointer = (clientX: number, target: SVGSVGElement) => {
     if (!videoAvailable) return;
     const bounds = target.getBoundingClientRect();
-    const ratio = Math.min(1, Math.max(0, (clientX - bounds.left) / bounds.width));
+    const pointerX = (clientX - bounds.left) / bounds.width * width;
+    const ratio = Math.min(1, Math.max(0, (pointerX - left) / chartWidth));
     onSeek(ratio * durationMs);
   };
 
@@ -8496,6 +8512,22 @@ function VisualTimelineChart<T extends TimelineSample>({
           if (event.key === "ArrowRight") onSeek(Math.min(durationMs, playbackTimeMs + 1000));
         }}
       >
+        {highlights.map((highlight, index) => {
+          const startX = xForTime(highlight.startMs);
+          const endX = xForTime(highlight.endMs);
+          return (
+            <rect
+              key={`${highlight.startMs}-${highlight.endMs}-${index}`}
+              className="report-visual-chart__highlight"
+              x={startX}
+              y={top}
+              width={Math.max(2, endX - startX)}
+              height={chartHeight}
+            >
+              <title>{`${highlightLabel} ${formatAnalysisTime(highlight.startMs)}-${formatAnalysisTime(highlight.endMs)}`}</title>
+            </rect>
+          );
+        })}
         {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
           const y = top + ratio * chartHeight;
           const value = scale - ratio * scale * 2;
@@ -8537,6 +8569,24 @@ function VisualTimelineChart<T extends TimelineSample>({
           <span key={item.label}><i style={{ backgroundColor: item.color }} />{item.label}</span>
         ))}
       </div>
+      {highlights.length > 0 ? (
+        <div className="report-visual-chart__events" aria-label={`${highlightLabel} 구간`}>
+          <strong>{highlightLabel} 구간</strong>
+          <div>
+            {highlights.map((highlight, index) => (
+              <button
+                key={`${highlight.startMs}-${highlight.endMs}-${index}`}
+                type="button"
+                disabled={!videoAvailable}
+                onClick={() => onSeek(highlight.startMs)}
+                title={videoAvailable ? "해당 영상 시점으로 이동" : "저장된 영상이 없습니다"}
+              >
+                {formatAnalysisTime(highlight.startMs)}-{formatAnalysisTime(highlight.endMs)}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </figure>
   );
 }

@@ -47,6 +47,7 @@ export type InterviewIntegritySuspicionLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH
 export interface InterviewIntegrityEvent {
   type: InterviewIntegrityEventType;
   occurredAt: string;
+  offsetMs?: number;
   durationMs?: number;
   direction?: "LEFT" | "RIGHT" | "UP" | "DOWN";
   source?: "IRIS" | "HEAD_POSE" | "COMBINED";

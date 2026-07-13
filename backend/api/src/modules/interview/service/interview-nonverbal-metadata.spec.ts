@@ -20,6 +20,7 @@ describe("normalizeInterviewNonverbalMetadata", () => {
         {
           type: "GAZE_AWAY",
           occurredAt: "2026-07-10T10:00:05.000Z",
+          offsetMs: 2500,
           durationMs: 1800,
           direction: "RIGHT",
           source: "COMBINED",
@@ -39,6 +40,7 @@ describe("normalizeInterviewNonverbalMetadata", () => {
     expect(metadata?.schemaVersion).toBe(1);
     expect(metadata?.source).toBe("CLIENT_RUNTIME_UNVERIFIED");
     expect(metadata?.integrityEvents?.[0]?.occurredAt).toBe("2026-07-10T10:00:00.000Z");
+    expect(metadata?.integrityEvents?.[1]?.offsetMs).toBe(2500);
     expect(metadata?.integritySummary).toMatchObject({
       screenAwayCount: 1,
       tabHiddenCount: 1,
@@ -64,6 +66,13 @@ describe("normalizeInterviewNonverbalMetadata", () => {
     expect(() => normalizeInterviewNonverbalMetadata({
       integritySummary: { screenAwayCount: "many" },
     })).toThrow("integritySummary.screenAwayCount must be an integer");
+    expect(() => normalizeInterviewNonverbalMetadata({
+      integrityEvents: [{
+        type: "GAZE_AWAY",
+        occurredAt: "2026-07-10T10:00:00.000Z",
+        offsetMs: -1,
+      }],
+    })).toThrow("integrityEvents[0].offsetMs must be an integer between 0");
   });
 
   it("rejects oversized payloads and excessive event counts", () => {

@@ -14,6 +14,12 @@ export type InterviewHeadPoseTimelineSample = {
   rollDegrees: number;
 };
 
+export type InterviewGazeAwayInterval = {
+  startMs: number;
+  endMs: number;
+  direction?: Exclude<InterviewGazeDirection, "CENTER">;
+};
+
 export type GazeTimelineSummary = {
   sampleCount: number;
   centeredRatio: number;
@@ -33,6 +39,34 @@ export type HeadPoseTimelineSummary = {
 export const INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES = 120;
 
 const GAZE_DIRECTIONS: readonly InterviewGazeDirection[] = ["CENTER", "LEFT", "RIGHT", "UP", "DOWN"];
+const GAZE_AWAY_DIRECTIONS: readonly Exclude<InterviewGazeDirection, "CENTER">[] = ["LEFT", "RIGHT", "UP", "DOWN"];
+
+export function readGazeAwayIntervals(
+  metadata: Record<string, unknown> | undefined,
+  durationMs: number,
+): InterviewGazeAwayInterval[] {
+  const events = metadata?.integrityEvents;
+  if (!Array.isArray(events) || !Number.isFinite(durationMs) || durationMs <= 0) return [];
+
+  return events
+    .map((event) => readRecord(event))
+    .filter((event): event is Record<string, unknown> => Boolean(event) && event?.type === "GAZE_AWAY")
+    .map((event) => {
+      const startMs = readFiniteNumber(event.offsetMs);
+      const rawDurationMs = readFiniteNumber(event.durationMs);
+      const intervalDurationMs = Number.isFinite(rawDurationMs) ? Math.max(500, rawDurationMs) : 500;
+      const direction = GAZE_AWAY_DIRECTIONS.includes(event.direction as Exclude<InterviewGazeDirection, "CENTER">)
+        ? event.direction as Exclude<InterviewGazeDirection, "CENTER">
+        : undefined;
+      return {
+        startMs,
+        endMs: Math.min(durationMs, startMs + intervalDurationMs),
+        ...(direction ? { direction } : {}),
+      };
+    })
+    .filter((interval) => interval.startMs >= 0 && interval.startMs < durationMs && interval.endMs > interval.startMs)
+    .sort((left, right) => left.startMs - right.startMs);
+}
 
 export function readGazeTimeline(metadata: Record<string, unknown> | undefined): InterviewGazeTimelineSample[] {
   const timeline = metadata?.gazeTimeline;
