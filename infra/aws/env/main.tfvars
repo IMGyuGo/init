@@ -2,11 +2,6 @@ environment = "main"
 
 root_domain_name = "init-jungle.cloud"
 
-enable_ses_domain_identity           = true
-ses_domain_name                      = "init-jungle.cloud"
-ses_mail_from_subdomain              = "mail"
-ses_mail_from_behavior_on_mx_failure = "UseDefaultValue"
-
 slack_team_id    = "T0B8PCG46J0"
 slack_channel_id = "C0BF73MTGUT"
 
