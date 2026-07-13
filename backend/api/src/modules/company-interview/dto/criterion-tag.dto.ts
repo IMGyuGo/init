@@ -7,6 +7,7 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+import { NcsProfileId, NcsQuestionMode } from '../company-interview.types';
 
 export class CreateCriterionTagDto {
   @Type(() => Number)
@@ -37,6 +38,9 @@ export class CriterionTagResponseItemDto {
   category!: string;
   description!: string | null;
   sortOrder!: number;
+  ncsProfileId!: NcsProfileId | null;
+  defaultNcsQuestionMode!: NcsQuestionMode | null;
+  ncsProfileVersion!: string | null;
 }
 
 export class CreateCriterionTagResponseDto {

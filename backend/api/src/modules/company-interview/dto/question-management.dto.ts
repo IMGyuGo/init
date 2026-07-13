@@ -12,6 +12,9 @@ import {
   QUESTION_ORIGINS,
   QUESTION_TYPES,
   QuestionOrigin,
+  NcsProfileId,
+  NcsQuestionMode,
+  QuestionGenerationSource,
   QuestionType,
 } from '../company-interview.types';
 
@@ -63,6 +66,11 @@ export class InterviewQuestionResponseItemDto {
   origin!: QuestionOrigin;
   isAiEdited!: boolean;
   isActive!: boolean;
+  generationSource!: QuestionGenerationSource | null;
+  ncsProfileId!: NcsProfileId | null;
+  ncsQuestionMode!: NcsQuestionMode | null;
+  ncsProfileVersion!: string | null;
+  alignmentStatus!: string | null;
 }
 
 export class CreateInterviewQuestionResponseDto {

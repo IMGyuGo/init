@@ -599,6 +599,11 @@ export class CompanyInterviewService {
       origin: question.origin,
       isAiEdited: question.isAiEdited,
       isActive: question.isActive,
+      generationSource: null,
+      ncsProfileId: null,
+      ncsQuestionMode: null,
+      ncsProfileVersion: null,
+      alignmentStatus: null,
     };
   }
 
@@ -610,6 +615,9 @@ export class CompanyInterviewService {
       category: tag.category,
       description: tag.description,
       sortOrder: tag.sortOrder,
+      ncsProfileId: tag.ncsProfileId,
+      defaultNcsQuestionMode: tag.defaultNcsQuestionMode,
+      ncsProfileVersion: tag.ncsProfileVersion,
     };
   }
 

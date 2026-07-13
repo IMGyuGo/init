@@ -17,6 +17,8 @@ import type {
   UpdateEvaluationCriteriaInput,
   UpdateInterviewTimePolicyInput,
   UpdateInterviewTimePolicyResult,
+  UpdateQuestionGenerationPolicyInput,
+  UpdateQuestionGenerationPolicyResult,
 } from "./types";
 import { authFetch } from "../../api/client";
 import { getApiBaseUrl } from "../../api/api-base-url";
@@ -70,6 +72,13 @@ export async function deleteInterviewQuestion(questionId: number) {
 
 export async function updateInterviewTimePolicy(input: UpdateInterviewTimePolicyInput) {
   return request<UpdateInterviewTimePolicyResult>("/company/interviews/time-policy", {
+    method: "PATCH",
+    body: input,
+  });
+}
+
+export async function updateQuestionGenerationPolicy(input: UpdateQuestionGenerationPolicyInput) {
+  return request<UpdateQuestionGenerationPolicyResult>("/company/interviews/question-generation-policy", {
     method: "PATCH",
     body: input,
   });

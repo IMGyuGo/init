@@ -19,6 +19,7 @@ import {
   updateEvaluationCriteria,
   updateInterviewQuestion,
   updateInterviewTimePolicy,
+  updateQuestionGenerationPolicy,
 } from "./api";
 import { hasActiveAiJobs, startAiJobPolling } from "./ai-job-polling";
 import type {
@@ -29,6 +30,8 @@ import type {
   GeneratedQuestionCandidate,
   GeneratedQuestionSetCandidate,
   InterviewSettings,
+  EvaluationFramework,
+  NcsProfileId,
   QuestionType,
 } from "./types";
 
@@ -60,6 +63,11 @@ type TimePolicyDraft = {
 };
 
 type TimePolicyField = "preparationTimeSec" | "answerTimeSec";
+
+type QuestionGenerationPolicyDraft = {
+  jdCriteriaQuestionCount: string;
+  resumeQuestionCount: string;
+};
 
 type AiJobKind = "criteria" | "questions" | "questionSet";
 
@@ -110,6 +118,15 @@ const AI_STATUS_LABELS: Record<AiProcessStatus, string> = {
   FAILED: "실패",
 };
 
+const NCS_PROFILE_ORDER: NcsProfileId[] = ["PROBLEM_SOLVING", "COMMUNICATION", "DIGITAL"];
+const NCS_PROFILE_LABELS: Record<NcsProfileId, string> = {
+  PROBLEM_SOLVING: "문제해결",
+  COMMUNICATION: "의사소통",
+  DIGITAL: "디지털",
+};
+const NCS_QUESTION_POLICY_ENABLED =
+  process.env.NEXT_PUBLIC_NCS_QUESTION_POLICY_ENABLED !== "false";
+
 function getSettingsStepStorageKey(postingId: number) {
   return `company-interview-settings-step:${postingId}`;
 }
@@ -119,6 +136,8 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
   const [settingsStep, setSettingsStep] = useState(1);
   const [criteriaDrafts, setCriteriaDrafts] = useState<CriteriaDraft[]>([]);
   const [timePolicyDraft, setTimePolicyDraft] = useState<TimePolicyDraft | null>(null);
+  const [evaluationFramework, setEvaluationFramework] = useState<EvaluationFramework>("LEGACY");
+  const [questionPolicyDraft, setQuestionPolicyDraft] = useState<QuestionGenerationPolicyDraft | null>(null);
   const [questionForm, setQuestionForm] = useState<QuestionForm>(initialQuestionForm);
   const [editingQuestionId, setEditingQuestionId] = useState<number | null>(null);
   const [questionEditDraft, setQuestionEditDraft] = useState<QuestionForm | null>(null);
@@ -129,6 +148,8 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
   const [criteriaError, setCriteriaError] = useState("");
   const [timePolicySaving, setTimePolicySaving] = useState(false);
   const [timePolicyError, setTimePolicyError] = useState("");
+  const [questionPolicySaving, setQuestionPolicySaving] = useState(false);
+  const [questionPolicyError, setQuestionPolicyError] = useState("");
   const [questionSaving, setQuestionSaving] = useState(false);
   const [questionError, setQuestionError] = useState("");
   const [aiJobSubmitting, setAiJobSubmitting] = useState<AiJobKind | null>(null);
@@ -160,6 +181,8 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       setCriteriaDrafts(toCriteriaDrafts(response.data));
       setSelectedCriteriaDraftIds([]);
       setTimePolicyDraft(toTimePolicyDraft(response.data));
+      setEvaluationFramework(response.data.evaluationFramework);
+      setQuestionPolicyDraft(toQuestionGenerationPolicyDraft(response.data));
       setEditingQuestionId(null);
       setQuestionEditDraft(null);
       setOpenQuestionMenuId(null);
@@ -282,8 +305,18 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
 
   const hasCriteriaChanges = useMemo(() => {
     if (!settings) return false;
-    return JSON.stringify(criteriaDrafts) !== JSON.stringify(toCriteriaDrafts(settings));
-  }, [criteriaDrafts, settings]);
+    return (
+      evaluationFramework !== settings.evaluationFramework ||
+      JSON.stringify(criteriaDrafts) !== JSON.stringify(toCriteriaDrafts(settings))
+    );
+  }, [criteriaDrafts, evaluationFramework, settings]);
+  const hasQuestionPolicyChanges = useMemo(() => {
+    if (!settings || !questionPolicyDraft) return false;
+    return (
+      questionPolicyDraft.jdCriteriaQuestionCount !== String(settings.questionGenerationPolicy.jdCriteriaQuestionCount) ||
+      questionPolicyDraft.resumeQuestionCount !== String(settings.questionGenerationPolicy.resumeQuestionCount)
+    );
+  }, [questionPolicyDraft, settings]);
 
   const visibleQuestions = useMemo(() => {
     if (!settings) return [];
@@ -505,6 +538,41 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     setTimePolicyDraft(toTimePolicyDraft(settings));
   }
 
+  function changeEvaluationFramework(nextFramework: EvaluationFramework) {
+    setCriteriaError("");
+    setEvaluationFramework(nextFramework);
+    if (!settings || nextFramework !== "NCS_3_PROFILE_V1") return;
+
+    const ncsTags = NCS_PROFILE_ORDER.map((profileId) =>
+      settings.availableTags.find((tag) => tag.ncsProfileId === profileId),
+    );
+    if (ncsTags.some((tag) => !tag)) {
+      setCriteriaError("NCS 3개 평가 기준 binding이 준비되지 않았습니다. seed와 migration 적용 상태를 확인해주세요.");
+      setEvaluationFramework(settings.evaluationFramework);
+      return;
+    }
+
+    const weights = [34, 33, 33];
+    setCriteriaDrafts(
+      ncsTags.map((tag, index) => {
+        const resolvedTag = tag!;
+        const existing = settings.criteria.find((criterion) => criterion.tagId === resolvedTag.tagId);
+        return {
+          draftId: existing ? String(existing.criterionId) : `ncs-${resolvedTag.tagId}`,
+          criterionId: existing?.criterionId,
+          tagId: resolvedTag.tagId,
+          tagName: resolvedTag.tagName,
+          category: resolvedTag.category,
+          description: existing?.description ?? resolvedTag.description,
+          weight: String(existing?.weight ?? weights[index]),
+          passScore: existing?.passScore === null || existing?.passScore === undefined ? "" : String(existing.passScore),
+          sortOrder: String(index + 1),
+        };
+      }),
+    );
+    setSelectedCriteriaDraftIds([]);
+  }
+
   async function saveCriteriaDrafts(): Promise<boolean> {
     if (!settings) return true;
 
@@ -543,7 +611,8 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       }
 
       const response = await updateEvaluationCriteria({
-          postingId: settings.posting.postingId,
+        postingId: settings.posting.postingId,
+        evaluationFramework,
         criteria: resolvedCriteria.map((criterion) => ({
           criterionId: criterion.criterionId,
           tagId: criterion.tagId,
@@ -566,6 +635,11 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                       ...createdTags.filter((createdTag) => !current.availableTags.some((tag) => tag.tagId === createdTag.tagId)),
                     ],
               criteria: response.data.criteria,
+              evaluationFramework: response.data.evaluationFramework,
+              questionGenerationPolicy: {
+                ...current.questionGenerationPolicy,
+                criteriaVersion: response.data.criteriaVersion,
+              },
             }
           : current,
       );
@@ -588,6 +662,49 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       return false;
     } finally {
       setCriteriaSaving(false);
+    }
+  }
+
+  async function saveQuestionPolicy(): Promise<boolean> {
+    if (!settings || !questionPolicyDraft || !hasQuestionPolicyChanges) return true;
+    const jdCriteriaQuestionCount = toNumber(questionPolicyDraft.jdCriteriaQuestionCount);
+    const resumeQuestionCount = toNumber(questionPolicyDraft.resumeQuestionCount);
+    const total = jdCriteriaQuestionCount + resumeQuestionCount;
+    if (total < 1 || total > 20) {
+      setQuestionPolicyError("전체 질문 수는 1개 이상 20개 이하로 설정해주세요.");
+      return false;
+    }
+    if (evaluationFramework === "NCS_3_PROFILE_V1" && total < 3) {
+      setQuestionPolicyError("NCS 면접 질문은 세 평가 기준을 포함하도록 3개 이상 설정해주세요.");
+      return false;
+    }
+
+    setQuestionPolicySaving(true);
+    setQuestionPolicyError("");
+    try {
+      const response = await updateQuestionGenerationPolicy({
+        postingId: settings.posting.postingId,
+        jdCriteriaQuestionCount,
+        resumeQuestionCount,
+        expectedPolicyVersion: settings.questionGenerationPolicy.policyVersion,
+      });
+      setSettings((current) => current ? {
+        ...current,
+        questionGenerationPolicy: {
+          ...response.data,
+          resumeQuestionStatus: response.data.resumeQuestionCount === 0 ? "DISABLED" : "WAITING_APPLICATION",
+        },
+      } : current);
+      setQuestionPolicyDraft({
+        jdCriteriaQuestionCount: String(response.data.jdCriteriaQuestionCount),
+        resumeQuestionCount: String(response.data.resumeQuestionCount),
+      });
+      return true;
+    } catch (error) {
+      setQuestionPolicyError(error instanceof Error ? error.message : "질문 생성 개수 저장에 실패했습니다.");
+      return false;
+    } finally {
+      setQuestionPolicySaving(false);
     }
   }
 
@@ -810,6 +927,13 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
 
   async function handleGenerateQuestions() {
     if (!settings) return;
+    if (
+      settings.questionGenerationPolicy.policyVersion > 0 &&
+      settings.questionGenerationPolicy.jdCriteriaQuestionCount === 0
+    ) {
+      setAiJobError("공통 질문 개수가 0개입니다. 질문 생성 개수를 먼저 변경해주세요.");
+      return;
+    }
     if (isAiRequestBlocked("questions", aiJobSubmitting, activeAiJobKinds)) return;
     if (hasCriteriaChanges) {
       setAiJobError("공통 질문을 추천받으려면 먼저 평가 기준 변경사항을 저장해주세요.");
@@ -826,7 +950,10 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       const response = await generateInterviewQuestions({
         postingId: settings.posting.postingId,
         jobDescription: buildJobDescription(settings),
-        questionCount: Math.max(3, settings.criteria.length || 3),
+        questionCount:
+          settings.questionGenerationPolicy.jdCriteriaQuestionCount > 0
+            ? settings.questionGenerationPolicy.jdCriteriaQuestionCount
+            : Math.max(3, settings.criteria.length || 3),
         criteria: settings.criteria.map((criterion) => ({
           criterionId: criterion.criterionId,
           name: criterion.tagName,
@@ -1261,10 +1388,23 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                   <p>배점, 합격점, 표시 순서를 공고 기준으로 조정합니다.</p>
                 </div>
                 <div className="toolbar">
+                  <label className="framework-select-label">
+                    <span>평가 체계</span>
+                    <select
+                      value={evaluationFramework}
+                      disabled={criteriaSaving}
+                      onChange={(event) => changeEvaluationFramework(event.target.value as EvaluationFramework)}
+                    >
+                      <option value="LEGACY">기존 평가 기준</option>
+                      {NCS_QUESTION_POLICY_ENABLED ? (
+                        <option value="NCS_3_PROFILE_V1">NCS 3개 기준</option>
+                      ) : null}
+                    </select>
+                  </label>
                   <button
                     className="btn secondary compact"
                     type="button"
-                    disabled={isAiRequestBlocked("criteria", aiJobSubmitting, activeAiJobKinds)}
+                    disabled={evaluationFramework === "NCS_3_PROFILE_V1" || isAiRequestBlocked("criteria", aiJobSubmitting, activeAiJobKinds)}
                     onClick={() => void handleSuggestCriteria()}
                   >
                     {getAiRequestButtonLabel("criteria", "평가 기준 추천받기", aiJobSubmitting, activeAiJobKinds)}
@@ -1277,7 +1417,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                 <button
                   className="btn secondary compact"
                   type="button"
-                  disabled={selectedCriteriaDraftIds.length === 0 || criteriaSaving}
+                  disabled={evaluationFramework === "NCS_3_PROFILE_V1" || selectedCriteriaDraftIds.length === 0 || criteriaSaving}
                   onClick={removeSelectedCriteriaDrafts}
                 >
                   선택 삭제
@@ -1319,7 +1459,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                           <input
                             aria-label={`${criterion.tagName || "평가 기준"} 선택`}
                             checked={selectedCriteriaDraftIds.includes(criterion.draftId)}
-                            disabled={criteriaSaving}
+                            disabled={evaluationFramework === "NCS_3_PROFILE_V1" || criteriaSaving}
                             type="checkbox"
                             onChange={(event) => toggleCriteriaDraftSelection(criterion.draftId, event.target.checked)}
                           />
@@ -1327,7 +1467,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                         <td className="criteria-cell-order">
                           <button
                             className="criteria-drag-handle"
-                            draggable={!criteriaSaving}
+                            draggable={evaluationFramework !== "NCS_3_PROFILE_V1" && !criteriaSaving}
                             onDragStart={(event) => handleCriteriaDragStart(event, criterion.draftId)}
                             type="button"
                             aria-label={`${criterion.tagName} 순서 변경`}
@@ -1340,6 +1480,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                           <button
                             className="criteria-tag-button"
                             type="button"
+                            disabled={evaluationFramework === "NCS_3_PROFILE_V1"}
                             onClick={() => setEditingCriteriaDetailId(criterion.draftId)}
                           >
                             {criterion.tagName || "태그 입력"}
@@ -1378,7 +1519,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                 <button
                   className="criteria-add-row-button"
                   type="button"
-                  disabled={criteriaSaving}
+                  disabled={evaluationFramework === "NCS_3_PROFILE_V1" || criteriaSaving}
                   onClick={addCustomCriteriaDraft}
                   aria-label="평가 기준 행 추가"
                 >
@@ -1409,6 +1550,71 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
 
             {settingsStep === 2 ? (
               <>
+            <form
+              className="panel question-policy-panel"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveQuestionPolicy();
+              }}
+            >
+              <div className="panel-head">
+                <div>
+                  <h2>질문 생성 개수</h2>
+                  <p>공통 질문은 지금 생성하고, 개인화 질문은 지원자가 이력서를 제출한 뒤 생성합니다.</p>
+                </div>
+                <button className="btn secondary compact" type="submit" disabled={!hasQuestionPolicyChanges || questionPolicySaving}>
+                  {questionPolicySaving ? "저장 중…" : "개수 저장"}
+                </button>
+              </div>
+              {questionPolicyError ? <p className="notice danger">{questionPolicyError}</p> : null}
+              <div className="question-policy-fields">
+                <label>
+                  <span>공통 질문</span>
+                  <small>평가 기준 + 채용 공고</small>
+                  <input
+                    aria-label="공통 질문 개수"
+                    inputMode="numeric"
+                    min={0}
+                    max={20}
+                    type="number"
+                    value={questionPolicyDraft?.jdCriteriaQuestionCount ?? "0"}
+                    onChange={(event) => setQuestionPolicyDraft((current) => current ? {
+                      ...current,
+                      jdCriteriaQuestionCount: toDigitsOnly(event.target.value),
+                    } : current)}
+                  />
+                </label>
+                <label>
+                  <span>개인화 질문</span>
+                  <small>평가 기준 + 채용 공고 + 이력서</small>
+                  <input
+                    aria-label="개인화 질문 개수"
+                    inputMode="numeric"
+                    min={0}
+                    max={20}
+                    type="number"
+                    value={questionPolicyDraft?.resumeQuestionCount ?? "0"}
+                    onChange={(event) => setQuestionPolicyDraft((current) => current ? {
+                      ...current,
+                      resumeQuestionCount: toDigitsOnly(event.target.value),
+                    } : current)}
+                  />
+                </label>
+                <div className="question-policy-status">
+                  <span>개인화 질문 상태</span>
+                  <strong>{settings.questionGenerationPolicy.resumeQuestionCount > 0 ? "지원 완료 후 생성" : "사용 안 함"}</strong>
+                </div>
+              </div>
+              {settings.questionGenerationPolicy.allocations.length > 0 ? (
+                <div className="question-allocation-preview" aria-label="평가 기준별 질문 배분">
+                  {settings.questionGenerationPolicy.allocations.map((allocation) => (
+                    <span className="badge neutral" key={`${allocation.source}-${allocation.ncsProfileId}-${allocation.ncsQuestionMode}`}>
+                      {allocation.source === "JD_CRITERIA" ? "공통" : "개인화"} · {NCS_PROFILE_LABELS[allocation.ncsProfileId]} {allocation.count}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </form>
             <section className="panel">
               <div className="panel-head">
                 <div>
@@ -1419,7 +1625,11 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                   <button
                     className="btn secondary compact"
                     type="button"
-                    disabled={isAiRequestBlocked("questions", aiJobSubmitting, activeAiJobKinds)}
+                    disabled={
+                      isAiRequestBlocked("questions", aiJobSubmitting, activeAiJobKinds) ||
+                      (settings.questionGenerationPolicy.policyVersion > 0 &&
+                        settings.questionGenerationPolicy.jdCriteriaQuestionCount === 0)
+                    }
                     onClick={() => void handleGenerateQuestions()}
                   >
                     {getAiRequestButtonLabel("questions", "AI 질문 추천받기", aiJobSubmitting, activeAiJobKinds)}
@@ -1548,7 +1758,15 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
               <button className="btn secondary" type="button" onClick={() => setSettingsStep(1)}>
                 ← 이전
               </button>
-              <button className="btn primary settings-next-large" type="button" onClick={() => setSettingsStep(3)}>
+              <button
+                className="btn primary settings-next-large"
+                type="button"
+                disabled={questionPolicySaving}
+                onClick={async () => {
+                  const ok = await saveQuestionPolicy();
+                  if (ok) setSettingsStep(3);
+                }}
+              >
                 다음: 면접 시간 설정 →
               </button>
             </div>
@@ -2498,6 +2716,19 @@ function toTimePolicyDraft(settings: InterviewSettings): TimePolicyDraft {
     answerTimeSec: String(settings.timePolicy.answerTimeSec),
     answerTimeMode: String(settings.timePolicy.answerTimeSec),
     retryAllowed: settings.timePolicy.retryAllowed,
+  };
+}
+
+function toQuestionGenerationPolicyDraft(
+  settings: InterviewSettings,
+): QuestionGenerationPolicyDraft {
+  return {
+    jdCriteriaQuestionCount: String(
+      settings.questionGenerationPolicy.jdCriteriaQuestionCount,
+    ),
+    resumeQuestionCount: String(
+      settings.questionGenerationPolicy.resumeQuestionCount,
+    ),
   };
 }
 
