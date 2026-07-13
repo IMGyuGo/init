@@ -105,13 +105,6 @@ data "aws_iam_policy_document" "api_task" {
     resources = [aws_sqs_queue.ai_jobs.arn]
   }
 
-  statement {
-    actions = [
-      "ses:SendEmail",
-      "ses:SendRawEmail"
-    ]
-    resources = ["*"]
-  }
 }
 
 resource "aws_iam_role_policy" "api_task" {

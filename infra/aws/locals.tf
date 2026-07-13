@@ -11,13 +11,6 @@ locals {
   azs              = slice(data.aws_availability_zones.available.names, 0, 2)
   root_domain_name = trimsuffix(var.root_domain_name, ".")
   app_domain_name  = local.root_domain_name
-  ses_domain_name  = trimsuffix(var.ses_domain_name != "" ? var.ses_domain_name : local.root_domain_name, ".")
-  ses_enabled      = var.enable_ses_domain_identity && local.ses_domain_name != ""
-  ses_mail_from_domain = (
-    var.ses_mail_from_subdomain != ""
-    ? "${var.ses_mail_from_subdomain}.${local.ses_domain_name}"
-    : ""
-  )
 
   common_tags = {
     Project     = "jungle-init"
