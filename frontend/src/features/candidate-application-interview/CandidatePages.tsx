@@ -271,6 +271,77 @@ type BrowserFaceDetector = {
 type BrowserFaceDetectorConstructor = new (options?: { fastMode?: boolean; maxDetectedFaces?: number }) => BrowserFaceDetector;
 
 type MediaPipeFaceLandmarkerModule = typeof import("@mediapipe/tasks-vision");
+type MediaPipeVisionRuntime = {
+  tasks: MediaPipeFaceLandmarkerModule;
+  vision: Awaited<ReturnType<MediaPipeFaceLandmarkerModule["FilesetResolver"]["forVisionTasks"]>>;
+};
+
+let mediaPipeVisionRuntimePromise: Promise<MediaPipeVisionRuntime> | null = null;
+let mediaPipeDiagnosticFilterDepth = 0;
+let restoreMediaPipeConsole: (() => void) | null = null;
+
+function isBenignMediaPipeDiagnostic(args: unknown[]): boolean {
+  const message = args.map((value) => String(value)).join(" ");
+  return (
+    message.includes("Created TensorFlow Lite XNNPACK delegate for CPU") ||
+    message.includes("OpenGL error checking is disabled") ||
+    message.includes("GL version:")
+  );
+}
+
+function beginMediaPipeDiagnosticFilter(): () => void {
+  if (mediaPipeDiagnosticFilterDepth === 0) {
+    const originalError = console.error;
+    const originalWarn = console.warn;
+    console.error = (...args: unknown[]) => {
+      if (!isBenignMediaPipeDiagnostic(args)) originalError(...args);
+    };
+    console.warn = (...args: unknown[]) => {
+      if (!isBenignMediaPipeDiagnostic(args)) originalWarn(...args);
+    };
+    restoreMediaPipeConsole = () => {
+      console.error = originalError;
+      console.warn = originalWarn;
+    };
+  }
+
+  mediaPipeDiagnosticFilterDepth += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    mediaPipeDiagnosticFilterDepth = Math.max(0, mediaPipeDiagnosticFilterDepth - 1);
+    if (mediaPipeDiagnosticFilterDepth === 0) {
+      restoreMediaPipeConsole?.();
+      restoreMediaPipeConsole = null;
+    }
+  };
+}
+
+async function withFilteredMediaPipeDiagnostics<T>(task: () => Promise<T>): Promise<T> {
+  const release = beginMediaPipeDiagnosticFilter();
+  try {
+    return await task();
+  } finally {
+    release();
+  }
+}
+
+function getMediaPipeVisionRuntime(): Promise<MediaPipeVisionRuntime> {
+  if (mediaPipeVisionRuntimePromise) return mediaPipeVisionRuntimePromise;
+
+  const loading = withFilteredMediaPipeDiagnostics(async () => {
+    const tasks = await import("@mediapipe/tasks-vision") as MediaPipeFaceLandmarkerModule;
+    const vision = await tasks.FilesetResolver.forVisionTasks(MEDIAPIPE_TASKS_VISION_WASM_URL);
+    return { tasks, vision };
+  });
+  mediaPipeVisionRuntimePromise = loading.catch((error) => {
+    mediaPipeVisionRuntimePromise = null;
+    throw error;
+  });
+  return mediaPipeVisionRuntimePromise;
+}
+
 type InterviewIntegritySummary = {
   screenAwayCount: number;
   tabHiddenCount: number;
@@ -3817,19 +3888,20 @@ function InterviewRuntimePanel({
 
     nonverbalFaceLandmarkerPromiseRef.current = (async () => {
       try {
-        const tasks = await import("@mediapipe/tasks-vision") as MediaPipeFaceLandmarkerModule;
-        const vision = await tasks.FilesetResolver.forVisionTasks(MEDIAPIPE_TASKS_VISION_WASM_URL);
-        const landmarker = await tasks.FaceLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: MEDIAPIPE_FACE_LANDMARKER_MODEL_URL,
-          },
-          runningMode: "VIDEO",
-          numFaces: 3,
-          minFaceDetectionConfidence: 0.5,
-          minFacePresenceConfidence: 0.5,
-          minTrackingConfidence: 0.5,
-          outputFacialTransformationMatrixes: true,
-        });
+        const { tasks, vision } = await getMediaPipeVisionRuntime();
+        const landmarker = await withFilteredMediaPipeDiagnostics(() =>
+          tasks.FaceLandmarker.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: MEDIAPIPE_FACE_LANDMARKER_MODEL_URL,
+            },
+            runningMode: "VIDEO",
+            numFaces: 3,
+            minFaceDetectionConfidence: 0.5,
+            minFacePresenceConfidence: 0.5,
+            minTrackingConfidence: 0.5,
+            outputFacialTransformationMatrixes: true,
+          }),
+        );
         nonverbalFaceLandmarkerRef.current = landmarker;
         return landmarker;
       } catch {
@@ -3849,17 +3921,18 @@ function InterviewRuntimePanel({
 
     nonverbalPersonDetectorPromiseRef.current = (async () => {
       try {
-        const tasks = await import("@mediapipe/tasks-vision") as MediaPipeFaceLandmarkerModule;
-        const vision = await tasks.FilesetResolver.forVisionTasks(MEDIAPIPE_TASKS_VISION_WASM_URL);
-        const detector = await tasks.ObjectDetector.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: MEDIAPIPE_PERSON_DETECTOR_MODEL_URL,
-          },
-          runningMode: "VIDEO",
-          maxResults: 4,
-          scoreThreshold: NONVERBAL_PERSON_DETECTION_SCORE_THRESHOLD,
-          categoryAllowlist: ["person"],
-        });
+        const { tasks, vision } = await getMediaPipeVisionRuntime();
+        const detector = await withFilteredMediaPipeDiagnostics(() =>
+          tasks.ObjectDetector.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: MEDIAPIPE_PERSON_DETECTOR_MODEL_URL,
+            },
+            runningMode: "VIDEO",
+            maxResults: 4,
+            scoreThreshold: NONVERBAL_PERSON_DETECTION_SCORE_THRESHOLD,
+            categoryAllowlist: ["person"],
+          }),
+        );
         nonverbalPersonDetectorRef.current = detector;
         return detector;
       } catch {
@@ -5163,22 +5236,30 @@ function InterviewRuntimePanel({
     autoRecordingQuestionRef.current = null;
   }
 
-  function startRealtimeSttRelayForRecording(stream: MediaStream, questionId: number) {
+  async function startRealtimeSttRelayForRecording(stream: MediaStream, questionId: number) {
     if (!REALTIME_STT_RELAY_ENABLED) return;
     if (!stream.getAudioTracks().some((track) => track.readyState === "live")) return;
 
     discardRealtimeSttRelay();
     realtimeSttTranscriptByQuestionRef.current.delete(questionId);
     try {
-      realtimeSttRelayRef.current = createRealtimeSttRelaySession({
+      realtimeSttRelayRef.current = await createRealtimeSttRelaySession({
         mode,
         sessionId: data?.runtime.sessionId ?? 0,
         stream,
         publicAccessToken: readPublicInterviewAccessToken(),
         onMetric: (metric) => recordRealtimeSttRelayMetric(questionId, metric),
       });
-    } catch {
+    } catch (relayError) {
       realtimeSttRelayRef.current = null;
+      recordRealtimeSttRelayMetric(questionId, {
+        eventName: "REALTIME_STT_ERROR",
+        durationMs: 0,
+        metadata: {
+          stage: "browser_audio_worklet",
+          message: relayError instanceof Error ? relayError.message : "Realtime STT audio capture failed.",
+        },
+      });
     }
   }
 
@@ -5362,7 +5443,7 @@ function InterviewRuntimePanel({
       if (realtimeMicrophoneOpenedForRecording) {
         setRealtimeMicrophoneOpen(true);
       }
-      startRealtimeSttRelayForRecording(stream, currentQuestion.questionId);
+      await startRealtimeSttRelayForRecording(stream, currentQuestion.questionId);
       recorder.start();
       setRecordedFileName("");
       setRecording(true);
