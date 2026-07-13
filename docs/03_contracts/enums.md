@@ -26,6 +26,12 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | `consent_type` | `ConsentType` |
 | `question_type` | `QuestionType` |
 | `question_origin` | `QuestionOrigin` |
+| `evaluation_framework` | `EvaluationFramework` |
+| `ncs_profile_id` | `NcsProfileId` |
+| `ncs_question_mode` | `NcsQuestionMode` |
+| `question_generation_source` | `QuestionGenerationSource` |
+| `question_alignment_status` | `QuestionAlignmentStatus` |
+| `resume_question_generation_status` | `ResumeQuestionGenerationStatus` |
 | `notification_channel` | `NotificationChannel` |
 | `ai_process_type` | `AiProcessType` |
 | `ai_process_status` | `AiProcessStatus` |
@@ -73,6 +79,7 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | `interview_status` | D | `NOT_READY -> READY -> IN_PROGRESS -> COMPLETED`, `READY -> FAILED`, `IN_PROGRESS -> FAILED` |
 | `report_status` | E | `PENDING -> GENERATING -> COMPLETED`, `PENDING -> FAILED`, `GENERATING -> FAILED`, `FAILED -> GENERATING` |
 | `ai_process_status` | E | `PENDING -> RUNNING -> COMPLETED`, `PENDING -> FAILED`, `RUNNING -> FAILED`, `FAILED -> PENDING` for explicit retry only |
+| `resume_question_generation_status` | C/D/E | `WAITING_DOCUMENT -> GENERATING -> READY`, `WAITING_DOCUMENT -> FAILED`, `GENERATING -> REVIEW_REQUIRED`, `GENERATING -> FAILED`, `REVIEW_REQUIRED -> GENERATING`, `FAILED -> GENERATING` for explicit retry only |
 | `screening_decision` | B | `UNDECIDED -> PASS`, `UNDECIDED -> HOLD`, `UNDECIDED -> FAIL`, `HOLD -> PASS`, `HOLD -> FAIL` |
 
 상태를 되돌리는 rollback 전이는 기본 금지다. 운영자가 명시적으로 재처리하는 retry는 audit log 또는 `ai_process_logs`에 사유를 남긴다.
@@ -95,9 +102,27 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | consent_type | PRIVACY_COLLECTION, AI_DOCUMENT_ANALYSIS, AI_INTERVIEW_RECORDING | 필수 동의 유형 |
 | question_type | INTRO, TECHNICAL, EXPERIENCE, SITUATION, FOLLOW_UP, CLOSING | 면접 질문 유형 |
 | question_origin | MANUAL, AI_GENERATED | 질문 최초 작성 출처 |
+| evaluation_framework | LEGACY, NCS_3_PROFILE_V1 | 공고 면접 평가 체계. `NCS_3_PROFILE_V1`은 초기 NCS 3개 프로필 고정 구성을 뜻함 |
+| ncs_profile_id | PROBLEM_SOLVING, COMMUNICATION, DIGITAL | C/API에서 사용하는 NCS 프로필 식별자. E evaluator adapter는 각각 `problem-solving`, `communication`, `digital`로 매핑 |
+| ncs_question_mode | EXPERIENCE_BEHAVIOR, TECHNICAL_KNOWLEDGE, SITUATIONAL_DESIGN | 답변에서 수집할 NCS 근거 유형. 기존 `question_type`과 별도 관리 |
+| question_generation_source | JD_CRITERIA, RESUME_PERSONALIZED | JD 공통 질문과 지원자별 이력서 질문의 생성 출처 |
+| question_alignment_status | NOT_EVALUATED, ALIGNED, LOW_ALIGNMENT, REVIEW_REQUIRED | 질문과 선택 NCS 프로필의 정렬 검증 상태 |
+| resume_question_generation_status | DISABLED, WAITING_APPLICATION, WAITING_DOCUMENT, GENERATING, READY, REVIEW_REQUIRED, FAILED | 공고/지원서 관점의 이력서 개인화 질문 준비 상태. `DISABLED`, `WAITING_APPLICATION`은 설정 조회 projection 값 |
 | notification_channel | EMAIL, IN_APP | 알림 채널 |
-| ai_process_type | DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING, GUARDRAIL_VALIDATE, CRITERIA_SUGGEST, QUESTION_GENERATE, QUESTION_SET_GENERATE, POSTING_DRAFT_GENERATE | AI 처리 유형 |
+| ai_process_type | DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING, GUARDRAIL_VALIDATE, CRITERIA_SUGGEST, QUESTION_GENERATE, RESUME_QUESTION_GENERATE, QUESTION_SET_GENERATE, POSTING_DRAFT_GENERATE | AI 처리 유형 |
 | ai_process_status | PENDING, RUNNING, COMPLETED, FAILED | AI 처리 상태 |
 | failure_category | RETRYABLE, NON_RETRYABLE | AI 실패 재시도 가능 여부 |
 | guardrail_result | PASS, BLOCKED, REGENERATED | AI 안전 검증 결과 |
 | embedding_source_type | POSTING_JD, CRITERION_TAG, QUESTION, APPLICATION_DOCUMENT, INTERVIEW_ANSWER, EVALUATION_REPORT | 임베딩 원천 유형 |
+
+## NCS Question Mapping
+
+`NcsQuestionMode`는 평가 근거 구조이고 `QuestionType`은 질문 뱅크/런타임 분류다. 두 enum을 같은 이름으로 합치지 않는다.
+
+| NcsProfileId | Default NcsQuestionMode | QuestionType | Allowed Fallback |
+| --- | --- | --- | --- |
+| `PROBLEM_SOLVING` | `EXPERIENCE_BEHAVIOR` | `EXPERIENCE` | `SITUATIONAL_DESIGN` -> `SITUATION` |
+| `COMMUNICATION` | `EXPERIENCE_BEHAVIOR` | `EXPERIENCE` | 없음 |
+| `DIGITAL` | `TECHNICAL_KNOWLEDGE` | `TECHNICAL` | 실제 수행 경험이면 `EXPERIENCE_BEHAVIOR` -> `EXPERIENCE` |
+
+정렬점수 통과를 목적으로 질문 유형만 임의 변경하지 않는다. 동일 profile/mode로 최대 2회 질문을 재작성한 뒤 위 표의 fallback만 허용한다.

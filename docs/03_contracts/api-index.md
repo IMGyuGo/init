@@ -26,7 +26,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | --- | --- | --- | --- | --- |
 | `backend/api/src/modules/auth` | `AuthController` | `/api/v1/auth` | A | API-001..009 |
 | `backend/api/src/modules/company-recruiting` | `CompanyRecruitingController`, `PublicRecruitmentController`, `PublicApplicationController` | `/api/v1/company/recruitments`, `/api/v1/company/applicants`, `/api/v1/public/recruitments`, `/api/v1/public/applications` | B | API-010..033 중 공고/지원자 운영, API-080, API-085, API-086..089 |
-| `backend/api/src/modules/company-interview` | `CompanyInterviewController` | `/api/v1/company/interviews` | C | API-034..040 |
+| `backend/api/src/modules/company-interview` | `CompanyInterviewController` | `/api/v1/company/interviews` | C | API-034..040, API-097..099 |
 | `backend/api/src/modules/company-profile` | `CompanyProfileController` | `/api/v1/company/profile`, `/api/v1/company/notifications` | A/B | API-041..043 |
 | `backend/api/src/modules/candidate` | `CandidateController` | `/api/v1/candidate/jobs`, `/api/v1/candidate/applications`, `/api/v1/candidate/resume`, `/api/v1/candidate/portfolio-links` | D | API-058..078 중 지원/마이페이지 |
 | `backend/api/src/modules/interview` | `InterviewController`, `PublicInterviewController` | `/api/v1/candidate/mock-interviews`, `/api/v1/candidate/interviews`, `/api/v1/public` | D/E | API-044..057, API-064..072, API-087..096 |
@@ -93,6 +93,9 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-039A | 기업 - 면접관리 | POST | /company/interviews/question-sets/confirm | 면접 질문 세트 확정 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-039B | 기업 - 면접관리 | GET | /company/interviews/question-sets/active | 활성 면접 질문 세트 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-040 | 기업 - 면접관리 | PATCH | /company/interviews/time-policy | 면접 시간 정책 설정 | 기업 / 기업 사용자 로그인 | N | 200 OK |
+| API-097 | 기업 - 면접관리 | PATCH | /company/interviews/question-generation-policy | JD·이력서 질문 개수와 NCS 배분 정책 저장 | 기업 / 기업 사용자 로그인 | N | 200 OK |
+| API-098 | 기업 - 면접관리 | GET | /company/interviews/applications/{applicationId}/resume-questions | 지원자별 이력서 질문 생성 상태·검토 목록 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
+| API-099 | 기업 - 면접관리 | POST | /company/interviews/applications/{applicationId}/resume-questions/retry | 실패·검토 필요 이력서 질문 재생성 | 기업 / 기업 사용자 로그인 | Y | 202 Accepted |
 | API-087 | 기업 - 설정 | GET | /company/profile | 회사 정보 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-041 | 기업 - 설정 | PATCH | /company/profile | 회사 정보 수정 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-042 | 기업 - 설정 | POST | /company/profile/logo | 회사 로고 이미지 업로드 | 기업 / 기업 사용자 로그인 | N | 201 Created |

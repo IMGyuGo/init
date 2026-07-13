@@ -1524,10 +1524,14 @@ AI 리포트 금지 기준:
   - 지원자, 공고, 응시 기간, 질문 세트
 - 검증/전제조건:
   - 지원자와 질문 세트가 존재
+  - 공고의 `resumeQuestionCount`가 1 이상이면 해당 지원서의 `resumeQuestionStatus=READY`여야 한다.
 - 성공 응답/처리:
   - 면접 세션 생성 및 초대 링크 연결
+  - 공고의 확정된 JD·평가 기준 공통 질문과 지원서별 이력서 질문을 `interview_session_questions`에 스냅샷으로 복사한다.
+  - 세션 생성 이후 평가 기준, 생성 정책 또는 질문이 변경되어도 기존 세션 질문에는 소급 적용하지 않는다.
 - 오류/예외:
   - 기간 오류, 질문 없음, 세션 생성 실패 시 초대 발송을 제한한다.
+  - 이력서 질문이 준비되지 않았으면 `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`를 반환하고 공통 질문만으로 자동 대체하지 않는다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, question_bank, applications, interview_sessions, notifications, ai_process_logs
 - 비고/미결:
@@ -1573,6 +1577,9 @@ AI 리포트 금지 기준:
     - `weight: number`
     - `passScore: number | null`
     - `sortOrder: number`
+    - `ncsProfileId: NcsProfileId | null`
+    - `ncsQuestionMode: NcsQuestionMode | null`
+    - `ncsProfileVersion: string | null`
   - `data.questions[]`
     - `questionId: number`
     - `criterionId: number | null`
@@ -1585,6 +1592,15 @@ AI 리포트 금지 기준:
     - `preparationTimeSec: number`
     - `answerTimeSec: number`
     - `retryAllowed: boolean`
+  - `data.evaluationFramework: EvaluationFramework`
+  - `data.questionGenerationPolicy`
+    - `postingId: number`
+    - `jdCriteriaQuestionCount: number`
+    - `resumeQuestionCount: number`
+    - `policyVersion: number`
+    - `criteriaVersion: number`
+    - `allocations[]: { source: QuestionGenerationSource, ncsProfileId: NcsProfileId, ncsQuestionMode: NcsQuestionMode, count: number }`
+    - `resumeQuestionStatus: ResumeQuestionGenerationStatus`
 - 오류/예외:
   - 권한 없음 또는 공고 정보 없음 시 접근 제한 메시지를 표시한다.
   - 인증 누락: `COMMON_UNAUTHORIZED`
@@ -1595,6 +1611,8 @@ AI 리포트 금지 기준:
 - 비고/미결:
   - 기존 SNB 삭제. 2-depth는 GNB hover dropdown으로 노출
   - `timePolicy`는 공고별 1:1 설정으로 `interview_time_policies`에 저장한다.
+  - `evaluationFramework=NCS_3_PROFILE_V1`이면 criteria는 `PROBLEM_SOLVING`, `COMMUNICATION`, `DIGITAL`을 각각 한 번 포함한다.
+  - NCS evaluator가 아직 연결되지 않은 환경에서도 binding 필드는 nullable로 응답하되 기존 LEGACY 설정 조회를 깨지 않는다.
 
 ### API-035 POST /company/interviews/evaluation-criteria/suggest
 - 도메인: 기업 - 면접관리
@@ -1650,6 +1668,7 @@ AI 리포트 금지 기준:
   - 태그 추천 세부 정책 확정 필요
   - AI 추천 평가 기준 후보 저장 방식은 E 리뷰 필요
   - API-035 worker/SQS 메시지 구조는 E/A 리뷰 필요
+  - `evaluationFramework=NCS_3_PROFILE_V1`에서는 고정된 NCS 3개 기준을 사용하므로 이 추천 API를 호출하지 않는다. API-035는 LEGACY 평가 기준 추천용으로 유지한다.
 
 ### API-036 PATCH /company/interviews/evaluation-criteria
 - 도메인: 기업 - 면접관리
@@ -1663,6 +1682,7 @@ AI 리포트 금지 기준:
   - Response DTO: `EvaluationCriterionResponseDto`
 - 요청 데이터:
   - `postingId: number`
+  - `evaluationFramework?: EvaluationFramework`, 생략 시 기존 공고 값 또는 `LEGACY`
   - `criteria: EvaluationCriterionItemDto[]`
   - `criteria[].criterionId?: number`
   - `criteria[].tagId: number`
@@ -1680,6 +1700,9 @@ AI 리포트 금지 기준:
   - `description`은 공용 태그 설명을 변경하지 않고 해당 공고의 평가 기준 설명 스냅샷으로 저장한다.
   - `description`을 생략하면 기존 기준 설명을 유지하며, 신규 기준이면 태그 기본 설명을 사용한다.
   - `weight` 합계 정책은 구현 전 PM/A와 확정한다.
+  - `evaluationFramework=NCS_3_PROFILE_V1`이면 criteria는 정확히 3개이며 각 tag는 서버의 NCS binding 기준으로 `PROBLEM_SOLVING`, `COMMUNICATION`, `DIGITAL`에 하나씩 연결되어야 한다.
+  - NCS profile과 기본 question mode는 서버가 tag binding에서 결정하며 클라이언트 입력으로 임의 변경하지 않는다.
+  - NCS 3개 기준의 `weight` 합계는 100이어야 한다.
 - 성공 응답/처리:
   - 평가 기준 저장
   - 요청에서 제외된 기존 평가 기준은 삭제한다.
@@ -1695,7 +1718,12 @@ AI 리포트 금지 기준:
     - `weight: number`
     - `passScore: number | null`
     - `sortOrder: number`
+    - `ncsProfileId: NcsProfileId | null`
+    - `ncsQuestionMode: NcsQuestionMode | null`
+    - `ncsProfileVersion: string | null`
   - `data.totalWeight: number`
+  - `data.evaluationFramework: EvaluationFramework`
+  - `data.criteriaVersion: number`, 평가 기준 저장 성공 시 1 증가한다.
 - 오류/예외:
   - 배점 합계 오류 또는 필수 평가 항목 삭제 시 저장을 제한한다.
   - 인증 누락: `COMMON_UNAUTHORIZED`
@@ -1825,13 +1853,22 @@ AI 리포트 금지 기준:
   - request body를 C DTO 기준으로 전환하거나 AI job controller에서 C controller로 소유권을 옮기려면 E/A/C 리뷰 후 별도 계약 변경이 필요하다.
 - Request Body:
   - `postingId`: number, required
-  - `jobDescription`: string, required
-  - `questionCount`: number, required, 1~
-  - `criteria`: array, required, 1~
+  - `jdCriteriaQuestionCount`: number, required, 1~20
+  - `expectedPolicyVersion?: number`, 전달 시 현재 생성 정책 버전과 일치해야 한다.
+- Legacy Request Compatibility:
+  - 마이그레이션 기간에는 기존 `questionCount`, `jobDescription`, `criteria[]`를 받을 수 있다.
+  - `jdCriteriaQuestionCount`가 없으면 `questionCount`를 사용하며, 둘 다 전달되고 값이 다르면 `INTERVIEW_QUESTION_COUNT_INVALID`를 반환한다.
+  - `jobDescription`, `criteria[]`는 AI 입력 정본으로 신뢰하지 않는다. 서버가 `postingId`의 저장된 JD와 평가 기준을 읽고, 전달된 legacy 값은 불일치 검출에만 사용한다.
+  - `criteria[]` legacy shape:
     - `criterionId`: number, required
     - `name`: string, required
     - `category?: string`
     - `weight?: number`
+- Validation:
+  - `postingId`는 로그인 기업 소유 공고여야 한다.
+  - `jdCriteriaQuestionCount`는 1 이상이고 저장된 정책의 값과 일치해야 한다. 정책 값이 0이면 UI는 이 API를 호출하지 않는다.
+  - `evaluationFramework=NCS_3_PROFILE_V1`이면 저장된 평가 기준이 NCS 3개 profile에 정확히 하나씩 연결되어 있어야 한다.
+  - NCS 질문 배분은 API-097이 저장한 `source=JD_CRITERIA` allocation을 사용한다.
 - Response Body:
   - `processLogId`: number
   - `status`: `PENDING`
@@ -1844,6 +1881,14 @@ AI 리포트 금지 기준:
     - `difficulty: "EASY" | "MEDIUM" | "HARD" | string`
     - `criterionId?: number`
     - `criterionTitle?: string`
+    - `source: "JD_CRITERIA"`
+    - `ncsProfileId: NcsProfileId`
+    - `ncsQuestionMode: NcsQuestionMode`
+    - `ncsProfileVersion: string`
+    - `alignmentStatus: QuestionAlignmentStatus`
+    - `alignmentScore?: number | null`
+    - `alignmentReason?: string | null`
+    - `evaluatorVersion?: string | null`
     - `expectedKeywords: string[]`
     - `suggestionReason: string`
     - `questionType?: QuestionType`
@@ -1857,11 +1902,13 @@ AI 리포트 금지 기준:
     - 저장 가능한 후보가 없으면 `저장 가능한 질문 후보가 없습니다` 계열의 안내를 표시한다.
 - Processing:
   - API 서버는 장기 AI 생성을 직접 수행하지 않고 `ai_process_logs` 추적 ID만 반환한다.
-  - worker/SQS 페이로드는 `criteria[]`를 포함해야 하며, mock/openai provider 모두 질문 후보에 저장된 평가 기준의 `criterionId`를 포함해야 한다.
-  - OpenAI provider 응답에서 입력 `criteria[].criterionId`와 매칭되지 않는 질문 후보는 저장 가능한 후보로 사용하지 않는다.
-  - AI 품질 검증 세부 기준은 E/A 리뷰 후 확장한다.
+  - worker/SQS 페이로드에는 `postingId`, `policyVersion`, `criteriaVersion`, `source=JD_CRITERIA`와 서버가 조회한 평가 기준 snapshot을 포함한다.
+  - 각 질문 후보는 하나의 `criterionId`와 하나의 NCS profile/mode에만 연결한다.
+  - evaluator가 `LOW_ALIGNMENT`를 반환하면 같은 question mode로 최대 2회 재생성한다.
+  - 2회 실패 후에는 `enums.md`의 허용 fallback mode만 사용할 수 있으며, 여전히 기준 미달이면 `REVIEW_REQUIRED`로 남겨 자동 저장하지 않는다.
+  - evaluator 임계값은 NCS evaluator 계약의 버전값을 사용하며 C 모듈에 별도 상수로 복제하지 않는다.
 - Error Codes:
-  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`, `AI_PROCESS_FAILED`
+  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`, `INTERVIEW_QUESTION_COUNT_INVALID`, `INTERVIEW_NCS_BINDING_INVALID`, `AI_PROCESS_FAILED`
 
 ### API-039 POST /company/interviews/question-sets
 - 도메인: 기업 - 면접관리
@@ -2019,6 +2066,122 @@ AI 리포트 금지 기준:
   - 이미 `IN_PROGRESS` 또는 `COMPLETED` 상태인 세션에는 소급 적용하지 않는다.
 - Error Codes:
   - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`
+
+### API-097 PATCH /company/interviews/question-generation-policy
+- 도메인: 기업 - 면접관리
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 면접 관리 화면 (/company/interviews/settings)
+- UI Type: form
+- 상태 코드: 200 OK
+- 비동기: N
+- Route Owner: `backend/api/src/modules/company-interview`의 `CompanyInterviewController`
+- Request Body:
+  - `postingId`: number, required
+  - `jdCriteriaQuestionCount`: number, required, 0~20
+  - `resumeQuestionCount`: number, required, 0~20
+  - `expectedPolicyVersion?: number`, 전달 시 현재 정책 버전과 일치해야 한다.
+- Validation:
+  - `postingId`는 로그인 기업 소유 공고여야 한다.
+  - 두 질문 수의 합은 1~20이어야 한다.
+  - `evaluationFramework=NCS_3_PROFILE_V1`이면 전체 질문 수는 3 이상이고 평가 기준은 NCS 3개 profile에 정확히 하나씩 연결되어 있어야 한다.
+  - 동시 수정 충돌 방지를 위해 `expectedPolicyVersion` 불일치 시 `COMMON_CONFLICT`를 반환한다.
+- Processing:
+  - 저장 성공 시 `policyVersion`을 1 증가시킨다.
+  - 각 source의 질문 수를 NCS 3개 profile에 균등 배분하며 profile별 개수 차이는 최대 1이다.
+  - 나머지는 평가 기준 `sortOrder` 순으로 배분한다. 동일 입력과 버전은 항상 같은 allocation을 만든다.
+  - 이 API는 생성 정책만 저장하며 AI job을 시작하지 않는다.
+- Response Body:
+  - `postingId: number`
+  - `evaluationFramework: EvaluationFramework`
+  - `jdCriteriaQuestionCount: number`
+  - `resumeQuestionCount: number`
+  - `policyVersion: number`
+  - `criteriaVersion: number`
+  - `allocations[]`
+    - `source: QuestionGenerationSource`
+    - `ncsProfileId: NcsProfileId`
+    - `ncsQuestionMode: NcsQuestionMode`
+    - `count: number`
+  - `warnings: string[]`
+- Error Codes:
+  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_CONFLICT`, `COMMON_VALIDATION_FAILED`
+  - `INTERVIEW_QUESTION_COUNT_INVALID`, `INTERVIEW_NCS_BINDING_INVALID`
+- 관련 ERD 테이블:
+  - postings, evaluation_criteria, interview_question_generation_policies
+
+### API-098 GET /company/interviews/applications/{applicationId}/resume-questions
+- 도메인: 기업 - 면접관리
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 지원자 관리 화면 (/company/recruitments/{recruitmentId}/applicants)
+- UI Type: section
+- 상태 코드: 200 OK
+- 비동기: N
+- Route Owner: `backend/api/src/modules/company-interview`의 `CompanyInterviewController`
+- Path Params:
+  - `applicationId`: number, required
+- Validation:
+  - 지원서와 공고가 로그인 기업 소유여야 한다.
+- Response Body:
+  - `applicationId: number`
+  - `postingId: number`
+  - `status: ResumeQuestionGenerationStatus`
+  - `processLogId: number | null`
+  - `policyVersion: number`
+  - `criteriaVersion: number`
+  - `inputVersion: string | null`, 원문을 노출하지 않는 입력 snapshot 식별자
+  - `items[]`
+    - `personalizedQuestionId: number`
+    - `criterionId: number | null`
+    - `source: "RESUME_PERSONALIZED"`
+    - `questionType: QuestionType`
+    - `content: string`
+    - `ncsProfileId: NcsProfileId`
+    - `ncsQuestionMode: NcsQuestionMode`
+    - `ncsProfileVersion: string`
+    - `alignmentStatus: QuestionAlignmentStatus`
+    - `alignmentScore: number | null`
+    - `alignmentReason: string | null`
+    - `evaluatorVersion: string | null`
+    - `sortOrder: number`
+- Processing:
+  - 이력서 원문·추출 텍스트는 응답하지 않는다.
+  - `READY` 또는 `REVIEW_REQUIRED`일 때 검토 가능한 `items`를 반환한다. 그 외 상태는 `items=[]`와 현재 상태, 추적 가능한 `processLogId`만 제공한다.
+  - 재시도 중인 `LOW_ALIGNMENT` 후보는 목록에 노출하지 않고, 허용 재시도 후에도 통과하지 못한 항목만 `REVIEW_REQUIRED` 상태에서 검토 대상으로 반환한다.
+- Error Codes:
+  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`
+- 관련 ERD 테이블:
+  - applications, application_documents, application_interview_question_batches, application_interview_questions, ai_process_logs
+
+### API-099 POST /company/interviews/applications/{applicationId}/resume-questions/retry
+- 도메인: 기업 - 면접관리
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 지원자 관리 화면 (/company/recruitments/{recruitmentId}/applicants)
+- UI Type: button
+- 상태 코드: 202 Accepted
+- 비동기: Y
+- Route Owner: `backend/api/src/modules/company-interview`의 `CompanyInterviewController`
+- Path Params:
+  - `applicationId`: number, required
+- Request Body:
+  - `expectedPolicyVersion?: number`
+  - `reason?: string`, 500자 이하의 운영 메모
+- Validation:
+  - 지원서와 공고가 로그인 기업 소유여야 한다.
+  - 현재 상태가 `FAILED` 또는 `REVIEW_REQUIRED`여야 한다.
+  - 이력서 문서 추출 상태가 `EXTRACTED`여야 한다.
+- Processing:
+  - 현재 `policyVersion`, `criteriaVersion`, 이력서 입력 snapshot으로 `RESUME_QUESTION_GENERATE` job을 생성한다.
+  - 동일 input version의 `PENDING` 또는 `RUNNING` job이 있으면 새 job을 만들지 않고 기존 추적 ID를 반환한다.
+- Response Body:
+  - `processLogId: number`
+  - `status: "PENDING" | "RUNNING"`
+  - `resumeQuestionStatus: "GENERATING"`
+  - `queued: boolean`
+- Error Codes:
+  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_CONFLICT`, `COMMON_VALIDATION_FAILED`
+  - `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`, `AI_PROCESS_FAILED`
+- 관련 ERD 테이블:
+  - applications, application_documents, interview_question_generation_policies, application_interview_question_batches, ai_process_logs
 
 ## AI/리포트 처리
 
@@ -2803,6 +2966,9 @@ CandidateFolder 입력 제한:
   - 지원서 제출 당시 정보를 `applications` 스냅샷 필드에 저장한다.
   - 이력서/포트폴리오 PDF를 `application_documents`에 연결하고 지원서 제출을 완료한다.
   - (#272) 입력한 연락처(`phone`)를 회원(`users.phone`)에 저장하여 다음 지원 화면에서 자동 입력에 재사용한다.
+  - 공고의 `resumeQuestionCount`가 1 이상이면 이력서 문서의 추출 상태를 기준으로 `resumeQuestionStatus=WAITING_DOCUMENT`를 기록한다. 0이면 `DISABLED`를 기록한다.
+  - 문서 추출 job은 기존 `DOCUMENT_EXTRACT` 흐름으로 시작하며, 지원서 제출 트랜잭션 안에서 이력서 질문을 직접 생성하지 않는다.
+  - Response에는 `applicationId`, `documentExtractionStatus`, `resumeQuestionStatus`를 포함한다.
 - 관련 조회(#272): `GET /candidate/jobs/{jobId}/apply`
   - 지원 화면 진입 시 회원 자동 입력용 `applicant: { name, email, phone, githubUrl, blogUrl, portfolioUrl }`을 함께 반환한다(이름/이메일/연락처는 User, GitHub/블로그/포트폴리오는 프로필 정본, 값 없으면 null). GitHub·블로그·포트폴리오는 프로필에서 자동 채워지고 공고별로 수정 가능하다.
   - 지원서 세트(폴더)는 `GET /candidate/folders`로 조회하며, 세트를 불러오면 링크/이력서/동기/추가설명이 폼에 복사된다(회원 기본정보는 유지, 원본 세트는 불변).
@@ -2896,10 +3062,12 @@ CandidateFolder 입력 제한:
   - 지원 ID, 면접 세션 ID, 동의 상태, 장치 점검 결과
 - 검증/전제조건:
   - 응시 기간 내, 필수 동의 완료, 장치 점검 완료
+  - 공고의 `resumeQuestionCount`가 1 이상이면 지원서별 이력서 질문 상태가 `READY`이고 세션 질문 snapshot이 생성되어 있어야 한다.
 - 성공 응답/처리:
   - 채용 AI 면접 진행 화면으로 이동
 - 오류/예외:
   - 세션 만료, 동의 누락, 장치 권한 오류 시 시작을 제한한다.
+  - 이력서 질문이 준비되지 않았으면 `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`를 반환하며 공통 질문만으로 자동 시작하지 않는다.
 - 관련 ERD 테이블:
   - candidate_profiles, postings, applications, consent_records, interview_sessions, ai_process_logs
 - 비고/미결:
@@ -3198,12 +3366,17 @@ CandidateFolder 입력 제한:
   - 파일 파싱 가능, 링크 접근 권한 확보
 - 성공 응답/처리:
   - 추출 텍스트 저장 및 서류 분석 대기 상태 전환
+  - 지원 완료된 지원서이고 공고의 `resumeQuestionCount`가 1 이상이면 추출 완료 이벤트가 `RESUME_QUESTION_GENERATE` job 생성 조건을 충족시킨다.
+  - job 입력에는 `applicationId`, `postingId`, `documentId`, `policyVersion`, `criteriaVersion`, `inputVersion`만 전달한다. 이력서 원문은 메시지에 복제하지 않고 worker가 저장소에서 조회한다.
+  - 동일 `applicationId + policyVersion + criteriaVersion + inputVersion`의 진행 중 또는 완료 batch가 있으면 중복 생성하지 않는다.
 - 오류/예외:
   - 파싱 실패 시 재업로드 안내 또는 수동 입력 요청 상태를 표시한다.
+  - 추출 실패 시 이력서 질문 상태는 `WAITING_DOCUMENT` 또는 `FAILED`로 기록하고 질문 생성 job을 만들지 않는다.
 - 관련 ERD 테이블:
   - candidate_profiles, file_assets, applications, application_documents, manual_evaluations, ai_process_logs
 - 비고/미결:
   - 독립 화면 아님. 업로드 후 백그라운드 처리
+  - 추출 완료에서 질문 생성으로 이어지는 내부 이벤트와 worker 구현은 D/E/A 리뷰가 필요하다.
 
 ### API-077 POST /candidate/portfolio-links
 - 도메인: 지원자 - 마이페이지
