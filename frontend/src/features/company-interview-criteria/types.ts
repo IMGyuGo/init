@@ -6,6 +6,7 @@ export type EvaluationFramework = "LEGACY" | "NCS_3_PROFILE_V1";
 export type NcsProfileId = "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL";
 export type NcsQuestionMode = "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
 export type QuestionGenerationSource = "JD_CRITERIA" | "RESUME_PERSONALIZED";
+export type QuestionAlignmentStatus = "NOT_EVALUATED" | "ALIGNED" | "LOW_ALIGNMENT" | "REVIEW_REQUIRED";
 
 export type InterviewSettings = {
   posting: {
@@ -49,7 +50,11 @@ export type InterviewSettings = {
     ncsProfileId: NcsProfileId | null;
     ncsQuestionMode: NcsQuestionMode | null;
     ncsProfileVersion: string | null;
-    alignmentStatus: string | null;
+    alignmentStatus: QuestionAlignmentStatus | null;
+    alignmentScore: number | null;
+    alignmentReason: string | null;
+    evaluatorVersion: string | null;
+    sourceProcessLogId: number | null;
   }>;
   timePolicy: {
     preparationTimeSec: number;
@@ -150,6 +155,14 @@ export type GeneratedQuestionCandidate = {
   expectedKeywords: string[];
   suggestionReason: string;
   questionType?: QuestionType;
+  source?: QuestionGenerationSource;
+  ncsProfileId?: NcsProfileId | null;
+  ncsQuestionMode?: NcsQuestionMode | null;
+  ncsProfileVersion?: string | null;
+  alignmentStatus?: QuestionAlignmentStatus;
+  alignmentScore?: number | null;
+  alignmentReason?: string | null;
+  evaluatorVersion?: string | null;
 };
 
 export type GeneratedQuestionSetCandidate = {
@@ -202,6 +215,7 @@ export type CreateInterviewQuestionInput = {
   questionType: QuestionType;
   content: string;
   origin?: QuestionOrigin;
+  sourceProcessLogId?: number;
 };
 
 export type UpdateInterviewQuestionInput = {
@@ -225,7 +239,11 @@ export type CreateInterviewQuestionResult = {
     ncsProfileId: NcsProfileId | null;
     ncsQuestionMode: NcsQuestionMode | null;
     ncsProfileVersion: string | null;
-    alignmentStatus: string | null;
+    alignmentStatus: QuestionAlignmentStatus | null;
+    alignmentScore: number | null;
+    alignmentReason: string | null;
+    evaluatorVersion: string | null;
+    sourceProcessLogId: number | null;
   };
 };
 
@@ -243,14 +261,8 @@ export type UpdateInterviewTimePolicyResult = {
 
 export type GenerateInterviewQuestionsInput = {
   postingId: number;
-  jobDescription: string;
-  questionCount: number;
-  criteria: Array<{
-    criterionId: number;
-    name: string;
-    category?: string;
-    weight?: number;
-  }>;
+  jdCriteriaQuestionCount: number;
+  expectedPolicyVersion?: number;
 };
 
 export type GenerateQuestionSetInput = {
