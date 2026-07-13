@@ -24,10 +24,12 @@ import {
   type RealtimePeerConnectionLike,
 } from "./realtime-webrtc";
 import {
+  classifyIrisGazeDirection,
   countPersonDetections,
   isFacePositionShifted,
   estimateHeadPoseAngles,
   resolveCombinedGazeSignal,
+  smoothIrisGazePosition,
   updateFacePositionBaseline,
   updateMultiplePeopleDetectionState,
   updateSustainedDetectionState,
@@ -287,6 +289,42 @@ const normalCombinedGazeSignal = resolveCombinedGazeSignal({
   headPose: { yawDegrees: 8, pitchDegrees: 6 },
 });
 assert.equal(normalCombinedGazeSignal, undefined);
+
+assert.equal(
+  classifyIrisGazeDirection(
+    { horizontalRatio: 0.53, verticalRatio: 0.54 },
+    { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  ),
+  "CENTER",
+);
+assert.equal(
+  classifyIrisGazeDirection(
+    { horizontalRatio: 0.565, verticalRatio: 0.51 },
+    { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  ),
+  "RIGHT",
+);
+assert.equal(
+  classifyIrisGazeDirection(
+    { horizontalRatio: 0.49, verticalRatio: 0.57 },
+    { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  ),
+  "DOWN",
+);
+
+const smoothedIrisPosition = smoothIrisGazePosition(
+  { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  { horizontalRatio: 0.7, verticalRatio: 0.6 },
+);
+assert.ok(Math.abs(smoothedIrisPosition.horizontalRatio - 0.61) < 0.000001);
+assert.ok(Math.abs(smoothedIrisPosition.verticalRatio - 0.555) < 0.000001);
+
+const moderateIrisOnlySignal = resolveCombinedGazeSignal({
+  irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  irisPosition: { horizontalRatio: 0.59, verticalRatio: 0.51 },
+});
+assert.equal(moderateIrisOnlySignal?.source, "IRIS");
+assert.equal(moderateIrisOnlySignal?.direction, "RIGHT");
 
 const horizontalIrisOnlySignal = resolveCombinedGazeSignal({
   irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },

@@ -133,12 +133,41 @@ export function updateSustainedDetectionState(input: {
   };
 }
 
-const IRIS_HORIZONTAL_AWAY_THRESHOLD = 0.12;
-const IRIS_VERTICAL_AWAY_THRESHOLD = 0.14;
+const IRIS_HORIZONTAL_AWAY_THRESHOLD = 0.08;
+const IRIS_VERTICAL_AWAY_THRESHOLD = 0.1;
+const IRIS_ANALYSIS_HORIZONTAL_DEAD_ZONE = 0.045;
+const IRIS_ANALYSIS_VERTICAL_DEAD_ZONE = 0.06;
 const HEAD_YAW_AWAY_THRESHOLD_DEGREES = 20;
 const HEAD_PITCH_AWAY_THRESHOLD_DEGREES = 16;
 const COMBINED_MIN_COMPONENT_STRENGTH = 0.4;
 const COMBINED_AWAY_THRESHOLD = 1.1;
+
+export function smoothIrisGazePosition(
+  previous: IrisGazePosition | undefined,
+  current: IrisGazePosition,
+  responsiveness = 0.55,
+): IrisGazePosition {
+  if (!previous) return current;
+  const currentWeight = clamp(responsiveness, 0, 1);
+  const previousWeight = 1 - currentWeight;
+  return {
+    horizontalRatio: previous.horizontalRatio * previousWeight + current.horizontalRatio * currentWeight,
+    verticalRatio: previous.verticalRatio * previousWeight + current.verticalRatio * currentWeight,
+  };
+}
+
+export function classifyIrisGazeDirection(
+  position: IrisGazePosition,
+  baseline: IrisGazePosition,
+): GazeDirection | "CENTER" {
+  const horizontalDelta = position.horizontalRatio - baseline.horizontalRatio;
+  const verticalDelta = position.verticalRatio - baseline.verticalRatio;
+  const horizontalStrength = Math.abs(horizontalDelta) / IRIS_ANALYSIS_HORIZONTAL_DEAD_ZONE;
+  const verticalStrength = Math.abs(verticalDelta) / IRIS_ANALYSIS_VERTICAL_DEAD_ZONE;
+  if (horizontalStrength < 1 && verticalStrength < 1) return "CENTER";
+  if (horizontalStrength >= verticalStrength) return horizontalDelta < 0 ? "LEFT" : "RIGHT";
+  return verticalDelta < 0 ? "UP" : "DOWN";
+}
 
 export function estimateIrisGazePosition(landmarks: NormalizedLandmark[]): IrisGazePosition | undefined {
   if (landmarks.length < 478) return undefined;

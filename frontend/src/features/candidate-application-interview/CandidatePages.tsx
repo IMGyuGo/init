@@ -75,11 +75,13 @@ import {
 import { candidateApplicationInterviewRoutes } from "./routes";
 import {
   GAZE_CALIBRATION_REQUIRED_SAMPLES,
+  classifyIrisGazeDirection,
   countPersonDetections,
   isFacePositionShifted,
   estimateHeadPoseAngles,
   estimateIrisGazePosition,
   resolveCombinedGazeSignal,
+  smoothIrisGazePosition,
   updateFacePositionBaseline,
   updateMultiplePeopleDetectionState,
   updateSustainedDetectionState,
@@ -430,6 +432,8 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   gazeCalibrationSampleCount: number;
   gazeBaselineHorizontalRatio?: number;
   gazeBaselineVerticalRatio?: number;
+  smoothedGazeHorizontalRatio?: number;
+  smoothedGazeVerticalRatio?: number;
   headPoseCalibrationSampleCount: number;
   headPoseBaselineYawDegrees?: number;
   headPoseBaselinePitchDegrees?: number;
@@ -4253,21 +4257,39 @@ function InterviewRuntimePanel({
             pitchDegrees: tracker.headPoseBaselinePitchDegrees,
           }
         : undefined;
-    const signal = resolveCombinedGazeSignal({ irisPosition, irisBaseline, headPose, headPoseBaseline });
+    const previousSmoothedIrisPosition =
+      tracker.smoothedGazeHorizontalRatio !== undefined && tracker.smoothedGazeVerticalRatio !== undefined
+        ? {
+            horizontalRatio: tracker.smoothedGazeHorizontalRatio,
+            verticalRatio: tracker.smoothedGazeVerticalRatio,
+          }
+        : irisBaseline;
+    const smoothedIrisPosition = irisPosition
+      ? smoothIrisGazePosition(previousSmoothedIrisPosition, irisPosition)
+      : undefined;
+    if (smoothedIrisPosition) {
+      tracker.smoothedGazeHorizontalRatio = smoothedIrisPosition.horizontalRatio;
+      tracker.smoothedGazeVerticalRatio = smoothedIrisPosition.verticalRatio;
+    }
+    const signal = resolveCombinedGazeSignal({
+      irisPosition: smoothedIrisPosition,
+      irisBaseline,
+      headPose,
+      headPoseBaseline,
+    });
     const nowMs = Date.now();
     if (
       mode === "mock" &&
-      irisPosition &&
+      smoothedIrisPosition &&
       irisBaseline &&
       tracker.gazeTimeline.length < INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES &&
       canAppendTimelineSample(tracker.lastGazeTimelineSampleAtMs, nowMs)
     ) {
-      const irisSignal = resolveCombinedGazeSignal({ irisPosition, irisBaseline });
       tracker.gazeTimeline.push({
         tMs: Math.max(0, nowMs - tracker.recordingStartedAtMs),
-        horizontalOffset: roundTimelineValue(irisPosition.horizontalRatio - irisBaseline.horizontalRatio, 3),
-        verticalOffset: roundTimelineValue(irisPosition.verticalRatio - irisBaseline.verticalRatio, 3),
-        direction: irisSignal?.direction ?? "CENTER",
+        horizontalOffset: roundTimelineValue(smoothedIrisPosition.horizontalRatio - irisBaseline.horizontalRatio, 3),
+        verticalOffset: roundTimelineValue(smoothedIrisPosition.verticalRatio - irisBaseline.verticalRatio, 3),
+        direction: classifyIrisGazeDirection(smoothedIrisPosition, irisBaseline),
       });
       tracker.lastGazeTimelineSampleAtMs = nowMs;
     }
