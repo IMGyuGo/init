@@ -157,6 +157,10 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
       AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
       APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+      NEXT_PUBLIC_AI_INTERVIEWER_SESSION_MODE: ${{ vars.NEXT_PUBLIC_AI_INTERVIEWER_SESSION_MODE }}
+      NEXT_PUBLIC_AI_INTERVIEWER_REALTIME_ENABLED: ${{ vars.NEXT_PUBLIC_AI_INTERVIEWER_REALTIME_ENABLED }}
+      NEXT_PUBLIC_AI_INTERVIEWER_AVATAR_STREAM_ENABLED: ${{ vars.NEXT_PUBLIC_AI_INTERVIEWER_AVATAR_STREAM_ENABLED }}
+      NEXT_PUBLIC_OPENAI_REALTIME_STT_RELAY_ENABLED: ${{ vars.NEXT_PUBLIC_OPENAI_REALTIME_STT_RELAY_ENABLED }}
       NEXT_PUBLIC_TOSS_CLIENT_KEY: ${{ secrets.NEXT_PUBLIC_TOSS_CLIENT_KEY }}
       # 카카오맵 JavaScript 키(선택). 미설정 시 지원자 공고 상세 지도만 비활성, 배포는 정상.
       NEXT_PUBLIC_KAKAO_MAP_KEY: ${{ secrets.NEXT_PUBLIC_KAKAO_MAP_KEY }}
@@ -175,7 +179,12 @@ jobs:
           fi
 
           missing=0
-          for name in AWS_REGION AWS_DEPLOY_ROLE_ARN APP_BASE_URL NEXT_PUBLIC_TOSS_CLIENT_KEY; do
+          for name in AWS_REGION AWS_DEPLOY_ROLE_ARN APP_BASE_URL \
+            NEXT_PUBLIC_AI_INTERVIEWER_SESSION_MODE \
+            NEXT_PUBLIC_AI_INTERVIEWER_REALTIME_ENABLED \
+            NEXT_PUBLIC_AI_INTERVIEWER_AVATAR_STREAM_ENABLED \
+            NEXT_PUBLIC_OPENAI_REALTIME_STT_RELAY_ENABLED \
+            NEXT_PUBLIC_TOSS_CLIENT_KEY; do
             if [ -z "${!name:-}" ]; then
               echo "::error::$name is not configured in the init-main GitHub Environment."
               missing=1
@@ -316,6 +325,10 @@ jobs:
           docker build \
             -f infra/docker/frontend.Dockerfile \
             --build-arg NEXT_PUBLIC_API_BASE_URL="$APP_BASE_URL" \
+            --build-arg NEXT_PUBLIC_AI_INTERVIEWER_SESSION_MODE="$NEXT_PUBLIC_AI_INTERVIEWER_SESSION_MODE" \
+            --build-arg NEXT_PUBLIC_AI_INTERVIEWER_REALTIME_ENABLED="$NEXT_PUBLIC_AI_INTERVIEWER_REALTIME_ENABLED" \
+            --build-arg NEXT_PUBLIC_AI_INTERVIEWER_AVATAR_STREAM_ENABLED="$NEXT_PUBLIC_AI_INTERVIEWER_AVATAR_STREAM_ENABLED" \
+            --build-arg NEXT_PUBLIC_OPENAI_REALTIME_STT_RELAY_ENABLED="$NEXT_PUBLIC_OPENAI_REALTIME_STT_RELAY_ENABLED" \
             --build-arg NEXT_PUBLIC_TOSS_CLIENT_KEY="$NEXT_PUBLIC_TOSS_CLIENT_KEY" \
             --build-arg NEXT_PUBLIC_KAKAO_MAP_KEY="${NEXT_PUBLIC_KAKAO_MAP_KEY:-}" \
             -t "${{ steps.aws.outputs.frontend_image }}" .
