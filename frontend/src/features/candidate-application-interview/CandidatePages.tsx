@@ -106,6 +106,18 @@ import {
   type InterviewHeadPoseTimelineSample,
 } from "./nonverbal-analysis";
 import {
+  buildNonverbalDeviceQaExport,
+  collectNonverbalDeviceQaEnvironment,
+  createNonverbalDeviceQaRun,
+  finishNonverbalDeviceQaScenario,
+  readNonverbalDeviceQaCamera,
+  startNonverbalDeviceQaScenario,
+  summarizeNonverbalDeviceQaRun,
+  type NonverbalDeviceQaRun,
+  type NonverbalDeviceQaScenarioKind,
+  type NonverbalDeviceQaSummary,
+} from "./nonverbal-device-qa";
+import {
   type CameraPipPosition,
   type CandidateApplicationFormState,
   type CandidateDeviceCheckState,
@@ -280,6 +292,17 @@ type RuntimeIntegrityWarning = {
   type: InterviewIntegrityEventType;
   message: string;
   occurredAt: string;
+};
+type NonverbalDeviceQaPanelSnapshot = {
+  run: NonverbalDeviceQaRun;
+  summary: NonverbalDeviceQaSummary;
+};
+type NonverbalQaVideoFrameMetadata = {
+  presentedFrames: number;
+};
+type NonverbalQaVideoElement = HTMLVideoElement & {
+  requestVideoFrameCallback?: (callback: (now: number, metadata: NonverbalQaVideoFrameMetadata) => void) => number;
+  cancelVideoFrameCallback?: (handle: number) => void;
 };
 type BrowserDetectedFace = {
   boundingBox: DOMRectReadOnly;
@@ -473,6 +496,7 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   totalAwayDurationMs: number;
   maxAwayDurationMs: number;
   integrityEvents: InterviewIntegrityEvent[];
+  deviceQa?: NonverbalDeviceQaRun;
 };
 type CandidateApplicationStatusFilter = "ALL" | "WAITING" | "IN_PROGRESS" | "COMPLETED" | "REPORTING";
 type ApplicationBadgeTone = "green" | "yellow" | "purple" | "neutral";
@@ -2488,6 +2512,10 @@ function InterviewRuntimePanel({
   const [retryingQuestionId, setRetryingQuestionId] = useState<number>();
   const [message, setMessage] = useState("");
   const [integrityWarning, setIntegrityWarning] = useState<RuntimeIntegrityWarning | null>(null);
+  const [nonverbalDeviceQaEnabled, setNonverbalDeviceQaEnabled] = useState(false);
+  const [nonverbalDeviceQaSnapshot, setNonverbalDeviceQaSnapshot] = useState<NonverbalDeviceQaPanelSnapshot>();
+  const [nonverbalDeviceQaScenarioKind, setNonverbalDeviceQaScenarioKind] = useState<NonverbalDeviceQaScenarioKind>("NEUTRAL");
+  const [nonverbalDeviceQaMessage, setNonverbalDeviceQaMessage] = useState("녹화를 시작하면 기기 성능 측정을 시작합니다.");
   const [busy, setBusy] = useState(false);
   const [lastAnswer, setLastAnswer] = useState<LastSavedAnswer>();
   const [autoAiPipeline, setAutoAiPipeline] = useState<AutoAiPipelineState>();
@@ -2566,6 +2594,8 @@ function InterviewRuntimePanel({
   const invalidRecordingRetryCountsRef = useRef<Map<number, number>>(new Map());
   const recordingNonverbalTrackerRef = useRef<RecordingNonverbalTracker | null>(null);
   const nonverbalCameraMonitorRef = useRef<number | null>(null);
+  const nonverbalVideoFrameCallbackRef = useRef<number | null>(null);
+  const nonverbalVideoFrameElementRef = useRef<NonverbalQaVideoElement | null>(null);
   const nonverbalIntegrityCleanupRef = useRef<(() => void) | null>(null);
   const nonverbalFaceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const nonverbalFaceDetectorRef = useRef<BrowserFaceDetector | null | undefined>(undefined);
@@ -2577,6 +2607,7 @@ function InterviewRuntimePanel({
   const integrityWarningTimeoutRef = useRef<number | null>(null);
   const integrityWarningLastShownAtRef = useRef<Map<InterviewIntegrityEventType, number>>(new Map());
   const lastInvalidRecordingMetadataRef = useRef<Map<number, InterviewAnswerNonverbalMetadata>>(new Map());
+  const nonverbalDeviceQaRunsRef = useRef<NonverbalDeviceQaRun[]>([]);
   const answerToNextQuestionPerfRef = useRef<{
     startedAt: number;
     startedAtIso: string;
@@ -3271,6 +3302,14 @@ function InterviewRuntimePanel({
   }, [mode]);
 
   useEffect(() => {
+    if (typeof window === "undefined" || mode !== "mock") {
+      setNonverbalDeviceQaEnabled(false);
+      return;
+    }
+    setNonverbalDeviceQaEnabled(new URLSearchParams(window.location.search).get("nonverbalQa") === "1");
+  }, [mode]);
+
+  useEffect(() => {
     if (currentQuestion) {
       setAnswer((current) => ({ ...current, questionId: currentQuestion.questionId }));
       setReansweringQuestionId((current) => (current === currentQuestion.questionId ? current : null));
@@ -3339,6 +3378,7 @@ function InterviewRuntimePanel({
       stopQuestionSpeech();
       stopRuntimeCameraQualityMonitor();
       stopNonverbalCameraMonitor();
+      stopNonverbalVideoFrameMonitor();
       stopNonverbalIntegrityListeners();
       recordingNonverbalTrackerRef.current = null;
       if (integrityWarningTimeoutRef.current !== null) {
@@ -3807,6 +3847,117 @@ function InterviewRuntimePanel({
       window.clearInterval(nonverbalCameraMonitorRef.current);
       nonverbalCameraMonitorRef.current = null;
     }
+  }
+
+  function refreshNonverbalDeviceQaSnapshot(run = recordingNonverbalTrackerRef.current?.deviceQa) {
+    if (!run || !nonverbalDeviceQaEnabled) return;
+    setNonverbalDeviceQaSnapshot({
+      run,
+      summary: summarizeNonverbalDeviceQaRun(run),
+    });
+  }
+
+  function stopNonverbalVideoFrameMonitor() {
+    const video = nonverbalVideoFrameElementRef.current;
+    if (video && nonverbalVideoFrameCallbackRef.current !== null) {
+      video.cancelVideoFrameCallback?.(nonverbalVideoFrameCallbackRef.current);
+    }
+    nonverbalVideoFrameCallbackRef.current = null;
+    nonverbalVideoFrameElementRef.current = null;
+  }
+
+  function startNonverbalVideoFrameMonitor(tracker: RecordingNonverbalTracker) {
+    stopNonverbalVideoFrameMonitor();
+    const run = tracker.deviceQa;
+    const video = videoRef.current as NonverbalQaVideoElement | null;
+    if (!run || !video?.requestVideoFrameCallback) return;
+
+    run.videoFrameCallbackSupported = true;
+    nonverbalVideoFrameElementRef.current = video;
+    const onVideoFrame = (_now: number, metadata: NonverbalQaVideoFrameMetadata) => {
+      const current = recordingNonverbalTrackerRef.current;
+      if (!current || current !== tracker || current.deviceQa !== run) return;
+
+      const nowMs = Date.now();
+      const presentedFrameDelta = run.lastPresentedFrames === undefined
+        ? 1
+        : Math.max(1, metadata.presentedFrames - run.lastPresentedFrames);
+      run.videoDroppedFrameEstimate += Math.max(0, presentedFrameDelta - 1);
+      run.videoPresentedFrameCount += 1;
+      run.lastPresentedFrames = metadata.presentedFrames;
+      run.firstVideoFrameAtMs ??= nowMs;
+      run.lastVideoFrameAtMs = nowMs;
+
+      nonverbalVideoFrameCallbackRef.current = video.requestVideoFrameCallback?.(onVideoFrame) ?? null;
+    };
+    nonverbalVideoFrameCallbackRef.current = video.requestVideoFrameCallback(onVideoFrame);
+  }
+
+  function recordCompletedNonverbalDeviceQaSample(
+    tracker: RecordingNonverbalTracker,
+    input: { facePresent: boolean; irisDetected: boolean; headPoseDetected: boolean },
+  ) {
+    const run = tracker.deviceQa;
+    if (!run) return;
+    run.sampleCompleted += 1;
+    run.firstCompletedSampleAtMs ??= Date.now();
+    if (input.facePresent) run.facePresentSampleCount += 1;
+    if (input.irisDetected) run.irisSampleCount += 1;
+    if (input.headPoseDetected) run.headPoseSampleCount += 1;
+  }
+
+  function handleStartNonverbalDeviceQaScenario() {
+    const tracker = recordingNonverbalTrackerRef.current;
+    const run = tracker?.deviceQa;
+    if (!recording || !tracker || !run) {
+      setNonverbalDeviceQaMessage("답변 녹화를 시작한 뒤 시나리오를 측정해 주세요.");
+      return;
+    }
+    if (run.activeScenario) {
+      setNonverbalDeviceQaMessage("진행 중인 시나리오를 먼저 종료해 주세요.");
+      return;
+    }
+
+    startNonverbalDeviceQaScenario(run, nonverbalDeviceQaScenarioKind, tracker.integrityEvents.length);
+    const instruction = nonverbalDeviceQaScenarioKind === "NEUTRAL"
+      ? "정면을 자연스럽게 바라본 뒤 5초 이상 유지해 주세요."
+      : nonverbalDeviceQaScenarioKind === "EYE_AWAY"
+        ? "고개는 정면에 두고 눈동자만 옆으로 3~5초 움직인 뒤 정면으로 돌아오세요."
+        : "눈은 자연스럽게 두고 고개를 옆으로 3~5초 돌린 뒤 정면으로 돌아오세요.";
+    setNonverbalDeviceQaMessage(instruction);
+    refreshNonverbalDeviceQaSnapshot(run);
+  }
+
+  function handleFinishNonverbalDeviceQaScenario() {
+    const tracker = recordingNonverbalTrackerRef.current;
+    const run = tracker?.deviceQa;
+    if (!tracker || !run?.activeScenario) {
+      setNonverbalDeviceQaMessage("진행 중인 QA 시나리오가 없습니다.");
+      return;
+    }
+
+    const result = finishNonverbalDeviceQaScenario(run, tracker.integrityEvents);
+    setNonverbalDeviceQaMessage(result?.message ?? "시나리오 결과를 만들지 못했습니다.");
+    refreshNonverbalDeviceQaSnapshot(run);
+  }
+
+  function handleDownloadNonverbalDeviceQaResult() {
+    if (typeof window === "undefined" || nonverbalDeviceQaRunsRef.current.length === 0) {
+      setNonverbalDeviceQaMessage("다운로드할 측정 결과가 없습니다.");
+      return;
+    }
+
+    const payload = buildNonverbalDeviceQaExport(nonverbalDeviceQaRunsRef.current);
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `nonverbal-device-qa-${payload.generatedAt.replace(/[:.]/g, "-")}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setNonverbalDeviceQaMessage("QA 결과 JSON을 저장했습니다.");
   }
 
   function stopNonverbalIntegrityListeners() {
@@ -4514,12 +4665,27 @@ function InterviewRuntimePanel({
   }
 
   async function sampleFaceIntegrity(tracker: RecordingNonverbalTracker, questionId: number) {
-    if (nonverbalFaceDetectionPendingRef.current) return;
+    const qaRun = tracker.deviceQa;
+    if (qaRun) qaRun.sampleAttempts += 1;
+    if (nonverbalFaceDetectionPendingRef.current) {
+      if (qaRun) {
+        qaRun.sampleSkippedBusy += 1;
+        refreshNonverbalDeviceQaSnapshot(qaRun);
+      }
+      return;
+    }
 
     const video = videoRef.current;
-    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth <= 0 || video.videoHeight <= 0) return;
+    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth <= 0 || video.videoHeight <= 0) {
+      if (qaRun) {
+        qaRun.sampleSkippedVideoNotReady += 1;
+        refreshNonverbalDeviceQaSnapshot(qaRun);
+      }
+      return;
+    }
 
     nonverbalFaceDetectionPendingRef.current = true;
+    const qaSampleStartedAt = performance.now();
     try {
       const activeTracker = recordingNonverbalTrackerRef.current;
       if (activeTracker && activeTracker === tracker && activeTracker.questionId === questionId) {
@@ -4579,6 +4745,11 @@ function InterviewRuntimePanel({
         const currentAfterPersonDetection = recordingNonverbalTrackerRef.current;
         if (!currentAfterPersonDetection || currentAfterPersonDetection !== tracker || currentAfterPersonDetection.questionId !== questionId) return;
         updateMultiplePeopleSignal(currentAfterPersonDetection, multiplePeopleDetected);
+        recordCompletedNonverbalDeviceQaSample(currentAfterPersonDetection, {
+          facePresent: faces.length > 0,
+          irisDetected: Boolean(irisPosition),
+          headPoseDetected: Boolean(headPose),
+        });
         return;
       }
 
@@ -4586,7 +4757,10 @@ function InterviewRuntimePanel({
       tracker.faceDetectionSupported = Boolean(detector);
       tracker.gazeDetectionSupported = false;
       tracker.headPoseDetectionSupported = false;
-      if (!detector) return;
+      if (!detector) {
+        if (qaRun) qaRun.sampleUnsupported += 1;
+        return;
+      }
 
       const canvas = getNonverbalFaceCanvas();
       const width = NONVERBAL_FACE_SAMPLE_SIZE;
@@ -4629,9 +4803,22 @@ function InterviewRuntimePanel({
       const currentAfterPersonDetection = recordingNonverbalTrackerRef.current;
       if (!currentAfterPersonDetection || currentAfterPersonDetection !== tracker || currentAfterPersonDetection.questionId !== questionId) return;
       updateMultiplePeopleSignal(currentAfterPersonDetection, multiplePeopleDetected);
+      recordCompletedNonverbalDeviceQaSample(currentAfterPersonDetection, {
+        facePresent: faces.length > 0,
+        irisDetected: false,
+        headPoseDetected: false,
+      });
     } catch {
       tracker.faceDetectionSupported = false;
+      if (qaRun) qaRun.sampleErrors += 1;
     } finally {
+      if (qaRun) {
+        qaRun.sampleProcessingDurationsMs.push(Math.max(0, performance.now() - qaSampleStartedAt));
+        if (qaRun.sampleProcessingDurationsMs.length > 600) {
+          qaRun.sampleProcessingDurationsMs.splice(0, qaRun.sampleProcessingDurationsMs.length - 600);
+        }
+        refreshNonverbalDeviceQaSnapshot(qaRun);
+      }
       nonverbalFaceDetectionPendingRef.current = false;
     }
   }
@@ -4745,8 +4932,22 @@ function InterviewRuntimePanel({
       gazeTimeline: [],
       headPoseTimeline: [],
     };
+    if (nonverbalDeviceQaEnabled) {
+      const run = createNonverbalDeviceQaRun({
+        questionId,
+        startedAtMs: tracker.recordingStartedAtMs,
+        sampleIntervalMs: NONVERBAL_CAMERA_SAMPLE_INTERVAL_MS,
+        environment: collectNonverbalDeviceQaEnvironment(),
+        camera: readNonverbalDeviceQaCamera(stream),
+      });
+      tracker.deviceQa = run;
+      nonverbalDeviceQaRunsRef.current.push(run);
+      setNonverbalDeviceQaMessage("성능 측정 중입니다. 원하는 QA 시나리오를 선택해 구간을 기록해 주세요.");
+      refreshNonverbalDeviceQaSnapshot(run);
+    }
     recordingNonverbalTrackerRef.current = tracker;
     startNonverbalIntegrityListeners(questionId);
+    startNonverbalVideoFrameMonitor(tracker);
     void getMediaPipePersonDetector();
 
     const sampleCamera = () => {
@@ -4809,6 +5010,7 @@ function InterviewRuntimePanel({
     durationSeconds: number,
   ): InterviewAnswerNonverbalMetadata | undefined {
     stopNonverbalCameraMonitor();
+    stopNonverbalVideoFrameMonitor();
     stopNonverbalIntegrityListeners();
     const tracker = recordingNonverbalTrackerRef.current;
     recordingNonverbalTrackerRef.current = null;
@@ -4830,6 +5032,11 @@ function InterviewRuntimePanel({
     closeTimedIntegrityEvent(tracker, "VOICE_MOUTH_MISMATCH", tracker.voiceMouthMismatchStartedAtMs, nowMs);
     closeTimedIntegrityEvent(tracker, "VOICE_WITHOUT_FACE", tracker.voiceWithoutFaceStartedAtMs, nowMs);
     closeTimedIntegrityEvent(tracker, "STATIC_VIDEO_FRAME", tracker.staticVideoFrameStartedAtMs, nowMs);
+    if (tracker.deviceQa?.activeScenario) {
+      const result = finishNonverbalDeviceQaScenario(tracker.deviceQa, tracker.integrityEvents, nowMs);
+      setNonverbalDeviceQaMessage(result?.message ?? "진행 중인 QA 시나리오를 종료했습니다.");
+    }
+    refreshNonverbalDeviceQaSnapshot(tracker.deviceQa);
 
     const observedFrameCount = tracker.observedAudioFrameCount;
     const lowAudioRatio = observedFrameCount > 0 ? tracker.lowAudioFrameCount / observedFrameCount : 1;
@@ -7301,6 +7508,20 @@ function InterviewRuntimePanel({
               )}
             </section>
 
+            {nonverbalDeviceQaEnabled ? (
+              <NonverbalDeviceQaPanel
+                snapshot={nonverbalDeviceQaSnapshot}
+                recording={recording}
+                scenarioKind={nonverbalDeviceQaScenarioKind}
+                message={nonverbalDeviceQaMessage}
+                runCount={nonverbalDeviceQaRunsRef.current.length}
+                onScenarioKindChange={setNonverbalDeviceQaScenarioKind}
+                onStartScenario={handleStartNonverbalDeviceQaScenario}
+                onFinishScenario={handleFinishNonverbalDeviceQaScenario}
+                onDownload={handleDownloadNonverbalDeviceQaResult}
+              />
+            ) : null}
+
             <form className="candidate-runtime-form" onSubmit={handleSaveAnswer}>
               <p className="sr-only" aria-live="polite">{runtimeAssistiveStatus}</p>
               <div className="toolbar candidate-interview-controls">
@@ -7381,6 +7602,133 @@ function InterviewRuntimePanel({
       </section>
     </main>
   );
+}
+
+function NonverbalDeviceQaPanel({
+  snapshot,
+  recording,
+  scenarioKind,
+  message,
+  runCount,
+  onScenarioKindChange,
+  onStartScenario,
+  onFinishScenario,
+  onDownload,
+}: {
+  snapshot?: NonverbalDeviceQaPanelSnapshot;
+  recording: boolean;
+  scenarioKind: NonverbalDeviceQaScenarioKind;
+  message: string;
+  runCount: number;
+  onScenarioKindChange: (kind: NonverbalDeviceQaScenarioKind) => void;
+  onStartScenario: () => void;
+  onFinishScenario: () => void;
+  onDownload: () => void;
+}) {
+  const run = snapshot?.run;
+  const summary = snapshot?.summary;
+  const activeScenario = run?.activeScenario;
+  const performanceLabel = summary ? formatNonverbalDeviceQaPerformanceLabel(summary.performanceStatus) : "측정 대기";
+  const performanceTone = summary?.performanceStatus.toLowerCase() ?? "measuring";
+
+  return (
+    <details className="nonverbal-device-qa" open>
+      <summary>
+        <span>실기기 QA</span>
+        <strong className={`nonverbal-device-qa__status nonverbal-device-qa__status--${performanceTone}`}>
+          {performanceLabel}
+        </strong>
+      </summary>
+      <div className="nonverbal-device-qa__body">
+        <p className="nonverbal-device-qa__message">{message}</p>
+        {run && summary ? (
+          <>
+            <dl className="nonverbal-device-qa__environment">
+              <div><dt>환경</dt><dd>{run.environment.browser} · {run.environment.platform}</dd></div>
+              <div><dt>카메라</dt><dd>{formatNonverbalDeviceQaCamera(run)}</dd></div>
+              <div><dt>감지 표본</dt><dd>{run.sampleCompleted}/{run.sampleAttempts} · {summary.completedSamplesPerSecond.toFixed(2)}회/s</dd></div>
+              <div><dt>처리 시간</dt><dd>평균 {summary.averageProcessingMs.toFixed(0)}ms · p95 {summary.p95ProcessingMs.toFixed(0)}ms</dd></div>
+              <div><dt>영상 FPS</dt><dd>{summary.measuredVideoFps?.toFixed(1) ?? "측정 미지원"}</dd></div>
+              <div><dt>표본률</dt><dd>얼굴 {formatQaRate(summary.faceCoverageRate)} · 시선 {formatQaRate(summary.irisCoverageRate)} · 고개 {formatQaRate(summary.headPoseCoverageRate)}</dd></div>
+            </dl>
+
+            <div className="nonverbal-device-qa__scenario" aria-label="오탐 및 미탐 QA 시나리오">
+              <span>측정 시나리오</span>
+              <div className="nonverbal-device-qa__segments">
+                {(["NEUTRAL", "EYE_AWAY", "HEAD_AWAY"] as const).map((kind) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    className={scenarioKind === kind ? "active" : ""}
+                    aria-pressed={scenarioKind === kind}
+                    disabled={Boolean(activeScenario)}
+                    onClick={() => onScenarioKindChange(kind)}
+                  >
+                    {formatNonverbalDeviceQaScenarioLabel(kind)}
+                  </button>
+                ))}
+              </div>
+              <div className="nonverbal-device-qa__actions">
+                <button type="button" className="btn" disabled={!recording || Boolean(activeScenario)} onClick={onStartScenario}>
+                  구간 시작
+                </button>
+                <button type="button" className="btn" disabled={!activeScenario} onClick={onFinishScenario}>
+                  구간 종료
+                </button>
+                <button type="button" className="btn" disabled={runCount === 0} onClick={onDownload}>
+                  JSON 저장
+                </button>
+              </div>
+            </div>
+
+            {run.scenarioResults.length > 0 ? (
+              <ul className="nonverbal-device-qa__results" aria-label="QA 시나리오 결과">
+                {run.scenarioResults.map((result, index) => (
+                  <li key={`${result.kind}-${result.startedAtOffsetMs}-${index}`}>
+                    <strong className={`nonverbal-device-qa__result nonverbal-device-qa__result--${result.status.toLowerCase()}`}>
+                      {result.status}
+                    </strong>
+                    <span>{formatNonverbalDeviceQaScenarioLabel(result.kind)}</span>
+                    <small>{result.message}</small>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </>
+        ) : (
+          <p className="nonverbal-device-qa__empty">답변 녹화를 시작하면 현재 기기에서 측정합니다.</p>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function formatNonverbalDeviceQaPerformanceLabel(status: NonverbalDeviceQaSummary["performanceStatus"]): string {
+  switch (status) {
+    case "GOOD": return "원활";
+    case "DEGRADED": return "성능 저하";
+    case "POOR": return "점검 필요";
+    case "UNAVAILABLE": return "분석 불가";
+    default: return "측정 중";
+  }
+}
+
+function formatNonverbalDeviceQaScenarioLabel(kind: NonverbalDeviceQaScenarioKind): string {
+  switch (kind) {
+    case "EYE_AWAY": return "눈동자 이탈";
+    case "HEAD_AWAY": return "고개 회전";
+    default: return "정면 유지";
+  }
+}
+
+function formatNonverbalDeviceQaCamera(run: NonverbalDeviceQaRun): string {
+  const resolution = run.camera.width && run.camera.height ? `${run.camera.width}×${run.camera.height}` : "해상도 미확인";
+  const frameRate = run.camera.frameRate ? `${Math.round(run.camera.frameRate)}fps` : "FPS 미확인";
+  return `${resolution} · ${frameRate}`;
+}
+
+function formatQaRate(rate: number): string {
+  return `${Math.round(rate * 100)}%`;
 }
 
 function CandidatePageShell({ active, children }: { active: CandidateNavSection; children: ReactNode }) {

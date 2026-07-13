@@ -45,6 +45,13 @@ import {
   summarizeHeadPoseTimeline,
 } from "./nonverbal-analysis";
 import {
+  createNonverbalDeviceQaRun,
+  detectNonverbalDeviceQaBrowser,
+  finishNonverbalDeviceQaScenario,
+  startNonverbalDeviceQaScenario,
+  summarizeNonverbalDeviceQaRun,
+} from "./nonverbal-device-qa";
+import {
   clampCameraPipPosition,
   createCameralessInterviewTestDeviceCheckState,
   createInterviewerSessionActionEvent,
@@ -306,6 +313,64 @@ assert.deepEqual(evaluateTimelineAnalysisQuality(10, 30000), {
 });
 assert.equal(evaluateTimelineAnalysisQuality(2, 5000).status, "INSUFFICIENT");
 assert.equal(evaluateTimelineAnalysisQuality(3, 5000).status, "AVAILABLE");
+
+assert.equal(detectNonverbalDeviceQaBrowser("Mozilla/5.0 Chrome/126.0.0.0 Safari/537.36"), "CHROME");
+assert.equal(detectNonverbalDeviceQaBrowser("Mozilla/5.0 Edg/126.0.0.0 Chrome/126.0.0.0"), "EDGE");
+assert.equal(detectNonverbalDeviceQaBrowser("Mozilla/5.0 Version/17.5 Safari/605.1.15"), "SAFARI");
+
+const deviceQaRun = createNonverbalDeviceQaRun({
+  questionId: 1,
+  startedAtMs: 1000,
+  sampleIntervalMs: 500,
+  environment: {
+    browser: "CHROME",
+    userAgent: "Chrome test",
+    platform: "Win32",
+    hardwareConcurrency: 8,
+  },
+  camera: { width: 1280, height: 720, frameRate: 30 },
+});
+deviceQaRun.sampleAttempts = 20;
+deviceQaRun.sampleCompleted = 20;
+deviceQaRun.sampleProcessingDurationsMs = Array.from({ length: 20 }, () => 100);
+deviceQaRun.facePresentSampleCount = 20;
+deviceQaRun.irisSampleCount = 19;
+deviceQaRun.headPoseSampleCount = 20;
+deviceQaRun.firstCompletedSampleAtMs = 1400;
+deviceQaRun.videoFrameCallbackSupported = true;
+deviceQaRun.videoPresentedFrameCount = 270;
+deviceQaRun.firstVideoFrameAtMs = 1000;
+deviceQaRun.lastVideoFrameAtMs = 10000;
+assert.deepEqual(summarizeNonverbalDeviceQaRun(deviceQaRun, 11000), {
+  elapsedMs: 10000,
+  performanceStatus: "GOOD",
+  completedSamplesPerSecond: 2,
+  sampleCompletionRate: 1,
+  averageProcessingMs: 100,
+  p95ProcessingMs: 100,
+  maxProcessingMs: 100,
+  firstSampleLatencyMs: 400,
+  faceCoverageRate: 1,
+  irisCoverageRate: 0.95,
+  headPoseCoverageRate: 1,
+  measuredVideoFps: 30,
+  estimatedVideoDropRate: 0,
+});
+
+startNonverbalDeviceQaScenario(deviceQaRun, "NEUTRAL", 0, 12000);
+assert.equal(finishNonverbalDeviceQaScenario(deviceQaRun, [], 17000)?.status, "PASS");
+startNonverbalDeviceQaScenario(deviceQaRun, "EYE_AWAY", 0, 18000);
+assert.equal(
+  finishNonverbalDeviceQaScenario(deviceQaRun, [{ type: "GAZE_AWAY", source: "IRIS" }], 23000)?.status,
+  "PASS",
+);
+startNonverbalDeviceQaScenario(deviceQaRun, "HEAD_AWAY", 0, 24000);
+assert.equal(
+  finishNonverbalDeviceQaScenario(deviceQaRun, [{ type: "GAZE_AWAY", source: "IRIS" }], 29000)?.status,
+  "FAIL",
+);
+startNonverbalDeviceQaScenario(deviceQaRun, "NEUTRAL", 0, 30000);
+assert.equal(finishNonverbalDeviceQaScenario(deviceQaRun, [], 31000)?.status, "INCOMPLETE");
 
 const headPoseTimeline = readHeadPoseTimeline({
   headPoseTimeline: [
