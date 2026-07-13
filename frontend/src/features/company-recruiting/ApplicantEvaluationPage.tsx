@@ -10,6 +10,16 @@ import type { ApplicantEvaluation, ApplicantInterviewFileAsset, ScreeningDecisio
 
 const decisions: ScreeningDecision[] = ["UNDECIDED", "PASS", "HOLD", "FAIL"];
 
+type ReportTab = "overview" | "answers" | "integrity" | "submission" | "decision";
+
+const REPORT_TABS: ReadonlyArray<{ id: ReportTab; label: string }> = [
+  { id: "overview", label: "종합" },
+  { id: "answers", label: "면접 답변" },
+  { id: "integrity", label: "응시 무결성" },
+  { id: "submission", label: "지원 정보" },
+  { id: "decision", label: "전형 결정" },
+];
+
 export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }) {
   const [evaluation, setEvaluation] = useState<ApplicantEvaluation | null>(null);
   const [decision, setDecision] = useState<ScreeningDecision>("UNDECIDED");
@@ -17,6 +27,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [openingDocumentId, setOpeningDocumentId] = useState<number | null>(null);
+  const [tab, setTab] = useState<ReportTab>("overview");
 
   const load = useCallback(async (options: { clearMessage?: boolean } = {}) => {
     setLoading(true);
@@ -85,7 +96,6 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   const report = evaluation?.report ?? null;
   const displayAnswers = evaluation ? getDisplayAnswers(evaluation.answers) : [];
   const integritySummary = evaluation ? buildRecruitingIntegritySummary(displayAnswers) : null;
-  const displayedTotalScore = report?.totalScore ?? null;
 
   return (
     <section className="app-page glass-page notion">
@@ -119,25 +129,48 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
 
         {evaluation ? (
           <>
-            <section className="kpi-row status-row">
-              <div className="kpi">
-                <span>지원 상태</span>
-                <strong>{formatRecruitingStatusLabel(evaluation.statuses.applicationStatus)}</strong>
-              </div>
-              <div className="kpi">
-                <span>서류 상태</span>
-                <strong>{formatRecruitingStatusLabel(evaluation.statuses.documentStatus)}</strong>
-              </div>
-              <div className="kpi">
-                <span>면접 상태</span>
-                <strong>{formatRecruitingStatusLabel(evaluation.statuses.interviewStatus)}</strong>
-              </div>
-              <div className="kpi">
-                <span>리포트 상태</span>
-                <strong>{formatRecruitingStatusLabel(evaluation.statuses.reportStatus)}</strong>
-              </div>
-            </section>
+            <nav className="report-tabs" role="tablist" aria-label="지원자 리포트 탭">
+              {REPORT_TABS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === item.id}
+                  className={`report-tab${tab === item.id ? " is-active" : ""}`}
+                  onClick={() => setTab(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </nav>
 
+            {tab === "overview" ? (
+              <div className="report-tabpanel" role="tabpanel">
+                <section className="kpi-row status-row">
+                  <div className="kpi">
+                    <span>지원 상태</span>
+                    <strong>{formatRecruitingStatusLabel(evaluation.statuses.applicationStatus)}</strong>
+                  </div>
+                  <div className="kpi">
+                    <span>서류 상태</span>
+                    <strong>{formatRecruitingStatusLabel(evaluation.statuses.documentStatus)}</strong>
+                  </div>
+                  <div className="kpi">
+                    <span>면접 상태</span>
+                    <strong>{formatRecruitingStatusLabel(evaluation.statuses.interviewStatus)}</strong>
+                  </div>
+                  <div className="kpi">
+                    <span>리포트 상태</span>
+                    <strong>{formatRecruitingStatusLabel(evaluation.statuses.reportStatus)}</strong>
+                  </div>
+                </section>
+
+                <ReportOverview applicantName={evaluation.applicant.name} report={report} />
+              </div>
+            ) : null}
+
+            {tab === "submission" ? (
+              <div className="report-tabpanel" role="tabpanel">
             <section className="panel applicant-submission-panel">
               <div className="panel-head">
                 <div>
@@ -179,90 +212,61 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                 )}
               </div>
             </section>
-
-            <form className="panel" onSubmit={handleSubmit}>
-              <div className="panel-head">
-                <div>
-                  <h2>전형 상태</h2>
-                  <p>저장 가능한 값은 미정, 합격, 보류, 불합격입니다.</p>
-                </div>
-                <button className="btn primary" type="submit" disabled={loading}>
-                  저장
-                </button>
               </div>
-              <div className="grid-2">
-                <label>
-                  전형 상태
-                  <select value={decision} onChange={(event) => setDecision(event.target.value as ScreeningDecision)}>
-                    {decisions.map((item) => (
-                      <option key={item} value={item}>
-                        {formatRecruitingStatusLabel(item)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="wide">
-                  수동 메모
-                  <textarea value={memo} onChange={(event) => setMemo(event.target.value)} />
-                </label>
-              </div>
-            </form>
-
-            <section className="panel">
-              <div className="panel-head">
-                <div>
-                  <h2>채용 리포트</h2>
-                  <p>리포트가 없으면 없음/생성중 상태로 표시합니다.</p>
-                </div>
-                <StatusBadge value={report?.status ?? "NONE_OR_GENERATING"} />
-              </div>
-
-              {report ? (
-                <div className="detail-stack">
-                  <div className="score-summary">
-                    <span>최종 평가 점수</span>
-                    <strong>{displayedTotalScore ?? "점수 없음"}</strong>
-                    <p>{report.summary ?? "요약이 아직 없습니다."}</p>
-                  </div>
-                  {report.scores.length > 0 ? (
-                    <div className="table-wrap">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>기준</th>
-                            <th>점수</th>
-                            <th>근거</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {report.scores.map((score) => (
-                            <tr key={score.scoreId}>
-                              <td>{formatScoreCriterionName(score.criterionName, score.rationale)}</td>
-                              <td>{score.score}</td>
-                              <td>
-                                {score.rationale ?? "근거 없음"}
-                                {score.evidences.map((evidence) => (
-                                  <span key={evidence.evidenceId}>{evidence.evidenceText}</span>
-                                ))}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="empty">세부 점수와 근거가 아직 없습니다.</div>
-                  )}
-                </div>
-              ) : (
-                <div className="empty">리포트가 없거나 생성 중입니다.</div>
-              )}
-            </section>
-
-            {integritySummary && integritySummary.answersWithMetadata > 0 ? (
-              <RecruitingIntegrityReviewPanel summary={integritySummary} />
             ) : null}
 
+            {tab === "decision" ? (
+              <div className="report-tabpanel" role="tabpanel">
+                <form className="panel" onSubmit={handleSubmit}>
+                  <div className="panel-head">
+                    <div>
+                      <h2>전형 결정</h2>
+                      <p>저장 가능한 값은 미정, 합격, 보류, 불합격입니다.</p>
+                    </div>
+                    <button className="btn primary" type="submit" disabled={loading}>
+                      저장
+                    </button>
+                  </div>
+                  <div className="grid-2">
+                    <label>
+                      전형 상태
+                      <select value={decision} onChange={(event) => setDecision(event.target.value as ScreeningDecision)}>
+                        {decisions.map((item) => (
+                          <option key={item} value={item}>
+                            {formatRecruitingStatusLabel(item)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="wide">
+                      수동 메모
+                      <textarea value={memo} onChange={(event) => setMemo(event.target.value)} />
+                    </label>
+                  </div>
+                </form>
+              </div>
+            ) : null}
+
+            {tab === "integrity" ? (
+              <div className="report-tabpanel" role="tabpanel">
+                {integritySummary && integritySummary.answersWithMetadata > 0 ? (
+                  <RecruitingIntegrityReviewPanel summary={integritySummary} />
+                ) : (
+                  <section className="panel">
+                    <div className="panel-head">
+                      <div>
+                        <h2>응시 무결성 참고 신호</h2>
+                        <p>브라우저에서 수집된 미검증 참고 정보입니다.</p>
+                      </div>
+                    </div>
+                    <div className="empty">수집된 응시 무결성 신호가 없습니다.</div>
+                  </section>
+                )}
+              </div>
+            ) : null}
+
+            {tab === "answers" ? (
+              <div className="report-tabpanel" role="tabpanel">
             <section className="panel">
               <div className="panel-head">
                 <div>
@@ -332,12 +336,143 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                 <div className="empty">저장된 면접 답변이 없습니다.</div>
               )}
             </section>
+              </div>
+            ) : null}
           </>
         ) : (
           <div className="empty">평가 상세를 불러오는 중입니다.</div>
         )}
     </section>
   );
+}
+
+function ReportOverview({ applicantName, report }: { applicantName: string; report: ApplicantEvaluation["report"] }) {
+  if (!report) {
+    return (
+      <section className="panel">
+        <div className="panel-head">
+          <div>
+            <h2>종합 평가</h2>
+            <p>리포트가 없으면 없음/생성중 상태로 표시합니다.</p>
+          </div>
+          <StatusBadge value="NONE_OR_GENERATING" />
+        </div>
+        <div className="empty">리포트가 없거나 생성 중입니다.</div>
+      </section>
+    );
+  }
+
+  const adjustment = report.integrityAdjustment ?? null;
+  const displayedScore = report.adjustedTotalScore ?? report.totalScore ?? null;
+  const band = scoreBand(displayedScore);
+  const scorePercent = displayedScore == null ? null : clampPercent(displayedScore);
+
+  return (
+    <section className="panel report-overview">
+      <div className="panel-head">
+        <div>
+          <h2>종합 평가</h2>
+          <p>{applicantName} 님의 면접 결과를 요약합니다.</p>
+        </div>
+        <StatusBadge value={report.status ?? "NONE_OR_GENERATING"} />
+      </div>
+
+      <div className="report-score-hero">
+        <div className="report-gauge" role="img" aria-label={displayedScore == null ? "종합 점수 없음" : `종합 점수 ${displayedScore}점`}>
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <circle className="report-gauge-track" cx="60" cy="60" r="52" />
+            {scorePercent != null ? (
+              <circle
+                className="report-gauge-fill"
+                cx="60"
+                cy="60"
+                r="52"
+                strokeDasharray={`${(scorePercent / 100) * GAUGE_CIRCUMFERENCE} ${GAUGE_CIRCUMFERENCE}`}
+              />
+            ) : null}
+          </svg>
+          <div className="report-gauge-value">
+            <strong>{displayedScore ?? "—"}</strong>
+            <span>종합 점수</span>
+          </div>
+        </div>
+
+        <div className="report-score-side">
+          {band ? <span className={`report-score-band band-${band.tone}`}>{band.label}</span> : null}
+          {adjustment && adjustment.level !== "NONE" ? (
+            <div className="report-integrity-note">
+              <div className="report-integrity-note-head">
+                {adjustment.penalty > 0 ? (
+                  <>
+                    <span className={`report-integrity-badge level-${adjustment.level.toLowerCase()}`}>무결성 감점 {adjustment.penalty}점</span>
+                    {report.totalScore != null ? (
+                      <span className="report-integrity-raw">원점수 {report.totalScore} → 반영 {report.adjustedTotalScore ?? report.totalScore}</span>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className={`report-integrity-badge level-${adjustment.level.toLowerCase()}`}>무결성 참고 신호 · {integrityLevelLabel(adjustment.level)}</span>
+                )}
+              </div>
+              {adjustment.reason ? <p>{adjustment.reason}</p> : null}
+              {adjustment.penalty === 0 ? <p className="report-integrity-hint">참고용 신호로, 점수에는 반영되지 않았습니다. 답변 영상과 함께 확인해 주세요.</p> : null}
+            </div>
+          ) : null}
+          <p className="report-summary-text">{report.summary?.trim() ? report.summary : "요약이 아직 없습니다."}</p>
+        </div>
+      </div>
+
+      <div className="report-competency">
+        <h3>역량별 평가</h3>
+        {report.scores.length > 0 ? (
+          <ul className="report-competency-list">
+            {report.scores.map((score) => {
+              const pct = clampPercent(score.score);
+              return (
+                <li className="report-competency-item" key={score.scoreId}>
+                  <div className="report-competency-row">
+                    <span className="report-competency-name">{formatScoreCriterionName(score.criterionName, score.rationale)}</span>
+                    <span className="report-competency-score">{score.score}</span>
+                  </div>
+                  <div className="report-competency-bar" aria-hidden="true">
+                    <span style={{ width: `${pct}%` }} />
+                  </div>
+                  {score.rationale?.trim() ? <p className="report-competency-rationale">{score.rationale}</p> : null}
+                  {score.evidences.length > 0 ? (
+                    <div className="report-competency-evidence">
+                      {score.evidences.map((evidence) => (
+                        <blockquote key={evidence.evidenceId}>{evidence.evidenceText}</blockquote>
+                      ))}
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <div className="empty">세부 점수와 근거가 아직 없습니다.</div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+const GAUGE_CIRCUMFERENCE = 2 * Math.PI * 52;
+
+function clampPercent(value: number) {
+  return Math.max(0, Math.min(100, value));
+}
+
+function integrityLevelLabel(level: string) {
+  const labels: Record<string, string> = { LOW: "낮음", MEDIUM: "중간", HIGH: "높음" };
+  return labels[level] ?? level;
+}
+
+function scoreBand(score: number | null): { label: string; tone: "high" | "mid" | "low" | "min" } | null {
+  if (score == null) return null;
+  if (score >= 80) return { label: "우수", tone: "high" };
+  if (score >= 60) return { label: "양호", tone: "mid" };
+  if (score >= 40) return { label: "보통", tone: "low" };
+  return { label: "미흡", tone: "min" };
 }
 
 function CompanyAnswerMedia({

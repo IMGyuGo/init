@@ -9971,3 +9971,131 @@ p {
 .notion .applicant-document-row > div { display: grid; gap: 3px; min-width: 0; }
 .notion .applicant-document-row strong { font-size: 14px; }
 .notion .applicant-document-row span { overflow: hidden; color: rgba(55, 53, 47, 0.58); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ===== 기업용 지원자 면접 결과 리포트 (#289) ===== */
+/* 마이페이지식 밑줄 탭 */
+.notion .report-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0 22px;
+  border-bottom: 1px solid rgba(55, 53, 47, 0.12);
+  overflow-x: auto;
+}
+.notion .report-tab {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 40px;
+  padding: 0 14px;
+  margin-bottom: -1px;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(55, 53, 47, 0.55);
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.notion .report-tab:hover { color: #191919; }
+.notion .report-tab.is-active { color: #191919; border-bottom-color: #191919; }
+.notion .report-tabpanel { display: grid; gap: 20px; }
+
+/* 종합 탭: 점수 히어로 */
+.notion .report-overview { display: grid; gap: 24px; }
+.notion .report-score-hero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 28px;
+  align-items: center;
+  padding-bottom: 24px;
+  border-bottom: 1px solid rgba(55, 53, 47, 0.1);
+}
+.notion .report-gauge { position: relative; width: 148px; height: 148px; flex: none; }
+.notion .report-gauge svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.notion .report-gauge-track { fill: none; stroke: rgba(55, 53, 47, 0.1); stroke-width: 12; }
+.notion .report-gauge-fill {
+  fill: none;
+  stroke: #3B6FE0;
+  stroke-width: 12;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.notion .report-gauge-value {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 2px;
+}
+.notion .report-gauge-value strong { font-size: 40px; font-weight: 800; color: #191919; letter-spacing: -0.02em; line-height: 1; }
+.notion .report-gauge-value span { font-size: 12px; color: rgba(55, 53, 47, 0.55); }
+
+.notion .report-score-side { display: grid; gap: 12px; align-content: center; }
+.notion .report-score-band {
+  justify-self: start;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.notion .report-score-band.band-high { color: #1F6E3D; background: rgba(31, 110, 61, 0.1); }
+.notion .report-score-band.band-mid { color: #3B6FE0; background: rgba(59, 111, 224, 0.1); }
+.notion .report-score-band.band-low { color: #B7791F; background: rgba(183, 121, 31, 0.12); }
+.notion .report-score-band.band-min { color: #C0392B; background: rgba(192, 57, 43, 0.1); }
+
+.notion .report-integrity-note {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 10px;
+  background: #FBFBFA;
+}
+.notion .report-integrity-note-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.notion .report-integrity-badge { padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 700; }
+.notion .report-integrity-badge.level-low { color: #B7791F; background: rgba(183, 121, 31, 0.12); }
+.notion .report-integrity-badge.level-medium { color: #C0603B; background: rgba(192, 96, 59, 0.12); }
+.notion .report-integrity-badge.level-high { color: #C0392B; background: rgba(192, 57, 43, 0.1); }
+.notion .report-integrity-raw { font-size: 12.5px; color: rgba(55, 53, 47, 0.6); }
+.notion .report-integrity-note p { margin: 0; font-size: 13px; line-height: 1.6; color: rgba(55, 53, 47, 0.7); }
+.notion .report-integrity-note .report-integrity-hint { font-size: 12px; color: rgba(55, 53, 47, 0.5); }
+.notion .report-integrity-badge.level-none { color: rgba(55, 53, 47, 0.6); background: rgba(55, 53, 47, 0.08); }
+.notion .report-summary-text { margin: 0; font-size: 14.5px; line-height: 1.7; color: #37352F; word-break: keep-all; }
+
+/* 종합 탭: 역량별 바 */
+.notion .report-competency { display: grid; gap: 14px; }
+.notion .report-competency h3 { margin: 0; font-size: 15px; font-weight: 700; color: #191919; }
+.notion .report-competency-list { display: grid; gap: 18px; margin: 0; padding: 0; list-style: none; }
+.notion .report-competency-item { display: grid; gap: 8px; }
+.notion .report-competency-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.notion .report-competency-name { font-size: 14px; font-weight: 600; color: #191919; }
+.notion .report-competency-score { font-size: 15px; font-weight: 800; color: #3B6FE0; letter-spacing: -0.01em; }
+.notion .report-competency-bar { height: 8px; border-radius: 999px; background: rgba(55, 53, 47, 0.08); overflow: hidden; }
+.notion .report-competency-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: #3B6FE0;
+  transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.notion .report-competency-rationale { margin: 0; font-size: 13px; line-height: 1.6; color: rgba(55, 53, 47, 0.7); word-break: keep-all; }
+.notion .report-competency-evidence { display: grid; gap: 6px; }
+.notion .report-competency-evidence blockquote {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 2px solid rgba(59, 111, 224, 0.4);
+  border-radius: 0 6px 6px 0;
+  background: #F7F7F5;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #37352F;
+}
+
+@media (max-width: 640px) {
+  .notion .report-score-hero { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+  .notion .report-score-side { justify-items: center; }
+  .notion .report-score-band { justify-self: center; }
+}
