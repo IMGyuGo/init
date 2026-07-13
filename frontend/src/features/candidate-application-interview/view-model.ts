@@ -577,10 +577,6 @@ export function toSubmitApplicationRequest(state: CandidateApplicationFormState)
     throw new Error("resumeFileId is required before submitting an application.");
   }
 
-  if (!githubUrl || !blogUrl) {
-    throw new Error("githubUrl and blogUrl are required before submitting an application.");
-  }
-
   if (!motivation || !additionalInfo) {
     throw new Error("motivation and additionalInfo are required before submitting an application.");
   }
@@ -597,8 +593,9 @@ export function toSubmitApplicationRequest(state: CandidateApplicationFormState)
     candidateName,
     email,
     phone,
-    githubUrl,
-    blogUrl,
+    // GitHub/블로그는 선택 항목. 비어 있으면 전송에서 제외한다. (#272 2단계)
+    githubUrl: githubUrl || undefined,
+    blogUrl: blogUrl || undefined,
     resumeFileId: state.resumeFileId,
     portfolioFileId: state.portfolioFileId,
     portfolioUrl: state.portfolioUrl?.trim() || undefined,

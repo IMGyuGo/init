@@ -68,8 +68,8 @@ interface ValidatedSubmitApplication {
   candidateName: string;
   email: string;
   phone: string;
-  githubUrl: string;
-  blogUrl: string;
+  githubUrl?: string;
+  blogUrl?: string;
   resumeFileId: number;
   portfolioFileId?: number;
   portfolioUrl?: string;
@@ -150,11 +150,15 @@ export class CandidateService {
 
   async getApplyView(jobId: number, currentUser: CurrentCandidateUser): Promise<ApiResponse<CandidateApplyView>> {
     const jobDetail = await this.getJobDetail(jobId, currentUser);
-    // 로그인 회원 기본정보(이름/이메일/연락처) 자동 입력용. 없으면 빈 값으로 직접 작성. (#272)
+    // 로그인 회원 기본정보(이름/이메일/연락처 + GitHub/블로그/포트폴리오) 자동 입력용.
+    // 값이 없으면 빈 값으로 직접 작성. (#272)
     const applicant = (await this.repository.findApplicantContact(currentUser.userId)) ?? {
       name: "",
       email: "",
       phone: null,
+      githubUrl: null,
+      blogUrl: null,
+      portfolioUrl: null,
     };
     return this.envelope({
       job: jobDetail.data,
@@ -1178,15 +1182,25 @@ export class CandidateService {
       ]);
     }
 
-    if (!this.isNonEmptyString(githubUrl) || !this.isNonEmptyString(blogUrl)) {
-      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "GitHub와 블로그 URL을 확인해주세요.", 400, [
-        { field: "links", reason: "githubUrl and blogUrl are required" },
+    // GitHub/블로그 URL 은 선택 항목(프로필 정본화, #272 2단계). 값이 있을 때만 URL 형식을 검증한다.
+    if (githubUrl !== undefined && githubUrl !== null && typeof githubUrl !== "string") {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "GitHub URL을 확인해주세요.", 400, [
+        { field: "githubUrl", reason: "githubUrl must be a string" },
       ]);
     }
-    const normalizedGithubUrl = githubUrl.trim();
-    const normalizedBlogUrl = blogUrl.trim();
-    this.assertUrl(normalizedGithubUrl, "githubUrl");
-    this.assertUrl(normalizedBlogUrl, "blogUrl");
+    if (blogUrl !== undefined && blogUrl !== null && typeof blogUrl !== "string") {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "블로그 URL을 확인해주세요.", 400, [
+        { field: "blogUrl", reason: "blogUrl must be a string" },
+      ]);
+    }
+    const normalizedGithubUrl = typeof githubUrl === "string" ? this.toOptionalQueryString(githubUrl) : undefined;
+    const normalizedBlogUrl = typeof blogUrl === "string" ? this.toOptionalQueryString(blogUrl) : undefined;
+    if (normalizedGithubUrl) {
+      this.assertUrl(normalizedGithubUrl, "githubUrl");
+    }
+    if (normalizedBlogUrl) {
+      this.assertUrl(normalizedBlogUrl, "blogUrl");
+    }
 
     if (!this.isNonEmptyString(motivation) || !this.isNonEmptyString(additionalInfo)) {
       throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "지원동기와 추가 설명을 입력해주세요.", 400, [

@@ -1210,7 +1210,7 @@ export function CandidateApplicationView({
   }
 
   const basicComplete = Boolean(
-    state.candidateName.trim() && state.email.trim() && state.phone.trim() && state.githubUrl.trim() && state.blogUrl.trim(),
+    state.candidateName.trim() && state.email.trim() && state.phone.trim(),
   );
   const resumeComplete = Boolean(state.resumeFileId);
   const portfolioComplete = hasPortfolioArtifact(state);
@@ -1288,20 +1288,18 @@ export function CandidateApplicationView({
             />
           </label>
           <label>
-            GitHub URL *
+            GitHub URL
             <input
               placeholder="https://github.com/example"
-              required
               type="url"
               value={state.githubUrl}
               onChange={(event) => onStateChange({ ...state, githubUrl: event.currentTarget.value })}
             />
           </label>
           <label>
-            블로그 URL *
+            블로그 URL
             <input
               placeholder="https://blog.example.com"
-              required
               type="url"
               value={state.blogUrl}
               onChange={(event) => onStateChange({ ...state, blogUrl: event.currentTarget.value })}
@@ -1479,7 +1477,7 @@ export function CandidateApplyModal({
   }, [state]);
 
   const basicComplete = Boolean(
-    state.candidateName.trim() && state.email.trim() && state.phone.trim() && state.githubUrl.trim() && state.blogUrl.trim(),
+    state.candidateName.trim() && state.email.trim() && state.phone.trim(),
   );
   const resumeComplete = Boolean(state.resumeFileId);
   const portfolioComplete = hasPortfolioArtifact(state);
@@ -1568,20 +1566,18 @@ export function CandidateApplyModal({
                 />
               </label>
               <label>
-                GitHub URL *
+                GitHub URL
                 <input
                   placeholder="https://github.com/example"
-                  required
                   type="url"
                   value={state.githubUrl}
                   onChange={(event) => onStateChange({ ...state, githubUrl: event.currentTarget.value })}
                 />
               </label>
               <label>
-                블로그 URL *
+                블로그 URL
                 <input
                   placeholder="https://blog.example.com"
-                  required
                   type="url"
                   value={state.blogUrl}
                   onChange={(event) => onStateChange({ ...state, blogUrl: event.currentTarget.value })}
@@ -1721,7 +1717,7 @@ function toApplyValidationMessage(error: unknown): string {
   if (error.message.includes("portfolioFileId") || error.message.includes("portfolioUrl")) {
     return "포트폴리오 URL 또는 PDF를 제출해주세요.";
   }
-  if (error.message.includes("githubUrl") || error.message.includes("blogUrl")) return "GitHub와 블로그 URL을 모두 입력해주세요.";
+  if (error.message.includes("githubUrl") || error.message.includes("blogUrl")) return "GitHub·블로그 URL 형식을 확인해주세요.";
   if (error.message.includes("motivation") || error.message.includes("additionalInfo")) return "지원동기와 추가 설명을 모두 입력해주세요.";
   if (error.message.includes("resumeFileId")) return "이력서 파일을 업로드해주세요.";
   if (error.message.includes("candidateName") || error.message.includes("email") || error.message.includes("phone")) {

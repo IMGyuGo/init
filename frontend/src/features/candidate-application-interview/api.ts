@@ -126,11 +126,14 @@ export interface CandidateDocumentPolicy {
   metadataOnly: boolean;
 }
 
-// 지원 화면 기본정보 자동 입력용 회원 연락처. (#272)
+// 지원 화면 자동 입력용 회원 정보(이름/이메일/연락처 + GitHub/블로그/포트폴리오). (#272)
 export interface ApplicantContact {
   name: string;
   email: string;
   phone: string | null;
+  githubUrl: string | null;
+  blogUrl: string | null;
+  portfolioUrl: string | null;
 }
 
 export interface CandidateApplyView {
@@ -145,8 +148,8 @@ export interface SubmitApplicationRequest {
   candidateName: string;
   email: string;
   phone: string;
-  githubUrl: string;
-  blogUrl: string;
+  githubUrl?: string;
+  blogUrl?: string;
   resumeFileId: number;
   portfolioFileId?: number;
   portfolioUrl?: string;

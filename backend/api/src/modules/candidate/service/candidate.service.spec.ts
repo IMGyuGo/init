@@ -348,6 +348,10 @@ async function run() {
   assert.equal(applyView.data.applicant.name, "테스트 지원자");
   assert.equal(applyView.data.applicant.email, "candidate@example.com");
   assert.equal(applyView.data.applicant.phone, null);
+  // #272 2단계: GitHub/블로그/포트폴리오도 자동 입력 대상(없으면 null).
+  assert.equal(applyView.data.applicant.githubUrl, null);
+  assert.equal(applyView.data.applicant.blogUrl, null);
+  assert.equal(applyView.data.applicant.portfolioUrl, null);
 
   // #272 프로필(내 정보) 편집: 조회 → 수정 → 재조회로 정본이 갱신되는지.
   const initialProfile = await service.getProfile(currentUser);
@@ -825,12 +829,15 @@ async function run() {
       ),
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
   );
+  // #272 2단계: GitHub/블로그 URL 은 선택 항목이므로 없이도 제출이 성공해야 한다.
   const secondSubmitted = await service.submitApplication(
     2,
     createSubmitApplicationDto({
       resumeFileId: resume.data.fileId,
       portfolioFileId: portfolioFile.data.fileId,
       portfolioUrl: "https://portfolio.example.com/kim",
+      githubUrl: undefined,
+      blogUrl: undefined,
     }),
     currentUser,
   );

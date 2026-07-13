@@ -115,11 +115,15 @@ export interface CandidateDocumentPolicy {
   metadataOnly: boolean;
 }
 
-// 지원 화면 기본정보 자동 입력용 회원 연락처(User 에서 조회). (#272)
+// 지원 화면 자동 입력용 회원 정보. 이름/이메일/연락처는 User, GitHub/블로그/포트폴리오는
+// CandidateProfile(프로필 정본)에서 조회한다. (#272)
 export interface ApplicantContact {
   name: string;
   email: string;
   phone: string | null;
+  githubUrl: string | null;
+  blogUrl: string | null;
+  portfolioUrl: string | null;
 }
 
 // 지원자 프로필(내 정보) 정본. 이름/이메일/연락처는 User, 나머지는 CandidateProfile. (#272 프로필 편집)

@@ -128,9 +128,24 @@ export class PrismaCandidateRepository implements CandidateRepository {
   async findApplicantContact(userId: number): Promise<ApplicantContact | undefined> {
     const user = await this.prisma.user.findUnique({
       where: { userId: BigInt(userId) },
-      select: { name: true, email: true, phone: true },
+      select: {
+        name: true,
+        email: true,
+        phone: true,
+        candidateProfile: { select: { githubUrl: true, blogUrl: true, portfolioUrl: true } },
+      },
     });
-    return user ? { name: user.name, email: user.email, phone: user.phone ?? null } : undefined;
+    if (!user) {
+      return undefined;
+    }
+    return {
+      name: user.name,
+      email: user.email,
+      phone: user.phone ?? null,
+      githubUrl: user.candidateProfile?.githubUrl ?? null,
+      blogUrl: user.candidateProfile?.blogUrl ?? null,
+      portfolioUrl: user.candidateProfile?.portfolioUrl ?? null,
+    };
   }
 
   async saveApplicantPhone(userId: number, phone: string): Promise<void> {

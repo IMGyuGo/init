@@ -2786,8 +2786,8 @@ CandidateFolder 입력 제한:
   - `candidateName`: string, required
   - `email`: string, required
   - `phone`: string, required
-  - `githubUrl`: string, required
-  - `blogUrl`: string, required
+  - `githubUrl`: string, optional (#272 2단계, 있으면 URL 형식 검증)
+  - `blogUrl`: string, optional (#272 2단계, 있으면 URL 형식 검증)
   - `resumeFileId`: number, required, PDF FileAsset
   - `portfolioFileId`: number, optional, PDF FileAsset
   - `portfolioUrl`: string, optional
@@ -2796,7 +2796,7 @@ CandidateFolder 입력 제한:
   - `consentTypes`: array, required
 - 검증/전제조건:
   - 공고가 지원 가능 상태여야 한다.
-  - 기본정보, GitHub URL, 블로그 URL, 이력서 PDF, 지원동기, 추가설명을 모두 입력해야 한다.
+  - 기본정보(이름/이메일/연락처), 이력서 PDF, 지원동기, 추가설명을 입력해야 한다. GitHub·블로그 URL은 선택이며 프로필에서 자동 입력된다.
   - 포트폴리오 URL 또는 PDF FileAsset 중 하나 이상을 제출해야 하며, 둘 다 제출할 수도 있다.
   - 제출 파일은 현재 지원자 소유의 ACTIVE FileAsset이어야 한다.
 - 성공 응답/처리:
@@ -2804,7 +2804,7 @@ CandidateFolder 입력 제한:
   - 이력서/포트폴리오 PDF를 `application_documents`에 연결하고 지원서 제출을 완료한다.
   - (#272) 입력한 연락처(`phone`)를 회원(`users.phone`)에 저장하여 다음 지원 화면에서 자동 입력에 재사용한다.
 - 관련 조회(#272): `GET /candidate/jobs/{jobId}/apply`
-  - 지원 화면 진입 시 회원 기본정보 자동 입력용 `applicant: { name, email, phone }`(User 조회, 저장된 연락처 없으면 `phone`은 null)을 함께 반환한다.
+  - 지원 화면 진입 시 회원 자동 입력용 `applicant: { name, email, phone, githubUrl, blogUrl, portfolioUrl }`을 함께 반환한다(이름/이메일/연락처는 User, GitHub/블로그/포트폴리오는 프로필 정본, 값 없으면 null). GitHub·블로그·포트폴리오는 프로필에서 자동 채워지고 공고별로 수정 가능하다.
   - 지원서 세트(폴더)는 `GET /candidate/folders`로 조회하며, 세트를 불러오면 링크/이력서/동기/추가설명이 폼에 복사된다(회원 기본정보는 유지, 원본 세트는 불변).
 - 오류/예외:
   - 파일 형식 오류, 용량 초과, 이미 지원한 공고, 마감 공고이면 제출을 제한한다.

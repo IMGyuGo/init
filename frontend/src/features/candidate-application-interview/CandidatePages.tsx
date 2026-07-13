@@ -625,6 +625,9 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
           candidateName: current.candidateName || applicant.name,
           email: current.email || applicant.email,
           phone: current.phone || (applicant.phone ?? ""),
+          githubUrl: current.githubUrl || (applicant.githubUrl ?? ""),
+          blogUrl: current.blogUrl || (applicant.blogUrl ?? ""),
+          portfolioUrl: current.portfolioUrl || (applicant.portfolioUrl ?? undefined),
         }));
         setApplyFolders(folderRes.data.items);
         setApplyPrefilled(true);
@@ -737,7 +740,7 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
   const load = useCallback(() => getCandidateApi().getApplyView(jobId), [jobId]);
   const { data, loading, error } = useCandidateResource(load, [jobId]);
 
-  // #272 회원 기본정보 자동 입력: 지원 화면 진입 시 저장된 이름/이메일/연락처를 채운다(빈 칸만).
+  // #272 회원 기본정보 자동 입력: 지원 화면 진입 시 프로필의 이름/이메일/연락처/GitHub/블로그/포트폴리오를 채운다(빈 칸만).
   const applicant = data?.data.applicant;
   useEffect(() => {
     if (!applicant) {
@@ -748,6 +751,9 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
       candidateName: current.candidateName || applicant.name,
       email: current.email || applicant.email,
       phone: current.phone || (applicant.phone ?? ""),
+      githubUrl: current.githubUrl || (applicant.githubUrl ?? ""),
+      blogUrl: current.blogUrl || (applicant.blogUrl ?? ""),
+      portfolioUrl: current.portfolioUrl || (applicant.portfolioUrl ?? undefined),
     }));
   }, [applicant]);
 

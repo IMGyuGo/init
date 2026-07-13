@@ -200,16 +200,23 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     return candidateId;
   }
 
-  async findApplicantContact(userId: number): Promise<ApplicantContact | undefined> {
-    return this.applicantContacts.get(userId) ?? { name: "테스트 지원자", email: "candidate@example.com", phone: null };
-  }
-
-  async saveApplicantPhone(userId: number, phone: string): Promise<void> {
-    const prev = this.applicantContacts.get(userId) ?? {
+  private defaultApplicantContact(): ApplicantContact {
+    return {
       name: "테스트 지원자",
       email: "candidate@example.com",
       phone: null,
+      githubUrl: null,
+      blogUrl: null,
+      portfolioUrl: null,
     };
+  }
+
+  async findApplicantContact(userId: number): Promise<ApplicantContact | undefined> {
+    return this.applicantContacts.get(userId) ?? this.defaultApplicantContact();
+  }
+
+  async saveApplicantPhone(userId: number, phone: string): Promise<void> {
+    const prev = this.applicantContacts.get(userId) ?? this.defaultApplicantContact();
     this.applicantContacts.set(userId, { ...prev, phone });
   }
 
