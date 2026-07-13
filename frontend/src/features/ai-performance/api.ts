@@ -1,10 +1,20 @@
 "use client";
 
 import { apiFetch } from "@/api/client";
+import type { ClientNextStepType } from "./client-next-step";
 
 const USER_PERCEIVED_NEXT_READY_EVENT = "ANSWER_SUBMIT_TO_NEXT_READY";
 
+export type AiWorkCategory =
+  | "VOICE_TRANSCRIPTION"
+  | "FOLLOW_UP_GENERATION"
+  | "REPORT_GENERATION"
+  | "QUESTION_PREPARATION"
+  | "CRITERIA_PREPARATION"
+  | "OTHER";
+
 export interface AiPerformanceSummary {
+  sampleLimit: number;
   jobs: PerformanceSummaryBlock;
   clientEvents: PerformanceSummaryBlock;
   cost: {
@@ -16,6 +26,22 @@ export interface AiPerformanceSummary {
     audioSeconds: number;
   };
   byProcessType: Array<PerformanceSummaryBlock & { processType: string; estimatedCostUsd: number }>;
+  byWorkCategory: AiWorkCategorySummary[];
+  byClientNextStep: ClientNextStepSummary[];
+}
+
+export interface AiWorkCategorySummary {
+  workCategory: AiWorkCategory;
+  count: number;
+  measuredCount: number;
+  averageDurationMs?: number;
+  p95DurationMs?: number;
+  failureRate?: number;
+  estimatedCostUsd: number;
+}
+
+export interface ClientNextStepSummary extends PerformanceSummaryBlock {
+  nextQuestionType: ClientNextStepType;
 }
 
 export interface PerformanceSummaryBlock {
@@ -30,6 +56,7 @@ export interface PerformanceSummaryBlock {
 export interface AiPerformanceJob {
   processLogId: number;
   processType: string;
+  workCategory: AiWorkCategory;
   status: string;
   startedAt?: string;
   completedAt?: string;
@@ -54,6 +81,10 @@ export interface ClientPerformanceEvent {
   durationMs: number;
   startedAt?: string;
   completedAt?: string;
+  metadata?: Record<string, unknown>;
+  nextQuestionType: ClientNextStepType;
+  nextReady?: boolean;
+  outcome?: string;
   createdAt: string;
 }
 

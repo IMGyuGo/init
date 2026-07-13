@@ -169,35 +169,6 @@ variable "github_oidc_provider_arn" {
   default     = ""
 }
 
-variable "enable_ses_domain_identity" {
-  description = "Create SES domain identity and Route53 verification records."
-  type        = bool
-  default     = false
-}
-
-variable "ses_domain_name" {
-  description = "SES domain identity name when enable_ses_domain_identity is true."
-  type        = string
-  default     = ""
-}
-
-variable "ses_mail_from_subdomain" {
-  description = "Subdomain prefix for SES custom MAIL FROM. Example: mail -> mail.example.com."
-  type        = string
-  default     = "mail"
-}
-
-variable "ses_mail_from_behavior_on_mx_failure" {
-  description = "SES behavior if the custom MAIL FROM MX record cannot be read."
-  type        = string
-  default     = "UseDefaultValue"
-
-  validation {
-    condition     = contains(["UseDefaultValue", "RejectMessage"], var.ses_mail_from_behavior_on_mx_failure)
-    error_message = "ses_mail_from_behavior_on_mx_failure must be UseDefaultValue or RejectMessage."
-  }
-}
-
 variable "slack_team_id" {
   description = "Slack workspace/team ID authorized in Amazon Q Developer in chat applications."
   type        = string

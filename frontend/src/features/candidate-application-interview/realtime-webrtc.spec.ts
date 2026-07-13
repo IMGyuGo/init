@@ -13,6 +13,7 @@ import {
   type RealtimeDataChannelLike,
   type RealtimePeerConnectionLike,
 } from "./realtime-webrtc";
+import * as realtimeWebRtc from "./realtime-webrtc";
 
 class FakeRealtimeDataChannel implements RealtimeDataChannelLike {
   readyState: RTCDataChannelState = "connecting";
@@ -134,6 +135,47 @@ function createFakeAudioTrack(enabled = true): MediaStreamTrack {
     clone: track.clone,
     stop: track.stop,
   } as MediaStreamTrack & { stopped: boolean };
+}
+
+function testRealtimeSessionRequestWaitsForLiveMicrophoneStream() {
+  const shouldStartRealtimeSession = Reflect.get(
+    realtimeWebRtc,
+    "shouldStartRealtimeSession",
+  ) as ((input: {
+    setupCompleted: boolean;
+    runtimeStatus: string;
+    localStream: MediaStream | null;
+  }) => boolean) | undefined;
+
+  assert.equal(typeof shouldStartRealtimeSession, "function");
+  assert.equal(
+    shouldStartRealtimeSession?.({
+      setupCompleted: true,
+      runtimeStatus: "IN_PROGRESS",
+      localStream: null,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldStartRealtimeSession?.({
+      setupCompleted: true,
+      runtimeStatus: "IN_PROGRESS",
+      localStream: {
+        getAudioTracks: () => [{ readyState: "ended" } as MediaStreamTrack],
+      } as MediaStream,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldStartRealtimeSession?.({
+      setupCompleted: true,
+      runtimeStatus: "IN_PROGRESS",
+      localStream: {
+        getAudioTracks: () => [createFakeAudioTrack()],
+      } as MediaStream,
+    }),
+    true,
+  );
 }
 
 async function testConnectionWaitsForOpenDataChannel() {
@@ -478,6 +520,7 @@ function testSpeechClientEventRestoresRealtimeMicrophoneWhenSendFails() {
 }
 
 async function main() {
+  testRealtimeSessionRequestWaitsForLiveMicrophoneStream();
   testQuestionSpeechResponseEventUsesOpenAiResponseCreate();
   testFollowUpQuestionSpeechResponseEventUsesFollowUpPurpose();
   testEncouragementSpeechResponseEventUsesExactText();

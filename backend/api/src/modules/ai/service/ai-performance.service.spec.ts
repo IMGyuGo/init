@@ -463,15 +463,103 @@ describe("AiPerformanceService", () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.clientPerformanceLog.create).not.toHaveBeenCalled();
   });
+
+  it("parses client event metadata safely and classifies missing values as UNKNOWN", async () => {
+    const prisma = createPrisma();
+    prisma.clientPerformanceLog.findMany.mockResolvedValue([
+      clientEventRow(1, 1800, JSON.stringify({
+        outcome: "FOLLOW_UP_READY",
+        nextReady: true,
+        nextQuestionType: "FOLLOW_UP_QUESTION"
+      })),
+      clientEventRow(2, 900, "{invalid-json"),
+      clientEventRow(3, 1200, JSON.stringify({ nextReady: false, nextQuestionType: "NOT_A_REAL_TYPE" }))
+    ]);
+
+    const service = new AiPerformanceService(prisma as unknown as PrismaService);
+    const result = await service.listClientEvents({ limit: 20 });
+
+    expect(result[0]).toEqual(expect.objectContaining({
+      clientPerformanceLogId: 1,
+      nextQuestionType: "FOLLOW_UP_QUESTION",
+      nextReady: true,
+      outcome: "FOLLOW_UP_READY",
+      metadata: expect.objectContaining({ nextQuestionType: "FOLLOW_UP_QUESTION" })
+    }));
+    expect(result[1]).toEqual(expect.objectContaining({
+      clientPerformanceLogId: 2,
+      nextQuestionType: "UNKNOWN",
+      metadata: undefined
+    }));
+    expect(result[2]).toEqual(expect.objectContaining({
+      clientPerformanceLogId: 3,
+      nextQuestionType: "UNKNOWN",
+      nextReady: false
+    }));
+  });
+
+  it("summarizes AI jobs by work category and client events by actual next step", async () => {
+    const prisma = createPrisma();
+    prisma.aiProcessLog.findMany.mockResolvedValue([
+      aiJobRow(1, "STT", "COMPLETED", 1000, 0.01),
+      aiJobRow(2, "FOLLOW_UP", "FAILED", 5000, 0.02),
+      aiJobRow(3, "REPORT_GENERATE", "COMPLETED", 12000, 0.03),
+      aiJobRow(4, "QUESTION_GENERATE", "COMPLETED", 2000, 0.04),
+      aiJobRow(5, "QUESTION_SET_GENERATE", "COMPLETED", 4000, 0.05),
+      aiJobRow(6, "CRITERIA_SUGGEST", "COMPLETED", 1500, 0.06),
+      aiJobRow(7, "DOCUMENT_EXTRACT", "COMPLETED", 800, 0.07)
+    ]);
+    prisma.clientPerformanceLog.findMany.mockResolvedValue([
+      clientEventRow(1, 3000, JSON.stringify({ nextReady: true, nextQuestionType: "STANDARD_QUESTION" })),
+      clientEventRow(2, 5000, JSON.stringify({ nextReady: true, nextQuestionType: "FOLLOW_UP_QUESTION" })),
+      clientEventRow(3, 6000, JSON.stringify({ nextReady: false, nextQuestionType: "NOT_READY" })),
+      clientEventRow(4, 1000, "{invalid-json")
+    ]);
+
+    const service = new AiPerformanceService(prisma as unknown as PrismaService);
+    const result = await service.summary({ limit: 200, eventName: "ANSWER_SUBMIT_TO_NEXT_READY" });
+
+    expect(result.sampleLimit).toBe(200);
+    expect(result.clientEvents).toEqual(expect.objectContaining({
+      count: 4,
+      over4sRate: 0.5,
+      failureRate: 0.25
+    }));
+    expect(result.byWorkCategory.find((row) => row.workCategory === "QUESTION_PREPARATION")).toEqual(
+      expect.objectContaining({
+        count: 2,
+        averageDurationMs: 3000,
+        p95DurationMs: 4000,
+        estimatedCostUsd: 0.09
+      })
+    );
+    expect(result.byWorkCategory.find((row) => row.workCategory === "FOLLOW_UP_GENERATION")).toEqual(
+      expect.objectContaining({ count: 1, failureRate: 1 })
+    );
+    expect(result.byClientNextStep.find((row) => row.nextQuestionType === "STANDARD_QUESTION")).toEqual(
+      expect.objectContaining({ count: 1, p95DurationMs: 3000, over4sRate: 0, failureRate: 0 })
+    );
+    expect(result.byClientNextStep.find((row) => row.nextQuestionType === "FOLLOW_UP_QUESTION")).toEqual(
+      expect.objectContaining({ count: 1, p95DurationMs: 5000, over4sRate: 1, failureRate: 0 })
+    );
+    expect(result.byClientNextStep.find((row) => row.nextQuestionType === "NOT_READY")).toEqual(
+      expect.objectContaining({ count: 1, failureRate: 1 })
+    );
+    expect(result.byClientNextStep.find((row) => row.nextQuestionType === "UNKNOWN")).toEqual(
+      expect.objectContaining({ count: 1 })
+    );
+  });
 });
 
 function createPrisma() {
   return {
     clientPerformanceLog: {
-      create: jest.fn()
+      create: jest.fn(),
+      findMany: jest.fn()
     },
     aiProcessLog: {
-      findUnique: jest.fn()
+      findUnique: jest.fn(),
+      findMany: jest.fn()
     },
     interviewSession: {
       findUnique: jest.fn()
@@ -485,5 +573,42 @@ function createPrisma() {
     question: {
       findUnique: jest.fn()
     }
+  };
+}
+
+function clientEventRow(id: number, durationMs: number, metadataJson: string | null) {
+  const createdAt = new Date(`2026-07-06T10:00:${String(id).padStart(2, "0")}.000Z`);
+  return {
+    clientPerformanceLogId: BigInt(id),
+    eventName: "ANSWER_SUBMIT_TO_NEXT_READY",
+    processLogId: null,
+    sessionId: BigInt(10),
+    applicationId: null,
+    questionId: BigInt(id),
+    durationMs,
+    startedAt: createdAt,
+    completedAt: createdAt,
+    metadataJson,
+    createdAt
+  };
+}
+
+function aiJobRow(id: number, processType: string, status: string, durationMs: number, estimatedCostUsd: number) {
+  const createdAt = new Date(`2026-07-06T11:00:${String(id).padStart(2, "0")}.000Z`);
+  return {
+    processLogId: BigInt(id),
+    processType,
+    status,
+    startedAt: createdAt,
+    completedAt: createdAt,
+    durationMs,
+    modelName: "test-model",
+    inputTokens: 10,
+    outputTokens: 5,
+    audioSeconds: processType === "STT" ? 3 : null,
+    estimatedCostUsd,
+    failureCategory: status === "FAILED" ? "NON_RETRYABLE" : null,
+    failureReason: status === "FAILED" ? "test failure" : null,
+    createdAt
   };
 }

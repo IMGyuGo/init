@@ -1,0 +1,42 @@
+{
+  "id": "existing-look",
+  "status": "draft-generated-source",
+  "canvas": {
+    "width": 1024,
+    "height": 1536,
+    "centerX": 512,
+    "faceAnchor": { "x": 512, "y": 560 },
+    "eyeAnchor": { "x": 512, "y": 448 },
+    "mouthAnchor": { "x": 512, "y": 585 },
+    "neckAnchor": { "x": 512, "y": 760 }
+  },
+  "previewImage": "normalized/master.png",
+  "source": {
+    "method": "local image generation with chroma-key alpha removal",
+    "reference": "Current local interviewer appearance",
+    "promptFamily": "identity-preserve, same framing, independent rigging layer"
+  },
+  "layers": [
+    { "name": "back-hair", "pngPath": "normalized/back-hair.png", "rgbaPath": "normalized/back-hair.rgba", "visible": true, "anchor": { "x": 512, "y": 510 } },
+    { "name": "torso", "pngPath": "normalized/torso.png", "rgbaPath": "normalized/torso.rgba", "visible": true, "anchor": { "x": 512, "y": 1050 } },
+    { "name": "face-neck", "pngPath": "normalized/face-neck.png", "rgbaPath": "normalized/face-neck.rgba", "visible": true, "anchor": { "x": 512, "y": 620 } },
+    { "name": "eyes-brows", "pngPath": "normalized/eyes-brows.png", "rgbaPath": "normalized/eyes-brows.rgba", "visible": false, "anchor": { "x": 512, "y": 448 } },
+    { "name": "eye-left-open", "pngPath": "normalized/eye-left-open.png", "rgbaPath": "normalized/eye-left-open.rgba", "visible": true, "anchor": { "x": 452, "y": 448 } },
+    { "name": "eye-right-open", "pngPath": "normalized/eye-right-open.png", "rgbaPath": "normalized/eye-right-open.rgba", "visible": true, "anchor": { "x": 598, "y": 448 } },
+    { "name": "eyes-closed", "pngPath": "normalized/eyes-closed.png", "rgbaPath": "normalized/eyes-closed.rgba", "visible": false, "anchor": { "x": 512, "y": 448 } },
+    { "name": "pupils", "pngPath": "normalized/pupils.png", "rgbaPath": "normalized/pupils.rgba", "visible": false, "anchor": { "x": 512, "y": 460 } },
+    { "name": "mouth-rest", "pngPath": "normalized/mouth-rest.png", "rgbaPath": "normalized/mouth-rest.rgba", "visible": true, "anchor": { "x": 512, "y": 585 } },
+    { "name": "mouth-closed", "pngPath": "normalized/mouth-closed.png", "rgbaPath": "normalized/mouth-closed.rgba", "visible": false, "anchor": { "x": 512, "y": 585 } },
+    { "name": "mouth-open", "pngPath": "normalized/mouth-open.png", "rgbaPath": "normalized/mouth-open.rgba", "visible": false, "anchor": { "x": 512, "y": 585 } },
+    { "name": "mouth-wide", "pngPath": "normalized/mouth-wide.png", "rgbaPath": "normalized/mouth-wide.rgba", "visible": false, "anchor": { "x": 512, "y": 585 } },
+    { "name": "mouth-round", "pngPath": "normalized/mouth-round.png", "rgbaPath": "normalized/mouth-round.rgba", "visible": false, "anchor": { "x": 512, "y": 585 } },
+    { "name": "mouth-teeth", "pngPath": "normalized/mouth-teeth.png", "rgbaPath": "normalized/mouth-teeth.rgba", "visible": false, "anchor": { "x": 512, "y": 585 } },
+    { "name": "front-hair", "pngPath": "normalized/front-hair.png", "rgbaPath": "normalized/front-hair.rgba", "visible": true, "anchor": { "x": 512, "y": 500 } }
+  ],
+  "knownLimitations": [
+    "The generated separation is a rigging draft, not an artist-approved Live2D model source.",
+    "Hair overlap and face-edge cleanup require manual art QA before Cubism import.",
+    "The open-eye crops still include embedded pupils, so the standalone pupils layer is reference-only until a clean sclera/eyelid source is supplied.",
+    "The six mouth states are aligned reference frames. They are not yet separately deformable upper lip, lower lip, teeth, tongue, and mouth-interior art meshes."
+  ]
+}

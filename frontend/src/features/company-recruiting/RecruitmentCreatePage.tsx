@@ -24,6 +24,8 @@ import {
   type PostingExtraInfoKey,
   type PostingExtraInfo,
 } from "./posting-extra-info";
+import { geocodeAddress } from "../../lib/kakao-maps";
+import { BackButton } from "./CompanyRecruitingChrome";
 import { buildInterviewSettingsHref } from "./routes";
 import { extractPostingDraftFromJob, type PostingDraftResult } from "./posting-ai-draft";
 import { applyPostingDraftToFormState } from "./posting-ai-draft-form";
@@ -59,6 +61,51 @@ const MAX_GALLERY_IMAGES = 5;
 const AI_DRAFT_MAX_POLL_ATTEMPTS = 20;
 const AI_DRAFT_POLL_INTERVAL_MS = 1000;
 
+// 다음(카카오) 우편번호 서비스 — API 키 불필요, 클라이언트 팝업. (#270 회사 위치 주소 검색)
+const DAUM_POSTCODE_SRC = "https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js";
+
+interface DaumPostcodeData {
+  roadAddress: string;
+  jibunAddress: string;
+  zonecode: string;
+}
+interface DaumPostcodeInstance {
+  open: () => void;
+}
+interface DaumPostcodeConstructor {
+  new (options: { oncomplete: (data: DaumPostcodeData) => void }): DaumPostcodeInstance;
+}
+declare global {
+  interface Window {
+    daum?: { Postcode: DaumPostcodeConstructor };
+  }
+}
+
+function loadDaumPostcode(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (typeof window === "undefined") {
+      reject(new Error("window unavailable"));
+      return;
+    }
+    if (window.daum?.Postcode) {
+      resolve();
+      return;
+    }
+    const existing = document.querySelector<HTMLScriptElement>(`script[src="${DAUM_POSTCODE_SRC}"]`);
+    if (existing) {
+      existing.addEventListener("load", () => resolve());
+      existing.addEventListener("error", () => reject(new Error("postcode load failed")));
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = DAUM_POSTCODE_SRC;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("postcode load failed"));
+    document.body.appendChild(script);
+  });
+}
+
 type FormState = {
   title: string;
   jobRole: string;
@@ -71,6 +118,10 @@ type FormState = {
   careerMaxYears: number;
   employmentTypeCode: string;
   recruitmentType: string;
+  // 회사 위치 도로명 주소(우편번호 검색으로 채움) + 위경도(지도 SDK geocoder 로 변환).
+  workplaceAddress: string;
+  workplaceLat: number | null;
+  workplaceLng: number | null;
   extraInfo: PostingExtraInfo;
   structuredJobDescription: StructuredJobDescription;
 };
@@ -95,6 +146,9 @@ function createInitialForm(): FormState {
     careerMaxYears: CAREER_MAX_YEARS,
     employmentTypeCode: "",
     recruitmentType: "",
+    workplaceAddress: "",
+    workplaceLat: null,
+    workplaceLng: null,
     // 경력 기본값(신입~상한)은 "경력무관" 라벨로 채워 기본 정보 검증을 통과시킨다.
     extraInfo: {
       ...createEmptyPostingExtraInfo(),
@@ -138,6 +192,10 @@ function buildRecruitmentPreviewJob(form: FormState, companyName: string, compan
     jobDescription,
     techStacks: tags,
     createdAt: new Date().toISOString(),
+    jobRoleCode: form.jobRoleCode || null,
+    workplaceAddress: form.workplaceAddress || null,
+    workplaceLat: form.workplaceLat,
+    workplaceLng: form.workplaceLng,
   };
 }
 
@@ -301,6 +359,16 @@ export function RecruitmentCreatePage() {
       const structuredHtml = composeStructuredJobDescription("", structuredJobDescription);
       const jobDescription = composeJobDescriptionWithExtraInfo(structuredHtml, form.extraInfo);
       const extraInfoFields = postingExtraInfoToApiFields(form.extraInfo);
+      // 좌표 변환이 아직 끝나지 않았으면(주소만 있고 좌표 없음) 제출 시점에 동기로 변환해 누락을 막는다.
+      let workplaceLat = form.workplaceLat;
+      let workplaceLng = form.workplaceLng;
+      if (form.workplaceAddress && (workplaceLat === null || workplaceLng === null)) {
+        const coords = await geocodeAddress(form.workplaceAddress);
+        if (coords) {
+          workplaceLat = coords.lat;
+          workplaceLng = coords.lng;
+        }
+      }
       const result = await createRecruitment({
         title: form.title,
         jobRole: form.jobRole,
@@ -315,6 +383,9 @@ export function RecruitmentCreatePage() {
         careerMaxYears: form.careerMaxYears,
         employmentTypeCode: form.employmentTypeCode || undefined,
         recruitmentType: (form.recruitmentType || undefined) as "상시" | "마감형" | undefined,
+        workplaceAddress: form.workplaceAddress || undefined,
+        workplaceLat: workplaceLat ?? undefined,
+        workplaceLng: workplaceLng ?? undefined,
       });
       if (typeof window !== "undefined") {
         window.sessionStorage.removeItem(RECRUITMENT_CREATE_DRAFT_STORAGE_KEY);
@@ -335,6 +406,34 @@ export function RecruitmentCreatePage() {
   // 직무 select 하나로 표시용 jobRole 과 필터용 jobRoleCode 를 함께 설정한다.
   function updateJobRoleSelection(code: string) {
     setForm((current) => ({ ...current, jobRoleCode: code, jobRole: code }));
+  }
+
+  // 다음 우편번호 팝업으로 회사 위치(도로명 주소)를 검색해 채운다.
+  async function handleWorkplaceAddressSearch() {
+    try {
+      await loadDaumPostcode();
+      if (!window.daum?.Postcode) {
+        throw new Error("postcode unavailable");
+      }
+      new window.daum.Postcode({
+        oncomplete: (data) => {
+          const address = data.roadAddress || data.jibunAddress;
+          // 주소를 먼저 채우고, 지도 SDK(키가 있으면)로 좌표를 변환해 채운다. 키 없으면 좌표는 null 유지.
+          setForm((current) => ({ ...current, workplaceAddress: address, workplaceLat: null, workplaceLng: null }));
+          void geocodeAddress(address).then((coords) => {
+            if (coords) {
+              setForm((current) =>
+                current.workplaceAddress === address
+                  ? { ...current, workplaceLat: coords.lat, workplaceLng: coords.lng }
+                  : current,
+              );
+            }
+          });
+        },
+      }).open();
+    } catch {
+      setMessage("주소 검색을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.");
+    }
   }
 
   // 지역·근무형태 select 는 필터 코드와 JD 표시용 extraInfo 를 함께 갱신한다.
@@ -589,6 +688,20 @@ export function RecruitmentCreatePage() {
           채용 마감일
           <input required type="date" min={form.startsOn || undefined} value={form.endsOn} onChange={(event) => updateEndsOn(event.target.value)} />
         </label>
+        <label className="wide">
+          회사 위치
+          <div className="address-search-row">
+            <input
+              readOnly
+              value={form.workplaceAddress}
+              placeholder="주소 검색 버튼을 눌러 도로명 주소를 선택하세요"
+              onClick={() => void handleWorkplaceAddressSearch()}
+            />
+            <button className="btn secondary" type="button" onClick={() => void handleWorkplaceAddressSearch()}>
+              주소 검색
+            </button>
+          </div>
+        </label>
       </div>
     ),
   };
@@ -808,7 +921,9 @@ export function RecruitmentCreatePage() {
       {phase === "intro" ? (
         <div className="wizard-intro">
           <div className="wizard-intro-copy">
-            <p className="page-eyebrow">채용 관리</p>
+            <div className="page-head-lead">
+              <BackButton fallbackHref="/company/recruitments" />
+            </div>
             <h1>공고 생성</h1>
             <p className="page-sub">
               구직자가 보는 공고 그대로, 한 단계씩 채워 나가는 방식이에요. 아래 순서대로 진행한 뒤 마지막에 면접 설정까지 이어집니다.
@@ -850,9 +965,6 @@ export function RecruitmentCreatePage() {
               <button className="btn primary" type="button" onClick={() => navigateWizard({ phase: "choice", step: 0 })}>
                 공고 생성하러 가기
               </button>
-              <Link className="btn secondary" href="/company/recruitments">
-                공고 목록
-              </Link>
             </div>
           </div>
           <Image className="wizard-intro-art" src={createBanner} alt="" width={320} height={320} aria-hidden="true" priority />
@@ -916,8 +1028,17 @@ export function RecruitmentCreatePage() {
                 <input value={form.title} onChange={(event) => updateField("title", event.target.value)} placeholder="2026 신입 백엔드 채용" />
               </label>
               <label>
-                직무명
-                <input value={form.jobRole} onChange={(event) => updateField("jobRole", event.target.value)} placeholder="Backend Developer" />
+                직무
+                <select value={form.jobRoleCode} onChange={(event) => updateJobRoleSelection(event.target.value)}>
+                  <option value="" disabled>
+                    직무를 선택하세요
+                  </option>
+                  {JOB_ROLE_CODE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
             <label>

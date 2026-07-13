@@ -6,6 +6,26 @@ import { AiPerformanceQueryDto, ClientPerformanceLogRequestDto } from "../dto/ai
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 500;
 
+const AI_WORK_CATEGORIES = [
+  "VOICE_TRANSCRIPTION",
+  "FOLLOW_UP_GENERATION",
+  "REPORT_GENERATION",
+  "QUESTION_PREPARATION",
+  "CRITERIA_PREPARATION",
+  "OTHER"
+] as const;
+
+const CLIENT_NEXT_STEP_TYPES = [
+  "STANDARD_QUESTION",
+  "FOLLOW_UP_QUESTION",
+  "NOT_READY",
+  "INTERVIEW_COMPLETE",
+  "UNKNOWN"
+] as const;
+
+type AiWorkCategory = (typeof AI_WORK_CATEGORIES)[number];
+type ClientNextStepType = (typeof CLIENT_NEXT_STEP_TYPES)[number];
+
 @Injectable()
 export class AiPerformanceService {
   constructor(private readonly prisma: PrismaService) {}
@@ -66,6 +86,7 @@ export class AiPerformanceService {
     return rows.map((row) => ({
       processLogId: Number(row.processLogId),
       processType: row.processType,
+      workCategory: toAiWorkCategory(row.processType),
       status: row.status,
       startedAt: row.startedAt?.toISOString(),
       completedAt: row.completedAt?.toISOString(),
@@ -100,29 +121,41 @@ export class AiPerformanceService {
         durationMs: true,
         startedAt: true,
         completedAt: true,
+        metadataJson: true,
         createdAt: true
       }
     });
-    return rows.map((row) => ({
-      clientPerformanceLogId: Number(row.clientPerformanceLogId),
-      eventName: row.eventName,
-      processLogId: row.processLogId ? Number(row.processLogId) : undefined,
-      sessionId: row.sessionId ? Number(row.sessionId) : undefined,
-      applicationId: row.applicationId ? Number(row.applicationId) : undefined,
-      questionId: row.questionId ? Number(row.questionId) : undefined,
-      durationMs: row.durationMs,
-      startedAt: row.startedAt?.toISOString(),
-      completedAt: row.completedAt?.toISOString(),
-      createdAt: row.createdAt.toISOString()
-    }));
+    return rows.map((row) => {
+      const metadata = parseJsonRecord(row.metadataJson);
+      const nextQuestionType = toClientNextStepType(metadata?.nextQuestionType);
+      const nextReady = optionalBoolean(metadata?.nextReady);
+      return {
+        clientPerformanceLogId: Number(row.clientPerformanceLogId),
+        eventName: row.eventName,
+        processLogId: row.processLogId ? Number(row.processLogId) : undefined,
+        sessionId: row.sessionId ? Number(row.sessionId) : undefined,
+        applicationId: row.applicationId ? Number(row.applicationId) : undefined,
+        questionId: row.questionId ? Number(row.questionId) : undefined,
+        durationMs: row.durationMs,
+        startedAt: row.startedAt?.toISOString(),
+        completedAt: row.completedAt?.toISOString(),
+        metadata,
+        nextQuestionType,
+        nextReady,
+        outcome: optionalString(metadata?.outcome),
+        createdAt: row.createdAt.toISOString()
+      };
+    });
   }
 
   async summary(query: AiPerformanceQueryDto) {
-    const jobs = await this.listJobs({ ...query, limit: normalizeLimit(query.limit ?? MAX_LIMIT) });
-    const clientEvents = await this.listClientEvents({ eventName: query.eventName, limit: normalizeLimit(query.limit ?? MAX_LIMIT) });
+    const sampleLimit = normalizeLimit(query.limit ?? MAX_LIMIT);
+    const jobs = await this.listJobs({ ...query, limit: sampleLimit });
+    const clientEvents = await this.listClientEvents({ eventName: query.eventName, limit: sampleLimit });
     return {
+      sampleLimit,
       jobs: summarizeTimedItems(jobs),
-      clientEvents: summarizeTimedItems(clientEvents),
+      clientEvents: summarizeClientEvents(clientEvents),
       cost: {
         estimatedCostUsd: round6(jobs.reduce((sum, row) => sum + (row.estimatedCostUsd ?? 0), 0)),
         pricedJobCount: jobs.filter((row) => row.estimatedCostUsd !== undefined).length,
@@ -131,7 +164,9 @@ export class AiPerformanceService {
         outputTokens: jobs.reduce((sum, row) => sum + (row.outputTokens ?? 0), 0),
         audioSeconds: jobs.reduce((sum, row) => sum + (row.audioSeconds ?? 0), 0)
       },
-      byProcessType: groupByProcessType(jobs)
+      byProcessType: groupByProcessType(jobs),
+      byWorkCategory: groupByWorkCategory(jobs),
+      byClientNextStep: groupByClientNextStep(clientEvents)
     };
   }
 
@@ -479,16 +514,29 @@ type ClientPerformanceRefs = {
 };
 
 function summarizeTimedItems(items: Array<{ durationMs?: number; status?: string }>) {
-  const durations = items
-    .map((item) => item.durationMs)
-    .filter((duration): duration is number => typeof duration === "number" && Number.isFinite(duration))
-    .sort((left, right) => left - right);
+  const durations = sortedDurations(items);
   const failed = items.filter((item) => item.status === "FAILED").length;
   const over4s = durations.filter((duration) => duration > 4_000).length;
   return {
     count: items.length,
     measuredCount: durations.length,
     averageDurationMs: durations.length ? Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length) : undefined,
+    p95DurationMs: percentile(durations, 0.95),
+    over4sRate: durations.length ? round4(over4s / durations.length) : undefined,
+    failureRate: items.length ? round4(failed / items.length) : undefined
+  };
+}
+
+function summarizeClientEvents(
+  items: Array<{ durationMs?: number; nextQuestionType?: ClientNextStepType; nextReady?: boolean }>
+) {
+  const durations = sortedDurations(items);
+  const failed = items.filter(isFailedClientEvent).length;
+  const over4s = durations.filter((duration) => duration > 4_000).length;
+  return {
+    count: items.length,
+    measuredCount: durations.length,
+    averageDurationMs: averageDuration(durations),
     p95DurationMs: percentile(durations, 0.95),
     over4sRate: durations.length ? round4(over4s / durations.length) : undefined,
     failureRate: items.length ? round4(failed / items.length) : undefined
@@ -506,6 +554,73 @@ function groupByProcessType(items: Array<{ processType?: string; durationMs?: nu
     ...summarizeTimedItems(rows),
     estimatedCostUsd: round6(rows.reduce((sum, row) => sum + (row.estimatedCostUsd ?? 0), 0))
   }));
+}
+
+function groupByWorkCategory(
+  items: Array<{ processType?: string; workCategory?: AiWorkCategory; durationMs?: number; estimatedCostUsd?: number; status?: string }>
+) {
+  return AI_WORK_CATEGORIES.map((workCategory) => {
+    const rows = items.filter((item) => (item.workCategory ?? toAiWorkCategory(item.processType)) === workCategory);
+    const durations = sortedDurations(rows);
+    const failed = rows.filter((row) => row.status === "FAILED").length;
+    return {
+      workCategory,
+      count: rows.length,
+      measuredCount: durations.length,
+      averageDurationMs: averageDuration(durations),
+      p95DurationMs: percentile(durations, 0.95),
+      failureRate: rows.length ? round4(failed / rows.length) : undefined,
+      estimatedCostUsd: round6(rows.reduce((sum, row) => sum + (row.estimatedCostUsd ?? 0), 0))
+    };
+  });
+}
+
+function groupByClientNextStep(
+  items: Array<{ durationMs?: number; nextQuestionType?: ClientNextStepType; nextReady?: boolean }>
+) {
+  return CLIENT_NEXT_STEP_TYPES.map((nextQuestionType) => ({
+    nextQuestionType,
+    ...summarizeClientEvents(items.filter((item) => (item.nextQuestionType ?? "UNKNOWN") === nextQuestionType))
+  }));
+}
+
+function sortedDurations(items: Array<{ durationMs?: number }>): number[] {
+  return items
+    .map((item) => item.durationMs)
+    .filter((duration): duration is number => typeof duration === "number" && Number.isFinite(duration))
+    .sort((left, right) => left - right);
+}
+
+function averageDuration(durations: number[]): number | undefined {
+  return durations.length ? Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length) : undefined;
+}
+
+function isFailedClientEvent(item: { nextQuestionType?: ClientNextStepType; nextReady?: boolean }): boolean {
+  return item.nextReady === false || item.nextQuestionType === "NOT_READY";
+}
+
+function toAiWorkCategory(processType: unknown): AiWorkCategory {
+  switch (processType) {
+    case "STT":
+      return "VOICE_TRANSCRIPTION";
+    case "FOLLOW_UP":
+      return "FOLLOW_UP_GENERATION";
+    case "REPORT_GENERATE":
+      return "REPORT_GENERATION";
+    case "QUESTION_GENERATE":
+    case "QUESTION_SET_GENERATE":
+      return "QUESTION_PREPARATION";
+    case "CRITERIA_SUGGEST":
+      return "CRITERIA_PREPARATION";
+    default:
+      return "OTHER";
+  }
+}
+
+function toClientNextStepType(value: unknown): ClientNextStepType {
+  return typeof value === "string" && CLIENT_NEXT_STEP_TYPES.includes(value as ClientNextStepType)
+    ? (value as ClientNextStepType)
+    : "UNKNOWN";
 }
 
 function percentile(sortedValues: number[], ratio: number): number | undefined {
@@ -563,6 +678,14 @@ function toNumber(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function optionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 function round4(value: number): number {
   return Math.round(value * 10_000) / 10_000;
 }
@@ -578,10 +701,13 @@ function idsEqual(left: unknown, right: unknown): boolean {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function parseJsonRecord(value: string): Record<string, unknown> | undefined {
+function parseJsonRecord(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== "string" || !value.trim()) {
+    return undefined;
+  }
   try {
     const parsed = JSON.parse(value) as unknown;
     return isRecord(parsed) ? parsed : undefined;

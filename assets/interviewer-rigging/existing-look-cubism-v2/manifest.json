@@ -1,0 +1,37 @@
+{
+  "id": "existing-look-cubism-v2",
+  "status": "cubism-import-repair-candidate",
+  "canvas": {
+    "width": 1024,
+    "height": 1536,
+    "centerX": 512,
+    "faceAnchor": { "x": 512, "y": 560 },
+    "eyeAnchor": { "x": 512, "y": 448 },
+    "mouthAnchor": { "x": 512, "y": 585 },
+    "neckAnchor": { "x": 512, "y": 760 }
+  },
+  "previewImage": "composite-preview.png",
+  "source": {
+    "method": "non-destructive repair candidate from existing-look generated layers",
+    "reference": "existing-look face-underlay-v2 plus current extracted eye and mouth layers",
+    "purpose": "Cubism visual import validation before artist-approved layer separation"
+  },
+  "layers": [
+    { "name": "base-underlay", "pngPath": "normalized/face-underlay-v2.png", "rgbaPath": "normalized/face-underlay-v2.rgba", "visible": true, "anchor": { "x": 512, "y": 760 } },
+    { "name": "eyes-brows-reference", "pngPath": "normalized/eyes-brows.png", "rgbaPath": "normalized/eyes-brows.rgba", "visible": true, "anchor": { "x": 512, "y": 448 } },
+    { "name": "mouth-rest-reference", "pngPath": "normalized/mouth-rest.png", "rgbaPath": "normalized/mouth-rest.rgba", "visible": true, "anchor": { "x": 512, "y": 585 } },
+    { "name": "eye-left-open-reference", "pngPath": "normalized/eye-left-open.png", "rgbaPath": "normalized/eye-left-open.rgba", "visible": false, "anchor": { "x": 452, "y": 448 } },
+    { "name": "eye-right-open-reference", "pngPath": "normalized/eye-right-open.png", "rgbaPath": "normalized/eye-right-open.rgba", "visible": false, "anchor": { "x": 598, "y": 448 } },
+    { "name": "eyes-closed-reference", "pngPath": "normalized/eyes-closed.png", "rgbaPath": "normalized/eyes-closed.rgba", "visible": false, "anchor": { "x": 512, "y": 448 } },
+    { "name": "mouth-closed-reference", "pngPath": "normalized/mouth-closed.png", "rgbaPath": "normalized/mouth-closed.rgba", "visible": false, "anchor": { "x": 512, "y": 585 } },
+    { "name": "mouth-open-reference", "pngPath": "normalized/mouth-open.png", "rgbaPath": "normalized/mouth-open.rgba", "visible": false, "anchor": { "x": 512, "y": 585 } },
+    { "name": "mouth-wide-reference", "pngPath": "normalized/mouth-wide.png", "rgbaPath": "normalized/mouth-wide.rgba", "visible": false, "anchor": { "x": 512, "y": 585 } },
+    { "name": "mouth-round-reference", "pngPath": "normalized/mouth-round.png", "rgbaPath": "normalized/mouth-round.rgba", "visible": false, "anchor": { "x": 512, "y": 585 } },
+    { "name": "mouth-teeth-reference", "pngPath": "normalized/mouth-teeth.png", "rgbaPath": "normalized/mouth-teeth.rgba", "visible": false, "anchor": { "x": 512, "y": 585 } }
+  ],
+  "knownLimitations": [
+    "base-underlay contains hair and torso, so it is a static visual repair layer and cannot yet be used for independent hair or body deformation.",
+    "eyes-brows-reference and mouth-rest-reference contain rectangular source crops that require artist cleanup before they become production ArtMeshes.",
+    "This package validates a visible, stable import only. It is not an approved model source and must not be exported as a production moc3."
+  ]
+}

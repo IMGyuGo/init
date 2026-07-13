@@ -259,6 +259,22 @@
       ]
     },
     {
+      "name": "candidate local interviewer and rigging asset bridge",
+      "patterns": [
+        "^frontend/public/assets/interviewer-avatar/",
+        "^frontend/public/assets/interviewer-rigging/",
+        "^frontend/public/assets/interviewer-cubism/",
+        "^frontend/vendor/(Core|CubismWebFramework)/",
+        "^assets/interviewer-rigging/",
+        "^frontend/src/app/interviewer-preview/"
+      ],
+      "roles": [
+        "B",
+        "D",
+        "PM"
+      ]
+    },
+    {
       "name": "company interview settings back button bridge",
       "patterns": [
         "^frontend/src/features/company-interview-criteria/CompanyInterviewSettingsPage\\.tsx$"
@@ -303,6 +319,7 @@
       "^frontend/src/app/public/applications/",
       "^frontend/src/app/company/mypage/",
       "^frontend/src/styles/",
+      "^frontend/src/lib/kakao-maps\\.ts$",
       "^frontend/public/",
       "^backend/api/src/modules/company-recruiting/",
       "^backend/api/src/modules/company-profile/",

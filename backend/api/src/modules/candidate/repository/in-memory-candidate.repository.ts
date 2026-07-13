@@ -2,10 +2,13 @@ import { Injectable } from "@nestjs/common";
 import { DEV_CANDIDATE_USER, FORBIDDEN_FILE_PAYLOAD_FIELDS } from "../candidate.constants";
 import { CandidateDomainError } from "../candidate.errors";
 import {
+  type ApplicantContact,
   type Application,
   type ApplicationDocument,
   type ApplicationSubmissionResult,
   type CandidateFolder,
+  type CandidateProfileView,
+  type UpdateCandidateProfileInput,
   type CandidateJob,
   type CandidateRepository,
   type ConsentRecord,
@@ -40,6 +43,9 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       careerMaxYears: 3,
       employmentTypeCode: "정규직",
       recruitmentType: "마감형",
+      workplaceAddress: null,
+      workplaceLat: null,
+      workplaceLng: null,
       startsOn: "2026-06-01",
       endsOn: "2026-07-31",
       createdAt: "2026-06-01T00:00:00.000Z",
@@ -67,6 +73,9 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       careerMaxYears: 0,
       employmentTypeCode: "인턴",
       recruitmentType: "마감형",
+      workplaceAddress: null,
+      workplaceLat: null,
+      workplaceLng: null,
       startsOn: "2026-06-15",
       endsOn: "2026-06-30",
       createdAt: "2026-06-15T00:00:00.000Z",
@@ -94,6 +103,9 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       careerMaxYears: 3,
       employmentTypeCode: "정규직",
       recruitmentType: "마감형",
+      workplaceAddress: null,
+      workplaceLat: null,
+      workplaceLng: null,
       startsOn: "2026-05-01",
       endsOn: "2026-05-31",
       createdAt: "2026-05-01T00:00:00.000Z",
@@ -121,6 +133,9 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       careerMaxYears: 10,
       employmentTypeCode: "정규직",
       recruitmentType: "상시",
+      workplaceAddress: null,
+      workplaceLat: null,
+      workplaceLng: null,
       startsOn: "2026-06-01",
       endsOn: "2026-07-31",
       createdAt: "2026-06-20T00:00:00.000Z",
@@ -130,6 +145,8 @@ export class InMemoryCandidateRepository implements CandidateRepository {
   private readonly applications: Application[] = [];
   private readonly documents: ApplicationDocument[] = [];
   private readonly consentRecords: ConsentRecord[] = [];
+  private readonly applicantContacts = new Map<number, ApplicantContact>();
+  private readonly candidateProfiles = new Map<number, CandidateProfileView>();
   private readonly interviewSessions: InterviewSession[] = [];
   private readonly fileAssets: FileAsset[] = [];
   private readonly portfolioLinks: PortfolioLink[] = [];
@@ -181,6 +198,53 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       return DEV_CANDIDATE_USER.userId;
     }
     return candidateId;
+  }
+
+  private defaultApplicantContact(): ApplicantContact {
+    return {
+      name: "테스트 지원자",
+      email: "candidate@example.com",
+      phone: null,
+      githubUrl: null,
+      blogUrl: null,
+      portfolioUrl: null,
+    };
+  }
+
+  async findApplicantContact(userId: number): Promise<ApplicantContact | undefined> {
+    return this.applicantContacts.get(userId) ?? this.defaultApplicantContact();
+  }
+
+  async getCandidateProfile(candidateId: number): Promise<CandidateProfileView | undefined> {
+    return (
+      this.candidateProfiles.get(candidateId) ?? {
+        name: "테스트 지원자",
+        email: "candidate@example.com",
+        phone: null,
+        githubUrl: null,
+        blogUrl: null,
+        portfolioUrl: null,
+        summary: null,
+      }
+    );
+  }
+
+  async updateCandidateProfile(
+    candidateId: number,
+    input: UpdateCandidateProfileInput,
+  ): Promise<CandidateProfileView> {
+    const prev = (await this.getCandidateProfile(candidateId)) as CandidateProfileView;
+    const next: CandidateProfileView = {
+      ...prev,
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.phone !== undefined ? { phone: input.phone } : {}),
+      ...(input.githubUrl !== undefined ? { githubUrl: input.githubUrl } : {}),
+      ...(input.blogUrl !== undefined ? { blogUrl: input.blogUrl } : {}),
+      ...(input.portfolioUrl !== undefined ? { portfolioUrl: input.portfolioUrl } : {}),
+      ...(input.summary !== undefined ? { summary: input.summary } : {}),
+    };
+    this.candidateProfiles.set(candidateId, next);
+    return next;
   }
 
   async listDocuments(applicationId: number): Promise<ApplicationDocument[]> {
@@ -300,9 +364,16 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     motivation?: string;
     additionalInfo?: string;
     consentTypes: ConsentRecord["consentType"][];
+    contactUserId?: number;
   }): Promise<ApplicationSubmissionResult> {
     if (await this.hasApplication(input.candidateId, input.postingId)) {
       throw new CandidateDomainError("APPLICATION_ALREADY_SUBMITTED", "이미 지원한 채용공고입니다.", 409);
+    }
+
+    // 지원서 생성과 함께 회원 연락처를 저장(다음 지원 자동 입력용). (#272 P2)
+    if (input.contactUserId && input.phone) {
+      const prev = this.applicantContacts.get(input.contactUserId) ?? this.defaultApplicantContact();
+      this.applicantContacts.set(input.contactUserId, { ...prev, phone: input.phone });
     }
 
     const now = new Date().toISOString();
@@ -408,13 +479,14 @@ export class InMemoryCandidateRepository implements CandidateRepository {
   }
 
   async createFolder(
-    input: Omit<CandidateFolder, "id" | "resumeFileName" | "createdAt" | "updatedAt">,
+    input: Omit<CandidateFolder, "id" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">,
   ): Promise<CandidateFolder> {
     const now = new Date().toISOString();
     const folder: CandidateFolder = {
       ...input,
       id: this.folders.length + 1,
       resumeFileName: this.resolveFolderResumeFileName(input.resumeFileId),
+      portfolioFileName: this.resolveFolderResumeFileName(input.portfolioFileId),
       createdAt: now,
       updatedAt: now,
     };
@@ -424,7 +496,7 @@ export class InMemoryCandidateRepository implements CandidateRepository {
 
   async updateFolder(
     folderId: number,
-    input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "createdAt" | "updatedAt">>,
+    input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">>,
   ): Promise<CandidateFolder> {
     const index = this.folders.findIndex((folder) => folder.id === folderId);
     if (index < 0) {
@@ -436,6 +508,9 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       ...input,
       ...(input.resumeFileId !== undefined
         ? { resumeFileName: this.resolveFolderResumeFileName(input.resumeFileId) }
+        : {}),
+      ...(input.portfolioFileId !== undefined
+        ? { portfolioFileName: this.resolveFolderResumeFileName(input.portfolioFileId) }
         : {}),
       updatedAt: new Date().toISOString(),
     };

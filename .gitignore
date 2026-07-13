@@ -1,7 +1,12 @@
 .DS_Store
 
 .env
+.env.local
+.env*.local
 .gitignore
+
+# 로컬 개발 서버 로그·PID
+.local/
 \nogitdocs
 
 # Local Toss Payments sandbox artifacts.
@@ -18,6 +23,9 @@ build/
 coverage/
 .understand-anything/
 *.tsbuildinfo
+
+# Regeneratable avatar rigging intermediates
+assets/interviewer-rigging/**/normalized/*.rgba
 
 # Logs
 npm-debug.log*

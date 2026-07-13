@@ -519,20 +519,23 @@ AI 리포트 금지 기준:
   - title, jobRole, jobDescription, startsOn, endsOn, status
   - careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType
   - 지원자 필터용 구조화 필드: jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType
+  - 회사 위치: workplaceAddress(도로명 주소), workplaceLat(위도), workplaceLng(경도)
   - `jobDescription`은 Tiptap 기반 rich text HTML 문자열을 저장할 수 있다.
   - careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType은 선택 입력 항목이며 모두 optional이다.
   - jobRoleCode/regionCode/employmentTypeCode/recruitmentType은 선택 입력이며 각각 `PostingJobRoleCode`/`PostingRegionCode`/`PostingEmploymentTypeCode`/`PostingRecruitmentType` taxonomy 값만 허용한다(enums.md 참고).
   - careerMinYears, careerMaxYears는 선택 입력 정수이며 0 이상 `POSTING_CAREER_MAX_YEARS`(=10) 이하다.
+  - workplaceAddress/workplaceLat/workplaceLng는 선택 입력이다. 좌표는 클라이언트 지도 SDK(카카오) geocoder로 주소를 변환해 채운다. workplaceLat/workplaceLng는 함께 있어야 하며, 좌표가 있으면 workplaceAddress도 필요하다(주소만 저장은 허용).
 - 검증/전제조건:
   - `CurrentUser.userType=COMPANY`이고 `CurrentUser.companyId`가 존재해야 한다.
   - 공고는 항상 `CurrentUser.companyId`의 회사에 생성한다.
   - title, jobRole은 필수다.
   - startsOn과 endsOn이 함께 있으면 startsOn은 endsOn보다 늦을 수 없다.
   - careerMinYears와 careerMaxYears가 둘 다 있으면 careerMinYears는 careerMaxYears보다 클 수 없다.
+  - workplaceLat와 workplaceLng는 함께 있어야 하고, 좌표가 있으면 workplaceAddress가 필요하다.
   - status는 MVP 생성 흐름에서 `DRAFT` 또는 `OPEN`만 허용한다.
 - 성공 응답/처리:
   - 생성된 공고 상세 데이터를 `{ data, meta }` envelope로 반환한다.
-  - 선택 입력 항목이 저장된 경우 응답에 careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType과 jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType을 포함한다.
+  - 선택 입력 항목이 저장된 경우 응답에 careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType과 jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType, workplaceAddress, workplaceLat, workplaceLng를 포함한다.
   - `OPEN` 공고만 지원자용 공개 공고 조회 대상이 된다.
 - 오류/예외:
   - 필수값 누락, 날짜 오류, careerMinYears > careerMaxYears 역전은 `COMMON_VALIDATION_FAILED`를 반환한다.
@@ -675,7 +678,7 @@ AI 리포트 금지 기준:
   - JD 이미지 파일 업로드는 `API-086`에서 처리하고, 이 API는 `jobDescription` rich text HTML 문자열만 저장한다.
 - 성공 응답/처리:
   - 수정된 공고 상세 데이터를 `{ data, meta }` envelope로 반환한다.
-  - 선택 입력 항목이 저장된 경우 응답에 careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType과 jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType을 포함한다.
+  - 선택 입력 항목이 저장된 경우 응답에 careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType과 jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType, workplaceAddress, workplaceLat, workplaceLng를 포함한다.
   - 설정 저장 후 프론트는 공고 대시보드로 이동한다.
 - 오류/예외:
   - 필수값 누락, 날짜 오류, careerMinYears > careerMaxYears 역전은 `COMMON_VALIDATION_FAILED`를 반환한다.
@@ -2266,11 +2269,11 @@ AI 리포트 금지 기준:
 - 상태 코드: 201 Created
 - 비동기: N
 - 요청 데이터:
-  - `{ name, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, motivation?, extraNote? }`
+  - `{ name, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, portfolioFileId?, motivation?, extraNote? }`
 - 검증/전제조건:
   - `name`은 필수이며 100자 이하
   - URL 필드는 http/https URL이며 500자 이하
-  - `resumeFileId`가 있으면 현재 사용자 소유 file_assets이며 문서 MIME 타입이어야 한다.
+  - `resumeFileId`·`portfolioFileId`가 있으면 각각 현재 사용자 소유의 PDF FileAsset이어야 한다. (지원 제출과 동일하게 PDF만 허용, #272 P1-2)
   - 지원자별 폴더는 최대 20개까지 생성할 수 있다.
 - 성공 응답/처리:
   - `{ data: CandidateFolder, meta }`
@@ -2306,7 +2309,7 @@ AI 리포트 금지 기준:
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - `{ name?, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, motivation?, extraNote? }`
+  - `{ name?, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, portfolioFileId?, motivation?, extraNote? }`
   - nullable 필드는 `null`로 초기화 가능
 - 검증/전제조건:
   - `{id}`는 현재 지원자 소유 폴더여야 한다.
@@ -2682,6 +2685,34 @@ CandidateFolder 입력 제한:
 
 ## 지원자 - 채용공고/지원
 
+### API-057F GET /candidate/profile
+- 도메인: 지원자 - 프로필(내 정보)
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 마이페이지 - 내 정보 (/candidate/mypage)
+- UI Type: section
+- 상태 코드: 200 OK
+- 응답 데이터: `application/json`
+  - `name`, `email`(읽기전용), `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `summary`
+  - 이름/이메일/연락처는 `users`, GitHub/블로그/포트폴리오/한줄소개는 `candidate_profiles` 에서 조회한다.
+- 비고: 지원 화면 기본정보 자동 입력의 정본(source of truth). (#272)
+- 관련 ERD 테이블: users, candidate_profiles
+
+### API-057G PUT /candidate/profile
+- 도메인: 지원자 - 프로필(내 정보)
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 마이페이지 - 내 정보 (/candidate/mypage)
+- UI Type: section
+- 상태 코드: 200 OK
+- 요청 데이터: `application/json` (모두 optional, 부분 수정)
+  - `name`, `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `summary`
+  - 이메일은 로그인 정보라 수정 대상에서 제외한다.
+- 검증/전제조건:
+  - 빈 문자열/공백만 입력하면 `null` 로 저장한다. 이름은 공백만이면 무시한다.
+- 성공 응답/처리:
+  - `users`(name/phone)와 `candidate_profiles`(github/blog/portfolio/summary)를 갱신하고 갱신된 프로필을 반환한다.
+- 비고: 저장 값은 이후 지원 화면 자동 입력에 재사용된다. (#272)
+- 관련 ERD 테이블: users, candidate_profiles
+
 ### API-058 GET /candidate/jobs
 - 도메인: 지원자 - 채용공고/지원
 - 권한/인증: 지원자 / 지원자 사용자 로그인
@@ -2734,6 +2765,8 @@ CandidateFolder 입력 제한:
 - 성공 응답/처리:
   - 회사 상세 팝업 표시 또는 이력서 제출 화면으로 이동
   - 회사 상세 응답에는 `companyLogoUrl`을 포함한다. 회사 로고가 없으면 `null`을 반환한다.
+  - 응답에 `jobRoleCode`를 포함한다. 프론트는 이 값으로 같은 직무의 비슷한 공고를 추천 조회한다(우측 사이드).
+  - 회사 위치는 `workplaceAddress`, `workplaceLat`, `workplaceLng`를 포함한다. 좌표가 있으면 지원자 상세에서 카카오 지도 핀으로 표시하고, 없으면 주소만 표시한다.
 - 오류/예외:
   - 공고가 마감되었거나 접근 권한이 없으면 안내 메시지를 표시한다.
 - 관련 ERD 테이블:
@@ -2753,8 +2786,8 @@ CandidateFolder 입력 제한:
   - `candidateName`: string, required
   - `email`: string, required
   - `phone`: string, required
-  - `githubUrl`: string, required
-  - `blogUrl`: string, required
+  - `githubUrl`: string, optional (#272 2단계, 있으면 URL 형식 검증)
+  - `blogUrl`: string, optional (#272 2단계, 있으면 URL 형식 검증)
   - `resumeFileId`: number, required, PDF FileAsset
   - `portfolioFileId`: number, optional, PDF FileAsset
   - `portfolioUrl`: string, optional
@@ -2763,12 +2796,16 @@ CandidateFolder 입력 제한:
   - `consentTypes`: array, required
 - 검증/전제조건:
   - 공고가 지원 가능 상태여야 한다.
-  - 기본정보, GitHub URL, 블로그 URL, 이력서 PDF, 지원동기, 추가설명을 모두 입력해야 한다.
+  - 기본정보(이름/이메일/연락처), 이력서 PDF, 지원동기, 추가설명을 입력해야 한다. GitHub·블로그 URL은 선택이며 프로필에서 자동 입력된다.
   - 포트폴리오 URL 또는 PDF FileAsset 중 하나 이상을 제출해야 하며, 둘 다 제출할 수도 있다.
   - 제출 파일은 현재 지원자 소유의 ACTIVE FileAsset이어야 한다.
 - 성공 응답/처리:
   - 지원서 제출 당시 정보를 `applications` 스냅샷 필드에 저장한다.
   - 이력서/포트폴리오 PDF를 `application_documents`에 연결하고 지원서 제출을 완료한다.
+  - (#272) 입력한 연락처(`phone`)를 회원(`users.phone`)에 저장하여 다음 지원 화면에서 자동 입력에 재사용한다.
+- 관련 조회(#272): `GET /candidate/jobs/{jobId}/apply`
+  - 지원 화면 진입 시 회원 자동 입력용 `applicant: { name, email, phone, githubUrl, blogUrl, portfolioUrl }`을 함께 반환한다(이름/이메일/연락처는 User, GitHub/블로그/포트폴리오는 프로필 정본, 값 없으면 null). GitHub·블로그·포트폴리오는 프로필에서 자동 채워지고 공고별로 수정 가능하다.
+  - 지원서 세트(폴더)는 `GET /candidate/folders`로 조회하며, 세트를 불러오면 링크/이력서/동기/추가설명이 폼에 복사된다(회원 기본정보는 유지, 원본 세트는 불변).
 - 오류/예외:
   - 파일 형식 오류, 용량 초과, 이미 지원한 공고, 마감 공고이면 제출을 제한한다.
 - 관련 ERD 테이블:

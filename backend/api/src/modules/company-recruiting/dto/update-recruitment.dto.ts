@@ -11,7 +11,7 @@ import {
   type PostingRegionCode,
 } from "@init/common";
 import { Type } from "class-transformer";
-import { IsDateString, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
+import { IsDateString, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
 
 import type { PostingStatusValue } from "../company-recruiting.types";
 
@@ -98,6 +98,26 @@ export class UpdateRecruitmentDto {
   @IsOptional()
   @IsIn(POSTING_RECRUITMENT_TYPES as unknown as string[])
   recruitmentType?: PostingRecruitmentType;
+
+  @ApiPropertyOptional({ example: "서울 강남구 테헤란로 123" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  workplaceAddress?: string;
+
+  @ApiPropertyOptional({ example: 37.4979 })
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  workplaceLat?: number;
+
+  @ApiPropertyOptional({ example: 127.0276 })
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  workplaceLng?: number;
 
   @ApiPropertyOptional({ example: "2026-06-29" })
   @IsOptional()

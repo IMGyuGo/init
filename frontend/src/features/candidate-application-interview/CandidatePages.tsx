@@ -11,6 +11,7 @@ import type { FaceLandmarker as MediaPipeFaceLandmarker, NormalizedLandmark, Obj
 import { getApiBaseUrl } from "../../api/api-base-url";
 import { getAccessToken } from "../../api/client";
 import { sendClientPerformanceLog } from "../ai-performance/api";
+import { resolveClientNextStepType } from "../ai-performance/client-next-step";
 import { GnbAvatar, GnbLogoutButton } from "../auth/GnbAccountControls";
 import { createPaymentOrder, getCandidateMockInterviewPassSummary, grantCandidateMockInterviewDevPasses, listPaymentOrders } from "../payment/api";
 import { PaymentOrderPagination, formatDateTime as formatPaymentDateTime, formatWon } from "../payment/CompanyBillingPage";
@@ -37,9 +38,11 @@ import {
   type CandidateFollowUpQuestionView,
   type CandidateInterviewRuntimeView,
   type CandidateJobQuery,
+  type CandidateJobSummary,
   type CandidateMockInterviewHistoryItem,
   type CandidateMockReportSummary,
   type CandidateMockReportFeedback,
+  type UpdateCandidateProfileRequest,
   type CandidateMockReportMedia,
   type CandidateReportAnswerView,
   type CandidateReportEvidenceView,
@@ -64,6 +67,7 @@ import {
   sendRealtimeSpeechClientEvent,
   setRealtimeInterviewMicrophoneEnabled,
   shouldRestoreRealtimeMicrophoneAfterSpeechResponse,
+  shouldStartRealtimeSession,
   type RealtimeInterviewWebRtcConnection,
   type RealtimeResponseMetadata,
 } from "./realtime-webrtc";
@@ -72,6 +76,7 @@ import {
   type RealtimeSttRelayMetric,
   type RealtimeSttRelaySession,
 } from "./realtime-stt-relay";
+import { InterviewAvatar } from "./InterviewAvatar";
 import { candidateApplicationInterviewRoutes } from "./routes";
 import {
   GAZE_CALIBRATION_REQUIRED_SAMPLES,
@@ -728,6 +733,70 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
   const [applyBusy, setApplyBusy] = useState(false);
   const [applyError, setApplyError] = useState("");
   const [message, setMessage] = useState("");
+  // #272 지원 모달을 열 때 회원 기본정보 자동 입력 + 지원서 세트 목록을 지연 로딩한다.
+  const [applyFolders, setApplyFolders] = useState<CandidateFolder[]>([]);
+  const [applyPrefilled, setApplyPrefilled] = useState(false);
+  useEffect(() => {
+    if (!applyOpen || applyPrefilled) {
+      return;
+    }
+    let active = true;
+    // 프로필 자동입력과 세트 목록은 독립적으로 처리한다. 세트 조회가 실패해도 자동입력은 유지한다. (#272 보완)
+    getCandidateApi()
+      .getApplyView(jobId)
+      .then((applyView) => {
+        if (!active) {
+          return;
+        }
+        const applicant = applyView.data.applicant;
+        setApplyForm((current) => ({
+          ...current,
+          candidateName: current.candidateName || applicant.name,
+          email: current.email || applicant.email,
+          phone: current.phone || (applicant.phone ?? ""),
+          githubUrl: current.githubUrl || (applicant.githubUrl ?? ""),
+          blogUrl: current.blogUrl || (applicant.blogUrl ?? ""),
+          portfolioUrl: current.portfolioUrl || (applicant.portfolioUrl ?? undefined),
+        }));
+        setApplyPrefilled(true);
+      })
+      .catch(() => undefined);
+    getCandidateApi()
+      .listFolders()
+      .then((folderRes) => {
+        if (active) {
+          setApplyFolders(folderRes.data.items);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [applyOpen, applyPrefilled, jobId]);
+
+  // 같은 직무의 다른 공고를 추천으로 노출한다(우측 사이드). 별도 추천 API 없이 목록 API 재사용.
+  // 목록 jobRoles 필터는 jobRoleCode 와 매칭하므로 표시명(jobRole)이 아닌 jobRoleCode 로 조회한다.
+  const [relatedJobs, setRelatedJobs] = useState<CandidateJobSummary[]>([]);
+  const relatedRoleCode = data?.data.jobRoleCode ?? undefined;
+  const currentJobId = data?.data.jobId;
+  useEffect(() => {
+    if (!relatedRoleCode || !currentJobId) {
+      setRelatedJobs([]);
+      return;
+    }
+    let active = true;
+    getCandidateApi()
+      .listJobs({ jobRoles: [relatedRoleCode], limit: 8, sort: "createdAt", order: "desc" })
+      .then((res) => {
+        if (active) setRelatedJobs(res.data.items.filter((item) => item.jobId !== currentJobId).slice(0, 5));
+      })
+      .catch(() => {
+        if (active) setRelatedJobs([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [relatedRoleCode, currentJobId]);
 
   async function handleResumeFileSelect(file: File) {
     setApplyBusy(true);
@@ -776,13 +845,14 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
   return (
     <CandidatePageShell active="jobs">
       <StatusNotice loading={loading} error={error} message={message} />
-      {data ? <CandidateJobDetailView job={data.data} onApplyClick={() => setApplyOpen(true)} /> : null}
+      {data ? <CandidateJobDetailView job={data.data} relatedJobs={relatedJobs} onApplyClick={() => setApplyOpen(true)} /> : null}
       {applyOpen && data ? (
         <CandidateApplyModal
           job={data.data}
           state={applyForm}
           latestResumeFile={latestResumeFile}
           latestPortfolioFile={latestPortfolioFile}
+          folders={applyFolders}
           busy={applyBusy}
           errorMessage={applyError}
           onResumeFileSelect={handleResumeFileSelect}
@@ -805,6 +875,28 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => getCandidateApi().getApplyView(jobId), [jobId]);
   const { data, loading, error } = useCandidateResource(load, [jobId]);
+
+  // #272 회원 기본정보 자동 입력: 지원 화면 진입 시 프로필의 이름/이메일/연락처/GitHub/블로그/포트폴리오를 채운다(빈 칸만).
+  const applicant = data?.data.applicant;
+  useEffect(() => {
+    if (!applicant) {
+      return;
+    }
+    setForm((current) => ({
+      ...current,
+      candidateName: current.candidateName || applicant.name,
+      email: current.email || applicant.email,
+      phone: current.phone || (applicant.phone ?? ""),
+      githubUrl: current.githubUrl || (applicant.githubUrl ?? ""),
+      blogUrl: current.blogUrl || (applicant.blogUrl ?? ""),
+      portfolioUrl: current.portfolioUrl || (applicant.portfolioUrl ?? undefined),
+    }));
+  }, [applicant]);
+
+  // #272 지원서 세트 불러오기용 폴더 목록.
+  const foldersLoad = useCallback(() => getCandidateApi().listFolders(), []);
+  const foldersResource = useCandidateResource(foldersLoad, []);
+  const folders = foldersResource.data?.data.items ?? [];
 
   async function handleResumeFileSelect(file: File) {
     setBusy(true);
@@ -873,6 +965,7 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
             latestResumeFile={latestResumeFile}
             latestPortfolioFile={latestPortfolioFile}
             state={form}
+            folders={folders}
             onResumeFileSelect={handleResumeFileSelect}
             onPortfolioFileSelect={handlePortfolioFileSelect}
             onStateChange={setForm}
@@ -892,23 +985,55 @@ const APPLICATION_STATUS_FILTERS: { value: CandidateApplicationStatusFilter; lab
   { value: "REPORTING", label: "리포트" },
 ];
 
+const APPLICATIONS_PAGE_SIZE = 8;
+
+// 마이페이지 '지원 내역' 탭 — 지원 요약 + 지원한 공고 목록(페이지네이션). (#272 마이페이지 탭 재편)
 export function CandidateApplicationsPage() {
   const load = useCallback(() => getCandidateApi().listApplications(), []);
   const { data, loading, error } = useCandidateResource(load, []);
   const applications = data?.data.items ?? [];
   const [statusFilter, setStatusFilter] = useState<CandidateApplicationStatusFilter>("ALL");
+  const [page, setPage] = useState(1);
+  const summary = {
+    total: applications.length,
+    waiting: applications.filter(
+      (application) =>
+        application.applicationStatus !== "CANCELED" &&
+        (application.interviewStatus === "READY" || application.interviewStatus === "NOT_READY"),
+    ).length,
+    completed: applications.filter((application) => application.interviewStatus === "COMPLETED").length,
+    reports: applications.filter((application) => application.reportStatus === "COMPLETED").length,
+  };
   const filteredApplications = applications.filter((application) =>
     matchesCandidateApplicationStatusFilter(application, statusFilter),
   );
+  const totalPages = Math.max(1, Math.ceil(filteredApplications.length / APPLICATIONS_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedApplications = filteredApplications.slice(
+    (currentPage - 1) * APPLICATIONS_PAGE_SIZE,
+    currentPage * APPLICATIONS_PAGE_SIZE,
+  );
+
+  // 상태 필터가 바뀌면 첫 페이지로 되돌린다.
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter]);
 
   return (
-    <CandidatePageShell active="applications">
+    <CandidatePageShell active="accountBilling">
       <section className="candidate-mypage candidate-applications-page glass-page notion">
         <header className="candidate-mypage__head">
-          <h1>지원현황</h1>
+          <h1>지원 내역</h1>
         </header>
         <CandidateMypageTabs />
         <StatusNotice loading={loading} error={error} />
+
+        <section className="mypage-stats" aria-label="지원 요약">
+          <MypageStat name="applications" label="전체 지원" value={summary.total} />
+          <MypageStat name="waiting" label="응시 대기" value={summary.waiting} />
+          <MypageStat name="completed" label="응시 완료" value={summary.completed} />
+          <MypageStat name="reports" label="리포트 확인" value={summary.reports} />
+        </section>
 
         <section className="mypage-block">
           <div className="applications-toolbar">
@@ -936,7 +1061,7 @@ export function CandidateApplicationsPage() {
             <p className="applications-empty">지원 내역을 불러오는 중이에요.</p>
           ) : filteredApplications.length ? (
             <ul className="applications-list">
-              {filteredApplications.map((application) => {
+              {pagedApplications.map((application) => {
                 const action = getSelectedApplicationAction(application);
                 return (
                   <li key={application.applicationId} className="application-row">
@@ -980,6 +1105,38 @@ export function CandidateApplicationsPage() {
               </Link>
             </div>
           )}
+
+          {!loading && totalPages > 1 ? (
+            <nav className="applications-pagination" aria-label="지원 내역 페이지">
+              <button
+                type="button"
+                className="applications-pagination__nav"
+                disabled={currentPage <= 1}
+                onClick={() => setPage(currentPage - 1)}
+              >
+                이전
+              </button>
+              {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
+                <button
+                  key={pageNumber}
+                  type="button"
+                  aria-current={pageNumber === currentPage ? "page" : undefined}
+                  className={`applications-pagination__page${pageNumber === currentPage ? " is-active" : ""}`}
+                  onClick={() => setPage(pageNumber)}
+                >
+                  {pageNumber}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="applications-pagination__nav"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage(currentPage + 1)}
+              >
+                다음
+              </button>
+            </nav>
+          ) : null}
         </section>
       </section>
     </CandidatePageShell>
@@ -1313,7 +1470,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
                 eyebrow="면접 안내"
                 title="채용 AI 면접 안내"
                 description="응시 안내와 필수 동의를 확인한 뒤 면접 화면으로 이동합니다."
-                actions={<Link className="btn secondary" href={candidateApplicationInterviewRoutes.applications}>지원현황</Link>}
+                actions={<Link className="btn secondary" href={candidateApplicationInterviewRoutes.applications}>지원 내역</Link>}
               />
               <section className="panel detail-stack">
                 <div className="panel-head">
@@ -1710,6 +1867,7 @@ export function CandidateMockInterviewStartPage() {
                   alt=""
                   width={180}
                   height={180}
+                  loading="eager"
                   aria-hidden="true"
                 />
                 <strong>{item.title}</strong>
@@ -2245,36 +2403,171 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
   );
 }
 
-export function CandidateMyPage() {
-  const loadApplications = useCallback(() => getCandidateApi().listApplications(), []);
-  const { data: applicationsData } = useCandidateResource(loadApplications, []);
-  const applications = applicationsData?.data.items ?? [];
-  const summary = {
-    total: applications.length,
-    waiting: applications.filter(
-      (application) =>
-        application.applicationStatus !== "CANCELED" &&
-        (application.interviewStatus === "READY" || application.interviewStatus === "NOT_READY"),
-    ).length,
-    completed: applications.filter((application) => application.interviewStatus === "COMPLETED").length,
-    reports: applications.filter((application) => application.reportStatus === "COMPLETED").length,
-  };
+type CandidateProfileFormState = {
+  name: string;
+  phone: string;
+  githubUrl: string;
+  blogUrl: string;
+  portfolioUrl: string;
+  summary: string;
+};
 
+const emptyProfileForm: CandidateProfileFormState = {
+  name: "",
+  phone: "",
+  githubUrl: "",
+  blogUrl: "",
+  portfolioUrl: "",
+  summary: "",
+};
+
+// 내 정보(프로필) 편집 — 지원 시 자동 입력의 정본. 이메일은 로그인 정보라 읽기전용. (#272)
+function CandidateProfileSection() {
+  const load = useCallback(() => getCandidateApi().getProfile(), []);
+  const { data, loading, error, refresh } = useCandidateResource(load, []);
+  const [form, setForm] = useState<CandidateProfileFormState>(emptyProfileForm);
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const profile = data?.data;
+    if (!profile) {
+      return;
+    }
+    setEmail(profile.email);
+    setForm({
+      name: profile.name ?? "",
+      phone: profile.phone ?? "",
+      githubUrl: profile.githubUrl ?? "",
+      blogUrl: profile.blogUrl ?? "",
+      portfolioUrl: profile.portfolioUrl ?? "",
+      summary: profile.summary ?? "",
+    });
+  }, [data]);
+
+  async function handleSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      const body: UpdateCandidateProfileRequest = {
+        name: form.name,
+        phone: form.phone,
+        githubUrl: form.githubUrl,
+        blogUrl: form.blogUrl,
+        portfolioUrl: form.portfolioUrl,
+        summary: form.summary,
+      };
+      await getCandidateApi().updateProfile(body);
+      setMessage("내 정보가 저장되었습니다.");
+      void refresh().catch(() => undefined);
+    } catch (saveError) {
+      setMessage(toErrorMessage(saveError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="candidate-profile-card" aria-label="내 정보">
+      <header className="candidate-profile-card__head">
+        <h2>내 정보</h2>
+        <p>여기서 저장한 정보가 지원 시 자동으로 입력됩니다. 지원할 때 공고별로 수정할 수도 있어요.</p>
+      </header>
+      {error ? <p className="notice danger">{toErrorMessage(error)}</p> : null}
+      <form className="candidate-profile-form" onSubmit={handleSave}>
+        <label>
+          이름
+          <input
+            placeholder="이름"
+            value={form.name}
+            onChange={(event) => setForm({ ...form, name: event.currentTarget.value })}
+          />
+        </label>
+        <label>
+          이메일
+          <input value={email} readOnly disabled placeholder="이메일" />
+        </label>
+        <label>
+          연락처
+          <input
+            placeholder="010-0000-0000"
+            value={form.phone}
+            onChange={(event) => setForm({ ...form, phone: event.currentTarget.value })}
+          />
+        </label>
+        <label>
+          GitHub URL
+          <input
+            placeholder="https://github.com/username"
+            type="url"
+            value={form.githubUrl}
+            onChange={(event) => setForm({ ...form, githubUrl: event.currentTarget.value })}
+          />
+        </label>
+        <label>
+          블로그 URL
+          <input
+            placeholder="https://blog.example.com"
+            type="url"
+            value={form.blogUrl}
+            onChange={(event) => setForm({ ...form, blogUrl: event.currentTarget.value })}
+          />
+        </label>
+        <label>
+          포트폴리오 URL
+          <input
+            placeholder="https://portfolio.example.com"
+            type="url"
+            value={form.portfolioUrl}
+            onChange={(event) => setForm({ ...form, portfolioUrl: event.currentTarget.value })}
+          />
+        </label>
+        <label className="candidate-profile-form__full">
+          한 줄 소개
+          <textarea
+            placeholder="본인을 한 줄로 소개해 주세요."
+            value={form.summary}
+            onChange={(event) => setForm({ ...form, summary: event.currentTarget.value })}
+          />
+        </label>
+        <div className="candidate-profile-form__actions">
+          {message ? <span className="candidate-profile-form__msg">{message}</span> : null}
+          <button className="btn primary" type="submit" disabled={busy || loading}>
+            {busy ? "저장 중…" : "저장"}
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+// 마이페이지 '프로필' 탭 — 내 정보 수정 전용. (#272 마이페이지 탭 재편)
+export function CandidateMyPage() {
   return (
     <CandidatePageShell active="accountBilling">
       <section className="candidate-mypage glass-page notion">
         <header className="candidate-mypage__head">
-          <h1>마이페이지</h1>
+          <h1>프로필</h1>
         </header>
         <CandidateMypageTabs />
 
-        <section className="mypage-stats" aria-label="지원 요약">
-          <MypageStat name="applications" label="전체 지원" value={summary.total} />
-          <MypageStat name="waiting" label="응시 대기" value={summary.waiting} />
-          <MypageStat name="completed" label="응시 완료" value={summary.completed} />
-          <MypageStat name="reports" label="리포트 확인" value={summary.reports} />
-        </section>
+        <CandidateProfileSection />
+      </section>
+    </CandidatePageShell>
+  );
+}
 
+// 마이페이지 '지원서 세트' 탭 — 지원서 세트(폴더) 관리 전용. (#272 마이페이지 탭 재편)
+export function CandidateApplicationSetsPage() {
+  return (
+    <CandidatePageShell active="accountBilling">
+      <section className="candidate-mypage glass-page notion">
+        <header className="candidate-mypage__head">
+          <h1>지원서 세트</h1>
+        </header>
+        <CandidateMypageTabs />
 
         <CandidateFoldersSection />
       </section>
@@ -2560,6 +2853,8 @@ function InterviewRuntimePanel({
   const [realtimeDataChannelState, setRealtimeDataChannelState] = useState<RTCDataChannelState>("closed");
   const [realtimeDataEventCount, setRealtimeDataEventCount] = useState(0);
   const [realtimeRemoteAudioReady, setRealtimeRemoteAudioReady] = useState(false);
+  const [realtimeRemoteAudioElement, setRealtimeRemoteAudioElement] = useState<HTMLAudioElement | null>(null);
+  const [realtimeRemoteAudioStream, setRealtimeRemoteAudioStream] = useState<MediaStream | null>(null);
   const [answeredQuestionIds, setAnsweredQuestionIds] = useState<Set<number>>(() => new Set());
   const [replayedQuestionIds, setReplayedQuestionIds] = useState<Set<number>>(() => new Set());
   const [reansweringQuestionId, setReansweringQuestionId] = useState<number | null>(null);
@@ -2645,6 +2940,10 @@ function InterviewRuntimePanel({
   const realtimeSilenceStartedAtRef = useRef<number | null>(null);
   const realtimeEncouragedQuestionRef = useRef<number | null>(null);
   const videoAttachRunRef = useRef(0);
+  const bindRealtimeRemoteAudio = useCallback((element: HTMLAudioElement | null) => {
+    realtimeRemoteAudioRef.current = element;
+    setRealtimeRemoteAudioElement(element);
+  }, []);
   const hasAnswerFile = Boolean(answer.videoFile || answer.audioFile || answer.videoFileId || answer.audioFileId);
   const canSubmitAnswer = Boolean(currentQuestion && hasAnswerFile && answer.durationSeconds > 0 && !recording);
   const retryingCurrentQuestion = Boolean(currentQuestion && retryingQuestionId === currentQuestion.questionId);
@@ -2764,6 +3063,7 @@ function InterviewRuntimePanel({
       setRealtimeConnectionState("closed");
       setRealtimeDataChannelState("closed");
       setRealtimeRemoteAudioReady(false);
+      setRealtimeRemoteAudioStream(null);
     }
   }, [clearRealtimeSpeechCompletionState, clearRealtimeSpeechTimeout]);
 
@@ -6645,6 +6945,13 @@ function InterviewRuntimePanel({
         sourceQuestionId: metric.sourceQuestionId,
         outcome,
         nextReady,
+        nextQuestionType: resolveClientNextStepType({
+          sourceQuestionId: questionId,
+          outcome,
+          nextReady,
+          questions: data?.questions.questions ?? [],
+          totalQuestions: data?.runtime.totalQuestions ?? 0,
+        }),
         sttProcessLogId,
         followUpProcessLogId,
       },
@@ -6919,6 +7226,7 @@ function InterviewRuntimePanel({
     question: currentQuestion,
     questionVisible: subtitlesEnabled,
   });
+  const interviewerSpeechText = currentQuestion?.content ?? "";
   const cameraPipStyle = cameraPipPosition && runtimePrimaryScreen === "interviewer"
     ? {
         left: `${cameraPipPosition.x}px`,
@@ -7030,8 +7338,15 @@ function InterviewRuntimePanel({
   useEffect(() => closeRealtimeConnection, [closeRealtimeConnection]);
 
   useEffect(() => {
-    if (!data || !setupCompleted || data.runtime.status !== "IN_PROGRESS") return;
+    if (!data) return;
     if (AI_INTERVIEWER_SESSION_MODE_POLICY.activeMode !== "realtime-voice") return;
+    const localStream = streamRef.current;
+    if (!localStream) return;
+    if (!shouldStartRealtimeSession({
+      setupCompleted,
+      runtimeStatus: data.runtime.status,
+      localStream,
+    })) return;
 
     const requestKey = `${mode}:${data.runtime.sessionId}`;
     if (realtimeSessionRequestKeyRef.current === requestKey) return;
@@ -7042,6 +7357,7 @@ function InterviewRuntimePanel({
     setRealtimeDataChannelState("closed");
     setRealtimeDataEventCount(0);
     setRealtimeRemoteAudioReady(false);
+    setRealtimeRemoteAudioStream(null);
     setRealtimeProvider("none");
     setRealtimeModel("");
     setRealtimeVoice("");
@@ -7061,11 +7377,6 @@ function InterviewRuntimePanel({
         setRealtimeVoice(realtimeSession.voice);
 
         if (realtimeSession.provider === "openai") {
-          const localStream = streamRef.current;
-          if (!localStream) {
-            throw new Error("실시간 AI 면접 연결을 위한 마이크 스트림을 찾지 못했습니다.");
-          }
-
           setRealtimeSessionStatus("connecting");
           const connection = await createRealtimeInterviewWebRtcConnection({
             session: realtimeSession,
@@ -7073,7 +7384,10 @@ function InterviewRuntimePanel({
             remoteAudioElement: realtimeRemoteAudioRef.current,
             onConnectionStateChange: setRealtimeConnectionState,
             onDataChannelStateChange: setRealtimeDataChannelState,
-            onRemoteStream: () => setRealtimeRemoteAudioReady(true),
+            onRemoteStream: (stream) => {
+              setRealtimeRemoteAudioReady(true);
+              setRealtimeRemoteAudioStream(stream);
+            },
             onEvent: handleRealtimeDataEvent,
             onConnectionFailure: (connectionError) => {
               const realtimeMessage = `실시간 AI 면접 연결이 끊겼습니다: ${connectionError.message}`;
@@ -7105,6 +7419,7 @@ function InterviewRuntimePanel({
     data?.runtime.sessionId,
     data?.runtime.status,
     handleRealtimeDataEvent,
+    microphoneReady,
     mode,
     runtimeApi,
     setupCompleted,
@@ -7332,7 +7647,7 @@ function InterviewRuntimePanel({
               data-requested-session-mode={AI_INTERVIEWER_SESSION_MODE_POLICY.requestedMode}
               data-session-mode-fallback={AI_INTERVIEWER_SESSION_MODE_POLICY.fallbackReason ?? ""}
             >
-              <audio ref={realtimeRemoteAudioRef} className="sr-only" autoPlay aria-hidden="true" />
+              <audio ref={bindRealtimeRemoteAudio} className="sr-only" autoPlay aria-hidden="true" />
               <div className="ai-interviewer-stage__top">
                 <div className="ai-interviewer-stage__meta">
                   <strong>질문 {questionNumber} / {data.runtime.totalQuestions}</strong>
@@ -7399,13 +7714,13 @@ function InterviewRuntimePanel({
                       </button>
                     </div>
                   ) : null}
-                  <div className={interviewerAvatarClassName} aria-hidden="true">
-                    <span className="ai-interviewer-avatar__ring" />
-                    <span className="ai-interviewer-avatar__face">
-                      <span />
-                      <span />
-                    </span>
-                  </div>
+                  <InterviewAvatar
+                    className={interviewerAvatarClassName}
+                    phase={interviewerSessionState.phase}
+                    audioSource={realtimeRemoteAudioElement}
+                    audioStream={realtimeRemoteAudioStream}
+                    speechText={interviewerSpeechText}
+                  />
                   <div className="ai-interviewer-copy">
                     <div className="ai-interviewer-title-row">
                       <h1>{interviewerProfile.displayName}</h1>
@@ -8302,6 +8617,13 @@ function CandidateFoldersSection() {
                 <span>{folder.resumeFileName ?? "이력서 미첨부"}</span>
               </div>
 
+              {folder.portfolioFileName ? (
+                <div className="folder-card__resume">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
+                  <span>{folder.portfolioFileName}</span>
+                </div>
+              ) : null}
+
               {links.length ? (
                 <div className="folder-card__links">
                   {links.map((link) => (
@@ -8344,6 +8666,7 @@ function FolderFormModal({
   onSaved: (message: string) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const portfolioFileInputRef = useRef<HTMLInputElement | null>(null);
   const [form, setForm] = useState<CandidateFolderInput>(() =>
     folder
       ? {
@@ -8352,12 +8675,14 @@ function FolderFormModal({
           blogUrl: folder.blogUrl ?? "",
           portfolioUrl: folder.portfolioUrl ?? "",
           resumeFileId: folder.resumeFileId,
+          portfolioFileId: folder.portfolioFileId,
           motivation: folder.motivation ?? "",
           extraNote: folder.extraNote ?? "",
         }
       : { ...EMPTY_FOLDER_INPUT },
   );
   const [resumeFileName, setResumeFileName] = useState(folder?.resumeFileName ?? "");
+  const [portfolioFileName, setPortfolioFileName] = useState(folder?.portfolioFileName ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -8372,6 +8697,20 @@ function FolderFormModal({
       const result = await getCandidateApi().uploadResume(file);
       update("resumeFileId", result.data.fileId);
       setResumeFileName(file.name);
+    } catch (uploadError) {
+      setError(toErrorMessage(uploadError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handlePortfolioFile(file: File) {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await getCandidateApi().uploadResume(file);
+      update("portfolioFileId", result.data.fileId);
+      setPortfolioFileName(file.name);
     } catch (uploadError) {
       setError(toErrorMessage(uploadError));
     } finally {
@@ -8420,13 +8759,13 @@ function FolderFormModal({
         <label className="folder-field">
           <span>이력서</span>
           <button type="button" className="candidate-upload-drop" onClick={() => fileInputRef.current?.click()} disabled={busy}>
-            {resumeFileName || "PDF, DOCX 파일을 선택하세요"}
+            {resumeFileName || "PDF 파일을 선택하세요"}
           </button>
           <input
             ref={fileInputRef}
             type="file"
             className="candidate-hidden-file"
-            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            accept=".pdf,application/pdf"
             onChange={(e) => {
               const file = e.currentTarget.files?.[0];
               if (file) void handleFile(file);
@@ -8444,9 +8783,26 @@ function FolderFormModal({
           </label>
         </div>
         <label className="folder-field">
-          <span>포트폴리오</span>
+          <span>포트폴리오 URL</span>
           <input type="url" value={form.portfolioUrl ?? ""} placeholder="https://…" onChange={(e) => update("portfolioUrl", e.target.value)} />
         </label>
+        <label className="folder-field">
+          <span>포트폴리오 PDF</span>
+          <button type="button" className="candidate-upload-drop" onClick={() => portfolioFileInputRef.current?.click()} disabled={busy}>
+            {portfolioFileName || "PDF 파일을 선택하세요"}
+          </button>
+          <input
+            ref={portfolioFileInputRef}
+            type="file"
+            className="candidate-hidden-file"
+            accept=".pdf,application/pdf"
+            onChange={(e) => {
+              const file = e.currentTarget.files?.[0];
+              if (file) void handlePortfolioFile(file);
+            }}
+          />
+        </label>
+        <p className="folder-hint">GitHub·블로그·포트폴리오는 선택이에요. 비워두면 지원할 때 프로필에 저장된 값이 자동으로 채워집니다.</p>
         <label className="folder-field">
           <span>지원 동기</span>
           <textarea rows={3} value={form.motivation ?? ""} placeholder="이 기업/직무에 지원하는 이유" onChange={(e) => update("motivation", e.target.value)} />
@@ -8544,13 +8900,12 @@ function MockFeedbackView({ feedback }: { feedback: CandidateMockReportFeedback 
 
   return (
     <div className="detail-stack">
-      <dl className="candidate-feature__summary">
-        <Definition label="상태" value={<StatusPill value={feedback.status} />} />
-        {feedback.totalScore !== undefined ? <Definition label="총점" value={`${feedback.totalScore}점`} /> : null}
-        <Definition label="생성 시각" value={feedback.generatedAt ? formatDateTime(feedback.generatedAt) : "-"} />
-        <Definition label="공개 범위" value={feedback.visibilityPolicy.candidateFacingOnly ? "지원자용" : "확인 필요"} />
-      </dl>
-      <p className="description-box">{feedback.summary ?? "리포트 생성 중입니다."}</p>
+      <div className="report-summary-callout">
+        <span className="report-summary-callout__icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a7 7 0 0 0-4 12.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3A7 7 0 0 0 12 2z" /><path d="M9 21h6" /></svg>
+        </span>
+        <p>{feedback.summary ?? "리포트 생성 중입니다."}</p>
+      </div>
       {scores.length ? null : <ListBlock title="강점" items={feedback.strengths} />}
       <ListBlock title="개선점" items={improvementItems} />
       <ListBlock title="다음 연습" items={nextPracticeItems} />

@@ -12,10 +12,13 @@ import {
 import { PrismaService } from "../../../shared/prisma.service";
 import { CandidateDomainError } from "../candidate.errors";
 import {
+  type ApplicantContact,
   type Application,
   type ApplicationDocument,
   type ApplicationSubmissionResult,
   type CandidateFolder,
+  type CandidateProfileView,
+  type UpdateCandidateProfileInput,
   type CandidateJob,
   type CandidateRepository,
   type ConsentRecord,
@@ -40,6 +43,9 @@ interface CandidatePostingRow {
   careerMaxYears: number | null;
   employmentTypeCode: string | null;
   recruitmentType: string | null;
+  workplaceAddress: string | null;
+  workplaceLat: number | null;
+  workplaceLng: number | null;
   startsOn: Date | null;
   endsOn: Date | null;
   postingStatus: string;
@@ -58,7 +64,7 @@ interface CandidatePostingSchemaShape {
 type ApplicationRecord = Prisma.ApplicationGetPayload<Record<string, never>>;
 type ApplicationDocumentRecord = Prisma.ApplicationDocumentGetPayload<Record<string, never>>;
 type CandidateFolderRecord = Prisma.CandidateFolderGetPayload<{
-  include: { resumeFile: { select: { originalName: true } } };
+  include: { resumeFile: { select: { originalName: true } }, portfolioFile: { select: { originalName: true } } };
 }>;
 type ConsentRecordModel = Prisma.ConsentRecordGetPayload<Record<string, never>>;
 type FileAssetRecord = Prisma.FileAssetGetPayload<Record<string, never>>;
@@ -117,6 +123,85 @@ export class PrismaCandidateRepository implements CandidateRepository {
       select: { userId: true },
     });
     return profile ? Number(profile.userId) : undefined;
+  }
+
+  async findApplicantContact(userId: number): Promise<ApplicantContact | undefined> {
+    const user = await this.prisma.user.findUnique({
+      where: { userId: BigInt(userId) },
+      select: {
+        name: true,
+        email: true,
+        phone: true,
+        candidateProfile: { select: { githubUrl: true, blogUrl: true, portfolioUrl: true } },
+      },
+    });
+    if (!user) {
+      return undefined;
+    }
+    return {
+      name: user.name,
+      email: user.email,
+      phone: user.phone ?? null,
+      githubUrl: user.candidateProfile?.githubUrl ?? null,
+      blogUrl: user.candidateProfile?.blogUrl ?? null,
+      portfolioUrl: user.candidateProfile?.portfolioUrl ?? null,
+    };
+  }
+
+  async getCandidateProfile(candidateId: number): Promise<CandidateProfileView | undefined> {
+    const profile = await this.prisma.candidateProfile.findUnique({
+      where: { candidateId: BigInt(candidateId) },
+      include: { user: { select: { name: true, email: true, phone: true } } },
+    });
+    if (!profile) {
+      return undefined;
+    }
+    return {
+      name: profile.user.name,
+      email: profile.user.email,
+      phone: profile.user.phone ?? null,
+      githubUrl: profile.githubUrl ?? null,
+      blogUrl: profile.blogUrl ?? null,
+      portfolioUrl: profile.portfolioUrl ?? null,
+      summary: profile.summary ?? null,
+    };
+  }
+
+  async updateCandidateProfile(
+    candidateId: number,
+    input: UpdateCandidateProfileInput,
+  ): Promise<CandidateProfileView> {
+    const existing = await this.prisma.candidateProfile.findUnique({
+      where: { candidateId: BigInt(candidateId) },
+      select: { userId: true },
+    });
+    if (!existing) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "지원자 프로필을 찾을 수 없습니다.", 404);
+    }
+
+    const userData = {
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.phone !== undefined ? { phone: input.phone } : {}),
+    };
+    const profileData = {
+      ...(input.githubUrl !== undefined ? { githubUrl: input.githubUrl } : {}),
+      ...(input.blogUrl !== undefined ? { blogUrl: input.blogUrl } : {}),
+      ...(input.portfolioUrl !== undefined ? { portfolioUrl: input.portfolioUrl } : {}),
+      ...(input.summary !== undefined ? { summary: input.summary } : {}),
+    };
+
+    await this.prisma.$transaction([
+      ...(Object.keys(userData).length > 0
+        ? [this.prisma.user.update({ where: { userId: existing.userId }, data: userData })]
+        : []),
+      this.prisma.candidateProfile.update({ where: { candidateId: BigInt(candidateId) }, data: profileData }),
+    ]);
+
+    const updated = await this.getCandidateProfile(candidateId);
+    if (!updated) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "지원자 프로필을 찾을 수 없습니다.", 404);
+    }
+    return updated;
   }
 
   async listDocuments(applicationId: number): Promise<ApplicationDocument[]> {
@@ -276,6 +361,8 @@ export class PrismaCandidateRepository implements CandidateRepository {
     motivation?: string;
     additionalInfo?: string;
     consentTypes: ConsentRecord["consentType"][];
+    // 있으면 지원서 생성과 같은 트랜잭션에서 회원 연락처를 저장한다(다음 지원 자동 입력용). (#272 P2)
+    contactUserId?: number;
   }): Promise<ApplicationSubmissionResult> {
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -340,18 +427,16 @@ export class PrismaCandidateRepository implements CandidateRepository {
         },
       });
 
+      // 공고별 입력값은 지원서 스냅샷에만 저장한다. 회원 프로필(정본)은 갱신하지 않는다.
+      // (프로필은 마이페이지에서만 수정, 연락처만 재사용 목적으로 저장. #272 P1)
       let portfolioLink: PortfolioLink | undefined;
       if (input.portfolioUrl) {
-        const portfolioField = input.portfolioUrl.includes("github.com") ? "githubUrl" : "portfolioUrl";
-        await tx.candidateProfile.update({
-          where: { candidateId: BigInt(input.candidateId) },
-          data: { [portfolioField]: input.portfolioUrl },
-        });
+        const linkType = input.portfolioUrl.includes("github.com") ? "GITHUB" : "PORTFOLIO";
         portfolioLink = {
           portfolioLinkId: Number(application.applicationId),
           candidateId: input.candidateId,
           applicationId: Number(application.applicationId),
-          linkType: portfolioField === "githubUrl" ? "GITHUB" : "PORTFOLIO",
+          linkType,
           url: input.portfolioUrl,
           description: "Application portfolio link",
           fileId: input.portfolioFileId,
@@ -367,6 +452,10 @@ export class PrismaCandidateRepository implements CandidateRepository {
         where: { applicationId: application.applicationId },
         orderBy: { consentId: "asc" },
       });
+
+      if (input.contactUserId && input.phone) {
+        await tx.user.update({ where: { userId: BigInt(input.contactUserId) }, data: { phone: input.phone } });
+      }
 
       return {
         application: this.toApplication(application),
@@ -420,7 +509,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
     const folders = await this.prisma.candidateFolder.findMany({
       where: { candidateId: BigInt(candidateId) },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-      include: { resumeFile: { select: { originalName: true } } },
+      include: { resumeFile: { select: { originalName: true } }, portfolioFile: { select: { originalName: true } } },
     });
     return folders.map((folder) => this.toCandidateFolder(folder));
   }
@@ -428,13 +517,13 @@ export class PrismaCandidateRepository implements CandidateRepository {
   async findFolder(folderId: number): Promise<CandidateFolder | undefined> {
     const folder = await this.prisma.candidateFolder.findUnique({
       where: { id: BigInt(folderId) },
-      include: { resumeFile: { select: { originalName: true } } },
+      include: { resumeFile: { select: { originalName: true } }, portfolioFile: { select: { originalName: true } } },
     });
     return folder ? this.toCandidateFolder(folder) : undefined;
   }
 
   async createFolder(
-    input: Omit<CandidateFolder, "id" | "resumeFileName" | "createdAt" | "updatedAt">,
+    input: Omit<CandidateFolder, "id" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">,
   ): Promise<CandidateFolder> {
     const folder = await this.prisma.candidateFolder.create({
       data: {
@@ -444,17 +533,18 @@ export class PrismaCandidateRepository implements CandidateRepository {
         blogUrl: input.blogUrl,
         portfolioUrl: input.portfolioUrl,
         resumeFileId: input.resumeFileId ? BigInt(input.resumeFileId) : null,
+        portfolioFileId: input.portfolioFileId ? BigInt(input.portfolioFileId) : null,
         motivation: input.motivation,
         extraNote: input.extraNote,
       },
-      include: { resumeFile: { select: { originalName: true } } },
+      include: { resumeFile: { select: { originalName: true } }, portfolioFile: { select: { originalName: true } } },
     });
     return this.toCandidateFolder(folder);
   }
 
   async updateFolder(
     folderId: number,
-    input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "createdAt" | "updatedAt">>,
+    input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">>,
   ): Promise<CandidateFolder> {
     const folder = await this.prisma.candidateFolder.update({
       where: { id: BigInt(folderId) },
@@ -464,10 +554,11 @@ export class PrismaCandidateRepository implements CandidateRepository {
         ...(input.blogUrl !== undefined ? { blogUrl: input.blogUrl } : {}),
         ...(input.portfolioUrl !== undefined ? { portfolioUrl: input.portfolioUrl } : {}),
         ...(input.resumeFileId !== undefined ? { resumeFileId: input.resumeFileId ? BigInt(input.resumeFileId) : null } : {}),
+        ...(input.portfolioFileId !== undefined ? { portfolioFileId: input.portfolioFileId ? BigInt(input.portfolioFileId) : null } : {}),
         ...(input.motivation !== undefined ? { motivation: input.motivation } : {}),
         ...(input.extraNote !== undefined ? { extraNote: input.extraNote } : {}),
       },
-      include: { resumeFile: { select: { originalName: true } } },
+      include: { resumeFile: { select: { originalName: true } }, portfolioFile: { select: { originalName: true } } },
     });
     return this.toCandidateFolder(folder);
   }
@@ -513,6 +604,9 @@ export class PrismaCandidateRepository implements CandidateRepository {
         ${this.selectPostingColumn(shape.postingColumns, "career_max_years", "careerMaxYears", "integer")},
         ${this.selectPostingColumn(shape.postingColumns, "employment_type_code", "employmentTypeCode")},
         ${this.selectPostingColumn(shape.postingColumns, "recruitment_type", "recruitmentType")},
+        ${this.selectPostingColumn(shape.postingColumns, "workplace_address", "workplaceAddress")},
+        ${this.selectPostingColumn(shape.postingColumns, "workplace_lat", "workplaceLat", "double precision")},
+        ${this.selectPostingColumn(shape.postingColumns, "workplace_lng", "workplaceLng", "double precision")},
         p."starts_on" AS "startsOn",
         p."ends_on" AS "endsOn",
         p."status"::text AS "postingStatus",
@@ -590,6 +684,9 @@ export class PrismaCandidateRepository implements CandidateRepository {
       careerMaxYears: posting.careerMaxYears,
       employmentTypeCode: posting.employmentTypeCode,
       recruitmentType: posting.recruitmentType,
+      workplaceAddress: posting.workplaceAddress,
+      workplaceLat: posting.workplaceLat,
+      workplaceLng: posting.workplaceLng,
       startsOn: this.toDateOnly(startsOn),
       endsOn: this.toDateOnly(endsOn),
       createdAt: posting.createdAt.toISOString(),
@@ -664,6 +761,8 @@ export class PrismaCandidateRepository implements CandidateRepository {
       portfolioUrl: folder.portfolioUrl,
       resumeFileId: folder.resumeFileId ? Number(folder.resumeFileId) : null,
       resumeFileName: folder.resumeFile?.originalName ?? null,
+      portfolioFileId: folder.portfolioFileId ? Number(folder.portfolioFileId) : null,
+      portfolioFileName: folder.portfolioFile?.originalName ?? null,
       motivation: folder.motivation,
       extraNote: folder.extraNote,
       createdAt: folder.createdAt.toISOString(),

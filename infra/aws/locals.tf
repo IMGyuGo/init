@@ -11,13 +11,6 @@ locals {
   azs              = slice(data.aws_availability_zones.available.names, 0, 2)
   root_domain_name = trimsuffix(var.root_domain_name, ".")
   app_domain_name  = local.root_domain_name
-  ses_domain_name  = trimsuffix(var.ses_domain_name != "" ? var.ses_domain_name : local.root_domain_name, ".")
-  ses_enabled      = var.enable_ses_domain_identity && local.ses_domain_name != ""
-  ses_mail_from_domain = (
-    var.ses_mail_from_subdomain != ""
-    ? "${var.ses_mail_from_subdomain}.${local.ses_domain_name}"
-    : ""
-  )
 
   common_tags = {
     Project     = "jungle-init"
@@ -118,9 +111,13 @@ locals {
       "SMTP_HOST",
       "SMTP_PORT",
       "SMTP_SECURE",
+      "SMTP_REQUIRE_TLS",
       "SMTP_USER",
       "SMTP_PASS",
       "SMTP_FROM",
+      "SMTP_CONNECTION_TIMEOUT_MS",
+      "SMTP_GREETING_TIMEOUT_MS",
+      "SMTP_SOCKET_TIMEOUT_MS",
       "AWS_REGION",
       "S3_BUCKET",
       "S3_BUCKET_NAME",
@@ -132,6 +129,12 @@ locals {
       "AI_PROVIDER_MODE",
       "OPENAI_MODEL",
       "OPENAI_EMBEDDING_MODEL",
+      "AI_INTERVIEWER_REALTIME_PROVIDER",
+      "OPENAI_REALTIME_MODEL",
+      "OPENAI_REALTIME_VOICE",
+      "OPENAI_REALTIME_API_BASE_URL",
+      "OPENAI_REALTIME_STT_MODEL",
+      "OPENAI_REALTIME_STT_DELAY",
       "AI_STT_PROVIDER",
       "OPENAI_STT_MODEL",
       "OPENAI_STT_LANGUAGE",
@@ -154,6 +157,9 @@ locals {
       "AI_PROVIDER_MODE",
       "OPENAI_MODEL",
       "OPENAI_EMBEDDING_MODEL",
+      "AI_TEXT_INPUT_USD_PER_1M_TOKENS",
+      "AI_TEXT_OUTPUT_USD_PER_1M_TOKENS",
+      "AI_STT_USD_PER_MINUTE",
       "AI_STT_PROVIDER",
       "OPENAI_STT_MODEL",
       "OPENAI_STT_LANGUAGE",

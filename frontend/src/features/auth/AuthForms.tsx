@@ -8,6 +8,7 @@ import { useAuth } from "./AuthProvider";
 import signupCompanyIcon from "./assets/signup-company.png";
 import signupCandidateIcon from "./assets/signup-candidate.png";
 import { getOAuthLoginMessageState } from "./oauth-login-message";
+import { buildSignupPayload } from "./signup-payload";
 
 function EyeIcon() {
   return (
@@ -397,7 +398,7 @@ export function SignupForm({ userType }: { userType: UserType }) {
     try {
       await apiFetch(isCompany ? "/auth/signup/company" : "/auth/signup/candidate", {
         method: "POST",
-        body: JSON.stringify(form),
+        body: JSON.stringify(buildSignupPayload(userType, form)),
       });
       router.push("/login");
     } catch (error) {

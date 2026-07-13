@@ -135,6 +135,7 @@
 | default_resume_file_id | BIGINT | 기본 이력서 파일 FK |
 | portfolio_url | VARCHAR(500) | 대표 포트폴리오 URL |
 | github_url | VARCHAR(500) | GitHub 주소 |
+| blog_url | VARCHAR(500) | 블로그 URL (#272 프로필 정본화로 추가) |
 | summary | TEXT | 지원자 자기소개/요약 정보. AI 분석 또는 프로필 표시용 |
 | created_at | TIMESTAMP NOT NULL | 지원자 프로필 생성 시각 |
 | updated_at | TIMESTAMP NOT NULL | 지원자 프로필 수정 시각 |
@@ -150,6 +151,7 @@
 | blog_url | VARCHAR(500) | 블로그 URL |
 | portfolio_url | VARCHAR(500) | 포트폴리오 URL |
 | resume_file_id | BIGINT | 폴더에 연결된 이력서 file_assets FK. 파일 삭제 시 NULL |
+| portfolio_file_id | BIGINT | 폴더에 연결된 포트폴리오 PDF file_assets FK. 파일 삭제 시 NULL (#272 P1-2) |
 | motivation | TEXT | 지원 동기 |
 | extra_note | TEXT | 추가 설명 |
 | created_at | TIMESTAMP NOT NULL | 폴더 생성 시각 |
@@ -175,6 +177,9 @@
 | career_max_years | INTEGER | 지원자 필터용 요구 경력 최대(년). 0~10. career_min_years 이상 |
 | employment_type_code | VARCHAR(20) | 지원자 필터용 근무형태 코드. `PostingEmploymentTypeCode` taxonomy 값. 미분류면 NULL |
 | recruitment_type | VARCHAR(20) | 지원자 필터용 채용형태 코드. `PostingRecruitmentType`(상시/마감형). 미분류면 NULL |
+| workplace_address | VARCHAR(300) | 회사 위치 도로명 주소(공고 생성 시 주소 검색). 미입력이면 NULL |
+| workplace_lat | DOUBLE PRECISION | 회사 위치 위도(지원자 상세 지도 핀). 좌표 없으면 NULL. workplace_lng와 함께 저장 |
+| workplace_lng | DOUBLE PRECISION | 회사 위치 경도. 좌표 없으면 NULL. workplace_lat와 함께 저장 |
 | starts_on | DATE | 지원 시작일 |
 | ends_on | DATE | 지원 마감일 |
 | status | VARCHAR(30) NOT NULL | 공고 상태: DRAFT, OPEN, CLOSING_SOON, CLOSED, ARCHIVED |

@@ -71,7 +71,14 @@ export class ClientPerformanceLogRequestDto {
   @IsString()
   completedAt?: string;
 
-  @ApiPropertyOptional({ type: Object })
+  @ApiPropertyOptional({
+    type: Object,
+    example: {
+      outcome: "FOLLOW_UP_READY",
+      nextReady: true,
+      nextQuestionType: "FOLLOW_UP_QUESTION"
+    }
+  })
   @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;
