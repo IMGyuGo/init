@@ -19,6 +19,9 @@ coverage/
 .understand-anything/
 *.tsbuildinfo
 
+# Regeneratable avatar rigging intermediates
+assets/interviewer-rigging/**/normalized/*.rgba
+
 # Logs
 npm-debug.log*
 yarn-debug.log*
