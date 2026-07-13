@@ -80,6 +80,7 @@ import {
   isFacePositionShifted,
   estimateHeadPoseAngles,
   estimateIrisGazePosition,
+  isWithinDetectionGrace,
   resolveCombinedGazeSignal,
   smoothIrisGazePosition,
   updateFacePositionBaseline,
@@ -203,6 +204,7 @@ const NONVERBAL_FACE_SHIFT_RELATIVE_AREA_MULTIPLIER = 1.6;
 const NONVERBAL_FACE_SHIFT_CONFIRMATION_MS = 1000;
 const NONVERBAL_GAZE_AWAY_CONFIRMATION_MS = 1500;
 const NONVERBAL_GAZE_CENTERED_CONFIRMATION_MS = 750;
+const NONVERBAL_GAZE_SIGNAL_DROPOUT_GRACE_MS = 650;
 const NONVERBAL_TIMELINE_SAMPLE_INTERVAL_MS = 1000;
 const NONVERBAL_AUDIO_SPEAKING_LEVEL = 6;
 const NONVERBAL_AUDIO_SPEAKING_RATIO_THRESHOLD = 0.35;
@@ -420,6 +422,7 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   gazeAwayStartedAtMs?: number;
   gazeAwayCandidateStartedAtMs?: number;
   gazeCenteredCandidateStartedAtMs?: number;
+  lastGazeSignalAtMs?: number;
   voiceMouthMismatchStartedAtMs?: number;
   voiceMouthMismatchCandidateStartedAtMs?: number;
   voiceWithoutFaceStartedAtMs?: number;
@@ -4320,6 +4323,7 @@ function InterviewRuntimePanel({
   ) {
     const nowMs = Date.now();
     if (signal) {
+      tracker.lastGazeSignalAtMs = nowMs;
       tracker.gazeCenteredCandidateStartedAtMs = undefined;
       tracker.gazeAwayCandidateStartedAtMs ??= nowMs;
       tracker.lastGazeDirection = signal.direction;
@@ -4335,9 +4339,20 @@ function InterviewRuntimePanel({
       return;
     }
 
-    tracker.gazeAwayCandidateStartedAtMs = undefined;
     if (tracker.gazeAwayStartedAtMs === undefined) {
+      if (
+        tracker.gazeAwayCandidateStartedAtMs !== undefined &&
+        isWithinDetectionGrace(
+          tracker.lastGazeSignalAtMs,
+          nowMs,
+          NONVERBAL_GAZE_SIGNAL_DROPOUT_GRACE_MS,
+        )
+      ) {
+        return;
+      }
+      tracker.gazeAwayCandidateStartedAtMs = undefined;
       tracker.gazeCenteredCandidateStartedAtMs = undefined;
+      tracker.lastGazeSignalAtMs = undefined;
       tracker.lastGazeDirection = undefined;
       tracker.lastGazeSource = undefined;
       return;
@@ -4355,6 +4370,7 @@ function InterviewRuntimePanel({
     );
     tracker.gazeAwayStartedAtMs = undefined;
     tracker.gazeCenteredCandidateStartedAtMs = undefined;
+    tracker.lastGazeSignalAtMs = undefined;
     tracker.lastGazeDirection = undefined;
     tracker.lastGazeSource = undefined;
   }

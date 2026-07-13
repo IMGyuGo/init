@@ -28,6 +28,7 @@ import {
   countPersonDetections,
   isFacePositionShifted,
   estimateHeadPoseAngles,
+  isWithinDetectionGrace,
   resolveCombinedGazeSignal,
   smoothIrisGazePosition,
   updateFacePositionBaseline,
@@ -325,6 +326,9 @@ const moderateIrisOnlySignal = resolveCombinedGazeSignal({
 });
 assert.equal(moderateIrisOnlySignal?.source, "IRIS");
 assert.equal(moderateIrisOnlySignal?.direction, "RIGHT");
+
+assert.equal(isWithinDetectionGrace(1000, 1650, 650), true);
+assert.equal(isWithinDetectionGrace(1000, 1651, 650), false);
 
 const horizontalIrisOnlySignal = resolveCombinedGazeSignal({
   irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },

@@ -169,6 +169,18 @@ export function classifyIrisGazeDirection(
   return verticalDelta < 0 ? "UP" : "DOWN";
 }
 
+export function isWithinDetectionGrace(
+  lastDetectedAtMs: number | undefined,
+  nowMs: number,
+  graceMs: number,
+): boolean {
+  return (
+    lastDetectedAtMs !== undefined &&
+    nowMs >= lastDetectedAtMs &&
+    nowMs - lastDetectedAtMs <= Math.max(0, graceMs)
+  );
+}
+
 export function estimateIrisGazePosition(landmarks: NormalizedLandmark[]): IrisGazePosition | undefined {
   if (landmarks.length < 478) return undefined;
 
