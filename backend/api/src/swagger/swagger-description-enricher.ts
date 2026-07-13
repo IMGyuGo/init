@@ -10,6 +10,14 @@ type OperationDocumentation = {
 const HTTP_METHODS = new Set(["get", "post", "put", "patch", "delete", "options", "head", "trace"]);
 
 const OPERATION_DOCUMENTATION_BY_HANDLER: Record<string, OperationDocumentation> = {
+  getProfile: {
+    summary: "지원자 프로필 조회",
+    description: "로그인한 지원자의 기본 정보, 경력, 학력, 보유 기술과 지원서 작성에 사용하는 프로필 정보를 조회합니다.",
+  },
+  updateProfile: {
+    summary: "지원자 프로필 수정",
+    description: "로그인한 지원자의 기본 정보, 경력, 학력과 보유 기술을 검증해 지원자 프로필에 반영합니다.",
+  },
   listJobs: {
     summary: "지원 가능한 채용공고 목록 조회",
     description: "지원자에게 노출 가능한 채용공고를 검색·필터 조건에 따라 조회하고, 각 공고의 지원 완료 여부를 함께 반환합니다.",

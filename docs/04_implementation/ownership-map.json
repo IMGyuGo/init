@@ -60,6 +60,16 @@
       ]
     },
     {
+      "name": "frontend favicon route",
+      "patterns": [
+        "^frontend/src/app/favicon\\.ico/route\\.ts$"
+      ],
+      "roles": [
+        "B",
+        "D"
+      ]
+    },
+    {
       "name": "frontend api client",
       "patterns": [
         "^frontend/src/api/"
