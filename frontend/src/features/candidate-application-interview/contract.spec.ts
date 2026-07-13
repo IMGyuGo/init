@@ -28,6 +28,7 @@ import {
   countPersonDetections,
   isFacePositionShifted,
   estimateHeadPoseAngles,
+  isReliableGazeCalibrationFrame,
   isWithinDetectionGrace,
   resolveCombinedGazeSignal,
   smoothIrisGazePosition,
@@ -329,6 +330,31 @@ assert.equal(moderateIrisOnlySignal?.direction, "RIGHT");
 
 assert.equal(isWithinDetectionGrace(1000, 1650, 650), true);
 assert.equal(isWithinDetectionGrace(1000, 1651, 650), false);
+
+const centeredCalibrationFrame = {
+  irisPosition: { horizontalRatio: 0.5, verticalRatio: 0.52 },
+  headPose: { yawDegrees: 4, pitchDegrees: -3, rollDegrees: 2 },
+  detectedFaceCount: 1,
+  faceInFrame: true,
+};
+assert.equal(isReliableGazeCalibrationFrame(centeredCalibrationFrame), true);
+assert.equal(isReliableGazeCalibrationFrame({ ...centeredCalibrationFrame, detectedFaceCount: 2 }), false);
+assert.equal(isReliableGazeCalibrationFrame({ ...centeredCalibrationFrame, faceInFrame: false }), false);
+assert.equal(
+  isReliableGazeCalibrationFrame({
+    ...centeredCalibrationFrame,
+    irisPosition: { horizontalRatio: 0.9, verticalRatio: 0.52 },
+  }),
+  false,
+);
+assert.equal(
+  isReliableGazeCalibrationFrame({
+    ...centeredCalibrationFrame,
+    headPose: { yawDegrees: 24, pitchDegrees: -3, rollDegrees: 2 },
+  }),
+  false,
+);
+assert.equal(isReliableGazeCalibrationFrame({ ...centeredCalibrationFrame, irisPosition: undefined }), false);
 
 const horizontalIrisOnlySignal = resolveCombinedGazeSignal({
   irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },

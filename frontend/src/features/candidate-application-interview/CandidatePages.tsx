@@ -80,6 +80,7 @@ import {
   isFacePositionShifted,
   estimateHeadPoseAngles,
   estimateIrisGazePosition,
+  isReliableGazeCalibrationFrame,
   isWithinDetectionGrace,
   resolveCombinedGazeSignal,
   smoothIrisGazePosition,
@@ -4185,6 +4186,7 @@ function InterviewRuntimePanel({
     tracker: RecordingNonverbalTracker,
     irisPosition: IrisGazePosition | undefined,
     headPose: HeadPoseAngles | undefined,
+    calibrationEligible: boolean,
   ) {
     const irisCalibrated = tracker.gazeCalibrationSampleCount >= GAZE_CALIBRATION_REQUIRED_SAMPLES;
     const headPoseCalibrated = tracker.headPoseCalibrationSampleCount >= GAZE_CALIBRATION_REQUIRED_SAMPLES;
@@ -4193,7 +4195,7 @@ function InterviewRuntimePanel({
     if (irisPosition) {
       tracker.gazeDetectionSupported = true;
       tracker.gazeDetectionFrameCount += 1;
-      if (!irisCalibrated) {
+      if (!irisCalibrated && calibrationEligible) {
         const sampleCount = tracker.gazeCalibrationSampleCount;
         tracker.gazeBaselineHorizontalRatio = updateCalibrationAverage(
           tracker.gazeBaselineHorizontalRatio,
@@ -4213,7 +4215,7 @@ function InterviewRuntimePanel({
     if (headPose) {
       tracker.headPoseDetectionSupported = true;
       tracker.headPoseDetectionFrameCount += 1;
-      if (!headPoseCalibrated) {
+      if (!headPoseCalibrated && calibrationEligible) {
         const sampleCount = tracker.headPoseCalibrationSampleCount;
         tracker.headPoseBaselineYawDegrees = updateCalibrationAverage(
           tracker.headPoseBaselineYawDegrees,
@@ -4532,11 +4534,15 @@ function InterviewRuntimePanel({
         const snapshot = primaryLandmarks ? toFaceSnapshotFromLandmarks(primaryLandmarks) : undefined;
         registerFaceBaselineSample(current, snapshot);
 
-        registerCombinedGazeSample(
-          current,
-          primaryLandmarks ? estimateIrisGazePosition(primaryLandmarks) : undefined,
-          estimateHeadPoseAngles(primaryTransformationMatrix),
-        );
+        const irisPosition = primaryLandmarks ? estimateIrisGazePosition(primaryLandmarks) : undefined;
+        const headPose = estimateHeadPoseAngles(primaryTransformationMatrix);
+        const calibrationEligible = isReliableGazeCalibrationFrame({
+          irisPosition,
+          headPose,
+          detectedFaceCount: faces.length,
+          faceInFrame: Boolean(snapshot && !isFaceOutOfFrame(snapshot)),
+        });
+        registerCombinedGazeSample(current, irisPosition, headPose, calibrationEligible);
         registerVoiceWithoutFaceSample(current, faces.length === 0);
         if (primaryLandmarks) {
           registerVoiceMouthSyncSample(current, primaryLandmarks);

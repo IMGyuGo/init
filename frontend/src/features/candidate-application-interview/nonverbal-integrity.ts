@@ -137,6 +137,11 @@ const IRIS_HORIZONTAL_AWAY_THRESHOLD = 0.08;
 const IRIS_VERTICAL_AWAY_THRESHOLD = 0.1;
 const IRIS_ANALYSIS_HORIZONTAL_DEAD_ZONE = 0.045;
 const IRIS_ANALYSIS_VERTICAL_DEAD_ZONE = 0.06;
+const IRIS_CALIBRATION_MIN_RATIO = 0.15;
+const IRIS_CALIBRATION_MAX_RATIO = 0.85;
+const HEAD_CALIBRATION_MAX_YAW_DEGREES = 18;
+const HEAD_CALIBRATION_MAX_PITCH_DEGREES = 15;
+const HEAD_CALIBRATION_MAX_ROLL_DEGREES = 15;
 const HEAD_YAW_AWAY_THRESHOLD_DEGREES = 20;
 const HEAD_PITCH_AWAY_THRESHOLD_DEGREES = 16;
 const COMBINED_MIN_COMPONENT_STRENGTH = 0.4;
@@ -178,6 +183,27 @@ export function isWithinDetectionGrace(
     lastDetectedAtMs !== undefined &&
     nowMs >= lastDetectedAtMs &&
     nowMs - lastDetectedAtMs <= Math.max(0, graceMs)
+  );
+}
+
+export function isReliableGazeCalibrationFrame(input: {
+  irisPosition?: IrisGazePosition;
+  headPose?: HeadPoseAngles;
+  detectedFaceCount: number;
+  faceInFrame: boolean;
+}): boolean {
+  const { irisPosition, headPose } = input;
+  if (input.detectedFaceCount !== 1 || !input.faceInFrame || !irisPosition || !headPose) return false;
+  return (
+    Number.isFinite(irisPosition.horizontalRatio) &&
+    Number.isFinite(irisPosition.verticalRatio) &&
+    irisPosition.horizontalRatio >= IRIS_CALIBRATION_MIN_RATIO &&
+    irisPosition.horizontalRatio <= IRIS_CALIBRATION_MAX_RATIO &&
+    irisPosition.verticalRatio >= IRIS_CALIBRATION_MIN_RATIO &&
+    irisPosition.verticalRatio <= IRIS_CALIBRATION_MAX_RATIO &&
+    Math.abs(headPose.yawDegrees) <= HEAD_CALIBRATION_MAX_YAW_DEGREES &&
+    Math.abs(headPose.pitchDegrees) <= HEAD_CALIBRATION_MAX_PITCH_DEGREES &&
+    Math.abs(headPose.rollDegrees ?? 0) <= HEAD_CALIBRATION_MAX_ROLL_DEGREES
   );
 }
 
