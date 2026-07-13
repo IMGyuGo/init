@@ -11,6 +11,7 @@ import type { FaceLandmarker as MediaPipeFaceLandmarker, NormalizedLandmark, Obj
 import { getApiBaseUrl } from "../../api/api-base-url";
 import { getAccessToken } from "../../api/client";
 import { sendClientPerformanceLog } from "../ai-performance/api";
+import { resolveClientNextStepType } from "../ai-performance/client-next-step";
 import { GnbAvatar, GnbLogoutButton } from "../auth/GnbAccountControls";
 import { createPaymentOrder, getCandidateMockInterviewPassSummary, grantCandidateMockInterviewDevPasses, listPaymentOrders } from "../payment/api";
 import { PaymentOrderPagination, formatDateTime as formatPaymentDateTime, formatWon } from "../payment/CompanyBillingPage";
@@ -1611,6 +1612,7 @@ export function CandidateMockInterviewStartPage() {
                   alt=""
                   width={180}
                   height={180}
+                  loading="eager"
                   aria-hidden="true"
                 />
                 <strong>{item.title}</strong>
@@ -6253,6 +6255,13 @@ function InterviewRuntimePanel({
         sourceQuestionId: metric.sourceQuestionId,
         outcome,
         nextReady,
+        nextQuestionType: resolveClientNextStepType({
+          sourceQuestionId: questionId,
+          outcome,
+          nextReady,
+          questions: data?.questions.questions ?? [],
+          totalQuestions: data?.runtime.totalQuestions ?? 0,
+        }),
         sttProcessLogId,
         followUpProcessLogId,
       },
