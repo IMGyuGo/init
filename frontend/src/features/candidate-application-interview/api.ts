@@ -126,19 +126,30 @@ export interface CandidateDocumentPolicy {
   metadataOnly: boolean;
 }
 
+// 지원 화면 자동 입력용 회원 정보(이름/이메일/연락처 + GitHub/블로그/포트폴리오). (#272)
+export interface ApplicantContact {
+  name: string;
+  email: string;
+  phone: string | null;
+  githubUrl: string | null;
+  blogUrl: string | null;
+  portfolioUrl: string | null;
+}
+
 export interface CandidateApplyView {
   job: CandidateJobDetail;
   documentPolicy: CandidateDocumentPolicy;
   requiredConsentTypes: ConsentType[];
   portfolioRequired: true;
+  applicant: ApplicantContact;
 }
 
 export interface SubmitApplicationRequest {
   candidateName: string;
   email: string;
   phone: string;
-  githubUrl: string;
-  blogUrl: string;
+  githubUrl?: string;
+  blogUrl?: string;
   resumeFileId: number;
   portfolioFileId?: number;
   portfolioUrl?: string;
@@ -726,6 +737,26 @@ export interface SubmitApplicationResponse {
   portfolioLink?: CandidatePortfolioLink;
 }
 
+// 지원자 프로필(내 정보) 정본. 자동 입력의 소스. 이메일은 읽기전용. (#272)
+export interface CandidateProfileView {
+  name: string;
+  email: string;
+  phone: string | null;
+  githubUrl: string | null;
+  blogUrl: string | null;
+  portfolioUrl: string | null;
+  summary: string | null;
+}
+
+export interface UpdateCandidateProfileRequest {
+  name?: string;
+  phone?: string | null;
+  githubUrl?: string | null;
+  blogUrl?: string | null;
+  portfolioUrl?: string | null;
+  summary?: string | null;
+}
+
 // 기업별 지원서 세트(폴더). 모의면접 전용, 기존 CandidateProfile 과 별도 (#228).
 export interface CandidateFolder {
   id: number;
@@ -735,6 +766,8 @@ export interface CandidateFolder {
   portfolioUrl: string | null;
   resumeFileId: number | null;
   resumeFileName: string | null;
+  portfolioFileId: number | null;
+  portfolioFileName: string | null;
   motivation: string | null;
   extraNote: string | null;
   createdAt: string;
@@ -747,11 +780,13 @@ export interface CandidateFolderInput {
   blogUrl?: string | null;
   portfolioUrl?: string | null;
   resumeFileId?: number | null;
+  portfolioFileId?: number | null;
   motivation?: string | null;
   extraNote?: string | null;
 }
 
 export const candidateApiPaths = {
+  profile: "/api/v1/candidate/profile",
   jobs: "/api/v1/candidate/jobs",
   jobDetail: (jobId: number) => `/api/v1/candidate/jobs/${jobId}`,
   applyView: (jobId: number) => `/api/v1/candidate/jobs/${jobId}/apply`,
@@ -831,6 +866,8 @@ export interface CandidateApiClientOptions {
 }
 
 export interface CandidateApiClient {
+  getProfile(): Promise<ApiResponse<CandidateProfileView>>;
+  updateProfile(body: UpdateCandidateProfileRequest): Promise<ApiResponse<CandidateProfileView>>;
   listJobs(query?: CandidateJobQuery): Promise<ApiListResponse<CandidateJobSummary>>;
   getJobDetail(jobId: number): Promise<ApiResponse<CandidateJobDetail>>;
   getApplyView(jobId: number): Promise<ApiResponse<CandidateApplyView>>;
@@ -982,6 +1019,12 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
   }
 
   return {
+    getProfile: () => request<ApiResponse<CandidateProfileView>>(candidateApiPaths.profile),
+    updateProfile: (body) =>
+      request<ApiResponse<CandidateProfileView>>(candidateApiPaths.profile, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
     listJobs: (query = {}) => request<ApiListResponse<CandidateJobSummary>>(candidateApiPaths.jobs, {}, query),
     getJobDetail: (jobId) => request<ApiResponse<CandidateJobDetail>>(candidateApiPaths.jobDetail(jobId)),
     getApplyView: (jobId) => request<ApiResponse<CandidateApplyView>>(candidateApiPaths.applyView(jobId)),

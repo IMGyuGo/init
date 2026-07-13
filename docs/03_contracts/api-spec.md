@@ -2269,11 +2269,11 @@ AI 리포트 금지 기준:
 - 상태 코드: 201 Created
 - 비동기: N
 - 요청 데이터:
-  - `{ name, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, motivation?, extraNote? }`
+  - `{ name, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, portfolioFileId?, motivation?, extraNote? }`
 - 검증/전제조건:
   - `name`은 필수이며 100자 이하
   - URL 필드는 http/https URL이며 500자 이하
-  - `resumeFileId`가 있으면 현재 사용자 소유 file_assets이며 문서 MIME 타입이어야 한다.
+  - `resumeFileId`·`portfolioFileId`가 있으면 각각 현재 사용자 소유의 PDF FileAsset이어야 한다. (지원 제출과 동일하게 PDF만 허용, #272 P1-2)
   - 지원자별 폴더는 최대 20개까지 생성할 수 있다.
 - 성공 응답/처리:
   - `{ data: CandidateFolder, meta }`
@@ -2309,7 +2309,7 @@ AI 리포트 금지 기준:
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - `{ name?, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, motivation?, extraNote? }`
+  - `{ name?, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, portfolioFileId?, motivation?, extraNote? }`
   - nullable 필드는 `null`로 초기화 가능
 - 검증/전제조건:
   - `{id}`는 현재 지원자 소유 폴더여야 한다.
@@ -2685,6 +2685,34 @@ CandidateFolder 입력 제한:
 
 ## 지원자 - 채용공고/지원
 
+### API-057F GET /candidate/profile
+- 도메인: 지원자 - 프로필(내 정보)
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 마이페이지 - 내 정보 (/candidate/mypage)
+- UI Type: section
+- 상태 코드: 200 OK
+- 응답 데이터: `application/json`
+  - `name`, `email`(읽기전용), `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `summary`
+  - 이름/이메일/연락처는 `users`, GitHub/블로그/포트폴리오/한줄소개는 `candidate_profiles` 에서 조회한다.
+- 비고: 지원 화면 기본정보 자동 입력의 정본(source of truth). (#272)
+- 관련 ERD 테이블: users, candidate_profiles
+
+### API-057G PUT /candidate/profile
+- 도메인: 지원자 - 프로필(내 정보)
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 마이페이지 - 내 정보 (/candidate/mypage)
+- UI Type: section
+- 상태 코드: 200 OK
+- 요청 데이터: `application/json` (모두 optional, 부분 수정)
+  - `name`, `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `summary`
+  - 이메일은 로그인 정보라 수정 대상에서 제외한다.
+- 검증/전제조건:
+  - 빈 문자열/공백만 입력하면 `null` 로 저장한다. 이름은 공백만이면 무시한다.
+- 성공 응답/처리:
+  - `users`(name/phone)와 `candidate_profiles`(github/blog/portfolio/summary)를 갱신하고 갱신된 프로필을 반환한다.
+- 비고: 저장 값은 이후 지원 화면 자동 입력에 재사용된다. (#272)
+- 관련 ERD 테이블: users, candidate_profiles
+
 ### API-058 GET /candidate/jobs
 - 도메인: 지원자 - 채용공고/지원
 - 권한/인증: 지원자 / 지원자 사용자 로그인
@@ -2758,8 +2786,8 @@ CandidateFolder 입력 제한:
   - `candidateName`: string, required
   - `email`: string, required
   - `phone`: string, required
-  - `githubUrl`: string, required
-  - `blogUrl`: string, required
+  - `githubUrl`: string, optional (#272 2단계, 있으면 URL 형식 검증)
+  - `blogUrl`: string, optional (#272 2단계, 있으면 URL 형식 검증)
   - `resumeFileId`: number, required, PDF FileAsset
   - `portfolioFileId`: number, optional, PDF FileAsset
   - `portfolioUrl`: string, optional
@@ -2768,12 +2796,16 @@ CandidateFolder 입력 제한:
   - `consentTypes`: array, required
 - 검증/전제조건:
   - 공고가 지원 가능 상태여야 한다.
-  - 기본정보, GitHub URL, 블로그 URL, 이력서 PDF, 지원동기, 추가설명을 모두 입력해야 한다.
+  - 기본정보(이름/이메일/연락처), 이력서 PDF, 지원동기, 추가설명을 입력해야 한다. GitHub·블로그 URL은 선택이며 프로필에서 자동 입력된다.
   - 포트폴리오 URL 또는 PDF FileAsset 중 하나 이상을 제출해야 하며, 둘 다 제출할 수도 있다.
   - 제출 파일은 현재 지원자 소유의 ACTIVE FileAsset이어야 한다.
 - 성공 응답/처리:
   - 지원서 제출 당시 정보를 `applications` 스냅샷 필드에 저장한다.
   - 이력서/포트폴리오 PDF를 `application_documents`에 연결하고 지원서 제출을 완료한다.
+  - (#272) 입력한 연락처(`phone`)를 회원(`users.phone`)에 저장하여 다음 지원 화면에서 자동 입력에 재사용한다.
+- 관련 조회(#272): `GET /candidate/jobs/{jobId}/apply`
+  - 지원 화면 진입 시 회원 자동 입력용 `applicant: { name, email, phone, githubUrl, blogUrl, portfolioUrl }`을 함께 반환한다(이름/이메일/연락처는 User, GitHub/블로그/포트폴리오는 프로필 정본, 값 없으면 null). GitHub·블로그·포트폴리오는 프로필에서 자동 채워지고 공고별로 수정 가능하다.
+  - 지원서 세트(폴더)는 `GET /candidate/folders`로 조회하며, 세트를 불러오면 링크/이력서/동기/추가설명이 폼에 복사된다(회원 기본정보는 유지, 원본 세트는 불변).
 - 오류/예외:
   - 파일 형식 오류, 용량 초과, 이미 지원한 공고, 마감 공고이면 제출을 제한한다.
 - 관련 ERD 테이블:
