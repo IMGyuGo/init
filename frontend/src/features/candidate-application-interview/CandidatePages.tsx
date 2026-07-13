@@ -8169,6 +8169,7 @@ function FolderFormModal({
           <span>포트폴리오</span>
           <input type="url" value={form.portfolioUrl ?? ""} placeholder="https://…" onChange={(e) => update("portfolioUrl", e.target.value)} />
         </label>
+        <p className="folder-hint">GitHub·블로그·포트폴리오는 선택이에요. 비워두면 지원할 때 프로필에 저장된 값이 자동으로 채워집니다.</p>
         <label className="folder-field">
           <span>지원 동기</span>
           <textarea rows={3} value={form.motivation ?? ""} placeholder="이 기업/직무에 지원하는 이유" onChange={(e) => update("motivation", e.target.value)} />

@@ -9314,6 +9314,7 @@ p {
 .folder-form-modal { width: min(520px, 100%); display: grid; gap: 14px; }
 .folder-form-modal .folder-field { display: grid; gap: 6px; font-size: 13px; color: rgba(55, 53, 47, 0.7); }
 .folder-form-modal .folder-field > span { font-weight: 500; }
+.folder-form-modal .folder-hint { margin: -2px 0 2px; font-size: 12px; line-height: 1.5; color: rgba(55, 53, 47, 0.5); }
 .folder-form-modal .folder-field input,
 .folder-form-modal .folder-field textarea {
   padding: 9px 11px;
