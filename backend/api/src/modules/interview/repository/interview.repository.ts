@@ -91,6 +91,7 @@ export interface InterviewRepository {
   findQuestion(questionId: number): MaybePromise<InterviewQuestion | undefined>;
   listOwnedMockSessions(candidateId: number): MaybePromise<RuntimeInterviewSession[]>;
   findMockSession(sessionId: number): MaybePromise<RuntimeInterviewSession | undefined>;
+  updateMockSessionTitle(sessionId: number, title: string | null): MaybePromise<RuntimeInterviewSession>;
   createMockSession(input: CreateMockInterviewSessionInput): MaybePromise<RuntimeInterviewSession>;
   createMockSessionWithPass?(input: CreateMockInterviewSessionInput): Promise<RuntimeInterviewSession>;
   findRecruitingRuntimeSession(sessionId: number): MaybePromise<RuntimeInterviewSession | undefined>;

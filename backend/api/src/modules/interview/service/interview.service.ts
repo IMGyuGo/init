@@ -8,6 +8,7 @@ import {
   type InterviewSession,
 } from "../../candidate";
 import { DeviceCheckDto } from "../dto/interview.device-check.dto";
+import { UpdateMockSessionTitleDto } from "../dto/update-mock-session-title.dto";
 import {
   AiInterviewRequestDto,
   CreateRealtimeInterviewSessionDto,
@@ -164,6 +165,7 @@ export class InterviewService {
         sessionId: session.sessionId,
         reportId: session.sessionId,
         interviewType: "MOCK" as const,
+        title: session.title ?? null,
         status: session.status,
         reportStatus: session.status === "COMPLETED" ? ("COMPLETED" as const) : ("PENDING" as const),
         startedAt: session.startedAt,
@@ -188,6 +190,14 @@ export class InterviewService {
         },
       },
     };
+  }
+
+  // 연습 이력 세션의 사용자 지정 제목 수정. 빈 값이면 null(기본 '세션 #N')로 되돌린다. (#288)
+  async updateMockInterviewTitle(sessionId: number, dto: UpdateMockSessionTitleDto, currentUser: CurrentCandidateUser) {
+    await this.getOwnedMockSession(sessionId, currentUser);
+    const trimmed = typeof dto.title === "string" ? dto.title.trim() : "";
+    const updated = await this.interviewRepository.updateMockSessionTitle(sessionId, trimmed.length > 0 ? trimmed : null);
+    return this.envelope({ sessionId: updated.sessionId, title: updated.title ?? null });
   }
 
   async getMockRuntime(sessionId: number, currentUser: CurrentCandidateUser) {

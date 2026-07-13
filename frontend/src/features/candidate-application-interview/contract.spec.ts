@@ -1518,6 +1518,7 @@ const mockReport: CandidateMockReportSummary = {
   sessionId: 10001,
   reportId: 10001,
   interviewType: "MOCK",
+  title: null,
   status: "COMPLETED",
   reportStatus: "COMPLETED",
   startedAt: "2026-06-29T00:00:00.000Z",

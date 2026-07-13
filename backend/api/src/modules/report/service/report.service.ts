@@ -616,6 +616,7 @@ export class ReportService {
       sessionId: session.sessionId,
       reportId: session.sessionId,
       interviewType: "MOCK",
+      title: session.title ?? null,
       status: session.status,
       reportStatus: await this.resolveMockReportStatus(session, report, process),
       startedAt: session.startedAt,

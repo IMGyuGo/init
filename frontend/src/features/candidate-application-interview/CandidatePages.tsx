@@ -7647,12 +7647,40 @@ function getSelectedApplicationAction(application: CandidateApplicationSummary):
 }
 
 function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryItem[] }) {
+  // 연습 세션 제목은 사용자가 직접 지정. 저장한 값은 낙관적으로 즉시 반영한다. (#288)
+  const [localTitles, setLocalTitles] = useState<Record<number, string | null>>({});
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
+  const [savingId, setSavingId] = useState<number | null>(null);
+
+  const rawTitle = (item: CandidateMockInterviewHistoryItem) =>
+    item.sessionId in localTitles ? localTitles[item.sessionId] : item.title;
+  const displayTitle = (item: CandidateMockInterviewHistoryItem) => rawTitle(item) || `세션 #${item.sessionId}`;
+
+  function startEdit(item: CandidateMockInterviewHistoryItem) {
+    setEditingId(item.sessionId);
+    setDraft(rawTitle(item) ?? "");
+  }
+
+  async function saveTitle(sessionId: number) {
+    setSavingId(sessionId);
+    try {
+      const result = await getCandidateApi().updateMockSessionTitle(sessionId, draft.trim());
+      setLocalTitles((prev) => ({ ...prev, [sessionId]: result.data.title }));
+      setEditingId(null);
+    } catch {
+      // 실패 시 편집 상태 유지
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   return (
     <div className="table-wrap">
       <table className="mock-history-table">
         <thead>
           <tr>
-            <th>세션</th>
+            <th>연습 제목</th>
             <th>면접 상태</th>
             <th>리포트 상태</th>
             <th>답변</th>
@@ -7662,7 +7690,37 @@ function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryI
         <tbody>
           {history.map((item) => (
             <tr key={item.sessionId}>
-              <td>세션 #{item.sessionId}<span>{formatDateTime(item.updatedAt)}</span></td>
+              <td>
+                {editingId === item.sessionId ? (
+                  <span className="mock-title-edit">
+                    <input
+                      autoFocus
+                      value={draft}
+                      maxLength={100}
+                      placeholder={`세션 #${item.sessionId}`}
+                      onChange={(event) => setDraft(event.currentTarget.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void saveTitle(item.sessionId);
+                        if (event.key === "Escape") setEditingId(null);
+                      }}
+                    />
+                    <button type="button" className="mock-title-btn" disabled={savingId === item.sessionId} onClick={() => void saveTitle(item.sessionId)}>
+                      저장
+                    </button>
+                    <button type="button" className="mock-title-btn ghost" onClick={() => setEditingId(null)}>
+                      취소
+                    </button>
+                  </span>
+                ) : (
+                  <span className="mock-title-cell">
+                    <button type="button" className="mock-title-name" title="제목 편집" onClick={() => startEdit(item)}>
+                      {displayTitle(item)}
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+                    </button>
+                    <span>{formatDateTime(item.updatedAt)}</span>
+                  </span>
+                )}
+              </td>
               <td><StatusPill value={item.status} /></td>
               <td><StatusPill value={item.reportStatus} /></td>
               <td>{item.answeredCount}/{item.totalQuestions}</td>

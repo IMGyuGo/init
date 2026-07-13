@@ -574,6 +574,7 @@ export interface CandidateMockInterviewHistoryItem {
   sessionId: number;
   reportId: number;
   interviewType: "MOCK";
+  title: string | null;
   status: InterviewStatus;
   reportStatus: ReportStatus;
   startedAt?: string;
@@ -758,6 +759,7 @@ export const candidateApiPaths = {
   submitApplication: (jobId: number) => `/api/v1/candidate/jobs/${jobId}/applications`,
   mockInterviews: "/api/v1/candidate/mock-interviews",
   mockRuntime: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}`,
+  mockTitle: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/title`,
   mockQuestions: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/questions`,
   mockAnswers: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/answers`,
   mockNextQuestion: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/next-question`,
@@ -856,6 +858,7 @@ export interface CandidateApiClient {
   ): Promise<ApiResponse<InsertFollowUpQuestionResponse>>;
   listMockReports(): Promise<ApiListResponse<CandidateMockReportSummary>>;
   listMockInterviewHistory(): Promise<ApiListResponse<CandidateMockInterviewHistoryItem>>;
+  updateMockSessionTitle(sessionId: number, title: string): Promise<ApiResponse<{ sessionId: number; title: string | null }>>;
   getMockReportFeedback(reportId: number): Promise<ApiResponse<CandidateMockReportFeedback>>;
   getMockReportMedia(reportId: number): Promise<ApiResponse<CandidateMockReportMedia>>;
   requestMockReportGeneration(reportId: number): Promise<ApiResponse<CandidateReportGenerationHandoff>>;
@@ -1036,6 +1039,11 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
       request<ApiListResponse<CandidateMockReportSummary>>(candidateApiPaths.mockReports),
     listMockInterviewHistory: () =>
       request<ApiListResponse<CandidateMockInterviewHistoryItem>>(candidateApiPaths.mockHistory),
+    updateMockSessionTitle: (sessionId, title) =>
+      request<ApiResponse<{ sessionId: number; title: string | null }>>(candidateApiPaths.mockTitle(sessionId), {
+        method: "PATCH",
+        body: JSON.stringify({ title }),
+      }),
     getMockReportFeedback: (reportId) =>
       request<ApiResponse<CandidateMockReportFeedback>>(candidateApiPaths.mockReportFeedback(reportId)),
     getMockReportMedia: (reportId) =>

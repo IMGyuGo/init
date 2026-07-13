@@ -145,6 +145,14 @@ export class PrismaInterviewRepository implements InterviewRepository {
     return session ? this.toRuntimeSession(session) : undefined;
   }
 
+  async updateMockSessionTitle(sessionId: number, title: string | null): Promise<RuntimeInterviewSession> {
+    const session = await this.prisma.interviewSession.update({
+      where: { sessionId: BigInt(sessionId) },
+      data: { title },
+    });
+    return this.toRuntimeSession(session);
+  }
+
   async createMockSession(input: CreateMockInterviewSessionInput): Promise<RuntimeInterviewSession> {
     const result = await this.prisma.$transaction((transaction) => this.createMockSessionInTransaction(transaction, input));
     this.mockSessionQuestionIds.set(Number(result.session.sessionId), result.questionIds);
@@ -725,6 +733,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
       applicationId: session.applicationId ? Number(session.applicationId) : undefined,
       candidateId: Number(session.candidateId),
       interviewType: session.interviewType,
+      title: session.title ?? null,
       status: session.status,
       showQuestionText: session.showQuestionText,
       currentQuestionIndex,
@@ -960,6 +969,7 @@ type InterviewSessionRecord = {
   applicationId: bigint | null;
   candidateId: bigint;
   interviewType: PrismaInterviewType;
+  title: string | null;
   status: PrismaInterviewStatus;
   showQuestionText: boolean;
   startedAt: Date | null;
