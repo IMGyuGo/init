@@ -29,12 +29,6 @@ export class InterviewSettingsCriterionDto {
   weight!: number;
   passScore!: number | null;
   sortOrder!: number;
-  sourceType!: 'COMPANY_CUSTOM' | 'NCS_OFFICIAL' | 'COMPANY_TALENT' | 'SERVICE_COMMON';
-  sourceCode!: string | null;
-  sourceVersion!: string | null;
-  sourceName!: string | null;
-  behaviorIndicators!: string[];
-  alignmentRationale!: string | null;
 }
 
 export class InterviewSettingsAvailableTagDto {

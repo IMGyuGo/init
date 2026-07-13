@@ -695,7 +695,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
   }
 
   private scoreReport(
-    criteria: ReportCriterionForScoring[],
+    criteria: Array<{ criterionId: number; name: string; weight: number; description?: string }>,
     answers: ReportAnswerForScoring[],
     documentText?: string,
     context: ReportScoringContext = { reportType: "RECRUITING_REPORT" }
@@ -731,19 +731,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
       const supportingFollowUps = childAnswersByParent.get(answer.answerId) ?? [];
       const transcriptForScoring = answerTranscriptWithFollowUps(answer, supportingFollowUps);
       const nonverbalSignals = nonverbalSignalsForAnswers([answer, ...supportingFollowUps]);
-      const criterionEvidenceContext = [
-        criterion.description,
-        criterion.behaviorIndicators?.join(', '),
-        criterion.alignmentRationale,
-      ]
-        .filter(Boolean)
-        .join(' ');
-      const structured = structuredAssessment(
-        transcriptForScoring,
-        documentText,
-        criterionEvidenceContext || undefined,
-        context.jobDescription,
-      );
+      const structured = structuredAssessment(transcriptForScoring, documentText, criterion.description, context.jobDescription);
       const quality = answerQualityAdjustment(criterionName, transcriptForScoring, context, nonverbalSignals);
       const score = Math.min(structured.score, quality.maxScore);
       const uncertaintyReasons = uniqueStrings([...structured.uncertaintyReasons, ...quality.reasons]);
@@ -773,17 +761,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
         criterionId: criterion.criterionId,
         criterionName,
         score,
-        rationale: criterionRationale(
-          criterion,
-          scoreRationale(
-            criterionName,
-            score,
-            transcriptForScoring,
-            structured,
-            quality.reasons,
-            context.reportType,
-          ),
-        ),
+        rationale: scoreRationale(criterionName, score, transcriptForScoring, structured, quality.reasons, context.reportType),
         rubricAnchor: structured.rubricAnchor,
         confidence,
         uncertaintyReasons,
@@ -1083,21 +1061,7 @@ function reportTypeOf(value: unknown): GeneratedReportRecord["reportType"] {
   throw new NonRetryableAiWorkerFailure("reportType is invalid");
 }
 
-type ReportCriterionForScoring = {
-  criterionId: number;
-  name: string;
-  weight: number;
-  category?: string;
-  description?: string;
-  sourceType?: 'COMPANY_CUSTOM' | 'NCS_OFFICIAL' | 'COMPANY_TALENT' | 'SERVICE_COMMON';
-  sourceCode?: string;
-  sourceVersion?: string;
-  sourceName?: string;
-  behaviorIndicators?: string[];
-  alignmentRationale?: string;
-};
-
-function criteriaOf(value: unknown): ReportCriterionForScoring[] {
+function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; weight: number; category?: string; description?: string }> {
   if (!Array.isArray(value) || value.length === 0) {
     throw new NonRetryableAiWorkerFailure("criteria is required");
   }
@@ -1112,37 +1076,9 @@ function criteriaOf(value: unknown): ReportCriterionForScoring[] {
       name: requiredText(record.name, "criterion name"),
       category: typeof record.category === "string" ? record.category : undefined,
       description: typeof record.description === "string" ? record.description : undefined,
-      weight: Number.isFinite(Number(record.weight)) ? Number(record.weight) : 0,
-      sourceType: criterionSourceTypeOf(record.sourceType),
-      sourceCode: optionalText(record.sourceCode),
-      sourceVersion: optionalText(record.sourceVersion),
-      sourceName: optionalText(record.sourceName),
-      behaviorIndicators: optionalStringArray(record.behaviorIndicators),
-      alignmentRationale: optionalText(record.alignmentRationale),
+      weight: Number.isFinite(Number(record.weight)) ? Number(record.weight) : 0
     };
   });
-}
-
-function criterionSourceTypeOf(
-  value: unknown,
-): ReportCriterionForScoring['sourceType'] {
-  return value === 'COMPANY_CUSTOM' ||
-    value === 'NCS_OFFICIAL' ||
-    value === 'COMPANY_TALENT' ||
-    value === 'SERVICE_COMMON'
-    ? value
-    : undefined;
-}
-
-function optionalStringArray(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  const values = value
-    .filter((item): item is string => typeof item === 'string')
-    .map((item) => item.trim())
-    .filter(Boolean);
-  return values.length > 0 ? values : undefined;
 }
 
 function answersOf(value: unknown): ReportAnswerForScoring[] {
@@ -1216,7 +1152,7 @@ function compareReportAnswersForScoring(left: ReportAnswerForScoring, right: Rep
 
 function selectAnswerForCriterion(
   criterionName: string,
-  criterion: ReportCriterionForScoring,
+  criterion: { description?: string },
   answers: ReportAnswerForScoring[],
   usedAnswerIds: Set<number>
 ): ReportAnswerForScoring | undefined {
@@ -1227,21 +1163,19 @@ function selectAnswerForCriterion(
   return candidates
     .map((answer) => ({
       answer,
-      score: answerCriterionMatchScore(criterionName, criterion, answer)
+      score: answerCriterionMatchScore(criterionName, criterion.description, answer)
     }))
     .sort((left, right) => right.score - left.score || compareReportAnswersForScoring(left.answer, right.answer))[0]?.answer;
 }
 
 function answerCriterionMatchScore(
   criterionName: string,
-  criterion: ReportCriterionForScoring,
+  criterionDescription: string | undefined,
   answer: ReportAnswerForScoring
 ): number {
   const question = normalizeSpace(answer.question ?? "").toLowerCase();
   const transcript = normalizeSpace(answer.transcript).toLowerCase();
-  const source = `${question} ${transcript} ${criterion.description ?? ''} ${
-    criterion.behaviorIndicators?.join(' ') ?? ''
-  }`;
+  const source = `${question} ${transcript} ${criterionDescription ?? ""}`;
   let score = Math.min(40, transcript.length / 4);
 
   if (criterionName === "직무 적합성") {
@@ -1263,23 +1197,6 @@ function answerCriterionMatchScore(
   }
 
   return score;
-}
-
-function criterionRationale(
-  criterion: ReportCriterionForScoring,
-  rationale: string,
-): string {
-  if (criterion.sourceType === 'NCS_OFFICIAL') {
-    const source = [criterion.sourceCode, criterion.sourceVersion].filter(Boolean).join(' / ');
-    return `${source ? `공식 NCS ${source} 기준으로 ` : '공식 NCS 능력단위 기준으로 '}${rationale}`;
-  }
-  if (criterion.sourceType === 'COMPANY_TALENT') {
-    return `기업이 정의한 직무행동 기준으로 ${rationale}`;
-  }
-  if (criterion.sourceType === 'SERVICE_COMMON') {
-    return `서비스 공통 근거 기반 rubric으로 ${rationale}`;
-  }
-  return rationale;
 }
 
 function answerTranscriptWithFollowUps(answer: ReportAnswerForScoring, followUps: ReportAnswerForScoring[]): string {

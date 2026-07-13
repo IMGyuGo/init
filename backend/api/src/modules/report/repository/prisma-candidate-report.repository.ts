@@ -6,7 +6,6 @@ import type {
   CandidateAiProcessRecord,
   CandidateFollowUpQuestionRecord,
   CandidateReportCriterionRecord,
-  CandidateReportEvaluationProfileRecord,
   CandidateReportEvidenceRecord,
   CandidateReportRepository,
   CandidateReportScoreRecord,
@@ -48,55 +47,10 @@ export class PrismaCandidateReportRepository implements CandidateReportRepositor
     return criteria.map((criterion) => ({
       criterionId: Number(criterion.criterionId),
       name: criterion.tag.name,
-      description: criterion.description ?? criterion.tag.description ?? undefined,
+      description: criterion.tag.description ?? undefined,
       weight: criterion.weight,
       sortOrder: criterion.sortOrder,
-      sourceType: criterion.sourceType,
-      sourceCode: criterion.sourceCode ?? undefined,
-      sourceVersion: criterion.sourceVersion ?? undefined,
-      sourceName: criterion.sourceName ?? undefined,
-      behaviorIndicators: this.stringArray(criterion.behaviorIndicators),
-      alignmentRationale: criterion.alignmentRationale ?? undefined,
     }));
-  }
-
-  async findActiveEvaluationProfileByPosting(
-    postingId: number,
-  ): Promise<CandidateReportEvaluationProfileRecord | undefined> {
-    const profile = await this.prisma.postingEvaluationProfile.findFirst({
-      where: { postingId: BigInt(postingId), status: "ACTIVE" },
-      include: {
-        selections: {
-          orderBy: { sortOrder: "asc" },
-          include: { unit: { include: { elements: { orderBy: { elementNumber: "asc" } } } } },
-        },
-      },
-    });
-    if (!profile) {
-      return undefined;
-    }
-    const firstUnit = profile.selections[0]?.unit;
-    return {
-      status: "ACTIVE",
-      rubricVersion: profile.rubricVersion,
-      ncsWeight: profile.ncsWeight,
-      companyWeight: profile.companyWeight,
-      serviceWeight: profile.serviceWeight,
-      companyTalentProfile: profile.companyTalentSnapshot ?? undefined,
-      companyEvaluationPolicy: profile.evaluationPolicySnapshot ?? undefined,
-      officialNcsProvider: firstUnit?.sourceProvider ?? "한국산업인력공단",
-      officialNcsSourceUrl:
-        firstUnit?.sourceUrl ?? "https://www.data.go.kr/data/15128213/openapi.do",
-      units: profile.selections.map((selection) => ({
-        unitCode: selection.unit.unitCode,
-        classificationCode: selection.unit.classificationCode,
-        unitName: selection.unit.unitName,
-        ncsDegree: selection.unit.ncsDegree,
-        version: selection.unit.version,
-        weight: selection.weight,
-        behaviorIndicators: selection.unit.elements.map((element) => element.elementName),
-      })),
-    };
   }
 
   async findLatestReportByApplication(
@@ -278,14 +232,6 @@ export class PrismaCandidateReportRepository implements CandidateReportRepositor
     } catch {
       return undefined;
     }
-  }
-
-  private stringArray(value: Prisma.JsonValue | null): string[] | undefined {
-    if (!Array.isArray(value)) {
-      return undefined;
-    }
-    const items = value.filter((item): item is string => typeof item === "string");
-    return items.length > 0 ? items : undefined;
   }
 }
 

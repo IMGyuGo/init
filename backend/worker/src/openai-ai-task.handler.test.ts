@@ -155,40 +155,9 @@ test("OpenAiAiTaskHandler stores recruiting report provider notes as company rev
           {
             criterionId: 1,
             name: "직무 적합성",
-            weight: 60,
-            sourceType: "NCS_OFFICIAL",
-            sourceCode: "2001020201",
-            sourceVersion: "24:6",
-            behaviorIndicators: ["요구사항 확인하기"]
+            weight: 40
           }
         ],
-        evaluationProfile: {
-          status: "ACTIVE",
-          rubricVersion: "NCS_EVIDENCE_RUBRIC_V1",
-          weights: { ncs: 60, company: 25, service: 15 },
-          companyTalentProfile: "근거를 공유하고 끝까지 실행하는 사람",
-          companyEvaluationPolicy: "직무 행동과 결과를 답변 근거로 평가",
-          officialNcs: {
-            provider: "한국산업인력공단",
-            sourceUrl: "https://www.data.go.kr/data/15128213/openapi.do",
-            units: [
-              {
-                unitCode: "2001020201_24v6",
-                classificationCode: "2001020201",
-                unitName: "요구사항 확인",
-                ncsDegree: "24",
-                version: "6",
-                weight: 100,
-                behaviorIndicators: ["요구사항 확인하기"]
-              }
-            ]
-          },
-          policy: {
-            automaticHiringDecision: false,
-            nonverbalExcluded: true,
-            minimumIndependentQuestionsPerCriterion: 2
-          }
-        },
         answers: [
           {
             answerId: 10,
@@ -214,10 +183,6 @@ test("OpenAiAiTaskHandler stores recruiting report provider notes as company rev
   assert.equal(output.reportFeedback, undefined);
   assert.equal(output.reportReviewNote, "추가 면접에서는 실제 운영 장애 대응 범위를 확인하는 것이 좋습니다.");
   assert.equal(reportInputs[0]?.answers[0]?.nonverbalMetadata, undefined);
-  assert.equal(reportInputs[0]?.criteria[0]?.sourceType, "NCS_OFFICIAL");
-  assert.equal(reportInputs[0]?.criteria[0]?.sourceCode, "2001020201");
-  assert.equal(reportInputs[0]?.evaluationProfile?.officialNcs.units[0]?.unitName, "요구사항 확인");
-  assert.equal(reportInputs[0]?.evaluationProfile?.policy.automaticHiringDecision, false);
   assert.match(report?.summary ?? "", /기업 검토 포인트/);
   assert.doesNotMatch(report?.summary ?? "", /다음 연습 피드백/);
 });

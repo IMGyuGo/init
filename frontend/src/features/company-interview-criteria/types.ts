@@ -2,7 +2,6 @@ export type PostingStatus = "DRAFT" | "OPEN" | "CLOSING_SOON" | "CLOSED" | "ARCH
 
 export type QuestionType = "INTRO" | "TECHNICAL" | "EXPERIENCE" | "SITUATION" | "FOLLOW_UP" | "CLOSING";
 export type QuestionOrigin = "MANUAL" | "AI_GENERATED";
-export type EvaluationCriterionSource = "COMPANY_CUSTOM" | "NCS_OFFICIAL" | "COMPANY_TALENT" | "SERVICE_COMMON";
 
 export type InterviewSettings = {
   posting: {
@@ -27,12 +26,6 @@ export type InterviewSettings = {
     weight: number;
     passScore: number | null;
     sortOrder: number;
-    sourceType: EvaluationCriterionSource;
-    sourceCode: string | null;
-    sourceVersion: string | null;
-    sourceName: string | null;
-    behaviorIndicators: string[];
-    alignmentRationale: string | null;
   }>;
   questions: Array<{
     questionId: number;
@@ -201,118 +194,6 @@ export type GenerateInterviewQuestionsInput = {
     name: string;
     category?: string;
     weight?: number;
-    description?: string;
-    sourceType?: EvaluationCriterionSource;
-    sourceCode?: string;
-    sourceVersion?: string;
-    sourceName?: string;
-    behaviorIndicators?: string[];
-    alignmentRationale?: string;
-  }>;
-};
-
-export type NcsCompetencyElement = {
-  ncsElementId: number;
-  elementCode: string;
-  elementNumber: string;
-  elementName: string;
-  elementLevel?: string;
-};
-
-export type NcsCompetencyUnit = {
-  ncsUnitId: number;
-  unitCode: string;
-  classificationCode: string;
-  unitName: string;
-  definition?: string;
-  unitLevel?: string;
-  developmentYear?: string;
-  version: string;
-  ncsDegree: string;
-  isCurrent: boolean;
-  largeCategoryCode: string;
-  largeCategoryName: string;
-  mediumCategoryCode: string;
-  mediumCategoryName: string;
-  smallCategoryCode: string;
-  smallCategoryName: string;
-  subdivisionCode: string;
-  subdivisionName: string;
-  dutyDefinition?: string;
-  sourceProvider: string;
-  sourceUrl: string;
-  sourceUpdatedAt?: string;
-  elements: NcsCompetencyElement[];
-};
-
-export type NcsSearchResult = {
-  sourceStatus: "OFFICIAL_API" | "LOCAL_CACHE" | "CONFIGURATION_REQUIRED";
-  sourceProvider: string;
-  sourceUrl: string;
-  query: string;
-  items: NcsCompetencyUnit[];
-};
-
-export type NcsRecommendation = {
-  unit: NcsCompetencyUnit;
-  relevanceScore: number;
-  rationale: string;
-  matchedTerms: string[];
-};
-
-export type NcsRecommendationResult = {
-  postingId: number;
-  sourceStatus: NcsSearchResult["sourceStatus"];
-  recommendations: NcsRecommendation[];
-};
-
-export type EvaluationProfileSelection = {
-  selectionId: number;
-  ncsUnitId: number;
-  weight: number;
-  relevanceScore?: number;
-  rationale?: string;
-  sortOrder: number;
-  unit: NcsCompetencyUnit;
-};
-
-export type EvaluationProfile = {
-  postingId: number;
-  status: "DRAFT" | "ACTIVE";
-  weights: { ncs: number; company: number; service: number };
-  rubricVersion: string;
-  companyContext: {
-    talentProfile?: string;
-    evaluationPolicy?: string;
-  };
-  selections: EvaluationProfileSelection[];
-  coverage: Array<{
-    criterionId: number;
-    sourceCode?: string;
-    criterionName: string;
-    activeQuestionCount: number;
-    requiredQuestionCount: number;
-    ready: boolean;
-  }>;
-  source: {
-    provider: string;
-    url: string;
-    official: true;
-  };
-  activatedAt?: string;
-};
-
-export type SaveEvaluationProfileInput = {
-  postingId: number;
-  ncsWeight: number;
-  companyWeight: number;
-  serviceWeight: number;
-  selections: Array<{
-    ncsUnitId: number;
-    weight: number;
-    relevanceScore?: number;
-    rationale?: string;
-    sortOrder: number;
   }>;
 };
 

@@ -31,42 +31,6 @@ export interface EvaluationCriterionInput {
   name: string;
   description?: string;
   weight: number;
-  sourceType?: "COMPANY_CUSTOM" | "NCS_OFFICIAL" | "COMPANY_TALENT" | "SERVICE_COMMON";
-  sourceCode?: string;
-  sourceVersion?: string;
-  sourceName?: string;
-  behaviorIndicators?: string[];
-  alignmentRationale?: string;
-}
-
-export interface EvaluationProfileContext {
-  status: "ACTIVE";
-  rubricVersion: string;
-  weights: {
-    ncs: number;
-    company: number;
-    service: number;
-  };
-  companyTalentProfile?: string;
-  companyEvaluationPolicy?: string;
-  officialNcs: {
-    provider: string;
-    sourceUrl: string;
-    units: Array<{
-      unitCode: string;
-      classificationCode: string;
-      unitName: string;
-      ncsDegree: string;
-      version: string;
-      weight: number;
-      behaviorIndicators: string[];
-    }>;
-  };
-  policy: {
-    automaticHiringDecision: false;
-    nonverbalExcluded: true;
-    minimumIndependentQuestionsPerCriterion: 2;
-  };
 }
 
 export interface InterviewAnswerInput {
@@ -140,7 +104,6 @@ export interface GenerateReportRequest {
   documentText?: string;
   criteria: EvaluationCriterionInput[];
   answers: InterviewAnswerInput[];
-  evaluationProfile?: EvaluationProfileContext;
 }
 
 export interface ReportCommand<TBody> {

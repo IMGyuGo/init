@@ -261,10 +261,6 @@ export type ApplicantEvaluation = {
       scoreId: number;
       criterionId: number | null;
       criterionName: string | null;
-      criterionSourceType?: "COMPANY_CUSTOM" | "NCS_OFFICIAL" | "COMPANY_TALENT" | "SERVICE_COMMON";
-      criterionSourceCode?: string | null;
-      criterionSourceVersion?: string | null;
-      criterionSourceName?: string | null;
       score: number;
       rationale: string | null;
       evidences: Array<{

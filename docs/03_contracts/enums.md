@@ -35,8 +35,6 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | `posting_region_code` | `PostingRegionCode` |
 | `posting_employment_type_code` | `PostingEmploymentTypeCode` |
 | `posting_recruitment_type` | `PostingRecruitmentType` |
-| `evaluation_criterion_source` | `EvaluationCriterionSource` |
-| `evaluation_profile_status` | `EvaluationProfileStatus` |
 
 금지 이름: `EvaluationCriteria`, `QuestionBank`, `AIProcessLog`, `AIGuardrailLog`를 Prisma model/class 이름으로 새로 만들지 않는다.
 
@@ -76,7 +74,6 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | `report_status` | E | `PENDING -> GENERATING -> COMPLETED`, `PENDING -> FAILED`, `GENERATING -> FAILED`, `FAILED -> GENERATING` |
 | `ai_process_status` | E | `PENDING -> RUNNING -> COMPLETED`, `PENDING -> FAILED`, `RUNNING -> FAILED`, `FAILED -> PENDING` for explicit retry only |
 | `screening_decision` | B | `UNDECIDED -> PASS`, `UNDECIDED -> HOLD`, `UNDECIDED -> FAIL`, `HOLD -> PASS`, `HOLD -> FAIL` |
-| `evaluation_profile_status` | C | `DRAFT -> ACTIVE`. 질문 세트 확정 또는 면접 시작 후에는 평가 프로필 교체 금지 |
 
 상태를 되돌리는 rollback 전이는 기본 금지다. 운영자가 명시적으로 재처리하는 retry는 audit log 또는 `ai_process_logs`에 사유를 남긴다.
 
@@ -104,5 +101,3 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | failure_category | RETRYABLE, NON_RETRYABLE | AI 실패 재시도 가능 여부 |
 | guardrail_result | PASS, BLOCKED, REGENERATED | AI 안전 검증 결과 |
 | embedding_source_type | POSTING_JD, CRITERION_TAG, QUESTION, APPLICATION_DOCUMENT, INTERVIEW_ANSWER, EVALUATION_REPORT | 임베딩 원천 유형 |
-| evaluation_criterion_source | COMPANY_CUSTOM, NCS_OFFICIAL, COMPANY_TALENT, SERVICE_COMMON | 공고별 평가 기준의 출처. NCS 공식 능력단위, 기업 인재상, 서비스 공통 rubric을 구분 |
-| evaluation_profile_status | DRAFT, ACTIVE | 공고 평가 프로필 상태. 질문 근거 커버리지 검증 후에만 ACTIVE 전환 |

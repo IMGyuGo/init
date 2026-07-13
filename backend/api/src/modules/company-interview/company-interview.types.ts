@@ -58,12 +58,6 @@ export type EvaluationCriterionRecord = {
   weight: number;
   passScore: number | null;
   sortOrder: number;
-  sourceType?: 'COMPANY_CUSTOM' | 'NCS_OFFICIAL' | 'COMPANY_TALENT' | 'SERVICE_COMMON';
-  sourceCode?: string;
-  sourceVersion?: string;
-  sourceName?: string;
-  behaviorIndicators?: string[];
-  alignmentRationale?: string;
 };
 
 export type QuestionRecord = {
