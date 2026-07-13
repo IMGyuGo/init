@@ -116,7 +116,60 @@ describe("Swagger setup", () => {
       inlineProperties: [],
     });
   });
+
+  it("documents every operation with a meaningful summary and detailed description", async () => {
+    const response = await request(app.getHttpServer()).get("/api-docs-json").expect(200);
+    const weakOperations = collectWeakSwaggerOperations(response.body);
+
+    expect(weakOperations).toEqual({
+      missingSummaries: [],
+      routeFallbackSummaries: [],
+      shortDescriptions: [],
+    });
+  });
+
+  it("keeps explicit operation summaries isolated from same-named controller handlers", async () => {
+    const response = await request(app.getHttpServer()).get("/api-docs-json").expect(200);
+    const performanceJobs = response.body.paths["/api/v1/ai/performance/jobs"].get;
+
+    expect(performanceJobs.summary).toBe("AI process performance jobs");
+    expect(performanceJobs.description).toContain("AI process performance jobs");
+    expect(performanceJobs.description).not.toContain("채용공고");
+  });
 });
+
+function collectWeakSwaggerOperations(document: {
+  paths?: Record<string, Record<string, Record<string, unknown>>>;
+}) {
+  const weak = {
+    missingSummaries: [] as string[],
+    routeFallbackSummaries: [] as string[],
+    shortDescriptions: [] as string[],
+  };
+
+  for (const [path, methods] of Object.entries(document.paths ?? {})) {
+    for (const [method, operation] of Object.entries(methods)) {
+      if (!isHttpMethod(method)) {
+        continue;
+      }
+
+      const label = `${method.toUpperCase()} ${path}`;
+      const summary = typeof operation.summary === "string" ? operation.summary.trim() : "";
+      const description = typeof operation.description === "string" ? operation.description.trim() : "";
+      if (!summary) {
+        weak.missingSummaries.push(label);
+      }
+      if (summary === label) {
+        weak.routeFallbackSummaries.push(label);
+      }
+      if (description.length < 30) {
+        weak.shortDescriptions.push(label);
+      }
+    }
+  }
+
+  return weak;
+}
 
 function collectMissingSwaggerDescriptions(document: {
   paths?: Record<string, Record<string, Record<string, unknown>>>;
