@@ -116,7 +116,6 @@ RDS instance에는 `copy_tags_to_snapshot = true`를 둔다. 최종 snapshot이�
 | `aws_ecs_cluster_capacity_providers` | ECS cluster 태그로 관리 |
 | `aws_route53_record` | Route53 hosted zone과 record name으로 관리 |
 | `aws_cloudfront_origin_access_control` | CloudFront distribution과 S3 bucket 태그로 관리 |
-| `aws_ses_domain_identity` | SES domain identity는 provider schema상 tag 미지원. 도메인명과 Terraform state로 식별 |
 
 태그 누락 검증은 현재 provider schema 기준으로 수행한다.
 
@@ -147,7 +146,7 @@ ECS API service
 -> ElastiCache Valkey
 -> S3
 -> SQS
--> SES
+-> external SMTP provider
 
 ECS worker service
   -> SQS polling
@@ -229,7 +228,7 @@ public subnet에 ECS task를 두면 초기 실습은 쉽지만 task가 인터넷
 | Secrets Manager | NAT Gateway | Secrets Manager interface endpoint |
 | S3 | NAT Gateway | S3 gateway endpoint |
 | SQS | NAT Gateway | SQS interface endpoint |
-| SES | NAT Gateway | SES endpoint 가능 여부 확인 후 결정 |
+| External SMTP provider | NAT Gateway | 외부 provider이므로 NAT 필요 |
 | OpenAI API | NAT Gateway | 외부 SaaS이므로 NAT 필요 |
 
 1차 배포에서는 NAT Gateway로 성공 경로를 만든다. 2차 최적화에서 S3, ECR, CloudWatch Logs, Secrets Manager, SQS endpoint를 추가한다.
@@ -430,7 +429,7 @@ API는 `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_REQUIRE_TLS`, `SMTP_USER`,
 
 `SMTP_SMOKE_TO`는 GitHub Environment `init-main`의 secret으로 두며, 실제로 확인 가능한 팀 전용 수신함을 사용한다. workflow 성공은 SMTP 접수까지의 자동 검증이므로 최초 전환과 credential 교체 시에는 수신함 도착과 스팸 분류를 수동 확인한다.
 
-기존 SES Terraform 리소스와 IAM 권한은 새 SMTP provider로 실제 발송을 검증하는 동안 rollback 용도로 유지한다. 세 발송 흐름 검증과 운영 관찰이 끝난 뒤 Terraform-only 변경으로 제거하며 애플리케이션 변경 PR과 섞지 않는다.
+일반 SMTP의 세 발송 흐름 검증과 운영 관찰이 끝나면 SES Terraform 리소스, SES 전용 Route53 record, API task의 SES 전송 권한을 Terraform-only 변경으로 제거한다. 이후 메일 발송의 운영 기준과 smoke/rollback 판단은 외부 SMTP provider 설정을 따른다.
 
 ## 실패 모드와 제어
 
@@ -546,5 +545,5 @@ Preflight
 
 - 실제 AWS 계정 credential/profile 선택과 비용 발생 승인
 - 가비아 관리 화면에서 `init-jungle.cloud` 네임서버를 Route53 NS로 변경
-- OpenAI, JWT, SES, DB password 등 실제 secret 값 결정 및 입력
+- OpenAI, JWT, external SMTP, DB password 등 실제 secret 값 결정 및 입력
 - AWS Console에서 비용/보안/상태를 직접 확인하는 최종 판단
