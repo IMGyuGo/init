@@ -4,6 +4,11 @@ import {
   PostingStatus,
   QuestionOrigin,
   QuestionType,
+  EvaluationFramework,
+  NcsProfileId,
+  NcsQuestionMode,
+  QuestionGenerationSource,
+  ResumeQuestionGenerationStatus,
 } from '../company-interview.types';
 
 export class InterviewSettingsQueryDto {
@@ -29,6 +34,9 @@ export class InterviewSettingsCriterionDto {
   weight!: number;
   passScore!: number | null;
   sortOrder!: number;
+  ncsProfileId!: NcsProfileId | null;
+  ncsQuestionMode!: NcsQuestionMode | null;
+  ncsProfileVersion!: string | null;
 }
 
 export class InterviewSettingsAvailableTagDto {
@@ -38,6 +46,9 @@ export class InterviewSettingsAvailableTagDto {
   category!: string;
   description!: string | null;
   sortOrder!: number;
+  ncsProfileId!: NcsProfileId | null;
+  defaultNcsQuestionMode!: NcsQuestionMode | null;
+  ncsProfileVersion!: string | null;
 }
 
 export class InterviewSettingsQuestionDto {
@@ -48,6 +59,11 @@ export class InterviewSettingsQuestionDto {
   origin!: QuestionOrigin;
   isAiEdited!: boolean;
   isActive!: boolean;
+  generationSource!: QuestionGenerationSource | null;
+  ncsProfileId!: NcsProfileId | null;
+  ncsQuestionMode!: NcsQuestionMode | null;
+  ncsProfileVersion!: string | null;
+  alignmentStatus!: string | null;
 }
 
 export class InterviewTimePolicyDto {
@@ -56,10 +72,29 @@ export class InterviewTimePolicyDto {
   retryAllowed!: boolean;
 }
 
+export class InterviewQuestionGenerationAllocationDto {
+  source!: QuestionGenerationSource;
+  ncsProfileId!: NcsProfileId;
+  ncsQuestionMode!: NcsQuestionMode;
+  count!: number;
+}
+
+export class InterviewQuestionGenerationPolicyDto {
+  postingId!: number;
+  jdCriteriaQuestionCount!: number;
+  resumeQuestionCount!: number;
+  policyVersion!: number;
+  criteriaVersion!: number;
+  allocations!: InterviewQuestionGenerationAllocationDto[];
+  resumeQuestionStatus!: ResumeQuestionGenerationStatus;
+}
+
 export class InterviewSettingsResponseDto {
   posting!: InterviewSettingsPostingDto;
   availableTags!: InterviewSettingsAvailableTagDto[];
   criteria!: InterviewSettingsCriterionDto[];
   questions!: InterviewSettingsQuestionDto[];
   timePolicy!: InterviewTimePolicyDto;
+  evaluationFramework!: EvaluationFramework;
+  questionGenerationPolicy!: InterviewQuestionGenerationPolicyDto;
 }

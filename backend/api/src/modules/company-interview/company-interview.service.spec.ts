@@ -32,6 +32,120 @@ describe('CompanyInterviewService', () => {
     assert.equal(settings.availableTags[0].tagName, '직무/기술 역량');
     assert.equal(settings.criteria.length, 6);
     assert.equal(settings.questions.length, 3);
+    assert.equal(settings.evaluationFramework, 'LEGACY');
+    assert.deepEqual(settings.questionGenerationPolicy, {
+      postingId: 1,
+      jdCriteriaQuestionCount: 0,
+      resumeQuestionCount: 0,
+      policyVersion: 0,
+      criteriaVersion: 0,
+      allocations: [],
+      resumeQuestionStatus: 'DISABLED',
+    });
+  });
+
+  it('saves the fixed NCS criteria snapshot and deterministic question allocation', async () => {
+    const service = createService();
+    const criteria = await service.updateEvaluationCriteria(companyUser, {
+      postingId: 1,
+      evaluationFramework: 'NCS_3_PROFILE_V1',
+      criteria: [
+        { criterionId: 2, tagId: 2, weight: 40, sortOrder: 1 },
+        { criterionId: 4, tagId: 4, weight: 30, sortOrder: 2 },
+        { criterionId: 1, tagId: 1, weight: 30, sortOrder: 3 },
+      ],
+    });
+
+    assert.equal(criteria.criteriaVersion, 1);
+    assert.equal(criteria.evaluationFramework, 'NCS_3_PROFILE_V1');
+    assert.deepEqual(
+      criteria.criteria.map((criterion) => criterion.ncsProfileId),
+      ['PROBLEM_SOLVING', 'COMMUNICATION', 'DIGITAL'],
+    );
+
+    const policy = await service.updateQuestionGenerationPolicy(companyUser, {
+      postingId: 1,
+      jdCriteriaQuestionCount: 4,
+      resumeQuestionCount: 2,
+      expectedPolicyVersion: 0,
+    });
+
+    assert.equal(policy.policyVersion, 1);
+    assert.equal(policy.criteriaVersion, 1);
+    assert.deepEqual(policy.allocations, [
+      {
+        source: 'JD_CRITERIA',
+        ncsProfileId: 'PROBLEM_SOLVING',
+        ncsQuestionMode: 'EXPERIENCE_BEHAVIOR',
+        count: 2,
+      },
+      {
+        source: 'JD_CRITERIA',
+        ncsProfileId: 'COMMUNICATION',
+        ncsQuestionMode: 'EXPERIENCE_BEHAVIOR',
+        count: 1,
+      },
+      {
+        source: 'JD_CRITERIA',
+        ncsProfileId: 'DIGITAL',
+        ncsQuestionMode: 'TECHNICAL_KNOWLEDGE',
+        count: 1,
+      },
+      {
+        source: 'RESUME_PERSONALIZED',
+        ncsProfileId: 'COMMUNICATION',
+        ncsQuestionMode: 'EXPERIENCE_BEHAVIOR',
+        count: 1,
+      },
+      {
+        source: 'RESUME_PERSONALIZED',
+        ncsProfileId: 'DIGITAL',
+        ncsQuestionMode: 'TECHNICAL_KNOWLEDGE',
+        count: 1,
+      },
+    ]);
+
+    const settings = await service.getSettings(companyUser, { postingId: 1 });
+    assert.equal(settings.questionGenerationPolicy.resumeQuestionStatus, 'WAITING_APPLICATION');
+    assert.deepEqual(settings.questionGenerationPolicy.allocations, policy.allocations);
+  });
+
+  it('rejects invalid NCS criteria and stale question policy versions', async () => {
+    const service = createService();
+    await assertBadRequest(() =>
+      service.updateEvaluationCriteria(companyUser, {
+        postingId: 1,
+        evaluationFramework: 'NCS_3_PROFILE_V1',
+        criteria: [
+          { criterionId: 2, tagId: 2, weight: 50, sortOrder: 1 },
+          { criterionId: 4, tagId: 4, weight: 50, sortOrder: 2 },
+        ],
+      }),
+    );
+
+    await service.updateEvaluationCriteria(companyUser, {
+      postingId: 1,
+      evaluationFramework: 'NCS_3_PROFILE_V1',
+      criteria: [
+        { criterionId: 2, tagId: 2, weight: 40, sortOrder: 1 },
+        { criterionId: 4, tagId: 4, weight: 30, sortOrder: 2 },
+        { criterionId: 1, tagId: 1, weight: 30, sortOrder: 3 },
+      ],
+    });
+    await service.updateQuestionGenerationPolicy(companyUser, {
+      postingId: 1,
+      jdCriteriaQuestionCount: 3,
+      resumeQuestionCount: 0,
+      expectedPolicyVersion: 0,
+    });
+    await assertConflict(() =>
+      service.updateQuestionGenerationPolicy(companyUser, {
+        postingId: 1,
+        jdCriteriaQuestionCount: 2,
+        resumeQuestionCount: 1,
+        expectedPolicyVersion: 0,
+      }),
+    );
   });
 
   it('updates evaluation criteria and validates duplicate sort order', async () => {

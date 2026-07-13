@@ -23,6 +23,7 @@ import {
   UpdateInterviewQuestionDto,
 } from './dto/question-management.dto';
 import { ConfirmQuestionSetDto } from './dto/question-set.dto';
+import { UpdateQuestionGenerationPolicyDto } from './dto/question-generation-policy.dto';
 import { UpdateInterviewTimePolicyDto } from './dto/time-policy.dto';
 
 type CompanyRequest = RequestLike & { currentUser: CurrentUser };
@@ -100,6 +101,18 @@ export class CompanyInterviewController {
     @Body() body: UpdateInterviewTimePolicyDto,
   ) {
     const data = await this.service.updateTimePolicy(request.currentUser, body);
+    return ok(request, data);
+  }
+
+  @Patch('question-generation-policy')
+  async updateQuestionGenerationPolicy(
+    @Req() request: CompanyRequest,
+    @Body() body: UpdateQuestionGenerationPolicyDto,
+  ) {
+    const data = await this.service.updateQuestionGenerationPolicy(
+      request.currentUser,
+      body,
+    );
     return ok(request, data);
   }
 

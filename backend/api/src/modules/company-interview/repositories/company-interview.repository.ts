@@ -1,9 +1,11 @@
 import {
   CriterionTagRecord,
   EvaluationCriterionRecord,
+  EvaluationFramework,
   PostingRecord,
   QuestionRecord,
   QuestionOrigin,
+  QuestionGenerationPolicyRecord,
   QuestionSetRecord,
   QuestionType,
   TimePolicyRecord,
@@ -20,6 +22,9 @@ export type UpdateCriterionInput = {
   weight: number;
   passScore?: number | null;
   sortOrder: number;
+  ncsProfileId: EvaluationCriterionRecord['ncsProfileId'];
+  ncsQuestionMode: EvaluationCriterionRecord['ncsQuestionMode'];
+  ncsProfileVersion: string | null;
 };
 
 export type CreateCriterionTagInput = {
@@ -51,6 +56,18 @@ export type UpdateTimePolicyInput = {
   retryAllowed: boolean;
 };
 
+export type UpdateQuestionGenerationPolicyInput = {
+  evaluationFramework: EvaluationFramework;
+  jdCriteriaQuestionCount: number;
+  resumeQuestionCount: number;
+  expectedPolicyVersion?: number;
+};
+
+export type ReplaceCriteriaResult = {
+  criteria: EvaluationCriterionRecord[];
+  policy: QuestionGenerationPolicyRecord;
+};
+
 export type ConfirmQuestionSetInput = {
   postingId: number;
   title: string;
@@ -77,10 +94,18 @@ export interface CompanyInterviewRepository {
   findTag(tagId: number): Promise<CriterionTagRecord | undefined>;
   createTag(input: CreateCriterionTagInput): Promise<CriterionTagRecord>;
   getTimePolicy(postingId: number): Promise<TimePolicyRecord>;
+  getQuestionGenerationPolicy(
+    postingId: number,
+  ): Promise<QuestionGenerationPolicyRecord | undefined>;
   replaceCriteria(
     postingId: number,
+    evaluationFramework: EvaluationFramework,
     criteria: UpdateCriterionInput[],
-  ): Promise<EvaluationCriterionRecord[]>;
+  ): Promise<ReplaceCriteriaResult>;
+  updateQuestionGenerationPolicy(
+    postingId: number,
+    input: UpdateQuestionGenerationPolicyInput,
+  ): Promise<QuestionGenerationPolicyRecord | undefined>;
   createQuestion(input: CreateQuestionInput): Promise<QuestionRecord>;
   updateQuestion(questionId: number, input: UpdateQuestionInput): Promise<QuestionRecord>;
   deactivateQuestion(questionId: number): Promise<QuestionRecord>;

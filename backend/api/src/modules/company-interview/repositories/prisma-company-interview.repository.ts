@@ -4,9 +4,11 @@ import { PrismaService } from '../../../shared/prisma.service';
 import {
   CriterionTagRecord,
   EvaluationCriterionRecord,
+  EvaluationFramework,
   PostingRecord,
   QuestionOrigin,
   QuestionRecord,
+  QuestionGenerationPolicyRecord,
   QuestionSetRecord,
   TimePolicyRecord,
 } from '../company-interview.types';
@@ -17,6 +19,7 @@ import {
   UpdateTimePolicyInput,
   UpdateCriterionInput,
   UpdateQuestionInput,
+  UpdateQuestionGenerationPolicyInput,
 } from './company-interview.repository';
 
 @Injectable()
@@ -139,11 +142,21 @@ export class PrismaCompanyInterviewRepository
     };
   }
 
+  async getQuestionGenerationPolicy(
+    postingId: number,
+  ): Promise<QuestionGenerationPolicyRecord | undefined> {
+    const policy = await this.prisma.interviewQuestionGenerationPolicy.findUnique({
+      where: { postingId: BigInt(postingId) },
+    });
+    return policy ? mapQuestionGenerationPolicy(policy) : undefined;
+  }
+
   async replaceCriteria(
     postingId: number,
+    evaluationFramework: EvaluationFramework,
     criteria: UpdateCriterionInput[],
-  ): Promise<EvaluationCriterionRecord[]> {
-    const savedIds = await this.prisma.$transaction(async (tx) => {
+  ) {
+    const result = await this.prisma.$transaction(async (tx) => {
       const nextIds: bigint[] = [];
 
       for (const criterion of criteria) {
@@ -156,6 +169,9 @@ export class PrismaCompanyInterviewRepository
               weight: criterion.weight,
               passScore: criterion.passScore ?? null,
               sortOrder: criterion.sortOrder,
+              ncsProfileId: criterion.ncsProfileId,
+              ncsQuestionMode: criterion.ncsQuestionMode,
+              ncsProfileVersion: criterion.ncsProfileVersion,
             },
           });
           nextIds.push(updated.criterionId);
@@ -170,6 +186,9 @@ export class PrismaCompanyInterviewRepository
             weight: criterion.weight,
             passScore: criterion.passScore ?? null,
             sortOrder: criterion.sortOrder,
+            ncsProfileId: criterion.ncsProfileId,
+            ncsQuestionMode: criterion.ncsQuestionMode,
+            ncsProfileVersion: criterion.ncsProfileVersion,
           },
         });
         nextIds.push(created.criterionId);
@@ -203,14 +222,66 @@ export class PrismaCompanyInterviewRepository
         },
       });
 
-      return nextIds;
+      const policy = await tx.interviewQuestionGenerationPolicy.upsert({
+        where: { postingId: BigInt(postingId) },
+        create: {
+          postingId: BigInt(postingId),
+          evaluationFramework,
+          criteriaVersion: 1,
+        },
+        update: {
+          evaluationFramework,
+          criteriaVersion: { increment: 1 },
+        },
+      });
+
+      return { nextIds, policy };
     });
 
     const saved = await this.prisma.evaluationCriterion.findMany({
-      where: { criterionId: { in: savedIds } },
+      where: { criterionId: { in: result.nextIds } },
       orderBy: { sortOrder: 'asc' },
     });
-    return saved.map(mapCriterion);
+    return {
+      criteria: saved.map(mapCriterion),
+      policy: mapQuestionGenerationPolicy(result.policy),
+    };
+  }
+
+  async updateQuestionGenerationPolicy(
+    postingId: number,
+    input: UpdateQuestionGenerationPolicyInput,
+  ): Promise<QuestionGenerationPolicyRecord | undefined> {
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.interviewQuestionGenerationPolicy.findUnique({
+        where: { postingId: BigInt(postingId) },
+      });
+      const currentVersion = current?.policyVersion ?? 0;
+      if (
+        input.expectedPolicyVersion !== undefined &&
+        input.expectedPolicyVersion !== currentVersion
+      ) {
+        return undefined;
+      }
+
+      const saved = await tx.interviewQuestionGenerationPolicy.upsert({
+        where: { postingId: BigInt(postingId) },
+        create: {
+          postingId: BigInt(postingId),
+          evaluationFramework: input.evaluationFramework,
+          jdCriteriaQuestionCount: input.jdCriteriaQuestionCount,
+          resumeQuestionCount: input.resumeQuestionCount,
+          policyVersion: 1,
+        },
+        update: {
+          evaluationFramework: input.evaluationFramework,
+          jdCriteriaQuestionCount: input.jdCriteriaQuestionCount,
+          resumeQuestionCount: input.resumeQuestionCount,
+          policyVersion: { increment: 1 },
+        },
+      });
+      return mapQuestionGenerationPolicy(saved);
+    });
   }
 
   async createQuestion(input: {
@@ -365,6 +436,9 @@ function mapTag(tag: {
   category: string;
   isActive: boolean;
   sortOrder: number;
+  ncsProfileId: string | null;
+  defaultNcsQuestionMode: string | null;
+  ncsProfileVersion: string | null;
 }): CriterionTagRecord {
   return {
     tagId: Number(tag.tagId),
@@ -374,6 +448,10 @@ function mapTag(tag: {
     category: tag.category,
     isActive: tag.isActive,
     sortOrder: tag.sortOrder,
+    ncsProfileId: tag.ncsProfileId as CriterionTagRecord['ncsProfileId'],
+    defaultNcsQuestionMode:
+      tag.defaultNcsQuestionMode as CriterionTagRecord['defaultNcsQuestionMode'],
+    ncsProfileVersion: tag.ncsProfileVersion,
   };
 }
 
@@ -385,6 +463,9 @@ function mapCriterion(criterion: {
   weight: number;
   passScore: number | null;
   sortOrder: number;
+  ncsProfileId: string | null;
+  ncsQuestionMode: string | null;
+  ncsProfileVersion: string | null;
 }): EvaluationCriterionRecord {
   return {
     criterionId: Number(criterion.criterionId),
@@ -394,6 +475,30 @@ function mapCriterion(criterion: {
     weight: criterion.weight,
     passScore: criterion.passScore,
     sortOrder: criterion.sortOrder,
+    ncsProfileId:
+      criterion.ncsProfileId as EvaluationCriterionRecord['ncsProfileId'],
+    ncsQuestionMode:
+      criterion.ncsQuestionMode as EvaluationCriterionRecord['ncsQuestionMode'],
+    ncsProfileVersion: criterion.ncsProfileVersion,
+  };
+}
+
+function mapQuestionGenerationPolicy(policy: {
+  postingId: bigint;
+  evaluationFramework: string;
+  jdCriteriaQuestionCount: number;
+  resumeQuestionCount: number;
+  policyVersion: number;
+  criteriaVersion: number;
+}): QuestionGenerationPolicyRecord {
+  return {
+    postingId: Number(policy.postingId),
+    evaluationFramework:
+      policy.evaluationFramework as QuestionGenerationPolicyRecord['evaluationFramework'],
+    jdCriteriaQuestionCount: policy.jdCriteriaQuestionCount,
+    resumeQuestionCount: policy.resumeQuestionCount,
+    policyVersion: policy.policyVersion,
+    criteriaVersion: policy.criteriaVersion,
   };
 }
 

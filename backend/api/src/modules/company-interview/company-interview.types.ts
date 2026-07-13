@@ -31,6 +31,20 @@ export const QUESTION_ORIGINS: QuestionOrigin[] = [
 
 export type AiProcessStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 
+export type EvaluationFramework = 'LEGACY' | 'NCS_3_PROFILE_V1';
+export const EVALUATION_FRAMEWORKS: EvaluationFramework[] = [
+  'LEGACY',
+  'NCS_3_PROFILE_V1',
+];
+
+export type NcsProfileId = 'PROBLEM_SOLVING' | 'COMMUNICATION' | 'DIGITAL';
+export type NcsQuestionMode =
+  | 'EXPERIENCE_BEHAVIOR'
+  | 'TECHNICAL_KNOWLEDGE'
+  | 'SITUATIONAL_DESIGN';
+export type QuestionGenerationSource = 'JD_CRITERIA' | 'RESUME_PERSONALIZED';
+export type ResumeQuestionGenerationStatus = 'DISABLED' | 'WAITING_APPLICATION';
+
 export type PostingRecord = {
   postingId: number;
   companyId: number;
@@ -48,6 +62,9 @@ export type CriterionTagRecord = {
   category: string;
   isActive: boolean;
   sortOrder: number;
+  ncsProfileId: NcsProfileId | null;
+  defaultNcsQuestionMode: NcsQuestionMode | null;
+  ncsProfileVersion: string | null;
 };
 
 export type EvaluationCriterionRecord = {
@@ -58,6 +75,18 @@ export type EvaluationCriterionRecord = {
   weight: number;
   passScore: number | null;
   sortOrder: number;
+  ncsProfileId: NcsProfileId | null;
+  ncsQuestionMode: NcsQuestionMode | null;
+  ncsProfileVersion: string | null;
+};
+
+export type QuestionGenerationPolicyRecord = {
+  postingId: number;
+  evaluationFramework: EvaluationFramework;
+  jdCriteriaQuestionCount: number;
+  resumeQuestionCount: number;
+  policyVersion: number;
+  criteriaVersion: number;
 };
 
 export type QuestionRecord = {

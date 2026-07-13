@@ -1568,6 +1568,9 @@ AI 리포트 금지 기준:
     - `category: string`
     - `description: string | null`
     - `sortOrder: number`
+    - `ncsProfileId: NcsProfileId | null`
+    - `defaultNcsQuestionMode: NcsQuestionMode | null`
+    - `ncsProfileVersion: string | null`
   - `data.criteria[]`
     - `criterionId: number`
     - `tagId: number`
