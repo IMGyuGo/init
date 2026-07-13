@@ -90,6 +90,15 @@ import {
   type IrisGazePosition,
 } from "./nonverbal-integrity";
 import {
+  INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES,
+  readGazeTimeline,
+  readHeadPoseTimeline,
+  summarizeGazeTimeline,
+  summarizeHeadPoseTimeline,
+  type InterviewGazeTimelineSample,
+  type InterviewHeadPoseTimelineSample,
+} from "./nonverbal-analysis";
+import {
   type CameraPipPosition,
   type CandidateApplicationFormState,
   type CandidateDeviceCheckState,
@@ -192,6 +201,7 @@ const NONVERBAL_FACE_SHIFT_RELATIVE_AREA_MULTIPLIER = 1.6;
 const NONVERBAL_FACE_SHIFT_CONFIRMATION_MS = 1000;
 const NONVERBAL_GAZE_AWAY_CONFIRMATION_MS = 1500;
 const NONVERBAL_GAZE_CENTERED_CONFIRMATION_MS = 750;
+const NONVERBAL_TIMELINE_SAMPLE_INTERVAL_MS = 1000;
 const NONVERBAL_AUDIO_SPEAKING_LEVEL = 6;
 const NONVERBAL_AUDIO_SPEAKING_RATIO_THRESHOLD = 0.35;
 const NONVERBAL_MOUTH_OPEN_RATIO_THRESHOLD = 0.06;
@@ -386,6 +396,8 @@ type InterviewAnswerNonverbalMetadata = {
   cameraDisconnectedCount: number;
   integrityEvents?: InterviewIntegrityEvent[];
   integritySummary?: InterviewIntegritySummary;
+  gazeTimeline?: InterviewGazeTimelineSample[];
+  headPoseTimeline?: InterviewHeadPoseTimelineSample[];
 };
 type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   questionId: number;
@@ -421,6 +433,11 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   headPoseCalibrationSampleCount: number;
   headPoseBaselineYawDegrees?: number;
   headPoseBaselinePitchDegrees?: number;
+  headPoseBaselineRollDegrees?: number;
+  gazeTimeline: InterviewGazeTimelineSample[];
+  headPoseTimeline: InterviewHeadPoseTimelineSample[];
+  lastGazeTimelineSampleAtMs?: number;
+  lastHeadPoseTimelineSampleAtMs?: number;
   faceBaseline?: FacePositionSnapshot;
   faceBaselineSampleCount: number;
   lastVideoFrameSample?: number[];
@@ -4141,6 +4158,22 @@ function InterviewRuntimePanel({
     return current === undefined ? next : (current * sampleCount + next) / (sampleCount + 1);
   }
 
+  function roundTimelineValue(value: number, precision: number) {
+    const multiplier = 10 ** precision;
+    return Math.round(value * multiplier) / multiplier;
+  }
+
+  function normalizeTimelineAngle(value: number) {
+    let normalized = value;
+    while (normalized > 180) normalized -= 360;
+    while (normalized < -180) normalized += 360;
+    return normalized;
+  }
+
+  function canAppendTimelineSample(lastSampleAtMs: number | undefined, nowMs: number) {
+    return lastSampleAtMs === undefined || nowMs - lastSampleAtMs >= NONVERBAL_TIMELINE_SAMPLE_INTERVAL_MS;
+  }
+
   function registerCombinedGazeSample(
     tracker: RecordingNonverbalTracker,
     irisPosition: IrisGazePosition | undefined,
@@ -4185,6 +4218,13 @@ function InterviewRuntimePanel({
           sampleCount,
           headPose.pitchDegrees,
         );
+        if (headPose.rollDegrees !== undefined) {
+          tracker.headPoseBaselineRollDegrees = updateCalibrationAverage(
+            tracker.headPoseBaselineRollDegrees,
+            sampleCount,
+            headPose.rollDegrees,
+          );
+        }
         tracker.headPoseCalibrationSampleCount += 1;
         calibrationUpdated = true;
       }
@@ -4214,6 +4254,41 @@ function InterviewRuntimePanel({
           }
         : undefined;
     const signal = resolveCombinedGazeSignal({ irisPosition, irisBaseline, headPose, headPoseBaseline });
+    const nowMs = Date.now();
+    if (
+      mode === "mock" &&
+      irisPosition &&
+      irisBaseline &&
+      tracker.gazeTimeline.length < INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES &&
+      canAppendTimelineSample(tracker.lastGazeTimelineSampleAtMs, nowMs)
+    ) {
+      const irisSignal = resolveCombinedGazeSignal({ irisPosition, irisBaseline });
+      tracker.gazeTimeline.push({
+        tMs: Math.max(0, nowMs - tracker.recordingStartedAtMs),
+        horizontalOffset: roundTimelineValue(irisPosition.horizontalRatio - irisBaseline.horizontalRatio, 3),
+        verticalOffset: roundTimelineValue(irisPosition.verticalRatio - irisBaseline.verticalRatio, 3),
+        direction: irisSignal?.direction ?? "CENTER",
+      });
+      tracker.lastGazeTimelineSampleAtMs = nowMs;
+    }
+    if (
+      mode === "mock" &&
+      headPose &&
+      headPoseBaseline &&
+      tracker.headPoseTimeline.length < INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES &&
+      canAppendTimelineSample(tracker.lastHeadPoseTimelineSampleAtMs, nowMs)
+    ) {
+      tracker.headPoseTimeline.push({
+        tMs: Math.max(0, nowMs - tracker.recordingStartedAtMs),
+        yawDegrees: roundTimelineValue(normalizeTimelineAngle(headPose.yawDegrees - headPoseBaseline.yawDegrees), 1),
+        pitchDegrees: roundTimelineValue(normalizeTimelineAngle(headPose.pitchDegrees - headPoseBaseline.pitchDegrees), 1),
+        rollDegrees: roundTimelineValue(
+          normalizeTimelineAngle((headPose.rollDegrees ?? 0) - (tracker.headPoseBaselineRollDegrees ?? 0)),
+          1,
+        ),
+      });
+      tracker.lastHeadPoseTimelineSampleAtMs = nowMs;
+    }
     updateCombinedGazeSignal(tracker, signal);
   }
 
@@ -4617,6 +4692,8 @@ function InterviewRuntimePanel({
       totalAwayDurationMs: 0,
       maxAwayDurationMs: 0,
       integrityEvents: [],
+      gazeTimeline: [],
+      headPoseTimeline: [],
     };
     recordingNonverbalTrackerRef.current = tracker;
     startNonverbalIntegrityListeners(questionId);
@@ -4723,6 +4800,8 @@ function InterviewRuntimePanel({
       cameraDisconnectedCount: tracker.cameraDisconnectedCount,
       integrityEvents: tracker.integrityEvents,
       integritySummary: buildInterviewIntegritySummary(tracker),
+      gazeTimeline: tracker.gazeTimeline.length > 0 ? tracker.gazeTimeline : undefined,
+      headPoseTimeline: tracker.headPoseTimeline.length > 0 ? tracker.headPoseTimeline : undefined,
     };
   }
 
@@ -8124,6 +8203,15 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
   const videoUrl = getCachedRecordingObjectUrl(item.videoFile?.storageKey);
   const audioUrl = getCachedRecordingObjectUrl(item.audioFile?.storageKey);
   const practiceGuide = buildMockAnswerPracticeGuide(item);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [playbackTimeMs, setPlaybackTimeMs] = useState(0);
+
+  const seekVideo = (timeMs: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.currentTime = Math.max(0, timeMs / 1000);
+    setPlaybackTimeMs(timeMs);
+  };
 
   return (
     <article className="report-answer-card">
@@ -8137,7 +8225,13 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
       <div className="report-answer-card__content">
         <div className="report-answer-card__video">
           {videoUrl ? (
-            <video controls preload="metadata" src={videoUrl}>
+            <video
+              ref={videoRef}
+              controls
+              preload="metadata"
+              src={videoUrl}
+              onTimeUpdate={(event) => setPlaybackTimeMs(event.currentTarget.currentTime * 1000)}
+            >
               녹화 영상을 재생할 수 없습니다.
             </video>
           ) : (
@@ -8168,8 +8262,313 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
           ) : null}
         </div>
       </div>
+      <MockVisualAnalysisPanel
+        metadata={item.nonverbalMetadata}
+        durationMs={Math.max(1000, item.durationSeconds * 1000)}
+        playbackTimeMs={playbackTimeMs}
+        videoAvailable={Boolean(videoUrl)}
+        onSeek={seekVideo}
+      />
     </article>
   );
+}
+
+type MockVisualAnalysisTab = "gaze" | "headPose";
+
+function MockVisualAnalysisPanel({
+  metadata,
+  durationMs,
+  playbackTimeMs,
+  videoAvailable,
+  onSeek,
+}: {
+  metadata?: Record<string, unknown>;
+  durationMs: number;
+  playbackTimeMs: number;
+  videoAvailable: boolean;
+  onSeek(timeMs: number): void;
+}) {
+  const [activeTab, setActiveTab] = useState<MockVisualAnalysisTab>("gaze");
+  const gazeTimeline = useMemo(() => readGazeTimeline(metadata), [metadata]);
+  const headPoseTimeline = useMemo(() => readHeadPoseTimeline(metadata), [metadata]);
+  const gazeSummary = useMemo(() => summarizeGazeTimeline(gazeTimeline), [gazeTimeline]);
+  const headPoseSummary = useMemo(() => summarizeHeadPoseTimeline(headPoseTimeline), [headPoseTimeline]);
+  const analysisDurationMs = Math.max(
+    durationMs,
+    gazeTimeline[gazeTimeline.length - 1]?.tMs ?? 0,
+    headPoseTimeline[headPoseTimeline.length - 1]?.tMs ?? 0,
+  );
+  const activeTimelineEmpty = activeTab === "gaze" ? gazeTimeline.length === 0 : headPoseTimeline.length === 0;
+
+  return (
+    <section className="report-visual-analysis" aria-label="답변 비언어 세부 분석">
+      <div className="report-visual-analysis__head">
+        <div>
+          <span>답변 영상 세부 분석</span>
+          <strong>시선과 고개 움직임</strong>
+          <p>카메라 기준 추정값을 시간 흐름에 따라 보여주는 연습용 참고 정보입니다.</p>
+        </div>
+        <span className="report-visual-analysis__sample-count">
+          {gazeTimeline.length + headPoseTimeline.length}개 표본
+        </span>
+      </div>
+      <div className="report-visual-analysis__tabs" role="tablist" aria-label="비언어 분석 항목">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "gaze"}
+          className={activeTab === "gaze" ? "is-active" : undefined}
+          onClick={() => setActiveTab("gaze")}
+        >
+          시선 방향
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "headPose"}
+          className={activeTab === "headPose" ? "is-active" : undefined}
+          onClick={() => setActiveTab("headPose")}
+        >
+          고개 움직임
+        </button>
+      </div>
+
+      {activeTimelineEmpty ? (
+        <div className="report-visual-analysis__empty">
+          <strong>세부 분석 데이터가 없습니다.</strong>
+          <p>이 답변은 시계열 수집 도입 전에 저장됐거나 카메라 랜드마크를 충분히 감지하지 못했습니다.</p>
+        </div>
+      ) : activeTab === "gaze" ? (
+        <div className="report-visual-analysis__body" role="tabpanel">
+          <div className="report-visual-analysis__chart-grid">
+            <VisualTimelineChart
+              title="시간별 시선 변화"
+              samples={gazeTimeline}
+              durationMs={analysisDurationMs}
+              playbackTimeMs={playbackTimeMs}
+              series={[
+                { label: "좌우", color: "#6257e7", value: (sample) => sample.horizontalOffset },
+                { label: "상하", color: "#159a8c", value: (sample) => sample.verticalOffset },
+              ]}
+              minimumScale={0.2}
+              videoAvailable={videoAvailable}
+              onSeek={onSeek}
+            />
+            <GazeScatterChart samples={gazeTimeline} playbackTimeMs={playbackTimeMs} />
+          </div>
+          <VisualAnalysisGuide message={buildGazeAnalysisGuide(gazeSummary.centeredRatio)} />
+        </div>
+      ) : (
+        <div className="report-visual-analysis__body" role="tabpanel">
+          <VisualTimelineChart
+            title="시간별 고개 각도 변화"
+            samples={headPoseTimeline}
+            durationMs={analysisDurationMs}
+            playbackTimeMs={playbackTimeMs}
+            series={[
+              { label: "좌우", color: "#6257e7", value: (sample) => sample.yawDegrees },
+              { label: "상하", color: "#159a8c", value: (sample) => sample.pitchDegrees },
+              { label: "기울기", color: "#d97706", value: (sample) => sample.rollDegrees },
+            ]}
+            minimumScale={20}
+            unit="°"
+            videoAvailable={videoAvailable}
+            onSeek={onSeek}
+          />
+          <VisualAnalysisGuide message={buildHeadPoseAnalysisGuide(headPoseSummary.frontalRatio)} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+type TimelineSample = { tMs: number };
+type TimelineSeries<T extends TimelineSample> = {
+  label: string;
+  color: string;
+  value(sample: T): number;
+};
+
+function VisualTimelineChart<T extends TimelineSample>({
+  title,
+  samples,
+  durationMs,
+  playbackTimeMs,
+  series,
+  minimumScale,
+  unit = "",
+  videoAvailable,
+  onSeek,
+}: {
+  title: string;
+  samples: T[];
+  durationMs: number;
+  playbackTimeMs: number;
+  series: TimelineSeries<T>[];
+  minimumScale: number;
+  unit?: string;
+  videoAvailable: boolean;
+  onSeek(timeMs: number): void;
+}) {
+  const width = 760;
+  const height = 230;
+  const left = 48;
+  const right = 18;
+  const top = 20;
+  const bottom = 36;
+  const chartWidth = width - left - right;
+  const chartHeight = height - top - bottom;
+  const observedMaximum = Math.max(
+    minimumScale,
+    ...samples.flatMap((sample) => series.map((item) => Math.abs(item.value(sample)))),
+  );
+  const scale = Math.ceil(observedMaximum * 10) / 10;
+  const xForTime = (tMs: number) => left + Math.min(1, Math.max(0, tMs / durationMs)) * chartWidth;
+  const yForValue = (value: number) => top + (1 - (value + scale) / (scale * 2)) * chartHeight;
+  const playbackX = xForTime(playbackTimeMs);
+
+  const seekFromPointer = (clientX: number, target: SVGSVGElement) => {
+    if (!videoAvailable) return;
+    const bounds = target.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (clientX - bounds.left) / bounds.width));
+    onSeek(ratio * durationMs);
+  };
+
+  return (
+    <figure className="report-visual-chart">
+      <figcaption>
+        <strong>{title}</strong>
+        <span>{videoAvailable ? "그래프를 눌러 영상 시점 이동" : "저장된 시계열 기준"}</span>
+      </figcaption>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        role={videoAvailable ? "button" : "img"}
+        aria-label={`${title}. 세로 범위 마이너스 ${scale}${unit}부터 ${scale}${unit}`}
+        tabIndex={videoAvailable ? 0 : undefined}
+        onPointerDown={(event) => seekFromPointer(event.clientX, event.currentTarget)}
+        onKeyDown={(event) => {
+          if (!videoAvailable) return;
+          if (event.key === "ArrowLeft") onSeek(Math.max(0, playbackTimeMs - 1000));
+          if (event.key === "ArrowRight") onSeek(Math.min(durationMs, playbackTimeMs + 1000));
+        }}
+      >
+        {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+          const y = top + ratio * chartHeight;
+          const value = scale - ratio * scale * 2;
+          return (
+            <g key={ratio}>
+              <line className="report-visual-chart__grid" x1={left} x2={width - right} y1={y} y2={y} />
+              <text className="report-visual-chart__axis" x={left - 8} y={y + 4} textAnchor="end">
+                {value.toFixed(unit ? 0 : 1)}{unit}
+              </text>
+            </g>
+          );
+        })}
+        {series.map((item) => (
+          <polyline
+            key={item.label}
+            fill="none"
+            stroke={item.color}
+            strokeWidth="3"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            points={samples.map((sample) => `${xForTime(sample.tMs)},${yForValue(item.value(sample))}`).join(" ")}
+          />
+        ))}
+        <line className="report-visual-chart__cursor" x1={playbackX} x2={playbackX} y1={top} y2={height - bottom} />
+        {[0, 0.5, 1].map((ratio) => (
+          <text
+            key={ratio}
+            className="report-visual-chart__axis"
+            x={left + ratio * chartWidth}
+            y={height - 12}
+            textAnchor={ratio === 0 ? "start" : ratio === 1 ? "end" : "middle"}
+          >
+            {formatAnalysisTime(durationMs * ratio)}
+          </text>
+        ))}
+      </svg>
+      <div className="report-visual-chart__legend" aria-label="그래프 범례">
+        {series.map((item) => (
+          <span key={item.label}><i style={{ backgroundColor: item.color }} />{item.label}</span>
+        ))}
+      </div>
+    </figure>
+  );
+}
+
+function GazeScatterChart({ samples, playbackTimeMs }: { samples: InterviewGazeTimelineSample[]; playbackTimeMs: number }) {
+  const width = 360;
+  const height = 230;
+  const padding = 30;
+  const scale = Math.max(
+    0.2,
+    ...samples.flatMap((sample) => [Math.abs(sample.horizontalOffset), Math.abs(sample.verticalOffset)]),
+  );
+  const pointFor = (sample: InterviewGazeTimelineSample) => ({
+    x: width / 2 + sample.horizontalOffset / (scale * 2) * (width - padding * 2),
+    y: height / 2 + sample.verticalOffset / (scale * 2) * (height - padding * 2),
+  });
+  const activeSample = samples.reduce((nearest, sample) =>
+    Math.abs(sample.tMs - playbackTimeMs) < Math.abs(nearest.tMs - playbackTimeMs) ? sample : nearest,
+  samples[0]);
+
+  return (
+    <figure className="report-visual-chart report-visual-chart--scatter">
+      <figcaption>
+        <strong>시선 분포</strong>
+        <span>중앙점 기준 상대 위치</span>
+      </figcaption>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="카메라 중앙 기준 시선 분포">
+        <line className="report-visual-chart__grid" x1={width / 2} x2={width / 2} y1={padding} y2={height - padding} />
+        <line className="report-visual-chart__grid" x1={padding} x2={width - padding} y1={height / 2} y2={height / 2} />
+        <circle className="report-visual-chart__center-zone" cx={width / 2} cy={height / 2} r="42" />
+        {samples.map((sample) => {
+          const point = pointFor(sample);
+          const active = sample === activeSample;
+          return <circle key={sample.tMs} cx={point.x} cy={point.y} r={active ? 6 : 3.5} className={active ? "is-active" : undefined} />;
+        })}
+        <text className="report-visual-chart__axis" x={width / 2} y={18} textAnchor="middle">위</text>
+        <text className="report-visual-chart__axis" x={width / 2} y={height - 6} textAnchor="middle">아래</text>
+        <text className="report-visual-chart__axis" x={8} y={height / 2 + 4}>왼쪽</text>
+        <text className="report-visual-chart__axis" x={width - 8} y={height / 2 + 4} textAnchor="end">오른쪽</text>
+      </svg>
+    </figure>
+  );
+}
+
+function VisualAnalysisGuide({ message }: { message: string }) {
+  return (
+    <div className="report-visual-analysis__guide">
+      <strong>연습 포인트</strong>
+      <p>{message}</p>
+    </div>
+  );
+}
+
+function buildGazeAnalysisGuide(centeredRatio: number) {
+  if (centeredRatio >= 0.8) {
+    return "카메라 기준 시선 추정값이 대체로 중앙 범위에 머물렀습니다. 자연스러운 사고 과정의 시선 이동은 정상이며, 핵심 문장에서 현재 흐름을 유지해 보세요.";
+  }
+  if (centeredRatio >= 0.6) {
+    return "시선이 자연스럽게 이동한 구간이 있습니다. 답변의 결론이나 성과를 말할 때 카메라 근처로 시선을 돌아오는 연습이 전달력을 높이는 데 도움이 됩니다.";
+  }
+  return "카메라 중앙을 벗어난 시선 추정 구간이 비교적 자주 관찰됐습니다. 외운 문장을 고정해 읽기보다 핵심 키워드만 정리하고 카메라를 보며 말하는 연습을 해보세요.";
+}
+
+function buildHeadPoseAnalysisGuide(frontalRatio: number) {
+  if (frontalRatio >= 0.8) {
+    return "답변 중 고개가 대체로 정면 범위에 유지됐습니다. 강조할 때의 자연스러운 움직임은 유지하되 화면 중심에서 크게 벗어나지 않도록 해보세요.";
+  }
+  if (frontalRatio >= 0.6) {
+    return "고개 움직임이 일부 크게 나타난 구간이 있습니다. 질문을 듣고 생각한 뒤 답변을 시작할 때 정면 자세로 돌아오면 더 안정적으로 보입니다.";
+  }
+  return "좌우 또는 상하 고개 변화가 비교적 크게 관찰됐습니다. 화면에 질문이나 메모를 분산해 두기보다 카메라 주변 한곳에 시선을 모아 연습해 보세요.";
+}
+
+function formatAnalysisTime(timeMs: number) {
+  const totalSeconds = Math.max(0, Math.round(timeMs / 1000));
+  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
 type AnswerPracticeGuide = {

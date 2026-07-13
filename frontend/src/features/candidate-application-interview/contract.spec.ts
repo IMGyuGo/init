@@ -33,6 +33,12 @@ import {
   updateSustainedDetectionState,
 } from "./nonverbal-integrity";
 import {
+  readGazeTimeline,
+  readHeadPoseTimeline,
+  summarizeGazeTimeline,
+  summarizeHeadPoseTimeline,
+} from "./nonverbal-analysis";
+import {
   clampCameraPipPosition,
   createCameralessInterviewTestDeviceCheckState,
   createInterviewerSessionActionEvent,
@@ -214,6 +220,7 @@ const identityHeadPose = estimateHeadPoseAngles({
 assert.ok(identityHeadPose);
 assert.ok(Math.abs(identityHeadPose.yawDegrees) < 0.001);
 assert.ok(Math.abs(identityHeadPose.pitchDegrees) < 0.001);
+assert.ok(Math.abs(identityHeadPose.rollDegrees ?? 0) < 0.001);
 
 const yawRadians = 30 * Math.PI / 180;
 const turnedHeadPose = estimateHeadPoseAngles({
@@ -228,6 +235,50 @@ const turnedHeadPose = estimateHeadPoseAngles({
 });
 assert.ok(turnedHeadPose);
 assert.ok(Math.abs(turnedHeadPose.yawDegrees - 30) < 0.001);
+
+const rollRadians = 20 * Math.PI / 180;
+const tiltedHeadPose = estimateHeadPoseAngles({
+  rows: 4,
+  columns: 4,
+  data: [
+    Math.cos(rollRadians), -Math.sin(rollRadians), 0, 0,
+    Math.sin(rollRadians), Math.cos(rollRadians), 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1,
+  ],
+});
+assert.ok(tiltedHeadPose);
+assert.ok(Math.abs((tiltedHeadPose.rollDegrees ?? 0) - 20) < 0.001);
+
+const gazeTimeline = readGazeTimeline({
+  gazeTimeline: [
+    { tMs: 1000, horizontalOffset: 0.01, verticalOffset: -0.01, direction: "CENTER" },
+    { tMs: 2000, horizontalOffset: 0.2, verticalOffset: 0.02, direction: "RIGHT" },
+    { tMs: -1, horizontalOffset: 0, verticalOffset: 0, direction: "CENTER" },
+  ],
+});
+assert.equal(gazeTimeline.length, 2);
+assert.deepEqual(summarizeGazeTimeline(gazeTimeline), {
+  sampleCount: 2,
+  centeredRatio: 0.5,
+  horizontalRange: 0.19,
+  verticalRange: 0.03,
+  dominantAwayDirection: "RIGHT",
+});
+
+const headPoseTimeline = readHeadPoseTimeline({
+  headPoseTimeline: [
+    { tMs: 1000, yawDegrees: 2, pitchDegrees: -3, rollDegrees: 1 },
+    { tMs: 2000, yawDegrees: 22, pitchDegrees: 4, rollDegrees: -5 },
+  ],
+});
+assert.deepEqual(summarizeHeadPoseTimeline(headPoseTimeline), {
+  sampleCount: 2,
+  frontalRatio: 0.5,
+  maxYawDegrees: 22,
+  maxPitchDegrees: 4,
+  maxRollDegrees: 5,
+});
 
 const normalCombinedGazeSignal = resolveCombinedGazeSignal({
   irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },

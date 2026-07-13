@@ -1,5 +1,8 @@
 import type {
   InterviewAnswerNonverbalMetadata,
+  InterviewGazeDirection,
+  InterviewGazeTimelineSample,
+  InterviewHeadPoseTimelineSample,
   InterviewIntegrityEvent,
   InterviewIntegrityEventType,
   InterviewIntegritySummary,
@@ -8,10 +11,12 @@ import type {
 
 export const INTERVIEW_NONVERBAL_METADATA_MAX_BYTES = 32 * 1024;
 export const INTERVIEW_NONVERBAL_METADATA_MAX_EVENTS = 100;
+export const INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES = 120;
 
 const MAX_COUNTER_VALUE = 1_000_000;
 const MAX_EVENT_DURATION_MS = 60 * 60 * 1000;
 const MAX_VOICE_PEAK_LEVEL = 100;
+const MAX_TIMELINE_TIME_MS = 60 * 60 * 1000;
 
 const EVENT_TYPES: readonly InterviewIntegrityEventType[] = [
   "TAB_HIDDEN",
@@ -42,6 +47,8 @@ const TOP_LEVEL_FIELDS = new Set([
   "cameraDisconnectedCount",
   "integrityEvents",
   "integritySummary",
+  "gazeTimeline",
+  "headPoseTimeline",
 ]);
 
 const SUMMARY_FIELDS = new Set([
@@ -78,6 +85,9 @@ const SUMMARY_FIELDS = new Set([
 ]);
 
 const EVENT_FIELDS = new Set(["type", "occurredAt", "durationMs", "direction", "source"]);
+const GAZE_TIMELINE_FIELDS = new Set(["tMs", "horizontalOffset", "verticalOffset", "direction"]);
+const HEAD_POSE_TIMELINE_FIELDS = new Set(["tMs", "yawDegrees", "pitchDegrees", "rollDegrees"]);
+const GAZE_DIRECTIONS: readonly InterviewGazeDirection[] = ["CENTER", "LEFT", "RIGHT", "UP", "DOWN"];
 const COUNTER_FIELDS = [
   "cameraWarnings",
   "microphoneWarnings",
@@ -180,7 +190,83 @@ export function normalizeInterviewNonverbalMetadata(value: unknown): InterviewAn
     normalized.integritySummary = buildNormalizedSummary(events ?? [], summaryInput, normalized.testModeUsed === true);
   }
 
+  const gazeTimeline = normalizeGazeTimeline(metadata.gazeTimeline);
+  if (gazeTimeline !== undefined) normalized.gazeTimeline = gazeTimeline;
+  const headPoseTimeline = normalizeHeadPoseTimeline(metadata.headPoseTimeline);
+  if (headPoseTimeline !== undefined) normalized.headPoseTimeline = headPoseTimeline;
+
   return normalized;
+}
+
+function normalizeGazeTimeline(value: unknown): InterviewGazeTimelineSample[] | undefined {
+  if (value === undefined) return undefined;
+  const timeline = requireTimeline(value, "gazeTimeline");
+
+  return timeline.map((item, index) => {
+    const path = `nonverbalMetadata.gazeTimeline[${index}]`;
+    const sample = requireRecord(item, path);
+    assertAllowedFields(sample, GAZE_TIMELINE_FIELDS, path);
+    const tMs = requireTimelineTime(sample.tMs, path, index, timeline);
+    const horizontalOffset = requireBoundedNumber(sample.horizontalOffset, `${path}.horizontalOffset`, -1, 1);
+    const verticalOffset = requireBoundedNumber(sample.verticalOffset, `${path}.verticalOffset`, -1, 1);
+    if (typeof sample.direction !== "string" || !GAZE_DIRECTIONS.includes(sample.direction as InterviewGazeDirection)) {
+      invalid(`${path}.direction is invalid`);
+    }
+    return {
+      tMs,
+      horizontalOffset: roundNumber(horizontalOffset, 4),
+      verticalOffset: roundNumber(verticalOffset, 4),
+      direction: sample.direction as InterviewGazeDirection,
+    };
+  });
+}
+
+function normalizeHeadPoseTimeline(value: unknown): InterviewHeadPoseTimelineSample[] | undefined {
+  if (value === undefined) return undefined;
+  const timeline = requireTimeline(value, "headPoseTimeline");
+
+  return timeline.map((item, index) => {
+    const path = `nonverbalMetadata.headPoseTimeline[${index}]`;
+    const sample = requireRecord(item, path);
+    assertAllowedFields(sample, HEAD_POSE_TIMELINE_FIELDS, path);
+    return {
+      tMs: requireTimelineTime(sample.tMs, path, index, timeline),
+      yawDegrees: roundNumber(requireBoundedNumber(sample.yawDegrees, `${path}.yawDegrees`, -180, 180), 2),
+      pitchDegrees: roundNumber(requireBoundedNumber(sample.pitchDegrees, `${path}.pitchDegrees`, -180, 180), 2),
+      rollDegrees: roundNumber(requireBoundedNumber(sample.rollDegrees, `${path}.rollDegrees`, -180, 180), 2),
+    };
+  });
+}
+
+function requireTimeline(value: unknown, field: string): unknown[] {
+  if (!Array.isArray(value)) invalid(`${field} must be an array`);
+  if (value.length > INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES) {
+    invalid(`${field} must contain at most ${INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES} samples`);
+  }
+  return value;
+}
+
+function requireTimelineTime(value: unknown, path: string, index: number, timeline: unknown[]): number {
+  const tMs = optionalInteger(value, `${path}.tMs`, MAX_TIMELINE_TIME_MS);
+  if (tMs === undefined) invalid(`${path}.tMs is required`);
+  if (index > 0) {
+    const previous = requireRecord(timeline[index - 1], `${path} previous sample`);
+    const previousTMs = optionalInteger(previous.tMs, `${path} previous tMs`, MAX_TIMELINE_TIME_MS);
+    if (previousTMs === undefined || tMs <= previousTMs) invalid(`${path}.tMs must be greater than the previous sample`);
+  }
+  return tMs;
+}
+
+function requireBoundedNumber(value: unknown, path: string, min: number, max: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) {
+    invalid(`${path} must be a finite number between ${min} and ${max}`);
+  }
+  return value;
+}
+
+function roundNumber(value: number, precision: number) {
+  const multiplier = 10 ** precision;
+  return Math.round(value * multiplier) / multiplier;
 }
 
 function normalizeEvents(value: unknown): InterviewIntegrityEvent[] | undefined {

@@ -11,6 +11,7 @@ export type IrisGazePosition = {
 export type HeadPoseAngles = {
   yawDegrees: number;
   pitchDegrees: number;
+  rollDegrees?: number;
 };
 
 export type CombinedGazeSignal = {
@@ -194,10 +195,12 @@ export function estimateHeadPoseAngles(matrix: Matrix | undefined): HeadPoseAngl
   const pitchRadians = Math.abs(m13) < 0.9999999
     ? Math.atan2(-m23, m33)
     : Math.atan2(m32, m22);
+  const rollRadians = Math.atan2(-(elements[1] / scaleX), elements[0] / scaleX);
 
   return {
     yawDegrees: radiansToDegrees(yawRadians),
     pitchDegrees: radiansToDegrees(pitchRadians),
+    rollDegrees: radiansToDegrees(rollRadians),
   };
 }
 
