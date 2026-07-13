@@ -8791,6 +8791,9 @@ p {
 }
 .candidate-apply-modal .candidate-apply-file-row:hover strong { background: rgba(59, 111, 224, 0.14); }
 
+/* 필수 입력 항목 별표(*) 강조 (#272) */
+.req-mark { color: #e03e3e; font-weight: 700; }
+
 /* ---- 지원서 세트 불러오기(#272) ---- */
 .candidate-apply-setloader { display: grid; gap: 10px; }
 .candidate-apply-setloader .panel-title { margin: 0; font-size: 14px; font-weight: 800; color: #191919; }

@@ -1202,8 +1202,22 @@ export function CandidateApplicationView({
 }: CandidateApplicationViewProps) {
   const [activeSetId, setActiveSetId] = useState<number | null>(null);
   const [loadedResumeName, setLoadedResumeName] = useState<string | null>(null);
+  const [preSetSnapshot, setPreSetSnapshot] = useState<CandidateApplicationFormState | null>(null);
 
   function handleLoadSet(folder: CandidateFolder) {
+    // 이미 불러온 세트를 다시 누르면 불러오기 이전 상태로 되돌린다(아무것도 선택하지 않은 상태). (#272)
+    if (activeSetId === folder.id) {
+      if (preSetSnapshot) {
+        onStateChange(preSetSnapshot);
+      }
+      setActiveSetId(null);
+      setLoadedResumeName(null);
+      setPreSetSnapshot(null);
+      return;
+    }
+    if (activeSetId === null) {
+      setPreSetSnapshot(state);
+    }
     onStateChange(applyFolderToApplicationForm(state, folder));
     setActiveSetId(folder.id);
     setLoadedResumeName(folder.resumeFileId ? folder.resumeFileName : null);
@@ -1260,7 +1274,7 @@ export function CandidateApplicationView({
         <section aria-labelledby="candidate-basic-info-heading" className="candidate-apply-card">
           <p className="panel-title" id="candidate-basic-info-heading">기본 정보</p>
           <label>
-            이름 *
+            이름 <span className="req-mark">*</span>
             <input
               placeholder="이름을 입력하세요"
               required
@@ -1269,7 +1283,7 @@ export function CandidateApplicationView({
             />
           </label>
           <label>
-            이메일 *
+            이메일 <span className="req-mark">*</span>
             <input
               placeholder="example@email.com"
               required
@@ -1279,7 +1293,7 @@ export function CandidateApplicationView({
             />
           </label>
           <label>
-            연락처 *
+            연락처 <span className="req-mark">*</span>
             <input
               placeholder="010-0000-0000"
               required
@@ -1310,7 +1324,7 @@ export function CandidateApplicationView({
         <section aria-labelledby="candidate-document-heading" className="candidate-apply-card">
           <p className="panel-title" id="candidate-document-heading">서류 업로드</p>
           <label className="candidate-apply-file-label">
-            이력서 *
+            이력서 <span className="req-mark">*</span>
             <span className="candidate-apply-file-row">
               <input
                 accept=".pdf,application/pdf"
@@ -1465,8 +1479,22 @@ export function CandidateApplyModal({
   const [validationMessage, setValidationMessage] = useState("");
   const [activeSetId, setActiveSetId] = useState<number | null>(null);
   const [loadedResumeName, setLoadedResumeName] = useState<string | null>(null);
+  const [preSetSnapshot, setPreSetSnapshot] = useState<CandidateApplicationFormState | null>(null);
 
   function handleLoadSet(folder: CandidateFolder) {
+    // 이미 불러온 세트를 다시 누르면 불러오기 이전 상태로 되돌린다(아무것도 선택하지 않은 상태). (#272)
+    if (activeSetId === folder.id) {
+      if (preSetSnapshot) {
+        onStateChange(preSetSnapshot);
+      }
+      setActiveSetId(null);
+      setLoadedResumeName(null);
+      setPreSetSnapshot(null);
+      return;
+    }
+    if (activeSetId === null) {
+      setPreSetSnapshot(state);
+    }
     onStateChange(applyFolderToApplicationForm(state, folder));
     setActiveSetId(folder.id);
     setLoadedResumeName(folder.resumeFileId ? folder.resumeFileName : null);
@@ -1538,7 +1566,7 @@ export function CandidateApplyModal({
             <div className="candidate-apply-modal-fields">
               <ApplicationSetLoader folders={folders} activeSetId={activeSetId} onLoad={handleLoadSet} />
               <label>
-                이름 *
+                이름 <span className="req-mark">*</span>
                 <input
                   placeholder="이름을 입력하세요"
                   required
@@ -1547,7 +1575,7 @@ export function CandidateApplyModal({
                 />
               </label>
               <label>
-                이메일 *
+                이메일 <span className="req-mark">*</span>
                 <input
                   placeholder="example@email.com"
                   required
@@ -1557,7 +1585,7 @@ export function CandidateApplyModal({
                 />
               </label>
               <label>
-                연락처 *
+                연락처 <span className="req-mark">*</span>
                 <input
                   placeholder="010-0000-0000"
                   required
@@ -1589,7 +1617,7 @@ export function CandidateApplyModal({
           {step === 1 ? (
             <div className="candidate-apply-modal-fields">
               <label className="candidate-apply-file-label">
-                이력서 *
+                이력서 <span className="req-mark">*</span>
                 <span className="candidate-apply-file-row">
                   <input
                     accept=".pdf,application/pdf"
@@ -1632,7 +1660,7 @@ export function CandidateApplyModal({
                 </span>
               </label>
               <label>
-                지원 동기 *
+                지원 동기 <span className="req-mark">*</span>
                 <textarea
                   placeholder="이 공고에 지원한 동기를 입력하세요."
                   required
@@ -1641,7 +1669,7 @@ export function CandidateApplyModal({
                 />
               </label>
               <label>
-                추가 설명 *
+                추가 설명 <span className="req-mark">*</span>
                 <textarea
                   placeholder="관련 프로젝트, 본인이 맡은 역할 등 추가 설명을 입력하세요."
                   required
