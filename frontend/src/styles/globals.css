@@ -2651,45 +2651,66 @@ td span {
   gap: 0;
 }
 
-/* 질문 = 카드 없이 flat 섹션. 상단 구분선 + 넉넉한 여백으로 "다음 질문"이 한눈에 보이게 */
+/* 질문 = 세로 타임라인. 번호 노드가 선으로 이어져 면접 흐름이 보이게 */
 .company-answer-item {
   display: grid;
-  gap: 16px;
-  padding: 30px 0;
-  border-top: 1px solid rgba(55, 53, 47, 0.12);
+  grid-template-columns: 30px minmax(0, 1fr);
+  column-gap: 18px;
+  padding-bottom: 34px;
 }
 
-.company-answer-item:first-child {
-  padding-top: 8px;
-  border-top: 0;
+.company-answer-item:last-child {
+  padding-bottom: 4px;
 }
 
-/* 질문 헤더: 파란 번호 뱃지 + 메타 + 질문 제목 */
-.company-answer-qhead {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: 12px;
+/* 좌측 레일: 노드 + 다음 노드로 이어지는 연결선 */
+.company-answer-rail {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.company-answer-rail::before {
+  content: "";
+  position: absolute;
+  top: 32px;
+  bottom: -34px;
+  width: 2px;
+  background: rgba(55, 53, 47, 0.1);
+}
+
+.company-answer-item:last-child .company-answer-rail::before {
+  display: none;
 }
 
 .company-answer-qnum {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 30px;
   height: 30px;
-  border-radius: 8px;
+  border-radius: 9px;
   background: #3B6FE0;
   color: #fff;
   font-size: 15px;
   font-weight: 700;
 }
 
-.company-answer-qtitle {
+/* 본문 */
+.company-answer-body {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+  padding-top: 1px;
+}
+
+.company-answer-qhead {
   display: grid;
   gap: 3px;
   min-width: 0;
-  padding-top: 1px;
 }
 
 .company-answer-qmeta {
@@ -2698,10 +2719,24 @@ td span {
   color: rgba(55, 53, 47, 0.5);
 }
 
-.company-answer-qtitle h3 {
-  margin: 0;
+.company-answer-type {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  margin-left: 6px;
+  padding: 0 7px;
+  border-radius: 4px;
+  background: rgba(59, 111, 224, 0.1);
+  color: #3B6FE0;
+  font-size: 11.5px;
+  font-weight: 600;
+  vertical-align: 1px;
+}
+
+.company-answer-qhead h3 {
+  margin: 2px 0 0;
   color: #191919;
-  font-size: 17px;
+  font-size: 16.5px;
   font-weight: 700;
   line-height: 1.5;
   word-break: keep-all;
@@ -2787,6 +2822,14 @@ td span {
   background: rgba(55, 53, 47, 0.3);
 }
 
+/* 답변 라벨은 주황으로 질문/꼬리질문과 구별 */
+.company-answer-label.is-answer {
+  color: #D9730D;
+}
+.company-answer-label.is-answer::before {
+  background: #D9730D;
+}
+
 .company-answer-block p {
   margin: 0;
   color: #37352F;
@@ -2794,6 +2837,38 @@ td span {
   line-height: 1.75;
   word-break: keep-all;
   overflow-wrap: break-word;
+}
+
+/* 긴 답변 스크립트: 4줄 클램프 + 더 보기 */
+.company-answer-transcript.is-expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+.company-answer-transcript:not(.is-expanded) {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.company-answer-more {
+  justify-self: start;
+  margin-top: 2px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: #3B6FE0;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.company-answer-more:hover {
+  color: #315FC6;
+}
+.company-answer-empty-text {
+  margin: 0;
+  color: rgba(55, 53, 47, 0.45);
+  font-size: 14px;
 }
 
 /* 꼬리질문: 상자 없이 나열 */
@@ -2845,107 +2920,6 @@ td span {
   font-weight: 500;
 }
 
-.integrity-review {
-  display: grid;
-  gap: 20px;
-}
-
-/* 상태 히어로 */
-.integrity-hero {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px 18px;
-  border: 1px solid;
-  border-radius: 12px;
-}
-.integrity-hero.is-clean {
-  background: rgba(15, 122, 67, 0.05);
-  border-color: rgba(15, 122, 67, 0.2);
-}
-.integrity-hero.is-flagged {
-  background: rgba(217, 119, 6, 0.06);
-  border-color: rgba(217, 119, 6, 0.22);
-}
-.integrity-hero-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  color: #fff;
-  font-size: 17px;
-  font-weight: 800;
-  line-height: 1;
-}
-.integrity-hero.is-clean .integrity-hero-icon { background: #0F7A43; }
-.integrity-hero.is-flagged .integrity-hero-icon { background: #D9730D; }
-.integrity-hero-text { display: grid; gap: 2px; }
-.integrity-hero-text strong { font-size: 15px; font-weight: 700; }
-.integrity-hero.is-clean .integrity-hero-text strong { color: #0F7A43; }
-.integrity-hero.is-flagged .integrity-hero-text strong { color: #B7791F; }
-.integrity-hero-text span { font-size: 13px; color: rgba(55, 53, 47, 0.6); }
-
-/* 신호 유형별 — 카드 없이 hairline 행 */
-.integrity-breakdown {
-  display: grid;
-  border-top: 1px solid rgba(55, 53, 47, 0.1);
-}
-.integrity-signal-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 13px 2px;
-  border-bottom: 1px solid rgba(55, 53, 47, 0.08);
-}
-.integrity-signal-name {
-  font-size: 13.5px;
-  font-weight: 500;
-  color: rgba(55, 53, 47, 0.5);
-}
-.integrity-signal-row.is-active .integrity-signal-name {
-  color: #191919;
-  font-weight: 600;
-}
-.integrity-signal-none {
-  font-size: 12.5px;
-  color: rgba(55, 53, 47, 0.35);
-}
-.integrity-signal-count {
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: rgba(217, 119, 6, 0.12);
-  color: #B7791F;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-/* 안내 노트 */
-.integrity-guide-notes {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.integrity-guide-notes li {
-  position: relative;
-  padding-left: 15px;
-  font-size: 13px;
-  line-height: 1.6;
-  color: rgba(55, 53, 47, 0.6);
-}
-.integrity-guide-notes li::before {
-  content: "•";
-  position: absolute;
-  left: 3px;
-  color: rgba(55, 53, 47, 0.35);
-}
-
 .company-integrity-signals {
   display: grid;
   gap: 8px;
@@ -2959,10 +2933,18 @@ td span {
 }
 
 .company-integrity-signals strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   color: #B7791F;
   font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+
+.company-integrity-warn {
+  flex: none;
+  display: block;
 }
 
 .company-integrity-signals > div {
@@ -10154,9 +10136,19 @@ p {
 .notion .report-competency h3 { margin: 0; font-size: 15px; font-weight: 700; color: #191919; }
 .notion .report-competency-list { display: grid; gap: 18px; margin: 0; padding: 0; list-style: none; }
 .notion .report-competency-item { display: grid; gap: 8px; }
-.notion .report-competency-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.notion .report-competency-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.notion .report-competency-namewrap { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .notion .report-competency-name { font-size: 14px; font-weight: 600; color: #191919; }
-.notion .report-competency-score { font-size: 15px; font-weight: 800; color: #3B6FE0; letter-spacing: -0.01em; }
+.notion .report-competency-band { display: inline-flex; align-items: center; flex: none; padding: 2px 8px; border-radius: 4px; font-size: 11.5px; font-weight: 700; }
+.notion .report-competency-band.tone-high { color: #0F7A43; background: #D5F2DF; }
+.notion .report-competency-band.tone-good { color: #337EA9; background: #E7F3F8; }
+.notion .report-competency-band.tone-mid { color: #D9730D; background: #FAEBDD; }
+.notion .report-competency-band.tone-low { color: #C4554D; background: #FDEBEC; }
+.notion .report-competency-score { font-size: 15px; font-weight: 800; letter-spacing: -0.01em; }
+.notion .report-competency-score.tone-high { color: #0F7A43; }
+.notion .report-competency-score.tone-good { color: #337EA9; }
+.notion .report-competency-score.tone-mid { color: #D9730D; }
+.notion .report-competency-score.tone-low { color: #C4554D; }
 .notion .report-competency-bar { height: 8px; border-radius: 999px; background: rgba(55, 53, 47, 0.08); overflow: hidden; }
 .notion .report-competency-bar > span {
   display: block;
@@ -10165,6 +10157,10 @@ p {
   background: #3B6FE0;
   transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
+.notion .report-competency-bar > span.tone-high { background: #0F7A43; }
+.notion .report-competency-bar > span.tone-good { background: #337EA9; }
+.notion .report-competency-bar > span.tone-mid { background: #D9730D; }
+.notion .report-competency-bar > span.tone-low { background: #C4554D; }
 .notion .report-competency-toggle {
   display: inline-flex;
   align-items: center;

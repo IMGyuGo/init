@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { createApplicantInterviewMediaSession, getApplicantDocument, getApplicantEvaluation, updateScreeningStatus } from "./api";
 import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
@@ -10,12 +10,11 @@ import type { ApplicantEvaluation, ApplicantInterviewFileAsset, ScreeningDecisio
 
 const decisions: ScreeningDecision[] = ["UNDECIDED", "PASS", "HOLD", "FAIL"];
 
-type ReportTab = "overview" | "answers" | "integrity" | "submission" | "decision";
+type ReportTab = "overview" | "answers" | "submission" | "decision";
 
 const REPORT_TABS: ReadonlyArray<{ id: ReportTab; label: string }> = [
   { id: "overview", label: "종합" },
   { id: "answers", label: "면접 답변" },
-  { id: "integrity", label: "응시 무결성" },
   { id: "submission", label: "지원 정보" },
   { id: "decision", label: "전형 결정" },
 ];
@@ -146,7 +145,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
 
             {tab === "overview" ? (
               <div className="report-tabpanel" role="tabpanel">
-                <ReportOverview report={report} />
+                <ReportOverview report={report} integritySummary={integritySummary} />
               </div>
             ) : null}
 
@@ -156,7 +155,6 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
               <div className="panel-head">
                 <div>
                   <h2>지원 정보</h2>
-                  <p>지원자가 이 공고에 제출한 정보와 서류입니다.</p>
                 </div>
               </div>
               <dl className="applicant-submission-details">
@@ -202,7 +200,6 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                   <div className="panel-head">
                     <div>
                       <h2>전형 결정</h2>
-                      <p>저장 가능한 값은 미정, 합격, 보류, 불합격입니다.</p>
                     </div>
                     <button className="btn primary" type="submit" disabled={loading}>
                       저장
@@ -228,31 +225,12 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
               </div>
             ) : null}
 
-            {tab === "integrity" ? (
-              <div className="report-tabpanel" role="tabpanel">
-                {integritySummary && integritySummary.answersWithMetadata > 0 ? (
-                  <RecruitingIntegrityReviewPanel summary={integritySummary} />
-                ) : (
-                  <section className="panel">
-                    <div className="panel-head">
-                      <div>
-                        <h2>응시 무결성 참고 신호</h2>
-                        <p>브라우저에서 수집된 미검증 참고 정보입니다.</p>
-                      </div>
-                    </div>
-                    <div className="empty">수집된 응시 무결성 신호가 없습니다.</div>
-                  </section>
-                )}
-              </div>
-            ) : null}
-
             {tab === "answers" ? (
               <div className="report-tabpanel" role="tabpanel">
             <section className="panel">
               <div className="panel-head">
                 <div>
                   <h2>면접 답변</h2>
-                  <p>지원자가 실제로 받은 질문과 답변 스크립트를 확인합니다.</p>
                 </div>
               </div>
 
@@ -260,14 +238,16 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                 <div className="company-answer-list">
                   {displayAnswers.map((answer, index) => (
                     <article className="company-answer-item" key={answer.answerId}>
-                      <header className="company-answer-qhead">
+                      <div className="company-answer-rail">
                         <span className="company-answer-qnum">{index + 1}</span>
-                        <div className="company-answer-qtitle">
-                          <span className="company-answer-qmeta">
-                            질문 {index + 1} · {formatQuestionTypeLabel(answer.questionType)}
-                          </span>
-                          <h3>{answer.questionContent ?? "질문 정보 없음"}</h3>
-                        </div>
+                      </div>
+                      <div className="company-answer-body">
+                      <header className="company-answer-qhead">
+                        <span className="company-answer-qmeta">
+                          질문 {index + 1}
+                          <span className="company-answer-type">{formatQuestionTypeLabel(answer.questionType)}</span>
+                        </span>
+                        <h3>{answer.questionContent ?? "질문 정보 없음"}</h3>
                       </header>
 
                       <CompanyAnswerMedia
@@ -277,8 +257,12 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                       />
 
                       <div className="company-answer-block">
-                        <span className="company-answer-label">답변</span>
-                        <p>{answer.transcript?.trim() ? answer.transcript : "답변 스크립트가 없습니다."}</p>
+                        <span className="company-answer-label is-answer">답변</span>
+                        {answer.transcript?.trim() ? (
+                          <CollapsibleText text={answer.transcript} />
+                        ) : (
+                          <p className="company-answer-empty-text">답변 스크립트가 없습니다.</p>
+                        )}
                       </div>
 
                       <RecruitingIntegritySignalView metadata={answer.nonverbalMetadata} />
@@ -291,7 +275,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                               <li key={followUp.followUpId}>
                                 <p className="company-follow-up-question">{followUp.content}</p>
                                 <div className="company-follow-up-answer">
-                                  <span className="company-answer-label is-sub">답변</span>
+                                  <span className="company-answer-label is-sub is-answer">답변</span>
                                   <CompanyAnswerMedia
                                     applicantId={applicantId}
                                     audioFile={followUp.answer?.audioFile ?? null}
@@ -310,6 +294,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                       {answer.durationSeconds != null ? (
                         <div className="company-answer-meta">답변 시간 {answer.durationSeconds}초</div>
                       ) : null}
+                      </div>
                     </article>
                   ))}
                 </div>
@@ -327,7 +312,39 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   );
 }
 
-function ReportOverview({ report }: { report: ApplicantEvaluation["report"] }) {
+function CollapsibleText({ text }: { text: string }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (el) {
+      setOverflowing(el.scrollHeight > el.clientHeight + 2);
+    }
+  }, [text]);
+
+  return (
+    <>
+      <p ref={ref} className={`company-answer-transcript${expanded ? " is-expanded" : ""}`}>
+        {text}
+      </p>
+      {overflowing || expanded ? (
+        <button type="button" className="company-answer-more" onClick={() => setExpanded((value) => !value)}>
+          {expanded ? "접기" : "더 보기"}
+        </button>
+      ) : null}
+    </>
+  );
+}
+
+function ReportOverview({
+  report,
+  integritySummary,
+}: {
+  report: ApplicantEvaluation["report"];
+  integritySummary: RecruitingIntegritySummary | null;
+}) {
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const toggleExpanded = (scoreId: number) =>
     setExpanded((current) => {
@@ -346,7 +363,6 @@ function ReportOverview({ report }: { report: ApplicantEvaluation["report"] }) {
         <div className="panel-head">
           <div>
             <h2>종합 평가</h2>
-            <p>리포트가 없으면 없음/생성중 상태로 표시합니다.</p>
           </div>
           <StatusBadge value="NONE_OR_GENERATING" />
         </div>
@@ -355,10 +371,10 @@ function ReportOverview({ report }: { report: ApplicantEvaluation["report"] }) {
     );
   }
 
-  const adjustment = report.integrityAdjustment ?? null;
   const displayedScore = report.adjustedTotalScore ?? report.totalScore ?? null;
   const band = scoreBand(displayedScore);
   const scorePercent = displayedScore == null ? null : clampPercent(displayedScore);
+  const flaggedAnswers = integritySummary?.signalAnswers ?? 0;
 
   return (
     <section className="panel report-overview">
@@ -391,25 +407,16 @@ function ReportOverview({ report }: { report: ApplicantEvaluation["report"] }) {
 
         <div className="report-score-side">
           {band ? <span className={`report-score-band band-${band.tone}`}>{band.label}</span> : null}
-          {adjustment && adjustment.level !== "NONE" ? (
+          {flaggedAnswers > 0 ? (
             <div className="report-integrity-note">
               <div className="report-integrity-note-head">
-                {adjustment.penalty > 0 ? (
-                  <>
-                    <span className={`report-integrity-badge level-${adjustment.level.toLowerCase()}`}>무결성 감점 {adjustment.penalty}점</span>
-                    {report.totalScore != null ? (
-                      <span className="report-integrity-raw">원점수 {report.totalScore} → 반영 {report.adjustedTotalScore ?? report.totalScore}</span>
-                    ) : null}
-                  </>
-                ) : (
-                  <span className={`report-integrity-badge level-${adjustment.level.toLowerCase()}`}>무결성 참고 신호 · {integrityLevelLabel(adjustment.level)}</span>
-                )}
+                <span className="report-integrity-badge level-medium">응시 무결성 참고 신호</span>
+                <span className="report-integrity-raw">{flaggedAnswers}개 답변 확인 필요</span>
               </div>
-              {adjustment.reason ? <p>{adjustment.reason}</p> : null}
-              {adjustment.penalty === 0 ? <p className="report-integrity-hint">참고용 신호로, 점수에는 반영되지 않았습니다. 답변 영상과 함께 확인해 주세요.</p> : null}
+              <p className="report-integrity-hint">미검증 참고 신호로, 점수에는 반영되지 않았습니다. 면접 답변 탭에서 답변별 신호를 확인하세요.</p>
             </div>
           ) : null}
-          <p className="report-summary-text">{report.summary?.trim() ? report.summary : "요약이 아직 없습니다."}</p>
+          <p className="report-summary-text">{stripHtml(report.summary) || "요약이 아직 없습니다."}</p>
         </div>
       </div>
 
@@ -417,18 +424,24 @@ function ReportOverview({ report }: { report: ApplicantEvaluation["report"] }) {
         <h3>역량별 평가</h3>
         {report.scores.length > 0 ? (
           <ul className="report-competency-list">
-            {report.scores.map((score) => {
+            {[...report.scores]
+              .sort((a, b) => b.score - a.score)
+              .map((score) => {
               const pct = clampPercent(score.score);
+              const band = competencyBand(score.score);
               const hasDetail = Boolean(score.rationale?.trim()) || score.evidences.length > 0;
               const isOpen = expanded.has(score.scoreId);
               return (
                 <li className="report-competency-item" key={score.scoreId}>
                   <div className="report-competency-row">
-                    <span className="report-competency-name">{formatScoreCriterionName(score.criterionName, score.rationale)}</span>
-                    <span className="report-competency-score">{score.score}</span>
+                    <span className="report-competency-namewrap">
+                      <span className="report-competency-name">{formatScoreCriterionName(score.criterionName, score.rationale)}</span>
+                      <span className={`report-competency-band tone-${band.tone}`}>{band.label}</span>
+                    </span>
+                    <span className={`report-competency-score tone-${band.tone}`}>{score.score}</span>
                   </div>
                   <div className="report-competency-bar" aria-hidden="true">
-                    <span style={{ width: `${pct}%` }} />
+                    <span className={`tone-${band.tone}`} style={{ width: `${pct}%` }} />
                   </div>
                   {hasDetail ? (
                     <>
@@ -473,17 +486,35 @@ function clampPercent(value: number) {
   return Math.max(0, Math.min(100, value));
 }
 
-function integrityLevelLabel(level: string) {
-  const labels: Record<string, string> = { LOW: "낮음", MEDIUM: "중간", HIGH: "높음" };
-  return labels[level] ?? level;
-}
-
 function scoreBand(score: number | null): { label: string; tone: "high" | "mid" | "low" | "min" } | null {
   if (score == null) return null;
   if (score >= 80) return { label: "우수", tone: "high" };
   if (score >= 60) return { label: "양호", tone: "mid" };
   if (score >= 40) return { label: "보통", tone: "low" };
   return { label: "미흡", tone: "min" };
+}
+
+type CompetencyTone = "high" | "good" | "mid" | "low";
+
+function competencyBand(score: number): { label: string; tone: CompetencyTone } {
+  if (score >= 80) return { label: "우수", tone: "high" };
+  if (score >= 65) return { label: "양호", tone: "good" };
+  if (score >= 50) return { label: "보통", tone: "mid" };
+  return { label: "미흡", tone: "low" };
+}
+
+function stripHtml(value: string | null | undefined): string {
+  if (!value) return "";
+  return value
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function CompanyAnswerMedia({
@@ -611,62 +642,6 @@ type RecruitingIntegritySummary = {
   staticVideoAnswers: number;
 };
 
-function RecruitingIntegrityReviewPanel({ summary }: { summary: RecruitingIntegritySummary }) {
-  const guideItems = buildRecruitingIntegrityGuide(summary);
-  const hasSignal = summary.signalAnswers > 0;
-  const signalTypes = [
-    { label: "화면·탭 이탈", count: summary.screenAwayAnswers },
-    { label: "얼굴 이탈", count: summary.faceAwayAnswers },
-    { label: "여러 사람 감지", count: summary.multipleFaceAnswers },
-    { label: "시선 이탈", count: summary.gazeAwayAnswers },
-    { label: "음성·입모양 불일치", count: summary.audioVisualAnswers },
-    { label: "영상 프레임 고정", count: summary.staticVideoAnswers },
-  ];
-
-  return (
-    <section className="panel integrity-review">
-      <div className="panel-head">
-        <div>
-          <h2>응시 무결성 참고 신호</h2>
-          <p>브라우저에서 수집된 미검증 참고 정보입니다. 점수·부정행위 확정에 쓰지 말고 답변 영상과 함께 확인하세요.</p>
-        </div>
-      </div>
-
-      <div className={`integrity-hero${hasSignal ? " is-flagged" : " is-clean"}`}>
-        <span className="integrity-hero-icon" aria-hidden="true">{hasSignal ? "!" : "✓"}</span>
-        <div className="integrity-hero-text">
-          <strong>{hasSignal ? "확인이 필요한 신호가 있습니다" : "특이 신호 없음"}</strong>
-          <span>
-            분석 답변 {summary.answersWithMetadata}/{summary.answerCount}
-            {hasSignal ? ` · 검토 필요 ${summary.signalAnswers}개` : ""}
-          </span>
-        </div>
-      </div>
-
-      <div className="integrity-breakdown">
-        {signalTypes.map((item) => (
-          <div key={item.label} className={`integrity-signal-row${item.count > 0 ? " is-active" : ""}`}>
-            <span className="integrity-signal-name">{item.label}</span>
-            {item.count > 0 ? (
-              <span className="integrity-signal-count">{item.count}개 답변</span>
-            ) : (
-              <span className="integrity-signal-none">감지 안 됨</span>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {hasSignal ? (
-        <ul className="integrity-guide-notes">
-          {guideItems.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      ) : null}
-    </section>
-  );
-}
-
 function RecruitingIntegritySignalView({
   compact = false,
   metadata,
@@ -679,7 +654,14 @@ function RecruitingIntegritySignalView({
 
   return (
     <div className={`company-integrity-signals ${compact ? "compact" : ""}`}>
-      <strong>응시 무결성 확인 신호</strong>
+      <strong>
+        <svg className="company-integrity-warn" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3 2 20h20L12 3z" fill="#E03E3E" />
+          <rect x="11" y="9" width="2" height="5" rx="1" fill="#fff" />
+          <circle cx="12" cy="16.6" r="1.1" fill="#fff" />
+        </svg>
+        응시 무결성 확인 신호
+      </strong>
       <div>
         {flags.map((flag) => (
           <span className="company-integrity-chip" key={flag.key}>
@@ -729,21 +711,6 @@ function buildRecruitingIntegritySummary(answers: ApplicantEvaluation["answers"]
     audioVisualAnswers: 0,
     staticVideoAnswers: 0,
   });
-}
-
-function buildRecruitingIntegrityGuide(summary: RecruitingIntegritySummary) {
-  if (summary.signalAnswers === 0) {
-    return ["면접 답변에서 화면 이탈, 얼굴 이탈, 여러 사람, 시선 이탈 같은 주요 응시 무결성 신호가 감지되지 않았습니다."];
-  }
-
-  const items = [`총 ${summary.signalAnswers}개 답변에서 채용 담당자 확인이 필요한 신호가 감지되었습니다.`];
-  if (summary.screenAwayAnswers > 0) items.push(`${summary.screenAwayAnswers}개 답변에서 화면/탭 이탈 신호가 있습니다.`);
-  if (summary.faceAwayAnswers > 0) items.push(`${summary.faceAwayAnswers}개 답변에서 얼굴 화면 밖, 카메라 이탈, 위치 급변 신호가 있습니다.`);
-  if (summary.multipleFaceAnswers > 0) items.push(`${summary.multipleFaceAnswers}개 답변에서 여러 사람 감지 신호가 있습니다.`);
-  if (summary.gazeAwayAnswers > 0) items.push(`${summary.gazeAwayAnswers}개 답변에서 긴 시선 이탈 신호가 있습니다.`);
-  if (summary.audioVisualAnswers > 0) items.push(`${summary.audioVisualAnswers}개 답변에서 음성-입모양 또는 얼굴 미검출 중 음성 신호가 있습니다.`);
-  if (summary.staticVideoAnswers > 0) items.push(`${summary.staticVideoAnswers}개 답변에서 영상 프레임 고정 신호가 있습니다.`);
-  return items;
 }
 
 function buildRecruitingIntegrityFlags(metadata?: Record<string, unknown> | null) {
