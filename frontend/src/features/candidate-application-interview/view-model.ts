@@ -1,6 +1,5 @@
 import type {
   CandidateApplicationSummary,
-  CandidateFolder,
   CandidateJobDetail,
   CandidateJobQuery,
   CandidateJobSummary,
@@ -498,25 +497,8 @@ export const defaultApplicationFormState: CandidateApplicationFormState = {
   consentTypes: [],
 };
 
-// 지원서 세트(폴더)를 지원 폼에 복사한다. 회원 기본정보(이름/이메일/연락처)는 유지하고,
-// 지원서 콘텐츠(링크/이력서/동기/추가설명)를 덮어쓴다. 원본 세트는 변경되지 않는다.
-// 세트에 값이 없는 항목은 기존(프로필 자동입력 등) 값을 유지한다 — 선택적 override. (#272 3단계)
-export function applyFolderToApplicationForm(
-  state: CandidateApplicationFormState,
-  folder: CandidateFolder,
-): CandidateApplicationFormState {
-  const overrideText = (value: string | null | undefined, current: string): string =>
-    value && value.trim() ? value : current;
-  return {
-    ...state,
-    githubUrl: overrideText(folder.githubUrl, state.githubUrl),
-    blogUrl: overrideText(folder.blogUrl, state.blogUrl),
-    portfolioUrl: folder.portfolioUrl && folder.portfolioUrl.trim() ? folder.portfolioUrl : state.portfolioUrl,
-    resumeFileId: folder.resumeFileId ?? state.resumeFileId,
-    motivation: overrideText(folder.motivation, state.motivation),
-    additionalInfo: overrideText(folder.extraNote, state.additionalInfo),
-  };
-}
+// 세트 override/해제 순수 로직은 apply-set.ts 로 분리(단위 테스트 대상). 재노출로 기존 import 유지. (#272)
+export { applyFolderToApplicationForm, restoreApplicationSetContent } from "./apply-set";
 
 export const defaultPortfolioLinkFormState: CandidatePortfolioLinkFormState = {
   linkType: "PORTFOLIO",

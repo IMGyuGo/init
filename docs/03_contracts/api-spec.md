@@ -2269,11 +2269,11 @@ AI 리포트 금지 기준:
 - 상태 코드: 201 Created
 - 비동기: N
 - 요청 데이터:
-  - `{ name, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, motivation?, extraNote? }`
+  - `{ name, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, portfolioFileId?, motivation?, extraNote? }`
 - 검증/전제조건:
   - `name`은 필수이며 100자 이하
   - URL 필드는 http/https URL이며 500자 이하
-  - `resumeFileId`가 있으면 현재 사용자 소유 file_assets이며 문서 MIME 타입이어야 한다.
+  - `resumeFileId`·`portfolioFileId`가 있으면 각각 현재 사용자 소유의 PDF FileAsset이어야 한다. (지원 제출과 동일하게 PDF만 허용, #272 P1-2)
   - 지원자별 폴더는 최대 20개까지 생성할 수 있다.
 - 성공 응답/처리:
   - `{ data: CandidateFolder, meta }`
@@ -2309,7 +2309,7 @@ AI 리포트 금지 기준:
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - `{ name?, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, motivation?, extraNote? }`
+  - `{ name?, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, portfolioFileId?, motivation?, extraNote? }`
   - nullable 필드는 `null`로 초기화 가능
 - 검증/전제조건:
   - `{id}`는 현재 지원자 소유 폴더여야 한다.

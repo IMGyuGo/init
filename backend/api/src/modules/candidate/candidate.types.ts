@@ -216,6 +216,8 @@ export interface CandidateFolder {
   portfolioUrl: string | null;
   resumeFileId: number | null;
   resumeFileName: string | null;
+  portfolioFileId: number | null;
+  portfolioFileName: string | null;
   motivation: string | null;
   extraNote: string | null;
   createdAt: string;
@@ -361,7 +363,6 @@ export interface CandidateRepository {
   findApplication(applicationId: number): Promise<Application | undefined>;
   findCandidateUserId(candidateId: number): Promise<number | undefined>;
   findApplicantContact(userId: number): Promise<ApplicantContact | undefined>;
-  saveApplicantPhone(userId: number, phone: string): Promise<void>;
   getCandidateProfile(candidateId: number): Promise<CandidateProfileView | undefined>;
   updateCandidateProfile(candidateId: number, input: UpdateCandidateProfileInput): Promise<CandidateProfileView>;
   listDocuments(applicationId: number): Promise<ApplicationDocument[]>;
@@ -389,13 +390,14 @@ export interface CandidateRepository {
     motivation?: string;
     additionalInfo?: string;
     consentTypes: ConsentType[];
+    contactUserId?: number;
   }): Promise<ApplicationSubmissionResult>;
   createFileAsset(input: Omit<FileAsset, "fileId" | "createdAt" | "status">): Promise<FileAsset>;
   createPortfolioLink(input: Omit<PortfolioLink, "portfolioLinkId" | "createdAt">): Promise<PortfolioLink>;
   countFolders(candidateId: number): Promise<number>;
   listFolders(candidateId: number): Promise<CandidateFolder[]>;
   findFolder(folderId: number): Promise<CandidateFolder | undefined>;
-  createFolder(input: Omit<CandidateFolder, "id" | "resumeFileName" | "createdAt" | "updatedAt">): Promise<CandidateFolder>;
-  updateFolder(folderId: number, input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "createdAt" | "updatedAt">>): Promise<CandidateFolder>;
+  createFolder(input: Omit<CandidateFolder, "id" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">): Promise<CandidateFolder>;
+  updateFolder(folderId: number, input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">>): Promise<CandidateFolder>;
   deleteFolder(folderId: number): Promise<void>;
 }

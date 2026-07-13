@@ -766,6 +766,8 @@ export interface CandidateFolder {
   portfolioUrl: string | null;
   resumeFileId: number | null;
   resumeFileName: string | null;
+  portfolioFileId: number | null;
+  portfolioFileName: string | null;
   motivation: string | null;
   extraNote: string | null;
   createdAt: string;
@@ -778,6 +780,7 @@ export interface CandidateFolderInput {
   blogUrl?: string | null;
   portfolioUrl?: string | null;
   resumeFileId?: number | null;
+  portfolioFileId?: number | null;
   motivation?: string | null;
   extraNote?: string | null;
 }

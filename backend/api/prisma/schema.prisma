@@ -207,6 +207,7 @@ model FileAsset {
   companyLogos      Company[]             @relation("CompanyLogo")
   candidateProfiles CandidateProfile[]
   candidateFolders  CandidateFolder[]      @relation("CandidateFolderResume")
+  candidateFolderPortfolios CandidateFolder[] @relation("CandidateFolderPortfolio")
   documents         ApplicationDocument[]
   videoAnswers      InterviewAnswer[]     @relation("VideoFile")
   audioAnswers      InterviewAnswer[]     @relation("AudioFile")
@@ -244,12 +245,14 @@ model CandidateFolder {
   blogUrl       String?          @map("blog_url") @db.VarChar(500)
   portfolioUrl  String?          @map("portfolio_url") @db.VarChar(500)
   resumeFileId  BigInt?          @map("resume_file_id")
+  portfolioFileId BigInt?        @map("portfolio_file_id")
   motivation    String?
   extraNote     String?          @map("extra_note")
   createdAt     DateTime         @default(now()) @map("created_at")
   updatedAt     DateTime         @updatedAt @map("updated_at")
   candidate     CandidateProfile @relation(fields: [candidateId], references: [candidateId], onDelete: Cascade)
   resumeFile    FileAsset?       @relation("CandidateFolderResume", fields: [resumeFileId], references: [fileId], onDelete: SetNull)
+  portfolioFile FileAsset?       @relation("CandidateFolderPortfolio", fields: [portfolioFileId], references: [fileId], onDelete: SetNull)
 
   @@index([candidateId], map: "idx_candidate_folders_candidate_id")
   @@map("candidate_folders")

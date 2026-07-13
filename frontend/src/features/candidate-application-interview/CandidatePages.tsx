@@ -614,8 +614,10 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
       return;
     }
     let active = true;
-    Promise.all([getCandidateApi().getApplyView(jobId), getCandidateApi().listFolders()])
-      .then(([applyView, folderRes]) => {
+    // 프로필 자동입력과 세트 목록은 독립적으로 처리한다. 세트 조회가 실패해도 자동입력은 유지한다. (#272 보완)
+    getCandidateApi()
+      .getApplyView(jobId)
+      .then((applyView) => {
         if (!active) {
           return;
         }
@@ -629,8 +631,15 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
           blogUrl: current.blogUrl || (applicant.blogUrl ?? ""),
           portfolioUrl: current.portfolioUrl || (applicant.portfolioUrl ?? undefined),
         }));
-        setApplyFolders(folderRes.data.items);
         setApplyPrefilled(true);
+      })
+      .catch(() => undefined);
+    getCandidateApi()
+      .listFolders()
+      .then((folderRes) => {
+        if (active) {
+          setApplyFolders(folderRes.data.items);
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -8024,6 +8033,13 @@ function CandidateFoldersSection() {
                 <span>{folder.resumeFileName ?? "이력서 미첨부"}</span>
               </div>
 
+              {folder.portfolioFileName ? (
+                <div className="folder-card__resume">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
+                  <span>{folder.portfolioFileName}</span>
+                </div>
+              ) : null}
+
               {links.length ? (
                 <div className="folder-card__links">
                   {links.map((link) => (
@@ -8066,6 +8082,7 @@ function FolderFormModal({
   onSaved: (message: string) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const portfolioFileInputRef = useRef<HTMLInputElement | null>(null);
   const [form, setForm] = useState<CandidateFolderInput>(() =>
     folder
       ? {
@@ -8074,12 +8091,14 @@ function FolderFormModal({
           blogUrl: folder.blogUrl ?? "",
           portfolioUrl: folder.portfolioUrl ?? "",
           resumeFileId: folder.resumeFileId,
+          portfolioFileId: folder.portfolioFileId,
           motivation: folder.motivation ?? "",
           extraNote: folder.extraNote ?? "",
         }
       : { ...EMPTY_FOLDER_INPUT },
   );
   const [resumeFileName, setResumeFileName] = useState(folder?.resumeFileName ?? "");
+  const [portfolioFileName, setPortfolioFileName] = useState(folder?.portfolioFileName ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -8094,6 +8113,20 @@ function FolderFormModal({
       const result = await getCandidateApi().uploadResume(file);
       update("resumeFileId", result.data.fileId);
       setResumeFileName(file.name);
+    } catch (uploadError) {
+      setError(toErrorMessage(uploadError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handlePortfolioFile(file: File) {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await getCandidateApi().uploadResume(file);
+      update("portfolioFileId", result.data.fileId);
+      setPortfolioFileName(file.name);
     } catch (uploadError) {
       setError(toErrorMessage(uploadError));
     } finally {
@@ -8142,13 +8175,13 @@ function FolderFormModal({
         <label className="folder-field">
           <span>이력서</span>
           <button type="button" className="candidate-upload-drop" onClick={() => fileInputRef.current?.click()} disabled={busy}>
-            {resumeFileName || "PDF, DOCX 파일을 선택하세요"}
+            {resumeFileName || "PDF 파일을 선택하세요"}
           </button>
           <input
             ref={fileInputRef}
             type="file"
             className="candidate-hidden-file"
-            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            accept=".pdf,application/pdf"
             onChange={(e) => {
               const file = e.currentTarget.files?.[0];
               if (file) void handleFile(file);
@@ -8166,8 +8199,24 @@ function FolderFormModal({
           </label>
         </div>
         <label className="folder-field">
-          <span>포트폴리오</span>
+          <span>포트폴리오 URL</span>
           <input type="url" value={form.portfolioUrl ?? ""} placeholder="https://…" onChange={(e) => update("portfolioUrl", e.target.value)} />
+        </label>
+        <label className="folder-field">
+          <span>포트폴리오 PDF</span>
+          <button type="button" className="candidate-upload-drop" onClick={() => portfolioFileInputRef.current?.click()} disabled={busy}>
+            {portfolioFileName || "PDF 파일을 선택하세요"}
+          </button>
+          <input
+            ref={portfolioFileInputRef}
+            type="file"
+            className="candidate-hidden-file"
+            accept=".pdf,application/pdf"
+            onChange={(e) => {
+              const file = e.currentTarget.files?.[0];
+              if (file) void handlePortfolioFile(file);
+            }}
+          />
         </label>
         <p className="folder-hint">GitHub·블로그·포트폴리오는 선택이에요. 비워두면 지원할 때 프로필에 저장된 값이 자동으로 채워집니다.</p>
         <label className="folder-field">

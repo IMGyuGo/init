@@ -151,6 +151,7 @@
 | blog_url | VARCHAR(500) | 블로그 URL |
 | portfolio_url | VARCHAR(500) | 포트폴리오 URL |
 | resume_file_id | BIGINT | 폴더에 연결된 이력서 file_assets FK. 파일 삭제 시 NULL |
+| portfolio_file_id | BIGINT | 폴더에 연결된 포트폴리오 PDF file_assets FK. 파일 삭제 시 NULL (#272 P1-2) |
 | motivation | TEXT | 지원 동기 |
 | extra_note | TEXT | 추가 설명 |
 | created_at | TIMESTAMP NOT NULL | 폴더 생성 시각 |

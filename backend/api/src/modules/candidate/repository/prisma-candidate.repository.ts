@@ -64,7 +64,7 @@ interface CandidatePostingSchemaShape {
 type ApplicationRecord = Prisma.ApplicationGetPayload<Record<string, never>>;
 type ApplicationDocumentRecord = Prisma.ApplicationDocumentGetPayload<Record<string, never>>;
 type CandidateFolderRecord = Prisma.CandidateFolderGetPayload<{
-  include: { resumeFile: { select: { originalName: true } } };
+  include: { resumeFile: { select: { originalName: true } }, portfolioFile: { select: { originalName: true } } };
 }>;
 type ConsentRecordModel = Prisma.ConsentRecordGetPayload<Record<string, never>>;
 type FileAssetRecord = Prisma.FileAssetGetPayload<Record<string, never>>;
@@ -146,13 +146,6 @@ export class PrismaCandidateRepository implements CandidateRepository {
       blogUrl: user.candidateProfile?.blogUrl ?? null,
       portfolioUrl: user.candidateProfile?.portfolioUrl ?? null,
     };
-  }
-
-  async saveApplicantPhone(userId: number, phone: string): Promise<void> {
-    await this.prisma.user.update({
-      where: { userId: BigInt(userId) },
-      data: { phone },
-    });
   }
 
   async getCandidateProfile(candidateId: number): Promise<CandidateProfileView | undefined> {
@@ -368,6 +361,8 @@ export class PrismaCandidateRepository implements CandidateRepository {
     motivation?: string;
     additionalInfo?: string;
     consentTypes: ConsentRecord["consentType"][];
+    // 있으면 지원서 생성과 같은 트랜잭션에서 회원 연락처를 저장한다(다음 지원 자동 입력용). (#272 P2)
+    contactUserId?: number;
   }): Promise<ApplicationSubmissionResult> {
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -432,18 +427,16 @@ export class PrismaCandidateRepository implements CandidateRepository {
         },
       });
 
+      // 공고별 입력값은 지원서 스냅샷에만 저장한다. 회원 프로필(정본)은 갱신하지 않는다.
+      // (프로필은 마이페이지에서만 수정, 연락처만 재사용 목적으로 저장. #272 P1)
       let portfolioLink: PortfolioLink | undefined;
       if (input.portfolioUrl) {
-        const portfolioField = input.portfolioUrl.includes("github.com") ? "githubUrl" : "portfolioUrl";
-        await tx.candidateProfile.update({
-          where: { candidateId: BigInt(input.candidateId) },
-          data: { [portfolioField]: input.portfolioUrl },
-        });
+        const linkType = input.portfolioUrl.includes("github.com") ? "GITHUB" : "PORTFOLIO";
         portfolioLink = {
           portfolioLinkId: Number(application.applicationId),
           candidateId: input.candidateId,
           applicationId: Number(application.applicationId),
-          linkType: portfolioField === "githubUrl" ? "GITHUB" : "PORTFOLIO",
+          linkType,
           url: input.portfolioUrl,
           description: "Application portfolio link",
           fileId: input.portfolioFileId,
@@ -459,6 +452,10 @@ export class PrismaCandidateRepository implements CandidateRepository {
         where: { applicationId: application.applicationId },
         orderBy: { consentId: "asc" },
       });
+
+      if (input.contactUserId && input.phone) {
+        await tx.user.update({ where: { userId: BigInt(input.contactUserId) }, data: { phone: input.phone } });
+      }
 
       return {
         application: this.toApplication(application),
@@ -512,7 +509,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
     const folders = await this.prisma.candidateFolder.findMany({
       where: { candidateId: BigInt(candidateId) },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-      include: { resumeFile: { select: { originalName: true } } },
+      include: { resumeFile: { select: { originalName: true } }, portfolioFile: { select: { originalName: true } } },
     });
     return folders.map((folder) => this.toCandidateFolder(folder));
   }
@@ -520,13 +517,13 @@ export class PrismaCandidateRepository implements CandidateRepository {
   async findFolder(folderId: number): Promise<CandidateFolder | undefined> {
     const folder = await this.prisma.candidateFolder.findUnique({
       where: { id: BigInt(folderId) },
-      include: { resumeFile: { select: { originalName: true } } },
+      include: { resumeFile: { select: { originalName: true } }, portfolioFile: { select: { originalName: true } } },
     });
     return folder ? this.toCandidateFolder(folder) : undefined;
   }
 
   async createFolder(
-    input: Omit<CandidateFolder, "id" | "resumeFileName" | "createdAt" | "updatedAt">,
+    input: Omit<CandidateFolder, "id" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">,
   ): Promise<CandidateFolder> {
     const folder = await this.prisma.candidateFolder.create({
       data: {
@@ -536,17 +533,18 @@ export class PrismaCandidateRepository implements CandidateRepository {
         blogUrl: input.blogUrl,
         portfolioUrl: input.portfolioUrl,
         resumeFileId: input.resumeFileId ? BigInt(input.resumeFileId) : null,
+        portfolioFileId: input.portfolioFileId ? BigInt(input.portfolioFileId) : null,
         motivation: input.motivation,
         extraNote: input.extraNote,
       },
-      include: { resumeFile: { select: { originalName: true } } },
+      include: { resumeFile: { select: { originalName: true } }, portfolioFile: { select: { originalName: true } } },
     });
     return this.toCandidateFolder(folder);
   }
 
   async updateFolder(
     folderId: number,
-    input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "createdAt" | "updatedAt">>,
+    input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">>,
   ): Promise<CandidateFolder> {
     const folder = await this.prisma.candidateFolder.update({
       where: { id: BigInt(folderId) },
@@ -556,10 +554,11 @@ export class PrismaCandidateRepository implements CandidateRepository {
         ...(input.blogUrl !== undefined ? { blogUrl: input.blogUrl } : {}),
         ...(input.portfolioUrl !== undefined ? { portfolioUrl: input.portfolioUrl } : {}),
         ...(input.resumeFileId !== undefined ? { resumeFileId: input.resumeFileId ? BigInt(input.resumeFileId) : null } : {}),
+        ...(input.portfolioFileId !== undefined ? { portfolioFileId: input.portfolioFileId ? BigInt(input.portfolioFileId) : null } : {}),
         ...(input.motivation !== undefined ? { motivation: input.motivation } : {}),
         ...(input.extraNote !== undefined ? { extraNote: input.extraNote } : {}),
       },
-      include: { resumeFile: { select: { originalName: true } } },
+      include: { resumeFile: { select: { originalName: true } }, portfolioFile: { select: { originalName: true } } },
     });
     return this.toCandidateFolder(folder);
   }
@@ -762,6 +761,8 @@ export class PrismaCandidateRepository implements CandidateRepository {
       portfolioUrl: folder.portfolioUrl,
       resumeFileId: folder.resumeFileId ? Number(folder.resumeFileId) : null,
       resumeFileName: folder.resumeFile?.originalName ?? null,
+      portfolioFileId: folder.portfolioFileId ? Number(folder.portfolioFileId) : null,
+      portfolioFileName: folder.portfolioFile?.originalName ?? null,
       motivation: folder.motivation,
       extraNote: folder.extraNote,
       createdAt: folder.createdAt.toISOString(),

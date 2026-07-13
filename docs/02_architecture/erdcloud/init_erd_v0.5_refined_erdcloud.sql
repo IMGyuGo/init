@@ -126,6 +126,9 @@ CREATE TABLE candidate_profiles (
     -- GitHub 주소
     github_url VARCHAR(500),
 
+    -- 블로그 URL (#272 프로필 정본화)
+    blog_url VARCHAR(500),
+
     -- 지원자 자기소개/요약 정보. AI 분석 또는 프로필 표시용
     summary TEXT,
 
@@ -157,6 +160,9 @@ CREATE TABLE candidate_folders (
 
     -- 폴더 이력서 파일 FK
     resume_file_id BIGINT,
+
+    -- 폴더 포트폴리오 PDF 파일 FK (#272 P1-2)
+    portfolio_file_id BIGINT,
 
     -- 지원 동기
     motivation TEXT,
@@ -722,6 +728,10 @@ ALTER TABLE candidate_folders
 ALTER TABLE candidate_folders
     ADD CONSTRAINT fk_candidate_folders_resume_file
     FOREIGN KEY (resume_file_id) REFERENCES file_assets(file_id) ON DELETE SET NULL;
+
+ALTER TABLE candidate_folders
+    ADD CONSTRAINT fk_candidate_folders_portfolio_file
+    FOREIGN KEY (portfolio_file_id) REFERENCES file_assets(file_id) ON DELETE SET NULL;
 
 ALTER TABLE postings
     ADD CONSTRAINT fk_postings_company

@@ -10,8 +10,9 @@
     "dev": "next dev",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . --max-warnings=0",
-    "test": "npm run typecheck && npm run test:ai-job-polling",
+    "test": "npm run typecheck && npm run test:ai-job-polling && npm run test:apply-set-override",
     "test:ai-job-polling": "tsc -p src/features/company-interview-criteria/tsconfig.spec.json && node .next/tests/company-interview-criteria/ai-job-polling.spec.js",
+    "test:apply-set-override": "tsc -p src/features/candidate-application-interview/tsconfig.apply-set-spec.json && node .next/tests/candidate-apply-set/features/candidate-application-interview/apply-set-override.spec.js",
     "build": "next build"
   },
   "dependencies": {

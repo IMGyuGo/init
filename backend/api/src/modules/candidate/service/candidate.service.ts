@@ -60,7 +60,15 @@ const SORT_ORDERS = ["asc", "desc"] as const;
 type CandidateListPostingStatus = (typeof CANDIDATE_LIST_POSTING_STATUSES)[number];
 type CandidateListSortField = (typeof CANDIDATE_LIST_SORT_FIELDS)[number];
 type CandidateListSortOrder = (typeof SORT_ORDERS)[number];
-type CandidateFolderMutableField = "name" | "githubUrl" | "blogUrl" | "portfolioUrl" | "resumeFileId" | "motivation" | "extraNote";
+type CandidateFolderMutableField =
+  | "name"
+  | "githubUrl"
+  | "blogUrl"
+  | "portfolioUrl"
+  | "resumeFileId"
+  | "portfolioFileId"
+  | "motivation"
+  | "extraNote";
 type CandidateFolderMutableInput = Pick<CandidateFolder, CandidateFolderMutableField>;
 const MAX_MOCK_FOLDER_CONTEXT_CHARS = 12_000;
 
@@ -220,12 +228,9 @@ export class CandidateService {
       motivation: applicationFields.motivation,
       additionalInfo: applicationFields.additionalInfo,
       consentTypes: applicationFields.consentTypes,
+      // 연락처를 지원서 생성과 같은 트랜잭션에서 저장 → 다음 지원 자동 입력에 재사용(원자적). (#272 P2)
+      contactUserId: applicationFields.phone ? currentUser.userId : undefined,
     });
-
-    // 최초 입력한 연락처를 회원정보에 저장하여 다음 지원 시 자동 입력에 재사용. (#272)
-    if (applicationFields.phone) {
-      await this.repository.saveApplicantPhone(currentUser.userId, applicationFields.phone);
-    }
 
     return this.envelope(result);
   }
@@ -377,6 +382,7 @@ export class CandidateService {
       blogUrl: input.blogUrl ?? null,
       portfolioUrl: input.portfolioUrl ?? null,
       resumeFileId: input.resumeFileId ?? null,
+      portfolioFileId: input.portfolioFileId ?? null,
       motivation: input.motivation ?? null,
       extraNote: input.extraNote ?? null,
     });
@@ -1384,7 +1390,21 @@ export class CandidateService {
     }
 
     if (Object.hasOwn(requestBody, "resumeFileId")) {
-      input.resumeFileId = await this.normalizeFolderResumeFileId(requestBody.resumeFileId, currentUser);
+      input.resumeFileId = await this.normalizeFolderDocumentFileId(
+        requestBody.resumeFileId,
+        currentUser,
+        "resumeFileId",
+        "이력서 파일을 확인해주세요.",
+      );
+    }
+
+    if (Object.hasOwn(requestBody, "portfolioFileId")) {
+      input.portfolioFileId = await this.normalizeFolderDocumentFileId(
+        requestBody.portfolioFileId,
+        currentUser,
+        "portfolioFileId",
+        "포트폴리오 파일을 확인해주세요.",
+      );
     }
 
     return input;
@@ -1454,20 +1474,24 @@ export class CandidateService {
     return normalized;
   }
 
-  private async normalizeFolderResumeFileId(
+  // 지원서 세트에 첨부하는 이력서/포트폴리오 파일 검증 공통 로직. 소유권·문서형식·스토리지 키를 확인한다.
+  private async normalizeFolderDocumentFileId(
     value: unknown,
     currentUser: CurrentCandidateUser,
+    field: "resumeFileId" | "portfolioFileId",
+    errorMessage: string,
   ): Promise<number | null> {
     if (value === undefined || value === null) {
       return null;
     }
     if (!this.isPositiveInteger(value)) {
-      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "이력서 파일을 확인해주세요.", 400, [
-        { field: "resumeFileId", reason: "resumeFileId must be a positive integer or null" },
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", errorMessage, 400, [
+        { field, reason: `${field} must be a positive integer or null` },
       ]);
     }
-    const fileAsset = await this.assertFileAssetForCurrentUser(value, currentUser.userId, "resumeFileId");
-    this.assertDocumentFile(fileAsset.mimeType, fileAsset.sizeBytes);
+    const fileAsset = await this.assertFileAssetForCurrentUser(value, currentUser.userId, field);
+    // 세트 파일은 지원 제출과 동일하게 PDF만 허용한다. 세트를 불러와 제출할 때 형식 불일치로 실패하지 않도록. (#272 P1)
+    this.assertApplicationPdf(fileAsset.mimeType, fileAsset.sizeBytes, field);
     this.assertObjectStorageKey(fileAsset.storageKey, currentUser.candidateId);
     return value;
   }

@@ -215,11 +215,6 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     return this.applicantContacts.get(userId) ?? this.defaultApplicantContact();
   }
 
-  async saveApplicantPhone(userId: number, phone: string): Promise<void> {
-    const prev = this.applicantContacts.get(userId) ?? this.defaultApplicantContact();
-    this.applicantContacts.set(userId, { ...prev, phone });
-  }
-
   async getCandidateProfile(candidateId: number): Promise<CandidateProfileView | undefined> {
     return (
       this.candidateProfiles.get(candidateId) ?? {
@@ -369,9 +364,16 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     motivation?: string;
     additionalInfo?: string;
     consentTypes: ConsentRecord["consentType"][];
+    contactUserId?: number;
   }): Promise<ApplicationSubmissionResult> {
     if (await this.hasApplication(input.candidateId, input.postingId)) {
       throw new CandidateDomainError("APPLICATION_ALREADY_SUBMITTED", "이미 지원한 채용공고입니다.", 409);
+    }
+
+    // 지원서 생성과 함께 회원 연락처를 저장(다음 지원 자동 입력용). (#272 P2)
+    if (input.contactUserId && input.phone) {
+      const prev = this.applicantContacts.get(input.contactUserId) ?? this.defaultApplicantContact();
+      this.applicantContacts.set(input.contactUserId, { ...prev, phone: input.phone });
     }
 
     const now = new Date().toISOString();
@@ -477,13 +479,14 @@ export class InMemoryCandidateRepository implements CandidateRepository {
   }
 
   async createFolder(
-    input: Omit<CandidateFolder, "id" | "resumeFileName" | "createdAt" | "updatedAt">,
+    input: Omit<CandidateFolder, "id" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">,
   ): Promise<CandidateFolder> {
     const now = new Date().toISOString();
     const folder: CandidateFolder = {
       ...input,
       id: this.folders.length + 1,
       resumeFileName: this.resolveFolderResumeFileName(input.resumeFileId),
+      portfolioFileName: this.resolveFolderResumeFileName(input.portfolioFileId),
       createdAt: now,
       updatedAt: now,
     };
@@ -493,7 +496,7 @@ export class InMemoryCandidateRepository implements CandidateRepository {
 
   async updateFolder(
     folderId: number,
-    input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "createdAt" | "updatedAt">>,
+    input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">>,
   ): Promise<CandidateFolder> {
     const index = this.folders.findIndex((folder) => folder.id === folderId);
     if (index < 0) {
@@ -505,6 +508,9 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       ...input,
       ...(input.resumeFileId !== undefined
         ? { resumeFileName: this.resolveFolderResumeFileName(input.resumeFileId) }
+        : {}),
+      ...(input.portfolioFileId !== undefined
+        ? { portfolioFileName: this.resolveFolderResumeFileName(input.portfolioFileId) }
         : {}),
       updatedAt: new Date().toISOString(),
     };
