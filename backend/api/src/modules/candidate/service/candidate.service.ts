@@ -1,6 +1,7 @@
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import { CandidateJobListQueryDto } from "../dto/candidate-job-list-query.dto";
 import { CreateCandidateFolderDto, UpdateCandidateFolderDto } from "../dto/candidate-folder.dto";
+import { UpdateCandidateProfileDto } from "../dto/update-candidate-profile.dto";
 import { CreatePortfolioLinkDto } from "../dto/create-portfolio-link.dto";
 import { SaveInterviewConsentDto } from "../dto/save-interview-consent.dto";
 import { SubmitApplicationDto } from "../dto/submit-application.dto";
@@ -27,9 +28,11 @@ import {
   CandidateJob,
   CandidateJobDetail,
   CandidateJobSummary,
+  CandidateProfileView,
   CandidateRepository,
   ConsentRecord,
   CurrentCandidateUser,
+  UpdateCandidateProfileInput,
   FileAsset,
   InterviewDeviceCheckResult,
   InterviewSession,
@@ -57,7 +60,15 @@ const SORT_ORDERS = ["asc", "desc"] as const;
 type CandidateListPostingStatus = (typeof CANDIDATE_LIST_POSTING_STATUSES)[number];
 type CandidateListSortField = (typeof CANDIDATE_LIST_SORT_FIELDS)[number];
 type CandidateListSortOrder = (typeof SORT_ORDERS)[number];
-type CandidateFolderMutableField = "name" | "githubUrl" | "blogUrl" | "portfolioUrl" | "resumeFileId" | "motivation" | "extraNote";
+type CandidateFolderMutableField =
+  | "name"
+  | "githubUrl"
+  | "blogUrl"
+  | "portfolioUrl"
+  | "resumeFileId"
+  | "portfolioFileId"
+  | "motivation"
+  | "extraNote";
 type CandidateFolderMutableInput = Pick<CandidateFolder, CandidateFolderMutableField>;
 const MAX_MOCK_FOLDER_CONTEXT_CHARS = 12_000;
 
@@ -65,8 +76,8 @@ interface ValidatedSubmitApplication {
   candidateName: string;
   email: string;
   phone: string;
-  githubUrl: string;
-  blogUrl: string;
+  githubUrl?: string;
+  blogUrl?: string;
   resumeFileId: number;
   portfolioFileId?: number;
   portfolioUrl?: string;
@@ -147,6 +158,16 @@ export class CandidateService {
 
   async getApplyView(jobId: number, currentUser: CurrentCandidateUser): Promise<ApiResponse<CandidateApplyView>> {
     const jobDetail = await this.getJobDetail(jobId, currentUser);
+    // 로그인 회원 기본정보(이름/이메일/연락처 + GitHub/블로그/포트폴리오) 자동 입력용.
+    // 값이 없으면 빈 값으로 직접 작성. (#272)
+    const applicant = (await this.repository.findApplicantContact(currentUser.userId)) ?? {
+      name: "",
+      email: "",
+      phone: null,
+      githubUrl: null,
+      blogUrl: null,
+      portfolioUrl: null,
+    };
     return this.envelope({
       job: jobDetail.data,
       documentPolicy: {
@@ -158,6 +179,7 @@ export class CandidateService {
       },
       requiredConsentTypes: [...REQUIRED_APPLICATION_CONSENTS],
       portfolioRequired: true,
+      applicant,
     });
   }
 
@@ -206,6 +228,8 @@ export class CandidateService {
       motivation: applicationFields.motivation,
       additionalInfo: applicationFields.additionalInfo,
       consentTypes: applicationFields.consentTypes,
+      // 연락처를 지원서 생성과 같은 트랜잭션에서 저장 → 다음 지원 자동 입력에 재사용(원자적). (#272 P2)
+      contactUserId: applicationFields.phone ? currentUser.userId : undefined,
     });
 
     return this.envelope(result);
@@ -286,6 +310,54 @@ export class CandidateService {
     return this.envelope(portfolioLink);
   }
 
+  // 지원자 프로필(내 정보) 조회. 자동 입력의 정본이 되는 값을 그대로 돌려준다. (#272)
+  async getProfile(currentUser: CurrentCandidateUser): Promise<ApiResponse<CandidateProfileView>> {
+    const profile = await this.repository.getCandidateProfile(currentUser.candidateId);
+    if (!profile) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "지원자 프로필을 찾을 수 없습니다.", 404);
+    }
+    return this.envelope(profile);
+  }
+
+  // 지원자 프로필 수정. 빈 문자열은 null 로 저장하고, 이름은 공백만 있으면 무시한다. (#272)
+  async updateProfile(
+    dto: UpdateCandidateProfileDto,
+    currentUser: CurrentCandidateUser,
+  ): Promise<ApiResponse<CandidateProfileView>> {
+    const input: UpdateCandidateProfileInput = {};
+    if (dto.name !== undefined) {
+      const name = dto.name.trim();
+      if (name.length > 0) {
+        input.name = name;
+      }
+    }
+    if (dto.phone !== undefined) {
+      input.phone = this.normalizeProfileText(dto.phone);
+    }
+    if (dto.githubUrl !== undefined) {
+      input.githubUrl = this.normalizeProfileText(dto.githubUrl);
+    }
+    if (dto.blogUrl !== undefined) {
+      input.blogUrl = this.normalizeProfileText(dto.blogUrl);
+    }
+    if (dto.portfolioUrl !== undefined) {
+      input.portfolioUrl = this.normalizeProfileText(dto.portfolioUrl);
+    }
+    if (dto.summary !== undefined) {
+      input.summary = this.normalizeProfileText(dto.summary);
+    }
+    const profile = await this.repository.updateCandidateProfile(currentUser.candidateId, input);
+    return this.envelope(profile);
+  }
+
+  private normalizeProfileText(value: string | null | undefined): string | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
   async listFolders(currentUser: CurrentCandidateUser): Promise<ApiListResponse<CandidateFolder>> {
     const items = await this.repository.listFolders(currentUser.candidateId);
     return this.listEnvelope(items, this.createPageMeta(1, Math.max(items.length, 1), items.length));
@@ -310,6 +382,7 @@ export class CandidateService {
       blogUrl: input.blogUrl ?? null,
       portfolioUrl: input.portfolioUrl ?? null,
       resumeFileId: input.resumeFileId ?? null,
+      portfolioFileId: input.portfolioFileId ?? null,
       motivation: input.motivation ?? null,
       extraNote: input.extraNote ?? null,
     });
@@ -1115,15 +1188,25 @@ export class CandidateService {
       ]);
     }
 
-    if (!this.isNonEmptyString(githubUrl) || !this.isNonEmptyString(blogUrl)) {
-      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "GitHub와 블로그 URL을 확인해주세요.", 400, [
-        { field: "links", reason: "githubUrl and blogUrl are required" },
+    // GitHub/블로그 URL 은 선택 항목(프로필 정본화, #272 2단계). 값이 있을 때만 URL 형식을 검증한다.
+    if (githubUrl !== undefined && githubUrl !== null && typeof githubUrl !== "string") {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "GitHub URL을 확인해주세요.", 400, [
+        { field: "githubUrl", reason: "githubUrl must be a string" },
       ]);
     }
-    const normalizedGithubUrl = githubUrl.trim();
-    const normalizedBlogUrl = blogUrl.trim();
-    this.assertUrl(normalizedGithubUrl, "githubUrl");
-    this.assertUrl(normalizedBlogUrl, "blogUrl");
+    if (blogUrl !== undefined && blogUrl !== null && typeof blogUrl !== "string") {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "블로그 URL을 확인해주세요.", 400, [
+        { field: "blogUrl", reason: "blogUrl must be a string" },
+      ]);
+    }
+    const normalizedGithubUrl = typeof githubUrl === "string" ? this.toOptionalQueryString(githubUrl) : undefined;
+    const normalizedBlogUrl = typeof blogUrl === "string" ? this.toOptionalQueryString(blogUrl) : undefined;
+    if (normalizedGithubUrl) {
+      this.assertUrl(normalizedGithubUrl, "githubUrl");
+    }
+    if (normalizedBlogUrl) {
+      this.assertUrl(normalizedBlogUrl, "blogUrl");
+    }
 
     if (!this.isNonEmptyString(motivation) || !this.isNonEmptyString(additionalInfo)) {
       throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "지원동기와 추가 설명을 입력해주세요.", 400, [
@@ -1307,7 +1390,21 @@ export class CandidateService {
     }
 
     if (Object.hasOwn(requestBody, "resumeFileId")) {
-      input.resumeFileId = await this.normalizeFolderResumeFileId(requestBody.resumeFileId, currentUser);
+      input.resumeFileId = await this.normalizeFolderDocumentFileId(
+        requestBody.resumeFileId,
+        currentUser,
+        "resumeFileId",
+        "이력서 파일을 확인해주세요.",
+      );
+    }
+
+    if (Object.hasOwn(requestBody, "portfolioFileId")) {
+      input.portfolioFileId = await this.normalizeFolderDocumentFileId(
+        requestBody.portfolioFileId,
+        currentUser,
+        "portfolioFileId",
+        "포트폴리오 파일을 확인해주세요.",
+      );
     }
 
     return input;
@@ -1377,20 +1474,24 @@ export class CandidateService {
     return normalized;
   }
 
-  private async normalizeFolderResumeFileId(
+  // 지원서 세트에 첨부하는 이력서/포트폴리오 파일 검증 공통 로직. 소유권·문서형식·스토리지 키를 확인한다.
+  private async normalizeFolderDocumentFileId(
     value: unknown,
     currentUser: CurrentCandidateUser,
+    field: "resumeFileId" | "portfolioFileId",
+    errorMessage: string,
   ): Promise<number | null> {
     if (value === undefined || value === null) {
       return null;
     }
     if (!this.isPositiveInteger(value)) {
-      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "이력서 파일을 확인해주세요.", 400, [
-        { field: "resumeFileId", reason: "resumeFileId must be a positive integer or null" },
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", errorMessage, 400, [
+        { field, reason: `${field} must be a positive integer or null` },
       ]);
     }
-    const fileAsset = await this.assertFileAssetForCurrentUser(value, currentUser.userId, "resumeFileId");
-    this.assertDocumentFile(fileAsset.mimeType, fileAsset.sizeBytes);
+    const fileAsset = await this.assertFileAssetForCurrentUser(value, currentUser.userId, field);
+    // 세트 파일은 지원 제출과 동일하게 PDF만 허용한다. 세트를 불러와 제출할 때 형식 불일치로 실패하지 않도록. (#272 P1)
+    this.assertApplicationPdf(fileAsset.mimeType, fileAsset.sizeBytes, field);
     this.assertObjectStorageKey(fileAsset.storageKey, currentUser.candidateId);
     return value;
   }

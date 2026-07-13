@@ -13,6 +13,7 @@ import {
   Patch,
   PayloadTooLargeException,
   Post,
+  Put,
   Query,
   Req,
   UploadedFile,
@@ -31,6 +32,7 @@ import { CandidateDomainError, createCandidateErrorResponse } from "../candidate
 import { CandidateService, MAX_DOCUMENT_SIZE_BYTES } from "../service/candidate.service";
 import { CandidateJobListQueryDto } from "../dto/candidate-job-list-query.dto";
 import { CreateCandidateFolderDto, UpdateCandidateFolderDto } from "../dto/candidate-folder.dto";
+import { UpdateCandidateProfileDto } from "../dto/update-candidate-profile.dto";
 import { CreatePortfolioLinkDto } from "../dto/create-portfolio-link.dto";
 import { SaveInterviewConsentDto } from "../dto/save-interview-consent.dto";
 import { SubmitApplicationDto } from "../dto/submit-application.dto";
@@ -60,6 +62,22 @@ class CandidateDocumentUploadExceptionFilter implements ExceptionFilter {
 @Controller(candidateApiRoutePrefix)
 export class CandidateController {
   constructor(@Inject(CandidateService) private readonly candidateService: CandidateService) {}
+
+  @Get(candidateApiRoutes.profile)
+  getProfile(@Req() request: CandidateRequest) {
+    return this.handle(() => {
+      const currentUser = resolveCurrentCandidate(request.currentUser);
+      return this.candidateService.getProfile(currentUser);
+    });
+  }
+
+  @Put(candidateApiRoutes.profile)
+  updateProfile(@Req() request: CandidateRequest, @Body() dto: UpdateCandidateProfileDto) {
+    return this.handle(() => {
+      const currentUser = resolveCurrentCandidate(request.currentUser);
+      return this.candidateService.updateProfile(dto, currentUser);
+    });
+  }
 
   @Get(candidateApiRoutes.jobs)
   listJobs(@Req() request: CandidateRequest, @Query() query: CandidateJobListQueryDto) {

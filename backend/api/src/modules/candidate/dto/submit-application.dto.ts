@@ -16,13 +16,15 @@ export class SubmitApplicationDto {
   @MaxLength(50)
   phone!: string;
 
+  @IsOptional()
   @IsUrl({ require_protocol: true })
   @MaxLength(500)
-  githubUrl!: string;
+  githubUrl?: string;
 
+  @IsOptional()
   @IsUrl({ require_protocol: true })
   @MaxLength(500)
-  blogUrl!: string;
+  blogUrl?: string;
 
   @IsInt()
   @Min(1)
