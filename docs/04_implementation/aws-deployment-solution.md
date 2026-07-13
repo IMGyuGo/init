@@ -15,7 +15,7 @@
 | Redis protocol cache | `infra/local/docker-compose.yml` | ElastiCache Valkey |
 | S3 | LocalStack bucket `init-local-assets` | S3 bucket |
 | SQS | LocalStack queue `init-ai-jobs` | SQS queue |
-| Mailpit | local SMTP inbox | Amazon SES |
+| Mailpit | local SMTP inbox | 외부 관리형 SMTP provider |
 
 클라우드에서는 frontend, API, worker를 각각 Docker image로 만든다. 현재 `infra/docker`에는 `frontend.Dockerfile`, `api.Dockerfile`, `worker.Dockerfile`이 추가되어 AWS 배포 image 계약을 검증할 수 있다. `infra/aws`에는 `main` 단일 실배포 환경 기준 AWS 리소스 Terraform 기준선이 추가되어 있다. 실제 ECR push, ECS task definition 갱신, ECS service update는 GitHub Actions deploy workflow가 담당한다.
 
@@ -39,7 +39,7 @@ Dockerfile을 추가해도 현재 로컬 개발 방식을 없애지 않는다. �
 | --- | --- |
 | 도메인 | `init-jungle.cloud` 단일 실배포 도메인 + `/api/*` path routing |
 | Frontend 배포 | Next.js SSR이므로 S3 정적 배포가 아니라 ECS container로 배포 |
-| 메일 서비스 | 별도 SMTP 서버 없이 Amazon SES 사용. domain identity, Easy DKIM, custom MAIL FROM은 Route53 DNS record와 함께 Terraform으로 관리 |
+| 메일 서비스 | provider-neutral Nodemailer SMTP 사용. 실제 provider credential은 Secrets Manager에 두고 발신 도메인/SPF/DKIM/DMARC는 provider 절차로 검증 |
 | CloudFront | 처음부터 사용 |
 | Route53 | `init-jungle.cloud`를 Route53 hosted zone으로 위임 |
 | CloudFront 인증서 | us-east-1 ACM 인증서를 DNS validation으로 발급 |
@@ -116,7 +116,6 @@ RDS instance에는 `copy_tags_to_snapshot = true`를 둔다. 최종 snapshot이�
 | `aws_ecs_cluster_capacity_providers` | ECS cluster 태그로 관리 |
 | `aws_route53_record` | Route53 hosted zone과 record name으로 관리 |
 | `aws_cloudfront_origin_access_control` | CloudFront distribution과 S3 bucket 태그로 관리 |
-| `aws_ses_domain_identity` | SES domain identity는 provider schema상 tag 미지원. 도메인명과 Terraform state로 식별 |
 
 태그 누락 검증은 현재 provider schema 기준으로 수행한다.
 
@@ -147,7 +146,7 @@ ECS API service
 -> ElastiCache Valkey
 -> S3
 -> SQS
--> SES
+-> external SMTP provider
 
 ECS worker service
   -> SQS polling
@@ -229,7 +228,7 @@ public subnet에 ECS task를 두면 초기 실습은 쉽지만 task가 인터넷
 | Secrets Manager | NAT Gateway | Secrets Manager interface endpoint |
 | S3 | NAT Gateway | S3 gateway endpoint |
 | SQS | NAT Gateway | SQS interface endpoint |
-| SES | NAT Gateway | SES endpoint 가능 여부 확인 후 결정 |
+| External SMTP provider | NAT Gateway | 외부 provider이므로 NAT 필요 |
 | OpenAI API | NAT Gateway | 외부 SaaS이므로 NAT 필요 |
 
 1차 배포에서는 NAT Gateway로 성공 경로를 만든다. 2차 최적화에서 S3, ECR, CloudWatch Logs, Secrets Manager, SQS endpoint를 추가한다.
@@ -422,9 +421,15 @@ Secrets Manager 경로는 단일 실배포 환경인 `main`만 사용한다.
 
 배포 전 secret 검증은 `.env.example`에 있는 키 중 service별로 필요한 키가 Secrets Manager에 존재하는지 확인하는 방식으로 둔다. 실제 값은 Git에 저장하지 않는다.
 
-SES는 초기에는 현재 API 코드 변경 범위를 줄이기 위해 SES SMTP endpoint를 사용한다. 현재 API는 `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` 환경변수를 사용한다. AWS SDK SES client로 전환하는 작업은 별도 refactoring으로 분리한다.
+API는 `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_REQUIRE_TLS`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`으로 provider-neutral SMTP 연결을 만든다. 운영에서는 implicit TLS 또는 STARTTLS를 강제하고, 연결/인사/socket timeout을 제한한다. provider 자격증명과 발신 도메인 검증 정보는 Git에 저장하지 않는다.
 
-SES 발신 도메인은 `init-jungle.cloud` domain identity, Easy DKIM CNAME, custom MAIL FROM(`mail.init-jungle.cloud`) MX/SPF TXT record를 Terraform으로 생성한다. DMARC record와 SES SMTP credential 발급/주입은 별도 운영 작업으로 다룬다.
+개인 Gmail/Naver SMTP를 저용량 MVP에 사용하는 경우 `SMTP_FROM`은 인증한 계정 주소와 동일하게 둔다. 별도 `no-reply` 주소는 provider에서 alias 또는 발신 도메인 검증이 완료된 경우에만 사용한다. 일반 로그인 비밀번호 대신 2단계 인증 기반 애플리케이션 비밀번호를 사용한다.
+
+배포 workflow는 새 API task definition을 서비스에 적용하기 전에 ECS one-off SMTP smoke를 실행한다. smoke가 실패하면 서비스 갱신을 중단하며 `/api/v1/health`에는 SMTP 네트워크 상태를 결합하지 않는다.
+
+`SMTP_SMOKE_TO`는 GitHub Environment `init-main`의 secret으로 두며, 실제로 확인 가능한 팀 전용 수신함을 사용한다. workflow 성공은 SMTP 접수까지의 자동 검증이므로 최초 전환과 credential 교체 시에는 수신함 도착과 스팸 분류를 수동 확인한다.
+
+일반 SMTP의 세 발송 흐름 검증과 운영 관찰이 끝나면 SES Terraform 리소스, SES 전용 Route53 record, API task의 SES 전송 권한을 Terraform-only 변경으로 제거한다. 이후 메일 발송의 운영 기준과 smoke/rollback 판단은 외부 SMTP provider 설정을 따른다.
 
 ## 실패 모드와 제어
 
@@ -540,5 +545,5 @@ Preflight
 
 - 실제 AWS 계정 credential/profile 선택과 비용 발생 승인
 - 가비아 관리 화면에서 `init-jungle.cloud` 네임서버를 Route53 NS로 변경
-- OpenAI, JWT, SES, DB password 등 실제 secret 값 결정 및 입력
+- OpenAI, JWT, external SMTP, DB password 등 실제 secret 값 결정 및 입력
 - AWS Console에서 비용/보안/상태를 직접 확인하는 최종 판단

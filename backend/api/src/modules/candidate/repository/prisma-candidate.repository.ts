@@ -40,6 +40,9 @@ interface CandidatePostingRow {
   careerMaxYears: number | null;
   employmentTypeCode: string | null;
   recruitmentType: string | null;
+  workplaceAddress: string | null;
+  workplaceLat: number | null;
+  workplaceLng: number | null;
   startsOn: Date | null;
   endsOn: Date | null;
   postingStatus: string;
@@ -513,6 +516,9 @@ export class PrismaCandidateRepository implements CandidateRepository {
         ${this.selectPostingColumn(shape.postingColumns, "career_max_years", "careerMaxYears", "integer")},
         ${this.selectPostingColumn(shape.postingColumns, "employment_type_code", "employmentTypeCode")},
         ${this.selectPostingColumn(shape.postingColumns, "recruitment_type", "recruitmentType")},
+        ${this.selectPostingColumn(shape.postingColumns, "workplace_address", "workplaceAddress")},
+        ${this.selectPostingColumn(shape.postingColumns, "workplace_lat", "workplaceLat", "double precision")},
+        ${this.selectPostingColumn(shape.postingColumns, "workplace_lng", "workplaceLng", "double precision")},
         p."starts_on" AS "startsOn",
         p."ends_on" AS "endsOn",
         p."status"::text AS "postingStatus",
@@ -590,6 +596,9 @@ export class PrismaCandidateRepository implements CandidateRepository {
       careerMaxYears: posting.careerMaxYears,
       employmentTypeCode: posting.employmentTypeCode,
       recruitmentType: posting.recruitmentType,
+      workplaceAddress: posting.workplaceAddress,
+      workplaceLat: posting.workplaceLat,
+      workplaceLng: posting.workplaceLng,
       startsOn: this.toDateOnly(startsOn),
       endsOn: this.toDateOnly(endsOn),
       createdAt: posting.createdAt.toISOString(),

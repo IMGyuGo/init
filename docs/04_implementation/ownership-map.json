@@ -238,6 +238,17 @@
       ]
     },
     {
+      "name": "company recruiting SMTP delivery bridge",
+      "patterns": [
+        "^backend/api/src/modules/company-recruiting/company-recruiting\\.module\\.ts$",
+        "^backend/api/src/modules/company-recruiting/service/public-application-auth\\.adapter(\\.test)?\\.ts$"
+      ],
+      "roles": [
+        "A",
+        "B"
+      ]
+    },
+    {
       "name": "candidate local interviewer and rigging asset bridge",
       "patterns": [
         "^frontend/public/assets/interviewer-avatar/",
@@ -270,12 +281,14 @@
       "^backend/api/\\.env\\.example$",
       "^backend/api/prisma/",
       "^backend/api/src/modules/auth/",
+      "^backend/api/src/modules/mail/",
       "^backend/api/src/modules/payment/",
       "^backend/api/src/modules/health/",
       "^backend/api/src/common/dev-auth/",
       "^backend/api/src/common/response/",
       "^backend/api/src/shared/",
       "^backend/api/src/swagger/",
+      "^backend/api/src/scripts/smtp-smoke\\.ts$",
       "^frontend/src/app/auth/google/callback/",
       "^frontend/src/app/(login|signup|password/reset)/",
       "^frontend/src/app/company/billing/",
@@ -296,6 +309,7 @@
       "^frontend/src/app/public/applications/",
       "^frontend/src/app/company/mypage/",
       "^frontend/src/styles/",
+      "^frontend/src/lib/kakao-maps\\.ts$",
       "^frontend/public/",
       "^backend/api/src/modules/company-recruiting/",
       "^backend/api/src/modules/company-profile/",

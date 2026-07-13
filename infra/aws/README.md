@@ -45,7 +45,7 @@ main branch -> init-main-* resources -> init-jungle.cloud
 | `ecs.tf` | ECS cluster, task definition, service |
 | `ecr.tf` | main 실배포 ECR repository와 lifecycle policy |
 | `rds.tf`, `redis.tf` | PostgreSQL RDS, ElastiCache Valkey |
-| `s3-sqs-ses.tf` | asset bucket, SQS/DLQ, optional SES domain identity, DKIM, custom MAIL FROM DNS |
+| `s3-sqs.tf` | asset bucket, SQS/DLQ |
 | `secrets.tf` | service별 Secrets Manager container |
 | `iam.tf` | ECS execution/task role, GitHub deploy role, Q Developer/Chatbot Slack 알림용 role |
 | `cloudwatch.tf` | ECS log group, CloudWatch alarm, Slack 알림용 SNS topic/Q Developer channel configuration, CloudWatch dashboard |
@@ -239,12 +239,12 @@ terraform -chdir=infra/aws init -backend-config=backend-main.hcl -reconfigure
 | 5.1 Backend/init 재확인 | S3 backend와 AWS 계정 확인 | `aws sts get-caller-identity`, `terraform init` | 계정, region, backend bucket 불일치 |
 | 5.2 Static validation | Terraform 정적 검증과 ECS 비기동 확인 | `fmt`, `validate`, `desired_counts = 0` 확인 | validate 실패 또는 desired count가 0이 아님 |
 | 5.3 Main plan 생성 | 실제 변경 목록을 plan 파일로 저장 | `terraform plan ... -out=tfplan-main` | plan 생성 실패 |
-| 5.4 Plan 리뷰 | 위험 변경 확인 | 생성/수정/삭제, replacement, IAM trust, SES DNS, ECS desired count 확인 | RDS/Valkey/VPC/CloudFront 삭제 또는 교체, IAM trust 확장, ECS desired count 증가 |
-| 5.5 리소스 그룹 리뷰 | AWS Console 기준으로 plan 리소스를 묶음별 검토 | Network, Security, Edge/DNS/ACM/SES, ALB, ECS/ECR/IAM/Secrets, Data/Storage/Queue/Observability 확인 | 보안 경계, 비용, 삭제/교체, public 노출, 보호 설정 blocker |
+| 5.4 Plan 리뷰 | 위험 변경 확인 | 생성/수정/삭제, replacement, IAM trust, DNS, ECS desired count 확인 | RDS/Valkey/VPC/CloudFront 삭제 또는 교체, IAM trust 확장, ECS desired count 증가 |
+| 5.5 리소스 그룹 리뷰 | AWS Console 기준으로 plan 리소스를 묶음별 검토 | Network, Security, Edge/DNS/ACM, ALB, ECS/ECR/IAM/Secrets, Data/Storage/Queue/Observability 확인 | 보안 경계, 비용, 삭제/교체, public 노출, 보호 설정 blocker |
 | 5.6 Application runtime AWS readiness | 실제 서비스 코드가 AWS 리소스를 쓰는지 확인 | frontend build env, runtime secret key, mock/in-memory fallback, managed service smoke 기준 확인 | 운영에서 localhost/mock/memory/localstack fallback이 남거나 필수 env key가 누락됨 |
 | 5.7 사용자 apply 승인 | 비용 발생 전 명시 승인 확보 | 사용자가 plan 요약, 리소스 그룹 리뷰, runtime readiness 확인 후 승인 | 승인 문구 없음 |
 | 5.8 Main apply 실행 | main AWS 리소스 생성 | `terraform apply tfplan-main` | apply 실패 또는 예상 밖 destroy/replacement |
-| 5.9 Output/Console 확인 | 다음 단계 입력값 확보 | Terraform output, AWS Console 상태 확인 | 필수 output 누락 또는 ACM/SES validation 실패 |
+| 5.9 Output/Console 확인 | 다음 단계 입력값 확보 | Terraform output, AWS Console 상태 확인 | 필수 output 누락 또는 ACM validation 실패 |
 | 5.10 세션 기록 | 이어받기 가능한 상태 기록 | `infra/APPLY_SESSION.md` 갱신 | secret/password/token 포함 출력 |
 
 5.1-5.3 실행:
@@ -297,14 +297,14 @@ Amazon Q Developer Slack channel configuration의 자체 logging은 `logging_lev
 | SQS real queue | API publisher와 worker consumer가 실제 `AI_SQS_QUEUE_URL`을 사용해야 한다. queue URL 누락으로 in-memory queue에 fallback되면 안 된다. | API가 SQS 대신 in-memory publisher로 기동됨 |
 | Worker real mode | worker는 `WORKER_REPOSITORY_MODE=prisma`, `AI_PROVIDER_MODE=openai`, `AI_STT_PROVIDER=openai` 등 실제 처리 모드와 provider key를 사용한다. | worker가 memory repository 또는 mock AI/STT provider로 운영 기동됨 |
 | Valkey cache required behavior | 인증 코드와 public magic link가 ElastiCache Valkey를 Redis protocol로 사용해야 한다. 운영에서 cache 장애를 조용히 memory fallback으로 숨기지 않는지 확인한다. | production에서 Valkey cache 없이 인증/매직링크가 성공한 것처럼 보임 |
-| SES/SMTP | SES SMTP credential, `SMTP_FROM`, sandbox/production access 상태를 확인한다. | 인증 메일 또는 public application magic link 발송이 실패함 |
+| External SMTP | provider credential, `SMTP_FROM`, TLS, 발신 도메인/SPF/DKIM/DMARC 검증 상태를 확인한다. | 인증 메일 또는 public application magic link 발송이 실패함 |
 | OAuth/payment callbacks | Google callback URL, Toss success/fail URL의 base가 `https://init-jungle.cloud` 기준인지 확인한다. | 외부 provider callback이 localhost 또는 잘못된 origin으로 설정됨 |
-| Health/smoke | `/api/v1/health`만으로 충분하지 않다. DB, Valkey, S3 put/read, SQS publish/consume, SES send, worker 처리까지 실제 smoke 시나리오를 준비한다. | 단순 health는 성공하지만 핵심 managed service 경로가 검증되지 않음 |
+| Health/smoke | `/api/v1/health`만으로 충분하지 않다. DB, Valkey, S3 put/read, SQS publish/consume, SMTP verify/send, worker 처리까지 실제 smoke 시나리오를 준비한다. | 단순 health는 성공하지만 핵심 managed service 경로가 검증되지 않음 |
 
 Valkey/Redis protocol naming policy:
 
 - AWS managed cache engine은 ElastiCache Valkey 7.2로 고정한다.
-- API 서버는 `ioredis` client로 Redis protocol을 사용한다. 현재 확인된 명령은 `GET`, `SET ... EX`, `EXISTS`, `DEL`뿐이며 Lua/EVAL, Streams, Pub/Sub, Cluster 전용 명령은 사용하지 않는다.
+- API 서버는 `ioredis` client로 Redis protocol을 사용한다. 인증 코드 발급과 상태 갱신의 원자성을 위해 `GET`, `SET ... EX`, `SET ... KEEPTTL`, `EXISTS`, `DEL`, Lua/EVAL을 사용하며 Streams, Pub/Sub, Cluster 전용 명령은 사용하지 않는다.
 - `REDIS_URL`, Terraform resource name의 `redis`, output `redis_primary_endpoint` 같은 이름은 Redis OSS 엔진 선택이 아니라 Redis protocol/client 호환 접속 관례를 뜻한다.
 - 새 문서에서 관리형 서비스 자체를 부를 때는 `ElastiCache Valkey`를 사용하고, env/URL/protocol/client 계약을 말할 때만 `Redis protocol` 또는 `REDIS_URL`을 사용한다.
 
@@ -326,10 +326,6 @@ terraform -chdir=infra/aws output rds_master_secret_arn
 terraform -chdir=infra/aws output redis_primary_endpoint
 terraform -chdir=infra/aws output ai_jobs_queue_url
 terraform -chdir=infra/aws output github_deploy_role_arn
-terraform -chdir=infra/aws output ses_domain_identity
-terraform -chdir=infra/aws output ses_domain_verification_record
-terraform -chdir=infra/aws output ses_dkim_records
-terraform -chdir=infra/aws output ses_mail_from_domain
 terraform -chdir=infra/aws output ops_alerts_topic_arn
 terraform -chdir=infra/aws output cloudwatch_dashboard_name
 terraform -chdir=infra/aws output chatbot_slack_channel_configuration_arn
@@ -344,8 +340,6 @@ AWS Console 확인:
 - ECS cluster: `init-main`
 - ECS services: `init-main-frontend`, `init-main-api`, `init-main-worker`
 - RDS, Valkey, S3, SQS, Secrets Manager container가 생성됨
-- SES verified identity: `init-jungle.cloud`
-- Route53 DNS records: `_amazonses.init-jungle.cloud`, DKIM CNAME 3개, `mail.init-jungle.cloud` MX/TXT
 - SNS topic: `init-main-ops-alerts`
 - Amazon Q Developer in chat applications Slack channel configuration: `init-main-ops-alerts`
 - CloudWatch alarms: `init-main-*`
@@ -356,7 +350,6 @@ AWS Console 확인:
 - plan에 RDS/Valkey 삭제 또는 교체가 포함된다.
 - CloudFront ACM validation이 완료되지 않는다.
 - IAM trust policy가 의도한 GitHub repository/branch보다 넓다.
-- SES verification, DKIM, custom MAIL FROM DNS record가 Route53 hosted zone에 생성되지 않는다.
 - CloudWatch alarm에 `alarm_actions`/`ok_actions`가 없거나 Slack channel configuration이 SNS topic을 참조하지 않는다.
 - Amazon Q Developer Slack channel configuration은 생성됐지만 Slack channel에서 알림 수신 테스트가 실패한다.
 
@@ -432,12 +425,12 @@ aws secretsmanager put-secret-value `
   "OPENAI_STT_MODEL": "<stt-model>",
   "OPENAI_STT_LANGUAGE": "ko",
   "OPENAI_STT_TIMEOUT_MS": "120000",
-  "SMTP_HOST": "<ses-smtp-host>",
+  "SMTP_HOST": "<smtp-provider-host>",
   "SMTP_PORT": "587",
   "SMTP_SECURE": "false",
-  "SMTP_USER": "<ses-smtp-user>",
-  "SMTP_PASS": "<ses-smtp-pass>",
-  "SMTP_FROM": "no-reply@init-jungle.cloud",
+  "SMTP_USER": "<smtp-provider-user>",
+  "SMTP_PASS": "<smtp-provider-pass>",
+  "SMTP_FROM": "<authenticated-account-or-verified-sender>",
   "MAX_UPLOAD_BYTES": "10485760",
   "COMPANY_LOGO_MAX_UPLOAD_BYTES": "10485760",
   "JD_IMAGE_MAX_UPLOAD_BYTES": "10485760",
@@ -447,6 +440,70 @@ aws secretsmanager put-secret-value `
 ```
 
 위 JSON은 형식 예시다. 실제 `api.main.secret.json`에는 `infra/aws/locals.tf`의 `secret_keys.api`에 있는 모든 key를 포함해야 한다.
+
+SMTP 발신자 규칙:
+
+- 개인 Gmail/Naver SMTP를 사용하는 경우 `SMTP_FROM`은 `SMTP_USER` 계정 주소와 동일하게 둔다.
+- 다른 발신 주소는 SMTP provider에서 검증한 alias 또는 발신 도메인인 경우에만 사용한다.
+- Gmail/Naver의 일반 로그인 비밀번호를 저장하지 않는다. 2단계 인증 후 발급한 애플리케이션 비밀번호를 `SMTP_PASS`에 넣는다.
+- 개인 계정은 저용량 MVP/시연 용도로만 사용하고, 운영 발송량이 증가하면 transactional SMTP 또는 조직용 메일 계정으로 이전한다.
+
+저용량 검증용 설정 예시:
+
+```json
+{
+  "gmail": {
+    "SMTP_HOST": "smtp.gmail.com",
+    "SMTP_PORT": "465",
+    "SMTP_SECURE": "true",
+    "SMTP_USER": "init.service@gmail.com",
+    "SMTP_PASS": "<google-app-password>",
+    "SMTP_FROM": "init.service@gmail.com"
+  },
+  "naver": {
+    "SMTP_HOST": "smtp.naver.com",
+    "SMTP_PORT": "465",
+    "SMTP_SECURE": "true",
+    "SMTP_USER": "<naver-smtp-id>",
+    "SMTP_PASS": "<naver-app-password>",
+    "SMTP_FROM": "init-service@naver.com"
+  }
+}
+```
+
+`SMTP_SMOKE_TO`는 API runtime secret이 아니라 GitHub Environment `init-main`의 secret으로 관리한다. 매 API 배포마다 이 주소로 smoke 메일 1통이 발송되므로 실제로 확인 가능한 팀 전용 수신함을 사용한다. 가능하면 Gmail 발신에는 Naver 수신함처럼 발신 계정과 다른 provider를 사용한다.
+
+배포 workflow의 성공은 SMTP server가 메일을 접수했다는 의미다. 최초 provider 전환과 credential 변경 시에는 `SMTP_SMOKE_TO` 수신함에서 실제 도착, 스팸 분류 여부, 발신 주소를 사람이 확인해야 한다.
+
+일반 SMTP의 세 발송 흐름과 운영 관찰이 끝난 뒤에는 SES를 롤백 경로로 사용하지 않는다. Terraform에서 SES identity, DKIM, custom MAIL FROM과 관련 Route53 record를 제거하고 API ECS task role의 `ses:SendEmail`, `ses:SendRawEmail` 권한도 제거한다. 이 변경은 애플리케이션 배포 변경과 분리한 Terraform 전용 PR에서 수행한다.
+
+기존 main state에서 SES를 제거하는 plan은 SES 및 SES 전용 Route53 resource 10개 삭제와 API task inline policy의 in-place 갱신만 포함해야 한다. Route53 hosted zone, ACM validation record, CloudFront, ALB, ECS, RDS, Valkey, S3, SQS의 삭제 또는 replacement가 포함되면 apply하지 않는다. 검토한 saved plan에 사용자 승인을 받은 뒤에만 `terraform apply`를 실행하고, 적용 후 외부 SMTP smoke와 세 발송 흐름을 다시 확인한다.
+
+GitHub Actions가 service별 최신 ECS task definition revision을 직접 등록하므로 일반 full plan에는 Terraform의 단일 `image_tag`와 다른 live image revision을 `bootstrap`으로 되돌리는 task definition replacement가 나타날 수 있다. SES 제거 apply에는 이 drift를 섞지 않는다. 아래처럼 제거 대상 state 주소와 API IAM policy만 target으로 지정해 saved plan을 만들고, plan JSON에서 `0 add, 1 update, 10 delete, 0 replace`인지 확인한다.
+
+```powershell
+Set-Location infra\aws
+terraform plan '-var-file=env/main.tfvars' '-out=tfplan-ses-cleanup' '-input=false' `
+  '-target=aws_iam_role_policy.api_task' `
+  '-target=aws_route53_record.ses_dkim' `
+  '-target=aws_route53_record.ses_domain_verification' `
+  '-target=aws_route53_record.ses_mail_from_mx' `
+  '-target=aws_route53_record.ses_mail_from_spf' `
+  '-target=aws_ses_domain_dkim.mail' `
+  '-target=aws_ses_domain_identity.mail' `
+  '-target=aws_ses_domain_identity_verification.mail' `
+  '-target=aws_ses_domain_mail_from.mail'
+terraform show -no-color tfplan-ses-cleanup
+```
+
+resource targeting은 일반 배포 방법이 아니라 외부 배포 workflow가 만든 ECS revision drift와 이번 SES decommission을 분리하기 위한 1회성 예외다. saved plan apply 후에는 target 없이 다시 full plan을 실행해 SES 관련 변경이 사라졌는지 확인하고, 남은 ECS task definition drift는 별도 소유권 정렬 작업으로 다룬다.
+
+Provider 설정 근거:
+
+- Gmail SMTP/STARTTLS: <https://support.google.com/mail/answer/7104828>
+- Google 애플리케이션 비밀번호: <https://support.google.com/accounts/answer/185833>
+- Naver SMTP server/SSL: <https://help.naver.com/service/30029/contents/21341?lang=ko&osType=PC>
+- Naver 2단계 인증/애플리케이션 비밀번호: <https://help.naver.com/service/30029/contents/24347?lang=ko>
 
 frontend와 worker도 같은 방식으로 넣는다.
 
@@ -841,8 +898,8 @@ AWS Console에서 직접 수정하지 않는 것을 원칙으로 한다. 리소�
 | ECR repository 정책 변경 | `ecr.tf` | immutable tag 정책과 deploy workflow tag 전략 |
 | RDS class/storage/backup 변경 | `rds.tf`, `env/*.tfvars` | downtime, backup retention, deletion protection |
 | Redis protocol cache TLS/auth 변경 | `redis.tf` | 앱 `REDIS_URL`을 `rediss://`로 바꾸는 코드/secret 변경 필요 |
-| S3 공개 asset prefix 변경 | `alb-cloudfront.tf`, `s3-sqs-ses.tf` | private bucket 유지, OAC policy 범위 |
-| SQS visibility timeout 변경 | `s3-sqs-ses.tf` | worker 처리 시간, DLQ redrive 기준 |
+| S3 공개 asset prefix 변경 | `alb-cloudfront.tf`, `s3-sqs.tf` | private bucket 유지, OAC policy 범위 |
+| SQS visibility timeout 변경 | `s3-sqs.tf` | worker 처리 시간, DLQ redrive 기준 |
 | Secret key 추가/삭제 | `.env.example`, `locals.tf`, Secrets Manager JSON | task definition secret mapping과 실제 secret JSON 일치 |
 | GitHub Actions deploy 권한 변경 | `iam.tf` | OIDC trust, GitHub Environment 제한, `iam:PassRole` 범위 |
 | Slack 운영 알림 변경 | `cloudwatch.tf`, `iam.tf`, `providers.tf`, `env/main.tfvars` | SNS topic, Q Developer Slack channel configuration, guardrail policy, `alarm_actions`/`ok_actions`, Slack workspace/channel ID |

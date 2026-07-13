@@ -12,8 +12,10 @@
     "lint": "eslint . --max-warnings=0",
     "audit:avatar-assets": "node ../scripts/audit-interviewer-avatar-assets.mjs",
     "test:candidate-avatar": "tsx src/features/candidate-application-interview/LipSyncDriver.spec.ts && tsx src/features/candidate-application-interview/CubismMouthOpacity.spec.ts && tsx src/features/candidate-application-interview/LocalInterviewerAvatar.spec.tsx && tsx src/features/candidate-application-interview/LocalInterviewerAvatarCss.spec.ts && tsx src/features/candidate-application-interview/InterviewerRiggingPreview.spec.tsx && tsx src/features/candidate-application-interview/CubismSdkRuntime.spec.ts && node ../scripts/audit-interviewer-avatar-assets.spec.mjs",
-    "test": "npm run typecheck && npm run test:ai-job-polling",
+    "test": "npm run typecheck && npm run test:signup-payload && npm run test:ai-job-polling && npm run test:ai-performance",
+    "test:signup-payload": "tsc -p src/features/auth/tsconfig.spec.json && node .next/tests/auth/signup-payload.spec.js",
     "test:ai-job-polling": "tsc -p src/features/company-interview-criteria/tsconfig.spec.json && node .next/tests/company-interview-criteria/ai-job-polling.spec.js",
+    "test:ai-performance": "tsc -p src/features/ai-performance/tsconfig.spec.json && node .next/tests/ai-performance/client-next-step.spec.js",
     "build": "next build"
   },
   "dependencies": {

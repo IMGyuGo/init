@@ -298,7 +298,8 @@ AI 리포트 금지 기준:
 - 성공 응답/처리:
   - 인증 코드 입력 영역 활성화
 - 오류/예외:
-  - 이미 가입된 이메일, 이메일 형식 오류, 메일 발송 실패 시 오류 메시지를 표시한다.
+  - 이미 가입된 이메일, 이메일 형식 오류 시 오류 메시지를 표시한다.
+  - SMTP 발송 실패 또는 타임아웃이면 `MAIL_DELIVERY_FAILED`를 반환하고 저장한 인증 코드와 재발송 cooldown을 정리한다.
 - 관련 ERD 테이블:
   - users, companies, candidate_profiles, applications, notifications, ai_process_logs, Redis/TTL cache
 - 비고/미결:
@@ -375,7 +376,8 @@ AI 리포트 금지 기준:
 - 성공 응답/처리:
   - 인증 코드 입력 영역 활성화
 - 오류/예외:
-  - 미가입 이메일, 발송 실패, 요청 횟수 초과 시 오류 메시지를 표시한다.
+  - 미가입 이메일, 요청 횟수 초과 시 오류 메시지를 표시한다.
+  - SMTP 발송 실패 또는 타임아웃이면 `MAIL_DELIVERY_FAILED`를 반환하고 저장한 인증 코드와 재발송 cooldown을 정리한다.
 - 관련 ERD 테이블:
   - users, notifications, Redis/TTL cache
 
@@ -517,20 +519,23 @@ AI 리포트 금지 기준:
   - title, jobRole, jobDescription, startsOn, endsOn, status
   - careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType
   - 지원자 필터용 구조화 필드: jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType
+  - 회사 위치: workplaceAddress(도로명 주소), workplaceLat(위도), workplaceLng(경도)
   - `jobDescription`은 Tiptap 기반 rich text HTML 문자열을 저장할 수 있다.
   - careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType은 선택 입력 항목이며 모두 optional이다.
   - jobRoleCode/regionCode/employmentTypeCode/recruitmentType은 선택 입력이며 각각 `PostingJobRoleCode`/`PostingRegionCode`/`PostingEmploymentTypeCode`/`PostingRecruitmentType` taxonomy 값만 허용한다(enums.md 참고).
   - careerMinYears, careerMaxYears는 선택 입력 정수이며 0 이상 `POSTING_CAREER_MAX_YEARS`(=10) 이하다.
+  - workplaceAddress/workplaceLat/workplaceLng는 선택 입력이다. 좌표는 클라이언트 지도 SDK(카카오) geocoder로 주소를 변환해 채운다. workplaceLat/workplaceLng는 함께 있어야 하며, 좌표가 있으면 workplaceAddress도 필요하다(주소만 저장은 허용).
 - 검증/전제조건:
   - `CurrentUser.userType=COMPANY`이고 `CurrentUser.companyId`가 존재해야 한다.
   - 공고는 항상 `CurrentUser.companyId`의 회사에 생성한다.
   - title, jobRole은 필수다.
   - startsOn과 endsOn이 함께 있으면 startsOn은 endsOn보다 늦을 수 없다.
   - careerMinYears와 careerMaxYears가 둘 다 있으면 careerMinYears는 careerMaxYears보다 클 수 없다.
+  - workplaceLat와 workplaceLng는 함께 있어야 하고, 좌표가 있으면 workplaceAddress가 필요하다.
   - status는 MVP 생성 흐름에서 `DRAFT` 또는 `OPEN`만 허용한다.
 - 성공 응답/처리:
   - 생성된 공고 상세 데이터를 `{ data, meta }` envelope로 반환한다.
-  - 선택 입력 항목이 저장된 경우 응답에 careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType과 jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType을 포함한다.
+  - 선택 입력 항목이 저장된 경우 응답에 careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType과 jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType, workplaceAddress, workplaceLat, workplaceLng를 포함한다.
   - `OPEN` 공고만 지원자용 공개 공고 조회 대상이 된다.
 - 오류/예외:
   - 필수값 누락, 날짜 오류, careerMinYears > careerMaxYears 역전은 `COMMON_VALIDATION_FAILED`를 반환한다.
@@ -673,7 +678,7 @@ AI 리포트 금지 기준:
   - JD 이미지 파일 업로드는 `API-086`에서 처리하고, 이 API는 `jobDescription` rich text HTML 문자열만 저장한다.
 - 성공 응답/처리:
   - 수정된 공고 상세 데이터를 `{ data, meta }` envelope로 반환한다.
-  - 선택 입력 항목이 저장된 경우 응답에 careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType과 jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType을 포함한다.
+  - 선택 입력 항목이 저장된 경우 응답에 careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType과 jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType, workplaceAddress, workplaceLat, workplaceLng를 포함한다.
   - 설정 저장 후 프론트는 공고 대시보드로 이동한다.
 - 오류/예외:
   - 필수값 누락, 날짜 오류, careerMinYears > careerMaxYears 역전은 `COMMON_VALIDATION_FAILED`를 반환한다.
@@ -2732,6 +2737,8 @@ CandidateFolder 입력 제한:
 - 성공 응답/처리:
   - 회사 상세 팝업 표시 또는 이력서 제출 화면으로 이동
   - 회사 상세 응답에는 `companyLogoUrl`을 포함한다. 회사 로고가 없으면 `null`을 반환한다.
+  - 응답에 `jobRoleCode`를 포함한다. 프론트는 이 값으로 같은 직무의 비슷한 공고를 추천 조회한다(우측 사이드).
+  - 회사 위치는 `workplaceAddress`, `workplaceLat`, `workplaceLng`를 포함한다. 좌표가 있으면 지원자 상세에서 카카오 지도 핀으로 표시하고, 없으면 주소만 표시한다.
 - 오류/예외:
   - 공고가 마감되었거나 접근 권한이 없으면 안내 메시지를 표시한다.
 - 관련 ERD 테이블:
@@ -3215,8 +3222,9 @@ CandidateFolder 입력 제한:
 - `integrityEvents` maximum length: 100.
 - Unknown top-level, summary, or event keys; unsupported event types; malformed timestamps; and out-of-range numeric values are rejected with `400 COMMON_VALIDATION_FAILED`.
 - `integrityEvents` may include browser-runtime events such as `TAB_HIDDEN`, `WINDOW_BLUR`, `CAMERA_LOST`, `FACE_MISSING`, `FACE_OUT_OF_FRAME`, `MULTIPLE_FACES`, `FACE_POSITION_SHIFT`, `GAZE_AWAY`, `VOICE_MOUTH_MISMATCH`, `VOICE_WITHOUT_FACE`, `STATIC_VIDEO_FRAME`, and `EARLY_SCREEN_AWAY`.
+- `MULTIPLE_FACES` is retained as the legacy event code for compatibility. The runtime emits it when either face landmarks or the MediaPipe person-object detector finds more than one person in at least two samples within 1.5 seconds. Person-object samples use a `0.35` confidence threshold, run every `0.5` seconds, and keep an active signal for a `1.5`-second miss grace period so a covered face does not cause the warning to flicker.
 - `GAZE_AWAY` events may include `direction` and `source`. `source` is one of `IRIS`, `HEAD_POSE`, or `COMBINED` and identifies whether the calibrated iris position, facial transformation matrix, or both produced the signal.
-- `integritySummary` may include counts derived from those events, such as `screenAwayCount`, `cameraLostCount`, `faceMissingCount`, `faceOutOfFrameCount`, `multipleFacesCount`, `facePositionShiftCount`, `gazeAwayCount`, `voiceMouthMismatchCount`, `voiceWithoutFaceCount`, `staticVideoFrameCount`, `earlyScreenAwayCount`, `faceDetectionSupported`, `faceDetectionFrameCount`, `gazeDetectionSupported`, `gazeDetectionFrameCount`, `headPoseDetectionSupported`, `headPoseDetectionFrameCount`, `mouthSyncSupported`, `mouthSyncFrameCount`, `mouthSyncMismatchFrameCount`, `videoFrameMotionSupported`, `videoFrameSampleCount`, `staticVideoFrameSampleCount`, `totalAwayDurationMs`, `maxAwayDurationMs`, and `suspicionLevel`.
+- `integritySummary` may include counts derived from those events, such as `screenAwayCount`, `cameraLostCount`, `faceMissingCount`, `faceOutOfFrameCount`, `multipleFacesCount`, `facePositionShiftCount`, `gazeAwayCount`, `voiceMouthMismatchCount`, `voiceWithoutFaceCount`, `staticVideoFrameCount`, `earlyScreenAwayCount`, `faceDetectionSupported`, `faceDetectionFrameCount`, `personDetectionSupported`, `personDetectionFrameCount`, `gazeDetectionSupported`, `gazeDetectionFrameCount`, `headPoseDetectionSupported`, `headPoseDetectionFrameCount`, `mouthSyncSupported`, `mouthSyncFrameCount`, `mouthSyncMismatchFrameCount`, `videoFrameMotionSupported`, `videoFrameSampleCount`, `staticVideoFrameSampleCount`, `totalAwayDurationMs`, `maxAwayDurationMs`, and `suspicionLevel`.
 - Normalization and storage:
   - The API rebuilds event-derived counts, away durations, and `suspicionLevel` from the allowlisted events instead of trusting client summary counts.
   - The API writes `schemaVersion: 1` and `source: CLIENT_RUNTIME_UNVERIFIED` before saving on `interview_answers.nonverbal_metadata`.
@@ -3228,7 +3236,7 @@ CandidateFolder 입력 제한:
 - AI report generation:
   - API-057 `POST /candidate/mock-interview/reports/{reportId}/generate` includes each answer's `nonverbalMetadata` in the `REPORT_GENERATE` payload when available.
   - OpenAI/mock worker prompts must treat the field as auxiliary practice metadata only.
-  - For mock interview reports, `integrityEvents` and `integritySummary` may inform practice feedback about cheating-suspicion signals such as screen/tab leaving, early screen leaving right after the question starts, camera loss, face missing/out of frame, audio input while no face is detected, multiple faces, large face-position shift, long gaze away from the screen, static video frames, or voice-mouth mismatch during recording.
+  - For mock interview reports, `integrityEvents` and `integritySummary` may inform practice feedback about cheating-suspicion signals such as screen/tab leaving, early screen leaving right after the question starts, camera loss, face missing/out of frame, audio input while no face is detected, multiple people detected by face or person-object detection, large face-position shift, long gaze away from the screen, static video frames, or voice-mouth mismatch during recording.
   - For mock interview reports, `shortAnswerCount`, `microphoneWarnings`, and `longSilenceCount` may inform practice feedback and conservative delivery-quality scoring caps, but they are answer/recording-quality signals, not cheating signals.
   - `cameraWarnings` and `testModeUsed` may only produce setup/focus review guidance. They must not be treated as proof of cheating.
 - Policy:

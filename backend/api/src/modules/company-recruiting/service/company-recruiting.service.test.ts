@@ -35,6 +35,9 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         careerMaxYears: (input as { careerMaxYears?: number | null }).careerMaxYears ?? null,
         employmentTypeCode: (input as { employmentTypeCode?: string | null }).employmentTypeCode ?? null,
         recruitmentType: (input as { recruitmentType?: string | null }).recruitmentType ?? null,
+        workplaceAddress: (input as { workplaceAddress?: string | null }).workplaceAddress ?? null,
+        workplaceLat: (input as { workplaceLat?: number | null }).workplaceLat ?? null,
+        workplaceLng: (input as { workplaceLng?: number | null }).workplaceLng ?? null,
         startsOn: new Date("2026-06-29T00:00:00.000Z"),
         endsOn: new Date("2026-07-15T00:00:00.000Z"),
         status: "OPEN",
@@ -62,6 +65,9 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         careerMaxYears: (input as { careerMaxYears?: number | null }).careerMaxYears ?? null,
         employmentTypeCode: (input as { employmentTypeCode?: string | null }).employmentTypeCode ?? null,
         recruitmentType: (input as { recruitmentType?: string | null }).recruitmentType ?? null,
+        workplaceAddress: (input as { workplaceAddress?: string | null }).workplaceAddress ?? null,
+        workplaceLat: (input as { workplaceLat?: number | null }).workplaceLat ?? null,
+        workplaceLng: (input as { workplaceLng?: number | null }).workplaceLng ?? null,
         startsOn: (input as { startsOn: Date | null }).startsOn,
         endsOn: (input as { endsOn: Date | null }).endsOn,
         status: (input as { status: string }).status,
@@ -89,6 +95,9 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         careerMaxYears: null,
         employmentTypeCode: null,
         recruitmentType: null,
+        workplaceAddress: null,
+        workplaceLat: null,
+        workplaceLng: null,
         startsOn: null,
         endsOn: null,
         status: "ARCHIVED",
@@ -124,6 +133,9 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         careerMaxYears: null,
         employmentTypeCode: null,
         recruitmentType: null,
+        workplaceAddress: null,
+        workplaceLat: null,
+        workplaceLng: null,
         startsOn: null,
         endsOn: null,
         status: "OPEN",
@@ -151,6 +163,9 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         careerMaxYears: null,
         employmentTypeCode: "정규직",
         recruitmentType: "마감형",
+        workplaceAddress: null,
+        workplaceLat: null,
+        workplaceLng: null,
         startsOn: new Date("2026-06-29T00:00:00.000Z"),
         endsOn: new Date("2026-07-15T00:00:00.000Z"),
         status: "OPEN",
@@ -395,6 +410,9 @@ describe("CompanyRecruitingService", () => {
         careerMaxYears: undefined,
         employmentTypeCode: undefined,
         recruitmentType: undefined,
+        workplaceAddress: undefined,
+        workplaceLat: undefined,
+        workplaceLng: undefined,
         startsOn: new Date("2026-06-29T00:00:00.000Z"),
         endsOn: new Date("2026-07-15T00:00:00.000Z"),
         status: "OPEN",
@@ -418,6 +436,57 @@ describe("CompanyRecruitingService", () => {
         typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
     );
     assert.equal(repository.calls.createPosting, undefined);
+  });
+
+  it("rejects recruitment creation when only one workplace coordinate is provided", async () => {
+    const repository = createRepository();
+    const service = new CompanyRecruitingService(repository);
+
+    await assert.rejects(
+      service.createRecruitment(companyUser, {
+        title: "Backend Developer",
+        jobRole: "Backend",
+        workplaceAddress: "서울 강남구 테헤란로 123",
+        workplaceLat: 37.4979,
+        status: "OPEN",
+      }),
+      (error: unknown) =>
+        typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
+    assert.equal(repository.calls.createPosting, undefined);
+  });
+
+  it("rejects recruitment creation when coordinates are provided without an address", async () => {
+    const repository = createRepository();
+    const service = new CompanyRecruitingService(repository);
+
+    await assert.rejects(
+      service.createRecruitment(companyUser, {
+        title: "Backend Developer",
+        jobRole: "Backend",
+        workplaceLat: 37.4979,
+        workplaceLng: 127.0276,
+        status: "OPEN",
+      }),
+      (error: unknown) =>
+        typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
+    assert.equal(repository.calls.createPosting, undefined);
+  });
+
+  it("allows recruitment creation with an address but no coordinates", async () => {
+    const repository = createRepository();
+    const service = new CompanyRecruitingService(repository);
+
+    const result = await service.createRecruitment(companyUser, {
+      title: "Backend Developer",
+      jobRole: "Backend",
+      workplaceAddress: "서울 강남구 테헤란로 123",
+      status: "OPEN",
+    });
+
+    assert.equal(result.status, "OPEN");
+    assert.deepEqual((repository.calls.createPosting?.[0] as { workplaceAddress?: string }).workplaceAddress, "서울 강남구 테헤란로 123");
   });
 
   it("rejects recruitment update when careerMinYears is greater than careerMaxYears", async () => {
@@ -1091,6 +1160,9 @@ describe("CompanyRecruitingService", () => {
         careerMaxYears: undefined,
         employmentTypeCode: undefined,
         recruitmentType: undefined,
+        workplaceAddress: undefined,
+        workplaceLat: undefined,
+        workplaceLng: undefined,
         startsOn: new Date("2026-07-01T00:00:00.000Z"),
         endsOn: new Date("2026-07-31T00:00:00.000Z"),
         status: "OPEN",
@@ -1162,6 +1234,9 @@ describe("CompanyRecruitingService", () => {
           careerMaxYears: 10,
           employmentTypeCode: "정규직",
           recruitmentType: "마감형",
+          workplaceAddress: null,
+          workplaceLat: null,
+          workplaceLng: null,
           startsOn: new Date("2026-06-01T00:00:00.000Z"),
           endsOn: new Date("2026-06-15T00:00:00.000Z"),
           status: "CLOSED",
@@ -1215,6 +1290,9 @@ describe("CompanyRecruitingService", () => {
         careerMaxYears: 10,
         employmentTypeCode: "정규직",
         recruitmentType: "마감형",
+        workplaceAddress: null,
+        workplaceLat: null,
+        workplaceLng: null,
         startsOn: null,
         endsOn: null,
         status: "DRAFT",
@@ -1423,7 +1501,7 @@ describe("CompanyRecruitingService", () => {
     assert.equal(adjustment.rawTotalScore, 82);
     assert.equal(adjustment.adjustedTotalScore, 82);
     assert.ok(adjustment.reasons.includes("화면/탭 이탈 1회"));
-    assert.ok(adjustment.reasons.includes("여러 얼굴 감지 1회"));
+    assert.ok(adjustment.reasons.includes("여러 사람 감지 1회"));
     assert.match(adjustment.reason, /평가 점수에는 반영하지 않았습니다/);
   });
 
@@ -1484,7 +1562,7 @@ describe("CompanyRecruitingService", () => {
       { name: "frequent screen away", summary: { screenAwayCount: 4 }, level: "HIGH" },
       { name: "single face missing", summary: { faceMissingCount: 1 }, level: "MEDIUM" },
       { name: "repeated face missing", summary: { faceMissingCount: 2 }, level: "HIGH" },
-      { name: "multiple faces", summary: { multipleFacesCount: 1 }, level: "HIGH" },
+      { name: "multiple people", summary: { multipleFacesCount: 1 }, level: "HIGH" },
       { name: "face position shift", summary: { facePositionShiftCount: 1 }, level: "HIGH" },
       { name: "single voice mouth mismatch", summary: { voiceMouthMismatchCount: 1 }, level: "MEDIUM" },
       { name: "repeated voice mouth mismatch", summary: { voiceMouthMismatchCount: 2 }, level: "HIGH" },

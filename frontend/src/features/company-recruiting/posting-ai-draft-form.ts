@@ -14,7 +14,9 @@ export function applyPostingDraftToFormState<T extends PostingDraftApplicableFor
   return {
     ...current,
     title: draft.title || current.title,
-    jobRole: draft.jobRole || current.jobRole,
+    // 직무는 사용자가 select 로 고른 값(jobRole=jobRoleCode)을 유지한다.
+    // AI 초안의 직무명으로 덮어쓰면 화면 select 값과 저장되는 jobRole 이 어긋난다.
+    jobRole: current.jobRole,
     structuredJobDescription: {
       ...current.structuredJobDescription,
       sections: {

@@ -24,8 +24,13 @@ import {
   type RealtimePeerConnectionLike,
 } from "./realtime-webrtc";
 import {
+  countPersonDetections,
+  isFacePositionShifted,
   estimateHeadPoseAngles,
   resolveCombinedGazeSignal,
+  updateFacePositionBaseline,
+  updateMultiplePeopleDetectionState,
+  updateSustainedDetectionState,
 } from "./nonverbal-integrity";
 import {
   clampCameraPipPosition,
@@ -86,6 +91,116 @@ import {
   toUploadResumeRequest,
 } from "./view-model";
 
+const detectedPersonCount = countPersonDetections([
+  {
+    categories: [{ categoryName: "person", displayName: "", index: 0, score: 0.92 }],
+    keypoints: [],
+  },
+  {
+    categories: [{ categoryName: "person", displayName: "", index: 0, score: 0.68 }],
+    keypoints: [],
+  },
+  {
+    categories: [{ categoryName: "cat", displayName: "", index: 16, score: 0.99 }],
+    keypoints: [],
+  },
+]);
+assert.equal(detectedPersonCount, 2);
+assert.equal(countPersonDetections([
+  {
+    categories: [{ categoryName: "person", displayName: "", index: 0, score: 0.34 }],
+    keypoints: [],
+  },
+], 0.35), 0);
+
+let multiplePeopleState = updateMultiplePeopleDetectionState({
+  detected: true,
+  nowMs: 0,
+  positiveSampleTimesMs: [],
+  active: false,
+});
+assert.equal(multiplePeopleState.active, false);
+
+multiplePeopleState = updateMultiplePeopleDetectionState({
+  ...multiplePeopleState,
+  detected: false,
+  nowMs: 500,
+});
+assert.equal(multiplePeopleState.active, false);
+
+multiplePeopleState = updateMultiplePeopleDetectionState({
+  ...multiplePeopleState,
+  detected: true,
+  nowMs: 1000,
+});
+assert.equal(multiplePeopleState.active, true);
+
+multiplePeopleState = updateMultiplePeopleDetectionState({
+  ...multiplePeopleState,
+  detected: false,
+  nowMs: 1500,
+});
+assert.equal(multiplePeopleState.active, true);
+
+multiplePeopleState = updateMultiplePeopleDetectionState({
+  ...multiplePeopleState,
+  detected: false,
+  nowMs: 3000,
+});
+assert.equal(multiplePeopleState.active, false);
+
+let facePositionBaseline = updateFacePositionBaseline(undefined, 0, {
+  centerX: 0.48,
+  centerY: 0.49,
+  areaRatio: 0.1,
+});
+facePositionBaseline = updateFacePositionBaseline(facePositionBaseline, 1, {
+  centerX: 0.52,
+  centerY: 0.51,
+  areaRatio: 0.12,
+});
+assert.ok(Math.abs(facePositionBaseline.centerX - 0.5) < 0.001);
+assert.ok(Math.abs(facePositionBaseline.centerY - 0.5) < 0.001);
+assert.ok(Math.abs(facePositionBaseline.areaRatio - 0.11) < 0.001);
+assert.equal(isFacePositionShifted(facePositionBaseline, {
+  centerX: 0.75,
+  centerY: 0.5,
+  areaRatio: 0.19,
+}), false);
+assert.equal(isFacePositionShifted(facePositionBaseline, {
+  centerX: 0.79,
+  centerY: 0.5,
+  areaRatio: 0.11,
+}), true);
+
+let faceShiftState = updateSustainedDetectionState({
+  detected: true,
+  nowMs: 0,
+  confirmationMs: 1000,
+});
+assert.equal(faceShiftState.active, false);
+faceShiftState = updateSustainedDetectionState({
+  detected: true,
+  nowMs: 500,
+  candidateStartedAtMs: faceShiftState.candidateStartedAtMs,
+  confirmationMs: 1000,
+});
+assert.equal(faceShiftState.active, false);
+faceShiftState = updateSustainedDetectionState({
+  detected: true,
+  nowMs: 1000,
+  candidateStartedAtMs: faceShiftState.candidateStartedAtMs,
+  confirmationMs: 1000,
+});
+assert.equal(faceShiftState.active, true);
+faceShiftState = updateSustainedDetectionState({
+  detected: false,
+  nowMs: 1500,
+  candidateStartedAtMs: faceShiftState.candidateStartedAtMs,
+  confirmationMs: 1000,
+});
+assert.equal(faceShiftState.active, false);
+
 const identityHeadPose = estimateHeadPoseAngles({
   rows: 4,
   columns: 4,
@@ -121,6 +236,24 @@ const normalCombinedGazeSignal = resolveCombinedGazeSignal({
   headPose: { yawDegrees: 8, pitchDegrees: 6 },
 });
 assert.equal(normalCombinedGazeSignal, undefined);
+
+const horizontalIrisOnlySignal = resolveCombinedGazeSignal({
+  irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  irisPosition: { horizontalRatio: 0.63, verticalRatio: 0.52 },
+  headPoseBaseline: { yawDegrees: 0, pitchDegrees: 0 },
+  headPose: { yawDegrees: 2, pitchDegrees: 1 },
+});
+assert.equal(horizontalIrisOnlySignal?.source, "IRIS");
+assert.equal(horizontalIrisOnlySignal?.direction, "RIGHT");
+
+const downwardIrisOnlySignal = resolveCombinedGazeSignal({
+  irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  irisPosition: { horizontalRatio: 0.52, verticalRatio: 0.65 },
+  headPoseBaseline: { yawDegrees: 0, pitchDegrees: 0 },
+  headPose: { yawDegrees: 1, pitchDegrees: 2 },
+});
+assert.equal(downwardIrisOnlySignal?.source, "IRIS");
+assert.equal(downwardIrisOnlySignal?.direction, "DOWN");
 
 const phoneLookupHeadSignal = resolveCombinedGazeSignal({
   irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
@@ -1375,6 +1508,10 @@ const candidateJobDetail: CandidateJobDetail = {
   jobDescription: "NestJS API",
   techStacks: ["Node.js", "NestJS"],
   createdAt: "2026-07-01T00:00:00.000Z",
+  jobRoleCode: "서버·백엔드",
+  workplaceAddress: null,
+  workplaceLat: null,
+  workplaceLng: null,
 };
 
 const mockReport: CandidateMockReportSummary = {

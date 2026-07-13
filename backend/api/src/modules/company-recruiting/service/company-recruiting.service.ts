@@ -112,6 +112,7 @@ export class CompanyRecruitingService {
       ]);
     }
     this.assertCareerRange(dto.careerMinYears, dto.careerMaxYears);
+    this.assertWorkplaceLocation(dto.workplaceAddress, dto.workplaceLat, dto.workplaceLng);
 
     const posting = await this.repository.createPosting({
       companyId,
@@ -131,6 +132,23 @@ export class CompanyRecruitingService {
     if (minYears != null && maxYears != null && minYears > maxYears) {
       throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, "경력 최소 연차는 최대 연차보다 클 수 없습니다.", [
         { field: "careerMinYears", reason: "GREATER_THAN_MAX" },
+      ]);
+    }
+  }
+
+  // 회사 위치 검증: 위도/경도는 함께여야 하고, 좌표가 있으면 주소가 필요하다.
+  // (주소만 있는 것은 허용 — 지도 키 미설정 시 좌표 없이 주소만 저장하는 정상 흐름)
+  private assertWorkplaceLocation(address?: string, lat?: number | null, lng?: number | null) {
+    const hasLat = lat != null;
+    const hasLng = lng != null;
+    if (hasLat !== hasLng) {
+      throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, "위도와 경도는 함께 입력해야 합니다.", [
+        { field: "workplaceLat", reason: "COORDINATE_PAIR_REQUIRED" },
+      ]);
+    }
+    if ((hasLat || hasLng) && !address?.trim()) {
+      throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, "좌표를 저장하려면 주소가 필요합니다.", [
+        { field: "workplaceAddress", reason: "REQUIRED_WITH_COORDINATES" },
       ]);
     }
   }
@@ -182,6 +200,11 @@ export class CompanyRecruitingService {
     this.assertCareerRange(
       dto.careerMinYears ?? posting.careerMinYears,
       dto.careerMaxYears ?? posting.careerMaxYears,
+    );
+    this.assertWorkplaceLocation(
+      dto.workplaceAddress ?? posting.workplaceAddress ?? undefined,
+      dto.workplaceLat ?? posting.workplaceLat,
+      dto.workplaceLng ?? posting.workplaceLng,
     );
 
     const updated = await this.repository.updatePosting(recruitmentId, companyId, {
@@ -474,6 +497,9 @@ export class CompanyRecruitingService {
       careerMaxYears: posting.careerMaxYears,
       employmentTypeCode: posting.employmentTypeCode,
       recruitmentType: posting.recruitmentType,
+      workplaceAddress: posting.workplaceAddress,
+      workplaceLat: posting.workplaceLat,
+      workplaceLng: posting.workplaceLng,
       startsOn: null,
       endsOn: null,
       status: PostingStatus.DRAFT,
@@ -1058,6 +1084,9 @@ function buildPostingExtraInfoInput(dto: CreateRecruitmentDto | UpdateRecruitmen
     careerMaxYears: dto.careerMaxYears,
     employmentTypeCode: dto.employmentTypeCode,
     recruitmentType: dto.recruitmentType,
+    workplaceAddress: dto.workplaceAddress,
+    workplaceLat: dto.workplaceLat,
+    workplaceLng: dto.workplaceLng,
   };
 }
 
@@ -1163,6 +1192,9 @@ function toRecruitmentResponse(posting: RecruitmentRecord) {
     careerMaxYears: posting.careerMaxYears,
     employmentTypeCode: posting.employmentTypeCode,
     recruitmentType: posting.recruitmentType,
+    workplaceAddress: posting.workplaceAddress,
+    workplaceLat: posting.workplaceLat,
+    workplaceLng: posting.workplaceLng,
     startsOn: posting.startsOn ? formatDate(posting.startsOn) : null,
     endsOn: posting.endsOn ? formatDate(posting.endsOn) : null,
     status: posting.status,
@@ -1475,7 +1507,7 @@ function buildRecruitingIntegrityReasons(counts: RecruitingIntegrityCounts) {
   if (counts.cameraLost > 0) reasons.push(`카메라 연결 이탈 ${counts.cameraLost}회`);
   if (counts.faceMissing > 0) reasons.push(`얼굴 미검출 ${counts.faceMissing}회`);
   if (counts.faceOutOfFrame > 0) reasons.push(`얼굴 화면 밖 ${counts.faceOutOfFrame}회`);
-  if (counts.multipleFaces > 0) reasons.push(`여러 얼굴 감지 ${counts.multipleFaces}회`);
+  if (counts.multipleFaces > 0) reasons.push(`여러 사람 감지 ${counts.multipleFaces}회`);
   if (counts.facePositionShift > 0) reasons.push(`얼굴 위치 급변 ${counts.facePositionShift}회`);
   if (counts.gazeAway > 0) reasons.push(`시선 이탈 ${counts.gazeAway}회`);
   if (counts.voiceMouthMismatch > 0) reasons.push(`음성-입모양 불일치 ${counts.voiceMouthMismatch}회`);

@@ -60,6 +60,8 @@ const SUMMARY_FIELDS = new Set([
   "earlyScreenAwayCount",
   "faceDetectionSupported",
   "faceDetectionFrameCount",
+  "personDetectionSupported",
+  "personDetectionFrameCount",
   "gazeDetectionSupported",
   "gazeDetectionFrameCount",
   "headPoseDetectionSupported",
@@ -87,6 +89,7 @@ const COUNTER_FIELDS = [
 ] as const;
 const SUMMARY_BOOLEAN_FIELDS = [
   "faceDetectionSupported",
+  "personDetectionSupported",
   "gazeDetectionSupported",
   "headPoseDetectionSupported",
   "mouthSyncSupported",
@@ -94,6 +97,7 @@ const SUMMARY_BOOLEAN_FIELDS = [
 ] as const;
 const SUMMARY_COUNTER_FIELDS = [
   "faceDetectionFrameCount",
+  "personDetectionFrameCount",
   "gazeDetectionFrameCount",
   "headPoseDetectionFrameCount",
   "mouthSyncFrameCount",
