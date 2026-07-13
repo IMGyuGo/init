@@ -95,6 +95,7 @@ import {
 } from "./nonverbal-integrity";
 import {
   INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES,
+  evaluateTimelineAnalysisQuality,
   readGazeAwayIntervals,
   readGazeTimeline,
   readHeadPoseTimeline,
@@ -8351,7 +8352,15 @@ function MockVisualAnalysisPanel({
     () => readGazeAwayIntervals(metadata, analysisDurationMs),
     [analysisDurationMs, metadata],
   );
-  const activeTimelineEmpty = activeTab === "gaze" ? gazeTimeline.length === 0 : headPoseTimeline.length === 0;
+  const gazeAnalysisQuality = useMemo(
+    () => evaluateTimelineAnalysisQuality(gazeTimeline.length, durationMs),
+    [durationMs, gazeTimeline.length],
+  );
+  const headPoseAnalysisQuality = useMemo(
+    () => evaluateTimelineAnalysisQuality(headPoseTimeline.length, durationMs),
+    [durationMs, headPoseTimeline.length],
+  );
+  const activeAnalysisQuality = activeTab === "gaze" ? gazeAnalysisQuality : headPoseAnalysisQuality;
 
   return (
     <section className="report-visual-analysis" aria-label="답변 비언어 세부 분석">
@@ -8386,10 +8395,14 @@ function MockVisualAnalysisPanel({
         </button>
       </div>
 
-      {activeTimelineEmpty ? (
+      {activeAnalysisQuality.status === "INSUFFICIENT" ? (
         <div className="report-visual-analysis__empty">
-          <strong>세부 분석 데이터가 없습니다.</strong>
-          <p>이 답변은 시계열 수집 도입 전에 저장됐거나 카메라 랜드마크를 충분히 감지하지 못했습니다.</p>
+          <strong>분석 표본이 부족합니다.</strong>
+          <p>
+            {activeAnalysisQuality.reason === "NO_SAMPLES"
+              ? "수집 이전 답변이거나 카메라에서 얼굴과 눈을 안정적으로 감지하지 못해 이 항목을 평가하지 않았습니다."
+              : "카메라 해상도·조명 또는 얼굴과 눈의 감지 상태로 표본을 충분히 확보하지 못해 이 항목을 평가하지 않았습니다."}
+          </p>
         </div>
       ) : activeTab === "gaze" ? (
         <div className="report-visual-analysis__body" role="tabpanel">

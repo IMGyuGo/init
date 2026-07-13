@@ -37,6 +37,7 @@ import {
   updateSustainedDetectionState,
 } from "./nonverbal-integrity";
 import {
+  evaluateTimelineAnalysisQuality,
   readGazeAwayIntervals,
   readGazeTimeline,
   readHeadPoseTimeline,
@@ -285,6 +286,26 @@ assert.deepEqual(
     { startMs: 9500, endMs: 10000, direction: "DOWN" },
   ],
 );
+
+assert.deepEqual(evaluateTimelineAnalysisQuality(0, 30000), {
+  status: "INSUFFICIENT",
+  reason: "NO_SAMPLES",
+  sampleCount: 0,
+  requiredSampleCount: 10,
+});
+assert.deepEqual(evaluateTimelineAnalysisQuality(9, 30000), {
+  status: "INSUFFICIENT",
+  reason: "LOW_COVERAGE",
+  sampleCount: 9,
+  requiredSampleCount: 10,
+});
+assert.deepEqual(evaluateTimelineAnalysisQuality(10, 30000), {
+  status: "AVAILABLE",
+  sampleCount: 10,
+  requiredSampleCount: 10,
+});
+assert.equal(evaluateTimelineAnalysisQuality(2, 5000).status, "INSUFFICIENT");
+assert.equal(evaluateTimelineAnalysisQuality(3, 5000).status, "AVAILABLE");
 
 const headPoseTimeline = readHeadPoseTimeline({
   headPoseTimeline: [

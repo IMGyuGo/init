@@ -36,10 +36,46 @@ export type HeadPoseTimelineSummary = {
   maxRollDegrees: number;
 };
 
+export type TimelineAnalysisQuality = {
+  status: "AVAILABLE" | "INSUFFICIENT";
+  reason?: "NO_SAMPLES" | "LOW_COVERAGE";
+  sampleCount: number;
+  requiredSampleCount: number;
+};
+
 export const INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES = 120;
 
 const GAZE_DIRECTIONS: readonly InterviewGazeDirection[] = ["CENTER", "LEFT", "RIGHT", "UP", "DOWN"];
 const GAZE_AWAY_DIRECTIONS: readonly Exclude<InterviewGazeDirection, "CENTER">[] = ["LEFT", "RIGHT", "UP", "DOWN"];
+const TIMELINE_SAMPLE_INTERVAL_MS = 1000;
+const TIMELINE_CALIBRATION_WARMUP_MS = 2000;
+const TIMELINE_MINIMUM_SAMPLE_COUNT = 3;
+const TIMELINE_MINIMUM_COVERAGE_RATIO = 0.35;
+
+export function evaluateTimelineAnalysisQuality(
+  sampleCount: number,
+  durationMs: number,
+): TimelineAnalysisQuality {
+  const normalizedSampleCount = Number.isFinite(sampleCount) ? Math.max(0, Math.floor(sampleCount)) : 0;
+  const normalizedDurationMs = Number.isFinite(durationMs) ? Math.max(0, durationMs) : 0;
+  const expectedSampleCount = Math.min(
+    INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES,
+    Math.max(1, Math.floor(Math.max(0, normalizedDurationMs - TIMELINE_CALIBRATION_WARMUP_MS) / TIMELINE_SAMPLE_INTERVAL_MS)),
+  );
+  const requiredSampleCount = Math.max(
+    TIMELINE_MINIMUM_SAMPLE_COUNT,
+    Math.ceil(expectedSampleCount * TIMELINE_MINIMUM_COVERAGE_RATIO),
+  );
+  if (normalizedSampleCount >= requiredSampleCount) {
+    return { status: "AVAILABLE", sampleCount: normalizedSampleCount, requiredSampleCount };
+  }
+  return {
+    status: "INSUFFICIENT",
+    reason: normalizedSampleCount === 0 ? "NO_SAMPLES" : "LOW_COVERAGE",
+    sampleCount: normalizedSampleCount,
+    requiredSampleCount,
+  };
+}
 
 export function readGazeAwayIntervals(
   metadata: Record<string, unknown> | undefined,
