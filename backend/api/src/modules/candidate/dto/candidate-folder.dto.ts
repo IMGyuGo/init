@@ -26,6 +26,11 @@ export class CreateCandidateFolderDto {
   resumeFileId?: number | null;
 
   @IsOptional()
+  @IsInt()
+  @Min(1)
+  portfolioFileId?: number | null;
+
+  @IsOptional()
   @IsString()
   @MaxLength(3000)
   motivation?: string | null;
@@ -61,6 +66,11 @@ export class UpdateCandidateFolderDto {
   @IsInt()
   @Min(1)
   resumeFileId?: number | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  portfolioFileId?: number | null;
 
   @IsOptional()
   @IsString()

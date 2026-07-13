@@ -1,6 +1,7 @@
 export const candidateApiRoutePrefix = "candidate";
 
 export const candidateApiRoutes = {
+  profile: "profile",
   jobs: "jobs",
   jobDetail: "jobs/:jobId",
   applyView: "jobs/:jobId/apply",
