@@ -2,8 +2,19 @@ import { AiResultRepository } from "./ai-result.repository";
 import { createAiProcessUsage } from "./ai-usage";
 import { FollowUpAiProvider } from "./openai-follow-up.provider";
 import { PostingDraftAiProvider, PostingDraftGenerationResult } from "./openai-posting-draft.provider";
-import { QuestionAiProvider, QuestionGenerationResult } from "./openai-question.provider";
+import {
+  QuestionAiProvider,
+  QuestionGenerationCriterion,
+  QuestionGenerationInput,
+  QuestionGenerationResult,
+} from "./openai-question.provider";
 import { ReportAiProvider, ReportGenerationResult } from "./openai-report.provider";
+import {
+  alignNcsQuestion,
+  markQuestionReviewRequired,
+  NcsApiProfileId,
+  NcsQuestionMode,
+} from "./ncs-question-alignment.adapter";
 import { sanitizePostingDraftHtml } from "./posting-draft-html";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import { AiTaskHandler, AiTaskResult, AiWorkerJob } from "./worker.types";
@@ -168,14 +179,30 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
 
     const postingId = positiveNumber(payload.postingId, "postingId");
     const questionCount = positiveNumber(payload.questionCount, "questionCount");
-    const generated = await this.questionProvider.generateQuestions({
+    const criteria = criteriaOf(payload.criteria);
+    const generationInput: QuestionGenerationInput = {
       kind,
       postingId,
       jobDescription: requiredText(payload.jobDescription, "jobDescription"),
       questionCount,
-      criteria: criteriaOf(payload.criteria)
-    });
-    const questionCandidates = sanitizeQuestionGenerationResult(generated);
+      criteria,
+    };
+    const generated = isNcsCriteria(criteria)
+      ? await generateAlignedNcsQuestions(this.questionProvider, generationInput)
+      : await this.questionProvider.generateQuestions(generationInput);
+    const questionCandidates = isNcsCriteria(criteria)
+      ? generated.questionCandidates
+      : sanitizeQuestionGenerationResult(generated).map((candidate) => ({
+          ...candidate,
+          source: "JD_CRITERIA" as const,
+          ncsProfileId: null,
+          ncsQuestionMode: null,
+          ncsProfileVersion: null,
+          alignmentStatus: "NOT_EVALUATED" as const,
+          alignmentScore: null,
+          alignmentReason: null,
+          evaluatorVersion: null,
+        }));
     const savedDraft = {
       kind: "RECRUITING_QUESTION_GENERATE",
       sourceProcessLogId: job.processLogId,
@@ -295,7 +322,7 @@ function reportTypeOf(value: unknown): "RECRUITING_REPORT" | "MOCK_INTERVIEW_REP
   throw new NonRetryableAiWorkerFailure("reportType is invalid");
 }
 
-function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; category?: string; weight?: number; description?: string }> {
+function criteriaOf(value: unknown): QuestionGenerationCriterion[] {
   if (!Array.isArray(value) || value.length === 0) {
     throw new NonRetryableAiWorkerFailure("criteria is required");
   }
@@ -310,9 +337,178 @@ function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; 
       name: requiredText(record.name, "criterion name"),
       category: optionalText(record.category),
       description: typeof record.description === "string" ? record.description : undefined,
-      weight: Number.isFinite(Number(record.weight)) ? Number(record.weight) : undefined
+      weight: Number.isFinite(Number(record.weight)) ? Number(record.weight) : undefined,
+      questionCount: optionalPositiveNumber(record.questionCount, "questionCount"),
+      ncsProfileId: ncsProfileIdOf(record.ncsProfileId),
+      ncsQuestionMode: ncsQuestionModeOf(record.ncsQuestionMode),
+      ncsProfileVersion: optionalText(record.ncsProfileVersion),
     };
   });
+}
+
+type NcsGenerationCriterion = QuestionGenerationCriterion & {
+  questionCount: number;
+  ncsProfileId: NcsApiProfileId;
+  ncsQuestionMode: NcsQuestionMode;
+  ncsProfileVersion: string;
+};
+
+type SanitizedQuestionCandidate = ReturnType<typeof sanitizeQuestionGenerationResult>[number];
+
+async function generateAlignedNcsQuestions(
+  provider: QuestionAiProvider,
+  input: QuestionGenerationInput,
+): Promise<QuestionGenerationResult> {
+  const criteria = input.criteria as NcsGenerationCriterion[];
+  const allocatedTotal = criteria.reduce((sum, criterion) => sum + criterion.questionCount, 0);
+  if (allocatedTotal !== input.questionCount) {
+    throw new NonRetryableAiWorkerFailure("NCS criterion allocation must equal questionCount");
+  }
+
+  const remaining = new Map(criteria.map((criterion) => [criterion.criterionId, criterion.questionCount]));
+  const accepted: Array<SanitizedQuestionCandidate & Record<string, unknown>> = [];
+  const reviewCandidates = new Map<number, Array<SanitizedQuestionCandidate & Record<string, unknown>>>();
+  let latestModel = "unknown";
+  let inputTokens = 0;
+  let outputTokens = 0;
+
+  const collect = async (requestedCriteria: NcsGenerationCriterion[]) => {
+    const requestedCount = requestedCriteria.reduce(
+      (sum, criterion) => sum + (remaining.get(criterion.criterionId) ?? 0),
+      0,
+    );
+    if (requestedCount === 0) return;
+
+    const generated = await provider.generateQuestions({
+      ...input,
+      questionCount: requestedCount,
+      criteria: requestedCriteria.map((criterion) => ({
+        ...criterion,
+        questionCount: remaining.get(criterion.criterionId) ?? 0,
+      })),
+    });
+    latestModel = generated.model;
+    inputTokens += generated.usage?.inputTokens ?? 0;
+    outputTokens += generated.usage?.outputTokens ?? 0;
+
+    for (const candidate of sanitizeQuestionGenerationResult(generated)) {
+      const criterion = requestedCriteria.find((item) => item.criterionId === candidate.criterionId);
+      const slots = remaining.get(candidate.criterionId) ?? 0;
+      if (!criterion || slots === 0) continue;
+
+      const alignment = alignNcsQuestion({
+        question: candidate.content,
+        profileId: criterion.ncsProfileId,
+        questionMode: criterion.ncsQuestionMode,
+        profileVersion: criterion.ncsProfileVersion,
+      });
+      const decorated = {
+        ...candidate,
+        source: "JD_CRITERIA" as const,
+        ncsProfileId: criterion.ncsProfileId,
+        ncsQuestionMode: criterion.ncsQuestionMode,
+        ncsProfileVersion: alignment.profileVersion,
+        alignmentStatus: alignment.status,
+        alignmentScore: alignment.score,
+        alignmentReason: alignment.reason,
+        evaluatorVersion: alignment.evaluatorVersion,
+      };
+
+      if (alignment.status === "ALIGNED") {
+        accepted.push(decorated);
+        remaining.set(candidate.criterionId, slots - 1);
+      } else {
+        const current = reviewCandidates.get(candidate.criterionId) ?? [];
+        current.push(decorated);
+        reviewCandidates.set(candidate.criterionId, current);
+      }
+    }
+  };
+
+  for (let attempt = 0; attempt < 3 && totalRemaining(remaining) > 0; attempt += 1) {
+    await collect(criteria.filter((criterion) => (remaining.get(criterion.criterionId) ?? 0) > 0));
+  }
+
+  const fallbackCriteria = criteria
+    .filter((criterion) => (remaining.get(criterion.criterionId) ?? 0) > 0)
+    .map((criterion) => fallbackCriterion(criterion))
+    .filter((criterion): criterion is NcsGenerationCriterion => criterion !== null);
+  await collect(fallbackCriteria);
+
+  for (const criterion of criteria) {
+    const missing = remaining.get(criterion.criterionId) ?? 0;
+    if (missing === 0) continue;
+    const candidates = reviewCandidates.get(criterion.criterionId) ?? [];
+    if (candidates.length < missing) {
+      throw new NonRetryableAiWorkerFailure(
+        `question provider did not return enough candidates for criterion ${criterion.criterionId}`,
+      );
+    }
+    accepted.push(
+      ...candidates.slice(-missing).map((candidate) => {
+        const review = markQuestionReviewRequired({
+          status: candidate.alignmentStatus as "LOW_ALIGNMENT" | "REVIEW_REQUIRED",
+          score: candidate.alignmentScore as number | null,
+          reason: candidate.alignmentReason as string | null,
+          evaluatorVersion: candidate.evaluatorVersion as "ncs-question-alignment-v1",
+          profileVersion: candidate.ncsProfileVersion as "2025.12-v1",
+        });
+        return {
+          ...candidate,
+          alignmentStatus: review.status,
+          alignmentReason: review.reason,
+        };
+      }),
+    );
+  }
+
+  return {
+    questionCandidates: accepted.slice(0, input.questionCount),
+    model: latestModel,
+    usage: {
+      inputTokens: inputTokens || undefined,
+      outputTokens: outputTokens || undefined,
+    },
+  };
+}
+
+function isNcsCriteria(criteria: QuestionGenerationCriterion[]): criteria is NcsGenerationCriterion[] {
+  return (
+    criteria.length > 0 &&
+    criteria.every(
+      (criterion) =>
+        criterion.questionCount !== undefined &&
+        criterion.ncsProfileId !== undefined &&
+        criterion.ncsQuestionMode !== undefined &&
+        criterion.ncsProfileVersion !== undefined,
+    )
+  );
+}
+
+function fallbackCriterion(criterion: NcsGenerationCriterion): NcsGenerationCriterion | null {
+  if (criterion.ncsProfileId === "PROBLEM_SOLVING" && criterion.ncsQuestionMode === "EXPERIENCE_BEHAVIOR") {
+    return { ...criterion, ncsQuestionMode: "SITUATIONAL_DESIGN" };
+  }
+  if (criterion.ncsProfileId === "DIGITAL" && criterion.ncsQuestionMode === "TECHNICAL_KNOWLEDGE") {
+    return { ...criterion, ncsQuestionMode: "EXPERIENCE_BEHAVIOR" };
+  }
+  return null;
+}
+
+function totalRemaining(remaining: Map<number, number>): number {
+  return [...remaining.values()].reduce((sum, count) => sum + count, 0);
+}
+
+function ncsProfileIdOf(value: unknown): NcsApiProfileId | undefined {
+  return value === "PROBLEM_SOLVING" || value === "COMMUNICATION" || value === "DIGITAL"
+    ? value
+    : undefined;
+}
+
+function ncsQuestionModeOf(value: unknown): NcsQuestionMode | undefined {
+  return value === "EXPERIENCE_BEHAVIOR" || value === "TECHNICAL_KNOWLEDGE" || value === "SITUATIONAL_DESIGN"
+    ? value
+    : undefined;
 }
 
 function sanitizeQuestionGenerationResult(generated: QuestionGenerationResult) {

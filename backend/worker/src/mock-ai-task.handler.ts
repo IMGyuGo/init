@@ -14,6 +14,11 @@ import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import { AiTaskHandler, AiTaskResult, AiWorkerJob } from "./worker.types";
 import { SttProvider } from "./stt-provider";
 import {
+  alignNcsQuestion,
+  NcsApiProfileId,
+  NcsQuestionMode,
+} from "./ncs-question-alignment.adapter";
+import {
   assessReportEvidence,
   normalizeReportCriterionName,
   scoreBandFor,
@@ -482,11 +487,29 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const jobDescription = kind.startsWith("MOCK") ? undefined : requiredText(payload.jobDescription, "jobDescription");
     const folderContext = kind.startsWith("MOCK") ? mockQuestionFolderContextOf(payload.folderContext) : undefined;
 
+    const allocatedCriteria = criteria.some((criterion) => criterion.questionCount !== undefined)
+      ? criteria.flatMap((criterion) =>
+          Array.from({ length: criterion.questionCount ?? 0 }, () => criterion),
+        )
+      : Array.from({ length: questionCount }, (_, index) => criteria[index % Math.max(criteria.length, 1)]);
+    if (!kind.startsWith("MOCK") && allocatedCriteria.length !== questionCount) {
+      throw new NonRetryableAiWorkerFailure("NCS criterion allocation must equal questionCount");
+    }
+
     const questionCandidates = Array.from({ length: questionCount }, (_, index) => {
-      const criterion = criteria[index % Math.max(criteria.length, 1)];
+      const criterion = allocatedCriteria[index];
       const content = kind.startsWith("MOCK")
         ? buildMockQuestionCandidate(index, folderContext)
-        : `${criterion.name} 기준으로 ${shorten(jobDescription ?? "")} 경험을 검증할 수 있는 사례를 설명해주세요.`;
+        : buildRecruitingQuestionCandidate(criterion, jobDescription ?? "");
+
+      const alignment = criterion?.ncsProfileId && criterion.ncsQuestionMode && criterion.ncsProfileVersion
+        ? alignNcsQuestion({
+            question: content,
+            profileId: criterion.ncsProfileId,
+            questionMode: criterion.ncsQuestionMode,
+            profileVersion: criterion.ncsProfileVersion,
+          })
+        : null;
 
       return {
         content,
@@ -500,7 +523,23 @@ export class MockAiTaskHandler implements AiTaskHandler {
           : folderContext
             ? "지원서 세트의 이력서, URL, 지원 동기, 추가 설명을 바탕으로 검증 가능한 답변을 유도합니다."
             : "면접 연습을 위해 검증 가능한 답변을 유도합니다.",
-        questionType: index % 2 === 0 ? "TECHNICAL" : "EXPERIENCE"
+        questionType: criterion?.ncsQuestionMode === "TECHNICAL_KNOWLEDGE"
+          ? "TECHNICAL"
+          : criterion?.ncsQuestionMode === "SITUATIONAL_DESIGN"
+            ? "SITUATION"
+            : index % 2 === 0 ? "TECHNICAL" : "EXPERIENCE",
+        source: kind.startsWith("MOCK") ? undefined : "JD_CRITERIA" as const,
+        ncsProfileId: criterion?.ncsProfileId ?? null,
+        ncsQuestionMode: criterion?.ncsQuestionMode ?? null,
+        ncsProfileVersion: alignment?.profileVersion ?? null,
+        alignmentStatus: (alignment?.status ?? "NOT_EVALUATED") as
+          | "NOT_EVALUATED"
+          | "ALIGNED"
+          | "LOW_ALIGNMENT"
+          | "REVIEW_REQUIRED",
+        alignmentScore: alignment?.score ?? null,
+        alignmentReason: alignment?.reason ?? null,
+        evaluatorVersion: alignment?.evaluatorVersion ?? null,
       };
     });
     const items = questionCandidates.map((candidate) => candidate.content);
@@ -1061,7 +1100,17 @@ function reportTypeOf(value: unknown): GeneratedReportRecord["reportType"] {
   throw new NonRetryableAiWorkerFailure("reportType is invalid");
 }
 
-function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; weight: number; category?: string; description?: string }> {
+function criteriaOf(value: unknown): Array<{
+  criterionId: number;
+  name: string;
+  weight: number;
+  category?: string;
+  description?: string;
+  questionCount?: number;
+  ncsProfileId?: NcsApiProfileId;
+  ncsQuestionMode?: NcsQuestionMode;
+  ncsProfileVersion?: string;
+}> {
   if (!Array.isArray(value) || value.length === 0) {
     throw new NonRetryableAiWorkerFailure("criteria is required");
   }
@@ -1076,9 +1125,42 @@ function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; 
       name: requiredText(record.name, "criterion name"),
       category: typeof record.category === "string" ? record.category : undefined,
       description: typeof record.description === "string" ? record.description : undefined,
-      weight: Number.isFinite(Number(record.weight)) ? Number(record.weight) : 0
+      weight: Number.isFinite(Number(record.weight)) ? Number(record.weight) : 0,
+      questionCount: optionalPositiveNumber(record.questionCount, "questionCount"),
+      ncsProfileId: ncsProfileIdOf(record.ncsProfileId),
+      ncsQuestionMode: ncsQuestionModeOf(record.ncsQuestionMode),
+      ncsProfileVersion: optionalText(record.ncsProfileVersion),
     };
   });
+}
+
+function buildRecruitingQuestionCandidate(
+  criterion: ReturnType<typeof criteriaOf>[number],
+  jobDescription: string,
+): string {
+  const jd = shorten(jobDescription);
+  if (criterion.ncsProfileId === "PROBLEM_SOLVING") {
+    return `${jd} 업무에서 문제 원인을 분석하고 대안을 비교해 선택한 뒤 결과를 어떻게 검증했는지 설명해주세요.`;
+  }
+  if (criterion.ncsProfileId === "COMMUNICATION") {
+    return `${jd} 업무를 상대에 맞춰 구조적으로 설명하고 협업 과정의 이해와 합의를 어떻게 확인했는지 설명해주세요.`;
+  }
+  if (criterion.ncsProfileId === "DIGITAL") {
+    return `${jd} 관련 기술의 동작 원리와 선택 이유, 실무 적용 방식, 장애와 보안 위험을 어떻게 검증했는지 설명해주세요.`;
+  }
+  return `${criterion.name} 기준으로 ${jd} 경험을 검증할 수 있는 사례를 설명해주세요.`;
+}
+
+function ncsProfileIdOf(value: unknown): NcsApiProfileId | undefined {
+  return value === "PROBLEM_SOLVING" || value === "COMMUNICATION" || value === "DIGITAL"
+    ? value
+    : undefined;
+}
+
+function ncsQuestionModeOf(value: unknown): NcsQuestionMode | undefined {
+  return value === "EXPERIENCE_BEHAVIOR" || value === "TECHNICAL_KNOWLEDGE" || value === "SITUATIONAL_DESIGN"
+    ? value
+    : undefined;
 }
 
 function answersOf(value: unknown): ReportAnswerForScoring[] {

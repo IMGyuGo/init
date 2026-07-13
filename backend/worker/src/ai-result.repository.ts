@@ -60,6 +60,14 @@ export interface GeneratedDraftRecord {
     expectedKeywords: string[];
     suggestionReason: string;
     questionType?: string;
+    source?: "JD_CRITERIA";
+    ncsProfileId?: "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL" | null;
+    ncsQuestionMode?: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN" | null;
+    ncsProfileVersion?: string | null;
+    alignmentStatus?: "NOT_EVALUATED" | "ALIGNED" | "LOW_ALIGNMENT" | "REVIEW_REQUIRED";
+    alignmentScore?: number | null;
+    alignmentReason?: string | null;
+    evaluatorVersion?: string | null;
   }>;
   questionSetPreview?: Array<{
     criterionId?: number;

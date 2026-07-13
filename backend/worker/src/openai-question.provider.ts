@@ -9,6 +9,10 @@ export interface QuestionGenerationCriterion {
   category?: string;
   weight?: number;
   description?: string;
+  questionCount?: number;
+  ncsProfileId?: "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL";
+  ncsQuestionMode?: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
+  ncsProfileVersion?: string;
 }
 
 export interface QuestionGenerationInput {
@@ -84,6 +88,11 @@ export function buildQuestionMessages(input: QuestionGenerationInput): Array<{ r
         "You generate Korean common interview question candidates for a company interview settings screen.",
         "Return JSON only with key questionCandidates.",
         "Every question candidate must use exactly one criterionId from the provided criteria array.",
+        "When criteria[].questionCount is provided, generate exactly that many candidates for each criterion.",
+        "For NCS criteria, make the question collect observable evidence for the provided ncsProfileId and ncsQuestionMode.",
+        "Problem solving questions must ask for problem analysis, alternative selection, and result validation evidence.",
+        "Communication questions must ask for structured explanation, audience adjustment, and mutual-understanding confirmation evidence.",
+        "Digital questions must ask for technical principles, practical application, and risk validation evidence.",
         "Do not invent criterionId values. Do not omit criterionId.",
         "criterionTitle must equal the matched criterion name.",
         "category must equal the matched criterion category when provided, otherwise use a concise Korean category.",

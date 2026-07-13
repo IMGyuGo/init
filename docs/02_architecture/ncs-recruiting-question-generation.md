@@ -178,7 +178,7 @@ Prisma model 이름은 `ApplicationInterviewQuestion`으로 고정한다. 이 ta
 각 단계에서 Prisma/SQL을 변경하기 전에 다음을 확인한다.
 
 - NQ-M1: A의 migration/shared enum 위치, PM의 질문 개수와 NCS 태그 정책
-- NQ-M2: E의 NCS profile ID, mode, alignment output/version 최종 계약
+- NQ-M2: worker 소유 `NcsQuestionAlignmentAdapter`가 `2025.12-v1` profile과 versioned alignment 결과를 제공하고 C는 결과만 소비한다.
 - NQ-M3: D의 지원 완료·문서 추출 이벤트, A/E의 SQS idempotency/lease와 개인정보 로그 정책
 - NQ-M4: D의 세션 생성 transaction과 공통·개인화 질문 순서
 

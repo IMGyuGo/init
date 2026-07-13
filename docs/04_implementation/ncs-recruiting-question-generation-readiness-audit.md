@@ -19,8 +19,9 @@ NQ-M0 계약을 다시 읽고 다음을 분리한다.
 | NQ-M0 문서 작성 | COMPLETE | API, enum, 논리 모델, 제품 흐름, 테스트 기준 작성 완료 |
 | C 자체 정합성 보완 | COMPLETE | 이번 audit에서 발견한 C 범위 모순과 누락 보정 |
 | Cross-owner sign-off | PENDING | review request의 M0 blocker 승인 필요 |
-| NQ-M1 코드/DB/UI | NOT_STARTED | 리뷰 반영 후 별도 구현 |
-| NQ-M2~M4 통합 | NOT_STARTED | E/D/A 계약과 선행 milestone 필요 |
+| NQ-M1 코드/DB/UI | COMPLETE | 정책 table/API/UI와 NCS criteria snapshot 구현 완료 |
+| NQ-M2 통합 | IN_PROGRESS | 사용자 승인에 따라 M2 adapter/API/DB/UI 계약 구현 중 |
+| NQ-M3~M4 통합 | NOT_STARTED | D/E/A 계약과 선행 milestone 필요 |
 
 ## Hardened In This Audit
 
@@ -101,9 +102,9 @@ C 단독 구현 대상이 아니다.
 
 READY 이후 policy/criteria/JD/resume가 바뀌었을 때 사용할 상태가 없다. 현재 enum만으로는 READY를 유지하거나 부정확한 WAITING_DOCUMENT로 되돌려야 한다. `R-D-03`에서 `STALE` 추가 여부를 결정해야 한다.
 
-### Two Question Count Sources
+### Two Question Count Sources (Resolved For M2)
 
-API-039의 `questionCount`와 API-097의 `jdCriteriaQuestionCount`가 동시에 존재한다. NCS에서 둘이 다르면 세션 질문 수가 결정되지 않는다. `R-X-01` 승인 전에는 NQ-M2 질문 세트 구현을 시작하지 않는다.
+NCS에서는 API-097의 `jdCriteriaQuestionCount`를 정본으로 사용한다. API-038과 API-039가 전달받은 legacy `questionCount`는 저장된 값과 다르면 거부하고, ACTIVE 질문 세트에는 `JD_CRITERIA + ALIGNED` 질문만 포함한다.
 
 ### Manual NCS Question Alignment
 

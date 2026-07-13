@@ -21,24 +21,36 @@ Comment: 변경할 필드명, enum, 상태 전이 또는 이유
 
 | ID | Decision | Primary Reviewer | Additional Review | Blocks | Decision Required |
 | --- | --- | --- | --- | --- | --- |
-| R-E-01 | PENDING | E | C, PM | M0, M2, M5 | NCS profile ID/mode/version과 alignment output canonical shape |
-| R-E-02 | PENDING | E | C, PM | M0, M2 | 정렬 재시도, fallback, threshold 소유권 |
+| R-E-01 | APPROVED | E | C, PM | M0, M2, M5 | NCS profile ID/mode/version과 alignment output canonical shape |
+| R-E-02 | APPROVED | E | C, PM | M0, M2 | 정렬 재시도, fallback, threshold 소유권 |
 | R-E-03 | PENDING | E | A, C, D | M0, M3 | 개인화 질문 batch와 AI process retry 기록 방식 |
 | R-E-04 | PENDING | E | A, PM | M3 | 질문 생성 guardrail과 민감정보 제거 결과 |
 | R-D-01 | PENDING | D | B, E, C | M0, M3 | 지원 완료·문서 추출 완료 trigger와 이력서 snapshot 시점 |
 | R-D-02 | PENDING | D | C, E, PM | M0, M4 | 세션 생성 readiness gate와 공통·개인화 질문 순서 |
 | R-D-03 | PENDING | D | B, C, E, PM | M0, M3, M4 | 정책·기준·JD·이력서 변경 후 기존 batch 처리 |
-| R-B-01 | PENDING | B | C, E | M0, M2, M3 | 생성 입력으로 사용할 JD 정본과 JD version/hash |
+| R-B-01 | APPROVED | B | C, E | M0, M2, M3 | 생성 입력으로 사용할 JD 정본과 JD version/hash |
 | R-A-01 | PENDING | A | C, D, E | M0, M1, M3 | shared enum/DTO/error 위치와 migration 소유권 |
 | R-A-02 | PENDING | A | E, D | M0, M3 | SQS 멱등 claim/lease, retry, PII log 기준 |
 | R-A-03 | PENDING | A | C, PM | M1 | frontend/backend feature flag 이름과 rollout source |
 | R-PM-01 | PENDING | PM | C | M0, M1 | 질문 개수 범위·초깃값·경고/차단 UX |
-| R-PM-02 | PENDING | PM | C, E | M0, M2, M3 | REVIEW_REQUIRED 운영 정책과 수동 승인 허용 여부 |
+| R-PM-02 | APPROVED | PM | C, E | M0, M2, M3 | REVIEW_REQUIRED 운영 정책과 수동 승인 허용 여부 |
 | R-PM-03 | PENDING | PM | C, E | M0, M1 | NCS 3개 태그 표시명·설명·초기 배점·합격점 |
 | R-PM-04 | PENDING | PM | A, D, E | M3, M6 | 이력서 질문의 보관 기간·지원자 고지·운영자 노출 범위 |
-| R-X-01 | PENDING | C | D, E, PM | M0, M2, M4 | API-039 질문 세트와 API-097 질문 생성 정책의 정본 관계 |
+| R-X-01 | APPROVED | C | D, E, PM | M0, M2, M4 | API-039 질문 세트와 API-097 질문 생성 정책의 정본 관계 |
 
 ## E Review
+
+### M2 Implementation Decision (2026-07-14)
+
+사용자가 cross-owner 보류 사항을 저장소 기준으로 해소하고 M2를 진행하도록 승인했다. 아래 결정은 M2 구현 기준이며 E/A/PM 교차 리뷰 대상이다.
+
+- `R-E-01`: worker가 `NcsQuestionAlignmentAdapter`를 소유한다. 외부 결과는 `status`, `score`, `reason`, `evaluatorVersion`, `profileVersion`으로 고정한다.
+- `R-E-02`: 같은 profile/mode로 최초 생성 후 최대 2회 재생성하고, 허용된 fallback 1회를 적용한다. 임계값은 worker adapter 내부 버전 상수로만 관리한다.
+- `R-B-01`: API body의 JD를 신뢰하지 않고 `postings.job_description`을 정본으로 사용한다. M2 job에는 server-side snapshot만 전달한다.
+- `R-PM-02`: `ALIGNED` 후보만 질문 뱅크에 적용할 수 있다. `LOW_ALIGNMENT`, `REVIEW_REQUIRED` 강제 승인은 제공하지 않는다.
+- `R-X-01`: NCS 질문 수 정본은 API-097의 `jdCriteriaQuestionCount`다. API-039는 이 값과 동일한 JD 공통 질문만 ACTIVE 세트에 포함한다.
+
+팀원 브랜치의 `profileVersion=2025.12-v1`, question coverage 계산, threshold `0.6`을 worker adapter v1의 초기 구현으로 채택한다. C API/UI에는 threshold를 복제하지 않는다.
 
 ### R-E-01 NCS Adapter Canonical Contract
 
