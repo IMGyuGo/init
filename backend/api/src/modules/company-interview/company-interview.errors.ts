@@ -43,3 +43,27 @@ export function validationFailed(
     details,
   );
 }
+
+export function questionCountInvalid(
+  message = '질문 개수 정책을 확인해주세요.',
+  details: ErrorDetail[] = [],
+): never {
+  apiError(
+    ERROR_CODES.INTERVIEW_QUESTION_COUNT_INVALID,
+    message,
+    HttpStatus.BAD_REQUEST,
+    details,
+  );
+}
+
+export function ncsBindingInvalid(
+  message = 'NCS 평가 기준 연결을 확인해주세요.',
+  details: ErrorDetail[] = [],
+): never {
+  apiError(
+    ERROR_CODES.INTERVIEW_NCS_BINDING_INVALID,
+    message,
+    HttpStatus.UNPROCESSABLE_ENTITY,
+    details,
+  );
+}

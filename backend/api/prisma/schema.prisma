@@ -334,22 +334,33 @@ model EvaluationCriterion {
 }
 
 model Question {
-  questionId       BigInt                     @id @default(autoincrement()) @map("question_id")
-  companyId        BigInt                     @map("company_id")
-  postingId        BigInt?                    @map("posting_id")
-  criterionId      BigInt?                    @map("criterion_id")
-  questionType     QuestionType               @map("question_type")
-  content          String
-  origin           QuestionOrigin             @default(MANUAL)
-  isAiEdited       Boolean                    @default(false) @map("is_ai_edited")
-  isActive         Boolean                    @default(true) @map("is_active")
-  company          Company                    @relation(fields: [companyId], references: [companyId])
-  posting          Posting?                   @relation(fields: [postingId], references: [postingId])
-  criterion        EvaluationCriterion?       @relation(fields: [criterionId], references: [criterionId])
-  answers          InterviewAnswer[]
-  questionSetItems InterviewQuestionSetItem[]
-  sessionQuestions InterviewSessionQuestion[]
+  questionId        BigInt                     @id @default(autoincrement()) @map("question_id")
+  companyId         BigInt                     @map("company_id")
+  postingId         BigInt?                    @map("posting_id")
+  criterionId       BigInt?                    @map("criterion_id")
+  questionType      QuestionType               @map("question_type")
+  content           String
+  origin            QuestionOrigin             @default(MANUAL)
+  isAiEdited        Boolean                    @default(false) @map("is_ai_edited")
+  isActive          Boolean                    @default(true) @map("is_active")
+  generationSource  String?                    @map("generation_source") @db.VarChar(50)
+  ncsProfileId      String?                    @map("ncs_profile_id") @db.VarChar(50)
+  ncsQuestionMode   String?                    @map("ncs_question_mode") @db.VarChar(50)
+  ncsProfileVersion String?                    @map("ncs_profile_version") @db.VarChar(80)
+  alignmentStatus   String?                    @map("alignment_status") @db.VarChar(40)
+  alignmentScore    Decimal?                   @map("alignment_score") @db.Decimal(8, 6)
+  alignmentReason   String?                    @map("alignment_reason")
+  evaluatorVersion  String?                    @map("evaluator_version") @db.VarChar(80)
+  sourceProcessLogId BigInt?                   @map("source_process_log_id")
+  company            Company                    @relation(fields: [companyId], references: [companyId])
+  posting            Posting?                   @relation(fields: [postingId], references: [postingId])
+  criterion          EvaluationCriterion?       @relation(fields: [criterionId], references: [criterionId])
+  sourceProcessLog   AiProcessLog?               @relation(fields: [sourceProcessLogId], references: [processLogId], onDelete: SetNull)
+  answers            InterviewAnswer[]
+  questionSetItems   InterviewQuestionSetItem[]
+  sessionQuestions   InterviewSessionQuestion[]
 
+  @@index([sourceProcessLogId], map: "idx_question_bank_source_process_log")
   @@map("question_bank")
 }
 
@@ -663,6 +674,7 @@ model AiProcessLog {
   timingEvents          AiProcessTimingEvent[]
   clientPerformanceLogs ClientPerformanceLog[]
   createdQuestionSets   InterviewQuestionSet[]
+  generatedQuestions    Question[]
 
   @@map("ai_process_logs")
 }

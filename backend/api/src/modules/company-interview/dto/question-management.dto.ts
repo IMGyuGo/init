@@ -40,6 +40,12 @@ export class CreateInterviewQuestionDto {
   @IsOptional()
   @IsIn(QUESTION_ORIGINS)
   origin?: QuestionOrigin;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  sourceProcessLogId?: number;
 }
 
 export class UpdateInterviewQuestionDto {
@@ -71,6 +77,10 @@ export class InterviewQuestionResponseItemDto {
   ncsQuestionMode!: NcsQuestionMode | null;
   ncsProfileVersion!: string | null;
   alignmentStatus!: string | null;
+  alignmentScore!: number | null;
+  alignmentReason!: string | null;
+  evaluatorVersion!: string | null;
+  sourceProcessLogId!: number | null;
 }
 
 export class CreateInterviewQuestionResponseDto {

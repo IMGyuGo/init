@@ -63,7 +63,7 @@ const criterionTagSeeds = [
     sortOrder: 1,
     ncsProfileId: "DIGITAL",
     defaultNcsQuestionMode: "TECHNICAL_KNOWLEDGE",
-    ncsProfileVersion: "NCS_3_PROFILE_V1",
+    ncsProfileVersion: "2025.12-v1",
   },
   {
     tagId: 2,
@@ -74,7 +74,7 @@ const criterionTagSeeds = [
     sortOrder: 2,
     ncsProfileId: "PROBLEM_SOLVING",
     defaultNcsQuestionMode: "EXPERIENCE_BEHAVIOR",
-    ncsProfileVersion: "NCS_3_PROFILE_V1",
+    ncsProfileVersion: "2025.12-v1",
   },
   {
     tagId: 3,
@@ -96,7 +96,7 @@ const criterionTagSeeds = [
     sortOrder: 4,
     ncsProfileId: "COMMUNICATION",
     defaultNcsQuestionMode: "EXPERIENCE_BEHAVIOR",
-    ncsProfileVersion: "NCS_3_PROFILE_V1",
+    ncsProfileVersion: "2025.12-v1",
   },
   {
     tagId: 5,

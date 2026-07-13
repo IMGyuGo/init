@@ -16,6 +16,7 @@ import {
   CompanyInterviewRepository,
   ConfirmQuestionSetInput,
   CreateCriterionTagInput,
+  CreateQuestionInput,
   UpdateTimePolicyInput,
   UpdateCriterionInput,
   UpdateQuestionInput,
@@ -91,6 +92,28 @@ export class PrismaCompanyInterviewRepository
       (question) => normalizeQuestionContent(question.content) === normalized,
     );
     return duplicate ? mapQuestion(duplicate) : undefined;
+  }
+
+  async findQuestionGenerationProcess(processLogId: number) {
+    const process = await this.prisma.aiProcessLog.findUnique({
+      where: { processLogId: BigInt(processLogId) },
+      select: {
+        processLogId: true,
+        processType: true,
+        status: true,
+        inputRef: true,
+        outputRef: true,
+      },
+    });
+    return process
+      ? {
+          processLogId: Number(process.processLogId),
+          processType: process.processType,
+          status: process.status,
+          inputRef: process.inputRef,
+          outputRef: process.outputRef,
+        }
+      : undefined;
   }
 
   async listTags(): Promise<CriterionTagRecord[]> {
@@ -284,14 +307,7 @@ export class PrismaCompanyInterviewRepository
     });
   }
 
-  async createQuestion(input: {
-    companyId: number;
-    postingId: number;
-    criterionId: number;
-    questionType: QuestionType;
-    content: string;
-    origin: QuestionOrigin;
-  }): Promise<QuestionRecord> {
+  async createQuestion(input: CreateQuestionInput): Promise<QuestionRecord> {
     const question = await this.prisma.question.create({
       data: {
         companyId: BigInt(input.companyId),
@@ -302,6 +318,18 @@ export class PrismaCompanyInterviewRepository
         origin: input.origin,
         isAiEdited: false,
         isActive: true,
+        generationSource: input.generationSource,
+        ncsProfileId: input.ncsProfileId,
+        ncsQuestionMode: input.ncsQuestionMode,
+        ncsProfileVersion: input.ncsProfileVersion,
+        alignmentStatus: input.alignmentStatus,
+        alignmentScore: input.alignmentScore,
+        alignmentReason: input.alignmentReason,
+        evaluatorVersion: input.evaluatorVersion,
+        sourceProcessLogId:
+          input.sourceProcessLogId === null
+            ? null
+            : BigInt(input.sourceProcessLogId),
       },
     });
     return mapQuestion(question);
@@ -318,6 +346,13 @@ export class PrismaCompanyInterviewRepository
         questionType: input.questionType,
         content: input.content.trim(),
         isAiEdited: input.isAiEdited,
+        ncsProfileId: input.ncsProfileId,
+        ncsQuestionMode: input.ncsQuestionMode,
+        ncsProfileVersion: input.ncsProfileVersion,
+        alignmentStatus: input.alignmentStatus,
+        alignmentScore: input.alignmentScore,
+        alignmentReason: input.alignmentReason,
+        evaluatorVersion: input.evaluatorVersion,
       },
     });
     return mapQuestion(question);
@@ -512,6 +547,15 @@ function mapQuestion(question: {
   origin: QuestionOrigin;
   isAiEdited: boolean;
   isActive: boolean;
+  generationSource?: string | null;
+  ncsProfileId?: string | null;
+  ncsQuestionMode?: string | null;
+  ncsProfileVersion?: string | null;
+  alignmentStatus?: string | null;
+  alignmentScore?: { toString(): string } | number | null;
+  alignmentReason?: string | null;
+  evaluatorVersion?: string | null;
+  sourceProcessLogId?: bigint | null;
 }): QuestionRecord {
   return {
     questionId: Number(question.questionId),
@@ -524,6 +568,24 @@ function mapQuestion(question: {
     origin: question.origin,
     isAiEdited: question.isAiEdited,
     isActive: question.isActive,
+    generationSource:
+      (question.generationSource ?? null) as QuestionRecord['generationSource'],
+    ncsProfileId: (question.ncsProfileId ?? null) as QuestionRecord['ncsProfileId'],
+    ncsQuestionMode:
+      (question.ncsQuestionMode ?? null) as QuestionRecord['ncsQuestionMode'],
+    ncsProfileVersion: question.ncsProfileVersion ?? null,
+    alignmentStatus:
+      (question.alignmentStatus ?? null) as QuestionRecord['alignmentStatus'],
+    alignmentScore:
+      question.alignmentScore === null || question.alignmentScore === undefined
+        ? null
+        : Number(question.alignmentScore.toString()),
+    alignmentReason: question.alignmentReason ?? null,
+    evaluatorVersion: question.evaluatorVersion ?? null,
+    sourceProcessLogId:
+      question.sourceProcessLogId === null || question.sourceProcessLogId === undefined
+        ? null
+        : Number(question.sourceProcessLogId),
   };
 }
 

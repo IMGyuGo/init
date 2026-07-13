@@ -34,7 +34,9 @@ import {
 import {
   conflict,
   forbidden,
+  ncsBindingInvalid,
   notFound,
+  questionCountInvalid,
   validationFailed,
 } from './company-interview.errors';
 import {
@@ -43,6 +45,7 @@ import {
   EvaluationFramework,
   NcsProfileId,
   NcsQuestionMode,
+  QuestionAlignmentStatus,
   QuestionGenerationPolicyRecord,
   QuestionGenerationSource,
   QuestionRecord,
@@ -53,6 +56,20 @@ import {
   CompanyInterviewRepository,
   type UpdateCriterionInput,
 } from './repositories/company-interview.repository';
+
+type CommonQuestionGenerationRequest = {
+  postingId: number;
+  jdCriteriaQuestionCount?: number;
+  expectedPolicyVersion?: number;
+  questionCount?: number;
+};
+
+type QuestionSetGenerationRequest = {
+  postingId: number;
+  questionCount: number;
+  criteria: Array<{ criterionId: number; name: string; weight?: number }>;
+  questionTypes: string[];
+};
 
 @Injectable()
 export class CompanyInterviewService {
@@ -92,20 +109,7 @@ export class CompanyInterviewService {
         ncsProfileVersion: tag.ncsProfileVersion,
       })),
       criteria: await this.mapCriteria(criteria),
-      questions: questions.map((question) => ({
-        questionId: question.questionId,
-        criterionId: question.criterionId,
-        questionType: question.questionType,
-        content: question.content,
-        origin: question.origin,
-        isAiEdited: question.isAiEdited,
-        isActive: question.isActive,
-        generationSource: null,
-        ncsProfileId: null,
-        ncsQuestionMode: null,
-        ncsProfileVersion: null,
-        alignmentStatus: null,
-      })),
+      questions: questions.map((question) => this.mapQuestion(question)),
       timePolicy: await this.toTimePolicyDto(posting.postingId),
       evaluationFramework: policy.evaluationFramework,
       questionGenerationPolicy: {
@@ -310,6 +314,139 @@ export class CompanyInterviewService {
     };
   }
 
+  async prepareCommonQuestionGeneration(
+    currentUser: CurrentUser,
+    dto: CommonQuestionGenerationRequest,
+  ) {
+    const posting = await this.getOwnedPosting(currentUser, dto.postingId);
+    const criteria = await this.repository.listCriteria(posting.postingId);
+    const policy =
+      (await this.repository.getQuestionGenerationPolicy(posting.postingId)) ??
+      defaultQuestionGenerationPolicy(posting.postingId);
+    const requestedCount = dto.jdCriteriaQuestionCount ?? dto.questionCount;
+
+    if (!posting.jobDescription?.trim()) {
+      validationFailed('공고의 직무명세서를 먼저 저장해주세요.', [
+        { field: 'postingId', reason: 'JOB_DESCRIPTION_REQUIRED' },
+      ]);
+    }
+    if (!Number.isInteger(requestedCount) || (requestedCount ?? 0) < 1) {
+      questionCountInvalid('JD 공통 질문 개수는 1개 이상이어야 합니다.', [
+        { field: 'jdCriteriaQuestionCount', reason: 'MIN_1' },
+      ]);
+    }
+    if (
+      dto.jdCriteriaQuestionCount !== undefined &&
+      dto.questionCount !== undefined &&
+      dto.jdCriteriaQuestionCount !== dto.questionCount
+    ) {
+      questionCountInvalid('신규 질문 개수와 legacy 질문 개수가 일치하지 않습니다.', [
+        { field: 'questionCount', reason: 'LEGACY_COUNT_MISMATCH' },
+      ]);
+    }
+    if (
+      policy.policyVersion > 0 &&
+      requestedCount !== policy.jdCriteriaQuestionCount
+    ) {
+      questionCountInvalid('저장된 JD 공통 질문 개수와 요청값이 일치하지 않습니다.', [
+        { field: 'jdCriteriaQuestionCount', reason: 'POLICY_COUNT_MISMATCH' },
+      ]);
+    }
+    if (
+      dto.expectedPolicyVersion !== undefined &&
+      dto.expectedPolicyVersion !== policy.policyVersion
+    ) {
+      conflict('질문 생성 정책이 변경되었습니다. 새로고침 후 다시 요청해주세요.');
+    }
+    if (criteria.length === 0) {
+      validationFailed('저장된 평가 기준이 필요합니다.', [
+        { field: 'postingId', reason: 'CRITERIA_REQUIRED' },
+      ]);
+    }
+
+    const questionCount = policy.policyVersion > 0
+      ? policy.jdCriteriaQuestionCount
+      : requestedCount as number;
+    const criteriaPayload =
+      policy.evaluationFramework === 'NCS_3_PROFILE_V1'
+        ? this.buildNcsGenerationCriteria(policy, criteria)
+        : buildLegacyGenerationCriteria(questionCount, criteria);
+
+    return {
+      postingId: posting.postingId,
+      jobDescription: posting.jobDescription.trim(),
+      questionCount,
+      jdCriteriaQuestionCount: questionCount,
+      source: 'JD_CRITERIA' as const,
+      evaluationFramework: policy.evaluationFramework,
+      policyVersion: policy.policyVersion,
+      criteriaVersion: policy.criteriaVersion,
+      criteria: await Promise.all(
+        criteriaPayload.map(async ({ criterion, questionCount: allocationCount }) => {
+          const tag = await this.repository.findTag(criterion.tagId);
+          if (!tag) notFound('평가 태그를 찾을 수 없습니다.');
+          return {
+            criterionId: criterion.criterionId,
+            name: tag.name,
+            category: tag.category,
+            description: criterion.description ?? undefined,
+            weight: criterion.weight,
+            questionCount: allocationCount,
+            ncsProfileId: criterion.ncsProfileId ?? undefined,
+            ncsQuestionMode: criterion.ncsQuestionMode ?? undefined,
+            ncsProfileVersion: criterion.ncsProfileVersion ?? undefined,
+          };
+        }),
+      ),
+    };
+  }
+
+  async prepareQuestionSetGeneration(
+    currentUser: CurrentUser,
+    dto: QuestionSetGenerationRequest,
+  ) {
+    const posting = await this.getOwnedPosting(currentUser, dto.postingId);
+    const criteria = await this.repository.listCriteria(posting.postingId);
+    const policy =
+      (await this.repository.getQuestionGenerationPolicy(posting.postingId)) ??
+      defaultQuestionGenerationPolicy(posting.postingId);
+    const questionCount =
+      policy.evaluationFramework === 'NCS_3_PROFILE_V1'
+        ? policy.jdCriteriaQuestionCount
+        : dto.questionCount;
+
+    if (
+      policy.evaluationFramework === 'NCS_3_PROFILE_V1' &&
+      dto.questionCount !== questionCount
+    ) {
+      questionCountInvalid('NCS 질문 세트 개수는 저장된 JD 공통 질문 개수와 일치해야 합니다.', [
+        { field: 'questionCount', reason: 'POLICY_COUNT_MISMATCH' },
+      ]);
+    }
+    if (questionCount < 1 || criteria.length === 0) {
+      validationFailed('질문 세트 생성을 위한 질문 개수와 평가 기준을 확인해주세요.');
+    }
+
+    return {
+      postingId: posting.postingId,
+      questionCount,
+      criteria:
+        policy.evaluationFramework === 'NCS_3_PROFILE_V1'
+          ? await this.mapCriteria(criteria).then((items) =>
+              items.map((criterion) => ({
+                criterionId: criterion.criterionId,
+                name: criterion.tagName,
+                weight: criterion.weight,
+              })),
+            )
+          : dto.criteria,
+      questionTypes: dto.questionTypes,
+      policyVersion: policy.policyVersion,
+      criteriaVersion: policy.criteriaVersion,
+      source: 'JD_CRITERIA' as const,
+    };
+  }
+
   async createQuestion(
     currentUser: CurrentUser,
     dto: CreateInterviewQuestionDto,
@@ -324,13 +461,57 @@ export class CompanyInterviewService {
       conflict('이미 등록된 질문입니다.');
     }
 
+    const origin = dto.origin ?? 'MANUAL';
+    const policy =
+      (await this.repository.getQuestionGenerationPolicy(posting.postingId)) ??
+      defaultQuestionGenerationPolicy(posting.postingId);
+    const ncsSnapshot =
+      policy.evaluationFramework === 'NCS_3_PROFILE_V1'
+        ? {
+            ncsProfileId: criterion.ncsProfileId,
+            ncsQuestionMode: criterion.ncsQuestionMode,
+            ncsProfileVersion: criterion.ncsProfileVersion,
+          }
+        : {
+            ncsProfileId: null,
+            ncsQuestionMode: null,
+            ncsProfileVersion: null,
+          };
+    const aiCandidate =
+      origin === 'AI_GENERATED'
+        ? await this.getApplicableAiQuestionCandidate(
+            currentUser,
+            posting.postingId,
+            criterion,
+            dto,
+            policy.evaluationFramework,
+          )
+        : null;
+    if (origin === 'MANUAL' && dto.sourceProcessLogId !== undefined) {
+      validationFailed('수동 질문에는 AI 작업 ID를 지정할 수 없습니다.', [
+        { field: 'sourceProcessLogId', reason: 'MANUAL_QUESTION' },
+      ]);
+    }
+
     const question = await this.repository.createQuestion({
       companyId: posting.companyId,
       postingId: posting.postingId,
       criterionId: criterion.criterionId,
       questionType: dto.questionType,
       content: dto.content,
-      origin: dto.origin ?? 'MANUAL',
+      origin,
+      generationSource: aiCandidate ? 'JD_CRITERIA' : null,
+      ncsProfileId: aiCandidate?.ncsProfileId ?? ncsSnapshot.ncsProfileId,
+      ncsQuestionMode:
+        aiCandidate?.ncsQuestionMode ?? ncsSnapshot.ncsQuestionMode,
+      ncsProfileVersion:
+        aiCandidate?.ncsProfileVersion ?? ncsSnapshot.ncsProfileVersion,
+      alignmentStatus:
+        aiCandidate?.alignmentStatus ?? 'NOT_EVALUATED',
+      alignmentScore: aiCandidate?.alignmentScore ?? null,
+      alignmentReason: aiCandidate?.alignmentReason ?? null,
+      evaluatorVersion: aiCandidate?.evaluatorVersion ?? null,
+      sourceProcessLogId: dto.sourceProcessLogId ?? null,
     });
 
     return {
@@ -369,6 +550,13 @@ export class CompanyInterviewService {
       content: dto.content,
       isAiEdited:
         question.origin === 'AI_GENERATED' ? true : question.isAiEdited,
+      ncsProfileId: criterion.ncsProfileId,
+      ncsQuestionMode: criterion.ncsQuestionMode,
+      ncsProfileVersion: criterion.ncsProfileVersion,
+      alignmentStatus: 'NOT_EVALUATED',
+      alignmentScore: null,
+      alignmentReason: '질문 내용 또는 평가 기준이 수정되어 정렬 재검증이 필요합니다.',
+      evaluatorVersion: null,
     });
 
     return {
@@ -430,6 +618,17 @@ export class CompanyInterviewService {
   ): Promise<QuestionSetResponseDto> {
     this.assertCompanyUser(currentUser);
     const posting = await this.getOwnedPosting(currentUser, dto.postingId);
+    const policy =
+      (await this.repository.getQuestionGenerationPolicy(posting.postingId)) ??
+      defaultQuestionGenerationPolicy(posting.postingId);
+    if (
+      policy.evaluationFramework === 'NCS_3_PROFILE_V1' &&
+      dto.items.length !== policy.jdCriteriaQuestionCount
+    ) {
+      questionCountInvalid('NCS 질문 세트는 저장된 JD 공통 질문 개수와 일치해야 합니다.', [
+        { field: 'items', reason: 'POLICY_COUNT_MISMATCH' },
+      ]);
+    }
     const seenSortOrders = new Set<number>();
     const seenQuestionIds = new Set<number>();
 
@@ -452,6 +651,24 @@ export class CompanyInterviewService {
       if (question.postingId !== posting.postingId) {
         validationFailed('공고에 연결된 질문만 질문 세트에 포함할 수 있습니다.', [
           { field: 'items[].questionId', reason: 'POSTING_MISMATCH' },
+        ]);
+      }
+      if (
+        policy.evaluationFramework === 'NCS_3_PROFILE_V1' &&
+        (question.generationSource !== 'JD_CRITERIA' ||
+          question.alignmentStatus !== 'ALIGNED')
+      ) {
+        ncsBindingInvalid('정렬 검증을 통과한 JD 공통 질문만 NCS 질문 세트에 포함할 수 있습니다.', [
+          { field: 'items[].questionId', reason: 'QUESTION_NOT_ALIGNED' },
+        ]);
+      }
+      if (
+        item.criterionId !== undefined &&
+        item.criterionId !== null &&
+        item.criterionId !== question.criterionId
+      ) {
+        validationFailed('질문의 평가 기준과 질문 세트 항목이 일치하지 않습니다.', [
+          { field: 'items[].criterionId', reason: 'QUESTION_CRITERION_MISMATCH' },
         ]);
       }
 
@@ -483,6 +700,124 @@ export class CompanyInterviewService {
       postingId: posting.postingId,
       questionSet: questionSet ? this.mapQuestionSet(questionSet) : null,
       fallbackPolicy: 'USE_ACTIVE_POSTING_QUESTIONS',
+    };
+  }
+
+  private buildNcsGenerationCriteria(
+    policy: QuestionGenerationPolicyRecord,
+    criteria: EvaluationCriterionRecord[],
+  ) {
+    assertNcsCriteria(criteria);
+    const allocations = buildQuestionAllocations(policy, criteria).filter(
+      (allocation) => allocation.source === 'JD_CRITERIA',
+    );
+    const result = allocations.map((allocation) => {
+      const criterion = criteria.find(
+        (item) =>
+          item.ncsProfileId === allocation.ncsProfileId &&
+          item.ncsQuestionMode === allocation.ncsQuestionMode,
+      );
+      if (!criterion) {
+        ncsBindingInvalid('질문 배분에 연결된 NCS 평가 기준을 찾을 수 없습니다.', [
+          { field: 'criteria', reason: 'ALLOCATION_BINDING_MISSING' },
+        ]);
+      }
+      return { criterion, questionCount: allocation.count };
+    });
+    if (
+      result.reduce((sum, item) => sum + item.questionCount, 0) !==
+      policy.jdCriteriaQuestionCount
+    ) {
+      questionCountInvalid('JD 공통 질문 배분 합계가 저장된 정책과 일치하지 않습니다.', [
+        { field: 'jdCriteriaQuestionCount', reason: 'ALLOCATION_TOTAL_MISMATCH' },
+      ]);
+    }
+    return result;
+  }
+
+  private async getApplicableAiQuestionCandidate(
+    currentUser: CurrentUser,
+    postingId: number,
+    criterion: EvaluationCriterionRecord,
+    dto: CreateInterviewQuestionDto,
+    evaluationFramework: EvaluationFramework,
+  ): Promise<ApplicableAiQuestionCandidate> {
+    if (dto.sourceProcessLogId === undefined) {
+      validationFailed('AI 추천 질문은 생성 작업 ID가 필요합니다.', [
+        { field: 'sourceProcessLogId', reason: 'REQUIRED_FOR_AI_ORIGIN' },
+      ]);
+    }
+    const process = await this.repository.findQuestionGenerationProcess(
+      dto.sourceProcessLogId,
+    );
+    if (
+      !process ||
+      process.processType !== 'QUESTION_GENERATE' ||
+      process.status !== 'COMPLETED' ||
+      !process.inputRef ||
+      !process.outputRef
+    ) {
+      validationFailed('완료된 질문 생성 작업을 확인할 수 없습니다.', [
+        { field: 'sourceProcessLogId', reason: 'COMPLETED_PROCESS_REQUIRED' },
+      ]);
+    }
+
+    const input = parseJsonRecord(process.inputRef);
+    const output = parseJsonRecord(process.outputRef);
+    const requestedBy = parseRecord(input?.requestedBy);
+    const inputPayload = parseRecord(input?.payload);
+    if (
+      Number(requestedBy?.companyId) !== currentUser.companyId ||
+      Number(inputPayload?.postingId) !== postingId ||
+      Number(output?.postingId) !== postingId ||
+      Number(output?.sourceProcessLogId) !== dto.sourceProcessLogId
+    ) {
+      forbidden('다른 기업 또는 공고의 AI 질문 생성 결과는 적용할 수 없습니다.');
+    }
+
+    const candidates = Array.isArray(output?.questionCandidates)
+      ? output.questionCandidates
+      : [];
+    const candidate = candidates
+      .map(parseQuestionCandidate)
+      .find(
+        (item): item is ApplicableAiQuestionCandidate =>
+          item !== null &&
+          item.criterionId === criterion.criterionId &&
+          normalizeQuestionContent(item.content) ===
+            normalizeQuestionContent(dto.content),
+      );
+    if (!candidate) {
+      validationFailed('AI 생성 결과에서 일치하는 질문 후보를 찾을 수 없습니다.', [
+        { field: 'content', reason: 'PROCESS_OUTPUT_MISMATCH' },
+      ]);
+    }
+
+    if (evaluationFramework === 'NCS_3_PROFILE_V1') {
+      if (
+        candidate.source !== 'JD_CRITERIA' ||
+        candidate.alignmentStatus !== 'ALIGNED' ||
+        candidate.ncsProfileId !== criterion.ncsProfileId ||
+        candidate.ncsQuestionMode !== criterion.ncsQuestionMode ||
+        candidate.ncsProfileVersion !== criterion.ncsProfileVersion
+      ) {
+        ncsBindingInvalid('NCS 정렬 검증을 통과한 동일 평가 기준 질문만 저장할 수 있습니다.', [
+          { field: 'sourceProcessLogId', reason: 'ALIGNED_CANDIDATE_REQUIRED' },
+        ]);
+      }
+      return candidate;
+    }
+
+    return {
+      ...candidate,
+      source: 'JD_CRITERIA',
+      ncsProfileId: null,
+      ncsQuestionMode: null,
+      ncsProfileVersion: null,
+      alignmentStatus: 'NOT_EVALUATED',
+      alignmentScore: null,
+      alignmentReason: null,
+      evaluatorVersion: null,
     };
   }
 
@@ -599,11 +934,15 @@ export class CompanyInterviewService {
       origin: question.origin,
       isAiEdited: question.isAiEdited,
       isActive: question.isActive,
-      generationSource: null,
-      ncsProfileId: null,
-      ncsQuestionMode: null,
-      ncsProfileVersion: null,
-      alignmentStatus: null,
+      generationSource: question.generationSource,
+      ncsProfileId: question.ncsProfileId,
+      ncsQuestionMode: question.ncsQuestionMode,
+      ncsProfileVersion: question.ncsProfileVersion,
+      alignmentStatus: question.alignmentStatus,
+      alignmentScore: question.alignmentScore,
+      alignmentReason: question.alignmentReason,
+      evaluatorVersion: question.evaluatorVersion,
+      sourceProcessLogId: question.sourceProcessLogId,
     };
   }
 
@@ -639,6 +978,113 @@ export class CompanyInterviewService {
       })),
     };
   }
+}
+
+type ApplicableAiQuestionCandidate = {
+  criterionId: number;
+  content: string;
+  source: QuestionGenerationSource | null;
+  ncsProfileId: NcsProfileId | null;
+  ncsQuestionMode: NcsQuestionMode | null;
+  ncsProfileVersion: string | null;
+  alignmentStatus: QuestionAlignmentStatus;
+  alignmentScore: number | null;
+  alignmentReason: string | null;
+  evaluatorVersion: string | null;
+};
+
+function buildLegacyGenerationCriteria(
+  questionCount: number,
+  criteria: EvaluationCriterionRecord[],
+) {
+  const counts = new Map<number, number>();
+  const ordered = [...criteria].sort((a, b) => a.sortOrder - b.sortOrder);
+  for (let index = 0; index < questionCount; index += 1) {
+    const criterion = ordered[index % ordered.length];
+    counts.set(criterion.criterionId, (counts.get(criterion.criterionId) ?? 0) + 1);
+  }
+  return ordered
+    .filter((criterion) => counts.has(criterion.criterionId))
+    .map((criterion) => ({
+      criterion,
+      questionCount: counts.get(criterion.criterionId) ?? 0,
+    }));
+}
+
+function parseQuestionCandidate(value: unknown): ApplicableAiQuestionCandidate | null {
+  const candidate = parseRecord(value);
+  if (!candidate) return null;
+  const criterionId = Number(candidate.criterionId);
+  const content = typeof candidate.content === 'string' ? candidate.content.trim() : '';
+  if (!Number.isInteger(criterionId) || criterionId < 1 || !content) return null;
+
+  const alignmentStatus = candidate.alignmentStatus;
+  if (
+    alignmentStatus !== 'NOT_EVALUATED' &&
+    alignmentStatus !== 'ALIGNED' &&
+    alignmentStatus !== 'LOW_ALIGNMENT' &&
+    alignmentStatus !== 'REVIEW_REQUIRED'
+  ) {
+    return null;
+  }
+  const alignmentScore =
+    candidate.alignmentScore === null || candidate.alignmentScore === undefined
+      ? null
+      : Number(candidate.alignmentScore);
+  if (alignmentScore !== null && !Number.isFinite(alignmentScore)) return null;
+
+  return {
+    criterionId,
+    content,
+    source:
+      candidate.source === 'JD_CRITERIA' || candidate.source === 'RESUME_PERSONALIZED'
+        ? candidate.source
+        : null,
+    ncsProfileId:
+      candidate.ncsProfileId === 'PROBLEM_SOLVING' ||
+      candidate.ncsProfileId === 'COMMUNICATION' ||
+      candidate.ncsProfileId === 'DIGITAL'
+        ? candidate.ncsProfileId
+        : null,
+    ncsQuestionMode:
+      candidate.ncsQuestionMode === 'EXPERIENCE_BEHAVIOR' ||
+      candidate.ncsQuestionMode === 'TECHNICAL_KNOWLEDGE' ||
+      candidate.ncsQuestionMode === 'SITUATIONAL_DESIGN'
+        ? candidate.ncsQuestionMode
+        : null,
+    ncsProfileVersion:
+      typeof candidate.ncsProfileVersion === 'string'
+        ? candidate.ncsProfileVersion
+        : null,
+    alignmentStatus,
+    alignmentScore,
+    alignmentReason:
+      typeof candidate.alignmentReason === 'string'
+        ? candidate.alignmentReason
+        : null,
+    evaluatorVersion:
+      typeof candidate.evaluatorVersion === 'string'
+        ? candidate.evaluatorVersion
+        : null,
+  };
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | null {
+  try {
+    return parseRecord(JSON.parse(value));
+  } catch {
+    return null;
+  }
+}
+
+function parseRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function normalizeQuestionContent(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 function normalizeCriterionTagText(value: string): string {
@@ -682,7 +1128,7 @@ function assertNcsCriteria(
         criterion.ncsQuestionMode !== null && criterion.ncsProfileVersion !== null,
     );
   if (!isValid) {
-    validationFailed('NCS 평가 기준은 문제해결, 의사소통, 디지털 profile을 각각 하나씩 포함해야 합니다.', [
+    ncsBindingInvalid('NCS 평가 기준은 문제해결, 의사소통, 디지털 profile을 각각 하나씩 포함해야 합니다.', [
       { field: 'criteria', reason: 'NCS_BINDING_INVALID' },
     ]);
   }

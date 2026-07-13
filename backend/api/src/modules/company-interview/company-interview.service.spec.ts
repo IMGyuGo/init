@@ -15,6 +15,14 @@ function createService() {
   return new CompanyInterviewService(new InMemoryCompanyInterviewRepository());
 }
 
+function createFixture() {
+  const repository = new InMemoryCompanyInterviewRepository();
+  return {
+    repository,
+    service: new CompanyInterviewService(repository),
+  };
+}
+
 async function assertBadRequest(action: () => Promise<unknown>) {
   await assert.rejects(action, ApiException);
 }
@@ -108,6 +116,54 @@ describe('CompanyInterviewService', () => {
     const settings = await service.getSettings(companyUser, { postingId: 1 });
     assert.equal(settings.questionGenerationPolicy.resumeQuestionStatus, 'WAITING_APPLICATION');
     assert.deepEqual(settings.questionGenerationPolicy.allocations, policy.allocations);
+  });
+
+  it('prepares NCS common question jobs from the stored JD, policy and balanced criteria snapshot', async () => {
+    const service = createService();
+    await service.updateEvaluationCriteria(companyUser, {
+      postingId: 1,
+      evaluationFramework: 'NCS_3_PROFILE_V1',
+      criteria: [
+        { criterionId: 2, tagId: 2, weight: 40, sortOrder: 1 },
+        { criterionId: 4, tagId: 4, weight: 30, sortOrder: 2 },
+        { criterionId: 1, tagId: 1, weight: 30, sortOrder: 3 },
+      ],
+    });
+    await service.updateQuestionGenerationPolicy(companyUser, {
+      postingId: 1,
+      jdCriteriaQuestionCount: 4,
+      resumeQuestionCount: 2,
+      expectedPolicyVersion: 0,
+    });
+
+    const payload = await service.prepareCommonQuestionGeneration(companyUser, {
+      postingId: 1,
+      jdCriteriaQuestionCount: 4,
+      expectedPolicyVersion: 1,
+    });
+
+    assert.equal(payload.jobDescription, 'NestJS와 PostgreSQL 기반 서비스 개발');
+    assert.equal(payload.questionCount, 4);
+    assert.equal(payload.source, 'JD_CRITERIA');
+    assert.deepEqual(
+      payload.criteria.map((criterion) => ({
+        profile: criterion.ncsProfileId,
+        count: criterion.questionCount,
+        version: criterion.ncsProfileVersion,
+      })),
+      [
+        { profile: 'PROBLEM_SOLVING', count: 2, version: '2025.12-v1' },
+        { profile: 'COMMUNICATION', count: 1, version: '2025.12-v1' },
+        { profile: 'DIGITAL', count: 1, version: '2025.12-v1' },
+      ],
+    );
+
+    await assertBadRequest(() =>
+      service.prepareCommonQuestionGeneration(companyUser, {
+        postingId: 1,
+        jdCriteriaQuestionCount: 3,
+      }),
+    );
   });
 
   it('rejects invalid NCS criteria and stale question policy versions', async () => {
@@ -277,17 +333,41 @@ describe('CompanyInterviewService', () => {
   });
 
   it('persists AI question origin and marks it edited after user changes', async () => {
-    const service = createService();
+    const { repository, service } = createFixture();
+    repository.setQuestionGenerationProcess({
+      processLogId: 44,
+      processType: 'QUESTION_GENERATE',
+      status: 'COMPLETED',
+      inputRef: JSON.stringify({
+        requestedBy: { companyId: 1 },
+        payload: { postingId: 1 },
+      }),
+      outputRef: JSON.stringify({
+        sourceProcessLogId: 44,
+        postingId: 1,
+        questionCandidates: [
+          {
+            content: '비동기 AI 작업의 실패 복구 전략을 설명해주세요.',
+            criterionId: 1,
+            source: 'JD_CRITERIA',
+            alignmentStatus: 'NOT_EVALUATED',
+          },
+        ],
+      }),
+    });
     const created = await service.createQuestion(companyUser, {
       postingId: 1,
       criterionId: 1,
       questionType: 'TECHNICAL',
       content: '비동기 AI 작업의 실패 복구 전략을 설명해주세요.',
       origin: 'AI_GENERATED',
+      sourceProcessLogId: 44,
     });
 
     assert.equal(created.question.origin, 'AI_GENERATED');
     assert.equal(created.question.isAiEdited, false);
+    assert.equal(created.question.sourceProcessLogId, 44);
+    assert.equal(created.question.generationSource, 'JD_CRITERIA');
 
     const updated = await service.updateQuestion(
       companyUser,
@@ -301,6 +381,7 @@ describe('CompanyInterviewService', () => {
 
     assert.equal(updated.question.origin, 'AI_GENERATED');
     assert.equal(updated.question.isAiEdited, true);
+    assert.equal(updated.question.alignmentStatus, 'NOT_EVALUATED');
 
     const settings = await service.getSettings(companyUser, { postingId: 1 });
     const persisted = settings.questions.find(
@@ -308,6 +389,95 @@ describe('CompanyInterviewService', () => {
     );
     assert.equal(persisted?.origin, 'AI_GENERATED');
     assert.equal(persisted?.isAiEdited, true);
+  });
+
+  it('stores only an ALIGNED NCS candidate from the matching completed process', async () => {
+    const { repository, service } = createFixture();
+    const criteria = await service.updateEvaluationCriteria(companyUser, {
+      postingId: 1,
+      evaluationFramework: 'NCS_3_PROFILE_V1',
+      criteria: [
+        { criterionId: 2, tagId: 2, weight: 40, sortOrder: 1 },
+        { criterionId: 4, tagId: 4, weight: 30, sortOrder: 2 },
+        { criterionId: 1, tagId: 1, weight: 30, sortOrder: 3 },
+      ],
+    });
+    const criterion = criteria.criteria[0];
+    const content = '운영 장애의 원인을 분석하고 대안을 비교한 뒤 결과를 어떻게 검증했나요?';
+    repository.setQuestionGenerationProcess({
+      processLogId: 45,
+      processType: 'QUESTION_GENERATE',
+      status: 'COMPLETED',
+      inputRef: JSON.stringify({
+        requestedBy: { companyId: 1 },
+        payload: { postingId: 1 },
+      }),
+      outputRef: JSON.stringify({
+        sourceProcessLogId: 45,
+        postingId: 1,
+        questionCandidates: [
+          {
+            content,
+            criterionId: criterion.criterionId,
+            source: 'JD_CRITERIA',
+            ncsProfileId: criterion.ncsProfileId,
+            ncsQuestionMode: criterion.ncsQuestionMode,
+            ncsProfileVersion: criterion.ncsProfileVersion,
+            alignmentStatus: 'ALIGNED',
+            alignmentScore: 0.8,
+            evaluatorVersion: 'ncs-question-alignment-v1',
+          },
+        ],
+      }),
+    });
+
+    const saved = await service.createQuestion(companyUser, {
+      postingId: 1,
+      criterionId: criterion.criterionId,
+      questionType: 'EXPERIENCE',
+      content,
+      origin: 'AI_GENERATED',
+      sourceProcessLogId: 45,
+    });
+    assert.equal(saved.question.alignmentStatus, 'ALIGNED');
+    assert.equal(saved.question.ncsProfileId, 'PROBLEM_SOLVING');
+    assert.equal(saved.question.alignmentScore, 0.8);
+
+    repository.setQuestionGenerationProcess({
+      processLogId: 46,
+      processType: 'QUESTION_GENERATE',
+      status: 'COMPLETED',
+      inputRef: JSON.stringify({
+        requestedBy: { companyId: 1 },
+        payload: { postingId: 1 },
+      }),
+      outputRef: JSON.stringify({
+        sourceProcessLogId: 46,
+        postingId: 1,
+        questionCandidates: [
+          {
+            content: '자기소개를 해주세요.',
+            criterionId: criterion.criterionId,
+            source: 'JD_CRITERIA',
+            ncsProfileId: criterion.ncsProfileId,
+            ncsQuestionMode: criterion.ncsQuestionMode,
+            ncsProfileVersion: criterion.ncsProfileVersion,
+            alignmentStatus: 'REVIEW_REQUIRED',
+            alignmentScore: 0.2,
+          },
+        ],
+      }),
+    });
+    await assertBadRequest(() =>
+      service.createQuestion(companyUser, {
+        postingId: 1,
+        criterionId: criterion.criterionId,
+        questionType: 'INTRO',
+        content: '자기소개를 해주세요.',
+        origin: 'AI_GENERATED',
+        sourceProcessLogId: 46,
+      }),
+    );
   });
 
   it('hides runtime follow-up questions from interview management settings', async () => {

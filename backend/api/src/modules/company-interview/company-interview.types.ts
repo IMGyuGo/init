@@ -43,6 +43,11 @@ export type NcsQuestionMode =
   | 'TECHNICAL_KNOWLEDGE'
   | 'SITUATIONAL_DESIGN';
 export type QuestionGenerationSource = 'JD_CRITERIA' | 'RESUME_PERSONALIZED';
+export type QuestionAlignmentStatus =
+  | 'NOT_EVALUATED'
+  | 'ALIGNED'
+  | 'LOW_ALIGNMENT'
+  | 'REVIEW_REQUIRED';
 export type ResumeQuestionGenerationStatus = 'DISABLED' | 'WAITING_APPLICATION';
 
 export type PostingRecord = {
@@ -99,6 +104,23 @@ export type QuestionRecord = {
   origin: QuestionOrigin;
   isAiEdited: boolean;
   isActive: boolean;
+  generationSource: QuestionGenerationSource | null;
+  ncsProfileId: NcsProfileId | null;
+  ncsQuestionMode: NcsQuestionMode | null;
+  ncsProfileVersion: string | null;
+  alignmentStatus: QuestionAlignmentStatus | null;
+  alignmentScore: number | null;
+  alignmentReason: string | null;
+  evaluatorVersion: string | null;
+  sourceProcessLogId: number | null;
+};
+
+export type AiQuestionGenerationProcessRecord = {
+  processLogId: number;
+  processType: string;
+  status: AiProcessStatus;
+  inputRef: string | null;
+  outputRef: string | null;
 };
 
 export type TimePolicyRecord = {

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  AiQuestionGenerationProcessRecord,
   CriterionTagRecord,
   EvaluationCriterionRecord,
   PostingRecord,
@@ -53,7 +54,7 @@ export class InMemoryCompanyInterviewRepository
       sortOrder: 1,
       ncsProfileId: 'DIGITAL',
       defaultNcsQuestionMode: 'TECHNICAL_KNOWLEDGE',
-      ncsProfileVersion: 'NCS_3_PROFILE_V1',
+      ncsProfileVersion: '2025.12-v1',
     },
     {
       tagId: 2,
@@ -65,7 +66,7 @@ export class InMemoryCompanyInterviewRepository
       sortOrder: 2,
       ncsProfileId: 'PROBLEM_SOLVING',
       defaultNcsQuestionMode: 'EXPERIENCE_BEHAVIOR',
-      ncsProfileVersion: 'NCS_3_PROFILE_V1',
+      ncsProfileVersion: '2025.12-v1',
     },
     {
       tagId: 3,
@@ -89,7 +90,7 @@ export class InMemoryCompanyInterviewRepository
       sortOrder: 4,
       ncsProfileId: 'COMMUNICATION',
       defaultNcsQuestionMode: 'EXPERIENCE_BEHAVIOR',
-      ncsProfileVersion: 'NCS_3_PROFILE_V1',
+      ncsProfileVersion: '2025.12-v1',
     },
     {
       tagId: 5,
@@ -215,6 +216,15 @@ export class InMemoryCompanyInterviewRepository
       origin: 'MANUAL',
       isAiEdited: false,
       isActive: true,
+      generationSource: null,
+      ncsProfileId: null,
+      ncsQuestionMode: null,
+      ncsProfileVersion: null,
+      alignmentStatus: 'NOT_EVALUATED',
+      alignmentScore: null,
+      alignmentReason: null,
+      evaluatorVersion: null,
+      sourceProcessLogId: null,
     },
     {
       questionId: 2,
@@ -226,6 +236,15 @@ export class InMemoryCompanyInterviewRepository
       origin: 'MANUAL',
       isAiEdited: false,
       isActive: true,
+      generationSource: null,
+      ncsProfileId: null,
+      ncsQuestionMode: null,
+      ncsProfileVersion: null,
+      alignmentStatus: 'NOT_EVALUATED',
+      alignmentScore: null,
+      alignmentReason: null,
+      evaluatorVersion: null,
+      sourceProcessLogId: null,
     },
     {
       questionId: 3,
@@ -237,6 +256,15 @@ export class InMemoryCompanyInterviewRepository
       origin: 'MANUAL',
       isAiEdited: false,
       isActive: true,
+      generationSource: null,
+      ncsProfileId: null,
+      ncsQuestionMode: null,
+      ncsProfileVersion: null,
+      alignmentStatus: 'NOT_EVALUATED',
+      alignmentScore: null,
+      alignmentReason: null,
+      evaluatorVersion: null,
+      sourceProcessLogId: null,
     },
     {
       questionId: 4,
@@ -248,6 +276,15 @@ export class InMemoryCompanyInterviewRepository
       origin: 'MANUAL',
       isAiEdited: false,
       isActive: true,
+      generationSource: null,
+      ncsProfileId: null,
+      ncsQuestionMode: null,
+      ncsProfileVersion: null,
+      alignmentStatus: 'NOT_EVALUATED',
+      alignmentScore: null,
+      alignmentReason: null,
+      evaluatorVersion: null,
+      sourceProcessLogId: null,
     },
   ];
 
@@ -267,6 +304,7 @@ export class InMemoryCompanyInterviewRepository
   private nextQuestionSetItemId = 1;
   private questionSets: QuestionSetRecord[] = [];
   private questionGenerationPolicies: QuestionGenerationPolicyRecord[] = [];
+  private readonly questionGenerationProcesses = new Map<number, AiQuestionGenerationProcessRecord>();
 
   async findPosting(postingId: number): Promise<PostingRecord | undefined> {
     return this.postings.find((posting) => posting.postingId === postingId);
@@ -353,6 +391,16 @@ export class InMemoryCompanyInterviewRepository
         retryAllowed: false,
       }
     );
+  }
+
+  async findQuestionGenerationProcess(
+    processLogId: number,
+  ): Promise<AiQuestionGenerationProcessRecord | undefined> {
+    return this.questionGenerationProcesses.get(processLogId);
+  }
+
+  setQuestionGenerationProcess(record: AiQuestionGenerationProcessRecord): void {
+    this.questionGenerationProcesses.set(record.processLogId, record);
   }
 
   async getQuestionGenerationPolicy(
@@ -465,6 +513,15 @@ export class InMemoryCompanyInterviewRepository
       origin: input.origin,
       isAiEdited: false,
       isActive: true,
+      generationSource: input.generationSource,
+      ncsProfileId: input.ncsProfileId,
+      ncsQuestionMode: input.ncsQuestionMode,
+      ncsProfileVersion: input.ncsProfileVersion,
+      alignmentStatus: input.alignmentStatus,
+      alignmentScore: input.alignmentScore,
+      alignmentReason: input.alignmentReason,
+      evaluatorVersion: input.evaluatorVersion,
+      sourceProcessLogId: input.sourceProcessLogId,
     };
 
     this.questions = [...this.questions, question];
@@ -486,6 +543,13 @@ export class InMemoryCompanyInterviewRepository
       questionType: input.questionType,
       content: input.content.trim(),
       isAiEdited: input.isAiEdited,
+      ncsProfileId: input.ncsProfileId,
+      ncsQuestionMode: input.ncsQuestionMode,
+      ncsProfileVersion: input.ncsProfileVersion,
+      alignmentStatus: input.alignmentStatus,
+      alignmentScore: input.alignmentScore,
+      alignmentReason: input.alignmentReason,
+      evaluatorVersion: input.evaluatorVersion,
     };
     this.questions = this.questions.map((item) =>
       item.questionId === questionId ? updated : item,

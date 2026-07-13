@@ -1,4 +1,5 @@
 import {
+  AiQuestionGenerationProcessRecord,
   CriterionTagRecord,
   EvaluationCriterionRecord,
   EvaluationFramework,
@@ -41,6 +42,15 @@ export type CreateQuestionInput = {
   questionType: QuestionType;
   content: string;
   origin: QuestionOrigin;
+  generationSource: QuestionRecord['generationSource'];
+  ncsProfileId: QuestionRecord['ncsProfileId'];
+  ncsQuestionMode: QuestionRecord['ncsQuestionMode'];
+  ncsProfileVersion: string | null;
+  alignmentStatus: QuestionRecord['alignmentStatus'];
+  alignmentScore: number | null;
+  alignmentReason: string | null;
+  evaluatorVersion: string | null;
+  sourceProcessLogId: number | null;
 };
 
 export type UpdateQuestionInput = {
@@ -48,6 +58,13 @@ export type UpdateQuestionInput = {
   questionType: QuestionType;
   content: string;
   isAiEdited: boolean;
+  ncsProfileId: QuestionRecord['ncsProfileId'];
+  ncsQuestionMode: QuestionRecord['ncsQuestionMode'];
+  ncsProfileVersion: string | null;
+  alignmentStatus: QuestionRecord['alignmentStatus'];
+  alignmentScore: number | null;
+  alignmentReason: string | null;
+  evaluatorVersion: string | null;
 };
 
 export type UpdateTimePolicyInput = {
@@ -90,6 +107,9 @@ export interface CompanyInterviewRepository {
     postingId: number,
     content: string,
   ): Promise<QuestionRecord | undefined>;
+  findQuestionGenerationProcess(
+    processLogId: number,
+  ): Promise<AiQuestionGenerationProcessRecord | undefined>;
   listTags(): Promise<CriterionTagRecord[]>;
   findTag(tagId: number): Promise<CriterionTagRecord | undefined>;
   createTag(input: CreateCriterionTagInput): Promise<CriterionTagRecord>;

@@ -162,21 +162,37 @@ export class QuestionGenerateRequestDto {
   @Min(1)
   postingId!: number;
 
-  @ApiProperty({ example: "Backend engineer with NestJS and PostgreSQL experience." })
-  @IsString()
-  @IsNotEmpty()
-  jobDescription!: string;
-
-  @ApiProperty({ example: 2 })
+  @ApiPropertyOptional({ example: 3 })
+  @IsOptional()
   @IsInt()
   @Min(1)
-  questionCount!: number;
+  @Max(20)
+  jdCriteriaQuestionCount?: number;
 
-  @ApiProperty({ type: [QuestionGenerateCriterionDto] })
+  @ApiPropertyOptional({ example: 1 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  expectedPolicyVersion?: number;
+
+  @ApiPropertyOptional({ example: "Backend engineer with NestJS and PostgreSQL experience." })
+  @IsOptional()
+  @IsString()
+  jobDescription?: string;
+
+  @ApiPropertyOptional({ example: 2 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  questionCount?: number;
+
+  @ApiPropertyOptional({ type: [QuestionGenerateCriterionDto] })
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => QuestionGenerateCriterionDto)
-  criteria!: QuestionGenerateCriterionDto[];
+  criteria?: QuestionGenerateCriterionDto[];
 }
 
 export class QuestionSetCriterionDto {
