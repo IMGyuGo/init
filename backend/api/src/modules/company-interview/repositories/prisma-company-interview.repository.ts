@@ -385,6 +385,12 @@ function mapCriterion(criterion: {
   weight: number;
   passScore: number | null;
   sortOrder: number;
+  sourceType: 'COMPANY_CUSTOM' | 'NCS_OFFICIAL' | 'COMPANY_TALENT' | 'SERVICE_COMMON';
+  sourceCode: string | null;
+  sourceVersion: string | null;
+  sourceName: string | null;
+  behaviorIndicators: unknown;
+  alignmentRationale: string | null;
 }): EvaluationCriterionRecord {
   return {
     criterionId: Number(criterion.criterionId),
@@ -394,6 +400,14 @@ function mapCriterion(criterion: {
     weight: criterion.weight,
     passScore: criterion.passScore,
     sortOrder: criterion.sortOrder,
+    sourceType: criterion.sourceType,
+    sourceCode: criterion.sourceCode ?? undefined,
+    sourceVersion: criterion.sourceVersion ?? undefined,
+    sourceName: criterion.sourceName ?? undefined,
+    behaviorIndicators: Array.isArray(criterion.behaviorIndicators)
+      ? criterion.behaviorIndicators.filter((item): item is string => typeof item === 'string')
+      : undefined,
+    alignmentRationale: criterion.alignmentRationale ?? undefined,
   };
 }
 

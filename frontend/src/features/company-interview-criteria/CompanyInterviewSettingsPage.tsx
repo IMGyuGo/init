@@ -8,13 +8,18 @@ import interviewBanner from "../company-recruiting/assets/interview-banner.png";
 import { BackButton, StatusBadge } from "../company-recruiting/CompanyRecruitingChrome";
 import {
   confirmQuestionSet,
+  activateEvaluationProfile,
   createCriterionTag,
   createInterviewQuestion,
   deleteInterviewQuestion,
   generateInterviewQuestions,
   generateQuestionSet,
   getAiJobStatus,
+  getEvaluationProfile,
   getInterviewSettings,
+  recommendNcsUnits,
+  saveEvaluationProfile,
+  searchNcsUnits,
   suggestEvaluationCriteria,
   updateEvaluationCriteria,
   updateInterviewQuestion,
@@ -28,7 +33,10 @@ import type {
   CriteriaSuggestionCandidate,
   GeneratedQuestionCandidate,
   GeneratedQuestionSetCandidate,
+  EvaluationProfile,
   InterviewSettings,
+  NcsCompetencyUnit,
+  NcsSearchResult,
   QuestionType,
 } from "./types";
 
@@ -75,11 +83,25 @@ type AiJobNotice = {
 };
 
 type QuestionSetPreviewItem = {
+  previewId: string;
   criterionId: number;
   criterionLabel: string;
   questionId: number | null;
   questionType: QuestionType | null;
   content: string;
+};
+
+type NcsSelectionDraft = {
+  unit: NcsCompetencyUnit;
+  weight: string;
+  relevanceScore?: number;
+  rationale: string;
+};
+
+type NcsCandidate = {
+  unit: NcsCompetencyUnit;
+  relevanceScore?: number;
+  rationale?: string;
 };
 
 type QuestionSetConfirmSummary = {
@@ -144,8 +166,25 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
   const [editingCriteriaDetailId, setEditingCriteriaDetailId] = useState<string | null>(null);
   const [selectedCriteriaDraftIds, setSelectedCriteriaDraftIds] = useState<string[]>([]);
   const [settingsStepRestored, setSettingsStepRestored] = useState(false);
+  const [evaluationProfile, setEvaluationProfile] = useState<EvaluationProfile | null>(null);
+  const [ncsWeights, setNcsWeights] = useState({ ncs: "60", company: "25", service: "15" });
+  const [ncsSelections, setNcsSelections] = useState<NcsSelectionDraft[]>([]);
+  const [ncsCandidates, setNcsCandidates] = useState<NcsCandidate[]>([]);
+  const [ncsSearchQuery, setNcsSearchQuery] = useState("");
+  const [ncsSourceStatus, setNcsSourceStatus] = useState<NcsSearchResult["sourceStatus"] | null>(null);
+  const [ncsLoading, setNcsLoading] = useState<"search" | "recommend" | "save" | "activate" | null>(null);
+  const [ncsError, setNcsError] = useState("");
   const aiJobNoticesRef = useRef(aiJobNotices);
   const hasActiveAiJobNotices = useMemo(() => hasActiveAiJobs(aiJobNotices), [aiJobNotices]);
+
+  async function refreshEvaluationProfile(postingIdValue: number) {
+    try {
+      const response = await getEvaluationProfile(postingIdValue);
+      hydrateEvaluationProfile(response.data, setEvaluationProfile, setNcsWeights, setNcsSelections);
+    } catch (error) {
+      setNcsError(error instanceof Error ? error.message : "NCS 질문 커버리지를 갱신하지 못했습니다.");
+    }
+  }
 
   const loadSettings = useCallback(async () => {
     setLoading(true);
@@ -154,6 +193,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     setTimePolicyError("");
     setQuestionError("");
     setAiJobError("");
+    setNcsError("");
     try {
       const response = await getInterviewSettings(postingId);
       setSettings(response.data);
@@ -170,6 +210,16 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
         ...initialQuestionForm,
         criterionId: String(response.data.criteria[0]?.criterionId ?? ""),
       });
+      try {
+        const profileResponse = await getEvaluationProfile(response.data.posting.postingId);
+        hydrateEvaluationProfile(profileResponse.data, setEvaluationProfile, setNcsWeights, setNcsSelections);
+      } catch (profileError) {
+        setNcsError(
+          profileError instanceof Error
+            ? profileError.message
+            : "NCS 평가 프로필을 불러오지 못했습니다.",
+        );
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "면접 설정을 불러오지 못했습니다.");
     } finally {
@@ -714,6 +764,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       );
       resetQuestionForm(String(criterionId));
       setIsQuestionDrawerOpen(false);
+      await refreshEvaluationProfile(settings.posting.postingId);
     } catch (error) {
       setQuestionError(error instanceof Error ? error.message : "질문 저장에 실패했습니다.");
     } finally {
@@ -752,6 +803,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
           : current,
       );
       closeQuestionDrawer();
+      await refreshEvaluationProfile(settings.posting.postingId);
     } catch (error) {
       setQuestionError(error instanceof Error ? error.message : "질문 수정에 실패했습니다.");
     } finally {
@@ -779,10 +831,170 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       if (editingQuestionId === questionId) {
         resetQuestionEditor();
       }
+      if (settings) {
+        await refreshEvaluationProfile(settings.posting.postingId);
+      }
     } catch (error) {
       setQuestionError(error instanceof Error ? error.message : "질문 삭제에 실패했습니다.");
     } finally {
       setQuestionSaving(false);
+    }
+  }
+
+  async function handleRecommendNcsUnits() {
+    if (!settings || ncsLoading) return;
+    setNcsLoading("recommend");
+    setNcsError("");
+    try {
+      const response = await recommendNcsUnits(settings.posting.postingId, 5);
+      setNcsSourceStatus(response.data.sourceStatus);
+      setNcsCandidates(
+        response.data.recommendations.map((recommendation) => ({
+          unit: recommendation.unit,
+          relevanceScore: recommendation.relevanceScore,
+          rationale: recommendation.rationale,
+        })),
+      );
+      if (response.data.recommendations.length === 0) {
+        setNcsError(
+          response.data.sourceStatus === "CONFIGURATION_REQUIRED"
+            ? "공식 NCS API 서비스 키를 설정한 뒤 다시 추천해주세요."
+            : "JD와 연결되는 능력단위를 찾지 못했습니다. 직무명으로 직접 검색해주세요.",
+        );
+      }
+    } catch (error) {
+      setNcsError(error instanceof Error ? error.message : "NCS 능력단위 추천에 실패했습니다.");
+    } finally {
+      setNcsLoading(null);
+    }
+  }
+
+  async function handleSearchNcsUnits(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const query = ncsSearchQuery.trim();
+    if (query.length < 2 || ncsLoading) {
+      if (query.length < 2) setNcsError("검색어를 2자 이상 입력해주세요.");
+      return;
+    }
+    setNcsLoading("search");
+    setNcsError("");
+    try {
+      const response = await searchNcsUnits(query);
+      setNcsSourceStatus(response.data.sourceStatus);
+      setNcsCandidates(response.data.items.map((unit) => ({ unit })));
+      if (response.data.items.length === 0) {
+        setNcsError(
+          response.data.sourceStatus === "CONFIGURATION_REQUIRED"
+            ? "공식 NCS API 서비스 키가 없어 검색할 수 없습니다."
+            : "검색 결과가 없습니다. NCS 직무 또는 능력단위 명칭으로 다시 검색해주세요.",
+        );
+      }
+    } catch (error) {
+      setNcsError(error instanceof Error ? error.message : "NCS 능력단위 검색에 실패했습니다.");
+    } finally {
+      setNcsLoading(null);
+    }
+  }
+
+  function toggleNcsUnit(candidate: NcsCandidate) {
+    setNcsError("");
+    setNcsSelections((current) => {
+      const selected = current.some((selection) => selection.unit.ncsUnitId === candidate.unit.ncsUnitId);
+      if (selected) {
+        return distributeNcsSelectionWeights(
+          current.filter((selection) => selection.unit.ncsUnitId !== candidate.unit.ncsUnitId),
+        );
+      }
+      if (current.length >= 5) {
+        setNcsError("NCS 능력단위는 최대 5개까지 선택할 수 있습니다.");
+        return current;
+      }
+      return distributeNcsSelectionWeights([
+        ...current,
+        {
+          unit: candidate.unit,
+          weight: "0",
+          relevanceScore: candidate.relevanceScore,
+          rationale: candidate.rationale ?? "",
+        },
+      ]);
+    });
+  }
+
+  function updateNcsSelection(
+    ncsUnitId: number,
+    field: "weight" | "rationale",
+    value: string,
+  ) {
+    setNcsError("");
+    setNcsSelections((current) =>
+      current.map((selection) =>
+        selection.unit.ncsUnitId === ncsUnitId ? { ...selection, [field]: value } : selection,
+      ),
+    );
+  }
+
+  async function handleSaveEvaluationProfile() {
+    if (!settings || ncsLoading) return;
+    const weightTotal = toNumber(ncsWeights.ncs) + toNumber(ncsWeights.company) + toNumber(ncsWeights.service);
+    const selectionWeightTotal = ncsSelections.reduce((sum, selection) => sum + toNumber(selection.weight), 0);
+    if (ncsSelections.length < 3 || ncsSelections.length > 5) {
+      setNcsError("공식 NCS 능력단위를 3개 이상 5개 이하로 선택해주세요.");
+      return;
+    }
+    if (weightTotal !== 100) {
+      setNcsError("NCS·기업 인재상·서비스 공통 비중의 합은 100이어야 합니다.");
+      return;
+    }
+    if (selectionWeightTotal !== 100) {
+      setNcsError("선택한 NCS 능력단위 내부 비중의 합은 100이어야 합니다.");
+      return;
+    }
+    if (
+      settings.questions.length > 0 &&
+      !window.confirm("평가 프로필을 다시 저장하면 기존 질문이 비활성화됩니다. 계속하시겠습니까?")
+    ) {
+      return;
+    }
+
+    setNcsLoading("save");
+    setNcsError("");
+    try {
+      const response = await saveEvaluationProfile({
+        postingId: settings.posting.postingId,
+        ncsWeight: toNumber(ncsWeights.ncs),
+        companyWeight: toNumber(ncsWeights.company),
+        serviceWeight: toNumber(ncsWeights.service),
+        selections: ncsSelections.map((selection, index) => ({
+          ncsUnitId: selection.unit.ncsUnitId,
+          weight: toNumber(selection.weight),
+          relevanceScore: selection.relevanceScore,
+          rationale: selection.rationale.trim() || undefined,
+          sortOrder: index + 1,
+        })),
+      });
+      hydrateEvaluationProfile(response.data, setEvaluationProfile, setNcsWeights, setNcsSelections);
+      setMessage("공식 NCS·기업 인재상·서비스 공통 기준을 평가 프로필 초안으로 저장했습니다.");
+      await loadSettings();
+    } catch (error) {
+      setNcsError(error instanceof Error ? error.message : "평가 프로필 저장에 실패했습니다.");
+    } finally {
+      setNcsLoading(null);
+    }
+  }
+
+  async function handleActivateEvaluationProfile() {
+    if (!settings || ncsLoading) return;
+    setNcsLoading("activate");
+    setNcsError("");
+    try {
+      const response = await activateEvaluationProfile(settings.posting.postingId);
+      hydrateEvaluationProfile(response.data, setEvaluationProfile, setNcsWeights, setNcsSelections);
+      setMessage("NCS 평가 프로필을 활성화했습니다. 이후 채용면접 리포트에 이 기준이 적용됩니다.");
+    } catch (error) {
+      setNcsError(error instanceof Error ? error.message : "평가 프로필 활성화에 실패했습니다.");
+    } finally {
+      setNcsLoading(null);
     }
   }
 
@@ -797,8 +1009,12 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       const response = await suggestEvaluationCriteria({
         postingId: settings.posting.postingId,
         jobDescription,
-        talentProfile: "문제 해결력과 협업 태도를 갖춘 지원자",
-        evaluationPolicy: "평가 기준과 면접 질문 구성을 기반으로 근거 중심 평가 항목을 추천합니다.",
+        talentProfile:
+          evaluationProfile?.companyContext.talentProfile ??
+          "직무와 연결된 관찰 가능한 행동을 기준으로 평가",
+        evaluationPolicy:
+          evaluationProfile?.companyContext.evaluationPolicy ??
+          "답변 근거와 직무 수행 경험을 기준으로 평가",
       });
       rememberAiJob("criteria", "AI 평가 기준 추천", response.data);
     } catch (error) {
@@ -826,12 +1042,19 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       const response = await generateInterviewQuestions({
         postingId: settings.posting.postingId,
         jobDescription: buildJobDescription(settings),
-        questionCount: Math.max(3, settings.criteria.length || 3),
+        questionCount: Math.min(20, Math.max(6, settings.criteria.length * 2)),
         criteria: settings.criteria.map((criterion) => ({
           criterionId: criterion.criterionId,
           name: criterion.tagName,
           category: criterion.category,
           weight: criterion.weight,
+          description: criterion.description ?? undefined,
+          sourceType: criterion.sourceType,
+          sourceCode: criterion.sourceCode ?? undefined,
+          sourceVersion: criterion.sourceVersion ?? undefined,
+          sourceName: criterion.sourceName ?? undefined,
+          behaviorIndicators: criterion.behaviorIndicators,
+          alignmentRationale: criterion.alignmentRationale ?? undefined,
         })),
       });
       rememberAiJob("questions", "AI 질문 추천", response.data);
@@ -1025,6 +1248,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     }
 
     if (savedCount > 0) {
+      await refreshEvaluationProfile(settings.posting.postingId);
       setMessage(`AI 추천 질문 ${savedCount}개를 면접 질문 구성에 추가했습니다.`);
       return;
     }
@@ -1252,6 +1476,265 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
               ) : (
                 <div className="empty">등록된 AI 요청이 없습니다.</div>
               )}
+            </section>
+
+            <section className="panel">
+              <div className="panel-head">
+                <div>
+                  <h2>공식 NCS 평가 프로필</h2>
+                  <p>공식 능력단위, 기업 인재상, 서비스 공통 근거 기준을 하나의 채용면접 평가 계약으로 확정합니다.</p>
+                </div>
+                <div className="toolbar">
+                  <span className={`badge ${evaluationProfile?.status === "ACTIVE" ? "success" : "warning"}`}>
+                    {evaluationProfile?.status === "ACTIVE" ? "적용 중" : "초안"}
+                  </span>
+                  <a
+                    className="btn secondary compact"
+                    href={evaluationProfile?.source.url ?? "https://www.data.go.kr/data/15128213/openapi.do"}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    공식 출처
+                  </a>
+                </div>
+              </div>
+
+              {ncsError ? <p className="notice danger">{ncsError}</p> : null}
+              {ncsSourceStatus === "CONFIGURATION_REQUIRED" ? (
+                <p className="notice">공식 검색을 사용하려면 API 서버에 NCS 공공데이터 서비스 키를 설정해야 합니다.</p>
+              ) : null}
+
+              <div className="criteria-detail-fields">
+                <label>
+                  공식 NCS 비중
+                  <input
+                    inputMode="numeric"
+                    min={10}
+                    max={80}
+                    type="number"
+                    value={ncsWeights.ncs}
+                    onChange={(event) => setNcsWeights((current) => ({ ...current, ncs: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  기업 인재상 비중
+                  <input
+                    inputMode="numeric"
+                    min={10}
+                    max={80}
+                    type="number"
+                    value={ncsWeights.company}
+                    onChange={(event) => setNcsWeights((current) => ({ ...current, company: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  공통 답변 근거 비중
+                  <input
+                    inputMode="numeric"
+                    min={10}
+                    max={80}
+                    type="number"
+                    value={ncsWeights.service}
+                    onChange={(event) => setNcsWeights((current) => ({ ...current, service: event.target.value }))}
+                  />
+                </label>
+              </div>
+
+              <div className="posting-list question-list">
+                <article className="posting">
+                  <div>
+                    <h3>기업 인재상</h3>
+                    <p>{evaluationProfile?.companyContext.talentProfile || "기업 프로필에서 인재상을 먼저 설정해주세요."}</p>
+                  </div>
+                </article>
+                <article className="posting">
+                  <div>
+                    <h3>기업 평가 정책</h3>
+                    <p>{evaluationProfile?.companyContext.evaluationPolicy || "기업 프로필에서 평가 정책을 먼저 설정해주세요."}</p>
+                  </div>
+                </article>
+              </div>
+
+              <div className="panel-head">
+                <div>
+                  <h3>능력단위 선택</h3>
+                  <p>JD 추천 또는 공식 명칭 검색으로 3~5개를 선택합니다. 추천 결과는 사람이 최종 검토해야 합니다.</p>
+                </div>
+                <button
+                  className="btn secondary compact"
+                  type="button"
+                  disabled={ncsLoading !== null}
+                  onClick={() => void handleRecommendNcsUnits()}
+                >
+                  {ncsLoading === "recommend" ? "추천 중…" : "JD로 추천"}
+                </button>
+              </div>
+              <form className="toolbar" onSubmit={handleSearchNcsUnits}>
+                <input
+                  aria-label="NCS 능력단위 검색"
+                  placeholder="예: 응용SW엔지니어링, 정보보호"
+                  value={ncsSearchQuery}
+                  onChange={(event) => setNcsSearchQuery(event.target.value)}
+                />
+                <button className="btn secondary compact" type="submit" disabled={ncsLoading !== null}>
+                  {ncsLoading === "search" ? "검색 중…" : "공식 NCS 검색"}
+                </button>
+              </form>
+
+              {ncsCandidates.length > 0 ? (
+                <div className="table-wrap">
+                  <table className="data-table criteria-table">
+                    <thead>
+                      <tr>
+                        <th>선택</th>
+                        <th>공식 코드</th>
+                        <th>능력단위</th>
+                        <th>분류</th>
+                        <th>추천 근거</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ncsCandidates.map((candidate) => {
+                        const selected = ncsSelections.some(
+                          (selection) => selection.unit.ncsUnitId === candidate.unit.ncsUnitId,
+                        );
+                        return (
+                          <tr key={candidate.unit.ncsUnitId}>
+                            <td>
+                              <input
+                                aria-label={`${candidate.unit.unitName} 선택`}
+                                checked={selected}
+                                type="checkbox"
+                                onChange={() => toggleNcsUnit(candidate)}
+                              />
+                            </td>
+                            <td>{candidate.unit.classificationCode}</td>
+                            <td>
+                              <strong>{candidate.unit.unitName}</strong>
+                              <p>{candidate.unit.definition || "공식 정의 정보 없음"}</p>
+                            </td>
+                            <td>{candidate.unit.subdivisionName}</td>
+                            <td>
+                              {candidate.relevanceScore !== undefined ? `${candidate.relevanceScore}점 · ` : ""}
+                              {candidate.rationale || "직접 검색 결과"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+
+              <div className="panel-head">
+                <div>
+                  <h3>선택한 공식 능력단위</h3>
+                  <p>내부 비중 합계 100 · 현재 {ncsSelections.reduce((sum, item) => sum + toNumber(item.weight), 0)}</p>
+                </div>
+              </div>
+              <div className="table-wrap">
+                <table className="data-table criteria-table">
+                  <thead>
+                    <tr>
+                      <th>순서</th>
+                      <th>코드·버전</th>
+                      <th>능력단위·행동지표</th>
+                      <th>내부 비중</th>
+                      <th>선정 근거</th>
+                      <th>삭제</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ncsSelections.map((selection, index) => (
+                      <tr key={selection.unit.ncsUnitId}>
+                        <td>{index + 1}</td>
+                        <td>{selection.unit.classificationCode} · {selection.unit.version}</td>
+                        <td>
+                          <strong>{selection.unit.unitName}</strong>
+                          <p>{selection.unit.elements.map((element) => element.elementName).join(", ") || "능력단위요소 없음"}</p>
+                        </td>
+                        <td>
+                          <input
+                            aria-label={`${selection.unit.unitName} 내부 비중`}
+                            inputMode="numeric"
+                            min={1}
+                            max={100}
+                            type="number"
+                            value={selection.weight}
+                            onChange={(event) => updateNcsSelection(selection.unit.ncsUnitId, "weight", event.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            aria-label={`${selection.unit.unitName} 선정 근거`}
+                            placeholder="JD와 연결되는 이유"
+                            value={selection.rationale}
+                            onChange={(event) => updateNcsSelection(selection.unit.ncsUnitId, "rationale", event.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <button
+                            className="btn secondary compact"
+                            type="button"
+                            onClick={() => toggleNcsUnit({ unit: selection.unit })}
+                          >
+                            삭제
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {ncsSelections.length === 0 ? (
+                      <tr>
+                        <td colSpan={6}>선택한 능력단위가 없습니다.</td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+
+              {evaluationProfile?.coverage.length ? (
+                <div className="table-wrap">
+                  <table className="data-table criteria-table">
+                    <thead>
+                      <tr><th>평가 기준</th><th>출처 코드</th><th>독립 질문</th><th>상태</th></tr>
+                    </thead>
+                    <tbody>
+                      {evaluationProfile.coverage.map((item) => (
+                        <tr key={item.criterionId}>
+                          <td>{item.criterionName}</td>
+                          <td>{item.sourceCode ?? "서비스/기업 기준"}</td>
+                          <td>{item.activeQuestionCount} / {item.requiredQuestionCount}</td>
+                          <td><span className={`badge ${item.ready ? "success" : "warning"}`}>{item.ready ? "충족" : "질문 필요"}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+
+              <div className="modal-actions">
+                <button
+                  className="btn secondary"
+                  type="button"
+                  disabled={ncsLoading !== null}
+                  onClick={() => void handleSaveEvaluationProfile()}
+                >
+                  {ncsLoading === "save" ? "저장 중…" : "평가 프로필 초안 저장"}
+                </button>
+                <button
+                  className="btn primary"
+                  type="button"
+                  disabled={
+                    ncsLoading !== null ||
+                    !evaluationProfile ||
+                    evaluationProfile.selections.length < 3 ||
+                    evaluationProfile.coverage.some((item) => !item.ready)
+                  }
+                  onClick={() => void handleActivateEvaluationProfile()}
+                >
+                  {ncsLoading === "activate" ? "적용 중…" : "평가 프로필 확정"}
+                </button>
+              </div>
             </section>
 
             <form className="panel" onSubmit={handleCriteriaSave}>
@@ -1507,7 +1990,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                   <div className="panel-head">
                     <div>
                       <h2>면접 질문 세트 미리보기</h2>
-                      <p>평가 기준별 첫 번째 활성 질문을 기준으로 구성합니다. 연결된 질문이 없는 기준은 확정 대상에서 제외됩니다.</p>
+                      <p>평가 기준별 최대 2개의 독립 질문으로 구성합니다. 연결된 질문이 없는 기준은 확정 대상에서 제외됩니다.</p>
                       {questionSetPreview.length > 0 ? (
                         <p>
                           확정 가능 질문 {questionSetPreviewSummary.confirmableCount}개
@@ -1520,7 +2003,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                   </div>
                   <div className="posting-list question-list">
                     {questionSetPreview.map((item) => (
-                      <article className="posting" key={item.criterionId}>
+                      <article className="posting" key={item.previewId}>
                         <div className="logo-chip">
                           {item.questionType ? getQuestionTypeLabel(item.questionType) : "미연결"}
                         </div>
@@ -1727,26 +2210,80 @@ function buildQuestionSetPreview(settings: InterviewSettings | null): QuestionSe
 
   return [...settings.criteria]
     .sort((left, right) => left.sortOrder - right.sortOrder)
-    .map((criterion) => {
-      const question = settings.questions.find((item) => item.criterionId === criterion.criterionId && item.isActive);
-
-      return {
+    .flatMap<QuestionSetPreviewItem>((criterion): QuestionSetPreviewItem[] => {
+      const questions = settings.questions
+        .filter(
+          (item) =>
+            item.criterionId === criterion.criterionId &&
+            item.isActive &&
+            item.questionType !== "FOLLOW_UP",
+        )
+        .slice(0, 2);
+      if (questions.length === 0) {
+        return [{
+          previewId: `${criterion.criterionId}-empty`,
+          criterionId: criterion.criterionId,
+          criterionLabel: `${criterion.tagName} · ${criterion.category}`,
+          questionId: null,
+          questionType: null,
+          content: "연결된 활성 질문이 없습니다.",
+        }];
+      }
+      return questions.map((question) => ({
+        previewId: `${criterion.criterionId}-${question.questionId}`,
         criterionId: criterion.criterionId,
         criterionLabel: `${criterion.tagName} · ${criterion.category}`,
-        questionId: question?.questionId ?? null,
-        questionType: question?.questionType ?? null,
-        content: question?.content ?? "연결된 활성 질문이 없습니다.",
-      };
+        questionId: question.questionId,
+        questionType: question.questionType,
+        content: question.content,
+      }));
     });
 }
 
 function buildQuestionSetPreviewSummary(items: QuestionSetPreviewItem[]) {
   const confirmableCount = items.filter((item) => item.questionId !== null).length;
+  const criterionIds = new Set(items.map((item) => item.criterionId));
+  const coveredCriterionIds = new Set(
+    items.filter((item) => item.questionId !== null).map((item) => item.criterionId),
+  );
 
   return {
     confirmableCount,
-    missingCriteriaCount: Math.max(items.length - confirmableCount, 0),
+    missingCriteriaCount: Math.max(criterionIds.size - coveredCriterionIds.size, 0),
+    totalCriteriaCount: criterionIds.size,
   };
+}
+
+function hydrateEvaluationProfile(
+  profile: EvaluationProfile,
+  setProfile: (value: EvaluationProfile) => void,
+  setWeights: (value: { ncs: string; company: string; service: string }) => void,
+  setSelections: (value: NcsSelectionDraft[]) => void,
+) {
+  setProfile(profile);
+  setWeights({
+    ncs: String(profile.weights.ncs),
+    company: String(profile.weights.company),
+    service: String(profile.weights.service),
+  });
+  setSelections(
+    profile.selections.map((selection) => ({
+      unit: selection.unit,
+      weight: String(selection.weight),
+      relevanceScore: selection.relevanceScore,
+      rationale: selection.rationale ?? "",
+    })),
+  );
+}
+
+function distributeNcsSelectionWeights(selections: NcsSelectionDraft[]): NcsSelectionDraft[] {
+  if (selections.length === 0) return [];
+  const base = Math.floor(100 / selections.length);
+  const remainder = 100 - base * selections.length;
+  return selections.map((selection, index) => ({
+    ...selection,
+    weight: String(base + (index < remainder ? 1 : 0)),
+  }));
 }
 
 function validateQuestionForm(

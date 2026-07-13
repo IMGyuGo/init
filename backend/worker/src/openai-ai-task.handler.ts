@@ -234,7 +234,8 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       jobDescription: requiredText(payload.jobDescription, "jobDescription"),
       criteria: criteriaOf(payload.criteria),
       answers: reportAnswers,
-      documentText: typeof payload.documentText === "string" ? payload.documentText : undefined
+      documentText: typeof payload.documentText === "string" ? payload.documentText : undefined,
+      evaluationProfile: evaluationProfileOf(payload.evaluationProfile)
     });
     const fallbackResult = await this.fallback.handle({
       ...sanitizedJob,
@@ -295,7 +296,19 @@ function reportTypeOf(value: unknown): "RECRUITING_REPORT" | "MOCK_INTERVIEW_REP
   throw new NonRetryableAiWorkerFailure("reportType is invalid");
 }
 
-function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; category?: string; weight?: number; description?: string }> {
+function criteriaOf(value: unknown): Array<{
+  criterionId: number;
+  name: string;
+  category?: string;
+  weight?: number;
+  description?: string;
+  sourceType?: "COMPANY_CUSTOM" | "NCS_OFFICIAL" | "COMPANY_TALENT" | "SERVICE_COMMON";
+  sourceCode?: string;
+  sourceVersion?: string;
+  sourceName?: string;
+  behaviorIndicators?: string[];
+  alignmentRationale?: string;
+}> {
   if (!Array.isArray(value) || value.length === 0) {
     throw new NonRetryableAiWorkerFailure("criteria is required");
   }
@@ -310,9 +323,34 @@ function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; 
       name: requiredText(record.name, "criterion name"),
       category: optionalText(record.category),
       description: typeof record.description === "string" ? record.description : undefined,
-      weight: Number.isFinite(Number(record.weight)) ? Number(record.weight) : undefined
+      weight: Number.isFinite(Number(record.weight)) ? Number(record.weight) : undefined,
+      sourceType: criterionSourceTypeOf(record.sourceType),
+      sourceCode: optionalText(record.sourceCode),
+      sourceVersion: optionalText(record.sourceVersion),
+      sourceName: optionalText(record.sourceName),
+      behaviorIndicators: stringArrayOf(record.behaviorIndicators, "behaviorIndicators"),
+      alignmentRationale: optionalText(record.alignmentRationale)
     };
   });
+}
+
+function criterionSourceTypeOf(
+  value: unknown
+): "COMPANY_CUSTOM" | "NCS_OFFICIAL" | "COMPANY_TALENT" | "SERVICE_COMMON" | undefined {
+  return value === "COMPANY_CUSTOM" ||
+    value === "NCS_OFFICIAL" ||
+    value === "COMPANY_TALENT" ||
+    value === "SERVICE_COMMON"
+    ? value
+    : undefined;
+}
+
+function evaluationProfileOf(value: unknown) {
+  const profile = optionalRecord(value);
+  if (!profile || profile.status !== "ACTIVE") {
+    return undefined;
+  }
+  return profile as unknown as import("./openai-report.provider").ReportEvaluationProfile;
 }
 
 function sanitizeQuestionGenerationResult(generated: QuestionGenerationResult) {

@@ -710,6 +710,10 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
           ? {
               criterionId: Number(score.criterion.criterionId),
               tagName: score.criterion.tag.name,
+              sourceType: score.criterion.sourceType,
+              sourceCode: score.criterion.sourceCode,
+              sourceVersion: score.criterion.sourceVersion,
+              sourceName: score.criterion.sourceName,
             }
           : null,
         evidences: score.evidences.map((evidence) => ({

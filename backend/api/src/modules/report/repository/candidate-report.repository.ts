@@ -64,12 +64,42 @@ export interface CandidateReportCriterionRecord {
   description?: string;
   weight: number;
   sortOrder?: number;
+  sourceType?: "COMPANY_CUSTOM" | "NCS_OFFICIAL" | "COMPANY_TALENT" | "SERVICE_COMMON";
+  sourceCode?: string;
+  sourceVersion?: string;
+  sourceName?: string;
+  behaviorIndicators?: string[];
+  alignmentRationale?: string;
+}
+
+export interface CandidateReportEvaluationProfileRecord {
+  status: "ACTIVE";
+  rubricVersion: string;
+  ncsWeight: number;
+  companyWeight: number;
+  serviceWeight: number;
+  companyTalentProfile?: string;
+  companyEvaluationPolicy?: string;
+  officialNcsProvider: string;
+  officialNcsSourceUrl: string;
+  units: Array<{
+    unitCode: string;
+    classificationCode: string;
+    unitName: string;
+    ncsDegree: string;
+    version: string;
+    weight: number;
+    behaviorIndicators: string[];
+  }>;
 }
 
 export interface CandidateReportRepository {
   findMockReportStatus(reportId: number): MaybePromise<ReportStatus | undefined>;
   saveMockReportStatus(reportId: number, status: ReportStatus): MaybePromise<void>;
   listEvaluationCriteriaByPosting(postingId: number): MaybePromise<CandidateReportCriterionRecord[]>;
+  findActiveEvaluationProfileByPosting(
+    postingId: number,
+  ): MaybePromise<CandidateReportEvaluationProfileRecord | undefined>;
   findLatestReportByApplication(
     applicationId: number,
     sessionId?: number,

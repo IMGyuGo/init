@@ -9,6 +9,12 @@ export interface QuestionGenerationCriterion {
   category?: string;
   weight?: number;
   description?: string;
+  sourceType?: "COMPANY_CUSTOM" | "NCS_OFFICIAL" | "COMPANY_TALENT" | "SERVICE_COMMON";
+  sourceCode?: string;
+  sourceVersion?: string;
+  sourceName?: string;
+  behaviorIndicators?: string[];
+  alignmentRationale?: string;
 }
 
 export interface QuestionGenerationInput {
@@ -89,7 +95,10 @@ export function buildQuestionMessages(input: QuestionGenerationInput): Array<{ r
         "category must equal the matched criterion category when provided, otherwise use a concise Korean category.",
         "Generate only questions that can be saved to the question bank after human review.",
         "Do not include final hiring pass/fail judgments, sensitive attributes, appearance, eye contact, voice tone, age, gender, school, region, disability, or health.",
-        "Questions must evaluate observable work evidence through answer content."
+        "Questions must evaluate observable work evidence through answer content.",
+        "For NCS_OFFICIAL criteria, ground each question in the supplied behaviorIndicators and keep the official sourceCode traceable.",
+        "For COMPANY_TALENT criteria, ask only about observable job behavior; never ask for vague culture fit.",
+        "Create at least two independent evidence opportunities per criterion when questionCount allows."
       ].join("\n")
     },
     {

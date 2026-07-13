@@ -1328,6 +1328,10 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
             scoreId: score.scoreId,
             criterionId: score.criterion?.criterionId ?? null,
             criterionName: score.criterion?.tagName ?? null,
+            criterionSourceType: score.criterion?.sourceType ?? "COMPANY_CUSTOM",
+            criterionSourceCode: score.criterion?.sourceCode ?? null,
+            criterionSourceVersion: score.criterion?.sourceVersion ?? null,
+            criterionSourceName: score.criterion?.sourceName ?? null,
             score: score.score,
             rationale: score.rationale,
             evidences: score.evidences.map((evidence) => ({

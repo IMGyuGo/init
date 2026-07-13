@@ -139,6 +139,18 @@ enum GuardrailResult {
   REGENERATED
 }
 
+enum EvaluationCriterionSource {
+  COMPANY_CUSTOM
+  NCS_OFFICIAL
+  COMPANY_TALENT
+  SERVICE_COMMON
+}
+
+enum EvaluationProfileStatus {
+  DRAFT
+  ACTIVE
+}
+
 enum EmbeddingSourceType {
   POSTING_JD
   CRITERION_TAG
@@ -283,6 +295,7 @@ model Posting {
   applications         Application[]
   questionSets         InterviewQuestionSet[]
   timePolicy           InterviewTimePolicy?
+  evaluationProfile    PostingEvaluationProfile?
 
   @@index([companyId, status])
   @@map("postings")
@@ -302,20 +315,119 @@ model CriterionTag {
 }
 
 model EvaluationCriterion {
-  criterionId      BigInt                     @id @default(autoincrement()) @map("criterion_id")
-  postingId        BigInt                     @map("posting_id")
-  tagId            BigInt                     @map("tag_id")
-  description      String?
-  weight           Int
-  passScore        Int?                       @map("pass_score")
-  sortOrder        Int                        @map("sort_order")
-  posting          Posting                    @relation(fields: [postingId], references: [postingId])
-  tag              CriterionTag               @relation(fields: [tagId], references: [tagId])
-  questions        Question[]
-  reportScores     ReportScore[]
-  questionSetItems InterviewQuestionSetItem[]
+  criterionId         BigInt                     @id @default(autoincrement()) @map("criterion_id")
+  postingId           BigInt                     @map("posting_id")
+  tagId               BigInt                     @map("tag_id")
+  description         String?
+  weight              Int
+  passScore           Int?                       @map("pass_score")
+  sortOrder           Int                        @map("sort_order")
+  sourceType          EvaluationCriterionSource  @default(COMPANY_CUSTOM) @map("source_type")
+  sourceCode          String?                    @map("source_code") @db.VarChar(80)
+  sourceVersion       String?                    @map("source_version") @db.VarChar(80)
+  sourceName          String?                    @map("source_name") @db.VarChar(200)
+  behaviorIndicators  Json?                      @map("behavior_indicators")
+  alignmentRationale  String?                    @map("alignment_rationale")
+  ncsUnitId           BigInt?                    @map("ncs_unit_id")
+  posting             Posting                    @relation(fields: [postingId], references: [postingId])
+  tag                 CriterionTag               @relation(fields: [tagId], references: [tagId])
+  ncsUnit             NcsCompetencyUnit?         @relation(fields: [ncsUnitId], references: [ncsUnitId])
+  questions           Question[]
+  reportScores        ReportScore[]
+  questionSetItems    InterviewQuestionSetItem[]
 
+  @@index([postingId, sourceType], map: "idx_evaluation_criteria_posting_source")
+  @@index([ncsUnitId], map: "idx_evaluation_criteria_ncs_unit")
   @@map("evaluation_criteria")
+}
+
+model NcsCompetencyUnit {
+  ncsUnitId           BigInt                  @id @default(autoincrement()) @map("ncs_unit_id")
+  unitCode            String                  @map("unit_code") @db.VarChar(80)
+  classificationCode  String                  @map("classification_code") @db.VarChar(80)
+  unitName            String                  @map("unit_name") @db.VarChar(200)
+  definition          String?
+  unitLevel           String?                 @map("unit_level") @db.VarChar(30)
+  developmentYear     String?                 @map("development_year") @db.VarChar(10)
+  version             String                  @db.VarChar(50)
+  ncsDegree           String                  @map("ncs_degree") @db.VarChar(30)
+  isCurrent           Boolean                 @default(true) @map("is_current")
+  largeCategoryCode   String                  @map("large_category_code") @db.VarChar(20)
+  largeCategoryName   String                  @map("large_category_name") @db.VarChar(120)
+  mediumCategoryCode  String                  @map("medium_category_code") @db.VarChar(20)
+  mediumCategoryName  String                  @map("medium_category_name") @db.VarChar(120)
+  smallCategoryCode   String                  @map("small_category_code") @db.VarChar(20)
+  smallCategoryName   String                  @map("small_category_name") @db.VarChar(120)
+  subdivisionCode     String                  @map("subdivision_code") @db.VarChar(20)
+  subdivisionName     String                  @map("subdivision_name") @db.VarChar(160)
+  dutyDefinition      String?                 @map("duty_definition")
+  sourceProvider      String                  @default("한국산업인력공단") @map("source_provider") @db.VarChar(120)
+  sourceUrl           String                  @map("source_url") @db.VarChar(500)
+  sourceUpdatedAt     DateTime?               @map("source_updated_at") @db.Date
+  rawData             Json?                   @map("raw_data")
+  createdAt           DateTime                @default(now()) @map("created_at")
+  updatedAt           DateTime                @updatedAt @map("updated_at")
+  elements            NcsCompetencyElement[]
+  postingSelections   PostingNcsSelection[]
+  evaluationCriteria  EvaluationCriterion[]
+
+  @@unique([classificationCode, version], map: "uk_ncs_units_classification_version")
+  @@index([unitName], map: "idx_ncs_units_name")
+  @@index([subdivisionCode, isCurrent], map: "idx_ncs_units_subdivision_current")
+  @@map("ncs_competency_units")
+}
+
+model NcsCompetencyElement {
+  ncsElementId  BigInt             @id @default(autoincrement()) @map("ncs_element_id")
+  ncsUnitId     BigInt             @map("ncs_unit_id")
+  elementCode   String             @map("element_code") @db.VarChar(80)
+  elementNumber String             @map("element_number") @db.VarChar(30)
+  elementName   String             @map("element_name") @db.VarChar(250)
+  elementLevel  String?            @map("element_level") @db.VarChar(30)
+  rawData       Json?              @map("raw_data")
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+  unit          NcsCompetencyUnit  @relation(fields: [ncsUnitId], references: [ncsUnitId], onDelete: Cascade)
+
+  @@unique([ncsUnitId, elementCode], map: "uk_ncs_elements_unit_code")
+  @@map("ncs_competency_elements")
+}
+
+model PostingEvaluationProfile {
+  profileId                 BigInt                   @id @default(autoincrement()) @map("profile_id")
+  postingId                 BigInt                   @unique @map("posting_id")
+  status                    EvaluationProfileStatus @default(DRAFT)
+  ncsWeight                 Int                      @default(60) @map("ncs_weight")
+  companyWeight             Int                      @default(25) @map("company_weight")
+  serviceWeight             Int                      @default(15) @map("service_weight")
+  rubricVersion             String                   @default("NCS_EVIDENCE_RUBRIC_V1") @map("rubric_version") @db.VarChar(80)
+  companyTalentSnapshot     String?                  @map("company_talent_snapshot")
+  evaluationPolicySnapshot  String?                  @map("evaluation_policy_snapshot")
+  sourceSnapshot            Json?                    @map("source_snapshot")
+  activatedAt               DateTime?                @map("activated_at")
+  createdAt                 DateTime                 @default(now()) @map("created_at")
+  updatedAt                 DateTime                 @updatedAt @map("updated_at")
+  posting                   Posting                  @relation(fields: [postingId], references: [postingId], onDelete: Cascade)
+  selections                PostingNcsSelection[]
+
+  @@map("posting_evaluation_profiles")
+}
+
+model PostingNcsSelection {
+  selectionId    BigInt                    @id @default(autoincrement()) @map("selection_id")
+  profileId      BigInt                    @map("profile_id")
+  ncsUnitId      BigInt                    @map("ncs_unit_id")
+  weight         Int
+  relevanceScore Int?                      @map("relevance_score")
+  rationale      String?
+  sortOrder      Int                       @map("sort_order")
+  createdAt      DateTime                  @default(now()) @map("created_at")
+  profile        PostingEvaluationProfile  @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+  unit           NcsCompetencyUnit         @relation(fields: [ncsUnitId], references: [ncsUnitId])
+
+  @@unique([profileId, ncsUnitId], map: "uk_posting_ncs_profile_unit")
+  @@index([ncsUnitId], map: "idx_posting_ncs_unit")
+  @@map("posting_ncs_selections")
 }
 
 model Question {

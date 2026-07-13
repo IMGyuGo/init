@@ -237,7 +237,16 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                         <tbody>
                           {report.scores.map((score) => (
                             <tr key={score.scoreId}>
-                              <td>{formatScoreCriterionName(score.criterionName, score.rationale)}</td>
+                              <td>
+                                <strong>{formatScoreCriterionName(score.criterionName, score.rationale)}</strong>
+                                <span className="badge neutral">
+                                  {formatCriterionSource(
+                                    score.criterionSourceType,
+                                    score.criterionSourceCode,
+                                    score.criterionSourceVersion,
+                                  )}
+                                </span>
+                              </td>
                               <td>{score.score}</td>
                               <td>
                                 {score.rationale ?? "근거 없음"}
@@ -448,6 +457,19 @@ function formatScoreCriterionName(criterionName: string | null, rationale: strin
 
   const match = rationale?.match(/^(.+?)(?:은|는)\s*\d+점/);
   return match?.[1]?.trim() || "기준 없음";
+}
+
+function formatCriterionSource(
+  sourceType: "COMPANY_CUSTOM" | "NCS_OFFICIAL" | "COMPANY_TALENT" | "SERVICE_COMMON" | undefined,
+  sourceCode: string | null | undefined,
+  sourceVersion: string | null | undefined,
+) {
+  if (sourceType === "NCS_OFFICIAL") {
+    return ["공식 NCS", sourceCode, sourceVersion].filter(Boolean).join(" · ");
+  }
+  if (sourceType === "COMPANY_TALENT") return "기업 인재상";
+  if (sourceType === "SERVICE_COMMON") return "서비스 공통 rubric";
+  return "기업 직접 설정";
 }
 
 type RecruitingIntegrityCounts = {

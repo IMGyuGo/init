@@ -464,6 +464,12 @@ export class CompanyInterviewService {
           weight: criterion.weight,
           passScore: criterion.passScore,
           sortOrder: criterion.sortOrder,
+          sourceType: criterion.sourceType ?? 'COMPANY_CUSTOM',
+          sourceCode: criterion.sourceCode ?? null,
+          sourceVersion: criterion.sourceVersion ?? null,
+          sourceName: criterion.sourceName ?? null,
+          behaviorIndicators: criterion.behaviorIndicators ?? [],
+          alignmentRationale: criterion.alignmentRationale ?? null,
         };
       }),
     );

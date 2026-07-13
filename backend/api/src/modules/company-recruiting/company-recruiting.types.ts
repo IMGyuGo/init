@@ -113,6 +113,10 @@ export type ApplicantRecord = {
       criterion: {
         criterionId: number;
         tagName: string | null;
+        sourceType?: "COMPANY_CUSTOM" | "NCS_OFFICIAL" | "COMPANY_TALENT" | "SERVICE_COMMON";
+        sourceCode?: string | null;
+        sourceVersion?: string | null;
+        sourceName?: string | null;
       } | null;
       evidences: Array<{
         evidenceId: number;

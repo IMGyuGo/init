@@ -43,6 +43,7 @@ import {
 } from "../repository/candidate-report.repository";
 import {
   type EvaluationCriterionInput,
+  type EvaluationProfileContext,
   type GenerateReportRequest,
   type InterviewAnswerInput as ReportInterviewAnswerInput,
   type ReportType,
@@ -421,6 +422,12 @@ export class ReportService {
       criteria: await this.reportCriteria(args.reportType, args.postingId, answers),
       answers: await this.reportAnswerInputs(answers, args.reportType),
     };
+    if (args.reportType === "RECRUITING_REPORT" && args.postingId !== undefined) {
+      const evaluationProfile = await this.activeEvaluationProfile(args.postingId);
+      if (evaluationProfile) {
+        body.evaluationProfile = evaluationProfile;
+      }
+    }
 
     return {
       reportId: args.reportId,
@@ -532,6 +539,40 @@ export class ReportService {
       name: criterion.name,
       description: criterion.description,
       weight: criterion.weight,
+      sourceType: criterion.sourceType,
+      sourceCode: criterion.sourceCode,
+      sourceVersion: criterion.sourceVersion,
+      sourceName: criterion.sourceName,
+      behaviorIndicators: criterion.behaviorIndicators,
+      alignmentRationale: criterion.alignmentRationale,
+    };
+  }
+
+  private async activeEvaluationProfile(postingId: number): Promise<EvaluationProfileContext | undefined> {
+    const profile = await this.candidateReportRepository.findActiveEvaluationProfileByPosting(postingId);
+    if (!profile) {
+      return undefined;
+    }
+    return {
+      status: "ACTIVE",
+      rubricVersion: profile.rubricVersion,
+      weights: {
+        ncs: profile.ncsWeight,
+        company: profile.companyWeight,
+        service: profile.serviceWeight,
+      },
+      companyTalentProfile: profile.companyTalentProfile,
+      companyEvaluationPolicy: profile.companyEvaluationPolicy,
+      officialNcs: {
+        provider: profile.officialNcsProvider,
+        sourceUrl: profile.officialNcsSourceUrl,
+        units: profile.units,
+      },
+      policy: {
+        automaticHiringDecision: false,
+        nonverbalExcluded: true,
+        minimumIndependentQuestionsPerCriterion: 2,
+      },
     };
   }
 

@@ -46,6 +46,10 @@
 | `postings` | `Posting` | B |
 | `criterion_tags` | `CriterionTag` | C |
 | `evaluation_criteria` | `EvaluationCriterion` | C |
+| `ncs_competency_units` | `NcsCompetencyUnit` | C/E |
+| `ncs_competency_elements` | `NcsCompetencyElement` | C/E |
+| `posting_evaluation_profiles` | `PostingEvaluationProfile` | C |
+| `posting_ncs_selections` | `PostingNcsSelection` | C |
 | `question_bank` | `Question` | C |
 | `interview_time_policies` | `InterviewTimePolicy` | C |
 | `applications` | `Application` | B/D |
@@ -71,7 +75,7 @@
 | Aggregate | Owned Tables | Responsibility |
 | --- |--- |--- |
 | Account | users, companies, candidate_profiles | 로그인 계정, 기업/지원자 프로필, 기본 파일 참조 |
-| Recruiting | postings, criterion_tags, evaluation_criteria, question_bank, interview_time_policies | 공고, JD, 평가 기준, 질문, 면접 시간 정책 관리 |
+| Recruiting | postings, criterion_tags, evaluation_criteria, ncs_competency_units, ncs_competency_elements, posting_evaluation_profiles, posting_ncs_selections, question_bank, interview_time_policies | 공고, JD, 공식 NCS 기반 평가 프로필, 질문, 면접 시간 정책 관리 |
 | Application | applications, application_documents, consent_records | 지원서 제출, 서류 파싱, 동의 이력 |
 | Interview | interview_sessions, interview_session_questions, interview_answers, follow_up_questions | 모의/채용 AI 면접 실행, 세션별 질문 순서와 답변 |
 | Report | evaluation_reports, report_scores, report_evidences, manual_evaluations | AI 평가 결과와 면접관 검토 |
@@ -204,6 +208,81 @@
 | weight | INTEGER NOT NULL | 가중치. 예: 30 |
 | pass_score | INTEGER | 이 항목에서 통과로 볼 최소 점수 |
 | sort_order | INTEGER NOT NULL | 화면 표시 순서 |
+| source_type | EvaluationCriterionSource NOT NULL | COMPANY_CUSTOM, NCS_OFFICIAL, COMPANY_TALENT, SERVICE_COMMON |
+| source_code | VARCHAR(80) | 공식 NCS 분류 코드 또는 내부 rubric 코드 |
+| source_version | VARCHAR(80) | NCS 차수/버전 또는 정책 스냅샷 버전 |
+| source_name | VARCHAR(200) | 한국산업인력공단, 기업 인재상, 서비스 공통 rubric 등 출처명 |
+| behavior_indicators | JSONB | 질문 생성과 근거 평가에 사용하는 관찰 행동 목록 |
+| alignment_rationale | TEXT | JD·기업 인재상과 이 기준을 연결한 근거 |
+| ncs_unit_id | BIGINT | NCS_OFFICIAL 기준이면 공식 능력단위 FK |
+
+### ncs_competency_units
+
+공공데이터포털의 한국산업인력공단 NCS 기준정보 API에서 받은 공식 능력단위를 로컬에 캐시한다. `classification_code + version`은 unique이며, 공식 원문 응답은 추적을 위해 `raw_data`에 보존한다.
+
+| Column | Definition | Description |
+| --- |--- |--- |
+| ncs_unit_id | BIGINT PRIMARY KEY | 내부 NCS 능력단위 PK |
+| unit_code | VARCHAR(80) NOT NULL | 공식 능력단위 코드 |
+| classification_code | VARCHAR(80) NOT NULL | NCS 세분류/능력단위 분류 코드 |
+| unit_name | VARCHAR(200) NOT NULL | 공식 능력단위명 |
+| definition | TEXT | 공식 능력단위 정의 |
+| unit_level | VARCHAR(30) | 공식 수준 정보 |
+| development_year | VARCHAR(10) | 개발 연도 |
+| version | VARCHAR(50) NOT NULL | 공식 버전 |
+| ncs_degree | VARCHAR(30) NOT NULL | NCS 차수 |
+| is_current | BOOLEAN NOT NULL | 현재 검색·선택 가능한 버전 여부 |
+| large_category_code/name | VARCHAR | 대분류 코드/명 |
+| medium_category_code/name | VARCHAR | 중분류 코드/명 |
+| small_category_code/name | VARCHAR | 소분류 코드/명 |
+| subdivision_code/name | VARCHAR | 세분류 코드/명 |
+| duty_definition | TEXT | 세분류 직무 정의 |
+| source_provider | VARCHAR(120) NOT NULL | 기본값 한국산업인력공단 |
+| source_url | VARCHAR(500) NOT NULL | 공식 원천 URL |
+| source_updated_at | DATE | 공식 데이터 갱신 기준일 |
+| raw_data | JSONB | 공식 API 응답 스냅샷 |
+
+### ncs_competency_elements
+
+| Column | Definition | Description |
+| --- |--- |--- |
+| ncs_element_id | BIGINT PRIMARY KEY | 능력단위요소 PK |
+| ncs_unit_id | BIGINT NOT NULL | 소속 공식 능력단위 FK |
+| element_code | VARCHAR(80) NOT NULL | 공식 능력단위요소 코드 |
+| element_number | VARCHAR(30) NOT NULL | 공식 요소 순번 |
+| element_name | VARCHAR(250) NOT NULL | 질문과 평가 근거에 사용하는 관찰 행동명 |
+| element_level | VARCHAR(30) | 요소 수준 |
+| raw_data | JSONB | 공식 API 응답 스냅샷 |
+
+### posting_evaluation_profiles
+
+| Column | Definition | Description |
+| --- |--- |--- |
+| profile_id | BIGINT PRIMARY KEY | 공고 평가 프로필 PK |
+| posting_id | BIGINT NOT NULL UNIQUE | 평가 프로필을 소유한 공고 FK |
+| status | EvaluationProfileStatus NOT NULL | DRAFT 또는 ACTIVE |
+| ncs_weight | INTEGER NOT NULL | 공식 NCS 그룹 비중. 기본 60 |
+| company_weight | INTEGER NOT NULL | 기업 인재상·평가정책 그룹 비중. 기본 25 |
+| service_weight | INTEGER NOT NULL | 서비스 공통 근거 rubric 비중. 기본 15 |
+| rubric_version | VARCHAR(80) NOT NULL | 근거 수준표 버전 |
+| company_talent_snapshot | TEXT | 활성화 당시 기업 인재상 스냅샷 |
+| evaluation_policy_snapshot | TEXT | 활성화 당시 기업 평가 정책 스냅샷 |
+| source_snapshot | JSONB | 공식 출처, 선택 단위, 버전의 감사 스냅샷 |
+| activated_at | TIMESTAMP | 질문 커버리지 검증을 통과한 활성화 시각 |
+
+### posting_ncs_selections
+
+| Column | Definition | Description |
+| --- |--- |--- |
+| selection_id | BIGINT PRIMARY KEY | 공고별 NCS 선택 PK |
+| profile_id | BIGINT NOT NULL | 공고 평가 프로필 FK |
+| ncs_unit_id | BIGINT NOT NULL | 선택한 공식 NCS 능력단위 FK |
+| weight | INTEGER NOT NULL | 선택 NCS 단위 사이의 내부 배분. 합계 100 |
+| relevance_score | INTEGER | JD 기반 추천 연관도 참고값 |
+| rationale | TEXT | 공고 JD와 능력단위를 연결한 담당자 확인 근거 |
+| sort_order | INTEGER NOT NULL | 화면과 질문 생성 순서 |
+
+평가 프로필은 공식 NCS 능력단위 3~5개, NCS 내부 비중 합계 100, 전체 그룹 비중 합계 100을 만족해야 저장할 수 있다. 모든 평가 기준에 독립 질문이 2개 이상 연결되어야 `ACTIVE`로 전환되며, 자동 합격/불합격 판정과 채용면접 비언어 신호 평가는 금지한다.
 
 ### question_bank
 

@@ -17,6 +17,10 @@ import type {
   UpdateEvaluationCriteriaInput,
   UpdateInterviewTimePolicyInput,
   UpdateInterviewTimePolicyResult,
+  EvaluationProfile,
+  NcsRecommendationResult,
+  NcsSearchResult,
+  SaveEvaluationProfileInput,
 } from "./types";
 import { authFetch } from "../../api/client";
 import { getApiBaseUrl } from "../../api/api-base-url";
@@ -24,6 +28,39 @@ import { getApiBaseUrl } from "../../api/api-base-url";
 export async function getInterviewSettings(postingId?: number) {
   return request<InterviewSettings>("/company/interviews/settings", {
     query: { postingId },
+  });
+}
+
+export async function searchNcsUnits(query: string, limit = 20) {
+  return request<NcsSearchResult>("/company/interviews/ncs/units", {
+    query: { query, limit },
+  });
+}
+
+export async function recommendNcsUnits(postingId: number, count = 5) {
+  return request<NcsRecommendationResult>("/company/interviews/ncs/recommend", {
+    method: "POST",
+    body: { postingId, count },
+  });
+}
+
+export async function getEvaluationProfile(postingId: number) {
+  return request<EvaluationProfile>("/company/interviews/ncs/profile", {
+    query: { postingId },
+  });
+}
+
+export async function saveEvaluationProfile(input: SaveEvaluationProfileInput) {
+  return request<EvaluationProfile>("/company/interviews/ncs/profile", {
+    method: "PUT",
+    body: input,
+  });
+}
+
+export async function activateEvaluationProfile(postingId: number) {
+  return request<EvaluationProfile>("/company/interviews/ncs/profile/activate", {
+    method: "POST",
+    body: { postingId },
   });
 }
 
@@ -103,7 +140,7 @@ export async function getAiJobStatus(processLogId: number) {
 async function request<T>(
   path: string,
   options: {
-    method?: "DELETE" | "GET" | "POST" | "PATCH";
+    method?: "DELETE" | "GET" | "POST" | "PUT" | "PATCH";
     query?: Record<string, string | number | undefined>;
     body?: unknown;
   } = {},

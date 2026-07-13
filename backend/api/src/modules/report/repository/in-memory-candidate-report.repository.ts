@@ -10,6 +10,10 @@ import type { AiProcessStatus, ReportType } from "../report.types";
 import { SERVICE_INTERVIEW_RUBRIC } from "../service/service-interview-rubric";
 
 export class InMemoryCandidateReportRepository implements CandidateReportRepository {
+  findActiveEvaluationProfileByPosting(): undefined {
+    return undefined;
+  }
+
   private readonly mockReportStatuses = new Map<number, ReportStatus>();
   private readonly reports = new Map<number, CandidateStoredReport>();
   private readonly followUpQuestions = new Map<number, CandidateFollowUpQuestionRecord[]>();

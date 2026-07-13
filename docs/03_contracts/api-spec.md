@@ -2017,6 +2017,62 @@ AI 리포트 금지 기준:
 - Error Codes:
   - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`
 
+### API-040NCS-A GET /company/interviews/ncs/units
+- 도메인: 기업 - NCS 평가 프로필
+- 권한/인증: 기업 / 기업 사용자 로그인
+- Query: `query` string(2~80), `limit` number(1~30, optional)
+- 처리:
+  - `NCS_PUBLIC_DATA_SERVICE_KEY`가 있으면 한국산업인력공단 NCS 기준정보 API `NCS007`을 조회하고 공식 코드·차수·버전·능력단위요소를 로컬 카탈로그에 upsert한다.
+  - 키가 없으면 이미 동기화된 로컬 카탈로그만 조회한다. 공식 데이터가 없는 상태에서 가짜 기준으로 대체하지 않는다.
+- 응답 데이터: `sourceStatus`, `sourceProvider`, `sourceUrl`, `query`, `items[]`
+- Error Codes: `COMMON_FORBIDDEN`, `COMMON_VALIDATION_FAILED`, `COMMON_INTERNAL_ERROR`
+
+### API-040NCS-B POST /company/interviews/ncs/recommend
+- 도메인: 기업 - NCS 평가 프로필
+- 권한/인증: 기업 / 기업 사용자 로그인
+- Body: `{ postingId: number, count?: 3..5 }`
+- 처리: 현재 기업 소유 공고의 직무명, JD, 기업 인재상, 평가 정책과 공식 능력단위의 명칭·정의·능력단위요소를 비교해 검토 후보를 반환한다.
+- 주의: 추천 점수는 검색 관련도이며 지원자 평가 점수가 아니다. 기업 담당자가 최종 선택한다.
+- Error Codes: `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`
+
+### API-040NCS-C GET /company/interviews/ncs/profile
+- 도메인: 기업 - NCS 평가 프로필
+- 권한/인증: 기업 / 기업 사용자 로그인
+- Query: `postingId` number, required
+- 응답 데이터:
+  - `status`: `DRAFT | ACTIVE`
+  - `weights`: 기본 `NCS 60 / 기업 인재상 25 / 서비스 공통 15`
+  - `companyContext`: 저장 당시 인재상·평가 정책 스냅샷
+  - `selections[]`: 공식 능력단위 코드·버전·내부 비중·선정 근거·능력단위요소
+  - `coverage[]`: 평가 기준별 활성 독립 질문 수, 요구 수(2), 충족 여부
+  - `source`: 한국산업인력공단 공식 출처 링크
+- Error Codes: `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`
+
+### API-040NCS-D PUT /company/interviews/ncs/profile
+- 도메인: 기업 - NCS 평가 프로필
+- 권한/인증: 기업 / 기업 사용자 로그인
+- Body:
+  - `postingId`: number
+  - `ncsWeight`, `companyWeight`, `serviceWeight`: 각각 10~80, 합계 100
+  - `selections`: 공식 NCS 능력단위 3~5개, 각 내부 비중 합계 100
+- 처리:
+  - 공식 NCS 기준, 기업 인재상 기준, 서비스 공통 근거 기준을 실제 `evaluation_criteria`로 생성한다.
+  - 기업 인재상은 직무와 연결된 관찰 가능한 행동으로만 변환한다.
+  - 확정 질문 세트, 면접 세션 또는 리포트가 이미 있으면 기준 교체를 거부한다.
+- Error Codes: `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`, `COMMON_CONFLICT`
+
+### API-040NCS-E POST /company/interviews/ncs/profile/activate
+- 도메인: 기업 - NCS 평가 프로필
+- 권한/인증: 기업 / 기업 사용자 로그인
+- Body: `{ postingId: number }`
+- 전제조건: 모든 평가 기준에 `FOLLOW_UP`이 아닌 활성 질문이 각각 2개 이상 연결되어야 한다.
+- 처리: 프로필을 `ACTIVE`로 변경하며 이후 채용면접 리포트 payload에 공식 NCS 코드·버전·행동지표, 기업 정책 스냅샷, 그룹 비중을 포함한다.
+- 평가 안전 원칙:
+  - 프로필은 자동 합격/탈락 결정을 만들지 않는다.
+  - 비언어·응시 무결성 신호는 NCS/기업 인재상 점수에 포함하지 않는다.
+  - 답변 transcript와 꼬리질문 답변에서 확인 가능한 근거만 평가한다.
+- Error Codes: `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`
+
 ## AI/리포트 처리
 
 ### API-028 POST /reports/{reportId}/evaluation-context

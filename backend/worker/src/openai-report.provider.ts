@@ -8,6 +8,38 @@ export interface ReportGenerationCriterion {
   name: string;
   description?: string;
   weight?: number;
+  sourceType?: "COMPANY_CUSTOM" | "NCS_OFFICIAL" | "COMPANY_TALENT" | "SERVICE_COMMON";
+  sourceCode?: string;
+  sourceVersion?: string;
+  sourceName?: string;
+  behaviorIndicators?: string[];
+  alignmentRationale?: string;
+}
+
+export interface ReportEvaluationProfile {
+  status: "ACTIVE";
+  rubricVersion: string;
+  weights: { ncs: number; company: number; service: number };
+  companyTalentProfile?: string;
+  companyEvaluationPolicy?: string;
+  officialNcs: {
+    provider: string;
+    sourceUrl: string;
+    units: Array<{
+      unitCode: string;
+      classificationCode: string;
+      unitName: string;
+      ncsDegree: string;
+      version: string;
+      weight: number;
+      behaviorIndicators: string[];
+    }>;
+  };
+  policy: {
+    automaticHiringDecision: false;
+    nonverbalExcluded: true;
+    minimumIndependentQuestionsPerCriterion: number;
+  };
 }
 
 export interface ReportGenerationAnswer {
@@ -78,6 +110,7 @@ export interface ReportGenerationInput {
   criteria: ReportGenerationCriterion[];
   answers: ReportGenerationAnswer[];
   documentText?: string;
+  evaluationProfile?: ReportEvaluationProfile;
 }
 
 export interface ReportGenerationResult {
@@ -116,7 +149,7 @@ export class OpenAiReportProvider implements ReportAiProvider {
         {
           role: "system",
           content:
-            "You write concise Korean interview reports. For recruiting reports, return JSON only with keys summary and reviewNote. For mock interview reports, return JSON only with keys summary and feedback. All JSON string values must be written in Korean. Evaluate only evidence found in answer transcripts, follow-up answer transcripts, JD, posting metadata, and submitted documents. For mock interview reports only, normalized nonverbalMetadata may be used as auxiliary practice metadata and never as a hiring signal. Treat integritySummary/integrityEvents as exam-integrity review signals only when they show screen/tab leaving, early screen leaving right after the question starts, camera loss, face missing or out of frame, audio continuing while no face is detected, multiple people detected by face or person-object detection, large face-position shift, long gaze away from the screen, static video frames, or voice-mouth mismatch where audio is detected while mouth movement is missing during recording. Never state that cheating is proven, and never claim identity verification from these signals. Treat microphoneWarnings/longSilenceCount/shortAnswerCount as recording or answer-quality signals only, not cheating. Do not use nonverbalMetadata to infer appearance, facial expression, voice tone, disability, health, age, gender, school, region, or other sensitive attributes. Do not score eye contact or communication quality from gaze data; use gaze only as a screen-away integrity signal. Do not claim that a voice is AI-generated; describe voice-mouth mismatch only as a possible recording/external-audio review signal. Recruiting report inputs must not contain nonverbalMetadata; if it is present, ignore it completely and do not use it in the summary, review note, or score. The reviewNote is an internal company review note, not candidate advice. Connect the evaluation to JD requirements and the confirmed question set, and never make a final hiring pass/fail judgment. For recruiting reports, do not quote raw STT text when it looks noisy or misrecognized; summarize the meaning conservatively and mention uncertainty instead. Avoid repeating the same strength in summary, score rationale, and review note. If an answer has evaluationStatus STT_UNAVAILABLE, state that it is temporarily scored as 0 because speech recognition failed and do not infer answer quality from it. Penalize very short answers, vague answers, missing results, missing owned actions, and transcripts that appear noisy or misrecognized. Do not infer or score sensitive attributes, appearance, facial expression, voice tone, age, gender, school, region, disability, or health. For mock interview reports, write practice feedback, and never mention acceptance, rejection, hiring fit, or pass/fail."
+            "You write concise Korean interview reports. For recruiting reports, return JSON only with keys summary and reviewNote. For mock interview reports, return JSON only with keys summary and feedback. All JSON string values must be written in Korean. Evaluate only evidence found in answer transcripts, follow-up answer transcripts, JD, posting metadata, submitted documents, and the supplied evaluation profile. When evaluationProfile is ACTIVE, evaluate NCS_OFFICIAL criteria against the exact official competency-unit behaviorIndicators, COMPANY_TALENT criteria only against observable job behaviors stated in the company profile, and SERVICE_COMMON criteria against the five-level evidence rubric. The three group weights and each criterion weight are binding. Cite the criterion source code and answer evidence internally, but do not imply that NCS certification or competence is proven beyond the interview evidence. Never turn a vague culture-fit statement into a score. For mock interview reports only, normalized nonverbalMetadata may be used as auxiliary practice metadata and never as a hiring signal. Treat integritySummary/integrityEvents as exam-integrity review signals only when they show screen/tab leaving, early screen leaving right after the question starts, camera loss, face missing or out of frame, audio continuing while no face is detected, multiple people detected by face or person-object detection, large face-position shift, long gaze away from the screen, static video frames, or voice-mouth mismatch where audio is detected while mouth movement is missing during recording. Never state that cheating is proven, and never claim identity verification from these signals. Treat microphoneWarnings/longSilenceCount/shortAnswerCount as recording or answer-quality signals only, not cheating. Do not use nonverbalMetadata to infer appearance, facial expression, voice tone, disability, health, age, gender, school, region, or other sensitive attributes. Do not score eye contact or communication quality from gaze data; use gaze only as a screen-away integrity signal. Do not claim that a voice is AI-generated; describe voice-mouth mismatch only as a possible recording/external-audio review signal. Recruiting report inputs must not contain nonverbalMetadata; if it is present, ignore it completely and do not use it in the summary, review note, or score. The reviewNote is an internal company review note, not candidate advice. Connect the evaluation to JD requirements and the confirmed question set, and never make a final hiring pass/fail judgment. For recruiting reports, do not quote raw STT text when it looks noisy or misrecognized; summarize the meaning conservatively and mention uncertainty instead. Avoid repeating the same strength in summary, score rationale, and review note. If an answer has evaluationStatus STT_UNAVAILABLE, state that it is temporarily scored as 0 because speech recognition failed and do not infer answer quality from it. Penalize very short answers, vague answers, missing results, missing owned actions, and transcripts that appear noisy or misrecognized. Do not infer or score sensitive attributes, appearance, facial expression, voice tone, age, gender, school, region, disability, or health. For mock interview reports, write practice feedback, and never mention acceptance, rejection, hiring fit, or pass/fail."
         },
         {
           role: "user",
@@ -136,6 +169,7 @@ export class OpenAiReportProvider implements ReportAiProvider {
             postingId: input.postingId,
             jobDescription: input.jobDescription,
             criteria: input.criteria,
+            evaluationProfile: input.evaluationProfile,
             answers: reportAnswers,
             nonverbalMetadataPolicy: {
               usage: "MOCK_PRACTICE_AUXILIARY_ONLY",
