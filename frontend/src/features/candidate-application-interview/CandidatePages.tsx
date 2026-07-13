@@ -82,11 +82,15 @@ import { InterviewAvatar } from "./InterviewAvatar";
 import { candidateApplicationInterviewRoutes } from "./routes";
 import {
   GAZE_CALIBRATION_REQUIRED_SAMPLES,
+  classifyIrisGazeDirection,
   countPersonDetections,
   isFacePositionShifted,
   estimateHeadPoseAngles,
   estimateIrisGazePosition,
+  isReliableGazeCalibrationFrame,
+  isWithinDetectionGrace,
   resolveCombinedGazeSignal,
+  smoothIrisGazePosition,
   updateFacePositionBaseline,
   updateMultiplePeopleDetectionState,
   updateSustainedDetectionState,
@@ -96,6 +100,30 @@ import {
   type HeadPoseAngles,
   type IrisGazePosition,
 } from "./nonverbal-integrity";
+import {
+  INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES,
+  evaluateTimelineAnalysisQuality,
+  readGazeAwayIntervals,
+  readGazeTimeline,
+  readHeadPoseTimeline,
+  summarizeGazeTimeline,
+  summarizeHeadPoseTimeline,
+  type InterviewGazeAwayInterval,
+  type InterviewGazeTimelineSample,
+  type InterviewHeadPoseTimelineSample,
+} from "./nonverbal-analysis";
+import {
+  buildNonverbalDeviceQaExport,
+  collectNonverbalDeviceQaEnvironment,
+  createNonverbalDeviceQaRun,
+  finishNonverbalDeviceQaScenario,
+  readNonverbalDeviceQaCamera,
+  startNonverbalDeviceQaScenario,
+  summarizeNonverbalDeviceQaRun,
+  type NonverbalDeviceQaRun,
+  type NonverbalDeviceQaScenarioKind,
+  type NonverbalDeviceQaSummary,
+} from "./nonverbal-device-qa";
 import {
   type CameraPipPosition,
   type CandidateApplicationFormState,
@@ -199,6 +227,8 @@ const NONVERBAL_FACE_SHIFT_RELATIVE_AREA_MULTIPLIER = 1.6;
 const NONVERBAL_FACE_SHIFT_CONFIRMATION_MS = 1000;
 const NONVERBAL_GAZE_AWAY_CONFIRMATION_MS = 1500;
 const NONVERBAL_GAZE_CENTERED_CONFIRMATION_MS = 750;
+const NONVERBAL_GAZE_SIGNAL_DROPOUT_GRACE_MS = 650;
+const NONVERBAL_TIMELINE_SAMPLE_INTERVAL_MS = 1000;
 const NONVERBAL_AUDIO_SPEAKING_LEVEL = 6;
 const NONVERBAL_AUDIO_SPEAKING_RATIO_THRESHOLD = 0.35;
 const NONVERBAL_MOUTH_OPEN_RATIO_THRESHOLD = 0.06;
@@ -260,6 +290,7 @@ type InterviewIntegritySuspicionLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH";
 type InterviewIntegrityEvent = {
   type: InterviewIntegrityEventType;
   occurredAt: string;
+  offsetMs?: number;
   durationMs?: number;
   direction?: GazeDirection;
   source?: GazeSignalSource;
@@ -268,6 +299,17 @@ type RuntimeIntegrityWarning = {
   type: InterviewIntegrityEventType;
   message: string;
   occurredAt: string;
+};
+type NonverbalDeviceQaPanelSnapshot = {
+  run: NonverbalDeviceQaRun;
+  summary: NonverbalDeviceQaSummary;
+};
+type NonverbalQaVideoFrameMetadata = {
+  presentedFrames: number;
+};
+type NonverbalQaVideoElement = HTMLVideoElement & {
+  requestVideoFrameCallback?: (callback: (now: number, metadata: NonverbalQaVideoFrameMetadata) => void) => number;
+  cancelVideoFrameCallback?: (handle: number) => void;
 };
 type BrowserDetectedFace = {
   boundingBox: DOMRectReadOnly;
@@ -278,6 +320,77 @@ type BrowserFaceDetector = {
 type BrowserFaceDetectorConstructor = new (options?: { fastMode?: boolean; maxDetectedFaces?: number }) => BrowserFaceDetector;
 
 type MediaPipeFaceLandmarkerModule = typeof import("@mediapipe/tasks-vision");
+type MediaPipeVisionRuntime = {
+  tasks: MediaPipeFaceLandmarkerModule;
+  vision: Awaited<ReturnType<MediaPipeFaceLandmarkerModule["FilesetResolver"]["forVisionTasks"]>>;
+};
+
+let mediaPipeVisionRuntimePromise: Promise<MediaPipeVisionRuntime> | null = null;
+let mediaPipeDiagnosticFilterDepth = 0;
+let restoreMediaPipeConsole: (() => void) | null = null;
+
+function isBenignMediaPipeDiagnostic(args: unknown[]): boolean {
+  const message = args.map((value) => String(value)).join(" ");
+  return (
+    message.includes("Created TensorFlow Lite XNNPACK delegate for CPU") ||
+    message.includes("OpenGL error checking is disabled") ||
+    message.includes("GL version:")
+  );
+}
+
+function beginMediaPipeDiagnosticFilter(): () => void {
+  if (mediaPipeDiagnosticFilterDepth === 0) {
+    const originalError = console.error;
+    const originalWarn = console.warn;
+    console.error = (...args: unknown[]) => {
+      if (!isBenignMediaPipeDiagnostic(args)) originalError(...args);
+    };
+    console.warn = (...args: unknown[]) => {
+      if (!isBenignMediaPipeDiagnostic(args)) originalWarn(...args);
+    };
+    restoreMediaPipeConsole = () => {
+      console.error = originalError;
+      console.warn = originalWarn;
+    };
+  }
+
+  mediaPipeDiagnosticFilterDepth += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    mediaPipeDiagnosticFilterDepth = Math.max(0, mediaPipeDiagnosticFilterDepth - 1);
+    if (mediaPipeDiagnosticFilterDepth === 0) {
+      restoreMediaPipeConsole?.();
+      restoreMediaPipeConsole = null;
+    }
+  };
+}
+
+async function withFilteredMediaPipeDiagnostics<T>(task: () => Promise<T>): Promise<T> {
+  const release = beginMediaPipeDiagnosticFilter();
+  try {
+    return await task();
+  } finally {
+    release();
+  }
+}
+
+function getMediaPipeVisionRuntime(): Promise<MediaPipeVisionRuntime> {
+  if (mediaPipeVisionRuntimePromise) return mediaPipeVisionRuntimePromise;
+
+  const loading = withFilteredMediaPipeDiagnostics(async () => {
+    const tasks = await import("@mediapipe/tasks-vision") as MediaPipeFaceLandmarkerModule;
+    const vision = await tasks.FilesetResolver.forVisionTasks(MEDIAPIPE_TASKS_VISION_WASM_URL);
+    return { tasks, vision };
+  });
+  mediaPipeVisionRuntimePromise = loading.catch((error) => {
+    mediaPipeVisionRuntimePromise = null;
+    throw error;
+  });
+  return mediaPipeVisionRuntimePromise;
+}
+
 type InterviewIntegritySummary = {
   screenAwayCount: number;
   tabHiddenCount: number;
@@ -322,6 +435,8 @@ type InterviewAnswerNonverbalMetadata = {
   cameraDisconnectedCount: number;
   integrityEvents?: InterviewIntegrityEvent[];
   integritySummary?: InterviewIntegritySummary;
+  gazeTimeline?: InterviewGazeTimelineSample[];
+  headPoseTimeline?: InterviewHeadPoseTimelineSample[];
 };
 type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   questionId: number;
@@ -342,6 +457,7 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   gazeAwayStartedAtMs?: number;
   gazeAwayCandidateStartedAtMs?: number;
   gazeCenteredCandidateStartedAtMs?: number;
+  lastGazeSignalAtMs?: number;
   voiceMouthMismatchStartedAtMs?: number;
   voiceMouthMismatchCandidateStartedAtMs?: number;
   voiceWithoutFaceStartedAtMs?: number;
@@ -354,9 +470,16 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   gazeCalibrationSampleCount: number;
   gazeBaselineHorizontalRatio?: number;
   gazeBaselineVerticalRatio?: number;
+  smoothedGazeHorizontalRatio?: number;
+  smoothedGazeVerticalRatio?: number;
   headPoseCalibrationSampleCount: number;
   headPoseBaselineYawDegrees?: number;
   headPoseBaselinePitchDegrees?: number;
+  headPoseBaselineRollDegrees?: number;
+  gazeTimeline: InterviewGazeTimelineSample[];
+  headPoseTimeline: InterviewHeadPoseTimelineSample[];
+  lastGazeTimelineSampleAtMs?: number;
+  lastHeadPoseTimelineSampleAtMs?: number;
   faceBaseline?: FacePositionSnapshot;
   faceBaselineSampleCount: number;
   lastVideoFrameSample?: number[];
@@ -380,6 +503,7 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   totalAwayDurationMs: number;
   maxAwayDurationMs: number;
   integrityEvents: InterviewIntegrityEvent[];
+  deviceQa?: NonverbalDeviceQaRun;
 };
 type CandidateApplicationStatusFilter = "ALL" | "WAITING" | "IN_PROGRESS" | "COMPLETED" | "REPORTING";
 type ApplicationBadgeTone = "green" | "yellow" | "purple" | "neutral";
@@ -2686,6 +2810,10 @@ function InterviewRuntimePanel({
   const [retryingQuestionId, setRetryingQuestionId] = useState<number>();
   const [message, setMessage] = useState("");
   const [integrityWarning, setIntegrityWarning] = useState<RuntimeIntegrityWarning | null>(null);
+  const [nonverbalDeviceQaEnabled, setNonverbalDeviceQaEnabled] = useState(false);
+  const [nonverbalDeviceQaSnapshot, setNonverbalDeviceQaSnapshot] = useState<NonverbalDeviceQaPanelSnapshot>();
+  const [nonverbalDeviceQaScenarioKind, setNonverbalDeviceQaScenarioKind] = useState<NonverbalDeviceQaScenarioKind>("NEUTRAL");
+  const [nonverbalDeviceQaMessage, setNonverbalDeviceQaMessage] = useState("녹화를 시작하면 기기 성능 측정을 시작합니다.");
   const [busy, setBusy] = useState(false);
   const [lastAnswer, setLastAnswer] = useState<LastSavedAnswer>();
   const [autoAiPipeline, setAutoAiPipeline] = useState<AutoAiPipelineState>();
@@ -2766,6 +2894,8 @@ function InterviewRuntimePanel({
   const invalidRecordingRetryCountsRef = useRef<Map<number, number>>(new Map());
   const recordingNonverbalTrackerRef = useRef<RecordingNonverbalTracker | null>(null);
   const nonverbalCameraMonitorRef = useRef<number | null>(null);
+  const nonverbalVideoFrameCallbackRef = useRef<number | null>(null);
+  const nonverbalVideoFrameElementRef = useRef<NonverbalQaVideoElement | null>(null);
   const nonverbalIntegrityCleanupRef = useRef<(() => void) | null>(null);
   const nonverbalFaceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const nonverbalFaceDetectorRef = useRef<BrowserFaceDetector | null | undefined>(undefined);
@@ -2777,6 +2907,7 @@ function InterviewRuntimePanel({
   const integrityWarningTimeoutRef = useRef<number | null>(null);
   const integrityWarningLastShownAtRef = useRef<Map<InterviewIntegrityEventType, number>>(new Map());
   const lastInvalidRecordingMetadataRef = useRef<Map<number, InterviewAnswerNonverbalMetadata>>(new Map());
+  const nonverbalDeviceQaRunsRef = useRef<NonverbalDeviceQaRun[]>([]);
   const answerToNextQuestionPerfRef = useRef<{
     startedAt: number;
     startedAtIso: string;
@@ -3476,6 +3607,14 @@ function InterviewRuntimePanel({
   }, [mode]);
 
   useEffect(() => {
+    if (typeof window === "undefined" || mode !== "mock") {
+      setNonverbalDeviceQaEnabled(false);
+      return;
+    }
+    setNonverbalDeviceQaEnabled(new URLSearchParams(window.location.search).get("nonverbalQa") === "1");
+  }, [mode]);
+
+  useEffect(() => {
     if (currentQuestion) {
       setAnswer((current) => ({ ...current, questionId: currentQuestion.questionId }));
       setReansweringQuestionId((current) => (current === currentQuestion.questionId ? current : null));
@@ -3544,6 +3683,7 @@ function InterviewRuntimePanel({
       stopQuestionSpeech();
       stopRuntimeCameraQualityMonitor();
       stopNonverbalCameraMonitor();
+      stopNonverbalVideoFrameMonitor();
       stopNonverbalIntegrityListeners();
       recordingNonverbalTrackerRef.current = null;
       if (integrityWarningTimeoutRef.current !== null) {
@@ -4014,6 +4154,117 @@ function InterviewRuntimePanel({
     }
   }
 
+  function refreshNonverbalDeviceQaSnapshot(run = recordingNonverbalTrackerRef.current?.deviceQa) {
+    if (!run || !nonverbalDeviceQaEnabled) return;
+    setNonverbalDeviceQaSnapshot({
+      run,
+      summary: summarizeNonverbalDeviceQaRun(run),
+    });
+  }
+
+  function stopNonverbalVideoFrameMonitor() {
+    const video = nonverbalVideoFrameElementRef.current;
+    if (video && nonverbalVideoFrameCallbackRef.current !== null) {
+      video.cancelVideoFrameCallback?.(nonverbalVideoFrameCallbackRef.current);
+    }
+    nonverbalVideoFrameCallbackRef.current = null;
+    nonverbalVideoFrameElementRef.current = null;
+  }
+
+  function startNonverbalVideoFrameMonitor(tracker: RecordingNonverbalTracker) {
+    stopNonverbalVideoFrameMonitor();
+    const run = tracker.deviceQa;
+    const video = videoRef.current as NonverbalQaVideoElement | null;
+    if (!run || !video?.requestVideoFrameCallback) return;
+
+    run.videoFrameCallbackSupported = true;
+    nonverbalVideoFrameElementRef.current = video;
+    const onVideoFrame = (_now: number, metadata: NonverbalQaVideoFrameMetadata) => {
+      const current = recordingNonverbalTrackerRef.current;
+      if (!current || current !== tracker || current.deviceQa !== run) return;
+
+      const nowMs = Date.now();
+      const presentedFrameDelta = run.lastPresentedFrames === undefined
+        ? 1
+        : Math.max(1, metadata.presentedFrames - run.lastPresentedFrames);
+      run.videoDroppedFrameEstimate += Math.max(0, presentedFrameDelta - 1);
+      run.videoPresentedFrameCount += 1;
+      run.lastPresentedFrames = metadata.presentedFrames;
+      run.firstVideoFrameAtMs ??= nowMs;
+      run.lastVideoFrameAtMs = nowMs;
+
+      nonverbalVideoFrameCallbackRef.current = video.requestVideoFrameCallback?.(onVideoFrame) ?? null;
+    };
+    nonverbalVideoFrameCallbackRef.current = video.requestVideoFrameCallback(onVideoFrame);
+  }
+
+  function recordCompletedNonverbalDeviceQaSample(
+    tracker: RecordingNonverbalTracker,
+    input: { facePresent: boolean; irisDetected: boolean; headPoseDetected: boolean },
+  ) {
+    const run = tracker.deviceQa;
+    if (!run) return;
+    run.sampleCompleted += 1;
+    run.firstCompletedSampleAtMs ??= Date.now();
+    if (input.facePresent) run.facePresentSampleCount += 1;
+    if (input.irisDetected) run.irisSampleCount += 1;
+    if (input.headPoseDetected) run.headPoseSampleCount += 1;
+  }
+
+  function handleStartNonverbalDeviceQaScenario() {
+    const tracker = recordingNonverbalTrackerRef.current;
+    const run = tracker?.deviceQa;
+    if (!recording || !tracker || !run) {
+      setNonverbalDeviceQaMessage("답변 녹화를 시작한 뒤 시나리오를 측정해 주세요.");
+      return;
+    }
+    if (run.activeScenario) {
+      setNonverbalDeviceQaMessage("진행 중인 시나리오를 먼저 종료해 주세요.");
+      return;
+    }
+
+    startNonverbalDeviceQaScenario(run, nonverbalDeviceQaScenarioKind, tracker.integrityEvents.length);
+    const instruction = nonverbalDeviceQaScenarioKind === "NEUTRAL"
+      ? "정면을 자연스럽게 바라본 뒤 5초 이상 유지해 주세요."
+      : nonverbalDeviceQaScenarioKind === "EYE_AWAY"
+        ? "고개는 정면에 두고 눈동자만 옆으로 3~5초 움직인 뒤 정면으로 돌아오세요."
+        : "눈은 자연스럽게 두고 고개를 옆으로 3~5초 돌린 뒤 정면으로 돌아오세요.";
+    setNonverbalDeviceQaMessage(instruction);
+    refreshNonverbalDeviceQaSnapshot(run);
+  }
+
+  function handleFinishNonverbalDeviceQaScenario() {
+    const tracker = recordingNonverbalTrackerRef.current;
+    const run = tracker?.deviceQa;
+    if (!tracker || !run?.activeScenario) {
+      setNonverbalDeviceQaMessage("진행 중인 QA 시나리오가 없습니다.");
+      return;
+    }
+
+    const result = finishNonverbalDeviceQaScenario(run, tracker.integrityEvents);
+    setNonverbalDeviceQaMessage(result?.message ?? "시나리오 결과를 만들지 못했습니다.");
+    refreshNonverbalDeviceQaSnapshot(run);
+  }
+
+  function handleDownloadNonverbalDeviceQaResult() {
+    if (typeof window === "undefined" || nonverbalDeviceQaRunsRef.current.length === 0) {
+      setNonverbalDeviceQaMessage("다운로드할 측정 결과가 없습니다.");
+      return;
+    }
+
+    const payload = buildNonverbalDeviceQaExport(nonverbalDeviceQaRunsRef.current);
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `nonverbal-device-qa-${payload.generatedAt.replace(/[:.]/g, "-")}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setNonverbalDeviceQaMessage("QA 결과 JSON을 저장했습니다.");
+  }
+
   function stopNonverbalIntegrityListeners() {
     nonverbalIntegrityCleanupRef.current?.();
     nonverbalIntegrityCleanupRef.current = null;
@@ -4105,6 +4356,7 @@ function InterviewRuntimePanel({
     tracker.integrityEvents.push({
       type,
       occurredAt: new Date(startedAtMs).toISOString(),
+      offsetMs: Math.max(0, Math.round(startedAtMs - tracker.recordingStartedAtMs)),
       durationMs: Math.round(durationMs),
       ...(options.direction ? { direction: options.direction } : {}),
       ...(options.source ? { source: options.source } : {}),
@@ -4122,19 +4374,20 @@ function InterviewRuntimePanel({
 
     nonverbalFaceLandmarkerPromiseRef.current = (async () => {
       try {
-        const tasks = await import("@mediapipe/tasks-vision") as MediaPipeFaceLandmarkerModule;
-        const vision = await tasks.FilesetResolver.forVisionTasks(MEDIAPIPE_TASKS_VISION_WASM_URL);
-        const landmarker = await tasks.FaceLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: MEDIAPIPE_FACE_LANDMARKER_MODEL_URL,
-          },
-          runningMode: "VIDEO",
-          numFaces: 3,
-          minFaceDetectionConfidence: 0.5,
-          minFacePresenceConfidence: 0.5,
-          minTrackingConfidence: 0.5,
-          outputFacialTransformationMatrixes: true,
-        });
+        const { tasks, vision } = await getMediaPipeVisionRuntime();
+        const landmarker = await withFilteredMediaPipeDiagnostics(() =>
+          tasks.FaceLandmarker.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: MEDIAPIPE_FACE_LANDMARKER_MODEL_URL,
+            },
+            runningMode: "VIDEO",
+            numFaces: 3,
+            minFaceDetectionConfidence: 0.5,
+            minFacePresenceConfidence: 0.5,
+            minTrackingConfidence: 0.5,
+            outputFacialTransformationMatrixes: true,
+          }),
+        );
         nonverbalFaceLandmarkerRef.current = landmarker;
         return landmarker;
       } catch {
@@ -4154,17 +4407,18 @@ function InterviewRuntimePanel({
 
     nonverbalPersonDetectorPromiseRef.current = (async () => {
       try {
-        const tasks = await import("@mediapipe/tasks-vision") as MediaPipeFaceLandmarkerModule;
-        const vision = await tasks.FilesetResolver.forVisionTasks(MEDIAPIPE_TASKS_VISION_WASM_URL);
-        const detector = await tasks.ObjectDetector.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: MEDIAPIPE_PERSON_DETECTOR_MODEL_URL,
-          },
-          runningMode: "VIDEO",
-          maxResults: 4,
-          scoreThreshold: NONVERBAL_PERSON_DETECTION_SCORE_THRESHOLD,
-          categoryAllowlist: ["person"],
-        });
+        const { tasks, vision } = await getMediaPipeVisionRuntime();
+        const detector = await withFilteredMediaPipeDiagnostics(() =>
+          tasks.ObjectDetector.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: MEDIAPIPE_PERSON_DETECTOR_MODEL_URL,
+            },
+            runningMode: "VIDEO",
+            maxResults: 4,
+            scoreThreshold: NONVERBAL_PERSON_DETECTION_SCORE_THRESHOLD,
+            categoryAllowlist: ["person"],
+          }),
+        );
         nonverbalPersonDetectorRef.current = detector;
         return detector;
       } catch {
@@ -4314,6 +4568,7 @@ function InterviewRuntimePanel({
     tracker.integrityEvents.push({
       type: "EARLY_SCREEN_AWAY",
       occurredAt: new Date(nowMs).toISOString(),
+      offsetMs: Math.max(0, Math.round(nowMs - tracker.recordingStartedAtMs)),
     });
     showRuntimeIntegrityWarning("EARLY_SCREEN_AWAY");
   }
@@ -4373,10 +4628,27 @@ function InterviewRuntimePanel({
     return current === undefined ? next : (current * sampleCount + next) / (sampleCount + 1);
   }
 
+  function roundTimelineValue(value: number, precision: number) {
+    const multiplier = 10 ** precision;
+    return Math.round(value * multiplier) / multiplier;
+  }
+
+  function normalizeTimelineAngle(value: number) {
+    let normalized = value;
+    while (normalized > 180) normalized -= 360;
+    while (normalized < -180) normalized += 360;
+    return normalized;
+  }
+
+  function canAppendTimelineSample(lastSampleAtMs: number | undefined, nowMs: number) {
+    return lastSampleAtMs === undefined || nowMs - lastSampleAtMs >= NONVERBAL_TIMELINE_SAMPLE_INTERVAL_MS;
+  }
+
   function registerCombinedGazeSample(
     tracker: RecordingNonverbalTracker,
     irisPosition: IrisGazePosition | undefined,
     headPose: HeadPoseAngles | undefined,
+    calibrationEligible: boolean,
   ) {
     const irisCalibrated = tracker.gazeCalibrationSampleCount >= GAZE_CALIBRATION_REQUIRED_SAMPLES;
     const headPoseCalibrated = tracker.headPoseCalibrationSampleCount >= GAZE_CALIBRATION_REQUIRED_SAMPLES;
@@ -4385,7 +4657,7 @@ function InterviewRuntimePanel({
     if (irisPosition) {
       tracker.gazeDetectionSupported = true;
       tracker.gazeDetectionFrameCount += 1;
-      if (!irisCalibrated) {
+      if (!irisCalibrated && calibrationEligible) {
         const sampleCount = tracker.gazeCalibrationSampleCount;
         tracker.gazeBaselineHorizontalRatio = updateCalibrationAverage(
           tracker.gazeBaselineHorizontalRatio,
@@ -4405,7 +4677,7 @@ function InterviewRuntimePanel({
     if (headPose) {
       tracker.headPoseDetectionSupported = true;
       tracker.headPoseDetectionFrameCount += 1;
-      if (!headPoseCalibrated) {
+      if (!headPoseCalibrated && calibrationEligible) {
         const sampleCount = tracker.headPoseCalibrationSampleCount;
         tracker.headPoseBaselineYawDegrees = updateCalibrationAverage(
           tracker.headPoseBaselineYawDegrees,
@@ -4417,6 +4689,13 @@ function InterviewRuntimePanel({
           sampleCount,
           headPose.pitchDegrees,
         );
+        if (headPose.rollDegrees !== undefined) {
+          tracker.headPoseBaselineRollDegrees = updateCalibrationAverage(
+            tracker.headPoseBaselineRollDegrees,
+            sampleCount,
+            headPose.rollDegrees,
+          );
+        }
         tracker.headPoseCalibrationSampleCount += 1;
         calibrationUpdated = true;
       }
@@ -4445,7 +4724,60 @@ function InterviewRuntimePanel({
             pitchDegrees: tracker.headPoseBaselinePitchDegrees,
           }
         : undefined;
-    const signal = resolveCombinedGazeSignal({ irisPosition, irisBaseline, headPose, headPoseBaseline });
+    const previousSmoothedIrisPosition =
+      tracker.smoothedGazeHorizontalRatio !== undefined && tracker.smoothedGazeVerticalRatio !== undefined
+        ? {
+            horizontalRatio: tracker.smoothedGazeHorizontalRatio,
+            verticalRatio: tracker.smoothedGazeVerticalRatio,
+          }
+        : irisBaseline;
+    const smoothedIrisPosition = irisPosition
+      ? smoothIrisGazePosition(previousSmoothedIrisPosition, irisPosition)
+      : undefined;
+    if (smoothedIrisPosition) {
+      tracker.smoothedGazeHorizontalRatio = smoothedIrisPosition.horizontalRatio;
+      tracker.smoothedGazeVerticalRatio = smoothedIrisPosition.verticalRatio;
+    }
+    const signal = resolveCombinedGazeSignal({
+      irisPosition: smoothedIrisPosition,
+      irisBaseline,
+      headPose,
+      headPoseBaseline,
+    });
+    const nowMs = Date.now();
+    if (
+      mode === "mock" &&
+      smoothedIrisPosition &&
+      irisBaseline &&
+      tracker.gazeTimeline.length < INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES &&
+      canAppendTimelineSample(tracker.lastGazeTimelineSampleAtMs, nowMs)
+    ) {
+      tracker.gazeTimeline.push({
+        tMs: Math.max(0, nowMs - tracker.recordingStartedAtMs),
+        horizontalOffset: roundTimelineValue(smoothedIrisPosition.horizontalRatio - irisBaseline.horizontalRatio, 3),
+        verticalOffset: roundTimelineValue(smoothedIrisPosition.verticalRatio - irisBaseline.verticalRatio, 3),
+        direction: classifyIrisGazeDirection(smoothedIrisPosition, irisBaseline),
+      });
+      tracker.lastGazeTimelineSampleAtMs = nowMs;
+    }
+    if (
+      mode === "mock" &&
+      headPose &&
+      headPoseBaseline &&
+      tracker.headPoseTimeline.length < INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES &&
+      canAppendTimelineSample(tracker.lastHeadPoseTimelineSampleAtMs, nowMs)
+    ) {
+      tracker.headPoseTimeline.push({
+        tMs: Math.max(0, nowMs - tracker.recordingStartedAtMs),
+        yawDegrees: roundTimelineValue(normalizeTimelineAngle(headPose.yawDegrees - headPoseBaseline.yawDegrees), 1),
+        pitchDegrees: roundTimelineValue(normalizeTimelineAngle(headPose.pitchDegrees - headPoseBaseline.pitchDegrees), 1),
+        rollDegrees: roundTimelineValue(
+          normalizeTimelineAngle((headPose.rollDegrees ?? 0) - (tracker.headPoseBaselineRollDegrees ?? 0)),
+          1,
+        ),
+      });
+      tracker.lastHeadPoseTimelineSampleAtMs = nowMs;
+    }
     updateCombinedGazeSignal(tracker, signal);
   }
 
@@ -4455,6 +4787,7 @@ function InterviewRuntimePanel({
   ) {
     const nowMs = Date.now();
     if (signal) {
+      tracker.lastGazeSignalAtMs = nowMs;
       tracker.gazeCenteredCandidateStartedAtMs = undefined;
       tracker.gazeAwayCandidateStartedAtMs ??= nowMs;
       tracker.lastGazeDirection = signal.direction;
@@ -4470,9 +4803,20 @@ function InterviewRuntimePanel({
       return;
     }
 
-    tracker.gazeAwayCandidateStartedAtMs = undefined;
     if (tracker.gazeAwayStartedAtMs === undefined) {
+      if (
+        tracker.gazeAwayCandidateStartedAtMs !== undefined &&
+        isWithinDetectionGrace(
+          tracker.lastGazeSignalAtMs,
+          nowMs,
+          NONVERBAL_GAZE_SIGNAL_DROPOUT_GRACE_MS,
+        )
+      ) {
+        return;
+      }
+      tracker.gazeAwayCandidateStartedAtMs = undefined;
       tracker.gazeCenteredCandidateStartedAtMs = undefined;
+      tracker.lastGazeSignalAtMs = undefined;
       tracker.lastGazeDirection = undefined;
       tracker.lastGazeSource = undefined;
       return;
@@ -4490,6 +4834,7 @@ function InterviewRuntimePanel({
     );
     tracker.gazeAwayStartedAtMs = undefined;
     tracker.gazeCenteredCandidateStartedAtMs = undefined;
+    tracker.lastGazeSignalAtMs = undefined;
     tracker.lastGazeDirection = undefined;
     tracker.lastGazeSource = undefined;
   }
@@ -4625,12 +4970,27 @@ function InterviewRuntimePanel({
   }
 
   async function sampleFaceIntegrity(tracker: RecordingNonverbalTracker, questionId: number) {
-    if (nonverbalFaceDetectionPendingRef.current) return;
+    const qaRun = tracker.deviceQa;
+    if (qaRun) qaRun.sampleAttempts += 1;
+    if (nonverbalFaceDetectionPendingRef.current) {
+      if (qaRun) {
+        qaRun.sampleSkippedBusy += 1;
+        refreshNonverbalDeviceQaSnapshot(qaRun);
+      }
+      return;
+    }
 
     const video = videoRef.current;
-    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth <= 0 || video.videoHeight <= 0) return;
+    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth <= 0 || video.videoHeight <= 0) {
+      if (qaRun) {
+        qaRun.sampleSkippedVideoNotReady += 1;
+        refreshNonverbalDeviceQaSnapshot(qaRun);
+      }
+      return;
+    }
 
     nonverbalFaceDetectionPendingRef.current = true;
+    const qaSampleStartedAt = performance.now();
     try {
       const activeTracker = recordingNonverbalTrackerRef.current;
       if (activeTracker && activeTracker === tracker && activeTracker.questionId === questionId) {
@@ -4651,11 +5011,15 @@ function InterviewRuntimePanel({
         const snapshot = primaryLandmarks ? toFaceSnapshotFromLandmarks(primaryLandmarks) : undefined;
         registerFaceBaselineSample(current, snapshot);
 
-        registerCombinedGazeSample(
-          current,
-          primaryLandmarks ? estimateIrisGazePosition(primaryLandmarks) : undefined,
-          estimateHeadPoseAngles(primaryTransformationMatrix),
-        );
+        const irisPosition = primaryLandmarks ? estimateIrisGazePosition(primaryLandmarks) : undefined;
+        const headPose = estimateHeadPoseAngles(primaryTransformationMatrix);
+        const calibrationEligible = isReliableGazeCalibrationFrame({
+          irisPosition,
+          headPose,
+          detectedFaceCount: faces.length,
+          faceInFrame: Boolean(snapshot && !isFaceOutOfFrame(snapshot)),
+        });
+        registerCombinedGazeSample(current, irisPosition, headPose, calibrationEligible);
         registerVoiceWithoutFaceSample(current, faces.length === 0);
         if (primaryLandmarks) {
           registerVoiceMouthSyncSample(current, primaryLandmarks);
@@ -4686,6 +5050,11 @@ function InterviewRuntimePanel({
         const currentAfterPersonDetection = recordingNonverbalTrackerRef.current;
         if (!currentAfterPersonDetection || currentAfterPersonDetection !== tracker || currentAfterPersonDetection.questionId !== questionId) return;
         updateMultiplePeopleSignal(currentAfterPersonDetection, multiplePeopleDetected);
+        recordCompletedNonverbalDeviceQaSample(currentAfterPersonDetection, {
+          facePresent: faces.length > 0,
+          irisDetected: Boolean(irisPosition),
+          headPoseDetected: Boolean(headPose),
+        });
         return;
       }
 
@@ -4693,7 +5062,10 @@ function InterviewRuntimePanel({
       tracker.faceDetectionSupported = Boolean(detector);
       tracker.gazeDetectionSupported = false;
       tracker.headPoseDetectionSupported = false;
-      if (!detector) return;
+      if (!detector) {
+        if (qaRun) qaRun.sampleUnsupported += 1;
+        return;
+      }
 
       const canvas = getNonverbalFaceCanvas();
       const width = NONVERBAL_FACE_SAMPLE_SIZE;
@@ -4736,9 +5108,22 @@ function InterviewRuntimePanel({
       const currentAfterPersonDetection = recordingNonverbalTrackerRef.current;
       if (!currentAfterPersonDetection || currentAfterPersonDetection !== tracker || currentAfterPersonDetection.questionId !== questionId) return;
       updateMultiplePeopleSignal(currentAfterPersonDetection, multiplePeopleDetected);
+      recordCompletedNonverbalDeviceQaSample(currentAfterPersonDetection, {
+        facePresent: faces.length > 0,
+        irisDetected: false,
+        headPoseDetected: false,
+      });
     } catch {
       tracker.faceDetectionSupported = false;
+      if (qaRun) qaRun.sampleErrors += 1;
     } finally {
+      if (qaRun) {
+        qaRun.sampleProcessingDurationsMs.push(Math.max(0, performance.now() - qaSampleStartedAt));
+        if (qaRun.sampleProcessingDurationsMs.length > 600) {
+          qaRun.sampleProcessingDurationsMs.splice(0, qaRun.sampleProcessingDurationsMs.length - 600);
+        }
+        refreshNonverbalDeviceQaSnapshot(qaRun);
+      }
       nonverbalFaceDetectionPendingRef.current = false;
     }
   }
@@ -4849,9 +5234,25 @@ function InterviewRuntimePanel({
       totalAwayDurationMs: 0,
       maxAwayDurationMs: 0,
       integrityEvents: [],
+      gazeTimeline: [],
+      headPoseTimeline: [],
     };
+    if (nonverbalDeviceQaEnabled) {
+      const run = createNonverbalDeviceQaRun({
+        questionId,
+        startedAtMs: tracker.recordingStartedAtMs,
+        sampleIntervalMs: NONVERBAL_CAMERA_SAMPLE_INTERVAL_MS,
+        environment: collectNonverbalDeviceQaEnvironment(),
+        camera: readNonverbalDeviceQaCamera(stream),
+      });
+      tracker.deviceQa = run;
+      nonverbalDeviceQaRunsRef.current.push(run);
+      setNonverbalDeviceQaMessage("성능 측정 중입니다. 원하는 QA 시나리오를 선택해 구간을 기록해 주세요.");
+      refreshNonverbalDeviceQaSnapshot(run);
+    }
     recordingNonverbalTrackerRef.current = tracker;
     startNonverbalIntegrityListeners(questionId);
+    startNonverbalVideoFrameMonitor(tracker);
     void getMediaPipePersonDetector();
 
     const sampleCamera = () => {
@@ -4914,6 +5315,7 @@ function InterviewRuntimePanel({
     durationSeconds: number,
   ): InterviewAnswerNonverbalMetadata | undefined {
     stopNonverbalCameraMonitor();
+    stopNonverbalVideoFrameMonitor();
     stopNonverbalIntegrityListeners();
     const tracker = recordingNonverbalTrackerRef.current;
     recordingNonverbalTrackerRef.current = null;
@@ -4935,6 +5337,11 @@ function InterviewRuntimePanel({
     closeTimedIntegrityEvent(tracker, "VOICE_MOUTH_MISMATCH", tracker.voiceMouthMismatchStartedAtMs, nowMs);
     closeTimedIntegrityEvent(tracker, "VOICE_WITHOUT_FACE", tracker.voiceWithoutFaceStartedAtMs, nowMs);
     closeTimedIntegrityEvent(tracker, "STATIC_VIDEO_FRAME", tracker.staticVideoFrameStartedAtMs, nowMs);
+    if (tracker.deviceQa?.activeScenario) {
+      const result = finishNonverbalDeviceQaScenario(tracker.deviceQa, tracker.integrityEvents, nowMs);
+      setNonverbalDeviceQaMessage(result?.message ?? "진행 중인 QA 시나리오를 종료했습니다.");
+    }
+    refreshNonverbalDeviceQaSnapshot(tracker.deviceQa);
 
     const observedFrameCount = tracker.observedAudioFrameCount;
     const lowAudioRatio = observedFrameCount > 0 ? tracker.lowAudioFrameCount / observedFrameCount : 1;
@@ -4955,6 +5362,8 @@ function InterviewRuntimePanel({
       cameraDisconnectedCount: tracker.cameraDisconnectedCount,
       integrityEvents: tracker.integrityEvents,
       integritySummary: buildInterviewIntegritySummary(tracker),
+      gazeTimeline: tracker.gazeTimeline.length > 0 ? tracker.gazeTimeline : undefined,
+      headPoseTimeline: tracker.headPoseTimeline.length > 0 ? tracker.headPoseTimeline : undefined,
     };
   }
 
@@ -5468,22 +5877,30 @@ function InterviewRuntimePanel({
     autoRecordingQuestionRef.current = null;
   }
 
-  function startRealtimeSttRelayForRecording(stream: MediaStream, questionId: number) {
+  async function startRealtimeSttRelayForRecording(stream: MediaStream, questionId: number) {
     if (!REALTIME_STT_RELAY_ENABLED) return;
     if (!stream.getAudioTracks().some((track) => track.readyState === "live")) return;
 
     discardRealtimeSttRelay();
     realtimeSttTranscriptByQuestionRef.current.delete(questionId);
     try {
-      realtimeSttRelayRef.current = createRealtimeSttRelaySession({
+      realtimeSttRelayRef.current = await createRealtimeSttRelaySession({
         mode,
         sessionId: data?.runtime.sessionId ?? 0,
         stream,
         publicAccessToken: readPublicInterviewAccessToken(),
         onMetric: (metric) => recordRealtimeSttRelayMetric(questionId, metric),
       });
-    } catch {
+    } catch (relayError) {
       realtimeSttRelayRef.current = null;
+      recordRealtimeSttRelayMetric(questionId, {
+        eventName: "REALTIME_STT_ERROR",
+        durationMs: 0,
+        metadata: {
+          stage: "browser_audio_worklet",
+          message: relayError instanceof Error ? relayError.message : "Realtime STT audio capture failed.",
+        },
+      });
     }
   }
 
@@ -5667,7 +6084,7 @@ function InterviewRuntimePanel({
       if (realtimeMicrophoneOpenedForRecording) {
         setRealtimeMicrophoneOpen(true);
       }
-      startRealtimeSttRelayForRecording(stream, currentQuestion.questionId);
+      await startRealtimeSttRelayForRecording(stream, currentQuestion.questionId);
       recorder.start();
       setRecordedFileName("");
       setRecording(true);
@@ -7411,6 +7828,20 @@ function InterviewRuntimePanel({
               )}
             </section>
 
+            {nonverbalDeviceQaEnabled ? (
+              <NonverbalDeviceQaPanel
+                snapshot={nonverbalDeviceQaSnapshot}
+                recording={recording}
+                scenarioKind={nonverbalDeviceQaScenarioKind}
+                message={nonverbalDeviceQaMessage}
+                runCount={nonverbalDeviceQaRunsRef.current.length}
+                onScenarioKindChange={setNonverbalDeviceQaScenarioKind}
+                onStartScenario={handleStartNonverbalDeviceQaScenario}
+                onFinishScenario={handleFinishNonverbalDeviceQaScenario}
+                onDownload={handleDownloadNonverbalDeviceQaResult}
+              />
+            ) : null}
+
             <form className="candidate-runtime-form" onSubmit={handleSaveAnswer}>
               <p className="sr-only" aria-live="polite">{runtimeAssistiveStatus}</p>
               <div className="toolbar candidate-interview-controls">
@@ -7491,6 +7922,133 @@ function InterviewRuntimePanel({
       </section>
     </main>
   );
+}
+
+function NonverbalDeviceQaPanel({
+  snapshot,
+  recording,
+  scenarioKind,
+  message,
+  runCount,
+  onScenarioKindChange,
+  onStartScenario,
+  onFinishScenario,
+  onDownload,
+}: {
+  snapshot?: NonverbalDeviceQaPanelSnapshot;
+  recording: boolean;
+  scenarioKind: NonverbalDeviceQaScenarioKind;
+  message: string;
+  runCount: number;
+  onScenarioKindChange: (kind: NonverbalDeviceQaScenarioKind) => void;
+  onStartScenario: () => void;
+  onFinishScenario: () => void;
+  onDownload: () => void;
+}) {
+  const run = snapshot?.run;
+  const summary = snapshot?.summary;
+  const activeScenario = run?.activeScenario;
+  const performanceLabel = summary ? formatNonverbalDeviceQaPerformanceLabel(summary.performanceStatus) : "측정 대기";
+  const performanceTone = summary?.performanceStatus.toLowerCase() ?? "measuring";
+
+  return (
+    <details className="nonverbal-device-qa" open>
+      <summary>
+        <span>실기기 QA</span>
+        <strong className={`nonverbal-device-qa__status nonverbal-device-qa__status--${performanceTone}`}>
+          {performanceLabel}
+        </strong>
+      </summary>
+      <div className="nonverbal-device-qa__body">
+        <p className="nonverbal-device-qa__message">{message}</p>
+        {run && summary ? (
+          <>
+            <dl className="nonverbal-device-qa__environment">
+              <div><dt>환경</dt><dd>{run.environment.browser} · {run.environment.platform}</dd></div>
+              <div><dt>카메라</dt><dd>{formatNonverbalDeviceQaCamera(run)}</dd></div>
+              <div><dt>감지 표본</dt><dd>{run.sampleCompleted}/{run.sampleAttempts} · {summary.completedSamplesPerSecond.toFixed(2)}회/s</dd></div>
+              <div><dt>처리 시간</dt><dd>평균 {summary.averageProcessingMs.toFixed(0)}ms · p95 {summary.p95ProcessingMs.toFixed(0)}ms</dd></div>
+              <div><dt>영상 FPS</dt><dd>{summary.measuredVideoFps?.toFixed(1) ?? "측정 미지원"}</dd></div>
+              <div><dt>표본률</dt><dd>얼굴 {formatQaRate(summary.faceCoverageRate)} · 시선 {formatQaRate(summary.irisCoverageRate)} · 고개 {formatQaRate(summary.headPoseCoverageRate)}</dd></div>
+            </dl>
+
+            <div className="nonverbal-device-qa__scenario" aria-label="오탐 및 미탐 QA 시나리오">
+              <span>측정 시나리오</span>
+              <div className="nonverbal-device-qa__segments">
+                {(["NEUTRAL", "EYE_AWAY", "HEAD_AWAY"] as const).map((kind) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    className={scenarioKind === kind ? "active" : ""}
+                    aria-pressed={scenarioKind === kind}
+                    disabled={Boolean(activeScenario)}
+                    onClick={() => onScenarioKindChange(kind)}
+                  >
+                    {formatNonverbalDeviceQaScenarioLabel(kind)}
+                  </button>
+                ))}
+              </div>
+              <div className="nonverbal-device-qa__actions">
+                <button type="button" className="btn" disabled={!recording || Boolean(activeScenario)} onClick={onStartScenario}>
+                  구간 시작
+                </button>
+                <button type="button" className="btn" disabled={!activeScenario} onClick={onFinishScenario}>
+                  구간 종료
+                </button>
+                <button type="button" className="btn" disabled={runCount === 0} onClick={onDownload}>
+                  JSON 저장
+                </button>
+              </div>
+            </div>
+
+            {run.scenarioResults.length > 0 ? (
+              <ul className="nonverbal-device-qa__results" aria-label="QA 시나리오 결과">
+                {run.scenarioResults.map((result, index) => (
+                  <li key={`${result.kind}-${result.startedAtOffsetMs}-${index}`}>
+                    <strong className={`nonverbal-device-qa__result nonverbal-device-qa__result--${result.status.toLowerCase()}`}>
+                      {result.status}
+                    </strong>
+                    <span>{formatNonverbalDeviceQaScenarioLabel(result.kind)}</span>
+                    <small>{result.message}</small>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </>
+        ) : (
+          <p className="nonverbal-device-qa__empty">답변 녹화를 시작하면 현재 기기에서 측정합니다.</p>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function formatNonverbalDeviceQaPerformanceLabel(status: NonverbalDeviceQaSummary["performanceStatus"]): string {
+  switch (status) {
+    case "GOOD": return "원활";
+    case "DEGRADED": return "성능 저하";
+    case "POOR": return "점검 필요";
+    case "UNAVAILABLE": return "분석 불가";
+    default: return "측정 중";
+  }
+}
+
+function formatNonverbalDeviceQaScenarioLabel(kind: NonverbalDeviceQaScenarioKind): string {
+  switch (kind) {
+    case "EYE_AWAY": return "눈동자 이탈";
+    case "HEAD_AWAY": return "고개 회전";
+    default: return "정면 유지";
+  }
+}
+
+function formatNonverbalDeviceQaCamera(run: NonverbalDeviceQaRun): string {
+  const resolution = run.camera.width && run.camera.height ? `${run.camera.width}×${run.camera.height}` : "해상도 미확인";
+  const frameRate = run.camera.frameRate ? `${Math.round(run.camera.frameRate)}fps` : "FPS 미확인";
+  return `${resolution} · ${frameRate}`;
+}
+
+function formatQaRate(rate: number): string {
+  return `${Math.round(rate * 100)}%`;
 }
 
 function CandidatePageShell({
@@ -8431,6 +8989,15 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
   const videoUrl = getCachedRecordingObjectUrl(item.videoFile?.storageKey);
   const audioUrl = getCachedRecordingObjectUrl(item.audioFile?.storageKey);
   const practiceGuide = buildMockAnswerPracticeGuide(item);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [playbackTimeMs, setPlaybackTimeMs] = useState(0);
+
+  const seekVideo = (timeMs: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.currentTime = Math.max(0, timeMs / 1000);
+    setPlaybackTimeMs(timeMs);
+  };
 
   return (
     <article className="report-answer-card">
@@ -8444,7 +9011,13 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
       <div className="report-answer-card__content">
         <div className="report-answer-card__video">
           {videoUrl ? (
-            <video controls preload="metadata" src={videoUrl}>
+            <video
+              ref={videoRef}
+              controls
+              preload="metadata"
+              src={videoUrl}
+              onTimeUpdate={(event) => setPlaybackTimeMs(event.currentTarget.currentTime * 1000)}
+            >
               녹화 영상을 재생할 수 없습니다.
             </video>
           ) : (
@@ -8475,8 +9048,370 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
           ) : null}
         </div>
       </div>
+      <MockVisualAnalysisPanel
+        metadata={item.nonverbalMetadata}
+        durationMs={Math.max(1000, item.durationSeconds * 1000)}
+        playbackTimeMs={playbackTimeMs}
+        videoAvailable={Boolean(videoUrl)}
+        onSeek={seekVideo}
+      />
     </article>
   );
+}
+
+type MockVisualAnalysisTab = "gaze" | "headPose";
+
+function MockVisualAnalysisPanel({
+  metadata,
+  durationMs,
+  playbackTimeMs,
+  videoAvailable,
+  onSeek,
+}: {
+  metadata?: Record<string, unknown>;
+  durationMs: number;
+  playbackTimeMs: number;
+  videoAvailable: boolean;
+  onSeek(timeMs: number): void;
+}) {
+  const [activeTab, setActiveTab] = useState<MockVisualAnalysisTab>("gaze");
+  const gazeTimeline = useMemo(() => readGazeTimeline(metadata), [metadata]);
+  const headPoseTimeline = useMemo(() => readHeadPoseTimeline(metadata), [metadata]);
+  const gazeSummary = useMemo(() => summarizeGazeTimeline(gazeTimeline), [gazeTimeline]);
+  const headPoseSummary = useMemo(() => summarizeHeadPoseTimeline(headPoseTimeline), [headPoseTimeline]);
+  const analysisDurationMs = Math.max(
+    durationMs,
+    gazeTimeline[gazeTimeline.length - 1]?.tMs ?? 0,
+    headPoseTimeline[headPoseTimeline.length - 1]?.tMs ?? 0,
+  );
+  const gazeAwayIntervals = useMemo(
+    () => readGazeAwayIntervals(metadata, analysisDurationMs),
+    [analysisDurationMs, metadata],
+  );
+  const gazeAnalysisQuality = useMemo(
+    () => evaluateTimelineAnalysisQuality(gazeTimeline.length, durationMs),
+    [durationMs, gazeTimeline.length],
+  );
+  const headPoseAnalysisQuality = useMemo(
+    () => evaluateTimelineAnalysisQuality(headPoseTimeline.length, durationMs),
+    [durationMs, headPoseTimeline.length],
+  );
+  const activeAnalysisQuality = activeTab === "gaze" ? gazeAnalysisQuality : headPoseAnalysisQuality;
+
+  return (
+    <section className="report-visual-analysis" aria-label="답변 비언어 세부 분석">
+      <div className="report-visual-analysis__head">
+        <div>
+          <span>답변 영상 세부 분석</span>
+          <strong>시선과 고개 움직임</strong>
+          <p>카메라 기준 추정값을 시간 흐름에 따라 보여주는 연습용 참고 정보입니다.</p>
+        </div>
+        <span className="report-visual-analysis__sample-count">
+          {gazeTimeline.length + headPoseTimeline.length}개 표본
+        </span>
+      </div>
+      <div className="report-visual-analysis__tabs" role="tablist" aria-label="비언어 분석 항목">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "gaze"}
+          className={activeTab === "gaze" ? "is-active" : undefined}
+          onClick={() => setActiveTab("gaze")}
+        >
+          시선 방향
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "headPose"}
+          className={activeTab === "headPose" ? "is-active" : undefined}
+          onClick={() => setActiveTab("headPose")}
+        >
+          고개 움직임
+        </button>
+      </div>
+
+      {activeAnalysisQuality.status === "INSUFFICIENT" ? (
+        <div className="report-visual-analysis__empty">
+          <strong>분석 표본이 부족합니다.</strong>
+          <p>
+            {activeAnalysisQuality.reason === "NO_SAMPLES"
+              ? "수집 이전 답변이거나 카메라에서 얼굴과 눈을 안정적으로 감지하지 못해 이 항목을 평가하지 않았습니다."
+              : "카메라 해상도·조명 또는 얼굴과 눈의 감지 상태로 표본을 충분히 확보하지 못해 이 항목을 평가하지 않았습니다."}
+          </p>
+        </div>
+      ) : activeTab === "gaze" ? (
+        <div className="report-visual-analysis__body" role="tabpanel">
+          <div className="report-visual-analysis__chart-grid">
+            <VisualTimelineChart
+              title="시간별 시선 변화"
+              samples={gazeTimeline}
+              durationMs={analysisDurationMs}
+              playbackTimeMs={playbackTimeMs}
+              series={[
+                { label: "좌우", color: "#6257e7", value: (sample) => sample.horizontalOffset },
+                { label: "상하", color: "#159a8c", value: (sample) => sample.verticalOffset },
+              ]}
+              minimumScale={0.2}
+              highlights={gazeAwayIntervals}
+              highlightLabel="시선 이탈"
+              videoAvailable={videoAvailable}
+              onSeek={onSeek}
+            />
+            <GazeScatterChart samples={gazeTimeline} playbackTimeMs={playbackTimeMs} />
+          </div>
+          <VisualAnalysisGuide message={buildGazeAnalysisGuide(gazeSummary.centeredRatio)} />
+        </div>
+      ) : (
+        <div className="report-visual-analysis__body" role="tabpanel">
+          <VisualTimelineChart
+            title="시간별 고개 각도 변화"
+            samples={headPoseTimeline}
+            durationMs={analysisDurationMs}
+            playbackTimeMs={playbackTimeMs}
+            series={[
+              { label: "좌우", color: "#6257e7", value: (sample) => sample.yawDegrees },
+              { label: "상하", color: "#159a8c", value: (sample) => sample.pitchDegrees },
+              { label: "기울기", color: "#d97706", value: (sample) => sample.rollDegrees },
+            ]}
+            minimumScale={20}
+            unit="°"
+            videoAvailable={videoAvailable}
+            onSeek={onSeek}
+          />
+          <VisualAnalysisGuide message={buildHeadPoseAnalysisGuide(headPoseSummary.frontalRatio)} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+type TimelineSample = { tMs: number };
+type TimelineSeries<T extends TimelineSample> = {
+  label: string;
+  color: string;
+  value(sample: T): number;
+};
+
+function VisualTimelineChart<T extends TimelineSample>({
+  title,
+  samples,
+  durationMs,
+  playbackTimeMs,
+  series,
+  minimumScale,
+  unit = "",
+  highlights = [],
+  highlightLabel = "참고 구간",
+  videoAvailable,
+  onSeek,
+}: {
+  title: string;
+  samples: T[];
+  durationMs: number;
+  playbackTimeMs: number;
+  series: TimelineSeries<T>[];
+  minimumScale: number;
+  unit?: string;
+  highlights?: InterviewGazeAwayInterval[];
+  highlightLabel?: string;
+  videoAvailable: boolean;
+  onSeek(timeMs: number): void;
+}) {
+  const width = 760;
+  const height = 230;
+  const left = 48;
+  const right = 18;
+  const top = 20;
+  const bottom = 36;
+  const chartWidth = width - left - right;
+  const chartHeight = height - top - bottom;
+  const observedMaximum = Math.max(
+    minimumScale,
+    ...samples.flatMap((sample) => series.map((item) => Math.abs(item.value(sample)))),
+  );
+  const scale = Math.ceil(observedMaximum * 10) / 10;
+  const xForTime = (tMs: number) => left + Math.min(1, Math.max(0, tMs / durationMs)) * chartWidth;
+  const yForValue = (value: number) => top + (1 - (value + scale) / (scale * 2)) * chartHeight;
+  const playbackX = xForTime(playbackTimeMs);
+
+  const seekFromPointer = (clientX: number, target: SVGSVGElement) => {
+    if (!videoAvailable) return;
+    const bounds = target.getBoundingClientRect();
+    const pointerX = (clientX - bounds.left) / bounds.width * width;
+    const ratio = Math.min(1, Math.max(0, (pointerX - left) / chartWidth));
+    onSeek(ratio * durationMs);
+  };
+
+  return (
+    <figure className="report-visual-chart">
+      <figcaption>
+        <strong>{title}</strong>
+        <span>{videoAvailable ? "그래프를 눌러 영상 시점 이동" : "저장된 시계열 기준"}</span>
+      </figcaption>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        role={videoAvailable ? "button" : "img"}
+        aria-label={`${title}. 세로 범위 마이너스 ${scale}${unit}부터 ${scale}${unit}`}
+        tabIndex={videoAvailable ? 0 : undefined}
+        onPointerDown={(event) => seekFromPointer(event.clientX, event.currentTarget)}
+        onKeyDown={(event) => {
+          if (!videoAvailable) return;
+          if (event.key === "ArrowLeft") onSeek(Math.max(0, playbackTimeMs - 1000));
+          if (event.key === "ArrowRight") onSeek(Math.min(durationMs, playbackTimeMs + 1000));
+        }}
+      >
+        {highlights.map((highlight, index) => {
+          const startX = xForTime(highlight.startMs);
+          const endX = xForTime(highlight.endMs);
+          return (
+            <rect
+              key={`${highlight.startMs}-${highlight.endMs}-${index}`}
+              className="report-visual-chart__highlight"
+              x={startX}
+              y={top}
+              width={Math.max(2, endX - startX)}
+              height={chartHeight}
+            >
+              <title>{`${highlightLabel} ${formatAnalysisTime(highlight.startMs)}-${formatAnalysisTime(highlight.endMs)}`}</title>
+            </rect>
+          );
+        })}
+        {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+          const y = top + ratio * chartHeight;
+          const value = scale - ratio * scale * 2;
+          return (
+            <g key={ratio}>
+              <line className="report-visual-chart__grid" x1={left} x2={width - right} y1={y} y2={y} />
+              <text className="report-visual-chart__axis" x={left - 8} y={y + 4} textAnchor="end">
+                {value.toFixed(unit ? 0 : 1)}{unit}
+              </text>
+            </g>
+          );
+        })}
+        {series.map((item) => (
+          <polyline
+            key={item.label}
+            fill="none"
+            stroke={item.color}
+            strokeWidth="3"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            points={samples.map((sample) => `${xForTime(sample.tMs)},${yForValue(item.value(sample))}`).join(" ")}
+          />
+        ))}
+        <line className="report-visual-chart__cursor" x1={playbackX} x2={playbackX} y1={top} y2={height - bottom} />
+        {[0, 0.5, 1].map((ratio) => (
+          <text
+            key={ratio}
+            className="report-visual-chart__axis"
+            x={left + ratio * chartWidth}
+            y={height - 12}
+            textAnchor={ratio === 0 ? "start" : ratio === 1 ? "end" : "middle"}
+          >
+            {formatAnalysisTime(durationMs * ratio)}
+          </text>
+        ))}
+      </svg>
+      <div className="report-visual-chart__legend" aria-label="그래프 범례">
+        {series.map((item) => (
+          <span key={item.label}><i style={{ backgroundColor: item.color }} />{item.label}</span>
+        ))}
+      </div>
+      {highlights.length > 0 ? (
+        <div className="report-visual-chart__events" aria-label={`${highlightLabel} 구간`}>
+          <strong>{highlightLabel} 구간</strong>
+          <div>
+            {highlights.map((highlight, index) => (
+              <button
+                key={`${highlight.startMs}-${highlight.endMs}-${index}`}
+                type="button"
+                disabled={!videoAvailable}
+                onClick={() => onSeek(highlight.startMs)}
+                title={videoAvailable ? "해당 영상 시점으로 이동" : "저장된 영상이 없습니다"}
+              >
+                {formatAnalysisTime(highlight.startMs)}-{formatAnalysisTime(highlight.endMs)}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </figure>
+  );
+}
+
+function GazeScatterChart({ samples, playbackTimeMs }: { samples: InterviewGazeTimelineSample[]; playbackTimeMs: number }) {
+  const width = 360;
+  const height = 230;
+  const padding = 30;
+  const scale = Math.max(
+    0.2,
+    ...samples.flatMap((sample) => [Math.abs(sample.horizontalOffset), Math.abs(sample.verticalOffset)]),
+  );
+  const pointFor = (sample: InterviewGazeTimelineSample) => ({
+    x: width / 2 + sample.horizontalOffset / (scale * 2) * (width - padding * 2),
+    y: height / 2 + sample.verticalOffset / (scale * 2) * (height - padding * 2),
+  });
+  const activeSample = samples.reduce((nearest, sample) =>
+    Math.abs(sample.tMs - playbackTimeMs) < Math.abs(nearest.tMs - playbackTimeMs) ? sample : nearest,
+  samples[0]);
+
+  return (
+    <figure className="report-visual-chart report-visual-chart--scatter">
+      <figcaption>
+        <strong>시선 분포</strong>
+        <span>중앙점 기준 상대 위치</span>
+      </figcaption>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="카메라 중앙 기준 시선 분포">
+        <line className="report-visual-chart__grid" x1={width / 2} x2={width / 2} y1={padding} y2={height - padding} />
+        <line className="report-visual-chart__grid" x1={padding} x2={width - padding} y1={height / 2} y2={height / 2} />
+        <circle className="report-visual-chart__center-zone" cx={width / 2} cy={height / 2} r="42" />
+        {samples.map((sample) => {
+          const point = pointFor(sample);
+          const active = sample === activeSample;
+          return <circle key={sample.tMs} cx={point.x} cy={point.y} r={active ? 6 : 3.5} className={active ? "is-active" : undefined} />;
+        })}
+        <text className="report-visual-chart__axis" x={width / 2} y={18} textAnchor="middle">위</text>
+        <text className="report-visual-chart__axis" x={width / 2} y={height - 6} textAnchor="middle">아래</text>
+        <text className="report-visual-chart__axis" x={8} y={height / 2 + 4}>왼쪽</text>
+        <text className="report-visual-chart__axis" x={width - 8} y={height / 2 + 4} textAnchor="end">오른쪽</text>
+      </svg>
+    </figure>
+  );
+}
+
+function VisualAnalysisGuide({ message }: { message: string }) {
+  return (
+    <div className="report-visual-analysis__guide">
+      <strong>연습 포인트</strong>
+      <p>{message}</p>
+    </div>
+  );
+}
+
+function buildGazeAnalysisGuide(centeredRatio: number) {
+  if (centeredRatio >= 0.8) {
+    return "카메라 기준 시선 추정값이 대체로 중앙 범위에 머물렀습니다. 자연스러운 사고 과정의 시선 이동은 정상이며, 핵심 문장에서 현재 흐름을 유지해 보세요.";
+  }
+  if (centeredRatio >= 0.6) {
+    return "시선이 자연스럽게 이동한 구간이 있습니다. 답변의 결론이나 성과를 말할 때 카메라 근처로 시선을 돌아오는 연습이 전달력을 높이는 데 도움이 됩니다.";
+  }
+  return "카메라 중앙을 벗어난 시선 추정 구간이 비교적 자주 관찰됐습니다. 외운 문장을 고정해 읽기보다 핵심 키워드만 정리하고 카메라를 보며 말하는 연습을 해보세요.";
+}
+
+function buildHeadPoseAnalysisGuide(frontalRatio: number) {
+  if (frontalRatio >= 0.8) {
+    return "답변 중 고개가 대체로 정면 범위에 유지됐습니다. 강조할 때의 자연스러운 움직임은 유지하되 화면 중심에서 크게 벗어나지 않도록 해보세요.";
+  }
+  if (frontalRatio >= 0.6) {
+    return "고개 움직임이 일부 크게 나타난 구간이 있습니다. 질문을 듣고 생각한 뒤 답변을 시작할 때 정면 자세로 돌아오면 더 안정적으로 보입니다.";
+  }
+  return "좌우 또는 상하 고개 변화가 비교적 크게 관찰됐습니다. 화면에 질문이나 메모를 분산해 두기보다 카메라 주변 한곳에 시선을 모아 연습해 보세요.";
+}
+
+function formatAnalysisTime(timeMs: number) {
+  const totalSeconds = Math.max(0, Math.round(timeMs / 1000));
+  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
 type AnswerPracticeGuide = {

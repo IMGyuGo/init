@@ -3268,13 +3268,18 @@ CandidateFolder 입력 제한:
   - API-068 `POST /candidate/interviews/{sessionId}/answers`
   - API-092 `POST /public/interviews/{sessionId}/answers`
 - Optional request field: `nonverbalMetadata`
-- Shape: JSON object. Initial MVP keys may include `cameraWarnings`, `microphoneWarnings`, `longSilenceCount`, `shortAnswerCount`, `testModeUsed`, `voicePeakLevel`, `lowAudioFrameCount`, `observedAudioFrameCount`, `cameraDisconnectedCount`, `integrityEvents`, and `integritySummary`.
+- Shape: JSON object. Initial MVP keys may include `cameraWarnings`, `microphoneWarnings`, `longSilenceCount`, `shortAnswerCount`, `testModeUsed`, `voicePeakLevel`, `lowAudioFrameCount`, `observedAudioFrameCount`, `cameraDisconnectedCount`, `integrityEvents`, `integritySummary`, `gazeTimeline`, and `headPoseTimeline`.
 - Maximum serialized UTF-8 size: 32 KiB.
 - `integrityEvents` maximum length: 100.
 - Unknown top-level, summary, or event keys; unsupported event types; malformed timestamps; and out-of-range numeric values are rejected with `400 COMMON_VALIDATION_FAILED`.
 - `integrityEvents` may include browser-runtime events such as `TAB_HIDDEN`, `WINDOW_BLUR`, `CAMERA_LOST`, `FACE_MISSING`, `FACE_OUT_OF_FRAME`, `MULTIPLE_FACES`, `FACE_POSITION_SHIFT`, `GAZE_AWAY`, `VOICE_MOUTH_MISMATCH`, `VOICE_WITHOUT_FACE`, `STATIC_VIDEO_FRAME`, and `EARLY_SCREEN_AWAY`.
 - `MULTIPLE_FACES` is retained as the legacy event code for compatibility. The runtime emits it when either face landmarks or the MediaPipe person-object detector finds more than one person in at least two samples within 1.5 seconds. Person-object samples use a `0.35` confidence threshold, run every `0.5` seconds, and keep an active signal for a `1.5`-second miss grace period so a covered face does not cause the warning to flicker.
+- Integrity events may include `offsetMs`, a non-negative integer measured from the answer recording start. It is used to align an event with the recorded video and analysis timeline; events without it remain valid for backward compatibility.
 - `GAZE_AWAY` events may include `direction` and `source`. `source` is one of `IRIS`, `HEAD_POSE`, or `COMBINED` and identifies whether the calibrated iris position, facial transformation matrix, or both produced the signal.
+- Mock interview detailed analysis timelines:
+  - `gazeTimeline` contains at most 120 samples ordered by strictly increasing `tMs`. Each sample contains `horizontalOffset` and `verticalOffset` in the inclusive range `-1..1`, plus `direction` (`CENTER`, `LEFT`, `RIGHT`, `UP`, or `DOWN`).
+  - `headPoseTimeline` contains at most 120 samples ordered by strictly increasing `tMs`. Each sample contains calibrated relative `yawDegrees`, `pitchDegrees`, and `rollDegrees` in the inclusive range `-180..180`.
+  - The browser samples the existing MediaPipe landmarks every 0.5 seconds and persists timeline points no more often than once per second. The API validates sample count, shape, numeric range, and time ordering before storage.
 - `integritySummary` may include counts derived from those events, such as `screenAwayCount`, `cameraLostCount`, `faceMissingCount`, `faceOutOfFrameCount`, `multipleFacesCount`, `facePositionShiftCount`, `gazeAwayCount`, `voiceMouthMismatchCount`, `voiceWithoutFaceCount`, `staticVideoFrameCount`, `earlyScreenAwayCount`, `faceDetectionSupported`, `faceDetectionFrameCount`, `personDetectionSupported`, `personDetectionFrameCount`, `gazeDetectionSupported`, `gazeDetectionFrameCount`, `headPoseDetectionSupported`, `headPoseDetectionFrameCount`, `mouthSyncSupported`, `mouthSyncFrameCount`, `mouthSyncMismatchFrameCount`, `videoFrameMotionSupported`, `videoFrameSampleCount`, `staticVideoFrameSampleCount`, `totalAwayDurationMs`, `maxAwayDurationMs`, and `suspicionLevel`.
 - Normalization and storage:
   - The API rebuilds event-derived counts, away durations, and `suspicionLevel` from the allowlisted events instead of trusting client summary counts.
@@ -3284,6 +3289,7 @@ CandidateFolder 입력 제한:
 - Report read:
   - API-056 `GET /candidate/mock-interview/reports/{reportId}/media` may expose `media[].nonverbalMetadata`.
   - Candidate UI may aggregate the values into a mock interview nonverbal summary card and per-answer practice feedback.
+  - When timeline data exists, the mock report may show `시선 방향` and `고개 움직임` tabs with time-series charts synchronized to the locally available answer video. Older answers without timeline data show an explicit unavailable state.
 - AI report generation:
   - API-057 `POST /candidate/mock-interview/reports/{reportId}/generate` includes each answer's `nonverbalMetadata` in the `REPORT_GENERATE` payload when available.
   - OpenAI/mock worker prompts must treat the field as auxiliary practice metadata only.
@@ -3295,6 +3301,7 @@ CandidateFolder 입력 제한:
   - For recruiting interviews, the value is unverified client telemetry and may be surfaced to company reviewers as a reference signal alongside the recorded answer.
   - It may surface cheating-suspicion practice feedback for mock interviews, but it must not be used as a final cheating decision, hiring pass/fail signal, or direct hiring score input.
   - It must not be used to infer appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, health, or other sensitive attributes.
+  - Timeline charts are camera-relative estimates for self-practice, not biometric identity verification, emotion analysis, attention scoring, or a definitive eye-contact judgment.
   - Recruiting report generation must omit `nonverbalMetadata` from the API queue payload and strip it again at the worker/provider boundary.
   - Recruiting/company-facing reports must not apply an automatic score adjustment from browser telemetry.
   - Before a recruiting interview starts, the candidate UI must disclose which signals are collected, that they are unverified human-review references, and that they do not affect the evaluation score or trigger automatic rejection.

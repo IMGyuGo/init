@@ -43,19 +43,54 @@ type RelayServerEvent = {
 };
 
 const TARGET_SAMPLE_RATE = 24000;
-const AUDIO_PROCESSOR_BUFFER_SIZE = 4096;
+const AUDIO_WORKLET_CHUNK_SIZE = 4096;
 const MAX_PENDING_CHUNKS = 240;
+const AUDIO_WORKLET_PROCESSOR_NAME = "init-realtime-stt-capture";
+const AUDIO_WORKLET_SOURCE = `
+class InitRealtimeSttCaptureProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.chunk = new Float32Array(${AUDIO_WORKLET_CHUNK_SIZE});
+    this.offset = 0;
+  }
 
-export function createRealtimeSttRelaySession(
+  process(inputs, outputs) {
+    const output = outputs[0] && outputs[0][0];
+    if (output) output.fill(0);
+
+    const input = inputs[0] && inputs[0][0];
+    if (!input || input.length === 0) return true;
+
+    let inputOffset = 0;
+    while (inputOffset < input.length) {
+      const copyLength = Math.min(this.chunk.length - this.offset, input.length - inputOffset);
+      this.chunk.set(input.subarray(inputOffset, inputOffset + copyLength), this.offset);
+      this.offset += copyLength;
+      inputOffset += copyLength;
+
+      if (this.offset === this.chunk.length) {
+        const completedChunk = this.chunk;
+        this.port.postMessage(completedChunk, [completedChunk.buffer]);
+        this.chunk = new Float32Array(${AUDIO_WORKLET_CHUNK_SIZE});
+        this.offset = 0;
+      }
+    }
+
+    return true;
+  }
+}
+
+registerProcessor("${AUDIO_WORKLET_PROCESSOR_NAME}", InitRealtimeSttCaptureProcessor);
+`;
+
+export async function createRealtimeSttRelaySession(
   options: CreateRealtimeSttRelaySessionOptions,
-): RealtimeSttRelaySession {
+): Promise<RealtimeSttRelaySession> {
   if (typeof window === "undefined" || typeof WebSocket === "undefined") {
     throw new Error("Realtime STT relay is not available in this browser.");
   }
 
   const startedAt = performance.now();
-  const socket = new WebSocket(buildRealtimeSttRelayUrl(options));
-  socket.binaryType = "arraybuffer";
 
   let transcript = "";
   let finalizedTranscript: string | undefined;
@@ -69,26 +104,45 @@ export function createRealtimeSttRelaySession(
   const finalWaiters: Array<(value: string | undefined) => void> = [];
 
   const audioContext = createAudioContext();
-  void audioContext.resume().catch(() => undefined);
+  await audioContext.resume().catch(() => undefined);
+  if (!audioContext.audioWorklet || typeof AudioWorkletNode === "undefined") {
+    await audioContext.close().catch(() => undefined);
+    throw new Error("AudioWorklet is not available in this browser.");
+  }
+
+  const workletModuleUrl = URL.createObjectURL(new Blob([AUDIO_WORKLET_SOURCE], { type: "text/javascript" }));
+  try {
+    await audioContext.audioWorklet.addModule(workletModuleUrl);
+  } finally {
+    URL.revokeObjectURL(workletModuleUrl);
+  }
+
+  const socket = new WebSocket(buildRealtimeSttRelayUrl(options));
+  socket.binaryType = "arraybuffer";
   const source = audioContext.createMediaStreamSource(options.stream);
-  const processor = audioContext.createScriptProcessor(AUDIO_PROCESSOR_BUFFER_SIZE, 1, 1);
+  const processor = new AudioWorkletNode(audioContext, AUDIO_WORKLET_PROCESSOR_NAME, {
+    numberOfInputs: 1,
+    numberOfOutputs: 1,
+    outputChannelCount: [1],
+  });
+  const silentOutput = audioContext.createGain();
+  silentOutput.gain.value = 0;
 
-  processor.onaudioprocess = (event) => {
-    const output = event.outputBuffer.getChannelData(0);
-    output.fill(0);
-    if (stopped) return;
-
-    const input = event.inputBuffer.getChannelData(0);
-    const resampled = resampleFloat32(input, audioContext.sampleRate, TARGET_SAMPLE_RATE);
+  processor.port.onmessage = (event: MessageEvent<unknown>) => {
+    if (stopped || !(event.data instanceof Float32Array)) return;
+    const resampled = resampleFloat32(event.data, audioContext.sampleRate, TARGET_SAMPLE_RATE);
     const pcm16 = float32ToPcm16(resampled);
     sendOrQueueChunk(socket, pendingChunks, pcm16);
   };
 
   source.connect(processor);
-  processor.connect(audioContext.destination);
+  processor.connect(silentOutput);
+  silentOutput.connect(audioContext.destination);
 
   cleanupCallbacks.push(() => {
+    processor.port.onmessage = null;
     processor.disconnect();
+    silentOutput.disconnect();
     source.disconnect();
     void audioContext.close().catch(() => undefined);
   });

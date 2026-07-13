@@ -1,6 +1,7 @@
 import {
   INTERVIEW_NONVERBAL_METADATA_MAX_BYTES,
   INTERVIEW_NONVERBAL_METADATA_MAX_EVENTS,
+  INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES,
   InterviewNonverbalMetadataValidationError,
   normalizeInterviewNonverbalMetadata,
 } from "./interview-nonverbal-metadata";
@@ -19,6 +20,7 @@ describe("normalizeInterviewNonverbalMetadata", () => {
         {
           type: "GAZE_AWAY",
           occurredAt: "2026-07-10T10:00:05.000Z",
+          offsetMs: 2500,
           durationMs: 1800,
           direction: "RIGHT",
           source: "COMBINED",
@@ -38,6 +40,7 @@ describe("normalizeInterviewNonverbalMetadata", () => {
     expect(metadata?.schemaVersion).toBe(1);
     expect(metadata?.source).toBe("CLIENT_RUNTIME_UNVERIFIED");
     expect(metadata?.integrityEvents?.[0]?.occurredAt).toBe("2026-07-10T10:00:00.000Z");
+    expect(metadata?.integrityEvents?.[1]?.offsetMs).toBe(2500);
     expect(metadata?.integritySummary).toMatchObject({
       screenAwayCount: 1,
       tabHiddenCount: 1,
@@ -63,6 +66,13 @@ describe("normalizeInterviewNonverbalMetadata", () => {
     expect(() => normalizeInterviewNonverbalMetadata({
       integritySummary: { screenAwayCount: "many" },
     })).toThrow("integritySummary.screenAwayCount must be an integer");
+    expect(() => normalizeInterviewNonverbalMetadata({
+      integrityEvents: [{
+        type: "GAZE_AWAY",
+        occurredAt: "2026-07-10T10:00:00.000Z",
+        offsetMs: -1,
+      }],
+    })).toThrow("integrityEvents[0].offsetMs must be an integer between 0");
   });
 
   it("rejects oversized payloads and excessive event counts", () => {
@@ -81,5 +91,47 @@ describe("normalizeInterviewNonverbalMetadata", () => {
 
   it("treats an empty object as absent telemetry", () => {
     expect(normalizeInterviewNonverbalMetadata({})).toBeUndefined();
+  });
+
+  it("normalizes bounded gaze and head-pose timelines", () => {
+    const metadata = normalizeInterviewNonverbalMetadata({
+      gazeTimeline: [
+        { tMs: 1000, horizontalOffset: 0.012345, verticalOffset: -0.02, direction: "CENTER" },
+        { tMs: 2000, horizontalOffset: 0.18, verticalOffset: 0.01, direction: "RIGHT" },
+      ],
+      headPoseTimeline: [
+        { tMs: 1000, yawDegrees: 1.234, pitchDegrees: -2.345, rollDegrees: 0.456 },
+        { tMs: 2000, yawDegrees: 21.2, pitchDegrees: 3.1, rollDegrees: -4.5 },
+      ],
+    });
+
+    expect(metadata?.gazeTimeline).toEqual([
+      { tMs: 1000, horizontalOffset: 0.0123, verticalOffset: -0.02, direction: "CENTER" },
+      { tMs: 2000, horizontalOffset: 0.18, verticalOffset: 0.01, direction: "RIGHT" },
+    ]);
+    expect(metadata?.headPoseTimeline).toEqual([
+      { tMs: 1000, yawDegrees: 1.23, pitchDegrees: -2.35, rollDegrees: 0.46 },
+      { tMs: 2000, yawDegrees: 21.2, pitchDegrees: 3.1, rollDegrees: -4.5 },
+    ]);
+  });
+
+  it("rejects malformed, excessive, and unordered timeline samples", () => {
+    expect(() => normalizeInterviewNonverbalMetadata({
+      gazeTimeline: [{ tMs: 1000, horizontalOffset: 1.1, verticalOffset: 0, direction: "CENTER" }],
+    })).toThrow("horizontalOffset must be a finite number between -1 and 1");
+    expect(() => normalizeInterviewNonverbalMetadata({
+      headPoseTimeline: [
+        { tMs: 2000, yawDegrees: 0, pitchDegrees: 0, rollDegrees: 0 },
+        { tMs: 1000, yawDegrees: 0, pitchDegrees: 0, rollDegrees: 0 },
+      ],
+    })).toThrow("tMs must be greater than the previous sample");
+    expect(() => normalizeInterviewNonverbalMetadata({
+      gazeTimeline: Array.from({ length: INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES + 1 }, (_, index) => ({
+        tMs: index,
+        horizontalOffset: 0,
+        verticalOffset: 0,
+        direction: "CENTER",
+      })),
+    })).toThrow(`at most ${INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES} samples`);
   });
 });
