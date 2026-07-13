@@ -16,6 +16,8 @@ node_modules
 **/.next
 dist
 **/dist
+!frontend/vendor/CubismWebFramework/dist/
+!frontend/vendor/CubismWebFramework/dist/**
 build
 coverage
 .understand-anything
