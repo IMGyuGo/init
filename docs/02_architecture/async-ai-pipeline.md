@@ -13,6 +13,7 @@ AI 처리와 비동기 작업의 실행 흐름을 정리한다.
 - AWS 실배포 worker queue는 SQS Standard를 기준으로 한다. Redis는 인증 TTL/cache 용도이며, AI worker queue backend로 전환하지 않는다.
 - SQS Standard는 중복 전달이 가능하므로 worker는 `processLogId`를 idempotency key로 사용한다. 이미 `COMPLETED`인 작업 재전달은 AI provider 호출 없이 ack하고, 처리 중인 작업은 원자적 claim/lease로 중복 실행을 막는다.
 - 장기 AI 작업은 SQS visibility timeout 안에 끝나거나 `ChangeMessageVisibility` heartbeat로 visibility를 연장해야 한다. 이 보강 전에는 real AI provider traffic을 worker에 연결하지 않는다.
+- NCS 이력서 질문 생성의 logical model과 개인정보 경계는 [ncs-recruiting-question-generation.md](./ncs-recruiting-question-generation.md)를 따른다.
 
 ## Main Flows
 
@@ -42,6 +43,82 @@ sequenceDiagram
   end
 ```
 
+### Resume Personalized Question Flow
+
+```mermaid
+sequenceDiagram
+  participant Candidate
+  participant D as Candidate API (D)
+  participant Doc as Document Extract Worker (E)
+  participant Log as ai_process_logs
+  participant Batch as application question batch
+  participant Queue as SQS
+  participant QWorker as Question Worker (E)
+  participant NCS as NCS Evaluator Adapter
+
+  Candidate->>D: 지원서와 이력서 제출
+  D->>D: application/document SUBMITTED
+  D->>Log: DOCUMENT_EXTRACT PENDING
+  D->>Queue: document IDs only
+  Queue->>Doc: DOCUMENT_EXTRACT
+  Doc->>Doc: extracted_text 저장
+  alt resumeQuestionCount = 0
+    Doc->>Log: DOCUMENT_EXTRACT COMPLETED
+  else resumeQuestionCount > 0
+    Doc->>Batch: business key claim, GENERATING
+    Doc->>Log: RESUME_QUESTION_GENERATE PENDING
+    Doc->>Queue: IDs + policy/criteria/input versions
+    Queue->>QWorker: RESUME_QUESTION_GENERATE
+    QWorker->>QWorker: JD, criteria, extracted resume 조회
+    QWorker->>QWorker: profile allocation별 질문 생성
+    QWorker->>NCS: profile/mode 정렬 검증
+    alt all required questions aligned and guardrail passed
+      QWorker->>Batch: questions transaction save, READY
+      QWorker->>Log: COMPLETED
+    else retry/fallback exhausted
+      QWorker->>Batch: review candidates save, REVIEW_REQUIRED
+      QWorker->>Log: COMPLETED with domain status
+    else provider or persistence failure
+      QWorker->>Batch: FAILED with sanitized reason
+      QWorker->>Log: FAILED
+    end
+  end
+```
+
+Trigger와 저장 책임:
+
+- D는 지원 완료와 document 연결을 소유한다.
+- E document worker는 `EXTRACTED` 전이 후 정책을 조회해 개인화 질문 job 생성 조건을 평가한다.
+- E question worker는 batch claim, 생성, NCS 정렬 검증, guardrail, batch/question 최종 저장을 소유한다.
+- C는 API-098로 상태·결과를 조회하고 API-099로 명시적 재시도만 요청한다.
+- D는 `READY` batch만 세션 질문 snapshot으로 소비한다.
+
+### RESUME_QUESTION_GENERATE Job Contract
+
+SQS message와 `ai_process_logs.input_ref`에는 아래 참조값만 넣는다.
+
+```json
+{
+  "processLogId": 0,
+  "processType": "RESUME_QUESTION_GENERATE",
+  "applicationId": 0,
+  "postingId": 0,
+  "documentId": 0,
+  "policyVersion": 0,
+  "criteriaVersion": 0,
+  "inputVersion": "opaque-version",
+  "resumeDocumentHash": "one-way-hash"
+}
+```
+
+- 이력서 원문, 추출 텍스트, 질문 결과는 message에 넣지 않는다.
+- worker는 `applicationId`와 `documentId`의 소유 관계를 재검증한 뒤 repository에서 입력을 읽는다.
+- SQS delivery 멱등 key는 `processLogId`, business 멱등 key는 `applicationId + policyVersion + criteriaVersion + resumeDocumentHash`다.
+- 동일 business key의 `GENERATING`, `READY`, `REVIEW_REQUIRED` batch가 있으면 새 batch를 만들지 않는다. `FAILED`는 API-099의 명시적 retry로만 새 process log를 연결한다.
+- 정렬 실패는 같은 mode로 최대 2회 재생성하고 계약에 허용된 fallback만 사용한다.
+- 요청 개수보다 적은 질문을 `READY`로 저장하지 않는다. 일부 실패는 전체 batch를 `REVIEW_REQUIRED`로 둔다.
+- `ai_process_logs.status=COMPLETED`는 worker 실행 완료를 뜻한다. 업무 상태가 `REVIEW_REQUIRED`일 수 있으므로 두 상태를 같은 enum으로 합치지 않는다.
+
 ## Async Endpoint Map
 
 | API ID | Method | Path | Purpose | Related Tables |
@@ -63,6 +140,7 @@ sequenceDiagram
 | API-071 | POST | /candidate/interviews/{sessionId}/follow-up-question | 꼬리질문 생성 | candidate_profiles, postings, question_bank, applications, application_documents, interview_sessions, interview_answers, follow_up_questions, ai_process_logs |
 | API-071-TMP | POST | /candidate/interviews/{sessionId}/follow-up-questions/insert | 생성된 꼬리질문을 면접 질문 흐름에 추가 (MVP 임시 브릿지) | question_bank, interview_sessions, interview_answers, ai_process_logs |
 | API-076 | POST | /candidate/documents/extract | 서류 텍스트 추출 | candidate_profiles, file_assets, applications, application_documents, manual_evaluations, ai_process_logs |
+| API-099 | POST | /company/interviews/applications/{applicationId}/resume-questions/retry | 실패·검토 필요 이력서 질문 재생성 | applications, application_documents, application_interview_question_batches, application_interview_questions, ai_process_logs |
 | API-079 | POST | /ai/guardrails/validate | AI 출력 안전성 검증 | evaluation_reports, report_scores, report_evidences, manual_evaluations, ai_process_logs, ai_guardrail_logs |
 | API-080 | GET | /ai/jobs/{processLogId}/status | AI 작업 상태 조회 | ai_process_logs, ai_guardrail_logs |
 

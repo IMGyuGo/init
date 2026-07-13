@@ -205,7 +205,7 @@ applicationId + criteriaSnapshotVersion + policyVersion + resumeDocumentHash
 | `GENERATING` | 개인화 질문 생성 중 | 중복 작업 생성 금지 |
 | `READY` | 정렬·가드레일을 통과한 질문 준비 완료 | 세션 생성 시 포함 |
 | `REVIEW_REQUIRED` | 정렬 미달 또는 기준 연결 불명확 | 면접관 검토 전 자동 포함 금지 |
-| `FAILED` | 문서 추출 또는 AI 작업 실패 | 공통 질문만 사용할지 재시도할지 선택 |
+| `FAILED` | 문서 추출 또는 AI 작업 실패 | 재시도 또는 질문 개수 정책 수정. 기존 정책을 유지한 채 공통 질문만으로 자동 시작하지 않음 |
 
 이력서 원문 전체를 질문 결과나 `ai_process_logs.output_ref`에 반복 저장하지 않는다. 생성 입력은 S3/file metadata와 추출 텍스트 참조를 사용하고, 질문에는 평가에 필요한 최소한의 경험 맥락만 포함한다.
 

@@ -26,6 +26,8 @@
 
 도메인별 데이터 소유권과 주요 필드를 정리한다.
 
+NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recruiting-question-generation.md](./ncs-recruiting-question-generation.md)를 따른다. 해당 문서의 신규 table/column은 NQ-M3 Prisma·SQL migration 전까지 물리 구현 baseline이 아니다.
+
 ## Implementation Naming Baseline
 
 구현 시작 이후 팀별 이름 충돌을 줄이기 위해 DB, Prisma, TypeScript 코드에서 사용할 이름을 아래처럼 고정한다.
@@ -65,6 +67,16 @@
 | `embeddings` | `Embedding` | E |
 
 `question_bank`는 DB table 이름만 유지하고 Prisma model은 `Question`으로 둔다. row 하나가 질문 한 건이기 때문이다. `evaluation_criteria`의 Prisma model은 복수형 `EvaluationCriteria`가 아니라 단수형 `EvaluationCriterion`이다. `ai_*` 계열 class/model 이름은 TypeScript 관례에 맞춰 `AiProcessLog`, `AiGuardrailLog`처럼 쓴다.
+
+### NQ-M0 Planned Naming
+
+아래 이름은 계약 단계에서 고정한 logical target이다. NQ-M3 전에는 ERDCloud SQL이나 Prisma schema에 존재한다고 가정하지 않는다.
+
+| DB Table | Prisma Model | Primary Owner | Physical Milestone |
+| --- | --- | --- | --- |
+| `interview_question_generation_policies` | `InterviewQuestionGenerationPolicy` | C | NQ-M3 |
+| `application_interview_question_batches` | `ApplicationInterviewQuestionBatch` | E | NQ-M3 |
+| `application_interview_questions` | `ApplicationInterviewQuestion` | E | NQ-M3 |
 
 ## Aggregates
 
@@ -430,7 +442,7 @@
 | process_log_id | BIGINT PRIMARY KEY | AI 비동기 처리 로그 PK |
 | application_id | BIGINT | 관련 지원서 FK |
 | session_id | BIGINT | 관련 면접 세션 FK |
-| process_type | VARCHAR(80) NOT NULL | 처리 유형: DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING, GUARDRAIL_VALIDATE, CRITERIA_SUGGEST, QUESTION_GENERATE, QUESTION_SET_GENERATE, POSTING_DRAFT_GENERATE |
+| process_type | VARCHAR(80) NOT NULL | 처리 유형: DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING, GUARDRAIL_VALIDATE, CRITERIA_SUGGEST, QUESTION_GENERATE, RESUME_QUESTION_GENERATE(NQ-M3 예정), QUESTION_SET_GENERATE, POSTING_DRAFT_GENERATE |
 | status | VARCHAR(40) NOT NULL | 처리 상태: PENDING, RUNNING, COMPLETED, FAILED |
 | input_ref | TEXT | 입력 참조값 |
 | output_ref | TEXT | 출력 참조값 |
