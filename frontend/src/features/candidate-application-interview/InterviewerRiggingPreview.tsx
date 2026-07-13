@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { initializeCubismSdk, type CubismRuntimeAvailability } from "./CubismSdkRuntime";
 import { InterviewAvatar } from "./InterviewAvatar";
 import { LocalInterviewerAvatar } from "./LocalInterviewerAvatar";
@@ -117,6 +117,7 @@ function createAudioQaWavUrl(): string {
 
 function InterviewerAudioLipSyncQa() {
   const qaRootRef = useRef<HTMLDivElement | null>(null);
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const [audioUrl, setAudioUrl] = useState("");
   const [playbackState, setPlaybackState] = useState<"idle" | "playing" | "error">("idle");
@@ -149,20 +150,26 @@ function InterviewerAudioLipSyncQa() {
     return () => observer.disconnect();
   }, []);
 
+  const bindAudioElement = useCallback((element: HTMLAudioElement | null) => {
+    audioElementRef.current = element;
+    setAudioElement(element);
+  }, []);
+
   async function togglePlayback() {
-    if (!audioElement || !audioUrl) return;
-    if (!audioElement.paused) {
-      audioElement.pause();
-      audioElement.currentTime = 0;
+    const currentAudioElement = audioElementRef.current;
+    if (!currentAudioElement || !audioUrl) return;
+    if (!currentAudioElement.paused) {
+      currentAudioElement.pause();
+      currentAudioElement.currentTime = 0;
       setPlaybackState("idle");
       return;
     }
 
-    audioElement.currentTime = 0;
+    currentAudioElement.currentTime = 0;
     setPlaybackError("");
     setObservedMouthShapes(["rest"]);
     try {
-      await audioElement.play();
+      await currentAudioElement.play();
     } catch (error) {
       setPlaybackError(error instanceof Error ? `${error.name}: ${error.message}` : "Unknown playback error");
       setPlaybackState("error");
@@ -199,7 +206,7 @@ function InterviewerAudioLipSyncQa() {
             setPlaybackState("playing");
           }}
           preload="auto"
-          ref={setAudioElement}
+          ref={bindAudioElement}
           src={audioUrl || undefined}
         />
       </div>
