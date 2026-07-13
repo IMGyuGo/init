@@ -51,7 +51,7 @@ Prisma model 이름은 `InterviewQuestionGenerationPolicy`로 고정한다. 공�
 | created_at | TIMESTAMP NOT NULL | 생성 시각 |
 | updated_at | TIMESTAMP NOT NULL | 수정 시각 |
 
-두 질문 수의 합은 1~20이다. NCS framework에서는 합계가 3 이상이어야 한다. source/profile별 allocation은 위 값과 평가 기준 `sort_order`로 결정 가능하므로 별도 row로 중복 저장하지 않고 API 응답에서 계산한다.
+두 질문 수의 합은 1~20이다. NCS framework에서는 합계가 3 이상이어야 한다. source/profile별 allocation은 전체 질문을 평가 기준 `sort_order` 순환에 먼저 배치한 뒤 앞에서부터 JD 개수, 이력서 개수 순으로 source를 나눈다. 따라서 두 source를 합친 profile별 개수 차이는 최대 1이고 source별 요청 개수는 정확히 유지된다. allocation은 별도 row로 중복 저장하지 않고 API 응답에서 계산한다.
 
 ### question_bank extension
 

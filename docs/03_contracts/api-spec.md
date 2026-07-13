@@ -2087,8 +2087,9 @@ AI 리포트 금지 기준:
   - 동시 수정 충돌 방지를 위해 `expectedPolicyVersion` 불일치 시 `COMMON_CONFLICT`를 반환한다.
 - Processing:
   - 저장 성공 시 `policyVersion`을 1 증가시킨다.
-  - 각 source의 질문 수를 NCS 3개 profile에 균등 배분하며 profile별 개수 차이는 최대 1이다.
-  - 나머지는 평가 기준 `sortOrder` 순으로 배분한다. 동일 입력과 버전은 항상 같은 allocation을 만든다.
+  - 전체 질문 수만큼 평가 기준 `sortOrder` 순환 배열을 만든다. 예: 총 6개면 `1,2,3,1,2,3`이다.
+  - 순환 배열의 앞 `jdCriteriaQuestionCount`개를 `JD_CRITERIA`, 나머지를 `RESUME_PERSONALIZED`에 배정한다.
+  - 두 source를 합친 profile별 질문 수 차이는 최대 1이며, source별 요청 개수는 정확히 보존한다. 동일 입력과 version은 항상 같은 allocation을 만든다.
   - 이 API는 생성 정책만 저장하며 AI job을 시작하지 않는다.
 - Response Body:
   - `postingId: number`
