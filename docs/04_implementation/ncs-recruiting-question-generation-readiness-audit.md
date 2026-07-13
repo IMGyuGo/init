@@ -20,7 +20,7 @@ NQ-M0 계약을 다시 읽고 다음을 분리한다.
 | C 자체 정합성 보완 | COMPLETE | 이번 audit에서 발견한 C 범위 모순과 누락 보정 |
 | Cross-owner sign-off | PENDING | review request의 M0 blocker 승인 필요 |
 | NQ-M1 코드/DB/UI | COMPLETE | 정책 table/API/UI와 NCS criteria snapshot 구현 완료 |
-| NQ-M2 통합 | IN_PROGRESS | 사용자 승인에 따라 M2 adapter/API/DB/UI 계약 구현 중 |
+| NQ-M2 통합 | COMPLETE | worker 정렬 adapter, 서버 요청 snapshot, 질문 metadata 저장 검증, UI 미리보기 구현 완료 |
 | NQ-M3~M4 통합 | NOT_STARTED | D/E/A 계약과 선행 milestone 필요 |
 
 ## Hardened In This Audit
@@ -77,11 +77,20 @@ NQ-M0 계약을 다시 읽고 다음을 분리한다.
 
 ### NQ-M2
 
-- API-038 요청을 저장된 policy/JD/criteria 정본 기반으로 전환
-- common question candidate에 NCS metadata/alignment result 표시
-- API-037이 `sourceProcessLogId`의 ALIGNED 후보만 적용하도록 검증
-- question_bank NCS snapshot과 source process reference 반영
-- R-X-01 결정에 따라 API-039/039A를 정책과 동기화
+- [x] API-038 요청을 저장된 policy/JD/criteria 정본 기반으로 전환
+- [x] common question candidate에 NCS metadata/alignment result 표시
+- [x] API-037이 `sourceProcessLogId`의 ALIGNED 후보만 적용하도록 검증
+- [x] question_bank NCS snapshot과 source process reference 반영
+- [x] R-X-01 결정에 따라 API-039/039A를 정책과 동기화
+
+검증 결과:
+
+- worker: 93 tests passed
+- API: 40 suites, 255 tests passed
+- frontend: typecheck 및 전체 test passed
+- Prisma schema: `prisma validate` passed
+
+E/A/PM 교차 리뷰는 구현 완료 후 승인 단계로 남긴다. 교차 리뷰에서 M2 계약 변경이 요청되면 후속 보정 커밋으로 반영한다.
 
 ### NQ-M3 And Later
 
