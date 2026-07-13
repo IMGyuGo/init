@@ -112,6 +112,7 @@ export class CompanyRecruitingService {
       ]);
     }
     this.assertCareerRange(dto.careerMinYears, dto.careerMaxYears);
+    this.assertWorkplaceLocation(dto.workplaceAddress, dto.workplaceLat, dto.workplaceLng);
 
     const posting = await this.repository.createPosting({
       companyId,
@@ -131,6 +132,23 @@ export class CompanyRecruitingService {
     if (minYears != null && maxYears != null && minYears > maxYears) {
       throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, "경력 최소 연차는 최대 연차보다 클 수 없습니다.", [
         { field: "careerMinYears", reason: "GREATER_THAN_MAX" },
+      ]);
+    }
+  }
+
+  // 회사 위치 검증: 위도/경도는 함께여야 하고, 좌표가 있으면 주소가 필요하다.
+  // (주소만 있는 것은 허용 — 지도 키 미설정 시 좌표 없이 주소만 저장하는 정상 흐름)
+  private assertWorkplaceLocation(address?: string, lat?: number | null, lng?: number | null) {
+    const hasLat = lat != null;
+    const hasLng = lng != null;
+    if (hasLat !== hasLng) {
+      throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, "위도와 경도는 함께 입력해야 합니다.", [
+        { field: "workplaceLat", reason: "COORDINATE_PAIR_REQUIRED" },
+      ]);
+    }
+    if ((hasLat || hasLng) && !address?.trim()) {
+      throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, "좌표를 저장하려면 주소가 필요합니다.", [
+        { field: "workplaceAddress", reason: "REQUIRED_WITH_COORDINATES" },
       ]);
     }
   }
@@ -182,6 +200,11 @@ export class CompanyRecruitingService {
     this.assertCareerRange(
       dto.careerMinYears ?? posting.careerMinYears,
       dto.careerMaxYears ?? posting.careerMaxYears,
+    );
+    this.assertWorkplaceLocation(
+      dto.workplaceAddress ?? posting.workplaceAddress ?? undefined,
+      dto.workplaceLat ?? posting.workplaceLat,
+      dto.workplaceLng ?? posting.workplaceLng,
     );
 
     const updated = await this.repository.updatePosting(recruitmentId, companyId, {
@@ -247,6 +270,16 @@ export class CompanyRecruitingService {
 
     validateApplicantName(dto.name);
     validateRequiredString(dto.phone, "phone", "연락처를 입력해주세요.");
+    const githubUrl = validateRequiredUrl(dto.githubUrl, "githubUrl", "GitHub URL을 입력해주세요.");
+    const blogUrl = validateRequiredUrl(dto.blogUrl, "blogUrl", "블로그 URL을 입력해주세요.");
+    const portfolioUrl = normalizeOptionalString(dto.portfolioUrl);
+    if (portfolioUrl) {
+      validateHttpUrl(portfolioUrl, "portfolioUrl", "포트폴리오 URL을 확인해주세요.");
+    }
+    validateRequiredString(dto.motivation, "motivation", "지원동기를 입력해주세요.");
+    validateRequiredString(dto.additionalInfo, "additionalInfo", "추가 설명을 입력해주세요.");
+    const motivation = normalizeOptionalString(dto.motivation);
+    const additionalInfo = normalizeOptionalString(dto.additionalInfo);
     const email = normalizeEmail(dto.email);
     if (!isValidEmail(email)) {
       throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, "이메일 형식이 올바르지 않습니다.", [
@@ -265,14 +298,19 @@ export class CompanyRecruitingService {
     if (files.portfolioFile) {
       this.assertPublicApplicationDocumentFile(files.portfolioFile, "portfolioFile", "포트폴리오 PDF 파일을 확인해주세요.");
     }
+    if (!portfolioUrl && !files.portfolioFile) {
+      throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, "포트폴리오 URL 또는 PDF 파일을 제출해주세요.", [
+        { field: "portfolio", reason: "URL_OR_FILE_REQUIRED" },
+      ]);
+    }
 
     try {
       const candidate = await this.repository.findOrCreatePublicCandidate({
         name: dto.name.trim(),
         email,
         phone: normalizeNullableString(dto.phone),
-        githubUrl: normalizeNullableString(dto.githubBlogUrl),
-        portfolioUrl: normalizeNullableString(dto.portfolioUrl),
+        githubUrl,
+        portfolioUrl: portfolioUrl || null,
         summary: buildPublicApplicationSummary(dto),
       });
       const uploadedDocuments = [
@@ -298,6 +336,14 @@ export class CompanyRecruitingService {
       const application = await this.repository.createApplication({
         postingId: recruitmentId,
         candidateId: candidate.candidateId,
+        applicantName: dto.name.trim(),
+        applicantEmail: email,
+        applicantPhone: dto.phone.trim(),
+        githubUrl,
+        blogUrl,
+        portfolioUrl: portfolioUrl || null,
+        motivation,
+        additionalInfo,
         screeningMemo: null,
         documentStatus: DocumentStatus.SUBMITTED,
       });
@@ -451,6 +497,9 @@ export class CompanyRecruitingService {
       careerMaxYears: posting.careerMaxYears,
       employmentTypeCode: posting.employmentTypeCode,
       recruitmentType: posting.recruitmentType,
+      workplaceAddress: posting.workplaceAddress,
+      workplaceLat: posting.workplaceLat,
+      workplaceLng: posting.workplaceLng,
       startsOn: null,
       endsOn: null,
       status: PostingStatus.DRAFT,
@@ -483,6 +532,31 @@ export class CompanyRecruitingService {
     }
 
     return toApplicantEvaluationResponse(application);
+  }
+
+  async getApplicantDocument(user: CurrentUser, applicantId: number, fileId: number) {
+    const companyId = requireCompanyId(user);
+    const fileAsset = await this.findApplicantDocumentFileForCompany(applicantId, companyId, fileId);
+    if (!this.storageAdapter.getObject) {
+      throw new CompanyRecruitingException(500, ERROR_CODES.COMMON_VALIDATION_FAILED, "파일 저장소 조회 설정이 필요합니다.");
+    }
+
+    let object: CompanyRecruitingStorageObject;
+    try {
+      object = await this.storageAdapter.getObject(fileAsset.storageKey);
+    } catch (error) {
+      if (isStorageObjectNotFound(error)) {
+        throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "제출 서류 파일을 찾을 수 없습니다.");
+      }
+      throw error;
+    }
+
+    return {
+      body: object.body,
+      contentLength: object.contentLength ?? (Buffer.isBuffer(object.body) ? object.body.byteLength : fileAsset.sizeBytes),
+      contentType: object.contentType ?? fileAsset.mimeType,
+      originalName: fileAsset.originalName,
+    };
   }
 
   async createApplicantInterviewMediaSession(user: CurrentUser, applicantId: number, fileId: number) {
@@ -569,6 +643,20 @@ export class CompanyRecruitingService {
     const fileAsset = findApplicantInterviewMediaFile(application, fileId);
     if (!fileAsset) {
       throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "면접 녹화 파일을 찾을 수 없습니다.");
+    }
+    return fileAsset;
+  }
+
+  private async findApplicantDocumentFileForCompany(applicantId: number, companyId: number, fileId: number) {
+    const application = await this.repository.findApplicationForCompany(applicantId, companyId);
+    if (!application) {
+      throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "지원자를 찾을 수 없습니다.");
+    }
+    const fileAsset = application.documents
+      ?.find((document) => document.fileId === fileId)
+      ?.file;
+    if (!fileAsset || fileAsset.status !== "ACTIVE") {
+      throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "제출 서류 파일을 찾을 수 없습니다.");
     }
     return fileAsset;
   }
@@ -996,6 +1084,9 @@ function buildPostingExtraInfoInput(dto: CreateRecruitmentDto | UpdateRecruitmen
     careerMaxYears: dto.careerMaxYears,
     employmentTypeCode: dto.employmentTypeCode,
     recruitmentType: dto.recruitmentType,
+    workplaceAddress: dto.workplaceAddress,
+    workplaceLat: dto.workplaceLat,
+    workplaceLng: dto.workplaceLng,
   };
 }
 
@@ -1008,6 +1099,28 @@ function validateRequiredString(value: string | undefined, field: string, messag
   if (!normalizeOptionalString(value)) {
     throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, message, [
       { field, reason: "REQUIRED" },
+    ]);
+  }
+}
+
+function validateRequiredUrl(value: string | undefined, field: string, message: string) {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) {
+    throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, message, [
+      { field, reason: "REQUIRED" },
+    ]);
+  }
+  validateHttpUrl(normalized, field, message);
+  return normalized;
+}
+
+function validateHttpUrl(value: string, field: string, message: string) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("invalid protocol");
+  } catch {
+    throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, message, [
+      { field, reason: "INVALID_URL" },
     ]);
   }
 }
@@ -1079,6 +1192,9 @@ function toRecruitmentResponse(posting: RecruitmentRecord) {
     careerMaxYears: posting.careerMaxYears,
     employmentTypeCode: posting.employmentTypeCode,
     recruitmentType: posting.recruitmentType,
+    workplaceAddress: posting.workplaceAddress,
+    workplaceLat: posting.workplaceLat,
+    workplaceLng: posting.workplaceLng,
     startsOn: posting.startsOn ? formatDate(posting.startsOn) : null,
     endsOn: posting.endsOn ? formatDate(posting.endsOn) : null,
     status: posting.status,
@@ -1115,9 +1231,9 @@ function toApplicantResponse(application: ApplicantRecord) {
     applicationId: application.applicationId,
     recruitmentId: application.postingId,
     candidateId: application.candidateId,
-    name: application.candidate.user.name,
-    email: application.candidate.user.email,
-    phone: application.candidate.user.phone,
+    name: application.applicantName ?? application.candidate.user.name,
+    email: application.applicantEmail ?? application.candidate.user.email,
+    phone: application.applicantPhone ?? application.candidate.user.phone,
     jobRole: application.posting.jobRole,
     applicationStatus: application.applicationStatus,
     documentStatus: application.documentStatus,
@@ -1150,6 +1266,10 @@ function toApplicantResponse(application: ApplicantRecord) {
 function toApplicantEvaluationResponse(application: ApplicantRecord) {
   const latestReport = application.evaluationReports[0] ?? null;
   const latestSession = application.interviewSessions[0] ?? null;
+  const answers = latestSession?.answers ?? [];
+  const integrityAdjustment = latestReport
+    ? buildRecruitingIntegrityReference(answers, latestReport.totalScore)
+    : null;
   const applicant = toApplicantResponse(application);
 
   return {
@@ -1170,9 +1290,30 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
       decision: application.screeningDecision ?? "UNDECIDED",
       memo: application.screeningMemo,
     },
+    submission: {
+      name: application.applicantName ?? application.candidate.user.name,
+      email: application.applicantEmail ?? application.candidate.user.email,
+      phone: application.applicantPhone ?? application.candidate.user.phone,
+      githubUrl: application.githubUrl ?? application.candidate.githubUrl,
+      blogUrl: application.blogUrl,
+      portfolioUrl: application.portfolioUrl ?? application.candidate.portfolioUrl,
+      motivation: application.motivation,
+      additionalInfo: application.additionalInfo ?? application.candidate.summary,
+      documents: (application.documents ?? [])
+        .filter((document) => document.fileId !== null && document.file?.status === "ACTIVE")
+        .map((document) => ({
+          documentId: document.documentId,
+          fileId: document.fileId,
+          documentType: document.documentType,
+          originalName: document.file?.originalName ?? "제출 서류",
+          mimeType: document.file?.mimeType ?? "application/octet-stream",
+          sizeBytes: document.file?.sizeBytes ?? 0,
+          uploadedAt: document.uploadedAt.toISOString(),
+        })),
+    },
     reportAvailability: latestReport ? "AVAILABLE" : "NONE_OR_GENERATING",
     answers: latestSession
-        ? (latestSession.answers ?? []).map((answer) => ({
+        ? answers.map((answer) => ({
           answerId: answer.answerId,
           questionId: answer.questionId,
           videoFileId: answer.videoFileId,
@@ -1184,6 +1325,7 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
           transcript: answer.transcript,
           durationSeconds: answer.durationSeconds,
           submittedAt: answer.submittedAt?.toISOString() ?? null,
+          nonverbalMetadata: answer.nonverbalMetadata ?? null,
           followUpQuestions: answer.followUpQuestions.map((followUp) => ({
             followUpId: followUp.followUpId,
             content: followUp.content,
@@ -1199,6 +1341,7 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
                   transcript: followUp.answer.transcript,
                   durationSeconds: followUp.answer.durationSeconds,
                   submittedAt: followUp.answer.submittedAt?.toISOString() ?? null,
+                  nonverbalMetadata: followUp.answer.nonverbalMetadata ?? null,
                 }
               : null,
           })),
@@ -1209,6 +1352,8 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
           reportId: latestReport.reportId,
           status: latestReport.status,
           totalScore: latestReport.totalScore,
+          adjustedTotalScore: integrityAdjustment?.adjustedTotalScore ?? latestReport.totalScore,
+          integrityAdjustment,
           summary: latestReport.summary,
           generatedAt: latestReport.generatedAt?.toISOString() ?? null,
           scores: (latestReport.scores ?? []).map((score) => ({
@@ -1241,6 +1386,165 @@ function toCompanyEvaluationFileAsset(fileAsset: CompanyFileAssetRecord | null |
     status: fileAsset.status,
     createdAt: fileAsset.createdAt.toISOString(),
   };
+}
+
+type ApplicantEvaluationAnswerRecord = NonNullable<ApplicantRecord["interviewSessions"][number]["answers"]>[number];
+type RecruitingIntegrityLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH";
+
+type RecruitingIntegrityCounts = {
+  screenAway: number;
+  cameraLost: number;
+  faceMissing: number;
+  faceOutOfFrame: number;
+  multipleFaces: number;
+  facePositionShift: number;
+  gazeAway: number;
+  voiceMouthMismatch: number;
+  voiceWithoutFace: number;
+  staticVideoFrame: number;
+  earlyScreenAway: number;
+};
+
+function buildRecruitingIntegrityReference(answers: ApplicantEvaluationAnswerRecord[], rawTotalScore: number | null) {
+  const answerMetadataById = new Map<number, Record<string, unknown>>();
+
+  for (const answer of answers) {
+    collectAnswerMetadata(answerMetadataById, answer.answerId, answer.nonverbalMetadata);
+    for (const followUp of answer.followUpQuestions) {
+      if (followUp.answer) {
+        collectAnswerMetadata(answerMetadataById, followUp.answer.answerId, followUp.answer.nonverbalMetadata);
+      }
+    }
+  }
+
+  const evaluations = [...answerMetadataById.values()].map(evaluateRecruitingIntegrityMetadata);
+  const hasSignal = evaluations.some((evaluation) => evaluation.level !== "NONE");
+  const hasHigh = evaluations.some((evaluation) => evaluation.level === "HIGH");
+  const hasMedium = evaluations.some((evaluation) => evaluation.level === "MEDIUM");
+  const level: RecruitingIntegrityLevel = hasHigh
+    ? "HIGH"
+    : hasMedium
+      ? "MEDIUM"
+      : hasSignal
+        ? "LOW"
+        : "NONE";
+  const reasons = [...new Set(evaluations.flatMap((evaluation) => evaluation.reasons))];
+
+  return {
+    rawTotalScore,
+    adjustedTotalScore: rawTotalScore,
+    penalty: 0,
+    scoreApplied: false,
+    source: "CLIENT_RUNTIME_UNVERIFIED" as const,
+    level,
+    reasons,
+    reason: buildRecruitingIntegrityReferenceReason(level, reasons),
+  };
+}
+
+function collectAnswerMetadata(target: Map<number, Record<string, unknown>>, answerId: number, metadata: Record<string, unknown> | null | undefined) {
+  if (!metadata) return;
+  target.set(answerId, metadata);
+}
+
+function evaluateRecruitingIntegrityMetadata(metadata: Record<string, unknown>) {
+  const counts = readRecruitingIntegrityCounts(metadata);
+  const reasons = buildRecruitingIntegrityReasons(counts);
+  const hasSignal = reasons.length > 0;
+
+  if (!hasSignal) {
+    return { level: "NONE" as RecruitingIntegrityLevel, reasons: [] };
+  }
+
+  const severeFaceSignal = counts.faceMissing + counts.faceOutOfFrame >= 2 || counts.cameraLost >= 2;
+  const severeAudioVisualSignal = counts.voiceMouthMismatch >= 2 || counts.voiceWithoutFace >= 2 || counts.staticVideoFrame > 0;
+  const high =
+    counts.screenAway >= 4 ||
+    counts.multipleFaces > 0 ||
+    counts.facePositionShift > 0 ||
+    severeFaceSignal ||
+    severeAudioVisualSignal;
+  if (high) {
+    return { level: "HIGH" as RecruitingIntegrityLevel, reasons };
+  }
+
+  const medium =
+    counts.screenAway >= 2 ||
+    counts.gazeAway >= 2 ||
+    counts.cameraLost > 0 ||
+    counts.faceMissing > 0 ||
+    counts.faceOutOfFrame > 0 ||
+    counts.voiceMouthMismatch > 0 ||
+    counts.voiceWithoutFace > 0 ||
+    counts.earlyScreenAway >= 2;
+  if (medium) {
+    return { level: "MEDIUM" as RecruitingIntegrityLevel, reasons };
+  }
+
+  return { level: "LOW" as RecruitingIntegrityLevel, reasons };
+}
+
+function readRecruitingIntegrityCounts(metadata: Record<string, unknown>): RecruitingIntegrityCounts {
+  return {
+    screenAway: Math.max(readSummaryCount(metadata, "screenAwayCount"), readEventCount(metadata, ["TAB_HIDDEN", "WINDOW_BLUR"])),
+    cameraLost: Math.max(readSummaryCount(metadata, "cameraLostCount"), readEventCount(metadata, ["CAMERA_LOST"])),
+    faceMissing: Math.max(readSummaryCount(metadata, "faceMissingCount"), readEventCount(metadata, ["FACE_MISSING"])),
+    faceOutOfFrame: Math.max(readSummaryCount(metadata, "faceOutOfFrameCount"), readEventCount(metadata, ["FACE_OUT_OF_FRAME"])),
+    multipleFaces: Math.max(readSummaryCount(metadata, "multipleFacesCount"), readEventCount(metadata, ["MULTIPLE_FACES"])),
+    facePositionShift: Math.max(readSummaryCount(metadata, "facePositionShiftCount"), readEventCount(metadata, ["FACE_POSITION_SHIFT"])),
+    gazeAway: Math.max(readSummaryCount(metadata, "gazeAwayCount"), readEventCount(metadata, ["GAZE_AWAY"])),
+    voiceMouthMismatch: Math.max(readSummaryCount(metadata, "voiceMouthMismatchCount"), readEventCount(metadata, ["VOICE_MOUTH_MISMATCH"])),
+    voiceWithoutFace: Math.max(readSummaryCount(metadata, "voiceWithoutFaceCount"), readEventCount(metadata, ["VOICE_WITHOUT_FACE"])),
+    staticVideoFrame: Math.max(readSummaryCount(metadata, "staticVideoFrameCount"), readEventCount(metadata, ["STATIC_VIDEO_FRAME"])),
+    earlyScreenAway: Math.max(readSummaryCount(metadata, "earlyScreenAwayCount"), readEventCount(metadata, ["EARLY_SCREEN_AWAY"])),
+  };
+}
+
+function buildRecruitingIntegrityReasons(counts: RecruitingIntegrityCounts) {
+  const reasons: string[] = [];
+  if (counts.screenAway > 0) reasons.push(`화면/탭 이탈 ${counts.screenAway}회`);
+  if (counts.earlyScreenAway > 0) reasons.push(`질문 직후 화면 이탈 ${counts.earlyScreenAway}회`);
+  if (counts.cameraLost > 0) reasons.push(`카메라 연결 이탈 ${counts.cameraLost}회`);
+  if (counts.faceMissing > 0) reasons.push(`얼굴 미검출 ${counts.faceMissing}회`);
+  if (counts.faceOutOfFrame > 0) reasons.push(`얼굴 화면 밖 ${counts.faceOutOfFrame}회`);
+  if (counts.multipleFaces > 0) reasons.push(`여러 사람 감지 ${counts.multipleFaces}회`);
+  if (counts.facePositionShift > 0) reasons.push(`얼굴 위치 급변 ${counts.facePositionShift}회`);
+  if (counts.gazeAway > 0) reasons.push(`시선 이탈 ${counts.gazeAway}회`);
+  if (counts.voiceMouthMismatch > 0) reasons.push(`음성-입모양 불일치 ${counts.voiceMouthMismatch}회`);
+  if (counts.voiceWithoutFace > 0) reasons.push(`얼굴 미검출 중 음성 입력 ${counts.voiceWithoutFace}회`);
+  if (counts.staticVideoFrame > 0) reasons.push(`영상 프레임 고정 ${counts.staticVideoFrame}회`);
+  return reasons;
+}
+
+function buildRecruitingIntegrityReferenceReason(level: RecruitingIntegrityLevel, reasons: string[]) {
+  if (level === "NONE") {
+    return "브라우저에서 수집된 응시 무결성 참고 신호가 없습니다. 이 정보는 평가 점수에 반영되지 않습니다.";
+  }
+  return `브라우저에서 수집된 미검증 참고 신호입니다. 부정행위로 단정할 수 없으며 평가 점수에는 반영하지 않았습니다. ${reasons.join(", ")}`;
+}
+
+function readSummaryCount(metadata: Record<string, unknown>, key: string) {
+  const summary = readRecord(metadata.integritySummary);
+  return readNumber(summary?.[key]);
+}
+
+function readEventCount(metadata: Record<string, unknown>, types: string[]) {
+  const events = Array.isArray(metadata.integrityEvents) ? metadata.integrityEvents : [];
+  return events.filter((event) => {
+    const record = readRecord(event);
+    return typeof record?.type === "string" && types.includes(record.type);
+  }).length;
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function readNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function toPublicApplicationStatusResponse(application: ApplicantRecord, interviewEntry: ReturnType<PublicInterviewEntryAdapterPort["buildEntry"]>) {

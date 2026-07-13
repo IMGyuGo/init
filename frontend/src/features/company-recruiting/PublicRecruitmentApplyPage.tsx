@@ -22,8 +22,8 @@ function createInitialForm(): PublicApplicationInput {
     name: "",
     email: "",
     phone: "",
-    githubBlogUrl: "",
-    portfolioMode: "URL",
+    githubUrl: "",
+    blogUrl: "",
     portfolioUrl: "",
     portfolioFile: null,
     resumeFile: null,
@@ -62,12 +62,17 @@ export function PublicRecruitmentApplyPage({ recruitmentId }: { recruitmentId: n
       form.name.trim() &&
         form.email.trim() &&
         form.phone.trim() &&
+        form.githubUrl.trim() &&
+        form.blogUrl.trim() &&
         form.resumeFile &&
+        (form.portfolioUrl?.trim() || form.portfolioFile) &&
+        form.motivation.trim() &&
+        form.additionalInfo.trim() &&
         form.consentAgreed &&
         !busy &&
         state.data,
     );
-  }, [busy, form.consentAgreed, form.email, form.name, form.phone, form.resumeFile, state.data]);
+  }, [busy, form, state.data]);
 
   function updateField<K extends keyof PublicApplicationInput>(field: K, value: PublicApplicationInput[K]) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -85,10 +90,11 @@ export function PublicRecruitmentApplyPage({ recruitmentId }: { recruitmentId: n
         name: form.name.trim(),
         email: form.email.trim(),
         phone: form.phone.trim(),
-        githubBlogUrl: emptyToUndefined(form.githubBlogUrl),
+        githubUrl: form.githubUrl.trim(),
+        blogUrl: form.blogUrl.trim(),
         portfolioUrl: emptyToUndefined(form.portfolioUrl),
-        motivation: emptyToUndefined(form.motivation),
-        additionalInfo: emptyToUndefined(form.additionalInfo),
+        motivation: form.motivation.trim(),
+        additionalInfo: form.additionalInfo.trim(),
       });
       setSubmittedEmail(result.data.email);
       setDeliveryStatus(result.data.magicLinkDeliveryStatus);
@@ -206,12 +212,23 @@ export function PublicRecruitmentApplyPage({ recruitmentId }: { recruitmentId: n
                       />
                     </label>
                     <label>
-                      GitHub / 블로그 URL
+                      GitHub URL *
                       <input
+                        required
                         type="url"
-                        value={form.githubBlogUrl ?? ""}
+                        value={form.githubUrl}
                         placeholder="https://github.com/init"
-                        onChange={(event) => updateField("githubBlogUrl", event.currentTarget.value)}
+                        onChange={(event) => updateField("githubUrl", event.currentTarget.value)}
+                      />
+                    </label>
+                    <label>
+                      블로그 URL *
+                      <input
+                        required
+                        type="url"
+                        value={form.blogUrl}
+                        placeholder="https://blog.example.com"
+                        onChange={(event) => updateField("blogUrl", event.currentTarget.value)}
                       />
                     </label>
                   </div>
@@ -224,61 +241,35 @@ export function PublicRecruitmentApplyPage({ recruitmentId }: { recruitmentId: n
                     onChange={(file) => updateField("resumeFile", file)}
                   />
 
-                  <fieldset className="choice-fieldset">
-                    <legend>포트폴리오</legend>
-                    <div className="segmented-control">
-                      <label>
-                        <input
-                          checked={form.portfolioMode === "URL"}
-                          type="radio"
-                          name="portfolioMode"
-                          onChange={() => updateField("portfolioMode", "URL")}
-                        />
-                        <span>URL 입력</span>
-                      </label>
-                      <label>
-                        <input
-                          checked={form.portfolioMode === "FILE"}
-                          type="radio"
-                          name="portfolioMode"
-                          onChange={() => updateField("portfolioMode", "FILE")}
-                        />
-                        <span>PDF 업로드</span>
-                      </label>
-                    </div>
-                  </fieldset>
-
-                  {form.portfolioMode === "URL" ? (
-                    <label key="portfolio-url">
-                      포트폴리오 URL
-                      <input
-                        type="url"
-                        value={form.portfolioUrl ?? ""}
-                        placeholder="https://portfolio.example.com"
-                        onChange={(event) => updateField("portfolioUrl", event.currentTarget.value)}
-                      />
-                    </label>
-                  ) : (
-                    <FilePickerField
-                      key="portfolio-file"
-                      id="public-application-portfolio-file"
-                      label="포트폴리오 PDF"
-                      file={form.portfolioFile ?? null}
-                      onChange={(file) => updateField("portfolioFile", file)}
+                  <label>
+                    포트폴리오 URL (URL 또는 PDF 중 하나 필수)
+                    <input
+                      type="url"
+                      value={form.portfolioUrl ?? ""}
+                      placeholder="https://portfolio.example.com"
+                      onChange={(event) => updateField("portfolioUrl", event.currentTarget.value)}
                     />
-                  )}
+                  </label>
+                  <FilePickerField
+                    id="public-application-portfolio-file"
+                    label="포트폴리오 PDF (URL 또는 PDF 중 하나 필수)"
+                    file={form.portfolioFile ?? null}
+                    onChange={(file) => updateField("portfolioFile", file)}
+                  />
 
                   <label>
-                    지원동기
+                    지원동기 *
                     <textarea
+                      required
                       value={form.motivation ?? ""}
                       placeholder="지원 동기와 관심 있는 업무를 입력해주세요."
                       onChange={(event) => updateField("motivation", event.currentTarget.value)}
                     />
                   </label>
                   <label>
-                    추가 설명
+                    추가 설명 *
                     <textarea
+                      required
                       value={form.additionalInfo ?? ""}
                       placeholder="지원 직무와 관련된 경험, 프로젝트, 강조하고 싶은 내용을 입력해주세요."
                       onChange={(event) => updateField("additionalInfo", event.currentTarget.value)}

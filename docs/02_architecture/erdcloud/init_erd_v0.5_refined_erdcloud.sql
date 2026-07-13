@@ -136,6 +136,41 @@ CREATE TABLE candidate_profiles (
     updated_at TIMESTAMP NOT NULL
 );
 
+CREATE TABLE candidate_folders (
+    -- 기업별 지원서 세트 PK
+    id BIGINT PRIMARY KEY,
+
+    -- 지원자 프로필 FK
+    candidate_id BIGINT NOT NULL,
+
+    -- 지원서 세트 이름
+    name VARCHAR(100) NOT NULL,
+
+    -- GitHub URL
+    github_url VARCHAR(500),
+
+    -- 블로그 URL
+    blog_url VARCHAR(500),
+
+    -- 포트폴리오 URL
+    portfolio_url VARCHAR(500),
+
+    -- 폴더 이력서 파일 FK
+    resume_file_id BIGINT,
+
+    -- 지원 동기
+    motivation TEXT,
+
+    -- 추가 설명
+    extra_note TEXT,
+
+    -- 폴더 생성 시각
+    created_at TIMESTAMP NOT NULL,
+
+    -- 폴더 수정 시각
+    updated_at TIMESTAMP NOT NULL
+);
+
 -- =========================================================
 -- 2. 채용 공고/평가 태그/질문
 -- =========================================================
@@ -205,6 +240,9 @@ CREATE TABLE evaluation_criteria (
     -- 선택된 평가 태그 FK
     tag_id BIGINT NOT NULL,
 
+    -- 이 공고에서 사용하는 평가 기준 상세 설명 스냅샷
+    description TEXT,
+
     -- 가중치. 예: 30
     weight INTEGER NOT NULL,
 
@@ -233,6 +271,12 @@ CREATE TABLE question_bank (
 
     -- 실제 질문 문장
     content TEXT NOT NULL,
+
+    -- 최초 작성 출처: MANUAL, AI_GENERATED
+    origin VARCHAR(30) NOT NULL DEFAULT 'MANUAL',
+
+    -- AI 생성 질문이 사용자에 의해 수정되었는지 여부
+    is_ai_edited BOOLEAN NOT NULL DEFAULT FALSE,
 
     -- 현재 사용 가능한 질문인지 여부
     is_active BOOLEAN NOT NULL DEFAULT TRUE
@@ -358,6 +402,9 @@ CREATE TABLE interview_answers (
     -- 답변한 질문 FK
     question_id BIGINT,
 
+    -- 세션 질문 연결 FK
+    session_question_id BIGINT,
+
     -- 답변 영상 파일 FK
     video_file_id BIGINT,
 
@@ -372,6 +419,32 @@ CREATE TABLE interview_answers (
 
     -- 답변 제출 시각
     submitted_at TIMESTAMP
+);
+
+CREATE TABLE interview_session_questions (
+    -- 세션 질문 행 PK
+    session_question_id BIGINT PRIMARY KEY,
+
+    -- 면접 세션 FK
+    session_id BIGINT NOT NULL,
+
+    -- 기업 질문 은행 질문 FK. 개인 런타임 질문은 NULL
+    question_id BIGINT,
+
+    -- 전용 시퀀스에서 발급하는 개인 런타임 질문 ID
+    runtime_question_id BIGINT,
+
+    question_type VARCHAR(40),
+
+    -- 개인 모의면접 런타임 질문 본문
+    content TEXT,
+
+    -- 세션 안의 질문 표시 순서
+    sort_order INTEGER NOT NULL,
+
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT uq_interview_session_questions_order UNIQUE (session_id, sort_order)
 );
 
 CREATE TABLE follow_up_questions (
@@ -642,6 +715,14 @@ ALTER TABLE candidate_profiles
     ADD CONSTRAINT fk_candidate_profiles_default_resume
     FOREIGN KEY (default_resume_file_id) REFERENCES file_assets(file_id);
 
+ALTER TABLE candidate_folders
+    ADD CONSTRAINT fk_candidate_folders_candidate
+    FOREIGN KEY (candidate_id) REFERENCES candidate_profiles(candidate_id) ON DELETE CASCADE;
+
+ALTER TABLE candidate_folders
+    ADD CONSTRAINT fk_candidate_folders_resume_file
+    FOREIGN KEY (resume_file_id) REFERENCES file_assets(file_id) ON DELETE SET NULL;
+
 ALTER TABLE postings
     ADD CONSTRAINT fk_postings_company
     FOREIGN KEY (company_id) REFERENCES companies(company_id);
@@ -697,6 +778,21 @@ ALTER TABLE interview_sessions
 ALTER TABLE interview_answers
     ADD CONSTRAINT fk_interview_answers_session
     FOREIGN KEY (session_id) REFERENCES interview_sessions(session_id);
+
+ALTER TABLE interview_answers
+    ADD CONSTRAINT fk_interview_answers_session_question
+    FOREIGN KEY (session_question_id) REFERENCES interview_session_questions(session_question_id)
+    ON DELETE SET NULL;
+
+ALTER TABLE interview_session_questions
+    ADD CONSTRAINT fk_interview_session_questions_session
+    FOREIGN KEY (session_id) REFERENCES interview_sessions(session_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE interview_session_questions
+    ADD CONSTRAINT fk_interview_session_questions_question
+    FOREIGN KEY (question_id) REFERENCES question_bank(question_id)
+    ON DELETE RESTRICT;
 
 ALTER TABLE interview_answers
     ADD CONSTRAINT fk_interview_answers_question
@@ -814,6 +910,10 @@ CREATE INDEX idx_question_bank_posting ON question_bank(posting_id);
 CREATE INDEX idx_applications_posting ON applications(posting_id);
 CREATE INDEX idx_applications_candidate ON applications(candidate_id);
 CREATE INDEX idx_interview_sessions_application ON interview_sessions(application_id);
+CREATE INDEX idx_interview_answers_session_question ON interview_answers(session_question_id);
+CREATE UNIQUE INDEX uq_interview_session_questions_runtime_question
+    ON interview_session_questions(runtime_question_id);
+CREATE INDEX idx_interview_session_questions_question ON interview_session_questions(question_id);
 CREATE INDEX idx_evaluation_reports_application ON evaluation_reports(application_id);
 CREATE INDEX idx_ai_process_logs_application ON ai_process_logs(application_id);
 CREATE INDEX idx_embeddings_source_type ON embeddings(source_type);

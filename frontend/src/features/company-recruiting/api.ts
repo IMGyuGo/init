@@ -95,6 +95,16 @@ export async function getApplicantEvaluation(applicantId: number) {
   return request<ApplicantEvaluation>(`/company/applicants/${applicantId}/evaluation`);
 }
 
+export async function getApplicantDocument(applicantId: number, fileId: number) {
+  const response = await authFetch(
+    `${getApiBaseUrl()}/api/v1/company/applicants/${applicantId}/documents/${fileId}`,
+  );
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "제출 서류를 불러올 수 없습니다."));
+  }
+  return response.blob();
+}
+
 export async function createApplicantInterviewMediaSession(applicantId: number, fileId: number) {
   const path = `/company/applicants/${applicantId}/media/${fileId}/session`;
   const response = await authFetch(`${getApiBaseUrl()}/api/v1${path}`, {

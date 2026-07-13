@@ -26,10 +26,13 @@ export interface CandidateApplicationFormState {
   candidateName: string;
   email: string;
   phone: string;
+  githubUrl: string;
+  blogUrl: string;
   resumeFileId?: number;
   portfolioFileId?: number;
   portfolioUrl?: string;
-  coverLetter?: string;
+  motivation: string;
+  additionalInfo: string;
   consentTypes: ConsentType[];
 }
 
@@ -64,6 +67,7 @@ export interface StartMockInterviewState {
   difficulty: StartMockInterviewRequest["difficulty"];
   questionTypes: StartMockInterviewRequest["questionTypes"];
   showQuestionText: boolean;
+  folderId: number | null;
 }
 
 export interface PaymentDevToolsVisibilityEnv {
@@ -77,6 +81,13 @@ export interface InterviewAnswerFormState {
   audioFileId?: number;
   audioFile?: RuntimeFileAssetRequest;
   durationSeconds: number;
+  nonverbalMetadata?: Record<string, unknown>;
+}
+
+export interface RecordingValidationSkipState {
+  questionId: number;
+  retryAnswerId?: number;
+  nonverbalMetadata?: Record<string, unknown>;
 }
 
 export type InterviewDeviceSetupMode = "mock" | "recruiting";
@@ -184,6 +195,15 @@ export interface InterviewRuntimeProgressionStateInput {
 export interface InterviewRuntimeProgressionState {
   canMoveNextQuestion: boolean;
   canCompleteInterview: boolean;
+}
+
+export interface InterviewAiPollingPolicyInput {
+  timedAutoAdvance: boolean;
+}
+
+export interface InterviewAiPollingPolicy {
+  attempts: number;
+  intervalMs: number;
 }
 
 export type InterviewerSessionMode = "tts-file" | "realtime-voice" | "avatar-stream";
@@ -470,6 +490,10 @@ export const defaultApplicationFormState: CandidateApplicationFormState = {
   candidateName: "",
   email: "",
   phone: "",
+  githubUrl: "",
+  blogUrl: "",
+  motivation: "",
+  additionalInfo: "",
   consentTypes: [],
 };
 
@@ -502,6 +526,7 @@ export const defaultStartMockInterviewState: StartMockInterviewState = {
   difficulty: "NORMAL",
   questionTypes: ["INTRO", "TECHNICAL", "EXPERIENCE", "CLOSING"],
   showQuestionText: false,
+  folderId: null,
 };
 
 export const defaultInterviewAnswerFormState: InterviewAnswerFormState = {
@@ -517,6 +542,10 @@ export function toSubmitApplicationRequest(state: CandidateApplicationFormState)
   const candidateName = state.candidateName.trim();
   const email = state.email.trim();
   const phone = state.phone.trim();
+  const githubUrl = state.githubUrl.trim();
+  const blogUrl = state.blogUrl.trim();
+  const motivation = state.motivation.trim();
+  const additionalInfo = state.additionalInfo.trim();
 
   if (!candidateName || !email || !phone) {
     throw new Error("candidateName, email, and phone are required before submitting an application.");
@@ -528,6 +557,14 @@ export function toSubmitApplicationRequest(state: CandidateApplicationFormState)
 
   if (!state.resumeFileId) {
     throw new Error("resumeFileId is required before submitting an application.");
+  }
+
+  if (!githubUrl || !blogUrl) {
+    throw new Error("githubUrl and blogUrl are required before submitting an application.");
+  }
+
+  if (!motivation || !additionalInfo) {
+    throw new Error("motivation and additionalInfo are required before submitting an application.");
   }
 
   if (!hasPortfolioArtifact(state)) {
@@ -542,10 +579,13 @@ export function toSubmitApplicationRequest(state: CandidateApplicationFormState)
     candidateName,
     email,
     phone,
+    githubUrl,
+    blogUrl,
     resumeFileId: state.resumeFileId,
     portfolioFileId: state.portfolioFileId,
     portfolioUrl: state.portfolioUrl?.trim() || undefined,
-    coverLetter: state.coverLetter?.trim() || undefined,
+    motivation,
+    additionalInfo,
     consentTypes: state.consentTypes,
   };
 }
@@ -760,6 +800,7 @@ export function toStartMockInterviewRequest(state: StartMockInterviewState): Sta
     difficulty: state.difficulty,
     questionTypes: state.questionTypes?.length ? state.questionTypes : undefined,
     showQuestionText: true,
+    folderId: state.folderId ?? undefined,
   };
 }
 
@@ -787,6 +828,21 @@ export function toSaveInterviewAnswerRequest(state: InterviewAnswerFormState): S
     audioFileId: state.audioFileId,
     audioFile: state.audioFile,
     durationSeconds: state.durationSeconds,
+    nonverbalMetadata: state.nonverbalMetadata,
+  };
+}
+
+export function toRecordingValidationSkipRequest(state: RecordingValidationSkipState): SaveInterviewAnswerRequest {
+  if (!state.questionId) {
+    throw new Error("questionId is required before skipping an interview answer.");
+  }
+
+  return {
+    questionId: state.questionId,
+    durationSeconds: 0,
+    skipReason: "RECORDING_VALIDATION_FAILED",
+    ...(state.retryAnswerId ? { retryAnswerId: state.retryAnswerId } : {}),
+    ...(state.nonverbalMetadata ? { nonverbalMetadata: state.nonverbalMetadata } : {}),
   };
 }
 
@@ -1057,6 +1113,14 @@ export function getInterviewRuntimeProgressionState({
     canMoveNextQuestion,
     canCompleteInterview,
   };
+}
+
+export function getInterviewAiPollingPolicy({
+  timedAutoAdvance,
+}: InterviewAiPollingPolicyInput): InterviewAiPollingPolicy {
+  return timedAutoAdvance
+    ? { attempts: 8, intervalMs: 500 }
+    : { attempts: 90, intervalMs: 1000 };
 }
 
 export function getTimedOutAiJobStatus<T extends TimedOutAiJobStatusInput>(latest: T): T & {

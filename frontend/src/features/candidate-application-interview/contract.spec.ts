@@ -24,6 +24,15 @@ import {
   type RealtimePeerConnectionLike,
 } from "./realtime-webrtc";
 import {
+  countPersonDetections,
+  isFacePositionShifted,
+  estimateHeadPoseAngles,
+  resolveCombinedGazeSignal,
+  updateFacePositionBaseline,
+  updateMultiplePeopleDetectionState,
+  updateSustainedDetectionState,
+} from "./nonverbal-integrity";
+import {
   clampCameraPipPosition,
   createCameralessInterviewTestDeviceCheckState,
   createInterviewerSessionActionEvent,
@@ -38,6 +47,7 @@ import {
   getCandidateJobDetailActionHref,
   getDefaultCameraPipPosition,
   getInterviewRuntimeFullscreenActive,
+  getInterviewAiPollingPolicy,
   getInterviewRuntimeLayoutState,
   getInterviewRuntimePipShortcutState,
   getInterviewRuntimeScreenSwapState,
@@ -73,12 +83,213 @@ import {
   toRuntimeQuestionSpeechText,
   toDeviceCheckRequest,
   toCreatePortfolioLinkRequest,
+  toRecordingValidationSkipRequest,
   toSaveInterviewAnswerRequest,
   toSaveInterviewConsentRequest,
   toStartMockInterviewRequest,
   toSubmitApplicationRequest,
   toUploadResumeRequest,
 } from "./view-model";
+
+const detectedPersonCount = countPersonDetections([
+  {
+    categories: [{ categoryName: "person", displayName: "", index: 0, score: 0.92 }],
+    keypoints: [],
+  },
+  {
+    categories: [{ categoryName: "person", displayName: "", index: 0, score: 0.68 }],
+    keypoints: [],
+  },
+  {
+    categories: [{ categoryName: "cat", displayName: "", index: 16, score: 0.99 }],
+    keypoints: [],
+  },
+]);
+assert.equal(detectedPersonCount, 2);
+assert.equal(countPersonDetections([
+  {
+    categories: [{ categoryName: "person", displayName: "", index: 0, score: 0.34 }],
+    keypoints: [],
+  },
+], 0.35), 0);
+
+let multiplePeopleState = updateMultiplePeopleDetectionState({
+  detected: true,
+  nowMs: 0,
+  positiveSampleTimesMs: [],
+  active: false,
+});
+assert.equal(multiplePeopleState.active, false);
+
+multiplePeopleState = updateMultiplePeopleDetectionState({
+  ...multiplePeopleState,
+  detected: false,
+  nowMs: 500,
+});
+assert.equal(multiplePeopleState.active, false);
+
+multiplePeopleState = updateMultiplePeopleDetectionState({
+  ...multiplePeopleState,
+  detected: true,
+  nowMs: 1000,
+});
+assert.equal(multiplePeopleState.active, true);
+
+multiplePeopleState = updateMultiplePeopleDetectionState({
+  ...multiplePeopleState,
+  detected: false,
+  nowMs: 1500,
+});
+assert.equal(multiplePeopleState.active, true);
+
+multiplePeopleState = updateMultiplePeopleDetectionState({
+  ...multiplePeopleState,
+  detected: false,
+  nowMs: 3000,
+});
+assert.equal(multiplePeopleState.active, false);
+
+let facePositionBaseline = updateFacePositionBaseline(undefined, 0, {
+  centerX: 0.48,
+  centerY: 0.49,
+  areaRatio: 0.1,
+});
+facePositionBaseline = updateFacePositionBaseline(facePositionBaseline, 1, {
+  centerX: 0.52,
+  centerY: 0.51,
+  areaRatio: 0.12,
+});
+assert.ok(Math.abs(facePositionBaseline.centerX - 0.5) < 0.001);
+assert.ok(Math.abs(facePositionBaseline.centerY - 0.5) < 0.001);
+assert.ok(Math.abs(facePositionBaseline.areaRatio - 0.11) < 0.001);
+assert.equal(isFacePositionShifted(facePositionBaseline, {
+  centerX: 0.75,
+  centerY: 0.5,
+  areaRatio: 0.19,
+}), false);
+assert.equal(isFacePositionShifted(facePositionBaseline, {
+  centerX: 0.79,
+  centerY: 0.5,
+  areaRatio: 0.11,
+}), true);
+
+let faceShiftState = updateSustainedDetectionState({
+  detected: true,
+  nowMs: 0,
+  confirmationMs: 1000,
+});
+assert.equal(faceShiftState.active, false);
+faceShiftState = updateSustainedDetectionState({
+  detected: true,
+  nowMs: 500,
+  candidateStartedAtMs: faceShiftState.candidateStartedAtMs,
+  confirmationMs: 1000,
+});
+assert.equal(faceShiftState.active, false);
+faceShiftState = updateSustainedDetectionState({
+  detected: true,
+  nowMs: 1000,
+  candidateStartedAtMs: faceShiftState.candidateStartedAtMs,
+  confirmationMs: 1000,
+});
+assert.equal(faceShiftState.active, true);
+faceShiftState = updateSustainedDetectionState({
+  detected: false,
+  nowMs: 1500,
+  candidateStartedAtMs: faceShiftState.candidateStartedAtMs,
+  confirmationMs: 1000,
+});
+assert.equal(faceShiftState.active, false);
+
+const identityHeadPose = estimateHeadPoseAngles({
+  rows: 4,
+  columns: 4,
+  data: [
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1,
+  ],
+});
+assert.ok(identityHeadPose);
+assert.ok(Math.abs(identityHeadPose.yawDegrees) < 0.001);
+assert.ok(Math.abs(identityHeadPose.pitchDegrees) < 0.001);
+
+const yawRadians = 30 * Math.PI / 180;
+const turnedHeadPose = estimateHeadPoseAngles({
+  rows: 4,
+  columns: 4,
+  data: [
+    Math.cos(yawRadians), 0, -Math.sin(yawRadians), 0,
+    0, 1, 0, 0,
+    Math.sin(yawRadians), 0, Math.cos(yawRadians), 0,
+    0, 0, 0, 1,
+  ],
+});
+assert.ok(turnedHeadPose);
+assert.ok(Math.abs(turnedHeadPose.yawDegrees - 30) < 0.001);
+
+const normalCombinedGazeSignal = resolveCombinedGazeSignal({
+  irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  irisPosition: { horizontalRatio: 0.55, verticalRatio: 0.53 },
+  headPoseBaseline: { yawDegrees: 0, pitchDegrees: 0 },
+  headPose: { yawDegrees: 8, pitchDegrees: 6 },
+});
+assert.equal(normalCombinedGazeSignal, undefined);
+
+const horizontalIrisOnlySignal = resolveCombinedGazeSignal({
+  irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  irisPosition: { horizontalRatio: 0.63, verticalRatio: 0.52 },
+  headPoseBaseline: { yawDegrees: 0, pitchDegrees: 0 },
+  headPose: { yawDegrees: 2, pitchDegrees: 1 },
+});
+assert.equal(horizontalIrisOnlySignal?.source, "IRIS");
+assert.equal(horizontalIrisOnlySignal?.direction, "RIGHT");
+
+const downwardIrisOnlySignal = resolveCombinedGazeSignal({
+  irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  irisPosition: { horizontalRatio: 0.52, verticalRatio: 0.65 },
+  headPoseBaseline: { yawDegrees: 0, pitchDegrees: 0 },
+  headPose: { yawDegrees: 1, pitchDegrees: 2 },
+});
+assert.equal(downwardIrisOnlySignal?.source, "IRIS");
+assert.equal(downwardIrisOnlySignal?.direction, "DOWN");
+
+const phoneLookupHeadSignal = resolveCombinedGazeSignal({
+  irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  irisPosition: { horizontalRatio: 0.52, verticalRatio: 0.52 },
+  headPoseBaseline: { yawDegrees: 0, pitchDegrees: 0 },
+  headPose: { yawDegrees: 25, pitchDegrees: 20 },
+});
+assert.equal(phoneLookupHeadSignal?.source, "HEAD_POSE");
+assert.equal(phoneLookupHeadSignal?.direction, "RIGHT");
+
+const subtlePhoneLookupCombinedSignal = resolveCombinedGazeSignal({
+  irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  irisPosition: { horizontalRatio: 0.6, verticalRatio: 0.52 },
+  headPoseBaseline: { yawDegrees: 0, pitchDegrees: 0 },
+  headPose: { yawDegrees: 12, pitchDegrees: 4 },
+});
+assert.equal(subtlePhoneLookupCombinedSignal?.source, "COMBINED");
+assert.equal(subtlePhoneLookupCombinedSignal?.direction, "RIGHT");
+
+const downwardPhoneLookupCombinedSignal = resolveCombinedGazeSignal({
+  irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  irisPosition: { horizontalRatio: 0.52, verticalRatio: 0.62 },
+  headPoseBaseline: { yawDegrees: 0, pitchDegrees: 0 },
+  headPose: { yawDegrees: 4, pitchDegrees: 10 },
+});
+assert.equal(downwardPhoneLookupCombinedSignal?.source, "COMBINED");
+assert.equal(downwardPhoneLookupCombinedSignal?.direction, "DOWN");
+
+const phoneLookupCombinedSignal = resolveCombinedGazeSignal({
+  irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  irisPosition: { horizontalRatio: 0.75, verticalRatio: 0.72 },
+  headPoseBaseline: { yawDegrees: 0, pitchDegrees: 0 },
+  headPose: { yawDegrees: 25, pitchDegrees: 20 },
+});
+assert.equal(phoneLookupCombinedSignal?.source, "COMBINED");
+assert.equal(phoneLookupCombinedSignal?.direction, "RIGHT");
 
 const listPostingStatus: CandidateJobListPostingStatus = "OPEN";
 const query: CandidateJobQuery = {
@@ -101,8 +312,12 @@ const submitRequest: SubmitApplicationRequest = toSubmitApplicationRequest({
   candidateName: " Kim ",
   email: " kim@example.com ",
   phone: " 010-0000-0000 ",
+  githubUrl: " https://github.com/kim ",
+  blogUrl: " https://blog.example.com/kim ",
   resumeFileId: 1,
   portfolioUrl: " https://portfolio.example.com/kim ",
+  motivation: " 지원 동기 ",
+  additionalInfo: " 추가 설명 ",
   consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS", "AI_INTERVIEW_RECORDING"],
 });
 
@@ -145,6 +360,7 @@ const startMockRequest: StartMockInterviewRequest = toStartMockInterviewRequest(
   difficulty: "NORMAL",
   questionTypes: ["INTRO", "TECHNICAL"],
   showQuestionText: false,
+  folderId: null,
 });
 
 const answerRequest: SaveInterviewAnswerRequest = toSaveInterviewAnswerRequest({
@@ -157,6 +373,30 @@ const answerRequest: SaveInterviewAnswerRequest = toSaveInterviewAnswerRequest({
   },
   durationSeconds: 30,
 });
+
+const skippedAnswerMetadata = {
+  integrityEvents: [
+    {
+      type: "TAB_HIDDEN",
+      occurredAt: "2026-07-10T10:00:00.000Z",
+      durationMs: 3200,
+    },
+  ],
+};
+assert.deepEqual(
+  toRecordingValidationSkipRequest({
+    questionId: 3,
+    retryAnswerId: 99,
+    nonverbalMetadata: skippedAnswerMetadata,
+  }),
+  {
+    questionId: 3,
+    durationSeconds: 0,
+    skipReason: "RECORDING_VALIDATION_FAILED",
+    retryAnswerId: 99,
+    nonverbalMetadata: skippedAnswerMetadata,
+  },
+);
 
 const macosAudioAnswerRequest: SaveInterviewAnswerRequest = toSaveInterviewAnswerRequest({
   questionId: 2,
@@ -461,6 +701,15 @@ assert.deepEqual(
     },
   },
 );
+assert.deepEqual(getInterviewAiPollingPolicy({ timedAutoAdvance: false }), {
+  attempts: 90,
+  intervalMs: 1000,
+});
+
+assert.deepEqual(getInterviewAiPollingPolicy({ timedAutoAdvance: true }), {
+  attempts: 8,
+  intervalMs: 500,
+});
 assert.equal(shouldContinueInterviewWithoutFollowUp({ failureCategory: "TIMEOUT" }), true);
 assert.equal(shouldContinueInterviewWithoutFollowUp({ pipelineError: new Error("worker unavailable") }), true);
 assert.equal(shouldContinueInterviewWithoutFollowUp({ failureCategory: "REANSWER_REQUIRED" }), false);
@@ -1259,6 +1508,10 @@ const candidateJobDetail: CandidateJobDetail = {
   jobDescription: "NestJS API",
   techStacks: ["Node.js", "NestJS"],
   createdAt: "2026-07-01T00:00:00.000Z",
+  jobRoleCode: "서버·백엔드",
+  workplaceAddress: null,
+  workplaceLat: null,
+  workplaceLng: null,
 };
 
 const mockReport: CandidateMockReportSummary = {

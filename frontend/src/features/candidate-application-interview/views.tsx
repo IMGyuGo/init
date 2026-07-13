@@ -19,6 +19,7 @@ import {
 } from "./view-model";
 import { JobDescriptionViewer } from "../company-recruiting/JobDescriptionViewer";
 import { extractPostingExtraInfo, postingExtraInfoFields } from "../company-recruiting/posting-extra-info";
+import { loadKakaoMaps } from "../../lib/kakao-maps";
 
 export interface CandidateJobsViewProps {
   jobs: CandidateJobSummary[];
@@ -239,6 +240,14 @@ function candidateJobDday(endsOn: string): string | null {
   if (days < 0) return "마감";
   if (days === 0) return "D-day";
   return `D-${days}`;
+}
+
+// 공고 상세 마감일은 D-day 대신 실제 날짜(YYYY. MM. DD)로 표기한다. 마감일 없으면 상시 채용.
+function formatDeadlineDate(endsOn: string): string {
+  if (!endsOn) return "상시 채용";
+  const end = new Date(`${endsOn}T00:00:00`);
+  if (Number.isNaN(end.getTime())) return endsOn;
+  return `${end.getFullYear()}. ${String(end.getMonth() + 1).padStart(2, "0")}. ${String(end.getDate()).padStart(2, "0")}`;
 }
 
 export function CandidateJobsView({ jobs, query, totalItems, pageMeta, onQueryChange }: CandidateJobsViewProps) {
@@ -862,6 +871,8 @@ function JobsPagination({
 
 export interface CandidateJobDetailViewProps {
   job: CandidateJobDetail;
+  /** 같은 직무의 추천 공고(우측 사이드). */
+  relatedJobs?: CandidateJobSummary[];
   /** 지정하면 지원하기 버튼이 페이지 이동 대신 이 핸들러(모달 열기)를 호출한다. */
   onApplyClick?: () => void;
 }
@@ -875,9 +886,68 @@ function extractJobImages(jobDescription: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
-export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetailViewProps) {
+// 회사 위치 — 주소 표시 + 좌표가 있으면 카카오 지도에 핀.
+// 키 없거나 SDK 로드 실패 시에는 빈 지도 박스 대신 주소만 보여준다.
+function WorkplaceMap({ address, lat, lng }: { address: string | null; lat: number | null; lng: number | null }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const [mapStatus, setMapStatus] = useState<"loading" | "ready" | "failed">("loading");
+  const hasCoords = lat != null && lng != null;
+
+  useEffect(() => {
+    if (lat == null || lng == null) {
+      setMapStatus("failed");
+      return;
+    }
+    setMapStatus("loading");
+    let cancelled = false;
+    const container = mapRef.current;
+    if (!container) return;
+    loadKakaoMaps()
+      .then((maps) => {
+        if (cancelled) return;
+        const center = new maps.LatLng(lat, lng);
+        const map = new maps.Map(container, { center, level: 3 });
+        new maps.Marker({ position: center, map });
+        setMapStatus("ready");
+      })
+      .catch(() => {
+        if (!cancelled) setMapStatus("failed");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [lat, lng]);
+
+  if (!address) return null;
+  return (
+    <section className="jobdetail-companyinfo">
+      <h2>근무지 위치</h2>
+      <p>{address}</p>
+      {/* 로드 성공/진행 중에만 지도 컨테이너 렌더(실패 시 제거 → 주소만). ref 부착을 위해 실패 전까진 유지. */}
+      {hasCoords && mapStatus !== "failed" ? <div className="jobdetail-map" ref={mapRef} aria-label="근무지 지도" /> : null}
+    </section>
+  );
+}
+
+// 추천 공고 로고 — URL 없거나 로드 실패 시 회사명 첫 글자 이니셜로 대체.
+function RelatedJobLogo({ logoUrl, companyName }: { logoUrl: string | null; companyName: string }) {
+  const [failed, setFailed] = useState(false);
+  const initial = companyName.trim().charAt(0) || "?";
+  return (
+    <span className="jobdetail-related-logo" aria-hidden="true">
+      {logoUrl && !failed ? (
+        // 외부/스토리지 URL 이라 next/image 최적화 대상 아님
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={logoUrl} alt="" onError={() => setFailed(true)} />
+      ) : (
+        <span className="jobdetail-related-logo-fallback">{initial}</span>
+      )}
+    </span>
+  );
+}
+
+export function CandidateJobDetailView({ job, relatedJobs = [], onApplyClick }: CandidateJobDetailViewProps) {
   const actionHref = getCandidateJobDetailActionHref(job);
-  const dday = candidateJobDday(job.endsOn);
   const galleryRef = useRef<HTMLDivElement>(null);
   const [images, setImages] = useState<string[]>([]);
 
@@ -951,7 +1021,7 @@ export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetail
               <div className="jobdetail-summary-row">
                 <span>마감일</span>
                 <strong>
-                  {dday ?? "-"}
+                  {formatDeadlineDate(job.endsOn)}
                 </strong>
               </div>
             </div>
@@ -985,6 +1055,8 @@ export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetail
               <p>{job.companyProfile}</p>
             </section>
           ) : null}
+
+          <WorkplaceMap address={job.workplaceAddress} lat={job.workplaceLat} lng={job.workplaceLng} />
         </div>
 
         <aside className="jobdetail-aside">
@@ -1007,6 +1079,28 @@ export function CandidateJobDetailView({ job, onApplyClick }: CandidateJobDetail
               {job.alreadyApplied ? "지원 완료" : "지원하기"}
             </a>
           )}
+
+          {relatedJobs.length ? (
+            <section className="jobdetail-related" aria-label="비슷한 공고">
+              <h2 className="jobdetail-related-title">비슷한 공고</h2>
+              <ul className="jobdetail-related-list">
+                {relatedJobs.map((related) => (
+                  <li key={related.jobId}>
+                    <a className="jobdetail-related-card" href={candidateApplicationInterviewRoutes.jobDetail(related.jobId)}>
+                      <RelatedJobLogo logoUrl={related.companyLogoUrl} companyName={related.companyName} />
+                      <span className="jobdetail-related-text">
+                        <span className="jobdetail-related-company">{related.companyName}</span>
+                        <span className="jobdetail-related-name">{related.title}</span>
+                        <span className="jobdetail-related-meta">
+                          {[related.careerLevel, related.employmentType, displayLocation(related.location)].filter(Boolean).join(", ")}
+                        </span>
+                      </span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
         </aside>
       </div>
     </section>
@@ -1017,8 +1111,10 @@ export interface CandidateApplicationViewProps {
   job: CandidateJobDetail;
   state: CandidateApplicationFormState;
   latestResumeFile?: CandidateFileAsset;
+  latestPortfolioFile?: CandidateFileAsset;
   busy?: boolean;
   onResumeFileSelect?: (file: File) => void | Promise<void>;
+  onPortfolioFileSelect?: (file: File) => void | Promise<void>;
   onStateChange: (state: CandidateApplicationFormState) => void;
   onSubmit: (request: ReturnType<typeof toSubmitApplicationRequest>) => void | Promise<void>;
 }
@@ -1027,18 +1123,25 @@ export function CandidateApplicationView({
   job,
   state,
   latestResumeFile,
+  latestPortfolioFile,
   busy = false,
   onResumeFileSelect,
+  onPortfolioFileSelect,
   onStateChange,
   onSubmit,
 }: CandidateApplicationViewProps) {
-  const basicComplete = Boolean(state.candidateName.trim() && state.email.trim() && state.phone.trim());
+  const basicComplete = Boolean(
+    state.candidateName.trim() && state.email.trim() && state.phone.trim() && state.githubUrl.trim() && state.blogUrl.trim(),
+  );
   const resumeComplete = Boolean(state.resumeFileId);
   const portfolioComplete = hasPortfolioArtifact(state);
+  const detailsComplete = Boolean(state.motivation.trim() && state.additionalInfo.trim());
   const consentCount = applicationConsentOptions.filter((consentType) => state.consentTypes.includes(consentType)).length;
   const canSubmit =
     resumeComplete &&
     portfolioComplete &&
+    detailsComplete &&
+    basicComplete &&
     hasRequiredConsents(state.consentTypes) &&
     job.canApply &&
     !job.alreadyApplied &&
@@ -1105,12 +1208,23 @@ export function CandidateApplicationView({
             />
           </label>
           <label>
-            깃허브 / 블로그
+            GitHub URL *
             <input
               placeholder="https://github.com/example"
+              required
               type="url"
-              value={state.portfolioUrl ?? ""}
-              onChange={(event) => onStateChange({ ...state, portfolioUrl: event.currentTarget.value })}
+              value={state.githubUrl}
+              onChange={(event) => onStateChange({ ...state, githubUrl: event.currentTarget.value })}
+            />
+          </label>
+          <label>
+            블로그 URL *
+            <input
+              placeholder="https://blog.example.com"
+              required
+              type="url"
+              value={state.blogUrl}
+              onChange={(event) => onStateChange({ ...state, blogUrl: event.currentTarget.value })}
             />
           </label>
         </section>
@@ -1121,7 +1235,7 @@ export function CandidateApplicationView({
             이력서 *
             <span className="candidate-apply-file-row">
               <input
-                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                accept=".pdf,application/pdf"
                 className="candidate-hidden-file"
                 type="file"
                 onChange={(event) => {
@@ -1142,7 +1256,7 @@ export function CandidateApplicationView({
             </span>
           </label>
           <label>
-            포트폴리오
+            포트폴리오 URL (URL 또는 PDF 중 하나 필수)
             <input
               placeholder="https://portfolio.example.com"
               type="url"
@@ -1150,15 +1264,38 @@ export function CandidateApplicationView({
               onChange={(event) => onStateChange({ ...state, portfolioUrl: event.currentTarget.value })}
             />
           </label>
-          <p className="candidate-apply-note">PDF, DOCX · 20MB 이하</p>
+          <label className="candidate-apply-file-label">
+            포트폴리오 PDF (URL 또는 PDF 중 하나 필수)
+            <span className="candidate-apply-file-row">
+              <input
+                accept=".pdf,application/pdf"
+                className="candidate-hidden-file"
+                type="file"
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  if (file && onPortfolioFileSelect) void onPortfolioFileSelect(file);
+                }}
+              />
+              <span>{latestPortfolioFile?.originalName ?? "포트폴리오 PDF를 선택하세요"}</span>
+              <strong>{latestPortfolioFile ? "업로드 완료" : "파일 선택"}</strong>
+            </span>
+          </label>
+          <p className="candidate-apply-note">PDF · 20MB 이하</p>
         </section>
 
         <section aria-labelledby="candidate-cover-letter-heading" className="candidate-apply-card">
           <p className="panel-title" id="candidate-cover-letter-heading">지원 동기 / 추가 설명</p>
           <textarea
-            placeholder="지원 직무 관련 프로젝트 경험, 본인이 맡은 역할, AI 면접에서 강조하고 싶은 내용을 입력하세요."
-            value={state.coverLetter ?? ""}
-            onChange={(event) => onStateChange({ ...state, coverLetter: event.currentTarget.value })}
+            placeholder="이 공고에 지원한 동기를 입력하세요."
+            required
+            value={state.motivation}
+            onChange={(event) => onStateChange({ ...state, motivation: event.currentTarget.value })}
+          />
+          <textarea
+            placeholder="관련 프로젝트, 본인이 맡은 역할 등 추가 설명을 입력하세요."
+            required
+            value={state.additionalInfo}
+            onChange={(event) => onStateChange({ ...state, additionalInfo: event.currentTarget.value })}
           />
         </section>
 
@@ -1167,7 +1304,8 @@ export function CandidateApplicationView({
           <div className="candidate-apply-check-table" role="table" aria-label="지원서 제출 상태 점검">
             <StatusCheck label="필수 정보" ready={basicComplete} readyText="완료" pendingText="입력 필요" />
             <StatusCheck label="이력서" ready={resumeComplete} readyText="업로드 완료" pendingText="필수" />
-            <StatusCheck label="포트폴리오" ready={portfolioComplete} readyText="입력 완료" pendingText="선택 입력" />
+            <StatusCheck label="포트폴리오" ready={portfolioComplete} readyText="입력 완료" pendingText="필수" />
+            <StatusCheck label="지원동기·추가 설명" ready={detailsComplete} readyText="입력 완료" pendingText="필수" />
             <StatusCheck
               label="동의 항목"
               ready={hasRequiredConsents(state.consentTypes)}
@@ -1217,9 +1355,11 @@ export interface CandidateApplyModalProps {
   job: CandidateJobDetail;
   state: CandidateApplicationFormState;
   latestResumeFile?: CandidateFileAsset;
+  latestPortfolioFile?: CandidateFileAsset;
   busy?: boolean;
   errorMessage?: string;
   onResumeFileSelect?: (file: File) => void | Promise<void>;
+  onPortfolioFileSelect?: (file: File) => void | Promise<void>;
   onStateChange: (state: CandidateApplicationFormState) => void;
   onSubmit: (request: ReturnType<typeof toSubmitApplicationRequest>) => void | Promise<void>;
   onClose: () => void;
@@ -1232,9 +1372,11 @@ export function CandidateApplyModal({
   job,
   state,
   latestResumeFile,
+  latestPortfolioFile,
   busy = false,
   errorMessage,
   onResumeFileSelect,
+  onPortfolioFileSelect,
   onStateChange,
   onSubmit,
   onClose,
@@ -1246,16 +1388,21 @@ export function CandidateApplyModal({
     setValidationMessage("");
   }, [state]);
 
-  const basicComplete = Boolean(state.candidateName.trim() && state.email.trim() && state.phone.trim());
+  const basicComplete = Boolean(
+    state.candidateName.trim() && state.email.trim() && state.phone.trim() && state.githubUrl.trim() && state.blogUrl.trim(),
+  );
   const resumeComplete = Boolean(state.resumeFileId);
   const portfolioComplete = hasPortfolioArtifact(state);
+  const detailsComplete = Boolean(state.motivation.trim() && state.additionalInfo.trim());
   const consentsComplete = hasRequiredConsents(state.consentTypes);
-  const canNext = step === 0 ? basicComplete && portfolioComplete : step === 1 ? resumeComplete : false;
+  const canNext = step === 0 ? basicComplete : step === 1 ? resumeComplete && portfolioComplete && detailsComplete : false;
   const canSubmit =
-    basicComplete && resumeComplete && portfolioComplete && consentsComplete && job.canApply && !job.alreadyApplied && !busy;
+    basicComplete && resumeComplete && portfolioComplete && detailsComplete && consentsComplete && job.canApply && !job.alreadyApplied && !busy;
 
   function requestClose() {
-    const dirty = Boolean(state.resumeFileId || state.coverLetter?.trim() || state.consentTypes.length);
+    const dirty = Boolean(
+      state.resumeFileId || state.portfolioFileId || state.portfolioUrl?.trim() || state.motivation.trim() || state.additionalInfo.trim() || state.consentTypes.length,
+    );
     if (dirty && !window.confirm("작성 중인 내용이 있습니다. 지원서를 닫을까요?")) return;
     onClose();
   }
@@ -1330,13 +1477,23 @@ export function CandidateApplyModal({
                 />
               </label>
               <label>
-                깃허브 / 블로그 / 포트폴리오 URL *
+                GitHub URL *
                 <input
                   placeholder="https://github.com/example"
                   required
                   type="url"
-                  value={state.portfolioUrl ?? ""}
-                  onChange={(event) => onStateChange({ ...state, portfolioUrl: event.currentTarget.value })}
+                  value={state.githubUrl}
+                  onChange={(event) => onStateChange({ ...state, githubUrl: event.currentTarget.value })}
+                />
+              </label>
+              <label>
+                블로그 URL *
+                <input
+                  placeholder="https://blog.example.com"
+                  required
+                  type="url"
+                  value={state.blogUrl}
+                  onChange={(event) => onStateChange({ ...state, blogUrl: event.currentTarget.value })}
                 />
               </label>
             </div>
@@ -1348,7 +1505,7 @@ export function CandidateApplyModal({
                 이력서 *
                 <span className="candidate-apply-file-row">
                   <input
-                    accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    accept=".pdf,application/pdf"
                     className="candidate-hidden-file"
                     type="file"
                     onChange={(event) => {
@@ -1358,16 +1515,51 @@ export function CandidateApplyModal({
                       }
                     }}
                   />
-                  <span>{latestResumeFile?.originalName ?? "이력서 파일을 선택하세요 (PDF, DOCX · 20MB 이하)"}</span>
+                  <span>{latestResumeFile?.originalName ?? "이력서 PDF를 선택하세요 (20MB 이하)"}</span>
                   <strong>{latestResumeFile ? "업로드 완료" : "파일 선택"}</strong>
                 </span>
               </label>
               <label>
-                지원 동기 / 추가 설명
+                포트폴리오 URL (URL 또는 PDF 중 하나 필수)
+                <input
+                  placeholder="https://portfolio.example.com"
+                  type="url"
+                  value={state.portfolioUrl ?? ""}
+                  onChange={(event) => onStateChange({ ...state, portfolioUrl: event.currentTarget.value })}
+                />
+              </label>
+              <label className="candidate-apply-file-label">
+                포트폴리오 PDF (URL 또는 PDF 중 하나 필수)
+                <span className="candidate-apply-file-row">
+                  <input
+                    accept=".pdf,application/pdf"
+                    className="candidate-hidden-file"
+                    type="file"
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0];
+                      if (file && onPortfolioFileSelect) void onPortfolioFileSelect(file);
+                    }}
+                  />
+                  <span>{latestPortfolioFile?.originalName ?? "포트폴리오 PDF를 선택하세요"}</span>
+                  <strong>{latestPortfolioFile ? "업로드 완료" : "파일 선택"}</strong>
+                </span>
+              </label>
+              <label>
+                지원 동기 *
                 <textarea
-                  placeholder="지원 직무 관련 경험, AI 면접에서 강조하고 싶은 내용을 입력하세요."
-                  value={state.coverLetter ?? ""}
-                  onChange={(event) => onStateChange({ ...state, coverLetter: event.currentTarget.value })}
+                  placeholder="이 공고에 지원한 동기를 입력하세요."
+                  required
+                  value={state.motivation}
+                  onChange={(event) => onStateChange({ ...state, motivation: event.currentTarget.value })}
+                />
+              </label>
+              <label>
+                추가 설명 *
+                <textarea
+                  placeholder="관련 프로젝트, 본인이 맡은 역할 등 추가 설명을 입력하세요."
+                  required
+                  value={state.additionalInfo}
+                  onChange={(event) => onStateChange({ ...state, additionalInfo: event.currentTarget.value })}
                 />
               </label>
             </div>
@@ -1379,8 +1571,13 @@ export function CandidateApplyModal({
                 <div><span>이름</span><strong>{state.candidateName || "-"}</strong></div>
                 <div><span>이메일</span><strong>{state.email || "-"}</strong></div>
                 <div><span>연락처</span><strong>{state.phone || "-"}</strong></div>
+                <div><span>GitHub</span><strong>{state.githubUrl || "-"}</strong></div>
+                <div><span>블로그</span><strong>{state.blogUrl || "-"}</strong></div>
                 <div><span>이력서</span><strong>{latestResumeFile?.originalName ?? "-"}</strong></div>
                 <div><span>포트폴리오 URL</span><strong>{state.portfolioUrl || "-"}</strong></div>
+                <div><span>포트폴리오 PDF</span><strong>{latestPortfolioFile?.originalName ?? "-"}</strong></div>
+                <div><span>지원 동기</span><strong>{state.motivation || "-"}</strong></div>
+                <div><span>추가 설명</span><strong>{state.additionalInfo || "-"}</strong></div>
               </div>
               <fieldset className="candidate-apply-modal-consents">
                 <legend>동의 항목</legend>
@@ -1431,8 +1628,10 @@ export function CandidateApplyModal({
 function toApplyValidationMessage(error: unknown): string {
   if (!(error instanceof Error)) return "지원서 입력값을 확인해주세요.";
   if (error.message.includes("portfolioFileId") || error.message.includes("portfolioUrl")) {
-    return "깃허브, 블로그 또는 포트폴리오 URL을 입력해주세요.";
+    return "포트폴리오 URL 또는 PDF를 제출해주세요.";
   }
+  if (error.message.includes("githubUrl") || error.message.includes("blogUrl")) return "GitHub와 블로그 URL을 모두 입력해주세요.";
+  if (error.message.includes("motivation") || error.message.includes("additionalInfo")) return "지원동기와 추가 설명을 모두 입력해주세요.";
   if (error.message.includes("resumeFileId")) return "이력서 파일을 업로드해주세요.";
   if (error.message.includes("candidateName") || error.message.includes("email") || error.message.includes("phone")) {
     return "이름, 이메일, 연락처를 모두 입력해주세요.";

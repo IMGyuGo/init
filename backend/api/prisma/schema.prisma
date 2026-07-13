@@ -103,6 +103,11 @@ enum QuestionType {
   CLOSING
 }
 
+enum QuestionOrigin {
+  MANUAL
+  AI_GENERATED
+}
+
 enum NotificationChannel {
   EMAIL
   IN_APP
@@ -201,6 +206,7 @@ model FileAsset {
   owner             User                  @relation(fields: [ownerUserId], references: [userId])
   companyLogos      Company[]             @relation("CompanyLogo")
   candidateProfiles CandidateProfile[]
+  candidateFolders  CandidateFolder[]      @relation("CandidateFolderResume")
   documents         ApplicationDocument[]
   videoAnswers      InterviewAnswer[]     @relation("VideoFile")
   audioAnswers      InterviewAnswer[]     @relation("AudioFile")
@@ -221,11 +227,31 @@ model CandidateProfile {
   defaultResumeFile   FileAsset?         @relation(fields: [defaultResumeFileId], references: [fileId])
   applications        Application[]
   interviewSessions   InterviewSession[]
+  candidateFolders     CandidateFolder[]
   mockPassLedgers     CandidateMockInterviewPassLedger[]
   paymentCustomers    PaymentCustomer[]
   paymentOrders       PaymentOrder[]
 
   @@map("candidate_profiles")
+}
+
+model CandidateFolder {
+  id            BigInt           @id @default(autoincrement())
+  candidateId   BigInt           @map("candidate_id")
+  name          String           @db.VarChar(100)
+  githubUrl     String?          @map("github_url") @db.VarChar(500)
+  blogUrl       String?          @map("blog_url") @db.VarChar(500)
+  portfolioUrl  String?          @map("portfolio_url") @db.VarChar(500)
+  resumeFileId  BigInt?          @map("resume_file_id")
+  motivation    String?
+  extraNote     String?          @map("extra_note")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+  candidate     CandidateProfile @relation(fields: [candidateId], references: [candidateId], onDelete: Cascade)
+  resumeFile    FileAsset?       @relation("CandidateFolderResume", fields: [resumeFileId], references: [fileId], onDelete: SetNull)
+
+  @@index([candidateId], map: "idx_candidate_folders_candidate_id")
+  @@map("candidate_folders")
 }
 
 model Posting {
@@ -246,6 +272,10 @@ model Posting {
   careerMaxYears       Int?                   @map("career_max_years")
   employmentTypeCode   String?                @map("employment_type_code") @db.VarChar(20)
   recruitmentType      String?                @map("recruitment_type") @db.VarChar(20)
+  // 회사 위치: 도로명 주소 + 위경도(지원자 공고 상세 지도 핀용). 좌표는 프론트 geocoder 로 채워 저장.
+  workplaceAddress     String?                @map("workplace_address") @db.VarChar(300)
+  workplaceLat         Float?                 @map("workplace_lat")
+  workplaceLng         Float?                 @map("workplace_lng")
   startsOn             DateTime?              @map("starts_on") @db.Date
   endsOn               DateTime?              @map("ends_on") @db.Date
   status               PostingStatus          @default(DRAFT)
@@ -279,6 +309,7 @@ model EvaluationCriterion {
   criterionId      BigInt                     @id @default(autoincrement()) @map("criterion_id")
   postingId        BigInt                     @map("posting_id")
   tagId            BigInt                     @map("tag_id")
+  description      String?
   weight           Int
   passScore        Int?                       @map("pass_score")
   sortOrder        Int                        @map("sort_order")
@@ -298,12 +329,15 @@ model Question {
   criterionId      BigInt?                    @map("criterion_id")
   questionType     QuestionType               @map("question_type")
   content          String
+  origin           QuestionOrigin             @default(MANUAL)
+  isAiEdited       Boolean                    @default(false) @map("is_ai_edited")
   isActive         Boolean                    @default(true) @map("is_active")
   company          Company                    @relation(fields: [companyId], references: [companyId])
   posting          Posting?                   @relation(fields: [postingId], references: [postingId])
   criterion        EvaluationCriterion?       @relation(fields: [criterionId], references: [criterionId])
   answers          InterviewAnswer[]
   questionSetItems InterviewQuestionSetItem[]
+  sessionQuestions InterviewSessionQuestion[]
 
   @@map("question_bank")
 }
@@ -354,6 +388,14 @@ model Application {
   applicationId         BigInt                 @id @default(autoincrement()) @map("application_id")
   postingId             BigInt                 @map("posting_id")
   candidateId           BigInt                 @map("candidate_id")
+  applicantName         String?                @map("applicant_name") @db.VarChar(100)
+  applicantEmail        String?                @map("applicant_email") @db.VarChar(255)
+  applicantPhone        String?                @map("applicant_phone") @db.VarChar(50)
+  githubUrl             String?                @map("github_url") @db.VarChar(500)
+  blogUrl               String?                @map("blog_url") @db.VarChar(500)
+  portfolioUrl          String?                @map("portfolio_url") @db.VarChar(500)
+  motivation            String?
+  additionalInfo        String?                @map("additional_info")
   applicationStatus     ApplicationStatus      @default(SUBMITTED) @map("application_status")
   documentStatus        DocumentStatus         @default(NOT_SUBMITTED) @map("document_status")
   interviewStatus       InterviewStatus        @default(NOT_READY) @map("interview_status")
@@ -414,12 +456,32 @@ model InterviewSession {
   application           Application?                       @relation(fields: [applicationId], references: [applicationId])
   candidate             CandidateProfile                   @relation(fields: [candidateId], references: [candidateId])
   answers               InterviewAnswer[]
+  sessionQuestions      InterviewSessionQuestion[]
   evaluationReports     EvaluationReport[]
   aiProcessLogs         AiProcessLog[]
   clientPerformanceLogs ClientPerformanceLog[]
   mockPassUsages        CandidateMockInterviewPassLedger[]
 
   @@map("interview_sessions")
+}
+
+model InterviewSessionQuestion {
+  sessionQuestionId BigInt            @id @default(autoincrement()) @map("session_question_id")
+  sessionId         BigInt            @map("session_id")
+  questionId        BigInt?           @map("question_id")
+  runtimeQuestionId BigInt?           @unique(map: "uq_interview_session_questions_runtime_question") @map("runtime_question_id")
+  questionType      QuestionType?     @map("question_type")
+  content           String?
+  sortOrder         Int               @map("sort_order")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  session           InterviewSession  @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
+  question          Question?         @relation(fields: [questionId], references: [questionId], onDelete: Restrict)
+  answers           InterviewAnswer[]
+
+  @@unique([sessionId, questionId], map: "uq_interview_session_questions_question")
+  @@unique([sessionId, sortOrder], map: "uq_interview_session_questions_order")
+  @@index([questionId], map: "idx_interview_session_questions_question")
+  @@map("interview_session_questions")
 }
 
 model CandidateMockInterviewPassLedger {
@@ -445,18 +507,22 @@ model InterviewAnswer {
   answerId          BigInt             @id @default(autoincrement()) @map("answer_id")
   sessionId         BigInt             @map("session_id")
   questionId        BigInt?            @map("question_id")
+  sessionQuestionId BigInt?            @map("session_question_id")
   videoFileId       BigInt?            @map("video_file_id")
   audioFileId       BigInt?            @map("audio_file_id")
   transcript        String?
+  nonverbalMetadata Json?              @map("nonverbal_metadata")
   durationSeconds   Int?               @map("duration_seconds")
   submittedAt       DateTime?          @map("submitted_at")
   session           InterviewSession   @relation(fields: [sessionId], references: [sessionId])
   question          Question?          @relation(fields: [questionId], references: [questionId])
+  sessionQuestion   InterviewSessionQuestion? @relation(fields: [sessionQuestionId], references: [sessionQuestionId], onDelete: SetNull)
   videoFile         FileAsset?         @relation("VideoFile", fields: [videoFileId], references: [fileId])
   audioFile         FileAsset?         @relation("AudioFile", fields: [audioFileId], references: [fileId])
   followUpQuestions FollowUpQuestion[]
   reportEvidences   ReportEvidence[]
 
+  @@index([sessionQuestionId], map: "idx_interview_answers_session_question")
   @@map("interview_answers")
 }
 

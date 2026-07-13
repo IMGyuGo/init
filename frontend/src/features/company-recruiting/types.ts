@@ -45,6 +45,9 @@ export type Recruitment = {
   careerMaxYears: number | null;
   employmentTypeCode: string | null;
   recruitmentType: string | null;
+  workplaceAddress: string | null;
+  workplaceLat: number | null;
+  workplaceLng: number | null;
   startsOn: string | null;
   endsOn: string | null;
   status: "DRAFT" | "OPEN" | "CLOSING_SOON" | "CLOSED" | "ARCHIVED";
@@ -83,6 +86,9 @@ export type CreateRecruitmentInput = {
   careerMaxYears?: number;
   employmentTypeCode?: string;
   recruitmentType?: "상시" | "마감형";
+  workplaceAddress?: string;
+  workplaceLat?: number;
+  workplaceLng?: number;
   startsOn?: string;
   endsOn?: string;
   status: "DRAFT" | "OPEN";
@@ -141,6 +147,17 @@ export type Applicant = {
     reportId: number;
     status: string;
     totalScore: number | null;
+    adjustedTotalScore?: number | null;
+    integrityAdjustment?: {
+      rawTotalScore: number | null;
+      adjustedTotalScore: number | null;
+      penalty: number;
+      scoreApplied?: boolean;
+      source?: "CLIENT_RUNTIME_UNVERIFIED";
+      level: "NONE" | "LOW" | "MEDIUM" | "HIGH";
+      reason: string;
+      reasons: string[];
+    } | null;
     summary: string | null;
     generatedAt: string | null;
   } | null;
@@ -178,6 +195,25 @@ export type ApplicantEvaluation = {
     decision: ScreeningDecision;
     memo: string | null;
   };
+  submission: {
+    name: string;
+    email: string;
+    phone: string | null;
+    githubUrl: string | null;
+    blogUrl: string | null;
+    portfolioUrl: string | null;
+    motivation: string | null;
+    additionalInfo: string | null;
+    documents: Array<{
+      documentId: number;
+      fileId: number;
+      documentType: "RESUME" | "PORTFOLIO";
+      originalName: string;
+      mimeType: string;
+      sizeBytes: number;
+      uploadedAt: string;
+    }>;
+  };
   reportAvailability: "AVAILABLE" | "NONE_OR_GENERATING";
   answers: Array<{
     answerId: number;
@@ -191,6 +227,7 @@ export type ApplicantEvaluation = {
     transcript: string | null;
     durationSeconds: number | null;
     submittedAt: string | null;
+    nonverbalMetadata?: Record<string, unknown> | null;
     followUpQuestions: Array<{
       followUpId: number;
       content: string;
@@ -205,6 +242,7 @@ export type ApplicantEvaluation = {
         transcript: string | null;
         durationSeconds: number | null;
         submittedAt: string | null;
+        nonverbalMetadata?: Record<string, unknown> | null;
       } | null;
     }>;
   }>;
@@ -212,6 +250,17 @@ export type ApplicantEvaluation = {
     reportId: number;
     status: string;
     totalScore: number | null;
+    adjustedTotalScore?: number | null;
+    integrityAdjustment?: {
+      rawTotalScore: number | null;
+      adjustedTotalScore: number | null;
+      penalty: number;
+      scoreApplied?: boolean;
+      source?: "CLIENT_RUNTIME_UNVERIFIED";
+      level: "NONE" | "LOW" | "MEDIUM" | "HIGH";
+      reason: string;
+      reasons: string[];
+    } | null;
     summary: string | null;
     generatedAt: string | null;
     scores: Array<{

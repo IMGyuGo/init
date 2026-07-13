@@ -57,6 +57,7 @@ export interface CandidateReportAnswerView {
   submittedAt: string;
   transcriptStatus: TranscriptStatus;
   transcript?: string;
+  nonverbalMetadata?: Record<string, unknown>;
   evaluationStatus?: CandidateAnswerEvaluationStatus;
   transcriptUnavailableReason?: string;
   followUpQuestions: CandidateFollowUpQuestionView[];
@@ -126,6 +127,7 @@ export interface CandidateMockReportMediaItem {
   submittedAt: string;
   transcriptStatus: TranscriptStatus;
   transcript?: string;
+  nonverbalMetadata?: Record<string, unknown>;
   evaluationStatus?: CandidateAnswerEvaluationStatus;
   transcriptUnavailableReason?: string;
   followUpQuestions: CandidateFollowUpQuestionView[];

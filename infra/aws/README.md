@@ -297,9 +297,9 @@ Amazon Q Developer Slack channel configuration의 자체 logging은 `logging_lev
 | SQS real queue | API publisher와 worker consumer가 실제 `AI_SQS_QUEUE_URL`을 사용해야 한다. queue URL 누락으로 in-memory queue에 fallback되면 안 된다. | API가 SQS 대신 in-memory publisher로 기동됨 |
 | Worker real mode | worker는 `WORKER_REPOSITORY_MODE=prisma`, `AI_PROVIDER_MODE=openai`, `AI_STT_PROVIDER=openai` 등 실제 처리 모드와 provider key를 사용한다. | worker가 memory repository 또는 mock AI/STT provider로 운영 기동됨 |
 | Valkey cache required behavior | 인증 코드와 public magic link가 ElastiCache Valkey를 Redis protocol로 사용해야 한다. 운영에서 cache 장애를 조용히 memory fallback으로 숨기지 않는지 확인한다. | production에서 Valkey cache 없이 인증/매직링크가 성공한 것처럼 보임 |
-| SES/SMTP | SES SMTP credential, `SMTP_FROM`, sandbox/production access 상태를 확인한다. | 인증 메일 또는 public application magic link 발송이 실패함 |
+| External SMTP | provider credential, `SMTP_FROM`, TLS, 발신 도메인/SPF/DKIM/DMARC 검증 상태를 확인한다. | 인증 메일 또는 public application magic link 발송이 실패함 |
 | OAuth/payment callbacks | Google callback URL, Toss success/fail URL의 base가 `https://init-jungle.cloud` 기준인지 확인한다. | 외부 provider callback이 localhost 또는 잘못된 origin으로 설정됨 |
-| Health/smoke | `/api/v1/health`만으로 충분하지 않다. DB, Valkey, S3 put/read, SQS publish/consume, SES send, worker 처리까지 실제 smoke 시나리오를 준비한다. | 단순 health는 성공하지만 핵심 managed service 경로가 검증되지 않음 |
+| Health/smoke | `/api/v1/health`만으로 충분하지 않다. DB, Valkey, S3 put/read, SQS publish/consume, SMTP verify/send, worker 처리까지 실제 smoke 시나리오를 준비한다. | 단순 health는 성공하지만 핵심 managed service 경로가 검증되지 않음 |
 
 Valkey/Redis protocol naming policy:
 
@@ -432,12 +432,12 @@ aws secretsmanager put-secret-value `
   "OPENAI_STT_MODEL": "<stt-model>",
   "OPENAI_STT_LANGUAGE": "ko",
   "OPENAI_STT_TIMEOUT_MS": "120000",
-  "SMTP_HOST": "<ses-smtp-host>",
+  "SMTP_HOST": "<smtp-provider-host>",
   "SMTP_PORT": "587",
   "SMTP_SECURE": "false",
-  "SMTP_USER": "<ses-smtp-user>",
-  "SMTP_PASS": "<ses-smtp-pass>",
-  "SMTP_FROM": "no-reply@init-jungle.cloud",
+  "SMTP_USER": "<smtp-provider-user>",
+  "SMTP_PASS": "<smtp-provider-pass>",
+  "SMTP_FROM": "<authenticated-account-or-verified-sender>",
   "MAX_UPLOAD_BYTES": "10485760",
   "COMPANY_LOGO_MAX_UPLOAD_BYTES": "10485760",
   "JD_IMAGE_MAX_UPLOAD_BYTES": "10485760",
@@ -447,6 +447,47 @@ aws secretsmanager put-secret-value `
 ```
 
 위 JSON은 형식 예시다. 실제 `api.main.secret.json`에는 `infra/aws/locals.tf`의 `secret_keys.api`에 있는 모든 key를 포함해야 한다.
+
+SMTP 발신자 규칙:
+
+- 개인 Gmail/Naver SMTP를 사용하는 경우 `SMTP_FROM`은 `SMTP_USER` 계정 주소와 동일하게 둔다.
+- 다른 발신 주소는 SMTP provider에서 검증한 alias 또는 발신 도메인인 경우에만 사용한다.
+- Gmail/Naver의 일반 로그인 비밀번호를 저장하지 않는다. 2단계 인증 후 발급한 애플리케이션 비밀번호를 `SMTP_PASS`에 넣는다.
+- 개인 계정은 저용량 MVP/시연 용도로만 사용하고, 운영 발송량이 증가하면 transactional SMTP 또는 조직용 메일 계정으로 이전한다.
+
+저용량 검증용 설정 예시:
+
+```json
+{
+  "gmail": {
+    "SMTP_HOST": "smtp.gmail.com",
+    "SMTP_PORT": "465",
+    "SMTP_SECURE": "true",
+    "SMTP_USER": "init.service@gmail.com",
+    "SMTP_PASS": "<google-app-password>",
+    "SMTP_FROM": "init.service@gmail.com"
+  },
+  "naver": {
+    "SMTP_HOST": "smtp.naver.com",
+    "SMTP_PORT": "465",
+    "SMTP_SECURE": "true",
+    "SMTP_USER": "<naver-smtp-id>",
+    "SMTP_PASS": "<naver-app-password>",
+    "SMTP_FROM": "init-service@naver.com"
+  }
+}
+```
+
+`SMTP_SMOKE_TO`는 API runtime secret이 아니라 GitHub Environment `init-main`의 secret으로 관리한다. 매 API 배포마다 이 주소로 smoke 메일 1통이 발송되므로 실제로 확인 가능한 팀 전용 수신함을 사용한다. 가능하면 Gmail 발신에는 Naver 수신함처럼 발신 계정과 다른 provider를 사용한다.
+
+배포 workflow의 성공은 SMTP server가 메일을 접수했다는 의미다. 최초 provider 전환과 credential 변경 시에는 `SMTP_SMOKE_TO` 수신함에서 실제 도착, 스팸 분류 여부, 발신 주소를 사람이 확인해야 한다.
+
+Provider 설정 근거:
+
+- Gmail SMTP/STARTTLS: <https://support.google.com/mail/answer/7104828>
+- Google 애플리케이션 비밀번호: <https://support.google.com/accounts/answer/185833>
+- Naver SMTP server/SSL: <https://help.naver.com/service/30029/contents/21341?lang=ko&osType=PC>
+- Naver 2단계 인증/애플리케이션 비밀번호: <https://help.naver.com/service/30029/contents/24347?lang=ko>
 
 frontend와 worker도 같은 방식으로 넣는다.
 

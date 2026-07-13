@@ -178,6 +178,18 @@ jobs:
   backend-api:
     name: Backend API NestJS
     runs-on: ubuntu-latest
+    services:
+      mailpit:
+        image: axllent/mailpit:latest
+        ports:
+          - 1025:1025
+    env:
+      SMTP_HOST: 127.0.0.1
+      SMTP_PORT: "1025"
+      SMTP_SECURE: "false"
+      SMTP_REQUIRE_TLS: "false"
+      SMTP_FROM: no-reply@init.local
+      SMTP_SMOKE_TO: ci-smoke@example.com
     defaults:
       run:
         working-directory: backend/api
@@ -221,6 +233,9 @@ jobs:
       - name: Test
         if: steps.detect.outputs.has_lock == 'true'
         run: npm test --if-present
+      - name: SMTP smoke against Mailpit
+        if: steps.detect.outputs.has_lock == 'true'
+        run: npm run smoke:smtp
       - name: Build
         if: steps.detect.outputs.has_lock == 'true'
         run: npm run build --if-present

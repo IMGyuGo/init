@@ -126,6 +126,128 @@ test("mock STT handoff includes answer duration for worker usage tracking", asyn
   assert.ok(stt.data.inputRef?.includes('"durationSeconds":37'));
 });
 
+test("mock interview start builds questions from candidate folder context", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+  const resume = await repository.createFileAsset({
+    ownerUserId: DEV_CANDIDATE_USER.userId,
+    storageKey: "candidate/1/folders/payment-resume.pdf",
+    originalName: "payment-resume.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 2048,
+  });
+  const folder = await candidateService.createFolder(
+    {
+      name: "결제 플랫폼 백엔드 지원 세트",
+      githubUrl: "https://github.com/init/payment-api",
+      portfolioUrl: "https://portfolio.example.com/payment",
+      resumeFileId: resume.fileId,
+      motivation: "대규모 결제 트래픽을 안정적으로 처리하고 싶습니다.",
+      extraNote: "NestJS와 PostgreSQL 기반 장애 대응 경험이 있습니다.",
+    },
+    DEV_CANDIDATE_USER,
+  );
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    folderId: folder.data.id,
+    questionTypes: ["INTRO", "TECHNICAL", "EXPERIENCE"],
+    showQuestionText: true,
+  });
+  const questions = await controller.listMockQuestions(validCandidateRequest, String(started.data.sessionId));
+  const content = questions.data.questions.map((question) => question.content).join("\n");
+
+  assert.match(content, /이력서/);
+  assert.match(content, /GitHub/);
+  assert.match(content, /지원동기/);
+  assert.doesNotMatch(content, /결제 플랫폼 백엔드 지원 세트/);
+  assert.doesNotMatch(content, /payment-resume\.pdf/);
+  assert.doesNotMatch(content, /github\.com\/init\/payment-api/);
+  assert.doesNotMatch(content, /대규모 결제 트래픽/);
+});
+
+test("mock answer keeps realtime transcript and nonverbal metadata together", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+  const transcript = "실시간 STT로 변환된 답변입니다.";
+  const nonverbalMetadata = {
+    cameraWarnings: 0,
+    microphoneWarnings: 0,
+    longSilenceCount: 0,
+    testModeUsed: false,
+    integrityEvents: [
+      {
+        type: "GAZE_AWAY",
+        occurredAt: "2026-07-10T10:00:00.000Z",
+        durationMs: 1800,
+        direction: "RIGHT",
+        source: "COMBINED",
+      },
+    ],
+    integritySummary: {
+      gazeAwayCount: 1,
+      suspicionLevel: "LOW",
+    },
+  };
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["INTRO"],
+    showQuestionText: false,
+  });
+  const questions = await controller.listMockQuestions(validCandidateRequest, String(started.data.sessionId));
+  const questionId = questions.data.questions[0]?.questionId ?? 0;
+  const answer = await controller.saveMockAnswer(validCandidateRequest, String(started.data.sessionId), {
+    questionId,
+    audioFile: {
+      storageKey: "candidate/1/realtime-stt-nonverbal-answer.webm",
+      originalName: "realtime-stt-nonverbal-answer.webm",
+      mimeType: "audio/webm",
+      sizeBytes: 2048,
+    },
+    transcript,
+    nonverbalMetadata,
+    durationSeconds: 37,
+  });
+
+  assert.equal(answer.data.answer.transcript, transcript);
+  assert.equal(answer.data.answer.nonverbalMetadata?.source, "CLIENT_RUNTIME_UNVERIFIED");
+  assert.equal(answer.data.answer.nonverbalMetadata?.cameraWarnings, 0);
+  assert.equal(answer.data.answer.nonverbalMetadata?.integritySummary?.gazeAwayCount, 1);
+  assert.equal(answer.data.answer.nonverbalMetadata?.integritySummary?.suspicionLevel, "LOW");
+});
+
+test("mock answer rejects unsupported nonverbal metadata fields at the service boundary", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["INTRO"],
+    showQuestionText: false,
+  });
+  const questions = await controller.listMockQuestions(validCandidateRequest, String(started.data.sessionId));
+  const questionId = questions.data.questions[0]?.questionId ?? 0;
+
+  await assertInterviewHttpError(
+    () => controller.saveMockAnswer(validCandidateRequest, String(started.data.sessionId), {
+      questionId,
+      audioFile: {
+        storageKey: "candidate/1/invalid-nonverbal-answer.webm",
+        originalName: "invalid-nonverbal-answer.webm",
+        mimeType: "audio/webm",
+        sizeBytes: 2048,
+      },
+      durationSeconds: 20,
+      nonverbalMetadata: { forgedScore: 100 },
+    }),
+    400,
+    "COMMON_VALIDATION_FAILED",
+  );
+});
+
 async function assertInterviewHttpError(
   action: () => Promise<unknown>,
   expectedStatus: number,
@@ -435,9 +557,20 @@ test("recording validation skip stores an unanswered answer and allows moving ne
     questionId: firstQuestionId,
     durationSeconds: 0,
     skipReason: "RECORDING_VALIDATION_FAILED",
+    nonverbalMetadata: {
+      integrityEvents: [
+        {
+          type: "TAB_HIDDEN",
+          occurredAt: "2026-07-10T10:00:00.000Z",
+          durationMs: 2500,
+        },
+      ],
+    },
   });
   assert.equal(skipped.data.answer.durationSeconds, 0);
   assert.equal(skipped.data.answer.transcript, "[NO_ANSWER] Recording validation failed twice.");
+  assert.equal(skipped.data.answer.nonverbalMetadata?.source, "CLIENT_RUNTIME_UNVERIFIED");
+  assert.equal(skipped.data.answer.nonverbalMetadata?.integritySummary?.screenAwayCount, 1);
 
   const moved = await controller.moveMockNextQuestion(validCandidateRequest, String(started.data.sessionId));
   assert.equal(moved.data.previousQuestionId, firstQuestionId);

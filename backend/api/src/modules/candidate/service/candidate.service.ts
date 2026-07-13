@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import { CandidateJobListQueryDto } from "../dto/candidate-job-list-query.dto";
+import { CreateCandidateFolderDto, UpdateCandidateFolderDto } from "../dto/candidate-folder.dto";
 import { CreatePortfolioLinkDto } from "../dto/create-portfolio-link.dto";
 import { SaveInterviewConsentDto } from "../dto/save-interview-consent.dto";
 import { SubmitApplicationDto } from "../dto/submit-application.dto";
@@ -19,6 +20,8 @@ import {
   ApplicationSubmissionResult,
   CandidateApplicationSummary,
   CandidateApplyView,
+  CandidateFolder,
+  CandidateFolderContext,
   CandidateInterviewGuide,
   CandidateInterviewRuntimeView,
   CandidateJob,
@@ -38,6 +41,7 @@ import {
 } from "../candidate.types";
 
 export const MAX_DOCUMENT_SIZE_BYTES = 20 * 1024 * 1024;
+export const MAX_CANDIDATE_FOLDER_COUNT = 20;
 const MAX_INTERVIEW_MEDIA_SIZE_BYTES = 500 * 1024 * 1024;
 const REQUIRED_APPLICATION_CONSENTS = ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"] as const;
 const REQUIRED_INTERVIEW_CONSENTS = [
@@ -53,14 +57,21 @@ const SORT_ORDERS = ["asc", "desc"] as const;
 type CandidateListPostingStatus = (typeof CANDIDATE_LIST_POSTING_STATUSES)[number];
 type CandidateListSortField = (typeof CANDIDATE_LIST_SORT_FIELDS)[number];
 type CandidateListSortOrder = (typeof SORT_ORDERS)[number];
+type CandidateFolderMutableField = "name" | "githubUrl" | "blogUrl" | "portfolioUrl" | "resumeFileId" | "motivation" | "extraNote";
+type CandidateFolderMutableInput = Pick<CandidateFolder, CandidateFolderMutableField>;
+const MAX_MOCK_FOLDER_CONTEXT_CHARS = 12_000;
 
 interface ValidatedSubmitApplication {
   candidateName: string;
   email: string;
   phone: string;
+  githubUrl: string;
+  blogUrl: string;
   resumeFileId: number;
   portfolioFileId?: number;
   portfolioUrl?: string;
+  motivation: string;
+  additionalInfo: string;
   consentTypes: ConsentRecord["consentType"][];
 }
 
@@ -162,7 +173,7 @@ export class CandidateService {
       currentUser.userId,
       "resumeFileId",
     );
-    this.assertDocumentFile(resumeFileAsset.mimeType, resumeFileAsset.sizeBytes);
+    this.assertApplicationPdf(resumeFileAsset.mimeType, resumeFileAsset.sizeBytes, "resumeFileId");
     this.assertObjectStorageKey(resumeFileAsset.storageKey, currentUser.candidateId);
     if (applicationFields.portfolioFileId) {
       const portfolioFileAsset = await this.assertFileAssetForCurrentUser(
@@ -170,7 +181,7 @@ export class CandidateService {
         currentUser.userId,
         "portfolioFileId",
       );
-      this.assertDocumentFile(portfolioFileAsset.mimeType, portfolioFileAsset.sizeBytes);
+      this.assertApplicationPdf(portfolioFileAsset.mimeType, portfolioFileAsset.sizeBytes, "portfolioFileId");
       this.assertObjectStorageKey(portfolioFileAsset.storageKey, currentUser.candidateId);
     }
     if (applicationFields.portfolioUrl) {
@@ -184,9 +195,16 @@ export class CandidateService {
     const result = await this.repository.createApplication({
       postingId: jobId,
       candidateId: currentUser.candidateId,
+      candidateName: applicationFields.candidateName,
+      email: applicationFields.email,
+      phone: applicationFields.phone,
+      githubUrl: applicationFields.githubUrl,
+      blogUrl: applicationFields.blogUrl,
       resumeFileId: applicationFields.resumeFileId,
       portfolioFileId: applicationFields.portfolioFileId,
       portfolioUrl: applicationFields.portfolioUrl,
+      motivation: applicationFields.motivation,
+      additionalInfo: applicationFields.additionalInfo,
       consentTypes: applicationFields.consentTypes,
     });
 
@@ -266,6 +284,75 @@ export class CandidateService {
     });
 
     return this.envelope(portfolioLink);
+  }
+
+  async listFolders(currentUser: CurrentCandidateUser): Promise<ApiListResponse<CandidateFolder>> {
+    const items = await this.repository.listFolders(currentUser.candidateId);
+    return this.listEnvelope(items, this.createPageMeta(1, Math.max(items.length, 1), items.length));
+  }
+
+  async createFolder(
+    dto: CreateCandidateFolderDto,
+    currentUser: CurrentCandidateUser,
+  ): Promise<ApiResponse<CandidateFolder>> {
+    const count = await this.repository.countFolders(currentUser.candidateId);
+    if (count >= MAX_CANDIDATE_FOLDER_COUNT) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "지원서 세트는 최대 20개까지 만들 수 있습니다.", 400, [
+        { field: "folders", reason: "candidate folder count must be 20 or fewer" },
+      ]);
+    }
+
+    const input = await this.normalizeCandidateFolderMutation(dto, currentUser, true);
+    const folder = await this.repository.createFolder({
+      candidateId: currentUser.candidateId,
+      name: input.name ?? "",
+      githubUrl: input.githubUrl ?? null,
+      blogUrl: input.blogUrl ?? null,
+      portfolioUrl: input.portfolioUrl ?? null,
+      resumeFileId: input.resumeFileId ?? null,
+      motivation: input.motivation ?? null,
+      extraNote: input.extraNote ?? null,
+    });
+    return this.envelope(folder);
+  }
+
+  async getFolder(folderId: number, currentUser: CurrentCandidateUser): Promise<ApiResponse<CandidateFolder>> {
+    return this.envelope(await this.getOwnedFolder(folderId, currentUser));
+  }
+
+  async updateFolder(
+    folderId: number,
+    dto: UpdateCandidateFolderDto,
+    currentUser: CurrentCandidateUser,
+  ): Promise<ApiResponse<CandidateFolder>> {
+    const current = await this.getOwnedFolder(folderId, currentUser);
+    const input = await this.normalizeCandidateFolderMutation(dto, currentUser, false);
+    if (Object.keys(input).length === 0) {
+      return this.envelope(current);
+    }
+    const folder = await this.repository.updateFolder(folderId, input);
+    return this.envelope(folder);
+  }
+
+  async deleteFolder(folderId: number, currentUser: CurrentCandidateUser): Promise<void> {
+    await this.getOwnedFolder(folderId, currentUser);
+    await this.repository.deleteFolder(folderId);
+  }
+
+  async getMockInterviewFolderContext(
+    folderId: number,
+    currentUser: CurrentCandidateUser,
+  ): Promise<CandidateFolderContext> {
+    const folder = await this.getOwnedFolder(folderId, currentUser);
+    const resumeFile = folder.resumeFileId ? await this.repository.findFileAsset(folder.resumeFileId) : undefined;
+    const resumeExtractedText = folder.resumeFileId
+      ? await this.repository.findLatestExtractedTextByFileId(folder.resumeFileId)
+      : null;
+    return this.limitMockFolderContext({
+      ...folder,
+      resumeFile: resumeFile ?? null,
+      resumeExtractedText: resumeExtractedText ? resumeExtractedText.slice(0, 2_000) : null,
+    });
   }
 
   async listApplications(currentUser: CurrentCandidateUser): Promise<ApiListResponse<CandidateApplicationSummary>> {
@@ -1002,9 +1089,13 @@ export class CandidateService {
     const candidateName = requestBody.candidateName;
     const email = requestBody.email;
     const phone = requestBody.phone;
+    const githubUrl = requestBody.githubUrl;
+    const blogUrl = requestBody.blogUrl;
     const resumeFileId = requestBody.resumeFileId;
     const portfolioFileId = requestBody.portfolioFileId;
     const portfolioUrl = requestBody.portfolioUrl;
+    const motivation = requestBody.motivation;
+    const additionalInfo = requestBody.additionalInfo;
     const consentTypes = requestBody.consentTypes;
 
     if (
@@ -1021,6 +1112,22 @@ export class CandidateService {
     if (!this.isEmail(normalizedEmail)) {
       throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "기본 정보를 확인해주세요.", 400, [
         { field: "email", reason: "email must be a valid email address" },
+      ]);
+    }
+
+    if (!this.isNonEmptyString(githubUrl) || !this.isNonEmptyString(blogUrl)) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "GitHub와 블로그 URL을 확인해주세요.", 400, [
+        { field: "links", reason: "githubUrl and blogUrl are required" },
+      ]);
+    }
+    const normalizedGithubUrl = githubUrl.trim();
+    const normalizedBlogUrl = blogUrl.trim();
+    this.assertUrl(normalizedGithubUrl, "githubUrl");
+    this.assertUrl(normalizedBlogUrl, "blogUrl");
+
+    if (!this.isNonEmptyString(motivation) || !this.isNonEmptyString(additionalInfo)) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "지원동기와 추가 설명을 입력해주세요.", 400, [
+        { field: "applicationDetails", reason: "motivation and additionalInfo are required" },
       ]);
     }
 
@@ -1084,9 +1191,13 @@ export class CandidateService {
       candidateName: candidateName.trim(),
       email: normalizedEmail,
       phone: phone.trim(),
+      githubUrl: normalizedGithubUrl,
+      blogUrl: normalizedBlogUrl,
       resumeFileId,
       portfolioFileId: normalizedPortfolioFileId,
       portfolioUrl: normalizedPortfolioUrl,
+      motivation: motivation.trim(),
+      additionalInfo: additionalInfo.trim(),
       consentTypes: validatedConsentTypes,
     };
   }
@@ -1149,6 +1260,139 @@ export class CandidateService {
     }
 
     return value as Record<string, unknown>;
+  }
+
+  private async getOwnedFolder(folderId: number, currentUser: CurrentCandidateUser): Promise<CandidateFolder> {
+    this.assertPositiveIntegerId(folderId, "folderId");
+    const folder = await this.repository.findFolder(folderId);
+    if (!folder) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "지원서 세트를 찾을 수 없습니다.", 404, [
+        { field: "folderId", reason: "candidate folder not found" },
+      ]);
+    }
+    if (folder.candidateId !== currentUser.candidateId) {
+      throw new CandidateDomainError("COMMON_FORBIDDEN", "지원서 세트 접근 권한이 없습니다.", 403, [
+        { field: "folderId", reason: "candidate owner mismatch" },
+      ]);
+    }
+    return folder;
+  }
+
+  private async normalizeCandidateFolderMutation(
+    dto: CreateCandidateFolderDto | UpdateCandidateFolderDto,
+    currentUser: CurrentCandidateUser,
+    requireName: boolean,
+  ): Promise<Partial<CandidateFolderMutableInput>> {
+    const requestBody = this.toRequestBody(dto, "folder");
+    const input: Partial<CandidateFolderMutableInput> = {};
+
+    if (requireName || Object.hasOwn(requestBody, "name")) {
+      input.name = this.normalizeFolderName(requestBody.name);
+    }
+
+    for (const field of ["githubUrl", "blogUrl", "portfolioUrl"] as const) {
+      if (!Object.hasOwn(requestBody, field)) continue;
+      const value = this.normalizeNullableString(requestBody[field], field, 500);
+      if (value) {
+        this.assertUrl(value, field);
+      }
+      input[field] = value;
+    }
+
+    if (Object.hasOwn(requestBody, "motivation")) {
+      input.motivation = this.normalizeNullableString(requestBody.motivation, "motivation", 3_000);
+    }
+    if (Object.hasOwn(requestBody, "extraNote")) {
+      input.extraNote = this.normalizeNullableString(requestBody.extraNote, "extraNote", 5_000);
+    }
+
+    if (Object.hasOwn(requestBody, "resumeFileId")) {
+      input.resumeFileId = await this.normalizeFolderResumeFileId(requestBody.resumeFileId, currentUser);
+    }
+
+    return input;
+  }
+
+  private normalizeFolderName(value: unknown): string {
+    if (!this.isNonEmptyString(value)) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "지원서 세트 이름을 확인해주세요.", 400, [
+        { field: "name", reason: "name is required" },
+      ]);
+    }
+    const name = value.trim();
+    if (name.length > 100) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "지원서 세트 이름을 확인해주세요.", 400, [
+        { field: "name", reason: "name must be 100 characters or fewer" },
+      ]);
+    }
+    return name;
+  }
+
+  private limitMockFolderContext(context: CandidateFolderContext): CandidateFolderContext {
+    const limited = { ...context };
+    let overflow = this.mockFolderContextChars(limited) - MAX_MOCK_FOLDER_CONTEXT_CHARS;
+    for (const field of ["resumeExtractedText", "extraNote", "motivation"] as const) {
+      if (overflow <= 0) break;
+      const value = limited[field];
+      if (!value) continue;
+      const keepLength = Math.max(0, value.length - overflow);
+      limited[field] = keepLength > 0 ? value.slice(0, keepLength) : null;
+      overflow = this.mockFolderContextChars(limited) - MAX_MOCK_FOLDER_CONTEXT_CHARS;
+    }
+    return limited;
+  }
+
+  private mockFolderContextChars(context: CandidateFolderContext): number {
+    return [
+      context.name,
+      context.githubUrl,
+      context.blogUrl,
+      context.portfolioUrl,
+      context.motivation,
+      context.extraNote,
+      context.resumeExtractedText,
+      context.resumeFile?.originalName,
+      context.resumeFile?.mimeType,
+    ].reduce((total, value) => total + (value?.length ?? 0), 0);
+  }
+
+  private normalizeNullableString(value: unknown, field: string, maxLength?: number): string | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    if (typeof value !== "string") {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "입력값을 확인해주세요.", 400, [
+        { field, reason: `${field} must be a string or null` },
+      ]);
+    }
+    const normalized = value.trim();
+    if (!normalized) {
+      return null;
+    }
+    if (maxLength !== undefined && normalized.length > maxLength) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "입력값을 확인해주세요.", 400, [
+        { field, reason: `${field} must be ${maxLength} characters or fewer` },
+      ]);
+    }
+    return normalized;
+  }
+
+  private async normalizeFolderResumeFileId(
+    value: unknown,
+    currentUser: CurrentCandidateUser,
+  ): Promise<number | null> {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    if (!this.isPositiveInteger(value)) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "이력서 파일을 확인해주세요.", 400, [
+        { field: "resumeFileId", reason: "resumeFileId must be a positive integer or null" },
+      ]);
+    }
+    const fileAsset = await this.assertFileAssetForCurrentUser(value, currentUser.userId, "resumeFileId");
+    this.assertDocumentFile(fileAsset.mimeType, fileAsset.sizeBytes);
+    this.assertObjectStorageKey(fileAsset.storageKey, currentUser.candidateId);
+    return value;
   }
 
   private assertUploadResumeRequest(dto: UploadResumeDto): void {
@@ -1271,6 +1515,15 @@ export class CandidateService {
     }
   }
 
+  private assertApplicationPdf(mimeType: string, sizeBytes: number, field: string): void {
+    this.assertDocumentFile(mimeType, sizeBytes);
+    if (mimeType !== "application/pdf") {
+      throw new CandidateDomainError("FILE_INVALID_TYPE", "지원서에는 PDF 파일만 제출할 수 있습니다.", 400, [
+        { field, reason: "application/pdf is required" },
+      ]);
+    }
+  }
+
   private assertInterviewMediaFile(mimeType: string, sizeBytes: number): void {
     if (!this.allowedInterviewMediaMimeTypes().includes(mimeType)) {
       throw new CandidateDomainError("FILE_INVALID_TYPE", "Unsupported interview media file type.", 400, [
@@ -1367,14 +1620,14 @@ export class CandidateService {
     return fileAsset;
   }
 
-  private assertUrl(url: string, field: "portfolioUrl" | "url"): void {
+  private assertUrl(url: string, field: string): void {
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
         throw new Error("invalid protocol");
       }
     } catch {
-      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "포트폴리오 URL을 확인해주세요.", 400, [
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "URL을 확인해주세요.", 400, [
         { field, reason: "url must be http or https" },
       ]);
     }

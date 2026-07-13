@@ -74,13 +74,13 @@ export class PublicRecruitmentController {
   @ApiBody({
     schema: {
       type: "object",
-      required: ["name", "email", "phone", "resumeFile", "consentAgreed"],
+      required: ["name", "email", "phone", "githubUrl", "blogUrl", "resumeFile", "motivation", "additionalInfo", "consentAgreed"],
       properties: {
         name: { type: "string", example: "김지원" },
         email: { type: "string", format: "email", example: "candidate@example.com" },
         phone: { type: "string", example: "010-0000-0000" },
-        githubBlogUrl: { type: "string", format: "uri", example: "https://github.com/candidate" },
-        portfolioMode: { type: "string", enum: ["URL", "FILE"], example: "URL" },
+        githubUrl: { type: "string", format: "uri", example: "https://github.com/candidate" },
+        blogUrl: { type: "string", format: "uri", example: "https://blog.example.com/candidate" },
         portfolioUrl: { type: "string", format: "uri", example: "https://portfolio.example.com" },
         portfolioFile: { type: "string", format: "binary", description: "선택, application/pdf" },
         resumeFile: { type: "string", format: "binary", description: "필수, application/pdf" },

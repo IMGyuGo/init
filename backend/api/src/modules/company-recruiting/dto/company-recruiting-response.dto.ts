@@ -271,6 +271,25 @@ export class ReportSummaryDto {
   @ApiPropertyOptional({ nullable: true, example: 82 })
   totalScore!: number | null;
 
+  @ApiPropertyOptional({ nullable: true, example: 82 })
+  adjustedTotalScore!: number | null;
+
+  @ApiPropertyOptional({
+    type: Object,
+    nullable: true,
+    example: {
+      rawTotalScore: 82,
+      adjustedTotalScore: 82,
+      penalty: 0,
+      scoreApplied: false,
+      source: "CLIENT_RUNTIME_UNVERIFIED",
+      level: "MEDIUM",
+      reason: "브라우저에서 수집된 미검증 참고 신호이며 평가 점수에는 반영하지 않았습니다.",
+      reasons: ["화면/탭 이탈 2회"],
+    },
+  })
+  integrityAdjustment!: Record<string, unknown> | null;
+
   @ApiPropertyOptional({ nullable: true, example: "지원 직무와 경험이 잘 맞습니다." })
   summary!: string | null;
 
@@ -343,6 +362,9 @@ export class ApplicantEvaluationResponseDto {
 
   @ApiProperty({ type: Object })
   screening!: Record<string, unknown>;
+
+  @ApiProperty({ type: Object })
+  submission!: Record<string, unknown>;
 
   @ApiProperty({ enum: ["AVAILABLE", "NONE_OR_GENERATING"], example: "AVAILABLE" })
   reportAvailability!: string;

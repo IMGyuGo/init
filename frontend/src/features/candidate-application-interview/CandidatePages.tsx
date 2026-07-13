@@ -6,10 +6,12 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { DependencyList, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { FaceLandmarker as MediaPipeFaceLandmarker, NormalizedLandmark, ObjectDetector as MediaPipeObjectDetector } from "@mediapipe/tasks-vision";
 
 import { getApiBaseUrl } from "../../api/api-base-url";
 import { getAccessToken } from "../../api/client";
 import { sendClientPerformanceLog } from "../ai-performance/api";
+import { resolveClientNextStepType } from "../ai-performance/client-next-step";
 import { GnbAvatar, GnbLogoutButton } from "../auth/GnbAccountControls";
 import { createPaymentOrder, getCandidateMockInterviewPassSummary, grantCandidateMockInterviewDevPasses, listPaymentOrders } from "../payment/api";
 import { PaymentOrderPagination, formatDateTime as formatPaymentDateTime, formatWon } from "../payment/CompanyBillingPage";
@@ -31,9 +33,12 @@ import {
   type CandidateApplicationStatusView,
   type CandidateApplicationSummary,
   type CandidateFileAsset,
+  type CandidateFolder,
+  type CandidateFolderInput,
   type CandidateFollowUpQuestionView,
   type CandidateInterviewRuntimeView,
   type CandidateJobQuery,
+  type CandidateJobSummary,
   type CandidateMockInterviewHistoryItem,
   type CandidateMockReportSummary,
   type CandidateMockReportFeedback,
@@ -71,13 +76,27 @@ import {
 } from "./realtime-stt-relay";
 import { candidateApplicationInterviewRoutes } from "./routes";
 import {
+  GAZE_CALIBRATION_REQUIRED_SAMPLES,
+  countPersonDetections,
+  isFacePositionShifted,
+  estimateHeadPoseAngles,
+  estimateIrisGazePosition,
+  resolveCombinedGazeSignal,
+  updateFacePositionBaseline,
+  updateMultiplePeopleDetectionState,
+  updateSustainedDetectionState,
+  type FacePositionSnapshot,
+  type GazeDirection,
+  type GazeSignalSource,
+  type HeadPoseAngles,
+  type IrisGazePosition,
+} from "./nonverbal-integrity";
+import {
   type CameraPipPosition,
   type CandidateApplicationFormState,
   type CandidateDeviceCheckState,
   type CandidateInterviewConsentState,
   type CandidateNotificationItem,
-  type CandidatePortfolioLinkFormState,
-  type CandidateResumeUploadState,
   type InterviewAnswerFormState,
   type InterviewRuntimePrimaryScreen,
   type InterviewerSessionEvent,
@@ -92,17 +111,16 @@ import {
   defaultDeviceCheckState,
   defaultInterviewAnswerFormState,
   defaultInterviewConsentState,
-  defaultPortfolioLinkFormState,
   defaultStartMockInterviewState,
   createCameralessInterviewTestDeviceCheckState,
   createInterviewerSessionEvent,
-  createResumeUploadStateFromFile,
   formatAiInterviewerQuestionPrompt,
   getAiInterviewerProfile,
   getDefaultCameraPipPosition,
   getInterviewMediaFileExtension,
   getInterviewRuntimeFullscreenActive,
   getInterviewRuntimeLayoutState,
+  getInterviewAiPollingPolicy,
   getInterviewRuntimePipShortcutState,
   getInterviewRuntimeProgressionState,
   getInterviewRuntimeScreenSwapState,
@@ -116,7 +134,6 @@ import {
   getTimedOutAiJobStatus,
   getCandidateApplicationReportHref,
   getMockInterviewDeviceCheckHref,
-  inferPortfolioLinkType,
   isInterviewSpeechPlaybackEventCurrent,
   normalizeInterviewMediaMimeType,
   requiredInterviewConsents,
@@ -132,8 +149,8 @@ import {
   shouldShowInterviewDeviceSetup,
   trimInterviewerSessionEvents,
   toDeviceCheckRequest,
-  toCreatePortfolioLinkRequest,
   toRuntimeQuestionSpeechText,
+  toRecordingValidationSkipRequest,
   toSaveInterviewAnswerRequest,
   toSaveInterviewConsentRequest,
   toStartMockInterviewRequest,
@@ -165,6 +182,42 @@ const MIN_INTERVIEW_RECORDING_VOICE_LEVEL = 3;
 const MIN_INTERVIEW_RECORDING_VOICE_FRAME_COUNT = 6;
 const MAX_INVALID_RECORDING_AUTO_RETRY_COUNT = 1;
 const REALTIME_SILENCE_GRACE_MS = 2000;
+const NONVERBAL_SHORT_ANSWER_SECONDS = 10;
+const NONVERBAL_CAMERA_SAMPLE_INTERVAL_MS = 500;
+const NONVERBAL_FACE_SAMPLE_SIZE = 240;
+const NONVERBAL_FACE_EDGE_MARGIN_RATIO = 0.08;
+const NONVERBAL_FACE_MIN_AREA_RATIO = 0.04;
+const NONVERBAL_FACE_BASELINE_REQUIRED_SAMPLES = 4;
+const NONVERBAL_FACE_SHIFT_RATIO = 0.28;
+const NONVERBAL_FACE_SHIFT_MINIMUM_AREA_DELTA = 0.1;
+const NONVERBAL_FACE_SHIFT_RELATIVE_AREA_MULTIPLIER = 1.6;
+const NONVERBAL_FACE_SHIFT_CONFIRMATION_MS = 1000;
+const NONVERBAL_GAZE_AWAY_CONFIRMATION_MS = 1500;
+const NONVERBAL_GAZE_CENTERED_CONFIRMATION_MS = 750;
+const NONVERBAL_AUDIO_SPEAKING_LEVEL = 6;
+const NONVERBAL_AUDIO_SPEAKING_RATIO_THRESHOLD = 0.35;
+const NONVERBAL_MOUTH_OPEN_RATIO_THRESHOLD = 0.06;
+const NONVERBAL_MOUTH_MOVEMENT_DELTA_THRESHOLD = 0.015;
+const NONVERBAL_MOUTH_SYNC_MISMATCH_GRACE_MS = 2500;
+const NONVERBAL_VOICE_WITHOUT_FACE_GRACE_MS = 2500;
+const NONVERBAL_EARLY_SCREEN_AWAY_WINDOW_MS = 10000;
+const NONVERBAL_STATIC_FRAME_SAMPLE_WIDTH = 32;
+const NONVERBAL_STATIC_FRAME_SAMPLE_HEIGHT = 18;
+const NONVERBAL_STATIC_FRAME_DIFF_THRESHOLD = 2.5;
+const NONVERBAL_STATIC_FRAME_GRACE_MS = 5000;
+const RUNTIME_INTEGRITY_WARNING_DURATION_MS = 5000;
+const RUNTIME_INTEGRITY_WARNING_REPEAT_COOLDOWN_MS = 3500;
+const MEDIAPIPE_TASKS_VISION_VERSION = "0.10.35";
+const MEDIAPIPE_TASKS_VISION_WASM_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_TASKS_VISION_VERSION}/wasm`;
+const MEDIAPIPE_FACE_LANDMARKER_MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
+const MEDIAPIPE_PERSON_DETECTOR_MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite";
+const NONVERBAL_PERSON_DETECTION_SCORE_THRESHOLD = 0.35;
+const NONVERBAL_PERSON_SAMPLE_INTERVAL_MS = 500;
+const NONVERBAL_MULTIPLE_PEOPLE_CONFIRMATION_WINDOW_MS = 1500;
+const NONVERBAL_MULTIPLE_PEOPLE_REQUIRED_SAMPLES = 2;
+const NONVERBAL_MULTIPLE_PEOPLE_RELEASE_GRACE_MS = 1500;
 const REALTIME_SPEECH_RESPONSE_TIMEOUT_MS = 30000;
 const BROWSER_SPEECH_START_TIMEOUT_MS = 2500;
 const BROWSER_SPEECH_MIN_COMPLETION_TIMEOUT_MS = 8000;
@@ -185,6 +238,144 @@ type RuntimeTimerPhase = "PREPARING" | "ANSWERING";
 type RealtimeSessionStatus = "idle" | "requesting" | "connecting" | "ready" | "failed";
 type RealtimeProviderState = RealtimeInterviewSessionResponse["provider"] | "none";
 type InterviewGuideStep = "guide" | "device";
+type InterviewIntegrityEventType =
+  | "TAB_HIDDEN"
+  | "WINDOW_BLUR"
+  | "CAMERA_LOST"
+  | "FACE_MISSING"
+  | "FACE_OUT_OF_FRAME"
+  | "MULTIPLE_FACES"
+  | "FACE_POSITION_SHIFT"
+  | "GAZE_AWAY"
+  | "VOICE_MOUTH_MISMATCH"
+  | "VOICE_WITHOUT_FACE"
+  | "STATIC_VIDEO_FRAME"
+  | "EARLY_SCREEN_AWAY";
+type InterviewIntegritySuspicionLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH";
+type InterviewIntegrityEvent = {
+  type: InterviewIntegrityEventType;
+  occurredAt: string;
+  durationMs?: number;
+  direction?: GazeDirection;
+  source?: GazeSignalSource;
+};
+type RuntimeIntegrityWarning = {
+  type: InterviewIntegrityEventType;
+  message: string;
+  occurredAt: string;
+};
+type BrowserDetectedFace = {
+  boundingBox: DOMRectReadOnly;
+};
+type BrowserFaceDetector = {
+  detect(image: CanvasImageSource): Promise<BrowserDetectedFace[]>;
+};
+type BrowserFaceDetectorConstructor = new (options?: { fastMode?: boolean; maxDetectedFaces?: number }) => BrowserFaceDetector;
+
+type MediaPipeFaceLandmarkerModule = typeof import("@mediapipe/tasks-vision");
+type InterviewIntegritySummary = {
+  screenAwayCount: number;
+  tabHiddenCount: number;
+  windowBlurCount: number;
+  cameraLostCount: number;
+  faceMissingCount: number;
+  faceOutOfFrameCount: number;
+  multipleFacesCount: number;
+  facePositionShiftCount: number;
+  gazeAwayCount: number;
+  voiceMouthMismatchCount: number;
+  voiceWithoutFaceCount: number;
+  staticVideoFrameCount: number;
+  earlyScreenAwayCount: number;
+  faceDetectionSupported: boolean;
+  faceDetectionFrameCount: number;
+  personDetectionSupported: boolean;
+  personDetectionFrameCount: number;
+  gazeDetectionSupported: boolean;
+  gazeDetectionFrameCount: number;
+  headPoseDetectionSupported: boolean;
+  headPoseDetectionFrameCount: number;
+  mouthSyncSupported: boolean;
+  mouthSyncFrameCount: number;
+  mouthSyncMismatchFrameCount: number;
+  videoFrameMotionSupported: boolean;
+  videoFrameSampleCount: number;
+  staticVideoFrameSampleCount: number;
+  totalAwayDurationMs: number;
+  maxAwayDurationMs: number;
+  suspicionLevel: InterviewIntegritySuspicionLevel;
+};
+type InterviewAnswerNonverbalMetadata = {
+  cameraWarnings: number;
+  microphoneWarnings: number;
+  longSilenceCount: number;
+  shortAnswerCount: number;
+  testModeUsed: boolean;
+  voicePeakLevel: number;
+  lowAudioFrameCount: number;
+  observedAudioFrameCount: number;
+  cameraDisconnectedCount: number;
+  integrityEvents?: InterviewIntegrityEvent[];
+  integritySummary?: InterviewIntegritySummary;
+};
+type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
+  questionId: number;
+  recordingStartedAtMs: number;
+  silenceStartedAtMs?: number;
+  silenceSegmentCounted: boolean;
+  tabHiddenStartedAtMs?: number;
+  windowBlurStartedAtMs?: number;
+  cameraLostStartedAtMs?: number;
+  faceMissingStartedAtMs?: number;
+  faceOutOfFrameStartedAtMs?: number;
+  multipleFacesStartedAtMs?: number;
+  multiplePeoplePositiveSampleTimesMs: number[];
+  multiplePeopleLastDetectedAtMs?: number;
+  lastPersonDetectionAtMs?: number;
+  facePositionShiftStartedAtMs?: number;
+  facePositionShiftCandidateStartedAtMs?: number;
+  gazeAwayStartedAtMs?: number;
+  gazeAwayCandidateStartedAtMs?: number;
+  gazeCenteredCandidateStartedAtMs?: number;
+  voiceMouthMismatchStartedAtMs?: number;
+  voiceMouthMismatchCandidateStartedAtMs?: number;
+  voiceWithoutFaceStartedAtMs?: number;
+  voiceWithoutFaceCandidateStartedAtMs?: number;
+  staticVideoFrameStartedAtMs?: number;
+  staticVideoFrameCandidateStartedAtMs?: number;
+  earlyScreenAwayRecorded: boolean;
+  lastGazeDirection?: GazeDirection;
+  lastGazeSource?: GazeSignalSource;
+  gazeCalibrationSampleCount: number;
+  gazeBaselineHorizontalRatio?: number;
+  gazeBaselineVerticalRatio?: number;
+  headPoseCalibrationSampleCount: number;
+  headPoseBaselineYawDegrees?: number;
+  headPoseBaselinePitchDegrees?: number;
+  faceBaseline?: FacePositionSnapshot;
+  faceBaselineSampleCount: number;
+  lastVideoFrameSample?: number[];
+  faceDetectionSupported: boolean;
+  faceDetectionFrameCount: number;
+  personDetectionSupported: boolean;
+  personDetectionFrameCount: number;
+  gazeDetectionSupported: boolean;
+  gazeDetectionFrameCount: number;
+  headPoseDetectionSupported: boolean;
+  headPoseDetectionFrameCount: number;
+  mouthSyncSupported: boolean;
+  mouthSyncFrameCount: number;
+  mouthSyncMismatchFrameCount: number;
+  videoFrameMotionSupported: boolean;
+  videoFrameSampleCount: number;
+  staticVideoFrameSampleCount: number;
+  lastMouthOpenRatio?: number;
+  audioFramesSinceLastMouthSample: number;
+  speakingAudioFramesSinceLastMouthSample: number;
+  totalAwayDurationMs: number;
+  maxAwayDurationMs: number;
+  integrityEvents: InterviewIntegrityEvent[];
+};
 type CandidateApplicationStatusFilter = "ALL" | "WAITING" | "IN_PROGRESS" | "COMPLETED" | "REPORTING";
 type ApplicationBadgeTone = "green" | "yellow" | "purple" | "neutral";
 type RuntimePageData = {
@@ -411,9 +602,34 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
   const [applyOpen, setApplyOpen] = useState(false);
   const [applyForm, setApplyForm] = useState<CandidateApplicationFormState>(defaultApplicationFormState);
   const [latestResumeFile, setLatestResumeFile] = useState<CandidateFileAsset>();
+  const [latestPortfolioFile, setLatestPortfolioFile] = useState<CandidateFileAsset>();
   const [applyBusy, setApplyBusy] = useState(false);
   const [applyError, setApplyError] = useState("");
   const [message, setMessage] = useState("");
+
+  // 같은 직무의 다른 공고를 추천으로 노출한다(우측 사이드). 별도 추천 API 없이 목록 API 재사용.
+  // 목록 jobRoles 필터는 jobRoleCode 와 매칭하므로 표시명(jobRole)이 아닌 jobRoleCode 로 조회한다.
+  const [relatedJobs, setRelatedJobs] = useState<CandidateJobSummary[]>([]);
+  const relatedRoleCode = data?.data.jobRoleCode ?? undefined;
+  const currentJobId = data?.data.jobId;
+  useEffect(() => {
+    if (!relatedRoleCode || !currentJobId) {
+      setRelatedJobs([]);
+      return;
+    }
+    let active = true;
+    getCandidateApi()
+      .listJobs({ jobRoles: [relatedRoleCode], limit: 8, sort: "createdAt", order: "desc" })
+      .then((res) => {
+        if (active) setRelatedJobs(res.data.items.filter((item) => item.jobId !== currentJobId).slice(0, 5));
+      })
+      .catch(() => {
+        if (active) setRelatedJobs([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [relatedRoleCode, currentJobId]);
 
   async function handleResumeFileSelect(file: File) {
     setApplyBusy(true);
@@ -429,22 +645,25 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
     }
   }
 
+  async function handlePortfolioFileSelect(file: File) {
+    setApplyBusy(true);
+    setApplyError("");
+    try {
+      const result = await getCandidateApi().uploadResume(file);
+      setLatestPortfolioFile(result.data);
+      setApplyForm((current) => ({ ...current, portfolioFileId: result.data.fileId }));
+    } catch (submitError) {
+      setApplyError(toErrorMessage(submitError));
+    } finally {
+      setApplyBusy(false);
+    }
+  }
+
   async function handleApplicationSubmit(request: Parameters<ReturnType<typeof getCandidateApi>["submitApplication"]>[1]) {
     setApplyBusy(true);
     setApplyError("");
     try {
-      const api = getCandidateApi();
-      if (request.portfolioUrl) {
-        await api.createPortfolioLink(
-          toCreatePortfolioLinkRequest({
-            ...defaultPortfolioLinkFormState,
-            url: request.portfolioUrl,
-            linkType: inferPortfolioLinkType(request.portfolioUrl),
-            description: request.coverLetter ?? "",
-          }),
-        );
-      }
-      const result = await api.submitApplication(jobId, request);
+      const result = await getCandidateApi().submitApplication(jobId, request);
       setApplyOpen(false);
       setMessage(`지원서가 제출되었습니다. 접수 번호는 ${result.data.application.applicationId}번입니다.`);
       void refresh().catch(() => undefined);
@@ -459,15 +678,17 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
   return (
     <CandidatePageShell active="jobs">
       <StatusNotice loading={loading} error={error} message={message} />
-      {data ? <CandidateJobDetailView job={data.data} onApplyClick={() => setApplyOpen(true)} /> : null}
+      {data ? <CandidateJobDetailView job={data.data} relatedJobs={relatedJobs} onApplyClick={() => setApplyOpen(true)} /> : null}
       {applyOpen && data ? (
         <CandidateApplyModal
           job={data.data}
           state={applyForm}
           latestResumeFile={latestResumeFile}
+          latestPortfolioFile={latestPortfolioFile}
           busy={applyBusy}
           errorMessage={applyError}
           onResumeFileSelect={handleResumeFileSelect}
+          onPortfolioFileSelect={handlePortfolioFileSelect}
           onStateChange={setApplyForm}
           onSubmit={handleApplicationSubmit}
           onClose={() => setApplyOpen(false)}
@@ -481,6 +702,7 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
   const router = useRouter();
   const [form, setForm] = useState<CandidateApplicationFormState>(defaultApplicationFormState);
   const [latestResumeFile, setLatestResumeFile] = useState<CandidateFileAsset>();
+  const [latestPortfolioFile, setLatestPortfolioFile] = useState<CandidateFileAsset>();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => getCandidateApi().getApplyView(jobId), [jobId]);
@@ -501,22 +723,26 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
     }
   }
 
+  async function handlePortfolioFileSelect(file: File) {
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await getCandidateApi().uploadResume(file);
+      setLatestPortfolioFile(result.data);
+      setForm((current) => ({ ...current, portfolioFileId: result.data.fileId }));
+      setMessage("포트폴리오 PDF가 업로드되었습니다.");
+    } catch (submitError) {
+      setMessage(toErrorMessage(submitError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleApplicationSubmit(request: Parameters<ReturnType<typeof getCandidateApi>["submitApplication"]>[1]) {
     setBusy(true);
     setMessage("");
     try {
-      const api = getCandidateApi();
-      if (request.portfolioUrl) {
-        await api.createPortfolioLink(
-          toCreatePortfolioLinkRequest({
-            ...defaultPortfolioLinkFormState,
-            url: request.portfolioUrl,
-            linkType: inferPortfolioLinkType(request.portfolioUrl),
-            description: request.coverLetter ?? "",
-          }),
-        );
-      }
-      const result = await api.submitApplication(jobId, request);
+      const result = await getCandidateApi().submitApplication(jobId, request);
       setMessage(`지원서가 제출되었습니다. 접수 번호는 ${result.data.application.applicationId}번입니다.`);
       router.push(candidateApplicationInterviewRoutes.applications);
     } catch (submitError) {
@@ -547,8 +773,10 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
             busy={busy}
             job={data.data.job}
             latestResumeFile={latestResumeFile}
+            latestPortfolioFile={latestPortfolioFile}
             state={form}
             onResumeFileSelect={handleResumeFileSelect}
+            onPortfolioFileSelect={handlePortfolioFileSelect}
             onStateChange={setForm}
             onSubmit={handleApplicationSubmit}
           />
@@ -1019,6 +1247,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
                 </dl>
                 <ListBlock title="진행 방식" items={guide.method} />
                 <ListBlock title="필수 준비 사항" items={guide.requiredPreparations} />
+                <RecruitingIntegrityNotice />
               </section>
 
               <section className="panel">
@@ -1308,6 +1537,9 @@ export function CandidateMockInterviewStartPage() {
   const [busy, setBusy] = useState(false);
   const historyLoad = useCallback(() => getCandidateApi().listMockInterviewHistory(), []);
   const historyResource = useCandidateResource(historyLoad, []);
+  const foldersLoad = useCallback(() => getCandidateApi().listFolders(), []);
+  const foldersResource = useCandidateResource(foldersLoad, []);
+  const folders = foldersResource.data?.data.items ?? [];
 
   // 직무 캐러셀: 스크롤 위치에 따라 좌/우 넘김 버튼과 페이드를 토글한다.
   const roleRowRef = useRef<HTMLDivElement>(null);
@@ -1380,6 +1612,7 @@ export function CandidateMockInterviewStartPage() {
                   alt=""
                   width={180}
                   height={180}
+                  loading="eager"
                   aria-hidden="true"
                 />
                 <strong>{item.title}</strong>
@@ -1450,6 +1683,31 @@ export function CandidateMockInterviewStartPage() {
 
               <div className="mocksettings-body">
                 {message ? <p className="notice danger">{message}</p> : null}
+
+                {folders.length > 0 ? (
+                  <div className="mocksettings-field">
+                    <span className="mocksettings-label">지원서 세트 <em className="mocksettings-optional">(선택)</em></span>
+                    <div className="mocksettings-folders">
+                      <button
+                        type="button"
+                        className={`mocksettings-pill${state.folderId === null ? " is-active" : ""}`}
+                        onClick={() => setState((current) => ({ ...current, folderId: null }))}
+                      >
+                        선택 안 함
+                      </button>
+                      {folders.map((folder) => (
+                        <button
+                          key={folder.id}
+                          type="button"
+                          className={`mocksettings-pill${state.folderId === folder.id ? " is-active" : ""}`}
+                          onClick={() => setState((current) => ({ ...current, folderId: folder.id }))}
+                        >
+                          {folder.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="mocksettings-field">
                   <span className="mocksettings-label">직무</span>
@@ -1891,28 +2149,6 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
 }
 
 export function CandidateMyPage() {
-  const candidateId = getCurrentCandidateId();
-  const [resumeState, setResumeState] = useState<CandidateResumeUploadState>({
-    candidateId,
-    storageKey: "",
-    originalName: "",
-    mimeType: "",
-    sizeBytes: 0,
-  });
-  const [portfolioFileState, setPortfolioFileState] = useState<CandidateResumeUploadState>({
-    candidateId,
-    storageKey: "",
-    originalName: "",
-    mimeType: "",
-    sizeBytes: 0,
-  });
-  const [portfolioState, setPortfolioState] = useState<CandidatePortfolioLinkFormState>(defaultPortfolioLinkFormState);
-  const [latestResumeFile, setLatestResumeFile] = useState<CandidateFileAsset>();
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-  const resumeInputRef = useRef<HTMLInputElement | null>(null);
-  const portfolioInputRef = useRef<HTMLInputElement | null>(null);
-
   const loadApplications = useCallback(() => getCandidateApi().listApplications(), []);
   const { data: applicationsData } = useCandidateResource(loadApplications, []);
   const applications = applicationsData?.data.items ?? [];
@@ -1926,46 +2162,6 @@ export function CandidateMyPage() {
     completed: applications.filter((application) => application.interviewStatus === "COMPLETED").length,
     reports: applications.filter((application) => application.reportStatus === "COMPLETED").length,
   };
-
-  async function handleResumeSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setMessage("");
-    try {
-      if (!resumeState.file) {
-        throw new Error("이력서 파일을 다시 선택해주세요.");
-      }
-      const result = await getCandidateApi().uploadResume(resumeState.file);
-      setLatestResumeFile(result.data);
-      setMessage("이력서가 업로드되었습니다.");
-    } catch (submitError) {
-      setMessage(toErrorMessage(submitError));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handlePortfolioSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setMessage("");
-    try {
-      const api = getCandidateApi();
-      let fileId = portfolioState.fileId;
-      if (portfolioFileState.file) {
-        const fileResult = await api.uploadResume(portfolioFileState.file);
-        fileId = fileResult.data.fileId;
-      }
-      await api.createPortfolioLink(toCreatePortfolioLinkRequest({ ...portfolioState, fileId }));
-      setPortfolioState(defaultPortfolioLinkFormState);
-      setPortfolioFileState({ candidateId, storageKey: "", originalName: "", mimeType: "", sizeBytes: 0 });
-      setMessage("포트폴리오/깃허브가 등록되었습니다.");
-    } catch (submitError) {
-      setMessage(toErrorMessage(submitError));
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
     <CandidatePageShell active="accountBilling">
@@ -1982,103 +2178,8 @@ export function CandidateMyPage() {
           <MypageStat name="reports" label="리포트 확인" value={summary.reports} />
         </section>
 
-        <section className="mypage-block">
-          <div className="mypage-block__title">
-            <h2>서류 관리</h2>
-            <p>이력서와 포트폴리오를 등록해 지원 시 바로 사용하세요.</p>
-          </div>
-          <StatusNotice loading={busy} message={message} />
-          <div className="candidate-mypage__cards">
-          <form className="candidate-mypage-card candidate-resume-card" onSubmit={handleResumeSubmit}>
-            <h2>이력서 업로드</h2>
-            <button
-              className="candidate-upload-drop"
-              type="button"
-              onClick={() => resumeInputRef.current?.click()}
-            >
-              <span className="candidate-upload-icon" aria-hidden="true">
-                <svg fill="none" height="22" viewBox="0 0 24 24" width="22">
-                  <path d="M12 16V4m0 0-5 5m5-5 5 5M5 20h14" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" />
-                </svg>
-              </span>
-              <span>{resumeState.originalName || "PDF, DOCX 파일을 선택하세요"}</span>
-            </button>
-            <input
-              ref={resumeInputRef}
-              accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              className="candidate-hidden-file"
-              type="file"
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0];
-                if (file) setResumeState(createResumeUploadStateFromFile(candidateId, file));
-              }}
-            />
-            <button className="btn primary candidate-mypage-action" type="submit" disabled={busy}>
-              업로드
-            </button>
-            <p className="candidate-mypage-note">
-              {latestResumeFile
-                ? `${latestResumeFile.originalName} 업로드 완료`
-                : "업로드 후 서류 텍스트 추출 및 분석 대기 상태로 전환됩니다."}
-            </p>
-          </form>
 
-          <form className="candidate-mypage-card candidate-portfolio-card" onSubmit={handlePortfolioSubmit}>
-            <h2>포트폴리오 / 깃허브 등록</h2>
-            <label>
-              주소
-              <input
-                placeholder="https://github.com/..."
-                type="url"
-                value={portfolioState.url}
-                onChange={(event) =>
-                  setPortfolioState({
-                    ...portfolioState,
-                    url: event.currentTarget.value,
-                    linkType: inferPortfolioLinkType(event.currentTarget.value),
-                  })
-                }
-              />
-            </label>
-            <label>
-              설명
-              <input
-                placeholder="프로젝트 설명"
-                value={portfolioState.description}
-                onChange={(event) => setPortfolioState({ ...portfolioState, description: event.currentTarget.value })}
-              />
-            </label>
-            <label>
-              파일 첨부
-              <button
-                className="candidate-upload-drop"
-                type="button"
-                onClick={() => portfolioInputRef.current?.click()}
-              >
-                <span className="candidate-upload-icon" aria-hidden="true">
-                  <svg fill="none" height="22" viewBox="0 0 24 24" width="22">
-                    <path d="M12 16V4m0 0-5 5m5-5 5 5M5 20h14" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" />
-                  </svg>
-                </span>
-                <span>{portfolioFileState.originalName || "PDF, DOCX 파일을 선택하세요"}</span>
-              </button>
-              <input
-                ref={portfolioInputRef}
-                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                className="candidate-hidden-file"
-                type="file"
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
-                  if (file) setPortfolioFileState(createResumeUploadStateFromFile(candidateId, file));
-                }}
-              />
-            </label>
-            <button className="btn primary candidate-mypage-action" type="submit" disabled={busy}>
-              등록
-            </button>
-          </form>
-          </div>
-        </section>
+        <CandidateFoldersSection />
       </section>
     </CandidatePageShell>
   );
@@ -2313,6 +2414,7 @@ function InterviewRuntimePanel({
   const [retryAnswerId, setRetryAnswerId] = useState<number>();
   const [retryingQuestionId, setRetryingQuestionId] = useState<number>();
   const [message, setMessage] = useState("");
+  const [integrityWarning, setIntegrityWarning] = useState<RuntimeIntegrityWarning | null>(null);
   const [busy, setBusy] = useState(false);
   const [lastAnswer, setLastAnswer] = useState<LastSavedAnswer>();
   const [autoAiPipeline, setAutoAiPipeline] = useState<AutoAiPipelineState>();
@@ -2389,6 +2491,19 @@ function InterviewRuntimePanel({
   const timeExpiredQuestionRef = useRef<number | null>(null);
   const answerStartCueQuestionRef = useRef<number | null>(null);
   const invalidRecordingRetryCountsRef = useRef<Map<number, number>>(new Map());
+  const recordingNonverbalTrackerRef = useRef<RecordingNonverbalTracker | null>(null);
+  const nonverbalCameraMonitorRef = useRef<number | null>(null);
+  const nonverbalIntegrityCleanupRef = useRef<(() => void) | null>(null);
+  const nonverbalFaceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const nonverbalFaceDetectorRef = useRef<BrowserFaceDetector | null | undefined>(undefined);
+  const nonverbalFaceLandmarkerRef = useRef<MediaPipeFaceLandmarker | null | undefined>(undefined);
+  const nonverbalFaceLandmarkerPromiseRef = useRef<Promise<MediaPipeFaceLandmarker | null> | null>(null);
+  const nonverbalPersonDetectorRef = useRef<MediaPipeObjectDetector | null | undefined>(undefined);
+  const nonverbalPersonDetectorPromiseRef = useRef<Promise<MediaPipeObjectDetector | null> | null>(null);
+  const nonverbalFaceDetectionPendingRef = useRef(false);
+  const integrityWarningTimeoutRef = useRef<number | null>(null);
+  const integrityWarningLastShownAtRef = useRef<Map<InterviewIntegrityEventType, number>>(new Map());
+  const lastInvalidRecordingMetadataRef = useRef<Map<number, InterviewAnswerNonverbalMetadata>>(new Map());
   const answerToNextQuestionPerfRef = useRef<{
     startedAt: number;
     startedAtIso: string;
@@ -3150,6 +3265,13 @@ function InterviewRuntimePanel({
       discardRealtimeSttRelay();
       stopQuestionSpeech();
       stopRuntimeCameraQualityMonitor();
+      stopNonverbalCameraMonitor();
+      stopNonverbalIntegrityListeners();
+      recordingNonverbalTrackerRef.current = null;
+      if (integrityWarningTimeoutRef.current !== null) {
+        window.clearTimeout(integrityWarningTimeoutRef.current);
+        integrityWarningTimeoutRef.current = null;
+      }
       stopMicrophoneMeter();
       stopMediaStream(streamRef.current);
     };
@@ -3607,6 +3729,1042 @@ function InterviewRuntimePanel({
     }
   }
 
+  function stopNonverbalCameraMonitor() {
+    if (nonverbalCameraMonitorRef.current !== null) {
+      window.clearInterval(nonverbalCameraMonitorRef.current);
+      nonverbalCameraMonitorRef.current = null;
+    }
+  }
+
+  function stopNonverbalIntegrityListeners() {
+    nonverbalIntegrityCleanupRef.current?.();
+    nonverbalIntegrityCleanupRef.current = null;
+  }
+
+  function formatRuntimeIntegrityWarning(type: InterviewIntegrityEventType, direction?: GazeDirection): string {
+    switch (type) {
+      case "TAB_HIDDEN":
+      case "WINDOW_BLUR":
+        return "면접 화면을 벗어난 신호가 감지되었습니다.";
+      case "CAMERA_LOST":
+        return "카메라 연결이 끊기거나 비활성화된 신호가 감지되었습니다.";
+      case "FACE_MISSING":
+        return "얼굴이 화면에서 감지되지 않습니다.";
+      case "FACE_OUT_OF_FRAME":
+        return "얼굴이 화면 밖이나 가장자리로 벗어난 신호가 감지되었습니다.";
+      case "MULTIPLE_FACES":
+        return "여러 사람이 감지되었습니다.";
+      case "FACE_POSITION_SHIFT":
+        return "얼굴 위치가 기준 위치와 크게 달라졌습니다.";
+      case "GAZE_AWAY": {
+        const directionLabel =
+          direction === "LEFT" ? "왼쪽" :
+          direction === "RIGHT" ? "오른쪽" :
+          direction === "UP" ? "위쪽" :
+          direction === "DOWN" ? "아래쪽" :
+          "화면 밖";
+        return `시선 또는 고개 방향이 ${directionLabel}으로 오래 벗어난 신호가 감지되었습니다.`;
+      }
+      case "VOICE_MOUTH_MISMATCH":
+        return "음성은 감지되지만 화면 속 입 움직임이 거의 없는 신호가 감지되었습니다.";
+      case "VOICE_WITHOUT_FACE":
+        return "얼굴이 감지되지 않는 상태에서 음성 입력이 지속되는 신호가 감지되었습니다.";
+      case "STATIC_VIDEO_FRAME":
+        return "답변 중 영상 변화가 거의 없는 구간이 감지되었습니다.";
+      case "EARLY_SCREEN_AWAY":
+        return "질문 직후 면접 화면을 벗어난 신호가 감지되었습니다.";
+      default:
+        return "응시 무결성 확인이 필요한 신호가 감지되었습니다.";
+    }
+  }
+
+  function showRuntimeIntegrityWarning(type: InterviewIntegrityEventType, options: { direction?: GazeDirection } = {}) {
+    if (mode !== "mock" || typeof window === "undefined") return;
+
+    const nowMs = Date.now();
+    const lastShownAtMs = integrityWarningLastShownAtRef.current.get(type) ?? 0;
+    if (nowMs - lastShownAtMs < RUNTIME_INTEGRITY_WARNING_REPEAT_COOLDOWN_MS) return;
+
+    integrityWarningLastShownAtRef.current.set(type, nowMs);
+    setIntegrityWarning({
+      type,
+      message: formatRuntimeIntegrityWarning(type, options.direction),
+      occurredAt: new Date(nowMs).toISOString(),
+    });
+
+    if (integrityWarningTimeoutRef.current !== null) {
+      window.clearTimeout(integrityWarningTimeoutRef.current);
+    }
+    integrityWarningTimeoutRef.current = window.setTimeout(() => {
+      setIntegrityWarning(null);
+      integrityWarningTimeoutRef.current = null;
+    }, RUNTIME_INTEGRITY_WARNING_DURATION_MS);
+  }
+
+  function closeTimedIntegrityEvent(
+    tracker: RecordingNonverbalTracker,
+    type: Extract<
+      InterviewIntegrityEventType,
+      | "TAB_HIDDEN"
+      | "WINDOW_BLUR"
+      | "CAMERA_LOST"
+      | "FACE_MISSING"
+      | "FACE_OUT_OF_FRAME"
+      | "MULTIPLE_FACES"
+      | "FACE_POSITION_SHIFT"
+      | "GAZE_AWAY"
+      | "VOICE_MOUTH_MISMATCH"
+      | "VOICE_WITHOUT_FACE"
+      | "STATIC_VIDEO_FRAME"
+    >,
+    startedAtMs: number | undefined,
+    nowMs = Date.now(),
+    options: { direction?: GazeDirection; source?: GazeSignalSource } = {},
+  ) {
+    if (startedAtMs === undefined) return;
+
+    const durationMs = Math.max(0, nowMs - startedAtMs);
+    tracker.integrityEvents.push({
+      type,
+      occurredAt: new Date(startedAtMs).toISOString(),
+      durationMs: Math.round(durationMs),
+      ...(options.direction ? { direction: options.direction } : {}),
+      ...(options.source ? { source: options.source } : {}),
+    });
+
+    if (type === "TAB_HIDDEN" || type === "WINDOW_BLUR") {
+      tracker.totalAwayDurationMs += durationMs;
+      tracker.maxAwayDurationMs = Math.max(tracker.maxAwayDurationMs, durationMs);
+    }
+  }
+
+  async function getMediaPipeFaceLandmarker(): Promise<MediaPipeFaceLandmarker | null> {
+    if (nonverbalFaceLandmarkerRef.current !== undefined) return nonverbalFaceLandmarkerRef.current;
+    if (nonverbalFaceLandmarkerPromiseRef.current) return nonverbalFaceLandmarkerPromiseRef.current;
+
+    nonverbalFaceLandmarkerPromiseRef.current = (async () => {
+      try {
+        const tasks = await import("@mediapipe/tasks-vision") as MediaPipeFaceLandmarkerModule;
+        const vision = await tasks.FilesetResolver.forVisionTasks(MEDIAPIPE_TASKS_VISION_WASM_URL);
+        const landmarker = await tasks.FaceLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: MEDIAPIPE_FACE_LANDMARKER_MODEL_URL,
+          },
+          runningMode: "VIDEO",
+          numFaces: 3,
+          minFaceDetectionConfidence: 0.5,
+          minFacePresenceConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+          outputFacialTransformationMatrixes: true,
+        });
+        nonverbalFaceLandmarkerRef.current = landmarker;
+        return landmarker;
+      } catch {
+        nonverbalFaceLandmarkerRef.current = null;
+        return null;
+      } finally {
+        nonverbalFaceLandmarkerPromiseRef.current = null;
+      }
+    })();
+
+    return nonverbalFaceLandmarkerPromiseRef.current;
+  }
+
+  async function getMediaPipePersonDetector(): Promise<MediaPipeObjectDetector | null> {
+    if (nonverbalPersonDetectorRef.current !== undefined) return nonverbalPersonDetectorRef.current;
+    if (nonverbalPersonDetectorPromiseRef.current) return nonverbalPersonDetectorPromiseRef.current;
+
+    nonverbalPersonDetectorPromiseRef.current = (async () => {
+      try {
+        const tasks = await import("@mediapipe/tasks-vision") as MediaPipeFaceLandmarkerModule;
+        const vision = await tasks.FilesetResolver.forVisionTasks(MEDIAPIPE_TASKS_VISION_WASM_URL);
+        const detector = await tasks.ObjectDetector.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: MEDIAPIPE_PERSON_DETECTOR_MODEL_URL,
+          },
+          runningMode: "VIDEO",
+          maxResults: 4,
+          scoreThreshold: NONVERBAL_PERSON_DETECTION_SCORE_THRESHOLD,
+          categoryAllowlist: ["person"],
+        });
+        nonverbalPersonDetectorRef.current = detector;
+        return detector;
+      } catch {
+        nonverbalPersonDetectorRef.current = null;
+        return null;
+      } finally {
+        nonverbalPersonDetectorPromiseRef.current = null;
+      }
+    })();
+
+    return nonverbalPersonDetectorPromiseRef.current;
+  }
+
+  function getBrowserFaceDetector(): BrowserFaceDetector | null {
+    if (nonverbalFaceDetectorRef.current !== undefined) return nonverbalFaceDetectorRef.current;
+
+    const FaceDetectorConstructor = (window as unknown as { FaceDetector?: BrowserFaceDetectorConstructor }).FaceDetector;
+    if (!FaceDetectorConstructor) {
+      nonverbalFaceDetectorRef.current = null;
+      return null;
+    }
+
+    try {
+      nonverbalFaceDetectorRef.current = new FaceDetectorConstructor({ fastMode: true, maxDetectedFaces: 4 });
+    } catch {
+      nonverbalFaceDetectorRef.current = null;
+    }
+    return nonverbalFaceDetectorRef.current;
+  }
+
+  function getNonverbalFaceCanvas(): HTMLCanvasElement {
+    if (!nonverbalFaceCanvasRef.current) {
+      nonverbalFaceCanvasRef.current = document.createElement("canvas");
+    }
+    return nonverbalFaceCanvasRef.current;
+  }
+
+  function toFaceSnapshot(face: BrowserDetectedFace, width: number, height: number): FacePositionSnapshot {
+    const box = face.boundingBox;
+    return {
+      centerX: (box.x + box.width / 2) / width,
+      centerY: (box.y + box.height / 2) / height,
+      areaRatio: (box.width * box.height) / (width * height),
+    };
+  }
+
+  function toFaceSnapshotFromLandmarks(landmarks: NormalizedLandmark[]): FacePositionSnapshot | undefined {
+    if (!landmarks.length) return undefined;
+
+    const xs = landmarks.map((landmark) => landmark.x).filter((value) => Number.isFinite(value));
+    const ys = landmarks.map((landmark) => landmark.y).filter((value) => Number.isFinite(value));
+    if (!xs.length || !ys.length) return undefined;
+
+    const minX = Math.max(0, Math.min(...xs));
+    const maxX = Math.min(1, Math.max(...xs));
+    const minY = Math.max(0, Math.min(...ys));
+    const maxY = Math.min(1, Math.max(...ys));
+    return {
+      centerX: (minX + maxX) / 2,
+      centerY: (minY + maxY) / 2,
+      areaRatio: Math.max(0, maxX - minX) * Math.max(0, maxY - minY),
+    };
+  }
+
+  function isFaceOutOfFrame(snapshot: FacePositionSnapshot): boolean {
+    return (
+      snapshot.areaRatio < NONVERBAL_FACE_MIN_AREA_RATIO ||
+      snapshot.centerX < NONVERBAL_FACE_EDGE_MARGIN_RATIO ||
+      snapshot.centerX > 1 - NONVERBAL_FACE_EDGE_MARGIN_RATIO ||
+      snapshot.centerY < NONVERBAL_FACE_EDGE_MARGIN_RATIO ||
+      snapshot.centerY > 1 - NONVERBAL_FACE_EDGE_MARGIN_RATIO
+    );
+  }
+
+  function registerFaceBaselineSample(
+    tracker: RecordingNonverbalTracker,
+    snapshot: FacePositionSnapshot | undefined,
+  ) {
+    if (
+      !snapshot ||
+      isFaceOutOfFrame(snapshot) ||
+      tracker.faceBaselineSampleCount >= NONVERBAL_FACE_BASELINE_REQUIRED_SAMPLES
+    ) {
+      return;
+    }
+    tracker.faceBaseline = updateFacePositionBaseline(
+      tracker.faceBaseline,
+      tracker.faceBaselineSampleCount,
+      snapshot,
+    );
+    tracker.faceBaselineSampleCount += 1;
+  }
+
+  function updateFacePositionShiftSignal(
+    tracker: RecordingNonverbalTracker,
+    positionShifted: boolean,
+  ) {
+    const state = updateSustainedDetectionState({
+      detected: positionShifted,
+      nowMs: Date.now(),
+      candidateStartedAtMs: tracker.facePositionShiftCandidateStartedAtMs,
+      confirmationMs: NONVERBAL_FACE_SHIFT_CONFIRMATION_MS,
+    });
+    tracker.facePositionShiftCandidateStartedAtMs = state.candidateStartedAtMs;
+    updateTimedFaceSignal(
+      tracker,
+      "facePositionShiftStartedAtMs",
+      "FACE_POSITION_SHIFT",
+      state.active,
+    );
+  }
+
+  function landmarkDistance(left: NormalizedLandmark, right: NormalizedLandmark): number {
+    return Math.hypot(left.x - right.x, left.y - right.y);
+  }
+
+  function estimateMouthOpenRatio(landmarks: NormalizedLandmark[]): number | undefined {
+    const upperLip = landmarks[13];
+    const lowerLip = landmarks[14];
+    const leftCorner = landmarks[61];
+    const rightCorner = landmarks[291];
+    if (!upperLip || !lowerLip || !leftCorner || !rightCorner) return undefined;
+
+    const mouthWidth = landmarkDistance(leftCorner, rightCorner);
+    if (mouthWidth <= 0) return undefined;
+    return landmarkDistance(upperLip, lowerLip) / mouthWidth;
+  }
+
+  function recentAudioSpeakingRatio(tracker: RecordingNonverbalTracker): number {
+    return tracker.audioFramesSinceLastMouthSample > 0
+      ? tracker.speakingAudioFramesSinceLastMouthSample / tracker.audioFramesSinceLastMouthSample
+      : 0;
+  }
+
+  function resetRecentAudioSpeechWindow(tracker: RecordingNonverbalTracker) {
+    tracker.audioFramesSinceLastMouthSample = 0;
+    tracker.speakingAudioFramesSinceLastMouthSample = 0;
+  }
+
+  function registerEarlyScreenAwaySignal(tracker: RecordingNonverbalTracker) {
+    if (tracker.earlyScreenAwayRecorded) return;
+
+    const nowMs = Date.now();
+    if (nowMs - tracker.recordingStartedAtMs > NONVERBAL_EARLY_SCREEN_AWAY_WINDOW_MS) return;
+
+    tracker.earlyScreenAwayRecorded = true;
+    tracker.integrityEvents.push({
+      type: "EARLY_SCREEN_AWAY",
+      occurredAt: new Date(nowMs).toISOString(),
+    });
+    showRuntimeIntegrityWarning("EARLY_SCREEN_AWAY");
+  }
+
+  function registerVoiceWithoutFaceSample(tracker: RecordingNonverbalTracker, faceMissing: boolean) {
+    const nowMs = Date.now();
+    const audioSpeaking = recentAudioSpeakingRatio(tracker) >= NONVERBAL_AUDIO_SPEAKING_RATIO_THRESHOLD;
+    if (faceMissing && audioSpeaking) {
+      tracker.voiceWithoutFaceCandidateStartedAtMs ??= nowMs;
+    } else {
+      tracker.voiceWithoutFaceCandidateStartedAtMs = undefined;
+    }
+
+    const mismatchActive =
+      tracker.voiceWithoutFaceCandidateStartedAtMs !== undefined &&
+      nowMs - tracker.voiceWithoutFaceCandidateStartedAtMs >= NONVERBAL_VOICE_WITHOUT_FACE_GRACE_MS;
+    updateTimedFaceSignal(tracker, "voiceWithoutFaceStartedAtMs", "VOICE_WITHOUT_FACE", mismatchActive);
+  }
+
+  function sampleStaticVideoFrame(tracker: RecordingNonverbalTracker, video: HTMLVideoElement) {
+    const canvas = getNonverbalFaceCanvas();
+    canvas.width = NONVERBAL_STATIC_FRAME_SAMPLE_WIDTH;
+    canvas.height = NONVERBAL_STATIC_FRAME_SAMPLE_HEIGHT;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) return;
+
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const currentSample: number[] = [];
+    for (let index = 0; index < imageData.length; index += 4) {
+      currentSample.push(Math.round((imageData[index] + imageData[index + 1] + imageData[index + 2]) / 3));
+    }
+
+    tracker.videoFrameMotionSupported = true;
+    tracker.videoFrameSampleCount += 1;
+
+    const previousSample = tracker.lastVideoFrameSample;
+    tracker.lastVideoFrameSample = currentSample;
+    if (!previousSample || previousSample.length !== currentSample.length) return;
+
+    const averageDiff = currentSample.reduce((sum, value, index) => sum + Math.abs(value - previousSample[index]), 0) / currentSample.length;
+    const nowMs = Date.now();
+    if (averageDiff <= NONVERBAL_STATIC_FRAME_DIFF_THRESHOLD) {
+      tracker.staticVideoFrameSampleCount += 1;
+      tracker.staticVideoFrameCandidateStartedAtMs ??= nowMs;
+    } else {
+      tracker.staticVideoFrameCandidateStartedAtMs = undefined;
+    }
+
+    const staticFrameActive =
+      tracker.staticVideoFrameCandidateStartedAtMs !== undefined &&
+      nowMs - tracker.staticVideoFrameCandidateStartedAtMs >= NONVERBAL_STATIC_FRAME_GRACE_MS;
+    updateTimedFaceSignal(tracker, "staticVideoFrameStartedAtMs", "STATIC_VIDEO_FRAME", staticFrameActive);
+  }
+
+  function updateCalibrationAverage(current: number | undefined, sampleCount: number, next: number) {
+    return current === undefined ? next : (current * sampleCount + next) / (sampleCount + 1);
+  }
+
+  function registerCombinedGazeSample(
+    tracker: RecordingNonverbalTracker,
+    irisPosition: IrisGazePosition | undefined,
+    headPose: HeadPoseAngles | undefined,
+  ) {
+    const irisCalibrated = tracker.gazeCalibrationSampleCount >= GAZE_CALIBRATION_REQUIRED_SAMPLES;
+    const headPoseCalibrated = tracker.headPoseCalibrationSampleCount >= GAZE_CALIBRATION_REQUIRED_SAMPLES;
+    let calibrationUpdated = false;
+
+    if (irisPosition) {
+      tracker.gazeDetectionSupported = true;
+      tracker.gazeDetectionFrameCount += 1;
+      if (!irisCalibrated) {
+        const sampleCount = tracker.gazeCalibrationSampleCount;
+        tracker.gazeBaselineHorizontalRatio = updateCalibrationAverage(
+          tracker.gazeBaselineHorizontalRatio,
+          sampleCount,
+          irisPosition.horizontalRatio,
+        );
+        tracker.gazeBaselineVerticalRatio = updateCalibrationAverage(
+          tracker.gazeBaselineVerticalRatio,
+          sampleCount,
+          irisPosition.verticalRatio,
+        );
+        tracker.gazeCalibrationSampleCount += 1;
+        calibrationUpdated = true;
+      }
+    }
+
+    if (headPose) {
+      tracker.headPoseDetectionSupported = true;
+      tracker.headPoseDetectionFrameCount += 1;
+      if (!headPoseCalibrated) {
+        const sampleCount = tracker.headPoseCalibrationSampleCount;
+        tracker.headPoseBaselineYawDegrees = updateCalibrationAverage(
+          tracker.headPoseBaselineYawDegrees,
+          sampleCount,
+          headPose.yawDegrees,
+        );
+        tracker.headPoseBaselinePitchDegrees = updateCalibrationAverage(
+          tracker.headPoseBaselinePitchDegrees,
+          sampleCount,
+          headPose.pitchDegrees,
+        );
+        tracker.headPoseCalibrationSampleCount += 1;
+        calibrationUpdated = true;
+      }
+    }
+
+    if (calibrationUpdated) {
+      updateCombinedGazeSignal(tracker, undefined);
+      return;
+    }
+
+    const irisBaseline =
+      tracker.gazeCalibrationSampleCount >= GAZE_CALIBRATION_REQUIRED_SAMPLES &&
+      tracker.gazeBaselineHorizontalRatio !== undefined &&
+      tracker.gazeBaselineVerticalRatio !== undefined
+        ? {
+            horizontalRatio: tracker.gazeBaselineHorizontalRatio,
+            verticalRatio: tracker.gazeBaselineVerticalRatio,
+          }
+        : undefined;
+    const headPoseBaseline =
+      tracker.headPoseCalibrationSampleCount >= GAZE_CALIBRATION_REQUIRED_SAMPLES &&
+      tracker.headPoseBaselineYawDegrees !== undefined &&
+      tracker.headPoseBaselinePitchDegrees !== undefined
+        ? {
+            yawDegrees: tracker.headPoseBaselineYawDegrees,
+            pitchDegrees: tracker.headPoseBaselinePitchDegrees,
+          }
+        : undefined;
+    const signal = resolveCombinedGazeSignal({ irisPosition, irisBaseline, headPose, headPoseBaseline });
+    updateCombinedGazeSignal(tracker, signal);
+  }
+
+  function updateCombinedGazeSignal(
+    tracker: RecordingNonverbalTracker,
+    signal: ReturnType<typeof resolveCombinedGazeSignal>,
+  ) {
+    const nowMs = Date.now();
+    if (signal) {
+      tracker.gazeCenteredCandidateStartedAtMs = undefined;
+      tracker.gazeAwayCandidateStartedAtMs ??= nowMs;
+      tracker.lastGazeDirection = signal.direction;
+      tracker.lastGazeSource = mergeGazeSignalSource(tracker.lastGazeSource, signal.source);
+
+      if (
+        tracker.gazeAwayStartedAtMs === undefined &&
+        nowMs - tracker.gazeAwayCandidateStartedAtMs >= NONVERBAL_GAZE_AWAY_CONFIRMATION_MS
+      ) {
+        tracker.gazeAwayStartedAtMs = tracker.gazeAwayCandidateStartedAtMs;
+        showRuntimeIntegrityWarning("GAZE_AWAY", { direction: tracker.lastGazeDirection });
+      }
+      return;
+    }
+
+    tracker.gazeAwayCandidateStartedAtMs = undefined;
+    if (tracker.gazeAwayStartedAtMs === undefined) {
+      tracker.gazeCenteredCandidateStartedAtMs = undefined;
+      tracker.lastGazeDirection = undefined;
+      tracker.lastGazeSource = undefined;
+      return;
+    }
+
+    tracker.gazeCenteredCandidateStartedAtMs ??= nowMs;
+    if (nowMs - tracker.gazeCenteredCandidateStartedAtMs < NONVERBAL_GAZE_CENTERED_CONFIRMATION_MS) return;
+
+    closeTimedIntegrityEvent(
+      tracker,
+      "GAZE_AWAY",
+      tracker.gazeAwayStartedAtMs,
+      tracker.gazeCenteredCandidateStartedAtMs,
+      { direction: tracker.lastGazeDirection, source: tracker.lastGazeSource },
+    );
+    tracker.gazeAwayStartedAtMs = undefined;
+    tracker.gazeCenteredCandidateStartedAtMs = undefined;
+    tracker.lastGazeDirection = undefined;
+    tracker.lastGazeSource = undefined;
+  }
+
+  function mergeGazeSignalSource(current: GazeSignalSource | undefined, next: GazeSignalSource): GazeSignalSource {
+    if (!current || current === next) return next;
+    return "COMBINED";
+  }
+
+  function updateTimedFaceSignal(
+    tracker: RecordingNonverbalTracker,
+    key:
+      | "faceMissingStartedAtMs"
+      | "faceOutOfFrameStartedAtMs"
+      | "multipleFacesStartedAtMs"
+      | "facePositionShiftStartedAtMs"
+      | "gazeAwayStartedAtMs"
+      | "voiceMouthMismatchStartedAtMs"
+      | "voiceWithoutFaceStartedAtMs"
+      | "staticVideoFrameStartedAtMs",
+    type: Extract<
+      InterviewIntegrityEventType,
+      | "FACE_MISSING"
+      | "FACE_OUT_OF_FRAME"
+      | "MULTIPLE_FACES"
+      | "FACE_POSITION_SHIFT"
+      | "GAZE_AWAY"
+      | "VOICE_MOUTH_MISMATCH"
+      | "VOICE_WITHOUT_FACE"
+      | "STATIC_VIDEO_FRAME"
+    >,
+    active: boolean,
+    options: { direction?: GazeDirection } = {},
+  ) {
+    if (active) {
+      if (tracker[key] === undefined) {
+        tracker[key] = Date.now();
+        showRuntimeIntegrityWarning(type, options);
+      }
+      return;
+    }
+    closeTimedIntegrityEvent(tracker, type, tracker[key], Date.now(), options);
+    tracker[key] = undefined;
+  }
+
+  function registerVoiceMouthSyncSample(tracker: RecordingNonverbalTracker, landmarks: NormalizedLandmark[]) {
+    const mouthOpenRatio = estimateMouthOpenRatio(landmarks);
+    if (mouthOpenRatio === undefined) return;
+
+    tracker.mouthSyncSupported = true;
+    tracker.mouthSyncFrameCount += 1;
+
+    const previousMouthOpenRatio = tracker.lastMouthOpenRatio;
+    const speakingRatio = recentAudioSpeakingRatio(tracker);
+    const audioSpeaking = speakingRatio >= NONVERBAL_AUDIO_SPEAKING_RATIO_THRESHOLD;
+    const mouthMoving = previousMouthOpenRatio === undefined
+      ? true
+      : mouthOpenRatio >= NONVERBAL_MOUTH_OPEN_RATIO_THRESHOLD ||
+        Math.abs(mouthOpenRatio - previousMouthOpenRatio) >= NONVERBAL_MOUTH_MOVEMENT_DELTA_THRESHOLD;
+
+    const nowMs = Date.now();
+    const mismatchCandidate = previousMouthOpenRatio !== undefined && audioSpeaking && !mouthMoving;
+    if (mismatchCandidate) {
+      tracker.mouthSyncMismatchFrameCount += 1;
+      tracker.voiceMouthMismatchCandidateStartedAtMs ??= nowMs;
+    } else {
+      tracker.voiceMouthMismatchCandidateStartedAtMs = undefined;
+    }
+
+    const mismatchActive =
+      tracker.voiceMouthMismatchCandidateStartedAtMs !== undefined &&
+      nowMs - tracker.voiceMouthMismatchCandidateStartedAtMs >= NONVERBAL_MOUTH_SYNC_MISMATCH_GRACE_MS;
+    updateTimedFaceSignal(tracker, "voiceMouthMismatchStartedAtMs", "VOICE_MOUTH_MISMATCH", mismatchActive);
+
+    tracker.lastMouthOpenRatio = mouthOpenRatio;
+    resetRecentAudioSpeechWindow(tracker);
+  }
+
+  async function detectMultiplePeople(
+    tracker: RecordingNonverbalTracker,
+    questionId: number,
+    video: HTMLVideoElement,
+    detectedFaceCount: number,
+  ): Promise<boolean | undefined> {
+    if (detectedFaceCount > 1) return true;
+
+    const nowMs = Date.now();
+    if (
+      tracker.lastPersonDetectionAtMs !== undefined &&
+      nowMs - tracker.lastPersonDetectionAtMs < NONVERBAL_PERSON_SAMPLE_INTERVAL_MS
+    ) {
+      return undefined;
+    }
+    tracker.lastPersonDetectionAtMs = nowMs;
+
+    const detector = await getMediaPipePersonDetector();
+    const current = recordingNonverbalTrackerRef.current;
+    if (!current || current !== tracker || current.questionId !== questionId) return undefined;
+    if (!detector) {
+      current.personDetectionSupported = false;
+      return false;
+    }
+
+    try {
+      const result = detector.detectForVideo(video, performance.now());
+      current.personDetectionSupported = true;
+      current.personDetectionFrameCount += 1;
+      return countPersonDetections(result.detections, NONVERBAL_PERSON_DETECTION_SCORE_THRESHOLD) > 1;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function updateMultiplePeopleSignal(
+    tracker: RecordingNonverbalTracker,
+    multiplePeopleDetected: boolean | undefined,
+  ) {
+    if (multiplePeopleDetected === undefined) return;
+
+    const state = updateMultiplePeopleDetectionState({
+      detected: multiplePeopleDetected,
+      nowMs: Date.now(),
+      positiveSampleTimesMs: tracker.multiplePeoplePositiveSampleTimesMs,
+      lastDetectedAtMs: tracker.multiplePeopleLastDetectedAtMs,
+      active: tracker.multipleFacesStartedAtMs !== undefined,
+      confirmationWindowMs: NONVERBAL_MULTIPLE_PEOPLE_CONFIRMATION_WINDOW_MS,
+      requiredPositiveSamples: NONVERBAL_MULTIPLE_PEOPLE_REQUIRED_SAMPLES,
+      releaseGraceMs: NONVERBAL_MULTIPLE_PEOPLE_RELEASE_GRACE_MS,
+    });
+    tracker.multiplePeoplePositiveSampleTimesMs = state.positiveSampleTimesMs;
+    tracker.multiplePeopleLastDetectedAtMs = state.lastDetectedAtMs;
+    updateTimedFaceSignal(tracker, "multipleFacesStartedAtMs", "MULTIPLE_FACES", state.active);
+  }
+
+  async function sampleFaceIntegrity(tracker: RecordingNonverbalTracker, questionId: number) {
+    if (nonverbalFaceDetectionPendingRef.current) return;
+
+    const video = videoRef.current;
+    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth <= 0 || video.videoHeight <= 0) return;
+
+    nonverbalFaceDetectionPendingRef.current = true;
+    try {
+      const activeTracker = recordingNonverbalTrackerRef.current;
+      if (activeTracker && activeTracker === tracker && activeTracker.questionId === questionId) {
+        sampleStaticVideoFrame(activeTracker, video);
+      }
+
+      const landmarker = await getMediaPipeFaceLandmarker();
+      if (landmarker) {
+        tracker.faceDetectionSupported = true;
+        const result = landmarker.detectForVideo(video, performance.now());
+        const current = recordingNonverbalTrackerRef.current;
+        if (!current || current !== tracker || current.questionId !== questionId) return;
+
+        const faces = result.faceLandmarks ?? [];
+        current.faceDetectionFrameCount += 1;
+        const primaryLandmarks = faces[0];
+        const primaryTransformationMatrix = result.facialTransformationMatrixes?.[0];
+        const snapshot = primaryLandmarks ? toFaceSnapshotFromLandmarks(primaryLandmarks) : undefined;
+        registerFaceBaselineSample(current, snapshot);
+
+        registerCombinedGazeSample(
+          current,
+          primaryLandmarks ? estimateIrisGazePosition(primaryLandmarks) : undefined,
+          estimateHeadPoseAngles(primaryTransformationMatrix),
+        );
+        registerVoiceWithoutFaceSample(current, faces.length === 0);
+        if (primaryLandmarks) {
+          registerVoiceMouthSyncSample(current, primaryLandmarks);
+        } else {
+          updateTimedFaceSignal(current, "voiceMouthMismatchStartedAtMs", "VOICE_MOUTH_MISMATCH", false);
+          current.voiceMouthMismatchCandidateStartedAtMs = undefined;
+          current.lastMouthOpenRatio = undefined;
+          resetRecentAudioSpeechWindow(current);
+        }
+
+        updateTimedFaceSignal(current, "faceMissingStartedAtMs", "FACE_MISSING", faces.length === 0);
+
+        updateTimedFaceSignal(current, "faceOutOfFrameStartedAtMs", "FACE_OUT_OF_FRAME", Boolean(snapshot && isFaceOutOfFrame(snapshot)));
+        updateFacePositionShiftSignal(
+          current,
+          Boolean(
+            snapshot &&
+            current.faceBaseline &&
+            current.faceBaselineSampleCount >= NONVERBAL_FACE_BASELINE_REQUIRED_SAMPLES &&
+            isFacePositionShifted(current.faceBaseline, snapshot, {
+              centerShiftRatio: NONVERBAL_FACE_SHIFT_RATIO,
+              minimumAreaDelta: NONVERBAL_FACE_SHIFT_MINIMUM_AREA_DELTA,
+              relativeAreaDeltaMultiplier: NONVERBAL_FACE_SHIFT_RELATIVE_AREA_MULTIPLIER,
+            }),
+          ),
+        );
+        const multiplePeopleDetected = await detectMultiplePeople(current, questionId, video, faces.length);
+        const currentAfterPersonDetection = recordingNonverbalTrackerRef.current;
+        if (!currentAfterPersonDetection || currentAfterPersonDetection !== tracker || currentAfterPersonDetection.questionId !== questionId) return;
+        updateMultiplePeopleSignal(currentAfterPersonDetection, multiplePeopleDetected);
+        return;
+      }
+
+      const detector = getBrowserFaceDetector();
+      tracker.faceDetectionSupported = Boolean(detector);
+      tracker.gazeDetectionSupported = false;
+      tracker.headPoseDetectionSupported = false;
+      if (!detector) return;
+
+      const canvas = getNonverbalFaceCanvas();
+      const width = NONVERBAL_FACE_SAMPLE_SIZE;
+      const height = Math.max(1, Math.round((video.videoHeight / video.videoWidth) * width));
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) return;
+
+      context.drawImage(video, 0, 0, width, height);
+      const faces = await detector.detect(canvas);
+      const current = recordingNonverbalTrackerRef.current;
+      if (!current || current !== tracker || current.questionId !== questionId) return;
+
+      current.faceDetectionFrameCount += 1;
+      updateCombinedGazeSignal(current, undefined);
+      const primaryFace = faces[0];
+      const snapshot = primaryFace ? toFaceSnapshot(primaryFace, width, height) : undefined;
+      registerFaceBaselineSample(current, snapshot);
+      registerVoiceWithoutFaceSample(current, faces.length === 0);
+      resetRecentAudioSpeechWindow(current);
+
+      updateTimedFaceSignal(current, "faceMissingStartedAtMs", "FACE_MISSING", faces.length === 0);
+
+      updateTimedFaceSignal(current, "faceOutOfFrameStartedAtMs", "FACE_OUT_OF_FRAME", Boolean(snapshot && isFaceOutOfFrame(snapshot)));
+      updateFacePositionShiftSignal(
+        current,
+        Boolean(
+          snapshot &&
+          current.faceBaseline &&
+          current.faceBaselineSampleCount >= NONVERBAL_FACE_BASELINE_REQUIRED_SAMPLES &&
+          isFacePositionShifted(current.faceBaseline, snapshot, {
+            centerShiftRatio: NONVERBAL_FACE_SHIFT_RATIO,
+            minimumAreaDelta: NONVERBAL_FACE_SHIFT_MINIMUM_AREA_DELTA,
+            relativeAreaDeltaMultiplier: NONVERBAL_FACE_SHIFT_RELATIVE_AREA_MULTIPLIER,
+          }),
+        ),
+      );
+      const multiplePeopleDetected = await detectMultiplePeople(current, questionId, video, faces.length);
+      const currentAfterPersonDetection = recordingNonverbalTrackerRef.current;
+      if (!currentAfterPersonDetection || currentAfterPersonDetection !== tracker || currentAfterPersonDetection.questionId !== questionId) return;
+      updateMultiplePeopleSignal(currentAfterPersonDetection, multiplePeopleDetected);
+    } catch {
+      tracker.faceDetectionSupported = false;
+    } finally {
+      nonverbalFaceDetectionPendingRef.current = false;
+    }
+  }
+
+  function startNonverbalIntegrityListeners(questionId: number) {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+
+    stopNonverbalIntegrityListeners();
+
+    const currentTracker = () => {
+      const tracker = recordingNonverbalTrackerRef.current;
+      return tracker?.questionId === questionId ? tracker : undefined;
+    };
+    const handleVisibilityChange = () => {
+      const tracker = currentTracker();
+      if (!tracker) return;
+
+      if (document.visibilityState === "hidden") {
+        if (tracker.tabHiddenStartedAtMs === undefined) {
+          tracker.tabHiddenStartedAtMs = Date.now();
+          registerEarlyScreenAwaySignal(tracker);
+          showRuntimeIntegrityWarning("TAB_HIDDEN");
+        }
+        return;
+      }
+
+      if (tracker.tabHiddenStartedAtMs !== undefined) {
+        showRuntimeIntegrityWarning("TAB_HIDDEN");
+      }
+      closeTimedIntegrityEvent(tracker, "TAB_HIDDEN", tracker.tabHiddenStartedAtMs);
+      tracker.tabHiddenStartedAtMs = undefined;
+    };
+    const handleBlur = () => {
+      const tracker = currentTracker();
+      if (!tracker) return;
+      if (tracker.windowBlurStartedAtMs === undefined) {
+        tracker.windowBlurStartedAtMs = Date.now();
+        registerEarlyScreenAwaySignal(tracker);
+        showRuntimeIntegrityWarning("WINDOW_BLUR");
+      }
+    };
+    const handleFocus = () => {
+      const tracker = currentTracker();
+      if (!tracker) return;
+      if (tracker.windowBlurStartedAtMs !== undefined) {
+        showRuntimeIntegrityWarning("WINDOW_BLUR");
+      }
+      closeTimedIntegrityEvent(tracker, "WINDOW_BLUR", tracker.windowBlurStartedAtMs);
+      tracker.windowBlurStartedAtMs = undefined;
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", handleBlur);
+    window.addEventListener("focus", handleFocus);
+
+    const tracker = currentTracker();
+    if (document.visibilityState === "hidden" && tracker) {
+      tracker.tabHiddenStartedAtMs = Date.now();
+      registerEarlyScreenAwaySignal(tracker);
+      showRuntimeIntegrityWarning("TAB_HIDDEN");
+    }
+
+    nonverbalIntegrityCleanupRef.current = () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", handleBlur);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }
+
+  function startNonverbalTracking(questionId: number, stream: MediaStream) {
+    if (mode !== "mock" && mode !== "recruiting") return;
+
+    stopNonverbalCameraMonitor();
+    stopNonverbalIntegrityListeners();
+    const tracker: RecordingNonverbalTracker = {
+      questionId,
+      recordingStartedAtMs: Date.now(),
+      cameraWarnings: cameralessTestEntry ? 1 : 0,
+      microphoneWarnings: 0,
+      longSilenceCount: 0,
+      shortAnswerCount: 0,
+      testModeUsed: cameralessTestEntry,
+      voicePeakLevel: 0,
+      lowAudioFrameCount: 0,
+      observedAudioFrameCount: 0,
+      cameraDisconnectedCount: 0,
+      silenceSegmentCounted: false,
+      multiplePeoplePositiveSampleTimesMs: [],
+      faceDetectionSupported: false,
+      faceDetectionFrameCount: 0,
+      personDetectionSupported: false,
+      personDetectionFrameCount: 0,
+      gazeDetectionSupported: false,
+      gazeDetectionFrameCount: 0,
+      headPoseDetectionSupported: false,
+      headPoseDetectionFrameCount: 0,
+      gazeCalibrationSampleCount: 0,
+      headPoseCalibrationSampleCount: 0,
+      faceBaselineSampleCount: 0,
+      mouthSyncSupported: false,
+      mouthSyncFrameCount: 0,
+      mouthSyncMismatchFrameCount: 0,
+      videoFrameMotionSupported: false,
+      videoFrameSampleCount: 0,
+      staticVideoFrameSampleCount: 0,
+      audioFramesSinceLastMouthSample: 0,
+      speakingAudioFramesSinceLastMouthSample: 0,
+      earlyScreenAwayRecorded: false,
+      totalAwayDurationMs: 0,
+      maxAwayDurationMs: 0,
+      integrityEvents: [],
+    };
+    recordingNonverbalTrackerRef.current = tracker;
+    startNonverbalIntegrityListeners(questionId);
+    void getMediaPipePersonDetector();
+
+    const sampleCamera = () => {
+      const current = recordingNonverbalTrackerRef.current;
+      if (!current || current.questionId !== questionId) return;
+
+      const videoTracks = stream.getVideoTracks();
+      const cameraLive = videoTracks.length === 0
+        ? cameralessTestEntry
+        : videoTracks.some((track) => track.readyState === "live" && track.enabled);
+      if (!cameraLive) {
+        current.cameraWarnings += 1;
+        current.cameraDisconnectedCount += 1;
+        if (current.cameraLostStartedAtMs === undefined) {
+          current.cameraLostStartedAtMs = Date.now();
+          showRuntimeIntegrityWarning("CAMERA_LOST");
+        }
+        return;
+      }
+
+      closeTimedIntegrityEvent(current, "CAMERA_LOST", current.cameraLostStartedAtMs);
+      current.cameraLostStartedAtMs = undefined;
+      void sampleFaceIntegrity(current, questionId);
+    };
+
+    sampleCamera();
+    nonverbalCameraMonitorRef.current = window.setInterval(sampleCamera, NONVERBAL_CAMERA_SAMPLE_INTERVAL_MS);
+  }
+
+  function registerNonverbalAudioLevel(level: number) {
+    const tracker = recordingNonverbalTrackerRef.current;
+    if (!tracker) return;
+
+    tracker.observedAudioFrameCount += 1;
+    tracker.voicePeakLevel = Math.max(tracker.voicePeakLevel, level);
+    tracker.audioFramesSinceLastMouthSample += 1;
+    if (level >= NONVERBAL_AUDIO_SPEAKING_LEVEL) {
+      tracker.speakingAudioFramesSinceLastMouthSample += 1;
+    }
+
+    if (level < MIN_INTERVIEW_RECORDING_VOICE_LEVEL) {
+      tracker.lowAudioFrameCount += 1;
+      const now = Date.now();
+      if (tracker.silenceStartedAtMs === undefined) {
+        tracker.silenceStartedAtMs = now;
+        tracker.silenceSegmentCounted = false;
+      } else if (!tracker.silenceSegmentCounted && now - tracker.silenceStartedAtMs >= REALTIME_SILENCE_GRACE_MS) {
+        tracker.longSilenceCount += 1;
+        tracker.silenceSegmentCounted = true;
+      }
+      return;
+    }
+
+    tracker.silenceStartedAtMs = undefined;
+    tracker.silenceSegmentCounted = false;
+  }
+
+  function finishNonverbalTracking(
+    questionId: number,
+    durationSeconds: number,
+  ): InterviewAnswerNonverbalMetadata | undefined {
+    stopNonverbalCameraMonitor();
+    stopNonverbalIntegrityListeners();
+    const tracker = recordingNonverbalTrackerRef.current;
+    recordingNonverbalTrackerRef.current = null;
+
+    if (!tracker || tracker.questionId !== questionId) return undefined;
+
+    const nowMs = Date.now();
+    closeTimedIntegrityEvent(tracker, "TAB_HIDDEN", tracker.tabHiddenStartedAtMs, nowMs);
+    closeTimedIntegrityEvent(tracker, "WINDOW_BLUR", tracker.windowBlurStartedAtMs, nowMs);
+    closeTimedIntegrityEvent(tracker, "CAMERA_LOST", tracker.cameraLostStartedAtMs, nowMs);
+    closeTimedIntegrityEvent(tracker, "FACE_MISSING", tracker.faceMissingStartedAtMs, nowMs);
+    closeTimedIntegrityEvent(tracker, "FACE_OUT_OF_FRAME", tracker.faceOutOfFrameStartedAtMs, nowMs);
+    closeTimedIntegrityEvent(tracker, "MULTIPLE_FACES", tracker.multipleFacesStartedAtMs, nowMs);
+    closeTimedIntegrityEvent(tracker, "FACE_POSITION_SHIFT", tracker.facePositionShiftStartedAtMs, nowMs);
+    closeTimedIntegrityEvent(tracker, "GAZE_AWAY", tracker.gazeAwayStartedAtMs, nowMs, {
+      direction: tracker.lastGazeDirection,
+      source: tracker.lastGazeSource,
+    });
+    closeTimedIntegrityEvent(tracker, "VOICE_MOUTH_MISMATCH", tracker.voiceMouthMismatchStartedAtMs, nowMs);
+    closeTimedIntegrityEvent(tracker, "VOICE_WITHOUT_FACE", tracker.voiceWithoutFaceStartedAtMs, nowMs);
+    closeTimedIntegrityEvent(tracker, "STATIC_VIDEO_FRAME", tracker.staticVideoFrameStartedAtMs, nowMs);
+
+    const observedFrameCount = tracker.observedAudioFrameCount;
+    const lowAudioRatio = observedFrameCount > 0 ? tracker.lowAudioFrameCount / observedFrameCount : 1;
+    const microphoneWarnings =
+      tracker.microphoneWarnings +
+      (recordingVoiceFrameCountRef.current < MIN_INTERVIEW_RECORDING_VOICE_FRAME_COUNT ? 1 : 0) +
+      (observedFrameCount > 0 && lowAudioRatio > 0.8 ? 1 : 0);
+
+    return {
+      cameraWarnings: tracker.cameraWarnings,
+      microphoneWarnings,
+      longSilenceCount: tracker.longSilenceCount,
+      shortAnswerCount: durationSeconds < NONVERBAL_SHORT_ANSWER_SECONDS ? 1 : 0,
+      testModeUsed: tracker.testModeUsed,
+      voicePeakLevel: Math.round(Math.max(tracker.voicePeakLevel, recordingVoicePeakRef.current)),
+      lowAudioFrameCount: tracker.lowAudioFrameCount,
+      observedAudioFrameCount: observedFrameCount,
+      cameraDisconnectedCount: tracker.cameraDisconnectedCount,
+      integrityEvents: tracker.integrityEvents,
+      integritySummary: buildInterviewIntegritySummary(tracker),
+    };
+  }
+
+  function buildInterviewIntegritySummary(tracker: RecordingNonverbalTracker): InterviewIntegritySummary {
+    const tabHiddenCount = tracker.integrityEvents.filter((event) => event.type === "TAB_HIDDEN").length;
+    const windowBlurCount = tracker.integrityEvents.filter((event) => event.type === "WINDOW_BLUR").length;
+    const cameraLostCount = tracker.integrityEvents.filter((event) => event.type === "CAMERA_LOST").length;
+    const faceMissingCount = tracker.integrityEvents.filter((event) => event.type === "FACE_MISSING").length;
+    const faceOutOfFrameCount = tracker.integrityEvents.filter((event) => event.type === "FACE_OUT_OF_FRAME").length;
+    const multipleFacesCount = tracker.integrityEvents.filter((event) => event.type === "MULTIPLE_FACES").length;
+    const facePositionShiftCount = tracker.integrityEvents.filter((event) => event.type === "FACE_POSITION_SHIFT").length;
+    const gazeAwayCount = tracker.integrityEvents.filter((event) => event.type === "GAZE_AWAY").length;
+    const voiceMouthMismatchCount = tracker.integrityEvents.filter((event) => event.type === "VOICE_MOUTH_MISMATCH").length;
+    const voiceWithoutFaceCount = tracker.integrityEvents.filter((event) => event.type === "VOICE_WITHOUT_FACE").length;
+    const staticVideoFrameCount = tracker.integrityEvents.filter((event) => event.type === "STATIC_VIDEO_FRAME").length;
+    const earlyScreenAwayCount = tracker.integrityEvents.filter((event) => event.type === "EARLY_SCREEN_AWAY").length;
+    const screenAwayCount = tabHiddenCount + windowBlurCount;
+    const severeAwaySignal = tracker.maxAwayDurationMs >= 5000 || tracker.totalAwayDurationMs >= 10000;
+    const faceSignalCount =
+      faceMissingCount +
+      faceOutOfFrameCount +
+      multipleFacesCount +
+      facePositionShiftCount +
+      gazeAwayCount +
+      voiceMouthMismatchCount +
+      voiceWithoutFaceCount +
+      staticVideoFrameCount +
+      earlyScreenAwayCount;
+    const integritySignalGroups = [
+      screenAwayCount > 0,
+      cameraLostCount > 0,
+      faceSignalCount > 0,
+      tracker.testModeUsed,
+    ].filter(Boolean).length;
+    const suspicionLevel: InterviewIntegritySuspicionLevel =
+      integritySignalGroups >= 2 ||
+      tracker.totalAwayDurationMs >= 30000 ||
+      multipleFacesCount > 0 ||
+      facePositionShiftCount > 0 ||
+      voiceMouthMismatchCount > 0 ||
+      voiceWithoutFaceCount > 0 ||
+      staticVideoFrameCount > 0 ||
+      earlyScreenAwayCount > 0
+        ? "HIGH"
+        : cameraLostCount > 0 ||
+            severeAwaySignal ||
+            faceMissingCount > 0 ||
+            faceOutOfFrameCount > 0 ||
+            gazeAwayCount >= 2
+          ? "MEDIUM"
+          : screenAwayCount > 0 || gazeAwayCount > 0 || tracker.testModeUsed
+            ? "LOW"
+            : "NONE";
+
+    return {
+      screenAwayCount,
+      tabHiddenCount,
+      windowBlurCount,
+      cameraLostCount,
+      faceMissingCount,
+      faceOutOfFrameCount,
+      multipleFacesCount,
+      facePositionShiftCount,
+      gazeAwayCount,
+      voiceMouthMismatchCount,
+      voiceWithoutFaceCount,
+      staticVideoFrameCount,
+      earlyScreenAwayCount,
+      faceDetectionSupported: tracker.faceDetectionSupported,
+      faceDetectionFrameCount: tracker.faceDetectionFrameCount,
+      personDetectionSupported: tracker.personDetectionSupported,
+      personDetectionFrameCount: tracker.personDetectionFrameCount,
+      gazeDetectionSupported: tracker.gazeDetectionSupported,
+      gazeDetectionFrameCount: tracker.gazeDetectionFrameCount,
+      headPoseDetectionSupported: tracker.headPoseDetectionSupported,
+      headPoseDetectionFrameCount: tracker.headPoseDetectionFrameCount,
+      mouthSyncSupported: tracker.mouthSyncSupported,
+      mouthSyncFrameCount: tracker.mouthSyncFrameCount,
+      mouthSyncMismatchFrameCount: tracker.mouthSyncMismatchFrameCount,
+      videoFrameMotionSupported: tracker.videoFrameMotionSupported,
+      videoFrameSampleCount: tracker.videoFrameSampleCount,
+      staticVideoFrameSampleCount: tracker.staticVideoFrameSampleCount,
+      totalAwayDurationMs: Math.round(tracker.totalAwayDurationMs),
+      maxAwayDurationMs: Math.round(tracker.maxAwayDurationMs),
+      suspicionLevel,
+    };
+  }
+
   function startRuntimeCameraQualityMonitor(previewInfo: CameraPreviewInfo, fallbackLabel?: string) {
     stopRuntimeCameraQualityMonitor();
     const video = videoRef.current;
@@ -3645,6 +4803,7 @@ function InterviewRuntimePanel({
       setMicrophoneLevel(level);
       if (recorderRef.current?.state === "recording") {
         recordingVoicePeakRef.current = Math.max(recordingVoicePeakRef.current, level);
+        registerNonverbalAudioLevel(level);
         if (level >= MIN_INTERVIEW_RECORDING_VOICE_LEVEL) {
           recordingVoiceFrameCountRef.current += 1;
         }
@@ -4135,6 +5294,7 @@ function InterviewRuntimePanel({
       recordingVoiceFrameCountRef.current = 0;
       recordingStartedAtRef.current = Date.now();
       timeExpiredQuestionRef.current = null;
+      startNonverbalTracking(currentQuestion.questionId, stream);
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -4151,9 +5311,13 @@ function InterviewRuntimePanel({
         });
         const blob = new Blob(recordingChunksRef.current, { type: recordedMimeType });
         const durationSeconds = Math.max(1, Math.round((Date.now() - recordingStartedAtRef.current) / 1000));
+        const nonverbalMetadata = finishNonverbalTracking(currentQuestion.questionId, durationSeconds);
         const fileName = `${mode}-answer-${data.runtime.sessionId}-${currentQuestion.questionId}.${getInterviewMediaFileExtension(recordedMimeType)}`;
 
         if (durationSeconds < MIN_INTERVIEW_RECORDING_DURATION_SECONDS) {
+          if (nonverbalMetadata) {
+            lastInvalidRecordingMetadataRef.current.set(currentQuestion.questionId, nonverbalMetadata);
+          }
           discardRealtimeSttRelay();
           clearInvalidRecordingDraft(
             currentQuestion.questionId,
@@ -4163,6 +5327,9 @@ function InterviewRuntimePanel({
         }
 
         if (blob.size < MIN_INTERVIEW_RECORDING_BLOB_SIZE_BYTES) {
+          if (nonverbalMetadata) {
+            lastInvalidRecordingMetadataRef.current.set(currentQuestion.questionId, nonverbalMetadata);
+          }
           discardRealtimeSttRelay();
           clearInvalidRecordingDraft(
             currentQuestion.questionId,
@@ -4181,6 +5348,7 @@ function InterviewRuntimePanel({
         }
 
         cacheRecordedInterviewBlob(videoFile, blob);
+        lastInvalidRecordingMetadataRef.current.delete(currentQuestion.questionId);
         await finishRealtimeSttRelay(currentQuestion.questionId);
 
         setAnswer((current) => ({
@@ -4191,6 +5359,7 @@ function InterviewRuntimePanel({
           videoFileId: undefined,
           audioFile: undefined,
           audioFileId: undefined,
+          nonverbalMetadata,
         }));
         setRecordedFileName(fileName);
         setRecording(false);
@@ -4201,6 +5370,7 @@ function InterviewRuntimePanel({
               questionId: currentQuestion.questionId,
               durationSeconds,
               videoFile,
+              nonverbalMetadata,
             })),
             currentQuestion,
             "answer_complete_button",
@@ -4235,6 +5405,9 @@ function InterviewRuntimePanel({
       if (realtimeMicrophoneOpenedForRecording) {
         setRealtimeMicrophoneOpen(false);
       }
+      stopNonverbalCameraMonitor();
+      stopNonverbalIntegrityListeners();
+      recordingNonverbalTrackerRef.current = null;
       setRecording(false);
       setMessage(toErrorMessage(recordError));
     }
@@ -4268,6 +5441,7 @@ function InterviewRuntimePanel({
       videoFileId: undefined,
       audioFile: undefined,
       audioFileId: undefined,
+      nonverbalMetadata: undefined,
     }));
     setRecording(false);
 
@@ -4295,12 +5469,12 @@ function InterviewRuntimePanel({
     setMessage("녹음 품질 문제로 현재 질문을 미답변 처리하고 다음 질문으로 이동합니다.");
     try {
       const api = runtimeApi;
-      const skipRequest: SaveInterviewAnswerRequest = {
+      const skippedNonverbalMetadata = lastInvalidRecordingMetadataRef.current.get(questionId);
+      const skipRequest = toRecordingValidationSkipRequest({
         questionId,
-        durationSeconds: 0,
-        skipReason: "RECORDING_VALIDATION_FAILED",
-        ...(retryAnswerId ? { retryAnswerId } : {}),
-      };
+        retryAnswerId,
+        nonverbalMetadata: skippedNonverbalMetadata,
+      });
       const result = await (mode === "mock"
         ? api.saveMockAnswer(data.runtime.sessionId, skipRequest)
         : api.saveRecruitingAnswer(data.runtime.sessionId, skipRequest));
@@ -4327,6 +5501,7 @@ function InterviewRuntimePanel({
       });
       setRetryAnswerId(undefined);
       setRetryingQuestionId(undefined);
+      lastInvalidRecordingMetadataRef.current.delete(questionId);
 
       const questionIndex = data.questions.questions.findIndex((candidateQuestion) => candidateQuestion.questionId === questionId);
       const isLastQuestion = questionIndex >= 0
@@ -4452,7 +5627,11 @@ function InterviewRuntimePanel({
           ? "답변이 저장되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
           : "답변이 저장되었습니다. 다음 질문을 준비하고 있습니다.",
       );
-      const automaticPipeline = runAutomaticAiPipeline(savedAnswer, question);
+      const automaticPipeline = runAutomaticAiPipeline(
+        savedAnswer,
+        question,
+        getInterviewAiPollingPolicy({ timedAutoAdvance: shouldAutoAdvance }),
+      );
       if (shouldAutoAdvance) {
         await automaticPipeline;
         await advanceAfterTimedAnswer(question);
@@ -4557,6 +5736,7 @@ function InterviewRuntimePanel({
     });
     setRecordedFileName("");
     invalidRecordingRetryCountsRef.current.delete(currentQuestion.questionId);
+    lastInvalidRecordingMetadataRef.current.delete(currentQuestion.questionId);
     submitAfterRecordingStopRef.current = false;
     autoAdvanceAfterAnswerSubmitRef.current = false;
     autoRecordingQuestionRef.current = null;
@@ -4568,7 +5748,11 @@ function InterviewRuntimePanel({
     setMessage("현재 질문을 다시 답변합니다. 잠시 후 녹음이 다시 시작됩니다.");
   }
 
-  async function runAutomaticAiPipeline(savedAnswer: LastSavedAnswer, question = currentQuestion) {
+  async function runAutomaticAiPipeline(
+    savedAnswer: LastSavedAnswer,
+    question = currentQuestion,
+    pollingPolicy = getInterviewAiPollingPolicy({ timedAutoAdvance: false }),
+  ) {
     if (!data) return;
 
     let sttProcessLogId: number | undefined;
@@ -4662,7 +5846,7 @@ function InterviewRuntimePanel({
           error: undefined,
         }));
 
-        const followUpStatus = await pollAiJobUntilSettled(followUpProcessLogId, { attempts: 90, intervalMs: 1000 });
+        const followUpStatus = await pollAiJobUntilSettled(followUpProcessLogId, pollingPolicy);
         if (followUpStatus.status !== "COMPLETED") {
           const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({
             failureCategory: followUpStatus.failure?.category,
@@ -4751,7 +5935,7 @@ function InterviewRuntimePanel({
         error: undefined,
       }));
 
-      const sttStatus = await pollAiJobUntilSettled(sttProcessLogId, { attempts: 90, intervalMs: 1000 });
+      const sttStatus = await pollAiJobUntilSettled(sttProcessLogId, pollingPolicy);
       if (sttStatus.status !== "COMPLETED") {
         const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({
           failureCategory: sttStatus.failure?.category,
@@ -4897,7 +6081,7 @@ function InterviewRuntimePanel({
         error: undefined,
       }));
 
-      const followUpStatus = await pollAiJobUntilSettled(followUpProcessLogId, { attempts: 90, intervalMs: 1000 });
+      const followUpStatus = await pollAiJobUntilSettled(followUpProcessLogId, pollingPolicy);
       if (followUpStatus.status !== "COMPLETED") {
         const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({
           failureCategory: followUpStatus.failure?.category,
@@ -5071,6 +6255,13 @@ function InterviewRuntimePanel({
         sourceQuestionId: metric.sourceQuestionId,
         outcome,
         nextReady,
+        nextQuestionType: resolveClientNextStepType({
+          sourceQuestionId: questionId,
+          outcome,
+          nextReady,
+          questions: data?.questions.questions ?? [],
+          totalQuestions: data?.runtime.totalQuestions ?? 0,
+        }),
         sttProcessLogId,
         followUpProcessLogId,
       },
@@ -5681,6 +6872,7 @@ function InterviewRuntimePanel({
                 </button>
               </div>
             </div>
+            {mode === "recruiting" ? <RecruitingIntegrityNotice /> : null}
             <div className="candidate-device-setup__grid">
               <div className="candidate-device-main">
                 <div className="video-box candidate-device-preview">
@@ -5781,6 +6973,13 @@ function InterviewRuntimePanel({
                   </span>
                 ))}
               </div>
+
+              {integrityWarning ? (
+                <div className="runtime-integrity-warning" role="status" aria-live="polite">
+                  <strong>응시 무결성 확인</strong>
+                  <span>{integrityWarning.message}</span>
+                </div>
+              ) : null}
 
               {showInterviewerPanel ? (
                 <div
@@ -6502,6 +7701,245 @@ function formatMockHistoryActionLabel(status: CandidateMockInterviewHistoryItem[
   return "AI 분석 시작";
 }
 
+// 기업별 지원서 세트(폴더) 관리 — 마이페이지 (#228)
+const EMPTY_FOLDER_INPUT: CandidateFolderInput = {
+  name: "",
+  githubUrl: "",
+  blogUrl: "",
+  portfolioUrl: "",
+  resumeFileId: null,
+  motivation: "",
+  extraNote: "",
+};
+
+function CandidateFoldersSection() {
+  const load = useCallback(() => getCandidateApi().listFolders(), []);
+  const { data, loading, error, refresh } = useCandidateResource(load, []);
+  // 새로 만든 세트가 목록 맨 뒤(추가 버튼 앞)에 오도록 id 오름차순 정렬.
+  const folders = [...(data?.data.items ?? [])].sort((a, b) => a.id - b.id);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<CandidateFolder | null>(null);
+  const [message, setMessage] = useState("");
+
+  function openCreate() {
+    setEditing(null);
+    setFormOpen(true);
+  }
+  function openEdit(folder: CandidateFolder) {
+    setEditing(folder);
+    setFormOpen(true);
+  }
+  async function handleDelete(folder: CandidateFolder) {
+    if (!window.confirm(`'${folder.name}' 지원서 세트를 삭제할까요?`)) return;
+    try {
+      await getCandidateApi().deleteFolder(folder.id);
+      setMessage("지원서 세트를 삭제했습니다.");
+      refresh();
+    } catch (deleteError) {
+      setMessage(toErrorMessage(deleteError));
+    }
+  }
+
+  return (
+    <section className="mypage-block">
+      <div className="mypage-block__title">
+        <h2>지원서 세트</h2>
+        <p>기업별로 이력서·링크·지원 동기를 세트로 저장해 두고, 모의면접에서 골라 연습할 수 있어요.</p>
+      </div>
+      <StatusNotice loading={loading} error={error} message={message} />
+      <div className="folder-grid">
+        {folders.map((folder) => {
+          const links = [
+            folder.githubUrl ? { label: "GitHub", url: folder.githubUrl } : null,
+            folder.blogUrl ? { label: "블로그", url: folder.blogUrl } : null,
+            folder.portfolioUrl ? { label: "포트폴리오", url: folder.portfolioUrl } : null,
+          ].filter((link): link is { label: string; url: string } => link !== null);
+          return (
+            <article className="folder-card" key={folder.id}>
+              <div className="folder-card__top">
+                <span className="folder-card__icon" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 5h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
+                  </svg>
+                </span>
+                <h3 className="folder-card__name">{folder.name}</h3>
+                <div className="folder-card__actions">
+                  <button type="button" className="folder-icon-btn" aria-label="편집" onClick={() => openEdit(folder)}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+                  </button>
+                  <button type="button" className="folder-icon-btn folder-icon-btn--danger" aria-label="삭제" onClick={() => void handleDelete(folder)}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6" /></svg>
+                  </button>
+                </div>
+              </div>
+
+              <div className={`folder-card__resume${folder.resumeFileName ? "" : " is-empty"}`}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
+                <span>{folder.resumeFileName ?? "이력서 미첨부"}</span>
+              </div>
+
+              {links.length ? (
+                <div className="folder-card__links">
+                  {links.map((link) => (
+                    <a key={link.label} className="folder-link" href={link.url} target="_blank" rel="noreferrer">{link.label}</a>
+                  ))}
+                </div>
+              ) : null}
+
+              {folder.motivation ? <p className="folder-card__motivation">{folder.motivation}</p> : null}
+            </article>
+          );
+        })}
+        <button type="button" className="folder-add" onClick={openCreate}>
+          <span className="folder-add__plus" aria-hidden="true">+</span>
+          <span>새 지원서 세트</span>
+        </button>
+      </div>
+      {formOpen ? (
+        <FolderFormModal
+          folder={editing}
+          onClose={() => setFormOpen(false)}
+          onSaved={(savedMessage) => {
+            setFormOpen(false);
+            setMessage(savedMessage);
+            refresh();
+          }}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function FolderFormModal({
+  folder,
+  onClose,
+  onSaved,
+}: {
+  folder: CandidateFolder | null;
+  onClose: () => void;
+  onSaved: (message: string) => void;
+}) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [form, setForm] = useState<CandidateFolderInput>(() =>
+    folder
+      ? {
+          name: folder.name,
+          githubUrl: folder.githubUrl ?? "",
+          blogUrl: folder.blogUrl ?? "",
+          portfolioUrl: folder.portfolioUrl ?? "",
+          resumeFileId: folder.resumeFileId,
+          motivation: folder.motivation ?? "",
+          extraNote: folder.extraNote ?? "",
+        }
+      : { ...EMPTY_FOLDER_INPUT },
+  );
+  const [resumeFileName, setResumeFileName] = useState(folder?.resumeFileName ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  function update<K extends keyof CandidateFolderInput>(key: K, value: CandidateFolderInput[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function handleFile(file: File) {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await getCandidateApi().uploadResume(file);
+      update("resumeFileId", result.data.fileId);
+      setResumeFileName(file.name);
+    } catch (uploadError) {
+      setError(toErrorMessage(uploadError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!form.name.trim()) {
+      setError("지원서 세트 이름을 입력하세요.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      if (folder) {
+        await getCandidateApi().updateFolder(folder.id, form);
+        onSaved("지원서 세트를 수정했습니다.");
+      } else {
+        await getCandidateApi().createFolder(form);
+        onSaved("지원서 세트를 만들었습니다.");
+      }
+    } catch (submitError) {
+      setError(toErrorMessage(submitError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <form className="modal folder-form-modal" role="dialog" aria-modal="true" aria-labelledby="folder-form-title" onSubmit={handleSubmit}>
+        <div className="modal-head">
+          <div>
+            <p className="page-eyebrow">지원서 세트</p>
+            <h2 id="folder-form-title">{folder ? "세트 편집" : "새 지원서 세트"}</h2>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose} aria-label="닫기">×</button>
+        </div>
+        {error ? <p className="notice danger">{error}</p> : null}
+        <label className="folder-field">
+          <span>세트 이름</span>
+          <input type="text" value={form.name} placeholder="예: 카카오 백엔드" onChange={(e) => update("name", e.target.value)} maxLength={100} />
+        </label>
+        <label className="folder-field">
+          <span>이력서</span>
+          <button type="button" className="candidate-upload-drop" onClick={() => fileInputRef.current?.click()} disabled={busy}>
+            {resumeFileName || "PDF, DOCX 파일을 선택하세요"}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="candidate-hidden-file"
+            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            onChange={(e) => {
+              const file = e.currentTarget.files?.[0];
+              if (file) void handleFile(file);
+            }}
+          />
+        </label>
+        <div className="folder-field-row">
+          <label className="folder-field">
+            <span>GitHub</span>
+            <input type="url" value={form.githubUrl ?? ""} placeholder="https://github.com/…" onChange={(e) => update("githubUrl", e.target.value)} />
+          </label>
+          <label className="folder-field">
+            <span>블로그</span>
+            <input type="url" value={form.blogUrl ?? ""} placeholder="https://…" onChange={(e) => update("blogUrl", e.target.value)} />
+          </label>
+        </div>
+        <label className="folder-field">
+          <span>포트폴리오</span>
+          <input type="url" value={form.portfolioUrl ?? ""} placeholder="https://…" onChange={(e) => update("portfolioUrl", e.target.value)} />
+        </label>
+        <label className="folder-field">
+          <span>지원 동기</span>
+          <textarea rows={3} value={form.motivation ?? ""} placeholder="이 기업/직무에 지원하는 이유" onChange={(e) => update("motivation", e.target.value)} />
+        </label>
+        <label className="folder-field">
+          <span>추가 설명</span>
+          <textarea rows={3} value={form.extraNote ?? ""} placeholder="강조하고 싶은 경험·자기소개 등" onChange={(e) => update("extraNote", e.target.value)} />
+        </label>
+        <div className="modal-actions">
+          <button type="button" className="btn secondary" onClick={onClose} disabled={busy}>취소</button>
+          <button type="submit" className="btn primary" disabled={busy}>{busy ? "저장 중…" : "저장"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 type MockReportStatusView = {
   badge: string;
   title: string;
@@ -6582,13 +8020,12 @@ function MockFeedbackView({ feedback }: { feedback: CandidateMockReportFeedback 
 
   return (
     <div className="detail-stack">
-      <dl className="candidate-feature__summary">
-        <Definition label="상태" value={<StatusPill value={feedback.status} />} />
-        {feedback.totalScore !== undefined ? <Definition label="총점" value={`${feedback.totalScore}점`} /> : null}
-        <Definition label="생성 시각" value={feedback.generatedAt ? formatDateTime(feedback.generatedAt) : "-"} />
-        <Definition label="공개 범위" value={feedback.visibilityPolicy.candidateFacingOnly ? "지원자용" : "확인 필요"} />
-      </dl>
-      <p className="description-box">{feedback.summary ?? "리포트 생성 중입니다."}</p>
+      <div className="report-summary-callout">
+        <span className="report-summary-callout__icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a7 7 0 0 0-4 12.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3A7 7 0 0 0 12 2z" /><path d="M9 21h6" /></svg>
+        </span>
+        <p>{feedback.summary ?? "리포트 생성 중입니다."}</p>
+      </div>
       {scores.length ? null : <ListBlock title="강점" items={feedback.strengths} />}
       <ListBlock title="개선점" items={improvementItems} />
       <ListBlock title="다음 연습" items={nextPracticeItems} />
@@ -6622,8 +8059,10 @@ function buildMockReportPracticeItems(scores: CandidateReportScoreView[]): strin
 function MockMediaView({ media }: { media: CandidateMockReportMedia }) {
   if (!media.media.length) return <p className="empty">연결된 답변 파일이 없습니다.</p>;
   const mediaItems = orderReportAnswersByInterviewFlow(media.media);
+  const nonverbalSummary = buildMockNonverbalSummary(mediaItems);
   return (
     <div className="detail-stack">
+      <MockNonverbalSummaryPanel summary={nonverbalSummary} />
       <div className="report-media-list">
         {mediaItems.map((item, index) => (
           <MockMediaAnswerCard key={item.answerId} item={item} questionNumber={index + 1} />
@@ -6669,6 +8108,7 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
             transcriptUnavailableReason={item.transcriptUnavailableReason}
           />
           <FollowUpQuestionList questions={item.followUpQuestions} />
+          <MockNonverbalFeedbackView metadata={item.nonverbalMetadata} />
           <AnswerPracticeGuideView guide={practiceGuide} />
           <dl className="report-answer-meta">
             <Definition label="답변 시간" value={`${item.durationSeconds}s`} />
@@ -6688,6 +8128,353 @@ type AnswerPracticeGuide = {
   example: string;
   gaps: string[];
 };
+
+type MockNonverbalSummary = {
+  answerCount: number;
+  answersWithMetadata: number;
+  stableAnswerCount: number;
+  integritySignalAnswers: number;
+  screenAwaySignalAnswers: number;
+  cameraIntegritySignalAnswers: number;
+  faceAwaySignalAnswers: number;
+  multipleFaceSignalAnswers: number;
+  faceShiftSignalAnswers: number;
+  gazeAwaySignalAnswers: number;
+  voiceMouthMismatchSignalAnswers: number;
+  voiceWithoutFaceSignalAnswers: number;
+  staticVideoFrameSignalAnswers: number;
+  earlyScreenAwaySignalAnswers: number;
+};
+
+function MockNonverbalSummaryPanel({ summary }: { summary: MockNonverbalSummary }) {
+  if (summary.answersWithMetadata === 0) return null;
+
+  const guideItems = buildMockNonverbalSummaryGuide(summary);
+  const statusLabel = summary.integritySignalAnswers === 0 ? "무결성 안정" : "무결성 확인 필요";
+
+  return (
+    <section className="report-nonverbal-summary">
+      <div className="report-nonverbal-summary__head">
+        <div>
+          <span>응시 무결성</span>
+          <strong>모의면접 부정행위 의심 신호</strong>
+          <p>화면 이탈, 얼굴 화면 밖, 여러 사람 감지처럼 면접 중 응시 무결성 확인이 필요한 신호를 기록합니다. 확정 판정이 아니라 연습용 피드백입니다.</p>
+        </div>
+        <StatusPill value={statusLabel} />
+      </div>
+      <dl className="candidate-feature__summary compact report-nonverbal-summary__metrics">
+        <Definition label="분석 답변" value={`${summary.answersWithMetadata}/${summary.answerCount}`} />
+        <Definition label="무결성 확인" value={`${summary.integritySignalAnswers}`} />
+        <Definition label="화면 이탈" value={`${summary.screenAwaySignalAnswers}`} />
+        <Definition label="카메라 이탈" value={`${summary.cameraIntegritySignalAnswers}`} />
+        <Definition label="얼굴 이탈" value={`${summary.faceAwaySignalAnswers}`} />
+        <Definition label="여러 사람" value={`${summary.multipleFaceSignalAnswers}`} />
+        <Definition label="위치 급변" value={`${summary.faceShiftSignalAnswers}`} />
+        <Definition label="시선 이탈" value={`${summary.gazeAwaySignalAnswers}`} />
+        <Definition label="음성-입모양" value={`${summary.voiceMouthMismatchSignalAnswers}`} />
+        <Definition label="음성-얼굴" value={`${summary.voiceWithoutFaceSignalAnswers}`} />
+        <Definition label="영상 고정" value={`${summary.staticVideoFrameSignalAnswers}`} />
+        <Definition label="초반 이탈" value={`${summary.earlyScreenAwaySignalAnswers}`} />
+      </dl>
+      <ul className="report-nonverbal-summary__guide">
+        {guideItems.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function buildMockNonverbalSummary(items: CandidateMockReportMedia["media"]): MockNonverbalSummary {
+  return items.reduce<MockNonverbalSummary>((summary, item) => {
+    const metadata = item.nonverbalMetadata;
+    summary.answerCount += 1;
+    if (!metadata) return summary;
+
+    summary.answersWithMetadata += 1;
+    const screenAwaySignal = readNonverbalScreenAwayCount(metadata) > 0;
+    const cameraIntegritySignal = readNonverbalCameraLostCount(metadata) > 0 || readNonverbalTestModeUsed(metadata);
+    const faceAwaySignal = readNonverbalFaceAwayCount(metadata) > 0;
+    const multipleFaceSignal = readNonverbalMultipleFaceCount(metadata) > 0;
+    const faceShiftSignal = readNonverbalFacePositionShiftCount(metadata) > 0;
+    const gazeAwaySignal = readNonverbalGazeAwayCount(metadata) > 0;
+    const voiceMouthMismatchSignal = readNonverbalVoiceMouthMismatchCount(metadata) > 0;
+    const voiceWithoutFaceSignal = readNonverbalVoiceWithoutFaceCount(metadata) > 0;
+    const staticVideoFrameSignal = readNonverbalStaticVideoFrameCount(metadata) > 0;
+    const earlyScreenAwaySignal = readNonverbalEarlyScreenAwayCount(metadata) > 0;
+    const integritySignal =
+      screenAwaySignal ||
+      cameraIntegritySignal ||
+      faceAwaySignal ||
+      multipleFaceSignal ||
+      faceShiftSignal ||
+      gazeAwaySignal ||
+      voiceMouthMismatchSignal ||
+      voiceWithoutFaceSignal ||
+      staticVideoFrameSignal ||
+      earlyScreenAwaySignal;
+
+    if (integritySignal) summary.integritySignalAnswers += 1;
+    if (screenAwaySignal) summary.screenAwaySignalAnswers += 1;
+    if (cameraIntegritySignal) summary.cameraIntegritySignalAnswers += 1;
+    if (faceAwaySignal) summary.faceAwaySignalAnswers += 1;
+    if (multipleFaceSignal) summary.multipleFaceSignalAnswers += 1;
+    if (faceShiftSignal) summary.faceShiftSignalAnswers += 1;
+    if (gazeAwaySignal) summary.gazeAwaySignalAnswers += 1;
+    if (voiceMouthMismatchSignal) summary.voiceMouthMismatchSignalAnswers += 1;
+    if (voiceWithoutFaceSignal) summary.voiceWithoutFaceSignalAnswers += 1;
+    if (staticVideoFrameSignal) summary.staticVideoFrameSignalAnswers += 1;
+    if (earlyScreenAwaySignal) summary.earlyScreenAwaySignalAnswers += 1;
+    if (!integritySignal) {
+      summary.stableAnswerCount += 1;
+    }
+
+    return summary;
+  }, {
+    answerCount: 0,
+    answersWithMetadata: 0,
+    stableAnswerCount: 0,
+    integritySignalAnswers: 0,
+    screenAwaySignalAnswers: 0,
+    cameraIntegritySignalAnswers: 0,
+    faceAwaySignalAnswers: 0,
+    multipleFaceSignalAnswers: 0,
+    faceShiftSignalAnswers: 0,
+    gazeAwaySignalAnswers: 0,
+    voiceMouthMismatchSignalAnswers: 0,
+    voiceWithoutFaceSignalAnswers: 0,
+    staticVideoFrameSignalAnswers: 0,
+    earlyScreenAwaySignalAnswers: 0,
+  });
+}
+
+function buildMockNonverbalSummaryGuide(summary: MockNonverbalSummary): string[] {
+  const items: string[] = [];
+
+  if (summary.integritySignalAnswers === 0) {
+    return ["전체 답변에서 화면 이탈, 얼굴 화면 밖, 여러 사람 감지 같은 응시 무결성 신호가 감지되지 않았습니다."];
+  }
+  if (summary.screenAwaySignalAnswers > 0) {
+    items.push(`${summary.screenAwaySignalAnswers}개 답변에서 면접 화면을 벗어나거나 탭이 숨겨진 신호가 감지되었습니다.`);
+  }
+  if (summary.cameraIntegritySignalAnswers > 0) {
+    items.push(`${summary.cameraIntegritySignalAnswers}개 답변에서 카메라 끊김 또는 카메라 판단 제한 신호가 감지되었습니다.`);
+  }
+  if (summary.faceAwaySignalAnswers > 0) {
+    items.push(`${summary.faceAwaySignalAnswers}개 답변에서 얼굴이 화면 밖으로 나가거나 카메라 안에서 안정적으로 감지되지 않았습니다.`);
+  }
+  if (summary.multipleFaceSignalAnswers > 0) {
+    items.push(`${summary.multipleFaceSignalAnswers}개 답변에서 여러 사람이 감지되어 대리 응시나 주변 도움 여부를 확인할 필요가 있습니다.`);
+  }
+  if (summary.faceShiftSignalAnswers > 0) {
+    items.push(`${summary.faceShiftSignalAnswers}개 답변에서 얼굴 위치가 기준 위치와 크게 달라져 응시자 변경 또는 자리 이탈 의심 신호로 참고할 수 있습니다.`);
+  }
+  if (summary.gazeAwaySignalAnswers > 0) {
+    items.push(`${summary.gazeAwaySignalAnswers}개 답변에서 시선이 화면 밖으로 오래 벗어난 신호가 감지되었습니다.`);
+  }
+  if (summary.voiceMouthMismatchSignalAnswers > 0) {
+    items.push(`${summary.voiceMouthMismatchSignalAnswers}개 답변에서 음성은 감지됐지만 화면 속 입 움직임이 거의 없는 구간이 기록되었습니다.`);
+  }
+  if (summary.voiceWithoutFaceSignalAnswers > 0) {
+    items.push(`${summary.voiceWithoutFaceSignalAnswers}개 답변에서 얼굴이 감지되지 않는 상태로 음성 입력이 지속된 구간이 기록되었습니다.`);
+  }
+  if (summary.staticVideoFrameSignalAnswers > 0) {
+    items.push(`${summary.staticVideoFrameSignalAnswers}개 답변에서 영상 변화가 거의 없는 구간이 기록되었습니다.`);
+  }
+  if (summary.earlyScreenAwaySignalAnswers > 0) {
+    items.push(`${summary.earlyScreenAwaySignalAnswers}개 답변에서 질문 직후 면접 화면을 벗어난 신호가 기록되었습니다.`);
+  }
+
+  return items;
+}
+
+function MockNonverbalFeedbackView({ metadata }: { metadata?: Record<string, unknown> }) {
+  const feedbackItems = buildMockNonverbalFeedbackItems(metadata);
+  if (!feedbackItems.length) return null;
+
+  return (
+    <section className="report-practice-guide">
+      <h4>응시 무결성 피드백</h4>
+      <div className="report-practice-guide__block">
+        <strong>참고 신호</strong>
+        <ul>
+          {feedbackItems.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+        <p>확정 판정이 아니라 모의면접 중 부정행위로 오해받을 수 있는 행동을 줄이기 위한 연습용 신호입니다.</p>
+      </div>
+    </section>
+  );
+}
+
+function buildMockNonverbalFeedbackItems(metadata?: Record<string, unknown>): string[] {
+  if (!metadata) return [];
+
+  const screenAwayCount = readNonverbalScreenAwayCount(metadata);
+  const cameraLostCount = readNonverbalCameraLostCount(metadata);
+  const faceAwayCount = readNonverbalFaceAwayCount(metadata);
+  const multipleFaceCount = readNonverbalMultipleFaceCount(metadata);
+  const faceShiftCount = readNonverbalFacePositionShiftCount(metadata);
+  const gazeAwayCount = readNonverbalGazeAwayCount(metadata);
+  const voiceMouthMismatchCount = readNonverbalVoiceMouthMismatchCount(metadata);
+  const voiceWithoutFaceCount = readNonverbalVoiceWithoutFaceCount(metadata);
+  const staticVideoFrameCount = readNonverbalStaticVideoFrameCount(metadata);
+  const earlyScreenAwayCount = readNonverbalEarlyScreenAwayCount(metadata);
+  const suspicionLevel = readNonverbalIntegritySuspicionLevel(metadata);
+  const testModeUsed = readNonverbalTestModeUsed(metadata);
+  const items: string[] = [];
+
+  if (screenAwayCount > 0) {
+    items.push("면접 중 화면 이탈 또는 탭 숨김 신호가 감지되었습니다. 실제 면접에서는 답변 화면을 유지하는 습관을 연습해 보세요.");
+  }
+  if (cameraLostCount > 0 || testModeUsed) {
+    items.push("카메라가 끊기거나 카메라 판단이 제한된 구간이 있었습니다. 실제 면접에서는 얼굴과 상반신이 안정적으로 보이는 환경을 유지해 주세요.");
+  }
+  if (faceAwayCount > 0) {
+    items.push("얼굴이 화면 밖으로 나가거나 일정 시간 감지되지 않았습니다. 스크립트, 휴대폰, 다른 모니터를 보는 행동으로 오해받을 수 있습니다.");
+  }
+  if (multipleFaceCount > 0) {
+    items.push("여러 사람이 감지되었습니다. 실제 면접에서는 주변 사람이 화면에 들어오거나 답변을 돕는 상황을 피해야 합니다.");
+  }
+  if (faceShiftCount > 0) {
+    items.push("얼굴 위치가 기준 위치와 크게 달라졌습니다. 자리 이탈이나 응시자 변경으로 오해받지 않도록 화면 중앙을 유지해 주세요.");
+  }
+  if (gazeAwayCount > 0) {
+    items.push("시선이 화면 밖으로 오래 벗어난 구간이 감지되었습니다. 다른 모니터, 휴대폰, 메모를 참고하는 행동으로 오해받을 수 있습니다.");
+  }
+  if (voiceMouthMismatchCount > 0) {
+    items.push("음성은 감지됐지만 화면 속 입 움직임이 거의 없는 구간이 있었습니다. 실제 면접에서는 녹음 재생이나 외부 음성으로 오해받지 않도록 카메라를 정면에 두고 본인이 직접 말하는 모습이 보이게 해주세요.");
+  }
+  if (voiceWithoutFaceCount > 0) {
+    items.push("얼굴이 감지되지 않는 상태에서 음성 입력이 지속된 구간이 있었습니다. 실제 면접에서는 카메라 안에 얼굴이 안정적으로 보이는 상태에서 답변해 주세요.");
+  }
+  if (staticVideoFrameCount > 0) {
+    items.push("답변 중 영상 변화가 거의 없는 구간이 있었습니다. 카메라가 멈춘 화면이나 가려진 화면처럼 보이지 않도록 조명과 카메라 상태를 확인해 주세요.");
+  }
+  if (earlyScreenAwayCount > 0) {
+    items.push("질문 직후 면접 화면을 벗어난 신호가 있었습니다. 실제 면접에서는 질문 확인 후 바로 면접 화면 안에서 답변을 준비하는 편이 좋습니다.");
+  }
+  if (suspicionLevel === "HIGH") {
+    items.push("여러 응시 무결성 신호가 겹쳐 감지되었습니다. 실제 면접에서는 화면 이탈과 외부 자료 참고로 오해받을 수 있는 행동을 피하는 것이 좋습니다.");
+  }
+  if (!items.length) {
+    items.push("면접 중 화면 이탈, 얼굴 화면 밖, 여러 사람 감지 같은 응시 무결성 신호가 감지되지 않았습니다.");
+  }
+
+  return items;
+}
+
+function readNonverbalNumber(metadata: Record<string, unknown>, key: string): number {
+  const value = metadata[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function readNonverbalBoolean(metadata: Record<string, unknown>, key: string): boolean {
+  return metadata[key] === true;
+}
+
+function readNonverbalRecord(metadata: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
+  const value = metadata[key];
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function readNonverbalIntegritySummary(metadata: Record<string, unknown>): Record<string, unknown> | undefined {
+  return readNonverbalRecord(metadata, "integritySummary");
+}
+
+function readNonverbalIntegrityEvents(metadata: Record<string, unknown>): Array<Record<string, unknown>> {
+  const value = metadata.integrityEvents;
+  return Array.isArray(value)
+    ? value.filter((event): event is Record<string, unknown> => Boolean(event) && typeof event === "object" && !Array.isArray(event))
+    : [];
+}
+
+function readNonverbalEventCount(metadata: Record<string, unknown>, types: InterviewIntegrityEventType[]): number {
+  const events = readNonverbalIntegrityEvents(metadata);
+  return events.filter((event) => typeof event.type === "string" && types.includes(event.type as InterviewIntegrityEventType)).length;
+}
+
+function readNonverbalScreenAwayCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "screenAwayCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["TAB_HIDDEN", "WINDOW_BLUR"]);
+}
+
+function readNonverbalCameraLostCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "cameraLostCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["CAMERA_LOST"]);
+}
+
+function readNonverbalFaceMissingCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "faceMissingCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["FACE_MISSING"]);
+}
+
+function readNonverbalFaceOutOfFrameCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "faceOutOfFrameCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["FACE_OUT_OF_FRAME"]);
+}
+
+function readNonverbalFaceAwayCount(metadata: Record<string, unknown>): number {
+  return readNonverbalFaceMissingCount(metadata) + readNonverbalFaceOutOfFrameCount(metadata);
+}
+
+function readNonverbalMultipleFaceCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "multipleFacesCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["MULTIPLE_FACES"]);
+}
+
+function readNonverbalFacePositionShiftCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "facePositionShiftCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["FACE_POSITION_SHIFT"]);
+}
+
+function readNonverbalGazeAwayCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "gazeAwayCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["GAZE_AWAY"]);
+}
+
+function readNonverbalVoiceMouthMismatchCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "voiceMouthMismatchCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["VOICE_MOUTH_MISMATCH"]);
+}
+
+function readNonverbalVoiceWithoutFaceCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "voiceWithoutFaceCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["VOICE_WITHOUT_FACE"]);
+}
+
+function readNonverbalStaticVideoFrameCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "staticVideoFrameCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["STATIC_VIDEO_FRAME"]);
+}
+
+function readNonverbalEarlyScreenAwayCount(metadata: Record<string, unknown>): number {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const summaryCount = summary ? readNonverbalNumber(summary, "earlyScreenAwayCount") : 0;
+  return summaryCount || readNonverbalEventCount(metadata, ["EARLY_SCREEN_AWAY"]);
+}
+
+function readNonverbalIntegritySuspicionLevel(metadata: Record<string, unknown>): InterviewIntegritySuspicionLevel {
+  const summary = readNonverbalIntegritySummary(metadata);
+  const level = summary?.suspicionLevel;
+  return level === "LOW" || level === "MEDIUM" || level === "HIGH" ? level : "NONE";
+}
+
+function readNonverbalTestModeUsed(metadata: Record<string, unknown>): boolean {
+  const risk = readNonverbalRecord(metadata, "risk");
+  return readNonverbalBoolean(metadata, "testModeUsed") || Boolean(risk?.testModeUsed);
+}
 
 function AnswerPracticeGuideView({ guide }: { guide: AnswerPracticeGuide }) {
   return (
@@ -7080,6 +8867,7 @@ async function prepareAnswerRequestWithUploadedMedia(
     durationSeconds: request.durationSeconds,
     allowReanswer: request.allowReanswer,
     skipReason: request.skipReason,
+    nonverbalMetadata: request.nonverbalMetadata,
     retryAnswerId: request.retryAnswerId,
     transcript: request.transcript,
   };
@@ -7327,6 +9115,22 @@ function ListBlock({ title, items }: { title: string; items: string[] }) {
         <p className="empty">표시할 항목이 없습니다.</p>
       )}
     </div>
+  );
+}
+
+function RecruitingIntegrityNotice() {
+  return (
+    <aside className="candidate-integrity-notice" role="note" aria-label="응시 무결성 안내">
+      <div className="candidate-integrity-notice__heading">
+        <span>응시 무결성 안내</span>
+        <strong>면접 중 응시 환경 신호가 기록됩니다</strong>
+      </div>
+      <ul>
+        <li>화면·탭 이탈, 얼굴 미검출·복수 얼굴, 카메라 연결, 시선 이탈, 음성과 입 모양의 불일치 등을 답변별 참고 신호로 확인합니다.</li>
+        <li>감지 신호는 브라우저에서 수집된 미검증 참고 정보로 채용 담당자 검토 화면에 표시되며 평가 점수에는 반영되지 않습니다.</li>
+        <li>감지 신호만으로 부정행위를 확정하거나 자동 탈락 처리하지 않으며, 채용 담당자가 답변 내용과 녹화 영상을 함께 검토합니다.</li>
+      </ul>
+    </aside>
   );
 }
 

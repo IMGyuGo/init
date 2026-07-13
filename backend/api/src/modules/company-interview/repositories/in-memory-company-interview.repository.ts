@@ -10,6 +10,7 @@ import {
 import {
   CompanyInterviewRepository,
   ConfirmQuestionSetInput,
+  CreateCriterionTagInput,
   CreateQuestionInput,
   UpdateCriterionInput,
   UpdateQuestionInput,
@@ -39,7 +40,7 @@ export class InMemoryCompanyInterviewRepository
     },
   ];
 
-  private readonly criterionTags: CriterionTagRecord[] = [
+  private criterionTags: CriterionTagRecord[] = [
     {
       tagId: 1,
       jobRole: 'Common',
@@ -101,6 +102,7 @@ export class InMemoryCompanyInterviewRepository
       criterionId: 1,
       postingId: 1,
       tagId: 1,
+      description: 'JD와 연결되는 기술 지식, 구현 경험, 설계 판단을 답변 근거로 확인한다.',
       weight: 30,
       passScore: 70,
       sortOrder: 1,
@@ -109,6 +111,7 @@ export class InMemoryCompanyInterviewRepository
       criterionId: 2,
       postingId: 1,
       tagId: 2,
+      description: '문제 원인을 나누어 확인하고 제약, 대안, 해결 과정을 설명하는지 확인한다.',
       weight: 20,
       passScore: 70,
       sortOrder: 2,
@@ -117,6 +120,7 @@ export class InMemoryCompanyInterviewRepository
       criterionId: 3,
       postingId: 1,
       tagId: 3,
+      description: '본인이 맡은 행동, 완성도, 결과나 개선 효과가 답변에 드러나는지 확인한다.',
       weight: 20,
       passScore: 70,
       sortOrder: 3,
@@ -125,6 +129,7 @@ export class InMemoryCompanyInterviewRepository
       criterionId: 4,
       postingId: 1,
       tagId: 4,
+      description: '상황, 역할, 의사소통 방식, 협업 조정 과정을 구조적으로 전달하는지 확인한다.',
       weight: 15,
       passScore: 70,
       sortOrder: 4,
@@ -133,6 +138,7 @@ export class InMemoryCompanyInterviewRepository
       criterionId: 5,
       postingId: 1,
       tagId: 5,
+      description: '새로운 도구나 도메인을 학습하고 실제 문제에 적용한 흐름을 확인한다.',
       weight: 10,
       passScore: 70,
       sortOrder: 5,
@@ -141,6 +147,7 @@ export class InMemoryCompanyInterviewRepository
       criterionId: 6,
       postingId: 1,
       tagId: 6,
+      description: '맡은 범위를 끝까지 확인하고 재발 방지, 검증, 공유까지 수행했는지 확인한다.',
       weight: 5,
       passScore: 70,
       sortOrder: 6,
@@ -149,6 +156,7 @@ export class InMemoryCompanyInterviewRepository
       criterionId: 7,
       postingId: 2,
       tagId: 1,
+      description: 'JD와 연결되는 기술 지식, 구현 경험, 설계 판단을 답변 근거로 확인한다.',
       weight: 100,
       passScore: 70,
       sortOrder: 1,
@@ -163,6 +171,8 @@ export class InMemoryCompanyInterviewRepository
       criterionId: 1,
       questionType: 'TECHNICAL',
       content: 'REST API 계약을 먼저 문서화해야 하는 이유를 설명해주세요.',
+      origin: 'MANUAL',
+      isAiEdited: false,
       isActive: true,
     },
     {
@@ -172,6 +182,8 @@ export class InMemoryCompanyInterviewRepository
       criterionId: 2,
       questionType: 'TECHNICAL',
       content: '평가 기준과 질문 뱅크의 관계를 어떻게 모델링하시겠습니까?',
+      origin: 'MANUAL',
+      isAiEdited: false,
       isActive: true,
     },
     {
@@ -181,6 +193,8 @@ export class InMemoryCompanyInterviewRepository
       criterionId: 3,
       questionType: 'EXPERIENCE',
       content: '다른 담당자와 API 계약 충돌을 조정했던 경험을 말해주세요.',
+      origin: 'MANUAL',
+      isAiEdited: false,
       isActive: true,
     },
     {
@@ -190,6 +204,8 @@ export class InMemoryCompanyInterviewRepository
       criterionId: 7,
       questionType: 'TECHNICAL',
       content: 'Next.js App Router의 서버/클라이언트 컴포넌트 경계를 설명해주세요.',
+      origin: 'MANUAL',
+      isAiEdited: false,
       isActive: true,
     },
   ];
@@ -204,6 +220,7 @@ export class InMemoryCompanyInterviewRepository
   ];
 
   private nextCriterionId = 8;
+  private nextTagId = 7;
   private nextQuestionId = 5;
   private nextQuestionSetId = 1;
   private nextQuestionSetItemId = 1;
@@ -267,6 +284,21 @@ export class InMemoryCompanyInterviewRepository
     );
   }
 
+  async createTag(input: CreateCriterionTagInput): Promise<CriterionTagRecord> {
+    const tag: CriterionTagRecord = {
+      tagId: this.nextTagId++,
+      jobRole: input.jobRole,
+      name: input.name.trim(),
+      description: input.description,
+      category: input.category.trim(),
+      isActive: true,
+      sortOrder: Math.max(0, ...this.criterionTags.map((item) => item.sortOrder)) + 1,
+    };
+
+    this.criterionTags = [...this.criterionTags, tag];
+    return tag;
+  }
+
   async getTimePolicy(postingId: number): Promise<TimePolicyRecord> {
     return (
       this.timePolicies.find((policy) => policy.postingId === postingId) ?? {
@@ -299,6 +331,7 @@ export class InMemoryCompanyInterviewRepository
       criterionId: criterion.criterionId ?? this.nextCriterionId++,
       postingId,
       tagId: criterion.tagId,
+      description: criterion.description,
       weight: criterion.weight,
       passScore: criterion.passScore ?? null,
       sortOrder: criterion.sortOrder,
@@ -330,6 +363,8 @@ export class InMemoryCompanyInterviewRepository
       criterionId: input.criterionId,
       questionType: input.questionType,
       content: input.content.trim(),
+      origin: input.origin,
+      isAiEdited: false,
       isActive: true,
     };
 
@@ -351,6 +386,7 @@ export class InMemoryCompanyInterviewRepository
       criterionId: input.criterionId,
       questionType: input.questionType,
       content: input.content.trim(),
+      isAiEdited: input.isAiEdited,
     };
     this.questions = this.questions.map((item) =>
       item.questionId === questionId ? updated : item,

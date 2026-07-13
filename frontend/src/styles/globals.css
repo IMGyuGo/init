@@ -137,6 +137,11 @@
   border-radius: 7px;
 }
 
+/* 회사 위치 주소 검색 행 (#270) */
+.address-search-row { display: flex; gap: 8px; }
+.address-search-row input { flex: 1; min-width: 0; cursor: pointer; }
+.address-search-row .btn { flex: none; white-space: nowrap; }
+
 .posting-gallery-editor figcaption {
   overflow: hidden;
   color: var(--ink-500);
@@ -569,10 +574,19 @@
   box-shadow: 0 10px 22px rgba(11, 100, 244, 0.18);
 }
 
+.candidate-resume-card,
 .candidate-application-card {
   background: #fff;
   border: 1px solid #eeeeef;
   border-radius: 16px;
+}
+
+.candidate-resume-card {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 14px;
+  padding: 22px;
+  background: #fafafa;
 }
 
 .candidate-resume-asset {
@@ -585,6 +599,20 @@
   font-weight: 900;
   background: #eaf2ff;
   border-radius: 14px;
+}
+
+.candidate-resume-card p {
+  margin: 0 0 6px;
+  color: #8a8f9c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.candidate-resume-card strong {
+  display: block;
+  color: #222;
+  font-size: 16px;
+  line-height: 1.45;
 }
 
 .candidate-application-card {
@@ -2408,6 +2436,52 @@ input[type="radio"] {
   box-shadow: 0 8px 22px rgba(20, 18, 45, 0.06);
 }
 
+.ai-job-list,
+.ai-result-list {
+  width: 100%;
+}
+
+.ai-job-card {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.ai-job-card-body {
+  display: grid;
+  width: 100%;
+  gap: 14px;
+  min-width: 0;
+}
+
+.ai-job-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ai-job-card-head h3 {
+  min-width: 0;
+}
+
+.ai-result-card {
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
+  width: 100%;
+}
+
+.ai-result-main {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 8px;
+}
+
+.ai-result-main .field,
+.ai-result-main select {
+  width: 100%;
+}
+
 .posting-actions {
   display: flex;
   justify-content: flex-end;
@@ -2765,6 +2839,97 @@ td span {
   font-weight: 700;
 }
 
+.company-integrity-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.company-integrity-panel-head {
+  align-items: flex-start;
+}
+
+.company-integrity-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.company-integrity-metrics > div {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.78);
+  padding: 12px 14px;
+}
+
+.company-integrity-metrics span {
+  display: block;
+  color: var(--ink-400);
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.company-integrity-metrics strong {
+  color: var(--ink-900);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.company-integrity-guide {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ink-500);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.company-integrity-signals {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.24);
+  border-radius: 8px;
+  background: rgba(255, 251, 235, 0.64);
+  padding: 14px 16px;
+}
+
+.company-integrity-signals.compact {
+  margin-top: 10px;
+  padding: 12px 14px;
+}
+
+.company-integrity-signals strong {
+  color: #92400e;
+  font-size: 14px;
+}
+
+.company-integrity-signals > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.company-integrity-signals p {
+  margin: 0;
+  color: var(--ink-500);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.company-integrity-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(217, 119, 6, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 7px 10px;
+}
+
 .setup-card-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2829,50 +2994,151 @@ table {
 }
 
 .screening-col-candidate {
-  width: 25%;
+  width: 24%;
 }
 
 .screening-col-interview {
-  width: 14%;
+  width: 10%;
 }
 
 .screening-col-report {
-  width: 16%;
+  width: 24%;
 }
 
 .screening-col-decision {
-  width: 20%;
+  width: 14%;
 }
 
 .screening-col-memo {
-  width: 25%;
+  width: 28%;
+}
+
+.recruitment-detail-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.recruitment-detail-heading {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.notion .recruitment-detail-title {
+  max-width: 760px;
+}
+
+.recruitment-detail-actions {
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  align-items: stretch;
+  justify-content: end;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgb(15 23 42 / 5%);
+  white-space: nowrap;
+}
+
+.recruitment-detail-actions .btn {
+  min-height: 34px;
+  justify-content: center;
+  padding-inline: 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .recruitment-detail-head {
+    grid-template-columns: 1fr;
+  }
+
+  .recruitment-detail-actions {
+    justify-content: start;
+  }
+}
+
+@media (max-width: 520px) {
+  .recruitment-detail-actions {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+}
+
+.screening-table th,
+.screening-table td {
+  vertical-align: middle;
+}
+
+.screening-status-cell {
+  text-align: left;
+}
+
+.screening-status-cell .badge,
+.screening-status-cell .status-badge {
+  margin-inline: 0;
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.screening-status-cell .status-with-note {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.screening-status-cell .status-with-note > span {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.screening-decision-cell .autosave-field {
+  width: 100%;
+  min-width: 112px;
+}
+
+.screening-decision-cell select {
+  width: 100%;
+  min-width: 0;
+}
+
+.screening-table .autosave-field {
+  display: block;
+}
+
+.screening-table .autosave-state:empty {
+  display: none;
+}
+
+.screening-memo-cell {
+  padding-left: 14px;
+}
+
+.screening-memo-cell .autosave-field {
+  width: 100%;
+  max-width: none;
 }
 
 .screening-report-cell {
   display: grid;
-  align-content: center;
-  justify-items: start;
-  gap: 8px;
-  min-width: 0;
-}
-
-.screening-report-summary {
-  display: flex;
+  grid-template-columns: minmax(76px, max-content) max-content;
   align-items: center;
-  gap: 8px;
+  justify-content: start;
+  gap: 10px;
   min-width: 0;
 }
 
-.screening-report-summary .badge {
+.screening-report-cell .badge,
+.screening-report-cell .status-badge {
   flex: none;
-  white-space: nowrap;
-}
-
-.screening-report-score {
-  color: var(--ink-700);
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1;
   white-space: nowrap;
 }
 
@@ -2943,22 +3209,33 @@ td input {
 }
 
 .criteria-table {
-  min-width: 900px;
+  min-width: 760px;
   table-layout: fixed;
 }
 
 .criteria-col-order,
 .criteria-cell-order {
-  width: 72px;
+  width: 76px;
+}
+
+.criteria-col-tag,
+.criteria-cell-tag {
+  width: 220px;
+}
+
+.criteria-col-category,
+.criteria-cell-category {
+  width: 190px;
 }
 
 .criteria-col-score,
 .criteria-cell-score {
-  width: 92px;
+  width: 112px;
 }
 
-.criteria-col-actions {
-  width: 88px;
+.criteria-col-actions,
+.criteria-cell-actions {
+  width: 72px;
 }
 
 .criteria-cell-order input,
@@ -2966,6 +3243,658 @@ td input {
   width: 56px;
   min-width: 56px;
   padding: 0 8px;
+}
+
+.criteria-cell-order {
+  white-space: nowrap;
+}
+
+.criteria-cell-order span {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0;
+  vertical-align: middle;
+}
+
+.criteria-cell-tag,
+.criteria-cell-category {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.criteria-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  min-width: 18px;
+  min-height: 32px;
+  margin-right: 8px;
+  padding: 0;
+  color: var(--ink-300);
+  cursor: grab;
+  -webkit-user-drag: element;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.criteria-drag-handle:active {
+  cursor: grabbing;
+}
+
+.criteria-table tr.is-dragging {
+  background: #fbfaff;
+  box-shadow: inset 3px 0 0 var(--brand-strong);
+}
+
+.time-policy-metric {
+  position: relative;
+  min-width: 0;
+  padding: 10px 12px;
+  text-align: center;
+  background: var(--surface-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+}
+
+.time-policy-metric .time-policy-edit-button {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+}
+
+.time-policy-metric.is-editing {
+  display: grid;
+  gap: 10px;
+  text-align: left;
+}
+
+.time-policy-metric.is-editing > span {
+  margin-top: 0;
+}
+
+.time-policy-inline-editor {
+  display: inline-grid;
+  grid-template-columns: minmax(72px, 96px) max-content auto;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.time-policy-inline-input {
+  position: relative;
+  min-width: 0;
+}
+
+.time-policy-inline-input input {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 10px;
+  color: var(--ink-900);
+  font-size: 18px;
+  font-weight: 800;
+  text-align: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.time-policy-inline-unit {
+  color: var(--ink-400);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.time-policy-metric .time-policy-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.time-policy-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--ink-400);
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.time-policy-icon-button:hover:not(:disabled),
+.time-policy-icon-button:focus-visible {
+  color: var(--brand-strong);
+  background: var(--brand-soft);
+  border-color: rgba(59, 111, 224, 0.28);
+}
+
+.time-policy-icon-button.is-save {
+  color: #fff;
+  background: var(--brand-strong);
+  border-color: var(--brand-strong);
+}
+
+.time-policy-icon-button.is-save:hover:not(:disabled),
+.time-policy-icon-button.is-save:focus-visible {
+  color: #fff;
+  background: #2f5fd0;
+  border-color: #2f5fd0;
+}
+
+.time-policy-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.time-policy-spinner {
+  animation: timePolicySpin 0.8s linear infinite;
+}
+
+@keyframes timePolicySpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.glass-page .time-policy-control {
+  min-height: 40px;
+  padding: 0 38px 0 14px;
+  color: var(--ink-700);
+  font-weight: 700;
+  background:
+    linear-gradient(45deg, transparent 50%, var(--ink-400) 50%) right 17px center / 6px 6px no-repeat,
+    linear-gradient(135deg, var(--ink-400) 50%, transparent 50%) right 12px center / 6px 6px no-repeat,
+    rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 8px 18px rgba(20, 18, 45, 0.06);
+  appearance: none;
+}
+
+.glass-page .time-policy-control:focus {
+  border-color: var(--brand-strong);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(91, 87, 242, 0.14);
+}
+
+.time-policy-custom-input {
+  position: relative;
+  width: 100%;
+}
+
+.glass-page .time-policy-custom-input .time-policy-control {
+  padding-right: 34px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.time-policy-custom-input span {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  color: var(--ink-400);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.criteria-cell-actions {
+  text-align: center;
+}
+
+.criteria-delete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  background: #ff4037;
+  border: 0;
+  border-radius: 50%;
+}
+
+.criteria-delete-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.criteria-add-toolbar {
+  margin-top: 24px;
+  margin-bottom: 22px;
+}
+
+.criteria-ai-results {
+  margin-bottom: 28px;
+}
+
+.criteria-table-summary {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: -8px 0 8px 0;
+}
+
+.criteria-col-select,
+.criteria-cell-select {
+  width: 44px;
+  min-width: 44px;
+  text-align: center;
+}
+
+.criteria-cell-select input,
+.criteria-col-select input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.criteria-action-placeholder {
+  display: inline-flex;
+  width: 44px;
+  min-width: 44px;
+  height: 32px;
+  min-height: 32px;
+}
+
+.settings-next-large {
+  width: 184px;
+  min-width: 184px;
+  min-height: 48px;
+  padding-inline: 22px;
+  justify-content: center;
+}
+
+.criteria-add-row-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 42px;
+  color: var(--ink-500);
+  font-size: 24px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+}
+
+.criteria-add-row-button:hover {
+  color: var(--brand-strong);
+  background: var(--surface-soft);
+}
+
+.criteria-add-row-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.criteria-cell-tag input,
+.criteria-cell-category input {
+  width: 100%;
+  min-width: 0;
+}
+
+.criteria-tag-button {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0;
+  color: #191919;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.criteria-tag-button:hover,
+.criteria-tag-button:focus-visible {
+  color: #3b6fe0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  outline: none;
+}
+
+.criteria-detail-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.criteria-detail-fields label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #37352f;
+}
+
+.criteria-detail-fields .grid-full {
+  grid-column: 1 / -1;
+}
+
+.criteria-detail-fields input,
+.criteria-detail-fields textarea {
+  width: 100%;
+  border: 1px solid rgba(55, 53, 47, 0.14);
+  border-radius: 8px;
+  background: #fff;
+  color: #191919;
+  font: inherit;
+  font-weight: 500;
+}
+
+.criteria-detail-fields input {
+  height: 42px;
+  padding: 0 12px;
+}
+
+.criteria-detail-fields textarea {
+  min-height: 110px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.question-ai-results {
+  margin-bottom: 22px;
+}
+
+.question-bank-controls {
+  display: grid;
+  grid-template-columns: minmax(260px, 420px) minmax(140px, 220px);
+  gap: 14px;
+  align-items: start;
+}
+
+.question-bank-content-field {
+  grid-column: 1 / -1;
+}
+
+.question-workflow-block {
+  display: grid;
+  gap: 14px;
+  padding-top: 20px;
+  margin-top: 20px;
+  border-top: 1px solid rgba(55, 53, 47, 0.1);
+}
+
+.question-workflow-block:first-of-type {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: 0;
+}
+
+.question-section-head {
+  display: grid;
+  gap: 4px;
+}
+
+.question-section-head h3 {
+  margin: 0;
+  color: #191919;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.question-section-head p {
+  margin: 0;
+  color: rgba(55, 53, 47, 0.58);
+  font-size: 13px;
+}
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(15, 23, 42, 0.22);
+}
+
+.question-drawer {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 18px;
+  width: min(420px, calc(100vw - 32px));
+  height: 100%;
+  padding: 24px;
+  background: #fff;
+  box-shadow: -18px 0 48px rgba(15, 23, 42, 0.16);
+}
+
+.drawer-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.drawer-head h2 {
+  margin: 0;
+  color: #191919;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.drawer-head p {
+  margin: 6px 0 0;
+  color: rgba(55, 53, 47, 0.58);
+  font-size: 13px;
+}
+
+.question-drawer-form {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.question-drawer-form label {
+  display: grid;
+  gap: 6px;
+  color: #37352f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.question-drawer-form select,
+.question-drawer-form textarea {
+  width: 100%;
+  border: 1px solid rgba(55, 53, 47, 0.14);
+  border-radius: 8px;
+  background: #fff;
+  color: #191919;
+  font: inherit;
+  font-weight: 500;
+}
+
+.question-drawer-form select {
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+.question-drawer-form textarea {
+  min-height: 180px;
+  padding: 12px;
+  resize: vertical;
+}
+
+.drawer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 8px;
+  margin-top: auto;
+}
+
+.question-bank-item {
+  grid-template-columns: minmax(0, 1fr) 112px 100px;
+  align-items: center;
+  gap: 16px;
+}
+
+.question-inline-editor {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(120px, 160px);
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.question-bank-main {
+  min-width: 0;
+}
+
+.question-bank-main h3 {
+  display: block;
+  overflow: visible;
+  line-height: 1.45;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+.question-bank-main p {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.question-bank-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.question-bank-meta .badge {
+  min-width: 104px;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.question-bank-actions {
+  position: relative;
+  min-width: 100px;
+}
+
+.question-action-icon-button {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(55, 53, 47, 0.14);
+  border-radius: 8px;
+  background: #fff;
+  color: rgba(55, 53, 47, 0.72);
+  cursor: pointer;
+  list-style: none;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.question-action-icon-button:hover,
+.question-action-icon-button:focus-visible,
+.question-action-icon-button[aria-expanded="true"] {
+  border-color: rgba(91, 87, 242, 0.38);
+  background: #f6f5fd;
+  color: #5b57f2;
+  outline: none;
+}
+
+.question-action-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.question-action-menu {
+  position: relative;
+}
+
+.question-action-menu-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 112px;
+  padding: 6px;
+  border: 1px solid rgba(55, 53, 47, 0.12);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+}
+
+.question-action-menu-item {
+  display: flex;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #37352f;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.question-action-menu-item.is-danger {
+  color: #c8392f;
+}
+
+.question-action-menu-item:hover,
+.question-action-menu-item:focus-visible {
+  background: #fce8e8;
+  outline: none;
+}
+
+.question-bank-item.is-editing {
+  align-items: start;
+}
+
+.question-inline-editor textarea {
+  grid-column: 1 / -1;
+  min-height: 44px;
+  max-height: 120px;
+  resize: vertical;
+}
+
+.question-inline-editor .field-hint {
+  grid-column: 1 / -1;
+  margin-top: -2px;
+  text-align: right;
+}
+
+.question-inline-editor select,
+.question-inline-editor textarea {
+  width: 100%;
+  min-width: 0;
 }
 
 .criteria-cell-score input {
@@ -3076,6 +4005,7 @@ td input {
 .posting-preview-modal .posting-preview-body {
   margin-top: 18px;
   padding-top: 18px;
+  min-width: 0;
   border-top: 1px solid rgba(55, 53, 47, 0.1);
 }
 /* 모달 안에서는 지원자 상세 뷰의 페이지 크롬(배경·그림자·외곽 여백)을 제거해 콘텐츠만 보여준다. */
@@ -3085,7 +4015,12 @@ td input {
   border: 0;
   box-shadow: none;
   min-height: 0;
+  min-width: 0;
+  max-width: 100%;
 }
+/* 이미지가 많아도 갤러리는 폭을 넘기지 않고 내부에서 가로 스크롤한다(모달 전체 폭 확장·지원 버튼 밀림 방지). */
+.posting-preview-modal .candidate-job-detail-page .jobdetail-gallery-wrap { min-width: 0; max-width: 100%; overflow: hidden; }
+.posting-preview-modal .candidate-job-detail-page .jobdetail-main { min-width: 0; }
 /* 모달 폭에 맞춰 지원자 상세 요소를 전반적으로 축소한다.
    원본 .notion .jobdetail-* 규칙이 소스 뒤에 있어, .candidate-job-detail-page 를 끼워 specificity 를 높인다. */
 .posting-preview-modal .candidate-job-detail-page .jobdetail-layout { grid-template-columns: minmax(0, 1fr) 220px; gap: 24px; }
@@ -3769,6 +4704,15 @@ td input {
   transform: scale(0.97);
 }
 
+.app-shell .glass-page .btn.settings-next-large {
+  width: 184px;
+  min-width: 184px;
+  height: 48px;
+  min-height: 48px;
+  padding: 0 22px;
+  font-size: 13px;
+}
+
 /* primary stays the only loud button */
 .app-shell .glass-page .btn.primary {
   color: #fff;
@@ -3866,10 +4810,116 @@ td input {
   text-overflow: ellipsis;
 }
 
+.glass-page .question-bank-main h3 {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.glass-page .question-bank-main p {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
 .glass-page .posting p {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.glass-page .posting.question-bank-item {
+  grid-template-columns: minmax(0, 1fr) 112px 100px;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 20px;
+}
+
+.glass-page .posting.question-bank-item.is-editing {
+  align-items: start;
+}
+
+.glass-page .posting.question-bank-item > .question-bank-main {
+  min-width: 0;
+}
+
+.glass-page .posting.question-bank-item .question-bank-main h3 {
+  display: block;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.45;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.glass-page .posting.question-bank-item .question-bank-main p {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.45;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.glass-page .ai-job-card {
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  align-items: stretch;
+}
+
+.glass-page .ai-job-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  width: 100%;
+}
+
+.glass-page .ai-job-list > .ai-job-card:only-child {
+  grid-column: 1 / -1;
+}
+
+.glass-page .ai-result-list {
+  grid-template-columns: 1fr;
+  width: 100%;
+}
+
+.glass-page .ai-job-list > .ai-job-card:only-child .ai-result-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.glass-page .ai-result-card {
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.glass-page .ai-result-card h3,
+.glass-page .ai-result-card p {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.glass-page .ai-result-main {
+  min-width: 0;
+}
+
+.glass-page .ai-result-main select {
+  width: 100%;
+  max-width: none;
+}
+
+.glass-page .ai-result-card > .badge,
+.glass-page .ai-result-card > .btn {
+  justify-self: start;
+}
+
+@media (max-width: 900px) {
+  .glass-page .ai-job-list,
+  .glass-page .ai-result-list {
+    grid-template-columns: 1fr;
+  }
 }
 
 .glass-page .metric {
@@ -3883,6 +4933,131 @@ td input {
 
 .glass-page .metric strong {
   font-size: 18px;
+}
+
+.time-policy-metric {
+  position: relative;
+  min-width: 0;
+  padding: 10px 12px;
+  text-align: center;
+  background: transparent;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+}
+
+.glass-page .time-policy-metric {
+  text-align: center;
+}
+
+.time-policy-metric .time-policy-edit-button {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+}
+
+.time-policy-metric.is-editing {
+  display: grid;
+  gap: 10px;
+  text-align: left;
+}
+
+.glass-page .time-policy-metric.is-editing {
+  text-align: left;
+}
+
+.time-policy-metric.is-editing > span {
+  margin-top: 0;
+}
+
+.time-policy-inline-editor {
+  display: inline-grid;
+  grid-template-columns: minmax(72px, 96px) max-content auto;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.time-policy-inline-input {
+  position: relative;
+  min-width: 0;
+}
+
+.time-policy-inline-input input {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 10px;
+  color: var(--ink-900);
+  font-size: 18px;
+  font-weight: 800;
+  text-align: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.time-policy-inline-unit {
+  color: var(--ink-400);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.time-policy-metric .time-policy-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.time-policy-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--ink-400);
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.time-policy-icon-button:hover:not(:disabled),
+.time-policy-icon-button:focus-visible {
+  color: var(--brand-strong);
+  background: var(--brand-soft);
+  border-color: rgba(59, 111, 224, 0.28);
+}
+
+.time-policy-icon-button.is-save {
+  color: #fff;
+  background: var(--brand-strong);
+  border-color: var(--brand-strong);
+}
+
+.time-policy-icon-button.is-save:hover:not(:disabled),
+.time-policy-icon-button.is-save:focus-visible {
+  color: #fff;
+  background: #2f5fd0;
+  border-color: #2f5fd0;
+}
+
+.time-policy-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.time-policy-spinner {
+  animation: timePolicySpin 0.8s linear infinite;
+}
+
+@keyframes timePolicySpin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .glass-page .badge {
@@ -4380,6 +5555,17 @@ td input {
 .glass-page.notion .notice { color: #37352f; background: #f5f5f3; }
 .glass-page.notion .notice.danger { color: #c0392b; background: #fdecea; }
 .glass-page.notion .empty, .glass-page.notion .description-box { color: rgba(55, 53, 47, 0.6); background: #fbfbfa; border: 1px solid rgba(55, 53, 47, 0.08); }
+/* 리포트 요약 노션 콜아웃 (#270) */
+.glass-page.notion .report-summary-callout {
+  display: flex;
+  gap: 12px;
+  padding: 16px 18px;
+  background: #fbfbfa;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 12px;
+}
+.glass-page.notion .report-summary-callout__icon { flex: none; margin-top: 1px; color: #3b6fe0; }
+.glass-page.notion .report-summary-callout p { margin: 0; font-size: 14.5px; line-height: 1.7; color: #37352f; }
 .glass-page.notion .setup-card, .glass-page.notion .score-summary { background: #fbfbfa; border: 1px solid rgba(55, 53, 47, 0.08); }
 .glass-page.notion .setup-card strong, .glass-page.notion .score-summary strong { color: #191919; }
 .glass-page.notion .setup-card span { color: rgba(55, 53, 47, 0.6); background: #fff; border-color: rgba(55, 53, 47, 0.12); }
@@ -7419,6 +8605,7 @@ p {
 .notion .jobdetail-companyinfo { display: grid; gap: 10px; padding-top: 24px; border-top: 1px solid rgba(55, 53, 47, 0.1); }
 .notion .jobdetail-companyinfo h2 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; color: #191919; }
 .notion .jobdetail-companyinfo p { margin: 0; font-size: 15px; line-height: 1.7; color: rgba(55, 53, 47, 0.75); white-space: pre-wrap; }
+.notion .jobdetail-map { height: 280px; margin-top: 12px; border: 1px solid rgba(55, 53, 47, 0.1); border-radius: 12px; overflow: hidden; }
 
 /* 공고 요약(직행식): 라벨-값 2열 그리드 */
 .notion .jobdetail-summary {
@@ -7439,6 +8626,39 @@ p {
 
 /* 우측 스티키 지원 버튼 */
 .notion .jobdetail-aside { position: sticky; top: 84px; margin-top: 30px; }
+
+/* 우측 사이드 비슷한 공고 추천 (#270) */
+.notion .jobdetail-related { margin-top: 24px; padding-top: 20px; border-top: 1px solid rgba(55, 53, 47, 0.1); }
+.notion .jobdetail-related-title { margin: 0 0 12px; font-size: 15px; font-weight: 700; color: #191919; }
+.notion .jobdetail-related-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.notion .jobdetail-related-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 8px;
+  border-bottom: 1px solid rgba(55, 53, 47, 0.07);
+  text-decoration: none;
+  transition: background 0.12s ease;
+}
+.notion .jobdetail-related-list li:last-child .jobdetail-related-card { border-bottom: 0; }
+.notion .jobdetail-related-card:hover { background: rgba(55, 53, 47, 0.03); }
+.notion .jobdetail-related-logo {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  overflow: hidden;
+  background: #f4f4f2;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 50%;
+}
+.notion .jobdetail-related-logo img { width: 100%; height: 100%; object-fit: cover; }
+.notion .jobdetail-related-logo-fallback { font-size: 16px; font-weight: 700; color: rgba(55, 53, 47, 0.5); }
+.notion .jobdetail-related-text { display: grid; gap: 2px; min-width: 0; }
+.notion .jobdetail-related-company { overflow: hidden; font-size: 12px; font-weight: 500; color: rgba(55, 53, 47, 0.55); text-overflow: ellipsis; white-space: nowrap; }
+.notion .jobdetail-related-name { overflow: hidden; font-size: 14px; font-weight: 700; color: #191919; text-overflow: ellipsis; white-space: nowrap; }
+.notion .jobdetail-related-meta { overflow: hidden; font-size: 12.5px; font-weight: 500; color: #3b6fe0; text-overflow: ellipsis; white-space: nowrap; }
 .app-shell .glass-page.notion .btn.primary.jobdetail-apply-cta {
   display: inline-flex;
   align-items: center;
@@ -7825,6 +9045,8 @@ p {
 
 /* 모의면접 설정: 직무 가로 캐러셀(양끝 페이드 + 넘김 버튼) */
 .notion .mocksettings-rolewrap { position: relative; min-width: 0; max-width: 100%; }
+.notion .mocksettings-folders { display: flex; flex-wrap: wrap; gap: 8px; }
+.notion .mocksettings-optional { font-style: normal; font-weight: 400; color: rgba(55, 53, 47, 0.45); }
 .notion .mocksettings-roles {
   display: flex;
   gap: 8px;
@@ -7882,6 +9104,133 @@ p {
 .notion.candidate-mypage .mypage-block { margin-top: 36px; }
 .notion.candidate-mypage .mypage-block__title h2 { margin: 0; font-size: 17px; font-weight: 600; color: #191919; }
 .notion.candidate-mypage .mypage-block__title p { margin: 4px 0 0; font-size: 13px; color: rgba(55, 53, 47, 0.55); }
+
+/* 지원서 세트(폴더) — #228 */
+.notion.candidate-mypage .folder-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 14px; margin-top: 16px; }
+.notion.candidate-mypage .folder-card {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: 18px;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 14px;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease, transform 0.14s ease;
+}
+.notion.candidate-mypage .folder-card:hover { border-color: rgba(55, 53, 47, 0.2); box-shadow: 0 8px 22px rgba(55, 53, 47, 0.07); transform: translateY(-2px); }
+.notion.candidate-mypage .folder-card__top { display: flex; align-items: center; gap: 10px; }
+.notion.candidate-mypage .folder-card__icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  color: #3b6fe0;
+  background: rgba(59, 111, 224, 0.1);
+  border-radius: 9px;
+}
+.notion.candidate-mypage .folder-card__name { flex: 1; min-width: 0; margin: 0; overflow: hidden; font-size: 15px; font-weight: 700; color: #191919; text-overflow: ellipsis; white-space: nowrap; }
+.notion.candidate-mypage .folder-card__actions { display: flex; gap: 2px; flex: none; opacity: 0; transition: opacity 0.14s ease; }
+.notion.candidate-mypage .folder-card:hover .folder-card__actions,
+.notion.candidate-mypage .folder-card:focus-within .folder-card__actions { opacity: 1; }
+.notion.candidate-mypage .folder-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: rgba(55, 53, 47, 0.55);
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.notion.candidate-mypage .folder-icon-btn:hover { color: #191919; background: rgba(55, 53, 47, 0.07); }
+.notion.candidate-mypage .folder-icon-btn--danger:hover { color: #d43f3e; background: rgba(212, 63, 62, 0.08); }
+.notion.candidate-mypage .folder-card__resume {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 8px 11px;
+  font-size: 12.5px;
+  color: #37352f;
+  background: #f7f7f5;
+  border-radius: 8px;
+}
+.notion.candidate-mypage .folder-card__resume svg { flex: none; color: rgba(55, 53, 47, 0.5); }
+.notion.candidate-mypage .folder-card__resume span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notion.candidate-mypage .folder-card__resume.is-empty { color: rgba(55, 53, 47, 0.4); }
+.notion.candidate-mypage .folder-card__links { display: flex; flex-wrap: wrap; gap: 6px; }
+.notion.candidate-mypage .folder-link {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #3b6fe0;
+  background: rgba(59, 111, 224, 0.08);
+  border-radius: 999px;
+  text-decoration: none;
+  transition: background 0.12s ease;
+}
+.notion.candidate-mypage .folder-link:hover { background: rgba(59, 111, 224, 0.16); }
+.notion.candidate-mypage .folder-card__motivation {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(55, 53, 47, 0.6);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.notion.candidate-mypage .folder-add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 150px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: rgba(55, 53, 47, 0.5);
+  background: #fbfbfa;
+  border: 1px dashed rgba(55, 53, 47, 0.22);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: border-color 0.14s ease, color 0.14s ease, background 0.14s ease;
+}
+.notion.candidate-mypage .folder-add__plus {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  font-size: 20px;
+  font-weight: 400;
+  color: rgba(55, 53, 47, 0.4);
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.14);
+  border-radius: 50%;
+}
+.notion.candidate-mypage .folder-add:hover { border-color: #3b6fe0; color: #3b6fe0; background: rgba(59, 111, 224, 0.03); }
+.notion.candidate-mypage .folder-add:hover .folder-add__plus { color: #3b6fe0; border-color: rgba(59, 111, 224, 0.4); }
+
+/* 폴더 생성/편집 모달 */
+.folder-form-modal { width: min(520px, 100%); display: grid; gap: 14px; }
+.folder-form-modal .folder-field { display: grid; gap: 6px; font-size: 13px; color: rgba(55, 53, 47, 0.7); }
+.folder-form-modal .folder-field > span { font-weight: 500; }
+.folder-form-modal .folder-field input,
+.folder-form-modal .folder-field textarea {
+  padding: 9px 11px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #191919;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.16);
+  border-radius: 8px;
+}
+.folder-form-modal .folder-field textarea { resize: vertical; }
+.folder-form-modal .folder-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.folder-form-modal .folder-field .candidate-upload-drop { justify-content: flex-start; text-align: left; }
 
 /* 지원 요약 스탯 카드 */
 .notion.candidate-mypage .mypage-stats {
@@ -8445,3 +9794,39 @@ p {
 .notion .applicant-page-num:hover:not(.is-active) { background: rgba(55, 53, 47, 0.05); color: #191919; }
 .notion .applicant-page-btn:disabled { opacity: 0.35; cursor: default; }
 .notion .applicant-page-num.is-active { color: #191919; background: #fff; border-color: rgba(55, 53, 47, 0.2); font-weight: 600; cursor: default; }
+
+/* 기업 지원자 상세: 지원 당시 제출 정보 */
+.notion .applicant-submission-details {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  border-top: 1px solid rgba(55, 53, 47, 0.12);
+  border-left: 1px solid rgba(55, 53, 47, 0.12);
+}
+.notion .applicant-submission-details > div {
+  min-width: 0;
+  padding: 14px 16px;
+  border-right: 1px solid rgba(55, 53, 47, 0.12);
+  border-bottom: 1px solid rgba(55, 53, 47, 0.12);
+}
+.notion .applicant-submission-details > .is-wide { grid-column: 1 / -1; }
+.notion .applicant-submission-details dt { margin: 0 0 6px; font-size: 12px; color: rgba(55, 53, 47, 0.55); }
+.notion .applicant-submission-details dd { margin: 0; overflow-wrap: anywhere; font-size: 14px; line-height: 1.65; color: #37352f; white-space: pre-wrap; }
+.notion .applicant-submission-details a { color: #2f6fda; text-decoration: none; }
+.notion .applicant-submission-details a:hover { text-decoration: underline; }
+.notion .applicant-submission-documents { margin-top: 20px; }
+.notion .applicant-submission-documents h3 { margin: 0 0 10px; font-size: 14px; }
+.notion .applicant-document-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(55, 53, 47, 0.12);
+}
+.notion .applicant-document-row:last-child { border-bottom: 1px solid rgba(55, 53, 47, 0.12); }
+.notion .applicant-document-row > div { display: grid; gap: 3px; min-width: 0; }
+.notion .applicant-document-row strong { font-size: 14px; }
+.notion .applicant-document-row span { overflow: hidden; color: rgba(55, 53, 47, 0.58); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }

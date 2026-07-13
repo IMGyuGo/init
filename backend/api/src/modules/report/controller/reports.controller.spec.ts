@@ -15,6 +15,7 @@ import { InMemoryReportRepository } from "../repository/in-memory-report.reposit
 describe("ReportsController", () => {
   let app: INestApplication;
   let repository: InMemoryReportRepository;
+  let candidateRepository: CandidateRepository;
   let mockAiFixture: AiInterviewFixture;
   let mockAnswerWithoutFileFixture: AiInterviewFixture;
   let recruitingAiFixture: AiInterviewFixture;
@@ -48,7 +49,7 @@ describe("ReportsController", () => {
     app.useGlobalInterceptors(new ApiResponseInterceptor());
     await app.init();
     repository = app.get(InMemoryReportRepository);
-    const candidateRepository = app.get<CandidateRepository>(CANDIDATE_REPOSITORY);
+    candidateRepository = app.get<CandidateRepository>(CANDIDATE_REPOSITORY);
     const interviewRepository = app.get<InMemoryInterviewRepository>(INTERVIEW_REPOSITORY);
     ({ mockAiFixture, mockAnswerWithoutFileFixture, recruitingAiFixture } = await seedInterviewAiFixtures(
       interviewRepository,
@@ -618,6 +619,42 @@ describe("ReportsController", () => {
     expect(statusResponse.body.data.output.reviewRequired).toBe(true);
     expect(statusResponse.body.data.output.reviewStatus).toBe("PENDING_REVIEW");
     expect(statusResponse.body.data.output.targetTables).toEqual(["question_bank"]);
+  });
+
+  it("queues candidate mock-question generation with owned folder context", async () => {
+    const resume = await candidateRepository.createFileAsset({
+      ownerUserId: 2,
+      storageKey: "candidate/1/folders/game-server-resume.pdf",
+      originalName: "game-server-resume.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 4096,
+    });
+    const folder = await candidateRepository.createFolder({
+      candidateId: 1,
+      name: "게임 서버 지원 세트",
+      githubUrl: "https://github.com/init/game-server",
+      blogUrl: null,
+      portfolioUrl: null,
+      resumeFileId: resume.fileId,
+      motivation: "대규모 게임 트래픽을 안정적으로 다루고 싶습니다.",
+      extraNote: "Redis와 PostgreSQL 운영 경험이 있습니다.",
+    });
+
+    const response = await candidateRequest("/api/v1/candidate/mock-interviews/questions/generate")
+      .send({
+        questionCount: 2,
+        folderId: folder.id,
+      })
+      .expect(202);
+
+    expect(response.body.data.inputRef).toContain("\"folderId\":");
+    expect(response.body.data.inputRef).toContain("\"folderContext\"");
+    expect(response.body.data.inputRef).toContain("\"scrubbed\":true");
+    expect(response.body.data.inputRef).not.toContain("게임 서버 지원 세트");
+    expect(response.body.data.inputRef).not.toContain("github.com/init/game-server");
+    expect(response.body.data.inputRef).not.toContain("대규모 게임 트래픽");
+    expect(response.body.data.inputRef).not.toContain("fileContent");
+    expect(response.body.data.inputRef).not.toContain("base64");
   });
 
   it("enforces auth and processLogId validation on AI job status lookup", async () => {

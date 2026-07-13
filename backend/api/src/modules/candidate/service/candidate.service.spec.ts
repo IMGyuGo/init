@@ -8,6 +8,23 @@ import {
 import { InMemoryCandidateDocumentStorageAdapter } from "./candidate-document-storage.adapter";
 import { createCandidateValidationException } from "../candidate.validation";
 import { InMemoryCandidateRepository } from "../repository/in-memory-candidate.repository";
+import type { SubmitApplicationDto } from "../dto/submit-application.dto";
+
+function createSubmitApplicationDto(overrides: Partial<SubmitApplicationDto> = {}): SubmitApplicationDto {
+  return {
+    candidateName: "Kim",
+    email: "kim@example.com",
+    phone: "010-0000-0000",
+    githubUrl: "https://github.com/kim",
+    blogUrl: "https://blog.example.com/kim",
+    resumeFileId: 1,
+    portfolioUrl: "https://portfolio.example.com/kim",
+    motivation: "지원 동기입니다.",
+    additionalInfo: "추가 설명입니다.",
+    consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
+    ...overrides,
+  };
+}
 
 async function run() {
   const service = new CandidateService(new InMemoryCandidateRepository());
@@ -65,6 +82,78 @@ async function run() {
   });
   assert.equal("content" in repositoryFileAsset, false);
 
+  const folderRepository = new InMemoryCandidateRepository();
+  const folderService = new CandidateService(folderRepository);
+  const folderResume = await folderRepository.createFileAsset({
+    ownerUserId: currentUser.userId,
+    storageKey: "candidate/1/folders/backend-resume.pdf",
+    originalName: "backend-resume.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 1000,
+  });
+  const folder = await folderService.createFolder(
+    {
+      name: "백엔드 포지션 지원 세트",
+      githubUrl: "https://github.com/init/backend",
+      blogUrl: "https://blog.example.com/backend",
+      portfolioUrl: "https://portfolio.example.com/backend",
+      resumeFileId: folderResume.fileId,
+      motivation: "백엔드 플랫폼을 안정적으로 만들고 싶습니다.",
+      extraNote: "NestJS와 PostgreSQL 경험이 있습니다.",
+    },
+    currentUser,
+  );
+  assert.equal(folder.data.candidateId, currentUser.candidateId);
+  assert.equal(folder.data.resumeFileId, folderResume.fileId);
+  assert.equal(folder.data.resumeFileName, "backend-resume.pdf");
+  assert.equal(folder.data.motivation, "백엔드 플랫폼을 안정적으로 만들고 싶습니다.");
+
+  const updatedFolder = await folderService.updateFolder(
+    folder.data.id,
+    {
+      name: "수정된 지원 세트",
+      blogUrl: null,
+    },
+    currentUser,
+  );
+  assert.equal(updatedFolder.data.name, "수정된 지원 세트");
+  assert.equal(updatedFolder.data.blogUrl, null);
+  assert.equal(updatedFolder.data.resumeFileName, "backend-resume.pdf");
+
+  await folderService.deleteFolder(folder.data.id, currentUser);
+  const foldersAfterDelete = await folderService.listFolders(currentUser);
+  assert.equal(foldersAfterDelete.data.items.length, 0);
+
+  for (let index = 0; index < 20; index += 1) {
+    await folderService.createFolder({ name: `지원 세트 ${index + 1}` }, currentUser);
+  }
+  await assert.rejects(
+    () => folderService.createFolder({ name: "초과 지원 세트" }, currentUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
+  );
+
+  const folderOwnershipRepository = new InMemoryCandidateRepository();
+  const folderOwnershipService = new CandidateService(folderOwnershipRepository);
+  await assert.rejects(
+    () => folderOwnershipService.createFolder({ name: "길이 제한", motivation: "가".repeat(3_001) }, currentUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
+  );
+  await assert.rejects(
+    () => folderOwnershipService.createFolder({ name: "길이 제한", extraNote: "나".repeat(5_001) }, currentUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
+  );
+  const otherUserResume = await folderOwnershipRepository.createFileAsset({
+    ownerUserId: 999,
+    storageKey: "candidate/999/folders/resume.pdf",
+    originalName: "resume.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 1000,
+  });
+  await assert.rejects(
+    () => folderOwnershipService.createFolder({ name: "권한 없는 파일", resumeFileId: otherUserResume.fileId }, currentUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_FORBIDDEN",
+  );
+
   await assert.rejects(
     () =>
       repository.createFileAsset({
@@ -91,14 +180,7 @@ async function run() {
     () =>
       invalidFileService.submitApplication(
         1,
-        {
-          candidateName: "Kim",
-          email: "kim@example.com",
-          phone: "010-0000-0000",
-          resumeFileId: invalidFileAsset.fileId,
-          portfolioUrl: "https://portfolio.example.com/kim",
-          consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
-        },
+        createSubmitApplicationDto({ resumeFileId: invalidFileAsset.fileId }),
         currentUser,
       ),
     (error) => error instanceof CandidateDomainError && error.code === "FILE_INVALID_TYPE",
@@ -122,14 +204,7 @@ async function run() {
     () =>
       invalidFileService.submitApplication(
         1,
-        {
-          candidateName: "Kim",
-          email: "kim@example.com",
-          phone: "010-0000-0000",
-          resumeFileId: wrongPrefixFileAsset.fileId,
-          portfolioUrl: "https://portfolio.example.com/kim",
-          consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
-        },
+        createSubmitApplicationDto({ resumeFileId: wrongPrefixFileAsset.fileId }),
         currentUser,
       ),
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
@@ -279,14 +354,7 @@ async function run() {
     () =>
       service.submitApplication(
         0,
-        {
-          candidateName: "Kim",
-          email: "kim@example.com",
-          phone: "010-0000-0000",
-          resumeFileId: 1,
-          portfolioUrl: "https://portfolio.example.com/kim",
-          consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
-        },
+        createSubmitApplicationDto(),
         currentUser,
       ),
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
@@ -296,13 +364,7 @@ async function run() {
     () =>
       service.submitApplication(
         1,
-        {
-          email: "kim@example.com",
-          phone: "010-0000-0000",
-          resumeFileId: 1,
-          portfolioUrl: "https://portfolio.example.com/kim",
-          consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
-        } as never,
+        createSubmitApplicationDto({ candidateName: undefined }) as never,
         currentUser,
       ),
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
@@ -312,14 +374,7 @@ async function run() {
     () =>
       service.submitApplication(
         1,
-        {
-          candidateName: "Kim",
-          email: "not-an-email",
-          phone: "010-0000-0000",
-          resumeFileId: 1,
-          portfolioUrl: "https://portfolio.example.com/kim",
-          consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
-        },
+        createSubmitApplicationDto({ email: "not-an-email" }),
         currentUser,
       ),
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
@@ -329,14 +384,7 @@ async function run() {
     () =>
       service.submitApplication(
         1,
-        {
-          candidateName: "Kim",
-          email: "kim@example.com",
-          phone: "010-0000-0000",
-          resumeFileId: 1,
-          portfolioFileId: -1,
-          consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
-        },
+        createSubmitApplicationDto({ portfolioFileId: -1, portfolioUrl: undefined }),
         currentUser,
       ),
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
@@ -346,13 +394,7 @@ async function run() {
     () =>
       service.submitApplication(
         1,
-        {
-          candidateName: "Kim",
-          email: "kim@example.com",
-          phone: "010-0000-0000",
-          resumeFileId: 1,
-          portfolioUrl: "https://portfolio.example.com/kim",
-        } as never,
+        createSubmitApplicationDto({ consentTypes: undefined }) as never,
         currentUser,
       ),
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
@@ -362,14 +404,9 @@ async function run() {
     () =>
       service.submitApplication(
         1,
-        {
-          candidateName: "Kim",
-          email: "kim@example.com",
-          phone: "010-0000-0000",
-          resumeFileId: 1,
-          portfolioUrl: "https://portfolio.example.com/kim",
+        createSubmitApplicationDto({
           consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS", "MARKETING_OPT_IN" as never],
-        },
+        }),
         currentUser,
       ),
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
@@ -419,18 +456,22 @@ async function run() {
     }
   }
 
+  const docxResume = await service.uploadResume({
+    storageKey: "candidate/1/resume.docx",
+    originalName: "resume.docx",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    sizeBytes: 1000,
+  }, currentUser);
+  await assert.rejects(
+    () => service.submitApplication(1, createSubmitApplicationDto({ resumeFileId: docxResume.data.fileId }), currentUser),
+    (error) => error instanceof CandidateDomainError && error.code === "FILE_INVALID_TYPE",
+  );
+
   await assert.rejects(
     () =>
       service.submitApplication(
         1,
-        {
-          candidateName: "Kim",
-          email: "kim@example.com",
-          phone: "010-0000-0000",
-          resumeFileId: 999,
-          portfolioUrl: "https://portfolio.example.com/kim",
-          consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
-        },
+        createSubmitApplicationDto({ resumeFileId: 999 }),
         currentUser,
       ),
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_NOT_FOUND",
@@ -440,13 +481,7 @@ async function run() {
     () =>
       service.submitApplication(
         1,
-        {
-          candidateName: "Kim",
-          email: "kim@example.com",
-          phone: "010-0000-0000",
-          resumeFileId: resume.data.fileId,
-          consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
-        },
+        createSubmitApplicationDto({ resumeFileId: resume.data.fileId, portfolioUrl: undefined }),
         currentUser,
       ),
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
@@ -454,14 +489,7 @@ async function run() {
 
   const submitted = await service.submitApplication(
     1,
-    {
-      candidateName: "Kim",
-      email: "kim@example.com",
-      phone: "010-0000-0000",
-      resumeFileId: resume.data.fileId,
-      portfolioUrl: "https://portfolio.example.com/kim",
-      consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
-    },
+    createSubmitApplicationDto({ resumeFileId: resume.data.fileId }),
     currentUser,
   );
   assert.equal(submitted.data.application.applicationStatus, "SUBMITTED");
@@ -688,14 +716,7 @@ async function run() {
     () =>
       service.submitApplication(
         1,
-        {
-          candidateName: "Kim",
-          email: "kim@example.com",
-          phone: "010-0000-0000",
-          resumeFileId: resume.data.fileId,
-          portfolioUrl: "https://portfolio.example.com/kim",
-          consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
-        },
+        createSubmitApplicationDto({ resumeFileId: resume.data.fileId }),
         currentUser,
       ),
     (error) => error instanceof CandidateDomainError && error.code === "APPLICATION_ALREADY_SUBMITTED",
@@ -777,29 +798,18 @@ async function run() {
     () =>
       service.submitApplication(
         2,
-        {
-          candidateName: "Kim",
-          email: "kim@example.com",
-          phone: "010-0000-0000",
-          resumeFileId: resume.data.fileId,
-          portfolioUrl: "ftp://example.com/portfolio",
-          consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
-        },
+        createSubmitApplicationDto({ resumeFileId: resume.data.fileId, portfolioUrl: "ftp://example.com/portfolio" }),
         currentUser,
       ),
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
   );
   const secondSubmitted = await service.submitApplication(
     2,
-    {
-      candidateName: "Kim",
-      email: "kim@example.com",
-      phone: "010-0000-0000",
+    createSubmitApplicationDto({
       resumeFileId: resume.data.fileId,
       portfolioFileId: portfolioFile.data.fileId,
-      portfolioUrl: "https://github.com/example",
-      consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
-    },
+      portfolioUrl: "https://portfolio.example.com/kim",
+    }),
     currentUser,
   );
   assert.equal(secondSubmitted.data.documents.length, 2);
@@ -811,8 +821,8 @@ async function run() {
   assert.equal(secondSubmitted.data.documents[1]?.fileId, portfolioFile.data.fileId);
   assert.equal(secondSubmitted.data.documents[1]?.parseStatus, "SUBMITTED");
   assert.equal(secondSubmitted.data.portfolioLink?.applicationId, secondSubmitted.data.application.applicationId);
-  assert.equal(secondSubmitted.data.portfolioLink?.linkType, "GITHUB");
-  assert.equal(secondSubmitted.data.portfolioLink?.url, "https://github.com/example");
+  assert.equal(secondSubmitted.data.portfolioLink?.linkType, "PORTFOLIO");
+  assert.equal(secondSubmitted.data.portfolioLink?.url, "https://portfolio.example.com/kim");
   assert.equal(secondSubmitted.data.documents[0]?.documentType, "RESUME");
   assert.equal(secondSubmitted.data.documents[1]?.documentType, "PORTFOLIO");
   assert.notEqual(secondSubmitted.data.documents[0]?.documentId, secondSubmitted.data.documents[1]?.documentId);
@@ -831,14 +841,7 @@ async function run() {
     () =>
       service.submitApplication(
         2,
-        {
-          candidateName: "Kim",
-          email: "kim@example.com",
-          phone: "010-0000-0000",
-          resumeFileId: resume.data.fileId,
-          portfolioUrl: "https://portfolio.example.com/kim",
-          consentTypes: ["PRIVACY_COLLECTION"],
-        },
+        createSubmitApplicationDto({ resumeFileId: resume.data.fileId, consentTypes: ["PRIVACY_COLLECTION"] }),
         currentUser,
       ),
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",

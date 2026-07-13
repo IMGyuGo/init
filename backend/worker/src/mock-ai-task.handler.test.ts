@@ -469,6 +469,50 @@ test("question generation stores review-required drafts after guardrail pass", a
   assert.equal(output.questionCandidates?.[0]?.category, "직무역량");
 });
 
+test("mock question generation uses candidate folder context when provided", async () => {
+  const results = new InMemoryAiResultRepository();
+
+  const repository = await run({
+    processLogId: 15,
+    processType: "QUESTION_GENERATE",
+    input: {
+      kind: "MOCK_QUESTION_GENERATE",
+      payload: {
+        questionCount: 2,
+        folderContext: {
+          name: "게임 서버 지원 세트",
+          githubUrl: "https://github.com/init/game-server",
+          motivation: "대규모 게임 트래픽을 안정적으로 다루고 싶습니다.",
+          extraNote: "Redis와 PostgreSQL 운영 경험이 있습니다.",
+          resumeFile: {
+            originalName: "game-server-resume.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 4096
+          },
+          resumeExtractedText: "NestJS 기반 매칭 서버와 Redis 캐시를 운영했습니다."
+        }
+      }
+    },
+    results
+  });
+
+  const output = JSON.parse(repository.get(15).outputRef ?? "{}") as {
+    items?: string[];
+    questionCandidates?: Array<{
+      category?: string;
+      suggestionReason?: string;
+    }>;
+    targetTables?: string[];
+  };
+  assert.match(output.items?.[0] ?? "", /이력서/);
+  assert.match(output.items?.[0] ?? "", /GitHub/);
+  assert.doesNotMatch(output.items?.[0] ?? "", /게임 서버 지원 세트|NestJS 기반 매칭 서버|https:\/\/github\.com\/init\/game-server/);
+  assert.doesNotMatch(output.items?.[1] ?? "", /대규모 게임 트래픽|Redis와 PostgreSQL/);
+  assert.equal(output.questionCandidates?.[0]?.category, "지원서 기반 모의면접");
+  assert.match(output.questionCandidates?.[0]?.suggestionReason ?? "", /지원서 세트/);
+  assert.deepEqual(output.targetTables, []);
+});
+
 test("posting draft generation returns review-required posting draft without final save", async () => {
   const results = new InMemoryAiResultRepository();
 
@@ -781,6 +825,102 @@ test("report generation stores scores and evidences after guardrail pass", async
   assert.equal(report?.scores.length, 1);
   assert.equal(report?.questionEvaluations.length, 1);
   assert.equal(report?.scores[0].evidences.length, 2);
+});
+
+test("mock report generation applies nonverbal metadata as auxiliary practice signal", async () => {
+  const results = new InMemoryAiResultRepository();
+
+  await run({
+    processLogId: 37,
+    processType: "REPORT_GENERATE",
+    input: {
+      payload: {
+        reportId: 37,
+        reportType: "MOCK_INTERVIEW_REPORT",
+        jobDescription: "Mock interview practice session",
+        criteria: [
+          {
+            criterionId: 1,
+            name: "Problem solving",
+            weight: 40
+          }
+        ],
+        answers: [
+          {
+            answerId: 10,
+            question: "Describe a technical problem and how you solved it.",
+            transcript:
+              "I separated the upload request, server logs, database update, queue handoff, and worker result, then fixed the missing state update and verified the result with tests.",
+            nonverbalMetadata: {
+              cameraWarnings: 1,
+              microphoneWarnings: 1,
+              longSilenceCount: 1,
+              shortAnswerCount: 1,
+              integrityEvents: [
+                {
+                  type: "TAB_HIDDEN",
+                  occurredAt: "2026-07-09T10:00:00.000Z",
+                  durationMs: 6200
+                },
+                {
+                  type: "MULTIPLE_FACES",
+                  occurredAt: "2026-07-09T10:00:08.000Z",
+                  durationMs: 2100
+                },
+                {
+                  type: "GAZE_AWAY",
+                  occurredAt: "2026-07-09T10:00:12.000Z",
+                  durationMs: 3200,
+                  direction: "LEFT"
+                },
+                {
+                  type: "VOICE_MOUTH_MISMATCH",
+                  occurredAt: "2026-07-09T10:00:16.000Z",
+                  durationMs: 3000
+                },
+                {
+                  type: "VOICE_WITHOUT_FACE",
+                  occurredAt: "2026-07-09T10:00:20.000Z",
+                  durationMs: 2800
+                },
+                {
+                  type: "STATIC_VIDEO_FRAME",
+                  occurredAt: "2026-07-09T10:00:24.000Z",
+                  durationMs: 5200
+                },
+                {
+                  type: "EARLY_SCREEN_AWAY",
+                  occurredAt: "2026-07-09T10:00:02.000Z"
+                }
+              ],
+              integritySummary: {
+                screenAwayCount: 1,
+                cameraLostCount: 0,
+                faceMissingCount: 0,
+                faceOutOfFrameCount: 0,
+                multipleFacesCount: 1,
+                facePositionShiftCount: 0,
+                gazeAwayCount: 1,
+                voiceMouthMismatchCount: 1,
+                voiceWithoutFaceCount: 1,
+                staticVideoFrameCount: 1,
+                earlyScreenAwayCount: 1,
+                suspicionLevel: "HIGH"
+              }
+            }
+          }
+        ]
+      }
+    },
+    results
+  });
+
+  const report = results.generatedReports.get(37);
+  const score = report?.scores[0];
+  assert.equal(report?.reportType, "MOCK_INTERVIEW_REPORT");
+  assert.ok((score?.score ?? 100) <= 74);
+  assert.ok((score?.uncertaintyReasons.length ?? 0) >= 2);
+  assert.ok(score?.uncertaintyReasons.some((reason) => reason.includes("응시 무결성")));
 });
 
 test("recruiting report summarizes answer evidence while mock report keeps transcript evidence", async () => {

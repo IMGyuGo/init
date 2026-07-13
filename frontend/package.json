@@ -10,7 +10,10 @@
     "dev": "next dev",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . --max-warnings=0",
-    "test": "npm run typecheck",
+    "test": "npm run typecheck && npm run test:signup-payload && npm run test:ai-job-polling && npm run test:ai-performance",
+    "test:signup-payload": "tsc -p src/features/auth/tsconfig.spec.json && node .next/tests/auth/signup-payload.spec.js",
+    "test:ai-job-polling": "tsc -p src/features/company-interview-criteria/tsconfig.spec.json && node .next/tests/company-interview-criteria/ai-job-polling.spec.js",
+    "test:ai-performance": "tsc -p src/features/ai-performance/tsconfig.spec.json && node .next/tests/ai-performance/client-next-step.spec.js",
     "build": "next build"
   },
   "dependencies": {

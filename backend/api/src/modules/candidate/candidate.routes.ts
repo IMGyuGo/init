@@ -10,4 +10,6 @@ export const candidateApiRoutes = {
   interviewConsent: "applications/:applicationId/consent",
   resume: "resume",
   portfolioLinks: "portfolio-links",
+  folders: "folders",
+  folderDetail: "folders/:folderId",
 } as const;

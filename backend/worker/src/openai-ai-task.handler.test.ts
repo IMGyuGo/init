@@ -83,6 +83,11 @@ test("OpenAiAiTaskHandler uses provider for final report generation and keeps sa
         answers: [
           {
             answerId: 10,
+            nonverbalMetadata: {
+              microphoneWarnings: 1,
+              longSilenceCount: 1,
+              shortAnswerCount: 0
+            },
             question: "프로젝트 경험을 설명해주세요.",
             transcript: "NestJS와 PostgreSQL을 사용해 답변 저장 흐름을 구현했습니다."
           }
@@ -103,6 +108,11 @@ test("OpenAiAiTaskHandler uses provider for final report generation and keeps sa
   assert.equal(reportInputs.length, 1);
   assert.equal(reportInputs[0]?.policy, "MOCK");
   assert.equal(reportInputs[0]?.answers[0]?.answerId, 10);
+  assert.deepEqual(reportInputs[0]?.answers[0]?.nonverbalMetadata, {
+    microphoneWarnings: 1,
+    longSilenceCount: 1,
+    shortAnswerCount: 0
+  });
   assert.equal(output.summarySource, "OPENAI_REPORT_GENERATION");
   assert.equal(output.model, "report-model");
   assert.equal(output.reportFeedback, "다음 연습에서는 문제 해결 과정의 결과를 더 구체적으로 말해보세요.");
@@ -115,8 +125,10 @@ test("OpenAiAiTaskHandler uses provider for final report generation and keeps sa
 
 test("OpenAiAiTaskHandler stores recruiting report provider notes as company review points", async () => {
   const results = new InMemoryAiResultRepository();
+  const reportInputs: ReportGenerationInput[] = [];
   const reportProvider: ReportAiProvider = {
-    async generateReport() {
+    async generateReport(input) {
+      reportInputs.push(input);
       return {
         summary: "지원자의 답변은 JD의 백엔드 API 운영 경험과 일부 연결됩니다.",
         feedback: "추가 면접에서는 실제 운영 장애 대응 범위를 확인하는 것이 좋습니다.",
@@ -150,7 +162,11 @@ test("OpenAiAiTaskHandler stores recruiting report provider notes as company rev
           {
             answerId: 10,
             question: "지원 직무와 관련된 경험을 설명해주세요.",
-            transcript: "NestJS API와 PostgreSQL 기반 답변 저장 흐름을 구현하고 운영 로그를 확인했습니다."
+            transcript: "NestJS API와 PostgreSQL 기반 답변 저장 흐름을 구현하고 운영 로그를 확인했습니다.",
+            nonverbalMetadata: {
+              source: "CLIENT_RUNTIME_UNVERIFIED",
+              integrityEvents: [{ type: "TAB_HIDDEN", occurredAt: "2026-07-10T10:00:00.000Z" }]
+            }
           }
         ]
       }
@@ -166,6 +182,7 @@ test("OpenAiAiTaskHandler stores recruiting report provider notes as company rev
 
   assert.equal(output.reportFeedback, undefined);
   assert.equal(output.reportReviewNote, "추가 면접에서는 실제 운영 장애 대응 범위를 확인하는 것이 좋습니다.");
+  assert.equal(reportInputs[0]?.answers[0]?.nonverbalMetadata, undefined);
   assert.match(report?.summary ?? "", /기업 검토 포인트/);
   assert.doesNotMatch(report?.summary ?? "", /다음 연습 피드백/);
 });

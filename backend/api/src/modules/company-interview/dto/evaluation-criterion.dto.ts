@@ -3,7 +3,9 @@ import {
   IsArray,
   IsInt,
   IsOptional,
+  IsString,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -18,6 +20,11 @@ export class EvaluationCriterionItemDto {
   @IsInt()
   @Min(1)
   tagId!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string | null;
 
   @Type(() => Number)
   @IsInt()

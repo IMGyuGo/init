@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import { CompanyRecruitingService } from "./company-recruiting.service";
 import type { ApplicantRecord } from "../company-recruiting.types";
+import type { SubmitPublicApplicationDto } from "../dto/submit-public-application.dto";
 
 const companyUser = {
   userId: 1,
@@ -34,6 +35,9 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         careerMaxYears: (input as { careerMaxYears?: number | null }).careerMaxYears ?? null,
         employmentTypeCode: (input as { employmentTypeCode?: string | null }).employmentTypeCode ?? null,
         recruitmentType: (input as { recruitmentType?: string | null }).recruitmentType ?? null,
+        workplaceAddress: (input as { workplaceAddress?: string | null }).workplaceAddress ?? null,
+        workplaceLat: (input as { workplaceLat?: number | null }).workplaceLat ?? null,
+        workplaceLng: (input as { workplaceLng?: number | null }).workplaceLng ?? null,
         startsOn: new Date("2026-06-29T00:00:00.000Z"),
         endsOn: new Date("2026-07-15T00:00:00.000Z"),
         status: "OPEN",
@@ -61,6 +65,9 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         careerMaxYears: (input as { careerMaxYears?: number | null }).careerMaxYears ?? null,
         employmentTypeCode: (input as { employmentTypeCode?: string | null }).employmentTypeCode ?? null,
         recruitmentType: (input as { recruitmentType?: string | null }).recruitmentType ?? null,
+        workplaceAddress: (input as { workplaceAddress?: string | null }).workplaceAddress ?? null,
+        workplaceLat: (input as { workplaceLat?: number | null }).workplaceLat ?? null,
+        workplaceLng: (input as { workplaceLng?: number | null }).workplaceLng ?? null,
         startsOn: (input as { startsOn: Date | null }).startsOn,
         endsOn: (input as { endsOn: Date | null }).endsOn,
         status: (input as { status: string }).status,
@@ -88,6 +95,9 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         careerMaxYears: null,
         employmentTypeCode: null,
         recruitmentType: null,
+        workplaceAddress: null,
+        workplaceLat: null,
+        workplaceLng: null,
         startsOn: null,
         endsOn: null,
         status: "ARCHIVED",
@@ -123,6 +133,9 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         careerMaxYears: null,
         employmentTypeCode: null,
         recruitmentType: null,
+        workplaceAddress: null,
+        workplaceLat: null,
+        workplaceLng: null,
         startsOn: null,
         endsOn: null,
         status: "OPEN",
@@ -150,6 +163,9 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         careerMaxYears: null,
         employmentTypeCode: "정규직",
         recruitmentType: "마감형",
+        workplaceAddress: null,
+        workplaceLat: null,
+        workplaceLng: null,
         startsOn: new Date("2026-06-29T00:00:00.000Z"),
         endsOn: new Date("2026-07-15T00:00:00.000Z"),
         status: "OPEN",
@@ -229,6 +245,14 @@ function createApplicantRecord(overrides: Partial<ApplicantRecord> = {}): Applic
     applicationId: 77,
     postingId: 101,
     candidateId: 44,
+    applicantName: "Kim Applicant",
+    applicantEmail: "kim@example.com",
+    applicantPhone: "010-0000-0000",
+    githubUrl: "https://github.com/kim",
+    blogUrl: "https://blog.example.com/kim",
+    portfolioUrl: "https://portfolio.example.com/kim",
+    motivation: "지원 동기입니다.",
+    additionalInfo: "추가 설명입니다.",
     applicationStatus: "SUBMITTED",
     documentStatus: "NOT_SUBMITTED",
     interviewStatus: "NOT_READY",
@@ -239,6 +263,9 @@ function createApplicantRecord(overrides: Partial<ApplicantRecord> = {}): Applic
     updatedAt: new Date("2026-06-29T00:00:00.000Z"),
     candidate: {
       candidateId: 44,
+      githubUrl: "https://github.com/kim",
+      portfolioUrl: "https://portfolio.example.com/kim",
+      summary: "지원자 소개",
       user: {
         userId: 88,
         email: "kim@example.com",
@@ -246,6 +273,26 @@ function createApplicantRecord(overrides: Partial<ApplicantRecord> = {}): Applic
         phone: "010-0000-0000",
       },
     },
+    documents: [
+      {
+        documentId: 901,
+        applicationId: 77,
+        fileId: 701,
+        documentType: "RESUME",
+        parseStatus: "SUBMITTED",
+        uploadedAt: new Date("2026-06-29T00:00:00.000Z"),
+        file: {
+          fileId: 701,
+          ownerUserId: 88,
+          storageKey: "public-applications/101/candidate-44/resume/resume.pdf",
+          originalName: "resume.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 2048,
+          status: "ACTIVE",
+          createdAt: new Date("2026-06-29T00:00:00.000Z"),
+        },
+      },
+    ],
     posting: {
       postingId: 101,
       title: "Backend Developer",
@@ -306,6 +353,23 @@ function createUploadFile(originalName: string, mimeType = "application/pdf") {
   };
 }
 
+function createPublicApplicationDto(
+  overrides: Partial<SubmitPublicApplicationDto> = {},
+): SubmitPublicApplicationDto {
+  return {
+    name: "김지원",
+    email: "jiwon@example.com",
+    phone: "010-0000-0000",
+    githubUrl: "https://github.com/jiwon",
+    blogUrl: "https://blog.example.com/jiwon",
+    portfolioUrl: "https://portfolio.example.com/jiwon",
+    motivation: "지원 동기입니다.",
+    additionalInfo: "추가 설명입니다.",
+    consentAgreed: true,
+    ...overrides,
+  };
+}
+
 describe("CompanyRecruitingService", () => {
   it("creates recruitments for the current company only", async () => {
     const repository = createRepository();
@@ -346,6 +410,9 @@ describe("CompanyRecruitingService", () => {
         careerMaxYears: undefined,
         employmentTypeCode: undefined,
         recruitmentType: undefined,
+        workplaceAddress: undefined,
+        workplaceLat: undefined,
+        workplaceLng: undefined,
         startsOn: new Date("2026-06-29T00:00:00.000Z"),
         endsOn: new Date("2026-07-15T00:00:00.000Z"),
         status: "OPEN",
@@ -369,6 +436,57 @@ describe("CompanyRecruitingService", () => {
         typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
     );
     assert.equal(repository.calls.createPosting, undefined);
+  });
+
+  it("rejects recruitment creation when only one workplace coordinate is provided", async () => {
+    const repository = createRepository();
+    const service = new CompanyRecruitingService(repository);
+
+    await assert.rejects(
+      service.createRecruitment(companyUser, {
+        title: "Backend Developer",
+        jobRole: "Backend",
+        workplaceAddress: "서울 강남구 테헤란로 123",
+        workplaceLat: 37.4979,
+        status: "OPEN",
+      }),
+      (error: unknown) =>
+        typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
+    assert.equal(repository.calls.createPosting, undefined);
+  });
+
+  it("rejects recruitment creation when coordinates are provided without an address", async () => {
+    const repository = createRepository();
+    const service = new CompanyRecruitingService(repository);
+
+    await assert.rejects(
+      service.createRecruitment(companyUser, {
+        title: "Backend Developer",
+        jobRole: "Backend",
+        workplaceLat: 37.4979,
+        workplaceLng: 127.0276,
+        status: "OPEN",
+      }),
+      (error: unknown) =>
+        typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
+    assert.equal(repository.calls.createPosting, undefined);
+  });
+
+  it("allows recruitment creation with an address but no coordinates", async () => {
+    const repository = createRepository();
+    const service = new CompanyRecruitingService(repository);
+
+    const result = await service.createRecruitment(companyUser, {
+      title: "Backend Developer",
+      jobRole: "Backend",
+      workplaceAddress: "서울 강남구 테헤란로 123",
+      status: "OPEN",
+    });
+
+    assert.equal(result.status, "OPEN");
+    assert.deepEqual((repository.calls.createPosting?.[0] as { workplaceAddress?: string }).workplaceAddress, "서울 강남구 테헤란로 123");
   });
 
   it("rejects recruitment update when careerMinYears is greater than careerMaxYears", async () => {
@@ -671,14 +789,12 @@ describe("CompanyRecruitingService", () => {
 
     const result = await service.submitPublicApplication(
       101,
-      {
-        name: "김지원",
+      createPublicApplicationDto({
         email: " JIWON@EXAMPLE.COM ",
-        phone: "010-0000-0000",
         portfolioUrl: "https://github.com/jiwon",
-        resumeText: "백엔드 프로젝트 경험이 있습니다.",
-        consentAgreed: true,
-      },
+        motivation: "백엔드 프로젝트 경험을 활용하고 싶습니다.",
+        additionalInfo: "백엔드 프로젝트 경험이 있습니다.",
+      }),
       {
         resumeFile: createUploadFile("resume.pdf"),
       },
@@ -691,12 +807,25 @@ describe("CompanyRecruitingService", () => {
         name: "김지원",
         email: "jiwon@example.com",
         phone: "010-0000-0000",
-        githubUrl: null,
+        githubUrl: "https://github.com/jiwon",
         portfolioUrl: "https://github.com/jiwon",
-        summary: "백엔드 프로젝트 경험이 있습니다.",
+        summary: "지원동기:\n백엔드 프로젝트 경험을 활용하고 싶습니다.\n\n추가 설명:\n백엔드 프로젝트 경험이 있습니다.",
       },
     ]);
-    assert.deepEqual(repository.calls.createApplication, [{ postingId: 101, candidateId: 44, screeningMemo: null, documentStatus: "SUBMITTED" }]);
+    assert.deepEqual(repository.calls.createApplication, [{
+      postingId: 101,
+      candidateId: 44,
+      applicantName: "김지원",
+      applicantEmail: "jiwon@example.com",
+      applicantPhone: "010-0000-0000",
+      githubUrl: "https://github.com/jiwon",
+      blogUrl: "https://blog.example.com/jiwon",
+      portfolioUrl: "https://github.com/jiwon",
+      motivation: "백엔드 프로젝트 경험을 활용하고 싶습니다.",
+      additionalInfo: "백엔드 프로젝트 경험이 있습니다.",
+      screeningMemo: null,
+      documentStatus: "SUBMITTED",
+    }]);
     assert.deepEqual(publicApplicationAuthAdapter.calls.requestEmailVerification, [
       {
         applicationId: 77,
@@ -731,16 +860,11 @@ describe("CompanyRecruitingService", () => {
 
     await service.submitPublicApplication(
       101,
-      {
-        name: "김지원",
-        email: "jiwon@example.com",
-        phone: "010-0000-0000",
-        githubBlogUrl: "https://github.com/jiwon",
-        portfolioMode: "FILE",
+      createPublicApplicationDto({
+        portfolioUrl: undefined,
         motivation: "크래프톤 백엔드 직무에 지원합니다.",
         additionalInfo: "대규모 트래픽 프로젝트 경험이 있습니다.",
-        consentAgreed: true,
-      },
+      }),
       {
         resumeFile: createUploadFile("resume.pdf"),
         portfolioFile: createUploadFile("portfolio.pdf"),
@@ -774,12 +898,7 @@ describe("CompanyRecruitingService", () => {
       () =>
         service.submitPublicApplication(
           101,
-          {
-            name: "김지원",
-            email: "jiwon@example.com",
-            phone: "010-0000-0000",
-            consentAgreed: true,
-          },
+          createPublicApplicationDto(),
           { resumeFile: createUploadFile("resume.txt", "text/plain") },
         ),
       (error: unknown) =>
@@ -790,6 +909,29 @@ describe("CompanyRecruitingService", () => {
     );
     assert.equal(storageAdapter.calls.putObject, undefined);
     assert.equal(repository.calls.createApplication, undefined);
+  });
+
+  it("requires links, application text, and at least one portfolio artifact", async () => {
+    const storageAdapter = createStorageAdapter();
+    const repository = createRepository();
+    const service = new CompanyRecruitingService(repository, storageAdapter);
+
+    await assert.rejects(
+      () => service.submitPublicApplication(
+        101,
+        createPublicApplicationDto({ portfolioUrl: undefined }),
+        { resumeFile: createUploadFile("resume.pdf") },
+      ),
+      (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
+    await assert.rejects(
+      () => service.submitPublicApplication(
+        101,
+        createPublicApplicationDto({ blogUrl: undefined }),
+        { resumeFile: createUploadFile("resume.pdf"), portfolioFile: createUploadFile("portfolio.pdf") },
+      ),
+      (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
   });
 
   it("returns public application status only after magic link token verification", async () => {
@@ -862,12 +1004,7 @@ describe("CompanyRecruitingService", () => {
 
     await assert.rejects(
       () =>
-        service.submitPublicApplication(101, {
-          name: "김지원",
-          email: "jiwon@example.com",
-          phone: "010-0000-0000",
-          consentAgreed: true,
-        }),
+        service.submitPublicApplication(101, createPublicApplicationDto()),
       /이미 이 공고에 지원한 이메일입니다/,
     );
     assert.equal(repository.calls.findOrCreatePublicCandidate, undefined);
@@ -891,12 +1028,7 @@ describe("CompanyRecruitingService", () => {
       () =>
         service.submitPublicApplication(
           101,
-          {
-            name: "김지원",
-            email: "jiwon@example.com",
-            phone: "010-0000-0000",
-            consentAgreed: true,
-          },
+          createPublicApplicationDto(),
           { resumeFile: createUploadFile("resume.pdf") },
         ),
       (error: unknown) =>
@@ -924,12 +1056,7 @@ describe("CompanyRecruitingService", () => {
 
     const result = await service.submitPublicApplication(
       202,
-      {
-        name: "김지원",
-        email: "existing@example.com",
-        phone: "010-0000-0000",
-        consentAgreed: true,
-      },
+      createPublicApplicationDto({ email: "existing@example.com" }),
       { resumeFile: createUploadFile("resume.pdf") },
     );
 
@@ -940,12 +1067,25 @@ describe("CompanyRecruitingService", () => {
         name: "김지원",
         email: "existing@example.com",
         phone: "010-0000-0000",
-        githubUrl: null,
-        portfolioUrl: null,
-        summary: null,
+        githubUrl: "https://github.com/jiwon",
+        portfolioUrl: "https://portfolio.example.com/jiwon",
+        summary: "지원동기:\n지원 동기입니다.\n\n추가 설명:\n추가 설명입니다.",
       },
     ]);
-    assert.deepEqual(repository.calls.createApplication, [{ postingId: 202, candidateId: 44, screeningMemo: null, documentStatus: "SUBMITTED" }]);
+    assert.deepEqual(repository.calls.createApplication, [{
+      postingId: 202,
+      candidateId: 44,
+      applicantName: "김지원",
+      applicantEmail: "existing@example.com",
+      applicantPhone: "010-0000-0000",
+      githubUrl: "https://github.com/jiwon",
+      blogUrl: "https://blog.example.com/jiwon",
+      portfolioUrl: "https://portfolio.example.com/jiwon",
+      motivation: "지원 동기입니다.",
+      additionalInfo: "추가 설명입니다.",
+      screeningMemo: null,
+      documentStatus: "SUBMITTED",
+    }]);
     assert.equal(result.applicationStatus, "SUBMITTED");
   });
 
@@ -960,12 +1100,7 @@ describe("CompanyRecruitingService", () => {
 
     await assert.rejects(
       () =>
-        service.submitPublicApplication(101, {
-          name: "김지원",
-          email: "company@example.com",
-          phone: "010-0000-0000",
-          consentAgreed: true,
-        }),
+        service.submitPublicApplication(101, createPublicApplicationDto({ email: "company@example.com" })),
       /지원자 계정이 아닌 이메일/,
     );
     assert.equal(repository.calls.findOrCreatePublicCandidate, undefined);
@@ -978,12 +1113,7 @@ describe("CompanyRecruitingService", () => {
 
     await assert.rejects(
       () =>
-        service.submitPublicApplication(101, {
-          name: "김지원",
-          email: "jiwon@example.com",
-          phone: "010-0000-0000",
-          consentAgreed: false,
-        }),
+        service.submitPublicApplication(101, createPublicApplicationDto({ consentAgreed: false })),
       /동의가 필요합니다/,
     );
     assert.equal(repository.calls.findApplicationByPostingAndEmail, undefined);
@@ -1030,6 +1160,9 @@ describe("CompanyRecruitingService", () => {
         careerMaxYears: undefined,
         employmentTypeCode: undefined,
         recruitmentType: undefined,
+        workplaceAddress: undefined,
+        workplaceLat: undefined,
+        workplaceLng: undefined,
         startsOn: new Date("2026-07-01T00:00:00.000Z"),
         endsOn: new Date("2026-07-31T00:00:00.000Z"),
         status: "OPEN",
@@ -1101,6 +1234,9 @@ describe("CompanyRecruitingService", () => {
           careerMaxYears: 10,
           employmentTypeCode: "정규직",
           recruitmentType: "마감형",
+          workplaceAddress: null,
+          workplaceLat: null,
+          workplaceLng: null,
           startsOn: new Date("2026-06-01T00:00:00.000Z"),
           endsOn: new Date("2026-06-15T00:00:00.000Z"),
           status: "CLOSED",
@@ -1154,6 +1290,9 @@ describe("CompanyRecruitingService", () => {
         careerMaxYears: 10,
         employmentTypeCode: "정규직",
         recruitmentType: "마감형",
+        workplaceAddress: null,
+        workplaceLat: null,
+        workplaceLng: null,
         startsOn: null,
         endsOn: null,
         status: "DRAFT",
@@ -1186,6 +1325,31 @@ describe("CompanyRecruitingService", () => {
     assert.equal(result.reportAvailability, "NONE_OR_GENERATING");
     assert.equal(result.report, null);
     assert.equal(result.screening.decision, "UNDECIDED");
+    assert.equal(result.submission.githubUrl, "https://github.com/kim");
+    assert.equal(result.submission.blogUrl, "https://blog.example.com/kim");
+    assert.equal(result.submission.motivation, "지원 동기입니다.");
+    assert.equal(result.submission.documents[0]?.originalName, "resume.pdf");
+  });
+
+  it("streams only documents attached to the current company application", async () => {
+    const repository = createRepository();
+    const storageAdapter = {
+      async putObject() {},
+      async getObject(key: string) {
+        assert.equal(key, "public-applications/101/candidate-44/resume/resume.pdf");
+        return { body: Buffer.from("pdf-bytes"), contentType: "application/pdf", contentLength: 9 };
+      },
+    };
+    const service = new CompanyRecruitingService(repository, storageAdapter);
+
+    const document = await service.getApplicantDocument(companyUser, 77, 701);
+    assert.equal(document.originalName, "resume.pdf");
+    assert.equal(document.contentType, "application/pdf");
+
+    await assert.rejects(
+      () => service.getApplicantDocument({ ...companyUser, companyId: 8 }, 77, 701),
+      (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_NOT_FOUND",
+    );
   });
 
   it("returns evaluation detail with report summary, score, and evidence when available", async () => {
@@ -1220,6 +1384,199 @@ describe("CompanyRecruitingService", () => {
     assert.equal(result.reportAvailability, "AVAILABLE");
     assert.equal(result.report?.totalScore, 82);
     assert.equal(result.report?.scores[0]?.evidences[0]?.evidenceText, "NestJS 기반 API 구축 경험");
+  });
+
+  it("keeps recruiting telemetry as an unverified reference without changing scores", async () => {
+    const repository = createRepository({
+      async findApplicationForCompany(applicationId: number, companyId: number) {
+        return createApplicantRecord({
+          evaluationReports: [
+            {
+              reportId: 501,
+              status: "COMPLETED",
+              totalScore: 82,
+              summary: "Recruiting report summary",
+              generatedAt: new Date("2026-06-30T08:00:00.000Z"),
+              scores: [],
+            },
+          ],
+          interviewSessions: [
+            {
+              sessionId: 901,
+              status: "COMPLETED",
+              interviewType: "RECRUITING",
+              startedAt: new Date("2026-07-01T00:00:00.000Z"),
+              completedAt: new Date("2026-07-01T00:10:00.000Z"),
+              answers: [
+                {
+                  answerId: 1001,
+                  questionId: 501,
+                  videoFileId: null,
+                  audioFileId: null,
+                  videoFile: null,
+                  audioFile: null,
+                  questionType: "TECHNICAL",
+                  questionContent: "Explain a difficult technical problem.",
+                  transcript: "I debugged upload state transitions.",
+                  durationSeconds: 31,
+                  submittedAt: new Date("2026-07-01T00:02:00.000Z"),
+                  nonverbalMetadata: {
+                    integritySummary: { screenAwayCount: 1, gazeAwayCount: 1 },
+                    integrityEvents: [{ type: "TAB_HIDDEN" }, { type: "GAZE_AWAY" }],
+                  },
+                  followUpQuestions: [],
+                },
+                {
+                  answerId: 1002,
+                  questionId: 502,
+                  videoFileId: null,
+                  audioFileId: null,
+                  videoFile: null,
+                  audioFile: null,
+                  questionType: "EXPERIENCE",
+                  questionContent: "Explain backend project experience.",
+                  transcript: "I connected API, DB, and worker flows.",
+                  durationSeconds: 28,
+                  submittedAt: new Date("2026-07-01T00:04:00.000Z"),
+                  nonverbalMetadata: {
+                    integritySummary: { gazeAwayCount: 2 },
+                    integrityEvents: [{ type: "GAZE_AWAY" }, { type: "GAZE_AWAY" }],
+                  },
+                  followUpQuestions: [],
+                },
+                {
+                  answerId: 1003,
+                  questionId: 503,
+                  videoFileId: null,
+                  audioFileId: null,
+                  videoFile: null,
+                  audioFile: null,
+                  questionType: "SITUATION",
+                  questionContent: "Explain how you handle pressure.",
+                  transcript: "I split problems into observable steps.",
+                  durationSeconds: 24,
+                  submittedAt: new Date("2026-07-01T00:06:00.000Z"),
+                  nonverbalMetadata: {
+                    integritySummary: { multipleFacesCount: 1 },
+                    integrityEvents: [{ type: "MULTIPLE_FACES" }],
+                  },
+                  followUpQuestions: [],
+                },
+                {
+                  answerId: 1004,
+                  questionId: 504,
+                  videoFileId: null,
+                  audioFileId: null,
+                  videoFile: null,
+                  audioFile: null,
+                  questionType: "EXPERIENCE",
+                  questionContent: "Explain how you validate completed work.",
+                  transcript: "I verify the same path with tests and logs.",
+                  durationSeconds: 26,
+                  submittedAt: new Date("2026-07-01T00:08:00.000Z"),
+                  nonverbalMetadata: {
+                    integritySummary: { staticVideoFrameCount: 1 },
+                    integrityEvents: [{ type: "STATIC_VIDEO_FRAME" }],
+                  },
+                  followUpQuestions: [],
+                },
+              ],
+            },
+          ],
+        });
+      },
+    });
+    const service = new CompanyRecruitingService(repository);
+
+    const result = await service.getApplicantEvaluation(companyUser, 77);
+    const adjustment = result.report?.integrityAdjustment;
+
+    assert.equal(result.report?.totalScore, 82);
+    assert.equal(result.report?.adjustedTotalScore, 82);
+    assert.ok(adjustment);
+    assert.equal(adjustment.penalty, 0);
+    assert.equal(adjustment.scoreApplied, false);
+    assert.equal(adjustment.source, "CLIENT_RUNTIME_UNVERIFIED");
+    assert.equal(adjustment.level, "HIGH");
+    assert.equal(adjustment.rawTotalScore, 82);
+    assert.equal(adjustment.adjustedTotalScore, 82);
+    assert.ok(adjustment.reasons.includes("화면/탭 이탈 1회"));
+    assert.ok(adjustment.reasons.includes("여러 사람 감지 1회"));
+    assert.match(adjustment.reason, /평가 점수에는 반영하지 않았습니다/);
+  });
+
+  it("classifies recruiting integrity reference boundaries without changing scores", async () => {
+    const evaluate = async (integritySummary: Record<string, number>) => {
+      const repository = createRepository({
+        async findApplicationForCompany() {
+          return createApplicantRecord({
+            evaluationReports: [
+              {
+                reportId: 501,
+                status: "COMPLETED",
+                totalScore: 80,
+                summary: "Recruiting report summary",
+                generatedAt: new Date("2026-06-30T08:00:00.000Z"),
+                scores: [],
+              },
+            ],
+            interviewSessions: [
+              {
+                sessionId: 901,
+                status: "COMPLETED",
+                interviewType: "RECRUITING",
+                startedAt: new Date("2026-07-01T00:00:00.000Z"),
+                completedAt: new Date("2026-07-01T00:10:00.000Z"),
+                answers: [
+                  {
+                    answerId: 1001,
+                    questionId: 501,
+                    videoFileId: null,
+                    audioFileId: null,
+                    videoFile: null,
+                    audioFile: null,
+                    questionType: "TECHNICAL",
+                    questionContent: "Explain a difficult technical problem.",
+                    transcript: "I debugged upload state transitions.",
+                    durationSeconds: 31,
+                    submittedAt: new Date("2026-07-01T00:02:00.000Z"),
+                    nonverbalMetadata: { integritySummary },
+                    followUpQuestions: [],
+                  },
+                ],
+              },
+            ],
+          });
+        },
+      });
+      const service = new CompanyRecruitingService(repository);
+      const result = await service.getApplicantEvaluation(companyUser, 77);
+      return result.report?.integrityAdjustment;
+    };
+
+    const scenarios = [
+      { name: "single gaze", summary: { gazeAwayCount: 1 }, level: "LOW" },
+      { name: "repeated gaze", summary: { gazeAwayCount: 2 }, level: "MEDIUM" },
+      { name: "single screen away", summary: { screenAwayCount: 1 }, level: "LOW" },
+      { name: "repeated screen away", summary: { screenAwayCount: 2 }, level: "MEDIUM" },
+      { name: "frequent screen away", summary: { screenAwayCount: 4 }, level: "HIGH" },
+      { name: "single face missing", summary: { faceMissingCount: 1 }, level: "MEDIUM" },
+      { name: "repeated face missing", summary: { faceMissingCount: 2 }, level: "HIGH" },
+      { name: "multiple people", summary: { multipleFacesCount: 1 }, level: "HIGH" },
+      { name: "face position shift", summary: { facePositionShiftCount: 1 }, level: "HIGH" },
+      { name: "single voice mouth mismatch", summary: { voiceMouthMismatchCount: 1 }, level: "MEDIUM" },
+      { name: "repeated voice mouth mismatch", summary: { voiceMouthMismatchCount: 2 }, level: "HIGH" },
+      { name: "static video frame", summary: { staticVideoFrameCount: 1 }, level: "HIGH" },
+    ] as const;
+
+    for (const scenario of scenarios) {
+      const adjustment = await evaluate(scenario.summary);
+      assert.ok(adjustment, scenario.name);
+      assert.equal(adjustment.level, scenario.level, scenario.name);
+      assert.equal(adjustment.penalty, 0, scenario.name);
+      assert.equal(adjustment.scoreApplied, false, scenario.name);
+      assert.equal(adjustment.adjustedTotalScore, 80, scenario.name);
+    }
   });
 
   it("returns evaluation detail with interview answers and linked follow-up answers", async () => {
@@ -1338,6 +1695,7 @@ describe("CompanyRecruitingService", () => {
       transcript: "API 업로드, DB 저장, worker 처리 흐름을 연결했습니다.",
       durationSeconds: 42,
       submittedAt: "2026-07-01T00:02:00.000Z",
+      nonverbalMetadata: null,
       followUpQuestions: [
         {
           followUpId: 7001,
@@ -1362,6 +1720,7 @@ describe("CompanyRecruitingService", () => {
             transcript: "answerId와 audioFileId가 payload와 DB에서 일치하는지 확인했습니다.",
             durationSeconds: 21,
             submittedAt: "2026-07-01T00:04:00.000Z",
+            nonverbalMetadata: null,
           },
         },
       ],

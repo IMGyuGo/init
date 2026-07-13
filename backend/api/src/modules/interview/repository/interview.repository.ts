@@ -1,4 +1,9 @@
-import type { InterviewAnswer, InterviewQuestion, RuntimeInterviewSession } from "../interview.runtime.types";
+import type {
+  InterviewAnswer,
+  InterviewAnswerNonverbalMetadata,
+  InterviewQuestion,
+  RuntimeInterviewSession,
+} from "../interview.runtime.types";
 
 export const INTERVIEW_REPOSITORY = Symbol("INTERVIEW_REPOSITORY");
 
@@ -7,9 +12,16 @@ export type MaybePromise<T> = T | Promise<T>;
 export interface CreateMockInterviewSessionInput {
   candidateId: number;
   showQuestionText: boolean;
-  questionIds: number[];
+  questionIds?: number[];
+  contextQuestions?: CreateMockContextQuestionInput[];
   startedAt: string;
   updatedAt: string;
+}
+
+export interface CreateMockContextQuestionInput {
+  questionType: InterviewQuestion["questionType"];
+  content: string;
+  sortOrder: number;
 }
 
 export interface CreateInterviewAnswerInput {
@@ -18,6 +30,7 @@ export interface CreateInterviewAnswerInput {
   videoFileId?: number;
   audioFileId?: number;
   transcript?: string;
+  nonverbalMetadata?: InterviewAnswerNonverbalMetadata;
   durationSeconds: number;
   submittedAt: string;
 }
@@ -27,6 +40,7 @@ export interface ReplaceInterviewAnswerInput {
   videoFileId?: number;
   audioFileId?: number;
   transcript?: string;
+  nonverbalMetadata?: InterviewAnswerNonverbalMetadata;
   durationSeconds: number;
   submittedAt: string;
 }
@@ -78,6 +92,7 @@ export interface InterviewRepository {
   listOwnedMockSessions(candidateId: number): MaybePromise<RuntimeInterviewSession[]>;
   findMockSession(sessionId: number): MaybePromise<RuntimeInterviewSession | undefined>;
   createMockSession(input: CreateMockInterviewSessionInput): MaybePromise<RuntimeInterviewSession>;
+  createMockSessionWithPass?(input: CreateMockInterviewSessionInput): Promise<RuntimeInterviewSession>;
   findRecruitingRuntimeSession(sessionId: number): MaybePromise<RuntimeInterviewSession | undefined>;
   saveRecruitingRuntimeSession(session: RuntimeInterviewSession): MaybePromise<RuntimeInterviewSession>;
   saveRuntimeSession(session: RuntimeInterviewSession): MaybePromise<RuntimeInterviewSession>;

@@ -42,6 +42,9 @@ export type RecruitmentRecord = {
   careerMaxYears: number | null;
   employmentTypeCode: string | null;
   recruitmentType: string | null;
+  workplaceAddress: string | null;
+  workplaceLat: number | null;
+  workplaceLng: number | null;
   startsOn: Date | null;
   endsOn: Date | null;
   status: string;
@@ -58,6 +61,14 @@ export type ApplicantRecord = {
   applicationId: number;
   postingId: number;
   candidateId: number;
+  applicantName?: string | null;
+  applicantEmail?: string | null;
+  applicantPhone?: string | null;
+  githubUrl?: string | null;
+  blogUrl?: string | null;
+  portfolioUrl?: string | null;
+  motivation?: string | null;
+  additionalInfo?: string | null;
   applicationStatus: string;
   documentStatus: string;
   interviewStatus: string;
@@ -68,6 +79,9 @@ export type ApplicantRecord = {
   updatedAt: Date;
   candidate: {
     candidateId: number;
+    githubUrl?: string | null;
+    portfolioUrl?: string | null;
+    summary?: string | null;
     user: {
       userId: number;
       email: string;
@@ -75,6 +89,15 @@ export type ApplicantRecord = {
       phone: string | null;
     };
   };
+  documents?: Array<{
+    documentId: number;
+    applicationId: number;
+    fileId: number | null;
+    documentType: string;
+    parseStatus: string;
+    uploadedAt: Date;
+    file: CompanyFileAssetRecord | null;
+  }>;
   posting: {
     postingId: number;
     title: string;
@@ -118,6 +141,7 @@ export type ApplicantRecord = {
       transcript: string | null;
       durationSeconds: number | null;
       submittedAt: Date | null;
+      nonverbalMetadata?: Record<string, unknown> | null;
       followUpQuestions: Array<{
         followUpId: number;
         content: string;
@@ -132,6 +156,7 @@ export type ApplicantRecord = {
           transcript: string | null;
           durationSeconds: number | null;
           submittedAt: Date | null;
+          nonverbalMetadata?: Record<string, unknown> | null;
         } | null;
       }>;
     }>;
