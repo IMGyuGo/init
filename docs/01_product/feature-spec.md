@@ -78,6 +78,8 @@ init v0.5의 화면/기능 정의를 구현 단위로 정리한다.
 | 지원자 관리 화면 | /company/recruitments/{recruitmentId}/applicants | form | 지원자 등록 | 지원자 등록/CSV 업로드 | 이름, 이메일, 지원 직무, 연락처 | 지원자 등록 완료 | POST /company/applicants | v1.0 | CSV 일괄 등록 상세 정책 추가 검토 필요 |
 | 지원자 관리 화면 | /company/recruitments/{recruitmentId}/applicants | button | 지원자 초대 링크 발송 | 초대 메일 발송 | 지원자 이메일, 응시 기간, 안내 메시지 | 초대 링크 발송 완료 | POST /company/applicants/invitations | v1.0 | interviewType=RECRUITING |
 | 지원자 관리 화면 | /company/recruitments/{recruitmentId}/applicants | system process | 채용 AI 면접 세션 생성 | 면접 세션 자동 생성 | 지원자, 공고, 응시 기간, 질문 세트 | 면접 세션 생성 및 초대 링크 연결 | POST /company/interview-sessions | v1.0 | 독립 화면 아님. 초대 링크 발송 프로세스와 묶어서 처리 |
+| 지원자 관리 화면 | /company/recruitments/{recruitmentId}/applicants | section | 이력서 질문 준비 상태 | 지원자별 개인화 질문 생성 상태와 검토 목록 조회 | 지원자 ID | 준비 상태와 검토 가능한 질문 표시 | GET /company/interviews/applications/{applicationId}/resume-questions | NQ-M3 | 이력서 원문과 추출 텍스트는 표시하지 않음 |
+| 지원자 관리 화면 | /company/recruitments/{recruitmentId}/applicants | button | 이력서 질문 재시도 | 실패·검토 필요 개인화 질문 재생성 | 지원자 ID, 운영 메모 | 기존 또는 신규 AI 작업 추적 상태 표시 | POST /company/interviews/applications/{applicationId}/resume-questions/retry | NQ-M3 | FAILED/REVIEW_REQUIRED에서만 노출 |
 | 지원자 관리 화면 | /company/recruitments/{recruitmentId}/applicants | list | 지원자 목록 | 지원 상태 조회 | 공고, 상태 필터, 검색어 | 지원자 목록 표시 | GET /company/applicants | v1.0 | 기존 구직자 진행 상태 목록을 지원자 목록으로 변경 |
 | 지원자 관리 화면 | /company/recruitments/{recruitmentId}/applicants | section | 지원자별 평가 리포트 요약 | 리포트 상태 조회 | 공고, 지원자 ID, 리포트 상태 | 리포트 요약 표시 및 평가 상세 이동 가능 | GET /company/reports | v1.0 | 기존 평가 리포트 SNB 메뉴를 지원자 관리 내부로 통합 |
 | 지원자 평가 상세 화면 | /company/applicants/{applicantId}/evaluation | page | 지원자 평가 상세 | 서류 평가와 채용 리포트 통합 조회 | 지원자 ID, 공고 ID | 지원자 평가 상세 표시 | GET /company/applicants/{applicantId}/evaluation | v1.0 | 기존 9번 서류 평가 상세과 10번 채용 리포트 상세을 9번으로 통합 |
@@ -105,10 +107,11 @@ init v0.5의 화면/기능 정의를 구현 단위로 정리한다.
 | 채용 공고 관리 화면 | /company/recruitments | button | 공고 복사 버튼 | 마감 공고 복사 | 공고 ID | 복사된 공고 생성 화면으로 이동 | POST /company/recruitments/{recruitmentId}/copy | v1.0 | 마감 상태에서 수정 버튼 대신 노출 |
 | 공고 생성 화면 | /company/recruitments/new | system process | 공고 AI 초안 작성 | 제목, 직무명, 키워드 기반 공고 초안 생성 | title, jobRole, keywords, summary | 사용자가 검토 가능한 postingDraft 반환 | POST /company/recruitments/ai-draft / GET /ai/jobs/{processLogId}/status | v1.0 | AI 초안은 자동 저장하지 않고 사용자가 적용 후 POST /company/recruitments로 DRAFT 저장 |
 | 면접 관리 화면 | /company/interviews/settings | page | 면접 관리 | 면접 설정 관리 | 채용 공고, 평가 기준, 질문 세트, 시간 정책 | 면접 관리 화면 표시 | GET /company/interviews/settings | v1.0 | 기존 SNB 삭제. 2-depth는 GNB hover dropdown으로 노출 |
-| 면접 관리 화면 | /company/interviews/settings | section | AI 평가 역량 제안 | AI 평가 역량 태그 추천 | JD, 인재상, 평가 템플릿 | 평가 역량 후보 표시 | POST /company/interviews/evaluation-criteria/suggest | v1.0 | 태그 추천 세부 정책 확정 필요 |
-| 면접 관리 화면 | /company/interviews/settings | form | 평가 기준 설정 | 평가 기준 편집 | 평가 항목명, 설명, 배점, 기준 점수 | 평가 기준 저장 | PATCH /company/interviews/evaluation-criteria | v1.0 | 저장 버튼은 평가 기준 설정 영역 우측 상단 배치 |
+| 면접 관리 화면 | /company/interviews/settings | section | AI 평가 역량 제안 | legacy AI 평가 역량 태그 추천 | JD, 인재상, 평가 템플릿 | 평가 역량 후보 표시 | POST /company/interviews/evaluation-criteria/suggest | v1.0 | NCS_3_PROFILE_V1에서는 호출하지 않음 |
+| 면접 관리 화면 | /company/interviews/settings | form | NCS 평가 기준 설정 | 문제해결·의사소통·디지털 3개 기준의 배점과 순서 편집 | 평가 체계, 배점, 기준 점수, 순서 | NCS profile binding과 criteria version을 포함해 저장 | PATCH /company/interviews/evaluation-criteria | NQ-M1 | profile 추가·삭제·임의 변경은 불가 |
+| 면접 관리 화면 | /company/interviews/settings | form | 질문 생성 정책 | JD 공통 질문 수와 이력서 개인화 질문 수 설정 | 공고 ID, 출처별 질문 수, 정책 version | NCS profile별 allocation과 새 version 표시 | PATCH /company/interviews/question-generation-policy | NQ-M1 | 합계 1~20, NCS는 합계 3 이상 |
 | 면접 관리 화면 | /company/interviews/settings | section | 질문 뱅크 관리 | 질문 등록/연결 | 질문 내용, 질문 유형, 평가 역량 | 질문 저장 및 공고 연결 | POST /company/interviews/questions | v1.0 | 질문 저장 버튼은 질문 뱅크 관리 영역 우측 상단 배치 |
-| 면접 관리 화면 | /company/interviews/settings | system process | 채용 직무 질문 생성 | JD 기반 직무 질문 생성 | JD, 직무명세서, 평가 역량 | 직무 질문 후보 저장 | POST /company/interviews/questions/generate | v1.0 | 생성 결과는 질문 뱅크 관리 영역에 표시 |
+| 면접 관리 화면 | /company/interviews/settings | system process | JD 공통 질문 생성 | 저장된 JD와 NCS 평가 기준 기반 공통 질문 생성 | 공고 ID, JD 질문 수, 정책 version | 정렬 결과가 포함된 공통 질문 후보 표시 | POST /company/interviews/questions/generate | NQ-M2 | 이력서 질문은 이 API에서 만들지 않음 |
 | 면접 관리 화면 | /company/interviews/settings | system process | 채용 면접 질문 구성 | 면접 질문 목록 구성 | 질문 유형, 질문 수, 평가 역량 | 면접 질문 목록 생성 및 세션 연결 가능 상태 전환 | POST /company/interviews/question-sets | v1.0 | 질문 뱅크 관리 화면에서 결과 확인 |
 | 면접 관리 화면 | /company/interviews/settings | form | 면접 시간 설정 | 면접 시간 정책 설정 | 준비 시간, 답변 시간, 재응시 허용 여부 | 면접 설정 저장 | PATCH /company/interviews/time-policy | v1.0 | 설정 저장 버튼은 면접 시간 설정 영역 우측 상단 배치 |
 

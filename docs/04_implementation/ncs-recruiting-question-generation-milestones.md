@@ -299,3 +299,18 @@ NQ-M3의 DB·이벤트 구현과 NQ-M5의 실제 평가 연결은 계약 없이 
 | NQ-M6 테스트·UI 마감 | `medium`, 실패 분석은 `high` | 테스트 작성은 명시적이며, 실패 원인 분리는 넓은 문맥이 필요 |
 
 한 세션에서 전부 `xhigh`로 처리하기보다 NQ-M0, NQ-M3, NQ-M5에서만 `xhigh`를 사용하고, 확정된 계약을 구현하는 단계는 `medium` 또는 `high`로 낮추는 편이 시간 대비 효율이 좋다.
+
+## 15. NQ-M0 Status
+
+2026-07-14 기준 작성 상태다.
+
+| Deliverable | Status | Source |
+| --- | --- | --- |
+| API, enum, error contract | 작성 완료 | `docs/03_contracts/api-spec.md`, `enums.md`, `error-codes.md` |
+| Logical data model, version, privacy boundary | 작성 완료 | `docs/02_architecture/ncs-recruiting-question-generation.md` |
+| Async trigger, retry, idempotency | 작성 완료 | `docs/02_architecture/async-ai-pipeline.md` |
+| Product flow and acceptance gates | 작성 완료 | `docs/01_product/screen-flow.md`, `feature-spec.md`, `docs/04_implementation/test-strategy.md` |
+| C/E/D/PM contract sign-off | 리뷰 대기 | 각 owner review 필요 |
+| Prisma/SQL/API/UI implementation | NQ-M0 제외 | NQ-M1~M4에서 진행 |
+
+NQ-M0 문서 작성은 완료됐지만 milestone exit는 C/E/D/PM 리뷰가 끝나야 충족된다. 리뷰 중 E evaluator의 profile ID, mode, version shape가 달라지면 E 계약을 기준으로 adapter mapping과 문서를 갱신한다.

@@ -143,6 +143,35 @@ cloud deploy workflow는 production 배포를 `docker-compose`로 수행하지 �
 - AI 처리 실패 시 리포트 생성 실패 상태와 재시도 안내 표시
 - 채용 리포트는 기업 상세에는 전체 노출, 지원자 결과 화면에는 제한 노출
 
+## NQ-M0 NCS Question Contract Gates
+
+NQ-M0는 문서 계약 milestone이다. 아래 항목은 후속 구현 PR의 acceptance test 이름과 기대 결과를 고정한다.
+
+| Area | Scenario | Expected |
+| --- | --- | --- |
+| Criteria | NCS framework로 평가 기준 저장 | 문제해결·의사소통·디지털 profile이 정확히 하나씩 존재하고 criteria version 증가 |
+| Criteria | profile 누락·중복·클라이언트 binding 변조 | `INTERVIEW_NCS_BINDING_INVALID`, 기존 설정 유지 |
+| Policy | JD 3, 이력서 3 저장 | policy version 증가, 두 source 합산 결과가 profile별 균등 allocation |
+| Policy | 합계 0 또는 21, NCS 합계 2 | `INTERVIEW_QUESTION_COUNT_INVALID`, 저장하지 않음 |
+| Common question | JD 질문 생성 요청 | client 원문이 아니라 저장된 posting JD와 criteria snapshot 사용 |
+| Alignment | 지정 profile 정렬 미달 | 같은 mode 최대 2회 재작성 후 허용 fallback만 사용, 미달이면 REVIEW_REQUIRED |
+| Application | 지원 완료 전 이력서 질문 | `WAITING_APPLICATION`, AI job 없음 |
+| Document | 지원 완료 후 추출 대기·실패 | `WAITING_DOCUMENT` 또는 `FAILED`, 빈 질문 확정 금지 |
+| Idempotency | 같은 지원/정책/기준/이력서 이벤트 중복 전달 | batch 하나, READY 질문 중복 없음 |
+| Session | 이력서 질문 수가 1 이상인데 READY 아님 | 세션 생성·면접 시작 409, 공통 질문 자동 대체 금지 |
+| Snapshot | 세션 생성 후 기준·정책 변경 | 기존 `interview_session_questions` 내용·순서·NCS version 불변 |
+| Isolation | 지원자 A/B가 같은 공고에 지원 | A 개인화 질문이 B 조회·세션에 포함되지 않음 |
+| Privacy | SQS/log/API 결과 점검 | 이력서 원문·추출 텍스트 없음, ID/version/hash만 존재 |
+| Legacy | NCS feature 비활성 공고 | 기존 평가 기준과 JD 질문 생성이 nullable binding으로 회귀 없이 동작 |
+
+브라우저 acceptance는 다음을 확인한다.
+
+- NCS 3개 기준의 이름과 profile binding은 고정되고 배점·순서만 편집된다.
+- JD 공통 질문 수와 이력서 개인화 질문 수가 서로 독립적으로 입력·저장된다.
+- 지원자가 없을 때 이력서 질문은 오류가 아니라 `지원 후 생성`으로 표시된다.
+- 기업 지원자 목록은 준비 중·준비 완료·검토 필요·실패를 구분하고 실패/검토 필요에서만 재시도를 제공한다.
+- 지원자 화면은 내부 AI 상태와 이력서 처리 상세를 노출하지 않고 `면접 준비 중`만 표시한다.
+
 ## Harness
 
 초기 구현 전에는 문서/계약/폴더 구조 하네스를 먼저 유지한다.
