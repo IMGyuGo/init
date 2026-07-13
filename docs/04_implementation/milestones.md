@@ -13,3 +13,7 @@ v0.5를 MVP 구현 단계로 나눈다.
 | M4 | Interview Runtime | 모의/채용 면접 세션, 질문, 답변, STT hook | 답변 저장과 다음 질문 이동 |
 | M5 | AI Report | 서류/답변 평가, 리포트, 근거, 수동 평가 | 기업 평가 상세 화면 구성 |
 | M6 | Hardening | 보안, 개인정보, 알림, CI/CD, 회귀 테스트 | 배포 가능한 품질 기준 충족 |
+
+## Feature Milestones
+
+- [NCS 채용면접 질문 생성 준비 마일스톤](./ncs-recruiting-question-generation-milestones.md)
