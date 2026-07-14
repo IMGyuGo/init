@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { getRouteAccess } from "./routePolicy";
+import { getLogoutRedirectPath, getRouteAccess } from "./routePolicy";
 
 test("company login is public even though it lives under the protected company prefix", () => {
   assert.deepEqual(getRouteAccess("/company/login"), { kind: "public" });
@@ -19,4 +19,12 @@ test("candidate pages remain candidate-only", () => {
     kind: "protected",
     allowedUserTypes: ["CANDIDATE"],
   });
+});
+
+test("company logout returns to the public candidate job list", () => {
+  assert.equal(getLogoutRedirectPath("COMPANY"), "/");
+});
+
+test("candidate logout keeps the candidate login destination", () => {
+  assert.equal(getLogoutRedirectPath("CANDIDATE"), "/login");
 });
