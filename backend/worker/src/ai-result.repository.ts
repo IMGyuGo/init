@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { NcsTextEvaluationOutput } from "./ncs-text-evaluation.types";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import type { AiWorkerJob, FailureCategory, FailureReason } from "./worker.types";
 
@@ -175,6 +176,19 @@ export interface GeneratedQuestionEvaluationRecord {
   evidences: GeneratedReportEvidenceRecord[];
 }
 
+export interface NcsAnswerEvaluationRecord {
+  reportId: number;
+  answerId: number;
+  sessionQuestionId: number;
+  criterionId: number;
+  criterionTitleSnapshot: string;
+  ncsProfileId: "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL";
+  ncsQuestionMode: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
+  ncsProfileVersion: string;
+  output: NcsTextEvaluationOutput;
+  question: string;
+}
+
 export type ReportAnswerEvaluationStatusRecord = "EVALUATED" | "STT_UNAVAILABLE";
 
 export const STT_UNAVAILABLE_TEMP_ZERO_REASON =
@@ -186,9 +200,10 @@ export interface GeneratedReportRecord {
   applicationId?: number;
   sessionId?: number;
   summary: string;
-  totalScore: number;
+  totalScore: number | null;
   scores: GeneratedReportScoreRecord[];
   questionEvaluations: GeneratedQuestionEvaluationRecord[];
+  ncsAnswerEvaluations?: NcsAnswerEvaluationRecord[];
 }
 
 export interface CommunicationAnalysisRecord {
@@ -207,6 +222,7 @@ export interface CommunicationAnalysisRecord {
 export interface ReportScoresRecord {
   reportId: number;
   scores: GeneratedReportScoreRecord[];
+  ncsAnswerEvaluations?: NcsAnswerEvaluationRecord[];
 }
 
 export interface FailedReportRecord {
@@ -318,6 +334,7 @@ export class InMemoryAiResultRepository implements AiResultRepository {
   readonly followUpQuestions: FollowUpQuestionRecord[] = [];
   readonly generatedDrafts: GeneratedDraftRecord[] = [];
   readonly reportScores = new Map<number, GeneratedReportScoreRecord[]>();
+  readonly ncsAnswerEvaluations = new Map<number, NcsAnswerEvaluationRecord[]>();
   readonly communicationAnalyses = new Map<number, CommunicationAnalysisRecord>();
   readonly generatedReports = new Map<number, GeneratedReportRecord>();
   readonly failedReports = new Map<number, FailedReportRecord>();
@@ -407,6 +424,9 @@ export class InMemoryAiResultRepository implements AiResultRepository {
   async saveReportScoresAndEvidences(record: ReportScoresRecord): Promise<void> {
     assertScoresHaveEvidence(record.scores);
     this.reportScores.set(record.reportId, record.scores);
+    if (record.ncsAnswerEvaluations) {
+      this.ncsAnswerEvaluations.set(record.reportId, record.ncsAnswerEvaluations);
+    }
   }
 
   async saveCommunicationAnalysis(record: CommunicationAnalysisRecord): Promise<void> {
@@ -415,8 +435,14 @@ export class InMemoryAiResultRepository implements AiResultRepository {
 
   async saveGeneratedReport(record: GeneratedReportRecord): Promise<void> {
     assertScoresHaveEvidence(record.scores);
-    assertQuestionEvaluationsHaveEvidence(record.questionEvaluations);
-    await this.saveReportScoresAndEvidences({ reportId: record.reportId, scores: record.scores });
+    if (record.questionEvaluations.length > 0) {
+      assertQuestionEvaluationsHaveEvidence(record.questionEvaluations);
+    }
+    await this.saveReportScoresAndEvidences({
+      reportId: record.reportId,
+      scores: record.scores,
+      ncsAnswerEvaluations: record.ncsAnswerEvaluations,
+    });
     this.generatedReports.set(record.reportId, record);
     this.failedReports.delete(record.reportId);
   }
