@@ -2,16 +2,16 @@ import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
-import { buildS3ClientOptions } from "../src/shared/s3-client-options";
 import {
   SEED_ACCOUNT_PASSWORD,
   SEED_COMPANY_LOGO_MIME_TYPE,
   companyJobListingSeeds,
   type SeedCompanyLogoObject,
 } from "./seed-data";
+import { buildSeedS3ClientOptions } from "./seed-s3-client-options";
 
 const prisma = new PrismaClient();
-const s3Client = new S3Client(buildS3ClientOptions());
+const s3Client = new S3Client(buildSeedS3ClientOptions());
 const s3Bucket = process.env.S3_BUCKET_NAME ?? process.env.S3_BUCKET;
 
 const now = () => new Date();
