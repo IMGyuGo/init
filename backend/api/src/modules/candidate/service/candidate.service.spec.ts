@@ -9,6 +9,9 @@ import { InMemoryCandidateDocumentStorageAdapter } from "./candidate-document-st
 import { createCandidateValidationException } from "../candidate.validation";
 import { InMemoryCandidateRepository } from "../repository/in-memory-candidate.repository";
 import type { SubmitApplicationDto } from "../dto/submit-application.dto";
+import { AiJobDispatcherService } from "../../report/service/ai-job-dispatcher.service";
+import { InMemoryAiJobQueuePublisher } from "../../report/service/ai-job-queue.publisher";
+import { InMemoryReportRepository } from "../../report/repository/in-memory-report.repository";
 
 function createSubmitApplicationDto(overrides: Partial<SubmitApplicationDto> = {}): SubmitApplicationDto {
   return {
@@ -27,7 +30,16 @@ function createSubmitApplicationDto(overrides: Partial<SubmitApplicationDto> = {
 }
 
 async function run() {
-  const service = new CandidateService(new InMemoryCandidateRepository());
+  const aiJobPublisher = new InMemoryAiJobQueuePublisher();
+  const aiJobDispatcher = new AiJobDispatcherService(
+    new InMemoryReportRepository(),
+    aiJobPublisher,
+  );
+  const service = new CandidateService(
+    new InMemoryCandidateRepository(),
+    undefined,
+    aiJobDispatcher,
+  );
 
   const currentUser = DEV_CANDIDATE_USER;
   assert.deepEqual(resolveCurrentCandidate(currentUser), currentUser);
@@ -520,6 +532,16 @@ async function run() {
   assert.equal(submitted.data.application.documentStatus, "SUBMITTED");
   assert.equal(submitted.data.application.interviewStatus, "NOT_READY");
   assert.equal(submitted.data.application.postingId, 1);
+  assert.equal(aiJobPublisher.messages.length, 1);
+  assert.equal(aiJobPublisher.messages[0].processType, "DOCUMENT_EXTRACT");
+  const extractionInput = JSON.parse(aiJobPublisher.messages[0].inputRef) as {
+    payload?: Record<string, unknown>;
+  };
+  assert.equal(extractionInput.payload?.applicationId, submitted.data.application.applicationId);
+  assert.equal(extractionInput.payload?.fileId, resume.data.fileId);
+  assert.equal(extractionInput.payload?.s3Key, resume.data.storageKey);
+  assert.equal("fileContent" in (extractionInput.payload ?? {}), false);
+  assert.equal("extractedText" in (extractionInput.payload ?? {}), false);
   assert.equal(submitted.data.application.candidateId, currentUser.candidateId);
   assert.equal(submitted.data.documents.length, 1);
   assert.equal(submitted.data.documents[0]?.applicationId, submitted.data.application.applicationId);

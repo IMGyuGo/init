@@ -67,7 +67,10 @@ export class AiWorkerRunner {
         if (!result.guardrail) {
           throw new NonRetryableAiWorkerFailure("guardrail result is required before final save");
         }
-        await result.finalSave();
+        const followUpJobs = await result.finalSave();
+        for (const followUpJob of followUpJobs ?? []) {
+          await this.queue.publish(followUpJob);
+        }
       }
 
       await this.repository.markCompleted(message.job.processLogId, result.outputRef, result.usage);

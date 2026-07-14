@@ -1,4 +1,4 @@
-import { AiResultRepository, FailedReportRecord } from "./ai-result.repository";
+import { AiResultRepository, FailedReportRecord, ResumeQuestionJobReference } from "./ai-result.repository";
 import { AiWorkerJob, FailureReason } from "./worker.types";
 
 interface ReportJobInput {
@@ -37,6 +37,14 @@ export function createReportFailureHandler(results: AiResultRepository) {
       return;
     }
 
+    if (job.processType === "RESUME_QUESTION_GENERATE") {
+      const reference = resumeQuestionReferenceFromJob(job);
+      if (reference) {
+        await results.markResumeQuestionGenerationFailed(reference, failure);
+      }
+      return;
+    }
+
     if (job.processType !== "REPORT_GENERATE") {
       return;
     }
@@ -48,6 +56,39 @@ export function createReportFailureHandler(results: AiResultRepository) {
 
     await results.markReportFailed(failedReport);
   };
+}
+
+function resumeQuestionReferenceFromJob(job: AiWorkerJob): ResumeQuestionJobReference | undefined {
+  try {
+    const input = JSON.parse(job.inputRef) as Record<string, unknown>;
+    const reference = {
+      processLogId: job.processLogId,
+      applicationId: Number(input.applicationId),
+      postingId: Number(input.postingId),
+      documentId: Number(input.documentId),
+      policyVersion: Number(input.policyVersion),
+      criteriaVersion: Number(input.criteriaVersion),
+      inputVersion: String(input.inputVersion ?? ""),
+      resumeDocumentHash: String(input.resumeDocumentHash ?? ""),
+      jdSnapshotHash: String(input.jdSnapshotHash ?? ""),
+    };
+    const positiveNumbers = [
+      reference.processLogId,
+      reference.applicationId,
+      reference.postingId,
+      reference.documentId,
+      reference.policyVersion,
+      reference.criteriaVersion,
+    ];
+    return positiveNumbers.every((value) => Number.isInteger(value) && value > 0) &&
+      reference.inputVersion.length > 0 &&
+      reference.resumeDocumentHash.length > 0 &&
+      reference.jdSnapshotHash.length > 0
+      ? reference
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function documentRefFromJob(job: AiWorkerJob): { documentId: number; fileId?: number } | undefined {

@@ -21,6 +21,8 @@ export interface QuestionGenerationInput {
   jobDescription: string;
   questionCount: number;
   criteria: QuestionGenerationCriterion[];
+  source?: "JD_CRITERIA" | "RESUME_PERSONALIZED";
+  resumeText?: string;
 }
 
 export interface QuestionGenerationCandidate {
@@ -85,7 +87,9 @@ export function buildQuestionMessages(input: QuestionGenerationInput): Array<{ r
     {
       role: "system",
       content: [
-        "You generate Korean common interview question candidates for a company interview settings screen.",
+        input.source === "RESUME_PERSONALIZED"
+          ? "You generate Korean resume-personalized recruiting interview questions."
+          : "You generate Korean common interview question candidates for a company interview settings screen.",
         "Return JSON only with key questionCandidates.",
         "Every question candidate must use exactly one criterionId from the provided criteria array.",
         "When criteria[].questionCount is provided, generate exactly that many candidates for each criterion.",
@@ -98,18 +102,22 @@ export function buildQuestionMessages(input: QuestionGenerationInput): Array<{ r
         "category must equal the matched criterion category when provided, otherwise use a concise Korean category.",
         "Generate only questions that can be saved to the question bank after human review.",
         "Do not include final hiring pass/fail judgments, sensitive attributes, appearance, eye contact, voice tone, age, gender, school, region, disability, or health.",
-        "Questions must evaluate observable work evidence through answer content."
+        "Questions must evaluate observable work evidence through answer content.",
+        "For resume-personalized questions, use only experiences present in resumeText and include only the minimum non-sensitive experience context needed to identify the experience."
       ].join("\n")
     },
     {
       role: "user",
       content: JSON.stringify({
-        task: "Generate review-only common interview question candidates based on the JD and saved evaluation criteria.",
+        task: input.source === "RESUME_PERSONALIZED"
+          ? "Generate application-specific interview questions based on the JD, saved evaluation criteria, and extracted resume text."
+          : "Generate review-only common interview question candidates based on the JD and saved evaluation criteria.",
         kind: input.kind,
         postingId: input.postingId,
         jobDescription: input.jobDescription,
         questionCount: input.questionCount,
         criteria: input.criteria,
+        resumeText: input.source === "RESUME_PERSONALIZED" ? input.resumeText : undefined,
         outputContract: {
           questionCandidates: [
             {

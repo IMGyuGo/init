@@ -7,6 +7,7 @@ export type AiProcessType =
   | "GUARDRAIL_VALIDATE"
   | "CRITERIA_SUGGEST"
   | "QUESTION_GENERATE"
+  | "RESUME_QUESTION_GENERATE"
   | "QUESTION_SET_GENERATE"
   | "POSTING_DRAFT_GENERATE";
 
@@ -52,7 +53,7 @@ export interface AiProcessUsage {
 export interface AiTaskResult {
   outputRef?: string;
   guardrail?: GuardrailDecision;
-  finalSave?: () => Promise<void>;
+  finalSave?: () => Promise<AiWorkerJob[] | void>;
   usage?: AiProcessUsage;
 }
 

@@ -1163,6 +1163,81 @@ test("AI golden fixtures execute through the mock worker handler", async () => {
   }
 });
 
+test("resume-personalized questions stay isolated by application and do not expose resume text", async () => {
+  const results = new InMemoryAiResultRepository();
+  const contexts = [
+    { applicationId: 101, processLogId: 2101, inputVersion: "resume-input-101", privateText: "PRIVATE_RESUME_ALPHA" },
+    { applicationId: 102, processLogId: 2102, inputVersion: "resume-input-102", privateText: "PRIVATE_RESUME_BETA" },
+  ];
+
+  for (const context of contexts) {
+    const reference = {
+      processLogId: context.processLogId,
+      applicationId: context.applicationId,
+      postingId: 7,
+      documentId: context.applicationId + 1000,
+      policyVersion: 3,
+      criteriaVersion: 2,
+      inputVersion: context.inputVersion,
+      resumeDocumentHash: `resume-hash-${context.applicationId}`,
+      jdSnapshotHash: "jd-hash-7",
+    };
+    results.setResumeQuestionGenerationContext({
+      ...reference,
+      batchId: context.applicationId + 2000,
+      questionCount: 3,
+      jobDescription: "NestJS API와 PostgreSQL을 운영하는 백엔드 엔지니어",
+      resumeText: `${context.privateText}: 실제 지원자 이력서 원문`,
+      criteria: [
+        {
+          criterionId: 1,
+          name: "문제해결능력",
+          category: "NCS",
+          questionCount: 1,
+          ncsProfileId: "PROBLEM_SOLVING",
+          ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+          ncsProfileVersion: "2025.12-v1",
+        },
+        {
+          criterionId: 2,
+          name: "의사소통능력",
+          category: "NCS",
+          questionCount: 1,
+          ncsProfileId: "COMMUNICATION",
+          ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+          ncsProfileVersion: "2025.12-v1",
+        },
+        {
+          criterionId: 3,
+          name: "디지털역량",
+          category: "NCS",
+          questionCount: 1,
+          ncsProfileId: "DIGITAL",
+          ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+          ncsProfileVersion: "2025.12-v1",
+        },
+      ],
+    });
+
+    const repository = await run({
+      processLogId: reference.processLogId,
+      processType: "RESUME_QUESTION_GENERATE",
+      input: reference,
+      results,
+    });
+    const outputRef = repository.get(reference.processLogId).outputRef ?? "";
+    assert.equal(outputRef.includes(context.privateText), false);
+  }
+
+  assert.deepEqual([...results.resumeQuestionResults.keys()], [101, 102]);
+  for (const context of contexts) {
+    const generated = results.resumeQuestionResults.get(context.applicationId);
+    assert.equal(generated?.status, "READY");
+    assert.equal(generated?.questions.length, 3);
+    assert.equal(generated?.questions.every((question) => question.alignmentStatus === "ALIGNED"), true);
+  }
+});
+
 async function run(args: {
   processLogId: number;
   processType: AiProcessType;

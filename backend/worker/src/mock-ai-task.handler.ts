@@ -5,6 +5,9 @@ import {
   GeneratedQuestionEvaluationRecord,
   GeneratedReportRecord,
   GeneratedReportScoreRecord,
+  PersonalizedQuestionRecord,
+  ResumeQuestionGenerationContext,
+  ResumeQuestionJobReference,
   ReportAnswerEvaluationStatusRecord,
   STT_UNAVAILABLE_TEMP_ZERO_REASON,
   hashSourceText
@@ -152,6 +155,8 @@ export class MockAiTaskHandler implements AiTaskHandler {
         return this.criteriaSuggest(payload, job.processLogId);
       case "QUESTION_GENERATE":
         return this.questionGenerate(input.kind ?? "RECRUITING_QUESTION_GENERATE", payload, job.processLogId);
+      case "RESUME_QUESTION_GENERATE":
+        return this.resumeQuestionGenerate(job);
       case "QUESTION_SET_GENERATE":
         return this.questionSetGenerate(payload, job.processLogId);
       case "POSTING_DRAFT_GENERATE":
@@ -718,6 +723,65 @@ export class MockAiTaskHandler implements AiTaskHandler {
     };
   }
 
+  private async resumeQuestionGenerate(job: AiWorkerJob): Promise<AiTaskResult> {
+    const reference = resumeQuestionReferenceOf(job);
+    const context = await this.results.loadResumeQuestionGenerationContext(reference);
+    const allocatedCriteria = context.criteria.flatMap((criterion) =>
+      Array.from({ length: criterion.questionCount }, () => criterion),
+    );
+    if (allocatedCriteria.length !== context.questionCount) {
+      throw new NonRetryableAiWorkerFailure("resume question allocation must equal questionCount");
+    }
+
+    const questions: PersonalizedQuestionRecord[] = allocatedCriteria.map((criterion, index) => {
+      const content = buildMockPersonalizedQuestion(criterion.ncsProfileId, index);
+      const alignment = alignNcsQuestion({
+        question: content,
+        profileId: criterion.ncsProfileId,
+        questionMode: criterion.ncsQuestionMode,
+        profileVersion: criterion.ncsProfileVersion,
+      });
+      return {
+        criterionId: criterion.criterionId,
+        criterionTitleSnapshot: criterion.name,
+        questionType: criterion.ncsQuestionMode === "TECHNICAL_KNOWLEDGE"
+          ? "TECHNICAL"
+          : criterion.ncsQuestionMode === "SITUATIONAL_DESIGN"
+            ? "SITUATION"
+            : "EXPERIENCE",
+        content,
+        ncsProfileId: criterion.ncsProfileId,
+        ncsQuestionMode: criterion.ncsQuestionMode,
+        ncsProfileVersion: alignment.profileVersion,
+        alignmentStatus: alignment.status === "ALIGNED" ? "ALIGNED" : "REVIEW_REQUIRED",
+        alignmentScore: alignment.score,
+        alignmentReason: alignment.reason,
+        evaluatorVersion: alignment.evaluatorVersion,
+        sortOrder: index + 1,
+      };
+    });
+    const ready = questions.every((question) => question.alignmentStatus === "ALIGNED");
+    const result = {
+      reference,
+      status: ready ? "READY" as const : "REVIEW_REQUIRED" as const,
+      evaluatorVersion: questions[0]?.evaluatorVersion ?? null,
+      failureReason: ready ? null : "Mock personalized question alignment requires review.",
+      questions,
+    };
+    return {
+      outputRef: JSON.stringify({
+        kind: "RESUME_PERSONALIZED_QUESTION_GENERATE",
+        applicationId: context.applicationId,
+        postingId: context.postingId,
+        inputVersion: context.inputVersion,
+        status: result.status,
+        questions,
+      }),
+      guardrail: { result: "PASS", reason: null },
+      finalSave: () => this.results.saveResumeQuestionGeneration(result),
+    };
+  }
+
   private validateMockPolicy(policy: "MOCK" | "RECRUITING", text: string) {
     if (policy !== "MOCK") {
       return { result: "PASS" as const, reason: null };
@@ -1142,6 +1206,7 @@ function buildRecruitingQuestionCandidate(
   if (criterion.ncsProfileId === "PROBLEM_SOLVING") {
     return `${jd} 업무에서 문제 원인을 분석하고 대안을 비교해 선택한 뒤 결과를 어떻게 검증했는지 설명해주세요.`;
   }
+
   if (criterion.ncsProfileId === "COMMUNICATION") {
     return `${jd} 업무를 상대에 맞춰 구조적으로 설명하고 협업 과정의 이해와 합의를 어떻게 확인했는지 설명해주세요.`;
   }
@@ -1866,4 +1931,40 @@ function structuredAssessment(
 
 function shorten(value: string): string {
   return value.length > 80 ? `${value.slice(0, 77)}...` : value;
+}
+
+function resumeQuestionReferenceOf(job: AiWorkerJob): ResumeQuestionJobReference {
+  let input: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(job.inputRef) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("invalid input");
+    input = parsed as Record<string, unknown>;
+  } catch {
+    throw new NonRetryableAiWorkerFailure("resume question job inputRef is invalid");
+  }
+
+  return {
+    processLogId: job.processLogId,
+    applicationId: positiveNumber(input.applicationId, "applicationId"),
+    postingId: positiveNumber(input.postingId, "postingId"),
+    documentId: positiveNumber(input.documentId, "documentId"),
+    policyVersion: positiveNumber(input.policyVersion, "policyVersion"),
+    criteriaVersion: positiveNumber(input.criteriaVersion, "criteriaVersion"),
+    inputVersion: requiredText(input.inputVersion, "inputVersion"),
+    resumeDocumentHash: requiredText(input.resumeDocumentHash, "resumeDocumentHash"),
+    jdSnapshotHash: requiredText(input.jdSnapshotHash, "jdSnapshotHash"),
+  };
+}
+
+function buildMockPersonalizedQuestion(
+  profileId: ResumeQuestionGenerationContext["criteria"][number]["ncsProfileId"],
+  index: number,
+): string {
+  if (profileId === "PROBLEM_SOLVING") {
+    return `이력서의 프로젝트 경험 ${index + 1}에서 문제 원인을 분석하고 대안을 비교해 선택한 뒤 결과를 측정하고 검증한 과정을 설명해주세요?`;
+  }
+  if (profileId === "COMMUNICATION") {
+    return `이력서의 협업 경험 ${index + 1}에서 이해관계자에게 내용을 구조적으로 설명하고 상대의 피드백을 확인해 합의한 과정을 설명해주세요?`;
+  }
+  return `이력서의 기술 경험 ${index + 1}에서 시스템 원리를 이해하고 실제 구현에 적용한 뒤 장애·보안 위험을 테스트하고 검증한 과정을 설명해주세요?`;
 }

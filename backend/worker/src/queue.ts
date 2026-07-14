@@ -1,8 +1,9 @@
-import { DeleteMessageCommand, MessageSystemAttributeName, ReceiveMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
-import { AiQueueMessage } from "./worker.types";
+import { DeleteMessageCommand, MessageSystemAttributeName, ReceiveMessageCommand, SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { AiQueueMessage, AiWorkerJob } from "./worker.types";
 
 export interface AiJobQueue {
   receive(maxMessages: number): Promise<AiQueueMessage[]>;
+  publish(job: AiWorkerJob): Promise<void>;
   delete(message: AiQueueMessage): Promise<void>;
 }
 
@@ -15,6 +16,15 @@ export class InMemoryAiJobQueue implements AiJobQueue {
     return this.messages.slice(0, maxMessages);
   }
 
+  async publish(job: AiWorkerJob): Promise<void> {
+    this.messages.push({
+      messageId: `memory-${job.processLogId}-${this.messages.length + 1}`,
+      receiptHandle: `memory-receipt-${job.processLogId}-${this.messages.length + 1}`,
+      job,
+      receiveCount: 1,
+    });
+  }
+
   async delete(message: AiQueueMessage): Promise<void> {
     this.deletedMessageIds.push(message.messageId);
     const index = this.messages.findIndex((item) => item.messageId === message.messageId);
@@ -22,6 +32,7 @@ export class InMemoryAiJobQueue implements AiJobQueue {
       this.messages.splice(index, 1);
     }
   }
+
 }
 
 export class SqsAiJobQueue implements AiJobQueue {
@@ -52,6 +63,19 @@ export class SqsAiJobQueue implements AiJobQueue {
         receiveCount: parseReceiveCount(message.Attributes?.ApproximateReceiveCount)
       };
     });
+  }
+
+  async publish(job: AiWorkerJob): Promise<void> {
+    await this.client.send(
+      new SendMessageCommand({
+        QueueUrl: this.queueUrl,
+        MessageBody: JSON.stringify(job),
+        MessageAttributes: {
+          processType: { DataType: "String", StringValue: job.processType },
+          processLogId: { DataType: "Number", StringValue: String(job.processLogId) },
+        },
+      })
+    );
   }
 
   async delete(message: AiQueueMessage): Promise<void> {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   AiResultRepository,
   CommunicationAnalysisRecord,
@@ -10,18 +11,70 @@ import {
   GeneratedDraftRecord,
   GeneratedReportRecord,
   GeneratedReportScoreRecord,
+  ResumeQuestionGenerationContext,
+  ResumeQuestionGenerationResult,
+  ResumeQuestionJobReference,
   assertQuestionEvaluationsHaveEvidence,
   TranscriptRecord,
   assertScoresHaveEvidence,
   hashSourceText
 } from "./ai-result.repository";
+import { NonRetryableAiWorkerFailure } from "./worker-errors";
+import { AiWorkerJob, FailureReason } from "./worker.types";
+
+interface ResumeQuestionDocumentRow {
+  documentId: bigint;
+  documentType: string;
+  parseStatus: string;
+  extractedText: string | null;
+  application: {
+    applicationId: bigint;
+    applicationStatus: string;
+    submittedAt: Date | null;
+    posting: {
+      postingId: bigint;
+      jobDescription: string | null;
+      questionGenerationPolicy: {
+        evaluationFramework: string;
+        jdCriteriaQuestionCount: number;
+        resumeQuestionCount: number;
+        policyVersion: number;
+        criteriaVersion: number;
+      } | null;
+      criteria: Array<{
+        criterionId: bigint;
+        description: string | null;
+        sortOrder: number;
+        ncsProfileId: string | null;
+        ncsQuestionMode: string | null;
+        ncsProfileVersion: string | null;
+        tag: { name: string; category: string };
+      }>;
+    };
+  };
+}
+
+interface ResumeQuestionBatchRow {
+  batchId: bigint;
+  applicationId: bigint;
+  latestProcessLogId: bigint;
+  status: string;
+  policyVersion: number;
+  criteriaVersion: number;
+  inputVersion: string;
+  resumeDocumentHash: string;
+  jdSnapshotHash: string;
+}
 
 interface PrismaAiResultClient {
+  $transaction?<T>(operation: (transaction: PrismaAiResultClient) => Promise<T>): Promise<T>;
   application: {
     updateMany(args: unknown): Promise<unknown>;
+    findUnique?(args: unknown): Promise<ResumeQuestionDocumentRow["application"] | null>;
   };
   applicationDocument: {
     updateMany(args: unknown): Promise<unknown>;
+    findUnique?(args: unknown): Promise<ResumeQuestionDocumentRow | null>;
   };
   interviewAnswer: {
     updateMany(args: unknown): Promise<unknown>;
@@ -47,6 +100,16 @@ interface PrismaAiResultClient {
   };
   aiProcessLog: {
     update(args: unknown): Promise<unknown>;
+    create?(args: unknown): Promise<unknown>;
+  };
+  applicationInterviewQuestionBatch?: {
+    findUnique(args: unknown): Promise<ResumeQuestionBatchRow | null>;
+    create(args: unknown): Promise<ResumeQuestionBatchRow>;
+    updateMany(args: unknown): Promise<unknown>;
+  };
+  applicationInterviewQuestion?: {
+    deleteMany(args: unknown): Promise<unknown>;
+    createMany(args: unknown): Promise<unknown>;
   };
 }
 
@@ -66,18 +129,27 @@ export class PrismaAiResultRepository implements AiResultRepository {
     });
   }
 
-  async saveDocumentExtraction(record: DocumentExtractionRecord): Promise<void> {
-    await this.prisma.applicationDocument.updateMany({
-      where: {
-        documentId: BigInt(record.documentId),
-        fileId: BigInt(record.fileId),
-        parseStatus: { not: "EXTRACTED" }
-      },
-      data: {
-        parseStatus: "EXTRACTED",
-        extractedText: record.extractedText
-      }
-    });
+  async saveDocumentExtraction(record: DocumentExtractionRecord): Promise<AiWorkerJob[]> {
+    try {
+      return await this.transaction(async (transaction) => {
+        await transaction.applicationDocument.updateMany({
+          where: {
+            documentId: BigInt(record.documentId),
+            fileId: BigInt(record.fileId),
+            parseStatus: { not: "EXTRACTED" }
+          },
+          data: {
+            parseStatus: "EXTRACTED",
+            extractedText: record.extractedText
+          }
+        });
+
+        return this.prepareResumeQuestionGeneration(transaction, record.documentId);
+      });
+    } catch (error) {
+      if (isUniqueConstraintFailure(error)) return [];
+      throw error;
+    }
   }
 
   async markDocumentExtractionFailed(record: FailedDocumentExtractionRecord): Promise<void> {
@@ -89,6 +161,142 @@ export class PrismaAiResultRepository implements AiResultRepository {
       },
       data: {
         parseStatus: "FAILED"
+      }
+    });
+  }
+
+  async loadResumeQuestionGenerationContext(reference: ResumeQuestionJobReference): Promise<ResumeQuestionGenerationContext> {
+    const application = await this.prisma.application.findUnique!({
+      where: { applicationId: BigInt(reference.applicationId) },
+      include: {
+        documents: { where: { documentId: BigInt(reference.documentId) } },
+        posting: {
+          include: {
+            questionGenerationPolicy: true,
+            criteria: { include: { tag: true }, orderBy: { sortOrder: "asc" } }
+          }
+        }
+      }
+    }) as (ResumeQuestionDocumentRow["application"] & { documents: Array<Omit<ResumeQuestionDocumentRow, "application">> }) | null;
+    if (!application) {
+      throw new NonRetryableAiWorkerFailure("resume question application was not found");
+    }
+
+    const document = application.documents[0];
+    const policy = application.posting.questionGenerationPolicy;
+    const jobDescription = application.posting.jobDescription?.trim();
+    if (!document || document.parseStatus !== "EXTRACTED" || !document.extractedText?.trim()) {
+      throw new NonRetryableAiWorkerFailure("extracted resume document is required");
+    }
+    if (!policy || policy.resumeQuestionCount <= 0 || policy.evaluationFramework !== "NCS_3_PROFILE_V1") {
+      throw new NonRetryableAiWorkerFailure("NCS resume question policy is not enabled");
+    }
+    if (!jobDescription) {
+      throw new NonRetryableAiWorkerFailure("posting job description is required");
+    }
+
+    const resumeDocumentHash = hashText(document.extractedText);
+    const jdSnapshotHash = hashText(jobDescription);
+    if (
+      policy.policyVersion !== reference.policyVersion ||
+      policy.criteriaVersion !== reference.criteriaVersion ||
+      resumeDocumentHash !== reference.resumeDocumentHash ||
+      jdSnapshotHash !== reference.jdSnapshotHash
+    ) {
+      throw new NonRetryableAiWorkerFailure("resume question input snapshot is stale");
+    }
+
+    const batch = await this.prisma.applicationInterviewQuestionBatch!.findUnique({
+      where: {
+        applicationId_policyVersion_criteriaVersion_jdSnapshotHash_resumeDocumentHash: {
+          applicationId: BigInt(reference.applicationId),
+          policyVersion: reference.policyVersion,
+          criteriaVersion: reference.criteriaVersion,
+          jdSnapshotHash,
+          resumeDocumentHash
+        }
+      }
+    });
+    if (!batch || Number(batch.latestProcessLogId) !== reference.processLogId || batch.status !== "GENERATING") {
+      throw new NonRetryableAiWorkerFailure("resume question generation batch is not active");
+    }
+
+    const allocatedCriteria = allocateResumeCriteria(
+      application.posting.criteria,
+      policy.jdCriteriaQuestionCount,
+      policy.resumeQuestionCount,
+    );
+
+    return {
+      ...reference,
+      batchId: Number(batch.batchId),
+      questionCount: policy.resumeQuestionCount,
+      jobDescription,
+      resumeText: document.extractedText,
+      criteria: allocatedCriteria,
+    };
+  }
+
+  async saveResumeQuestionGeneration(record: ResumeQuestionGenerationResult): Promise<void> {
+    await this.transaction(async (transaction) => {
+      const batch = await transaction.applicationInterviewQuestionBatch!.findUnique({
+        where: {
+          applicationId_policyVersion_criteriaVersion_jdSnapshotHash_resumeDocumentHash: {
+            applicationId: BigInt(record.reference.applicationId),
+            policyVersion: record.reference.policyVersion,
+            criteriaVersion: record.reference.criteriaVersion,
+            jdSnapshotHash: record.reference.jdSnapshotHash,
+            resumeDocumentHash: record.reference.resumeDocumentHash
+          }
+        }
+      });
+      if (!batch || Number(batch.latestProcessLogId) !== record.reference.processLogId) {
+        throw new NonRetryableAiWorkerFailure("resume question generation batch changed before save");
+      }
+
+      await transaction.applicationInterviewQuestion!.deleteMany({ where: { batchId: batch.batchId } });
+      if (record.questions.length > 0) {
+        await transaction.applicationInterviewQuestion!.createMany({
+          data: record.questions.map((question) => ({
+            batchId: batch.batchId,
+            criterionId: BigInt(question.criterionId),
+            sourceProcessLogId: BigInt(record.reference.processLogId),
+            criterionTitleSnapshot: question.criterionTitleSnapshot,
+            source: "RESUME_PERSONALIZED",
+            questionType: question.questionType,
+            content: question.content,
+            ncsProfileId: question.ncsProfileId,
+            ncsQuestionMode: question.ncsQuestionMode,
+            ncsProfileVersion: question.ncsProfileVersion,
+            alignmentStatus: question.alignmentStatus,
+            alignmentScore: question.alignmentScore,
+            alignmentReason: question.alignmentReason,
+            evaluatorVersion: question.evaluatorVersion,
+            sortOrder: question.sortOrder
+          }))
+        });
+      }
+      await transaction.applicationInterviewQuestionBatch!.updateMany({
+        where: { batchId: batch.batchId, latestProcessLogId: BigInt(record.reference.processLogId) },
+        data: {
+          status: record.status,
+          evaluatorVersion: record.evaluatorVersion,
+          failureReason: record.failureReason
+        }
+      });
+    });
+  }
+
+  async markResumeQuestionGenerationFailed(reference: ResumeQuestionJobReference, failure: FailureReason): Promise<void> {
+    await this.prisma.applicationInterviewQuestionBatch!.updateMany({
+      where: {
+        applicationId: BigInt(reference.applicationId),
+        latestProcessLogId: BigInt(reference.processLogId),
+        inputVersion: reference.inputVersion
+      },
+      data: {
+        status: "FAILED",
+        failureReason: sanitizeFailureReason(failure.reason)
       }
     });
   }
@@ -252,6 +460,133 @@ export class PrismaAiResultRepository implements AiResultRepository {
     };
   }
 
+  private async transaction<T>(operation: (transaction: PrismaAiResultClient) => Promise<T>): Promise<T> {
+    return this.prisma.$transaction ? this.prisma.$transaction(operation) : operation(this.prisma);
+  }
+
+  private async prepareResumeQuestionGeneration(
+    transaction: PrismaAiResultClient,
+    documentId: number,
+  ): Promise<AiWorkerJob[]> {
+    const document = await transaction.applicationDocument.findUnique!({
+      where: { documentId: BigInt(documentId) },
+      include: {
+        application: {
+          include: {
+            posting: {
+              include: {
+                questionGenerationPolicy: true,
+                criteria: { include: { tag: true }, orderBy: { sortOrder: "asc" } }
+              }
+            }
+          }
+        }
+      }
+    });
+    if (
+      !document ||
+      document.documentType !== "RESUME" ||
+      document.parseStatus !== "EXTRACTED" ||
+      !document.extractedText?.trim() ||
+      document.application.applicationStatus !== "SUBMITTED" ||
+      !document.application.submittedAt
+    ) {
+      return [];
+    }
+
+    const posting = document.application.posting;
+    const policy = posting.questionGenerationPolicy;
+    const jobDescription = posting.jobDescription?.trim();
+    if (
+      !policy ||
+      policy.evaluationFramework !== "NCS_3_PROFILE_V1" ||
+      policy.resumeQuestionCount <= 0 ||
+      policy.policyVersion <= 0 ||
+      policy.criteriaVersion <= 0 ||
+      !jobDescription ||
+      !hasCompleteNcsCriteria(posting.criteria)
+    ) {
+      return [];
+    }
+
+    const applicationId = Number(document.application.applicationId);
+    const postingId = Number(posting.postingId);
+    const resumeDocumentHash = hashText(document.extractedText);
+    const jdSnapshotHash = hashText(jobDescription);
+    const inputVersion = hashText([
+      applicationId,
+      policy.policyVersion,
+      policy.criteriaVersion,
+      jdSnapshotHash,
+      resumeDocumentHash,
+    ].join(":"));
+    const businessKey = {
+      applicationId: BigInt(applicationId),
+      policyVersion: policy.policyVersion,
+      criteriaVersion: policy.criteriaVersion,
+      jdSnapshotHash,
+      resumeDocumentHash,
+    };
+
+    await transaction.applicationInterviewQuestionBatch!.updateMany({
+      where: {
+        applicationId: BigInt(applicationId),
+        status: { in: ["READY", "REVIEW_REQUIRED"] },
+        NOT: businessKey,
+      },
+      data: { status: "STALE" },
+    });
+
+    const existing = await transaction.applicationInterviewQuestionBatch!.findUnique({
+      where: { applicationId_policyVersion_criteriaVersion_jdSnapshotHash_resumeDocumentHash: businessKey },
+    });
+    if (existing) {
+      return [];
+    }
+
+    const process = await transaction.aiProcessLog.create!({
+      data: {
+        applicationId: BigInt(applicationId),
+        processType: "RESUME_QUESTION_GENERATE",
+        status: "PENDING",
+        inputRef: null,
+      },
+      select: { processLogId: true },
+    }) as { processLogId: bigint };
+    const reference: ResumeQuestionJobReference = {
+      processLogId: Number(process.processLogId),
+      applicationId,
+      postingId,
+      documentId,
+      policyVersion: policy.policyVersion,
+      criteriaVersion: policy.criteriaVersion,
+      inputVersion,
+      resumeDocumentHash,
+      jdSnapshotHash,
+    };
+    const inputRef = JSON.stringify(reference);
+    await transaction.aiProcessLog.update({
+      where: { processLogId: process.processLogId },
+      data: { inputRef },
+    });
+    await transaction.applicationInterviewQuestionBatch!.create({
+      data: {
+        ...businessKey,
+        latestProcessLogId: process.processLogId,
+        status: "GENERATING",
+        inputVersion,
+        attemptCount: 1,
+      },
+    });
+
+    return [{
+      processLogId: reference.processLogId,
+      processType: "RESUME_QUESTION_GENERATE",
+      inputRef,
+      attempt: 1,
+    }];
+  }
+
   private nextId(): bigint {
     return BigInt(Date.now()) * BigInt(1000) + BigInt(Math.floor(Math.random() * 1000));
   }
@@ -300,4 +635,70 @@ export class PrismaAiResultRepository implements AiResultRepository {
     });
     return criterion ? BigInt(criterionId) : null;
   }
+}
+
+function hashText(value: string): string {
+  return createHash("sha256").update(value.trim(), "utf8").digest("hex");
+}
+
+function hasCompleteNcsCriteria(criteria: ResumeQuestionDocumentRow["application"]["posting"]["criteria"]): boolean {
+  return criteria.length > 0 && criteria.every((criterion) =>
+    isNcsProfileId(criterion.ncsProfileId) &&
+    isNcsQuestionMode(criterion.ncsQuestionMode) &&
+    Boolean(criterion.ncsProfileVersion?.trim())
+  );
+}
+
+function allocateResumeCriteria(
+  criteria: ResumeQuestionDocumentRow["application"]["posting"]["criteria"],
+  jdQuestionCount: number,
+  resumeQuestionCount: number,
+): ResumeQuestionGenerationContext["criteria"] {
+  if (!hasCompleteNcsCriteria(criteria)) {
+    throw new NonRetryableAiWorkerFailure("complete NCS criteria are required");
+  }
+  const allocations = new Map<number, number>();
+  const total = jdQuestionCount + resumeQuestionCount;
+  for (let index = jdQuestionCount; index < total; index += 1) {
+    const criterion = criteria[index % criteria.length];
+    const criterionId = Number(criterion.criterionId);
+    allocations.set(criterionId, (allocations.get(criterionId) ?? 0) + 1);
+  }
+
+  return criteria
+    .map((criterion) => {
+      const criterionId = Number(criterion.criterionId);
+      const questionCount = allocations.get(criterionId) ?? 0;
+      if (questionCount === 0) return null;
+      if (!isNcsProfileId(criterion.ncsProfileId) || !isNcsQuestionMode(criterion.ncsQuestionMode) || !criterion.ncsProfileVersion) {
+        throw new NonRetryableAiWorkerFailure("NCS criterion metadata is invalid");
+      }
+      return {
+        criterionId,
+        name: criterion.tag.name,
+        category: criterion.tag.category,
+        description: criterion.description ?? undefined,
+        questionCount,
+        ncsProfileId: criterion.ncsProfileId,
+        ncsQuestionMode: criterion.ncsQuestionMode,
+        ncsProfileVersion: criterion.ncsProfileVersion,
+      };
+    })
+    .filter((criterion): criterion is NonNullable<typeof criterion> => criterion !== null);
+}
+
+function isNcsProfileId(value: string | null): value is ResumeQuestionGenerationContext["criteria"][number]["ncsProfileId"] {
+  return value === "PROBLEM_SOLVING" || value === "COMMUNICATION" || value === "DIGITAL";
+}
+
+function isNcsQuestionMode(value: string | null): value is ResumeQuestionGenerationContext["criteria"][number]["ncsQuestionMode"] {
+  return value === "EXPERIENCE_BEHAVIOR" || value === "TECHNICAL_KNOWLEDGE" || value === "SITUATIONAL_DESIGN";
+}
+
+function sanitizeFailureReason(value: string): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, 500);
+}
+
+function isUniqueConstraintFailure(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "P2002");
 }

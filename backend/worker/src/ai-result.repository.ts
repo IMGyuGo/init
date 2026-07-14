@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
-import type { FailureCategory } from "./worker.types";
+import type { AiWorkerJob, FailureCategory, FailureReason } from "./worker.types";
 
 export interface DocumentExtractionRecord {
   documentId: number;
@@ -17,6 +17,60 @@ export interface DocumentExtractionStatusRecord {
 export interface FailedDocumentExtractionRecord {
   documentId: number;
   fileId?: number;
+}
+
+export interface ResumeQuestionJobReference {
+  processLogId: number;
+  applicationId: number;
+  postingId: number;
+  documentId: number;
+  policyVersion: number;
+  criteriaVersion: number;
+  inputVersion: string;
+  resumeDocumentHash: string;
+  jdSnapshotHash: string;
+}
+
+export interface ResumeQuestionGenerationCriterion {
+  criterionId: number;
+  name: string;
+  category: string;
+  description?: string;
+  questionCount: number;
+  ncsProfileId: "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL";
+  ncsQuestionMode: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
+  ncsProfileVersion: string;
+}
+
+export interface ResumeQuestionGenerationContext extends ResumeQuestionJobReference {
+  batchId: number;
+  questionCount: number;
+  jobDescription: string;
+  resumeText: string;
+  criteria: ResumeQuestionGenerationCriterion[];
+}
+
+export interface PersonalizedQuestionRecord {
+  criterionId: number;
+  criterionTitleSnapshot: string;
+  questionType: "INTRO" | "TECHNICAL" | "EXPERIENCE" | "SITUATION" | "FOLLOW_UP" | "CLOSING";
+  content: string;
+  ncsProfileId: ResumeQuestionGenerationCriterion["ncsProfileId"];
+  ncsQuestionMode: ResumeQuestionGenerationCriterion["ncsQuestionMode"];
+  ncsProfileVersion: string;
+  alignmentStatus: "ALIGNED" | "REVIEW_REQUIRED";
+  alignmentScore: number | null;
+  alignmentReason: string | null;
+  evaluatorVersion: string | null;
+  sortOrder: number;
+}
+
+export interface ResumeQuestionGenerationResult {
+  reference: ResumeQuestionJobReference;
+  status: "READY" | "REVIEW_REQUIRED";
+  evaluatorVersion: string | null;
+  failureReason: string | null;
+  questions: PersonalizedQuestionRecord[];
 }
 
 export interface TranscriptRecord {
@@ -174,8 +228,11 @@ export interface EmbeddingRecord {
 
 export interface AiResultRepository {
   markDocumentExtractionStarted(record: DocumentExtractionStatusRecord): Promise<void>;
-  saveDocumentExtraction(record: DocumentExtractionRecord): Promise<void>;
+  saveDocumentExtraction(record: DocumentExtractionRecord): Promise<AiWorkerJob[]>;
   markDocumentExtractionFailed(record: FailedDocumentExtractionRecord): Promise<void>;
+  loadResumeQuestionGenerationContext(reference: ResumeQuestionJobReference): Promise<ResumeQuestionGenerationContext>;
+  saveResumeQuestionGeneration(record: ResumeQuestionGenerationResult): Promise<void>;
+  markResumeQuestionGenerationFailed(reference: ResumeQuestionJobReference, failure: FailureReason): Promise<void>;
   saveTranscript(record: TranscriptRecord): Promise<void>;
   saveFollowUpQuestion(record: FollowUpQuestionRecord): Promise<void>;
   saveGeneratedDraft(record: GeneratedDraftRecord): Promise<void>;
@@ -265,6 +322,9 @@ export class InMemoryAiResultRepository implements AiResultRepository {
   readonly generatedReports = new Map<number, GeneratedReportRecord>();
   readonly failedReports = new Map<number, FailedReportRecord>();
   readonly embeddings = new Map<string, EmbeddingRecord>();
+  readonly resumeQuestionContexts = new Map<string, ResumeQuestionGenerationContext>();
+  readonly resumeQuestionResults = new Map<number, ResumeQuestionGenerationResult>();
+  readonly failedResumeQuestions = new Map<number, FailureReason>();
 
   private readonly documentExtractionsById = new Map<number, DocumentExtractionRecord>();
   private readonly transcriptsByAnswerId = new Map<number, TranscriptRecord>();
@@ -279,15 +339,37 @@ export class InMemoryAiResultRepository implements AiResultRepository {
     this.documentParseStatusEvents.push({ documentId: record.documentId, fileId: record.fileId, status: "EXTRACTING" });
   }
 
-  async saveDocumentExtraction(record: DocumentExtractionRecord): Promise<void> {
+  async saveDocumentExtraction(record: DocumentExtractionRecord): Promise<AiWorkerJob[]> {
     if (this.documentExtractionsById.has(record.documentId)) {
-      return;
+      return [];
     }
 
     this.documentExtractionsById.set(record.documentId, record);
     this.documentExtractions.push(record);
     this.documentParseStatuses.set(record.documentId, "EXTRACTED");
     this.documentParseStatusEvents.push({ documentId: record.documentId, fileId: record.fileId, status: "EXTRACTED" });
+    return [];
+  }
+
+  setResumeQuestionGenerationContext(context: ResumeQuestionGenerationContext): void {
+    this.resumeQuestionContexts.set(context.inputVersion, context);
+  }
+
+  async loadResumeQuestionGenerationContext(reference: ResumeQuestionJobReference): Promise<ResumeQuestionGenerationContext> {
+    const context = this.resumeQuestionContexts.get(reference.inputVersion);
+    if (!context || context.processLogId !== reference.processLogId || context.applicationId !== reference.applicationId) {
+      throw new NonRetryableAiWorkerFailure("resume question generation context was not found");
+    }
+    return context;
+  }
+
+  async saveResumeQuestionGeneration(record: ResumeQuestionGenerationResult): Promise<void> {
+    this.resumeQuestionResults.set(record.reference.applicationId, record);
+    this.failedResumeQuestions.delete(record.reference.applicationId);
+  }
+
+  async markResumeQuestionGenerationFailed(reference: ResumeQuestionJobReference, failure: FailureReason): Promise<void> {
+    this.failedResumeQuestions.set(reference.applicationId, failure);
   }
 
   async markDocumentExtractionFailed(record: FailedDocumentExtractionRecord): Promise<void> {

@@ -6,6 +6,7 @@ import { CreatePortfolioLinkDto } from "../dto/create-portfolio-link.dto";
 import { SaveInterviewConsentDto } from "../dto/save-interview-consent.dto";
 import { SubmitApplicationDto } from "../dto/submit-application.dto";
 import { UploadResumeDto } from "../dto/upload-resume.dto";
+import { AiJobDispatcherService } from "../../report/service/ai-job-dispatcher.service";
 import { FORBIDDEN_FILE_PAYLOAD_FIELDS } from "../candidate.constants";
 import { CandidateDomainError } from "../candidate.errors";
 import {
@@ -122,6 +123,9 @@ export class CandidateService {
     @Optional()
     @Inject(CANDIDATE_DOCUMENT_STORAGE)
     private readonly documentStorage: CandidateDocumentStoragePort = new InMemoryCandidateDocumentStorageAdapter(),
+    @Optional()
+    @Inject(AiJobDispatcherService)
+    private readonly aiJobDispatcher?: AiJobDispatcherService,
   ) {}
 
   async listJobs(
@@ -231,6 +235,23 @@ export class CandidateService {
       // 연락처를 지원서 생성과 같은 트랜잭션에서 저장 → 다음 지원 자동 입력에 재사용(원자적). (#272 P2)
       contactUserId: applicationFields.phone ? currentUser.userId : undefined,
     });
+
+    const resumeDocument = result.documents.find((document) => document.documentType === "RESUME");
+    if (resumeDocument && this.aiJobDispatcher) {
+      await this.aiJobDispatcher.dispatch({
+        processType: "DOCUMENT_EXTRACT",
+        input: {
+          kind: "DOCUMENT_EXTRACT",
+          payload: {
+            applicationId: result.application.applicationId,
+            documentId: resumeDocument.documentId,
+            fileId: resumeDocument.fileId,
+            s3Key: resumeFileAsset.storageKey,
+          },
+        },
+        refs: { applicationId: result.application.applicationId },
+      });
+    }
 
     return this.envelope(result);
   }

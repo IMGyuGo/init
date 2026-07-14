@@ -43,6 +43,32 @@ test("SqsAiJobQueue receives worker jobs from SQS messages", async () => {
   });
 });
 
+test("SqsAiJobQueue publishes follow-up jobs with process metadata", async () => {
+  const sentInputs: Array<Record<string, unknown>> = [];
+  const client = {
+    async send(command: unknown) {
+      sentInputs.push((command as { input: Record<string, unknown> }).input);
+      return {};
+    },
+  } as unknown as SQSClient;
+  const queue = new SqsAiJobQueue(client, "https://sqs.local/init-ai");
+  const job = {
+    processLogId: 12,
+    processType: "RESUME_QUESTION_GENERATE" as const,
+    inputRef: JSON.stringify({ applicationId: 101, inputVersion: "input-101" }),
+    attempt: 1,
+  };
+
+  await queue.publish(job);
+
+  assert.equal(sentInputs[0].QueueUrl, "https://sqs.local/init-ai");
+  assert.equal(sentInputs[0].MessageBody, JSON.stringify(job));
+  assert.deepEqual(sentInputs[0].MessageAttributes, {
+    processType: { DataType: "String", StringValue: "RESUME_QUESTION_GENERATE" },
+    processLogId: { DataType: "Number", StringValue: "12" },
+  });
+});
+
 test("SqsAiJobQueue deletes processed SQS messages by receipt handle", async () => {
   const sentInputs: Array<Record<string, unknown>> = [];
   const client = {

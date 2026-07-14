@@ -30,6 +30,97 @@ test("PrismaAiResultRepository stores document extraction into application_docum
   });
 });
 
+test("PrismaAiResultRepository creates one idempotent resume-question job per input snapshot", async () => {
+  const calls: Array<{ model: string; method: string; args: any }> = [];
+  let batch: any = null;
+  const document = {
+    documentId: BigInt(7),
+    documentType: "RESUME",
+    parseStatus: "EXTRACTED",
+    extractedText: "PRIVATE_RESUME_TEXT",
+    application: {
+      applicationId: BigInt(101),
+      applicationStatus: "SUBMITTED",
+      submittedAt: new Date("2026-07-14T00:00:00.000Z"),
+      posting: {
+        postingId: BigInt(1),
+        jobDescription: "NestJS와 PostgreSQL 기반 백엔드 개발",
+        questionGenerationPolicy: {
+          evaluationFramework: "NCS_3_PROFILE_V1",
+          jdCriteriaQuestionCount: 3,
+          resumeQuestionCount: 3,
+          policyVersion: 2,
+          criteriaVersion: 4,
+        },
+        criteria: [
+          ncsCriterion(1, "문제해결능력", "PROBLEM_SOLVING", "EXPERIENCE_BEHAVIOR"),
+          ncsCriterion(2, "의사소통능력", "COMMUNICATION", "EXPERIENCE_BEHAVIOR"),
+          ncsCriterion(3, "디지털역량", "DIGITAL", "TECHNICAL_KNOWLEDGE"),
+        ],
+      },
+    },
+  };
+  const prisma: any = {
+    applicationDocument: {
+      async updateMany(args: any) {
+        calls.push({ model: "applicationDocument", method: "updateMany", args });
+      },
+      async findUnique(args: any) {
+        calls.push({ model: "applicationDocument", method: "findUnique", args });
+        return document;
+      },
+    },
+    applicationInterviewQuestionBatch: {
+      async updateMany(args: any) {
+        calls.push({ model: "applicationInterviewQuestionBatch", method: "updateMany", args });
+      },
+      async findUnique(args: any) {
+        calls.push({ model: "applicationInterviewQuestionBatch", method: "findUnique", args });
+        return batch;
+      },
+      async create(args: any) {
+        calls.push({ model: "applicationInterviewQuestionBatch", method: "create", args });
+        batch = {
+          batchId: BigInt(701),
+          applicationId: BigInt(101),
+          latestProcessLogId: BigInt(901),
+          status: "GENERATING",
+          ...args.data,
+        };
+        return batch;
+      },
+    },
+    aiProcessLog: {
+      async create(args: any) {
+        calls.push({ model: "aiProcessLog", method: "create", args });
+        return { processLogId: BigInt(901) };
+      },
+      async update(args: any) {
+        calls.push({ model: "aiProcessLog", method: "update", args });
+      },
+    },
+  };
+  prisma.$transaction = async (operation: (transaction: unknown) => Promise<unknown>) => operation(prisma);
+  const repository = new PrismaAiResultRepository(prisma);
+  const extraction = {
+    documentId: 7,
+    fileId: 9,
+    s3Key: "candidate/1/resume.pdf",
+    extractedText: "PRIVATE_RESUME_TEXT",
+  };
+
+  const firstJobs = await repository.saveDocumentExtraction(extraction);
+  const duplicateJobs = await repository.saveDocumentExtraction(extraction);
+
+  assert.equal(firstJobs.length, 1);
+  assert.equal(firstJobs[0].processType, "RESUME_QUESTION_GENERATE");
+  assert.equal(firstJobs[0].inputRef.includes("PRIVATE_RESUME_TEXT"), false);
+  assert.equal(firstJobs[0].inputRef.includes("NestJS와 PostgreSQL"), false);
+  assert.equal(duplicateJobs.length, 0);
+  assert.equal(calls.filter((call) => call.model === "aiProcessLog" && call.method === "create").length, 1);
+  assert.equal(calls.filter((call) => call.model === "applicationInterviewQuestionBatch" && call.method === "create").length, 1);
+});
+
 test("PrismaAiResultRepository marks document extraction started and failed", async () => {
   const calls: Array<{ model: string; method: string; args: any }> = [];
   const repository = new PrismaAiResultRepository(fakePrisma(calls));
@@ -409,6 +500,10 @@ function fakePrisma(calls: Array<{ model: string; method: string; args: any }>) 
     applicationDocument: {
       async updateMany(args: any) {
         calls.push({ model: "applicationDocument", method: "updateMany", args });
+      },
+      async findUnique(args: any) {
+        calls.push({ model: "applicationDocument", method: "findUnique", args });
+        return null;
       }
     },
     interviewAnswer: {
@@ -465,5 +560,22 @@ function fakePrisma(calls: Array<{ model: string; method: string; args: any }>) 
         calls.push({ model: "aiProcessLog", method: "update", args });
       }
     }
+  };
+}
+
+function ncsCriterion(
+  criterionId: number,
+  name: string,
+  ncsProfileId: string,
+  ncsQuestionMode: string,
+) {
+  return {
+    criterionId: BigInt(criterionId),
+    description: `${name} 설명`,
+    sortOrder: criterionId,
+    ncsProfileId,
+    ncsQuestionMode,
+    ncsProfileVersion: "2025.12-v1",
+    tag: { name, category: "NCS" },
   };
 }

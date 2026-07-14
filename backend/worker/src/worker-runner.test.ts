@@ -40,6 +40,34 @@ test("marks pending, running, completed and saves final output after guardrail p
   assert.deepEqual(queue.deletedMessageIds, ["message-1"]);
 });
 
+test("publishes follow-up jobs returned by final save after the source message is completed", async () => {
+  const queue = new InMemoryAiJobQueue([message(11)]);
+  const repository = new InMemoryAiProcessLogRepository();
+  const handler: AiTaskHandler = {
+    async handle() {
+      return {
+        outputRef: "document:extracted:11",
+        guardrail: { result: "PASS", reason: null },
+        finalSave: async () => [{
+          processLogId: 12,
+          processType: "RESUME_QUESTION_GENERATE",
+          inputRef: JSON.stringify({ applicationId: 101, inputVersion: "input-101" }),
+          attempt: 1,
+        }],
+      };
+    },
+  };
+
+  await new AiWorkerRunner(queue, repository, handler).processBatch();
+
+  const pending = await queue.receive(10);
+  assert.equal(repository.get(11).status, "COMPLETED");
+  assert.deepEqual(queue.deletedMessageIds, ["message-11"]);
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].job.processLogId, 12);
+  assert.equal(pending[0].job.processType, "RESUME_QUESTION_GENERATE");
+});
+
 test("saves final output when guardrail result is regenerated", async () => {
   const queue = new InMemoryAiJobQueue([message(5)]);
   const repository = new InMemoryAiProcessLogRepository();

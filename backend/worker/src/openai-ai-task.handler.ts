@@ -1,4 +1,9 @@
-import { AiResultRepository } from "./ai-result.repository";
+import {
+  AiResultRepository,
+  PersonalizedQuestionRecord,
+  ResumeQuestionGenerationContext,
+  ResumeQuestionJobReference,
+} from "./ai-result.repository";
 import { createAiProcessUsage } from "./ai-usage";
 import { FollowUpAiProvider } from "./openai-follow-up.provider";
 import { PostingDraftAiProvider, PostingDraftGenerationResult } from "./openai-posting-draft.provider";
@@ -57,7 +62,8 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       job.processType !== "FOLLOW_UP" &&
       job.processType !== "REPORT_GENERATE" &&
       job.processType !== "POSTING_DRAFT_GENERATE" &&
-      job.processType !== "QUESTION_GENERATE"
+      job.processType !== "QUESTION_GENERATE" &&
+      job.processType !== "RESUME_QUESTION_GENERATE"
     ) {
       return this.fallback.handle(job);
     }
@@ -76,6 +82,10 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
 
     if (job.processType === "QUESTION_GENERATE") {
       return this.questionGenerate(job, kind, payload);
+    }
+
+    if (job.processType === "RESUME_QUESTION_GENERATE") {
+      return this.resumeQuestionGenerate(job);
     }
 
     return this.followUp(kind, payload);
@@ -231,6 +241,71 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     };
   }
 
+  private async resumeQuestionGenerate(job: AiWorkerJob): Promise<AiTaskResult> {
+    if (!this.questionProvider) {
+      return this.fallback.handle(job);
+    }
+
+    const reference = resumeQuestionReferenceOf(job);
+    const context = await this.results.loadResumeQuestionGenerationContext(reference);
+    const generated = await generateAlignedNcsQuestions(this.questionProvider, {
+      kind: "RESUME_PERSONALIZED_QUESTION_GENERATE",
+      postingId: context.postingId,
+      jobDescription: context.jobDescription,
+      questionCount: context.questionCount,
+      criteria: context.criteria,
+      source: "RESUME_PERSONALIZED",
+      resumeText: context.resumeText,
+    }, "RESUME_PERSONALIZED");
+    const candidates = generated.questionCandidates;
+    const unsafe = candidates.find((candidate) => personalizedQuestionUnsafeReason(candidate.content));
+    if (unsafe) {
+      return {
+        outputRef: JSON.stringify({
+          kind: "RESUME_PERSONALIZED_QUESTION_GENERATE",
+          applicationId: context.applicationId,
+          inputVersion: context.inputVersion,
+          reviewStatus: "BLOCKED",
+        }),
+        guardrail: {
+          result: "BLOCKED",
+          reason: personalizedQuestionUnsafeReason(unsafe.content),
+          failureCategory: "NON_RETRYABLE",
+        },
+      };
+    }
+
+    const questions = toPersonalizedQuestionRecords(candidates, context);
+    const ready = questions.length === context.questionCount && questions.every((question) => question.alignmentStatus === "ALIGNED");
+    const result = {
+      reference,
+      status: ready ? "READY" as const : "REVIEW_REQUIRED" as const,
+      evaluatorVersion: questions.find((question) => question.evaluatorVersion)?.evaluatorVersion ?? null,
+      failureReason: ready ? null : "One or more personalized questions require alignment review.",
+      questions,
+    };
+
+    return {
+      outputRef: JSON.stringify({
+        kind: "RESUME_PERSONALIZED_QUESTION_GENERATE",
+        applicationId: context.applicationId,
+        postingId: context.postingId,
+        inputVersion: context.inputVersion,
+        status: result.status,
+        questions,
+        model: generated.model,
+      }),
+      guardrail: { result: "PASS", reason: null },
+      usage: createAiProcessUsage({
+        modelName: generated.model,
+        inputTokens: generated.usage?.inputTokens,
+        outputTokens: generated.usage?.outputTokens,
+        metadata: { processType: "RESUME_QUESTION_GENERATE" },
+      }),
+      finalSave: () => this.results.saveResumeQuestionGeneration(result),
+    };
+  }
+
   private async reportGenerate(
     job: AiWorkerJob,
     kind: string,
@@ -358,6 +433,7 @@ type SanitizedQuestionCandidate = ReturnType<typeof sanitizeQuestionGenerationRe
 async function generateAlignedNcsQuestions(
   provider: QuestionAiProvider,
   input: QuestionGenerationInput,
+  source: "JD_CRITERIA" | "RESUME_PERSONALIZED" = "JD_CRITERIA",
 ): Promise<QuestionGenerationResult> {
   const criteria = input.criteria as NcsGenerationCriterion[];
   const allocatedTotal = criteria.reduce((sum, criterion) => sum + criterion.questionCount, 0);
@@ -404,7 +480,7 @@ async function generateAlignedNcsQuestions(
       });
       const decorated = {
         ...candidate,
-        source: "JD_CRITERIA" as const,
+        source,
         ncsProfileId: criterion.ncsProfileId,
         ncsQuestionMode: criterion.ncsQuestionMode,
         ncsProfileVersion: alignment.profileVersion,
@@ -483,6 +559,83 @@ function isNcsCriteria(criteria: QuestionGenerationCriterion[]): criteria is Ncs
         criterion.ncsProfileVersion !== undefined,
     )
   );
+}
+
+function resumeQuestionReferenceOf(job: AiWorkerJob): ResumeQuestionJobReference {
+  let input: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(job.inputRef) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("invalid input");
+    input = parsed as Record<string, unknown>;
+  } catch {
+    throw new NonRetryableAiWorkerFailure("resume question job inputRef is invalid");
+  }
+
+  return {
+    processLogId: job.processLogId,
+    applicationId: positiveNumber(input.applicationId, "applicationId"),
+    postingId: positiveNumber(input.postingId, "postingId"),
+    documentId: positiveNumber(input.documentId, "documentId"),
+    policyVersion: positiveNumber(input.policyVersion, "policyVersion"),
+    criteriaVersion: positiveNumber(input.criteriaVersion, "criteriaVersion"),
+    inputVersion: requiredText(input.inputVersion, "inputVersion"),
+    resumeDocumentHash: requiredText(input.resumeDocumentHash, "resumeDocumentHash"),
+    jdSnapshotHash: requiredText(input.jdSnapshotHash, "jdSnapshotHash"),
+  };
+}
+
+function toPersonalizedQuestionRecords(
+  candidates: QuestionGenerationResult["questionCandidates"],
+  context: ResumeQuestionGenerationContext,
+): PersonalizedQuestionRecord[] {
+  return candidates.slice(0, context.questionCount).map((candidate, index) => {
+    const criterion = context.criteria.find((item) => item.criterionId === candidate.criterionId);
+    if (!criterion || !candidate.content.trim()) {
+      throw new NonRetryableAiWorkerFailure("personalized question criterion binding is invalid");
+    }
+    const metadata = candidate as QuestionGenerationResult["questionCandidates"][number] & {
+      ncsProfileId?: unknown;
+      ncsQuestionMode?: unknown;
+      ncsProfileVersion?: unknown;
+      alignmentStatus?: unknown;
+      alignmentScore?: unknown;
+      alignmentReason?: unknown;
+      evaluatorVersion?: unknown;
+    };
+    const alignmentStatus = metadata.alignmentStatus === "ALIGNED" ? "ALIGNED" : "REVIEW_REQUIRED";
+    return {
+      criterionId: criterion.criterionId,
+      criterionTitleSnapshot: criterion.name,
+      questionType: candidate.questionType ?? questionTypeForMode(criterion.ncsQuestionMode),
+      content: candidate.content.trim(),
+      ncsProfileId: criterion.ncsProfileId,
+      ncsQuestionMode: criterion.ncsQuestionMode,
+      ncsProfileVersion: typeof metadata.ncsProfileVersion === "string" ? metadata.ncsProfileVersion : criterion.ncsProfileVersion,
+      alignmentStatus,
+      alignmentScore: typeof metadata.alignmentScore === "number" ? metadata.alignmentScore : null,
+      alignmentReason: typeof metadata.alignmentReason === "string" ? metadata.alignmentReason : null,
+      evaluatorVersion: typeof metadata.evaluatorVersion === "string" ? metadata.evaluatorVersion : null,
+      sortOrder: index + 1,
+    };
+  });
+}
+
+function questionTypeForMode(mode: ResumeQuestionGenerationContext["criteria"][number]["ncsQuestionMode"]): PersonalizedQuestionRecord["questionType"] {
+  if (mode === "TECHNICAL_KNOWLEDGE") return "TECHNICAL";
+  if (mode === "SITUATIONAL_DESIGN") return "SITUATION";
+  return "EXPERIENCE";
+}
+
+function personalizedQuestionUnsafeReason(content: string): string | null {
+  const unsafePatterns: Array<[RegExp, string]> = [
+    [/(나이|생년|연령|몇\s*살)/i, "age attribute"],
+    [/(성별|남성|여성|남자|여자)/i, "gender attribute"],
+    [/(외모|용모|사진)/i, "appearance attribute"],
+    [/(가족|부모|결혼|임신|출산)/i, "family attribute"],
+    [/(장애|질병|건강 상태)/i, "health attribute"],
+    [/(학교명|출신 학교|학벌)/i, "school attribute"],
+  ];
+  return unsafePatterns.find(([pattern]) => pattern.test(content))?.[1] ?? null;
 }
 
 function fallbackCriterion(criterion: NcsGenerationCriterion): NcsGenerationCriterion | null {
