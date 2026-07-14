@@ -25,6 +25,7 @@ Comment: 변경할 필드명, enum, 상태 전이 또는 이유
 | R-E-02 | APPROVED | E | C, PM | M0, M2 | 정렬 재시도, fallback, threshold 소유권 |
 | R-E-03 | APPROVED | E | A, C, D | M0, M3 | 개인화 질문 batch와 AI process retry 기록 방식 |
 | R-E-04 | PENDING | E | A, PM | M3 | 질문 생성 guardrail과 민감정보 제거 결과 |
+| R-E-05 | PENDING | E | C, D, PM | M5 | 답변별 NCS 결과 저장, nullable 점수, profile별 유효 답변 평균 계약 |
 | R-D-01 | APPROVED | D | B, E, C | M0, M3 | 지원 완료·문서 추출 완료 trigger와 이력서 snapshot 시점 |
 | R-D-02 | APPROVED | D | C, E, PM | M0, M4 | 세션 생성 readiness gate와 공통·개인화 질문 순서 |
 | R-D-03 | APPROVED | D | B, C, E, PM | M0, M3, M4 | 정책·기준·JD·이력서 변경 후 기존 batch 처리 |
@@ -118,6 +119,20 @@ Comment: 변경할 필드명, enum, 상태 전이 또는 이유
 - alignment 검증 후 privacy/unsafe guardrail을 통과한 결과만 저장한다.
 - 원문 문장 인용 대신 경험 식별에 필요한 최소 명사구만 질문에 사용한다.
 - BLOCKED 결과는 개인화 질문 table에 최종 저장하지 않는다.
+
+### M5 Implementation Decision (2026-07-14)
+
+사용자가 `xhigh` 추론 강도로 M5 구현 진행을 승인했다. 동료 `feat-ncs-text-evaluation-playground` 브랜치의 canonical evaluator 타입과 가드레일을 기준으로 아래를 구현하며 E/D/A/PM 교차 리뷰 대상으로 남긴다.
+
+- 답변은 세션 질문 snapshot의 단일 NCS profile, question mode, profile version으로 평가한다. API body가 임의로 전달한 binding은 사용하지 않는다.
+- evaluator 상태는 `SCORED`, `INSUFFICIENT_INPUT`, `LOW_ALIGNMENT`, `BLOCKED`를 그대로 사용한다.
+- `SCORED`만 competency/evidence/total 점수를 가지고 나머지 상태는 세 점수가 모두 NULL이다.
+- 답변별 canonical 결과는 `ncs_answer_evaluations`에 `(report_id, answer_id)`로 upsert한다.
+- `report_scores`는 profile별 `SCORED` 답변 total score의 산술 평균만 저장한다. 평가 불충분, 미정렬, 차단, STT 실패는 0점 또는 평균 분모로 넣지 않는다.
+- 점수 근거는 evaluator가 답변 원문의 exact substring으로 검증한 문장만 `report_evidences`에 저장한다.
+- playground의 `profileVersion=2025.12-v1`, rubric/prompt version, guardrail 결과를 adapter 정본으로 사용하고 C/D 코드에는 threshold를 복제하지 않는다.
+
+`R-E-05`에서 E는 OpenAI provider 결과의 안정성, 다중 답변 평균 정책, DB canonical output shape를 확인한다. PM은 `평가 불충분` 표시와 기업 총점에서 제외되는 의미를 확인한다.
 
 ## D Review
 

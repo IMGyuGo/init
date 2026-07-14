@@ -107,6 +107,7 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | ncs_question_mode | EXPERIENCE_BEHAVIOR, TECHNICAL_KNOWLEDGE, SITUATIONAL_DESIGN | 답변에서 수집할 NCS 근거 유형. 기존 `question_type`과 별도 관리 |
 | question_generation_source | JD_CRITERIA, RESUME_PERSONALIZED | JD 공통 질문과 지원자별 이력서 질문의 생성 출처 |
 | question_alignment_status | NOT_EVALUATED, ALIGNED, LOW_ALIGNMENT, REVIEW_REQUIRED | 질문과 선택 NCS 프로필의 정렬 검증 상태 |
+| ncs_answer_score_status | SCORED, INSUFFICIENT_INPUT, LOW_ALIGNMENT, BLOCKED | 답변별 NCS 평가 상태. `SCORED`만 점수를 가지며 나머지 상태는 competency/evidence/total score가 모두 NULL |
 | resume_question_generation_status | DISABLED, WAITING_APPLICATION, WAITING_DOCUMENT, GENERATING, READY, REVIEW_REQUIRED, FAILED | 공고/지원서 관점의 이력서 개인화 질문 준비 상태. `DISABLED`, `WAITING_APPLICATION`은 설정 조회 projection 값 |
 | notification_channel | EMAIL, IN_APP | 알림 채널 |
 | ai_process_type | DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING, GUARDRAIL_VALIDATE, CRITERIA_SUGGEST, QUESTION_GENERATE, RESUME_QUESTION_GENERATE, QUESTION_SET_GENERATE, POSTING_DRAFT_GENERATE | AI 처리 유형 |

@@ -153,6 +153,36 @@ Prisma model 이름은 `ApplicationInterviewQuestion`으로 고정한다. 이 ta
 
 채용 NCS 질문은 snapshot 생성 시 `question_id`와 `personalized_question_id` 중 정확히 하나만 가지고 `runtime_question_id`, `question_type`, `content`, NCS version snapshot을 필수로 가진다. 보관 정책에 따라 개인화 원본이 삭제되면 `personalized_question_id`는 NULL이 될 수 있지만 본문과 metadata snapshot은 유지한다. 기존 모의면접과 legacy 질문은 신규 source 규칙의 적용 대상에서 제외한다.
 
+### ncs_answer_evaluations
+
+NQ-M5는 리포트의 기준별 집계 점수와 답변별 evaluator 결과를 분리한다. 답변별 결과는 `(report_id, answer_id)`를 business key로 upsert하고, 평가 재시도 시 같은 리포트의 최신 결과로 교체한다.
+
+| Column | Type | Rule |
+| --- | --- | --- |
+| ncs_evaluation_id | BIGINT PK | 답변별 NCS 평가 ID |
+| report_id | BIGINT NOT NULL | `evaluation_reports` FK |
+| answer_id | BIGINT NOT NULL | `interview_answers` FK |
+| session_question_id | BIGINT NOT NULL | 평가에 사용한 불변 질문 snapshot FK |
+| criterion_id | BIGINT NULL | 기준 삭제 후에도 snapshot 결과를 유지하기 위해 nullable |
+| criterion_title_snapshot | VARCHAR(200) NOT NULL | 평가 당시 기준명 |
+| ncs_profile_id | VARCHAR(50) NOT NULL | API/DB uppercase profile snapshot |
+| ncs_question_mode | VARCHAR(50) NOT NULL | 질문 근거 유형 snapshot |
+| ncs_profile_version | VARCHAR(80) NOT NULL | evaluator profile version |
+| score_status | VARCHAR(40) NOT NULL | `SCORED`, `INSUFFICIENT_INPUT`, `LOW_ALIGNMENT`, `BLOCKED` |
+| competency_score | INTEGER NULL | 역량 점수. `SCORED`일 때만 존재 |
+| evidence_score | INTEGER NULL | 수행 근거 점수. `SCORED`일 때만 존재 |
+| total_score | INTEGER NULL | evaluator total score. `SCORED`일 때만 존재 |
+| coverage | DECIMAL(8,6) NOT NULL | 질문/profile 정렬 coverage |
+| confidence | VARCHAR(20) NOT NULL | `HIGH`, `MEDIUM`, `LOW` |
+| rubric_version | VARCHAR(80) NOT NULL | 점수 rubric version |
+| prompt_version | VARCHAR(100) NOT NULL | 평가 prompt contract version |
+| provider_mode | VARCHAR(20) NOT NULL | `mock`, `openai` |
+| model_name | VARCHAR(120) NULL | 실제 provider model |
+| result_json | JSONB NOT NULL | competencies, evidence maturity, growth, guardrail 전체 결과 |
+| created_at / updated_at | TIMESTAMP NOT NULL | 생성·최종 갱신 시각 |
+
+`score_status=SCORED`이면 세 점수가 모두 0~100이고, 그 외 상태에서는 세 점수가 모두 NULL이어야 한다. `report_scores`에는 `SCORED` 답변만 profile별로 평균 집계한다. 평가 불충분은 별도 상태로 남기며 0점 또는 평균 분모로 사용하지 않는다. `report_evidences`에는 evaluator가 원문 substring으로 검증한 답변 문장만 저장한다.
+
 ## Ownership
 
 | Resource | Write Owner | Read/Review Owner | Responsibility |
@@ -164,6 +194,7 @@ Prisma model 이름은 `ApplicationInterviewQuestion`으로 고정한다. 이 ta
 | application_interview_questions | E | C, D | 정렬·가드레일을 거친 개인화 질문 |
 | question_bank common question snapshot | C | D, E | 면접관 적용 이후 공통 질문 정본 |
 | interview_session_questions snapshot | D | C, E | 세션 생성 시 공통·개인화 질문 합성 |
+| ncs_answer_evaluations, report score aggregation | E | C, D, PM | 답변별 상태·nullable 점수·원문 근거와 유효 답변 평균 |
 | NCS evaluator and alignment threshold | E | C, D, PM | versioned 판정 및 근거 |
 | SQS delivery, lease, deployment | A/E | C, D | 중복 전달과 재시도 안전성 |
 

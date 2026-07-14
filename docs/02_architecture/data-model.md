@@ -58,6 +58,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | `interview_answers` | `InterviewAnswer` | D/E |
 | `follow_up_questions` | `FollowUpQuestion` | E |
 | `evaluation_reports` | `EvaluationReport` | E |
+| `ncs_answer_evaluations` | `NcsAnswerEvaluation` | E |
 | `report_scores` | `ReportScore` | E |
 | `report_evidences` | `ReportEvidence` | E |
 | `manual_evaluations` | `ManualEvaluation` | B/E |
@@ -86,7 +87,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | Recruiting | postings, criterion_tags, evaluation_criteria, question_bank, interview_time_policies | 공고, JD, 평가 기준, 질문, 면접 시간 정책 관리 |
 | Application | applications, application_documents, consent_records | 지원서 제출, 서류 파싱, 동의 이력 |
 | Interview | interview_sessions, interview_session_questions, interview_answers, follow_up_questions | 모의/채용 AI 면접 실행, 세션별 질문 순서와 답변 |
-| Report | evaluation_reports, report_scores, report_evidences, manual_evaluations | AI 평가 결과와 면접관 검토 |
+| Report | evaluation_reports, ncs_answer_evaluations, report_scores, report_evidences, manual_evaluations | 답변별 NCS 평가, AI 집계 결과와 면접관 검토 |
 | AI Infra | ai_process_logs, ai_guardrail_logs, embeddings | AI 처리 상태, 안전성 검증, 검색/추천 |
 | Notification/File | notifications, file_assets | 알림과 업로드 파일 메타데이터 |
 
@@ -412,6 +413,37 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | criterion_id | BIGINT | 평가 기준 FK |
 | score | INTEGER NOT NULL | 점수 |
 | rationale | TEXT | 평가 사유 |
+
+NCS 리포트의 `report_scores`에는 `ncs_answer_evaluations.score_status=SCORED`인 답변만 profile별로 평균 집계한다. 평가 불충분·미정렬·차단 결과는 0점으로 만들지 않는다.
+
+### ncs_answer_evaluations
+
+| Column | Definition | Description |
+| --- |--- |--- |
+| ncs_evaluation_id | BIGINT PRIMARY KEY | 답변별 NCS 평가 PK |
+| report_id | BIGINT NOT NULL | 평가 리포트 FK |
+| answer_id | BIGINT NOT NULL | 평가한 답변 FK |
+| session_question_id | BIGINT NOT NULL | 평가 질문 snapshot FK |
+| criterion_id | BIGINT | 평가 기준 FK. 기준 삭제 후 snapshot 보존을 위해 NULL 가능 |
+| criterion_title_snapshot | VARCHAR(200) NOT NULL | 평가 당시 기준명 |
+| ncs_profile_id | VARCHAR(50) NOT NULL | NCS profile snapshot |
+| ncs_question_mode | VARCHAR(50) NOT NULL | NCS question mode snapshot |
+| ncs_profile_version | VARCHAR(80) NOT NULL | NCS profile version |
+| score_status | VARCHAR(40) NOT NULL | SCORED, INSUFFICIENT_INPUT, LOW_ALIGNMENT, BLOCKED |
+| competency_score | INTEGER | 역량 점수. SCORED가 아니면 NULL |
+| evidence_score | INTEGER | 수행 근거 점수. SCORED가 아니면 NULL |
+| total_score | INTEGER | 총점. SCORED가 아니면 NULL |
+| coverage | DECIMAL(8,6) NOT NULL | 질문/profile 정렬 coverage |
+| confidence | VARCHAR(20) NOT NULL | HIGH, MEDIUM, LOW |
+| rubric_version | VARCHAR(80) NOT NULL | 점수 rubric version |
+| prompt_version | VARCHAR(100) NOT NULL | prompt contract version |
+| provider_mode | VARCHAR(20) NOT NULL | mock, openai |
+| model_name | VARCHAR(120) | 실제 provider model |
+| result_json | JSONB NOT NULL | competencies, evidence maturity, growth, guardrail canonical output |
+| created_at | TIMESTAMP NOT NULL | 최초 평가 시각 |
+| updated_at | TIMESTAMP NOT NULL | 최종 평가 갱신 시각 |
+
+`(report_id, answer_id)`는 unique다. `SCORED`이면 세 점수가 모두 0~100이고, 나머지 상태이면 세 점수가 모두 NULL인 check constraint를 둔다.
 
 ### report_evidences
 

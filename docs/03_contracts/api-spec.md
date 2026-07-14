@@ -2261,16 +2261,34 @@ Allocation Examples:
 - Path Params: reportId
 - 요청 데이터:
   - 답변 스크립트, 평가 기준, 모범 답안
+  - `evaluationFramework=NCS_3_PROFILE_V1`이면 각 답변은 세션 질문 snapshot의 아래 값을 서버에서 포함한다.
+    - `sessionQuestionId`, `criterionId`, `criterionTitleSnapshot`
+    - `ncsProfileId`, `ncsQuestionMode`, `ncsProfileVersion`
+    - `alignmentStatus`, `evaluatorVersion`
+  - NCS metadata는 클라이언트 입력을 신뢰하지 않고 `interview_session_questions`를 정본으로 사용한다.
 - 검증/전제조건:
   - 답변 스크립트 존재
+  - NCS 답변은 `alignmentStatus=ALIGNED`이고 지원 evaluator의 profile/mode/version이어야 한다.
 - 성공 응답/처리:
-  - 답변 평가 결과 저장
+  - 답변별 `ncsAnswerEvaluations[]`를 저장하고 반환한다.
+    - `answerId`, `sessionQuestionId`, `criterionId`, `criterionTitleSnapshot`
+    - `ncsProfileId`, `ncsQuestionMode`, `ncsProfileVersion`
+    - `scoreStatus`: `SCORED | INSUFFICIENT_INPUT | LOW_ALIGNMENT | BLOCKED`
+    - `scores`: `{ competency: number | null, evidence: number | null, total: number | null }`
+    - `coverage`, `confidence`, `rubricVersion`, `promptVersion`, `providerMode`, `model?`
+    - `competencies`, `evidenceMaturity`, `growth`, `guardrail`
+  - `SCORED` 결과만 NCS profile별 유효 답변 평균으로 집계해 `report_scores`와 `report_evidences`에 저장한다.
+  - `INSUFFICIENT_INPUT`, `LOW_ALIGNMENT`, `BLOCKED`는 점수가 모두 NULL이며 0점 또는 평균 분모로 환산하지 않는다.
+  - `report_scores`의 NCS 점수는 profile별 유효 답변 total score 평균이고, `evaluation_criteria.weight`는 최종 리포트 총점 계산에만 사용한다.
 - 오류/예외:
-  - 근거 부족 또는 답변 불성실 판단 시 낮은 신뢰도와 수동 검토 상태를 표시한다.
+  - 답변 원문이 없거나 너무 짧으면 `INSUFFICIENT_INPUT`으로 저장한다.
+  - 세션 snapshot이 미정렬이면 `LOW_ALIGNMENT`, 출력 근거·가드레일 검증 실패는 `BLOCKED`로 저장하고 점수를 만들지 않는다.
+  - 지원하지 않는 profile/mode/version 또는 세션 질문 snapshot 누락은 비재시도 계약 오류로 처리한다.
 - 관련 ERD 테이블:
-  - companies, candidate_profiles, postings, criterion_tags, evaluation_criteria, applications, interview_sessions, interview_answers, evaluation_reports, report_scores, report_evidences, manual_evaluations, ai_process_logs
+  - companies, candidate_profiles, postings, criterion_tags, evaluation_criteria, applications, interview_sessions, interview_session_questions, interview_answers, evaluation_reports, ncs_answer_evaluations, report_scores, report_evidences, manual_evaluations, ai_process_logs
 - 비고/미결:
   - 결과는 지원자 평가 상세에 노출
+  - legacy 평가와 모의면접은 기존 평가 경로를 유지한다. NCS 경로에서는 STT 실패를 임시 0점으로 저장하지 않는다.
 
 ### API-030 POST /reports/{reportId}/communication-analysis
 - 도메인: AI/리포트 처리
