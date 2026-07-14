@@ -1521,17 +1521,29 @@ AI 리포트 금지 기준:
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - 지원자, 공고, 응시 기간, 질문 세트
+  - Request DTO: `CreateCompanyInterviewSessionDto`
+  - `applicationId: number`
 - 검증/전제조건:
-  - 지원자와 질문 세트가 존재
+  - 지원서와 공고가 로그인 기업 소유
+  - NCS 공고는 ACTIVE 질문 세트의 `JD_CRITERIA + ALIGNED` 질문 수가 `jdCriteriaQuestionCount`와 동일
   - 공고의 `resumeQuestionCount`가 1 이상이면 해당 지원서의 `resumeQuestionStatus=READY`여야 한다.
 - 성공 응답/처리:
-  - 면접 세션 생성 및 초대 링크 연결
+  - Response envelope: `{ data, meta }`
+  - `data.applicationId: number`
+  - `data.sessionId: number`
+  - `data.snapshotCreated: boolean`
+  - `data.commonQuestionCount: number`
+  - `data.personalizedQuestionCount: number`
+  - `data.totalQuestionCount: number`
+  - `data.policyVersion: number`
+  - `data.criteriaVersion: number`
+  - 면접 세션을 확보하고 초대 링크 연결 전 질문 snapshot을 확정
   - 공고의 확정된 JD·평가 기준 공통 질문과 지원서별 이력서 질문을 `interview_session_questions`에 스냅샷으로 복사한다.
   - 세션 생성 이후 평가 기준, 생성 정책 또는 질문이 변경되어도 기존 세션 질문에는 소급 적용하지 않는다.
 - 오류/예외:
   - 기간 오류, 질문 없음, 세션 생성 실패 시 초대 발송을 제한한다.
   - 이력서 질문이 준비되지 않았으면 `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`를 반환하고 공통 질문만으로 자동 대체하지 않는다.
+  - ACTIVE 공통 질문 수 또는 정렬 상태가 정책과 다르면 `INTERVIEW_QUESTION_COUNT_INVALID`를 반환한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, question_bank, applications, interview_sessions, notifications, ai_process_logs
 - 비고/미결:
@@ -3096,11 +3108,13 @@ CandidateFolder 입력 제한:
 - 검증/전제조건:
   - 응시 기간 내, 필수 동의 완료, 장치 점검 완료
   - 공고의 `resumeQuestionCount`가 1 이상이면 지원서별 이력서 질문 상태가 `READY`이고 세션 질문 snapshot이 생성되어 있어야 한다.
+  - snapshot이 없으면 API-017과 동일한 transaction으로 생성하며 이미 있으면 변경하지 않는다.
 - 성공 응답/처리:
   - 채용 AI 면접 진행 화면으로 이동
 - 오류/예외:
   - 세션 만료, 동의 누락, 장치 권한 오류 시 시작을 제한한다.
   - 이력서 질문이 준비되지 않았으면 `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`를 반환하며 공통 질문만으로 자동 시작하지 않는다.
+  - ACTIVE 공통 질문 수 또는 정렬 상태가 정책과 다르면 `INTERVIEW_QUESTION_COUNT_INVALID`를 반환한다.
 - 관련 ERD 테이블:
   - candidate_profiles, postings, applications, consent_records, interview_sessions, ai_process_logs
 - 비고/미결:

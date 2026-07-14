@@ -26,7 +26,7 @@ Comment: 변경할 필드명, enum, 상태 전이 또는 이유
 | R-E-03 | APPROVED | E | A, C, D | M0, M3 | 개인화 질문 batch와 AI process retry 기록 방식 |
 | R-E-04 | PENDING | E | A, PM | M3 | 질문 생성 guardrail과 민감정보 제거 결과 |
 | R-D-01 | APPROVED | D | B, E, C | M0, M3 | 지원 완료·문서 추출 완료 trigger와 이력서 snapshot 시점 |
-| R-D-02 | PENDING | D | C, E, PM | M0, M4 | 세션 생성 readiness gate와 공통·개인화 질문 순서 |
+| R-D-02 | APPROVED | D | C, E, PM | M0, M4 | 세션 생성 readiness gate와 공통·개인화 질문 순서 |
 | R-D-03 | APPROVED | D | B, C, E, PM | M0, M3, M4 | 정책·기준·JD·이력서 변경 후 기존 batch 처리 |
 | R-B-01 | APPROVED | B | C, E | M0, M2, M3 | 생성 입력으로 사용할 JD 정본과 JD version/hash |
 | R-A-01 | PENDING | A | C, D, E | M0, M1, M3 | shared enum/DTO/error 위치와 migration 소유권 |
@@ -166,6 +166,18 @@ Comment: 변경할 필드명, enum, 상태 전이 또는 이유
 - 이미 생성된 세션에는 변경을 소급하지 않는다.
 
 `STALE` enum 추가는 A/E/D 승인 후 별도 계약 변경으로 진행한다.
+
+### M4 Implementation Decision (2026-07-14)
+
+사용자가 `high` 추론 강도로 M4 구현 진행을 승인해 `R-D-02` 권장안을 구현 기준으로 확정한다. D 소유 세션과 E 소유 개인화 질문을 연결하므로 D/E/A/PM 교차 리뷰 대상으로 남긴다.
+
+- API-017과 API-065는 동일한 세션 질문 snapshot 준비 transaction을 사용한다.
+- NCS 공고에서 공통 질문 수 또는 현재 입력 version의 개인화 질문 수가 정책과 다르면 세션 snapshot을 만들지 않는다.
+- `resumeQuestionCount > 0`인데 현재 batch가 `READY`가 아니면 `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`로 두 API를 모두 차단한다.
+- 공통 질문은 ACTIVE API-039 질문 세트의 `sortOrder`, 개인화 질문은 READY batch의 `sortOrder`를 사용하고 공통 질문을 먼저 배치한다.
+- 질문 수·정책/기준/JD/이력서 version 검증, 세션 확보, runtime question ID 발급, snapshot 저장을 하나의 transaction과 application 단위 advisory lock으로 처리한다.
+- snapshot이 이미 있으면 현재 정책이나 질문으로 다시 쓰지 않는다. 세션 생성 이후 변경은 새 세션에만 적용한다.
+- 채용 NCS 질문은 원본 FK와 별도로 session 전용 `runtimeQuestionId`를 사용해 질문 본문·유형·NCS metadata snapshot을 런타임에서 읽는다.
 
 ## B Review
 

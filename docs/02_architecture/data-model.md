@@ -342,14 +342,27 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | --- |--- |--- |
 | session_question_id | BIGINT PRIMARY KEY | 세션 질문 행 PK |
 | session_id | BIGINT NOT NULL | 연결된 면접 세션 FK |
-| question_id | BIGINT | 기업 `question_bank` 질문을 사용할 때의 FK. 개인 모의면접 런타임 질문은 NULL |
-| runtime_question_id | BIGINT | API에서 사용하는 질문 ID. 개인 런타임 질문 전용 시퀀스에서 발급해 기업 질문 ID와 분리 |
-| question_type | VARCHAR(40) | 개인 모의면접 런타임 질문 유형 |
-| content | TEXT | 개인 모의면접 런타임 질문 본문. 지원서 원문 전체가 아니라 제한된 컨텍스트로 만든 질문만 저장 |
+| question_id | BIGINT | 기업 `question_bank` 질문 원본 FK. 개인 질문은 NULL |
+| personalized_question_id | BIGINT | `application_interview_questions` 개인화 질문 원본 FK. 공통/legacy 질문은 NULL |
+| runtime_question_id | BIGINT | API에서 사용하는 session 전용 질문 ID. NCS 공통·개인화 질문과 개인 모의면접 질문에 발급 |
+| criterion_id | BIGINT | 생성 당시 평가 기준 FK. 삭제 시 NULL 허용 |
+| criterion_title_snapshot | VARCHAR(200) | 생성 당시 평가 기준 표시명 snapshot |
+| generation_source | VARCHAR(50) | `JD_CRITERIA`, `RESUME_PERSONALIZED`; legacy는 NULL |
+| question_type | VARCHAR(40) | session 질문 유형 snapshot |
+| content | TEXT | session 질문 본문 snapshot. 지원서 원문 전체는 저장하지 않음 |
+| ncs_profile_id | VARCHAR(50) | NCS profile snapshot |
+| ncs_question_mode | VARCHAR(50) | NCS question mode snapshot |
+| ncs_profile_version | VARCHAR(80) | NCS profile version snapshot |
+| alignment_status | VARCHAR(40) | 세션 확정 시 정렬 상태 |
+| alignment_score | DECIMAL(8,6) | 세션 확정 시 정렬 점수 |
+| alignment_reason | TEXT | 세션 확정 시 정렬 사유 |
+| evaluator_version | VARCHAR(80) | 정렬 adapter version snapshot |
+| policy_version | INTEGER | 세션 생성 당시 질문 정책 version |
+| criteria_version | INTEGER | 세션 생성 당시 평가 기준 version |
 | sort_order | INTEGER NOT NULL | 세션 안의 질문 표시 순서 |
 | created_at | TIMESTAMP NOT NULL | 세션 질문 연결 생성 시각 |
 
-`(session_id, sort_order)`는 unique다. 기업 질문은 `question_id`를 참조하고, 지원자 개인 모의면접 질문은 `question_id=NULL`과 자체 `runtime_question_id`, `question_type`, `content`를 사용한다. 세션 삭제 시 런타임 질문도 함께 삭제한다.
+`(session_id, sort_order)`와 `runtime_question_id`는 unique다. NCS 채용 질문은 `question_id`와 `personalized_question_id` 중 정확히 하나를 원본으로 가지며 session 전용 `runtime_question_id`, 본문·유형·NCS metadata snapshot을 사용한다. 공통 질문을 먼저, 개인화 질문을 다음에 저장하고 세션 생성 이후 원본 변경을 소급하지 않는다. 세션 삭제 시 snapshot도 함께 삭제한다.
 
 ### interview_answers
 

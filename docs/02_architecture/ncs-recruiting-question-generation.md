@@ -136,15 +136,22 @@ Prisma model 이름은 `ApplicationInterviewQuestion`으로 고정한다. 이 ta
 | question_id | BIGINT NULL | JD 공통 질문 FK |
 | personalized_question_id | BIGINT NULL | application 개인화 질문 FK |
 | criterion_id | BIGINT NULL | 생성 당시 평가 기준 FK |
+| criterion_title_snapshot | VARCHAR(200) NULL | 생성 당시 평가 기준 표시명 |
+| runtime_question_id | BIGINT NULL | NCS 채용 런타임에서 사용하는 session 전용 ID |
 | generation_source | VARCHAR(50) NULL | `JD_CRITERIA`, `RESUME_PERSONALIZED`; legacy는 NULL |
+| question_type | VARCHAR(40) NULL | 생성 당시 질문 유형 |
+| content | TEXT NULL | 생성 당시 질문 본문 |
 | ncs_profile_id | VARCHAR(50) NULL | profile snapshot |
 | ncs_question_mode | VARCHAR(50) NULL | mode snapshot |
 | ncs_profile_version | VARCHAR(80) NULL | profile version snapshot |
 | alignment_status | VARCHAR(40) NULL | 확정 당시 정렬 상태 |
+| alignment_score | DECIMAL(8,6) NULL | 확정 당시 정렬 점수 |
+| alignment_reason | TEXT NULL | 확정 당시 정렬 사유 |
+| evaluator_version | VARCHAR(80) NULL | 확정 당시 adapter version |
 | policy_version | INTEGER NULL | 세션 생성 당시 정책 version |
 | criteria_version | INTEGER NULL | 세션 생성 당시 기준 version |
 
-채용 NCS 질문은 `question_id`와 `personalized_question_id` 중 정확히 하나만 가진다. 기존 모의면접과 legacy 질문은 두 신규 필드 규칙의 적용 대상에서 제외한다.
+채용 NCS 질문은 `question_id`와 `personalized_question_id` 중 정확히 하나만 가지고 `runtime_question_id`, `question_type`, `content`, NCS version snapshot을 필수로 가진다. 기존 모의면접과 legacy 질문은 신규 source 규칙의 적용 대상에서 제외한다.
 
 ## Ownership
 
