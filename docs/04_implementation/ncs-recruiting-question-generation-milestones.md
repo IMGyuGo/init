@@ -318,6 +318,19 @@ NQ-M3의 DB·이벤트 구현과 NQ-M5의 실제 평가 연결은 계약 없이 
 | Product flow and acceptance gates | 작성 완료 | `docs/01_product/screen-flow.md`, `feature-spec.md`, `docs/04_implementation/test-strategy.md` |
 | Readiness audit and owner review requests | 작성 완료 | `ncs-recruiting-question-generation-readiness-audit.md`, `ncs-recruiting-question-generation-review-requests.md` |
 | C/B/D/E/A/PM contract sign-off | 리뷰 대기 | `ncs-recruiting-question-generation-review-requests.md` |
+
+## 16. NQ-M4 Status
+
+2026-07-14 기준 세션 질문 합성 구현을 완료했다.
+
+| Deliverable | Status | Source |
+| --- | --- | --- |
+| API-017/API-065 공통 readiness gate | 구현 완료 | `CandidateService.prepareRecruitingInterviewSessionSnapshot` |
+| 공통 우선·개인화 후순위 snapshot transaction | 구현 완료 | `PrismaCandidateRepository.prepareInterviewSessionQuestionSnapshot` |
+| policy/criteria/JD/resume version 검증 | 구현 완료 | application 단위 advisory lock transaction |
+| NCS session metadata와 runtime ID | 구현 완료 | Prisma schema, `20260714170000_ncs_session_question_snapshot` migration |
+| 기존 session snapshot 불변성 | 테스트 완료 | Prisma candidate repository M4 tests |
+| D/E/A/PM cross-owner review | 리뷰 대기 | `ncs-recruiting-question-generation-review-requests.md` |
 | Prisma/SQL/API/UI implementation | NQ-M0 제외 | NQ-M1~M4에서 진행 |
 
 NQ-M0 문서 작성은 완료됐지만 milestone exit는 review request의 모든 M0 blocker가 승인·반영되어야 충족된다. 리뷰 중 E evaluator의 profile ID, mode, version shape가 달라지면 E 계약을 기준으로 adapter mapping과 문서를 갱신한다.

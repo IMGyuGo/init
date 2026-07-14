@@ -22,7 +22,7 @@ NQ-M0 계약을 다시 읽고 다음을 분리한다.
 | NQ-M1 코드/DB/UI | COMPLETE | 정책 table/API/UI와 NCS criteria snapshot 구현 완료 |
 | NQ-M2 통합 | COMPLETE | worker 정렬 adapter, 서버 요청 snapshot, 질문 metadata 저장 검증, UI 미리보기 구현 완료 |
 | NQ-M3 통합 | COMPLETE | 지원 완료·문서 추출·개인화 질문 비동기 파이프라인과 조회·재시도 API 구현 완료 |
-| NQ-M4 통합 | NOT_STARTED | M3 READY batch와 D 세션 snapshot 연결 필요 |
+| NQ-M4 통합 | COMPLETE | M3 READY batch와 ACTIVE 공통 질문을 불변 세션 snapshot으로 연결 완료 |
 
 ## Hardened In This Audit
 
@@ -104,6 +104,27 @@ D/E/A/PM 교차 리뷰는 구현 완료 후 승인 단계로 남긴다. 교차 �
 - API-098 상태·결과 조회와 API-099 명시적 재시도 구현
 - M4 세션 합성 전에 `R-D-02`와 M3 cross-owner review를 완료해야 함
 
+### NQ-M4 Implementation
+
+2026-07-14 기준 구현 완료했다.
+
+- `R-D-02` 권장안을 승인하고 API-017/API-065가 동일한 snapshot 준비 함수를 사용하도록 연결
+- application advisory lock과 단일 transaction 안에서 현재 정책·기준 version, JD/이력서 hash, 질문 수를 검증
+- ACTIVE 질문 세트의 `JD_CRITERIA + ALIGNED` 질문을 먼저, 현재 READY batch의 `RESUME_PERSONALIZED + ALIGNED` 질문을 다음에 저장
+- `interview_session_questions`에 원본 FK, session runtime ID, 기준명, NCS profile/mode/version, alignment 결과와 정책 version snapshot 추가
+- 이미 질문 snapshot이 있는 세션은 현재 설정 변경과 무관하게 다시 쓰지 않도록 불변성 보장
+- 채용 runtime이 session runtime ID와 snapshot 본문을 읽고 답변도 같은 ID로 복원하도록 보정
+- 개인화 질문 미준비는 `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`, 공통 질문 불일치는 `INTERVIEW_QUESTION_COUNT_INVALID`로 두 진입점 모두 차단
+
+검증 결과:
+
+- Prisma format/generate 통과
+- Prisma schema validate 통과 (`DATABASE_URL`은 schema 검증용 로컬 값 사용)
+- M4 집중 테스트: 4 suites, 44 tests passed
+- 전체 API 회귀: 41 suites, 264 tests passed
+
+D/E/A/PM 교차 리뷰와 실제 PostgreSQL migration 적용 검증은 PR 단계에서 남긴다.
+
 ## Additional Risks Found
 
 ### JD Mutation In Business Key (Resolved For M3)
@@ -128,9 +149,9 @@ batch에 `latest_process_log_id`, `attempt_count`를 저장하고 재시도마�
 
 ## Recommended Next Order
 
-1. D/E/A/PM에게 M3 cross-owner 변경과 `R-E-04`, `R-A-01`, `R-PM-04`를 병렬 리뷰 요청한다.
-2. D와 `R-D-02` 세션 readiness gate, 공통·개인화 질문 순서를 확정한다.
-3. M4 구현 전에 READY batch 조회와 세션 snapshot transaction 경계를 검토한다.
-4. NQ-M4는 `high` 추론 강도로 구현한다.
+1. D/E/A/PM에게 M3/M4 cross-owner 변경과 `R-E-04`, `R-A-01`, `R-PM-04`를 병렬 리뷰 요청한다.
+2. 실제 PostgreSQL에 M1~M4 migration을 순서대로 적용하고 NCS 3+3 질문 세션 생성 smoke test를 수행한다.
+3. 동료 NCS 평가기 계약을 최신 상태로 비교해 M5 입력 DTO와 근거 부족 상태를 확정한다.
+4. NQ-M5는 `xhigh` 추론 강도로 구현한다.
 
 NQ-M1에서 API/DB 구현이 시작되므로 리뷰 결과가 필드명·상태 enum·migration 위치를 바꿀 가능성이 있다. M0 blocker 승인 전에는 화면 skeleton 이상의 구현을 진행하지 않는다.
