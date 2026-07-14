@@ -5995,6 +5995,8 @@ td input {
 }
 .notion .wizard-ai-chip:disabled:hover { border-color: rgba(55, 53, 47, 0.14); color: rgba(55, 53, 47, 0.7); }
 .notion .wizard-ai-hint { font-size: 12px; color: rgba(55, 53, 47, 0.5); }
+.notion .wizard-ai-hint.is-error { color: #d4444e; }
+.notion .wizard-ai-field-label em.is-error { color: #d4444e; }
 @media (max-width: 720px) {
   .notion .wizard-ai-selects { grid-template-columns: 1fr; }
 }

@@ -313,6 +313,14 @@ export function RecruitmentCreatePage() {
   const [dir, setDir] = useState<1 | -1>(1);
   const [aiKeywords, setAiKeywords] = useState("");
   const selectedDraftKeywords = splitDraftKeywords(aiKeywords);
+  // 직접 입력 초과분은 요청 직전 정규화로 잘리므로, 조용히 사라지지 않게 입력 단계에서 경고를 노출한다. (#290 리뷰)
+  const draftKeywordCountOver = selectedDraftKeywords.length > AI_DRAFT_KEYWORD_MAX_COUNT;
+  const draftKeywordTooLong = selectedDraftKeywords.some((keyword) => keyword.length > AI_DRAFT_KEYWORD_MAX_LENGTH);
+  const draftKeywordWarning = draftKeywordCountOver
+    ? `키워드는 최대 ${AI_DRAFT_KEYWORD_MAX_COUNT}개까지만 저장돼요. 초과한 ${selectedDraftKeywords.length - AI_DRAFT_KEYWORD_MAX_COUNT}개는 생성 시 제외됩니다.`
+    : draftKeywordTooLong
+      ? `${AI_DRAFT_KEYWORD_MAX_LENGTH}자를 넘는 키워드는 생성 시 ${AI_DRAFT_KEYWORD_MAX_LENGTH}자까지만 저장돼요.`
+      : "";
   const [aiSummary, setAiSummary] = useState("");
   const [aiFilled, setAiFilled] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
@@ -1126,7 +1134,7 @@ export function RecruitmentCreatePage() {
             <div className="wizard-ai-field">
               <span className="wizard-ai-field-label">
                 추천 키워드
-                <em>
+                <em className={draftKeywordCountOver ? "is-error" : undefined}>
                   {form.jobRoleCode
                     ? `${selectedDraftKeywords.length}/${AI_DRAFT_KEYWORD_MAX_COUNT}개 선택`
                     : "직무를 선택하면 직무별 추천이 나와요"}
@@ -1154,7 +1162,11 @@ export function RecruitmentCreatePage() {
             <label>
               키워드 직접 추가 (쉼표로 구분)
               <input value={aiKeywords} onChange={(event) => setAiKeywords(event.target.value)} placeholder="선택한 키워드에 원하는 키워드를 더할 수 있어요" />
-              <span className="wizard-ai-hint">최대 {AI_DRAFT_KEYWORD_MAX_COUNT}개 · 키워드당 {AI_DRAFT_KEYWORD_MAX_LENGTH}자까지 저장돼요</span>
+              {draftKeywordWarning ? (
+                <span className="wizard-ai-hint is-error" aria-live="polite">{draftKeywordWarning}</span>
+              ) : (
+                <span className="wizard-ai-hint">최대 {AI_DRAFT_KEYWORD_MAX_COUNT}개 · 키워드당 {AI_DRAFT_KEYWORD_MAX_LENGTH}자까지 입력할 수 있어요</span>
+              )}
             </label>
             <label>
               핵심 내용 / 한 줄 소개
