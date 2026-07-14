@@ -1661,19 +1661,113 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
       {guide ? (
         <>
           {guide.consentCompleted ? (
-            <section className="candidate-device-setup">
-              <div className="candidate-device-setup__head">
-                <div>
-                  <p className="candidate-feature__eyebrow">장치 점검</p>
-                  <h1>카메라와 마이크를 확인해주세요</h1>
-                  <p>점검이 끝나면 채용 AI 면접이 시작됩니다.</p>
-                  <div className="candidate-steps" aria-label="채용 AI 면접 준비 단계">
-                    <span><b>STEP 1</b> 응시 안내</span>
-                    <span className="current"><b>STEP 2</b> 장치 점검</span>
-                    <span><b>STEP 3</b> {guidePrimaryActionLabel}</span>
-                  </div>
+            <section className="dvc">
+              <header className="dvc__head">
+                <p className="dvc__eyebrow">장치 점검</p>
+                <h1 className="dvc__title">카메라와 마이크를 확인해주세요</h1>
+                <p className="dvc__sub">준비가 모두 완료되면 면접을 시작할 수 있어요.</p>
+              </header>
+
+              <div className="dvc__progress" role="list" aria-label="채용 AI 면접 준비 단계">
+                <span className="dvc__step is-done" role="listitem"><i className="dvc__pnode">✓</i>응시 안내</span>
+                <span className="dvc__pbar" aria-hidden="true" />
+                <span className="dvc__step is-now" role="listitem"><i className="dvc__pnode">2</i>장치 점검</span>
+                <span className="dvc__pbar" aria-hidden="true" />
+                <span className="dvc__step" role="listitem"><i className="dvc__pnode">3</i>{guidePrimaryActionLabel}</span>
+              </div>
+
+              <div className="dvc__grid">
+                <div className="dvc__cam video-box">
+                  <video ref={videoRef} autoPlay muted playsInline />
+                  <CameraFramingOverlay state={cameraFramingState} testSentence={deviceTestSentence} />
+                  <span className="dvc__cam-chip">
+                    <i className={`dvc__cam-dot${cameraReady ? " is-on" : ""}`} aria-hidden="true" />
+                    {cameraReady ? "카메라 연결됨" : "카메라 연결 확인 필요"}
+                  </span>
                 </div>
-                <div className="toolbar">
+
+                <aside className="dvc__side">
+                  <div className="dvc__card">
+                    <h3>준비 상태</h3>
+                    <ul className="dvc__check">
+                      <li className="dvc__crow">
+                        <span className={`dvc__ic ${cameraReady ? "is-ok" : "is-warn"}`}>{cameraReady ? "✓" : "!"}</span>
+                        <div className="dvc__cmain">
+                          <b>카메라</b>
+                          <span>{cameraReady ? "정상 연결됨" : "연결을 확인해주세요"}</span>
+                        </div>
+                        <span className={`dvc__pill ${cameraReady ? "is-ok" : "is-warn"}`}>{cameraReady ? "정상" : "확인 필요"}</span>
+                      </li>
+                      <li className="dvc__crow">
+                        <span className={`dvc__ic ${microphoneReady ? "is-ok" : "is-warn"}`}>{microphoneReady ? "✓" : "!"}</span>
+                        <div className="dvc__cmain">
+                          <b>마이크</b>
+                          <span>{microphoneStatus}</span>
+                          <div className="dvc__meter" aria-label={`마이크 입력 ${microphoneLevel}%`}>
+                            <i style={{ width: `${microphoneLevel}%` }} />
+                          </div>
+                        </div>
+                      </li>
+                      <li className="dvc__crow">
+                        <span className={`dvc__ic ${deviceState.networkStable ? "is-ok" : "is-warn"}`}>{deviceState.networkStable ? "✓" : "!"}</span>
+                        <div className="dvc__cmain">
+                          <b>네트워크</b>
+                          <span>{networkStatus}</span>
+                        </div>
+                        <span className={`dvc__pill ${deviceState.networkStable ? "is-ok" : "is-warn"}`}>{deviceState.networkStable ? "정상" : "확인 중"}</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div className="dvc__card">
+                    <h3>장치 선택</h3>
+                    <div className="dvc__fields">
+                      <label className="dvc__field">
+                        <span>카메라</span>
+                        <select
+                          aria-label="카메라 선택"
+                          value={selectedCameraId}
+                          onChange={(event) => setSelectedCameraId(event.target.value)}
+                        >
+                          <option value="">기본 카메라</option>
+                          {cameraDevices.map((device, index) => (
+                            <option key={device.deviceId || index} value={device.deviceId}>
+                              {device.label || `카메라 ${index + 1}`}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="dvc__field">
+                        <span>마이크</span>
+                        <select
+                          aria-label="마이크 선택"
+                          value={selectedMicrophoneId}
+                          onChange={(event) => setSelectedMicrophoneId(event.target.value)}
+                        >
+                          <option value="">기본 마이크</option>
+                          {microphoneDevices.map((device, index) => (
+                            <option key={device.deviceId || index} value={device.deviceId}>
+                              {device.label || `마이크 ${index + 1}`}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="dvc__relinks">
+                        <button type="button" className="dvc__link" disabled={busy} onClick={() => void refreshGuideCameraDevices()}>
+                          장치 새로고침
+                        </button>
+                        <button type="button" className="dvc__link" disabled={busy} onClick={() => void handleDevicePreview()}>
+                          다시 점검
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+
+              <div className="dvc__foot">
+                <p className="dvc__note">카메라·마이크 권한을 허용해야 면접을 진행할 수 있어요.</p>
+                <div className="dvc__actions">
                   <button
                     className="btn secondary"
                     type="button"
@@ -1701,59 +1795,6 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
                     {guidePrimaryActionLabel}
                   </button>
                 </div>
-              </div>
-              <div className="candidate-device-setup__grid">
-                <div className="candidate-device-main">
-                  <div className="video-box candidate-device-preview">
-                    <video ref={videoRef} autoPlay muted playsInline />
-                    <CameraFramingOverlay state={cameraFramingState} testSentence={deviceTestSentence} />
-                  </div>
-                </div>
-                <aside className="panel candidate-runtime-status-panel">
-                  <p className="panel-title">장치 상태</p>
-                  <div className="status-list">
-                    <div className="status-line"><span className={cameraReady ? "ok" : "wait"}>{cameraReady ? "✓" : "!"}</span> 카메라 {cameraReady ? "정상" : "연결 확인 필요"}</div>
-                    <div className="status-line"><span className={microphoneReady ? "ok" : "wait"}>{microphoneReady ? "✓" : "!"}</span> {microphoneStatus}</div>
-                    <div className="mic-meter" aria-label={`마이크 입력 ${microphoneLevel}%`}>
-                      <span style={{ width: `${microphoneLevel}%` }} />
-                    </div>
-                    <div className="status-line"><span className={deviceState.networkStable ? "ok" : "wait"}>{deviceState.networkStable ? "✓" : "!"}</span> {networkStatus}</div>
-                  </div>
-                  <div className="candidate-device-controls">
-                    <select
-                      aria-label="카메라 선택"
-                      className="camera-select"
-                      value={selectedCameraId}
-                      onChange={(event) => setSelectedCameraId(event.target.value)}
-                    >
-                      <option value="">기본 카메라</option>
-                      {cameraDevices.map((device, index) => (
-                        <option key={device.deviceId || index} value={device.deviceId}>
-                          {device.label || `카메라 ${index + 1}`}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      aria-label="마이크 선택"
-                      className="camera-select"
-                      value={selectedMicrophoneId}
-                      onChange={(event) => setSelectedMicrophoneId(event.target.value)}
-                    >
-                      <option value="">기본 마이크</option>
-                      {microphoneDevices.map((device, index) => (
-                        <option key={device.deviceId || index} value={device.deviceId}>
-                          {device.label || `마이크 ${index + 1}`}
-                        </option>
-                      ))}
-                    </select>
-                    <button className="btn" type="button" disabled={busy} onClick={() => void refreshGuideCameraDevices()}>
-                      장치 새로고침
-                    </button>
-                    <button className="btn" type="button" disabled={busy} onClick={() => void handleDevicePreview()}>
-                      카메라/마이크 점검
-                    </button>
-                  </div>
-                </aside>
               </div>
             </section>
           ) : null}

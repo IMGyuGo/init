@@ -1760,6 +1760,296 @@
   color: #37352f;
 }
 
+/* ===== 장치 점검 화면 새 UI(#288, dvc) ===== */
+:global(.dvc) {
+  display: block;
+}
+:global(.dvc__eyebrow) {
+  margin: 0;
+  color: rgba(55, 53, 47, 0.5);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+:global(.dvc__title) {
+  margin: 6px 0 6px;
+  color: #191919;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+:global(.dvc__sub) {
+  margin: 0;
+  color: rgba(55, 53, 47, 0.6);
+  font-size: 14px;
+}
+
+/* 진행바 */
+:global(.dvc__progress) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 0 24px;
+}
+:global(.dvc__step) {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgba(55, 53, 47, 0.4);
+  white-space: nowrap;
+}
+:global(.dvc__step.is-done) {
+  color: #37352f;
+}
+:global(.dvc__step.is-now) {
+  color: #3b6fe0;
+}
+:global(.dvc__pnode) {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  background: rgba(55, 53, 47, 0.08);
+  color: rgba(55, 53, 47, 0.5);
+}
+:global(.dvc__step.is-done .dvc__pnode) {
+  background: #0f7a43;
+  color: #fff;
+}
+:global(.dvc__step.is-now .dvc__pnode) {
+  background: #3b6fe0;
+  color: #fff;
+}
+:global(.dvc__pbar) {
+  flex: 1;
+  height: 1px;
+  background: rgba(55, 53, 47, 0.12);
+}
+
+/* 본문 그리드 */
+:global(.dvc__grid) {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr);
+  gap: 20px;
+  align-items: stretch;
+}
+
+/* 카메라 프리뷰(.video-box 재사용) — 우측 컬럼 높이에 맞춰 채움 */
+:global(.dvc__cam.video-box) {
+  position: relative;
+  height: 100%;
+  min-height: 440px;
+  border-radius: 16px;
+}
+:global(.dvc__cam-chip) {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  background: rgba(16, 16, 20, 0.62);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+:global(.dvc__cam-dot) {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.4);
+}
+:global(.dvc__cam-dot.is-on) {
+  background: #31d07f;
+}
+
+/* 우측 카드들 */
+:global(.dvc__side) {
+  display: grid;
+  gap: 18px;
+}
+:global(.dvc__card) {
+  padding: 20px;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 14px;
+}
+:global(.dvc__card h3) {
+  margin: 0 0 14px;
+  color: #191919;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* 준비 상태 체크리스트 */
+:global(.dvc__check) {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+:global(.dvc__crow) {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 0;
+}
+:global(.dvc__crow + .dvc__crow) {
+  border-top: 1px solid rgba(55, 53, 47, 0.06);
+}
+:global(.dvc__ic) {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 800;
+}
+:global(.dvc__ic.is-ok) {
+  background: #dcf3e6;
+  color: #0f7a43;
+}
+:global(.dvc__ic.is-warn) {
+  background: #fbebd6;
+  color: #b7791f;
+}
+:global(.dvc__cmain) {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+:global(.dvc__cmain b) {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #191919;
+}
+:global(.dvc__cmain span) {
+  font-size: 12px;
+  color: rgba(55, 53, 47, 0.5);
+}
+:global(.dvc__meter) {
+  height: 6px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: rgba(55, 53, 47, 0.08);
+  overflow: hidden;
+}
+:global(.dvc__meter i) {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #3b6fe0;
+  transition: width 90ms linear;
+}
+:global(.dvc__pill) {
+  flex: none;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+:global(.dvc__pill.is-ok) {
+  color: #0f7a43;
+  background: #dcf3e6;
+}
+:global(.dvc__pill.is-warn) {
+  color: #b7791f;
+  background: #fbebd6;
+}
+
+/* 장치 선택 */
+:global(.dvc__fields) {
+  display: grid;
+  gap: 12px;
+}
+:global(.dvc__field) {
+  display: grid;
+  gap: 5px;
+}
+:global(.dvc__field > span) {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: rgba(55, 53, 47, 0.5);
+}
+:global(.dvc__field select) {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  color: #37352f;
+  font-size: 13.5px;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.16);
+  border-radius: 8px;
+}
+:global(.dvc__relinks) {
+  display: flex;
+  gap: 16px;
+  margin-top: 2px;
+}
+:global(.dvc__link) {
+  padding: 0;
+  color: #3b6fe0;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+:global(.dvc__link:hover) {
+  color: #315fc6;
+}
+:global(.dvc__link:disabled) {
+  color: rgba(55, 53, 47, 0.35);
+  cursor: default;
+}
+
+/* 하단 액션바 */
+:global(.dvc__foot) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(55, 53, 47, 0.1);
+}
+:global(.dvc__note) {
+  margin: 0;
+  font-size: 12.5px;
+  color: rgba(55, 53, 47, 0.5);
+}
+:global(.dvc__actions) {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+
+@media (max-width: 860px) {
+  :global(.dvc__grid) {
+    grid-template-columns: 1fr;
+  }
+  :global(.dvc__foot) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  :global(.dvc__actions) {
+    justify-content: flex-end;
+  }
+}
+
 :global(.q-card) {
   position: relative;
   padding: 24px 26px;
