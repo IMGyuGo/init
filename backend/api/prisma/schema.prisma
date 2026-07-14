@@ -264,6 +264,7 @@ model CandidateProfile {
   githubUrl           String?            @map("github_url") @db.VarChar(500)
   blogUrl             String?            @map("blog_url") @db.VarChar(500)
   summary             String?
+  coverLetter         String?            @map("cover_letter")
   createdAt           DateTime           @default(now()) @map("created_at")
   updatedAt           DateTime           @updatedAt @map("updated_at")
   user                User               @relation(fields: [userId], references: [userId])
@@ -367,6 +368,7 @@ model CandidateFolder {
   portfolioFileId BigInt?        @map("portfolio_file_id")
   motivation    String?
   extraNote     String?          @map("extra_note")
+  profileSnapshot Json?          @map("profile_snapshot")
   createdAt     DateTime         @default(now()) @map("created_at")
   updatedAt     DateTime         @updatedAt @map("updated_at")
   candidate     CandidateProfile @relation(fields: [candidateId], references: [candidateId], onDelete: Cascade)
@@ -519,6 +521,7 @@ model Application {
   portfolioUrl          String?                @map("portfolio_url") @db.VarChar(500)
   motivation            String?
   additionalInfo        String?                @map("additional_info")
+  profileSnapshot       Json?                  @map("profile_snapshot")
   applicationStatus     ApplicationStatus      @default(SUBMITTED) @map("application_status")
   documentStatus        DocumentStatus         @default(NOT_SUBMITTED) @map("document_status")
   interviewStatus       InterviewStatus        @default(NOT_READY) @map("interview_status")

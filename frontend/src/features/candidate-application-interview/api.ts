@@ -142,6 +142,7 @@ export interface CandidateApplyView {
   requiredConsentTypes: ConsentType[];
   portfolioRequired: true;
   applicant: ApplicantContact;
+  profileSnapshot?: CandidateProfileSnapshotV1;
 }
 
 export interface SubmitApplicationRequest {
@@ -155,6 +156,7 @@ export interface SubmitApplicationRequest {
   portfolioUrl?: string;
   motivation: string;
   additionalInfo: string;
+  profileSnapshot: CandidateProfileSnapshotV1;
   consentTypes: ConsentType[];
 }
 
@@ -346,6 +348,15 @@ export interface StartMockInterviewRequest {
   showQuestionText?: boolean;
   // 선택한 지원서 세트(폴더). 있으면 폴더 자료를 질문 생성 컨텍스트로 사용 (#228).
   folderId?: number;
+  questionProcessLogId?: number;
+}
+
+export interface GenerateMockQuestionsRequest {
+  questionCount: number;
+  folderId?: number;
+  jobRole?: string;
+  difficulty?: "EASY" | "NORMAL" | "HARD";
+  questionTypes?: QuestionType[];
 }
 
 export interface RuntimeQuestionView {
@@ -793,10 +804,15 @@ export interface CandidateProfileView {
   blogUrl: string | null;
   portfolioUrl: string | null;
   summary: string | null;
+  coverLetter: string | null;
   educations: CandidateEducation[];
   careers: CandidateCareer[];
   activities: CandidateActivity[];
   credentials: CandidateCredential[];
+}
+
+export interface CandidateProfileSnapshotV1 extends CandidateProfileView {
+  schemaVersion: 1;
 }
 
 export interface UpdateCandidateProfileRequest {
@@ -806,6 +822,7 @@ export interface UpdateCandidateProfileRequest {
   blogUrl?: string | null;
   portfolioUrl?: string | null;
   summary?: string | null;
+  coverLetter?: string | null;
   educations?: CandidateEducation[];
   careers?: CandidateCareer[];
   activities?: CandidateActivity[];
@@ -825,6 +842,7 @@ export interface CandidateFolder {
   portfolioFileName: string | null;
   motivation: string | null;
   extraNote: string | null;
+  profileSnapshot: CandidateProfileSnapshotV1;
   createdAt: string;
   updatedAt: string;
 }
@@ -838,6 +856,7 @@ export interface CandidateFolderInput {
   portfolioFileId?: number | null;
   motivation?: string | null;
   extraNote?: string | null;
+  profileSnapshot?: CandidateProfileSnapshotV1;
 }
 
 export const candidateApiPaths = {
@@ -847,6 +866,7 @@ export const candidateApiPaths = {
   applyView: (jobId: number) => `/api/v1/candidate/jobs/${jobId}/apply`,
   submitApplication: (jobId: number) => `/api/v1/candidate/jobs/${jobId}/applications`,
   mockInterviews: "/api/v1/candidate/mock-interviews",
+  generateMockQuestions: "/api/v1/candidate/mock-interviews/questions/generate",
   mockRuntime: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}`,
   mockTitle: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/title`,
   mockQuestions: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/questions`,
@@ -934,6 +954,7 @@ export interface CandidateApiClient {
   getApplyView(jobId: number): Promise<ApiResponse<CandidateApplyView>>;
   submitApplication(jobId: number, body: SubmitApplicationRequest): Promise<ApiResponse<SubmitApplicationResponse>>;
   startMockInterview(body: StartMockInterviewRequest): Promise<ApiResponse<StartMockInterviewResponse>>;
+  generateMockQuestions(body: GenerateMockQuestionsRequest): Promise<ApiResponse<AiJobStatusResponse>>;
   getMockRuntime(sessionId: number): Promise<ApiResponse<InterviewRuntimeSessionView>>;
   listMockQuestions(sessionId: number): Promise<ApiResponse<RuntimeQuestionListResponse>>;
   saveMockAnswer(sessionId: number, body: SaveInterviewAnswerRequest): Promise<ApiResponse<SaveInterviewAnswerResponse>>;
@@ -1098,6 +1119,11 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
       }),
     startMockInterview: (body) =>
       request<ApiResponse<StartMockInterviewResponse>>(candidateApiPaths.mockInterviews, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    generateMockQuestions: (body) =>
+      request<ApiResponse<AiJobStatusResponse>>(candidateApiPaths.generateMockQuestions, {
         method: "POST",
         body: JSON.stringify(body),
       }),

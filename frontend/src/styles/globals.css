@@ -10738,3 +10738,52 @@ p {
 .notion .applicant-document-row > div { display: grid; gap: 3px; min-width: 0; }
 .notion .applicant-document-row strong { font-size: 14px; }
 .notion .applicant-document-row span { overflow: hidden; color: rgba(55, 53, 47, 0.58); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 전체 지원자 프로필 스냅샷 편집기 — 지원 모달/지원서 세트 페이지 공용 */
+.candidate-profile-snapshot-editor { display: grid; gap: 14px; width: 100%; }
+.candidate-profile-snapshot-basic,
+.candidate-profile-snapshot-item { position: relative; margin: 0; padding: 18px; border: 1px solid #dfe5f0; border-radius: 16px; background: #fff; }
+.candidate-profile-snapshot-basic legend,
+.candidate-profile-snapshot-item legend { padding: 0 6px; font-weight: 700; }
+.candidate-profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.candidate-profile-field { display: grid; align-content: start; gap: 7px; min-width: 0; color: #37352f; font-size: 14px; font-weight: 600; }
+.candidate-profile-field--wide { grid-column: 1 / -1; }
+.candidate-profile-field input:not([type="checkbox"]),
+.candidate-profile-field select { box-sizing: border-box; width: 100%; height: 44px; min-height: 44px; max-height: 44px; padding: 10px 12px; border: 1px solid #cfd7e6; border-radius: 10px; background: #fff; color: inherit; font: inherit; font-weight: 400; }
+.candidate-profile-field textarea { box-sizing: border-box; width: 100%; min-height: 100px; padding: 10px 12px; border: 1px solid #cfd7e6; border-radius: 10px; background: #fff; color: inherit; font: inherit; font-weight: 400; resize: vertical; }
+.candidate-profile-field input:focus,
+.candidate-profile-field select:focus,
+.candidate-profile-field textarea:focus { border-color: #6f83d9; outline: 3px solid rgba(88, 111, 214, 0.14); }
+.candidate-profile-snapshot-section { overflow: hidden; border: 1px solid #dfe5f0; border-radius: 16px; background: rgba(255, 255, 255, 0.72); }
+.candidate-profile-snapshot-header { display: flex; align-items: center; gap: 10px; padding: 8px; }
+.candidate-profile-snapshot-header > button:first-child { display: flex; flex: 1; align-items: center; gap: 10px; min-height: 44px; padding: 8px 10px; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; font-weight: 700; text-align: left; }
+.candidate-profile-snapshot-header > button:first-child > span:last-child { margin-left: auto; font-size: 20px; }
+.candidate-profile-badge { min-width: 28px; padding: 3px 8px; border-radius: 999px; background: #e8edff; color: #3e50b4; font-size: 13px; text-align: center; }
+.candidate-profile-badge--text { min-width: 52px; font-size: 12px; }
+.candidate-profile-add { min-height: 44px; padding: 8px 12px; border: 1px solid #bbc6dc; border-radius: 10px; background: #fff; color: #34405a; cursor: pointer; font: inherit; font-weight: 600; }
+.candidate-profile-add:disabled { cursor: not-allowed; opacity: 0.5; }
+.candidate-profile-snapshot-items { display: grid; gap: 14px; padding: 10px 16px 16px; }
+.candidate-profile-empty { margin: 4px 0; color: #69758d; }
+.candidate-profile-remove { position: absolute; top: 8px; right: 12px; min-height: 30px; padding: 4px 9px; border: 1px solid #bbc6dc; border-radius: 9px; background: #fff; color: #b42318; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; }
+.candidate-profile-check { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 14px; font-weight: 600; }
+.candidate-profile-check input { width: 18px; height: 18px; }
+.folder-form-page { display: grid; gap: 16px; max-width: 980px; margin: 0 auto; }
+.folder-form-page .modal-head { position: static; }
+.candidate-apply-setloader .candidate-apply-setlist { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); margin: 12px 0 0; padding: 0; }
+.candidate-apply-setloader .folder-card { display: grid; gap: 10px; padding: 14px; border: 1px solid rgba(55, 53, 47, 0.14); border-radius: 10px; background: #fff; }
+.candidate-apply-setloader .folder-card.is-active { border-color: #2f6fda; box-shadow: 0 0 0 1px #2f6fda; }
+.candidate-apply-setloader .folder-card__top { display: flex; align-items: center; gap: 8px; }
+.candidate-apply-setloader .folder-card__name { flex: 1; margin: 0; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.candidate-apply-setloader .folder-card__actions { display: flex; }
+.candidate-apply-setloader .folder-icon-btn { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: rgba(55, 53, 47, 0.62); cursor: pointer; }
+.candidate-apply-setloader .folder-icon-btn:hover { background: rgba(55, 53, 47, 0.07); color: #191919; }
+.candidate-apply-setloader .folder-card__resume { color: rgba(55, 53, 47, 0.58); font-size: 12px; }
+.candidate-apply-setloader .folder-card__motivation { display: -webkit-box; margin: 0; overflow: hidden; color: #37352f; font-size: 13px; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+
+@media (max-width: 720px) {
+  .candidate-profile-grid { grid-template-columns: 1fr; }
+  .candidate-profile-field--wide { grid-column: auto; }
+  .candidate-profile-snapshot-basic,
+  .candidate-profile-snapshot-item { padding: 14px; }
+  .candidate-profile-snapshot-header { align-items: stretch; }
+}

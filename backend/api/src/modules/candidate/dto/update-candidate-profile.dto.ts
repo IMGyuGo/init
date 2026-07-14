@@ -169,6 +169,11 @@ export class UpdateCandidateProfileDto {
   @MaxLength(2000)
   summary?: string | null;
 
+  @ValidateIf((_object, value) => value !== undefined && value !== null)
+  @IsString()
+  @MaxLength(5000)
+  coverLetter?: string | null;
+
   @ValidateIf((_object, value) => value !== undefined)
   @IsArray()
   @ArrayMaxSize(10)

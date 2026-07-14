@@ -34,7 +34,7 @@ const api = () => createCandidateApiClient({
 
 export function CandidateProfileSection() {
   const [form, setForm] = useState<CandidateProfileFormState>(createEmptyProfileForm);
-  const [open, setOpen] = useState<Record<ProfileSection, boolean>>({ educations: false, careers: false, activities: false, credentials: false });
+  const [open, setOpen] = useState<Record<ProfileSection | "coverLetter", boolean>>({ educations: false, careers: false, activities: false, credentials: false, coverLetter: false });
   const [errors, setErrors] = useState<ProfileFormError[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -177,6 +177,24 @@ export function CandidateProfileSection() {
           ))}
         </Accordion>
 
+        <TextAccordion
+          section="coverLetter"
+          title="자기소개서"
+          filled={Boolean(form.coverLetter.trim())}
+          open={open.coverLetter}
+          onToggle={() => setOpen({ ...open, coverLetter: !open.coverLetter })}
+        >
+          <Field label="자기소개서" wide>
+            <textarea
+              value={form.coverLetter}
+              maxLength={5000}
+              rows={10}
+              placeholder="지원자의 경험, 강점, 문제 해결 사례를 작성해 주세요. 저장한 내용은 맞춤형 모의면접 질문 생성에 활용됩니다."
+              onChange={(event) => setForm({ ...form, coverLetter: event.currentTarget.value })}
+            />
+          </Field>
+        </TextAccordion>
+
         <div className={styles.actions} aria-live="polite"><span>{message}</span><button className="btn primary" type="submit" disabled={busy || loading}>{busy ? "저장 중…" : "프로필 저장"}</button></div>
       </form>
     </section>
@@ -200,6 +218,11 @@ function Field({ label, children, error, wide = false }: { label: string; childr
 function Accordion({ section, count, open, onToggle, onAdd, children }: { section: ProfileSection; count: number; open: boolean; onToggle: () => void; onAdd: () => void; children: ReactNode }) {
   const id = `profile-${section}`;
   return <section className={styles.accordion}><div className={styles.accordionHeader}><button type="button" aria-expanded={open} aria-controls={id} onClick={onToggle}><span>{sectionLabels[section]}</span><span className={styles.badge}>{count}</span><span aria-hidden="true">{getAccordionIndicator(open)}</span></button><button type="button" className={styles.add} onClick={onAdd}>항목 추가</button></div>{open ? <div id={id} className={styles.items}>{count ? children : <p className={styles.empty}>등록된 항목이 없습니다.</p>}</div> : null}</section>;
+}
+
+function TextAccordion({ section, title, filled, open, onToggle, children }: { section: "coverLetter"; title: string; filled: boolean; open: boolean; onToggle: () => void; children: ReactNode }) {
+  const id = `profile-${section}`;
+  return <section className={styles.accordion}><div className={styles.accordionHeader}><button type="button" aria-expanded={open} aria-controls={id} onClick={onToggle}><span>{title}</span><span className={`${styles.badge} ${styles.textBadge}`}>{filled ? "작성됨" : "미작성"}</span><span aria-hidden="true">{getAccordionIndicator(open)}</span></button></div>{open ? <div id={id} className={`${styles.items} ${styles.textItems}`}>{children}</div> : null}</section>;
 }
 
 function errorMessage(error: unknown): string {

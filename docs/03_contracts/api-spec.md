@@ -1094,8 +1094,9 @@ AI 리포트 금지 기준:
 - 성공 응답/처리:
   - 지원자 기본 정보, 지원/면접/리포트 상태, 전형 상태/메모 표시
   - `submission`에 제출 당시 `name`, `email`, `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `motivation`, `additionalInfo`를 반환한다.
+  - 신규 회원 지원서는 `submission.profileSnapshot`에 제출 당시 `summary`, `coverLetter`, `educations`, `careers`, `activities`, `credentials`를 포함한 `CandidateProfileSnapshotV1`을 반환한다.
   - `submission.documents`에 `documentId`, `fileId`, `documentType`, `originalName`, `mimeType`, `sizeBytes`, `uploadedAt`을 반환한다.
-  - 기존 지원서의 스냅샷 필드가 NULL이면 지원자 계정/프로필의 현재 값을 fallback으로 반환한다.
+  - 기존 scalar 스냅샷이 NULL이면 지원자 계정/프로필의 현재 값을 fallback으로 반환한다. `profileSnapshot`이 NULL인 기존/공개 지원서는 현재 구조화 프로필로 역보정하지 않는다.
   - 리포트가 있으면 점수, 근거, 요약 표시
   - 리포트가 없으면 없음/생성중 상태로 표시
 - 오류/예외:
@@ -2229,12 +2230,14 @@ AI 리포트 금지 기준:
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - 직무 선택, 난이도, 질문 유형, `folderId?`
+  - 직무 선택, 난이도, 질문 유형, `folderId?`, `questionProcessLogId?`
 - 검증/전제조건:
   - 로그인 사용자
   - `folderId`가 있으면 현재 지원자 소유 `candidate_folders.id`여야 한다.
+  - `questionProcessLogId`가 있으면 현재 지원자가 요청한 완료 상태의 `MOCK_QUESTION_GENERATE` 작업이어야 하며 한 세션에만 연결할 수 있다.
 - 성공 응답/처리:
   - 모의면접 세션 생성
+  - 완료된 AI 질문 결과가 있으면 요청한 질문 유형과 개수를 검증한 후 사용하고, 부족하거나 유효하지 않은 항목은 안전한 기본 질문으로 보완한다.
   - `folderId`가 있으면 폴더의 이력서 파일 메타데이터, 추출 텍스트(`application_documents.extracted_text`가 존재하는 경우), GitHub/블로그/포트폴리오 URL, 지원동기, 추가설명을 모의면접 질문 생성 컨텍스트로 사용한다.
   - 개인 맞춤 질문은 기업 `question_bank`에 저장하지 않고 현재 지원자 세션 소유의 `interview_session_questions`에 본문과 유형을 저장한다.
   - 세션 생성, 이용권 차감, 개인 질문 저장은 하나의 DB 트랜잭션으로 처리하고 실패 시 모두 rollback한다.
@@ -2269,14 +2272,15 @@ AI 리포트 금지 기준:
 - 상태 코드: 201 Created
 - 비동기: N
 - 요청 데이터:
-  - `{ name, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, portfolioFileId?, motivation?, extraNote? }`
+  - `{ name, profileSnapshot?, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, portfolioFileId?, motivation?, extraNote? }`
 - 검증/전제조건:
   - `name`은 필수이며 100자 이하
   - URL 필드는 http/https URL이며 500자 이하
   - `resumeFileId`·`portfolioFileId`가 있으면 각각 현재 사용자 소유의 PDF FileAsset이어야 한다. (지원 제출과 동일하게 PDF만 허용, #272 P1-2)
   - 지원자별 폴더는 최대 20개까지 생성할 수 있다.
+  - `profileSnapshot`을 생략하면 현재 마이페이지 프로필로 생성하며, 전달하면 `CandidateProfileSnapshotV1` 전체 교체 검증을 적용한다.
 - 성공 응답/처리:
-  - `{ data: CandidateFolder, meta }`
+  - `{ data: CandidateFolderDetail, meta }`. 상세 응답은 전체 `profileSnapshot`을 포함한다.
 - 오류/예외:
   - 20개 초과 또는 필드 검증 실패 시 `COMMON_VALIDATION_FAILED`
   - 타 사용자 파일 참조 시 `COMMON_FORBIDDEN`
@@ -2294,7 +2298,7 @@ AI 리포트 금지 기준:
 - 검증/전제조건:
   - `{id}`는 현재 지원자 소유 폴더여야 한다.
 - 성공 응답/처리:
-  - `{ data: CandidateFolder, meta }`
+  - `{ data: CandidateFolderDetail, meta }`. 기존 세트의 `profileSnapshot`이 NULL이면 현재 프로필과 기존 세트 값을 합친 유효 스냅샷을 반환한다.
 - 오류/예외:
   - 미존재 `COMMON_NOT_FOUND`
   - 타 지원자 소유 `COMMON_FORBIDDEN`
@@ -2309,11 +2313,12 @@ AI 리포트 금지 기준:
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - `{ name?, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, portfolioFileId?, motivation?, extraNote? }`
+  - `{ name?, profileSnapshot?, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, portfolioFileId?, motivation?, extraNote? }`
   - nullable 필드는 `null`로 초기화 가능
 - 검증/전제조건:
   - `{id}`는 현재 지원자 소유 폴더여야 한다.
   - 필드 검증은 생성 API와 동일
+  - 기존 세트의 `profileSnapshot`이 NULL이면 최초 수정 시 현재 유효 프로필을 스냅샷으로 고정한다. 전달된 스냅샷의 `null`과 빈 배열은 명시적 비움으로 유지한다.
 - 성공 응답/처리:
   - `{ data: CandidateFolder, meta }`
 - 관련 ERD 테이블:
@@ -2341,6 +2346,21 @@ CandidateFolder 응답 필드:
   "id": 1,
   "candidateId": 1,
   "name": "백엔드 포지션 지원 세트",
+  "profileSnapshot": {
+    "schemaVersion": 1,
+    "name": "김민철",
+    "email": "candidate@example.com",
+    "phone": "010-0000-0000",
+    "githubUrl": "https://github.com/init/backend",
+    "blogUrl": null,
+    "portfolioUrl": "https://portfolio.example.com/backend",
+    "summary": "백엔드 개발자",
+    "coverLetter": "Redis 캐시 적용 경험을 바탕으로 안정적인 서비스를 만들고 싶습니다.",
+    "educations": [],
+    "careers": [],
+    "activities": [],
+    "credentials": []
+  },
   "githubUrl": "https://github.com/init/backend",
   "blogUrl": null,
   "portfolioUrl": "https://portfolio.example.com/backend",
@@ -2359,6 +2379,7 @@ CandidateFolder 입력 제한:
 - `githubUrl`, `blogUrl`, `portfolioUrl`: 각각 최대 500자, HTTP/HTTPS URL
 - `motivation`: 최대 3,000자
 - `extraNote`: 최대 5,000자
+- `profileSnapshot.coverLetter`: 최대 5,000자이며 선택 입력
 - 질문 생성에 사용하는 폴더 컨텍스트는 정규화 후 최대 12,000자로 제한한다.
 
 ### API-045 POST /candidate/mock-interviews/questions/generate
@@ -2369,14 +2390,15 @@ CandidateFolder 입력 제한:
 - 상태 코드: 202 Accepted
 - 비동기: Y
 - 요청 데이터:
-  - `{ questionCount, folderId? }`
+  - `{ questionCount, jobRole, difficulty, questionTypes, folderId? }`
   - 클라이언트가 `profileContext`를 직접 전달하는 것은 허용하지 않는다.
 - 검증/전제조건:
   - `questionCount`는 양의 정수
+  - `questionCount`는 중복 제거한 `questionTypes` 개수와 같아야 한다.
   - `folderId`가 있으면 현재 지원자 소유 `candidate_folders.id`여야 한다.
 - 성공 응답/처리:
   - 모의면접 질문 목록 생성 작업 큐잉
-  - 서버가 현재 로그인 지원자의 `CandidateProfileAiContextV1`을 구성해 항상 worker 입력에 추가한다. 이름, 이메일, 연락처와 DB 내부 ID는 포함하지 않는다.
+  - 세트가 없으면 현재 프로필, 세트가 있으면 세트의 고정 스냅샷으로 `CandidateProfileAiContextV1`을 구성한다. 이름, 이메일, 연락처와 DB 내부 ID는 포함하지 않는다.
   - `folderId`가 있으면 폴더의 이력서 파일 메타데이터, 추출 텍스트(`application_documents.extracted_text`가 존재하는 경우), GitHub/블로그/포트폴리오 URL, 지원동기, 추가설명을 worker 입력 컨텍스트로 전달한다.
   - 원문 컨텍스트는 SQS 작업 메시지에서만 처리하고 `ai_process_logs.input_ref`에는 `folderId`, 파일 ID, 프로필 스키마 버전, 항목 개수, 문자 수, 컨텍스트 해시, 프로필 수정 시각만 저장한다.
   - 생성 질문 후보와 AI 작업 결과에는 이력서 추출 텍스트, URL, 지원동기, 추가 설명 원문을 그대로 반복 저장하지 않는다.
@@ -2714,13 +2736,13 @@ CandidateFolder 입력 제한:
 - UI Type: section
 - 상태 코드: 200 OK
 - 응답 데이터: `application/json`
-  - `name`, `email`(읽기전용), `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `summary`
+  - `name`, `email`(읽기전용), `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `summary`, `coverLetter`
   - `educations[]`: `{ educationLevel, schoolName, major, degreeType, status, startMonth, endMonth }`
   - `careers[]`: `{ companyName, startMonth, endMonth, isCurrent, jobRole, department, position, responsibilities }`
   - `activities[]`: `{ activityType, organizationName, startDate, endDate, isOngoing, description }`
   - `credentials[]`: `{ credentialType, name, issuer, acquiredMonth, result }`
   - 반복 항목의 내부 ID와 `sortOrder`는 노출하지 않으며 응답 배열 순서가 표시 순서다. 값이 없으면 항상 빈 배열을 반환한다.
-  - 이름/이메일/연락처는 `users`, GitHub/블로그/포트폴리오/한줄소개는 `candidate_profiles` 에서 조회한다.
+  - 이름/이메일/연락처는 `users`, GitHub/블로그/포트폴리오/한줄소개/자기소개서는 `candidate_profiles` 에서 조회한다.
 - 비고: 지원 화면 기본정보 자동 입력의 정본(source of truth). (#272)
 - 관련 ERD 테이블: users, candidate_profiles, candidate_educations, candidate_careers, candidate_activities, candidate_credentials
 
@@ -2731,7 +2753,7 @@ CandidateFolder 입력 제한:
 - UI Type: section
 - 상태 코드: 200 OK
 - 요청 데이터: `application/json` (모두 optional, 부분 수정)
-  - `name`, `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `summary`
+  - `name`, `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `summary`, `coverLetter`
   - `educations[]`, `careers[]`, `activities[]`, `credentials[]`
   - 이메일은 로그인 정보라 수정 대상에서 제외한다.
 - 검증/전제조건:
@@ -2740,9 +2762,9 @@ CandidateFolder 입력 제한:
   - 각 반복 섹션은 최대 10개다. 연월은 `YYYY-MM`, 활동 일자는 `YYYY-MM-DD` 형식이다.
   - 학력은 재학/휴학이면 `endMonth=null`, 그 외 상태는 `endMonth`가 필수다. 학력구분과 학위구분은 호환되어야 한다.
   - 경력의 `isCurrent=true`, 활동의 `isOngoing=true`이면 종료일은 `null`이어야 하며, false이면 종료일이 필수다. 모든 기간은 시작일이 종료일보다 늦을 수 없다.
-  - 기관·학교·회사·자격 명칭은 최대 150자, 직무·부서·직급은 최대 100자, 담당업무·활동내용은 최대 1,000자, 결과는 최대 200자다. URL은 최대 500자, summary는 최대 2,000자다.
+  - 기관·학교·회사·자격 명칭은 최대 150자, 직무·부서·직급은 최대 100자, 담당업무·활동내용은 최대 1,000자, 결과는 최대 200자다. URL은 최대 500자, summary는 최대 2,000자, coverLetter는 최대 5,000자다.
 - 성공 응답/처리:
-  - `users`(name/phone), `candidate_profiles`(github/blog/portfolio/summary), 전달된 반복 섹션을 하나의 트랜잭션에서 갱신하고 갱신된 프로필을 반환한다.
+  - `users`(name/phone), `candidate_profiles`(github/blog/portfolio/summary/coverLetter), 전달된 반복 섹션을 하나의 트랜잭션에서 갱신하고 갱신된 프로필을 반환한다.
 - 비고: 저장 값은 이후 지원 화면 자동 입력에 재사용된다. (#272)
 - AI 사용 정책:
   - 프로필 사진, 성별, 생년월일/나이, 주소, 장애 정보, 고용지원금 대상, 연봉, 민감정보 동의 상세는 수집하지 않는다.
@@ -2839,6 +2861,7 @@ CandidateFolder 입력 제한:
 - 비동기: N
 - Path Params: jobId
 - 요청 데이터: `application/json`
+  - `profileSnapshot`: `CandidateProfileSnapshotV1`, 신규 클라이언트 required. 존재하면 아래 legacy 기본정보 필드보다 우선한다.
   - `candidateName`: string, required
   - `email`: string, required
   - `phone`: string, required
@@ -2856,12 +2879,12 @@ CandidateFolder 입력 제한:
   - 포트폴리오 URL 또는 PDF FileAsset 중 하나 이상을 제출해야 하며, 둘 다 제출할 수도 있다.
   - 제출 파일은 현재 지원자 소유의 ACTIVE FileAsset이어야 한다.
 - 성공 응답/처리:
-  - 지원서 제출 당시 정보를 `applications` 스냅샷 필드에 저장한다.
+  - 지원서 제출 당시 기본정보와 전체 `profileSnapshot`을 `applications`에 불변 스냅샷으로 저장한다.
   - 이력서/포트폴리오 PDF를 `application_documents`에 연결하고 지원서 제출을 완료한다.
   - (#272) 입력한 연락처(`phone`)를 회원(`users.phone`)에 저장하여 다음 지원 화면에서 자동 입력에 재사용한다.
 - 관련 조회(#272): `GET /candidate/jobs/{jobId}/apply`
-  - 지원 화면 진입 시 회원 자동 입력용 `applicant: { name, email, phone, githubUrl, blogUrl, portfolioUrl }`을 함께 반환한다(이름/이메일/연락처는 User, GitHub/블로그/포트폴리오는 프로필 정본, 값 없으면 null). GitHub·블로그·포트폴리오는 프로필에서 자동 채워지고 공고별로 수정 가능하다.
-  - 지원서 세트(폴더)는 `GET /candidate/folders`로 조회하며, 세트를 불러오면 링크/이력서/동기/추가설명이 폼에 복사된다(회원 기본정보는 유지, 원본 세트는 불변).
+  - 지원 화면 진입 시 기존 `applicant`와 전체 `profileSnapshot`을 함께 반환한다. 모든 프로필 항목은 공고별로 수정 가능하다.
+  - 지원서 세트는 목록 조회 후 상세 API로 불러오며 프로필, 링크, 첨부, 지원동기, 추가설명을 빈 값까지 포함해 전체 교체한다. 원본 세트는 불변이다.
 - 오류/예외:
   - 파일 형식 오류, 용량 초과, 이미 지원한 공고, 마감 공고이면 제출을 제한한다.
 - 관련 ERD 테이블:

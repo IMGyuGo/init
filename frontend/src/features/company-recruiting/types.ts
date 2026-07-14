@@ -204,6 +204,21 @@ export type ApplicantEvaluation = {
     portfolioUrl: string | null;
     motivation: string | null;
     additionalInfo: string | null;
+    profileSnapshot?: {
+      schemaVersion: 1;
+      name: string;
+      email: string;
+      phone: string | null;
+      githubUrl: string | null;
+      blogUrl: string | null;
+      portfolioUrl: string | null;
+      summary: string | null;
+      coverLetter: string | null;
+      educations: Array<{ schoolName: string; major: string | null; status: string; startMonth: string; endMonth: string | null }>;
+      careers: Array<{ companyName: string; jobRole: string; responsibilities: string; startMonth: string; endMonth: string | null; isCurrent: boolean }>;
+      activities: Array<{ organizationName: string; description: string; startDate: string; endDate: string | null; isOngoing: boolean }>;
+      credentials: Array<{ name: string; issuer: string; acquiredMonth: string; result: string | null }>;
+    } | null;
     documents: Array<{
       documentId: number;
       fileId: number;

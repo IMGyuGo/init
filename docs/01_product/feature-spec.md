@@ -151,7 +151,7 @@ init v0.5의 화면/기능 정의를 구현 단위로 정리한다.
 | 회사 리스트 화면 | /candidate/jobs | section | 채용공고 검색 필터 | 채용공고 검색 | 검색어, 직무/직군, 지역, 경력, 고용형태, 기술스택, 채용 상태, 정렬 기준 | 검색 결과 갱신 | GET /candidate/jobs | v1.0 | 검색 기능 강화 |
 | 회사 리스트 화면 | /candidate/jobs | list | 채용공고 리스트 | 채용공고 리스트 표시 | 공고 ID | 채용공고 리스트 표시 | GET /candidate/jobs | v1.0 | grid가 아니라 list 형태로 표시 |
 | 회사 상세 화면 | /candidate/jobs/{jobId} | popup | 회사 상세 | 채용공고 상세 조회 | 회사 ID, 채용공고 ID | 회사 상세 팝업 표시 또는 이력서 제출 화면으로 이동 | GET /candidate/jobs/{jobId} | v1.0 | 지원하기 클릭 시 별도 이력서 제출 페이지로 이동 |
-| 회사 상세 화면 | /candidate/jobs/{jobId} | button | 지원하기 버튼 | 기업별 이력서 제출 화면 이동 | 채용공고 ID, 지원자 ID | 이력서 제출 화면으로 이동 | /candidate/jobs/{jobId}/apply | v1.0 | 기업별 이력서 구분 적용 |
+| 회사 상세 화면 | /candidate/jobs/{jobId} | button | 지원하기 버튼 | 마이페이지 전체 프로필과 저장 세트를 불러온 지원서 모달 열기 | 채용공고 ID, 지원자 ID | 상세 화면 위 지원서 작성 모달 표시 | GET /candidate/jobs/{jobId}/apply | v1.1 | 기존 `/candidate/jobs/{jobId}/apply`는 `?apply=1` 상세 화면으로 리다이렉트 |
 | 기업별 이력서 제출 화면 | /candidate/jobs/{jobId}/apply | page | 이력서 제출 | 기업별 지원 서류 제출 | 채용공고 ID, 이력서 파일, 포트폴리오 링크, 지원자 ID | 지원서 제출 완료 | POST /candidate/jobs/{jobId}/applications | v1.0 | 기업별 이력서 제출 페이지 신규 추가 |
 | 지원현황 화면 | /candidate/applications | page | 지원현황 목록 | 지원 상태 조회 | 지원자 ID, 상태 필터 | 지원현황 목록 표시 | GET /candidate/applications | v1.0 | 채용 AI 면접은 이 화면에서 진입 |
 | 지원현황 화면 | /candidate/applications | section | AI 면접 안내 | 채용 AI 면접 방식 안내 | 면접 세션 정보 | 면접 진행 화면으로 이동 가능 | GET /candidate/applications/{applicationId}/interview-guide | v1.0 | interviewType=RECRUITING |
@@ -176,7 +176,8 @@ init v0.5의 화면/기능 정의를 구현 단위로 정리한다.
 | Screen | Path | Type | Content | Description | Input | Success | API/Route | Release | Note |
 | --- |--- |--- |--- |--- |--- |--- |--- |--- |--- |
 | 지원자 마이페이지 화면 | /candidate/mypage | page | 이력서 업로드 | 이력서 파일 제출 | 이력서 PDF/DOCX 파일 | 이력서 업로드 완료 | POST /candidate/resume | v1.0 | - |
-| 지원자 마이페이지 화면 | /candidate/mypage | form | 구조화 프로필 관리 | 기본정보와 학력·경력·활동·자격 반복 항목 저장 | 프로필 필드 | 갱신된 전체 프로필 표시 | GET/PUT /candidate/profile | v1.0 | 저장된 비식별 정보는 맞춤형 질문 생성의 보조 컨텍스트로 사용 |
+| 지원자 마이페이지 화면 | /candidate/mypage | form | 구조화 프로필 관리 | 기본정보와 학력·경력·활동·자격 반복 항목, 자기소개서 저장 | 프로필 필드, 자기소개서(최대 5,000자) | 갱신된 전체 프로필 표시 | GET/PUT /candidate/profile | v1.1 | AI에는 식별정보를 제거하고 자기소개서는 최대 3,000자만 전달 |
+| 지원서 세트 편집 화면 | /candidate/application-sets/new, /candidate/application-sets/{setId}/edit | page | 전체 프로필 기반 지원서 세트 추가·수정 | 프로필 스냅샷, 이력서·포트폴리오, 지원 동기, 추가 설명 | 저장된 독립 세트 | POST/PUT /candidate/folders | v1.1 | 생성 시에만 현재 프로필을 복사하며 이후 마이페이지 수정과 독립 |
 | 지원자 마이페이지 화면 | /candidate/mypage | system process | 서류 텍스트 추출 | 서류 텍스트 추출 | 이력서 파일, 포트폴리오 링크 | 추출 텍스트 저장 및 서류 분석 대기 상태 전환 | POST /candidate/documents/extract | v1.0 | 독립 화면 아님. 업로드 후 백그라운드 처리 |
 | 지원자 마이페이지 화면 | /candidate/mypage | form | 포트폴리오/GitHub 링크 등록 | 직무 관련 링크 등록 | URL, 설명, 파일 첨부 | 링크 등록 완료 | POST /candidate/portfolio-links | v1.0 | - |
 | 지원자 마이페이지 화면 | /candidate/mypage | section | 응시 안내 알림 | 응시 안내 메일 조회 | 이메일, 응시 링크, 마감일 | 응시 안내 알림 표시 | GET /candidate/notifications/interview-invitations | v2.0 | MVP 후순위 |
