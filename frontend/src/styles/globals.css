@@ -9596,7 +9596,20 @@ p {
 .notion.candidate-mock-start-page .page-head { padding-bottom: 22px; border-bottom: 1px solid rgba(55, 53, 47, 0.12); }
 
 /* 마이페이지 대시보드 */
-.notion.candidate-mypage .candidate-mypage__head h1 { font-size: 26px; font-weight: 700; color: #191919; }
+/* 마이페이지 헤드 배너 — 리포트와 동일한 파란 그라데이션 (#289) */
+.notion.candidate-mypage .candidate-mypage__head {
+  min-height: 150px;
+  align-content: center;
+  padding: 38px 34px;
+  border-radius: 16px;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 190% at 90% 95%, #1A63E8 0%, rgba(26, 99, 232, 0) 55%),
+    radial-gradient(85% 130% at 68% 25%, rgba(120, 172, 246, 0.5) 0%, rgba(120, 172, 246, 0) 60%),
+    linear-gradient(100deg, #F4F9FE 0%, #E4F0FC 40%, #BAD9F8 72%, #4C8BEE 100%);
+}
+.notion.candidate-mypage .candidate-mypage__head h1 { font-size: 26px; font-weight: 700; color: #14213A; }
+.notion.candidate-mypage .candidate-mypage__head p { color: rgba(20, 33, 58, 0.6); }
 
 .notion.candidate-mypage .mypage-block { margin-top: 36px; }
 .notion.candidate-mypage .mypage-block__title h2 { margin: 0; font-size: 17px; font-weight: 600; color: #191919; }
@@ -10766,8 +10779,9 @@ p {
 .notion.applicant-report-page .page-head {
   position: relative;
   align-items: center;
+  min-height: 150px;
   margin-bottom: 26px;
-  padding: 26px 28px;
+  padding: 34px 34px;
   border-radius: 16px;
   overflow: hidden;
   background:
