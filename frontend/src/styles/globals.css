@@ -2742,18 +2742,33 @@ td span {
   font-weight: 700;
 }
 
-/* 본문 */
+/* 본문: 질문 하나 = 카드 하나 */
 .company-answer-body {
   display: grid;
-  gap: 18px;
+  gap: 20px;
   min-width: 0;
-  padding-top: 1px;
+  padding: 20px 22px 18px;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 14px;
+  transition: border-color 0.15s ease;
+}
+
+.company-answer-item:hover .company-answer-body {
+  border-color: rgba(59, 111, 224, 0.35);
+}
+
+/* 꼬리질문 등 보조 섹션 */
+.company-answer-section {
+  padding-top: 2px;
 }
 
 .company-answer-qhead {
   display: grid;
   gap: 3px;
   min-width: 0;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(55, 53, 47, 0.08);
 }
 
 .company-answer-qmeta {
@@ -2837,6 +2852,15 @@ td span {
   gap: 8px;
 }
 
+/* 답변 스크립트 버블 */
+.company-answer-bubble {
+  gap: 10px;
+  padding: 14px 16px;
+  background: #FBFBFA;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 12px;
+}
+
 /* 라벨(답변/꼬리질문): 진하게 + 파란 틱으로 잘 보이게 */
 .company-answer-label {
   display: inline-flex;
@@ -2914,18 +2938,22 @@ td span {
   font-size: 14px;
 }
 
-/* 꼬리질문: 상자 없이 나열 */
+/* 꼬리질문 카드 */
 .company-followup-list {
   display: grid;
-  gap: 18px;
+  gap: 12px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.company-followup-list > li {
+.company-followup-card {
   display: grid;
-  gap: 8px;
+  gap: 12px;
+  padding: 14px 16px;
+  background: #FBFBFA;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 12px;
 }
 
 .company-follow-up-question {
@@ -2942,12 +2970,14 @@ td span {
   font-weight: 700;
 }
 
-/* 꼬리질문 답변: 상자 아님 — 좌측 얇은 선으로만 소속 표시 */
+/* 꼬리질문 답변: 카드 안 흰색 내부 박스 */
 .company-follow-up-answer {
   display: grid;
   gap: 8px;
-  padding-left: 14px;
-  border-left: 1px solid rgba(55, 53, 47, 0.14);
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 10px;
 }
 
 .company-follow-up-answer p {
@@ -2958,7 +2988,11 @@ td span {
 }
 
 .company-answer-meta {
-  color: rgba(55, 53, 47, 0.45);
+  justify-self: end;
+  padding: 4px 11px;
+  background: #F7F7F5;
+  border-radius: 999px;
+  color: rgba(55, 53, 47, 0.55);
   font-size: 12px;
   font-weight: 500;
 }
@@ -2966,13 +3000,14 @@ td span {
 .company-integrity-signals {
   display: grid;
   gap: 8px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(55, 53, 47, 0.08);
+  padding: 14px 16px;
+  background: #FBF4E8;
+  border-radius: 12px;
 }
 
 .company-integrity-signals.compact {
-  margin-top: 8px;
-  padding-top: 10px;
+  margin-top: 4px;
+  padding: 12px 14px;
 }
 
 .company-integrity-signals strong {
@@ -3007,7 +3042,8 @@ td span {
   display: inline-flex;
   align-items: center;
   border-radius: 4px;
-  background: rgba(217, 119, 6, 0.1);
+  background: #fff;
+  border: 1px solid rgba(217, 119, 6, 0.25);
   color: #B7791F;
   font-size: 11.5px;
   font-weight: 600;
@@ -3222,6 +3258,11 @@ table {
   color: #191919;
   white-space: nowrap;
 }
+/* 점수가 높을수록 진한 파랑 (#289) */
+.screening-report-score.tier-top { color: #1A55C8; }
+.screening-report-score.tier-high { color: #3B6FE0; }
+.screening-report-score.tier-mid { color: #7CA3EC; }
+.screening-report-score.tier-low { color: rgba(55, 53, 47, 0.45); }
 .screening-report-score.is-empty {
   color: rgba(55, 53, 47, 0.4);
   font-weight: 500;
@@ -10438,7 +10479,52 @@ p {
   stroke-width: 12;
   stroke-linecap: round;
   transition: stroke-dasharray 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* 탭 진입 시 0에서 점수까지 차오르는 애니메이션. to 값은 인라인 stroke-dasharray. (#289) */
+  animation: reportGaugeFill 1s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
+@keyframes reportGaugeFill {
+  from { stroke-dasharray: 0 326.73; }
+}
+.notion .report-gauge.gauge-pass .report-gauge-fill { stroke: #0F7A43; }
+.notion .report-gauge.gauge-hold .report-gauge-fill { stroke: #D9730D; }
+.notion .report-gauge.gauge-fail .report-gauge-fill { stroke: #C4554D; }
+
+/* 최종 결과 배지 (#289) */
+.notion .report-result {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.notion .report-result-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.notion .report-result.result-pass { color: #0F7A43; background: #D5F2DF; }
+.notion .report-result.result-hold { color: #B7791F; background: #FBEBD6; }
+.notion .report-result.result-fail { color: #C4554D; background: #FDEBEC; }
+
+/* 합격선 (#289) */
+.notion .report-result-row { display: inline-flex; align-items: center; gap: 10px; justify-self: start; }
+.notion .report-cutline-caption { font-size: 12px; font-weight: 600; color: rgba(55, 53, 47, 0.5); }
+.notion .report-gauge-cutline { stroke: rgba(55, 53, 47, 0.45); stroke-width: 2; stroke-linecap: round; }
+.notion .report-radar-cutline {
+  fill: none;
+  stroke: rgba(196, 85, 77, 0.55);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  stroke-linejoin: round;
+}
+.notion .report-competency-cutstatus {
+  justify-self: start;
+  padding: 3px 9px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.notion .report-competency-cutstatus.is-met { color: #0F7A43; background: #D5F2DF; }
+.notion .report-competency-cutstatus.is-missed { color: #C4554D; background: #FDEBEC; }
 .notion .report-gauge-value {
   position: absolute;
   inset: 0;
@@ -10488,8 +10574,9 @@ p {
 .notion .report-competency-list { display: grid; gap: 18px; margin: 0; padding: 0; list-style: none; }
 .notion .report-competency-item { display: grid; gap: 8px; }
 .notion .report-competency-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.notion .report-competency-namewrap { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.notion .report-competency-namewrap { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
 .notion .report-competency-name { font-size: 14px; font-weight: 600; color: #191919; }
+.notion .report-competency-weight { flex: none; font-size: 12px; font-weight: 600; color: rgba(55, 53, 47, 0.45); }
 .notion .report-competency-band { display: inline-flex; align-items: center; flex: none; padding: 2px 8px; border-radius: 4px; font-size: 11.5px; font-weight: 700; }
 .notion .report-competency-band.tone-high { color: #0F7A43; background: #D5F2DF; }
 .notion .report-competency-band.tone-good { color: #337EA9; background: #E7F3F8; }
@@ -10541,6 +10628,251 @@ p {
   font-size: 13px;
   line-height: 1.6;
   color: #37352F;
+}
+
+/* 역량 레이더 그래프 + 우측 상세 (#289) */
+.notion .report-competency-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+  gap: 26px;
+  align-items: center;
+}
+.notion .report-radar-wrap { display: grid; gap: 4px; min-width: 0; }
+.notion .report-radar { display: block; width: 100%; max-width: 440px; margin: 0 auto; overflow: visible; }
+.notion .report-radar-ring { fill: none; stroke: rgba(55, 53, 47, 0.07); }
+.notion .report-radar-ring:last-of-type { stroke: rgba(55, 53, 47, 0.14); }
+.notion .report-radar-axis { stroke: rgba(55, 53, 47, 0.07); transition: stroke 0.18s ease; }
+.notion .report-radar-axis.is-hot { stroke: rgba(59, 111, 224, 0.35); }
+.notion .report-radar-halo {
+  fill: rgba(59, 111, 224, 0.12);
+  pointer-events: none;
+  animation: reportRadarHalo 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes reportRadarHalo {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.notion .report-radar-area {
+  fill: rgba(59, 111, 224, 0.14);
+  stroke: #3B6FE0;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.notion .report-radar-shape {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+  animation: reportRadarGrow 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes reportRadarGrow {
+  from { transform: scale(0.2); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.notion .report-radar-dot {
+  fill: #fff;
+  stroke: #3B6FE0;
+  stroke-width: 2;
+  cursor: pointer;
+  transition: r 0.15s ease;
+}
+.notion .report-radar-dot.is-selected { fill: #3B6FE0; }
+.notion .report-radar-label { cursor: pointer; pointer-events: bounding-box; }
+.notion .report-radar-label text { font-size: 12.5px; font-weight: 600; fill: rgba(55, 53, 47, 0.6); }
+.notion .report-radar-label .report-radar-label-score { font-size: 13.5px; font-weight: 800; fill: #191919; }
+.notion .report-radar-label text { transition: fill 0.15s ease; }
+.notion .report-radar-label:hover .report-radar-label-name,
+.notion .report-radar-label:hover .report-radar-label-score,
+.notion .report-radar-label.is-hot .report-radar-label-name,
+.notion .report-radar-label.is-hot .report-radar-label-score,
+.notion .report-radar-label.is-selected .report-radar-label-name,
+.notion .report-radar-label.is-selected .report-radar-label-score { fill: #3B6FE0; }
+.notion .report-radar-hint { margin: 0; text-align: center; font-size: 12px; color: rgba(55, 53, 47, 0.45); }
+
+.notion .report-competency-detailpanel {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  min-height: 240px;
+  padding: 20px;
+  background: #FBFBFA;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 12px;
+  animation: reportDetailFade 0.25s ease both;
+}
+@keyframes reportDetailFade {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.notion .report-competency-detailpanel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.notion .report-competency-detailpanel-score { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.notion .report-competency-detailpanel .report-competency-score { font-size: 20px; }
+.notion .report-competency-rationale.is-empty { color: rgba(55, 53, 47, 0.45); }
+
+@media (max-width: 860px) {
+  .notion .report-competency-layout { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .notion .report-radar-shape,
+  .notion .report-radar-halo,
+  .notion .report-gauge-fill,
+  .notion .report-competency-detailpanel { animation: none; }
+}
+
+/* 주요 근거 (#289) */
+.notion .report-findings { display: grid; gap: 14px; }
+.notion .report-findings h3 { margin: 0; font-size: 15px; font-weight: 700; color: #191919; }
+.notion .report-findings-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.notion .report-findings-list li {
+  position: relative;
+  padding-left: 18px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #37352F;
+  word-break: keep-all;
+}
+.notion .report-findings-list li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 9px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #3B6FE0;
+}
+.notion .report-findings-list li.is-gap { color: rgba(55, 53, 47, 0.75); }
+.notion .report-findings-list li.is-gap::before { background: #D9730D; }
+
+/* 꼬리질문 (#289) */
+.notion .report-followup { display: grid; gap: 14px; }
+.notion .report-followup h3 { margin: 0; font-size: 15px; font-weight: 700; color: #191919; }
+.notion .report-followup-box {
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px;
+  background: #FBFBFA;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 12px;
+}
+.notion .report-followup-row { display: grid; gap: 3px; }
+.notion .report-followup-label { font-size: 11.5px; font-weight: 600; color: rgba(55, 53, 47, 0.5); }
+.notion .report-followup-text { font-size: 14px; color: #191919; }
+
+/* 리포트 페이지 헤드 배너 — 파란 그라데이션 (#289) */
+.notion.applicant-report-page .page-head {
+  position: relative;
+  align-items: center;
+  margin-bottom: 26px;
+  padding: 26px 28px;
+  border-radius: 16px;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 190% at 90% 95%, #1A63E8 0%, rgba(26, 99, 232, 0) 55%),
+    radial-gradient(85% 130% at 68% 25%, rgba(120, 172, 246, 0.5) 0%, rgba(120, 172, 246, 0) 60%),
+    linear-gradient(100deg, #F4F9FE 0%, #E4F0FC 40%, #BAD9F8 72%, #4C8BEE 100%);
+}
+.notion.applicant-report-page .page-head h1 { color: #14213A; }
+.notion.applicant-report-page .page-head .page-sub { color: rgba(20, 33, 58, 0.6); }
+.notion.applicant-report-page .page-head .btn.secondary {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+/* 전형 결정 탭 (#289) */
+.notion .decision-panel { display: grid; gap: 24px; }
+.notion .decision-summary {
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px;
+  background: #FBFBFA;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 12px;
+}
+.notion .decision-summary.is-empty p { margin: 0; font-size: 13.5px; color: rgba(55, 53, 47, 0.6); }
+.notion .decision-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.notion .decision-summary-label { font-size: 12px; font-weight: 700; color: rgba(55, 53, 47, 0.5); letter-spacing: 0.02em; }
+.notion .decision-summary-badges { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.notion .decision-summary-score { font-size: 17px; font-weight: 800; color: #191919; letter-spacing: -0.01em; }
+.notion .decision-summary-result { font-size: 12.5px; padding: 3px 10px; }
+.notion .decision-summary-findings { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.notion .decision-summary-findings li {
+  position: relative;
+  padding-left: 16px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: #37352F;
+  word-break: keep-all;
+}
+.notion .decision-summary-findings li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 8px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #3B6FE0;
+}
+.notion .decision-summary-findings li.is-gap { color: rgba(55, 53, 47, 0.7); }
+.notion .decision-summary-findings li.is-gap::before { background: #D9730D; }
+.notion .decision-summary-text { margin: 0; font-size: 13.5px; line-height: 1.6; color: rgba(55, 53, 47, 0.75); word-break: keep-all; }
+
+.notion .decision-field { display: grid; gap: 10px; }
+.notion .decision-field-label { font-size: 13px; font-weight: 700; color: #191919; }
+.notion .decision-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.notion .decision-option {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  text-align: left;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.14);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.notion .decision-option strong { font-size: 14px; font-weight: 700; color: #191919; }
+.notion .decision-option span { font-size: 12px; color: rgba(55, 53, 47, 0.55); }
+.notion .decision-option:hover { border-color: rgba(55, 53, 47, 0.3); }
+.notion .decision-option.is-selected.tone-neutral { border-color: #37352F; background: rgba(55, 53, 47, 0.04); }
+.notion .decision-option.is-selected.tone-pass { border-color: #0F7A43; background: rgba(15, 122, 67, 0.06); }
+.notion .decision-option.is-selected.tone-pass strong { color: #0F7A43; }
+.notion .decision-option.is-selected.tone-hold { border-color: #D9730D; background: rgba(217, 115, 13, 0.06); }
+.notion .decision-option.is-selected.tone-hold strong { color: #B7791F; }
+.notion .decision-option.is-selected.tone-fail { border-color: #C4554D; background: rgba(196, 85, 77, 0.06); }
+.notion .decision-option.is-selected.tone-fail strong { color: #C4554D; }
+
+.notion .decision-memo {
+  width: 100%;
+  min-height: 120px;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #37352F;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.16);
+  border-radius: 8px;
+  resize: vertical;
+}
+.notion .decision-memo:focus { outline: none; border-color: #3B6FE0; }
+.notion .decision-actions { display: flex; justify-content: flex-end; }
+
+@media (max-width: 760px) {
+  .notion .decision-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 640px) {

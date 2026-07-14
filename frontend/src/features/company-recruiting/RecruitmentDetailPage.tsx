@@ -47,6 +47,14 @@ const APPLICANT_SORT_OPTIONS: ReadonlyArray<{ value: ApplicantSort; label: strin
   { value: "nameAsc", label: "이름순" },
 ];
 
+// 점수가 높을수록 진한 파랑으로 표시하는 단계. (#289)
+function screeningScoreTier(score: number): string {
+  if (score >= 80) return "tier-top";
+  if (score >= 65) return "tier-high";
+  if (score >= 50) return "tier-mid";
+  return "tier-low";
+}
+
 function compareByScore(a: Applicant, b: Applicant, dir: "asc" | "desc") {
   const sa = a.report?.totalScore ?? null;
   const sb = b.report?.totalScore ?? null;
@@ -445,7 +453,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                             </td>
                             <td>
                               {item.report?.totalScore != null ? (
-                                <span className="screening-report-score">{item.report.totalScore}점</span>
+                                <span className={`screening-report-score ${screeningScoreTier(item.report.totalScore)}`}>{item.report.totalScore}점</span>
                               ) : (
                                 <span className="screening-report-score is-empty">—</span>
                               )}

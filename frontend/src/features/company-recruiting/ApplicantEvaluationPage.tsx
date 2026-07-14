@@ -10,6 +10,14 @@ import type { ApplicantEvaluation, ApplicantInterviewFileAsset, ScreeningDecisio
 
 const decisions: ScreeningDecision[] = ["UNDECIDED", "PASS", "HOLD", "FAIL"];
 
+// 전형 결정 카드 라디오에 표시할 설명/톤. (#289)
+const DECISION_OPTION_META: Record<ScreeningDecision, { description: string; tone: "neutral" | "pass" | "hold" | "fail" }> = {
+  UNDECIDED: { description: "아직 결정하지 않음", tone: "neutral" },
+  PASS: { description: "다음 전형으로 진행", tone: "pass" },
+  HOLD: { description: "추가 검토 후 결정", tone: "hold" },
+  FAIL: { description: "채용 진행 중단", tone: "fail" },
+};
+
 type ReportTab = "overview" | "answers" | "submission" | "decision";
 
 const REPORT_TABS: ReadonlyArray<{ id: ReportTab; label: string }> = [
@@ -97,7 +105,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   const integritySummary = evaluation ? buildRecruitingIntegritySummary(displayAnswers) : null;
 
   return (
-    <section className="app-page glass-page notion">
+    <section className="app-page glass-page notion applicant-report-page">
         <div className="page-head">
           <div>
             <Breadcrumb
@@ -196,30 +204,53 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
 
             {tab === "decision" ? (
               <div className="report-tabpanel" role="tabpanel">
-                <form className="panel" onSubmit={handleSubmit}>
+                <form className="panel decision-panel" onSubmit={handleSubmit}>
                   <div className="panel-head">
                     <div>
                       <h2>전형 결정</h2>
                     </div>
+                  </div>
+
+                  <DecisionSummary report={report} />
+
+                  <div className="decision-field">
+                    <span className="decision-field-label">전형 상태</span>
+                    <div className="decision-options" role="radiogroup" aria-label="전형 상태 선택">
+                      {decisions.map((item) => {
+                        const optionMeta = DECISION_OPTION_META[item];
+                        const isSelected = decision === item;
+                        return (
+                          <button
+                            key={item}
+                            type="button"
+                            role="radio"
+                            aria-checked={isSelected}
+                            className={`decision-option tone-${optionMeta.tone}${isSelected ? " is-selected" : ""}`}
+                            onClick={() => setDecision(item)}
+                          >
+                            <strong>{formatRecruitingStatusLabel(item)}</strong>
+                            <span>{optionMeta.description}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="decision-field">
+                    <label className="decision-field-label" htmlFor="decision-memo">수동 메모</label>
+                    <textarea
+                      id="decision-memo"
+                      className="decision-memo"
+                      value={memo}
+                      placeholder="결정 사유나 참고 사항을 남겨주세요. 팀원들이 함께 볼 수 있어요."
+                      onChange={(event) => setMemo(event.target.value)}
+                    />
+                  </div>
+
+                  <div className="decision-actions">
                     <button className="btn primary" type="submit" disabled={loading}>
                       저장
                     </button>
-                  </div>
-                  <div className="grid-2">
-                    <label>
-                      전형 상태
-                      <select value={decision} onChange={(event) => setDecision(event.target.value as ScreeningDecision)}>
-                        {decisions.map((item) => (
-                          <option key={item} value={item}>
-                            {formatRecruitingStatusLabel(item)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="wide">
-                      수동 메모
-                      <textarea value={memo} onChange={(event) => setMemo(event.target.value)} />
-                    </label>
                   </div>
                 </form>
               </div>
@@ -256,7 +287,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                         videoFile={answer.videoFile}
                       />
 
-                      <div className="company-answer-block">
+                      <div className="company-answer-block company-answer-bubble">
                         <span className="company-answer-label is-answer">답변</span>
                         {answer.transcript?.trim() ? (
                           <CollapsibleText text={answer.transcript} />
@@ -268,11 +299,11 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                       <RecruitingIntegritySignalView metadata={answer.nonverbalMetadata} />
 
                       {answer.followUpQuestions.length > 0 ? (
-                        <div className="company-answer-block">
+                        <div className="company-answer-block company-answer-section">
                           <span className="company-answer-label">꼬리질문</span>
                           <ol className="company-followup-list">
                             {answer.followUpQuestions.map((followUp) => (
-                              <li key={followUp.followUpId}>
+                              <li className="company-followup-card" key={followUp.followUpId}>
                                 <p className="company-follow-up-question">{followUp.content}</p>
                                 <div className="company-follow-up-answer">
                                   <span className="company-answer-label is-sub is-answer">답변</span>
@@ -309,6 +340,49 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
           <div className="empty">평가 상세를 불러오는 중입니다.</div>
         )}
     </section>
+  );
+}
+
+// 전형 결정 탭 상단 평가 요약 — 다른 탭에 가지 않고 여기서 바로 판단할 수 있게 핵심만 보여준다. (#289)
+function DecisionSummary({ report }: { report: ApplicantEvaluation["report"] }) {
+  if (!report) {
+    return (
+      <div className="decision-summary is-empty">
+        <p>아직 생성된 평가 리포트가 없습니다. 리포트 없이도 전형 상태를 저장할 수 있어요.</p>
+      </div>
+    );
+  }
+
+  const displayedScore = report.adjustedTotalScore ?? report.totalScore ?? null;
+  const band = scoreBand(displayedScore);
+  const result = reportResult(report.result);
+  const findings = (report.keyFindings ?? []).slice(0, 3);
+
+  return (
+    <div className="decision-summary">
+      <div className="decision-summary-head">
+        <span className="decision-summary-label">평가 요약</span>
+        <div className="decision-summary-badges">
+          {displayedScore != null ? <strong className="decision-summary-score">{displayedScore}점</strong> : null}
+          {band ? <span className={`report-score-band band-${band.tone}`}>{band.label}</span> : null}
+          {result ? (
+            <span className={`report-result result-${result.tone} decision-summary-result`}>
+              <span className="report-result-dot" aria-hidden="true" />
+              AI 추천 {result.label}
+            </span>
+          ) : null}
+        </div>
+      </div>
+      {findings.length > 0 ? (
+        <ul className="decision-summary-findings">
+          {findings.map((finding, index) => (
+            <li key={index} className={finding.isGap ? "is-gap" : undefined}>{finding.text}</li>
+          ))}
+        </ul>
+      ) : report.summary?.trim() ? (
+        <p className="decision-summary-text">{stripHtml(report.summary)}</p>
+      ) : null}
+    </div>
   );
 }
 
@@ -356,6 +430,8 @@ function ReportOverview({
       }
       return next;
     });
+  // 레이더(육각형) 그래프에서 클릭한 역량. 기본은 최고 점수 역량. (#289)
+  const [selectedScoreId, setSelectedScoreId] = useState<number | null>(null);
 
   if (!report) {
     return (
@@ -375,6 +451,12 @@ function ReportOverview({
   const band = scoreBand(displayedScore);
   const scorePercent = displayedScore == null ? null : clampPercent(displayedScore);
   const flaggedAnswers = integritySummary?.signalAnswers ?? 0;
+  const result = reportResult(report.result);
+  const gaugeTone = result ? result.tone : "accent";
+  const keyFindings = report.keyFindings ?? [];
+  const followUp = report.followUp ?? null;
+  const topScore = report.scores.length > 0 ? [...report.scores].sort((a, b) => b.score - a.score)[0] : null;
+  const selectedScore = report.scores.find((score) => score.scoreId === selectedScoreId) ?? topScore;
 
   return (
     <section className="panel report-overview">
@@ -386,7 +468,7 @@ function ReportOverview({
       </div>
 
       <div className="report-score-hero">
-        <div className="report-gauge" role="img" aria-label={displayedScore == null ? "종합 점수 없음" : `종합 점수 ${displayedScore}점`}>
+        <div className={`report-gauge gauge-${gaugeTone}`} role="img" aria-label={displayedScore == null ? "종합 점수 없음" : `최종 점수 ${displayedScore}점`}>
           <svg viewBox="0 0 120 120" aria-hidden="true">
             <circle className="report-gauge-track" cx="60" cy="60" r="52" />
             {scorePercent != null ? (
@@ -398,15 +480,44 @@ function ReportOverview({
                 strokeDasharray={`${(scorePercent / 100) * GAUGE_CIRCUMFERENCE} ${GAUGE_CIRCUMFERENCE}`}
               />
             ) : null}
+            {report.passScore != null ? (
+              (() => {
+                // 총점 합격선 마커. svg 전체가 -90도 회전되어 있어 0도가 12시 방향이다. (#289)
+                const cutAngle = (clampPercent(report.passScore) / 100) * 2 * Math.PI;
+                const cos = Math.cos(cutAngle);
+                const sin = Math.sin(cutAngle);
+                return (
+                  <line
+                    className="report-gauge-cutline"
+                    x1={60 + 45 * cos}
+                    y1={60 + 45 * sin}
+                    x2={60 + 59 * cos}
+                    y2={60 + 59 * sin}
+                  />
+                );
+              })()
+            ) : null}
           </svg>
           <div className="report-gauge-value">
             <strong>{displayedScore ?? "—"}</strong>
-            <span>종합 점수</span>
+            <span>최종 점수</span>
           </div>
         </div>
 
         <div className="report-score-side">
-          {band ? <span className={`report-score-band band-${band.tone}`}>{band.label}</span> : null}
+          <span className="report-result-row">
+            {result ? (
+              <span className={`report-result result-${result.tone}`}>
+                <span className="report-result-dot" aria-hidden="true" />
+                {result.label}
+              </span>
+            ) : band ? (
+              <span className={`report-score-band band-${band.tone}`}>{band.label}</span>
+            ) : null}
+            {report.passScore != null ? (
+              <span className="report-cutline-caption">합격선 {report.passScore}점</span>
+            ) : null}
+          </span>
           {flaggedAnswers > 0 ? (
             <div className="report-integrity-note">
               <div className="report-integrity-note-head">
@@ -422,13 +533,28 @@ function ReportOverview({
 
       <div className="report-competency">
         <h3>역량별 평가</h3>
-        {report.scores.length > 0 ? (
+        {report.scores.length >= 3 ? (
+          <div className="report-competency-layout">
+            <div className="report-radar-wrap">
+              <CompetencyRadar
+                scores={report.scores}
+                selectedId={selectedScore?.scoreId ?? -1}
+                onSelect={setSelectedScoreId}
+              />
+              <p className="report-radar-hint">
+                그래프의 역량을 클릭하면 오른쪽에서 근거를 볼 수 있어요.
+                {report.scores.every((score) => score.passScore != null) ? " 붉은 점선은 역량별 합격선이에요." : ""}
+              </p>
+            </div>
+            {selectedScore ? <CompetencyDetailCard score={selectedScore} /> : null}
+          </div>
+        ) : report.scores.length > 0 ? (
           <ul className="report-competency-list">
             {[...report.scores]
               .sort((a, b) => b.score - a.score)
               .map((score) => {
               const pct = clampPercent(score.score);
-              const band = competencyBand(score.score);
+              const scoreTone = competencyBand(score.score).tone;
               const hasDetail = Boolean(score.rationale?.trim()) || score.evidences.length > 0;
               const isOpen = expanded.has(score.scoreId);
               return (
@@ -436,12 +562,12 @@ function ReportOverview({
                   <div className="report-competency-row">
                     <span className="report-competency-namewrap">
                       <span className="report-competency-name">{formatScoreCriterionName(score.criterionName, score.rationale)}</span>
-                      <span className={`report-competency-band tone-${band.tone}`}>{band.label}</span>
+                      {score.weight != null ? <span className="report-competency-weight">가중치 {score.weight}%</span> : null}
                     </span>
-                    <span className={`report-competency-score tone-${band.tone}`}>{score.score}</span>
+                    <span className={`report-competency-score tone-${scoreTone}`}>{score.score}</span>
                   </div>
                   <div className="report-competency-bar" aria-hidden="true">
-                    <span className={`tone-${band.tone}`} style={{ width: `${pct}%` }} />
+                    <span className={`tone-${scoreTone}`} style={{ width: `${pct}%` }} />
                   </div>
                   {hasDetail ? (
                     <>
@@ -476,11 +602,206 @@ function ReportOverview({
           <div className="empty">세부 점수와 근거가 아직 없습니다.</div>
         )}
       </div>
+
+      {keyFindings.length > 0 ? (
+        <div className="report-findings">
+          <h3>주요 근거</h3>
+          <ul className="report-findings-list">
+            {keyFindings.map((finding, index) => (
+              <li key={index} className={finding.isGap ? "is-gap" : undefined}>
+                {finding.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {followUp ? (
+        <div className="report-followup">
+          <h3>꼬리질문</h3>
+          <div className="report-followup-box">
+            <div className="report-followup-row">
+              <span className="report-followup-label">부족 포인트</span>
+              <span className="report-followup-text">{followUp.gapPoint}</span>
+            </div>
+            <div className="report-followup-row">
+              <span className="report-followup-label">꼬리질문 답변</span>
+              <span className="report-followup-text">{followUp.answerStatus}</span>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
 
+type ReportScore = NonNullable<ApplicantEvaluation["report"]>["scores"][number];
+
+// 역량별 레이더(육각형) 그래프. 꼭짓점/라벨 클릭 시 우측 상세로 연동한다. (#289)
+const RADAR_VIEW_WIDTH = 460;
+const RADAR_VIEW_HEIGHT = 340;
+const RADAR_CX = 230;
+const RADAR_CY = 170;
+const RADAR_RADIUS = 104;
+
+function CompetencyRadar({
+  scores,
+  selectedId,
+  onSelect,
+}: {
+  scores: ReportScore[];
+  selectedId: number;
+  onSelect: (scoreId: number) => void;
+}) {
+  // hover한 역량 축을 통째로 하이라이트(축선·꼭짓점·라벨)한다. (#289)
+  const [hoveredId, setHoveredId] = useState<number | null>(null);
+  const count = scores.length;
+  const angleAt = (index: number) => ((-90 + (360 / count) * index) * Math.PI) / 180;
+  const pointAt = (index: number, r: number): [number, number] => [
+    RADAR_CX + r * Math.cos(angleAt(index)),
+    RADAR_CY + r * Math.sin(angleAt(index)),
+  ];
+  const ringPoints = (r: number) =>
+    scores.map((_, index) => pointAt(index, r).map((value) => value.toFixed(1)).join(",")).join(" ");
+  const dataPoints = scores.map((score, index) => pointAt(index, (RADAR_RADIUS * clampPercent(score.score)) / 100));
+  // 역량별 합격선. 모든 역량에 합격선이 있을 때만 점선 다각형으로 표시한다. (#289)
+  const hasCutline = scores.every((score) => score.passScore != null);
+  const cutlinePoints = hasCutline
+    ? scores
+        .map((score, index) =>
+          pointAt(index, (RADAR_RADIUS * clampPercent(score.passScore ?? 0)) / 100)
+            .map((value) => value.toFixed(1))
+            .join(","),
+        )
+        .join(" ")
+    : null;
+
+  return (
+    <svg
+      className="report-radar"
+      viewBox={`0 0 ${RADAR_VIEW_WIDTH} ${RADAR_VIEW_HEIGHT}`}
+      role="img"
+      aria-label="역량별 점수 그래프"
+    >
+      {[0.25, 0.5, 0.75, 1].map((fraction) => (
+        <polygon key={fraction} className="report-radar-ring" points={ringPoints(RADAR_RADIUS * fraction)} />
+      ))}
+      {scores.map((score, index) => {
+        const [x, y] = pointAt(index, RADAR_RADIUS);
+        const isHot = score.scoreId === hoveredId || score.scoreId === selectedId;
+        return (
+          <line
+            key={score.scoreId}
+            className={`report-radar-axis${isHot ? " is-hot" : ""}`}
+            x1={RADAR_CX}
+            y1={RADAR_CY}
+            x2={x}
+            y2={y}
+          />
+        );
+      })}
+      {cutlinePoints ? <polygon className="report-radar-cutline" points={cutlinePoints} /> : null}
+      <g className="report-radar-shape">
+        <polygon
+          className="report-radar-area"
+          points={dataPoints.map((point) => point.map((value) => value.toFixed(1)).join(",")).join(" ")}
+        />
+        {dataPoints.map((point, index) => {
+          const isSelected = scores[index].scoreId === selectedId;
+          const isHovered = scores[index].scoreId === hoveredId;
+          return (
+            <g key={scores[index].scoreId}>
+              {isSelected || isHovered ? (
+                <circle className="report-radar-halo" cx={point[0]} cy={point[1]} r={13} />
+              ) : null}
+              <circle
+                className={`report-radar-dot${isSelected ? " is-selected" : ""}`}
+                cx={point[0]}
+                cy={point[1]}
+                r={isSelected ? 6 : isHovered ? 5.5 : 4}
+                onClick={() => onSelect(scores[index].scoreId)}
+                onMouseEnter={() => setHoveredId(scores[index].scoreId)}
+                onMouseLeave={() => setHoveredId(null)}
+              />
+            </g>
+          );
+        })}
+      </g>
+      {scores.map((score, index) => {
+        const [labelX, labelY] = pointAt(index, RADAR_RADIUS + 24);
+        const cos = Math.cos(angleAt(index));
+        const sin = Math.sin(angleAt(index));
+        const anchor = Math.abs(cos) < 0.35 ? "middle" : cos > 0 ? "start" : "end";
+        const baseY = sin < -0.35 ? labelY - 14 : labelY;
+        const isSelected = score.scoreId === selectedId;
+        const isHovered = score.scoreId === hoveredId;
+        return (
+          <g
+            key={score.scoreId}
+            className={`report-radar-label${isSelected ? " is-selected" : ""}${isHovered ? " is-hot" : ""}`}
+            onClick={() => onSelect(score.scoreId)}
+            onMouseEnter={() => setHoveredId(score.scoreId)}
+            onMouseLeave={() => setHoveredId(null)}
+          >
+            <text x={labelX} y={baseY} textAnchor={anchor}>
+              <tspan className="report-radar-label-name" x={labelX} dy="0">
+                {formatScoreCriterionName(score.criterionName, score.rationale)}
+              </tspan>
+              <tspan className="report-radar-label-score" x={labelX} dy="16">
+                {score.score}
+              </tspan>
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// 레이더에서 선택한 역량의 근거/증거 상세. (#289)
+function CompetencyDetailCard({ score }: { score: ReportScore }) {
+  const band = competencyBand(score.score);
+  return (
+    <aside className="report-competency-detailpanel" key={score.scoreId}>
+      <div className="report-competency-detailpanel-head">
+        <span className="report-competency-namewrap">
+          <span className="report-competency-name">{formatScoreCriterionName(score.criterionName, score.rationale)}</span>
+          {score.weight != null ? <span className="report-competency-weight">가중치 {score.weight}%</span> : null}
+        </span>
+        <span className="report-competency-detailpanel-score">
+          <span className={`report-competency-band tone-${band.tone}`}>{band.label}</span>
+          <span className={`report-competency-score tone-${band.tone}`}>{score.score}</span>
+        </span>
+      </div>
+      {score.passScore != null ? (
+        <span className={`report-competency-cutstatus ${score.score >= score.passScore ? "is-met" : "is-missed"}`}>
+          합격선 {score.passScore}점 · {score.score >= score.passScore ? "충족" : "미달"}
+        </span>
+      ) : null}
+      {score.rationale?.trim() ? (
+        <p className="report-competency-rationale">{score.rationale}</p>
+      ) : (
+        <p className="report-competency-rationale is-empty">등록된 근거가 없습니다.</p>
+      )}
+      {score.evidences.length > 0 ? (
+        <div className="report-competency-evidence">
+          {score.evidences.map((evidence) => (
+            <blockquote key={evidence.evidenceId}>{evidence.evidenceText}</blockquote>
+          ))}
+        </div>
+      ) : null}
+    </aside>
+  );
+}
+
 const GAUGE_CIRCUMFERENCE = 2 * Math.PI * 52;
+
+function reportResult(result: string | null | undefined): { label: string; tone: "pass" | "hold" | "fail" } | null {
+  if (result === "PASS") return { label: "합격", tone: "pass" };
+  if (result === "HOLD") return { label: "보류", tone: "hold" };
+  if (result === "FAIL") return { label: "불합격", tone: "fail" };
+  return null;
+}
 
 function clampPercent(value: number) {
   return Math.max(0, Math.min(100, value));

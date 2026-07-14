@@ -263,11 +263,23 @@ export type ApplicantEvaluation = {
     } | null;
     summary: string | null;
     generatedAt: string | null;
+    // NCS 평가 최종 결과. E(feat-ncs-text-evaluation-playground)가 채우면 노출된다. (#289)
+    result?: "PASS" | "HOLD" | "FAIL" | null;
+    // 총점 합격선(100점 만점 기준). 게이지에 마커로 표시한다.
+    passScore?: number | null;
+    // 주요 근거 요약. isGap=true 이면 근거 부족 항목으로 구분 표시한다.
+    keyFindings?: Array<{ text: string; isGap?: boolean }> | null;
+    // 꼬리질문 요약(부족 포인트 / 답변 보완 상태).
+    followUp?: { gapPoint: string; answerStatus: string } | null;
     scores: Array<{
       scoreId: number;
       criterionId: number | null;
       criterionName: string | null;
       score: number;
+      // 역량 가중치(%). NCS 역량 비율 설정값. (#289)
+      weight?: number | null;
+      // 역량별 합격선(100점 환산). 레이더 점선·상세 충족 여부에 사용한다.
+      passScore?: number | null;
       rationale: string | null;
       evidences: Array<{
         evidenceId: number;
