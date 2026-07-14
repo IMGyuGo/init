@@ -23,14 +23,14 @@ Comment: 변경할 필드명, enum, 상태 전이 또는 이유
 | --- | --- | --- | --- | --- | --- |
 | R-E-01 | APPROVED | E | C, PM | M0, M2, M5 | NCS profile ID/mode/version과 alignment output canonical shape |
 | R-E-02 | APPROVED | E | C, PM | M0, M2 | 정렬 재시도, fallback, threshold 소유권 |
-| R-E-03 | PENDING | E | A, C, D | M0, M3 | 개인화 질문 batch와 AI process retry 기록 방식 |
+| R-E-03 | APPROVED | E | A, C, D | M0, M3 | 개인화 질문 batch와 AI process retry 기록 방식 |
 | R-E-04 | PENDING | E | A, PM | M3 | 질문 생성 guardrail과 민감정보 제거 결과 |
-| R-D-01 | PENDING | D | B, E, C | M0, M3 | 지원 완료·문서 추출 완료 trigger와 이력서 snapshot 시점 |
+| R-D-01 | APPROVED | D | B, E, C | M0, M3 | 지원 완료·문서 추출 완료 trigger와 이력서 snapshot 시점 |
 | R-D-02 | PENDING | D | C, E, PM | M0, M4 | 세션 생성 readiness gate와 공통·개인화 질문 순서 |
-| R-D-03 | PENDING | D | B, C, E, PM | M0, M3, M4 | 정책·기준·JD·이력서 변경 후 기존 batch 처리 |
+| R-D-03 | APPROVED | D | B, C, E, PM | M0, M3, M4 | 정책·기준·JD·이력서 변경 후 기존 batch 처리 |
 | R-B-01 | APPROVED | B | C, E | M0, M2, M3 | 생성 입력으로 사용할 JD 정본과 JD version/hash |
 | R-A-01 | PENDING | A | C, D, E | M0, M1, M3 | shared enum/DTO/error 위치와 migration 소유권 |
-| R-A-02 | PENDING | A | E, D | M0, M3 | SQS 멱등 claim/lease, retry, PII log 기준 |
+| R-A-02 | APPROVED | A | E, D | M0, M3 | SQS 멱등 claim/lease, retry, PII log 기준 |
 | R-A-03 | PENDING | A | C, PM | M1 | frontend/backend feature flag 이름과 rollout source |
 | R-PM-01 | PENDING | PM | C | M0, M1 | 질문 개수 범위·초깃값·경고/차단 UX |
 | R-PM-02 | APPROVED | PM | C, E | M0, M2, M3 | REVIEW_REQUIRED 운영 정책과 수동 승인 허용 여부 |
@@ -214,6 +214,17 @@ Comment: 변경할 필드명, enum, 상태 전이 또는 이유
 - SQS message에는 ID, version, one-way hash만 포함한다.
 - 원문과 extracted text는 message/log에 넣지 않는다.
 - process delivery idempotency와 business idempotency를 각각 검증한다.
+
+### M3 Implementation Decision (2026-07-14)
+
+사용자가 M3 구현 진행을 승인해 위 권장안을 구현 기준으로 확정한다. D/E/A 소유 파일은 각 담당자 교차 리뷰 대상으로 남긴다.
+
+- `R-E-03`: business key별 batch 하나를 재사용하고 retry마다 새 process log를 만든다. batch는 `latestProcessLogId`, `attemptCount`를 보존하고 질문은 최종 `sourceProcessLogId`를 기록한다.
+- `R-D-01`: 지원서 제출 시 이력서 `DOCUMENT_EXTRACT` job을 자동 발행한다. 추출 완료 worker가 `SUBMITTED + EXTRACTED + resumeQuestionCount > 0`을 확인한 뒤 개인화 질문 job을 멱등 생성한다.
+- `R-D-03`: 현재 policy/criteria/JD/resume hash와 다른 기존 batch는 `STALE`로 projection 및 저장한다. 기존 interview session에는 소급하지 않는다.
+- `R-A-02`: SQS와 `ai_process_logs.input_ref`에는 ID, version, SHA-256 hash만 기록한다. 추출 이력서 원문은 worker repository 조회 범위 밖으로 전달하지 않는다.
+- business key는 `applicationId + policyVersion + criteriaVersion + jdSnapshotHash + resumeDocumentHash`로 고정한다.
+- 자동 trigger는 동일 business key의 `GENERATING`, `READY`, `REVIEW_REQUIRED` batch를 재사용하며 `FAILED`, `REVIEW_REQUIRED`, `STALE` 재생성은 API-099의 명시적 요청만 허용한다.
 
 ### R-A-03 Feature Flag And Rollout
 

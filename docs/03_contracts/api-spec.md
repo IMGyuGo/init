@@ -2178,6 +2178,7 @@ Allocation Examples:
 - Processing:
   - 이력서 원문·추출 텍스트는 응답하지 않는다.
   - `READY` 또는 `REVIEW_REQUIRED`일 때 검토 가능한 `items`를 반환한다. 그 외 상태는 `items=[]`와 현재 상태, 추적 가능한 `processLogId`만 제공한다.
+  - 현재 policy/criteria/JD/resume hash가 batch snapshot과 다르면 `STALE`을 반환하고 기존 질문은 노출하지 않는다.
   - 재시도 중인 `LOW_ALIGNMENT` 후보는 목록에 노출하지 않고, 허용 재시도 후에도 통과하지 못한 항목만 `REVIEW_REQUIRED` 상태에서 검토 대상으로 반환한다.
 - Error Codes:
   - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`
@@ -2199,7 +2200,7 @@ Allocation Examples:
   - `reason?: string`, 500자 이하의 운영 메모
 - Validation:
   - 지원서와 공고가 로그인 기업 소유여야 한다.
-  - 현재 상태가 `FAILED` 또는 `REVIEW_REQUIRED`여야 한다.
+  - 현재 상태가 `FAILED`, `REVIEW_REQUIRED`, `STALE` 중 하나여야 한다.
   - 이력서 문서 추출 상태가 `EXTRACTED`여야 한다.
 - Processing:
   - 현재 `policyVersion`, `criteriaVersion`, 이력서 입력 snapshot으로 `RESUME_QUESTION_GENERATE` job을 생성한다.

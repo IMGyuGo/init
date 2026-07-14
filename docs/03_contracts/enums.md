@@ -79,7 +79,7 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | `interview_status` | D | `NOT_READY -> READY -> IN_PROGRESS -> COMPLETED`, `READY -> FAILED`, `IN_PROGRESS -> FAILED` |
 | `report_status` | E | `PENDING -> GENERATING -> COMPLETED`, `PENDING -> FAILED`, `GENERATING -> FAILED`, `FAILED -> GENERATING` |
 | `ai_process_status` | E | `PENDING -> RUNNING -> COMPLETED`, `PENDING -> FAILED`, `RUNNING -> FAILED`, `FAILED -> PENDING` for explicit retry only |
-| `resume_question_generation_status` | C/D/E | `WAITING_DOCUMENT -> GENERATING -> READY`, `WAITING_DOCUMENT -> FAILED`, `GENERATING -> REVIEW_REQUIRED`, `GENERATING -> FAILED`, `REVIEW_REQUIRED -> GENERATING`, `FAILED -> GENERATING` for explicit retry only |
+| `resume_question_generation_status` | C/D/E | `WAITING_APPLICATION -> WAITING_DOCUMENT -> GENERATING -> READY`, `WAITING_DOCUMENT -> FAILED`, `GENERATING -> REVIEW_REQUIRED`, `GENERATING -> FAILED`, `READY -> STALE`, `REVIEW_REQUIRED -> STALE`, `STALE -> GENERATING`, `REVIEW_REQUIRED -> GENERATING`, `FAILED -> GENERATING` for explicit retry only |
 | `screening_decision` | B | `UNDECIDED -> PASS`, `UNDECIDED -> HOLD`, `UNDECIDED -> FAIL`, `HOLD -> PASS`, `HOLD -> FAIL` |
 
 상태를 되돌리는 rollback 전이는 기본 금지다. 운영자가 명시적으로 재처리하는 retry는 audit log 또는 `ai_process_logs`에 사유를 남긴다.

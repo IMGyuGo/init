@@ -80,24 +80,26 @@ Prisma model 이름은 `ApplicationInterviewQuestionBatch`로 고정한다. 지�
 | --- | --- | --- |
 | batch_id | BIGINT PRIMARY KEY | 개인화 질문 묶음 PK |
 | application_id | BIGINT NOT NULL | 지원서 FK |
-| source_process_log_id | BIGINT NOT NULL | `RESUME_QUESTION_GENERATE` job FK |
+| latest_process_log_id | BIGINT NOT NULL | 가장 최근 `RESUME_QUESTION_GENERATE` job FK |
 | status | VARCHAR(40) NOT NULL | `GENERATING`, `READY`, `REVIEW_REQUIRED`, `FAILED` |
 | policy_version | INTEGER NOT NULL | 생성 당시 정책 version |
 | criteria_version | INTEGER NOT NULL | 생성 당시 평가 기준 version |
 | input_version | VARCHAR(128) NOT NULL | 원문을 노출하지 않는 입력 snapshot 식별자 |
 | resume_document_hash | VARCHAR(128) NOT NULL | 이력서 추출 입력 변경 검출용 hash |
+| jd_snapshot_hash | VARCHAR(128) NOT NULL | 공고 JD 변경 검출용 hash |
 | evaluator_version | VARCHAR(80) | batch 판정에 사용한 adapter version |
 | failure_reason | TEXT | 실패 또는 검토 필요 사유 |
+| attempt_count | INTEGER NOT NULL DEFAULT 1 | 명시적 retry를 포함한 process 생성 횟수 |
 | created_at | TIMESTAMP NOT NULL | 생성 시각 |
 | updated_at | TIMESTAMP NOT NULL | 마지막 상태 변경 시각 |
 
 Business unique key:
 
 ```text
-application_id + policy_version + criteria_version + resume_document_hash
+application_id + policy_version + criteria_version + jd_snapshot_hash + resume_document_hash
 ```
 
-`WAITING_APPLICATION`, `WAITING_DOCUMENT`, `DISABLED`는 공고 정책·지원서·문서 상태로 계산하는 projection이며 batch row로 저장하지 않는다.
+`WAITING_APPLICATION`, `WAITING_DOCUMENT`, `DISABLED`는 공고 정책·지원서·문서 상태로 계산하는 projection이며 batch row로 저장하지 않는다. 현재 입력 version/hash와 다른 기존 `READY` 또는 `REVIEW_REQUIRED` batch는 `STALE`로 전환하고 세션 생성에서 제외한다.
 
 ### application_interview_questions
 
@@ -119,6 +121,7 @@ Prisma model 이름은 `ApplicationInterviewQuestion`으로 고정한다. 이 ta
 | alignment_score | DECIMAL(8,6) | evaluator score |
 | alignment_reason | TEXT | 판정 사유 |
 | evaluator_version | VARCHAR(80) | adapter version |
+| source_process_log_id | BIGINT NOT NULL | 최종 질문 후보를 만든 process log FK |
 | sort_order | INTEGER NOT NULL | batch 안의 질문 순서 |
 | created_at | TIMESTAMP NOT NULL | 생성 시각 |
 

@@ -21,7 +21,8 @@ NQ-M0 계약을 다시 읽고 다음을 분리한다.
 | Cross-owner sign-off | PENDING | review request의 M0 blocker 승인 필요 |
 | NQ-M1 코드/DB/UI | COMPLETE | 정책 table/API/UI와 NCS criteria snapshot 구현 완료 |
 | NQ-M2 통합 | COMPLETE | worker 정렬 adapter, 서버 요청 snapshot, 질문 metadata 저장 검증, UI 미리보기 구현 완료 |
-| NQ-M3~M4 통합 | NOT_STARTED | D/E/A 계약과 선행 milestone 필요 |
+| NQ-M3 통합 | IN_PROGRESS | 지원 완료·문서 추출·개인화 질문 비동기 파이프라인 구현 중 |
+| NQ-M4 통합 | NOT_STARTED | M3 READY batch와 D 세션 snapshot 연결 필요 |
 
 ## Hardened In This Audit
 
