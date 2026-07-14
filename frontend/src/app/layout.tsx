@@ -6,9 +6,9 @@ export const metadata = {
   title: "INIT",
   description: "AI interview recruiting platform",
   icons: {
-    icon: "/logo-init-v2.png",
-    shortcut: "/logo-init-v2.png",
-    apple: "/logo-init-v2.png",
+    icon: "/favicon.png",
+    shortcut: "/favicon.png",
+    apple: "/favicon.png",
   },
 };
 
