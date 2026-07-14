@@ -37,6 +37,7 @@ import {
   StartMockInterviewResult,
 } from "../interview.runtime.types";
 import { AiJobDispatcherService } from "../../report/service/ai-job-dispatcher.service";
+import { REPORT_REPOSITORY, type ReportRepository } from "../../report/repository/report.repository";
 import {
   CandidateMockInterviewPassService,
   type CandidateMockInterviewPassPort,
@@ -111,6 +112,9 @@ export class InterviewService {
     @Optional()
     @Inject(CandidateMockInterviewPassService)
     private readonly mockInterviewPasses?: CandidateMockInterviewPassPort,
+    @Optional()
+    @Inject(REPORT_REPOSITORY)
+    private readonly reportRepository?: ReportRepository,
   ) {}
 
   async listOwnedMockInterviewSessions(currentUser: CurrentCandidateUser): Promise<RuntimeInterviewSession[]> {
@@ -137,22 +141,39 @@ export class InterviewService {
     const showQuestionText = requestBody.showQuestionText === true;
     const questionTypes = this.resolveMockQuestionTypes(requestBody);
     const folderId = this.normalizeOptionalFolderId(requestBody.folderId);
-    const contextQuestions = folderId
-      ? await this.buildFolderMockQuestionsForCurrentUser(folderId, questionTypes, currentUser)
+    const questionProcessLogId = this.normalizeOptionalProcessLogId(requestBody.questionProcessLogId);
+    const generatedQuestions = questionProcessLogId
+      ? await this.getGeneratedMockQuestions(questionProcessLogId, questionTypes, currentUser)
       : undefined;
+    const contextQuestions = generatedQuestions ?? (folderId
+      ? await this.buildFolderMockQuestionsForCurrentUser(folderId, questionTypes, currentUser)
+      : undefined);
     const questionIds = contextQuestions ? undefined : await this.selectMockQuestionIds(questionTypes);
+    const consumeOutsideSessionTransaction = Boolean(questionProcessLogId && !this.interviewRepository.createMockSessionWithPass);
+    if (consumeOutsideSessionTransaction && !await this.reportRepository!.consumeCompletedQuestionProcess(questionProcessLogId!)) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "이미 사용했거나 사용할 수 없는 AI 질문 생성 결과입니다.", 409);
+    }
     const now = new Date().toISOString();
     const input = {
       candidateId: currentUser.candidateId,
+      questionProcessLogId,
       showQuestionText,
       questionIds,
       contextQuestions,
       startedAt: now,
       updatedAt: now,
     };
-    const session = this.interviewRepository.createMockSessionWithPass
-      ? await this.interviewRepository.createMockSessionWithPass(input)
-      : await this.createMockSessionWithExternalPass(input, new Date(now));
+    let session: RuntimeInterviewSession;
+    try {
+      session = this.interviewRepository.createMockSessionWithPass
+        ? await this.interviewRepository.createMockSessionWithPass(input)
+        : await this.createMockSessionWithExternalPass(input, new Date(now));
+    } catch (error) {
+      if (consumeOutsideSessionTransaction && questionProcessLogId) {
+        await this.reportRepository!.releaseCompletedQuestionProcess(questionProcessLogId).catch(() => undefined);
+      }
+      throw error;
+    }
 
     return this.envelope({
       ...(await this.toRuntimeView(session, "mock")),
@@ -1376,6 +1397,73 @@ export class InterviewService {
       ]);
     }
     return value;
+  }
+
+  private normalizeOptionalProcessLogId(value: unknown): number | undefined {
+    if (value === undefined || value === null) return undefined;
+    if (!this.isPositiveInteger(value)) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "questionProcessLogId is invalid.", 400, [
+        { field: "questionProcessLogId", reason: "questionProcessLogId must be a positive integer" },
+      ]);
+    }
+    return value;
+  }
+
+  private async getGeneratedMockQuestions(
+    processLogId: number,
+    requestedTypes: readonly MockQuestionType[],
+    currentUser: CurrentCandidateUser,
+  ): Promise<CreateMockContextQuestionInput[]> {
+    if (!this.reportRepository) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "AI 질문 생성 결과를 확인할 수 없습니다.", 409);
+    }
+    const process = await this.reportRepository.getProcess(processLogId);
+    const input = this.parseJsonRecord(process.inputRef);
+    const requestedBy = this.toRequestBody(input.requestedBy, "requestedBy");
+    if (requestedBy.candidateId !== currentUser.candidateId || requestedBy.userId !== currentUser.userId) {
+      throw new CandidateDomainError("COMMON_FORBIDDEN", "AI 질문 생성 작업 접근 권한이 없습니다.", 403);
+    }
+    if (process.processType !== "QUESTION_GENERATE" || process.status !== "COMPLETED") {
+      throw new CandidateDomainError("COMMON_CONFLICT", "AI 질문 생성이 아직 완료되지 않았습니다.", 409);
+    }
+    const output = this.toRequestBody(process.output ?? this.parseJsonRecord(process.outputRef ?? "{}"), "questionOutput");
+    const candidates = Array.isArray(output.questionCandidates) ? output.questionCandidates : [];
+    const questions = candidates.flatMap((candidate, index): CreateMockContextQuestionInput[] => {
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
+      const record = candidate as Record<string, unknown>;
+      const content = typeof record.content === "string" ? record.content.trim() : "";
+      if (!content || !this.isQuestionType(record.questionType)) return [];
+      const questionType = record.questionType as MockQuestionType;
+      if (!requestedTypes.includes(questionType)) return [];
+      return [{ questionType, sortOrder: index + 1, content }];
+    });
+    if (questions.length === 0) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "사용 가능한 AI 질문 생성 결과가 없습니다.", 409);
+    }
+    const byType = new Map(questions.map((question) => [question.questionType, question]));
+    return requestedTypes.map((questionType, index) => ({
+      questionType,
+      sortOrder: index + 1,
+      content: byType.get(questionType)?.content ?? this.buildGenericMockQuestionContent(questionType),
+    }));
+  }
+
+  private buildGenericMockQuestionContent(questionType: MockQuestionType): string {
+    if (questionType === "INTRO") return "지원 직무와 연결되는 자신의 경험을 중심으로 간단히 소개해 주세요.";
+    if (questionType === "TECHNICAL") return "최근 사용한 기술 하나를 골라 선택 이유와 적용 과정의 트레이드오프를 설명해 주세요.";
+    if (questionType === "EXPERIENCE") return "직접 맡은 프로젝트에서 문제를 발견하고 해결해 성과를 만든 경험을 설명해 주세요.";
+    if (questionType === "SITUATION") return "일정이나 요구사항이 갑자기 바뀐 상황에서 우선순위를 어떻게 정하고 대응했는지 설명해 주세요.";
+    if (questionType === "FOLLOW_UP") return "앞서 설명한 경험에서 본인이 내린 핵심 결정과 그 근거를 더 구체적으로 설명해 주세요.";
+    return "지원 직무에서 발휘할 강점과 앞으로 보완할 역량을 실제 경험에 근거해 말씀해 주세요.";
+  }
+
+  private parseJsonRecord(value: string): Record<string, unknown> {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+    } catch {
+      return {};
+    }
   }
 
   private async selectMockQuestionIds(requestedTypes: readonly MockQuestionType[]): Promise<number[]> {

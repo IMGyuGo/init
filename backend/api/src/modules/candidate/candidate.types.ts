@@ -183,15 +183,21 @@ export interface CandidateProfileView {
   blogUrl: string | null;
   portfolioUrl: string | null;
   summary: string | null;
+  coverLetter: string | null;
   educations: CandidateEducationView[];
   careers: CandidateCareerView[];
   activities: CandidateActivityView[];
   credentials: CandidateCredentialView[];
 }
 
+export interface CandidateProfileSnapshotV1 extends CandidateProfileView {
+  schemaVersion: 1;
+}
+
 export interface CandidateProfileAiContextV1 {
   schemaVersion: 1;
   summary: string | null;
+  coverLetter: string | null;
   githubUrl: string | null;
   blogUrl: string | null;
   portfolioUrl: string | null;
@@ -209,6 +215,7 @@ export interface UpdateCandidateProfileInput {
   blogUrl?: string | null;
   portfolioUrl?: string | null;
   summary?: string | null;
+  coverLetter?: string | null;
   educations?: CandidateEducationView[];
   careers?: CandidateCareerView[];
   activities?: CandidateActivityView[];
@@ -221,6 +228,7 @@ export interface CandidateApplyView {
   requiredConsentTypes: ConsentType[];
   portfolioRequired: true;
   applicant: ApplicantContact;
+  profileSnapshot: CandidateProfileSnapshotV1;
 }
 
 export interface FileAsset {
@@ -246,6 +254,7 @@ export interface Application {
   portfolioUrl?: string | null;
   motivation?: string | null;
   additionalInfo?: string | null;
+  profileSnapshot: CandidateProfileSnapshotV1 | null;
   applicationStatus: ApplicationStatus;
   documentStatus: DocumentStatus;
   interviewStatus: InterviewStatus;
@@ -288,6 +297,7 @@ export interface CandidateFolder {
   portfolioFileName: string | null;
   motivation: string | null;
   extraNote: string | null;
+  profileSnapshot: CandidateProfileSnapshotV1 | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -460,6 +470,7 @@ export interface CandidateRepository {
     portfolioUrl?: string;
     motivation?: string;
     additionalInfo?: string;
+    profileSnapshot?: CandidateProfileSnapshotV1;
     consentTypes: ConsentType[];
     contactUserId?: number;
   }): Promise<ApplicationSubmissionResult>;
@@ -468,7 +479,7 @@ export interface CandidateRepository {
   countFolders(candidateId: number): Promise<number>;
   listFolders(candidateId: number): Promise<CandidateFolder[]>;
   findFolder(folderId: number): Promise<CandidateFolder | undefined>;
-  createFolder(input: Omit<CandidateFolder, "id" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">): Promise<CandidateFolder>;
+  createFolder(input: Omit<CandidateFolder, "id" | "resumeFileName" | "portfolioFileName" | "profileSnapshot" | "createdAt" | "updatedAt"> & { profileSnapshot?: CandidateProfileSnapshotV1 | null }): Promise<CandidateFolder>;
   updateFolder(folderId: number, input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">>): Promise<CandidateFolder>;
   deleteFolder(folderId: number): Promise<void>;
 }

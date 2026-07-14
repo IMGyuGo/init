@@ -3,8 +3,11 @@ import type { CandidateApplicationFormState } from "./view-model";
 
 // 순수 로직만 담는 모듈(런타임 의존성 없음) — 세트 override/해제 규칙. 단위 테스트로 검증 가능. (#272)
 
-// 지원서 세트가 덮어쓰는 "콘텐츠" 필드. 기본정보(이름/이메일/연락처/동의)는 세트가 건드리지 않는다.
+// 지원서 세트가 덮어쓰는 필드. 동의만 현재 지원서 입력을 유지한다.
 const APPLICATION_SET_CONTENT_KEYS = [
+  "candidateName",
+  "email",
+  "phone",
   "githubUrl",
   "blogUrl",
   "portfolioUrl",
@@ -12,37 +15,40 @@ const APPLICATION_SET_CONTENT_KEYS = [
   "portfolioFileId",
   "motivation",
   "additionalInfo",
+  "profileSnapshot",
 ] as const;
 
 // 지원서 세트(폴더)를 지원 폼에 반영한다.
-// - 기본정보와 사용자가 편집 중인 값은 `current`에서 유지한다.
-// - 콘텐츠 필드는 세트 값이 있으면 덮어쓰고, 없으면 `baseline`(세트 이전 = 프로필 자동입력 등) 값을 쓴다.
-// 세트 전환 시 이전 세트 값이 남거나 기본정보 편집이 유실되지 않도록 current/baseline 을 분리한다. (#272 P2)
+// 선택한 세트는 명시적인 빈 값까지 포함해 프로필과 지원 내용을 완전히 교체한다.
 export function applyFolderToApplicationForm(
   current: CandidateApplicationFormState,
-  baseline: CandidateApplicationFormState,
+  _baseline: CandidateApplicationFormState,
   folder: CandidateFolder,
 ): CandidateApplicationFormState {
-  const overrideText = (value: string | null | undefined, fallback: string): string =>
-    value && value.trim() ? value : fallback;
+  const profile = folder.profileSnapshot ?? _baseline.profileSnapshot ?? current.profileSnapshot;
+  if (!profile) return current;
   return {
-    ...current,
-    githubUrl: overrideText(folder.githubUrl, baseline.githubUrl),
-    blogUrl: overrideText(folder.blogUrl, baseline.blogUrl),
-    portfolioUrl: folder.portfolioUrl && folder.portfolioUrl.trim() ? folder.portfolioUrl : baseline.portfolioUrl,
-    resumeFileId: folder.resumeFileId ?? baseline.resumeFileId,
-    portfolioFileId: folder.portfolioFileId ?? baseline.portfolioFileId,
-    motivation: overrideText(folder.motivation, baseline.motivation),
-    additionalInfo: overrideText(folder.extraNote, baseline.additionalInfo),
+    candidateName: profile.name,
+    email: profile.email,
+    phone: profile.phone ?? "",
+    githubUrl: profile.githubUrl ?? "",
+    blogUrl: profile.blogUrl ?? "",
+    portfolioUrl: profile.portfolioUrl ?? undefined,
+    resumeFileId: folder.resumeFileId ?? undefined,
+    portfolioFileId: folder.portfolioFileId ?? undefined,
+    motivation: folder.motivation ?? "",
+    additionalInfo: folder.extraNote ?? "",
+    profileSnapshot: profile,
+    consentTypes: current.consentTypes,
   };
 }
 
-// 세트 해제 시: 기본정보/편집은 유지하고 콘텐츠 필드만 세트 이전 값(baseline)으로 되돌린다. (#272 P2)
+// 세트 해제 시 세트 선택 전의 전체 지원서로 되돌리되 현재 동의 선택은 유지한다.
 export function restoreApplicationSetContent(
   current: CandidateApplicationFormState,
   baseline: CandidateApplicationFormState,
 ): CandidateApplicationFormState {
-  const restored = { ...current };
+  const restored = { ...current, consentTypes: current.consentTypes };
   for (const key of APPLICATION_SET_CONTENT_KEYS) {
     (restored[key] as CandidateApplicationFormState[typeof key]) = baseline[key];
   }

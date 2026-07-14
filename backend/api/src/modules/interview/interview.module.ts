@@ -72,6 +72,12 @@ const reportRepositoryProviders = usePrismaReportRepository
       useClass: DefaultPublicApplicationAccessVerifier,
     },
   ],
-  exports: [INTERVIEW_REPOSITORY, InterviewService, PublicInterviewService],
+  exports: [
+    INTERVIEW_REPOSITORY,
+    REPORT_REPOSITORY,
+    AiJobDispatcherService,
+    InterviewService,
+    PublicInterviewService,
+  ],
 })
 export class InterviewModule {}

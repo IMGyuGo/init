@@ -117,9 +117,11 @@ flowchart TD
 | mock-report | 17. 모의면접 리포트 상세 | /candidate/mock-interview/reports/{reportId} |  |  | MOCK_REPORT / 분석 완료, 종합 피드백, 역량별 점수, 영상 / 스크립트 동시 조회 |
 | jobs | 18. 회사 리스트 | /candidate/jobs | 마이페이지, 로그아웃, AI 모의면접, 채용정보, 검색어, 직무 ▼, 지역 ▼, 채용 상태 ▼, 조회, 상세 보기 |  |  |
 | job-detail | 19. 회사 상세 팝업 | /candidate/jobs/{jobId} | 지원하기, 닫기 |  | 회사 정보, JD |
-| application-submit | 19-1. 지원서 제출 | /candidate/jobs/{jobId}/apply | AI 모의면접, 채용정보 ▼, 채용공고, 지원현황, 마이페이지, 로그아웃, STEP 1 기본 정보, STEP 2 서류 업로드, STEP 3 동의 및 제출, □ 개인정보 수집 및 이용 동의, □ 이력서/포트폴리오 AI 분석 동의, □ AI 면접 녹화/녹음 안내 확인, 회사 상세로 돌아가기, 임시저장, 지원 취소, 지원서 제출 | 회사 / 직무, 채용 기간, 진행 방식, 이름 *, 이메일 *, 연락처 *, GitHub / 블로그, 이력서 *, 포트폴리오, 첨부 조건 | 지원 공고, 기본 정보, 서류 업로드, 지원 동기 / 추가 설명, 제출 상태 점검, 동의 및 제출 전 확인 |
+| application-submit | 19-1. 지원서 제출 모달 | /candidate/jobs/{jobId}?apply=1 | STEP 1 프로필·지원서 세트, STEP 2 서류·지원 내용, STEP 3 동의 및 제출, 지원서 세트 불러오기·편집 | 마이페이지 전체 프로필 복사본, 이력서, 포트폴리오, 지원 동기, 추가 설명 | 선택 세트의 명시적 빈 값을 포함해 전체 입력 교체. 세트 편집 시 별도 페이지를 거쳐 작성 초안을 복원하고 수정 세트를 자동 적용 |
 | applications | 20. 지원현황 | /candidate/applications | AI 모의면접, 채용정보 ▼, 채용공고, 지원현황, 마이페이지, 로그아웃, 상태 필터 ▼, 조회, 카메라 점검, 마이크 점검, 네트워크 점검, 채용 AI 면접 시작 |  | 선택한 지원 건: 회사명 A / Backend Developer, AI 면접 안내, 응시 동의, 장치 점검 |
 | recruiting-interview | 21. 채용 AI 면접 진행 | /candidate/applications/{applicationId}/interview | 질문 음성 다시 듣기, 답변 완료, 다음 질문으로 이동 |  | 답변 상태 |
 | candidate-result | 22. 채용 AI 면접 결과 | /candidate/applications/{applicationId}/report | 지원현황으로 돌아가기 |  | 회사명 A / Backend Developer, 전형 상태, 제한된 피드백 |
-| candidate-mypage | 23. 지원자 마이페이지 | /candidate/mypage | 마이페이지, 로그아웃, AI 모의면접, 채용정보, 프로필 저장, 학력/경력/활동/자격 항목 추가·삭제 | 기본정보, 학력, 경력, 프로젝트·경험·활동·교육, 자격·어학·수상 | 기본정보는 항상 표시하고 4개 반복 섹션은 독립 다중 아코디언으로 편집. 민감정보 입력 금지 및 AI 질문 생성 활용 안내 |
+| candidate-mypage | 23. 지원자 마이페이지 | /candidate/mypage | 마이페이지, 로그아웃, AI 모의면접, 채용정보, 프로필 저장, 학력/경력/활동/자격 항목 추가·삭제 | 기본정보, 학력, 경력, 프로젝트·경험·활동·교육, 자격·어학·수상, 자기소개서 | 기본정보는 항상 표시하고 4개 반복 섹션은 독립 다중 아코디언으로 편집. 제일 하단 자기소개서는 최대 5,000자이며 맞춤형 질문 생성에 사용 |
+| candidate-application-set-new | 23-1. 지원서 세트 추가 | /candidate/application-sets/new | 세트 저장, 취소, 프로필·서류·지원 내용 편집 | 현재 마이페이지 전체 프로필을 최초 기준으로 복사 | 저장 후 세트 목록으로 이동 |
+| candidate-application-set-edit | 23-2. 지원서 세트 수정 | /candidate/application-sets/{setId}/edit | 세트 저장, 취소, 프로필·서류·지원 내용 편집 | 세트에 고정된 전체 프로필 복사본 | 지원 모달에서 진입한 경우 원래 공고로 돌아가 수정 세트를 자동 적용 |
 | system-process | SYS. 화면에 직접 노출되지 않는 시스템 처리 | system process |  |  |  |

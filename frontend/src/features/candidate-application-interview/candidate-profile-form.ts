@@ -3,6 +3,7 @@ import type {
   CandidateCareer,
   CandidateCredential,
   CandidateEducation,
+  CandidateProfileSnapshotV1,
   CandidateProfileView,
   UpdateCandidateProfileRequest,
 } from "./api";
@@ -31,6 +32,7 @@ export interface CandidateProfileFormState {
   blogUrl: string;
   portfolioUrl: string;
   summary: string;
+  coverLetter: string;
   educations: EducationFormItem[];
   careers: CareerFormItem[];
   activities: ActivityFormItem[];
@@ -61,6 +63,7 @@ export function createProfileFormState(profile: CandidateProfileView): Candidate
     blogUrl: text(profile.blogUrl),
     portfolioUrl: text(profile.portfolioUrl),
     summary: text(profile.summary),
+    coverLetter: text(profile.coverLetter),
     educations: profile.educations.map((item) => ({ ...item, key: keyOf("education"), major: text(item.major), endMonth: text(item.endMonth) })),
     careers: profile.careers.map((item) => ({ ...item, key: keyOf("career"), endMonth: text(item.endMonth), department: text(item.department), position: text(item.position) })),
     activities: profile.activities.map((item) => ({ ...item, key: keyOf("activity"), endDate: text(item.endDate) })),
@@ -70,7 +73,7 @@ export function createProfileFormState(profile: CandidateProfileView): Candidate
 
 export function createEmptyProfileForm(): CandidateProfileFormState {
   return createProfileFormState({
-    name: "", email: "", phone: null, githubUrl: null, blogUrl: null, portfolioUrl: null, summary: null,
+    name: "", email: "", phone: null, githubUrl: null, blogUrl: null, portfolioUrl: null, summary: null, coverLetter: null,
     educations: [], careers: [], activities: [], credentials: [],
   });
 }
@@ -91,6 +94,65 @@ export const newCredential = (): CredentialFormItem => ({
   key: keyOf("credential"), credentialType: "CERTIFICATE", name: "", issuer: "", acquiredMonth: "", result: "",
 });
 
+export function appendProfileSnapshotItem(
+  snapshot: CandidateProfileSnapshotV1,
+  section: ProfileSection,
+): CandidateProfileSnapshotV1 {
+  if (snapshot[section].length >= 10) return snapshot;
+  if (section === "educations") {
+    return {
+      ...snapshot,
+      educations: [...snapshot.educations, {
+        educationLevel: "UNIVERSITY",
+        schoolName: "",
+        major: null,
+        degreeType: "BACHELOR",
+        status: "GRADUATED",
+        startMonth: "",
+        endMonth: "",
+      }],
+    };
+  }
+  if (section === "careers") {
+    return {
+      ...snapshot,
+      careers: [...snapshot.careers, {
+        companyName: "",
+        startMonth: "",
+        endMonth: "",
+        isCurrent: false,
+        jobRole: "",
+        department: null,
+        position: null,
+        responsibilities: "",
+      }],
+    };
+  }
+  if (section === "activities") {
+    return {
+      ...snapshot,
+      activities: [...snapshot.activities, {
+        activityType: "PROJECT_TASK",
+        organizationName: "",
+        startDate: "",
+        endDate: "",
+        isOngoing: false,
+        description: "",
+      }],
+    };
+  }
+  return {
+    ...snapshot,
+    credentials: [...snapshot.credentials, {
+      credentialType: "CERTIFICATE",
+      name: "",
+      issuer: "",
+      acquiredMonth: "",
+      result: null,
+    }],
+  };
+}
+
 export function serializeProfileForm(form: CandidateProfileFormState): UpdateCandidateProfileRequest {
   return {
     name: form.name.trim(),
@@ -99,6 +161,7 @@ export function serializeProfileForm(form: CandidateProfileFormState): UpdateCan
     blogUrl: nullable(form.blogUrl),
     portfolioUrl: nullable(form.portfolioUrl),
     summary: nullable(form.summary),
+    coverLetter: nullable(form.coverLetter),
     educations: form.educations.map((entry) => { const { key, ...item } = entry; void key; return { ...item, schoolName: item.schoolName.trim(), major: nullable(item.major ?? ""), endMonth: nullable(item.endMonth ?? "") }; }),
     careers: form.careers.map((entry) => { const { key, ...item } = entry; void key; return { ...item, companyName: item.companyName.trim(), jobRole: item.jobRole.trim(), department: nullable(item.department ?? ""), position: nullable(item.position ?? ""), responsibilities: item.responsibilities.trim(), endMonth: item.isCurrent ? null : nullable(item.endMonth ?? "") }; }),
     activities: form.activities.map((entry) => { const { key, ...item } = entry; void key; return { ...item, organizationName: item.organizationName.trim(), description: item.description.trim(), endDate: item.isOngoing ? null : nullable(item.endDate ?? "") }; }),

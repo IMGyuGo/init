@@ -1,5 +1,5 @@
-import { IsArray, IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUrl, MaxLength, Min } from "class-validator";
-import type { ConsentType } from "../candidate.types";
+import { IsArray, IsEmail, IsIn, IsInt, IsNotEmpty, IsObject, IsOptional, IsString, IsUrl, MaxLength, Min } from "class-validator";
+import type { CandidateProfileSnapshotV1, ConsentType } from "../candidate.types";
 
 export class SubmitApplicationDto {
   @IsString()
@@ -49,6 +49,10 @@ export class SubmitApplicationDto {
   @IsNotEmpty()
   @MaxLength(5000)
   additionalInfo!: string;
+
+  @IsOptional()
+  @IsObject()
+  profileSnapshot?: CandidateProfileSnapshotV1;
 
   @IsArray()
   @IsIn(["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS", "AI_INTERVIEW_RECORDING"], { each: true })

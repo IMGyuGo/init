@@ -48,7 +48,7 @@ ERDCloud SQL을 사람이 읽는 테이블/관계 문서로 변환한다.
 | users | user_id | 11 | 서비스 계정과 인증 방식 |  |
 | companies | company_id | 12 | 기업 프로필과 평가 정책 | logo_file_id -> file_assets.file_id |
 | file_assets | file_id | 8 | 업로드 파일 메타데이터 | owner_user_id -> users.user_id |
-| candidate_profiles | candidate_id | 8 | 지원자 프로필과 기본 이력서 | user_id -> users.user_id / default_resume_file_id -> file_assets.file_id |
+| candidate_profiles | candidate_id | 9 | 지원자 프로필, 자기소개서와 기본 이력서 | user_id -> users.user_id / default_resume_file_id -> file_assets.file_id |
 | candidate_educations | education_id | 11 | 지원자 학력 | candidate_id -> candidate_profiles.candidate_id |
 | candidate_careers | career_id | 13 | 지원자 경력 | candidate_id -> candidate_profiles.candidate_id |
 | candidate_activities | activity_id | 11 | 지원자 프로젝트·경험·활동·교육 | candidate_id -> candidate_profiles.candidate_id |
@@ -60,7 +60,7 @@ ERDCloud SQL을 사람이 읽는 테이블/관계 문서로 변환한다.
 | interview_question_sets | question_set_id | 7 | 공고별 면접 질문 세트 | posting_id -> postings.posting_id / created_by_process_log_id -> ai_process_logs.process_log_id |
 | interview_question_set_items | question_set_item_id | 5 | 면접 질문 세트 항목 | question_set_id -> interview_question_sets.question_set_id / question_id -> question_bank.question_id / criterion_id -> evaluation_criteria.criterion_id |
 | interview_time_policies | posting_id | 6 | 공고별 면접 시간 정책 | posting_id -> postings.posting_id |
-| applications | application_id | 11 | 지원서와 전형 상태 | posting_id -> postings.posting_id / candidate_id -> candidate_profiles.candidate_id |
+| applications | application_id | 12 | 제출 프로필 스냅샷을 포함한 지원서와 전형 상태 | posting_id -> postings.posting_id / candidate_id -> candidate_profiles.candidate_id |
 | application_documents | document_id | 7 | 지원서 첨부 서류와 파싱 결과 | application_id -> applications.application_id / file_id -> file_assets.file_id |
 | consent_records | consent_id | 5 | 지원/면접 동의 이력 | application_id -> applications.application_id |
 | interview_sessions | session_id | 8 | 모의/채용 면접 세션 | application_id -> applications.application_id / candidate_id -> candidate_profiles.candidate_id |

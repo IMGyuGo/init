@@ -11,6 +11,7 @@ export type MaybePromise<T> = T | Promise<T>;
 
 export interface CreateMockInterviewSessionInput {
   candidateId: number;
+  questionProcessLogId?: number;
   showQuestionText: boolean;
   questionIds?: number[];
   contextQuestions?: CreateMockContextQuestionInput[];

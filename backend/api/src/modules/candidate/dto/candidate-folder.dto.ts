@@ -1,4 +1,5 @@
-import { IsInt, IsOptional, IsString, MaxLength, Min } from "class-validator";
+import { IsInt, IsObject, IsOptional, IsString, MaxLength, Min } from "class-validator";
+import type { CandidateProfileSnapshotV1 } from "../candidate.types";
 
 export class CreateCandidateFolderDto {
   @IsString()
@@ -39,6 +40,10 @@ export class CreateCandidateFolderDto {
   @IsString()
   @MaxLength(5000)
   extraNote?: string | null;
+
+  @IsOptional()
+  @IsObject()
+  profileSnapshot?: CandidateProfileSnapshotV1;
 }
 
 export class UpdateCandidateFolderDto {
@@ -81,4 +86,8 @@ export class UpdateCandidateFolderDto {
   @IsString()
   @MaxLength(5000)
   extraNote?: string | null;
+
+  @IsOptional()
+  @IsObject()
+  profileSnapshot?: CandidateProfileSnapshotV1;
 }

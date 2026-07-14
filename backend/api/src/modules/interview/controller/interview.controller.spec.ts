@@ -263,6 +263,76 @@ test("mock answer rejects unsupported nonverbal metadata fields at the service b
   );
 });
 
+test("mock interview consumes personalized AI output once and fills missing question types", async () => {
+  const candidateService = new CandidateService(new InMemoryCandidateRepository());
+  const interviewRepository = new InMemoryInterviewRepository();
+  const reportRepository = new InMemoryReportRepository();
+  const process = await reportRepository.createQueuedProcess(
+    "QUESTION_GENERATE",
+    JSON.stringify({
+      kind: "MOCK_QUESTION_GENERATE",
+      requestedBy: {
+        userId: validCandidateRequest.currentUser!.userId,
+        userType: "CANDIDATE",
+        candidateId: validCandidateRequest.currentUser!.candidateId,
+      },
+      payload: { questionCount: 2, questionTypes: ["TECHNICAL", "CLOSING"] },
+    }),
+  );
+  await reportRepository.markQueuedProcessCompleted(process.processLogId, JSON.stringify({
+    questionCandidates: [{
+      content: "Redis 캐시 무효화 전략을 선택한 근거와 운영 결과를 설명해주세요.",
+      questionType: "TECHNICAL",
+    }],
+  }));
+  const controller = new InterviewController(new InterviewService(
+    candidateService,
+    interviewRepository,
+    undefined,
+    undefined,
+    undefined,
+    reportRepository,
+  ));
+
+  const createMockSession = interviewRepository.createMockSession.bind(interviewRepository);
+  let failSessionCreationOnce = true;
+  interviewRepository.createMockSession = (input) => {
+    if (failSessionCreationOnce) {
+      failSessionCreationOnce = false;
+      throw new CandidateDomainError("COMMON_CONFLICT", "temporary session creation failure", 409);
+    }
+    return createMockSession(input);
+  };
+  await assertInterviewHttpError(
+    () => controller.startMockInterview(validCandidateRequest, {
+      questionTypes: ["TECHNICAL", "CLOSING"],
+      questionProcessLogId: process.processLogId,
+      showQuestionText: true,
+    }),
+    409,
+    "COMMON_CONFLICT",
+  );
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["TECHNICAL", "CLOSING"],
+    questionProcessLogId: process.processLogId,
+    showQuestionText: true,
+  });
+  const questions = await controller.listMockQuestions(validCandidateRequest, String(started.data.sessionId));
+  assert.equal(questions.data.questions[0]?.content, "Redis 캐시 무효화 전략을 선택한 근거와 운영 결과를 설명해주세요.");
+  assert.equal(questions.data.questions.length, 2);
+  assert.match(questions.data.questions[1]?.content ?? "", /강점/);
+  await assertInterviewHttpError(
+    () => controller.startMockInterview(validCandidateRequest, {
+      questionTypes: ["TECHNICAL", "CLOSING"],
+      questionProcessLogId: process.processLogId,
+      showQuestionText: true,
+    }),
+    409,
+    "COMMON_CONFLICT",
+  );
+});
+
 async function assertInterviewHttpError(
   action: () => Promise<unknown>,
   expectedStatus: number,

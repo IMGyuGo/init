@@ -1,4 +1,4 @@
-import { CandidateJobApplyPage } from "@/features/candidate-application-interview/CandidatePages";
+import { redirect } from "next/navigation";
 
 type Props = {
   params: Promise<{ jobId: string }>;
@@ -6,5 +6,5 @@ type Props = {
 
 export default async function CandidateJobApplyRoute({ params }: Props) {
   const { jobId } = await params;
-  return <CandidateJobApplyPage jobId={Number(jobId)} />;
+  redirect(`/candidate/jobs/${Number(jobId)}?apply=1`);
 }

@@ -482,11 +482,12 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const criteria = kind.startsWith("MOCK") ? [] : criteriaOf(payload.criteria);
     const jobDescription = kind.startsWith("MOCK") ? undefined : requiredText(payload.jobDescription, "jobDescription");
     const folderContext = kind.startsWith("MOCK") ? mockQuestionFolderContextOf(payload.folderContext) : undefined;
+    const profileSources = kind.startsWith("MOCK") ? candidateProfileSources(payload.profileContext) : [];
 
     const questionCandidates = Array.from({ length: questionCount }, (_, index) => {
       const criterion = criteria[index % Math.max(criteria.length, 1)];
       const content = kind.startsWith("MOCK")
-        ? buildMockQuestionCandidate(index, folderContext)
+        ? buildMockQuestionCandidate(index, folderContext, profileSources)
         : `${criterion.name} 기준으로 ${shorten(jobDescription ?? "")} 경험을 검증할 수 있는 사례를 설명해주세요.`;
 
       return {
@@ -1009,18 +1010,19 @@ function mockQuestionFolderContextOf(value: unknown): MockQuestionFolderContext 
   };
 }
 
-function buildMockQuestionCandidate(index: number, folder?: MockQuestionFolderContext): string {
-  if (!folder) {
+function buildMockQuestionCandidate(index: number, folder?: MockQuestionFolderContext, profileSources: string[] = []): string {
+  if (!folder && profileSources.length === 0) {
     return `Mock interview practice question ${index + 1}`;
   }
 
   const sources = [
-    folder.resumeExtractedText || folder.resumeFile ? "이력서" : undefined,
-    folder.githubUrl ? "GitHub" : undefined,
-    folder.blogUrl ? "기술 블로그" : undefined,
-    folder.portfolioUrl ? "포트폴리오" : undefined,
-    folder.motivation ? "지원동기" : undefined,
-    folder.extraNote ? "추가 설명" : undefined,
+    folder?.resumeExtractedText || folder?.resumeFile ? "이력서" : undefined,
+    folder?.githubUrl ? "GitHub" : undefined,
+    folder?.blogUrl ? "기술 블로그" : undefined,
+    folder?.portfolioUrl ? "포트폴리오" : undefined,
+    folder?.motivation ? "지원동기" : undefined,
+    folder?.extraNote ? "추가 설명" : undefined,
+    ...profileSources,
   ].filter((source): source is string => Boolean(source));
   const context = sources.length > 0 ? `제출한 ${sources.join(", ")} 자료` : "지원서 세트";
 
@@ -1028,6 +1030,19 @@ function buildMockQuestionCandidate(index: number, folder?: MockQuestionFolderCo
     return `${context}를 바탕으로 실제 기술 경험 하나를 골라 본인 역할, 의사결정, 성과를 설명해주세요.`;
   }
   return `${context}에서 면접관이 더 확인해야 할 약한 근거를 하나 짚고 구체적인 사례로 보완해서 설명해주세요.`;
+}
+
+function candidateProfileSources(value: unknown): string[] {
+  const context = optionalObject(value);
+  if (!context || context.schemaVersion !== 1) return [];
+  return [
+    optionalText(context.coverLetter) ? "자기소개서" : undefined,
+    Array.isArray(context.careers) && context.careers.length > 0 ? "경력" : undefined,
+    Array.isArray(context.activities) && context.activities.length > 0 ? "프로젝트·활동" : undefined,
+    Array.isArray(context.educations) && context.educations.length > 0 ? "학력" : undefined,
+    Array.isArray(context.credentials) && context.credentials.length > 0 ? "자격·수상" : undefined,
+    optionalText(context.summary) ? "한 줄 소개" : undefined,
+  ].filter((source): source is string => Boolean(source));
 }
 
 function stringArrayOf(value: unknown): string[] {
