@@ -1500,6 +1500,7 @@ describe("CompanyRecruitingService", () => {
       total: null,
     });
     assert.equal(result.report?.ncsAnswerEvaluations[0]?.updatedAt, "2026-06-30T08:00:01.000Z");
+    assert.equal(result.report?.ncsEvaluation, null);
   });
 
   it("projects the stored NCS evaluation as the versioned API-020 report contract", async () => {

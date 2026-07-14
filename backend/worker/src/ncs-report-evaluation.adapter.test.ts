@@ -120,6 +120,68 @@ test("unsupported profile versions fail before evaluation", async () => {
   );
 });
 
+test("current sessions convert unsupported profile versions to an incomplete fail-closed result", async () => {
+  const result = await evaluateNcsReportAnswers(
+    800,
+    [{
+      answerId: 104,
+      question: "문제 원인과 해결 결과를 설명해주세요.",
+      transcript: "문제 원인을 로그로 분석하고 해결한 뒤 결과를 테스트로 확인했습니다.",
+      sessionQuestionId: 504,
+      criterionId: 11,
+      criterionTitleSnapshot: "문제해결능력",
+      ncsProfileId: "PROBLEM_SOLVING",
+      ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+      ncsProfileVersion: "unsupported",
+      alignmentStatus: "ALIGNED",
+    }],
+    [11],
+    undefined,
+    sessionPolicies(),
+  );
+
+  assert.equal(result.evaluations.length, 0);
+  assert.equal(result.finalEvaluation?.completionStatus, "INCOMPLETE");
+  assert.equal(result.finalEvaluation?.totalScore, null);
+  assert.equal(
+    result.finalEvaluation?.incompleteReasons.some((reason) => reason.code === "UNSUPPORTED_PROFILE_VERSION"),
+    true,
+  );
+});
+
+test("current sessions expose STT and duplicate follow-up linkage as structured incomplete reasons", async () => {
+  const base = {
+    answerId: 120,
+    question: "장애 원인과 해결 결과를 설명해주세요.",
+    transcript: "",
+    evaluationStatus: "STT_UNAVAILABLE" as const,
+    sessionQuestionId: 520,
+    criterionId: 13,
+    criterionTitleSnapshot: "문제 해결력",
+    ncsProfileId: "PROBLEM_SOLVING" as const,
+    ncsQuestionMode: "EXPERIENCE_BEHAVIOR" as const,
+    ncsProfileVersion: PROFILE_VERSION,
+    alignmentStatus: "ALIGNED",
+  };
+  const result = await evaluateNcsReportAnswers(
+    801,
+    [
+      base,
+      { answerId: 121, transcript: "첫 번째 보완 답변", isFollowUpAnswer: true, parentAnswerId: 120 },
+      { answerId: 122, transcript: "두 번째 보완 답변", isFollowUpAnswer: true, parentAnswerId: 120 },
+    ],
+    [13],
+    undefined,
+    sessionPolicies(),
+  );
+
+  const reasons = result.finalEvaluation?.incompleteReasons ?? [];
+  assert.equal(reasons.some((reason) => reason.code === "STT_UNAVAILABLE" && reason.retryable), true);
+  assert.equal(reasons.some((reason) => reason.code === "FOLLOW_UP_LINK_INVALID"), true);
+  assert.equal(result.finalEvaluation?.aiDecision, "FAIL");
+  assert.equal(result.finalEvaluation?.totalScore, null);
+});
+
 test("one question with two canonical bindings creates two 0-to-5 evaluation rows", async () => {
   const transcript =
     "배포 일정 갈등에서 오류 로그와 고객 영향 자료를 먼저 공유했습니다. 백엔드와 운영팀의 우선순위를 확인하고 단계 배포와 전체 롤백 대안을 비교했습니다. 합의한 단계 배포를 적용한 뒤 오류율과 응답 시간을 함께 확인해 결과를 검증했습니다.";
@@ -240,3 +302,35 @@ test("follow-up answer is combined once and can only preserve or improve the bas
     followUpTranscript.includes(evidence.quote),
   ));
 });
+
+function sessionPolicies() {
+  return [
+    {
+      ncsProfileId: "JOB_TECHNICAL" as const,
+      criterionId: 11,
+      criterionTitleSnapshot: "기술·직무",
+      weight: 30,
+      minimumAverageScore: 3,
+      requiredQuestionCount: 2,
+      ncsProfileVersion: PROFILE_VERSION,
+    },
+    {
+      ncsProfileId: "COLLABORATION_COMMUNICATION" as const,
+      criterionId: 12,
+      criterionTitleSnapshot: "협업·의사소통",
+      weight: 30,
+      minimumAverageScore: 3,
+      requiredQuestionCount: 2,
+      ncsProfileVersion: PROFILE_VERSION,
+    },
+    {
+      ncsProfileId: "PROBLEM_SOLVING" as const,
+      criterionId: 13,
+      criterionTitleSnapshot: "문제 해결력",
+      weight: 40,
+      minimumAverageScore: 3,
+      requiredQuestionCount: 2,
+      ncsProfileVersion: PROFILE_VERSION,
+    },
+  ];
+}

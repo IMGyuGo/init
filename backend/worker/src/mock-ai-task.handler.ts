@@ -1430,7 +1430,7 @@ function ncsSessionPoliciesOf(value: unknown): NcsSessionPolicyInput[] | undefin
       ncsProfileVersion: record.ncsProfileVersion.trim(),
     }];
   });
-  return policies.length > 0 ? policies : undefined;
+  return policies;
 }
 
 function ncsQuestionModeOf(value: unknown): NcsQuestionMode | undefined {

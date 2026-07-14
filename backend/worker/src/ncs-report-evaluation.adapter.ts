@@ -24,6 +24,7 @@ import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import {
   aggregateNcsFinalEvaluation,
   type NcsFinalEvaluation,
+  type NcsIncompleteReason,
   type NcsSessionPolicyInput,
 } from "./ncs-final-evaluation";
 
@@ -59,6 +60,7 @@ export interface NcsReportAnswerSnapshot {
   alignmentScore?: number;
   evaluatorVersion?: string;
   ncsBindings?: NcsReportQuestionBindingSnapshot[];
+  evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
   isFollowUpAnswer?: boolean;
   parentAnswerId?: number;
 }
@@ -167,18 +169,78 @@ export async function evaluateNcsReportAnswers(
   sessionPolicies?: NcsSessionPolicyInput[],
 ): Promise<NcsReportEvaluationBatch> {
   const primaryAnswers = answers.filter((answer) => !answer.isFollowUpAnswer);
-  const ncsAnswers = primaryAnswers.filter((answer) =>
+  const structuralReasons: NcsIncompleteReason[] = [];
+  const snapshotCandidates = primaryAnswers.filter((answer) =>
     (answer.ncsBindings?.length ?? 0) > 0 || answer.ncsProfileId !== undefined,
   );
+  const ncsAnswers = sessionPolicies === undefined
+    ? snapshotCandidates
+    : snapshotCandidates.filter((answer) => {
+        const reasons = currentSnapshotReasons(answer);
+        structuralReasons.push(...reasons);
+        return reasons.length === 0;
+      });
+  if (sessionPolicies !== undefined) {
+    for (const answer of primaryAnswers.filter((item) => !snapshotCandidates.includes(item))) {
+      structuralReasons.push(structuralReason(
+        "SESSION_SNAPSHOT_MISSING",
+        `Answer ${answer.answerId} has no NCS session question snapshot.`,
+        answer,
+      ));
+    }
+  }
   if (ncsAnswers.length === 0) {
-    throw new NonRetryableAiWorkerFailure("at least one primary NCS answer requires a session question snapshot");
+    if (sessionPolicies === undefined) {
+      throw new NonRetryableAiWorkerFailure("at least one primary NCS answer requires a session question snapshot");
+    }
+    return {
+      evaluations: [],
+      scores: [],
+      questionEvaluations: [],
+      allProfilesScored: false,
+      finalEvaluation: aggregateNcsFinalEvaluation(sessionPolicies, [], structuralReasons),
+    };
   }
 
   const followUpsByParent = new Map<number, NcsReportAnswerSnapshot[]>();
-  for (const followUp of answers.filter((answer) => answer.isFollowUpAnswer && answer.parentAnswerId)) {
+  for (const followUp of answers.filter((answer) => answer.isFollowUpAnswer)) {
+    if (!followUp.parentAnswerId || !snapshotCandidates.some((answer) => answer.answerId === followUp.parentAnswerId)) {
+      if (sessionPolicies !== undefined) {
+        structuralReasons.push(structuralReason(
+          "FOLLOW_UP_LINK_INVALID",
+          `Follow-up answer ${followUp.answerId} is not linked to a valid base answer.`,
+          followUp,
+        ));
+      }
+      continue;
+    }
     const items = followUpsByParent.get(followUp.parentAnswerId!) ?? [];
     items.push(followUp);
     followUpsByParent.set(followUp.parentAnswerId!, items);
+  }
+  if (sessionPolicies !== undefined) {
+    for (const [parentAnswerId, followUps] of followUpsByParent) {
+      if (followUps.length > 1) {
+        structuralReasons.push({
+          code: "FOLLOW_UP_LINK_INVALID",
+          message: `Base answer ${parentAnswerId} has more than one follow-up answer.`,
+          ncsProfileId: null,
+          sessionQuestionId: followUps[0]?.sessionQuestionId ?? null,
+          answerId: parentAnswerId,
+          retryable: false,
+        });
+      }
+    }
+  }
+  for (const answer of ncsAnswers) {
+    if (answer.evaluationStatus === "STT_UNAVAILABLE") {
+      structuralReasons.push(structuralReason(
+        "STT_UNAVAILABLE",
+        `Answer ${answer.answerId} cannot be evaluated because STT is unavailable.`,
+        answer,
+        true,
+      ));
+    }
   }
   const evaluated = await Promise.all(ncsAnswers.map((answer) =>
     evaluateAnswer(reportId, answer, followUpsByParent.get(answer.answerId)?.[0], provider),
@@ -201,16 +263,90 @@ export async function evaluateNcsReportAnswers(
     : undefined;
 
   const finalEvaluation = sessionPolicies
-    ? aggregateNcsFinalEvaluation(sessionPolicies, evaluations.map((evaluation) => ({
+      ? aggregateNcsFinalEvaluation(sessionPolicies, evaluations.map((evaluation) => ({
         answerId: evaluation.answerId,
         sessionQuestionId: evaluation.sessionQuestionId,
         ncsProfileId: evaluation.ncsProfileId,
         scoreStatus: evaluation.output.scoreStatus,
         effectiveScore: evaluation.effectiveScore,
         evidenceCount: evaluation.evidences.length,
-      })))
+      })), structuralReasons)
     : undefined;
   return { evaluations, scores, questionEvaluations, allProfilesScored, usage, finalEvaluation };
+}
+
+function currentSnapshotReasons(answer: NcsReportAnswerSnapshot): NcsIncompleteReason[] {
+  const reasons: NcsIncompleteReason[] = [];
+  if (!answer.sessionQuestionId || !answer.question?.trim() || !answer.ncsQuestionMode) {
+    reasons.push(structuralReason(
+      "SESSION_SNAPSHOT_MISSING",
+      `Answer ${answer.answerId} has an incomplete session question snapshot.`,
+      answer,
+    ));
+    return reasons;
+  }
+  const bindings = answer.ncsBindings?.length
+    ? answer.ncsBindings
+    : answer.ncsProfileId && answer.ncsProfileVersion && answer.criterionId && answer.criterionTitleSnapshot?.trim()
+      ? [{
+          criterionId: answer.criterionId,
+          criterionTitleSnapshot: answer.criterionTitleSnapshot,
+          ncsProfileId: answer.ncsProfileId,
+          ncsProfileVersion: answer.ncsProfileVersion,
+          alignmentStatus: answer.alignmentStatus ?? "REVIEW_REQUIRED",
+          alignmentScore: answer.alignmentScore,
+          evaluatorVersion: answer.evaluatorVersion,
+          bindingOrder: 1 as const,
+        }]
+      : [];
+  if (bindings.length < 1 || bindings.length > 2) {
+    reasons.push(structuralReason(
+      "SESSION_SNAPSHOT_MISSING",
+      `Answer ${answer.answerId} must have one or two NCS bindings.`,
+      answer,
+    ));
+    return reasons;
+  }
+  if (new Set(bindings.map((binding) => canonicalNcsProfileId(binding.ncsProfileId))).size !== bindings.length) {
+    reasons.push(structuralReason(
+      "SESSION_SNAPSHOT_MISSING",
+      `Answer ${answer.answerId} has duplicate NCS bindings.`,
+      answer,
+    ));
+  }
+  for (const binding of bindings) {
+    if (!binding.criterionId || !binding.criterionTitleSnapshot.trim()) {
+      reasons.push(structuralReason(
+        "SESSION_SNAPSHOT_MISSING",
+        `Answer ${answer.answerId} has an incomplete NCS binding.`,
+        answer,
+      ));
+    }
+    if (binding.ncsProfileVersion !== NCS_PROFILE_VERSION) {
+      reasons.push(structuralReason(
+        "UNSUPPORTED_PROFILE_VERSION",
+        `Answer ${answer.answerId} uses unsupported NCS profile version ${binding.ncsProfileVersion}.`,
+        answer,
+      ));
+    }
+  }
+  return reasons;
+}
+
+function structuralReason(
+  code: NcsIncompleteReason["code"],
+  message: string,
+  answer: NcsReportAnswerSnapshot,
+  retryable = false,
+): NcsIncompleteReason {
+  return {
+    code,
+    message,
+    ncsProfileId: answer.ncsProfileId ? canonicalNcsProfileId(answer.ncsProfileId) : null,
+    sessionQuestionId: answer.sessionQuestionId ?? null,
+    answerId: answer.answerId,
+    retryable,
+  };
 }
 
 async function evaluateAnswer(

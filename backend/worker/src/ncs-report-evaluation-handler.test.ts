@@ -106,3 +106,50 @@ test("REPORT_GENERATE stores insufficient NCS answers without a report score or 
   assert.equal(results.ncsAnswerEvaluations.get(72)?.[0]?.output.scoreStatus, "INSUFFICIENT_INPUT");
   assert.equal(results.generatedReports.get(72)?.totalScore, null);
 });
+
+test("REPORT_GENERATE treats an explicit empty current-session policy as incomplete instead of legacy", async () => {
+  const results = new InMemoryAiResultRepository();
+  const handler = new MockAiTaskHandler(results);
+  const task = await handler.handle({
+    processLogId: 903,
+    processType: "REPORT_GENERATE",
+    attempt: 1,
+    inputRef: JSON.stringify({
+      kind: "RECRUITING_REPORT_GENERATE",
+      payload: {
+        reportId: 73,
+        applicationId: 33,
+        sessionId: 43,
+        reportType: "RECRUITING_REPORT",
+        jobDescription: "백엔드 엔지니어",
+        criteria: [{ criterionId: 13, name: "문제해결능력", weight: 100 }],
+        ncsSessionPolicy: [],
+        answers: [{
+          answerId: 103,
+          question: "장애 원인과 해결 결과를 설명해주세요.",
+          transcript: "로그로 원인을 분석하고 대안을 적용한 뒤 결과를 측정했습니다.",
+          evaluationStatus: "EVALUATED",
+          sessionQuestionId: 503,
+          criterionId: 13,
+          criterionTitleSnapshot: "문제해결능력",
+          ncsProfileId: "PROBLEM_SOLVING",
+          ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+          ncsProfileVersion: PROFILE_VERSION,
+          alignmentStatus: "ALIGNED",
+        }],
+      },
+    }),
+  });
+
+  const output = JSON.parse(task.outputRef ?? "{}") as {
+    totalScore: number | null;
+    ncsFinalEvaluation: { completionStatus: string; aiDecision: string; incompleteReasons: Array<{ code: string }> };
+  };
+  assert.equal(output.totalScore, null);
+  assert.equal(output.ncsFinalEvaluation.completionStatus, "INCOMPLETE");
+  assert.equal(output.ncsFinalEvaluation.aiDecision, "FAIL");
+  assert.equal(
+    output.ncsFinalEvaluation.incompleteReasons.some((reason) => reason.code === "SESSION_SNAPSHOT_MISSING"),
+    true,
+  );
+});

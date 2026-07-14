@@ -89,8 +89,9 @@ const PROFILE_LABELS: Record<NcsFinalProfileId, string> = {
 export function aggregateNcsFinalEvaluation(
   policies: NcsSessionPolicyInput[],
   evaluations: NcsEvaluationForAggregation[],
+  structuralReasons: NcsIncompleteReason[] = [],
 ): NcsFinalEvaluation {
-  const incompleteReasons: NcsIncompleteReason[] = [];
+  const incompleteReasons: NcsIncompleteReason[] = [...structuralReasons];
   const policyByProfile = new Map<NcsFinalProfileId, NcsSessionPolicyInput>();
   for (const policy of policies) {
     if (policyByProfile.has(policy.ncsProfileId)) {
