@@ -122,6 +122,7 @@ enum AiProcessType {
   GUARDRAIL_VALIDATE
   CRITERIA_SUGGEST
   QUESTION_GENERATE
+  RESUME_QUESTION_GENERATE
   QUESTION_SET_GENERATE
   POSTING_DRAFT_GENERATE
 }
@@ -314,48 +315,49 @@ model CriterionTag {
 }
 
 model EvaluationCriterion {
-  criterionId       BigInt                     @id @default(autoincrement()) @map("criterion_id")
-  postingId         BigInt                     @map("posting_id")
-  tagId             BigInt                     @map("tag_id")
-  description       String?
-  weight            Int
-  passScore         Int?                       @map("pass_score")
-  sortOrder         Int                        @map("sort_order")
-  ncsProfileId      String?                    @map("ncs_profile_id") @db.VarChar(50)
-  ncsQuestionMode   String?                    @map("ncs_question_mode") @db.VarChar(50)
-  ncsProfileVersion String?                    @map("ncs_profile_version") @db.VarChar(80)
-  posting           Posting                    @relation(fields: [postingId], references: [postingId])
-  tag               CriterionTag               @relation(fields: [tagId], references: [tagId])
-  questions         Question[]
-  reportScores      ReportScore[]
-  questionSetItems  InterviewQuestionSetItem[]
+  criterionId           BigInt                         @id @default(autoincrement()) @map("criterion_id")
+  postingId             BigInt                         @map("posting_id")
+  tagId                 BigInt                         @map("tag_id")
+  description           String?
+  weight                Int
+  passScore             Int?                           @map("pass_score")
+  sortOrder             Int                            @map("sort_order")
+  ncsProfileId          String?                        @map("ncs_profile_id") @db.VarChar(50)
+  ncsQuestionMode       String?                        @map("ncs_question_mode") @db.VarChar(50)
+  ncsProfileVersion     String?                        @map("ncs_profile_version") @db.VarChar(80)
+  posting               Posting                        @relation(fields: [postingId], references: [postingId])
+  tag                   CriterionTag                   @relation(fields: [tagId], references: [tagId])
+  questions             Question[]
+  reportScores          ReportScore[]
+  questionSetItems      InterviewQuestionSetItem[]
+  personalizedQuestions ApplicationInterviewQuestion[]
 
   @@map("evaluation_criteria")
 }
 
 model Question {
-  questionId        BigInt                     @id @default(autoincrement()) @map("question_id")
-  companyId         BigInt                     @map("company_id")
-  postingId         BigInt?                    @map("posting_id")
-  criterionId       BigInt?                    @map("criterion_id")
-  questionType      QuestionType               @map("question_type")
-  content           String
-  origin            QuestionOrigin             @default(MANUAL)
-  isAiEdited        Boolean                    @default(false) @map("is_ai_edited")
-  isActive          Boolean                    @default(true) @map("is_active")
-  generationSource  String?                    @map("generation_source") @db.VarChar(50)
-  ncsProfileId      String?                    @map("ncs_profile_id") @db.VarChar(50)
-  ncsQuestionMode   String?                    @map("ncs_question_mode") @db.VarChar(50)
-  ncsProfileVersion String?                    @map("ncs_profile_version") @db.VarChar(80)
-  alignmentStatus   String?                    @map("alignment_status") @db.VarChar(40)
-  alignmentScore    Decimal?                   @map("alignment_score") @db.Decimal(8, 6)
-  alignmentReason   String?                    @map("alignment_reason")
-  evaluatorVersion  String?                    @map("evaluator_version") @db.VarChar(80)
-  sourceProcessLogId BigInt?                   @map("source_process_log_id")
+  questionId         BigInt                     @id @default(autoincrement()) @map("question_id")
+  companyId          BigInt                     @map("company_id")
+  postingId          BigInt?                    @map("posting_id")
+  criterionId        BigInt?                    @map("criterion_id")
+  questionType       QuestionType               @map("question_type")
+  content            String
+  origin             QuestionOrigin             @default(MANUAL)
+  isAiEdited         Boolean                    @default(false) @map("is_ai_edited")
+  isActive           Boolean                    @default(true) @map("is_active")
+  generationSource   String?                    @map("generation_source") @db.VarChar(50)
+  ncsProfileId       String?                    @map("ncs_profile_id") @db.VarChar(50)
+  ncsQuestionMode    String?                    @map("ncs_question_mode") @db.VarChar(50)
+  ncsProfileVersion  String?                    @map("ncs_profile_version") @db.VarChar(80)
+  alignmentStatus    String?                    @map("alignment_status") @db.VarChar(40)
+  alignmentScore     Decimal?                   @map("alignment_score") @db.Decimal(8, 6)
+  alignmentReason    String?                    @map("alignment_reason")
+  evaluatorVersion   String?                    @map("evaluator_version") @db.VarChar(80)
+  sourceProcessLogId BigInt?                    @map("source_process_log_id")
   company            Company                    @relation(fields: [companyId], references: [companyId])
   posting            Posting?                   @relation(fields: [postingId], references: [postingId])
   criterion          EvaluationCriterion?       @relation(fields: [criterionId], references: [criterionId])
-  sourceProcessLog   AiProcessLog?               @relation(fields: [sourceProcessLogId], references: [processLogId], onDelete: SetNull)
+  sourceProcessLog   AiProcessLog?              @relation(fields: [sourceProcessLogId], references: [processLogId], onDelete: SetNull)
   answers            InterviewAnswer[]
   questionSetItems   InterviewQuestionSetItem[]
   sessionQuestions   InterviewSessionQuestion[]
@@ -420,35 +422,89 @@ model InterviewQuestionGenerationPolicy {
   @@map("interview_question_generation_policies")
 }
 
+model ApplicationInterviewQuestionBatch {
+  batchId            BigInt                         @id @default(autoincrement()) @map("batch_id")
+  applicationId      BigInt                         @map("application_id")
+  latestProcessLogId BigInt                         @map("latest_process_log_id")
+  status             String                         @db.VarChar(40)
+  policyVersion      Int                            @map("policy_version")
+  criteriaVersion    Int                            @map("criteria_version")
+  inputVersion       String                         @map("input_version") @db.VarChar(128)
+  resumeDocumentHash String                         @map("resume_document_hash") @db.VarChar(128)
+  jdSnapshotHash     String                         @map("jd_snapshot_hash") @db.VarChar(128)
+  evaluatorVersion   String?                        @map("evaluator_version") @db.VarChar(80)
+  failureReason      String?                        @map("failure_reason")
+  attemptCount       Int                            @default(1) @map("attempt_count")
+  createdAt          DateTime                       @default(now()) @map("created_at")
+  updatedAt          DateTime                       @updatedAt @map("updated_at")
+  application        Application                    @relation(fields: [applicationId], references: [applicationId], onDelete: Cascade)
+  latestProcessLog   AiProcessLog                   @relation("LatestResumeQuestionProcess", fields: [latestProcessLogId], references: [processLogId], onDelete: Restrict)
+  questions          ApplicationInterviewQuestion[]
+
+  @@unique([applicationId, policyVersion, criteriaVersion, jdSnapshotHash, resumeDocumentHash], map: "uq_application_interview_question_batches_business")
+  @@index([applicationId, status], map: "idx_application_interview_question_batches_status")
+  @@index([latestProcessLogId], map: "idx_application_interview_question_batches_process")
+  @@map("application_interview_question_batches")
+}
+
+model ApplicationInterviewQuestion {
+  personalizedQuestionId BigInt                            @id @default(autoincrement()) @map("personalized_question_id")
+  batchId                BigInt                            @map("batch_id")
+  criterionId            BigInt?                           @map("criterion_id")
+  sourceProcessLogId     BigInt                            @map("source_process_log_id")
+  criterionTitleSnapshot String                            @map("criterion_title_snapshot") @db.VarChar(200)
+  source                 String                            @default("RESUME_PERSONALIZED") @db.VarChar(50)
+  questionType           QuestionType                      @map("question_type")
+  content                String
+  ncsProfileId           String                            @map("ncs_profile_id") @db.VarChar(50)
+  ncsQuestionMode        String                            @map("ncs_question_mode") @db.VarChar(50)
+  ncsProfileVersion      String                            @map("ncs_profile_version") @db.VarChar(80)
+  alignmentStatus        String                            @map("alignment_status") @db.VarChar(40)
+  alignmentScore         Decimal?                          @map("alignment_score") @db.Decimal(8, 6)
+  alignmentReason        String?                           @map("alignment_reason")
+  evaluatorVersion       String?                           @map("evaluator_version") @db.VarChar(80)
+  sortOrder              Int                               @map("sort_order")
+  createdAt              DateTime                          @default(now()) @map("created_at")
+  batch                  ApplicationInterviewQuestionBatch @relation(fields: [batchId], references: [batchId], onDelete: Cascade)
+  criterion              EvaluationCriterion?              @relation(fields: [criterionId], references: [criterionId], onDelete: SetNull)
+  sourceProcessLog       AiProcessLog                      @relation("ResumeQuestionSourceProcess", fields: [sourceProcessLogId], references: [processLogId], onDelete: Restrict)
+
+  @@unique([batchId, sortOrder], map: "uq_application_interview_questions_order")
+  @@index([criterionId], map: "idx_application_interview_questions_criterion")
+  @@index([sourceProcessLogId], map: "idx_application_interview_questions_process")
+  @@map("application_interview_questions")
+}
+
 model Application {
-  applicationId         BigInt                 @id @default(autoincrement()) @map("application_id")
-  postingId             BigInt                 @map("posting_id")
-  candidateId           BigInt                 @map("candidate_id")
-  applicantName         String?                @map("applicant_name") @db.VarChar(100)
-  applicantEmail        String?                @map("applicant_email") @db.VarChar(255)
-  applicantPhone        String?                @map("applicant_phone") @db.VarChar(50)
-  githubUrl             String?                @map("github_url") @db.VarChar(500)
-  blogUrl               String?                @map("blog_url") @db.VarChar(500)
-  portfolioUrl          String?                @map("portfolio_url") @db.VarChar(500)
-  motivation            String?
-  additionalInfo        String?                @map("additional_info")
-  applicationStatus     ApplicationStatus      @default(SUBMITTED) @map("application_status")
-  documentStatus        DocumentStatus         @default(NOT_SUBMITTED) @map("document_status")
-  interviewStatus       InterviewStatus        @default(NOT_READY) @map("interview_status")
-  reportStatus          ReportStatus           @default(PENDING) @map("report_status")
-  screeningDecision     ScreeningDecision?     @default(UNDECIDED) @map("screening_decision")
-  screeningMemo         String?                @map("screening_memo")
-  submittedAt           DateTime?              @map("submitted_at")
-  updatedAt             DateTime               @updatedAt @map("updated_at")
-  posting               Posting                @relation(fields: [postingId], references: [postingId])
-  candidate             CandidateProfile       @relation(fields: [candidateId], references: [candidateId])
-  documents             ApplicationDocument[]
-  consentRecords        ConsentRecord[]
-  interviewSessions     InterviewSession[]
-  evaluationReports     EvaluationReport[]
-  notifications         Notification[]
-  aiProcessLogs         AiProcessLog[]
-  clientPerformanceLogs ClientPerformanceLog[]
+  applicationId            BigInt                              @id @default(autoincrement()) @map("application_id")
+  postingId                BigInt                              @map("posting_id")
+  candidateId              BigInt                              @map("candidate_id")
+  applicantName            String?                             @map("applicant_name") @db.VarChar(100)
+  applicantEmail           String?                             @map("applicant_email") @db.VarChar(255)
+  applicantPhone           String?                             @map("applicant_phone") @db.VarChar(50)
+  githubUrl                String?                             @map("github_url") @db.VarChar(500)
+  blogUrl                  String?                             @map("blog_url") @db.VarChar(500)
+  portfolioUrl             String?                             @map("portfolio_url") @db.VarChar(500)
+  motivation               String?
+  additionalInfo           String?                             @map("additional_info")
+  applicationStatus        ApplicationStatus                   @default(SUBMITTED) @map("application_status")
+  documentStatus           DocumentStatus                      @default(NOT_SUBMITTED) @map("document_status")
+  interviewStatus          InterviewStatus                     @default(NOT_READY) @map("interview_status")
+  reportStatus             ReportStatus                        @default(PENDING) @map("report_status")
+  screeningDecision        ScreeningDecision?                  @default(UNDECIDED) @map("screening_decision")
+  screeningMemo            String?                             @map("screening_memo")
+  submittedAt              DateTime?                           @map("submitted_at")
+  updatedAt                DateTime                            @updatedAt @map("updated_at")
+  posting                  Posting                             @relation(fields: [postingId], references: [postingId])
+  candidate                CandidateProfile                    @relation(fields: [candidateId], references: [candidateId])
+  documents                ApplicationDocument[]
+  consentRecords           ConsentRecord[]
+  interviewSessions        InterviewSession[]
+  evaluationReports        EvaluationReport[]
+  notifications            Notification[]
+  aiProcessLogs            AiProcessLog[]
+  clientPerformanceLogs    ClientPerformanceLog[]
+  interviewQuestionBatches ApplicationInterviewQuestionBatch[]
 
   @@unique([postingId, candidateId])
   @@index([postingId, applicationStatus])
@@ -649,32 +705,34 @@ model Notification {
 }
 
 model AiProcessLog {
-  processLogId          BigInt                 @id @default(autoincrement()) @map("process_log_id")
-  applicationId         BigInt?                @map("application_id")
-  sessionId             BigInt?                @map("session_id")
-  processType           AiProcessType          @map("process_type")
-  status                AiProcessStatus        @default(PENDING)
-  inputRef              String?                @map("input_ref")
-  outputRef             String?                @map("output_ref")
-  failureCategory       String?                @map("failure_category") @db.VarChar(40)
-  failureReason         String?                @map("failure_reason")
-  startedAt             DateTime?              @map("started_at")
-  completedAt           DateTime?              @map("completed_at")
-  durationMs            Int?                   @map("duration_ms")
-  modelName             String?                @map("model_name") @db.VarChar(120)
-  inputTokens           Int?                   @map("input_tokens")
-  outputTokens          Int?                   @map("output_tokens")
-  audioSeconds          Int?                   @map("audio_seconds")
-  estimatedCostUsd      Decimal?               @map("estimated_cost_usd") @db.Decimal(12, 6)
-  costMetadataJson      String?                @map("cost_metadata_json")
-  createdAt             DateTime               @default(now()) @map("created_at")
-  application           Application?           @relation(fields: [applicationId], references: [applicationId])
-  session               InterviewSession?      @relation(fields: [sessionId], references: [sessionId])
-  guardrailLogs         AiGuardrailLog[]
-  timingEvents          AiProcessTimingEvent[]
-  clientPerformanceLogs ClientPerformanceLog[]
-  createdQuestionSets   InterviewQuestionSet[]
-  generatedQuestions    Question[]
+  processLogId                BigInt                              @id @default(autoincrement()) @map("process_log_id")
+  applicationId               BigInt?                             @map("application_id")
+  sessionId                   BigInt?                             @map("session_id")
+  processType                 AiProcessType                       @map("process_type")
+  status                      AiProcessStatus                     @default(PENDING)
+  inputRef                    String?                             @map("input_ref")
+  outputRef                   String?                             @map("output_ref")
+  failureCategory             String?                             @map("failure_category") @db.VarChar(40)
+  failureReason               String?                             @map("failure_reason")
+  startedAt                   DateTime?                           @map("started_at")
+  completedAt                 DateTime?                           @map("completed_at")
+  durationMs                  Int?                                @map("duration_ms")
+  modelName                   String?                             @map("model_name") @db.VarChar(120)
+  inputTokens                 Int?                                @map("input_tokens")
+  outputTokens                Int?                                @map("output_tokens")
+  audioSeconds                Int?                                @map("audio_seconds")
+  estimatedCostUsd            Decimal?                            @map("estimated_cost_usd") @db.Decimal(12, 6)
+  costMetadataJson            String?                             @map("cost_metadata_json")
+  createdAt                   DateTime                            @default(now()) @map("created_at")
+  application                 Application?                        @relation(fields: [applicationId], references: [applicationId])
+  session                     InterviewSession?                   @relation(fields: [sessionId], references: [sessionId])
+  guardrailLogs               AiGuardrailLog[]
+  timingEvents                AiProcessTimingEvent[]
+  clientPerformanceLogs       ClientPerformanceLog[]
+  createdQuestionSets         InterviewQuestionSet[]
+  generatedQuestions          Question[]
+  latestResumeQuestionBatches ApplicationInterviewQuestionBatch[] @relation("LatestResumeQuestionProcess")
+  personalizedQuestions       ApplicationInterviewQuestion[]      @relation("ResumeQuestionSourceProcess")
 
   @@map("ai_process_logs")
 }
