@@ -468,6 +468,9 @@ const applicantInclude = {
     orderBy: { reportId: "desc" as const },
     take: 1,
     include: {
+      ncsAnswerEvaluations: {
+        orderBy: [{ answerId: "asc" as const }, { ncsEvaluationId: "asc" as const }],
+      },
       scores: {
         include: {
           criterion: {
@@ -725,6 +728,28 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
           evidenceId: Number(evidence.evidenceId),
           evidenceText: evidence.evidenceText,
         })),
+      })),
+      ncsAnswerEvaluations: report.ncsAnswerEvaluations.map((evaluation) => ({
+        ncsEvaluationId: Number(evaluation.ncsEvaluationId),
+        answerId: Number(evaluation.answerId),
+        sessionQuestionId: Number(evaluation.sessionQuestionId),
+        criterionId: evaluation.criterionId === null ? null : Number(evaluation.criterionId),
+        criterionTitleSnapshot: evaluation.criterionTitleSnapshot,
+        ncsProfileId: evaluation.ncsProfileId,
+        ncsQuestionMode: evaluation.ncsQuestionMode,
+        ncsProfileVersion: evaluation.ncsProfileVersion,
+        scoreStatus: evaluation.scoreStatus,
+        competencyScore: evaluation.competencyScore,
+        evidenceScore: evaluation.evidenceScore,
+        totalScore: evaluation.totalScore,
+        coverage: Number(evaluation.coverage),
+        confidence: evaluation.confidence,
+        rubricVersion: evaluation.rubricVersion,
+        promptVersion: evaluation.promptVersion,
+        providerMode: evaluation.providerMode,
+        modelName: evaluation.modelName,
+        result: evaluation.resultJson,
+        updatedAt: evaluation.updatedAt,
       })),
     })),
     interviewSessions: application.interviewSessions.map((session) => {

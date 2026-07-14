@@ -1372,6 +1372,30 @@ describe("CompanyRecruitingService", () => {
                   evidences: [{ evidenceId: 1, evidenceText: "NestJS 기반 API 구축 경험" }],
                 },
               ],
+              ncsAnswerEvaluations: [
+                {
+                  ncsEvaluationId: 7001,
+                  answerId: 801,
+                  sessionQuestionId: 901,
+                  criterionId: 10,
+                  criterionTitleSnapshot: "문제해결능력",
+                  ncsProfileId: "PROBLEM_SOLVING",
+                  ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+                  ncsProfileVersion: "2025.12-v1",
+                  scoreStatus: "INSUFFICIENT_INPUT",
+                  competencyScore: null,
+                  evidenceScore: null,
+                  totalScore: null,
+                  coverage: 0.3,
+                  confidence: "LOW",
+                  rubricVersion: "ncs-evidence-growth-v1",
+                  promptVersion: "ncs-text-evaluation-v1",
+                  providerMode: "mock",
+                  modelName: null,
+                  result: { guardrail: { result: "REGENERATED" } },
+                  updatedAt: new Date("2026-06-30T08:00:01.000Z"),
+                },
+              ],
             },
           ],
         });
@@ -1384,6 +1408,13 @@ describe("CompanyRecruitingService", () => {
     assert.equal(result.reportAvailability, "AVAILABLE");
     assert.equal(result.report?.totalScore, 82);
     assert.equal(result.report?.scores[0]?.evidences[0]?.evidenceText, "NestJS 기반 API 구축 경험");
+    assert.equal(result.report?.ncsAnswerEvaluations[0]?.scoreStatus, "INSUFFICIENT_INPUT");
+    assert.deepEqual(result.report?.ncsAnswerEvaluations[0]?.scores, {
+      competency: null,
+      evidence: null,
+      total: null,
+    });
+    assert.equal(result.report?.ncsAnswerEvaluations[0]?.updatedAt, "2026-06-30T08:00:01.000Z");
   });
 
   it("keeps recruiting telemetry as an unverified reference without changing scores", async () => {

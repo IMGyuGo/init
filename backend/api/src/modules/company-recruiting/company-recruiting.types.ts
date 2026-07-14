@@ -122,6 +122,28 @@ export type ApplicantRecord = {
         evidenceText: string;
       }>;
     }>;
+    ncsAnswerEvaluations?: Array<{
+      ncsEvaluationId: number;
+      answerId: number;
+      sessionQuestionId: number;
+      criterionId: number | null;
+      criterionTitleSnapshot: string;
+      ncsProfileId: string;
+      ncsQuestionMode: string;
+      ncsProfileVersion: string;
+      scoreStatus: string;
+      competencyScore: number | null;
+      evidenceScore: number | null;
+      totalScore: number | null;
+      coverage: number;
+      confidence: string;
+      rubricVersion: string;
+      promptVersion: string;
+      providerMode: string;
+      modelName: string | null;
+      result: unknown;
+      updatedAt: Date;
+    }>;
   }>;
   interviewSessions: Array<{
     sessionId: number;
