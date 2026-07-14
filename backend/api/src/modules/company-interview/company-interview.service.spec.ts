@@ -5,6 +5,7 @@ import { CompanyInterviewService } from './company-interview.service';
 import type { ResumeQuestionApplicationRecord } from './company-interview.types';
 import { InMemoryCompanyInterviewRepository } from './repositories/in-memory-company-interview.repository';
 import { InMemoryAiJobQueuePublisher } from '../report/service/ai-job-queue.publisher';
+import { CandidateDomainError, type CandidateService } from '../candidate';
 
 const companyUser: CurrentUser = {
   userId: 1,
@@ -87,6 +88,55 @@ async function assertConflict(action: () => Promise<unknown>) {
 }
 
 describe('CompanyInterviewService', () => {
+  it('creates a company interview session through the shared snapshot gate', async () => {
+    const repository = new InMemoryCompanyInterviewRepository();
+    repository.setResumeQuestionGeneration(resumeQuestionFixture());
+    const candidateService = {
+      prepareRecruitingInterviewSessionSnapshot: async () => ({
+        readiness: 'READY' as const,
+        applicationId: 101,
+        postingId: 1,
+        sessionId: 501,
+        snapshotCreated: true,
+        commonQuestionCount: 3,
+        personalizedQuestionCount: 1,
+        totalQuestionCount: 4,
+        expectedCommonQuestionCount: 3,
+        expectedPersonalizedQuestionCount: 1,
+        policyVersion: 3,
+        criteriaVersion: 2,
+      }),
+    } as unknown as CandidateService;
+    const service = new CompanyInterviewService(repository, undefined, candidateService);
+
+    const result = await service.createInterviewSession(companyUser, { applicationId: 101 });
+
+    assert.equal(result.sessionId, 501);
+    assert.equal(result.snapshotCreated, true);
+    assert.equal(result.totalQuestionCount, 4);
+  });
+
+  it('maps a missing personalized batch to the API-017 readiness error', async () => {
+    const repository = new InMemoryCompanyInterviewRepository();
+    repository.setResumeQuestionGeneration(resumeQuestionFixture());
+    const candidateService = {
+      prepareRecruitingInterviewSessionSnapshot: async () => {
+        throw new CandidateDomainError(
+          'INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY',
+          'not ready',
+          409,
+        );
+      },
+    } as unknown as CandidateService;
+    const service = new CompanyInterviewService(repository, undefined, candidateService);
+
+    await assert.rejects(
+      () => service.createInterviewSession(companyUser, { applicationId: 101 }),
+      (error) => error instanceof ApiException &&
+        (error.getResponse() as { code?: string }).code === 'INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY',
+    );
+  });
+
   it('returns only ready personalized questions without resume snapshot metadata', async () => {
     const repository = new InMemoryCompanyInterviewRepository();
     repository.setResumeQuestionGeneration(resumeQuestionFixture());

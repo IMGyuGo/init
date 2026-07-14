@@ -7,12 +7,14 @@ import { COMPANY_INTERVIEW_REPOSITORY } from './repositories/company-interview.r
 import { PrismaCompanyInterviewRepository } from './repositories/prisma-company-interview.repository';
 import { InMemoryCompanyInterviewRepository } from './repositories/in-memory-company-interview.repository';
 import { AiJobDispatchModule } from '../report/ai-job-dispatch.module';
+import { CandidateModule } from '../candidate/candidate.module';
+import { CompanyInterviewSessionController } from './company-interview-session.controller';
 
 const usePrismaRepository = process.env.NODE_ENV !== 'test';
 
 @Module({
-  imports: [AuthModule, AiJobDispatchModule],
-  controllers: [CompanyInterviewController],
+  imports: [AuthModule, AiJobDispatchModule, CandidateModule],
+  controllers: [CompanyInterviewController, CompanyInterviewSessionController],
   providers: [
     CompanyInterviewService,
     PrismaService,

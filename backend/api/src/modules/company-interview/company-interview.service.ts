@@ -65,6 +65,11 @@ import {
   AI_JOB_QUEUE_PUBLISHER,
   AiJobQueuePublisher,
 } from '../report/service/ai-job-queue.publisher';
+import { CandidateDomainError, CandidateService } from '../candidate';
+import {
+  CompanyInterviewSessionResponseDto,
+  CreateCompanyInterviewSessionDto,
+} from './dto/company-interview-session.dto';
 
 type CommonQuestionGenerationRequest = {
   postingId: number;
@@ -88,7 +93,45 @@ export class CompanyInterviewService {
     @Optional()
     @Inject(AI_JOB_QUEUE_PUBLISHER)
     private readonly queuePublisher?: AiJobQueuePublisher,
+    @Optional()
+    private readonly candidateService?: CandidateService,
   ) {}
+
+  async createInterviewSession(
+    currentUser: CurrentUser,
+    dto: CreateCompanyInterviewSessionDto,
+  ): Promise<CompanyInterviewSessionResponseDto> {
+    await this.getOwnedResumeQuestionState(currentUser, dto.applicationId);
+    if (!this.candidateService) {
+      conflict('면접 세션 준비 서비스를 사용할 수 없습니다.');
+    }
+    try {
+      const result = await this.candidateService.prepareRecruitingInterviewSessionSnapshot(dto.applicationId);
+      if (result.sessionId === null) {
+        conflict('면접 세션을 생성하지 못했습니다.');
+      }
+      return {
+        applicationId: result.applicationId,
+        sessionId: result.sessionId,
+        snapshotCreated: result.snapshotCreated,
+        commonQuestionCount: result.commonQuestionCount,
+        personalizedQuestionCount: result.personalizedQuestionCount,
+        totalQuestionCount: result.totalQuestionCount,
+        policyVersion: result.policyVersion,
+        criteriaVersion: result.criteriaVersion,
+      };
+    } catch (error) {
+      if (error instanceof CandidateDomainError) {
+        if (error.code === 'INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY') {
+          personalizedQuestionsNotReady();
+        }
+        if (error.code === 'INTERVIEW_QUESTION_COUNT_INVALID') {
+          questionCountInvalid('확정된 공통 질문 수가 질문 생성 정책과 다릅니다.');
+        }
+      }
+      throw error;
+    }
+  }
 
   async getResumeQuestions(currentUser: CurrentUser, applicationId: number) {
     const state = await this.getOwnedResumeQuestionState(currentUser, applicationId);
