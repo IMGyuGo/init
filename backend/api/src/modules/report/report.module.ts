@@ -33,6 +33,7 @@ const candidateReportRepositoryProvider = usePrismaRepository
   controllers: [ReportsController, ReportController],
   providers: [
     DevAuthAdapter,
+    PrismaService,
     AiReportPipelineService,
     GuardrailService,
     candidateReportRepositoryProvider,
