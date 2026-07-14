@@ -33,6 +33,8 @@
 - backend 리포트 API는 `backend/api/src/modules/report` 아래로 정렬한다.
 - AI 가드레일/status API는 `backend/api/src/modules/ai` 아래로 정렬한다.
 - worker 구현은 `backend/worker/src` 아래에서 API module 이름과 같은 domain 이름을 사용한다.
+- API-045/API-051/API-071은 서버가 구성한 `CandidateProfileAiContextV1`을 입력으로 받을 수 있으며 `ai_process_logs.input_ref`에는 원문 대신 버전·개수·길이·해시·수정시각만 저장한다.
+- 질문 출력은 차별 위험 속성을 추론·평가하지 않고 이메일·전화번호·URL을 포함하지 않도록 가드레일을 적용한다.
 - frontend 리포트/AI 상태 component는 `frontend/src/features/ai-report` 아래로 정렬한다.
 - `evaluation_reports`는 `EvaluationReport`, `report_scores`는 `ReportScore`, `report_evidences`는 `ReportEvidence`, `ai_process_logs`는 `AiProcessLog`, `ai_guardrail_logs`는 `AiGuardrailLog` 이름을 사용한다.
 - `AIProcessLog`, `AIGuardrailLog` 같은 all-caps acronym class 이름을 새로 만들지 않는다.

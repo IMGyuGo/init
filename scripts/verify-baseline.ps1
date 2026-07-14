@@ -156,7 +156,8 @@ $schemaPath = Join-Path $root "backend/api/prisma/schema.prisma"
 if (Test-Path -LiteralPath $schemaPath) {
   $schema = Get-Content -Encoding UTF8 -LiteralPath $schemaPath -Raw
   foreach ($model in @(
-    "User", "Company", "CandidateProfile", "FileAsset", "Posting",
+    "User", "Company", "CandidateProfile", "CandidateEducation", "CandidateCareer",
+    "CandidateActivity", "CandidateCredential", "FileAsset", "Posting",
     "CriterionTag", "EvaluationCriterion", "Question", "Application",
     "ApplicationDocument", "ConsentRecord", "InterviewSession", "InterviewAnswer",
     "FollowUpQuestion", "EvaluationReport", "ReportScore", "ReportEvidence",
@@ -173,7 +174,9 @@ if (Test-Path -LiteralPath $schemaPath) {
     "ApplicationStatus", "DocumentStatus", "InterviewStatus", "ReportStatus",
     "ScreeningDecision", "InterviewType", "ReportType", "DocumentType",
     "ConsentType", "QuestionType", "NotificationChannel", "AiProcessType",
-    "AiProcessStatus", "GuardrailResult", "EmbeddingSourceType"
+    "AiProcessStatus", "GuardrailResult", "EmbeddingSourceType",
+    "CandidateEducationLevel", "CandidateDegreeType", "CandidateEducationStatus",
+    "CandidateActivityType", "CandidateCredentialType"
   )) {
     if ($schema -notmatch "(?m)^enum\s+$enum\s*\{") {
       Write-Host "[fail] schema.prisma missing baseline enum $enum"

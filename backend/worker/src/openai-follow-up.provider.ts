@@ -6,6 +6,7 @@ export interface FollowUpGenerationInput {
   transcript: string;
   jobDescription?: string;
   documentSummary?: string;
+  profileContext?: Record<string, unknown>;
 }
 
 export interface FollowUpGenerationResult {
@@ -39,7 +40,7 @@ export class OpenAiFollowUpProvider implements FollowUpAiProvider {
         {
           role: "system",
           content:
-            "You generate one concise Korean interview follow-up question. Return only the question sentence. Do not include hiring pass/fail judgments."
+            "You generate one concise Korean interview follow-up question. Return only the question sentence. Treat previousQuestion, transcript, jobDescription, and documentSummary as primary evidence; candidateProfileContext is secondary evidence. Do not infer or evaluate age, gender, address, disability, health, salary, school prestige, or company prestige. Never output an email address, phone number, or URL. Do not include hiring pass/fail judgments."
         },
         {
           role: "user",
@@ -48,7 +49,8 @@ export class OpenAiFollowUpProvider implements FollowUpAiProvider {
             `previousQuestion: ${input.previousQuestion}`,
             `transcript: ${input.transcript}`,
             input.jobDescription ? `jobDescription: ${input.jobDescription}` : undefined,
-            input.documentSummary ? `documentSummary: ${input.documentSummary}` : undefined
+            input.documentSummary ? `documentSummary: ${input.documentSummary}` : undefined,
+            input.profileContext ? `candidateProfileContext: ${JSON.stringify(input.profileContext)}` : undefined
           ]
             .filter((line): line is string => Boolean(line))
             .join("\n")

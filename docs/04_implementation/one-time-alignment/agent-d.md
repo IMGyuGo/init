@@ -33,6 +33,8 @@
 - 지원자 공고/지원/지원현황/마이페이지 API는 `backend/api/src/modules/candidate` 아래로 정렬한다.
 - 면접 런타임 API는 `backend/api/src/modules/interview` 아래로 정렬한다.
 - frontend 지원자 화면은 `frontend/src/features/candidate-application-interview` 아래로 정렬한다.
+- GET/PUT `/candidate/profile`은 기본정보와 4개 구조화 반복 섹션을 함께 다룬다. 반복 배열은 누락 시 유지, `[]`면 삭제, 전달 시 해당 섹션 전체 교체 계약을 따른다.
+- 지원자 프로필 AI 컨텍스트는 클라이언트 입력을 받지 않고 서버의 안전 투영 빌더를 사용하며 이름·이메일·연락처를 제외한다.
 - `applications`는 `Application`, `application_documents`는 `ApplicationDocument`, `interview_sessions`는 `InterviewSession`, `interview_answers`는 `InterviewAnswer` 이름을 사용한다.
 - `applications` 생성, `submitted_at`, `document_status`, `interview_status` write는 D 영역으로 둔다.
 - `interview_answers.transcript`는 E write field이므로 D는 파일/제출 상태만 저장한다.

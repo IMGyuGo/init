@@ -17,6 +17,13 @@ interface WorkerInput {
 }
 
 const MOCK_HIRING_DECISION_TERMS = ["합격", "탈락", "채용 적합", "채용 부적합", "선별", "hiring decision", "pass/fail"];
+const FOLLOW_UP_UNSAFE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
+  { pattern: /https?:\/\/|www\./i, reason: "URL" },
+  { pattern: /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i, reason: "contact information" },
+  { pattern: /(?:\+?82[-\s]?)?0\d{1,2}[-\s]?\d{3,4}[-\s]?\d{4}/, reason: "contact information" },
+  { pattern: /(?:나이|연령|생년월일|성별|남성|여성|주소|거주지|장애|건강|연봉|급여)/i, reason: "discriminatory personal attribute" },
+  { pattern: /(?:명문대|상위권\s*대학|학벌|회사\s*명성|대기업\s*출신)/i, reason: "school or company prestige" },
+];
 const POSTING_DRAFT_UNSAFE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /젊(?:은|고|음|게|은층|은\s*인재)/i, reason: "age preference" },
   { pattern: /\b(?:20대|30대)\b/i, reason: "age preference" },
@@ -120,6 +127,7 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     const policy = kind.startsWith("MOCK") ? "MOCK" : "RECRUITING";
     const jobDescription = typeof payload.jobDescription === "string" ? payload.jobDescription : undefined;
     const documentSummary = typeof payload.documentSummary === "string" ? payload.documentSummary : undefined;
+    const profileContext = profileContextOf(payload.profileContext);
     if (policy === "RECRUITING" && !hasText(jobDescription) && !hasText(documentSummary)) {
       throw new NonRetryableAiWorkerFailure("jobDescription or documentSummary is required");
     }
@@ -129,7 +137,8 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       previousQuestion,
       transcript,
       jobDescription,
-      documentSummary
+      documentSummary,
+      profileContext,
     });
     const guardrail = this.validateMockPolicy(policy, generated.content);
 
@@ -260,6 +269,14 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
   }
 
   private validateMockPolicy(policy: "MOCK" | "RECRUITING", text: string) {
+    const unsafe = FOLLOW_UP_UNSAFE_PATTERNS.find(({ pattern }) => pattern.test(text));
+    if (unsafe) {
+      return {
+        result: "BLOCKED" as const,
+        reason: `follow-up output cannot include ${unsafe.reason}`,
+        failureCategory: "NON_RETRYABLE" as const,
+      };
+    }
     if (policy !== "MOCK") {
       return { result: "PASS" as const, reason: null };
     }
@@ -273,6 +290,18 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
         }
       : { result: "PASS" as const, reason: null };
   }
+}
+
+function profileContextOf(value: unknown): Record<string, unknown> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new NonRetryableAiWorkerFailure("profileContext must be an object");
+  }
+  const context = value as Record<string, unknown>;
+  if (context.schemaVersion !== 1) {
+    throw new NonRetryableAiWorkerFailure("profileContext schemaVersion must be 1");
+  }
+  return context;
 }
 
 function stripNonverbalMetadata(value: unknown): unknown {

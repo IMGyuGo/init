@@ -7,6 +7,7 @@
     "npm": ">=10"
   },
   "scripts": {
+    "pretest": "npm run test:candidate-profile",
     "dev": "next dev",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . --max-warnings=0",
@@ -18,6 +19,7 @@
     "test:ai-job-polling": "tsc -p src/features/company-interview-criteria/tsconfig.spec.json && node .next/tests/company-interview-criteria/ai-job-polling.spec.js",
     "test:ai-performance": "tsc -p src/features/ai-performance/tsconfig.spec.json && node .next/tests/ai-performance/client-next-step.spec.js",
     "test:apply-set-override": "tsc -p src/features/candidate-application-interview/tsconfig.apply-set-spec.json && node .next/tests/candidate-apply-set/features/candidate-application-interview/apply-set-override.spec.js",
+    "test:candidate-profile": "tsc -p src/features/candidate-application-interview/tsconfig.candidate-profile-spec.json && node .next/tests/candidate-profile/features/candidate-application-interview/candidate-profile-form.spec.js",
     "build": "next build"
   },
   "dependencies": {

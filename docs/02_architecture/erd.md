@@ -49,6 +49,10 @@ ERDCloud SQL을 사람이 읽는 테이블/관계 문서로 변환한다.
 | companies | company_id | 12 | 기업 프로필과 평가 정책 | logo_file_id -> file_assets.file_id |
 | file_assets | file_id | 8 | 업로드 파일 메타데이터 | owner_user_id -> users.user_id |
 | candidate_profiles | candidate_id | 8 | 지원자 프로필과 기본 이력서 | user_id -> users.user_id / default_resume_file_id -> file_assets.file_id |
+| candidate_educations | education_id | 11 | 지원자 학력 | candidate_id -> candidate_profiles.candidate_id |
+| candidate_careers | career_id | 13 | 지원자 경력 | candidate_id -> candidate_profiles.candidate_id |
+| candidate_activities | activity_id | 11 | 지원자 프로젝트·경험·활동·교육 | candidate_id -> candidate_profiles.candidate_id |
+| candidate_credentials | credential_id | 10 | 지원자 자격·어학·수상 | candidate_id -> candidate_profiles.candidate_id |
 | postings | posting_id | 10 | 채용 공고/JD | company_id -> companies.company_id |
 | criterion_tags | tag_id | 7 | 평가 태그 후보 |  |
 | evaluation_criteria | criterion_id | 7 | 공고별 평가 기준, 상세 설명 스냅샷과 가중치 | posting_id -> postings.posting_id / tag_id -> criterion_tags.tag_id |
@@ -80,6 +84,10 @@ ERDCloud SQL을 사람이 읽는 테이블/관계 문서로 변환한다.
 | file_assets | owner_user_id | users.user_id | fk_file_assets_owner_user |
 | candidate_profiles | user_id | users.user_id | fk_candidate_profiles_user |
 | candidate_profiles | default_resume_file_id | file_assets.file_id | fk_candidate_profiles_default_resume |
+| candidate_educations | candidate_id | candidate_profiles.candidate_id | fk_candidate_educations_candidate |
+| candidate_careers | candidate_id | candidate_profiles.candidate_id | fk_candidate_careers_candidate |
+| candidate_activities | candidate_id | candidate_profiles.candidate_id | fk_candidate_activities_candidate |
+| candidate_credentials | candidate_id | candidate_profiles.candidate_id | fk_candidate_credentials_candidate |
 | postings | company_id | companies.company_id | fk_postings_company |
 | evaluation_criteria | posting_id | postings.posting_id | fk_evaluation_criteria_posting |
 | evaluation_criteria | tag_id | criterion_tags.tag_id | fk_evaluation_criteria_tag |

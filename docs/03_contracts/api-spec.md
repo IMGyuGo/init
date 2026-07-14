@@ -2370,13 +2370,15 @@ CandidateFolder 입력 제한:
 - 비동기: Y
 - 요청 데이터:
   - `{ questionCount, folderId? }`
+  - 클라이언트가 `profileContext`를 직접 전달하는 것은 허용하지 않는다.
 - 검증/전제조건:
   - `questionCount`는 양의 정수
   - `folderId`가 있으면 현재 지원자 소유 `candidate_folders.id`여야 한다.
 - 성공 응답/처리:
   - 모의면접 질문 목록 생성 작업 큐잉
+  - 서버가 현재 로그인 지원자의 `CandidateProfileAiContextV1`을 구성해 항상 worker 입력에 추가한다. 이름, 이메일, 연락처와 DB 내부 ID는 포함하지 않는다.
   - `folderId`가 있으면 폴더의 이력서 파일 메타데이터, 추출 텍스트(`application_documents.extracted_text`가 존재하는 경우), GitHub/블로그/포트폴리오 URL, 지원동기, 추가설명을 worker 입력 컨텍스트로 전달한다.
-  - 원문 컨텍스트는 SQS 작업 메시지에서만 처리하고 `ai_process_logs.input_ref`에는 `folderId`, 파일 ID, 필드 존재 여부와 길이만 저장한다.
+  - 원문 컨텍스트는 SQS 작업 메시지에서만 처리하고 `ai_process_logs.input_ref`에는 `folderId`, 파일 ID, 프로필 스키마 버전, 항목 개수, 문자 수, 컨텍스트 해시, 프로필 수정 시각만 저장한다.
   - 생성 질문 후보와 AI 작업 결과에는 이력서 추출 텍스트, URL, 지원동기, 추가 설명 원문을 그대로 반복 저장하지 않는다.
   - SQS 메시지는 처리 완료 후 삭제하며 DLQ 보존 기간은 운영 인프라 정책을 따른다.
 - 오류/예외:
@@ -2529,6 +2531,7 @@ CandidateFolder 입력 제한:
   - 답변 텍스트가 충분해야 함
 - 성공 응답/처리:
   - 꼬리질문 표시
+  - 서버가 최신 `CandidateProfileAiContextV1`을 worker 입력에 추가한다. 답변 스크립트와 이전 질문을 주 근거로, 프로필은 보조 근거로 사용한다.
 - 오류/예외:
   - 답변이 너무 짧거나 부적절하면 기본 꼬리질문을 제시한다.
 - 관련 ERD 테이블:
@@ -2693,9 +2696,14 @@ CandidateFolder 입력 제한:
 - 상태 코드: 200 OK
 - 응답 데이터: `application/json`
   - `name`, `email`(읽기전용), `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `summary`
+  - `educations[]`: `{ educationLevel, schoolName, major, degreeType, status, startMonth, endMonth }`
+  - `careers[]`: `{ companyName, startMonth, endMonth, isCurrent, jobRole, department, position, responsibilities }`
+  - `activities[]`: `{ activityType, organizationName, startDate, endDate, isOngoing, description }`
+  - `credentials[]`: `{ credentialType, name, issuer, acquiredMonth, result }`
+  - 반복 항목의 내부 ID와 `sortOrder`는 노출하지 않으며 응답 배열 순서가 표시 순서다. 값이 없으면 항상 빈 배열을 반환한다.
   - 이름/이메일/연락처는 `users`, GitHub/블로그/포트폴리오/한줄소개는 `candidate_profiles` 에서 조회한다.
 - 비고: 지원 화면 기본정보 자동 입력의 정본(source of truth). (#272)
-- 관련 ERD 테이블: users, candidate_profiles
+- 관련 ERD 테이블: users, candidate_profiles, candidate_educations, candidate_careers, candidate_activities, candidate_credentials
 
 ### API-057G PUT /candidate/profile
 - 도메인: 지원자 - 프로필(내 정보)
@@ -2705,13 +2713,23 @@ CandidateFolder 입력 제한:
 - 상태 코드: 200 OK
 - 요청 데이터: `application/json` (모두 optional, 부분 수정)
   - `name`, `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `summary`
+  - `educations[]`, `careers[]`, `activities[]`, `credentials[]`
   - 이메일은 로그인 정보라 수정 대상에서 제외한다.
 - 검증/전제조건:
-  - 빈 문자열/공백만 입력하면 `null` 로 저장한다. 이름은 공백만이면 무시한다.
+  - 기존 scalar 필드는 부분 수정한다. 이름의 `null` 또는 공백 입력은 400이며, 선택 scalar의 빈 문자열/공백은 `null`로 저장한다.
+  - 반복 배열을 누락하면 기존 값을 유지하고, `[]`는 해당 섹션 전체 삭제, 값이 있으면 해당 섹션을 요청 순서대로 원자적 전체 교체한다. 배열의 `null`은 허용하지 않는다.
+  - 각 반복 섹션은 최대 10개다. 연월은 `YYYY-MM`, 활동 일자는 `YYYY-MM-DD` 형식이다.
+  - 학력은 재학/휴학이면 `endMonth=null`, 그 외 상태는 `endMonth`가 필수다. 학력구분과 학위구분은 호환되어야 한다.
+  - 경력의 `isCurrent=true`, 활동의 `isOngoing=true`이면 종료일은 `null`이어야 하며, false이면 종료일이 필수다. 모든 기간은 시작일이 종료일보다 늦을 수 없다.
+  - 기관·학교·회사·자격 명칭은 최대 150자, 직무·부서·직급은 최대 100자, 담당업무·활동내용은 최대 1,000자, 결과는 최대 200자다. URL은 최대 500자, summary는 최대 2,000자다.
 - 성공 응답/처리:
-  - `users`(name/phone)와 `candidate_profiles`(github/blog/portfolio/summary)를 갱신하고 갱신된 프로필을 반환한다.
+  - `users`(name/phone), `candidate_profiles`(github/blog/portfolio/summary), 전달된 반복 섹션을 하나의 트랜잭션에서 갱신하고 갱신된 프로필을 반환한다.
 - 비고: 저장 값은 이후 지원 화면 자동 입력에 재사용된다. (#272)
-- 관련 ERD 테이블: users, candidate_profiles
+- AI 사용 정책:
+  - 프로필 사진, 성별, 생년월일/나이, 주소, 장애 정보, 고용지원금 대상, 연봉, 민감정보 동의 상세는 수집하지 않는다.
+  - 이름, 이메일, 연락처는 화면 표시와 지원서 자동입력에만 사용하고 AI 컨텍스트에는 전달하지 않는다.
+  - 제외는 정형 필드 기준이다. 자유서술/URL 내부를 임의 마스킹해 의미를 훼손하지 않으므로 UI에서 민감정보를 입력하지 않도록 안내한다.
+- 관련 ERD 테이블: users, candidate_profiles, candidate_educations, candidate_careers, candidate_activities, candidate_credentials
 
 ### API-058 GET /candidate/jobs
 - 도메인: 지원자 - 채용공고/지원
@@ -3133,12 +3151,14 @@ CandidateFolder 입력 제한:
   - 답변 텍스트가 충분해야 함
 - 성공 응답/처리:
   - 꼬리질문 표시
+  - 서버가 최신 `CandidateProfileAiContextV1`을 worker 입력에 추가한다. 이전 질문, 답변 스크립트, JD/서류 요약을 주 근거로, 프로필은 보조 근거로 사용한다.
 - 오류/예외:
   - 답변이 너무 짧거나 부적절하면 기본 꼬리질문을 제시한다.
 - 관련 ERD 테이블:
   - candidate_profiles, postings, question_bank, applications, application_documents, interview_sessions, interview_answers, follow_up_questions, ai_process_logs
 - 비고/미결:
   - 채용 전형 정책에 따라 사용 여부 확정 필요
+  - 학교·회사 명성, 나이, 성별, 주소, 장애/건강, 연봉을 추론하거나 평가하는 질문은 금지한다. 이메일·전화번호·URL이 출력에 포함되면 가드레일 실패로 처리하고 저장하지 않는다.
 
 ### API-071-TMP POST /candidate/interviews/{sessionId}/follow-up-questions/insert
 - 프레임: 지원자 - 채용면접

@@ -63,6 +63,12 @@ sequenceDiagram
 | API-071 | POST | /candidate/interviews/{sessionId}/follow-up-question | 꼬리질문 생성 | candidate_profiles, postings, question_bank, applications, application_documents, interview_sessions, interview_answers, follow_up_questions, ai_process_logs |
 | API-071-TMP | POST | /candidate/interviews/{sessionId}/follow-up-questions/insert | 생성된 꼬리질문을 면접 질문 흐름에 추가 (MVP 임시 브릿지) | question_bank, interview_sessions, interview_answers, ai_process_logs |
 | API-076 | POST | /candidate/documents/extract | 서류 텍스트 추출 | candidate_profiles, file_assets, applications, application_documents, manual_evaluations, ai_process_logs |
+
+## CandidateProfileAiContextV1
+
+API-045, API-051, API-071은 클라이언트 입력이 아니라 인증된 `candidateId`로 서버가 최신 프로필 컨텍스트를 구성한다. 컨텍스트에는 summary, GitHub/블로그/포트폴리오 URL, 학력·경력·활동·자격 항목을 포함하고 이름·이메일·전화번호·DB ID는 제외한다. API-045의 폴더 컨텍스트와 프로필 컨텍스트는 함께 존재할 수 있다. 꼬리질문에서는 답변/JD/서류가 주 근거이고 프로필은 보조 근거다.
+
+원문 컨텍스트는 SQS 메시지에서만 사용한다. `ai_process_logs.input_ref`에는 schemaVersion, 섹션별 개수, 문자 수, SHA-256 해시, `profileUpdatedAt`만 남긴다. 질문 출력은 나이·성별·주소·장애/건강·연봉·학교/회사 명성을 추론하거나 평가해서는 안 되며, 이메일·전화번호·URL이 포함된 출력은 가드레일에서 차단하고 최종 저장하지 않는다.
 | API-079 | POST | /ai/guardrails/validate | AI 출력 안전성 검증 | evaluation_reports, report_scores, report_evidences, manual_evaluations, ai_process_logs, ai_guardrail_logs |
 | API-080 | GET | /ai/jobs/{processLogId}/status | AI 작업 상태 조회 | ai_process_logs, ai_guardrail_logs |
 

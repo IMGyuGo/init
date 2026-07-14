@@ -811,6 +811,10 @@ async function runControllerRuntimeAssertions() {
   assert.equal(mockStt.data.answerId, firstMockAnswer.data.answer.answerId);
   assert.equal(mockStt.data.fileId, firstMockAnswer.data.answer.videoFileId);
   assert.equal(mockStt.data.fileAssetId, firstMockAnswer.data.answer.videoFileId);
+  interviewRepository.saveAnswerTranscript(
+    firstMockAnswer.data.answer.answerId,
+    "NestJS와 PostgreSQL을 사용해 프로젝트를 구현했습니다.",
+  );
 
   const mockFollowUp = await controller.requestMockFollowUpQuestion(
     validCandidateRequest,

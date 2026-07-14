@@ -232,13 +232,14 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const policy = kind.startsWith("MOCK") ? "MOCK" : "RECRUITING";
     const jobDescription = typeof payload.jobDescription === "string" ? payload.jobDescription : undefined;
     const documentSummary = typeof payload.documentSummary === "string" ? payload.documentSummary : undefined;
+    const profileHint = candidateProfileHint(payload.profileContext);
     if (policy === "RECRUITING" && !hasText(jobDescription) && !hasText(documentSummary)) {
       throw new NonRetryableAiWorkerFailure("jobDescription or documentSummary is required");
     }
     const context =
       policy === "MOCK"
-        ? previousQuestion
-        : [previousQuestion, jobDescription, documentSummary]
+        ? [previousQuestion, profileHint].filter(hasText).map(shorten).join(" | ")
+        : [previousQuestion, jobDescription, documentSummary, profileHint]
             .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
             .map(shorten)
             .join(" | ");
@@ -918,6 +919,22 @@ export class MockAiTaskHandler implements AiTaskHandler {
   }
 }
 
+function candidateProfileHint(value: unknown): string | undefined {
+  const context = optionalObject(value);
+  if (!context || context.schemaVersion !== 1) return undefined;
+  const careers = Array.isArray(context.careers) ? context.careers : [];
+  const activities = Array.isArray(context.activities) ? context.activities : [];
+  const credentials = Array.isArray(context.credentials) ? context.credentials : [];
+  const career = optionalObject(careers[0]);
+  const activity = optionalObject(activities[0]);
+  const credential = optionalObject(credentials[0]);
+  const detail = optionalText(career?.responsibilities)
+    ?? optionalText(activity?.description)
+    ?? optionalText(credential?.name)
+    ?? optionalText(context.summary);
+  return detail ? `프로필 보조 근거: ${detail}` : undefined;
+}
+
 function parseInput(inputRef: string): WorkerInput {
   try {
     const parsed = JSON.parse(inputRef) as WorkerInput;
@@ -1576,7 +1593,7 @@ function buildFollowUpQuestion(input: {
   const lower = transcript.toLowerCase();
 
   if (input.policy === "MOCK") {
-    return buildPracticeFollowUp(input.previousQuestion, transcript);
+    return buildPracticeFollowUp(input.previousQuestion, transcript, input.context);
   }
 
   if (lower.includes("nestjs") || lower.includes("postgresql") || lower.includes("stt") || transcript.includes("꼬리질문")) {
@@ -1599,8 +1616,8 @@ function buildFollowUpQuestion(input: {
   return `방금 답변에서 ${topic}을 언급했는데, 그 경험에서 본인이 직접 맡은 역할과 가장 어려웠던 의사결정을 구체적으로 설명해 주세요.`;
 }
 
-function buildPracticeFollowUp(previousQuestion: string, transcript: string): string {
-  const topic = extractFollowUpTopic(transcript, previousQuestion);
+function buildPracticeFollowUp(previousQuestion: string, transcript: string, profileContext?: string): string {
+  const topic = extractFollowUpTopic(transcript, previousQuestion, profileContext);
   const questionContext = normalizeSpace(previousQuestion);
   const answerContext = normalizeSpace(transcript).toLowerCase();
 
