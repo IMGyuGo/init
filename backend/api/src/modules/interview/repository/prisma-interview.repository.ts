@@ -754,6 +754,9 @@ export class PrismaInterviewRepository implements InterviewRepository {
       interviewType: session.interviewType,
       status: session.status,
       showQuestionText: session.showQuestionText,
+      preparationTimeSecSnapshot: session.preparationTimeSecSnapshot ?? undefined,
+      answerTimeSecSnapshot: session.answerTimeSecSnapshot ?? undefined,
+      ncsScoringVersion: session.ncsScoringVersion ?? undefined,
       currentQuestionIndex,
       questionIds,
       startedAt,
@@ -1068,6 +1071,9 @@ type InterviewSessionRecord = {
   interviewType: PrismaInterviewType;
   status: PrismaInterviewStatus;
   showQuestionText: boolean;
+  preparationTimeSecSnapshot: number | null;
+  answerTimeSecSnapshot: number | null;
+  ncsScoringVersion: string | null;
   startedAt: Date | null;
   completedAt: Date | null;
   application?: { postingId: bigint } | null;

@@ -70,6 +70,82 @@ export interface NcsReportEvaluationBatch {
   };
 }
 
+export interface NcsFollowUpPlan {
+  required: boolean;
+  questionMode: NcsQuestionMode;
+  answerTimeSec: number;
+  baseScores: Array<{
+    ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
+    scoreStatus: NcsTextEvaluationOutput["scoreStatus"];
+    baseScore: number | null;
+  }>;
+  focusPoints: string[];
+  logicalStructureGap?: string;
+  alreadyConfirmedEvidence: string[];
+}
+
+export function planNcsFollowUp(payload: Record<string, unknown>): NcsFollowUpPlan | undefined {
+  if (!Array.isArray(payload.ncsBindings) || payload.ncsBindings.length === 0) return undefined;
+  const answerId = Number(payload.answerId);
+  const sessionQuestionId = Number(payload.sessionQuestionId);
+  const questionMode = isNcsQuestionMode(payload.ncsQuestionMode) ? payload.ncsQuestionMode : undefined;
+  const previousQuestion = typeof payload.previousQuestion === "string" ? payload.previousQuestion.trim() : "";
+  const transcript = typeof payload.transcript === "string" ? payload.transcript.trim() : "";
+  const answerTimeSec = Number(payload.answerTimeSec);
+  if (
+    !Number.isSafeInteger(answerId) || answerId <= 0 ||
+    !Number.isSafeInteger(sessionQuestionId) || sessionQuestionId <= 0 ||
+    !questionMode || !previousQuestion || !transcript ||
+    !Number.isInteger(answerTimeSec) || answerTimeSec <= 0
+  ) {
+    throw new NonRetryableAiWorkerFailure("NCS follow-up snapshot is incomplete");
+  }
+  const ncsBindings = payload.ncsBindings.map((value, index) => parseFollowUpBinding(value, index));
+  const snapshots = requiredSnapshots({
+    answerId,
+    sessionQuestionId,
+    question: previousQuestion,
+    transcript,
+    ncsQuestionMode: questionMode,
+    ncsBindings,
+  });
+  const input = parseNcsTextEvaluationInput({
+    questionMode,
+    question: previousQuestion,
+    answerText: transcript,
+    profileIds: snapshots.bindings.map((binding) => toEvaluatorProfileId(binding.ncsProfileId)),
+    profileVersion: snapshots.bindings[0]?.ncsProfileVersion,
+  });
+  const output = evaluateNcsTextDeterministically(input);
+  const baseScores = snapshots.bindings.map((binding) => {
+    const points = ncsFivePointBreakdown(output, toEvaluatorProfileId(binding.ncsProfileId));
+    return {
+      ncsProfileId: canonicalNcsProfileId(binding.ncsProfileId),
+      scoreStatus: output.scoreStatus,
+      baseScore: points?.baseScore ?? null,
+    };
+  });
+  const focusPoints = uniqueStrings([
+    ...output.competencies.flatMap((competency) =>
+      competency.behaviors.filter((behavior) => !behavior.observed).map((behavior) => behavior.label),
+    ),
+    ...output.growth.gaps,
+  ]);
+  const relevantDimensionIds = new Set(LOGIC_DIMENSIONS_BY_MODE[questionMode]);
+  const missingLogic = output.evidenceMaturity.dimensions
+    .filter((dimension) => relevantDimensionIds.has(dimension.dimensionId) && dimension.score === 0)
+    .map((dimension) => dimension.label);
+  return {
+    required: baseScores.some((score) => score.baseScore === null || score.baseScore < 5),
+    questionMode,
+    answerTimeSec,
+    baseScores,
+    focusPoints: uniqueStrings([...focusPoints, ...missingLogic]),
+    ...(missingLogic.length > 0 ? { logicalStructureGap: missingLogic.join(", ") } : {}),
+    alreadyConfirmedEvidence: exactEvidenceQuotes(output),
+  };
+}
+
 export function hasNcsAnswerSnapshots(answers: NcsReportAnswerSnapshot[]): boolean {
   return answers.some((answer) =>
     !answer.isFollowUpAnswer &&
@@ -91,7 +167,15 @@ export async function evaluateNcsReportAnswers(
     throw new NonRetryableAiWorkerFailure("at least one primary NCS answer requires a session question snapshot");
   }
 
-  const evaluated = await Promise.all(ncsAnswers.map((answer) => evaluateAnswer(reportId, answer, provider)));
+  const followUpsByParent = new Map<number, NcsReportAnswerSnapshot[]>();
+  for (const followUp of answers.filter((answer) => answer.isFollowUpAnswer && answer.parentAnswerId)) {
+    const items = followUpsByParent.get(followUp.parentAnswerId!) ?? [];
+    items.push(followUp);
+    followUpsByParent.set(followUp.parentAnswerId!, items);
+  }
+  const evaluated = await Promise.all(ncsAnswers.map((answer) =>
+    evaluateAnswer(reportId, answer, followUpsByParent.get(answer.answerId)?.[0], provider),
+  ));
   const evaluations = evaluated.flatMap((item) => item.evaluations);
   const scored = evaluations.filter((evaluation) => evaluation.output.scoreStatus === "SCORED");
   const scores = aggregateScores(scored);
@@ -115,6 +199,7 @@ export async function evaluateNcsReportAnswers(
 async function evaluateAnswer(
   reportId: number,
   answer: NcsReportAnswerSnapshot,
+  followUp: NcsReportAnswerSnapshot | undefined,
   provider?: NcsTextEvaluationProvider,
 ): Promise<{
   evaluations: NcsAnswerEvaluationRecord[];
@@ -125,7 +210,7 @@ async function evaluateAnswer(
   if (!question) {
     throw new NonRetryableAiWorkerFailure(`NCS question content is missing for answer ${answer.answerId}`);
   }
-  const input = parseNcsTextEvaluationInput({
+  const baseInput = parseNcsTextEvaluationInput({
     questionMode: snapshots.ncsQuestionMode,
     question,
     answerText: answer.transcript,
@@ -133,14 +218,78 @@ async function evaluateAnswer(
     profileVersion: snapshots.bindings[0]?.ncsProfileVersion,
   });
 
+  const baseResult = await runNcsEvaluation(baseInput, snapshots.bindings, provider);
+  const baseOutput = baseResult.output;
+  const basePoints = new Map(snapshots.bindings.map((binding) => [
+    canonicalNcsProfileId(binding.ncsProfileId),
+    ncsFivePointBreakdown(baseOutput, toEvaluatorProfileId(binding.ncsProfileId)),
+  ]));
+  const shouldReevaluate =
+    Boolean(followUp?.transcript.trim()) &&
+    baseOutput.scoreStatus === "SCORED" &&
+    [...basePoints.values()].some((points) => points !== null && points.baseScore < 5);
+  const combinedResult = shouldReevaluate && followUp
+    ? await runNcsEvaluation(parseNcsTextEvaluationInput({
+        questionMode: snapshots.ncsQuestionMode,
+        question,
+        answerText: `${answer.transcript}\n${followUp.transcript}`,
+        profileIds: snapshots.bindings.map((binding) => toEvaluatorProfileId(binding.ncsProfileId)),
+        profileVersion: snapshots.bindings[0]?.ncsProfileVersion,
+      }), snapshots.bindings, provider)
+    : undefined;
+  const output = combinedResult?.output.scoreStatus === "SCORED" ? combinedResult.output : baseOutput;
+  const usage = mergeEvaluationUsage(baseResult.usage, combinedResult?.usage);
+
+  return {
+    evaluations: snapshots.bindings.map((binding) => {
+      const profileId = canonicalNcsProfileId(binding.ncsProfileId);
+      const initialPoints = basePoints.get(profileId) ?? null;
+      const combinedPoints = combinedResult?.output.scoreStatus === "SCORED"
+        ? ncsFivePointBreakdown(combinedResult.output, toEvaluatorProfileId(binding.ncsProfileId))
+        : null;
+      const points = initialPoints && combinedPoints && combinedPoints.baseScore > initialPoints.baseScore
+        ? combinedPoints
+        : initialPoints;
+      const evidences = output.scoreStatus === "SCORED"
+        ? exactEvidenceQuotesForProfile(output, toEvaluatorProfileId(binding.ncsProfileId))
+            .flatMap((quote) => evidenceSourcesForQuote(quote, answer, combinedResult ? followUp : undefined))
+        : [];
+      return {
+      reportId,
+      answerId: answer.answerId,
+      sessionQuestionId: snapshots.sessionQuestionId,
+      criterionId: binding.criterionId,
+      criterionTitleSnapshot: binding.criterionTitleSnapshot,
+      ncsProfileId: profileId,
+      ncsQuestionMode: snapshots.ncsQuestionMode,
+      ncsProfileVersion: binding.ncsProfileVersion,
+      output,
+      question,
+      behaviorPoints: points?.behaviorPoints ?? null,
+      logicPoints: points?.logicPoints ?? null,
+      baseScore: initialPoints?.baseScore ?? null,
+      effectiveScore: points?.baseScore ?? null,
+      followUpApplied: Boolean(combinedResult),
+      evidences,
+    };}),
+    usage,
+  };
+}
+
+async function runNcsEvaluation(
+  input: ReturnType<typeof parseNcsTextEvaluationInput>,
+  bindings: NcsReportQuestionBindingSnapshot[],
+  provider?: NcsTextEvaluationProvider,
+): Promise<{
+  output: NcsTextEvaluationOutput;
+  usage?: { modelName: string; inputTokens?: number; outputTokens?: number };
+}> {
   let output: NcsTextEvaluationOutput;
   let usage: { modelName: string; inputTokens?: number; outputTokens?: number } | undefined;
-  if (snapshots.bindings.some((binding) => binding.alignmentStatus !== "ALIGNED")) {
+  if (bindings.some((binding) => binding.alignmentStatus !== "ALIGNED")) {
     output = unscoredOutput(input.questionMode, "LOW_ALIGNMENT", Math.min(
-      ...snapshots.bindings.map((binding) => binding.alignmentScore ?? 0),
-    ), [
-      "세션 질문 snapshot이 NCS 정렬 통과 상태가 아닙니다.",
-    ]);
+      ...bindings.map((binding) => binding.alignmentScore ?? 0),
+    ), ["세션 질문 snapshot이 NCS 정렬 통과 상태가 아닙니다."]);
   } else if (provider) {
     const preflight = preflightNcsTextEvaluation(input, { providerMode: "openai" });
     if (preflight) {
@@ -160,39 +309,38 @@ async function evaluateAnswer(
   } else {
     output = evaluateNcsTextDeterministically(input);
   }
-
   if (output.scoreStatus === "SCORED" && exactEvidenceQuotes(output).length === 0) {
     output = unscoredOutput(input.questionMode, "INSUFFICIENT_INPUT", output.coverage, [
       "점수를 뒷받침하는 답변 원문 근거가 없습니다.",
     ], output.providerMode, output.model);
   }
+  return { output, usage };
+}
 
+function evidenceSourcesForQuote(
+  quote: string,
+  baseAnswer: NcsReportAnswerSnapshot,
+  followUp?: NcsReportAnswerSnapshot,
+): NcsAnswerEvaluationRecord["evidences"] {
+  const sources: NcsAnswerEvaluationRecord["evidences"] = [];
+  if (baseAnswer.transcript.includes(quote)) {
+    sources.push({ sourceAnswerId: baseAnswer.answerId, sourceKind: "BASE", quote });
+  }
+  if (followUp?.transcript.includes(quote)) {
+    sources.push({ sourceAnswerId: followUp.answerId, sourceKind: "FOLLOW_UP", quote });
+  }
+  return sources;
+}
+
+function mergeEvaluationUsage(
+  first?: { modelName: string; inputTokens?: number; outputTokens?: number },
+  second?: { modelName: string; inputTokens?: number; outputTokens?: number },
+): { modelName: string; inputTokens?: number; outputTokens?: number } | undefined {
+  if (!first && !second) return undefined;
   return {
-    evaluations: snapshots.bindings.map((binding) => {
-      const points = ncsFivePointBreakdown(output, toEvaluatorProfileId(binding.ncsProfileId));
-      const evidences = output.scoreStatus === "SCORED"
-        ? exactEvidenceQuotesForProfile(output, toEvaluatorProfileId(binding.ncsProfileId))
-            .map((quote) => ({ sourceAnswerId: answer.answerId, sourceKind: "BASE" as const, quote }))
-        : [];
-      return {
-      reportId,
-      answerId: answer.answerId,
-      sessionQuestionId: snapshots.sessionQuestionId,
-      criterionId: binding.criterionId,
-      criterionTitleSnapshot: binding.criterionTitleSnapshot,
-      ncsProfileId: canonicalNcsProfileId(binding.ncsProfileId),
-      ncsQuestionMode: snapshots.ncsQuestionMode,
-      ncsProfileVersion: binding.ncsProfileVersion,
-      output,
-      question,
-      behaviorPoints: points?.behaviorPoints ?? null,
-      logicPoints: points?.logicPoints ?? null,
-      baseScore: points?.baseScore ?? null,
-      effectiveScore: points?.baseScore ?? null,
-      followUpApplied: false,
-      evidences,
-    };}),
-    usage,
+    modelName: second?.modelName ?? first!.modelName,
+    inputTokens: sumOptional([first?.inputTokens, second?.inputTokens]),
+    outputTokens: sumOptional([first?.outputTokens, second?.outputTokens]),
   };
 }
 
@@ -316,6 +464,53 @@ function canonicalNcsProfileId(
     return "COLLABORATION_COMMUNICATION";
   }
   return "PROBLEM_SOLVING";
+}
+
+function isNcsQuestionMode(value: unknown): value is NcsQuestionMode {
+  return value === "EXPERIENCE_BEHAVIOR" ||
+    value === "TECHNICAL_KNOWLEDGE" ||
+    value === "SITUATIONAL_DESIGN";
+}
+
+function parseFollowUpBinding(value: unknown, index: number): NcsReportQuestionBindingSnapshot {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new NonRetryableAiWorkerFailure(`ncsBindings[${index}] must be an object`);
+  }
+  const record = value as Record<string, unknown>;
+  const profileId = record.ncsProfileId;
+  const bindingOrder = Number(record.bindingOrder);
+  const criterionId = Number(record.criterionId);
+  if (
+    !isNcsApiProfileId(profileId) ||
+    (bindingOrder !== 1 && bindingOrder !== 2) ||
+    !Number.isSafeInteger(criterionId) || criterionId <= 0 ||
+    typeof record.criterionTitleSnapshot !== "string" || !record.criterionTitleSnapshot.trim() ||
+    typeof record.ncsProfileVersion !== "string" || !record.ncsProfileVersion.trim() ||
+    typeof record.alignmentStatus !== "string" || !record.alignmentStatus.trim()
+  ) {
+    throw new NonRetryableAiWorkerFailure(`ncsBindings[${index}] is invalid`);
+  }
+  const alignmentScore = Number(record.alignmentScore);
+  return {
+    criterionId,
+    criterionTitleSnapshot: record.criterionTitleSnapshot.trim(),
+    ncsProfileId: profileId,
+    ncsProfileVersion: record.ncsProfileVersion.trim(),
+    alignmentStatus: record.alignmentStatus.trim(),
+    ...(Number.isFinite(alignmentScore) ? { alignmentScore } : {}),
+    ...(typeof record.evaluatorVersion === "string" && record.evaluatorVersion.trim()
+      ? { evaluatorVersion: record.evaluatorVersion.trim() }
+      : {}),
+    bindingOrder,
+  };
+}
+
+function isNcsApiProfileId(value: unknown): value is NcsApiProfileId {
+  return value === "JOB_TECHNICAL" ||
+    value === "COLLABORATION_COMMUNICATION" ||
+    value === "PROBLEM_SOLVING" ||
+    value === "COMMUNICATION" ||
+    value === "DIGITAL";
 }
 
 function exactEvidenceQuotes(output: NcsTextEvaluationOutput): string[] {

@@ -6,6 +6,7 @@ import {
 } from "./ai-result.repository";
 import { createAiProcessUsage, mergeAiProcessUsage } from "./ai-usage";
 import { FollowUpAiProvider } from "./openai-follow-up.provider";
+import { planNcsFollowUp } from "./ncs-report-evaluation.adapter";
 import { PostingDraftAiProvider, PostingDraftGenerationResult } from "./openai-posting-draft.provider";
 import {
   QuestionAiProvider,
@@ -145,12 +146,34 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       throw new NonRetryableAiWorkerFailure("jobDescription or documentSummary is required");
     }
 
+    const ncsPlan = policy === "RECRUITING" ? planNcsFollowUp(payload) : undefined;
+    if (ncsPlan && !ncsPlan.required) {
+      return {
+        outputRef: JSON.stringify({
+          sessionId,
+          answerId,
+          policy,
+          followUpRequired: false,
+          questionMode: ncsPlan.questionMode,
+          answerTimeSec: ncsPlan.answerTimeSec,
+          baseScores: ncsPlan.baseScores,
+          dedupeKey: `${policy}:${sessionId}:${answerId}`,
+          duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP",
+        }),
+        guardrail: { result: "PASS", reason: null },
+      };
+    }
+
     const generated = await this.followUpProvider.generateFollowUpQuestion({
       kind,
       previousQuestion,
       transcript,
       jobDescription,
-      documentSummary
+      documentSummary,
+      questionMode: ncsPlan?.questionMode,
+      focusPoints: ncsPlan?.focusPoints,
+      logicalStructureGap: ncsPlan?.logicalStructureGap,
+      alreadyConfirmedEvidence: ncsPlan?.alreadyConfirmedEvidence,
     });
     const guardrail = this.validateMockPolicy(policy, generated.content);
 
@@ -164,6 +187,11 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
         model: generated.model,
         jobDescription,
         documentSummary,
+        followUpRequired: true,
+        questionMode: ncsPlan?.questionMode,
+        answerTimeSec: ncsPlan?.answerTimeSec,
+        baseScores: ncsPlan?.baseScores,
+        focusPoints: ncsPlan?.focusPoints,
         dedupeKey: `${policy}:${sessionId}:${answerId}`,
         duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP"
       }),

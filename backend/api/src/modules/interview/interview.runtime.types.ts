@@ -21,6 +21,9 @@ export interface RuntimeInterviewSession {
   interviewType: InterviewType;
   status: InterviewStatus;
   showQuestionText: boolean;
+  preparationTimeSecSnapshot?: number;
+  answerTimeSecSnapshot?: number;
+  ncsScoringVersion?: string;
   currentQuestionIndex: number;
   questionIds: number[];
   startedAt?: string;

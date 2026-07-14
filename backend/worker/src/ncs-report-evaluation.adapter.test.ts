@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { evaluateNcsReportAnswers } from "./ncs-report-evaluation.adapter";
+import { evaluateNcsReportAnswers, planNcsFollowUp } from "./ncs-report-evaluation.adapter";
 
 const PROFILE_VERSION = "2025.12-v1";
 
@@ -170,4 +170,73 @@ test("one question with two canonical bindings creates two 0-to-5 evaluation row
       evidence.sourceAnswerId === 105 && evidence.sourceKind === "BASE" && transcript.includes(evidence.quote),
     ));
   }
+});
+
+test("NCS follow-up planning keeps the session mode and answer time while targeting missing evidence", () => {
+  const plan = planNcsFollowUp({
+    answerId: 106,
+    sessionQuestionId: 506,
+    previousQuestion: "운영 장애의 원인을 분석하고 대안을 선택한 과정을 설명해주세요.",
+    transcript: "로그를 확인하고 캐시 우회 대안을 선택했습니다.",
+    ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+    answerTimeSec: 90,
+    ncsBindings: [{
+      criterionId: 15,
+      criterionTitleSnapshot: "문제 해결력",
+      ncsProfileId: "PROBLEM_SOLVING",
+      ncsProfileVersion: PROFILE_VERSION,
+      alignmentStatus: "ALIGNED",
+      bindingOrder: 1,
+    }],
+  });
+
+  assert.equal(plan?.required, true);
+  assert.equal(plan?.questionMode, "EXPERIENCE_BEHAVIOR");
+  assert.equal(plan?.answerTimeSec, 90);
+  assert.ok((plan?.focusPoints.length ?? 0) > 0);
+  assert.ok((plan?.baseScores[0]?.baseScore ?? 5) < 5);
+});
+
+test("follow-up answer is combined once and can only preserve or improve the base score", async () => {
+  const baseTranscript =
+    "결제 장애에서 오류 로그와 트래픽 지표를 분석했습니다. 캐시 우회와 즉시 롤백 대안을 비교해 캐시 우회를 선택하고 직접 적용했습니다.";
+  const followUpTranscript =
+    "적용 후 오류율이 8퍼센트에서 1퍼센트로 줄고 p95 응답 시간이 회복된 것을 대시보드와 회귀 테스트로 확인했습니다.";
+  const result = await evaluateNcsReportAnswers(
+    82,
+    [
+      {
+        answerId: 107,
+        question: "결제 장애의 원인을 분석하고 대안을 선택해 검증한 경험을 설명해주세요.",
+        transcript: baseTranscript,
+        sessionQuestionId: 507,
+        ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+        ncsBindings: [{
+          criterionId: 15,
+          criterionTitleSnapshot: "문제 해결력",
+          ncsProfileId: "PROBLEM_SOLVING",
+          ncsProfileVersion: PROFILE_VERSION,
+          alignmentStatus: "ALIGNED",
+          bindingOrder: 1,
+        }],
+      },
+      {
+        answerId: 108,
+        transcript: followUpTranscript,
+        isFollowUpAnswer: true,
+        parentAnswerId: 107,
+      },
+    ],
+    [15],
+  );
+
+  const evaluation = result.evaluations[0]!;
+  assert.equal(evaluation.followUpApplied, true);
+  assert.ok(evaluation.baseScore !== null);
+  assert.ok(evaluation.effectiveScore !== null && evaluation.effectiveScore >= evaluation.baseScore);
+  assert.ok(evaluation.evidences.some((evidence) =>
+    evidence.sourceAnswerId === 108 &&
+    evidence.sourceKind === "FOLLOW_UP" &&
+    followUpTranscript.includes(evidence.quote),
+  ));
 });

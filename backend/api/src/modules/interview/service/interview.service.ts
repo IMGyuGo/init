@@ -1129,6 +1129,14 @@ export class InterviewService {
       jobDescription,
       documentSummary,
       sessionId: session.sessionId,
+      ...(answer.ncsEvaluationSnapshot?.ncsBindings?.length
+        ? {
+            sessionQuestionId: answer.ncsEvaluationSnapshot.sessionQuestionId,
+            ncsQuestionMode: answer.ncsEvaluationSnapshot.ncsQuestionMode,
+            ncsBindings: answer.ncsEvaluationSnapshot.ncsBindings,
+            answerTimeSec: session.answerTimeSecSnapshot,
+          }
+        : {}),
     };
   }
 

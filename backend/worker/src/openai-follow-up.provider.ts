@@ -6,6 +6,10 @@ export interface FollowUpGenerationInput {
   transcript: string;
   jobDescription?: string;
   documentSummary?: string;
+  questionMode?: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
+  focusPoints?: string[];
+  logicalStructureGap?: string;
+  alreadyConfirmedEvidence?: string[];
 }
 
 export interface FollowUpGenerationResult {
@@ -48,7 +52,13 @@ export class OpenAiFollowUpProvider implements FollowUpAiProvider {
             `previousQuestion: ${input.previousQuestion}`,
             `transcript: ${input.transcript}`,
             input.jobDescription ? `jobDescription: ${input.jobDescription}` : undefined,
-            input.documentSummary ? `documentSummary: ${input.documentSummary}` : undefined
+            input.documentSummary ? `documentSummary: ${input.documentSummary}` : undefined,
+            input.questionMode ? `questionMode: ${input.questionMode}` : undefined,
+            input.focusPoints?.length ? `focusPoints: ${input.focusPoints.join(", ")}` : undefined,
+            input.logicalStructureGap ? `logicalStructureGap: ${input.logicalStructureGap}` : undefined,
+            input.alreadyConfirmedEvidence?.length
+              ? `alreadyConfirmedEvidence (do not ask again): ${input.alreadyConfirmedEvidence.join(" | ")}`
+              : undefined
           ]
             .filter((line): line is string => Boolean(line))
             .join("\n")

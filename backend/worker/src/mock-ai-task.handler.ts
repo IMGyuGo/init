@@ -16,6 +16,7 @@ import { createAiProcessUsage } from "./ai-usage";
 import {
   evaluateNcsReportAnswers,
   hasNcsAnswerSnapshots,
+  planNcsFollowUp,
   type NcsApiProfileId as NcsReportApiProfileId,
   type NcsReportEvaluationBatch,
   type NcsReportQuestionBindingSnapshot,
@@ -273,14 +274,33 @@ export class MockAiTaskHandler implements AiTaskHandler {
             .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
             .map(shorten)
             .join(" | ");
-    const content = buildFollowUpQuestion({
-      policy,
-      previousQuestion,
-      transcript,
-      context,
-      jobDescription,
-      documentSummary
-    });
+    const ncsPlan = policy === "RECRUITING" ? planNcsFollowUp(payload) : undefined;
+    if (ncsPlan && !ncsPlan.required) {
+      return {
+        outputRef: JSON.stringify({
+          sessionId,
+          answerId,
+          policy,
+          followUpRequired: false,
+          questionMode: ncsPlan.questionMode,
+          answerTimeSec: ncsPlan.answerTimeSec,
+          baseScores: ncsPlan.baseScores,
+          dedupeKey: `${policy}:${sessionId}:${answerId}`,
+          duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP",
+        }),
+        guardrail: { result: "PASS", reason: null },
+      };
+    }
+    const content = ncsPlan
+      ? buildNcsFollowUpQuestion(ncsPlan.focusPoints, ncsPlan.logicalStructureGap)
+      : buildFollowUpQuestion({
+          policy,
+          previousQuestion,
+          transcript,
+          context,
+          jobDescription,
+          documentSummary,
+        });
 
     return {
       outputRef: JSON.stringify({
@@ -291,6 +311,11 @@ export class MockAiTaskHandler implements AiTaskHandler {
         content,
         jobDescription,
         documentSummary,
+        followUpRequired: true,
+        questionMode: ncsPlan?.questionMode,
+        answerTimeSec: ncsPlan?.answerTimeSec,
+        baseScores: ncsPlan?.baseScores,
+        focusPoints: ncsPlan?.focusPoints,
         dedupeKey: `${policy}:${sessionId}:${answerId}`,
         duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP"
       }),
@@ -1864,6 +1889,13 @@ function optionalText(value: unknown): string | undefined {
   }
   const trimmed = normalizeSpace(value);
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function buildNcsFollowUpQuestion(focusPoints: string[], logicalStructureGap?: string): string {
+  const focus = focusPoints.slice(0, 3).join(", ") || "아직 확인되지 않은 행동 근거";
+  return logicalStructureGap
+    ? `앞서 확인된 내용은 반복하지 말고 ${focus}를 보여주되 ${logicalStructureGap}의 연결이 드러나도록 본인의 구체적인 행동과 결과를 설명해주세요?`
+    : `앞서 확인된 내용은 반복하지 말고 ${focus}를 보여주는 본인의 구체적인 행동과 결과를 설명해주세요?`;
 }
 
 function buildFollowUpQuestion(input: {
