@@ -19,6 +19,8 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | `document_status` | `DocumentStatus` |
 | `interview_status` | `InterviewStatus` |
 | `report_status` | `ReportStatus` |
+| `application_summary_availability_status` | `CandidateApplicationAvailabilityStatus` (API read model only) |
+| `application_summary_unavailable_reason` | `CandidateApplicationUnavailableReason` (API read model only) |
 | `screening_decision` | `ScreeningDecision` |
 | `interview_type` | `InterviewType` |
 | `report_type` | `ReportType` |
@@ -88,6 +90,8 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | document_status | NOT_SUBMITTED, SUBMITTED, EXTRACTING, EXTRACTED, FAILED | 서류 제출/분석 상태 |
 | interview_status | NOT_READY, READY, IN_PROGRESS, COMPLETED, FAILED | 면접 세션/응시 상태 |
 | report_status | PENDING, GENERATING, COMPLETED, FAILED | 리포트 생성 상태 |
+| application_summary_availability_status | AVAILABLE, UNAVAILABLE | `GET /candidate/applications` item의 조회 가능 여부. DB 상태 전이가 아닌 API read model이다. |
+| application_summary_unavailable_reason | POSTING_NOT_FOUND, INTERVIEW_SESSION_NOT_FOUND | `availabilityStatus=UNAVAILABLE`일 때 반환하는 누락 의존성 사유 |
 | screening_decision | UNDECIDED, PASS, HOLD, FAIL | 기업 담당자 전형 판정 |
 | interview_type | MOCK, RECRUITING | 모의면접/채용면접 구분 |
 | report_type | MOCK_INTERVIEW_REPORT, RECRUITING_REPORT | 리포트 구분 |

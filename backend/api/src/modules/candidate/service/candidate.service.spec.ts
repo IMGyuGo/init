@@ -10,6 +10,24 @@ import { createCandidateValidationException } from "../candidate.validation";
 import { InMemoryCandidateRepository } from "../repository/in-memory-candidate.repository";
 import type { SubmitApplicationDto } from "../dto/submit-application.dto";
 
+class MissingApplicationSummaryDependencyRepository extends InMemoryCandidateRepository {
+  async findJob(jobId: number) {
+    if (jobId === 2) {
+      return undefined;
+    }
+
+    return super.findJob(jobId);
+  }
+
+  async findInterviewSessionByApplication(applicationId: number) {
+    if (applicationId === 3) {
+      return undefined;
+    }
+
+    return super.findInterviewSessionByApplication(applicationId);
+  }
+}
+
 function createSubmitApplicationDto(overrides: Partial<SubmitApplicationDto> = {}): SubmitApplicationDto {
   return {
     candidateName: "Kim",
@@ -558,6 +576,35 @@ async function run() {
   assert.equal(applicationList.data.items[0]?.deviceCheckCompleted, false);
   assert.equal(applicationList.data.items[0]?.canStartInterview, false);
   assert.equal(applicationList.data.items[0]?.sessionId, 1);
+
+  const missingDependencyRepository = new MissingApplicationSummaryDependencyRepository();
+  const missingDependencyService = new CandidateService(missingDependencyRepository);
+  for (const postingId of [1, 2, 3]) {
+    await missingDependencyRepository.createApplication({
+      postingId,
+      candidateId: currentUser.candidateId,
+      resumeFileId: 1,
+      consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
+    });
+  }
+  const partialApplicationList = await missingDependencyService.listApplications(currentUser);
+  assert.equal(partialApplicationList.data.items.length, 3);
+
+  const availableApplication = partialApplicationList.data.items.find((application) => application.postingId === 1);
+  assert.equal(availableApplication?.availabilityStatus, "AVAILABLE");
+  assert.equal(availableApplication?.unavailableReason, null);
+
+  const missingPostingApplication = partialApplicationList.data.items.find((application) => application.postingId === 2);
+  assert.equal(missingPostingApplication?.availabilityStatus, "UNAVAILABLE");
+  assert.equal(missingPostingApplication?.unavailableReason, "POSTING_NOT_FOUND");
+  assert.equal(missingPostingApplication?.jobTitle, null);
+  assert.equal(missingPostingApplication?.canStartInterview, false);
+
+  const missingSessionApplication = partialApplicationList.data.items.find((application) => application.postingId === 3);
+  assert.equal(missingSessionApplication?.availabilityStatus, "UNAVAILABLE");
+  assert.equal(missingSessionApplication?.unavailableReason, "INTERVIEW_SESSION_NOT_FOUND");
+  assert.equal(missingSessionApplication?.sessionId, null);
+  assert.equal(missingSessionApplication?.canStartInterview, false);
 
   const otherCandidateUser = { userId: 2, candidateId: 2, userType: "CANDIDATE" as const };
   const otherCandidateApplications = await service.listApplications(otherCandidateUser);

@@ -877,37 +877,39 @@ export class CandidateService {
   }
 
   private async toApplicationSummary(application: Application): Promise<CandidateApplicationSummary> {
-    const job = await this.repository.findJob(application.postingId);
-    const session = await this.repository.findInterviewSessionByApplication(application.applicationId);
-    const consents = await this.repository.listConsentRecords(application.applicationId);
-    if (!job || !session) {
-      throw new CandidateDomainError("COMMON_NOT_FOUND", "Application summary dependency was not found.", 404);
-    }
+    const [job, session, consents] = await Promise.all([
+      this.repository.findJob(application.postingId),
+      this.repository.findInterviewSessionByApplication(application.applicationId),
+      this.repository.listConsentRecords(application.applicationId),
+    ]);
+    const unavailableReason = !job ? "POSTING_NOT_FOUND" : !session ? "INTERVIEW_SESSION_NOT_FOUND" : null;
 
-    const consentCompleted = this.hasRequiredInterviewConsents(consents);
-    const deviceCheckCompleted = this.isDeviceCheckPassed(session);
+    const consentCompleted = session ? this.hasRequiredInterviewConsents(consents) : false;
+    const deviceCheckCompleted = session ? this.isDeviceCheckPassed(session) : false;
     return {
       applicationId: application.applicationId,
       postingId: application.postingId,
       candidateId: application.candidateId,
-      companyName: job.companyName,
-      jobTitle: job.title,
-      jobRole: job.jobRole,
-      location: job.location,
+      availabilityStatus: unavailableReason ? "UNAVAILABLE" : "AVAILABLE",
+      unavailableReason,
+      companyName: job?.companyName ?? null,
+      jobTitle: job?.title ?? null,
+      jobRole: job?.jobRole ?? null,
+      location: job?.location ?? null,
       applicationStatus: application.applicationStatus,
       documentStatus: application.documentStatus,
       interviewStatus: application.interviewStatus,
       reportStatus: application.reportStatus,
       submittedAt: application.submittedAt,
       updatedAt: application.updatedAt,
-      sessionId: session.sessionId,
-      interviewType: session.interviewType,
-      interviewSessionStatus: session.status,
-      interviewWindowStartsAt: session.windowStartsAt,
-      interviewWindowEndsAt: session.windowEndsAt,
+      sessionId: session?.sessionId ?? null,
+      interviewType: session?.interviewType ?? null,
+      interviewSessionStatus: session?.status ?? null,
+      interviewWindowStartsAt: session?.windowStartsAt ?? null,
+      interviewWindowEndsAt: session?.windowEndsAt ?? null,
       consentCompleted,
       deviceCheckCompleted,
-      canStartInterview: consentCompleted && deviceCheckCompleted && session.status === "READY",
+      canStartInterview: !unavailableReason && consentCompleted && deviceCheckCompleted && session?.status === "READY",
     };
   }
 
