@@ -29,8 +29,11 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | `evaluation_framework` | `EvaluationFramework` |
 | `ncs_profile_id` | `NcsProfileId` |
 | `ncs_question_mode` | `NcsQuestionMode` |
+| `ncs_threshold_result` | `NcsThresholdResult` |
+| `ncs_ai_decision` | `NcsAiDecision` |
 | `question_generation_source` | `QuestionGenerationSource` |
 | `question_alignment_status` | `QuestionAlignmentStatus` |
+| `ncs_answer_score_status` | `NcsAnswerScoreStatus` |
 | `resume_question_generation_status` | `ResumeQuestionGenerationStatus` |
 | `notification_channel` | `NotificationChannel` |
 | `ai_process_type` | `AiProcessType` |
@@ -103,8 +106,10 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | question_type | INTRO, TECHNICAL, EXPERIENCE, SITUATION, FOLLOW_UP, CLOSING | 면접 질문 유형 |
 | question_origin | MANUAL, AI_GENERATED | 질문 최초 작성 출처 |
 | evaluation_framework | LEGACY, NCS_3_PROFILE_V1 | 공고 면접 평가 체계. `NCS_3_PROFILE_V1`은 초기 NCS 3개 프로필 고정 구성을 뜻함 |
-| ncs_profile_id | PROBLEM_SOLVING, COMMUNICATION, DIGITAL | C/API에서 사용하는 NCS 프로필 식별자. E evaluator adapter는 각각 `problem-solving`, `communication`, `digital`로 매핑 |
+| ncs_profile_id | JOB_TECHNICAL, COLLABORATION_COMMUNICATION, PROBLEM_SOLVING | 최종 채용 평가 NCS 프로필 식별자. migration 기간에는 `DIGITAL -> JOB_TECHNICAL`, `COMMUNICATION -> COLLABORATION_COMMUNICATION` compatibility read만 허용한다. E evaluator adapter는 각각 `digital`, `communication`, `problem-solving`로 매핑 |
 | ncs_question_mode | EXPERIENCE_BEHAVIOR, TECHNICAL_KNOWLEDGE, SITUATIONAL_DESIGN | 답변에서 수집할 NCS 근거 유형. 기존 `question_type`과 별도 관리 |
+| ncs_threshold_result | MEETS_THRESHOLD, BELOW_THRESHOLD, INCOMPLETE | deterministic NCS 기준 충족 결과. `INCOMPLETE`는 점수 NULL을 유지한다. |
+| ncs_ai_decision | PASS, FAIL | NCS AI 추천 판정. 발표용 `NCS_INCOMPLETE_AS_FAIL_DEMO_V1`에서는 `INCOMPLETE`를 FAIL로 표시하지만 실제 screening decision을 자동 변경하지 않는다. |
 | question_generation_source | JD_CRITERIA, RESUME_PERSONALIZED | JD 공통 질문과 지원자별 이력서 질문의 생성 출처 |
 | question_alignment_status | NOT_EVALUATED, ALIGNED, LOW_ALIGNMENT, REVIEW_REQUIRED | 질문과 선택 NCS 프로필의 정렬 검증 상태 |
 | ncs_answer_score_status | SCORED, INSUFFICIENT_INPUT, LOW_ALIGNMENT, BLOCKED | 답변별 NCS 평가 상태. `SCORED`만 점수를 가지며 나머지 상태는 competency/evidence/total score가 모두 NULL |
@@ -123,7 +128,7 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | NcsProfileId | Default NcsQuestionMode | QuestionType | Allowed Fallback |
 | --- | --- | --- | --- |
 | `PROBLEM_SOLVING` | `EXPERIENCE_BEHAVIOR` | `EXPERIENCE` | `SITUATIONAL_DESIGN` -> `SITUATION` |
-| `COMMUNICATION` | `EXPERIENCE_BEHAVIOR` | `EXPERIENCE` | 없음 |
-| `DIGITAL` | `TECHNICAL_KNOWLEDGE` | `TECHNICAL` | 실제 수행 경험이면 `EXPERIENCE_BEHAVIOR` -> `EXPERIENCE` |
+| `COLLABORATION_COMMUNICATION` | `EXPERIENCE_BEHAVIOR` | `EXPERIENCE` | 없음 |
+| `JOB_TECHNICAL` | `TECHNICAL_KNOWLEDGE` | `TECHNICAL` | 실제 수행 경험이면 `EXPERIENCE_BEHAVIOR` -> `EXPERIENCE` |
 
 정렬점수 통과를 목적으로 질문 유형만 임의 변경하지 않는다. 동일 profile/mode로 최대 2회 질문을 재작성한 뒤 위 표의 fallback만 허용한다.

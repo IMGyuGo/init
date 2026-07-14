@@ -18,6 +18,8 @@ Detailed PM-facing payment contract: `.PM/payments/결제-api-명세.md`.
 
 API 전체 목록을 도메인별로 빠르게 탐색한다.
 
+채용면접 NCS 답변 평가, 꼬리질문, 점수 집계와 임시 AI 판정의 정본은 [`ncs-final-evaluation.md`](./ncs-final-evaluation.md)를 따른다. 리포트 팀에 전달하는 API-020 출력 정본은 [`ncs-report-output-contract.md`](./ncs-report-output-contract.md)를 따른다.
+
 ## API Module Baseline
 
 NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 않고 아래 module/controller 기준으로 묶는다.

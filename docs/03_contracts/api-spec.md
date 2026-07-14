@@ -1080,6 +1080,10 @@ AI 리포트 금지 기준:
 - Report response:
   - `report.totalScore` is the AI evaluation score and is the company-facing displayed score.
   - `report.adjustedTotalScore` is retained for compatibility and has the same value as `report.totalScore`.
+  - NCS 리포트는 `report.ncsEvaluation`에 `NcsReportEvaluationOutputV1`을 반환한다. 상세 shape은 `docs/03_contracts/ncs-report-output-contract.md`를 따른다.
+  - NCS 결과가 아직 준비되지 않았으면 `report.ncsEvaluation=null`이다. 평가가 끝났지만 불완전하면 `report.ncsEvaluation.result.completionStatus=INCOMPLETE`, `result.totalScore=null`, 구조화된 `incompleteReasons`로 표현한다.
+  - 기존 `report.ncsAnswerEvaluations`는 migration 호환용이며 신규 리포트 UI는 `report.ncsEvaluation`을 우선 사용한다.
+  - API consumer는 profile 평균, 가중 점수, 총점 또는 PASS/FAIL을 재계산하지 않는다.
   - `report.integrityAdjustment` is a legacy-compatible field name for unverified browser telemetry. It may include `rawTotalScore`, `adjustedTotalScore`, `penalty`, `scoreApplied`, `source`, `level`, `reason`, and `reasons`.
   - `penalty` is always `0`, `scoreApplied` is `false`, and `source` is `CLIENT_RUNTIME_UNVERIFIED`.
   - Reference levels are `NONE`, `LOW`, `MEDIUM`, and `HIGH`; they indicate human review urgency only.
@@ -1493,8 +1497,17 @@ AI 리포트 금지 기준:
 - 상태 코드: 202 Accepted
 - 비동기: Y
 - Path Params: sessionId
+- 검증/전제조건:
+  - base question의 profile별 `baseScore` 중 하나라도 5 미만이어야 한다.
+  - base question에 대해 기존 꼬리질문이 없어야 한다. 최대 1회만 허용한다.
+  - session question snapshot의 profile binding, question mode와 time policy가 완전해야 한다.
 - 성공 응답/처리:
   - E worker 꼬리질문 생성 요청 payload를 생성한다.
+  - base question과 동일한 `ncsQuestionMode`를 사용한다.
+  - 이미 확인된 근거는 제외하고 부족한 behavior point와 logic link만 요청한다.
+  - 제한 시간은 session snapshot의 `answerTimeSec`를 사용한다.
+- 오류/예외:
+  - 이미 1회 생성했거나 snapshot이 불완전하면 `INTERVIEW_NCS_BINDING_INVALID`로 생성하지 않는다.
 - 관련 ERD 테이블:
   - postings, applications, application_documents, interview_sessions, interview_answers, follow_up_questions, ai_process_logs
 
@@ -1527,6 +1540,7 @@ AI 리포트 금지 기준:
   - 지원서와 공고가 로그인 기업 소유
   - NCS 공고는 ACTIVE 질문 세트의 `JD_CRITERIA + ALIGNED` 질문 수가 `jdCriteriaQuestionCount`와 동일
   - 공고의 `resumeQuestionCount`가 1 이상이면 해당 지원서의 `resumeQuestionStatus=READY`여야 한다.
+  - 공통·개인화 질문을 합성한 뒤 canonical NCS profile별 scoring base question이 최소 2개여야 한다.
 - 성공 응답/처리:
   - Response envelope: `{ data, meta }`
   - `data.applicationId: number`
@@ -1544,6 +1558,7 @@ AI 리포트 금지 기준:
   - 기간 오류, 질문 없음, 세션 생성 실패 시 초대 발송을 제한한다.
   - 이력서 질문이 준비되지 않았으면 `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`를 반환하고 공통 질문만으로 자동 대체하지 않는다.
   - ACTIVE 공통 질문 수 또는 정렬 상태가 정책과 다르면 `INTERVIEW_QUESTION_COUNT_INVALID`를 반환한다.
+  - profile별 scoring base question이 2개 미만이면 `INTERVIEW_NCS_QUESTION_COVERAGE_INVALID`를 반환한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, question_bank, applications, interview_sessions, notifications, ai_process_logs
 - 비고/미결:
@@ -1724,9 +1739,9 @@ AI 리포트 금지 기준:
   - `description`은 공용 태그 설명을 변경하지 않고 해당 공고의 평가 기준 설명 스냅샷으로 저장한다.
   - `description`을 생략하면 기존 기준 설명을 유지하며, 신규 기준이면 태그 기본 설명을 사용한다.
   - `evaluationFramework=LEGACY`이면 현재 동작을 유지해 빈 criteria를 허용하고, 1개 이상이면 `weight` 합계가 1~100이어야 한다.
-  - `evaluationFramework=NCS_3_PROFILE_V1`이면 criteria는 정확히 3개이며 각 tag는 서버의 NCS binding 기준으로 `PROBLEM_SOLVING`, `COMMUNICATION`, `DIGITAL`에 하나씩 연결되어야 한다.
+  - `evaluationFramework=NCS_3_PROFILE_V1`이면 criteria는 정확히 3개이며 각 tag는 서버의 NCS binding 기준으로 `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING`에 하나씩 연결되어야 한다.
   - NCS profile과 기본 question mode는 서버가 tag binding에서 결정하며 클라이언트 입력으로 임의 변경하지 않는다.
-  - NCS 3개 기준의 `weight` 합계는 100이어야 한다.
+  - NCS 3개 기준의 `weight`는 0 이상의 정수이며 합계는 정확히 100이어야 한다. 잘못된 값을 30/30/40으로 자동 대체하지 않는다.
 - 성공 응답/처리:
   - 평가 기준 저장
   - 요청에서 제외된 기존 평가 기준은 삭제한다.
@@ -1755,6 +1770,7 @@ AI 리포트 금지 기준:
   - 인증 누락: `COMMON_UNAUTHORIZED`
   - 기업 권한 또는 공고 소유권 불일치: `COMMON_FORBIDDEN`
   - 입력 검증 실패: `COMMON_VALIDATION_FAILED`
+  - NCS 가중치 오류: `INTERVIEW_NCS_WEIGHT_INVALID`
   - 공고/평가 태그/평가 기준 없음: `COMMON_NOT_FOUND`
 - 관련 ERD 테이블:
   - companies, postings, criterion_tags, evaluation_criteria, interview_sessions, evaluation_reports, report_scores, report_evidences, manual_evaluations, ai_process_logs
@@ -2263,23 +2279,29 @@ Allocation Examples:
   - 답변 스크립트, 평가 기준, 모범 답안
   - `evaluationFramework=NCS_3_PROFILE_V1`이면 각 답변은 세션 질문 snapshot의 아래 값을 서버에서 포함한다.
     - `sessionQuestionId`, `criterionId`, `criterionTitleSnapshot`
-    - `ncsProfileId`, `ncsQuestionMode`, `ncsProfileVersion`
-    - `alignmentStatus`, `evaluatorVersion`
+    - `ncsBindings[]`: `{ criterionId, criterionTitle, ncsProfileId, ncsProfileVersion, alignmentStatus, alignmentScore, evaluatorVersion }`, 길이 1~2
+    - `ncsQuestionMode`
   - NCS metadata는 클라이언트 입력을 신뢰하지 않고 `interview_session_questions`를 정본으로 사용한다.
 - 검증/전제조건:
   - 답변 스크립트 존재
-  - NCS 답변은 `alignmentStatus=ALIGNED`이고 지원 evaluator의 profile/mode/version이어야 한다.
+  - NCS 답변은 모든 binding이 `alignmentStatus=ALIGNED`이고 지원 evaluator의 profile/mode/version이어야 한다.
+  - profile metadata 누락 시 질문 문구로 profile을 추측하지 않는다.
 - 성공 응답/처리:
-  - 답변별 `ncsAnswerEvaluations[]`를 저장하고 반환한다.
-    - `answerId`, `sessionQuestionId`, `criterionId`, `criterionTitleSnapshot`
+  - 답변·profile별 `ncsAnswerEvaluations[]`를 저장하고 반환한다.
+    - `baseAnswerId`, `sessionQuestionId`, `criterionId`, `criterionTitleSnapshot`
     - `ncsProfileId`, `ncsQuestionMode`, `ncsProfileVersion`
     - `scoreStatus`: `SCORED | INSUFFICIENT_INPUT | LOW_ALIGNMENT | BLOCKED`
-    - `scores`: `{ competency: number | null, evidence: number | null, total: number | null }`
+    - `scores`: `{ behaviorPoints: number | null, logicPoints: number | null, baseScore: number | null, effectiveScore: number | null }`
+    - `segments[]`: `{ answerId, kind: BASE | FOLLOW_UP }`
+    - `evidence[]`: `{ sourceAnswerId, sourceKind: BASE | FOLLOW_UP, quote }`
     - `coverage`, `confidence`, `rubricVersion`, `promptVersion`, `providerMode`, `model?`
     - `competencies`, `evidenceMaturity`, `growth`, `guardrail`
-  - `SCORED` 결과만 NCS profile별 유효 답변 평균으로 집계해 `report_scores`와 `report_evidences`에 저장한다.
+  - `SCORED` 결과만 NCS profile별 유효 `effectiveScore` 평균으로 집계해 `report_scores`와 `report_evidences`에 저장한다.
   - `INSUFFICIENT_INPUT`, `LOW_ALIGNMENT`, `BLOCKED`는 점수가 모두 NULL이며 0점 또는 평균 분모로 환산하지 않는다.
-  - `report_scores`의 NCS 점수는 profile별 유효 답변 total score 평균이고, `evaluation_criteria.weight`는 최종 리포트 총점 계산에만 사용한다.
+  - `report_scores`의 NCS 점수는 profile별 유효 0~5점 평균이고, `evaluation_criteria.weight`는 최종 100점 계산에만 사용한다.
+  - 공통 질문과 이력서 개인화 질문을 같은 scoring 대상으로 포함한다.
+  - profile별 유효 base question은 최소 2개여야 한다.
+  - 꼬리답변은 base와 구분된 segment로 전달하고 `effectiveScore=max(baseScore, combinedScore)`를 적용한다.
 - 오류/예외:
   - 답변 원문이 없거나 너무 짧으면 `INSUFFICIENT_INPUT`으로 저장한다.
   - 세션 snapshot이 미정렬이면 `LOW_ALIGNMENT`, 출력 근거·가드레일 검증 실패는 `BLOCKED`로 저장하고 점수를 만들지 않는다.
@@ -2288,7 +2310,8 @@ Allocation Examples:
   - companies, candidate_profiles, postings, criterion_tags, evaluation_criteria, applications, interview_sessions, interview_session_questions, interview_answers, evaluation_reports, ncs_answer_evaluations, report_scores, report_evidences, manual_evaluations, ai_process_logs
 - 비고/미결:
   - 결과는 지원자 평가 상세에 노출
-  - legacy 평가와 모의면접은 기존 평가 경로를 유지한다. NCS 경로에서는 STT 실패를 임시 0점으로 저장하지 않는다.
+  - legacy 평가와 모의면접은 기존 평가 경로를 유지한다. NCS 경로에서는 STT 실패를 0점으로 저장하지 않는다.
+  - 상세 계약은 `docs/03_contracts/ncs-final-evaluation.md`를 따른다.
 
 ### API-030 POST /reports/{reportId}/communication-analysis
 - 도메인: AI/리포트 처리
@@ -2322,9 +2345,14 @@ Allocation Examples:
 - 요청 데이터:
   - 서류 평가 결과, 면접 평가 결과, 평가 기준
 - 검증/전제조건:
-  - 평가 완료 상태
+  - 평가 완료 상태 또는 NCS `INCOMPLETE` 상태가 명시적으로 확정됨
 - 성공 응답/처리:
   - 평가 리포트 저장
+  - NCS 리포트는 `profileScores`, `totalScore`, `thresholdResult`, `aiDecision`, `decisionReason`, `scoringVersion`, `decisionPolicyVersion`을 저장·응답한다.
+  - API-020이 사용할 `ncs-report-evaluation-output-v1` projection을 생성할 수 있도록 답변별 평가, profile 집계, exact evidence와 versioned summary snapshot을 함께 확정한다.
+  - projection의 field, NULL, evidence와 privacy 규칙은 `docs/03_contracts/ncs-report-output-contract.md`를 따른다.
+  - `MEETS_THRESHOLD -> PASS`, `BELOW_THRESHOLD -> FAIL`로 deterministic 매핑한다.
+  - 발표용 `NCS_INCOMPLETE_AS_FAIL_DEMO_V1`에서는 `INCOMPLETE -> FAIL`로 표시하되 `totalScore=NULL`과 미완료 원인을 유지하고 실제 `screening_decision`은 변경하지 않는다.
 - 오류/예외:
   - 리포트 생성 실패 시 재생성 버튼과 오류 상태를 표시한다.
 - 관련 ERD 테이블:
@@ -3127,12 +3155,14 @@ CandidateFolder 입력 제한:
   - 응시 기간 내, 필수 동의 완료, 장치 점검 완료
   - 공고의 `resumeQuestionCount`가 1 이상이면 지원서별 이력서 질문 상태가 `READY`이고 세션 질문 snapshot이 생성되어 있어야 한다.
   - snapshot이 없으면 API-017과 동일한 transaction으로 생성하며 이미 있으면 변경하지 않는다.
+  - 세션 snapshot의 canonical NCS profile별 scoring base question이 최소 2개여야 한다.
 - 성공 응답/처리:
   - 채용 AI 면접 진행 화면으로 이동
 - 오류/예외:
   - 세션 만료, 동의 누락, 장치 권한 오류 시 시작을 제한한다.
   - 이력서 질문이 준비되지 않았으면 `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`를 반환하며 공통 질문만으로 자동 시작하지 않는다.
   - ACTIVE 공통 질문 수 또는 정렬 상태가 정책과 다르면 `INTERVIEW_QUESTION_COUNT_INVALID`를 반환한다.
+  - profile별 scoring base question이 2개 미만이면 `INTERVIEW_NCS_QUESTION_COVERAGE_INVALID`를 반환한다.
 - 관련 ERD 테이블:
   - candidate_profiles, postings, applications, consent_records, interview_sessions, ai_process_logs
 - 비고/미결:
@@ -3338,17 +3368,20 @@ CandidateFolder 입력 제한:
 - 비동기: Y
 - Path Params: sessionId
 - 요청 데이터:
-  - 이전 질문, 답변 스크립트, 서류 요약
+  - 클라이언트는 session/base answer 식별자만 전달하고 질문, 답변, profile metadata는 서버 snapshot에서 조회한다.
 - 검증/전제조건:
-  - 답변 텍스트가 충분해야 함
+  - base question의 profile별 `baseScore` 중 하나라도 5 미만이어야 한다.
+  - base question당 최대 1회이며 기존 꼬리질문이 없어야 한다.
+  - session question snapshot의 profile binding, question mode와 time policy가 완전해야 한다.
 - 성공 응답/처리:
-  - 꼬리질문 표시
+  - base question과 같은 question mode로 부족한 behavior point와 logic link만 묻는 꼬리질문을 표시한다.
+  - 답변 제한 시간은 session snapshot의 `answerTimeSec`와 같다.
 - 오류/예외:
-  - 답변이 너무 짧거나 부적절하면 기본 꼬리질문을 제시한다.
+  - 이미 1회 생성했거나 snapshot이 불완전하면 `INTERVIEW_NCS_BINDING_INVALID`로 생성하지 않는다.
 - 관련 ERD 테이블:
   - candidate_profiles, postings, question_bank, applications, application_documents, interview_sessions, interview_answers, follow_up_questions, ai_process_logs
 - 비고/미결:
-  - 채용 전형 정책에 따라 사용 여부 확정 필요
+  - 원답과 꼬리답변은 별도 answer ID로 저장하고 재평가 시 segment로 구분한다.
 
 ### API-071-TMP POST /candidate/interviews/{sessionId}/follow-up-questions/insert
 - 프레임: 지원자 - 채용면접
