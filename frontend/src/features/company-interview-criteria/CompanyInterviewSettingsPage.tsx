@@ -34,6 +34,7 @@ import type {
   NcsProfileId,
   QuestionType,
 } from "./types";
+import { isNcsQuestionPolicyEnabled } from "./ncs-feature-flag";
 
 type CriteriaDraft = {
   draftId: string;
@@ -124,8 +125,9 @@ const NCS_PROFILE_LABELS: Record<NcsProfileId, string> = {
   COMMUNICATION: "의사소통",
   DIGITAL: "디지털",
 };
-const NCS_QUESTION_POLICY_ENABLED =
-  process.env.NEXT_PUBLIC_NCS_QUESTION_POLICY_ENABLED !== "false";
+const NCS_QUESTION_POLICY_ENABLED = isNcsQuestionPolicyEnabled(
+  process.env.NEXT_PUBLIC_NCS_QUESTION_POLICY_ENABLED,
+);
 
 function getSettingsStepStorageKey(postingId: number) {
   return `company-interview-settings-step:${postingId}`;
