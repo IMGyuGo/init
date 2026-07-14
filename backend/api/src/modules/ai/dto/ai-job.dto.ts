@@ -110,6 +110,24 @@ export class MockQuestionGenerateRequestDto {
   @IsInt()
   @Min(1)
   folderId?: number;
+
+  @ApiPropertyOptional({ example: "백엔드 개발자" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  jobRole?: string;
+
+  @ApiPropertyOptional({ enum: ["EASY", "NORMAL", "HARD"] })
+  @IsOptional()
+  @IsIn(["EASY", "NORMAL", "HARD"])
+  difficulty?: "EASY" | "NORMAL" | "HARD";
+
+  @ApiPropertyOptional({ isArray: true, enum: ["INTRO", "TECHNICAL", "EXPERIENCE", "SITUATION", "FOLLOW_UP", "CLOSING"] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(6)
+  @IsIn(["INTRO", "TECHNICAL", "EXPERIENCE", "SITUATION", "FOLLOW_UP", "CLOSING"], { each: true })
+  questionTypes?: string[];
 }
 
 export class CriteriaSuggestRequestDto {
