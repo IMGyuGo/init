@@ -1,6 +1,27 @@
 import assert from "node:assert/strict";
 import { PrismaInterviewRepository } from "./prisma-interview.repository";
 
+test("prisma interview repository reads recruiting questions from immutable runtime snapshots", async () => {
+  const repository = new PrismaInterviewRepository({
+    question: { findUnique: async () => null },
+    interviewSessionQuestion: {
+      findUnique: async () => ({
+        runtimeQuestionId: 1_000_000_000_000_001n,
+        questionType: "EXPERIENCE",
+        content: "세션 생성 시 확정된 개인화 질문",
+        sortOrder: 4,
+        session: { interviewType: "RECRUITING" },
+      }),
+    },
+  } as never);
+
+  const question = await repository.findQuestion(1_000_000_000_000_001);
+
+  assert.equal(question?.interviewType, "RECRUITING");
+  assert.equal(question?.content, "세션 생성 시 확정된 개인화 질문");
+  assert.equal(question?.sortOrder, 4);
+});
+
 test("prisma interview repository persists answers through interview_answers", async () => {
   const createCalls: unknown[] = [];
   const submittedAt = "2026-07-01T00:00:00.000Z";
@@ -257,6 +278,7 @@ test("prisma interview repository resolves private session question without comp
         questionType: "INTRO",
         content: "개인 세션 질문",
         sortOrder: 1,
+        session: { interviewType: "MOCK" },
       }),
     },
   } as never);

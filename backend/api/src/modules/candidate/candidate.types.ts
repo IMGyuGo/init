@@ -327,6 +327,26 @@ export interface StartInterviewResult {
   startedAt: string;
 }
 
+export type InterviewQuestionSnapshotReadiness =
+  | "READY"
+  | "COMMON_QUESTIONS_NOT_READY"
+  | "PERSONALIZED_QUESTIONS_NOT_READY";
+
+export interface InterviewQuestionSnapshotResult {
+  readiness: InterviewQuestionSnapshotReadiness;
+  applicationId: number;
+  postingId: number;
+  sessionId: number | null;
+  snapshotCreated: boolean;
+  commonQuestionCount: number;
+  personalizedQuestionCount: number;
+  totalQuestionCount: number;
+  expectedCommonQuestionCount: number;
+  expectedPersonalizedQuestionCount: number;
+  policyVersion: number;
+  criteriaVersion: number;
+}
+
 export interface CandidateInterviewRuntimeView {
   applicationId: number;
   sessionId: number;
@@ -371,6 +391,7 @@ export interface CandidateRepository {
   findInterviewSession(sessionId: number): Promise<InterviewSession | undefined>;
   findInterviewSessionByApplication(applicationId: number): Promise<InterviewSession | undefined>;
   ensureInterviewSessionByApplication(applicationId: number): Promise<InterviewSession | undefined>;
+  prepareInterviewSessionQuestionSnapshot(applicationId: number): Promise<InterviewQuestionSnapshotResult | undefined>;
   saveDeviceCheck(sessionId: number, deviceCheck: Omit<InterviewDeviceCheck, "status" | "checkedAt">): Promise<InterviewSession>;
   updateApplicationInterviewStatus(applicationId: number, status: InterviewStatus): Promise<Application>;
   updateApplicationReportStatus(applicationId: number, status: ReportStatus): Promise<Application>;

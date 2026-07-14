@@ -14,6 +14,7 @@ import {
   type ConsentRecord,
   type FileAsset,
   type InterviewSession,
+  type InterviewQuestionSnapshotResult,
   type PortfolioLink,
 } from "../candidate.types";
 
@@ -296,6 +297,29 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     const session = this.createRecruitingInterviewSession(application, new Date().toISOString());
     this.interviewSessions.push(session);
     return session;
+  }
+
+  async prepareInterviewSessionQuestionSnapshot(
+    applicationId: number,
+  ): Promise<InterviewQuestionSnapshotResult | undefined> {
+    const application = await this.findApplication(applicationId);
+    if (!application) return undefined;
+    const session = await this.ensureInterviewSessionByApplication(applicationId);
+    if (!session) return undefined;
+    return {
+      readiness: "READY",
+      applicationId,
+      postingId: application.postingId,
+      sessionId: session.sessionId,
+      snapshotCreated: false,
+      commonQuestionCount: 0,
+      personalizedQuestionCount: 0,
+      totalQuestionCount: 0,
+      expectedCommonQuestionCount: 0,
+      expectedPersonalizedQuestionCount: 0,
+      policyVersion: 0,
+      criteriaVersion: 0,
+    };
   }
 
   async saveDeviceCheck(

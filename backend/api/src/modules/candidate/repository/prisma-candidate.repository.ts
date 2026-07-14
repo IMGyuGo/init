@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import {
   ApplicationStatus as PrismaApplicationStatus,
   ConsentType as PrismaConsentType,
@@ -24,6 +25,7 @@ import {
   type ConsentRecord,
   type FileAsset,
   type InterviewDeviceCheck,
+  type InterviewQuestionSnapshotResult,
   type InterviewSession,
   type PortfolioLink,
   type ReportStatus,
@@ -288,6 +290,281 @@ export class PrismaCandidateRepository implements CandidateRepository {
       include: { application: true },
     });
     return this.toInterviewSession(created);
+  }
+
+  async prepareInterviewSessionQuestionSnapshot(
+    applicationId: number,
+  ): Promise<InterviewQuestionSnapshotResult | undefined> {
+    return this.prisma.$transaction(async (transaction) => {
+      const lockKey = 417_000_000_000n + BigInt(applicationId);
+      await transaction.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
+
+      const application = await transaction.application.findUnique({
+        where: { applicationId: BigInt(applicationId) },
+        include: {
+          posting: {
+            include: {
+              questionGenerationPolicy: true,
+              questionSets: {
+                where: { status: "ACTIVE" },
+                orderBy: { questionSetId: "desc" },
+                take: 1,
+                include: {
+                  items: {
+                    orderBy: { sortOrder: "asc" },
+                    include: {
+                      question: true,
+                      criterion: { include: { tag: true } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          documents: {
+            where: { documentType: PrismaDocumentType.RESUME },
+            orderBy: { uploadedAt: "desc" },
+            take: 1,
+          },
+          interviewQuestionBatches: {
+            orderBy: { createdAt: "desc" },
+            include: { questions: { orderBy: { sortOrder: "asc" } } },
+          },
+          interviewSessions: {
+            where: { interviewType: PrismaInterviewType.RECRUITING },
+            orderBy: { sessionId: "desc" },
+            take: 1,
+            include: { sessionQuestions: { orderBy: { sortOrder: "asc" } } },
+          },
+        },
+      });
+      if (!application) return undefined;
+
+      const policy = application.posting.questionGenerationPolicy;
+      const expectedCommonQuestionCount = policy?.jdCriteriaQuestionCount ?? 0;
+      const expectedPersonalizedQuestionCount = policy?.resumeQuestionCount ?? 0;
+      const policyVersion = policy?.policyVersion ?? 0;
+      const criteriaVersion = policy?.criteriaVersion ?? 0;
+      const existingSession = application.interviewSessions[0] ?? null;
+      const existingSnapshot = existingSession?.sessionQuestions ?? [];
+      if (existingSession && existingSnapshot.length > 0) {
+        const commonQuestionCount = existingSnapshot.filter((item) =>
+          item.generationSource === "JD_CRITERIA" || (item.generationSource === null && item.questionId !== null),
+        ).length;
+        const personalizedQuestionCount = existingSnapshot.filter(
+          (item) => item.generationSource === "RESUME_PERSONALIZED",
+        ).length;
+        return {
+          readiness: "READY",
+          applicationId,
+          postingId: Number(application.postingId),
+          sessionId: Number(existingSession.sessionId),
+          snapshotCreated: false,
+          commonQuestionCount,
+          personalizedQuestionCount,
+          totalQuestionCount: existingSnapshot.length,
+          expectedCommonQuestionCount,
+          expectedPersonalizedQuestionCount,
+          policyVersion: existingSnapshot[0]?.policyVersion ?? policyVersion,
+          criteriaVersion: existingSnapshot[0]?.criteriaVersion ?? criteriaVersion,
+        };
+      }
+
+      if (!policy || policy.evaluationFramework !== "NCS_3_PROFILE_V1") {
+        const session = existingSession ?? await transaction.interviewSession.create({
+          data: {
+            applicationId: application.applicationId,
+            candidateId: application.candidateId,
+            interviewType: PrismaInterviewType.RECRUITING,
+            status: PrismaInterviewStatus.NOT_READY,
+            showQuestionText: true,
+          },
+        });
+        return {
+          readiness: "READY",
+          applicationId,
+          postingId: Number(application.postingId),
+          sessionId: Number(session.sessionId),
+          snapshotCreated: false,
+          commonQuestionCount: 0,
+          personalizedQuestionCount: 0,
+          totalQuestionCount: 0,
+          expectedCommonQuestionCount,
+          expectedPersonalizedQuestionCount,
+          policyVersion,
+          criteriaVersion,
+        };
+      }
+
+      const activeQuestionSet = application.posting.questionSets[0] ?? null;
+      const activeQuestionSetItems = activeQuestionSet?.items ?? [];
+      const commonQuestions = activeQuestionSetItems.filter((item) =>
+        item.question.isActive &&
+        item.question.generationSource === "JD_CRITERIA" &&
+        item.question.alignmentStatus === "ALIGNED" &&
+        item.question.criterionId !== null &&
+        item.question.ncsProfileId !== null &&
+        item.question.ncsQuestionMode !== null &&
+        item.question.ncsProfileVersion !== null &&
+        item.criterion !== null,
+      );
+      if (
+        activeQuestionSetItems.length !== expectedCommonQuestionCount ||
+        commonQuestions.length !== expectedCommonQuestionCount
+      ) {
+        return this.snapshotReadinessResult({
+          readiness: "COMMON_QUESTIONS_NOT_READY",
+          applicationId,
+          postingId: Number(application.postingId),
+          sessionId: existingSession ? Number(existingSession.sessionId) : null,
+          commonQuestionCount: commonQuestions.length,
+          personalizedQuestionCount: 0,
+          expectedCommonQuestionCount,
+          expectedPersonalizedQuestionCount,
+          policyVersion,
+          criteriaVersion,
+        });
+      }
+
+      let personalizedQuestions: (typeof application.interviewQuestionBatches)[number]["questions"] = [];
+      if (expectedPersonalizedQuestionCount > 0) {
+        const resumeDocument = application.documents[0] ?? null;
+        const resumeText = resumeDocument?.parseStatus === PrismaDocumentStatus.EXTRACTED
+          ? resumeDocument.extractedText?.trim() ?? ""
+          : "";
+        const jobDescription = application.posting.jobDescription?.trim() ?? "";
+        const resumeDocumentHash = resumeText ? hashInterviewSnapshot(resumeText) : null;
+        const jdSnapshotHash = jobDescription ? hashInterviewSnapshot(jobDescription) : null;
+        const batch = resumeDocumentHash && jdSnapshotHash
+          ? application.interviewQuestionBatches.find((candidate) =>
+              candidate.policyVersion === policyVersion &&
+              candidate.criteriaVersion === criteriaVersion &&
+              candidate.resumeDocumentHash === resumeDocumentHash &&
+              candidate.jdSnapshotHash === jdSnapshotHash,
+            )
+          : null;
+        personalizedQuestions = batch?.status === "READY" && batch.questions.length === expectedPersonalizedQuestionCount
+          ? batch.questions.filter((question) =>
+              question.source === "RESUME_PERSONALIZED" &&
+              question.alignmentStatus === "ALIGNED" &&
+              question.criterionId !== null &&
+              Boolean(question.content.trim()) &&
+              Boolean(question.ncsProfileId) &&
+              Boolean(question.ncsQuestionMode) &&
+              Boolean(question.ncsProfileVersion),
+            )
+          : [];
+        if (personalizedQuestions.length !== expectedPersonalizedQuestionCount) {
+          return this.snapshotReadinessResult({
+            readiness: "PERSONALIZED_QUESTIONS_NOT_READY",
+            applicationId,
+            postingId: Number(application.postingId),
+            sessionId: existingSession ? Number(existingSession.sessionId) : null,
+            commonQuestionCount: commonQuestions.length,
+            personalizedQuestionCount: personalizedQuestions.length,
+            expectedCommonQuestionCount,
+            expectedPersonalizedQuestionCount,
+            policyVersion,
+            criteriaVersion,
+          });
+        }
+      }
+
+      const session = existingSession ?? await transaction.interviewSession.create({
+        data: {
+          applicationId: application.applicationId,
+          candidateId: application.candidateId,
+          interviewType: PrismaInterviewType.RECRUITING,
+          status: PrismaInterviewStatus.NOT_READY,
+          showQuestionText: true,
+        },
+      });
+      const snapshotRows: Prisma.InterviewSessionQuestionCreateManyInput[] = [];
+      for (const item of commonQuestions) {
+        const runtimeQuestionId = await this.allocateSessionRuntimeQuestionId(transaction);
+        snapshotRows.push({
+          sessionId: session.sessionId,
+          questionId: item.question.questionId,
+          personalizedQuestionId: null,
+          runtimeQuestionId,
+          criterionId: item.question.criterionId,
+          criterionTitleSnapshot: item.criterion?.tag.name ?? "",
+          generationSource: "JD_CRITERIA",
+          questionType: item.question.questionType,
+          content: item.question.content,
+          ncsProfileId: item.question.ncsProfileId,
+          ncsQuestionMode: item.question.ncsQuestionMode,
+          ncsProfileVersion: item.question.ncsProfileVersion,
+          alignmentStatus: item.question.alignmentStatus,
+          alignmentScore: item.question.alignmentScore,
+          alignmentReason: item.question.alignmentReason,
+          evaluatorVersion: item.question.evaluatorVersion,
+          policyVersion,
+          criteriaVersion,
+          sortOrder: snapshotRows.length + 1,
+        });
+      }
+      for (const question of personalizedQuestions) {
+        const runtimeQuestionId = await this.allocateSessionRuntimeQuestionId(transaction);
+        snapshotRows.push({
+          sessionId: session.sessionId,
+          questionId: null,
+          personalizedQuestionId: question.personalizedQuestionId,
+          runtimeQuestionId,
+          criterionId: question.criterionId,
+          criterionTitleSnapshot: question.criterionTitleSnapshot,
+          generationSource: "RESUME_PERSONALIZED",
+          questionType: question.questionType,
+          content: question.content,
+          ncsProfileId: question.ncsProfileId,
+          ncsQuestionMode: question.ncsQuestionMode,
+          ncsProfileVersion: question.ncsProfileVersion,
+          alignmentStatus: question.alignmentStatus,
+          alignmentScore: question.alignmentScore,
+          alignmentReason: question.alignmentReason,
+          evaluatorVersion: question.evaluatorVersion,
+          policyVersion,
+          criteriaVersion,
+          sortOrder: snapshotRows.length + 1,
+        });
+      }
+      if (snapshotRows.length > 0) {
+        await transaction.interviewSessionQuestion.createMany({ data: snapshotRows });
+      }
+
+      return {
+        readiness: "READY",
+        applicationId,
+        postingId: Number(application.postingId),
+        sessionId: Number(session.sessionId),
+        snapshotCreated: snapshotRows.length > 0,
+        commonQuestionCount: commonQuestions.length,
+        personalizedQuestionCount: personalizedQuestions.length,
+        totalQuestionCount: snapshotRows.length,
+        expectedCommonQuestionCount,
+        expectedPersonalizedQuestionCount,
+        policyVersion,
+        criteriaVersion,
+      };
+    });
+  }
+
+  private snapshotReadinessResult(
+    input: Omit<InterviewQuestionSnapshotResult, "snapshotCreated" | "totalQuestionCount">,
+  ): InterviewQuestionSnapshotResult {
+    return {
+      ...input,
+      snapshotCreated: false,
+      totalQuestionCount: input.commonQuestionCount + input.personalizedQuestionCount,
+    };
+  }
+
+  private async allocateSessionRuntimeQuestionId(transaction: Prisma.TransactionClient): Promise<bigint> {
+    const [sequence] = await transaction.$queryRaw<Array<{ questionId: bigint }>>`
+      SELECT nextval('interview_runtime_question_id_seq') AS "questionId"
+    `;
+    if (!sequence) throw new Error("Failed to allocate a session runtime question ID.");
+    return sequence.questionId;
   }
 
   async saveDeviceCheck(
@@ -804,6 +1081,10 @@ export class PrismaCandidateRepository implements CandidateRepository {
 
 function isPrismaUniqueConstraintError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";
+}
+
+function hashInterviewSnapshot(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 function buildPublicFileUrl(storageKey: string) {

@@ -118,6 +118,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
 
     const runtimeQuestion = await this.prisma.interviewSessionQuestion.findUnique({
       where: { runtimeQuestionId: BigInt(questionId) },
+      include: { session: { select: { interviewType: true } } },
     });
     if (!runtimeQuestion?.questionType || !runtimeQuestion.content) return undefined;
     return {
@@ -125,7 +126,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
       questionType: runtimeQuestion.questionType,
       content: runtimeQuestion.content,
       sortOrder: runtimeQuestion.sortOrder,
-      interviewType: "MOCK",
+      interviewType: runtimeQuestion.session.interviewType,
       isActive: false,
     };
   }
@@ -309,7 +310,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
       select: { sessionQuestionId: true, questionId: true, runtimeQuestionId: true },
     });
     const existingByRuntimeId = new Map(
-      existing.map((item) => [Number(item.questionId ?? item.runtimeQuestionId), item]),
+      existing.map((item) => [Number(item.runtimeQuestionId ?? item.questionId), item]),
     );
     const requested = new Set(questionIds);
     const removedPrivateQuestion = existing.find(
@@ -343,7 +344,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
     }
 
     const removedIds = existing
-      .filter((item) => !requested.has(Number(item.questionId ?? item.runtimeQuestionId)))
+      .filter((item) => !requested.has(Number(item.runtimeQuestionId ?? item.questionId)))
       .map((item) => item.sessionQuestionId);
     if (removedIds.length > 0) {
       await transaction.interviewSessionQuestion.deleteMany({
@@ -744,7 +745,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
     });
     if (persisted.length > 0) {
       return persisted
-        .map((item) => item.questionId ?? item.runtimeQuestionId)
+        .map((item) => item.runtimeQuestionId ?? item.questionId)
         .filter((questionId): questionId is bigint => questionId !== null)
         .map(Number);
     }
@@ -790,7 +791,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
     const seenQuestionIds = new Set<number>();
 
     for (const answer of answers) {
-      const resolved = answer.questionId ?? answer.sessionQuestion?.runtimeQuestionId;
+      const resolved = answer.sessionQuestion?.runtimeQuestionId ?? answer.questionId;
       if (resolved === null || resolved === undefined) continue;
       const questionId = Number(resolved);
       if (seenQuestionIds.has(questionId)) continue;
@@ -818,7 +819,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
     });
     const answeredIds = new Set(
       answers
-        .map((answer) => answer.questionId ?? answer.sessionQuestion?.runtimeQuestionId)
+        .map((answer) => answer.sessionQuestion?.runtimeQuestionId ?? answer.questionId)
         .filter((questionId): questionId is bigint => questionId !== null && questionId !== undefined)
         .map(Number),
     );
@@ -840,7 +841,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
   }
 
   private toAnswer(answer: AnswerRecord): InterviewAnswer {
-    const questionId = answer.questionId ?? answer.sessionQuestion?.runtimeQuestionId;
+    const questionId = answer.sessionQuestion?.runtimeQuestionId ?? answer.questionId;
     return {
       answerId: Number(answer.answerId),
       sessionId: Number(answer.sessionId),

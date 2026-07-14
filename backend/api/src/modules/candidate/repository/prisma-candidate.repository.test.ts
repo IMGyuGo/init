@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 
 import { CandidateDomainError } from "../candidate.errors";
 import { PrismaCandidateRepository } from "./prisma-candidate.repository";
@@ -57,6 +58,133 @@ function postingRow(input: Partial<Record<string, unknown>> = {}) {
 }
 
 describe("PrismaCandidateRepository", () => {
+  function createSnapshotRepository(options: { batchStatus?: string } = {}) {
+    const jd = "NestJS와 PostgreSQL 기반 백엔드 개발자";
+    const resume = "결제 장애의 원인을 추적하고 재발 방지 테스트를 추가했습니다.";
+    const hash = (value: string) => createHash("sha256").update(value, "utf8").digest("hex");
+    let runtimeQuestionId = 1_000_000_000_000_000n;
+    let snapshotRows: Array<Record<string, unknown>> = [];
+    let createManyCalls = 0;
+    const commonQuestions = [1, 2].map((sortOrder) => ({
+      sortOrder,
+      question: {
+        questionId: BigInt(100 + sortOrder),
+        isActive: true,
+        generationSource: "JD_CRITERIA",
+        alignmentStatus: "ALIGNED",
+        criterionId: BigInt(sortOrder),
+        questionType: "TECHNICAL",
+        content: `공통 질문 ${sortOrder}`,
+        ncsProfileId: sortOrder === 1 ? "PROBLEM_SOLVING" : "COMMUNICATION",
+        ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+        ncsProfileVersion: "2025.12-v1",
+        alignmentScore: { toString: () => "0.9" },
+        alignmentReason: "정렬됨",
+        evaluatorVersion: "ncs-align-v1",
+      },
+      criterion: { tag: { name: `평가 기준 ${sortOrder}` } },
+    }));
+    const personalizedQuestions = [1, 2].map((sortOrder) => ({
+      personalizedQuestionId: BigInt(200 + sortOrder),
+      criterionId: BigInt(sortOrder),
+      criterionTitleSnapshot: `평가 기준 ${sortOrder}`,
+      source: "RESUME_PERSONALIZED",
+      questionType: "EXPERIENCE",
+      content: `개인화 질문 ${sortOrder}`,
+      ncsProfileId: sortOrder === 1 ? "PROBLEM_SOLVING" : "COMMUNICATION",
+      ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+      ncsProfileVersion: "2025.12-v1",
+      alignmentStatus: "ALIGNED",
+      alignmentScore: { toString: () => "0.91" },
+      alignmentReason: "정렬됨",
+      evaluatorVersion: "ncs-align-v1",
+      sortOrder,
+    }));
+    const transaction = {
+      $executeRaw: async () => 0,
+      $queryRaw: async () => [{ questionId: runtimeQuestionId++ }],
+      application: {
+        findUnique: async () => ({
+          applicationId: 10n,
+          postingId: 20n,
+          candidateId: 30n,
+          posting: {
+            jobDescription: jd,
+            questionGenerationPolicy: {
+              evaluationFramework: "NCS_3_PROFILE_V1",
+              jdCriteriaQuestionCount: 2,
+              resumeQuestionCount: 2,
+              policyVersion: 3,
+              criteriaVersion: 4,
+            },
+            questionSets: [{ items: commonQuestions }],
+          },
+          documents: [{ parseStatus: "EXTRACTED", extractedText: resume }],
+          interviewQuestionBatches: [{
+            status: options.batchStatus ?? "READY",
+            policyVersion: 3,
+            criteriaVersion: 4,
+            resumeDocumentHash: hash(resume),
+            jdSnapshotHash: hash(jd),
+            questions: personalizedQuestions,
+          }],
+          interviewSessions: [{ sessionId: 40n, sessionQuestions: snapshotRows }],
+        }),
+      },
+      interviewSession: {
+        create: async () => { throw new Error("existing session should be reused"); },
+      },
+      interviewSessionQuestion: {
+        createMany: async ({ data }: { data: Array<Record<string, unknown>> }) => {
+          createManyCalls += 1;
+          snapshotRows = data;
+          return { count: data.length };
+        },
+      },
+    };
+    const prisma = {
+      $transaction: async (callback: (tx: typeof transaction) => unknown) => callback(transaction),
+    };
+    return {
+      repository: new PrismaCandidateRepository(prisma as never),
+      getSnapshotRows: () => snapshotRows,
+      getCreateManyCalls: () => createManyCalls,
+    };
+  }
+
+  it("creates an immutable common-first NCS session snapshot", async () => {
+    const fixture = createSnapshotRepository();
+
+    const created = await fixture.repository.prepareInterviewSessionQuestionSnapshot(10);
+    assert.equal(created?.readiness, "READY");
+    assert.equal(created?.snapshotCreated, true);
+    assert.equal(created?.commonQuestionCount, 2);
+    assert.equal(created?.personalizedQuestionCount, 2);
+    assert.deepEqual(fixture.getSnapshotRows().map((row) => row.generationSource), [
+      "JD_CRITERIA",
+      "JD_CRITERIA",
+      "RESUME_PERSONALIZED",
+      "RESUME_PERSONALIZED",
+    ]);
+    assert.deepEqual(fixture.getSnapshotRows().map((row) => row.sortOrder), [1, 2, 3, 4]);
+
+    const reused = await fixture.repository.prepareInterviewSessionQuestionSnapshot(10);
+    assert.equal(reused?.snapshotCreated, false);
+    assert.equal(reused?.totalQuestionCount, 4);
+    assert.equal(fixture.getCreateManyCalls(), 1);
+  });
+
+  it("does not write a partial snapshot while personalized questions are not ready", async () => {
+    const fixture = createSnapshotRepository({ batchStatus: "GENERATING" });
+
+    const result = await fixture.repository.prepareInterviewSessionQuestionSnapshot(10);
+
+    assert.equal(result?.readiness, "PERSONALIZED_QUESTIONS_NOT_READY");
+    assert.equal(result?.commonQuestionCount, 2);
+    assert.equal(result?.personalizedQuestionCount, 0);
+    assert.equal(fixture.getCreateManyCalls(), 0);
+  });
+
   it("queries only candidate-visible postings from the shared postings table", async () => {
     const calls: Array<{ sql: string; params: unknown[] }> = [];
     const prisma = {

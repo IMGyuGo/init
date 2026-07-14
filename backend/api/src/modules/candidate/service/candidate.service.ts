@@ -36,6 +36,7 @@ import {
   UpdateCandidateProfileInput,
   FileAsset,
   InterviewDeviceCheckResult,
+  InterviewQuestionSnapshotResult,
   InterviewSession,
   PageMeta,
   PortfolioLink,
@@ -542,6 +543,7 @@ export class CandidateService {
         { field: "deviceCheck", reason: "camera, microphone, and network checks are required" },
       ]);
     }
+    await this.prepareRecruitingInterviewSessionSnapshot(application.applicationId);
     if (refreshedSession.status === "IN_PROGRESS") {
       if (application.interviewStatus !== "IN_PROGRESS") {
         await this.repository.updateApplicationInterviewStatus(application.applicationId, "IN_PROGRESS");
@@ -573,6 +575,43 @@ export class CandidateService {
       interviewUrl: `/candidate/applications/${application.applicationId}/interview`,
       startedAt: now,
     });
+  }
+
+  async prepareRecruitingInterviewSessionSnapshot(applicationId: number): Promise<InterviewQuestionSnapshotResult> {
+    this.assertPositiveIntegerId(applicationId, "applicationId");
+    const result = await this.repository.prepareInterviewSessionQuestionSnapshot(applicationId);
+    if (!result) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "Application was not found.", 404, [
+        { field: "applicationId", reason: "application not found" },
+      ]);
+    }
+    if (result.readiness === "PERSONALIZED_QUESTIONS_NOT_READY") {
+      throw new CandidateDomainError(
+        "INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY",
+        "Personalized interview questions are not ready.",
+        409,
+        [{
+          field: "resumeQuestions",
+          reason: "READY_BATCH_REQUIRED",
+          expectedCount: result.expectedPersonalizedQuestionCount,
+          actualCount: result.personalizedQuestionCount,
+        }],
+      );
+    }
+    if (result.readiness === "COMMON_QUESTIONS_NOT_READY") {
+      throw new CandidateDomainError(
+        "INTERVIEW_QUESTION_COUNT_INVALID",
+        "Common interview questions do not match the configured policy.",
+        409,
+        [{
+          field: "commonQuestions",
+          reason: "ACTIVE_QUESTION_SET_COUNT_MISMATCH",
+          expectedCount: result.expectedCommonQuestionCount,
+          actualCount: result.commonQuestionCount,
+        }],
+      );
+    }
+    return result;
   }
 
   async getInterviewRuntime(
