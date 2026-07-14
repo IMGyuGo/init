@@ -1709,6 +1709,57 @@
   width: 100%;
 }
 
+/* ===== 장치 점검 노션 톤 (#288, UI만) ===== */
+:global(.candidate-device-setup .candidate-feature__eyebrow) {
+  color: rgba(55, 53, 47, 0.5);
+  font-weight: 600;
+}
+:global(.candidate-device-setup__head) {
+  padding: 0 2px 22px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 0;
+  box-shadow: none;
+}
+:global(.candidate-device-setup__head h1) {
+  color: #191919;
+  font-size: 22px;
+  font-weight: 700;
+}
+:global(.candidate-device-setup__head p:last-child) {
+  color: rgba(55, 53, 47, 0.6);
+}
+:global(.candidate-device-setup .candidate-steps span) {
+  color: rgba(55, 53, 47, 0.55);
+  background: #f7f7f5;
+  border-color: rgba(55, 53, 47, 0.1);
+  border-radius: 10px;
+}
+:global(.candidate-device-setup .candidate-steps .current) {
+  color: #3b6fe0;
+  background: #fff;
+  border-color: #3b6fe0;
+}
+:global(.candidate-device-setup .candidate-steps b) {
+  color: inherit;
+}
+:global(.candidate-device-setup .camera-select) {
+  color: #37352f;
+  border-color: rgba(55, 53, 47, 0.16);
+  border-radius: 6px;
+}
+:global(.candidate-device-setup .mic-meter) {
+  background: rgba(55, 53, 47, 0.08);
+  border-color: rgba(55, 53, 47, 0.1);
+}
+:global(.candidate-device-setup .mic-meter span) {
+  background: #3b6fe0;
+}
+:global(.candidate-device-setup .status-line) {
+  color: #37352f;
+}
+
 :global(.q-card) {
   position: relative;
   padding: 24px 26px;
