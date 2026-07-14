@@ -357,17 +357,106 @@ async function run() {
   const initialProfile = await service.getProfile(currentUser);
   assert.equal(initialProfile.data.email, "candidate@example.com");
   assert.equal(initialProfile.data.githubUrl, null);
+  assert.deepEqual(initialProfile.data.educations, []);
+  assert.deepEqual(initialProfile.data.careers, []);
+  assert.deepEqual(initialProfile.data.activities, []);
+  assert.deepEqual(initialProfile.data.credentials, []);
   const savedProfile = await service.updateProfile(
-    { githubUrl: "https://github.com/tester", blogUrl: "  ", phone: "010-1234-5678", summary: "백엔드 지원자" },
+    {
+      githubUrl: "https://github.com/tester",
+      blogUrl: "  ",
+      phone: "010-1234-5678",
+      summary: "백엔드 지원자",
+      educations: [{
+        educationLevel: "UNIVERSITY",
+        schoolName: "정글대학교",
+        major: "컴퓨터공학",
+        degreeType: "BACHELOR",
+        status: "GRADUATED",
+        startMonth: "2020-03",
+        endMonth: "2024-02",
+      }],
+      careers: [{
+        companyName: "정글랩",
+        startMonth: "2024-03",
+        endMonth: null,
+        isCurrent: true,
+        jobRole: "백엔드 개발자",
+        department: null,
+        position: null,
+        responsibilities: "NestJS API와 Redis 캐시를 운영했습니다.",
+      }],
+      activities: [{
+        activityType: "CLUB",
+        organizationName: "개발 동아리",
+        startDate: "2023-01-01",
+        endDate: "2023-12-31",
+        isOngoing: false,
+        description: "팀 프로젝트의 기술 의사결정을 맡았습니다.",
+      }],
+      credentials: [{
+        credentialType: "CERTIFICATE",
+        name: "정보처리기사",
+        issuer: "한국산업인력공단",
+        acquiredMonth: "2024-06",
+        result: null,
+      }],
+    },
     currentUser,
   );
   assert.equal(savedProfile.data.githubUrl, "https://github.com/tester");
   assert.equal(savedProfile.data.blogUrl, null); // 공백만 입력하면 null 로 정규화
   assert.equal(savedProfile.data.phone, "010-1234-5678");
   assert.equal(savedProfile.data.summary, "백엔드 지원자");
+  assert.equal(savedProfile.data.educations[0]?.schoolName, "정글대학교");
+  assert.equal(savedProfile.data.careers[0]?.isCurrent, true);
   const reloadedProfile = await service.getProfile(currentUser);
   assert.equal(reloadedProfile.data.githubUrl, "https://github.com/tester");
   assert.equal(reloadedProfile.data.phone, "010-1234-5678");
+
+  const scalarOnly = await service.updateProfile({ summary: "수정된 소개" }, currentUser);
+  assert.equal(scalarOnly.data.educations.length, 1); // 배열 누락은 기존 값 유지
+  const cleared = await service.updateProfile({ activities: [] }, currentUser);
+  assert.deepEqual(cleared.data.activities, []); // 빈 배열은 해당 섹션 전체 삭제
+  assert.equal(cleared.data.careers.length, 1);
+
+  await assert.rejects(
+    () => service.updateProfile({ name: null } as never, currentUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
+  );
+  await assert.rejects(
+    () => service.updateProfile({
+      careers: [{
+        companyName: "종료 회사",
+        startMonth: "2024-01",
+        endMonth: null,
+        isCurrent: false,
+        jobRole: "개발자",
+        responsibilities: "API 개발",
+      }],
+    }, currentUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
+  );
+
+  await service.updateProfile({
+    summary: "가".repeat(1_200),
+    credentials: Array.from({ length: 6 }, (_, index) => ({
+      credentialType: "CERTIFICATE" as const,
+      name: `자격 ${index + 1}`,
+      issuer: "발행기관",
+      acquiredMonth: `2024-0${index + 1}`,
+      result: null,
+    })),
+  }, currentUser);
+  const aiContext = await service.getCandidateProfileAiContext(currentUser);
+  assert.equal(aiContext.schemaVersion, 1);
+  assert.equal(aiContext.summary?.length, 1_000);
+  assert.equal(aiContext.careers[0]?.companyName, "정글랩");
+  assert.equal(aiContext.credentials.length, 5);
+  assert.equal(aiContext.credentials[0]?.name, "자격 6");
+  assert.equal("name" in aiContext, false);
+  assert.equal("email" in aiContext, false);
+  assert.equal("phone" in aiContext, false);
 
   await assert.rejects(
     () => service.getJobDetail(Number.NaN, currentUser),

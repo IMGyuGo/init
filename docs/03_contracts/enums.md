@@ -35,6 +35,11 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | `posting_region_code` | `PostingRegionCode` |
 | `posting_employment_type_code` | `PostingEmploymentTypeCode` |
 | `posting_recruitment_type` | `PostingRecruitmentType` |
+| `candidate_education_level` | `CandidateEducationLevel` |
+| `candidate_degree_type` | `CandidateDegreeType` |
+| `candidate_education_status` | `CandidateEducationStatus` |
+| `candidate_activity_type` | `CandidateActivityType` |
+| `candidate_credential_type` | `CandidateCredentialType` |
 
 금지 이름: `EvaluationCriteria`, `QuestionBank`, `AIProcessLog`, `AIGuardrailLog`를 Prisma model/class 이름으로 새로 만들지 않는다.
 
@@ -101,3 +106,8 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | failure_category | RETRYABLE, NON_RETRYABLE | AI 실패 재시도 가능 여부 |
 | guardrail_result | PASS, BLOCKED, REGENERATED | AI 안전 검증 결과 |
 | embedding_source_type | POSTING_JD, CRITERION_TAG, QUESTION, APPLICATION_DOCUMENT, INTERVIEW_ANSWER, EVALUATION_REPORT | 임베딩 원천 유형 |
+| candidate_education_level | HIGH_SCHOOL, COLLEGE, UNIVERSITY, GRADUATE_SCHOOL, OTHER | 학력 구분 |
+| candidate_degree_type | HIGH_SCHOOL_DIPLOMA, ASSOCIATE, BACHELOR, MASTER, DOCTORATE, OTHER | 학위 또는 대학 구분 |
+| candidate_education_status | ENROLLED, LEAVE_OF_ABSENCE, GRADUATED, EXPECTED_GRADUATION, COMPLETED, WITHDRAWN | 재학·졸업 상태 |
+| candidate_activity_type | SCHOOL_ACTIVITY, INTERNSHIP, CLUB, PROJECT_TASK, OVERSEAS_TRAINING, EDUCATION | 프로젝트·경험·활동·교육 구분 |
+| candidate_credential_type | CERTIFICATE, LANGUAGE_TEST, AWARD | 자격·어학·수상 구분 |

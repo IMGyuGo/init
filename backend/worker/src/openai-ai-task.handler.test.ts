@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { InMemoryAiResultRepository } from "./ai-result.repository";
 import { MockAiTaskHandler } from "./mock-ai-task.handler";
 import { OpenAiAiTaskHandler } from "./openai-ai-task.handler";
-import { FollowUpAiProvider } from "./openai-follow-up.provider";
+import { FollowUpAiProvider, FollowUpGenerationInput } from "./openai-follow-up.provider";
 import { PostingDraftAiProvider, PostingDraftGenerationInput } from "./openai-posting-draft.provider";
 import { QuestionAiProvider } from "./openai-question.provider";
 import { ReportAiProvider, ReportGenerationInput } from "./openai-report.provider";
@@ -46,6 +46,75 @@ test("OpenAiAiTaskHandler uses provider for follow-up and keeps existing save co
   assert.equal(output.model, "test-model");
   assert.equal(results.followUpQuestions[0]?.content, output.content);
   assert.equal(handled.guardrail?.result, "PASS");
+});
+
+test("OpenAiAiTaskHandler passes safe profile context as secondary follow-up evidence", async () => {
+  const results = new InMemoryAiResultRepository();
+  const inputs: FollowUpGenerationInput[] = [];
+  const capturingProvider: FollowUpAiProvider = {
+    async generateFollowUpQuestion(input) {
+      inputs.push(input);
+      return { content: "Redis 캐시 무효화 기준을 어떻게 정했나요?", model: "test-model" };
+    },
+  };
+  const handler = new OpenAiAiTaskHandler(new MockAiTaskHandler(results), results, capturingProvider);
+  const profileContext = {
+    schemaVersion: 1,
+    summary: "백엔드 개발자",
+    githubUrl: "https://github.com/tester",
+    blogUrl: null,
+    portfolioUrl: null,
+    educations: [],
+    careers: [{ companyName: "정글랩", responsibilities: "Redis 캐시 운영" }],
+    activities: [],
+    credentials: [],
+  };
+
+  const handled = await handler.handle({
+    processLogId: 30,
+    processType: "FOLLOW_UP",
+    attempt: 1,
+    inputRef: JSON.stringify({
+      kind: "MOCK_FOLLOW_UP",
+      payload: {
+        sessionId: 7,
+        answerId: 11,
+        previousQuestion: "캐시 경험을 설명해주세요.",
+        transcript: "Redis 캐시를 적용했습니다.",
+        profileContext,
+      },
+    }),
+  });
+
+  assert.deepEqual(inputs[0]?.profileContext, profileContext);
+  assert.equal(handled.guardrail?.result, "PASS");
+});
+
+test("OpenAiAiTaskHandler blocks follow-up output that leaks contact information or URL", async () => {
+  const results = new InMemoryAiResultRepository();
+  const leakingProvider: FollowUpAiProvider = {
+    async generateFollowUpQuestion() {
+      return { content: "https://github.com/tester에 적힌 전화번호를 설명해주세요?", model: "test-model" };
+    },
+  };
+  const handler = new OpenAiAiTaskHandler(new MockAiTaskHandler(results), results, leakingProvider);
+  const handled = await handler.handle({
+    processLogId: 31,
+    processType: "FOLLOW_UP",
+    attempt: 1,
+    inputRef: JSON.stringify({
+      kind: "MOCK_FOLLOW_UP",
+      payload: {
+        sessionId: 7,
+        answerId: 11,
+        previousQuestion: "프로젝트를 설명해주세요.",
+        transcript: "프로젝트를 진행했습니다.",
+      },
+    }),
+  });
+
+  assert.equal(handled.guardrail?.result, "BLOCKED");
+  assert.match(handled.guardrail?.reason ?? "", /contact information|URL/);
 });
 
 test("OpenAiAiTaskHandler uses provider for final report generation and keeps save contract", async () => {

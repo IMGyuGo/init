@@ -168,9 +168,12 @@ init v0.5의 화면/기능 정의를 구현 단위로 정리한다.
 
 ## 마이페이지 (GNB button)
 
+지원자 프로필의 기본정보는 항상 표시한다. 학력, 경력, 프로젝트·경험·활동·교육, 자격·어학·수상은 각각 독립적으로 열 수 있는 아코디언이며 초기에는 접힌 상태와 항목 수 배지를 보여준다. 한 번의 저장으로 전달된 반복 섹션을 전체 교체한다. 이름/이메일/연락처는 AI에 전달하지 않으며 자유서술 필드에는 민감정보를 입력하지 않도록 안내한다.
+
 | Screen | Path | Type | Content | Description | Input | Success | API/Route | Release | Note |
 | --- |--- |--- |--- |--- |--- |--- |--- |--- |--- |
 | 지원자 마이페이지 화면 | /candidate/mypage | page | 이력서 업로드 | 이력서 파일 제출 | 이력서 PDF/DOCX 파일 | 이력서 업로드 완료 | POST /candidate/resume | v1.0 | - |
+| 지원자 마이페이지 화면 | /candidate/mypage | form | 구조화 프로필 관리 | 기본정보와 학력·경력·활동·자격 반복 항목 저장 | 프로필 필드 | 갱신된 전체 프로필 표시 | GET/PUT /candidate/profile | v1.0 | 저장된 비식별 정보는 맞춤형 질문 생성의 보조 컨텍스트로 사용 |
 | 지원자 마이페이지 화면 | /candidate/mypage | system process | 서류 텍스트 추출 | 서류 텍스트 추출 | 이력서 파일, 포트폴리오 링크 | 추출 텍스트 저장 및 서류 분석 대기 상태 전환 | POST /candidate/documents/extract | v1.0 | 독립 화면 아님. 업로드 후 백그라운드 처리 |
 | 지원자 마이페이지 화면 | /candidate/mypage | form | 포트폴리오/GitHub 링크 등록 | 직무 관련 링크 등록 | URL, 설명, 파일 첨부 | 링크 등록 완료 | POST /candidate/portfolio-links | v1.0 | - |
 | 지원자 마이페이지 화면 | /candidate/mypage | section | 응시 안내 알림 | 응시 안내 메일 조회 | 이메일, 응시 링크, 마감일 | 응시 안내 알림 표시 | GET /candidate/notifications/interview-invitations | v2.0 | MVP 후순위 |

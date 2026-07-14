@@ -738,6 +738,50 @@ export interface SubmitApplicationResponse {
 }
 
 // 지원자 프로필(내 정보) 정본. 자동 입력의 소스. 이메일은 읽기전용. (#272)
+export type CandidateEducationLevel = "HIGH_SCHOOL" | "COLLEGE" | "UNIVERSITY" | "GRADUATE_SCHOOL" | "OTHER";
+export type CandidateDegreeType = "HIGH_SCHOOL_DIPLOMA" | "ASSOCIATE" | "BACHELOR" | "MASTER" | "DOCTORATE" | "OTHER";
+export type CandidateEducationStatus = "ENROLLED" | "LEAVE_OF_ABSENCE" | "GRADUATED" | "EXPECTED_GRADUATION" | "COMPLETED" | "WITHDRAWN";
+export type CandidateActivityType = "SCHOOL_ACTIVITY" | "INTERNSHIP" | "CLUB" | "PROJECT_TASK" | "OVERSEAS_TRAINING" | "EDUCATION";
+export type CandidateCredentialType = "CERTIFICATE" | "LANGUAGE_TEST" | "AWARD";
+
+export interface CandidateEducation {
+  educationLevel: CandidateEducationLevel;
+  schoolName: string;
+  major: string | null;
+  degreeType: CandidateDegreeType;
+  status: CandidateEducationStatus;
+  startMonth: string;
+  endMonth: string | null;
+}
+
+export interface CandidateCareer {
+  companyName: string;
+  startMonth: string;
+  endMonth: string | null;
+  isCurrent: boolean;
+  jobRole: string;
+  department: string | null;
+  position: string | null;
+  responsibilities: string;
+}
+
+export interface CandidateActivity {
+  activityType: CandidateActivityType;
+  organizationName: string;
+  startDate: string;
+  endDate: string | null;
+  isOngoing: boolean;
+  description: string;
+}
+
+export interface CandidateCredential {
+  credentialType: CandidateCredentialType;
+  name: string;
+  issuer: string;
+  acquiredMonth: string;
+  result: string | null;
+}
+
 export interface CandidateProfileView {
   name: string;
   email: string;
@@ -746,6 +790,10 @@ export interface CandidateProfileView {
   blogUrl: string | null;
   portfolioUrl: string | null;
   summary: string | null;
+  educations: CandidateEducation[];
+  careers: CandidateCareer[];
+  activities: CandidateActivity[];
+  credentials: CandidateCredential[];
 }
 
 export interface UpdateCandidateProfileRequest {
@@ -755,6 +803,10 @@ export interface UpdateCandidateProfileRequest {
   blogUrl?: string | null;
   portfolioUrl?: string | null;
   summary?: string | null;
+  educations?: CandidateEducation[];
+  careers?: CandidateCareer[];
+  activities?: CandidateActivity[];
+  credentials?: CandidateCredential[];
 }
 
 // 기업별 지원서 세트(폴더). 모의면접 전용, 기존 CandidateProfile 과 별도 (#228).

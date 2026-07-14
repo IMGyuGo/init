@@ -225,8 +225,16 @@ export class InMemoryCandidateRepository implements CandidateRepository {
         blogUrl: null,
         portfolioUrl: null,
         summary: null,
+        educations: [],
+        careers: [],
+        activities: [],
+        credentials: [],
       }
     );
+  }
+
+  async getCandidateProfileUpdatedAt(_candidateId: number): Promise<string | null> {
+    return new Date(0).toISOString();
   }
 
   async updateCandidateProfile(
@@ -242,6 +250,10 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       ...(input.blogUrl !== undefined ? { blogUrl: input.blogUrl } : {}),
       ...(input.portfolioUrl !== undefined ? { portfolioUrl: input.portfolioUrl } : {}),
       ...(input.summary !== undefined ? { summary: input.summary } : {}),
+      ...(input.educations !== undefined ? { educations: input.educations.map((item) => ({ ...item })) } : {}),
+      ...(input.careers !== undefined ? { careers: input.careers.map((item) => ({ ...item })) } : {}),
+      ...(input.activities !== undefined ? { activities: input.activities.map((item) => ({ ...item })) } : {}),
+      ...(input.credentials !== undefined ? { credentials: input.credentials.map((item) => ({ ...item })) } : {}),
     };
     this.candidateProfiles.set(candidateId, next);
     return next;

@@ -88,7 +88,7 @@ flowchart TD
 | 지원현황 화면 | /candidate/applications | 지원자 | 채용정보 (GNB button) | GET /candidate/applications / GET /candidate/applications/{applicationId}/interview-guide / POST /candidate/applications/{applicationId}/consent / POST /candidate/interviews/{sessionId}/device-check / POST /candidate/applications/{applicationId}/interview/start |
 | 채용 AI 면접 진행 화면 | /candidate/applications/{applicationId}/interview | 지원자 | 채용정보 (GNB button) | GET /candidate/applications/{applicationId}/interview / GET /candidate/interviews/{sessionId}/questions / POST /candidate/interviews/{sessionId}/answers / POST /candidate/interviews/{sessionId}/next-question / POST /candidate/interviews/{sessionId}/stt / POST /candidate/interviews/{sessionId}/follow-up-question / POST /candidate/interviews/{sessionId}/follow-up-questions/insert (MVP 임시 브릿지) / PATCH /candidate/interviews/{sessionId}/complete |
 | 채용 AI 면접 결과 화면 | /candidate/applications/{applicationId}/report | 지원자 | 채용정보 (GNB button) | GET /candidate/applications/{applicationId}/report / GET /candidate/applications/{applicationId}/status |
-| 지원자 마이페이지 화면 | /candidate/mypage | 지원자 | 마이페이지 (GNB button) | POST /candidate/resume / POST /candidate/documents/extract / POST /candidate/portfolio-links / GET /candidate/notifications/interview-invitations |
+| 지원자 마이페이지 화면 | /candidate/mypage | 지원자 | 마이페이지 (GNB button) | GET /candidate/profile / PUT /candidate/profile / POST /candidate/resume / POST /candidate/documents/extract / POST /candidate/portfolio-links / GET /candidate/notifications/interview-invitations |
 | 공통 AI 시스템 처리 | - | 시스템 |  | POST /ai/guardrails/validate |
 
 ## HTML Screen Inventory
@@ -120,5 +120,5 @@ flowchart TD
 | applications | 20. 지원현황 | /candidate/applications | AI 모의면접, 채용정보 ▼, 채용공고, 지원현황, 마이페이지, 로그아웃, 상태 필터 ▼, 조회, 카메라 점검, 마이크 점검, 네트워크 점검, 채용 AI 면접 시작 |  | 선택한 지원 건: 회사명 A / Backend Developer, AI 면접 안내, 응시 동의, 장치 점검 |
 | recruiting-interview | 21. 채용 AI 면접 진행 | /candidate/applications/{applicationId}/interview | 질문 음성 다시 듣기, 답변 완료, 다음 질문으로 이동 |  | 답변 상태 |
 | candidate-result | 22. 채용 AI 면접 결과 | /candidate/applications/{applicationId}/report | 지원현황으로 돌아가기 |  | 회사명 A / Backend Developer, 전형 상태, 제한된 피드백 |
-| candidate-mypage | 23. 지원자 마이페이지 | /candidate/mypage | 마이페이지, 로그아웃, AI 모의면접, 채용정보, 업로드, 등록 | 지원 형식: PDF, DOCX, URL, 설명, 파일 첨부 | 이력서 업로드, 포트폴리오 / GitHub 링크 등록, 응시 안내 알림 - v2.0 |
+| candidate-mypage | 23. 지원자 마이페이지 | /candidate/mypage | 마이페이지, 로그아웃, AI 모의면접, 채용정보, 프로필 저장, 학력/경력/활동/자격 항목 추가·삭제 | 기본정보, 학력, 경력, 프로젝트·경험·활동·교육, 자격·어학·수상 | 기본정보는 항상 표시하고 4개 반복 섹션은 독립 다중 아코디언으로 편집. 민감정보 입력 금지 및 AI 질문 생성 활용 안내 |
 | system-process | SYS. 화면에 직접 노출되지 않는 시스템 처리 | system process |  |  |  |

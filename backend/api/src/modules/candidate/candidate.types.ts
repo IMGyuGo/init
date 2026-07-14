@@ -1,3 +1,11 @@
+import type {
+  CandidateActivityType,
+  CandidateCredentialType,
+  CandidateDegreeType,
+  CandidateEducationLevel,
+  CandidateEducationStatus,
+} from "@init/common";
+
 export type PostingStatus = "DRAFT" | "OPEN" | "CLOSING_SOON" | "CLOSED" | "ARCHIVED";
 export type ApplicationStatus =
   | "DRAFT"
@@ -127,6 +135,44 @@ export interface ApplicantContact {
 }
 
 // 지원자 프로필(내 정보) 정본. 이름/이메일/연락처는 User, 나머지는 CandidateProfile. (#272 프로필 편집)
+export interface CandidateEducationView {
+  educationLevel: CandidateEducationLevel;
+  schoolName: string;
+  major: string | null;
+  degreeType: CandidateDegreeType;
+  status: CandidateEducationStatus;
+  startMonth: string;
+  endMonth: string | null;
+}
+
+export interface CandidateCareerView {
+  companyName: string;
+  startMonth: string;
+  endMonth: string | null;
+  isCurrent: boolean;
+  jobRole: string;
+  department: string | null;
+  position: string | null;
+  responsibilities: string;
+}
+
+export interface CandidateActivityView {
+  activityType: CandidateActivityType;
+  organizationName: string;
+  startDate: string;
+  endDate: string | null;
+  isOngoing: boolean;
+  description: string;
+}
+
+export interface CandidateCredentialView {
+  credentialType: CandidateCredentialType;
+  name: string;
+  issuer: string;
+  acquiredMonth: string;
+  result: string | null;
+}
+
 export interface CandidateProfileView {
   name: string;
   email: string;
@@ -135,6 +181,22 @@ export interface CandidateProfileView {
   blogUrl: string | null;
   portfolioUrl: string | null;
   summary: string | null;
+  educations: CandidateEducationView[];
+  careers: CandidateCareerView[];
+  activities: CandidateActivityView[];
+  credentials: CandidateCredentialView[];
+}
+
+export interface CandidateProfileAiContextV1 {
+  schemaVersion: 1;
+  summary: string | null;
+  githubUrl: string | null;
+  blogUrl: string | null;
+  portfolioUrl: string | null;
+  educations: CandidateEducationView[];
+  careers: CandidateCareerView[];
+  activities: CandidateActivityView[];
+  credentials: CandidateCredentialView[];
 }
 
 // 이메일은 로그인 정보라 수정 대상에서 제외한다.
@@ -145,6 +207,10 @@ export interface UpdateCandidateProfileInput {
   blogUrl?: string | null;
   portfolioUrl?: string | null;
   summary?: string | null;
+  educations?: CandidateEducationView[];
+  careers?: CandidateCareerView[];
+  activities?: CandidateActivityView[];
+  credentials?: CandidateCredentialView[];
 }
 
 export interface CandidateApplyView {
@@ -364,6 +430,7 @@ export interface CandidateRepository {
   findCandidateUserId(candidateId: number): Promise<number | undefined>;
   findApplicantContact(userId: number): Promise<ApplicantContact | undefined>;
   getCandidateProfile(candidateId: number): Promise<CandidateProfileView | undefined>;
+  getCandidateProfileUpdatedAt(candidateId: number): Promise<string | null>;
   updateCandidateProfile(candidateId: number, input: UpdateCandidateProfileInput): Promise<CandidateProfileView>;
   listDocuments(applicationId: number): Promise<ApplicationDocument[]>;
   listConsentRecords(applicationId: number): Promise<ConsentRecord[]>;
