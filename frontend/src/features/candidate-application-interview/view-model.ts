@@ -316,8 +316,9 @@ export interface TimedOutAiJobStatusInput {
 
 export interface CandidateReportNotificationSource {
   applicationId: number;
-  companyName: string;
-  jobTitle: string;
+  availabilityStatus?: CandidateApplicationSummary["availabilityStatus"];
+  companyName: string | null;
+  jobTitle: string | null;
   reportStatus: ReportStatus;
   updatedAt?: string;
 }
@@ -654,7 +655,7 @@ export function buildCandidateReportCompleteNotification(
   readIds: ReadonlySet<string>,
   dismissedIds: ReadonlySet<string> = new Set(),
 ): CandidateNotificationItem | null {
-  if (application.reportStatus !== "COMPLETED") {
+  if (application.availabilityStatus === "UNAVAILABLE" || application.reportStatus !== "COMPLETED") {
     return null;
   }
 
@@ -663,7 +664,7 @@ export function buildCandidateReportCompleteNotification(
     return null;
   }
 
-  const companyName = application.companyName.trim() || "기업";
+  const companyName = application.companyName?.trim() || "기업";
 
   return {
     id,

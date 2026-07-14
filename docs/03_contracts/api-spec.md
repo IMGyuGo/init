@@ -2846,9 +2846,13 @@ CandidateFolder 입력 제한:
 - 검증/전제조건:
   - 로그인 사용자
 - 성공 응답/처리:
-  - 지원현황 목록 표시
+  - 지원현황 목록을 200 OK로 반환한다.
+  - 각 항목은 영속 지원 상태와 별도로 `availabilityStatus`를 반환한다. 정상 항목은 `AVAILABLE`이며, 연결된 공고 또는 면접 세션을 찾지 못한 항목은 `UNAVAILABLE`이다.
+  - `UNAVAILABLE` 항목은 `unavailableReason`으로 `POSTING_NOT_FOUND` 또는 `INTERVIEW_SESSION_NOT_FOUND`를 반환하고, 누락된 연결 정보 필드는 `null`로 반환한다.
+  - `UNAVAILABLE` 항목은 면접 및 리포트 진입을 허용하지 않으며, 화면에서는 "더 이상 조회할 수 없는 지원입니다."로 표시한다.
 - 오류/예외:
   - 지원 내역이 없으면 채용공고 탐색 CTA를 표시한다.
+  - 일부 지원 항목의 공고 또는 면접 세션 연결 정보가 없어도 목록 전체를 404로 반환하지 않는다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, applications, application_documents, interview_sessions, evaluation_reports, report_scores, report_evidences, ai_process_logs
 - 비고/미결:
