@@ -233,7 +233,13 @@ CREATE TABLE criterion_tags (
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
     -- 화면 표시 순서
-    sort_order INTEGER NOT NULL
+    sort_order INTEGER NOT NULL,
+
+    ncs_profile_id VARCHAR(50),
+
+    default_ncs_question_mode VARCHAR(50),
+
+    ncs_profile_version VARCHAR(80)
 );
 
 CREATE TABLE evaluation_criteria (
@@ -256,7 +262,13 @@ CREATE TABLE evaluation_criteria (
     pass_score INTEGER,
 
     -- 화면 표시 순서
-    sort_order INTEGER NOT NULL
+    sort_order INTEGER NOT NULL,
+
+    ncs_profile_id VARCHAR(50),
+
+    ncs_question_mode VARCHAR(50),
+
+    ncs_profile_version VARCHAR(80)
 );
 
 CREATE TABLE question_bank (
@@ -285,7 +297,101 @@ CREATE TABLE question_bank (
     is_ai_edited BOOLEAN NOT NULL DEFAULT FALSE,
 
     -- 현재 사용 가능한 질문인지 여부
-    is_active BOOLEAN NOT NULL DEFAULT TRUE
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+
+    generation_source VARCHAR(50),
+
+    ncs_profile_id VARCHAR(50),
+
+    ncs_question_mode VARCHAR(50),
+
+    ncs_profile_version VARCHAR(80),
+
+    alignment_status VARCHAR(40),
+
+    alignment_score DECIMAL(8,6),
+
+    alignment_reason TEXT,
+
+    evaluator_version VARCHAR(80),
+
+    source_process_log_id BIGINT
+);
+
+CREATE TABLE interview_question_generation_policies (
+    posting_id BIGINT PRIMARY KEY,
+    evaluation_framework VARCHAR(50) NOT NULL DEFAULT 'LEGACY',
+    jd_criteria_question_count INTEGER NOT NULL DEFAULT 0,
+    resume_question_count INTEGER NOT NULL DEFAULT 0,
+    policy_version INTEGER NOT NULL DEFAULT 0,
+    criteria_version INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE application_interview_question_batches (
+    batch_id BIGINT PRIMARY KEY,
+    application_id BIGINT NOT NULL,
+    latest_process_log_id BIGINT NOT NULL,
+    status VARCHAR(40) NOT NULL,
+    policy_version INTEGER NOT NULL,
+    criteria_version INTEGER NOT NULL,
+    input_version VARCHAR(128) NOT NULL,
+    resume_document_hash VARCHAR(128) NOT NULL,
+    jd_snapshot_hash VARCHAR(128) NOT NULL,
+    evaluator_version VARCHAR(80),
+    failure_reason TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE application_interview_questions (
+    personalized_question_id BIGINT PRIMARY KEY,
+    batch_id BIGINT NOT NULL,
+    criterion_id BIGINT,
+    source_process_log_id BIGINT NOT NULL,
+    criterion_title_snapshot VARCHAR(200) NOT NULL,
+    source VARCHAR(50) NOT NULL DEFAULT 'RESUME_PERSONALIZED',
+    question_type VARCHAR(50) NOT NULL,
+    content TEXT NOT NULL,
+    ncs_profile_id VARCHAR(50) NOT NULL,
+    ncs_question_mode VARCHAR(50) NOT NULL,
+    ncs_profile_version VARCHAR(80) NOT NULL,
+    alignment_status VARCHAR(40) NOT NULL,
+    alignment_score DECIMAL(8,6),
+    alignment_reason TEXT,
+    evaluator_version VARCHAR(80),
+    sort_order INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE question_ncs_bindings (
+    question_id BIGINT NOT NULL,
+    criterion_id BIGINT NOT NULL,
+    ncs_profile_id VARCHAR(50) NOT NULL,
+    ncs_profile_version VARCHAR(80) NOT NULL,
+    alignment_status VARCHAR(40) NOT NULL,
+    alignment_score DECIMAL(8,6),
+    alignment_reason TEXT,
+    evaluator_version VARCHAR(80),
+    binding_order INTEGER NOT NULL,
+    CONSTRAINT pk_question_ncs_bindings PRIMARY KEY (question_id, ncs_profile_id),
+    CONSTRAINT uq_question_ncs_bindings_order UNIQUE (question_id, binding_order)
+);
+
+CREATE TABLE application_question_ncs_bindings (
+    personalized_question_id BIGINT NOT NULL,
+    criterion_id BIGINT,
+    ncs_profile_id VARCHAR(50) NOT NULL,
+    ncs_profile_version VARCHAR(80) NOT NULL,
+    alignment_status VARCHAR(40) NOT NULL,
+    alignment_score DECIMAL(8,6),
+    alignment_reason TEXT,
+    evaluator_version VARCHAR(80),
+    binding_order INTEGER NOT NULL,
+    CONSTRAINT pk_application_question_ncs_bindings PRIMARY KEY (personalized_question_id, ncs_profile_id),
+    CONSTRAINT uq_application_question_ncs_bindings_order UNIQUE (personalized_question_id, binding_order)
 );
 
 -- =========================================================
@@ -480,6 +586,21 @@ CREATE TABLE interview_session_questions (
     CONSTRAINT uq_interview_session_questions_order UNIQUE (session_id, sort_order)
 );
 
+CREATE TABLE session_question_ncs_bindings (
+    session_question_id BIGINT NOT NULL,
+    criterion_id BIGINT,
+    criterion_title_snapshot VARCHAR(200) NOT NULL,
+    ncs_profile_id VARCHAR(50) NOT NULL,
+    ncs_profile_version VARCHAR(80) NOT NULL,
+    alignment_status VARCHAR(40) NOT NULL,
+    alignment_score DECIMAL(8,6),
+    alignment_reason TEXT,
+    evaluator_version VARCHAR(80),
+    binding_order INTEGER NOT NULL,
+    CONSTRAINT pk_session_question_ncs_bindings PRIMARY KEY (session_question_id, ncs_profile_id),
+    CONSTRAINT uq_session_question_ncs_bindings_order UNIQUE (session_question_id, binding_order)
+);
+
 CREATE TABLE follow_up_questions (
     -- 꼬리질문 PK
     follow_up_id BIGINT PRIMARY KEY,
@@ -523,6 +644,20 @@ CREATE TABLE evaluation_reports (
     -- 리포트 요약
     summary TEXT,
 
+    ncs_completion_status VARCHAR(40),
+
+    ncs_threshold_result VARCHAR(40),
+
+    ncs_ai_decision VARCHAR(20),
+
+    ncs_decision_reason_code VARCHAR(80),
+
+    ncs_scoring_version VARCHAR(80),
+
+    ncs_decision_policy_version VARCHAR(80),
+
+    ncs_summary_json JSONB,
+
     -- 리포트 생성 시각
     generated_at TIMESTAMP,
 
@@ -544,10 +679,26 @@ CREATE TABLE report_scores (
     criterion_id BIGINT,
 
     -- 점수
-    score INTEGER NOT NULL,
+    score INTEGER,
 
     -- 평가 사유
-    rationale TEXT
+    rationale TEXT,
+
+    ncs_profile_id VARCHAR(50),
+
+    average_score DECIMAL(5,2),
+
+    normalized_score INTEGER,
+
+    weight INTEGER,
+
+    weighted_score DECIMAL(5,2),
+
+    minimum_average_score DECIMAL(5,2),
+
+    assigned_question_count INTEGER,
+
+    valid_question_count INTEGER
 );
 
 CREATE TABLE ncs_answer_evaluations (
@@ -564,6 +715,11 @@ CREATE TABLE ncs_answer_evaluations (
     competency_score INTEGER,
     evidence_score INTEGER,
     total_score INTEGER,
+    behavior_points INTEGER,
+    logic_points INTEGER,
+    base_score INTEGER,
+    effective_score INTEGER,
+    follow_up_applied BOOLEAN NOT NULL DEFAULT FALSE,
     coverage DECIMAL(8, 6) NOT NULL,
     confidence VARCHAR(20) NOT NULL,
     rubric_version VARCHAR(80) NOT NULL,
@@ -575,12 +731,18 @@ CREATE TABLE ncs_answer_evaluations (
     updated_at TIMESTAMP NOT NULL,
     CONSTRAINT ck_ncs_answer_evaluations_status
         CHECK (score_status IN ('SCORED', 'INSUFFICIENT_INPUT', 'LOW_ALIGNMENT', 'BLOCKED')),
-    CONSTRAINT ck_ncs_answer_evaluations_score_shape
+    CONSTRAINT ck_ncs_answer_evaluations_legacy_score_shape
         CHECK (
             (score_status = 'SCORED'
-                AND competency_score BETWEEN 0 AND 100
-                AND evidence_score BETWEEN 0 AND 100
-                AND total_score BETWEEN 0 AND 100)
+                AND (
+                    (competency_score IS NULL
+                        AND evidence_score IS NULL
+                        AND total_score IS NULL)
+                    OR
+                    (competency_score BETWEEN 0 AND 100
+                        AND evidence_score BETWEEN 0 AND 100
+                        AND total_score BETWEEN 0 AND 100)
+                ))
             OR
             (score_status <> 'SCORED'
                 AND competency_score IS NULL
@@ -588,7 +750,7 @@ CREATE TABLE ncs_answer_evaluations (
                 AND total_score IS NULL)
         ),
     CONSTRAINT ck_ncs_answer_evaluations_profile
-        CHECK (ncs_profile_id IN ('PROBLEM_SOLVING', 'COMMUNICATION', 'DIGITAL')),
+        CHECK (ncs_profile_id IN ('JOB_TECHNICAL', 'COLLABORATION_COMMUNICATION', 'PROBLEM_SOLVING')),
     CONSTRAINT ck_ncs_answer_evaluations_mode
         CHECK (ncs_question_mode IN ('EXPERIENCE_BEHAVIOR', 'TECHNICAL_KNOWLEDGE', 'SITUATIONAL_DESIGN')),
     CONSTRAINT ck_ncs_answer_evaluations_confidence
@@ -597,6 +759,17 @@ CREATE TABLE ncs_answer_evaluations (
         CHECK (provider_mode IN ('mock', 'openai')),
     CONSTRAINT ck_ncs_answer_evaluations_coverage
         CHECK (coverage >= 0 AND coverage <= 1)
+);
+
+CREATE TABLE ncs_answer_evaluation_evidences (
+    evidence_id BIGINT PRIMARY KEY,
+    ncs_evaluation_id BIGINT NOT NULL,
+    source_answer_id BIGINT NOT NULL,
+    source_kind VARCHAR(20) NOT NULL,
+    quote TEXT NOT NULL,
+    sort_order INTEGER NOT NULL,
+    CONSTRAINT uq_ncs_answer_evaluation_evidences_source_order
+        UNIQUE (ncs_evaluation_id, source_answer_id, sort_order)
 );
 
 CREATE TABLE report_evidences (
@@ -833,6 +1006,61 @@ ALTER TABLE question_bank
     ADD CONSTRAINT fk_question_bank_criterion
     FOREIGN KEY (criterion_id) REFERENCES evaluation_criteria(criterion_id);
 
+ALTER TABLE question_bank
+    ADD CONSTRAINT fk_question_bank_source_process
+    FOREIGN KEY (source_process_log_id) REFERENCES ai_process_logs(process_log_id)
+    ON DELETE SET NULL;
+
+ALTER TABLE interview_question_generation_policies
+    ADD CONSTRAINT fk_interview_question_generation_policies_posting
+    FOREIGN KEY (posting_id) REFERENCES postings(posting_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE application_interview_question_batches
+    ADD CONSTRAINT fk_application_interview_question_batches_application
+    FOREIGN KEY (application_id) REFERENCES applications(application_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE application_interview_question_batches
+    ADD CONSTRAINT fk_application_interview_question_batches_process
+    FOREIGN KEY (latest_process_log_id) REFERENCES ai_process_logs(process_log_id)
+    ON DELETE RESTRICT;
+
+ALTER TABLE application_interview_questions
+    ADD CONSTRAINT fk_application_interview_questions_batch
+    FOREIGN KEY (batch_id) REFERENCES application_interview_question_batches(batch_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE application_interview_questions
+    ADD CONSTRAINT fk_application_interview_questions_criterion
+    FOREIGN KEY (criterion_id) REFERENCES evaluation_criteria(criterion_id)
+    ON DELETE SET NULL;
+
+ALTER TABLE application_interview_questions
+    ADD CONSTRAINT fk_application_interview_questions_process
+    FOREIGN KEY (source_process_log_id) REFERENCES ai_process_logs(process_log_id)
+    ON DELETE RESTRICT;
+
+ALTER TABLE question_ncs_bindings
+    ADD CONSTRAINT fk_question_ncs_bindings_question
+    FOREIGN KEY (question_id) REFERENCES question_bank(question_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE question_ncs_bindings
+    ADD CONSTRAINT fk_question_ncs_bindings_criterion
+    FOREIGN KEY (criterion_id) REFERENCES evaluation_criteria(criterion_id)
+    ON DELETE RESTRICT;
+
+ALTER TABLE application_question_ncs_bindings
+    ADD CONSTRAINT fk_application_question_ncs_bindings_question
+    FOREIGN KEY (personalized_question_id) REFERENCES application_interview_questions(personalized_question_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE application_question_ncs_bindings
+    ADD CONSTRAINT fk_application_question_ncs_bindings_criterion
+    FOREIGN KEY (criterion_id) REFERENCES evaluation_criteria(criterion_id)
+    ON DELETE SET NULL;
+
 ALTER TABLE applications
     ADD CONSTRAINT fk_applications_posting
     FOREIGN KEY (posting_id) REFERENCES postings(posting_id);
@@ -879,6 +1107,26 @@ ALTER TABLE interview_session_questions
     ADD CONSTRAINT fk_interview_session_questions_question
     FOREIGN KEY (question_id) REFERENCES question_bank(question_id)
     ON DELETE RESTRICT;
+
+ALTER TABLE interview_session_questions
+    ADD CONSTRAINT fk_interview_session_questions_personalized_question
+    FOREIGN KEY (personalized_question_id) REFERENCES application_interview_questions(personalized_question_id)
+    ON DELETE SET NULL;
+
+ALTER TABLE interview_session_questions
+    ADD CONSTRAINT fk_interview_session_questions_criterion
+    FOREIGN KEY (criterion_id) REFERENCES evaluation_criteria(criterion_id)
+    ON DELETE SET NULL;
+
+ALTER TABLE session_question_ncs_bindings
+    ADD CONSTRAINT fk_session_question_ncs_bindings_session_question
+    FOREIGN KEY (session_question_id) REFERENCES interview_session_questions(session_question_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE session_question_ncs_bindings
+    ADD CONSTRAINT fk_session_question_ncs_bindings_criterion
+    FOREIGN KEY (criterion_id) REFERENCES evaluation_criteria(criterion_id)
+    ON DELETE SET NULL;
 
 ALTER TABLE interview_answers
     ADD CONSTRAINT fk_interview_answers_question
@@ -927,6 +1175,16 @@ ALTER TABLE ncs_answer_evaluations
 ALTER TABLE ncs_answer_evaluations
     ADD CONSTRAINT fk_ncs_answer_evaluations_criterion
     FOREIGN KEY (criterion_id) REFERENCES evaluation_criteria(criterion_id);
+
+ALTER TABLE ncs_answer_evaluation_evidences
+    ADD CONSTRAINT fk_ncs_answer_evaluation_evidences_evaluation
+    FOREIGN KEY (ncs_evaluation_id) REFERENCES ncs_answer_evaluations(ncs_evaluation_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE ncs_answer_evaluation_evidences
+    ADD CONSTRAINT fk_ncs_answer_evaluation_evidences_source_answer
+    FOREIGN KEY (source_answer_id) REFERENCES interview_answers(answer_id)
+    ON DELETE CASCADE;
 
 ALTER TABLE report_evidences
     ADD CONSTRAINT fk_report_evidences_score
@@ -1009,6 +1267,8 @@ CREATE INDEX idx_postings_company ON postings(company_id);
 CREATE INDEX idx_criterion_tags_job_role ON criterion_tags(job_role);
 CREATE INDEX idx_evaluation_criteria_posting ON evaluation_criteria(posting_id);
 CREATE INDEX idx_question_bank_posting ON question_bank(posting_id);
+CREATE INDEX idx_question_ncs_bindings_criterion ON question_ncs_bindings(criterion_id);
+CREATE INDEX idx_application_question_ncs_bindings_criterion ON application_question_ncs_bindings(criterion_id);
 CREATE INDEX idx_applications_posting ON applications(posting_id);
 CREATE INDEX idx_applications_candidate ON applications(candidate_id);
 CREATE INDEX idx_interview_sessions_application ON interview_sessions(application_id);
@@ -1018,13 +1278,17 @@ CREATE UNIQUE INDEX uq_interview_session_questions_runtime_question
 CREATE INDEX idx_interview_session_questions_question ON interview_session_questions(question_id);
 CREATE INDEX idx_interview_session_questions_personalized ON interview_session_questions(personalized_question_id);
 CREATE INDEX idx_interview_session_questions_criterion ON interview_session_questions(criterion_id);
+CREATE INDEX idx_session_question_ncs_bindings_criterion ON session_question_ncs_bindings(criterion_id);
 CREATE INDEX idx_evaluation_reports_application ON evaluation_reports(application_id);
-CREATE UNIQUE INDEX uq_ncs_answer_evaluations_report_answer
-    ON ncs_answer_evaluations(report_id, answer_id);
+CREATE UNIQUE INDEX uq_report_scores_report_ncs_profile
+    ON report_scores(report_id, ncs_profile_id);
+CREATE UNIQUE INDEX uq_ncs_answer_evaluations_report_answer_profile
+    ON ncs_answer_evaluations(report_id, answer_id, ncs_profile_id);
 CREATE INDEX idx_ncs_answer_evaluations_answer ON ncs_answer_evaluations(answer_id);
 CREATE INDEX idx_ncs_answer_evaluations_session_question ON ncs_answer_evaluations(session_question_id);
 CREATE INDEX idx_ncs_answer_evaluations_criterion ON ncs_answer_evaluations(criterion_id);
 CREATE INDEX idx_ncs_answer_evaluations_report_status ON ncs_answer_evaluations(report_id, score_status);
+CREATE INDEX idx_ncs_answer_evaluation_evidences_source_answer ON ncs_answer_evaluation_evidences(source_answer_id);
 CREATE INDEX idx_ai_process_logs_application ON ai_process_logs(application_id);
 CREATE INDEX idx_embeddings_source_type ON embeddings(source_type);
 CREATE INDEX idx_embeddings_source_hash ON embeddings(source_text_hash);

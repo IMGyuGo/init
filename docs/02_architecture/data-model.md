@@ -49,16 +49,20 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | `criterion_tags` | `CriterionTag` | C |
 | `evaluation_criteria` | `EvaluationCriterion` | C |
 | `question_bank` | `Question` | C |
+| `question_ncs_bindings` | `QuestionNcsBinding` | C/E |
 | `interview_time_policies` | `InterviewTimePolicy` | C |
 | `applications` | `Application` | B/D |
 | `application_documents` | `ApplicationDocument` | D/E |
 | `consent_records` | `ConsentRecord` | D |
 | `interview_sessions` | `InterviewSession` | D/E |
 | `interview_session_questions` | `InterviewSessionQuestion` | D/E |
+| `application_question_ncs_bindings` | `ApplicationQuestionNcsBinding` | C/E |
+| `session_question_ncs_bindings` | `SessionQuestionNcsBinding` | D/E |
 | `interview_answers` | `InterviewAnswer` | D/E |
 | `follow_up_questions` | `FollowUpQuestion` | E |
 | `evaluation_reports` | `EvaluationReport` | E |
 | `ncs_answer_evaluations` | `NcsAnswerEvaluation` | E |
+| `ncs_answer_evaluation_evidences` | `NcsAnswerEvaluationEvidence` | E |
 | `report_scores` | `ReportScore` | E |
 | `report_evidences` | `ReportEvidence` | E |
 | `manual_evaluations` | `ManualEvaluation` | B/E |
@@ -84,10 +88,10 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | Aggregate | Owned Tables | Responsibility |
 | --- |--- |--- |
 | Account | users, companies, candidate_profiles | 로그인 계정, 기업/지원자 프로필, 기본 파일 참조 |
-| Recruiting | postings, criterion_tags, evaluation_criteria, question_bank, interview_time_policies | 공고, JD, 평가 기준, 질문, 면접 시간 정책 관리 |
+| Recruiting | postings, criterion_tags, evaluation_criteria, question_bank, question_ncs_bindings, application_question_ncs_bindings, interview_time_policies | 공고, JD, 평가 기준, 질문, 면접 시간 정책 관리 |
 | Application | applications, application_documents, consent_records | 지원서 제출, 서류 파싱, 동의 이력 |
-| Interview | interview_sessions, interview_session_questions, interview_answers, follow_up_questions | 모의/채용 AI 면접 실행, 세션별 질문 순서와 답변 |
-| Report | evaluation_reports, ncs_answer_evaluations, report_scores, report_evidences, manual_evaluations | 답변별 NCS 평가, AI 집계 결과와 면접관 검토 |
+| Interview | interview_sessions, interview_session_questions, session_question_ncs_bindings, interview_answers, follow_up_questions | 모의/채용 AI 면접 실행, 세션별 질문 순서·profile snapshot과 답변 |
+| Report | evaluation_reports, ncs_answer_evaluations, ncs_answer_evaluation_evidences, report_scores, report_evidences, manual_evaluations | 답변·profile별 NCS 평가와 exact evidence, AI 집계 결과와 면접관 검토 |
 | AI Infra | ai_process_logs, ai_guardrail_logs, embeddings | AI 처리 상태, 안전성 검증, 검색/추천 |
 | Notification/File | notifications, file_assets | 알림과 업로드 파일 메타데이터 |
 
@@ -365,6 +369,18 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 
 `(session_id, sort_order)`와 `runtime_question_id`는 unique다. NCS 채용 질문은 `question_id`와 `personalized_question_id` 중 정확히 하나를 원본으로 가지며 session 전용 `runtime_question_id`, 본문·유형·NCS metadata snapshot을 사용한다. 공통 질문을 먼저, 개인화 질문을 다음에 저장하고 세션 생성 이후 원본 변경을 소급하지 않는다. 세션 삭제 시 snapshot도 함께 삭제한다.
 
+### NCS question binding tables
+
+세 binding table은 기존 singular `ncs_profile_id`를 제거하지 않고 확장한다. 신규 row는 canonical profile ID만 저장하고 `binding_order`는 1 또는 2다.
+
+| Table | Parent key | Criterion | Snapshot fields | Delete behavior |
+| --- | --- | --- | --- | --- |
+| `question_ncs_bindings` | `question_id` | `criterion_id` 필수 | profile/version, alignment status/score/reason, evaluator version | 질문 삭제 시 CASCADE, 기준 삭제 RESTRICT |
+| `application_question_ncs_bindings` | `personalized_question_id` | `criterion_id` nullable | profile/version, alignment status/score/reason, evaluator version | 질문 삭제 시 CASCADE, 기준 삭제 SET NULL |
+| `session_question_ncs_bindings` | `session_question_id` | `criterion_id` nullable | criterion title, profile/version, alignment status/score/reason, evaluator version | 세션 질문 삭제 시 CASCADE, 기준 삭제 SET NULL |
+
+각 table은 `(parent_id, ncs_profile_id)`를 PK로 사용하고 `(parent_id, binding_order)`를 unique로 둔다. PostgreSQL은 parent별 row count 2 이하를 check constraint 하나로 보장할 수 없으므로 M2/M3/M4의 write boundary가 길이 1~2와 profile 중복을 검증한다.
+
 ### interview_answers
 
 | Column | Definition | Description |
@@ -400,6 +416,13 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | status | VARCHAR(40) NOT NULL | 리포트 상태: PENDING, GENERATING, COMPLETED, FAILED |
 | total_score | INTEGER | 총점 |
 | summary | TEXT | 리포트 요약 |
+| ncs_completion_status | VARCHAR(40) | NCS 평가 완료 상태: COMPLETE, INCOMPLETE |
+| ncs_threshold_result | VARCHAR(40) | MEETS_THRESHOLD, BELOW_THRESHOLD, INCOMPLETE |
+| ncs_ai_decision | VARCHAR(20) | AI 추천 판정: PASS, FAIL. 실제 applications.screening_decision과 별도 |
+| ncs_decision_reason_code | VARCHAR(80) | threshold 또는 평가 미완료 판정 사유 |
+| ncs_scoring_version | VARCHAR(80) | NCS 점수 계산 계약 version |
+| ncs_decision_policy_version | VARCHAR(80) | NCS 판정 정책 version |
+| ncs_summary_json | JSONB | finding, notice, incomplete reason 표시 snapshot. 점수 정본으로 사용 금지 |
 | generated_at | TIMESTAMP | 리포트 생성 시각 |
 | failure_category | VARCHAR(40) | 실패 구분: RETRYABLE, NON_RETRYABLE |
 | failure_reason | TEXT | 실패 사유. 재시도 가능 여부와 함께 화면/운영 로그에 사용 |
@@ -411,10 +434,22 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | score_id | BIGINT PRIMARY KEY | 평가 항목별 점수 PK |
 | report_id | BIGINT NOT NULL | 연결된 리포트 FK |
 | criterion_id | BIGINT | 평가 기준 FK |
-| score | INTEGER NOT NULL | 점수 |
+| score | INTEGER | legacy 점수. NCS profile 집계 row에서는 canonical NCS 필드를 사용하며 미완료를 0으로 채우지 않음 |
 | rationale | TEXT | 평가 사유 |
+| ncs_profile_id | VARCHAR(50) | NCS profile별 집계 row 식별자 |
+| average_score | DECIMAL(5,2) | 유효 질문의 profile 평균 0~5 |
+| normalized_score | INTEGER | average_score를 0~100으로 정규화한 값 |
+| weight | INTEGER | 세션 시작 시 snapshot한 profile 가중치 |
+| weighted_score | DECIMAL(5,2) | normalized_score에 weight를 적용한 점수 |
+| minimum_average_score | DECIMAL(5,2) | profile 최소 통과 평균. V1 기본값 3 |
+| assigned_question_count | INTEGER | 세션에 배정된 profile 질문 수 |
+| valid_question_count | INTEGER | SCORED 상태로 평균에 포함된 질문 수 |
 
 NCS 리포트의 `report_scores`에는 `ncs_answer_evaluations.score_status=SCORED`인 답변만 profile별로 평균 집계한다. 평가 불충분·미정렬·차단 결과는 0점으로 만들지 않는다.
+
+NCS profile 집계 row는 `(report_id, ncs_profile_id)`를 unique key로 사용한다. profile이 불완전하면 `average_score`, `normalized_score`, `weighted_score`는 NULL로 유지하고 배정·유효 문항 수는 그대로 저장한다.
+
+최종 NCS 평가 target model은 공통 질문, 개인화 질문, 세션 질문에 각각 1~2개의 profile binding 관계를 둔다. `question_ncs_bindings`, `application_question_ncs_bindings`, `session_question_ncs_bindings`를 사용하며 세션 binding은 원본 변경이 소급되지 않는 snapshot이다. 세션 확정 시 canonical profile `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING`마다 scoring base question이 최소 2개인지 검증한다.
 
 ### ncs_answer_evaluations
 
@@ -422,7 +457,7 @@ NCS 리포트의 `report_scores`에는 `ncs_answer_evaluations.score_status=SCOR
 | --- |--- |--- |
 | ncs_evaluation_id | BIGINT PRIMARY KEY | 답변별 NCS 평가 PK |
 | report_id | BIGINT NOT NULL | 평가 리포트 FK |
-| answer_id | BIGINT NOT NULL | 평가한 답변 FK |
+| answer_id | BIGINT NOT NULL | 평가한 base 답변 FK |
 | session_question_id | BIGINT NOT NULL | 평가 질문 snapshot FK |
 | criterion_id | BIGINT | 평가 기준 FK. 기준 삭제 후 snapshot 보존을 위해 NULL 가능 |
 | criterion_title_snapshot | VARCHAR(200) NOT NULL | 평가 당시 기준명 |
@@ -430,9 +465,14 @@ NCS 리포트의 `report_scores`에는 `ncs_answer_evaluations.score_status=SCOR
 | ncs_question_mode | VARCHAR(50) NOT NULL | NCS question mode snapshot |
 | ncs_profile_version | VARCHAR(80) NOT NULL | NCS profile version |
 | score_status | VARCHAR(40) NOT NULL | SCORED, INSUFFICIENT_INPUT, LOW_ALIGNMENT, BLOCKED |
-| competency_score | INTEGER | 역량 점수. SCORED가 아니면 NULL |
-| evidence_score | INTEGER | 수행 근거 점수. SCORED가 아니면 NULL |
-| total_score | INTEGER | 총점. SCORED가 아니면 NULL |
+| competency_score | INTEGER | legacy 0~100 역량 진단. 신규 0~5 평가 row에서는 NULL 허용, SCORED가 아니면 NULL |
+| evidence_score | INTEGER | legacy 0~100 수행 근거 진단. 신규 0~5 평가 row에서는 NULL 허용, SCORED가 아니면 NULL |
+| total_score | INTEGER | legacy 0~100 총점. 신규 0~5 평가 row에서는 NULL 허용, SCORED가 아니면 NULL |
+| behavior_points | INTEGER | 최종 NCS 행동 포인트 0~3. SCORED가 아니면 NULL |
+| logic_points | INTEGER | 질문 유형별 논리 구조 포인트 0~2. SCORED가 아니면 NULL |
+| base_score | INTEGER | 원답 점수 0~5. SCORED가 아니면 NULL |
+| effective_score | INTEGER | 꼬리답변 보강 반영 점수 0~5. SCORED가 아니면 NULL |
+| follow_up_applied | BOOLEAN NOT NULL DEFAULT FALSE | 꼬리답변 보강 적용 여부 |
 | coverage | DECIMAL(8,6) NOT NULL | 질문/profile 정렬 coverage |
 | confidence | VARCHAR(20) NOT NULL | HIGH, MEDIUM, LOW |
 | rubric_version | VARCHAR(80) NOT NULL | 점수 rubric version |
@@ -443,7 +483,22 @@ NCS 리포트의 `report_scores`에는 `ncs_answer_evaluations.score_status=SCOR
 | created_at | TIMESTAMP NOT NULL | 최초 평가 시각 |
 | updated_at | TIMESTAMP NOT NULL | 최종 평가 갱신 시각 |
 
-`(report_id, answer_id)`는 unique다. `SCORED`이면 세 점수가 모두 0~100이고, 나머지 상태이면 세 점수가 모두 NULL인 check constraint를 둔다.
+신규 정본 unique key는 `(report_id, answer_id, ncs_profile_id)`다. `SCORED`이면 신규 0~5 점수 필드가 범위 안에 있고, 나머지 상태이면 신규 점수 필드는 모두 NULL인 check constraint를 둔다. 기존 0~100 세 점수는 evaluator 상세 진단과 migration 호환용이며 최종 NCS 채용 점수에는 사용하지 않는다.
+
+`ncs_answer_evaluation_evidences`는 평가 row, source answer, `BASE | FOLLOW_UP`, exact quote와 순서를 저장한다. 원답과 꼬리답변을 하나의 문자열로 덮어쓰지 않는다. profile 평균과 가중 점수는 `report_scores`, 전체 threshold result와 임시 AI decision은 `evaluation_reports`에 저장한다. `ncs_summary_json`은 finding과 notice를 위한 display snapshot일 뿐 점수 재계산의 입력으로 사용하지 않는다. 정본 계산·판정 계약은 [`ncs-final-evaluation.md`](../03_contracts/ncs-final-evaluation.md), API 출력 계약은 [`ncs-report-output-contract.md`](../03_contracts/ncs-report-output-contract.md)를 따른다.
+
+### ncs_answer_evaluation_evidences
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| evidence_id | BIGINT PRIMARY KEY | NCS exact evidence PK |
+| ncs_evaluation_id | BIGINT NOT NULL | 답변·profile 평가 row FK |
+| source_answer_id | BIGINT NOT NULL | quote가 실제로 나온 원답 또는 꼬리답변 FK |
+| source_kind | VARCHAR(20) NOT NULL | BASE, FOLLOW_UP |
+| quote | TEXT NOT NULL | 원문에서 검증된 비어 있지 않은 exact quote |
+| sort_order | INTEGER NOT NULL | 같은 source answer 안의 근거 순서, 1 이상 |
+
+기존 `result_json`에서 source answer를 확정할 수 없는 근거는 migration이 추측하여 이 table로 옮기지 않는다. M4 이후 새 평가부터 source answer가 검증된 row만 저장한다.
 
 ### report_evidences
 

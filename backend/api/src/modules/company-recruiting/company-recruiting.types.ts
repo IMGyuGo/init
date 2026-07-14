@@ -111,7 +111,7 @@ export type ApplicantRecord = {
     generatedAt: Date | null;
     scores?: Array<{
       scoreId: number;
-      score: number;
+      score: number | null;
       rationale: string | null;
       criterion: {
         criterionId: number;

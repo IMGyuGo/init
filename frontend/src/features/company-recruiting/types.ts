@@ -267,7 +267,7 @@ export type ApplicantEvaluation = {
       scoreId: number;
       criterionId: number | null;
       criterionName: string | null;
-      score: number;
+      score: number | null;
       rationale: string | null;
       evidences: Array<{
         evidenceId: number;

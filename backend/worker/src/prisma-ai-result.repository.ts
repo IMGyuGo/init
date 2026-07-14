@@ -670,7 +670,7 @@ export class PrismaAiResultRepository implements AiResultRepository {
           sessionQuestionId: BigInt(evaluation.sessionQuestionId),
           criterionId: await this.resolveCriterionId(evaluation.criterionId),
           criterionTitleSnapshot: evaluation.criterionTitleSnapshot,
-          ncsProfileId: evaluation.ncsProfileId,
+          ncsProfileId: canonicalNcsProfileId(evaluation.ncsProfileId),
           ncsQuestionMode: evaluation.ncsQuestionMode,
           ncsProfileVersion: evaluation.ncsProfileVersion,
           scoreStatus: output.scoreStatus,
@@ -700,6 +700,14 @@ export class PrismaAiResultRepository implements AiResultRepository {
 
 function hashText(value: string): string {
   return createHash("sha256").update(value.trim(), "utf8").digest("hex");
+}
+
+function canonicalNcsProfileId(
+  value: NcsAnswerEvaluationRecord["ncsProfileId"],
+): "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING" {
+  if (value === "DIGITAL") return "JOB_TECHNICAL";
+  if (value === "COMMUNICATION") return "COLLABORATION_COMMUNICATION";
+  return "PROBLEM_SOLVING";
 }
 
 function hasCompleteNcsCriteria(criteria: ResumeQuestionDocumentRow["application"]["posting"]["criteria"]): boolean {

@@ -1371,6 +1371,13 @@ describe("CompanyRecruitingService", () => {
                   criterion: { criterionId: 10, tagName: "Backend" },
                   evidences: [{ evidenceId: 1, evidenceText: "NestJS 기반 API 구축 경험" }],
                 },
+                {
+                  scoreId: 9002,
+                  score: null,
+                  rationale: "NCS 평가가 아직 완료되지 않았습니다.",
+                  criterion: null,
+                  evidences: [],
+                },
               ],
               ncsAnswerEvaluations: [
                 {
@@ -1408,6 +1415,7 @@ describe("CompanyRecruitingService", () => {
     assert.equal(result.reportAvailability, "AVAILABLE");
     assert.equal(result.report?.totalScore, 82);
     assert.equal(result.report?.scores[0]?.evidences[0]?.evidenceText, "NestJS 기반 API 구축 경험");
+    assert.equal(result.report?.scores[1]?.score, null);
     assert.equal(result.report?.ncsAnswerEvaluations[0]?.scoreStatus, "INSUFFICIENT_INPUT");
     assert.deepEqual(result.report?.ncsAnswerEvaluations[0]?.scores, {
       competency: null,

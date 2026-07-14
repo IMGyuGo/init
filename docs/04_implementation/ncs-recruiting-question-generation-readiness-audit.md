@@ -25,6 +25,7 @@ NQ-M0 계약을 다시 읽고 다음을 분리한다.
 | NQ-M4 통합 | COMPLETE | M3 READY batch와 ACTIVE 공통 질문을 불변 세션 snapshot으로 연결 완료 |
 | NQ-M5 통합 | COMPLETE | canonical evaluator, nullable 점수, 답변별 저장, 유효 profile 평균과 기업 조회 projection 연결 완료 |
 | NQ-M6 hardening | LOCAL COMPLETE / RELEASE PENDING | 기업 UI·flag 회귀·브라우저 검증과 rollout runbook 완료, 실제 DB/provider smoke와 cross-owner 승인 대기 |
+| Team evaluator merge | IMPLEMENTATION READY DESIGN | 최종 flow 대조, 사전 계약, 다중 profile migration/API 호환 설계 완료; evaluator type 및 cross-owner 승인 대기 |
 
 ## Hardened In This Audit
 
@@ -161,6 +162,8 @@ E/D/A/B/PM 교차 리뷰, 실제 PostgreSQL migration 적용, 실제 OpenAI prov
 - frontend 전체 test, lint, typecheck, production build 통과
 
 M6 release exit는 아직 닫지 않는다. 실제 PostgreSQL `migrate deploy`, 실제 OpenAI provider smoke, A/B/D/E/PM 리뷰와 배포 환경 3+3 E2E evidence가 남아 있다.
+
+팀원 evaluator 최종 flow는 [`ncs-evaluator-team-flow-integration-notes.md`](./ncs-evaluator-team-flow-integration-notes.md)에 반영했다. 구현 전 DTO, 점수 공식, persistence 영향은 [`ncs-final-evaluation-contract-preparation.md`](./ncs-final-evaluation-contract-preparation.md), 다중 profile migration과 API 호환 순서는 [`ncs-multi-profile-binding-implementation-plan.md`](./ncs-multi-profile-binding-implementation-plan.md)에 준비했다. `R-E-06`, `R-E-07`, `R-D-04`, `R-PM-05` 승인 후 정본 계약·migration·adapter를 순서대로 보정한다.
 
 ## Additional Risks Found
 

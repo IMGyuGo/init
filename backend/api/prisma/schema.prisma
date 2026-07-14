@@ -315,24 +315,27 @@ model CriterionTag {
 }
 
 model EvaluationCriterion {
-  criterionId           BigInt                         @id @default(autoincrement()) @map("criterion_id")
-  postingId             BigInt                         @map("posting_id")
-  tagId                 BigInt                         @map("tag_id")
-  description           String?
-  weight                Int
-  passScore             Int?                           @map("pass_score")
-  sortOrder             Int                            @map("sort_order")
-  ncsProfileId          String?                        @map("ncs_profile_id") @db.VarChar(50)
-  ncsQuestionMode       String?                        @map("ncs_question_mode") @db.VarChar(50)
-  ncsProfileVersion     String?                        @map("ncs_profile_version") @db.VarChar(80)
-  posting               Posting                        @relation(fields: [postingId], references: [postingId])
-  tag                   CriterionTag                   @relation(fields: [tagId], references: [tagId])
-  questions             Question[]
-  reportScores          ReportScore[]
-  questionSetItems      InterviewQuestionSetItem[]
-  personalizedQuestions ApplicationInterviewQuestion[]
-  sessionQuestions      InterviewSessionQuestion[]
-  ncsAnswerEvaluations  NcsAnswerEvaluation[]
+  criterionId            BigInt                          @id @default(autoincrement()) @map("criterion_id")
+  postingId              BigInt                          @map("posting_id")
+  tagId                  BigInt                          @map("tag_id")
+  description            String?
+  weight                 Int
+  passScore              Int?                            @map("pass_score")
+  sortOrder              Int                             @map("sort_order")
+  ncsProfileId           String?                         @map("ncs_profile_id") @db.VarChar(50)
+  ncsQuestionMode        String?                         @map("ncs_question_mode") @db.VarChar(50)
+  ncsProfileVersion      String?                         @map("ncs_profile_version") @db.VarChar(80)
+  posting                Posting                         @relation(fields: [postingId], references: [postingId])
+  tag                    CriterionTag                    @relation(fields: [tagId], references: [tagId])
+  questions              Question[]
+  reportScores           ReportScore[]
+  questionSetItems       InterviewQuestionSetItem[]
+  personalizedQuestions  ApplicationInterviewQuestion[]
+  sessionQuestions       InterviewSessionQuestion[]
+  ncsAnswerEvaluations   NcsAnswerEvaluation[]
+  questionNcsBindings    QuestionNcsBinding[]
+  applicationNcsBindings ApplicationQuestionNcsBinding[]
+  sessionNcsBindings     SessionQuestionNcsBinding[]
 
   @@map("evaluation_criteria")
 }
@@ -363,6 +366,7 @@ model Question {
   answers            InterviewAnswer[]
   questionSetItems   InterviewQuestionSetItem[]
   sessionQuestions   InterviewSessionQuestion[]
+  ncsBindings        QuestionNcsBinding[]
 
   @@index([sourceProcessLogId], map: "idx_question_bank_source_process_log")
   @@map("question_bank")
@@ -471,6 +475,7 @@ model ApplicationInterviewQuestion {
   criterion              EvaluationCriterion?              @relation(fields: [criterionId], references: [criterionId], onDelete: SetNull)
   sourceProcessLog       AiProcessLog                      @relation("ResumeQuestionSourceProcess", fields: [sourceProcessLogId], references: [processLogId], onDelete: Restrict)
   sessionQuestions       InterviewSessionQuestion[]
+  ncsBindings            ApplicationQuestionNcsBinding[]
 
   @@unique([batchId, sortOrder], map: "uq_application_interview_questions_order")
   @@index([criterionId], map: "idx_application_interview_questions_criterion")
@@ -588,6 +593,7 @@ model InterviewSessionQuestion {
   criterion              EvaluationCriterion?          @relation(fields: [criterionId], references: [criterionId], onDelete: SetNull)
   answers                InterviewAnswer[]
   ncsAnswerEvaluations   NcsAnswerEvaluation[]
+  ncsBindings            SessionQuestionNcsBinding[]
 
   @@unique([sessionId, questionId], map: "uq_interview_session_questions_question")
   @@unique([sessionId, personalizedQuestionId], map: "uq_interview_session_questions_personalized")
@@ -618,24 +624,25 @@ model CandidateMockInterviewPassLedger {
 }
 
 model InterviewAnswer {
-  answerId             BigInt                    @id @default(autoincrement()) @map("answer_id")
-  sessionId            BigInt                    @map("session_id")
-  questionId           BigInt?                   @map("question_id")
-  sessionQuestionId    BigInt?                   @map("session_question_id")
-  videoFileId          BigInt?                   @map("video_file_id")
-  audioFileId          BigInt?                   @map("audio_file_id")
-  transcript           String?
-  nonverbalMetadata    Json?                     @map("nonverbal_metadata")
-  durationSeconds      Int?                      @map("duration_seconds")
-  submittedAt          DateTime?                 @map("submitted_at")
-  session              InterviewSession          @relation(fields: [sessionId], references: [sessionId])
-  question             Question?                 @relation(fields: [questionId], references: [questionId])
-  sessionQuestion      InterviewSessionQuestion? @relation(fields: [sessionQuestionId], references: [sessionQuestionId], onDelete: SetNull)
-  videoFile            FileAsset?                @relation("VideoFile", fields: [videoFileId], references: [fileId])
-  audioFile            FileAsset?                @relation("AudioFile", fields: [audioFileId], references: [fileId])
-  followUpQuestions    FollowUpQuestion[]
-  reportEvidences      ReportEvidence[]
-  ncsAnswerEvaluations NcsAnswerEvaluation[]
+  answerId               BigInt                        @id @default(autoincrement()) @map("answer_id")
+  sessionId              BigInt                        @map("session_id")
+  questionId             BigInt?                       @map("question_id")
+  sessionQuestionId      BigInt?                       @map("session_question_id")
+  videoFileId            BigInt?                       @map("video_file_id")
+  audioFileId            BigInt?                       @map("audio_file_id")
+  transcript             String?
+  nonverbalMetadata      Json?                         @map("nonverbal_metadata")
+  durationSeconds        Int?                          @map("duration_seconds")
+  submittedAt            DateTime?                     @map("submitted_at")
+  session                InterviewSession              @relation(fields: [sessionId], references: [sessionId])
+  question               Question?                     @relation(fields: [questionId], references: [questionId])
+  sessionQuestion        InterviewSessionQuestion?     @relation(fields: [sessionQuestionId], references: [sessionQuestionId], onDelete: SetNull)
+  videoFile              FileAsset?                    @relation("VideoFile", fields: [videoFileId], references: [fileId])
+  audioFile              FileAsset?                    @relation("AudioFile", fields: [audioFileId], references: [fileId])
+  followUpQuestions      FollowUpQuestion[]
+  reportEvidences        ReportEvidence[]
+  ncsAnswerEvaluations   NcsAnswerEvaluation[]
+  ncsEvaluationEvidences NcsAnswerEvaluationEvidence[]
 
   @@index([sessionQuestionId], map: "idx_interview_answers_session_question")
   @@map("interview_answers")
@@ -655,54 +662,67 @@ model FollowUpQuestion {
 }
 
 model EvaluationReport {
-  reportId             BigInt                @id @default(autoincrement()) @map("report_id")
-  applicationId        BigInt?               @map("application_id")
-  sessionId            BigInt?               @map("session_id")
-  reportType           ReportType            @map("report_type")
-  status               ReportStatus          @default(PENDING)
-  totalScore           Int?                  @map("total_score")
-  summary              String?
-  generatedAt          DateTime?             @map("generated_at")
-  failureCategory      String?               @map("failure_category") @db.VarChar(40)
-  failureReason        String?               @map("failure_reason")
-  application          Application?          @relation(fields: [applicationId], references: [applicationId])
-  session              InterviewSession?     @relation(fields: [sessionId], references: [sessionId])
-  scores               ReportScore[]
-  ncsAnswerEvaluations NcsAnswerEvaluation[]
-  manualEvaluations    ManualEvaluation[]
+  reportId                 BigInt                @id @default(autoincrement()) @map("report_id")
+  applicationId            BigInt?               @map("application_id")
+  sessionId                BigInt?               @map("session_id")
+  reportType               ReportType            @map("report_type")
+  status                   ReportStatus          @default(PENDING)
+  totalScore               Int?                  @map("total_score")
+  summary                  String?
+  ncsCompletionStatus      String?               @map("ncs_completion_status") @db.VarChar(40)
+  ncsThresholdResult       String?               @map("ncs_threshold_result") @db.VarChar(40)
+  ncsAiDecision            String?               @map("ncs_ai_decision") @db.VarChar(20)
+  ncsDecisionReasonCode    String?               @map("ncs_decision_reason_code") @db.VarChar(80)
+  ncsScoringVersion        String?               @map("ncs_scoring_version") @db.VarChar(80)
+  ncsDecisionPolicyVersion String?               @map("ncs_decision_policy_version") @db.VarChar(80)
+  ncsSummaryJson           Json?                 @map("ncs_summary_json")
+  generatedAt              DateTime?             @map("generated_at")
+  failureCategory          String?               @map("failure_category") @db.VarChar(40)
+  failureReason            String?               @map("failure_reason")
+  application              Application?          @relation(fields: [applicationId], references: [applicationId])
+  session                  InterviewSession?     @relation(fields: [sessionId], references: [sessionId])
+  scores                   ReportScore[]
+  ncsAnswerEvaluations     NcsAnswerEvaluation[]
+  manualEvaluations        ManualEvaluation[]
 
   @@map("evaluation_reports")
 }
 
 model NcsAnswerEvaluation {
-  ncsEvaluationId        BigInt                   @id @default(autoincrement()) @map("ncs_evaluation_id")
-  reportId               BigInt                   @map("report_id")
-  answerId               BigInt                   @map("answer_id")
-  sessionQuestionId      BigInt                   @map("session_question_id")
-  criterionId            BigInt?                  @map("criterion_id")
-  criterionTitleSnapshot String                   @map("criterion_title_snapshot") @db.VarChar(200)
-  ncsProfileId           String                   @map("ncs_profile_id") @db.VarChar(50)
-  ncsQuestionMode        String                   @map("ncs_question_mode") @db.VarChar(50)
-  ncsProfileVersion      String                   @map("ncs_profile_version") @db.VarChar(80)
-  scoreStatus            String                   @map("score_status") @db.VarChar(40)
-  competencyScore        Int?                     @map("competency_score")
-  evidenceScore          Int?                     @map("evidence_score")
-  totalScore             Int?                     @map("total_score")
-  coverage               Decimal                  @db.Decimal(8, 6)
-  confidence             String                   @db.VarChar(20)
-  rubricVersion          String                   @map("rubric_version") @db.VarChar(80)
-  promptVersion          String                   @map("prompt_version") @db.VarChar(100)
-  providerMode           String                   @map("provider_mode") @db.VarChar(20)
-  modelName              String?                  @map("model_name") @db.VarChar(120)
-  resultJson             Json                     @map("result_json")
-  createdAt              DateTime                 @default(now()) @map("created_at")
-  updatedAt              DateTime                 @updatedAt @map("updated_at")
-  report                 EvaluationReport         @relation(fields: [reportId], references: [reportId], onDelete: Cascade)
-  answer                 InterviewAnswer          @relation(fields: [answerId], references: [answerId], onDelete: Cascade)
-  sessionQuestion        InterviewSessionQuestion @relation(fields: [sessionQuestionId], references: [sessionQuestionId], onDelete: Cascade)
-  criterion              EvaluationCriterion?     @relation(fields: [criterionId], references: [criterionId], onDelete: SetNull)
+  ncsEvaluationId        BigInt                        @id @default(autoincrement()) @map("ncs_evaluation_id")
+  reportId               BigInt                        @map("report_id")
+  answerId               BigInt                        @map("answer_id")
+  sessionQuestionId      BigInt                        @map("session_question_id")
+  criterionId            BigInt?                       @map("criterion_id")
+  criterionTitleSnapshot String                        @map("criterion_title_snapshot") @db.VarChar(200)
+  ncsProfileId           String                        @map("ncs_profile_id") @db.VarChar(50)
+  ncsQuestionMode        String                        @map("ncs_question_mode") @db.VarChar(50)
+  ncsProfileVersion      String                        @map("ncs_profile_version") @db.VarChar(80)
+  scoreStatus            String                        @map("score_status") @db.VarChar(40)
+  competencyScore        Int?                          @map("competency_score")
+  evidenceScore          Int?                          @map("evidence_score")
+  totalScore             Int?                          @map("total_score")
+  behaviorPoints         Int?                          @map("behavior_points")
+  logicPoints            Int?                          @map("logic_points")
+  baseScore              Int?                          @map("base_score")
+  effectiveScore         Int?                          @map("effective_score")
+  followUpApplied        Boolean                       @default(false) @map("follow_up_applied")
+  coverage               Decimal                       @db.Decimal(8, 6)
+  confidence             String                        @db.VarChar(20)
+  rubricVersion          String                        @map("rubric_version") @db.VarChar(80)
+  promptVersion          String                        @map("prompt_version") @db.VarChar(100)
+  providerMode           String                        @map("provider_mode") @db.VarChar(20)
+  modelName              String?                       @map("model_name") @db.VarChar(120)
+  resultJson             Json                          @map("result_json")
+  createdAt              DateTime                      @default(now()) @map("created_at")
+  updatedAt              DateTime                      @updatedAt @map("updated_at")
+  report                 EvaluationReport              @relation(fields: [reportId], references: [reportId], onDelete: Cascade)
+  answer                 InterviewAnswer               @relation(fields: [answerId], references: [answerId], onDelete: Cascade)
+  sessionQuestion        InterviewSessionQuestion      @relation(fields: [sessionQuestionId], references: [sessionQuestionId], onDelete: Cascade)
+  criterion              EvaluationCriterion?          @relation(fields: [criterionId], references: [criterionId], onDelete: SetNull)
+  evidences              NcsAnswerEvaluationEvidence[]
 
-  @@unique([reportId, answerId], map: "uq_ncs_answer_evaluations_report_answer")
+  @@unique([reportId, answerId, ncsProfileId], map: "uq_ncs_answer_evaluations_report_answer_profile")
   @@index([answerId], map: "idx_ncs_answer_evaluations_answer")
   @@index([sessionQuestionId], map: "idx_ncs_answer_evaluations_session_question")
   @@index([criterionId], map: "idx_ncs_answer_evaluations_criterion")
@@ -711,16 +731,98 @@ model NcsAnswerEvaluation {
 }
 
 model ReportScore {
-  scoreId     BigInt               @id @default(autoincrement()) @map("score_id")
-  reportId    BigInt               @map("report_id")
-  criterionId BigInt?              @map("criterion_id")
-  score       Int
-  rationale   String?
-  report      EvaluationReport     @relation(fields: [reportId], references: [reportId])
-  criterion   EvaluationCriterion? @relation(fields: [criterionId], references: [criterionId])
-  evidences   ReportEvidence[]
+  scoreId               BigInt               @id @default(autoincrement()) @map("score_id")
+  reportId              BigInt               @map("report_id")
+  criterionId           BigInt?              @map("criterion_id")
+  score                 Int?
+  rationale             String?
+  ncsProfileId          String?              @map("ncs_profile_id") @db.VarChar(50)
+  averageScore          Decimal?             @map("average_score") @db.Decimal(5, 2)
+  normalizedScore       Int?                 @map("normalized_score")
+  weight                Int?
+  weightedScore         Decimal?             @map("weighted_score") @db.Decimal(5, 2)
+  minimumAverageScore   Decimal?             @map("minimum_average_score") @db.Decimal(5, 2)
+  assignedQuestionCount Int?                 @map("assigned_question_count")
+  validQuestionCount    Int?                 @map("valid_question_count")
+  report                EvaluationReport     @relation(fields: [reportId], references: [reportId])
+  criterion             EvaluationCriterion? @relation(fields: [criterionId], references: [criterionId])
+  evidences             ReportEvidence[]
 
+  @@unique([reportId, ncsProfileId], map: "uq_report_scores_report_ncs_profile")
   @@map("report_scores")
+}
+
+model QuestionNcsBinding {
+  questionId        BigInt              @map("question_id")
+  criterionId       BigInt              @map("criterion_id")
+  ncsProfileId      String              @map("ncs_profile_id") @db.VarChar(50)
+  ncsProfileVersion String              @map("ncs_profile_version") @db.VarChar(80)
+  alignmentStatus   String              @map("alignment_status") @db.VarChar(40)
+  alignmentScore    Decimal?            @map("alignment_score") @db.Decimal(8, 6)
+  alignmentReason   String?             @map("alignment_reason")
+  evaluatorVersion  String?             @map("evaluator_version") @db.VarChar(80)
+  bindingOrder      Int                 @map("binding_order")
+  question          Question            @relation(fields: [questionId], references: [questionId], onDelete: Cascade)
+  criterion         EvaluationCriterion @relation(fields: [criterionId], references: [criterionId], onDelete: Restrict)
+
+  @@id([questionId, ncsProfileId])
+  @@unique([questionId, bindingOrder], map: "uq_question_ncs_bindings_order")
+  @@index([criterionId], map: "idx_question_ncs_bindings_criterion")
+  @@map("question_ncs_bindings")
+}
+
+model ApplicationQuestionNcsBinding {
+  personalizedQuestionId BigInt                       @map("personalized_question_id")
+  criterionId            BigInt?                      @map("criterion_id")
+  ncsProfileId           String                       @map("ncs_profile_id") @db.VarChar(50)
+  ncsProfileVersion      String                       @map("ncs_profile_version") @db.VarChar(80)
+  alignmentStatus        String                       @map("alignment_status") @db.VarChar(40)
+  alignmentScore         Decimal?                     @map("alignment_score") @db.Decimal(8, 6)
+  alignmentReason        String?                      @map("alignment_reason")
+  evaluatorVersion       String?                      @map("evaluator_version") @db.VarChar(80)
+  bindingOrder           Int                          @map("binding_order")
+  personalizedQuestion   ApplicationInterviewQuestion @relation(fields: [personalizedQuestionId], references: [personalizedQuestionId], onDelete: Cascade)
+  criterion              EvaluationCriterion?         @relation(fields: [criterionId], references: [criterionId], onDelete: SetNull)
+
+  @@id([personalizedQuestionId, ncsProfileId])
+  @@unique([personalizedQuestionId, bindingOrder], map: "uq_application_question_ncs_bindings_order")
+  @@index([criterionId], map: "idx_application_question_ncs_bindings_criterion")
+  @@map("application_question_ncs_bindings")
+}
+
+model SessionQuestionNcsBinding {
+  sessionQuestionId      BigInt                   @map("session_question_id")
+  criterionId            BigInt?                  @map("criterion_id")
+  criterionTitleSnapshot String                   @map("criterion_title_snapshot") @db.VarChar(200)
+  ncsProfileId           String                   @map("ncs_profile_id") @db.VarChar(50)
+  ncsProfileVersion      String                   @map("ncs_profile_version") @db.VarChar(80)
+  alignmentStatus        String                   @map("alignment_status") @db.VarChar(40)
+  alignmentScore         Decimal?                 @map("alignment_score") @db.Decimal(8, 6)
+  alignmentReason        String?                  @map("alignment_reason")
+  evaluatorVersion       String?                  @map("evaluator_version") @db.VarChar(80)
+  bindingOrder           Int                      @map("binding_order")
+  sessionQuestion        InterviewSessionQuestion @relation(fields: [sessionQuestionId], references: [sessionQuestionId], onDelete: Cascade)
+  criterion              EvaluationCriterion?     @relation(fields: [criterionId], references: [criterionId], onDelete: SetNull)
+
+  @@id([sessionQuestionId, ncsProfileId])
+  @@unique([sessionQuestionId, bindingOrder], map: "uq_session_question_ncs_bindings_order")
+  @@index([criterionId], map: "idx_session_question_ncs_bindings_criterion")
+  @@map("session_question_ncs_bindings")
+}
+
+model NcsAnswerEvaluationEvidence {
+  evidenceId      BigInt              @id @default(autoincrement()) @map("evidence_id")
+  ncsEvaluationId BigInt              @map("ncs_evaluation_id")
+  sourceAnswerId  BigInt              @map("source_answer_id")
+  sourceKind      String              @map("source_kind") @db.VarChar(20)
+  quote           String
+  sortOrder       Int                 @map("sort_order")
+  evaluation      NcsAnswerEvaluation @relation(fields: [ncsEvaluationId], references: [ncsEvaluationId], onDelete: Cascade)
+  sourceAnswer    InterviewAnswer     @relation(fields: [sourceAnswerId], references: [answerId], onDelete: Cascade)
+
+  @@unique([ncsEvaluationId, sourceAnswerId, sortOrder], map: "uq_ncs_answer_evaluation_evidences_source_order")
+  @@index([sourceAnswerId], map: "idx_ncs_answer_evaluation_evidences_source_answer")
+  @@map("ncs_answer_evaluation_evidences")
 }
 
 model ReportEvidence {

@@ -245,7 +245,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                           {report.scores.map((score) => (
                             <tr key={score.scoreId}>
                               <td>{formatScoreCriterionName(score.criterionName, score.rationale)}</td>
-                              <td>{score.score}</td>
+                              <td>{score.score ?? "평가 미완료"}</td>
                               <td>
                                 {score.rationale ?? "근거 없음"}
                                 {score.evidences.map((evidence) => (

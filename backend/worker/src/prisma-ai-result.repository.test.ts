@@ -307,6 +307,7 @@ test("PrismaAiResultRepository stores an insufficient NCS answer without creatin
   assert.equal(calls.filter((call) => call.model === "reportScore" && call.method === "create").length, 0);
   const created = calls.find((call) => call.model === "ncsAnswerEvaluation" && call.method === "create");
   assert.equal(created?.args.data.scoreStatus, "INSUFFICIENT_INPUT");
+  assert.equal(created?.args.data.ncsProfileId, "JOB_TECHNICAL");
   assert.equal(created?.args.data.competencyScore, null);
   assert.equal(created?.args.data.evidenceScore, null);
   assert.equal(created?.args.data.totalScore, null);

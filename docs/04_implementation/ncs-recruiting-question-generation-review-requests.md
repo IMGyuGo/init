@@ -26,9 +26,12 @@ Comment: 변경할 필드명, enum, 상태 전이 또는 이유
 | R-E-03 | APPROVED | E | A, C, D | M0, M3 | 개인화 질문 batch와 AI process retry 기록 방식 |
 | R-E-04 | PENDING | E | A, PM | M3 | 질문 생성 guardrail과 민감정보 제거 결과 |
 | R-E-05 | PENDING | E | C, D, PM | M5 | 답변별 NCS 결과 저장, nullable 점수, profile별 유효 답변 평균 계약 |
+| R-E-06 | PENDING | E | C, D, A | Evaluator merge | 질문당 1~2개 profile binding과 `(report, answer, profile)` 평가 저장 cardinality |
+| R-E-07 | PENDING | E | C, D, PM | Evaluator merge | behavior 0~3 + logic 0~2, 꼬리답변 보강과 deterministic 최종 집계 mapping |
 | R-D-01 | APPROVED | D | B, E, C | M0, M3 | 지원 완료·문서 추출 완료 trigger와 이력서 snapshot 시점 |
 | R-D-02 | APPROVED | D | C, E, PM | M0, M4 | 세션 생성 readiness gate와 공통·개인화 질문 순서 |
 | R-D-03 | APPROVED | D | B, C, E, PM | M0, M3, M4 | 정책·기준·JD·이력서 변경 후 기존 batch 처리 |
+| R-D-04 | PARTIAL | D | C, E, PM | Evaluator merge | 질문당 꼬리질문 1회, session `answerTimeSec` 공유, parent answer와 evidence segment 연결 |
 | R-B-01 | APPROVED | B | C, E | M0, M2, M3 | 생성 입력으로 사용할 JD 정본과 JD version/hash |
 | R-A-01 | PENDING | A | C, D, E | M0, M1, M3 | shared enum/DTO/error 위치와 migration 소유권 |
 | R-A-02 | APPROVED | A | E, D | M0, M3 | SQS 멱등 claim/lease, retry, PII log 기준 |
@@ -37,11 +40,15 @@ Comment: 변경할 필드명, enum, 상태 전이 또는 이유
 | R-PM-02 | APPROVED | PM | C, E | M0, M2, M3 | REVIEW_REQUIRED 운영 정책과 수동 승인 허용 여부 |
 | R-PM-03 | PENDING | PM | C, E | M0, M1 | NCS 3개 태그 표시명·설명·초기 배점·합격점 |
 | R-PM-04 | PENDING | PM | A, D, E | M3, M6 | 이력서 질문의 보관 기간·지원자 고지·운영자 노출 범위 |
+| R-PM-05 | PENDING | PM | C, D, E | Evaluator merge | 기술 타당성 보류 문구와 NCS 점수·최종 전형 판단의 경계 |
+| R-PM-06 | APPROVED | PM | B, C, D, E | Evaluator merge | 공통 기본 질문과 이력서 개인화 질문을 모두 최종 점수에 포함 |
 | R-X-01 | APPROVED | C | D, E, PM | M0, M2, M4 | API-039 질문 세트와 API-097 질문 생성 정책의 정본 관계 |
 
 ## M6 Implementation Review Handoff
 
 M6 로컬 구현은 완료했으며 다음 변경은 소유자 승인 전 release exit로 간주하지 않는다.
+
+팀원 evaluator 최종 flow와 현재 계약의 차이는 [`ncs-evaluator-team-flow-integration-notes.md`](./ncs-evaluator-team-flow-integration-notes.md)에서 관리하고, 사전 계약은 [`ncs-final-evaluation-contract-preparation.md`](./ncs-final-evaluation-contract-preparation.md)에 둔다. `R-E-06`, `R-E-07`, `R-D-04`, `R-PM-05` 승인 전에는 schema나 runtime 점수 공식을 변경하지 않는다. `R-PM-06`은 공통·개인화 질문 모두 scoring으로 승인됐다.
 
 | Reviewer | Review target | Files / evidence |
 | --- | --- | --- |
@@ -52,6 +59,20 @@ M6 로컬 구현은 완료했으며 다음 변경은 소유자 승인 전 releas
 | PM | 운영자 노출 범위, 지원자 고지, 보관 기간과 상태 문구 | `R-PM-04`, M6 browser acceptance |
 
 C 하네스의 문서·구조 검사는 통과했다. uncommitted cross-owner 파일에 대한 ownership guard 차단은 ownership map을 넓히지 않고 위 리뷰 대상으로 유지한다.
+
+## NE-M1 Cross-owner Review Handoff
+
+NE-M1 로컬 구현 완성도와 별개로 아래 소유자 확인이 필요하다. 이 항목은 구현 완성도 백분율에 포함하지 않는다.
+
+| Reviewer | Review target | Main files |
+| --- | --- | --- |
+| A | forward-only migration 순서, backfill preflight, Prisma/ERD 소유권 | `schema.prisma`, `20260714220000_ncs_final_evaluation_schema_expand/migration.sql`, ERDCloud SQL |
+| B | 회사 조회의 NULL 점수 표시와 지원자용 내부 incomplete 행 비노출 | `company-recruiting.types.ts`, `prisma-candidate-report.repository.ts`, `ApplicantEvaluationPage.tsx` |
+| D | `session_question_ncs_bindings` snapshot cardinality와 criterion 삭제 시 SET NULL | Prisma schema, migration, `ncs-final-evaluation.md` |
+| E | 답변·profile unique, 0~5/legacy 호환 제약, exact evidence와 report aggregate field | Prisma schema, migration, worker canonical persistence adapter |
+| PM | `평가 미완료` 표시, canonical profile label, 임시 incomplete-as-fail 정책 문구 | `ncs-final-evaluation.md`, `ncs-report-output-contract.md` |
+
+표준 C ownership 검사는 위 파일을 C 소유로 확장하지 않고 실패 상태를 유지한다. 각 소유자 승인 후에도 ownership map은 실제 장기 소유 범위가 바뀌는 경우에만 별도 변경한다.
 
 ## E Review
 

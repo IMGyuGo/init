@@ -1,0 +1,58 @@
+import assert from "node:assert/strict";
+
+import { PrismaCandidateReportRepository } from "./prisma-candidate-report.repository";
+
+describe("PrismaCandidateReportRepository", () => {
+  it("omits incomplete NCS aggregate rows from candidate-facing scores", async () => {
+    const prisma = {
+      evaluationReport: {
+        async findFirst() {
+          return {
+            reportId: 501n,
+            applicationId: 77n,
+            sessionId: 901n,
+            reportType: "RECRUITING_REPORT",
+            status: "COMPLETED",
+            totalScore: null,
+            summary: null,
+            generatedAt: new Date("2026-07-14T00:00:00.000Z"),
+            failureCategory: null,
+            failureReason: null,
+            scores: [
+              {
+                scoreId: 1n,
+                criterionId: null,
+                score: null,
+                rationale: "NCS evaluation is incomplete.",
+                criterion: null,
+                evidences: [],
+              },
+              {
+                scoreId: 2n,
+                criterionId: 10n,
+                score: 82,
+                rationale: "Stored candidate feedback score.",
+                criterion: { tag: { name: "문제 해결력" } },
+                evidences: [],
+              },
+            ],
+          };
+        },
+      },
+    };
+    const repository = new PrismaCandidateReportRepository(prisma as never);
+
+    const report = await repository.findLatestReportByApplication(77, 901);
+
+    assert.deepEqual(report?.scores, [
+      {
+        scoreId: 2,
+        criterionId: 10,
+        criterionName: "문제 해결력",
+        score: 82,
+        rationale: "Stored candidate feedback score.",
+        evidences: [],
+      },
+    ]);
+  });
+});
