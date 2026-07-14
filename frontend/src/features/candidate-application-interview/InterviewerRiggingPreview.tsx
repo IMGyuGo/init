@@ -190,204 +190,212 @@ export function InterviewerAudioLipSyncQa({ reducedMotion }: InterviewerAudioLip
     if (!currentAudioElement.paused) {
       currentAudioElement.pause();
       currentAudioElement.currentTime = 0;
-      setPlaybackState("idle");
-      return;
+      const currentAudioElement = audioElementRef.current;
+      if (!currentAudioElement || !audioUrl) return;
+      if (!currentAudioElement.paused) {
+        currentAudioElement.pause();
+        currentAudioElement.currentTime = 0;
+        setPlaybackState("idle");
+        return;
+      }
+
+      currentAudioElement.currentTime = 0;
+      currentAudioElement.currentTime = 0;
+      setPlaybackError("");
+      setObservedMouthShapes(["rest"]);
+      setObservedCubismRange({ min: 0, max: 0 });
+      try {
+        await currentAudioElement.play();
+        await currentAudioElement.play();
+      } catch (error) {
+        setPlaybackError(error instanceof Error ? `${error.name}: ${error.message}` : "Unknown playback error");
+        setPlaybackState("error");
+      }
     }
 
-    currentAudioElement.currentTime = 0;
-    setPlaybackError("");
-    setObservedMouthShapes(["rest"]);
-    setObservedCubismRange({ min: 0, max: 0 });
-    try {
-      await currentAudioElement.play();
-    } catch (error) {
-      setPlaybackError(error instanceof Error ? `${error.name}: ${error.message}` : "Unknown playback error");
-      setPlaybackState("error");
-    }
-  }
-
-  return (
-    <div
-      className="interviewer-rigging-preview__audio-qa"
-      data-audio-qa-cubism-max={observedCubismRange.max.toFixed(3)}
-      data-audio-qa-cubism-min={observedCubismRange.min.toFixed(3)}
-      data-audio-qa-error={playbackError}
-      data-audio-qa-observed-shapes={observedMouthShapes.join(",")}
-      data-audio-qa-reduced-motion={reducedMotion ? "true" : "false"}
-      data-audio-lip-sync-qa="true"
-      data-audio-qa-state={playbackState}
-      ref={qaRootRef}
-    >
-      <div className="interviewer-rigging-preview__audio-qa-controls">
-        <strong>RMS 오디오 입력</strong>
-        <button type="button" onClick={() => void togglePlayback()}>
-          {playing ? "재생 정지" : "로컬 음원 재생"}
-        </button>
-        <span aria-live="polite">
-          {playbackState === "error" ? "재생 실패" : playing ? "재생 중" : "준비"}
-        </span>
-        <small>
-          {observedMouthShapes.join(" -> ")} · Cubism {lipSyncState.mouthOpen.toFixed(3)}
-        </small>
-        <audio
-          aria-label="로컬 RMS QA 음원"
-          controls
-          onEnded={() => setPlaybackState("idle")}
-          onPause={() => setPlaybackState("idle")}
-          onPlay={() => {
-            setPlaybackError("");
-            setPlaybackState("playing");
-          }}
-          preload="auto"
-          ref={bindAudioElement}
-          src={audioUrl || undefined}
-        />
-      </div>
-
-      <div className="interviewer-rigging-preview__audio-qa-stages">
-        <div className="interviewer-rigging-preview__runtime-stage" data-audio-qa-renderer="png">
-          <LocalInterviewerAvatar
-            presentationState={presentationState}
-            mouthShape={lipSyncState.mouthShape}
-            reducedMotion={reducedMotion}
+    return (
+      <div
+        className="interviewer-rigging-preview__audio-qa"
+        data-audio-qa-cubism-max={observedCubismRange.max.toFixed(3)}
+        data-audio-qa-cubism-min={observedCubismRange.min.toFixed(3)}
+        data-audio-qa-error={playbackError}
+        data-audio-qa-observed-shapes={observedMouthShapes.join(",")}
+        data-audio-qa-reduced-motion={reducedMotion ? "true" : "false"}
+        data-audio-lip-sync-qa="true"
+        data-audio-qa-state={playbackState}
+        ref={qaRootRef}
+      >
+        <div className="interviewer-rigging-preview__audio-qa-controls">
+          <strong>RMS 오디오 입력</strong>
+          <button type="button" onClick={() => void togglePlayback()}>
+            {playing ? "재생 정지" : "로컬 음원 재생"}
+          </button>
+          <span aria-live="polite">
+            {playbackState === "error" ? "재생 실패" : playing ? "재생 중" : "준비"}
+          </span>
+          <small>
+            {observedMouthShapes.join(" -> ")} · Cubism {lipSyncState.mouthOpen.toFixed(3)}
+          </small>
+          <audio
+            aria-label="로컬 RMS QA 음원"
+            controls
+            onEnded={() => setPlaybackState("idle")}
+            onPause={() => setPlaybackState("idle")}
+            onPlay={() => {
+              setPlaybackError("");
+              setPlaybackState("playing");
+            }}
+            preload="auto"
+            ref={bindAudioElement}
+            ref={bindAudioElement}
+            src={audioUrl || undefined}
           />
         </div>
-        <div className="interviewer-rigging-preview__runtime-stage" data-audio-qa-renderer="cubism">
-          <CubismProofInterviewerAvatar mouthOpen={lipSyncState.mouthOpen} reducedMotion={reducedMotion} />
-        </div>
-      </div>
-    </div>
-  );
-}
 
-export function InterviewerRiggingPreview() {
-  const [selectedId, setSelectedId] = useState<RiggingPreviewVariantId>("existing-look");
-  const [cubismRuntime, setCubismRuntime] = useState<CubismRuntimeState>("initializing");
-  const [avatarQaState, setAvatarQaState] = useState<AvatarQaState>(DEFAULT_AVATAR_QA_STATE);
-  const reducedMotion = usePrefersReducedMotion();
-  const selected = getRiggingPreviewVariant(selectedId);
-
-  useEffect(() => {
-    setSelectedId(getRiggingPreviewVariant(window.localStorage.getItem(STORAGE_KEY)).id);
-  }, []);
-
-  useEffect(() => {
-    let mounted = true;
-
-    void initializeCubismSdk(document, true).then((result) => {
-      if (mounted) setCubismRuntime(result.kind);
-    });
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  function selectVariant(id: RiggingPreviewVariantId) {
-    setSelectedId(id);
-    window.localStorage.setItem(STORAGE_KEY, id);
-  }
-
-  return (
-    <main className="interviewer-rigging-preview" data-cubism-runtime={cubismRuntime} data-rigging-variant={selected.id}>
-      <header className="interviewer-rigging-preview__header">
-        <p>AI Interviewer</p>
-        <h1>2D 리깅 원본 시안</h1>
-      </header>
-
-      <div className="interviewer-rigging-preview__workspace">
-        <fieldset className="interviewer-rigging-preview__selector">
-          <legend>원본 시안</legend>
-          {variants.map((variant) => (
-            <label className="interviewer-rigging-preview__option" data-selected={variant.id === selected.id ? "true" : "false"} key={variant.id}>
-              <input
-                checked={variant.id === selected.id}
-                name="interviewer-rigging-preview"
-                onChange={() => selectVariant(variant.id)}
-                type="radio"
-                value={variant.id}
-              />
-              <span>{variant.label}</span>
-            </label>
-          ))}
-        </fieldset>
-
-        <figure className="interviewer-rigging-preview__canvas">
-          <Image alt={`${selected.label} 면접관 원본 시안`} height={1536} priority src={selected.imagePath} unoptimized width={1024} />
-        </figure>
-      </div>
-
-      <section className="interviewer-rigging-preview__avatar-qa" data-avatar-qa="true">
-        <header className="interviewer-rigging-preview__section-header">
-          <p>Runtime QA</p>
-          <h2>운영 PNG 렌더러</h2>
-        </header>
-
-        <div className="interviewer-rigging-preview__qa-workspace">
-          <div className="interviewer-rigging-preview__qa-controls">
-            <fieldset className="interviewer-rigging-preview__segmented-control">
-              <legend>상태</legend>
-              {presentationStates.map((state) => (
-                <label data-selected={state.id === avatarQaState.presentationState ? "true" : "false"} key={state.id}>
-                  <input
-                    checked={state.id === avatarQaState.presentationState}
-                    name="interviewer-avatar-state"
-                    onChange={() => setAvatarQaState((current) => updateAvatarQaState(current, { presentationState: state.id }))}
-                    type="radio"
-                    value={state.id}
-                  />
-                  <span>{state.label}</span>
-                </label>
-              ))}
-            </fieldset>
-
-            <fieldset className="interviewer-rigging-preview__segmented-control">
-              <legend>입 모양</legend>
-              {mouthShapes.map((shape) => (
-                <label data-selected={shape === avatarQaState.mouthShape ? "true" : "false"} key={shape}>
-                  <input
-                    checked={shape === avatarQaState.mouthShape}
-                    name="interviewer-avatar-mouth"
-                    onChange={() => setAvatarQaState((current) => updateAvatarQaState(current, { mouthShape: shape }))}
-                    type="radio"
-                    value={shape}
-                  />
-                  <span>{shape}</span>
-                </label>
-              ))}
-            </fieldset>
-
-            <label className="interviewer-rigging-preview__toggle">
-              <input
-                checked={avatarQaState.reducedMotion}
-                onChange={(event) => setAvatarQaState((current) => updateAvatarQaState(current, { reducedMotion: event.target.checked }))}
-                type="checkbox"
-              />
-              <span>모션 감소</span>
-            </label>
-          </div>
-
-          <div className="interviewer-rigging-preview__runtime-stage">
-            <LocalInterviewerAvatar {...avatarQaState} />
-          </div>
-        </div>
-
-        <div className="interviewer-rigging-preview__cubism-proof" data-cubism-proof-qa="true">
-          <div className="interviewer-rigging-preview__proof-record">
-            <strong>Cubism V4 deformation proof</strong>
-            <code>ParamMouthOpenY · 0 → 1</code>
-            <span>단일 ArtMesh 변형 · 완성형 자연 변형 아님</span>
-          </div>
-          <div className="interviewer-rigging-preview__runtime-stage">
-            <CubismProofInterviewerAvatar
-              mouthOpen={getCubismMouthOpenValue(avatarQaState.mouthShape)}
-              reducedMotion={avatarQaState.reducedMotion}
+        <div className="interviewer-rigging-preview__audio-qa-stages">
+          <div className="interviewer-rigging-preview__runtime-stage" data-audio-qa-renderer="png">
+            <LocalInterviewerAvatar
+              presentationState={presentationState}
+              mouthShape={lipSyncState.mouthShape}
+              reducedMotion={reducedMotion}
             />
           </div>
+          <div className="interviewer-rigging-preview__runtime-stage" data-audio-qa-renderer="cubism">
+            <CubismProofInterviewerAvatar mouthOpen={lipSyncState.mouthOpen} reducedMotion={reducedMotion} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  export function InterviewerRiggingPreview() {
+    const [selectedId, setSelectedId] = useState<RiggingPreviewVariantId>("existing-look");
+    const [cubismRuntime, setCubismRuntime] = useState<CubismRuntimeState>("initializing");
+    const [avatarQaState, setAvatarQaState] = useState<AvatarQaState>(DEFAULT_AVATAR_QA_STATE);
+    const reducedMotion = usePrefersReducedMotion();
+    const selected = getRiggingPreviewVariant(selectedId);
+
+    useEffect(() => {
+      setSelectedId(getRiggingPreviewVariant(window.localStorage.getItem(STORAGE_KEY)).id);
+    }, []);
+
+    useEffect(() => {
+      let mounted = true;
+
+      void initializeCubismSdk(document, true).then((result) => {
+        if (mounted) setCubismRuntime(result.kind);
+      });
+
+      return () => {
+        mounted = false;
+      };
+    }, []);
+
+    function selectVariant(id: RiggingPreviewVariantId) {
+      setSelectedId(id);
+      window.localStorage.setItem(STORAGE_KEY, id);
+    }
+
+    return (
+      <main className="interviewer-rigging-preview" data-cubism-runtime={cubismRuntime} data-rigging-variant={selected.id}>
+        <header className="interviewer-rigging-preview__header">
+          <p>AI Interviewer</p>
+          <h1>2D 리깅 원본 시안</h1>
+        </header>
+
+        <div className="interviewer-rigging-preview__workspace">
+          <fieldset className="interviewer-rigging-preview__selector">
+            <legend>원본 시안</legend>
+            {variants.map((variant) => (
+              <label className="interviewer-rigging-preview__option" data-selected={variant.id === selected.id ? "true" : "false"} key={variant.id}>
+                <input
+                  checked={variant.id === selected.id}
+                  name="interviewer-rigging-preview"
+                  onChange={() => selectVariant(variant.id)}
+                  type="radio"
+                  value={variant.id}
+                />
+                <span>{variant.label}</span>
+              </label>
+            ))}
+          </fieldset>
+
+          <figure className="interviewer-rigging-preview__canvas">
+            <Image alt={`${selected.label} 면접관 원본 시안`} height={1536} priority src={selected.imagePath} unoptimized width={1024} />
+          </figure>
         </div>
 
-        <InterviewerAudioLipSyncQa reducedMotion={reducedMotion} />
-      </section>
-    </main>
-  );
-}
+        <section className="interviewer-rigging-preview__avatar-qa" data-avatar-qa="true">
+          <header className="interviewer-rigging-preview__section-header">
+            <p>Runtime QA</p>
+            <h2>운영 PNG 렌더러</h2>
+          </header>
+
+          <div className="interviewer-rigging-preview__qa-workspace">
+            <div className="interviewer-rigging-preview__qa-controls">
+              <fieldset className="interviewer-rigging-preview__segmented-control">
+                <legend>상태</legend>
+                {presentationStates.map((state) => (
+                  <label data-selected={state.id === avatarQaState.presentationState ? "true" : "false"} key={state.id}>
+                    <input
+                      checked={state.id === avatarQaState.presentationState}
+                      name="interviewer-avatar-state"
+                      onChange={() => setAvatarQaState((current) => updateAvatarQaState(current, { presentationState: state.id }))}
+                      type="radio"
+                      value={state.id}
+                    />
+                    <span>{state.label}</span>
+                  </label>
+                ))}
+              </fieldset>
+
+              <fieldset className="interviewer-rigging-preview__segmented-control">
+                <legend>입 모양</legend>
+                {mouthShapes.map((shape) => (
+                  <label data-selected={shape === avatarQaState.mouthShape ? "true" : "false"} key={shape}>
+                    <input
+                      checked={shape === avatarQaState.mouthShape}
+                      name="interviewer-avatar-mouth"
+                      onChange={() => setAvatarQaState((current) => updateAvatarQaState(current, { mouthShape: shape }))}
+                      type="radio"
+                      value={shape}
+                    />
+                    <span>{shape}</span>
+                  </label>
+                ))}
+              </fieldset>
+
+              <label className="interviewer-rigging-preview__toggle">
+                <input
+                  checked={avatarQaState.reducedMotion}
+                  onChange={(event) => setAvatarQaState((current) => updateAvatarQaState(current, { reducedMotion: event.target.checked }))}
+                  type="checkbox"
+                />
+                <span>모션 감소</span>
+              </label>
+            </div>
+
+            <div className="interviewer-rigging-preview__runtime-stage">
+              <LocalInterviewerAvatar {...avatarQaState} />
+            </div>
+          </div>
+
+          <div className="interviewer-rigging-preview__cubism-proof" data-cubism-proof-qa="true">
+            <div className="interviewer-rigging-preview__proof-record">
+              <strong>Cubism V4 deformation proof</strong>
+              <code>ParamMouthOpenY · 0 → 1</code>
+              <span>단일 ArtMesh 변형 · 완성형 자연 변형 아님</span>
+            </div>
+            <div className="interviewer-rigging-preview__runtime-stage">
+              <CubismProofInterviewerAvatar
+                mouthOpen={getCubismMouthOpenValue(avatarQaState.mouthShape)}
+                reducedMotion={avatarQaState.reducedMotion}
+              />
+            </div>
+          </div>
+
+          <InterviewerAudioLipSyncQa reducedMotion={reducedMotion} />
+        </section>
+      </main>
+    );
+  }

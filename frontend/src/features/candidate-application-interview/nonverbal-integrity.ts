@@ -11,6 +11,7 @@ export type IrisGazePosition = {
 export type HeadPoseAngles = {
   yawDegrees: number;
   pitchDegrees: number;
+  rollDegrees?: number;
 };
 
 export type CombinedGazeSignal = {
@@ -132,12 +133,79 @@ export function updateSustainedDetectionState(input: {
   };
 }
 
-const IRIS_HORIZONTAL_AWAY_THRESHOLD = 0.12;
-const IRIS_VERTICAL_AWAY_THRESHOLD = 0.14;
+const IRIS_HORIZONTAL_AWAY_THRESHOLD = 0.08;
+const IRIS_VERTICAL_AWAY_THRESHOLD = 0.1;
+const IRIS_ANALYSIS_HORIZONTAL_DEAD_ZONE = 0.045;
+const IRIS_ANALYSIS_VERTICAL_DEAD_ZONE = 0.06;
+const IRIS_CALIBRATION_MIN_RATIO = 0.15;
+const IRIS_CALIBRATION_MAX_RATIO = 0.85;
+const HEAD_CALIBRATION_MAX_YAW_DEGREES = 18;
+const HEAD_CALIBRATION_MAX_PITCH_DEGREES = 15;
+const HEAD_CALIBRATION_MAX_ROLL_DEGREES = 15;
 const HEAD_YAW_AWAY_THRESHOLD_DEGREES = 20;
 const HEAD_PITCH_AWAY_THRESHOLD_DEGREES = 16;
 const COMBINED_MIN_COMPONENT_STRENGTH = 0.4;
 const COMBINED_AWAY_THRESHOLD = 1.1;
+
+export function smoothIrisGazePosition(
+  previous: IrisGazePosition | undefined,
+  current: IrisGazePosition,
+  responsiveness = 0.55,
+): IrisGazePosition {
+  if (!previous) return current;
+  const currentWeight = clamp(responsiveness, 0, 1);
+  const previousWeight = 1 - currentWeight;
+  return {
+    horizontalRatio: previous.horizontalRatio * previousWeight + current.horizontalRatio * currentWeight,
+    verticalRatio: previous.verticalRatio * previousWeight + current.verticalRatio * currentWeight,
+  };
+}
+
+export function classifyIrisGazeDirection(
+  position: IrisGazePosition,
+  baseline: IrisGazePosition,
+): GazeDirection | "CENTER" {
+  const horizontalDelta = position.horizontalRatio - baseline.horizontalRatio;
+  const verticalDelta = position.verticalRatio - baseline.verticalRatio;
+  const horizontalStrength = Math.abs(horizontalDelta) / IRIS_ANALYSIS_HORIZONTAL_DEAD_ZONE;
+  const verticalStrength = Math.abs(verticalDelta) / IRIS_ANALYSIS_VERTICAL_DEAD_ZONE;
+  if (horizontalStrength < 1 && verticalStrength < 1) return "CENTER";
+  if (horizontalStrength >= verticalStrength) return horizontalDelta < 0 ? "LEFT" : "RIGHT";
+  return verticalDelta < 0 ? "UP" : "DOWN";
+}
+
+export function isWithinDetectionGrace(
+  lastDetectedAtMs: number | undefined,
+  nowMs: number,
+  graceMs: number,
+): boolean {
+  return (
+    lastDetectedAtMs !== undefined &&
+    nowMs >= lastDetectedAtMs &&
+    nowMs - lastDetectedAtMs <= Math.max(0, graceMs)
+  );
+}
+
+export function isReliableGazeCalibrationFrame(input: {
+  irisPosition?: IrisGazePosition;
+  headPose?: HeadPoseAngles;
+  detectedFaceCount: number;
+  faceInFrame: boolean;
+}): boolean {
+  const { irisPosition, headPose } = input;
+  if (input.detectedFaceCount !== 1 || !input.faceInFrame || !irisPosition || !headPose) return false;
+  return (
+    Number.isFinite(irisPosition.horizontalRatio) &&
+    Number.isFinite(irisPosition.verticalRatio) &&
+    irisPosition.horizontalRatio >= IRIS_CALIBRATION_MIN_RATIO &&
+    irisPosition.horizontalRatio <= IRIS_CALIBRATION_MAX_RATIO &&
+    irisPosition.verticalRatio >= IRIS_CALIBRATION_MIN_RATIO &&
+    irisPosition.verticalRatio <= IRIS_CALIBRATION_MAX_RATIO &&
+    Math.abs(headPose.yawDegrees) <= HEAD_CALIBRATION_MAX_YAW_DEGREES &&
+    Math.abs(headPose.pitchDegrees) <= HEAD_CALIBRATION_MAX_PITCH_DEGREES &&
+    Math.abs(headPose.rollDegrees ?? 0) <= HEAD_CALIBRATION_MAX_ROLL_DEGREES
+  );
+}
 
 export function estimateIrisGazePosition(landmarks: NormalizedLandmark[]): IrisGazePosition | undefined {
   if (landmarks.length < 478) return undefined;
@@ -194,10 +262,12 @@ export function estimateHeadPoseAngles(matrix: Matrix | undefined): HeadPoseAngl
   const pitchRadians = Math.abs(m13) < 0.9999999
     ? Math.atan2(-m23, m33)
     : Math.atan2(m32, m22);
+  const rollRadians = Math.atan2(-(elements[1] / scaleX), elements[0] / scaleX);
 
   return {
     yawDegrees: radiansToDegrees(yawRadians),
     pitchDegrees: radiansToDegrees(pitchRadians),
+    rollDegrees: radiansToDegrees(rollRadians),
   };
 }
 

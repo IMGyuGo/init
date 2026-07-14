@@ -29,6 +29,7 @@ import {
   CandidateJobDetail,
   CandidateJobSummary,
   CandidateProfileView,
+  CandidateProfileAiContextV1,
   CandidateRepository,
   ConsentRecord,
   CurrentCandidateUser,
@@ -319,17 +320,21 @@ export class CandidateService {
     return this.envelope(profile);
   }
 
-  // 지원자 프로필 수정. 빈 문자열은 null 로 저장하고, 이름은 공백만 있으면 무시한다. (#272)
+  // 지원자 프로필 수정. scalar는 부분 수정하고 전달된 반복 섹션만 전체 교체한다.
   async updateProfile(
     dto: UpdateCandidateProfileDto,
     currentUser: CurrentCandidateUser,
   ): Promise<ApiResponse<CandidateProfileView>> {
     const input: UpdateCandidateProfileInput = {};
     if (dto.name !== undefined) {
-      const name = dto.name.trim();
-      if (name.length > 0) {
-        input.name = name;
+      if (typeof dto.name !== "string") {
+        this.throwProfileValidation("name", "name must be a string");
       }
+      const name = dto.name.trim();
+      if (name.length === 0) {
+        this.throwProfileValidation("name", "name must not be blank");
+      }
+      input.name = name;
     }
     if (dto.phone !== undefined) {
       input.phone = this.normalizeProfileText(dto.phone);
@@ -346,8 +351,88 @@ export class CandidateService {
     if (dto.summary !== undefined) {
       input.summary = this.normalizeProfileText(dto.summary);
     }
+    if (dto.educations !== undefined) {
+      input.educations = dto.educations.map((item, index) => {
+        const field = `educations.${index}`;
+        this.assertEducationPeriod(item.status, item.startMonth, item.endMonth ?? null, item.educationLevel, item.degreeType, field);
+        return {
+          educationLevel: item.educationLevel,
+          schoolName: this.requiredProfileText(item.schoolName, `${field}.schoolName`),
+          major: this.normalizeProfileText(item.major),
+          degreeType: item.degreeType,
+          status: item.status,
+          startMonth: item.startMonth,
+          endMonth: item.endMonth ?? null,
+        };
+      });
+    }
+    if (dto.careers !== undefined) {
+      input.careers = dto.careers.map((item, index) => {
+        const field = `careers.${index}`;
+        this.assertOpenEndedPeriod(item.startMonth, item.endMonth ?? null, item.isCurrent, field);
+        return {
+          companyName: this.requiredProfileText(item.companyName, `${field}.companyName`),
+          startMonth: item.startMonth,
+          endMonth: item.endMonth ?? null,
+          isCurrent: item.isCurrent,
+          jobRole: this.requiredProfileText(item.jobRole, `${field}.jobRole`),
+          department: this.normalizeProfileText(item.department),
+          position: this.normalizeProfileText(item.position),
+          responsibilities: this.requiredProfileText(item.responsibilities, `${field}.responsibilities`),
+        };
+      });
+    }
+    if (dto.activities !== undefined) {
+      input.activities = dto.activities.map((item, index) => {
+        const field = `activities.${index}`;
+        this.assertOpenEndedPeriod(item.startDate, item.endDate ?? null, item.isOngoing, field);
+        return {
+          activityType: item.activityType,
+          organizationName: this.requiredProfileText(item.organizationName, `${field}.organizationName`),
+          startDate: item.startDate,
+          endDate: item.endDate ?? null,
+          isOngoing: item.isOngoing,
+          description: this.requiredProfileText(item.description, `${field}.description`),
+        };
+      });
+    }
+    if (dto.credentials !== undefined) {
+      input.credentials = dto.credentials.map((item, index) => ({
+        credentialType: item.credentialType,
+        name: this.requiredProfileText(item.name, `credentials.${index}.name`),
+        issuer: this.requiredProfileText(item.issuer, `credentials.${index}.issuer`),
+        acquiredMonth: item.acquiredMonth,
+        result: this.normalizeProfileText(item.result),
+      }));
+    }
     const profile = await this.repository.updateCandidateProfile(currentUser.candidateId, input);
     return this.envelope(profile);
+  }
+
+  async getCandidateProfileAiContext(currentUser: CurrentCandidateUser): Promise<CandidateProfileAiContextV1> {
+    const profile = await this.repository.getCandidateProfile(currentUser.candidateId);
+    if (!profile) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "지원자 프로필을 찾을 수 없습니다.", 404);
+    }
+    const context: CandidateProfileAiContextV1 = {
+      schemaVersion: 1,
+      summary: profile.summary?.slice(0, 1_000) ?? null,
+      githubUrl: profile.githubUrl,
+      blogUrl: profile.blogUrl,
+      portfolioUrl: profile.portfolioUrl,
+      educations: this.latestProfileItems(profile.educations, (item) => item.endMonth ?? item.startMonth),
+      careers: this.latestProfileItems(profile.careers, (item) => item.isCurrent ? "9999-12" : (item.endMonth ?? item.startMonth))
+        .map((item) => ({ ...item, responsibilities: item.responsibilities.slice(0, 500) })),
+      activities: this.latestProfileItems(profile.activities, (item) => item.isOngoing ? "9999-12-31" : (item.endDate ?? item.startDate))
+        .map((item) => ({ ...item, description: item.description.slice(0, 500) })),
+      credentials: this.latestProfileItems(profile.credentials, (item) => item.acquiredMonth),
+    };
+    this.limitProfileContext(context);
+    return context;
+  }
+
+  async getCandidateProfileUpdatedAt(currentUser: CurrentCandidateUser): Promise<string | null> {
+    return this.repository.getCandidateProfileUpdatedAt(currentUser.candidateId);
   }
 
   private normalizeProfileText(value: string | null | undefined): string | null {
@@ -356,6 +441,64 @@ export class CandidateService {
     }
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private requiredProfileText(value: string, field: string): string {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      this.throwProfileValidation(field, `${field} must not be blank`);
+    }
+    return value.trim();
+  }
+
+  private assertEducationPeriod(
+    status: string,
+    startMonth: string,
+    endMonth: string | null,
+    educationLevel: string,
+    degreeType: string,
+    field: string,
+  ): void {
+    const open = status === "ENROLLED" || status === "LEAVE_OF_ABSENCE";
+    this.assertOpenEndedPeriod(startMonth, endMonth, open, field);
+    const compatibleDegrees: Record<string, string[]> = {
+      HIGH_SCHOOL: ["HIGH_SCHOOL_DIPLOMA", "OTHER"],
+      COLLEGE: ["ASSOCIATE", "OTHER"],
+      UNIVERSITY: ["BACHELOR", "OTHER"],
+      GRADUATE_SCHOOL: ["MASTER", "DOCTORATE", "OTHER"],
+      OTHER: ["OTHER"],
+    };
+    if (!compatibleDegrees[educationLevel]?.includes(degreeType)) {
+      this.throwProfileValidation(`${field}.degreeType`, "degree type is incompatible with education level");
+    }
+  }
+
+  private assertOpenEndedPeriod(start: string, end: string | null, ongoing: boolean, field: string): void {
+    if (ongoing && end !== null) {
+      this.throwProfileValidation(`${field}.end`, "end must be null while ongoing");
+    }
+    if (!ongoing && end === null) {
+      this.throwProfileValidation(`${field}.end`, "end is required when not ongoing");
+    }
+    if (end !== null && start > end) {
+      this.throwProfileValidation(`${field}.end`, "end must be on or after start");
+    }
+  }
+
+  private throwProfileValidation(field: string, reason: string): never {
+    throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "프로필 입력값을 확인해주세요.", 400, [{ field, reason }]);
+  }
+
+  private latestProfileItems<T>(items: T[], dateOf: (item: T) => string): T[] {
+    return [...items].sort((a, b) => dateOf(b).localeCompare(dateOf(a))).slice(0, 5);
+  }
+
+  private limitProfileContext(context: CandidateProfileAiContextV1): void {
+    const sections = [context.educations, context.careers, context.activities, context.credentials];
+    while (JSON.stringify(context).length > 20_000) {
+      const target = sections.filter((items) => items.length > 0).sort((a, b) => b.length - a.length)[0];
+      if (!target) break;
+      target.pop();
+    }
   }
 
   async listFolders(currentUser: CurrentCandidateUser): Promise<ApiListResponse<CandidateFolder>> {
@@ -877,37 +1020,39 @@ export class CandidateService {
   }
 
   private async toApplicationSummary(application: Application): Promise<CandidateApplicationSummary> {
-    const job = await this.repository.findJob(application.postingId);
-    const session = await this.repository.findInterviewSessionByApplication(application.applicationId);
-    const consents = await this.repository.listConsentRecords(application.applicationId);
-    if (!job || !session) {
-      throw new CandidateDomainError("COMMON_NOT_FOUND", "Application summary dependency was not found.", 404);
-    }
+    const [job, session, consents] = await Promise.all([
+      this.repository.findJob(application.postingId),
+      this.repository.findInterviewSessionByApplication(application.applicationId),
+      this.repository.listConsentRecords(application.applicationId),
+    ]);
+    const unavailableReason = !job ? "POSTING_NOT_FOUND" : !session ? "INTERVIEW_SESSION_NOT_FOUND" : null;
 
-    const consentCompleted = this.hasRequiredInterviewConsents(consents);
-    const deviceCheckCompleted = this.isDeviceCheckPassed(session);
+    const consentCompleted = session ? this.hasRequiredInterviewConsents(consents) : false;
+    const deviceCheckCompleted = session ? this.isDeviceCheckPassed(session) : false;
     return {
       applicationId: application.applicationId,
       postingId: application.postingId,
       candidateId: application.candidateId,
-      companyName: job.companyName,
-      jobTitle: job.title,
-      jobRole: job.jobRole,
-      location: job.location,
+      availabilityStatus: unavailableReason ? "UNAVAILABLE" : "AVAILABLE",
+      unavailableReason,
+      companyName: job?.companyName ?? null,
+      jobTitle: job?.title ?? null,
+      jobRole: job?.jobRole ?? null,
+      location: job?.location ?? null,
       applicationStatus: application.applicationStatus,
       documentStatus: application.documentStatus,
       interviewStatus: application.interviewStatus,
       reportStatus: application.reportStatus,
       submittedAt: application.submittedAt,
       updatedAt: application.updatedAt,
-      sessionId: session.sessionId,
-      interviewType: session.interviewType,
-      interviewSessionStatus: session.status,
-      interviewWindowStartsAt: session.windowStartsAt,
-      interviewWindowEndsAt: session.windowEndsAt,
+      sessionId: session?.sessionId ?? null,
+      interviewType: session?.interviewType ?? null,
+      interviewSessionStatus: session?.status ?? null,
+      interviewWindowStartsAt: session?.windowStartsAt ?? null,
+      interviewWindowEndsAt: session?.windowEndsAt ?? null,
       consentCompleted,
       deviceCheckCompleted,
-      canStartInterview: consentCompleted && deviceCheckCompleted && session.status === "READY",
+      canStartInterview: !unavailableReason && consentCompleted && deviceCheckCompleted && session?.status === "READY",
     };
   }
 

@@ -99,15 +99,15 @@ GET /api/v1/ai/jobs/101/status
 | `POST /candidate/documents/extract` | Candidate | applicationId, documentId, fileId, s3Key | 원본 파일은 DB 저장 금지, S3 key 참조 |
 | `POST /candidate/mock-interviews/{sessionId}/stt` | Candidate | answerId, audioFileId, audioS3Key | transcript 없을 때만 저장 |
 | `POST /candidate/interviews/{sessionId}/stt` | Candidate | answerId, audioFileId, audioS3Key | transcript 없을 때만 저장 |
-| `POST /candidate/mock-interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript | 모의면접 표현 정책 적용 |
+| `POST /candidate/mock-interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript, profileContext(V1, server-built) | 모의면접 표현 정책 적용 |
 | `POST /candidate/mock-interviews/{sessionId}/follow-up-questions/insert` | Candidate | processLogId | MVP 임시 브릿지. 완료된 FOLLOW_UP 작업 결과를 면접 질문 흐름에 추가 |
-| `POST /candidate/interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript, jobDescription 또는 documentSummary | 채용면접 표현 정책 적용 |
+| `POST /candidate/interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript, jobDescription 또는 documentSummary, profileContext(V1, server-built) | 채용면접 표현 정책 적용 |
 | `POST /candidate/interviews/{sessionId}/follow-up-questions/insert` | Candidate | processLogId | MVP 임시 브릿지. 완료된 FOLLOW_UP 작업 결과를 면접 질문 흐름에 추가 |
 | `POST /company/recruitments/ai-draft` | Company | title(max 120), jobRole(max 80), keywords?(max 10, each max 40), summary?(max 1000), careerRequirement?, employmentType?, workLocation? | reviewRequired draft 반환, 확정 전 최종 저장 금지 |
 | `POST /company/interviews/evaluation-criteria/suggest` | Company | postingId, jobDescription, talentProfile, evaluationPolicy | reviewRequired draft 반환, 확정 전 최종 저장 금지 |
 | `POST /company/interviews/questions/generate` | Company | postingId, jobDescription, questionCount | reviewRequired draft 반환 |
 | `POST /company/interviews/question-sets` | Company | postingId, questionCount, criteria, questionTypes | reviewRequired draft 반환 |
-| `POST /candidate/mock-interviews/questions/generate` | Candidate | questionCount | JD/posting/기업 기준 없이 동작 |
+| `POST /candidate/mock-interviews/questions/generate` | Candidate | questionCount, folderContext?, profileContext(V1, server-built) | JD/posting/기업 기준 없이 동작 |
 | `POST /ai/guardrails/validate` | Admin/System | reportType, target, scores, summary? | PASS/BLOCKED/REGENERATED 기록 |
 
 ## REPORT_GENERATE Nonverbal Metadata
@@ -277,6 +277,24 @@ STT 입력:
   "jobDescription": "Backend engineer with Redis operations."
 }
 ```
+
+지원자 프로필 AI 컨텍스트는 API 서버가 인증된 candidateId로만 만든다. 클라이언트가 같은 이름의 필드를 보내면 validation 단계에서 거부한다.
+
+```ts
+type CandidateProfileAiContextV1 = {
+  schemaVersion: 1;
+  summary: string | null;
+  githubUrl: string | null;
+  blogUrl: string | null;
+  portfolioUrl: string | null;
+  educations: Array<Record<string, string | null>>;
+  careers: Array<Record<string, string | boolean | null>>;
+  activities: Array<Record<string, string | boolean | null>>;
+  credentials: Array<Record<string, string | null>>;
+};
+```
+
+이름, 이메일, 전화번호, candidateId와 자식 PK는 포함하지 않는다. 섹션별 최대 5개, summary 1,000자, responsibilities/description 각 500자, 전체 직렬화 20,000자 제한을 적용한다. `input_ref`에는 원문 대신 schemaVersion/counts/charLength/contextHash/profileUpdatedAt만 저장한다.
 
 질문 생성 draft 출력:
 

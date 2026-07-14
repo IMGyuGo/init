@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { useAuth } from "./AuthProvider";
+import { getLogoutRedirectPath } from "./routePolicy";
 
 const LOGOUT_LABEL = "\uB85C\uADF8\uC544\uC6C3";
 const USER_LABEL = "\uC0AC\uC6A9\uC790";
@@ -12,14 +13,14 @@ const CANDIDATE_ACCOUNT_LABEL = "\uC9C0\uC6D0\uC790 \uACC4\uC815";
 
 export function GnbLogoutButton() {
   const router = useRouter();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const [pending, setPending] = useState(false);
 
   async function handleLogout() {
     if (pending) return;
     setPending(true);
+    router.replace(getLogoutRedirectPath(user?.userType));
     await logout();
-    router.replace("/login");
   }
 
   return (

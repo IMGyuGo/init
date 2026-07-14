@@ -24,14 +24,33 @@ import {
   type RealtimePeerConnectionLike,
 } from "./realtime-webrtc";
 import {
+  classifyIrisGazeDirection,
   countPersonDetections,
   isFacePositionShifted,
   estimateHeadPoseAngles,
+  isReliableGazeCalibrationFrame,
+  isWithinDetectionGrace,
   resolveCombinedGazeSignal,
+  smoothIrisGazePosition,
   updateFacePositionBaseline,
   updateMultiplePeopleDetectionState,
   updateSustainedDetectionState,
 } from "./nonverbal-integrity";
+import {
+  evaluateTimelineAnalysisQuality,
+  readGazeAwayIntervals,
+  readGazeTimeline,
+  readHeadPoseTimeline,
+  summarizeGazeTimeline,
+  summarizeHeadPoseTimeline,
+} from "./nonverbal-analysis";
+import {
+  createNonverbalDeviceQaRun,
+  detectNonverbalDeviceQaBrowser,
+  finishNonverbalDeviceQaScenario,
+  startNonverbalDeviceQaScenario,
+  summarizeNonverbalDeviceQaRun,
+} from "./nonverbal-device-qa";
 import {
   clampCameraPipPosition,
   createCameralessInterviewTestDeviceCheckState,
@@ -214,6 +233,7 @@ const identityHeadPose = estimateHeadPoseAngles({
 assert.ok(identityHeadPose);
 assert.ok(Math.abs(identityHeadPose.yawDegrees) < 0.001);
 assert.ok(Math.abs(identityHeadPose.pitchDegrees) < 0.001);
+assert.ok(Math.abs(identityHeadPose.rollDegrees ?? 0) < 0.001);
 
 const yawRadians = 30 * Math.PI / 180;
 const turnedHeadPose = estimateHeadPoseAngles({
@@ -229,6 +249,143 @@ const turnedHeadPose = estimateHeadPoseAngles({
 assert.ok(turnedHeadPose);
 assert.ok(Math.abs(turnedHeadPose.yawDegrees - 30) < 0.001);
 
+const rollRadians = 20 * Math.PI / 180;
+const tiltedHeadPose = estimateHeadPoseAngles({
+  rows: 4,
+  columns: 4,
+  data: [
+    Math.cos(rollRadians), -Math.sin(rollRadians), 0, 0,
+    Math.sin(rollRadians), Math.cos(rollRadians), 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1,
+  ],
+});
+assert.ok(tiltedHeadPose);
+assert.ok(Math.abs((tiltedHeadPose.rollDegrees ?? 0) - 20) < 0.001);
+
+const gazeTimeline = readGazeTimeline({
+  gazeTimeline: [
+    { tMs: 1000, horizontalOffset: 0.01, verticalOffset: -0.01, direction: "CENTER" },
+    { tMs: 2000, horizontalOffset: 0.2, verticalOffset: 0.02, direction: "RIGHT" },
+    { tMs: -1, horizontalOffset: 0, verticalOffset: 0, direction: "CENTER" },
+  ],
+});
+assert.equal(gazeTimeline.length, 2);
+assert.deepEqual(summarizeGazeTimeline(gazeTimeline), {
+  sampleCount: 2,
+  centeredRatio: 0.5,
+  horizontalRange: 0.19,
+  verticalRange: 0.03,
+  dominantAwayDirection: "RIGHT",
+});
+
+assert.deepEqual(
+  readGazeAwayIntervals({
+    integrityEvents: [
+      { type: "GAZE_AWAY", offsetMs: 4000, durationMs: 1800, direction: "RIGHT" },
+      { type: "GAZE_AWAY", occurredAt: "2026-07-10T10:00:00.000Z" },
+      { type: "TAB_HIDDEN", offsetMs: 7000, durationMs: 1000 },
+      { type: "GAZE_AWAY", offsetMs: 9500, durationMs: 2000, direction: "DOWN" },
+    ],
+  }, 10000),
+  [
+    { startMs: 4000, endMs: 5800, direction: "RIGHT" },
+    { startMs: 9500, endMs: 10000, direction: "DOWN" },
+  ],
+);
+
+assert.deepEqual(evaluateTimelineAnalysisQuality(0, 30000), {
+  status: "INSUFFICIENT",
+  reason: "NO_SAMPLES",
+  sampleCount: 0,
+  requiredSampleCount: 10,
+});
+assert.deepEqual(evaluateTimelineAnalysisQuality(9, 30000), {
+  status: "INSUFFICIENT",
+  reason: "LOW_COVERAGE",
+  sampleCount: 9,
+  requiredSampleCount: 10,
+});
+assert.deepEqual(evaluateTimelineAnalysisQuality(10, 30000), {
+  status: "AVAILABLE",
+  sampleCount: 10,
+  requiredSampleCount: 10,
+});
+assert.equal(evaluateTimelineAnalysisQuality(2, 5000).status, "INSUFFICIENT");
+assert.equal(evaluateTimelineAnalysisQuality(3, 5000).status, "AVAILABLE");
+
+assert.equal(detectNonverbalDeviceQaBrowser("Mozilla/5.0 Chrome/126.0.0.0 Safari/537.36"), "CHROME");
+assert.equal(detectNonverbalDeviceQaBrowser("Mozilla/5.0 Edg/126.0.0.0 Chrome/126.0.0.0"), "EDGE");
+assert.equal(detectNonverbalDeviceQaBrowser("Mozilla/5.0 Version/17.5 Safari/605.1.15"), "SAFARI");
+
+const deviceQaRun = createNonverbalDeviceQaRun({
+  questionId: 1,
+  startedAtMs: 1000,
+  sampleIntervalMs: 500,
+  environment: {
+    browser: "CHROME",
+    userAgent: "Chrome test",
+    platform: "Win32",
+    hardwareConcurrency: 8,
+  },
+  camera: { width: 1280, height: 720, frameRate: 30 },
+});
+deviceQaRun.sampleAttempts = 20;
+deviceQaRun.sampleCompleted = 20;
+deviceQaRun.sampleProcessingDurationsMs = Array.from({ length: 20 }, () => 100);
+deviceQaRun.facePresentSampleCount = 20;
+deviceQaRun.irisSampleCount = 19;
+deviceQaRun.headPoseSampleCount = 20;
+deviceQaRun.firstCompletedSampleAtMs = 1400;
+deviceQaRun.videoFrameCallbackSupported = true;
+deviceQaRun.videoPresentedFrameCount = 270;
+deviceQaRun.firstVideoFrameAtMs = 1000;
+deviceQaRun.lastVideoFrameAtMs = 10000;
+assert.deepEqual(summarizeNonverbalDeviceQaRun(deviceQaRun, 11000), {
+  elapsedMs: 10000,
+  performanceStatus: "GOOD",
+  completedSamplesPerSecond: 2,
+  sampleCompletionRate: 1,
+  averageProcessingMs: 100,
+  p95ProcessingMs: 100,
+  maxProcessingMs: 100,
+  firstSampleLatencyMs: 400,
+  faceCoverageRate: 1,
+  irisCoverageRate: 0.95,
+  headPoseCoverageRate: 1,
+  measuredVideoFps: 30,
+  estimatedVideoDropRate: 0,
+});
+
+startNonverbalDeviceQaScenario(deviceQaRun, "NEUTRAL", 0, 12000);
+assert.equal(finishNonverbalDeviceQaScenario(deviceQaRun, [], 17000)?.status, "PASS");
+startNonverbalDeviceQaScenario(deviceQaRun, "EYE_AWAY", 0, 18000);
+assert.equal(
+  finishNonverbalDeviceQaScenario(deviceQaRun, [{ type: "GAZE_AWAY", source: "IRIS" }], 23000)?.status,
+  "PASS",
+);
+startNonverbalDeviceQaScenario(deviceQaRun, "HEAD_AWAY", 0, 24000);
+assert.equal(
+  finishNonverbalDeviceQaScenario(deviceQaRun, [{ type: "GAZE_AWAY", source: "IRIS" }], 29000)?.status,
+  "FAIL",
+);
+startNonverbalDeviceQaScenario(deviceQaRun, "NEUTRAL", 0, 30000);
+assert.equal(finishNonverbalDeviceQaScenario(deviceQaRun, [], 31000)?.status, "INCOMPLETE");
+
+const headPoseTimeline = readHeadPoseTimeline({
+  headPoseTimeline: [
+    { tMs: 1000, yawDegrees: 2, pitchDegrees: -3, rollDegrees: 1 },
+    { tMs: 2000, yawDegrees: 22, pitchDegrees: 4, rollDegrees: -5 },
+  ],
+});
+assert.deepEqual(summarizeHeadPoseTimeline(headPoseTimeline), {
+  sampleCount: 2,
+  frontalRatio: 0.5,
+  maxYawDegrees: 22,
+  maxPitchDegrees: 4,
+  maxRollDegrees: 5,
+});
+
 const normalCombinedGazeSignal = resolveCombinedGazeSignal({
   irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
   irisPosition: { horizontalRatio: 0.55, verticalRatio: 0.53 },
@@ -236,6 +393,70 @@ const normalCombinedGazeSignal = resolveCombinedGazeSignal({
   headPose: { yawDegrees: 8, pitchDegrees: 6 },
 });
 assert.equal(normalCombinedGazeSignal, undefined);
+
+assert.equal(
+  classifyIrisGazeDirection(
+    { horizontalRatio: 0.53, verticalRatio: 0.54 },
+    { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  ),
+  "CENTER",
+);
+assert.equal(
+  classifyIrisGazeDirection(
+    { horizontalRatio: 0.565, verticalRatio: 0.51 },
+    { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  ),
+  "RIGHT",
+);
+assert.equal(
+  classifyIrisGazeDirection(
+    { horizontalRatio: 0.49, verticalRatio: 0.57 },
+    { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  ),
+  "DOWN",
+);
+
+const smoothedIrisPosition = smoothIrisGazePosition(
+  { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  { horizontalRatio: 0.7, verticalRatio: 0.6 },
+);
+assert.ok(Math.abs(smoothedIrisPosition.horizontalRatio - 0.61) < 0.000001);
+assert.ok(Math.abs(smoothedIrisPosition.verticalRatio - 0.555) < 0.000001);
+
+const moderateIrisOnlySignal = resolveCombinedGazeSignal({
+  irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
+  irisPosition: { horizontalRatio: 0.59, verticalRatio: 0.51 },
+});
+assert.equal(moderateIrisOnlySignal?.source, "IRIS");
+assert.equal(moderateIrisOnlySignal?.direction, "RIGHT");
+
+assert.equal(isWithinDetectionGrace(1000, 1650, 650), true);
+assert.equal(isWithinDetectionGrace(1000, 1651, 650), false);
+
+const centeredCalibrationFrame = {
+  irisPosition: { horizontalRatio: 0.5, verticalRatio: 0.52 },
+  headPose: { yawDegrees: 4, pitchDegrees: -3, rollDegrees: 2 },
+  detectedFaceCount: 1,
+  faceInFrame: true,
+};
+assert.equal(isReliableGazeCalibrationFrame(centeredCalibrationFrame), true);
+assert.equal(isReliableGazeCalibrationFrame({ ...centeredCalibrationFrame, detectedFaceCount: 2 }), false);
+assert.equal(isReliableGazeCalibrationFrame({ ...centeredCalibrationFrame, faceInFrame: false }), false);
+assert.equal(
+  isReliableGazeCalibrationFrame({
+    ...centeredCalibrationFrame,
+    irisPosition: { horizontalRatio: 0.9, verticalRatio: 0.52 },
+  }),
+  false,
+);
+assert.equal(
+  isReliableGazeCalibrationFrame({
+    ...centeredCalibrationFrame,
+    headPose: { yawDegrees: 24, pitchDegrees: -3, rollDegrees: 2 },
+  }),
+  false,
+);
+assert.equal(isReliableGazeCalibrationFrame({ ...centeredCalibrationFrame, irisPosition: undefined }), false);
 
 const horizontalIrisOnlySignal = resolveCombinedGazeSignal({
   irisBaseline: { horizontalRatio: 0.5, verticalRatio: 0.5 },
@@ -1363,6 +1584,8 @@ const applicationSummary: CandidateApplicationSummary = {
   applicationId: 1,
   postingId: 1,
   candidateId: 1,
+  availabilityStatus: "AVAILABLE",
+  unavailableReason: null,
   companyName: "Init Labs",
   jobTitle: "Backend Developer",
   jobRole: "Backend",
@@ -1381,6 +1604,24 @@ const applicationSummary: CandidateApplicationSummary = {
   consentCompleted: true,
   deviceCheckCompleted: true,
   canStartInterview: true,
+};
+
+const unavailableApplicationSummary: CandidateApplicationSummary = {
+  ...applicationSummary,
+  applicationId: 99,
+  availabilityStatus: "UNAVAILABLE",
+  unavailableReason: "INTERVIEW_SESSION_NOT_FOUND",
+  companyName: null,
+  jobTitle: null,
+  jobRole: null,
+  location: null,
+  sessionId: null,
+  interviewType: null,
+  interviewSessionStatus: null,
+  interviewWindowStartsAt: null,
+  interviewWindowEndsAt: null,
+  canStartInterview: false,
+  reportStatus: "COMPLETED",
 };
 
 const completedReportApplicationSummary: CandidateApplicationSummary = {
@@ -1408,7 +1649,7 @@ const generatingReportApplicationSummary: CandidateApplicationSummary = {
   updatedAt: "2026-07-09T10:01:00.000Z",
 };
 const unreadReportNotifications = buildCandidateReportCompleteNotifications(
-  [generatingReportApplicationSummary, completedReportApplicationSummary],
+  [generatingReportApplicationSummary, completedReportApplicationSummary, unavailableApplicationSummary],
   new Set(),
 );
 assert.deepEqual(unreadReportNotifications, [
@@ -1518,6 +1759,7 @@ const mockReport: CandidateMockReportSummary = {
   sessionId: 10001,
   reportId: 10001,
   interviewType: "MOCK",
+  title: null,
   status: "COMPLETED",
   reportStatus: "COMPLETED",
   startedAt: "2026-06-29T00:00:00.000Z",

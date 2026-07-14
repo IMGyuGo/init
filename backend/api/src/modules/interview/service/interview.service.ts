@@ -1,13 +1,16 @@
 import { Inject, Injectable, Optional } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import {
   CandidateDomainError,
   CandidateService,
   type CandidateFolderContext,
+  type CandidateProfileAiContextV1,
   type CurrentCandidateUser,
   type FileAsset,
   type InterviewSession,
 } from "../../candidate";
 import { DeviceCheckDto } from "../dto/interview.device-check.dto";
+import { UpdateMockSessionTitleDto } from "../dto/update-mock-session-title.dto";
 import {
   AiInterviewRequestDto,
   CreateRealtimeInterviewSessionDto,
@@ -164,6 +167,7 @@ export class InterviewService {
         sessionId: session.sessionId,
         reportId: session.sessionId,
         interviewType: "MOCK" as const,
+        title: session.title ?? null,
         status: session.status,
         reportStatus: session.status === "COMPLETED" ? ("COMPLETED" as const) : ("PENDING" as const),
         startedAt: session.startedAt,
@@ -188,6 +192,14 @@ export class InterviewService {
         },
       },
     };
+  }
+
+  // 연습 이력 세션의 사용자 지정 제목 수정. 빈 값이면 null(기본 '세션 #N')로 되돌린다. (#288)
+  async updateMockInterviewTitle(sessionId: number, dto: UpdateMockSessionTitleDto, currentUser: CurrentCandidateUser) {
+    await this.getOwnedMockSession(sessionId, currentUser);
+    const trimmed = typeof dto.title === "string" ? dto.title.trim() : "";
+    const updated = await this.interviewRepository.updateMockSessionTitle(sessionId, trimmed.length > 0 ? trimmed : null);
+    return this.envelope({ sessionId: updated.sessionId, title: updated.title ?? null });
   }
 
   async getMockRuntime(sessionId: number, currentUser: CurrentCandidateUser) {
@@ -711,6 +723,14 @@ export class InterviewService {
       processType === "STT"
         ? "ai.interview.stt.requested"
         : "ai.interview.follow-up-question.requested";
+    const payload = await this.buildAiJobPayload(session, answer, requestBody, processType, currentUser);
+    const persistedPayload = { ...payload };
+    if (processType === "FOLLOW_UP") {
+      const profileContext = await this.candidateService.getCandidateProfileAiContext(currentUser);
+      const profileUpdatedAt = await this.candidateService.getCandidateProfileUpdatedAt(currentUser);
+      payload.profileContext = profileContext;
+      persistedPayload.profileContext = this.toProfileContextLogRef(profileContext, profileUpdatedAt);
+    }
     const dispatched = this.aiJobDispatcher
       ? await this.aiJobDispatcher.dispatch({
           processType,
@@ -721,7 +741,16 @@ export class InterviewService {
               userType: currentUser.userType,
               candidateId: currentUser.candidateId,
             },
-            payload: await this.buildAiJobPayload(session, answer, requestBody, processType, currentUser),
+            payload,
+          },
+          persistedInput: {
+            kind: this.aiJobKind(session.interviewType, processType),
+            requestedBy: {
+              userId: currentUser.userId,
+              userType: currentUser.userType,
+              candidateId: currentUser.candidateId,
+            },
+            payload: persistedPayload,
           },
           refs: {
             sessionId: session.sessionId,
@@ -1086,6 +1115,23 @@ export class InterviewService {
       return interviewType === "MOCK" ? "MOCK_INTERVIEW_STT" : "RECRUITING_INTERVIEW_STT";
     }
     return interviewType === "MOCK" ? "MOCK_FOLLOW_UP" : "RECRUITING_FOLLOW_UP";
+  }
+
+  private toProfileContextLogRef(context: CandidateProfileAiContextV1, profileUpdatedAt: string | null): Record<string, unknown> {
+    const serialized = JSON.stringify(context);
+    return {
+      schemaVersion: context.schemaVersion,
+      counts: {
+        educations: context.educations.length,
+        careers: context.careers.length,
+        activities: context.activities.length,
+        credentials: context.credentials.length,
+      },
+      charLength: serialized.length,
+      contextHash: createHash("sha256").update(serialized).digest("hex"),
+      profileUpdatedAt,
+      scrubbed: true,
+    };
   }
 
   private async buildAiJobPayload(
