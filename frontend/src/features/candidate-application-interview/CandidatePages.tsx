@@ -43,7 +43,6 @@ import {
   type CandidateMockInterviewHistoryItem,
   type CandidateMockReportSummary,
   type CandidateMockReportFeedback,
-  type UpdateCandidateProfileRequest,
   type CandidateMockReportMedia,
   type CandidateReportAnswerView,
   type CandidateReportEvidenceView,
@@ -61,6 +60,7 @@ import {
   publicCandidateApiPaths,
   type InterviewRuntimeApiClient,
 } from "./api";
+import { CandidateProfileSection } from "./CandidateProfileSection";
 import {
   createRealtimeInterviewSpeechResponseEvent,
   createRealtimeInterviewWebRtcConnection,
@@ -2579,146 +2579,6 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
       </section>
       <Link className="btn primary" href={candidateApplicationInterviewRoutes.applications}>지원현황으로 돌아가기</Link>
     </CandidatePageShell>
-  );
-}
-
-type CandidateProfileFormState = {
-  name: string;
-  phone: string;
-  githubUrl: string;
-  blogUrl: string;
-  portfolioUrl: string;
-  summary: string;
-};
-
-const emptyProfileForm: CandidateProfileFormState = {
-  name: "",
-  phone: "",
-  githubUrl: "",
-  blogUrl: "",
-  portfolioUrl: "",
-  summary: "",
-};
-
-// 내 정보(프로필) 편집 — 지원 시 자동 입력의 정본. 이메일은 로그인 정보라 읽기전용. (#272)
-function CandidateProfileSection() {
-  const load = useCallback(() => getCandidateApi().getProfile(), []);
-  const { data, loading, error, refresh } = useCandidateResource(load, []);
-  const [form, setForm] = useState<CandidateProfileFormState>(emptyProfileForm);
-  const [email, setEmail] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    const profile = data?.data;
-    if (!profile) {
-      return;
-    }
-    setEmail(profile.email);
-    setForm({
-      name: profile.name ?? "",
-      phone: profile.phone ?? "",
-      githubUrl: profile.githubUrl ?? "",
-      blogUrl: profile.blogUrl ?? "",
-      portfolioUrl: profile.portfolioUrl ?? "",
-      summary: profile.summary ?? "",
-    });
-  }, [data]);
-
-  async function handleSave(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setMessage("");
-    try {
-      const body: UpdateCandidateProfileRequest = {
-        name: form.name,
-        phone: form.phone,
-        githubUrl: form.githubUrl,
-        blogUrl: form.blogUrl,
-        portfolioUrl: form.portfolioUrl,
-        summary: form.summary,
-      };
-      await getCandidateApi().updateProfile(body);
-      setMessage("내 정보가 저장되었습니다.");
-      void refresh().catch(() => undefined);
-    } catch (saveError) {
-      setMessage(toErrorMessage(saveError));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <section className="candidate-profile-card" aria-label="내 정보">
-      <header className="candidate-profile-card__head">
-        <h2>내 정보</h2>
-        <p>여기서 저장한 정보가 지원 시 자동으로 입력됩니다. 지원할 때 공고별로 수정할 수도 있어요.</p>
-      </header>
-      {error ? <p className="notice danger">{toErrorMessage(error)}</p> : null}
-      <form className="candidate-profile-form" onSubmit={handleSave}>
-        <label>
-          이름
-          <input
-            placeholder="이름"
-            value={form.name}
-            onChange={(event) => setForm({ ...form, name: event.currentTarget.value })}
-          />
-        </label>
-        <label>
-          이메일
-          <input value={email} readOnly disabled placeholder="이메일" />
-        </label>
-        <label>
-          연락처
-          <input
-            placeholder="010-0000-0000"
-            value={form.phone}
-            onChange={(event) => setForm({ ...form, phone: event.currentTarget.value })}
-          />
-        </label>
-        <label>
-          GitHub URL
-          <input
-            placeholder="https://github.com/username"
-            type="url"
-            value={form.githubUrl}
-            onChange={(event) => setForm({ ...form, githubUrl: event.currentTarget.value })}
-          />
-        </label>
-        <label>
-          블로그 URL
-          <input
-            placeholder="https://blog.example.com"
-            type="url"
-            value={form.blogUrl}
-            onChange={(event) => setForm({ ...form, blogUrl: event.currentTarget.value })}
-          />
-        </label>
-        <label>
-          포트폴리오 URL
-          <input
-            placeholder="https://portfolio.example.com"
-            type="url"
-            value={form.portfolioUrl}
-            onChange={(event) => setForm({ ...form, portfolioUrl: event.currentTarget.value })}
-          />
-        </label>
-        <label className="candidate-profile-form__full">
-          한 줄 소개
-          <textarea
-            placeholder="본인을 한 줄로 소개해 주세요."
-            value={form.summary}
-            onChange={(event) => setForm({ ...form, summary: event.currentTarget.value })}
-          />
-        </label>
-        <div className="candidate-profile-form__actions">
-          {message ? <span className="candidate-profile-form__msg">{message}</span> : null}
-          <button className="btn primary" type="submit" disabled={busy || loading}>
-            {busy ? "저장 중…" : "저장"}
-          </button>
-        </div>
-      </form>
-    </section>
   );
 }
 

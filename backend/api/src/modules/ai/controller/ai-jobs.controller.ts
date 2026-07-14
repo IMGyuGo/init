@@ -14,6 +14,7 @@ import {
   Req,
   UseGuards
 } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { DevAuthAdapter } from "../../../common/dev-auth/dev-auth.adapter";
 import { CurrentUser } from "../../../common/dev-auth/current-user";
@@ -34,7 +35,7 @@ import { AiJobDispatcherService } from "../../report/service/ai-job-dispatcher.s
 import { AiProcessNotFoundError, REPORT_REPOSITORY, ReportRepository } from "../../report/repository/report.repository";
 import { AiProcessType, QueuedAiProcessSnapshot } from "../../report/report.types";
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
-import { CandidateDomainError, CandidateService, type CandidateFolderContext, type CurrentCandidateUser } from "../../candidate";
+import { CandidateDomainError, CandidateService, type CandidateFolderContext, type CandidateProfileAiContextV1, type CurrentCandidateUser } from "../../candidate";
 import { InterviewService } from "../../interview";
 
 type HeaderMap = Record<string, string | string[] | undefined>;
@@ -150,6 +151,10 @@ export class CandidateAiJobsController {
       this.requirePositive(body.questionCount, "questionCount");
       const payload: Record<string, unknown> = { ...body };
       const persistedPayload: Record<string, unknown> = { ...body };
+      const profileContext = await this.candidateService.getCandidateProfileAiContext(currentUser);
+      const profileUpdatedAt = await this.candidateService.getCandidateProfileUpdatedAt(currentUser);
+      payload.profileContext = profileContext;
+      persistedPayload.profileContext = this.toProfileContextLogRef(profileContext, profileUpdatedAt);
       if (body.folderId !== undefined && body.folderId !== null) {
         this.requirePositive(body.folderId, "folderId");
         const folderContext = await this.candidateService.getMockInterviewFolderContext(Number(body.folderId), currentUser);
@@ -189,19 +194,30 @@ export class CandidateAiJobsController {
   }
 
   private async followUp(kind: string, sessionIdParam: string, request: CandidateAiRequest, body: FollowUpQuestionRequestDto) {
-    const currentUser = this.candidate(request);
-    const sessionId = this.parseId(sessionIdParam, "sessionId");
-    this.requirePositive(body.answerId, "answerId");
-    this.requireText(body.previousQuestion, "previousQuestion");
-    this.requireText(body.transcript, "transcript");
-    if (kind === "RECRUITING_FOLLOW_UP") {
-      this.requireAnyText(body, ["jobDescription", "documentSummary"]);
-    }
+    return this.handleCandidateDomain(async () => {
+      const currentUser = this.candidate(request);
+      const sessionId = this.parseId(sessionIdParam, "sessionId");
+      this.requirePositive(body.answerId, "answerId");
+      this.requireText(body.previousQuestion, "previousQuestion");
+      this.requireText(body.transcript, "transcript");
+      if (kind === "RECRUITING_FOLLOW_UP") {
+        this.requireAnyText(body, ["jobDescription", "documentSummary"]);
+      }
+      const profileContext = await this.candidateService.getCandidateProfileAiContext(currentUser);
+      const profileUpdatedAt = await this.candidateService.getCandidateProfileUpdatedAt(currentUser);
+      const payload = { ...body, sessionId, profileContext };
+      const persistedPayload = {
+        ...body,
+        sessionId,
+        profileContext: this.toProfileContextLogRef(profileContext, profileUpdatedAt),
+      };
 
-    return this.dispatcher.dispatch({
-      processType: "FOLLOW_UP",
-      input: this.input(kind, { ...body, sessionId }, currentUser),
-      refs: { sessionId }
+      return this.dispatcher.dispatch({
+        processType: "FOLLOW_UP",
+        input: this.input(kind, payload, currentUser),
+        persistedInput: this.input(kind, persistedPayload, currentUser),
+        refs: { sessionId }
+      });
     });
   }
 
@@ -309,6 +325,23 @@ export class CandidateAiJobsController {
         extraNoteLength: folder.extraNote?.length ?? 0,
         resumeExtractedTextLength: folder.resumeExtractedText?.length ?? 0,
       },
+      scrubbed: true,
+    };
+  }
+
+  private toProfileContextLogRef(context: CandidateProfileAiContextV1, profileUpdatedAt: string | null): Record<string, unknown> {
+    const serialized = JSON.stringify(context);
+    return {
+      schemaVersion: context.schemaVersion,
+      counts: {
+        educations: context.educations.length,
+        careers: context.careers.length,
+        activities: context.activities.length,
+        credentials: context.credentials.length,
+      },
+      charLength: serialized.length,
+      contextHash: createHash("sha256").update(serialized).digest("hex"),
+      profileUpdatedAt,
       scrubbed: true,
     };
   }

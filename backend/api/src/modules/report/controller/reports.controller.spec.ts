@@ -11,11 +11,13 @@ import { POSTING_DRAFT_INPUT_LIMITS } from "../../ai/dto/ai-job.dto";
 import { InMemoryInterviewRepository } from "../../interview/repository/in-memory-interview.repository";
 import { INTERVIEW_REPOSITORY } from "../../interview/repository/interview.repository";
 import { InMemoryReportRepository } from "../repository/in-memory-report.repository";
+import { AI_JOB_QUEUE_PUBLISHER, InMemoryAiJobQueuePublisher } from "../service/ai-job-queue.publisher";
 
 describe("ReportsController", () => {
   let app: INestApplication;
   let repository: InMemoryReportRepository;
   let candidateRepository: CandidateRepository;
+  let queuePublisher: InMemoryAiJobQueuePublisher;
   let mockAiFixture: AiInterviewFixture;
   let mockAnswerWithoutFileFixture: AiInterviewFixture;
   let recruitingAiFixture: AiInterviewFixture;
@@ -50,6 +52,7 @@ describe("ReportsController", () => {
     await app.init();
     repository = app.get(InMemoryReportRepository);
     candidateRepository = app.get<CandidateRepository>(CANDIDATE_REPOSITORY);
+    queuePublisher = app.get<InMemoryAiJobQueuePublisher>(AI_JOB_QUEUE_PUBLISHER);
     const interviewRepository = app.get<InMemoryInterviewRepository>(INTERVIEW_REPOSITORY);
     ({ mockAiFixture, mockAnswerWithoutFileFixture, recruitingAiFixture } = await seedInterviewAiFixtures(
       interviewRepository,
@@ -275,6 +278,8 @@ describe("ReportsController", () => {
     expect(response.body.data.processType).toBe("FOLLOW_UP");
     expect(response.body.data.status).toBe("PENDING");
     expect(response.body.data.inputRef).toContain("How did you use Redis?");
+    expect(response.body.data.inputRef).toContain('"profileContext":{"schemaVersion":1');
+    expect(response.body.data.inputRef).toContain('"scrubbed":true');
   });
 
   it("queues recruiting follow-up work with JD or document context", async () => {
@@ -290,6 +295,8 @@ describe("ReportsController", () => {
     expect(response.body.data.processType).toBe("FOLLOW_UP");
     expect(response.body.data.status).toBe("PENDING");
     expect(response.body.data.inputRef).toContain("Backend engineer with Redis operations.");
+    expect(response.body.data.inputRef).toContain('"profileContext":{"schemaVersion":1');
+    expect(response.body.data.inputRef).toContain('"scrubbed":true');
   });
 
   it("rejects recruiting follow-up without JD or document context", async () => {
@@ -589,6 +596,21 @@ describe("ReportsController", () => {
   });
 
   it("exposes parsed candidate mock-question output through AI job status", async () => {
+    await candidateRepository.updateCandidateProfile(1, {
+      name: "AI에 보내면 안 되는 이름",
+      phone: "010-9999-9999",
+      summary: "Redis 캐시 운영 경험",
+      careers: [{
+        companyName: "정글랩",
+        startMonth: "2024-01",
+        endMonth: null,
+        isCurrent: true,
+        jobRole: "백엔드 개발자",
+        department: null,
+        position: null,
+        responsibilities: "NestJS API와 Redis 캐시 무효화 전략을 운영했습니다.",
+      }],
+    });
     const response = await candidateRequest("/api/v1/candidate/mock-interviews/questions/generate")
       .send({
         questionCount: 2
@@ -598,6 +620,19 @@ describe("ReportsController", () => {
     expect(response.body.data.inputRef).not.toContain("postingId");
     expect(response.body.data.inputRef).not.toContain("jobDescription");
     expect(response.body.data.inputRef).not.toContain("criteria");
+    expect(response.body.data.inputRef).toContain('"schemaVersion":1');
+    expect(response.body.data.inputRef).toContain('"contextHash":');
+    expect(response.body.data.inputRef).toContain('"scrubbed":true');
+    expect(response.body.data.inputRef).not.toContain("AI에 보내면 안 되는 이름");
+    expect(response.body.data.inputRef).not.toContain("010-9999-9999");
+    expect(response.body.data.inputRef).not.toContain("정글랩");
+    expect(response.body.data.inputRef).not.toContain("Redis 캐시 무효화 전략");
+    const queued = queuePublisher.messages.filter((message) => message.processType === "QUESTION_GENERATE").at(-1);
+    expect(queued?.inputRef).toContain('"profileContext":{"schemaVersion":1');
+    expect(queued?.inputRef).toContain("정글랩");
+    expect(queued?.inputRef).toContain("Redis 캐시 무효화 전략");
+    expect(queued?.inputRef).not.toContain("AI에 보내면 안 되는 이름");
+    expect(queued?.inputRef).not.toContain("010-9999-9999");
 
     await repository.markQueuedProcessCompleted(
       response.body.data.processLogId,
