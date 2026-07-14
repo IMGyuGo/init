@@ -454,7 +454,7 @@ function ReportOverview({
   const result = reportResult(report.result);
   const gaugeTone = result ? result.tone : "accent";
   const keyFindings = report.keyFindings ?? [];
-  const followUp = report.followUp ?? null;
+  const followUps = report.followUps ?? [];
   const topScore = report.scores.length > 0 ? [...report.scores].sort((a, b) => b.score - a.score)[0] : null;
   const selectedScore = report.scores.find((score) => score.scoreId === selectedScoreId) ?? topScore;
 
@@ -616,18 +616,24 @@ function ReportOverview({
         </div>
       ) : null}
 
-      {followUp ? (
+      {followUps.length > 0 ? (
         <div className="report-followup">
           <h3>꼬리질문</h3>
-          <div className="report-followup-box">
-            <div className="report-followup-row">
-              <span className="report-followup-label">부족 포인트</span>
-              <span className="report-followup-text">{followUp.gapPoint}</span>
-            </div>
-            <div className="report-followup-row">
-              <span className="report-followup-label">꼬리질문 답변</span>
-              <span className="report-followup-text">{followUp.answerStatus}</span>
-            </div>
+          <div className="report-followup-list">
+            {followUps.map((item, index) => (
+              <div className="report-followup-box" key={`${item.baseAnswerId}-${item.followUpAnswerId}-${index}`}>
+                <div className="report-followup-row">
+                  <span className="report-followup-label">부족 포인트</span>
+                  <span className="report-followup-text">
+                    {item.gapPoints.length > 0 ? item.gapPoints.join(", ") : "특이 사항 없음"}
+                  </span>
+                </div>
+                <div className="report-followup-row">
+                  <span className="report-followup-label">꼬리질문 답변</span>
+                  <span className="report-followup-text">{item.answerStatus}</span>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       ) : null}
@@ -796,9 +802,8 @@ function CompetencyDetailCard({ score }: { score: ReportScore }) {
 
 const GAUGE_CIRCUMFERENCE = 2 * Math.PI * 52;
 
-function reportResult(result: string | null | undefined): { label: string; tone: "pass" | "hold" | "fail" } | null {
+function reportResult(result: string | null | undefined): { label: string; tone: "pass" | "fail" } | null {
   if (result === "PASS") return { label: "합격", tone: "pass" };
-  if (result === "HOLD") return { label: "보류", tone: "hold" };
   if (result === "FAIL") return { label: "불합격", tone: "fail" };
   return null;
 }

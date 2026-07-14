@@ -11095,6 +11095,7 @@ p {
 /* 꼬리질문 (#289) */
 .notion .report-followup { display: grid; gap: 14px; }
 .notion .report-followup h3 { margin: 0; font-size: 15px; font-weight: 700; color: #191919; }
+.notion .report-followup-list { display: grid; gap: 10px; }
 .notion .report-followup-box {
   display: grid;
   gap: 10px;
