@@ -29,6 +29,10 @@ export function getRedirectForUnauthorizedRole(userType: AuthUserType) {
   return getDefaultEntryPath(userType);
 }
 
+export function getLogoutRedirectPath(userType?: AuthUserType | null) {
+  return userType === "COMPANY" ? "/" : "/login";
+}
+
 export function isAllowedUserType(userType: AuthUserType, allowedUserTypes: UserType[]) {
   return allowedUserTypes.includes(userType as UserType);
 }
