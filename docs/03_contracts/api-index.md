@@ -110,6 +110,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-052 | 지원자 - 모의면접 | PATCH | /candidate/mock-interviews/{sessionId}/complete | 면접 종료 및 분석 상태 전환 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-053 | 지원자 - 모의면접 | GET | /candidate/mock-interview/reports | 연습 이력 및 리포트 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-054 | 지원자 - 모의면접 | GET | /candidate/mock-interviews/history | 연습 이력 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
+| API-054A | 지원자 - 모의면접 | PATCH | /candidate/mock-interviews/{sessionId}/title | 연습 세션 제목 수정 (빈 값이면 기본값 초기화) | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-055 | 지원자 - 모의면접 | GET | /candidate/mock-interview/reports/{reportId}/feedback | 모의면접 피드백 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-056 | 지원자 - 모의면접 | GET | /candidate/mock-interview/reports/{reportId}/media | 영상/스크립트 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-057 | 지원자 - 모의면접 | POST | /candidate/mock-interview/reports/{reportId}/generate | 피드백 리포트 생성 | 지원자 / 지원자 사용자 로그인 | Y | 202 Accepted |

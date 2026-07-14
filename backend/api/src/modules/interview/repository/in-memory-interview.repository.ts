@@ -1,3 +1,4 @@
+import { CandidateDomainError } from "../../candidate";
 import type { InterviewAnswer, InterviewQuestion, RuntimeInterviewSession } from "../interview.runtime.types";
 import type {
   CompletedFollowUpProcess,
@@ -176,6 +177,16 @@ export class InMemoryInterviewRepository implements InterviewRepository {
   findMockSession(sessionId: number): RuntimeInterviewSession | undefined {
     const session = this.mockSessions.get(sessionId);
     return session ? this.cloneSession(session) : undefined;
+  }
+
+  updateMockSessionTitle(sessionId: number, title: string | null): RuntimeInterviewSession {
+    const session = this.mockSessions.get(sessionId);
+    if (!session) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "Interview session was not found.", 404);
+    }
+    const updated = { ...session, title };
+    this.mockSessions.set(sessionId, updated);
+    return this.cloneSession(updated);
   }
 
   createMockSession(input: CreateMockInterviewSessionInput): RuntimeInterviewSession {
