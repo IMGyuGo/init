@@ -5847,6 +5847,159 @@ td input {
   border-radius: 10px;
 }
 .notion .wizard-ai-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+
+/* AI 초안 선택 입력 (#290) */
+.notion .wizard-ai-selects {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+/* 요구 경력 듀얼 핸들 슬라이더 (#290) */
+.notion .pcs-field { display: grid; gap: 6px; }
+.notion .pcs-label { font-size: 13px; font-weight: 600; color: #37352F; }
+.notion .pcs {
+  display: grid;
+  gap: 6px;
+  padding: 6px 12px 2px;
+}
+.notion .pcs-value {
+  text-align: center;
+  font-size: 17px;
+  font-weight: 800;
+  color: #3B6FE0;
+  letter-spacing: -0.01em;
+}
+.notion .pcs-track-wrap {
+  position: relative;
+  height: 26px;
+}
+.notion .pcs-track {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 6px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: rgba(55, 53, 47, 0.12);
+}
+.notion .pcs-fill {
+  position: absolute;
+  top: 50%;
+  height: 6px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: #3B6FE0;
+}
+.notion .pcs-input,
+.glass-page.notion .pcs-input[type="range"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  pointer-events: none;
+  z-index: 3;
+}
+.glass-page.notion .pcs-input[type="range"]:focus {
+  border: 0;
+  box-shadow: none;
+  outline: none;
+}
+.notion .pcs-input.is-max { z-index: 4; }
+.notion .pcs-input.is-top { z-index: 5; }
+.notion .pcs-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.16);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.18);
+  cursor: grab;
+  pointer-events: auto;
+}
+.notion .pcs-input::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.16);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.18);
+  cursor: grab;
+  pointer-events: auto;
+}
+.notion .pcs-input:focus-visible::-webkit-slider-thumb {
+  border-color: #3B6FE0;
+  box-shadow: 0 0 0 3px rgba(59, 111, 224, 0.2);
+}
+.notion .pcs-input:focus-visible::-moz-range-thumb {
+  border-color: #3B6FE0;
+  box-shadow: 0 0 0 3px rgba(59, 111, 224, 0.2);
+}
+.notion .pcs-scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 13px;
+  color: rgba(55, 53, 47, 0.6);
+}
+.notion .wizard-ai-field { display: grid; gap: 8px; }
+.notion .wizard-ai-field-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #37352F;
+}
+.notion .wizard-ai-field-label em {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(55, 53, 47, 0.45);
+}
+.notion .wizard-ai-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.notion .wizard-ai-chip {
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgba(55, 53, 47, 0.7);
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.14);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.notion .wizard-ai-chip:hover { border-color: rgba(59, 111, 224, 0.5); color: #3B6FE0; }
+.notion .wizard-ai-chip.is-selected {
+  color: #3B6FE0;
+  background: rgba(59, 111, 224, 0.08);
+  border-color: #3B6FE0;
+}
+.notion .wizard-ai-chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.notion .wizard-ai-chip:disabled:hover { border-color: rgba(55, 53, 47, 0.14); color: rgba(55, 53, 47, 0.7); }
+.notion .wizard-ai-hint { font-size: 12px; color: rgba(55, 53, 47, 0.5); }
+.notion .wizard-ai-hint.is-error { color: #d4444e; }
+.notion .wizard-ai-field-label em.is-error { color: #d4444e; }
+@media (max-width: 720px) {
+  .notion .wizard-ai-selects { grid-template-columns: 1fr; }
+}
 .notion .wizard-ai-title { font-size: 15px; font-weight: 700; color: #191919; }
 .notion .wizard-ai-badge {
   padding: 3px 8px;
@@ -10264,17 +10417,32 @@ p {
 .notion .career-slider-track { position: relative; height: 24px; }
 .notion .career-slider-rail { position: absolute; top: 50%; left: 0; right: 0; height: 6px; transform: translateY(-50%); background: #ececeb; border-radius: 999px; }
 .notion .career-slider-fill { position: absolute; top: 50%; height: 6px; transform: translateY(-50%); background: #3b6fe0; border-radius: 999px; }
-.notion .career-slider-track input {
+/* 전역 input 스타일(.glass-page input:not(...) 등)보다 우선하도록 specificity를 올린 리셋. (#290) */
+.notion .career-slider-track input[type="range"],
+.glass-page.notion .career-slider-track input[type="range"] {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 24px;
+  min-height: 0;
   margin: 0;
+  padding: 0;
   background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   -webkit-appearance: none;
   appearance: none;
   pointer-events: none;
+}
+.notion .career-slider-track input[type="range"]:focus,
+.glass-page.notion .career-slider-track input[type="range"]:focus {
+  border: 0;
+  box-shadow: none;
+  outline: none;
 }
 .notion .career-slider-track input::-webkit-slider-thumb {
   -webkit-appearance: none;
