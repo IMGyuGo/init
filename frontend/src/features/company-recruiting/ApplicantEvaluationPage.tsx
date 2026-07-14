@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import { createApplicantInterviewMediaSession, getApplicantDocument, getApplicantEvaluation, updateScreeningStatus } from "./api";
 import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
+import { buildNcsEvaluationViews, type NcsEvaluationView } from "./ncs-evaluation-view";
 import { formatRecruitingStatusLabel } from "./status-labels";
 import type { ApplicantEvaluation, ApplicantInterviewFileAsset, ScreeningDecision } from "./types";
 
@@ -86,6 +87,9 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   const displayAnswers = evaluation ? getDisplayAnswers(evaluation.answers) : [];
   const integritySummary = evaluation ? buildRecruitingIntegritySummary(displayAnswers) : null;
   const displayedTotalScore = report?.totalScore ?? null;
+  const ncsEvaluationViews = report
+    ? buildNcsEvaluationViews(report.ncsAnswerEvaluations, evaluation?.answers ?? [])
+    : [];
 
   return (
     <section className="app-page glass-page notion">
@@ -224,6 +228,9 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                     <strong>{displayedTotalScore ?? "점수 없음"}</strong>
                     <p>{report.summary ?? "요약이 아직 없습니다."}</p>
                   </div>
+                  {ncsEvaluationViews.length > 0 ? (
+                    <NcsAnswerEvaluationSection evaluations={ncsEvaluationViews} />
+                  ) : null}
                   {report.scores.length > 0 ? (
                     <div className="table-wrap">
                       <table>
@@ -337,6 +344,79 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
           <div className="empty">평가 상세를 불러오는 중입니다.</div>
         )}
     </section>
+  );
+}
+
+function NcsAnswerEvaluationSection({ evaluations }: { evaluations: NcsEvaluationView[] }) {
+  const scoredCount = evaluations.filter((evaluation) => evaluation.scoreStatus === "SCORED").length;
+
+  return (
+    <section className="ncs-evaluation-section" aria-labelledby="ncs-evaluation-title">
+      <div className="ncs-evaluation-section__head">
+        <div>
+          <h3 id="ncs-evaluation-title">NCS 답변 평가</h3>
+          <p>답변 근거가 검증된 항목만 점수와 인용 근거를 표시합니다.</p>
+        </div>
+        <strong>{scoredCount}/{evaluations.length} 평가 완료</strong>
+      </div>
+      <div className="ncs-evaluation-section__list">
+        {evaluations.map((evaluation, index) => (
+          <article className="ncs-evaluation-row" key={evaluation.ncsEvaluationId}>
+            <div className="ncs-evaluation-row__head">
+              <div>
+                <span>답변 {index + 1} · {evaluation.profileLabel}</span>
+                <h4>{evaluation.criterionTitle}</h4>
+              </div>
+              <span className={`ncs-evaluation-status is-${evaluation.statusTone}`}>
+                {evaluation.statusLabel}
+              </span>
+            </div>
+            <p className="ncs-evaluation-row__question">{evaluation.question}</p>
+            <div className="ncs-evaluation-row__meta">
+              <span>{evaluation.questionModeLabel}</span>
+              <span>근거 범위 {evaluation.coveragePercent}%</span>
+              <span>신뢰도 {evaluation.confidenceLabel}</span>
+            </div>
+
+            {evaluation.scoreStatus === "SCORED" ? (
+              <>
+                <dl className="ncs-evaluation-scores">
+                  <NcsScore label="역량" value={evaluation.competencyScore} />
+                  <NcsScore label="근거" value={evaluation.evidenceScore} />
+                  <NcsScore label="종합" value={evaluation.totalScore} emphasized />
+                </dl>
+                {evaluation.evidenceQuotes.length > 0 ? (
+                  <div className="ncs-evaluation-evidence">
+                    <strong>답변 인용 근거</strong>
+                    <ul>
+                      {evaluation.evidenceQuotes.map((quote) => <li key={quote}>“{quote}”</li>)}
+                    </ul>
+                  </div>
+                ) : null}
+                {evaluation.strengths.length > 0 || evaluation.gaps.length > 0 || evaluation.nextAction ? (
+                  <div className="ncs-evaluation-growth">
+                    {evaluation.strengths.length > 0 ? <p><strong>강점</strong>{evaluation.strengths.join(" · ")}</p> : null}
+                    {evaluation.gaps.length > 0 ? <p><strong>보완점</strong>{evaluation.gaps.join(" · ")}</p> : null}
+                    {evaluation.nextAction ? <p><strong>후속 확인</strong>{evaluation.nextAction}</p> : null}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <p className={`ncs-evaluation-message is-${evaluation.statusTone}`}>{evaluation.statusMessage}</p>
+            )}
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function NcsScore({ emphasized = false, label, value }: { emphasized?: boolean; label: string; value: number | null }) {
+  return (
+    <div className={emphasized ? "is-emphasized" : undefined}>
+      <dt>{label}</dt>
+      <dd>{value ?? "—"}</dd>
+    </div>
   );
 }
 

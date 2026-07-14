@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "rootDir": ".",
+    "outDir": "../../../.next/tests/company-recruiting-ncs"
+  },
+  "files": ["types.ts", "ncs-evaluation-view.ts", "ncs-evaluation-view.spec.ts"]
+}
