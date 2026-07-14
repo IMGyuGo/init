@@ -28,7 +28,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | `backend/api/src/modules/company-recruiting` | `CompanyRecruitingController`, `PublicRecruitmentController`, `PublicApplicationController` | `/api/v1/company/recruitments`, `/api/v1/company/applicants`, `/api/v1/public/recruitments`, `/api/v1/public/applications` | B | API-010..033 중 공고/지원자 운영, API-080, API-085, API-086..089 |
 | `backend/api/src/modules/company-interview` | `CompanyInterviewController` | `/api/v1/company/interviews` | C | API-034..040 |
 | `backend/api/src/modules/company-profile` | `CompanyProfileController` | `/api/v1/company/profile`, `/api/v1/company/notifications` | A/B | API-041..043 |
-| `backend/api/src/modules/candidate` | `CandidateController` | `/api/v1/candidate/jobs`, `/api/v1/candidate/applications`, `/api/v1/candidate/resume`, `/api/v1/candidate/portfolio-links` | D | API-058..078 중 지원/마이페이지 |
+| `backend/api/src/modules/candidate` | `CandidateController` | `/api/v1/candidate/profile`, `/api/v1/candidate/jobs`, `/api/v1/candidate/applications`, `/api/v1/candidate/resume`, `/api/v1/candidate/portfolio-links` | D | API-057F..078 중 프로필/지원/마이페이지 |
 | `backend/api/src/modules/interview` | `InterviewController`, `PublicInterviewController` | `/api/v1/candidate/mock-interviews`, `/api/v1/candidate/interviews`, `/api/v1/public` | D/E | API-044..057, API-064..072, API-087..096 |
 | `backend/api/src/modules/report` | `ReportController` | `/api/v1/company/reports`, `/api/v1/reports`, `/api/v1/candidate/*/reports` | E | API-019, API-022..031, API-053..057, API-073 |
 | `backend/api/src/modules/ai` | `AiController` | `/api/v1/ai` | E | API-079 |
@@ -121,6 +121,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-057F | 지원자 - 프로필(내 정보) | GET | /candidate/profile | 지원자 프로필(내 정보) 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-057G | 지원자 - 프로필(내 정보) | PUT | /candidate/profile | 지원자 프로필(내 정보) 수정 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-058 | 지원자 - 채용공고/지원 | GET | /candidate/jobs | 채용공고 목록 조회 / 채용공고 검색 / 채용공고 리스트 표시 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
+| API-058A | 지원자 - 공개 채용공고 | GET | /public/jobs | 메인 화면 공개 채용공고 목록 조회 / 검색 | 공개 | N | 200 OK |
 | API-059 | 지원자 - 채용공고/지원 | GET | /candidate/jobs/{jobId} | 채용공고 상세 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-060 | 지원자 - 채용공고/지원 | POST | /candidate/jobs/{jobId}/applications | 기업별 지원 서류 제출 | 지원자 / 지원자 사용자 로그인 | N | 201 Created |
 | API-061 | 지원자 - 지원현황/채용면접 | GET | /candidate/applications | 지원 상태 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |

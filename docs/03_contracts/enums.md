@@ -19,6 +19,8 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | `document_status` | `DocumentStatus` |
 | `interview_status` | `InterviewStatus` |
 | `report_status` | `ReportStatus` |
+| `application_summary_availability_status` | `CandidateApplicationAvailabilityStatus` (API read model only) |
+| `application_summary_unavailable_reason` | `CandidateApplicationUnavailableReason` (API read model only) |
 | `screening_decision` | `ScreeningDecision` |
 | `interview_type` | `InterviewType` |
 | `report_type` | `ReportType` |
@@ -35,6 +37,11 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | `posting_region_code` | `PostingRegionCode` |
 | `posting_employment_type_code` | `PostingEmploymentTypeCode` |
 | `posting_recruitment_type` | `PostingRecruitmentType` |
+| `candidate_education_level` | `CandidateEducationLevel` |
+| `candidate_degree_type` | `CandidateDegreeType` |
+| `candidate_education_status` | `CandidateEducationStatus` |
+| `candidate_activity_type` | `CandidateActivityType` |
+| `candidate_credential_type` | `CandidateCredentialType` |
 
 금지 이름: `EvaluationCriteria`, `QuestionBank`, `AIProcessLog`, `AIGuardrailLog`를 Prisma model/class 이름으로 새로 만들지 않는다.
 
@@ -88,6 +95,8 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | document_status | NOT_SUBMITTED, SUBMITTED, EXTRACTING, EXTRACTED, FAILED | 서류 제출/분석 상태 |
 | interview_status | NOT_READY, READY, IN_PROGRESS, COMPLETED, FAILED | 면접 세션/응시 상태 |
 | report_status | PENDING, GENERATING, COMPLETED, FAILED | 리포트 생성 상태 |
+| application_summary_availability_status | AVAILABLE, UNAVAILABLE | `GET /candidate/applications` item의 조회 가능 여부. DB 상태 전이가 아닌 API read model이다. |
+| application_summary_unavailable_reason | POSTING_NOT_FOUND, INTERVIEW_SESSION_NOT_FOUND | `availabilityStatus=UNAVAILABLE`일 때 반환하는 누락 의존성 사유 |
 | screening_decision | UNDECIDED, PASS, HOLD, FAIL | 기업 담당자 전형 판정 |
 | interview_type | MOCK, RECRUITING | 모의면접/채용면접 구분 |
 | report_type | MOCK_INTERVIEW_REPORT, RECRUITING_REPORT | 리포트 구분 |
@@ -101,3 +110,8 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | failure_category | RETRYABLE, NON_RETRYABLE | AI 실패 재시도 가능 여부 |
 | guardrail_result | PASS, BLOCKED, REGENERATED | AI 안전 검증 결과 |
 | embedding_source_type | POSTING_JD, CRITERION_TAG, QUESTION, APPLICATION_DOCUMENT, INTERVIEW_ANSWER, EVALUATION_REPORT | 임베딩 원천 유형 |
+| candidate_education_level | HIGH_SCHOOL, COLLEGE, UNIVERSITY, GRADUATE_SCHOOL, OTHER | 학력 구분 |
+| candidate_degree_type | HIGH_SCHOOL_DIPLOMA, ASSOCIATE, BACHELOR, MASTER, DOCTORATE, OTHER | 학위 또는 대학 구분 |
+| candidate_education_status | ENROLLED, LEAVE_OF_ABSENCE, GRADUATED, EXPECTED_GRADUATION, COMPLETED, WITHDRAWN | 재학·졸업 상태 |
+| candidate_activity_type | SCHOOL_ACTIVITY, INTERNSHIP, CLUB, PROJECT_TASK, OVERSEAS_TRAINING, EDUCATION | 프로젝트·경험·활동·교육 구분 |
+| candidate_credential_type | CERTIFICATE, LANGUAGE_TEST, AWARD | 자격·어학·수상 구분 |

@@ -5,18 +5,18 @@ export type RouteAccess =
   | { kind: "public" }
   | { kind: "protected"; allowedUserTypes: UserType[] };
 
-const publicRoutes = ["/", "/login", "/signup", "/password/reset", "/public"] as const;
+const publicRoutes = ["/", "/login", "/company/login", "/signup", "/password/reset", "/public"] as const;
 const protectedRoutePrefixes: Array<{ prefix: string; allowedUserTypes: UserType[] }> = [
   { prefix: "/company", allowedUserTypes: ["COMPANY"] },
   { prefix: "/candidate", allowedUserTypes: ["CANDIDATE"] },
 ];
 
 export function getRouteAccess(pathname: string): RouteAccess {
-  const protectedRoute = protectedRoutePrefixes.find(({ prefix }) => isRouteOrChild(pathname, prefix));
-  if (protectedRoute) return { kind: "protected", allowedUserTypes: protectedRoute.allowedUserTypes };
-
   const publicRoute = publicRoutes.find((route) => isRouteOrChild(pathname, route));
   if (publicRoute) return { kind: "public" };
+
+  const protectedRoute = protectedRoutePrefixes.find(({ prefix }) => isRouteOrChild(pathname, prefix));
+  if (protectedRoute) return { kind: "protected", allowedUserTypes: protectedRoute.allowedUserTypes };
 
   return { kind: "common" };
 }
@@ -27,6 +27,10 @@ export function getRedirectForAuthenticatedPublicRoute(userType: AuthUserType) {
 
 export function getRedirectForUnauthorizedRole(userType: AuthUserType) {
   return getDefaultEntryPath(userType);
+}
+
+export function getLogoutRedirectPath(userType?: AuthUserType | null) {
+  return userType === "COMPANY" ? "/" : "/login";
 }
 
 export function isAllowedUserType(userType: AuthUserType, allowedUserTypes: UserType[]) {

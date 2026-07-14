@@ -69,6 +69,21 @@ export type GuardrailResult = (typeof GUARDRAIL_RESULTS)[number];
 export const EMBEDDING_SOURCE_TYPES = ["POSTING_JD", "CRITERION_TAG", "QUESTION", "APPLICATION_DOCUMENT", "INTERVIEW_ANSWER", "EVALUATION_REPORT"] as const;
 export type EmbeddingSourceType = (typeof EMBEDDING_SOURCE_TYPES)[number];
 
+export const CANDIDATE_EDUCATION_LEVELS = ["HIGH_SCHOOL", "COLLEGE", "UNIVERSITY", "GRADUATE_SCHOOL", "OTHER"] as const;
+export type CandidateEducationLevel = (typeof CANDIDATE_EDUCATION_LEVELS)[number];
+
+export const CANDIDATE_DEGREE_TYPES = ["HIGH_SCHOOL_DIPLOMA", "ASSOCIATE", "BACHELOR", "MASTER", "DOCTORATE", "OTHER"] as const;
+export type CandidateDegreeType = (typeof CANDIDATE_DEGREE_TYPES)[number];
+
+export const CANDIDATE_EDUCATION_STATUSES = ["ENROLLED", "LEAVE_OF_ABSENCE", "GRADUATED", "EXPECTED_GRADUATION", "COMPLETED", "WITHDRAWN"] as const;
+export type CandidateEducationStatus = (typeof CANDIDATE_EDUCATION_STATUSES)[number];
+
+export const CANDIDATE_ACTIVITY_TYPES = ["SCHOOL_ACTIVITY", "INTERNSHIP", "CLUB", "PROJECT_TASK", "OVERSEAS_TRAINING", "EDUCATION"] as const;
+export type CandidateActivityType = (typeof CANDIDATE_ACTIVITY_TYPES)[number];
+
+export const CANDIDATE_CREDENTIAL_TYPES = ["CERTIFICATE", "LANGUAGE_TEST", "AWARD"] as const;
+export type CandidateCredentialType = (typeof CANDIDATE_CREDENTIAL_TYPES)[number];
+
 export const isUserType = (value: unknown): value is UserType =>
   typeof value === "string" && USER_TYPES.includes(value as UserType);
 

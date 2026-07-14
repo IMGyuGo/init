@@ -139,6 +139,68 @@ CREATE TABLE candidate_profiles (
     updated_at TIMESTAMP NOT NULL
 );
 
+CREATE TABLE candidate_educations (
+    education_id BIGINT PRIMARY KEY,
+    candidate_id BIGINT NOT NULL,
+    sort_order INTEGER NOT NULL,
+    education_level VARCHAR(30) NOT NULL,
+    school_name VARCHAR(150) NOT NULL,
+    major VARCHAR(150),
+    degree_type VARCHAR(30) NOT NULL,
+    status VARCHAR(30) NOT NULL,
+    start_month DATE NOT NULL,
+    end_month DATE,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT uk_candidate_educations_order UNIQUE (candidate_id, sort_order)
+);
+
+CREATE TABLE candidate_careers (
+    career_id BIGINT PRIMARY KEY,
+    candidate_id BIGINT NOT NULL,
+    sort_order INTEGER NOT NULL,
+    company_name VARCHAR(150) NOT NULL,
+    start_month DATE NOT NULL,
+    end_month DATE,
+    is_current BOOLEAN NOT NULL,
+    job_role VARCHAR(100) NOT NULL,
+    department VARCHAR(100),
+    position VARCHAR(100),
+    responsibilities VARCHAR(1000) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT uk_candidate_careers_order UNIQUE (candidate_id, sort_order)
+);
+
+CREATE TABLE candidate_activities (
+    activity_id BIGINT PRIMARY KEY,
+    candidate_id BIGINT NOT NULL,
+    sort_order INTEGER NOT NULL,
+    activity_type VARCHAR(30) NOT NULL,
+    organization_name VARCHAR(150) NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE,
+    is_ongoing BOOLEAN NOT NULL,
+    description VARCHAR(1000) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT uk_candidate_activities_order UNIQUE (candidate_id, sort_order)
+);
+
+CREATE TABLE candidate_credentials (
+    credential_id BIGINT PRIMARY KEY,
+    candidate_id BIGINT NOT NULL,
+    sort_order INTEGER NOT NULL,
+    credential_type VARCHAR(30) NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    issuer VARCHAR(150) NOT NULL,
+    acquired_month DATE NOT NULL,
+    result VARCHAR(200),
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT uk_candidate_credentials_order UNIQUE (candidate_id, sort_order)
+);
+
 CREATE TABLE candidate_folders (
     -- 기업별 지원서 세트 PK
     id BIGINT PRIMARY KEY,
@@ -720,6 +782,22 @@ ALTER TABLE candidate_profiles
 ALTER TABLE candidate_profiles
     ADD CONSTRAINT fk_candidate_profiles_default_resume
     FOREIGN KEY (default_resume_file_id) REFERENCES file_assets(file_id);
+
+ALTER TABLE candidate_educations
+    ADD CONSTRAINT fk_candidate_educations_candidate
+    FOREIGN KEY (candidate_id) REFERENCES candidate_profiles(candidate_id) ON DELETE CASCADE;
+
+ALTER TABLE candidate_careers
+    ADD CONSTRAINT fk_candidate_careers_candidate
+    FOREIGN KEY (candidate_id) REFERENCES candidate_profiles(candidate_id) ON DELETE CASCADE;
+
+ALTER TABLE candidate_activities
+    ADD CONSTRAINT fk_candidate_activities_candidate
+    FOREIGN KEY (candidate_id) REFERENCES candidate_profiles(candidate_id) ON DELETE CASCADE;
+
+ALTER TABLE candidate_credentials
+    ADD CONSTRAINT fk_candidate_credentials_candidate
+    FOREIGN KEY (candidate_id) REFERENCES candidate_profiles(candidate_id) ON DELETE CASCADE;
 
 ALTER TABLE candidate_folders
     ADD CONSTRAINT fk_candidate_folders_candidate

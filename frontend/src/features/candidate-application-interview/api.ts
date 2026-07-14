@@ -224,21 +224,23 @@ export interface CandidateApplicationSummary {
   applicationId: number;
   postingId: number;
   candidateId: number;
-  companyName: string;
-  jobTitle: string;
-  jobRole: string;
-  location: string;
+  availabilityStatus: "AVAILABLE" | "UNAVAILABLE";
+  unavailableReason: "POSTING_NOT_FOUND" | "INTERVIEW_SESSION_NOT_FOUND" | null;
+  companyName: string | null;
+  jobTitle: string | null;
+  jobRole: string | null;
+  location: string | null;
   applicationStatus: ApplicationStatus;
   documentStatus: DocumentStatus;
   interviewStatus: InterviewStatus;
   reportStatus: ReportStatus;
   submittedAt: string;
   updatedAt: string;
-  sessionId: number;
-  interviewType: InterviewType;
-  interviewSessionStatus: InterviewStatus;
-  interviewWindowStartsAt: string;
-  interviewWindowEndsAt: string;
+  sessionId: number | null;
+  interviewType: InterviewType | null;
+  interviewSessionStatus: InterviewStatus | null;
+  interviewWindowStartsAt: string | null;
+  interviewWindowEndsAt: string | null;
   consentCompleted: boolean;
   deviceCheckCompleted: boolean;
   canStartInterview: boolean;
@@ -738,6 +740,50 @@ export interface SubmitApplicationResponse {
 }
 
 // 지원자 프로필(내 정보) 정본. 자동 입력의 소스. 이메일은 읽기전용. (#272)
+export type CandidateEducationLevel = "HIGH_SCHOOL" | "COLLEGE" | "UNIVERSITY" | "GRADUATE_SCHOOL" | "OTHER";
+export type CandidateDegreeType = "HIGH_SCHOOL_DIPLOMA" | "ASSOCIATE" | "BACHELOR" | "MASTER" | "DOCTORATE" | "OTHER";
+export type CandidateEducationStatus = "ENROLLED" | "LEAVE_OF_ABSENCE" | "GRADUATED" | "EXPECTED_GRADUATION" | "COMPLETED" | "WITHDRAWN";
+export type CandidateActivityType = "SCHOOL_ACTIVITY" | "INTERNSHIP" | "CLUB" | "PROJECT_TASK" | "OVERSEAS_TRAINING" | "EDUCATION";
+export type CandidateCredentialType = "CERTIFICATE" | "LANGUAGE_TEST" | "AWARD";
+
+export interface CandidateEducation {
+  educationLevel: CandidateEducationLevel;
+  schoolName: string;
+  major: string | null;
+  degreeType: CandidateDegreeType;
+  status: CandidateEducationStatus;
+  startMonth: string;
+  endMonth: string | null;
+}
+
+export interface CandidateCareer {
+  companyName: string;
+  startMonth: string;
+  endMonth: string | null;
+  isCurrent: boolean;
+  jobRole: string;
+  department: string | null;
+  position: string | null;
+  responsibilities: string;
+}
+
+export interface CandidateActivity {
+  activityType: CandidateActivityType;
+  organizationName: string;
+  startDate: string;
+  endDate: string | null;
+  isOngoing: boolean;
+  description: string;
+}
+
+export interface CandidateCredential {
+  credentialType: CandidateCredentialType;
+  name: string;
+  issuer: string;
+  acquiredMonth: string;
+  result: string | null;
+}
+
 export interface CandidateProfileView {
   name: string;
   email: string;
@@ -746,6 +792,10 @@ export interface CandidateProfileView {
   blogUrl: string | null;
   portfolioUrl: string | null;
   summary: string | null;
+  educations: CandidateEducation[];
+  careers: CandidateCareer[];
+  activities: CandidateActivity[];
+  credentials: CandidateCredential[];
 }
 
 export interface UpdateCandidateProfileRequest {
@@ -755,6 +805,10 @@ export interface UpdateCandidateProfileRequest {
   blogUrl?: string | null;
   portfolioUrl?: string | null;
   summary?: string | null;
+  educations?: CandidateEducation[];
+  careers?: CandidateCareer[];
+  activities?: CandidateActivity[];
+  credentials?: CandidateCredential[];
 }
 
 // 기업별 지원서 세트(폴더). 모의면접 전용, 기존 CandidateProfile 과 별도 (#228).
@@ -847,6 +901,10 @@ export const publicInterviewApiPaths = {
   followUpQuestionInsert: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/follow-up-questions/insert`,
 } as const;
 
+export const publicCandidateApiPaths = {
+  jobs: "/api/v1/public/jobs",
+} as const;
+
 export class CandidateApiError extends Error {
   readonly status: number;
   readonly body?: ApiErrorBody;
@@ -863,6 +921,7 @@ export interface CandidateApiClientOptions {
   baseUrl?: string;
   headers?: HeadersInit;
   fetcher?: typeof fetch;
+  jobsPath?: string;
 }
 
 export interface CandidateApiClient {
@@ -1025,7 +1084,8 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
         method: "PUT",
         body: JSON.stringify(body),
       }),
-    listJobs: (query = {}) => request<ApiListResponse<CandidateJobSummary>>(candidateApiPaths.jobs, {}, query),
+    listJobs: (query = {}) =>
+      request<ApiListResponse<CandidateJobSummary>>(options.jobsPath ?? candidateApiPaths.jobs, {}, query),
     getJobDetail: (jobId) => request<ApiResponse<CandidateJobDetail>>(candidateApiPaths.jobDetail(jobId)),
     getApplyView: (jobId) => request<ApiResponse<CandidateApplyView>>(candidateApiPaths.applyView(jobId)),
     submitApplication: (jobId, body) =>
