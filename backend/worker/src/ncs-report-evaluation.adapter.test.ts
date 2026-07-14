@@ -295,6 +295,7 @@ test("follow-up answer is combined once and can only preserve or improve the bas
   const evaluation = result.evaluations[0]!;
   assert.equal(evaluation.followUpApplied, true);
   assert.ok(evaluation.baseScore !== null);
+  assert.equal(evaluation.baseScore, evaluation.behaviorPoints! + evaluation.logicPoints!);
   assert.ok(evaluation.effectiveScore !== null && evaluation.effectiveScore >= evaluation.baseScore);
   assert.ok(evaluation.evidences.some((evidence) =>
     evidence.sourceAnswerId === 108 &&

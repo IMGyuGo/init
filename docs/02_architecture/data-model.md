@@ -487,8 +487,8 @@ NCS profile 집계 row는 `(report_id, ncs_profile_id)`를 unique key로 사용�
 | competency_score | INTEGER | legacy 0~100 역량 진단. 신규 0~5 평가 row에서는 NULL 허용, SCORED가 아니면 NULL |
 | evidence_score | INTEGER | legacy 0~100 수행 근거 진단. 신규 0~5 평가 row에서는 NULL 허용, SCORED가 아니면 NULL |
 | total_score | INTEGER | legacy 0~100 총점. 신규 0~5 평가 row에서는 NULL 허용, SCORED가 아니면 NULL |
-| behavior_points | INTEGER | 최종 NCS 행동 포인트 0~3. SCORED가 아니면 NULL |
-| logic_points | INTEGER | 질문 유형별 논리 구조 포인트 0~2. SCORED가 아니면 NULL |
+| behavior_points | INTEGER | 원답의 NCS 행동 포인트 0~3. SCORED가 아니면 NULL |
+| logic_points | INTEGER | 원답의 질문 유형별 논리 구조 포인트 0~2. SCORED가 아니면 NULL |
 | base_score | INTEGER | 원답 점수 0~5. SCORED가 아니면 NULL |
 | effective_score | INTEGER | 꼬리답변 보강 반영 점수 0~5. SCORED가 아니면 NULL |
 | follow_up_applied | BOOLEAN NOT NULL DEFAULT FALSE | 꼬리답변 보강 적용 여부 |
