@@ -1617,7 +1617,7 @@ export function CandidateApplyModal({
           {step === 1 ? (
             <div className="candidate-apply-modal-fields">
               <label className="candidate-apply-file-label">
-                이력서 <span className="req-mark">*</span>
+                <span className="candidate-apply-required-label">이력서 <span className="req-mark">*</span></span>
                 <span className="candidate-apply-file-row">
                   <input
                     accept=".pdf,application/pdf"
@@ -1635,7 +1635,7 @@ export function CandidateApplyModal({
                 </span>
               </label>
               <label>
-                포트폴리오 URL (URL 또는 PDF 중 하나 필수)
+                <span className="candidate-apply-required-label">포트폴리오 URL (URL 또는 PDF 중 하나 필수) <span className="req-mark">*</span></span>
                 <input
                   placeholder="https://portfolio.example.com"
                   type="url"
@@ -1644,7 +1644,7 @@ export function CandidateApplyModal({
                 />
               </label>
               <label className="candidate-apply-file-label">
-                포트폴리오 PDF (URL 또는 PDF 중 하나 필수)
+                <span className="candidate-apply-required-label">포트폴리오 PDF (URL 또는 PDF 중 하나 필수) <span className="req-mark">*</span></span>
                 <span className="candidate-apply-file-row">
                   <input
                     accept=".pdf,application/pdf"
@@ -1660,7 +1660,7 @@ export function CandidateApplyModal({
                 </span>
               </label>
               <label>
-                지원 동기 <span className="req-mark">*</span>
+                <span className="candidate-apply-required-label">지원 동기 <span className="req-mark">*</span></span>
                 <textarea
                   placeholder="이 공고에 지원한 동기를 입력하세요."
                   required
@@ -1669,7 +1669,7 @@ export function CandidateApplyModal({
                 />
               </label>
               <label>
-                추가 설명 <span className="req-mark">*</span>
+                <span className="candidate-apply-required-label">추가 설명 <span className="req-mark">*</span></span>
                 <textarea
                   placeholder="관련 프로젝트, 본인이 맡은 역할 등 추가 설명을 입력하세요."
                   required
