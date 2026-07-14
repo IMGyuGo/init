@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { CurrentUser } from '@init/common';
 import {
   CreateCriterionTagDto,
@@ -33,9 +33,11 @@ import {
 } from './dto/question-generation-policy.dto';
 import {
   conflict,
+  aiProcessFailed,
   forbidden,
   ncsBindingInvalid,
   notFound,
+  personalizedQuestionsNotReady,
   questionCountInvalid,
   validationFailed,
 } from './company-interview.errors';
@@ -50,12 +52,19 @@ import {
   QuestionGenerationSource,
   QuestionRecord,
   QuestionSetRecord,
+  ResumeQuestionApplicationRecord,
+  ResumeQuestionGenerationStatus,
 } from './company-interview.types';
 import {
   COMPANY_INTERVIEW_REPOSITORY,
   CompanyInterviewRepository,
   type UpdateCriterionInput,
 } from './repositories/company-interview.repository';
+import { RetryResumeQuestionsDto } from './dto/resume-question.dto';
+import {
+  AI_JOB_QUEUE_PUBLISHER,
+  AiJobQueuePublisher,
+} from '../report/service/ai-job-queue.publisher';
 
 type CommonQuestionGenerationRequest = {
   postingId: number;
@@ -76,7 +85,77 @@ export class CompanyInterviewService {
   constructor(
     @Inject(COMPANY_INTERVIEW_REPOSITORY)
     private readonly repository: CompanyInterviewRepository,
+    @Optional()
+    @Inject(AI_JOB_QUEUE_PUBLISHER)
+    private readonly queuePublisher?: AiJobQueuePublisher,
   ) {}
+
+  async getResumeQuestions(currentUser: CurrentUser, applicationId: number) {
+    const state = await this.getOwnedResumeQuestionState(currentUser, applicationId);
+    const status = this.resumeQuestionStatus(state);
+    const batch = state.currentBatch;
+    const items = status === 'READY' || status === 'REVIEW_REQUIRED'
+      ? batch?.questions ?? []
+      : [];
+
+    return {
+      applicationId: state.applicationId,
+      postingId: state.postingId,
+      status,
+      processLogId: batch?.latestProcessLogId ?? null,
+      policyVersion: state.policy.policyVersion,
+      criteriaVersion: state.policy.criteriaVersion,
+      inputVersion: state.currentInputVersion,
+      items,
+    };
+  }
+
+  async retryResumeQuestions(
+    currentUser: CurrentUser,
+    applicationId: number,
+    dto: RetryResumeQuestionsDto,
+  ) {
+    const state = await this.getOwnedResumeQuestionState(currentUser, applicationId);
+    const status = this.resumeQuestionStatus(state);
+    if (!['FAILED', 'REVIEW_REQUIRED', 'STALE'].includes(status)) {
+      personalizedQuestionsNotReady('현재 상태에서는 개인화 질문을 재생성할 수 없습니다.', [
+        { field: 'status', reason: `current status is ${status}` },
+      ]);
+    }
+    if (dto.expectedPolicyVersion !== undefined && dto.expectedPolicyVersion !== state.policy.policyVersion) {
+      conflict('질문 생성 정책이 변경되었습니다. 최신 설정을 다시 확인해주세요.');
+    }
+    if (state.documentStatus !== 'EXTRACTED' || !state.currentInputVersion) {
+      personalizedQuestionsNotReady('이력서 추출 완료 후 개인화 질문을 재생성할 수 있습니다.');
+    }
+    if (!this.queuePublisher) {
+      aiProcessFailed('AI queue publisher가 구성되지 않았습니다.');
+    }
+
+    const job = await this.repository.createResumeQuestionRetry({
+      state,
+      reason: dto.reason?.trim() || null,
+    });
+    try {
+      await this.queuePublisher.publish({
+        processLogId: job.processLogId,
+        processType: 'RESUME_QUESTION_GENERATE',
+        inputRef: JSON.stringify(job),
+        attempt: job.attempt,
+      });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'unknown queue publish failure';
+      await this.repository.markResumeQuestionRetryQueueFailed(job.processLogId, reason);
+      aiProcessFailed('개인화 질문 재생성 작업을 queue에 등록하지 못했습니다.');
+    }
+
+    return {
+      processLogId: job.processLogId,
+      status: 'PENDING' as const,
+      resumeQuestionStatus: 'GENERATING' as const,
+      queued: true,
+    };
+  }
 
   async getSettings(
     currentUser: CurrentUser,
@@ -838,6 +917,36 @@ export class CompanyInterviewService {
     }
 
     return posting;
+  }
+
+  private async getOwnedResumeQuestionState(
+    currentUser: CurrentUser,
+    applicationId: number,
+  ): Promise<ResumeQuestionApplicationRecord> {
+    this.assertCompanyUser(currentUser);
+    if (!Number.isInteger(applicationId) || applicationId <= 0) {
+      validationFailed('applicationId를 확인해주세요.', [
+        { field: 'applicationId', reason: 'POSITIVE_INTEGER_REQUIRED' },
+      ]);
+    }
+    const state = await this.repository.findResumeQuestionGeneration(applicationId);
+    if (!state) {
+      notFound('지원서를 찾을 수 없습니다.');
+    }
+    if (state.companyId !== currentUser.companyId) {
+      forbidden('지원서 접근 권한이 없습니다.');
+    }
+    return state;
+  }
+
+  private resumeQuestionStatus(
+    state: ResumeQuestionApplicationRecord,
+  ): ResumeQuestionGenerationStatus {
+    if (state.policy.resumeQuestionCount <= 0) return 'DISABLED';
+    if (state.applicationStatus === 'DRAFT') return 'WAITING_APPLICATION';
+    if (state.documentStatus !== 'EXTRACTED') return 'WAITING_DOCUMENT';
+    if (!state.currentBatch) return state.hasStaleBatch ? 'STALE' : 'WAITING_DOCUMENT';
+    return state.currentBatch.status;
   }
 
   private assertCompanyUser(

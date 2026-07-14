@@ -7,6 +7,8 @@ import {
   QuestionRecord,
   QuestionGenerationPolicyRecord,
   QuestionSetRecord,
+  ResumeQuestionApplicationRecord,
+  ResumeQuestionRetryJobRecord,
   TimePolicyRecord,
 } from '../company-interview.types';
 import {
@@ -305,6 +307,8 @@ export class InMemoryCompanyInterviewRepository
   private questionSets: QuestionSetRecord[] = [];
   private questionGenerationPolicies: QuestionGenerationPolicyRecord[] = [];
   private readonly questionGenerationProcesses = new Map<number, AiQuestionGenerationProcessRecord>();
+  private readonly resumeQuestionGenerations = new Map<number, ResumeQuestionApplicationRecord>();
+  private nextResumeQuestionProcessLogId = 5000;
 
   async findPosting(postingId: number): Promise<PostingRecord | undefined> {
     return this.postings.find((posting) => posting.postingId === postingId);
@@ -637,5 +641,70 @@ export class InMemoryCompanyInterviewRepository
             })),
         }
       : undefined;
+  }
+
+  setResumeQuestionGeneration(record: ResumeQuestionApplicationRecord): void {
+    this.resumeQuestionGenerations.set(record.applicationId, structuredClone(record));
+  }
+
+  async findResumeQuestionGeneration(
+    applicationId: number,
+  ): Promise<ResumeQuestionApplicationRecord | undefined> {
+    const state = this.resumeQuestionGenerations.get(applicationId);
+    return state ? structuredClone(state) : undefined;
+  }
+
+  async createResumeQuestionRetry(input: {
+    state: ResumeQuestionApplicationRecord;
+    reason: string | null;
+  }): Promise<ResumeQuestionRetryJobRecord> {
+    const state = structuredClone(input.state);
+    if (!state.documentId || !state.currentInputVersion || !state.currentResumeDocumentHash || !state.currentJdSnapshotHash) {
+      throw new Error('resume question retry input snapshot is incomplete');
+    }
+    const processLogId = this.nextResumeQuestionProcessLogId++;
+    const attempt = (state.currentBatch?.attemptCount ?? 0) + 1;
+    state.currentBatch = {
+      batchId: state.currentBatch?.batchId ?? processLogId,
+      latestProcessLogId: processLogId,
+      processStatus: 'PENDING',
+      status: 'GENERATING',
+      policyVersion: state.policy.policyVersion,
+      criteriaVersion: state.policy.criteriaVersion,
+      inputVersion: state.currentInputVersion,
+      resumeDocumentHash: state.currentResumeDocumentHash,
+      jdSnapshotHash: state.currentJdSnapshotHash,
+      attemptCount: attempt,
+      questions: state.currentBatch?.questions ?? [],
+    };
+    state.hasStaleBatch = false;
+    this.resumeQuestionGenerations.set(state.applicationId, state);
+
+    return {
+      processLogId,
+      applicationId: state.applicationId,
+      postingId: state.postingId,
+      documentId: state.documentId,
+      policyVersion: state.policy.policyVersion,
+      criteriaVersion: state.policy.criteriaVersion,
+      inputVersion: state.currentInputVersion,
+      resumeDocumentHash: state.currentResumeDocumentHash,
+      jdSnapshotHash: state.currentJdSnapshotHash,
+      attempt,
+    };
+  }
+
+  async markResumeQuestionRetryQueueFailed(processLogId: number, _reason: string): Promise<void> {
+    for (const [applicationId, state] of this.resumeQuestionGenerations.entries()) {
+      if (state.currentBatch?.latestProcessLogId !== processLogId) continue;
+      this.resumeQuestionGenerations.set(applicationId, {
+        ...state,
+        currentBatch: {
+          ...state.currentBatch,
+          processStatus: 'FAILED',
+          status: 'FAILED',
+        },
+      });
+    }
   }
 }

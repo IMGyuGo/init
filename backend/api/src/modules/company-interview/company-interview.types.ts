@@ -48,7 +48,15 @@ export type QuestionAlignmentStatus =
   | 'ALIGNED'
   | 'LOW_ALIGNMENT'
   | 'REVIEW_REQUIRED';
-export type ResumeQuestionGenerationStatus = 'DISABLED' | 'WAITING_APPLICATION';
+export type ResumeQuestionGenerationStatus =
+  | 'DISABLED'
+  | 'WAITING_APPLICATION'
+  | 'WAITING_DOCUMENT'
+  | 'GENERATING'
+  | 'READY'
+  | 'REVIEW_REQUIRED'
+  | 'FAILED'
+  | 'STALE';
 
 export type PostingRecord = {
   postingId: number;
@@ -121,6 +129,64 @@ export type AiQuestionGenerationProcessRecord = {
   status: AiProcessStatus;
   inputRef: string | null;
   outputRef: string | null;
+};
+
+export type PersonalizedQuestionRecord = {
+  personalizedQuestionId: number;
+  criterionId: number | null;
+  source: 'RESUME_PERSONALIZED';
+  questionType: QuestionType;
+  content: string;
+  ncsProfileId: NcsProfileId;
+  ncsQuestionMode: NcsQuestionMode;
+  ncsProfileVersion: string;
+  alignmentStatus: 'ALIGNED' | 'REVIEW_REQUIRED';
+  alignmentScore: number | null;
+  alignmentReason: string | null;
+  evaluatorVersion: string | null;
+  sortOrder: number;
+};
+
+export type ResumeQuestionBatchRecord = {
+  batchId: number;
+  latestProcessLogId: number;
+  processStatus: AiProcessStatus;
+  status: 'GENERATING' | 'READY' | 'REVIEW_REQUIRED' | 'FAILED' | 'STALE';
+  policyVersion: number;
+  criteriaVersion: number;
+  inputVersion: string;
+  resumeDocumentHash: string;
+  jdSnapshotHash: string;
+  attemptCount: number;
+  questions: PersonalizedQuestionRecord[];
+};
+
+export type ResumeQuestionApplicationRecord = {
+  applicationId: number;
+  postingId: number;
+  companyId: number;
+  applicationStatus: string;
+  documentStatus: string | null;
+  documentId: number | null;
+  policy: QuestionGenerationPolicyRecord;
+  currentInputVersion: string | null;
+  currentResumeDocumentHash: string | null;
+  currentJdSnapshotHash: string | null;
+  currentBatch: ResumeQuestionBatchRecord | null;
+  hasStaleBatch: boolean;
+};
+
+export type ResumeQuestionRetryJobRecord = {
+  processLogId: number;
+  applicationId: number;
+  postingId: number;
+  documentId: number;
+  policyVersion: number;
+  criteriaVersion: number;
+  inputVersion: string;
+  resumeDocumentHash: string;
+  jdSnapshotHash: string;
+  attempt: number;
 };
 
 export type TimePolicyRecord = {

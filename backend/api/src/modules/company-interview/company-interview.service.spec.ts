@@ -2,7 +2,9 @@ import { strict as assert } from 'node:assert';
 import type { CurrentUser } from '@init/common';
 import { ApiException } from '../../shared/api-exception';
 import { CompanyInterviewService } from './company-interview.service';
+import type { ResumeQuestionApplicationRecord } from './company-interview.types';
 import { InMemoryCompanyInterviewRepository } from './repositories/in-memory-company-interview.repository';
+import { InMemoryAiJobQueuePublisher } from '../report/service/ai-job-queue.publisher';
 
 const companyUser: CurrentUser = {
   userId: 1,
@@ -23,6 +25,59 @@ function createFixture() {
   };
 }
 
+function resumeQuestionFixture(
+  overrides: Partial<ResumeQuestionApplicationRecord> = {},
+): ResumeQuestionApplicationRecord {
+  return {
+    applicationId: 101,
+    postingId: 1,
+    companyId: 1,
+    applicationStatus: 'SUBMITTED',
+    documentStatus: 'EXTRACTED',
+    documentId: 501,
+    policy: {
+      postingId: 1,
+      evaluationFramework: 'NCS_3_PROFILE_V1',
+      jdCriteriaQuestionCount: 3,
+      resumeQuestionCount: 1,
+      policyVersion: 3,
+      criteriaVersion: 2,
+    },
+    currentInputVersion: 'input-version-101',
+    currentResumeDocumentHash: 'resume-hash-101',
+    currentJdSnapshotHash: 'jd-hash-1',
+    currentBatch: {
+      batchId: 701,
+      latestProcessLogId: 801,
+      processStatus: 'COMPLETED',
+      status: 'READY',
+      policyVersion: 3,
+      criteriaVersion: 2,
+      inputVersion: 'input-version-101',
+      resumeDocumentHash: 'resume-hash-101',
+      jdSnapshotHash: 'jd-hash-1',
+      attemptCount: 1,
+      questions: [{
+        personalizedQuestionId: 901,
+        criterionId: 1,
+        source: 'RESUME_PERSONALIZED',
+        questionType: 'EXPERIENCE',
+        content: '프로젝트에서 문제 원인을 분석하고 결과를 검증한 경험을 설명해주세요.',
+        ncsProfileId: 'PROBLEM_SOLVING',
+        ncsQuestionMode: 'EXPERIENCE_BEHAVIOR',
+        ncsProfileVersion: '2025.12-v1',
+        alignmentStatus: 'ALIGNED',
+        alignmentScore: 0.92,
+        alignmentReason: '필수 행동 근거를 포함합니다.',
+        evaluatorVersion: 'ncs-align-v1',
+        sortOrder: 1,
+      }],
+    },
+    hasStaleBatch: false,
+    ...overrides,
+  };
+}
+
 async function assertBadRequest(action: () => Promise<unknown>) {
   await assert.rejects(action, ApiException);
 }
@@ -32,6 +87,51 @@ async function assertConflict(action: () => Promise<unknown>) {
 }
 
 describe('CompanyInterviewService', () => {
+  it('returns only ready personalized questions without resume snapshot metadata', async () => {
+    const repository = new InMemoryCompanyInterviewRepository();
+    repository.setResumeQuestionGeneration(resumeQuestionFixture());
+    const service = new CompanyInterviewService(repository);
+
+    const result = await service.getResumeQuestions(companyUser, 101);
+
+    assert.equal(result.status, 'READY');
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0].source, 'RESUME_PERSONALIZED');
+    assert.equal(JSON.stringify(result).includes('resume-hash-101'), false);
+    assert.equal(JSON.stringify(result).includes('PRIVATE_RESUME'), false);
+  });
+
+  it('retries stale personalized questions with IDs, versions and hashes only', async () => {
+    const repository = new InMemoryCompanyInterviewRepository();
+    const publisher = new InMemoryAiJobQueuePublisher();
+    repository.setResumeQuestionGeneration(resumeQuestionFixture({
+      currentBatch: {
+        ...resumeQuestionFixture().currentBatch!,
+        processStatus: 'COMPLETED',
+        status: 'STALE',
+      },
+      hasStaleBatch: true,
+    }));
+    const service = new CompanyInterviewService(repository, publisher);
+
+    const retried = await service.retryResumeQuestions(companyUser, 101, {
+      expectedPolicyVersion: 3,
+      reason: '평가기준 변경 반영',
+    });
+
+    assert.equal(retried.status, 'PENDING');
+    assert.equal(retried.resumeQuestionStatus, 'GENERATING');
+    assert.equal(publisher.messages.length, 1);
+    assert.equal(publisher.messages[0].processType, 'RESUME_QUESTION_GENERATE');
+    const input = JSON.parse(publisher.messages[0].inputRef) as Record<string, unknown>;
+    assert.equal(input.applicationId, 101);
+    assert.equal(input.documentId, 501);
+    assert.equal(input.policyVersion, 3);
+    assert.equal(input.resumeDocumentHash, 'resume-hash-101');
+    assert.equal('resumeText' in input, false);
+    assert.equal((await service.getResumeQuestions(companyUser, 101)).status, 'GENERATING');
+  });
+
   it('returns interview settings for a company posting', async () => {
     const settings = await createService().getSettings(companyUser, { postingId: 1 });
 

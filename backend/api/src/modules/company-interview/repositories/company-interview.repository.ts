@@ -8,6 +8,8 @@ import {
   QuestionOrigin,
   QuestionGenerationPolicyRecord,
   QuestionSetRecord,
+  ResumeQuestionApplicationRecord,
+  ResumeQuestionRetryJobRecord,
   QuestionType,
   TimePolicyRecord,
 } from '../company-interview.types';
@@ -135,4 +137,10 @@ export interface CompanyInterviewRepository {
   ): Promise<TimePolicyRecord>;
   confirmQuestionSet(input: ConfirmQuestionSetInput): Promise<QuestionSetRecord>;
   findActiveQuestionSet(postingId: number): Promise<QuestionSetRecord | undefined>;
+  findResumeQuestionGeneration(applicationId: number): Promise<ResumeQuestionApplicationRecord | undefined>;
+  createResumeQuestionRetry(input: {
+    state: ResumeQuestionApplicationRecord;
+    reason: string | null;
+  }): Promise<ResumeQuestionRetryJobRecord>;
+  markResumeQuestionRetryQueueFailed(processLogId: number, reason: string): Promise<void>;
 }

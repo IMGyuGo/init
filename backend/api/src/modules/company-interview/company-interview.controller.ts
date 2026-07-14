@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   ParseIntPipe,
   Patch,
@@ -25,6 +26,7 @@ import {
 import { ConfirmQuestionSetDto } from './dto/question-set.dto';
 import { UpdateQuestionGenerationPolicyDto } from './dto/question-generation-policy.dto';
 import { UpdateInterviewTimePolicyDto } from './dto/time-policy.dto';
+import { RetryResumeQuestionsDto } from './dto/resume-question.dto';
 
 type CompanyRequest = RequestLike & { currentUser: CurrentUser };
 
@@ -101,6 +103,26 @@ export class CompanyInterviewController {
     @Body() body: UpdateInterviewTimePolicyDto,
   ) {
     const data = await this.service.updateTimePolicy(request.currentUser, body);
+    return ok(request, data);
+  }
+
+  @Get('applications/:applicationId/resume-questions')
+  async getResumeQuestions(
+    @Req() request: CompanyRequest,
+    @Param('applicationId', ParseIntPipe) applicationId: number,
+  ) {
+    const data = await this.service.getResumeQuestions(request.currentUser, applicationId);
+    return ok(request, data);
+  }
+
+  @Post('applications/:applicationId/resume-questions/retry')
+  @HttpCode(202)
+  async retryResumeQuestions(
+    @Req() request: CompanyRequest,
+    @Param('applicationId', ParseIntPipe) applicationId: number,
+    @Body() body: RetryResumeQuestionsDto,
+  ) {
+    const data = await this.service.retryResumeQuestions(request.currentUser, applicationId, body);
     return ok(request, data);
   }
 
