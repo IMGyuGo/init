@@ -4696,7 +4696,64 @@ td input {
 
 .company-profile-form {
   display: grid;
-  gap: 18px;
+  gap: 22px;
+}
+
+/* 계정 설정 폼 — 의미별 섹션 + 필드 라벨(글자수/필수) (#309) */
+.company-form-section {
+  display: grid;
+  gap: 12px;
+  padding-top: 4px;
+}
+.company-form-section + .company-form-section {
+  padding-top: 18px;
+  border-top: 1px solid rgba(55, 53, 47, 0.1);
+}
+.company-form-subhead {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #191919;
+}
+.company-form-subdesc {
+  margin: -6px 0 2px;
+  font-size: 12.5px;
+  color: rgba(55, 53, 47, 0.55);
+}
+.company-field-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.company-field-label-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #37352f;
+}
+.company-field-required {
+  font-style: normal;
+  color: #3b6fe0;
+}
+.company-field-count {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(55, 53, 47, 0.45);
+}
+.company-field-count.is-max {
+  color: #d4444e;
+}
+.form-feedback {
+  margin-right: auto;
+  align-self: center;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.form-feedback.is-success {
+  color: #2f855a;
+}
+.form-feedback.is-error {
+  color: #d4444e;
 }
 
 .company-logo-upload {
@@ -6385,8 +6442,34 @@ td input {
   border-color: #3b6fe0;
 }
 .notion .company-logo-drop.has-file {
-  background: #f7f8fb;
+  background: #f7f7f5;
+  border-color: rgba(55, 53, 47, 0.16);
 }
+/* NOTION — 계정 페이지 톤: 그림자 제거·radius 축소·hairline·feature-card (#309) */
+.notion .company-logo-preview {
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 14px;
+}
+.notion .company-logo-file-icon { border-radius: 8px; }
+.notion .company-logo-drop {
+  border: 1px dashed rgba(55, 53, 47, 0.2);
+  border-radius: 10px;
+  box-shadow: none;
+}
+.notion .company-logo-drop:hover,
+.notion .company-logo-drop:focus-within {
+  background: #f7f7f5;
+  border-color: #3b6fe0;
+  box-shadow: none;
+}
+.notion .company-meta-list div {
+  background: #f7f7f5;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 10px;
+}
+.notion .company-meta-list span { color: rgba(55, 53, 47, 0.5); }
+.notion .company-meta-list strong { color: #37352f; }
+.notion .company-profile-card h2 { color: #191919; font-weight: 700; }
 
 .notion .page-banner .banner-actions {
   display: flex;

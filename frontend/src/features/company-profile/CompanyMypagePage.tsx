@@ -30,25 +30,33 @@ const VERIFICATION_LABELS: Record<string, string> = {
   REJECTED: "인증 반려",
 };
 
+const NAME_MAX = 150;
+const INDUSTRY_MAX = 100;
+const LONG_TEXT_MAX = 1000;
+
+type FieldFeedback = { tone: "success" | "error"; text: string } | null;
+
 export function CompanyMypagePage() {
   const [profile, setProfile] = useState<CompanyProfile | null>(null);
   const [draft, setDraft] = useState<CompanyProfileDraft>(emptyDraft);
   const [selectedLogoFile, setSelectedLogoFile] = useState<File | null>(null);
   const [selectedLogoPreviewUrl, setSelectedLogoPreviewUrl] = useState<string | null>(null);
-  const [message, setMessage] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [profileFeedback, setProfileFeedback] = useState<FieldFeedback>(null);
+  const [logoFeedback, setLogoFeedback] = useState<FieldFeedback>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
-    setMessage("");
+    setLoadError("");
     try {
       const data = await getCompanyProfile();
       setProfile(data);
       setDraft(toDraft(data));
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "회사 정보를 불러오지 못했습니다.");
+      setLoadError(error instanceof Error ? error.message : "회사 정보를 불러오지 못했습니다.");
     } finally {
       setLoading(false);
     }
@@ -82,19 +90,19 @@ export function CompanyMypagePage() {
 
     const input = toUpdateInput(draft);
     if (!input.name) {
-      setMessage("회사명을 입력해주세요.");
+      setProfileFeedback({ tone: "error", text: "회사명을 입력해주세요." });
       return;
     }
 
     setSaving(true);
-    setMessage("");
+    setProfileFeedback(null);
     try {
       const updated = await updateCompanyProfile(input);
       setProfile(updated);
       setDraft(toDraft(updated));
-      setMessage("회사 정보가 저장되었습니다.");
+      setProfileFeedback({ tone: "success", text: "회사 정보가 저장되었습니다." });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "회사 정보를 저장하지 못했습니다.");
+      setProfileFeedback({ tone: "error", text: error instanceof Error ? error.message : "회사 정보를 저장하지 못했습니다." });
     } finally {
       setSaving(false);
     }
@@ -104,30 +112,30 @@ export function CompanyMypagePage() {
     if (!file) return;
     const validation = validateCompanyLogoFile(file);
     if (!validation.ok) {
-      setMessage(validation.message);
+      setLogoFeedback({ tone: "error", text: validation.message });
       setSelectedLogoFile(null);
       return;
     }
-    setMessage("");
+    setLogoFeedback(null);
     setSelectedLogoFile(file);
   }
 
   async function handleLogoUpload() {
     if (!selectedLogoFile) {
-      setMessage("업로드할 로고 파일을 선택해주세요.");
+      setLogoFeedback({ tone: "error", text: "업로드할 로고 파일을 선택해주세요." });
       return;
     }
 
     setUploadingLogo(true);
-    setMessage("");
+    setLogoFeedback(null);
     try {
       const updated = await uploadCompanyLogo(selectedLogoFile);
       setProfile(updated);
       setDraft(toDraft(updated));
       setSelectedLogoFile(null);
-      setMessage("회사 로고가 저장되었습니다.");
+      setLogoFeedback({ tone: "success", text: "회사 로고가 저장되었습니다." });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "회사 로고를 저장하지 못했습니다.");
+      setLogoFeedback({ tone: "error", text: error instanceof Error ? error.message : "회사 로고를 저장하지 못했습니다." });
     } finally {
       setUploadingLogo(false);
     }
@@ -147,7 +155,7 @@ export function CompanyMypagePage() {
         <Image className="page-banner-art" src={accountBanner} alt="" width={300} height={300} aria-hidden="true" priority />
       </div>
 
-      {message ? <p className="notice">{message}</p> : null}
+      {loadError ? <p className="notice">{loadError}</p> : null}
 
       <div className="company-mypage-layout">
         <aside className="panel company-profile-card">
@@ -184,56 +192,72 @@ export function CompanyMypagePage() {
             </div>
 
             <form className="company-profile-form" onSubmit={handleSubmit}>
-              <div className="grid-2">
-                <label>
-                  회사명
-                  <input
-                    value={draft.name}
-                    maxLength={150}
-                    onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-                    disabled={loading || saving}
-                    required
-                  />
-                </label>
-                <label>
-                  산업군
-                  <input
-                    value={draft.industry}
-                    maxLength={100}
-                    onChange={(event) => setDraft((current) => ({ ...current, industry: event.target.value }))}
-                    disabled={loading || saving}
-                    placeholder="예: AI SaaS"
-                  />
-                </label>
-                <label className="wide">
-                  회사 소개
-                  <textarea
-                    value={draft.profile}
-                    maxLength={1000}
-                    onChange={(event) => setDraft((current) => ({ ...current, profile: event.target.value }))}
-                    disabled={loading || saving}
-                  />
-                </label>
-                <label className="wide">
-                  인재상
-                  <textarea
-                    value={draft.talentProfile}
-                    maxLength={1000}
-                    onChange={(event) => setDraft((current) => ({ ...current, talentProfile: event.target.value }))}
-                    disabled={loading || saving}
-                  />
-                </label>
-                <label className="wide">
-                  평가 정책
-                  <textarea
-                    value={draft.evaluationPolicy}
-                    maxLength={1000}
-                    onChange={(event) => setDraft((current) => ({ ...current, evaluationPolicy: event.target.value }))}
-                    disabled={loading || saving}
-                  />
-                </label>
+              <div className="company-form-section">
+                <h3 className="company-form-subhead">기본 정보</h3>
+                <div className="grid-2">
+                  <label>
+                    <FieldLabel text="회사명" required count={draft.name.length} max={NAME_MAX} />
+                    <input
+                      value={draft.name}
+                      maxLength={NAME_MAX}
+                      onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+                      disabled={loading || saving}
+                      required
+                    />
+                  </label>
+                  <label>
+                    <FieldLabel text="산업군" count={draft.industry.length} max={INDUSTRY_MAX} />
+                    <input
+                      value={draft.industry}
+                      maxLength={INDUSTRY_MAX}
+                      onChange={(event) => setDraft((current) => ({ ...current, industry: event.target.value }))}
+                      disabled={loading || saving}
+                      placeholder="예: AI SaaS"
+                    />
+                  </label>
+                </div>
               </div>
+
+              <div className="company-form-section">
+                <h3 className="company-form-subhead">소개 · 인재상 · 평가 정책</h3>
+                <p className="company-form-subdesc">공고와 지원자 화면에 함께 노출됩니다.</p>
+                <div className="grid-2">
+                  <label className="wide">
+                    <FieldLabel text="회사 소개" count={draft.profile.length} max={LONG_TEXT_MAX} />
+                    <textarea
+                      value={draft.profile}
+                      maxLength={LONG_TEXT_MAX}
+                      onChange={(event) => setDraft((current) => ({ ...current, profile: event.target.value }))}
+                      disabled={loading || saving}
+                    />
+                  </label>
+                  <label className="wide">
+                    <FieldLabel text="인재상" count={draft.talentProfile.length} max={LONG_TEXT_MAX} />
+                    <textarea
+                      value={draft.talentProfile}
+                      maxLength={LONG_TEXT_MAX}
+                      onChange={(event) => setDraft((current) => ({ ...current, talentProfile: event.target.value }))}
+                      disabled={loading || saving}
+                    />
+                  </label>
+                  <label className="wide">
+                    <FieldLabel text="평가 정책" count={draft.evaluationPolicy.length} max={LONG_TEXT_MAX} />
+                    <textarea
+                      value={draft.evaluationPolicy}
+                      maxLength={LONG_TEXT_MAX}
+                      onChange={(event) => setDraft((current) => ({ ...current, evaluationPolicy: event.target.value }))}
+                      disabled={loading || saving}
+                    />
+                  </label>
+                </div>
+              </div>
+
               <div className="form-actions">
+                {profileFeedback ? (
+                  <span className={`form-feedback is-${profileFeedback.tone}`} role="status" aria-live="polite">
+                    {profileFeedback.text}
+                  </span>
+                ) : null}
                 <button className="btn secondary" type="button" onClick={() => profile && setDraft(toDraft(profile))} disabled={!hasProfileChanges || saving}>
                   되돌리기
                 </button>
@@ -269,6 +293,11 @@ export function CompanyMypagePage() {
                 <span className="company-logo-file-action">파일 선택</span>
               </label>
               <div className="form-actions">
+                {logoFeedback ? (
+                  <span className={`form-feedback is-${logoFeedback.tone}`} role="status" aria-live="polite">
+                    {logoFeedback.text}
+                  </span>
+                ) : null}
                 <button className="btn secondary" type="button" onClick={() => setSelectedLogoFile(null)} disabled={!selectedLogoFile || uploadingLogo}>
                   선택 취소
                 </button>
@@ -305,6 +334,20 @@ export function CompanyMypagePage() {
         </div>
       </div>
     </section>
+  );
+}
+
+function FieldLabel({ text, required, count, max }: { text: string; required?: boolean; count: number; max: number }) {
+  return (
+    <span className="company-field-label">
+      <span className="company-field-label-text">
+        {text}
+        {required ? <em className="company-field-required" aria-hidden="true"> *</em> : null}
+      </span>
+      <span className={`company-field-count${count >= max ? " is-max" : ""}`}>
+        {count}/{max}
+      </span>
+    </span>
   );
 }
 
