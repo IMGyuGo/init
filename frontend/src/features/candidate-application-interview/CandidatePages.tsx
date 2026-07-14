@@ -36,6 +36,7 @@ import {
   type CandidateFileAsset,
   type CandidateFolder,
   type CandidateFolderInput,
+  type CandidateProfileSnapshotV1,
   type CandidateFollowUpQuestionView,
   type CandidateInterviewRuntimeView,
   type CandidateJobQuery,
@@ -61,6 +62,7 @@ import {
   type InterviewRuntimeApiClient,
 } from "./api";
 import { CandidateProfileSection } from "./CandidateProfileSection";
+import { CandidateProfileSnapshotEditor } from "./CandidateProfileSnapshotEditor";
 import {
   createRealtimeInterviewSpeechResponseEvent,
   createRealtimeInterviewWebRtcConnection,
@@ -127,6 +129,7 @@ import {
 import {
   type CameraPipPosition,
   type CandidateApplicationFormState,
+  applyFolderToApplicationForm,
   type CandidateDeviceCheckState,
   type CandidateInterviewConsentState,
   type CandidateNotificationItem,
@@ -204,6 +207,7 @@ const CAMERALESS_INTERVIEW_TEST_ENTRY_STORAGE_KEY_PREFIX = "init.cameralessInter
 const CANDIDATE_NOTIFICATION_READ_IDS_STORAGE_KEY = "init.candidateNotificationReadIds";
 const CANDIDATE_NOTIFICATION_DISMISSED_IDS_STORAGE_KEY = "init.candidateNotificationDismissedIds";
 const CANDIDATE_REPORT_NOTIFICATION_EVENT = "init:candidate-report-complete";
+const CANDIDATE_APPLY_DRAFT_STORAGE_KEY = "init.candidateApplyDraft.v1";
 const DEMO_CANDIDATE_ID = 1;
 export const PUBLIC_INTERVIEW_ACCESS_TOKEN_STORAGE_KEY = "init.publicInterviewAccessToken";
 const DEFAULT_INTERVIEW_QUESTION_TIME_LIMIT_SECONDS = 90;
@@ -726,6 +730,8 @@ export function CandidateJobsPage({ publicEntry = false }: { publicEntry?: boole
 }
 
 export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const load = useCallback(() => getCandidateApi().getJobDetail(jobId), [jobId]);
   const { data, loading, error, refresh } = useCandidateResource(load, [jobId]);
 
@@ -740,6 +746,10 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
   // #272 지원 모달을 열 때 회원 기본정보 자동 입력 + 지원서 세트 목록을 지연 로딩한다.
   const [applyFolders, setApplyFolders] = useState<CandidateFolder[]>([]);
   const [applyPrefilled, setApplyPrefilled] = useState(false);
+  const [restoredEditedSet, setRestoredEditedSet] = useState(false);
+  useEffect(() => {
+    if (searchParams.get("apply") === "1") setApplyOpen(true);
+  }, [searchParams]);
   useEffect(() => {
     if (!applyOpen || applyPrefilled) {
       return;
@@ -753,14 +763,30 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
           return;
         }
         const applicant = applyView.data.applicant;
+        const profileSnapshot = applyView.data.profileSnapshot ?? {
+          schemaVersion: 1 as const,
+          name: applicant.name,
+          email: applicant.email,
+          phone: applicant.phone,
+          githubUrl: applicant.githubUrl,
+          blogUrl: applicant.blogUrl,
+          portfolioUrl: applicant.portfolioUrl,
+          summary: null,
+          coverLetter: null,
+          educations: [],
+          careers: [],
+          activities: [],
+          credentials: [],
+        };
         setApplyForm((current) => ({
           ...current,
-          candidateName: current.candidateName || applicant.name,
-          email: current.email || applicant.email,
-          phone: current.phone || (applicant.phone ?? ""),
-          githubUrl: current.githubUrl || (applicant.githubUrl ?? ""),
-          blogUrl: current.blogUrl || (applicant.blogUrl ?? ""),
-          portfolioUrl: current.portfolioUrl || (applicant.portfolioUrl ?? undefined),
+          candidateName: profileSnapshot.name || applicant.name,
+          email: profileSnapshot.email || applicant.email,
+          phone: profileSnapshot.phone ?? applicant.phone ?? "",
+          githubUrl: profileSnapshot.githubUrl ?? applicant.githubUrl ?? "",
+          blogUrl: profileSnapshot.blogUrl ?? applicant.blogUrl ?? "",
+          portfolioUrl: profileSnapshot.portfolioUrl ?? applicant.portfolioUrl ?? undefined,
+          profileSnapshot,
         }));
         setApplyPrefilled(true);
       })
@@ -777,6 +803,30 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
       active = false;
     };
   }, [applyOpen, applyPrefilled, jobId]);
+
+  useEffect(() => {
+    if (!applyOpen || !applyPrefilled || restoredEditedSet) return;
+    const restoreDraftOnly = searchParams.get("restoreDraft") === "1";
+    const editedSetId = Number(searchParams.get("applySet"));
+    const editedFolder = applyFolders.find((folder) => folder.id === editedSetId);
+    if (!restoreDraftOnly && !editedFolder) return;
+    let baseline = applyForm;
+    try {
+      const draft = JSON.parse(window.sessionStorage.getItem(CANDIDATE_APPLY_DRAFT_STORAGE_KEY) ?? "null") as { jobId?: number; form?: CandidateApplicationFormState } | null;
+      if (draft?.jobId === jobId && draft.form) baseline = draft.form;
+      window.sessionStorage.removeItem(CANDIDATE_APPLY_DRAFT_STORAGE_KEY);
+    } catch {
+      window.sessionStorage.removeItem(CANDIDATE_APPLY_DRAFT_STORAGE_KEY);
+    }
+    setApplyForm(restoreDraftOnly ? baseline : applyFolderToApplicationForm(baseline, baseline, editedFolder!));
+    setRestoredEditedSet(true);
+  }, [applyFolders, applyForm, applyOpen, applyPrefilled, jobId, restoredEditedSet, searchParams]);
+
+  function handleEditApplyFolder(folder: CandidateFolder) {
+    window.sessionStorage.setItem(CANDIDATE_APPLY_DRAFT_STORAGE_KEY, JSON.stringify({ jobId, form: applyForm }));
+    window.history.replaceState(null, "", `/candidate/jobs/${jobId}?apply=1&restoreDraft=1`);
+    router.push(`/candidate/application-sets/${folder.id}/edit?returnTo=${encodeURIComponent(`/candidate/jobs/${jobId}`)}`);
+  }
 
   // 같은 직무의 다른 공고를 추천으로 노출한다(우측 사이드). 별도 추천 API 없이 목록 API 재사용.
   // 목록 jobRoles 필터는 jobRoleCode 와 매칭하므로 표시명(jobRole)이 아닌 jobRoleCode 로 조회한다.
@@ -864,6 +914,7 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
           onStateChange={setApplyForm}
           onSubmit={handleApplicationSubmit}
           onClose={() => setApplyOpen(false)}
+          onEditFolder={handleEditApplyFolder}
         />
       ) : null}
     </CandidatePageShell>
@@ -882,20 +933,40 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
 
   // #272 회원 기본정보 자동 입력: 지원 화면 진입 시 프로필의 이름/이메일/연락처/GitHub/블로그/포트폴리오를 채운다(빈 칸만).
   const applicant = data?.data.applicant;
+  const profileSnapshot = useMemo(() => {
+    if (data?.data.profileSnapshot) return data.data.profileSnapshot;
+    if (!applicant) return undefined;
+    return {
+      schemaVersion: 1 as const,
+      name: applicant.name,
+      email: applicant.email,
+      phone: applicant.phone,
+      githubUrl: applicant.githubUrl,
+      blogUrl: applicant.blogUrl,
+      portfolioUrl: applicant.portfolioUrl,
+      summary: null,
+      coverLetter: null,
+      educations: [],
+      careers: [],
+      activities: [],
+      credentials: [],
+    };
+  }, [applicant, data?.data.profileSnapshot]);
   useEffect(() => {
-    if (!applicant) {
+    if (!applicant || !profileSnapshot) {
       return;
     }
     setForm((current) => ({
       ...current,
-      candidateName: current.candidateName || applicant.name,
-      email: current.email || applicant.email,
-      phone: current.phone || (applicant.phone ?? ""),
-      githubUrl: current.githubUrl || (applicant.githubUrl ?? ""),
-      blogUrl: current.blogUrl || (applicant.blogUrl ?? ""),
-      portfolioUrl: current.portfolioUrl || (applicant.portfolioUrl ?? undefined),
+      candidateName: profileSnapshot.name || applicant.name,
+      email: profileSnapshot.email || applicant.email,
+      phone: profileSnapshot.phone ?? applicant.phone ?? "",
+      githubUrl: profileSnapshot.githubUrl ?? applicant.githubUrl ?? "",
+      blogUrl: profileSnapshot.blogUrl ?? applicant.blogUrl ?? "",
+      portfolioUrl: profileSnapshot.portfolioUrl ?? applicant.portfolioUrl ?? undefined,
+      profileSnapshot,
     }));
-  }, [applicant]);
+  }, [applicant, profileSnapshot]);
 
   // #272 지원서 세트 불러오기용 폴더 목록.
   const foldersLoad = useCallback(() => getCandidateApi().listFolders(), []);
@@ -2009,7 +2080,37 @@ export function CandidateMockInterviewStartPage() {
     setBusy(true);
     setMessage("");
     try {
-      const result = await getCandidateApi().startMockInterview(toStartMockInterviewRequest(state));
+      const startRequest = toStartMockInterviewRequest(state);
+      let questionProcessLogId: number | undefined;
+      try {
+        setMessage("프로필과 지원서 세트를 바탕으로 맞춤형 질문을 만들고 있습니다.");
+        const generation = await getCandidateApi().generateMockQuestions({
+          questionCount: Math.max(1, state.questionTypes?.length ?? 4),
+          folderId: state.folderId ?? undefined,
+          jobRole: state.jobRole || undefined,
+          difficulty: state.difficulty,
+          questionTypes: state.questionTypes,
+        });
+        const deadline = Date.now() + 15_000;
+        while (Date.now() < deadline) {
+          const status = await getCandidateApi().getAiJobStatus(generation.data.processLogId);
+          if (status.data.status === "COMPLETED") {
+            questionProcessLogId = generation.data.processLogId;
+            break;
+          }
+          if (status.data.status === "FAILED") break;
+          await new Promise((resolve) => window.setTimeout(resolve, 750));
+        }
+      } catch {
+        // 질문 생성 실패·시간 초과 시 기존 공통/규칙 기반 질문으로 안전하게 시작한다.
+      }
+      let result;
+      try {
+        result = await getCandidateApi().startMockInterview({ ...startRequest, questionProcessLogId });
+      } catch (startError) {
+        if (!questionProcessLogId) throw startError;
+        result = await getCandidateApi().startMockInterview(startRequest);
+      }
       router.push(getMockInterviewDeviceCheckHref(result.data));
     } catch (submitError) {
       setMessage(toErrorMessage(submitError));
@@ -8686,21 +8787,18 @@ const EMPTY_FOLDER_INPUT: CandidateFolderInput = {
 };
 
 function CandidateFoldersSection() {
+  const router = useRouter();
   const load = useCallback(() => getCandidateApi().listFolders(), []);
   const { data, loading, error, refresh } = useCandidateResource(load, []);
   // 새로 만든 세트가 목록 맨 뒤(추가 버튼 앞)에 오도록 id 오름차순 정렬.
   const folders = [...(data?.data.items ?? [])].sort((a, b) => a.id - b.id);
-  const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<CandidateFolder | null>(null);
   const [message, setMessage] = useState("");
 
   function openCreate() {
-    setEditing(null);
-    setFormOpen(true);
+    router.push("/candidate/application-sets/new");
   }
   function openEdit(folder: CandidateFolder) {
-    setEditing(folder);
-    setFormOpen(true);
+    router.push(`/candidate/application-sets/${folder.id}/edit`);
   }
   async function handleDelete(folder: CandidateFolder) {
     if (!window.confirm(`'${folder.name}' 지원서 세트를 삭제할까요?`)) return;
@@ -8775,29 +8873,77 @@ function CandidateFoldersSection() {
           <span>새 지원서 세트</span>
         </button>
       </div>
-      {formOpen ? (
-        <FolderFormModal
-          folder={editing}
-          onClose={() => setFormOpen(false)}
-          onSaved={(savedMessage) => {
-            setFormOpen(false);
-            setMessage(savedMessage);
-            refresh();
-          }}
-        />
-      ) : null}
     </section>
   );
 }
 
-function FolderFormModal({
+export function CandidateApplicationSetEditorPage({ folderId }: { folderId?: number }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [folder, setFolder] = useState<CandidateFolder | null>(null);
+  const [initialProfileSnapshot, setInitialProfileSnapshot] = useState<CandidateProfileSnapshotV1 | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    Promise.all([
+      getCandidateApi().getProfile(),
+      folderId ? getCandidateApi().getFolder(folderId) : Promise.resolve(null),
+    ])
+      .then(([profileResponse, folderResponse]) => {
+        if (!active) return;
+        const profile = profileResponse.data;
+        setInitialProfileSnapshot({ schemaVersion: 1, ...profile });
+        setFolder(folderResponse?.data ?? null);
+      })
+      .catch((loadError) => active && setError(toErrorMessage(loadError)))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, [folderId]);
+
+  function close() {
+    const returnTo = searchParams.get("returnTo");
+    if (returnTo?.startsWith("/candidate/jobs/")) {
+      router.push(`${returnTo}?apply=1&restoreDraft=1`);
+      return;
+    }
+    router.push(candidateApplicationInterviewRoutes.applicationSets);
+  }
+
+  function saved(savedFolder: CandidateFolder) {
+    const returnTo = searchParams.get("returnTo");
+    if (returnTo?.startsWith("/candidate/jobs/")) {
+      router.push(`${returnTo}?apply=1&applySet=${savedFolder.id}`);
+      return;
+    }
+    router.push(candidateApplicationInterviewRoutes.applicationSets);
+  }
+
+  return (
+    <CandidatePageShell active="accountBilling">
+      <section className="candidate-mypage glass-page notion">
+        <header className="candidate-mypage__head"><h1>{folderId ? "지원서 세트 수정" : "새 지원서 세트"}</h1></header>
+        <StatusNotice loading={loading} error={error} />
+        {!loading && !error && initialProfileSnapshot ? (
+          <FolderFormPage folder={folder} initialProfileSnapshot={initialProfileSnapshot} onClose={close} onSaved={saved} />
+        ) : null}
+      </section>
+    </CandidatePageShell>
+  );
+}
+
+function FolderFormPage({
   folder,
+  initialProfileSnapshot,
   onClose,
   onSaved,
 }: {
   folder: CandidateFolder | null;
+  initialProfileSnapshot: CandidateProfileSnapshotV1;
   onClose: () => void;
-  onSaved: (message: string) => void;
+  onSaved: (folder: CandidateFolder) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const portfolioFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -8812,8 +8958,9 @@ function FolderFormModal({
           portfolioFileId: folder.portfolioFileId,
           motivation: folder.motivation ?? "",
           extraNote: folder.extraNote ?? "",
+          profileSnapshot: folder.profileSnapshot ?? initialProfileSnapshot,
         }
-      : { ...EMPTY_FOLDER_INPUT },
+      : { ...EMPTY_FOLDER_INPUT, profileSnapshot: initialProfileSnapshot },
   );
   const [resumeFileName, setResumeFileName] = useState(folder?.resumeFileName ?? "");
   const [portfolioFileName, setPortfolioFileName] = useState(folder?.portfolioFileName ?? "");
@@ -8821,7 +8968,16 @@ function FolderFormModal({
   const [error, setError] = useState("");
 
   function update<K extends keyof CandidateFolderInput>(key: K, value: CandidateFolderInput[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((prev) => {
+      const next = { ...prev, [key]: value };
+      if (prev.profileSnapshot && (key === "githubUrl" || key === "blogUrl" || key === "portfolioUrl")) {
+        next.profileSnapshot = {
+          ...prev.profileSnapshot,
+          [key]: typeof value === "string" && value.trim() ? value.trim() : null,
+        };
+      }
+      return next;
+    });
   }
 
   async function handleFile(file: File) {
@@ -8862,11 +9018,11 @@ function FolderFormModal({
     setError("");
     try {
       if (folder) {
-        await getCandidateApi().updateFolder(folder.id, form);
-        onSaved("지원서 세트를 수정했습니다.");
+        const response = await getCandidateApi().updateFolder(folder.id, form);
+        onSaved(response.data);
       } else {
-        await getCandidateApi().createFolder(form);
-        onSaved("지원서 세트를 만들었습니다.");
+        const response = await getCandidateApi().createFolder(form);
+        onSaved(response.data);
       }
     } catch (submitError) {
       setError(toErrorMessage(submitError));
@@ -8876,8 +9032,7 @@ function FolderFormModal({
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <form className="modal folder-form-modal" role="dialog" aria-modal="true" aria-labelledby="folder-form-title" onSubmit={handleSubmit}>
+      <form className="mypage-block folder-form-page" aria-labelledby="folder-form-title" onSubmit={handleSubmit}>
         <div className="modal-head">
           <div>
             <p className="page-eyebrow">지원서 세트</p>
@@ -8890,6 +9045,19 @@ function FolderFormModal({
           <span>세트 이름</span>
           <input type="text" value={form.name} placeholder="예: 카카오 백엔드" onChange={(e) => update("name", e.target.value)} maxLength={100} />
         </label>
+        <p className="folder-hint">아래 프로필은 이 세트에 독립적으로 저장됩니다. 비운 항목은 지원할 때도 빈 값으로 적용됩니다.</p>
+        {form.profileSnapshot ? (
+          <CandidateProfileSnapshotEditor
+            value={form.profileSnapshot}
+            onChange={(profileSnapshot) => setForm((current) => ({
+              ...current,
+              profileSnapshot,
+              githubUrl: profileSnapshot.githubUrl,
+              blogUrl: profileSnapshot.blogUrl,
+              portfolioUrl: profileSnapshot.portfolioUrl,
+            }))}
+          />
+        ) : null}
         <label className="folder-field">
           <span>이력서</span>
           <button type="button" className="candidate-upload-drop" onClick={() => fileInputRef.current?.click()} disabled={busy}>
@@ -8905,20 +9073,6 @@ function FolderFormModal({
               if (file) void handleFile(file);
             }}
           />
-        </label>
-        <div className="folder-field-row">
-          <label className="folder-field">
-            <span>GitHub</span>
-            <input type="url" value={form.githubUrl ?? ""} placeholder="https://github.com/…" onChange={(e) => update("githubUrl", e.target.value)} />
-          </label>
-          <label className="folder-field">
-            <span>블로그</span>
-            <input type="url" value={form.blogUrl ?? ""} placeholder="https://…" onChange={(e) => update("blogUrl", e.target.value)} />
-          </label>
-        </div>
-        <label className="folder-field">
-          <span>포트폴리오 URL</span>
-          <input type="url" value={form.portfolioUrl ?? ""} placeholder="https://…" onChange={(e) => update("portfolioUrl", e.target.value)} />
         </label>
         <label className="folder-field">
           <span>포트폴리오 PDF</span>
@@ -8936,7 +9090,6 @@ function FolderFormModal({
             }}
           />
         </label>
-        <p className="folder-hint">GitHub·블로그·포트폴리오는 선택이에요. 비워두면 지원할 때 프로필에 저장된 값이 자동으로 채워집니다.</p>
         <label className="folder-field">
           <span>지원 동기</span>
           <textarea rows={3} value={form.motivation ?? ""} placeholder="이 기업/직무에 지원하는 이유" onChange={(e) => update("motivation", e.target.value)} />
@@ -8950,7 +9103,6 @@ function FolderFormModal({
           <button type="submit" className="btn primary" disabled={busy}>{busy ? "저장 중…" : "저장"}</button>
         </div>
       </form>
-    </div>
   );
 }
 

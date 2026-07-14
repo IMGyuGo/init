@@ -151,7 +151,9 @@ export class CandidateAiJobsController {
       this.requirePositive(body.questionCount, "questionCount");
       const payload: Record<string, unknown> = { ...body };
       const persistedPayload: Record<string, unknown> = { ...body };
-      const profileContext = await this.candidateService.getCandidateProfileAiContext(currentUser);
+      const profileContext = body.folderId !== undefined && body.folderId !== null
+        ? await this.candidateService.getCandidateFolderProfileAiContext(Number(body.folderId), currentUser)
+        : await this.candidateService.getCandidateProfileAiContext(currentUser);
       const profileUpdatedAt = await this.candidateService.getCandidateProfileUpdatedAt(currentUser);
       payload.profileContext = profileContext;
       persistedPayload.profileContext = this.toProfileContextLogRef(profileContext, profileUpdatedAt);
@@ -295,7 +297,6 @@ export class CandidateAiJobsController {
   private toMockQuestionFolderContext(folder: CandidateFolderContext): Record<string, unknown> {
     return {
       folderId: folder.id,
-      name: folder.name,
       githubUrl: folder.githubUrl,
       blogUrl: folder.blogUrl,
       portfolioUrl: folder.portfolioUrl,
@@ -304,7 +305,6 @@ export class CandidateAiJobsController {
       resumeFile: folder.resumeFile
         ? {
             fileId: folder.resumeFile.fileId,
-            originalName: folder.resumeFile.originalName,
             mimeType: folder.resumeFile.mimeType,
             sizeBytes: folder.resumeFile.sizeBytes,
           }

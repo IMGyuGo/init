@@ -141,6 +141,7 @@
 | github_url | VARCHAR(500) | GitHub 주소 |
 | blog_url | VARCHAR(500) | 블로그 URL (#272 프로필 정본화로 추가) |
 | summary | TEXT | 지원자 자기소개/요약 정보. AI 분석 또는 프로필 표시용 |
+| cover_letter | TEXT | 선택 자기소개서. 지원서 스냅샷과 맞춤 질문 생성의 원본 |
 | created_at | TIMESTAMP NOT NULL | 지원자 프로필 생성 시각 |
 | updated_at | TIMESTAMP NOT NULL | 지원자 프로필 수정 시각 |
 
@@ -201,7 +202,7 @@
 | result | VARCHAR(200) | 점수·등급·수상 결과 |
 | created_at / updated_at | TIMESTAMP NOT NULL | 생성/수정 시각 |
 
-프로필 AI 컨텍스트는 위 구조화 항목과 summary/URL만 투영한다. 이름·이메일·전화번호, 자식 PK, `candidate_id`는 제외한다. 섹션별 현재/최신 5개, summary 1,000자, 담당업무·활동내용 각 500자, 전체 JSON 20,000자 제한을 적용하고 초과하면 오래된 항목부터 제거한다.
+프로필 AI 컨텍스트는 위 구조화 항목과 summary/coverLetter/URL만 투영한다. 이름·이메일·전화번호, 자식 PK, `candidate_id`는 제외한다. 섹션별 현재/최신 5개, summary 1,000자, coverLetter 3,000자, 담당업무·활동내용 각 500자, 전체 JSON 20,000자 제한을 적용하고 초과하면 오래된 항목부터 제거한다.
 
 ### candidate_folders
 
@@ -217,6 +218,7 @@
 | portfolio_file_id | BIGINT | 폴더에 연결된 포트폴리오 PDF file_assets FK. 파일 삭제 시 NULL (#272 P1-2) |
 | motivation | TEXT | 지원 동기 |
 | extra_note | TEXT | 추가 설명 |
+| profile_snapshot | JSONB | 생성/최초 수정 시 고정한 `CandidateProfileSnapshotV1`. 기존 행은 NULL 가능 |
 | created_at | TIMESTAMP NOT NULL | 폴더 생성 시각 |
 | updated_at | TIMESTAMP NOT NULL | 폴더 수정 시각 |
 
@@ -341,6 +343,7 @@
 | portfolio_url | VARCHAR(500) | 해당 지원서에 제출한 포트폴리오 URL. 포트폴리오 PDF 제출 시 NULL 가능 |
 | motivation | TEXT | 해당 공고 지원동기 |
 | additional_info | TEXT | 지원자가 함께 제출한 추가 설명 |
+| profile_snapshot | JSONB | 제출 당시 전체 `CandidateProfileSnapshotV1`. 기존/공개 지원은 NULL 가능 |
 | application_status | VARCHAR(40) NOT NULL | 지원 전체 진행 상태: DRAFT, SUBMITTED, IN_REVIEW, INTERVIEW_WAITING, INTERVIEW_DONE, COMPLETED, CANCELED |
 | document_status | VARCHAR(40) NOT NULL | 서류 제출/분석 상태: NOT_SUBMITTED, SUBMITTED, EXTRACTING, EXTRACTED, FAILED |
 | interview_status | VARCHAR(40) NOT NULL | AI 면접 응시 상태: NOT_READY, READY, IN_PROGRESS, COMPLETED, FAILED |
@@ -350,7 +353,7 @@
 | submitted_at | TIMESTAMP | 지원서 최종 제출 시각 |
 | updated_at | TIMESTAMP NOT NULL | 지원 건 마지막 수정 시각 |
 
-신규 지원서는 이름, 이메일, 연락처, GitHub URL, 블로그 URL, 이력서 PDF, 지원동기, 추가 설명을 반드시 제출한다. 포트폴리오는 URL 또는 PDF 중 하나 이상을 제출한다. 프로필 값이 이후 변경되어도 기업은 지원 당시 내용을 확인할 수 있도록 위 필드를 지원서 스냅샷으로 사용한다.
+신규 회원 지원서는 이름, 이메일, 연락처, GitHub URL, 블로그 URL, 이력서 PDF, 지원동기, 추가 설명과 전체 프로필 스냅샷을 제출한다. 포트폴리오는 URL 또는 PDF 중 하나 이상을 제출한다. 프로필 값이 이후 변경되어도 기업은 지원 당시 스냅샷을 확인한다. 기존/공개 지원의 NULL 스냅샷은 현재 프로필로 역보정하지 않는다.
 
 ### application_documents
 

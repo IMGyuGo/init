@@ -3,6 +3,7 @@ import type {
   CandidateJobDetail,
   CandidateJobQuery,
   CandidateJobSummary,
+  CandidateProfileSnapshotV1,
   CandidateMockReportFeedback,
   CandidateMockReportSummary,
   CandidateRecruitingReportView,
@@ -34,6 +35,7 @@ export interface CandidateApplicationFormState {
   motivation: string;
   additionalInfo: string;
   consentTypes: ConsentType[];
+  profileSnapshot?: CandidateProfileSnapshotV1;
 }
 
 export interface CandidateResumeUploadState {
@@ -575,6 +577,20 @@ export function toSubmitApplicationRequest(state: CandidateApplicationFormState)
     throw new Error("required consentTypes are missing before submitting an application.");
   }
 
+  if (!state.profileSnapshot) {
+    throw new Error("profileSnapshot is required before submitting an application.");
+  }
+
+  const profileSnapshot: CandidateProfileSnapshotV1 = {
+    ...state.profileSnapshot,
+    name: candidateName,
+    email,
+    phone,
+    githubUrl: githubUrl || null,
+    blogUrl: blogUrl || null,
+    portfolioUrl: state.portfolioUrl?.trim() || null,
+  };
+
   return {
     candidateName,
     email,
@@ -587,6 +603,7 @@ export function toSubmitApplicationRequest(state: CandidateApplicationFormState)
     portfolioUrl: state.portfolioUrl?.trim() || undefined,
     motivation,
     additionalInfo,
+    profileSnapshot,
     consentTypes: state.consentTypes,
   };
 }

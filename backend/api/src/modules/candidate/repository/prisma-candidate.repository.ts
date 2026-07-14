@@ -17,6 +17,7 @@ import {
   type ApplicationDocument,
   type ApplicationSubmissionResult,
   type CandidateFolder,
+  type CandidateProfileSnapshotV1,
   type CandidateProfileView,
   type UpdateCandidateProfileInput,
   type CandidateJob,
@@ -170,6 +171,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
       blogUrl: profile.blogUrl ?? null,
       portfolioUrl: profile.portfolioUrl ?? null,
       summary: profile.summary ?? null,
+      coverLetter: profile.coverLetter ?? null,
       educations: profile.educations.map((item) => ({
         educationLevel: item.educationLevel,
         schoolName: item.schoolName,
@@ -236,6 +238,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
       ...(input.blogUrl !== undefined ? { blogUrl: input.blogUrl } : {}),
       ...(input.portfolioUrl !== undefined ? { portfolioUrl: input.portfolioUrl } : {}),
       ...(input.summary !== undefined ? { summary: input.summary } : {}),
+      ...(input.coverLetter !== undefined ? { coverLetter: input.coverLetter } : {}),
     };
 
     const candidateIdValue = BigInt(candidateId);
@@ -482,6 +485,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
     portfolioUrl?: string;
     motivation?: string;
     additionalInfo?: string;
+    profileSnapshot?: CandidateProfileSnapshotV1;
     consentTypes: ConsentRecord["consentType"][];
     // 있으면 지원서 생성과 같은 트랜잭션에서 회원 연락처를 저장한다(다음 지원 자동 입력용). (#272 P2)
     contactUserId?: number;
@@ -501,6 +505,9 @@ export class PrismaCandidateRepository implements CandidateRepository {
           portfolioUrl: input.portfolioUrl,
           motivation: input.motivation,
           additionalInfo: input.additionalInfo,
+          ...(input.profileSnapshot
+            ? { profileSnapshot: input.profileSnapshot as unknown as Prisma.InputJsonValue }
+            : {}),
           applicationStatus: PrismaApplicationStatus.SUBMITTED,
           documentStatus: PrismaDocumentStatus.SUBMITTED,
           interviewStatus: PrismaInterviewStatus.NOT_READY,
@@ -645,7 +652,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
   }
 
   async createFolder(
-    input: Omit<CandidateFolder, "id" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">,
+    input: Omit<CandidateFolder, "id" | "resumeFileName" | "portfolioFileName" | "profileSnapshot" | "createdAt" | "updatedAt"> & { profileSnapshot?: CandidateProfileSnapshotV1 | null },
   ): Promise<CandidateFolder> {
     const folder = await this.prisma.candidateFolder.create({
       data: {
@@ -658,6 +665,9 @@ export class PrismaCandidateRepository implements CandidateRepository {
         portfolioFileId: input.portfolioFileId ? BigInt(input.portfolioFileId) : null,
         motivation: input.motivation,
         extraNote: input.extraNote,
+        ...(input.profileSnapshot
+          ? { profileSnapshot: input.profileSnapshot as unknown as Prisma.InputJsonValue }
+          : {}),
       },
       include: { resumeFile: { select: { originalName: true } }, portfolioFile: { select: { originalName: true } } },
     });
@@ -679,6 +689,9 @@ export class PrismaCandidateRepository implements CandidateRepository {
         ...(input.portfolioFileId !== undefined ? { portfolioFileId: input.portfolioFileId ? BigInt(input.portfolioFileId) : null } : {}),
         ...(input.motivation !== undefined ? { motivation: input.motivation } : {}),
         ...(input.extraNote !== undefined ? { extraNote: input.extraNote } : {}),
+        ...(input.profileSnapshot !== undefined
+          ? { profileSnapshot: input.profileSnapshot as unknown as Prisma.InputJsonValue }
+          : {}),
       },
       include: { resumeFile: { select: { originalName: true } }, portfolioFile: { select: { originalName: true } } },
     });
@@ -829,6 +842,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
       portfolioUrl: application.portfolioUrl,
       motivation: application.motivation,
       additionalInfo: application.additionalInfo,
+      profileSnapshot: this.toProfileSnapshot(application.profileSnapshot),
       applicationStatus: application.applicationStatus,
       documentStatus: application.documentStatus,
       interviewStatus: application.interviewStatus,
@@ -887,9 +901,17 @@ export class PrismaCandidateRepository implements CandidateRepository {
       portfolioFileName: folder.portfolioFile?.originalName ?? null,
       motivation: folder.motivation,
       extraNote: folder.extraNote,
+      profileSnapshot: this.toProfileSnapshot(folder.profileSnapshot),
       createdAt: folder.createdAt.toISOString(),
       updatedAt: folder.updatedAt.toISOString(),
     };
+  }
+
+  private toProfileSnapshot(value: Prisma.JsonValue | null): CandidateProfileSnapshotV1 | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    return value as unknown as CandidateProfileSnapshotV1;
   }
 
   private toInterviewSession(session: InterviewSessionRecord): InterviewSession {

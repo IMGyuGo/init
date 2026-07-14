@@ -23,6 +23,7 @@ import {
 import { JobDescriptionViewer } from "../company-recruiting/JobDescriptionViewer";
 import { extractPostingExtraInfo, postingExtraInfoFields } from "../company-recruiting/posting-extra-info";
 import { loadKakaoMaps } from "../../lib/kakao-maps";
+import { CandidateProfileSnapshotEditor } from "./CandidateProfileSnapshotEditor";
 
 export interface CandidateJobsViewProps {
   jobs: CandidateJobSummary[];
@@ -1136,10 +1137,11 @@ interface ApplicationSetLoaderProps {
   folders: CandidateFolder[];
   activeSetId: number | null;
   onLoad: (folder: CandidateFolder) => void;
+  onEdit?: (folder: CandidateFolder) => void;
 }
 
 // 저장한 지원서 세트를 지원 폼에 불러오는 패널. 불러온 내용은 수정 가능하고 원본 세트는 바뀌지 않는다. (#272)
-function ApplicationSetLoader({ folders, activeSetId, onLoad }: ApplicationSetLoaderProps) {
+function ApplicationSetLoader({ folders, activeSetId, onLoad, onEdit }: ApplicationSetLoaderProps) {
   if (folders.length === 0) {
     return null;
   }
@@ -1149,29 +1151,32 @@ function ApplicationSetLoader({ folders, activeSetId, onLoad }: ApplicationSetLo
       <p className="candidate-apply-note">
         저장한 지원서 세트를 불러와 자동으로 채울 수 있어요. 불러온 내용은 자유롭게 수정할 수 있고, 원본 세트는 변경되지 않습니다.
       </p>
-      <ul className="candidate-apply-setlist">
+      <div className="candidate-apply-setlist folder-grid">
         {folders.map((folder) => {
           const updatedAt = formatSetUpdatedAt(folder.updatedAt);
           return (
-            <li key={folder.id}>
-              <button
-                type="button"
-                className={`candidate-apply-set${activeSetId === folder.id ? " is-active" : ""}`}
-                onClick={() => onLoad(folder)}
-              >
-                <span className="candidate-apply-set__body">
-                  <span className="candidate-apply-set__name">{folder.name}</span>
-                  <span className="candidate-apply-set__meta">
-                    {folder.resumeFileName ? `이력서 · ${folder.resumeFileName}` : "이력서 없음"}
-                    {updatedAt ? ` · 수정 ${updatedAt}` : ""}
-                  </span>
-                </span>
-                <strong>{activeSetId === folder.id ? "불러옴" : "불러오기"}</strong>
+            <article className={`folder-card${activeSetId === folder.id ? " is-active" : ""}`} key={folder.id}>
+              <div className="folder-card__top">
+                <h3 className="folder-card__name">{folder.name}</h3>
+                {onEdit ? (
+                  <div className="folder-card__actions">
+                    <button type="button" className="folder-icon-btn" aria-label="편집" title={`${folder.name} 편집`} onClick={() => onEdit(folder)}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+              <div className={`folder-card__resume${folder.resumeFileName ? "" : " is-empty"}`}>
+                <span>{folder.resumeFileName ? `이력서 · ${folder.resumeFileName}` : "이력서 없음"}{updatedAt ? ` · 수정 ${updatedAt}` : ""}</span>
+              </div>
+              <p className="folder-card__motivation">{folder.motivation || "지원 동기 미작성"}</p>
+              <button type="button" className="btn secondary compact" onClick={() => onLoad(folder)}>
+                {activeSetId === folder.id ? "불러오기 해제" : "이 세트 불러오기"}
               </button>
-            </li>
+            </article>
           );
         })}
-      </ul>
+      </div>
     </section>
   );
 }
@@ -1237,7 +1242,7 @@ export function CandidateApplicationView({
   const portfolioFromUpload = Boolean(latestPortfolioFile && latestPortfolioFile.fileId === state.portfolioFileId);
 
   const basicComplete = Boolean(
-    state.candidateName.trim() && state.email.trim() && state.phone.trim(),
+    state.profileSnapshot && state.candidateName.trim() && state.email.trim() && state.phone.trim(),
   );
   const resumeComplete = Boolean(state.resumeFileId);
   const portfolioComplete = hasPortfolioArtifact(state);
@@ -1469,6 +1474,7 @@ export interface CandidateApplyModalProps {
   onStateChange: (state: CandidateApplicationFormState) => void;
   onSubmit: (request: ReturnType<typeof toSubmitApplicationRequest>) => void | Promise<void>;
   onClose: () => void;
+  onEditFolder?: (folder: CandidateFolder) => void;
 }
 
 const APPLY_STEPS = ["기본 정보", "서류", "동의 및 제출"] as const;
@@ -1487,6 +1493,7 @@ export function CandidateApplyModal({
   onStateChange,
   onSubmit,
   onClose,
+  onEditFolder,
 }: CandidateApplyModalProps) {
   const [step, setStep] = useState(0);
   const [validationMessage, setValidationMessage] = useState("");
@@ -1529,7 +1536,7 @@ export function CandidateApplyModal({
   const portfolioFromUpload = Boolean(latestPortfolioFile && latestPortfolioFile.fileId === state.portfolioFileId);
 
   const basicComplete = Boolean(
-    state.candidateName.trim() && state.email.trim() && state.phone.trim(),
+    state.profileSnapshot && state.candidateName.trim() && state.email.trim() && state.phone.trim(),
   );
   const resumeComplete = Boolean(state.resumeFileId);
   const portfolioComplete = hasPortfolioArtifact(state);
@@ -1588,53 +1595,22 @@ export function CandidateApplyModal({
 
           {step === 0 ? (
             <div className="candidate-apply-modal-fields">
-              <ApplicationSetLoader folders={folders} activeSetId={activeSetId} onLoad={handleLoadSet} />
-              <label>
-                이름 <span className="req-mark">*</span>
-                <input
-                  placeholder="이름을 입력하세요"
-                  required
-                  value={state.candidateName}
-                  onChange={(event) => onStateChange({ ...state, candidateName: event.currentTarget.value })}
+              <ApplicationSetLoader folders={folders} activeSetId={activeSetId} onLoad={handleLoadSet} onEdit={onEditFolder} />
+              {state.profileSnapshot ? (
+                <CandidateProfileSnapshotEditor
+                  value={state.profileSnapshot}
+                  onChange={(profileSnapshot) => onStateChange({
+                    ...state,
+                    profileSnapshot,
+                    candidateName: profileSnapshot.name,
+                    email: profileSnapshot.email,
+                    phone: profileSnapshot.phone ?? "",
+                    githubUrl: profileSnapshot.githubUrl ?? "",
+                    blogUrl: profileSnapshot.blogUrl ?? "",
+                    portfolioUrl: profileSnapshot.portfolioUrl ?? undefined,
+                  })}
                 />
-              </label>
-              <label>
-                이메일 <span className="req-mark">*</span>
-                <input
-                  placeholder="example@email.com"
-                  required
-                  type="email"
-                  value={state.email}
-                  onChange={(event) => onStateChange({ ...state, email: event.currentTarget.value })}
-                />
-              </label>
-              <label>
-                연락처 <span className="req-mark">*</span>
-                <input
-                  placeholder="010-0000-0000"
-                  required
-                  value={state.phone}
-                  onChange={(event) => onStateChange({ ...state, phone: event.currentTarget.value })}
-                />
-              </label>
-              <label>
-                GitHub URL
-                <input
-                  placeholder="https://github.com/example"
-                  type="url"
-                  value={state.githubUrl}
-                  onChange={(event) => onStateChange({ ...state, githubUrl: event.currentTarget.value })}
-                />
-              </label>
-              <label>
-                블로그 URL
-                <input
-                  placeholder="https://blog.example.com"
-                  type="url"
-                  value={state.blogUrl}
-                  onChange={(event) => onStateChange({ ...state, blogUrl: event.currentTarget.value })}
-                />
-              </label>
+              ) : <p className="candidate-apply-note">마이페이지 프로필을 불러오는 중입니다.</p>}
             </div>
           ) : null}
 

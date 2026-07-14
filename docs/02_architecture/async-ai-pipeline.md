@@ -66,7 +66,9 @@ sequenceDiagram
 
 ## CandidateProfileAiContextV1
 
-API-045, API-051, API-071은 클라이언트 입력이 아니라 인증된 `candidateId`로 서버가 최신 프로필 컨텍스트를 구성한다. 컨텍스트에는 summary, GitHub/블로그/포트폴리오 URL, 학력·경력·활동·자격 항목을 포함하고 이름·이메일·전화번호·DB ID는 제외한다. API-045의 폴더 컨텍스트와 프로필 컨텍스트는 함께 존재할 수 있다. 꼬리질문에서는 답변/JD/서류가 주 근거이고 프로필은 보조 근거다.
+API-045, API-051, API-071은 클라이언트 입력이 아니라 인증된 `candidateId`로 안전한 프로필 컨텍스트를 구성한다. 컨텍스트에는 summary, 최대 3,000자의 coverLetter, GitHub/블로그/포트폴리오 URL, 학력·경력·활동·자격 항목을 포함하고 이름·이메일·전화번호·DB ID는 제외한다. API-045에서 세트를 선택하면 최신 프로필 대신 세트의 고정 스냅샷을 사용한다. 꼬리질문에서는 답변/JD/서류가 주 근거이고 프로필은 보조 근거다.
+
+API-045 결과는 프론트가 최대 약 15초 동안 API-080으로 조회한다. 완료 결과의 `processLogId`를 API-044에 전달하면 서버가 소유권·설정·단일 사용 여부를 검증한 뒤 세션 질문과 이용권을 한 트랜잭션에서 확정한다. 실패·시간초과·부족한 결과는 질문 유형별 안전한 기본 질문으로 보완하며 모의면접 질문은 `question_bank`에 저장하지 않는다.
 
 원문 컨텍스트는 SQS 메시지에서만 사용한다. `ai_process_logs.input_ref`에는 schemaVersion, 섹션별 개수, 문자 수, SHA-256 해시, `profileUpdatedAt`만 남긴다. 질문 출력은 나이·성별·주소·장애/건강·연봉·학교/회사 명성을 추론하거나 평가해서는 안 되며, 이메일·전화번호·URL이 포함된 출력은 가드레일에서 차단하고 최종 저장하지 않는다.
 | API-079 | POST | /ai/guardrails/validate | AI 출력 안전성 검증 | evaluation_reports, report_scores, report_evidences, manual_evaluations, ai_process_logs, ai_guardrail_logs |

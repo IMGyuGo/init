@@ -61,6 +61,30 @@ export class PrismaReportRepository implements ReportRepository {
     return this.toQueuedProcessSnapshot(processLog);
   }
 
+  async consumeCompletedQuestionProcess(processLogId: number): Promise<boolean> {
+    const consumedAt = new Date().toISOString();
+    const updated = await this.prisma.$executeRaw`
+      UPDATE ai_process_logs
+      SET input_ref = jsonb_set(COALESCE(input_ref, '{}')::jsonb, '{consumedAt}', to_jsonb(${consumedAt}::text))::text
+      WHERE process_log_id = ${BigInt(processLogId)}
+        AND process_type = 'QUESTION_GENERATE'::"AiProcessType"
+        AND status = 'COMPLETED'::"AiProcessStatus"
+        AND NOT (COALESCE(input_ref, '{}')::jsonb ? 'consumedAt')
+    `;
+    return updated === 1;
+  }
+
+  async releaseCompletedQuestionProcess(processLogId: number): Promise<void> {
+    await this.prisma.$executeRaw`
+      UPDATE ai_process_logs
+      SET input_ref = (COALESCE(input_ref, '{}')::jsonb - 'consumedAt')::text
+      WHERE process_log_id = ${BigInt(processLogId)}
+        AND process_type = 'QUESTION_GENERATE'::"AiProcessType"
+        AND status = 'COMPLETED'::"AiProcessStatus"
+        AND COALESCE(input_ref, '{}')::jsonb ? 'consumedAt'
+    `;
+  }
+
   async markQueuedProcessCompleted(processLogId: number, outputRef: string): Promise<QueuedAiProcessSnapshot> {
     const completedAt = new Date();
     const durationMs = await this.durationMs(processLogId, completedAt);

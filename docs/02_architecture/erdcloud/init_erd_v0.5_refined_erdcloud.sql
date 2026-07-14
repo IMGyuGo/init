@@ -132,6 +132,9 @@ CREATE TABLE candidate_profiles (
     -- 지원자 자기소개/요약 정보. AI 분석 또는 프로필 표시용
     summary TEXT,
 
+    -- 맞춤형 면접 질문 생성에 사용하는 자기소개서
+    cover_letter TEXT,
+
     -- 지원자 프로필 생성 시각
     created_at TIMESTAMP NOT NULL,
 
@@ -231,6 +234,9 @@ CREATE TABLE candidate_folders (
 
     -- 추가 설명
     extra_note TEXT,
+
+    -- 지원서 세트 생성/최초 수정 시 고정한 전체 프로필 복사본
+    profile_snapshot JSONB,
 
     -- 폴더 생성 시각
     created_at TIMESTAMP NOT NULL,
@@ -386,6 +392,9 @@ CREATE TABLE applications (
 
     -- 기업 담당자 메모
     screening_memo TEXT,
+
+    -- 지원서 제출 당시 전체 프로필 복사본
+    profile_snapshot JSONB,
 
     -- 지원서 최종 제출 시각
     submitted_at TIMESTAMP,

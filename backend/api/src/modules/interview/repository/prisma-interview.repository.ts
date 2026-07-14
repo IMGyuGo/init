@@ -166,6 +166,21 @@ export class PrismaInterviewRepository implements InterviewRepository {
       await this.ensureInitialMockPassInTransaction(transaction, input.candidateId, new Date(input.startedAt));
       await this.assertAvailableMockPassInTransaction(transaction, input.candidateId, new Date(input.startedAt));
       const created = await this.createMockSessionInTransaction(transaction, input);
+      if (input.questionProcessLogId) {
+        const consumedAt = new Date().toISOString();
+        const consumed = await transaction.$executeRaw`
+          UPDATE ai_process_logs
+          SET input_ref = jsonb_set(COALESCE(input_ref, '{}')::jsonb, '{consumedAt}', to_jsonb(${consumedAt}::text))::text,
+              session_id = ${created.session.sessionId}
+          WHERE process_log_id = ${BigInt(input.questionProcessLogId)}
+            AND process_type = 'QUESTION_GENERATE'::"AiProcessType"
+            AND status = 'COMPLETED'::"AiProcessStatus"
+            AND NOT (COALESCE(input_ref, '{}')::jsonb ? 'consumedAt')
+        `;
+        if (consumed !== 1) {
+          throw new ApiException(ERROR_CODES.COMMON_CONFLICT, "이미 사용했거나 사용할 수 없는 AI 질문 생성 결과입니다.", 409);
+        }
+      }
       await transaction.candidateMockInterviewPassLedger.create({
         data: {
           candidateId: BigInt(input.candidateId),
