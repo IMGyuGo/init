@@ -1220,8 +1220,15 @@ function InterviewGuideModal({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const primaryLabel = guide?.interviewSessionStatus === "IN_PROGRESS" ? "면접 재개" : "면접 시작";
+  // 이미 필수 동의를 완료한 사용자는 다시 체크하지 않아도 되도록 체크박스를 미리 채운다. (#288)
+  useEffect(() => {
+    if (guide?.consentCompleted) {
+      setConsentState((prev) => ({ ...prev, consentTypes: [...guide.requiredConsentTypes] }));
+    }
+  }, [guide]);
   const consentComplete = guide
-    ? guide.requiredConsentTypes.every((consentType) => consentState.consentTypes.includes(consentType))
+    ? guide.consentCompleted ||
+      guide.requiredConsentTypes.every((consentType) => consentState.consentTypes.includes(consentType))
     : false;
 
   async function handleProceed() {
@@ -8704,6 +8711,7 @@ function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryI
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const [savingId, setSavingId] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const rawTitle = (item: CandidateMockInterviewHistoryItem) =>
     item.sessionId in localTitles ? localTitles[item.sessionId] : item.title;
@@ -8712,16 +8720,19 @@ function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryI
   function startEdit(item: CandidateMockInterviewHistoryItem) {
     setEditingId(item.sessionId);
     setDraft(rawTitle(item) ?? "");
+    setSaveError(null);
   }
 
   async function saveTitle(sessionId: number) {
     setSavingId(sessionId);
+    setSaveError(null);
     try {
       const result = await getCandidateApi().updateMockSessionTitle(sessionId, draft.trim());
       setLocalTitles((prev) => ({ ...prev, [sessionId]: result.data.title }));
       setEditingId(null);
-    } catch {
-      // 실패 시 편집 상태 유지
+    } catch (error) {
+      // 실패 시 편집 상태 유지하고 오류 사유를 노출한다. (#288)
+      setSaveError(toErrorMessage(error));
     } finally {
       setSavingId(null);
     }
@@ -8762,6 +8773,7 @@ function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryI
                     <button type="button" className="mock-title-btn ghost" onClick={() => setEditingId(null)}>
                       취소
                     </button>
+                    {saveError ? <span className="mock-title-error" role="alert">{saveError}</span> : null}
                   </span>
                 ) : (
                   <span className="mock-title-cell">

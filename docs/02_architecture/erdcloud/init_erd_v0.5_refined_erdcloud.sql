@@ -388,6 +388,9 @@ CREATE TABLE interview_sessions (
     -- 면접 상태: NOT_READY, READY, IN_PROGRESS, COMPLETED, FAILED
     status VARCHAR(40) NOT NULL,
 
+    -- 연습(모의면접) 세션 사용자 지정 제목. NULL이면 기본 '세션 #N' 표기
+    title VARCHAR(100),
+
     -- 면접 질문 텍스트 표시 여부
     show_question_text BOOLEAN NOT NULL DEFAULT FALSE,
 

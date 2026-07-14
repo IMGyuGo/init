@@ -1600,7 +1600,8 @@ input[type="radio"] {
 .mock-title-name svg { opacity: 0; color: rgba(55, 53, 47, 0.5); transition: opacity 0.12s ease; }
 .mock-title-name:hover { color: #3b6fe0; }
 .mock-title-name:hover svg { opacity: 1; }
-.mock-title-edit { display: inline-flex; align-items: center; gap: 6px; }
+.mock-title-edit { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mock-title-error { flex-basis: 100%; margin-top: 2px; color: #c4554d; font-size: 12px; }
 .mock-title-edit input {
   width: 180px;
   height: 32px;
