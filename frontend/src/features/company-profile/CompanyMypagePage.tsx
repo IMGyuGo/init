@@ -148,9 +148,6 @@ export function CompanyMypagePage() {
           <p className="page-eyebrow">계정 설정</p>
           <h1>계정</h1>
           <p className="page-sub">회사 정보와 채용 운영 기본값을 관리합니다.</p>
-          <button className="btn secondary banner-cta" type="button" onClick={() => void loadProfile()} disabled={loading || saving || uploadingLogo}>
-            새로고침
-          </button>
         </div>
         <Image className="page-banner-art" src={accountBanner} alt="" width={300} height={300} aria-hidden="true" priority />
       </div>
