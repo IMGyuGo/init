@@ -21,7 +21,7 @@ NQ-M0 계약을 다시 읽고 다음을 분리한다.
 | Cross-owner sign-off | PENDING | review request의 M0 blocker 승인 필요 |
 | NQ-M1 코드/DB/UI | COMPLETE | 정책 table/API/UI와 NCS criteria snapshot 구현 완료 |
 | NQ-M2 통합 | COMPLETE | worker 정렬 adapter, 서버 요청 snapshot, 질문 metadata 저장 검증, UI 미리보기 구현 완료 |
-| NQ-M3 통합 | IN_PROGRESS | 지원 완료·문서 추출·개인화 질문 비동기 파이프라인 구현 중 |
+| NQ-M3 통합 | COMPLETE | 지원 완료·문서 추출·개인화 질문 비동기 파이프라인과 조회·재시도 API 구현 완료 |
 | NQ-M4 통합 | NOT_STARTED | M3 READY batch와 D 세션 snapshot 연결 필요 |
 
 ## Hardened In This Audit
@@ -86,31 +86,33 @@ NQ-M0 계약을 다시 읽고 다음을 분리한다.
 
 검증 결과:
 
-- worker: 93 tests passed
-- API: 40 suites, 255 tests passed
-- frontend: typecheck 및 전체 test passed
+- worker: 97 tests passed
+- API: 40 suites, 257 tests passed
+- frontend: M3 변경 없음, M2 typecheck 및 전체 test 통과 상태 유지
 - Prisma schema: `prisma validate` passed
 
-E/A/PM 교차 리뷰는 구현 완료 후 승인 단계로 남긴다. 교차 리뷰에서 M2 계약 변경이 요청되면 후속 보정 커밋으로 반영한다.
+D/E/A/PM 교차 리뷰는 구현 완료 후 승인 단계로 남긴다. 교차 리뷰에서 계약 변경이 요청되면 후속 보정 커밋으로 반영한다.
 
-### NQ-M3 And Later
+### NQ-M3 Implementation
 
-C 단독 구현 대상이 아니다.
+2026-07-14 기준 구현 완료했다.
 
-- NQ-M3: application batch/question table, document trigger, worker
-- NQ-M4: session snapshot과 최종 질문 순서
-- NQ-M5: 답변 평가와 점수/근거
-- NQ-M6: rollout, privacy, failure recovery E2E
+- `application_interview_question_batches`, `application_interview_questions`와 migration 추가
+- 지원서 제출 시 `DOCUMENT_EXTRACT`, 추출 완료 시 `RESUME_QUESTION_GENERATE` 자동 발행
+- policy/criteria/JD/resume snapshot business key 기반 멱등 처리와 `STALE` 전이 구현
+- NCS alignment, 민감정보 guardrail, 지원자별 결과 격리와 원문 비노출 검증
+- API-098 상태·결과 조회와 API-099 명시적 재시도 구현
+- M4 세션 합성 전에 `R-D-02`와 M3 cross-owner review를 완료해야 함
 
 ## Additional Risks Found
 
-### JD Mutation Is Not In The Current Business Key
+### JD Mutation In Business Key (Resolved For M3)
 
-현재 멱등 key는 policy, criteria, resume hash만 포함한다. JD가 변경되면 같은 key로 오래된 개인화 질문을 재사용할 수 있다. `R-B-01`에서 `jd_snapshot_hash` 포함 여부를 승인해야 한다.
+멱등 key를 `applicationId + policyVersion + criteriaVersion + jdSnapshotHash + resumeDocumentHash`로 확정했다. JD가 변경되면 새 batch가 생성되고 기존 batch는 `STALE`이 된다.
 
-### No Stale State
+### Stale State (Resolved For M3)
 
-READY 이후 policy/criteria/JD/resume가 바뀌었을 때 사용할 상태가 없다. 현재 enum만으로는 READY를 유지하거나 부정확한 WAITING_DOCUMENT로 되돌려야 한다. `R-D-03`에서 `STALE` 추가 여부를 결정해야 한다.
+`STALE` 상태를 공통 enum, DB projection, API-098/099에 반영했다. 기존 interview session에는 소급하지 않는다.
 
 ### Two Question Count Sources (Resolved For M2)
 
@@ -120,17 +122,15 @@ NCS에서는 API-097의 `jdCriteriaQuestionCount`를 정본으로 사용한다. 
 
 수동 질문은 criterion binding을 snapshot할 수 있지만 alignment 검증 없이 NCS 평가용으로 사용할지 결정되지 않았다. `R-E-02`, `R-PM-02`에서 확정한다.
 
-### Retry Audit Trail
+### Retry Audit Trail (Resolved For M3)
 
-batch에 process log FK 하나만 두면 재시도 이력이 덮인다. `R-E-03` 승인 후 `latest_process_log_id`, `attempt_count`, question의 `source_process_log_id`를 schema에 반영한다.
+batch에 `latest_process_log_id`, `attempt_count`를 저장하고 재시도마다 새 process log를 만든다. 최종 질문은 `source_process_log_id`로 생성 process를 추적한다.
 
 ## Recommended Next Order
 
-1. M0 blocker review 문서를 각 owner에게 전달한다.
-2. E, D, B, A, PM 순서가 아니라 병렬로 답변을 받고 Review ID별로 기록한다.
-3. 충돌하는 답변만 C/PM이 짧게 조정한다.
-4. 승인 결과를 contract -> architecture -> product 순으로 반영한다.
-5. NQ-M0 status를 REVIEW_COMPLETE로 바꾼다.
-6. NQ-M1은 `medium` 추론 강도로 구현한다.
+1. D/E/A/PM에게 M3 cross-owner 변경과 `R-E-04`, `R-A-01`, `R-PM-04`를 병렬 리뷰 요청한다.
+2. D와 `R-D-02` 세션 readiness gate, 공통·개인화 질문 순서를 확정한다.
+3. M4 구현 전에 READY batch 조회와 세션 snapshot transaction 경계를 검토한다.
+4. NQ-M4는 `high` 추론 강도로 구현한다.
 
 NQ-M1에서 API/DB 구현이 시작되므로 리뷰 결과가 필드명·상태 enum·migration 위치를 바꿀 가능성이 있다. M0 blocker 승인 전에는 화면 skeleton 이상의 구현을 진행하지 않는다.
