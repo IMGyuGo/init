@@ -467,6 +467,7 @@ export class ReportService {
           ? parentAnswerIdByFollowUpContent.get(this.normalizeQuestionContent(question?.content))
           : undefined;
         const unavailableReason = DEFAULT_STT_UNAVAILABLE_REASON;
+        const ncsSnapshot = answer.ncsEvaluationSnapshot;
         return {
           answerId: answer.answerId,
           questionId: answer.questionId,
@@ -481,6 +482,19 @@ export class ReportService {
             : {}),
           evaluationStatus: transcript ? "EVALUATED" : "STT_UNAVAILABLE",
           transcriptUnavailableReason: transcript ? undefined : unavailableReason,
+          ...(ncsSnapshot?.ncsProfileId
+            ? {
+                sessionQuestionId: ncsSnapshot.sessionQuestionId,
+                criterionId: ncsSnapshot.criterionId,
+                criterionTitleSnapshot: ncsSnapshot.criterionTitleSnapshot,
+                ncsProfileId: ncsSnapshot.ncsProfileId,
+                ncsQuestionMode: ncsSnapshot.ncsQuestionMode,
+                ncsProfileVersion: ncsSnapshot.ncsProfileVersion,
+                alignmentStatus: ncsSnapshot.alignmentStatus,
+                alignmentScore: ncsSnapshot.alignmentScore,
+                evaluatorVersion: ncsSnapshot.evaluatorVersion,
+              }
+            : {}),
         };
       }),
     );

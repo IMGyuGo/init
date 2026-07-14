@@ -4,7 +4,7 @@ import {
   ResumeQuestionGenerationContext,
   ResumeQuestionJobReference,
 } from "./ai-result.repository";
-import { createAiProcessUsage } from "./ai-usage";
+import { createAiProcessUsage, mergeAiProcessUsage } from "./ai-usage";
 import { FollowUpAiProvider } from "./openai-follow-up.provider";
 import { PostingDraftAiProvider, PostingDraftGenerationResult } from "./openai-posting-draft.provider";
 import {
@@ -349,14 +349,18 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       })
     });
 
+    const reportUsage = createAiProcessUsage({
+      modelName: generated.model,
+      inputTokens: generated.usage?.inputTokens,
+      outputTokens: generated.usage?.outputTokens,
+      metadata: { processType: "REPORT_GENERATE", stage: "REPORT_SUMMARY" }
+    });
     return {
       ...fallbackResult,
       outputRef: appendReportProviderMetadata(fallbackResult.outputRef, generated, reportType),
-      usage: createAiProcessUsage({
-        modelName: generated.model,
-        inputTokens: generated.usage?.inputTokens,
-        outputTokens: generated.usage?.outputTokens,
-        metadata: { processType: "REPORT_GENERATE" }
+      usage: mergeAiProcessUsage(reportUsage, fallbackResult.usage, {
+        processType: "REPORT_GENERATE",
+        includesNcsEvaluation: Boolean(fallbackResult.usage),
       })
     };
   }

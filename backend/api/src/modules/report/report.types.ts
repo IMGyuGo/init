@@ -46,6 +46,15 @@ export interface InterviewAnswerInput {
   nonverbalMetadata?: Record<string, unknown>;
   evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
   transcriptUnavailableReason?: string;
+  sessionQuestionId?: number;
+  criterionId?: number;
+  criterionTitleSnapshot?: string;
+  ncsProfileId?: "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL";
+  ncsQuestionMode?: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
+  ncsProfileVersion?: string;
+  alignmentStatus?: string;
+  alignmentScore?: number;
+  evaluatorVersion?: string;
 }
 
 export interface ManualEvaluationInput {

@@ -1,6 +1,23 @@
 import assert from "node:assert/strict";
 import { PrismaInterviewRepository } from "./prisma-interview.repository";
 
+const ANSWER_SESSION_QUESTION_INCLUDE = {
+  sessionQuestion: {
+    select: {
+      runtimeQuestionId: true,
+      sessionQuestionId: true,
+      criterionId: true,
+      criterionTitleSnapshot: true,
+      ncsProfileId: true,
+      ncsQuestionMode: true,
+      ncsProfileVersion: true,
+      alignmentStatus: true,
+      alignmentScore: true,
+      evaluatorVersion: true,
+    },
+  },
+};
+
 test("prisma interview repository reads recruiting questions from immutable runtime snapshots", async () => {
   const repository = new PrismaInterviewRepository({
     question: { findUnique: async () => null },
@@ -20,6 +37,64 @@ test("prisma interview repository reads recruiting questions from immutable runt
   assert.equal(question?.interviewType, "RECRUITING");
   assert.equal(question?.content, "세션 생성 시 확정된 개인화 질문");
   assert.equal(question?.sortOrder, 4);
+});
+
+test("prisma interview repository projects the immutable NCS evaluation snapshot with an answer", async () => {
+  const findManyCalls: unknown[] = [];
+  const repository = new PrismaInterviewRepository({
+    interviewAnswer: {
+      findMany: async (args: unknown) => {
+        findManyCalls.push(args);
+        return [
+          {
+            answerId: 101n,
+            sessionId: 10001n,
+            questionId: 20001n,
+            videoFileId: null,
+            audioFileId: null,
+            transcript: "문제 상황과 해결 근거를 설명한 답변입니다.",
+            nonverbalMetadata: null,
+            durationSeconds: 42,
+            submittedAt: new Date("2026-07-01T00:00:00.000Z"),
+            sessionQuestion: {
+              runtimeQuestionId: 1_000_000_000_000_001n,
+              sessionQuestionId: 501n,
+              criterionId: 31n,
+              criterionTitleSnapshot: "문제해결능력",
+              ncsProfileId: "PROBLEM_SOLVING",
+              ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+              ncsProfileVersion: "2025.12-v1",
+              alignmentStatus: "ALIGNED",
+              alignmentScore: 0.91,
+              evaluatorVersion: "2025.12-v1",
+            },
+          },
+        ];
+      },
+    },
+  } as never);
+
+  const answers = await repository.listAnswersBySession(10001);
+
+  assert.deepEqual(findManyCalls, [
+    {
+      where: { sessionId: 10001n },
+      orderBy: [{ submittedAt: "asc" }, { answerId: "asc" }],
+      include: ANSWER_SESSION_QUESTION_INCLUDE,
+    },
+  ]);
+  assert.equal(answers[0]?.questionId, 1_000_000_000_000_001);
+  assert.deepEqual(answers[0]?.ncsEvaluationSnapshot, {
+    sessionQuestionId: 501,
+    criterionId: 31,
+    criterionTitleSnapshot: "문제해결능력",
+    ncsProfileId: "PROBLEM_SOLVING",
+    ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+    ncsProfileVersion: "2025.12-v1",
+    alignmentStatus: "ALIGNED",
+    alignmentScore: 0.91,
+    evaluatorVersion: "2025.12-v1",
+  });
 });
 
 test("prisma interview repository persists answers through interview_answers", async () => {
@@ -79,7 +154,7 @@ test("prisma interview repository persists answers through interview_answers", a
         durationSeconds: 42,
         submittedAt: new Date(submittedAt),
       },
-      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
+      include: ANSWER_SESSION_QUESTION_INCLUDE,
     },
   ]);
   assert.equal(answer.answerId, 101);
@@ -140,7 +215,7 @@ test("prisma interview repository replaces transcript and nonverbal metadata tog
         submittedAt: new Date(submittedAt),
         transcript,
       },
-      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
+      include: ANSWER_SESSION_QUESTION_INCLUDE,
     },
   ]);
   assert.equal(answer.answerId, 101);

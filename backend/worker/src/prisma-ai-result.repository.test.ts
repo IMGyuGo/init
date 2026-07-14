@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PrismaAiResultRepository } from "./prisma-ai-result.repository";
+import { evaluateNcsTextDeterministically } from "./ncs-text-evaluator";
 
 test("PrismaAiResultRepository stores document extraction into application_documents", async () => {
   const calls: Array<{ model: string; method: string; args: any }> = [];
@@ -273,6 +274,44 @@ test("PrismaAiResultRepository stores report scores without completing a report"
   assert.equal(calls.some((call) => call.model === "evaluationReport"), false);
 });
 
+test("PrismaAiResultRepository stores an insufficient NCS answer without creating a report score", async () => {
+  const calls: Array<{ model: string; method: string; args: any }> = [];
+  const repository = new PrismaAiResultRepository(fakePrisma(calls));
+  const output = evaluateNcsTextDeterministically({
+    questionMode: "TECHNICAL_KNOWLEDGE",
+    question: "Redis 장애 위험과 검증 방법을 설명해 주세요.",
+    answerText: "잘 모르겠습니다.",
+    profileIds: ["digital"],
+  });
+
+  await repository.saveReportScoresAndEvidences({
+    reportId: 30,
+    scores: [],
+    ncsAnswerEvaluations: [
+      {
+        reportId: 30,
+        answerId: 10,
+        sessionQuestionId: 501,
+        criterionId: 3,
+        criterionTitleSnapshot: "디지털역량",
+        ncsProfileId: "DIGITAL",
+        ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+        ncsProfileVersion: "2025.12-v1",
+        output,
+        question: "Redis 장애 위험과 검증 방법을 설명해 주세요.",
+      },
+    ],
+  });
+
+  assert.equal(output.scoreStatus, "INSUFFICIENT_INPUT");
+  assert.equal(calls.filter((call) => call.model === "reportScore" && call.method === "create").length, 0);
+  const created = calls.find((call) => call.model === "ncsAnswerEvaluation" && call.method === "create");
+  assert.equal(created?.args.data.scoreStatus, "INSUFFICIENT_INPUT");
+  assert.equal(created?.args.data.competencyScore, null);
+  assert.equal(created?.args.data.evidenceScore, null);
+  assert.equal(created?.args.data.totalScore, null);
+});
+
 test("PrismaAiResultRepository rejects scores without evidence before deleting existing scores", async () => {
   const calls: Array<{ model: string; method: string; args: any }> = [];
   const repository = new PrismaAiResultRepository(fakePrisma(calls));
@@ -538,6 +577,14 @@ function fakePrisma(calls: Array<{ model: string; method: string; args: any }>) 
     reportEvidence: {
       async deleteMany(args: any) {
         calls.push({ model: "reportEvidence", method: "deleteMany", args });
+      }
+    },
+    ncsAnswerEvaluation: {
+      async deleteMany(args: any) {
+        calls.push({ model: "ncsAnswerEvaluation", method: "deleteMany", args });
+      },
+      async create(args: any) {
+        calls.push({ model: "ncsAnswerEvaluation", method: "create", args });
       }
     },
     embedding: {

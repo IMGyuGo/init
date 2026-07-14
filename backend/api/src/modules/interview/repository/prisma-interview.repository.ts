@@ -73,6 +73,19 @@ const FALLBACK_RECRUITING_QUESTIONS: Omit<InterviewQuestion, "questionId" | "isA
   },
 ];
 
+const ANSWER_SESSION_QUESTION_SELECT = {
+  runtimeQuestionId: true,
+  sessionQuestionId: true,
+  criterionId: true,
+  criterionTitleSnapshot: true,
+  ncsProfileId: true,
+  ncsQuestionMode: true,
+  ncsProfileVersion: true,
+  alignmentStatus: true,
+  alignmentScore: true,
+  evaluatorVersion: true,
+} as const;
+
 @Injectable()
 export class PrismaInterviewRepository implements InterviewRepository {
   private readonly mockSessionQuestionIds = new Map<number, number[]>();
@@ -357,7 +370,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
     const answers = await this.prisma.interviewAnswer.findMany({
       where: { sessionId: BigInt(sessionId) },
       orderBy: [{ submittedAt: "asc" }, { answerId: "asc" }],
-      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
+      include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
     });
     return answers.map((answer) => this.toAnswer(answer));
   }
@@ -376,7 +389,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
         ],
       },
       orderBy: { answerId: "asc" },
-      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
+      include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
     });
     return answer ? this.toAnswer(answer) : undefined;
   }
@@ -384,7 +397,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
   async findAnswerById(sessionId: number, answerId: number): Promise<InterviewAnswer | undefined> {
     const answer = await this.prisma.interviewAnswer.findFirst({
       where: { sessionId: BigInt(sessionId), answerId: BigInt(answerId) },
-      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
+      include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
     });
     return answer ? this.toAnswer(answer) : undefined;
   }
@@ -393,7 +406,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
     const answer = await this.prisma.interviewAnswer.findFirst({
       where: { sessionId: BigInt(sessionId) },
       orderBy: [{ submittedAt: "desc" }, { answerId: "desc" }],
-      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
+      include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
     });
     return answer ? this.toAnswer(answer) : undefined;
   }
@@ -424,7 +437,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
         durationSeconds: input.durationSeconds,
         submittedAt: new Date(input.submittedAt),
       },
-      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
+      include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
     });
     return this.toAnswer(answer);
   }
@@ -440,7 +453,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
         durationSeconds: input.durationSeconds,
         submittedAt: new Date(input.submittedAt),
       },
-      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
+      include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
     });
     return this.toAnswer(answer);
   }
@@ -456,7 +469,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
         submittedAt: new Date(input.submittedAt),
         transcript: input.transcript ?? null,
       },
-      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
+      include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
     });
     return this.toAnswer(answer);
   }
@@ -842,6 +855,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
 
   private toAnswer(answer: AnswerRecord): InterviewAnswer {
     const questionId = answer.sessionQuestion?.runtimeQuestionId ?? answer.questionId;
+    const ncsEvaluationSnapshot = this.toNcsEvaluationSnapshot(answer.sessionQuestion);
     return {
       answerId: Number(answer.answerId),
       sessionId: Number(answer.sessionId),
@@ -852,7 +866,41 @@ export class PrismaInterviewRepository implements InterviewRepository {
       nonverbalMetadata: this.toAnswerNonverbalMetadata(answer.nonverbalMetadata),
       durationSeconds: answer.durationSeconds ?? 0,
       submittedAt: (answer.submittedAt ?? new Date()).toISOString(),
+      ...(ncsEvaluationSnapshot ? { ncsEvaluationSnapshot } : {}),
     };
+  }
+
+  private toNcsEvaluationSnapshot(sessionQuestion: AnswerRecord["sessionQuestion"]): InterviewAnswer["ncsEvaluationSnapshot"] {
+    if (!sessionQuestion) {
+      return undefined;
+    }
+    const ncsProfileId = this.toNcsProfileId(sessionQuestion.ncsProfileId);
+    if (!ncsProfileId) {
+      return undefined;
+    }
+    return {
+      sessionQuestionId: Number(sessionQuestion.sessionQuestionId),
+      criterionId: sessionQuestion.criterionId ? Number(sessionQuestion.criterionId) : undefined,
+      criterionTitleSnapshot: sessionQuestion.criterionTitleSnapshot ?? undefined,
+      ncsProfileId,
+      ncsQuestionMode: this.toNcsQuestionMode(sessionQuestion.ncsQuestionMode),
+      ncsProfileVersion: sessionQuestion.ncsProfileVersion ?? undefined,
+      alignmentStatus: sessionQuestion.alignmentStatus ?? undefined,
+      alignmentScore: sessionQuestion.alignmentScore === null ? undefined : Number(sessionQuestion.alignmentScore),
+      evaluatorVersion: sessionQuestion.evaluatorVersion ?? undefined,
+    };
+  }
+
+  private toNcsProfileId(value: string | null): "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL" | undefined {
+    return value === "PROBLEM_SOLVING" || value === "COMMUNICATION" || value === "DIGITAL" ? value : undefined;
+  }
+
+  private toNcsQuestionMode(
+    value: string | null,
+  ): "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN" | undefined {
+    return value === "EXPERIENCE_BEHAVIOR" || value === "TECHNICAL_KNOWLEDGE" || value === "SITUATIONAL_DESIGN"
+      ? value
+      : undefined;
   }
 
   private toPrismaJson(value: Record<string, unknown>): Prisma.InputJsonObject {
@@ -953,7 +1001,18 @@ type AnswerRecord = {
   nonverbalMetadata: unknown;
   durationSeconds: number | null;
   submittedAt: Date | null;
-  sessionQuestion?: { runtimeQuestionId: bigint | null } | null;
+  sessionQuestion?: {
+    runtimeQuestionId: bigint | null;
+    sessionQuestionId: bigint;
+    criterionId: bigint | null;
+    criterionTitleSnapshot: string | null;
+    ncsProfileId: string | null;
+    ncsQuestionMode: string | null;
+    ncsProfileVersion: string | null;
+    alignmentStatus: string | null;
+    alignmentScore: unknown | null;
+    evaluatorVersion: string | null;
+  } | null;
 };
 
 type InterviewSessionRecord = {

@@ -4,6 +4,7 @@ import { AiResultRepository, InMemoryAiResultRepository } from "./ai-result.repo
 import { MockAiTaskHandler } from "./mock-ai-task.handler";
 import { OpenAiAiTaskHandler } from "./openai-ai-task.handler";
 import { OpenAiFollowUpProvider } from "./openai-follow-up.provider";
+import { OpenAiNcsTextEvaluationProvider } from "./openai-ncs-text-evaluation.provider";
 import { OpenAiPostingDraftProvider } from "./openai-posting-draft.provider";
 import { OpenAiQuestionProvider } from "./openai-question.provider";
 import { OpenAiReportProvider } from "./openai-report.provider";
@@ -34,8 +35,12 @@ export interface WorkerRuntime {
 
 export async function createWorkerRuntime(queue: AiJobQueue, env: WorkerEnv): Promise<WorkerRuntime> {
   const repositories = await createRepositories(env);
+  const ncsTextEvaluationProvider = env.aiProviderMode === "openai"
+    ? new OpenAiNcsTextEvaluationProvider(env.aiProviderApiKey, env.openaiModel)
+    : undefined;
   const mockHandler = new MockAiTaskHandler(repositories.results, {
-    sttProvider: createSttProvider(env)
+    sttProvider: createSttProvider(env),
+    ncsTextEvaluationProvider,
   });
   const handler =
     env.aiProviderMode === "openai"

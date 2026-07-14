@@ -101,6 +101,18 @@ export interface InterviewAnswerNonverbalMetadata extends Record<string, unknown
   integritySummary?: InterviewIntegritySummary;
 }
 
+export interface InterviewAnswerNcsEvaluationSnapshot {
+  sessionQuestionId: number;
+  criterionId?: number;
+  criterionTitleSnapshot?: string;
+  ncsProfileId?: "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL";
+  ncsQuestionMode?: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
+  ncsProfileVersion?: string;
+  alignmentStatus?: string;
+  alignmentScore?: number;
+  evaluatorVersion?: string;
+}
+
 export interface InterviewAnswer {
   answerId: number;
   sessionId: number;
@@ -111,6 +123,7 @@ export interface InterviewAnswer {
   nonverbalMetadata?: InterviewAnswerNonverbalMetadata;
   durationSeconds: number;
   submittedAt: string;
+  ncsEvaluationSnapshot?: InterviewAnswerNcsEvaluationSnapshot;
 }
 
 export interface InterviewQuestionView {

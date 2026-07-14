@@ -26,7 +26,7 @@ export type NcsApiProfileId = "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL";
 
 export interface NcsReportAnswerSnapshot {
   answerId: number;
-  question: string;
+  question?: string;
   transcript: string;
   sessionQuestionId?: number;
   criterionId?: number;
@@ -45,6 +45,11 @@ export interface NcsReportEvaluationBatch {
   scores: GeneratedReportScoreRecord[];
   questionEvaluations: GeneratedQuestionEvaluationRecord[];
   allProfilesScored: boolean;
+  usage?: {
+    modelName: string;
+    inputTokens?: number;
+    outputTokens?: number;
+  };
 }
 
 export function hasNcsAnswerSnapshots(answers: NcsReportAnswerSnapshot[]): boolean {
@@ -62,7 +67,8 @@ export async function evaluateNcsReportAnswers(
     throw new NonRetryableAiWorkerFailure("every primary NCS answer requires a session question snapshot");
   }
 
-  const evaluations = await Promise.all(primaryAnswers.map((answer) => evaluateAnswer(reportId, answer, provider)));
+  const evaluated = await Promise.all(primaryAnswers.map((answer) => evaluateAnswer(reportId, answer, provider)));
+  const evaluations = evaluated.map((item) => item.evaluation);
   const scored = evaluations.filter((evaluation) => evaluation.output.scoreStatus === "SCORED");
   const scores = aggregateScores(scored);
   const questionEvaluations = scored.map(toQuestionEvaluation);
@@ -70,24 +76,41 @@ export async function evaluateNcsReportAnswers(
   const allProfilesScored =
     expectedCriterionIds.length > 0 && expectedCriterionIds.every((criterionId) => scoredCriterionIds.has(criterionId));
 
-  return { evaluations, scores, questionEvaluations, allProfilesScored };
+  const providerResults = evaluated.filter((item) => item.usage !== undefined);
+  const usage = providerResults.length > 0
+    ? {
+        modelName: providerResults[0]!.usage!.modelName,
+        inputTokens: sumOptional(providerResults.map((item) => item.usage!.inputTokens)),
+        outputTokens: sumOptional(providerResults.map((item) => item.usage!.outputTokens)),
+      }
+    : undefined;
+
+  return { evaluations, scores, questionEvaluations, allProfilesScored, usage };
 }
 
 async function evaluateAnswer(
   reportId: number,
   answer: NcsReportAnswerSnapshot,
   provider?: NcsTextEvaluationProvider,
-): Promise<NcsAnswerEvaluationRecord> {
+): Promise<{
+  evaluation: NcsAnswerEvaluationRecord;
+  usage?: { modelName: string; inputTokens?: number; outputTokens?: number };
+}> {
   const snapshot = requiredSnapshot(answer);
+  const question = answer.question?.trim();
+  if (!question) {
+    throw new NonRetryableAiWorkerFailure(`NCS question content is missing for answer ${answer.answerId}`);
+  }
   const input = parseNcsTextEvaluationInput({
     questionMode: snapshot.ncsQuestionMode,
-    question: answer.question,
+    question,
     answerText: answer.transcript,
     profileIds: [toEvaluatorProfileId(snapshot.ncsProfileId)],
     profileVersion: snapshot.ncsProfileVersion,
   });
 
   let output: NcsTextEvaluationOutput;
+  let usage: { modelName: string; inputTokens?: number; outputTokens?: number } | undefined;
   if (snapshot.alignmentStatus !== "ALIGNED") {
     output = unscoredOutput(input.questionMode, "LOW_ALIGNMENT", snapshot.alignmentScore ?? 0, [
       "세션 질문 snapshot이 NCS 정렬 통과 상태가 아닙니다.",
@@ -102,6 +125,11 @@ async function evaluateAnswer(
         providerMode: "openai",
         model: generated.model,
       });
+      usage = {
+        modelName: generated.model,
+        inputTokens: generated.usage?.inputTokens,
+        outputTokens: generated.usage?.outputTokens,
+      };
     }
   } else {
     output = evaluateNcsTextDeterministically(input);
@@ -114,16 +142,19 @@ async function evaluateAnswer(
   }
 
   return {
-    reportId,
-    answerId: answer.answerId,
-    sessionQuestionId: snapshot.sessionQuestionId,
-    criterionId: snapshot.criterionId,
-    criterionTitleSnapshot: snapshot.criterionTitleSnapshot,
-    ncsProfileId: snapshot.ncsProfileId,
-    ncsQuestionMode: snapshot.ncsQuestionMode,
-    ncsProfileVersion: snapshot.ncsProfileVersion,
-    output,
-    question: answer.question,
+    evaluation: {
+      reportId,
+      answerId: answer.answerId,
+      sessionQuestionId: snapshot.sessionQuestionId,
+      criterionId: snapshot.criterionId,
+      criterionTitleSnapshot: snapshot.criterionTitleSnapshot,
+      ncsProfileId: snapshot.ncsProfileId,
+      ncsQuestionMode: snapshot.ncsQuestionMode,
+      ncsProfileVersion: snapshot.ncsProfileVersion,
+      output,
+      question,
+    },
+    usage,
   };
 }
 
@@ -282,4 +313,10 @@ function uniqueEvidence<T extends { answerId?: number; text: string }>(values: T
     seen.add(key);
     return true;
   });
+}
+
+function sumOptional(values: Array<number | undefined>): number | undefined {
+  return values.some((value) => value !== undefined)
+    ? values.reduce<number>((sum, value) => sum + (value ?? 0), 0)
+    : undefined;
 }

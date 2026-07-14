@@ -11,6 +11,7 @@ import {
   GeneratedDraftRecord,
   GeneratedReportRecord,
   GeneratedReportScoreRecord,
+  NcsAnswerEvaluationRecord,
   ResumeQuestionGenerationContext,
   ResumeQuestionGenerationResult,
   ResumeQuestionJobReference,
@@ -94,6 +95,10 @@ interface PrismaAiResultClient {
   };
   reportEvidence: {
     deleteMany(args: unknown): Promise<unknown>;
+  };
+  ncsAnswerEvaluation?: {
+    deleteMany(args: unknown): Promise<unknown>;
+    create(args: unknown): Promise<unknown>;
   };
   embedding: {
     upsert(args: unknown): Promise<EmbeddingRecord & { embeddingId?: bigint }>;
@@ -341,9 +346,16 @@ export class PrismaAiResultRepository implements AiResultRepository {
     return;
   }
 
-  async saveReportScoresAndEvidences(record: { reportId: number; scores: GeneratedReportScoreRecord[] }): Promise<void> {
+  async saveReportScoresAndEvidences(record: {
+    reportId: number;
+    scores: GeneratedReportScoreRecord[];
+    ncsAnswerEvaluations?: NcsAnswerEvaluationRecord[];
+  }): Promise<void> {
     assertScoresHaveEvidence(record.scores);
     await this.replaceReportScores(record.reportId, record.scores);
+    if (record.ncsAnswerEvaluations) {
+      await this.replaceNcsAnswerEvaluations(record.reportId, record.ncsAnswerEvaluations);
+    }
   }
 
   async saveCommunicationAnalysis(record: CommunicationAnalysisRecord): Promise<void> {
@@ -365,7 +377,9 @@ export class PrismaAiResultRepository implements AiResultRepository {
 
   async saveGeneratedReport(record: GeneratedReportRecord): Promise<void> {
     assertScoresHaveEvidence(record.scores);
-    assertQuestionEvaluationsHaveEvidence(record.questionEvaluations);
+    if (record.questionEvaluations.length > 0) {
+      assertQuestionEvaluationsHaveEvidence(record.questionEvaluations);
+    }
     await this.prisma.evaluationReport.upsert({
       where: { reportId: BigInt(record.reportId) },
       create: {
@@ -388,6 +402,9 @@ export class PrismaAiResultRepository implements AiResultRepository {
     });
 
     await this.replaceReportScores(record.reportId, record.scores);
+    if (record.ncsAnswerEvaluations) {
+      await this.replaceNcsAnswerEvaluations(record.reportId, record.ncsAnswerEvaluations);
+    }
     await this.updateApplicationReportStatus(record, "COMPLETED");
   }
 
@@ -628,6 +645,50 @@ export class PrismaAiResultRepository implements AiResultRepository {
     }
   }
 
+  private async replaceNcsAnswerEvaluations(
+    reportId: number,
+    evaluations: NcsAnswerEvaluationRecord[],
+  ): Promise<void> {
+    if (evaluations.some((evaluation) => evaluation.reportId !== reportId)) {
+      throw new NonRetryableAiWorkerFailure("NCS answer evaluation reportId mismatch");
+    }
+
+    const repository = this.prisma.ncsAnswerEvaluation;
+    if (!repository) {
+      throw new NonRetryableAiWorkerFailure("NCS answer evaluation repository is unavailable");
+    }
+
+    await repository.deleteMany({
+      where: { reportId: BigInt(reportId) },
+    });
+    for (const evaluation of evaluations) {
+      const output = evaluation.output;
+      await repository.create({
+        data: {
+          reportId: BigInt(reportId),
+          answerId: BigInt(evaluation.answerId),
+          sessionQuestionId: BigInt(evaluation.sessionQuestionId),
+          criterionId: await this.resolveCriterionId(evaluation.criterionId),
+          criterionTitleSnapshot: evaluation.criterionTitleSnapshot,
+          ncsProfileId: evaluation.ncsProfileId,
+          ncsQuestionMode: evaluation.ncsQuestionMode,
+          ncsProfileVersion: evaluation.ncsProfileVersion,
+          scoreStatus: output.scoreStatus,
+          competencyScore: output.scores.competency,
+          evidenceScore: output.scores.evidence,
+          totalScore: output.scores.total,
+          coverage: output.coverage,
+          confidence: output.confidence,
+          rubricVersion: output.rubricVersion,
+          promptVersion: output.promptVersion,
+          providerMode: output.providerMode,
+          modelName: output.model ?? null,
+          resultJson: output,
+        },
+      });
+    }
+  }
+
   private async resolveCriterionId(criterionId: number): Promise<bigint | null> {
     const criterion = await this.prisma.evaluationCriterion.findUnique({
       where: { criterionId: BigInt(criterionId) },
@@ -657,6 +718,7 @@ function allocateResumeCriteria(
   if (!hasCompleteNcsCriteria(criteria)) {
     throw new NonRetryableAiWorkerFailure("complete NCS criteria are required");
   }
+
   const allocations = new Map<number, number>();
   const total = jdQuestionCount + resumeQuestionCount;
   for (let index = jdQuestionCount; index < total; index += 1) {

@@ -13,6 +13,12 @@ import {
   hashSourceText
 } from "./ai-result.repository";
 import { createAiProcessUsage } from "./ai-usage";
+import {
+  evaluateNcsReportAnswers,
+  hasNcsAnswerSnapshots,
+  type NcsReportEvaluationBatch,
+} from "./ncs-report-evaluation.adapter";
+import type { NcsTextEvaluationProvider } from "./ncs-text-evaluation.types";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import { AiTaskHandler, AiTaskResult, AiWorkerJob } from "./worker.types";
 import { SttProvider } from "./stt-provider";
@@ -51,6 +57,15 @@ interface ReportAnswerForScoring {
   evaluationStatus: ReportAnswerEvaluationStatusRecord;
   transcriptUnavailableReason?: string;
   nonverbalMetadata?: ReportAnswerNonverbalMetadata;
+  sessionQuestionId?: number;
+  criterionId?: number;
+  criterionTitleSnapshot?: string;
+  ncsProfileId?: NcsApiProfileId;
+  ncsQuestionMode?: NcsQuestionMode;
+  ncsProfileVersion?: string;
+  alignmentStatus?: string;
+  alignmentScore?: number;
+  evaluatorVersion?: string;
 }
 
 interface ReportScoringContext {
@@ -135,7 +150,10 @@ const MOCK_HIRING_DECISION_TERMS = [
 export class MockAiTaskHandler implements AiTaskHandler {
   constructor(
     private readonly results: AiResultRepository,
-    private readonly options: { sttProvider?: SttProvider } = {}
+    private readonly options: {
+      sttProvider?: SttProvider;
+      ncsTextEvaluationProvider?: NcsTextEvaluationProvider;
+    } = {}
   ) {}
 
   async handle(job: AiWorkerJob): Promise<AiTaskResult> {
@@ -301,7 +319,11 @@ export class MockAiTaskHandler implements AiTaskHandler {
     });
   }
 
-  private reportGenerate(kind: string, payload: Record<string, unknown>, processLogId: number): AiTaskResult {
+  private async reportGenerate(
+    kind: string,
+    payload: Record<string, unknown>,
+    processLogId: number,
+  ): Promise<AiTaskResult> {
     switch (payload.step) {
       case "EVALUATION_CONTEXT":
         return this.evaluationContext(payload, processLogId);
@@ -352,19 +374,29 @@ export class MockAiTaskHandler implements AiTaskHandler {
     };
   }
 
-  private answerEvaluation(payload: Record<string, unknown>, processLogId: number): AiTaskResult {
+  private async answerEvaluation(payload: Record<string, unknown>, processLogId: number): Promise<AiTaskResult> {
     const reportType = reportTypeOf(payload.reportType);
     const reportId = optionalPositiveNumber(payload.reportId, "reportId") ?? processLogId;
-    const { scores, questionEvaluations } = this.scoreReport(
-      criteriaOf(payload.criteria),
-      answersOf(payload.answers),
+    const criteria = criteriaOf(payload.criteria);
+    const answers = answersOf(payload.answers);
+    const ncsBatch = hasNcsAnswerSnapshots(answers)
+      ? await evaluateNcsReportAnswers(
+          reportId,
+          answers,
+          criteria.map((criterion) => criterion.criterionId),
+          this.options.ncsTextEvaluationProvider,
+        )
+      : undefined;
+    const { scores, questionEvaluations } = ncsBatch ?? this.scoreReport(
+      criteria,
+      answers,
       typeof payload.documentText === "string" ? payload.documentText : undefined,
       {
         reportType,
         jobDescription: typeof payload.jobDescription === "string" ? payload.jobDescription : undefined
       }
     );
-    const guardrail = this.validateScores(reportType, scores);
+    const guardrail = ncsBatch ? this.validateNcsEvaluationBatch(ncsBatch) : this.validateScores(reportType, scores);
     const evidences = scores.flatMap((score) => score.evidences);
 
     return {
@@ -373,6 +405,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
         report: reportSnapshot(reportId, reportType),
         scores,
         questionEvaluations,
+        ncsAnswerEvaluations: ncsBatch?.evaluations,
         evidences,
         guardrail,
         stored: {
@@ -381,7 +414,17 @@ export class MockAiTaskHandler implements AiTaskHandler {
         }
       }),
       guardrail,
-      finalSave: () => this.results.saveReportScoresAndEvidences({ reportId, scores })
+      usage: ncsBatch?.usage
+        ? createAiProcessUsage({
+            ...ncsBatch.usage,
+            metadata: { processType: "REPORT_GENERATE", kind: "NCS_ANSWER_EVALUATION" },
+          })
+        : undefined,
+      finalSave: () => this.results.saveReportScoresAndEvidences({
+        reportId,
+        scores,
+        ncsAnswerEvaluations: ncsBatch?.evaluations,
+      })
     };
   }
 
@@ -424,7 +467,11 @@ export class MockAiTaskHandler implements AiTaskHandler {
     };
   }
 
-  private finalReportGenerate(kind: string, payload: Record<string, unknown>, processLogId: number): AiTaskResult {
+  private async finalReportGenerate(
+    kind: string,
+    payload: Record<string, unknown>,
+    processLogId: number,
+  ): Promise<AiTaskResult> {
     const reportId = optionalPositiveNumber(payload.reportId, "reportId") ?? processLogId;
     const reportType = reportTypeOf(payload.reportType);
     const generatedSummary = typeof payload.summary === "string" && payload.summary.trim() ? payload.summary : undefined;
@@ -444,11 +491,23 @@ export class MockAiTaskHandler implements AiTaskHandler {
         ? [{ answerId: 1, transcript: generatedSummary, evaluationStatus: "EVALUATED" as const }]
         : answersOf(payload.answers);
     const documentText = typeof payload.documentText === "string" ? payload.documentText : undefined;
-    const { scores, questionEvaluations } = this.scoreReport(criteria, answers, documentText, {
+    const ncsBatch = hasNcsAnswerSnapshots(answers)
+      ? await evaluateNcsReportAnswers(
+          reportId,
+          answers,
+          criteria.map((criterion) => criterion.criterionId),
+          this.options.ncsTextEvaluationProvider,
+        )
+      : undefined;
+    const { scores, questionEvaluations } = ncsBatch ?? this.scoreReport(criteria, answers, documentText, {
       reportType,
       jobDescription
     });
-    const totalScore = weightedTotalScore(scores, criteria);
+    const totalScore = ncsBatch
+      ? ncsBatch.allProfilesScored
+        ? weightedTotalScore(scores, criteria)
+        : null
+      : weightedTotalScore(scores, criteria);
     const companyName = typeof payload.companyName === "string" && payload.companyName.trim() ? payload.companyName.trim() : undefined;
     const jobTitle = typeof payload.jobTitle === "string" && payload.jobTitle.trim() ? payload.jobTitle.trim() : undefined;
     const summary = generatedSummary ?? (reportType === "RECRUITING_REPORT"
@@ -462,7 +521,8 @@ export class MockAiTaskHandler implements AiTaskHandler {
       summary,
       totalScore,
       scores,
-      questionEvaluations
+      questionEvaluations,
+      ncsAnswerEvaluations: ncsBatch?.evaluations,
     };
     const guardrail = this.validateReport(report);
 
@@ -474,10 +534,17 @@ export class MockAiTaskHandler implements AiTaskHandler {
         totalScore,
         scores,
         questionEvaluations,
+        ncsAnswerEvaluations: ncsBatch?.evaluations,
         evidences: scores.flatMap((score) => score.evidences),
         guardrail
       }),
       guardrail,
+      usage: ncsBatch?.usage
+        ? createAiProcessUsage({
+            ...ncsBatch.usage,
+            metadata: { processType: "REPORT_GENERATE", kind: "NCS_REPORT_GENERATE" },
+          })
+        : undefined,
       finalSave: () => this.results.saveGeneratedReport(report)
     };
   }
@@ -899,11 +966,36 @@ export class MockAiTaskHandler implements AiTaskHandler {
   }
 
   private validateReport(report: GeneratedReportRecord) {
+    if (report.ncsAnswerEvaluations) {
+      const ncsDecision = this.validateNcsEvaluationBatch({
+        evaluations: report.ncsAnswerEvaluations,
+        scores: report.scores,
+        questionEvaluations: report.questionEvaluations,
+        allProfilesScored: report.totalScore !== null,
+      });
+      if (ncsDecision.result !== "PASS") {
+        return ncsDecision;
+      }
+      return report.questionEvaluations.length > 0
+        ? this.validateQuestionEvaluations(report.questionEvaluations)
+        : { result: "PASS" as const, reason: null };
+    }
     const scoreDecision = this.validateScores(report.reportType, report.scores, report.summary);
     if (scoreDecision.result === "BLOCKED") {
       return scoreDecision;
     }
     return this.validateQuestionEvaluations(report.questionEvaluations);
+  }
+
+  private validateNcsEvaluationBatch(batch: NcsReportEvaluationBatch) {
+    const blocked = batch.evaluations.filter((evaluation) => evaluation.output.guardrail.result === "BLOCKED");
+    if (blocked.length > 0) {
+      return {
+        result: "REGENERATED" as const,
+        reason: `NCS evaluator blocked ${blocked.length} answer result(s); nullable safe envelopes were stored.`,
+      };
+    }
+    return this.validateScores("RECRUITING_REPORT", batch.scores);
   }
 
   private validateScores(
@@ -1198,6 +1290,17 @@ function criteriaOf(value: unknown): Array<{
   });
 }
 
+function optionalFiniteNumber(value: unknown, name: string): number | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new NonRetryableAiWorkerFailure(`${name} must be a finite number`);
+  }
+  return parsed;
+}
+
 function buildRecruitingQuestionCandidate(
   criterion: ReturnType<typeof criteriaOf>[number],
   jobDescription: string,
@@ -1258,7 +1361,16 @@ function answersOf(value: unknown): ReportAnswerForScoring[] {
       transcript,
       evaluationStatus,
       transcriptUnavailableReason: evaluationStatus === "STT_UNAVAILABLE" ? transcriptUnavailableReason : undefined,
-      nonverbalMetadata: optionalNonverbalMetadata(record.nonverbalMetadata)
+      nonverbalMetadata: optionalNonverbalMetadata(record.nonverbalMetadata),
+      sessionQuestionId: optionalPositiveNumber(record.sessionQuestionId, "sessionQuestionId"),
+      criterionId: optionalPositiveNumber(record.criterionId, "criterionId"),
+      criterionTitleSnapshot: optionalText(record.criterionTitleSnapshot),
+      ncsProfileId: ncsProfileIdOf(record.ncsProfileId),
+      ncsQuestionMode: ncsQuestionModeOf(record.ncsQuestionMode),
+      ncsProfileVersion: optionalText(record.ncsProfileVersion),
+      alignmentStatus: optionalText(record.alignmentStatus),
+      alignmentScore: optionalFiniteNumber(record.alignmentScore, "alignmentScore"),
+      evaluatorVersion: optionalText(record.evaluatorVersion)
     };
   });
 }
