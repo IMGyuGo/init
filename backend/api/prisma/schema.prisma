@@ -331,6 +331,7 @@ model EvaluationCriterion {
   reportScores          ReportScore[]
   questionSetItems      InterviewQuestionSetItem[]
   personalizedQuestions ApplicationInterviewQuestion[]
+  sessionQuestions      InterviewSessionQuestion[]
 
   @@map("evaluation_criteria")
 }
@@ -468,6 +469,7 @@ model ApplicationInterviewQuestion {
   batch                  ApplicationInterviewQuestionBatch @relation(fields: [batchId], references: [batchId], onDelete: Cascade)
   criterion              EvaluationCriterion?              @relation(fields: [criterionId], references: [criterionId], onDelete: SetNull)
   sourceProcessLog       AiProcessLog                      @relation("ResumeQuestionSourceProcess", fields: [sourceProcessLogId], references: [processLogId], onDelete: Restrict)
+  sessionQuestions       InterviewSessionQuestion[]
 
   @@unique([batchId, sortOrder], map: "uq_application_interview_questions_order")
   @@index([criterionId], map: "idx_application_interview_questions_criterion")
@@ -558,21 +560,39 @@ model InterviewSession {
 }
 
 model InterviewSessionQuestion {
-  sessionQuestionId BigInt            @id @default(autoincrement()) @map("session_question_id")
-  sessionId         BigInt            @map("session_id")
-  questionId        BigInt?           @map("question_id")
-  runtimeQuestionId BigInt?           @unique(map: "uq_interview_session_questions_runtime_question") @map("runtime_question_id")
-  questionType      QuestionType?     @map("question_type")
-  content           String?
-  sortOrder         Int               @map("sort_order")
-  createdAt         DateTime          @default(now()) @map("created_at")
-  session           InterviewSession  @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
-  question          Question?         @relation(fields: [questionId], references: [questionId], onDelete: Restrict)
-  answers           InterviewAnswer[]
+  sessionQuestionId      BigInt                        @id @default(autoincrement()) @map("session_question_id")
+  sessionId              BigInt                        @map("session_id")
+  questionId             BigInt?                       @map("question_id")
+  personalizedQuestionId BigInt?                       @map("personalized_question_id")
+  runtimeQuestionId      BigInt?                       @unique(map: "uq_interview_session_questions_runtime_question") @map("runtime_question_id")
+  criterionId            BigInt?                       @map("criterion_id")
+  criterionTitleSnapshot String?                       @map("criterion_title_snapshot") @db.VarChar(200)
+  generationSource       String?                       @map("generation_source") @db.VarChar(50)
+  questionType           QuestionType?                 @map("question_type")
+  content                String?
+  ncsProfileId           String?                       @map("ncs_profile_id") @db.VarChar(50)
+  ncsQuestionMode        String?                       @map("ncs_question_mode") @db.VarChar(50)
+  ncsProfileVersion      String?                       @map("ncs_profile_version") @db.VarChar(80)
+  alignmentStatus        String?                       @map("alignment_status") @db.VarChar(40)
+  alignmentScore         Decimal?                      @map("alignment_score") @db.Decimal(8, 6)
+  alignmentReason        String?                       @map("alignment_reason")
+  evaluatorVersion       String?                       @map("evaluator_version") @db.VarChar(80)
+  policyVersion          Int?                          @map("policy_version")
+  criteriaVersion        Int?                          @map("criteria_version")
+  sortOrder              Int                           @map("sort_order")
+  createdAt              DateTime                      @default(now()) @map("created_at")
+  session                InterviewSession              @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
+  question               Question?                     @relation(fields: [questionId], references: [questionId], onDelete: Restrict)
+  personalizedQuestion   ApplicationInterviewQuestion? @relation(fields: [personalizedQuestionId], references: [personalizedQuestionId], onDelete: SetNull)
+  criterion              EvaluationCriterion?          @relation(fields: [criterionId], references: [criterionId], onDelete: SetNull)
+  answers                InterviewAnswer[]
 
   @@unique([sessionId, questionId], map: "uq_interview_session_questions_question")
+  @@unique([sessionId, personalizedQuestionId], map: "uq_interview_session_questions_personalized")
   @@unique([sessionId, sortOrder], map: "uq_interview_session_questions_order")
   @@index([questionId], map: "idx_interview_session_questions_question")
+  @@index([personalizedQuestionId], map: "idx_interview_session_questions_personalized")
+  @@index([criterionId], map: "idx_interview_session_questions_criterion")
   @@map("interview_session_questions")
 }
 

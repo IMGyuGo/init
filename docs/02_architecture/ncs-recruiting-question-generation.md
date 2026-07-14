@@ -151,7 +151,7 @@ Prisma model 이름은 `ApplicationInterviewQuestion`으로 고정한다. 이 ta
 | policy_version | INTEGER NULL | 세션 생성 당시 정책 version |
 | criteria_version | INTEGER NULL | 세션 생성 당시 기준 version |
 
-채용 NCS 질문은 `question_id`와 `personalized_question_id` 중 정확히 하나만 가지고 `runtime_question_id`, `question_type`, `content`, NCS version snapshot을 필수로 가진다. 기존 모의면접과 legacy 질문은 신규 source 규칙의 적용 대상에서 제외한다.
+채용 NCS 질문은 snapshot 생성 시 `question_id`와 `personalized_question_id` 중 정확히 하나만 가지고 `runtime_question_id`, `question_type`, `content`, NCS version snapshot을 필수로 가진다. 보관 정책에 따라 개인화 원본이 삭제되면 `personalized_question_id`는 NULL이 될 수 있지만 본문과 metadata snapshot은 유지한다. 기존 모의면접과 legacy 질문은 신규 source 규칙의 적용 대상에서 제외한다.
 
 ## Ownership
 

@@ -434,16 +434,43 @@ CREATE TABLE interview_session_questions (
     -- 면접 세션 FK
     session_id BIGINT NOT NULL,
 
-    -- 기업 질문 은행 질문 FK. 개인 런타임 질문은 NULL
+    -- 기업 질문 은행 질문 원본 FK. 개인화 질문은 NULL
     question_id BIGINT,
 
-    -- 전용 시퀀스에서 발급하는 개인 런타임 질문 ID
+    -- 지원자별 개인화 질문 원본 FK
+    personalized_question_id BIGINT,
+
+    -- 전용 시퀀스에서 발급하는 session 런타임 질문 ID
     runtime_question_id BIGINT,
+
+    criterion_id BIGINT,
+
+    criterion_title_snapshot VARCHAR(200),
+
+    generation_source VARCHAR(50),
 
     question_type VARCHAR(40),
 
-    -- 개인 모의면접 런타임 질문 본문
+    -- 개인 모의면접 또는 NCS 채용 질문 본문 snapshot
     content TEXT,
+
+    ncs_profile_id VARCHAR(50),
+
+    ncs_question_mode VARCHAR(50),
+
+    ncs_profile_version VARCHAR(80),
+
+    alignment_status VARCHAR(40),
+
+    alignment_score DECIMAL(8,6),
+
+    alignment_reason TEXT,
+
+    evaluator_version VARCHAR(80),
+
+    policy_version INTEGER,
+
+    criteria_version INTEGER,
 
     -- 세션 안의 질문 표시 순서
     sort_order INTEGER NOT NULL,
@@ -924,6 +951,8 @@ CREATE INDEX idx_interview_answers_session_question ON interview_answers(session
 CREATE UNIQUE INDEX uq_interview_session_questions_runtime_question
     ON interview_session_questions(runtime_question_id);
 CREATE INDEX idx_interview_session_questions_question ON interview_session_questions(question_id);
+CREATE INDEX idx_interview_session_questions_personalized ON interview_session_questions(personalized_question_id);
+CREATE INDEX idx_interview_session_questions_criterion ON interview_session_questions(criterion_id);
 CREATE INDEX idx_evaluation_reports_application ON evaluation_reports(application_id);
 CREATE INDEX idx_ai_process_logs_application ON ai_process_logs(application_id);
 CREATE INDEX idx_embeddings_source_type ON embeddings(source_type);
