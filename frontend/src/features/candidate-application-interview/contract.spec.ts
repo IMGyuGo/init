@@ -1363,6 +1363,8 @@ const applicationSummary: CandidateApplicationSummary = {
   applicationId: 1,
   postingId: 1,
   candidateId: 1,
+  availabilityStatus: "AVAILABLE",
+  unavailableReason: null,
   companyName: "Init Labs",
   jobTitle: "Backend Developer",
   jobRole: "Backend",
@@ -1381,6 +1383,24 @@ const applicationSummary: CandidateApplicationSummary = {
   consentCompleted: true,
   deviceCheckCompleted: true,
   canStartInterview: true,
+};
+
+const unavailableApplicationSummary: CandidateApplicationSummary = {
+  ...applicationSummary,
+  applicationId: 99,
+  availabilityStatus: "UNAVAILABLE",
+  unavailableReason: "INTERVIEW_SESSION_NOT_FOUND",
+  companyName: null,
+  jobTitle: null,
+  jobRole: null,
+  location: null,
+  sessionId: null,
+  interviewType: null,
+  interviewSessionStatus: null,
+  interviewWindowStartsAt: null,
+  interviewWindowEndsAt: null,
+  canStartInterview: false,
+  reportStatus: "COMPLETED",
 };
 
 const completedReportApplicationSummary: CandidateApplicationSummary = {
@@ -1408,7 +1428,7 @@ const generatingReportApplicationSummary: CandidateApplicationSummary = {
   updatedAt: "2026-07-09T10:01:00.000Z",
 };
 const unreadReportNotifications = buildCandidateReportCompleteNotifications(
-  [generatingReportApplicationSummary, completedReportApplicationSummary],
+  [generatingReportApplicationSummary, completedReportApplicationSummary, unavailableApplicationSummary],
   new Set(),
 );
 assert.deepEqual(unreadReportNotifications, [

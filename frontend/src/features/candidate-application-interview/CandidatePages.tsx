@@ -868,17 +868,18 @@ export function CandidateApplicationsPage() {
   const load = useCallback(() => getCandidateApi().listApplications(), []);
   const { data, loading, error } = useCandidateResource(load, []);
   const applications = data?.data.items ?? [];
+  const availableApplications = applications.filter((application) => application.availabilityStatus !== "UNAVAILABLE");
   const [statusFilter, setStatusFilter] = useState<CandidateApplicationStatusFilter>("ALL");
   const [page, setPage] = useState(1);
   const summary = {
     total: applications.length,
-    waiting: applications.filter(
+    waiting: availableApplications.filter(
       (application) =>
         application.applicationStatus !== "CANCELED" &&
         (application.interviewStatus === "READY" || application.interviewStatus === "NOT_READY"),
     ).length,
-    completed: applications.filter((application) => application.interviewStatus === "COMPLETED").length,
-    reports: applications.filter((application) => application.reportStatus === "COMPLETED").length,
+    completed: availableApplications.filter((application) => application.interviewStatus === "COMPLETED").length,
+    reports: availableApplications.filter((application) => application.reportStatus === "COMPLETED").length,
   };
   const filteredApplications = applications.filter((application) =>
     matchesCandidateApplicationStatusFilter(application, statusFilter),
@@ -939,17 +940,22 @@ export function CandidateApplicationsPage() {
             <ul className="applications-list">
               {pagedApplications.map((application) => {
                 const action = getSelectedApplicationAction(application);
+                const isUnavailable = application.availabilityStatus === "UNAVAILABLE";
                 return (
                   <li key={application.applicationId} className="application-row">
                     <div className="application-row__main">
-                      <strong>{application.jobTitle}</strong>
+                      <strong>{application.jobTitle ?? "삭제된 공고"}</strong>
                       <span className="application-row__company">
-                        {application.companyName}
+                        {application.companyName ?? "알 수 없는 기업"}
                         <em>·</em>
                         {formatShortDate(application.updatedAt)} 업데이트
                       </span>
+                      {isUnavailable ? (
+                        <span className="application-row__company">더 이상 조회할 수 없는 지원입니다.</span>
+                      ) : null}
                     </div>
                     <div className="application-row__badges">
+                      {isUnavailable ? <ApplicationStatusBadge label="정보 확인 필요" tone="neutral" /> : null}
                       <ApplicationStatusBadge
                         label={formatCandidateApplicationStatusLabel(application.applicationStatus)}
                         tone={getCandidateApplicationStatusTone(application.applicationStatus)}
@@ -7898,6 +7904,7 @@ function matchesCandidateApplicationStatusFilter(
   application: CandidateApplicationSummary,
   filter: CandidateApplicationStatusFilter,
 ): boolean {
+  if (application.availabilityStatus === "UNAVAILABLE") return filter === "ALL";
   if (filter === "ALL") return true;
   if (filter === "WAITING") return application.interviewStatus === "NOT_READY" || application.interviewStatus === "READY";
   if (filter === "IN_PROGRESS") return application.interviewStatus === "IN_PROGRESS";
@@ -7906,6 +7913,9 @@ function matchesCandidateApplicationStatusFilter(
 }
 
 function getSelectedApplicationAction(application: CandidateApplicationSummary): { href?: string; label: string } {
+  if (application.availabilityStatus === "UNAVAILABLE") {
+    return { label: "더 이상 조회할 수 없음" };
+  }
   if (application.applicationStatus === "CANCELED") {
     return { label: "지원 취소됨" };
   }
