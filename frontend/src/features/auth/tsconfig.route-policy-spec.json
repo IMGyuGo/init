@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "rootDir": "../..",
+    "outDir": "../../../.next/tests/auth-route-policy"
+  },
+  "files": ["../../api/api-base-url.ts", "../../api/client.ts", "routePolicy.ts", "routePolicy.spec.ts"]
+}

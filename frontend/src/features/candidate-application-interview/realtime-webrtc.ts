@@ -50,6 +50,12 @@ export interface RealtimeInterviewWebRtcConnection {
   close(): void;
 }
 
+export interface ShouldStartRealtimeSessionInput {
+  setupCompleted: boolean;
+  runtimeStatus: string;
+  localStream: MediaStream | null | undefined;
+}
+
 export type RealtimeInterviewSpeechPurpose =
   | "interview_intro"
   | "interview_question"
@@ -92,6 +98,18 @@ export interface RealtimeResponseMetadata {
   questionId?: number;
   status: string;
   completed: boolean;
+}
+
+export function shouldStartRealtimeSession({
+  setupCompleted,
+  runtimeStatus,
+  localStream,
+}: ShouldStartRealtimeSessionInput): boolean {
+  if (!setupCompleted || runtimeStatus !== "IN_PROGRESS" || !localStream) {
+    return false;
+  }
+
+  return localStream.getAudioTracks().some((track) => track.readyState === "live");
 }
 
 export function createRealtimeInterviewSpeechResponseEvent({

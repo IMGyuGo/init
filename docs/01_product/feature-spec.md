@@ -36,18 +36,21 @@ init v0.5의 화면/기능 정의를 구현 단위로 정리한다.
 
 | Screen | Path | Type | Content | Description | Input | Success | API/Route | Release | Note |
 | --- |--- |--- |--- |--- |--- |--- |--- |--- |--- |
-| 랜딩 화면 | / | page | 랜딩 화면 | 서비스 소개 조회 | 서비스 URL | 랜딩 화면 표시 | - | v1.0 | - |
-| 랜딩 화면 | / | button | 로그인 버튼 | 로그인 화면 이동 | - | 로그인 화면으로 이동 | /login | v1.0 | - |
+| 지원자 메인 화면 | / | page | 공개 채용공고 목록 | 채용공고 조회 및 검색 | 검색·필터 조건 | 채용공고 목록 표시 | GET /public/jobs | v1.0 | 비로그인 상태에서도 조회 가능 |
+| 지원자 메인 화면 | / | button | 로그인 버튼 | 지원자 로그인 화면 이동 | - | 지원자 로그인 화면으로 이동 | /login | v1.0 | 우측 상단 배치 |
+| 랜딩 화면 | / | button | 지원자 로그인 버튼 | 지원자 로그인 화면 이동 | - | 지원자 로그인 화면으로 이동 | /login | v1.0 | 메인 서비스는 지원자 중심으로 운영 |
+| 지원자 메인 화면 | / | button | 기업 서비스 버튼 | 기업 전용 인증 화면 이동 | - | 기업 로그인·회원가입 진입 화면으로 이동 | /company/login | v1.0 | 지원자 서비스와 기업 서비스의 인증 진입 경로를 분리 |
 | 공통 AI 시스템 처리 | - | system process | AI 안전 가드레일 | AI 출력 안전성 검증 | 평가 프롬프트, 금지 규칙, 출력 결과 | 정책 준수 결과만 저장 | POST /ai/guardrails/validate | v1.0 | 독립 화면 아님. 모든 AI 평가/생성 단계의 공통 정책 레이어 |
 
 ## 로그인
 
 | Screen | Path | Type | Content | Description | Input | Success | API/Route | Release | Note |
 | --- |--- |--- |--- |--- |--- |--- |--- |--- |--- |
-| 로그인 화면 | /login | selection | 사용자 선택 | 로그인 사용자 유형 선택 | 유형 선택 버튼(기업/지원자) | 선택한 사용자 유형이 로그인 요청에 반영됨 | - | v1.0 | 로그인 성공 후 기업은 지원현황 > 공고 관리, 지원자는 채용정보 > 채용공고로 이동 |
-| 로그인 화면 | /login | form | 로그인 입력 폼 | 이메일/비밀번호 입력 | 이메일, 비밀번호 | 로그인 버튼 클릭 가능 | POST /auth/login | v1.0 | ID/PW 찾기·회원가입 링크는 비밀번호 입력란 바로 아래 배치 |
-| 로그인 화면 | /login | link button | ID/PW 찾기 버튼 | ID/PW 찾기 화면 이동 | 이메일 | ID/PW 찾기 또는 비밀번호 재설정 화면으로 이동 | /password/reset | v1.0 | 비밀번호 입력란 바로 아래 배치 |
-| 로그인 화면 | /login | link button | 회원가입 버튼 | 회원가입 화면 이동 | - | 회원가입 유형 선택 화면으로 이동 | /signup | v1.0 | 비밀번호 입력란 바로 아래 배치 |
+| 지원자 로그인 화면 | /login | form | 지원자 로그인 입력 폼 | 이메일/비밀번호 입력 | 사용자 유형(CANDIDATE), 이메일, 비밀번호 | 지원자 로그인 후 채용정보 > 채용공고로 이동 | POST /auth/login | v1.0 | Google 로그인과 지원자 회원가입 진입 제공 |
+| 기업 로그인 화면 | /company/login | form | 기업 로그인 입력 폼 | 이메일/비밀번호 입력 | 사용자 유형(COMPANY), 이메일, 비밀번호 | 기업 로그인 후 지원현황 > 공고 관리로 이동 | POST /auth/login | v1.0 | 기업 회원가입은 /signup/company로 연결 |
+| 지원자 로그인 화면 | /login | link button | ID/PW 찾기 버튼 | ID/PW 찾기 화면 이동 | 이메일 | ID/PW 찾기 또는 비밀번호 재설정 화면으로 이동 | /password/reset | v1.0 | 비밀번호 입력란 바로 아래 배치 |
+| 지원자 로그인 화면 | /login | link button | 회원가입 버튼 | 지원자 회원가입 화면 이동 | - | 지원자 회원가입 화면으로 이동 | /signup/candidate | v1.0 | 비밀번호 입력란 바로 아래 배치 |
+| 기업 로그인 화면 | /company/login | link button | 회원가입 버튼 | 기업 회원가입 화면 이동 | - | 기업 회원가입 화면으로 이동 | /signup/company | v1.0 | 비밀번호 입력란 바로 아래 배치 |
 | 로그인 화면 | /login | button | 로그인 버튼 | 로그인 요청 | 사용자 유형, 이메일, 비밀번호 | 기업은 지원현황 > 공고 관리로 이동, 지원자는 채용정보 > 채용공고로 이동 | POST /auth/login | v1.0 | 기업 기본 진입: /company/applications/dashboard, 지원자 기본 진입: /candidate/jobs |
 | 로그인 화면 | /login | button | Google 로그인 버튼 | 지원자 전용 Google OAuth 로그인 | Google 계정 정보, 사용자 유형(CANDIDATE) | 지원자는 채용정보 > 채용공고로 이동 | GET /auth/google | v1.0 | Google 로그인은 지원자 개인 계정만 허용한다. 기업 계정은 이메일 회원가입/로그인만 사용하며, 이메일 회원가입과 달리 별도 이메일 인증 입력 단계는 적용하지 않음 |
 | 비밀번호 재설정 화면 | /password/reset | form | 비밀번호 재설정 폼 | 비밀번호 재설정 | 이메일, 인증 코드, 새 비밀번호, 새 비밀번호 확인 | 비밀번호 재설정 완료 후 로그인 화면으로 이동 | POST /auth/password/reset | v1.0 | - |

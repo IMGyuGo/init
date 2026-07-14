@@ -636,6 +636,7 @@ describe("ReportsController", () => {
       blogUrl: null,
       portfolioUrl: null,
       resumeFileId: resume.fileId,
+      portfolioFileId: null,
       motivation: "대규모 게임 트래픽을 안정적으로 다루고 싶습니다.",
       extraNote: "Redis와 PostgreSQL 운영 경험이 있습니다.",
     });

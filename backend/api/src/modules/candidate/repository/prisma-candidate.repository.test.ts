@@ -228,7 +228,7 @@ describe("PrismaCandidateRepository", () => {
     assert.deepEqual(capturedArgs, {
       where: { candidateId: 44n },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-      include: { resumeFile: { select: { originalName: true } } },
+      include: { resumeFile: { select: { originalName: true } }, portfolioFile: { select: { originalName: true } } },
     });
     assert.equal(folders[0]?.resumeFileName, "김민철 이력서.pdf");
   });
@@ -350,7 +350,8 @@ describe("PrismaCandidateRepository", () => {
       status: "NOT_READY",
       showQuestionText: true,
     });
-    assert.deepEqual(candidateProfileData, { githubUrl: "https://github.com/init/project" });
+    // #272 P1: 공고별 입력값은 지원서 스냅샷에만 저장하고 회원 프로필은 갱신하지 않는다.
+    assert.equal(candidateProfileData, undefined);
     assert.equal(result.application.applicationId, 77);
     assert.equal(result.documents.length, 2);
     assert.equal(result.consents.length, 2);

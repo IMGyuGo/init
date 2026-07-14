@@ -48,6 +48,7 @@ export type InterviewIntegritySuspicionLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH
 export interface InterviewIntegrityEvent {
   type: InterviewIntegrityEventType;
   occurredAt: string;
+  offsetMs?: number;
   durationMs?: number;
   direction?: "LEFT" | "RIGHT" | "UP" | "DOWN";
   source?: "IRIS" | "HEAD_POSE" | "COMBINED";
@@ -86,6 +87,22 @@ export interface InterviewIntegritySummary {
   suspicionLevel?: InterviewIntegritySuspicionLevel;
 }
 
+export type InterviewGazeDirection = "CENTER" | "LEFT" | "RIGHT" | "UP" | "DOWN";
+
+export interface InterviewGazeTimelineSample {
+  tMs: number;
+  horizontalOffset: number;
+  verticalOffset: number;
+  direction: InterviewGazeDirection;
+}
+
+export interface InterviewHeadPoseTimelineSample {
+  tMs: number;
+  yawDegrees: number;
+  pitchDegrees: number;
+  rollDegrees: number;
+}
+
 export interface InterviewAnswerNonverbalMetadata extends Record<string, unknown> {
   schemaVersion?: 1;
   source?: "CLIENT_RUNTIME_UNVERIFIED";
@@ -100,6 +117,8 @@ export interface InterviewAnswerNonverbalMetadata extends Record<string, unknown
   cameraDisconnectedCount?: number;
   integrityEvents?: InterviewIntegrityEvent[];
   integritySummary?: InterviewIntegritySummary;
+  gazeTimeline?: InterviewGazeTimelineSample[];
+  headPoseTimeline?: InterviewHeadPoseTimelineSample[];
 }
 
 export interface InterviewAnswer {

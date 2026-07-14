@@ -5,12 +5,20 @@ import { HTTP_CODE_METADATA, METHOD_METADATA, PATH_METADATA } from "@nestjs/comm
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { CandidateController } from "./candidate.controller";
-import { candidateApiRoutePrefix, candidateApiRoutes } from "../candidate.routes";
+import { PublicCandidateController } from "./public-candidate.controller";
+import {
+  candidateApiRoutePrefix,
+  candidateApiRoutes,
+  publicCandidateApiRoutePrefix,
+  publicCandidateApiRoutes,
+} from "../candidate.routes";
 import { InMemoryCandidateRepository } from "../repository/in-memory-candidate.repository";
 import { CANDIDATE_REPOSITORY, CandidateService, DEV_CANDIDATE_USER, MAX_DOCUMENT_SIZE_BYTES } from "../service/candidate.service";
 import { CANDIDATE_DOCUMENT_STORAGE, InMemoryCandidateDocumentStorageAdapter } from "../service/candidate-document-storage.adapter";
 
 type CandidateControllerRoute =
+  | "getProfile"
+  | "updateProfile"
   | "listJobs"
   | "getJobDetail"
   | "getApplyView"
@@ -42,6 +50,8 @@ function assertRoute(
 }
 
 assert.equal(Reflect.getMetadata(PATH_METADATA, CandidateController), candidateApiRoutePrefix);
+assertRoute("getProfile", candidateApiRoutes.profile, RequestMethod.GET);
+assertRoute("updateProfile", candidateApiRoutes.profile, RequestMethod.PUT);
 assertRoute("listJobs", candidateApiRoutes.jobs, RequestMethod.GET);
 assertRoute("getJobDetail", candidateApiRoutes.jobDetail, RequestMethod.GET);
 assertRoute("getApplyView", candidateApiRoutes.applyView, RequestMethod.GET);
@@ -56,6 +66,10 @@ assertRoute("deleteFolder", candidateApiRoutes.folderDetail, RequestMethod.DELET
 assertRoute("listApplications", candidateApiRoutes.applications, RequestMethod.GET);
 assertRoute("getInterviewGuide", candidateApiRoutes.interviewGuide, RequestMethod.GET);
 assertRoute("saveInterviewConsent", candidateApiRoutes.interviewConsent, RequestMethod.POST);
+
+assert.equal(Reflect.getMetadata(PATH_METADATA, PublicCandidateController), publicCandidateApiRoutePrefix);
+assert.equal(Reflect.getMetadata(PATH_METADATA, PublicCandidateController.prototype.listJobs), publicCandidateApiRoutes.jobs);
+assert.equal(Reflect.getMetadata(METHOD_METADATA, PublicCandidateController.prototype.listJobs), RequestMethod.GET);
 
 const validCandidateRequest = {
   headers: {},
@@ -98,7 +112,17 @@ async function assertCandidateHttpError(
 
 async function runControllerRuntimeAssertions() {
   const documentStorage = new InMemoryCandidateDocumentStorageAdapter();
-  const controller = new CandidateController(new CandidateService(new InMemoryCandidateRepository(), documentStorage));
+  const candidateService = new CandidateService(new InMemoryCandidateRepository(), documentStorage);
+  const controller = new CandidateController(candidateService);
+  const publicController = new PublicCandidateController(candidateService);
+
+  const publicListResponse = await publicController.listJobs({
+    page: 1,
+    limit: 20,
+    sort: "createdAt",
+    order: "desc",
+  });
+  assert.equal(publicListResponse.data.items.length, 2);
 
   const listResponse = await controller.listJobs(validCandidateRequest, {
     page: 1,
@@ -179,18 +203,29 @@ async function runControllerRuntimeAssertions() {
     sizeBytes: 1000,
   });
 
+  const portfolioPdf = await controller.uploadResume(validCandidateRequest, {
+    storageKey: "candidate/1/controller-portfolio.pdf",
+    originalName: "controller-portfolio.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 2000,
+  });
+
   const createdFolder = await controller.createFolder(validCandidateRequest, {
     name: "네이버 백엔드 지원 세트",
     githubUrl: "https://github.com/init/backend",
     blogUrl: "https://blog.example.com/init",
     portfolioUrl: "https://portfolio.example.com/init",
     resumeFileId: resume.data.fileId,
+    portfolioFileId: portfolioPdf.data.fileId,
     motivation: "대규모 트래픽 API를 만들고 싶습니다.",
     extraNote: "NestJS와 Prisma 프로젝트 경험이 있습니다.",
   });
   assert.equal(createdFolder.data.name, "네이버 백엔드 지원 세트");
   assert.equal(createdFolder.data.resumeFileId, resume.data.fileId);
   assert.equal(createdFolder.data.resumeFileName, "controller-resume.pdf");
+  // #272 P1-2: 세트에 포트폴리오 PDF 저장/조회
+  assert.equal(createdFolder.data.portfolioFileId, portfolioPdf.data.fileId);
+  assert.equal(createdFolder.data.portfolioFileName, "controller-portfolio.pdf");
   assert.equal(createdFolder.data.githubUrl, "https://github.com/init/backend");
 
   const folders = await controller.listFolders(validCandidateRequest);
@@ -213,6 +248,18 @@ async function runControllerRuntimeAssertions() {
   await controller.deleteFolder(validCandidateRequest, String(createdFolder.data.id));
   const foldersAfterDelete = await controller.listFolders(validCandidateRequest);
   assert.equal(foldersAfterDelete.data.items.length, 0);
+
+  // #272 프로필(내 정보) 조회·수정
+  const profile = await controller.getProfile(validCandidateRequest);
+  assert.equal(typeof profile.data.email, "string");
+  const updatedProfile = await controller.updateProfile(validCandidateRequest, {
+    githubUrl: "https://github.com/controller-test",
+    blogUrl: "  ",
+  });
+  assert.equal(updatedProfile.data.githubUrl, "https://github.com/controller-test");
+  assert.equal(updatedProfile.data.blogUrl, null);
+  const reloadedProfile = await controller.getProfile(validCandidateRequest);
+  assert.equal(reloadedProfile.data.githubUrl, "https://github.com/controller-test");
 
   await assertCandidateHttpError(
     () =>

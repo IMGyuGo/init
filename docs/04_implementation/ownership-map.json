@@ -60,6 +60,26 @@
       ]
     },
     {
+      "name": "company login entry",
+      "patterns": [
+        "^frontend/src/app/company/login/"
+      ],
+      "roles": [
+        "A",
+        "B"
+      ]
+    },
+    {
+      "name": "frontend favicon route",
+      "patterns": [
+        "^frontend/src/app/favicon\\.ico/route\\.ts$"
+      ],
+      "roles": [
+        "B",
+        "D"
+      ]
+    },
+    {
       "name": "frontend api client",
       "patterns": [
         "^frontend/src/api/"
@@ -246,6 +266,22 @@
       "roles": [
         "A",
         "B"
+      ]
+    },
+    {
+      "name": "candidate local interviewer and rigging asset bridge",
+      "patterns": [
+        "^frontend/public/assets/interviewer-avatar/",
+        "^frontend/public/assets/interviewer-rigging/",
+        "^frontend/public/assets/interviewer-cubism/",
+        "^frontend/vendor/(Core|CubismWebFramework)/",
+        "^assets/interviewer-rigging/",
+        "^frontend/src/app/interviewer-preview/"
+      ],
+      "roles": [
+        "B",
+        "D",
+        "PM"
       ]
     },
     {

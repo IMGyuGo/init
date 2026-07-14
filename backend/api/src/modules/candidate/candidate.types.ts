@@ -115,11 +115,44 @@ export interface CandidateDocumentPolicy {
   metadataOnly: boolean;
 }
 
+// 지원 화면 자동 입력용 회원 정보. 이름/이메일/연락처는 User, GitHub/블로그/포트폴리오는
+// CandidateProfile(프로필 정본)에서 조회한다. (#272)
+export interface ApplicantContact {
+  name: string;
+  email: string;
+  phone: string | null;
+  githubUrl: string | null;
+  blogUrl: string | null;
+  portfolioUrl: string | null;
+}
+
+// 지원자 프로필(내 정보) 정본. 이름/이메일/연락처는 User, 나머지는 CandidateProfile. (#272 프로필 편집)
+export interface CandidateProfileView {
+  name: string;
+  email: string;
+  phone: string | null;
+  githubUrl: string | null;
+  blogUrl: string | null;
+  portfolioUrl: string | null;
+  summary: string | null;
+}
+
+// 이메일은 로그인 정보라 수정 대상에서 제외한다.
+export interface UpdateCandidateProfileInput {
+  name?: string;
+  phone?: string | null;
+  githubUrl?: string | null;
+  blogUrl?: string | null;
+  portfolioUrl?: string | null;
+  summary?: string | null;
+}
+
 export interface CandidateApplyView {
   job: CandidateJobDetail;
   documentPolicy: CandidateDocumentPolicy;
   requiredConsentTypes: ConsentType[];
   portfolioRequired: true;
+  applicant: ApplicantContact;
 }
 
 export interface FileAsset {
@@ -183,6 +216,8 @@ export interface CandidateFolder {
   portfolioUrl: string | null;
   resumeFileId: number | null;
   resumeFileName: string | null;
+  portfolioFileId: number | null;
+  portfolioFileName: string | null;
   motivation: string | null;
   extraNote: string | null;
   createdAt: string;
@@ -327,6 +362,9 @@ export interface CandidateRepository {
   listApplications(candidateId: number): Promise<Application[]>;
   findApplication(applicationId: number): Promise<Application | undefined>;
   findCandidateUserId(candidateId: number): Promise<number | undefined>;
+  findApplicantContact(userId: number): Promise<ApplicantContact | undefined>;
+  getCandidateProfile(candidateId: number): Promise<CandidateProfileView | undefined>;
+  updateCandidateProfile(candidateId: number, input: UpdateCandidateProfileInput): Promise<CandidateProfileView>;
   listDocuments(applicationId: number): Promise<ApplicationDocument[]>;
   listConsentRecords(applicationId: number): Promise<ConsentRecord[]>;
   saveConsentRecords(applicationId: number, consentTypes: ConsentType[]): Promise<ConsentRecord[]>;
@@ -352,13 +390,14 @@ export interface CandidateRepository {
     motivation?: string;
     additionalInfo?: string;
     consentTypes: ConsentType[];
+    contactUserId?: number;
   }): Promise<ApplicationSubmissionResult>;
   createFileAsset(input: Omit<FileAsset, "fileId" | "createdAt" | "status">): Promise<FileAsset>;
   createPortfolioLink(input: Omit<PortfolioLink, "portfolioLinkId" | "createdAt">): Promise<PortfolioLink>;
   countFolders(candidateId: number): Promise<number>;
   listFolders(candidateId: number): Promise<CandidateFolder[]>;
   findFolder(folderId: number): Promise<CandidateFolder | undefined>;
-  createFolder(input: Omit<CandidateFolder, "id" | "resumeFileName" | "createdAt" | "updatedAt">): Promise<CandidateFolder>;
-  updateFolder(folderId: number, input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "createdAt" | "updatedAt">>): Promise<CandidateFolder>;
+  createFolder(input: Omit<CandidateFolder, "id" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">): Promise<CandidateFolder>;
+  updateFolder(folderId: number, input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">>): Promise<CandidateFolder>;
   deleteFolder(folderId: number): Promise<void>;
 }

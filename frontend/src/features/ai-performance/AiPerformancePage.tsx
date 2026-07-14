@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  AiWorkCategory,
   AiPerformanceJob,
   AiPerformanceSummary,
   ClientPerformanceEvent,
@@ -10,6 +11,8 @@ import {
   listAiPerformanceJobs,
   listClientPerformanceEvents
 } from "./api";
+import type { ClientNextStepType } from "./client-next-step";
+import styles from "./AiPerformancePage.module.css";
 
 const PROCESS_TYPE_LABELS: Readonly<Record<string, string>> = {
   DOCUMENT_EXTRACT: "문서 내용 읽기",
@@ -28,6 +31,23 @@ const CLIENT_EVENT_LABELS: Readonly<Record<string, string>> = {
   ANSWER_SUBMIT_TO_NEXT_READY: "답변 완료 후 다음 질문 표시"
 };
 
+const AI_WORK_CATEGORY_LABELS: Readonly<Record<AiWorkCategory, string>> = {
+  VOICE_TRANSCRIPTION: "음성 답변 변환",
+  FOLLOW_UP_GENERATION: "꼬리질문 생성",
+  REPORT_GENERATION: "보고서 생성",
+  QUESTION_PREPARATION: "사전 질문 준비",
+  CRITERIA_PREPARATION: "평가 기준 준비",
+  OTHER: "기타"
+};
+
+const CLIENT_NEXT_STEP_LABELS: Readonly<Record<ClientNextStepType, string>> = {
+  STANDARD_QUESTION: "일반 질문",
+  FOLLOW_UP_QUESTION: "꼬리질문",
+  INTERVIEW_COMPLETE: "면접 완료",
+  NOT_READY: "다음 단계 준비 실패",
+  UNKNOWN: "분류 불가"
+};
+
 type PageState = {
   summary?: AiPerformanceSummary;
   jobs: AiPerformanceJob[];
@@ -38,6 +58,8 @@ type PageState = {
 
 export function AiPerformancePage() {
   const [state, setState] = useState<PageState>({ jobs: [], clientEvents: [], loading: true });
+  const [jobCategoryFilter, setJobCategoryFilter] = useState<AiWorkCategory | "ALL">("ALL");
+  const [clientNextStepFilter, setClientNextStepFilter] = useState<ClientNextStepType | "ALL">("ALL");
 
   useEffect(() => {
     let alive = true;
@@ -70,6 +92,13 @@ export function AiPerformancePage() {
     };
   }, []);
 
+  const filteredJobs = state.jobs.filter(
+    (job) => jobCategoryFilter === "ALL" || job.workCategory === jobCategoryFilter
+  );
+  const filteredClientEvents = state.clientEvents.filter(
+    (event) => clientNextStepFilter === "ALL" || event.nextQuestionType === clientNextStepFilter
+  );
+
   return (
     <section className="app-page glass-page notion list-page">
       <header className="page-head">
@@ -90,54 +119,90 @@ export function AiPerformancePage() {
 
       {state.summary ? (
         <>
-          <div className="kpi-summary">
-            <Metric label="AI 평균" value={formatMs(state.summary.jobs.averageDurationMs)} />
-            <Metric label="AI p95" value={formatMs(state.summary.jobs.p95DurationMs)} />
-            <Metric label="4초 초과율" value={formatRate(state.summary.jobs.over4sRate)} />
-            <Metric label="실패율" value={formatRate(state.summary.jobs.failureRate)} />
-            <Metric label="추정 비용" value={`$${state.summary.cost.estimatedCostUsd.toFixed(6)}`} />
+          <div className={`kpi-summary ${styles.kpiSummary}`}>
+            <Metric label="전체 작업 건수" value={`${state.summary.jobs.count.toLocaleString()}건`} />
+            <Metric label="전체 추정 비용" value={`$${state.summary.cost.estimatedCostUsd.toFixed(6)}`} />
             <Metric
-              label="토큰/오디오"
-              value={`${state.summary.cost.inputTokens + state.summary.cost.outputTokens} tok · ${state.summary.cost.audioSeconds}s`}
+              label="전체 토큰 사용량"
+              value={`${(state.summary.cost.inputTokens + state.summary.cost.outputTokens).toLocaleString()} tok`}
             />
+            <Metric label="전체 오디오 처리량" value={`${state.summary.cost.audioSeconds.toLocaleString()}초`} />
           </div>
+          <p className="page-sub">상단 전체량과 아래 요약은 최근 최대 {state.summary.sampleLimit}건 기준입니다.</p>
 
           <section className="panel">
             <div className="panel-head">
               <div>
-                <h2>작업 타입별 요약</h2>
-                <p>음성 답변 변환, 꼬리질문, 보고서 생성 등 작업 단위로 성능을 비교합니다.</p>
+                <h2>AI 작업 성격별 요약</h2>
+                <p>최근 최대 {state.summary.sampleLimit}건을 작업 목적에 따라 나누어 비교합니다.</p>
               </div>
             </div>
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>작업</th>
+                    <th>작업 성격</th>
                     <th>건수</th>
                     <th>평균</th>
                     <th>p95</th>
-                    <th>4초 초과</th>
+                    <th>실패율</th>
                     <th>추정 비용</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {state.summary.byProcessType.length ? (
-                    state.summary.byProcessType.map((item) => (
-                      <tr key={item.processType}>
+                  {state.summary.byWorkCategory.length ? (
+                    state.summary.byWorkCategory.map((item) => (
+                      <tr key={item.workCategory}>
                         <td>
-                          <strong>{formatProcessType(item.processType)}</strong>
+                          <strong>{formatWorkCategory(item.workCategory)}</strong>
                         </td>
                         <td>{item.count}</td>
                         <td>{formatMs(item.averageDurationMs)}</td>
                         <td>{formatMs(item.p95DurationMs)}</td>
-                        <td>{formatRate(item.over4sRate)}</td>
+                        <td>{formatRate(item.failureRate)}</td>
                         <td>${item.estimatedCostUsd.toFixed(6)}</td>
                       </tr>
                     ))
                   ) : (
                     <EmptyRow colSpan={6} message="아직 집계할 AI 작업이 없습니다." />
                   )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="panel">
+            <div className="panel-head">
+              <div>
+                <h2>사용자 체감 시간 요약</h2>
+                <p>최근 최대 {state.summary.sampleLimit}건에서 실제로 준비된 다음 단계별 시간을 비교합니다.</p>
+              </div>
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>다음 단계</th>
+                    <th>건수</th>
+                    <th>평균</th>
+                    <th>p95</th>
+                    <th>4초 초과율</th>
+                    <th>실패율</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {state.summary.byClientNextStep.map((item) => (
+                    <tr key={item.nextQuestionType}>
+                      <td>
+                        <strong>{formatClientNextStep(item.nextQuestionType)}</strong>
+                      </td>
+                      <td>{item.count}</td>
+                      <td>{formatMs(item.averageDurationMs)}</td>
+                      <td>{formatMs(item.p95DurationMs)}</td>
+                      <td>{formatRate(item.over4sRate)}</td>
+                      <td>{formatRate(item.failureRate)}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -149,7 +214,20 @@ export function AiPerformancePage() {
         <div className="panel-head">
           <div>
             <h2>최근 AI 작업</h2>
-            <p>worker가 처리한 AI 작업의 상태, 처리 시간, 사용량입니다.</p>
+            <p>worker가 처리한 최근 30건의 상태, 처리 시간, 사용량입니다.</p>
+          </div>
+          <div className="toolbar">
+            <select
+              className="input"
+              aria-label="최근 AI 작업 성격 필터"
+              value={jobCategoryFilter}
+              onChange={(event) => setJobCategoryFilter(event.target.value as AiWorkCategory | "ALL")}
+            >
+              <option value="ALL">전체 작업</option>
+              {Object.entries(AI_WORK_CATEGORY_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
           </div>
         </div>
         <div className="table-wrap">
@@ -166,8 +244,8 @@ export function AiPerformancePage() {
               </tr>
             </thead>
             <tbody>
-              {state.jobs.length ? (
-                state.jobs.map((job) => (
+              {filteredJobs.length ? (
+                filteredJobs.map((job) => (
                   <tr key={job.processLogId}>
                     <td>{job.processLogId}</td>
                     <td>{formatProcessType(job.processType)}</td>
@@ -183,7 +261,7 @@ export function AiPerformancePage() {
                   </tr>
                 ))
               ) : (
-                <EmptyRow colSpan={7} message="최근 AI 작업이 없습니다." />
+                <EmptyRow colSpan={7} message="선택한 성격의 최근 AI 작업이 없습니다." />
               )}
             </tbody>
           </table>
@@ -194,7 +272,19 @@ export function AiPerformancePage() {
         <div className="panel-head">
           <div>
             <h2>최근 사용자 체감 시간</h2>
-            <p>브라우저에서 측정한 답변 제출 후 다음 질문 준비 완료까지의 시간입니다.</p>
+            <p>브라우저에서 측정한 최근 30건의 답변 제출 후 다음 단계 준비 완료 시간입니다.</p>
+          </div>
+          <div className="toolbar">
+            <select
+              className="input"
+              aria-label="최근 사용자 체감 시간 다음 단계 필터"
+              value={clientNextStepFilter}
+              onChange={(event) => setClientNextStepFilter(event.target.value as ClientNextStepType | "ALL")}
+            >
+              <option value="ALL">전체</option>
+              <option value="STANDARD_QUESTION">일반 질문</option>
+              <option value="FOLLOW_UP_QUESTION">꼬리질문</option>
+            </select>
           </div>
         </div>
         <div className="table-wrap">
@@ -202,6 +292,7 @@ export function AiPerformancePage() {
             <thead>
               <tr>
                 <th>이벤트</th>
+                <th>다음 질문 종류</th>
                 <th>세션</th>
                 <th>질문</th>
                 <th>시간</th>
@@ -209,10 +300,11 @@ export function AiPerformancePage() {
               </tr>
             </thead>
             <tbody>
-              {state.clientEvents.length ? (
-                state.clientEvents.map((event) => (
+              {filteredClientEvents.length ? (
+                filteredClientEvents.map((event) => (
                   <tr key={event.clientPerformanceLogId}>
                     <td>{formatClientEvent(event.eventName)}</td>
+                    <td>{formatClientNextStep(event.nextQuestionType)}</td>
                     <td>{event.sessionId ?? "-"}</td>
                     <td>{event.questionId ?? "-"}</td>
                     <td>{formatMs(event.durationMs)}</td>
@@ -220,7 +312,7 @@ export function AiPerformancePage() {
                   </tr>
                 ))
               ) : (
-                <EmptyRow colSpan={5} message="최근 사용자 체감 시간 기록이 없습니다." />
+                <EmptyRow colSpan={6} message="선택한 종류의 최근 사용자 체감 시간 기록이 없습니다." />
               )}
             </tbody>
           </table>
@@ -263,8 +355,16 @@ function formatProcessType(processType: string): string {
   return PROCESS_TYPE_LABELS[processType] ?? processType;
 }
 
+function formatWorkCategory(workCategory: AiWorkCategory): string {
+  return AI_WORK_CATEGORY_LABELS[workCategory];
+}
+
 function formatClientEvent(eventName: string): string {
   return CLIENT_EVENT_LABELS[eventName] ?? eventName;
+}
+
+function formatClientNextStep(nextQuestionType: ClientNextStepType): string {
+  return CLIENT_NEXT_STEP_LABELS[nextQuestionType];
 }
 
 function formatUsage(job: AiPerformanceJob): string {

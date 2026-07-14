@@ -1192,6 +1192,49 @@ a.gnb-link:focus-visible {
   gap: 10px;
 }
 
+.gnb-right.candidate-guest-actions {
+  gap: 8px;
+}
+
+.app-shell .gnb-right.candidate-guest-actions .btn {
+  min-height: 38px;
+  padding: 0 14px;
+  color: #37352f;
+  font-size: 14px;
+  font-weight: 600;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.16);
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.app-shell .gnb-right.candidate-guest-actions .btn.secondary:hover,
+.app-shell .gnb-right.candidate-guest-actions .btn.secondary:focus-visible {
+  color: #fff;
+  background: #315fc6;
+  border-color: #315fc6;
+}
+
+.app-shell .gnb-right.candidate-guest-actions .btn.secondary {
+  color: #fff;
+  background: #3b6fe0;
+  border-color: #3b6fe0;
+}
+
+.app-shell .gnb-right.candidate-guest-actions .btn.primary {
+  color: #37352f;
+  background: #fff;
+  border-color: rgba(55, 53, 47, 0.16);
+}
+
+.app-shell .gnb-right.candidate-guest-actions .btn.primary:hover,
+.app-shell .gnb-right.candidate-guest-actions .btn.primary:focus-visible {
+  color: #191919;
+  background: #f5f5f3;
+  border-color: rgba(55, 53, 47, 0.22);
+  opacity: 1;
+}
+
 .gnb-right .icon-btn {
   color: rgba(55, 53, 47, 0.6);
   background: transparent;
@@ -6802,6 +6845,314 @@ td input {
   .landing.notion .landing-step-grid { grid-template-columns: 1fr; }
 }
 
+/* ============================================================
+   기업 서비스 전용 인증 진입 (#240)
+   ============================================================ */
+.company-auth-page {
+  display: grid;
+  grid-template-columns: minmax(430px, 46%) minmax(0, 54%);
+  min-height: 100svh;
+  padding: 24px;
+  color: #191919;
+  background: #fbfbfa;
+}
+
+.company-auth-main {
+  position: relative;
+  display: grid;
+  min-height: calc(100svh - 48px);
+  padding: 24px 48px;
+  background: #fbfbfa;
+}
+
+.company-auth-logo {
+  position: absolute;
+  top: 8px;
+  left: 24px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.company-auth-logo img {
+  width: auto;
+  height: 38px;
+}
+
+.company-auth-form {
+  align-self: center;
+  width: min(100%, 430px);
+  margin: 64px auto 24px;
+}
+
+.company-auth-form .form-card {
+  max-width: none;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.company-auth-form .form-card h2 {
+  margin-top: 0;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+.company-auth-form .lead {
+  margin: 10px 0 32px;
+  color: rgba(55, 53, 47, 0.65);
+  line-height: 1.6;
+}
+
+.company-auth-page .company-auth-form .input {
+  min-height: 54px;
+  color: #37352f;
+  background: #fff;
+  border-color: rgba(55, 53, 47, 0.16);
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.company-auth-page .company-auth-form .input:hover {
+  border-color: rgba(55, 53, 47, 0.28);
+}
+
+.company-auth-page .company-auth-form .input:focus {
+  border-color: #3b6fe0;
+  box-shadow: 0 0 0 2px rgba(59, 111, 224, 0.2);
+  outline: none;
+}
+
+.company-auth-form .btn.lg {
+  height: 54px;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.company-auth-form .btn.primary {
+  color: #fff;
+  background: #3b6fe0;
+  border-color: #3b6fe0;
+}
+
+.company-auth-form .btn.primary:hover,
+.company-auth-form .btn.primary:focus-visible {
+  background: #315fc6;
+  border-color: #315fc6;
+  opacity: 1;
+}
+
+.company-auth-form .link-row button {
+  color: #3b6fe0;
+}
+
+.company-auth-form .link-row button:hover,
+.company-auth-form .link-row button:focus-visible {
+  color: #315fc6;
+}
+
+.company-auth-form .password-toggle {
+  color: #3b6fe0;
+}
+
+.company-auth-back {
+  display: block;
+  width: fit-content;
+  margin: 28px auto 0;
+  color: rgba(55, 53, 47, 0.6);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.company-auth-back:hover {
+  color: #3b6fe0;
+}
+
+.company-auth-visual {
+  position: relative;
+  min-height: calc(100svh - 48px);
+  overflow: hidden;
+  border-radius: 10px;
+  background: #072b8f;
+  isolation: isolate;
+}
+
+.company-auth-visual-image {
+  z-index: -2;
+  object-fit: cover;
+}
+
+.company-auth-visual::after {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  content: "";
+  background: rgba(3, 25, 96, 0.12);
+}
+
+.company-auth-visual-content {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: calc(100svh - 48px);
+  padding: clamp(48px, 6vw, 92px);
+  color: #fff;
+}
+
+.company-auth-visual h1 {
+  max-width: 650px;
+  margin: 0;
+  font-size: clamp(34px, 3vw, 54px);
+  line-height: 1.16;
+  letter-spacing: -0.035em;
+  word-break: keep-all;
+}
+
+.company-auth-visual-content > p {
+  max-width: 560px;
+  margin: 20px 0 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 16px;
+  line-height: 1.7;
+  word-break: keep-all;
+}
+
+.company-benefit-track {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(210px, 1fr));
+  gap: 16px;
+  margin-top: clamp(52px, 8vh, 92px);
+}
+
+.company-benefit-card {
+  min-height: 226px;
+  padding: 28px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 8px;
+}
+
+.company-benefit-card span {
+  display: block;
+  margin-bottom: 14px;
+  color: rgba(255, 255, 255, 0.64);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.company-benefit-card strong {
+  display: block;
+  min-height: 56px;
+  font-size: 22px;
+  line-height: 1.35;
+  word-break: keep-all;
+}
+
+.company-benefit-card p {
+  margin: 22px 0 0;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 13px;
+  line-height: 1.65;
+  word-break: keep-all;
+}
+
+@media (max-width: 1180px) {
+  .company-auth-page {
+    grid-template-columns: minmax(400px, 48%) minmax(0, 52%);
+  }
+
+  .company-benefit-track {
+    grid-template-columns: 1fr;
+  }
+
+  .company-benefit-card {
+    min-height: 0;
+  }
+
+  .company-benefit-card strong {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 860px) {
+  .company-auth-page {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    padding: 16px;
+  }
+
+  .company-auth-main {
+    min-height: auto;
+    padding: 20px 24px 36px;
+  }
+
+  .company-auth-logo {
+    position: static;
+  }
+
+  .company-auth-form {
+    margin: 72px auto 16px;
+  }
+
+  .company-auth-visual {
+    min-height: 420px;
+  }
+
+  .company-auth-visual-content {
+    min-height: 420px;
+    padding: 40px 32px;
+  }
+
+  .company-benefit-track {
+    grid-template-columns: repeat(3, minmax(220px, 1fr));
+    overflow-x: auto;
+    margin-top: 40px;
+    padding-bottom: 4px;
+  }
+}
+
+@media (max-width: 560px) {
+  .company-auth-page {
+    padding: 0;
+  }
+
+  .company-auth-main {
+    padding: 22px 20px 44px;
+  }
+
+  .company-auth-form {
+    margin-top: 56px;
+  }
+
+  .company-auth-form .form-card h2 {
+    font-size: 28px;
+  }
+
+  .company-auth-visual {
+    min-height: 360px;
+    border-radius: 0;
+  }
+
+  .company-auth-visual-content {
+    min-height: 360px;
+    padding: 36px 24px;
+  }
+
+  .company-auth-visual h1 {
+    font-size: 30px;
+  }
+
+  .company-auth-visual-content > p {
+    font-size: 14px;
+  }
+
+  .company-benefit-track {
+    display: none;
+  }
+}
+
 
 /* ============================================================
    이전 global.css 통합 (A 영역 규칙). 캐스케이드 순서 유지 위해
@@ -8691,10 +9042,11 @@ p {
 .notion .candidate-job-available.is-applied { color: rgba(55, 53, 47, 0.45); }
 
 /* ---- 지원자 공고 상세(원티드식 레이아웃, 노션 톤) ---- */
-.notion.candidate-job-detail-page { display: grid; gap: 28px; }
+.notion.candidate-job-detail-page { display: grid; gap: 28px; min-width: 0; max-width: 100%; }
 
-/* 상단 이미지 캐러셀: 3장씩 보이고 넘치면 가로 슬라이드 */
-.notion .jobdetail-gallery-wrap { position: relative; }
+/* 상단 이미지 캐러셀: 3장씩 보이고 넘치면 가로 슬라이드.
+   min-width:0 이 없으면 이미지가 많을 때 갤러리 폭이 페이지 전체를 밀어 지원 버튼이 사라진다. */
+.notion .jobdetail-gallery-wrap { position: relative; min-width: 0; max-width: 100%; overflow: hidden; }
 .notion .jobdetail-gallery {
   display: flex;
   gap: 12px;
@@ -8953,6 +9305,44 @@ p {
   border-radius: 8px;
 }
 .candidate-apply-modal .candidate-apply-file-row:hover strong { background: rgba(59, 111, 224, 0.14); }
+
+/* 필수 입력 항목 별표(*) 강조 (#272) */
+.req-mark { color: #e03e3e; font-weight: 700; }
+
+/* ---- 지원서 세트 불러오기(#272) ---- */
+.candidate-apply-setloader { display: grid; gap: 10px; }
+.candidate-apply-setloader .panel-title { margin: 0; font-size: 14px; font-weight: 800; color: #191919; }
+.candidate-apply-setloader .candidate-apply-note { margin: 0; font-size: 12.5px; line-height: 1.5; color: rgba(55, 53, 47, 0.6); }
+.candidate-apply-setlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.candidate-apply-set {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(55, 53, 47, 0.14);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.candidate-apply-set:hover { border-color: #3b6fe0; background: rgba(59, 111, 224, 0.04); }
+.candidate-apply-set.is-active { border-color: #3b6fe0; background: rgba(59, 111, 224, 0.08); }
+.candidate-apply-set__body { display: grid; gap: 3px; min-width: 0; }
+.candidate-apply-set__name { font-size: 13.5px; font-weight: 700; color: #191919; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.candidate-apply-set__meta { font-size: 12px; color: rgba(55, 53, 47, 0.55); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.candidate-apply-set strong {
+  flex: 0 0 auto;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #3b6fe0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(59, 111, 224, 0.1);
+}
+.candidate-apply-set.is-active strong { color: #fff; background: #3b6fe0; }
 
 /* ---- 매직링크 지원 현황(공개, Notion 톤) ---- */
 .candidate-public-page.notion .pubstatus {
@@ -9269,6 +9659,63 @@ p {
 .notion.candidate-mypage .mypage-block__title h2 { margin: 0; font-size: 17px; font-weight: 600; color: #191919; }
 .notion.candidate-mypage .mypage-block__title p { margin: 4px 0 0; font-size: 13px; color: rgba(55, 53, 47, 0.55); }
 
+/* ---- 내 정보(프로필) 편집 카드(#272) ---- */
+.notion.candidate-mypage .candidate-profile-card {
+  margin-top: 36px;
+  padding: 22px 24px;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 14px;
+  background: #fff;
+}
+.notion.candidate-mypage .candidate-profile-card__head h2 { margin: 0; font-size: 17px; font-weight: 600; color: #191919; }
+.notion.candidate-mypage .candidate-profile-card__head p { margin: 4px 0 0; font-size: 13px; color: rgba(55, 53, 47, 0.55); }
+.notion.candidate-mypage .candidate-profile-form {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 18px;
+}
+.notion.candidate-mypage .candidate-profile-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #37352f;
+}
+.notion.candidate-mypage .candidate-profile-form input,
+.notion.candidate-mypage .candidate-profile-form textarea {
+  padding: 10px 12px;
+  border: 1px solid rgba(55, 53, 47, 0.16);
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #191919;
+  background: #fff;
+}
+.notion.candidate-mypage .candidate-profile-form input:focus,
+.notion.candidate-mypage .candidate-profile-form textarea:focus {
+  border-color: #3b6fe0;
+  box-shadow: 0 0 0 2px rgba(59, 111, 224, 0.16);
+  outline: none;
+}
+.notion.candidate-mypage .candidate-profile-form input:disabled {
+  background: #f7f7f5;
+  color: rgba(55, 53, 47, 0.5);
+}
+.notion.candidate-mypage .candidate-profile-form__full { grid-column: 1 / -1; }
+.notion.candidate-mypage .candidate-profile-form__full textarea { min-height: 76px; resize: vertical; }
+.notion.candidate-mypage .candidate-profile-form__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.notion.candidate-mypage .candidate-profile-form__msg { font-size: 13px; color: #3b6fe0; }
+@media (max-width: 720px) {
+  .notion.candidate-mypage .candidate-profile-form { grid-template-columns: 1fr; }
+}
+
 /* 지원서 세트(폴더) — #228 */
 .notion.candidate-mypage .folder-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 14px; margin-top: 16px; }
 .notion.candidate-mypage .folder-card {
@@ -9382,6 +9829,7 @@ p {
 .folder-form-modal { width: min(520px, 100%); display: grid; gap: 14px; }
 .folder-form-modal .folder-field { display: grid; gap: 6px; font-size: 13px; color: rgba(55, 53, 47, 0.7); }
 .folder-form-modal .folder-field > span { font-weight: 500; }
+.folder-form-modal .folder-hint { margin: -2px 0 2px; font-size: 12px; line-height: 1.5; color: rgba(55, 53, 47, 0.5); }
 .folder-form-modal .folder-field input,
 .folder-form-modal .folder-field textarea {
   padding: 9px 11px;
@@ -9633,28 +10081,28 @@ p {
 
 .notion.candidate-mypage .applications-list {
   list-style: none;
-  margin: 0;
+  margin: 8px 0 0;
   padding: 0;
-  background: #fff;
-  border: 1px solid rgba(55, 53, 47, 0.1);
-  border-radius: 14px;
-  overflow: hidden;
 }
 .notion.candidate-mypage .application-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto 108px;
   align-items: center;
-  gap: 18px;
-  padding: 18px 20px;
+  gap: 16px;
+  padding: 15px 14px;
+  border-radius: 10px;
   transition: background 0.12s ease;
 }
-.notion.candidate-mypage .application-row:hover { background: #fbfbfa; }
-.notion.candidate-mypage .application-row + .application-row { border-top: 1px solid rgba(55, 53, 47, 0.08); }
-.notion.candidate-mypage .application-row__main { display: grid; gap: 5px; min-width: 0; }
+.notion.candidate-mypage .application-row:hover { background: rgba(55, 53, 47, 0.035); }
+.notion.candidate-mypage .application-row + .application-row { border-top: 1px solid rgba(55, 53, 47, 0.07); }
+.notion.candidate-mypage .application-row:hover + .application-row,
+.notion.candidate-mypage .application-row:hover { border-top-color: transparent; }
+.notion.candidate-mypage .application-row__main { display: grid; gap: 4px; min-width: 0; }
 .notion.candidate-mypage .application-row__main strong {
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 600;
   color: #191919;
+  letter-spacing: -0.01em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -9664,10 +10112,15 @@ p {
   align-items: center;
   gap: 7px;
   font-size: 12.5px;
-  color: rgba(55, 53, 47, 0.55);
+  color: rgba(55, 53, 47, 0.5);
 }
 .notion.candidate-mypage .application-row__company em { font-style: normal; opacity: 0.4; }
-.notion.candidate-mypage .application-row__badges { display: inline-flex; align-items: center; gap: 6px; }
+.notion.candidate-mypage .application-row__badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: end;
+}
 /* 결과 확인·면접 준비하기 등 라벨 길이와 무관하게 버튼 크기 통일 (고정 폭 열 + 꽉 채움) */
 .notion.candidate-mypage .application-row__cta {
   display: inline-flex;
@@ -9711,6 +10164,37 @@ p {
 }
 .notion.candidate-mypage .applications-empty__cta { font-size: 13px; color: #3b6fe0; font-weight: 500; }
 .notion.candidate-mypage .applications-empty__cta:hover { text-decoration: underline; }
+
+/* ---- 지원 내역 페이지네이션(#272) ---- */
+.notion.candidate-mypage .applications-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 22px;
+}
+.notion.candidate-mypage .applications-pagination__nav,
+.notion.candidate-mypage .applications-pagination__page {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(55, 53, 47, 0.14);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  color: #37352f;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.notion.candidate-mypage .applications-pagination__nav:hover:not(:disabled),
+.notion.candidate-mypage .applications-pagination__page:hover { border-color: rgba(55, 53, 47, 0.3); }
+.notion.candidate-mypage .applications-pagination__page.is-active {
+  border-color: #3b6fe0;
+  background: #3b6fe0;
+  color: #fff;
+}
+.notion.candidate-mypage .applications-pagination__nav:disabled { opacity: 0.4; cursor: default; }
 
 @media (max-width: 640px) {
   .notion.candidate-mypage .application-row { grid-template-columns: 1fr auto; }

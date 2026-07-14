@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   CandidateFileAsset,
+  CandidateFolder,
   CandidateJobDetail,
   CandidateJobQuery,
   CandidateJobSummary,
@@ -12,6 +13,8 @@ import type {
 import { candidateApplicationInterviewRoutes } from "./routes";
 import {
   type CandidateApplicationFormState,
+  applyFolderToApplicationForm,
+  restoreApplicationSetContent,
   getCandidateJobDetailActionHref,
   hasPortfolioArtifact,
   hasRequiredConsents,
@@ -950,6 +953,8 @@ export function CandidateJobDetailView({ job, relatedJobs = [], onApplyClick }: 
   const actionHref = getCandidateJobDetailActionHref(job);
   const galleryRef = useRef<HTMLDivElement>(null);
   const [images, setImages] = useState<string[]>([]);
+  // 갤러리가 가로로 넘칠 때(보이는 것보다 이미지가 많을 때)만 좌우 넘김 버튼을 노출한다.
+  const [galleryCanScroll, setGalleryCanScroll] = useState(false);
 
   // JD 에서 "공고 조건" 블록을 분리해 요약 그리드로 보여주고, 본문에는 제거된 JD 만 렌더한다.
   // 이미지 갤러리(파일명 노출)와 태그 섹션은 상단 캐러셀/헤더 태그로 이미 보여주므로 본문에서만 제거한다(JD 섹션은 유지).
@@ -963,6 +968,18 @@ export function CandidateJobDetailView({ job, relatedJobs = [], onApplyClick }: 
   useEffect(() => {
     setImages(extractJobImages(job.jobDescription));
   }, [job.jobDescription]);
+
+  useEffect(() => {
+    const el = galleryRef.current;
+    if (!el) {
+      setGalleryCanScroll(false);
+      return;
+    }
+    const update = () => setGalleryCanScroll(el.scrollWidth > el.clientWidth + 2);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [images]);
 
   function slideGallery(direction: 1 | -1) {
     const el = galleryRef.current;
@@ -981,7 +998,7 @@ export function CandidateJobDetailView({ job, relatedJobs = [], onApplyClick }: 
               <img key={`${src}-${index}`} src={src} alt={`공고 이미지 ${index + 1}`} loading={index > 2 ? "lazy" : undefined} />
             ))}
           </div>
-          {images.length > 3 ? (
+          {galleryCanScroll ? (
             <>
               <button type="button" className="jobdetail-gallery-nav prev" aria-label="이전 이미지" onClick={() => slideGallery(-1)}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1107,11 +1124,64 @@ export function CandidateJobDetailView({ job, relatedJobs = [], onApplyClick }: 
   );
 }
 
+function formatSetUpdatedAt(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}.${String(date.getDate()).padStart(2, "0")}`;
+}
+
+interface ApplicationSetLoaderProps {
+  folders: CandidateFolder[];
+  activeSetId: number | null;
+  onLoad: (folder: CandidateFolder) => void;
+}
+
+// 저장한 지원서 세트를 지원 폼에 불러오는 패널. 불러온 내용은 수정 가능하고 원본 세트는 바뀌지 않는다. (#272)
+function ApplicationSetLoader({ folders, activeSetId, onLoad }: ApplicationSetLoaderProps) {
+  if (folders.length === 0) {
+    return null;
+  }
+  return (
+    <section className="candidate-apply-card candidate-apply-setloader" aria-label="지원서 세트 불러오기">
+      <p className="panel-title">지원서 세트 불러오기</p>
+      <p className="candidate-apply-note">
+        저장한 지원서 세트를 불러와 자동으로 채울 수 있어요. 불러온 내용은 자유롭게 수정할 수 있고, 원본 세트는 변경되지 않습니다.
+      </p>
+      <ul className="candidate-apply-setlist">
+        {folders.map((folder) => {
+          const updatedAt = formatSetUpdatedAt(folder.updatedAt);
+          return (
+            <li key={folder.id}>
+              <button
+                type="button"
+                className={`candidate-apply-set${activeSetId === folder.id ? " is-active" : ""}`}
+                onClick={() => onLoad(folder)}
+              >
+                <span className="candidate-apply-set__body">
+                  <span className="candidate-apply-set__name">{folder.name}</span>
+                  <span className="candidate-apply-set__meta">
+                    {folder.resumeFileName ? `이력서 · ${folder.resumeFileName}` : "이력서 없음"}
+                    {updatedAt ? ` · 수정 ${updatedAt}` : ""}
+                  </span>
+                </span>
+                <strong>{activeSetId === folder.id ? "불러옴" : "불러오기"}</strong>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 export interface CandidateApplicationViewProps {
   job: CandidateJobDetail;
   state: CandidateApplicationFormState;
   latestResumeFile?: CandidateFileAsset;
   latestPortfolioFile?: CandidateFileAsset;
+  folders?: CandidateFolder[];
   busy?: boolean;
   onResumeFileSelect?: (file: File) => void | Promise<void>;
   onPortfolioFileSelect?: (file: File) => void | Promise<void>;
@@ -1124,14 +1194,50 @@ export function CandidateApplicationView({
   state,
   latestResumeFile,
   latestPortfolioFile,
+  folders = [],
   busy = false,
   onResumeFileSelect,
   onPortfolioFileSelect,
   onStateChange,
   onSubmit,
 }: CandidateApplicationViewProps) {
+  const [activeSetId, setActiveSetId] = useState<number | null>(null);
+  const [loadedResumeName, setLoadedResumeName] = useState<string | null>(null);
+  const [loadedPortfolioName, setLoadedPortfolioName] = useState<string | null>(null);
+  const [preSetSnapshot, setPreSetSnapshot] = useState<CandidateApplicationFormState | null>(null);
+
+  function handleLoadSet(folder: CandidateFolder) {
+    // 이미 불러온 세트를 다시 누르면 불러오기 이전 상태로 되돌린다(아무것도 선택하지 않은 상태). (#272)
+    if (activeSetId === folder.id) {
+      // 해제: 기본정보/편집은 유지하고 콘텐츠만 세트 이전 값으로 되돌린다.
+      if (preSetSnapshot) {
+        onStateChange(restoreApplicationSetContent(state, preSetSnapshot));
+      }
+      setActiveSetId(null);
+      setLoadedResumeName(null);
+      setLoadedPortfolioName(null);
+      setPreSetSnapshot(null);
+      return;
+    }
+    // 세트 콘텐츠의 기준은 "세트 이전" 상태(프로필 자동입력 등)다. 첫 선택이면 현재 폼,
+    // 세트 전환이면 최초 스냅샷을 기준으로 삼아 이전 세트 값이 남지 않게 한다. 기본정보 편집은 current 로 유지. (#272 P2)
+    const baseline = activeSetId === null ? state : preSetSnapshot ?? state;
+    if (activeSetId === null) {
+      setPreSetSnapshot(state);
+    }
+    onStateChange(applyFolderToApplicationForm(state, baseline, folder));
+    setActiveSetId(folder.id);
+    setLoadedResumeName(folder.resumeFileId ? folder.resumeFileName : null);
+    setLoadedPortfolioName(folder.portfolioFileId ? folder.portfolioFileName : null);
+  }
+
+  // 표시 파일명은 현재 resumeFileId/portfolioFileId 가 실제로 가리키는 파일 기준으로 정한다.
+  // (직접 업로드 후 세트를 불러오면 파일 ID는 세트 것으로 바뀌므로, 업로드 파일명이 남지 않도록.) (#272 P2)
+  const resumeFromUpload = Boolean(latestResumeFile && latestResumeFile.fileId === state.resumeFileId);
+  const portfolioFromUpload = Boolean(latestPortfolioFile && latestPortfolioFile.fileId === state.portfolioFileId);
+
   const basicComplete = Boolean(
-    state.candidateName.trim() && state.email.trim() && state.phone.trim() && state.githubUrl.trim() && state.blogUrl.trim(),
+    state.candidateName.trim() && state.email.trim() && state.phone.trim(),
   );
   const resumeComplete = Boolean(state.resumeFileId);
   const portfolioComplete = hasPortfolioArtifact(state);
@@ -1177,10 +1283,11 @@ export function CandidateApplicationView({
       </section>
 
       <div className="candidate-apply-grid">
+        <ApplicationSetLoader folders={folders} activeSetId={activeSetId} onLoad={handleLoadSet} />
         <section aria-labelledby="candidate-basic-info-heading" className="candidate-apply-card">
           <p className="panel-title" id="candidate-basic-info-heading">기본 정보</p>
           <label>
-            이름 *
+            이름 <span className="req-mark">*</span>
             <input
               placeholder="이름을 입력하세요"
               required
@@ -1189,7 +1296,7 @@ export function CandidateApplicationView({
             />
           </label>
           <label>
-            이메일 *
+            이메일 <span className="req-mark">*</span>
             <input
               placeholder="example@email.com"
               required
@@ -1199,7 +1306,7 @@ export function CandidateApplicationView({
             />
           </label>
           <label>
-            연락처 *
+            연락처 <span className="req-mark">*</span>
             <input
               placeholder="010-0000-0000"
               required
@@ -1208,20 +1315,18 @@ export function CandidateApplicationView({
             />
           </label>
           <label>
-            GitHub URL *
+            GitHub URL
             <input
               placeholder="https://github.com/example"
-              required
               type="url"
               value={state.githubUrl}
               onChange={(event) => onStateChange({ ...state, githubUrl: event.currentTarget.value })}
             />
           </label>
           <label>
-            블로그 URL *
+            블로그 URL
             <input
               placeholder="https://blog.example.com"
-              required
               type="url"
               value={state.blogUrl}
               onChange={(event) => onStateChange({ ...state, blogUrl: event.currentTarget.value })}
@@ -1232,7 +1337,7 @@ export function CandidateApplicationView({
         <section aria-labelledby="candidate-document-heading" className="candidate-apply-card">
           <p className="panel-title" id="candidate-document-heading">서류 업로드</p>
           <label className="candidate-apply-file-label">
-            이력서 *
+            이력서 <span className="req-mark">*</span>
             <span className="candidate-apply-file-row">
               <input
                 accept=".pdf,application/pdf"
@@ -1251,8 +1356,8 @@ export function CandidateApplicationView({
                   <path d="M14 4v5h5" stroke="currentColor" strokeLinejoin="round" strokeWidth="2" />
                 </svg>
               </span>
-              <span>{latestResumeFile?.originalName ?? "이력서 파일을 선택하세요"}</span>
-              <strong>{latestResumeFile ? "업로드 완료" : "파일 선택"}</strong>
+              <span>{resumeFromUpload ? latestResumeFile?.originalName : loadedResumeName ?? "이력서 파일을 선택하세요"}</span>
+              <strong>{resumeFromUpload ? "업로드 완료" : loadedResumeName ? "세트 이력서" : "파일 선택"}</strong>
             </span>
           </label>
           <label>
@@ -1276,8 +1381,8 @@ export function CandidateApplicationView({
                   if (file && onPortfolioFileSelect) void onPortfolioFileSelect(file);
                 }}
               />
-              <span>{latestPortfolioFile?.originalName ?? "포트폴리오 PDF를 선택하세요"}</span>
-              <strong>{latestPortfolioFile ? "업로드 완료" : "파일 선택"}</strong>
+              <span>{portfolioFromUpload ? latestPortfolioFile?.originalName : loadedPortfolioName ?? "포트폴리오 PDF를 선택하세요"}</span>
+              <strong>{portfolioFromUpload ? "업로드 완료" : loadedPortfolioName ? "세트 포트폴리오" : "파일 선택"}</strong>
             </span>
           </label>
           <p className="candidate-apply-note">PDF · 20MB 이하</p>
@@ -1356,6 +1461,7 @@ export interface CandidateApplyModalProps {
   state: CandidateApplicationFormState;
   latestResumeFile?: CandidateFileAsset;
   latestPortfolioFile?: CandidateFileAsset;
+  folders?: CandidateFolder[];
   busy?: boolean;
   errorMessage?: string;
   onResumeFileSelect?: (file: File) => void | Promise<void>;
@@ -1373,6 +1479,7 @@ export function CandidateApplyModal({
   state,
   latestResumeFile,
   latestPortfolioFile,
+  folders = [],
   busy = false,
   errorMessage,
   onResumeFileSelect,
@@ -1383,13 +1490,46 @@ export function CandidateApplyModal({
 }: CandidateApplyModalProps) {
   const [step, setStep] = useState(0);
   const [validationMessage, setValidationMessage] = useState("");
+  const [activeSetId, setActiveSetId] = useState<number | null>(null);
+  const [loadedResumeName, setLoadedResumeName] = useState<string | null>(null);
+  const [loadedPortfolioName, setLoadedPortfolioName] = useState<string | null>(null);
+  const [preSetSnapshot, setPreSetSnapshot] = useState<CandidateApplicationFormState | null>(null);
+
+  function handleLoadSet(folder: CandidateFolder) {
+    // 이미 불러온 세트를 다시 누르면 불러오기 이전 상태로 되돌린다(아무것도 선택하지 않은 상태). (#272)
+    if (activeSetId === folder.id) {
+      // 해제: 기본정보/편집은 유지하고 콘텐츠만 세트 이전 값으로 되돌린다.
+      if (preSetSnapshot) {
+        onStateChange(restoreApplicationSetContent(state, preSetSnapshot));
+      }
+      setActiveSetId(null);
+      setLoadedResumeName(null);
+      setLoadedPortfolioName(null);
+      setPreSetSnapshot(null);
+      return;
+    }
+    // 세트 콘텐츠의 기준은 "세트 이전" 상태(프로필 자동입력 등)다. 첫 선택이면 현재 폼,
+    // 세트 전환이면 최초 스냅샷을 기준으로 삼아 이전 세트 값이 남지 않게 한다. 기본정보 편집은 current 로 유지. (#272 P2)
+    const baseline = activeSetId === null ? state : preSetSnapshot ?? state;
+    if (activeSetId === null) {
+      setPreSetSnapshot(state);
+    }
+    onStateChange(applyFolderToApplicationForm(state, baseline, folder));
+    setActiveSetId(folder.id);
+    setLoadedResumeName(folder.resumeFileId ? folder.resumeFileName : null);
+    setLoadedPortfolioName(folder.portfolioFileId ? folder.portfolioFileName : null);
+  }
 
   useEffect(() => {
     setValidationMessage("");
   }, [state]);
 
+  // 표시 파일명은 현재 파일 ID 가 실제로 가리키는 파일 기준. (직접 업로드 후 세트 불러오기 시 불일치 방지) (#272 P2)
+  const resumeFromUpload = Boolean(latestResumeFile && latestResumeFile.fileId === state.resumeFileId);
+  const portfolioFromUpload = Boolean(latestPortfolioFile && latestPortfolioFile.fileId === state.portfolioFileId);
+
   const basicComplete = Boolean(
-    state.candidateName.trim() && state.email.trim() && state.phone.trim() && state.githubUrl.trim() && state.blogUrl.trim(),
+    state.candidateName.trim() && state.email.trim() && state.phone.trim(),
   );
   const resumeComplete = Boolean(state.resumeFileId);
   const portfolioComplete = hasPortfolioArtifact(state);
@@ -1448,8 +1588,9 @@ export function CandidateApplyModal({
 
           {step === 0 ? (
             <div className="candidate-apply-modal-fields">
+              <ApplicationSetLoader folders={folders} activeSetId={activeSetId} onLoad={handleLoadSet} />
               <label>
-                이름 *
+                이름 <span className="req-mark">*</span>
                 <input
                   placeholder="이름을 입력하세요"
                   required
@@ -1458,7 +1599,7 @@ export function CandidateApplyModal({
                 />
               </label>
               <label>
-                이메일 *
+                이메일 <span className="req-mark">*</span>
                 <input
                   placeholder="example@email.com"
                   required
@@ -1468,7 +1609,7 @@ export function CandidateApplyModal({
                 />
               </label>
               <label>
-                연락처 *
+                연락처 <span className="req-mark">*</span>
                 <input
                   placeholder="010-0000-0000"
                   required
@@ -1477,20 +1618,18 @@ export function CandidateApplyModal({
                 />
               </label>
               <label>
-                GitHub URL *
+                GitHub URL
                 <input
                   placeholder="https://github.com/example"
-                  required
                   type="url"
                   value={state.githubUrl}
                   onChange={(event) => onStateChange({ ...state, githubUrl: event.currentTarget.value })}
                 />
               </label>
               <label>
-                블로그 URL *
+                블로그 URL
                 <input
                   placeholder="https://blog.example.com"
-                  required
                   type="url"
                   value={state.blogUrl}
                   onChange={(event) => onStateChange({ ...state, blogUrl: event.currentTarget.value })}
@@ -1502,7 +1641,7 @@ export function CandidateApplyModal({
           {step === 1 ? (
             <div className="candidate-apply-modal-fields">
               <label className="candidate-apply-file-label">
-                이력서 *
+                이력서 <span className="req-mark">*</span>
                 <span className="candidate-apply-file-row">
                   <input
                     accept=".pdf,application/pdf"
@@ -1515,8 +1654,8 @@ export function CandidateApplyModal({
                       }
                     }}
                   />
-                  <span>{latestResumeFile?.originalName ?? "이력서 PDF를 선택하세요 (20MB 이하)"}</span>
-                  <strong>{latestResumeFile ? "업로드 완료" : "파일 선택"}</strong>
+                  <span>{resumeFromUpload ? latestResumeFile?.originalName : loadedResumeName ?? "이력서 PDF를 선택하세요 (20MB 이하)"}</span>
+                  <strong>{resumeFromUpload ? "업로드 완료" : loadedResumeName ? "세트 이력서" : "파일 선택"}</strong>
                 </span>
               </label>
               <label>
@@ -1540,12 +1679,12 @@ export function CandidateApplyModal({
                       if (file && onPortfolioFileSelect) void onPortfolioFileSelect(file);
                     }}
                   />
-                  <span>{latestPortfolioFile?.originalName ?? "포트폴리오 PDF를 선택하세요"}</span>
-                  <strong>{latestPortfolioFile ? "업로드 완료" : "파일 선택"}</strong>
+                  <span>{portfolioFromUpload ? latestPortfolioFile?.originalName : loadedPortfolioName ?? "포트폴리오 PDF를 선택하세요"}</span>
+                  <strong>{portfolioFromUpload ? "업로드 완료" : loadedPortfolioName ? "세트 포트폴리오" : "파일 선택"}</strong>
                 </span>
               </label>
               <label>
-                지원 동기 *
+                지원 동기 <span className="req-mark">*</span>
                 <textarea
                   placeholder="이 공고에 지원한 동기를 입력하세요."
                   required
@@ -1554,7 +1693,7 @@ export function CandidateApplyModal({
                 />
               </label>
               <label>
-                추가 설명 *
+                추가 설명 <span className="req-mark">*</span>
                 <textarea
                   placeholder="관련 프로젝트, 본인이 맡은 역할 등 추가 설명을 입력하세요."
                   required
@@ -1573,9 +1712,9 @@ export function CandidateApplyModal({
                 <div><span>연락처</span><strong>{state.phone || "-"}</strong></div>
                 <div><span>GitHub</span><strong>{state.githubUrl || "-"}</strong></div>
                 <div><span>블로그</span><strong>{state.blogUrl || "-"}</strong></div>
-                <div><span>이력서</span><strong>{latestResumeFile?.originalName ?? "-"}</strong></div>
+                <div><span>이력서</span><strong>{resumeFromUpload ? latestResumeFile?.originalName : loadedResumeName ?? "-"}</strong></div>
                 <div><span>포트폴리오 URL</span><strong>{state.portfolioUrl || "-"}</strong></div>
-                <div><span>포트폴리오 PDF</span><strong>{latestPortfolioFile?.originalName ?? "-"}</strong></div>
+                <div><span>포트폴리오 PDF</span><strong>{portfolioFromUpload ? latestPortfolioFile?.originalName : loadedPortfolioName ?? "-"}</strong></div>
                 <div><span>지원 동기</span><strong>{state.motivation || "-"}</strong></div>
                 <div><span>추가 설명</span><strong>{state.additionalInfo || "-"}</strong></div>
               </div>
@@ -1630,7 +1769,7 @@ function toApplyValidationMessage(error: unknown): string {
   if (error.message.includes("portfolioFileId") || error.message.includes("portfolioUrl")) {
     return "포트폴리오 URL 또는 PDF를 제출해주세요.";
   }
-  if (error.message.includes("githubUrl") || error.message.includes("blogUrl")) return "GitHub와 블로그 URL을 모두 입력해주세요.";
+  if (error.message.includes("githubUrl") || error.message.includes("blogUrl")) return "GitHub·블로그 URL 형식을 확인해주세요.";
   if (error.message.includes("motivation") || error.message.includes("additionalInfo")) return "지원동기와 추가 설명을 모두 입력해주세요.";
   if (error.message.includes("resumeFileId")) return "이력서 파일을 업로드해주세요.";
   if (error.message.includes("candidateName") || error.message.includes("email") || error.message.includes("phone")) {

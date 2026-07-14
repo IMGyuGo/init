@@ -344,6 +344,30 @@ async function run() {
   assert.equal(applyView.data.documentPolicy.storageKeyPrefix, "candidate/1/");
   assert.deepEqual(applyView.data.requiredConsentTypes, ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"]);
   assert.equal(applyView.data.portfolioRequired, true);
+  // #272 회원 기본정보 자동 입력: 저장된 연락처 없으면 phone은 null.
+  assert.equal(applyView.data.applicant.name, "테스트 지원자");
+  assert.equal(applyView.data.applicant.email, "candidate@example.com");
+  assert.equal(applyView.data.applicant.phone, null);
+  // #272 2단계: GitHub/블로그/포트폴리오도 자동 입력 대상(없으면 null).
+  assert.equal(applyView.data.applicant.githubUrl, null);
+  assert.equal(applyView.data.applicant.blogUrl, null);
+  assert.equal(applyView.data.applicant.portfolioUrl, null);
+
+  // #272 프로필(내 정보) 편집: 조회 → 수정 → 재조회로 정본이 갱신되는지.
+  const initialProfile = await service.getProfile(currentUser);
+  assert.equal(initialProfile.data.email, "candidate@example.com");
+  assert.equal(initialProfile.data.githubUrl, null);
+  const savedProfile = await service.updateProfile(
+    { githubUrl: "https://github.com/tester", blogUrl: "  ", phone: "010-1234-5678", summary: "백엔드 지원자" },
+    currentUser,
+  );
+  assert.equal(savedProfile.data.githubUrl, "https://github.com/tester");
+  assert.equal(savedProfile.data.blogUrl, null); // 공백만 입력하면 null 로 정규화
+  assert.equal(savedProfile.data.phone, "010-1234-5678");
+  assert.equal(savedProfile.data.summary, "백엔드 지원자");
+  const reloadedProfile = await service.getProfile(currentUser);
+  assert.equal(reloadedProfile.data.githubUrl, "https://github.com/tester");
+  assert.equal(reloadedProfile.data.phone, "010-1234-5678");
 
   await assert.rejects(
     () => service.getJobDetail(Number.NaN, currentUser),
@@ -520,6 +544,8 @@ async function run() {
   const submittedApplyView = await service.getApplyView(1, currentUser);
   assert.equal(submittedApplyView.data.job.alreadyApplied, true);
   assert.equal(submittedApplyView.data.job.canApply, false);
+  // #272 제출 시 입력한 연락처가 회원정보에 저장되어 다음 지원 화면에서 자동 입력됨.
+  assert.equal(submittedApplyView.data.applicant.phone, "010-0000-0000");
 
   const applicationList = await service.listApplications(currentUser);
   assert.equal(applicationList.data.items.length, 1);
@@ -803,12 +829,15 @@ async function run() {
       ),
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
   );
+  // #272 2단계: GitHub/블로그 URL 은 선택 항목이므로 없이도 제출이 성공해야 한다.
   const secondSubmitted = await service.submitApplication(
     2,
     createSubmitApplicationDto({
       resumeFileId: resume.data.fileId,
       portfolioFileId: portfolioFile.data.fileId,
       portfolioUrl: "https://portfolio.example.com/kim",
+      githubUrl: undefined,
+      blogUrl: undefined,
     }),
     currentUser,
   );
