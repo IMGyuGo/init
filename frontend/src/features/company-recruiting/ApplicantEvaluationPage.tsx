@@ -430,7 +430,7 @@ function ReportOverview({
       }
       return next;
     });
-  // 레이더(육각형) 그래프에서 클릭한 역량. 기본은 최고 점수 역량. (#289)
+  // 역량 레이더에서 클릭한 역량. 기본은 최고 점수 역량. 축 개수는 역량 수에 따름(NCS 3역량이면 삼각형). (#289)
   const [selectedScoreId, setSelectedScoreId] = useState<number | null>(null);
 
   if (!report) {
@@ -643,7 +643,7 @@ function ReportOverview({
 
 type ReportScore = NonNullable<ApplicantEvaluation["report"]>["scores"][number];
 
-// 역량별 레이더(육각형) 그래프. 꼭짓점/라벨 클릭 시 우측 상세로 연동한다. (#289)
+// 역량별 레이더 그래프. 축 개수는 역량 수에 따라 동적(NCS 3역량 → 삼각형). 꼭짓점/라벨 클릭 시 우측 상세로 연동한다. (#289)
 const RADAR_VIEW_WIDTH = 460;
 const RADAR_VIEW_HEIGHT = 340;
 const RADAR_CX = 230;
