@@ -336,6 +336,7 @@ model EvaluationCriterion {
   questionNcsBindings    QuestionNcsBinding[]
   applicationNcsBindings ApplicationQuestionNcsBinding[]
   sessionNcsBindings     SessionQuestionNcsBinding[]
+  sessionNcsPolicies     InterviewSessionNcsPolicy[]
 
   @@map("evaluation_criteria")
 }
@@ -551,18 +552,39 @@ model InterviewSession {
   interviewType         InterviewType                      @map("interview_type")
   status                InterviewStatus                    @default(NOT_READY)
   showQuestionText      Boolean                            @default(false) @map("show_question_text")
+  preparationTimeSecSnapshot Int?                          @map("preparation_time_sec_snapshot")
+  answerTimeSecSnapshot      Int?                          @map("answer_time_sec_snapshot")
+  ncsScoringVersion          String?                       @map("ncs_scoring_version") @db.VarChar(80)
   startedAt             DateTime?                          @map("started_at")
   completedAt           DateTime?                          @map("completed_at")
   application           Application?                       @relation(fields: [applicationId], references: [applicationId])
   candidate             CandidateProfile                   @relation(fields: [candidateId], references: [candidateId])
   answers               InterviewAnswer[]
   sessionQuestions      InterviewSessionQuestion[]
+  ncsProfilePolicies    InterviewSessionNcsPolicy[]
   evaluationReports     EvaluationReport[]
   aiProcessLogs         AiProcessLog[]
   clientPerformanceLogs ClientPerformanceLog[]
   mockPassUsages        CandidateMockInterviewPassLedger[]
 
   @@map("interview_sessions")
+}
+
+model InterviewSessionNcsPolicy {
+  sessionId              BigInt               @map("session_id")
+  ncsProfileId           String               @map("ncs_profile_id") @db.VarChar(50)
+  criterionId            BigInt?              @map("criterion_id")
+  criterionTitleSnapshot String               @map("criterion_title_snapshot") @db.VarChar(200)
+  weight                 Int
+  minimumAverageScore    Decimal              @default(3) @map("minimum_average_score") @db.Decimal(5, 2)
+  requiredQuestionCount  Int                  @default(2) @map("required_question_count")
+  ncsProfileVersion      String               @map("ncs_profile_version") @db.VarChar(80)
+  session                InterviewSession     @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
+  criterion              EvaluationCriterion? @relation(fields: [criterionId], references: [criterionId], onDelete: SetNull)
+
+  @@id([sessionId, ncsProfileId])
+  @@index([criterionId], map: "idx_interview_session_ncs_policies_criterion")
+  @@map("interview_session_ncs_policies")
 }
 
 model InterviewSessionQuestion {

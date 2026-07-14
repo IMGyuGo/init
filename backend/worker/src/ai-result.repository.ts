@@ -182,11 +182,21 @@ export interface NcsAnswerEvaluationRecord {
   sessionQuestionId: number;
   criterionId: number;
   criterionTitleSnapshot: string;
-  ncsProfileId: "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL";
+  ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
   ncsQuestionMode: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
   ncsProfileVersion: string;
   output: NcsTextEvaluationOutput;
   question: string;
+  behaviorPoints: number | null;
+  logicPoints: number | null;
+  baseScore: number | null;
+  effectiveScore: number | null;
+  followUpApplied: boolean;
+  evidences: Array<{
+    sourceAnswerId: number;
+    sourceKind: "BASE" | "FOLLOW_UP";
+    quote: string;
+  }>;
 }
 
 export type ReportAnswerEvaluationStatusRecord = "EVALUATED" | "STT_UNAVAILABLE";

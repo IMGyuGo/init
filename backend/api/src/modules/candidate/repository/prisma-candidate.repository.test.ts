@@ -58,13 +58,36 @@ function postingRow(input: Partial<Record<string, unknown>> = {}) {
 }
 
 describe("PrismaCandidateRepository", () => {
-  function createSnapshotRepository(options: { batchStatus?: string } = {}) {
+  function createSnapshotRepository(options: { batchStatus?: string; insufficientCoverage?: boolean } = {}) {
     const jd = "NestJS와 PostgreSQL 기반 백엔드 개발자";
     const resume = "결제 장애의 원인을 추적하고 재발 방지 테스트를 추가했습니다.";
     const hash = (value: string) => createHash("sha256").update(value, "utf8").digest("hex");
     let runtimeQuestionId = 1_000_000_000_000_000n;
     let snapshotRows: Array<Record<string, unknown>> = [];
+    let snapshotBindingRows: Array<Record<string, unknown>> = [];
+    let sessionPolicyRows: Array<Record<string, unknown>> = [];
     let createManyCalls = 0;
+    const profileBindings = [
+      ["JOB_TECHNICAL", "PROBLEM_SOLVING"],
+      options.insufficientCoverage
+        ? ["COLLABORATION_COMMUNICATION"]
+        : ["COLLABORATION_COMMUNICATION", "JOB_TECHNICAL"],
+      ["PROBLEM_SOLVING", "COLLABORATION_COMMUNICATION"],
+      options.insufficientCoverage
+        ? ["PROBLEM_SOLVING"]
+        : ["JOB_TECHNICAL", "COLLABORATION_COMMUNICATION"],
+    ];
+    const binding = (profileId: string, bindingOrder: number) => ({
+      criterionId: profileId === "JOB_TECHNICAL" ? 1n : profileId === "COLLABORATION_COMMUNICATION" ? 2n : 3n,
+      ncsProfileId: profileId,
+      ncsProfileVersion: "2025.12-v1",
+      alignmentStatus: "ALIGNED",
+      alignmentScore: { toString: () => "0.9" },
+      alignmentReason: "정렬됨",
+      evaluatorVersion: "ncs-align-v1",
+      bindingOrder,
+      criterion: { tag: { name: `${profileId} 기준` } },
+    });
     const commonQuestions = [1, 2].map((sortOrder) => ({
       sortOrder,
       question: {
@@ -75,12 +98,13 @@ describe("PrismaCandidateRepository", () => {
         criterionId: BigInt(sortOrder),
         questionType: "TECHNICAL",
         content: `공통 질문 ${sortOrder}`,
-        ncsProfileId: sortOrder === 1 ? "PROBLEM_SOLVING" : "COMMUNICATION",
+        ncsProfileId: profileBindings[sortOrder - 1]?.[0],
         ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
         ncsProfileVersion: "2025.12-v1",
         alignmentScore: { toString: () => "0.9" },
         alignmentReason: "정렬됨",
         evaluatorVersion: "ncs-align-v1",
+        ncsBindings: (profileBindings[sortOrder - 1] ?? []).map(binding),
       },
       criterion: { tag: { name: `평가 기준 ${sortOrder}` } },
     }));
@@ -91,13 +115,14 @@ describe("PrismaCandidateRepository", () => {
       source: "RESUME_PERSONALIZED",
       questionType: "EXPERIENCE",
       content: `개인화 질문 ${sortOrder}`,
-      ncsProfileId: sortOrder === 1 ? "PROBLEM_SOLVING" : "COMMUNICATION",
+      ncsProfileId: profileBindings[sortOrder + 1]?.[0],
       ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
       ncsProfileVersion: "2025.12-v1",
       alignmentStatus: "ALIGNED",
       alignmentScore: { toString: () => "0.91" },
       alignmentReason: "정렬됨",
       evaluatorVersion: "ncs-align-v1",
+      ncsBindings: (profileBindings[sortOrder + 1] ?? []).map(binding),
       sortOrder,
     }));
     const transaction = {
@@ -110,6 +135,12 @@ describe("PrismaCandidateRepository", () => {
           candidateId: 30n,
           posting: {
             jobDescription: jd,
+            timePolicy: { preparationTimeSec: 30, answerTimeSec: 90 },
+            criteria: [
+              { criterionId: 1n, ncsProfileId: "JOB_TECHNICAL", ncsProfileVersion: "2025.12-v1", weight: 30, tag: { name: "기술·직무" } },
+              { criterionId: 2n, ncsProfileId: "COLLABORATION_COMMUNICATION", ncsProfileVersion: "2025.12-v1", weight: 30, tag: { name: "협업·의사소통" } },
+              { criterionId: 3n, ncsProfileId: "PROBLEM_SOLVING", ncsProfileVersion: "2025.12-v1", weight: 40, tag: { name: "문제 해결력" } },
+            ],
             questionGenerationPolicy: {
               evaluationFramework: "NCS_3_PROFILE_V1",
               jdCriteriaQuestionCount: 2,
@@ -133,11 +164,25 @@ describe("PrismaCandidateRepository", () => {
       },
       interviewSession: {
         create: async () => { throw new Error("existing session should be reused"); },
+        update: async ({ data }: { data: Record<string, unknown> }) => ({ sessionId: 40n, ...data }),
       },
       interviewSessionQuestion: {
         createMany: async ({ data }: { data: Array<Record<string, unknown>> }) => {
           createManyCalls += 1;
           snapshotRows = data;
+          return { count: data.length };
+        },
+        findMany: async () => snapshotRows.map((_, index) => ({ sessionQuestionId: BigInt(400 + index) })),
+      },
+      sessionQuestionNcsBinding: {
+        createMany: async ({ data }: { data: Array<Record<string, unknown>> }) => {
+          snapshotBindingRows = data;
+          return { count: data.length };
+        },
+      },
+      interviewSessionNcsPolicy: {
+        createMany: async ({ data }: { data: Array<Record<string, unknown>> }) => {
+          sessionPolicyRows = data;
           return { count: data.length };
         },
       },
@@ -148,6 +193,8 @@ describe("PrismaCandidateRepository", () => {
     return {
       repository: new PrismaCandidateRepository(prisma as never),
       getSnapshotRows: () => snapshotRows,
+      getSnapshotBindingRows: () => snapshotBindingRows,
+      getSessionPolicyRows: () => sessionPolicyRows,
       getCreateManyCalls: () => createManyCalls,
     };
   }
@@ -167,6 +214,11 @@ describe("PrismaCandidateRepository", () => {
       "RESUME_PERSONALIZED",
     ]);
     assert.deepEqual(fixture.getSnapshotRows().map((row) => row.sortOrder), [1, 2, 3, 4]);
+    assert.equal(fixture.getSnapshotBindingRows().length, 8);
+    assert.deepEqual(
+      fixture.getSessionPolicyRows().map((row) => row.weight),
+      [30, 30, 40],
+    );
 
     const reused = await fixture.repository.prepareInterviewSessionQuestionSnapshot(10);
     assert.equal(reused?.snapshotCreated, false);
@@ -183,6 +235,25 @@ describe("PrismaCandidateRepository", () => {
     assert.equal(result?.commonQuestionCount, 2);
     assert.equal(result?.personalizedQuestionCount, 0);
     assert.equal(fixture.getCreateManyCalls(), 0);
+  });
+
+  it("blocks snapshot writes when any NCS profile has fewer than two base questions", async () => {
+    const fixture = createSnapshotRepository({ insufficientCoverage: true });
+
+    const result = await fixture.repository.prepareInterviewSessionQuestionSnapshot(10);
+
+    assert.equal(result?.readiness, "NCS_QUESTION_COVERAGE_INVALID");
+    assert.deepEqual(
+      result?.ncsCoverage?.find((coverage) => coverage.ncsProfileId === "JOB_TECHNICAL"),
+      {
+        ncsProfileId: "JOB_TECHNICAL",
+        requiredQuestionCount: 2,
+        actualQuestionCount: 1,
+      },
+    );
+    assert.equal(fixture.getCreateManyCalls(), 0);
+    assert.equal(fixture.getSnapshotBindingRows().length, 0);
+    assert.equal(fixture.getSessionPolicyRows().length, 0);
   });
 
   it("queries only candidate-visible postings from the shared postings table", async () => {

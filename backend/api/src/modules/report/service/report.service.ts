@@ -493,6 +493,7 @@ export class ReportService {
                 alignmentStatus: ncsSnapshot.alignmentStatus,
                 alignmentScore: ncsSnapshot.alignmentScore,
                 evaluatorVersion: ncsSnapshot.evaluatorVersion,
+                ncsBindings: ncsSnapshot.ncsBindings,
               }
             : {}),
         };

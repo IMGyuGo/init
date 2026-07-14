@@ -55,6 +55,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | `application_documents` | `ApplicationDocument` | D/E |
 | `consent_records` | `ConsentRecord` | D |
 | `interview_sessions` | `InterviewSession` | D/E |
+| `interview_session_ncs_policies` | `InterviewSessionNcsPolicy` | D/E |
 | `interview_session_questions` | `InterviewSessionQuestion` | D/E |
 | `application_question_ncs_bindings` | `ApplicationQuestionNcsBinding` | C/E |
 | `session_question_ncs_bindings` | `SessionQuestionNcsBinding` | D/E |
@@ -90,7 +91,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | Account | users, companies, candidate_profiles | 로그인 계정, 기업/지원자 프로필, 기본 파일 참조 |
 | Recruiting | postings, criterion_tags, evaluation_criteria, question_bank, question_ncs_bindings, application_question_ncs_bindings, interview_time_policies | 공고, JD, 평가 기준, 질문, 면접 시간 정책 관리 |
 | Application | applications, application_documents, consent_records | 지원서 제출, 서류 파싱, 동의 이력 |
-| Interview | interview_sessions, interview_session_questions, session_question_ncs_bindings, interview_answers, follow_up_questions | 모의/채용 AI 면접 실행, 세션별 질문 순서·profile snapshot과 답변 |
+| Interview | interview_sessions, interview_session_ncs_policies, interview_session_questions, session_question_ncs_bindings, interview_answers, follow_up_questions | 모의/채용 AI 면접 실행, 세션별 시간·가중치 정책과 질문 순서·profile snapshot, 답변 |
 | Report | evaluation_reports, ncs_answer_evaluations, ncs_answer_evaluation_evidences, report_scores, report_evidences, manual_evaluations | 답변·profile별 NCS 평가와 exact evidence, AI 집계 결과와 면접관 검토 |
 | AI Infra | ai_process_logs, ai_guardrail_logs, embeddings | AI 처리 상태, 안전성 검증, 검색/추천 |
 | Notification/File | notifications, file_assets | 알림과 업로드 파일 메타데이터 |
@@ -338,8 +339,26 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | interview_type | VARCHAR(40) NOT NULL | 면접 유형: MOCK, RECRUITING |
 | status | VARCHAR(40) NOT NULL | 면접 상태: NOT_READY, READY, IN_PROGRESS, COMPLETED, FAILED |
 | show_question_text | BOOLEAN NOT NULL DEFAULT FALSE | 면접 질문 텍스트 표시 여부 |
+| preparation_time_sec_snapshot | INTEGER | 세션 확정 당시 준비 시간. legacy 세션은 NULL |
+| answer_time_sec_snapshot | INTEGER | 세션 확정 당시 본 질문·꼬리질문 공통 답변 시간. legacy 세션은 NULL |
+| ncs_scoring_version | VARCHAR(80) | 세션에 고정한 NCS 점수 계산 계약 version. legacy 세션은 NULL |
 | started_at | TIMESTAMP | 면접 시작 시각 |
 | completed_at | TIMESTAMP | 면접 완료 시각 |
+
+### interview_session_ncs_policies
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| session_id | BIGINT NOT NULL | 연결된 면접 세션 FK |
+| ncs_profile_id | VARCHAR(50) NOT NULL | canonical NCS profile ID |
+| criterion_id | BIGINT | 세션 확정 당시 평가 기준 FK. 삭제 시 NULL 허용 |
+| criterion_title_snapshot | VARCHAR(200) NOT NULL | 세션 확정 당시 평가 기준 표시명 |
+| weight | INTEGER NOT NULL | 세션에 고정한 profile 가중치. 세 profile 합계 100 |
+| minimum_average_score | DECIMAL(5,2) NOT NULL DEFAULT 3 | profile 최소 통과 평균 |
+| required_question_count | INTEGER NOT NULL DEFAULT 2 | profile별 최소 base question 수 |
+| ncs_profile_version | VARCHAR(80) NOT NULL | profile version snapshot |
+
+`(session_id, ncs_profile_id)`를 PK로 사용한다. NCS 세션을 확정할 때 canonical profile 세 개를 각각 한 행씩 저장하고 가중치 합계 100, profile별 연결 문항 최소 2개를 같은 transaction에서 검증한다. 세션 시작 이후 평가 기준·가중치·시간 정책 원본 변경은 이 snapshot에 소급하지 않는다. legacy 세션은 정책 행이 없을 수 있으며 평가 시 임의 기본값을 채우지 않고 `INCOMPLETE`로 처리한다.
 
 ### interview_session_questions
 

@@ -72,6 +72,19 @@ type ConsentRecordModel = Prisma.ConsentRecordGetPayload<Record<string, never>>;
 type FileAssetRecord = Prisma.FileAssetGetPayload<Record<string, never>>;
 type InterviewSessionRecord = Prisma.InterviewSessionGetPayload<{ include: { application: true } }>;
 
+const NCS_SCORING_VERSION = "NCS_RECRUITING_SCORING_V1";
+const NCS_REQUIRED_QUESTION_COUNT = 2;
+const NCS_PROFILE_IDS = [
+  "JOB_TECHNICAL",
+  "COLLABORATION_COMMUNICATION",
+  "PROBLEM_SOLVING",
+] as const;
+type CanonicalNcsProfileId = (typeof NCS_PROFILE_IDS)[number];
+
+function isCanonicalNcsProfileId(value: string | null | undefined): value is CanonicalNcsProfileId {
+  return NCS_PROFILE_IDS.includes(value as CanonicalNcsProfileId);
+}
+
 @Injectable()
 export class PrismaCandidateRepository implements CandidateRepository {
   private candidatePostingSchemaShape?: Promise<CandidatePostingSchemaShape>;
@@ -304,6 +317,11 @@ export class PrismaCandidateRepository implements CandidateRepository {
         include: {
           posting: {
             include: {
+              timePolicy: true,
+              criteria: {
+                orderBy: { sortOrder: "asc" },
+                include: { tag: true },
+              },
               questionGenerationPolicy: true,
               questionSets: {
                 where: { status: "ACTIVE" },
@@ -313,7 +331,14 @@ export class PrismaCandidateRepository implements CandidateRepository {
                   items: {
                     orderBy: { sortOrder: "asc" },
                     include: {
-                      question: true,
+                      question: {
+                        include: {
+                          ncsBindings: {
+                            orderBy: { bindingOrder: "asc" },
+                            include: { criterion: { include: { tag: true } } },
+                          },
+                        },
+                      },
                       criterion: { include: { tag: true } },
                     },
                   },
@@ -328,7 +353,17 @@ export class PrismaCandidateRepository implements CandidateRepository {
           },
           interviewQuestionBatches: {
             orderBy: { createdAt: "desc" },
-            include: { questions: { orderBy: { sortOrder: "asc" } } },
+            include: {
+              questions: {
+                orderBy: { sortOrder: "asc" },
+                include: {
+                  ncsBindings: {
+                    orderBy: { bindingOrder: "asc" },
+                    include: { criterion: { include: { tag: true } } },
+                  },
+                },
+              },
+            },
           },
           interviewSessions: {
             where: { interviewType: PrismaInterviewType.RECRUITING },
@@ -396,17 +431,52 @@ export class PrismaCandidateRepository implements CandidateRepository {
         };
       }
 
+      const ncsCriteria = application.posting.criteria.filter((criterion) =>
+        isCanonicalNcsProfileId(criterion.ncsProfileId) &&
+        Boolean(criterion.ncsProfileVersion) &&
+        Boolean(criterion.tag.name.trim()),
+      );
+      const criteriaProfiles = ncsCriteria.map((criterion) => criterion.ncsProfileId);
+      const hasValidNcsPolicy =
+        ncsCriteria.length === NCS_PROFILE_IDS.length &&
+        NCS_PROFILE_IDS.every(
+          (profileId) => criteriaProfiles.filter((candidate) => candidate === profileId).length === 1,
+        ) &&
+        ncsCriteria.reduce((total, criterion) => total + criterion.weight, 0) === 100;
+      if (!hasValidNcsPolicy) {
+        return this.snapshotReadinessResult({
+          readiness: "NCS_QUESTION_COVERAGE_INVALID",
+          applicationId,
+          postingId: Number(application.postingId),
+          sessionId: existingSession ? Number(existingSession.sessionId) : null,
+          commonQuestionCount: 0,
+          personalizedQuestionCount: 0,
+          expectedCommonQuestionCount,
+          expectedPersonalizedQuestionCount,
+          policyVersion,
+          criteriaVersion,
+          ncsCoverage: NCS_PROFILE_IDS.map((ncsProfileId) => ({
+            ncsProfileId,
+            requiredQuestionCount: NCS_REQUIRED_QUESTION_COUNT,
+            actualQuestionCount: 0,
+          })),
+        });
+      }
+
       const activeQuestionSet = application.posting.questionSets[0] ?? null;
       const activeQuestionSetItems = activeQuestionSet?.items ?? [];
       const commonQuestions = activeQuestionSetItems.filter((item) =>
         item.question.isActive &&
         item.question.generationSource === "JD_CRITERIA" &&
-        item.question.alignmentStatus === "ALIGNED" &&
-        item.question.criterionId !== null &&
-        item.question.ncsProfileId !== null &&
         item.question.ncsQuestionMode !== null &&
-        item.question.ncsProfileVersion !== null &&
-        item.criterion !== null,
+        item.question.ncsBindings.length >= 1 &&
+        item.question.ncsBindings.length <= 2 &&
+        item.question.ncsBindings.every((binding) =>
+          binding.alignmentStatus === "ALIGNED" &&
+          isCanonicalNcsProfileId(binding.ncsProfileId) &&
+          Boolean(binding.ncsProfileVersion) &&
+          binding.criterion !== null,
+        ),
       );
       if (
         activeQuestionSetItems.length !== expectedCommonQuestionCount ||
@@ -446,12 +516,16 @@ export class PrismaCandidateRepository implements CandidateRepository {
         personalizedQuestions = batch?.status === "READY" && batch.questions.length === expectedPersonalizedQuestionCount
           ? batch.questions.filter((question) =>
               question.source === "RESUME_PERSONALIZED" &&
-              question.alignmentStatus === "ALIGNED" &&
-              question.criterionId !== null &&
               Boolean(question.content.trim()) &&
-              Boolean(question.ncsProfileId) &&
               Boolean(question.ncsQuestionMode) &&
-              Boolean(question.ncsProfileVersion),
+              question.ncsBindings.length >= 1 &&
+              question.ncsBindings.length <= 2 &&
+              question.ncsBindings.every((binding) =>
+                binding.alignmentStatus === "ALIGNED" &&
+                isCanonicalNcsProfileId(binding.ncsProfileId) &&
+                Boolean(binding.ncsProfileVersion) &&
+                binding.criterion !== null,
+              ),
             )
           : [];
         if (personalizedQuestions.length !== expectedPersonalizedQuestionCount) {
@@ -470,67 +544,176 @@ export class PrismaCandidateRepository implements CandidateRepository {
         }
       }
 
-      const session = existingSession ?? await transaction.interviewSession.create({
-        data: {
-          applicationId: application.applicationId,
-          candidateId: application.candidateId,
-          interviewType: PrismaInterviewType.RECRUITING,
-          status: PrismaInterviewStatus.NOT_READY,
-          showQuestionText: true,
-        },
-      });
+      const profileQuestionCounts = new Map<CanonicalNcsProfileId, number>(
+        NCS_PROFILE_IDS.map((profileId) => [profileId, 0]),
+      );
+      for (const bindings of [
+        ...commonQuestions.map((item) => item.question.ncsBindings),
+        ...personalizedQuestions.map((question) => question.ncsBindings),
+      ]) {
+        for (const binding of bindings) {
+          if (isCanonicalNcsProfileId(binding.ncsProfileId)) {
+            profileQuestionCounts.set(
+              binding.ncsProfileId,
+              (profileQuestionCounts.get(binding.ncsProfileId) ?? 0) + 1,
+            );
+          }
+        }
+      }
+      const ncsCoverage = NCS_PROFILE_IDS.map((ncsProfileId) => ({
+        ncsProfileId,
+        requiredQuestionCount: NCS_REQUIRED_QUESTION_COUNT,
+        actualQuestionCount: profileQuestionCounts.get(ncsProfileId) ?? 0,
+      }));
+      if (ncsCoverage.some((coverage) => coverage.actualQuestionCount < coverage.requiredQuestionCount)) {
+        return this.snapshotReadinessResult({
+          readiness: "NCS_QUESTION_COVERAGE_INVALID",
+          applicationId,
+          postingId: Number(application.postingId),
+          sessionId: existingSession ? Number(existingSession.sessionId) : null,
+          commonQuestionCount: commonQuestions.length,
+          personalizedQuestionCount: personalizedQuestions.length,
+          expectedCommonQuestionCount,
+          expectedPersonalizedQuestionCount,
+          policyVersion,
+          criteriaVersion,
+          ncsCoverage,
+        });
+      }
+
+      const preparationTimeSecSnapshot = application.posting.timePolicy?.preparationTimeSec ?? 0;
+      const answerTimeSecSnapshot = application.posting.timePolicy?.answerTimeSec ?? 90;
+      const session = existingSession
+        ? await transaction.interviewSession.update({
+            where: { sessionId: existingSession.sessionId },
+            data: {
+              preparationTimeSecSnapshot,
+              answerTimeSecSnapshot,
+              ncsScoringVersion: NCS_SCORING_VERSION,
+            },
+          })
+        : await transaction.interviewSession.create({
+            data: {
+              applicationId: application.applicationId,
+              candidateId: application.candidateId,
+              interviewType: PrismaInterviewType.RECRUITING,
+              status: PrismaInterviewStatus.NOT_READY,
+              showQuestionText: true,
+              preparationTimeSecSnapshot,
+              answerTimeSecSnapshot,
+              ncsScoringVersion: NCS_SCORING_VERSION,
+            },
+          });
       const snapshotRows: Prisma.InterviewSessionQuestionCreateManyInput[] = [];
+      const snapshotBindings: Array<Array<Omit<
+        Prisma.SessionQuestionNcsBindingCreateManyInput,
+        "sessionQuestionId"
+      >>> = [];
       for (const item of commonQuestions) {
         const runtimeQuestionId = await this.allocateSessionRuntimeQuestionId(transaction);
+        const primaryBinding = item.question.ncsBindings[0];
+        if (!primaryBinding) throw new Error("Validated common NCS question lost its binding.");
         snapshotRows.push({
           sessionId: session.sessionId,
           questionId: item.question.questionId,
           personalizedQuestionId: null,
           runtimeQuestionId,
-          criterionId: item.question.criterionId,
-          criterionTitleSnapshot: item.criterion?.tag.name ?? "",
+          criterionId: primaryBinding.criterionId,
+          criterionTitleSnapshot: primaryBinding.criterion.tag.name,
           generationSource: "JD_CRITERIA",
           questionType: item.question.questionType,
           content: item.question.content,
-          ncsProfileId: item.question.ncsProfileId,
+          ncsProfileId: primaryBinding.ncsProfileId,
           ncsQuestionMode: item.question.ncsQuestionMode,
-          ncsProfileVersion: item.question.ncsProfileVersion,
-          alignmentStatus: item.question.alignmentStatus,
-          alignmentScore: item.question.alignmentScore,
-          alignmentReason: item.question.alignmentReason,
-          evaluatorVersion: item.question.evaluatorVersion,
+          ncsProfileVersion: primaryBinding.ncsProfileVersion,
+          alignmentStatus: primaryBinding.alignmentStatus,
+          alignmentScore: primaryBinding.alignmentScore,
+          alignmentReason: primaryBinding.alignmentReason,
+          evaluatorVersion: primaryBinding.evaluatorVersion,
           policyVersion,
           criteriaVersion,
           sortOrder: snapshotRows.length + 1,
         });
+        snapshotBindings.push(item.question.ncsBindings.map((binding) => ({
+          criterionId: binding.criterionId,
+          criterionTitleSnapshot: binding.criterion.tag.name,
+          ncsProfileId: binding.ncsProfileId,
+          ncsProfileVersion: binding.ncsProfileVersion,
+          alignmentStatus: binding.alignmentStatus,
+          alignmentScore: binding.alignmentScore,
+          alignmentReason: binding.alignmentReason,
+          evaluatorVersion: binding.evaluatorVersion,
+          bindingOrder: binding.bindingOrder,
+        })));
       }
       for (const question of personalizedQuestions) {
         const runtimeQuestionId = await this.allocateSessionRuntimeQuestionId(transaction);
+        const primaryBinding = question.ncsBindings[0];
+        if (!primaryBinding) throw new Error("Validated personalized NCS question lost its binding.");
         snapshotRows.push({
           sessionId: session.sessionId,
           questionId: null,
           personalizedQuestionId: question.personalizedQuestionId,
           runtimeQuestionId,
-          criterionId: question.criterionId,
-          criterionTitleSnapshot: question.criterionTitleSnapshot,
+          criterionId: primaryBinding.criterionId,
+          criterionTitleSnapshot: primaryBinding.criterion?.tag.name ?? question.criterionTitleSnapshot,
           generationSource: "RESUME_PERSONALIZED",
           questionType: question.questionType,
           content: question.content,
-          ncsProfileId: question.ncsProfileId,
+          ncsProfileId: primaryBinding.ncsProfileId,
           ncsQuestionMode: question.ncsQuestionMode,
-          ncsProfileVersion: question.ncsProfileVersion,
-          alignmentStatus: question.alignmentStatus,
-          alignmentScore: question.alignmentScore,
-          alignmentReason: question.alignmentReason,
-          evaluatorVersion: question.evaluatorVersion,
+          ncsProfileVersion: primaryBinding.ncsProfileVersion,
+          alignmentStatus: primaryBinding.alignmentStatus,
+          alignmentScore: primaryBinding.alignmentScore,
+          alignmentReason: primaryBinding.alignmentReason,
+          evaluatorVersion: primaryBinding.evaluatorVersion,
           policyVersion,
           criteriaVersion,
           sortOrder: snapshotRows.length + 1,
         });
+        snapshotBindings.push(question.ncsBindings.map((binding) => ({
+          criterionId: binding.criterionId,
+          criterionTitleSnapshot: binding.criterion?.tag.name ?? question.criterionTitleSnapshot,
+          ncsProfileId: binding.ncsProfileId,
+          ncsProfileVersion: binding.ncsProfileVersion,
+          alignmentStatus: binding.alignmentStatus,
+          alignmentScore: binding.alignmentScore,
+          alignmentReason: binding.alignmentReason,
+          evaluatorVersion: binding.evaluatorVersion,
+          bindingOrder: binding.bindingOrder,
+        })));
       }
       if (snapshotRows.length > 0) {
         await transaction.interviewSessionQuestion.createMany({ data: snapshotRows });
+        const createdQuestions = await transaction.interviewSessionQuestion.findMany({
+          where: { sessionId: session.sessionId },
+          orderBy: { sortOrder: "asc" },
+          select: { sessionQuestionId: true },
+        });
+        if (createdQuestions.length !== snapshotBindings.length) {
+          throw new Error("NCS session question snapshot count mismatch.");
+        }
+        await transaction.sessionQuestionNcsBinding.createMany({
+          data: createdQuestions.flatMap((createdQuestion, index) =>
+            (snapshotBindings[index] ?? []).map((binding) => ({
+              sessionQuestionId: createdQuestion.sessionQuestionId,
+              ...binding,
+            })),
+          ),
+        });
       }
+      await transaction.interviewSessionNcsPolicy.createMany({
+        data: ncsCriteria.map((criterion) => ({
+          sessionId: session.sessionId,
+          ncsProfileId: criterion.ncsProfileId as CanonicalNcsProfileId,
+          criterionId: criterion.criterionId,
+          criterionTitleSnapshot: criterion.tag.name,
+          weight: criterion.weight,
+          minimumAverageScore: 3,
+          requiredQuestionCount: NCS_REQUIRED_QUESTION_COUNT,
+          ncsProfileVersion: criterion.ncsProfileVersion ?? "",
+        })),
+      });
 
       return {
         readiness: "READY",
@@ -545,6 +728,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
         expectedPersonalizedQuestionCount,
         policyVersion,
         criteriaVersion,
+        ncsCoverage,
       };
     });
   }

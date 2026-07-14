@@ -611,6 +611,19 @@ export class CandidateService {
         }],
       );
     }
+    if (result.readiness === "NCS_QUESTION_COVERAGE_INVALID") {
+      throw new CandidateDomainError(
+        "INTERVIEW_NCS_QUESTION_COVERAGE_INVALID",
+        "Each NCS profile must be connected to at least two base questions.",
+        409,
+        (result.ncsCoverage ?? []).map((coverage) => ({
+          field: `ncsCoverage.${coverage.ncsProfileId}`,
+          reason: "MINIMUM_BASE_QUESTION_COUNT_NOT_MET",
+          expectedCount: coverage.requiredQuestionCount,
+          actualCount: coverage.actualQuestionCount,
+        })),
+      );
+    }
     return result;
   }
 

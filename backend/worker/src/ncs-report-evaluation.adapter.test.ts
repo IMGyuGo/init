@@ -119,3 +119,55 @@ test("unsupported profile versions fail before evaluation", async () => {
     /unsupported NCS profile version/,
   );
 });
+
+test("one question with two canonical bindings creates two 0-to-5 evaluation rows", async () => {
+  const transcript =
+    "배포 일정 갈등에서 오류 로그와 고객 영향 자료를 먼저 공유했습니다. 백엔드와 운영팀의 우선순위를 확인하고 단계 배포와 전체 롤백 대안을 비교했습니다. 합의한 단계 배포를 적용한 뒤 오류율과 응답 시간을 함께 확인해 결과를 검증했습니다.";
+  const result = await evaluateNcsReportAnswers(
+    81,
+    [{
+      answerId: 105,
+      question: "배포 장애 갈등 상황에서 정보를 공유하고 대안을 조율해 문제를 해결한 과정을 설명해주세요.",
+      transcript,
+      sessionQuestionId: 505,
+      ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+      ncsBindings: [
+        {
+          criterionId: 14,
+          criterionTitleSnapshot: "협업·의사소통",
+          ncsProfileId: "COLLABORATION_COMMUNICATION",
+          ncsProfileVersion: PROFILE_VERSION,
+          alignmentStatus: "ALIGNED",
+          bindingOrder: 1,
+        },
+        {
+          criterionId: 15,
+          criterionTitleSnapshot: "문제 해결력",
+          ncsProfileId: "PROBLEM_SOLVING",
+          ncsProfileVersion: PROFILE_VERSION,
+          alignmentStatus: "ALIGNED",
+          bindingOrder: 2,
+        },
+      ],
+    }],
+    [14, 15],
+  );
+
+  assert.equal(result.evaluations.length, 2);
+  assert.deepEqual(
+    result.evaluations.map((evaluation) => evaluation.ncsProfileId),
+    ["COLLABORATION_COMMUNICATION", "PROBLEM_SOLVING"],
+  );
+  for (const evaluation of result.evaluations) {
+    assert.equal(evaluation.output.scoreStatus, "SCORED");
+    assert.ok(evaluation.behaviorPoints !== null && evaluation.behaviorPoints >= 0 && evaluation.behaviorPoints <= 3);
+    assert.ok(evaluation.logicPoints !== null && evaluation.logicPoints >= 0 && evaluation.logicPoints <= 2);
+    assert.equal(evaluation.baseScore, evaluation.behaviorPoints! + evaluation.logicPoints!);
+    assert.equal(evaluation.effectiveScore, evaluation.baseScore);
+    assert.equal(evaluation.followUpApplied, false);
+    assert.ok(evaluation.evidences.length > 0);
+    assert.ok(evaluation.evidences.every((evidence) =>
+      evidence.sourceAnswerId === 105 && evidence.sourceKind === "BASE" && transcript.includes(evidence.quote),
+    ));
+  }
+});

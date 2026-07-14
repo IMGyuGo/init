@@ -294,11 +294,17 @@ test("PrismaAiResultRepository stores an insufficient NCS answer without creatin
         sessionQuestionId: 501,
         criterionId: 3,
         criterionTitleSnapshot: "디지털역량",
-        ncsProfileId: "DIGITAL",
+        ncsProfileId: "JOB_TECHNICAL",
         ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
         ncsProfileVersion: "2025.12-v1",
         output,
         question: "Redis 장애 위험과 검증 방법을 설명해 주세요.",
+        behaviorPoints: null,
+        logicPoints: null,
+        baseScore: null,
+        effectiveScore: null,
+        followUpApplied: false,
+        evidences: [],
       },
     ],
   });
@@ -311,6 +317,12 @@ test("PrismaAiResultRepository stores an insufficient NCS answer without creatin
   assert.equal(created?.args.data.competencyScore, null);
   assert.equal(created?.args.data.evidenceScore, null);
   assert.equal(created?.args.data.totalScore, null);
+  assert.equal(created?.args.data.behaviorPoints, null);
+  assert.equal(created?.args.data.logicPoints, null);
+  assert.equal(created?.args.data.baseScore, null);
+  assert.equal(created?.args.data.effectiveScore, null);
+  assert.equal(created?.args.data.followUpApplied, false);
+  assert.deepEqual(created?.args.data.evidences.create, []);
 });
 
 test("PrismaAiResultRepository rejects scores without evidence before deleting existing scores", async () => {

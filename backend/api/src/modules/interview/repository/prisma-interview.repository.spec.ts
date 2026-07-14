@@ -14,6 +14,19 @@ const ANSWER_SESSION_QUESTION_INCLUDE = {
       alignmentStatus: true,
       alignmentScore: true,
       evaluatorVersion: true,
+      ncsBindings: {
+        orderBy: { bindingOrder: "asc" },
+        select: {
+          criterionId: true,
+          criterionTitleSnapshot: true,
+          ncsProfileId: true,
+          ncsProfileVersion: true,
+          alignmentStatus: true,
+          alignmentScore: true,
+          evaluatorVersion: true,
+          bindingOrder: true,
+        },
+      },
     },
   },
 };
@@ -67,6 +80,28 @@ test("prisma interview repository projects the immutable NCS evaluation snapshot
               alignmentStatus: "ALIGNED",
               alignmentScore: 0.91,
               evaluatorVersion: "2025.12-v1",
+              ncsBindings: [
+                {
+                  criterionId: 31n,
+                  criterionTitleSnapshot: "문제해결능력",
+                  ncsProfileId: "PROBLEM_SOLVING",
+                  ncsProfileVersion: "2025.12-v1",
+                  alignmentStatus: "ALIGNED",
+                  alignmentScore: 0.91,
+                  evaluatorVersion: "2025.12-v1",
+                  bindingOrder: 1,
+                },
+                {
+                  criterionId: 32n,
+                  criterionTitleSnapshot: "기술·직무",
+                  ncsProfileId: "JOB_TECHNICAL",
+                  ncsProfileVersion: "2025.12-v1",
+                  alignmentStatus: "ALIGNED",
+                  alignmentScore: 0.88,
+                  evaluatorVersion: "2025.12-v1",
+                  bindingOrder: 2,
+                },
+              ],
             },
           },
         ];
@@ -94,6 +129,28 @@ test("prisma interview repository projects the immutable NCS evaluation snapshot
     alignmentStatus: "ALIGNED",
     alignmentScore: 0.91,
     evaluatorVersion: "2025.12-v1",
+    ncsBindings: [
+      {
+        criterionId: 31,
+        criterionTitleSnapshot: "문제해결능력",
+        ncsProfileId: "PROBLEM_SOLVING",
+        ncsProfileVersion: "2025.12-v1",
+        alignmentStatus: "ALIGNED",
+        alignmentScore: 0.91,
+        evaluatorVersion: "2025.12-v1",
+        bindingOrder: 1,
+      },
+      {
+        criterionId: 32,
+        criterionTitleSnapshot: "기술·직무",
+        ncsProfileId: "JOB_TECHNICAL",
+        ncsProfileVersion: "2025.12-v1",
+        alignmentStatus: "ALIGNED",
+        alignmentScore: 0.88,
+        evaluatorVersion: "2025.12-v1",
+        bindingOrder: 2,
+      },
+    ],
   });
 });
 

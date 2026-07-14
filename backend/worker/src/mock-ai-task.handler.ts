@@ -16,7 +16,9 @@ import { createAiProcessUsage } from "./ai-usage";
 import {
   evaluateNcsReportAnswers,
   hasNcsAnswerSnapshots,
+  type NcsApiProfileId as NcsReportApiProfileId,
   type NcsReportEvaluationBatch,
+  type NcsReportQuestionBindingSnapshot,
 } from "./ncs-report-evaluation.adapter";
 import type { NcsTextEvaluationProvider } from "./ncs-text-evaluation.types";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
@@ -60,12 +62,13 @@ interface ReportAnswerForScoring {
   sessionQuestionId?: number;
   criterionId?: number;
   criterionTitleSnapshot?: string;
-  ncsProfileId?: NcsApiProfileId;
+  ncsProfileId?: NcsReportApiProfileId;
   ncsQuestionMode?: NcsQuestionMode;
   ncsProfileVersion?: string;
   alignmentStatus?: string;
   alignmentScore?: number;
   evaluatorVersion?: string;
+  ncsBindings?: NcsReportQuestionBindingSnapshot[];
 }
 
 interface ReportScoringContext {
@@ -1319,10 +1322,49 @@ function buildRecruitingQuestionCandidate(
   return `${criterion.name} 기준으로 ${jd} 경험을 검증할 수 있는 사례를 설명해주세요.`;
 }
 
+function reportNcsProfileIdOf(value: unknown): NcsReportApiProfileId | undefined {
+  return value === "PROBLEM_SOLVING" ||
+    value === "COMMUNICATION" ||
+    value === "DIGITAL" ||
+    value === "JOB_TECHNICAL" ||
+    value === "COLLABORATION_COMMUNICATION"
+    ? value
+    : undefined;
+}
+
 function ncsProfileIdOf(value: unknown): NcsApiProfileId | undefined {
   return value === "PROBLEM_SOLVING" || value === "COMMUNICATION" || value === "DIGITAL"
     ? value
     : undefined;
+}
+
+function ncsBindingsOf(value: unknown): NcsReportQuestionBindingSnapshot[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const bindings = value.map((item, index) => {
+    if (!item || typeof item !== "object") {
+      throw new NonRetryableAiWorkerFailure("ncsBindings item must be an object");
+    }
+    const record = item as Record<string, unknown>;
+    const ncsProfileId = reportNcsProfileIdOf(record.ncsProfileId);
+    const bindingOrder = Number(record.bindingOrder);
+    if (!ncsProfileId || (bindingOrder !== 1 && bindingOrder !== 2)) {
+      throw new NonRetryableAiWorkerFailure(`ncsBindings[${index}] profile or order is invalid`);
+    }
+    return {
+      criterionId: optionalPositiveNumber(record.criterionId, `ncsBindings[${index}].criterionId`),
+      criterionTitleSnapshot: requiredText(
+        record.criterionTitleSnapshot,
+        `ncsBindings[${index}].criterionTitleSnapshot`,
+      ),
+      ncsProfileId,
+      ncsProfileVersion: requiredText(record.ncsProfileVersion, `ncsBindings[${index}].ncsProfileVersion`),
+      alignmentStatus: requiredText(record.alignmentStatus, `ncsBindings[${index}].alignmentStatus`),
+      alignmentScore: optionalFiniteNumber(record.alignmentScore, `ncsBindings[${index}].alignmentScore`),
+      evaluatorVersion: optionalText(record.evaluatorVersion),
+      bindingOrder,
+    } as NcsReportQuestionBindingSnapshot;
+  });
+  return bindings.length > 0 ? bindings : undefined;
 }
 
 function ncsQuestionModeOf(value: unknown): NcsQuestionMode | undefined {
@@ -1365,12 +1407,13 @@ function answersOf(value: unknown): ReportAnswerForScoring[] {
       sessionQuestionId: optionalPositiveNumber(record.sessionQuestionId, "sessionQuestionId"),
       criterionId: optionalPositiveNumber(record.criterionId, "criterionId"),
       criterionTitleSnapshot: optionalText(record.criterionTitleSnapshot),
-      ncsProfileId: ncsProfileIdOf(record.ncsProfileId),
+      ncsProfileId: reportNcsProfileIdOf(record.ncsProfileId),
       ncsQuestionMode: ncsQuestionModeOf(record.ncsQuestionMode),
       ncsProfileVersion: optionalText(record.ncsProfileVersion),
       alignmentStatus: optionalText(record.alignmentStatus),
       alignmentScore: optionalFiniteNumber(record.alignmentScore, "alignmentScore"),
-      evaluatorVersion: optionalText(record.evaluatorVersion)
+      evaluatorVersion: optionalText(record.evaluatorVersion),
+      ncsBindings: ncsBindingsOf(record.ncsBindings),
     };
   });
 }

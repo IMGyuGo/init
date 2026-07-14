@@ -677,6 +677,11 @@ export class PrismaAiResultRepository implements AiResultRepository {
           competencyScore: output.scores.competency,
           evidenceScore: output.scores.evidence,
           totalScore: output.scores.total,
+          behaviorPoints: evaluation.behaviorPoints,
+          logicPoints: evaluation.logicPoints,
+          baseScore: evaluation.baseScore,
+          effectiveScore: evaluation.effectiveScore,
+          followUpApplied: evaluation.followUpApplied,
           coverage: output.coverage,
           confidence: output.confidence,
           rubricVersion: output.rubricVersion,
@@ -684,6 +689,14 @@ export class PrismaAiResultRepository implements AiResultRepository {
           providerMode: output.providerMode,
           modelName: output.model ?? null,
           resultJson: output,
+          evidences: {
+            create: evaluation.evidences.map((evidence, index) => ({
+              sourceAnswerId: BigInt(evidence.sourceAnswerId),
+              sourceKind: evidence.sourceKind,
+              quote: evidence.quote,
+              sortOrder: index + 1,
+            })),
+          },
         },
       });
     }
@@ -705,8 +718,8 @@ function hashText(value: string): string {
 function canonicalNcsProfileId(
   value: NcsAnswerEvaluationRecord["ncsProfileId"],
 ): "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING" {
-  if (value === "DIGITAL") return "JOB_TECHNICAL";
-  if (value === "COMMUNICATION") return "COLLABORATION_COMMUNICATION";
+  if (value === "JOB_TECHNICAL") return "JOB_TECHNICAL";
+  if (value === "COLLABORATION_COMMUNICATION") return "COLLABORATION_COMMUNICATION";
   return "PROBLEM_SOLVING";
 }
 

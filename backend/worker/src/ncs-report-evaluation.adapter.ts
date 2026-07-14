@@ -22,7 +22,23 @@ import {
 } from "./ncs-text-evaluator";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 
-export type NcsApiProfileId = "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL";
+export type NcsApiProfileId =
+  | "JOB_TECHNICAL"
+  | "COLLABORATION_COMMUNICATION"
+  | "PROBLEM_SOLVING"
+  | "COMMUNICATION"
+  | "DIGITAL";
+
+export interface NcsReportQuestionBindingSnapshot {
+  criterionId?: number;
+  criterionTitleSnapshot: string;
+  ncsProfileId: NcsApiProfileId;
+  ncsProfileVersion: string;
+  alignmentStatus: string;
+  alignmentScore?: number;
+  evaluatorVersion?: string;
+  bindingOrder: 1 | 2;
+}
 
 export interface NcsReportAnswerSnapshot {
   answerId: number;
@@ -37,7 +53,9 @@ export interface NcsReportAnswerSnapshot {
   alignmentStatus?: string;
   alignmentScore?: number;
   evaluatorVersion?: string;
+  ncsBindings?: NcsReportQuestionBindingSnapshot[];
   isFollowUpAnswer?: boolean;
+  parentAnswerId?: number;
 }
 
 export interface NcsReportEvaluationBatch {
@@ -53,7 +71,10 @@ export interface NcsReportEvaluationBatch {
 }
 
 export function hasNcsAnswerSnapshots(answers: NcsReportAnswerSnapshot[]): boolean {
-  return answers.some((answer) => !answer.isFollowUpAnswer && answer.ncsProfileId !== undefined);
+  return answers.some((answer) =>
+    !answer.isFollowUpAnswer &&
+    ((answer.ncsBindings?.length ?? 0) > 0 || answer.ncsProfileId !== undefined),
+  );
 }
 
 export async function evaluateNcsReportAnswers(
@@ -63,12 +84,15 @@ export async function evaluateNcsReportAnswers(
   provider?: NcsTextEvaluationProvider,
 ): Promise<NcsReportEvaluationBatch> {
   const primaryAnswers = answers.filter((answer) => !answer.isFollowUpAnswer);
-  if (primaryAnswers.length === 0 || primaryAnswers.some((answer) => !answer.ncsProfileId)) {
-    throw new NonRetryableAiWorkerFailure("every primary NCS answer requires a session question snapshot");
+  const ncsAnswers = primaryAnswers.filter((answer) =>
+    (answer.ncsBindings?.length ?? 0) > 0 || answer.ncsProfileId !== undefined,
+  );
+  if (ncsAnswers.length === 0) {
+    throw new NonRetryableAiWorkerFailure("at least one primary NCS answer requires a session question snapshot");
   }
 
-  const evaluated = await Promise.all(primaryAnswers.map((answer) => evaluateAnswer(reportId, answer, provider)));
-  const evaluations = evaluated.map((item) => item.evaluation);
+  const evaluated = await Promise.all(ncsAnswers.map((answer) => evaluateAnswer(reportId, answer, provider)));
+  const evaluations = evaluated.flatMap((item) => item.evaluations);
   const scored = evaluations.filter((evaluation) => evaluation.output.scoreStatus === "SCORED");
   const scores = aggregateScores(scored);
   const questionEvaluations = scored.map(toQuestionEvaluation);
@@ -93,26 +117,28 @@ async function evaluateAnswer(
   answer: NcsReportAnswerSnapshot,
   provider?: NcsTextEvaluationProvider,
 ): Promise<{
-  evaluation: NcsAnswerEvaluationRecord;
+  evaluations: NcsAnswerEvaluationRecord[];
   usage?: { modelName: string; inputTokens?: number; outputTokens?: number };
 }> {
-  const snapshot = requiredSnapshot(answer);
+  const snapshots = requiredSnapshots(answer);
   const question = answer.question?.trim();
   if (!question) {
     throw new NonRetryableAiWorkerFailure(`NCS question content is missing for answer ${answer.answerId}`);
   }
   const input = parseNcsTextEvaluationInput({
-    questionMode: snapshot.ncsQuestionMode,
+    questionMode: snapshots.ncsQuestionMode,
     question,
     answerText: answer.transcript,
-    profileIds: [toEvaluatorProfileId(snapshot.ncsProfileId)],
-    profileVersion: snapshot.ncsProfileVersion,
+    profileIds: snapshots.bindings.map((binding) => toEvaluatorProfileId(binding.ncsProfileId)),
+    profileVersion: snapshots.bindings[0]?.ncsProfileVersion,
   });
 
   let output: NcsTextEvaluationOutput;
   let usage: { modelName: string; inputTokens?: number; outputTokens?: number } | undefined;
-  if (snapshot.alignmentStatus !== "ALIGNED") {
-    output = unscoredOutput(input.questionMode, "LOW_ALIGNMENT", snapshot.alignmentScore ?? 0, [
+  if (snapshots.bindings.some((binding) => binding.alignmentStatus !== "ALIGNED")) {
+    output = unscoredOutput(input.questionMode, "LOW_ALIGNMENT", Math.min(
+      ...snapshots.bindings.map((binding) => binding.alignmentScore ?? 0),
+    ), [
       "세션 질문 snapshot이 NCS 정렬 통과 상태가 아닙니다.",
     ]);
   } else if (provider) {
@@ -142,18 +168,30 @@ async function evaluateAnswer(
   }
 
   return {
-    evaluation: {
+    evaluations: snapshots.bindings.map((binding) => {
+      const points = ncsFivePointBreakdown(output, toEvaluatorProfileId(binding.ncsProfileId));
+      const evidences = output.scoreStatus === "SCORED"
+        ? exactEvidenceQuotesForProfile(output, toEvaluatorProfileId(binding.ncsProfileId))
+            .map((quote) => ({ sourceAnswerId: answer.answerId, sourceKind: "BASE" as const, quote }))
+        : [];
+      return {
       reportId,
       answerId: answer.answerId,
-      sessionQuestionId: snapshot.sessionQuestionId,
-      criterionId: snapshot.criterionId,
-      criterionTitleSnapshot: snapshot.criterionTitleSnapshot,
-      ncsProfileId: snapshot.ncsProfileId,
-      ncsQuestionMode: snapshot.ncsQuestionMode,
-      ncsProfileVersion: snapshot.ncsProfileVersion,
+      sessionQuestionId: snapshots.sessionQuestionId,
+      criterionId: binding.criterionId,
+      criterionTitleSnapshot: binding.criterionTitleSnapshot,
+      ncsProfileId: canonicalNcsProfileId(binding.ncsProfileId),
+      ncsQuestionMode: snapshots.ncsQuestionMode,
+      ncsProfileVersion: binding.ncsProfileVersion,
       output,
       question,
-    },
+      behaviorPoints: points?.behaviorPoints ?? null,
+      logicPoints: points?.logicPoints ?? null,
+      baseScore: points?.baseScore ?? null,
+      effectiveScore: points?.baseScore ?? null,
+      followUpApplied: false,
+      evidences,
+    };}),
     usage,
   };
 }
@@ -209,29 +247,54 @@ function toQuestionEvaluation(evaluation: NcsAnswerEvaluationRecord): GeneratedQ
   };
 }
 
-function requiredSnapshot(answer: NcsReportAnswerSnapshot) {
+function requiredSnapshots(answer: NcsReportAnswerSnapshot) {
   if (
     !answer.sessionQuestionId ||
-    !answer.criterionId ||
-    !answer.criterionTitleSnapshot?.trim() ||
-    !answer.ncsProfileId ||
     !answer.ncsQuestionMode ||
-    !answer.ncsProfileVersion
+    (!answer.ncsBindings?.length && (
+      !answer.criterionId ||
+      !answer.criterionTitleSnapshot?.trim() ||
+      !answer.ncsProfileId ||
+      !answer.ncsProfileVersion
+    ))
   ) {
     throw new NonRetryableAiWorkerFailure(`NCS session question snapshot is incomplete for answer ${answer.answerId}`);
   }
-  if (answer.ncsProfileVersion !== NCS_PROFILE_VERSION) {
-    throw new NonRetryableAiWorkerFailure(`unsupported NCS profile version: ${answer.ncsProfileVersion}`);
+  const bindings = answer.ncsBindings?.length
+    ? answer.ncsBindings
+    : [{
+        criterionId: answer.criterionId,
+        criterionTitleSnapshot: answer.criterionTitleSnapshot ?? "",
+        ncsProfileId: answer.ncsProfileId!,
+        ncsProfileVersion: answer.ncsProfileVersion!,
+        alignmentStatus: answer.alignmentStatus ?? "REVIEW_REQUIRED",
+        alignmentScore: answer.alignmentScore,
+        evaluatorVersion: answer.evaluatorVersion,
+        bindingOrder: 1 as const,
+      }];
+  if (
+    bindings.length < 1 ||
+    bindings.length > 2 ||
+    new Set(bindings.map((binding) => canonicalNcsProfileId(binding.ncsProfileId))).size !== bindings.length
+  ) {
+    throw new NonRetryableAiWorkerFailure(`NCS binding snapshot is invalid for answer ${answer.answerId}`);
+  }
+  for (const binding of bindings) {
+    if (!binding.criterionId || !binding.criterionTitleSnapshot.trim()) {
+      throw new NonRetryableAiWorkerFailure(`NCS binding snapshot is incomplete for answer ${answer.answerId}`);
+    }
+    if (binding.ncsProfileVersion !== NCS_PROFILE_VERSION) {
+      throw new NonRetryableAiWorkerFailure(`unsupported NCS profile version: ${binding.ncsProfileVersion}`);
+    }
   }
   return {
     sessionQuestionId: answer.sessionQuestionId,
-    criterionId: answer.criterionId,
-    criterionTitleSnapshot: answer.criterionTitleSnapshot.trim(),
-    ncsProfileId: answer.ncsProfileId,
     ncsQuestionMode: answer.ncsQuestionMode,
-    ncsProfileVersion: answer.ncsProfileVersion,
-    alignmentStatus: answer.alignmentStatus,
-    alignmentScore: answer.alignmentScore,
+    bindings: bindings.map((binding) => ({
+      ...binding,
+      criterionId: binding.criterionId!,
+      criterionTitleSnapshot: binding.criterionTitleSnapshot.trim(),
+    })),
   };
 }
 
@@ -239,8 +302,20 @@ function toEvaluatorProfileId(profileId: NcsApiProfileId): NcsProfileId {
   return {
     PROBLEM_SOLVING: "problem-solving",
     COMMUNICATION: "communication",
+    COLLABORATION_COMMUNICATION: "communication",
     DIGITAL: "digital",
+    JOB_TECHNICAL: "digital",
   }[profileId] as NcsProfileId;
+}
+
+function canonicalNcsProfileId(
+  profileId: NcsApiProfileId,
+): "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING" {
+  if (profileId === "DIGITAL" || profileId === "JOB_TECHNICAL") return "JOB_TECHNICAL";
+  if (profileId === "COMMUNICATION" || profileId === "COLLABORATION_COMMUNICATION") {
+    return "COLLABORATION_COMMUNICATION";
+  }
+  return "PROBLEM_SOLVING";
 }
 
 function exactEvidenceQuotes(output: NcsTextEvaluationOutput): string[] {
@@ -249,6 +324,43 @@ function exactEvidenceQuotes(output: NcsTextEvaluationOutput): string[] {
     ...output.evidenceMaturity.dimensions.flatMap((dimension) => dimension.evidenceQuotes),
     ...output.evidenceMaturity.sharedEvidence.map((evidence) => evidence.quote),
   ]);
+}
+
+const LOGIC_DIMENSIONS_BY_MODE: Record<NcsQuestionMode, string[]> = {
+  EXPERIENCE_BEHAVIOR: ["situation-task", "owned-action", "result-impact", "reflection-transfer"],
+  TECHNICAL_KNOWLEDGE: ["concept-accuracy", "causal-reasoning", "technical-application", "technical-risk-validation"],
+  SITUATIONAL_DESIGN: ["problem-constraints", "alternatives-tradeoffs", "execution-plan", "validation-adaptation"],
+};
+
+function ncsFivePointBreakdown(
+  output: NcsTextEvaluationOutput,
+  profileId: NcsProfileId,
+): { behaviorPoints: number; logicPoints: number; baseScore: number } | null {
+  if (output.scoreStatus !== "SCORED") return null;
+  const competency = output.competencies.find((candidate) => candidate.profileId === profileId);
+  if (!competency) return null;
+  const behaviorPoints = Math.min(3, competency.behaviors.filter((behavior) => behavior.observed).length);
+  const relevantDimensionIds = new Set(LOGIC_DIMENSIONS_BY_MODE[output.questionMode]);
+  const connectedDimensionCount = output.evidenceMaturity.dimensions.filter(
+    (dimension) => relevantDimensionIds.has(dimension.dimensionId) && dimension.score > 0,
+  ).length;
+  const logicPoints = connectedDimensionCount === 0
+    ? 0
+    : connectedDimensionCount === relevantDimensionIds.size
+      ? 2
+      : 1;
+  return { behaviorPoints, logicPoints, baseScore: behaviorPoints + logicPoints };
+}
+
+function exactEvidenceQuotesForProfile(output: NcsTextEvaluationOutput, profileId: NcsProfileId): string[] {
+  const competencyQuotes = output.competencies
+    .filter((competency) => competency.profileId === profileId)
+    .flatMap((competency) => competency.behaviors.flatMap((behavior) => behavior.evidenceQuotes));
+  const relevantDimensionIds = new Set(LOGIC_DIMENSIONS_BY_MODE[output.questionMode]);
+  const logicQuotes = output.evidenceMaturity.dimensions
+    .filter((dimension) => relevantDimensionIds.has(dimension.dimensionId))
+    .flatMap((dimension) => dimension.evidenceQuotes);
+  return uniqueStrings([...competencyQuotes, ...logicQuotes]);
 }
 
 function unscoredOutput(

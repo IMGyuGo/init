@@ -105,12 +105,24 @@ export interface InterviewAnswerNcsEvaluationSnapshot {
   sessionQuestionId: number;
   criterionId?: number;
   criterionTitleSnapshot?: string;
-  ncsProfileId?: "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL";
+  ncsProfileId?: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
   ncsQuestionMode?: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
   ncsProfileVersion?: string;
   alignmentStatus?: string;
   alignmentScore?: number;
   evaluatorVersion?: string;
+  ncsBindings?: InterviewAnswerNcsBindingSnapshot[];
+}
+
+export interface InterviewAnswerNcsBindingSnapshot {
+  criterionId?: number;
+  criterionTitleSnapshot: string;
+  ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
+  ncsProfileVersion: string;
+  alignmentStatus: string;
+  alignmentScore?: number;
+  evaluatorVersion?: string;
+  bindingOrder: 1 | 2;
 }
 
 export interface InterviewAnswer {

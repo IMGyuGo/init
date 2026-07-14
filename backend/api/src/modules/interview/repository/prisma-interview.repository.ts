@@ -84,6 +84,19 @@ const ANSWER_SESSION_QUESTION_SELECT = {
   alignmentStatus: true,
   alignmentScore: true,
   evaluatorVersion: true,
+  ncsBindings: {
+    orderBy: { bindingOrder: "asc" as const },
+    select: {
+      criterionId: true,
+      criterionTitleSnapshot: true,
+      ncsProfileId: true,
+      ncsProfileVersion: true,
+      alignmentStatus: true,
+      alignmentScore: true,
+      evaluatorVersion: true,
+      bindingOrder: true,
+    },
+  },
 } as const;
 
 @Injectable()
@@ -874,7 +887,23 @@ export class PrismaInterviewRepository implements InterviewRepository {
     if (!sessionQuestion) {
       return undefined;
     }
-    const ncsProfileId = this.toNcsProfileId(sessionQuestion.ncsProfileId);
+    const ncsBindings = (sessionQuestion.ncsBindings ?? [])
+      .map((binding) => {
+        const ncsProfileId = this.toNcsProfileId(binding.ncsProfileId);
+        if (!ncsProfileId || (binding.bindingOrder !== 1 && binding.bindingOrder !== 2)) return null;
+        return {
+          criterionId: binding.criterionId ? Number(binding.criterionId) : undefined,
+          criterionTitleSnapshot: binding.criterionTitleSnapshot,
+          ncsProfileId,
+          ncsProfileVersion: binding.ncsProfileVersion,
+          alignmentStatus: binding.alignmentStatus,
+          alignmentScore: binding.alignmentScore === null ? undefined : Number(binding.alignmentScore),
+          evaluatorVersion: binding.evaluatorVersion ?? undefined,
+          bindingOrder: binding.bindingOrder,
+        } as const;
+      })
+      .filter((binding): binding is NonNullable<typeof binding> => binding !== null);
+    const ncsProfileId = ncsBindings[0]?.ncsProfileId ?? this.toNcsProfileId(sessionQuestion.ncsProfileId);
     if (!ncsProfileId) {
       return undefined;
     }
@@ -888,11 +917,18 @@ export class PrismaInterviewRepository implements InterviewRepository {
       alignmentStatus: sessionQuestion.alignmentStatus ?? undefined,
       alignmentScore: sessionQuestion.alignmentScore === null ? undefined : Number(sessionQuestion.alignmentScore),
       evaluatorVersion: sessionQuestion.evaluatorVersion ?? undefined,
+      ...(ncsBindings.length > 0 ? { ncsBindings } : {}),
     };
   }
 
-  private toNcsProfileId(value: string | null): "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL" | undefined {
-    return value === "PROBLEM_SOLVING" || value === "COMMUNICATION" || value === "DIGITAL" ? value : undefined;
+  private toNcsProfileId(
+    value: string | null,
+  ): "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING" | undefined {
+    if (value === "DIGITAL" || value === "JOB_TECHNICAL") return "JOB_TECHNICAL";
+    if (value === "COMMUNICATION" || value === "COLLABORATION_COMMUNICATION") {
+      return "COLLABORATION_COMMUNICATION";
+    }
+    return value === "PROBLEM_SOLVING" ? value : undefined;
   }
 
   private toNcsQuestionMode(
@@ -1012,6 +1048,16 @@ type AnswerRecord = {
     alignmentStatus: string | null;
     alignmentScore: unknown | null;
     evaluatorVersion: string | null;
+    ncsBindings: Array<{
+      criterionId: bigint | null;
+      criterionTitleSnapshot: string;
+      ncsProfileId: string;
+      ncsProfileVersion: string;
+      alignmentStatus: string;
+      alignmentScore: unknown | null;
+      evaluatorVersion: string | null;
+      bindingOrder: number;
+    }>;
   } | null;
 };
 
