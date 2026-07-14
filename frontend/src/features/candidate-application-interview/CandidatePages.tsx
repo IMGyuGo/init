@@ -13,6 +13,7 @@ import { getAccessToken } from "../../api/client";
 import { sendClientPerformanceLog } from "../ai-performance/api";
 import { resolveClientNextStepType } from "../ai-performance/client-next-step";
 import { GnbAvatar, GnbLogoutButton } from "../auth/GnbAccountControls";
+import { useAuth } from "../auth/AuthProvider";
 import { createPaymentOrder, getCandidateMockInterviewPassSummary, grantCandidateMockInterviewDevPasses, listPaymentOrders } from "../payment/api";
 import { PaymentOrderPagination, formatDateTime as formatPaymentDateTime, formatWon } from "../payment/CompanyBillingPage";
 import { requestTossCardPayment } from "../payment/toss-sdk";
@@ -57,6 +58,7 @@ import {
   type RealtimeInterviewSessionResponse,
   createCandidateApiClient,
   createPublicInterviewApiClient,
+  publicCandidateApiPaths,
   type InterviewRuntimeApiClient,
 } from "./api";
 import {
@@ -700,13 +702,16 @@ const DEVICE_TEST_SENTENCES = [
   "나는 끝까지 집중하며, 오늘의 면접을 차분하게 마무리할 수 있다.",
 ] as const;
 
-export function CandidateJobsPage() {
+export function CandidateJobsPage({ publicEntry = false }: { publicEntry?: boolean } = {}) {
   const [query, setQuery] = useState<CandidateJobQuery>(defaultCandidateJobQuery);
-  const load = useCallback(() => getCandidateApi().listJobs(query), [query]);
-  const { data, loading, error } = useCandidateResource(load, [query]);
+  const load = useCallback(
+    () => (publicEntry ? getPublicCandidateApi() : getCandidateApi()).listJobs(query),
+    [publicEntry, query],
+  );
+  const { data, loading, error } = useCandidateResource(load, [publicEntry, query]);
 
   return (
-    <CandidatePageShell active="jobs">
+    <CandidatePageShell active="jobs" publicEntry={publicEntry}>
       <section className="candidate-jobs-page glass-page notion" aria-label="채용공고">
         <StatusNotice loading={loading} error={error} />
         <CandidateJobsView
@@ -8046,10 +8051,18 @@ function formatQaRate(rate: number): string {
   return `${Math.round(rate * 100)}%`;
 }
 
-function CandidatePageShell({ active, children }: { active: CandidateNavSection; children: ReactNode }) {
+function CandidatePageShell({
+  active,
+  children,
+  publicEntry = false,
+}: {
+  active: CandidateNavSection;
+  children: ReactNode;
+  publicEntry?: boolean;
+}) {
   return (
     <main className="app-shell candidate-app">
-      <CandidateNav active={active} />
+      <CandidateNav active={active} publicEntry={publicEntry} />
       <section className="app-page glass-page notion">{children}</section>
     </main>
   );
@@ -8077,8 +8090,9 @@ function CandidateMypageTabs() {
   );
 }
 
-function CandidateNav({ active }: { active: CandidateNavSection }) {
+function CandidateNav({ active, publicEntry = false }: { active: CandidateNavSection; publicEntry?: boolean }) {
   const pathname = usePathname();
+  const { status, user } = useAuth();
   const mockActive = active === "interview" || active === "reports";
   const recruitingActive = active === "jobs" || active === "applications";
   // 지표는 마이페이지 하위 흐름으로 배치되어 GNB 최상위 탭에서는 제외한다(마이페이지 활성으로 묶임).
@@ -8088,7 +8102,7 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
   return (
     <header className="gnb">
       <div className="gnb-inner">
-        <Link className="brand" href={candidateApplicationInterviewRoutes.jobs}>
+        <Link className="brand" href={publicEntry ? "/" : candidateApplicationInterviewRoutes.jobs}>
           <Image src="/logo-init-v4.png" alt="init" width={1900} height={580} priority />
         </Link>
         <nav className="gnb-menu" aria-label="지원자 메뉴">
@@ -8123,10 +8137,29 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
             </div>
           </div>
         </nav>
-        <div className="gnb-right">
-          <CandidateNotificationCenter />
-          <GnbAvatar accountLabel="지원자 계정" />
-          <GnbLogoutButton />
+        <div
+          className={`gnb-right${
+            publicEntry && (status !== "authenticated" || user?.userType !== "CANDIDATE")
+              ? " candidate-guest-actions"
+              : ""
+          }`}
+        >
+          {publicEntry && (status !== "authenticated" || user?.userType !== "CANDIDATE") ? (
+            <>
+              <Link className="btn secondary" href="/login">
+                로그인
+              </Link>
+              <Link className="btn primary" href="/company/login">
+                기업 서비스
+              </Link>
+            </>
+          ) : (
+            <>
+              <CandidateNotificationCenter />
+              <GnbAvatar accountLabel="지원자 계정" />
+              <GnbLogoutButton />
+            </>
+          )}
         </div>
       </div>
     </header>
@@ -10595,6 +10628,14 @@ function getCandidateApi() {
   return createCandidateApiClient({
     baseUrl: getApiBaseUrl(),
     headers: getCandidateHeaders(),
+  });
+}
+
+function getPublicCandidateApi() {
+  return createCandidateApiClient({
+    baseUrl: getApiBaseUrl(),
+    fetcher: fetch,
+    jobsPath: publicCandidateApiPaths.jobs,
   });
 }
 

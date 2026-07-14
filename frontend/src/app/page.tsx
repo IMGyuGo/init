@@ -1,5 +1,5 @@
-import { LandingPage } from "@/features/landing/LandingPage";
+import { CandidateJobsPage } from "@/features/candidate-application-interview/CandidatePages";
 
 export default function HomePage() {
-  return <LandingPage />;
+  return <CandidateJobsPage publicEntry />;
 }

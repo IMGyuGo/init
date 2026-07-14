@@ -60,6 +60,16 @@
       ]
     },
     {
+      "name": "company login entry",
+      "patterns": [
+        "^frontend/src/app/company/login/"
+      ],
+      "roles": [
+        "A",
+        "B"
+      ]
+    },
+    {
       "name": "frontend favicon route",
       "patterns": [
         "^frontend/src/app/favicon\\.ico/route\\.ts$"

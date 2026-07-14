@@ -10,7 +10,7 @@ export default function LoginPage() {
         <Link className="auth-logo" href="/" aria-label="init 홈">
           <Image src="/logo-init-v4.png" alt="init" width={1900} height={580} priority />
         </Link>
-        <LoginForm />
+        <LoginForm fixedUserType="CANDIDATE" />
       </section>
     </main>
   );
