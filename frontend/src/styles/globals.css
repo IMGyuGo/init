@@ -5989,6 +5989,12 @@ td input {
   background: rgba(59, 111, 224, 0.08);
   border-color: #3B6FE0;
 }
+.notion .wizard-ai-chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.notion .wizard-ai-chip:disabled:hover { border-color: rgba(55, 53, 47, 0.14); color: rgba(55, 53, 47, 0.7); }
+.notion .wizard-ai-hint { font-size: 12px; color: rgba(55, 53, 47, 0.5); }
 @media (max-width: 720px) {
   .notion .wizard-ai-selects { grid-template-columns: 1fr; }
 }

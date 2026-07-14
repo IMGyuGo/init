@@ -19,7 +19,6 @@ import { JOB_DESCRIPTION_IMAGE_ACCEPT, validateJobDescriptionImageFile } from ".
 import {
   composeJobDescriptionWithExtraInfo,
   createEmptyPostingExtraInfo,
-  postingExtraInfoFields,
   postingExtraInfoToApiFields,
   type PostingExtraInfoKey,
   type PostingExtraInfo,
@@ -28,6 +27,14 @@ import { geocodeAddress } from "../../lib/kakao-maps";
 import { BackButton } from "./CompanyRecruitingChrome";
 import { buildInterviewSettingsHref } from "./routes";
 import { extractPostingDraftFromJob, type PostingDraftResult } from "./posting-ai-draft";
+import {
+  AI_DRAFT_KEYWORD_MAX_COUNT,
+  AI_DRAFT_KEYWORD_MAX_LENGTH,
+  aiKeywordSuggestionsFor,
+  normalizeDraftKeywords,
+  splitDraftKeywords,
+  toggleDraftKeyword,
+} from "./posting-draft-keywords";
 import { applyPostingDraftToFormState } from "./posting-ai-draft-form";
 import {
   buildRecruitmentCreateSearch,
@@ -223,39 +230,6 @@ function mergeStoredForm(stored: Partial<FormState>): FormState {
   };
 }
 
-function splitDraftKeywords(raw: string): string[] {
-  return raw
-    .split(/[,\n]/)
-    .map((keyword) => keyword.trim())
-    .filter(Boolean);
-}
-
-// AI 초안 입력을 선택형으로: 직무별 추천 키워드 칩. (#290)
-const AI_DRAFT_COMMON_KEYWORDS = ["협업", "커뮤니케이션", "문제 해결", "코드 리뷰", "성장 지향"];
-
-const AI_DRAFT_KEYWORD_SUGGESTIONS: Record<string, string[]> = {
-  "서버·백엔드": ["Node.js", "Spring", "MSA", "대용량 트래픽", "API 설계", "DB 설계", "AWS"],
-  "프론트엔드": ["React", "Next.js", "TypeScript", "성능 최적화", "디자인 시스템", "UI/UX 협업"],
-  "웹풀스택": ["React", "Node.js", "TypeScript", "REST API", "DB 설계", "배포 자동화"],
-  "안드로이드": ["Kotlin", "Jetpack Compose", "MVVM", "성능 최적화", "앱 출시 경험"],
-  "iOS": ["Swift", "SwiftUI", "UIKit", "MVVM", "앱스토어 배포"],
-  "크로스플랫폼": ["Flutter", "React Native", "TypeScript", "네이티브 연동"],
-  "DevOps·SRE": ["Kubernetes", "Docker", "CI/CD", "IaC", "모니터링", "AWS"],
-  "데이터 엔지니어": ["Spark", "Airflow", "데이터 파이프라인", "SQL", "DW 설계"],
-  "AI·ML": ["PyTorch", "LLM", "모델 서빙", "MLOps", "데이터 전처리"],
-  "QA·테스트": ["테스트 자동화", "E2E 테스트", "품질 프로세스", "회귀 테스트"],
-  "시스템·네트워크": ["Linux", "네트워크 운영", "인프라 구축", "장애 대응"],
-  "보안": ["취약점 진단", "모의해킹", "보안 관제", "ISMS"],
-  "블록체인": ["Solidity", "스마트 컨트랙트", "Web3", "DApp"],
-  "개발 PM": ["프로젝트 관리", "일정 관리", "요구사항 정의", "협업 리딩"],
-  "기타 IT·개발": ["기술 문서화", "레거시 개선", "자동화"],
-};
-
-function aiKeywordSuggestionsFor(jobRoleCode: string): string[] {
-  const roleKeywords = AI_DRAFT_KEYWORD_SUGGESTIONS[jobRoleCode] ?? [];
-  return [...roleKeywords, ...AI_DRAFT_COMMON_KEYWORDS];
-}
-
 // 요구 경력 듀얼 핸들 range 슬라이더. 최소/최대 select 2개를 대체한다. (#290)
 function CareerRangeSlider({
   minYears,
@@ -338,6 +312,7 @@ export function RecruitmentCreatePage() {
   const [draftReady, setDraftReady] = useState(false);
   const [dir, setDir] = useState<1 | -1>(1);
   const [aiKeywords, setAiKeywords] = useState("");
+  const selectedDraftKeywords = splitDraftKeywords(aiKeywords);
   const [aiSummary, setAiSummary] = useState("");
   const [aiFilled, setAiFilled] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
@@ -377,7 +352,7 @@ export function RecruitmentCreatePage() {
       const requested = await generatePostingDraft({
         title: form.title,
         jobRole: form.jobRole,
-        keywords: splitDraftKeywords(aiKeywords),
+        keywords: normalizeDraftKeywords(aiKeywords),
         summary: aiSummary || undefined,
         careerRequirement: form.extraInfo.career.value || undefined,
         employmentType: form.extraInfo.employmentType.value || undefined,
@@ -496,22 +471,9 @@ export function RecruitmentCreatePage() {
     setForm((current) => ({ ...current, jobRoleCode: code, jobRole: code }));
   }
 
-  // AI 초안 선택 입력: 근무 조건 select 값을 extraInfo에 반영한다. (#290)
-  function updateExtraInfoValue(key: PostingExtraInfoKey, value: string) {
-    setForm((current) => ({
-      ...current,
-      extraInfo: {
-        ...current.extraInfo,
-        [key]: { enabled: value.trim().length > 0, value },
-      },
-    }));
-  }
-
   // AI 초안 선택 입력: 추천 키워드 칩 토글. aiKeywords 문자열(CSV)이 단일 소스다. (#290)
   function toggleAiKeyword(keyword: string) {
-    const list = splitDraftKeywords(aiKeywords);
-    const next = list.includes(keyword) ? list.filter((item) => item !== keyword) : [...list, keyword];
-    setAiKeywords(next.join(", "));
+    setAiKeywords((current) => toggleDraftKeyword(current, keyword));
   }
 
   // 다음 우편번호 팝업으로 회사 위치(도로명 주소)를 검색해 채운다.
@@ -1132,41 +1094,55 @@ export function RecruitmentCreatePage() {
               />
             </div>
             <div className="wizard-ai-selects">
-              {(["employmentType", "location"] as PostingExtraInfoKey[]).map((key) => {
-                const definition = postingExtraInfoFields.find((field) => field.key === key);
-                if (!definition) return null;
-                return (
-                  <label key={key}>
-                    {definition.label}
-                    <select
-                      value={form.extraInfo[key].enabled ? form.extraInfo[key].value : ""}
-                      onChange={(event) => updateExtraInfoValue(key, event.target.value)}
-                    >
-                      <option value="">선택 안 함</option>
-                      {definition.options.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                );
-              })}
+              <label>
+                근무 형태
+                <select
+                  value={form.employmentTypeCode}
+                  onChange={(event) => updateStructuredWithExtraInfo("employmentTypeCode", "employmentType", event.target.value)}
+                >
+                  <option value="">선택 안 함</option>
+                  {EMPLOYMENT_TYPE_CODE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                근무 지역
+                <select
+                  value={form.regionCode}
+                  onChange={(event) => updateStructuredWithExtraInfo("regionCode", "location", event.target.value)}
+                >
+                  <option value="">선택 안 함</option>
+                  {REGION_CODE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
             <div className="wizard-ai-field">
               <span className="wizard-ai-field-label">
                 추천 키워드
-                <em>{form.jobRoleCode ? "클릭해서 담으세요" : "직무를 선택하면 직무별 추천이 나와요"}</em>
+                <em>
+                  {form.jobRoleCode
+                    ? `${selectedDraftKeywords.length}/${AI_DRAFT_KEYWORD_MAX_COUNT}개 선택`
+                    : "직무를 선택하면 직무별 추천이 나와요"}
+                </em>
               </span>
               <div className="wizard-ai-chips">
                 {aiKeywordSuggestionsFor(form.jobRoleCode).map((keyword) => {
-                  const selected = splitDraftKeywords(aiKeywords).includes(keyword);
+                  const selected = selectedDraftKeywords.includes(keyword);
+                  const atCap = selectedDraftKeywords.length >= AI_DRAFT_KEYWORD_MAX_COUNT;
                   return (
                     <button
                       key={keyword}
                       type="button"
                       className={`wizard-ai-chip${selected ? " is-selected" : ""}`}
                       aria-pressed={selected}
+                      disabled={!selected && atCap}
                       onClick={() => toggleAiKeyword(keyword)}
                     >
                       {keyword}
@@ -1178,6 +1154,7 @@ export function RecruitmentCreatePage() {
             <label>
               키워드 직접 추가 (쉼표로 구분)
               <input value={aiKeywords} onChange={(event) => setAiKeywords(event.target.value)} placeholder="선택한 키워드에 원하는 키워드를 더할 수 있어요" />
+              <span className="wizard-ai-hint">최대 {AI_DRAFT_KEYWORD_MAX_COUNT}개 · 키워드당 {AI_DRAFT_KEYWORD_MAX_LENGTH}자까지 저장돼요</span>
             </label>
             <label>
               핵심 내용 / 한 줄 소개
