@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { NcsTextEvaluationOutput } from "./ncs-text-evaluation.types";
+import type { NcsFinalEvaluation } from "./ncs-final-evaluation";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import type { AiWorkerJob, FailureCategory, FailureReason } from "./worker.types";
 
@@ -214,6 +215,7 @@ export interface GeneratedReportRecord {
   scores: GeneratedReportScoreRecord[];
   questionEvaluations: GeneratedQuestionEvaluationRecord[];
   ncsAnswerEvaluations?: NcsAnswerEvaluationRecord[];
+  ncsFinalEvaluation?: NcsFinalEvaluation;
 }
 
 export interface CommunicationAnalysisRecord {

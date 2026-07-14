@@ -22,6 +22,7 @@ import {
   type NcsReportQuestionBindingSnapshot,
 } from "./ncs-report-evaluation.adapter";
 import type { NcsTextEvaluationProvider } from "./ncs-text-evaluation.types";
+import type { NcsSessionPolicyInput } from "./ncs-final-evaluation";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import { AiTaskHandler, AiTaskResult, AiWorkerJob } from "./worker.types";
 import { SttProvider } from "./stt-provider";
@@ -413,6 +414,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
           answers,
           criteria.map((criterion) => criterion.criterionId),
           this.options.ncsTextEvaluationProvider,
+          ncsSessionPoliciesOf(payload.ncsSessionPolicy),
         )
       : undefined;
     const { scores, questionEvaluations } = ncsBatch ?? this.scoreReport(
@@ -434,6 +436,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
         scores,
         questionEvaluations,
         ncsAnswerEvaluations: ncsBatch?.evaluations,
+        ncsFinalEvaluation: ncsBatch?.finalEvaluation,
         evidences,
         guardrail,
         stored: {
@@ -525,17 +528,18 @@ export class MockAiTaskHandler implements AiTaskHandler {
           answers,
           criteria.map((criterion) => criterion.criterionId),
           this.options.ncsTextEvaluationProvider,
+          ncsSessionPoliciesOf(payload.ncsSessionPolicy),
         )
       : undefined;
     const { scores, questionEvaluations } = ncsBatch ?? this.scoreReport(criteria, answers, documentText, {
       reportType,
       jobDescription
     });
-    const totalScore = ncsBatch
-      ? ncsBatch.allProfilesScored
-        ? weightedTotalScore(scores, criteria)
-        : null
-      : weightedTotalScore(scores, criteria);
+    const totalScore = ncsBatch?.finalEvaluation
+      ? ncsBatch.finalEvaluation.totalScore
+      : ncsBatch && scores.length === 0
+        ? null
+        : weightedTotalScore(scores, criteria);
     const companyName = typeof payload.companyName === "string" && payload.companyName.trim() ? payload.companyName.trim() : undefined;
     const jobTitle = typeof payload.jobTitle === "string" && payload.jobTitle.trim() ? payload.jobTitle.trim() : undefined;
     const summary = generatedSummary ?? (reportType === "RECRUITING_REPORT"
@@ -551,6 +555,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
       scores,
       questionEvaluations,
       ncsAnswerEvaluations: ncsBatch?.evaluations,
+      ncsFinalEvaluation: ncsBatch?.finalEvaluation,
     };
     const guardrail = this.validateReport(report);
 
@@ -563,6 +568,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
         scores,
         questionEvaluations,
         ncsAnswerEvaluations: ncsBatch?.evaluations,
+        ncsFinalEvaluation: ncsBatch?.finalEvaluation,
         evidences: scores.flatMap((score) => score.evidences),
         guardrail
       }),
@@ -1390,6 +1396,41 @@ function ncsBindingsOf(value: unknown): NcsReportQuestionBindingSnapshot[] | und
     } as NcsReportQuestionBindingSnapshot;
   });
   return bindings.length > 0 ? bindings : undefined;
+}
+
+function ncsSessionPoliciesOf(value: unknown): NcsSessionPolicyInput[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const policies = value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const record = item as Record<string, unknown>;
+    const ncsProfileId = reportNcsProfileIdOf(record.ncsProfileId);
+    if (
+      ncsProfileId !== "JOB_TECHNICAL" &&
+      ncsProfileId !== "COLLABORATION_COMMUNICATION" &&
+      ncsProfileId !== "PROBLEM_SOLVING"
+    ) return [];
+    const criterionId = Number(record.criterionId);
+    const weight = Number(record.weight);
+    const minimumAverageScore = Number(record.minimumAverageScore);
+    const requiredQuestionCount = Number(record.requiredQuestionCount);
+    if (
+      typeof record.criterionTitleSnapshot !== "string" || !record.criterionTitleSnapshot.trim() ||
+      typeof record.ncsProfileVersion !== "string" || !record.ncsProfileVersion.trim() ||
+      !Number.isInteger(weight) ||
+      !Number.isFinite(minimumAverageScore) ||
+      !Number.isInteger(requiredQuestionCount)
+    ) return [];
+    return [{
+      ncsProfileId,
+      ...(Number.isSafeInteger(criterionId) && criterionId > 0 ? { criterionId } : {}),
+      criterionTitleSnapshot: record.criterionTitleSnapshot.trim(),
+      weight,
+      minimumAverageScore,
+      requiredQuestionCount,
+      ncsProfileVersion: record.ncsProfileVersion.trim(),
+    }];
+  });
+  return policies.length > 0 ? policies : undefined;
 }
 
 function ncsQuestionModeOf(value: unknown): NcsQuestionMode | undefined {

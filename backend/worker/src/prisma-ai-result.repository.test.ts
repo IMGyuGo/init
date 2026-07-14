@@ -465,6 +465,50 @@ test("PrismaAiResultRepository stores generated reports after guardrail pass", a
   assert.equal(calls[4].args.data.evidences.create[0].sourceType, "INTERVIEW_ANSWER");
 });
 
+test("PrismaAiResultRepository stores NCS decision header and normalized profile scores", async () => {
+  const calls: Array<{ model: string; method: string; args: any }> = [];
+  const repository = new PrismaAiResultRepository(fakePrisma(calls));
+
+  await repository.saveGeneratedReport({
+    reportId: 30,
+    reportType: "RECRUITING_REPORT",
+    applicationId: 22,
+    sessionId: 65,
+    summary: "NCS evaluation completed",
+    totalScore: 83,
+    scores: [],
+    questionEvaluations: [],
+    ncsFinalEvaluation: {
+      scoringVersion: "NCS_RECRUITING_SCORING_V1",
+      decisionPolicyVersion: "NCS_INCOMPLETE_AS_FAIL_DEMO_V1",
+      completionStatus: "COMPLETE",
+      thresholdResult: "MEETS_THRESHOLD",
+      aiDecision: "PASS",
+      decisionReasonCode: "THRESHOLD_MET",
+      totalScore: 83,
+      profiles: [
+        finalProfile("JOB_TECHNICAL", 1, "기술·직무", 4.5, 30, 27),
+        finalProfile("COLLABORATION_COMMUNICATION", 2, "협업·의사소통", 4, 30, 24),
+        finalProfile("PROBLEM_SOLVING", 3, "문제 해결력", 4, 40, 32),
+      ],
+      incompleteReasons: [],
+    },
+  });
+
+  const reportUpsert = calls.find((call) => call.model === "evaluationReport" && call.method === "upsert");
+  assert.equal(reportUpsert?.args.create.applicationId, BigInt(22));
+  assert.equal(reportUpsert?.args.create.sessionId, BigInt(65));
+  assert.equal(reportUpsert?.args.update.ncsThresholdResult, "MEETS_THRESHOLD");
+  assert.equal(reportUpsert?.args.update.ncsAiDecision, "PASS");
+  assert.equal(reportUpsert?.args.update.ncsSummaryJson.schemaVersion, "ncs-report-evaluation-output-v1");
+  const profileRows = calls.filter((call) =>
+    call.model === "reportScore" && call.method === "create" && call.args.data.ncsProfileId,
+  );
+  assert.equal(profileRows.length, 3);
+  assert.equal(profileRows[0]?.args.data.averageScore, 4.5);
+  assert.equal(profileRows[2]?.args.data.weightedScore, 32);
+});
+
 test("PrismaAiResultRepository marks recruiting application report completed with generated report", async () => {
   const calls: Array<{ model: string; method: string; args: any }> = [];
   const repository = new PrismaAiResultRepository(fakePrisma(calls));
@@ -637,5 +681,31 @@ function ncsCriterion(
     ncsQuestionMode,
     ncsProfileVersion: "2025.12-v1",
     tag: { name, category: "NCS" },
+  };
+}
+
+function finalProfile(
+  ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING",
+  profileOrder: 1 | 2 | 3,
+  displayName: string,
+  averageScore: number,
+  weight: number,
+  weightedScore: number,
+) {
+  return {
+    ncsProfileId,
+    profileOrder,
+    displayName,
+    criterionId: profileOrder,
+    criterionTitleSnapshot: displayName,
+    status: "SCORED" as const,
+    averageScore,
+    normalizedScore: Math.round(averageScore * 20),
+    weight,
+    weightedScore,
+    minimumAverageScore: 3,
+    assignedQuestionCount: 2,
+    validQuestionCount: 2,
+    requiredQuestionCount: 2,
   };
 }

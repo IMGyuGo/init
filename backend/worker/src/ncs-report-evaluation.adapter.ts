@@ -21,6 +21,11 @@ import {
   preflightNcsTextEvaluation,
 } from "./ncs-text-evaluator";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
+import {
+  aggregateNcsFinalEvaluation,
+  type NcsFinalEvaluation,
+  type NcsSessionPolicyInput,
+} from "./ncs-final-evaluation";
 
 export type NcsApiProfileId =
   | "JOB_TECHNICAL"
@@ -63,6 +68,7 @@ export interface NcsReportEvaluationBatch {
   scores: GeneratedReportScoreRecord[];
   questionEvaluations: GeneratedQuestionEvaluationRecord[];
   allProfilesScored: boolean;
+  finalEvaluation?: NcsFinalEvaluation;
   usage?: {
     modelName: string;
     inputTokens?: number;
@@ -158,6 +164,7 @@ export async function evaluateNcsReportAnswers(
   answers: NcsReportAnswerSnapshot[],
   expectedCriterionIds: number[],
   provider?: NcsTextEvaluationProvider,
+  sessionPolicies?: NcsSessionPolicyInput[],
 ): Promise<NcsReportEvaluationBatch> {
   const primaryAnswers = answers.filter((answer) => !answer.isFollowUpAnswer);
   const ncsAnswers = primaryAnswers.filter((answer) =>
@@ -193,7 +200,17 @@ export async function evaluateNcsReportAnswers(
       }
     : undefined;
 
-  return { evaluations, scores, questionEvaluations, allProfilesScored, usage };
+  const finalEvaluation = sessionPolicies
+    ? aggregateNcsFinalEvaluation(sessionPolicies, evaluations.map((evaluation) => ({
+        answerId: evaluation.answerId,
+        sessionQuestionId: evaluation.sessionQuestionId,
+        ncsProfileId: evaluation.ncsProfileId,
+        scoreStatus: evaluation.output.scoreStatus,
+        effectiveScore: evaluation.effectiveScore,
+        evidenceCount: evaluation.evidences.length,
+      })))
+    : undefined;
+  return { evaluations, scores, questionEvaluations, allProfilesScored, usage, finalEvaluation };
 }
 
 async function evaluateAnswer(

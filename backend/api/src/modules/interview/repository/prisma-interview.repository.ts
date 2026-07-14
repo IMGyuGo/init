@@ -886,6 +886,26 @@ export class PrismaInterviewRepository implements InterviewRepository {
     };
   }
 
+  async listNcsSessionPolicies(sessionId: number) {
+    const policies = await this.prisma.interviewSessionNcsPolicy.findMany({
+      where: { sessionId: BigInt(sessionId) },
+      orderBy: { ncsProfileId: "asc" },
+    });
+    return policies.flatMap((policy) => {
+      const ncsProfileId = this.toNcsProfileId(policy.ncsProfileId);
+      if (!ncsProfileId) return [];
+      return [{
+        ncsProfileId,
+        criterionId: policy.criterionId ? Number(policy.criterionId) : undefined,
+        criterionTitleSnapshot: policy.criterionTitleSnapshot,
+        weight: policy.weight,
+        minimumAverageScore: Number(policy.minimumAverageScore),
+        requiredQuestionCount: policy.requiredQuestionCount,
+        ncsProfileVersion: policy.ncsProfileVersion,
+      }];
+    });
+  }
+
   private toNcsEvaluationSnapshot(sessionQuestion: AnswerRecord["sessionQuestion"]): InterviewAnswer["ncsEvaluationSnapshot"] {
     if (!sessionQuestion) {
       return undefined;

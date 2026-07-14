@@ -420,6 +420,9 @@ export class ReportService {
       jobDescription: this.cleanOptionalText(args.jobDescription) ?? "Interview report generation",
       criteria: await this.reportCriteria(args.reportType, args.postingId, answers),
       answers: await this.reportAnswerInputs(answers, args.reportType),
+      ...(args.reportType === "RECRUITING_REPORT" && this.interviewRepository.listNcsSessionPolicies
+        ? { ncsSessionPolicy: await this.interviewRepository.listNcsSessionPolicies(args.session.sessionId) }
+        : {}),
     };
 
     return {

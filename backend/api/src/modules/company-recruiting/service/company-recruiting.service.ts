@@ -1356,7 +1356,7 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
           integrityAdjustment,
           summary: latestReport.summary,
           generatedAt: latestReport.generatedAt?.toISOString() ?? null,
-          scores: (latestReport.scores ?? []).map((score) => ({
+          scores: (latestReport.scores ?? []).filter((score) => !score.ncsProfileId).map((score) => ({
             scoreId: score.scoreId,
             criterionId: score.criterion?.criterionId ?? null,
             criterionName: score.criterion?.tagName ?? null,
@@ -1391,9 +1391,283 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
             result: evaluation.result,
             updatedAt: evaluation.updatedAt.toISOString(),
           })),
+          ncsEvaluation: buildNcsReportEvaluation(application, latestReport, latestSession),
         }
       : null,
   };
+}
+
+const NCS_REPORT_PROFILE_IDS = [
+  "JOB_TECHNICAL",
+  "COLLABORATION_COMMUNICATION",
+  "PROBLEM_SOLVING",
+] as const;
+
+const NCS_PROFILE_LABELS: Record<(typeof NCS_REPORT_PROFILE_IDS)[number], string> = {
+  JOB_TECHNICAL: "기술·직무",
+  COLLABORATION_COMMUNICATION: "협업·의사소통",
+  PROBLEM_SOLVING: "문제 해결력",
+};
+
+const NCS_EVALUATION_SCOPE_NOTICE =
+  "AI는 답변의 논리 구조와 NCS 행동 근거를 평가합니다. 기술적 사실 여부와 실제 경험의 진위는 확정하지 않으며 면접관 검토가 필요합니다.";
+
+type ApplicantReportRecord = ApplicantRecord["evaluationReports"][number];
+type ApplicantSessionRecord = ApplicantRecord["interviewSessions"][number];
+type ApplicantNcsEvaluationRecord = NonNullable<ApplicantReportRecord["ncsAnswerEvaluations"]>[number];
+type NcsReportProfileId = (typeof NCS_REPORT_PROFILE_IDS)[number];
+
+function buildNcsReportEvaluation(
+  application: ApplicantRecord,
+  report: ApplicantReportRecord,
+  session: ApplicantSessionRecord | null,
+) {
+  if (
+    report.status !== "COMPLETED" ||
+    !report.ncsCompletionStatus ||
+    !report.ncsThresholdResult ||
+    !report.ncsAiDecision ||
+    !report.ncsDecisionReasonCode ||
+    !report.ncsScoringVersion ||
+    !report.ncsDecisionPolicyVersion
+  ) {
+    return null;
+  }
+  const reportSessionId = report.sessionId ?? session?.sessionId ?? null;
+  if (!reportSessionId) return null;
+
+  const evaluations = report.ncsAnswerEvaluations ?? [];
+  const evidences = evaluations.flatMap((evaluation) =>
+    (evaluation.evidences ?? []).map((evidence) => ({
+      evidenceId: evidence.evidenceId,
+      ncsEvaluationId: evaluation.ncsEvaluationId,
+      ncsProfileId: canonicalReportProfileId(evaluation.ncsProfileId),
+      sessionQuestionId: evaluation.sessionQuestionId,
+      sourceAnswerId: evidence.sourceAnswerId,
+      sourceKind: evidence.sourceKind === "FOLLOW_UP" ? "FOLLOW_UP" as const : "BASE" as const,
+      quote: evidence.quote,
+      sortOrder: evidence.sortOrder,
+    })),
+  );
+  const summary = recordOf(report.ncsSummary);
+  const incompleteReasons = arrayOfRecords(summary?.incompleteReasons).map((item) => ({
+    code: stringOf(item.code, "SESSION_SNAPSHOT_MISSING"),
+    message: stringOf(item.message, "NCS 평가 입력 snapshot이 완전하지 않습니다."),
+    ncsProfileId: nullableProfileId(item.ncsProfileId),
+    sessionQuestionId: nullableNumber(item.sessionQuestionId),
+    answerId: nullableNumber(item.answerId),
+    retryable: item.retryable === true,
+  }));
+  const findings = NCS_REPORT_PROFILE_IDS.flatMap((ncsProfileId) => {
+    const profileEvidenceIds = evidences
+      .filter((evidence) => evidence.ncsProfileId === ncsProfileId)
+      .map((evidence) => evidence.evidenceId);
+    const score = (report.scores ?? []).find((item) =>
+      typeof item.ncsProfileId === "string" && canonicalReportProfileId(item.ncsProfileId) === ncsProfileId,
+    );
+    if (profileEvidenceIds.length === 0 || score?.averageScore == null) return [];
+    const isStrength = score.averageScore >= (score.minimumAverageScore ?? 3);
+    return [{
+      findingId: `${isStrength ? "strength" : "gap"}-${ncsProfileId.toLowerCase()}`,
+      type: isStrength ? "STRENGTH" as const : "GAP" as const,
+      ncsProfileId,
+      title: isStrength
+        ? `${NCS_PROFILE_LABELS[ncsProfileId]} 근거가 기준 이상 확인되었습니다.`
+        : `${NCS_PROFILE_LABELS[ncsProfileId]} 근거를 추가로 확인해야 합니다.`,
+      detail: isStrength
+        ? "답변 원문에서 확인된 행동과 논리 구조를 기준으로 산정했습니다."
+        : "답변 원문 근거가 최소 기준에 미치지 않아 면접관 검토가 필요합니다.",
+      evidenceIds: [...new Set(profileEvidenceIds)],
+      generationMode: "DETERMINISTIC" as const,
+    }];
+  });
+  const findingsByProfile = new Map(findings.map((finding) => [finding.ncsProfileId, finding.findingId]));
+  const profileScores = NCS_REPORT_PROFILE_IDS.map((ncsProfileId, index) => {
+    const score = (report.scores ?? []).find((item) =>
+      typeof item.ncsProfileId === "string" && canonicalReportProfileId(item.ncsProfileId) === ncsProfileId,
+    );
+    const status = score?.averageScore == null ? "INCOMPLETE" as const : "SCORED" as const;
+    const findingId = findingsByProfile.get(ncsProfileId);
+    return {
+      ncsProfileId,
+      profileOrder: (index + 1) as 1 | 2 | 3,
+      displayName: NCS_PROFILE_LABELS[ncsProfileId],
+      status,
+      averageScore: score?.averageScore ?? null,
+      normalizedScore: score?.normalizedScore ?? null,
+      weight: score?.weight ?? 0,
+      weightedScore: score?.weightedScore ?? null,
+      minimumAverageScore: score?.minimumAverageScore ?? 3,
+      assignedQuestionCount: score?.assignedQuestionCount ?? 0,
+      validQuestionCount: score?.validQuestionCount ?? 0,
+      requiredQuestionCount: 2,
+      findingIds: findingId ? [findingId] : [],
+    };
+  });
+  const evaluationsByQuestion = new Map<number, ApplicantNcsEvaluationRecord[]>();
+  for (const evaluation of evaluations) {
+    const items = evaluationsByQuestion.get(evaluation.sessionQuestionId) ?? [];
+    items.push(evaluation);
+    evaluationsByQuestion.set(evaluation.sessionQuestionId, items);
+  }
+  const questions = [...evaluationsByQuestion.entries()]
+    .map(([sessionQuestionId, items]) => buildNcsQuestionOutput(sessionQuestionId, items, session))
+    .sort((left, right) => left.sortOrder - right.sortOrder);
+
+  return {
+    schemaVersion: "ncs-report-evaluation-output-v1" as const,
+    report: {
+      reportId: report.reportId,
+      applicationId: report.applicationId ?? application.applicationId,
+      sessionId: reportSessionId,
+      reportStatus: "COMPLETED" as const,
+      generatedAt: report.generatedAt?.toISOString() ?? null,
+    },
+    policy: {
+      scoringVersion: "NCS_RECRUITING_SCORING_V1" as const,
+      decisionPolicyVersion: report.ncsDecisionPolicyVersion,
+      scoreScale: 5 as const,
+      overallPassScore: 80 as const,
+      profileMinimumAverageScore: 3 as const,
+      requiredQuestionCountPerProfile: 2 as const,
+    },
+    result: {
+      completionStatus: report.ncsCompletionStatus,
+      thresholdResult: report.ncsThresholdResult,
+      aiDecision: report.ncsAiDecision,
+      decisionReasonCode: report.ncsDecisionReasonCode,
+      totalScore: report.totalScore,
+    },
+    profiles: profileScores,
+    questions,
+    evidences,
+    findings,
+    incompleteReasons,
+    notices: [
+      { code: "NCS_EVALUATION_SCOPE" as const, message: NCS_EVALUATION_SCOPE_NOTICE },
+      ...(report.ncsCompletionStatus === "INCOMPLETE"
+        ? [{
+            code: "INCOMPLETE_FAIL_CLOSED" as const,
+            message: "평가 미완료는 발표용 임시 정책에 따라 AI 추천 불합격으로 표시됩니다.",
+          }]
+        : []),
+    ],
+  };
+}
+
+function buildNcsQuestionOutput(
+  sessionQuestionId: number,
+  evaluations: ApplicantNcsEvaluationRecord[],
+  session: ApplicantSessionRecord | null,
+) {
+  const first = evaluations[0]!;
+  const question = first.sessionQuestion;
+  const baseAnswer = session?.answers?.find((answer) => answer.answerId === first.answerId);
+  const followUpQuestion = baseAnswer?.followUpQuestions.find((item) => item.policy === "RECRUITING") ?? null;
+  const followUpAnswer = followUpQuestion?.answer ?? null;
+  const recoveredCount = evaluations.filter((evaluation) =>
+    evaluation.followUpApplied &&
+    evaluation.baseScore !== null &&
+    evaluation.baseScore !== undefined &&
+    evaluation.effectiveScore !== null &&
+    evaluation.effectiveScore !== undefined &&
+    evaluation.effectiveScore > evaluation.baseScore,
+  ).length;
+  const fullyRecovered = recoveredCount > 0 && evaluations.every((evaluation) => evaluation.effectiveScore === 5);
+  return {
+    sessionQuestionId,
+    runtimeQuestionId: question?.runtimeQuestionId ?? sessionQuestionId,
+    questionSource: question?.generationSource === "RESUME_PERSONALIZED"
+      ? "RESUME_PERSONALIZED" as const
+      : "JD_CRITERIA" as const,
+    questionText: question?.content ?? baseAnswer?.questionContent ?? "",
+    questionMode: question?.ncsQuestionMode ?? first.ncsQuestionMode,
+    sortOrder: question?.sortOrder ?? sessionQuestionId,
+    baseAnswerId: first.answerId,
+    profileEvaluations: evaluations.map((evaluation) => ({
+      ncsEvaluationId: evaluation.ncsEvaluationId,
+      ncsProfileId: canonicalReportProfileId(evaluation.ncsProfileId),
+      scoreStatus: normalizeNcsScoreStatus(evaluation.scoreStatus),
+      behaviorPoints: evaluation.behaviorPoints ?? null,
+      logicPoints: evaluation.logicPoints ?? null,
+      baseScore: evaluation.baseScore ?? null,
+      effectiveScore: evaluation.effectiveScore ?? null,
+      followUpApplied: evaluation.followUpApplied ?? false,
+      confidence: normalizeNcsConfidence(evaluation.confidence),
+      rationale: evaluationRationale(evaluation),
+      evidenceIds: (evaluation.evidences ?? []).map((evidence) => evidence.evidenceId),
+      incompleteReasonCodes: evaluation.scoreStatus === "SCORED"
+        ? []
+        : [evaluation.scoreStatus === "LOW_ALIGNMENT" ? "LOW_ALIGNMENT" : "INSUFFICIENT_INPUT"],
+    })),
+    followUp: followUpQuestion
+      ? {
+          followUpQuestionId: followUpQuestion.followUpId,
+          followUpAnswerId: followUpAnswer?.answerId ?? null,
+          questionText: followUpQuestion.content,
+          answerTimeSec: session?.answerTimeSecSnapshot ?? 90,
+          answerStatus: !followUpAnswer
+            ? "NOT_ANSWERED" as const
+            : fullyRecovered
+              ? "RECOVERED" as const
+              : recoveredCount > 0
+                ? "PARTIALLY_RECOVERED" as const
+                : "NOT_RECOVERED" as const,
+        }
+      : null,
+  };
+}
+
+function canonicalReportProfileId(value: unknown): NcsReportProfileId {
+  if (value === "DIGITAL" || value === "JOB_TECHNICAL") return "JOB_TECHNICAL";
+  if (value === "COMMUNICATION" || value === "COLLABORATION_COMMUNICATION") {
+    return "COLLABORATION_COMMUNICATION";
+  }
+  return "PROBLEM_SOLVING";
+}
+
+function normalizeNcsScoreStatus(value: string) {
+  if (value === "SCORED" || value === "INSUFFICIENT_INPUT" || value === "LOW_ALIGNMENT") return value;
+  return "BLOCKED" as const;
+}
+
+function normalizeNcsConfidence(value: string) {
+  if (value === "HIGH" || value === "MEDIUM" || value === "LOW") return value;
+  return null;
+}
+
+function evaluationRationale(evaluation: ApplicantNcsEvaluationRecord): string | null {
+  const result = recordOf(evaluation.result);
+  const competencies = arrayOfRecords(result?.competencies);
+  const target = canonicalReportProfileId(evaluation.ncsProfileId);
+  const competency = competencies.find((item) =>
+    typeof item.profileId === "string" && canonicalReportProfileId(item.profileId) === target,
+  );
+  return competency ? stringOf(competency.rationale, null) : null;
+}
+
+function recordOf(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function arrayOfRecords(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.map(recordOf).filter((item): item is Record<string, unknown> => item !== null) : [];
+}
+
+function stringOf(value: unknown, fallback: string): string;
+function stringOf(value: unknown, fallback: null): string | null;
+function stringOf(value: unknown, fallback: string | null): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function nullableNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) ? value : null;
+}
+
+function nullableProfileId(value: unknown): NcsReportProfileId | null {
+  return typeof value === "string" ? canonicalReportProfileId(value) : null;
 }
 
 function toCompanyEvaluationFileAsset(fileAsset: CompanyFileAssetRecord | null | undefined) {

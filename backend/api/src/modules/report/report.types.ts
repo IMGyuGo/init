@@ -124,6 +124,15 @@ export interface GenerateReportRequest {
   documentText?: string;
   criteria: EvaluationCriterionInput[];
   answers: InterviewAnswerInput[];
+  ncsSessionPolicy?: Array<{
+    ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
+    criterionId?: number;
+    criterionTitleSnapshot: string;
+    weight: number;
+    minimumAverageScore: number;
+    requiredQuestionCount: number;
+    ncsProfileVersion: string;
+  }>;
 }
 
 export interface ReportCommand<TBody> {

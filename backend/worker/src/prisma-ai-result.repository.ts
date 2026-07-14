@@ -380,15 +380,40 @@ export class PrismaAiResultRepository implements AiResultRepository {
     if (record.questionEvaluations.length > 0) {
       assertQuestionEvaluationsHaveEvidence(record.questionEvaluations);
     }
+    const ncsReportData = record.ncsFinalEvaluation
+      ? {
+          ncsCompletionStatus: record.ncsFinalEvaluation.completionStatus,
+          ncsThresholdResult: record.ncsFinalEvaluation.thresholdResult,
+          ncsAiDecision: record.ncsFinalEvaluation.aiDecision,
+          ncsDecisionReasonCode: record.ncsFinalEvaluation.decisionReasonCode,
+          ncsScoringVersion: record.ncsFinalEvaluation.scoringVersion,
+          ncsDecisionPolicyVersion: record.ncsFinalEvaluation.decisionPolicyVersion,
+          ncsSummaryJson: {
+            schemaVersion: "ncs-report-evaluation-output-v1",
+            result: {
+              completionStatus: record.ncsFinalEvaluation.completionStatus,
+              thresholdResult: record.ncsFinalEvaluation.thresholdResult,
+              aiDecision: record.ncsFinalEvaluation.aiDecision,
+              decisionReasonCode: record.ncsFinalEvaluation.decisionReasonCode,
+              totalScore: record.ncsFinalEvaluation.totalScore,
+            },
+            profiles: record.ncsFinalEvaluation.profiles,
+            incompleteReasons: record.ncsFinalEvaluation.incompleteReasons,
+          },
+        }
+      : {};
     await this.prisma.evaluationReport.upsert({
       where: { reportId: BigInt(record.reportId) },
       create: {
         reportId: BigInt(record.reportId),
+        applicationId: record.applicationId ? BigInt(record.applicationId) : null,
+        sessionId: record.sessionId ? BigInt(record.sessionId) : null,
         reportType: record.reportType,
         status: "COMPLETED",
         summary: record.summary,
         totalScore: record.totalScore,
-        generatedAt: new Date()
+        generatedAt: new Date(),
+        ...ncsReportData,
       },
       update: {
         reportType: record.reportType,
@@ -397,11 +422,15 @@ export class PrismaAiResultRepository implements AiResultRepository {
         totalScore: record.totalScore,
         generatedAt: new Date(),
         failureCategory: null,
-        failureReason: null
+        failureReason: null,
+        ...ncsReportData,
       }
     });
 
     await this.replaceReportScores(record.reportId, record.scores);
+    if (record.ncsFinalEvaluation) {
+      await this.createNcsProfileScores(record.reportId, record.ncsFinalEvaluation);
+    }
     if (record.ncsAnswerEvaluations) {
       await this.replaceNcsAnswerEvaluations(record.reportId, record.ncsAnswerEvaluations);
     }
@@ -697,6 +726,33 @@ export class PrismaAiResultRepository implements AiResultRepository {
               sortOrder: index + 1,
             })),
           },
+        },
+      });
+    }
+  }
+
+  private async createNcsProfileScores(
+    reportId: number,
+    evaluation: NonNullable<GeneratedReportRecord["ncsFinalEvaluation"]>,
+  ): Promise<void> {
+    for (const profile of evaluation.profiles) {
+      await this.prisma.reportScore.create({
+        data: {
+          scoreId: this.nextId(),
+          reportId: BigInt(reportId),
+          criterionId: profile.criterionId ? await this.resolveCriterionId(profile.criterionId) : null,
+          score: profile.normalizedScore,
+          rationale: profile.status === "SCORED"
+            ? `${profile.displayName} 유효 답변 ${profile.validQuestionCount}개의 5점 평균입니다.`
+            : `${profile.displayName} 평가가 완료되지 않았습니다.`,
+          ncsProfileId: profile.ncsProfileId,
+          averageScore: profile.averageScore,
+          normalizedScore: profile.normalizedScore,
+          weight: profile.weight,
+          weightedScore: profile.weightedScore,
+          minimumAverageScore: profile.minimumAverageScore,
+          assignedQuestionCount: profile.assignedQuestionCount,
+          validQuestionCount: profile.validQuestionCount,
         },
       });
     }

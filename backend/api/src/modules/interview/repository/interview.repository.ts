@@ -74,6 +74,16 @@ export interface GeneratedFollowUpQuestion {
   policy: FollowUpQuestionPolicy;
 }
 
+export interface InterviewSessionNcsPolicySnapshot {
+  ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
+  criterionId?: number;
+  criterionTitleSnapshot: string;
+  weight: number;
+  minimumAverageScore: number;
+  requiredQuestionCount: number;
+  ncsProfileVersion: string;
+}
+
 export interface CreateRuntimeFollowUpQuestionInput {
   session: RuntimeInterviewSession;
   sourceAnswer: InterviewAnswer;
@@ -97,6 +107,7 @@ export interface InterviewRepository {
   saveRecruitingRuntimeSession(session: RuntimeInterviewSession): MaybePromise<RuntimeInterviewSession>;
   saveRuntimeSession(session: RuntimeInterviewSession): MaybePromise<RuntimeInterviewSession>;
   listAnswersBySession(sessionId: number): MaybePromise<InterviewAnswer[]>;
+  listNcsSessionPolicies?(sessionId: number): MaybePromise<InterviewSessionNcsPolicySnapshot[]>;
   countAnswersBySession(sessionId: number): MaybePromise<number>;
   findAnswer(sessionId: number, questionId: number): MaybePromise<InterviewAnswer | undefined>;
   findAnswerById(sessionId: number, answerId: number): MaybePromise<InterviewAnswer | undefined>;
