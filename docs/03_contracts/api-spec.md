@@ -2625,6 +2625,25 @@ CandidateFolder 입력 제한:
 - 관련 ERD 테이블:
   - candidate_profiles, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, ai_process_logs
 
+### API-054A PATCH /candidate/mock-interviews/{sessionId}/title
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 모의면접 평가 리포트 화면 (/candidate/mock-interview/reports)
+- UI Type: system process
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: sessionId
+- 요청 데이터:
+  - title (문자열, 최대 100자. 빈 값이면 기본 '세션 #N' 으로 초기화)
+- 검증/전제조건:
+  - 로그인 사용자, 세션 소유자(본인) 확인
+- 성공 응답/처리:
+  - interview_sessions.title 갱신 후 { sessionId, title } 반환
+- 오류/예외:
+  - 타 지원자 세션 접근 시 403(COMMON_FORBIDDEN), 없는 세션 404(COMMON_NOT_FOUND), 100자 초과 시 400(COMMON_VALIDATION_FAILED)
+- 관련 ERD 테이블:
+  - interview_sessions
+
 ### API-055 GET /candidate/mock-interview/reports/{reportId}/feedback
 - 도메인: 지원자 - 모의면접
 - 권한/인증: 지원자 / 지원자 사용자 로그인

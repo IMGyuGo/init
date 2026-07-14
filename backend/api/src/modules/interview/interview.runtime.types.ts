@@ -19,6 +19,7 @@ export interface RuntimeInterviewSession {
   applicationId?: number;
   candidateId: number;
   interviewType: InterviewType;
+  title?: string | null;
   status: InterviewStatus;
   showQuestionText: boolean;
   currentQuestionIndex: number;

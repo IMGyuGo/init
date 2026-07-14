@@ -68,6 +68,7 @@ export interface CandidateMockInterviewHistoryItem {
   sessionId: number;
   reportId: number;
   interviewType: "MOCK";
+  title: string | null;
   status: InterviewStatus;
   reportStatus: ReportStatus;
   startedAt?: string;

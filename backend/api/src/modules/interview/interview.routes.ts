@@ -3,6 +3,7 @@ export const interviewApiRoutePrefix = "candidate";
 export const interviewApiRoutes = {
   mockInterviews: "mock-interviews",
   mockHistory: "mock-interviews/history",
+  mockTitle: "mock-interviews/:sessionId/title",
   mockRuntime: "mock-interviews/:sessionId",
   mockQuestions: "mock-interviews/:sessionId/questions",
   mockAnswers: "mock-interviews/:sessionId/answers",

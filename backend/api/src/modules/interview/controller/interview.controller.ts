@@ -12,6 +12,7 @@ import {
   SaveInterviewAnswerDto,
   StartMockInterviewDto,
 } from "../dto/interview.runtime.dto";
+import { UpdateMockSessionTitleDto } from "../dto/update-mock-session-title.dto";
 import { interviewApiRoutePrefix, interviewApiRoutes } from "../interview.routes";
 import { InterviewService } from "../service/interview.service";
 
@@ -36,6 +37,17 @@ export class InterviewController {
   @Get(interviewApiRoutes.mockHistory)
   listMockInterviewHistory(@Req() request: CandidateRequest) {
     return this.handle(() => this.interviewService.listMockInterviewHistory(resolveCurrentCandidate(request.currentUser)));
+  }
+
+  @Patch(interviewApiRoutes.mockTitle)
+  updateMockInterviewTitle(
+    @Req() request: CandidateRequest,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: UpdateMockSessionTitleDto,
+  ) {
+    return this.handle(() =>
+      this.interviewService.updateMockInterviewTitle(Number(sessionId), dto, resolveCurrentCandidate(request.currentUser)),
+    );
   }
 
   @Get(interviewApiRoutes.mockRuntime)

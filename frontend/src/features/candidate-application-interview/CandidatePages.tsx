@@ -4,7 +4,7 @@ import "./CandidatePages.module.css";
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { DependencyList, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FaceLandmarker as MediaPipeFaceLandmarker, NormalizedLandmark, ObjectDetector as MediaPipeObjectDetector } from "@mediapipe/tasks-vision";
 
@@ -272,7 +272,6 @@ type RuntimeMode = "mock" | "recruiting";
 type RuntimeTimerPhase = "PREPARING" | "ANSWERING";
 type RealtimeSessionStatus = "idle" | "requesting" | "connecting" | "ready" | "failed";
 type RealtimeProviderState = RealtimeInterviewSessionResponse["provider"] | "none";
-type InterviewGuideStep = "guide" | "device";
 type InterviewIntegrityEventType =
   | "TAB_HIDDEN"
   | "WINDOW_BLUR"
@@ -994,11 +993,25 @@ const APPLICATIONS_PAGE_SIZE = 8;
 
 // 마이페이지 '지원 내역' 탭 — 지원 요약 + 지원한 공고 목록(페이지네이션). (#272 마이페이지 탭 재편)
 export function CandidateApplicationsPage() {
+  const router = useRouter();
   const load = useCallback(() => getCandidateApi().listApplications(), []);
   const { data, loading, error } = useCandidateResource(load, []);
   const applications = data?.data.items ?? [];
   const availableApplications = applications.filter((application) => application.availabilityStatus !== "UNAVAILABLE");
   const [statusFilter, setStatusFilter] = useState<CandidateApplicationStatusFilter>("ALL");
+  // 면접 안내 모달을 지원 내역 위에서 연다. 완료 시 장치 점검 라우트로 이동. (#288)
+  const [guideAppId, setGuideAppId] = useState<number | null>(null);
+  // /interview-guide 라우트로 직접 진입한 경우 ?guide=id 로 리다이렉트되어 여기서 모달을 연다.
+  const searchParams = useSearchParams();
+  const guideParam = searchParams.get("guide");
+  useEffect(() => {
+    if (guideParam) {
+      const parsed = Number(guideParam);
+      if (Number.isInteger(parsed) && parsed > 0) {
+        setGuideAppId(parsed);
+      }
+    }
+  }, [guideParam]);
   const [page, setPage] = useState(1);
   const summary = {
     total: applications.length,
@@ -1095,7 +1108,15 @@ export function CandidateApplicationsPage() {
                       />
                       {renderCandidateReportStatus(application.reportStatus)}
                     </div>
-                    {action.href ? (
+                    {action.href === candidateApplicationInterviewRoutes.interviewGuide(application.applicationId) ? (
+                      <button
+                        className="application-row__cta"
+                        type="button"
+                        onClick={() => setGuideAppId(application.applicationId)}
+                      >
+                        {action.label}
+                      </button>
+                    ) : action.href ? (
                       <Link className="application-row__cta" href={action.href}>
                         {action.label}
                       </Link>
@@ -1150,6 +1171,18 @@ export function CandidateApplicationsPage() {
           ) : null}
         </section>
       </section>
+
+      {guideAppId != null ? (
+        <InterviewGuideModal
+          applicationId={guideAppId}
+          onClose={() => setGuideAppId(null)}
+          onProceed={() => {
+            const targetId = guideAppId;
+            setGuideAppId(null);
+            router.push(candidateApplicationInterviewRoutes.interviewGuide(targetId));
+          }}
+        />
+      ) : null}
     </CandidatePageShell>
   );
 }
@@ -1159,6 +1192,195 @@ function formatShortDate(value: string | null) {
   return new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric" }).format(new Date(value));
 }
 
+// 면접 안내(응시 안내) 모달 위저드. 지원 내역 위에서 떠서, 완료 시 장치 점검으로 이동한다. (#288)
+function InterviewGuideModal({
+  applicationId,
+  onClose,
+  onProceed,
+}: {
+  applicationId: number;
+  onClose: () => void;
+  onProceed: () => void;
+}) {
+  const load = useCallback(() => getCandidateApi().getInterviewGuide(applicationId), [applicationId]);
+  const { data, loading, error } = useCandidateResource(load, [applicationId]);
+  const guide = data?.data;
+  const [subStep, setSubStep] = useState(0);
+  // 서브스텝 전환 방향(다음=오른쪽에서, 이전=왼쪽에서 슬라이드 인). (#288)
+  const [stepDir, setStepDir] = useState<"next" | "prev">("next");
+  const goNextStep = () => {
+    setStepDir("next");
+    setSubStep((prev) => prev + 1);
+  };
+  const goPrevStep = () => {
+    setStepDir("prev");
+    setSubStep((prev) => prev - 1);
+  };
+  const [consentState, setConsentState] = useState<CandidateInterviewConsentState>(defaultInterviewConsentState);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const primaryLabel = guide?.interviewSessionStatus === "IN_PROGRESS" ? "면접 재개" : "면접 시작";
+  // 이미 필수 동의를 완료한 사용자는 다시 체크하지 않아도 되도록 체크박스를 미리 채운다. (#288)
+  useEffect(() => {
+    if (guide?.consentCompleted) {
+      setConsentState((prev) => ({ ...prev, consentTypes: [...guide.requiredConsentTypes] }));
+    }
+  }, [guide]);
+  const consentComplete = guide
+    ? guide.consentCompleted ||
+      guide.requiredConsentTypes.every((consentType) => consentState.consentTypes.includes(consentType))
+    : false;
+
+  async function handleProceed() {
+    if (!guide) return;
+    if (!consentComplete) {
+      setMessage("필수 동의 항목을 모두 체크한 뒤 이동해주세요.");
+      return;
+    }
+    setBusy(true);
+    setMessage("");
+    try {
+      if (!guide.consentCompleted) {
+        await getCandidateApi().saveInterviewConsent(applicationId, toSaveInterviewConsentRequest(consentState));
+      }
+      onProceed();
+    } catch (submitError) {
+      setMessage(toErrorMessage(submitError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="ivg-modal-overlay candidate-interview-guide notion"
+      role="presentation"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="ivg-modal" role="dialog" aria-modal="true" aria-label="채용 AI 면접 안내">
+        <header className="ivg-modal-head">
+          <div className="ivg-modal-heading">
+            <p className="ivg-modal-eyebrow">면접 안내</p>
+            <h2>채용 AI 면접 안내</h2>
+          </div>
+          <button type="button" className="ivg-modal-close" aria-label="닫기" onClick={onClose}>✕</button>
+        </header>
+
+        <ol className="ivg-track" aria-label="채용 AI 면접 준비 단계">
+          <li className="ivg-track-step is-current"><span className="ivg-track-no">1</span>응시 안내</li>
+          <li className="ivg-track-step"><span className="ivg-track-no">2</span>장치 점검</li>
+          <li className="ivg-track-step"><span className="ivg-track-no">3</span>{primaryLabel}</li>
+        </ol>
+
+        <div className="ivg-modal-body">
+          {loading || !guide ? (
+            <p className="empty">면접 안내를 불러오는 중이에요.</p>
+          ) : (
+            <div key={subStep} className={`ivg-step-panel${stepDir === "prev" ? " ivg-step-prev" : ""}`}>
+              <div className="ivg-substep-head">
+                <span className="ivg-substep-count">{subStep + 1} / 3</span>
+                <h3>{["진행 방식", "필수 준비 사항", "응시 무결성 안내"][subStep]}</h3>
+              </div>
+
+              {subStep === 0 ? (
+                <ul className="ivg-flow">
+                  {guide.method.map((item, index) => (
+                    <li key={`method-${index}`}>
+                      <span className="ivg-flow-no">{index + 1}</span>
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
+              {subStep === 1 ? (
+                <ul className="ivg-check">
+                  {guide.requiredPreparations.map((item, index) => (
+                    <li key={`prep-${index}`}>
+                      <span className="ivg-check-icon" aria-hidden="true">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+                      </span>
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
+              {subStep === 2 ? (
+                <>
+                  <div className="ivg-callout">
+                    <div className="ivg-callout-head">
+                      <span className="ivg-callout-icon" aria-hidden="true">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+                      </span>
+                      <strong>면접 중 응시 환경 신호가 기록됩니다</strong>
+                    </div>
+                    <ul>
+                      <li>화면·탭 이탈, 얼굴 미검출·복수 얼굴, 카메라 연결, 시선 이탈, 음성과 입 모양의 불일치 등을 답변별 참고 신호로 확인합니다.</li>
+                      <li>감지 신호는 브라우저에서 수집된 미검증 참고 정보로 채용 담당자 검토 화면에 표시되며 평가 점수에는 반영되지 않습니다.</li>
+                      <li>감지 신호만으로 부정행위를 확정하거나 자동 탈락 처리하지 않으며, 채용 담당자가 답변 내용과 녹화 영상을 함께 검토합니다.</li>
+                    </ul>
+                  </div>
+
+                  <div className="ivg-consent-block">
+                    <h4 className="ivg-consent-title">필수 동의</h4>
+                    <p className="ivg-consent-sub">개인정보·AI 분석·녹화/녹음 안내를 확인하고 모두 동의해야 시작할 수 있어요.</p>
+                    <div className="ivg-consent-grid">
+                      {requiredInterviewConsents.map((consentType) => {
+                        const checked = consentState.consentTypes.includes(consentType);
+                        return (
+                          <label key={consentType} className={`ivg-consent-item${checked ? " is-checked" : ""}`}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() =>
+                                setConsentState((current) => ({
+                                  consentTypes: toggleValue(current.consentTypes, consentType),
+                                }))
+                              }
+                            />
+                            <span>{formatConsentTypeLabel(consentType)}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              ) : null}
+
+              {message ? <p className="notice danger ivg-modal-message">{message}</p> : null}
+            </div>
+          )}
+          {error ? <p className="notice danger">{toErrorMessage(error)}</p> : null}
+        </div>
+
+        <footer className="ivg-modal-foot">
+          {subStep > 0 ? (
+            <button className="btn secondary" type="button" onClick={goPrevStep}>
+              이전
+            </button>
+          ) : (
+            <span className="ivg-modal-window">
+              {guide ? `응시 가능 ${formatDateTime(guide.interviewWindowEndsAt)}까지` : ""}
+            </span>
+          )}
+          {subStep < 2 ? (
+            <button className="btn primary" type="button" disabled={!guide} onClick={goNextStep}>
+              다음
+            </button>
+          ) : (
+            <button className="btn primary" type="button" disabled={busy || !consentComplete} onClick={() => void handleProceed()}>
+              장치 점검으로
+            </button>
+          )}
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 export function CandidateInterviewGuidePage({ applicationId }: { applicationId: number }) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -1166,8 +1388,6 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
   const audioContextRef = useRef<AudioContext | null>(null);
   const microphoneFrameRef = useRef<number | null>(null);
   const cameraQualityIntervalRef = useRef<number | null>(null);
-  const [step, setStep] = useState<InterviewGuideStep>("guide");
-  const [consentState, setConsentState] = useState<CandidateInterviewConsentState>(defaultInterviewConsentState);
   const [deviceState, setDeviceState] = useState<CandidateDeviceCheckState>(defaultDeviceCheckState);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
@@ -1187,10 +1407,14 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
   const guide = data?.data;
   const guideInterviewAlreadyInProgress = guide?.interviewSessionStatus === "IN_PROGRESS";
   const guidePrimaryActionLabel = guideInterviewAlreadyInProgress ? "면접 재개" : "면접 시작";
-  const guideRequiredConsentCompleted = guide
-    ? guide.requiredConsentTypes.every((consentType) => consentState.consentTypes.includes(consentType))
-    : false;
   const deviceTestSentence = useMemo(() => pickDeviceTestSentence(), []);
+
+  // 동의 전(면접 안내 필요) 상태로 이 라우트에 직접 진입하면, 지원 내역 위에서 안내 모달이 뜨도록 리다이렉트한다. (#288)
+  useEffect(() => {
+    if (guide && !guide.consentCompleted) {
+      router.replace(`${candidateApplicationInterviewRoutes.applications}?guide=${applicationId}`);
+    }
+  }, [guide, applicationId, router]);
 
   useEffect(() => {
     void refreshGuideCameraDevices();
@@ -1205,7 +1429,6 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
 
   useEffect(() => {
     if (guide) {
-      setConsentState({ ...defaultInterviewConsentState });
       setDeviceState({
         cameraGranted: guide.deviceCheckCompleted,
         microphoneGranted: guide.deviceCheckCompleted,
@@ -1291,31 +1514,6 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
     };
 
     tick();
-  }
-
-  async function handleGuideNext() {
-    if (!guide) return;
-    const missingConsents = guide.requiredConsentTypes.filter(
-      (consentType) => !consentState.consentTypes.includes(consentType),
-    );
-    if (missingConsents.length > 0) {
-      setMessage("필수 동의 항목을 모두 체크한 뒤 다음으로 이동해주세요.");
-      return;
-    }
-
-    setBusy(true);
-    setMessage("");
-    try {
-      if (!guide.consentCompleted) {
-        await getCandidateApi().saveInterviewConsent(applicationId, toSaveInterviewConsentRequest(consentState));
-      }
-      setStep("device");
-      setMessage("동의가 저장되었습니다. 카메라와 마이크를 점검해주세요.");
-    } catch (submitError) {
-      setMessage(toErrorMessage(submitError));
-    } finally {
-      setBusy(false);
-    }
   }
 
   async function handleDevicePreview() {
@@ -1475,97 +1673,120 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
       <StatusNotice loading={loading || busy} error={error} message={message} />
       {guide ? (
         <>
-          {step === "guide" ? (
-            <>
-              <CandidatePageHead
-                eyebrow="면접 안내"
-                title="채용 AI 면접 안내"
-                description="응시 안내와 필수 동의를 확인한 뒤 면접 화면으로 이동합니다."
-                actions={<Link className="btn secondary" href={candidateApplicationInterviewRoutes.applications}>지원 내역</Link>}
-              />
-              <section className="panel detail-stack">
-                <div className="panel-head">
-                  <div>
-                    <h2>응시 안내</h2>
-                    <p>세션 ID {guide.sessionId} · {formatInterviewTypeLabel(guide.interviewType)}</p>
-                  </div>
-                  <StatusPill
-                    value={
-                      guideInterviewAlreadyInProgress
-                        ? "IN_PROGRESS"
-                        : guide.canStart
-                          ? "START_READY"
-                          : "PREP_REQUIRED"
-                    }
-                  />
-                </div>
-                <div className="candidate-steps" aria-label="채용 AI 면접 준비 단계">
-                  <span className="current"><b>STEP 1</b> 응시 안내</span>
-                  <span><b>STEP 2</b> 장치 점검</span>
-                  <span><b>STEP 3</b> {guidePrimaryActionLabel}</span>
-                </div>
-                <dl className="candidate-feature__summary">
-                  <Definition label="응시 시작" value={formatDateTime(guide.interviewWindowStartsAt)} />
-                  <Definition label="응시 마감" value={formatDateTime(guide.interviewWindowEndsAt)} />
-                  <Definition label="동의 완료" value={guide.consentCompleted ? "완료" : "필요"} />
-                  <Definition label="장치 점검" value={guide.deviceCheckCompleted ? "완료" : "필요"} />
-                  <Definition label="면접 상태" value={<StatusPill value={guide.interviewSessionStatus} />} />
-                </dl>
-                <ListBlock title="진행 방식" items={guide.method} />
-                <ListBlock title="필수 준비 사항" items={guide.requiredPreparations} />
-                <RecruitingIntegrityNotice />
-              </section>
+          {guide.consentCompleted ? (
+            <section className="dvc">
+              <header className="dvc__head">
+                <p className="dvc__eyebrow">장치 점검</p>
+                <h1 className="dvc__title">카메라와 마이크를 확인해주세요</h1>
+                <p className="dvc__sub">준비가 모두 완료되면 면접을 시작할 수 있어요.</p>
+              </header>
 
-              <section className="panel">
-                <div className="panel-head">
-                  <div>
-                    <h2>필수 동의</h2>
-                    <p>개인정보, AI 분석, 녹화/녹음 안내를 확인합니다.</p>
+              <div className="dvc__progress" role="list" aria-label="채용 AI 면접 준비 단계">
+                <span className="dvc__step is-done" role="listitem"><i className="dvc__pnode">✓</i>응시 안내</span>
+                <span className="dvc__pbar" aria-hidden="true" />
+                <span className="dvc__step is-now" role="listitem"><i className="dvc__pnode">2</i>장치 점검</span>
+                <span className="dvc__pbar" aria-hidden="true" />
+                <span className="dvc__step" role="listitem"><i className="dvc__pnode">3</i>{guidePrimaryActionLabel}</span>
+              </div>
+
+              <div className="dvc__grid">
+                <div className="dvc__cam video-box">
+                  <video ref={videoRef} autoPlay muted playsInline />
+                  <CameraFramingOverlay state={cameraFramingState} testSentence={deviceTestSentence} />
+                  <span className="dvc__cam-chip">
+                    <i className={`dvc__cam-dot${cameraReady ? " is-on" : ""}`} aria-hidden="true" />
+                    {cameraReady ? "카메라 연결됨" : "카메라 연결 확인 필요"}
+                  </span>
+                </div>
+
+                <aside className="dvc__side">
+                  <div className="dvc__card">
+                    <h3>준비 상태</h3>
+                    <ul className="dvc__check">
+                      <li className="dvc__crow">
+                        <span className={`dvc__ic ${cameraReady ? "is-ok" : "is-warn"}`}>{cameraReady ? "✓" : "!"}</span>
+                        <div className="dvc__cmain">
+                          <b>카메라</b>
+                          <span>{cameraReady ? "정상 연결됨" : "연결을 확인해주세요"}</span>
+                        </div>
+                        <span className={`dvc__pill ${cameraReady ? "is-ok" : "is-warn"}`}>{cameraReady ? "정상" : "확인 필요"}</span>
+                      </li>
+                      <li className="dvc__crow">
+                        <span className={`dvc__ic ${microphoneReady ? "is-ok" : "is-warn"}`}>{microphoneReady ? "✓" : "!"}</span>
+                        <div className="dvc__cmain">
+                          <b>마이크</b>
+                          <span>{microphoneStatus}</span>
+                          <div className="dvc__meter" aria-label={`마이크 입력 ${microphoneLevel}%`}>
+                            <i style={{ width: `${microphoneLevel}%` }} />
+                          </div>
+                        </div>
+                      </li>
+                      <li className="dvc__crow">
+                        <span className={`dvc__ic ${deviceState.networkStable ? "is-ok" : "is-warn"}`}>{deviceState.networkStable ? "✓" : "!"}</span>
+                        <div className="dvc__cmain">
+                          <b>네트워크</b>
+                          <span>{networkStatus}</span>
+                        </div>
+                        <span className={`dvc__pill ${deviceState.networkStable ? "is-ok" : "is-warn"}`}>{deviceState.networkStable ? "정상" : "확인 중"}</span>
+                      </li>
+                    </ul>
                   </div>
-                </div>
-                <div className="candidate-feature__checks">
-                  {requiredInterviewConsents.map((consentType) => (
-                    <label key={consentType}>
-                      <input
-                        type="checkbox"
-                        checked={consentState.consentTypes.includes(consentType)}
-                        onChange={() =>
-                          setConsentState((current) => ({
-                            consentTypes: toggleValue(current.consentTypes, consentType),
-                          }))
-                        }
-                      />
-                      {formatConsentTypeLabel(consentType)}
-                    </label>
-                  ))}
-                </div>
-                <div className="toolbar candidate-submit-toolbar">
+
+                  <div className="dvc__card">
+                    <h3>장치 선택</h3>
+                    <div className="dvc__fields">
+                      <label className="dvc__field">
+                        <span>카메라</span>
+                        <select
+                          aria-label="카메라 선택"
+                          value={selectedCameraId}
+                          onChange={(event) => setSelectedCameraId(event.target.value)}
+                        >
+                          <option value="">기본 카메라</option>
+                          {cameraDevices.map((device, index) => (
+                            <option key={device.deviceId || index} value={device.deviceId}>
+                              {device.label || `카메라 ${index + 1}`}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="dvc__field">
+                        <span>마이크</span>
+                        <select
+                          aria-label="마이크 선택"
+                          value={selectedMicrophoneId}
+                          onChange={(event) => setSelectedMicrophoneId(event.target.value)}
+                        >
+                          <option value="">기본 마이크</option>
+                          {microphoneDevices.map((device, index) => (
+                            <option key={device.deviceId || index} value={device.deviceId}>
+                              {device.label || `마이크 ${index + 1}`}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="dvc__relinks">
+                        <button type="button" className="dvc__link" disabled={busy} onClick={() => void refreshGuideCameraDevices()}>
+                          장치 새로고침
+                        </button>
+                        <button type="button" className="dvc__link" disabled={busy} onClick={() => void handleDevicePreview()}>
+                          다시 점검
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+
+              <div className="dvc__foot">
+                <p className="dvc__note">카메라·마이크 권한을 허용해야 면접을 진행할 수 있어요.</p>
+                <div className="dvc__actions">
                   <button
-                    className="btn primary"
+                    className="btn secondary"
                     type="button"
-                    disabled={busy || !guideRequiredConsentCompleted}
-                    onClick={() => void handleGuideNext()}
+                    disabled={busy}
+                    onClick={() => router.push(candidateApplicationInterviewRoutes.applications)}
                   >
-                    다음
-                  </button>
-                </div>
-              </section>
-            </>
-          ) : (
-            <section className="candidate-device-setup">
-              <div className="candidate-device-setup__head">
-                <div>
-                  <p className="candidate-feature__eyebrow">장치 점검</p>
-                  <h1>카메라와 마이크를 확인해주세요</h1>
-                  <p>점검이 끝나면 채용 AI 면접이 시작됩니다.</p>
-                  <div className="candidate-steps" aria-label="채용 AI 면접 준비 단계">
-                    <span><b>STEP 1</b> 응시 안내</span>
-                    <span className="current"><b>STEP 2</b> 장치 점검</span>
-                    <span><b>STEP 3</b> {guidePrimaryActionLabel}</span>
-                  </div>
-                </div>
-                <div className="toolbar">
-                  <button className="btn secondary" type="button" disabled={busy} onClick={() => setStep("guide")}>
                     이전
                   </button>
                   {ENABLE_CAMERALESS_INTERVIEW_TEST_ENTRY ? (
@@ -1588,61 +1809,8 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
                   </button>
                 </div>
               </div>
-              <div className="candidate-device-setup__grid">
-                <div className="candidate-device-main">
-                  <div className="video-box candidate-device-preview">
-                    <video ref={videoRef} autoPlay muted playsInline />
-                    <CameraFramingOverlay state={cameraFramingState} testSentence={deviceTestSentence} />
-                  </div>
-                </div>
-                <aside className="panel candidate-runtime-status-panel">
-                  <p className="panel-title">장치 상태</p>
-                  <div className="status-list">
-                    <div className="status-line"><span className={cameraReady ? "ok" : "wait"}>{cameraReady ? "✓" : "!"}</span> 카메라 {cameraReady ? "정상" : "연결 확인 필요"}</div>
-                    <div className="status-line"><span className={microphoneReady ? "ok" : "wait"}>{microphoneReady ? "✓" : "!"}</span> {microphoneStatus}</div>
-                    <div className="mic-meter" aria-label={`마이크 입력 ${microphoneLevel}%`}>
-                      <span style={{ width: `${microphoneLevel}%` }} />
-                    </div>
-                    <div className="status-line"><span className={deviceState.networkStable ? "ok" : "wait"}>{deviceState.networkStable ? "✓" : "!"}</span> {networkStatus}</div>
-                  </div>
-                  <div className="candidate-device-controls">
-                    <select
-                      aria-label="카메라 선택"
-                      className="camera-select"
-                      value={selectedCameraId}
-                      onChange={(event) => setSelectedCameraId(event.target.value)}
-                    >
-                      <option value="">기본 카메라</option>
-                      {cameraDevices.map((device, index) => (
-                        <option key={device.deviceId || index} value={device.deviceId}>
-                          {device.label || `카메라 ${index + 1}`}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      aria-label="마이크 선택"
-                      className="camera-select"
-                      value={selectedMicrophoneId}
-                      onChange={(event) => setSelectedMicrophoneId(event.target.value)}
-                    >
-                      <option value="">기본 마이크</option>
-                      {microphoneDevices.map((device, index) => (
-                        <option key={device.deviceId || index} value={device.deviceId}>
-                          {device.label || `마이크 ${index + 1}`}
-                        </option>
-                      ))}
-                    </select>
-                    <button className="btn" type="button" disabled={busy} onClick={() => void refreshGuideCameraDevices()}>
-                      장치 새로고침
-                    </button>
-                    <button className="btn" type="button" disabled={busy} onClick={() => void handleDevicePreview()}>
-                      카메라/마이크 점검
-                    </button>
-                  </div>
-                </aside>
-              </div>
             </section>
-          )}
+          ) : null}
         </>
       ) : null}
     </CandidatePageShell>
@@ -8382,28 +8550,60 @@ function getSelectedApplicationAction(application: CandidateApplicationSummary):
   if (application.interviewStatus === "IN_PROGRESS") {
     return {
       href: candidateApplicationInterviewRoutes.interviewGuide(application.applicationId),
-      label: "채용 AI 면접 재개",
+      label: "면접 재개",
     };
   }
   if (application.canStartInterview || application.interviewStatus === "READY") {
     return {
       href: candidateApplicationInterviewRoutes.interviewGuide(application.applicationId),
-      label: "채용 AI 면접 시작",
+      label: "면접 시작",
     };
   }
   return {
     href: candidateApplicationInterviewRoutes.interviewGuide(application.applicationId),
-    label: "면접 준비하기",
+    label: "면접 시작",
   };
 }
 
 function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryItem[] }) {
+  // 연습 세션 제목은 사용자가 직접 지정. 저장한 값은 낙관적으로 즉시 반영한다. (#288)
+  const [localTitles, setLocalTitles] = useState<Record<number, string | null>>({});
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
+  const [savingId, setSavingId] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const rawTitle = (item: CandidateMockInterviewHistoryItem) =>
+    item.sessionId in localTitles ? localTitles[item.sessionId] : item.title;
+  const displayTitle = (item: CandidateMockInterviewHistoryItem) => rawTitle(item) || `세션 #${item.sessionId}`;
+
+  function startEdit(item: CandidateMockInterviewHistoryItem) {
+    setEditingId(item.sessionId);
+    setDraft(rawTitle(item) ?? "");
+    setSaveError(null);
+  }
+
+  async function saveTitle(sessionId: number) {
+    setSavingId(sessionId);
+    setSaveError(null);
+    try {
+      const result = await getCandidateApi().updateMockSessionTitle(sessionId, draft.trim());
+      setLocalTitles((prev) => ({ ...prev, [sessionId]: result.data.title }));
+      setEditingId(null);
+    } catch (error) {
+      // 실패 시 편집 상태 유지하고 오류 사유를 노출한다. (#288)
+      setSaveError(toErrorMessage(error));
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   return (
     <div className="table-wrap">
       <table className="mock-history-table">
         <thead>
           <tr>
-            <th>세션</th>
+            <th>연습 제목</th>
             <th>면접 상태</th>
             <th>리포트 상태</th>
             <th>답변</th>
@@ -8413,7 +8613,38 @@ function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryI
         <tbody>
           {history.map((item) => (
             <tr key={item.sessionId}>
-              <td>세션 #{item.sessionId}<span>{formatDateTime(item.updatedAt)}</span></td>
+              <td>
+                {editingId === item.sessionId ? (
+                  <span className="mock-title-edit">
+                    <input
+                      autoFocus
+                      value={draft}
+                      maxLength={100}
+                      placeholder={`세션 #${item.sessionId}`}
+                      onChange={(event) => setDraft(event.currentTarget.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void saveTitle(item.sessionId);
+                        if (event.key === "Escape") setEditingId(null);
+                      }}
+                    />
+                    <button type="button" className="mock-title-btn" disabled={savingId === item.sessionId} onClick={() => void saveTitle(item.sessionId)}>
+                      저장
+                    </button>
+                    <button type="button" className="mock-title-btn ghost" onClick={() => setEditingId(null)}>
+                      취소
+                    </button>
+                    {saveError ? <span className="mock-title-error" role="alert">{saveError}</span> : null}
+                  </span>
+                ) : (
+                  <span className="mock-title-cell">
+                    <button type="button" className="mock-title-name" title="제목 편집" onClick={() => startEdit(item)}>
+                      {displayTitle(item)}
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+                    </button>
+                    <span>{formatDateTime(item.updatedAt)}</span>
+                  </span>
+                )}
+              </td>
               <td><StatusPill value={item.status} /></td>
               <td><StatusPill value={item.reportStatus} /></td>
               <td>{item.answeredCount}/{item.totalQuestions}</td>
@@ -10405,14 +10636,6 @@ function formatConsentTypeLabel(consentType: string): string {
   return labels[consentType] ?? consentType;
 }
 
-function formatInterviewTypeLabel(interviewType: string): string {
-  const labels: Record<string, string> = {
-    MOCK: "모의면접",
-    RECRUITING: "채용 면접",
-  };
-
-  return labels[interviewType] ?? interviewType;
-}
 
 function paymentStatusLabel(status: PaymentOrder["status"]) {
   const labels: Record<PaymentOrder["status"], string> = {

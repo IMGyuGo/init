@@ -383,6 +383,7 @@
 | candidate_id | BIGINT NOT NULL | 면접 응시 지원자 FK |
 | interview_type | VARCHAR(40) NOT NULL | 면접 유형: MOCK, RECRUITING |
 | status | VARCHAR(40) NOT NULL | 면접 상태: NOT_READY, READY, IN_PROGRESS, COMPLETED, FAILED |
+| title | VARCHAR(100) | 연습(모의면접) 세션 사용자 지정 제목. NULL이면 기본 '세션 #N' 표기 |
 | show_question_text | BOOLEAN NOT NULL DEFAULT FALSE | 면접 질문 텍스트 표시 여부 |
 | started_at | TIMESTAMP | 면접 시작 시각 |
 | completed_at | TIMESTAMP | 면접 완료 시각 |

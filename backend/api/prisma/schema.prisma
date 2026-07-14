@@ -572,6 +572,7 @@ model InterviewSession {
   applicationId         BigInt?                            @map("application_id")
   candidateId           BigInt                             @map("candidate_id")
   interviewType         InterviewType                      @map("interview_type")
+  title                 String?                            @db.VarChar(100)
   status                InterviewStatus                    @default(NOT_READY)
   showQuestionText      Boolean                            @default(false) @map("show_question_text")
   startedAt             DateTime?                          @map("started_at")
