@@ -11091,6 +11091,10 @@ p {
 }
 .notion .report-findings-list li.is-gap { color: rgba(55, 53, 47, 0.75); }
 .notion .report-findings-list li.is-gap::before { background: #D9730D; }
+/* NCS findings: 제목 + 상세 + 역량 메타를 한 항목으로 (#289) */
+.notion .report-findings-list li strong { display: block; color: #191919; font-size: 14px; }
+.notion .report-findings-list li p { margin: 2px 0 0; color: rgba(55, 53, 47, 0.72); font-size: 13px; line-height: 1.6; }
+.notion .report-findings-list li small { display: block; margin-top: 3px; color: rgba(55, 53, 47, 0.45); font-size: 11.5px; }
 
 /* 꼬리질문 (#289) */
 .notion .report-followup { display: grid; gap: 14px; }
@@ -11107,6 +11111,132 @@ p {
 .notion .report-followup-row { display: grid; gap: 3px; }
 .notion .report-followup-label { font-size: 11.5px; font-weight: 600; color: rgba(55, 53, 47, 0.5); }
 .notion .report-followup-text { font-size: 14px; color: #191919; }
+
+/* NCS canonical V1 리포트 소비 UI (#289) */
+.notion .ncs-decision-compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 340px;
+  border-top: 1px solid rgba(55, 53, 47, 0.1);
+}
+.notion .ncs-decision-compare > div { display: grid; gap: 3px; padding: 12px 18px 0 0; }
+.notion .ncs-decision-compare > div + div { padding-left: 18px; border-left: 1px solid rgba(55, 53, 47, 0.1); }
+.notion .ncs-decision-compare span { color: rgba(55, 53, 47, 0.52); font-size: 11.5px; font-weight: 600; }
+.notion .ncs-decision-compare strong { color: #191919; font-size: 14px; }
+
+.notion .ncs-incomplete {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+  gap: 24px;
+  padding: 18px 20px;
+  border-top: 1px solid rgba(217, 115, 13, 0.45);
+  border-bottom: 1px solid rgba(217, 115, 13, 0.28);
+  background: rgba(217, 115, 13, 0.05);
+}
+.notion .ncs-incomplete > div { display: grid; align-content: start; gap: 5px; }
+.notion .ncs-incomplete > div strong { color: #8A4B08; font-size: 14px; }
+.notion .ncs-incomplete > div span { color: rgba(55, 53, 47, 0.65); font-size: 12.5px; line-height: 1.55; }
+.notion .ncs-incomplete ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.notion .ncs-incomplete li { display: grid; gap: 2px; }
+.notion .ncs-incomplete li strong { color: #8A4B08; font-size: 12.5px; }
+.notion .ncs-incomplete li span { color: #37352F; font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+
+.notion .ncs-section-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; }
+.notion .ncs-section-head h3 { margin: 0; color: #191919; font-size: 17px; letter-spacing: 0; }
+.notion .ncs-section-head > span { color: rgba(55, 53, 47, 0.5); font-size: 12px; text-align: right; }
+
+/* NCS 역량 상세 패널(레이더 우측) 통계/강점·보완 (#289) */
+.notion .ncs-profile-detail-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  border-top: 1px solid rgba(55, 53, 47, 0.1);
+  border-bottom: 1px solid rgba(55, 53, 47, 0.1);
+}
+.notion .ncs-profile-detail-stats > div { display: grid; gap: 3px; min-width: 0; padding: 10px 12px 10px 0; }
+.notion .ncs-profile-detail-stats > div + div { padding-left: 12px; border-left: 1px solid rgba(55, 53, 47, 0.08); }
+.notion .ncs-profile-detail-stats dt { color: rgba(55, 53, 47, 0.5); font-size: 11.5px; font-weight: 600; }
+.notion .ncs-profile-detail-stats dd { margin: 0; color: #37352F; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.notion .ncs-profile-detail-findings { display: grid; gap: 8px; }
+.notion .ncs-profile-detail-findings p { display: flex; align-items: baseline; gap: 8px; margin: 0; color: #37352F; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+.notion .ncs-profile-detail-findings strong {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 4px;
+  color: #0F7A43;
+  background: #D5F2DF;
+  font-size: 11px;
+  font-weight: 700;
+}
+.notion .ncs-profile-detail-findings p.is-gap strong { color: #B45F06; background: #FAEBDD; }
+.notion .ncs-profile-detail-hint { margin: 0; color: rgba(55, 53, 47, 0.45); font-size: 12px; }
+
+.notion .ncs-question-list { display: grid; border-top: 1px solid rgba(55, 53, 47, 0.14); }
+.notion .ncs-question { border-bottom: 1px solid rgba(55, 53, 47, 0.12); }
+.notion .ncs-question > summary {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 52px;
+  align-items: center;
+  gap: 14px;
+  min-height: 86px;
+  padding: 12px 4px;
+  cursor: pointer;
+  list-style: none;
+}
+.notion .ncs-question > summary::-webkit-details-marker { display: none; }
+.notion .ncs-question > summary:focus-visible { outline: 2px solid rgba(59, 111, 224, 0.65); outline-offset: 3px; }
+.notion .ncs-question-number { display: grid; place-content: center; width: 36px; height: 36px; border-radius: 50%; color: #3B6FE0; background: rgba(59, 111, 224, 0.1); font-size: 12px; font-weight: 800; }
+.notion .ncs-question-heading { display: grid; gap: 7px; min-width: 0; }
+.notion .ncs-question-heading strong { color: #191919; font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
+.notion .ncs-question-heading small { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: rgba(55, 53, 47, 0.5); font-size: 11.5px; }
+.notion .ncs-question-heading i { font-style: normal; }
+.notion .ncs-question-toggle { color: rgba(55, 53, 47, 0.48); font-size: 11.5px; font-weight: 600; text-align: right; }
+.notion .ncs-question[open] .ncs-question-toggle { color: #3B6FE0; }
+.notion .ncs-question-detail { display: grid; gap: 0; padding: 0 0 18px 58px; }
+
+.notion .ncs-profile-evaluation { display: grid; gap: 12px; padding: 18px 0; border-top: 1px solid rgba(55, 53, 47, 0.08); }
+.notion .ncs-profile-evaluation-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.notion .ncs-profile-evaluation-head > div { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; min-width: 0; }
+.notion .ncs-profile-evaluation-head > div > strong { color: #191919; font-size: 13.5px; }
+.notion .ncs-score-status,
+.notion .ncs-followup-applied,
+.notion .ncs-reason-tags span {
+  padding: 2px 7px;
+  border-radius: 4px;
+  color: #0F7A43;
+  background: rgba(15, 122, 67, 0.09);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.notion .ncs-score-status:not(.status-scored),
+.notion .ncs-reason-tags span { color: #B45F06; background: rgba(217, 115, 13, 0.1); }
+.notion .ncs-followup-applied { color: #3B6FE0; background: rgba(59, 111, 224, 0.09); }
+.notion .ncs-effective-score { flex: none; color: #191919; font-size: 16px; }
+.notion .ncs-score-breakdown { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border-top: 1px solid rgba(55, 53, 47, 0.08); border-bottom: 1px solid rgba(55, 53, 47, 0.08); }
+.notion .ncs-score-breakdown > div { display: grid; gap: 3px; padding: 10px 12px; }
+.notion .ncs-score-breakdown > div + div { border-left: 1px solid rgba(55, 53, 47, 0.08); }
+.notion .ncs-score-breakdown dt { color: rgba(55, 53, 47, 0.48); font-size: 10.5px; font-weight: 600; }
+.notion .ncs-score-breakdown dd { margin: 0; color: #37352F; font-size: 12.5px; font-weight: 700; }
+.notion .ncs-rationale { margin: 0; color: rgba(55, 53, 47, 0.72); font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.notion .ncs-reason-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.notion .ncs-evidence-list { display: grid; gap: 8px; }
+.notion .ncs-evidence-list blockquote { display: grid; gap: 6px; margin: 0; padding: 11px 14px; border-left: 3px solid rgba(59, 111, 224, 0.45); background: #F7F7F5; }
+.notion .ncs-evidence-list blockquote span { color: #3B6FE0; font-size: 10.5px; font-weight: 700; }
+.notion .ncs-evidence-list q { color: #37352F; font-size: 13px; line-height: 1.65; quotes: none; overflow-wrap: anywhere; }
+.notion .ncs-followup-detail { display: flex; align-items: start; justify-content: space-between; gap: 16px; padding: 14px 0; border-top: 1px solid rgba(55, 53, 47, 0.1); }
+.notion .ncs-followup-detail > div { display: grid; gap: 4px; min-width: 0; }
+.notion .ncs-followup-detail > div span { color: #3B6FE0; font-size: 10.5px; font-weight: 700; }
+.notion .ncs-followup-detail > div strong { color: #191919; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+.notion .ncs-followup-status { flex: none; padding: 3px 8px; border-radius: 4px; color: #0F7A43; background: #D5F2DF; font-size: 11px; font-weight: 700; }
+.notion .ncs-followup-status.status-not_answered,
+.notion .ncs-followup-status.status-not_recovered { color: #C4554D; background: #FDEBEC; }
+.notion .ncs-followup-status.status-partially_recovered { color: #B45F06; background: #FAEBDD; }
+
+.notion .ncs-notices { display: grid; gap: 8px; padding-top: 4px; }
+.notion .ncs-notices p { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 14px; margin: 0; padding: 12px 14px; border-left: 3px solid rgba(59, 111, 224, 0.45); background: #F7F7F5; }
+.notion .ncs-notices p.is-warning { border-left-color: rgba(217, 115, 13, 0.65); background: rgba(217, 115, 13, 0.06); }
+.notion .ncs-notices strong { color: #191919; font-size: 11.5px; }
+.notion .ncs-notices span { color: rgba(55, 53, 47, 0.68); font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; }
 
 /* 리포트 페이지 헤드 배너 — 파란 그라데이션 (#289) */
 .notion.applicant-report-page .page-head {
