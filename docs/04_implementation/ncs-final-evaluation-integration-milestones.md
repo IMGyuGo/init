@@ -62,6 +62,26 @@ NE-M0
 - 표준 C 하네스: docs 통과 후 cross-owner ownership guard에서 예상 중단
 - C 하네스 `-SkipOwnership`: Prisma, baseline, Docker/env, AI golden, smoke 단계 통과
 
+## NE-M2 Implementation Status (2026-07-14)
+
+팀원 리뷰 대기 항목을 제외한 로컬 구현 완성도는 `100%`다. 리뷰 요청은 `ncs-recruiting-question-generation-review-requests.md`의 `NE-M2 Cross-owner Review Handoff`에서 별도로 추적한다.
+
+| Deliverable | Status | Evidence |
+| --- | --- | --- |
+| canonical profile 설정 | COMPLETE | C API·seed·설정 UI를 `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING`로 통일 |
+| 가중치 저장 gate | COMPLETE | 0 이상 정수·합계 100 검증과 `INTERVIEW_NCS_WEIGHT_INVALID` 422 응답 |
+| 최초 기본 가중치 | COMPLETE | NCS 최초 전환에서만 30/30/40 제공, 기존 저장값은 유지 |
+| 질문 binding cardinality | COMPLETE | 질문당 canonical profile 1~2개, 중복·3개 이상·다른 공고 criterion 차단 |
+| 원자 저장과 호환 projection | COMPLETE | question row와 `question_ncs_bindings`를 한 Prisma mutation으로 저장하고 첫 binding을 단일 필드로 유지 |
+| 설정 UI | COMPLETE | NCS 질문 생성·수정 drawer에서 두 번째 평가 기준을 선택적으로 연결 |
+
+검증 결과:
+
+- API typecheck: passed
+- C 서비스 테스트: 25 passed
+- frontend typecheck 및 전체 테스트: passed
+- Prisma Client generate: passed
+
 ## Commit Strategy
 
 각 milestone은 기존 Conventional Commits 규칙에 따라 별도 commit으로 유지한다.

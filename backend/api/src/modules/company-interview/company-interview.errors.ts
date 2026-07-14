@@ -68,6 +68,18 @@ export function ncsBindingInvalid(
   );
 }
 
+export function ncsWeightInvalid(
+  message = 'NCS 평가 기준 가중치를 확인해주세요.',
+  details: ErrorDetail[] = [],
+): never {
+  apiError(
+    ERROR_CODES.INTERVIEW_NCS_WEIGHT_INVALID,
+    message,
+    HttpStatus.UNPROCESSABLE_ENTITY,
+    details,
+  );
+}
+
 export function personalizedQuestionsNotReady(
   message = '이력서 개인화 질문이 아직 준비되지 않았습니다.',
   details: ErrorDetail[] = [],

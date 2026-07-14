@@ -74,6 +74,18 @@ NE-M1 로컬 구현 완성도와 별개로 아래 소유자 확인이 필요하�
 
 표준 C ownership 검사는 위 파일을 C 소유로 확장하지 않고 실패 상태를 유지한다. 각 소유자 승인 후에도 ownership map은 실제 장기 소유 범위가 바뀌는 경우에만 별도 변경한다.
 
+## NE-M2 Cross-owner Review Handoff
+
+NE-M2 로컬 구현 완성도와 별개로 아래 소유자 확인이 필요하다. 이 항목은 구현 완성도 백분율에 포함하지 않는다.
+
+| Reviewer | Review target | Main files |
+| --- | --- | --- |
+| A | shared `INTERVIEW_NCS_WEIGHT_INVALID` 오류 코드와 422 envelope | `backend/common/src/errors/index.ts`, `company-interview.errors.ts` |
+| E | canonical profile ID, 질문당 1~2개 binding과 첫 binding 호환 projection | `company-interview.types.ts`, `ncs-final-evaluation.md` |
+| PM | 30/30/40 최초값, 합계 100 차단 문구, 두 번째 평가 기준 선택 UX | `CompanyInterviewSettingsPage.tsx` |
+
+`question_ncs_bindings` 저장은 C 질문 설정 경계에서 수행하지만 E 평가 입력과 D session snapshot이 소비하므로 NE-M3 시작 전에 E/D가 응답 shape를 확인한다.
+
 ## E Review
 
 ### M2 Implementation Decision (2026-07-14)

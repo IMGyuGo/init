@@ -218,7 +218,7 @@ describe('CompanyInterviewService', () => {
     assert.equal(criteria.evaluationFramework, 'NCS_3_PROFILE_V1');
     assert.deepEqual(
       criteria.criteria.map((criterion) => criterion.ncsProfileId),
-      ['PROBLEM_SOLVING', 'COMMUNICATION', 'DIGITAL'],
+      ['PROBLEM_SOLVING', 'COLLABORATION_COMMUNICATION', 'JOB_TECHNICAL'],
     );
 
     const policy = await service.updateQuestionGenerationPolicy(companyUser, {
@@ -239,25 +239,25 @@ describe('CompanyInterviewService', () => {
       },
       {
         source: 'JD_CRITERIA',
-        ncsProfileId: 'COMMUNICATION',
+        ncsProfileId: 'COLLABORATION_COMMUNICATION',
         ncsQuestionMode: 'EXPERIENCE_BEHAVIOR',
         count: 1,
       },
       {
         source: 'JD_CRITERIA',
-        ncsProfileId: 'DIGITAL',
+        ncsProfileId: 'JOB_TECHNICAL',
         ncsQuestionMode: 'TECHNICAL_KNOWLEDGE',
         count: 1,
       },
       {
         source: 'RESUME_PERSONALIZED',
-        ncsProfileId: 'COMMUNICATION',
+        ncsProfileId: 'COLLABORATION_COMMUNICATION',
         ncsQuestionMode: 'EXPERIENCE_BEHAVIOR',
         count: 1,
       },
       {
         source: 'RESUME_PERSONALIZED',
-        ncsProfileId: 'DIGITAL',
+        ncsProfileId: 'JOB_TECHNICAL',
         ncsQuestionMode: 'TECHNICAL_KNOWLEDGE',
         count: 1,
       },
@@ -303,8 +303,8 @@ describe('CompanyInterviewService', () => {
       })),
       [
         { profile: 'PROBLEM_SOLVING', count: 2, version: '2025.12-v1' },
-        { profile: 'COMMUNICATION', count: 1, version: '2025.12-v1' },
-        { profile: 'DIGITAL', count: 1, version: '2025.12-v1' },
+        { profile: 'COLLABORATION_COMMUNICATION', count: 1, version: '2025.12-v1' },
+        { profile: 'JOB_TECHNICAL', count: 1, version: '2025.12-v1' },
       ],
     );
 
@@ -352,6 +352,73 @@ describe('CompanyInterviewService', () => {
         expectedPolicyVersion: 0,
       }),
     );
+  });
+
+  it('returns the dedicated NCS weight error for invalid totals and non-integer weights', async () => {
+    const service = createService();
+    const invalidCriteria = (weights: [number, number, number]) =>
+      service.updateEvaluationCriteria(companyUser, {
+        postingId: 1,
+        evaluationFramework: 'NCS_3_PROFILE_V1',
+        criteria: [
+          { criterionId: 1, tagId: 1, weight: weights[0], sortOrder: 1 },
+          { criterionId: 4, tagId: 4, weight: weights[1], sortOrder: 2 },
+          { criterionId: 2, tagId: 2, weight: weights[2], sortOrder: 3 },
+        ],
+      });
+
+    for (const weights of [
+      [30, 30, 39],
+      [30, 30, 41],
+      [-1, 31, 70],
+      [30.5, 29.5, 40],
+    ] as Array<[number, number, number]>) {
+      await assert.rejects(
+        () => invalidCriteria(weights),
+        (error) => error instanceof ApiException &&
+          (error.getResponse() as { code?: string }).code === 'INTERVIEW_NCS_WEIGHT_INVALID',
+      );
+    }
+  });
+
+  it('persists one or two canonical NCS question bindings and rejects invalid cardinality', async () => {
+    const service = createService();
+    await service.updateEvaluationCriteria(companyUser, {
+      postingId: 1,
+      evaluationFramework: 'NCS_3_PROFILE_V1',
+      criteria: [
+        { criterionId: 1, tagId: 1, weight: 30, sortOrder: 1 },
+        { criterionId: 4, tagId: 4, weight: 30, sortOrder: 2 },
+        { criterionId: 2, tagId: 2, weight: 40, sortOrder: 3 },
+      ],
+    });
+
+    const saved = await service.createQuestion(companyUser, {
+      postingId: 1,
+      criterionId: 1,
+      criterionIds: [1, 4],
+      questionType: 'EXPERIENCE',
+      content: '기술 선택을 협업 구성원과 조율하고 결과를 검증한 경험을 설명해주세요.',
+    });
+    assert.deepEqual(
+      saved.question.ncsBindings.map((binding) => binding.ncsProfileId),
+      ['JOB_TECHNICAL', 'COLLABORATION_COMMUNICATION'],
+    );
+    assert.equal(saved.question.ncsProfileId, 'JOB_TECHNICAL');
+
+    for (const criterionIds of [[1, 1], [1, 4, 2]]) {
+      await assert.rejects(
+        () => service.createQuestion(companyUser, {
+          postingId: 1,
+          criterionId: 1,
+          criterionIds,
+          questionType: 'TECHNICAL',
+          content: `NCS binding ${criterionIds.join('-')} 검증용 질문 내용을 충분히 입력합니다.`,
+        }),
+        (error) => error instanceof ApiException &&
+          (error.getResponse() as { code?: string }).code === 'INTERVIEW_NCS_BINDING_INVALID',
+      );
+    }
   });
 
   it('updates evaluation criteria and validates duplicate sort order', async () => {

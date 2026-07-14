@@ -53,6 +53,7 @@ export type CreateQuestionInput = {
   alignmentReason: string | null;
   evaluatorVersion: string | null;
   sourceProcessLogId: number | null;
+  ncsBindings: QuestionRecord['ncsBindings'];
 };
 
 export type UpdateQuestionInput = {
@@ -67,6 +68,7 @@ export type UpdateQuestionInput = {
   alignmentScore: number | null;
   alignmentReason: string | null;
   evaluatorVersion: string | null;
+  ncsBindings: QuestionRecord['ncsBindings'];
 };
 
 export type UpdateTimePolicyInput = {

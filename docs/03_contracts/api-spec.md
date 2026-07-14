@@ -1650,7 +1650,7 @@ AI 리포트 금지 기준:
 - 비고/미결:
   - 기존 SNB 삭제. 2-depth는 GNB hover dropdown으로 노출
   - `timePolicy`는 공고별 1:1 설정으로 `interview_time_policies`에 저장한다.
-  - `evaluationFramework=NCS_3_PROFILE_V1`이면 criteria는 `PROBLEM_SOLVING`, `COMMUNICATION`, `DIGITAL`을 각각 한 번 포함한다.
+  - `evaluationFramework=NCS_3_PROFILE_V1`이면 criteria는 `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING`을 각각 한 번 포함한다.
   - NCS evaluator가 아직 연결되지 않은 환경에서도 binding 필드는 nullable로 응답하되 기존 LEGACY 설정 조회를 깨지 않는다.
 
 ### API-035 POST /company/interviews/evaluation-criteria/suggest
@@ -1802,23 +1802,27 @@ AI 리포트 금지 기준:
 #### Contract Baseline
 - Request Body:
   - `postingId`: number, required
-  - `criterionId`: number, required
+  - `criterionId`: number, required, 첫 번째 binding을 나타내는 호환 필드
+  - `criterionIds?: number[]`, NCS framework에서 1~2개, 생략 시 `[criterionId]`
   - `questionType`: `INTRO | TECHNICAL | EXPERIENCE | SITUATION | FOLLOW_UP | CLOSING`, required
   - `content`: string, required, 10~1000 chars
   - `origin`: `MANUAL | AI_GENERATED`, optional, 기본값 `MANUAL`
   - `sourceProcessLogId?: number`, `origin=AI_GENERATED`이면 required
 - Response Body:
   - `postingId`: number
-  - `question`: `{ questionId, postingId, criterionId, questionType, content, origin, isAiEdited, isActive, generationSource, ncsProfileId, ncsQuestionMode, ncsProfileVersion, alignmentStatus }`
+  - `question`: `{ questionId, postingId, criterionId, questionType, content, origin, isAiEdited, isActive, generationSource, ncsProfileId, ncsQuestionMode, ncsProfileVersion, alignmentStatus, ncsBindings[] }`
+  - `question.ncsBindings[]`: `{ criterionId, ncsProfileId, ncsProfileVersion, alignmentStatus, alignmentScore, alignmentReason, evaluatorVersion, bindingOrder }`, NCS framework에서 1~2개
+  - 단일 `criterionId`, `ncsProfileId`, `ncsProfileVersion`, `alignmentStatus`는 `ncsBindings[0]`의 호환 projection이다.
 - Validation:
   - `postingId`는 로그인한 기업의 공고여야 한다.
-  - `criterionId`는 같은 `postingId`에 연결된 평가 기준이어야 한다.
+  - `criterionIds`의 모든 값은 같은 `postingId`에 연결된 평가 기준이어야 하며 중복될 수 없다.
+  - NCS framework에서는 binding이 1~2개이고 canonical profile이 중복되지 않아야 한다.
   - 같은 공고 안에서 같은 `content`의 활성 질문은 중복 등록하지 않는다.
   - NCS framework에서는 profile/mode/version을 클라이언트가 직접 지정하지 않고 연결된 criterion snapshot에서 가져온다.
   - NCS AI 후보 적용은 `sourceProcessLogId`의 완료 output에서 content와 criterion이 일치하고 `alignmentStatus=ALIGNED`인 결과만 허용한다.
   - 수동 작성 질문은 `generationSource=null`, `alignmentStatus=NOT_EVALUATED`, `sourceProcessLogId=null`로 저장한다.
 - Error Codes:
-  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_CONFLICT`, `COMMON_VALIDATION_FAILED`
+  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_CONFLICT`, `COMMON_VALIDATION_FAILED`, `INTERVIEW_NCS_BINDING_INVALID`
 
 ### API-037-1 PATCH /company/interviews/questions/{questionId}
 - 도메인: 기업 - 면접관리
@@ -1832,22 +1836,23 @@ AI 리포트 금지 기준:
 - Path Params:
   - `questionId`: number, required
 - Request Body:
-  - `criterionId`: number, required
+  - `criterionId`: number, required, 첫 번째 binding을 나타내는 호환 필드
+  - `criterionIds?: number[]`, NCS framework에서 1~2개, 생략 시 `[criterionId]`
   - `questionType`: `INTRO | TECHNICAL | EXPERIENCE | SITUATION | FOLLOW_UP | CLOSING`, required
   - `content`: string, required, 10~1000 chars
 - Response Body:
   - `postingId`: number
-  - `question`: `{ questionId, postingId, criterionId, questionType, content, origin, isAiEdited, isActive, generationSource, ncsProfileId, ncsQuestionMode, ncsProfileVersion, alignmentStatus }`
+  - `question`: `{ questionId, postingId, criterionId, questionType, content, origin, isAiEdited, isActive, generationSource, ncsProfileId, ncsQuestionMode, ncsProfileVersion, alignmentStatus, ncsBindings[] }`
 - Processing:
   - `origin=AI_GENERATED`인 질문을 수정하면 `isAiEdited=true`로 저장한다.
   - 직접 작성 질문은 수정 후에도 `origin=MANUAL`, `isAiEdited=false`를 유지한다.
-  - criterion을 변경하면 NCS profile/mode/version snapshot을 새 criterion 값으로 교체하고 기존 alignment 결과는 `NOT_EVALUATED`로 초기화한다.
+  - criterion binding을 변경하면 NCS profile/version snapshot을 새 criterion 값으로 교체하고 기존 alignment 결과는 `NOT_EVALUATED`로 초기화한다.
 - Validation:
   - `questionId`는 로그인한 기업 소유 질문이어야 한다.
-  - `criterionId`는 해당 질문과 같은 공고의 평가 기준이어야 한다.
+  - `criterionIds`의 모든 값은 해당 질문과 같은 공고의 평가 기준이어야 하며 NCS framework에서는 1~2개여야 한다.
   - 같은 공고 안에 같은 `content`의 활성 질문을 중복 저장할 수 없다.
 - Error Codes:
-  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_CONFLICT`, `COMMON_VALIDATION_FAILED`
+  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_CONFLICT`, `COMMON_VALIDATION_FAILED`, `INTERVIEW_NCS_BINDING_INVALID`
 
 ### API-037-2 DELETE /company/interviews/questions/{questionId}
 - 도메인: 기업 - 면접관리

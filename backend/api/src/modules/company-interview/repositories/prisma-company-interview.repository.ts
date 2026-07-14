@@ -73,6 +73,7 @@ export class PrismaCompanyInterviewRepository
         questionType: { not: 'FOLLOW_UP' },
       },
       orderBy: { questionId: 'asc' },
+      include: { ncsBindings: { orderBy: { bindingOrder: 'asc' } } },
     });
     return questions.map(mapQuestion);
   }
@@ -80,6 +81,7 @@ export class PrismaCompanyInterviewRepository
   async findQuestion(questionId: number): Promise<QuestionRecord | undefined> {
     const question = await this.prisma.question.findUnique({
       where: { questionId: BigInt(questionId) },
+      include: { ncsBindings: { orderBy: { bindingOrder: 'asc' } } },
     });
     return question ? mapQuestion(question) : undefined;
   }
@@ -334,7 +336,20 @@ export class PrismaCompanyInterviewRepository
           input.sourceProcessLogId === null
             ? null
             : BigInt(input.sourceProcessLogId),
+        ncsBindings: {
+          create: input.ncsBindings.map((binding) => ({
+            criterionId: BigInt(binding.criterionId),
+            ncsProfileId: binding.ncsProfileId,
+            ncsProfileVersion: binding.ncsProfileVersion,
+            alignmentStatus: binding.alignmentStatus,
+            alignmentScore: binding.alignmentScore,
+            alignmentReason: binding.alignmentReason,
+            evaluatorVersion: binding.evaluatorVersion,
+            bindingOrder: binding.bindingOrder,
+          })),
+        },
       },
+      include: { ncsBindings: { orderBy: { bindingOrder: 'asc' } } },
     });
     return mapQuestion(question);
   }
@@ -357,7 +372,21 @@ export class PrismaCompanyInterviewRepository
         alignmentScore: input.alignmentScore,
         alignmentReason: input.alignmentReason,
         evaluatorVersion: input.evaluatorVersion,
+        ncsBindings: {
+          deleteMany: {},
+          create: input.ncsBindings.map((binding) => ({
+            criterionId: BigInt(binding.criterionId),
+            ncsProfileId: binding.ncsProfileId,
+            ncsProfileVersion: binding.ncsProfileVersion,
+            alignmentStatus: binding.alignmentStatus,
+            alignmentScore: binding.alignmentScore,
+            alignmentReason: binding.alignmentReason,
+            evaluatorVersion: binding.evaluatorVersion,
+            bindingOrder: binding.bindingOrder,
+          })),
+        },
       },
+      include: { ncsBindings: { orderBy: { bindingOrder: 'asc' } } },
     });
     return mapQuestion(question);
   }
@@ -762,6 +791,16 @@ function mapQuestion(question: {
   alignmentReason?: string | null;
   evaluatorVersion?: string | null;
   sourceProcessLogId?: bigint | null;
+  ncsBindings?: Array<{
+    criterionId: bigint;
+    ncsProfileId: string;
+    ncsProfileVersion: string;
+    alignmentStatus: string;
+    alignmentScore: { toString(): string } | number | null;
+    alignmentReason: string | null;
+    evaluatorVersion: string | null;
+    bindingOrder: number;
+  }>;
 }): QuestionRecord {
   return {
     questionId: Number(question.questionId),
@@ -792,6 +831,17 @@ function mapQuestion(question: {
       question.sourceProcessLogId === null || question.sourceProcessLogId === undefined
         ? null
         : Number(question.sourceProcessLogId),
+    ncsBindings: (question.ncsBindings ?? []).map((binding) => ({
+      criterionId: Number(binding.criterionId),
+      ncsProfileId: binding.ncsProfileId as QuestionRecord['ncsBindings'][number]['ncsProfileId'],
+      ncsProfileVersion: binding.ncsProfileVersion,
+      alignmentStatus: binding.alignmentStatus as QuestionRecord['ncsBindings'][number]['alignmentStatus'],
+      alignmentScore:
+        binding.alignmentScore === null ? null : Number(binding.alignmentScore.toString()),
+      alignmentReason: binding.alignmentReason,
+      evaluatorVersion: binding.evaluatorVersion,
+      bindingOrder: binding.bindingOrder,
+    })),
   };
 }
 

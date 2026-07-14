@@ -37,7 +37,10 @@ export const EVALUATION_FRAMEWORKS: EvaluationFramework[] = [
   'NCS_3_PROFILE_V1',
 ];
 
-export type NcsProfileId = 'PROBLEM_SOLVING' | 'COMMUNICATION' | 'DIGITAL';
+export type NcsProfileId =
+  | 'JOB_TECHNICAL'
+  | 'COLLABORATION_COMMUNICATION'
+  | 'PROBLEM_SOLVING';
 export type NcsQuestionMode =
   | 'EXPERIENCE_BEHAVIOR'
   | 'TECHNICAL_KNOWLEDGE'
@@ -121,6 +124,18 @@ export type QuestionRecord = {
   alignmentReason: string | null;
   evaluatorVersion: string | null;
   sourceProcessLogId: number | null;
+  ncsBindings: QuestionNcsBindingRecord[];
+};
+
+export type QuestionNcsBindingRecord = {
+  criterionId: number;
+  ncsProfileId: NcsProfileId;
+  ncsProfileVersion: string;
+  alignmentStatus: QuestionAlignmentStatus;
+  alignmentScore: number | null;
+  alignmentReason: string | null;
+  evaluatorVersion: string | null;
+  bindingOrder: number;
 };
 
 export type AiQuestionGenerationProcessRecord = {

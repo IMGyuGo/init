@@ -51,6 +51,7 @@ type CriteriaDraft = {
 
 type QuestionForm = {
   criterionId: string;
+  secondaryCriterionId: string;
   questionType: QuestionType;
   content: string;
 };
@@ -108,6 +109,7 @@ const QUESTION_TYPE_OPTIONS: Array<{ value: QuestionType; label: string }> = [
 
 const initialQuestionForm: QuestionForm = {
   criterionId: "",
+  secondaryCriterionId: "",
   questionType: "TECHNICAL",
   content: "",
 };
@@ -119,11 +121,11 @@ const AI_STATUS_LABELS: Record<AiProcessStatus, string> = {
   FAILED: "실패",
 };
 
-const NCS_PROFILE_ORDER: NcsProfileId[] = ["PROBLEM_SOLVING", "COMMUNICATION", "DIGITAL"];
+const NCS_PROFILE_ORDER: NcsProfileId[] = ["JOB_TECHNICAL", "COLLABORATION_COMMUNICATION", "PROBLEM_SOLVING"];
 const NCS_PROFILE_LABELS: Record<NcsProfileId, string> = {
-  PROBLEM_SOLVING: "문제해결",
-  COMMUNICATION: "의사소통",
-  DIGITAL: "디지털",
+  JOB_TECHNICAL: "기술·직무",
+  COLLABORATION_COMMUNICATION: "협업·의사소통",
+  PROBLEM_SOLVING: "문제 해결력",
 };
 const NCS_QUESTION_POLICY_ENABLED = isNcsQuestionPolicyEnabled(
   process.env.NEXT_PUBLIC_NCS_QUESTION_POLICY_ENABLED,
@@ -523,7 +525,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       return;
     }
 
-    const weights = [34, 33, 33];
+    const weights = [30, 30, 40];
     setCriteriaDrafts(
       ncsTags.map((tag, index) => {
         const resolvedTag = tag!;
@@ -547,7 +549,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
   async function saveCriteriaDrafts(): Promise<boolean> {
     if (!settings) return true;
 
-    const validationMessage = validateCriteriaDrafts(criteriaDrafts);
+    const validationMessage = validateCriteriaDrafts(criteriaDrafts, evaluationFramework);
     if (validationMessage) {
       setCriteriaError(validationMessage);
       return false;
@@ -764,6 +766,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     setQuestionError("");
     setQuestionEditDraft({
       criterionId: String(question.criterionId),
+      secondaryCriterionId: String(question.ncsBindings[1]?.criterionId ?? ""),
       questionType: question.questionType,
       content: question.content,
     });
@@ -775,8 +778,11 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     if (!settings) return;
 
     const criterionId = Number(questionForm.criterionId);
+    const criterionIds = [criterionId, Number(questionForm.secondaryCriterionId)].filter(
+      (value) => Number.isInteger(value) && value > 0,
+    );
     const content = questionForm.content.trim();
-    const validationMessage = validateQuestionForm(settings, criterionId, content, null);
+    const validationMessage = validateQuestionForm(settings, criterionId, content, null, criterionIds);
     if (validationMessage) {
       setQuestionError(validationMessage);
       return;
@@ -788,6 +794,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       const response = await createInterviewQuestion({
         postingId: settings.posting.postingId,
         criterionId,
+        criterionIds,
         questionType: questionForm.questionType,
         content,
       });
@@ -813,8 +820,11 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     if (!settings || !questionEditDraft) return;
 
     const criterionId = Number(questionEditDraft.criterionId);
+    const criterionIds = [criterionId, Number(questionEditDraft.secondaryCriterionId)].filter(
+      (value) => Number.isInteger(value) && value > 0,
+    );
     const content = questionEditDraft.content.trim();
-    const validationMessage = validateQuestionForm(settings, criterionId, content, questionId);
+    const validationMessage = validateQuestionForm(settings, criterionId, content, questionId, criterionIds);
     if (validationMessage) {
       setQuestionError(validationMessage);
       return;
@@ -825,6 +835,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     try {
       const response = await updateInterviewQuestion(questionId, {
         criterionId,
+        criterionIds,
         questionType: questionEditDraft.questionType,
         content,
       });
@@ -1793,7 +1804,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                     }}
               >
                 <label>
-                  평가 기준
+                  평가 기준 1
                   <select
                     required
                     disabled={settings.criteria.length === 0 || questionSaving}
@@ -1812,6 +1823,25 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                     ))}
                   </select>
                 </label>
+                {settings.evaluationFramework === "NCS_3_PROFILE_V1" ? (
+                  <label>
+                    평가 기준 2 (선택)
+                    <select
+                      disabled={settings.criteria.length < 2 || questionSaving}
+                      value={editingQuestionId === null ? questionForm.secondaryCriterionId : (questionEditDraft?.secondaryCriterionId ?? "")}
+                      onChange={(event) => editingQuestionId === null
+                        ? updateQuestionForm("secondaryCriterionId", event.target.value)
+                        : updateQuestionEditDraft("secondaryCriterionId", event.target.value)}
+                    >
+                      <option value="">추가 연결 없음</option>
+                      {settings.criteria.map((criterion) => (
+                        <option key={criterion.criterionId} value={criterion.criterionId}>
+                          {criterion.tagName} · {criterion.category}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
                 <label>
                   질문 유형
                   <select
@@ -1914,12 +1944,21 @@ function validateQuestionForm(
   criterionId: number,
   content: string,
   editingQuestionId: number | null,
+  criterionIds: number[] = [criterionId],
 ) {
   if (!Number.isInteger(criterionId)) {
     return "질문을 연결할 평가 기준을 선택해주세요.";
   }
   if (!settings.criteria.some((criterion) => criterion.criterionId === criterionId)) {
     return "공고에 연결된 평가 기준을 선택해주세요.";
+  }
+  if (settings.evaluationFramework === "NCS_3_PROFILE_V1") {
+    if (criterionIds.length < 1 || criterionIds.length > 2 || new Set(criterionIds).size !== criterionIds.length) {
+      return "NCS 질문에는 서로 다른 평가 기준을 1개 또는 2개 연결해주세요.";
+    }
+    if (criterionIds.some((id) => !settings.criteria.some((criterion) => criterion.criterionId === id))) {
+      return "공고에 연결된 NCS 평가 기준만 선택할 수 있습니다.";
+    }
   }
   if (content.length < 10) {
     return "질문 내용은 10자 이상 입력해주세요.";
@@ -2715,8 +2754,13 @@ function toDigitsOnly(value: string) {
   return value.replace(/\D/g, "");
 }
 
-function validateCriteriaDrafts(criteria: CriteriaDraft[]) {
-  if (criteria.length === 0) return "";
+function validateCriteriaDrafts(criteria: CriteriaDraft[], framework: EvaluationFramework = "LEGACY") {
+  if (criteria.length === 0) {
+    return framework === "NCS_3_PROFILE_V1" ? "NCS 평가 기준 3개를 모두 설정해주세요." : "";
+  }
+  if (framework === "NCS_3_PROFILE_V1" && criteria.length !== 3) {
+    return "NCS 평가 기준은 기술·직무, 협업·의사소통, 문제 해결력 3개여야 합니다.";
+  }
 
   const sortOrders = new Set<number>();
   const tagIds = new Set<number>();
@@ -2756,8 +2800,11 @@ function validateCriteriaDrafts(criteria: CriteriaDraft[]) {
       tagIds.add(criterion.tagId);
     }
 
-    if (!Number.isInteger(weight) || weight < 1 || weight > 100) {
-      return "배점은 1부터 100 사이의 정수로 입력해주세요.";
+    const minimumWeight = framework === "NCS_3_PROFILE_V1" ? 0 : 1;
+    if (!Number.isInteger(weight) || weight < minimumWeight || weight > 100) {
+      return framework === "NCS_3_PROFILE_V1"
+        ? "NCS 배점은 0부터 100 사이의 정수로 입력해주세요."
+        : "배점은 1부터 100 사이의 정수로 입력해주세요.";
     }
     if (passScore !== null && (!Number.isInteger(passScore) || passScore < 0 || passScore > 100)) {
       return "합격점은 비워두거나 0부터 100 사이의 정수로 입력해주세요.";
@@ -2766,7 +2813,10 @@ function validateCriteriaDrafts(criteria: CriteriaDraft[]) {
     totalWeight += weight;
   }
 
-  if (totalWeight <= 0 || totalWeight > 100) {
+  if (framework === "NCS_3_PROFILE_V1" && totalWeight !== 100) {
+    return "NCS 배점 합계는 정확히 100이어야 합니다.";
+  }
+  if (framework === "LEGACY" && (totalWeight <= 0 || totalWeight > 100)) {
     return "배점 합계는 1부터 100 사이여야 합니다.";
   }
 

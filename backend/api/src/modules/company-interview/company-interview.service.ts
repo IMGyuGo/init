@@ -36,6 +36,7 @@ import {
   aiProcessFailed,
   forbidden,
   ncsBindingInvalid,
+  ncsWeightInvalid,
   notFound,
   personalizedQuestionsNotReady,
   questionCountInvalid,
@@ -50,6 +51,7 @@ import {
   QuestionAlignmentStatus,
   QuestionGenerationPolicyRecord,
   QuestionGenerationSource,
+  QuestionNcsBindingRecord,
   QuestionRecord,
   QuestionSetRecord,
   ResumeQuestionApplicationRecord,
@@ -368,8 +370,18 @@ export class CompanyInterviewService {
 
     if (evaluationFramework === 'NCS_3_PROFILE_V1') {
       assertNcsCriteria(normalizedCriteria);
+      if (
+        dto.criteria.some(
+          (criterion) =>
+            !Number.isInteger(criterion.weight) || criterion.weight < 0,
+        )
+      ) {
+        ncsWeightInvalid('NCS 평가 기준 배점은 0 이상의 정수여야 합니다.', [
+          { field: 'criteria[].weight', reason: 'NON_NEGATIVE_INTEGER_REQUIRED' },
+        ]);
+      }
       if (totalWeight !== 100) {
-        validationFailed('NCS 평가 기준 배점 합계는 100이어야 합니다.', [
+        ncsWeightInvalid('NCS 평가 기준 배점 합계는 100이어야 합니다.', [
           { field: 'criteria[].weight', reason: 'TOTAL_MUST_EQUAL_100' },
         ]);
       }
@@ -587,6 +599,14 @@ export class CompanyInterviewService {
     const policy =
       (await this.repository.getQuestionGenerationPolicy(posting.postingId)) ??
       defaultQuestionGenerationPolicy(posting.postingId);
+    const bindingCriteria =
+      policy.evaluationFramework === 'NCS_3_PROFILE_V1'
+        ? await this.resolveQuestionBindingCriteria(
+            posting.postingId,
+            dto.criterionId,
+            dto.criterionIds,
+          )
+        : [criterion];
     const ncsSnapshot =
       policy.evaluationFramework === 'NCS_3_PROFILE_V1'
         ? {
@@ -634,6 +654,10 @@ export class CompanyInterviewService {
       alignmentReason: aiCandidate?.alignmentReason ?? null,
       evaluatorVersion: aiCandidate?.evaluatorVersion ?? null,
       sourceProcessLogId: dto.sourceProcessLogId ?? null,
+      ncsBindings:
+        policy.evaluationFramework === 'NCS_3_PROFILE_V1'
+          ? buildQuestionNcsBindings(bindingCriteria, aiCandidate)
+          : [],
     });
 
     return {
@@ -658,6 +682,17 @@ export class CompanyInterviewService {
       question.postingId,
       dto.criterionId,
     );
+    const policy =
+      (await this.repository.getQuestionGenerationPolicy(question.postingId)) ??
+      defaultQuestionGenerationPolicy(question.postingId);
+    const bindingCriteria =
+      policy.evaluationFramework === 'NCS_3_PROFILE_V1'
+        ? await this.resolveQuestionBindingCriteria(
+            question.postingId,
+            dto.criterionId,
+            dto.criterionIds,
+          )
+        : [criterion];
     const duplicate = await this.repository.findDuplicateQuestion(
       question.postingId,
       dto.content,
@@ -679,6 +714,10 @@ export class CompanyInterviewService {
       alignmentScore: null,
       alignmentReason: '질문 내용 또는 평가 기준이 수정되어 정렬 재검증이 필요합니다.',
       evaluatorVersion: null,
+      ncsBindings:
+        policy.evaluationFramework === 'NCS_3_PROFILE_V1'
+          ? buildQuestionNcsBindings(bindingCriteria, null)
+          : [],
     });
 
     return {
@@ -1025,6 +1064,45 @@ export class CompanyInterviewService {
     return criterion;
   }
 
+  private async resolveQuestionBindingCriteria(
+    postingId: number,
+    primaryCriterionId: number,
+    requestedCriterionIds?: number[],
+  ): Promise<EvaluationCriterionRecord[]> {
+    const criterionIds = requestedCriterionIds ?? [primaryCriterionId];
+    if (
+      criterionIds.length < 1 ||
+      criterionIds.length > 2 ||
+      criterionIds[0] !== primaryCriterionId ||
+      new Set(criterionIds).size !== criterionIds.length
+    ) {
+      ncsBindingInvalid('질문에는 중복 없이 1~2개의 NCS 평가 기준을 연결해야 합니다.', [
+        { field: 'criterionIds', reason: 'CARDINALITY_OR_ORDER_INVALID' },
+      ]);
+    }
+
+    const criteria = await Promise.all(
+      criterionIds.map((criterionId) =>
+        this.findPostingCriterion(postingId, criterionId),
+      ),
+    );
+    const profiles = criteria.map((criterion) => criterion.ncsProfileId);
+    if (
+      criteria.some(
+        (criterion) =>
+          criterion.ncsProfileId === null ||
+          criterion.ncsProfileVersion === null ||
+          !NCS_PROFILE_IDS.includes(criterion.ncsProfileId),
+      ) ||
+      new Set(profiles).size !== profiles.length
+    ) {
+      ncsBindingInvalid('질문 NCS binding에는 서로 다른 canonical profile이 필요합니다.', [
+        { field: 'criterionIds', reason: 'NCS_PROFILE_INVALID' },
+      ]);
+    }
+    return criteria;
+  }
+
   private async findOwnedQuestion(
     currentUser: CurrentUser & { companyId: number },
     questionId: number,
@@ -1095,6 +1173,7 @@ export class CompanyInterviewService {
       alignmentReason: question.alignmentReason,
       evaluatorVersion: question.evaluatorVersion,
       sourceProcessLogId: question.sourceProcessLogId,
+      ncsBindings: question.ncsBindings,
     };
   }
 
@@ -1145,6 +1224,34 @@ type ApplicableAiQuestionCandidate = {
   evaluatorVersion: string | null;
 };
 
+function buildQuestionNcsBindings(
+  criteria: EvaluationCriterionRecord[],
+  aiCandidate: ApplicableAiQuestionCandidate | null,
+): QuestionNcsBindingRecord[] {
+  return criteria.map((criterion, index) => ({
+    criterionId: criterion.criterionId,
+    ncsProfileId: criterion.ncsProfileId as NcsProfileId,
+    ncsProfileVersion: criterion.ncsProfileVersion as string,
+    alignmentStatus:
+      aiCandidate?.ncsProfileId === criterion.ncsProfileId
+        ? aiCandidate.alignmentStatus
+        : 'NOT_EVALUATED',
+    alignmentScore:
+      aiCandidate?.ncsProfileId === criterion.ncsProfileId
+        ? aiCandidate.alignmentScore
+        : null,
+    alignmentReason:
+      aiCandidate?.ncsProfileId === criterion.ncsProfileId
+        ? aiCandidate.alignmentReason
+        : null,
+    evaluatorVersion:
+      aiCandidate?.ncsProfileId === criterion.ncsProfileId
+        ? aiCandidate.evaluatorVersion
+        : null,
+    bindingOrder: index + 1,
+  }));
+}
+
 function buildLegacyGenerationCriteria(
   questionCount: number,
   criteria: EvaluationCriterionRecord[],
@@ -1193,9 +1300,9 @@ function parseQuestionCandidate(value: unknown): ApplicableAiQuestionCandidate |
         ? candidate.source
         : null,
     ncsProfileId:
-      candidate.ncsProfileId === 'PROBLEM_SOLVING' ||
-      candidate.ncsProfileId === 'COMMUNICATION' ||
-      candidate.ncsProfileId === 'DIGITAL'
+      candidate.ncsProfileId === 'JOB_TECHNICAL' ||
+      candidate.ncsProfileId === 'COLLABORATION_COMMUNICATION' ||
+      candidate.ncsProfileId === 'PROBLEM_SOLVING'
         ? candidate.ncsProfileId
         : null,
     ncsQuestionMode:
@@ -1244,9 +1351,9 @@ function normalizeCriterionTagText(value: string): string {
 }
 
 const NCS_PROFILE_IDS: NcsProfileId[] = [
+  'JOB_TECHNICAL',
+  'COLLABORATION_COMMUNICATION',
   'PROBLEM_SOLVING',
-  'COMMUNICATION',
-  'DIGITAL',
 ];
 
 function defaultQuestionGenerationPolicy(
@@ -1280,7 +1387,7 @@ function assertNcsCriteria(
         criterion.ncsQuestionMode !== null && criterion.ncsProfileVersion !== null,
     );
   if (!isValid) {
-    ncsBindingInvalid('NCS 평가 기준은 문제해결, 의사소통, 디지털 profile을 각각 하나씩 포함해야 합니다.', [
+    ncsBindingInvalid('NCS 평가 기준은 기술·직무, 협업·의사소통, 문제 해결력 profile을 각각 하나씩 포함해야 합니다.', [
       { field: 'criteria', reason: 'NCS_BINDING_INVALID' },
     ]);
   }

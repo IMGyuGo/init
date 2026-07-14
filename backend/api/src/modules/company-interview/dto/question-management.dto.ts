@@ -1,5 +1,9 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  ArrayUnique,
+  IsArray,
   IsIn,
   IsInt,
   IsOptional,
@@ -29,6 +33,16 @@ export class CreateInterviewQuestionDto {
   @Min(1)
   criterionId!: number;
 
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(2)
+  @ArrayUnique()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  criterionIds?: number[];
+
   @IsIn(QUESTION_TYPES)
   questionType!: QuestionType;
 
@@ -53,6 +67,16 @@ export class UpdateInterviewQuestionDto {
   @IsInt()
   @Min(1)
   criterionId!: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(2)
+  @ArrayUnique()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  criterionIds?: number[];
 
   @IsIn(QUESTION_TYPES)
   questionType!: QuestionType;
@@ -81,6 +105,16 @@ export class InterviewQuestionResponseItemDto {
   alignmentReason!: string | null;
   evaluatorVersion!: string | null;
   sourceProcessLogId!: number | null;
+  ncsBindings!: Array<{
+    criterionId: number;
+    ncsProfileId: NcsProfileId;
+    ncsProfileVersion: string;
+    alignmentStatus: string;
+    alignmentScore: number | null;
+    alignmentReason: string | null;
+    evaluatorVersion: string | null;
+    bindingOrder: number;
+  }>;
 }
 
 export class CreateInterviewQuestionResponseDto {

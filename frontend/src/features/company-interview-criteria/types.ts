@@ -3,7 +3,7 @@ export type PostingStatus = "DRAFT" | "OPEN" | "CLOSING_SOON" | "CLOSED" | "ARCH
 export type QuestionType = "INTRO" | "TECHNICAL" | "EXPERIENCE" | "SITUATION" | "FOLLOW_UP" | "CLOSING";
 export type QuestionOrigin = "MANUAL" | "AI_GENERATED";
 export type EvaluationFramework = "LEGACY" | "NCS_3_PROFILE_V1";
-export type NcsProfileId = "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL";
+export type NcsProfileId = "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
 export type NcsQuestionMode = "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
 export type QuestionGenerationSource = "JD_CRITERIA" | "RESUME_PERSONALIZED";
 export type QuestionAlignmentStatus = "NOT_EVALUATED" | "ALIGNED" | "LOW_ALIGNMENT" | "REVIEW_REQUIRED";
@@ -55,6 +55,16 @@ export type InterviewSettings = {
     alignmentReason: string | null;
     evaluatorVersion: string | null;
     sourceProcessLogId: number | null;
+    ncsBindings: Array<{
+      criterionId: number;
+      ncsProfileId: NcsProfileId;
+      ncsProfileVersion: string;
+      alignmentStatus: QuestionAlignmentStatus;
+      alignmentScore: number | null;
+      alignmentReason: string | null;
+      evaluatorVersion: string | null;
+      bindingOrder: number;
+    }>;
   }>;
   timePolicy: {
     preparationTimeSec: number;
@@ -212,6 +222,7 @@ export type SuggestEvaluationCriteriaInput = {
 export type CreateInterviewQuestionInput = {
   postingId: number;
   criterionId: number;
+  criterionIds?: number[];
   questionType: QuestionType;
   content: string;
   origin?: QuestionOrigin;
@@ -220,6 +231,7 @@ export type CreateInterviewQuestionInput = {
 
 export type UpdateInterviewQuestionInput = {
   criterionId: number;
+  criterionIds?: number[];
   questionType: QuestionType;
   content: string;
 };
@@ -244,6 +256,7 @@ export type CreateInterviewQuestionResult = {
     alignmentReason: string | null;
     evaluatorVersion: string | null;
     sourceProcessLogId: number | null;
+    ncsBindings: InterviewSettings["questions"][number]["ncsBindings"];
   };
 };
 

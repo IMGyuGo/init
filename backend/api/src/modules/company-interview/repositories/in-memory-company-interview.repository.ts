@@ -54,7 +54,7 @@ export class InMemoryCompanyInterviewRepository
       category: '서비스 기본 평가',
       isActive: true,
       sortOrder: 1,
-      ncsProfileId: 'DIGITAL',
+      ncsProfileId: 'JOB_TECHNICAL',
       defaultNcsQuestionMode: 'TECHNICAL_KNOWLEDGE',
       ncsProfileVersion: '2025.12-v1',
     },
@@ -90,7 +90,7 @@ export class InMemoryCompanyInterviewRepository
       category: '서비스 기본 평가',
       isActive: true,
       sortOrder: 4,
-      ncsProfileId: 'COMMUNICATION',
+      ncsProfileId: 'COLLABORATION_COMMUNICATION',
       defaultNcsQuestionMode: 'EXPERIENCE_BEHAVIOR',
       ncsProfileVersion: '2025.12-v1',
     },
@@ -227,6 +227,7 @@ export class InMemoryCompanyInterviewRepository
       alignmentReason: null,
       evaluatorVersion: null,
       sourceProcessLogId: null,
+      ncsBindings: [],
     },
     {
       questionId: 2,
@@ -247,6 +248,7 @@ export class InMemoryCompanyInterviewRepository
       alignmentReason: null,
       evaluatorVersion: null,
       sourceProcessLogId: null,
+      ncsBindings: [],
     },
     {
       questionId: 3,
@@ -267,6 +269,7 @@ export class InMemoryCompanyInterviewRepository
       alignmentReason: null,
       evaluatorVersion: null,
       sourceProcessLogId: null,
+      ncsBindings: [],
     },
     {
       questionId: 4,
@@ -287,6 +290,7 @@ export class InMemoryCompanyInterviewRepository
       alignmentReason: null,
       evaluatorVersion: null,
       sourceProcessLogId: null,
+      ncsBindings: [],
     },
   ];
 
@@ -526,6 +530,7 @@ export class InMemoryCompanyInterviewRepository
       alignmentReason: input.alignmentReason,
       evaluatorVersion: input.evaluatorVersion,
       sourceProcessLogId: input.sourceProcessLogId,
+      ncsBindings: input.ncsBindings,
     };
 
     this.questions = [...this.questions, question];
@@ -554,6 +559,7 @@ export class InMemoryCompanyInterviewRepository
       alignmentScore: input.alignmentScore,
       alignmentReason: input.alignmentReason,
       evaluatorVersion: input.evaluatorVersion,
+      ncsBindings: input.ncsBindings,
     };
     this.questions = this.questions.map((item) =>
       item.questionId === questionId ? updated : item,
