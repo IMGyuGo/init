@@ -23,6 +23,7 @@ NQ-M0 계약을 다시 읽고 다음을 분리한다.
 | NQ-M2 통합 | COMPLETE | worker 정렬 adapter, 서버 요청 snapshot, 질문 metadata 저장 검증, UI 미리보기 구현 완료 |
 | NQ-M3 통합 | COMPLETE | 지원 완료·문서 추출·개인화 질문 비동기 파이프라인과 조회·재시도 API 구현 완료 |
 | NQ-M4 통합 | COMPLETE | M3 READY batch와 ACTIVE 공통 질문을 불변 세션 snapshot으로 연결 완료 |
+| NQ-M5 통합 | COMPLETE | canonical evaluator, nullable 점수, 답변별 저장, 유효 profile 평균과 기업 조회 projection 연결 완료 |
 
 ## Hardened In This Audit
 
@@ -125,6 +126,28 @@ D/E/A/PM 교차 리뷰는 구현 완료 후 승인 단계로 남긴다. 교차 �
 
 D/E/A/PM 교차 리뷰와 실제 PostgreSQL migration 적용 검증은 PR 단계에서 남긴다.
 
+### NQ-M5 Implementation
+
+2026-07-14 기준 구현 완료했다.
+
+- `feat-ncs-text-evaluation-playground`의 profile, rubric, prompt, guardrail 계약을 worker canonical evaluator로 반영
+- 답변 job 입력은 클라이언트 값이 아니라 `interview_session_questions`의 profile/mode/version/alignment snapshot을 사용
+- `SCORED`만 점수와 exact answer evidence를 저장하고 나머지 상태는 세 점수를 모두 NULL로 유지
+- `ncs_answer_evaluations`에 답변별 canonical output을 저장하고 `report_scores`에는 profile별 유효 답변 평균만 저장
+- 유효 점수가 없는 profile은 0점으로 대체하지 않고 최종 report total도 NULL로 유지
+- 기업 지원자 평가 상세 API와 frontend 타입에 답변별 평가 상태·점수 projection 추가
+- report summary provider와 NCS evaluator가 함께 실행될 때 두 단계 token usage를 합산 기록
+
+검증 결과:
+
+- Prisma format/generate 통과
+- Prisma schema validate 통과 (`DATABASE_URL`은 schema 검증용 로컬 값 사용)
+- worker 전체 회귀: 126 tests passed
+- API 전체 회귀: 41 suites, 265 tests passed
+- frontend typecheck와 전체 test 통과
+
+E/D/A/B/PM 교차 리뷰, 실제 PostgreSQL migration 적용, 실제 OpenAI provider smoke test와 M6 UI 표시는 남아 있다.
+
 ## Additional Risks Found
 
 ### JD Mutation In Business Key (Resolved For M3)
@@ -149,9 +172,9 @@ batch에 `latest_process_log_id`, `attempt_count`를 저장하고 재시도마�
 
 ## Recommended Next Order
 
-1. D/E/A/PM에게 M3/M4 cross-owner 변경과 `R-E-04`, `R-A-01`, `R-PM-04`를 병렬 리뷰 요청한다.
-2. 실제 PostgreSQL에 M1~M4 migration을 순서대로 적용하고 NCS 3+3 질문 세션 생성 smoke test를 수행한다.
-3. 동료 NCS 평가기 계약을 최신 상태로 비교해 M5 입력 DTO와 근거 부족 상태를 확정한다.
-4. NQ-M5는 `xhigh` 추론 강도로 구현한다.
+1. E/D/A/B/PM에게 M3~M5 cross-owner 변경과 `R-E-04`, `R-E-05`, `R-A-01`, `R-PM-04`를 병렬 리뷰 요청한다.
+2. 실제 PostgreSQL에 M1~M5 migration을 순서대로 적용하고 NCS 3+3 질문 세션·답변 평가 smoke test를 수행한다.
+3. 실제 OpenAI provider에서 exact evidence, nullable 점수, token usage 합산을 확인한다.
+4. NQ-M6는 `medium` 추론 강도로 UI·QA를 진행하고 실패 원인 분석 시 `high`로 올린다.
 
 NQ-M1에서 API/DB 구현이 시작되므로 리뷰 결과가 필드명·상태 enum·migration 위치를 바꿀 가능성이 있다. M0 blocker 승인 전에는 화면 skeleton 이상의 구현을 진행하지 않는다.

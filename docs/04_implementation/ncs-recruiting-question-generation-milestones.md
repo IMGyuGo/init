@@ -333,4 +333,23 @@ NQ-M3의 DB·이벤트 구현과 NQ-M5의 실제 평가 연결은 계약 없이 
 | D/E/A/PM cross-owner review | 리뷰 대기 | `ncs-recruiting-question-generation-review-requests.md` |
 | Prisma/SQL/API/UI implementation | NQ-M0 제외 | NQ-M1~M4에서 진행 |
 
+## 17. NQ-M5 Status
+
+2026-07-14 기준 NCS 답변 평가 연결 구현을 완료했다.
+
+| Deliverable | Status | Source |
+| --- | --- | --- |
+| canonical evaluator와 OpenAI provider adapter | 구현 완료 | `backend/worker/src/ncs-text-evaluator.ts`, `openai-ncs-text-evaluation.provider.ts` |
+| 세션 질문 snapshot 기반 평가 입력 | 구현 완료 | `PrismaInterviewRepository`, `ReportService.reportAnswerInputs` |
+| 근거 부족·미정렬·차단 nullable 점수 | 구현 완료 | `ncs-report-evaluation.adapter.ts`, worker guardrail tests |
+| 답변별 canonical 결과 저장 | 구현 완료 | `ncs_answer_evaluations` Prisma model/migration, `PrismaAiResultRepository` |
+| 유효 `SCORED` 답변만 profile 평균 집계 | 구현 완료 | `MockAiTaskHandler` NCS report path |
+| 기업 평가 상세 API projection | 구현 완료 | company-recruiting repository/service/types |
+| E/D/A/B/PM cross-owner review | 리뷰 대기 | `ncs-recruiting-question-generation-review-requests.md` |
+| 실제 PostgreSQL migration 및 OpenAI smoke test | 실행 대기 | PR 통합 환경에서 수행 |
+
+NCS 평가에서는 `INSUFFICIENT_INPUT`, `LOW_ALIGNMENT`, `BLOCKED`를 0점으로 바꾸지 않는다. 세 profile 중 하나라도 유효 점수가 없으면 최종 `totalScore`도 NULL로 유지한다. M6에서 기업 UI 상태 표시, 실제 DB migration, OpenAI provider smoke test와 전체 역할 E2E를 마감한다.
+
+검증 결과는 worker 126 tests, API 41 suites/265 tests, frontend typecheck와 전체 test 통과다. Prisma format/generate/validate도 통과했다.
+
 NQ-M0 문서 작성은 완료됐지만 milestone exit는 review request의 모든 M0 blocker가 승인·반영되어야 충족된다. 리뷰 중 E evaluator의 profile ID, mode, version shape가 달라지면 E 계약을 기준으로 adapter mapping과 문서를 갱신한다.
