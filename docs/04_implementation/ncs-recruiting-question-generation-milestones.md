@@ -352,4 +352,22 @@ NCS 평가에서는 `INSUFFICIENT_INPUT`, `LOW_ALIGNMENT`, `BLOCKED`를 0점으�
 
 검증 결과는 worker 126 tests, API 41 suites/265 tests, frontend typecheck와 전체 test 통과다. Prisma format/generate/validate도 통과했다.
 
+## 18. NQ-M6 Status
+
+2026-07-14 기준 로컬 QA와 rollout 준비를 완료했다.
+
+| Deliverable | Status | Source |
+| --- | --- | --- |
+| 기업 답변별 NCS 상태·점수·근거 UI | 구현 완료 | `ApplicantEvaluationPage.tsx`, `ncs-evaluation-view.ts` |
+| nullable 점수·0점·내부 결과 비노출 회귀 | 테스트 완료 | `ncs-evaluation-view.spec.ts` |
+| frontend feature flag rollback 해석 | 구현·테스트 완료 | `ncs-feature-flag.ts`, `ncs-feature-flag.spec.ts` |
+| desktop/mobile 브라우저 확인 | 로컬 완료 | 1440px/390px, document와 row overflow 0 |
+| migration·rollout·failure recovery·rollback | 문서 완료 | `ncs-m6-rollout-runbook.md` |
+| frontend test/lint/typecheck/build | 통과 | 2026-07-14 로컬 검증 |
+| 실제 PostgreSQL migration | 실행 대기 | A 배포 환경 |
+| 실제 OpenAI provider와 3+3 E2E | 실행 대기 | E/A 통합 환경 |
+| A/B/D/E/PM cross-owner review | 리뷰 대기 | `ncs-recruiting-question-generation-review-requests.md` |
+
+M6 구현은 로컬 완료지만 release exit는 환경 의존 검증과 리뷰가 끝날 때까지 `RELEASE PENDING`이다. feature flag는 build-time 값이므로 rollback 시 frontend rebuild가 필요하며 기존 NCS 데이터는 삭제하지 않는다.
+
 NQ-M0 문서 작성은 완료됐지만 milestone exit는 review request의 모든 M0 blocker가 승인·반영되어야 충족된다. 리뷰 중 E evaluator의 profile ID, mode, version shape가 달라지면 E 계약을 기준으로 adapter mapping과 문서를 갱신한다.

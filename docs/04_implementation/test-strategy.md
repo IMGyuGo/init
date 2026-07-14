@@ -172,6 +172,22 @@ NQ-M0는 문서 계약 milestone이다. 아래 항목은 후속 구현 PR의 acc
 - 기업 지원자 목록은 준비 중·준비 완료·검토 필요·실패를 구분하고 실패/검토 필요에서만 재시도를 제공한다.
 - 지원자 화면은 내부 AI 상태와 이력서 처리 상세를 노출하지 않고 `면접 준비 중`만 표시한다.
 
+## NQ-M6 Release Acceptance
+
+M6는 [`ncs-m6-rollout-runbook.md`](./ncs-m6-rollout-runbook.md)의 순서로 검증한다.
+
+| Area | Scenario | Expected |
+| --- | --- | --- |
+| Feature flag | 미설정, `true`, 대소문자·공백이 있는 `false` | 미설정/`true`는 활성, 정규화된 `false`만 비활성 |
+| Evaluation UI | `SCORED` 점수가 0 | 점수 없음이 아니라 숫자 0 표시 |
+| Evaluation UI | `INSUFFICIENT_INPUT`, `LOW_ALIGNMENT`, `BLOCKED` | 점수 미표시, 상태와 사용자용 사유만 표시 |
+| Evidence | canonical 결과에 중복 exact quote | 중복 제거된 답변 인용만 표시 |
+| Privacy | 미산정 canonical 내부 결과 | 기업 UI에 원문·내부 guardrail output 미노출 |
+| Responsive | 기업 평가 상세 desktop/mobile | 상태 badge, 질문, 점수, 근거가 겹치거나 잘리지 않음 |
+| Rollback | frontend flag를 `false`로 rebuild | 신규 NCS 설정 진입은 숨고 기존 legacy 공고는 정상 동작 |
+
+실제 환경이 필요한 PostgreSQL migration과 OpenAI provider smoke는 로컬 mock 회귀 통과로 대체하지 않는다. 배포 담당자가 runbook의 smoke evidence를 남겨야 운영 완료로 판정한다.
+
 ## Harness
 
 초기 구현 전에는 문서/계약/폴더 구조 하네스를 먼저 유지한다.

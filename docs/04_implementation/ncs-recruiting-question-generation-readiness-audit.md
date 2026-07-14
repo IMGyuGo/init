@@ -24,6 +24,7 @@ NQ-M0 계약을 다시 읽고 다음을 분리한다.
 | NQ-M3 통합 | COMPLETE | 지원 완료·문서 추출·개인화 질문 비동기 파이프라인과 조회·재시도 API 구현 완료 |
 | NQ-M4 통합 | COMPLETE | M3 READY batch와 ACTIVE 공통 질문을 불변 세션 snapshot으로 연결 완료 |
 | NQ-M5 통합 | COMPLETE | canonical evaluator, nullable 점수, 답변별 저장, 유효 profile 평균과 기업 조회 projection 연결 완료 |
+| NQ-M6 hardening | LOCAL COMPLETE / RELEASE PENDING | 기업 UI·flag 회귀·브라우저 검증과 rollout runbook 완료, 실제 DB/provider smoke와 cross-owner 승인 대기 |
 
 ## Hardened In This Audit
 
@@ -147,6 +148,19 @@ D/E/A/PM 교차 리뷰와 실제 PostgreSQL migration 적용 검증은 PR 단계
 - frontend typecheck와 전체 test 통과
 
 E/D/A/B/PM 교차 리뷰, 실제 PostgreSQL migration 적용, 실제 OpenAI provider smoke test와 M6 UI 표시는 남아 있다.
+
+### NQ-M6 Implementation
+
+2026-07-14 기준 로컬 hardening 구현을 완료했다.
+
+- 기업 평가 상세에서 답변별 NCS 상태, nullable 점수, exact evidence와 보완 방향 표시
+- `SCORED`의 실제 0점은 보존하고 미산정 상태의 내부 canonical output은 UI에서 차단
+- `NEXT_PUBLIC_NCS_QUESTION_POLICY_ENABLED`의 공백·대소문자를 정규화해 `false` rollback 동작 고정
+- migration, 단계적 활성화, 장애 복구, 데이터 보존 rollback 절차를 `ncs-m6-rollout-runbook.md`로 분리
+- desktop 1440px, mobile 390px 브라우저 검증에서 문서·평가 row 가로 overflow 0 확인
+- frontend 전체 test, lint, typecheck, production build 통과
+
+M6 release exit는 아직 닫지 않는다. 실제 PostgreSQL `migrate deploy`, 실제 OpenAI provider smoke, A/B/D/E/PM 리뷰와 배포 환경 3+3 E2E evidence가 남아 있다.
 
 ## Additional Risks Found
 

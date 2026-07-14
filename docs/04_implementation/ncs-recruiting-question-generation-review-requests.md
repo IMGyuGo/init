@@ -39,6 +39,20 @@ Comment: 변경할 필드명, enum, 상태 전이 또는 이유
 | R-PM-04 | PENDING | PM | A, D, E | M3, M6 | 이력서 질문의 보관 기간·지원자 고지·운영자 노출 범위 |
 | R-X-01 | APPROVED | C | D, E, PM | M0, M2, M4 | API-039 질문 세트와 API-097 질문 생성 정책의 정본 관계 |
 
+## M6 Implementation Review Handoff
+
+M6 로컬 구현은 완료했으며 다음 변경은 소유자 승인 전 release exit로 간주하지 않는다.
+
+| Reviewer | Review target | Files / evidence |
+| --- | --- | --- |
+| A | build-time flag, migration 순서, SQS/DLQ와 rollback 실행 가능성 | `ncs-m6-rollout-runbook.md`, `ncs-feature-flag.ts` |
+| B | 기업 평가 상세의 답변별 상태·점수·근거 UX | `ApplicantEvaluationPage.tsx`, `ncs-evaluation-view.ts`, `globals.css` |
+| D | session question과 answer ID 연결, 미준비 세션 차단 | M4/M5 구현과 M6 3+3 E2E |
+| E | actual provider exact evidence, nullable 점수, blocked output 비노출 | M5 evaluator와 M6 smoke evidence |
+| PM | 운영자 노출 범위, 지원자 고지, 보관 기간과 상태 문구 | `R-PM-04`, M6 browser acceptance |
+
+C 하네스의 문서·구조 검사는 통과했다. uncommitted cross-owner 파일에 대한 ownership guard 차단은 ownership map을 넓히지 않고 위 리뷰 대상으로 유지한다.
+
 ## E Review
 
 ### M2 Implementation Decision (2026-07-14)
