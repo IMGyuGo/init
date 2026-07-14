@@ -5,9 +5,10 @@ import { fileURLToPath } from "node:url";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+let auditCubismProofModel;
 let auditInterviewerAvatarAssets;
 try {
-  ({ auditInterviewerAvatarAssets } = await import("./audit-interviewer-avatar-assets.mjs"));
+  ({ auditCubismProofModel, auditInterviewerAvatarAssets } = await import("./audit-interviewer-avatar-assets.mjs"));
 } catch (error) {
   assert.fail(`avatar asset audit module must exist: ${error instanceof Error ? error.message : String(error)}`);
 }
@@ -38,6 +39,31 @@ assert.deepEqual(
     ["mouth/open.png", "talking.png"],
   ],
 );
+
+assert.equal(typeof auditCubismProofModel, "function");
+const cubismProof = await auditCubismProofModel(
+  resolve(
+    projectRoot,
+    "frontend/public/assets/interviewer-cubism/v4-deformation-proof/interviewer-v4-deformation-proof.model3.json",
+  ),
+);
+
+assert.equal(cubismProof.version, 3);
+assert.ok(cubismProof.moc.bytes > 15_000);
+assert.equal(cubismProof.base.path, "interviewer-v4-deformation-proof-base.png");
+assert.ok(cubismProof.base.bytes > 1_000_000);
+assert.equal(cubismProof.base.width, 1024);
+assert.equal(cubismProof.base.height, 1536);
+assert.equal(cubismProof.textures.length, 1);
+assert.equal(
+  cubismProof.textures[0].path,
+  "interviewer-v4-deformation-proof.2048/texture_00.png",
+);
+assert.ok(cubismProof.textures[0].bytes > 400_000);
+assert.equal(cubismProof.textures[0].width, 2048);
+assert.equal(cubismProof.textures[0].height, 2048);
+assert.equal(cubismProof.displayInfo.parameterCount, 27);
+assert.equal(cubismProof.displayInfo.hasMouthOpenParameter, true);
 
 const frontendPackage = JSON.parse(
   await readFile(resolve(projectRoot, "frontend/package.json"), "utf8"),

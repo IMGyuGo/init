@@ -13,7 +13,7 @@ export interface InterviewAvatarProps {
   className?: string;
 }
 
-function usePrefersReducedMotion() {
+export function usePrefersReducedMotion() {
   const [reducedMotion, setReducedMotion] = useState(false);
 
   useEffect(() => {

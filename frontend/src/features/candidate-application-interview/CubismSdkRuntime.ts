@@ -1,4 +1,21 @@
+export { getMouthOpenValueForShape as getCubismMouthOpenValue } from "./LipSyncDriver";
+
 export const CUBISM_CORE_SCRIPT_SRC = "/assets/interviewer-cubism/sdk/live2dcubismcore.min.js";
+export const CUBISM_PROOF_MODEL_URL =
+  "/assets/interviewer-cubism/v4-deformation-proof/interviewer-v4-deformation-proof.model3.json";
+
+export type CubismModelManifest = {
+  Version: number;
+  FileReferences: {
+    Moc: string;
+    Textures: string[];
+  };
+};
+
+export type CubismProofModelReferences = {
+  mocUrl: string;
+  textureUrls: string[];
+};
 
 export type CubismRuntimeAvailability =
   | { kind: "fallback"; reason: "webgl-unavailable" | "core-unavailable" | "framework-initialization-failed" }
@@ -16,6 +33,31 @@ type CubismCoreWindow = Window & {
 };
 
 let frameworkInitialization: Promise<boolean> | undefined;
+
+export function resolveCubismProofModelReferences(
+  modelUrl: string,
+  manifest: CubismModelManifest,
+): CubismProofModelReferences {
+  if (manifest.Version !== 3 || !manifest.FileReferences?.Moc || !manifest.FileReferences.Textures?.length) {
+    throw new Error("Cubism proof model manifest is incomplete");
+  }
+
+  const baseOrigin = "https://cubism.local";
+  const absoluteModelUrl = new URL(modelUrl, baseOrigin);
+  const modelDirectory = absoluteModelUrl.pathname.slice(0, absoluteModelUrl.pathname.lastIndexOf("/") + 1);
+  const resolveReference = (reference: string) => {
+    const resolved = new URL(reference, absoluteModelUrl);
+    if (resolved.origin !== absoluteModelUrl.origin || !resolved.pathname.startsWith(modelDirectory)) {
+      throw new Error("Cubism proof model references must stay inside the model directory");
+    }
+    return resolved.pathname;
+  };
+
+  return {
+    mocUrl: resolveReference(manifest.FileReferences.Moc),
+    textureUrls: manifest.FileReferences.Textures.map(resolveReference),
+  };
+}
 
 export function getCubismRuntimeAvailability({
   hasWebGl,

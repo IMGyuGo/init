@@ -1,3 +1,4 @@
+import Image from "next/image";
 import type { InterviewerSessionPhase } from "./view-model";
 import type { AvatarPresentationState, MouthShape } from "./LipSyncDriver";
 
@@ -50,9 +51,25 @@ export function LocalInterviewerAvatar({
       data-reduced-motion={reducedMotion ? "true" : "false"}
       aria-hidden="true"
     >
-      <img className="local-interviewer-avatar__posture" src={postureImageByState[postureState]} alt="" draggable={false} />
+      <Image
+        alt=""
+        className="local-interviewer-avatar__posture"
+        draggable={false}
+        height={1448}
+        src={postureImageByState[postureState]}
+        unoptimized
+        width={1088}
+      />
       {shouldRenderMouthOverlay ? (
-        <img className="local-interviewer-avatar__mouth" src={mouthImageByShape[renderedMouthShape]} alt="" draggable={false} />
+        <Image
+          alt=""
+          className="local-interviewer-avatar__mouth"
+          draggable={false}
+          height={1448}
+          src={mouthImageByShape[renderedMouthShape]}
+          unoptimized
+          width={1088}
+        />
       ) : null}
     </div>
   );

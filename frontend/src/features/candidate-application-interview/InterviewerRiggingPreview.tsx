@@ -1,11 +1,20 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
-import { initializeCubismSdk, type CubismRuntimeAvailability } from "./CubismSdkRuntime";
-import { InterviewAvatar } from "./InterviewAvatar";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { CubismProofInterviewerAvatar } from "./CubismProofInterviewerAvatar";
+import {
+  getCubismMouthOpenValue,
+  initializeCubismSdk,
+  type CubismRuntimeAvailability,
+} from "./CubismSdkRuntime";
+import { usePrefersReducedMotion } from "./InterviewAvatar";
 import { LocalInterviewerAvatar } from "./LocalInterviewerAvatar";
-import type { AvatarPresentationState, MouthShape } from "./LipSyncDriver";
+import {
+  useLipSyncDriverState,
+  type AvatarPresentationState,
+  type MouthShape,
+} from "./LipSyncDriver";
 
 const STORAGE_KEY = "candidate.interviewer-rigging-preview";
 
@@ -115,13 +124,27 @@ function createAudioQaWavUrl(): string {
   return URL.createObjectURL(new Blob([buffer], { type: "audio/wav" }));
 }
 
-function InterviewerAudioLipSyncQa() {
+export interface InterviewerAudioLipSyncQaProps {
+  reducedMotion: boolean;
+}
+
+export function InterviewerAudioLipSyncQa({ reducedMotion }: InterviewerAudioLipSyncQaProps) {
   const qaRootRef = useRef<HTMLDivElement | null>(null);
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const [audioUrl, setAudioUrl] = useState("");
   const [playbackState, setPlaybackState] = useState<"idle" | "playing" | "error">("idle");
   const [playbackError, setPlaybackError] = useState("");
   const [observedMouthShapes, setObservedMouthShapes] = useState<MouthShape[]>(["rest"]);
+  const [observedCubismRange, setObservedCubismRange] = useState({ min: 0, max: 0 });
+  const playing = playbackState === "playing";
+  const presentationState: AvatarPresentationState = playing ? "speaking" : "idle";
+  const lipSyncState = useLipSyncDriverState({
+    presentationState,
+    audioSource: audioElement,
+    speechText: AUDIO_QA_SPEECH_TEXT,
+    reducedMotion,
+  });
 
   useEffect(() => {
     const nextAudioUrl = createAudioQaWavUrl();
@@ -149,33 +172,48 @@ function InterviewerAudioLipSyncQa() {
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    setObservedCubismRange((current) => ({
+      min: Math.min(current.min, lipSyncState.mouthOpen),
+      max: Math.max(current.max, lipSyncState.mouthOpen),
+    }));
+  }, [lipSyncState.mouthOpen]);
+
+  const bindAudioElement = useCallback((element: HTMLAudioElement | null) => {
+    audioElementRef.current = element;
+    setAudioElement(element);
+  }, []);
+
   async function togglePlayback() {
-    if (!audioElement || !audioUrl) return;
-    if (!audioElement.paused) {
-      audioElement.pause();
-      audioElement.currentTime = 0;
+    const currentAudioElement = audioElementRef.current;
+    if (!currentAudioElement || !audioUrl) return;
+    if (!currentAudioElement.paused) {
+      currentAudioElement.pause();
+      currentAudioElement.currentTime = 0;
       setPlaybackState("idle");
       return;
     }
 
-    audioElement.currentTime = 0;
+    currentAudioElement.currentTime = 0;
     setPlaybackError("");
     setObservedMouthShapes(["rest"]);
+    setObservedCubismRange({ min: 0, max: 0 });
     try {
-      await audioElement.play();
+      await currentAudioElement.play();
     } catch (error) {
       setPlaybackError(error instanceof Error ? `${error.name}: ${error.message}` : "Unknown playback error");
       setPlaybackState("error");
     }
   }
 
-  const playing = playbackState === "playing";
-
   return (
     <div
       className="interviewer-rigging-preview__audio-qa"
+      data-audio-qa-cubism-max={observedCubismRange.max.toFixed(3)}
+      data-audio-qa-cubism-min={observedCubismRange.min.toFixed(3)}
       data-audio-qa-error={playbackError}
       data-audio-qa-observed-shapes={observedMouthShapes.join(",")}
+      data-audio-qa-reduced-motion={reducedMotion ? "true" : "false"}
       data-audio-lip-sync-qa="true"
       data-audio-qa-state={playbackState}
       ref={qaRootRef}
@@ -188,7 +226,9 @@ function InterviewerAudioLipSyncQa() {
         <span aria-live="polite">
           {playbackState === "error" ? "재생 실패" : playing ? "재생 중" : "준비"}
         </span>
-        <small>{observedMouthShapes.join(" -> ")}</small>
+        <small>
+          {observedMouthShapes.join(" -> ")} · Cubism {lipSyncState.mouthOpen.toFixed(3)}
+        </small>
         <audio
           aria-label="로컬 RMS QA 음원"
           controls
@@ -199,17 +239,22 @@ function InterviewerAudioLipSyncQa() {
             setPlaybackState("playing");
           }}
           preload="auto"
-          ref={setAudioElement}
+          ref={bindAudioElement}
           src={audioUrl || undefined}
         />
       </div>
 
-      <div className="interviewer-rigging-preview__runtime-stage" data-audio-qa-stage="true">
-        <InterviewAvatar
-          audioSource={audioElement}
-          phase={playing ? "AI_SPEAKING" : "CONNECTING"}
-          speechText={AUDIO_QA_SPEECH_TEXT}
-        />
+      <div className="interviewer-rigging-preview__audio-qa-stages">
+        <div className="interviewer-rigging-preview__runtime-stage" data-audio-qa-renderer="png">
+          <LocalInterviewerAvatar
+            presentationState={presentationState}
+            mouthShape={lipSyncState.mouthShape}
+            reducedMotion={reducedMotion}
+          />
+        </div>
+        <div className="interviewer-rigging-preview__runtime-stage" data-audio-qa-renderer="cubism">
+          <CubismProofInterviewerAvatar mouthOpen={lipSyncState.mouthOpen} reducedMotion={reducedMotion} />
+        </div>
       </div>
     </div>
   );
@@ -219,6 +264,7 @@ export function InterviewerRiggingPreview() {
   const [selectedId, setSelectedId] = useState<RiggingPreviewVariantId>("existing-look");
   const [cubismRuntime, setCubismRuntime] = useState<CubismRuntimeState>("initializing");
   const [avatarQaState, setAvatarQaState] = useState<AvatarQaState>(DEFAULT_AVATAR_QA_STATE);
+  const reducedMotion = usePrefersReducedMotion();
   const selected = getRiggingPreviewVariant(selectedId);
 
   useEffect(() => {
@@ -228,7 +274,7 @@ export function InterviewerRiggingPreview() {
   useEffect(() => {
     let mounted = true;
 
-    void initializeCubismSdk(document, false).then((result) => {
+    void initializeCubismSdk(document, true).then((result) => {
       if (mounted) setCubismRuntime(result.kind);
     });
 
@@ -326,7 +372,21 @@ export function InterviewerRiggingPreview() {
           </div>
         </div>
 
-        <InterviewerAudioLipSyncQa />
+        <div className="interviewer-rigging-preview__cubism-proof" data-cubism-proof-qa="true">
+          <div className="interviewer-rigging-preview__proof-record">
+            <strong>Cubism V4 deformation proof</strong>
+            <code>ParamMouthOpenY · 0 → 1</code>
+            <span>단일 ArtMesh 변형 · 완성형 자연 변형 아님</span>
+          </div>
+          <div className="interviewer-rigging-preview__runtime-stage">
+            <CubismProofInterviewerAvatar
+              mouthOpen={getCubismMouthOpenValue(avatarQaState.mouthShape)}
+              reducedMotion={avatarQaState.reducedMotion}
+            />
+          </div>
+        </div>
+
+        <InterviewerAudioLipSyncQa reducedMotion={reducedMotion} />
       </section>
     </main>
   );

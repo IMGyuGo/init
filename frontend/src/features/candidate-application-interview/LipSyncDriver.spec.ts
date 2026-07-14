@@ -2,9 +2,13 @@ import { strict as assert } from "node:assert";
 import * as lipSyncDriver from "./LipSyncDriver";
 import {
   buildKoreanVisemeTimeline,
+  getMouthOpenValueForRms,
+  getMouthOpenValueForShape,
   getMouthShapeForKoreanCharacter,
   getMouthShapeForRms,
+  isLipSyncAudioAnalysisAvailable,
   resolveLipSyncMouthShape,
+  smoothMouthOpenValue,
 } from "./LipSyncDriver";
 
 type TestAudioSourceNode = { kind: "stream" | "element" };
@@ -41,6 +45,35 @@ const selectedSourceNode = createLipSyncAudioSourceNode(
 assert.deepEqual(selectedSources, ["stream"]);
 assert.equal(selectedSourceNode?.kind, "stream");
 
+const repeatedAudioElement = {};
+let mediaElementSourceCreationCount = 0;
+const repeatedMediaElementContext = {
+  createMediaStreamSource() {
+    return { kind: "stream" as const };
+  },
+  createMediaElementSource(element: unknown) {
+    assert.equal(element, repeatedAudioElement);
+    mediaElementSourceCreationCount += 1;
+    return { kind: "element" as const };
+  },
+};
+const firstMediaElementSource = createLipSyncAudioSourceNode(
+  repeatedMediaElementContext,
+  repeatedAudioElement,
+  undefined,
+);
+const replayedMediaElementSource = createLipSyncAudioSourceNode(
+  repeatedMediaElementContext,
+  repeatedAudioElement,
+  undefined,
+);
+assert.equal(replayedMediaElementSource, firstMediaElementSource);
+assert.equal(mediaElementSourceCreationCount, 1);
+
+assert.equal(isLipSyncAudioAnalysisAvailable(true, "running"), true);
+assert.equal(isLipSyncAudioAnalysisAvailable(true, "suspended"), false);
+assert.equal(isLipSyncAudioAnalysisAvailable(false, "running"), false);
+
 assert.equal(getMouthShapeForKoreanCharacter("마"), "closed");
 assert.equal(getMouthShapeForKoreanCharacter("사"), "teeth");
 assert.equal(getMouthShapeForKoreanCharacter("아"), "open");
@@ -50,6 +83,26 @@ assert.equal(getMouthShapeForKoreanCharacter("우"), "round");
 assert.equal(getMouthShapeForRms(0), "rest");
 assert.equal(getMouthShapeForRms(0.03), "closed");
 assert.equal(getMouthShapeForRms(0.12), "open");
+
+assert.equal(getMouthOpenValueForRms(0), 0);
+assert.equal(getMouthOpenValueForRms(0.012), 0);
+assert.equal(getMouthOpenValueForRms(0.12), 1);
+assert.ok(getMouthOpenValueForRms(0.04) > 0);
+assert.ok(getMouthOpenValueForRms(0.04) < 1);
+assert.equal(getMouthOpenValueForRms(Number.NaN), 0);
+assert.equal(getMouthOpenValueForRms(Number.POSITIVE_INFINITY), 0);
+
+assert.equal(getMouthOpenValueForShape("rest"), 0);
+assert.equal(getMouthOpenValueForShape("closed"), 0.08);
+assert.equal(getMouthOpenValueForShape("open"), 0.78);
+assert.equal(getMouthOpenValueForShape("wide"), 1);
+
+const attackValue = smoothMouthOpenValue(0, 1);
+const releaseValue = smoothMouthOpenValue(1, 0);
+assert.ok(attackValue > 0 && attackValue < 1);
+assert.ok(releaseValue > 0 && releaseValue < 1);
+assert.ok(attackValue > 1 - releaseValue);
+assert.equal(smoothMouthOpenValue(0, 0), 0);
 
 const timeline = buildKoreanVisemeTimeline("안녕하세요", 900);
 assert.ok(timeline.length > 0);
