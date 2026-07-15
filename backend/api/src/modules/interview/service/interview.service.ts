@@ -22,6 +22,7 @@ import {
   AiHandoffResult,
   CompleteInterviewResult,
   InterviewAnswer,
+  InterviewAnswerSttStatus,
   InterviewAnswerNonverbalMetadata,
   InterviewQuestion,
   InterviewQuestionListResult,
@@ -566,6 +567,7 @@ export class InterviewService {
         submittedAt,
       });
     } else if (requestBody.retryAnswerId && existingAnswer) {
+      await this.assertReanswerAllowed(session, existingAnswer);
       answer = await this.interviewRepository.updateAnswer({
         ...answerInput,
         answerId: existingAnswer.answerId,
@@ -1201,15 +1203,57 @@ export class InterviewService {
     current: boolean,
     runtimeSortOrder?: number,
   ): Promise<InterviewQuestionView> {
+    const answer = await this.interviewRepository.findAnswer(session.sessionId, question.questionId);
+    const stt = await this.resolveAnswerSttState(session, answer);
     return {
       questionId: question.questionId,
       questionType: question.questionType,
       sortOrder: runtimeSortOrder ?? question.sortOrder,
       content: this.shouldExposeQuestionText(session) ? question.content : undefined,
       audioPrompt: `audio://interview-questions/${question.questionId}`,
-      answered: Boolean(await this.interviewRepository.findAnswer(session.sessionId, question.questionId)),
+      answered: Boolean(answer),
       current,
+      answerId: answer?.answerId,
+      sttStatus: stt.status,
+      sttFailureReason: stt.failureReason,
+      reanswerAvailable: stt.status === "REANSWER_AVAILABLE",
     };
+  }
+
+  private async resolveAnswerSttState(
+    session: RuntimeInterviewSession,
+    answer: InterviewAnswer | undefined,
+  ): Promise<{ status: InterviewAnswerSttStatus; failureReason?: string }> {
+    if (!answer) return { status: "NOT_SUBMITTED" };
+    if (answer.transcript?.trim()) return { status: "AVAILABLE" };
+
+    const processes = await this.interviewRepository.listSttProcesses(session.sessionId, answer.answerId);
+    const submittedAt = Date.parse(answer.submittedAt);
+    const currentAttempt = processes.filter((process) => Date.parse(process.createdAt) >= submittedAt);
+    const latest = currentAttempt[0];
+    if (!latest || latest.status === "PENDING" || latest.status === "RUNNING") {
+      return { status: "PENDING" };
+    }
+    if (latest.status === "COMPLETED") {
+      return {
+        status: "PROCESSING_FAILED",
+        failureReason: "STT completed without a transcript.",
+      };
+    }
+    if (latest.failureCategory !== "REANSWER_REQUIRED") {
+      return {
+        status: "PROCESSING_FAILED",
+        failureReason: latest.failureReason,
+      };
+    }
+
+    const recognitionFailureCount = processes.filter(
+      (process) => process.status === "FAILED" && process.failureCategory === "REANSWER_REQUIRED",
+    ).length;
+    if (recognitionFailureCount === 1 && session.status === "IN_PROGRESS") {
+      return { status: "REANSWER_AVAILABLE", failureReason: latest.failureReason };
+    }
+    return { status: "UNAVAILABLE", failureReason: latest.failureReason };
   }
 
   private shouldExposeQuestionText(session: RuntimeInterviewSession): boolean {

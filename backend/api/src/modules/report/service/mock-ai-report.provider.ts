@@ -23,9 +23,6 @@ interface StructuredEvaluation {
   questionEvaluations: QuestionEvaluation[];
 }
 
-const STT_UNAVAILABLE_TEMP_ZERO_REASON =
-  "STT transcript is unavailable; this answer is temporarily scored as 0 because speech recognition failed, not because of answer quality.";
-
 @Injectable()
 export class MockAiReportProvider {
   buildEvaluationContext(input: EvaluationContextRequest): EvaluationContext {
@@ -89,17 +86,11 @@ export class MockAiReportProvider {
   ): StructuredEvaluation {
     const scores: ReportScore[] = [];
     const questionEvaluations: QuestionEvaluation[] = [];
-    const evaluatedAnswerIds = new Set<number>();
+    const evaluableAnswers = answers.filter((answer) => answer.evaluationStatus !== "STT_UNAVAILABLE");
+    if (evaluableAnswers.length === 0) return { scores, questionEvaluations };
 
     criteria.forEach((criterion, index) => {
-      const answer = answers[index % answers.length];
-      if (answer.evaluationStatus === "STT_UNAVAILABLE") {
-        const zeroEvaluation = this.unavailableTranscriptEvaluation(criterion, answer);
-        scores.push(zeroEvaluation.score);
-        questionEvaluations.push(zeroEvaluation.questionEvaluation);
-        evaluatedAnswerIds.add(answer.answerId);
-        return;
-      }
+      const answer = evaluableAnswers[index % evaluableAnswers.length]!;
 
       const transcript = answer.transcript ?? "";
       const evidences = this.buildEvidences(answer.answerId, transcript, documentText);
@@ -129,57 +120,9 @@ export class MockAiReportProvider {
         uncertaintyReasons: structured.uncertaintyReasons,
         evidences
       });
-      evaluatedAnswerIds.add(answer.answerId);
     });
 
-    answers
-      .filter((answer) => answer.evaluationStatus === "STT_UNAVAILABLE" && !evaluatedAnswerIds.has(answer.answerId))
-      .forEach((answer) => {
-        const criterion = criteria[scores.length % criteria.length];
-        const zeroEvaluation = this.unavailableTranscriptEvaluation(criterion, answer);
-        scores.push(zeroEvaluation.score);
-        questionEvaluations.push(zeroEvaluation.questionEvaluation);
-        evaluatedAnswerIds.add(answer.answerId);
-      });
-
     return { scores, questionEvaluations };
-  }
-
-  private unavailableTranscriptEvaluation(
-    criterion: AnswerEvaluationRequest["criteria"][number],
-    answer: AnswerEvaluationRequest["answers"][number]
-  ): { score: ReportScore; questionEvaluation: QuestionEvaluation } {
-    const reason = answer.transcriptUnavailableReason?.trim() || STT_UNAVAILABLE_TEMP_ZERO_REASON;
-    const evidences: ReportScore["evidences"] = [
-      {
-        sourceType: "INTERVIEW_ANSWER",
-        answerId: answer.answerId,
-        text: reason
-      }
-    ];
-    const score: ReportScore = {
-      criterionId: criterion.criterionId,
-      criterionName: criterion.name,
-      score: 0,
-      rationale: reason,
-      rubricAnchor: "STT_UNAVAILABLE_TEMP_ZERO",
-      confidence: "LOW",
-      uncertaintyReasons: [reason],
-      evidences
-    };
-    return {
-      score,
-      questionEvaluation: {
-        criterionId: criterion.criterionId,
-        criterionName: criterion.name,
-        answerId: answer.answerId,
-        question: answer.question ?? `Answer ${answer.answerId}`,
-        rubricAnchor: score.rubricAnchor,
-        confidence: score.confidence,
-        uncertaintyReasons: score.uncertaintyReasons,
-        evidences
-      }
-    };
   }
 
   private buildEvidences(answerId: number, transcript: string, documentText?: string): ReportScore["evidences"] {

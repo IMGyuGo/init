@@ -1,5 +1,6 @@
 import {
   AiResultRepository,
+  DEFAULT_STT_UNAVAILABLE_REASON,
   PersonalizedQuestionRecord,
   ResumeQuestionGenerationContext,
   ResumeQuestionJobReference,
@@ -30,9 +31,6 @@ import {
 import { sanitizePostingDraftHtml } from "./posting-draft-html";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import { AiTaskHandler, AiTaskResult, AiWorkerJob } from "./worker.types";
-
-const STT_UNAVAILABLE_TEMP_ZERO_REASON =
-  "STT transcript is unavailable; this answer is temporarily scored as 0 because speech recognition failed, not because of answer quality.";
 
 interface WorkerInput {
   kind?: string;
@@ -935,7 +933,7 @@ function answersOf(value: unknown): Array<{
     const record = item as Record<string, unknown>;
     const evaluationStatus = record.evaluationStatus === "STT_UNAVAILABLE" ? "STT_UNAVAILABLE" : "EVALUATED";
     const transcriptUnavailableReason =
-      optionalText(record.transcriptUnavailableReason) ?? STT_UNAVAILABLE_TEMP_ZERO_REASON;
+      optionalText(record.transcriptUnavailableReason) ?? DEFAULT_STT_UNAVAILABLE_REASON;
     const transcript =
       evaluationStatus === "STT_UNAVAILABLE"
         ? optionalText(record.transcript) ?? ""

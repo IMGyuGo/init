@@ -219,6 +219,10 @@ interface NcsReportNoticeV1 {
 - `completionStatus=INCOMPLETE`이면 `thresholdResult=INCOMPLETE`, `totalScore=null`이다.
 - 임시 정책에서 `INCOMPLETE`여도 `aiDecision=FAIL`이며 `decisionReasonCode=EVALUATION_INCOMPLETE`다.
 - profile에 required 평가 미완료가 있으면 해당 profile의 `status=INCOMPLETE`와 점수 3개를 NULL로 둔다.
+- `STT_UNAVAILABLE` 답변은 답변별 `scoreStatus=INSUFFICIENT_INPUT`으로 저장하되 행동, 논리, base, effective 점수와 evidence는 모두 NULL/빈 배열이다.
+- 같은 답변의 최종 `incompleteReasons`에는 `STT_UNAVAILABLE`만 노출하고 파생된 일반 `INSUFFICIENT_INPUT`을 중복 추가하지 않는다. reason은 `answerId`, `sessionQuestionId`, `ncsProfileId`와 실제 인식 실패 사유를 포함한다.
+- `STT_UNAVAILABLE_TEMP_ZERO` rubric과 가짜 0점 `ReportScore`는 신규 생성하지 않는다. 과거 행은 조회 호환만 유지하며 NCS 최종 집계 입력으로 재저장하지 않는다.
+- STT provider 실패와 timeout은 인식 불가 판정이 아니다. `ai_process_logs`의 별도 실패 상태로 유지하며 `STT_UNAVAILABLE`로 변환하지 않는다.
 - 다른 profile이 완전하면 해당 profile 점수는 유지할 수 있지만 전체 `totalScore`는 NULL이다.
 - `aiDecision`은 AI 추천이며 실제 `screeningDecision`과 다른 필드다.
 

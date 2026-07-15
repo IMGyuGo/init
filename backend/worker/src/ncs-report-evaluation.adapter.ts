@@ -73,6 +73,7 @@ export interface NcsReportAnswerSnapshot {
   evaluatorVersion?: string;
   ncsBindings?: NcsReportQuestionBindingSnapshot[];
   evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
+  transcriptUnavailableReason?: string;
   isFollowUpAnswer?: boolean;
   parentAnswerId?: number;
   followUpReason?: "NCS_EVIDENCE_GAP" | "FACT_CLARIFICATION" | "GENERAL_EVIDENCE_GAP";
@@ -321,12 +322,21 @@ export async function evaluateNcsReportAnswers(
   }
   for (const answer of ncsAnswers) {
     if (answer.evaluationStatus === "STT_UNAVAILABLE") {
-      structuralReasons.push(structuralReason(
+      const profileIds = answer.ncsBindings?.length
+        ? answer.ncsBindings.map((binding) => canonicalNcsProfileId(binding.ncsProfileId))
+        : answer.ncsProfileId
+          ? [canonicalNcsProfileId(answer.ncsProfileId)]
+          : [];
+      const message = answer.transcriptUnavailableReason?.trim()
+        ? `Answer ${answer.answerId} cannot be evaluated because STT is unavailable: ${answer.transcriptUnavailableReason.trim()}`
+        : `Answer ${answer.answerId} cannot be evaluated because STT is unavailable.`;
+      structuralReasons.push(...profileIds.map((profileId) => structuralReason(
         "STT_UNAVAILABLE",
-        `Answer ${answer.answerId} cannot be evaluated because STT is unavailable.`,
+        message,
         answer,
-        true,
-      ));
+        false,
+        profileId,
+      )));
     }
   }
   const evaluated = await Promise.all(ncsAnswers.map((answer) =>
@@ -432,11 +442,12 @@ function structuralReason(
   message: string,
   answer: NcsReportAnswerSnapshot,
   retryable = false,
+  ncsProfileId?: NcsIncompleteReason["ncsProfileId"],
 ): NcsIncompleteReason {
   return {
     code,
     message,
-    ncsProfileId: answer.ncsProfileId ? canonicalNcsProfileId(answer.ncsProfileId) : null,
+    ncsProfileId: ncsProfileId ?? (answer.ncsProfileId ? canonicalNcsProfileId(answer.ncsProfileId) : null),
     sessionQuestionId: answer.sessionQuestionId ?? null,
     answerId: answer.answerId,
     retryable,

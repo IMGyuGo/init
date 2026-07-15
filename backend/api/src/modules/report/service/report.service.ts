@@ -53,7 +53,7 @@ import { buildDefaultReportCriteria, normalizeReportCriterionName } from "./serv
 type ReportAnswerSession = Pick<RuntimeInterviewSession, "sessionId" | "interviewType" | "showQuestionText">;
 type ReportGenerationKind = "MOCK_REPORT_GENERATE" | "RECRUITING_REPORT_GENERATE";
 const DEFAULT_STT_UNAVAILABLE_REASON =
-  "STT 실패로 transcript가 없어 임시 0점 처리되었습니다. 이 점수는 답변 품질이 아니라 음성 인식 실패에 따른 임시 처리입니다.";
+  "음성 인식에 실패해 transcript를 생성하지 못했습니다.";
 type ReportGenerationInput = {
   reportId: number;
   applicationId?: number;
@@ -202,16 +202,15 @@ export class ReportService {
     const followUpsByAnswerId = await this.followUpsByAnswerId(answers);
     const unavailableReasonsByAnswerId = this.sttUnavailableReasonsByAnswerId(report);
     const media = await Promise.all(
-      answers.map((answer) =>
+      answers.map(async (answer) =>
         this.toMockReportMediaItem(
           answer,
           session,
           currentUser,
           followUpsByAnswerId,
-          this.transcriptUnavailableReasonForAnswer(
+          await this.transcriptUnavailableReasonForAnswer(
             answer,
             this.cleanOptionalText(answer.transcript),
-            report,
             unavailableReasonsByAnswerId,
           ),
         ),
@@ -472,7 +471,7 @@ export class ReportService {
         const parent = isFollowUpAnswer
           ? parentByFollowUpContent.get(this.normalizeQuestionContent(question?.content))
           : undefined;
-        const unavailableReason = DEFAULT_STT_UNAVAILABLE_REASON;
+        const unavailableReason = transcript ? undefined : await this.sttRecognitionFailureReason(answer);
         const ncsSnapshot = answer.ncsEvaluationSnapshot;
         return {
           answerId: answer.answerId,
@@ -487,8 +486,8 @@ export class ReportService {
           ...(reportType === "MOCK_INTERVIEW_REPORT" && answer.nonverbalMetadata
             ? { nonverbalMetadata: answer.nonverbalMetadata }
             : {}),
-          evaluationStatus: transcript ? "EVALUATED" : "STT_UNAVAILABLE",
-          transcriptUnavailableReason: transcript ? undefined : unavailableReason,
+          evaluationStatus: transcript ? "EVALUATED" : unavailableReason ? "STT_UNAVAILABLE" : undefined,
+          transcriptUnavailableReason: unavailableReason,
           ...(ncsSnapshot?.ncsProfileId
             ? {
                 sessionQuestionId: ncsSnapshot.sessionQuestionId,
@@ -698,10 +697,9 @@ export class ReportService {
       answers.map(async (answer) => {
         const question = await this.interviewRepository.findQuestion(answer.questionId);
         const transcript = this.cleanOptionalText(answer.transcript);
-        const transcriptUnavailableReason = this.transcriptUnavailableReasonForAnswer(
+        const transcriptUnavailableReason = await this.transcriptUnavailableReasonForAnswer(
           answer,
           transcript,
-          report,
           unavailableReasonsByAnswerId,
         );
         return {
@@ -778,16 +776,23 @@ export class ReportService {
     return reasons;
   }
 
-  private transcriptUnavailableReasonForAnswer(
+  private async transcriptUnavailableReasonForAnswer(
     answer: InterviewAnswer,
     transcript: string | undefined,
-    report: CandidateStoredReport | undefined,
     unavailableReasonsByAnswerId: Map<number, string>,
-  ): string | undefined {
+  ): Promise<string | undefined> {
     if (transcript) {
       return undefined;
     }
-    return unavailableReasonsByAnswerId.get(answer.answerId) ?? (report?.status === "COMPLETED" ? DEFAULT_STT_UNAVAILABLE_REASON : undefined);
+    return await this.sttRecognitionFailureReason(answer) ?? unavailableReasonsByAnswerId.get(answer.answerId);
+  }
+
+  private async sttRecognitionFailureReason(answer: InterviewAnswer): Promise<string | undefined> {
+    const processes = await this.interviewRepository.listSttProcesses(answer.sessionId, answer.answerId);
+    const failure = processes.find(
+      (process) => process.status === "FAILED" && process.failureCategory === "REANSWER_REQUIRED",
+    );
+    return failure?.failureReason?.trim() || (failure ? DEFAULT_STT_UNAVAILABLE_REASON : undefined);
   }
 
   private isSttUnavailableScore(

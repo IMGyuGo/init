@@ -19,6 +19,7 @@ import type {
   CreateMockInterviewSessionInput,
   InterviewQuestionFilter,
   InterviewRepository,
+  InterviewSttProcessRecord,
   ReanswerRequiredFailure,
   ReplaceInterviewAnswerInput,
 } from "./interview.repository";
@@ -574,6 +575,25 @@ export class PrismaInterviewRepository implements InterviewRepository {
       }));
   }
 
+  async listSttProcesses(sessionId: number, answerId: number): Promise<InterviewSttProcessRecord[]> {
+    const logs = await this.prisma.aiProcessLog.findMany({
+      where: {
+        sessionId: BigInt(sessionId),
+        processType: "STT",
+      },
+      orderBy: [{ createdAt: "desc" }, { processLogId: "desc" }],
+    });
+    return logs
+      .filter((log) => parseAiJobAnswerId(log.inputRef) === answerId)
+      .map((log) => ({
+        processLogId: Number(log.processLogId),
+        status: log.status,
+        failureCategory: log.failureCategory ?? undefined,
+        failureReason: log.failureReason ?? undefined,
+        createdAt: log.createdAt.toISOString(),
+        completedAt: log.completedAt?.toISOString(),
+      }));
+  }
   private async allocatePrivateRuntimeQuestionId(transaction: Prisma.TransactionClient): Promise<bigint> {
     const [sequence] = await transaction.$queryRaw<Array<{ questionId: bigint }>>`
       SELECT nextval('interview_runtime_question_id_seq') AS "questionId"

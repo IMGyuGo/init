@@ -125,6 +125,7 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | question_generation_source | JD_CRITERIA, RESUME_PERSONALIZED | JD 공통 질문과 지원자별 이력서 질문의 생성 출처 |
 | question_alignment_status | NOT_EVALUATED, ALIGNED, LOW_ALIGNMENT, REVIEW_REQUIRED | 질문과 선택 NCS 프로필의 정렬 검증 상태 |
 | ncs_answer_score_status | SCORED, INSUFFICIENT_INPUT, LOW_ALIGNMENT, BLOCKED | 답변별 NCS 평가 상태. `SCORED`만 점수를 가지며 나머지 상태는 competency/evidence/total score가 모두 NULL |
+| interview_answer_stt_status | NOT_SUBMITTED, PENDING, AVAILABLE, REANSWER_AVAILABLE, UNAVAILABLE, PROCESSING_FAILED | 질문 조회 API의 답변별 STT read model. DB enum이 아니며 `interview_answers`와 `ai_process_logs`에서 계산한다. |
 | resume_question_generation_status | DISABLED, WAITING_APPLICATION, WAITING_DOCUMENT, GENERATING, READY, REVIEW_REQUIRED, FAILED | 공고/지원서 관점의 이력서 개인화 질문 준비 상태. `DISABLED`, `WAITING_APPLICATION`은 설정 조회 projection 값 |
 | follow_up_generation_status | READY, INSERTED, SKIPPED | guardrail 통과 결과의 저장 상태. `READY`는 같은 transaction에서 즉시 `INSERTED` 또는 `SKIPPED`로 전이하며 정상 종료 후 장기 잔류하지 않는다. |
 | follow_up_reason | NCS_EVIDENCE_GAP, FACT_CLARIFICATION, GENERAL_EVIDENCE_GAP | NCS 행동·논리 근거, 팩트 확인 또는 모의면접 일반 근거를 보완하는 꼬리질문 사유. NCS와 팩트 보완이 동시에 필요하면 질문은 하나만 만들고 `FACT_CLARIFICATION`을 정본 사유로 저장한다. |
@@ -132,7 +133,7 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | notification_channel | EMAIL, IN_APP | 알림 채널 |
 | ai_process_type | DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING, GUARDRAIL_VALIDATE, CRITERIA_SUGGEST, QUESTION_GENERATE, RESUME_QUESTION_GENERATE, QUESTION_SET_GENERATE, POSTING_DRAFT_GENERATE | AI 처리 유형 |
 | ai_process_status | PENDING, RUNNING, COMPLETED, FAILED | AI 처리 상태 |
-| failure_category | RETRYABLE, NON_RETRYABLE | AI 실패 재시도 가능 여부 |
+| failure_category | RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED | AI 실패 재시도 가능 여부. `STT_RETRYABLE`은 worker 자동 재시도, `REANSWER_REQUIRED`는 지원자 재답변이 필요한 인식 실패다. |
 | guardrail_result | PASS, BLOCKED, REGENERATED | AI 안전 검증 결과 |
 | embedding_source_type | POSTING_JD, CRITERION_TAG, QUESTION, APPLICATION_DOCUMENT, INTERVIEW_ANSWER, EVALUATION_REPORT | 임베딩 원천 유형 |
 ## NCS Question Mapping

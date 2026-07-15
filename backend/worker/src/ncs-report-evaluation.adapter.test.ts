@@ -160,6 +160,7 @@ test("current sessions expose STT and duplicate follow-up linkage as structured 
     question: "장애 원인과 해결 결과를 설명해주세요.",
     transcript: "",
     evaluationStatus: "STT_UNAVAILABLE" as const,
+    transcriptUnavailableReason: "speech was not detected after the allowed reanswer",
     sessionQuestionId: 520,
     criterionId: 13,
     criterionTitleSnapshot: "문제 해결력",
@@ -181,10 +182,43 @@ test("current sessions expose STT and duplicate follow-up linkage as structured 
   );
 
   const reasons = result.finalEvaluation?.incompleteReasons ?? [];
-  assert.equal(reasons.some((reason) => reason.code === "STT_UNAVAILABLE" && reason.retryable), true);
+  const sttReasons = reasons.filter((reason) => reason.code === "STT_UNAVAILABLE");
+  assert.equal(sttReasons.length, 1);
+  assert.deepEqual(sttReasons[0], {
+    code: "STT_UNAVAILABLE",
+    message: "Answer 120 cannot be evaluated because STT is unavailable: speech was not detected after the allowed reanswer",
+    ncsProfileId: "PROBLEM_SOLVING",
+    sessionQuestionId: 520,
+    answerId: 120,
+    retryable: false,
+  });
+  assert.equal(
+    reasons.some((reason) => reason.code === "INSUFFICIENT_INPUT" && reason.answerId === 120),
+    false,
+  );
   assert.equal(reasons.some((reason) => reason.code === "FOLLOW_UP_LINK_INVALID"), true);
+  assert.equal(result.evaluations.length, 1);
+  assert.equal(result.evaluations[0]?.output.scoreStatus, "INSUFFICIENT_INPUT");
+  assert.deepEqual(result.evaluations[0]?.output.scores, {
+    competency: null,
+    evidence: null,
+    total: null,
+  });
+  assert.equal(result.evaluations[0]?.behaviorPoints, null);
+  assert.equal(result.evaluations[0]?.logicPoints, null);
+  assert.equal(result.evaluations[0]?.baseScore, null);
+  assert.equal(result.evaluations[0]?.effectiveScore, null);
+  assert.deepEqual(result.evaluations[0]?.evidences, []);
+  assert.deepEqual(result.scores, []);
+  assert.deepEqual(result.questionEvaluations, []);
+  assert.equal(result.finalEvaluation?.completionStatus, "INCOMPLETE");
+  assert.equal(result.finalEvaluation?.thresholdResult, "INCOMPLETE");
   assert.equal(result.finalEvaluation?.aiDecision, "FAIL");
   assert.equal(result.finalEvaluation?.totalScore, null);
+  assert.equal(
+    result.finalEvaluation?.profiles.find((profile) => profile.ncsProfileId === "PROBLEM_SOLVING")?.averageScore,
+    null,
+  );
 });
 
 test("one question with two canonical bindings creates two 0-to-5 evaluation rows", async () => {

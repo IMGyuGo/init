@@ -972,13 +972,11 @@ test("recruiting report summarizes answer evidence while mock report keeps trans
   assert.match(mockEvidence, /I implemented NestJS APIs/);
 });
 
-test("report generation uses temporary zero score when STT transcript is unavailable", async () => {
+test("report generation does not persist a fake zero score when STT transcript is unavailable", async () => {
   const results = new InMemoryAiResultRepository();
-
-  await run({
-    processLogId: 34,
-    processType: "REPORT_GENERATE",
-    input: {
+  const repository = new InMemoryAiProcessLogRepository();
+  const queue = new InMemoryAiJobQueue([
+    message(34, "REPORT_GENERATE", {
       payload: {
         reportId: 34,
         reportType: "MOCK_INTERVIEW_REPORT",
@@ -999,17 +997,17 @@ test("report generation uses temporary zero score when STT transcript is unavail
           }
         ]
       }
-    },
-    results
-  });
+    })
+  ]);
 
-  const report = results.generatedReports.get(34);
-  assert.equal(report?.reportType, "MOCK_INTERVIEW_REPORT");
-  assert.equal(report?.totalScore, 0);
-  assert.equal(report?.scores[0]?.score, 0);
-  assert.equal(report?.scores[0]?.rubricAnchor, "STT_UNAVAILABLE_TEMP_ZERO");
-  assert.match(report?.scores[0]?.rationale ?? "", /STT failed/);
-  assert.equal(report?.questionEvaluations[0]?.answerId, 10);
+  await new AiWorkerRunner(queue, repository, new MockAiTaskHandler(results), {
+    onFailure: createReportFailureHandler(results)
+  }).processBatch();
+
+  assert.equal(repository.get(34).status, "FAILED");
+  assert.equal(results.generatedReports.has(34), false);
+  assert.equal(results.reportScores.has(34), false);
+  assert.equal(results.failedReports.get(34)?.failureCategory, "NON_RETRYABLE");
 });
 
 test("mock report generation marks report failed when expression policy is blocked", async () => {

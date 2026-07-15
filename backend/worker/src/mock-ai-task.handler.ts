@@ -10,7 +10,7 @@ import {
   ResumeQuestionGenerationContext,
   ResumeQuestionJobReference,
   ReportAnswerEvaluationStatusRecord,
-  STT_UNAVAILABLE_TEMP_ZERO_REASON,
+  DEFAULT_STT_UNAVAILABLE_REASON,
   hashSourceText
 } from "./ai-result.repository";
 import { createAiProcessUsage } from "./ai-usage";
@@ -979,7 +979,6 @@ export class MockAiTaskHandler implements AiTaskHandler {
   ): StructuredReportEvaluation {
     const scores: GeneratedReportScoreRecord[] = [];
     const questionEvaluations: GeneratedQuestionEvaluationRecord[] = [];
-    const evaluatedAnswerIds = new Set<number>();
     const childAnswersByParent = groupFollowUpAnswersByParent(answers);
     const primaryEvaluatedAnswers = answers
       .filter((answer) => answer.evaluationStatus !== "STT_UNAVAILABLE" && !answer.isFollowUpAnswer)
@@ -994,15 +993,8 @@ export class MockAiTaskHandler implements AiTaskHandler {
       const answer =
         selectAnswerForCriterion(criterionName, criterion, primaryEvaluatedAnswers, usedPrimaryAnswerIds) ??
         primaryEvaluatedAnswers[index % Math.max(primaryEvaluatedAnswers.length, 1)] ??
-        fallbackEvaluatedAnswers[index % Math.max(fallbackEvaluatedAnswers.length, 1)] ??
-        answers[index % answers.length];
-      if (answer.evaluationStatus === "STT_UNAVAILABLE") {
-        const zeroEvaluation = zeroScoreForUnavailableTranscript(criterion, answer);
-        scores.push(zeroEvaluation.score);
-        questionEvaluations.push(zeroEvaluation.questionEvaluation);
-        evaluatedAnswerIds.add(answer.answerId);
-        return;
-      }
+        fallbackEvaluatedAnswers[index % Math.max(fallbackEvaluatedAnswers.length, 1)];
+      if (!answer) return;
 
       usedPrimaryAnswerIds.add(answer.answerId);
       const supportingFollowUps = childAnswersByParent.get(answer.answerId) ?? [];
@@ -1056,18 +1048,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
         uncertaintyReasons,
         evidences
       });
-      evaluatedAnswerIds.add(answer.answerId);
     });
-
-    answers
-      .filter((answer) => answer.evaluationStatus === "STT_UNAVAILABLE" && !evaluatedAnswerIds.has(answer.answerId))
-      .forEach((answer) => {
-        const criterion = criteria[scores.length % criteria.length];
-        const zeroEvaluation = zeroScoreForUnavailableTranscript(criterion, answer);
-        scores.push(zeroEvaluation.score);
-        questionEvaluations.push(zeroEvaluation.questionEvaluation);
-        evaluatedAnswerIds.add(answer.answerId);
-      });
 
     return { scores, questionEvaluations };
   }
@@ -1579,7 +1560,7 @@ function answersOf(value: unknown): ReportAnswerForScoring[] {
     const evaluationStatus: ReportAnswerEvaluationStatusRecord =
       record.evaluationStatus === "STT_UNAVAILABLE" ? "STT_UNAVAILABLE" : "EVALUATED";
     const transcriptUnavailableReason =
-      optionalText(record.transcriptUnavailableReason) ?? STT_UNAVAILABLE_TEMP_ZERO_REASON;
+      optionalText(record.transcriptUnavailableReason) ?? DEFAULT_STT_UNAVAILABLE_REASON;
     const transcript =
       evaluationStatus === "STT_UNAVAILABLE"
         ? optionalText(record.transcript) ?? ""
@@ -2014,43 +1995,6 @@ const COMMON_KEYWORDS = new Set([
   "with",
   "for",
 ]);
-
-function zeroScoreForUnavailableTranscript(
-  criterion: { criterionId: number; name: string },
-  answer: ReportAnswerForScoring
-): { score: GeneratedReportScoreRecord; questionEvaluation: GeneratedQuestionEvaluationRecord } {
-  const reason = answer.transcriptUnavailableReason ?? STT_UNAVAILABLE_TEMP_ZERO_REASON;
-  const evidences: GeneratedReportScoreRecord["evidences"] = [
-    {
-      sourceType: "INTERVIEW_ANSWER",
-      answerId: answer.answerId,
-      text: reason
-    }
-  ];
-  const score: GeneratedReportScoreRecord = {
-    criterionId: criterion.criterionId,
-    criterionName: criterion.name,
-    score: 0,
-    rationale: reason,
-    rubricAnchor: "STT_UNAVAILABLE_TEMP_ZERO",
-    confidence: "LOW",
-    uncertaintyReasons: [reason],
-    evidences
-  };
-  return {
-    score,
-    questionEvaluation: {
-      criterionId: criterion.criterionId,
-      criterionName: criterion.name,
-      answerId: answer.answerId,
-      question: answer.question ?? `Answer ${answer.answerId}`,
-      rubricAnchor: score.rubricAnchor,
-      confidence: score.confidence,
-      uncertaintyReasons: score.uncertaintyReasons,
-      evidences
-    }
-  };
-}
 
 function optionalText(value: unknown): string | undefined {
   if (typeof value !== "string") {

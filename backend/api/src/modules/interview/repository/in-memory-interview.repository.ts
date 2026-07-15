@@ -6,6 +6,7 @@ import type {
   CreateMockInterviewSessionInput,
   InterviewQuestionFilter,
   InterviewRepository,
+  InterviewSttProcessRecord,
   ReanswerRequiredFailure,
   ReplaceInterviewAnswerInput,
 } from "./interview.repository";
@@ -122,7 +123,7 @@ export class InMemoryInterviewRepository implements InterviewRepository {
   private readonly recruitingSessions = new Map<number, RuntimeInterviewSession>();
   private readonly answers: InterviewAnswer[] = [];
   private readonly runtimeQuestionIds = new Set<number>();
-  private readonly reanswerRequiredFailures: Array<ReanswerRequiredFailure & { sessionId: number; answerId: number }> = [];
+  private readonly sttProcesses: Array<InterviewSttProcessRecord & { sessionId: number; answerId: number }> = [];
 
   listQuestions(filter: InterviewQuestionFilter = {}): InterviewQuestion[] {
     return this.questions
@@ -295,11 +296,21 @@ export class InMemoryInterviewRepository implements InterviewRepository {
   }
 
   listReanswerRequiredFailures(sessionId: number, answerId: number): ReanswerRequiredFailure[] {
-    return this.reanswerRequiredFailures
-      .filter((failure) => failure.failureCategory === "REANSWER_REQUIRED")
-      .filter((failure) => failure.sessionId === sessionId && failure.answerId === answerId)
+    return this.listSttProcesses(sessionId, answerId)
+      .filter((process) => process.status === "FAILED" && process.failureCategory === "REANSWER_REQUIRED")
+      .map((process) => ({
+        processLogId: process.processLogId,
+        createdAt: process.createdAt,
+        failureCategory: "REANSWER_REQUIRED",
+        failureReason: process.failureReason,
+      }));
+  }
+
+  listSttProcesses(sessionId: number, answerId: number): InterviewSttProcessRecord[] {
+    return this.sttProcesses
+      .filter((process) => process.sessionId === sessionId && process.answerId === answerId)
       .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt) || right.processLogId - left.processLogId)
-      .map(({ sessionId: _sessionId, answerId: _answerId, ...failure }) => ({ ...failure }));
+      .map(({ sessionId: _sessionId, answerId: _answerId, ...process }) => ({ ...process }));
   }
 
   updateAnswer(input: CreateInterviewAnswerInput & { answerId: number }): InterviewAnswer {
@@ -345,8 +356,17 @@ export class InMemoryInterviewRepository implements InterviewRepository {
       failureCategory: "REANSWER_REQUIRED",
       failureReason: input.failureReason,
     };
-    this.reanswerRequiredFailures.push({ ...failure, sessionId: input.sessionId, answerId: input.answerId });
+    this.sttProcesses.push({
+      ...failure,
+      sessionId: input.sessionId,
+      answerId: input.answerId,
+      status: "FAILED",
+    });
     return { ...failure };
+  }
+
+  saveSttProcessForTest(input: InterviewSttProcessRecord & { sessionId: number; answerId: number }): void {
+    this.sttProcesses.push({ ...input });
   }
 
   private questionSortOrder(questionId: number): number {

@@ -92,6 +92,11 @@ export function aggregateNcsFinalEvaluation(
   structuralReasons: NcsIncompleteReason[] = [],
 ): NcsFinalEvaluation {
   const incompleteReasons: NcsIncompleteReason[] = [...structuralReasons];
+  const sttUnavailableKeys = new Set(
+    structuralReasons
+      .filter((item) => item.code === "STT_UNAVAILABLE" && item.answerId !== null)
+      .map((item) => `${item.answerId}:${item.ncsProfileId ?? ""}`),
+  );
   const policyByProfile = new Map<NcsFinalProfileId, NcsSessionPolicyInput>();
   for (const policy of policies) {
     if (policyByProfile.has(policy.ncsProfileId)) {
@@ -136,6 +141,12 @@ export function aggregateNcsFinalEvaluation(
     }
     for (const evaluation of assigned) {
       if (evaluation.scoreStatus !== "SCORED") {
+        if (
+          evaluation.scoreStatus === "INSUFFICIENT_INPUT" &&
+          sttUnavailableKeys.has(`${evaluation.answerId}:${ncsProfileId}`)
+        ) {
+          continue;
+        }
         incompleteReasons.push({
           ...reason(scoreStatusReason(evaluation.scoreStatus), `Answer ${evaluation.answerId} is not scored.`, ncsProfileId),
           sessionQuestionId: evaluation.sessionQuestionId,
