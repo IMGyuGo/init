@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { evaluateNcsReportAnswers, planNcsFollowUp } from "./ncs-report-evaluation.adapter";
+import {
+  evaluateNcsReportAnswers,
+  planFactClarification,
+  planNcsFollowUp,
+} from "./ncs-report-evaluation.adapter";
+import type { AnswerFactCheckProvider, AnswerFactCheckInput } from "./answer-fact-check.types";
 
 const PROFILE_VERSION = "2025.12-v1";
 
@@ -302,6 +307,122 @@ test("follow-up answer is combined once and can only preserve or improve the bas
     evidence.sourceKind === "FOLLOW_UP" &&
     followUpTranscript.includes(evidence.quote),
   ));
+});
+
+test("fact clarification plan requests one neutral confirmation for a core contradiction", async () => {
+  const provider: AnswerFactCheckProvider = {
+    async evaluate(input) {
+      const claimText = "C는 객체지향 언어입니다.";
+      return {
+        model: "fact-fixture-v1",
+        claims: [{
+          claimText,
+          startOffset: input.answerText.indexOf(claimText),
+          endOffset: input.answerText.indexOf(claimText) + claimText.length,
+          claimType: "TECHNICAL_FACT",
+          claimRole: "ANSWER_CORE",
+          verdict: "CONTRADICTED",
+          confidence: 0.98,
+          evidenceIds: [],
+          rationale: "검증 근거와 모순됩니다.",
+        }],
+      };
+    },
+  };
+  const plan = await planFactClarification({
+    answerId: 200,
+    previousQuestion: "C 프로젝트의 객체지향 설계를 설명해주세요.",
+    transcript: "C는 객체지향 언어입니다. 그래서 클래스를 사용했습니다.",
+    ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+  }, {
+    provider,
+    providerMode: "mock",
+    configuredModelVersion: "fact-fixture-v1",
+    knowledgeSnapshotVersion: "FACT_GOLDEN_V1",
+    evidenceLedger: [],
+  });
+
+  assert.equal(plan.required, true);
+  assert.equal(plan.gateStatus, "FACT_CHECK_REQUIRED");
+  assert.equal(plan.clarificationClaims.length, 1);
+});
+
+test("fact provider failure is recorded but does not force a clarification", async () => {
+  const provider: AnswerFactCheckProvider = {
+    async evaluate() {
+      throw new Error("provider unavailable");
+    },
+  };
+  const plan = await planFactClarification({
+    answerId: 201,
+    previousQuestion: "기술 선택의 근거를 설명해주세요.",
+    transcript: "요구사항을 검토하고 구현했습니다.",
+    ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+  }, {
+    provider,
+    providerMode: "mock",
+    configuredModelVersion: "fact-fixture-v1",
+    knowledgeSnapshotVersion: "FACT_GOLDEN_V1",
+    evidenceLedger: [],
+  });
+
+  assert.equal(plan.required, false);
+  assert.equal(plan.providerStatus, "FAILED");
+  assert.equal(plan.gateStatus, null);
+});
+
+test("final report fact-check uses the deterministic base and follow-up composition once", async () => {
+  const inputs: AnswerFactCheckInput[] = [];
+  const provider: AnswerFactCheckProvider = {
+    async evaluate(input) {
+      inputs.push(input);
+      return { model: "fact-fixture-v1", claims: [] };
+    },
+  };
+  const baseTranscript = "장애 원인을 로그로 분석하고 캐시 우회를 적용했습니다.";
+  const followUpTranscript = "오류율이 8퍼센트에서 1퍼센트로 줄어든 것을 확인했습니다.";
+  const result = await evaluateNcsReportAnswers(
+    83,
+    [{
+      answerId: 109,
+      question: "장애 원인과 대안 적용 결과를 설명해주세요.",
+      transcript: baseTranscript,
+      sessionQuestionId: 509,
+      ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+      ncsBindings: [{
+        criterionId: 15,
+        criterionTitleSnapshot: "문제 해결력",
+        ncsProfileId: "PROBLEM_SOLVING",
+        ncsProfileVersion: PROFILE_VERSION,
+        alignmentStatus: "ALIGNED",
+        bindingOrder: 1,
+      }],
+    }, {
+      answerId: 110,
+      transcript: followUpTranscript,
+      isFollowUpAnswer: true,
+      parentAnswerId: 109,
+      followUpReason: "FACT_CLARIFICATION",
+    }],
+    [15],
+    undefined,
+    undefined,
+    {
+      provider,
+      providerMode: "mock",
+      configuredModelVersion: "fact-fixture-v1",
+      knowledgeSnapshotVersion: "FACT_GOLDEN_V1",
+      evidenceLedger: [],
+    },
+  );
+
+  assert.equal(inputs.length, 1);
+  assert.equal(inputs[0]?.answerText, `${baseTranscript}\n${followUpTranscript}`);
+  assert.equal(result.factChecks[0]?.answerId, 109);
+  assert.equal(result.factChecks[0]?.followUpAnswerId, 110);
+  assert.equal(result.factChecks[0]?.inputCompositionVersion, "BASE_FOLLOW_UP_V1");
+  assert.equal(result.evaluations[0]?.followUpApplied, true);
+  assert.ok(result.evaluations[0]!.effectiveScore! >= result.evaluations[0]!.baseScore!);
 });
 
 function sessionPolicies() {

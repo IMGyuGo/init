@@ -172,10 +172,32 @@ SELECT CASE WHEN
       AND constraint_name IN (
         'ck_follow_up_questions_generation_status',
         'ck_follow_up_questions_state_shape',
+        'ck_follow_up_questions_reason',
         'follow_up_questions_source_session_question_id_fkey',
         'follow_up_questions_inserted_session_question_id_fkey'
       )
-  ) = 4
+  ) = 5
+  AND (
+    SELECT count(*) FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'answer_fact_check_runs'
+      AND column_name IN ('follow_up_answer_id', 'input_composition_version')
+  ) = 2
+  AND (
+    SELECT count(*) FROM information_schema.table_constraints
+    WHERE table_schema = 'public'
+      AND table_name = 'answer_fact_check_runs'
+      AND constraint_name IN (
+        'answer_fact_check_runs_follow_up_answer_id_fkey',
+        'ck_answer_fact_check_runs_input_composition'
+      )
+  ) = 2
+  AND EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'ck_follow_up_questions_reason'
+      AND pg_get_constraintdef(oid) LIKE '%FACT_CLARIFICATION%'
+  )
 THEN 'READY' ELSE 'MISSING' END;
 "@
   $schemaStatus = (& docker compose --project-name $projectName --file $composeFile exec -T postgres `

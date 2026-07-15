@@ -10,6 +10,7 @@ import { ReportAiProvider, ReportGenerationInput } from "./openai-report.provide
 import { InMemoryAiProcessLogRepository } from "./process-log.repository";
 import { InMemoryAiJobQueue } from "./queue";
 import { AiWorkerRunner } from "./worker-runner";
+import type { AnswerFactCheckProvider } from "./answer-fact-check.types";
 
 const provider: FollowUpAiProvider = {
   async generateFollowUpQuestion() {
@@ -411,6 +412,83 @@ test("OpenAiAiTaskHandler blocks mock questions that leak candidate contact info
   });
   assert.equal(handled.guardrail?.result, "BLOCKED");
   assert.match(handled.guardrail?.reason ?? "", /contact information/);
+});
+
+test("OpenAiAiTaskHandler combines NCS and fact needs into one persisted follow-up", async () => {
+  const results = new InMemoryAiResultRepository();
+  const inputs: FollowUpGenerationInput[] = [];
+  const capturingProvider: FollowUpAiProvider = {
+    async generateFollowUpQuestion(input) {
+      inputs.push(input);
+      return { content: "C에서 객체지향 구조를 어떤 방식으로 구현했는지 구체적으로 설명해주세요?", model: "test-model" };
+    },
+  };
+  const factProvider: AnswerFactCheckProvider = {
+    async evaluate(input) {
+      const claimText = "C는 객체지향 언어입니다.";
+      return {
+        model: "fact-test-model",
+        claims: [{
+          claimText,
+          startOffset: input.answerText.indexOf(claimText),
+          endOffset: input.answerText.indexOf(claimText) + claimText.length,
+          claimType: "TECHNICAL_FACT",
+          claimRole: "ANSWER_CORE",
+          verdict: "CONTRADICTED",
+          confidence: 0.99,
+          evidenceIds: [],
+          rationale: "기술 근거와 모순됩니다.",
+        }],
+      };
+    },
+  };
+  const handler = new OpenAiAiTaskHandler(
+    new MockAiTaskHandler(results),
+    results,
+    capturingProvider,
+    undefined,
+    undefined,
+    undefined,
+    {
+      provider: factProvider,
+      configuredModelVersion: "fact-test-model",
+      providerMode: "mock",
+    },
+  );
+  const handled = await handler.handle({
+    processLogId: 32,
+    processType: "FOLLOW_UP",
+    attempt: 1,
+    inputRef: JSON.stringify({
+      kind: "RECRUITING_FOLLOW_UP",
+      payload: {
+        sessionId: 7,
+        answerId: 11,
+        sessionQuestionId: 21,
+        previousQuestion: "C 프로젝트의 설계와 검증 결과를 설명해주세요.",
+        transcript: "C는 객체지향 언어입니다. 클래스로 설계했습니다.",
+        jobDescription: "C 기반 시스템 구현 역량을 검증합니다.",
+        ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+        answerTimeSec: 90,
+        ncsBindings: [{
+          criterionId: 1,
+          criterionTitleSnapshot: "기술 직무",
+          ncsProfileId: "JOB_TECHNICAL",
+          ncsProfileVersion: "2025.12-v1",
+          alignmentStatus: "ALIGNED",
+          bindingOrder: 1,
+        }],
+      },
+    }),
+  });
+
+  await handled.finalSave?.();
+  assert.equal(inputs.length, 1);
+  assert.equal(inputs[0]?.factClarificationClaims?.length, 1);
+  assert.equal(results.followUpQuestions.length, 1);
+  assert.equal(results.followUpQuestions[0]?.reason, "FACT_CLARIFICATION");
+  const output = JSON.parse(handled.outputRef ?? "{}") as Record<string, unknown>;
+  assert.equal(JSON.stringify(output).includes("C는 객체지향 언어입니다."), false);
 });
 
 test("OpenAiAiTaskHandler preserves canonical NCS links and evaluates JD questions", async () => {

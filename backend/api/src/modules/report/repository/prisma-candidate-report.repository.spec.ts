@@ -3,6 +3,29 @@ import assert from "node:assert/strict";
 import { PrismaCandidateReportRepository } from "./prisma-candidate-report.repository";
 
 describe("PrismaCandidateReportRepository", () => {
+  it("maps the internal fact clarification reason for report generation", async () => {
+    const prisma = {
+      followUpQuestion: {
+        async findMany() {
+          return [{
+            followUpId: 8n,
+            answerId: 21n,
+            content: "C에서 다형성을 어떤 방식으로 구현했나요?",
+            generationStatus: "INSERTED",
+            policy: "RECRUITING",
+            reason: "FACT_CLARIFICATION",
+            createdAt: new Date("2026-07-15T12:00:00.000Z"),
+          }];
+        },
+      },
+    };
+    const repository = new PrismaCandidateReportRepository(prisma as never);
+
+    const followUps = await repository.listFollowUpQuestionsByAnswerIds([21]);
+
+    assert.equal(followUps[0]?.reason, "FACT_CLARIFICATION");
+  });
+
   it("omits incomplete NCS aggregate rows from candidate-facing scores", async () => {
     const prisma = {
       evaluationReport: {
