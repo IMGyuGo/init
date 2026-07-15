@@ -653,6 +653,8 @@ export class PrismaAiResultRepository implements AiResultRepository {
           data: {
             reportId: BigInt(reportId),
             answerId: BigInt(record.answerId),
+            followUpAnswerId: record.followUpAnswerId ? BigInt(record.followUpAnswerId) : null,
+            inputCompositionVersion: record.inputCompositionVersion,
             providerStatus: record.providerStatus,
             gateStatus: record.gateStatus,
             providerMode: record.providerMode,

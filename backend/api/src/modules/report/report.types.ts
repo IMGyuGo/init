@@ -42,6 +42,7 @@ export interface InterviewAnswerInput {
   sortOrder?: number;
   isFollowUpAnswer?: boolean;
   parentAnswerId?: number;
+  followUpReason?: "NCS_EVIDENCE_GAP" | "FACT_CLARIFICATION" | "GENERAL_EVIDENCE_GAP";
   transcript?: string;
   nonverbalMetadata?: Record<string, unknown>;
   evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";

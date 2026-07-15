@@ -14,22 +14,19 @@ import {
   hashSourceText
 } from "./ai-result.repository";
 import { createAiProcessUsage } from "./ai-usage";
-import { ANSWER_FACT_CHECK_MOCK_MODEL_VERSION } from "./answer-fact-check";
+import { factCheckContextOf } from "./answer-fact-check-context";
 import {
-  FACT_EVIDENCE_SOURCE_KINDS,
-  NO_EXTERNAL_KNOWLEDGE_VERSION,
   type AnswerFactCheckProvider,
   type FactCheckProviderMode,
-  type FactEvidenceLedgerItem,
 } from "./answer-fact-check.types";
 import {
   evaluateNcsReportAnswers,
   hasNcsAnswerSnapshots,
+  planFactClarification,
   planNcsFollowUp,
   type NcsApiProfileId as NcsReportApiProfileId,
   type NcsReportEvaluationBatch,
   type NcsReportQuestionBindingSnapshot,
-  type NcsAnswerFactCheckContext,
 } from "./ncs-report-evaluation.adapter";
 import type { NcsTextEvaluationProvider } from "./ncs-text-evaluation.types";
 import type { NcsSessionPolicyInput } from "./ncs-final-evaluation";
@@ -68,6 +65,7 @@ interface ReportAnswerForScoring {
   sortOrder?: number;
   isFollowUpAnswer?: boolean;
   parentAnswerId?: number;
+  followUpReason?: "NCS_EVIDENCE_GAP" | "FACT_CLARIFICATION" | "GENERAL_EVIDENCE_GAP";
   transcript: string;
   evaluationStatus: ReportAnswerEvaluationStatusRecord;
   transcriptUnavailableReason?: string;
@@ -271,7 +269,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
     };
   }
 
-  private followUp(kind: string, payload: Record<string, unknown>): AiTaskResult {
+  private async followUp(kind: string, payload: Record<string, unknown>): Promise<AiTaskResult> {
     const sessionId = positiveNumber(payload.sessionId, "sessionId");
     const answerId = positiveNumber(payload.answerId, "answerId");
     const previousQuestion = requiredText(payload.previousQuestion, "previousQuestion");
@@ -291,7 +289,16 @@ export class MockAiTaskHandler implements AiTaskHandler {
             .map(shorten)
             .join(" | ");
     const ncsPlan = policy === "RECRUITING" ? planNcsFollowUp(payload) : undefined;
-    if (ncsPlan && !ncsPlan.required) {
+    const factPlan = ncsPlan
+      ? await planFactClarification(payload, factCheckContextOf(payload.factCheckContext, {
+          provider: this.options.answerFactCheckProvider,
+          configuredModelVersion: this.options.answerFactCheckModelVersion,
+          providerMode: this.options.answerFactCheckProviderMode,
+          jobDescription,
+          documentSummary,
+        }))
+      : undefined;
+    if (ncsPlan && !ncsPlan.required && !factPlan?.required) {
       return {
         outputRef: JSON.stringify({
           sessionId,
@@ -301,6 +308,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
           questionMode: ncsPlan.questionMode,
           answerTimeSec: ncsPlan.answerTimeSec,
           baseScores: ncsPlan.baseScores,
+          factCheck: factPlan ? factCheckFollowUpSummary(factPlan) : undefined,
           dedupeKey: `${policy}:${sessionId}:${answerId}`,
           duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP",
         }),
@@ -318,7 +326,11 @@ export class MockAiTaskHandler implements AiTaskHandler {
       };
     }
     const content = ncsPlan
-      ? buildNcsFollowUpQuestion(ncsPlan.focusPoints, ncsPlan.logicalStructureGap)
+      ? buildNcsFollowUpQuestion(
+          ncsPlan.focusPoints,
+          ncsPlan.logicalStructureGap,
+          factPlan?.required ? factPlan.clarificationClaims : [],
+        )
       : buildFollowUpQuestion({
           policy,
           previousQuestion,
@@ -342,10 +354,19 @@ export class MockAiTaskHandler implements AiTaskHandler {
         answerTimeSec: ncsPlan?.answerTimeSec,
         baseScores: ncsPlan?.baseScores,
         focusPoints: ncsPlan?.focusPoints,
+        factCheck: factPlan ? factCheckFollowUpSummary(factPlan) : undefined,
         dedupeKey: `${policy}:${sessionId}:${answerId}`,
         duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP"
       }),
       guardrail: this.validateMockPolicy(policy, content),
+      usage: factPlan?.usage
+        ? createAiProcessUsage({
+            modelName: factPlan.usage.modelName,
+            inputTokens: factPlan.usage.inputTokens,
+            outputTokens: factPlan.usage.outputTokens,
+            metadata: { processType: "FOLLOW_UP", stage: "FACT_PRECHECK" },
+          })
+        : undefined,
       finalSave: () =>
         this.results.saveFollowUpQuestion({
           sessionId,
@@ -353,7 +374,9 @@ export class MockAiTaskHandler implements AiTaskHandler {
           required: true,
           content,
           policy,
-          reason: ncsPlan ? "NCS_EVIDENCE_GAP" : "GENERAL_EVIDENCE_GAP",
+          reason: factPlan?.required
+            ? "FACT_CLARIFICATION"
+            : ncsPlan ? "NCS_EVIDENCE_GAP" : "GENERAL_EVIDENCE_GAP",
           questionMode: ncsPlan?.questionMode,
           answerTimeSec: ncsPlan?.answerTimeSec,
         })
@@ -450,12 +473,11 @@ export class MockAiTaskHandler implements AiTaskHandler {
           criteria.map((criterion) => criterion.criterionId),
           this.options.ncsTextEvaluationProvider,
           ncsSessionPoliciesOf(payload.ncsSessionPolicy),
-          factCheckContextOf(
-            payload.factCheckContext,
-            this.options.answerFactCheckProvider,
-            this.options.answerFactCheckModelVersion,
-            this.options.answerFactCheckProviderMode,
-          ),
+          factCheckContextOf(payload.factCheckContext, {
+            provider: this.options.answerFactCheckProvider,
+            configuredModelVersion: this.options.answerFactCheckModelVersion,
+            providerMode: this.options.answerFactCheckProviderMode,
+          }),
         )
       : undefined;
     const { scores, questionEvaluations } = ncsBatch ?? this.scoreReport(
@@ -572,12 +594,11 @@ export class MockAiTaskHandler implements AiTaskHandler {
           criteria.map((criterion) => criterion.criterionId),
           this.options.ncsTextEvaluationProvider,
           ncsSessionPoliciesOf(payload.ncsSessionPolicy),
-          factCheckContextOf(
-            payload.factCheckContext,
-            this.options.answerFactCheckProvider,
-            this.options.answerFactCheckModelVersion,
-            this.options.answerFactCheckProviderMode,
-          ),
+          factCheckContextOf(payload.factCheckContext, {
+            provider: this.options.answerFactCheckProvider,
+            configuredModelVersion: this.options.answerFactCheckModelVersion,
+            providerMode: this.options.answerFactCheckProviderMode,
+          }),
         )
       : undefined;
     const { scores, questionEvaluations } = ncsBatch ?? this.scoreReport(criteria, answers, documentText, {
@@ -1528,83 +1549,6 @@ function ncsQuestionModeOf(value: unknown): NcsQuestionMode | undefined {
     : undefined;
 }
 
-function factCheckContextOf(
-  value: unknown,
-  provider?: AnswerFactCheckProvider,
-  configuredModelVersion?: string,
-  providerMode?: FactCheckProviderMode,
-): NcsAnswerFactCheckContext {
-  if (value === undefined || value === null) {
-    return {
-      provider,
-      providerMode: providerMode ?? (provider ? "openai" : "mock"),
-      configuredModelVersion: configuredModelVersion?.trim() || ANSWER_FACT_CHECK_MOCK_MODEL_VERSION,
-      knowledgeSnapshotVersion: NO_EXTERNAL_KNOWLEDGE_VERSION,
-      evidenceLedger: [],
-    };
-  }
-  if (typeof value !== "object" || Array.isArray(value)) {
-    throw new NonRetryableAiWorkerFailure("factCheckContext must be an object");
-  }
-  const record = value as Record<string, unknown>;
-  const knowledgeSnapshotVersion = requiredText(
-    record.knowledgeSnapshotVersion,
-    "factCheckContext.knowledgeSnapshotVersion",
-  );
-  if (!Array.isArray(record.evidenceLedger)) {
-    throw new NonRetryableAiWorkerFailure("factCheckContext.evidenceLedger must be an array");
-  }
-  const evidenceIds = new Set<string>();
-  const evidenceLedger = record.evidenceLedger.map((item, index): FactEvidenceLedgerItem => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
-      throw new NonRetryableAiWorkerFailure(`factCheckContext.evidenceLedger[${index}] must be an object`);
-    }
-    const evidence = item as Record<string, unknown>;
-    const evidenceId = requiredText(evidence.evidenceId, `factCheckContext.evidenceLedger[${index}].evidenceId`);
-    if (evidenceIds.has(evidenceId)) {
-      throw new NonRetryableAiWorkerFailure(`duplicate fact-check evidence ID: ${evidenceId}`);
-    }
-    evidenceIds.add(evidenceId);
-    const sourceKind = evidence.sourceKind;
-    if (
-      typeof sourceKind !== "string" ||
-      !(FACT_EVIDENCE_SOURCE_KINDS as readonly string[]).includes(sourceKind)
-    ) {
-      throw new NonRetryableAiWorkerFailure(`factCheckContext.evidenceLedger[${index}].sourceKind is unsupported`);
-    }
-    const text = requiredText(evidence.text, `factCheckContext.evidenceLedger[${index}].text`);
-    const startOffset = nonNegativeInteger(
-      evidence.startOffset,
-      `factCheckContext.evidenceLedger[${index}].startOffset`,
-    );
-    const endOffset = positiveNumber(
-      evidence.endOffset,
-      `factCheckContext.evidenceLedger[${index}].endOffset`,
-    );
-    if (endOffset <= startOffset || endOffset - startOffset !== text.length) {
-      throw new NonRetryableAiWorkerFailure(`factCheckContext.evidenceLedger[${index}] offsets do not match text`);
-    }
-    return {
-      evidenceId,
-      sourceSnapshotId: requiredText(
-        evidence.sourceSnapshotId,
-        `factCheckContext.evidenceLedger[${index}].sourceSnapshotId`,
-      ),
-      sourceKind: sourceKind as FactEvidenceLedgerItem["sourceKind"],
-      startOffset,
-      endOffset,
-      text,
-    };
-  });
-  return {
-    provider,
-    providerMode: providerMode ?? (provider ? "openai" : "mock"),
-    configuredModelVersion: configuredModelVersion?.trim() || ANSWER_FACT_CHECK_MOCK_MODEL_VERSION,
-    knowledgeSnapshotVersion,
-    evidenceLedger,
-  };
-}
-
 function factCheckSummary(records?: AnswerFactCheckRunRecord[]): Record<string, unknown> | undefined {
   if (!records) return undefined;
   return {
@@ -1649,6 +1593,7 @@ function answersOf(value: unknown): ReportAnswerForScoring[] {
       sortOrder: Number.isFinite(Number(record.sortOrder)) ? Number(record.sortOrder) : undefined,
       isFollowUpAnswer: record.isFollowUpAnswer === true,
       parentAnswerId: optionalPositiveNumber(record.parentAnswerId, "parentAnswerId"),
+      followUpReason: followUpReasonOf(record.followUpReason),
       transcript,
       evaluationStatus,
       transcriptUnavailableReason: evaluationStatus === "STT_UNAVAILABLE" ? transcriptUnavailableReason : undefined,
@@ -2115,11 +2060,40 @@ function optionalText(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function buildNcsFollowUpQuestion(focusPoints: string[], logicalStructureGap?: string): string {
+function buildNcsFollowUpQuestion(
+  focusPoints: string[],
+  logicalStructureGap?: string,
+  factClaims: Array<{ claimText: string; rationale: string }> = [],
+): string {
   const focus = focusPoints.slice(0, 3).join(", ") || "아직 확인되지 않은 행동 근거";
+  const factFocus = factClaims.slice(0, 2).map((claim) => claim.claimText).join(", ");
+  if (factFocus) {
+    const ncsFocus = focusPoints.length > 0 ? `와 함께 ${focus}` : "";
+    return `앞서 확인된 내용은 반복하지 말고 ${factFocus}에 대한 구체적인 근거나 구현 방식을 확인할 수 있도록${ncsFocus}를 설명해주세요?`;
+  }
   return logicalStructureGap
     ? `앞서 확인된 내용은 반복하지 말고 ${focus}를 보여주되 ${logicalStructureGap}의 연결이 드러나도록 본인의 구체적인 행동과 결과를 설명해주세요?`
     : `앞서 확인된 내용은 반복하지 말고 ${focus}를 보여주는 본인의 구체적인 행동과 결과를 설명해주세요?`;
+}
+
+function followUpReasonOf(value: unknown): ReportAnswerForScoring["followUpReason"] {
+  return value === "NCS_EVIDENCE_GAP" || value === "FACT_CLARIFICATION" || value === "GENERAL_EVIDENCE_GAP"
+    ? value
+    : undefined;
+}
+
+function factCheckFollowUpSummary(plan: {
+  required: boolean;
+  providerStatus: string;
+  gateStatus: string | null;
+  clarificationClaims: unknown[];
+}): Record<string, unknown> {
+  return {
+    providerStatus: plan.providerStatus,
+    gateStatus: plan.gateStatus,
+    clarificationRequired: plan.required,
+    clarificationClaimCount: plan.clarificationClaims.length,
+  };
 }
 
 function buildFollowUpQuestion(input: {

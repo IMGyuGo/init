@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
-import type {
+import {
+  FACT_CHECK_INPUT_COMPOSITION_VERSIONS,
+  type FactCheckInputCompositionVersion,
   FactCheckGateStatus,
   FactCheckProviderMode,
   FactCheckProviderStatus,
@@ -98,7 +100,7 @@ export interface FollowUpQuestionRecord {
   required: boolean;
   content?: string;
   policy: "MOCK" | "RECRUITING";
-  reason?: "NCS_EVIDENCE_GAP" | "GENERAL_EVIDENCE_GAP";
+  reason?: "NCS_EVIDENCE_GAP" | "FACT_CLARIFICATION" | "GENERAL_EVIDENCE_GAP";
   questionMode?: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
   answerTimeSec?: number;
 }
@@ -237,6 +239,8 @@ export interface AnswerFactCheckClaimRecord {
 export interface AnswerFactCheckRunRecord {
   reportId: number;
   answerId: number;
+  followUpAnswerId?: number;
+  inputCompositionVersion: FactCheckInputCompositionVersion;
   providerStatus: FactCheckProviderStatus;
   gateStatus: FactCheckGateStatus | null;
   providerMode: FactCheckProviderMode;
@@ -562,8 +566,12 @@ export function assertAnswerFactCheckRecords(reportId: number, records: AnswerFa
     }
     keys.add(key);
     const completed = record.providerStatus === "COMPLETED";
+    const combined = record.inputCompositionVersion === "BASE_FOLLOW_UP_V1";
     if (
       !Number.isSafeInteger(record.answerId) || record.answerId <= 0 ||
+      !(FACT_CHECK_INPUT_COMPOSITION_VERSIONS as readonly string[]).includes(record.inputCompositionVersion) ||
+      (combined && (!Number.isSafeInteger(record.followUpAnswerId) || record.followUpAnswerId! <= 0 || record.followUpAnswerId === record.answerId)) ||
+      (!combined && record.followUpAnswerId !== undefined) ||
       !record.modelVersion.trim() || !record.promptVersion.trim() ||
       !record.knowledgeSnapshotVersion.trim() || !record.policyVersion.trim() ||
       !validIsoDate(record.startedAt) || (record.completedAt !== null && !validIsoDate(record.completedAt)) ||

@@ -453,12 +453,15 @@ export class ReportService {
     answers: InterviewAnswer[],
     reportType: ReportType,
   ): Promise<ReportInterviewAnswerInput[]> {
-    const followUpsByAnswerId = await this.followUpsByAnswerId(answers);
-    const parentAnswerIdByFollowUpContent = new Map<string, number>();
-    for (const [answerId, followUps] of followUpsByAnswerId.entries()) {
-      for (const followUp of followUps) {
-        parentAnswerIdByFollowUpContent.set(this.normalizeQuestionContent(followUp.content), answerId);
-      }
+    const followUps = await this.candidateReportRepository.listFollowUpQuestionsByAnswerIds(
+      answers.map((answer) => answer.answerId),
+    );
+    const parentByFollowUpContent = new Map<string, { answerId: number; reason?: CandidateFollowUpQuestionRecord["reason"] }>();
+    for (const followUp of followUps) {
+      parentByFollowUpContent.set(this.normalizeQuestionContent(followUp.content), {
+        answerId: followUp.answerId,
+        reason: followUp.reason,
+      });
     }
 
     return Promise.all(
@@ -466,8 +469,8 @@ export class ReportService {
         const transcript = this.cleanOptionalText(answer.transcript);
         const question = await this.interviewRepository.findQuestion(answer.questionId);
         const isFollowUpAnswer = question?.questionType === "FOLLOW_UP";
-        const parentAnswerId = isFollowUpAnswer
-          ? parentAnswerIdByFollowUpContent.get(this.normalizeQuestionContent(question?.content))
+        const parent = isFollowUpAnswer
+          ? parentByFollowUpContent.get(this.normalizeQuestionContent(question?.content))
           : undefined;
         const unavailableReason = DEFAULT_STT_UNAVAILABLE_REASON;
         const ncsSnapshot = answer.ncsEvaluationSnapshot;
@@ -478,7 +481,8 @@ export class ReportService {
           ...(question?.questionType ? { questionType: question.questionType } : {}),
           ...(question?.sortOrder !== undefined ? { sortOrder: question.sortOrder } : {}),
           ...(isFollowUpAnswer ? { isFollowUpAnswer: true } : {}),
-          ...(parentAnswerId !== undefined ? { parentAnswerId } : {}),
+          ...(parent ? { parentAnswerId: parent.answerId } : {}),
+          ...(parent?.reason ? { followUpReason: parent.reason } : {}),
           ...(transcript ? { transcript } : {}),
           ...(reportType === "MOCK_INTERVIEW_REPORT" && answer.nonverbalMetadata
             ? { nonverbalMetadata: answer.nonverbalMetadata }

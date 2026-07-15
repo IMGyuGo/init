@@ -33,12 +33,16 @@ test("fact-check repository stores completed claims and snapshot evidence transa
   assert.deepEqual(calls[0]?.args, { where: { reportId: 71n } });
   const create = calls[1]?.args as {
     data: {
+      followUpAnswerId: bigint | null;
+      inputCompositionVersion: string;
       providerStatus: string;
       gateStatus: string;
       claims: { create: Array<{ evidences: { create: Array<Record<string, unknown>> } }> };
     };
   };
   assert.equal(create.data.providerStatus, "COMPLETED");
+  assert.equal(create.data.followUpAnswerId, null);
+  assert.equal(create.data.inputCompositionVersion, "BASE_ONLY_V1");
   assert.equal(create.data.gateStatus, "FACT_CHECK_REQUIRED");
   assert.equal(create.data.claims.create.length, 1);
   assert.deepEqual(create.data.claims.create[0]?.evidences.create[0], {
@@ -85,6 +89,7 @@ function completedRecord(): AnswerFactCheckRunRecord {
   return {
     reportId: 71,
     answerId: 101,
+    inputCompositionVersion: "BASE_ONLY_V1",
     providerStatus: "COMPLETED",
     gateStatus: "FACT_CHECK_REQUIRED",
     providerMode: "mock",

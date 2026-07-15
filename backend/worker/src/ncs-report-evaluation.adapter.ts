@@ -6,6 +6,7 @@ import {
 } from "./ai-result.repository";
 import {
   ANSWER_FACT_CHECK_MOCK_MODEL_VERSION,
+  evaluateAnswerFactCheck,
   runAnswerFactCheck,
 } from "./answer-fact-check";
 import {
@@ -74,6 +75,7 @@ export interface NcsReportAnswerSnapshot {
   evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
   isFollowUpAnswer?: boolean;
   parentAnswerId?: number;
+  followUpReason?: "NCS_EVIDENCE_GAP" | "FACT_CLARIFICATION" | "GENERAL_EVIDENCE_GAP";
 }
 
 export interface NcsReportEvaluationBatch {
@@ -110,6 +112,69 @@ export interface NcsFollowUpPlan {
   focusPoints: string[];
   logicalStructureGap?: string;
   alreadyConfirmedEvidence: string[];
+}
+
+export interface FactClarificationPlan {
+  required: boolean;
+  providerStatus: "COMPLETED" | "FAILED" | "TIMEOUT" | "INVALID_OUTPUT";
+  gateStatus: "PASS_THROUGH" | "CLARIFICATION_CANDIDATE" | "FACT_CHECK_REQUIRED" | null;
+  clarificationClaims: Array<{
+    claimText: string;
+    verdict: "CONTRADICTED" | "AMBIGUOUS" | "UNVERIFIABLE";
+    rationale: string;
+  }>;
+  supportedClaims: string[];
+  usage?: { modelName: string; inputTokens?: number; outputTokens?: number };
+}
+
+export async function planFactClarification(
+  payload: Record<string, unknown>,
+  context: NcsAnswerFactCheckContext,
+): Promise<FactClarificationPlan> {
+  const answerId = Number(payload.answerId);
+  const questionMode = isNcsQuestionMode(payload.ncsQuestionMode) ? payload.ncsQuestionMode : undefined;
+  const previousQuestion = typeof payload.previousQuestion === "string" ? payload.previousQuestion.trim() : "";
+  const transcript = typeof payload.transcript === "string" ? payload.transcript.trim() : "";
+  if (!Number.isSafeInteger(answerId) || answerId <= 0 || !questionMode || !previousQuestion || !transcript) {
+    throw new NonRetryableAiWorkerFailure("fact clarification snapshot is incomplete");
+  }
+  const execution = await evaluateAnswerFactCheck({
+    input: {
+      answerId,
+      question: previousQuestion,
+      answerText: transcript,
+      questionMode,
+      knowledgeSnapshotVersion: context.knowledgeSnapshotVersion,
+      evidenceLedger: context.evidenceLedger,
+    },
+    provider: context.provider,
+    providerMode: context.providerMode,
+    configuredModelVersion: context.configuredModelVersion,
+  });
+  const record = execution.record;
+  const required = record.providerStatus === "COMPLETED" && (
+    record.gateStatus === "CLARIFICATION_CANDIDATE" || record.gateStatus === "FACT_CHECK_REQUIRED"
+  );
+  return {
+    required,
+    providerStatus: record.providerStatus,
+    gateStatus: record.gateStatus,
+    clarificationClaims: required
+      ? record.claims
+          .filter((claim) => claim.verdict === "AMBIGUOUS" || (
+            claim.verdict === "CONTRADICTED" && claim.claimRole === "ANSWER_CORE"
+          ))
+          .map((claim) => ({
+            claimText: claim.claimText,
+            verdict: claim.verdict as "CONTRADICTED" | "AMBIGUOUS" | "UNVERIFIABLE",
+            rationale: claim.rationale,
+          }))
+      : [],
+    supportedClaims: record.claims
+      .filter((claim) => claim.verdict === "SUPPORTED")
+      .map((claim) => claim.claimText),
+    usage: execution.usage,
+  };
 }
 
 export function planNcsFollowUp(payload: Record<string, unknown>): NcsFollowUpPlan | undefined {
@@ -402,14 +467,21 @@ async function evaluateAnswer(
     profileVersion: snapshots.bindings[0]?.ncsProfileVersion,
   });
 
+  const composedAnswerText = followUp?.transcript.trim()
+    ? `${answer.transcript}\n${followUp.transcript}`
+    : answer.transcript;
   const [baseResult, factCheckResult] = await Promise.all([
     runNcsEvaluation(baseInput, snapshots.bindings, provider),
     runAnswerFactCheck({
       reportId,
+      ...(followUp?.transcript.trim() ? {
+        followUpAnswerId: followUp.answerId,
+        inputCompositionVersion: "BASE_FOLLOW_UP_V1" as const,
+      } : {}),
       input: {
         answerId: answer.answerId,
         question,
-        answerText: answer.transcript,
+        answerText: composedAnswerText,
         questionMode: snapshots.ncsQuestionMode,
         knowledgeSnapshotVersion: factCheckContext.knowledgeSnapshotVersion,
         evidenceLedger: factCheckContext.evidenceLedger,
@@ -426,13 +498,12 @@ async function evaluateAnswer(
   ]));
   const shouldReevaluate =
     Boolean(followUp?.transcript.trim()) &&
-    baseOutput.scoreStatus === "SCORED" &&
-    [...basePoints.values()].some((points) => points !== null && points.baseScore < 5);
+    baseOutput.scoreStatus === "SCORED";
   const combinedResult = shouldReevaluate && followUp
     ? await runNcsEvaluation(parseNcsTextEvaluationInput({
         questionMode: snapshots.ncsQuestionMode,
         question,
-        answerText: `${answer.transcript}\n${followUp.transcript}`,
+        answerText: composedAnswerText,
         profileIds: snapshots.bindings.map((binding) => toEvaluatorProfileId(binding.ncsProfileId)),
         profileVersion: snapshots.bindings[0]?.ncsProfileVersion,
       }), snapshots.bindings, provider)

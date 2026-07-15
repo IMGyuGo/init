@@ -103,6 +103,7 @@ export class PrismaCandidateReportRepository implements CandidateReportRepositor
       content: question.content,
       generationStatus: question.generationStatus,
       policy: question.policy,
+      ...(isFollowUpReason(question.reason) ? { reason: question.reason } : {}),
       createdAt: question.createdAt.toISOString(),
     }));
   }
@@ -241,6 +242,12 @@ export class PrismaCandidateReportRepository implements CandidateReportRepositor
       return undefined;
     }
   }
+}
+
+function isFollowUpReason(
+  value: string | null,
+): value is "NCS_EVIDENCE_GAP" | "FACT_CLARIFICATION" | "GENERAL_EVIDENCE_GAP" {
+  return value === "NCS_EVIDENCE_GAP" || value === "FACT_CLARIFICATION" || value === "GENERAL_EVIDENCE_GAP";
 }
 
 type CandidateReportWithScores = Prisma.EvaluationReportGetPayload<{ include: typeof candidateReportInclude }>;

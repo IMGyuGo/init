@@ -24,11 +24,13 @@ export const FACT_EVIDENCE_SOURCE_KINDS = [
   "JD_SNAPSHOT",
   "KNOWLEDGE_SNAPSHOT",
 ] as const;
+export const FACT_CHECK_INPUT_COMPOSITION_VERSIONS = ["BASE_ONLY_V1", "BASE_FOLLOW_UP_V1"] as const;
 
 export type FactCheckVerdict = (typeof FACT_CHECK_VERDICTS)[number];
 export type FactClaimType = (typeof FACT_CLAIM_TYPES)[number];
 export type FactClaimRole = (typeof FACT_CLAIM_ROLES)[number];
 export type FactEvidenceSourceKind = (typeof FACT_EVIDENCE_SOURCE_KINDS)[number];
+export type FactCheckInputCompositionVersion = (typeof FACT_CHECK_INPUT_COMPOSITION_VERSIONS)[number];
 export type FactCheckProviderMode = "mock" | "openai";
 export type FactCheckProviderStatus = "COMPLETED" | "FAILED" | "TIMEOUT" | "INVALID_OUTPUT";
 export type FactCheckGateStatus = "PASS_THROUGH" | "CLARIFICATION_CANDIDATE" | "FACT_CHECK_REQUIRED";

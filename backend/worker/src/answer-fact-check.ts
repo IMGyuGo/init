@@ -8,6 +8,7 @@ import {
   AnswerFactCheckProvider,
   AnswerFactCheckTimeoutError,
   FactCheckGateStatus,
+  FactCheckInputCompositionVersion,
   FactCheckProviderMode,
 } from "./answer-fact-check.types";
 
@@ -25,6 +26,8 @@ export interface AnswerFactCheckExecution {
 
 export interface RunAnswerFactCheckOptions {
   reportId: number;
+  followUpAnswerId?: number;
+  inputCompositionVersion?: FactCheckInputCompositionVersion;
   input: AnswerFactCheckInput;
   provider?: AnswerFactCheckProvider;
   providerMode: FactCheckProviderMode;
@@ -33,6 +36,36 @@ export interface RunAnswerFactCheckOptions {
 }
 
 export async function runAnswerFactCheck(options: RunAnswerFactCheckOptions): Promise<AnswerFactCheckExecution> {
+  const execution = await evaluateAnswerFactCheck(options);
+  return {
+    ...execution,
+    record: {
+      reportId: options.reportId,
+      ...execution.record,
+      ...(options.followUpAnswerId ? { followUpAnswerId: options.followUpAnswerId } : {}),
+      inputCompositionVersion: options.inputCompositionVersion ?? "BASE_ONLY_V1",
+    },
+  };
+}
+
+export type AnswerFactCheckPrecheckRecord = Omit<
+  AnswerFactCheckRunRecord,
+  "reportId" | "followUpAnswerId" | "inputCompositionVersion"
+>;
+
+export interface AnswerFactCheckPrecheckExecution {
+  record: AnswerFactCheckPrecheckRecord;
+  usage?: AnswerFactCheckExecution["usage"];
+}
+
+export type EvaluateAnswerFactCheckOptions = Omit<
+  RunAnswerFactCheckOptions,
+  "reportId" | "followUpAnswerId" | "inputCompositionVersion"
+>;
+
+export async function evaluateAnswerFactCheck(
+  options: EvaluateAnswerFactCheckOptions,
+): Promise<AnswerFactCheckPrecheckExecution> {
   const now = options.now ?? (() => new Date());
   const startedAt = now();
   try {
@@ -43,7 +76,6 @@ export async function runAnswerFactCheck(options: RunAnswerFactCheckOptions): Pr
     const claims = result.claims.map((claim) => toStoredClaim(claim, options.input));
     return {
       record: {
-        reportId: options.reportId,
         answerId: options.input.answerId,
         providerStatus: "COMPLETED",
         gateStatus: determineFactCheckGate(result.claims),
@@ -69,7 +101,6 @@ export async function runAnswerFactCheck(options: RunAnswerFactCheckOptions): Pr
     const completedAt = now();
     return {
       record: {
-        reportId: options.reportId,
         answerId: options.input.answerId,
         providerStatus: providerFailureStatus(error),
         gateStatus: null,

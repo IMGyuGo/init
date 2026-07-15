@@ -57,7 +57,12 @@ export async function createWorkerRuntime(queue: AiJobQueue, env: WorkerEnv): Pr
           new OpenAiFollowUpProvider(env.aiProviderApiKey, env.openaiModel),
           new OpenAiReportProvider(env.aiProviderApiKey, env.openaiModel),
           new OpenAiPostingDraftProvider(env.aiProviderApiKey, env.openaiModel),
-          new OpenAiQuestionProvider(env.aiProviderApiKey, env.openaiModel)
+          new OpenAiQuestionProvider(env.aiProviderApiKey, env.openaiModel),
+          {
+            provider: answerFactCheckProvider,
+            configuredModelVersion: env.openaiModel,
+            providerMode: env.aiProviderMode,
+          },
         )
       : mockHandler;
 

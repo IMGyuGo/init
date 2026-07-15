@@ -43,6 +43,7 @@ export interface CandidateFollowUpQuestionRecord {
   content: string;
   generationStatus: string;
   policy: string;
+  reason?: "NCS_EVIDENCE_GAP" | "FACT_CLARIFICATION" | "GENERAL_EVIDENCE_GAP";
   createdAt: string;
 }
 

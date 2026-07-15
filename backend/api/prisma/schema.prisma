@@ -791,7 +791,8 @@ model InterviewAnswer {
   reportEvidences        ReportEvidence[]
   ncsAnswerEvaluations   NcsAnswerEvaluation[]
   ncsEvaluationEvidences NcsAnswerEvaluationEvidence[]
-  answerFactCheckRuns    AnswerFactCheckRun[]
+  answerFactCheckRuns    AnswerFactCheckRun[]          @relation("FactCheckBaseAnswer")
+  followUpFactCheckRuns  AnswerFactCheckRun[]          @relation("FactCheckFollowUpAnswer")
 
   @@index([sessionQuestionId], map: "idx_interview_answers_session_question")
   @@map("interview_answers")
@@ -991,6 +992,8 @@ model AnswerFactCheckRun {
   factCheckRunId           BigInt                 @id @default(autoincrement()) @map("fact_check_run_id")
   reportId                 BigInt                 @map("report_id")
   answerId                 BigInt                 @map("answer_id")
+  followUpAnswerId         BigInt?                @map("follow_up_answer_id")
+  inputCompositionVersion  String                 @default("BASE_ONLY_V1") @map("input_composition_version") @db.VarChar(50)
   providerStatus           String                 @map("provider_status") @db.VarChar(40)
   gateStatus               String?                @map("gate_status") @db.VarChar(40)
   providerMode             String                 @map("provider_mode") @db.VarChar(20)
@@ -1004,11 +1007,13 @@ model AnswerFactCheckRun {
   createdAt                DateTime               @default(now()) @map("created_at")
   updatedAt                DateTime               @updatedAt @map("updated_at")
   report                   EvaluationReport       @relation(fields: [reportId], references: [reportId], onDelete: Cascade)
-  answer                   InterviewAnswer        @relation(fields: [answerId], references: [answerId], onDelete: Cascade)
+  answer                   InterviewAnswer        @relation("FactCheckBaseAnswer", fields: [answerId], references: [answerId], onDelete: Cascade)
+  followUpAnswer           InterviewAnswer?       @relation("FactCheckFollowUpAnswer", fields: [followUpAnswerId], references: [answerId], onDelete: Cascade)
   claims                   AnswerFactCheckClaim[]
 
   @@unique([reportId, answerId, policyVersion], map: "uq_answer_fact_check_runs_report_answer_policy")
   @@index([answerId], map: "idx_answer_fact_check_runs_answer")
+  @@index([followUpAnswerId], map: "idx_answer_fact_check_runs_follow_up_answer")
   @@index([reportId, providerStatus], map: "idx_answer_fact_check_runs_report_status")
   @@map("answer_fact_check_runs")
 }

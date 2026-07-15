@@ -5,8 +5,12 @@ import {
   ResumeQuestionJobReference,
 } from "./ai-result.repository";
 import { createAiProcessUsage, mergeAiProcessUsage } from "./ai-usage";
+import {
+  factCheckContextOf,
+  type FactCheckContextOptions,
+} from "./answer-fact-check-context";
 import { FollowUpAiProvider } from "./openai-follow-up.provider";
-import { planNcsFollowUp } from "./ncs-report-evaluation.adapter";
+import { planFactClarification, planNcsFollowUp } from "./ncs-report-evaluation.adapter";
 import { PostingDraftAiProvider, PostingDraftGenerationResult } from "./openai-posting-draft.provider";
 import {
   QuestionAiProvider,
@@ -64,7 +68,8 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     private readonly followUpProvider: FollowUpAiProvider,
     private readonly reportProvider?: ReportAiProvider,
     private readonly postingDraftProvider?: PostingDraftAiProvider,
-    private readonly questionProvider?: QuestionAiProvider
+    private readonly questionProvider?: QuestionAiProvider,
+    private readonly factCheckOptions: FactCheckContextOptions = {},
   ) {}
 
   async handle(job: AiWorkerJob): Promise<AiTaskResult> {
@@ -157,7 +162,14 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     }
 
     const ncsPlan = policy === "RECRUITING" ? planNcsFollowUp(payload) : undefined;
-    if (ncsPlan && !ncsPlan.required) {
+    const factPlan = ncsPlan
+      ? await planFactClarification(payload, factCheckContextOf(payload.factCheckContext, {
+          ...this.factCheckOptions,
+          jobDescription,
+          documentSummary,
+        }))
+      : undefined;
+    if (ncsPlan && !ncsPlan.required && !factPlan?.required) {
       return {
         outputRef: JSON.stringify({
           sessionId,
@@ -167,6 +179,7 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
           questionMode: ncsPlan.questionMode,
           answerTimeSec: ncsPlan.answerTimeSec,
           baseScores: ncsPlan.baseScores,
+          factCheck: factPlan ? factCheckFollowUpSummary(factPlan) : undefined,
           dedupeKey: `${policy}:${sessionId}:${answerId}`,
           duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP",
         }),
@@ -194,6 +207,8 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       focusPoints: ncsPlan?.focusPoints,
       logicalStructureGap: ncsPlan?.logicalStructureGap,
       alreadyConfirmedEvidence: ncsPlan?.alreadyConfirmedEvidence,
+      factClarificationClaims: factPlan?.required ? factPlan.clarificationClaims : undefined,
+      factSupportedClaims: factPlan?.supportedClaims,
       profileContext,
     });
     const guardrail = this.validateMockPolicy(policy, generated.content);
@@ -213,16 +228,26 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
         answerTimeSec: ncsPlan?.answerTimeSec,
         baseScores: ncsPlan?.baseScores,
         focusPoints: ncsPlan?.focusPoints,
+        factCheck: factPlan ? factCheckFollowUpSummary(factPlan) : undefined,
         dedupeKey: `${policy}:${sessionId}:${answerId}`,
         duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP"
       }),
       guardrail,
-      usage: createAiProcessUsage({
-        modelName: generated.model,
-        inputTokens: generated.usage?.inputTokens,
-        outputTokens: generated.usage?.outputTokens,
-        metadata: { processType: "FOLLOW_UP" }
-      }),
+      usage: mergeAiProcessUsage(
+        createAiProcessUsage({
+          modelName: generated.model,
+          inputTokens: generated.usage?.inputTokens,
+          outputTokens: generated.usage?.outputTokens,
+          metadata: { processType: "FOLLOW_UP", stage: "QUESTION_GENERATION" },
+        }),
+        factPlan?.usage ? createAiProcessUsage({
+          modelName: factPlan.usage.modelName,
+          inputTokens: factPlan.usage.inputTokens,
+          outputTokens: factPlan.usage.outputTokens,
+          metadata: { processType: "FOLLOW_UP", stage: "FACT_PRECHECK" },
+        }) : undefined,
+        { processType: "FOLLOW_UP" },
+      ),
       finalSave: () =>
         this.results.saveFollowUpQuestion({
           sessionId,
@@ -230,7 +255,9 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
           required: true,
           content: generated.content,
           policy,
-          reason: ncsPlan ? "NCS_EVIDENCE_GAP" : "GENERAL_EVIDENCE_GAP",
+          reason: factPlan?.required
+            ? "FACT_CLARIFICATION"
+            : ncsPlan ? "NCS_EVIDENCE_GAP" : "GENERAL_EVIDENCE_GAP",
           questionMode: ncsPlan?.questionMode,
           answerTimeSec: ncsPlan?.answerTimeSec,
         })
@@ -455,6 +482,20 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
         }
       : { result: "PASS" as const, reason: null };
   }
+}
+
+function factCheckFollowUpSummary(plan: {
+  required: boolean;
+  providerStatus: string;
+  gateStatus: string | null;
+  clarificationClaims: unknown[];
+}): Record<string, unknown> {
+  return {
+    providerStatus: plan.providerStatus,
+    gateStatus: plan.gateStatus,
+    clarificationRequired: plan.required,
+    clarificationClaimCount: plan.clarificationClaims.length,
+  };
 }
 
 function profileContextOf(value: unknown): Record<string, unknown> | undefined {
@@ -877,6 +918,7 @@ function answersOf(value: unknown): Array<{
   sortOrder?: number;
   isFollowUpAnswer?: boolean;
   parentAnswerId?: number;
+  followUpReason?: "NCS_EVIDENCE_GAP" | "FACT_CLARIFICATION" | "GENERAL_EVIDENCE_GAP";
   transcript: string;
   evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
   transcriptUnavailableReason?: string;
@@ -907,6 +949,7 @@ function answersOf(value: unknown): Array<{
       sortOrder: Number.isFinite(Number(record.sortOrder)) ? Number(record.sortOrder) : undefined,
       isFollowUpAnswer: record.isFollowUpAnswer === true,
       parentAnswerId: optionalPositiveNumber(record.parentAnswerId, "parentAnswerId"),
+      followUpReason: followUpReasonOf(record.followUpReason),
       transcript,
       evaluationStatus,
       transcriptUnavailableReason: evaluationStatus === "STT_UNAVAILABLE" ? transcriptUnavailableReason : undefined,
@@ -998,6 +1041,14 @@ function questionTypeOf(value: unknown): "INTRO" | "TECHNICAL" | "EXPERIENCE" | 
     value === "SITUATION" ||
     value === "FOLLOW_UP" ||
     value === "CLOSING"
+    ? value
+    : undefined;
+}
+
+function followUpReasonOf(
+  value: unknown,
+): "NCS_EVIDENCE_GAP" | "FACT_CLARIFICATION" | "GENERAL_EVIDENCE_GAP" | undefined {
+  return value === "NCS_EVIDENCE_GAP" || value === "FACT_CLARIFICATION" || value === "GENERAL_EVIDENCE_GAP"
     ? value
     : undefined;
 }
