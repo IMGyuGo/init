@@ -31,9 +31,7 @@ function readPngHeader(bytes, path) {
 }
 
 function resolveAssetPath(manifestDirectory, reference) {
-  const path = resolve(manifestDirectory, reference);
-  const relativePath = toPosixPath(path);
-  return { path, relativePath };
+  return resolve(manifestDirectory, reference);
 }
 
 function assertExpectedLayerNames(layers) {
@@ -67,14 +65,14 @@ export async function auditLayeredMouthAssets(manifestPath) {
     if (names.has(layer.name)) throw new Error(`duplicate layer: ${layer.name}`);
     names.add(layer.name);
 
-    const png = await readFile(resolveAssetPath(manifestDirectory, layer.pngPath).path);
+    const png = await readFile(resolveAssetPath(manifestDirectory, layer.pngPath));
     const header = readPngHeader(png, layer.pngPath);
     if (header.width !== EXPECTED_CANVAS.width || header.height !== EXPECTED_CANVAS.height) {
       throw new Error(`${layer.name} PNG must be 1024x1536`);
     }
     if (header.colorType !== 6) throw new Error(`${layer.name} PNG must use RGBA color type 6`);
 
-    const rgba = await readFile(resolveAssetPath(manifestDirectory, layer.rgbaPath).path);
+    const rgba = await readFile(resolveAssetPath(manifestDirectory, layer.rgbaPath));
     const expectedBytes = EXPECTED_CANVAS.width * EXPECTED_CANVAS.height * 4;
     if (rgba.length !== expectedBytes) throw new Error(`${layer.name} RGBA buffer must contain ${expectedBytes} bytes`);
     let nonTransparent = false;
@@ -84,6 +82,7 @@ export async function auditLayeredMouthAssets(manifestPath) {
         break;
       }
     }
+    if (!nonTransparent) throw new Error(`${layer.name} RGBA must contain non-transparent pixels`);
 
     layers.push({
       ...layer,
