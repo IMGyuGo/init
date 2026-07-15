@@ -22,11 +22,14 @@ const EXPECTED_LAYER_NAMES = [
 const RGBA_BYTES = 1024 * 1536 * 4;
 const EXPECTED_ANCHOR = { x: 512, y: 585 };
 
-function createPngHeader(uniqueByte, { width = 1024, height = 1536, colorType = 6 } = {}) {
+function createPngHeader(
+  uniqueByte,
+  { width = 1024, height = 1536, colorType = 6, ihdrLength = 13, firstChunkType = "IHDR" } = {},
+) {
   const bytes = Buffer.alloc(33);
   Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(bytes);
-  bytes.writeUInt32BE(13, 8);
-  Buffer.from("IHDR").copy(bytes, 12);
+  bytes.writeUInt32BE(ihdrLength, 8);
+  Buffer.from(firstChunkType).copy(bytes, 12);
   bytes.writeUInt32BE(width, 16);
   bytes.writeUInt32BE(height, 20);
   bytes[24] = 8;
@@ -60,11 +63,18 @@ async function writeManifest(directory, layers) {
   return manifestPath;
 }
 
-async function writeCompleteLayerFiles(directory, layers, { pngByteForIndex, rgbaForIndex } = {}) {
+async function writeCompleteLayerFiles(
+  directory,
+  layers,
+  { pngByteForIndex, pngOptionsForIndex, rgbaForIndex } = {},
+) {
   const visibleRgba = Buffer.alloc(RGBA_BYTES);
   visibleRgba[3] = 255;
   await Promise.all(layers.flatMap((layer, index) => [
-    writeFile(join(directory, layer.pngPath), createPngHeader(pngByteForIndex?.(index) ?? index)),
+    writeFile(
+      join(directory, layer.pngPath),
+      createPngHeader(pngByteForIndex?.(index) ?? index, pngOptionsForIndex?.(index)),
+    ),
     writeFile(join(directory, layer.rgbaPath), rgbaForIndex?.(index) ?? visibleRgba),
   ]));
 }
@@ -121,6 +131,36 @@ test("unit: rejects a PNG whose dimensions do not match the canvas", async () =>
     const manifestPath = await writeManifest(directory, layers);
 
     await assert.rejects(auditLayeredMouthAssets(manifestPath), /mouth-skin-underlay PNG must be 1024x1536/);
+  });
+});
+
+test("unit: rejects a PNG whose first chunk length is not 13", async () => {
+  await withFixture(async (directory) => {
+    const layers = createLayers();
+    await writeCompleteLayerFiles(directory, layers, {
+      pngOptionsForIndex: (index) => (index === 0 ? { ihdrLength: 12 } : undefined),
+    });
+    const manifestPath = await writeManifest(directory, layers);
+
+    await assert.rejects(
+      auditLayeredMouthAssets(manifestPath),
+      /mouth-skin-underlay\.png PNG must have an IHDR chunk length of 13/,
+    );
+  });
+});
+
+test("unit: rejects a PNG whose first chunk type is not IHDR", async () => {
+  await withFixture(async (directory) => {
+    const layers = createLayers();
+    await writeCompleteLayerFiles(directory, layers, {
+      pngOptionsForIndex: (index) => (index === 0 ? { firstChunkType: "IEND" } : undefined),
+    });
+    const manifestPath = await writeManifest(directory, layers);
+
+    await assert.rejects(
+      auditLayeredMouthAssets(manifestPath),
+      /mouth-skin-underlay\.png PNG must have IHDR as its first chunk/,
+    );
   });
 });
 

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const PNG_IHDR_TYPE = Buffer.from("IHDR");
 const EXPECTED_CANVAS = { width: 1024, height: 1536 };
 const EXPECTED_LAYER_NAMES = [
   "mouth-skin-underlay",
@@ -22,6 +23,12 @@ function toPosixPath(value) {
 function readPngHeader(bytes, path) {
   if (bytes.length < 26 || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
     throw new Error(`${path} is not a valid PNG file`);
+  }
+  if (bytes.readUInt32BE(8) !== 13) {
+    throw new Error(`${path} PNG must have an IHDR chunk length of 13`);
+  }
+  if (!bytes.subarray(12, 16).equals(PNG_IHDR_TYPE)) {
+    throw new Error(`${path} PNG must have IHDR as its first chunk`);
   }
 
   return {
