@@ -18,9 +18,9 @@ class SnapshotReadinessRepository extends InMemoryCandidateRepository {
     return {
       ...base,
       readiness: this.readiness,
-      expectedCommonQuestionCount: 3,
+      expectedCommonQuestionCount: 6,
       expectedPersonalizedQuestionCount: 2,
-      commonQuestionCount: this.readiness === "COMMON_QUESTIONS_NOT_READY" ? 2 : 3,
+      commonQuestionCount: this.readiness === "COMMON_QUESTIONS_NOT_READY" ? 5 : 6,
       personalizedQuestionCount: this.readiness === "PERSONALIZED_QUESTIONS_NOT_READY" ? 0 : 2,
       snapshotValidationErrors:
         this.readiness === "NCS_SNAPSHOT_INVALID"

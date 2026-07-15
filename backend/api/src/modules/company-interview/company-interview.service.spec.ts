@@ -328,7 +328,7 @@ describe('CompanyInterviewService', () => {
 
     const policy = await service.updateQuestionGenerationPolicy(companyUser, {
       postingId: 1,
-      jdCriteriaQuestionCount: 4,
+      jdCriteriaQuestionCount: 6,
       resumeQuestionCount: 2,
       expectedPolicyVersion: 0,
     });
@@ -346,24 +346,24 @@ describe('CompanyInterviewService', () => {
         source: 'JD_CRITERIA',
         ncsProfileId: 'COLLABORATION_COMMUNICATION',
         ncsQuestionMode: 'EXPERIENCE_BEHAVIOR',
-        count: 1,
+        count: 2,
       },
       {
         source: 'JD_CRITERIA',
         ncsProfileId: 'JOB_TECHNICAL',
         ncsQuestionMode: 'TECHNICAL_KNOWLEDGE',
+        count: 2,
+      },
+      {
+        source: 'RESUME_PERSONALIZED',
+        ncsProfileId: 'PROBLEM_SOLVING',
+        ncsQuestionMode: 'EXPERIENCE_BEHAVIOR',
         count: 1,
       },
       {
         source: 'RESUME_PERSONALIZED',
         ncsProfileId: 'COLLABORATION_COMMUNICATION',
         ncsQuestionMode: 'EXPERIENCE_BEHAVIOR',
-        count: 1,
-      },
-      {
-        source: 'RESUME_PERSONALIZED',
-        ncsProfileId: 'JOB_TECHNICAL',
-        ncsQuestionMode: 'TECHNICAL_KNOWLEDGE',
         count: 1,
       },
     ]);
