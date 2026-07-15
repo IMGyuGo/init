@@ -132,7 +132,10 @@ const SUMMARY_EVENT_COUNT_FIELDS = [
 ] as const;
 
 export class InterviewNonverbalMetadataValidationError extends Error {
-  constructor(readonly reason: string) {
+  constructor(
+    readonly reason: string,
+    readonly field?: string,
+  ) {
     super(reason);
     this.name = "InterviewNonverbalMetadataValidationError";
   }
@@ -259,7 +262,7 @@ function requireTimelineTime(value: unknown, path: string, index: number, timeli
 
 function requireBoundedNumber(value: unknown, path: string, min: number, max: number): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) {
-    invalid(`${path} must be a finite number between ${min} and ${max}`);
+    invalid(`${path} must be a finite number between ${min} and ${max}`, path);
   }
   return value;
 }
@@ -513,6 +516,6 @@ function requireRecord(value: unknown, path: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function invalid(reason: string): never {
-  throw new InterviewNonverbalMetadataValidationError(reason);
+function invalid(reason: string, field?: string): never {
+  throw new InterviewNonverbalMetadataValidationError(reason, field);
 }

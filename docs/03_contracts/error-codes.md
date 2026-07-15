@@ -21,6 +21,7 @@
 | FILE_SIZE_EXCEEDED | 400 | 파일 용량 초과 | 업로드 제한 안내 |
 | APPLICATION_ALREADY_SUBMITTED | 409 | 이미 지원한 공고 | 중복 지원 방지 |
 | INTERVIEW_SESSION_EXPIRED | 409 | 응시 기간 만료 또는 비활성 세션 | 재초대 또는 고객지원 안내 |
+| INTERVIEW_GAZE_DATA_INVALID | 422 | 답변의 시선 타임라인 offset이 유한수가 아니거나 `-1..1` 허용 범위를 벗어남 | 답변을 저장하지 않고 정상 시선 데이터가 생성될 때까지 재촬영과 카메라 위치 조정을 안내 |
 | DEVICE_PERMISSION_DENIED | 400 | 카메라/마이크 권한 거부 | 브라우저 권한 해결 안내 |
 | AI_PROCESS_NOT_FOUND | 404 | AI 작업 로그 없음 | 상태 조회 중 삭제되었거나 잘못된 processLogId |
 | AI_PROCESS_FAILED | 500 | AI 처리 실패 | `ai_process_logs.status=FAILED`와 재시도 안내 |

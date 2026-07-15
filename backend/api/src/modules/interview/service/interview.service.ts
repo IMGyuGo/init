@@ -1603,9 +1603,21 @@ export class InterviewService {
       const reason = error instanceof InterviewNonverbalMetadataValidationError
         ? error.reason
         : "nonverbalMetadata is invalid";
-      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "nonverbalMetadata is invalid.", 400, [
-        { field: "nonverbalMetadata", reason },
-      ]);
+      const field = error instanceof InterviewNonverbalMetadataValidationError
+        ? error.field
+        : undefined;
+      const gazeOffsetInvalid = field !== undefined &&
+        /^nonverbalMetadata\.gazeTimeline\[\d+\]\.(horizontalOffset|verticalOffset)$/.test(field);
+      throw new CandidateDomainError(
+        gazeOffsetInvalid ? "INTERVIEW_GAZE_DATA_INVALID" : "COMMON_VALIDATION_FAILED",
+        gazeOffsetInvalid
+          ? "Gaze timeline data is invalid. Retake the answer."
+          : "nonverbalMetadata is invalid.",
+        gazeOffsetInvalid ? 422 : 400,
+        [
+          { field: field ?? "nonverbalMetadata", reason },
+        ],
+      );
     }
 
     return {

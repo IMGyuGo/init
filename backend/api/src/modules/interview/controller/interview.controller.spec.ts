@@ -263,6 +263,65 @@ test("mock answer rejects unsupported nonverbal metadata fields at the service b
   );
 });
 
+test("mock answer requires another recording for any out-of-range gaze offset without saving an answer", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["INTRO"],
+    showQuestionText: false,
+  });
+  const sessionId = started.data.sessionId;
+  const questions = await controller.listMockQuestions(validCandidateRequest, String(sessionId));
+  const questionId = questions.data.questions[0]?.questionId ?? 0;
+  const invalidSamples = [
+    { field: "horizontalOffset", horizontalOffset: -1.000001, verticalOffset: 0 },
+    { field: "horizontalOffset", horizontalOffset: Number.MAX_VALUE, verticalOffset: 0 },
+    { field: "verticalOffset", horizontalOffset: 0, verticalOffset: 1.000001 },
+    { field: "verticalOffset", horizontalOffset: 0, verticalOffset: -Number.MAX_VALUE },
+  ] as const;
+
+  for (const sample of invalidSamples) {
+    try {
+      await controller.saveMockAnswer(validCandidateRequest, String(sessionId), {
+        questionId,
+        audioFile: {
+          storageKey: `candidate/1/invalid-gaze-${sample.field}-${sample.horizontalOffset}-${sample.verticalOffset}.webm`,
+          originalName: "invalid-gaze-answer.webm",
+          mimeType: "audio/webm",
+          sizeBytes: 2048,
+        },
+        durationSeconds: 20,
+        nonverbalMetadata: {
+          gazeTimeline: [{
+            tMs: 1000,
+            horizontalOffset: sample.horizontalOffset,
+            verticalOffset: sample.verticalOffset,
+            direction: "CENTER",
+          }],
+        },
+      });
+      assert.fail("Expected INTERVIEW_GAZE_DATA_INVALID");
+    } catch (error) {
+      assert.ok(error instanceof HttpException);
+      assert.equal(error.getStatus(), 422);
+      const response = error.getResponse() as {
+        code?: string;
+        details?: Array<{ field?: string; reason?: string }>;
+      };
+      assert.equal(response.code, "INTERVIEW_GAZE_DATA_INVALID");
+      assert.equal(
+        response.details?.[0]?.field,
+        `nonverbalMetadata.gazeTimeline[0].${sample.field}`,
+      );
+      assert.match(response.details?.[0]?.reason ?? "", /finite number between -1 and 1/);
+    }
+  }
+
+  assert.equal(await interviewRepository.countAnswersBySession(sessionId), 0);
+});
+
 test("mock interview consumes personalized AI output once and fills missing question types", async () => {
   const candidateService = new CandidateService(new InMemoryCandidateRepository());
   const interviewRepository = new InMemoryInterviewRepository();
