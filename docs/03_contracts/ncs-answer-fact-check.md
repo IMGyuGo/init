@@ -2,12 +2,12 @@
 
 ## Status
 
-- Contract status: `APPROVED_FOR_FACT_01_05`
+- Contract status: `APPROVED_FOR_FACT_01_06`
 - Fact-check policy version: `NCS_ANSWER_FACT_CHECK_POLICY_V1`
 - Prompt version: `NCS_ANSWER_FACT_CHECK_PROMPT_V1`
 - Default knowledge snapshot version: `NO_EXTERNAL_KNOWLEDGE_V1`
-- Scope: 답변 claim 추출, snapshot 근거 검증, 실행 결과 저장, NCS 점수와 분리된 deterministic gate, 팩트 확인 꼬리질문과 합산 재검증
-- Out of scope: nullable 평가와 재답변 정책(NR-M5/FACT-06), 최종 통합(NR-M6)
+- Scope: 답변 claim 추출, snapshot 근거 검증, 실행 결과 저장, NCS 점수와 분리된 deterministic gate, 팩트 확인 꼬리질문과 합산 재검증, FACT-06 회귀·오탐·실 Provider 검증
+- Out of scope: 최종 브라우저 통합과 전체 런타임 E2E(NR-M6)
 
 이 문서는 NCS 채용면접 답변의 사실 검증 정본 계약이다. 사실 검증은 점수 계산기가 아니라 추가 확인이 필요한 답변을 식별하는 보조 경로다.
 
@@ -224,6 +224,26 @@ Promise.allSettled([
 - NCS 평가 실패 + FACT 성공: 기존 NCS 실패 정책을 유지하며 FACT 결과는 독립 저장할 수 있다.
 - 둘 다 성공: NCS 결과와 FACT run/claim/evidence를 한 report 저장 경계에서 기록한다.
 - FACT 결과가 늦거나 없는 상태에서도 D runtime의 first-unanswered 전환은 worker를 기다리지 않는다.
+- `evaluationStatus=STT_UNAVAILABLE`인 답변은 검증할 transcript가 없으므로 fact provider를 호출하거나 fact run/claim/gate를 만들지 않는다. NCS 평가는 기존 nullable 미완료 계약을 유지한다.
+
+## FACT-06 Verification Contract
+
+FACT-06 기본 회귀 테스트는 외부 API 없이 fixture와 mock provider로 결정론적으로 실행한다.
+
+| Case | Required result |
+| --- | --- |
+| 승인 근거와 일치하는 기술 claim | `SUPPORTED -> PASS_THROUGH` |
+| 승인 근거와 모순되는 고신뢰 핵심 기술 claim | `CONTRADICTED -> FACT_CHECK_REQUIRED` |
+| 문맥이 부족한 claim | `AMBIGUOUS -> CLARIFICATION_CANDIDATE` |
+| 독립 근거가 없는 개인 경험 | `UNVERIFIABLE -> PASS_THROUGH` |
+| 선호·의견 표현 | `NOT_CHECKABLE -> PASS_THROUGH` |
+| 고신뢰 supporting claim 모순 | `PASS_THROUGH`, NCS 점수 확정 유지 |
+| 임계치 미만 핵심 claim 모순 | `CLARIFICATION_CANDIDATE`, hard gate 금지 |
+| provider 실패·timeout·invalid output | claim과 gate를 만들지 않고 기존 NCS 점수 유지 |
+| `STT_UNAVAILABLE` 답변 | provider 미호출, fact run 미생성, NCS 점수 `NULL` 유지 |
+| base와 꼬리답변 합산 | `BASE_FOLLOW_UP_V1`로 한 번 재검증하고 원점수 이하로 내리지 않음 |
+
+실 Provider smoke는 기본 CI와 분리한다. `RUN_ANSWER_FACT_CHECK_SMOKE=true`를 명시한 경우에만 실행하며, `OPENAI_API_KEY`와 `OPENAI_MODEL`은 로컬 secret 환경에서 읽는다. smoke는 원문을 출력하지 않고 case 이름, verdict 집합, deterministic gate와 모델명만 출력한다. 각 golden case가 위 표의 verdict와 gate를 만족하지 않거나 strict schema 검증에 실패하면 종료 코드 1을 반환한다.
 
 ## Security And Privacy
 
