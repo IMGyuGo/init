@@ -44,6 +44,11 @@ import { InterviewService } from "./service/interview.service";
       useClass: DefaultPublicApplicationAccessVerifier,
     },
   ],
-  exports: [INTERVIEW_REPOSITORY, InterviewService, PublicInterviewService],
+  exports: [
+    INTERVIEW_REPOSITORY,
+    AiJobDispatchModule,
+    InterviewService,
+    PublicInterviewService,
+  ],
 })
 export class InterviewModule {}

@@ -343,8 +343,12 @@ test("prisma interview repository starts private mock session and consumes pass 
     completedAt: null,
   };
   let sequence = 9000n;
+  let executeRawCalls = 0;
   const transactionClient = {
-    $executeRaw: async () => 1,
+    $executeRaw: async () => {
+      executeRawCalls += 1;
+      return 1;
+    },
     $queryRaw: async () => [{ questionId: sequence++ }],
     candidateMockInterviewPassLedger: {
       findFirst: async () => ({ ledgerId: 1n }),
@@ -369,6 +373,7 @@ test("prisma interview repository starts private mock session and consumes pass 
 
   const created = await repository.createMockSessionWithPass({
     candidateId: 7,
+    questionProcessLogId: 77,
     showQuestionText: true,
     contextQuestions: [
       { questionType: "INTRO", content: "제출한 이력서 자료를 바탕으로 소개해주세요.", sortOrder: 1 },
@@ -389,6 +394,7 @@ test("prisma interview repository starts private mock session and consumes pass 
     },
   }]);
   assert.equal(sessionQuestionCreates.length, 2);
+  assert.equal(executeRawCalls, 2);
   assert.deepEqual(sessionQuestionCreates[0], {
     data: {
       sessionId: 10002n,

@@ -513,6 +513,29 @@ test("mock question generation uses candidate folder context when provided", asy
   assert.deepEqual(output.targetTables, []);
 });
 
+test("mock question generation fallback uses cover letter profile context without echoing its text", async () => {
+  const results = new InMemoryAiResultRepository();
+  const repository = await run({
+    processLogId: 16,
+    processType: "QUESTION_GENERATE",
+    input: {
+      kind: "MOCK_QUESTION_GENERATE",
+      payload: {
+        questionCount: 1,
+        profileContext: {
+          schemaVersion: 1,
+          coverLetter: "Redis 캐시 무효화 전략을 설계했습니다.",
+          educations: [], careers: [], activities: [], credentials: [],
+        },
+      },
+    },
+    results,
+  });
+  const output = JSON.parse(repository.get(16).outputRef ?? "{}") as { items?: string[] };
+  assert.match(output.items?.[0] ?? "", /자기소개서/);
+  assert.doesNotMatch(output.items?.[0] ?? "", /Redis 캐시 무효화 전략/);
+});
+
 test("posting draft generation returns review-required posting draft without final save", async () => {
   const results = new InMemoryAiResultRepository();
 

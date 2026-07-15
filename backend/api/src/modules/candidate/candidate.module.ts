@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { PrismaService } from "../../shared/prisma.service";
 import { AuthModule } from "../auth/auth.module";
 import { CandidateController } from "./controller/candidate.controller";
+import { PublicCandidateController } from "./controller/public-candidate.controller";
 import { InMemoryCandidateRepository } from "./repository/in-memory-candidate.repository";
 import { PrismaCandidateRepository } from "./repository/prisma-candidate.repository";
 import { CANDIDATE_DOCUMENT_STORAGE, S3CandidateDocumentStorageAdapter } from "./service/candidate-document-storage.adapter";
@@ -10,7 +11,7 @@ import { AiJobDispatchModule } from "../report/ai-job-dispatch.module";
 
 @Module({
   imports: [AuthModule, AiJobDispatchModule],
-  controllers: [CandidateController],
+  controllers: [CandidateController, PublicCandidateController],
   providers: [
     PrismaService,
     {

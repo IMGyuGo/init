@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { InMemoryAiResultRepository } from "./ai-result.repository";
 import { MockAiTaskHandler } from "./mock-ai-task.handler";
 import { OpenAiAiTaskHandler } from "./openai-ai-task.handler";
-import { FollowUpAiProvider } from "./openai-follow-up.provider";
+import { FollowUpAiProvider, FollowUpGenerationInput } from "./openai-follow-up.provider";
 import { PostingDraftAiProvider, PostingDraftGenerationInput } from "./openai-posting-draft.provider";
 import { QuestionAiProvider } from "./openai-question.provider";
 import { ReportAiProvider, ReportGenerationInput } from "./openai-report.provider";
@@ -46,6 +46,75 @@ test("OpenAiAiTaskHandler uses provider for follow-up and keeps existing save co
   assert.equal(output.model, "test-model");
   assert.equal(results.followUpQuestions[0]?.content, output.content);
   assert.equal(handled.guardrail?.result, "PASS");
+});
+
+test("OpenAiAiTaskHandler passes safe profile context as secondary follow-up evidence", async () => {
+  const results = new InMemoryAiResultRepository();
+  const inputs: FollowUpGenerationInput[] = [];
+  const capturingProvider: FollowUpAiProvider = {
+    async generateFollowUpQuestion(input) {
+      inputs.push(input);
+      return { content: "Redis 캐시 무효화 기준을 어떻게 정했나요?", model: "test-model" };
+    },
+  };
+  const handler = new OpenAiAiTaskHandler(new MockAiTaskHandler(results), results, capturingProvider);
+  const profileContext = {
+    schemaVersion: 1,
+    summary: "백엔드 개발자",
+    githubUrl: "https://github.com/tester",
+    blogUrl: null,
+    portfolioUrl: null,
+    educations: [],
+    careers: [{ companyName: "정글랩", responsibilities: "Redis 캐시 운영" }],
+    activities: [],
+    credentials: [],
+  };
+
+  const handled = await handler.handle({
+    processLogId: 30,
+    processType: "FOLLOW_UP",
+    attempt: 1,
+    inputRef: JSON.stringify({
+      kind: "MOCK_FOLLOW_UP",
+      payload: {
+        sessionId: 7,
+        answerId: 11,
+        previousQuestion: "캐시 경험을 설명해주세요.",
+        transcript: "Redis 캐시를 적용했습니다.",
+        profileContext,
+      },
+    }),
+  });
+
+  assert.deepEqual(inputs[0]?.profileContext, profileContext);
+  assert.equal(handled.guardrail?.result, "PASS");
+});
+
+test("OpenAiAiTaskHandler blocks follow-up output that leaks contact information or URL", async () => {
+  const results = new InMemoryAiResultRepository();
+  const leakingProvider: FollowUpAiProvider = {
+    async generateFollowUpQuestion() {
+      return { content: "https://github.com/tester에 적힌 전화번호를 설명해주세요?", model: "test-model" };
+    },
+  };
+  const handler = new OpenAiAiTaskHandler(new MockAiTaskHandler(results), results, leakingProvider);
+  const handled = await handler.handle({
+    processLogId: 31,
+    processType: "FOLLOW_UP",
+    attempt: 1,
+    inputRef: JSON.stringify({
+      kind: "MOCK_FOLLOW_UP",
+      payload: {
+        sessionId: 7,
+        answerId: 11,
+        previousQuestion: "프로젝트를 설명해주세요.",
+        transcript: "프로젝트를 진행했습니다.",
+      },
+    }),
+  });
+
+  assert.equal(handled.guardrail?.result, "BLOCKED");
+  assert.match(handled.guardrail?.reason ?? "", /contact information|URL/);
 });
 
 test("OpenAiAiTaskHandler uses provider for final report generation and keeps save contract", async () => {
@@ -254,6 +323,94 @@ test("OpenAiAiTaskHandler uses provider for recruiting question generation and k
   assert.equal(output.questionCandidates?.[0]?.category, "직무역량");
   assert.equal(results.generatedDrafts[0]?.questionCandidates?.[0]?.criterionId, 1);
   assert.equal(handled.guardrail?.result, "PASS");
+});
+
+test("OpenAiAiTaskHandler uses provider and structured profile context for mock question generation", async () => {
+  const results = new InMemoryAiResultRepository();
+  const inputs: unknown[] = [];
+  const questionProvider: QuestionAiProvider = {
+    async generateQuestions(input) {
+      inputs.push(input);
+      return {
+        questionCandidates: [{
+          content: "Redis 캐시를 적용한 프로젝트에서 무효화 전략을 어떻게 결정했나요?",
+          category: "맞춤형 모의면접",
+          difficulty: "MEDIUM",
+          expectedKeywords: ["캐시", "무효화", "트레이드오프"],
+          suggestionReason: "지원자의 Redis 운영 경험을 구체적으로 검증합니다.",
+          questionType: "TECHNICAL"
+        } as never],
+        model: "question-model"
+      };
+    }
+  };
+  const handler = new OpenAiAiTaskHandler(
+    new MockAiTaskHandler(results), results, provider, undefined, undefined, questionProvider
+  );
+
+  const profileContext = { schemaVersion: 1, coverLetter: "Redis 캐시 무효화 전략을 설계했습니다.", careers: [], educations: [], activities: [], credentials: [] };
+  const handled = await handler.handle({
+    processLogId: 25,
+    processType: "QUESTION_GENERATE",
+    attempt: 1,
+    inputRef: JSON.stringify({
+      kind: "MOCK_QUESTION_GENERATE",
+      payload: {
+        questionCount: 1,
+        questionTypes: ["TECHNICAL"],
+        jobRole: "Backend Developer",
+        difficulty: "HARD",
+        profileContext,
+        folderContext: {
+          resumeExtractedText: "name@example.com 010-1234-5678 https://example.com Redis",
+          resumeFile: { originalName: "Jin-Baek-resume.pdf" },
+        },
+      }
+    })
+  });
+
+  const input = inputs[0] as {
+    profileContext?: unknown;
+    jobRole?: string;
+    requestedDifficulty?: string;
+    folderContext?: { resumeExtractedText?: string; resumeFile?: { originalName?: string } };
+  } | undefined;
+  assert.deepEqual(input?.profileContext, profileContext);
+  assert.equal(input?.jobRole, "Backend Developer");
+  assert.equal(input?.requestedDifficulty, "HARD");
+  assert.doesNotMatch(input?.folderContext?.resumeExtractedText ?? "", /name@example\.com|010-1234-5678|https:\/\//);
+  assert.equal(input?.folderContext?.resumeFile?.originalName, "[파일명 제거]");
+  const output = JSON.parse(handled.outputRef ?? "{}") as { items?: string[]; targetTables?: string[] };
+  assert.match(output.items?.[0] ?? "", /Redis 캐시/);
+  assert.deepEqual(output.targetTables, []);
+});
+
+test("OpenAiAiTaskHandler blocks mock questions that leak candidate contact information", async () => {
+  const results = new InMemoryAiResultRepository();
+  const questionProvider: QuestionAiProvider = {
+    async generateQuestions() {
+      return {
+        questionCandidates: [{
+          content: "수행한 프로젝트에서 맡은 역할을 설명해 주세요.",
+          category: "맞춤형 모의면접",
+          difficulty: "MEDIUM",
+          expectedKeywords: ["https://portfolio.example.com"],
+          suggestionReason: "candidate@example.com contact leak",
+          questionType: "EXPERIENCE"
+        }],
+        model: "question-model"
+      };
+    }
+  };
+  const handler = new OpenAiAiTaskHandler(new MockAiTaskHandler(results), results, provider, undefined, undefined, questionProvider);
+  const handled = await handler.handle({
+    processLogId: 26,
+    processType: "QUESTION_GENERATE",
+    attempt: 1,
+    inputRef: JSON.stringify({ kind: "MOCK_QUESTION_GENERATE", payload: { questionCount: 1, profileContext: { schemaVersion: 1 } } })
+  });
+  assert.equal(handled.guardrail?.result, "BLOCKED");
+  assert.match(handled.guardrail?.reason ?? "", /contact information/);
 });
 
 test("OpenAiAiTaskHandler rejects provider question candidates without criterionId", async () => {

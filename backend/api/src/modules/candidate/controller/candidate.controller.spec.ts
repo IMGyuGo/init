@@ -5,7 +5,13 @@ import { HTTP_CODE_METADATA, METHOD_METADATA, PATH_METADATA } from "@nestjs/comm
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { CandidateController } from "./candidate.controller";
-import { candidateApiRoutePrefix, candidateApiRoutes } from "../candidate.routes";
+import { PublicCandidateController } from "./public-candidate.controller";
+import {
+  candidateApiRoutePrefix,
+  candidateApiRoutes,
+  publicCandidateApiRoutePrefix,
+  publicCandidateApiRoutes,
+} from "../candidate.routes";
 import { InMemoryCandidateRepository } from "../repository/in-memory-candidate.repository";
 import { CANDIDATE_REPOSITORY, CandidateService, DEV_CANDIDATE_USER, MAX_DOCUMENT_SIZE_BYTES } from "../service/candidate.service";
 import { CANDIDATE_DOCUMENT_STORAGE, InMemoryCandidateDocumentStorageAdapter } from "../service/candidate-document-storage.adapter";
@@ -61,6 +67,10 @@ assertRoute("listApplications", candidateApiRoutes.applications, RequestMethod.G
 assertRoute("getInterviewGuide", candidateApiRoutes.interviewGuide, RequestMethod.GET);
 assertRoute("saveInterviewConsent", candidateApiRoutes.interviewConsent, RequestMethod.POST);
 
+assert.equal(Reflect.getMetadata(PATH_METADATA, PublicCandidateController), publicCandidateApiRoutePrefix);
+assert.equal(Reflect.getMetadata(PATH_METADATA, PublicCandidateController.prototype.listJobs), publicCandidateApiRoutes.jobs);
+assert.equal(Reflect.getMetadata(METHOD_METADATA, PublicCandidateController.prototype.listJobs), RequestMethod.GET);
+
 const validCandidateRequest = {
   headers: {},
   currentUser: { ...DEV_CANDIDATE_USER, companyId: null },
@@ -102,7 +112,17 @@ async function assertCandidateHttpError(
 
 async function runControllerRuntimeAssertions() {
   const documentStorage = new InMemoryCandidateDocumentStorageAdapter();
-  const controller = new CandidateController(new CandidateService(new InMemoryCandidateRepository(), documentStorage));
+  const candidateService = new CandidateService(new InMemoryCandidateRepository(), documentStorage);
+  const controller = new CandidateController(candidateService);
+  const publicController = new PublicCandidateController(candidateService);
+
+  const publicListResponse = await publicController.listJobs({
+    page: 1,
+    limit: 20,
+    sort: "createdAt",
+    order: "desc",
+  });
+  assert.equal(publicListResponse.data.items.length, 2);
 
   const listResponse = await controller.listJobs(validCandidateRequest, {
     page: 1,

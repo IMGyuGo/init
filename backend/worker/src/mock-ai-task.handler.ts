@@ -265,13 +265,14 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const policy = kind.startsWith("MOCK") ? "MOCK" : "RECRUITING";
     const jobDescription = typeof payload.jobDescription === "string" ? payload.jobDescription : undefined;
     const documentSummary = typeof payload.documentSummary === "string" ? payload.documentSummary : undefined;
+    const profileHint = candidateProfileHint(payload.profileContext);
     if (policy === "RECRUITING" && !hasText(jobDescription) && !hasText(documentSummary)) {
       throw new NonRetryableAiWorkerFailure("jobDescription or documentSummary is required");
     }
     const context =
       policy === "MOCK"
-        ? previousQuestion
-        : [previousQuestion, jobDescription, documentSummary]
+        ? [previousQuestion, profileHint].filter(hasText).map(shorten).join(" | ")
+        : [previousQuestion, jobDescription, documentSummary, profileHint]
             .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
             .map(shorten)
             .join(" | ");
@@ -592,6 +593,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const criteria = kind.startsWith("MOCK") ? [] : criteriaOf(payload.criteria);
     const jobDescription = kind.startsWith("MOCK") ? undefined : requiredText(payload.jobDescription, "jobDescription");
     const folderContext = kind.startsWith("MOCK") ? mockQuestionFolderContextOf(payload.folderContext) : undefined;
+    const profileSources = kind.startsWith("MOCK") ? candidateProfileSources(payload.profileContext) : [];
 
     const allocatedCriteria = criteria.some((criterion) => criterion.questionCount !== undefined)
       ? criteria.flatMap((criterion) =>
@@ -605,7 +607,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const questionCandidates = Array.from({ length: questionCount }, (_, index) => {
       const criterion = allocatedCriteria[index];
       const content = kind.startsWith("MOCK")
-        ? buildMockQuestionCandidate(index, folderContext)
+        ? buildMockQuestionCandidate(index, folderContext, profileSources)
         : buildRecruitingQuestionCandidate(criterion, jobDescription ?? "");
 
       const alignment = criterion?.ncsProfileId && criterion.ncsQuestionMode && criterion.ncsProfileVersion
@@ -1147,6 +1149,22 @@ export class MockAiTaskHandler implements AiTaskHandler {
   }
 }
 
+function candidateProfileHint(value: unknown): string | undefined {
+  const context = optionalObject(value);
+  if (!context || context.schemaVersion !== 1) return undefined;
+  const careers = Array.isArray(context.careers) ? context.careers : [];
+  const activities = Array.isArray(context.activities) ? context.activities : [];
+  const credentials = Array.isArray(context.credentials) ? context.credentials : [];
+  const career = optionalObject(careers[0]);
+  const activity = optionalObject(activities[0]);
+  const credential = optionalObject(credentials[0]);
+  const detail = optionalText(career?.responsibilities)
+    ?? optionalText(activity?.description)
+    ?? optionalText(credential?.name)
+    ?? optionalText(context.summary);
+  return detail ? `프로필 보조 근거: ${detail}` : undefined;
+}
+
 function parseInput(inputRef: string): WorkerInput {
   try {
     const parsed = JSON.parse(inputRef) as WorkerInput;
@@ -1221,18 +1239,19 @@ function mockQuestionFolderContextOf(value: unknown): MockQuestionFolderContext 
   };
 }
 
-function buildMockQuestionCandidate(index: number, folder?: MockQuestionFolderContext): string {
-  if (!folder) {
+function buildMockQuestionCandidate(index: number, folder?: MockQuestionFolderContext, profileSources: string[] = []): string {
+  if (!folder && profileSources.length === 0) {
     return `Mock interview practice question ${index + 1}`;
   }
 
   const sources = [
-    folder.resumeExtractedText || folder.resumeFile ? "이력서" : undefined,
-    folder.githubUrl ? "GitHub" : undefined,
-    folder.blogUrl ? "기술 블로그" : undefined,
-    folder.portfolioUrl ? "포트폴리오" : undefined,
-    folder.motivation ? "지원동기" : undefined,
-    folder.extraNote ? "추가 설명" : undefined,
+    folder?.resumeExtractedText || folder?.resumeFile ? "이력서" : undefined,
+    folder?.githubUrl ? "GitHub" : undefined,
+    folder?.blogUrl ? "기술 블로그" : undefined,
+    folder?.portfolioUrl ? "포트폴리오" : undefined,
+    folder?.motivation ? "지원동기" : undefined,
+    folder?.extraNote ? "추가 설명" : undefined,
+    ...profileSources,
   ].filter((source): source is string => Boolean(source));
   const context = sources.length > 0 ? `제출한 ${sources.join(", ")} 자료` : "지원서 세트";
 
@@ -1240,6 +1259,19 @@ function buildMockQuestionCandidate(index: number, folder?: MockQuestionFolderCo
     return `${context}를 바탕으로 실제 기술 경험 하나를 골라 본인 역할, 의사결정, 성과를 설명해주세요.`;
   }
   return `${context}에서 면접관이 더 확인해야 할 약한 근거를 하나 짚고 구체적인 사례로 보완해서 설명해주세요.`;
+}
+
+function candidateProfileSources(value: unknown): string[] {
+  const context = optionalObject(value);
+  if (!context || context.schemaVersion !== 1) return [];
+  return [
+    optionalText(context.coverLetter) ? "자기소개서" : undefined,
+    Array.isArray(context.careers) && context.careers.length > 0 ? "경력" : undefined,
+    Array.isArray(context.activities) && context.activities.length > 0 ? "프로젝트·활동" : undefined,
+    Array.isArray(context.educations) && context.educations.length > 0 ? "학력" : undefined,
+    Array.isArray(context.credentials) && context.credentials.length > 0 ? "자격·수상" : undefined,
+    optionalText(context.summary) ? "한 줄 소개" : undefined,
+  ].filter((source): source is string => Boolean(source));
 }
 
 function stringArrayOf(value: unknown): string[] {
@@ -1951,7 +1983,7 @@ function buildFollowUpQuestion(input: {
   const lower = transcript.toLowerCase();
 
   if (input.policy === "MOCK") {
-    return buildPracticeFollowUp(input.previousQuestion, transcript);
+    return buildPracticeFollowUp(input.previousQuestion, transcript, input.context);
   }
 
   if (lower.includes("nestjs") || lower.includes("postgresql") || lower.includes("stt") || transcript.includes("꼬리질문")) {
@@ -1974,8 +2006,8 @@ function buildFollowUpQuestion(input: {
   return `방금 답변에서 ${topic}을 언급했는데, 그 경험에서 본인이 직접 맡은 역할과 가장 어려웠던 의사결정을 구체적으로 설명해 주세요.`;
 }
 
-function buildPracticeFollowUp(previousQuestion: string, transcript: string): string {
-  const topic = extractFollowUpTopic(transcript, previousQuestion);
+function buildPracticeFollowUp(previousQuestion: string, transcript: string, profileContext?: string): string {
+  const topic = extractFollowUpTopic(transcript, previousQuestion, profileContext);
   const questionContext = normalizeSpace(previousQuestion);
   const answerContext = normalizeSpace(transcript).toLowerCase();
 

@@ -1,9 +1,68 @@
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
+
+import {
+  SEED_ACCOUNT_PASSWORD,
+  SEED_COMPANY_LOGO_MIME_TYPE,
+  companyJobListingSeeds,
+  type SeedCompanyLogoObject,
+} from "./seed-data";
+import { buildSeedS3ClientOptions } from "./seed-s3-client-options";
 
 const prisma = new PrismaClient();
+const s3Client = new S3Client(buildSeedS3ClientOptions());
+const s3Bucket = process.env.S3_BUCKET_NAME ?? process.env.S3_BUCKET;
 
 const now = () => new Date();
 const dayMs = 24 * 60 * 60 * 1000;
+
+async function putSeedCompanyLogo(seed: (typeof companyJobListingSeeds)[number]) {
+  if (!s3Bucket) {
+    throw new Error("S3_BUCKET or S3_BUCKET_NAME is required.");
+  }
+
+  const logoObject = await downloadSeedCompanyLogo(seed);
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: s3Bucket,
+      Key: logoObject.key,
+      Body: logoObject.body,
+      ContentLength: logoObject.sizeBytes,
+      ContentType: logoObject.contentType,
+    }),
+  );
+  return logoObject;
+}
+
+async function downloadSeedCompanyLogo(seed: (typeof companyJobListingSeeds)[number]): Promise<SeedCompanyLogoObject> {
+  const response = await fetch(seed.logoSourceUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to download seed company logo: ${seed.company.name} ${seed.logoSourceUrl} (${response.status})`);
+  }
+
+  const contentType = normalizeImageContentType(response.headers.get("content-type"));
+  const body = Buffer.from(await response.arrayBuffer());
+  if (body.length === 0) {
+    throw new Error(`Downloaded seed company logo is empty: ${seed.company.name} ${seed.logoSourceUrl}`);
+  }
+
+  return {
+    key: seed.logoFile.storageKey,
+    originalName: seed.logoFile.originalName,
+    contentType,
+    body,
+    sizeBytes: body.length,
+  };
+}
+
+function normalizeImageContentType(contentType: string | null): typeof SEED_COMPANY_LOGO_MIME_TYPE {
+  const normalized = contentType?.split(";")[0]?.trim().toLowerCase();
+  if (normalized !== SEED_COMPANY_LOGO_MIME_TYPE) {
+    throw new Error(`Seed company logo must be ${SEED_COMPANY_LOGO_MIME_TYPE}, received ${contentType ?? "unknown"}.`);
+  }
+  return SEED_COMPANY_LOGO_MIME_TYPE;
+}
 
 const companyFailedPaymentOrderSeeds = [
   {
@@ -122,13 +181,184 @@ const criterionTagSeeds = [
   },
 ];
 
+function dateFromSeedOffset(baseDate: Date, dayOffset: number) {
+  const date = new Date(baseDate.getTime() + dayOffset * dayMs);
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+async function seedCompanyJobListings(createdAt: Date, seedPasswordHash: string) {
+  const activeSeedPostingIds = companyJobListingSeeds.flatMap((seed) => seed.postings.map((posting) => posting.postingId));
+  await prisma.posting.updateMany({
+    where: {
+      companyId: {
+        gte: 101,
+        lte: 130,
+      },
+      postingId: {
+        notIn: activeSeedPostingIds,
+      },
+    },
+    data: {
+      status: "ARCHIVED",
+      updatedAt: createdAt,
+    },
+  });
+
+  for (const seed of companyJobListingSeeds) {
+    const logoObject = await putSeedCompanyLogo(seed);
+
+    await prisma.user.upsert({
+      where: { userId: seed.ownerUser.userId },
+      update: {
+        email: seed.ownerUser.email,
+        passwordHash: seedPasswordHash,
+        userType: "COMPANY",
+        name: seed.ownerUser.name,
+        phone: seed.ownerUser.phone,
+        status: "ACTIVE",
+        authProvider: "LOCAL",
+        providerUserId: null,
+        updatedAt: createdAt,
+      },
+      create: {
+        userId: seed.ownerUser.userId,
+        email: seed.ownerUser.email,
+        passwordHash: seedPasswordHash,
+        userType: "COMPANY",
+        name: seed.ownerUser.name,
+        phone: seed.ownerUser.phone,
+        status: "ACTIVE",
+        authProvider: "LOCAL",
+        providerUserId: null,
+        createdAt,
+        updatedAt: createdAt,
+      },
+    });
+
+    await prisma.fileAsset.upsert({
+      where: { fileId: seed.logoFile.fileId },
+      update: {
+        ownerUserId: seed.ownerUser.userId,
+        storageKey: logoObject.key,
+        originalName: logoObject.originalName,
+        mimeType: logoObject.contentType,
+        sizeBytes: BigInt(logoObject.sizeBytes),
+        status: "ACTIVE",
+      },
+      create: {
+        fileId: seed.logoFile.fileId,
+        ownerUserId: seed.ownerUser.userId,
+        storageKey: logoObject.key,
+        originalName: logoObject.originalName,
+        mimeType: logoObject.contentType,
+        sizeBytes: BigInt(logoObject.sizeBytes),
+        status: "ACTIVE",
+        createdAt,
+      },
+    });
+
+    await prisma.company.upsert({
+      where: { companyId: seed.company.companyId },
+      update: {
+        ownerUserId: seed.company.ownerUserId,
+        name: seed.company.name,
+        businessRegistrationNumber: seed.company.businessRegistrationNumber,
+        verificationStatus: seed.company.verificationStatus,
+        logoFileId: seed.company.logoFileId,
+        industry: seed.company.industry,
+        profile: seed.company.profile,
+        talentProfile: seed.company.talentProfile,
+        evaluationPolicy: seed.company.evaluationPolicy,
+        updatedAt: createdAt,
+      },
+      create: {
+        companyId: seed.company.companyId,
+        ownerUserId: seed.company.ownerUserId,
+        name: seed.company.name,
+        businessRegistrationNumber: seed.company.businessRegistrationNumber,
+        verificationStatus: seed.company.verificationStatus,
+        logoFileId: seed.company.logoFileId,
+        industry: seed.company.industry,
+        profile: seed.company.profile,
+        talentProfile: seed.company.talentProfile,
+        evaluationPolicy: seed.company.evaluationPolicy,
+        createdAt,
+        updatedAt: createdAt,
+      },
+    });
+
+    for (const posting of seed.postings) {
+      const startsOn = dateFromSeedOffset(createdAt, posting.startsInDays);
+      const endsOn = dateFromSeedOffset(createdAt, posting.endsInDays);
+      const postingCreatedAt = new Date(createdAt.getTime() - posting.createdDaysAgo * dayMs);
+
+      await prisma.posting.upsert({
+        where: { postingId: posting.postingId },
+        update: {
+          companyId: seed.company.companyId,
+          title: posting.title,
+          jobRole: posting.jobRole,
+          jobDescription: posting.jobDescription,
+          careerRequirement: posting.careerRequirement,
+          educationRequirement: posting.educationRequirement,
+          salaryInfo: posting.salaryInfo,
+          workLocation: posting.workLocation,
+          employmentType: posting.employmentType,
+          jobRoleCode: posting.jobRoleCode,
+          regionCode: posting.regionCode,
+          careerMinYears: posting.careerMinYears,
+          careerMaxYears: posting.careerMaxYears,
+          employmentTypeCode: posting.employmentTypeCode,
+          recruitmentType: posting.recruitmentType,
+          workplaceAddress: posting.workplaceAddress,
+          workplaceLat: posting.workplaceLat,
+          workplaceLng: posting.workplaceLng,
+          startsOn,
+          endsOn,
+          status: posting.status,
+          createdAt: postingCreatedAt,
+          updatedAt: createdAt,
+        },
+        create: {
+          postingId: posting.postingId,
+          companyId: seed.company.companyId,
+          title: posting.title,
+          jobRole: posting.jobRole,
+          jobDescription: posting.jobDescription,
+          careerRequirement: posting.careerRequirement,
+          educationRequirement: posting.educationRequirement,
+          salaryInfo: posting.salaryInfo,
+          workLocation: posting.workLocation,
+          employmentType: posting.employmentType,
+          jobRoleCode: posting.jobRoleCode,
+          regionCode: posting.regionCode,
+          careerMinYears: posting.careerMinYears,
+          careerMaxYears: posting.careerMaxYears,
+          employmentTypeCode: posting.employmentTypeCode,
+          recruitmentType: posting.recruitmentType,
+          workplaceAddress: posting.workplaceAddress,
+          workplaceLat: posting.workplaceLat,
+          workplaceLng: posting.workplaceLng,
+          startsOn,
+          endsOn,
+          status: posting.status,
+          createdAt: postingCreatedAt,
+          updatedAt: createdAt,
+        },
+      });
+    }
+  }
+}
+
 async function main() {
   const createdAt = now();
+  const seedPasswordHash = await bcrypt.hash(SEED_ACCOUNT_PASSWORD, 12);
 
   await prisma.user.upsert({
     where: { userId: 1 },
     update: {
       email: "dev.company@example.com",
+      passwordHash: seedPasswordHash,
       userType: "COMPANY",
       name: "Dev Company User",
       status: "ACTIVE",
@@ -138,7 +368,7 @@ async function main() {
     create: {
       userId: 1,
       email: "dev.company@example.com",
-      passwordHash: null,
+      passwordHash: seedPasswordHash,
       userType: "COMPANY",
       name: "Dev Company User",
       phone: null,
@@ -177,6 +407,7 @@ async function main() {
     where: { userId: 2 },
     update: {
       email: "dev.candidate@example.com",
+      passwordHash: seedPasswordHash,
       userType: "CANDIDATE",
       name: "Dev Candidate User",
       status: "ACTIVE",
@@ -186,7 +417,7 @@ async function main() {
     create: {
       userId: 2,
       email: "dev.candidate@example.com",
-      passwordHash: null,
+      passwordHash: seedPasswordHash,
       userType: "CANDIDATE",
       name: "Dev Candidate User",
       phone: null,
@@ -215,6 +446,8 @@ async function main() {
       updatedAt: createdAt,
     },
   });
+
+  await seedCompanyJobListings(createdAt, seedPasswordHash);
 
   const companyPaymentCustomer = await prisma.paymentCustomer.upsert({
     where: {

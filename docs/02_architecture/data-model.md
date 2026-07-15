@@ -43,6 +43,10 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | `users` | `User` | A |
 | `companies` | `Company` | A |
 | `candidate_profiles` | `CandidateProfile` | A/D |
+| `candidate_educations` | `CandidateEducation` | A/D |
+| `candidate_careers` | `CandidateCareer` | A/D |
+| `candidate_activities` | `CandidateActivity` | A/D |
+| `candidate_credentials` | `CandidateCredential` | A/D |
 | `candidate_folders` | `CandidateFolder` | D |
 | `file_assets` | `FileAsset` | A/D/E |
 | `postings` | `Posting` | B |
@@ -88,7 +92,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 
 | Aggregate | Owned Tables | Responsibility |
 | --- |--- |--- |
-| Account | users, companies, candidate_profiles | 로그인 계정, 기업/지원자 프로필, 기본 파일 참조 |
+| Account | users, companies, candidate_profiles, candidate_educations, candidate_careers, candidate_activities, candidate_credentials | 로그인 계정, 기업/지원자 구조화 프로필, 기본 파일 참조 |
 | Recruiting | postings, criterion_tags, evaluation_criteria, question_bank, question_ncs_bindings, application_question_ncs_bindings, interview_time_policies | 공고, JD, 평가 기준, 질문, 면접 시간 정책 관리 |
 | Application | applications, application_documents, consent_records | 지원서 제출, 서류 파싱, 동의 이력 |
 | Interview | interview_sessions, interview_session_ncs_policies, interview_session_questions, session_question_ncs_bindings, interview_answers, follow_up_questions | 모의/채용 AI 면접 실행, 세션별 시간·가중치 정책과 질문 순서·profile snapshot, 답변 |
@@ -155,8 +159,68 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | github_url | VARCHAR(500) | GitHub 주소 |
 | blog_url | VARCHAR(500) | 블로그 URL (#272 프로필 정본화로 추가) |
 | summary | TEXT | 지원자 자기소개/요약 정보. AI 분석 또는 프로필 표시용 |
+| cover_letter | TEXT | 선택 자기소개서. 지원서 스냅샷과 맞춤 질문 생성의 원본 |
 | created_at | TIMESTAMP NOT NULL | 지원자 프로필 생성 시각 |
 | updated_at | TIMESTAMP NOT NULL | 지원자 프로필 수정 시각 |
+
+구조화 프로필 자식 테이블은 모두 `candidate_id` FK(`ON DELETE CASCADE`), 1부터 시작하는 `sort_order`, `created_at`, `updated_at`을 가지며 `(candidate_id, sort_order)`를 유일하게 유지한다. 반복 섹션 교체 시 부모 `candidate_profiles.updated_at`도 갱신한다.
+
+### candidate_educations
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| education_id | BIGINT PRIMARY KEY | 학력 항목 PK |
+| candidate_id | BIGINT NOT NULL | 지원자 프로필 FK |
+| sort_order | INTEGER NOT NULL | 화면/응답 순서 |
+| education_level | VARCHAR(30) NOT NULL | 학력 구분 enum |
+| school_name | VARCHAR(150) NOT NULL | 학교명 |
+| major | VARCHAR(150) | 전공 |
+| degree_type | VARCHAR(30) NOT NULL | 학위 또는 대학 구분 enum |
+| status | VARCHAR(30) NOT NULL | 재학·졸업 상태 enum |
+| start_month | DATE NOT NULL | 입학월(월 첫날 저장) |
+| end_month | DATE | 졸업/예정월(월 첫날 저장) |
+| created_at / updated_at | TIMESTAMP NOT NULL | 생성/수정 시각 |
+
+### candidate_careers
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| career_id | BIGINT PRIMARY KEY | 경력 항목 PK |
+| candidate_id / sort_order | BIGINT / INTEGER NOT NULL | 지원자 FK와 표시 순서 |
+| company_name | VARCHAR(150) NOT NULL | 회사명 |
+| start_month / end_month | DATE NOT NULL / DATE | 입사월/퇴사월 |
+| is_current | BOOLEAN NOT NULL | 재직 중 여부 |
+| job_role | VARCHAR(100) NOT NULL | 직무 |
+| department / position | VARCHAR(100) | 부서/직급·직책 |
+| responsibilities | VARCHAR(1000) NOT NULL | 담당업무 |
+| created_at / updated_at | TIMESTAMP NOT NULL | 생성/수정 시각 |
+
+### candidate_activities
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| activity_id | BIGINT PRIMARY KEY | 활동 항목 PK |
+| candidate_id / sort_order | BIGINT / INTEGER NOT NULL | 지원자 FK와 표시 순서 |
+| activity_type | VARCHAR(30) NOT NULL | 활동 구분 enum |
+| organization_name | VARCHAR(150) NOT NULL | 기관·회사명 |
+| start_date / end_date | DATE NOT NULL / DATE | 시작일/종료일 |
+| is_ongoing | BOOLEAN NOT NULL | 진행 중 여부 |
+| description | VARCHAR(1000) NOT NULL | 활동 내용 |
+| created_at / updated_at | TIMESTAMP NOT NULL | 생성/수정 시각 |
+
+### candidate_credentials
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| credential_id | BIGINT PRIMARY KEY | 자격·어학·수상 항목 PK |
+| candidate_id / sort_order | BIGINT / INTEGER NOT NULL | 지원자 FK와 표시 순서 |
+| credential_type | VARCHAR(30) NOT NULL | 자격/어학/수상 구분 enum |
+| name / issuer | VARCHAR(150) NOT NULL | 명칭과 발행·주최기관 |
+| acquired_month | DATE NOT NULL | 취득월(월 첫날 저장) |
+| result | VARCHAR(200) | 점수·등급·수상 결과 |
+| created_at / updated_at | TIMESTAMP NOT NULL | 생성/수정 시각 |
+
+프로필 AI 컨텍스트는 위 구조화 항목과 summary/coverLetter/URL만 투영한다. 이름·이메일·전화번호, 자식 PK, `candidate_id`는 제외한다. 섹션별 현재/최신 5개, summary 1,000자, coverLetter 3,000자, 담당업무·활동내용 각 500자, 전체 JSON 20,000자 제한을 적용하고 초과하면 오래된 항목부터 제거한다.
 
 ### candidate_folders
 
@@ -172,6 +236,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | portfolio_file_id | BIGINT | 폴더에 연결된 포트폴리오 PDF file_assets FK. 파일 삭제 시 NULL (#272 P1-2) |
 | motivation | TEXT | 지원 동기 |
 | extra_note | TEXT | 추가 설명 |
+| profile_snapshot | JSONB | 생성/최초 수정 시 고정한 `CandidateProfileSnapshotV1`. 기존 행은 NULL 가능 |
 | created_at | TIMESTAMP NOT NULL | 폴더 생성 시각 |
 | updated_at | TIMESTAMP NOT NULL | 폴더 수정 시각 |
 
@@ -296,6 +361,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | portfolio_url | VARCHAR(500) | 해당 지원서에 제출한 포트폴리오 URL. 포트폴리오 PDF 제출 시 NULL 가능 |
 | motivation | TEXT | 해당 공고 지원동기 |
 | additional_info | TEXT | 지원자가 함께 제출한 추가 설명 |
+| profile_snapshot | JSONB | 제출 당시 전체 `CandidateProfileSnapshotV1`. 기존/공개 지원은 NULL 가능 |
 | application_status | VARCHAR(40) NOT NULL | 지원 전체 진행 상태: DRAFT, SUBMITTED, IN_REVIEW, INTERVIEW_WAITING, INTERVIEW_DONE, COMPLETED, CANCELED |
 | document_status | VARCHAR(40) NOT NULL | 서류 제출/분석 상태: NOT_SUBMITTED, SUBMITTED, EXTRACTING, EXTRACTED, FAILED |
 | interview_status | VARCHAR(40) NOT NULL | AI 면접 응시 상태: NOT_READY, READY, IN_PROGRESS, COMPLETED, FAILED |
@@ -305,7 +371,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | submitted_at | TIMESTAMP | 지원서 최종 제출 시각 |
 | updated_at | TIMESTAMP NOT NULL | 지원 건 마지막 수정 시각 |
 
-신규 지원서는 이름, 이메일, 연락처, GitHub URL, 블로그 URL, 이력서 PDF, 지원동기, 추가 설명을 반드시 제출한다. 포트폴리오는 URL 또는 PDF 중 하나 이상을 제출한다. 프로필 값이 이후 변경되어도 기업은 지원 당시 내용을 확인할 수 있도록 위 필드를 지원서 스냅샷으로 사용한다.
+신규 회원 지원서는 이름, 이메일, 연락처, GitHub URL, 블로그 URL, 이력서 PDF, 지원동기, 추가 설명과 전체 프로필 스냅샷을 제출한다. 포트폴리오는 URL 또는 PDF 중 하나 이상을 제출한다. 프로필 값이 이후 변경되어도 기업은 지원 당시 스냅샷을 확인한다. 기존/공개 지원의 NULL 스냅샷은 현재 프로필로 역보정하지 않는다.
 
 ### application_documents
 
@@ -338,6 +404,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | candidate_id | BIGINT NOT NULL | 면접 응시 지원자 FK |
 | interview_type | VARCHAR(40) NOT NULL | 면접 유형: MOCK, RECRUITING |
 | status | VARCHAR(40) NOT NULL | 면접 상태: NOT_READY, READY, IN_PROGRESS, COMPLETED, FAILED |
+| title | VARCHAR(100) | 연습(모의면접) 세션 사용자 지정 제목. NULL이면 기본 '세션 #N' 표기 |
 | show_question_text | BOOLEAN NOT NULL DEFAULT FALSE | 면접 질문 텍스트 표시 여부 |
 | preparation_time_sec_snapshot | INTEGER | 세션 확정 당시 준비 시간. legacy 세션은 NULL |
 | answer_time_sec_snapshot | INTEGER | 세션 확정 당시 본 질문·꼬리질문 공통 답변 시간. legacy 세션은 NULL |

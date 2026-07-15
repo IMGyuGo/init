@@ -142,6 +142,7 @@ export interface CandidateApplyView {
   requiredConsentTypes: ConsentType[];
   portfolioRequired: true;
   applicant: ApplicantContact;
+  profileSnapshot?: CandidateProfileSnapshotV1;
 }
 
 export interface SubmitApplicationRequest {
@@ -155,6 +156,7 @@ export interface SubmitApplicationRequest {
   portfolioUrl?: string;
   motivation: string;
   additionalInfo: string;
+  profileSnapshot: CandidateProfileSnapshotV1;
   consentTypes: ConsentType[];
 }
 
@@ -224,21 +226,23 @@ export interface CandidateApplicationSummary {
   applicationId: number;
   postingId: number;
   candidateId: number;
-  companyName: string;
-  jobTitle: string;
-  jobRole: string;
-  location: string;
+  availabilityStatus: "AVAILABLE" | "UNAVAILABLE";
+  unavailableReason: "POSTING_NOT_FOUND" | "INTERVIEW_SESSION_NOT_FOUND" | null;
+  companyName: string | null;
+  jobTitle: string | null;
+  jobRole: string | null;
+  location: string | null;
   applicationStatus: ApplicationStatus;
   documentStatus: DocumentStatus;
   interviewStatus: InterviewStatus;
   reportStatus: ReportStatus;
   submittedAt: string;
   updatedAt: string;
-  sessionId: number;
-  interviewType: InterviewType;
-  interviewSessionStatus: InterviewStatus;
-  interviewWindowStartsAt: string;
-  interviewWindowEndsAt: string;
+  sessionId: number | null;
+  interviewType: InterviewType | null;
+  interviewSessionStatus: InterviewStatus | null;
+  interviewWindowStartsAt: string | null;
+  interviewWindowEndsAt: string | null;
   consentCompleted: boolean;
   deviceCheckCompleted: boolean;
   canStartInterview: boolean;
@@ -344,6 +348,15 @@ export interface StartMockInterviewRequest {
   showQuestionText?: boolean;
   // 선택한 지원서 세트(폴더). 있으면 폴더 자료를 질문 생성 컨텍스트로 사용 (#228).
   folderId?: number;
+  questionProcessLogId?: number;
+}
+
+export interface GenerateMockQuestionsRequest {
+  questionCount: number;
+  folderId?: number;
+  jobRole?: string;
+  difficulty?: "EASY" | "NORMAL" | "HARD";
+  questionTypes?: QuestionType[];
 }
 
 export interface RuntimeQuestionView {
@@ -585,6 +598,7 @@ export interface CandidateMockInterviewHistoryItem {
   sessionId: number;
   reportId: number;
   interviewType: "MOCK";
+  title: string | null;
   status: InterviewStatus;
   reportStatus: ReportStatus;
   startedAt?: string;
@@ -738,6 +752,50 @@ export interface SubmitApplicationResponse {
 }
 
 // 지원자 프로필(내 정보) 정본. 자동 입력의 소스. 이메일은 읽기전용. (#272)
+export type CandidateEducationLevel = "HIGH_SCHOOL" | "COLLEGE" | "UNIVERSITY" | "GRADUATE_SCHOOL" | "OTHER";
+export type CandidateDegreeType = "HIGH_SCHOOL_DIPLOMA" | "ASSOCIATE" | "BACHELOR" | "MASTER" | "DOCTORATE" | "OTHER";
+export type CandidateEducationStatus = "ENROLLED" | "LEAVE_OF_ABSENCE" | "GRADUATED" | "EXPECTED_GRADUATION" | "COMPLETED" | "WITHDRAWN";
+export type CandidateActivityType = "SCHOOL_ACTIVITY" | "INTERNSHIP" | "CLUB" | "PROJECT_TASK" | "OVERSEAS_TRAINING" | "EDUCATION";
+export type CandidateCredentialType = "CERTIFICATE" | "LANGUAGE_TEST" | "AWARD";
+
+export interface CandidateEducation {
+  educationLevel: CandidateEducationLevel;
+  schoolName: string;
+  major: string | null;
+  degreeType: CandidateDegreeType;
+  status: CandidateEducationStatus;
+  startMonth: string;
+  endMonth: string | null;
+}
+
+export interface CandidateCareer {
+  companyName: string;
+  startMonth: string;
+  endMonth: string | null;
+  isCurrent: boolean;
+  jobRole: string;
+  department: string | null;
+  position: string | null;
+  responsibilities: string;
+}
+
+export interface CandidateActivity {
+  activityType: CandidateActivityType;
+  organizationName: string;
+  startDate: string;
+  endDate: string | null;
+  isOngoing: boolean;
+  description: string;
+}
+
+export interface CandidateCredential {
+  credentialType: CandidateCredentialType;
+  name: string;
+  issuer: string;
+  acquiredMonth: string;
+  result: string | null;
+}
+
 export interface CandidateProfileView {
   name: string;
   email: string;
@@ -746,6 +804,15 @@ export interface CandidateProfileView {
   blogUrl: string | null;
   portfolioUrl: string | null;
   summary: string | null;
+  coverLetter: string | null;
+  educations: CandidateEducation[];
+  careers: CandidateCareer[];
+  activities: CandidateActivity[];
+  credentials: CandidateCredential[];
+}
+
+export interface CandidateProfileSnapshotV1 extends CandidateProfileView {
+  schemaVersion: 1;
 }
 
 export interface UpdateCandidateProfileRequest {
@@ -755,6 +822,11 @@ export interface UpdateCandidateProfileRequest {
   blogUrl?: string | null;
   portfolioUrl?: string | null;
   summary?: string | null;
+  coverLetter?: string | null;
+  educations?: CandidateEducation[];
+  careers?: CandidateCareer[];
+  activities?: CandidateActivity[];
+  credentials?: CandidateCredential[];
 }
 
 // 기업별 지원서 세트(폴더). 모의면접 전용, 기존 CandidateProfile 과 별도 (#228).
@@ -770,6 +842,7 @@ export interface CandidateFolder {
   portfolioFileName: string | null;
   motivation: string | null;
   extraNote: string | null;
+  profileSnapshot: CandidateProfileSnapshotV1;
   createdAt: string;
   updatedAt: string;
 }
@@ -783,6 +856,7 @@ export interface CandidateFolderInput {
   portfolioFileId?: number | null;
   motivation?: string | null;
   extraNote?: string | null;
+  profileSnapshot?: CandidateProfileSnapshotV1;
 }
 
 export const candidateApiPaths = {
@@ -792,7 +866,9 @@ export const candidateApiPaths = {
   applyView: (jobId: number) => `/api/v1/candidate/jobs/${jobId}/apply`,
   submitApplication: (jobId: number) => `/api/v1/candidate/jobs/${jobId}/applications`,
   mockInterviews: "/api/v1/candidate/mock-interviews",
+  generateMockQuestions: "/api/v1/candidate/mock-interviews/questions/generate",
   mockRuntime: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}`,
+  mockTitle: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/title`,
   mockQuestions: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/questions`,
   mockAnswers: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/answers`,
   mockNextQuestion: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/next-question`,
@@ -847,6 +923,10 @@ export const publicInterviewApiPaths = {
   followUpQuestionInsert: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/follow-up-questions/insert`,
 } as const;
 
+export const publicCandidateApiPaths = {
+  jobs: "/api/v1/public/jobs",
+} as const;
+
 export class CandidateApiError extends Error {
   readonly status: number;
   readonly body?: ApiErrorBody;
@@ -863,6 +943,7 @@ export interface CandidateApiClientOptions {
   baseUrl?: string;
   headers?: HeadersInit;
   fetcher?: typeof fetch;
+  jobsPath?: string;
 }
 
 export interface CandidateApiClient {
@@ -873,6 +954,7 @@ export interface CandidateApiClient {
   getApplyView(jobId: number): Promise<ApiResponse<CandidateApplyView>>;
   submitApplication(jobId: number, body: SubmitApplicationRequest): Promise<ApiResponse<SubmitApplicationResponse>>;
   startMockInterview(body: StartMockInterviewRequest): Promise<ApiResponse<StartMockInterviewResponse>>;
+  generateMockQuestions(body: GenerateMockQuestionsRequest): Promise<ApiResponse<AiJobStatusResponse>>;
   getMockRuntime(sessionId: number): Promise<ApiResponse<InterviewRuntimeSessionView>>;
   listMockQuestions(sessionId: number): Promise<ApiResponse<RuntimeQuestionListResponse>>;
   saveMockAnswer(sessionId: number, body: SaveInterviewAnswerRequest): Promise<ApiResponse<SaveInterviewAnswerResponse>>;
@@ -893,6 +975,7 @@ export interface CandidateApiClient {
   ): Promise<ApiResponse<InsertFollowUpQuestionResponse>>;
   listMockReports(): Promise<ApiListResponse<CandidateMockReportSummary>>;
   listMockInterviewHistory(): Promise<ApiListResponse<CandidateMockInterviewHistoryItem>>;
+  updateMockSessionTitle(sessionId: number, title: string): Promise<ApiResponse<{ sessionId: number; title: string | null }>>;
   getMockReportFeedback(reportId: number): Promise<ApiResponse<CandidateMockReportFeedback>>;
   getMockReportMedia(reportId: number): Promise<ApiResponse<CandidateMockReportMedia>>;
   requestMockReportGeneration(reportId: number): Promise<ApiResponse<CandidateReportGenerationHandoff>>;
@@ -1025,7 +1108,8 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
         method: "PUT",
         body: JSON.stringify(body),
       }),
-    listJobs: (query = {}) => request<ApiListResponse<CandidateJobSummary>>(candidateApiPaths.jobs, {}, query),
+    listJobs: (query = {}) =>
+      request<ApiListResponse<CandidateJobSummary>>(options.jobsPath ?? candidateApiPaths.jobs, {}, query),
     getJobDetail: (jobId) => request<ApiResponse<CandidateJobDetail>>(candidateApiPaths.jobDetail(jobId)),
     getApplyView: (jobId) => request<ApiResponse<CandidateApplyView>>(candidateApiPaths.applyView(jobId)),
     submitApplication: (jobId, body) =>
@@ -1035,6 +1119,11 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
       }),
     startMockInterview: (body) =>
       request<ApiResponse<StartMockInterviewResponse>>(candidateApiPaths.mockInterviews, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    generateMockQuestions: (body) =>
+      request<ApiResponse<AiJobStatusResponse>>(candidateApiPaths.generateMockQuestions, {
         method: "POST",
         body: JSON.stringify(body),
       }),
@@ -1079,6 +1168,11 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
       request<ApiListResponse<CandidateMockReportSummary>>(candidateApiPaths.mockReports),
     listMockInterviewHistory: () =>
       request<ApiListResponse<CandidateMockInterviewHistoryItem>>(candidateApiPaths.mockHistory),
+    updateMockSessionTitle: (sessionId, title) =>
+      request<ApiResponse<{ sessionId: number; title: string | null }>>(candidateApiPaths.mockTitle(sessionId), {
+        method: "PATCH",
+        body: JSON.stringify({ title }),
+      }),
     getMockReportFeedback: (reportId) =>
       request<ApiResponse<CandidateMockReportFeedback>>(candidateApiPaths.mockReportFeedback(reportId)),
     getMockReportMedia: (reportId) =>

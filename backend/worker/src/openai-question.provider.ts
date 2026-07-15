@@ -17,20 +17,25 @@ export interface QuestionGenerationCriterion {
 
 export interface QuestionGenerationInput {
   kind: string;
-  postingId: number;
-  jobDescription: string;
+  jobRole?: string;
+  requestedDifficulty?: QuestionGenerationDifficulty;
+  postingId?: number;
+  jobDescription?: string;
   questionCount: number;
   criteria: QuestionGenerationCriterion[];
   source?: "JD_CRITERIA" | "RESUME_PERSONALIZED";
   resumeText?: string;
+  profileContext?: Record<string, unknown>;
+  folderContext?: Record<string, unknown>;
+  questionTypes?: QuestionGenerationType[];
 }
 
 export interface QuestionGenerationCandidate {
   content: string;
   category: string;
   difficulty: QuestionGenerationDifficulty;
-  criterionId: number;
-  criterionTitle: string;
+  criterionId?: number;
+  criterionTitle?: string;
   expectedKeywords: string[];
   suggestionReason: string;
   questionType?: QuestionGenerationType;
@@ -83,6 +88,44 @@ export class OpenAiQuestionProvider implements QuestionAiProvider {
 }
 
 export function buildQuestionMessages(input: QuestionGenerationInput): Array<{ role: "system" | "user"; content: string }> {
+  const mock = input.kind.startsWith("MOCK");
+  if (mock) {
+    return [
+      {
+        role: "system",
+        content: [
+          "You generate personalized Korean mock interview questions for one candidate.",
+          "Return JSON only with key questionCandidates.",
+          "Ground every question in the supplied candidate profile, cover letter, resume text, links, motivation, or activity history.",
+          "Ask for verifiable decisions, actions, trade-offs, and outcomes. Do not invent experiences that are absent from context.",
+          "Never use or mention name, email, phone, age, gender, address, disability, health, appearance, school prestige, or other sensitive attributes.",
+          "Do not make hiring pass/fail judgments. These questions are practice-only and must not be saved to a company question bank."
+        ].join("\n")
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          task: "Generate personalized mock interview questions from the candidate's actual evidence.",
+          questionCount: input.questionCount,
+          jobRole: input.jobRole,
+          requestedDifficulty: input.requestedDifficulty,
+          questionTypes: input.questionTypes,
+          profileContext: input.profileContext,
+          folderContext: input.folderContext,
+          outputContract: {
+            questionCandidates: [{
+              content: "Korean interview question string",
+              category: "맞춤형 모의면접",
+              difficulty: "EASY | MEDIUM | HARD",
+              expectedKeywords: ["2-5 evidence keywords"],
+              suggestionReason: "short reason tied to supplied context",
+              questionType: "INTRO | TECHNICAL | EXPERIENCE | SITUATION | FOLLOW_UP | CLOSING"
+            }]
+          }
+        })
+      }
+    ];
+  }
   return [
     {
       role: "system",
@@ -141,8 +184,9 @@ function parseQuestionContent(content: string, input: QuestionGenerationInput): 
   const parsed = parseJsonObject(stripMarkdownFence(content));
   const rawCandidates = Array.isArray(parsed.questionCandidates) ? parsed.questionCandidates : [];
   const criteriaById = new Map(input.criteria.map((criterion) => [criterion.criterionId, criterion]));
+  const mock = input.kind.startsWith("MOCK");
   const candidates = rawCandidates
-    .map((item): QuestionGenerationCandidate | undefined => normalizeCandidate(item, criteriaById))
+    .map((item): QuestionGenerationCandidate | undefined => normalizeCandidate(item, criteriaById, mock))
     .filter((item): item is QuestionGenerationCandidate => item !== undefined)
     .slice(0, input.questionCount);
 
@@ -155,18 +199,16 @@ function parseQuestionContent(content: string, input: QuestionGenerationInput): 
 
 function normalizeCandidate(
   item: unknown,
-  criteriaById: Map<number, QuestionGenerationCriterion>
+  criteriaById: Map<number, QuestionGenerationCriterion>,
+  mock: boolean,
 ): QuestionGenerationCandidate | undefined {
   if (!item || typeof item !== "object" || Array.isArray(item)) {
     return undefined;
   }
   const record = item as Record<string, unknown>;
   const criterionId = numberOf(record.criterionId);
-  if (criterionId === undefined) {
-    return undefined;
-  }
-  const criterion = criteriaById.get(criterionId);
-  if (!criterion) {
+  const criterion = criterionId === undefined ? undefined : criteriaById.get(criterionId);
+  if (!mock && (!criterionId || !criterion)) {
     return undefined;
   }
   const content = normalizeText(record.content);
@@ -176,14 +218,14 @@ function normalizeCandidate(
 
   return {
     content: normalizeQuestion(content),
-    category: normalizeText(record.category) ?? criterion.category ?? "공통 질문",
+    category: normalizeText(record.category) ?? criterion?.category ?? (mock ? "맞춤형 모의면접" : "공통 질문"),
     difficulty: difficultyOf(record.difficulty),
-    criterionId,
-    criterionTitle: criterion.name,
+    criterionId: mock ? undefined : criterionId,
+    criterionTitle: mock ? undefined : criterion?.name,
     expectedKeywords: stringArrayOf(record.expectedKeywords).slice(0, 5),
     suggestionReason:
       normalizeText(record.suggestionReason) ??
-      `${criterion.name} 평가 기준과 JD 맥락을 확인하기 위한 질문 후보입니다.`,
+      (mock ? "지원자의 실제 경험을 구체적으로 확인하기 위한 연습 질문입니다." : `${criterion?.name} 평가 기준과 JD 맥락을 확인하기 위한 질문 후보입니다.`),
     questionType: questionTypeOf(record.questionType)
   };
 }

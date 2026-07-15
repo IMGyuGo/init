@@ -13,6 +13,7 @@ import {
   QuestionGenerationCriterion,
   QuestionGenerationInput,
   QuestionGenerationResult,
+  type QuestionGenerationType,
 } from "./openai-question.provider";
 import { ReportAiProvider, ReportGenerationResult } from "./openai-report.provider";
 import {
@@ -34,6 +35,13 @@ interface WorkerInput {
 }
 
 const MOCK_HIRING_DECISION_TERMS = ["합격", "탈락", "채용 적합", "채용 부적합", "선별", "hiring decision", "pass/fail"];
+const FOLLOW_UP_UNSAFE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
+  { pattern: /https?:\/\/|www\./i, reason: "URL" },
+  { pattern: /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i, reason: "contact information" },
+  { pattern: /(?:\+?82[-\s]?)?0\d{1,2}[-\s]?\d{3,4}[-\s]?\d{4}/, reason: "contact information" },
+  { pattern: /(?:나이|연령|생년월일|성별|남성|여성|주소|거주지|장애|건강|연봉|급여)/i, reason: "discriminatory personal attribute" },
+  { pattern: /(?:명문대|상위권\s*대학|학벌|회사\s*명성|대기업\s*출신)/i, reason: "school or company prestige" },
+];
 const POSTING_DRAFT_UNSAFE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /젊(?:은|고|음|게|은층|은\s*인재)/i, reason: "age preference" },
   { pattern: /\b(?:20대|30대)\b/i, reason: "age preference" },
@@ -142,6 +150,7 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     const policy = kind.startsWith("MOCK") ? "MOCK" : "RECRUITING";
     const jobDescription = typeof payload.jobDescription === "string" ? payload.jobDescription : undefined;
     const documentSummary = typeof payload.documentSummary === "string" ? payload.documentSummary : undefined;
+    const profileContext = profileContextOf(payload.profileContext);
     if (policy === "RECRUITING" && !hasText(jobDescription) && !hasText(documentSummary)) {
       throw new NonRetryableAiWorkerFailure("jobDescription or documentSummary is required");
     }
@@ -174,6 +183,7 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       focusPoints: ncsPlan?.focusPoints,
       logicalStructureGap: ncsPlan?.logicalStructureGap,
       alreadyConfirmedEvidence: ncsPlan?.alreadyConfirmedEvidence,
+      profileContext,
     });
     const guardrail = this.validateMockPolicy(policy, generated.content);
 
@@ -211,26 +221,35 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     kind: string,
     payload: Record<string, unknown>
   ): Promise<AiTaskResult> {
-    if (!this.questionProvider || kind.startsWith("MOCK")) {
+    if (!this.questionProvider) {
       return this.fallback.handle(job);
     }
 
-    const postingId = positiveNumber(payload.postingId, "postingId");
+    const mock = kind.startsWith("MOCK");
+    const postingId = mock ? undefined : positiveNumber(payload.postingId, "postingId");
     const questionCount = positiveNumber(payload.questionCount, "questionCount");
-    const criteria = criteriaOf(payload.criteria);
+    const criteria = mock ? [] : criteriaOf(payload.criteria);
     const generationInput: QuestionGenerationInput = {
       kind,
+      jobRole: mock ? optionalText(payload.jobRole) : undefined,
+      requestedDifficulty: mock ? mockDifficultyOf(payload.difficulty) : undefined,
       postingId,
-      jobDescription: requiredText(payload.jobDescription, "jobDescription"),
+      jobDescription: mock ? undefined : requiredText(payload.jobDescription, "jobDescription"),
       questionCount,
       criteria,
+      profileContext: mock ? scrubMockContext(profileContextOf(payload.profileContext)) : undefined,
+      folderContext: mock ? scrubMockContext(optionalObject(payload.folderContext, "folderContext"), true) : undefined,
+      questionTypes: mock ? questionTypesOf(payload.questionTypes) : undefined,
     };
-    const generated = isNcsCriteria(criteria)
+    const ncsGeneration = !mock && isNcsCriteria(criteria);
+    const generated = ncsGeneration
       ? await generateAlignedNcsQuestions(this.questionProvider, generationInput)
       : await this.questionProvider.generateQuestions(generationInput);
-    const questionCandidates = isNcsCriteria(criteria)
+    const questionCandidates = ncsGeneration
       ? generated.questionCandidates
-      : sanitizeQuestionGenerationResult(generated).map((candidate) => ({
+      : mock
+        ? sanitizeQuestionGenerationResult(generated, false)
+        : sanitizeQuestionGenerationResult(generated).map((candidate) => ({
           ...candidate,
           source: "JD_CRITERIA" as const,
           ncsProfileId: null,
@@ -242,13 +261,13 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
           evaluatorVersion: null,
         }));
     const savedDraft = {
-      kind: "RECRUITING_QUESTION_GENERATE",
+      kind: mock ? "MOCK_QUESTION_GENERATE" : "RECRUITING_QUESTION_GENERATE",
       sourceProcessLogId: job.processLogId,
       items: questionCandidates.map((candidate) => candidate.content),
       questionCandidates,
       reviewRequired: true as const,
       reviewStatus: "PENDING_REVIEW" as const,
-      targetTables: ["question_bank" as const],
+      targetTables: mock ? [] : ["question_bank" as const],
       postingId
     };
 
@@ -258,7 +277,7 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
         draftSource: "OPENAI_QUESTION_GENERATION",
         model: generated.model
       }),
-      guardrail: { result: "PASS", reason: null },
+      guardrail: mock ? validateMockQuestionCandidates(questionCandidates) : { result: "PASS", reason: null },
       usage: createAiProcessUsage({
         modelName: generated.model,
         inputTokens: generated.usage?.inputTokens,
@@ -394,6 +413,14 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
   }
 
   private validateMockPolicy(policy: "MOCK" | "RECRUITING", text: string) {
+    const unsafe = FOLLOW_UP_UNSAFE_PATTERNS.find(({ pattern }) => pattern.test(text));
+    if (unsafe) {
+      return {
+        result: "BLOCKED" as const,
+        reason: `follow-up output cannot include ${unsafe.reason}`,
+        failureCategory: "NON_RETRYABLE" as const,
+      };
+    }
     if (policy !== "MOCK") {
       return { result: "PASS" as const, reason: null };
     }
@@ -407,6 +434,35 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
         }
       : { result: "PASS" as const, reason: null };
   }
+}
+
+function profileContextOf(value: unknown): Record<string, unknown> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new NonRetryableAiWorkerFailure("profileContext must be an object");
+  }
+  const context = value as Record<string, unknown>;
+  if (context.schemaVersion !== 1) {
+    throw new NonRetryableAiWorkerFailure("profileContext schemaVersion must be 1");
+  }
+  return context;
+}
+
+function optionalObject(value: unknown, field: string): Record<string, unknown> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new NonRetryableAiWorkerFailure(`${field} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function questionTypesOf(value: unknown): QuestionGenerationType[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  const supported: QuestionGenerationType[] = ["INTRO", "TECHNICAL", "EXPERIENCE", "SITUATION", "FOLLOW_UP", "CLOSING"];
+  if (!Array.isArray(value) || value.some((item) => !supported.includes(item as QuestionGenerationType))) {
+    throw new NonRetryableAiWorkerFailure("questionTypes must contain supported question types");
+  }
+  return value as QuestionGenerationType[];
 }
 
 function stripNonverbalMetadata(value: unknown): unknown {
@@ -500,8 +556,12 @@ async function generateAlignedNcsQuestions(
     outputTokens += generated.usage?.outputTokens ?? 0;
 
     for (const candidate of sanitizeQuestionGenerationResult(generated)) {
-      const criterion = requestedCriteria.find((item) => item.criterionId === candidate.criterionId);
-      const slots = remaining.get(candidate.criterionId) ?? 0;
+      const candidateCriterionId = candidate.criterionId;
+      if (candidateCriterionId === undefined) {
+        throw new NonRetryableAiWorkerFailure("NCS question candidate criterionId is required");
+      }
+      const criterion = requestedCriteria.find((item) => item.criterionId === candidateCriterionId);
+      const slots = remaining.get(candidateCriterionId) ?? 0;
       if (!criterion || slots === 0) continue;
 
       const alignment = alignNcsQuestion({
@@ -524,11 +584,11 @@ async function generateAlignedNcsQuestions(
 
       if (alignment.status === "ALIGNED") {
         accepted.push(decorated);
-        remaining.set(candidate.criterionId, slots - 1);
+        remaining.set(candidateCriterionId, slots - 1);
       } else {
-        const current = reviewCandidates.get(candidate.criterionId) ?? [];
+        const current = reviewCandidates.get(candidateCriterionId) ?? [];
         current.push(decorated);
-        reviewCandidates.set(candidate.criterionId, current);
+        reviewCandidates.set(candidateCriterionId, current);
       }
     }
   };
@@ -696,17 +756,17 @@ function ncsQuestionModeOf(value: unknown): NcsQuestionMode | undefined {
     : undefined;
 }
 
-function sanitizeQuestionGenerationResult(generated: QuestionGenerationResult) {
+function sanitizeQuestionGenerationResult(generated: QuestionGenerationResult, requireCriterion = true) {
   if (!Array.isArray(generated.questionCandidates) || generated.questionCandidates.length === 0) {
     throw new NonRetryableAiWorkerFailure("question candidates are required");
   }
 
   return generated.questionCandidates.map((candidate) => {
-    if (!candidate.criterionId || !candidate.criterionTitle.trim()) {
+    if (requireCriterion && (!candidate.criterionId || !candidate.criterionTitle?.trim())) {
       throw new NonRetryableAiWorkerFailure("question candidate criterionId and criterionTitle are required");
     }
     if (!candidate.content.trim()) {
-      throw new NonRetryableAiWorkerFailure(`question candidate content is required for criterion ${candidate.criterionId}`);
+      throw new NonRetryableAiWorkerFailure(`question candidate content is required for criterion ${candidate.criterionId ?? "mock"}`);
     }
     return {
       content: candidate.content,
@@ -719,6 +779,75 @@ function sanitizeQuestionGenerationResult(generated: QuestionGenerationResult) {
       questionType: candidate.questionType
     };
   });
+}
+
+function validateMockQuestionCandidates(candidates: QuestionGenerationResult["questionCandidates"]) {
+  const text = candidates.flatMap((candidate) => [
+    candidate.content,
+    candidate.category,
+    candidate.suggestionReason,
+    ...candidate.expectedKeywords,
+  ]).join("\n");
+  const hiringDecision = MOCK_HIRING_DECISION_TERMS.find((term) => text.includes(term));
+  if (hiringDecision) {
+    return {
+      result: "BLOCKED" as const,
+      reason: `mock interview output cannot include hiring decision expression: ${hiringDecision}`,
+      failureCategory: "NON_RETRYABLE" as const,
+    };
+  }
+  const unsafe = FOLLOW_UP_UNSAFE_PATTERNS.find(({ pattern }) => pattern.test(text));
+  const identifier = [
+    { pattern: /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i, reason: "email address" },
+    { pattern: /(?:\+?82[-.\s]?)?(?:0\d{1,2})[-.\s]?\d{3,4}[-.\s]?\d{4}/, reason: "phone number" },
+    { pattern: /https?:\/\/|www\./i, reason: "URL" },
+  ].find(({ pattern }) => pattern.test(text));
+  if (identifier) {
+    return {
+      result: "BLOCKED" as const,
+      reason: `mock interview output cannot include candidate contact information (${identifier.reason})`,
+      failureCategory: "NON_RETRYABLE" as const,
+    };
+  }
+  return unsafe
+    ? {
+        result: "BLOCKED" as const,
+        reason: `mock interview question contains unsafe ${unsafe.reason}`,
+        failureCategory: "NON_RETRYABLE" as const,
+      }
+    : { result: "PASS" as const, reason: null };
+}
+
+function mockDifficultyOf(value: unknown): "EASY" | "MEDIUM" | "HARD" | undefined {
+  if (value === "NORMAL") return "MEDIUM";
+  return value === "EASY" || value === "HARD" ? value : undefined;
+}
+
+function scrubMockContext(value: Record<string, unknown> | undefined, redactUrls = false): Record<string, unknown> | undefined {
+  if (!value) return undefined;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => {
+    if (key === "originalName") return [key, "[파일명 제거]"];
+    if (typeof item === "string") {
+      const shouldRedactUrl = redactUrls && key === "resumeExtractedText";
+      return [key, redactMockIdentifiers(item, shouldRedactUrl)];
+    }
+    if (Array.isArray(item)) {
+      return [key, item.map((entry) => entry && typeof entry === "object" && !Array.isArray(entry)
+        ? scrubMockContext(entry as Record<string, unknown>, redactUrls)
+        : typeof entry === "string" ? redactMockIdentifiers(entry, false) : entry)];
+    }
+    if (item && typeof item === "object") return [key, scrubMockContext(item as Record<string, unknown>, redactUrls)];
+    return [key, item];
+  }));
+}
+
+function redactMockIdentifiers(value: string, redactUrls: boolean): string {
+  let redacted = value
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[이메일 제거]")
+    .replace(/(?:\+?82[-.\s]?)?(?:0\d{1,2})[-.\s]?\d{3,4}[-.\s]?\d{4}/g, "[전화번호 제거]")
+    .replace(/^(?:성명|이름|name|생년월일|나이|성별|주소)\s*[:：].*$/gim, "[식별정보 제거]");
+  if (redactUrls) redacted = redacted.replace(/https?:\/\/\S+|www\.\S+/gi, "[URL 제거]");
+  return redacted;
 }
 
 function answersOf(value: unknown): Array<{

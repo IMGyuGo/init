@@ -226,8 +226,17 @@ export class InMemoryCandidateRepository implements CandidateRepository {
         blogUrl: null,
         portfolioUrl: null,
         summary: null,
+        coverLetter: null,
+        educations: [],
+        careers: [],
+        activities: [],
+        credentials: [],
       }
     );
+  }
+
+  async getCandidateProfileUpdatedAt(_candidateId: number): Promise<string | null> {
+    return new Date(0).toISOString();
   }
 
   async updateCandidateProfile(
@@ -243,6 +252,11 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       ...(input.blogUrl !== undefined ? { blogUrl: input.blogUrl } : {}),
       ...(input.portfolioUrl !== undefined ? { portfolioUrl: input.portfolioUrl } : {}),
       ...(input.summary !== undefined ? { summary: input.summary } : {}),
+      ...(input.coverLetter !== undefined ? { coverLetter: input.coverLetter } : {}),
+      ...(input.educations !== undefined ? { educations: input.educations.map((item) => ({ ...item })) } : {}),
+      ...(input.careers !== undefined ? { careers: input.careers.map((item) => ({ ...item })) } : {}),
+      ...(input.activities !== undefined ? { activities: input.activities.map((item) => ({ ...item })) } : {}),
+      ...(input.credentials !== undefined ? { credentials: input.credentials.map((item) => ({ ...item })) } : {}),
     };
     this.candidateProfiles.set(candidateId, next);
     return next;
@@ -387,6 +401,7 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     portfolioUrl?: string;
     motivation?: string;
     additionalInfo?: string;
+    profileSnapshot?: import("../candidate.types").CandidateProfileSnapshotV1;
     consentTypes: ConsentRecord["consentType"][];
     contactUserId?: number;
   }): Promise<ApplicationSubmissionResult> {
@@ -413,6 +428,7 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       portfolioUrl: input.portfolioUrl ?? null,
       motivation: input.motivation ?? null,
       additionalInfo: input.additionalInfo ?? null,
+      profileSnapshot: input.profileSnapshot ? { ...input.profileSnapshot } : null,
       applicationStatus: "SUBMITTED",
       documentStatus: "SUBMITTED",
       interviewStatus: "NOT_READY",
@@ -503,11 +519,12 @@ export class InMemoryCandidateRepository implements CandidateRepository {
   }
 
   async createFolder(
-    input: Omit<CandidateFolder, "id" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">,
+    input: Omit<CandidateFolder, "id" | "resumeFileName" | "portfolioFileName" | "profileSnapshot" | "createdAt" | "updatedAt"> & { profileSnapshot?: import("../candidate.types").CandidateProfileSnapshotV1 | null },
   ): Promise<CandidateFolder> {
     const now = new Date().toISOString();
     const folder: CandidateFolder = {
       ...input,
+      profileSnapshot: input.profileSnapshot ?? null,
       id: this.folders.length + 1,
       resumeFileName: this.resolveFolderResumeFileName(input.resumeFileId),
       portfolioFileName: this.resolveFolderResumeFileName(input.portfolioFileId),
@@ -605,6 +622,7 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       documentStatus: "SUBMITTED",
       interviewStatus: "NOT_READY",
       reportStatus: "PENDING",
+      profileSnapshot: null,
       submittedAt: now,
       updatedAt: now,
     };

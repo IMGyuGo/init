@@ -18,6 +18,7 @@ import {
   type ApplicationDocument,
   type ApplicationSubmissionResult,
   type CandidateFolder,
+  type CandidateProfileSnapshotV1,
   type CandidateProfileView,
   type UpdateCandidateProfileInput,
   type CandidateJob,
@@ -166,7 +167,13 @@ export class PrismaCandidateRepository implements CandidateRepository {
   async getCandidateProfile(candidateId: number): Promise<CandidateProfileView | undefined> {
     const profile = await this.prisma.candidateProfile.findUnique({
       where: { candidateId: BigInt(candidateId) },
-      include: { user: { select: { name: true, email: true, phone: true } } },
+      include: {
+        user: { select: { name: true, email: true, phone: true } },
+        educations: { orderBy: { sortOrder: "asc" } },
+        careers: { orderBy: { sortOrder: "asc" } },
+        activities: { orderBy: { sortOrder: "asc" } },
+        credentials: { orderBy: { sortOrder: "asc" } },
+      },
     });
     if (!profile) {
       return undefined;
@@ -179,7 +186,50 @@ export class PrismaCandidateRepository implements CandidateRepository {
       blogUrl: profile.blogUrl ?? null,
       portfolioUrl: profile.portfolioUrl ?? null,
       summary: profile.summary ?? null,
+      coverLetter: profile.coverLetter ?? null,
+      educations: profile.educations.map((item) => ({
+        educationLevel: item.educationLevel,
+        schoolName: item.schoolName,
+        major: item.major ?? null,
+        degreeType: item.degreeType,
+        status: item.status,
+        startMonth: formatDbMonth(item.startMonth),
+        endMonth: item.endMonth ? formatDbMonth(item.endMonth) : null,
+      })),
+      careers: profile.careers.map((item) => ({
+        companyName: item.companyName,
+        startMonth: formatDbMonth(item.startMonth),
+        endMonth: item.endMonth ? formatDbMonth(item.endMonth) : null,
+        isCurrent: item.isCurrent,
+        jobRole: item.jobRole,
+        department: item.department ?? null,
+        position: item.position ?? null,
+        responsibilities: item.responsibilities,
+      })),
+      activities: profile.activities.map((item) => ({
+        activityType: item.activityType,
+        organizationName: item.organizationName,
+        startDate: formatDbDate(item.startDate),
+        endDate: item.endDate ? formatDbDate(item.endDate) : null,
+        isOngoing: item.isOngoing,
+        description: item.description,
+      })),
+      credentials: profile.credentials.map((item) => ({
+        credentialType: item.credentialType,
+        name: item.name,
+        issuer: item.issuer,
+        acquiredMonth: formatDbMonth(item.acquiredMonth),
+        result: item.result ?? null,
+      })),
     };
+  }
+
+  async getCandidateProfileUpdatedAt(candidateId: number): Promise<string | null> {
+    const profile = await this.prisma.candidateProfile.findUnique({
+      where: { candidateId: BigInt(candidateId) },
+      select: { updatedAt: true },
+    });
+    return profile?.updatedAt.toISOString() ?? null;
   }
 
   async updateCandidateProfile(
@@ -203,14 +253,89 @@ export class PrismaCandidateRepository implements CandidateRepository {
       ...(input.blogUrl !== undefined ? { blogUrl: input.blogUrl } : {}),
       ...(input.portfolioUrl !== undefined ? { portfolioUrl: input.portfolioUrl } : {}),
       ...(input.summary !== undefined ? { summary: input.summary } : {}),
+      ...(input.coverLetter !== undefined ? { coverLetter: input.coverLetter } : {}),
     };
 
-    await this.prisma.$transaction([
-      ...(Object.keys(userData).length > 0
-        ? [this.prisma.user.update({ where: { userId: existing.userId }, data: userData })]
-        : []),
-      this.prisma.candidateProfile.update({ where: { candidateId: BigInt(candidateId) }, data: profileData }),
-    ]);
+    const candidateIdValue = BigInt(candidateId);
+    await this.prisma.$transaction(async (tx) => {
+      if (Object.keys(userData).length > 0) {
+        await tx.user.update({ where: { userId: existing.userId }, data: userData });
+      }
+      await tx.candidateProfile.update({
+        where: { candidateId: candidateIdValue },
+        data: { ...profileData, updatedAt: new Date() },
+      });
+      if (input.educations !== undefined) {
+        await tx.candidateEducation.deleteMany({ where: { candidateId: candidateIdValue } });
+        if (input.educations.length > 0) {
+          await tx.candidateEducation.createMany({
+            data: input.educations.map((item, index) => ({
+              candidateId: candidateIdValue,
+              sortOrder: index + 1,
+              educationLevel: item.educationLevel,
+              schoolName: item.schoolName,
+              major: item.major,
+              degreeType: item.degreeType,
+              status: item.status,
+              startMonth: parseDbMonth(item.startMonth),
+              endMonth: item.endMonth ? parseDbMonth(item.endMonth) : null,
+            })),
+          });
+        }
+      }
+      if (input.careers !== undefined) {
+        await tx.candidateCareer.deleteMany({ where: { candidateId: candidateIdValue } });
+        if (input.careers.length > 0) {
+          await tx.candidateCareer.createMany({
+            data: input.careers.map((item, index) => ({
+              candidateId: candidateIdValue,
+              sortOrder: index + 1,
+              companyName: item.companyName,
+              startMonth: parseDbMonth(item.startMonth),
+              endMonth: item.endMonth ? parseDbMonth(item.endMonth) : null,
+              isCurrent: item.isCurrent,
+              jobRole: item.jobRole,
+              department: item.department,
+              position: item.position,
+              responsibilities: item.responsibilities,
+            })),
+          });
+        }
+      }
+      if (input.activities !== undefined) {
+        await tx.candidateActivity.deleteMany({ where: { candidateId: candidateIdValue } });
+        if (input.activities.length > 0) {
+          await tx.candidateActivity.createMany({
+            data: input.activities.map((item, index) => ({
+              candidateId: candidateIdValue,
+              sortOrder: index + 1,
+              activityType: item.activityType,
+              organizationName: item.organizationName,
+              startDate: parseDbDate(item.startDate),
+              endDate: item.endDate ? parseDbDate(item.endDate) : null,
+              isOngoing: item.isOngoing,
+              description: item.description,
+            })),
+          });
+        }
+      }
+      if (input.credentials !== undefined) {
+        await tx.candidateCredential.deleteMany({ where: { candidateId: candidateIdValue } });
+        if (input.credentials.length > 0) {
+          await tx.candidateCredential.createMany({
+            data: input.credentials.map((item, index) => ({
+              candidateId: candidateIdValue,
+              sortOrder: index + 1,
+              credentialType: item.credentialType,
+              name: item.name,
+              issuer: item.issuer,
+              acquiredMonth: parseDbMonth(item.acquiredMonth),
+              result: item.result,
+            })),
+          });
+        }
+      }
+    });
 
     const updated = await this.getCandidateProfile(candidateId);
     if (!updated) {
@@ -821,6 +946,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
     portfolioUrl?: string;
     motivation?: string;
     additionalInfo?: string;
+    profileSnapshot?: CandidateProfileSnapshotV1;
     consentTypes: ConsentRecord["consentType"][];
     // 있으면 지원서 생성과 같은 트랜잭션에서 회원 연락처를 저장한다(다음 지원 자동 입력용). (#272 P2)
     contactUserId?: number;
@@ -840,6 +966,9 @@ export class PrismaCandidateRepository implements CandidateRepository {
           portfolioUrl: input.portfolioUrl,
           motivation: input.motivation,
           additionalInfo: input.additionalInfo,
+          ...(input.profileSnapshot
+            ? { profileSnapshot: input.profileSnapshot as unknown as Prisma.InputJsonValue }
+            : {}),
           applicationStatus: PrismaApplicationStatus.SUBMITTED,
           documentStatus: PrismaDocumentStatus.SUBMITTED,
           interviewStatus: PrismaInterviewStatus.NOT_READY,
@@ -984,7 +1113,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
   }
 
   async createFolder(
-    input: Omit<CandidateFolder, "id" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">,
+    input: Omit<CandidateFolder, "id" | "resumeFileName" | "portfolioFileName" | "profileSnapshot" | "createdAt" | "updatedAt"> & { profileSnapshot?: CandidateProfileSnapshotV1 | null },
   ): Promise<CandidateFolder> {
     const folder = await this.prisma.candidateFolder.create({
       data: {
@@ -997,6 +1126,9 @@ export class PrismaCandidateRepository implements CandidateRepository {
         portfolioFileId: input.portfolioFileId ? BigInt(input.portfolioFileId) : null,
         motivation: input.motivation,
         extraNote: input.extraNote,
+        ...(input.profileSnapshot
+          ? { profileSnapshot: input.profileSnapshot as unknown as Prisma.InputJsonValue }
+          : {}),
       },
       include: { resumeFile: { select: { originalName: true } }, portfolioFile: { select: { originalName: true } } },
     });
@@ -1018,6 +1150,9 @@ export class PrismaCandidateRepository implements CandidateRepository {
         ...(input.portfolioFileId !== undefined ? { portfolioFileId: input.portfolioFileId ? BigInt(input.portfolioFileId) : null } : {}),
         ...(input.motivation !== undefined ? { motivation: input.motivation } : {}),
         ...(input.extraNote !== undefined ? { extraNote: input.extraNote } : {}),
+        ...(input.profileSnapshot !== undefined
+          ? { profileSnapshot: input.profileSnapshot as unknown as Prisma.InputJsonValue }
+          : {}),
       },
       include: { resumeFile: { select: { originalName: true } }, portfolioFile: { select: { originalName: true } } },
     });
@@ -1168,6 +1303,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
       portfolioUrl: application.portfolioUrl,
       motivation: application.motivation,
       additionalInfo: application.additionalInfo,
+      profileSnapshot: this.toProfileSnapshot(application.profileSnapshot),
       applicationStatus: application.applicationStatus,
       documentStatus: application.documentStatus,
       interviewStatus: application.interviewStatus,
@@ -1226,9 +1362,17 @@ export class PrismaCandidateRepository implements CandidateRepository {
       portfolioFileName: folder.portfolioFile?.originalName ?? null,
       motivation: folder.motivation,
       extraNote: folder.extraNote,
+      profileSnapshot: this.toProfileSnapshot(folder.profileSnapshot),
       createdAt: folder.createdAt.toISOString(),
       updatedAt: folder.updatedAt.toISOString(),
     };
+  }
+
+  private toProfileSnapshot(value: Prisma.JsonValue | null): CandidateProfileSnapshotV1 | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    return value as unknown as CandidateProfileSnapshotV1;
   }
 
   private toInterviewSession(session: InterviewSessionRecord): InterviewSession {
@@ -1321,4 +1465,20 @@ function decodeHtmlAttribute(value: string): string {
     .replace(/&#39;/g, "'")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">");
+}
+
+function parseDbMonth(value: string): Date {
+  return new Date(`${value}-01T00:00:00.000Z`);
+}
+
+function parseDbDate(value: string): Date {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function formatDbMonth(value: Date): string {
+  return value.toISOString().slice(0, 7);
+}
+
+function formatDbDate(value: Date): string {
+  return value.toISOString().slice(0, 10);
 }

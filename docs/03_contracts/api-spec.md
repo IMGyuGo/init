@@ -1098,8 +1098,9 @@ AI 리포트 금지 기준:
 - 성공 응답/처리:
   - 지원자 기본 정보, 지원/면접/리포트 상태, 전형 상태/메모 표시
   - `submission`에 제출 당시 `name`, `email`, `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `motivation`, `additionalInfo`를 반환한다.
+  - 신규 회원 지원서는 `submission.profileSnapshot`에 제출 당시 `summary`, `coverLetter`, `educations`, `careers`, `activities`, `credentials`를 포함한 `CandidateProfileSnapshotV1`을 반환한다.
   - `submission.documents`에 `documentId`, `fileId`, `documentType`, `originalName`, `mimeType`, `sizeBytes`, `uploadedAt`을 반환한다.
-  - 기존 지원서의 스냅샷 필드가 NULL이면 지원자 계정/프로필의 현재 값을 fallback으로 반환한다.
+  - 기존 scalar 스냅샷이 NULL이면 지원자 계정/프로필의 현재 값을 fallback으로 반환한다. `profileSnapshot`이 NULL인 기존/공개 지원서는 현재 구조화 프로필로 역보정하지 않는다.
   - 리포트가 있으면 점수, 근거, 요약 표시
   - 리포트가 없으면 없음/생성중 상태로 표시
 - 오류/예외:
@@ -2488,12 +2489,14 @@ Allocation Examples:
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - 직무 선택, 난이도, 질문 유형, `folderId?`
+  - 직무 선택, 난이도, 질문 유형, `folderId?`, `questionProcessLogId?`
 - 검증/전제조건:
   - 로그인 사용자
   - `folderId`가 있으면 현재 지원자 소유 `candidate_folders.id`여야 한다.
+  - `questionProcessLogId`가 있으면 현재 지원자가 요청한 완료 상태의 `MOCK_QUESTION_GENERATE` 작업이어야 하며 한 세션에만 연결할 수 있다.
 - 성공 응답/처리:
   - 모의면접 세션 생성
+  - 완료된 AI 질문 결과가 있으면 요청한 질문 유형과 개수를 검증한 후 사용하고, 부족하거나 유효하지 않은 항목은 안전한 기본 질문으로 보완한다.
   - `folderId`가 있으면 폴더의 이력서 파일 메타데이터, 추출 텍스트(`application_documents.extracted_text`가 존재하는 경우), GitHub/블로그/포트폴리오 URL, 지원동기, 추가설명을 모의면접 질문 생성 컨텍스트로 사용한다.
   - 개인 맞춤 질문은 기업 `question_bank`에 저장하지 않고 현재 지원자 세션 소유의 `interview_session_questions`에 본문과 유형을 저장한다.
   - 세션 생성, 이용권 차감, 개인 질문 저장은 하나의 DB 트랜잭션으로 처리하고 실패 시 모두 rollback한다.
@@ -2528,14 +2531,15 @@ Allocation Examples:
 - 상태 코드: 201 Created
 - 비동기: N
 - 요청 데이터:
-  - `{ name, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, portfolioFileId?, motivation?, extraNote? }`
+  - `{ name, profileSnapshot?, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, portfolioFileId?, motivation?, extraNote? }`
 - 검증/전제조건:
   - `name`은 필수이며 100자 이하
   - URL 필드는 http/https URL이며 500자 이하
   - `resumeFileId`·`portfolioFileId`가 있으면 각각 현재 사용자 소유의 PDF FileAsset이어야 한다. (지원 제출과 동일하게 PDF만 허용, #272 P1-2)
   - 지원자별 폴더는 최대 20개까지 생성할 수 있다.
+  - `profileSnapshot`을 생략하면 현재 마이페이지 프로필로 생성하며, 전달하면 `CandidateProfileSnapshotV1` 전체 교체 검증을 적용한다.
 - 성공 응답/처리:
-  - `{ data: CandidateFolder, meta }`
+  - `{ data: CandidateFolderDetail, meta }`. 상세 응답은 전체 `profileSnapshot`을 포함한다.
 - 오류/예외:
   - 20개 초과 또는 필드 검증 실패 시 `COMMON_VALIDATION_FAILED`
   - 타 사용자 파일 참조 시 `COMMON_FORBIDDEN`
@@ -2553,7 +2557,7 @@ Allocation Examples:
 - 검증/전제조건:
   - `{id}`는 현재 지원자 소유 폴더여야 한다.
 - 성공 응답/처리:
-  - `{ data: CandidateFolder, meta }`
+  - `{ data: CandidateFolderDetail, meta }`. 기존 세트의 `profileSnapshot`이 NULL이면 현재 프로필과 기존 세트 값을 합친 유효 스냅샷을 반환한다.
 - 오류/예외:
   - 미존재 `COMMON_NOT_FOUND`
   - 타 지원자 소유 `COMMON_FORBIDDEN`
@@ -2568,11 +2572,12 @@ Allocation Examples:
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - `{ name?, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, portfolioFileId?, motivation?, extraNote? }`
+  - `{ name?, profileSnapshot?, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, portfolioFileId?, motivation?, extraNote? }`
   - nullable 필드는 `null`로 초기화 가능
 - 검증/전제조건:
   - `{id}`는 현재 지원자 소유 폴더여야 한다.
   - 필드 검증은 생성 API와 동일
+  - 기존 세트의 `profileSnapshot`이 NULL이면 최초 수정 시 현재 유효 프로필을 스냅샷으로 고정한다. 전달된 스냅샷의 `null`과 빈 배열은 명시적 비움으로 유지한다.
 - 성공 응답/처리:
   - `{ data: CandidateFolder, meta }`
 - 관련 ERD 테이블:
@@ -2600,6 +2605,21 @@ CandidateFolder 응답 필드:
   "id": 1,
   "candidateId": 1,
   "name": "백엔드 포지션 지원 세트",
+  "profileSnapshot": {
+    "schemaVersion": 1,
+    "name": "김민철",
+    "email": "candidate@example.com",
+    "phone": "010-0000-0000",
+    "githubUrl": "https://github.com/init/backend",
+    "blogUrl": null,
+    "portfolioUrl": "https://portfolio.example.com/backend",
+    "summary": "백엔드 개발자",
+    "coverLetter": "Redis 캐시 적용 경험을 바탕으로 안정적인 서비스를 만들고 싶습니다.",
+    "educations": [],
+    "careers": [],
+    "activities": [],
+    "credentials": []
+  },
   "githubUrl": "https://github.com/init/backend",
   "blogUrl": null,
   "portfolioUrl": "https://portfolio.example.com/backend",
@@ -2618,6 +2638,7 @@ CandidateFolder 입력 제한:
 - `githubUrl`, `blogUrl`, `portfolioUrl`: 각각 최대 500자, HTTP/HTTPS URL
 - `motivation`: 최대 3,000자
 - `extraNote`: 최대 5,000자
+- `profileSnapshot.coverLetter`: 최대 5,000자이며 선택 입력
 - 질문 생성에 사용하는 폴더 컨텍스트는 정규화 후 최대 12,000자로 제한한다.
 
 ### API-045 POST /candidate/mock-interviews/questions/generate
@@ -2628,14 +2649,17 @@ CandidateFolder 입력 제한:
 - 상태 코드: 202 Accepted
 - 비동기: Y
 - 요청 데이터:
-  - `{ questionCount, folderId? }`
+  - `{ questionCount, jobRole, difficulty, questionTypes, folderId? }`
+  - 클라이언트가 `profileContext`를 직접 전달하는 것은 허용하지 않는다.
 - 검증/전제조건:
   - `questionCount`는 양의 정수
+  - `questionCount`는 중복 제거한 `questionTypes` 개수와 같아야 한다.
   - `folderId`가 있으면 현재 지원자 소유 `candidate_folders.id`여야 한다.
 - 성공 응답/처리:
   - 모의면접 질문 목록 생성 작업 큐잉
+  - 세트가 없으면 현재 프로필, 세트가 있으면 세트의 고정 스냅샷으로 `CandidateProfileAiContextV1`을 구성한다. 이름, 이메일, 연락처와 DB 내부 ID는 포함하지 않는다.
   - `folderId`가 있으면 폴더의 이력서 파일 메타데이터, 추출 텍스트(`application_documents.extracted_text`가 존재하는 경우), GitHub/블로그/포트폴리오 URL, 지원동기, 추가설명을 worker 입력 컨텍스트로 전달한다.
-  - 원문 컨텍스트는 SQS 작업 메시지에서만 처리하고 `ai_process_logs.input_ref`에는 `folderId`, 파일 ID, 필드 존재 여부와 길이만 저장한다.
+  - 원문 컨텍스트는 SQS 작업 메시지에서만 처리하고 `ai_process_logs.input_ref`에는 `folderId`, 파일 ID, 프로필 스키마 버전, 항목 개수, 문자 수, 컨텍스트 해시, 프로필 수정 시각만 저장한다.
   - 생성 질문 후보와 AI 작업 결과에는 이력서 추출 텍스트, URL, 지원동기, 추가 설명 원문을 그대로 반복 저장하지 않는다.
   - SQS 메시지는 처리 완료 후 삭제하며 DLQ 보존 기간은 운영 인프라 정책을 따른다.
 - 오류/예외:
@@ -2788,6 +2812,7 @@ CandidateFolder 입력 제한:
   - 답변 텍스트가 충분해야 함
 - 성공 응답/처리:
   - 꼬리질문 표시
+  - 서버가 최신 `CandidateProfileAiContextV1`을 worker 입력에 추가한다. 답변 스크립트와 이전 질문을 주 근거로, 프로필은 보조 근거로 사용한다.
 - 오류/예외:
   - 답변이 너무 짧거나 부적절하면 기본 꼬리질문을 제시한다.
 - 관련 ERD 테이블:
@@ -2881,6 +2906,25 @@ CandidateFolder 입력 제한:
 - 관련 ERD 테이블:
   - candidate_profiles, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, ai_process_logs
 
+### API-054A PATCH /candidate/mock-interviews/{sessionId}/title
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 모의면접 평가 리포트 화면 (/candidate/mock-interview/reports)
+- UI Type: system process
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: sessionId
+- 요청 데이터:
+  - title (문자열, 최대 100자. 빈 값이면 기본 '세션 #N' 으로 초기화)
+- 검증/전제조건:
+  - 로그인 사용자, 세션 소유자(본인) 확인
+- 성공 응답/처리:
+  - interview_sessions.title 갱신 후 { sessionId, title } 반환
+- 오류/예외:
+  - 타 지원자 세션 접근 시 403(COMMON_FORBIDDEN), 없는 세션 404(COMMON_NOT_FOUND), 100자 초과 시 400(COMMON_VALIDATION_FAILED)
+- 관련 ERD 테이블:
+  - interview_sessions
+
 ### API-055 GET /candidate/mock-interview/reports/{reportId}/feedback
 - 도메인: 지원자 - 모의면접
 - 권한/인증: 지원자 / 지원자 사용자 로그인
@@ -2951,10 +2995,15 @@ CandidateFolder 입력 제한:
 - UI Type: section
 - 상태 코드: 200 OK
 - 응답 데이터: `application/json`
-  - `name`, `email`(읽기전용), `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `summary`
-  - 이름/이메일/연락처는 `users`, GitHub/블로그/포트폴리오/한줄소개는 `candidate_profiles` 에서 조회한다.
+  - `name`, `email`(읽기전용), `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `summary`, `coverLetter`
+  - `educations[]`: `{ educationLevel, schoolName, major, degreeType, status, startMonth, endMonth }`
+  - `careers[]`: `{ companyName, startMonth, endMonth, isCurrent, jobRole, department, position, responsibilities }`
+  - `activities[]`: `{ activityType, organizationName, startDate, endDate, isOngoing, description }`
+  - `credentials[]`: `{ credentialType, name, issuer, acquiredMonth, result }`
+  - 반복 항목의 내부 ID와 `sortOrder`는 노출하지 않으며 응답 배열 순서가 표시 순서다. 값이 없으면 항상 빈 배열을 반환한다.
+  - 이름/이메일/연락처는 `users`, GitHub/블로그/포트폴리오/한줄소개/자기소개서는 `candidate_profiles` 에서 조회한다.
 - 비고: 지원 화면 기본정보 자동 입력의 정본(source of truth). (#272)
-- 관련 ERD 테이블: users, candidate_profiles
+- 관련 ERD 테이블: users, candidate_profiles, candidate_educations, candidate_careers, candidate_activities, candidate_credentials
 
 ### API-057G PUT /candidate/profile
 - 도메인: 지원자 - 프로필(내 정보)
@@ -2963,14 +3012,24 @@ CandidateFolder 입력 제한:
 - UI Type: section
 - 상태 코드: 200 OK
 - 요청 데이터: `application/json` (모두 optional, 부분 수정)
-  - `name`, `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `summary`
+  - `name`, `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `summary`, `coverLetter`
+  - `educations[]`, `careers[]`, `activities[]`, `credentials[]`
   - 이메일은 로그인 정보라 수정 대상에서 제외한다.
 - 검증/전제조건:
-  - 빈 문자열/공백만 입력하면 `null` 로 저장한다. 이름은 공백만이면 무시한다.
+  - 기존 scalar 필드는 부분 수정한다. 이름의 `null` 또는 공백 입력은 400이며, 선택 scalar의 빈 문자열/공백은 `null`로 저장한다.
+  - 반복 배열을 누락하면 기존 값을 유지하고, `[]`는 해당 섹션 전체 삭제, 값이 있으면 해당 섹션을 요청 순서대로 원자적 전체 교체한다. 배열의 `null`은 허용하지 않는다.
+  - 각 반복 섹션은 최대 10개다. 연월은 `YYYY-MM`, 활동 일자는 `YYYY-MM-DD` 형식이다.
+  - 학력은 재학/휴학이면 `endMonth=null`, 그 외 상태는 `endMonth`가 필수다. 학력구분과 학위구분은 호환되어야 한다.
+  - 경력의 `isCurrent=true`, 활동의 `isOngoing=true`이면 종료일은 `null`이어야 하며, false이면 종료일이 필수다. 모든 기간은 시작일이 종료일보다 늦을 수 없다.
+  - 기관·학교·회사·자격 명칭은 최대 150자, 직무·부서·직급은 최대 100자, 담당업무·활동내용은 최대 1,000자, 결과는 최대 200자다. URL은 최대 500자, summary는 최대 2,000자, coverLetter는 최대 5,000자다.
 - 성공 응답/처리:
-  - `users`(name/phone)와 `candidate_profiles`(github/blog/portfolio/summary)를 갱신하고 갱신된 프로필을 반환한다.
+  - `users`(name/phone), `candidate_profiles`(github/blog/portfolio/summary/coverLetter), 전달된 반복 섹션을 하나의 트랜잭션에서 갱신하고 갱신된 프로필을 반환한다.
 - 비고: 저장 값은 이후 지원 화면 자동 입력에 재사용된다. (#272)
-- 관련 ERD 테이블: users, candidate_profiles
+- AI 사용 정책:
+  - 프로필 사진, 성별, 생년월일/나이, 주소, 장애 정보, 고용지원금 대상, 연봉, 민감정보 동의 상세는 수집하지 않는다.
+  - 이름, 이메일, 연락처는 화면 표시와 지원서 자동입력에만 사용하고 AI 컨텍스트에는 전달하지 않는다.
+  - 제외는 정형 필드 기준이다. 자유서술/URL 내부를 임의 마스킹해 의미를 훼손하지 않으므로 UI에서 민감정보를 입력하지 않도록 안내한다.
+- 관련 ERD 테이블: users, candidate_profiles, candidate_educations, candidate_careers, candidate_activities, candidate_credentials
 
 ### API-058 GET /candidate/jobs
 - 도메인: 지원자 - 채용공고/지원
@@ -3009,6 +3068,25 @@ CandidateFolder 입력 제한:
   - 검색 기능 강화
   - grid가 아니라 list 형태로 표시
 
+### API-058A GET /public/jobs
+- 도메인: 지원자 - 공개 채용공고
+- 권한/인증: 공개 / 로그인 불필요
+- 관련 화면: 지원자 메인 채용공고 화면 (/)
+- UI Type: page, section, list
+- 상태 코드: 200 OK
+- 비동기: N
+- 요청 데이터(query): API-058과 동일한 채용공고 검색·필터·페이지네이션 조건
+- 검증/전제조건:
+  - 공개 상태이며 지원 가능한 채용공고만 조회한다.
+  - 개인별 지원 여부는 계산하지 않는다.
+- 성공 응답/처리:
+  - API-058과 동일한 채용공고 목록 응답을 반환한다.
+  - 비로그인 사용자는 메인 화면에서 목록을 조회할 수 있다.
+- 오류/예외:
+  - 조회 결과가 없으면 빈 목록을 반환한다.
+  - 잘못된 검색 조건은 `COMMON_VALIDATION_FAILED`를 반환한다.
+- 관련 ERD 테이블: companies, postings, embeddings
+
 ### API-059 GET /candidate/jobs/{jobId}
 - 도메인: 지원자 - 채용공고/지원
 - 권한/인증: 지원자 / 지원자 사용자 로그인
@@ -3042,6 +3120,7 @@ CandidateFolder 입력 제한:
 - 비동기: N
 - Path Params: jobId
 - 요청 데이터: `application/json`
+  - `profileSnapshot`: `CandidateProfileSnapshotV1`, 신규 클라이언트 required. 존재하면 아래 legacy 기본정보 필드보다 우선한다.
   - `candidateName`: string, required
   - `email`: string, required
   - `phone`: string, required
@@ -3059,15 +3138,15 @@ CandidateFolder 입력 제한:
   - 포트폴리오 URL 또는 PDF FileAsset 중 하나 이상을 제출해야 하며, 둘 다 제출할 수도 있다.
   - 제출 파일은 현재 지원자 소유의 ACTIVE FileAsset이어야 한다.
 - 성공 응답/처리:
-  - 지원서 제출 당시 정보를 `applications` 스냅샷 필드에 저장한다.
+  - 지원서 제출 당시 기본정보와 전체 `profileSnapshot`을 `applications`에 불변 스냅샷으로 저장한다.
   - 이력서/포트폴리오 PDF를 `application_documents`에 연결하고 지원서 제출을 완료한다.
   - (#272) 입력한 연락처(`phone`)를 회원(`users.phone`)에 저장하여 다음 지원 화면에서 자동 입력에 재사용한다.
   - 공고의 `resumeQuestionCount`가 1 이상이면 응답 projection의 `resumeQuestionStatus=WAITING_DOCUMENT`, 0이면 `DISABLED`로 반환한다. batch row는 문서 추출 완료 후 생성한다.
   - 문서 추출 job은 기존 `DOCUMENT_EXTRACT` 흐름으로 시작하며, 지원서 제출 트랜잭션 안에서 이력서 질문을 직접 생성하지 않는다.
   - Response에는 `applicationId`, `documentExtractionStatus`, `resumeQuestionStatus`를 포함한다.
 - 관련 조회(#272): `GET /candidate/jobs/{jobId}/apply`
-  - 지원 화면 진입 시 회원 자동 입력용 `applicant: { name, email, phone, githubUrl, blogUrl, portfolioUrl }`을 함께 반환한다(이름/이메일/연락처는 User, GitHub/블로그/포트폴리오는 프로필 정본, 값 없으면 null). GitHub·블로그·포트폴리오는 프로필에서 자동 채워지고 공고별로 수정 가능하다.
-  - 지원서 세트(폴더)는 `GET /candidate/folders`로 조회하며, 세트를 불러오면 링크/이력서/동기/추가설명이 폼에 복사된다(회원 기본정보는 유지, 원본 세트는 불변).
+  - 지원 화면 진입 시 기존 `applicant`와 전체 `profileSnapshot`을 함께 반환한다. 모든 프로필 항목은 공고별로 수정 가능하다.
+  - 지원서 세트는 목록 조회 후 상세 API로 불러오며 프로필, 링크, 첨부, 지원동기, 추가설명을 빈 값까지 포함해 전체 교체한다. 원본 세트는 불변이다.
 - 오류/예외:
   - 파일 형식 오류, 용량 초과, 이미 지원한 공고, 마감 공고이면 제출을 제한한다.
 - 관련 ERD 테이블:
@@ -3089,9 +3168,13 @@ CandidateFolder 입력 제한:
 - 검증/전제조건:
   - 로그인 사용자
 - 성공 응답/처리:
-  - 지원현황 목록 표시
+  - 지원현황 목록을 200 OK로 반환한다.
+  - 각 항목은 영속 지원 상태와 별도로 `availabilityStatus`를 반환한다. 정상 항목은 `AVAILABLE`이며, 연결된 공고 또는 면접 세션을 찾지 못한 항목은 `UNAVAILABLE`이다.
+  - `UNAVAILABLE` 항목은 `unavailableReason`으로 `POSTING_NOT_FOUND` 또는 `INTERVIEW_SESSION_NOT_FOUND`를 반환하고, 누락된 연결 정보 필드는 `null`로 반환한다.
+  - `UNAVAILABLE` 항목은 면접 및 리포트 진입을 허용하지 않으며, 화면에서는 "더 이상 조회할 수 없는 지원입니다."로 표시한다.
 - 오류/예외:
   - 지원 내역이 없으면 채용공고 탐색 CTA를 표시한다.
+  - 일부 지원 항목의 공고 또는 면접 세션 연결 정보가 없어도 목록 전체를 404로 반환하지 않는다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, applications, application_documents, interview_sessions, evaluation_reports, report_scores, report_evidences, ai_process_logs
 - 비고/미결:
@@ -3381,12 +3464,14 @@ CandidateFolder 입력 제한:
 - 성공 응답/처리:
   - base question과 같은 question mode로 부족한 behavior point와 logic link만 묻는 꼬리질문을 표시한다.
   - 답변 제한 시간은 session snapshot의 `answerTimeSec`와 같다.
+  - 서버가 최신 `CandidateProfileAiContextV1`을 worker 입력에 추가한다. 이전 질문, 답변 스크립트, JD/서류 요약을 주 근거로, 프로필은 보조 근거로 사용한다.
 - 오류/예외:
   - 이미 1회 생성했거나 snapshot이 불완전하면 `INTERVIEW_NCS_BINDING_INVALID`로 생성하지 않는다.
 - 관련 ERD 테이블:
   - candidate_profiles, postings, question_bank, applications, application_documents, interview_sessions, interview_answers, follow_up_questions, ai_process_logs
 - 비고/미결:
   - 원답과 꼬리답변은 별도 answer ID로 저장하고 재평가 시 segment로 구분한다.
+  - 학교·회사 명성, 나이, 성별, 주소, 장애/건강, 연봉을 추론하거나 평가하는 질문은 금지한다. 이메일·전화번호·URL이 출력에 포함되면 가드레일 실패로 처리하고 저장하지 않는다.
 
 ### API-071-TMP POST /candidate/interviews/{sessionId}/follow-up-questions/insert
 - 프레임: 지원자 - 채용면접
@@ -3525,13 +3610,18 @@ CandidateFolder 입력 제한:
   - API-068 `POST /candidate/interviews/{sessionId}/answers`
   - API-092 `POST /public/interviews/{sessionId}/answers`
 - Optional request field: `nonverbalMetadata`
-- Shape: JSON object. Initial MVP keys may include `cameraWarnings`, `microphoneWarnings`, `longSilenceCount`, `shortAnswerCount`, `testModeUsed`, `voicePeakLevel`, `lowAudioFrameCount`, `observedAudioFrameCount`, `cameraDisconnectedCount`, `integrityEvents`, and `integritySummary`.
+- Shape: JSON object. Initial MVP keys may include `cameraWarnings`, `microphoneWarnings`, `longSilenceCount`, `shortAnswerCount`, `testModeUsed`, `voicePeakLevel`, `lowAudioFrameCount`, `observedAudioFrameCount`, `cameraDisconnectedCount`, `integrityEvents`, `integritySummary`, `gazeTimeline`, and `headPoseTimeline`.
 - Maximum serialized UTF-8 size: 32 KiB.
 - `integrityEvents` maximum length: 100.
 - Unknown top-level, summary, or event keys; unsupported event types; malformed timestamps; and out-of-range numeric values are rejected with `400 COMMON_VALIDATION_FAILED`.
 - `integrityEvents` may include browser-runtime events such as `TAB_HIDDEN`, `WINDOW_BLUR`, `CAMERA_LOST`, `FACE_MISSING`, `FACE_OUT_OF_FRAME`, `MULTIPLE_FACES`, `FACE_POSITION_SHIFT`, `GAZE_AWAY`, `VOICE_MOUTH_MISMATCH`, `VOICE_WITHOUT_FACE`, `STATIC_VIDEO_FRAME`, and `EARLY_SCREEN_AWAY`.
 - `MULTIPLE_FACES` is retained as the legacy event code for compatibility. The runtime emits it when either face landmarks or the MediaPipe person-object detector finds more than one person in at least two samples within 1.5 seconds. Person-object samples use a `0.35` confidence threshold, run every `0.5` seconds, and keep an active signal for a `1.5`-second miss grace period so a covered face does not cause the warning to flicker.
+- Integrity events may include `offsetMs`, a non-negative integer measured from the answer recording start. It is used to align an event with the recorded video and analysis timeline; events without it remain valid for backward compatibility.
 - `GAZE_AWAY` events may include `direction` and `source`. `source` is one of `IRIS`, `HEAD_POSE`, or `COMBINED` and identifies whether the calibrated iris position, facial transformation matrix, or both produced the signal.
+- Mock interview detailed analysis timelines:
+  - `gazeTimeline` contains at most 120 samples ordered by strictly increasing `tMs`. Each sample contains `horizontalOffset` and `verticalOffset` in the inclusive range `-1..1`, plus `direction` (`CENTER`, `LEFT`, `RIGHT`, `UP`, or `DOWN`).
+  - `headPoseTimeline` contains at most 120 samples ordered by strictly increasing `tMs`. Each sample contains calibrated relative `yawDegrees`, `pitchDegrees`, and `rollDegrees` in the inclusive range `-180..180`.
+  - The browser samples the existing MediaPipe landmarks every 0.5 seconds and persists timeline points no more often than once per second. The API validates sample count, shape, numeric range, and time ordering before storage.
 - `integritySummary` may include counts derived from those events, such as `screenAwayCount`, `cameraLostCount`, `faceMissingCount`, `faceOutOfFrameCount`, `multipleFacesCount`, `facePositionShiftCount`, `gazeAwayCount`, `voiceMouthMismatchCount`, `voiceWithoutFaceCount`, `staticVideoFrameCount`, `earlyScreenAwayCount`, `faceDetectionSupported`, `faceDetectionFrameCount`, `personDetectionSupported`, `personDetectionFrameCount`, `gazeDetectionSupported`, `gazeDetectionFrameCount`, `headPoseDetectionSupported`, `headPoseDetectionFrameCount`, `mouthSyncSupported`, `mouthSyncFrameCount`, `mouthSyncMismatchFrameCount`, `videoFrameMotionSupported`, `videoFrameSampleCount`, `staticVideoFrameSampleCount`, `totalAwayDurationMs`, `maxAwayDurationMs`, and `suspicionLevel`.
 - Normalization and storage:
   - The API rebuilds event-derived counts, away durations, and `suspicionLevel` from the allowlisted events instead of trusting client summary counts.
@@ -3541,6 +3631,7 @@ CandidateFolder 입력 제한:
 - Report read:
   - API-056 `GET /candidate/mock-interview/reports/{reportId}/media` may expose `media[].nonverbalMetadata`.
   - Candidate UI may aggregate the values into a mock interview nonverbal summary card and per-answer practice feedback.
+  - When timeline data exists, the mock report may show `시선 방향` and `고개 움직임` tabs with time-series charts synchronized to the locally available answer video. Older answers without timeline data show an explicit unavailable state.
 - AI report generation:
   - API-057 `POST /candidate/mock-interview/reports/{reportId}/generate` includes each answer's `nonverbalMetadata` in the `REPORT_GENERATE` payload when available.
   - OpenAI/mock worker prompts must treat the field as auxiliary practice metadata only.
@@ -3552,6 +3643,7 @@ CandidateFolder 입력 제한:
   - For recruiting interviews, the value is unverified client telemetry and may be surfaced to company reviewers as a reference signal alongside the recorded answer.
   - It may surface cheating-suspicion practice feedback for mock interviews, but it must not be used as a final cheating decision, hiring pass/fail signal, or direct hiring score input.
   - It must not be used to infer appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, health, or other sensitive attributes.
+  - Timeline charts are camera-relative estimates for self-practice, not biometric identity verification, emotion analysis, attention scoring, or a definitive eye-contact judgment.
   - Recruiting report generation must omit `nonverbalMetadata` from the API queue payload and strip it again at the worker/provider boundary.
   - Recruiting/company-facing reports must not apply an automatic score adjustment from browser telemetry.
   - Before a recruiting interview starts, the candidate UI must disclose which signals are collected, that they are unverified human-review references, and that they do not affect the evaluation score or trigger automatic rejection.

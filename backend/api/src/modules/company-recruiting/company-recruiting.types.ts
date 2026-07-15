@@ -69,6 +69,7 @@ export type ApplicantRecord = {
   portfolioUrl?: string | null;
   motivation?: string | null;
   additionalInfo?: string | null;
+  profileSnapshot?: Record<string, unknown> | null;
   applicationStatus: string;
   documentStatus: string;
   interviewStatus: string;

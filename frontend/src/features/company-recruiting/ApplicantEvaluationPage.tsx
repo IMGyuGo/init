@@ -158,6 +158,16 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                 <SubmissionLink label="포트폴리오 URL" value={evaluation.submission.portfolioUrl} />
                 <SubmissionItem label="지원동기" value={evaluation.submission.motivation} multiline />
                 <SubmissionItem label="추가 설명" value={evaluation.submission.additionalInfo} multiline />
+                {evaluation.submission.profileSnapshot ? (
+                  <>
+                    <SubmissionItem label="한 줄 소개" value={evaluation.submission.profileSnapshot.summary} multiline />
+                    <SubmissionItem label="자기소개서" value={evaluation.submission.profileSnapshot.coverLetter} multiline />
+                    <SubmissionItem label="학력" value={evaluation.submission.profileSnapshot.educations.map((item) => `${item.schoolName}${item.major ? ` · ${item.major}` : ""} (${item.startMonth}~${item.endMonth ?? "현재"})`).join("\n")} multiline />
+                    <SubmissionItem label="경력" value={evaluation.submission.profileSnapshot.careers.map((item) => `${item.companyName} · ${item.jobRole} (${item.startMonth}~${item.isCurrent ? "재직 중" : item.endMonth ?? ""})\n${item.responsibilities}`).join("\n\n")} multiline />
+                    <SubmissionItem label="프로젝트·활동" value={evaluation.submission.profileSnapshot.activities.map((item) => `${item.organizationName} (${item.startDate}~${item.isOngoing ? "진행 중" : item.endDate ?? ""})\n${item.description}`).join("\n\n")} multiline />
+                    <SubmissionItem label="자격·어학·수상" value={evaluation.submission.profileSnapshot.credentials.map((item) => `${item.name} · ${item.issuer} · ${item.acquiredMonth}${item.result ? ` · ${item.result}` : ""}`).join("\n")} multiline />
+                  </>
+                ) : null}
               </dl>
               <div className="applicant-submission-documents">
                 <h3>제출 서류</h3>

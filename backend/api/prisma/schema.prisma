@@ -149,6 +149,47 @@ enum EmbeddingSourceType {
   EVALUATION_REPORT
 }
 
+enum CandidateEducationLevel {
+  HIGH_SCHOOL
+  COLLEGE
+  UNIVERSITY
+  GRADUATE_SCHOOL
+  OTHER
+}
+
+enum CandidateDegreeType {
+  HIGH_SCHOOL_DIPLOMA
+  ASSOCIATE
+  BACHELOR
+  MASTER
+  DOCTORATE
+  OTHER
+}
+
+enum CandidateEducationStatus {
+  ENROLLED
+  LEAVE_OF_ABSENCE
+  GRADUATED
+  EXPECTED_GRADUATION
+  COMPLETED
+  WITHDRAWN
+}
+
+enum CandidateActivityType {
+  SCHOOL_ACTIVITY
+  INTERNSHIP
+  CLUB
+  PROJECT_TASK
+  OVERSEAS_TRAINING
+  EDUCATION
+}
+
+enum CandidateCredentialType {
+  CERTIFICATE
+  LANGUAGE_TEST
+  AWARD
+}
+
 model User {
   userId            BigInt             @id @default(autoincrement()) @map("user_id")
   email             String             @unique @db.VarChar(255)
@@ -224,6 +265,7 @@ model CandidateProfile {
   githubUrl           String?                            @map("github_url") @db.VarChar(500)
   blogUrl             String?                            @map("blog_url") @db.VarChar(500)
   summary             String?
+  coverLetter         String?                            @map("cover_letter")
   createdAt           DateTime                           @default(now()) @map("created_at")
   updatedAt           DateTime                           @updatedAt @map("updated_at")
   user                User                               @relation(fields: [userId], references: [userId])
@@ -234,8 +276,86 @@ model CandidateProfile {
   mockPassLedgers     CandidateMockInterviewPassLedger[]
   paymentCustomers    PaymentCustomer[]
   paymentOrders       PaymentOrder[]
+  educations          CandidateEducation[]
+  careers             CandidateCareer[]
+  activities          CandidateActivity[]
+  credentials         CandidateCredential[]
 
   @@map("candidate_profiles")
+}
+
+model CandidateEducation {
+  educationId    BigInt                   @id @default(autoincrement()) @map("education_id")
+  candidateId    BigInt                   @map("candidate_id")
+  sortOrder      Int                      @map("sort_order")
+  educationLevel CandidateEducationLevel  @map("education_level")
+  schoolName     String                   @map("school_name") @db.VarChar(150)
+  major          String?                  @db.VarChar(150)
+  degreeType     CandidateDegreeType      @map("degree_type")
+  status         CandidateEducationStatus
+  startMonth     DateTime                 @map("start_month") @db.Date
+  endMonth       DateTime?                @map("end_month") @db.Date
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  updatedAt      DateTime                 @updatedAt @map("updated_at")
+  candidate      CandidateProfile         @relation(fields: [candidateId], references: [candidateId], onDelete: Cascade)
+
+  @@unique([candidateId, sortOrder], map: "uk_candidate_educations_order")
+  @@map("candidate_educations")
+}
+
+model CandidateCareer {
+  careerId         BigInt           @id @default(autoincrement()) @map("career_id")
+  candidateId      BigInt           @map("candidate_id")
+  sortOrder        Int              @map("sort_order")
+  companyName      String           @map("company_name") @db.VarChar(150)
+  startMonth       DateTime         @map("start_month") @db.Date
+  endMonth         DateTime?        @map("end_month") @db.Date
+  isCurrent        Boolean          @map("is_current")
+  jobRole          String           @map("job_role") @db.VarChar(100)
+  department       String?          @db.VarChar(100)
+  position         String?          @db.VarChar(100)
+  responsibilities String           @db.VarChar(1000)
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  candidate        CandidateProfile @relation(fields: [candidateId], references: [candidateId], onDelete: Cascade)
+
+  @@unique([candidateId, sortOrder], map: "uk_candidate_careers_order")
+  @@map("candidate_careers")
+}
+
+model CandidateActivity {
+  activityId       BigInt                @id @default(autoincrement()) @map("activity_id")
+  candidateId      BigInt                @map("candidate_id")
+  sortOrder        Int                   @map("sort_order")
+  activityType     CandidateActivityType @map("activity_type")
+  organizationName String                @map("organization_name") @db.VarChar(150)
+  startDate        DateTime              @map("start_date") @db.Date
+  endDate          DateTime?             @map("end_date") @db.Date
+  isOngoing        Boolean               @map("is_ongoing")
+  description      String                @db.VarChar(1000)
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
+  candidate        CandidateProfile      @relation(fields: [candidateId], references: [candidateId], onDelete: Cascade)
+
+  @@unique([candidateId, sortOrder], map: "uk_candidate_activities_order")
+  @@map("candidate_activities")
+}
+
+model CandidateCredential {
+  credentialId   BigInt                  @id @default(autoincrement()) @map("credential_id")
+  candidateId    BigInt                  @map("candidate_id")
+  sortOrder      Int                     @map("sort_order")
+  credentialType CandidateCredentialType @map("credential_type")
+  name           String                  @db.VarChar(150)
+  issuer         String                  @db.VarChar(150)
+  acquiredMonth  DateTime                @map("acquired_month") @db.Date
+  result         String?                 @db.VarChar(200)
+  createdAt      DateTime                @default(now()) @map("created_at")
+  updatedAt      DateTime                @updatedAt @map("updated_at")
+  candidate      CandidateProfile        @relation(fields: [candidateId], references: [candidateId], onDelete: Cascade)
+
+  @@unique([candidateId, sortOrder], map: "uk_candidate_credentials_order")
+  @@map("candidate_credentials")
 }
 
 model CandidateFolder {
@@ -249,6 +369,7 @@ model CandidateFolder {
   portfolioFileId BigInt?          @map("portfolio_file_id")
   motivation      String?
   extraNote       String?          @map("extra_note")
+  profileSnapshot Json?            @map("profile_snapshot")
   createdAt       DateTime         @default(now()) @map("created_at")
   updatedAt       DateTime         @updatedAt @map("updated_at")
   candidate       CandidateProfile @relation(fields: [candidateId], references: [candidateId], onDelete: Cascade)
@@ -496,6 +617,7 @@ model Application {
   portfolioUrl             String?                             @map("portfolio_url") @db.VarChar(500)
   motivation               String?
   additionalInfo           String?                             @map("additional_info")
+  profileSnapshot          Json?                               @map("profile_snapshot")
   applicationStatus        ApplicationStatus                   @default(SUBMITTED) @map("application_status")
   documentStatus           DocumentStatus                      @default(NOT_SUBMITTED) @map("document_status")
   interviewStatus          InterviewStatus                     @default(NOT_READY) @map("interview_status")
@@ -546,26 +668,27 @@ model ConsentRecord {
 }
 
 model InterviewSession {
-  sessionId             BigInt                             @id @default(autoincrement()) @map("session_id")
-  applicationId         BigInt?                            @map("application_id")
-  candidateId           BigInt                             @map("candidate_id")
-  interviewType         InterviewType                      @map("interview_type")
-  status                InterviewStatus                    @default(NOT_READY)
-  showQuestionText      Boolean                            @default(false) @map("show_question_text")
-  preparationTimeSecSnapshot Int?                          @map("preparation_time_sec_snapshot")
-  answerTimeSecSnapshot      Int?                          @map("answer_time_sec_snapshot")
-  ncsScoringVersion          String?                       @map("ncs_scoring_version") @db.VarChar(80)
-  startedAt             DateTime?                          @map("started_at")
-  completedAt           DateTime?                          @map("completed_at")
-  application           Application?                       @relation(fields: [applicationId], references: [applicationId])
-  candidate             CandidateProfile                   @relation(fields: [candidateId], references: [candidateId])
-  answers               InterviewAnswer[]
-  sessionQuestions      InterviewSessionQuestion[]
-  ncsProfilePolicies    InterviewSessionNcsPolicy[]
-  evaluationReports     EvaluationReport[]
-  aiProcessLogs         AiProcessLog[]
-  clientPerformanceLogs ClientPerformanceLog[]
-  mockPassUsages        CandidateMockInterviewPassLedger[]
+  sessionId                  BigInt                             @id @default(autoincrement()) @map("session_id")
+  applicationId              BigInt?                            @map("application_id")
+  candidateId                BigInt                             @map("candidate_id")
+  interviewType              InterviewType                      @map("interview_type")
+  title                      String?                            @db.VarChar(100)
+  status                     InterviewStatus                    @default(NOT_READY)
+  showQuestionText           Boolean                            @default(false) @map("show_question_text")
+  preparationTimeSecSnapshot Int?                               @map("preparation_time_sec_snapshot")
+  answerTimeSecSnapshot      Int?                               @map("answer_time_sec_snapshot")
+  ncsScoringVersion          String?                            @map("ncs_scoring_version") @db.VarChar(80)
+  startedAt                  DateTime?                          @map("started_at")
+  completedAt                DateTime?                          @map("completed_at")
+  application                Application?                       @relation(fields: [applicationId], references: [applicationId])
+  candidate                  CandidateProfile                   @relation(fields: [candidateId], references: [candidateId])
+  answers                    InterviewAnswer[]
+  sessionQuestions           InterviewSessionQuestion[]
+  ncsProfilePolicies         InterviewSessionNcsPolicy[]
+  evaluationReports          EvaluationReport[]
+  aiProcessLogs              AiProcessLog[]
+  clientPerformanceLogs      ClientPerformanceLog[]
+  mockPassUsages             CandidateMockInterviewPassLedger[]
 
   @@map("interview_sessions")
 }

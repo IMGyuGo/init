@@ -32,6 +32,11 @@ export class StartMockInterviewDto {
   @IsOptional()
   @IsInt()
   @IsPositive()
+  questionProcessLogId?: number;
+
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
   folderId?: number;
 
   @IsOptional()

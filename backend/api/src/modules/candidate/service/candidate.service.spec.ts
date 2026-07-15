@@ -13,6 +13,24 @@ import { AiJobDispatcherService } from "../../report/service/ai-job-dispatcher.s
 import { InMemoryAiJobQueuePublisher } from "../../report/service/ai-job-queue.publisher";
 import { InMemoryReportRepository } from "../../report/repository/in-memory-report.repository";
 
+class MissingApplicationSummaryDependencyRepository extends InMemoryCandidateRepository {
+  async findJob(jobId: number) {
+    if (jobId === 2) {
+      return undefined;
+    }
+
+    return super.findJob(jobId);
+  }
+
+  async findInterviewSessionByApplication(applicationId: number) {
+    if (applicationId === 3) {
+      return undefined;
+    }
+
+    return super.findInterviewSessionByApplication(applicationId);
+  }
+}
+
 function createSubmitApplicationDto(overrides: Partial<SubmitApplicationDto> = {}): SubmitApplicationDto {
   return {
     candidateName: "Kim",
@@ -106,19 +124,35 @@ async function run() {
   const folder = await folderService.createFolder(
     {
       name: "백엔드 포지션 지원 세트",
+      profileSnapshot: {
+        schemaVersion: 1,
+        name: "Kim",
+        email: "kim@example.com",
+        phone: "010-0000-0000",
+        githubUrl: "https://github.com/init/backend",
+        blogUrl: null,
+        portfolioUrl: "https://portfolio.example.com/backend",
+        summary: "백엔드 개발자",
+        coverLetter: "Redis 캐시 운영 경험을 검증받고 싶습니다.",
+        educations: [],
+        careers: [],
+        activities: [],
+        credentials: [],
+      },
       githubUrl: "https://github.com/init/backend",
       blogUrl: "https://blog.example.com/backend",
       portfolioUrl: "https://portfolio.example.com/backend",
       resumeFileId: folderResume.fileId,
       motivation: "백엔드 플랫폼을 안정적으로 만들고 싶습니다.",
       extraNote: "NestJS와 PostgreSQL 경험이 있습니다.",
-    },
+    } as never,
     currentUser,
   );
   assert.equal(folder.data.candidateId, currentUser.candidateId);
   assert.equal(folder.data.resumeFileId, folderResume.fileId);
   assert.equal(folder.data.resumeFileName, "backend-resume.pdf");
   assert.equal(folder.data.motivation, "백엔드 플랫폼을 안정적으로 만들고 싶습니다.");
+  assert.equal((folder.data as { profileSnapshot?: { coverLetter?: string } }).profileSnapshot?.coverLetter, "Redis 캐시 운영 경험을 검증받고 싶습니다.");
 
   const updatedFolder = await folderService.updateFolder(
     folder.data.id,
@@ -131,6 +165,33 @@ async function run() {
   assert.equal(updatedFolder.data.name, "수정된 지원 세트");
   assert.equal(updatedFolder.data.blogUrl, null);
   assert.equal(updatedFolder.data.resumeFileName, "backend-resume.pdf");
+
+  const legacyUrlFolder = await folderService.createFolder({
+    name: "legacy URL folder",
+    githubUrl: "https://github.com/legacy/override",
+  }, currentUser);
+  assert.equal(legacyUrlFolder.data.profileSnapshot?.githubUrl, "https://github.com/legacy/override");
+  await folderService.deleteFolder(legacyUrlFolder.data.id, currentUser);
+
+  await assert.rejects(
+    () => folderService.createFolder({
+      name: "invalid nested profile",
+      profileSnapshot: {
+        ...folder.data.profileSnapshot,
+        careers: [{
+          companyName: "Example",
+          startMonth: "2024-01",
+          endMonth: null,
+          isCurrent: true,
+          jobRole: "Backend",
+          department: null,
+          position: null,
+          responsibilities: "x".repeat(1_001),
+        }],
+      },
+    } as never, currentUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
+  );
 
   await folderService.deleteFolder(folder.data.id, currentUser);
   const foldersAfterDelete = await folderService.listFolders(currentUser);
@@ -369,17 +430,112 @@ async function run() {
   const initialProfile = await service.getProfile(currentUser);
   assert.equal(initialProfile.data.email, "candidate@example.com");
   assert.equal(initialProfile.data.githubUrl, null);
+  assert.equal((initialProfile.data as { coverLetter?: string | null }).coverLetter, null);
+  assert.deepEqual(initialProfile.data.educations, []);
+  assert.deepEqual(initialProfile.data.careers, []);
+  assert.deepEqual(initialProfile.data.activities, []);
+  assert.deepEqual(initialProfile.data.credentials, []);
   const savedProfile = await service.updateProfile(
-    { githubUrl: "https://github.com/tester", blogUrl: "  ", phone: "010-1234-5678", summary: "백엔드 지원자" },
+    {
+      githubUrl: "https://github.com/tester",
+      blogUrl: "  ",
+      phone: "010-1234-5678",
+      summary: "백엔드 지원자",
+      coverLetter: "Redis 캐시 무효화 전략을 설계한 경험이 있습니다.",
+      educations: [{
+        educationLevel: "UNIVERSITY",
+        schoolName: "정글대학교",
+        major: "컴퓨터공학",
+        degreeType: "BACHELOR",
+        status: "GRADUATED",
+        startMonth: "2020-03",
+        endMonth: "2024-02",
+      }],
+      careers: [{
+        companyName: "정글랩",
+        startMonth: "2024-03",
+        endMonth: null,
+        isCurrent: true,
+        jobRole: "백엔드 개발자",
+        department: null,
+        position: null,
+        responsibilities: "NestJS API와 Redis 캐시를 운영했습니다.",
+      }],
+      activities: [{
+        activityType: "CLUB",
+        organizationName: "개발 동아리",
+        startDate: "2023-01-01",
+        endDate: "2023-12-31",
+        isOngoing: false,
+        description: "팀 프로젝트의 기술 의사결정을 맡았습니다.",
+      }],
+      credentials: [{
+        credentialType: "CERTIFICATE",
+        name: "정보처리기사",
+        issuer: "한국산업인력공단",
+        acquiredMonth: "2024-06",
+        result: null,
+      }],
+    } as never,
     currentUser,
   );
   assert.equal(savedProfile.data.githubUrl, "https://github.com/tester");
   assert.equal(savedProfile.data.blogUrl, null); // 공백만 입력하면 null 로 정규화
   assert.equal(savedProfile.data.phone, "010-1234-5678");
   assert.equal(savedProfile.data.summary, "백엔드 지원자");
+  assert.equal((savedProfile.data as { coverLetter?: string | null }).coverLetter, "Redis 캐시 무효화 전략을 설계한 경험이 있습니다.");
+  assert.equal(savedProfile.data.educations[0]?.schoolName, "정글대학교");
+  assert.equal(savedProfile.data.careers[0]?.isCurrent, true);
   const reloadedProfile = await service.getProfile(currentUser);
   assert.equal(reloadedProfile.data.githubUrl, "https://github.com/tester");
   assert.equal(reloadedProfile.data.phone, "010-1234-5678");
+  assert.equal((reloadedProfile.data as { coverLetter?: string | null }).coverLetter, "Redis 캐시 무효화 전략을 설계한 경험이 있습니다.");
+
+  const scalarOnly = await service.updateProfile({ summary: "수정된 소개" }, currentUser);
+  assert.equal(scalarOnly.data.educations.length, 1); // 배열 누락은 기존 값 유지
+  const cleared = await service.updateProfile({ activities: [] }, currentUser);
+  assert.deepEqual(cleared.data.activities, []); // 빈 배열은 해당 섹션 전체 삭제
+  assert.equal(cleared.data.careers.length, 1);
+
+  await assert.rejects(
+    () => service.updateProfile({ name: null } as never, currentUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
+  );
+  await assert.rejects(
+    () => service.updateProfile({
+      careers: [{
+        companyName: "종료 회사",
+        startMonth: "2024-01",
+        endMonth: null,
+        isCurrent: false,
+        jobRole: "개발자",
+        responsibilities: "API 개발",
+      }],
+    }, currentUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
+  );
+
+  await service.updateProfile({
+    summary: "가".repeat(1_200),
+    coverLetter: "나".repeat(3_200),
+    credentials: Array.from({ length: 6 }, (_, index) => ({
+      credentialType: "CERTIFICATE" as const,
+      name: `자격 ${index + 1}`,
+      issuer: "발행기관",
+      acquiredMonth: `2024-0${index + 1}`,
+      result: null,
+    })),
+  } as never, currentUser);
+  const aiContext = await service.getCandidateProfileAiContext(currentUser);
+  assert.equal(aiContext.schemaVersion, 1);
+  assert.equal(aiContext.summary?.length, 1_000);
+  assert.equal((aiContext as { coverLetter?: string | null }).coverLetter?.length, 3_000);
+  assert.equal(aiContext.careers[0]?.companyName, "정글랩");
+  assert.equal(aiContext.credentials.length, 5);
+  assert.equal(aiContext.credentials[0]?.name, "자격 6");
+  assert.equal("name" in aiContext, false);
+  assert.equal("email" in aiContext, false);
+  assert.equal("phone" in aiContext, false);
 
   await assert.rejects(
     () => service.getJobDetail(Number.NaN, currentUser),
@@ -523,9 +679,27 @@ async function run() {
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
   );
 
+  const submittedProfileSnapshot = {
+    schemaVersion: 1,
+    name: "Kim",
+    email: "kim@example.com",
+    phone: "010-0000-0000",
+    githubUrl: "https://github.com/kim",
+    blogUrl: "https://blog.example.com/kim",
+    portfolioUrl: "https://portfolio.example.com/kim",
+    summary: "백엔드 지원자",
+    coverLetter: "Redis 캐시 무효화 전략을 설계한 경험이 있습니다.",
+    educations: savedProfile.data.educations,
+    careers: savedProfile.data.careers,
+    activities: [],
+    credentials: savedProfile.data.credentials,
+  };
   const submitted = await service.submitApplication(
     1,
-    createSubmitApplicationDto({ resumeFileId: resume.data.fileId }),
+    {
+      ...createSubmitApplicationDto({ resumeFileId: resume.data.fileId }),
+      profileSnapshot: submittedProfileSnapshot,
+    } as never,
     currentUser,
   );
   assert.equal(submitted.data.application.applicationStatus, "SUBMITTED");
@@ -543,6 +717,7 @@ async function run() {
   assert.equal("fileContent" in (extractionInput.payload ?? {}), false);
   assert.equal("extractedText" in (extractionInput.payload ?? {}), false);
   assert.equal(submitted.data.application.candidateId, currentUser.candidateId);
+  assert.deepEqual((submitted.data.application as { profileSnapshot?: unknown }).profileSnapshot, submittedProfileSnapshot);
   assert.equal(submitted.data.documents.length, 1);
   assert.equal(submitted.data.documents[0]?.applicationId, submitted.data.application.applicationId);
   assert.equal(submitted.data.documents[0]?.fileId, resume.data.fileId);
@@ -580,6 +755,35 @@ async function run() {
   assert.equal(applicationList.data.items[0]?.deviceCheckCompleted, false);
   assert.equal(applicationList.data.items[0]?.canStartInterview, false);
   assert.equal(applicationList.data.items[0]?.sessionId, 1);
+
+  const missingDependencyRepository = new MissingApplicationSummaryDependencyRepository();
+  const missingDependencyService = new CandidateService(missingDependencyRepository);
+  for (const postingId of [1, 2, 3]) {
+    await missingDependencyRepository.createApplication({
+      postingId,
+      candidateId: currentUser.candidateId,
+      resumeFileId: 1,
+      consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
+    });
+  }
+  const partialApplicationList = await missingDependencyService.listApplications(currentUser);
+  assert.equal(partialApplicationList.data.items.length, 3);
+
+  const availableApplication = partialApplicationList.data.items.find((application) => application.postingId === 1);
+  assert.equal(availableApplication?.availabilityStatus, "AVAILABLE");
+  assert.equal(availableApplication?.unavailableReason, null);
+
+  const missingPostingApplication = partialApplicationList.data.items.find((application) => application.postingId === 2);
+  assert.equal(missingPostingApplication?.availabilityStatus, "UNAVAILABLE");
+  assert.equal(missingPostingApplication?.unavailableReason, "POSTING_NOT_FOUND");
+  assert.equal(missingPostingApplication?.jobTitle, null);
+  assert.equal(missingPostingApplication?.canStartInterview, false);
+
+  const missingSessionApplication = partialApplicationList.data.items.find((application) => application.postingId === 3);
+  assert.equal(missingSessionApplication?.availabilityStatus, "UNAVAILABLE");
+  assert.equal(missingSessionApplication?.unavailableReason, "INTERVIEW_SESSION_NOT_FOUND");
+  assert.equal(missingSessionApplication?.sessionId, null);
+  assert.equal(missingSessionApplication?.canStartInterview, false);
 
   const otherCandidateUser = { userId: 2, candidateId: 2, userType: "CANDIDATE" as const };
   const otherCandidateApplications = await service.listApplications(otherCandidateUser);

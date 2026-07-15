@@ -8,7 +8,6 @@ import { ChangeEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } 
 import { createRecruitment, generatePostingDraft, getAiJobStatus, uploadJobDescriptionImage } from "./api";
 import {
   POSTING_CAREER_MAX_YEARS as CAREER_MAX_YEARS,
-  POSTING_CAREER_YEAR_OPTIONS as CAREER_YEAR_OPTIONS,
   POSTING_EMPLOYMENT_TYPE_CODE_OPTIONS as EMPLOYMENT_TYPE_CODE_OPTIONS,
   POSTING_JOB_ROLE_CODE_OPTIONS as JOB_ROLE_CODE_OPTIONS,
   POSTING_RECRUITMENT_TYPE_OPTIONS as RECRUITMENT_TYPE_OPTIONS,
@@ -28,6 +27,14 @@ import { geocodeAddress } from "../../lib/kakao-maps";
 import { BackButton } from "./CompanyRecruitingChrome";
 import { buildInterviewSettingsHref } from "./routes";
 import { extractPostingDraftFromJob, type PostingDraftResult } from "./posting-ai-draft";
+import {
+  AI_DRAFT_KEYWORD_MAX_COUNT,
+  AI_DRAFT_KEYWORD_MAX_LENGTH,
+  aiKeywordSuggestionsFor,
+  normalizeDraftKeywords,
+  splitDraftKeywords,
+  toggleDraftKeyword,
+} from "./posting-draft-keywords";
 import { applyPostingDraftToFormState } from "./posting-ai-draft-form";
 import {
   buildRecruitmentCreateSearch,
@@ -223,11 +230,66 @@ function mergeStoredForm(stored: Partial<FormState>): FormState {
   };
 }
 
-function splitDraftKeywords(raw: string): string[] {
-  return raw
-    .split(/[,\n]/)
-    .map((keyword) => keyword.trim())
-    .filter(Boolean);
+// 요구 경력 듀얼 핸들 range 슬라이더. 최소/최대 select 2개를 대체한다. (#290)
+function CareerRangeSlider({
+  minYears,
+  maxYears,
+  onChange,
+}: {
+  minYears: number;
+  maxYears: number;
+  onChange: (nextMin: number, nextMax: number) => void;
+}) {
+  const percent = (value: number) => (value / CAREER_MAX_YEARS) * 100;
+  // 두 핸들이 상한에 겹치면 min 핸들을 위로 올려 아래로 끌 수 있게 한다.
+  const minOnTop = minYears === maxYears && minYears === CAREER_MAX_YEARS;
+  return (
+    <div className="pcs">
+      <div className="pcs-value" aria-live="polite">
+        {formatCareerRangeLabel(minYears, maxYears)}
+      </div>
+      <div className="pcs-track-wrap">
+        <div className="pcs-track" aria-hidden="true" />
+        <div
+          className="pcs-fill"
+          aria-hidden="true"
+          style={{ left: `${percent(minYears)}%`, width: `${percent(maxYears) - percent(minYears)}%` }}
+        />
+        <input
+          type="range"
+          className={`pcs-input${minOnTop ? " is-top" : ""}`}
+          min={0}
+          max={CAREER_MAX_YEARS}
+          step={1}
+          value={minYears}
+          aria-label="최소 경력"
+          aria-valuetext={minYears === 0 ? "신입" : `${minYears}년`}
+          onChange={(event) => {
+            const next = Math.min(Number(event.target.value), maxYears);
+            onChange(next, maxYears);
+          }}
+        />
+        <input
+          type="range"
+          className="pcs-input is-max"
+          min={0}
+          max={CAREER_MAX_YEARS}
+          step={1}
+          value={maxYears}
+          aria-label="최대 경력"
+          aria-valuetext={maxYears >= CAREER_MAX_YEARS ? `${CAREER_MAX_YEARS}년 이상` : `${maxYears}년`}
+          onChange={(event) => {
+            const next = Math.max(Number(event.target.value), minYears);
+            onChange(minYears, next);
+          }}
+        />
+      </div>
+      <div className="pcs-scale" aria-hidden="true">
+        <span>신입</span>
+        <span>{CAREER_MAX_YEARS}년</span>
+      </div>
+    </div>
+  );
 }
 
 function delay(ms: number): Promise<void> {
@@ -250,6 +312,15 @@ export function RecruitmentCreatePage() {
   const [draftReady, setDraftReady] = useState(false);
   const [dir, setDir] = useState<1 | -1>(1);
   const [aiKeywords, setAiKeywords] = useState("");
+  const selectedDraftKeywords = splitDraftKeywords(aiKeywords);
+  // 직접 입력 초과분은 요청 직전 정규화로 잘리므로, 조용히 사라지지 않게 입력 단계에서 경고를 노출한다. (#290 리뷰)
+  const draftKeywordCountOver = selectedDraftKeywords.length > AI_DRAFT_KEYWORD_MAX_COUNT;
+  const draftKeywordTooLong = selectedDraftKeywords.some((keyword) => keyword.length > AI_DRAFT_KEYWORD_MAX_LENGTH);
+  const draftKeywordWarning = draftKeywordCountOver
+    ? `키워드는 최대 ${AI_DRAFT_KEYWORD_MAX_COUNT}개까지만 저장돼요. 초과한 ${selectedDraftKeywords.length - AI_DRAFT_KEYWORD_MAX_COUNT}개는 생성 시 제외됩니다.`
+    : draftKeywordTooLong
+      ? `${AI_DRAFT_KEYWORD_MAX_LENGTH}자를 넘는 키워드는 생성 시 ${AI_DRAFT_KEYWORD_MAX_LENGTH}자까지만 저장돼요.`
+      : "";
   const [aiSummary, setAiSummary] = useState("");
   const [aiFilled, setAiFilled] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
@@ -289,7 +360,7 @@ export function RecruitmentCreatePage() {
       const requested = await generatePostingDraft({
         title: form.title,
         jobRole: form.jobRole,
-        keywords: splitDraftKeywords(aiKeywords),
+        keywords: normalizeDraftKeywords(aiKeywords),
         summary: aiSummary || undefined,
         careerRequirement: form.extraInfo.career.value || undefined,
         employmentType: form.extraInfo.employmentType.value || undefined,
@@ -406,6 +477,11 @@ export function RecruitmentCreatePage() {
   // 직무 select 하나로 표시용 jobRole 과 필터용 jobRoleCode 를 함께 설정한다.
   function updateJobRoleSelection(code: string) {
     setForm((current) => ({ ...current, jobRoleCode: code, jobRole: code }));
+  }
+
+  // AI 초안 선택 입력: 추천 키워드 칩 토글. aiKeywords 문자열(CSV)이 단일 소스다. (#290)
+  function toggleAiKeyword(keyword: string) {
+    setAiKeywords((current) => toggleDraftKeyword(current, keyword));
   }
 
   // 다음 우편번호 팝업으로 회사 위치(도로명 주소)를 검색해 채운다.
@@ -648,38 +724,14 @@ export function RecruitmentCreatePage() {
             ))}
           </select>
         </label>
-        <label>
-          경력 최소
-          <select
-            value={form.careerMinYears}
-            onChange={(event) => {
-              const nextMin = Number(event.target.value);
-              updateCareerRange(nextMin, Math.max(nextMin, form.careerMaxYears));
-            }}
-          >
-            {CAREER_YEAR_OPTIONS.map((year) => (
-              <option key={year} value={year}>
-                {year === 0 ? "신입" : `${year}년`}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          경력 최대
-          <select
-            value={form.careerMaxYears}
-            onChange={(event) => {
-              const nextMax = Number(event.target.value);
-              updateCareerRange(Math.min(form.careerMinYears, nextMax), nextMax);
-            }}
-          >
-            {CAREER_YEAR_OPTIONS.filter((year) => year >= form.careerMinYears).map((year) => (
-              <option key={year} value={year}>
-                {year >= CAREER_MAX_YEARS ? `${CAREER_MAX_YEARS}년+` : `${year}년`}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="wide pcs-field">
+          <span className="pcs-label">요구 경력</span>
+          <CareerRangeSlider
+            minYears={form.careerMinYears}
+            maxYears={form.careerMaxYears}
+            onChange={updateCareerRange}
+          />
+        </div>
         <label>
           채용 시작일
           <input required type="date" value={form.startsOn} onChange={(event) => updateStartsOn(event.target.value)} />
@@ -1041,9 +1093,80 @@ export function RecruitmentCreatePage() {
                 </select>
               </label>
             </div>
+            <div className="wizard-ai-field">
+              <span className="wizard-ai-field-label">요구 경력</span>
+              <CareerRangeSlider
+                minYears={form.careerMinYears}
+                maxYears={form.careerMaxYears}
+                onChange={updateCareerRange}
+              />
+            </div>
+            <div className="wizard-ai-selects">
+              <label>
+                근무 형태
+                <select
+                  value={form.employmentTypeCode}
+                  onChange={(event) => updateStructuredWithExtraInfo("employmentTypeCode", "employmentType", event.target.value)}
+                >
+                  <option value="">선택 안 함</option>
+                  {EMPLOYMENT_TYPE_CODE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                근무 지역
+                <select
+                  value={form.regionCode}
+                  onChange={(event) => updateStructuredWithExtraInfo("regionCode", "location", event.target.value)}
+                >
+                  <option value="">선택 안 함</option>
+                  {REGION_CODE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="wizard-ai-field">
+              <span className="wizard-ai-field-label">
+                추천 키워드
+                <em className={draftKeywordCountOver ? "is-error" : undefined}>
+                  {form.jobRoleCode
+                    ? `${selectedDraftKeywords.length}/${AI_DRAFT_KEYWORD_MAX_COUNT}개 선택`
+                    : "직무를 선택하면 직무별 추천이 나와요"}
+                </em>
+              </span>
+              <div className="wizard-ai-chips">
+                {aiKeywordSuggestionsFor(form.jobRoleCode).map((keyword) => {
+                  const selected = selectedDraftKeywords.includes(keyword);
+                  const atCap = selectedDraftKeywords.length >= AI_DRAFT_KEYWORD_MAX_COUNT;
+                  return (
+                    <button
+                      key={keyword}
+                      type="button"
+                      className={`wizard-ai-chip${selected ? " is-selected" : ""}`}
+                      aria-pressed={selected}
+                      disabled={!selected && atCap}
+                      onClick={() => toggleAiKeyword(keyword)}
+                    >
+                      {keyword}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             <label>
-              키워드 (쉼표로 구분)
-              <input value={aiKeywords} onChange={(event) => setAiKeywords(event.target.value)} placeholder="Node.js, MSA, 대용량 트래픽, 협업" />
+              키워드 직접 추가 (쉼표로 구분)
+              <input value={aiKeywords} onChange={(event) => setAiKeywords(event.target.value)} placeholder="선택한 키워드에 원하는 키워드를 더할 수 있어요" />
+              {draftKeywordWarning ? (
+                <span className="wizard-ai-hint is-error" aria-live="polite">{draftKeywordWarning}</span>
+              ) : (
+                <span className="wizard-ai-hint">최대 {AI_DRAFT_KEYWORD_MAX_COUNT}개 · 키워드당 {AI_DRAFT_KEYWORD_MAX_LENGTH}자까지 입력할 수 있어요</span>
+              )}
             </label>
             <label>
               핵심 내용 / 한 줄 소개

@@ -686,6 +686,7 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
     portfolioUrl: application.portfolioUrl,
     motivation: application.motivation,
     additionalInfo: application.additionalInfo,
+    profileSnapshot: mapJsonObject(application.profileSnapshot),
     applicationStatus: application.applicationStatus,
     documentStatus: application.documentStatus,
     interviewStatus: application.interviewStatus,

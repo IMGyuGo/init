@@ -1,4 +1,16 @@
 import { Inject, Injectable, Optional } from "@nestjs/common";
+import {
+  CANDIDATE_ACTIVITY_TYPES,
+  CANDIDATE_CREDENTIAL_TYPES,
+  CANDIDATE_DEGREE_TYPES,
+  CANDIDATE_EDUCATION_LEVELS,
+  CANDIDATE_EDUCATION_STATUSES,
+  type CandidateActivityType,
+  type CandidateCredentialType,
+  type CandidateDegreeType,
+  type CandidateEducationLevel,
+  type CandidateEducationStatus,
+} from "@init/common";
 import { CandidateJobListQueryDto } from "../dto/candidate-job-list-query.dto";
 import { CreateCandidateFolderDto, UpdateCandidateFolderDto } from "../dto/candidate-folder.dto";
 import { UpdateCandidateProfileDto } from "../dto/update-candidate-profile.dto";
@@ -30,6 +42,8 @@ import {
   CandidateJobDetail,
   CandidateJobSummary,
   CandidateProfileView,
+  CandidateProfileSnapshotV1,
+  CandidateProfileAiContextV1,
   CandidateRepository,
   ConsentRecord,
   CurrentCandidateUser,
@@ -70,7 +84,8 @@ type CandidateFolderMutableField =
   | "resumeFileId"
   | "portfolioFileId"
   | "motivation"
-  | "extraNote";
+  | "extraNote"
+  | "profileSnapshot";
 type CandidateFolderMutableInput = Pick<CandidateFolder, CandidateFolderMutableField>;
 const MAX_MOCK_FOLDER_CONTEXT_CHARS = 12_000;
 
@@ -85,6 +100,7 @@ interface ValidatedSubmitApplication {
   portfolioUrl?: string;
   motivation: string;
   additionalInfo: string;
+  profileSnapshot?: CandidateProfileSnapshotV1;
   consentTypes: ConsentRecord["consentType"][];
 }
 
@@ -173,6 +189,7 @@ export class CandidateService {
       blogUrl: null,
       portfolioUrl: null,
     };
+    const profile = await this.getRequiredProfile(currentUser.candidateId);
     return this.envelope({
       job: jobDetail.data,
       documentPolicy: {
@@ -185,6 +202,7 @@ export class CandidateService {
       requiredConsentTypes: [...REQUIRED_APPLICATION_CONSENTS],
       portfolioRequired: true,
       applicant,
+      profileSnapshot: this.buildProfileSnapshot(profile),
     });
   }
 
@@ -195,6 +213,16 @@ export class CandidateService {
   ): Promise<ApiResponse<ApplicationSubmissionResult>> {
     await this.getApplyAvailableJob(jobId);
     const applicationFields = this.assertRequiredApplicationFields(dto);
+    const currentProfile = await this.getRequiredProfile(currentUser.candidateId);
+    const profileSnapshot = applicationFields.profileSnapshot ?? this.buildProfileSnapshot({
+      ...currentProfile,
+      name: applicationFields.candidateName,
+      email: applicationFields.email,
+      phone: applicationFields.phone,
+      githubUrl: applicationFields.githubUrl ?? null,
+      blogUrl: applicationFields.blogUrl ?? null,
+      portfolioUrl: applicationFields.portfolioUrl ?? null,
+    });
     const resumeFileAsset = await this.assertFileAssetForCurrentUser(
       applicationFields.resumeFileId,
       currentUser.userId,
@@ -232,6 +260,7 @@ export class CandidateService {
       portfolioUrl: applicationFields.portfolioUrl,
       motivation: applicationFields.motivation,
       additionalInfo: applicationFields.additionalInfo,
+      profileSnapshot,
       consentTypes: applicationFields.consentTypes,
       // 연락처를 지원서 생성과 같은 트랜잭션에서 저장 → 다음 지원 자동 입력에 재사용(원자적). (#272 P2)
       contactUserId: applicationFields.phone ? currentUser.userId : undefined,
@@ -341,17 +370,21 @@ export class CandidateService {
     return this.envelope(profile);
   }
 
-  // 지원자 프로필 수정. 빈 문자열은 null 로 저장하고, 이름은 공백만 있으면 무시한다. (#272)
+  // 지원자 프로필 수정. scalar는 부분 수정하고 전달된 반복 섹션만 전체 교체한다.
   async updateProfile(
     dto: UpdateCandidateProfileDto,
     currentUser: CurrentCandidateUser,
   ): Promise<ApiResponse<CandidateProfileView>> {
     const input: UpdateCandidateProfileInput = {};
     if (dto.name !== undefined) {
-      const name = dto.name.trim();
-      if (name.length > 0) {
-        input.name = name;
+      if (typeof dto.name !== "string") {
+        this.throwProfileValidation("name", "name must be a string");
       }
+      const name = dto.name.trim();
+      if (name.length === 0) {
+        this.throwProfileValidation("name", "name must not be blank");
+      }
+      input.name = name;
     }
     if (dto.phone !== undefined) {
       input.phone = this.normalizeProfileText(dto.phone);
@@ -368,8 +401,105 @@ export class CandidateService {
     if (dto.summary !== undefined) {
       input.summary = this.normalizeProfileText(dto.summary);
     }
+    if (dto.coverLetter !== undefined) {
+      input.coverLetter = this.normalizeProfileText(dto.coverLetter);
+    }
+    if (dto.educations !== undefined) {
+      input.educations = dto.educations.map((item, index) => {
+        const field = `educations.${index}`;
+        this.assertEducationPeriod(item.status, item.startMonth, item.endMonth ?? null, item.educationLevel, item.degreeType, field);
+        return {
+          educationLevel: item.educationLevel,
+          schoolName: this.requiredProfileText(item.schoolName, `${field}.schoolName`),
+          major: this.normalizeProfileText(item.major),
+          degreeType: item.degreeType,
+          status: item.status,
+          startMonth: item.startMonth,
+          endMonth: item.endMonth ?? null,
+        };
+      });
+    }
+    if (dto.careers !== undefined) {
+      input.careers = dto.careers.map((item, index) => {
+        const field = `careers.${index}`;
+        this.assertOpenEndedPeriod(item.startMonth, item.endMonth ?? null, item.isCurrent, field);
+        return {
+          companyName: this.requiredProfileText(item.companyName, `${field}.companyName`),
+          startMonth: item.startMonth,
+          endMonth: item.endMonth ?? null,
+          isCurrent: item.isCurrent,
+          jobRole: this.requiredProfileText(item.jobRole, `${field}.jobRole`),
+          department: this.normalizeProfileText(item.department),
+          position: this.normalizeProfileText(item.position),
+          responsibilities: this.requiredProfileText(item.responsibilities, `${field}.responsibilities`),
+        };
+      });
+    }
+    if (dto.activities !== undefined) {
+      input.activities = dto.activities.map((item, index) => {
+        const field = `activities.${index}`;
+        this.assertOpenEndedPeriod(item.startDate, item.endDate ?? null, item.isOngoing, field);
+        return {
+          activityType: item.activityType,
+          organizationName: this.requiredProfileText(item.organizationName, `${field}.organizationName`),
+          startDate: item.startDate,
+          endDate: item.endDate ?? null,
+          isOngoing: item.isOngoing,
+          description: this.requiredProfileText(item.description, `${field}.description`),
+        };
+      });
+    }
+    if (dto.credentials !== undefined) {
+      input.credentials = dto.credentials.map((item, index) => ({
+        credentialType: item.credentialType,
+        name: this.requiredProfileText(item.name, `credentials.${index}.name`),
+        issuer: this.requiredProfileText(item.issuer, `credentials.${index}.issuer`),
+        acquiredMonth: item.acquiredMonth,
+        result: this.normalizeProfileText(item.result),
+      }));
+    }
     const profile = await this.repository.updateCandidateProfile(currentUser.candidateId, input);
     return this.envelope(profile);
+  }
+
+  async getCandidateProfileAiContext(currentUser: CurrentCandidateUser): Promise<CandidateProfileAiContextV1> {
+    const profile = await this.repository.getCandidateProfile(currentUser.candidateId);
+    if (!profile) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "지원자 프로필을 찾을 수 없습니다.", 404);
+    }
+    return this.toCandidateProfileAiContext(profile);
+  }
+
+  async getCandidateFolderProfileAiContext(
+    folderId: number,
+    currentUser: CurrentCandidateUser,
+  ): Promise<CandidateProfileAiContextV1> {
+    const folder = await this.getOwnedFolder(folderId, currentUser);
+    const profile = folder.profileSnapshot ?? this.buildProfileSnapshot(await this.getRequiredProfile(currentUser.candidateId));
+    return this.toCandidateProfileAiContext(profile);
+  }
+
+  private toCandidateProfileAiContext(profile: CandidateProfileView): CandidateProfileAiContextV1 {
+    const context: CandidateProfileAiContextV1 = {
+      schemaVersion: 1,
+      summary: profile.summary?.slice(0, 1_000) ?? null,
+      coverLetter: profile.coverLetter?.slice(0, 3_000) ?? null,
+      githubUrl: profile.githubUrl,
+      blogUrl: profile.blogUrl,
+      portfolioUrl: profile.portfolioUrl,
+      educations: this.latestProfileItems(profile.educations, (item) => item.endMonth ?? item.startMonth),
+      careers: this.latestProfileItems(profile.careers, (item) => item.isCurrent ? "9999-12" : (item.endMonth ?? item.startMonth))
+        .map((item) => ({ ...item, responsibilities: item.responsibilities.slice(0, 500) })),
+      activities: this.latestProfileItems(profile.activities, (item) => item.isOngoing ? "9999-12-31" : (item.endDate ?? item.startDate))
+        .map((item) => ({ ...item, description: item.description.slice(0, 500) })),
+      credentials: this.latestProfileItems(profile.credentials, (item) => item.acquiredMonth),
+    };
+    this.limitProfileContext(context);
+    return context;
+  }
+
+  async getCandidateProfileUpdatedAt(currentUser: CurrentCandidateUser): Promise<string | null> {
+    return this.repository.getCandidateProfileUpdatedAt(currentUser.candidateId);
   }
 
   private normalizeProfileText(value: string | null | undefined): string | null {
@@ -380,9 +510,69 @@ export class CandidateService {
     return trimmed.length > 0 ? trimmed : null;
   }
 
+  private requiredProfileText(value: string, field: string): string {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      this.throwProfileValidation(field, `${field} must not be blank`);
+    }
+    return value.trim();
+  }
+
+  private assertEducationPeriod(
+    status: string,
+    startMonth: string,
+    endMonth: string | null,
+    educationLevel: string,
+    degreeType: string,
+    field: string,
+  ): void {
+    const open = status === "ENROLLED" || status === "LEAVE_OF_ABSENCE";
+    this.assertOpenEndedPeriod(startMonth, endMonth, open, field);
+    const compatibleDegrees: Record<string, string[]> = {
+      HIGH_SCHOOL: ["HIGH_SCHOOL_DIPLOMA", "OTHER"],
+      COLLEGE: ["ASSOCIATE", "OTHER"],
+      UNIVERSITY: ["BACHELOR", "OTHER"],
+      GRADUATE_SCHOOL: ["MASTER", "DOCTORATE", "OTHER"],
+      OTHER: ["OTHER"],
+    };
+    if (!compatibleDegrees[educationLevel]?.includes(degreeType)) {
+      this.throwProfileValidation(`${field}.degreeType`, "degree type is incompatible with education level");
+    }
+  }
+
+  private assertOpenEndedPeriod(start: string, end: string | null, ongoing: boolean, field: string): void {
+    if (ongoing && end !== null) {
+      this.throwProfileValidation(`${field}.end`, "end must be null while ongoing");
+    }
+    if (!ongoing && end === null) {
+      this.throwProfileValidation(`${field}.end`, "end is required when not ongoing");
+    }
+    if (end !== null && start > end) {
+      this.throwProfileValidation(`${field}.end`, "end must be on or after start");
+    }
+  }
+
+  private throwProfileValidation(field: string, reason: string): never {
+    throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "프로필 입력값을 확인해주세요.", 400, [{ field, reason }]);
+  }
+
+  private latestProfileItems<T>(items: T[], dateOf: (item: T) => string): T[] {
+    return [...items].sort((a, b) => dateOf(b).localeCompare(dateOf(a))).slice(0, 5);
+  }
+
+  private limitProfileContext(context: CandidateProfileAiContextV1): void {
+    const sections = [context.educations, context.careers, context.activities, context.credentials];
+    while (JSON.stringify(context).length > 20_000) {
+      const target = sections.filter((items) => items.length > 0).sort((a, b) => b.length - a.length)[0];
+      if (!target) break;
+      target.pop();
+    }
+  }
+
   async listFolders(currentUser: CurrentCandidateUser): Promise<ApiListResponse<CandidateFolder>> {
     const items = await this.repository.listFolders(currentUser.candidateId);
-    return this.listEnvelope(items, this.createPageMeta(1, Math.max(items.length, 1), items.length));
+    const profile = await this.getRequiredProfile(currentUser.candidateId);
+    const effectiveItems = items.map((folder) => this.withEffectiveFolderSnapshot(folder, profile));
+    return this.listEnvelope(effectiveItems, this.createPageMeta(1, Math.max(items.length, 1), items.length));
   }
 
   async createFolder(
@@ -397,6 +587,7 @@ export class CandidateService {
     }
 
     const input = await this.normalizeCandidateFolderMutation(dto, currentUser, true);
+    const currentProfile = await this.getRequiredProfile(currentUser.candidateId);
     const folder = await this.repository.createFolder({
       candidateId: currentUser.candidateId,
       name: input.name ?? "",
@@ -407,12 +598,15 @@ export class CandidateService {
       portfolioFileId: input.portfolioFileId ?? null,
       motivation: input.motivation ?? null,
       extraNote: input.extraNote ?? null,
+      profileSnapshot: input.profileSnapshot ?? this.buildLegacyFolderProfileSnapshot(currentProfile, input),
     });
     return this.envelope(folder);
   }
 
   async getFolder(folderId: number, currentUser: CurrentCandidateUser): Promise<ApiResponse<CandidateFolder>> {
-    return this.envelope(await this.getOwnedFolder(folderId, currentUser));
+    const folder = await this.getOwnedFolder(folderId, currentUser);
+    const profile = await this.getRequiredProfile(currentUser.candidateId);
+    return this.envelope(this.withEffectiveFolderSnapshot(folder, profile));
   }
 
   async updateFolder(
@@ -422,6 +616,12 @@ export class CandidateService {
   ): Promise<ApiResponse<CandidateFolder>> {
     const current = await this.getOwnedFolder(folderId, currentUser);
     const input = await this.normalizeCandidateFolderMutation(dto, currentUser, false);
+    if (!current.profileSnapshot && input.profileSnapshot === undefined) {
+      input.profileSnapshot = this.buildLegacyFolderProfileSnapshot(
+        await this.getRequiredProfile(currentUser.candidateId),
+        { ...current, ...input },
+      );
+    }
     if (Object.keys(input).length === 0) {
       return this.envelope(current);
     }
@@ -438,16 +638,36 @@ export class CandidateService {
     folderId: number,
     currentUser: CurrentCandidateUser,
   ): Promise<CandidateFolderContext> {
-    const folder = await this.getOwnedFolder(folderId, currentUser);
+    const storedFolder = await this.getOwnedFolder(folderId, currentUser);
+    const currentProfile = await this.getRequiredProfile(currentUser.candidateId);
+    const folder = this.withEffectiveFolderSnapshot(storedFolder, currentProfile);
     const resumeFile = folder.resumeFileId ? await this.repository.findFileAsset(folder.resumeFileId) : undefined;
     const resumeExtractedText = folder.resumeFileId
       ? await this.repository.findLatestExtractedTextByFileId(folder.resumeFileId)
       : null;
+    const scrubbedResumeText = resumeExtractedText
+      ? this.scrubResumeIdentifiers(
+          this.scrubResumeIdentifiers(resumeExtractedText.slice(0, 2_000), currentProfile),
+          folder.profileSnapshot ?? currentProfile,
+        )
+      : null;
     return this.limitMockFolderContext({
       ...folder,
       resumeFile: resumeFile ?? null,
-      resumeExtractedText: resumeExtractedText ? resumeExtractedText.slice(0, 2_000) : null,
+      resumeExtractedText: scrubbedResumeText,
     });
+  }
+
+  private scrubResumeIdentifiers(text: string, profile: CandidateProfileView): string {
+    let scrubbed = text
+      .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[이메일 제거]")
+      .replace(/(?:\+?82[-.\s]?)?(?:0\d{1,2})[-.\s]?\d{3,4}[-.\s]?\d{4}/g, "[전화번호 제거]")
+      .replace(/https?:\/\/\S+|www\.\S+/gi, "[URL 제거]")
+      .replace(/^(?:성명|이름|name|생년월일|나이|성별|주소)\s*[:：].*$/gim, "[식별정보 제거]");
+    for (const identifier of [profile.name, profile.email, profile.phone]) {
+      if (identifier?.trim()) scrubbed = scrubbed.split(identifier.trim()).join("[식별정보 제거]");
+    }
+    return scrubbed;
   }
 
   async listApplications(currentUser: CurrentCandidateUser): Promise<ApiListResponse<CandidateApplicationSummary>> {
@@ -950,37 +1170,39 @@ export class CandidateService {
   }
 
   private async toApplicationSummary(application: Application): Promise<CandidateApplicationSummary> {
-    const job = await this.repository.findJob(application.postingId);
-    const session = await this.repository.findInterviewSessionByApplication(application.applicationId);
-    const consents = await this.repository.listConsentRecords(application.applicationId);
-    if (!job || !session) {
-      throw new CandidateDomainError("COMMON_NOT_FOUND", "Application summary dependency was not found.", 404);
-    }
+    const [job, session, consents] = await Promise.all([
+      this.repository.findJob(application.postingId),
+      this.repository.findInterviewSessionByApplication(application.applicationId),
+      this.repository.listConsentRecords(application.applicationId),
+    ]);
+    const unavailableReason = !job ? "POSTING_NOT_FOUND" : !session ? "INTERVIEW_SESSION_NOT_FOUND" : null;
 
-    const consentCompleted = this.hasRequiredInterviewConsents(consents);
-    const deviceCheckCompleted = this.isDeviceCheckPassed(session);
+    const consentCompleted = session ? this.hasRequiredInterviewConsents(consents) : false;
+    const deviceCheckCompleted = session ? this.isDeviceCheckPassed(session) : false;
     return {
       applicationId: application.applicationId,
       postingId: application.postingId,
       candidateId: application.candidateId,
-      companyName: job.companyName,
-      jobTitle: job.title,
-      jobRole: job.jobRole,
-      location: job.location,
+      availabilityStatus: unavailableReason ? "UNAVAILABLE" : "AVAILABLE",
+      unavailableReason,
+      companyName: job?.companyName ?? null,
+      jobTitle: job?.title ?? null,
+      jobRole: job?.jobRole ?? null,
+      location: job?.location ?? null,
       applicationStatus: application.applicationStatus,
       documentStatus: application.documentStatus,
       interviewStatus: application.interviewStatus,
       reportStatus: application.reportStatus,
       submittedAt: application.submittedAt,
       updatedAt: application.updatedAt,
-      sessionId: session.sessionId,
-      interviewType: session.interviewType,
-      interviewSessionStatus: session.status,
-      interviewWindowStartsAt: session.windowStartsAt,
-      interviewWindowEndsAt: session.windowEndsAt,
+      sessionId: session?.sessionId ?? null,
+      interviewType: session?.interviewType ?? null,
+      interviewSessionStatus: session?.status ?? null,
+      interviewWindowStartsAt: session?.windowStartsAt ?? null,
+      interviewWindowEndsAt: session?.windowEndsAt ?? null,
       consentCompleted,
       deviceCheckCompleted,
-      canStartInterview: consentCompleted && deviceCheckCompleted && session.status === "READY",
+      canStartInterview: !unavailableReason && consentCompleted && deviceCheckCompleted && session?.status === "READY",
     };
   }
 
@@ -1243,6 +1465,9 @@ export class CandidateService {
     const motivation = requestBody.motivation;
     const additionalInfo = requestBody.additionalInfo;
     const consentTypes = requestBody.consentTypes;
+    const profileSnapshot = Object.hasOwn(requestBody, "profileSnapshot")
+      ? this.normalizeProfileSnapshot(requestBody.profileSnapshot)
+      : undefined;
 
     if (
       !this.isNonEmptyString(candidateName) ||
@@ -1354,6 +1579,7 @@ export class CandidateService {
       portfolioUrl: normalizedPortfolioUrl,
       motivation: motivation.trim(),
       additionalInfo: additionalInfo.trim(),
+      profileSnapshot,
       consentTypes: validatedConsentTypes,
     };
   }
@@ -1460,6 +1686,9 @@ export class CandidateService {
     }
     if (Object.hasOwn(requestBody, "extraNote")) {
       input.extraNote = this.normalizeNullableString(requestBody.extraNote, "extraNote", 5_000);
+    }
+    if (Object.hasOwn(requestBody, "profileSnapshot")) {
+      input.profileSnapshot = this.normalizeProfileSnapshot(requestBody.profileSnapshot);
     }
 
     if (Object.hasOwn(requestBody, "resumeFileId")) {
@@ -1851,6 +2080,201 @@ export class CandidateService {
       canApply: !alreadyApplied,
       alreadyApplied,
     };
+  }
+
+  private async getRequiredProfile(candidateId: number): Promise<CandidateProfileView> {
+    const profile = await this.repository.getCandidateProfile(candidateId);
+    if (!profile) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "지원자 프로필을 찾을 수 없습니다.", 404);
+    }
+    return profile;
+  }
+
+  private buildProfileSnapshot(profile: CandidateProfileView): CandidateProfileSnapshotV1 {
+    return {
+      schemaVersion: 1,
+      ...profile,
+      educations: profile.educations.map((item) => ({ ...item })),
+      careers: profile.careers.map((item) => ({ ...item })),
+      activities: profile.activities.map((item) => ({ ...item })),
+      credentials: profile.credentials.map((item) => ({ ...item })),
+    };
+  }
+
+  private withEffectiveFolderSnapshot(folder: CandidateFolder, profile: CandidateProfileView): CandidateFolder {
+    return folder.profileSnapshot
+      ? folder
+      : { ...folder, profileSnapshot: this.buildLegacyFolderProfileSnapshot(profile, folder) };
+  }
+
+  private buildLegacyFolderProfileSnapshot(
+    profile: CandidateProfileView,
+    folder: Partial<Pick<CandidateFolder, "githubUrl" | "blogUrl" | "portfolioUrl">>,
+  ): CandidateProfileSnapshotV1 {
+    const snapshot = this.buildProfileSnapshot(profile);
+    for (const field of ["githubUrl", "blogUrl", "portfolioUrl"] as const) {
+      if (folder[field]) snapshot[field] = folder[field] ?? null;
+    }
+    return snapshot;
+  }
+
+  private normalizeProfileSnapshot(value: unknown): CandidateProfileSnapshotV1 {
+    const snapshot = this.toRequestBody(value, "profileSnapshot");
+    if (snapshot.schemaVersion !== 1) {
+      this.throwProfileValidation("profileSnapshot.schemaVersion", "schemaVersion must be 1");
+    }
+    const name = this.snapshotRequiredText(snapshot.name, "profileSnapshot.name", 100);
+    const email = this.snapshotRequiredText(snapshot.email, "profileSnapshot.email", 254);
+    if (!this.isEmail(email)) {
+      this.throwProfileValidation("profileSnapshot.email", "email must be a valid email address");
+    }
+    return {
+      schemaVersion: 1,
+      name,
+      email,
+      phone: this.normalizeNullableString(snapshot.phone, "profileSnapshot.phone", 50),
+      githubUrl: this.normalizeSnapshotUrl(snapshot.githubUrl, "profileSnapshot.githubUrl"),
+      blogUrl: this.normalizeSnapshotUrl(snapshot.blogUrl, "profileSnapshot.blogUrl"),
+      portfolioUrl: this.normalizeSnapshotUrl(snapshot.portfolioUrl, "profileSnapshot.portfolioUrl"),
+      summary: this.normalizeNullableString(snapshot.summary, "profileSnapshot.summary", 2_000),
+      coverLetter: this.normalizeNullableString(snapshot.coverLetter, "profileSnapshot.coverLetter", 5_000),
+      educations: this.normalizeSnapshotEducations(snapshot.educations),
+      careers: this.normalizeSnapshotCareers(snapshot.careers),
+      activities: this.normalizeSnapshotActivities(snapshot.activities),
+      credentials: this.normalizeSnapshotCredentials(snapshot.credentials),
+    };
+  }
+
+  private normalizeSnapshotUrl(value: unknown, field: string): string | null {
+    const url = this.normalizeNullableString(value, field, 500);
+    if (url) this.assertUrl(url, field);
+    return url;
+  }
+
+  private normalizeSnapshotRecords(value: unknown, field: string): Record<string, unknown>[] {
+    if (
+      !Array.isArray(value) ||
+      value.length > 10 ||
+      value.some((item) => !item || typeof item !== "object" || Array.isArray(item))
+    ) {
+      this.throwProfileValidation(field, `${field} must be an array of at most 10 objects`);
+    }
+    return value.map((item) => ({ ...(item as Record<string, unknown>) }));
+  }
+
+  private normalizeSnapshotEducations(value: unknown): CandidateProfileSnapshotV1["educations"] {
+    return this.normalizeSnapshotRecords(value, "profileSnapshot.educations").map((item, index) => {
+      const field = `profileSnapshot.educations.${index}`;
+      const educationLevel = this.snapshotEnum(item.educationLevel, CANDIDATE_EDUCATION_LEVELS, `${field}.educationLevel`);
+      const degreeType = this.snapshotEnum(item.degreeType, CANDIDATE_DEGREE_TYPES, `${field}.degreeType`);
+      const status = this.snapshotEnum(item.status, CANDIDATE_EDUCATION_STATUSES, `${field}.status`);
+      const startMonth = this.snapshotYearMonth(item.startMonth, `${field}.startMonth`);
+      const endMonth = this.snapshotNullableYearMonth(item.endMonth, `${field}.endMonth`);
+      this.assertEducationPeriod(status, startMonth, endMonth, educationLevel, degreeType, field);
+      return {
+        educationLevel: educationLevel as CandidateEducationLevel,
+        schoolName: this.snapshotRequiredText(item.schoolName, `${field}.schoolName`, 150),
+        major: this.normalizeNullableString(item.major, `${field}.major`, 150),
+        degreeType: degreeType as CandidateDegreeType,
+        status: status as CandidateEducationStatus,
+        startMonth,
+        endMonth,
+      };
+    });
+  }
+
+  private normalizeSnapshotCareers(value: unknown): CandidateProfileSnapshotV1["careers"] {
+    return this.normalizeSnapshotRecords(value, "profileSnapshot.careers").map((item, index) => {
+      const field = `profileSnapshot.careers.${index}`;
+      const startMonth = this.snapshotYearMonth(item.startMonth, `${field}.startMonth`);
+      const endMonth = this.snapshotNullableYearMonth(item.endMonth, `${field}.endMonth`);
+      const isCurrent = this.snapshotBoolean(item.isCurrent, `${field}.isCurrent`);
+      this.assertOpenEndedPeriod(startMonth, endMonth, isCurrent, field);
+      return {
+        companyName: this.snapshotRequiredText(item.companyName, `${field}.companyName`, 150),
+        startMonth,
+        endMonth,
+        isCurrent,
+        jobRole: this.snapshotRequiredText(item.jobRole, `${field}.jobRole`, 100),
+        department: this.normalizeNullableString(item.department, `${field}.department`, 100),
+        position: this.normalizeNullableString(item.position, `${field}.position`, 100),
+        responsibilities: this.snapshotRequiredText(item.responsibilities, `${field}.responsibilities`, 1_000),
+      };
+    });
+  }
+
+  private normalizeSnapshotActivities(value: unknown): CandidateProfileSnapshotV1["activities"] {
+    return this.normalizeSnapshotRecords(value, "profileSnapshot.activities").map((item, index) => {
+      const field = `profileSnapshot.activities.${index}`;
+      const startDate = this.snapshotDate(item.startDate, `${field}.startDate`);
+      const endDate = item.endDate === undefined || item.endDate === null
+        ? null
+        : this.snapshotDate(item.endDate, `${field}.endDate`);
+      const isOngoing = this.snapshotBoolean(item.isOngoing, `${field}.isOngoing`);
+      this.assertOpenEndedPeriod(startDate, endDate, isOngoing, field);
+      return {
+        activityType: this.snapshotEnum(item.activityType, CANDIDATE_ACTIVITY_TYPES, `${field}.activityType`) as CandidateActivityType,
+        organizationName: this.snapshotRequiredText(item.organizationName, `${field}.organizationName`, 150),
+        startDate,
+        endDate,
+        isOngoing,
+        description: this.snapshotRequiredText(item.description, `${field}.description`, 1_000),
+      };
+    });
+  }
+
+  private normalizeSnapshotCredentials(value: unknown): CandidateProfileSnapshotV1["credentials"] {
+    return this.normalizeSnapshotRecords(value, "profileSnapshot.credentials").map((item, index) => {
+      const field = `profileSnapshot.credentials.${index}`;
+      return {
+        credentialType: this.snapshotEnum(item.credentialType, CANDIDATE_CREDENTIAL_TYPES, `${field}.credentialType`) as CandidateCredentialType,
+        name: this.snapshotRequiredText(item.name, `${field}.name`, 150),
+        issuer: this.snapshotRequiredText(item.issuer, `${field}.issuer`, 150),
+        acquiredMonth: this.snapshotYearMonth(item.acquiredMonth, `${field}.acquiredMonth`),
+        result: this.normalizeNullableString(item.result, `${field}.result`, 200),
+      };
+    });
+  }
+
+  private snapshotRequiredText(value: unknown, field: string, maxLength: number): string {
+    if (typeof value !== "string" || value.trim().length === 0 || value.trim().length > maxLength) {
+      this.throwProfileValidation(field, `${field} must be a non-blank string of ${maxLength} characters or fewer`);
+    }
+    return value.trim();
+  }
+
+  private snapshotEnum<T extends string>(value: unknown, allowed: readonly T[], field: string): T {
+    if (typeof value !== "string" || !allowed.includes(value as T)) {
+      this.throwProfileValidation(field, `${field} has an unsupported value`);
+    }
+    return value as T;
+  }
+
+  private snapshotBoolean(value: unknown, field: string): boolean {
+    if (typeof value !== "boolean") this.throwProfileValidation(field, `${field} must be a boolean`);
+    return value as boolean;
+  }
+
+  private snapshotYearMonth(value: unknown, field: string): string {
+    if (typeof value !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) {
+      this.throwProfileValidation(field, `${field} must use YYYY-MM format`);
+    }
+    return value as string;
+  }
+
+  private snapshotNullableYearMonth(value: unknown, field: string): string | null {
+    return value === undefined || value === null ? null : this.snapshotYearMonth(value, field);
+  }
+
+  private snapshotDate(value: unknown, field: string): string {
+    if (typeof value !== "string" || !/^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/.test(value)) {
+      this.throwProfileValidation(field, `${field} must use YYYY-MM-DD format`);
+    }
+    const parsed = new Date(`${value as string}T00:00:00.000Z`);
+    if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+      this.throwProfileValidation(field, `${field} must be a valid date`);
+    }
+    return value as string;
   }
 
   private createPageMeta(page: number, limit: number, totalItems: number): PageMeta {

@@ -84,6 +84,8 @@ DTO와 API client 타입은 아래 naming을 따른다. 같은 요청/응답 타
 
 ### Shared Table Field Owners
 
+`candidate_profiles`, `candidate_educations`, `candidate_careers`, `candidate_activities`, `candidate_credentials`는 A/D 공동 소유다. D가 지원자 프로필 API/UI를 쓰고 E가 질문 생성용 안전 투영 결과만 읽는다. AI 모듈은 이름·이메일·전화번호 또는 구조화 프로필 원본 테이블을 직접 직렬화하지 않고 Candidate 모듈의 `CandidateProfileAiContextV1` 빌더를 사용한다.
+
 | Table | Field Group | Write Owner | Read Owner |
 | --- | --- | --- | --- |
 | `applications` | 생성, `submitted_at`, `document_status` | D | B/E |

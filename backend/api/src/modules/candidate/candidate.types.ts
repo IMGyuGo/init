@@ -1,3 +1,11 @@
+import type {
+  CandidateActivityType,
+  CandidateCredentialType,
+  CandidateDegreeType,
+  CandidateEducationLevel,
+  CandidateEducationStatus,
+} from "@init/common";
+
 export type PostingStatus = "DRAFT" | "OPEN" | "CLOSING_SOON" | "CLOSED" | "ARCHIVED";
 export type ApplicationStatus =
   | "DRAFT"
@@ -10,6 +18,8 @@ export type ApplicationStatus =
 export type DocumentStatus = "NOT_SUBMITTED" | "SUBMITTED" | "EXTRACTING" | "EXTRACTED" | "FAILED";
 export type InterviewStatus = "NOT_READY" | "READY" | "IN_PROGRESS" | "COMPLETED" | "FAILED";
 export type ReportStatus = "PENDING" | "GENERATING" | "COMPLETED" | "FAILED";
+export type CandidateApplicationAvailabilityStatus = "AVAILABLE" | "UNAVAILABLE";
+export type CandidateApplicationUnavailableReason = "POSTING_NOT_FOUND" | "INTERVIEW_SESSION_NOT_FOUND";
 export type DocumentType = "RESUME" | "PORTFOLIO";
 export type ConsentType = "PRIVACY_COLLECTION" | "AI_DOCUMENT_ANALYSIS" | "AI_INTERVIEW_RECORDING";
 export type InterviewType = "MOCK" | "RECRUITING";
@@ -127,6 +137,44 @@ export interface ApplicantContact {
 }
 
 // 지원자 프로필(내 정보) 정본. 이름/이메일/연락처는 User, 나머지는 CandidateProfile. (#272 프로필 편집)
+export interface CandidateEducationView {
+  educationLevel: CandidateEducationLevel;
+  schoolName: string;
+  major: string | null;
+  degreeType: CandidateDegreeType;
+  status: CandidateEducationStatus;
+  startMonth: string;
+  endMonth: string | null;
+}
+
+export interface CandidateCareerView {
+  companyName: string;
+  startMonth: string;
+  endMonth: string | null;
+  isCurrent: boolean;
+  jobRole: string;
+  department: string | null;
+  position: string | null;
+  responsibilities: string;
+}
+
+export interface CandidateActivityView {
+  activityType: CandidateActivityType;
+  organizationName: string;
+  startDate: string;
+  endDate: string | null;
+  isOngoing: boolean;
+  description: string;
+}
+
+export interface CandidateCredentialView {
+  credentialType: CandidateCredentialType;
+  name: string;
+  issuer: string;
+  acquiredMonth: string;
+  result: string | null;
+}
+
 export interface CandidateProfileView {
   name: string;
   email: string;
@@ -135,6 +183,28 @@ export interface CandidateProfileView {
   blogUrl: string | null;
   portfolioUrl: string | null;
   summary: string | null;
+  coverLetter: string | null;
+  educations: CandidateEducationView[];
+  careers: CandidateCareerView[];
+  activities: CandidateActivityView[];
+  credentials: CandidateCredentialView[];
+}
+
+export interface CandidateProfileSnapshotV1 extends CandidateProfileView {
+  schemaVersion: 1;
+}
+
+export interface CandidateProfileAiContextV1 {
+  schemaVersion: 1;
+  summary: string | null;
+  coverLetter: string | null;
+  githubUrl: string | null;
+  blogUrl: string | null;
+  portfolioUrl: string | null;
+  educations: CandidateEducationView[];
+  careers: CandidateCareerView[];
+  activities: CandidateActivityView[];
+  credentials: CandidateCredentialView[];
 }
 
 // 이메일은 로그인 정보라 수정 대상에서 제외한다.
@@ -145,6 +215,11 @@ export interface UpdateCandidateProfileInput {
   blogUrl?: string | null;
   portfolioUrl?: string | null;
   summary?: string | null;
+  coverLetter?: string | null;
+  educations?: CandidateEducationView[];
+  careers?: CandidateCareerView[];
+  activities?: CandidateActivityView[];
+  credentials?: CandidateCredentialView[];
 }
 
 export interface CandidateApplyView {
@@ -153,6 +228,7 @@ export interface CandidateApplyView {
   requiredConsentTypes: ConsentType[];
   portfolioRequired: true;
   applicant: ApplicantContact;
+  profileSnapshot: CandidateProfileSnapshotV1;
 }
 
 export interface FileAsset {
@@ -178,6 +254,7 @@ export interface Application {
   portfolioUrl?: string | null;
   motivation?: string | null;
   additionalInfo?: string | null;
+  profileSnapshot: CandidateProfileSnapshotV1 | null;
   applicationStatus: ApplicationStatus;
   documentStatus: DocumentStatus;
   interviewStatus: InterviewStatus;
@@ -220,6 +297,7 @@ export interface CandidateFolder {
   portfolioFileName: string | null;
   motivation: string | null;
   extraNote: string | null;
+  profileSnapshot: CandidateProfileSnapshotV1 | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -264,21 +342,23 @@ export interface CandidateApplicationSummary {
   applicationId: number;
   postingId: number;
   candidateId: number;
-  companyName: string;
-  jobTitle: string;
-  jobRole: string;
-  location: string;
+  availabilityStatus: CandidateApplicationAvailabilityStatus;
+  unavailableReason: CandidateApplicationUnavailableReason | null;
+  companyName: string | null;
+  jobTitle: string | null;
+  jobRole: string | null;
+  location: string | null;
   applicationStatus: ApplicationStatus;
   documentStatus: DocumentStatus;
   interviewStatus: InterviewStatus;
   reportStatus: ReportStatus;
   submittedAt: string;
   updatedAt: string;
-  sessionId: number;
-  interviewType: InterviewType;
-  interviewSessionStatus: InterviewStatus;
-  interviewWindowStartsAt: string;
-  interviewWindowEndsAt: string;
+  sessionId: number | null;
+  interviewType: InterviewType | null;
+  interviewSessionStatus: InterviewStatus | null;
+  interviewWindowStartsAt: string | null;
+  interviewWindowEndsAt: string | null;
   consentCompleted: boolean;
   deviceCheckCompleted: boolean;
   canStartInterview: boolean;
@@ -392,6 +472,7 @@ export interface CandidateRepository {
   findCandidateUserId(candidateId: number): Promise<number | undefined>;
   findApplicantContact(userId: number): Promise<ApplicantContact | undefined>;
   getCandidateProfile(candidateId: number): Promise<CandidateProfileView | undefined>;
+  getCandidateProfileUpdatedAt(candidateId: number): Promise<string | null>;
   updateCandidateProfile(candidateId: number, input: UpdateCandidateProfileInput): Promise<CandidateProfileView>;
   listDocuments(applicationId: number): Promise<ApplicationDocument[]>;
   listConsentRecords(applicationId: number): Promise<ConsentRecord[]>;
@@ -418,6 +499,7 @@ export interface CandidateRepository {
     portfolioUrl?: string;
     motivation?: string;
     additionalInfo?: string;
+    profileSnapshot?: CandidateProfileSnapshotV1;
     consentTypes: ConsentType[];
     contactUserId?: number;
   }): Promise<ApplicationSubmissionResult>;
@@ -426,7 +508,7 @@ export interface CandidateRepository {
   countFolders(candidateId: number): Promise<number>;
   listFolders(candidateId: number): Promise<CandidateFolder[]>;
   findFolder(folderId: number): Promise<CandidateFolder | undefined>;
-  createFolder(input: Omit<CandidateFolder, "id" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">): Promise<CandidateFolder>;
+  createFolder(input: Omit<CandidateFolder, "id" | "resumeFileName" | "portfolioFileName" | "profileSnapshot" | "createdAt" | "updatedAt"> & { profileSnapshot?: CandidateProfileSnapshotV1 | null }): Promise<CandidateFolder>;
   updateFolder(folderId: number, input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">>): Promise<CandidateFolder>;
   deleteFolder(folderId: number): Promise<void>;
 }

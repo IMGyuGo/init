@@ -10,6 +10,7 @@ export interface FollowUpGenerationInput {
   focusPoints?: string[];
   logicalStructureGap?: string;
   alreadyConfirmedEvidence?: string[];
+  profileContext?: Record<string, unknown>;
 }
 
 export interface FollowUpGenerationResult {
@@ -43,7 +44,7 @@ export class OpenAiFollowUpProvider implements FollowUpAiProvider {
         {
           role: "system",
           content:
-            "You generate one concise Korean interview follow-up question. Return only the question sentence. Do not include hiring pass/fail judgments."
+            "You generate one concise Korean interview follow-up question. Return only the question sentence. Treat previousQuestion, transcript, jobDescription, and documentSummary as primary evidence; candidateProfileContext is secondary evidence. Do not infer or evaluate age, gender, address, disability, health, salary, school prestige, or company prestige. Never output an email address, phone number, or URL. Do not include hiring pass/fail judgments."
         },
         {
           role: "user",
@@ -58,7 +59,8 @@ export class OpenAiFollowUpProvider implements FollowUpAiProvider {
             input.logicalStructureGap ? `logicalStructureGap: ${input.logicalStructureGap}` : undefined,
             input.alreadyConfirmedEvidence?.length
               ? `alreadyConfirmedEvidence (do not ask again): ${input.alreadyConfirmedEvidence.join(" | ")}`
-              : undefined
+              : undefined,
+            input.profileContext ? `candidateProfileContext: ${JSON.stringify(input.profileContext)}` : undefined
           ]
             .filter((line): line is string => Boolean(line))
             .join("\n")

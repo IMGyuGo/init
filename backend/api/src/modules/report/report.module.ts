@@ -44,6 +44,7 @@ const candidateReportRepositoryProvider = usePrismaRepository
     DevAuthAdapter,
     GuardrailService,
     CANDIDATE_REPORT_REPOSITORY,
+    InterviewModule,
     ReportService,
     AiJobDispatchModule,
   ],

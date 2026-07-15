@@ -1299,6 +1299,7 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
       portfolioUrl: application.portfolioUrl ?? application.candidate.portfolioUrl,
       motivation: application.motivation,
       additionalInfo: application.additionalInfo ?? application.candidate.summary,
+      profileSnapshot: application.profileSnapshot ?? null,
       documents: (application.documents ?? [])
         .filter((document) => document.fileId !== null && document.file?.status === "ACTIVE")
         .map((document) => ({

@@ -139,7 +139,8 @@ done
 SCHEMA="$ROOT/backend/api/prisma/schema.prisma"
 if [[ -f "$SCHEMA" ]]; then
   for model in \
-    User Company CandidateProfile FileAsset Posting CriterionTag EvaluationCriterion Question \
+    User Company CandidateProfile CandidateEducation CandidateCareer CandidateActivity \
+    CandidateCredential FileAsset Posting CriterionTag EvaluationCriterion Question \
     Application ApplicationDocument ConsentRecord InterviewSession InterviewAnswer FollowUpQuestion \
     EvaluationReport ReportScore ReportEvidence ManualEvaluation Notification AiProcessLog \
     AiGuardrailLog Embedding; do
@@ -152,7 +153,9 @@ if [[ -f "$SCHEMA" ]]; then
   for enum in \
     UserType AuthProvider UserStatus PostingStatus ApplicationStatus DocumentStatus InterviewStatus \
     ReportStatus ScreeningDecision InterviewType ReportType DocumentType ConsentType QuestionType \
-    NotificationChannel AiProcessType AiProcessStatus GuardrailResult EmbeddingSourceType; do
+    NotificationChannel AiProcessType AiProcessStatus GuardrailResult EmbeddingSourceType \
+    CandidateEducationLevel CandidateDegreeType CandidateEducationStatus CandidateActivityType \
+    CandidateCredentialType; do
     if ! grep -Eq "^enum[[:space:]]+$enum[[:space:]]*\\{" "$SCHEMA"; then
       echo "[fail] schema.prisma missing baseline enum $enum"
       FAILED=1

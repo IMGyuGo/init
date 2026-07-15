@@ -16,10 +16,14 @@ import type { CandidateMockInterviewPassPort } from "../../payment/service/candi
 import { InMemoryReportRepository } from "../../report/repository/in-memory-report.repository";
 import { AiJobDispatcherService } from "../../report/service/ai-job-dispatcher.service";
 import { InMemoryAiJobQueuePublisher } from "../../report/service/ai-job-queue.publisher";
+import { UpdateMockSessionTitleDto } from "../dto/update-mock-session-title.dto";
+import { plainToInstance } from "class-transformer";
+import { validate } from "class-validator";
 
 type InterviewControllerRoute =
   | "startMockInterview"
   | "listMockInterviewHistory"
+  | "updateMockInterviewTitle"
   | "getMockRuntime"
   | "listMockQuestions"
   | "saveMockAnswer"
@@ -52,6 +56,16 @@ const missingCandidateRequest = {
   currentUser: undefined,
 } as never;
 
+const otherCandidateRequest = {
+  headers: {},
+  currentUser: {
+    ...DEV_CANDIDATE_USER,
+    userId: DEV_CANDIDATE_USER.userId + 1000,
+    candidateId: DEV_CANDIDATE_USER.candidateId + 1000,
+    companyId: null,
+  },
+};
+
 function assertRoute(
   methodName: InterviewControllerRoute,
   expectedPath: string,
@@ -70,6 +84,7 @@ function assertRoute(
 assert.equal(Reflect.getMetadata(PATH_METADATA, InterviewController), interviewApiRoutePrefix);
 assertRoute("startMockInterview", interviewApiRoutes.mockInterviews, RequestMethod.POST);
 assertRoute("listMockInterviewHistory", interviewApiRoutes.mockHistory, RequestMethod.GET);
+assertRoute("updateMockInterviewTitle", interviewApiRoutes.mockTitle, RequestMethod.PATCH);
 assertRoute("getMockRuntime", interviewApiRoutes.mockRuntime, RequestMethod.GET);
 assertRoute("listMockQuestions", interviewApiRoutes.mockQuestions, RequestMethod.GET);
 assertRoute("saveMockAnswer", interviewApiRoutes.mockAnswers, RequestMethod.POST, 201);
@@ -245,6 +260,76 @@ test("mock answer rejects unsupported nonverbal metadata fields at the service b
     }),
     400,
     "COMMON_VALIDATION_FAILED",
+  );
+});
+
+test("mock interview consumes personalized AI output once and fills missing question types", async () => {
+  const candidateService = new CandidateService(new InMemoryCandidateRepository());
+  const interviewRepository = new InMemoryInterviewRepository();
+  const reportRepository = new InMemoryReportRepository();
+  const process = await reportRepository.createQueuedProcess(
+    "QUESTION_GENERATE",
+    JSON.stringify({
+      kind: "MOCK_QUESTION_GENERATE",
+      requestedBy: {
+        userId: validCandidateRequest.currentUser!.userId,
+        userType: "CANDIDATE",
+        candidateId: validCandidateRequest.currentUser!.candidateId,
+      },
+      payload: { questionCount: 2, questionTypes: ["TECHNICAL", "CLOSING"] },
+    }),
+  );
+  await reportRepository.markQueuedProcessCompleted(process.processLogId, JSON.stringify({
+    questionCandidates: [{
+      content: "Redis 캐시 무효화 전략을 선택한 근거와 운영 결과를 설명해주세요.",
+      questionType: "TECHNICAL",
+    }],
+  }));
+  const controller = new InterviewController(new InterviewService(
+    candidateService,
+    interviewRepository,
+    undefined,
+    undefined,
+    undefined,
+    reportRepository,
+  ));
+
+  const createMockSession = interviewRepository.createMockSession.bind(interviewRepository);
+  let failSessionCreationOnce = true;
+  interviewRepository.createMockSession = (input) => {
+    if (failSessionCreationOnce) {
+      failSessionCreationOnce = false;
+      throw new CandidateDomainError("COMMON_CONFLICT", "temporary session creation failure", 409);
+    }
+    return createMockSession(input);
+  };
+  await assertInterviewHttpError(
+    () => controller.startMockInterview(validCandidateRequest, {
+      questionTypes: ["TECHNICAL", "CLOSING"],
+      questionProcessLogId: process.processLogId,
+      showQuestionText: true,
+    }),
+    409,
+    "COMMON_CONFLICT",
+  );
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["TECHNICAL", "CLOSING"],
+    questionProcessLogId: process.processLogId,
+    showQuestionText: true,
+  });
+  const questions = await controller.listMockQuestions(validCandidateRequest, String(started.data.sessionId));
+  assert.equal(questions.data.questions[0]?.content, "Redis 캐시 무효화 전략을 선택한 근거와 운영 결과를 설명해주세요.");
+  assert.equal(questions.data.questions.length, 2);
+  assert.match(questions.data.questions[1]?.content ?? "", /강점/);
+  await assertInterviewHttpError(
+    () => controller.startMockInterview(validCandidateRequest, {
+      questionTypes: ["TECHNICAL", "CLOSING"],
+      questionProcessLogId: process.processLogId,
+      showQuestionText: true,
+    }),
+    409,
+    "COMMON_CONFLICT",
   );
 });
 
@@ -811,6 +896,10 @@ async function runControllerRuntimeAssertions() {
   assert.equal(mockStt.data.answerId, firstMockAnswer.data.answer.answerId);
   assert.equal(mockStt.data.fileId, firstMockAnswer.data.answer.videoFileId);
   assert.equal(mockStt.data.fileAssetId, firstMockAnswer.data.answer.videoFileId);
+  interviewRepository.saveAnswerTranscript(
+    firstMockAnswer.data.answer.answerId,
+    "NestJS와 PostgreSQL을 사용해 프로젝트를 구현했습니다.",
+  );
 
   const mockFollowUp = await controller.requestMockFollowUpQuestion(
     validCandidateRequest,
@@ -1029,6 +1118,57 @@ async function runControllerRuntimeAssertions() {
   assert.equal(applications.data.items[0]?.interviewSessionStatus, "COMPLETED");
   assert.equal(applications.data.items[0]?.reportStatus, "PENDING");
 }
+
+test("mock session title update trims, resets on empty, and blocks non-owners", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["INTRO"],
+    showQuestionText: false,
+  });
+  const sessionId = String(started.data.sessionId);
+
+  // 소유자 저장 시 trim 후 반영되고 이력에도 노출된다.
+  const named = await controller.updateMockInterviewTitle(validCandidateRequest, sessionId, {
+    title: "  결제 시스템 연습  ",
+  });
+  assert.equal(named.data.sessionId, started.data.sessionId);
+  assert.equal(named.data.title, "결제 시스템 연습");
+
+  const history = await controller.listMockInterviewHistory(validCandidateRequest);
+  assert.equal(history.data.items[0]?.title, "결제 시스템 연습");
+
+  // 빈 제목이면 기본값(null)으로 초기화된다.
+  const cleared = await controller.updateMockInterviewTitle(validCandidateRequest, sessionId, { title: "   " });
+  assert.equal(cleared.data.title, null);
+
+  // 다른 지원자는 접근할 수 없다.
+  await assertInterviewHttpError(
+    () => controller.updateMockInterviewTitle(otherCandidateRequest, sessionId, { title: "탈취 시도" }),
+    403,
+    "COMMON_FORBIDDEN",
+  );
+
+  // 존재하지 않는 세션은 404.
+  await assertInterviewHttpError(
+    () => controller.updateMockInterviewTitle(validCandidateRequest, "999999", { title: "없는 세션" }),
+    404,
+    "COMMON_NOT_FOUND",
+  );
+});
+
+test("mock session title DTO enforces the 100 character limit", async () => {
+  const tooLong = plainToInstance(UpdateMockSessionTitleDto, { title: "가".repeat(101) });
+  const tooLongErrors = await validate(tooLong);
+  assert.equal(tooLongErrors.length, 1);
+  assert.ok(tooLongErrors[0]?.constraints?.maxLength);
+
+  const boundary = plainToInstance(UpdateMockSessionTitleDto, { title: "가".repeat(100) });
+  assert.equal((await validate(boundary)).length, 0);
+});
 
 test("interview controller contract", async () => {
   await runControllerRuntimeAssertions();

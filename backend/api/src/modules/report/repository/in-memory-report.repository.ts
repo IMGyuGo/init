@@ -28,6 +28,15 @@ interface GuardrailLogRecord {
   createdAt: string;
 }
 
+function parseJsonRecord(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
 @Injectable()
 export class InMemoryReportRepository implements ReportRepository {
   private nextProcessLogId = 1;
@@ -88,6 +97,27 @@ export class InMemoryReportRepository implements ReportRepository {
       estimatedCostUsd: processLog.estimatedCostUsd,
       failure: processLog.failure
     };
+  }
+
+  async consumeCompletedQuestionProcess(processLogId: number): Promise<boolean> {
+    const process = this.queuedProcesses.get(processLogId);
+    if (!process || process.processType !== "QUESTION_GENERATE" || process.status !== "COMPLETED") return false;
+    const input = parseJsonRecord(process.inputRef);
+    if (input.consumedAt) return false;
+    this.queuedProcesses.set(processLogId, {
+      ...process,
+      inputRef: JSON.stringify({ ...input, consumedAt: new Date().toISOString() }),
+    });
+    return true;
+  }
+
+  async releaseCompletedQuestionProcess(processLogId: number): Promise<void> {
+    const process = this.queuedProcesses.get(processLogId);
+    if (!process || process.processType !== "QUESTION_GENERATE" || process.status !== "COMPLETED") return;
+    const input = parseJsonRecord(process.inputRef);
+    if (!input.consumedAt) return;
+    delete input.consumedAt;
+    this.queuedProcesses.set(processLogId, { ...process, inputRef: JSON.stringify(input) });
   }
 
   async markQueuedProcessCompleted(processLogId: number, outputRef: string): Promise<QueuedAiProcessSnapshot> {

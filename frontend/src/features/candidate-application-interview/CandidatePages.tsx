@@ -4,7 +4,7 @@ import "./CandidatePages.module.css";
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { DependencyList, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FaceLandmarker as MediaPipeFaceLandmarker, NormalizedLandmark, ObjectDetector as MediaPipeObjectDetector } from "@mediapipe/tasks-vision";
 
@@ -13,6 +13,7 @@ import { getAccessToken } from "../../api/client";
 import { sendClientPerformanceLog } from "../ai-performance/api";
 import { resolveClientNextStepType } from "../ai-performance/client-next-step";
 import { GnbAvatar, GnbLogoutButton } from "../auth/GnbAccountControls";
+import { useAuth } from "../auth/AuthProvider";
 import { createPaymentOrder, getCandidateMockInterviewPassSummary, grantCandidateMockInterviewDevPasses, listPaymentOrders } from "../payment/api";
 import { PaymentOrderPagination, formatDateTime as formatPaymentDateTime, formatWon } from "../payment/CompanyBillingPage";
 import { requestTossCardPayment } from "../payment/toss-sdk";
@@ -35,6 +36,7 @@ import {
   type CandidateFileAsset,
   type CandidateFolder,
   type CandidateFolderInput,
+  type CandidateProfileSnapshotV1,
   type CandidateFollowUpQuestionView,
   type CandidateInterviewRuntimeView,
   type CandidateJobQuery,
@@ -42,7 +44,6 @@ import {
   type CandidateMockInterviewHistoryItem,
   type CandidateMockReportSummary,
   type CandidateMockReportFeedback,
-  type UpdateCandidateProfileRequest,
   type CandidateMockReportMedia,
   type CandidateReportAnswerView,
   type CandidateReportEvidenceView,
@@ -57,8 +58,11 @@ import {
   type RealtimeInterviewSessionResponse,
   createCandidateApiClient,
   createPublicInterviewApiClient,
+  publicCandidateApiPaths,
   type InterviewRuntimeApiClient,
 } from "./api";
+import { CandidateProfileSection } from "./CandidateProfileSection";
+import { CandidateProfileSnapshotEditor } from "./CandidateProfileSnapshotEditor";
 import {
   createRealtimeInterviewSpeechResponseEvent,
   createRealtimeInterviewWebRtcConnection,
@@ -80,11 +84,15 @@ import { InterviewAvatar } from "./InterviewAvatar";
 import { candidateApplicationInterviewRoutes } from "./routes";
 import {
   GAZE_CALIBRATION_REQUIRED_SAMPLES,
+  classifyIrisGazeDirection,
   countPersonDetections,
   isFacePositionShifted,
   estimateHeadPoseAngles,
   estimateIrisGazePosition,
+  isReliableGazeCalibrationFrame,
+  isWithinDetectionGrace,
   resolveCombinedGazeSignal,
+  smoothIrisGazePosition,
   updateFacePositionBaseline,
   updateMultiplePeopleDetectionState,
   updateSustainedDetectionState,
@@ -95,8 +103,33 @@ import {
   type IrisGazePosition,
 } from "./nonverbal-integrity";
 import {
+  INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES,
+  evaluateTimelineAnalysisQuality,
+  readGazeAwayIntervals,
+  readGazeTimeline,
+  readHeadPoseTimeline,
+  summarizeGazeTimeline,
+  summarizeHeadPoseTimeline,
+  type InterviewGazeAwayInterval,
+  type InterviewGazeTimelineSample,
+  type InterviewHeadPoseTimelineSample,
+} from "./nonverbal-analysis";
+import {
+  buildNonverbalDeviceQaExport,
+  collectNonverbalDeviceQaEnvironment,
+  createNonverbalDeviceQaRun,
+  finishNonverbalDeviceQaScenario,
+  readNonverbalDeviceQaCamera,
+  startNonverbalDeviceQaScenario,
+  summarizeNonverbalDeviceQaRun,
+  type NonverbalDeviceQaRun,
+  type NonverbalDeviceQaScenarioKind,
+  type NonverbalDeviceQaSummary,
+} from "./nonverbal-device-qa";
+import {
   type CameraPipPosition,
   type CandidateApplicationFormState,
+  applyFolderToApplicationForm,
   type CandidateDeviceCheckState,
   type CandidateInterviewConsentState,
   type CandidateNotificationItem,
@@ -174,6 +207,7 @@ const CAMERALESS_INTERVIEW_TEST_ENTRY_STORAGE_KEY_PREFIX = "init.cameralessInter
 const CANDIDATE_NOTIFICATION_READ_IDS_STORAGE_KEY = "init.candidateNotificationReadIds";
 const CANDIDATE_NOTIFICATION_DISMISSED_IDS_STORAGE_KEY = "init.candidateNotificationDismissedIds";
 const CANDIDATE_REPORT_NOTIFICATION_EVENT = "init:candidate-report-complete";
+const CANDIDATE_APPLY_DRAFT_STORAGE_KEY = "init.candidateApplyDraft.v1";
 const DEMO_CANDIDATE_ID = 1;
 export const PUBLIC_INTERVIEW_ACCESS_TOKEN_STORAGE_KEY = "init.publicInterviewAccessToken";
 const DEFAULT_INTERVIEW_QUESTION_TIME_LIMIT_SECONDS = 90;
@@ -197,6 +231,8 @@ const NONVERBAL_FACE_SHIFT_RELATIVE_AREA_MULTIPLIER = 1.6;
 const NONVERBAL_FACE_SHIFT_CONFIRMATION_MS = 1000;
 const NONVERBAL_GAZE_AWAY_CONFIRMATION_MS = 1500;
 const NONVERBAL_GAZE_CENTERED_CONFIRMATION_MS = 750;
+const NONVERBAL_GAZE_SIGNAL_DROPOUT_GRACE_MS = 650;
+const NONVERBAL_TIMELINE_SAMPLE_INTERVAL_MS = 1000;
 const NONVERBAL_AUDIO_SPEAKING_LEVEL = 6;
 const NONVERBAL_AUDIO_SPEAKING_RATIO_THRESHOLD = 0.35;
 const NONVERBAL_MOUTH_OPEN_RATIO_THRESHOLD = 0.06;
@@ -240,7 +276,6 @@ type RuntimeMode = "mock" | "recruiting";
 type RuntimeTimerPhase = "PREPARING" | "ANSWERING";
 type RealtimeSessionStatus = "idle" | "requesting" | "connecting" | "ready" | "failed";
 type RealtimeProviderState = RealtimeInterviewSessionResponse["provider"] | "none";
-type InterviewGuideStep = "guide" | "device";
 type InterviewIntegrityEventType =
   | "TAB_HIDDEN"
   | "WINDOW_BLUR"
@@ -258,6 +293,7 @@ type InterviewIntegritySuspicionLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH";
 type InterviewIntegrityEvent = {
   type: InterviewIntegrityEventType;
   occurredAt: string;
+  offsetMs?: number;
   durationMs?: number;
   direction?: GazeDirection;
   source?: GazeSignalSource;
@@ -266,6 +302,17 @@ type RuntimeIntegrityWarning = {
   type: InterviewIntegrityEventType;
   message: string;
   occurredAt: string;
+};
+type NonverbalDeviceQaPanelSnapshot = {
+  run: NonverbalDeviceQaRun;
+  summary: NonverbalDeviceQaSummary;
+};
+type NonverbalQaVideoFrameMetadata = {
+  presentedFrames: number;
+};
+type NonverbalQaVideoElement = HTMLVideoElement & {
+  requestVideoFrameCallback?: (callback: (now: number, metadata: NonverbalQaVideoFrameMetadata) => void) => number;
+  cancelVideoFrameCallback?: (handle: number) => void;
 };
 type BrowserDetectedFace = {
   boundingBox: DOMRectReadOnly;
@@ -276,6 +323,77 @@ type BrowserFaceDetector = {
 type BrowserFaceDetectorConstructor = new (options?: { fastMode?: boolean; maxDetectedFaces?: number }) => BrowserFaceDetector;
 
 type MediaPipeFaceLandmarkerModule = typeof import("@mediapipe/tasks-vision");
+type MediaPipeVisionRuntime = {
+  tasks: MediaPipeFaceLandmarkerModule;
+  vision: Awaited<ReturnType<MediaPipeFaceLandmarkerModule["FilesetResolver"]["forVisionTasks"]>>;
+};
+
+let mediaPipeVisionRuntimePromise: Promise<MediaPipeVisionRuntime> | null = null;
+let mediaPipeDiagnosticFilterDepth = 0;
+let restoreMediaPipeConsole: (() => void) | null = null;
+
+function isBenignMediaPipeDiagnostic(args: unknown[]): boolean {
+  const message = args.map((value) => String(value)).join(" ");
+  return (
+    message.includes("Created TensorFlow Lite XNNPACK delegate for CPU") ||
+    message.includes("OpenGL error checking is disabled") ||
+    message.includes("GL version:")
+  );
+}
+
+function beginMediaPipeDiagnosticFilter(): () => void {
+  if (mediaPipeDiagnosticFilterDepth === 0) {
+    const originalError = console.error;
+    const originalWarn = console.warn;
+    console.error = (...args: unknown[]) => {
+      if (!isBenignMediaPipeDiagnostic(args)) originalError(...args);
+    };
+    console.warn = (...args: unknown[]) => {
+      if (!isBenignMediaPipeDiagnostic(args)) originalWarn(...args);
+    };
+    restoreMediaPipeConsole = () => {
+      console.error = originalError;
+      console.warn = originalWarn;
+    };
+  }
+
+  mediaPipeDiagnosticFilterDepth += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    mediaPipeDiagnosticFilterDepth = Math.max(0, mediaPipeDiagnosticFilterDepth - 1);
+    if (mediaPipeDiagnosticFilterDepth === 0) {
+      restoreMediaPipeConsole?.();
+      restoreMediaPipeConsole = null;
+    }
+  };
+}
+
+async function withFilteredMediaPipeDiagnostics<T>(task: () => Promise<T>): Promise<T> {
+  const release = beginMediaPipeDiagnosticFilter();
+  try {
+    return await task();
+  } finally {
+    release();
+  }
+}
+
+function getMediaPipeVisionRuntime(): Promise<MediaPipeVisionRuntime> {
+  if (mediaPipeVisionRuntimePromise) return mediaPipeVisionRuntimePromise;
+
+  const loading = withFilteredMediaPipeDiagnostics(async () => {
+    const tasks = await import("@mediapipe/tasks-vision") as MediaPipeFaceLandmarkerModule;
+    const vision = await tasks.FilesetResolver.forVisionTasks(MEDIAPIPE_TASKS_VISION_WASM_URL);
+    return { tasks, vision };
+  });
+  mediaPipeVisionRuntimePromise = loading.catch((error) => {
+    mediaPipeVisionRuntimePromise = null;
+    throw error;
+  });
+  return mediaPipeVisionRuntimePromise;
+}
+
 type InterviewIntegritySummary = {
   screenAwayCount: number;
   tabHiddenCount: number;
@@ -320,6 +438,8 @@ type InterviewAnswerNonverbalMetadata = {
   cameraDisconnectedCount: number;
   integrityEvents?: InterviewIntegrityEvent[];
   integritySummary?: InterviewIntegritySummary;
+  gazeTimeline?: InterviewGazeTimelineSample[];
+  headPoseTimeline?: InterviewHeadPoseTimelineSample[];
 };
 type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   questionId: number;
@@ -340,6 +460,7 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   gazeAwayStartedAtMs?: number;
   gazeAwayCandidateStartedAtMs?: number;
   gazeCenteredCandidateStartedAtMs?: number;
+  lastGazeSignalAtMs?: number;
   voiceMouthMismatchStartedAtMs?: number;
   voiceMouthMismatchCandidateStartedAtMs?: number;
   voiceWithoutFaceStartedAtMs?: number;
@@ -352,9 +473,16 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   gazeCalibrationSampleCount: number;
   gazeBaselineHorizontalRatio?: number;
   gazeBaselineVerticalRatio?: number;
+  smoothedGazeHorizontalRatio?: number;
+  smoothedGazeVerticalRatio?: number;
   headPoseCalibrationSampleCount: number;
   headPoseBaselineYawDegrees?: number;
   headPoseBaselinePitchDegrees?: number;
+  headPoseBaselineRollDegrees?: number;
+  gazeTimeline: InterviewGazeTimelineSample[];
+  headPoseTimeline: InterviewHeadPoseTimelineSample[];
+  lastGazeTimelineSampleAtMs?: number;
+  lastHeadPoseTimelineSampleAtMs?: number;
   faceBaseline?: FacePositionSnapshot;
   faceBaselineSampleCount: number;
   lastVideoFrameSample?: number[];
@@ -378,6 +506,7 @@ type RecordingNonverbalTracker = InterviewAnswerNonverbalMetadata & {
   totalAwayDurationMs: number;
   maxAwayDurationMs: number;
   integrityEvents: InterviewIntegrityEvent[];
+  deviceQa?: NonverbalDeviceQaRun;
 };
 type CandidateApplicationStatusFilter = "ALL" | "WAITING" | "IN_PROGRESS" | "COMPLETED" | "REPORTING";
 type ApplicationBadgeTone = "green" | "yellow" | "purple" | "neutral";
@@ -576,13 +705,16 @@ const DEVICE_TEST_SENTENCES = [
   "나는 끝까지 집중하며, 오늘의 면접을 차분하게 마무리할 수 있다.",
 ] as const;
 
-export function CandidateJobsPage() {
+export function CandidateJobsPage({ publicEntry = false }: { publicEntry?: boolean } = {}) {
   const [query, setQuery] = useState<CandidateJobQuery>(defaultCandidateJobQuery);
-  const load = useCallback(() => getCandidateApi().listJobs(query), [query]);
-  const { data, loading, error } = useCandidateResource(load, [query]);
+  const load = useCallback(
+    () => (publicEntry ? getPublicCandidateApi() : getCandidateApi()).listJobs(query),
+    [publicEntry, query],
+  );
+  const { data, loading, error } = useCandidateResource(load, [publicEntry, query]);
 
   return (
-    <CandidatePageShell active="jobs">
+    <CandidatePageShell active="jobs" publicEntry={publicEntry}>
       <section className="candidate-jobs-page glass-page notion" aria-label="채용공고">
         <StatusNotice loading={loading} error={error} />
         <CandidateJobsView
@@ -598,6 +730,8 @@ export function CandidateJobsPage() {
 }
 
 export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const load = useCallback(() => getCandidateApi().getJobDetail(jobId), [jobId]);
   const { data, loading, error, refresh } = useCandidateResource(load, [jobId]);
 
@@ -612,6 +746,10 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
   // #272 지원 모달을 열 때 회원 기본정보 자동 입력 + 지원서 세트 목록을 지연 로딩한다.
   const [applyFolders, setApplyFolders] = useState<CandidateFolder[]>([]);
   const [applyPrefilled, setApplyPrefilled] = useState(false);
+  const [restoredEditedSet, setRestoredEditedSet] = useState(false);
+  useEffect(() => {
+    if (searchParams.get("apply") === "1") setApplyOpen(true);
+  }, [searchParams]);
   useEffect(() => {
     if (!applyOpen || applyPrefilled) {
       return;
@@ -625,14 +763,30 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
           return;
         }
         const applicant = applyView.data.applicant;
+        const profileSnapshot = applyView.data.profileSnapshot ?? {
+          schemaVersion: 1 as const,
+          name: applicant.name,
+          email: applicant.email,
+          phone: applicant.phone,
+          githubUrl: applicant.githubUrl,
+          blogUrl: applicant.blogUrl,
+          portfolioUrl: applicant.portfolioUrl,
+          summary: null,
+          coverLetter: null,
+          educations: [],
+          careers: [],
+          activities: [],
+          credentials: [],
+        };
         setApplyForm((current) => ({
           ...current,
-          candidateName: current.candidateName || applicant.name,
-          email: current.email || applicant.email,
-          phone: current.phone || (applicant.phone ?? ""),
-          githubUrl: current.githubUrl || (applicant.githubUrl ?? ""),
-          blogUrl: current.blogUrl || (applicant.blogUrl ?? ""),
-          portfolioUrl: current.portfolioUrl || (applicant.portfolioUrl ?? undefined),
+          candidateName: profileSnapshot.name || applicant.name,
+          email: profileSnapshot.email || applicant.email,
+          phone: profileSnapshot.phone ?? applicant.phone ?? "",
+          githubUrl: profileSnapshot.githubUrl ?? applicant.githubUrl ?? "",
+          blogUrl: profileSnapshot.blogUrl ?? applicant.blogUrl ?? "",
+          portfolioUrl: profileSnapshot.portfolioUrl ?? applicant.portfolioUrl ?? undefined,
+          profileSnapshot,
         }));
         setApplyPrefilled(true);
       })
@@ -649,6 +803,30 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
       active = false;
     };
   }, [applyOpen, applyPrefilled, jobId]);
+
+  useEffect(() => {
+    if (!applyOpen || !applyPrefilled || restoredEditedSet) return;
+    const restoreDraftOnly = searchParams.get("restoreDraft") === "1";
+    const editedSetId = Number(searchParams.get("applySet"));
+    const editedFolder = applyFolders.find((folder) => folder.id === editedSetId);
+    if (!restoreDraftOnly && !editedFolder) return;
+    let baseline = applyForm;
+    try {
+      const draft = JSON.parse(window.sessionStorage.getItem(CANDIDATE_APPLY_DRAFT_STORAGE_KEY) ?? "null") as { jobId?: number; form?: CandidateApplicationFormState } | null;
+      if (draft?.jobId === jobId && draft.form) baseline = draft.form;
+      window.sessionStorage.removeItem(CANDIDATE_APPLY_DRAFT_STORAGE_KEY);
+    } catch {
+      window.sessionStorage.removeItem(CANDIDATE_APPLY_DRAFT_STORAGE_KEY);
+    }
+    setApplyForm(restoreDraftOnly ? baseline : applyFolderToApplicationForm(baseline, baseline, editedFolder!));
+    setRestoredEditedSet(true);
+  }, [applyFolders, applyForm, applyOpen, applyPrefilled, jobId, restoredEditedSet, searchParams]);
+
+  function handleEditApplyFolder(folder: CandidateFolder) {
+    window.sessionStorage.setItem(CANDIDATE_APPLY_DRAFT_STORAGE_KEY, JSON.stringify({ jobId, form: applyForm }));
+    window.history.replaceState(null, "", `/candidate/jobs/${jobId}?apply=1&restoreDraft=1`);
+    router.push(`/candidate/application-sets/${folder.id}/edit?returnTo=${encodeURIComponent(`/candidate/jobs/${jobId}`)}`);
+  }
 
   // 같은 직무의 다른 공고를 추천으로 노출한다(우측 사이드). 별도 추천 API 없이 목록 API 재사용.
   // 목록 jobRoles 필터는 jobRoleCode 와 매칭하므로 표시명(jobRole)이 아닌 jobRoleCode 로 조회한다.
@@ -736,6 +914,7 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
           onStateChange={setApplyForm}
           onSubmit={handleApplicationSubmit}
           onClose={() => setApplyOpen(false)}
+          onEditFolder={handleEditApplyFolder}
         />
       ) : null}
     </CandidatePageShell>
@@ -754,20 +933,40 @@ export function CandidateJobApplyPage({ jobId }: { jobId: number }) {
 
   // #272 회원 기본정보 자동 입력: 지원 화면 진입 시 프로필의 이름/이메일/연락처/GitHub/블로그/포트폴리오를 채운다(빈 칸만).
   const applicant = data?.data.applicant;
+  const profileSnapshot = useMemo(() => {
+    if (data?.data.profileSnapshot) return data.data.profileSnapshot;
+    if (!applicant) return undefined;
+    return {
+      schemaVersion: 1 as const,
+      name: applicant.name,
+      email: applicant.email,
+      phone: applicant.phone,
+      githubUrl: applicant.githubUrl,
+      blogUrl: applicant.blogUrl,
+      portfolioUrl: applicant.portfolioUrl,
+      summary: null,
+      coverLetter: null,
+      educations: [],
+      careers: [],
+      activities: [],
+      credentials: [],
+    };
+  }, [applicant, data?.data.profileSnapshot]);
   useEffect(() => {
-    if (!applicant) {
+    if (!applicant || !profileSnapshot) {
       return;
     }
     setForm((current) => ({
       ...current,
-      candidateName: current.candidateName || applicant.name,
-      email: current.email || applicant.email,
-      phone: current.phone || (applicant.phone ?? ""),
-      githubUrl: current.githubUrl || (applicant.githubUrl ?? ""),
-      blogUrl: current.blogUrl || (applicant.blogUrl ?? ""),
-      portfolioUrl: current.portfolioUrl || (applicant.portfolioUrl ?? undefined),
+      candidateName: profileSnapshot.name || applicant.name,
+      email: profileSnapshot.email || applicant.email,
+      phone: profileSnapshot.phone ?? applicant.phone ?? "",
+      githubUrl: profileSnapshot.githubUrl ?? applicant.githubUrl ?? "",
+      blogUrl: profileSnapshot.blogUrl ?? applicant.blogUrl ?? "",
+      portfolioUrl: profileSnapshot.portfolioUrl ?? applicant.portfolioUrl ?? undefined,
+      profileSnapshot,
     }));
-  }, [applicant]);
+  }, [applicant, profileSnapshot]);
 
   // #272 지원서 세트 불러오기용 폴더 목록.
   const foldersLoad = useCallback(() => getCandidateApi().listFolders(), []);
@@ -865,20 +1064,35 @@ const APPLICATIONS_PAGE_SIZE = 8;
 
 // 마이페이지 '지원 내역' 탭 — 지원 요약 + 지원한 공고 목록(페이지네이션). (#272 마이페이지 탭 재편)
 export function CandidateApplicationsPage() {
+  const router = useRouter();
   const load = useCallback(() => getCandidateApi().listApplications(), []);
   const { data, loading, error } = useCandidateResource(load, []);
   const applications = data?.data.items ?? [];
+  const availableApplications = applications.filter((application) => application.availabilityStatus !== "UNAVAILABLE");
   const [statusFilter, setStatusFilter] = useState<CandidateApplicationStatusFilter>("ALL");
+  // 면접 안내 모달을 지원 내역 위에서 연다. 완료 시 장치 점검 라우트로 이동. (#288)
+  const [guideAppId, setGuideAppId] = useState<number | null>(null);
+  // /interview-guide 라우트로 직접 진입한 경우 ?guide=id 로 리다이렉트되어 여기서 모달을 연다.
+  const searchParams = useSearchParams();
+  const guideParam = searchParams.get("guide");
+  useEffect(() => {
+    if (guideParam) {
+      const parsed = Number(guideParam);
+      if (Number.isInteger(parsed) && parsed > 0) {
+        setGuideAppId(parsed);
+      }
+    }
+  }, [guideParam]);
   const [page, setPage] = useState(1);
   const summary = {
     total: applications.length,
-    waiting: applications.filter(
+    waiting: availableApplications.filter(
       (application) =>
         application.applicationStatus !== "CANCELED" &&
         (application.interviewStatus === "READY" || application.interviewStatus === "NOT_READY"),
     ).length,
-    completed: applications.filter((application) => application.interviewStatus === "COMPLETED").length,
-    reports: applications.filter((application) => application.reportStatus === "COMPLETED").length,
+    completed: availableApplications.filter((application) => application.interviewStatus === "COMPLETED").length,
+    reports: availableApplications.filter((application) => application.reportStatus === "COMPLETED").length,
   };
   const filteredApplications = applications.filter((application) =>
     matchesCandidateApplicationStatusFilter(application, statusFilter),
@@ -939,17 +1153,22 @@ export function CandidateApplicationsPage() {
             <ul className="applications-list">
               {pagedApplications.map((application) => {
                 const action = getSelectedApplicationAction(application);
+                const isUnavailable = application.availabilityStatus === "UNAVAILABLE";
                 return (
                   <li key={application.applicationId} className="application-row">
                     <div className="application-row__main">
-                      <strong>{application.jobTitle}</strong>
+                      <strong>{application.jobTitle ?? "삭제된 공고"}</strong>
                       <span className="application-row__company">
-                        {application.companyName}
+                        {application.companyName ?? "알 수 없는 기업"}
                         <em>·</em>
                         {formatShortDate(application.updatedAt)} 업데이트
                       </span>
+                      {isUnavailable ? (
+                        <span className="application-row__company">더 이상 조회할 수 없는 지원입니다.</span>
+                      ) : null}
                     </div>
                     <div className="application-row__badges">
+                      {isUnavailable ? <ApplicationStatusBadge label="정보 확인 필요" tone="neutral" /> : null}
                       <ApplicationStatusBadge
                         label={formatCandidateApplicationStatusLabel(application.applicationStatus)}
                         tone={getCandidateApplicationStatusTone(application.applicationStatus)}
@@ -960,7 +1179,15 @@ export function CandidateApplicationsPage() {
                       />
                       {renderCandidateReportStatus(application.reportStatus)}
                     </div>
-                    {action.href ? (
+                    {action.href === candidateApplicationInterviewRoutes.interviewGuide(application.applicationId) ? (
+                      <button
+                        className="application-row__cta"
+                        type="button"
+                        onClick={() => setGuideAppId(application.applicationId)}
+                      >
+                        {action.label}
+                      </button>
+                    ) : action.href ? (
                       <Link className="application-row__cta" href={action.href}>
                         {action.label}
                       </Link>
@@ -1015,6 +1242,18 @@ export function CandidateApplicationsPage() {
           ) : null}
         </section>
       </section>
+
+      {guideAppId != null ? (
+        <InterviewGuideModal
+          applicationId={guideAppId}
+          onClose={() => setGuideAppId(null)}
+          onProceed={() => {
+            const targetId = guideAppId;
+            setGuideAppId(null);
+            router.push(candidateApplicationInterviewRoutes.interviewGuide(targetId));
+          }}
+        />
+      ) : null}
     </CandidatePageShell>
   );
 }
@@ -1024,6 +1263,195 @@ function formatShortDate(value: string | null) {
   return new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric" }).format(new Date(value));
 }
 
+// 면접 안내(응시 안내) 모달 위저드. 지원 내역 위에서 떠서, 완료 시 장치 점검으로 이동한다. (#288)
+function InterviewGuideModal({
+  applicationId,
+  onClose,
+  onProceed,
+}: {
+  applicationId: number;
+  onClose: () => void;
+  onProceed: () => void;
+}) {
+  const load = useCallback(() => getCandidateApi().getInterviewGuide(applicationId), [applicationId]);
+  const { data, loading, error } = useCandidateResource(load, [applicationId]);
+  const guide = data?.data;
+  const [subStep, setSubStep] = useState(0);
+  // 서브스텝 전환 방향(다음=오른쪽에서, 이전=왼쪽에서 슬라이드 인). (#288)
+  const [stepDir, setStepDir] = useState<"next" | "prev">("next");
+  const goNextStep = () => {
+    setStepDir("next");
+    setSubStep((prev) => prev + 1);
+  };
+  const goPrevStep = () => {
+    setStepDir("prev");
+    setSubStep((prev) => prev - 1);
+  };
+  const [consentState, setConsentState] = useState<CandidateInterviewConsentState>(defaultInterviewConsentState);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const primaryLabel = guide?.interviewSessionStatus === "IN_PROGRESS" ? "면접 재개" : "면접 시작";
+  // 이미 필수 동의를 완료한 사용자는 다시 체크하지 않아도 되도록 체크박스를 미리 채운다. (#288)
+  useEffect(() => {
+    if (guide?.consentCompleted) {
+      setConsentState((prev) => ({ ...prev, consentTypes: [...guide.requiredConsentTypes] }));
+    }
+  }, [guide]);
+  const consentComplete = guide
+    ? guide.consentCompleted ||
+      guide.requiredConsentTypes.every((consentType) => consentState.consentTypes.includes(consentType))
+    : false;
+
+  async function handleProceed() {
+    if (!guide) return;
+    if (!consentComplete) {
+      setMessage("필수 동의 항목을 모두 체크한 뒤 이동해주세요.");
+      return;
+    }
+    setBusy(true);
+    setMessage("");
+    try {
+      if (!guide.consentCompleted) {
+        await getCandidateApi().saveInterviewConsent(applicationId, toSaveInterviewConsentRequest(consentState));
+      }
+      onProceed();
+    } catch (submitError) {
+      setMessage(toErrorMessage(submitError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="ivg-modal-overlay candidate-interview-guide notion"
+      role="presentation"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="ivg-modal" role="dialog" aria-modal="true" aria-label="채용 AI 면접 안내">
+        <header className="ivg-modal-head">
+          <div className="ivg-modal-heading">
+            <p className="ivg-modal-eyebrow">면접 안내</p>
+            <h2>채용 AI 면접 안내</h2>
+          </div>
+          <button type="button" className="ivg-modal-close" aria-label="닫기" onClick={onClose}>✕</button>
+        </header>
+
+        <ol className="ivg-track" aria-label="채용 AI 면접 준비 단계">
+          <li className="ivg-track-step is-current"><span className="ivg-track-no">1</span>응시 안내</li>
+          <li className="ivg-track-step"><span className="ivg-track-no">2</span>장치 점검</li>
+          <li className="ivg-track-step"><span className="ivg-track-no">3</span>{primaryLabel}</li>
+        </ol>
+
+        <div className="ivg-modal-body">
+          {loading || !guide ? (
+            <p className="empty">면접 안내를 불러오는 중이에요.</p>
+          ) : (
+            <div key={subStep} className={`ivg-step-panel${stepDir === "prev" ? " ivg-step-prev" : ""}`}>
+              <div className="ivg-substep-head">
+                <span className="ivg-substep-count">{subStep + 1} / 3</span>
+                <h3>{["진행 방식", "필수 준비 사항", "응시 무결성 안내"][subStep]}</h3>
+              </div>
+
+              {subStep === 0 ? (
+                <ul className="ivg-flow">
+                  {guide.method.map((item, index) => (
+                    <li key={`method-${index}`}>
+                      <span className="ivg-flow-no">{index + 1}</span>
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
+              {subStep === 1 ? (
+                <ul className="ivg-check">
+                  {guide.requiredPreparations.map((item, index) => (
+                    <li key={`prep-${index}`}>
+                      <span className="ivg-check-icon" aria-hidden="true">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+                      </span>
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
+              {subStep === 2 ? (
+                <>
+                  <div className="ivg-callout">
+                    <div className="ivg-callout-head">
+                      <span className="ivg-callout-icon" aria-hidden="true">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+                      </span>
+                      <strong>면접 중 응시 환경 신호가 기록됩니다</strong>
+                    </div>
+                    <ul>
+                      <li>화면·탭 이탈, 얼굴 미검출·복수 얼굴, 카메라 연결, 시선 이탈, 음성과 입 모양의 불일치 등을 답변별 참고 신호로 확인합니다.</li>
+                      <li>감지 신호는 브라우저에서 수집된 미검증 참고 정보로 채용 담당자 검토 화면에 표시되며 평가 점수에는 반영되지 않습니다.</li>
+                      <li>감지 신호만으로 부정행위를 확정하거나 자동 탈락 처리하지 않으며, 채용 담당자가 답변 내용과 녹화 영상을 함께 검토합니다.</li>
+                    </ul>
+                  </div>
+
+                  <div className="ivg-consent-block">
+                    <h4 className="ivg-consent-title">필수 동의</h4>
+                    <p className="ivg-consent-sub">개인정보·AI 분석·녹화/녹음 안내를 확인하고 모두 동의해야 시작할 수 있어요.</p>
+                    <div className="ivg-consent-grid">
+                      {requiredInterviewConsents.map((consentType) => {
+                        const checked = consentState.consentTypes.includes(consentType);
+                        return (
+                          <label key={consentType} className={`ivg-consent-item${checked ? " is-checked" : ""}`}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() =>
+                                setConsentState((current) => ({
+                                  consentTypes: toggleValue(current.consentTypes, consentType),
+                                }))
+                              }
+                            />
+                            <span>{formatConsentTypeLabel(consentType)}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              ) : null}
+
+              {message ? <p className="notice danger ivg-modal-message">{message}</p> : null}
+            </div>
+          )}
+          {error ? <p className="notice danger">{toErrorMessage(error)}</p> : null}
+        </div>
+
+        <footer className="ivg-modal-foot">
+          {subStep > 0 ? (
+            <button className="btn secondary" type="button" onClick={goPrevStep}>
+              이전
+            </button>
+          ) : (
+            <span className="ivg-modal-window">
+              {guide ? `응시 가능 ${formatDateTime(guide.interviewWindowEndsAt)}까지` : ""}
+            </span>
+          )}
+          {subStep < 2 ? (
+            <button className="btn primary" type="button" disabled={!guide} onClick={goNextStep}>
+              다음
+            </button>
+          ) : (
+            <button className="btn primary" type="button" disabled={busy || !consentComplete} onClick={() => void handleProceed()}>
+              장치 점검으로
+            </button>
+          )}
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 export function CandidateInterviewGuidePage({ applicationId }: { applicationId: number }) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -1031,8 +1459,6 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
   const audioContextRef = useRef<AudioContext | null>(null);
   const microphoneFrameRef = useRef<number | null>(null);
   const cameraQualityIntervalRef = useRef<number | null>(null);
-  const [step, setStep] = useState<InterviewGuideStep>("guide");
-  const [consentState, setConsentState] = useState<CandidateInterviewConsentState>(defaultInterviewConsentState);
   const [deviceState, setDeviceState] = useState<CandidateDeviceCheckState>(defaultDeviceCheckState);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
@@ -1052,10 +1478,14 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
   const guide = data?.data;
   const guideInterviewAlreadyInProgress = guide?.interviewSessionStatus === "IN_PROGRESS";
   const guidePrimaryActionLabel = guideInterviewAlreadyInProgress ? "면접 재개" : "면접 시작";
-  const guideRequiredConsentCompleted = guide
-    ? guide.requiredConsentTypes.every((consentType) => consentState.consentTypes.includes(consentType))
-    : false;
   const deviceTestSentence = useMemo(() => pickDeviceTestSentence(), []);
+
+  // 동의 전(면접 안내 필요) 상태로 이 라우트에 직접 진입하면, 지원 내역 위에서 안내 모달이 뜨도록 리다이렉트한다. (#288)
+  useEffect(() => {
+    if (guide && !guide.consentCompleted) {
+      router.replace(`${candidateApplicationInterviewRoutes.applications}?guide=${applicationId}`);
+    }
+  }, [guide, applicationId, router]);
 
   useEffect(() => {
     void refreshGuideCameraDevices();
@@ -1070,7 +1500,6 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
 
   useEffect(() => {
     if (guide) {
-      setConsentState({ ...defaultInterviewConsentState });
       setDeviceState({
         cameraGranted: guide.deviceCheckCompleted,
         microphoneGranted: guide.deviceCheckCompleted,
@@ -1156,31 +1585,6 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
     };
 
     tick();
-  }
-
-  async function handleGuideNext() {
-    if (!guide) return;
-    const missingConsents = guide.requiredConsentTypes.filter(
-      (consentType) => !consentState.consentTypes.includes(consentType),
-    );
-    if (missingConsents.length > 0) {
-      setMessage("필수 동의 항목을 모두 체크한 뒤 다음으로 이동해주세요.");
-      return;
-    }
-
-    setBusy(true);
-    setMessage("");
-    try {
-      if (!guide.consentCompleted) {
-        await getCandidateApi().saveInterviewConsent(applicationId, toSaveInterviewConsentRequest(consentState));
-      }
-      setStep("device");
-      setMessage("동의가 저장되었습니다. 카메라와 마이크를 점검해주세요.");
-    } catch (submitError) {
-      setMessage(toErrorMessage(submitError));
-    } finally {
-      setBusy(false);
-    }
   }
 
   async function handleDevicePreview() {
@@ -1340,97 +1744,120 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
       <StatusNotice loading={loading || busy} error={error} message={message} />
       {guide ? (
         <>
-          {step === "guide" ? (
-            <>
-              <CandidatePageHead
-                eyebrow="면접 안내"
-                title="채용 AI 면접 안내"
-                description="응시 안내와 필수 동의를 확인한 뒤 면접 화면으로 이동합니다."
-                actions={<Link className="btn secondary" href={candidateApplicationInterviewRoutes.applications}>지원 내역</Link>}
-              />
-              <section className="panel detail-stack">
-                <div className="panel-head">
-                  <div>
-                    <h2>응시 안내</h2>
-                    <p>세션 ID {guide.sessionId} · {formatInterviewTypeLabel(guide.interviewType)}</p>
-                  </div>
-                  <StatusPill
-                    value={
-                      guideInterviewAlreadyInProgress
-                        ? "IN_PROGRESS"
-                        : guide.canStart
-                          ? "START_READY"
-                          : "PREP_REQUIRED"
-                    }
-                  />
-                </div>
-                <div className="candidate-steps" aria-label="채용 AI 면접 준비 단계">
-                  <span className="current"><b>STEP 1</b> 응시 안내</span>
-                  <span><b>STEP 2</b> 장치 점검</span>
-                  <span><b>STEP 3</b> {guidePrimaryActionLabel}</span>
-                </div>
-                <dl className="candidate-feature__summary">
-                  <Definition label="응시 시작" value={formatDateTime(guide.interviewWindowStartsAt)} />
-                  <Definition label="응시 마감" value={formatDateTime(guide.interviewWindowEndsAt)} />
-                  <Definition label="동의 완료" value={guide.consentCompleted ? "완료" : "필요"} />
-                  <Definition label="장치 점검" value={guide.deviceCheckCompleted ? "완료" : "필요"} />
-                  <Definition label="면접 상태" value={<StatusPill value={guide.interviewSessionStatus} />} />
-                </dl>
-                <ListBlock title="진행 방식" items={guide.method} />
-                <ListBlock title="필수 준비 사항" items={guide.requiredPreparations} />
-                <RecruitingIntegrityNotice />
-              </section>
+          {guide.consentCompleted ? (
+            <section className="dvc">
+              <header className="dvc__head">
+                <p className="dvc__eyebrow">장치 점검</p>
+                <h1 className="dvc__title">카메라와 마이크를 확인해주세요</h1>
+                <p className="dvc__sub">준비가 모두 완료되면 면접을 시작할 수 있어요.</p>
+              </header>
 
-              <section className="panel">
-                <div className="panel-head">
-                  <div>
-                    <h2>필수 동의</h2>
-                    <p>개인정보, AI 분석, 녹화/녹음 안내를 확인합니다.</p>
+              <div className="dvc__progress" role="list" aria-label="채용 AI 면접 준비 단계">
+                <span className="dvc__step is-done" role="listitem"><i className="dvc__pnode">✓</i>응시 안내</span>
+                <span className="dvc__pbar" aria-hidden="true" />
+                <span className="dvc__step is-now" role="listitem"><i className="dvc__pnode">2</i>장치 점검</span>
+                <span className="dvc__pbar" aria-hidden="true" />
+                <span className="dvc__step" role="listitem"><i className="dvc__pnode">3</i>{guidePrimaryActionLabel}</span>
+              </div>
+
+              <div className="dvc__grid">
+                <div className="dvc__cam video-box">
+                  <video ref={videoRef} autoPlay muted playsInline />
+                  <CameraFramingOverlay state={cameraFramingState} testSentence={deviceTestSentence} />
+                  <span className="dvc__cam-chip">
+                    <i className={`dvc__cam-dot${cameraReady ? " is-on" : ""}`} aria-hidden="true" />
+                    {cameraReady ? "카메라 연결됨" : "카메라 연결 확인 필요"}
+                  </span>
+                </div>
+
+                <aside className="dvc__side">
+                  <div className="dvc__card">
+                    <h3>준비 상태</h3>
+                    <ul className="dvc__check">
+                      <li className="dvc__crow">
+                        <span className={`dvc__ic ${cameraReady ? "is-ok" : "is-warn"}`}>{cameraReady ? "✓" : "!"}</span>
+                        <div className="dvc__cmain">
+                          <b>카메라</b>
+                          <span>{cameraReady ? "정상 연결됨" : "연결을 확인해주세요"}</span>
+                        </div>
+                        <span className={`dvc__pill ${cameraReady ? "is-ok" : "is-warn"}`}>{cameraReady ? "정상" : "확인 필요"}</span>
+                      </li>
+                      <li className="dvc__crow">
+                        <span className={`dvc__ic ${microphoneReady ? "is-ok" : "is-warn"}`}>{microphoneReady ? "✓" : "!"}</span>
+                        <div className="dvc__cmain">
+                          <b>마이크</b>
+                          <span>{microphoneStatus}</span>
+                          <div className="dvc__meter" aria-label={`마이크 입력 ${microphoneLevel}%`}>
+                            <i style={{ width: `${microphoneLevel}%` }} />
+                          </div>
+                        </div>
+                      </li>
+                      <li className="dvc__crow">
+                        <span className={`dvc__ic ${deviceState.networkStable ? "is-ok" : "is-warn"}`}>{deviceState.networkStable ? "✓" : "!"}</span>
+                        <div className="dvc__cmain">
+                          <b>네트워크</b>
+                          <span>{networkStatus}</span>
+                        </div>
+                        <span className={`dvc__pill ${deviceState.networkStable ? "is-ok" : "is-warn"}`}>{deviceState.networkStable ? "정상" : "확인 중"}</span>
+                      </li>
+                    </ul>
                   </div>
-                </div>
-                <div className="candidate-feature__checks">
-                  {requiredInterviewConsents.map((consentType) => (
-                    <label key={consentType}>
-                      <input
-                        type="checkbox"
-                        checked={consentState.consentTypes.includes(consentType)}
-                        onChange={() =>
-                          setConsentState((current) => ({
-                            consentTypes: toggleValue(current.consentTypes, consentType),
-                          }))
-                        }
-                      />
-                      {formatConsentTypeLabel(consentType)}
-                    </label>
-                  ))}
-                </div>
-                <div className="toolbar candidate-submit-toolbar">
+
+                  <div className="dvc__card">
+                    <h3>장치 선택</h3>
+                    <div className="dvc__fields">
+                      <label className="dvc__field">
+                        <span>카메라</span>
+                        <select
+                          aria-label="카메라 선택"
+                          value={selectedCameraId}
+                          onChange={(event) => setSelectedCameraId(event.target.value)}
+                        >
+                          <option value="">기본 카메라</option>
+                          {cameraDevices.map((device, index) => (
+                            <option key={device.deviceId || index} value={device.deviceId}>
+                              {device.label || `카메라 ${index + 1}`}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="dvc__field">
+                        <span>마이크</span>
+                        <select
+                          aria-label="마이크 선택"
+                          value={selectedMicrophoneId}
+                          onChange={(event) => setSelectedMicrophoneId(event.target.value)}
+                        >
+                          <option value="">기본 마이크</option>
+                          {microphoneDevices.map((device, index) => (
+                            <option key={device.deviceId || index} value={device.deviceId}>
+                              {device.label || `마이크 ${index + 1}`}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="dvc__relinks">
+                        <button type="button" className="dvc__link" disabled={busy} onClick={() => void refreshGuideCameraDevices()}>
+                          장치 새로고침
+                        </button>
+                        <button type="button" className="dvc__link" disabled={busy} onClick={() => void handleDevicePreview()}>
+                          다시 점검
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+
+              <div className="dvc__foot">
+                <p className="dvc__note">카메라·마이크 권한을 허용해야 면접을 진행할 수 있어요.</p>
+                <div className="dvc__actions">
                   <button
-                    className="btn primary"
+                    className="btn secondary"
                     type="button"
-                    disabled={busy || !guideRequiredConsentCompleted}
-                    onClick={() => void handleGuideNext()}
+                    disabled={busy}
+                    onClick={() => router.push(candidateApplicationInterviewRoutes.applications)}
                   >
-                    다음
-                  </button>
-                </div>
-              </section>
-            </>
-          ) : (
-            <section className="candidate-device-setup">
-              <div className="candidate-device-setup__head">
-                <div>
-                  <p className="candidate-feature__eyebrow">장치 점검</p>
-                  <h1>카메라와 마이크를 확인해주세요</h1>
-                  <p>점검이 끝나면 채용 AI 면접이 시작됩니다.</p>
-                  <div className="candidate-steps" aria-label="채용 AI 면접 준비 단계">
-                    <span><b>STEP 1</b> 응시 안내</span>
-                    <span className="current"><b>STEP 2</b> 장치 점검</span>
-                    <span><b>STEP 3</b> {guidePrimaryActionLabel}</span>
-                  </div>
-                </div>
-                <div className="toolbar">
-                  <button className="btn secondary" type="button" disabled={busy} onClick={() => setStep("guide")}>
                     이전
                   </button>
                   {ENABLE_CAMERALESS_INTERVIEW_TEST_ENTRY ? (
@@ -1453,61 +1880,8 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
                   </button>
                 </div>
               </div>
-              <div className="candidate-device-setup__grid">
-                <div className="candidate-device-main">
-                  <div className="video-box candidate-device-preview">
-                    <video ref={videoRef} autoPlay muted playsInline />
-                    <CameraFramingOverlay state={cameraFramingState} testSentence={deviceTestSentence} />
-                  </div>
-                </div>
-                <aside className="panel candidate-runtime-status-panel">
-                  <p className="panel-title">장치 상태</p>
-                  <div className="status-list">
-                    <div className="status-line"><span className={cameraReady ? "ok" : "wait"}>{cameraReady ? "✓" : "!"}</span> 카메라 {cameraReady ? "정상" : "연결 확인 필요"}</div>
-                    <div className="status-line"><span className={microphoneReady ? "ok" : "wait"}>{microphoneReady ? "✓" : "!"}</span> {microphoneStatus}</div>
-                    <div className="mic-meter" aria-label={`마이크 입력 ${microphoneLevel}%`}>
-                      <span style={{ width: `${microphoneLevel}%` }} />
-                    </div>
-                    <div className="status-line"><span className={deviceState.networkStable ? "ok" : "wait"}>{deviceState.networkStable ? "✓" : "!"}</span> {networkStatus}</div>
-                  </div>
-                  <div className="candidate-device-controls">
-                    <select
-                      aria-label="카메라 선택"
-                      className="camera-select"
-                      value={selectedCameraId}
-                      onChange={(event) => setSelectedCameraId(event.target.value)}
-                    >
-                      <option value="">기본 카메라</option>
-                      {cameraDevices.map((device, index) => (
-                        <option key={device.deviceId || index} value={device.deviceId}>
-                          {device.label || `카메라 ${index + 1}`}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      aria-label="마이크 선택"
-                      className="camera-select"
-                      value={selectedMicrophoneId}
-                      onChange={(event) => setSelectedMicrophoneId(event.target.value)}
-                    >
-                      <option value="">기본 마이크</option>
-                      {microphoneDevices.map((device, index) => (
-                        <option key={device.deviceId || index} value={device.deviceId}>
-                          {device.label || `마이크 ${index + 1}`}
-                        </option>
-                      ))}
-                    </select>
-                    <button className="btn" type="button" disabled={busy} onClick={() => void refreshGuideCameraDevices()}>
-                      장치 새로고침
-                    </button>
-                    <button className="btn" type="button" disabled={busy} onClick={() => void handleDevicePreview()}>
-                      카메라/마이크 점검
-                    </button>
-                  </div>
-                </aside>
-              </div>
             </section>
-          )}
+          ) : null}
         </>
       ) : null}
     </CandidatePageShell>
@@ -1706,7 +2080,37 @@ export function CandidateMockInterviewStartPage() {
     setBusy(true);
     setMessage("");
     try {
-      const result = await getCandidateApi().startMockInterview(toStartMockInterviewRequest(state));
+      const startRequest = toStartMockInterviewRequest(state);
+      let questionProcessLogId: number | undefined;
+      try {
+        setMessage("프로필과 지원서 세트를 바탕으로 맞춤형 질문을 만들고 있습니다.");
+        const generation = await getCandidateApi().generateMockQuestions({
+          questionCount: Math.max(1, state.questionTypes?.length ?? 4),
+          folderId: state.folderId ?? undefined,
+          jobRole: state.jobRole || undefined,
+          difficulty: state.difficulty,
+          questionTypes: state.questionTypes,
+        });
+        const deadline = Date.now() + 15_000;
+        while (Date.now() < deadline) {
+          const status = await getCandidateApi().getAiJobStatus(generation.data.processLogId);
+          if (status.data.status === "COMPLETED") {
+            questionProcessLogId = generation.data.processLogId;
+            break;
+          }
+          if (status.data.status === "FAILED") break;
+          await new Promise((resolve) => window.setTimeout(resolve, 750));
+        }
+      } catch {
+        // 질문 생성 실패·시간 초과 시 기존 공통/규칙 기반 질문으로 안전하게 시작한다.
+      }
+      let result;
+      try {
+        result = await getCandidateApi().startMockInterview({ ...startRequest, questionProcessLogId });
+      } catch (startError) {
+        if (!questionProcessLogId) throw startError;
+        result = await getCandidateApi().startMockInterview(startRequest);
+      }
       router.push(getMockInterviewDeviceCheckHref(result.data));
     } catch (submitError) {
       setMessage(toErrorMessage(submitError));
@@ -2279,146 +2683,6 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
   );
 }
 
-type CandidateProfileFormState = {
-  name: string;
-  phone: string;
-  githubUrl: string;
-  blogUrl: string;
-  portfolioUrl: string;
-  summary: string;
-};
-
-const emptyProfileForm: CandidateProfileFormState = {
-  name: "",
-  phone: "",
-  githubUrl: "",
-  blogUrl: "",
-  portfolioUrl: "",
-  summary: "",
-};
-
-// 내 정보(프로필) 편집 — 지원 시 자동 입력의 정본. 이메일은 로그인 정보라 읽기전용. (#272)
-function CandidateProfileSection() {
-  const load = useCallback(() => getCandidateApi().getProfile(), []);
-  const { data, loading, error, refresh } = useCandidateResource(load, []);
-  const [form, setForm] = useState<CandidateProfileFormState>(emptyProfileForm);
-  const [email, setEmail] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    const profile = data?.data;
-    if (!profile) {
-      return;
-    }
-    setEmail(profile.email);
-    setForm({
-      name: profile.name ?? "",
-      phone: profile.phone ?? "",
-      githubUrl: profile.githubUrl ?? "",
-      blogUrl: profile.blogUrl ?? "",
-      portfolioUrl: profile.portfolioUrl ?? "",
-      summary: profile.summary ?? "",
-    });
-  }, [data]);
-
-  async function handleSave(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setMessage("");
-    try {
-      const body: UpdateCandidateProfileRequest = {
-        name: form.name,
-        phone: form.phone,
-        githubUrl: form.githubUrl,
-        blogUrl: form.blogUrl,
-        portfolioUrl: form.portfolioUrl,
-        summary: form.summary,
-      };
-      await getCandidateApi().updateProfile(body);
-      setMessage("내 정보가 저장되었습니다.");
-      void refresh().catch(() => undefined);
-    } catch (saveError) {
-      setMessage(toErrorMessage(saveError));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <section className="candidate-profile-card" aria-label="내 정보">
-      <header className="candidate-profile-card__head">
-        <h2>내 정보</h2>
-        <p>여기서 저장한 정보가 지원 시 자동으로 입력됩니다. 지원할 때 공고별로 수정할 수도 있어요.</p>
-      </header>
-      {error ? <p className="notice danger">{toErrorMessage(error)}</p> : null}
-      <form className="candidate-profile-form" onSubmit={handleSave}>
-        <label>
-          이름
-          <input
-            placeholder="이름"
-            value={form.name}
-            onChange={(event) => setForm({ ...form, name: event.currentTarget.value })}
-          />
-        </label>
-        <label>
-          이메일
-          <input value={email} readOnly disabled placeholder="이메일" />
-        </label>
-        <label>
-          연락처
-          <input
-            placeholder="010-0000-0000"
-            value={form.phone}
-            onChange={(event) => setForm({ ...form, phone: event.currentTarget.value })}
-          />
-        </label>
-        <label>
-          GitHub URL
-          <input
-            placeholder="https://github.com/username"
-            type="url"
-            value={form.githubUrl}
-            onChange={(event) => setForm({ ...form, githubUrl: event.currentTarget.value })}
-          />
-        </label>
-        <label>
-          블로그 URL
-          <input
-            placeholder="https://blog.example.com"
-            type="url"
-            value={form.blogUrl}
-            onChange={(event) => setForm({ ...form, blogUrl: event.currentTarget.value })}
-          />
-        </label>
-        <label>
-          포트폴리오 URL
-          <input
-            placeholder="https://portfolio.example.com"
-            type="url"
-            value={form.portfolioUrl}
-            onChange={(event) => setForm({ ...form, portfolioUrl: event.currentTarget.value })}
-          />
-        </label>
-        <label className="candidate-profile-form__full">
-          한 줄 소개
-          <textarea
-            placeholder="본인을 한 줄로 소개해 주세요."
-            value={form.summary}
-            onChange={(event) => setForm({ ...form, summary: event.currentTarget.value })}
-          />
-        </label>
-        <div className="candidate-profile-form__actions">
-          {message ? <span className="candidate-profile-form__msg">{message}</span> : null}
-          <button className="btn primary" type="submit" disabled={busy || loading}>
-            {busy ? "저장 중…" : "저장"}
-          </button>
-        </div>
-      </form>
-    </section>
-  );
-}
-
 // 마이페이지 '프로필' 탭 — 내 정보 수정 전용. (#272 마이페이지 탭 재편)
 export function CandidateMyPage() {
   return (
@@ -2681,6 +2945,10 @@ function InterviewRuntimePanel({
   const [retryingQuestionId, setRetryingQuestionId] = useState<number>();
   const [message, setMessage] = useState("");
   const [integrityWarning, setIntegrityWarning] = useState<RuntimeIntegrityWarning | null>(null);
+  const [nonverbalDeviceQaEnabled, setNonverbalDeviceQaEnabled] = useState(false);
+  const [nonverbalDeviceQaSnapshot, setNonverbalDeviceQaSnapshot] = useState<NonverbalDeviceQaPanelSnapshot>();
+  const [nonverbalDeviceQaScenarioKind, setNonverbalDeviceQaScenarioKind] = useState<NonverbalDeviceQaScenarioKind>("NEUTRAL");
+  const [nonverbalDeviceQaMessage, setNonverbalDeviceQaMessage] = useState("녹화를 시작하면 기기 성능 측정을 시작합니다.");
   const [busy, setBusy] = useState(false);
   const [lastAnswer, setLastAnswer] = useState<LastSavedAnswer>();
   const [autoAiPipeline, setAutoAiPipeline] = useState<AutoAiPipelineState>();
@@ -2761,6 +3029,8 @@ function InterviewRuntimePanel({
   const invalidRecordingRetryCountsRef = useRef<Map<number, number>>(new Map());
   const recordingNonverbalTrackerRef = useRef<RecordingNonverbalTracker | null>(null);
   const nonverbalCameraMonitorRef = useRef<number | null>(null);
+  const nonverbalVideoFrameCallbackRef = useRef<number | null>(null);
+  const nonverbalVideoFrameElementRef = useRef<NonverbalQaVideoElement | null>(null);
   const nonverbalIntegrityCleanupRef = useRef<(() => void) | null>(null);
   const nonverbalFaceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const nonverbalFaceDetectorRef = useRef<BrowserFaceDetector | null | undefined>(undefined);
@@ -2772,6 +3042,7 @@ function InterviewRuntimePanel({
   const integrityWarningTimeoutRef = useRef<number | null>(null);
   const integrityWarningLastShownAtRef = useRef<Map<InterviewIntegrityEventType, number>>(new Map());
   const lastInvalidRecordingMetadataRef = useRef<Map<number, InterviewAnswerNonverbalMetadata>>(new Map());
+  const nonverbalDeviceQaRunsRef = useRef<NonverbalDeviceQaRun[]>([]);
   const answerToNextQuestionPerfRef = useRef<{
     startedAt: number;
     startedAtIso: string;
@@ -3471,6 +3742,14 @@ function InterviewRuntimePanel({
   }, [mode]);
 
   useEffect(() => {
+    if (typeof window === "undefined" || mode !== "mock") {
+      setNonverbalDeviceQaEnabled(false);
+      return;
+    }
+    setNonverbalDeviceQaEnabled(new URLSearchParams(window.location.search).get("nonverbalQa") === "1");
+  }, [mode]);
+
+  useEffect(() => {
     if (currentQuestion) {
       setAnswer((current) => ({ ...current, questionId: currentQuestion.questionId }));
       setReansweringQuestionId((current) => (current === currentQuestion.questionId ? current : null));
@@ -3539,6 +3818,7 @@ function InterviewRuntimePanel({
       stopQuestionSpeech();
       stopRuntimeCameraQualityMonitor();
       stopNonverbalCameraMonitor();
+      stopNonverbalVideoFrameMonitor();
       stopNonverbalIntegrityListeners();
       recordingNonverbalTrackerRef.current = null;
       if (integrityWarningTimeoutRef.current !== null) {
@@ -4009,6 +4289,117 @@ function InterviewRuntimePanel({
     }
   }
 
+  function refreshNonverbalDeviceQaSnapshot(run = recordingNonverbalTrackerRef.current?.deviceQa) {
+    if (!run || !nonverbalDeviceQaEnabled) return;
+    setNonverbalDeviceQaSnapshot({
+      run,
+      summary: summarizeNonverbalDeviceQaRun(run),
+    });
+  }
+
+  function stopNonverbalVideoFrameMonitor() {
+    const video = nonverbalVideoFrameElementRef.current;
+    if (video && nonverbalVideoFrameCallbackRef.current !== null) {
+      video.cancelVideoFrameCallback?.(nonverbalVideoFrameCallbackRef.current);
+    }
+    nonverbalVideoFrameCallbackRef.current = null;
+    nonverbalVideoFrameElementRef.current = null;
+  }
+
+  function startNonverbalVideoFrameMonitor(tracker: RecordingNonverbalTracker) {
+    stopNonverbalVideoFrameMonitor();
+    const run = tracker.deviceQa;
+    const video = videoRef.current as NonverbalQaVideoElement | null;
+    if (!run || !video?.requestVideoFrameCallback) return;
+
+    run.videoFrameCallbackSupported = true;
+    nonverbalVideoFrameElementRef.current = video;
+    const onVideoFrame = (_now: number, metadata: NonverbalQaVideoFrameMetadata) => {
+      const current = recordingNonverbalTrackerRef.current;
+      if (!current || current !== tracker || current.deviceQa !== run) return;
+
+      const nowMs = Date.now();
+      const presentedFrameDelta = run.lastPresentedFrames === undefined
+        ? 1
+        : Math.max(1, metadata.presentedFrames - run.lastPresentedFrames);
+      run.videoDroppedFrameEstimate += Math.max(0, presentedFrameDelta - 1);
+      run.videoPresentedFrameCount += 1;
+      run.lastPresentedFrames = metadata.presentedFrames;
+      run.firstVideoFrameAtMs ??= nowMs;
+      run.lastVideoFrameAtMs = nowMs;
+
+      nonverbalVideoFrameCallbackRef.current = video.requestVideoFrameCallback?.(onVideoFrame) ?? null;
+    };
+    nonverbalVideoFrameCallbackRef.current = video.requestVideoFrameCallback(onVideoFrame);
+  }
+
+  function recordCompletedNonverbalDeviceQaSample(
+    tracker: RecordingNonverbalTracker,
+    input: { facePresent: boolean; irisDetected: boolean; headPoseDetected: boolean },
+  ) {
+    const run = tracker.deviceQa;
+    if (!run) return;
+    run.sampleCompleted += 1;
+    run.firstCompletedSampleAtMs ??= Date.now();
+    if (input.facePresent) run.facePresentSampleCount += 1;
+    if (input.irisDetected) run.irisSampleCount += 1;
+    if (input.headPoseDetected) run.headPoseSampleCount += 1;
+  }
+
+  function handleStartNonverbalDeviceQaScenario() {
+    const tracker = recordingNonverbalTrackerRef.current;
+    const run = tracker?.deviceQa;
+    if (!recording || !tracker || !run) {
+      setNonverbalDeviceQaMessage("답변 녹화를 시작한 뒤 시나리오를 측정해 주세요.");
+      return;
+    }
+    if (run.activeScenario) {
+      setNonverbalDeviceQaMessage("진행 중인 시나리오를 먼저 종료해 주세요.");
+      return;
+    }
+
+    startNonverbalDeviceQaScenario(run, nonverbalDeviceQaScenarioKind, tracker.integrityEvents.length);
+    const instruction = nonverbalDeviceQaScenarioKind === "NEUTRAL"
+      ? "정면을 자연스럽게 바라본 뒤 5초 이상 유지해 주세요."
+      : nonverbalDeviceQaScenarioKind === "EYE_AWAY"
+        ? "고개는 정면에 두고 눈동자만 옆으로 3~5초 움직인 뒤 정면으로 돌아오세요."
+        : "눈은 자연스럽게 두고 고개를 옆으로 3~5초 돌린 뒤 정면으로 돌아오세요.";
+    setNonverbalDeviceQaMessage(instruction);
+    refreshNonverbalDeviceQaSnapshot(run);
+  }
+
+  function handleFinishNonverbalDeviceQaScenario() {
+    const tracker = recordingNonverbalTrackerRef.current;
+    const run = tracker?.deviceQa;
+    if (!tracker || !run?.activeScenario) {
+      setNonverbalDeviceQaMessage("진행 중인 QA 시나리오가 없습니다.");
+      return;
+    }
+
+    const result = finishNonverbalDeviceQaScenario(run, tracker.integrityEvents);
+    setNonverbalDeviceQaMessage(result?.message ?? "시나리오 결과를 만들지 못했습니다.");
+    refreshNonverbalDeviceQaSnapshot(run);
+  }
+
+  function handleDownloadNonverbalDeviceQaResult() {
+    if (typeof window === "undefined" || nonverbalDeviceQaRunsRef.current.length === 0) {
+      setNonverbalDeviceQaMessage("다운로드할 측정 결과가 없습니다.");
+      return;
+    }
+
+    const payload = buildNonverbalDeviceQaExport(nonverbalDeviceQaRunsRef.current);
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `nonverbal-device-qa-${payload.generatedAt.replace(/[:.]/g, "-")}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setNonverbalDeviceQaMessage("QA 결과 JSON을 저장했습니다.");
+  }
+
   function stopNonverbalIntegrityListeners() {
     nonverbalIntegrityCleanupRef.current?.();
     nonverbalIntegrityCleanupRef.current = null;
@@ -4100,6 +4491,7 @@ function InterviewRuntimePanel({
     tracker.integrityEvents.push({
       type,
       occurredAt: new Date(startedAtMs).toISOString(),
+      offsetMs: Math.max(0, Math.round(startedAtMs - tracker.recordingStartedAtMs)),
       durationMs: Math.round(durationMs),
       ...(options.direction ? { direction: options.direction } : {}),
       ...(options.source ? { source: options.source } : {}),
@@ -4117,19 +4509,20 @@ function InterviewRuntimePanel({
 
     nonverbalFaceLandmarkerPromiseRef.current = (async () => {
       try {
-        const tasks = await import("@mediapipe/tasks-vision") as MediaPipeFaceLandmarkerModule;
-        const vision = await tasks.FilesetResolver.forVisionTasks(MEDIAPIPE_TASKS_VISION_WASM_URL);
-        const landmarker = await tasks.FaceLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: MEDIAPIPE_FACE_LANDMARKER_MODEL_URL,
-          },
-          runningMode: "VIDEO",
-          numFaces: 3,
-          minFaceDetectionConfidence: 0.5,
-          minFacePresenceConfidence: 0.5,
-          minTrackingConfidence: 0.5,
-          outputFacialTransformationMatrixes: true,
-        });
+        const { tasks, vision } = await getMediaPipeVisionRuntime();
+        const landmarker = await withFilteredMediaPipeDiagnostics(() =>
+          tasks.FaceLandmarker.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: MEDIAPIPE_FACE_LANDMARKER_MODEL_URL,
+            },
+            runningMode: "VIDEO",
+            numFaces: 3,
+            minFaceDetectionConfidence: 0.5,
+            minFacePresenceConfidence: 0.5,
+            minTrackingConfidence: 0.5,
+            outputFacialTransformationMatrixes: true,
+          }),
+        );
         nonverbalFaceLandmarkerRef.current = landmarker;
         return landmarker;
       } catch {
@@ -4149,17 +4542,18 @@ function InterviewRuntimePanel({
 
     nonverbalPersonDetectorPromiseRef.current = (async () => {
       try {
-        const tasks = await import("@mediapipe/tasks-vision") as MediaPipeFaceLandmarkerModule;
-        const vision = await tasks.FilesetResolver.forVisionTasks(MEDIAPIPE_TASKS_VISION_WASM_URL);
-        const detector = await tasks.ObjectDetector.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: MEDIAPIPE_PERSON_DETECTOR_MODEL_URL,
-          },
-          runningMode: "VIDEO",
-          maxResults: 4,
-          scoreThreshold: NONVERBAL_PERSON_DETECTION_SCORE_THRESHOLD,
-          categoryAllowlist: ["person"],
-        });
+        const { tasks, vision } = await getMediaPipeVisionRuntime();
+        const detector = await withFilteredMediaPipeDiagnostics(() =>
+          tasks.ObjectDetector.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: MEDIAPIPE_PERSON_DETECTOR_MODEL_URL,
+            },
+            runningMode: "VIDEO",
+            maxResults: 4,
+            scoreThreshold: NONVERBAL_PERSON_DETECTION_SCORE_THRESHOLD,
+            categoryAllowlist: ["person"],
+          }),
+        );
         nonverbalPersonDetectorRef.current = detector;
         return detector;
       } catch {
@@ -4309,6 +4703,7 @@ function InterviewRuntimePanel({
     tracker.integrityEvents.push({
       type: "EARLY_SCREEN_AWAY",
       occurredAt: new Date(nowMs).toISOString(),
+      offsetMs: Math.max(0, Math.round(nowMs - tracker.recordingStartedAtMs)),
     });
     showRuntimeIntegrityWarning("EARLY_SCREEN_AWAY");
   }
@@ -4368,10 +4763,27 @@ function InterviewRuntimePanel({
     return current === undefined ? next : (current * sampleCount + next) / (sampleCount + 1);
   }
 
+  function roundTimelineValue(value: number, precision: number) {
+    const multiplier = 10 ** precision;
+    return Math.round(value * multiplier) / multiplier;
+  }
+
+  function normalizeTimelineAngle(value: number) {
+    let normalized = value;
+    while (normalized > 180) normalized -= 360;
+    while (normalized < -180) normalized += 360;
+    return normalized;
+  }
+
+  function canAppendTimelineSample(lastSampleAtMs: number | undefined, nowMs: number) {
+    return lastSampleAtMs === undefined || nowMs - lastSampleAtMs >= NONVERBAL_TIMELINE_SAMPLE_INTERVAL_MS;
+  }
+
   function registerCombinedGazeSample(
     tracker: RecordingNonverbalTracker,
     irisPosition: IrisGazePosition | undefined,
     headPose: HeadPoseAngles | undefined,
+    calibrationEligible: boolean,
   ) {
     const irisCalibrated = tracker.gazeCalibrationSampleCount >= GAZE_CALIBRATION_REQUIRED_SAMPLES;
     const headPoseCalibrated = tracker.headPoseCalibrationSampleCount >= GAZE_CALIBRATION_REQUIRED_SAMPLES;
@@ -4380,7 +4792,7 @@ function InterviewRuntimePanel({
     if (irisPosition) {
       tracker.gazeDetectionSupported = true;
       tracker.gazeDetectionFrameCount += 1;
-      if (!irisCalibrated) {
+      if (!irisCalibrated && calibrationEligible) {
         const sampleCount = tracker.gazeCalibrationSampleCount;
         tracker.gazeBaselineHorizontalRatio = updateCalibrationAverage(
           tracker.gazeBaselineHorizontalRatio,
@@ -4400,7 +4812,7 @@ function InterviewRuntimePanel({
     if (headPose) {
       tracker.headPoseDetectionSupported = true;
       tracker.headPoseDetectionFrameCount += 1;
-      if (!headPoseCalibrated) {
+      if (!headPoseCalibrated && calibrationEligible) {
         const sampleCount = tracker.headPoseCalibrationSampleCount;
         tracker.headPoseBaselineYawDegrees = updateCalibrationAverage(
           tracker.headPoseBaselineYawDegrees,
@@ -4412,6 +4824,13 @@ function InterviewRuntimePanel({
           sampleCount,
           headPose.pitchDegrees,
         );
+        if (headPose.rollDegrees !== undefined) {
+          tracker.headPoseBaselineRollDegrees = updateCalibrationAverage(
+            tracker.headPoseBaselineRollDegrees,
+            sampleCount,
+            headPose.rollDegrees,
+          );
+        }
         tracker.headPoseCalibrationSampleCount += 1;
         calibrationUpdated = true;
       }
@@ -4440,7 +4859,60 @@ function InterviewRuntimePanel({
             pitchDegrees: tracker.headPoseBaselinePitchDegrees,
           }
         : undefined;
-    const signal = resolveCombinedGazeSignal({ irisPosition, irisBaseline, headPose, headPoseBaseline });
+    const previousSmoothedIrisPosition =
+      tracker.smoothedGazeHorizontalRatio !== undefined && tracker.smoothedGazeVerticalRatio !== undefined
+        ? {
+            horizontalRatio: tracker.smoothedGazeHorizontalRatio,
+            verticalRatio: tracker.smoothedGazeVerticalRatio,
+          }
+        : irisBaseline;
+    const smoothedIrisPosition = irisPosition
+      ? smoothIrisGazePosition(previousSmoothedIrisPosition, irisPosition)
+      : undefined;
+    if (smoothedIrisPosition) {
+      tracker.smoothedGazeHorizontalRatio = smoothedIrisPosition.horizontalRatio;
+      tracker.smoothedGazeVerticalRatio = smoothedIrisPosition.verticalRatio;
+    }
+    const signal = resolveCombinedGazeSignal({
+      irisPosition: smoothedIrisPosition,
+      irisBaseline,
+      headPose,
+      headPoseBaseline,
+    });
+    const nowMs = Date.now();
+    if (
+      mode === "mock" &&
+      smoothedIrisPosition &&
+      irisBaseline &&
+      tracker.gazeTimeline.length < INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES &&
+      canAppendTimelineSample(tracker.lastGazeTimelineSampleAtMs, nowMs)
+    ) {
+      tracker.gazeTimeline.push({
+        tMs: Math.max(0, nowMs - tracker.recordingStartedAtMs),
+        horizontalOffset: roundTimelineValue(smoothedIrisPosition.horizontalRatio - irisBaseline.horizontalRatio, 3),
+        verticalOffset: roundTimelineValue(smoothedIrisPosition.verticalRatio - irisBaseline.verticalRatio, 3),
+        direction: classifyIrisGazeDirection(smoothedIrisPosition, irisBaseline),
+      });
+      tracker.lastGazeTimelineSampleAtMs = nowMs;
+    }
+    if (
+      mode === "mock" &&
+      headPose &&
+      headPoseBaseline &&
+      tracker.headPoseTimeline.length < INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES &&
+      canAppendTimelineSample(tracker.lastHeadPoseTimelineSampleAtMs, nowMs)
+    ) {
+      tracker.headPoseTimeline.push({
+        tMs: Math.max(0, nowMs - tracker.recordingStartedAtMs),
+        yawDegrees: roundTimelineValue(normalizeTimelineAngle(headPose.yawDegrees - headPoseBaseline.yawDegrees), 1),
+        pitchDegrees: roundTimelineValue(normalizeTimelineAngle(headPose.pitchDegrees - headPoseBaseline.pitchDegrees), 1),
+        rollDegrees: roundTimelineValue(
+          normalizeTimelineAngle((headPose.rollDegrees ?? 0) - (tracker.headPoseBaselineRollDegrees ?? 0)),
+          1,
+        ),
+      });
+      tracker.lastHeadPoseTimelineSampleAtMs = nowMs;
+    }
     updateCombinedGazeSignal(tracker, signal);
   }
 
@@ -4450,6 +4922,7 @@ function InterviewRuntimePanel({
   ) {
     const nowMs = Date.now();
     if (signal) {
+      tracker.lastGazeSignalAtMs = nowMs;
       tracker.gazeCenteredCandidateStartedAtMs = undefined;
       tracker.gazeAwayCandidateStartedAtMs ??= nowMs;
       tracker.lastGazeDirection = signal.direction;
@@ -4465,9 +4938,20 @@ function InterviewRuntimePanel({
       return;
     }
 
-    tracker.gazeAwayCandidateStartedAtMs = undefined;
     if (tracker.gazeAwayStartedAtMs === undefined) {
+      if (
+        tracker.gazeAwayCandidateStartedAtMs !== undefined &&
+        isWithinDetectionGrace(
+          tracker.lastGazeSignalAtMs,
+          nowMs,
+          NONVERBAL_GAZE_SIGNAL_DROPOUT_GRACE_MS,
+        )
+      ) {
+        return;
+      }
+      tracker.gazeAwayCandidateStartedAtMs = undefined;
       tracker.gazeCenteredCandidateStartedAtMs = undefined;
+      tracker.lastGazeSignalAtMs = undefined;
       tracker.lastGazeDirection = undefined;
       tracker.lastGazeSource = undefined;
       return;
@@ -4485,6 +4969,7 @@ function InterviewRuntimePanel({
     );
     tracker.gazeAwayStartedAtMs = undefined;
     tracker.gazeCenteredCandidateStartedAtMs = undefined;
+    tracker.lastGazeSignalAtMs = undefined;
     tracker.lastGazeDirection = undefined;
     tracker.lastGazeSource = undefined;
   }
@@ -4620,12 +5105,27 @@ function InterviewRuntimePanel({
   }
 
   async function sampleFaceIntegrity(tracker: RecordingNonverbalTracker, questionId: number) {
-    if (nonverbalFaceDetectionPendingRef.current) return;
+    const qaRun = tracker.deviceQa;
+    if (qaRun) qaRun.sampleAttempts += 1;
+    if (nonverbalFaceDetectionPendingRef.current) {
+      if (qaRun) {
+        qaRun.sampleSkippedBusy += 1;
+        refreshNonverbalDeviceQaSnapshot(qaRun);
+      }
+      return;
+    }
 
     const video = videoRef.current;
-    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth <= 0 || video.videoHeight <= 0) return;
+    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth <= 0 || video.videoHeight <= 0) {
+      if (qaRun) {
+        qaRun.sampleSkippedVideoNotReady += 1;
+        refreshNonverbalDeviceQaSnapshot(qaRun);
+      }
+      return;
+    }
 
     nonverbalFaceDetectionPendingRef.current = true;
+    const qaSampleStartedAt = performance.now();
     try {
       const activeTracker = recordingNonverbalTrackerRef.current;
       if (activeTracker && activeTracker === tracker && activeTracker.questionId === questionId) {
@@ -4646,11 +5146,15 @@ function InterviewRuntimePanel({
         const snapshot = primaryLandmarks ? toFaceSnapshotFromLandmarks(primaryLandmarks) : undefined;
         registerFaceBaselineSample(current, snapshot);
 
-        registerCombinedGazeSample(
-          current,
-          primaryLandmarks ? estimateIrisGazePosition(primaryLandmarks) : undefined,
-          estimateHeadPoseAngles(primaryTransformationMatrix),
-        );
+        const irisPosition = primaryLandmarks ? estimateIrisGazePosition(primaryLandmarks) : undefined;
+        const headPose = estimateHeadPoseAngles(primaryTransformationMatrix);
+        const calibrationEligible = isReliableGazeCalibrationFrame({
+          irisPosition,
+          headPose,
+          detectedFaceCount: faces.length,
+          faceInFrame: Boolean(snapshot && !isFaceOutOfFrame(snapshot)),
+        });
+        registerCombinedGazeSample(current, irisPosition, headPose, calibrationEligible);
         registerVoiceWithoutFaceSample(current, faces.length === 0);
         if (primaryLandmarks) {
           registerVoiceMouthSyncSample(current, primaryLandmarks);
@@ -4681,6 +5185,11 @@ function InterviewRuntimePanel({
         const currentAfterPersonDetection = recordingNonverbalTrackerRef.current;
         if (!currentAfterPersonDetection || currentAfterPersonDetection !== tracker || currentAfterPersonDetection.questionId !== questionId) return;
         updateMultiplePeopleSignal(currentAfterPersonDetection, multiplePeopleDetected);
+        recordCompletedNonverbalDeviceQaSample(currentAfterPersonDetection, {
+          facePresent: faces.length > 0,
+          irisDetected: Boolean(irisPosition),
+          headPoseDetected: Boolean(headPose),
+        });
         return;
       }
 
@@ -4688,7 +5197,10 @@ function InterviewRuntimePanel({
       tracker.faceDetectionSupported = Boolean(detector);
       tracker.gazeDetectionSupported = false;
       tracker.headPoseDetectionSupported = false;
-      if (!detector) return;
+      if (!detector) {
+        if (qaRun) qaRun.sampleUnsupported += 1;
+        return;
+      }
 
       const canvas = getNonverbalFaceCanvas();
       const width = NONVERBAL_FACE_SAMPLE_SIZE;
@@ -4731,9 +5243,22 @@ function InterviewRuntimePanel({
       const currentAfterPersonDetection = recordingNonverbalTrackerRef.current;
       if (!currentAfterPersonDetection || currentAfterPersonDetection !== tracker || currentAfterPersonDetection.questionId !== questionId) return;
       updateMultiplePeopleSignal(currentAfterPersonDetection, multiplePeopleDetected);
+      recordCompletedNonverbalDeviceQaSample(currentAfterPersonDetection, {
+        facePresent: faces.length > 0,
+        irisDetected: false,
+        headPoseDetected: false,
+      });
     } catch {
       tracker.faceDetectionSupported = false;
+      if (qaRun) qaRun.sampleErrors += 1;
     } finally {
+      if (qaRun) {
+        qaRun.sampleProcessingDurationsMs.push(Math.max(0, performance.now() - qaSampleStartedAt));
+        if (qaRun.sampleProcessingDurationsMs.length > 600) {
+          qaRun.sampleProcessingDurationsMs.splice(0, qaRun.sampleProcessingDurationsMs.length - 600);
+        }
+        refreshNonverbalDeviceQaSnapshot(qaRun);
+      }
       nonverbalFaceDetectionPendingRef.current = false;
     }
   }
@@ -4844,9 +5369,25 @@ function InterviewRuntimePanel({
       totalAwayDurationMs: 0,
       maxAwayDurationMs: 0,
       integrityEvents: [],
+      gazeTimeline: [],
+      headPoseTimeline: [],
     };
+    if (nonverbalDeviceQaEnabled) {
+      const run = createNonverbalDeviceQaRun({
+        questionId,
+        startedAtMs: tracker.recordingStartedAtMs,
+        sampleIntervalMs: NONVERBAL_CAMERA_SAMPLE_INTERVAL_MS,
+        environment: collectNonverbalDeviceQaEnvironment(),
+        camera: readNonverbalDeviceQaCamera(stream),
+      });
+      tracker.deviceQa = run;
+      nonverbalDeviceQaRunsRef.current.push(run);
+      setNonverbalDeviceQaMessage("성능 측정 중입니다. 원하는 QA 시나리오를 선택해 구간을 기록해 주세요.");
+      refreshNonverbalDeviceQaSnapshot(run);
+    }
     recordingNonverbalTrackerRef.current = tracker;
     startNonverbalIntegrityListeners(questionId);
+    startNonverbalVideoFrameMonitor(tracker);
     void getMediaPipePersonDetector();
 
     const sampleCamera = () => {
@@ -4909,6 +5450,7 @@ function InterviewRuntimePanel({
     durationSeconds: number,
   ): InterviewAnswerNonverbalMetadata | undefined {
     stopNonverbalCameraMonitor();
+    stopNonverbalVideoFrameMonitor();
     stopNonverbalIntegrityListeners();
     const tracker = recordingNonverbalTrackerRef.current;
     recordingNonverbalTrackerRef.current = null;
@@ -4930,6 +5472,11 @@ function InterviewRuntimePanel({
     closeTimedIntegrityEvent(tracker, "VOICE_MOUTH_MISMATCH", tracker.voiceMouthMismatchStartedAtMs, nowMs);
     closeTimedIntegrityEvent(tracker, "VOICE_WITHOUT_FACE", tracker.voiceWithoutFaceStartedAtMs, nowMs);
     closeTimedIntegrityEvent(tracker, "STATIC_VIDEO_FRAME", tracker.staticVideoFrameStartedAtMs, nowMs);
+    if (tracker.deviceQa?.activeScenario) {
+      const result = finishNonverbalDeviceQaScenario(tracker.deviceQa, tracker.integrityEvents, nowMs);
+      setNonverbalDeviceQaMessage(result?.message ?? "진행 중인 QA 시나리오를 종료했습니다.");
+    }
+    refreshNonverbalDeviceQaSnapshot(tracker.deviceQa);
 
     const observedFrameCount = tracker.observedAudioFrameCount;
     const lowAudioRatio = observedFrameCount > 0 ? tracker.lowAudioFrameCount / observedFrameCount : 1;
@@ -4950,6 +5497,8 @@ function InterviewRuntimePanel({
       cameraDisconnectedCount: tracker.cameraDisconnectedCount,
       integrityEvents: tracker.integrityEvents,
       integritySummary: buildInterviewIntegritySummary(tracker),
+      gazeTimeline: tracker.gazeTimeline.length > 0 ? tracker.gazeTimeline : undefined,
+      headPoseTimeline: tracker.headPoseTimeline.length > 0 ? tracker.headPoseTimeline : undefined,
     };
   }
 
@@ -5463,22 +6012,30 @@ function InterviewRuntimePanel({
     autoRecordingQuestionRef.current = null;
   }
 
-  function startRealtimeSttRelayForRecording(stream: MediaStream, questionId: number) {
+  async function startRealtimeSttRelayForRecording(stream: MediaStream, questionId: number) {
     if (!REALTIME_STT_RELAY_ENABLED) return;
     if (!stream.getAudioTracks().some((track) => track.readyState === "live")) return;
 
     discardRealtimeSttRelay();
     realtimeSttTranscriptByQuestionRef.current.delete(questionId);
     try {
-      realtimeSttRelayRef.current = createRealtimeSttRelaySession({
+      realtimeSttRelayRef.current = await createRealtimeSttRelaySession({
         mode,
         sessionId: data?.runtime.sessionId ?? 0,
         stream,
         publicAccessToken: readPublicInterviewAccessToken(),
         onMetric: (metric) => recordRealtimeSttRelayMetric(questionId, metric),
       });
-    } catch {
+    } catch (relayError) {
       realtimeSttRelayRef.current = null;
+      recordRealtimeSttRelayMetric(questionId, {
+        eventName: "REALTIME_STT_ERROR",
+        durationMs: 0,
+        metadata: {
+          stage: "browser_audio_worklet",
+          message: relayError instanceof Error ? relayError.message : "Realtime STT audio capture failed.",
+        },
+      });
     }
   }
 
@@ -5662,7 +6219,7 @@ function InterviewRuntimePanel({
       if (realtimeMicrophoneOpenedForRecording) {
         setRealtimeMicrophoneOpen(true);
       }
-      startRealtimeSttRelayForRecording(stream, currentQuestion.questionId);
+      await startRealtimeSttRelayForRecording(stream, currentQuestion.questionId);
       recorder.start();
       setRecordedFileName("");
       setRecording(true);
@@ -7406,6 +7963,20 @@ function InterviewRuntimePanel({
               )}
             </section>
 
+            {nonverbalDeviceQaEnabled ? (
+              <NonverbalDeviceQaPanel
+                snapshot={nonverbalDeviceQaSnapshot}
+                recording={recording}
+                scenarioKind={nonverbalDeviceQaScenarioKind}
+                message={nonverbalDeviceQaMessage}
+                runCount={nonverbalDeviceQaRunsRef.current.length}
+                onScenarioKindChange={setNonverbalDeviceQaScenarioKind}
+                onStartScenario={handleStartNonverbalDeviceQaScenario}
+                onFinishScenario={handleFinishNonverbalDeviceQaScenario}
+                onDownload={handleDownloadNonverbalDeviceQaResult}
+              />
+            ) : null}
+
             <form className="candidate-runtime-form" onSubmit={handleSaveAnswer}>
               <p className="sr-only" aria-live="polite">{runtimeAssistiveStatus}</p>
               <div className="toolbar candidate-interview-controls">
@@ -7488,10 +8059,145 @@ function InterviewRuntimePanel({
   );
 }
 
-function CandidatePageShell({ active, children }: { active: CandidateNavSection; children: ReactNode }) {
+function NonverbalDeviceQaPanel({
+  snapshot,
+  recording,
+  scenarioKind,
+  message,
+  runCount,
+  onScenarioKindChange,
+  onStartScenario,
+  onFinishScenario,
+  onDownload,
+}: {
+  snapshot?: NonverbalDeviceQaPanelSnapshot;
+  recording: boolean;
+  scenarioKind: NonverbalDeviceQaScenarioKind;
+  message: string;
+  runCount: number;
+  onScenarioKindChange: (kind: NonverbalDeviceQaScenarioKind) => void;
+  onStartScenario: () => void;
+  onFinishScenario: () => void;
+  onDownload: () => void;
+}) {
+  const run = snapshot?.run;
+  const summary = snapshot?.summary;
+  const activeScenario = run?.activeScenario;
+  const performanceLabel = summary ? formatNonverbalDeviceQaPerformanceLabel(summary.performanceStatus) : "측정 대기";
+  const performanceTone = summary?.performanceStatus.toLowerCase() ?? "measuring";
+
+  return (
+    <details className="nonverbal-device-qa" open>
+      <summary>
+        <span>실기기 QA</span>
+        <strong className={`nonverbal-device-qa__status nonverbal-device-qa__status--${performanceTone}`}>
+          {performanceLabel}
+        </strong>
+      </summary>
+      <div className="nonverbal-device-qa__body">
+        <p className="nonverbal-device-qa__message">{message}</p>
+        {run && summary ? (
+          <>
+            <dl className="nonverbal-device-qa__environment">
+              <div><dt>환경</dt><dd>{run.environment.browser} · {run.environment.platform}</dd></div>
+              <div><dt>카메라</dt><dd>{formatNonverbalDeviceQaCamera(run)}</dd></div>
+              <div><dt>감지 표본</dt><dd>{run.sampleCompleted}/{run.sampleAttempts} · {summary.completedSamplesPerSecond.toFixed(2)}회/s</dd></div>
+              <div><dt>처리 시간</dt><dd>평균 {summary.averageProcessingMs.toFixed(0)}ms · p95 {summary.p95ProcessingMs.toFixed(0)}ms</dd></div>
+              <div><dt>영상 FPS</dt><dd>{summary.measuredVideoFps?.toFixed(1) ?? "측정 미지원"}</dd></div>
+              <div><dt>표본률</dt><dd>얼굴 {formatQaRate(summary.faceCoverageRate)} · 시선 {formatQaRate(summary.irisCoverageRate)} · 고개 {formatQaRate(summary.headPoseCoverageRate)}</dd></div>
+            </dl>
+
+            <div className="nonverbal-device-qa__scenario" aria-label="오탐 및 미탐 QA 시나리오">
+              <span>측정 시나리오</span>
+              <div className="nonverbal-device-qa__segments">
+                {(["NEUTRAL", "EYE_AWAY", "HEAD_AWAY"] as const).map((kind) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    className={scenarioKind === kind ? "active" : ""}
+                    aria-pressed={scenarioKind === kind}
+                    disabled={Boolean(activeScenario)}
+                    onClick={() => onScenarioKindChange(kind)}
+                  >
+                    {formatNonverbalDeviceQaScenarioLabel(kind)}
+                  </button>
+                ))}
+              </div>
+              <div className="nonverbal-device-qa__actions">
+                <button type="button" className="btn" disabled={!recording || Boolean(activeScenario)} onClick={onStartScenario}>
+                  구간 시작
+                </button>
+                <button type="button" className="btn" disabled={!activeScenario} onClick={onFinishScenario}>
+                  구간 종료
+                </button>
+                <button type="button" className="btn" disabled={runCount === 0} onClick={onDownload}>
+                  JSON 저장
+                </button>
+              </div>
+            </div>
+
+            {run.scenarioResults.length > 0 ? (
+              <ul className="nonverbal-device-qa__results" aria-label="QA 시나리오 결과">
+                {run.scenarioResults.map((result, index) => (
+                  <li key={`${result.kind}-${result.startedAtOffsetMs}-${index}`}>
+                    <strong className={`nonverbal-device-qa__result nonverbal-device-qa__result--${result.status.toLowerCase()}`}>
+                      {result.status}
+                    </strong>
+                    <span>{formatNonverbalDeviceQaScenarioLabel(result.kind)}</span>
+                    <small>{result.message}</small>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </>
+        ) : (
+          <p className="nonverbal-device-qa__empty">답변 녹화를 시작하면 현재 기기에서 측정합니다.</p>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function formatNonverbalDeviceQaPerformanceLabel(status: NonverbalDeviceQaSummary["performanceStatus"]): string {
+  switch (status) {
+    case "GOOD": return "원활";
+    case "DEGRADED": return "성능 저하";
+    case "POOR": return "점검 필요";
+    case "UNAVAILABLE": return "분석 불가";
+    default: return "측정 중";
+  }
+}
+
+function formatNonverbalDeviceQaScenarioLabel(kind: NonverbalDeviceQaScenarioKind): string {
+  switch (kind) {
+    case "EYE_AWAY": return "눈동자 이탈";
+    case "HEAD_AWAY": return "고개 회전";
+    default: return "정면 유지";
+  }
+}
+
+function formatNonverbalDeviceQaCamera(run: NonverbalDeviceQaRun): string {
+  const resolution = run.camera.width && run.camera.height ? `${run.camera.width}×${run.camera.height}` : "해상도 미확인";
+  const frameRate = run.camera.frameRate ? `${Math.round(run.camera.frameRate)}fps` : "FPS 미확인";
+  return `${resolution} · ${frameRate}`;
+}
+
+function formatQaRate(rate: number): string {
+  return `${Math.round(rate * 100)}%`;
+}
+
+function CandidatePageShell({
+  active,
+  children,
+  publicEntry = false,
+}: {
+  active: CandidateNavSection;
+  children: ReactNode;
+  publicEntry?: boolean;
+}) {
   return (
     <main className="app-shell candidate-app">
-      <CandidateNav active={active} />
+      <CandidateNav active={active} publicEntry={publicEntry} />
       <section className="app-page glass-page notion">{children}</section>
     </main>
   );
@@ -7519,8 +8225,9 @@ function CandidateMypageTabs() {
   );
 }
 
-function CandidateNav({ active }: { active: CandidateNavSection }) {
+function CandidateNav({ active, publicEntry = false }: { active: CandidateNavSection; publicEntry?: boolean }) {
   const pathname = usePathname();
+  const { status, user } = useAuth();
   const mockActive = active === "interview" || active === "reports";
   const recruitingActive = active === "jobs" || active === "applications";
   // 지표는 마이페이지 하위 흐름으로 배치되어 GNB 최상위 탭에서는 제외한다(마이페이지 활성으로 묶임).
@@ -7530,7 +8237,7 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
   return (
     <header className="gnb">
       <div className="gnb-inner">
-        <Link className="brand" href={candidateApplicationInterviewRoutes.jobs}>
+        <Link className="brand" href={publicEntry ? "/" : candidateApplicationInterviewRoutes.jobs}>
           <Image src="/logo-init-v4.png" alt="init" width={1900} height={580} priority />
         </Link>
         <nav className="gnb-menu" aria-label="지원자 메뉴">
@@ -7565,10 +8272,29 @@ function CandidateNav({ active }: { active: CandidateNavSection }) {
             </div>
           </div>
         </nav>
-        <div className="gnb-right">
-          <CandidateNotificationCenter />
-          <GnbAvatar accountLabel="지원자 계정" />
-          <GnbLogoutButton />
+        <div
+          className={`gnb-right${
+            publicEntry && (status !== "authenticated" || user?.userType !== "CANDIDATE")
+              ? " candidate-guest-actions"
+              : ""
+          }`}
+        >
+          {publicEntry && (status !== "authenticated" || user?.userType !== "CANDIDATE") ? (
+            <>
+              <Link className="btn secondary" href="/login">
+                로그인
+              </Link>
+              <Link className="btn primary" href="/company/login">
+                기업 서비스
+              </Link>
+            </>
+          ) : (
+            <>
+              <CandidateNotificationCenter />
+              <GnbAvatar accountLabel="지원자 계정" />
+              <GnbLogoutButton />
+            </>
+          )}
         </div>
       </div>
     </header>
@@ -7898,6 +8624,7 @@ function matchesCandidateApplicationStatusFilter(
   application: CandidateApplicationSummary,
   filter: CandidateApplicationStatusFilter,
 ): boolean {
+  if (application.availabilityStatus === "UNAVAILABLE") return filter === "ALL";
   if (filter === "ALL") return true;
   if (filter === "WAITING") return application.interviewStatus === "NOT_READY" || application.interviewStatus === "READY";
   if (filter === "IN_PROGRESS") return application.interviewStatus === "IN_PROGRESS";
@@ -7906,6 +8633,9 @@ function matchesCandidateApplicationStatusFilter(
 }
 
 function getSelectedApplicationAction(application: CandidateApplicationSummary): { href?: string; label: string } {
+  if (application.availabilityStatus === "UNAVAILABLE") {
+    return { label: "더 이상 조회할 수 없음" };
+  }
   if (application.applicationStatus === "CANCELED") {
     return { label: "지원 취소됨" };
   }
@@ -7921,28 +8651,60 @@ function getSelectedApplicationAction(application: CandidateApplicationSummary):
   if (application.interviewStatus === "IN_PROGRESS") {
     return {
       href: candidateApplicationInterviewRoutes.interviewGuide(application.applicationId),
-      label: "채용 AI 면접 재개",
+      label: "면접 재개",
     };
   }
   if (application.canStartInterview || application.interviewStatus === "READY") {
     return {
       href: candidateApplicationInterviewRoutes.interviewGuide(application.applicationId),
-      label: "채용 AI 면접 시작",
+      label: "면접 시작",
     };
   }
   return {
     href: candidateApplicationInterviewRoutes.interviewGuide(application.applicationId),
-    label: "면접 준비하기",
+    label: "면접 시작",
   };
 }
 
 function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryItem[] }) {
+  // 연습 세션 제목은 사용자가 직접 지정. 저장한 값은 낙관적으로 즉시 반영한다. (#288)
+  const [localTitles, setLocalTitles] = useState<Record<number, string | null>>({});
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
+  const [savingId, setSavingId] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const rawTitle = (item: CandidateMockInterviewHistoryItem) =>
+    item.sessionId in localTitles ? localTitles[item.sessionId] : item.title;
+  const displayTitle = (item: CandidateMockInterviewHistoryItem) => rawTitle(item) || `세션 #${item.sessionId}`;
+
+  function startEdit(item: CandidateMockInterviewHistoryItem) {
+    setEditingId(item.sessionId);
+    setDraft(rawTitle(item) ?? "");
+    setSaveError(null);
+  }
+
+  async function saveTitle(sessionId: number) {
+    setSavingId(sessionId);
+    setSaveError(null);
+    try {
+      const result = await getCandidateApi().updateMockSessionTitle(sessionId, draft.trim());
+      setLocalTitles((prev) => ({ ...prev, [sessionId]: result.data.title }));
+      setEditingId(null);
+    } catch (error) {
+      // 실패 시 편집 상태 유지하고 오류 사유를 노출한다. (#288)
+      setSaveError(toErrorMessage(error));
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   return (
     <div className="table-wrap">
       <table className="mock-history-table">
         <thead>
           <tr>
-            <th>세션</th>
+            <th>연습 제목</th>
             <th>면접 상태</th>
             <th>리포트 상태</th>
             <th>답변</th>
@@ -7952,7 +8714,38 @@ function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryI
         <tbody>
           {history.map((item) => (
             <tr key={item.sessionId}>
-              <td>세션 #{item.sessionId}<span>{formatDateTime(item.updatedAt)}</span></td>
+              <td>
+                {editingId === item.sessionId ? (
+                  <span className="mock-title-edit">
+                    <input
+                      autoFocus
+                      value={draft}
+                      maxLength={100}
+                      placeholder={`세션 #${item.sessionId}`}
+                      onChange={(event) => setDraft(event.currentTarget.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void saveTitle(item.sessionId);
+                        if (event.key === "Escape") setEditingId(null);
+                      }}
+                    />
+                    <button type="button" className="mock-title-btn" disabled={savingId === item.sessionId} onClick={() => void saveTitle(item.sessionId)}>
+                      저장
+                    </button>
+                    <button type="button" className="mock-title-btn ghost" onClick={() => setEditingId(null)}>
+                      취소
+                    </button>
+                    {saveError ? <span className="mock-title-error" role="alert">{saveError}</span> : null}
+                  </span>
+                ) : (
+                  <span className="mock-title-cell">
+                    <button type="button" className="mock-title-name" title="제목 편집" onClick={() => startEdit(item)}>
+                      {displayTitle(item)}
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+                    </button>
+                    <span>{formatDateTime(item.updatedAt)}</span>
+                  </span>
+                )}
+              </td>
               <td><StatusPill value={item.status} /></td>
               <td><StatusPill value={item.reportStatus} /></td>
               <td>{item.answeredCount}/{item.totalQuestions}</td>
@@ -7994,21 +8787,18 @@ const EMPTY_FOLDER_INPUT: CandidateFolderInput = {
 };
 
 function CandidateFoldersSection() {
+  const router = useRouter();
   const load = useCallback(() => getCandidateApi().listFolders(), []);
   const { data, loading, error, refresh } = useCandidateResource(load, []);
   // 새로 만든 세트가 목록 맨 뒤(추가 버튼 앞)에 오도록 id 오름차순 정렬.
   const folders = [...(data?.data.items ?? [])].sort((a, b) => a.id - b.id);
-  const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<CandidateFolder | null>(null);
   const [message, setMessage] = useState("");
 
   function openCreate() {
-    setEditing(null);
-    setFormOpen(true);
+    router.push("/candidate/application-sets/new");
   }
   function openEdit(folder: CandidateFolder) {
-    setEditing(folder);
-    setFormOpen(true);
+    router.push(`/candidate/application-sets/${folder.id}/edit`);
   }
   async function handleDelete(folder: CandidateFolder) {
     if (!window.confirm(`'${folder.name}' 지원서 세트를 삭제할까요?`)) return;
@@ -8083,29 +8873,77 @@ function CandidateFoldersSection() {
           <span>새 지원서 세트</span>
         </button>
       </div>
-      {formOpen ? (
-        <FolderFormModal
-          folder={editing}
-          onClose={() => setFormOpen(false)}
-          onSaved={(savedMessage) => {
-            setFormOpen(false);
-            setMessage(savedMessage);
-            refresh();
-          }}
-        />
-      ) : null}
     </section>
   );
 }
 
-function FolderFormModal({
+export function CandidateApplicationSetEditorPage({ folderId }: { folderId?: number }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [folder, setFolder] = useState<CandidateFolder | null>(null);
+  const [initialProfileSnapshot, setInitialProfileSnapshot] = useState<CandidateProfileSnapshotV1 | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    Promise.all([
+      getCandidateApi().getProfile(),
+      folderId ? getCandidateApi().getFolder(folderId) : Promise.resolve(null),
+    ])
+      .then(([profileResponse, folderResponse]) => {
+        if (!active) return;
+        const profile = profileResponse.data;
+        setInitialProfileSnapshot({ schemaVersion: 1, ...profile });
+        setFolder(folderResponse?.data ?? null);
+      })
+      .catch((loadError) => active && setError(toErrorMessage(loadError)))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, [folderId]);
+
+  function close() {
+    const returnTo = searchParams.get("returnTo");
+    if (returnTo?.startsWith("/candidate/jobs/")) {
+      router.push(`${returnTo}?apply=1&restoreDraft=1`);
+      return;
+    }
+    router.push(candidateApplicationInterviewRoutes.applicationSets);
+  }
+
+  function saved(savedFolder: CandidateFolder) {
+    const returnTo = searchParams.get("returnTo");
+    if (returnTo?.startsWith("/candidate/jobs/")) {
+      router.push(`${returnTo}?apply=1&applySet=${savedFolder.id}`);
+      return;
+    }
+    router.push(candidateApplicationInterviewRoutes.applicationSets);
+  }
+
+  return (
+    <CandidatePageShell active="accountBilling">
+      <section className="candidate-mypage glass-page notion">
+        <header className="candidate-mypage__head"><h1>{folderId ? "지원서 세트 수정" : "새 지원서 세트"}</h1></header>
+        <StatusNotice loading={loading} error={error} />
+        {!loading && !error && initialProfileSnapshot ? (
+          <FolderFormPage folder={folder} initialProfileSnapshot={initialProfileSnapshot} onClose={close} onSaved={saved} />
+        ) : null}
+      </section>
+    </CandidatePageShell>
+  );
+}
+
+function FolderFormPage({
   folder,
+  initialProfileSnapshot,
   onClose,
   onSaved,
 }: {
   folder: CandidateFolder | null;
+  initialProfileSnapshot: CandidateProfileSnapshotV1;
   onClose: () => void;
-  onSaved: (message: string) => void;
+  onSaved: (folder: CandidateFolder) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const portfolioFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -8120,8 +8958,9 @@ function FolderFormModal({
           portfolioFileId: folder.portfolioFileId,
           motivation: folder.motivation ?? "",
           extraNote: folder.extraNote ?? "",
+          profileSnapshot: folder.profileSnapshot ?? initialProfileSnapshot,
         }
-      : { ...EMPTY_FOLDER_INPUT },
+      : { ...EMPTY_FOLDER_INPUT, profileSnapshot: initialProfileSnapshot },
   );
   const [resumeFileName, setResumeFileName] = useState(folder?.resumeFileName ?? "");
   const [portfolioFileName, setPortfolioFileName] = useState(folder?.portfolioFileName ?? "");
@@ -8129,7 +8968,16 @@ function FolderFormModal({
   const [error, setError] = useState("");
 
   function update<K extends keyof CandidateFolderInput>(key: K, value: CandidateFolderInput[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((prev) => {
+      const next = { ...prev, [key]: value };
+      if (prev.profileSnapshot && (key === "githubUrl" || key === "blogUrl" || key === "portfolioUrl")) {
+        next.profileSnapshot = {
+          ...prev.profileSnapshot,
+          [key]: typeof value === "string" && value.trim() ? value.trim() : null,
+        };
+      }
+      return next;
+    });
   }
 
   async function handleFile(file: File) {
@@ -8170,11 +9018,11 @@ function FolderFormModal({
     setError("");
     try {
       if (folder) {
-        await getCandidateApi().updateFolder(folder.id, form);
-        onSaved("지원서 세트를 수정했습니다.");
+        const response = await getCandidateApi().updateFolder(folder.id, form);
+        onSaved(response.data);
       } else {
-        await getCandidateApi().createFolder(form);
-        onSaved("지원서 세트를 만들었습니다.");
+        const response = await getCandidateApi().createFolder(form);
+        onSaved(response.data);
       }
     } catch (submitError) {
       setError(toErrorMessage(submitError));
@@ -8184,8 +9032,7 @@ function FolderFormModal({
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <form className="modal folder-form-modal" role="dialog" aria-modal="true" aria-labelledby="folder-form-title" onSubmit={handleSubmit}>
+      <form className="mypage-block folder-form-page" aria-labelledby="folder-form-title" onSubmit={handleSubmit}>
         <div className="modal-head">
           <div>
             <p className="page-eyebrow">지원서 세트</p>
@@ -8198,6 +9045,19 @@ function FolderFormModal({
           <span>세트 이름</span>
           <input type="text" value={form.name} placeholder="예: 카카오 백엔드" onChange={(e) => update("name", e.target.value)} maxLength={100} />
         </label>
+        <p className="folder-hint">아래 프로필은 이 세트에 독립적으로 저장됩니다. 비운 항목은 지원할 때도 빈 값으로 적용됩니다.</p>
+        {form.profileSnapshot ? (
+          <CandidateProfileSnapshotEditor
+            value={form.profileSnapshot}
+            onChange={(profileSnapshot) => setForm((current) => ({
+              ...current,
+              profileSnapshot,
+              githubUrl: profileSnapshot.githubUrl,
+              blogUrl: profileSnapshot.blogUrl,
+              portfolioUrl: profileSnapshot.portfolioUrl,
+            }))}
+          />
+        ) : null}
         <label className="folder-field">
           <span>이력서</span>
           <button type="button" className="candidate-upload-drop" onClick={() => fileInputRef.current?.click()} disabled={busy}>
@@ -8213,20 +9073,6 @@ function FolderFormModal({
               if (file) void handleFile(file);
             }}
           />
-        </label>
-        <div className="folder-field-row">
-          <label className="folder-field">
-            <span>GitHub</span>
-            <input type="url" value={form.githubUrl ?? ""} placeholder="https://github.com/…" onChange={(e) => update("githubUrl", e.target.value)} />
-          </label>
-          <label className="folder-field">
-            <span>블로그</span>
-            <input type="url" value={form.blogUrl ?? ""} placeholder="https://…" onChange={(e) => update("blogUrl", e.target.value)} />
-          </label>
-        </div>
-        <label className="folder-field">
-          <span>포트폴리오 URL</span>
-          <input type="url" value={form.portfolioUrl ?? ""} placeholder="https://…" onChange={(e) => update("portfolioUrl", e.target.value)} />
         </label>
         <label className="folder-field">
           <span>포트폴리오 PDF</span>
@@ -8244,7 +9090,6 @@ function FolderFormModal({
             }}
           />
         </label>
-        <p className="folder-hint">GitHub·블로그·포트폴리오는 선택이에요. 비워두면 지원할 때 프로필에 저장된 값이 자동으로 채워집니다.</p>
         <label className="folder-field">
           <span>지원 동기</span>
           <textarea rows={3} value={form.motivation ?? ""} placeholder="이 기업/직무에 지원하는 이유" onChange={(e) => update("motivation", e.target.value)} />
@@ -8258,7 +9103,6 @@ function FolderFormModal({
           <button type="submit" className="btn primary" disabled={busy}>{busy ? "저장 중…" : "저장"}</button>
         </div>
       </form>
-    </div>
   );
 }
 
@@ -8398,6 +9242,15 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
   const videoUrl = getCachedRecordingObjectUrl(item.videoFile?.storageKey);
   const audioUrl = getCachedRecordingObjectUrl(item.audioFile?.storageKey);
   const practiceGuide = buildMockAnswerPracticeGuide(item);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [playbackTimeMs, setPlaybackTimeMs] = useState(0);
+
+  const seekVideo = (timeMs: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.currentTime = Math.max(0, timeMs / 1000);
+    setPlaybackTimeMs(timeMs);
+  };
 
   return (
     <article className="report-answer-card">
@@ -8411,7 +9264,13 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
       <div className="report-answer-card__content">
         <div className="report-answer-card__video">
           {videoUrl ? (
-            <video controls preload="metadata" src={videoUrl}>
+            <video
+              ref={videoRef}
+              controls
+              preload="metadata"
+              src={videoUrl}
+              onTimeUpdate={(event) => setPlaybackTimeMs(event.currentTarget.currentTime * 1000)}
+            >
               녹화 영상을 재생할 수 없습니다.
             </video>
           ) : (
@@ -8442,8 +9301,370 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
           ) : null}
         </div>
       </div>
+      <MockVisualAnalysisPanel
+        metadata={item.nonverbalMetadata}
+        durationMs={Math.max(1000, item.durationSeconds * 1000)}
+        playbackTimeMs={playbackTimeMs}
+        videoAvailable={Boolean(videoUrl)}
+        onSeek={seekVideo}
+      />
     </article>
   );
+}
+
+type MockVisualAnalysisTab = "gaze" | "headPose";
+
+function MockVisualAnalysisPanel({
+  metadata,
+  durationMs,
+  playbackTimeMs,
+  videoAvailable,
+  onSeek,
+}: {
+  metadata?: Record<string, unknown>;
+  durationMs: number;
+  playbackTimeMs: number;
+  videoAvailable: boolean;
+  onSeek(timeMs: number): void;
+}) {
+  const [activeTab, setActiveTab] = useState<MockVisualAnalysisTab>("gaze");
+  const gazeTimeline = useMemo(() => readGazeTimeline(metadata), [metadata]);
+  const headPoseTimeline = useMemo(() => readHeadPoseTimeline(metadata), [metadata]);
+  const gazeSummary = useMemo(() => summarizeGazeTimeline(gazeTimeline), [gazeTimeline]);
+  const headPoseSummary = useMemo(() => summarizeHeadPoseTimeline(headPoseTimeline), [headPoseTimeline]);
+  const analysisDurationMs = Math.max(
+    durationMs,
+    gazeTimeline[gazeTimeline.length - 1]?.tMs ?? 0,
+    headPoseTimeline[headPoseTimeline.length - 1]?.tMs ?? 0,
+  );
+  const gazeAwayIntervals = useMemo(
+    () => readGazeAwayIntervals(metadata, analysisDurationMs),
+    [analysisDurationMs, metadata],
+  );
+  const gazeAnalysisQuality = useMemo(
+    () => evaluateTimelineAnalysisQuality(gazeTimeline.length, durationMs),
+    [durationMs, gazeTimeline.length],
+  );
+  const headPoseAnalysisQuality = useMemo(
+    () => evaluateTimelineAnalysisQuality(headPoseTimeline.length, durationMs),
+    [durationMs, headPoseTimeline.length],
+  );
+  const activeAnalysisQuality = activeTab === "gaze" ? gazeAnalysisQuality : headPoseAnalysisQuality;
+
+  return (
+    <section className="report-visual-analysis" aria-label="답변 비언어 세부 분석">
+      <div className="report-visual-analysis__head">
+        <div>
+          <span>답변 영상 세부 분석</span>
+          <strong>시선과 고개 움직임</strong>
+          <p>카메라 기준 추정값을 시간 흐름에 따라 보여주는 연습용 참고 정보입니다.</p>
+        </div>
+        <span className="report-visual-analysis__sample-count">
+          {gazeTimeline.length + headPoseTimeline.length}개 표본
+        </span>
+      </div>
+      <div className="report-visual-analysis__tabs" role="tablist" aria-label="비언어 분석 항목">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "gaze"}
+          className={activeTab === "gaze" ? "is-active" : undefined}
+          onClick={() => setActiveTab("gaze")}
+        >
+          시선 방향
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "headPose"}
+          className={activeTab === "headPose" ? "is-active" : undefined}
+          onClick={() => setActiveTab("headPose")}
+        >
+          고개 움직임
+        </button>
+      </div>
+
+      {activeAnalysisQuality.status === "INSUFFICIENT" ? (
+        <div className="report-visual-analysis__empty">
+          <strong>분석 표본이 부족합니다.</strong>
+          <p>
+            {activeAnalysisQuality.reason === "NO_SAMPLES"
+              ? "수집 이전 답변이거나 카메라에서 얼굴과 눈을 안정적으로 감지하지 못해 이 항목을 평가하지 않았습니다."
+              : "카메라 해상도·조명 또는 얼굴과 눈의 감지 상태로 표본을 충분히 확보하지 못해 이 항목을 평가하지 않았습니다."}
+          </p>
+        </div>
+      ) : activeTab === "gaze" ? (
+        <div className="report-visual-analysis__body" role="tabpanel">
+          <div className="report-visual-analysis__chart-grid">
+            <VisualTimelineChart
+              title="시간별 시선 변화"
+              samples={gazeTimeline}
+              durationMs={analysisDurationMs}
+              playbackTimeMs={playbackTimeMs}
+              series={[
+                { label: "좌우", color: "#6257e7", value: (sample) => sample.horizontalOffset },
+                { label: "상하", color: "#159a8c", value: (sample) => sample.verticalOffset },
+              ]}
+              minimumScale={0.2}
+              highlights={gazeAwayIntervals}
+              highlightLabel="시선 이탈"
+              videoAvailable={videoAvailable}
+              onSeek={onSeek}
+            />
+            <GazeScatterChart samples={gazeTimeline} playbackTimeMs={playbackTimeMs} />
+          </div>
+          <VisualAnalysisGuide message={buildGazeAnalysisGuide(gazeSummary.centeredRatio)} />
+        </div>
+      ) : (
+        <div className="report-visual-analysis__body" role="tabpanel">
+          <VisualTimelineChart
+            title="시간별 고개 각도 변화"
+            samples={headPoseTimeline}
+            durationMs={analysisDurationMs}
+            playbackTimeMs={playbackTimeMs}
+            series={[
+              { label: "좌우", color: "#6257e7", value: (sample) => sample.yawDegrees },
+              { label: "상하", color: "#159a8c", value: (sample) => sample.pitchDegrees },
+              { label: "기울기", color: "#d97706", value: (sample) => sample.rollDegrees },
+            ]}
+            minimumScale={20}
+            unit="°"
+            videoAvailable={videoAvailable}
+            onSeek={onSeek}
+          />
+          <VisualAnalysisGuide message={buildHeadPoseAnalysisGuide(headPoseSummary.frontalRatio)} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+type TimelineSample = { tMs: number };
+type TimelineSeries<T extends TimelineSample> = {
+  label: string;
+  color: string;
+  value(sample: T): number;
+};
+
+function VisualTimelineChart<T extends TimelineSample>({
+  title,
+  samples,
+  durationMs,
+  playbackTimeMs,
+  series,
+  minimumScale,
+  unit = "",
+  highlights = [],
+  highlightLabel = "참고 구간",
+  videoAvailable,
+  onSeek,
+}: {
+  title: string;
+  samples: T[];
+  durationMs: number;
+  playbackTimeMs: number;
+  series: TimelineSeries<T>[];
+  minimumScale: number;
+  unit?: string;
+  highlights?: InterviewGazeAwayInterval[];
+  highlightLabel?: string;
+  videoAvailable: boolean;
+  onSeek(timeMs: number): void;
+}) {
+  const width = 760;
+  const height = 230;
+  const left = 48;
+  const right = 18;
+  const top = 20;
+  const bottom = 36;
+  const chartWidth = width - left - right;
+  const chartHeight = height - top - bottom;
+  const observedMaximum = Math.max(
+    minimumScale,
+    ...samples.flatMap((sample) => series.map((item) => Math.abs(item.value(sample)))),
+  );
+  const scale = Math.ceil(observedMaximum * 10) / 10;
+  const xForTime = (tMs: number) => left + Math.min(1, Math.max(0, tMs / durationMs)) * chartWidth;
+  const yForValue = (value: number) => top + (1 - (value + scale) / (scale * 2)) * chartHeight;
+  const playbackX = xForTime(playbackTimeMs);
+
+  const seekFromPointer = (clientX: number, target: SVGSVGElement) => {
+    if (!videoAvailable) return;
+    const bounds = target.getBoundingClientRect();
+    const pointerX = (clientX - bounds.left) / bounds.width * width;
+    const ratio = Math.min(1, Math.max(0, (pointerX - left) / chartWidth));
+    onSeek(ratio * durationMs);
+  };
+
+  return (
+    <figure className="report-visual-chart">
+      <figcaption>
+        <strong>{title}</strong>
+        <span>{videoAvailable ? "그래프를 눌러 영상 시점 이동" : "저장된 시계열 기준"}</span>
+      </figcaption>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        role={videoAvailable ? "button" : "img"}
+        aria-label={`${title}. 세로 범위 마이너스 ${scale}${unit}부터 ${scale}${unit}`}
+        tabIndex={videoAvailable ? 0 : undefined}
+        onPointerDown={(event) => seekFromPointer(event.clientX, event.currentTarget)}
+        onKeyDown={(event) => {
+          if (!videoAvailable) return;
+          if (event.key === "ArrowLeft") onSeek(Math.max(0, playbackTimeMs - 1000));
+          if (event.key === "ArrowRight") onSeek(Math.min(durationMs, playbackTimeMs + 1000));
+        }}
+      >
+        {highlights.map((highlight, index) => {
+          const startX = xForTime(highlight.startMs);
+          const endX = xForTime(highlight.endMs);
+          return (
+            <rect
+              key={`${highlight.startMs}-${highlight.endMs}-${index}`}
+              className="report-visual-chart__highlight"
+              x={startX}
+              y={top}
+              width={Math.max(2, endX - startX)}
+              height={chartHeight}
+            >
+              <title>{`${highlightLabel} ${formatAnalysisTime(highlight.startMs)}-${formatAnalysisTime(highlight.endMs)}`}</title>
+            </rect>
+          );
+        })}
+        {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+          const y = top + ratio * chartHeight;
+          const value = scale - ratio * scale * 2;
+          return (
+            <g key={ratio}>
+              <line className="report-visual-chart__grid" x1={left} x2={width - right} y1={y} y2={y} />
+              <text className="report-visual-chart__axis" x={left - 8} y={y + 4} textAnchor="end">
+                {value.toFixed(unit ? 0 : 1)}{unit}
+              </text>
+            </g>
+          );
+        })}
+        {series.map((item) => (
+          <polyline
+            key={item.label}
+            fill="none"
+            stroke={item.color}
+            strokeWidth="3"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            points={samples.map((sample) => `${xForTime(sample.tMs)},${yForValue(item.value(sample))}`).join(" ")}
+          />
+        ))}
+        <line className="report-visual-chart__cursor" x1={playbackX} x2={playbackX} y1={top} y2={height - bottom} />
+        {[0, 0.5, 1].map((ratio) => (
+          <text
+            key={ratio}
+            className="report-visual-chart__axis"
+            x={left + ratio * chartWidth}
+            y={height - 12}
+            textAnchor={ratio === 0 ? "start" : ratio === 1 ? "end" : "middle"}
+          >
+            {formatAnalysisTime(durationMs * ratio)}
+          </text>
+        ))}
+      </svg>
+      <div className="report-visual-chart__legend" aria-label="그래프 범례">
+        {series.map((item) => (
+          <span key={item.label}><i style={{ backgroundColor: item.color }} />{item.label}</span>
+        ))}
+      </div>
+      {highlights.length > 0 ? (
+        <div className="report-visual-chart__events" aria-label={`${highlightLabel} 구간`}>
+          <strong>{highlightLabel} 구간</strong>
+          <div>
+            {highlights.map((highlight, index) => (
+              <button
+                key={`${highlight.startMs}-${highlight.endMs}-${index}`}
+                type="button"
+                disabled={!videoAvailable}
+                onClick={() => onSeek(highlight.startMs)}
+                title={videoAvailable ? "해당 영상 시점으로 이동" : "저장된 영상이 없습니다"}
+              >
+                {formatAnalysisTime(highlight.startMs)}-{formatAnalysisTime(highlight.endMs)}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </figure>
+  );
+}
+
+function GazeScatterChart({ samples, playbackTimeMs }: { samples: InterviewGazeTimelineSample[]; playbackTimeMs: number }) {
+  const width = 360;
+  const height = 230;
+  const padding = 30;
+  const scale = Math.max(
+    0.2,
+    ...samples.flatMap((sample) => [Math.abs(sample.horizontalOffset), Math.abs(sample.verticalOffset)]),
+  );
+  const pointFor = (sample: InterviewGazeTimelineSample) => ({
+    x: width / 2 + sample.horizontalOffset / (scale * 2) * (width - padding * 2),
+    y: height / 2 + sample.verticalOffset / (scale * 2) * (height - padding * 2),
+  });
+  const activeSample = samples.reduce((nearest, sample) =>
+    Math.abs(sample.tMs - playbackTimeMs) < Math.abs(nearest.tMs - playbackTimeMs) ? sample : nearest,
+  samples[0]);
+
+  return (
+    <figure className="report-visual-chart report-visual-chart--scatter">
+      <figcaption>
+        <strong>시선 분포</strong>
+        <span>중앙점 기준 상대 위치</span>
+      </figcaption>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="카메라 중앙 기준 시선 분포">
+        <line className="report-visual-chart__grid" x1={width / 2} x2={width / 2} y1={padding} y2={height - padding} />
+        <line className="report-visual-chart__grid" x1={padding} x2={width - padding} y1={height / 2} y2={height / 2} />
+        <circle className="report-visual-chart__center-zone" cx={width / 2} cy={height / 2} r="42" />
+        {samples.map((sample) => {
+          const point = pointFor(sample);
+          const active = sample === activeSample;
+          return <circle key={sample.tMs} cx={point.x} cy={point.y} r={active ? 6 : 3.5} className={active ? "is-active" : undefined} />;
+        })}
+        <text className="report-visual-chart__axis" x={width / 2} y={18} textAnchor="middle">위</text>
+        <text className="report-visual-chart__axis" x={width / 2} y={height - 6} textAnchor="middle">아래</text>
+        <text className="report-visual-chart__axis" x={8} y={height / 2 + 4}>왼쪽</text>
+        <text className="report-visual-chart__axis" x={width - 8} y={height / 2 + 4} textAnchor="end">오른쪽</text>
+      </svg>
+    </figure>
+  );
+}
+
+function VisualAnalysisGuide({ message }: { message: string }) {
+  return (
+    <div className="report-visual-analysis__guide">
+      <strong>연습 포인트</strong>
+      <p>{message}</p>
+    </div>
+  );
+}
+
+function buildGazeAnalysisGuide(centeredRatio: number) {
+  if (centeredRatio >= 0.8) {
+    return "카메라 기준 시선 추정값이 대체로 중앙 범위에 머물렀습니다. 자연스러운 사고 과정의 시선 이동은 정상이며, 핵심 문장에서 현재 흐름을 유지해 보세요.";
+  }
+  if (centeredRatio >= 0.6) {
+    return "시선이 자연스럽게 이동한 구간이 있습니다. 답변의 결론이나 성과를 말할 때 카메라 근처로 시선을 돌아오는 연습이 전달력을 높이는 데 도움이 됩니다.";
+  }
+  return "카메라 중앙을 벗어난 시선 추정 구간이 비교적 자주 관찰됐습니다. 외운 문장을 고정해 읽기보다 핵심 키워드만 정리하고 카메라를 보며 말하는 연습을 해보세요.";
+}
+
+function buildHeadPoseAnalysisGuide(frontalRatio: number) {
+  if (frontalRatio >= 0.8) {
+    return "답변 중 고개가 대체로 정면 범위에 유지됐습니다. 강조할 때의 자연스러운 움직임은 유지하되 화면 중심에서 크게 벗어나지 않도록 해보세요.";
+  }
+  if (frontalRatio >= 0.6) {
+    return "고개 움직임이 일부 크게 나타난 구간이 있습니다. 질문을 듣고 생각한 뒤 답변을 시작할 때 정면 자세로 돌아오면 더 안정적으로 보입니다.";
+  }
+  return "좌우 또는 상하 고개 변화가 비교적 크게 관찰됐습니다. 화면에 질문이나 메모를 분산해 두기보다 카메라 주변 한곳에 시선을 모아 연습해 보세요.";
+}
+
+function formatAnalysisTime(timeMs: number) {
+  const totalSeconds = Math.max(0, Math.round(timeMs / 1000));
+  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
 type AnswerPracticeGuide = {
@@ -9567,14 +10788,6 @@ function formatConsentTypeLabel(consentType: string): string {
   return labels[consentType] ?? consentType;
 }
 
-function formatInterviewTypeLabel(interviewType: string): string {
-  const labels: Record<string, string> = {
-    MOCK: "모의면접",
-    RECRUITING: "채용 면접",
-  };
-
-  return labels[interviewType] ?? interviewType;
-}
 
 function paymentStatusLabel(status: PaymentOrder["status"]) {
   const labels: Record<PaymentOrder["status"], string> = {
@@ -9660,6 +10873,14 @@ function getCandidateApi() {
   return createCandidateApiClient({
     baseUrl: getApiBaseUrl(),
     headers: getCandidateHeaders(),
+  });
+}
+
+function getPublicCandidateApi() {
+  return createCandidateApiClient({
+    baseUrl: getApiBaseUrl(),
+    fetcher: fetch,
+    jobsPath: publicCandidateApiPaths.jobs,
   });
 }
 
