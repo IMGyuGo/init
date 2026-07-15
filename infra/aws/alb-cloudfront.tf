@@ -192,6 +192,16 @@ resource "aws_cloudfront_distribution" "app" {
     compress               = true
   }
 
+  ordered_cache_behavior {
+    path_pattern           = "/seed/company-logos/*"
+    target_origin_id       = "assets-s3"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD"]
+    cached_methods         = ["GET", "HEAD"]
+    cache_policy_id        = data.aws_cloudfront_cache_policy.caching_optimized.id
+    compress               = true
+  }
+
   restrictions {
     geo_restriction {
       restriction_type = "none"
@@ -217,7 +227,8 @@ data "aws_iam_policy_document" "assets_bucket" {
 
     resources = [
       "${aws_s3_bucket.assets.arn}/company/*/profile-logo/*",
-      "${aws_s3_bucket.assets.arn}/company/*/jd-images/*"
+      "${aws_s3_bucket.assets.arn}/company/*/jd-images/*",
+      "${aws_s3_bucket.assets.arn}/seed/company-logos/*"
     ]
 
     principals {
