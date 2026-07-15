@@ -134,6 +134,38 @@ test("unit: rejects a PNG whose dimensions do not match the canvas", async () =>
   });
 });
 
+test("unit: rejects a truncated PNG IHDR", async () => {
+  await withFixture(async (directory) => {
+    const layers = createLayers();
+    await writeCompleteLayerFiles(directory, layers);
+    await writeFile(join(directory, layers[0].pngPath), createPngHeader(0).subarray(0, 32));
+    const manifestPath = await writeManifest(directory, layers);
+
+    await assert.rejects(auditLayeredMouthAssets(manifestPath), /mouth-skin-underlay\.png is not a valid PNG file/);
+  });
+});
+
+test("unit: rejects duplicate layer names before exact order validation", async () => {
+  await withFixture(async (directory) => {
+    const layers = createLayers({ 1: { name: EXPECTED_LAYER_NAMES[0] } });
+    const manifestPath = await writeManifest(directory, layers);
+
+    await assert.rejects(auditLayeredMouthAssets(manifestPath), /duplicate layer: mouth-skin-underlay/);
+  });
+});
+
+test("unit: rejects non-object manifest layers", async () => {
+  for (const invalidLayer of [null, [], "layer"]) {
+    await withFixture(async (directory) => {
+      const layers = createLayers();
+      layers[0] = invalidLayer;
+      const manifestPath = await writeManifest(directory, layers);
+
+      await assert.rejects(auditLayeredMouthAssets(manifestPath), /each manifest layer must be an object/);
+    });
+  }
+});
+
 test("unit: rejects a PNG whose first chunk length is not 13", async () => {
   await withFixture(async (directory) => {
     const layers = createLayers();

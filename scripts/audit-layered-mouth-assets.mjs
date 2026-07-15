@@ -21,7 +21,7 @@ function toPosixPath(value) {
 }
 
 function readPngHeader(bytes, path) {
-  if (bytes.length < 26 || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
+  if (bytes.length < 33 || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
     throw new Error(`${path} is not a valid PNG file`);
   }
   if (bytes.readUInt32BE(8) !== 13) {
@@ -70,16 +70,25 @@ export async function auditLayeredMouthAssets(manifestPath) {
   if (!Array.isArray(manifest.layers)) {
     throw new Error(`${manifestPath} layers must be an array`);
   }
-  assertExpectedLayerNames(manifest.layers);
+
+  for (const layer of manifest.layers) {
+    if (layer === null || typeof layer !== "object" || Array.isArray(layer)) {
+      throw new Error("each manifest layer must be an object");
+    }
+  }
 
   const names = new Set();
+  for (const layer of manifest.layers) {
+    if (names.has(layer.name)) throw new Error(`duplicate layer: ${layer.name}`);
+    names.add(layer.name);
+  }
+  assertExpectedLayerNames(manifest.layers);
+
   const layers = [];
   for (const layer of manifest.layers) {
     for (const field of REQUIRED_LAYER_FIELDS) {
       if (!(field in layer)) throw new Error(`layer ${layer.name} is missing ${field}`);
     }
-    if (names.has(layer.name)) throw new Error(`duplicate layer: ${layer.name}`);
-    names.add(layer.name);
     if (!hasExpectedAnchor(layer.anchor)) {
       throw new Error(`${layer.name} anchor must be exactly {x:512,y:585}`);
     }
