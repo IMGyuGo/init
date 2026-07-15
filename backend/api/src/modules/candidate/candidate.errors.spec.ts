@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import { ERROR_CODES } from "@init/common";
 import { createCandidateErrorResponse } from "./candidate.errors";
 import { CandidateDomainError } from "./candidate.errors";
 
@@ -17,4 +18,8 @@ assert.match(response.meta.timestamp, /^\d{4}-\d{2}-\d{2}T/);
 
 test("candidate error envelope contract", () => {
   assert.equal(response.error.code, "COMMON_VALIDATION_FAILED");
+});
+
+test("shared error code registry includes gaze-data retake errors", () => {
+  assert.equal(ERROR_CODES.INTERVIEW_GAZE_DATA_INVALID, "INTERVIEW_GAZE_DATA_INVALID");
 });

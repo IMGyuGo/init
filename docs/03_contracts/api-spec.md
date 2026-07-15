@@ -1439,6 +1439,8 @@ AI 리포트 금지 기준:
   - publicAccessToken의 sessionId가 path sessionId와 일치해야 한다.
 - 성공 응답/처리:
   - 기존 채용면접 답변 저장 흐름으로 interview_answers와 file_assets 메타데이터를 저장한다.
+- 오류/예외:
+  - `gazeTimeline[].horizontalOffset` 또는 `verticalOffset`이 유한수가 아니거나 `-1..1` 범위를 벗어나면 `422 INTERVIEW_GAZE_DATA_INVALID`를 반환한다. 답변과 파일 참조는 저장하지 않으며 정상 답변 저장 전까지 다음 질문 이동을 차단하고 재촬영을 안내한다.
 - 관련 ERD 테이블:
   - file_assets, applications, interview_sessions, interview_answers
 
@@ -2471,6 +2473,7 @@ CandidateFolder 입력 제한:
   - 답변 파일 업로드 완료
 - 오류/예외:
   - 녹화 실패 시 재녹화 안내를 표시한다.
+  - `gazeTimeline[].horizontalOffset` 또는 `verticalOffset`이 유한수가 아니거나 `-1..1` 범위를 벗어나면 `422 INTERVIEW_GAZE_DATA_INVALID`를 반환한다. 답변과 파일 참조는 저장하지 않으며 정상 답변 저장 전까지 다음 질문 이동을 차단하고 재촬영을 안내한다.
 - 관련 ERD 테이블:
   - candidate_profiles, file_assets, applications, interview_sessions, interview_answers, ai_process_logs
 - 비고/미결:
@@ -3111,6 +3114,7 @@ CandidateFolder 입력 제한:
   - 답변 파일 업로드 완료
 - 오류/예외:
   - 녹화 실패 시 재녹화 또는 고객지원 안내를 표시한다.
+  - `gazeTimeline[].horizontalOffset` 또는 `verticalOffset`이 유한수가 아니거나 `-1..1` 범위를 벗어나면 `422 INTERVIEW_GAZE_DATA_INVALID`를 반환한다. 답변과 파일 참조는 저장하지 않으며 정상 답변 저장 전까지 다음 질문 이동을 차단하고 재촬영을 안내한다.
 - 관련 ERD 테이블:
   - candidate_profiles, file_assets, postings, applications, interview_sessions, interview_answers, ai_process_logs
 - 비고/미결:
@@ -3337,7 +3341,8 @@ CandidateFolder 입력 제한:
 - Shape: JSON object. Initial MVP keys may include `cameraWarnings`, `microphoneWarnings`, `longSilenceCount`, `shortAnswerCount`, `testModeUsed`, `voicePeakLevel`, `lowAudioFrameCount`, `observedAudioFrameCount`, `cameraDisconnectedCount`, `integrityEvents`, `integritySummary`, `gazeTimeline`, and `headPoseTimeline`.
 - Maximum serialized UTF-8 size: 32 KiB.
 - `integrityEvents` maximum length: 100.
-- Unknown top-level, summary, or event keys; unsupported event types; malformed timestamps; and out-of-range numeric values are rejected with `400 COMMON_VALIDATION_FAILED`.
+- Unknown top-level, summary, or event keys; unsupported event types; malformed timestamps; and out-of-range numeric values other than gaze timeline offsets are rejected with `400 COMMON_VALIDATION_FAILED`.
+- A non-finite or out-of-range `gazeTimeline[].horizontalOffset` or `verticalOffset` is rejected with `422 INTERVIEW_GAZE_DATA_INVALID`. The error detail identifies the exact sample field. The client discards the invalid recording and blocks answer submission and next-question movement until a newly recorded answer is saved successfully.
 - `integrityEvents` may include browser-runtime events such as `TAB_HIDDEN`, `WINDOW_BLUR`, `CAMERA_LOST`, `FACE_MISSING`, `FACE_OUT_OF_FRAME`, `MULTIPLE_FACES`, `FACE_POSITION_SHIFT`, `GAZE_AWAY`, `VOICE_MOUTH_MISMATCH`, `VOICE_WITHOUT_FACE`, `STATIC_VIDEO_FRAME`, and `EARLY_SCREEN_AWAY`.
 - `MULTIPLE_FACES` is retained as the legacy event code for compatibility. The runtime emits it when either face landmarks or the MediaPipe person-object detector finds more than one person in at least two samples within 1.5 seconds. Person-object samples use a `0.35` confidence threshold, run every `0.5` seconds, and keep an active signal for a `1.5`-second miss grace period so a covered face does not cause the warning to flicker.
 - Integrity events may include `offsetMs`, a non-negative integer measured from the answer recording start. It is used to align an event with the recorded video and analysis timeline; events without it remain valid for backward compatibility.
@@ -3351,7 +3356,8 @@ CandidateFolder 입력 제한:
   - The API rebuilds event-derived counts, away durations, and `suspicionLevel` from the allowlisted events instead of trusting client summary counts.
   - The API writes `schemaVersion: 1` and `source: CLIENT_RUNTIME_UNVERIFIED` before saving on `interview_answers.nonverbal_metadata`.
   - Empty metadata objects are treated as absent.
-  - When recording validation fails twice, the already collected metadata is preserved for both mock and recruiting answers.
+  - When general recording validation fails twice, the already collected metadata is preserved for both mock and recruiting answers.
+  - Gaze timeline offset validation is excluded from the two-attempt skip policy. It always requires another recording and cannot be converted to `RECORDING_VALIDATION_FAILED` while the current question remains unanswered.
 - Report read:
   - API-056 `GET /candidate/mock-interview/reports/{reportId}/media` may expose `media[].nonverbalMetadata`.
   - Candidate UI may aggregate the values into a mock interview nonverbal summary card and per-answer practice feedback.
