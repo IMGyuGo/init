@@ -1,0 +1,14 @@
+{
+  "id": "existing-look-cubism-v5",
+  "status": "layered-mouth-source-preparation",
+  "derivedFrom": "../existing-look-cubism-v4/interviewer-import-v4.cmo3",
+  "canvas": { "width": 1024, "height": 1536 },
+  "mouthAnchor": { "x": 512, "y": 585 },
+  "mouthOpenParameter": {
+    "id": "ParamMouthOpenY",
+    "range": { "min": 0, "max": 1, "default": 0 },
+    "keyforms": [0, 0.5, 1],
+    "controlType": "layered-warp-deformation"
+  },
+  "layers": []
+}
