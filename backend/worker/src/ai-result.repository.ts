@@ -1,4 +1,13 @@
 import { createHash } from "node:crypto";
+import type {
+  FactCheckGateStatus,
+  FactCheckProviderMode,
+  FactCheckProviderStatus,
+  FactCheckVerdict,
+  FactClaimRole,
+  FactClaimType,
+  FactEvidenceSourceKind,
+} from "./answer-fact-check.types";
 import type { NcsTextEvaluationOutput } from "./ncs-text-evaluation.types";
 import type { NcsFinalEvaluation } from "./ncs-final-evaluation";
 import type { NcsApiProfileId } from "./ncs-question-alignment.adapter";
@@ -201,6 +210,42 @@ export interface NcsAnswerEvaluationRecord {
   }>;
 }
 
+export interface AnswerFactCheckEvidenceRecord {
+  evidenceLedgerId: string;
+  sourceSnapshotId: string;
+  sourceKind: FactEvidenceSourceKind;
+  sourceStartOffset: number;
+  sourceEndOffset: number;
+}
+
+export interface AnswerFactCheckClaimRecord {
+  claimText: string;
+  answerStartOffset: number;
+  answerEndOffset: number;
+  claimType: FactClaimType;
+  claimRole: FactClaimRole;
+  verdict: FactCheckVerdict;
+  confidence: number;
+  rationale: string;
+  evidences: AnswerFactCheckEvidenceRecord[];
+}
+
+export interface AnswerFactCheckRunRecord {
+  reportId: number;
+  answerId: number;
+  providerStatus: FactCheckProviderStatus;
+  gateStatus: FactCheckGateStatus | null;
+  providerMode: FactCheckProviderMode;
+  modelVersion: string;
+  promptVersion: string;
+  knowledgeSnapshotVersion: string;
+  policyVersion: string;
+  failureReason: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  claims: AnswerFactCheckClaimRecord[];
+}
+
 export type ReportAnswerEvaluationStatusRecord = "EVALUATED" | "STT_UNAVAILABLE";
 
 export const STT_UNAVAILABLE_TEMP_ZERO_REASON =
@@ -266,6 +311,7 @@ export interface AiResultRepository {
   saveFollowUpQuestion(record: FollowUpQuestionRecord): Promise<void>;
   saveGeneratedDraft(record: GeneratedDraftRecord): Promise<void>;
   saveReportScoresAndEvidences(record: ReportScoresRecord): Promise<void>;
+  saveAnswerFactChecks(reportId: number, records: AnswerFactCheckRunRecord[]): Promise<void>;
   saveCommunicationAnalysis(record: CommunicationAnalysisRecord): Promise<void>;
   saveGeneratedReport(record: GeneratedReportRecord): Promise<void>;
   markReportFailed(record: FailedReportRecord): Promise<void>;
@@ -348,6 +394,7 @@ export class InMemoryAiResultRepository implements AiResultRepository {
   readonly generatedDrafts: GeneratedDraftRecord[] = [];
   readonly reportScores = new Map<number, GeneratedReportScoreRecord[]>();
   readonly ncsAnswerEvaluations = new Map<number, NcsAnswerEvaluationRecord[]>();
+  readonly answerFactChecks = new Map<number, AnswerFactCheckRunRecord[]>();
   readonly communicationAnalyses = new Map<number, CommunicationAnalysisRecord>();
   readonly generatedReports = new Map<number, GeneratedReportRecord>();
   readonly failedReports = new Map<number, FailedReportRecord>();
@@ -442,6 +489,11 @@ export class InMemoryAiResultRepository implements AiResultRepository {
     }
   }
 
+  async saveAnswerFactChecks(reportId: number, records: AnswerFactCheckRunRecord[]): Promise<void> {
+    assertAnswerFactCheckRecords(reportId, records);
+    this.answerFactChecks.set(reportId, structuredClone(records));
+  }
+
   async saveCommunicationAnalysis(record: CommunicationAnalysisRecord): Promise<void> {
     this.communicationAnalyses.set(record.reportId, record);
   }
@@ -486,4 +538,58 @@ export class InMemoryAiResultRepository implements AiResultRepository {
 
 export function hashSourceText(sourceText: string): string {
   return createHash("sha256").update(sourceText).digest("hex");
+}
+
+export function assertAnswerFactCheckRecords(reportId: number, records: AnswerFactCheckRunRecord[]): void {
+  if (records.some((record) => record.reportId !== reportId)) {
+    throw new NonRetryableAiWorkerFailure("fact-check reportId mismatch");
+  }
+  const keys = new Set<string>();
+  for (const record of records) {
+    const key = `${record.answerId}:${record.policyVersion}`;
+    if (keys.has(key)) {
+      throw new NonRetryableAiWorkerFailure("duplicate fact-check answer policy record");
+    }
+    keys.add(key);
+    const completed = record.providerStatus === "COMPLETED";
+    if (
+      !Number.isSafeInteger(record.answerId) || record.answerId <= 0 ||
+      !record.modelVersion.trim() || !record.promptVersion.trim() ||
+      !record.knowledgeSnapshotVersion.trim() || !record.policyVersion.trim() ||
+      !validIsoDate(record.startedAt) || (record.completedAt !== null && !validIsoDate(record.completedAt)) ||
+      (completed && (record.gateStatus === null || record.failureReason !== null)) ||
+      (!completed && (record.gateStatus !== null || !record.failureReason?.trim() || record.claims.length > 0))
+    ) {
+      throw new NonRetryableAiWorkerFailure(`invalid fact-check run for answer ${record.answerId}`);
+    }
+    record.claims.forEach((claim, claimIndex) => {
+      if (
+        !claim.claimText || !claim.rationale.trim() ||
+        !Number.isSafeInteger(claim.answerStartOffset) || !Number.isSafeInteger(claim.answerEndOffset) ||
+        claim.answerStartOffset < 0 || claim.answerEndOffset <= claim.answerStartOffset ||
+        !Number.isFinite(claim.confidence) || claim.confidence < 0 || claim.confidence > 1
+      ) {
+        throw new NonRetryableAiWorkerFailure(`invalid fact-check claim ${claimIndex + 1} for answer ${record.answerId}`);
+      }
+      const evidenceIds = new Set<string>();
+      for (const evidence of claim.evidences) {
+        if (
+          !evidence.evidenceLedgerId.trim() || !evidence.sourceSnapshotId.trim() ||
+          evidenceIds.has(evidence.evidenceLedgerId) ||
+          !Number.isSafeInteger(evidence.sourceStartOffset) || !Number.isSafeInteger(evidence.sourceEndOffset) ||
+          evidence.sourceStartOffset < 0 || evidence.sourceEndOffset <= evidence.sourceStartOffset
+        ) {
+          throw new NonRetryableAiWorkerFailure(`invalid fact-check evidence for answer ${record.answerId}`);
+        }
+        evidenceIds.add(evidence.evidenceLedgerId);
+      }
+      if ((claim.verdict === "SUPPORTED" || claim.verdict === "CONTRADICTED") && claim.evidences.length === 0) {
+        throw new NonRetryableAiWorkerFailure(`${claim.verdict} fact-check claim requires evidence`);
+      }
+    });
+  }
+}
+
+function validIsoDate(value: string): boolean {
+  return value.trim().length > 0 && Number.isFinite(Date.parse(value));
 }

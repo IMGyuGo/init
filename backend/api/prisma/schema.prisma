@@ -789,6 +789,7 @@ model InterviewAnswer {
   reportEvidences        ReportEvidence[]
   ncsAnswerEvaluations   NcsAnswerEvaluation[]
   ncsEvaluationEvidences NcsAnswerEvaluationEvidence[]
+  answerFactCheckRuns    AnswerFactCheckRun[]
 
   @@index([sessionQuestionId], map: "idx_interview_answers_session_question")
   @@map("interview_answers")
@@ -829,6 +830,7 @@ model EvaluationReport {
   session                  InterviewSession?     @relation(fields: [sessionId], references: [sessionId])
   scores                   ReportScore[]
   ncsAnswerEvaluations     NcsAnswerEvaluation[]
+  answerFactCheckRuns      AnswerFactCheckRun[]
   manualEvaluations        ManualEvaluation[]
 
   @@map("evaluation_reports")
@@ -969,6 +971,69 @@ model NcsAnswerEvaluationEvidence {
   @@unique([ncsEvaluationId, sourceAnswerId, sortOrder], map: "uq_ncs_answer_evaluation_evidences_source_order")
   @@index([sourceAnswerId], map: "idx_ncs_answer_evaluation_evidences_source_answer")
   @@map("ncs_answer_evaluation_evidences")
+}
+
+model AnswerFactCheckRun {
+  factCheckRunId           BigInt                 @id @default(autoincrement()) @map("fact_check_run_id")
+  reportId                 BigInt                 @map("report_id")
+  answerId                 BigInt                 @map("answer_id")
+  providerStatus           String                 @map("provider_status") @db.VarChar(40)
+  gateStatus               String?                @map("gate_status") @db.VarChar(40)
+  providerMode             String                 @map("provider_mode") @db.VarChar(20)
+  modelVersion             String                 @map("model_version") @db.VarChar(120)
+  promptVersion            String                 @map("prompt_version") @db.VarChar(100)
+  knowledgeSnapshotVersion String                 @map("knowledge_snapshot_version") @db.VarChar(100)
+  policyVersion            String                 @map("policy_version") @db.VarChar(100)
+  failureReason            String?                @map("failure_reason")
+  startedAt                DateTime               @map("started_at")
+  completedAt              DateTime?              @map("completed_at")
+  createdAt                DateTime               @default(now()) @map("created_at")
+  updatedAt                DateTime               @updatedAt @map("updated_at")
+  report                   EvaluationReport       @relation(fields: [reportId], references: [reportId], onDelete: Cascade)
+  answer                   InterviewAnswer        @relation(fields: [answerId], references: [answerId], onDelete: Cascade)
+  claims                   AnswerFactCheckClaim[]
+
+  @@unique([reportId, answerId, policyVersion], map: "uq_answer_fact_check_runs_report_answer_policy")
+  @@index([answerId], map: "idx_answer_fact_check_runs_answer")
+  @@index([reportId, providerStatus], map: "idx_answer_fact_check_runs_report_status")
+  @@map("answer_fact_check_runs")
+}
+
+model AnswerFactCheckClaim {
+  factCheckClaimId  BigInt                    @id @default(autoincrement()) @map("fact_check_claim_id")
+  factCheckRunId    BigInt                    @map("fact_check_run_id")
+  claimText         String                    @map("claim_text")
+  answerStartOffset Int                       @map("answer_start_offset")
+  answerEndOffset   Int                       @map("answer_end_offset")
+  claimType         String                    @map("claim_type") @db.VarChar(40)
+  claimRole         String                    @map("claim_role") @db.VarChar(40)
+  verdict           String                    @db.VarChar(40)
+  confidence        Decimal                   @db.Decimal(5, 4)
+  rationale         String
+  sortOrder         Int                       @map("sort_order")
+  run               AnswerFactCheckRun        @relation(fields: [factCheckRunId], references: [factCheckRunId], onDelete: Cascade)
+  evidences         AnswerFactCheckEvidence[]
+
+  @@unique([factCheckRunId, sortOrder], map: "uq_answer_fact_check_claims_run_order")
+  @@index([verdict], map: "idx_answer_fact_check_claims_verdict")
+  @@map("answer_fact_check_claims")
+}
+
+model AnswerFactCheckEvidence {
+  factCheckEvidenceId BigInt               @id @default(autoincrement()) @map("fact_check_evidence_id")
+  factCheckClaimId    BigInt               @map("fact_check_claim_id")
+  evidenceLedgerId    String               @map("evidence_ledger_id") @db.VarChar(80)
+  sourceSnapshotId    String               @map("source_snapshot_id") @db.VarChar(160)
+  sourceKind          String               @map("source_kind") @db.VarChar(40)
+  sourceStartOffset   Int                  @map("source_start_offset")
+  sourceEndOffset     Int                  @map("source_end_offset")
+  sortOrder           Int                  @map("sort_order")
+  claim               AnswerFactCheckClaim @relation(fields: [factCheckClaimId], references: [factCheckClaimId], onDelete: Cascade)
+
+  @@unique([factCheckClaimId, sortOrder], map: "uq_answer_fact_check_evidences_claim_order")
+  @@unique([factCheckClaimId, evidenceLedgerId], map: "uq_answer_fact_check_evidences_claim_ledger")
+  @@index([sourceSnapshotId], map: "idx_answer_fact_check_evidences_snapshot")
+  @@map("answer_fact_check_evidences")
 }
 
 model ReportEvidence {

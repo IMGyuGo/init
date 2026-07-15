@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   AiResultRepository,
+  AnswerFactCheckRunRecord,
   CommunicationAnalysisRecord,
   DocumentExtractionRecord,
   DocumentExtractionStatusRecord,
@@ -16,6 +17,7 @@ import {
   ResumeQuestionGenerationResult,
   ResumeQuestionJobReference,
   assertQuestionEvaluationsHaveEvidence,
+  assertAnswerFactCheckRecords,
   TranscriptRecord,
   assertScoresHaveEvidence,
   hashSourceText
@@ -98,6 +100,10 @@ interface PrismaAiResultClient {
     deleteMany(args: unknown): Promise<unknown>;
   };
   ncsAnswerEvaluation?: {
+    deleteMany(args: unknown): Promise<unknown>;
+    create(args: unknown): Promise<unknown>;
+  };
+  answerFactCheckRun?: {
     deleteMany(args: unknown): Promise<unknown>;
     create(args: unknown): Promise<unknown>;
   };
@@ -369,6 +375,68 @@ export class PrismaAiResultRepository implements AiResultRepository {
     if (record.ncsAnswerEvaluations) {
       await this.replaceNcsAnswerEvaluations(record.reportId, record.ncsAnswerEvaluations);
     }
+  }
+
+  async saveAnswerFactChecks(reportId: number, records: AnswerFactCheckRunRecord[]): Promise<void> {
+    assertAnswerFactCheckRecords(reportId, records);
+    const replace = async (client: PrismaAiResultClient): Promise<void> => {
+      const repository = client.answerFactCheckRun;
+      if (!repository) {
+        throw new NonRetryableAiWorkerFailure("answer fact-check repository is unavailable");
+      }
+      await repository.deleteMany({ where: { reportId: BigInt(reportId) } });
+      for (const record of records) {
+        await repository.create({
+          data: {
+            reportId: BigInt(reportId),
+            answerId: BigInt(record.answerId),
+            providerStatus: record.providerStatus,
+            gateStatus: record.gateStatus,
+            providerMode: record.providerMode,
+            modelVersion: record.modelVersion,
+            promptVersion: record.promptVersion,
+            knowledgeSnapshotVersion: record.knowledgeSnapshotVersion,
+            policyVersion: record.policyVersion,
+            failureReason: record.failureReason,
+            startedAt: new Date(record.startedAt),
+            completedAt: record.completedAt ? new Date(record.completedAt) : null,
+            ...(record.claims.length > 0 ? {
+              claims: {
+                create: record.claims.map((claim, claimIndex) => ({
+                  claimText: claim.claimText,
+                  answerStartOffset: claim.answerStartOffset,
+                  answerEndOffset: claim.answerEndOffset,
+                  claimType: claim.claimType,
+                  claimRole: claim.claimRole,
+                  verdict: claim.verdict,
+                  confidence: claim.confidence,
+                  rationale: claim.rationale,
+                  sortOrder: claimIndex + 1,
+                  ...(claim.evidences.length > 0 ? {
+                    evidences: {
+                      create: claim.evidences.map((evidence, evidenceIndex) => ({
+                        evidenceLedgerId: evidence.evidenceLedgerId,
+                        sourceSnapshotId: evidence.sourceSnapshotId,
+                        sourceKind: evidence.sourceKind,
+                        sourceStartOffset: evidence.sourceStartOffset,
+                        sourceEndOffset: evidence.sourceEndOffset,
+                        sortOrder: evidenceIndex + 1,
+                      })),
+                    },
+                  } : {}),
+                })),
+              },
+            } : {}),
+          },
+        });
+      }
+    };
+
+    if (this.prisma.$transaction) {
+      await this.prisma.$transaction(replace);
+      return;
+    }
+    await replace(this.prisma);
   }
 
   async saveCommunicationAnalysis(record: CommunicationAnalysisRecord): Promise<void> {
