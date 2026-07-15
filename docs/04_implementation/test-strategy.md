@@ -188,6 +188,25 @@ M6는 [`ncs-m6-rollout-runbook.md`](./ncs-m6-rollout-runbook.md)의 순서로 �
 
 실제 환경이 필요한 PostgreSQL migration과 OpenAI provider smoke는 로컬 mock 회귀 통과로 대체하지 않는다. 배포 담당자가 runbook의 smoke evidence를 남겨야 운영 완료로 판정한다.
 
+## NR-M6 Runtime Acceptance
+
+NR-M6의 대표 브라우저 경로는 공통 질문 6개와 이력서 개인화 질문 2개를 사용한다. 개인화 질문을 사용하지 않는 공통 질문 6개 경로는 별도 자동 회귀로 유지한다.
+
+| Area | Scenario | Expected |
+| --- | --- | --- |
+| Policy | 공통 6개, 개인화 2개 저장 | 두 source의 기대 개수와 version이 저장되고 가중치 합계가 100 |
+| Personalized readiness | 개인화 질문이 `READY` 전 면접 시작 | `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`, 공통 질문 자동 대체 없음 |
+| Snapshot | 개인화 질문 준비 후 세션 생성 | 공통 6개 다음 개인화 2개, 총 8개와 canonical binding 1~2개 저장 |
+| Recovery | API 재시작 또는 화면 새로고침 | 동일한 질문 순서와 first-unanswered 질문 복원 |
+| Progression | worker 지연 중 기본 답변 제출 | AI job 완료와 무관하게 다음 기본 질문 진행 |
+| Follow-up | 근거 보완 필요·불필요·실패·timeout | 필요할 때만 같은 mode로 최대 1회, 그 외 기본 진행 유지 |
+| STT | STT 재답변도 실패 | `STT_UNAVAILABLE`, 점수 `NULL`, 진행 허용, 미완료 사유 저장 |
+| Fact check | NCS 보완과 사실 확인이 함께 필요 | 한 꼬리질문으로 결합하고 팩트 판정이 NCS 점수를 직접 감점하지 않음 |
+| Report | 총 8개 기본 질문과 꼬리질문 완료 | 답변 ID, 질문 source, profile 점수 또는 미완료 사유 표시 |
+| Zero-personalized regression | 공통 6개, 개인화 0개 | 개인화 job 없이 6개 snapshot으로 면접과 리포트 완료 |
+
+브라우저 검증은 desktop과 좁은 viewport에서 수행하며 질문, 타이머, 오류, 재답변, 완료 상태가 동시에 겹치지 않는지 확인한다. PostgreSQL과 LocalStack은 M6 worktree 전용 Compose project를 사용하고 공유 개발 DB를 재사용하지 않는다.
+
 ## Harness
 
 초기 구현 전에는 문서/계약/폴더 구조 하네스를 먼저 유지한다.
