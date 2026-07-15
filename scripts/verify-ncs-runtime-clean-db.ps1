@@ -45,6 +45,7 @@ $managedEnvironment = @{
   AWS_ENDPOINT_URL = "http://127.0.0.1:${LocalStackHostPort}"
   S3_BUCKET = $localStackBucket
   S3_BUCKET_NAME = $localStackBucket
+  PRISMA_SEED_CLIENT_MODULE = ""
   PATH = (Join-Path $apiDir "node_modules/.bin") + [System.IO.Path]::PathSeparator + $env:PATH
 }
 $previousEnvironment = @{}
@@ -107,6 +108,11 @@ generator client {
 
     & $prisma generate --schema $temporarySchema
     if ($LASTEXITCODE -ne 0) { throw "prisma generate failed" }
+    [Environment]::SetEnvironmentVariable(
+      "PRISMA_SEED_CLIENT_MODULE",
+      (Join-Path $temporaryPrismaRoot "generated-client"),
+      "Process"
+    )
 
     & $prisma migrate deploy
     if ($LASTEXITCODE -ne 0) { throw "prisma migrate deploy failed" }
@@ -142,6 +148,32 @@ SELECT CASE WHEN
         'application_question_ncs_bindings',
         'session_question_ncs_bindings',
         'interview_session_ncs_policies'
+      )
+  ) = 4
+  AND (
+    SELECT count(*) FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'follow_up_questions'
+      AND column_name IN (
+        'source_session_question_id',
+        'inserted_session_question_id',
+        'reason',
+        'skip_reason',
+        'question_mode',
+        'answer_time_sec',
+        'inserted_at',
+        'updated_at'
+      )
+  ) = 8
+  AND (
+    SELECT count(*) FROM information_schema.table_constraints
+    WHERE table_schema = 'public'
+      AND table_name = 'follow_up_questions'
+      AND constraint_name IN (
+        'ck_follow_up_questions_generation_status',
+        'ck_follow_up_questions_state_shape',
+        'follow_up_questions_source_session_question_id_fkey',
+        'follow_up_questions_inserted_session_question_id_fkey'
       )
   ) = 4
 THEN 'READY' ELSE 'MISSING' END;

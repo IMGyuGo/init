@@ -148,7 +148,7 @@ async function main(): Promise<void> {
     await prisma.$connect();
     const fixture = await createFixture(prisma);
     const followUpQuestion = await runFollowUpJob(prisma, queue, runtime.runner.processBatch.bind(runtime.runner), fixture);
-    const followUpAnswerId = await createFollowUpAnswer(prisma, fixture, followUpQuestion.content);
+    const followUpAnswerId = await createFollowUpAnswer(prisma, fixture, followUpQuestion);
     const reportJob = await createReportJob(prisma, fixture, followUpAnswerId);
     await queue.publish(reportJob);
     assert.equal(await runtime.runner.processBatch(), 1, "report job was not consumed from SQS");
@@ -347,7 +347,7 @@ async function runFollowUpJob(
   queue: SqsAiJobQueue,
   processBatch: () => Promise<number>,
   fixture: Awaited<ReturnType<typeof createFixture>>,
-): Promise<{ content: string }> {
+): Promise<{ content: string; sessionQuestionId: bigint }> {
   const baseAnswer = fixture.answers[FOLLOW_UP_BASE_INDEX];
   assert(baseAnswer, "follow-up base answer fixture is missing");
   const processLogId = fixture.reportId + 100n;
@@ -378,26 +378,28 @@ async function runFollowUpJob(
   assert.equal(processLog?.status, "COMPLETED", processLog?.failureReason ?? "follow-up process did not complete");
   const followUp = await prisma.followUpQuestion.findUnique({
     where: { answerIdPolicy: { answerId: baseAnswer.answerId, policy: "RECRUITING" } },
-    select: { content: true },
+    select: { content: true, generationStatus: true, insertedSessionQuestionId: true },
   });
-  if (!followUp?.content.trim()) {
-    throw new Error("follow-up question was not saved");
+  const content = followUp?.content?.trim();
+  if (!content || followUp?.generationStatus !== "INSERTED" || !followUp.insertedSessionQuestionId) {
+    throw new Error("follow-up question was not inserted into the session");
   }
-  return followUp;
+  return { content, sessionQuestionId: followUp.insertedSessionQuestionId };
 }
 
 async function createFollowUpAnswer(
   prisma: PrismaClient,
   fixture: Awaited<ReturnType<typeof createFixture>>,
-  generatedQuestion: string,
+  generatedQuestion: { content: string; sessionQuestionId: bigint },
 ): Promise<bigint> {
   const answerId = fixture.reportId + 200n;
   await prisma.interviewAnswer.create({
     data: {
       answerId,
       sessionId: fixture.sessionId,
+      sessionQuestionId: generatedQuestion.sessionQuestionId,
       transcript: [
-        `생성된 꼬리질문은 '${generatedQuestion}'이었습니다.`,
+        `생성된 꼬리질문은 '${generatedQuestion.content}'이었습니다.`,
         "DB 부하 제약을 기준으로 TTL 조정, circuit breaker, 캐시 우회 대안을 비교했습니다.",
         "복구 시간과 데이터 일관성 장단점을 검토해 circuit breaker와 DB fallback을 선택했습니다.",
         "먼저 staging 부하 테스트를 실행하고 다음으로 점진 배포했으며 실패 시 롤백하도록 계획했습니다.",
