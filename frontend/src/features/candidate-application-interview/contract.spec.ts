@@ -539,6 +539,21 @@ const submitRequest: SubmitApplicationRequest = toSubmitApplicationRequest({
   portfolioUrl: " https://portfolio.example.com/kim ",
   motivation: " 지원 동기 ",
   additionalInfo: " 추가 설명 ",
+  profileSnapshot: {
+    schemaVersion: 1,
+    name: "Kim",
+    email: "kim@example.com",
+    phone: "010-0000-0000",
+    githubUrl: "https://github.com/kim",
+    blogUrl: "https://blog.example.com/kim",
+    portfolioUrl: "https://portfolio.example.com/kim",
+    summary: "백엔드 개발자",
+    coverLetter: "지원 동기",
+    educations: [],
+    careers: [],
+    activities: [],
+    credentials: [],
+  },
   consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS", "AI_INTERVIEW_RECORDING"],
 });
 
