@@ -117,7 +117,7 @@ function CandidatePostingNav() {
   return (
     <header className="candidate-site-nav" aria-label="지원자 공고 상단 네비게이션">
       <div className="candidate-site-nav-inner">
-        <Image className="candidate-site-logo-img" src="/logo-init-v4.png" alt="init" width={1900} height={580} priority />
+        <Image className="candidate-site-logo-img" src="/logo-init-v4.png" alt="init" width={1108} height={460} priority />
       </div>
     </header>
   );
