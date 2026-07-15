@@ -317,6 +317,41 @@ test("follow-up question policy is separated for mock and recruiting interviews"
   assert.match(results.followUpQuestions[1].content ?? "", /효과/);
 });
 
+test("NCS follow-up question normalizes evaluator instructions into readable focus points", async () => {
+  const results = new InMemoryAiResultRepository();
+
+  await run({
+    processLogId: 131,
+    processType: "FOLLOW_UP",
+    input: {
+      kind: "RECRUITING_FOLLOW_UP",
+      payload: {
+        sessionId: 5,
+        answerId: 106,
+        sessionQuestionId: 506,
+        previousQuestion: "운영 장애의 원인을 분석하고 대안을 선택한 과정을 설명해주세요.",
+        transcript: "로그를 확인하고 캐시 우회 대안을 선택했습니다.",
+        jobDescription: "운영 장애를 분석하고 검증할 수 있는 백엔드 엔지니어를 채용합니다.",
+        ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+        answerTimeSec: 90,
+        ncsBindings: [{
+          criterionId: 15,
+          criterionTitleSnapshot: "문제 해결력",
+          ncsProfileId: "PROBLEM_SOLVING",
+          ncsProfileVersion: "2025.12-v1",
+          alignmentStatus: "ALIGNED",
+          bindingOrder: 1,
+        }],
+      },
+    },
+    results,
+  });
+
+  const content = results.followUpQuestions[0]?.content ?? "";
+  assert.match(content, /앞서 확인된 내용은 반복하지 말고/);
+  assert.doesNotMatch(content, /보강하세요|구체화하세요|원리을|근거를를/);
+});
+
 test("mock follow-up questions vary by previous question intent", async () => {
   const transcript =
     "NestJS와 PostgreSQL 프로젝트에서 답변 저장과 STT, 꼬리질문 연결 흐름을 구현했고 로그와 데이터 흐름으로 문제를 좁혔습니다.";

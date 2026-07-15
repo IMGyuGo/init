@@ -2023,15 +2023,26 @@ function buildNcsFollowUpQuestion(
   logicalStructureGap?: string,
   factClaims: Array<{ claimText: string; rationale: string }> = [],
 ): string {
-  const focus = focusPoints.slice(0, 3).join(", ") || "아직 확인되지 않은 행동 근거";
+  const normalizedFocusPoints = uniqueStrings(
+    focusPoints.map(normalizeNcsFollowUpFocusPoint).filter(hasText),
+  );
+  const focus = normalizedFocusPoints.slice(0, 3).join(" 및 ") || "아직 확인되지 않은 행동 근거";
   const factFocus = factClaims.slice(0, 2).map((claim) => claim.claimText).join(", ");
   if (factFocus) {
-    const ncsFocus = focusPoints.length > 0 ? `와 함께 ${focus}` : "";
-    return `앞서 확인된 내용은 반복하지 말고 ${factFocus}에 대한 구체적인 근거나 구현 방식을 확인할 수 있도록${ncsFocus}를 설명해주세요?`;
+    const ncsFocus = normalizedFocusPoints.length > 0 ? ` 답변에는 ${focus}도 함께 드러나야 합니다.` : "";
+    return `앞서 확인된 내용은 반복하지 말고, ${factFocus}에 대한 구체적인 근거나 구현 방식을 설명해주세요.${ncsFocus}`;
   }
   return logicalStructureGap
-    ? `앞서 확인된 내용은 반복하지 말고 ${focus}를 보여주되 ${logicalStructureGap}의 연결이 드러나도록 본인의 구체적인 행동과 결과를 설명해주세요?`
-    : `앞서 확인된 내용은 반복하지 말고 ${focus}를 보여주는 본인의 구체적인 행동과 결과를 설명해주세요?`;
+    ? `앞서 확인된 내용은 반복하지 말고, ${focus}가 드러나며 ${logicalStructureGap}의 연결을 확인할 수 있도록 본인의 구체적인 행동과 결과를 설명해주세요.`
+    : `앞서 확인된 내용은 반복하지 말고, ${focus}가 드러나도록 본인의 구체적인 행동과 결과를 설명해주세요.`;
+}
+
+function normalizeNcsFollowUpFocusPoint(value: string): string {
+  return normalizeSpace(value)
+    .replace(/[을를] 보여주는 구체 문장을 보강하세요[.!?]?$/, "")
+    .replace(/\s*근거를 한 단계 더 구체화하세요[.!?]?$/, " 근거")
+    .replace(/[.!?]+$/, "")
+    .trim();
 }
 
 function followUpReasonOf(value: unknown): ReportAnswerForScoring["followUpReason"] {
