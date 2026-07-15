@@ -73,7 +73,7 @@ test("deterministic technical evaluation checks correctness, evidence, and fixed
   );
 });
 
-test("technical misconception prevents a full correctness evidence score", () => {
+test("technical factual contradiction does not directly lower the NCS evidence score", () => {
   const output = evaluateNcsTextDeterministically({
     ...technicalInput,
     answerText:
@@ -84,7 +84,7 @@ test("technical misconception prevents a full correctness evidence score", () =>
   );
 
   assert.equal(output.scoreStatus, "SCORED");
-  assert.ok((correctness?.score ?? 2) <= 1);
+  assert.equal(correctness?.score, 2);
 });
 
 test("missing answer evidence returns null scores instead of a low competency claim", () => {
