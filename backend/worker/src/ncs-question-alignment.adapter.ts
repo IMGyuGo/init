@@ -1,7 +1,10 @@
 export const NCS_QUESTION_PROFILE_VERSION = "2025.12-v1" as const;
 export const NCS_QUESTION_ALIGNMENT_EVALUATOR_VERSION = "ncs-question-alignment-v1" as const;
 
-export type NcsApiProfileId = "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL";
+export type NcsApiProfileId =
+  | "JOB_TECHNICAL"
+  | "COLLABORATION_COMMUNICATION"
+  | "PROBLEM_SOLVING";
 export type NcsQuestionMode =
   | "EXPERIENCE_BEHAVIOR"
   | "TECHNICAL_KNOWLEDGE"
@@ -42,7 +45,7 @@ const PROFILES: Readonly<Record<NcsApiProfileId, Profile>> = {
       ["결과", "검증", "측정", "성과", "개선", "재발", "회고"],
     ],
   },
-  COMMUNICATION: {
+  COLLABORATION_COMMUNICATION: {
     alignmentKeywords: [
       "소통", "설명", "전달", "협업", "조율", "갈등", "이해관계자", "communication", "collaboration", "stakeholder",
     ],
@@ -52,7 +55,7 @@ const PROFILES: Readonly<Record<NcsApiProfileId, Profile>> = {
       ["질문", "경청", "피드백", "합의", "갈등", "조율", "확인"],
     ],
   },
-  DIGITAL: {
+  JOB_TECHNICAL: {
     alignmentKeywords: [
       "기술", "시스템", "데이터", "디지털", "구현", "설계", "api", "db", "redis", "cache", "queue", "ai", "보안", "성능",
     ],
@@ -122,7 +125,7 @@ function questionModeProfileBonus(
   profileId: NcsApiProfileId,
   questionMode: NcsQuestionMode,
 ): number {
-  if (profileId === "DIGITAL" && questionMode === "TECHNICAL_KNOWLEDGE") {
+  if (profileId === "JOB_TECHNICAL" && questionMode === "TECHNICAL_KNOWLEDGE") {
     const hasCodeLikeTerm = /\b(?:[A-Z]{2,10}|[A-Z][a-z]+[A-Z][A-Za-z0-9]*|[A-Za-z]+(?:JS|DB|SQL|API|SDK)|[A-Za-z0-9][._+#-][A-Za-z0-9._+#-]+|[A-Za-z]*\d+[A-Za-z0-9]*)\b/.test(question);
     const hasTechnicalContext = /(기술|시스템|서버|데이터|코드|프레임워크|라이브러리|네트워크|데이터베이스|동시성|인증|보안|성능|배포|클라우드|캐시|트랜잭션|인덱스|알고리즘)|\b(?:api|database|cache|server|framework|library|network|concurrency|authentication|security|performance|deployment|cloud|runtime|compiler|query|transaction|index|middleware|protocol|algorithm|system|code)\b/i.test(question);
     return hasCodeLikeTerm || hasTechnicalContext ? 0.6 : 0;
@@ -130,10 +133,18 @@ function questionModeProfileBonus(
   if (profileId === "PROBLEM_SOLVING" && questionMode === "SITUATIONAL_DESIGN") {
     return /(상황|문제|설계|대응|개선|장애|제약|요구|어떻게)/.test(question) ? 0.2 : 0;
   }
-  if (profileId === "COMMUNICATION" && questionMode === "EXPERIENCE_BEHAVIOR") {
+  if (profileId === "COLLABORATION_COMMUNICATION" && questionMode === "EXPERIENCE_BEHAVIOR") {
     return /(설명|공유|협업|조율|보고|전달|갈등|상대)/.test(question) ? 0.2 : 0;
   }
   return 0;
+}
+
+export function canonicalNcsProfileIdOf(value: unknown): NcsApiProfileId | undefined {
+  if (value === "JOB_TECHNICAL" || value === "DIGITAL") return "JOB_TECHNICAL";
+  if (value === "COLLABORATION_COMMUNICATION" || value === "COMMUNICATION") {
+    return "COLLABORATION_COMMUNICATION";
+  }
+  return value === "PROBLEM_SOLVING" ? value : undefined;
 }
 
 function includesAny(value: string, keywords: readonly string[]): boolean {

@@ -2234,7 +2234,7 @@ Allocation Examples:
   - `reason?: string`, 500자 이하의 운영 메모
 - Validation:
   - 지원서와 공고가 로그인 기업 소유여야 한다.
-  - 현재 상태가 `FAILED`, `REVIEW_REQUIRED`, `STALE` 중 하나여야 한다.
+  - 현재 상태가 `FAILED`, `REVIEW_REQUIRED`, `STALE` 중 하나이거나, 이력서 추출은 완료됐지만 현재 입력 version의 batch가 없는 `WAITING_DOCUMENT` 복구 상태여야 한다.
   - 이력서 문서 추출 상태가 `EXTRACTED`여야 한다.
 - Processing:
   - 현재 `policyVersion`, `criteriaVersion`, 이력서 입력 snapshot으로 `RESUME_QUESTION_GENERATE` job을 생성한다.

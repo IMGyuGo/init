@@ -413,6 +413,97 @@ test("OpenAiAiTaskHandler blocks mock questions that leak candidate contact info
   assert.match(handled.guardrail?.reason ?? "", /contact information/);
 });
 
+test("OpenAiAiTaskHandler preserves canonical NCS links and evaluates JD questions", async () => {
+  const results = new InMemoryAiResultRepository();
+  const seenProfiles: string[] = [];
+  const questionProvider: QuestionAiProvider = {
+    async generateQuestions(input) {
+      seenProfiles.push(
+        ...input.criteria.map((criterion) => criterion.ncsProfileId ?? "MISSING"),
+      );
+      return {
+        questionCandidates: input.criteria.map((criterion) => ({
+          content: criterion.ncsProfileId === "JOB_TECHNICAL"
+            ? "NestJS API 기술의 동작 원리와 선택 이유, 실무 적용 방식 및 장애와 보안 위험을 어떻게 검증했는지 설명해주세요?"
+            : "비개발 이해관계자에게 기술 내용을 구조적으로 설명하고 상대의 피드백을 경청해 협업 합의를 어떻게 확인했는지 설명해주세요?",
+          category: criterion.category ?? "NCS",
+          difficulty: "MEDIUM" as const,
+          criterionId: criterion.criterionId,
+          criterionTitle: criterion.name,
+          expectedKeywords: ["근거", "검증"],
+          suggestionReason: "JD와 NCS 평가 기준을 함께 확인합니다.",
+          questionType: criterion.ncsQuestionMode === "TECHNICAL_KNOWLEDGE"
+            ? "TECHNICAL" as const
+            : "EXPERIENCE" as const,
+        })),
+        model: "question-model",
+      };
+    },
+  };
+  const handler = new OpenAiAiTaskHandler(
+    new MockAiTaskHandler(results),
+    results,
+    provider,
+    undefined,
+    undefined,
+    questionProvider,
+  );
+
+  const handled = await handler.handle({
+    processLogId: 240,
+    processType: "QUESTION_GENERATE",
+    attempt: 1,
+    inputRef: JSON.stringify({
+      kind: "RECRUITING_QUESTION_GENERATE",
+      payload: {
+        postingId: 2,
+        jobDescription: "NestJS API와 PostgreSQL 기반 백엔드 운영 경험을 요구합니다.",
+        questionCount: 2,
+        evaluationFramework: "NCS_3_PROFILE_V1",
+        criteria: [
+          {
+            criterionId: 1,
+            name: "직무/기술 역량",
+            category: "NCS",
+            questionCount: 1,
+            ncsProfileId: "JOB_TECHNICAL",
+            ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+            ncsProfileVersion: "2025.12-v1",
+          },
+          {
+            criterionId: 2,
+            name: "협업/의사소통 역량",
+            category: "NCS",
+            questionCount: 1,
+            ncsProfileId: "COLLABORATION_COMMUNICATION",
+            ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+            ncsProfileVersion: "2025.12-v1",
+          },
+        ],
+      },
+    }),
+  });
+
+  const output = JSON.parse(handled.outputRef ?? "{}") as {
+    questionCandidates?: Array<{
+      ncsProfileId?: string;
+      alignmentStatus?: string;
+      source?: string;
+    }>;
+  };
+
+  assert.deepEqual(seenProfiles, ["JOB_TECHNICAL", "COLLABORATION_COMMUNICATION"]);
+  assert.deepEqual(
+    output.questionCandidates?.map((candidate) => candidate.ncsProfileId),
+    ["JOB_TECHNICAL", "COLLABORATION_COMMUNICATION"],
+  );
+  assert.deepEqual(
+    output.questionCandidates?.map((candidate) => candidate.alignmentStatus),
+    ["ALIGNED", "ALIGNED"],
+  );
+  assert.ok(output.questionCandidates?.every((candidate) => candidate.source === "JD_CRITERIA"));
+});
+
 test("OpenAiAiTaskHandler rejects provider question candidates without criterionId", async () => {
   const results = new InMemoryAiResultRepository();
   const questionProvider: QuestionAiProvider = {

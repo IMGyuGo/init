@@ -162,7 +162,12 @@ export class CompanyInterviewService {
   ) {
     const state = await this.getOwnedResumeQuestionState(currentUser, applicationId);
     const status = this.resumeQuestionStatus(state);
-    if (!['FAILED', 'REVIEW_REQUIRED', 'STALE'].includes(status)) {
+    const canRecoverMissingBatch =
+      status === 'WAITING_DOCUMENT' &&
+      state.documentStatus === 'EXTRACTED' &&
+      state.currentBatch === null &&
+      Boolean(state.currentInputVersion);
+    if (!['FAILED', 'REVIEW_REQUIRED', 'STALE'].includes(status) && !canRecoverMissingBatch) {
       personalizedQuestionsNotReady('현재 상태에서는 개인화 질문을 재생성할 수 없습니다.', [
         { field: 'status', reason: `current status is ${status}` },
       ]);

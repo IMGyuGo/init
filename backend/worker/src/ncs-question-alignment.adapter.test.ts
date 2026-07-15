@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import test from "node:test";
 import {
   alignNcsQuestion,
+  canonicalNcsProfileIdOf,
   markQuestionReviewRequired,
   NCS_QUESTION_ALIGNMENT_EVALUATOR_VERSION,
   NCS_QUESTION_PROFILE_VERSION,
@@ -23,7 +24,7 @@ test("aligns a problem-solving question using the versioned worker contract", ()
 test("keeps low-alignment and exhausted retry states distinct", () => {
   const low = alignNcsQuestion({
     question: "자기소개를 해주세요.",
-    profileId: "COMMUNICATION",
+    profileId: "COLLABORATION_COMMUNICATION",
     questionMode: "EXPERIENCE_BEHAVIOR",
     profileVersion: NCS_QUESTION_PROFILE_VERSION,
   });
@@ -35,11 +36,20 @@ test("keeps low-alignment and exhausted retry states distinct", () => {
 test("requires the canonical profile version", () => {
   const result = alignNcsQuestion({
     question: "Redis의 동작 원리와 장애 위험 검증 방법을 설명해주세요.",
-    profileId: "DIGITAL",
+    profileId: "JOB_TECHNICAL",
     questionMode: "TECHNICAL_KNOWLEDGE",
     profileVersion: "NCS_3_PROFILE_V1",
   });
 
   assert.equal(result.status, "REVIEW_REQUIRED");
   assert.equal(result.score, null);
+});
+
+test("normalizes legacy question profile ids to the canonical API contract", () => {
+  assert.equal(canonicalNcsProfileIdOf("DIGITAL"), "JOB_TECHNICAL");
+  assert.equal(
+    canonicalNcsProfileIdOf("COMMUNICATION"),
+    "COLLABORATION_COMMUNICATION",
+  );
+  assert.equal(canonicalNcsProfileIdOf("PROBLEM_SOLVING"), "PROBLEM_SOLVING");
 });

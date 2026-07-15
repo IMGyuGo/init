@@ -28,6 +28,7 @@ import { AiTaskHandler, AiTaskResult, AiWorkerJob } from "./worker.types";
 import { SttProvider } from "./stt-provider";
 import {
   alignNcsQuestion,
+  canonicalNcsProfileIdOf,
   NcsApiProfileId,
   NcsQuestionMode,
 } from "./ncs-question-alignment.adapter";
@@ -1376,10 +1377,10 @@ function buildRecruitingQuestionCandidate(
     return `${jd} 업무에서 문제 원인을 분석하고 대안을 비교해 선택한 뒤 결과를 어떻게 검증했는지 설명해주세요.`;
   }
 
-  if (criterion.ncsProfileId === "COMMUNICATION") {
+  if (criterion.ncsProfileId === "COLLABORATION_COMMUNICATION") {
     return `${jd} 업무를 상대에 맞춰 구조적으로 설명하고 협업 과정의 이해와 합의를 어떻게 확인했는지 설명해주세요.`;
   }
-  if (criterion.ncsProfileId === "DIGITAL") {
+  if (criterion.ncsProfileId === "JOB_TECHNICAL") {
     return `${jd} 관련 기술의 동작 원리와 선택 이유, 실무 적용 방식, 장애와 보안 위험을 어떻게 검증했는지 설명해주세요.`;
   }
   return `${criterion.name} 기준으로 ${jd} 경험을 검증할 수 있는 사례를 설명해주세요.`;
@@ -1396,9 +1397,7 @@ function reportNcsProfileIdOf(value: unknown): NcsReportApiProfileId | undefined
 }
 
 function ncsProfileIdOf(value: unknown): NcsApiProfileId | undefined {
-  return value === "PROBLEM_SOLVING" || value === "COMMUNICATION" || value === "DIGITAL"
-    ? value
-    : undefined;
+  return canonicalNcsProfileIdOf(value);
 }
 
 function ncsBindingsOf(value: unknown): NcsReportQuestionBindingSnapshot[] | undefined {
@@ -2223,7 +2222,7 @@ function buildMockPersonalizedQuestion(
   if (profileId === "PROBLEM_SOLVING") {
     return `이력서의 프로젝트 경험 ${index + 1}에서 문제 원인을 분석하고 대안을 비교해 선택한 뒤 결과를 측정하고 검증한 과정을 설명해주세요?`;
   }
-  if (profileId === "COMMUNICATION") {
+  if (profileId === "COLLABORATION_COMMUNICATION") {
     return `이력서의 협업 경험 ${index + 1}에서 이해관계자에게 내용을 구조적으로 설명하고 상대의 피드백을 확인해 합의한 과정을 설명해주세요?`;
   }
   return `이력서의 기술 경험 ${index + 1}에서 시스템 원리를 이해하고 실제 구현에 적용한 뒤 장애·보안 위험을 테스트하고 검증한 과정을 설명해주세요?`;

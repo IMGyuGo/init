@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import type { NcsApiProfileId } from "./ncs-question-alignment.adapter";
 
 export type QuestionGenerationDifficulty = "EASY" | "MEDIUM" | "HARD";
 export type QuestionGenerationType = "INTRO" | "TECHNICAL" | "EXPERIENCE" | "SITUATION" | "FOLLOW_UP" | "CLOSING";
@@ -10,7 +11,7 @@ export interface QuestionGenerationCriterion {
   weight?: number;
   description?: string;
   questionCount?: number;
-  ncsProfileId?: "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL";
+  ncsProfileId?: NcsApiProfileId;
   ncsQuestionMode?: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
   ncsProfileVersion?: string;
 }
@@ -138,8 +139,8 @@ export function buildQuestionMessages(input: QuestionGenerationInput): Array<{ r
         "When criteria[].questionCount is provided, generate exactly that many candidates for each criterion.",
         "For NCS criteria, make the question collect observable evidence for the provided ncsProfileId and ncsQuestionMode.",
         "Problem solving questions must ask for problem analysis, alternative selection, and result validation evidence.",
-        "Communication questions must ask for structured explanation, audience adjustment, and mutual-understanding confirmation evidence.",
-        "Digital questions must ask for technical principles, practical application, and risk validation evidence.",
+        "COLLABORATION_COMMUNICATION questions must ask for structured explanation, audience adjustment, and mutual-understanding confirmation evidence.",
+        "JOB_TECHNICAL questions must ask for technical principles, practical application, and risk validation evidence.",
         "Do not invent criterionId values. Do not omit criterionId.",
         "criterionTitle must equal the matched criterion name.",
         "category must equal the matched criterion category when provided, otherwise use a concise Korean category.",

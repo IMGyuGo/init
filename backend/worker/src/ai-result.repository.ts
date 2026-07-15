@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { NcsTextEvaluationOutput } from "./ncs-text-evaluation.types";
 import type { NcsFinalEvaluation } from "./ncs-final-evaluation";
+import type { NcsApiProfileId } from "./ncs-question-alignment.adapter";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import type { AiWorkerJob, FailureCategory, FailureReason } from "./worker.types";
 
@@ -39,7 +40,7 @@ export interface ResumeQuestionGenerationCriterion {
   category: string;
   description?: string;
   questionCount: number;
-  ncsProfileId: "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL";
+  ncsProfileId: NcsApiProfileId;
   ncsQuestionMode: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
   ncsProfileVersion: string;
 }
@@ -117,7 +118,7 @@ export interface GeneratedDraftRecord {
     suggestionReason: string;
     questionType?: string;
     source?: "JD_CRITERIA";
-    ncsProfileId?: "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL" | null;
+    ncsProfileId?: NcsApiProfileId | null;
     ncsQuestionMode?: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN" | null;
     ncsProfileVersion?: string | null;
     alignmentStatus?: "NOT_EVALUATED" | "ALIGNED" | "LOW_ALIGNMENT" | "REVIEW_REQUIRED";

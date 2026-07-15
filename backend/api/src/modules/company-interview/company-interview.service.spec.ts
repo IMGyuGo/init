@@ -182,6 +182,29 @@ describe('CompanyInterviewService', () => {
     assert.equal((await service.getResumeQuestions(companyUser, 101)).status, 'GENERATING');
   });
 
+  it('recovers an extracted resume when the initial personalized question batch is missing', async () => {
+    const repository = new InMemoryCompanyInterviewRepository();
+    const publisher = new InMemoryAiJobQueuePublisher();
+    repository.setResumeQuestionGeneration(resumeQuestionFixture({
+      currentBatch: null,
+      hasStaleBatch: false,
+    }));
+    const service = new CompanyInterviewService(repository, publisher);
+
+    assert.equal((await service.getResumeQuestions(companyUser, 101)).status, 'WAITING_DOCUMENT');
+
+    const recovered = await service.retryResumeQuestions(companyUser, 101, {
+      expectedPolicyVersion: 3,
+      reason: '누락된 최초 생성 복구',
+    });
+
+    assert.equal(recovered.status, 'PENDING');
+    assert.equal(recovered.resumeQuestionStatus, 'GENERATING');
+    assert.equal(publisher.messages.length, 1);
+    assert.equal(publisher.messages[0].processType, 'RESUME_QUESTION_GENERATE');
+    assert.equal((await service.getResumeQuestions(companyUser, 101)).status, 'GENERATING');
+  });
+
   it('returns interview settings for a company posting', async () => {
     const settings = await createService().getSettings(companyUser, { postingId: 1 });
 

@@ -20,6 +20,7 @@ import {
   assertScoresHaveEvidence,
   hashSourceText
 } from "./ai-result.repository";
+import { canonicalNcsProfileIdOf } from "./ncs-question-alignment.adapter";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import { AiWorkerJob, FailureReason } from "./worker.types";
 
@@ -114,7 +115,7 @@ interface PrismaAiResultClient {
   };
   applicationInterviewQuestion?: {
     deleteMany(args: unknown): Promise<unknown>;
-    createMany(args: unknown): Promise<unknown>;
+    create(args: unknown): Promise<unknown>;
   };
 }
 
@@ -260,9 +261,9 @@ export class PrismaAiResultRepository implements AiResultRepository {
       }
 
       await transaction.applicationInterviewQuestion!.deleteMany({ where: { batchId: batch.batchId } });
-      if (record.questions.length > 0) {
-        await transaction.applicationInterviewQuestion!.createMany({
-          data: record.questions.map((question) => ({
+      for (const question of record.questions) {
+        await transaction.applicationInterviewQuestion!.create({
+          data: {
             batchId: batch.batchId,
             criterionId: BigInt(question.criterionId),
             sourceProcessLogId: BigInt(record.reference.processLogId),
@@ -277,8 +278,20 @@ export class PrismaAiResultRepository implements AiResultRepository {
             alignmentScore: question.alignmentScore,
             alignmentReason: question.alignmentReason,
             evaluatorVersion: question.evaluatorVersion,
-            sortOrder: question.sortOrder
-          }))
+            sortOrder: question.sortOrder,
+            ncsBindings: {
+              create: {
+                criterionId: BigInt(question.criterionId),
+                ncsProfileId: question.ncsProfileId,
+                ncsProfileVersion: question.ncsProfileVersion,
+                alignmentStatus: question.alignmentStatus,
+                alignmentScore: question.alignmentScore,
+                alignmentReason: question.alignmentReason,
+                evaluatorVersion: question.evaluatorVersion,
+                bindingOrder: 1,
+              },
+            },
+          },
         });
       }
       await transaction.applicationInterviewQuestionBatch!.updateMany({
@@ -781,7 +794,7 @@ function canonicalNcsProfileId(
 
 function hasCompleteNcsCriteria(criteria: ResumeQuestionDocumentRow["application"]["posting"]["criteria"]): boolean {
   return criteria.length > 0 && criteria.every((criterion) =>
-    isNcsProfileId(criterion.ncsProfileId) &&
+    canonicalNcsProfileIdOf(criterion.ncsProfileId) !== undefined &&
     isNcsQuestionMode(criterion.ncsQuestionMode) &&
     Boolean(criterion.ncsProfileVersion?.trim())
   );
@@ -809,7 +822,8 @@ function allocateResumeCriteria(
       const criterionId = Number(criterion.criterionId);
       const questionCount = allocations.get(criterionId) ?? 0;
       if (questionCount === 0) return null;
-      if (!isNcsProfileId(criterion.ncsProfileId) || !isNcsQuestionMode(criterion.ncsQuestionMode) || !criterion.ncsProfileVersion) {
+      const ncsProfileId = canonicalNcsProfileIdOf(criterion.ncsProfileId);
+      if (!ncsProfileId || !isNcsQuestionMode(criterion.ncsQuestionMode) || !criterion.ncsProfileVersion) {
         throw new NonRetryableAiWorkerFailure("NCS criterion metadata is invalid");
       }
       return {
@@ -818,16 +832,12 @@ function allocateResumeCriteria(
         category: criterion.tag.category,
         description: criterion.description ?? undefined,
         questionCount,
-        ncsProfileId: criterion.ncsProfileId,
+        ncsProfileId,
         ncsQuestionMode: criterion.ncsQuestionMode,
         ncsProfileVersion: criterion.ncsProfileVersion,
       };
     })
     .filter((criterion): criterion is NonNullable<typeof criterion> => criterion !== null);
-}
-
-function isNcsProfileId(value: string | null): value is ResumeQuestionGenerationContext["criteria"][number]["ncsProfileId"] {
-  return value === "PROBLEM_SOLVING" || value === "COMMUNICATION" || value === "DIGITAL";
 }
 
 function isNcsQuestionMode(value: string | null): value is ResumeQuestionGenerationContext["criteria"][number]["ncsQuestionMode"] {

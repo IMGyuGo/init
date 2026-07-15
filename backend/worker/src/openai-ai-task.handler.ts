@@ -18,6 +18,7 @@ import {
 import { ReportAiProvider, ReportGenerationResult } from "./openai-report.provider";
 import {
   alignNcsQuestion,
+  canonicalNcsProfileIdOf,
   markQuestionReviewRequired,
   NcsApiProfileId,
   NcsQuestionMode,
@@ -734,7 +735,7 @@ function fallbackCriterion(criterion: NcsGenerationCriterion): NcsGenerationCrit
   if (criterion.ncsProfileId === "PROBLEM_SOLVING" && criterion.ncsQuestionMode === "EXPERIENCE_BEHAVIOR") {
     return { ...criterion, ncsQuestionMode: "SITUATIONAL_DESIGN" };
   }
-  if (criterion.ncsProfileId === "DIGITAL" && criterion.ncsQuestionMode === "TECHNICAL_KNOWLEDGE") {
+  if (criterion.ncsProfileId === "JOB_TECHNICAL" && criterion.ncsQuestionMode === "TECHNICAL_KNOWLEDGE") {
     return { ...criterion, ncsQuestionMode: "EXPERIENCE_BEHAVIOR" };
   }
   return null;
@@ -745,9 +746,7 @@ function totalRemaining(remaining: Map<number, number>): number {
 }
 
 function ncsProfileIdOf(value: unknown): NcsApiProfileId | undefined {
-  return value === "PROBLEM_SOLVING" || value === "COMMUNICATION" || value === "DIGITAL"
-    ? value
-    : undefined;
+  return canonicalNcsProfileIdOf(value);
 }
 
 function ncsQuestionModeOf(value: unknown): NcsQuestionMode | undefined {

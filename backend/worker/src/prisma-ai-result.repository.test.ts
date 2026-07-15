@@ -122,6 +122,82 @@ test("PrismaAiResultRepository creates one idempotent resume-question job per in
   assert.equal(calls.filter((call) => call.model === "applicationInterviewQuestionBatch" && call.method === "create").length, 1);
 });
 
+test("PrismaAiResultRepository stores an NCS binding with each personalized question", async () => {
+  const calls: Array<{ model: string; method: string; args: any }> = [];
+  const prisma: any = {
+    applicationInterviewQuestionBatch: {
+      async findUnique(args: any) {
+        calls.push({ model: "applicationInterviewQuestionBatch", method: "findUnique", args });
+        return {
+          batchId: BigInt(701),
+          latestProcessLogId: BigInt(901),
+          status: "GENERATING",
+        };
+      },
+      async updateMany(args: any) {
+        calls.push({ model: "applicationInterviewQuestionBatch", method: "updateMany", args });
+      },
+    },
+    applicationInterviewQuestion: {
+      async deleteMany(args: any) {
+        calls.push({ model: "applicationInterviewQuestion", method: "deleteMany", args });
+      },
+      async create(args: any) {
+        calls.push({ model: "applicationInterviewQuestion", method: "create", args });
+      },
+    },
+  };
+  prisma.$transaction = async (operation: (transaction: unknown) => Promise<unknown>) => operation(prisma);
+  const repository = new PrismaAiResultRepository(prisma);
+
+  await repository.saveResumeQuestionGeneration({
+    reference: {
+      processLogId: 901,
+      applicationId: 101,
+      postingId: 1,
+      documentId: 7,
+      policyVersion: 2,
+      criteriaVersion: 4,
+      inputVersion: "input-version-101",
+      resumeDocumentHash: "resume-hash-101",
+      jdSnapshotHash: "jd-hash-1",
+    },
+    status: "READY",
+    evaluatorVersion: "ncs-question-alignment-v1",
+    failureReason: null,
+    questions: [{
+      criterionId: 1,
+      criterionTitleSnapshot: "직무/기술 역량",
+      questionType: "TECHNICAL",
+      content: "이력서의 기술 선택 근거와 검증 과정을 설명해주세요.",
+      ncsProfileId: "JOB_TECHNICAL",
+      ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+      ncsProfileVersion: "2025.12-v1",
+      alignmentStatus: "ALIGNED",
+      alignmentScore: 0.91,
+      alignmentReason: "기술 선택과 검증 근거를 함께 묻습니다.",
+      evaluatorVersion: "ncs-question-alignment-v1",
+      sortOrder: 1,
+    }],
+  });
+
+  const create = calls.find((call) =>
+    call.model === "applicationInterviewQuestion" && call.method === "create"
+  );
+  assert.deepEqual(create?.args.data.ncsBindings, {
+    create: {
+      criterionId: BigInt(1),
+      ncsProfileId: "JOB_TECHNICAL",
+      ncsProfileVersion: "2025.12-v1",
+      alignmentStatus: "ALIGNED",
+      alignmentScore: 0.91,
+      alignmentReason: "기술 선택과 검증 근거를 함께 묻습니다.",
+      evaluatorVersion: "ncs-question-alignment-v1",
+      bindingOrder: 1,
+    },
+  });
+});
+
 test("PrismaAiResultRepository marks document extraction started and failed", async () => {
   const calls: Array<{ model: string; method: string; args: any }> = [];
   const repository = new PrismaAiResultRepository(fakePrisma(calls));

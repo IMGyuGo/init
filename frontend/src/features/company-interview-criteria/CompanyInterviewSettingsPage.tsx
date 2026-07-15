@@ -338,6 +338,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     [aiJobNotices],
   );
   const criteriaAiNotices = useMemo(() => aiJobNotices.filter((notice) => notice.kind === "criteria"), [aiJobNotices]);
+  const questionAiNotices = useMemo(() => aiJobNotices.filter((notice) => notice.kind === "questions"), [aiJobNotices]);
   const editingCriteriaDetail = useMemo(
     () => criteriaDrafts.find((criterion) => criterion.draftId === editingCriteriaDetailId) ?? null,
     [criteriaDrafts, editingCriteriaDetailId],
@@ -1598,6 +1599,51 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                 </div>
               </div>
               {aiJobError ? <p className="notice danger">{aiJobError}</p> : null}
+              {questionError ? <p className="notice danger">{questionError}</p> : null}
+              {questionAiNotices.length > 0 ? (
+                <div className="question-workflow-block" aria-live="polite">
+                  <div className="question-section-head">
+                    <h3>AI 추천 질문</h3>
+                    <p>추천 결과를 검토하고 저장하면 아래 확정 질문 목록에 반영됩니다.</p>
+                  </div>
+                  <div className="posting-list ai-job-list">
+                    {questionAiNotices.map((notice) => (
+                      <article className="posting ai-job-card" key={notice.kind}>
+                        <div className="ai-job-card-body">
+                          <div className="ai-job-card-head">
+                            <h3>{notice.label}</h3>
+                            {notice.status === "FAILED" ? (
+                              <button
+                                className="btn secondary compact"
+                                type="button"
+                                disabled={isAiRequestBlocked(notice.kind, aiJobSubmitting, activeAiJobKinds)}
+                                onClick={() => retryAiJob(notice.kind)}
+                              >
+                                다시 요청
+                              </button>
+                            ) : null}
+                            <AiStatusBadge status={notice.status} />
+                          </div>
+                          {notice.status === "COMPLETED" ? (
+                            <AiJobPreview
+                              notice={notice}
+                              settings={settings}
+                              criteriaDrafts={criteriaDrafts}
+                              questionSaving={questionSaving}
+                              questionSetConfirming={questionSetConfirming}
+                              onApplyCriteria={(candidate, selectedTagId) => void applyCriteriaSuggestion(candidate, selectedTagId)}
+                              onApplyQuestion={(candidate, selectedCriterionId) =>
+                                void applyQuestionCandidate(candidate, selectedCriterionId, "ai", notice.processLogId)
+                              }
+                              onConfirmQuestionSet={(groups) => void confirmAiQuestionSet(notice, groups)}
+                            />
+                          ) : null}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <div className="question-workflow-block">
                 <div className="question-section-head">
                   <h3>확정 질문 목록</h3>
