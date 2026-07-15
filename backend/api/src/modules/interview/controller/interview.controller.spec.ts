@@ -782,6 +782,13 @@ test("retry answer replaces the saved answer for the current question", async ()
     },
     durationSeconds: 3,
   });
+  interviewRepository.saveReanswerRequiredFailureForTest({
+    processLogId: 9201,
+    sessionId: started.data.sessionId,
+    answerId: first.data.answer.answerId,
+    createdAt: new Date(Date.parse(first.data.answer.submittedAt) + 1000).toISOString(),
+    failureReason: "speech was not detected",
+  });
   const retried = await controller.saveMockAnswer(validCandidateRequest, String(started.data.sessionId), {
     questionId: firstQuestionId,
     audioFile: {

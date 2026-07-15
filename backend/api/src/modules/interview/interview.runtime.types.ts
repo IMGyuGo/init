@@ -161,6 +161,14 @@ export interface InterviewAnswer {
   ncsEvaluationSnapshot?: InterviewAnswerNcsEvaluationSnapshot;
 }
 
+export type InterviewAnswerSttStatus =
+  | "NOT_SUBMITTED"
+  | "PENDING"
+  | "AVAILABLE"
+  | "REANSWER_AVAILABLE"
+  | "UNAVAILABLE"
+  | "PROCESSING_FAILED";
+
 export interface InterviewQuestionView {
   questionId: number;
   questionType: QuestionType;
@@ -169,6 +177,10 @@ export interface InterviewQuestionView {
   audioPrompt: string;
   answered: boolean;
   current: boolean;
+  answerId?: number;
+  sttStatus: InterviewAnswerSttStatus;
+  sttFailureReason?: string;
+  reanswerAvailable: boolean;
 }
 
 export interface InterviewRuntimeView {

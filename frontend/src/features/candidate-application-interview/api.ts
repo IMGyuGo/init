@@ -367,6 +367,16 @@ export interface RuntimeQuestionView {
   audioPrompt: string;
   answered: boolean;
   current: boolean;
+  answerId?: number;
+  sttStatus?:
+    | "NOT_SUBMITTED"
+    | "PENDING"
+    | "AVAILABLE"
+    | "REANSWER_AVAILABLE"
+    | "UNAVAILABLE"
+    | "PROCESSING_FAILED";
+  sttFailureReason?: string;
+  reanswerAvailable?: boolean;
 }
 
 export interface InterviewRuntimeSessionView {

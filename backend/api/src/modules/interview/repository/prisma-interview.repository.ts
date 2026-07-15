@@ -23,6 +23,7 @@ import type {
   GeneratedFollowUpQuestion,
   InterviewQuestionFilter,
   InterviewRepository,
+  InterviewSttProcessRecord,
   ReanswerRequiredFailure,
   ReplaceInterviewAnswerInput,
 } from "./interview.repository";
@@ -575,6 +576,26 @@ export class PrismaInterviewRepository implements InterviewRepository {
         createdAt: log.createdAt.toISOString(),
         failureCategory: "REANSWER_REQUIRED",
         failureReason: log.failureReason ?? undefined,
+      }));
+  }
+
+  async listSttProcesses(sessionId: number, answerId: number): Promise<InterviewSttProcessRecord[]> {
+    const logs = await this.prisma.aiProcessLog.findMany({
+      where: {
+        sessionId: BigInt(sessionId),
+        processType: "STT",
+      },
+      orderBy: [{ createdAt: "desc" }, { processLogId: "desc" }],
+    });
+    return logs
+      .filter((log) => parseAiJobAnswerId(log.inputRef) === answerId)
+      .map((log) => ({
+        processLogId: Number(log.processLogId),
+        status: log.status,
+        failureCategory: log.failureCategory ?? undefined,
+        failureReason: log.failureReason ?? undefined,
+        createdAt: log.createdAt.toISOString(),
+        completedAt: log.completedAt?.toISOString(),
       }));
   }
 

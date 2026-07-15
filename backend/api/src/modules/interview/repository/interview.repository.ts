@@ -58,6 +58,15 @@ export interface ReanswerRequiredFailure {
   failureReason?: string;
 }
 
+export interface InterviewSttProcessRecord {
+  processLogId: number;
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+  failureCategory?: string;
+  failureReason?: string;
+  createdAt: string;
+  completedAt?: string;
+}
+
 export interface UpdateInterviewAnswerInput extends CreateInterviewAnswerInput {
   answerId: number;
 }
@@ -123,6 +132,7 @@ export interface InterviewRepository {
   createAnswerIdempotent(input: CreateInterviewAnswerInput): MaybePromise<CreateInterviewAnswerIdempotentResult>;
   replaceAnswer(input: ReplaceInterviewAnswerInput): MaybePromise<InterviewAnswer>;
   listReanswerRequiredFailures(sessionId: number, answerId: number): MaybePromise<ReanswerRequiredFailure[]>;
+  listSttProcesses(sessionId: number, answerId: number): MaybePromise<InterviewSttProcessRecord[]>;
   updateAnswer(input: UpdateInterviewAnswerInput): MaybePromise<InterviewAnswer>;
   findCompletedFollowUpProcess(processLogId: number): MaybePromise<CompletedFollowUpProcess | undefined>;
   findGeneratedFollowUpQuestion(

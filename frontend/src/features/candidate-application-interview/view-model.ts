@@ -1162,7 +1162,8 @@ export function shouldContinueInterviewWithoutFollowUp(args: {
   failureCategory?: string;
   pipelineError?: unknown;
 }): boolean {
-  return Boolean(args.pipelineError || args.failureCategory === "TIMEOUT");
+  void args;
+  return true;
 }
 
 export function getRealtimeSessionUserNotice({
