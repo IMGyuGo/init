@@ -12,7 +12,7 @@
 
 ## Design Decisions
 
-1. 평가 체계 `NCS_3_PROFILE_V1`은 문제해결, 의사소통, 디지털 3개 profile을 정확히 한 번씩 사용한다.
+1. 평가 체계 `NCS_3_PROFILE_V1`은 `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING` 3개 canonical profile을 평가 기준에서 정확히 한 번씩 사용한다.
 2. JD 공통 질문은 `question_bank`에 저장하고 지원자별 이력서 질문은 application scope 저장소에 분리한다.
 3. 이력서는 질문을 구체화하는 입력일 뿐 평가 기준이 아니다. 질문의 criterion/profile/mode 귀속은 저장된 공고 평가 기준이 결정한다.
 4. 이력서 질문은 지원 완료와 이력서 추출 완료 후 생성한다. 지원서가 없는 공고 설정 단계에서는 개수와 allocation만 저장한다.
@@ -28,7 +28,7 @@
 
 | Table | Field | Type | Rule |
 | --- | --- | --- | --- |
-| criterion_tags | ncs_profile_id | VARCHAR(50) NULL | `PROBLEM_SOLVING`, `COMMUNICATION`, `DIGITAL`; legacy tag는 NULL |
+| criterion_tags | ncs_profile_id | VARCHAR(50) NULL | `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING`; legacy tag는 NULL |
 | criterion_tags | default_ncs_question_mode | VARCHAR(50) NULL | profile의 기본 question mode |
 | criterion_tags | ncs_profile_version | VARCHAR(80) NULL | evaluator profile version |
 | evaluation_criteria | ncs_profile_id | VARCHAR(50) NULL | 기준 저장 시 tag binding snapshot |
@@ -70,7 +70,7 @@ JD 공통 질문만 기존 `question_bank`에 저장한다. 사용자가 적용�
 | evaluator_version | VARCHAR(80) NULL | 정렬 adapter version |
 | source_process_log_id | BIGINT NULL | 생성 job FK |
 
-각 AI 질문은 하나의 `criterion_id`와 하나의 profile/mode에만 연결한다.
+각 AI 질문은 대표 `criterion_id`와 question mode를 하나씩 가지며, 최종 평가 대상은 `question_ncs_bindings`의 서로 다른 canonical profile 1~2개로 확정한다. 모든 binding은 `ALIGNED` 상태와 profile/evaluator version을 가져야 한다.
 
 ### application_interview_question_batches
 

@@ -80,6 +80,18 @@ export function ncsWeightInvalid(
   );
 }
 
+export function ncsQuestionCoverageInvalid(
+  message = 'NCS 질문의 profile별 문항 수를 확인해주세요.',
+  details: ErrorDetail[] = [],
+): never {
+  apiError(
+    ERROR_CODES.INTERVIEW_NCS_QUESTION_COVERAGE_INVALID,
+    message,
+    HttpStatus.UNPROCESSABLE_ENTITY,
+    details,
+  );
+}
+
 export function personalizedQuestionsNotReady(
   message = '이력서 개인화 질문이 아직 준비되지 않았습니다.',
   details: ErrorDetail[] = [],

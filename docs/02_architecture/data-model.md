@@ -332,7 +332,9 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 질문 세트 런타임 소비 정책:
 
 - D 담당 채용 면접 런타임은 세션 생성 시 공고의 `ACTIVE` 질문 세트가 있으면 `interview_question_set_items.sort_order` 순서로 질문을 소비한다.
-- `ACTIVE` 질문 세트가 없으면 기존 공고별 활성 `question_bank` 질문을 사용한다.
+- LEGACY 공고에서 `ACTIVE` 질문 세트가 없으면 기존 공고별 활성 `question_bank` 질문을 사용할 수 있다.
+- `NCS_3_PROFILE_V1` 공고는 `ACTIVE` 질문 세트가 필수다. 세트에는 `JD_CRITERIA`, `ALIGNED`, canonical 1~2 binding 조건을 만족한 질문만 들어가며 legacy/seed 질문을 자동 혼합하지 않는다.
+- NCS 질문 세트 확정 시 canonical profile별 binding이 최소 2개인지 검증한다.
 - 세션 생성 이후 질문 세트 변경은 이미 생성된 세션에 소급 적용하지 않는다.
 
 ### interview_time_policies

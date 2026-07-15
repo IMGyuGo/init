@@ -22,9 +22,9 @@
 | APPLICATION_ALREADY_SUBMITTED | 409 | 이미 지원한 공고 | 중복 지원 방지 |
 | INTERVIEW_SESSION_EXPIRED | 409 | 응시 기간 만료 또는 비활성 세션 | 재초대 또는 고객지원 안내 |
 | INTERVIEW_QUESTION_COUNT_INVALID | 400 | JD 질문 수와 이력서 질문 수 또는 합계가 정책 범위를 벗어남 | 두 입력의 필드 오류와 허용 범위를 표시 |
-| INTERVIEW_NCS_BINDING_INVALID | 422 | 평가 기준의 NCS 프로필·질문 유형 연결이 누락되거나 중복됨 | NCS 3개 기준 설정을 다시 저장하도록 안내 |
+| INTERVIEW_NCS_BINDING_INVALID | 422 | 평가 기준 또는 확정 질문의 NCS profile·question mode·binding·version 연결이 누락되거나 중복됨 | NCS 기준과 ALIGNED 질문 binding을 다시 저장하도록 안내 |
 | INTERVIEW_NCS_WEIGHT_INVALID | 422 | NCS profile 가중치가 음수·비정수이거나 합계가 100이 아님 | 자동 기본값 대체 없이 면접 설정에서 가중치를 수정하도록 안내 |
-| INTERVIEW_NCS_QUESTION_COVERAGE_INVALID | 422 | 세션 확정 시 NCS profile별 scoring base question이 2개 미만 | 공통·개인화 질문과 profile binding을 보완한 뒤 세션 생성을 재시도 |
+| INTERVIEW_NCS_QUESTION_COVERAGE_INVALID | 422 | 질문 세트 또는 세션 확정 시 NCS profile별 scoring base question이 2개 미만 | 공통·개인화 질문과 profile binding을 보완한 뒤 확정 또는 세션 생성을 재시도 |
 | INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY | 409 | 이력서 개인화 질문이 필요한데 아직 READY가 아님 | 문서 추출/생성 상태를 표시하고 면접 시작을 제한 |
 | DEVICE_PERMISSION_DENIED | 400 | 카메라/마이크 권한 거부 | 브라우저 권한 해결 안내 |
 | AI_PROCESS_NOT_FOUND | 404 | AI 작업 로그 없음 | 상태 조회 중 삭제되었거나 잘못된 processLogId |

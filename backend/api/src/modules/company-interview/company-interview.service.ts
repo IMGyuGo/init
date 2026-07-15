@@ -36,6 +36,7 @@ import {
   aiProcessFailed,
   forbidden,
   ncsBindingInvalid,
+  ncsQuestionCoverageInvalid,
   ncsWeightInvalid,
   notFound,
   personalizedQuestionsNotReady,
@@ -795,6 +796,19 @@ export class CompanyInterviewService {
         { field: 'items', reason: 'POLICY_COUNT_MISMATCH' },
       ]);
     }
+    const ncsCriteria =
+      policy.evaluationFramework === 'NCS_3_PROFILE_V1'
+        ? await this.repository.listCriteria(posting.postingId)
+        : [];
+    if (policy.evaluationFramework === 'NCS_3_PROFILE_V1') {
+      assertNcsCriteria(ncsCriteria);
+    }
+    const ncsCriteriaById = new Map(
+      ncsCriteria.map((criterion) => [criterion.criterionId, criterion]),
+    );
+    const ncsProfileCoverage = new Map<NcsProfileId, number>(
+      NCS_PROFILE_IDS.map((profileId) => [profileId, 0]),
+    );
     const seenSortOrders = new Set<number>();
     const seenQuestionIds = new Set<number>();
 
@@ -819,14 +833,16 @@ export class CompanyInterviewService {
           { field: 'items[].questionId', reason: 'POSTING_MISMATCH' },
         ]);
       }
-      if (
-        policy.evaluationFramework === 'NCS_3_PROFILE_V1' &&
-        (question.generationSource !== 'JD_CRITERIA' ||
-          question.alignmentStatus !== 'ALIGNED')
-      ) {
-        ncsBindingInvalid('정렬 검증을 통과한 JD 공통 질문만 NCS 질문 세트에 포함할 수 있습니다.', [
-          { field: 'items[].questionId', reason: 'QUESTION_NOT_ALIGNED' },
-        ]);
+      if (policy.evaluationFramework === 'NCS_3_PROFILE_V1') {
+        for (const profileId of validateConfirmableNcsQuestion(
+          question,
+          ncsCriteriaById,
+        )) {
+          ncsProfileCoverage.set(
+            profileId,
+            (ncsProfileCoverage.get(profileId) ?? 0) + 1,
+          );
+        }
       }
       if (
         item.criterionId !== undefined &&
@@ -840,6 +856,21 @@ export class CompanyInterviewService {
 
       if (item.criterionId !== undefined && item.criterionId !== null) {
         await this.findPostingCriterion(posting.postingId, item.criterionId);
+      }
+    }
+
+    if (policy.evaluationFramework === 'NCS_3_PROFILE_V1') {
+      const uncoveredProfiles = NCS_PROFILE_IDS.filter(
+        (profileId) => (ncsProfileCoverage.get(profileId) ?? 0) < 2,
+      );
+      if (uncoveredProfiles.length > 0) {
+        ncsQuestionCoverageInvalid(
+          'NCS 질문 세트는 canonical profile별로 최소 2문항을 포함해야 합니다.',
+          uncoveredProfiles.map((profileId) => ({
+            field: 'items',
+            reason: `PROFILE_MIN_2:${profileId}`,
+          })),
+        );
       }
     }
 
@@ -1360,6 +1391,71 @@ const NCS_PROFILE_IDS: NcsProfileId[] = [
   'COLLABORATION_COMMUNICATION',
   'PROBLEM_SOLVING',
 ];
+
+function validateConfirmableNcsQuestion(
+  question: QuestionRecord,
+  criteriaById: Map<number, EvaluationCriterionRecord>,
+): NcsProfileId[] {
+  const hasQuestionMetadata =
+    question.generationSource === 'JD_CRITERIA' &&
+    question.alignmentStatus === 'ALIGNED' &&
+    question.ncsProfileId !== null &&
+    question.ncsQuestionMode !== null &&
+    Boolean(question.ncsProfileVersion?.trim()) &&
+    Boolean(question.evaluatorVersion?.trim());
+  if (!hasQuestionMetadata) {
+    ncsBindingInvalid(
+      '정렬 검증과 version 저장을 완료한 JD 공통 질문만 NCS 질문 세트에 포함할 수 있습니다.',
+      [{ field: 'items[].questionId', reason: 'QUESTION_METADATA_INVALID' }],
+    );
+  }
+
+  const bindings = question.ncsBindings;
+  if (bindings.length < 1 || bindings.length > 2) {
+    ncsBindingInvalid('NCS 질문에는 1~2개의 profile binding이 필요합니다.', [
+      { field: 'items[].questionId', reason: 'BINDING_CARDINALITY_INVALID' },
+    ]);
+  }
+
+  const profileIds = bindings.map((binding) => binding.ncsProfileId);
+  const criterionIds = bindings.map((binding) => binding.criterionId);
+  const hasValidBindings =
+    new Set(profileIds).size === bindings.length &&
+    new Set(criterionIds).size === bindings.length &&
+    bindings.every((binding, index) => {
+      const criterion = criteriaById.get(binding.criterionId);
+      return (
+        binding.bindingOrder === index + 1 &&
+        NCS_PROFILE_IDS.includes(binding.ncsProfileId) &&
+        binding.alignmentStatus === 'ALIGNED' &&
+        Boolean(binding.ncsProfileVersion.trim()) &&
+        Boolean(binding.evaluatorVersion?.trim()) &&
+        criterion?.ncsProfileId === binding.ncsProfileId &&
+        criterion.ncsProfileVersion === binding.ncsProfileVersion
+      );
+    });
+  const primaryBinding = bindings[0];
+  const primaryCriterion = primaryBinding
+    ? criteriaById.get(primaryBinding.criterionId)
+    : undefined;
+  const hasConsistentPrimaryBinding =
+    primaryBinding !== undefined &&
+    primaryCriterion !== undefined &&
+    question.criterionId === primaryBinding.criterionId &&
+    question.ncsProfileId === primaryBinding.ncsProfileId &&
+    question.ncsProfileVersion === primaryBinding.ncsProfileVersion &&
+    question.evaluatorVersion === primaryBinding.evaluatorVersion &&
+    question.ncsQuestionMode === primaryCriterion.ncsQuestionMode;
+
+  if (!hasValidBindings || !hasConsistentPrimaryBinding) {
+    ncsBindingInvalid(
+      'NCS 질문 binding은 현재 평가 기준의 canonical profile과 ALIGNED version을 사용해야 합니다.',
+      [{ field: 'items[].questionId', reason: 'BINDING_METADATA_INVALID' }],
+    );
+  }
+
+  return profileIds;
+}
 
 function defaultQuestionGenerationPolicy(
   postingId: number,

@@ -2034,6 +2034,10 @@ AI 리포트 금지 기준:
   - 모든 질문은 같은 공고에 연결되어야 한다.
   - `questionId`와 `sortOrder`는 질문 세트 안에서 중복될 수 없다.
   - `criterionId`가 있으면 같은 공고의 평가 기준이어야 한다.
+  - `NCS_3_PROFILE_V1`에서는 `items` 개수가 API-097의 `jdCriteriaQuestionCount`와 같아야 한다.
+  - `NCS_3_PROFILE_V1` 질문은 `generationSource=JD_CRITERIA`, `alignmentStatus=ALIGNED`, question mode, profile version, evaluator version을 모두 가져야 한다.
+  - NCS 질문 하나에는 1~2개의 binding이 있어야 한다. 모든 binding은 서로 다른 canonical profile `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING` 중 하나이며 `alignmentStatus=ALIGNED`, profile version, evaluator version을 가져야 한다.
+  - NCS 질문 세트 전체에서 canonical profile별 binding이 최소 2개여야 한다. C API는 alignment score 임계값을 다시 판정하지 않고 E adapter가 저장한 상태와 version만 검증한다.
 - 성공 응답/처리:
   - 같은 공고의 기존 `ACTIVE` 질문 세트는 `DRAFT`로 변경한다.
   - 새 질문 세트를 `ACTIVE` 상태로 저장한다.
@@ -2046,10 +2050,11 @@ AI 리포트 금지 기준:
   - `items`: `{ questionSetItemId, questionId, criterionId, sortOrder }[]`
 - Runtime Contract:
   - D 담당 채용 면접 런타임은 세션 생성 시 공고의 `ACTIVE` 질문 세트가 있으면 해당 `items.sortOrder` 순서로 질문을 소비한다.
-  - `ACTIVE` 질문 세트가 없으면 기존 공고별 활성 질문 뱅크를 사용한다.
+  - LEGACY 공고에서 `ACTIVE` 질문 세트가 없으면 기존 공고별 활성 질문 뱅크를 사용할 수 있다.
+  - `NCS_3_PROFILE_V1`에서는 `ACTIVE` 질문 세트가 필수이며 legacy/seed 질문 뱅크로 fallback하지 않는다.
   - 세션 생성 이후 질문 세트 변경은 이미 생성된 세션에 소급 적용하지 않는다.
 - Error Codes:
-  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`, `COMMON_CONFLICT`
+  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`, `COMMON_CONFLICT`, `INTERVIEW_QUESTION_COUNT_INVALID`, `INTERVIEW_NCS_BINDING_INVALID`, `INTERVIEW_NCS_QUESTION_COVERAGE_INVALID`
 
 ### API-039B GET /company/interviews/question-sets/active
 - 도메인: 기업 - 면접관리
@@ -2079,7 +2084,8 @@ AI 리포트 금지 기준:
       - `isActive`: boolean, optional. 비활성 질문이 확정 세트에 남아 있는지 확인하기 위한 스냅샷
   - Runtime Contract:
     - 이 조회 결과는 C 화면/테스트에서 현재 D 런타임 소비 기준을 확인하기 위한 계약이다.
-    - D 런타임의 실제 소비 우선순위는 `ACTIVE 질문 세트 -> 공고별 활성 질문 뱅크 -> 기본 채용 질문` 순서다.
+    - LEGACY 공고의 실제 소비 우선순위는 `ACTIVE 질문 세트 -> 공고별 활성 질문 뱅크 -> 기본 채용 질문` 순서다.
+    - `NCS_3_PROFILE_V1` 공고는 `ACTIVE` 질문 세트가 없으면 준비되지 않은 상태이며 공고별 활성 질문 뱅크나 기본 채용 질문을 자동 혼합하지 않는다.
     - D가 API가 아닌 repository에서 직접 조회하더라도 동일한 기준으로 `interview_question_set_items.sort_order`를 질문 순서로 사용한다.
     - `questionSet.items[].content`는 기업 화면/QA용 확인 스냅샷이며, 지원자 런타임 응답에서는 기존 `showQuestionText` 정책에 따라 질문 본문 노출 여부를 결정한다.
 - Error Codes:

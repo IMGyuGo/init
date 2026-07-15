@@ -26,6 +26,88 @@ function createFixture() {
   };
 }
 
+type TestNcsProfileId =
+  | 'JOB_TECHNICAL'
+  | 'COLLABORATION_COMMUNICATION'
+  | 'PROBLEM_SOLVING';
+
+async function createAlignedNcsQuestionSetFixture(
+  profileSequence: TestNcsProfileId[] = [
+    'JOB_TECHNICAL',
+    'COLLABORATION_COMMUNICATION',
+    'PROBLEM_SOLVING',
+    'JOB_TECHNICAL',
+    'COLLABORATION_COMMUNICATION',
+    'PROBLEM_SOLVING',
+  ],
+) {
+  const { repository, service } = createFixture();
+  const criteriaResult = await service.updateEvaluationCriteria(companyUser, {
+    postingId: 1,
+    evaluationFramework: 'NCS_3_PROFILE_V1',
+    criteria: [
+      { criterionId: 1, tagId: 1, weight: 30, sortOrder: 1 },
+      { criterionId: 4, tagId: 4, weight: 30, sortOrder: 2 },
+      { criterionId: 2, tagId: 2, weight: 40, sortOrder: 3 },
+    ],
+  });
+  await service.updateQuestionGenerationPolicy(companyUser, {
+    postingId: 1,
+    jdCriteriaQuestionCount: profileSequence.length,
+    resumeQuestionCount: 0,
+  });
+
+  const criterionByProfile = new Map(
+    criteriaResult.criteria.map((criterion) => [criterion.ncsProfileId, criterion]),
+  );
+  const questionIds: number[] = [];
+  for (const [index, profileId] of profileSequence.entries()) {
+    const criterion = criterionByProfile.get(profileId);
+    assert.ok(criterion?.ncsProfileId);
+    assert.ok(criterion.ncsQuestionMode);
+    assert.ok(criterion.ncsProfileVersion);
+    const processLogId = 200 + index;
+    const content = `${profileId} 역량의 근거와 실행 결과를 확인하는 공통 질문 ${index + 1}입니다.`;
+    repository.setQuestionGenerationProcess({
+      processLogId,
+      processType: 'QUESTION_GENERATE',
+      status: 'COMPLETED',
+      inputRef: JSON.stringify({
+        requestedBy: { companyId: 1 },
+        payload: { postingId: 1 },
+      }),
+      outputRef: JSON.stringify({
+        sourceProcessLogId: processLogId,
+        postingId: 1,
+        questionCandidates: [{
+          content,
+          criterionId: criterion.criterionId,
+          source: 'JD_CRITERIA',
+          ncsProfileId: criterion.ncsProfileId,
+          ncsQuestionMode: criterion.ncsQuestionMode,
+          ncsProfileVersion: criterion.ncsProfileVersion,
+          alignmentStatus: 'ALIGNED',
+          alignmentScore: 0.8,
+          alignmentReason: 'canonical profile 행동 근거를 확인합니다.',
+          evaluatorVersion: 'ncs-question-alignment-v1',
+        }],
+      }),
+    });
+    const created = await service.createQuestion(companyUser, {
+      postingId: 1,
+      criterionId: criterion.criterionId,
+      questionType:
+        profileId === 'JOB_TECHNICAL' ? 'TECHNICAL' : 'EXPERIENCE',
+      content,
+      origin: 'AI_GENERATED',
+      sourceProcessLogId: processLogId,
+    });
+    questionIds.push(created.question.questionId);
+  }
+
+  return { repository, service, questionIds };
+}
+
 function resumeQuestionFixture(
   overrides: Partial<ResumeQuestionApplicationRecord> = {},
 ): ResumeQuestionApplicationRecord {
@@ -835,6 +917,80 @@ describe('CompanyInterviewService', () => {
       '평가 기준과 질문 뱅크의 관계를 어떻게 모델링하시겠습니까?',
     );
     assert.equal(activeAfterDelete.questionSet?.items[1].isActive, false);
+  });
+
+  it('confirms six ALIGNED NCS common questions with two questions per canonical profile', async () => {
+    const { repository, service, questionIds } = await createAlignedNcsQuestionSetFixture();
+
+    const result = await service.confirmQuestionSet(companyUser, {
+      postingId: 1,
+      title: 'NCS 공통 질문 6개',
+      items: questionIds.map((questionId, index) => ({
+        questionId,
+        sortOrder: index + 1,
+      })),
+    });
+
+    assert.equal(result.status, 'ACTIVE');
+    assert.equal(result.items.length, 6);
+    const active = await service.getActiveQuestionSet(companyUser, 1);
+    assert.deepEqual(
+      active.questionSet?.items.map((item) => item.questionId),
+      questionIds,
+    );
+    const storedQuestions = await repository.listQuestions(1);
+    for (const question of storedQuestions.filter((item) =>
+      questionIds.includes(item.questionId))) {
+      assert.equal(question.generationSource, 'JD_CRITERIA');
+      assert.ok(question.ncsQuestionMode);
+      assert.ok(question.ncsProfileVersion);
+      assert.ok(question.evaluatorVersion);
+      assert.equal(question.ncsBindings.length, 1);
+      assert.equal(question.ncsBindings[0].alignmentStatus, 'ALIGNED');
+      assert.ok(question.ncsBindings[0].evaluatorVersion);
+    }
+  });
+
+  it('rejects legacy questions and incomplete canonical coverage from an NCS active set', async () => {
+    const validFixture = await createAlignedNcsQuestionSetFixture();
+    const withLegacyQuestion = [1, ...validFixture.questionIds.slice(1)];
+    await assert.rejects(
+      () => validFixture.service.confirmQuestionSet(companyUser, {
+        postingId: 1,
+        title: 'legacy 질문 혼합',
+        items: withLegacyQuestion.map((questionId, index) => ({
+          questionId,
+          sortOrder: index + 1,
+        })),
+      }),
+      (error) =>
+        error instanceof ApiException &&
+        (error.getResponse() as { code?: string }).code ===
+          'INTERVIEW_NCS_BINDING_INVALID',
+    );
+
+    const coverageFixture = await createAlignedNcsQuestionSetFixture([
+      'JOB_TECHNICAL',
+      'JOB_TECHNICAL',
+      'JOB_TECHNICAL',
+      'COLLABORATION_COMMUNICATION',
+      'COLLABORATION_COMMUNICATION',
+      'PROBLEM_SOLVING',
+    ]);
+    await assert.rejects(
+      () => coverageFixture.service.confirmQuestionSet(companyUser, {
+        postingId: 1,
+        title: 'profile coverage 부족',
+        items: coverageFixture.questionIds.map((questionId, index) => ({
+          questionId,
+          sortOrder: index + 1,
+        })),
+      }),
+      (error) =>
+        error instanceof ApiException &&
+        (error.getResponse() as { code?: string }).code ===
+          'INTERVIEW_NCS_QUESTION_COVERAGE_INVALID',
+    );
   });
 
   it('rejects duplicate questions in a confirmed question set', async () => {

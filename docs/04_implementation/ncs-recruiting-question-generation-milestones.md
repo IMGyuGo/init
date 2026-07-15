@@ -20,9 +20,9 @@
 
 | Profile ID | 화면 이름 | 주요 행동지표 | 기본 질문 유형 | 허용 fallback |
 | --- | --- | --- | --- | --- |
-| `problem-solving` | 문제해결능력 | 문제 분석, 대안 선택, 결과 검증 | `EXPERIENCE_BEHAVIOR` | `SITUATIONAL_DESIGN` |
-| `communication` | 의사소통능력 | 구조화된 설명, 대상 맞춤, 상호 이해 확인 | `EXPERIENCE_BEHAVIOR` | 없음 |
-| `digital` | 디지털능력 | 기술 원리, 실무 적용, 위험 검증 | `TECHNICAL_KNOWLEDGE` | 실제 수행 경험을 묻는 `EXPERIENCE_BEHAVIOR` |
+| `PROBLEM_SOLVING` | 문제해결능력 | 문제 분석, 대안 선택, 결과 검증 | `EXPERIENCE_BEHAVIOR` | `SITUATIONAL_DESIGN` |
+| `COLLABORATION_COMMUNICATION` | 협업·의사소통 | 구조화된 설명, 대상 맞춤, 상호 이해 확인 | `EXPERIENCE_BEHAVIOR` | 없음 |
+| `JOB_TECHNICAL` | 기술·직무 | 기술 원리, 실무 적용, 위험 검증 | `TECHNICAL_KNOWLEDGE` | 실제 수행 경험을 묻는 `EXPERIENCE_BEHAVIOR` |
 
 현재 playground의 `profileVersion=2025.12-v1`, 정렬 기준 `0.6`은 통합 전 참고값이다. C 코드나 DB에 숫자와 버전을 중복 하드코딩하지 않고 NCS adapter가 제공하는 계약값을 사용한다.
 
@@ -81,7 +81,7 @@
 - 이력서 질문 수가 0이면 개인화 생성 작업을 만들지 않는다.
 - NCS 평가기의 최종 커버리지 정책이 확정되면 권장 개수와 차단 조건을 adapter 결과로 교체한다.
 
-질문 하나에는 원칙적으로 NCS profile 하나와 평가 기준 하나를 연결한다. playground가 프로필 2개 평가를 지원하더라도 초기 제품 연결에서는 판정 이유와 점수 귀속을 명확하게 하기 위해 단일 기준 연결을 기본값으로 한다.
+질문 하나에는 서로 다른 canonical NCS profile 1~2개를 연결한다. 각 binding은 평가 기준, `ALIGNED` 상태, profile/evaluator version을 독립적으로 저장한다. 질문 세트와 세션 확정 시 profile별 scoring base question이 최소 2개인지 검증한다.
 
 ## 5. 이력서 질문 생성 규칙
 
@@ -135,7 +135,7 @@ NCS 구현이 완료되기 전에는 아래 인터페이스 경계만 정의하�
 ```ts
 type NcsQuestionBinding = {
   criterionId: number;
-  ncsProfileId: "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL";
+  ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
   ncsQuestionMode: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
   ncsProfileVersion: string | null;
 };
