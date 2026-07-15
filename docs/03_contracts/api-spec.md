@@ -201,8 +201,11 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
 STT 미인식 답변 처리:
 
 - 음성 인식 실패로 transcript가 생성되지 않은 답변은 `evaluationStatus=STT_UNAVAILABLE`로 구분한다.
-- 이 경우 리포트 점수는 임시 0점으로 저장할 수 있지만, 지원자의 답변 품질 자체를 0점으로 추정하지 않는다.
-- 화면 피드백은 "음성 인식 실패로 평가 근거가 부족함"과 "재답변 또는 재녹음 필요"를 구분해 표시한다.
+- 이 경우 답변별 NCS 평가는 `scoreStatus=INSUFFICIENT_INPUT`과 모든 nullable 점수 `NULL`로 저장하고 평가 근거 및 `ReportScore`를 생성하지 않는다.
+- 최종 리포트는 해당 profile 점수와 `totalScore`를 `NULL`, `thresholdResult=INCOMPLETE`로 유지한다. 발표 정책 `NCS_INCOMPLETE_AS_FAIL_DEMO_V1`에 따라 화면상 AI 판정만 `FAIL`이며 실제 `applications.screening_decision`은 변경하지 않는다.
+- 화면 피드백은 `평가 미완료`와 인식 실패 사유를 표시한다. 최초 `REANSWER_REQUIRED`에는 한 번의 재답변을 제공하고, 두 번째 인식 실패 또는 재답변 미사용 상태로 면접을 완료한 경우 `STT_UNAVAILABLE`로 확정한다.
+- STT job의 provider `FAILED`, timeout, worker 중단은 `STT_UNAVAILABLE`로 변환하지 않는다. 별도 process 실패 상태로 유지하고 실제 인식 실패와 구분한다.
+- 과거 `STT_UNAVAILABLE_TEMP_ZERO` 행은 조회 호환만 유지하며 신규 생성하거나 NCS 집계에 재사용하지 않는다.
 - 정상 transcript가 있는 답변만 서비스 기본 평가 기준과 점수 구간에 따라 품질 평가한다.
 
 AI 리포트 금지 기준:
@@ -3367,6 +3370,10 @@ CandidateFolder 입력 제한:
   - `interview_session_questions.sort_order`와 저장된 `interview_answers`를 기준으로 가장 먼저 답변되지 않은 질문을 `currentQuestionId`와 `current=true`로 반환한다.
   - API 또는 브라우저 재시작 이후에도 클라이언트가 보낸 index를 사용하지 않고 같은 first-unanswered 질문을 복원한다.
   - 모든 세션 질문이 답변된 경우 `currentQuestionId`는 생략하고 모든 질문을 `answered=true`, `current=false`로 반환한다.
+  - 각 질문은 `answerId?`, `sttStatus`, `sttFailureReason?`, `reanswerAvailable`을 포함한다.
+  - `sttStatus`는 `NOT_SUBMITTED | PENDING | AVAILABLE | REANSWER_AVAILABLE | UNAVAILABLE | PROCESSING_FAILED`이며 DB에 중복 저장하지 않고 답변 제출 시각과 STT process log를 기준으로 계산한다.
+  - 최초 `REANSWER_REQUIRED` 실패가 현재 답변 제출 이후 발생하면 `REANSWER_AVAILABLE`, 두 번째 인식 실패면 `UNAVAILABLE`이다. worker 자동 재시도는 지원자 재답변 횟수에 포함하지 않는다.
+  - 재답변 제출 시 같은 `answerId`를 유지하며 신규 STT job 결과가 확정되기 전까지 `PENDING`이다. 따라서 새로고침과 API 재시작 후에도 재답변 사용 여부가 유지된다.
 - 오류/예외:
   - 질문 로딩 실패 시 안내 메시지를 표시하고 재시도를 제공한다.
 - 관련 ERD 테이블:
@@ -3395,6 +3402,7 @@ CandidateFolder 입력 제한:
   - `currentQuestion`은 답변 저장 직후 서버가 계산한 first-unanswered 질문이며 프론트는 추가 조회 없이 이 값을 현재 질문으로 적용한다.
   - 모든 질문 답변이 저장됐으면 `currentQuestion`을 생략하고 `nextQuestionAvailable=false`, `completionReady=true`를 반환한다.
   - STT, NCS 평가, 꼬리질문 AI job은 답변 저장 이후 별도로 실행하며 `PENDING`, `RUNNING`, 실패 또는 timeout 상태가 기본 질문 전환을 막지 않는다.
+  - 재답변은 기존 `retryAnswerId`로 같은 답변 행을 갱신한다. 서버는 `REANSWER_REQUIRED` 로그와 답변 제출 시각을 기준으로 최초 1회만 허용하며 중복 클릭과 응답 유실 재시도가 기회를 추가 소비하지 않게 한다.
 - 오류/예외:
   - 녹화 실패 시 재녹화 또는 고객지원 안내를 표시한다.
 - 관련 ERD 테이블:

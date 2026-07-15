@@ -489,6 +489,8 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 
 채용면접 런타임에서 `interview_session_questions.sort_order`와 `interview_answers`가 진행 상태의 정본이다. 일반 답변 저장은 세션 질문 단위로 멱등 처리하며, 동일 질문의 재전송은 최초 답변을 그대로 반환한다. 명시적 재답변만 기존 답변 행을 갱신한다. 현재 질문 index는 별도 클라이언트 cursor로 확정하지 않고, 저장된 답변이 없는 첫 세션 질문을 매 조회·전환 시 계산한다. 따라서 API 재시작, 응답 유실, 중복 다음 질문 요청 이후에도 질문을 건너뛰지 않는다. 답변 저장 transaction과 first-unanswered 계산 사이에는 AI process 상태를 전제조건으로 두지 않는다.
 
+STT와 재답변 상태는 별도 컬럼을 추가하지 않고 `interview_answers.submitted_at`과 해당 답변을 참조하는 `ai_process_logs`의 STT 기록으로 계산한다. 최초 `REANSWER_REQUIRED`가 현재 제출 이후 발생하면 재답변 가능, 두 번째 발생이면 인식 불가 확정이다. 재답변은 같은 answer row의 파일, transcript, `submitted_at`을 갱신하므로 새로고침과 API 재시작 이후에도 사용 여부를 복원할 수 있다. `STT_RETRYABLE` 자동 재시도와 provider 실패는 이 횟수에 포함하지 않는다.
+
 ### follow_up_questions
 
 | Column | Definition | Description |
@@ -695,7 +697,7 @@ NCS profile 집계 row는 `(report_id, ncs_profile_id)`를 unique key로 사용�
 | status | VARCHAR(40) NOT NULL | 처리 상태: PENDING, RUNNING, COMPLETED, FAILED |
 | input_ref | TEXT | 입력 참조값 |
 | output_ref | TEXT | 출력 참조값 |
-| failure_category | VARCHAR(40) | 실패 구분: RETRYABLE, NON_RETRYABLE |
+| failure_category | VARCHAR(40) | 실패 구분: RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED |
 | failure_reason | TEXT | 실패 사유. 재시도 가능 여부와 함께 기록 |
 | created_at | TIMESTAMP NOT NULL | 생성 시각 |
 

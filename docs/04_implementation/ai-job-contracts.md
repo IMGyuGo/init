@@ -441,4 +441,6 @@ QA는 정상 완료 흐름과 별개로 위 5개 상태를 최소 1회씩 확인
 - D는 STT와 꼬리질문 입력으로 `answerId`, `audioFileId`, `audioS3Key`, transcript를 넘긴다.
 - B는 리포트 화면에서 `evaluation_reports.status`와 `GET /ai/jobs/{processLogId}/status` 결과를 함께 표시한다.
 - E는 guardrail PASS/REGENERATED 전에는 `evaluation_reports`, `report_scores`, `report_evidences`, `question_bank`, `evaluation_criteria`에 최종 저장하지 않는다.
-- E는 `transcript`를 실제 답변 텍스트 전용으로 유지한다. STT 실패로 transcript가 없는 답변은 `evaluationStatus=STT_UNAVAILABLE`, `transcriptUnavailableReason`으로 사유를 분리하고, 현재는 보고서 생성을 막지 않기 위해 임시 0점 처리한다. 이 점수 정책은 팀 논의 후 변경될 수 있다.
+- E는 `transcript`를 실제 답변 텍스트 전용으로 유지한다. 실제 음성 인식 실패로 transcript가 없는 답변은 `evaluationStatus=STT_UNAVAILABLE`, `transcriptUnavailableReason`으로 사유를 분리하고, 답변별 NCS 점수와 최종 리포트 점수는 `NULL`로 유지한다. 평가 근거와 가짜 0점 `ReportScore`는 생성하지 않는다.
+- `STT_RETRYABLE` worker 자동 재시도와 provider timeout/실패는 지원자 재답변 횟수에 포함하지 않는다. `REANSWER_REQUIRED`만 지원자 재답변 대상으로 투영하고 같은 답변에 한 번만 허용한다.
+- 과거 `STT_UNAVAILABLE_TEMP_ZERO` 데이터는 조회 호환만 유지한다. 신규 worker/API/mock provider는 해당 rubric 또는 0점 행을 생성하지 않는다.
