@@ -57,6 +57,7 @@ Optional runtime environment variables:
 
 - `AI_PROVIDER_MODE` defaults to `mock`; set `openai` to use OpenAI providers for follow-up questions, report summaries, and posting draft generation.
 - `OPENAI_MODEL` defaults to `gpt-4o-mini`.
+- `RUN_ANSWER_FACT_CHECK_SMOKE=true npm run smoke:ncs:fact-check` runs the opt-in live fact-check golden matrix. It is excluded from default CI and never prints answer or evidence text.
 - `AI_STT_PROVIDER` defaults to `openai`; set `mock` only for isolated local tests that do not need real STT.
 - `OPENAI_STT_MODEL` defaults to `gpt-4o-mini-transcribe`.
 - `OPENAI_STT_LANGUAGE` defaults to `ko`.

@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { InMemoryAiResultRepository } from "./ai-result.repository";
 import {
+  AnswerFactCheckClaim,
   AnswerFactCheckProvider,
   AnswerFactCheckTimeoutError,
+  FactCheckGateStatus,
 } from "./answer-fact-check.types";
 import { MockAiTaskHandler } from "./mock-ai-task.handler";
 
@@ -44,6 +46,99 @@ test("fact provider timeout is persisted separately and does not discard NCS sco
   assert.equal(stored?.providerStatus, "TIMEOUT");
   assert.equal(stored?.gateStatus, null);
   assert.deepEqual(stored?.claims, []);
+});
+
+test("fact-check false-positive gates never alter NCS scores", async () => {
+  const baseline = await evaluateWithFactProvider(undefined);
+  const scenarios: Array<{
+    name: string;
+    claim: Pick<AnswerFactCheckClaim, "claimType" | "claimRole" | "verdict" | "confidence" | "evidenceIds">;
+    expectedGateStatus: FactCheckGateStatus;
+  }> = [
+    {
+      name: "supported core claim",
+      claim: {
+        claimType: "TECHNICAL_FACT",
+        claimRole: "ANSWER_CORE",
+        verdict: "SUPPORTED",
+        confidence: 0.99,
+        evidenceIds: ["K1"],
+      },
+      expectedGateStatus: "PASS_THROUGH",
+    },
+    {
+      name: "supporting contradiction",
+      claim: {
+        claimType: "TECHNICAL_FACT",
+        claimRole: "SUPPORTING",
+        verdict: "CONTRADICTED",
+        confidence: 0.99,
+        evidenceIds: ["K1"],
+      },
+      expectedGateStatus: "PASS_THROUGH",
+    },
+    {
+      name: "unverifiable personal experience",
+      claim: {
+        claimType: "PERSONAL_EXPERIENCE",
+        claimRole: "ANSWER_CORE",
+        verdict: "UNVERIFIABLE",
+        confidence: 0.8,
+        evidenceIds: [],
+      },
+      expectedGateStatus: "PASS_THROUGH",
+    },
+    {
+      name: "non-checkable opinion",
+      claim: {
+        claimType: "OPINION",
+        claimRole: "ANSWER_CORE",
+        verdict: "NOT_CHECKABLE",
+        confidence: 0.99,
+        evidenceIds: [],
+      },
+      expectedGateStatus: "PASS_THROUGH",
+    },
+    {
+      name: "ambiguous claim",
+      claim: {
+        claimType: "TECHNICAL_FACT",
+        claimRole: "ANSWER_CORE",
+        verdict: "AMBIGUOUS",
+        confidence: 0.7,
+        evidenceIds: [],
+      },
+      expectedGateStatus: "CLARIFICATION_CANDIDATE",
+    },
+    {
+      name: "low-confidence core contradiction",
+      claim: {
+        claimType: "TECHNICAL_FACT",
+        claimRole: "ANSWER_CORE",
+        verdict: "CONTRADICTED",
+        confidence: 0.84,
+        evidenceIds: ["K1"],
+      },
+      expectedGateStatus: "CLARIFICATION_CANDIDATE",
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const evaluated = await evaluateWithFactProvider(claimProvider(scenario.claim));
+    assert.deepEqual(evaluated.output.scores, baseline.output.scores, scenario.name);
+    assert.equal(
+      evaluated.output.ncsAnswerEvaluations[0]?.baseScore,
+      baseline.output.ncsAnswerEvaluations[0]?.baseScore,
+      scenario.name,
+    );
+    assert.deepEqual(
+      evaluated.output.factCheckSummary.gateStatuses,
+      { [scenario.expectedGateStatus]: 1 },
+      scenario.name,
+    );
+    await evaluated.task.finalSave?.();
+    assert.equal(evaluated.results.answerFactChecks.get(71)?.[0]?.gateStatus, scenario.expectedGateStatus, scenario.name);
+  }
 });
 
 async function evaluateWithFactProvider(provider?: AnswerFactCheckProvider): Promise<{
@@ -136,6 +231,26 @@ function contradictedProvider(): AnswerFactCheckProvider {
           confidence: 0.98,
           evidenceIds: ["K1"],
           rationale: "승인된 지식 snapshot과 모순됩니다.",
+        }],
+      };
+    },
+  };
+}
+
+function claimProvider(
+  claim: Pick<AnswerFactCheckClaim, "claimType" | "claimRole" | "verdict" | "confidence" | "evidenceIds">,
+): AnswerFactCheckProvider {
+  return {
+    async evaluate(input) {
+      const claimText = "C는 객체지향 언어입니다.";
+      return {
+        model: "fixture-fact-v1",
+        claims: [{
+          claimText,
+          startOffset: input.answerText.indexOf(claimText),
+          endOffset: input.answerText.indexOf(claimText) + claimText.length,
+          ...claim,
+          rationale: "FACT-06 deterministic false-positive regression fixture",
         }],
       };
     },
