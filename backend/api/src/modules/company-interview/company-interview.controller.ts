@@ -13,6 +13,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { CurrentUser } from '@init/common';
+import { ApiOperation } from '@nestjs/swagger';
 import { ok, type RequestLike } from '../../shared/response-envelope';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CompanyInterviewService } from './company-interview.service';
@@ -107,6 +108,10 @@ export class CompanyInterviewController {
   }
 
   @Get('applications/:applicationId/resume-questions')
+  @ApiOperation({
+    summary: 'List resume-personalized interview questions',
+    description: 'Returns the NCS-aligned personalized questions generated for one submitted application.',
+  })
   async getResumeQuestions(
     @Req() request: CompanyRequest,
     @Param('applicationId', ParseIntPipe) applicationId: number,
@@ -117,6 +122,10 @@ export class CompanyInterviewController {
 
   @Post('applications/:applicationId/resume-questions/retry')
   @HttpCode(202)
+  @ApiOperation({
+    summary: 'Retry resume-personalized question generation',
+    description: 'Queues an idempotent retry when personalized interview questions are not ready for the application.',
+  })
   async retryResumeQuestions(
     @Req() request: CompanyRequest,
     @Param('applicationId', ParseIntPipe) applicationId: number,
@@ -127,6 +136,10 @@ export class CompanyInterviewController {
   }
 
   @Patch('question-generation-policy')
+  @ApiOperation({
+    summary: 'Update NCS question generation policy',
+    description: 'Updates common and resume-personalized question counts and their canonical NCS profile allocations.',
+  })
   async updateQuestionGenerationPolicy(
     @Req() request: CompanyRequest,
     @Body() body: UpdateQuestionGenerationPolicyDto,
