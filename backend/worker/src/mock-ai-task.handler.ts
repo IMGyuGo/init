@@ -675,11 +675,18 @@ export class MockAiTaskHandler implements AiTaskHandler {
       throw new NonRetryableAiWorkerFailure("NCS criterion allocation must equal questionCount");
     }
 
+    const criterionOccurrences = new Map<number, number>();
     const questionCandidates = Array.from({ length: questionCount }, (_, index) => {
       const criterion = allocatedCriteria[index];
+      const criterionOccurrence = criterion
+        ? criterionOccurrences.get(criterion.criterionId) ?? 0
+        : index;
+      if (criterion) {
+        criterionOccurrences.set(criterion.criterionId, criterionOccurrence + 1);
+      }
       const content = kind.startsWith("MOCK")
         ? buildMockQuestionCandidate(index, folderContext, profileSources)
-        : buildRecruitingQuestionCandidate(criterion, jobDescription ?? "");
+        : buildRecruitingQuestionCandidate(criterion, jobDescription ?? "", criterionOccurrence);
 
       const alignment = criterion?.ncsProfileId && criterion.ncsQuestionMode && criterion.ncsProfileVersion
         ? alignNcsQuestion({
@@ -1431,19 +1438,26 @@ function optionalFiniteNumber(value: unknown, name: string): number | undefined 
 function buildRecruitingQuestionCandidate(
   criterion: ReturnType<typeof criteriaOf>[number],
   jobDescription: string,
+  criterionOccurrence: number,
 ): string {
   const jd = shorten(jobDescription);
+  const focus = recruitingQuestionFocus(criterionOccurrence);
   if (criterion.ncsProfileId === "PROBLEM_SOLVING") {
-    return `${jd} 업무에서 문제 원인을 분석하고 대안을 비교해 선택한 뒤 결과를 어떻게 검증했는지 설명해주세요.`;
+    return `${jd} 업무의 ${focus}에서 문제 원인을 분석하고 대안을 비교해 선택한 뒤 결과를 어떻게 검증했는지 설명해주세요.`;
   }
 
   if (criterion.ncsProfileId === "COLLABORATION_COMMUNICATION") {
-    return `${jd} 업무를 상대에 맞춰 구조적으로 설명하고 협업 과정의 이해와 합의를 어떻게 확인했는지 설명해주세요.`;
+    return `${jd} 업무의 ${focus}를 상대에 맞춰 구조적으로 설명하고 협업 과정의 이해와 합의를 어떻게 확인했는지 설명해주세요.`;
   }
   if (criterion.ncsProfileId === "JOB_TECHNICAL") {
-    return `${jd} 관련 기술의 동작 원리와 선택 이유, 실무 적용 방식, 장애와 보안 위험을 어떻게 검증했는지 설명해주세요.`;
+    return `${jd} 관련 ${focus}에서 기술의 동작 원리와 선택 이유, 실무 적용 방식, 장애와 보안 위험을 어떻게 검증했는지 설명해주세요.`;
   }
-  return `${criterion.name} 기준으로 ${jd} 경험을 검증할 수 있는 사례를 설명해주세요.`;
+  return `${criterion.name} 기준으로 ${jd} 경험의 ${focus}를 검증할 수 있도록 설명해주세요.`;
+}
+
+function recruitingQuestionFocus(criterionOccurrence: number): string {
+  const focuses = ["대표 사례", "최근 의사결정 사례", "가장 복잡했던 사례", "실패 후 개선한 사례"];
+  return focuses[criterionOccurrence] ?? `${criterionOccurrence + 1}번째 사례`;
 }
 
 function reportNcsProfileIdOf(value: unknown): NcsReportApiProfileId | undefined {

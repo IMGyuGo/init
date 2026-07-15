@@ -467,6 +467,83 @@ test("question generation stores review-required drafts after guardrail pass", a
   assert.equal(output.questionCandidates?.[0]?.criterionId, 1);
   assert.equal(output.questionCandidates?.[0]?.criterionTitle, "Problem solving");
   assert.equal(output.questionCandidates?.[0]?.category, "직무역량");
+  assert.equal(new Set(output.items).size, 2);
+});
+
+test("NCS question generation creates six unique aligned candidates across three profiles", async () => {
+  const results = new InMemoryAiResultRepository();
+
+  const repository = await run({
+    processLogId: 140,
+    processType: "QUESTION_GENERATE",
+    input: {
+      kind: "RECRUITING_QUESTION_GENERATE",
+      payload: {
+        postingId: 1101,
+        jobDescription: "온디바이스 AI 플랫폼의 API, 데이터, 배포 안정성을 책임지는 엔지니어",
+        questionCount: 6,
+        criteria: [
+          {
+            criterionId: 1,
+            name: "직무 기술 역량",
+            category: "NCS",
+            weight: 30,
+            questionCount: 2,
+            ncsProfileId: "JOB_TECHNICAL",
+            ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+            ncsProfileVersion: "2025.12-v1",
+          },
+          {
+            criterionId: 4,
+            name: "협업 의사소통",
+            category: "NCS",
+            weight: 30,
+            questionCount: 2,
+            ncsProfileId: "COLLABORATION_COMMUNICATION",
+            ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+            ncsProfileVersion: "2025.12-v1",
+          },
+          {
+            criterionId: 2,
+            name: "문제 해결력",
+            category: "NCS",
+            weight: 40,
+            questionCount: 2,
+            ncsProfileId: "PROBLEM_SOLVING",
+            ncsQuestionMode: "SITUATIONAL_DESIGN",
+            ncsProfileVersion: "2025.12-v1",
+          },
+        ],
+      },
+    },
+    results,
+  });
+
+  const output = JSON.parse(repository.get(140).outputRef ?? "{}") as {
+    questionCandidates?: Array<{
+      content: string;
+      ncsProfileId: string;
+      alignmentStatus: string;
+    }>;
+  };
+  const candidates = output.questionCandidates ?? [];
+
+  assert.equal(candidates.length, 6);
+  assert.equal(new Set(candidates.map((candidate) => candidate.content)).size, 6);
+  assert.ok(candidates.every((candidate) => candidate.alignmentStatus === "ALIGNED"));
+  assert.deepEqual(
+    Object.fromEntries(
+      ["JOB_TECHNICAL", "COLLABORATION_COMMUNICATION", "PROBLEM_SOLVING"].map((profileId) => [
+        profileId,
+        candidates.filter((candidate) => candidate.ncsProfileId === profileId).length,
+      ]),
+    ),
+    {
+      JOB_TECHNICAL: 2,
+      COLLABORATION_COMMUNICATION: 2,
+      PROBLEM_SOLVING: 2,
+    },
+  );
 });
 
 test("mock question generation uses candidate folder context when provided", async () => {
