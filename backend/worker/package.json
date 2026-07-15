@@ -12,6 +12,7 @@
     "test": "npm run build && node scripts/run-tests.cjs",
     "build": "tsc -p tsconfig.json",
     "smoke:ncs:pipeline": "tsx src/ncs-recruiting-pipeline-smoke.ts",
+    "smoke:ncs:fact-check": "tsx src/answer-fact-check.smoke.ts",
     "start": "node dist/main.js",
     "start:dev": "tsx src/main.ts"
   },
