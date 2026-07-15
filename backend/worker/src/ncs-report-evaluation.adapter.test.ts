@@ -155,6 +155,13 @@ test("current sessions convert unsupported profile versions to an incomplete fai
 });
 
 test("current sessions expose STT and duplicate follow-up linkage as structured incomplete reasons", async () => {
+  let factProviderCalls = 0;
+  const factProvider: AnswerFactCheckProvider = {
+    async evaluate() {
+      factProviderCalls += 1;
+      return { model: "must-not-run", claims: [] };
+    },
+  };
   const base = {
     answerId: 120,
     question: "장애 원인과 해결 결과를 설명해주세요.",
@@ -179,6 +186,13 @@ test("current sessions expose STT and duplicate follow-up linkage as structured 
     [13],
     undefined,
     sessionPolicies(),
+    {
+      provider: factProvider,
+      providerMode: "mock",
+      configuredModelVersion: "must-not-run",
+      knowledgeSnapshotVersion: "FACT_GOLDEN_V1",
+      evidenceLedger: [],
+    },
   );
 
   const reasons = result.finalEvaluation?.incompleteReasons ?? [];
@@ -215,6 +229,8 @@ test("current sessions expose STT and duplicate follow-up linkage as structured 
   assert.equal(result.finalEvaluation?.thresholdResult, "INCOMPLETE");
   assert.equal(result.finalEvaluation?.aiDecision, "FAIL");
   assert.equal(result.finalEvaluation?.totalScore, null);
+  assert.equal(factProviderCalls, 0);
+  assert.deepEqual(result.factChecks, []);
   assert.equal(
     result.finalEvaluation?.profiles.find((profile) => profile.ncsProfileId === "PROBLEM_SOLVING")?.averageScore,
     null,

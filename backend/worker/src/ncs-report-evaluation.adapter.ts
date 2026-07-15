@@ -349,7 +349,7 @@ export async function evaluateNcsReportAnswers(
     ),
   ));
   const evaluations = evaluated.flatMap((item) => item.evaluations);
-  const factChecks = evaluated.map((item) => item.factCheck);
+  const factChecks = evaluated.flatMap((item) => item.factCheck ? [item.factCheck] : []);
   const scored = evaluations.filter((evaluation) => evaluation.output.scoreStatus === "SCORED");
   const scores = aggregateScores(scored);
   const questionEvaluations = scored.map(toQuestionEvaluation);
@@ -462,7 +462,7 @@ async function evaluateAnswer(
   factCheckContext: NcsAnswerFactCheckContext = defaultFactCheckContext(),
 ): Promise<{
   evaluations: NcsAnswerEvaluationRecord[];
-  factCheck: AnswerFactCheckRunRecord;
+  factCheck?: AnswerFactCheckRunRecord;
   usage?: { modelName: string; inputTokens?: number; outputTokens?: number };
 }> {
   const snapshots = requiredSnapshots(answer);
@@ -483,24 +483,26 @@ async function evaluateAnswer(
     : answer.transcript;
   const [baseResult, factCheckResult] = await Promise.all([
     runNcsEvaluation(baseInput, snapshots.bindings, provider),
-    runAnswerFactCheck({
-      reportId,
-      ...(followUp?.transcript.trim() ? {
-        followUpAnswerId: followUp.answerId,
-        inputCompositionVersion: "BASE_FOLLOW_UP_V1" as const,
-      } : {}),
-      input: {
-        answerId: answer.answerId,
-        question,
-        answerText: composedAnswerText,
-        questionMode: snapshots.ncsQuestionMode,
-        knowledgeSnapshotVersion: factCheckContext.knowledgeSnapshotVersion,
-        evidenceLedger: factCheckContext.evidenceLedger,
-      },
-      provider: factCheckContext.provider,
-      providerMode: factCheckContext.providerMode,
-      configuredModelVersion: factCheckContext.configuredModelVersion,
-    }),
+    answer.evaluationStatus === "STT_UNAVAILABLE"
+      ? Promise.resolve(undefined)
+      : runAnswerFactCheck({
+          reportId,
+          ...(followUp?.transcript.trim() ? {
+            followUpAnswerId: followUp.answerId,
+            inputCompositionVersion: "BASE_FOLLOW_UP_V1" as const,
+          } : {}),
+          input: {
+            answerId: answer.answerId,
+            question,
+            answerText: composedAnswerText,
+            questionMode: snapshots.ncsQuestionMode,
+            knowledgeSnapshotVersion: factCheckContext.knowledgeSnapshotVersion,
+            evidenceLedger: factCheckContext.evidenceLedger,
+          },
+          provider: factCheckContext.provider,
+          providerMode: factCheckContext.providerMode,
+          configuredModelVersion: factCheckContext.configuredModelVersion,
+        }),
   ]);
   const baseOutput = baseResult.output;
   const basePoints = new Map(snapshots.bindings.map((binding) => [
@@ -522,7 +524,7 @@ async function evaluateAnswer(
   const output = combinedResult?.output.scoreStatus === "SCORED" ? combinedResult.output : baseOutput;
   const usage = mergeEvaluationUsage(
     mergeEvaluationUsage(baseResult.usage, combinedResult?.usage),
-    factCheckResult.usage,
+    factCheckResult?.usage,
   );
 
   return {
@@ -557,7 +559,7 @@ async function evaluateAnswer(
       followUpApplied: Boolean(combinedResult),
       evidences,
     };}),
-    factCheck: factCheckResult.record,
+    ...(factCheckResult ? { factCheck: factCheckResult.record } : {}),
     usage,
   };
 }
