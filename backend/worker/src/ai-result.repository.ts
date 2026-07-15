@@ -261,6 +261,7 @@ export interface GeneratedReportRecord {
   scores: GeneratedReportScoreRecord[];
   questionEvaluations: GeneratedQuestionEvaluationRecord[];
   ncsAnswerEvaluations?: NcsAnswerEvaluationRecord[];
+  answerFactChecks?: AnswerFactCheckRunRecord[];
   ncsFinalEvaluation?: NcsFinalEvaluation;
 }
 
@@ -281,6 +282,7 @@ export interface ReportScoresRecord {
   reportId: number;
   scores: GeneratedReportScoreRecord[];
   ncsAnswerEvaluations?: NcsAnswerEvaluationRecord[];
+  answerFactChecks?: AnswerFactCheckRunRecord[];
 }
 
 export interface FailedReportRecord {
@@ -487,6 +489,9 @@ export class InMemoryAiResultRepository implements AiResultRepository {
     if (record.ncsAnswerEvaluations) {
       this.ncsAnswerEvaluations.set(record.reportId, record.ncsAnswerEvaluations);
     }
+    if (record.answerFactChecks) {
+      await this.saveAnswerFactChecks(record.reportId, record.answerFactChecks);
+    }
   }
 
   async saveAnswerFactChecks(reportId: number, records: AnswerFactCheckRunRecord[]): Promise<void> {
@@ -507,6 +512,7 @@ export class InMemoryAiResultRepository implements AiResultRepository {
       reportId: record.reportId,
       scores: record.scores,
       ncsAnswerEvaluations: record.ncsAnswerEvaluations,
+      answerFactChecks: record.answerFactChecks,
     });
     this.generatedReports.set(record.reportId, record);
     this.failedReports.delete(record.reportId);

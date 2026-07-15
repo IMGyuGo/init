@@ -87,7 +87,7 @@ export class OpenAiNcsTextEvaluationProvider implements NcsTextEvaluationProvide
             "Use level 1 only with zero observed behaviors; level 2 with one or two; level 3 with two or three; levels 4 or 5 only when all three are observed.",
             "Keep growth.strengths concise. The system will attach the exact source sentence after your response.",
             "Write every rationale and every growth feedback field in natural Korean only. Do not return English sentences.",
-            "Technical correctness must be conservative: distinguish a stated principle from a verified fact, note contradictions through a low score, and never invent external facts as answer evidence.",
+            "Score only observable NCS behaviors and the answer's logical evidence structure. Do not lower a score because of a technical factual contradiction; a separate fact-check provider owns that decision.",
             "Do not mention hiring outcomes, acceptance, rejection, hiring fit, age, gender, school, appearance, region, disability, or health.",
             "Feedback is for skill growth only. Do not infer traits or facts absent from the answer.",
             "Every non-empty growth.strengths item must include at least one exact evidence quote verbatim so the worker can verify that the strength is grounded."

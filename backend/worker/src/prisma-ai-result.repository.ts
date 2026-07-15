@@ -369,11 +369,15 @@ export class PrismaAiResultRepository implements AiResultRepository {
     reportId: number;
     scores: GeneratedReportScoreRecord[];
     ncsAnswerEvaluations?: NcsAnswerEvaluationRecord[];
+    answerFactChecks?: AnswerFactCheckRunRecord[];
   }): Promise<void> {
     assertScoresHaveEvidence(record.scores);
     await this.replaceReportScores(record.reportId, record.scores);
     if (record.ncsAnswerEvaluations) {
       await this.replaceNcsAnswerEvaluations(record.reportId, record.ncsAnswerEvaluations);
+    }
+    if (record.answerFactChecks) {
+      await this.saveAnswerFactChecks(record.reportId, record.answerFactChecks);
     }
   }
 
@@ -514,6 +518,9 @@ export class PrismaAiResultRepository implements AiResultRepository {
     }
     if (record.ncsAnswerEvaluations) {
       await this.replaceNcsAnswerEvaluations(record.reportId, record.ncsAnswerEvaluations);
+    }
+    if (record.answerFactChecks) {
+      await this.saveAnswerFactChecks(record.reportId, record.answerFactChecks);
     }
     await this.updateApplicationReportStatus(record, "COMPLETED");
   }

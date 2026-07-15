@@ -1,8 +1,19 @@
 import {
   GeneratedQuestionEvaluationRecord,
   GeneratedReportScoreRecord,
+  AnswerFactCheckRunRecord,
   NcsAnswerEvaluationRecord,
 } from "./ai-result.repository";
+import {
+  ANSWER_FACT_CHECK_MOCK_MODEL_VERSION,
+  runAnswerFactCheck,
+} from "./answer-fact-check";
+import {
+  NO_EXTERNAL_KNOWLEDGE_VERSION,
+  AnswerFactCheckProvider,
+  FactCheckProviderMode,
+  FactEvidenceLedgerItem,
+} from "./answer-fact-check.types";
 import {
   NCS_PROFILE_VERSION,
   NCS_TEXT_EVALUATION_KIND,
@@ -67,6 +78,7 @@ export interface NcsReportAnswerSnapshot {
 
 export interface NcsReportEvaluationBatch {
   evaluations: NcsAnswerEvaluationRecord[];
+  factChecks: AnswerFactCheckRunRecord[];
   scores: GeneratedReportScoreRecord[];
   questionEvaluations: GeneratedQuestionEvaluationRecord[];
   allProfilesScored: boolean;
@@ -76,6 +88,14 @@ export interface NcsReportEvaluationBatch {
     inputTokens?: number;
     outputTokens?: number;
   };
+}
+
+export interface NcsAnswerFactCheckContext {
+  provider?: AnswerFactCheckProvider;
+  providerMode: FactCheckProviderMode;
+  configuredModelVersion: string;
+  knowledgeSnapshotVersion: string;
+  evidenceLedger: FactEvidenceLedgerItem[];
 }
 
 export interface NcsFollowUpPlan {
@@ -167,6 +187,7 @@ export async function evaluateNcsReportAnswers(
   expectedCriterionIds: number[],
   provider?: NcsTextEvaluationProvider,
   sessionPolicies?: NcsSessionPolicyInput[],
+  factCheckContext?: NcsAnswerFactCheckContext,
 ): Promise<NcsReportEvaluationBatch> {
   const primaryAnswers = answers.filter((answer) => !answer.isFollowUpAnswer);
   const structuralReasons: NcsIncompleteReason[] = [];
@@ -195,6 +216,7 @@ export async function evaluateNcsReportAnswers(
     }
     return {
       evaluations: [],
+      factChecks: [],
       scores: [],
       questionEvaluations: [],
       allProfilesScored: false,
@@ -243,9 +265,16 @@ export async function evaluateNcsReportAnswers(
     }
   }
   const evaluated = await Promise.all(ncsAnswers.map((answer) =>
-    evaluateAnswer(reportId, answer, followUpsByParent.get(answer.answerId)?.[0], provider),
+    evaluateAnswer(
+      reportId,
+      answer,
+      followUpsByParent.get(answer.answerId)?.[0],
+      provider,
+      factCheckContext ?? defaultFactCheckContext(),
+    ),
   ));
   const evaluations = evaluated.flatMap((item) => item.evaluations);
+  const factChecks = evaluated.map((item) => item.factCheck);
   const scored = evaluations.filter((evaluation) => evaluation.output.scoreStatus === "SCORED");
   const scores = aggregateScores(scored);
   const questionEvaluations = scored.map(toQuestionEvaluation);
@@ -272,7 +301,7 @@ export async function evaluateNcsReportAnswers(
         evidenceCount: evaluation.evidences.length,
       })), structuralReasons)
     : undefined;
-  return { evaluations, scores, questionEvaluations, allProfilesScored, usage, finalEvaluation };
+  return { evaluations, factChecks, scores, questionEvaluations, allProfilesScored, usage, finalEvaluation };
 }
 
 function currentSnapshotReasons(answer: NcsReportAnswerSnapshot): NcsIncompleteReason[] {
@@ -354,8 +383,10 @@ async function evaluateAnswer(
   answer: NcsReportAnswerSnapshot,
   followUp: NcsReportAnswerSnapshot | undefined,
   provider?: NcsTextEvaluationProvider,
+  factCheckContext: NcsAnswerFactCheckContext = defaultFactCheckContext(),
 ): Promise<{
   evaluations: NcsAnswerEvaluationRecord[];
+  factCheck: AnswerFactCheckRunRecord;
   usage?: { modelName: string; inputTokens?: number; outputTokens?: number };
 }> {
   const snapshots = requiredSnapshots(answer);
@@ -371,7 +402,23 @@ async function evaluateAnswer(
     profileVersion: snapshots.bindings[0]?.ncsProfileVersion,
   });
 
-  const baseResult = await runNcsEvaluation(baseInput, snapshots.bindings, provider);
+  const [baseResult, factCheckResult] = await Promise.all([
+    runNcsEvaluation(baseInput, snapshots.bindings, provider),
+    runAnswerFactCheck({
+      reportId,
+      input: {
+        answerId: answer.answerId,
+        question,
+        answerText: answer.transcript,
+        questionMode: snapshots.ncsQuestionMode,
+        knowledgeSnapshotVersion: factCheckContext.knowledgeSnapshotVersion,
+        evidenceLedger: factCheckContext.evidenceLedger,
+      },
+      provider: factCheckContext.provider,
+      providerMode: factCheckContext.providerMode,
+      configuredModelVersion: factCheckContext.configuredModelVersion,
+    }),
+  ]);
   const baseOutput = baseResult.output;
   const basePoints = new Map(snapshots.bindings.map((binding) => [
     canonicalNcsProfileId(binding.ncsProfileId),
@@ -391,7 +438,10 @@ async function evaluateAnswer(
       }), snapshots.bindings, provider)
     : undefined;
   const output = combinedResult?.output.scoreStatus === "SCORED" ? combinedResult.output : baseOutput;
-  const usage = mergeEvaluationUsage(baseResult.usage, combinedResult?.usage);
+  const usage = mergeEvaluationUsage(
+    mergeEvaluationUsage(baseResult.usage, combinedResult?.usage),
+    factCheckResult.usage,
+  );
 
   return {
     evaluations: snapshots.bindings.map((binding) => {
@@ -425,7 +475,17 @@ async function evaluateAnswer(
       followUpApplied: Boolean(combinedResult),
       evidences,
     };}),
+    factCheck: factCheckResult.record,
     usage,
+  };
+}
+
+function defaultFactCheckContext(): NcsAnswerFactCheckContext {
+  return {
+    providerMode: "mock",
+    configuredModelVersion: ANSWER_FACT_CHECK_MOCK_MODEL_VERSION,
+    knowledgeSnapshotVersion: NO_EXTERNAL_KNOWLEDGE_VERSION,
+    evidenceLedger: [],
   };
 }
 

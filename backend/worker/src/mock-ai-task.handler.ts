@@ -1,5 +1,6 @@
 import {
   AiResultRepository,
+  AnswerFactCheckRunRecord,
   CommunicationAnalysisRecord,
   GeneratedDraftRecord,
   GeneratedQuestionEvaluationRecord,
@@ -13,6 +14,14 @@ import {
   hashSourceText
 } from "./ai-result.repository";
 import { createAiProcessUsage } from "./ai-usage";
+import { ANSWER_FACT_CHECK_MOCK_MODEL_VERSION } from "./answer-fact-check";
+import {
+  FACT_EVIDENCE_SOURCE_KINDS,
+  NO_EXTERNAL_KNOWLEDGE_VERSION,
+  type AnswerFactCheckProvider,
+  type FactCheckProviderMode,
+  type FactEvidenceLedgerItem,
+} from "./answer-fact-check.types";
 import {
   evaluateNcsReportAnswers,
   hasNcsAnswerSnapshots,
@@ -20,6 +29,7 @@ import {
   type NcsApiProfileId as NcsReportApiProfileId,
   type NcsReportEvaluationBatch,
   type NcsReportQuestionBindingSnapshot,
+  type NcsAnswerFactCheckContext,
 } from "./ncs-report-evaluation.adapter";
 import type { NcsTextEvaluationProvider } from "./ncs-text-evaluation.types";
 import type { NcsSessionPolicyInput } from "./ncs-final-evaluation";
@@ -159,6 +169,9 @@ export class MockAiTaskHandler implements AiTaskHandler {
     private readonly options: {
       sttProvider?: SttProvider;
       ncsTextEvaluationProvider?: NcsTextEvaluationProvider;
+      answerFactCheckProvider?: AnswerFactCheckProvider;
+      answerFactCheckModelVersion?: string;
+      answerFactCheckProviderMode?: FactCheckProviderMode;
     } = {}
   ) {}
 
@@ -417,6 +430,12 @@ export class MockAiTaskHandler implements AiTaskHandler {
           criteria.map((criterion) => criterion.criterionId),
           this.options.ncsTextEvaluationProvider,
           ncsSessionPoliciesOf(payload.ncsSessionPolicy),
+          factCheckContextOf(
+            payload.factCheckContext,
+            this.options.answerFactCheckProvider,
+            this.options.answerFactCheckModelVersion,
+            this.options.answerFactCheckProviderMode,
+          ),
         )
       : undefined;
     const { scores, questionEvaluations } = ncsBatch ?? this.scoreReport(
@@ -439,6 +458,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
         questionEvaluations,
         ncsAnswerEvaluations: ncsBatch?.evaluations,
         ncsFinalEvaluation: ncsBatch?.finalEvaluation,
+        factCheckSummary: factCheckSummary(ncsBatch?.factChecks),
         evidences,
         guardrail,
         stored: {
@@ -457,6 +477,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
         reportId,
         scores,
         ncsAnswerEvaluations: ncsBatch?.evaluations,
+        answerFactChecks: ncsBatch?.factChecks,
       })
     };
   }
@@ -531,6 +552,12 @@ export class MockAiTaskHandler implements AiTaskHandler {
           criteria.map((criterion) => criterion.criterionId),
           this.options.ncsTextEvaluationProvider,
           ncsSessionPoliciesOf(payload.ncsSessionPolicy),
+          factCheckContextOf(
+            payload.factCheckContext,
+            this.options.answerFactCheckProvider,
+            this.options.answerFactCheckModelVersion,
+            this.options.answerFactCheckProviderMode,
+          ),
         )
       : undefined;
     const { scores, questionEvaluations } = ncsBatch ?? this.scoreReport(criteria, answers, documentText, {
@@ -557,6 +584,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
       scores,
       questionEvaluations,
       ncsAnswerEvaluations: ncsBatch?.evaluations,
+      answerFactChecks: ncsBatch?.factChecks,
       ncsFinalEvaluation: ncsBatch?.finalEvaluation,
     };
     const guardrail = this.validateReport(report);
@@ -571,6 +599,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
         questionEvaluations,
         ncsAnswerEvaluations: ncsBatch?.evaluations,
         ncsFinalEvaluation: ncsBatch?.finalEvaluation,
+        factCheckSummary: factCheckSummary(ncsBatch?.factChecks),
         evidences: scores.flatMap((score) => score.evidences),
         guardrail
       }),
@@ -1006,6 +1035,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
     if (report.ncsAnswerEvaluations) {
       const ncsDecision = this.validateNcsEvaluationBatch({
         evaluations: report.ncsAnswerEvaluations,
+        factChecks: report.answerFactChecks ?? [],
         scores: report.scores,
         questionEvaluations: report.questionEvaluations,
         allProfilesScored: report.totalScore !== null,
@@ -1182,6 +1212,14 @@ function positiveNumber(value: unknown, name: string): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     throw new NonRetryableAiWorkerFailure(`${name} must be a positive integer`);
+  }
+  return parsed;
+}
+
+function nonNegativeInteger(value: unknown, name: string): number {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new NonRetryableAiWorkerFailure(`${name} must be a non-negative safe integer`);
   }
   return parsed;
 }
@@ -1468,6 +1506,100 @@ function ncsQuestionModeOf(value: unknown): NcsQuestionMode | undefined {
   return value === "EXPERIENCE_BEHAVIOR" || value === "TECHNICAL_KNOWLEDGE" || value === "SITUATIONAL_DESIGN"
     ? value
     : undefined;
+}
+
+function factCheckContextOf(
+  value: unknown,
+  provider?: AnswerFactCheckProvider,
+  configuredModelVersion?: string,
+  providerMode?: FactCheckProviderMode,
+): NcsAnswerFactCheckContext {
+  if (value === undefined || value === null) {
+    return {
+      provider,
+      providerMode: providerMode ?? (provider ? "openai" : "mock"),
+      configuredModelVersion: configuredModelVersion?.trim() || ANSWER_FACT_CHECK_MOCK_MODEL_VERSION,
+      knowledgeSnapshotVersion: NO_EXTERNAL_KNOWLEDGE_VERSION,
+      evidenceLedger: [],
+    };
+  }
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new NonRetryableAiWorkerFailure("factCheckContext must be an object");
+  }
+  const record = value as Record<string, unknown>;
+  const knowledgeSnapshotVersion = requiredText(
+    record.knowledgeSnapshotVersion,
+    "factCheckContext.knowledgeSnapshotVersion",
+  );
+  if (!Array.isArray(record.evidenceLedger)) {
+    throw new NonRetryableAiWorkerFailure("factCheckContext.evidenceLedger must be an array");
+  }
+  const evidenceIds = new Set<string>();
+  const evidenceLedger = record.evidenceLedger.map((item, index): FactEvidenceLedgerItem => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new NonRetryableAiWorkerFailure(`factCheckContext.evidenceLedger[${index}] must be an object`);
+    }
+    const evidence = item as Record<string, unknown>;
+    const evidenceId = requiredText(evidence.evidenceId, `factCheckContext.evidenceLedger[${index}].evidenceId`);
+    if (evidenceIds.has(evidenceId)) {
+      throw new NonRetryableAiWorkerFailure(`duplicate fact-check evidence ID: ${evidenceId}`);
+    }
+    evidenceIds.add(evidenceId);
+    const sourceKind = evidence.sourceKind;
+    if (
+      typeof sourceKind !== "string" ||
+      !(FACT_EVIDENCE_SOURCE_KINDS as readonly string[]).includes(sourceKind)
+    ) {
+      throw new NonRetryableAiWorkerFailure(`factCheckContext.evidenceLedger[${index}].sourceKind is unsupported`);
+    }
+    const text = requiredText(evidence.text, `factCheckContext.evidenceLedger[${index}].text`);
+    const startOffset = nonNegativeInteger(
+      evidence.startOffset,
+      `factCheckContext.evidenceLedger[${index}].startOffset`,
+    );
+    const endOffset = positiveNumber(
+      evidence.endOffset,
+      `factCheckContext.evidenceLedger[${index}].endOffset`,
+    );
+    if (endOffset <= startOffset || endOffset - startOffset !== text.length) {
+      throw new NonRetryableAiWorkerFailure(`factCheckContext.evidenceLedger[${index}] offsets do not match text`);
+    }
+    return {
+      evidenceId,
+      sourceSnapshotId: requiredText(
+        evidence.sourceSnapshotId,
+        `factCheckContext.evidenceLedger[${index}].sourceSnapshotId`,
+      ),
+      sourceKind: sourceKind as FactEvidenceLedgerItem["sourceKind"],
+      startOffset,
+      endOffset,
+      text,
+    };
+  });
+  return {
+    provider,
+    providerMode: providerMode ?? (provider ? "openai" : "mock"),
+    configuredModelVersion: configuredModelVersion?.trim() || ANSWER_FACT_CHECK_MOCK_MODEL_VERSION,
+    knowledgeSnapshotVersion,
+    evidenceLedger,
+  };
+}
+
+function factCheckSummary(records?: AnswerFactCheckRunRecord[]): Record<string, unknown> | undefined {
+  if (!records) return undefined;
+  return {
+    runCount: records.length,
+    claimCount: records.reduce((sum, record) => sum + record.claims.length, 0),
+    providerStatuses: countBy(records.map((record) => record.providerStatus)),
+    gateStatuses: countBy(records.map((record) => record.gateStatus ?? "NOT_DETERMINED")),
+  };
+}
+
+function countBy(values: string[]): Record<string, number> {
+  return values.reduce<Record<string, number>>((counts, value) => {
+    counts[value] = (counts[value] ?? 0) + 1;
+    return counts;
+  }, {});
 }
 
 function answersOf(value: unknown): ReportAnswerForScoring[] {

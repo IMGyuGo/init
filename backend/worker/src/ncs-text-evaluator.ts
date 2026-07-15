@@ -63,12 +63,6 @@ const FORBIDDEN_OUTPUT_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   }
 ];
 
-const TECHNICAL_MISCONCEPTION_PATTERNS = [
-  /redis.{0,30}(?:영구\s*데이터베이스|절대.{0,12}유실되지)/i,
-  /캐시.{0,30}(?:항상|절대).{0,20}(?:원본|최신|일관)/i,
-  /http.{0,30}(?:항상|기본적으로).{0,20}상태를\s*저장/i
-];
-
 interface FinalizeOptions {
   providerMode: NcsProviderMode;
   model?: string;
@@ -343,7 +337,7 @@ function questionModeProfileBonus(
 function buildDeterministicDraft(input: NcsTextEvaluationInput): NcsTextEvaluationDraft {
   const trustedAnswer = trustedInputText(input.answerText);
   const sentences = exactSentences(trustedAnswer);
-  const evidenceDimensions = buildEvidenceDimensions(input.questionMode, sentences, trustedAnswer);
+  const evidenceDimensions = buildEvidenceDimensions(input.questionMode, sentences);
   const evidenceScore = Math.round(
     (evidenceDimensions.reduce((sum, dimension) => sum + dimension.score, 0) /
       (evidenceDimensions.length * 2)) *
@@ -407,18 +401,11 @@ function competencyLevel(
 
 function buildEvidenceDimensions(
   questionMode: NcsQuestionMode,
-  sentences: string[],
-  trustedAnswer: string
+  sentences: string[]
 ): NcsEvidenceDimensionDraft[] {
   return ncsEvidenceDimensions(questionMode).map((dimension) => {
     const evidenceQuotes = matchingQuotes(sentences, dimension.keywords);
-    let score = dimensionScore(evidenceQuotes, dimension.keywords);
-    if (
-      dimension.id === "concept-accuracy" &&
-      TECHNICAL_MISCONCEPTION_PATTERNS.some((pattern) => pattern.test(trustedAnswer))
-    ) {
-      score = Math.min(score, 1) as NcsEvidenceDimensionScore;
-    }
+    const score = dimensionScore(evidenceQuotes, dimension.keywords);
 
     return {
       dimensionId: dimension.id,
