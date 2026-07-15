@@ -13,6 +13,7 @@ const EXPECTED_LAYER_NAMES = [
   "mouth-lower-lip",
 ];
 const REQUIRED_LAYER_FIELDS = ["name", "pngPath", "rgbaPath", "visible", "anchor", "sourceType", "role"];
+const EXPECTED_ANCHOR = { x: 512, y: 585 };
 
 function toPosixPath(value) {
   return value.replaceAll("\\", "/");
@@ -43,6 +44,14 @@ function assertExpectedLayerNames(layers) {
   }
 }
 
+function hasExpectedAnchor(anchor) {
+  return Boolean(anchor)
+    && !Array.isArray(anchor)
+    && Object.keys(anchor).length === 2
+    && anchor.x === EXPECTED_ANCHOR.x
+    && anchor.y === EXPECTED_ANCHOR.y;
+}
+
 export async function auditLayeredMouthAssets(manifestPath) {
   const manifestDirectory = dirname(manifestPath);
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -64,6 +73,9 @@ export async function auditLayeredMouthAssets(manifestPath) {
     }
     if (names.has(layer.name)) throw new Error(`duplicate layer: ${layer.name}`);
     names.add(layer.name);
+    if (!hasExpectedAnchor(layer.anchor)) {
+      throw new Error(`${layer.name} anchor must be exactly {x:512,y:585}`);
+    }
 
     const png = await readFile(resolveAssetPath(manifestDirectory, layer.pngPath));
     const header = readPngHeader(png, layer.pngPath);
