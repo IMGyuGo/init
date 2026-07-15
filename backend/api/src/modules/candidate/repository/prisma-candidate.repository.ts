@@ -80,10 +80,332 @@ const NCS_PROFILE_IDS = [
   "COLLABORATION_COMMUNICATION",
   "PROBLEM_SOLVING",
 ] as const;
+const NCS_QUESTION_MODES = [
+  "EXPERIENCE_BEHAVIOR",
+  "TECHNICAL_KNOWLEDGE",
+  "SITUATIONAL_DESIGN",
+] as const;
 type CanonicalNcsProfileId = (typeof NCS_PROFILE_IDS)[number];
 
 function isCanonicalNcsProfileId(value: string | null | undefined): value is CanonicalNcsProfileId {
   return NCS_PROFILE_IDS.includes(value as CanonicalNcsProfileId);
+}
+
+type ExistingNcsSnapshotBinding = {
+  criterionId: bigint | null;
+  criterionTitleSnapshot: string;
+  ncsProfileId: string;
+  ncsProfileVersion: string;
+  alignmentStatus: string;
+  evaluatorVersion: string | null;
+  bindingOrder: number;
+};
+
+type ExistingNcsSnapshotQuestion = {
+  sessionQuestionId: bigint;
+  questionId: bigint | null;
+  personalizedQuestionId: bigint | null;
+  runtimeQuestionId: bigint | null;
+  criterionId: bigint | null;
+  criterionTitleSnapshot: string | null;
+  generationSource: string | null;
+  questionType: string | null;
+  content: string | null;
+  ncsProfileId: string | null;
+  ncsQuestionMode: string | null;
+  ncsProfileVersion: string | null;
+  alignmentStatus: string | null;
+  evaluatorVersion: string | null;
+  policyVersion: number | null;
+  criteriaVersion: number | null;
+  sortOrder: number;
+  ncsBindings: ExistingNcsSnapshotBinding[];
+};
+
+type ExistingNcsSessionPolicy = {
+  ncsProfileId: string;
+  criterionId: bigint | null;
+  criterionTitleSnapshot: string;
+  weight: number;
+  requiredQuestionCount: number;
+  ncsProfileVersion: string;
+};
+
+type ExistingNcsSessionSnapshot = {
+  sessionId: bigint;
+  status: string;
+  preparationTimeSecSnapshot: number | null;
+  answerTimeSecSnapshot: number | null;
+  retryAllowedSnapshot: boolean | null;
+  ncsScoringVersion: string | null;
+  answers: Array<{ answerId: bigint }>;
+  sessionQuestions: ExistingNcsSnapshotQuestion[];
+  ncsProfilePolicies: ExistingNcsSessionPolicy[];
+};
+
+type ExistingNcsSnapshotValidation = {
+  valid: boolean;
+  errors: string[];
+  commonQuestionCount: number;
+  personalizedQuestionCount: number;
+  policyVersion: number;
+  criteriaVersion: number;
+  ncsCoverage: Array<{
+    ncsProfileId: CanonicalNcsProfileId;
+    requiredQuestionCount: number;
+    actualQuestionCount: number;
+  }>;
+};
+
+type NcsSourceQuestion = {
+  criterionId: bigint | null;
+  ncsProfileId: string | null;
+  ncsQuestionMode: string | null;
+  ncsProfileVersion: string | null;
+  alignmentStatus: string | null;
+  evaluatorVersion: string | null;
+  ncsBindings: Array<{
+    criterionId: bigint | null;
+    ncsProfileId: string;
+    ncsProfileVersion: string;
+    alignmentStatus: string;
+    evaluatorVersion: string | null;
+    bindingOrder: number;
+    criterion: {
+      ncsProfileId: string | null;
+      ncsProfileVersion: string | null;
+    } | null;
+  }>;
+};
+
+function hasValidNcsSourceBindings(question: NcsSourceQuestion): boolean {
+  const bindings = question.ncsBindings;
+  const primaryBinding = bindings[0];
+  return (
+    question.alignmentStatus === "ALIGNED" &&
+    NCS_QUESTION_MODES.includes(
+      question.ncsQuestionMode as (typeof NCS_QUESTION_MODES)[number],
+    ) &&
+    Boolean(question.ncsProfileVersion?.trim()) &&
+    Boolean(question.evaluatorVersion?.trim()) &&
+    bindings.length >= 1 &&
+    bindings.length <= 2 &&
+    new Set(bindings.map((binding) => binding.ncsProfileId)).size === bindings.length &&
+    bindings.every((binding, index) =>
+      binding.bindingOrder === index + 1 &&
+      binding.alignmentStatus === "ALIGNED" &&
+      isCanonicalNcsProfileId(binding.ncsProfileId) &&
+      Boolean(binding.ncsProfileVersion.trim()) &&
+      Boolean(binding.evaluatorVersion?.trim()) &&
+      binding.criterion?.ncsProfileId === binding.ncsProfileId &&
+      binding.criterion.ncsProfileVersion === binding.ncsProfileVersion,
+    ) &&
+    primaryBinding !== undefined &&
+    question.criterionId === primaryBinding.criterionId &&
+    question.ncsProfileId === primaryBinding.ncsProfileId &&
+    question.ncsProfileVersion === primaryBinding.ncsProfileVersion &&
+    question.evaluatorVersion === primaryBinding.evaluatorVersion
+  );
+}
+
+function validateExistingNcsSessionSnapshot(
+  session: ExistingNcsSessionSnapshot,
+  current: {
+    expectedCommonQuestionCount: number;
+    expectedPersonalizedQuestionCount: number;
+    currentPolicyVersion: number;
+    currentCriteriaVersion: number;
+    requireCurrentVersions: boolean;
+  },
+): ExistingNcsSnapshotValidation {
+  const errors = new Set<string>();
+  const questions = session.sessionQuestions;
+  const commonQuestionCount = questions.filter(
+    (question) => question.generationSource === "JD_CRITERIA",
+  ).length;
+  const personalizedQuestionCount = questions.filter(
+    (question) => question.generationSource === "RESUME_PERSONALIZED",
+  ).length;
+
+  if (session.ncsScoringVersion !== NCS_SCORING_VERSION) {
+    errors.add("NCS_SCORING_VERSION_INVALID");
+  }
+  if (
+    !Number.isInteger(session.preparationTimeSecSnapshot) ||
+    (session.preparationTimeSecSnapshot ?? -1) < 0 ||
+    !Number.isInteger(session.answerTimeSecSnapshot) ||
+    (session.answerTimeSecSnapshot ?? 0) <= 0 ||
+    (session.answerTimeSecSnapshot ?? 0) <=
+      (session.preparationTimeSecSnapshot ?? -1) ||
+    typeof session.retryAllowedSnapshot !== "boolean"
+  ) {
+    errors.add("TIME_POLICY_SNAPSHOT_INVALID");
+  }
+  if (questions.length === 0) {
+    errors.add("SESSION_QUESTIONS_MISSING");
+  }
+
+  const profileQuestionCounts = new Map<CanonicalNcsProfileId, number>(
+    NCS_PROFILE_IDS.map((profileId) => [profileId, 0]),
+  );
+  const policyVersions = new Set<number>();
+  const criteriaVersions = new Set<number>();
+  for (const [index, question] of questions.entries()) {
+    if (question.sortOrder !== index + 1) {
+      errors.add("QUESTION_ORDER_INVALID");
+    }
+    const hasValidSourceShape =
+      (question.generationSource === "JD_CRITERIA" &&
+        question.questionId !== null &&
+        question.personalizedQuestionId === null) ||
+      (question.generationSource === "RESUME_PERSONALIZED" &&
+        question.questionId === null);
+    if (!hasValidSourceShape) {
+      errors.add("GENERATION_SOURCE_INVALID");
+    }
+    if (
+      question.runtimeQuestionId === null ||
+      !question.questionType ||
+      !question.content?.trim() ||
+      !question.criterionTitleSnapshot?.trim() ||
+      !NCS_QUESTION_MODES.includes(
+        question.ncsQuestionMode as (typeof NCS_QUESTION_MODES)[number],
+      ) ||
+      !question.ncsProfileVersion?.trim() ||
+      question.alignmentStatus !== "ALIGNED" ||
+      !question.evaluatorVersion?.trim()
+    ) {
+      errors.add("QUESTION_METADATA_INVALID");
+    }
+    if (!Number.isInteger(question.policyVersion) || (question.policyVersion ?? 0) < 1) {
+      errors.add("POLICY_VERSION_INVALID");
+    } else {
+      policyVersions.add(question.policyVersion as number);
+    }
+    if (!Number.isInteger(question.criteriaVersion) || (question.criteriaVersion ?? 0) < 1) {
+      errors.add("CRITERIA_VERSION_INVALID");
+    } else {
+      criteriaVersions.add(question.criteriaVersion as number);
+    }
+
+    const bindings = question.ncsBindings;
+    if (bindings.length < 1 || bindings.length > 2) {
+      errors.add("BINDING_CARDINALITY_INVALID");
+      continue;
+    }
+    const bindingProfiles = new Set<string>();
+    for (const [bindingIndex, binding] of bindings.entries()) {
+      if (
+        binding.bindingOrder !== bindingIndex + 1 ||
+        !isCanonicalNcsProfileId(binding.ncsProfileId) ||
+        bindingProfiles.has(binding.ncsProfileId) ||
+        binding.alignmentStatus !== "ALIGNED" ||
+        !binding.ncsProfileVersion.trim() ||
+        !binding.criterionTitleSnapshot.trim() ||
+        !binding.evaluatorVersion?.trim()
+      ) {
+        errors.add("BINDING_METADATA_INVALID");
+        continue;
+      }
+      bindingProfiles.add(binding.ncsProfileId);
+      profileQuestionCounts.set(
+        binding.ncsProfileId,
+        (profileQuestionCounts.get(binding.ncsProfileId) ?? 0) + 1,
+      );
+    }
+    const primaryBinding = bindings[0];
+    if (
+      !primaryBinding ||
+      question.criterionId !== primaryBinding.criterionId ||
+      question.criterionTitleSnapshot !== primaryBinding.criterionTitleSnapshot ||
+      question.ncsProfileId !== primaryBinding.ncsProfileId ||
+      question.ncsProfileVersion !== primaryBinding.ncsProfileVersion ||
+      question.evaluatorVersion !== primaryBinding.evaluatorVersion
+    ) {
+      errors.add("PRIMARY_BINDING_MISMATCH");
+    }
+  }
+
+  if (policyVersions.size !== 1) errors.add("POLICY_VERSION_INCONSISTENT");
+  if (criteriaVersions.size !== 1) errors.add("CRITERIA_VERSION_INCONSISTENT");
+  const policyVersion = [...policyVersions][0] ?? 0;
+  const criteriaVersion = [...criteriaVersions][0] ?? 0;
+  if (
+    current.requireCurrentVersions &&
+    (policyVersion !== current.currentPolicyVersion ||
+      criteriaVersion !== current.currentCriteriaVersion)
+  ) {
+    errors.add("CURRENT_VERSION_MISMATCH");
+  }
+  if (
+    current.requireCurrentVersions &&
+    (commonQuestionCount !== current.expectedCommonQuestionCount ||
+      personalizedQuestionCount !== current.expectedPersonalizedQuestionCount)
+  ) {
+    errors.add("QUESTION_COUNT_MISMATCH");
+  }
+
+  const policiesByProfile = new Map<CanonicalNcsProfileId, ExistingNcsSessionPolicy>();
+  if (session.ncsProfilePolicies.length !== NCS_PROFILE_IDS.length) {
+    errors.add("SESSION_POLICY_COUNT_INVALID");
+  }
+  for (const policy of session.ncsProfilePolicies) {
+    if (
+      !isCanonicalNcsProfileId(policy.ncsProfileId) ||
+      policiesByProfile.has(policy.ncsProfileId) ||
+      !Number.isInteger(policy.weight) ||
+      policy.weight < 0 ||
+      !Number.isInteger(policy.requiredQuestionCount) ||
+      policy.requiredQuestionCount < NCS_REQUIRED_QUESTION_COUNT ||
+      !policy.criterionTitleSnapshot.trim() ||
+      !policy.ncsProfileVersion.trim()
+    ) {
+      errors.add("SESSION_POLICY_METADATA_INVALID");
+      continue;
+    }
+    policiesByProfile.set(policy.ncsProfileId, policy);
+  }
+  if (
+    NCS_PROFILE_IDS.some((profileId) => !policiesByProfile.has(profileId)) ||
+    [...policiesByProfile.values()].reduce((total, policy) => total + policy.weight, 0) !== 100
+  ) {
+    errors.add("SESSION_POLICY_WEIGHT_INVALID");
+  }
+
+  const ncsCoverage = NCS_PROFILE_IDS.map((ncsProfileId) => {
+    const policy = policiesByProfile.get(ncsProfileId);
+    const requiredQuestionCount = policy?.requiredQuestionCount ?? NCS_REQUIRED_QUESTION_COUNT;
+    const actualQuestionCount = profileQuestionCounts.get(ncsProfileId) ?? 0;
+    if (actualQuestionCount < requiredQuestionCount) {
+      errors.add(`PROFILE_COVERAGE_INVALID:${ncsProfileId}`);
+    }
+    const profileBindings = questions.flatMap((question) =>
+      question.ncsBindings
+        .filter((binding) => binding.ncsProfileId === ncsProfileId)
+        .map((binding) => binding),
+    );
+    if (
+      policy &&
+      profileBindings.some((binding) =>
+        binding.ncsProfileVersion !== policy.ncsProfileVersion ||
+        binding.criterionId !== policy.criterionId ||
+        binding.criterionTitleSnapshot !== policy.criterionTitleSnapshot,
+      )
+    ) {
+      errors.add(`PROFILE_POLICY_MISMATCH:${ncsProfileId}`);
+    }
+    return { ncsProfileId, requiredQuestionCount, actualQuestionCount };
+  });
+
+  return {
+    valid: errors.size === 0,
+    errors: [...errors],
+    commonQuestionCount,
+    personalizedQuestionCount,
+    policyVersion,
+    criteriaVersion,
+    ncsCoverage,
+  };
 }
 
 @Injectable()
@@ -494,7 +816,16 @@ export class PrismaCandidateRepository implements CandidateRepository {
             where: { interviewType: PrismaInterviewType.RECRUITING },
             orderBy: { sessionId: "desc" },
             take: 1,
-            include: { sessionQuestions: { orderBy: { sortOrder: "asc" } } },
+            include: {
+              sessionQuestions: {
+                orderBy: { sortOrder: "asc" },
+                include: {
+                  ncsBindings: { orderBy: { bindingOrder: "asc" } },
+                },
+              },
+              ncsProfilePolicies: { orderBy: { ncsProfileId: "asc" } },
+              answers: { select: { answerId: true }, take: 1 },
+            },
           },
         },
       });
@@ -507,7 +838,8 @@ export class PrismaCandidateRepository implements CandidateRepository {
       const criteriaVersion = policy?.criteriaVersion ?? 0;
       const existingSession = application.interviewSessions[0] ?? null;
       const existingSnapshot = existingSession?.sessionQuestions ?? [];
-      if (existingSession && existingSnapshot.length > 0) {
+      const isNcsPolicy = policy?.evaluationFramework === "NCS_3_PROFILE_V1";
+      if (existingSession && existingSnapshot.length > 0 && !isNcsPolicy) {
         const commonQuestionCount = existingSnapshot.filter((item) =>
           item.generationSource === "JD_CRITERIA" || (item.generationSource === null && item.questionId !== null),
         ).length;
@@ -530,7 +862,70 @@ export class PrismaCandidateRepository implements CandidateRepository {
         };
       }
 
-      if (!policy || policy.evaluationFramework !== "NCS_3_PROFILE_V1") {
+      let replaceInvalidNcsSnapshot = false;
+      if (existingSession && isNcsPolicy) {
+        const canReplaceSnapshot =
+          (existingSession.status === PrismaInterviewStatus.NOT_READY ||
+            existingSession.status === PrismaInterviewStatus.READY) &&
+          existingSession.answers.length === 0;
+        const validation = validateExistingNcsSessionSnapshot(
+          existingSession as unknown as ExistingNcsSessionSnapshot,
+          {
+            expectedCommonQuestionCount,
+            expectedPersonalizedQuestionCount,
+            currentPolicyVersion: policyVersion,
+            currentCriteriaVersion: criteriaVersion,
+            requireCurrentVersions: canReplaceSnapshot,
+          },
+        );
+        if (validation.valid) {
+          return {
+            readiness: "READY",
+            applicationId,
+            postingId: Number(application.postingId),
+            sessionId: Number(existingSession.sessionId),
+            snapshotCreated: false,
+            commonQuestionCount: validation.commonQuestionCount,
+            personalizedQuestionCount: validation.personalizedQuestionCount,
+            totalQuestionCount: existingSnapshot.length,
+            expectedCommonQuestionCount,
+            expectedPersonalizedQuestionCount,
+            policyVersion: validation.policyVersion,
+            criteriaVersion: validation.criteriaVersion,
+            ncsCoverage: validation.ncsCoverage,
+          };
+        }
+        if (!canReplaceSnapshot) {
+          return {
+            readiness: "NCS_SNAPSHOT_INVALID",
+            applicationId,
+            postingId: Number(application.postingId),
+            sessionId: Number(existingSession.sessionId),
+            snapshotCreated: false,
+            commonQuestionCount: validation.commonQuestionCount,
+            personalizedQuestionCount: validation.personalizedQuestionCount,
+            totalQuestionCount: existingSnapshot.length,
+            expectedCommonQuestionCount,
+            expectedPersonalizedQuestionCount,
+            policyVersion: validation.policyVersion,
+            criteriaVersion: validation.criteriaVersion,
+            ncsCoverage: validation.ncsCoverage,
+            snapshotValidationErrors: validation.errors,
+          };
+        }
+        const retryAllowedSnapshot = (
+          existingSession as unknown as { retryAllowedSnapshot: boolean | null }
+        ).retryAllowedSnapshot;
+        replaceInvalidNcsSnapshot =
+          existingSnapshot.length > 0 ||
+          existingSession.ncsProfilePolicies.length > 0 ||
+          existingSession.preparationTimeSecSnapshot !== null ||
+          existingSession.answerTimeSecSnapshot !== null ||
+          retryAllowedSnapshot !== null ||
+          existingSession.ncsScoringVersion !== null;
+      }
+
+      if (!isNcsPolicy) {
         const session = existingSession ?? await transaction.interviewSession.create({
           data: {
             applicationId: application.applicationId,
@@ -593,15 +988,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
       const commonQuestions = activeQuestionSetItems.filter((item) =>
         item.question.isActive &&
         item.question.generationSource === "JD_CRITERIA" &&
-        item.question.ncsQuestionMode !== null &&
-        item.question.ncsBindings.length >= 1 &&
-        item.question.ncsBindings.length <= 2 &&
-        item.question.ncsBindings.every((binding) =>
-          binding.alignmentStatus === "ALIGNED" &&
-          isCanonicalNcsProfileId(binding.ncsProfileId) &&
-          Boolean(binding.ncsProfileVersion) &&
-          binding.criterion !== null,
-        ),
+        hasValidNcsSourceBindings(item.question),
       );
       if (
         activeQuestionSetItems.length !== expectedCommonQuestionCount ||
@@ -639,18 +1026,10 @@ export class PrismaCandidateRepository implements CandidateRepository {
             )
           : null;
         personalizedQuestions = batch?.status === "READY" && batch.questions.length === expectedPersonalizedQuestionCount
-          ? batch.questions.filter((question) =>
+            ? batch.questions.filter((question) =>
               question.source === "RESUME_PERSONALIZED" &&
               Boolean(question.content.trim()) &&
-              Boolean(question.ncsQuestionMode) &&
-              question.ncsBindings.length >= 1 &&
-              question.ncsBindings.length <= 2 &&
-              question.ncsBindings.every((binding) =>
-                binding.alignmentStatus === "ALIGNED" &&
-                isCanonicalNcsProfileId(binding.ncsProfileId) &&
-                Boolean(binding.ncsProfileVersion) &&
-                binding.criterion !== null,
-              ),
+              hasValidNcsSourceBindings(question),
             )
           : [];
         if (personalizedQuestions.length !== expectedPersonalizedQuestionCount) {
@@ -708,14 +1087,24 @@ export class PrismaCandidateRepository implements CandidateRepository {
 
       const preparationTimeSecSnapshot = application.posting.timePolicy?.preparationTimeSec ?? 0;
       const answerTimeSecSnapshot = application.posting.timePolicy?.answerTimeSec ?? 90;
+      const retryAllowedSnapshot = application.posting.timePolicy?.retryAllowed ?? false;
+      if (existingSession && replaceInvalidNcsSnapshot) {
+        await transaction.interviewSessionQuestion.deleteMany({
+          where: { sessionId: existingSession.sessionId },
+        });
+        await transaction.interviewSessionNcsPolicy.deleteMany({
+          where: { sessionId: existingSession.sessionId },
+        });
+      }
       const session = existingSession
         ? await transaction.interviewSession.update({
             where: { sessionId: existingSession.sessionId },
             data: {
               preparationTimeSecSnapshot,
               answerTimeSecSnapshot,
+              retryAllowedSnapshot,
               ncsScoringVersion: NCS_SCORING_VERSION,
-            },
+            } as Prisma.InterviewSessionUpdateInput,
           })
         : await transaction.interviewSession.create({
             data: {
@@ -726,8 +1115,9 @@ export class PrismaCandidateRepository implements CandidateRepository {
               showQuestionText: true,
               preparationTimeSecSnapshot,
               answerTimeSecSnapshot,
+              retryAllowedSnapshot,
               ncsScoringVersion: NCS_SCORING_VERSION,
-            },
+            } as Prisma.InterviewSessionUncheckedCreateInput,
           });
       const snapshotRows: Prisma.InterviewSessionQuestionCreateManyInput[] = [];
       const snapshotBindings: Array<Array<Omit<

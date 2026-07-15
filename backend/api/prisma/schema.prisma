@@ -677,6 +677,7 @@ model InterviewSession {
   showQuestionText           Boolean                            @default(false) @map("show_question_text")
   preparationTimeSecSnapshot Int?                               @map("preparation_time_sec_snapshot")
   answerTimeSecSnapshot      Int?                               @map("answer_time_sec_snapshot")
+  retryAllowedSnapshot       Boolean?                           @map("retry_allowed_snapshot")
   ncsScoringVersion          String?                            @map("ncs_scoring_version") @db.VarChar(80)
   startedAt                  DateTime?                          @map("started_at")
   completedAt                DateTime?                          @map("completed_at")

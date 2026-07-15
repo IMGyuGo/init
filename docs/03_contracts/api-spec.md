@@ -3248,7 +3248,10 @@ CandidateFolder 입력 제한:
 - 검증/전제조건:
   - 응시 기간 내, 필수 동의 완료, 장치 점검 완료
   - 공고의 `resumeQuestionCount`가 1 이상이면 지원서별 이력서 질문 상태가 `READY`이고 세션 질문 snapshot이 생성되어 있어야 한다.
-  - snapshot이 없으면 API-017과 동일한 transaction으로 생성하며 이미 있으면 변경하지 않는다.
+  - snapshot이 없으면 API-017과 동일한 transaction으로 생성한다.
+  - 기존 NCS snapshot도 generation source, 질문별 canonical 1~2 ALIGNED binding, profile별 최소 2문항, policy/criteria/profile version, 준비·답변·재시도 시간 정책, NCS 가중치 합계 100, canonical session policy 3행을 모두 재검증한다.
+  - 미시작·무답변 세션의 불완전 snapshot은 같은 transaction에서 기존 질문·binding·session policy를 전량 제거한 뒤 재생성한다. 일부 row만 남기는 partial snapshot은 허용하지 않는다.
+  - `IN_PROGRESS`, `COMPLETED` 또는 답변이 존재하는 세션의 불완전 snapshot은 변경하지 않는다.
   - 세션 snapshot의 canonical NCS profile별 scoring base question이 최소 2개여야 한다.
 - 성공 응답/처리:
   - 채용 AI 면접 진행 화면으로 이동
@@ -3257,6 +3260,7 @@ CandidateFolder 입력 제한:
   - 이력서 질문이 준비되지 않았으면 `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`를 반환하며 공통 질문만으로 자동 시작하지 않는다.
   - ACTIVE 공통 질문 수 또는 정렬 상태가 정책과 다르면 `INTERVIEW_QUESTION_COUNT_INVALID`를 반환한다.
   - profile별 scoring base question이 2개 미만이면 `INTERVIEW_NCS_QUESTION_COVERAGE_INVALID`를 반환한다.
+  - 진행·완료 또는 답변이 존재하는 세션의 기존 NCS snapshot 계약이 불완전하면 `INTERVIEW_NCS_SNAPSHOT_INVALID`를 반환한다.
 - 관련 ERD 테이블:
   - candidate_profiles, postings, applications, consent_records, interview_sessions, ai_process_logs
 - 비고/미결:

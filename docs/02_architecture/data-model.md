@@ -410,6 +410,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | show_question_text | BOOLEAN NOT NULL DEFAULT FALSE | 면접 질문 텍스트 표시 여부 |
 | preparation_time_sec_snapshot | INTEGER | 세션 확정 당시 준비 시간. legacy 세션은 NULL |
 | answer_time_sec_snapshot | INTEGER | 세션 확정 당시 본 질문·꼬리질문 공통 답변 시간. legacy 세션은 NULL |
+| retry_allowed_snapshot | BOOLEAN | 세션 확정 당시 재답변 허용 여부. legacy 세션은 NULL |
 | ncs_scoring_version | VARCHAR(80) | 세션에 고정한 NCS 점수 계산 계약 version. legacy 세션은 NULL |
 | started_at | TIMESTAMP | 면접 시작 시각 |
 | completed_at | TIMESTAMP | 면접 완료 시각 |

@@ -22,6 +22,10 @@ class SnapshotReadinessRepository extends InMemoryCandidateRepository {
       expectedPersonalizedQuestionCount: 2,
       commonQuestionCount: this.readiness === "COMMON_QUESTIONS_NOT_READY" ? 2 : 3,
       personalizedQuestionCount: this.readiness === "PERSONALIZED_QUESTIONS_NOT_READY" ? 0 : 2,
+      snapshotValidationErrors:
+        this.readiness === "NCS_SNAPSHOT_INVALID"
+          ? ["BINDING_METADATA_INVALID"]
+          : undefined,
     };
   }
 }
@@ -68,6 +72,17 @@ describe("CandidateService recruiting snapshot gate", () => {
       () => fixture.service.startInterview(fixture.applicationId, DEV_CANDIDATE_USER),
       (error) => error instanceof CandidateDomainError &&
         error.code === "INTERVIEW_QUESTION_COUNT_INVALID",
+    );
+  });
+
+  it("blocks API-065 when an immutable NCS session snapshot is invalid", async () => {
+    const fixture = await createReadyCandidateService("NCS_SNAPSHOT_INVALID");
+
+    await assert.rejects(
+      () => fixture.service.startInterview(fixture.applicationId, DEV_CANDIDATE_USER),
+      (error) => error instanceof CandidateDomainError &&
+        error.code === "INTERVIEW_NCS_SNAPSHOT_INVALID" &&
+        error.statusCode === 409,
     );
   });
 });

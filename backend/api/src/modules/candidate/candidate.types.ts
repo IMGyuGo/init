@@ -411,7 +411,8 @@ export type InterviewQuestionSnapshotReadiness =
   | "READY"
   | "COMMON_QUESTIONS_NOT_READY"
   | "PERSONALIZED_QUESTIONS_NOT_READY"
-  | "NCS_QUESTION_COVERAGE_INVALID";
+  | "NCS_QUESTION_COVERAGE_INVALID"
+  | "NCS_SNAPSHOT_INVALID";
 
 export interface InterviewNcsCoverageCount {
   ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
@@ -433,6 +434,7 @@ export interface InterviewQuestionSnapshotResult {
   policyVersion: number;
   criteriaVersion: number;
   ncsCoverage?: InterviewNcsCoverageCount[];
+  snapshotValidationErrors?: string[];
 }
 
 export interface CandidateInterviewRuntimeView {

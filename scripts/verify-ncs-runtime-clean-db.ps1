@@ -128,6 +128,12 @@ SELECT CASE WHEN
       AND table_name = 'interview_sessions'
       AND column_name = 'ncs_scoring_version'
   )
+  AND EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'interview_sessions'
+      AND column_name = 'retry_allowed_snapshot'
+  )
   AND (
     SELECT count(*) FROM information_schema.tables
     WHERE table_schema = 'public'

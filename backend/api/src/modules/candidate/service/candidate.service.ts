@@ -844,6 +844,17 @@ export class CandidateService {
         })),
       );
     }
+    if (result.readiness === "NCS_SNAPSHOT_INVALID") {
+      throw new CandidateDomainError(
+        "INTERVIEW_NCS_SNAPSHOT_INVALID",
+        "The existing NCS interview snapshot does not satisfy the runtime contract.",
+        409,
+        (result.snapshotValidationErrors ?? ["UNKNOWN_SNAPSHOT_ERROR"]).map((reason) => ({
+          field: "sessionSnapshot",
+          reason,
+        })),
+      );
+    }
     return result;
   }
 
