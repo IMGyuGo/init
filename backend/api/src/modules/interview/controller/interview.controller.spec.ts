@@ -625,6 +625,135 @@ test("REANSWER_REQUIRED allows replacing the current answer once without creatin
   );
 });
 
+test("STT status restores the single reanswer opportunity and preserves terminal failure after refresh", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["INTRO", "TECHNICAL"],
+    showQuestionText: false,
+  });
+  const sessionId = String(started.data.sessionId);
+  const questions = await controller.listMockQuestions(validCandidateRequest, sessionId);
+  const firstQuestionId = questions.data.questions[0]?.questionId ?? 0;
+  const first = await controller.saveMockAnswer(validCandidateRequest, sessionId, {
+    questionId: firstQuestionId,
+    audioFile: {
+      storageKey: "candidate/1/mock-answer-stt-first.webm",
+      originalName: "mock-answer-stt-first.webm",
+      mimeType: "audio/webm",
+      sizeBytes: 1024,
+    },
+    durationSeconds: 10,
+  });
+
+  interviewRepository.saveReanswerRequiredFailureForTest({
+    processLogId: 9301,
+    sessionId: started.data.sessionId,
+    answerId: first.data.answer.answerId,
+    createdAt: first.data.answer.submittedAt,
+    failureReason: "speech was not detected",
+  });
+
+  const afterFirstFailure = await controller.listMockQuestions(validCandidateRequest, sessionId);
+  const failedQuestion = afterFirstFailure.data.questions.find((question) => question.questionId === firstQuestionId);
+  assert.equal(failedQuestion?.answerId, first.data.answer.answerId);
+  assert.equal(failedQuestion?.sttStatus, "REANSWER_AVAILABLE");
+  assert.equal(failedQuestion?.reanswerAvailable, true);
+  assert.equal(failedQuestion?.sttFailureReason, "speech was not detected");
+
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  const retried = await controller.saveMockAnswer(validCandidateRequest, sessionId, {
+    questionId: firstQuestionId,
+    audioFile: {
+      storageKey: "candidate/1/mock-answer-stt-retry.webm",
+      originalName: "mock-answer-stt-retry.webm",
+      mimeType: "audio/webm",
+      sizeBytes: 2048,
+    },
+    durationSeconds: 14,
+    retryAnswerId: first.data.answer.answerId,
+  });
+
+  const afterRetry = await controller.listMockQuestions(validCandidateRequest, sessionId);
+  const retryQuestion = afterRetry.data.questions.find((question) => question.questionId === firstQuestionId);
+  assert.equal(retryQuestion?.sttStatus, "PENDING");
+  assert.equal(retryQuestion?.reanswerAvailable, false);
+
+  interviewRepository.saveReanswerRequiredFailureForTest({
+    processLogId: 9302,
+    sessionId: started.data.sessionId,
+    answerId: retried.data.answer.answerId,
+    createdAt: retried.data.answer.submittedAt,
+    failureReason: "speech was still not detected after reanswer",
+  });
+
+  const afterSecondFailure = await controller.listMockQuestions(validCandidateRequest, sessionId);
+  const unavailableQuestion = afterSecondFailure.data.questions.find((question) => question.questionId === firstQuestionId);
+  assert.equal(unavailableQuestion?.sttStatus, "UNAVAILABLE");
+  assert.equal(unavailableQuestion?.reanswerAvailable, false);
+  assert.equal(unavailableQuestion?.sttFailureReason, "speech was still not detected after reanswer");
+
+  await assertInterviewHttpError(
+    () =>
+      controller.saveMockAnswer(validCandidateRequest, sessionId, {
+        questionId: firstQuestionId,
+        audioFile: {
+          storageKey: "candidate/1/mock-answer-stt-third.webm",
+          originalName: "mock-answer-stt-third.webm",
+          mimeType: "audio/webm",
+          sizeBytes: 2048,
+        },
+        durationSeconds: 14,
+        retryAnswerId: retried.data.answer.answerId,
+      }),
+    409,
+    "COMMON_CONFLICT",
+  );
+});
+
+test("provider failure remains distinct from STT recognition failure", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["INTRO"],
+    showQuestionText: false,
+  });
+  const sessionId = String(started.data.sessionId);
+  const questions = await controller.listMockQuestions(validCandidateRequest, sessionId);
+  const questionId = questions.data.questions[0]?.questionId ?? 0;
+  const answer = await controller.saveMockAnswer(validCandidateRequest, sessionId, {
+    questionId,
+    audioFile: {
+      storageKey: "candidate/1/mock-answer-provider-failure.webm",
+      originalName: "mock-answer-provider-failure.webm",
+      mimeType: "audio/webm",
+      sizeBytes: 1024,
+    },
+    durationSeconds: 10,
+  });
+  interviewRepository.saveSttProcessForTest({
+    processLogId: 9401,
+    sessionId: started.data.sessionId,
+    answerId: answer.data.answer.answerId,
+    status: "FAILED",
+    failureCategory: "PROVIDER_UNAVAILABLE",
+    failureReason: "STT provider timed out",
+    createdAt: answer.data.answer.submittedAt,
+  });
+
+  const refreshed = await controller.listMockQuestions(validCandidateRequest, sessionId);
+  const failedQuestion = refreshed.data.questions.find((question) => question.questionId === questionId);
+  assert.equal(failedQuestion?.sttStatus, "PROCESSING_FAILED");
+  assert.equal(failedQuestion?.reanswerAvailable, false);
+  assert.equal(failedQuestion?.sttFailureReason, "STT provider timed out");
+});
+
 test("recording validation skip stores an unanswered answer and allows moving next", async () => {
   const repository = new InMemoryCandidateRepository();
   const candidateService = new CandidateService(repository);
