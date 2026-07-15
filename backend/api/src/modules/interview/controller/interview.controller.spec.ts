@@ -1071,7 +1071,7 @@ async function runControllerRuntimeAssertions() {
   for (let index = 0; index < recruitingQuestions.data.questions.length; index += 1) {
     const question = recruitingQuestions.data.questions[index];
     assert.ok(question);
-    const answer = await controller.saveRecruitingAnswer(validCandidateRequest, String(session.sessionId), {
+    const answerRequest = {
       questionId: question.questionId,
       videoFile: {
         storageKey: `candidate/1/recruiting-answer-${index + 1}.webm`,
@@ -1080,8 +1080,31 @@ async function runControllerRuntimeAssertions() {
         sizeBytes: 4096,
       },
       durationSeconds: 60,
-    });
+    };
+    const answer = await controller.saveRecruitingAnswer(validCandidateRequest, String(session.sessionId), answerRequest);
     assert.equal(answer.data.answer.questionId, question.questionId);
+    assert.equal(answer.data.idempotentReplay, false);
+    assert.equal(
+      answer.data.currentQuestion?.questionId,
+      recruitingQuestions.data.questions[index + 1]?.questionId,
+    );
+    assert.equal(answer.data.completionReady, index === recruitingQuestions.data.questions.length - 1);
+
+    if (index === 0) {
+      const replay = await controller.saveRecruitingAnswer(
+        validCandidateRequest,
+        String(session.sessionId),
+        answerRequest,
+      );
+      assert.equal(replay.data.answer.answerId, answer.data.answer.answerId);
+      assert.equal(replay.data.idempotentReplay, true);
+      assert.equal(replay.data.currentQuestion?.questionId, recruitingQuestions.data.questions[1]?.questionId);
+      assert.equal(await interviewRepository.countAnswersBySession(session.sessionId), 1);
+
+      const restored = await controller.listRecruitingQuestions(validCandidateRequest, String(session.sessionId));
+      assert.equal(restored.data.currentQuestionId, recruitingQuestions.data.questions[1]?.questionId);
+      assert.equal(restored.data.questions.filter((candidateQuestion) => candidateQuestion.current).length, 1);
+    }
 
     if (index === 0) {
       const stt = await controller.requestRecruitingStt(validCandidateRequest, String(session.sessionId), {
@@ -1096,15 +1119,16 @@ async function runControllerRuntimeAssertions() {
     }
 
     if (index < recruitingQuestions.data.questions.length - 1) {
-      await controller.moveRecruitingNextQuestion(validCandidateRequest, String(session.sessionId));
+      const moved = await controller.moveRecruitingNextQuestion(validCandidateRequest, String(session.sessionId));
+      assert.equal(moved.data.currentQuestion?.questionId, recruitingQuestions.data.questions[index + 1]?.questionId);
+      assert.equal(moved.data.completionReady, false);
     }
   }
 
-  await assertInterviewHttpError(
-    () => controller.moveRecruitingNextQuestion(validCandidateRequest, String(session.sessionId)),
-    409,
-    "COMMON_CONFLICT",
-  );
+  const completionReady = await controller.moveRecruitingNextQuestion(validCandidateRequest, String(session.sessionId));
+  assert.equal(completionReady.data.currentQuestion, undefined);
+  assert.equal(completionReady.data.isLastQuestion, true);
+  assert.equal(completionReady.data.completionReady, true);
 
   const completedRecruiting = await controller.completeRecruitingInterview(
     validCandidateRequest,

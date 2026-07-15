@@ -478,6 +478,54 @@ export class PrismaInterviewRepository implements InterviewRepository {
     return this.toAnswer(answer);
   }
 
+  async createAnswerIdempotent(input: CreateInterviewAnswerInput) {
+    return this.prisma.$transaction(async (transaction) => {
+      const sessionQuestion = await transaction.interviewSessionQuestion.findFirst({
+        where: {
+          sessionId: BigInt(input.sessionId),
+          OR: [
+            { questionId: BigInt(input.questionId) },
+            { runtimeQuestionId: BigInt(input.questionId) },
+          ],
+        },
+        select: { sessionQuestionId: true, questionId: true },
+      });
+      if (!sessionQuestion) {
+        throw new ApiException(ERROR_CODES.COMMON_NOT_FOUND, "세션 질문을 찾을 수 없습니다.", 404);
+      }
+
+      const lockKey = 310_000_000_000n + sessionQuestion.sessionQuestionId;
+      await transaction.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
+      const existing = await transaction.interviewAnswer.findFirst({
+        where: {
+          sessionId: BigInt(input.sessionId),
+          sessionQuestionId: sessionQuestion.sessionQuestionId,
+        },
+        orderBy: { answerId: "asc" },
+        include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
+      });
+      if (existing) {
+        return { answer: this.toAnswer(existing), created: false };
+      }
+
+      const answer = await transaction.interviewAnswer.create({
+        data: {
+          sessionId: BigInt(input.sessionId),
+          questionId: sessionQuestion.questionId,
+          sessionQuestionId: sessionQuestion.sessionQuestionId,
+          videoFileId: input.videoFileId ? BigInt(input.videoFileId) : null,
+          audioFileId: input.audioFileId ? BigInt(input.audioFileId) : null,
+          ...(input.transcript !== undefined ? { transcript: input.transcript } : {}),
+          ...(input.nonverbalMetadata !== undefined ? { nonverbalMetadata: this.toPrismaJson(input.nonverbalMetadata) } : {}),
+          durationSeconds: input.durationSeconds,
+          submittedAt: new Date(input.submittedAt),
+        },
+        include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
+      });
+      return { answer: this.toAnswer(answer), created: true };
+    });
+  }
+
   async updateAnswer(input: CreateInterviewAnswerInput & { answerId: number }): Promise<InterviewAnswer> {
     const answer = await this.prisma.interviewAnswer.update({
       where: { answerId: BigInt(input.answerId) },

@@ -1112,16 +1112,14 @@ export function getInterviewRuntimeProgressionState({
     hasRuntimeData &&
       currentQuestionAnswered &&
       (!isCurrentQuestionLast || generatedFollowUpReady) &&
-      !answerProcessingBusy &&
       !isReansweringCurrentQuestion &&
       !recording,
   );
   const canCompleteInterview = Boolean(
     hasRuntimeData &&
-      currentQuestionAnswered &&
-      isCurrentQuestionLast &&
+      (currentQuestionAnswered || answeredQuestionCount >= totalQuestions) &&
+      (isCurrentQuestionLast || answeredQuestionCount >= totalQuestions) &&
       !generatedFollowUpReady &&
-      !answerProcessingBusy &&
       answeredQuestionCount >= totalQuestions &&
       !isReansweringCurrentQuestion &&
       !recording,

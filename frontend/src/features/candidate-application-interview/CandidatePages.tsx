@@ -2932,7 +2932,7 @@ function InterviewRuntimePanel({
   apiClient?: InterviewRuntimeApiClient;
   onRecruitingComplete?: (applicationId: number, sessionId: number) => void;
 }) {
-  const { data, loading, error, refresh } = resource;
+  const { data, loading, error, refresh, updateData } = resource;
   const router = useRouter();
   const runtimeApi = apiClient ?? getCandidateApi();
   const currentQuestion = data?.runtime.currentQuestion;
@@ -3225,6 +3225,50 @@ function InterviewRuntimePanel({
       answeredQuestionIdsRef.current = next;
       return next;
     });
+  }
+
+  function applyAuthoritativeQuestionTransition(
+    answeredQuestionId: number | undefined,
+    nextQuestion: RuntimeQuestionView | undefined,
+    completionReady: boolean,
+  ) {
+    updateData((current) => {
+      const questions = current.questions.questions.map((question) => {
+        if (nextQuestion && question.questionId === nextQuestion.questionId) {
+          return { ...question, ...nextQuestion, current: true, answered: false };
+        }
+        if (answeredQuestionId && question.questionId === answeredQuestionId) {
+          return { ...question, current: false, answered: true };
+        }
+        return { ...question, current: false };
+      });
+      const answeredCount = questions.filter((question) => question.answered).length;
+      return {
+        ...current,
+        runtime: {
+          ...current.runtime,
+          answeredCount,
+          currentQuestion: completionReady ? undefined : nextQuestion,
+        },
+        questions: {
+          ...current.questions,
+          currentQuestionId: completionReady ? undefined : nextQuestion?.questionId,
+          questions,
+        },
+      };
+    });
+  }
+
+  function prepareAuthoritativeNextQuestion(nextQuestion: RuntimeQuestionView | undefined) {
+    stopQuestionSpeech();
+    setAnswer(nextQuestion ? { ...defaultInterviewAnswerFormState, questionId: nextQuestion.questionId } : defaultInterviewAnswerFormState);
+    setRecordedFileName("");
+    setQuestionSpeechStatus(nextQuestion ? "다음 질문 음성 대기" : "면접 답변 완료");
+    setQuestionSpeechCompleted(false);
+    setQuestionSpeechPlaying(false);
+    resetRuntimeQuestionTimer(data?.runtime, setTimerPhase, setRemainingSeconds);
+    timeExpiredQuestionRef.current = null;
+    autoRecordingQuestionRef.current = null;
   }
 
   function isQuestionStateConflict(error: unknown): boolean {
@@ -6332,29 +6376,12 @@ function InterviewRuntimePanel({
       setRetryAnswerId(undefined);
       setRetryingQuestionId(undefined);
       lastInvalidRecordingMetadataRef.current.delete(questionId);
-
-      const questionIndex = data.questions.questions.findIndex((candidateQuestion) => candidateQuestion.questionId === questionId);
-      const isLastQuestion = questionIndex >= 0
-        ? questionIndex >= data.runtime.totalQuestions - 1
-        : false;
-      if (isLastQuestion) {
+      applyAuthoritativeQuestionTransition(questionId, result.data.currentQuestion, result.data.completionReady);
+      prepareAuthoritativeNextQuestion(result.data.currentQuestion);
+      if (result.data.completionReady) {
         setMessage(`${reasonMessage} 현재 질문은 미답변 처리되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요.`);
         return;
       }
-
-      await (mode === "mock"
-        ? api.moveMockNextQuestion(data.runtime.sessionId)
-        : api.moveRecruitingNextQuestion(data.runtime.sessionId));
-      stopQuestionSpeech();
-      setAnswer(defaultInterviewAnswerFormState);
-      setRecordedFileName("");
-      setQuestionSpeechStatus("다음 질문 음성 대기");
-      setQuestionSpeechCompleted(false);
-      setQuestionSpeechPlaying(false);
-      resetRuntimeQuestionTimer(data.runtime, setTimerPhase, setRemainingSeconds);
-      timeExpiredQuestionRef.current = null;
-      autoRecordingQuestionRef.current = null;
-      void refresh().catch(() => undefined);
       setMessage(`${reasonMessage} 현재 질문은 미답변 처리하고 다음 질문으로 이동했습니다.`);
     } catch (submitError) {
       setMessage(toErrorMessage(submitError));
@@ -6441,33 +6468,29 @@ function InterviewRuntimePanel({
         });
       }
       markQuestionAnswered(preparedRequest.questionId);
+      applyAuthoritativeQuestionTransition(
+        preparedRequest.questionId,
+        result.data.currentQuestion,
+        result.data.completionReady,
+      );
+      prepareAuthoritativeNextQuestion(result.data.currentQuestion);
       setRetryAnswerId(undefined);
       setRetryingQuestionId(undefined);
       const shouldAutoAdvance = autoAdvanceAfterAnswerSubmitRef.current;
       autoAdvanceAfterAnswerSubmitRef.current = false;
-      const questionIndex = question
-        ? data.questions.questions.findIndex((candidateQuestion) => candidateQuestion.questionId === question.questionId)
-        : -1;
-      const isLastSavedQuestion = questionIndex >= 0
-        ? questionIndex >= data.runtime.totalQuestions - 1
-        : result.data.nextQuestionAvailable === false;
       const shouldPrepareFollowUp = question?.questionType !== "FOLLOW_UP";
       setMessage(
-        isLastSavedQuestion && !shouldPrepareFollowUp
+        result.data.completionReady && !shouldPrepareFollowUp
           ? "답변이 저장되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
-          : "답변이 저장되었습니다. 다음 질문을 준비하고 있습니다.",
+          : result.data.completionReady
+            ? "답변이 저장되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
+            : "답변이 저장되었습니다. 다음 질문으로 이동했습니다.",
       );
-      const automaticPipeline = runAutomaticAiPipeline(
+      void runAutomaticAiPipeline(
         savedAnswer,
         question,
         getInterviewAiPollingPolicy({ timedAutoAdvance: shouldAutoAdvance }),
       );
-      if (shouldAutoAdvance) {
-        await automaticPipeline;
-        await advanceAfterTimedAnswer(question);
-      } else {
-        void automaticPipeline;
-      }
     } catch (submitError) {
       autoAdvanceAfterAnswerSubmitRef.current = false;
       completeAnswerSubmitToNextReadyMetric({
@@ -7204,10 +7227,6 @@ function InterviewRuntimePanel({
 
   async function handleNextQuestion() {
     if (!data) return;
-    if (answerProcessingBusy) {
-      setMessage("꼬리질문 생성이 완료된 뒤 다음 질문으로 이동할 수 있습니다.");
-      return;
-    }
     if (generatedFollowUpReady) {
       await handleAnswerFollowUpQuestion();
       return;
@@ -7218,19 +7237,16 @@ function InterviewRuntimePanel({
     try {
       beginAnswerToNextQuestionMetric();
       const api = runtimeApi;
-      await (mode === "mock"
+      const result = await (mode === "mock"
         ? api.moveMockNextQuestion(data.runtime.sessionId)
         : api.moveRecruitingNextQuestion(data.runtime.sessionId));
-      stopQuestionSpeech();
-      setAnswer(defaultInterviewAnswerFormState);
-      setRecordedFileName("");
-      setQuestionSpeechStatus("다음 질문 음성 대기");
-      setQuestionSpeechCompleted(false);
-      setQuestionSpeechPlaying(false);
-      resetRuntimeQuestionTimer(data.runtime, setTimerPhase, setRemainingSeconds);
-      timeExpiredQuestionRef.current = null;
-      autoRecordingQuestionRef.current = null;
-      void refresh().catch(() => undefined);
+      applyAuthoritativeQuestionTransition(
+        result.data.previousQuestionId,
+        result.data.currentQuestion,
+        result.data.completionReady,
+      );
+      prepareAuthoritativeNextQuestion(result.data.currentQuestion);
+      setMessage(result.data.completionReady ? "모든 기본 질문의 답변이 저장되었습니다." : "다음 질문으로 이동했습니다.");
     } catch (submitError) {
       setMessage(toErrorMessage(submitError));
     } finally {
@@ -10844,7 +10860,7 @@ function useCandidateResource<T>(load: () => Promise<T>, dependencies: Dependenc
       setState({ data, loading: false });
       return data;
     } catch (error) {
-      setState({ loading: false, error: toErrorMessage(error) });
+      setState((current) => ({ ...current, loading: false, error: toErrorMessage(error) }));
       throw error;
     }
   }, [load]);
@@ -10857,7 +10873,7 @@ function useCandidateResource<T>(load: () => Promise<T>, dependencies: Dependenc
         if (alive) setState({ data, loading: false });
       })
       .catch((error) => {
-        if (alive) setState({ loading: false, error: toErrorMessage(error) });
+        if (alive) setState((current) => ({ ...current, loading: false, error: toErrorMessage(error) }));
       });
     return () => {
       alive = false;
@@ -10866,7 +10882,15 @@ function useCandidateResource<T>(load: () => Promise<T>, dependencies: Dependenc
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load, ...dependencies]);
 
-  return { ...state, refresh };
+  const updateData = useCallback((updater: (current: T) => T) => {
+    setState((current) =>
+      current.data
+        ? { ...current, data: updater(current.data), loading: false, error: undefined }
+        : current,
+    );
+  }, []);
+
+  return { ...state, refresh, updateData };
 }
 
 function getCandidateApi() {

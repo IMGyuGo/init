@@ -484,6 +484,8 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | duration_seconds | INTEGER | 답변 시간 초 단위 |
 | submitted_at | TIMESTAMP | 답변 제출 시각 |
 
+채용면접 런타임에서 `interview_session_questions.sort_order`와 `interview_answers`가 진행 상태의 정본이다. 일반 답변 저장은 세션 질문 단위로 멱등 처리하며, 동일 질문의 재전송은 최초 답변을 그대로 반환한다. 명시적 재답변만 기존 답변 행을 갱신한다. 현재 질문 index는 별도 클라이언트 cursor로 확정하지 않고, 저장된 답변이 없는 첫 세션 질문을 매 조회·전환 시 계산한다. 따라서 API 재시작, 응답 유실, 중복 다음 질문 요청 이후에도 질문을 건너뛰지 않는다. 답변 저장 transaction과 first-unanswered 계산 사이에는 AI process 상태를 전제조건으로 두지 않는다.
+
 ### follow_up_questions
 
 | Column | Definition | Description |

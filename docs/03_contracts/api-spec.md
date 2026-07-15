@@ -3364,6 +3364,9 @@ CandidateFolder 입력 제한:
   - 질문 목록 존재
 - 성공 응답/처리:
   - 질문 음성 재생 및 설정에 따른 질문 텍스트 표시
+  - `interview_session_questions.sort_order`와 저장된 `interview_answers`를 기준으로 가장 먼저 답변되지 않은 질문을 `currentQuestionId`와 `current=true`로 반환한다.
+  - API 또는 브라우저 재시작 이후에도 클라이언트가 보낸 index를 사용하지 않고 같은 first-unanswered 질문을 복원한다.
+  - 모든 세션 질문이 답변된 경우 `currentQuestionId`는 생략하고 모든 질문을 `answered=true`, `current=false`로 반환한다.
 - 오류/예외:
   - 질문 로딩 실패 시 안내 메시지를 표시하고 재시도를 제공한다.
 - 관련 ERD 테이블:
@@ -3387,6 +3390,11 @@ CandidateFolder 입력 제한:
   - 장치 권한 허용, 저장 공간 확보
 - 성공 응답/처리:
   - 답변 파일 업로드 완료
+  - 같은 세션 질문에 대한 일반 답변은 한 행만 저장한다. 동일 질문의 재전송은 기존 답변을 덮어쓰지 않고 같은 `answerId`와 `idempotentReplay=true`를 반환한다. 명시적 재답변은 기존 `allowReanswer`/`retryAnswerId` 계약을 따른다.
+  - 응답 데이터: `sessionId`, `answer`, `videoFile`, `audioFile`, `idempotentReplay`, `nextQuestionAvailable`, `completionReady`, `currentQuestion`.
+  - `currentQuestion`은 답변 저장 직후 서버가 계산한 first-unanswered 질문이며 프론트는 추가 조회 없이 이 값을 현재 질문으로 적용한다.
+  - 모든 질문 답변이 저장됐으면 `currentQuestion`을 생략하고 `nextQuestionAvailable=false`, `completionReady=true`를 반환한다.
+  - STT, NCS 평가, 꼬리질문 AI job은 답변 저장 이후 별도로 실행하며 `PENDING`, `RUNNING`, 실패 또는 timeout 상태가 기본 질문 전환을 막지 않는다.
 - 오류/예외:
   - 녹화 실패 시 재녹화 또는 고객지원 안내를 표시한다.
 - 관련 ERD 테이블:
@@ -3405,9 +3413,13 @@ CandidateFolder 입력 제한:
 - 요청 데이터:
   - 버튼 클릭, 단축키 입력
 - 검증/전제조건:
-  - 면접 종료 상태
+  - 세션이 `IN_PROGRESS`이고 현재 질문 또는 직전 질문의 답변이 저장돼 있어야 한다.
 - 성공 응답/처리:
-  - 다음 질문 표시
+  - 저장된 답변과 세션 질문 순서를 기준으로 first-unanswered 질문을 authoritative `currentQuestion`으로 반환한다.
+  - 동일 요청을 연속 호출하거나 API-068 성공 응답 유실 후 재호출해도 질문을 추가로 건너뛰지 않고 같은 `currentQuestion`을 반환한다.
+  - 응답 데이터: `sessionId`, `previousQuestionId`, `currentQuestion`, `isLastQuestion`, `completionReady`.
+  - 모든 질문 답변이 저장됐으면 `currentQuestion`을 생략하고 `isLastQuestion=true`, `completionReady=true`를 반환한다.
+  - AI job의 완료 여부는 기본 질문 first-unanswered 계산의 전제조건이 아니다.
 - 오류/예외:
   - 단축키 충돌 또는 이동 실패 시 오류 안내를 표시한다.
 - 관련 ERD 테이블:

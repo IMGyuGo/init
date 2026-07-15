@@ -202,7 +202,10 @@ export interface SaveInterviewAnswerResult {
   answer: InterviewAnswer;
   videoFile?: FileAsset;
   audioFile?: FileAsset;
+  idempotentReplay: boolean;
   nextQuestionAvailable: boolean;
+  completionReady: boolean;
+  currentQuestion?: InterviewQuestionView;
 }
 
 export interface NextInterviewQuestionResult {
@@ -210,6 +213,7 @@ export interface NextInterviewQuestionResult {
   previousQuestionId: number;
   currentQuestion?: InterviewQuestionView;
   isLastQuestion: boolean;
+  completionReady: boolean;
 }
 
 export interface CompleteInterviewResult {

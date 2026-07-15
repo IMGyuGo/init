@@ -222,6 +222,58 @@ test("prisma interview repository persists answers through interview_answers", a
   assert.deepEqual(answer.nonverbalMetadata, nonverbalMetadata);
 });
 
+test("prisma interview repository serializes duplicate answer creation and reuses the saved row", async () => {
+  const rawCalls: unknown[][] = [];
+  let createCallCount = 0;
+  const submittedAt = new Date("2026-07-01T00:00:00.000Z");
+  const existingAnswer = {
+    answerId: 101n,
+    sessionId: 10001n,
+    questionId: 20001n,
+    sessionQuestionId: 501n,
+    videoFileId: 30001n,
+    audioFileId: null,
+    transcript: null,
+    nonverbalMetadata: null,
+    durationSeconds: 42,
+    submittedAt,
+    sessionQuestion: { runtimeQuestionId: null },
+  };
+  const transactionClient = {
+    interviewSessionQuestion: {
+      findFirst: async () => ({ sessionQuestionId: 501n, questionId: 20001n }),
+    },
+    interviewAnswer: {
+      findFirst: async () => existingAnswer,
+      create: async () => {
+        createCallCount += 1;
+        return existingAnswer;
+      },
+    },
+    $executeRaw: async (...args: unknown[]) => {
+      rawCalls.push(args);
+      return 1;
+    },
+  };
+  const repository = new PrismaInterviewRepository({
+    $transaction: async (callback: (client: typeof transactionClient) => Promise<unknown>) => callback(transactionClient),
+  } as never);
+
+  const result = await repository.createAnswerIdempotent({
+    sessionId: 10001,
+    questionId: 20001,
+    videoFileId: 30001,
+    durationSeconds: 42,
+    submittedAt: submittedAt.toISOString(),
+  });
+
+  assert.equal(result.created, false);
+  assert.equal(result.answer.answerId, 101);
+  assert.equal(createCallCount, 0);
+  assert.equal(rawCalls.length, 1);
+  assert.deepEqual(rawCalls[0]?.[1], 310_000_000_501n);
+});
+
 test("prisma interview repository replaces transcript and nonverbal metadata together", async () => {
   const updateCalls: unknown[] = [];
   const submittedAt = "2026-07-01T00:01:00.000Z";

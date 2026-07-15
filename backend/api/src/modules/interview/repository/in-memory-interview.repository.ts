@@ -275,6 +275,16 @@ export class InMemoryInterviewRepository implements InterviewRepository {
     return this.cloneAnswer(answer);
   }
 
+  createAnswerIdempotent(input: CreateInterviewAnswerInput) {
+    const existing = this.answers.find(
+      (answer) => answer.sessionId === input.sessionId && answer.questionId === input.questionId,
+    );
+    if (existing) {
+      return { answer: this.cloneAnswer(existing), created: false };
+    }
+    return { answer: this.createAnswer(input), created: true };
+  }
+
   replaceAnswer(input: ReplaceInterviewAnswerInput): InterviewAnswer {
     const answer = this.answers.find((candidate) => candidate.answerId === input.answerId);
     if (!answer) {

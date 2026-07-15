@@ -36,6 +36,11 @@ export interface CreateInterviewAnswerInput {
   submittedAt: string;
 }
 
+export interface CreateInterviewAnswerIdempotentResult {
+  answer: InterviewAnswer;
+  created: boolean;
+}
+
 export interface ReplaceInterviewAnswerInput {
   answerId: number;
   videoFileId?: number;
@@ -115,6 +120,7 @@ export interface InterviewRepository {
   findAnswerById(sessionId: number, answerId: number): MaybePromise<InterviewAnswer | undefined>;
   findLatestAnswer(sessionId: number): MaybePromise<InterviewAnswer | undefined>;
   createAnswer(input: CreateInterviewAnswerInput): MaybePromise<InterviewAnswer>;
+  createAnswerIdempotent(input: CreateInterviewAnswerInput): MaybePromise<CreateInterviewAnswerIdempotentResult>;
   replaceAnswer(input: ReplaceInterviewAnswerInput): MaybePromise<InterviewAnswer>;
   listReanswerRequiredFailures(sessionId: number, answerId: number): MaybePromise<ReanswerRequiredFailure[]>;
   updateAnswer(input: UpdateInterviewAnswerInput): MaybePromise<InterviewAnswer>;
