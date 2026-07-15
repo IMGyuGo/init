@@ -2,12 +2,14 @@ import {
   NO_EXTERNAL_KNOWLEDGE_VERSION,
   AnswerFactCheckClaim,
   AnswerFactCheckInput,
+  FactCheckGateStatus,
 } from "./answer-fact-check.types";
 
 export interface AnswerFactCheckGoldenCase {
   name: string;
   input: AnswerFactCheckInput;
   claims: AnswerFactCheckClaim[];
+  expectedGateStatus: FactCheckGateStatus;
 }
 
 export const ANSWER_FACT_CHECK_GOLDEN_CASES: AnswerFactCheckGoldenCase[] = [
@@ -19,6 +21,7 @@ export const ANSWER_FACT_CHECK_GOLDEN_CASES: AnswerFactCheckGoldenCase[] = [
     claimRole: "ANSWER_CORE",
     verdict: "SUPPORTED",
     confidence: 0.96,
+    expectedGateStatus: "PASS_THROUGH",
     evidenceText: "C is commonly described as a procedural programming language.",
   }),
   buildCase({
@@ -29,6 +32,7 @@ export const ANSWER_FACT_CHECK_GOLDEN_CASES: AnswerFactCheckGoldenCase[] = [
     claimRole: "ANSWER_CORE",
     verdict: "CONTRADICTED",
     confidence: 0.98,
+    expectedGateStatus: "FACT_CHECK_REQUIRED",
     evidenceText: "C is a general-purpose procedural programming language and does not provide built-in class-based OOP.",
   }),
   buildCase({
@@ -39,6 +43,7 @@ export const ANSWER_FACT_CHECK_GOLDEN_CASES: AnswerFactCheckGoldenCase[] = [
     claimRole: "ANSWER_CORE",
     verdict: "AMBIGUOUS",
     confidence: 0.62,
+    expectedGateStatus: "CLARIFICATION_CANDIDATE",
     evidenceText: "지원자는 C 기반 프로젝트를 수행했다고 이력서에 작성했습니다.",
   }),
   {
@@ -62,6 +67,7 @@ export const ANSWER_FACT_CHECK_GOLDEN_CASES: AnswerFactCheckGoldenCase[] = [
       evidenceIds: [],
       rationale: "개인 경험을 독립적으로 확인할 snapshot 근거가 없습니다.",
     }],
+    expectedGateStatus: "PASS_THROUGH",
   },
   {
     name: "opinion is not checkable",
@@ -84,6 +90,7 @@ export const ANSWER_FACT_CHECK_GOLDEN_CASES: AnswerFactCheckGoldenCase[] = [
       evidenceIds: [],
       rationale: "사실 명제가 아닌 지원자의 선호 표현입니다.",
     }],
+    expectedGateStatus: "PASS_THROUGH",
   },
 ];
 
@@ -95,6 +102,7 @@ function buildCase(input: {
   claimRole: AnswerFactCheckClaim["claimRole"];
   verdict: AnswerFactCheckClaim["verdict"];
   confidence: number;
+  expectedGateStatus: FactCheckGateStatus;
   evidenceText: string;
 }): AnswerFactCheckGoldenCase {
   const evidenceId = "K1";
@@ -126,5 +134,6 @@ function buildCase(input: {
       evidenceIds: [evidenceId],
       rationale: `${input.name} golden 판정입니다.`,
     }],
+    expectedGateStatus: input.expectedGateStatus,
   };
 }

@@ -4,7 +4,7 @@
 
 - Contract status: `APPROVED_FOR_FACT_01_06`
 - Fact-check policy version: `NCS_ANSWER_FACT_CHECK_POLICY_V1`
-- Prompt version: `NCS_ANSWER_FACT_CHECK_PROMPT_V1`
+- Prompt version: `NCS_ANSWER_FACT_CHECK_PROMPT_V3`
 - Default knowledge snapshot version: `NO_EXTERNAL_KNOWLEDGE_V1`
 - Scope: 답변 claim 추출, snapshot 근거 검증, 실행 결과 저장, NCS 점수와 분리된 deterministic gate, 팩트 확인 꼬리질문과 합산 재검증, FACT-06 회귀·오탐·실 Provider 검증
 - Out of scope: 최종 브라우저 통합과 전체 런타임 E2E(NR-M6)
@@ -106,7 +106,9 @@ type FactCheckClaim = {
 - 외부 근거가 없는 개인 경험은 거짓으로 판정하지 않고 `UNVERIFIABLE`로 반환한다.
 - 검증 가능한 사실 명제가 아니면 `NOT_CHECKABLE`을 사용한다.
 - 근거가 충돌하거나 문맥이 부족하면 `AMBIGUOUS`를 사용한다.
-- strict JSON schema 위반, 원문 offset 불일치, 알 수 없는 evidence ID는 `INVALID_OUTPUT`이다.
+- 프로젝트 수행 등 주변 사실은 확인되지만 답변의 해석·결론까지 확인되지 않으면 `AMBIGUOUS`를 사용한다. 독립 근거가 전혀 없는 개인 경험만 `UNVERIFIABLE`로 분리한다.
+- strict JSON schema 위반, 원문에 없는 claim, 위치를 하나로 확정할 수 없는 중복 claim, 알 수 없는 evidence ID는 `INVALID_OUTPUT`이다.
+- 모델 offset이 어긋나더라도 `claimText`가 원문에 정확히 한 번만 존재하면 provider adapter가 UTF-16 offset을 결정론적으로 보정한다. 원문 구간을 추측하거나 유사 문자열로 보정하지 않는다.
 
 ## Provider Execution Status
 

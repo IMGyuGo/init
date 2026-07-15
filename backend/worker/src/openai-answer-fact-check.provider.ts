@@ -54,6 +54,8 @@ export class OpenAiAnswerFactCheckProvider implements AnswerFactCheckProvider {
               "SUPPORTED and CONTRADICTED require at least one supplied evidenceId.",
               "If a personal experience lacks an independent snapshot, return UNVERIFIABLE, never CONTRADICTED.",
               "Use AMBIGUOUS when supplied evidence is incomplete or allows multiple interpretations.",
+              "If evidence confirms surrounding context such as project participation but does not confirm the answer's interpretation or conclusion, return AMBIGUOUS rather than UNVERIFIABLE.",
+              "Classification example: when an answer says the candidate understood OOP through a C project and resume evidence confirms only participation in that C project, classify the claim as PERSONAL_EXPERIENCE, ANSWER_CORE, AMBIGUOUS and cite the resume evidence.",
               "Use NOT_CHECKABLE for opinions, preferences, and claims that are not factual propositions.",
               "claimRole describes whether the claim directly answers the question or merely supports it; it never sets a gate.",
               "Do not calculate NCS scores, weights, hiring decisions, pass/fail, or a fact-check gate.",
@@ -174,12 +176,16 @@ function parseClaim(value: unknown, index: number, input: AnswerFactCheckInput):
     "evidenceIds",
     "rationale",
   ]);
-  const startOffset = integerOf(record.startOffset, `${name}.startOffset`);
-  const endOffset = integerOf(record.endOffset, `${name}.endOffset`);
+  const reportedStartOffset = integerOf(record.startOffset, `${name}.startOffset`);
+  const reportedEndOffset = integerOf(record.endOffset, `${name}.endOffset`);
   const claimText = stringOf(record.claimText, `${name}.claimText`);
-  if (startOffset < 0 || endOffset <= startOffset || input.answerText.slice(startOffset, endOffset) !== claimText) {
-    throw new AnswerFactCheckInvalidOutputError(`${name} is not an exact answer segment`);
-  }
+  const { startOffset, endOffset } = exactClaimRange(
+    input.answerText,
+    claimText,
+    reportedStartOffset,
+    reportedEndOffset,
+    name,
+  );
   const verdict = enumOf(record.verdict, FACT_CHECK_VERDICTS, `${name}.verdict`);
   const evidenceIds = uniqueStringArrayOf(record.evidenceIds, `${name}.evidenceIds`);
   const ledgerIds = new Set(input.evidenceLedger.map((evidence) => evidence.evidenceId));
@@ -204,6 +210,27 @@ function parseClaim(value: unknown, index: number, input: AnswerFactCheckInput):
     evidenceIds,
     rationale: stringOf(record.rationale, `${name}.rationale`),
   };
+}
+
+function exactClaimRange(
+  answerText: string,
+  claimText: string,
+  reportedStartOffset: number,
+  reportedEndOffset: number,
+  name: string,
+): { startOffset: number; endOffset: number } {
+  if (
+    reportedStartOffset >= 0 &&
+    reportedEndOffset > reportedStartOffset &&
+    answerText.slice(reportedStartOffset, reportedEndOffset) === claimText
+  ) {
+    return { startOffset: reportedStartOffset, endOffset: reportedEndOffset };
+  }
+  const startOffset = answerText.indexOf(claimText);
+  if (startOffset < 0 || answerText.indexOf(claimText, startOffset + 1) >= 0) {
+    throw new AnswerFactCheckInvalidOutputError(`${name} is not a unique exact answer segment`);
+  }
+  return { startOffset, endOffset: startOffset + claimText.length };
 }
 
 function requiresEvidence(verdict: FactCheckVerdict): boolean {
@@ -306,7 +333,6 @@ const ANSWER_FACT_CHECK_RESPONSE_SCHEMA = {
           confidence: { type: "number", minimum: 0, maximum: 1 },
           evidenceIds: {
             type: "array",
-            uniqueItems: true,
             items: { type: "string", minLength: 1 },
           },
           rationale: { type: "string", minLength: 1 },

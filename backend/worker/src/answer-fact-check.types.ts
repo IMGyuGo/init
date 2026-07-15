@@ -1,6 +1,6 @@
 import type { NcsQuestionMode } from "./ncs-text-evaluation.types";
 
-export const ANSWER_FACT_CHECK_PROMPT_VERSION = "NCS_ANSWER_FACT_CHECK_PROMPT_V1" as const;
+export const ANSWER_FACT_CHECK_PROMPT_VERSION = "NCS_ANSWER_FACT_CHECK_PROMPT_V3" as const;
 export const ANSWER_FACT_CHECK_POLICY_VERSION = "NCS_ANSWER_FACT_CHECK_POLICY_V1" as const;
 export const NO_EXTERNAL_KNOWLEDGE_VERSION = "NO_EXTERNAL_KNOWLEDGE_V1" as const;
 

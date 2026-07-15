@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ANSWER_FACT_CHECK_GOLDEN_CASES } from "./answer-fact-check.golden";
+import { determineFactCheckGate } from "./answer-fact-check";
 import {
   AnswerFactCheckInputError,
   AnswerFactCheckInvalidOutputError,
@@ -14,6 +15,7 @@ for (const golden of ANSWER_FACT_CHECK_GOLDEN_CASES) {
   test(`fact-check golden: ${golden.name}`, () => {
     const parsed = parseAnswerFactCheckContent(JSON.stringify({ claims: golden.claims }), golden.input);
     assert.deepEqual(parsed, golden.claims);
+    assert.equal(determineFactCheckGate(parsed), golden.expectedGateStatus);
   });
 }
 
@@ -35,12 +37,29 @@ test("fact-check rejects model assertions that cite unknown evidence", () => {
   );
 });
 
-test("fact-check rejects a claim that is not an exact answer segment", () => {
+test("fact-check normalizes model offset drift for a unique exact claim", () => {
   const golden = ANSWER_FACT_CHECK_GOLDEN_CASES[0]!;
   const claim = { ...golden.claims[0]!, startOffset: 1 };
+  const parsed = parseAnswerFactCheckContent(JSON.stringify({ claims: [claim] }), golden.input);
+  assert.equal(parsed[0]?.startOffset, golden.claims[0]?.startOffset);
+  assert.equal(parsed[0]?.endOffset, golden.claims[0]?.endOffset);
+});
+
+test("fact-check rejects claims that cannot be mapped to one exact answer segment", () => {
+  const golden = ANSWER_FACT_CHECK_GOLDEN_CASES[0]!;
+  const claim = { ...golden.claims[0]!, claimText: "원문에 없는 주장", startOffset: 0, endOffset: 8 };
   assert.throws(
     () => parseAnswerFactCheckContent(JSON.stringify({ claims: [claim] }), golden.input),
-    /exact answer segment/,
+    /unique exact answer segment/,
+  );
+
+  const duplicatedText = `${golden.input.answerText} ${golden.input.answerText}`;
+  assert.throws(
+    () => parseAnswerFactCheckContent(
+      JSON.stringify({ claims: [{ ...golden.claims[0], startOffset: 1 }] }),
+      { ...golden.input, answerText: duplicatedText },
+    ),
+    /unique exact answer segment/,
   );
 });
 
