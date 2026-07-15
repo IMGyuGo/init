@@ -95,8 +95,12 @@ export interface TranscriptRecord {
 export interface FollowUpQuestionRecord {
   sessionId: number;
   answerId: number;
-  content: string;
+  required: boolean;
+  content?: string;
   policy: "MOCK" | "RECRUITING";
+  reason?: "NCS_EVIDENCE_GAP" | "GENERAL_EVIDENCE_GAP";
+  questionMode?: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
+  answerTimeSec?: number;
 }
 
 export interface GeneratedDraftRecord {

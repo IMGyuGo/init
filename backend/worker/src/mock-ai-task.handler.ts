@@ -305,6 +305,16 @@ export class MockAiTaskHandler implements AiTaskHandler {
           duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP",
         }),
         guardrail: { result: "PASS", reason: null },
+        finalSave: () =>
+          this.results.saveFollowUpQuestion({
+            sessionId,
+            answerId,
+            required: false,
+            policy,
+            reason: "NCS_EVIDENCE_GAP",
+            questionMode: ncsPlan.questionMode,
+            answerTimeSec: ncsPlan.answerTimeSec,
+          }),
       };
     }
     const content = ncsPlan
@@ -336,7 +346,17 @@ export class MockAiTaskHandler implements AiTaskHandler {
         duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP"
       }),
       guardrail: this.validateMockPolicy(policy, content),
-      finalSave: () => this.results.saveFollowUpQuestion({ sessionId, answerId, content, policy })
+      finalSave: () =>
+        this.results.saveFollowUpQuestion({
+          sessionId,
+          answerId,
+          required: true,
+          content,
+          policy,
+          reason: ncsPlan ? "NCS_EVIDENCE_GAP" : "GENERAL_EVIDENCE_GAP",
+          questionMode: ncsPlan?.questionMode,
+          answerTimeSec: ncsPlan?.answerTimeSec,
+        })
     };
   }
 

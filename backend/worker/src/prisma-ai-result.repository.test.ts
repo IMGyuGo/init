@@ -260,27 +260,100 @@ test("PrismaAiResultRepository stores STT transcript into interview_answers", as
   });
 });
 
-test("PrismaAiResultRepository upserts one follow-up per answer and policy", async () => {
-  const calls: Array<{ model: string; method: string; args: any }> = [];
-  const repository = new PrismaAiResultRepository(fakePrisma(calls));
+test("PrismaAiResultRepository atomically appends one private follow-up per base answer", async () => {
+  const fixture = followUpRuntimePrisma();
+  const repository = new PrismaAiResultRepository(fixture.prisma);
+  const record = {
+    sessionId: 3,
+    answerId: 4,
+    required: true,
+    content: "Practice follow-up",
+    policy: "RECRUITING" as const,
+    reason: "NCS_EVIDENCE_GAP" as const,
+    questionMode: "TECHNICAL_KNOWLEDGE" as const,
+    answerTimeSec: 90,
+  };
+
+  await repository.saveFollowUpQuestion(record);
+  await repository.saveFollowUpQuestion(record);
+
+  assert.equal(fixture.createdSessionQuestions.length, 1);
+  assert.equal(fixture.createdSessionQuestions[0]?.data.questionType, "FOLLOW_UP");
+  assert.equal(fixture.createdSessionQuestions[0]?.data.sortOrder, 3);
+  assert.equal(fixture.createdSessionQuestions[0]?.data.ncsQuestionMode, "TECHNICAL_KNOWLEDGE");
+  assert.deepEqual(
+    fixture.createdSessionQuestions[0]?.data.ncsBindings.create.map((binding: any) => binding.ncsProfileId),
+    ["JOB_TECHNICAL", "PROBLEM_SOLVING"],
+  );
+  assert.equal(fixture.followUp()?.generationStatus, "INSERTED");
+  assert.equal(fixture.followUp()?.answerTimeSec, 90);
+  assert.equal(fixture.followUp()?.insertedSessionQuestionId, 800n);
+});
+
+test("PrismaAiResultRepository stores a no-follow-up decision without changing session questions", async () => {
+  const fixture = followUpRuntimePrisma();
+  const repository = new PrismaAiResultRepository(fixture.prisma);
 
   await repository.saveFollowUpQuestion({
     sessionId: 3,
     answerId: 4,
-    content: "Practice follow-up",
-    policy: "MOCK"
+    required: false,
+    policy: "RECRUITING",
+    reason: "NCS_EVIDENCE_GAP",
+    questionMode: "TECHNICAL_KNOWLEDGE",
+    answerTimeSec: 90,
   });
 
-  assert.equal(calls[0].model, "followUpQuestion");
-  assert.equal(calls[0].method, "upsert");
-  assert.deepEqual(calls[0].args.where, {
-    answerIdPolicy: {
-      answerId: BigInt(4),
-      policy: "MOCK"
-    }
+  assert.equal(fixture.createdSessionQuestions.length, 0);
+  assert.equal(fixture.followUp()?.generationStatus, "SKIPPED");
+  assert.equal(fixture.followUp()?.skipReason, "NOT_REQUIRED");
+  assert.equal(fixture.followUp()?.reason, null);
+});
+
+test("PrismaAiResultRepository skips a generated follow-up when the session is no longer in progress", async () => {
+  const fixture = followUpRuntimePrisma({ sessionStatus: "COMPLETED" });
+  const repository = new PrismaAiResultRepository(fixture.prisma);
+
+  await repository.saveFollowUpQuestion({
+    sessionId: 3,
+    answerId: 4,
+    required: true,
+    content: "This question must not be inserted",
+    policy: "RECRUITING",
+    reason: "NCS_EVIDENCE_GAP",
+    questionMode: "TECHNICAL_KNOWLEDGE",
+    answerTimeSec: 90,
   });
-  assert.equal(calls[0].args.create.generationStatus, "GENERATED");
-  assert.deepEqual(calls[0].args.update, {});
+
+  assert.equal(fixture.createdSessionQuestions.length, 0);
+  assert.equal(fixture.followUp()?.generationStatus, "SKIPPED");
+  assert.equal(fixture.followUp()?.skipReason, "SESSION_NOT_IN_PROGRESS");
+  assert.equal(fixture.followUp()?.content, "");
+});
+
+test("PrismaAiResultRepository rejects a recruiting follow-up with a different question mode", async () => {
+  const fixture = followUpRuntimePrisma();
+  const repository = new PrismaAiResultRepository(fixture.prisma);
+
+  await assert.rejects(
+    () =>
+      repository.saveFollowUpQuestion({
+        sessionId: 3,
+        answerId: 4,
+        required: true,
+        content: "Mismatched follow-up",
+        policy: "RECRUITING",
+        reason: "NCS_EVIDENCE_GAP",
+        questionMode: "EXPERIENCE_BEHAVIOR",
+        answerTimeSec: 90,
+      }),
+    {
+      name: "NonRetryableAiWorkerFailure",
+      message: "follow-up question mode must match the base question mode",
+    },
+  );
+
+  assert.equal(fixture.createdSessionQuestions.length, 0);
 });
 
 test("PrismaAiResultRepository upserts embeddings by source_type and source_text_hash", async () => {
@@ -661,6 +734,101 @@ test("PrismaAiResultRepository marks recruiting application report failed with g
   assert.deepEqual(applicationUpdate?.args.where, { applicationId: BigInt(22) });
   assert.deepEqual(applicationUpdate?.args.data, { reportStatus: "FAILED" });
 });
+
+function followUpRuntimePrisma(options: { sessionStatus?: string; sourceQuestionType?: string } = {}) {
+  let followUp: any;
+  const createdSessionQuestions: any[] = [];
+  const sourceSessionQuestion = {
+    sessionQuestionId: 700n,
+    questionType: options.sourceQuestionType ?? "TECHNICAL",
+    criterionId: 11n,
+    criterionTitleSnapshot: "직무 기술",
+    ncsProfileId: "JOB_TECHNICAL",
+    ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+    ncsProfileVersion: "ncs-v1",
+    alignmentStatus: "ALIGNED",
+    alignmentScore: 0.9,
+    alignmentReason: "aligned",
+    evaluatorVersion: "evaluator-v1",
+    policyVersion: 1,
+    criteriaVersion: 1,
+    ncsBindings: [
+      {
+        criterionId: 11n,
+        criterionTitleSnapshot: "직무 기술",
+        ncsProfileId: "JOB_TECHNICAL",
+        ncsProfileVersion: "ncs-v1",
+        alignmentStatus: "ALIGNED",
+        alignmentScore: 0.9,
+        alignmentReason: "aligned",
+        evaluatorVersion: "evaluator-v1",
+        bindingOrder: 1,
+      },
+      {
+        criterionId: 12n,
+        criterionTitleSnapshot: "문제 해결",
+        ncsProfileId: "PROBLEM_SOLVING",
+        ncsProfileVersion: "ncs-v1",
+        alignmentStatus: "ALIGNED",
+        alignmentScore: 0.88,
+        alignmentReason: "aligned",
+        evaluatorVersion: "evaluator-v1",
+        bindingOrder: 2,
+      },
+    ],
+  };
+  const prisma: any = {
+    async $transaction(operation: (transaction: any) => Promise<unknown>) {
+      return operation(prisma);
+    },
+    async $queryRawUnsafe(query: string) {
+      return query.includes("nextval") ? [{ questionId: 9000n }] : [];
+    },
+    interviewAnswer: {
+      async updateMany() {},
+      async findUnique() {
+        return {
+          answerId: 4n,
+          sessionId: 3n,
+          questionId: 21n,
+          sessionQuestionId: 700n,
+          session: { status: options.sessionStatus ?? "IN_PROGRESS", answerTimeSecSnapshot: 90 },
+          sessionQuestion: sourceSessionQuestion,
+        };
+      },
+    },
+    followUpQuestion: {
+      async findUnique() {
+        return followUp;
+      },
+      async upsert(args: any) {
+        followUp = followUp
+          ? { ...followUp, ...args.update }
+          : { followUpId: args.create.followUpId, ...args.create };
+        return followUp;
+      },
+      async update(args: any) {
+        followUp = { ...followUp, ...args.data };
+        return followUp;
+      },
+    },
+    interviewSessionQuestion: {
+      async findFirst(args: any) {
+        return args.orderBy ? { sortOrder: 2 } : sourceSessionQuestion;
+      },
+      async create(args: any) {
+        createdSessionQuestions.push(args);
+        return { sessionQuestionId: 800n, ...args.data };
+      },
+    },
+  };
+
+  return {
+    prisma,
+    createdSessionQuestions,
+    followUp: () => followUp,
+  };
+}
 
 function fakePrisma(calls: Array<{ model: string; method: string; args: any }>) {
   return {

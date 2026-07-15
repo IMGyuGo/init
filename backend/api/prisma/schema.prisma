@@ -740,6 +740,8 @@ model InterviewSessionQuestion {
   answers                InterviewAnswer[]
   ncsAnswerEvaluations   NcsAnswerEvaluation[]
   ncsBindings            SessionQuestionNcsBinding[]
+  sourcedFollowUps       FollowUpQuestion[]            @relation("FollowUpSourceSessionQuestion")
+  insertedFollowUp       FollowUpQuestion?             @relation("FollowUpInsertedSessionQuestion")
 
   @@unique([sessionId, questionId], map: "uq_interview_session_questions_question")
   @@unique([sessionId, personalizedQuestionId], map: "uq_interview_session_questions_personalized")
@@ -796,15 +798,27 @@ model InterviewAnswer {
 }
 
 model FollowUpQuestion {
-  followUpId       BigInt          @id @default(autoincrement()) @map("follow_up_id")
-  answerId         BigInt          @map("answer_id")
-  content          String
-  generationStatus String          @map("generation_status") @db.VarChar(40)
-  policy           String          @default("RECRUITING") @db.VarChar(40)
-  createdAt        DateTime        @default(now()) @map("created_at")
-  answer           InterviewAnswer @relation(fields: [answerId], references: [answerId])
+  followUpId                BigInt                    @id @default(autoincrement()) @map("follow_up_id")
+  answerId                  BigInt                    @map("answer_id")
+  sourceSessionQuestionId   BigInt?                   @map("source_session_question_id")
+  insertedSessionQuestionId BigInt?                   @unique(map: "uq_follow_up_questions_inserted_session_question") @map("inserted_session_question_id")
+  content                   String
+  generationStatus          String                    @map("generation_status") @db.VarChar(40)
+  policy                    String                    @default("RECRUITING") @db.VarChar(40)
+  reason                    String?                   @db.VarChar(40)
+  skipReason                String?                   @map("skip_reason") @db.VarChar(50)
+  questionMode              String?                   @map("question_mode") @db.VarChar(50)
+  answerTimeSec             Int?                      @map("answer_time_sec")
+  insertedAt                DateTime?                 @map("inserted_at")
+  createdAt                 DateTime                  @default(now()) @map("created_at")
+  updatedAt                 DateTime                  @updatedAt @map("updated_at")
+  answer                    InterviewAnswer           @relation(fields: [answerId], references: [answerId])
+  sourceSessionQuestion     InterviewSessionQuestion? @relation("FollowUpSourceSessionQuestion", fields: [sourceSessionQuestionId], references: [sessionQuestionId], onDelete: Restrict)
+  insertedSessionQuestion   InterviewSessionQuestion? @relation("FollowUpInsertedSessionQuestion", fields: [insertedSessionQuestionId], references: [sessionQuestionId], onDelete: Restrict)
 
   @@unique([answerId, policy], name: "answerIdPolicy", map: "uq_follow_up_questions_answer_policy")
+  @@index([sourceSessionQuestionId], map: "idx_follow_up_questions_source_session_question")
+  @@index([generationStatus], map: "idx_follow_up_questions_generation_status")
   @@map("follow_up_questions")
 }
 

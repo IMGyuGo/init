@@ -309,12 +309,12 @@ test("follow-up question policy is separated for mock and recruiting interviews"
   });
 
   assert.equal(results.followUpQuestions[0].policy, "MOCK");
-  assert.match(results.followUpQuestions[0].content, /Redis/);
-  assert.match(results.followUpQuestions[0].content, /구체적으로/);
+  assert.match(results.followUpQuestions[0].content ?? "", /Redis/);
+  assert.match(results.followUpQuestions[0].content ?? "", /구체적으로/);
   assert.equal(results.followUpQuestions[1].policy, "RECRUITING");
-  assert.match(results.followUpQuestions[1].content, /캐시/);
-  assert.match(results.followUpQuestions[1].content, /TTL/);
-  assert.match(results.followUpQuestions[1].content, /효과/);
+  assert.match(results.followUpQuestions[1].content ?? "", /캐시/);
+  assert.match(results.followUpQuestions[1].content ?? "", /TTL/);
+  assert.match(results.followUpQuestions[1].content ?? "", /효과/);
 });
 
 test("mock follow-up questions vary by previous question intent", async () => {

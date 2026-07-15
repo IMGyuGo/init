@@ -171,6 +171,16 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
           duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP",
         }),
         guardrail: { result: "PASS", reason: null },
+        finalSave: () =>
+          this.results.saveFollowUpQuestion({
+            sessionId,
+            answerId,
+            required: false,
+            policy,
+            reason: "NCS_EVIDENCE_GAP",
+            questionMode: ncsPlan.questionMode,
+            answerTimeSec: ncsPlan.answerTimeSec,
+          }),
       };
     }
 
@@ -213,7 +223,17 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
         outputTokens: generated.usage?.outputTokens,
         metadata: { processType: "FOLLOW_UP" }
       }),
-      finalSave: () => this.results.saveFollowUpQuestion({ sessionId, answerId, content: generated.content, policy })
+      finalSave: () =>
+        this.results.saveFollowUpQuestion({
+          sessionId,
+          answerId,
+          required: true,
+          content: generated.content,
+          policy,
+          reason: ncsPlan ? "NCS_EVIDENCE_GAP" : "GENERAL_EVIDENCE_GAP",
+          questionMode: ncsPlan?.questionMode,
+          answerTimeSec: ncsPlan?.answerTimeSec,
+        })
     };
   }
 

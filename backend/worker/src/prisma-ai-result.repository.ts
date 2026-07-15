@@ -70,8 +70,43 @@ interface ResumeQuestionBatchRow {
   jdSnapshotHash: string;
 }
 
+const FOLLOW_UP_SOURCE_QUESTION_SELECT = {
+  sessionQuestionId: true,
+  questionType: true,
+  criterionId: true,
+  criterionTitleSnapshot: true,
+  ncsProfileId: true,
+  ncsQuestionMode: true,
+  ncsProfileVersion: true,
+  alignmentStatus: true,
+  alignmentScore: true,
+  alignmentReason: true,
+  evaluatorVersion: true,
+  policyVersion: true,
+  criteriaVersion: true,
+  ncsBindings: {
+    orderBy: { bindingOrder: "asc" as const },
+    select: {
+      criterionId: true,
+      criterionTitleSnapshot: true,
+      ncsProfileId: true,
+      ncsProfileVersion: true,
+      alignmentStatus: true,
+      alignmentScore: true,
+      alignmentReason: true,
+      evaluatorVersion: true,
+      bindingOrder: true,
+    },
+  },
+} as const;
+
+function defaultFollowUpReason(policy: FollowUpQuestionRecord["policy"]): FollowUpQuestionRecord["reason"] {
+  return policy === "RECRUITING" ? "NCS_EVIDENCE_GAP" : "GENERAL_EVIDENCE_GAP";
+}
+
 interface PrismaAiResultClient {
   $transaction?<T>(operation: (transaction: PrismaAiResultClient) => Promise<T>): Promise<T>;
+  $queryRawUnsafe?<T>(query: string, ...values: unknown[]): Promise<T>;
   application: {
     updateMany(args: unknown): Promise<unknown>;
     findUnique?(args: unknown): Promise<ResumeQuestionDocumentRow["application"] | null>;
@@ -82,9 +117,16 @@ interface PrismaAiResultClient {
   };
   interviewAnswer: {
     updateMany(args: unknown): Promise<unknown>;
+    findUnique?(args: unknown): Promise<any>;
   };
   followUpQuestion: {
-    upsert(args: unknown): Promise<unknown>;
+    findUnique?(args: unknown): Promise<any>;
+    upsert(args: unknown): Promise<any>;
+    update?(args: unknown): Promise<any>;
+  };
+  interviewSessionQuestion?: {
+    findFirst(args: unknown): Promise<any>;
+    create(args: unknown): Promise<any>;
   };
   evaluationReport: {
     upsert(args: unknown): Promise<unknown>;
@@ -342,22 +384,239 @@ export class PrismaAiResultRepository implements AiResultRepository {
   }
 
   async saveFollowUpQuestion(record: FollowUpQuestionRecord): Promise<void> {
-    await this.prisma.followUpQuestion.upsert({
-      where: {
+    if (!this.prisma.$transaction) {
+      throw new NonRetryableAiWorkerFailure("follow-up runtime transition requires a Prisma transaction");
+    }
+
+    await this.prisma.$transaction(async (transaction) => {
+      const followUps = transaction.followUpQuestion;
+      const sessionQuestions = transaction.interviewSessionQuestion;
+      if (
+        !transaction.$queryRawUnsafe ||
+        !transaction.interviewAnswer.findUnique ||
+        !followUps.findUnique ||
+        !followUps.update ||
+        !sessionQuestions
+      ) {
+        throw new NonRetryableAiWorkerFailure("follow-up runtime repositories are unavailable");
+      }
+
+      await transaction.$queryRawUnsafe(
+        "SELECT pg_advisory_xact_lock($1)",
+        BigInt(record.sessionId),
+      );
+      const answer = await transaction.interviewAnswer.findUnique({
+        where: { answerId: BigInt(record.answerId) },
+        select: {
+          answerId: true,
+          sessionId: true,
+          questionId: true,
+          sessionQuestionId: true,
+          session: {
+            select: {
+              status: true,
+              answerTimeSecSnapshot: true,
+            },
+          },
+          sessionQuestion: {
+            select: FOLLOW_UP_SOURCE_QUESTION_SELECT,
+          },
+        },
+      });
+      if (!answer || Number(answer.sessionId) !== record.sessionId) {
+        throw new NonRetryableAiWorkerFailure("follow-up answer does not belong to the requested session");
+      }
+
+      const sourceQuestion =
+        answer.sessionQuestion ??
+        (answer.questionId
+          ? await sessionQuestions.findFirst({
+              where: {
+                sessionId: answer.sessionId,
+                questionId: answer.questionId,
+              },
+              select: FOLLOW_UP_SOURCE_QUESTION_SELECT,
+            })
+          : null);
+      const key = {
         answerIdPolicy: {
           answerId: BigInt(record.answerId),
-          policy: record.policy
+          policy: record.policy,
+        },
+      };
+      const existing = await followUps.findUnique({ where: key });
+      if (existing?.generationStatus === "INSERTED" || existing?.generationStatus === "SKIPPED") {
+        return;
+      }
+
+      const shouldInsert = record.required || existing?.generationStatus === "READY";
+      const reason = shouldInsert
+        ? existing?.reason ?? record.reason ?? defaultFollowUpReason(record.policy)
+        : null;
+      const questionMode = existing?.questionMode ?? record.questionMode ?? sourceQuestion?.ncsQuestionMode ?? null;
+      const answerTimeSec =
+        existing?.answerTimeSec ?? record.answerTimeSec ?? answer.session.answerTimeSecSnapshot ?? null;
+      if (!shouldInsert || answer.session.status !== "IN_PROGRESS") {
+        const skipReason = shouldInsert ? "SESSION_NOT_IN_PROGRESS" : "NOT_REQUIRED";
+        await followUps.upsert({
+          where: key,
+          create: {
+            followUpId: this.nextId(),
+            answerId: BigInt(record.answerId),
+            sourceSessionQuestionId: sourceQuestion?.sessionQuestionId ?? null,
+            insertedSessionQuestionId: null,
+            content: "",
+            generationStatus: "SKIPPED",
+            policy: record.policy,
+            reason,
+            skipReason,
+            questionMode,
+            answerTimeSec,
+            insertedAt: null,
+            createdAt: new Date(),
+          },
+          update: {
+            sourceSessionQuestionId: sourceQuestion?.sessionQuestionId ?? existing?.sourceSessionQuestionId ?? null,
+            content: "",
+            generationStatus: "SKIPPED",
+            reason,
+            skipReason,
+            questionMode,
+            answerTimeSec,
+            insertedSessionQuestionId: null,
+            insertedAt: null,
+          },
+        });
+        return;
+      }
+
+      if (!sourceQuestion || sourceQuestion.questionType === "FOLLOW_UP") {
+        throw new NonRetryableAiWorkerFailure("follow-up source must be a base session question");
+      }
+      const content = existing?.content?.trim() || record.content?.trim();
+      if (!content) {
+        throw new NonRetryableAiWorkerFailure("follow-up content is required");
+      }
+      if (record.policy === "RECRUITING") {
+        if (!questionMode || !answerTimeSec) {
+          throw new NonRetryableAiWorkerFailure("recruiting follow-up mode and answer time snapshot are required");
         }
-      },
-      create: {
-        followUpId: this.nextId(),
-        answerId: BigInt(record.answerId),
-        content: record.content,
-        generationStatus: "GENERATED",
-        policy: record.policy,
-        createdAt: new Date()
-      },
-      update: {}
+        const sourceBindings = sourceQuestion.ncsBindings ?? [];
+        if (
+          sourceBindings.length < 1 ||
+          sourceBindings.length > 2 ||
+          sourceBindings.some((binding: any, index: number) =>
+            binding.alignmentStatus !== "ALIGNED" ||
+            canonicalNcsProfileIdOf(binding.ncsProfileId) !== binding.ncsProfileId ||
+            binding.bindingOrder !== index + 1
+          )
+        ) {
+          throw new NonRetryableAiWorkerFailure("recruiting follow-up requires one or two aligned canonical bindings");
+        }
+        if (sourceQuestion.ncsQuestionMode && questionMode !== sourceQuestion.ncsQuestionMode) {
+          throw new NonRetryableAiWorkerFailure("follow-up question mode must match the base question mode");
+        }
+        if (
+          answer.session.answerTimeSecSnapshot &&
+          answerTimeSec !== answer.session.answerTimeSecSnapshot
+        ) {
+          throw new NonRetryableAiWorkerFailure("follow-up answer time must match the session snapshot");
+        }
+      }
+
+      const ready = existing
+        ? await followUps.update({
+            where: { followUpId: existing.followUpId },
+            data: {
+              sourceSessionQuestionId: sourceQuestion.sessionQuestionId,
+              content,
+              generationStatus: "READY",
+              reason,
+              skipReason: null,
+              questionMode,
+              answerTimeSec,
+              insertedSessionQuestionId: null,
+              insertedAt: null,
+            },
+          })
+        : await followUps.upsert({
+            where: key,
+            create: {
+              followUpId: this.nextId(),
+              answerId: BigInt(record.answerId),
+              sourceSessionQuestionId: sourceQuestion.sessionQuestionId,
+              insertedSessionQuestionId: null,
+              content,
+              generationStatus: "READY",
+              policy: record.policy,
+              reason,
+              skipReason: null,
+              questionMode,
+              answerTimeSec,
+              insertedAt: null,
+              createdAt: new Date(),
+            },
+            update: {},
+          });
+      if (ready.generationStatus === "INSERTED") {
+        return;
+      }
+
+      const [sequence] = await transaction.$queryRawUnsafe<Array<{ questionId: bigint }>>(
+        `SELECT nextval('interview_runtime_question_id_seq') AS "questionId"`,
+      );
+      if (!sequence) {
+        throw new NonRetryableAiWorkerFailure("failed to allocate a private runtime question ID");
+      }
+      const lastQuestion = await sessionQuestions.findFirst({
+        where: { sessionId: answer.sessionId },
+        orderBy: { sortOrder: "desc" },
+        select: { sortOrder: true },
+      });
+      const inserted = await sessionQuestions.create({
+        data: {
+          sessionId: answer.sessionId,
+          questionId: null,
+          personalizedQuestionId: null,
+          runtimeQuestionId: sequence.questionId,
+          criterionId: sourceQuestion.criterionId,
+          criterionTitleSnapshot: sourceQuestion.criterionTitleSnapshot,
+          generationSource: null,
+          questionType: "FOLLOW_UP",
+          content,
+          ncsProfileId: sourceQuestion.ncsProfileId,
+          ncsQuestionMode: questionMode,
+          ncsProfileVersion: sourceQuestion.ncsProfileVersion,
+          alignmentStatus: sourceQuestion.alignmentStatus,
+          alignmentScore: sourceQuestion.alignmentScore,
+          alignmentReason: sourceQuestion.alignmentReason,
+          evaluatorVersion: sourceQuestion.evaluatorVersion,
+          policyVersion: sourceQuestion.policyVersion,
+          criteriaVersion: sourceQuestion.criteriaVersion,
+          sortOrder: (lastQuestion?.sortOrder ?? 0) + 1,
+          ncsBindings: {
+            create: (sourceQuestion.ncsBindings ?? []).map((binding: any) => ({
+              criterionId: binding.criterionId,
+              criterionTitleSnapshot: binding.criterionTitleSnapshot,
+              ncsProfileId: binding.ncsProfileId,
+              ncsProfileVersion: binding.ncsProfileVersion,
+              alignmentStatus: binding.alignmentStatus,
+              alignmentScore: binding.alignmentScore,
+              alignmentReason: binding.alignmentReason,
+              evaluatorVersion: binding.evaluatorVersion,
+              bindingOrder: binding.bindingOrder,
+            })),
+          },
+        },
+      });
+      await followUps.update({
+        where: { followUpId: ready.followUpId },
+        data: {
+          generationStatus: "INSERTED",
+          insertedSessionQuestionId: inserted.sessionQuestionId,
+          insertedAt: new Date(),
+        },
+      });
     });
   }
 
