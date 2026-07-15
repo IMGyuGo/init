@@ -55,7 +55,7 @@ NCS 공통·개인화 질문 생성 결과가 채용면접 세션 snapshot으로
 - 현재/직전 질문 판정과 세션 인덱스 복원이 두 경로에 걸쳐 있어 race와 중복 삽입 가능성이 있다.
 - 꼬리질문 생성 전 `baseScore < 5`, 질문당 최대 1회, 같은 question mode 유지 조건을 하나의 상태 전이로 보장하지 않는다.
 
-정식 경로는 서버가 답변 ID를 기준으로 생성 상태를 소유하고, 다음 질문 이동 시 READY 꼬리질문을 원자적으로 소비하는 방식으로 통일한다.
+정식 경로는 서버가 답변 ID를 기준으로 생성 상태를 소유하고, worker의 guardrail 통과 결과 저장 transaction에서 READY 꼬리질문을 private session question으로 원자적으로 승격하는 방식으로 통일한다. 승격된 질문은 세션 질문 맨 뒤에 추가해 이미 표시되거나 답변한 기본 질문을 되감지 않는다.
 
 ### R-05. STT 실패의 임시 0점과 NCS 평가 미완료 계약이 충돌한다
 
@@ -88,7 +88,7 @@ NCS 질문 생성
 | NR-M1 | NCS 질문 형성 검증 | canonical 3 profile 통일, 질문별 1~2 binding, `ALIGNED`만 확정, 세 역량별 최소 2문항, 개인화 0개 정책 지원 | JD 공통 질문 6개만으로도 profile별 2문항을 충족하고 ACTIVE 세트에 seed/legacy 질문이 섞이지 않음 | C/E / D,PM | 3~5시간 |
 | NR-M2 | 세션 snapshot gate 수정 | 기존 snapshot도 전체 계약 재검증, 유효하지 않은 미시작 세션은 원자적 재생성, 진행·완료 세션은 변경하지 않고 명시적 오류 반환 | 질문·binding·가중치·시간·version이 모두 저장된 세션만 시작 가능 | D/C / E,A | 3~5시간 |
 | NR-M3 | 답변·다음 질문 전환 안정화 | 답변 저장과 first-unanswered 복원 멱등화, 다음 질문 API 응답을 프론트에 즉시 반영, refresh 실패 처리, AI job과 기본 진행 분리 | 답변 저장 후 worker 지연·재시작과 무관하게 다음 기본 질문으로 이동하며 중복 클릭에도 순서가 유지 | D / C,E,PM | 3~5시간 |
-| NR-M4 | 꼬리질문 정식 상태 전이 | `API-071-TMP` 의존 제거, base 평가 후 필요 여부 판정, READY 결과 원자적 삽입, 질문당 1회·동일 mode·답변시간 snapshot 보장 | 꼬리질문이 필요한 경우에만 한 번 삽입되고 실패·timeout이면 기본 질문 진행 | E/D / C,A,PM | 4~7시간 |
+| NR-M4 | 꼬리질문 정식 상태 전이 | `API-051-TMP`, `API-071-TMP` 의존 제거, base 평가 후 필요 여부 판정, READY 결과 원자적 삽입, 질문당 1회·동일 mode·답변시간 snapshot 보장 | 꼬리질문이 필요한 경우에만 세션 끝에 한 번 삽입되고 실패·timeout이면 기본 질문 진행 | E/D / C,A,PM | 4~7시간 |
 | NR-M5 | STT 평가 미완료 정렬 | 임시 0점 제거, `STT_UNAVAILABLE + score NULL` 저장, 재답변 1회, 진행 허용, 리포트 reason 전달 | STT 실패가 질문 진행을 막지 않고 0점과 평가 미완료가 구분됨 | E/D / B,PM | 2~4시간 |
 | NR-M6 | 회귀·브라우저 E2E | 공통 6·개인화 0/개인화 포함 시나리오, API/worker 재시작, 꼬리질문 성공·실패, STT 실패, 완료·리포트 검증 | C/D/E 집중 테스트, clean DB E2E, 역할별 harness와 브라우저 체크리스트 통과 | PM/A / 전 owner | 3~5시간 |
 

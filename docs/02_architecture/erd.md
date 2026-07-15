@@ -65,7 +65,7 @@ ERDCloud SQL을 사람이 읽는 테이블/관계 문서로 변환한다.
 | consent_records | consent_id | 5 | 지원/면접 동의 이력 | application_id -> applications.application_id |
 | interview_sessions | session_id | 8 | 모의/채용 면접 세션 | application_id -> applications.application_id / candidate_id -> candidate_profiles.candidate_id |
 | interview_answers | answer_id | 8 | 질문별 영상/음성/STT 답변 | session_id -> interview_sessions.session_id / question_id -> question_bank.question_id / video_file_id -> file_assets.file_id / audio_file_id -> file_assets.file_id |
-| follow_up_questions | follow_up_id | 5 | 답변 기반 꼬리질문 | answer_id -> interview_answers.answer_id |
+| follow_up_questions | follow_up_id | 13 | 답변 기반 꼬리질문 결정과 private session question 승격 상태 | answer_id -> interview_answers.answer_id, source_session_question_id/inserted_session_question_id -> interview_session_questions.session_question_id |
 | evaluation_reports | report_id | 8 | 평가 리포트 헤더 | application_id -> applications.application_id / session_id -> interview_sessions.session_id |
 | report_scores | score_id | 5 | 평가 항목별 점수 | report_id -> evaluation_reports.report_id / criterion_id -> evaluation_criteria.criterion_id |
 | ncs_answer_evaluations | ncs_evaluation_id | 22 | 답변별 NCS canonical 평가 결과와 nullable 점수 | report_id -> evaluation_reports.report_id / answer_id -> interview_answers.answer_id / session_question_id -> interview_session_questions.session_question_id / criterion_id -> evaluation_criteria.criterion_id |
@@ -116,6 +116,8 @@ ERDCloud SQL을 사람이 읽는 테이블/관계 문서로 변환한다.
 | interview_answers | video_file_id | file_assets.file_id | fk_interview_answers_video_file |
 | interview_answers | audio_file_id | file_assets.file_id | fk_interview_answers_audio_file |
 | follow_up_questions | answer_id | interview_answers.answer_id | fk_follow_up_questions_answer |
+| follow_up_questions | source_session_question_id | interview_session_questions.session_question_id | fk_follow_up_questions_source_session_question |
+| follow_up_questions | inserted_session_question_id | interview_session_questions.session_question_id | fk_follow_up_questions_inserted_session_question |
 | evaluation_reports | application_id | applications.application_id | fk_evaluation_reports_application |
 | evaluation_reports | session_id | interview_sessions.session_id | fk_evaluation_reports_session |
 | report_scores | report_id | evaluation_reports.report_id | fk_report_scores_report |

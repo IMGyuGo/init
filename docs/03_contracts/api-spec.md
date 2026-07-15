@@ -2817,41 +2817,17 @@ CandidateFolder 입력 제한:
 - 검증/전제조건:
   - 답변 텍스트가 충분해야 함
 - 성공 응답/처리:
-  - 꼬리질문 표시
+  - worker guardrail 통과 결과 저장 transaction에서 꼬리질문 결정을 `follow_up_questions`에 저장한다.
+  - 필요한 질문은 해당 세션의 private `FOLLOW_UP` session question으로 세션 질문 맨 뒤에 한 번만 추가한다.
+  - 불필요 판정은 `SKIPPED/NOT_REQUIRED`로 저장하고 세션 질문을 추가하지 않는다.
+  - 프론트는 완료된 job 상태를 확인한 뒤 정식 질문 목록을 다시 조회하며 별도 삽입 API를 호출하지 않는다.
   - 서버가 최신 `CandidateProfileAiContextV1`을 worker 입력에 추가한다. 답변 스크립트와 이전 질문을 주 근거로, 프로필은 보조 근거로 사용한다.
 - 오류/예외:
-  - 답변이 너무 짧거나 부적절하면 기본 꼬리질문을 제시한다.
+  - worker 실패·timeout은 `ai_process_logs`의 실패 상태로 남기고 기본 질문 진행을 막지 않는다.
 - 관련 ERD 테이블:
   - candidate_profiles, postings, question_bank, applications, interview_sessions, interview_answers, follow_up_questions, ai_process_logs
 - 비고/미결:
   - 채용 평가용 꼬리질문과 분리
-
-### API-051-TMP POST /candidate/mock-interviews/{sessionId}/follow-up-questions/insert
-- 프레임: 지원자 - 모의면접
-- 권한/인증: 지원자 / 지원자 사용자 로그인
-- 관련 화면: AI 모의면접 진행 화면 (/candidate/mock-interviews/{sessionId})
-- UI Type: MVP bridge
-- 상태 코드: 200 OK
-- 비동기: N
-- 임시 여부:
-  - MVP 임시 브릿지 API다. 완료된 FOLLOW_UP AI 작업 결과를 실제 면접 질문 흐름에 끼워 넣기 위해 사용한다.
-  - 정식 follow_up_questions 스키마/자동 상태 전이가 확정되면 제거하거나 정식 API로 재정의한다.
-- Path Params: sessionId
-- 요청 데이터:
-  - processLogId
-- 검증 전제조건:
-  - processLogId가 COMPLETED 상태의 FOLLOW_UP 작업이어야 한다.
-  - 작업의 sessionId와 요청 sessionId가 일치해야 한다.
-  - 생성 근거가 된 답변의 질문이 현재 질문이거나, 방금 답변한 직전 질문이어야 한다.
-- 성공 응답/처리:
-  - 생성된 꼬리질문을 FOLLOW_UP 질문으로 세션 질문 목록에 추가한다.
-  - question, inserted, totalQuestions, nextQuestionAvailable을 반환한다.
-- 오류/예외:
-  - 완료된 FOLLOW_UP 작업이 아니거나 다른 세션의 작업이면 오류를 반환한다.
-- 관련 ERD 테이블:
-  - question_bank, interview_sessions, interview_answers, ai_process_logs
-- 비고/미결:
-  - 임시 브릿지 API이므로 정식 API 번호 승격 여부는 D/E/PM 리뷰 후 결정한다.
 
 ### API-052 PATCH /candidate/mock-interviews/{sessionId}/complete
 - 도메인: 지원자 - 모의면접
@@ -3484,43 +3460,23 @@ CandidateFolder 입력 제한:
   - base question당 최대 1회이며 기존 꼬리질문이 없어야 한다.
   - session question snapshot의 profile binding, question mode와 time policy가 완전해야 한다.
 - 성공 응답/처리:
-  - base question과 같은 question mode로 부족한 behavior point와 logic link만 묻는 꼬리질문을 표시한다.
+  - base question과 같은 question mode로 부족한 behavior point와 logic link만 묻는 꼬리질문을 생성한다.
   - 답변 제한 시간은 session snapshot의 `answerTimeSec`와 같다.
   - 서버가 최신 `CandidateProfileAiContextV1`을 worker 입력에 추가한다. 이전 질문, 답변 스크립트, JD/서류 요약을 주 근거로, 프로필은 보조 근거로 사용한다.
+  - worker guardrail 통과 결과 저장 transaction에서 `READY` 결정을 private `FOLLOW_UP` session question으로 세션 질문 맨 뒤에 추가하고 `INSERTED`로 전이한다.
+  - 원본 질문의 `ALIGNED` canonical NCS binding 1~2개를 private 질문 snapshot에 그대로 복제한다.
+  - `(answerId, policy)`와 `insertedSessionQuestionId` unique 제약으로 중복 job과 재시도에도 질문을 한 번만 추가한다.
+  - base 평가상 불필요하면 `SKIPPED/NOT_REQUIRED`로 저장하며 질문 목록은 변경하지 않는다.
+  - 프론트는 완료된 job 상태를 확인한 뒤 정식 질문 목록을 다시 조회하며 별도 삽입 API를 호출하지 않는다.
 - 오류/예외:
   - 이미 1회 생성했거나 snapshot이 불완전하면 `INTERVIEW_NCS_BINDING_INVALID`로 생성하지 않는다.
+  - 결과 저장 시 세션이 `IN_PROGRESS`가 아니면 `SKIPPED/SESSION_NOT_IN_PROGRESS`로 저장한다.
+  - worker 실패·timeout은 `ai_process_logs`의 실패 상태로 남기고 기본 질문 진행을 막지 않는다.
 - 관련 ERD 테이블:
   - candidate_profiles, postings, question_bank, applications, application_documents, interview_sessions, interview_answers, follow_up_questions, ai_process_logs
 - 비고/미결:
   - 원답과 꼬리답변은 별도 answer ID로 저장하고 재평가 시 segment로 구분한다.
   - 학교·회사 명성, 나이, 성별, 주소, 장애/건강, 연봉을 추론하거나 평가하는 질문은 금지한다. 이메일·전화번호·URL이 출력에 포함되면 가드레일 실패로 처리하고 저장하지 않는다.
-
-### API-071-TMP POST /candidate/interviews/{sessionId}/follow-up-questions/insert
-- 프레임: 지원자 - 채용면접
-- 권한/인증: 지원자 / 지원자 사용자 로그인
-- 관련 화면: 채용 AI 면접 진행 화면 (/candidate/applications/{applicationId}/interview)
-- UI Type: MVP bridge
-- 상태 코드: 200 OK
-- 비동기: N
-- 임시 여부:
-  - MVP 임시 브릿지 API다. 완료된 FOLLOW_UP AI 작업 결과를 실제 면접 질문 흐름에 끼워 넣기 위해 사용한다.
-  - 정식 follow_up_questions 스키마/자동 상태 전이가 확정되면 제거하거나 정식 API로 재정의한다.
-- Path Params: sessionId
-- 요청 데이터:
-  - processLogId
-- 검증 전제조건:
-  - processLogId가 COMPLETED 상태의 FOLLOW_UP 작업이어야 한다.
-  - 작업의 sessionId와 요청 sessionId가 일치해야 한다.
-  - 생성 근거가 된 답변의 질문이 현재 질문이거나, 방금 답변한 직전 질문이어야 한다.
-- 성공 응답/처리:
-  - 생성된 꼬리질문을 FOLLOW_UP 질문으로 세션 질문 목록에 추가한다.
-  - question, inserted, totalQuestions, nextQuestionAvailable을 반환한다.
-- 오류/예외:
-  - 완료된 FOLLOW_UP 작업이 아니거나 다른 세션의 작업이면 오류를 반환한다.
-- 관련 ERD 테이블:
-  - question_bank, interview_sessions, interview_answers, ai_process_logs
-- 비고/미결:
-  - 임시 브릿지 API이므로 정식 API 번호 승격 여부는 D/E/PM 리뷰 후 결정한다.
 
 ### API-072 PATCH /candidate/interviews/{sessionId}/complete
 - 도메인: 지원자 - 채용면접

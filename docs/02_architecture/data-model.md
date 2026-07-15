@@ -495,9 +495,20 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | --- |--- |--- |
 | follow_up_id | BIGINT PRIMARY KEY | 꼬리질문 PK |
 | answer_id | BIGINT NOT NULL | 어떤 답변에서 파생된 꼬리질문인지 |
-| content | TEXT NOT NULL | 꼬리질문 내용 |
-| generation_status | VARCHAR(40) NOT NULL | 생성 상태: PENDING, GENERATED, FAILED |
+| source_session_question_id | BIGINT | 원본 base session question FK. 정식 M4 기록은 필수이며 과거 매핑 불가 row만 NULL 허용 |
+| inserted_session_question_id | BIGINT | 실제 세션에 추가된 private FOLLOW_UP question FK |
+| content | TEXT NOT NULL | 생성된 꼬리질문. 불필요 판정이면 빈 문자열 |
+| generation_status | VARCHAR(40) NOT NULL | READY, INSERTED, SKIPPED |
+| policy | VARCHAR(40) NOT NULL | MOCK, RECRUITING |
+| reason | VARCHAR(40) | NCS_EVIDENCE_GAP, GENERAL_EVIDENCE_GAP |
+| skip_reason | VARCHAR(50) | NOT_REQUIRED, SESSION_NOT_IN_PROGRESS |
+| question_mode | VARCHAR(50) | 원본 base question의 NCS question mode snapshot |
+| answer_time_sec | INTEGER | 세션 확정 당시 꼬리질문 답변 제한 시간 snapshot |
+| inserted_at | TIMESTAMP | private session question 승격 시각 |
 | created_at | TIMESTAMP NOT NULL | 생성 시각 |
+| updated_at | TIMESTAMP NOT NULL | 상태 갱신 시각 |
+
+`(answer_id, policy)`는 unique이며 base 답변 하나당 꼬리질문 결정은 최대 한 번만 저장한다. `INSERTED` 전이는 worker guardrail 통과 결과 저장 transaction에서 `interview_session_questions` append와 함께 처리한다. 추가 질문은 `question_bank`에 등록하지 않고 해당 세션의 private runtime question으로만 저장하며, 원본 질문의 canonical `session_question_ncs_bindings` 1~2개를 같은 transaction에서 복제한다. 세션 끝에 append하므로 이미 표시되거나 답변한 기본 질문의 순서를 변경하지 않는다. `SKIPPED`는 질문을 생성하지 않으며 worker 실패·timeout은 이 테이블의 판정으로 변환하지 않고 `ai_process_logs` 실패 상태를 유지한다.
 
 ### evaluation_reports
 

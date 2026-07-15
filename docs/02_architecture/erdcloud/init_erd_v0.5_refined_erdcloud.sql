@@ -702,14 +702,28 @@ CREATE TABLE follow_up_questions (
     -- 어떤 답변에서 파생된 꼬리질문인지
     answer_id BIGINT NOT NULL,
 
-    -- 꼬리질문 내용
+    -- 원본 base session question
+    source_session_question_id BIGINT,
+
+    -- 실제 세션에 추가된 private FOLLOW_UP question
+    inserted_session_question_id BIGINT,
+
+    -- 꼬리질문 내용. 불필요 판정이면 빈 문자열
     content TEXT NOT NULL,
 
-    -- 생성 상태: PENDING, GENERATED, FAILED
+    -- 생성 상태: READY, INSERTED, SKIPPED
     generation_status VARCHAR(40) NOT NULL,
 
+    policy VARCHAR(40) NOT NULL DEFAULT 'RECRUITING',
+    reason VARCHAR(40),
+    skip_reason VARCHAR(50),
+    question_mode VARCHAR(50),
+    answer_time_sec INTEGER,
+    inserted_at TIMESTAMP,
+
     -- 생성 시각
-    created_at TIMESTAMP NOT NULL
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
 );
 
 -- =========================================================
@@ -1343,6 +1357,14 @@ ALTER TABLE follow_up_questions
     ADD CONSTRAINT fk_follow_up_questions_answer
     FOREIGN KEY (answer_id) REFERENCES interview_answers(answer_id);
 
+ALTER TABLE follow_up_questions
+    ADD CONSTRAINT fk_follow_up_questions_source_session_question
+    FOREIGN KEY (source_session_question_id) REFERENCES interview_session_questions(session_question_id);
+
+ALTER TABLE follow_up_questions
+    ADD CONSTRAINT fk_follow_up_questions_inserted_session_question
+    FOREIGN KEY (inserted_session_question_id) REFERENCES interview_session_questions(session_question_id);
+
 ALTER TABLE evaluation_reports
     ADD CONSTRAINT fk_evaluation_reports_application
     FOREIGN KEY (application_id) REFERENCES applications(application_id);
@@ -1495,6 +1517,12 @@ CREATE INDEX idx_interview_session_ncs_policies_criterion ON interview_session_n
 CREATE INDEX idx_interview_answers_session_question ON interview_answers(session_question_id);
 CREATE UNIQUE INDEX uq_interview_session_questions_runtime_question
     ON interview_session_questions(runtime_question_id);
+
+CREATE UNIQUE INDEX uq_follow_up_questions_answer_policy
+    ON follow_up_questions(answer_id, policy);
+
+CREATE UNIQUE INDEX uq_follow_up_questions_inserted_session_question
+    ON follow_up_questions(inserted_session_question_id);
 CREATE INDEX idx_interview_session_questions_question ON interview_session_questions(question_id);
 CREATE INDEX idx_interview_session_questions_personalized ON interview_session_questions(personalized_question_id);
 CREATE INDEX idx_interview_session_questions_criterion ON interview_session_questions(criterion_id);

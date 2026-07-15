@@ -99,10 +99,8 @@ GET /api/v1/ai/jobs/101/status
 | `POST /candidate/documents/extract` | Candidate | applicationId, documentId, fileId, s3Key | 원본 파일은 DB 저장 금지, S3 key 참조 |
 | `POST /candidate/mock-interviews/{sessionId}/stt` | Candidate | answerId, audioFileId, audioS3Key | transcript 없을 때만 저장 |
 | `POST /candidate/interviews/{sessionId}/stt` | Candidate | answerId, audioFileId, audioS3Key | transcript 없을 때만 저장 |
-| `POST /candidate/mock-interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript, profileContext(V1, server-built) | 모의면접 표현 정책 적용 |
-| `POST /candidate/mock-interviews/{sessionId}/follow-up-questions/insert` | Candidate | processLogId | MVP 임시 브릿지. 완료된 FOLLOW_UP 작업 결과를 면접 질문 흐름에 추가 |
-| `POST /candidate/interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript, jobDescription 또는 documentSummary, profileContext(V1, server-built) | 채용면접 표현 정책 적용 |
-| `POST /candidate/interviews/{sessionId}/follow-up-questions/insert` | Candidate | processLogId | MVP 임시 브릿지. 완료된 FOLLOW_UP 작업 결과를 면접 질문 흐름에 추가 |
+| `POST /candidate/mock-interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript, profileContext(V1, server-built) | 모의면접 표현 정책과 guardrail 통과 후 private session question을 세션 끝에 원자적으로 추가. 불필요·실패·timeout이면 기본 질문 계속 진행 |
+| `POST /candidate/interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript, jobDescription 또는 documentSummary, profileContext(V1, server-built) | NCS 필요 여부·동일 mode·답변시간 snapshot 검증 후 private session question을 세션 끝에 한 번만 추가 |
 | `POST /company/recruitments/ai-draft` | Company | title(max 120), jobRole(max 80), keywords?(max 10, each max 40), summary?(max 1000), careerRequirement?, employmentType?, workLocation? | reviewRequired draft 반환, 확정 전 최종 저장 금지 |
 | `POST /company/interviews/evaluation-criteria/suggest` | Company | postingId, jobDescription, talentProfile, evaluationPolicy | reviewRequired draft 반환, 확정 전 최종 저장 금지 |
 | `POST /company/interviews/questions/generate` | Company | postingId, jobDescription, questionCount | reviewRequired draft 반환 |

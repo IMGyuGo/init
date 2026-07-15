@@ -111,7 +111,6 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-050 | 지원자 - 모의면접 | POST | /candidate/mock-interviews/{sessionId}/stt | STT 처리 | 지원자 / 지원자 사용자 로그인 | Y | 202 Accepted |
 | API-050-RT | 지원자 - 모의면접 | POST | /candidate/mock-interviews/{sessionId}/realtime-session | 실시간 AI 면접 세션 생성 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-051 | 지원자 - 모의면접 | POST | /candidate/mock-interviews/{sessionId}/follow-up-question | 꼬리질문 생성 | 지원자 / 지원자 사용자 로그인 | Y | 202 Accepted |
-| API-051-TMP | 지원자 - 모의면접 | POST | /candidate/mock-interviews/{sessionId}/follow-up-questions/insert | 생성된 꼬리질문을 면접 질문 흐름에 추가 (MVP 임시 브릿지) | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-052 | 지원자 - 모의면접 | PATCH | /candidate/mock-interviews/{sessionId}/complete | 면접 종료 및 분석 상태 전환 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-053 | 지원자 - 모의면접 | GET | /candidate/mock-interview/reports | 연습 이력 및 리포트 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-054 | 지원자 - 모의면접 | GET | /candidate/mock-interviews/history | 연습 이력 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
@@ -142,7 +141,6 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-070 | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/stt | STT 처리 | 지원자 / 지원자 사용자 로그인 | Y | 202 Accepted |
 | API-070-RT | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/realtime-session | 실시간 AI 면접 세션 생성 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-071 | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/follow-up-question | 꼬리질문 생성 | 지원자 / 지원자 사용자 로그인 | Y | 202 Accepted |
-| API-071-TMP | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/follow-up-questions/insert | 생성된 꼬리질문을 면접 질문 흐름에 추가 (MVP 임시 브릿지) | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-072 | 지원자 - 채용면접 | PATCH | /candidate/interviews/{sessionId}/complete | 면접 종료 및 분석 상태 전환 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-087 | 지원자 - Public 채용면접 | POST | /public/applications/{applicationId}/interview/start | public 면접 access token 발급 및 세션 조회/생성 | B magic token | N | 200 OK |
 | API-088 | 지원자 - Public 채용면접 | POST | /public/applications/{applicationId}/interview/begin | public 채용면접 시작/재개 | publicAccessToken | N | 200 OK |
