@@ -92,6 +92,16 @@ NCS 질문 생성
 | NR-M5 | STT 평가 미완료 정렬 | 임시 0점 제거, `STT_UNAVAILABLE + score NULL` 저장, 재답변 1회, 진행 허용, 리포트 reason 전달 | STT 실패가 질문 진행을 막지 않고 0점과 평가 미완료가 구분됨 | E/D / B,PM | 2~4시간 |
 | NR-M6 | 회귀·브라우저 E2E | 공통 6·개인화 0/개인화 포함 시나리오, API/worker 재시작, 꼬리질문 성공·실패, STT 실패, 완료·리포트 검증 | C/D/E 집중 테스트, clean DB E2E, 역할별 harness와 브라우저 체크리스트 통과 | PM/A / 전 owner | 3~5시간 |
 
+### NR-M0 격리 DB 검증
+
+공유 `init` DB와 실행 중인 로컬 서버는 migration 검증에 사용하지 않는다. 아래 스크립트는 별도 Compose project, PostgreSQL 포트 `55432`, LocalStack 포트 `54566`, DB `init_ncs_runtime`을 사용한다. 성공 또는 실패 후에는 이 project가 만든 컨테이너와 볼륨만 제거한다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\verify-ncs-runtime-clean-db.ps1
+```
+
+실패 상태를 직접 확인해야 할 때만 `-KeepDatabase`를 사용한다. 실제 `DATABASE_URL`과 credential은 파일에 기록하지 않고 스크립트 process 환경에만 설정한다.
+
 전체 예상은 약 20~35시간이다. NR-M0~NR-M3은 질문 진행 복구를 위한 선행 범위이고, NR-M4~NR-M5는 발표용 임시 처리를 정식 계약으로 바꾸는 범위다.
 
 ## 5. 구현 순서와 병렬화
@@ -134,4 +144,3 @@ NR-M4 + NR-M5 완료 후 NR-M6 최종 회귀
 5. `refactor(ai): 꼬리질문 임시 삽입 경로 통합`
 6. `fix(report): STT 평가 미완료 점수 계약 정렬`
 7. `test(interview): NCS 채용면접 런타임 회귀 검증 추가`
-
