@@ -982,6 +982,7 @@ export interface CandidateApiClient {
   listMockReports(): Promise<ApiListResponse<CandidateMockReportSummary>>;
   listMockInterviewHistory(): Promise<ApiListResponse<CandidateMockInterviewHistoryItem>>;
   updateMockSessionTitle(sessionId: number, title: string): Promise<ApiResponse<{ sessionId: number; title: string | null }>>;
+  deleteMockInterview(sessionId: number): Promise<void>;
   getMockReportFeedback(reportId: number): Promise<ApiResponse<CandidateMockReportFeedback>>;
   getMockReportMedia(reportId: number): Promise<ApiResponse<CandidateMockReportMedia>>;
   requestMockReportGeneration(reportId: number): Promise<ApiResponse<CandidateReportGenerationHandoff>>;
@@ -1178,6 +1179,10 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
       request<ApiResponse<{ sessionId: number; title: string | null }>>(candidateApiPaths.mockTitle(sessionId), {
         method: "PATCH",
         body: JSON.stringify({ title }),
+      }),
+    deleteMockInterview: (sessionId) =>
+      request<void>(candidateApiPaths.mockRuntime(sessionId), {
+        method: "DELETE",
       }),
     getMockReportFeedback: (reportId) =>
       request<ApiResponse<CandidateMockReportFeedback>>(candidateApiPaths.mockReportFeedback(reportId)),

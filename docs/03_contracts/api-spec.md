@@ -2669,6 +2669,26 @@ CandidateFolder 입력 제한:
 - 관련 ERD 테이블:
   - interview_sessions
 
+### API-054B DELETE /candidate/mock-interviews/{sessionId}
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 모의면접 평가 리포트 화면 (/candidate/mock-interview/reports)
+- UI Type: system process
+- 상태 코드: 204 No Content
+- 비동기: N
+- Path Params: sessionId
+- 요청 데이터: 없음
+- 검증/전제조건:
+  - 로그인 사용자, 모의면접 세션 소유자(본인) 확인
+- 성공 응답/처리:
+  - interview_sessions.deleted_at을 기록하여 연습 이력을 소프트 삭제한다.
+  - 삭제된 세션은 연습 이력, 리포트 상세, 면접 재개 조회에서 제외한다.
+  - 이미 사용한 모의면접 이용권은 복구하지 않는다.
+- 오류/예외:
+  - 타 지원자 세션 접근 시 403(COMMON_FORBIDDEN), 없거나 이미 삭제된 세션은 404(COMMON_NOT_FOUND), 잘못된 sessionId는 400(COMMON_VALIDATION_FAILED)
+- 관련 ERD 테이블:
+  - interview_sessions
+
 ### API-055 GET /candidate/mock-interview/reports/{reportId}/feedback
 - 도메인: 지원자 - 모의면접
 - 권한/인증: 지원자 / 지원자 사용자 로그인

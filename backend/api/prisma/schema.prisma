@@ -580,6 +580,7 @@ model InterviewSession {
   showQuestionText      Boolean                            @default(false) @map("show_question_text")
   startedAt             DateTime?                          @map("started_at")
   completedAt           DateTime?                          @map("completed_at")
+  deletedAt             DateTime?                          @map("deleted_at")
   application           Application?                       @relation(fields: [applicationId], references: [applicationId])
   candidate             CandidateProfile                   @relation(fields: [candidateId], references: [candidateId])
   answers               InterviewAnswer[]
@@ -589,6 +590,7 @@ model InterviewSession {
   clientPerformanceLogs ClientPerformanceLog[]
   mockPassUsages        CandidateMockInterviewPassLedger[]
 
+  @@index([candidateId, interviewType, deletedAt], map: "idx_interview_sessions_candidate_type_deleted")
   @@map("interview_sessions")
 }
 

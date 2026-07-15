@@ -8731,10 +8731,28 @@ function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryI
   const [draft, setDraft] = useState("");
   const [savingId, setSavingId] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [deletedIds, setDeletedIds] = useState<ReadonlySet<number>>(() => new Set());
+  const [deleteTarget, setDeleteTarget] = useState<CandidateMockInterviewHistoryItem | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteMessage, setDeleteMessage] = useState("");
 
   const rawTitle = (item: CandidateMockInterviewHistoryItem) =>
     item.sessionId in localTitles ? localTitles[item.sessionId] : item.title;
   const displayTitle = (item: CandidateMockInterviewHistoryItem) => rawTitle(item) || `세션 #${item.sessionId}`;
+  const visibleHistory = history.filter((item) => !deletedIds.has(item.sessionId));
+
+  useEffect(() => {
+    if (!deleteTarget) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && deletingId === null) {
+        setDeleteTarget(null);
+        setDeleteError(null);
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [deleteTarget, deletingId]);
 
   function startEdit(item: CandidateMockInterviewHistoryItem) {
     setEditingId(item.sessionId);
@@ -8757,72 +8775,172 @@ function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryI
     }
   }
 
+  function openDelete(item: CandidateMockInterviewHistoryItem) {
+    setDeleteTarget(item);
+    setDeleteError(null);
+    setDeleteMessage("");
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget || deletingId !== null) return;
+    const sessionId = deleteTarget.sessionId;
+    const title = displayTitle(deleteTarget);
+    setDeletingId(sessionId);
+    setDeleteError(null);
+    try {
+      await getCandidateApi().deleteMockInterview(sessionId);
+      setDeletedIds((current) => new Set([...current, sessionId]));
+      setDeleteMessage(`"${title}" 연습 이력이 삭제되었습니다.`);
+      if (editingId === sessionId) {
+        setEditingId(null);
+      }
+      setDeleteTarget(null);
+    } catch (error) {
+      setDeleteError(toErrorMessage(error));
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
-    <div className="table-wrap">
-      <table className="mock-history-table">
-        <thead>
-          <tr>
-            <th>연습 제목</th>
-            <th>면접 상태</th>
-            <th>리포트 상태</th>
-            <th>답변</th>
-            <th>액션</th>
-          </tr>
-        </thead>
-        <tbody>
-          {history.map((item) => (
-            <tr key={item.sessionId}>
-              <td>
-                {editingId === item.sessionId ? (
-                  <span className="mock-title-edit">
-                    <input
-                      autoFocus
-                      value={draft}
-                      maxLength={100}
-                      placeholder={`세션 #${item.sessionId}`}
-                      onChange={(event) => setDraft(event.currentTarget.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") void saveTitle(item.sessionId);
-                        if (event.key === "Escape") setEditingId(null);
-                      }}
-                    />
-                    <button type="button" className="mock-title-btn" disabled={savingId === item.sessionId} onClick={() => void saveTitle(item.sessionId)}>
-                      저장
-                    </button>
-                    <button type="button" className="mock-title-btn ghost" onClick={() => setEditingId(null)}>
-                      취소
-                    </button>
-                    {saveError ? <span className="mock-title-error" role="alert">{saveError}</span> : null}
-                  </span>
-                ) : (
-                  <span className="mock-title-cell">
-                    <button type="button" className="mock-title-name" title="제목 편집" onClick={() => startEdit(item)}>
-                      {displayTitle(item)}
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
-                    </button>
-                    <span>{formatDateTime(item.updatedAt)}</span>
-                  </span>
-                )}
-              </td>
-              <td><StatusPill value={item.status} /></td>
-              <td><StatusPill value={item.reportStatus} /></td>
-              <td>{item.answeredCount}/{item.totalQuestions}</td>
-              <td>
-                {item.status === "IN_PROGRESS" ? (
-                  <Link className="btn secondary compact" href={candidateApplicationInterviewRoutes.mockInterview(item.sessionId)}>이어하기</Link>
-                ) : item.reportId ? (
-                  <Link className="btn secondary compact" href={candidateApplicationInterviewRoutes.mockReportDetail(item.reportId)}>
-                    {formatMockHistoryActionLabel(item.reportStatus)}
-                  </Link>
-                ) : (
-                  <span className="btn secondary compact is-disabled" aria-disabled="true">준비 중</span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <>
+      {deleteMessage ? <p className="notice success mock-history-delete-notice" role="status">{deleteMessage}</p> : null}
+      {visibleHistory.length > 0 ? (
+        <div className="table-wrap">
+          <table className="mock-history-table">
+            <thead>
+              <tr>
+                <th>연습 제목</th>
+                <th>면접 상태</th>
+                <th>리포트 상태</th>
+                <th>답변</th>
+                <th>액션</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleHistory.map((item) => (
+                <tr key={item.sessionId}>
+                  <td>
+                    {editingId === item.sessionId ? (
+                      <span className="mock-title-edit">
+                        <input
+                          autoFocus
+                          value={draft}
+                          maxLength={100}
+                          placeholder={`세션 #${item.sessionId}`}
+                          onChange={(event) => setDraft(event.currentTarget.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") void saveTitle(item.sessionId);
+                            if (event.key === "Escape") setEditingId(null);
+                          }}
+                        />
+                        <button type="button" className="mock-title-btn" disabled={savingId === item.sessionId} onClick={() => void saveTitle(item.sessionId)}>
+                          저장
+                        </button>
+                        <button type="button" className="mock-title-btn ghost" onClick={() => setEditingId(null)}>
+                          취소
+                        </button>
+                        {saveError ? <span className="mock-title-error" role="alert">{saveError}</span> : null}
+                      </span>
+                    ) : (
+                      <span className="mock-title-cell">
+                        <button type="button" className="mock-title-name" title="제목 편집" onClick={() => startEdit(item)}>
+                          {displayTitle(item)}
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+                        </button>
+                        <span>{formatDateTime(item.updatedAt)}</span>
+                      </span>
+                    )}
+                  </td>
+                  <td><StatusPill value={item.status} /></td>
+                  <td><StatusPill value={item.reportStatus} /></td>
+                  <td>{item.answeredCount}/{item.totalQuestions}</td>
+                  <td>
+                    <div className="mock-history-actions">
+                      {item.status === "IN_PROGRESS" ? (
+                        <Link className="btn secondary compact" href={candidateApplicationInterviewRoutes.mockInterview(item.sessionId)}>이어하기</Link>
+                      ) : item.reportId ? (
+                        <Link className="btn secondary compact" href={candidateApplicationInterviewRoutes.mockReportDetail(item.reportId)}>
+                          {formatMockHistoryActionLabel(item.reportStatus)}
+                        </Link>
+                      ) : (
+                        <span className="btn secondary compact is-disabled" aria-disabled="true">준비 중</span>
+                      )}
+                      <button
+                        className="btn secondary compact mock-history-delete-trigger"
+                        type="button"
+                        aria-label={`${displayTitle(item)} 삭제`}
+                        disabled={deletingId === item.sessionId}
+                        onClick={() => openDelete(item)}
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="empty">남아 있는 모의면접 연습 이력이 없어요.</p>
+      )}
+
+      {deleteTarget ? (
+        <div
+          className="modal-backdrop mock-history-delete-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && deletingId === null) {
+              setDeleteTarget(null);
+              setDeleteError(null);
+            }
+          }}
+        >
+          <div
+            className="modal mock-history-delete-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mock-history-delete-title"
+            aria-describedby="mock-history-delete-description"
+          >
+            <div className="modal-head">
+              <div>
+                <h2 id="mock-history-delete-title">연습 이력 삭제</h2>
+                <p id="mock-history-delete-description">삭제하면 연습 이력과 리포트에서 더 이상 확인할 수 없습니다. 사용한 이용권은 복구되지 않습니다.</p>
+              </div>
+            </div>
+            <div className="confirm-box mock-history-delete-summary">
+              <strong>{displayTitle(deleteTarget)}</strong>
+              <span>{formatDateTime(deleteTarget.updatedAt)}</span>
+            </div>
+            {deleteError ? <p className="notice danger" role="alert">{deleteError}</p> : null}
+            <div className="modal-actions split-actions">
+              <button
+                autoFocus
+                className="btn secondary"
+                type="button"
+                disabled={deletingId !== null}
+                onClick={() => {
+                  setDeleteTarget(null);
+                  setDeleteError(null);
+                }}
+              >
+                취소
+              </button>
+              <button
+                className="btn primary danger"
+                type="button"
+                disabled={deletingId !== null}
+                onClick={() => void confirmDelete()}
+              >
+                {deletingId !== null ? "삭제 중..." : "삭제"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 
