@@ -68,6 +68,9 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | `evaluation_reports` | `EvaluationReport` | E |
 | `ncs_answer_evaluations` | `NcsAnswerEvaluation` | E |
 | `ncs_answer_evaluation_evidences` | `NcsAnswerEvaluationEvidence` | E |
+| `answer_fact_check_runs` | `AnswerFactCheckRun` | E |
+| `answer_fact_check_claims` | `AnswerFactCheckClaim` | E |
+| `answer_fact_check_evidences` | `AnswerFactCheckEvidence` | E |
 | `report_scores` | `ReportScore` | E |
 | `report_evidences` | `ReportEvidence` | E |
 | `manual_evaluations` | `ManualEvaluation` | B/E |
@@ -96,7 +99,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | Recruiting | postings, criterion_tags, evaluation_criteria, question_bank, question_ncs_bindings, application_question_ncs_bindings, interview_time_policies | 공고, JD, 평가 기준, 질문, 면접 시간 정책 관리 |
 | Application | applications, application_documents, consent_records | 지원서 제출, 서류 파싱, 동의 이력 |
 | Interview | interview_sessions, interview_session_ncs_policies, interview_session_questions, session_question_ncs_bindings, interview_answers, follow_up_questions | 모의/채용 AI 면접 실행, 세션별 시간·가중치 정책과 질문 순서·profile snapshot, 답변 |
-| Report | evaluation_reports, ncs_answer_evaluations, ncs_answer_evaluation_evidences, report_scores, report_evidences, manual_evaluations | 답변·profile별 NCS 평가와 exact evidence, AI 집계 결과와 면접관 검토 |
+| Report | evaluation_reports, ncs_answer_evaluations, ncs_answer_evaluation_evidences, answer_fact_check_runs, answer_fact_check_claims, answer_fact_check_evidences, report_scores, report_evidences, manual_evaluations | 답변·profile별 NCS 평가, 점수와 분리된 사실 검증, exact evidence, AI 집계 결과와 면접관 검토 |
 | AI Infra | ai_process_logs, ai_guardrail_logs, embeddings | AI 처리 상태, 안전성 검증, 검색/추천 |
 | Notification/File | notifications, file_assets | 알림과 업로드 파일 메타데이터 |
 
@@ -590,6 +593,61 @@ NCS profile 집계 row는 `(report_id, ncs_profile_id)`를 unique key로 사용�
 | sort_order | INTEGER NOT NULL | 같은 source answer 안의 근거 순서, 1 이상 |
 
 기존 `result_json`에서 source answer를 확정할 수 없는 근거는 migration이 추측하여 이 table로 옮기지 않는다. M4 이후 새 평가부터 source answer가 검증된 row만 저장한다.
+
+### answer_fact_check_runs
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| fact_check_run_id | BIGINT PRIMARY KEY | 답변 사실 검증 실행 PK |
+| report_id | BIGINT NOT NULL | 평가 리포트 FK |
+| answer_id | BIGINT NOT NULL | 검증한 base 답변 FK |
+| provider_status | VARCHAR(40) NOT NULL | COMPLETED, FAILED, TIMEOUT, INVALID_OUTPUT |
+| gate_status | VARCHAR(40) | PASS_THROUGH, CLARIFICATION_CANDIDATE, FACT_CHECK_REQUIRED. provider 실패면 NULL |
+| provider_mode | VARCHAR(20) NOT NULL | mock, openai |
+| model_version | VARCHAR(120) NOT NULL | 실행에 사용한 provider model |
+| prompt_version | VARCHAR(100) NOT NULL | strict prompt contract version |
+| knowledge_snapshot_version | VARCHAR(100) NOT NULL | provider에 전달한 지식 snapshot 버전 |
+| policy_version | VARCHAR(100) NOT NULL | deterministic gate policy 버전 |
+| failure_reason | TEXT | provider 실패 또는 invalid output 사유 |
+| started_at | TIMESTAMP NOT NULL | 실행 시작 시각 |
+| completed_at | TIMESTAMP | 실행 완료 시각 |
+| created_at | TIMESTAMP NOT NULL | 최초 저장 시각 |
+| updated_at | TIMESTAMP NOT NULL | 최종 갱신 시각 |
+
+정본 unique key는 `(report_id, answer_id, policy_version)`다. provider 실패는 `gate_status=NULL`로 저장하며 `UNVERIFIABLE` claim을 만들지 않는다.
+
+### answer_fact_check_claims
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| fact_check_claim_id | BIGINT PRIMARY KEY | 사실 검증 claim PK |
+| fact_check_run_id | BIGINT NOT NULL | 실행 FK |
+| claim_text | TEXT NOT NULL | 답변 원문 exact segment |
+| answer_start_offset | INTEGER NOT NULL | 답변 원문의 UTF-16 시작 offset |
+| answer_end_offset | INTEGER NOT NULL | 답변 원문의 UTF-16 종료 offset, exclusive |
+| claim_type | VARCHAR(40) NOT NULL | TECHNICAL_FACT, PERSONAL_EXPERIENCE, OPINION, OTHER |
+| claim_role | VARCHAR(40) NOT NULL | ANSWER_CORE, SUPPORTING |
+| verdict | VARCHAR(40) NOT NULL | SUPPORTED, CONTRADICTED, AMBIGUOUS, UNVERIFIABLE, NOT_CHECKABLE |
+| confidence | DECIMAL(5,4) NOT NULL | 0 이상 1 이하 provider confidence |
+| rationale | TEXT NOT NULL | claim 판정의 간단한 설명 |
+| sort_order | INTEGER NOT NULL | 실행 내 claim 순서, 1 이상 |
+
+`claim_text`는 `interview_answers.transcript`의 offset 구간과 정확히 일치해야 한다. 원본 답변을 수정하거나 claim으로 대체하지 않는다.
+
+### answer_fact_check_evidences
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| fact_check_evidence_id | BIGINT PRIMARY KEY | claim 근거 연결 PK |
+| fact_check_claim_id | BIGINT NOT NULL | claim FK |
+| evidence_ledger_id | VARCHAR(80) NOT NULL | provider 입력 ledger의 요청 범위 식별자 |
+| source_snapshot_id | VARCHAR(160) NOT NULL | 이력서/JD/답변/지식 snapshot 불변 ID |
+| source_kind | VARCHAR(40) NOT NULL | ANSWER_SNAPSHOT, RESUME_SNAPSHOT, JD_SNAPSHOT, KNOWLEDGE_SNAPSHOT |
+| source_start_offset | INTEGER NOT NULL | source snapshot 시작 offset |
+| source_end_offset | INTEGER NOT NULL | source snapshot 종료 offset, exclusive |
+| sort_order | INTEGER NOT NULL | claim 내 근거 순서, 1 이상 |
+
+민감 원문은 snapshot과 offset으로 재현하고 evidence row에 중복 저장하지 않는다. source snapshot이 없으면 저장 근거로 인정하지 않는다.
 
 ### report_evidences
 

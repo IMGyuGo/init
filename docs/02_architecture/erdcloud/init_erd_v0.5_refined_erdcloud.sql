@@ -866,6 +866,85 @@ CREATE TABLE ncs_answer_evaluation_evidences (
         UNIQUE (ncs_evaluation_id, source_answer_id, sort_order)
 );
 
+CREATE TABLE answer_fact_check_runs (
+    fact_check_run_id BIGINT PRIMARY KEY,
+    report_id BIGINT NOT NULL,
+    answer_id BIGINT NOT NULL,
+    provider_status VARCHAR(40) NOT NULL,
+    gate_status VARCHAR(40),
+    provider_mode VARCHAR(20) NOT NULL,
+    model_version VARCHAR(120) NOT NULL,
+    prompt_version VARCHAR(100) NOT NULL,
+    knowledge_snapshot_version VARCHAR(100) NOT NULL,
+    policy_version VARCHAR(100) NOT NULL,
+    failure_reason TEXT,
+    started_at TIMESTAMP NOT NULL,
+    completed_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT ck_answer_fact_check_runs_provider_status
+        CHECK (provider_status IN ('COMPLETED', 'FAILED', 'TIMEOUT', 'INVALID_OUTPUT')),
+    CONSTRAINT ck_answer_fact_check_runs_gate_status
+        CHECK (gate_status IS NULL OR gate_status IN ('PASS_THROUGH', 'CLARIFICATION_CANDIDATE', 'FACT_CHECK_REQUIRED')),
+    CONSTRAINT ck_answer_fact_check_runs_status_shape
+        CHECK (
+            (provider_status = 'COMPLETED' AND gate_status IS NOT NULL AND failure_reason IS NULL)
+            OR
+            (provider_status <> 'COMPLETED' AND gate_status IS NULL AND failure_reason IS NOT NULL)
+        ),
+    CONSTRAINT uq_answer_fact_check_runs_report_answer_policy
+        UNIQUE (report_id, answer_id, policy_version)
+);
+
+CREATE TABLE answer_fact_check_claims (
+    fact_check_claim_id BIGINT PRIMARY KEY,
+    fact_check_run_id BIGINT NOT NULL,
+    claim_text TEXT NOT NULL,
+    answer_start_offset INTEGER NOT NULL,
+    answer_end_offset INTEGER NOT NULL,
+    claim_type VARCHAR(40) NOT NULL,
+    claim_role VARCHAR(40) NOT NULL,
+    verdict VARCHAR(40) NOT NULL,
+    confidence DECIMAL(5,4) NOT NULL,
+    rationale TEXT NOT NULL,
+    sort_order INTEGER NOT NULL,
+    CONSTRAINT ck_answer_fact_check_claims_offsets
+        CHECK (answer_start_offset >= 0 AND answer_end_offset > answer_start_offset),
+    CONSTRAINT ck_answer_fact_check_claims_type
+        CHECK (claim_type IN ('TECHNICAL_FACT', 'PERSONAL_EXPERIENCE', 'OPINION', 'OTHER')),
+    CONSTRAINT ck_answer_fact_check_claims_role
+        CHECK (claim_role IN ('ANSWER_CORE', 'SUPPORTING')),
+    CONSTRAINT ck_answer_fact_check_claims_verdict
+        CHECK (verdict IN ('SUPPORTED', 'CONTRADICTED', 'AMBIGUOUS', 'UNVERIFIABLE', 'NOT_CHECKABLE')),
+    CONSTRAINT ck_answer_fact_check_claims_confidence
+        CHECK (confidence >= 0 AND confidence <= 1),
+    CONSTRAINT ck_answer_fact_check_claims_sort_order
+        CHECK (sort_order >= 1),
+    CONSTRAINT uq_answer_fact_check_claims_run_order
+        UNIQUE (fact_check_run_id, sort_order)
+);
+
+CREATE TABLE answer_fact_check_evidences (
+    fact_check_evidence_id BIGINT PRIMARY KEY,
+    fact_check_claim_id BIGINT NOT NULL,
+    evidence_ledger_id VARCHAR(80) NOT NULL,
+    source_snapshot_id VARCHAR(160) NOT NULL,
+    source_kind VARCHAR(40) NOT NULL,
+    source_start_offset INTEGER NOT NULL,
+    source_end_offset INTEGER NOT NULL,
+    sort_order INTEGER NOT NULL,
+    CONSTRAINT ck_answer_fact_check_evidences_source_kind
+        CHECK (source_kind IN ('ANSWER_SNAPSHOT', 'RESUME_SNAPSHOT', 'JD_SNAPSHOT', 'KNOWLEDGE_SNAPSHOT')),
+    CONSTRAINT ck_answer_fact_check_evidences_offsets
+        CHECK (source_start_offset >= 0 AND source_end_offset > source_start_offset),
+    CONSTRAINT ck_answer_fact_check_evidences_sort_order
+        CHECK (sort_order >= 1),
+    CONSTRAINT uq_answer_fact_check_evidences_claim_order
+        UNIQUE (fact_check_claim_id, sort_order),
+    CONSTRAINT uq_answer_fact_check_evidences_claim_ledger
+        UNIQUE (fact_check_claim_id, evidence_ledger_id)
+);
+
 CREATE TABLE report_evidences (
     -- 평가 근거 PK
     evidence_id BIGINT PRIMARY KEY,
@@ -1306,6 +1385,26 @@ ALTER TABLE ncs_answer_evaluation_evidences
     FOREIGN KEY (source_answer_id) REFERENCES interview_answers(answer_id)
     ON DELETE CASCADE;
 
+ALTER TABLE answer_fact_check_runs
+    ADD CONSTRAINT fk_answer_fact_check_runs_report
+    FOREIGN KEY (report_id) REFERENCES evaluation_reports(report_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE answer_fact_check_runs
+    ADD CONSTRAINT fk_answer_fact_check_runs_answer
+    FOREIGN KEY (answer_id) REFERENCES interview_answers(answer_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE answer_fact_check_claims
+    ADD CONSTRAINT fk_answer_fact_check_claims_run
+    FOREIGN KEY (fact_check_run_id) REFERENCES answer_fact_check_runs(fact_check_run_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE answer_fact_check_evidences
+    ADD CONSTRAINT fk_answer_fact_check_evidences_claim
+    FOREIGN KEY (fact_check_claim_id) REFERENCES answer_fact_check_claims(fact_check_claim_id)
+    ON DELETE CASCADE;
+
 ALTER TABLE report_evidences
     ADD CONSTRAINT fk_report_evidences_score
     FOREIGN KEY (score_id) REFERENCES report_scores(score_id);
@@ -1410,6 +1509,10 @@ CREATE INDEX idx_ncs_answer_evaluations_session_question ON ncs_answer_evaluatio
 CREATE INDEX idx_ncs_answer_evaluations_criterion ON ncs_answer_evaluations(criterion_id);
 CREATE INDEX idx_ncs_answer_evaluations_report_status ON ncs_answer_evaluations(report_id, score_status);
 CREATE INDEX idx_ncs_answer_evaluation_evidences_source_answer ON ncs_answer_evaluation_evidences(source_answer_id);
+CREATE INDEX idx_answer_fact_check_runs_answer ON answer_fact_check_runs(answer_id);
+CREATE INDEX idx_answer_fact_check_runs_report_status ON answer_fact_check_runs(report_id, provider_status);
+CREATE INDEX idx_answer_fact_check_claims_verdict ON answer_fact_check_claims(verdict);
+CREATE INDEX idx_answer_fact_check_evidences_snapshot ON answer_fact_check_evidences(source_snapshot_id);
 CREATE INDEX idx_ai_process_logs_application ON ai_process_logs(application_id);
 CREATE INDEX idx_embeddings_source_type ON embeddings(source_type);
 CREATE INDEX idx_embeddings_source_hash ON embeddings(source_text_hash);

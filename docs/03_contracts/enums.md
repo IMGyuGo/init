@@ -141,6 +141,20 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 
 정렬점수 통과를 목적으로 질문 유형만 임의 변경하지 않는다. 동일 profile/mode로 최대 2회 질문을 재작성한 뒤 위 표의 fallback만 허용한다.
 
+### NCS Answer Fact Check
+
+| Enum | Values |
+| --- | --- |
+| `FactCheckVerdict` | `SUPPORTED`, `CONTRADICTED`, `AMBIGUOUS`, `UNVERIFIABLE`, `NOT_CHECKABLE` |
+| `FactCheckProviderStatus` | `COMPLETED`, `FAILED`, `TIMEOUT`, `INVALID_OUTPUT` |
+| `FactCheckGateStatus` | `PASS_THROUGH`, `CLARIFICATION_CANDIDATE`, `FACT_CHECK_REQUIRED` |
+| `FactClaimType` | `TECHNICAL_FACT`, `PERSONAL_EXPERIENCE`, `OPINION`, `OTHER` |
+| `FactClaimRole` | `ANSWER_CORE`, `SUPPORTING` |
+| `FactEvidenceSourceKind` | `ANSWER_SNAPSHOT`, `RESUME_SNAPSHOT`, `JD_SNAPSHOT`, `KNOWLEDGE_SNAPSHOT` |
+
+- provider 실행 실패 상태는 claim 판정과 구분한다. `FAILED`, `TIMEOUT`, `INVALID_OUTPUT`을 `UNVERIFIABLE`로 변환하지 않는다.
+- gate precedence와 임계치는 [`ncs-answer-fact-check.md`](./ncs-answer-fact-check.md)의 versioned deterministic policy를 따른다.
+
 ## Candidate Profile Enums
 
 | candidate_education_level | HIGH_SCHOOL, COLLEGE, UNIVERSITY, GRADUATE_SCHOOL, OTHER | 학력 구분 |

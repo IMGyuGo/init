@@ -171,6 +171,16 @@ otherwise
 
 꼬리질문 생성·재평가는 E, 세션 타이머·답변 저장은 D, 원본 시간 정책은 C가 소유한다.
 
+## Fact Check Boundary
+
+답변 사실 검증은 [`ncs-answer-fact-check.md`](./ncs-answer-fact-check.md)를 정본으로 사용한다.
+
+- NCS 5점 평가와 사실 검증은 병렬 실행한다.
+- 사실 검증 결과는 `behaviorPoints`, `logicPoints`, profile 평균, 가중치, 총점 또는 PASS/FAIL을 직접 변경하지 않는다.
+- 고신뢰 핵심 기술 claim의 모순은 별도 `FACT_CHECK_REQUIRED` gate로 보류하며 점수 감점으로 표현하지 않는다.
+- provider 실패는 `UNVERIFIABLE`과 구분하고 NCS 평가 또는 다음 기본 질문 이동을 막지 않는다.
+- 실제 팩트 확인 꼬리질문 생성과 합산 재평가는 FACT-05 이후 범위다.
+
 ## Persistence Contract
 
 정본 저장 단위는 다음과 같다.
@@ -181,6 +191,9 @@ otherwise
 4. `ncs_answer_evaluations`: `(report_id, base_answer_id, ncs_profile_id)`별 평가 결과
 5. `ncs_answer_evaluation_evidences`: source answer ID가 있는 exact evidence
 6. `report_scores`: profile 평균, weight, weighted score, pass score
+7. `answer_fact_check_runs`: 답변별 fact provider 실행 상태와 deterministic gate
+8. `answer_fact_check_claims`: 답변 exact claim, 판정과 신뢰도
+9. `answer_fact_check_evidences`: claim이 참조한 source snapshot과 offset
 
 `ncs_answer_evaluations` 신규 점수 필드는 다음 범위를 따른다.
 

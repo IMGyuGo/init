@@ -69,6 +69,9 @@ ERDCloud SQL을 사람이 읽는 테이블/관계 문서로 변환한다.
 | evaluation_reports | report_id | 8 | 평가 리포트 헤더 | application_id -> applications.application_id / session_id -> interview_sessions.session_id |
 | report_scores | score_id | 5 | 평가 항목별 점수 | report_id -> evaluation_reports.report_id / criterion_id -> evaluation_criteria.criterion_id |
 | ncs_answer_evaluations | ncs_evaluation_id | 22 | 답변별 NCS canonical 평가 결과와 nullable 점수 | report_id -> evaluation_reports.report_id / answer_id -> interview_answers.answer_id / session_question_id -> interview_session_questions.session_question_id / criterion_id -> evaluation_criteria.criterion_id |
+| answer_fact_check_runs | fact_check_run_id | 15 | 답변별 사실 검증 실행 상태와 deterministic gate | report_id -> evaluation_reports.report_id / answer_id -> interview_answers.answer_id |
+| answer_fact_check_claims | fact_check_claim_id | 11 | 답변 exact claim과 판정 | fact_check_run_id -> answer_fact_check_runs.fact_check_run_id |
+| answer_fact_check_evidences | fact_check_evidence_id | 8 | claim의 source snapshot 근거 참조 | fact_check_claim_id -> answer_fact_check_claims.fact_check_claim_id |
 | report_evidences | evidence_id | 7 | 점수별 근거 | score_id -> report_scores.score_id / answer_id -> interview_answers.answer_id / document_id -> application_documents.document_id |
 | manual_evaluations | manual_eval_id | 6 | 면접관 수동 평가와 메모 | report_id -> evaluation_reports.report_id / reviewer_user_id -> users.user_id |
 | notifications | notification_id | 7 | 메일/인앱 알림 | user_id -> users.user_id / application_id -> applications.application_id |
@@ -121,6 +124,10 @@ ERDCloud SQL을 사람이 읽는 테이블/관계 문서로 변환한다.
 | ncs_answer_evaluations | answer_id | interview_answers.answer_id | fk_ncs_answer_evaluations_answer |
 | ncs_answer_evaluations | session_question_id | interview_session_questions.session_question_id | fk_ncs_answer_evaluations_session_question |
 | ncs_answer_evaluations | criterion_id | evaluation_criteria.criterion_id | fk_ncs_answer_evaluations_criterion |
+| answer_fact_check_runs | report_id | evaluation_reports.report_id | fk_answer_fact_check_runs_report |
+| answer_fact_check_runs | answer_id | interview_answers.answer_id | fk_answer_fact_check_runs_answer |
+| answer_fact_check_claims | fact_check_run_id | answer_fact_check_runs.fact_check_run_id | fk_answer_fact_check_claims_run |
+| answer_fact_check_evidences | fact_check_claim_id | answer_fact_check_claims.fact_check_claim_id | fk_answer_fact_check_evidences_claim |
 | report_evidences | score_id | report_scores.score_id | fk_report_evidences_score |
 | report_evidences | answer_id | interview_answers.answer_id | fk_report_evidences_answer |
 | report_evidences | document_id | application_documents.document_id | fk_report_evidences_document |
