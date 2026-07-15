@@ -203,8 +203,8 @@ export interface NcsAnswerEvaluationRecord {
 
 export type ReportAnswerEvaluationStatusRecord = "EVALUATED" | "STT_UNAVAILABLE";
 
-export const STT_UNAVAILABLE_TEMP_ZERO_REASON =
-  "STT transcript is unavailable; this answer is temporarily scored as 0 because speech recognition failed, not because of answer quality.";
+export const DEFAULT_STT_UNAVAILABLE_REASON =
+  "STT transcript is unavailable because speech recognition failed.";
 
 export interface GeneratedReportRecord {
   reportId: number;
