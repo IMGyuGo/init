@@ -105,6 +105,7 @@ import {
 import {
   INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES,
   evaluateTimelineAnalysisQuality,
+  normalizeGazeTimelineOffset,
   readGazeAwayIntervals,
   readGazeTimeline,
   readHeadPoseTimeline,
@@ -4887,13 +4888,21 @@ function InterviewRuntimePanel({
       tracker.gazeTimeline.length < INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES &&
       canAppendTimelineSample(tracker.lastGazeTimelineSampleAtMs, nowMs)
     ) {
-      tracker.gazeTimeline.push({
-        tMs: Math.max(0, nowMs - tracker.recordingStartedAtMs),
-        horizontalOffset: roundTimelineValue(smoothedIrisPosition.horizontalRatio - irisBaseline.horizontalRatio, 3),
-        verticalOffset: roundTimelineValue(smoothedIrisPosition.verticalRatio - irisBaseline.verticalRatio, 3),
-        direction: classifyIrisGazeDirection(smoothedIrisPosition, irisBaseline),
-      });
-      tracker.lastGazeTimelineSampleAtMs = nowMs;
+      const horizontalOffset = normalizeGazeTimelineOffset(
+        smoothedIrisPosition.horizontalRatio - irisBaseline.horizontalRatio,
+      );
+      const verticalOffset = normalizeGazeTimelineOffset(
+        smoothedIrisPosition.verticalRatio - irisBaseline.verticalRatio,
+      );
+      if (horizontalOffset !== undefined && verticalOffset !== undefined) {
+        tracker.gazeTimeline.push({
+          tMs: Math.max(0, nowMs - tracker.recordingStartedAtMs),
+          horizontalOffset: roundTimelineValue(horizontalOffset, 3),
+          verticalOffset: roundTimelineValue(verticalOffset, 3),
+          direction: classifyIrisGazeDirection(smoothedIrisPosition, irisBaseline),
+        });
+        tracker.lastGazeTimelineSampleAtMs = nowMs;
+      }
     }
     if (
       mode === "mock" &&
