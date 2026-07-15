@@ -186,7 +186,6 @@ export interface InterviewRuntimeProgressionStateInput {
   hasRuntimeData: boolean;
   currentQuestionAnswered: boolean;
   isCurrentQuestionLast: boolean;
-  generatedFollowUpReady: boolean;
   answerProcessingBusy: boolean;
   isReansweringCurrentQuestion: boolean;
   recording: boolean;
@@ -1101,7 +1100,6 @@ export function getInterviewRuntimeProgressionState({
   hasRuntimeData,
   currentQuestionAnswered,
   isCurrentQuestionLast,
-  generatedFollowUpReady,
   answerProcessingBusy,
   isReansweringCurrentQuestion,
   recording,
@@ -1111,7 +1109,7 @@ export function getInterviewRuntimeProgressionState({
   const canMoveNextQuestion = Boolean(
     hasRuntimeData &&
       currentQuestionAnswered &&
-      (!isCurrentQuestionLast || generatedFollowUpReady) &&
+      !isCurrentQuestionLast &&
       !isReansweringCurrentQuestion &&
       !recording,
   );
@@ -1119,8 +1117,8 @@ export function getInterviewRuntimeProgressionState({
     hasRuntimeData &&
       (currentQuestionAnswered || answeredQuestionCount >= totalQuestions) &&
       (isCurrentQuestionLast || answeredQuestionCount >= totalQuestions) &&
-      !generatedFollowUpReady &&
       answeredQuestionCount >= totalQuestions &&
+      !answerProcessingBusy &&
       !isReansweringCurrentQuestion &&
       !recording,
   );

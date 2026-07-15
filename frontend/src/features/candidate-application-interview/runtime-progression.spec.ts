@@ -6,7 +6,6 @@ assert.deepEqual(
     hasRuntimeData: true,
     currentQuestionAnswered: true,
     isCurrentQuestionLast: false,
-    generatedFollowUpReady: false,
     answerProcessingBusy: true,
     isReansweringCurrentQuestion: false,
     recording: false,
@@ -24,8 +23,41 @@ assert.deepEqual(
     hasRuntimeData: true,
     currentQuestionAnswered: false,
     isCurrentQuestionLast: false,
-    generatedFollowUpReady: false,
     answerProcessingBusy: true,
+    isReansweringCurrentQuestion: false,
+    recording: false,
+    answeredQuestionCount: 4,
+    totalQuestions: 4,
+  }),
+  {
+    canMoveNextQuestion: false,
+    canCompleteInterview: false,
+  },
+);
+
+assert.deepEqual(
+  getInterviewRuntimeProgressionState({
+    hasRuntimeData: true,
+    currentQuestionAnswered: false,
+    isCurrentQuestionLast: false,
+    answerProcessingBusy: false,
+    isReansweringCurrentQuestion: false,
+    recording: false,
+    answeredQuestionCount: 1,
+    totalQuestions: 4,
+  }),
+  {
+    canMoveNextQuestion: false,
+    canCompleteInterview: false,
+  },
+);
+
+assert.deepEqual(
+  getInterviewRuntimeProgressionState({
+    hasRuntimeData: true,
+    currentQuestionAnswered: true,
+    isCurrentQuestionLast: true,
+    answerProcessingBusy: false,
     isReansweringCurrentQuestion: false,
     recording: false,
     answeredQuestionCount: 4,
@@ -41,13 +73,12 @@ assert.deepEqual(
   getInterviewRuntimeProgressionState({
     hasRuntimeData: true,
     currentQuestionAnswered: false,
-    isCurrentQuestionLast: false,
-    generatedFollowUpReady: false,
+    isCurrentQuestionLast: true,
     answerProcessingBusy: false,
     isReansweringCurrentQuestion: false,
     recording: false,
-    answeredQuestionCount: 1,
-    totalQuestions: 4,
+    answeredQuestionCount: 4,
+    totalQuestions: 5,
   }),
   {
     canMoveNextQuestion: false,

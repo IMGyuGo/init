@@ -14,13 +14,9 @@ import {
 } from "../../payment/service/candidate-mock-interview-pass.service";
 import type { InterviewAnswer, InterviewQuestion, RuntimeInterviewSession } from "../interview.runtime.types";
 import type {
-  CompletedFollowUpProcess,
   CreateInterviewAnswerInput,
   CreateMockContextQuestionInput,
   CreateMockInterviewSessionInput,
-  CreateRuntimeFollowUpQuestionInput,
-  FollowUpQuestionPolicy,
-  GeneratedFollowUpQuestion,
   InterviewQuestionFilter,
   InterviewRepository,
   ReanswerRequiredFailure,
@@ -578,114 +574,6 @@ export class PrismaInterviewRepository implements InterviewRepository {
       }));
   }
 
-  async findCompletedFollowUpProcess(processLogId: number): Promise<CompletedFollowUpProcess | undefined> {
-    const processLog = await this.prisma.aiProcessLog.findUnique({
-      where: { processLogId: BigInt(processLogId) },
-    });
-    if (!processLog || processLog.processType !== "FOLLOW_UP" || processLog.status !== "COMPLETED" || !processLog.outputRef) {
-      return undefined;
-    }
-
-    const output = parseFollowUpOutput(processLog.outputRef);
-    if (!output) {
-      return undefined;
-    }
-
-    return {
-      processLogId,
-      sessionId: output.sessionId,
-      answerId: output.answerId,
-      content: output.content,
-      policy: output.policy,
-    };
-  }
-
-  async findGeneratedFollowUpQuestion(
-    answerId: number,
-    policy: FollowUpQuestionPolicy,
-  ): Promise<GeneratedFollowUpQuestion | undefined> {
-    const followUpQuestion = await this.prisma.followUpQuestion.findUnique({
-      where: { answerIdPolicy: { answerId: BigInt(answerId), policy } },
-    });
-    if (!followUpQuestion || followUpQuestion.generationStatus !== "GENERATED") {
-      return undefined;
-    }
-    return {
-      followUpId: Number(followUpQuestion.followUpId),
-      answerId: Number(followUpQuestion.answerId),
-      content: followUpQuestion.content,
-      generationStatus: followUpQuestion.generationStatus,
-      policy: followUpQuestion.policy as FollowUpQuestionPolicy,
-    };
-  }
-
-  async createRuntimeFollowUpQuestion(input: CreateRuntimeFollowUpQuestionInput): Promise<InterviewQuestion> {
-    if (input.session.interviewType === "MOCK") {
-      return this.createPrivateMockFollowUpQuestion(input);
-    }
-
-    const sourceQuestion = await this.prisma.question.findUnique({
-      where: { questionId: BigInt(input.sourceAnswer.questionId) },
-      select: { companyId: true, postingId: true },
-    });
-    const fallbackCompany = sourceQuestion
-      ? undefined
-      : await this.prisma.company.findFirst({ orderBy: { companyId: "asc" }, select: { companyId: true } });
-    const companyId = sourceQuestion?.companyId ?? fallbackCompany?.companyId;
-    if (!companyId) {
-      throw new Error("Company is required to create a runtime follow-up question.");
-    }
-
-    let postingId = sourceQuestion?.postingId ?? null;
-    if (!postingId && input.session.applicationId) {
-      const application = await this.prisma.application.findUnique({
-        where: { applicationId: BigInt(input.session.applicationId) },
-        select: { postingId: true },
-      });
-      postingId = application?.postingId ?? null;
-    }
-
-    const question = await this.prisma.question.create({
-      data: {
-        companyId,
-        postingId,
-        criterionId: null,
-        questionType: PrismaQuestionType.FOLLOW_UP,
-        content: input.content,
-        isActive: true,
-      },
-    });
-    return this.toQuestion(question, "RECRUITING");
-  }
-
-  private async createPrivateMockFollowUpQuestion(
-    input: CreateRuntimeFollowUpQuestionInput,
-  ): Promise<InterviewQuestion> {
-    const runtimeQuestion = await this.prisma.$transaction(async (transaction) => {
-      const runtimeQuestionId = await this.allocatePrivateRuntimeQuestionId(transaction);
-      const created = await transaction.interviewSessionQuestion.create({
-        data: {
-          sessionId: BigInt(input.session.sessionId),
-          questionId: null,
-          runtimeQuestionId,
-          questionType: PrismaQuestionType.FOLLOW_UP,
-          content: input.content,
-          sortOrder: input.session.questionIds.length + 1,
-        },
-      });
-      return created;
-    });
-
-    return {
-      questionId: Number(runtimeQuestion.runtimeQuestionId),
-      questionType: runtimeQuestion.questionType as InterviewQuestion["questionType"],
-      content: runtimeQuestion.content ?? input.content,
-      sortOrder: runtimeQuestion.sortOrder,
-      interviewType: "MOCK",
-      isActive: false,
-    };
-  }
-
   private async allocatePrivateRuntimeQuestionId(transaction: Prisma.TransactionClient): Promise<bigint> {
     const [sequence] = await transaction.$queryRaw<Array<{ questionId: bigint }>>`
       SELECT nextval('interview_runtime_question_id_seq') AS "questionId"
@@ -1060,35 +948,6 @@ export class PrismaInterviewRepository implements InterviewRepository {
       FOLLOW_UP: 5,
       CLOSING: 6,
     }[questionType];
-  }
-}
-
-function parseFollowUpOutput(outputRef: string): Omit<CompletedFollowUpProcess, "processLogId"> | undefined {
-  try {
-    const output = JSON.parse(outputRef) as Record<string, unknown>;
-    const sessionId = Number(output.sessionId);
-    const answerId = Number(output.answerId);
-    const content = typeof output.content === "string" ? output.content.trim() : "";
-    const policy = output.policy;
-    if (
-      !Number.isInteger(sessionId) ||
-      sessionId <= 0 ||
-      !Number.isInteger(answerId) ||
-      answerId <= 0 ||
-      !content ||
-      (policy !== "MOCK" && policy !== "RECRUITING")
-    ) {
-      return undefined;
-    }
-
-    return {
-      sessionId,
-      answerId,
-      content,
-      policy,
-    };
-  } catch {
-    return undefined;
   }
 }
 

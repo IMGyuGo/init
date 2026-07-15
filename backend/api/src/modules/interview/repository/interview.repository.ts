@@ -62,24 +62,6 @@ export interface UpdateInterviewAnswerInput extends CreateInterviewAnswerInput {
   answerId: number;
 }
 
-export interface CompletedFollowUpProcess {
-  processLogId: number;
-  sessionId: number;
-  answerId: number;
-  content: string;
-  policy: "MOCK" | "RECRUITING";
-}
-
-export type FollowUpQuestionPolicy = "MOCK" | "RECRUITING";
-
-export interface GeneratedFollowUpQuestion {
-  followUpId: number;
-  answerId: number;
-  content: string;
-  generationStatus: string;
-  policy: FollowUpQuestionPolicy;
-}
-
 export interface InterviewSessionNcsPolicySnapshot {
   ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
   criterionId?: number;
@@ -88,12 +70,6 @@ export interface InterviewSessionNcsPolicySnapshot {
   minimumAverageScore: number;
   requiredQuestionCount: number;
   ncsProfileVersion: string;
-}
-
-export interface CreateRuntimeFollowUpQuestionInput {
-  session: RuntimeInterviewSession;
-  sourceAnswer: InterviewAnswer;
-  content: string;
 }
 
 export interface InterviewQuestionFilter {
@@ -124,10 +100,4 @@ export interface InterviewRepository {
   replaceAnswer(input: ReplaceInterviewAnswerInput): MaybePromise<InterviewAnswer>;
   listReanswerRequiredFailures(sessionId: number, answerId: number): MaybePromise<ReanswerRequiredFailure[]>;
   updateAnswer(input: UpdateInterviewAnswerInput): MaybePromise<InterviewAnswer>;
-  findCompletedFollowUpProcess(processLogId: number): MaybePromise<CompletedFollowUpProcess | undefined>;
-  findGeneratedFollowUpQuestion(
-    answerId: number,
-    policy: FollowUpQuestionPolicy,
-  ): MaybePromise<GeneratedFollowUpQuestion | undefined>;
-  createRuntimeFollowUpQuestion(input: CreateRuntimeFollowUpQuestionInput): MaybePromise<InterviewQuestion>;
 }

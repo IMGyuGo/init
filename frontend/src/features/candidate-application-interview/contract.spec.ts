@@ -1318,7 +1318,6 @@ assert.deepEqual(
     hasRuntimeData: true,
     currentQuestionAnswered: true,
     isCurrentQuestionLast: false,
-    generatedFollowUpReady: false,
     answerProcessingBusy: true,
     isReansweringCurrentQuestion: false,
     recording: false,
@@ -1335,7 +1334,6 @@ assert.deepEqual(
     hasRuntimeData: true,
     currentQuestionAnswered: true,
     isCurrentQuestionLast: false,
-    generatedFollowUpReady: false,
     answerProcessingBusy: false,
     isReansweringCurrentQuestion: false,
     recording: false,
@@ -1352,7 +1350,6 @@ assert.deepEqual(
     hasRuntimeData: true,
     currentQuestionAnswered: true,
     isCurrentQuestionLast: true,
-    generatedFollowUpReady: false,
     answerProcessingBusy: false,
     isReansweringCurrentQuestion: false,
     recording: false,
@@ -1846,7 +1843,6 @@ const mockNextQuestionPath = candidateApiPaths.mockNextQuestion(10001);
 const mockCompletePath = candidateApiPaths.mockComplete(10001);
 const mockSttPath = candidateApiPaths.mockStt(10001);
 const mockFollowUpPath = candidateApiPaths.mockFollowUpQuestion(10001);
-const mockFollowUpInsertPath = candidateApiPaths.mockFollowUpQuestionInsert(10001);
 const mockRealtimeSessionPath = candidateApiPaths.mockRealtimeSession(10001);
 const mockReportsPath = candidateApiPaths.mockReports;
 const mockHistoryPath = candidateApiPaths.mockHistory;
@@ -1867,7 +1863,6 @@ const recruitingNextQuestionPath = candidateApiPaths.recruitingNextQuestion(1);
 const recruitingCompletePath = candidateApiPaths.recruitingComplete(1);
 const recruitingSttPath = candidateApiPaths.recruitingStt(1);
 const recruitingFollowUpPath = candidateApiPaths.recruitingFollowUpQuestion(1);
-const recruitingFollowUpInsertPath = candidateApiPaths.recruitingFollowUpQuestionInsert(1);
 const recruitingRealtimeSessionPath = candidateApiPaths.recruitingRealtimeSession(1);
 assert.equal(mockRealtimeSessionPath, "/api/v1/candidate/mock-interviews/10001/realtime-session");
 assert.equal(recruitingRealtimeSessionPath, "/api/v1/candidate/interviews/1/realtime-session");
@@ -2031,7 +2026,6 @@ void mockNextQuestionPath;
 void mockCompletePath;
 void mockSttPath;
 void mockFollowUpPath;
-void mockFollowUpInsertPath;
 void mockRealtimeSessionPath;
 void realtimeWebRtcConnectionPromise;
 void mockReportsPath;
@@ -2053,7 +2047,6 @@ void recruitingNextQuestionPath;
 void recruitingCompletePath;
 void recruitingSttPath;
 void recruitingFollowUpPath;
-void recruitingFollowUpInsertPath;
 void recruitingRealtimeSessionPath;
 void applyActionHref;
 void appliedActionHref;

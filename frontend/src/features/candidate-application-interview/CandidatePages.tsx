@@ -581,10 +581,8 @@ type AutoAiPipelineState = {
   sttStatus: AutoAiStepStatus;
   followUpStatus: AutoAiStepStatus;
   followUpSkipped?: boolean;
-  insertStatus?: AutoAiStepStatus;
   sttProcessLogId?: number;
   followUpProcessLogId?: number;
-  insertedQuestionId?: number;
   transcript?: string;
   followUpQuestion?: string;
   failureCategory?: string;
@@ -2952,6 +2950,8 @@ function InterviewRuntimePanel({
   const [busy, setBusy] = useState(false);
   const [lastAnswer, setLastAnswer] = useState<LastSavedAnswer>();
   const [autoAiPipeline, setAutoAiPipeline] = useState<AutoAiPipelineState>();
+  const [pendingAiPipelineCount, setPendingAiPipelineCount] = useState(0);
+  const [runtimeQuestionSyncRequired, setRuntimeQuestionSyncRequired] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState("");
@@ -6608,6 +6608,7 @@ function InterviewRuntimePanel({
   ) {
     if (!data) return;
 
+    setPendingAiPipelineCount((count) => count + 1);
     let sttProcessLogId: number | undefined;
     let followUpProcessLogId: number | undefined;
 
@@ -6729,28 +6730,36 @@ function InterviewRuntimePanel({
         const followUpQuestion =
           extractAiJobText(followUpStatus.output, ["content", "followUpQuestion", "question"]) ??
           extractAiJobText(followUpStatus.outputRef, ["content", "followUpQuestion", "question"]);
+        const followUpRequired =
+          extractAiJobBoolean(followUpStatus.output, "followUpRequired") ??
+          extractAiJobBoolean(followUpStatus.outputRef, "followUpRequired") ??
+          Boolean(followUpQuestion);
 
+        if (followUpRequired) setRuntimeQuestionSyncRequired(true);
+        await refresh();
+        setRuntimeQuestionSyncRequired(false);
         setAutoAiPipeline((current) => ({
           answerId: savedAnswer.answerId,
           ...current,
           sttStatus: "COMPLETED",
           followUpStatus: "COMPLETED",
           followUpProcessLogId,
-          followUpQuestion,
-          error: followUpQuestion ? undefined : "꼬리질문 결과에서 content를 찾지 못했습니다.",
+          followUpQuestion: followUpRequired ? followUpQuestion : undefined,
+          followUpSkipped: !followUpRequired,
+          error: followUpRequired && !followUpQuestion ? "꼬리질문 결과에서 content를 찾지 못했습니다." : undefined,
         }));
 
         setMessage(
-          followUpQuestion
-            ? "다음 질문이 준비되었습니다."
-            : "답변 처리가 완료되었습니다.",
+          followUpRequired && followUpQuestion
+            ? "꼬리질문이 질문 목록 끝에 추가되었습니다."
+            : "답변 처리가 완료되었습니다. 다음 기본 질문을 계속 진행해주세요.",
         );
         completeAnswerSubmitToNextReadyMetric({
           questionId: savedAnswer.questionId,
           processLogId: followUpProcessLogId,
           followUpProcessLogId,
-          outcome: followUpQuestion ? "REALTIME_STT_FOLLOW_UP_READY" : "REALTIME_STT_FOLLOW_UP_MISSING_CONTENT",
-          nextReady: Boolean(followUpQuestion),
+          outcome: followUpRequired ? "REALTIME_STT_FOLLOW_UP_INSERTED" : "REALTIME_STT_FOLLOW_UP_SKIPPED",
+          nextReady: true,
         });
         return;
       }
@@ -6965,29 +6974,37 @@ function InterviewRuntimePanel({
       const followUpQuestion =
         extractAiJobText(followUpStatus.output, ["content", "followUpQuestion", "question"]) ??
         extractAiJobText(followUpStatus.outputRef, ["content", "followUpQuestion", "question"]);
+      const followUpRequired =
+        extractAiJobBoolean(followUpStatus.output, "followUpRequired") ??
+        extractAiJobBoolean(followUpStatus.outputRef, "followUpRequired") ??
+        Boolean(followUpQuestion);
 
+      if (followUpRequired) setRuntimeQuestionSyncRequired(true);
+      await refresh();
+      setRuntimeQuestionSyncRequired(false);
       setAutoAiPipeline((current) => ({
         answerId: savedAnswer.answerId,
         ...current,
         sttStatus: current?.sttStatus ?? "COMPLETED",
         followUpStatus: "COMPLETED",
         followUpProcessLogId,
-        followUpQuestion,
-        error: followUpQuestion ? undefined : "꼬리질문 결과에서 content를 찾지 못했습니다.",
+        followUpQuestion: followUpRequired ? followUpQuestion : undefined,
+        followUpSkipped: !followUpRequired,
+        error: followUpRequired && !followUpQuestion ? "꼬리질문 결과에서 content를 찾지 못했습니다." : undefined,
       }));
 
       setMessage(
-        followUpQuestion
-          ? "다음 질문이 준비되었습니다."
-          : "답변 처리가 완료되었습니다.",
+        followUpRequired && followUpQuestion
+          ? "꼬리질문이 질문 목록 끝에 추가되었습니다."
+          : "답변 처리가 완료되었습니다. 다음 기본 질문을 계속 진행해주세요.",
       );
       completeAnswerSubmitToNextReadyMetric({
         questionId: savedAnswer.questionId,
         processLogId: followUpProcessLogId,
         sttProcessLogId,
         followUpProcessLogId,
-        outcome: followUpQuestion ? "FOLLOW_UP_READY" : "FOLLOW_UP_MISSING_CONTENT",
-        nextReady: Boolean(followUpQuestion),
+        outcome: followUpRequired ? "FOLLOW_UP_INSERTED" : "FOLLOW_UP_SKIPPED",
+        nextReady: true,
       });
     } catch (pipelineError) {
       const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({ pipelineError });
@@ -7007,6 +7024,8 @@ function InterviewRuntimePanel({
         outcome: shouldSkipFollowUp ? "PIPELINE_ERROR_CONTINUE" : "PIPELINE_ERROR_BLOCKED",
         nextReady: shouldSkipFollowUp,
       });
+    } finally {
+      setPendingAiPipelineCount((count) => Math.max(0, count - 1));
     }
   }
 
@@ -7030,21 +7049,6 @@ function InterviewRuntimePanel({
           : await api.requestRecruitingFollowUpQuestion(data.runtime.sessionId, request);
 
     return result.data;
-  }
-
-  async function requestFollowUpQuestionInsert() {
-    if (!data || !autoAiPipeline?.followUpProcessLogId) {
-      throw new Error("질문으로 추가할 꼬리질문 작업이 없습니다.");
-    }
-
-    const api = runtimeApi;
-    return mode === "mock"
-      ? api.insertMockFollowUpQuestion(data.runtime.sessionId, {
-          processLogId: autoAiPipeline.followUpProcessLogId,
-        })
-      : api.insertRecruitingFollowUpQuestion(data.runtime.sessionId, {
-          processLogId: autoAiPipeline.followUpProcessLogId,
-    });
   }
 
   function beginAnswerToNextQuestionMetric(processLogId?: number) {
@@ -7127,65 +7131,6 @@ function InterviewRuntimePanel({
     }
   }
 
-  async function handleAnswerFollowUpQuestion() {
-    if (!data) return;
-
-    setBusy(true);
-    setMessage("");
-    setAutoAiPipeline((current) =>
-      current
-        ? {
-            ...current,
-            insertStatus: "RUNNING",
-            error: undefined,
-          }
-        : current,
-    );
-    try {
-      beginAnswerToNextQuestionMetric(autoAiPipeline?.followUpProcessLogId);
-      const result = await requestFollowUpQuestionInsert();
-
-      setAutoAiPipeline((current) =>
-        current
-          ? {
-              ...current,
-              insertStatus: "COMPLETED",
-              insertedQuestionId: result.data.question.questionId,
-              error: undefined,
-            }
-          : current,
-      );
-      stopQuestionSpeech();
-      setAnswer(defaultInterviewAnswerFormState);
-      setRecordedFileName("");
-      setQuestionSpeechStatus("꼬리질문 음성 대기");
-      setQuestionSpeechCompleted(false);
-      setQuestionSpeechPlaying(false);
-      resetRuntimeQuestionTimer(data.runtime, setTimerPhase, setRemainingSeconds);
-      timeExpiredQuestionRef.current = null;
-      autoRecordingQuestionRef.current = null;
-      setMessage(
-        result.data.inserted
-          ? "생성된 꼬리질문으로 이동했습니다. 답변을 시작해주세요."
-          : "이미 추가된 꼬리질문으로 이동했습니다. 답변을 시작해주세요.",
-      );
-      void refresh().catch(() => undefined);
-    } catch (submitError) {
-      setAutoAiPipeline((current) =>
-        current
-          ? {
-              ...current,
-              insertStatus: "FAILED",
-              error: toErrorMessage(submitError),
-            }
-          : current,
-      );
-      setMessage(toErrorMessage(submitError));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function handleQuestionTimeExpired() {
     if (!data || !currentQuestion || currentQuestionLocked) return;
     setMessage("답변 시간이 종료되어 현재 답변을 자동 제출합니다.");
@@ -7227,10 +7172,6 @@ function InterviewRuntimePanel({
 
   async function handleNextQuestion() {
     if (!data) return;
-    if (generatedFollowUpReady) {
-      await handleAnswerFollowUpQuestion();
-      return;
-    }
 
     setBusy(true);
     setMessage("");
@@ -7297,26 +7238,7 @@ function InterviewRuntimePanel({
   const isCurrentQuestionLast = Boolean(
     data && currentQuestionIndex >= 0 && currentQuestionIndex >= data.runtime.totalQuestions - 1,
   );
-  const runtimeFollowUpQuestionCount =
-    data?.questions.questions.filter((question) => question.questionType === "FOLLOW_UP").length ?? 0;
-  const runtimeBaseQuestionCount =
-    data?.questions.questions.filter((question) => question.questionType !== "FOLLOW_UP").length ?? 0;
-  const canAddRuntimeFollowUpQuestion = runtimeFollowUpQuestionCount < runtimeBaseQuestionCount;
-  const generatedFollowUpReady = Boolean(
-    data &&
-      canAddRuntimeFollowUpQuestion &&
-      currentQuestionAnswered &&
-      currentQuestion?.questionType !== "FOLLOW_UP" &&
-      autoAiPipeline?.answerId === lastAnswer?.answerId &&
-      autoAiPipeline?.followUpStatus === "COMPLETED" &&
-      autoAiPipeline?.followUpQuestion,
-  );
-  const answerProcessingBusy = Boolean(
-    autoAiPipeline?.sttStatus === "PENDING" ||
-      autoAiPipeline?.sttStatus === "RUNNING" ||
-      autoAiPipeline?.followUpStatus === "PENDING" ||
-      autoAiPipeline?.followUpStatus === "RUNNING",
-  );
+  const answerProcessingBusy = pendingAiPipelineCount > 0 || runtimeQuestionSyncRequired;
   const answerProcessingFailed = Boolean(
     !autoAiPipeline?.followUpSkipped &&
       (autoAiPipeline?.error ||
@@ -7325,9 +7247,7 @@ function InterviewRuntimePanel({
   );
   const answerProcessingLabel = answerProcessingFailed
     ? "답변 처리 확인 필요"
-    : generatedFollowUpReady
-      ? "다음 질문 준비 완료"
-      : answerProcessingBusy
+    : answerProcessingBusy
         ? "다음 질문 준비 중"
         : lastAnswer
           ? "답변 저장 완료"
@@ -7358,7 +7278,6 @@ function InterviewRuntimePanel({
     hasRuntimeData: Boolean(data),
     currentQuestionAnswered,
     isCurrentQuestionLast,
-    generatedFollowUpReady,
     answerProcessingBusy,
     isReansweringCurrentQuestion,
     recording,
@@ -10516,6 +10435,15 @@ function extractAiJobText(output: unknown, keys: string[]): string | undefined {
   }
 
   return undefined;
+}
+
+function extractAiJobBoolean(output: unknown, key: string): boolean | undefined {
+  const parsed = parseAiJobOutput(output);
+  if (!isRecord(parsed)) {
+    return undefined;
+  }
+
+  return typeof parsed[key] === "boolean" ? parsed[key] : undefined;
 }
 
 function parseAiJobOutput(output: unknown): unknown {

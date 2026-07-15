@@ -14,7 +14,6 @@ import { UpdateMockSessionTitleDto } from "../dto/update-mock-session-title.dto"
 import {
   AiInterviewRequestDto,
   CreateRealtimeInterviewSessionDto,
-  InsertFollowUpQuestionDto,
   RuntimeFileAssetDto,
   SaveInterviewAnswerDto,
   StartMockInterviewDto,
@@ -28,7 +27,6 @@ import {
   InterviewQuestionListResult,
   InterviewQuestionView,
   InterviewRuntimeView,
-  InsertFollowUpQuestionResult,
   NextInterviewQuestionResult,
   RealtimeInterviewProvider,
   RealtimeInterviewSessionResult,
@@ -46,7 +44,6 @@ import {
   INTERVIEW_REPOSITORY,
   type CreateMockContextQuestionInput,
   type CreateMockInterviewSessionInput,
-  type FollowUpQuestionPolicy,
   type InterviewRepository,
 } from "../repository/interview.repository";
 import {
@@ -269,15 +266,6 @@ export class InterviewService {
     return this.createRealtimeSession(session, dto, currentUser);
   }
 
-  async insertMockFollowUpQuestion(
-    sessionId: number,
-    dto: InsertFollowUpQuestionDto,
-    currentUser: CurrentCandidateUser,
-  ) {
-    const session = await this.getOwnedMockSession(sessionId, currentUser);
-    return this.insertFollowUpQuestion(session, dto);
-  }
-
   async listRecruitingQuestions(sessionId: number, currentUser: CurrentCandidateUser) {
     const session = await this.syncCurrentQuestionToFirstUnanswered(
       await this.getRecruitingRuntimeSession(sessionId, currentUser),
@@ -333,15 +321,6 @@ export class InterviewService {
   ) {
     const session = await this.getRecruitingRuntimeSession(sessionId, currentUser);
     return this.createRealtimeSession(session, dto, currentUser);
-  }
-
-  async insertRecruitingFollowUpQuestion(
-    sessionId: number,
-    dto: InsertFollowUpQuestionDto,
-    currentUser: CurrentCandidateUser,
-  ) {
-    const session = await this.getRecruitingRuntimeSession(sessionId, currentUser);
-    return this.insertFollowUpQuestion(session, dto);
   }
 
   async uploadInterviewMedia(
@@ -643,23 +622,12 @@ export class InterviewService {
       ]);
     }
 
-    const previousQuestion = await this.requiredQuestion(previousQuestionId);
     const previousAnswer = await this.interviewRepository.findAnswer(session.sessionId, previousQuestionId);
     if (!previousAnswer) {
       throw new CandidateDomainError("COMMON_CONFLICT", "Current question must be answered before moving next.", 409, [
         { field: "questionId", reason: "previous question answer is missing" },
       ]);
     }
-    const followUpInserted = await this.insertGeneratedFollowUpQuestionIfReady(
-      session,
-      previousQuestion,
-      previousAnswer,
-      previousQuestionIndex,
-    );
-    if (followUpInserted) {
-      session = await this.syncCurrentQuestionToFirstUnanswered(session);
-    }
-
     const progress = await this.resolveFirstUnansweredProgress(session);
     return this.envelope({
       sessionId: session.sessionId,
@@ -668,49 +636,6 @@ export class InterviewService {
       isLastQuestion: progress.completionReady || session.currentQuestionIndex === session.questionIds.length - 1,
       completionReady: progress.completionReady,
     });
-  }
-
-  private async insertGeneratedFollowUpQuestionIfReady(
-    session: RuntimeInterviewSession,
-    previousQuestion: InterviewQuestion,
-    answer: InterviewAnswer,
-    insertAfterIndex = session.currentQuestionIndex,
-  ): Promise<boolean> {
-    if (previousQuestion.questionType === "FOLLOW_UP") {
-      return false;
-    }
-
-    const nextQuestionId = session.questionIds[insertAfterIndex + 1];
-    if (nextQuestionId) {
-      const nextQuestion = await this.interviewRepository.findQuestion(nextQuestionId);
-      if (nextQuestion?.questionType === "FOLLOW_UP") {
-        return false;
-      }
-    }
-    if (!(await this.canAddRuntimeFollowUpQuestion(session))) {
-      return false;
-    }
-
-    const policy: FollowUpQuestionPolicy = session.interviewType === "MOCK" ? "MOCK" : "RECRUITING";
-    const generatedFollowUp = await this.interviewRepository.findGeneratedFollowUpQuestion(answer.answerId, policy);
-    const content = generatedFollowUp?.content.trim();
-    if (!content) {
-      return false;
-    }
-
-    const followUpQuestion = await this.interviewRepository.createRuntimeFollowUpQuestion({
-      session,
-      sourceAnswer: answer,
-      content,
-    });
-    if (session.questionIds.includes(followUpQuestion.questionId)) {
-      return false;
-    }
-
-    session.questionIds.splice(insertAfterIndex + 1, 0, followUpQuestion.questionId);
-    session.updatedAt = new Date().toISOString();
-    await this.interviewRepository.saveRuntimeSession(session);
-    return true;
   }
 
   private async completeRuntimeSession(
@@ -991,104 +916,6 @@ export class InterviewService {
       "Keep a neutral interview tone and do not make final hiring decisions.",
       "Do not infer protected attributes or evaluate appearance, accent, gender, age, school, region, disability, or health.",
     ].join(" ");
-  }
-
-  private async insertFollowUpQuestion(
-    session: RuntimeInterviewSession,
-    dto: InsertFollowUpQuestionDto,
-  ): Promise<{ data: InsertFollowUpQuestionResult; meta: { traceId: string; timestamp: string } }> {
-    this.assertInProgress(session);
-    const processLogId = this.assertInsertRequest(dto);
-    const process = await this.interviewRepository.findCompletedFollowUpProcess(processLogId);
-    if (!process) {
-      throw new CandidateDomainError("COMMON_NOT_FOUND", "Completed follow-up process was not found.", 404, [
-        { field: "processLogId", reason: "completed FOLLOW_UP process not found" },
-      ]);
-    }
-    if (process.sessionId !== session.sessionId) {
-      throw new CandidateDomainError("COMMON_FORBIDDEN", "Follow-up process does not belong to this interview session.", 403, [
-        { field: "processLogId", reason: "session mismatch" },
-      ]);
-    }
-    if (
-      (session.interviewType === "MOCK" && process.policy !== "MOCK") ||
-      (session.interviewType === "RECRUITING" && process.policy !== "RECRUITING")
-    ) {
-      throw new CandidateDomainError("COMMON_CONFLICT", "Follow-up policy does not match interview type.", 409, [
-        { field: "policy", reason: `expected ${session.interviewType}` },
-      ]);
-    }
-
-    const answer = await this.interviewRepository.findAnswerById(session.sessionId, process.answerId);
-    if (!answer) {
-      throw new CandidateDomainError("COMMON_NOT_FOUND", "Interview answer for follow-up was not found.", 404, [
-        { field: "answerId", reason: "answer not found for session" },
-      ]);
-    }
-    const sourceQuestionIndex = session.questionIds.indexOf(answer.questionId);
-    const sourceIsCurrentQuestion = sourceQuestionIndex === session.currentQuestionIndex;
-    const sourceIsPreviousQuestion = sourceQuestionIndex === session.currentQuestionIndex - 1;
-    if (!sourceIsCurrentQuestion && !sourceIsPreviousQuestion) {
-      throw new CandidateDomainError("COMMON_CONFLICT", "Follow-up must be added before answering another question.", 409, [
-        { field: "questionId", reason: "source answer is not the current or previous question" },
-      ]);
-    }
-    if (sourceIsPreviousQuestion) {
-      const currentQuestionAnswer = await this.interviewRepository.findAnswer(
-        session.sessionId,
-        this.currentQuestionId(session),
-      );
-      if (currentQuestionAnswer) {
-        throw new CandidateDomainError("COMMON_CONFLICT", "Follow-up must be added before answering another question.", 409, [
-          { field: "questionId", reason: "current question is already answered" },
-        ]);
-      }
-    }
-    const sourceQuestion = await this.requiredQuestion(answer.questionId);
-    if (sourceQuestion.questionType === "FOLLOW_UP") {
-      throw new CandidateDomainError("COMMON_CONFLICT", "Follow-up questions cannot create another follow-up question.", 409, [
-        { field: "questionType", reason: "source question is FOLLOW_UP" },
-      ]);
-    }
-
-    let question = await this.findExistingRuntimeFollowUpQuestion(session, sourceQuestionIndex, process.content);
-    let questionIndex = question ? session.questionIds.indexOf(question.questionId) : -1;
-    let inserted = false;
-
-    if (!question) {
-      if (!(await this.canAddRuntimeFollowUpQuestion(session))) {
-        throw new CandidateDomainError("COMMON_CONFLICT", "Follow-up question limit has been reached.", 409, [
-          { field: "followUpQuestions", reason: "maximum one follow-up question per base question" },
-        ]);
-      }
-
-      question = await this.interviewRepository.createRuntimeFollowUpQuestion({
-        session,
-        sourceAnswer: answer,
-        content: process.content,
-      });
-      questionIndex = session.questionIds.indexOf(question.questionId);
-      if (questionIndex < 0) {
-        questionIndex = sourceQuestionIndex + 1;
-        session.questionIds.splice(questionIndex, 0, question.questionId);
-        inserted = true;
-      }
-    }
-
-    session.currentQuestionIndex = questionIndex;
-    session.updatedAt = new Date().toISOString();
-    session = await this.interviewRepository.saveRuntimeSession(session);
-
-    return this.envelope({
-      sessionId: session.sessionId,
-      processLogId,
-      sourceAnswerId: answer.answerId,
-      sourceQuestionId: answer.questionId,
-      question: await this.toQuestionView(session, question, false, questionIndex + 1),
-      inserted,
-      totalQuestions: session.questionIds.length,
-      nextQuestionAvailable: session.currentQuestionIndex < session.questionIds.length - 1,
-    });
   }
 
   private async replaceAnswerAfterReanswerRequest(
@@ -1633,46 +1460,6 @@ export class InterviewService {
       allowReanswer: requestBody.allowReanswer === true,
       nonverbalMetadata,
     };
-  }
-
-  private assertInsertRequest(dto: InsertFollowUpQuestionDto): number {
-    const requestBody = this.toRequestBody(dto, "followUpPromotion");
-    if (!this.isPositiveInteger(requestBody.processLogId)) {
-      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "processLogId is invalid.", 400, [
-        { field: "processLogId", reason: "processLogId must be a positive integer" },
-      ]);
-    }
-    return requestBody.processLogId;
-  }
-
-  private async countFollowUpQuestions(session: RuntimeInterviewSession): Promise<number> {
-    const questions = await Promise.all(session.questionIds.map((questionId) => this.interviewRepository.findQuestion(questionId)));
-    return questions.filter((question) => question?.questionType === "FOLLOW_UP").length;
-  }
-
-  private async canAddRuntimeFollowUpQuestion(session: RuntimeInterviewSession): Promise<boolean> {
-    const questions = await Promise.all(session.questionIds.map((questionId) => this.interviewRepository.findQuestion(questionId)));
-    const followUpQuestionCount = questions.filter((question) => question?.questionType === "FOLLOW_UP").length;
-    const baseQuestionCount = questions.filter((question) => question && question.questionType !== "FOLLOW_UP").length;
-    return followUpQuestionCount < baseQuestionCount;
-  }
-
-  private async findExistingRuntimeFollowUpQuestion(
-    session: RuntimeInterviewSession,
-    sourceQuestionIndex: number,
-    content: string,
-  ): Promise<InterviewQuestion | undefined> {
-    const normalizedContent = content.trim();
-    for (let index = sourceQuestionIndex + 1; index < session.questionIds.length; index += 1) {
-      const questionId = session.questionIds[index];
-      if (!questionId) continue;
-
-      const question = await this.interviewRepository.findQuestion(questionId);
-      if (question?.questionType === "FOLLOW_UP" && question.content.trim() === normalizedContent) {
-        return question;
-      }
-    }
-    return undefined;
   }
 
   private assertInProgress(session: RuntimeInterviewSession): void {
