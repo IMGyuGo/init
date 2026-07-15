@@ -5,6 +5,8 @@
 .env*.local
 .gitignore
 
+seed-overrides.json
+
 # 로컬 개발 서버 로그·PID
 .local/
 \nogitdocs

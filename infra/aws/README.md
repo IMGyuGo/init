@@ -304,7 +304,7 @@ Amazon Q Developer Slack channel configuration의 자체 logging은 `logging_lev
 Valkey/Redis protocol naming policy:
 
 - AWS managed cache engine은 ElastiCache Valkey 7.2로 고정한다.
-- API 서버는 `ioredis` client로 Redis protocol을 사용한다. 인증 코드 발급과 상태 갱신의 원자성을 위해 `GET`, `SET ... EX`, `SET ... KEEPTTL`, `EXISTS`, `DEL`, Lua/EVAL을 사용하며 Streams, Pub/Sub, Cluster 전용 명령은 사용하지 않는다.
+- API 서버는 `ioredis` client로 Redis protocol을 사용한다. 인증 코드 발급과 상태 갱신의 원자성을 위해 `GET`, `PTTL`, `SET ... EX`, `SET ... PX`, `EXISTS`, `DEL`, Lua/EVAL을 사용하며 Streams, Pub/Sub, Cluster 전용 명령은 사용하지 않는다.
 - `REDIS_URL`, Terraform resource name의 `redis`, output `redis_primary_endpoint` 같은 이름은 Redis OSS 엔진 선택이 아니라 Redis protocol/client 호환 접속 관례를 뜻한다.
 - 새 문서에서 관리형 서비스 자체를 부를 때는 `ElastiCache Valkey`를 사용하고, env/URL/protocol/client 계약을 말할 때만 `Redis protocol` 또는 `REDIS_URL`을 사용한다.
 
