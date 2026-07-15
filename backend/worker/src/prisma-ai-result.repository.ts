@@ -106,6 +106,7 @@ function defaultFollowUpReason(policy: FollowUpQuestionRecord["policy"]): Follow
 
 interface PrismaAiResultClient {
   $transaction?<T>(operation: (transaction: PrismaAiResultClient) => Promise<T>): Promise<T>;
+  $executeRawUnsafe?(query: string, ...values: unknown[]): Promise<number>;
   $queryRawUnsafe?<T>(query: string, ...values: unknown[]): Promise<T>;
   application: {
     updateMany(args: unknown): Promise<unknown>;
@@ -392,6 +393,7 @@ export class PrismaAiResultRepository implements AiResultRepository {
       const followUps = transaction.followUpQuestion;
       const sessionQuestions = transaction.interviewSessionQuestion;
       if (
+        !transaction.$executeRawUnsafe ||
         !transaction.$queryRawUnsafe ||
         !transaction.interviewAnswer.findUnique ||
         !followUps.findUnique ||
@@ -401,7 +403,7 @@ export class PrismaAiResultRepository implements AiResultRepository {
         throw new NonRetryableAiWorkerFailure("follow-up runtime repositories are unavailable");
       }
 
-      await transaction.$queryRawUnsafe(
+      await transaction.$executeRawUnsafe(
         "SELECT pg_advisory_xact_lock($1)",
         BigInt(record.sessionId),
       );

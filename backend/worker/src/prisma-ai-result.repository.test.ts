@@ -288,6 +288,7 @@ test("PrismaAiResultRepository atomically appends one private follow-up per base
   assert.equal(fixture.followUp()?.generationStatus, "INSERTED");
   assert.equal(fixture.followUp()?.answerTimeSec, 90);
   assert.equal(fixture.followUp()?.insertedSessionQuestionId, 800n);
+  assert.equal(fixture.advisoryLockCalls(), 2);
 });
 
 test("PrismaAiResultRepository stores a no-follow-up decision without changing session questions", async () => {
@@ -737,6 +738,7 @@ test("PrismaAiResultRepository marks recruiting application report failed with g
 
 function followUpRuntimePrisma(options: { sessionStatus?: string; sourceQuestionType?: string } = {}) {
   let followUp: any;
+  let advisoryLockCallCount = 0;
   const createdSessionQuestions: any[] = [];
   const sourceSessionQuestion = {
     sessionQuestionId: 700n,
@@ -781,8 +783,14 @@ function followUpRuntimePrisma(options: { sessionStatus?: string; sourceQuestion
     async $transaction(operation: (transaction: any) => Promise<unknown>) {
       return operation(prisma);
     },
+    async $executeRawUnsafe(query: string) {
+      assert.match(query, /pg_advisory_xact_lock/);
+      advisoryLockCallCount += 1;
+      return 1;
+    },
     async $queryRawUnsafe(query: string) {
-      return query.includes("nextval") ? [{ questionId: 9000n }] : [];
+      assert.match(query, /nextval/);
+      return [{ questionId: 9000n }];
     },
     interviewAnswer: {
       async updateMany() {},
@@ -826,6 +834,7 @@ function followUpRuntimePrisma(options: { sessionStatus?: string; sourceQuestion
   return {
     prisma,
     createdSessionQuestions,
+    advisoryLockCalls: () => advisoryLockCallCount,
     followUp: () => followUp,
   };
 }
