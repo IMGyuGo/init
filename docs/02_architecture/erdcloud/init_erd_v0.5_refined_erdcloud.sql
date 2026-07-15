@@ -723,7 +723,9 @@ CREATE TABLE follow_up_questions (
 
     -- 생성 시각
     created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT ck_follow_up_questions_reason
+        CHECK (reason IS NULL OR reason IN ('NCS_EVIDENCE_GAP', 'FACT_CLARIFICATION', 'GENERAL_EVIDENCE_GAP'))
 );
 
 -- =========================================================
@@ -813,6 +815,8 @@ CREATE TABLE ncs_answer_evaluations (
     ncs_evaluation_id BIGINT PRIMARY KEY,
     report_id BIGINT NOT NULL,
     answer_id BIGINT NOT NULL,
+    follow_up_answer_id BIGINT,
+    input_composition_version VARCHAR(50) NOT NULL DEFAULT 'BASE_ONLY_V1',
     session_question_id BIGINT NOT NULL,
     criterion_id BIGINT,
     criterion_title_snapshot VARCHAR(200) NOT NULL,
@@ -905,6 +909,12 @@ CREATE TABLE answer_fact_check_runs (
             (provider_status = 'COMPLETED' AND gate_status IS NOT NULL AND failure_reason IS NULL)
             OR
             (provider_status <> 'COMPLETED' AND gate_status IS NULL AND failure_reason IS NOT NULL)
+        ),
+    CONSTRAINT ck_answer_fact_check_runs_input_composition
+        CHECK (
+            (input_composition_version = 'BASE_ONLY_V1' AND follow_up_answer_id IS NULL)
+            OR
+            (input_composition_version = 'BASE_FOLLOW_UP_V1' AND follow_up_answer_id IS NOT NULL AND follow_up_answer_id <> answer_id)
         ),
     CONSTRAINT uq_answer_fact_check_runs_report_answer_policy
         UNIQUE (report_id, answer_id, policy_version)
@@ -1415,6 +1425,11 @@ ALTER TABLE answer_fact_check_runs
 ALTER TABLE answer_fact_check_runs
     ADD CONSTRAINT fk_answer_fact_check_runs_answer
     FOREIGN KEY (answer_id) REFERENCES interview_answers(answer_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE answer_fact_check_runs
+    ADD CONSTRAINT fk_answer_fact_check_runs_follow_up_answer
+    FOREIGN KEY (follow_up_answer_id) REFERENCES interview_answers(answer_id)
     ON DELETE CASCADE;
 
 ALTER TABLE answer_fact_check_claims

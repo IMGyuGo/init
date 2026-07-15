@@ -127,7 +127,7 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | ncs_answer_score_status | SCORED, INSUFFICIENT_INPUT, LOW_ALIGNMENT, BLOCKED | 답변별 NCS 평가 상태. `SCORED`만 점수를 가지며 나머지 상태는 competency/evidence/total score가 모두 NULL |
 | resume_question_generation_status | DISABLED, WAITING_APPLICATION, WAITING_DOCUMENT, GENERATING, READY, REVIEW_REQUIRED, FAILED | 공고/지원서 관점의 이력서 개인화 질문 준비 상태. `DISABLED`, `WAITING_APPLICATION`은 설정 조회 projection 값 |
 | follow_up_generation_status | READY, INSERTED, SKIPPED | guardrail 통과 결과의 저장 상태. `READY`는 같은 transaction에서 즉시 `INSERTED` 또는 `SKIPPED`로 전이하며 정상 종료 후 장기 잔류하지 않는다. |
-| follow_up_reason | NCS_EVIDENCE_GAP, GENERAL_EVIDENCE_GAP | NCS 행동·논리 근거 또는 모의면접 일반 근거를 보완하는 꼬리질문 사유. FACT-05 전에는 팩트 확인 사유를 생성하지 않는다. |
+| follow_up_reason | NCS_EVIDENCE_GAP, FACT_CLARIFICATION, GENERAL_EVIDENCE_GAP | NCS 행동·논리 근거, 팩트 확인 또는 모의면접 일반 근거를 보완하는 꼬리질문 사유. NCS와 팩트 보완이 동시에 필요하면 질문은 하나만 만들고 `FACT_CLARIFICATION`을 정본 사유로 저장한다. |
 | follow_up_skip_reason | NOT_REQUIRED, SESSION_NOT_IN_PROGRESS | base 평가상 불필요하거나 결과 저장 시 세션이 진행 중이 아니어서 질문을 추가하지 않은 사유 |
 | notification_channel | EMAIL, IN_APP | 알림 채널 |
 | ai_process_type | DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING, GUARDRAIL_VALIDATE, CRITERIA_SUGGEST, QUESTION_GENERATE, RESUME_QUESTION_GENERATE, QUESTION_SET_GENERATE, POSTING_DRAFT_GENERATE | AI 처리 유형 |

@@ -168,6 +168,8 @@ otherwise
 - prompt rule: 이미 확인된 내용을 다시 묻지 않는다.
 - scoring: base와 follow-up segment를 함께 재평가하고 `max(baseScore, combinedScore)`만 적용한다.
 - source tracking: base/follow-up answer ID와 quote를 구분한다.
+- fact trigger: `CLARIFICATION_CANDIDATE | FACT_CHECK_REQUIRED`. NCS 보완과 동시에 필요하면 질문 하나로 결합하고 `FACT_CLARIFICATION` 사유를 저장한다.
+- fact re-evaluation: `BASE_FOLLOW_UP_V1` 조합으로 본 답변과 꼬리답변을 합쳐 다시 검증하고 최종 fact run을 교체한다.
 
 꼬리질문 생성·재평가는 E, 세션 타이머·답변 저장은 D, 원본 시간 정책은 C가 소유한다.
 
@@ -179,7 +181,8 @@ otherwise
 - 사실 검증 결과는 `behaviorPoints`, `logicPoints`, profile 평균, 가중치, 총점 또는 PASS/FAIL을 직접 변경하지 않는다.
 - 고신뢰 핵심 기술 claim의 모순은 별도 `FACT_CHECK_REQUIRED` gate로 보류하며 점수 감점으로 표현하지 않는다.
 - provider 실패는 `UNVERIFIABLE`과 구분하고 NCS 평가 또는 다음 기본 질문 이동을 막지 않는다.
-- 실제 팩트 확인 꼬리질문 생성과 합산 재평가는 FACT-05 이후 범위다.
+- 팩트 확인 꼬리질문은 M4의 private session question 삽입 경로를 사용하며 질문당 최대 1회만 허용한다.
+- 합산 재검증은 NCS 점수를 직접 감점하지 않고 fact gate만 갱신한다.
 
 ## Persistence Contract
 

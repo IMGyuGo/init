@@ -500,7 +500,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | content | TEXT NOT NULL | 생성된 꼬리질문. 불필요 판정이면 빈 문자열 |
 | generation_status | VARCHAR(40) NOT NULL | READY, INSERTED, SKIPPED |
 | policy | VARCHAR(40) NOT NULL | MOCK, RECRUITING |
-| reason | VARCHAR(40) | NCS_EVIDENCE_GAP, GENERAL_EVIDENCE_GAP |
+| reason | VARCHAR(40) | NCS_EVIDENCE_GAP, FACT_CLARIFICATION, GENERAL_EVIDENCE_GAP |
 | skip_reason | VARCHAR(50) | NOT_REQUIRED, SESSION_NOT_IN_PROGRESS |
 | question_mode | VARCHAR(50) | 원본 base question의 NCS question mode snapshot |
 | answer_time_sec | INTEGER | 세션 확정 당시 꼬리질문 답변 제한 시간 snapshot |
@@ -508,7 +508,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | created_at | TIMESTAMP NOT NULL | 생성 시각 |
 | updated_at | TIMESTAMP NOT NULL | 상태 갱신 시각 |
 
-`(answer_id, policy)`는 unique이며 base 답변 하나당 꼬리질문 결정은 최대 한 번만 저장한다. `INSERTED` 전이는 worker guardrail 통과 결과 저장 transaction에서 `interview_session_questions` append와 함께 처리한다. 추가 질문은 `question_bank`에 등록하지 않고 해당 세션의 private runtime question으로만 저장하며, 원본 질문의 canonical `session_question_ncs_bindings` 1~2개를 같은 transaction에서 복제한다. 세션 끝에 append하므로 이미 표시되거나 답변한 기본 질문의 순서를 변경하지 않는다. `SKIPPED`는 질문을 생성하지 않으며 worker 실패·timeout은 이 테이블의 판정으로 변환하지 않고 `ai_process_logs` 실패 상태를 유지한다.
+`(answer_id, policy)`는 unique이며 base 답변 하나당 꼬리질문 결정은 최대 한 번만 저장한다. `INSERTED` 전이는 worker guardrail 통과 결과 저장 transaction에서 `interview_session_questions` append와 함께 처리한다. 추가 질문은 `question_bank`에 등록하지 않고 해당 세션의 private runtime question으로만 저장하며, 원본 질문의 canonical `session_question_ncs_bindings` 1~2개를 같은 transaction에서 복제한다. 세션 끝에 append하므로 이미 표시되거나 답변한 기본 질문의 순서를 변경하지 않는다. NCS 근거와 fact clarification이 동시에 필요하면 질문은 하나만 만들고 `FACT_CLARIFICATION`을 우선 사유로 저장한다. `SKIPPED`는 질문을 생성하지 않으며 worker 실패·timeout은 이 테이블의 판정으로 변환하지 않고 `ai_process_logs` 실패 상태를 유지한다.
 
 ### evaluation_reports
 
@@ -612,6 +612,8 @@ NCS profile 집계 row는 `(report_id, ncs_profile_id)`를 unique key로 사용�
 | fact_check_run_id | BIGINT PRIMARY KEY | 답변 사실 검증 실행 PK |
 | report_id | BIGINT NOT NULL | 평가 리포트 FK |
 | answer_id | BIGINT NOT NULL | 검증한 base 답변 FK |
+| follow_up_answer_id | BIGINT | 합산 재검증에 사용한 꼬리답변 FK |
+| input_composition_version | VARCHAR(50) NOT NULL | BASE_ONLY_V1, BASE_FOLLOW_UP_V1 |
 | provider_status | VARCHAR(40) NOT NULL | COMPLETED, FAILED, TIMEOUT, INVALID_OUTPUT |
 | gate_status | VARCHAR(40) | PASS_THROUGH, CLARIFICATION_CANDIDATE, FACT_CHECK_REQUIRED. provider 실패면 NULL |
 | provider_mode | VARCHAR(20) NOT NULL | mock, openai |
@@ -625,7 +627,7 @@ NCS profile 집계 row는 `(report_id, ncs_profile_id)`를 unique key로 사용�
 | created_at | TIMESTAMP NOT NULL | 최초 저장 시각 |
 | updated_at | TIMESTAMP NOT NULL | 최종 갱신 시각 |
 
-정본 unique key는 `(report_id, answer_id, policy_version)`다. provider 실패는 `gate_status=NULL`로 저장하며 `UNVERIFIABLE` claim을 만들지 않는다.
+정본 unique key는 `(report_id, answer_id, policy_version)`다. `BASE_ONLY_V1`이면 `follow_up_answer_id`는 NULL이고, `BASE_FOLLOW_UP_V1`이면 같은 base 질문에서 파생된 꼬리답변 ID가 필수다. 합산 문자열은 `baseTranscript + "\n" + followUpTranscript`로 재구성하며 claim offset은 이 문자열 기준이다. provider 실패는 `gate_status=NULL`로 저장하며 `UNVERIFIABLE` claim을 만들지 않는다.
 
 ### answer_fact_check_claims
 

@@ -2819,6 +2819,8 @@ CandidateFolder 입력 제한:
 - 성공 응답/처리:
   - worker guardrail 통과 결과 저장 transaction에서 꼬리질문 결정을 `follow_up_questions`에 저장한다.
   - 필요한 질문은 해당 세션의 private `FOLLOW_UP` session question으로 세션 질문 맨 뒤에 한 번만 추가한다.
+  - 채용면접은 NCS 근거 보완과 fact gate를 병렬 확인한다. `CLARIFICATION_CANDIDATE` 또는 `FACT_CHECK_REQUIRED`이면 `FACT_CLARIFICATION` 사유를 사용한다.
+  - NCS와 팩트 확인이 모두 필요해도 질문은 하나만 생성한다.
   - 불필요 판정은 `SKIPPED/NOT_REQUIRED`로 저장하고 세션 질문을 추가하지 않는다.
   - 프론트는 완료된 job 상태를 확인한 뒤 정식 질문 목록을 다시 조회하며 별도 삽입 API를 호출하지 않는다.
   - 서버가 최신 `CandidateProfileAiContextV1`을 worker 입력에 추가한다. 답변 스크립트와 이전 질문을 주 근거로, 프로필은 보조 근거로 사용한다.

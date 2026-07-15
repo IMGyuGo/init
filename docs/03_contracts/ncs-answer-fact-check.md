@@ -2,12 +2,12 @@
 
 ## Status
 
-- Contract status: `APPROVED_FOR_FACT_01_04`
+- Contract status: `APPROVED_FOR_FACT_01_05`
 - Fact-check policy version: `NCS_ANSWER_FACT_CHECK_POLICY_V1`
 - Prompt version: `NCS_ANSWER_FACT_CHECK_PROMPT_V1`
 - Default knowledge snapshot version: `NO_EXTERNAL_KNOWLEDGE_V1`
-- Scope: 답변 claim 추출, snapshot 근거 검증, 실행 결과 저장, NCS 점수와 분리된 deterministic gate
-- Out of scope: 실제 팩트 확인 꼬리질문 생성·삽입(FACT-05), nullable 평가와 재답변 정책(NR-M5/FACT-06), 최종 통합(NR-M6)
+- Scope: 답변 claim 추출, snapshot 근거 검증, 실행 결과 저장, NCS 점수와 분리된 deterministic gate, 팩트 확인 꼬리질문과 합산 재검증
+- Out of scope: nullable 평가와 재답변 정책(NR-M5/FACT-06), 최종 통합(NR-M6)
 
 이 문서는 NCS 채용면접 답변의 사실 검증 정본 계약이다. 사실 검증은 점수 계산기가 아니라 추가 확인이 필요한 답변을 식별하는 보조 경로다.
 
@@ -156,6 +156,33 @@ claim별 규칙은 다음과 같다.
 
 복수 claim은 가장 높은 precedence를 최종 gate로 사용한다. gate는 꼬리질문 후보를 제공할 뿐 NCS 점수, 가중치, 총점 또는 임시 `INCOMPLETE -> FAIL` 정책을 변경하지 않는다.
 
+## Fact Clarification Follow-up
+
+- `CLARIFICATION_CANDIDATE`와 `FACT_CHECK_REQUIRED`는 팩트 확인 꼬리질문 후보가 된다.
+- 같은 base 답변에 NCS 근거 보완도 필요하면 질문을 두 개 만들지 않고 한 문장에 두 목적을 결합한다.
+- 결합 질문은 이미 확인된 NCS evidence와 `SUPPORTED` claim을 다시 묻지 않는다.
+- 모순 claim을 거짓말로 표현하거나 사실로 단정하지 않고, 근거·구현 방식·조건을 중립적으로 확인한다.
+- `follow_up_questions.reason=FACT_CLARIFICATION`을 사용하며 M4의 base 답변당 최대 1회, 동일 question mode, 동일 답변시간 규칙을 유지한다.
+- provider 실패·timeout·invalid output은 팩트 확인 질문을 강제하지 않으며 NCS 근거 보완 필요 여부만 독립적으로 적용한다.
+
+FOLLOW_UP job의 fact 실행은 질문 필요 여부를 정하는 precheck다. precheck의 gate와 provider 상태는 `ai_process_logs.output_ref`에 원문 없이 기록하고, 최종 정규화 row는 리포트 생성 시 합산 재검증 결과로 저장한다.
+
+## Combined Re-evaluation
+
+꼬리답변이 존재하면 다음 고정 규칙으로 fact 입력을 재구성한다.
+
+```text
+inputCompositionVersion = BASE_FOLLOW_UP_V1
+answerText = baseTranscript + "\n" + followUpTranscript
+```
+
+- 합산 입력으로 NCS 평가와 fact check를 다시 실행한다.
+- NCS 점수는 `max(baseScore, combinedScore)`만 적용하므로 꼬리답변이 원점수를 낮추지 않는다.
+- fact check는 합산 실행 결과를 최종 run으로 저장한다.
+- 꼬리답변이 없으면 `BASE_ONLY_V1`과 `follow_up_answer_id=NULL`을 사용한다.
+- 합산 run은 base `answer_id`, 꼬리 `follow_up_answer_id`, composition version으로 원문을 재구성한다.
+- claim offset은 composition version으로 만든 합산 문자열의 UTF-16 반개구간을 기준으로 한다.
+
 ## Persistence
 
 ### `answer_fact_check_runs`
@@ -164,6 +191,7 @@ claim별 규칙은 다음과 같다.
 
 - 정본 key: `(report_id, answer_id, policy_version)`
 - 저장 필드: `provider_status`, nullable `gate_status`, provider/model/prompt/knowledge/policy version, failure reason, 시작·완료 시각
+- 입력 추적 필드: nullable `follow_up_answer_id`, `input_composition_version=BASE_ONLY_V1 | BASE_FOLLOW_UP_V1`
 - 재처리는 같은 report/answer/policy 범위를 transaction 안에서 교체한다.
 
 ### `answer_fact_check_claims`
@@ -212,5 +240,5 @@ Promise.allSettled([
 | provider, strict schema, policy gate, 저장 repository | E | D |
 | `interview_answers` 원문과 다음 질문 전환 | D | E |
 | Prisma migration과 shared DB 관계 | E/A | D |
-| FACT-05 꼬리질문 생성·삽입 | E | D |
+| FACT-05 꼬리질문 생성·삽입과 합산 재검증 | E | D |
 | FACT 결과의 리포트 노출 | E/B | PM, D |
