@@ -2557,12 +2557,21 @@
   position: relative;
   z-index: 1;
   display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   justify-items: center;
-  align-self: center;
-  gap: 14px;
+  align-self: stretch;
+  gap: 10px;
   width: min(560px, 100%);
-  margin: 66px auto 16px;
+  min-height: 0;
+  margin: 28px auto 12px;
   text-align: center;
+}
+
+:global(.ai-interviewer-figure > .local-interviewer-avatar) {
+  width: auto;
+  height: 100%;
+  min-height: 0;
+  max-height: 340px;
 }
 
 :global(.ai-interviewer-avatar) {
@@ -5182,7 +5191,11 @@
   }
 
   :global(.ai-interviewer-stage) {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
     min-height: 0;
+    aspect-ratio: auto;
     padding: 18px;
   }
 
@@ -5193,6 +5206,7 @@
     max-height: 100vh;
     max-height: 100dvh;
     padding: 20px;
+    overflow-y: auto;
   }
 
   :global(.ai-interviewer-stage__top) {
@@ -5210,17 +5224,29 @@
   }
 
   :global(.runtime-status-hud) {
-    top: 82px;
-    left: 18px;
-    max-width: calc(100% - 36px);
+    position: static;
+    display: flex;
+    flex-wrap: wrap;
+    width: 100%;
+    max-width: none;
   }
 
   :global(.ai-interviewer-figure) {
-    margin-top: 104px;
+    flex: 0 0 auto;
+    grid-template-rows: auto auto;
+    align-self: center;
+    height: auto;
+    margin: 4px auto 0;
   }
 
   :global(.ai-interviewer-stage:fullscreen .ai-interviewer-figure) {
-    margin-top: 126px;
+    margin: 4px auto 0;
+  }
+
+  :global(.ai-interviewer-figure > .local-interviewer-avatar) {
+    width: min(190px, 58vw);
+    height: auto;
+    max-height: none;
   }
 
   :global(.ai-interviewer-copy h1) {
@@ -5228,10 +5254,27 @@
   }
 
   :global(.candidate-camera-pip) {
-    top: 50%;
-    right: 18px;
-    bottom: auto;
-    width: 190px;
+    position: relative;
+    inset: auto !important;
+    width: 100%;
+    margin-top: 0;
+    transform: none;
+  }
+
+  :global(.candidate-camera-pip.positioned),
+  :global(.candidate-camera-pip.dragged) {
+    inset: auto !important;
+    transform: none;
+  }
+
+  :global(.candidate-camera-pip__video) {
+    max-height: 160px;
+    aspect-ratio: 16 / 9;
+  }
+
+  :global(.runtime-integrity-warning) {
+    position: static;
+    width: 100%;
   }
 
   :global(.ai-interviewer-stage--candidate-primary) {
@@ -5243,9 +5286,10 @@
   }
 
   :global(.ai-interviewer-stage--candidate-primary .ai-interviewer-figure--pip) {
-    top: 128px;
-    right: 18px;
-    width: min(220px, calc(100% - 36px));
+    position: relative;
+    inset: auto !important;
+    width: 100%;
+    transform: none;
   }
 
   :global(.ai-interviewer-stage--candidate-primary .ai-interviewer-figure--pip .ai-interviewer-avatar) {
