@@ -21,6 +21,7 @@ import {
   updateInterviewTimePolicy,
 } from "./api";
 import { hasActiveAiJobs, startAiJobPolling } from "./ai-job-polling";
+import { reconcileSettingsAfterCriteriaSave } from "./interview-settings-sync";
 import type {
   AiJobOutput,
   AiJobResult,
@@ -554,21 +555,21 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
         })),
       });
 
-      setSettings((current) =>
-        current
-          ? {
-              ...current,
-              availableTags:
-                createdTags.length === 0
-                  ? current.availableTags
-                  : [
-                      ...current.availableTags,
-                      ...createdTags.filter((createdTag) => !current.availableTags.some((tag) => tag.tagId === createdTag.tagId)),
-                    ],
-              criteria: response.data.criteria,
-            }
-          : current,
-      );
+      setSettings((current) => {
+        if (!current) return current;
+
+        const reconciledSettings = reconcileSettingsAfterCriteriaSave(current, response.data.criteria);
+        return {
+          ...reconciledSettings,
+          availableTags:
+            createdTags.length === 0
+              ? current.availableTags
+              : [
+                  ...current.availableTags,
+                  ...createdTags.filter((createdTag) => !current.availableTags.some((tag) => tag.tagId === createdTag.tagId)),
+                ],
+        };
+      });
       setCriteriaDrafts(
         response.data.criteria.map((criterion) => ({
           draftId: String(criterion.criterionId),
@@ -582,6 +583,26 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
           sortOrder: String(criterion.sortOrder),
         })),
       );
+
+      try {
+        const latestResponse = await getInterviewSettings(settings.posting.postingId);
+        const latestSettings = latestResponse.data;
+        const latestCriterionIds = new Set(latestSettings.criteria.map((criterion) => criterion.criterionId));
+
+        setSettings(latestSettings);
+        setCriteriaDrafts(toCriteriaDrafts(latestSettings));
+        setSelectedCriteriaDraftIds([]);
+        setQuestionForm((current) => ({
+          ...current,
+          criterionId: latestCriterionIds.has(Number(current.criterionId))
+            ? current.criterionId
+            : String(latestSettings.criteria[0]?.criterionId ?? ""),
+        }));
+      } catch {
+        setCriteriaError("평가 기준은 저장됐지만 최신 질문 목록을 불러오지 못했습니다. 새로고침 후 다시 진행해주세요.");
+        return false;
+      }
+
       return true;
     } catch (error) {
       setCriteriaError(error instanceof Error ? error.message : "평가 기준 저장에 실패했습니다.");
@@ -1435,6 +1456,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                 </div>
               </div>
               {aiJobError ? <p className="notice danger">{aiJobError}</p> : null}
+              {questionError ? <p className="notice danger">{questionError}</p> : null}
               <div className="question-workflow-block">
                 <div className="question-section-head">
                   <h3>확정 질문 목록</h3>
