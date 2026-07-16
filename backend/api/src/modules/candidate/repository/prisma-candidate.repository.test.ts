@@ -385,4 +385,113 @@ describe("PrismaCandidateRepository", () => {
       (error) => error instanceof CandidateDomainError && error.code === "APPLICATION_ALREADY_SUBMITTED",
     );
   });
+
+  it("removes an owned demo application graph before deleting unreferenced answer media", async () => {
+    const calls: string[] = [];
+    let applicationWhere: unknown;
+    let mediaWhere: unknown;
+    const deleteMany = (name: string) => async () => {
+      calls.push(name);
+      return { count: 1 };
+    };
+    const updateMany = (name: string) => async () => {
+      calls.push(name);
+      return { count: 1 };
+    };
+    const tx = {
+      async $executeRaw() {
+        calls.push("lock");
+        return 0;
+      },
+      application: {
+        async findMany(args: { where: unknown }) {
+          applicationWhere = args.where;
+          return [{ applicationId: 41n }];
+        },
+        deleteMany: deleteMany("applications"),
+      },
+      applicationDocument: {
+        async findMany() {
+          return [{ documentId: 51n, fileId: 101n }];
+        },
+        deleteMany: deleteMany("documents"),
+      },
+      interviewSession: {
+        async findMany() {
+          return [{ sessionId: 61n }];
+        },
+        deleteMany: deleteMany("sessions"),
+      },
+      interviewAnswer: {
+        async findMany() {
+          return [{ answerId: 71n, videoFileId: 201n, audioFileId: 202n }];
+        },
+        deleteMany: deleteMany("answers"),
+      },
+      evaluationReport: {
+        async findMany() {
+          return [{ reportId: 81n }];
+        },
+        deleteMany: deleteMany("reports"),
+      },
+      reportScore: {
+        async findMany() {
+          return [{ scoreId: 91n }];
+        },
+        deleteMany: deleteMany("scores"),
+      },
+      aiProcessLog: {
+        async findMany() {
+          return [{ processLogId: 111n }];
+        },
+        deleteMany: deleteMany("process-logs"),
+      },
+      embedding: { deleteMany: deleteMany("embeddings") },
+      reportEvidence: { deleteMany: deleteMany("evidences") },
+      manualEvaluation: { deleteMany: deleteMany("manual-evaluations") },
+      followUpQuestion: { deleteMany: deleteMany("follow-ups") },
+      clientPerformanceLog: { deleteMany: deleteMany("client-performance") },
+      aiProcessTimingEvent: { deleteMany: deleteMany("timing-events") },
+      aiGuardrailLog: { deleteMany: deleteMany("guardrails") },
+      interviewQuestionSet: { updateMany: updateMany("question-set-unlink") },
+      notification: { deleteMany: deleteMany("notifications") },
+      consentRecord: { deleteMany: deleteMany("consents") },
+      candidateMockInterviewPassLedger: { updateMany: updateMany("pass-ledger-unlink") },
+      fileAsset: {
+        async findMany(args: { where: unknown }) {
+          calls.push("media-find");
+          mediaWhere = args.where;
+          return [{ fileId: 201n, storageKey: "candidate/44/interviews/answer.webm" }];
+        },
+        deleteMany: deleteMany("media-assets"),
+      },
+    };
+    const prisma = {
+      async $transaction<T>(callback: (transactionClient: typeof tx) => Promise<T>) {
+        return callback(tx);
+      },
+    };
+    const repository = new PrismaCandidateRepository(prisma as never);
+
+    const result = await repository.resetDemoApplications({
+      candidateId: 44,
+      ownerUserId: 7,
+      applicationId: 41,
+    });
+
+    assert.deepEqual(applicationWhere, { candidateId: 44n, applicationId: 41n });
+    assert.deepEqual((mediaWhere as { fileId: { in: bigint[] }; ownerUserId: bigint }).fileId.in, [201n, 202n]);
+    assert.equal((mediaWhere as { ownerUserId: bigint }).ownerUserId, 7n);
+    assert.deepEqual(result, {
+      applicationIds: [41],
+      mediaStorageKeys: ["candidate/44/interviews/answer.webm"],
+    });
+    assert.equal(calls[0], "lock");
+    assert.ok(calls.indexOf("evidences") < calls.indexOf("answers"));
+    assert.ok(calls.indexOf("question-set-unlink") < calls.indexOf("process-logs"));
+    assert.ok(calls.indexOf("answers") < calls.indexOf("sessions"));
+    assert.ok(calls.indexOf("sessions") < calls.indexOf("applications"));
+    assert.ok(calls.indexOf("applications") < calls.indexOf("media-find"));
+    assert.ok(calls.indexOf("media-find") < calls.indexOf("media-assets"));
+  });
 });

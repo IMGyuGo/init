@@ -28,6 +28,16 @@ class MissingApplicationSummaryDependencyRepository extends InMemoryCandidateRep
   }
 }
 
+class DemoResetMediaRepository extends InMemoryCandidateRepository {
+  async resetDemoApplications(input: { candidateId: number; ownerUserId: number; applicationId?: number }) {
+    const reset = await super.resetDemoApplications(input);
+    return {
+      ...reset,
+      mediaStorageKeys: reset.applicationIds.length > 0 ? ["candidate/1/interviews/demo-answer.webm"] : [],
+    };
+  }
+}
+
 function createSubmitApplicationDto(overrides: Partial<SubmitApplicationDto> = {}): SubmitApplicationDto {
   return {
     candidateName: "Kim",
@@ -1116,4 +1126,24 @@ async function run() {
 
 test("candidate service contract", async () => {
   await run();
+});
+
+test("candidate demo reset removes answer media from object storage", async () => {
+  const repository = new DemoResetMediaRepository({ seedDemoApplication: true });
+  const storage = new InMemoryCandidateDocumentStorageAdapter();
+  await storage.putObject({
+    key: "candidate/1/interviews/demo-answer.webm",
+    body: Buffer.from("video"),
+    contentLength: 5,
+    contentType: "video/webm",
+  });
+  const service = new CandidateService(repository, storage);
+
+  const reset = await service.resetAllDemoApplications(DEV_CANDIDATE_USER);
+
+  assert.equal(reset.data.resetCount, 1);
+  assert.equal(reset.data.mediaFileCount, 1);
+  assert.equal(reset.data.storageCleanupFailedCount, 0);
+  assert.equal(storage.objects.length, 0);
+  assert.equal((await service.listApplications(DEV_CANDIDATE_USER)).data.items.length, 0);
 });
