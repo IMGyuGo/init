@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import {
   CandidateDomainError,
@@ -9,8 +10,11 @@ import {
   type ReportStatus,
 } from "../../candidate";
 import {
+  INTERVIEW_MEDIA_STORAGE,
   INTERVIEW_REPOSITORY,
+  InMemoryInterviewMediaStorageAdapter,
   type InterviewAnswer,
+  type InterviewMediaStoragePort,
   type InterviewQuestion,
   type InterviewRepository,
   type RuntimeInterviewSession,
@@ -52,6 +56,8 @@ import { buildDefaultReportCriteria, normalizeReportCriterionName } from "./serv
 
 type ReportAnswerSession = Pick<RuntimeInterviewSession, "sessionId" | "interviewType" | "showQuestionText">;
 type ReportGenerationKind = "MOCK_REPORT_GENERATE" | "RECRUITING_REPORT_GENERATE";
+export const CANDIDATE_MOCK_MEDIA_COOKIE_NAME = "candidateMockMediaAccess";
+const CANDIDATE_MOCK_MEDIA_COOKIE_MAX_AGE_SECONDS = 15 * 60;
 const DEFAULT_STT_UNAVAILABLE_REASON =
   "STT 실패로 transcript가 없어 임시 0점 처리되었습니다. 이 점수는 답변 품질이 아니라 음성 인식 실패에 따른 임시 처리입니다.";
 type ReportGenerationInput = {
@@ -88,6 +94,12 @@ type BuiltReportGenerationInput = {
     };
   };
 };
+type CandidateMockMediaTokenPayload = {
+  candidateId: number;
+  expiresAt: number;
+  reportId: number;
+  userId: number;
+};
 
 @Injectable()
 export class ReportService {
@@ -96,6 +108,8 @@ export class ReportService {
     @Inject(INTERVIEW_REPOSITORY) private readonly interviewRepository: InterviewRepository,
     @Inject(CANDIDATE_REPORT_REPOSITORY) private readonly candidateReportRepository: CandidateReportRepository,
     @Inject(AiJobDispatcherService) private readonly aiJobDispatcher: AiJobDispatcherService,
+    @Inject(INTERVIEW_MEDIA_STORAGE)
+    private readonly mediaStorage: InterviewMediaStoragePort = new InMemoryInterviewMediaStorageAdapter(),
   ) {}
 
   async listMockReports(currentUser: CurrentCandidateUser): Promise<ApiListResponse<CandidateMockReportSummary>> {
@@ -225,6 +239,109 @@ export class ReportService {
       status,
       media,
     });
+  }
+
+  async createMockReportMediaSession(reportId: number, currentUser: CurrentCandidateUser) {
+    const session = await this.getOwnedMockReportSession(reportId, currentUser);
+    if (session.status !== "COMPLETED") {
+      this.throwReportNotReady(reportId);
+    }
+
+    const expiresAt = Math.floor(Date.now() / 1000) + CANDIDATE_MOCK_MEDIA_COOKIE_MAX_AGE_SECONDS;
+    const mediaBasePath = `/api/v1/candidate/mock-interview/reports/${reportId}/media`;
+    return {
+      cookieName: CANDIDATE_MOCK_MEDIA_COOKIE_NAME,
+      token: this.signMockReportMediaToken({
+        candidateId: currentUser.candidateId,
+        expiresAt,
+        reportId,
+        userId: currentUser.userId,
+      }),
+      maxAgeSeconds: CANDIDATE_MOCK_MEDIA_COOKIE_MAX_AGE_SECONDS,
+      mediaBasePath,
+    };
+  }
+
+  verifyMockReportMediaSession(token: string | undefined, reportId: number): CurrentCandidateUser {
+    if (!token?.includes(".")) {
+      throw invalidMockMediaSession("Mock interview media playback authentication is required.");
+    }
+
+    const [body, signature] = token.split(".", 2);
+    if (!body || !signature || !isEqualSignature(signature, signMockMediaTokenBody(body))) {
+      throw invalidMockMediaSession("Mock interview media playback authentication is invalid.");
+    }
+
+    let payload: CandidateMockMediaTokenPayload;
+    try {
+      payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as CandidateMockMediaTokenPayload;
+    } catch {
+      throw invalidMockMediaSession("Mock interview media playback authentication is invalid.");
+    }
+
+    if (
+      !isPositiveInteger(payload?.candidateId) ||
+      !isPositiveInteger(payload?.expiresAt) ||
+      !isPositiveInteger(payload?.reportId) ||
+      !isPositiveInteger(payload?.userId)
+    ) {
+      throw invalidMockMediaSession("Mock interview media playback authentication is invalid.");
+    }
+    if (payload.expiresAt <= Math.floor(Date.now() / 1000)) {
+      throw invalidMockMediaSession("Mock interview media playback authentication has expired.");
+    }
+    if (payload.reportId !== reportId) {
+      throw new CandidateDomainError("COMMON_FORBIDDEN", "Mock interview media playback access is denied.", 403, [
+        { field: "reportId", reason: "media session report mismatch" },
+      ]);
+    }
+
+    return {
+      userId: payload.userId,
+      userType: "CANDIDATE",
+      candidateId: payload.candidateId,
+    };
+  }
+
+  async getMockReportMediaFile(
+    reportId: number,
+    fileId: number,
+    currentUser: CurrentCandidateUser,
+    options: { range?: string } = {},
+  ) {
+    const fileAsset = await this.getOwnedMockReportMediaFile(reportId, fileId, currentUser);
+    const range = normalizeMockMediaRange(options.range, fileAsset.sizeBytes);
+
+    try {
+      const object = await this.mediaStorage.getObject(fileAsset.storageKey, range ? { range } : undefined);
+      return {
+        body: object.body,
+        contentType: object.contentType ?? fileAsset.mimeType,
+        contentLength:
+          object.contentLength ??
+          (Buffer.isBuffer(object.body)
+            ? object.body.byteLength
+            : getMockMediaRangeLength(range, fileAsset.sizeBytes)),
+        contentRange: object.contentRange,
+        originalName: fileAsset.originalName,
+        statusCode: range ? 206 : 200,
+      };
+    } catch (error) {
+      if (error instanceof CandidateDomainError) {
+        throw error;
+      }
+      if (isStorageObjectNotFound(error)) {
+        throw new CandidateDomainError("COMMON_NOT_FOUND", "Stored mock interview media was not found.", 404, [
+          { field: "fileId", reason: "media object not found" },
+        ]);
+      }
+      if (isStorageInvalidRange(error)) {
+        throw invalidMockMediaRange();
+      }
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "Mock interview media could not be loaded.", 500, [
+        { field: "fileId", reason: "media storage read failed" },
+      ]);
+    }
   }
 
   async requestMockReportGeneration(
@@ -593,6 +710,41 @@ export class ReportService {
       ]);
     }
     return session;
+  }
+
+  private async getOwnedMockReportMediaFile(
+    reportId: number,
+    fileId: number,
+    currentUser: CurrentCandidateUser,
+  ): Promise<FileAsset> {
+    this.assertPositiveIntegerId(fileId, "fileId");
+    const session = await this.getOwnedMockReportSession(reportId, currentUser);
+    if (session.status !== "COMPLETED") {
+      this.throwReportNotReady(reportId);
+    }
+
+    const answers = await this.interviewRepository.listAnswersBySession(session.sessionId);
+    const belongsToReport = answers.some(
+      (answer) => answer.videoFileId === fileId || answer.audioFileId === fileId,
+    );
+    if (!belongsToReport) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "Mock interview media was not found.", 404, [
+        { field: "fileId", reason: "file is not linked to the mock interview report" },
+      ]);
+    }
+
+    const fileAsset = await this.candidateService.getInterviewFileAsset(fileId, currentUser, "fileId");
+    if (fileAsset.status !== "ACTIVE") {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "Mock interview media was not found.", 404, [
+        { field: "fileId", reason: "media file is not active" },
+      ]);
+    }
+    return fileAsset;
+  }
+
+  private signMockReportMediaToken(payload: CandidateMockMediaTokenPayload): string {
+    const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+    return `${body}.${signMockMediaTokenBody(body)}`;
   }
 
   private async toMockReportSummary(session: RuntimeInterviewSession): Promise<CandidateMockReportSummary> {
@@ -1060,4 +1212,109 @@ export class ReportService {
       },
     };
   }
+}
+
+function normalizeMockMediaRange(range: string | undefined, sizeBytes: number): string | undefined {
+  if (!range) {
+    return undefined;
+  }
+
+  const match = range.match(/^bytes=(\d*)-(\d*)$/);
+  if (!match || (!match[1] && !match[2])) {
+    throw invalidMockMediaRange();
+  }
+
+  const start = match[1] ? Number(match[1]) : undefined;
+  const end = match[2] ? Number(match[2]) : undefined;
+  if (
+    (start !== undefined && (!Number.isSafeInteger(start) || start >= sizeBytes)) ||
+    (end !== undefined && !Number.isSafeInteger(end)) ||
+    (start !== undefined && end !== undefined && start > end) ||
+    (start === undefined && (end === undefined || end <= 0))
+  ) {
+    throw invalidMockMediaRange();
+  }
+
+  return range;
+}
+
+function getMockMediaRangeLength(range: string | undefined, sizeBytes: number): number {
+  if (!range) {
+    return sizeBytes;
+  }
+
+  const match = range.match(/^bytes=(\d*)-(\d*)$/);
+  if (!match) {
+    return sizeBytes;
+  }
+  if (!match[1]) {
+    return Math.min(Number(match[2]), sizeBytes);
+  }
+
+  const start = Number(match[1]);
+  const end = match[2] ? Math.min(Number(match[2]), sizeBytes - 1) : sizeBytes - 1;
+  return end - start + 1;
+}
+
+function invalidMockMediaRange(): CandidateDomainError {
+  return new CandidateDomainError("COMMON_VALIDATION_FAILED", "Requested media range is invalid.", 416, [
+    { field: "range", reason: "invalid media byte range" },
+  ]);
+}
+
+function invalidMockMediaSession(message: string): CandidateDomainError {
+  return new CandidateDomainError("COMMON_UNAUTHORIZED", message, 401, [
+    { field: "mediaSession", reason: "invalid or expired media session" },
+  ]);
+}
+
+function isStorageObjectNotFound(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  const storageError = error as {
+    $metadata?: { httpStatusCode?: number };
+    Code?: unknown;
+    code?: unknown;
+    message?: unknown;
+    name?: unknown;
+  };
+  const signals = [storageError.name, storageError.Code, storageError.code]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.toLowerCase());
+  return storageError.$metadata?.httpStatusCode === 404 ||
+    signals.some((value) => value === "nosuchkey" || value === "notfound") ||
+    (typeof storageError.message === "string" && storageError.message.toLowerCase().includes("nosuchkey"));
+}
+
+function isStorageInvalidRange(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  const storageError = error as {
+    $metadata?: { httpStatusCode?: number };
+    Code?: unknown;
+    code?: unknown;
+    name?: unknown;
+  };
+  const signals = [storageError.name, storageError.Code, storageError.code]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.toLowerCase());
+  return storageError.$metadata?.httpStatusCode === 416 || signals.some((value) => value === "invalidrange");
+}
+
+function signMockMediaTokenBody(body: string): string {
+  return createHmac("sha256", process.env.JWT_SECRET ?? "local-dev-jwt-secret-change-me")
+    .update(body)
+    .digest("base64url");
+}
+
+function isEqualSignature(actual: string, expected: string): boolean {
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(expected);
+  return actualBuffer.byteLength === expectedBuffer.byteLength && timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) > 0;
 }
