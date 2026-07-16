@@ -20,6 +20,17 @@ data "aws_iam_policy_document" "chatbot_assume" {
   }
 }
 
+data "aws_iam_policy_document" "ec2_assume" {
+  statement {
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+  }
+}
+
 resource "aws_iam_role" "ecs_execution" {
   name               = "${local.name_prefix}-ecs-execution"
   assume_role_policy = data.aws_iam_policy_document.ecs_task_assume.json
@@ -66,6 +77,37 @@ resource "aws_iam_role" "chatbot" {
 resource "aws_iam_role_policy_attachment" "chatbot_cloudwatch_readonly" {
   role       = aws_iam_role.chatbot.name
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchReadOnlyAccess"
+}
+
+resource "aws_iam_role" "ngrinder" {
+  count = var.enable_ngrinder ? 1 : 0
+
+  name               = "${local.name_prefix}-ngrinder"
+  assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
+
+  tags = {
+    Name = "${local.name_prefix}-ngrinder"
+    Role = "ngrinder-ec2"
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "ngrinder_ssm" {
+  count = var.enable_ngrinder ? 1 : 0
+
+  role       = aws_iam_role.ngrinder[0].name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_instance_profile" "ngrinder" {
+  count = var.enable_ngrinder ? 1 : 0
+
+  name = "${local.name_prefix}-ngrinder"
+  role = aws_iam_role.ngrinder[0].name
+
+  tags = {
+    Name = "${local.name_prefix}-ngrinder"
+    Role = "ngrinder-ec2"
+  }
 }
 
 resource "aws_iam_role" "ecs_task" {
