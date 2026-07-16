@@ -2567,6 +2567,158 @@
   text-align: center;
 }
 
+:global(.notion.candidate-mypage .application-row__actions) {
+  display: grid;
+  gap: 3px;
+  width: 108px;
+}
+
+:global(.notion.candidate-mypage .application-row__cancel) {
+  min-height: 32px;
+  padding: 0 8px;
+  color: rgba(55, 53, 47, 0.5);
+  font-size: 12px;
+  font-weight: 500;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+:global(.notion.candidate-mypage .application-row__cancel:hover) {
+  color: #b9382f;
+  background: rgba(185, 56, 47, 0.07);
+}
+
+:global(.notion.candidate-mypage .application-row__cancel:focus-visible) {
+  color: #b9382f;
+  outline: 2px solid rgba(185, 56, 47, 0.32);
+  outline-offset: 1px;
+}
+
+:global(.application-cancel-backdrop) {
+  background: rgba(25, 25, 25, 0.42);
+}
+
+:global(.application-cancel-modal) {
+  width: min(420px, 100%);
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.2);
+  animation: applicationCancelModalIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:global(.application-cancel-modal__body) {
+  padding: 24px 24px 20px;
+}
+
+:global(.application-cancel-modal__body h2) {
+  margin: 0;
+  color: #191919;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+:global(.application-cancel-modal__body p) {
+  margin: 10px 0 0;
+  color: rgba(55, 53, 47, 0.66);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+:global(.application-cancel-modal__body p strong) {
+  color: #37352f;
+  font-weight: 600;
+}
+
+:global(.application-cancel-modal__body .application-cancel-modal__error) {
+  padding: 10px 12px;
+  color: #a8322b;
+  background: #fff1f0;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+:global(.application-cancel-modal__actions) {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 16px 24px 20px;
+  border-top: 1px solid rgba(55, 53, 47, 0.08);
+}
+
+:global(.application-cancel-modal__actions button) {
+  height: 42px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+:global(.application-cancel-modal__keep) {
+  color: #37352f;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.16);
+}
+
+:global(.application-cancel-modal__keep:hover:not(:disabled)) {
+  background: #f7f7f5;
+}
+
+:global(.application-cancel-modal__confirm) {
+  color: #fff;
+  background: #b9382f;
+  border: 1px solid #b9382f;
+}
+
+:global(.application-cancel-modal__confirm:hover:not(:disabled)) {
+  background: #a8322b;
+  border-color: #a8322b;
+}
+
+:global(.application-cancel-modal__actions button:focus-visible) {
+  outline: 3px solid rgba(59, 111, 224, 0.2);
+  outline-offset: 2px;
+}
+
+:global(.application-cancel-modal__actions button:disabled) {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+@keyframes applicationCancelModalIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 640px) {
+  :global(.notion.candidate-mypage .application-row__actions) {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  :global(.notion.candidate-mypage .application-row__cta) {
+    grid-column: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :global(.application-cancel-modal) {
+    animation: none;
+  }
+}
+
 :global(.ai-interviewer-figure > .local-interviewer-avatar) {
   width: auto;
   height: 100%;

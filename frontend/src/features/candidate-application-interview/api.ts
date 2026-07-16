@@ -248,6 +248,12 @@ export interface CandidateApplicationSummary {
   canStartInterview: boolean;
 }
 
+export interface CancelApplicationResponse {
+  applicationId: number;
+  applicationStatus: "CANCELED";
+  canceledAt: string;
+}
+
 export interface CandidateInterviewGuide {
   applicationId: number;
   sessionId: number;
@@ -881,6 +887,7 @@ export const candidateApiPaths = {
   mockReportMedia: (reportId: number) => `/api/v1/candidate/mock-interview/reports/${reportId}/media`,
   mockReportGenerate: (reportId: number) => `/api/v1/candidate/mock-interview/reports/${reportId}/generate`,
   applications: "/api/v1/candidate/applications",
+  cancelApplication: (applicationId: number) => `/api/v1/candidate/applications/${applicationId}/cancel`,
   interviewGuide: (applicationId: number) => `/api/v1/candidate/applications/${applicationId}/interview-guide`,
   interviewConsent: (applicationId: number) => `/api/v1/candidate/applications/${applicationId}/consent`,
   applicationReport: (applicationId: number) => `/api/v1/candidate/applications/${applicationId}/report`,
@@ -972,6 +979,7 @@ export interface CandidateApiClient {
   getMockReportMedia(reportId: number): Promise<ApiResponse<CandidateMockReportMedia>>;
   requestMockReportGeneration(reportId: number): Promise<ApiResponse<CandidateReportGenerationHandoff>>;
   listApplications(): Promise<ApiListResponse<CandidateApplicationSummary>>;
+  cancelApplication(applicationId: number): Promise<ApiResponse<CancelApplicationResponse>>;
   getInterviewGuide(applicationId: number): Promise<ApiResponse<CandidateInterviewGuide>>;
   saveInterviewConsent(
     applicationId: number,
@@ -1164,6 +1172,10 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
       }),
     listApplications: () =>
       request<ApiListResponse<CandidateApplicationSummary>>(candidateApiPaths.applications),
+    cancelApplication: (applicationId) =>
+      request<ApiResponse<CancelApplicationResponse>>(candidateApiPaths.cancelApplication(applicationId), {
+        method: "PATCH",
+      }),
     getInterviewGuide: (applicationId) =>
       request<ApiResponse<CandidateInterviewGuide>>(candidateApiPaths.interviewGuide(applicationId)),
     saveInterviewConsent: (applicationId, body) =>

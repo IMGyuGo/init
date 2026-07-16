@@ -463,6 +463,12 @@ export interface ApplicationSubmissionResult {
   portfolioLink?: PortfolioLink;
 }
 
+export interface CancelApplicationResult {
+  applicationId: number;
+  applicationStatus: "CANCELED";
+  canceledAt: string;
+}
+
 export interface CandidateRepository {
   listJobs(): Promise<CandidateJob[]>;
   findJob(jobId: number): Promise<CandidateJob | undefined>;
@@ -482,6 +488,7 @@ export interface CandidateRepository {
   findInterviewSession(sessionId: number): Promise<InterviewSession | undefined>;
   findInterviewSessionByApplication(applicationId: number): Promise<InterviewSession | undefined>;
   ensureInterviewSessionByApplication(applicationId: number): Promise<InterviewSession | undefined>;
+  cancelApplication(applicationId: number): Promise<Application | undefined>;
   prepareInterviewSessionQuestionSnapshot(applicationId: number): Promise<InterviewQuestionSnapshotResult | undefined>;
   saveDeviceCheck(sessionId: number, deviceCheck: Omit<InterviewDeviceCheck, "status" | "checkedAt">): Promise<InterviewSession>;
   updateApplicationInterviewStatus(applicationId: number, status: InterviewStatus): Promise<Application>;

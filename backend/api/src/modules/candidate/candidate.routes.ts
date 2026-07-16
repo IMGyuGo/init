@@ -8,6 +8,7 @@ export const candidateApiRoutes = {
   applyView: "jobs/:jobId/apply",
   submitApplication: "jobs/:jobId/applications",
   applications: "applications",
+  cancelApplication: "applications/:applicationId/cancel",
   interviewGuide: "applications/:applicationId/interview-guide",
   interviewConsent: "applications/:applicationId/consent",
   resume: "resume",

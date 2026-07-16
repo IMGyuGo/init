@@ -3188,6 +3188,34 @@ CandidateFolder 입력 제한:
 - 비고/미결:
   - 채용 AI 면접은 이 화면에서 진입
 
+### API-061A PATCH /candidate/applications/{applicationId}/cancel
+- 도메인: 지원자 - 지원현황/채용면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 지원현황 화면 (/candidate/applications)
+- UI Type: button
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: applicationId
+- 요청 데이터: 없음
+- 응답 데이터:
+  - applicationId
+  - applicationStatus: `CANCELED`
+  - canceledAt
+- 검증/전제조건:
+  - 로그인한 지원자 본인의 지원 내역이어야 한다.
+  - `applicationStatus`가 `SUBMITTED` 또는 `IN_REVIEW`여야 한다.
+  - 채용면접 상태가 `NOT_READY` 또는 `READY`여야 한다.
+- 성공 응답/처리:
+  - 지원 상태를 `CANCELED`로 변경하고 지원 내역 목록에서 즉시 반영한다.
+  - 같은 요청을 다시 보내면 기존 취소 결과를 반환한다.
+- 오류/예외:
+  - 지원 내역이 없으면 `COMMON_NOT_FOUND`, 다른 지원자의 내역이면 `COMMON_FORBIDDEN`을 반환한다.
+  - 면접이 시작됐거나 완료된 지원, 또는 취소할 수 없는 전형 상태면 `COMMON_CONFLICT`를 반환한다.
+- 관련 ERD 테이블:
+  - applications, interview_sessions
+- 비고/미결:
+  - 면접 세션과 질문 스냅샷은 감사·추적을 위해 삭제하지 않는다.
+
 ### API-062 GET /candidate/applications/{applicationId}/interview-guide
 - 도메인: 지원자 - 지원현황/채용면접
 - 권한/인증: 지원자 / 지원자 사용자 로그인

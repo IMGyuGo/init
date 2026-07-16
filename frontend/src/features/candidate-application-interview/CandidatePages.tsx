@@ -63,6 +63,7 @@ import {
 } from "./api";
 import { CandidateProfileSection } from "./CandidateProfileSection";
 import { CandidateProfileSnapshotEditor } from "./CandidateProfileSnapshotEditor";
+import { isCandidateApplicationCancelable } from "./application-cancellation";
 import {
   createRealtimeInterviewSpeechResponseEvent,
   createRealtimeInterviewWebRtcConnection,
@@ -1065,12 +1066,16 @@ const APPLICATIONS_PAGE_SIZE = 8;
 export function CandidateApplicationsPage() {
   const router = useRouter();
   const load = useCallback(() => getCandidateApi().listApplications(), []);
-  const { data, loading, error } = useCandidateResource(load, []);
+  const { data, loading, error, updateData } = useCandidateResource(load, []);
   const applications = data?.data.items ?? [];
   const availableApplications = applications.filter((application) => application.availabilityStatus !== "UNAVAILABLE");
   const [statusFilter, setStatusFilter] = useState<CandidateApplicationStatusFilter>("ALL");
   // 면접 안내 모달을 지원 내역 위에서 연다. 완료 시 장치 점검 라우트로 이동. (#288)
   const [guideAppId, setGuideAppId] = useState<number | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<CandidateApplicationSummary | null>(null);
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelError, setCancelError] = useState("");
+  const [cancelMessage, setCancelMessage] = useState("");
   // /interview-guide 라우트로 직접 진입한 경우 ?guide=id 로 리다이렉트되어 여기서 모달을 연다.
   const searchParams = useSearchParams();
   const guideParam = searchParams.get("guide");
@@ -1107,6 +1112,47 @@ export function CandidateApplicationsPage() {
   useEffect(() => {
     setPage(1);
   }, [statusFilter]);
+
+  useEffect(() => {
+    if (!cancelMessage) return;
+    const timeoutId = window.setTimeout(() => setCancelMessage(""), 3_000);
+    return () => window.clearTimeout(timeoutId);
+  }, [cancelMessage]);
+
+  const confirmApplicationCancellation = useCallback(async () => {
+    if (!cancelTarget || cancelBusy) return;
+    setCancelBusy(true);
+    setCancelError("");
+    try {
+      const response = await getCandidateApi().cancelApplication(cancelTarget.applicationId);
+      updateData((current) => ({
+        ...current,
+        data: {
+          ...current.data,
+          items: current.data.items.map((application) =>
+            application.applicationId === response.data.applicationId
+              ? {
+                  ...application,
+                  applicationStatus: response.data.applicationStatus,
+                  updatedAt: response.data.canceledAt,
+                  canStartInterview: false,
+                }
+              : application,
+          ),
+        },
+      }));
+      setCancelTarget(null);
+      setCancelMessage("지원이 취소되었습니다.");
+    } catch (cancelRequestError) {
+      setCancelError(
+        cancelRequestError instanceof CandidateApiError && cancelRequestError.status === 409
+          ? "면접이 이미 시작되었거나 종료되어 지원을 취소할 수 없습니다."
+          : toErrorMessage(cancelRequestError),
+      );
+    } finally {
+      setCancelBusy(false);
+    }
+  }, [cancelBusy, cancelTarget, updateData]);
 
   return (
     <CandidatePageShell active="accountBilling">
@@ -1178,23 +1224,37 @@ export function CandidateApplicationsPage() {
                       />
                       {renderCandidateReportStatus(application.reportStatus)}
                     </div>
-                    {action.href === candidateApplicationInterviewRoutes.interviewGuide(application.applicationId) ? (
-                      <button
-                        className="application-row__cta"
-                        type="button"
-                        onClick={() => setGuideAppId(application.applicationId)}
-                      >
-                        {action.label}
-                      </button>
-                    ) : action.href ? (
-                      <Link className="application-row__cta" href={action.href}>
-                        {action.label}
-                      </Link>
-                    ) : (
-                      <span className="application-row__cta is-disabled" aria-disabled="true">
-                        {action.label}
-                      </span>
-                    )}
+                    <div className="application-row__actions">
+                      {action.href === candidateApplicationInterviewRoutes.interviewGuide(application.applicationId) ? (
+                        <button
+                          className="application-row__cta"
+                          type="button"
+                          onClick={() => setGuideAppId(application.applicationId)}
+                        >
+                          {action.label}
+                        </button>
+                      ) : action.href ? (
+                        <Link className="application-row__cta" href={action.href}>
+                          {action.label}
+                        </Link>
+                      ) : (
+                        <span className="application-row__cta is-disabled" aria-disabled="true">
+                          {action.label}
+                        </span>
+                      )}
+                      {isCandidateApplicationCancelable(application) ? (
+                        <button
+                          className="application-row__cancel"
+                          type="button"
+                          onClick={() => {
+                            setCancelError("");
+                            setCancelTarget(application);
+                          }}
+                        >
+                          지원 취소
+                        </button>
+                      ) : null}
+                    </div>
                   </li>
                 );
               })}
@@ -1253,7 +1313,77 @@ export function CandidateApplicationsPage() {
           }}
         />
       ) : null}
+      {cancelTarget ? (
+        <ApplicationCancelDialog
+          application={cancelTarget}
+          busy={cancelBusy}
+          error={cancelError}
+          onClose={() => {
+            if (!cancelBusy) setCancelTarget(null);
+          }}
+          onConfirm={confirmApplicationCancellation}
+        />
+      ) : null}
+      {cancelMessage ? <div className="candidate-toast" role="status" aria-live="polite">{cancelMessage}</div> : null}
     </CandidatePageShell>
+  );
+}
+
+function ApplicationCancelDialog({
+  application,
+  busy,
+  error,
+  onClose,
+  onConfirm,
+}: {
+  application: CandidateApplicationSummary;
+  busy: boolean;
+  error: string;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) onClose();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [busy, onClose]);
+
+  return (
+    <div
+      className="modal-backdrop application-cancel-backdrop"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target && !busy) onClose();
+      }}
+    >
+      <section
+        className="modal application-cancel-modal"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="application-cancel-title"
+        aria-describedby="application-cancel-description"
+        aria-busy={busy}
+      >
+        <div className="application-cancel-modal__body">
+          <h2 id="application-cancel-title">지원을 취소할까요?</h2>
+          <p id="application-cancel-description">
+            <strong>{application.jobTitle ?? "해당 공고"}</strong> 지원을 취소하면 이 지원 건으로 면접을 진행할 수 없습니다.
+            제출 기록은 지원 내역에 남습니다.
+          </p>
+          {error ? <p className="application-cancel-modal__error" role="alert">{error}</p> : null}
+        </div>
+        <div className="application-cancel-modal__actions">
+          <button type="button" className="application-cancel-modal__keep" onClick={onClose} disabled={busy} autoFocus>
+            계속 지원
+          </button>
+          <button type="button" className="application-cancel-modal__confirm" onClick={onConfirm} disabled={busy}>
+            {busy ? "취소하는 중" : "지원 취소"}
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -8551,6 +8681,7 @@ function matchesCandidateApplicationStatusFilter(
   application: CandidateApplicationSummary,
   filter: CandidateApplicationStatusFilter,
 ): boolean {
+  if (application.applicationStatus === "CANCELED") return filter === "ALL";
   if (application.availabilityStatus === "UNAVAILABLE") return filter === "ALL";
   if (filter === "ALL") return true;
   if (filter === "WAITING") return application.interviewStatus === "NOT_READY" || application.interviewStatus === "READY";
@@ -8560,11 +8691,11 @@ function matchesCandidateApplicationStatusFilter(
 }
 
 function getSelectedApplicationAction(application: CandidateApplicationSummary): { href?: string; label: string } {
-  if (application.availabilityStatus === "UNAVAILABLE") {
-    return { label: "더 이상 조회할 수 없음" };
-  }
   if (application.applicationStatus === "CANCELED") {
     return { label: "지원 취소됨" };
+  }
+  if (application.availabilityStatus === "UNAVAILABLE") {
+    return { label: "더 이상 조회할 수 없음" };
   }
   if (application.interviewStatus === "FAILED") {
     return { label: "면접 확인 필요" };

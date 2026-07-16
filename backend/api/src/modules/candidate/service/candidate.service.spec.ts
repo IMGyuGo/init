@@ -793,6 +793,47 @@ async function run() {
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_FORBIDDEN",
   );
 
+  const cancelRepository = new InMemoryCandidateRepository();
+  const cancelService = new CandidateService(cancelRepository);
+  const cancelSubmission = await cancelRepository.createApplication({
+    postingId: 1,
+    candidateId: currentUser.candidateId,
+    resumeFileId: 1,
+    consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
+  });
+  const canceled = await cancelService.cancelApplication(cancelSubmission.application.applicationId, currentUser);
+  assert.equal(canceled.data.applicationStatus, "CANCELED");
+  const repeatedCancellation = await cancelService.cancelApplication(cancelSubmission.application.applicationId, currentUser);
+  assert.equal(repeatedCancellation.data.canceledAt, canceled.data.canceledAt);
+  const canceledList = await cancelService.listApplications(currentUser);
+  assert.equal(canceledList.data.items[0]?.applicationStatus, "CANCELED");
+  assert.equal(canceledList.data.items[0]?.canStartInterview, false);
+  await assert.rejects(
+    () => cancelService.getInterviewGuide(cancelSubmission.application.applicationId, currentUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_CONFLICT",
+  );
+  await assert.rejects(
+    () => cancelService.cancelApplication(cancelSubmission.application.applicationId, otherCandidateUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_FORBIDDEN",
+  );
+
+  const startedCancellationRepository = new InMemoryCandidateRepository();
+  const startedCancellationService = new CandidateService(startedCancellationRepository);
+  const startedCancellationSubmission = await startedCancellationRepository.createApplication({
+    postingId: 1,
+    candidateId: currentUser.candidateId,
+    resumeFileId: 1,
+    consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
+  });
+  await startedCancellationRepository.updateApplicationInterviewStatus(
+    startedCancellationSubmission.application.applicationId,
+    "IN_PROGRESS",
+  );
+  await assert.rejects(
+    () => startedCancellationService.cancelApplication(startedCancellationSubmission.application.applicationId, currentUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_CONFLICT",
+  );
+
   const guide = await service.getInterviewGuide(submitted.data.application.applicationId, currentUser);
   assert.equal(guide.data.applicationId, submitted.data.application.applicationId);
   assert.equal(guide.data.sessionId, applicationList.data.items[0]?.sessionId);

@@ -32,6 +32,7 @@ import {
   Application,
   ApplicationDocument,
   ApplicationSubmissionResult,
+  CancelApplicationResult,
   CandidateApplicationSummary,
   CandidateApplyView,
   CandidateFolder,
@@ -676,6 +677,41 @@ export class CandidateService {
     return this.listEnvelope(items, this.createPageMeta(1, Math.max(items.length, 1), items.length));
   }
 
+  async cancelApplication(
+    applicationId: number,
+    currentUser: CurrentCandidateUser,
+  ): Promise<ApiResponse<CancelApplicationResult>> {
+    const application = await this.getOwnedApplication(applicationId, currentUser);
+    if (application.applicationStatus === "CANCELED") {
+      return this.envelope({
+        applicationId: application.applicationId,
+        applicationStatus: "CANCELED",
+        canceledAt: application.updatedAt,
+      });
+    }
+    if (
+      !["SUBMITTED", "IN_REVIEW"].includes(application.applicationStatus) ||
+      !["NOT_READY", "READY"].includes(application.interviewStatus)
+    ) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "Application can no longer be canceled.", 409, [
+        { field: "applicationStatus", reason: `current status is ${application.applicationStatus}` },
+        { field: "interviewStatus", reason: `current status is ${application.interviewStatus}` },
+      ]);
+    }
+
+    const canceled = await this.repository.cancelApplication(application.applicationId);
+    if (!canceled) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "Application can no longer be canceled.", 409, [
+        { field: "applicationId", reason: "application state changed before cancellation" },
+      ]);
+    }
+    return this.envelope({
+      applicationId: canceled.applicationId,
+      applicationStatus: "CANCELED",
+      canceledAt: canceled.updatedAt,
+    });
+  }
+
   async getInterviewGuide(
     applicationId: number,
     currentUser: CurrentCandidateUser,
@@ -723,6 +759,7 @@ export class CandidateService {
     }
 
     const application = await this.getOwnedApplication(session.applicationId, currentUser);
+    this.assertApplicationNotCanceled(application);
     this.assertSessionNotExpired(session);
     this.assertInterviewNotCompleted(application, session);
     this.assertDeviceCheckRequest(dto);
@@ -896,6 +933,7 @@ export class CandidateService {
         { field: "applicationId", reason: "application not found" },
       ]);
     }
+    this.assertApplicationNotCanceled(application);
 
     const session = await this.repository.ensureInterviewSessionByApplication(application.applicationId);
     if (!session) {
@@ -935,6 +973,7 @@ export class CandidateService {
     }
 
     const application = await this.getOwnedApplication(session.applicationId, currentUser);
+    this.assertApplicationNotCanceled(application);
     this.assertSessionNotExpired(session);
     return { application, session };
   }
@@ -1044,6 +1083,7 @@ export class CandidateService {
     currentUser: CurrentCandidateUser,
   ): Promise<{ application: Application; session: InterviewSession }> {
     const application = await this.getOwnedApplication(applicationId, currentUser);
+    this.assertApplicationNotCanceled(application);
     const session = await this.repository.findInterviewSessionByApplication(application.applicationId);
     if (!session) {
       throw new CandidateDomainError("COMMON_NOT_FOUND", "Interview session was not found.", 404, [
@@ -1102,6 +1142,14 @@ export class CandidateService {
     if (application.interviewStatus === "COMPLETED" || session.status === "COMPLETED") {
       throw new CandidateDomainError("COMMON_CONFLICT", "Interview has already been completed.", 409, [
         { field: "interviewStatus", reason: "interview already completed" },
+      ]);
+    }
+  }
+
+  private assertApplicationNotCanceled(application: Application): void {
+    if (application.applicationStatus === "CANCELED") {
+      throw new CandidateDomainError("COMMON_CONFLICT", "Canceled application cannot access the interview.", 409, [
+        { field: "applicationStatus", reason: "application has been canceled" },
       ]);
     }
   }
@@ -1213,7 +1261,12 @@ export class CandidateService {
       interviewWindowEndsAt: session?.windowEndsAt ?? null,
       consentCompleted,
       deviceCheckCompleted,
-      canStartInterview: !unavailableReason && consentCompleted && deviceCheckCompleted && session?.status === "READY",
+      canStartInterview:
+        application.applicationStatus !== "CANCELED" &&
+        !unavailableReason &&
+        consentCompleted &&
+        deviceCheckCompleted &&
+        session?.status === "READY",
     };
   }
 

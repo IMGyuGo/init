@@ -31,6 +31,7 @@ type CandidateControllerRoute =
   | "updateFolder"
   | "deleteFolder"
   | "listApplications"
+  | "cancelApplication"
   | "getInterviewGuide"
   | "saveInterviewConsent";
 
@@ -64,6 +65,7 @@ assertRoute("getFolder", candidateApiRoutes.folderDetail, RequestMethod.GET);
 assertRoute("updateFolder", candidateApiRoutes.folderDetail, RequestMethod.PATCH);
 assertRoute("deleteFolder", candidateApiRoutes.folderDetail, RequestMethod.DELETE, 204);
 assertRoute("listApplications", candidateApiRoutes.applications, RequestMethod.GET);
+assertRoute("cancelApplication", candidateApiRoutes.cancelApplication, RequestMethod.PATCH);
 assertRoute("getInterviewGuide", candidateApiRoutes.interviewGuide, RequestMethod.GET);
 assertRoute("saveInterviewConsent", candidateApiRoutes.interviewConsent, RequestMethod.POST);
 

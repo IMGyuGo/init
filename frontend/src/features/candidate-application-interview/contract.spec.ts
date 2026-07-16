@@ -19,6 +19,7 @@ import type {
   UploadResumeRequest,
 } from "./api";
 import { candidateApiPaths } from "./api";
+import { isCandidateApplicationCancelable } from "./application-cancellation";
 import {
   createRealtimeInterviewWebRtcConnection,
   type RealtimePeerConnectionLike,
@@ -1829,6 +1830,15 @@ const recruitingReport: CandidateRecruitingReportView = {
 const applicationInterviewHref = getCandidateApplicationInterviewActionHref(applicationSummary);
 const applicationReportHref = getCandidateApplicationReportHref(applicationSummary);
 const applicationCanStart = isCandidateInterviewStartEnabled(applicationSummary);
+assert.equal(isCandidateApplicationCancelable(applicationSummary), true);
+assert.equal(
+  isCandidateApplicationCancelable({ ...applicationSummary, applicationStatus: "CANCELED" }),
+  false,
+);
+assert.equal(
+  isCandidateApplicationCancelable({ ...applicationSummary, interviewStatus: "IN_PROGRESS" }),
+  false,
+);
 const mockInterviewHref = getMockInterviewHref({ sessionId: 10001 });
 const mockInterviewDeviceCheckHref = getMockInterviewDeviceCheckHref({ sessionId: 10001 });
 const mockReportHref = getMockReportHref(mockReport);
@@ -1865,6 +1875,8 @@ const mockReportFeedbackPath = candidateApiPaths.mockReportFeedback(10001);
 const mockReportMediaPath = candidateApiPaths.mockReportMedia(10001);
 const mockReportGeneratePath = candidateApiPaths.mockReportGenerate(10001);
 const applicationsPath = candidateApiPaths.applications;
+const cancelApplicationPath = candidateApiPaths.cancelApplication(1);
+assert.equal(cancelApplicationPath, "/api/v1/candidate/applications/1/cancel");
 const interviewGuidePath = candidateApiPaths.interviewGuide(1);
 const applicationReportPath = candidateApiPaths.applicationReport(1);
 const applicationReportGeneratePath = candidateApiPaths.applicationReportGenerate(1);
@@ -2049,6 +2061,7 @@ void mockReportFeedbackPath;
 void mockReportMediaPath;
 void mockReportGeneratePath;
 void applicationsPath;
+void cancelApplicationPath;
 void interviewGuidePath;
 void applicationReportPath;
 void applicationReportGeneratePath;

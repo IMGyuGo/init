@@ -1290,6 +1290,23 @@ export class PrismaCandidateRepository implements CandidateRepository {
     return this.toApplication(application);
   }
 
+  async cancelApplication(applicationId: number): Promise<Application | undefined> {
+    const result = await this.prisma.application.updateMany({
+      where: {
+        applicationId: BigInt(applicationId),
+        applicationStatus: { in: [PrismaApplicationStatus.SUBMITTED, PrismaApplicationStatus.IN_REVIEW] },
+        interviewStatus: { in: [PrismaInterviewStatus.NOT_READY, PrismaInterviewStatus.READY] },
+      },
+      data: { applicationStatus: PrismaApplicationStatus.CANCELED },
+    });
+    if (result.count === 0) return undefined;
+
+    const application = await this.prisma.application.findUnique({
+      where: { applicationId: BigInt(applicationId) },
+    });
+    return application ? this.toApplication(application) : undefined;
+  }
+
   async updateApplicationReportStatus(applicationId: number, status: ReportStatus): Promise<Application> {
     const application = await this.prisma.application.update({
       where: { applicationId: BigInt(applicationId) },

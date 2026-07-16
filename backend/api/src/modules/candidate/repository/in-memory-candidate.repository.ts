@@ -358,6 +358,21 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     return application;
   }
 
+  async cancelApplication(applicationId: number): Promise<Application | undefined> {
+    const application = this.applications.find((item) => item.applicationId === applicationId);
+    if (!application) return undefined;
+    if (application.applicationStatus === "CANCELED") return application;
+    if (
+      !["SUBMITTED", "IN_REVIEW"].includes(application.applicationStatus) ||
+      !["NOT_READY", "READY"].includes(application.interviewStatus)
+    ) {
+      return undefined;
+    }
+    application.applicationStatus = "CANCELED";
+    application.updatedAt = new Date().toISOString();
+    return application;
+  }
+
   async updateApplicationReportStatus(applicationId: number, status: Application["reportStatus"]): Promise<Application> {
     const application = await this.requiredApplication(applicationId);
     application.reportStatus = status;
