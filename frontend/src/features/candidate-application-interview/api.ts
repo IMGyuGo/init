@@ -672,6 +672,11 @@ export interface CandidateMockReportMedia {
   media: CandidateMockReportMediaItem[];
 }
 
+export interface CandidateMockReportMediaPlaybackSession {
+  expiresInSeconds: number;
+  mediaBaseUrl: string;
+}
+
 export interface CandidateReportGenerationHandoff {
   accepted: boolean;
   queued: boolean;
@@ -881,6 +886,7 @@ export const candidateApiPaths = {
   mockHistory: "/api/v1/candidate/mock-interviews/history",
   mockReportFeedback: (reportId: number) => `/api/v1/candidate/mock-interview/reports/${reportId}/feedback`,
   mockReportMedia: (reportId: number) => `/api/v1/candidate/mock-interview/reports/${reportId}/media`,
+  mockReportMediaSession: (reportId: number) => `/api/v1/candidate/mock-interview/reports/${reportId}/media/session`,
   mockReportGenerate: (reportId: number) => `/api/v1/candidate/mock-interview/reports/${reportId}/generate`,
   applications: "/api/v1/candidate/applications",
   interviewGuide: (applicationId: number) => `/api/v1/candidate/applications/${applicationId}/interview-guide`,
@@ -985,6 +991,7 @@ export interface CandidateApiClient {
   deleteMockInterview(sessionId: number): Promise<void>;
   getMockReportFeedback(reportId: number): Promise<ApiResponse<CandidateMockReportFeedback>>;
   getMockReportMedia(reportId: number): Promise<ApiResponse<CandidateMockReportMedia>>;
+  createMockReportMediaSession(reportId: number): Promise<ApiResponse<CandidateMockReportMediaPlaybackSession>>;
   requestMockReportGeneration(reportId: number): Promise<ApiResponse<CandidateReportGenerationHandoff>>;
   listApplications(): Promise<ApiListResponse<CandidateApplicationSummary>>;
   getInterviewGuide(applicationId: number): Promise<ApiResponse<CandidateInterviewGuide>>;
@@ -1188,6 +1195,19 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
       request<ApiResponse<CandidateMockReportFeedback>>(candidateApiPaths.mockReportFeedback(reportId)),
     getMockReportMedia: (reportId) =>
       request<ApiResponse<CandidateMockReportMedia>>(candidateApiPaths.mockReportMedia(reportId)),
+    createMockReportMediaSession: async (reportId) => {
+      const response = await request<ApiResponse<CandidateMockReportMediaPlaybackSession>>(
+        candidateApiPaths.mockReportMediaSession(reportId),
+        { method: "POST" },
+      );
+      return {
+        ...response,
+        data: {
+          ...response.data,
+          mediaBaseUrl: toApiResourceUrl(options.baseUrl, response.data.mediaBaseUrl),
+        },
+      };
+    },
     requestMockReportGeneration: (reportId) =>
       request<ApiResponse<CandidateReportGenerationHandoff>>(candidateApiPaths.mockReportGenerate(reportId), {
         method: "POST",
@@ -1439,6 +1459,13 @@ function toUrl(baseUrl: string | undefined, path: string, query?: CandidateJobQu
 
   const suffix = params.toString();
   return suffix ? `${url}?${suffix}` : url;
+}
+
+function toApiResourceUrl(baseUrl: string | undefined, path: string): string {
+  if (/^https?:\/\//i.test(path) || !baseUrl) {
+    return path;
+  }
+  return `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
 }
 
 async function readErrorBody(response: Response): Promise<ApiErrorBody | undefined> {

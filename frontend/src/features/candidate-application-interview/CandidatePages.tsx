@@ -9399,6 +9399,8 @@ function buildMockReportPracticeItems(scores: CandidateReportScoreView[]): strin
 }
 
 function MockMediaView({ media }: { media: CandidateMockReportMedia }) {
+  const hasStoredMedia = media.media.some((item) => item.videoFile || item.audioFile);
+  const playbackSession = useMockReportMediaPlaybackSession(media.reportId, hasStoredMedia);
   if (!media.media.length) return <p className="empty">연결된 답변 파일이 없습니다.</p>;
   const mediaItems = orderReportAnswersByInterviewFlow(media.media);
   const nonverbalSummary = buildMockNonverbalSummary(mediaItems);
@@ -9407,19 +9409,83 @@ function MockMediaView({ media }: { media: CandidateMockReportMedia }) {
       <MockNonverbalSummaryPanel summary={nonverbalSummary} />
       <div className="report-media-list">
         {mediaItems.map((item, index) => (
-          <MockMediaAnswerCard key={item.answerId} item={item} questionNumber={index + 1} />
+          <MockMediaAnswerCard
+            key={item.answerId}
+            item={item}
+            mediaBaseUrl={playbackSession.mediaBaseUrl}
+            mediaError={playbackSession.error}
+            mediaLoading={playbackSession.loading}
+            questionNumber={index + 1}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockReportMedia["media"][number]; questionNumber: number }) {
-  const videoUrl = getCachedRecordingObjectUrl(item.videoFile?.storageKey);
-  const audioUrl = getCachedRecordingObjectUrl(item.audioFile?.storageKey);
+function useMockReportMediaPlaybackSession(reportId: number, enabled: boolean) {
+  const [state, setState] = useState<{ error?: string; loading: boolean; mediaBaseUrl?: string }>({
+    loading: enabled,
+  });
+
+  useEffect(() => {
+    if (!enabled) {
+      setState({ loading: false });
+      return;
+    }
+
+    let disposed = false;
+    setState({ loading: true });
+    getCandidateApi().createMockReportMediaSession(reportId)
+      .then((response) => {
+        if (!disposed) {
+          setState({ loading: false, mediaBaseUrl: response.data.mediaBaseUrl });
+        }
+      })
+      .catch((error) => {
+        if (!disposed) {
+          setState({
+            error: toErrorMessage(error),
+            loading: false,
+          });
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [enabled, reportId]);
+
+  return state;
+}
+
+function MockMediaAnswerCard({
+  item,
+  mediaBaseUrl,
+  mediaError,
+  mediaLoading,
+  questionNumber,
+}: {
+  item: CandidateMockReportMedia["media"][number];
+  mediaBaseUrl?: string;
+  mediaError?: string;
+  mediaLoading: boolean;
+  questionNumber: number;
+}) {
+  const videoUrl = getCachedRecordingObjectUrl(item.videoFile?.storageKey)
+    ?? getMockReportMediaPlaybackUrl(mediaBaseUrl, item.videoFile?.fileId);
+  const audioUrl = getCachedRecordingObjectUrl(item.audioFile?.storageKey)
+    ?? getMockReportMediaPlaybackUrl(mediaBaseUrl, item.audioFile?.fileId);
   const practiceGuide = buildMockAnswerPracticeGuide(item);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playbackTimeMs, setPlaybackTimeMs] = useState(0);
+  const videoPlaceholderMessage = item.videoFile
+    ? mediaLoading
+      ? "저장된 녹화 영상을 불러오는 중입니다."
+      : mediaError || "저장된 녹화 영상을 불러오지 못했습니다."
+    : item.audioFile
+      ? "이 답변은 음성 녹화만 저장되었습니다."
+      : "저장된 녹화 원본이 없습니다.";
 
   const seekVideo = (timeMs: number) => {
     const video = videoRef.current;
@@ -9443,6 +9509,7 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
             <video
               ref={videoRef}
               controls
+              crossOrigin="use-credentials"
               preload="metadata"
               src={videoUrl}
               onTimeUpdate={(event) => setPlaybackTimeMs(event.currentTarget.currentTime * 1000)}
@@ -9452,7 +9519,7 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
           ) : (
             <div className="report-media-placeholder">
               <strong>답변 영상</strong>
-              <span>현재 브라우저 세션에 녹화 원본이 없습니다.</span>
+              <span>{videoPlaceholderMessage}</span>
             </div>
           )}
         </div>
@@ -9471,7 +9538,7 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
             <Definition label="답변 시간" value={`${item.durationSeconds}s`} />
           </dl>
           {audioUrl ? (
-            <audio className="report-audio-player" controls preload="metadata" src={audioUrl}>
+            <audio className="report-audio-player" controls crossOrigin="use-credentials" preload="metadata" src={audioUrl}>
               음성 파일을 재생할 수 없습니다.
             </audio>
           ) : null}
@@ -9486,6 +9553,13 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
       />
     </article>
   );
+}
+
+function getMockReportMediaPlaybackUrl(mediaBaseUrl?: string, fileId?: number): string | undefined {
+  if (!mediaBaseUrl || !fileId) {
+    return undefined;
+  }
+  return `${mediaBaseUrl.replace(/\/+$/, "")}/${encodeURIComponent(String(fileId))}`;
 }
 
 type MockVisualAnalysisTab = "gaze" | "headPose";
