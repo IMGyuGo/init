@@ -11,6 +11,7 @@ export type AiProcessType =
   | "GUARDRAIL_VALIDATE"
   | "CRITERIA_SUGGEST"
   | "QUESTION_GENERATE"
+  | "RESUME_QUESTION_GENERATE"
   | "QUESTION_SET_GENERATE"
   | "POSTING_DRAFT_GENERATE";
 export type AiProcessStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
@@ -41,10 +42,30 @@ export interface InterviewAnswerInput {
   sortOrder?: number;
   isFollowUpAnswer?: boolean;
   parentAnswerId?: number;
+  followUpReason?: "NCS_EVIDENCE_GAP" | "FACT_CLARIFICATION" | "GENERAL_EVIDENCE_GAP";
   transcript?: string;
   nonverbalMetadata?: Record<string, unknown>;
   evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
   transcriptUnavailableReason?: string;
+  sessionQuestionId?: number;
+  criterionId?: number;
+  criterionTitleSnapshot?: string;
+  ncsProfileId?: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
+  ncsQuestionMode?: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
+  ncsProfileVersion?: string;
+  alignmentStatus?: string;
+  alignmentScore?: number;
+  evaluatorVersion?: string;
+  ncsBindings?: Array<{
+    criterionId?: number;
+    criterionTitleSnapshot: string;
+    ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
+    ncsProfileVersion: string;
+    alignmentStatus: string;
+    alignmentScore?: number;
+    evaluatorVersion?: string;
+    bindingOrder: 1 | 2;
+  }>;
 }
 
 export interface ManualEvaluationInput {
@@ -104,6 +125,15 @@ export interface GenerateReportRequest {
   documentText?: string;
   criteria: EvaluationCriterionInput[];
   answers: InterviewAnswerInput[];
+  ncsSessionPolicy?: Array<{
+    ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
+    criterionId?: number;
+    criterionTitleSnapshot: string;
+    weight: number;
+    minimumAverageScore: number;
+    requiredQuestionCount: number;
+    ncsProfileVersion: string;
+  }>;
 }
 
 export interface ReportCommand<TBody> {

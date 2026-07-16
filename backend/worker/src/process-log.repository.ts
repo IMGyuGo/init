@@ -7,11 +7,20 @@ import {
   GuardrailDecision
 } from "./worker.types";
 
+export type AiProcessClaimStatus = "CLAIMED" | "COMPLETED" | "BUSY";
+
+export interface AiProcessClaimResult {
+  status: AiProcessClaimStatus;
+  snapshot: AiProcessLogSnapshot;
+}
+
 export interface AiProcessLogRepository {
   ensurePending(job: AiWorkerJob): Promise<AiProcessLogSnapshot>;
   markRunning(processLogId: number): Promise<AiProcessLogSnapshot>;
-  markCompleted(processLogId: number, outputRef?: string, usage?: AiProcessUsage): Promise<AiProcessLogSnapshot>;
-  markFailed(processLogId: number, failure: FailureReason): Promise<AiProcessLogSnapshot>;
+  claim(job: AiWorkerJob, leaseOwner: string, leaseExpiresAt: Date): Promise<AiProcessClaimResult>;
+  renewClaim(processLogId: number, leaseOwner: string, leaseExpiresAt: Date): Promise<boolean>;
+  markCompleted(processLogId: number, outputRef?: string, usage?: AiProcessUsage, leaseOwner?: string): Promise<AiProcessLogSnapshot>;
+  markFailed(processLogId: number, failure: FailureReason, leaseOwner?: string): Promise<AiProcessLogSnapshot>;
   saveGuardrailLog(processLogId: number, policyName: string, decision: GuardrailDecision): Promise<number>;
 }
 
@@ -49,23 +58,80 @@ export class InMemoryAiProcessLogRepository implements AiProcessLogRepository {
     return this.update(processLogId, { status: "RUNNING", startedAt: new Date().toISOString() });
   }
 
-  async markCompleted(processLogId: number, outputRef?: string, usage?: AiProcessUsage): Promise<AiProcessLogSnapshot> {
+  async claim(job: AiWorkerJob, leaseOwner: string, leaseExpiresAt: Date): Promise<AiProcessClaimResult> {
+    const existing = await this.ensurePending(job);
+    if (existing.status === "COMPLETED") {
+      return { status: "COMPLETED", snapshot: existing };
+    }
+    if (
+      existing.status === "RUNNING" &&
+      existing.leaseExpiresAt &&
+      Date.parse(existing.leaseExpiresAt) > Date.now()
+    ) {
+      return { status: "BUSY", snapshot: existing };
+    }
+
+    const snapshot = this.update(job.processLogId, {
+      status: "RUNNING",
+      leaseOwner,
+      leaseExpiresAt: leaseExpiresAt.toISOString(),
+      startedAt: new Date().toISOString(),
+      completedAt: undefined,
+      durationMs: undefined,
+      failure: undefined,
+    });
+    return { status: "CLAIMED", snapshot };
+  }
+
+  async renewClaim(processLogId: number, leaseOwner: string, leaseExpiresAt: Date): Promise<boolean> {
     const existing = this.get(processLogId);
+    if (existing.status !== "RUNNING" || existing.leaseOwner !== leaseOwner) {
+      return false;
+    }
+    this.processLogs.set(processLogId, {
+      ...existing,
+      leaseExpiresAt: leaseExpiresAt.toISOString(),
+    });
+    return true;
+  }
+
+  async markCompleted(
+    processLogId: number,
+    outputRef?: string,
+    usage?: AiProcessUsage,
+    leaseOwner?: string,
+  ): Promise<AiProcessLogSnapshot> {
+    const existing = this.get(processLogId);
+    if (leaseOwner && existing.leaseOwner !== leaseOwner) {
+      return existing;
+    }
     const completedAt = new Date().toISOString();
     return this.update(processLogId, {
       status: "COMPLETED",
       outputRef,
       failure: undefined,
+      leaseOwner: undefined,
+      leaseExpiresAt: undefined,
       completedAt,
       durationMs: durationMs(existing.startedAt, completedAt),
       ...usage
     });
   }
 
-  async markFailed(processLogId: number, failure: FailureReason): Promise<AiProcessLogSnapshot> {
+  async markFailed(processLogId: number, failure: FailureReason, leaseOwner?: string): Promise<AiProcessLogSnapshot> {
     const existing = this.get(processLogId);
+    if (leaseOwner && existing.leaseOwner !== leaseOwner) {
+      return existing;
+    }
     const completedAt = new Date().toISOString();
-    return this.update(processLogId, { status: "FAILED", failure, completedAt, durationMs: durationMs(existing.startedAt, completedAt) });
+    return this.update(processLogId, {
+      status: "FAILED",
+      failure,
+      leaseOwner: undefined,
+      leaseExpiresAt: undefined,
+      completedAt,
+      durationMs: durationMs(existing.startedAt, completedAt),
+    });
   }
 
   async saveGuardrailLog(processLogId: number, policyName: string, decision: GuardrailDecision): Promise<number> {

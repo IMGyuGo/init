@@ -31,6 +31,7 @@ type CandidateControllerRoute =
   | "updateFolder"
   | "deleteFolder"
   | "listApplications"
+  | "cancelApplication"
   | "unlockDemoApplicationReset"
   | "resetAllDemoApplications"
   | "resetDemoApplication"
@@ -67,6 +68,7 @@ assertRoute("getFolder", candidateApiRoutes.folderDetail, RequestMethod.GET);
 assertRoute("updateFolder", candidateApiRoutes.folderDetail, RequestMethod.PATCH);
 assertRoute("deleteFolder", candidateApiRoutes.folderDetail, RequestMethod.DELETE, 204);
 assertRoute("listApplications", candidateApiRoutes.applications, RequestMethod.GET);
+assertRoute("cancelApplication", candidateApiRoutes.cancelApplication, RequestMethod.PATCH);
 assertRoute("unlockDemoApplicationReset", candidateApiRoutes.demoApplicationResetUnlock, RequestMethod.POST);
 assertRoute("resetAllDemoApplications", candidateApiRoutes.demoApplicationsReset, RequestMethod.DELETE);
 assertRoute("resetDemoApplication", candidateApiRoutes.demoApplicationReset, RequestMethod.DELETE);

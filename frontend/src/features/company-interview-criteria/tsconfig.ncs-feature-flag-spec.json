@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "rootDir": ".",
+    "outDir": "../../../.next/tests/company-interview-ncs-rollout"
+  },
+  "files": ["ncs-feature-flag.ts", "ncs-feature-flag.spec.ts"]
+}

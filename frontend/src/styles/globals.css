@@ -3738,6 +3738,99 @@ td input {
   margin: -8px 0 8px 0;
 }
 
+.framework-select-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-600);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.framework-select-label select {
+  height: 36px;
+  padding: 0 32px 0 10px;
+  color: var(--ink-900);
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+}
+
+.question-policy-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.question-policy-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr)) minmax(180px, 0.8fr);
+  gap: 16px;
+  align-items: end;
+}
+
+.question-policy-fields label,
+.question-policy-status {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.question-policy-fields label > span,
+.question-policy-status > span {
+  color: var(--ink-800);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.question-policy-fields small {
+  min-height: 18px;
+  color: var(--ink-500);
+  font-size: 12px;
+}
+
+.question-policy-fields input {
+  width: 100%;
+  height: 44px;
+  padding: 0 12px;
+  color: var(--ink-900);
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.question-policy-status strong {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--ink-700);
+  font-size: 13px;
+}
+
+.question-allocation-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+
+@media (max-width: 760px) {
+  .question-policy-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .framework-select-label {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .framework-select-label select {
+    min-width: 0;
+    max-width: 190px;
+  }
+}
+
 .criteria-col-select,
 .criteria-cell-select {
   width: 44px;
@@ -10844,6 +10937,84 @@ p {
 .notion .applicant-document-row > div { display: grid; gap: 3px; min-width: 0; }
 .notion .applicant-document-row strong { font-size: 14px; }
 .notion .applicant-document-row span { overflow: hidden; color: rgba(55, 53, 47, 0.58); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 기업 평가 상세: 답변별 NCS 평가 결과 */
+.notion .ncs-evaluation-section {
+  border-top: 1px solid rgba(55, 53, 47, 0.14);
+  border-bottom: 1px solid rgba(55, 53, 47, 0.14);
+}
+.notion .ncs-evaluation-section__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 4px 14px;
+}
+.notion .ncs-evaluation-section__head h3 { margin: 0; font-size: 16px; color: #191919; }
+.notion .ncs-evaluation-section__head p { margin: 5px 0 0; font-size: 13px; line-height: 1.5; color: rgba(55, 53, 47, 0.58); }
+.notion .ncs-evaluation-section__head > strong { flex: none; font-size: 13px; color: #315fc6; }
+.notion .ncs-evaluation-section__list { display: grid; }
+.notion .ncs-evaluation-row {
+  min-width: 0;
+  padding: 18px 4px 20px;
+  border-top: 1px solid rgba(55, 53, 47, 0.1);
+}
+.notion .ncs-evaluation-row__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+}
+.notion .ncs-evaluation-row__head span:first-child { font-size: 12px; font-weight: 600; color: rgba(55, 53, 47, 0.58); }
+.notion .ncs-evaluation-row__head h4 { margin: 5px 0 0; font-size: 15px; line-height: 1.45; color: #191919; overflow-wrap: anywhere; }
+.notion .ncs-evaluation-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.notion .ncs-evaluation-status.is-success { color: #177245; background: #eef8f2; border-color: #cce9d8; }
+.notion .ncs-evaluation-status.is-warning { color: #8a5a12; background: #fff8e8; border-color: #f2dfb7; }
+.notion .ncs-evaluation-status.is-danger { color: #b33a3a; background: #fff1f1; border-color: #f0cccc; }
+.notion .ncs-evaluation-row__question { margin: 14px 0 0; font-size: 14px; line-height: 1.6; color: #37352f; overflow-wrap: anywhere; }
+.notion .ncs-evaluation-row__meta { display: flex; flex-wrap: wrap; gap: 7px 14px; margin-top: 10px; }
+.notion .ncs-evaluation-row__meta span { font-size: 12px; color: rgba(55, 53, 47, 0.58); }
+.notion .ncs-evaluation-scores {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 16px 0 0;
+  border-top: 1px solid rgba(55, 53, 47, 0.12);
+  border-bottom: 1px solid rgba(55, 53, 47, 0.12);
+}
+.notion .ncs-evaluation-scores > div { padding: 12px 14px; border-right: 1px solid rgba(55, 53, 47, 0.12); }
+.notion .ncs-evaluation-scores > div:last-child { border-right: 0; }
+.notion .ncs-evaluation-scores dt { font-size: 12px; color: rgba(55, 53, 47, 0.58); }
+.notion .ncs-evaluation-scores dd { margin: 5px 0 0; font-size: 20px; font-weight: 700; color: #37352f; }
+.notion .ncs-evaluation-scores .is-emphasized dd { color: #315fc6; }
+.notion .ncs-evaluation-evidence,
+.notion .ncs-evaluation-growth { margin-top: 16px; }
+.notion .ncs-evaluation-evidence > strong { font-size: 13px; color: #37352f; }
+.notion .ncs-evaluation-evidence ul { display: grid; gap: 7px; margin: 8px 0 0; padding: 0; list-style: none; }
+.notion .ncs-evaluation-evidence li { padding-left: 12px; border-left: 2px solid #8aacfa; font-size: 13px; line-height: 1.6; color: rgba(55, 53, 47, 0.76); overflow-wrap: anywhere; }
+.notion .ncs-evaluation-growth { display: grid; gap: 7px; }
+.notion .ncs-evaluation-growth p { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; margin: 0; font-size: 13px; line-height: 1.55; color: rgba(55, 53, 47, 0.76); }
+.notion .ncs-evaluation-growth strong { color: #37352f; }
+.notion .ncs-evaluation-message { margin: 16px 0 0; padding: 12px 14px; border-left: 3px solid; font-size: 13px; line-height: 1.55; }
+.notion .ncs-evaluation-message.is-warning { color: #765017; background: #fffbf0; border-color: #d9a441; }
+.notion .ncs-evaluation-message.is-danger { color: #9a3434; background: #fff5f5; border-color: #d45a5a; }
+
+@media (max-width: 720px) {
+  .notion .ncs-evaluation-section__head { display: grid; gap: 10px; }
+  .notion .ncs-evaluation-row__head { grid-template-columns: minmax(0, 1fr); }
+  .notion .ncs-evaluation-status { justify-self: start; }
+  .notion .ncs-evaluation-growth p { grid-template-columns: 1fr; gap: 3px; }
+}
 
 /* 전체 지원자 프로필 스냅샷 편집기 — 지원 모달/지원서 세트 페이지 공용 */
 .candidate-profile-snapshot-editor { display: grid; gap: 14px; width: 100%; }

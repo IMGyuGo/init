@@ -143,6 +143,70 @@ cloud deploy workflow는 production 배포를 `docker-compose`로 수행하지 �
 - AI 처리 실패 시 리포트 생성 실패 상태와 재시도 안내 표시
 - 채용 리포트는 기업 상세에는 전체 노출, 지원자 결과 화면에는 제한 노출
 
+## NQ-M0 NCS Question Contract Gates
+
+NQ-M0는 문서 계약 milestone이다. 아래 항목은 후속 구현 PR의 acceptance test 이름과 기대 결과를 고정한다.
+
+| Area | Scenario | Expected |
+| --- | --- | --- |
+| Criteria | NCS framework로 평가 기준 저장 | 문제해결·의사소통·디지털 profile이 정확히 하나씩 존재하고 criteria version 증가 |
+| Criteria | profile 누락·중복·클라이언트 binding 변조 | `INTERVIEW_NCS_BINDING_INVALID`, 기존 설정 유지 |
+| Policy | JD 3, 이력서 3 저장 | policy version 증가, 두 source 합산 결과가 profile별 균등 allocation |
+| Policy | 합계 0 또는 21, NCS 합계 2 | `INTERVIEW_QUESTION_COUNT_INVALID`, 저장하지 않음 |
+| Common question | JD 질문 생성 요청 | client 원문이 아니라 저장된 posting JD와 criteria snapshot 사용 |
+| Alignment | 지정 profile 정렬 미달 | 같은 mode 최대 2회 재작성 후 허용 fallback만 사용, 미달이면 REVIEW_REQUIRED |
+| Application | 지원 완료 전 이력서 질문 | `WAITING_APPLICATION`, AI job 없음 |
+| Document | 지원 완료 후 추출 대기·실패 | `WAITING_DOCUMENT` 또는 `FAILED`, 빈 질문 확정 금지 |
+| Idempotency | 같은 지원/정책/기준/이력서 이벤트 중복 전달 | batch 하나, READY 질문 중복 없음 |
+| Session | 이력서 질문 수가 1 이상인데 READY 아님 | 세션 생성·면접 시작 409, 공통 질문 자동 대체 금지 |
+| Snapshot | 세션 생성 후 기준·정책 변경 | 기존 `interview_session_questions` 내용·순서·NCS version 불변 |
+| Isolation | 지원자 A/B가 같은 공고에 지원 | A 개인화 질문이 B 조회·세션에 포함되지 않음 |
+| Privacy | SQS/log/API 결과 점검 | 이력서 원문·추출 텍스트 없음, ID/version/hash만 존재 |
+| Legacy | NCS feature 비활성 공고 | 기존 평가 기준과 JD 질문 생성이 nullable binding으로 회귀 없이 동작 |
+
+브라우저 acceptance는 다음을 확인한다.
+
+- NCS 3개 기준의 이름과 profile binding은 고정되고 배점·순서만 편집된다.
+- JD 공통 질문 수와 이력서 개인화 질문 수가 서로 독립적으로 입력·저장된다.
+- 지원자가 없을 때 이력서 질문은 오류가 아니라 `지원 후 생성`으로 표시된다.
+- 기업 지원자 목록은 준비 중·준비 완료·검토 필요·실패를 구분하고 실패/검토 필요에서만 재시도를 제공한다.
+- 지원자 화면은 내부 AI 상태와 이력서 처리 상세를 노출하지 않고 `면접 준비 중`만 표시한다.
+
+## NQ-M6 Release Acceptance
+
+M6는 [`ncs-m6-rollout-runbook.md`](./ncs-m6-rollout-runbook.md)의 순서로 검증한다.
+
+| Area | Scenario | Expected |
+| --- | --- | --- |
+| Feature flag | 미설정, `true`, 대소문자·공백이 있는 `false` | 미설정/`true`는 활성, 정규화된 `false`만 비활성 |
+| Evaluation UI | `SCORED` 점수가 0 | 점수 없음이 아니라 숫자 0 표시 |
+| Evaluation UI | `INSUFFICIENT_INPUT`, `LOW_ALIGNMENT`, `BLOCKED` | 점수 미표시, 상태와 사용자용 사유만 표시 |
+| Evidence | canonical 결과에 중복 exact quote | 중복 제거된 답변 인용만 표시 |
+| Privacy | 미산정 canonical 내부 결과 | 기업 UI에 원문·내부 guardrail output 미노출 |
+| Responsive | 기업 평가 상세 desktop/mobile | 상태 badge, 질문, 점수, 근거가 겹치거나 잘리지 않음 |
+| Rollback | frontend flag를 `false`로 rebuild | 신규 NCS 설정 진입은 숨고 기존 legacy 공고는 정상 동작 |
+
+실제 환경이 필요한 PostgreSQL migration과 OpenAI provider smoke는 로컬 mock 회귀 통과로 대체하지 않는다. 배포 담당자가 runbook의 smoke evidence를 남겨야 운영 완료로 판정한다.
+
+## NR-M6 Runtime Acceptance
+
+NR-M6의 대표 브라우저 경로는 공통 질문 6개와 이력서 개인화 질문 2개를 사용한다. 개인화 질문을 사용하지 않는 공통 질문 6개 경로는 별도 자동 회귀로 유지한다.
+
+| Area | Scenario | Expected |
+| --- | --- | --- |
+| Policy | 공통 6개, 개인화 2개 저장 | 두 source의 기대 개수와 version이 저장되고 가중치 합계가 100 |
+| Personalized readiness | 개인화 질문이 `READY` 전 면접 시작 | `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`, 공통 질문 자동 대체 없음 |
+| Snapshot | 개인화 질문 준비 후 세션 생성 | 공통 6개 다음 개인화 2개, 총 8개와 canonical binding 1~2개 저장 |
+| Recovery | API 재시작 또는 화면 새로고침 | 동일한 질문 순서와 first-unanswered 질문 복원 |
+| Progression | worker 지연 중 기본 답변 제출 | 꼬리질문 판단 중 다음 기본 질문을 먼저 노출하지 않고, 생성 완료 시 인접 꼬리질문 또는 실패·timeout 시 다음 기본 질문으로 전환 |
+| Follow-up | 근거 보완 필요·불필요·실패·timeout | 필요할 때만 같은 mode로 최대 1회, 그 외 기본 진행 유지 |
+| STT | STT 재답변도 실패 | `STT_UNAVAILABLE`, 점수 `NULL`, 진행 허용, 미완료 사유 저장 |
+| Fact check | NCS 보완과 사실 확인이 함께 필요 | 한 꼬리질문으로 결합하고 팩트 판정이 NCS 점수를 직접 감점하지 않음 |
+| Report | 총 8개 기본 질문과 꼬리질문 완료 | 답변 ID, 질문 source, profile 점수 또는 미완료 사유 표시 |
+| Zero-personalized regression | 공통 6개, 개인화 0개 | 개인화 job 없이 6개 snapshot으로 면접과 리포트 완료 |
+
+브라우저 검증은 desktop과 좁은 viewport에서 수행하며 질문, 타이머, 오류, 재답변, 완료 상태가 동시에 겹치지 않는지 확인한다. PostgreSQL과 LocalStack은 M6 worktree 전용 Compose project를 사용하고 공유 개발 DB를 재사용하지 않는다.
+
 ## Harness
 
 초기 구현 전에는 문서/계약/폴더 구조 하네스를 먼저 유지한다.

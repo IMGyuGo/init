@@ -4,6 +4,8 @@ import { AiResultRepository, InMemoryAiResultRepository } from "./ai-result.repo
 import { MockAiTaskHandler } from "./mock-ai-task.handler";
 import { OpenAiAiTaskHandler } from "./openai-ai-task.handler";
 import { OpenAiFollowUpProvider } from "./openai-follow-up.provider";
+import { OpenAiNcsTextEvaluationProvider } from "./openai-ncs-text-evaluation.provider";
+import { OpenAiAnswerFactCheckProvider } from "./openai-answer-fact-check.provider";
 import { OpenAiPostingDraftProvider } from "./openai-posting-draft.provider";
 import { OpenAiQuestionProvider } from "./openai-question.provider";
 import { OpenAiReportProvider } from "./openai-report.provider";
@@ -12,6 +14,7 @@ import { PrismaAiResultRepository } from "./prisma-ai-result.repository";
 import { PrismaAiProcessLogRepository } from "./prisma-process-log.repository";
 import { AiJobQueue } from "./queue";
 import { createDocumentExtractionStartHandler, createReportFailureHandler } from "./report-failure.handler";
+import { S3PdfDocumentTextExtractor } from "./document-text-extractor";
 import { OpenAiS3SttProvider, SttProvider } from "./stt-provider";
 import { WorkerEnv } from "./worker-env";
 import { AiWorkerRunner } from "./worker-runner";
@@ -34,8 +37,23 @@ export interface WorkerRuntime {
 
 export async function createWorkerRuntime(queue: AiJobQueue, env: WorkerEnv): Promise<WorkerRuntime> {
   const repositories = await createRepositories(env);
+  const ncsTextEvaluationProvider = env.aiProviderMode === "openai"
+    ? new OpenAiNcsTextEvaluationProvider(env.aiProviderApiKey, env.openaiModel)
+    : undefined;
+  const answerFactCheckProvider = env.aiProviderMode === "openai"
+    ? new OpenAiAnswerFactCheckProvider(env.aiProviderApiKey, env.openaiModel)
+    : undefined;
   const mockHandler = new MockAiTaskHandler(repositories.results, {
-    sttProvider: createSttProvider(env)
+    documentTextExtractor: new S3PdfDocumentTextExtractor({
+      bucketName: env.s3BucketName,
+      region: env.awsRegion,
+      endpoint: env.awsEndpointUrl,
+    }),
+    sttProvider: createSttProvider(env),
+    ncsTextEvaluationProvider,
+    answerFactCheckProvider,
+    answerFactCheckModelVersion: env.openaiModel,
+    answerFactCheckProviderMode: env.aiProviderMode,
   });
   const handler =
     env.aiProviderMode === "openai"
@@ -45,7 +63,12 @@ export async function createWorkerRuntime(queue: AiJobQueue, env: WorkerEnv): Pr
           new OpenAiFollowUpProvider(env.aiProviderApiKey, env.openaiModel),
           new OpenAiReportProvider(env.aiProviderApiKey, env.openaiModel),
           new OpenAiPostingDraftProvider(env.aiProviderApiKey, env.openaiModel),
-          new OpenAiQuestionProvider(env.aiProviderApiKey, env.openaiModel)
+          new OpenAiQuestionProvider(env.aiProviderApiKey, env.openaiModel),
+          {
+            provider: answerFactCheckProvider,
+            configuredModelVersion: env.openaiModel,
+            providerMode: env.aiProviderMode,
+          },
         )
       : mockHandler;
 
@@ -53,6 +76,8 @@ export async function createWorkerRuntime(queue: AiJobQueue, env: WorkerEnv): Pr
     runner: new AiWorkerRunner(queue, repositories.processLogs, handler, {
       maxMessages: env.workerBatchSize,
       maxRetryableReceives: env.workerMaxRetryableReceives,
+      visibilityTimeoutSeconds: env.workerVisibilityTimeoutSeconds,
+      heartbeatIntervalMs: env.workerHeartbeatIntervalMs,
       onStart: createDocumentExtractionStartHandler(repositories.results),
       onFailure: createReportFailureHandler(repositories.results)
     }),

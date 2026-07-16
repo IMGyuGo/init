@@ -1,10 +1,15 @@
 import {
+  AiQuestionGenerationProcessRecord,
   CriterionTagRecord,
   EvaluationCriterionRecord,
+  EvaluationFramework,
   PostingRecord,
   QuestionRecord,
   QuestionOrigin,
+  QuestionGenerationPolicyRecord,
   QuestionSetRecord,
+  ResumeQuestionApplicationRecord,
+  ResumeQuestionRetryJobRecord,
   QuestionType,
   TimePolicyRecord,
 } from '../company-interview.types';
@@ -20,6 +25,9 @@ export type UpdateCriterionInput = {
   weight: number;
   passScore?: number | null;
   sortOrder: number;
+  ncsProfileId: EvaluationCriterionRecord['ncsProfileId'];
+  ncsQuestionMode: EvaluationCriterionRecord['ncsQuestionMode'];
+  ncsProfileVersion: string | null;
 };
 
 export type CreateCriterionTagInput = {
@@ -36,6 +44,16 @@ export type CreateQuestionInput = {
   questionType: QuestionType;
   content: string;
   origin: QuestionOrigin;
+  generationSource: QuestionRecord['generationSource'];
+  ncsProfileId: QuestionRecord['ncsProfileId'];
+  ncsQuestionMode: QuestionRecord['ncsQuestionMode'];
+  ncsProfileVersion: string | null;
+  alignmentStatus: QuestionRecord['alignmentStatus'];
+  alignmentScore: number | null;
+  alignmentReason: string | null;
+  evaluatorVersion: string | null;
+  sourceProcessLogId: number | null;
+  ncsBindings: QuestionRecord['ncsBindings'];
 };
 
 export type UpdateQuestionInput = {
@@ -43,12 +61,33 @@ export type UpdateQuestionInput = {
   questionType: QuestionType;
   content: string;
   isAiEdited: boolean;
+  generationSource: QuestionRecord['generationSource'];
+  ncsProfileId: QuestionRecord['ncsProfileId'];
+  ncsQuestionMode: QuestionRecord['ncsQuestionMode'];
+  ncsProfileVersion: string | null;
+  alignmentStatus: QuestionRecord['alignmentStatus'];
+  alignmentScore: number | null;
+  alignmentReason: string | null;
+  evaluatorVersion: string | null;
+  ncsBindings: QuestionRecord['ncsBindings'];
 };
 
 export type UpdateTimePolicyInput = {
   preparationTimeSec: number;
   answerTimeSec: number;
   retryAllowed: boolean;
+};
+
+export type UpdateQuestionGenerationPolicyInput = {
+  evaluationFramework: EvaluationFramework;
+  jdCriteriaQuestionCount: number;
+  resumeQuestionCount: number;
+  expectedPolicyVersion?: number;
+};
+
+export type ReplaceCriteriaResult = {
+  criteria: EvaluationCriterionRecord[];
+  policy: QuestionGenerationPolicyRecord;
 };
 
 export type ConfirmQuestionSetInput = {
@@ -73,14 +112,25 @@ export interface CompanyInterviewRepository {
     postingId: number,
     content: string,
   ): Promise<QuestionRecord | undefined>;
+  findQuestionGenerationProcess(
+    processLogId: number,
+  ): Promise<AiQuestionGenerationProcessRecord | undefined>;
   listTags(): Promise<CriterionTagRecord[]>;
   findTag(tagId: number): Promise<CriterionTagRecord | undefined>;
   createTag(input: CreateCriterionTagInput): Promise<CriterionTagRecord>;
   getTimePolicy(postingId: number): Promise<TimePolicyRecord>;
+  getQuestionGenerationPolicy(
+    postingId: number,
+  ): Promise<QuestionGenerationPolicyRecord | undefined>;
   replaceCriteria(
     postingId: number,
+    evaluationFramework: EvaluationFramework,
     criteria: UpdateCriterionInput[],
-  ): Promise<EvaluationCriterionRecord[]>;
+  ): Promise<ReplaceCriteriaResult>;
+  updateQuestionGenerationPolicy(
+    postingId: number,
+    input: UpdateQuestionGenerationPolicyInput,
+  ): Promise<QuestionGenerationPolicyRecord | undefined>;
   createQuestion(input: CreateQuestionInput): Promise<QuestionRecord>;
   updateQuestion(questionId: number, input: UpdateQuestionInput): Promise<QuestionRecord>;
   deactivateQuestion(questionId: number): Promise<QuestionRecord>;
@@ -90,4 +140,11 @@ export interface CompanyInterviewRepository {
   ): Promise<TimePolicyRecord>;
   confirmQuestionSet(input: ConfirmQuestionSetInput): Promise<QuestionSetRecord>;
   findActiveQuestionSet(postingId: number): Promise<QuestionSetRecord | undefined>;
+  findResumeQuestionGeneration(applicationId: number): Promise<ResumeQuestionApplicationRecord | undefined>;
+  listResumeQuestionGenerations(postingId: number): Promise<ResumeQuestionApplicationRecord[]>;
+  createResumeQuestionRetry(input: {
+    state: ResumeQuestionApplicationRecord;
+    reason: string | null;
+  }): Promise<ResumeQuestionRetryJobRecord>;
+  markResumeQuestionRetryQueueFailed(processLogId: number, reason: string): Promise<void>;
 }

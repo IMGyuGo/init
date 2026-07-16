@@ -1,6 +1,20 @@
 import { createHash } from "node:crypto";
+import {
+  FACT_CHECK_INPUT_COMPOSITION_VERSIONS,
+  type FactCheckInputCompositionVersion,
+  FactCheckGateStatus,
+  FactCheckProviderMode,
+  FactCheckProviderStatus,
+  FactCheckVerdict,
+  FactClaimRole,
+  FactClaimType,
+  FactEvidenceSourceKind,
+} from "./answer-fact-check.types";
+import type { NcsTextEvaluationOutput } from "./ncs-text-evaluation.types";
+import type { NcsFinalEvaluation } from "./ncs-final-evaluation";
+import type { NcsApiProfileId } from "./ncs-question-alignment.adapter";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
-import type { FailureCategory } from "./worker.types";
+import type { AiWorkerJob, FailureCategory, FailureReason } from "./worker.types";
 
 export interface DocumentExtractionRecord {
   documentId: number;
@@ -19,6 +33,60 @@ export interface FailedDocumentExtractionRecord {
   fileId?: number;
 }
 
+export interface ResumeQuestionJobReference {
+  processLogId: number;
+  applicationId: number;
+  postingId: number;
+  documentId: number;
+  policyVersion: number;
+  criteriaVersion: number;
+  inputVersion: string;
+  resumeDocumentHash: string;
+  jdSnapshotHash: string;
+}
+
+export interface ResumeQuestionGenerationCriterion {
+  criterionId: number;
+  name: string;
+  category: string;
+  description?: string;
+  questionCount: number;
+  ncsProfileId: NcsApiProfileId;
+  ncsQuestionMode: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
+  ncsProfileVersion: string;
+}
+
+export interface ResumeQuestionGenerationContext extends ResumeQuestionJobReference {
+  batchId: number;
+  questionCount: number;
+  jobDescription: string;
+  resumeText: string;
+  criteria: ResumeQuestionGenerationCriterion[];
+}
+
+export interface PersonalizedQuestionRecord {
+  criterionId: number;
+  criterionTitleSnapshot: string;
+  questionType: "INTRO" | "TECHNICAL" | "EXPERIENCE" | "SITUATION" | "FOLLOW_UP" | "CLOSING";
+  content: string;
+  ncsProfileId: ResumeQuestionGenerationCriterion["ncsProfileId"];
+  ncsQuestionMode: ResumeQuestionGenerationCriterion["ncsQuestionMode"];
+  ncsProfileVersion: string;
+  alignmentStatus: "ALIGNED" | "REVIEW_REQUIRED";
+  alignmentScore: number | null;
+  alignmentReason: string | null;
+  evaluatorVersion: string | null;
+  sortOrder: number;
+}
+
+export interface ResumeQuestionGenerationResult {
+  reference: ResumeQuestionJobReference;
+  status: "READY" | "REVIEW_REQUIRED";
+  evaluatorVersion: string | null;
+  failureReason: string | null;
+  questions: PersonalizedQuestionRecord[];
+}
+
 export interface TranscriptRecord {
   answerId: number;
   audioFileId: number;
@@ -29,13 +97,20 @@ export interface TranscriptRecord {
 export interface FollowUpQuestionRecord {
   sessionId: number;
   answerId: number;
-  content: string;
+  required: boolean;
+  content?: string;
   policy: "MOCK" | "RECRUITING";
+  reason?: "NCS_EVIDENCE_GAP" | "FACT_CLARIFICATION" | "GENERAL_EVIDENCE_GAP";
+  questionMode?: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
+  answerTimeSec?: number;
 }
 
 export interface GeneratedDraftRecord {
   kind: string;
   sourceProcessLogId: number;
+  providerMode?: "mock" | "openai";
+  providerSource?: string;
+  model?: string;
   items: string[];
   postingDraft?: {
     title: string;
@@ -60,6 +135,14 @@ export interface GeneratedDraftRecord {
     expectedKeywords: string[];
     suggestionReason: string;
     questionType?: string;
+    source?: "JD_CRITERIA";
+    ncsProfileId?: NcsApiProfileId | null;
+    ncsQuestionMode?: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN" | null;
+    ncsProfileVersion?: string | null;
+    alignmentStatus?: "NOT_EVALUATED" | "ALIGNED" | "LOW_ALIGNMENT" | "REVIEW_REQUIRED";
+    alignmentScore?: number | null;
+    alignmentReason?: string | null;
+    evaluatorVersion?: string | null;
   }>;
   questionSetPreview?: Array<{
     criterionId?: number;
@@ -113,10 +196,71 @@ export interface GeneratedQuestionEvaluationRecord {
   evidences: GeneratedReportEvidenceRecord[];
 }
 
+export interface NcsAnswerEvaluationRecord {
+  reportId: number;
+  answerId: number;
+  sessionQuestionId: number;
+  criterionId: number;
+  criterionTitleSnapshot: string;
+  ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
+  ncsQuestionMode: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
+  ncsProfileVersion: string;
+  output: NcsTextEvaluationOutput;
+  question: string;
+  behaviorPoints: number | null;
+  logicPoints: number | null;
+  baseScore: number | null;
+  effectiveScore: number | null;
+  followUpApplied: boolean;
+  evidences: Array<{
+    sourceAnswerId: number;
+    sourceKind: "BASE" | "FOLLOW_UP";
+    quote: string;
+  }>;
+}
+
+export interface AnswerFactCheckEvidenceRecord {
+  evidenceLedgerId: string;
+  sourceSnapshotId: string;
+  sourceKind: FactEvidenceSourceKind;
+  sourceStartOffset: number;
+  sourceEndOffset: number;
+}
+
+export interface AnswerFactCheckClaimRecord {
+  claimText: string;
+  answerStartOffset: number;
+  answerEndOffset: number;
+  claimType: FactClaimType;
+  claimRole: FactClaimRole;
+  verdict: FactCheckVerdict;
+  confidence: number;
+  rationale: string;
+  evidences: AnswerFactCheckEvidenceRecord[];
+}
+
+export interface AnswerFactCheckRunRecord {
+  reportId: number;
+  answerId: number;
+  followUpAnswerId?: number;
+  inputCompositionVersion: FactCheckInputCompositionVersion;
+  providerStatus: FactCheckProviderStatus;
+  gateStatus: FactCheckGateStatus | null;
+  providerMode: FactCheckProviderMode;
+  modelVersion: string;
+  promptVersion: string;
+  knowledgeSnapshotVersion: string;
+  policyVersion: string;
+  failureReason: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  claims: AnswerFactCheckClaimRecord[];
+}
+
 export type ReportAnswerEvaluationStatusRecord = "EVALUATED" | "STT_UNAVAILABLE";
 
-export const STT_UNAVAILABLE_TEMP_ZERO_REASON =
-  "STT transcript is unavailable; this answer is temporarily scored as 0 because speech recognition failed, not because of answer quality.";
+export const DEFAULT_STT_UNAVAILABLE_REASON =
+  "STT transcript is unavailable because speech recognition failed.";
 
 export interface GeneratedReportRecord {
   reportId: number;
@@ -124,9 +268,12 @@ export interface GeneratedReportRecord {
   applicationId?: number;
   sessionId?: number;
   summary: string;
-  totalScore: number;
+  totalScore: number | null;
   scores: GeneratedReportScoreRecord[];
   questionEvaluations: GeneratedQuestionEvaluationRecord[];
+  ncsAnswerEvaluations?: NcsAnswerEvaluationRecord[];
+  answerFactChecks?: AnswerFactCheckRunRecord[];
+  ncsFinalEvaluation?: NcsFinalEvaluation;
 }
 
 export interface CommunicationAnalysisRecord {
@@ -145,6 +292,8 @@ export interface CommunicationAnalysisRecord {
 export interface ReportScoresRecord {
   reportId: number;
   scores: GeneratedReportScoreRecord[];
+  ncsAnswerEvaluations?: NcsAnswerEvaluationRecord[];
+  answerFactChecks?: AnswerFactCheckRunRecord[];
 }
 
 export interface FailedReportRecord {
@@ -166,12 +315,16 @@ export interface EmbeddingRecord {
 
 export interface AiResultRepository {
   markDocumentExtractionStarted(record: DocumentExtractionStatusRecord): Promise<void>;
-  saveDocumentExtraction(record: DocumentExtractionRecord): Promise<void>;
+  saveDocumentExtraction(record: DocumentExtractionRecord): Promise<AiWorkerJob[]>;
   markDocumentExtractionFailed(record: FailedDocumentExtractionRecord): Promise<void>;
+  loadResumeQuestionGenerationContext(reference: ResumeQuestionJobReference): Promise<ResumeQuestionGenerationContext>;
+  saveResumeQuestionGeneration(record: ResumeQuestionGenerationResult): Promise<void>;
+  markResumeQuestionGenerationFailed(reference: ResumeQuestionJobReference, failure: FailureReason): Promise<void>;
   saveTranscript(record: TranscriptRecord): Promise<void>;
   saveFollowUpQuestion(record: FollowUpQuestionRecord): Promise<void>;
   saveGeneratedDraft(record: GeneratedDraftRecord): Promise<void>;
   saveReportScoresAndEvidences(record: ReportScoresRecord): Promise<void>;
+  saveAnswerFactChecks(reportId: number, records: AnswerFactCheckRunRecord[]): Promise<void>;
   saveCommunicationAnalysis(record: CommunicationAnalysisRecord): Promise<void>;
   saveGeneratedReport(record: GeneratedReportRecord): Promise<void>;
   markReportFailed(record: FailedReportRecord): Promise<void>;
@@ -253,10 +406,15 @@ export class InMemoryAiResultRepository implements AiResultRepository {
   readonly followUpQuestions: FollowUpQuestionRecord[] = [];
   readonly generatedDrafts: GeneratedDraftRecord[] = [];
   readonly reportScores = new Map<number, GeneratedReportScoreRecord[]>();
+  readonly ncsAnswerEvaluations = new Map<number, NcsAnswerEvaluationRecord[]>();
+  readonly answerFactChecks = new Map<number, AnswerFactCheckRunRecord[]>();
   readonly communicationAnalyses = new Map<number, CommunicationAnalysisRecord>();
   readonly generatedReports = new Map<number, GeneratedReportRecord>();
   readonly failedReports = new Map<number, FailedReportRecord>();
   readonly embeddings = new Map<string, EmbeddingRecord>();
+  readonly resumeQuestionContexts = new Map<string, ResumeQuestionGenerationContext>();
+  readonly resumeQuestionResults = new Map<number, ResumeQuestionGenerationResult>();
+  readonly failedResumeQuestions = new Map<number, FailureReason>();
 
   private readonly documentExtractionsById = new Map<number, DocumentExtractionRecord>();
   private readonly transcriptsByAnswerId = new Map<number, TranscriptRecord>();
@@ -271,15 +429,37 @@ export class InMemoryAiResultRepository implements AiResultRepository {
     this.documentParseStatusEvents.push({ documentId: record.documentId, fileId: record.fileId, status: "EXTRACTING" });
   }
 
-  async saveDocumentExtraction(record: DocumentExtractionRecord): Promise<void> {
+  async saveDocumentExtraction(record: DocumentExtractionRecord): Promise<AiWorkerJob[]> {
     if (this.documentExtractionsById.has(record.documentId)) {
-      return;
+      return [];
     }
 
     this.documentExtractionsById.set(record.documentId, record);
     this.documentExtractions.push(record);
     this.documentParseStatuses.set(record.documentId, "EXTRACTED");
     this.documentParseStatusEvents.push({ documentId: record.documentId, fileId: record.fileId, status: "EXTRACTED" });
+    return [];
+  }
+
+  setResumeQuestionGenerationContext(context: ResumeQuestionGenerationContext): void {
+    this.resumeQuestionContexts.set(context.inputVersion, context);
+  }
+
+  async loadResumeQuestionGenerationContext(reference: ResumeQuestionJobReference): Promise<ResumeQuestionGenerationContext> {
+    const context = this.resumeQuestionContexts.get(reference.inputVersion);
+    if (!context || context.processLogId !== reference.processLogId || context.applicationId !== reference.applicationId) {
+      throw new NonRetryableAiWorkerFailure("resume question generation context was not found");
+    }
+    return context;
+  }
+
+  async saveResumeQuestionGeneration(record: ResumeQuestionGenerationResult): Promise<void> {
+    this.resumeQuestionResults.set(record.reference.applicationId, record);
+    this.failedResumeQuestions.delete(record.reference.applicationId);
+  }
+
+  async markResumeQuestionGenerationFailed(reference: ResumeQuestionJobReference, failure: FailureReason): Promise<void> {
+    this.failedResumeQuestions.set(reference.applicationId, failure);
   }
 
   async markDocumentExtractionFailed(record: FailedDocumentExtractionRecord): Promise<void> {
@@ -317,6 +497,17 @@ export class InMemoryAiResultRepository implements AiResultRepository {
   async saveReportScoresAndEvidences(record: ReportScoresRecord): Promise<void> {
     assertScoresHaveEvidence(record.scores);
     this.reportScores.set(record.reportId, record.scores);
+    if (record.ncsAnswerEvaluations) {
+      this.ncsAnswerEvaluations.set(record.reportId, record.ncsAnswerEvaluations);
+    }
+    if (record.answerFactChecks) {
+      await this.saveAnswerFactChecks(record.reportId, record.answerFactChecks);
+    }
+  }
+
+  async saveAnswerFactChecks(reportId: number, records: AnswerFactCheckRunRecord[]): Promise<void> {
+    assertAnswerFactCheckRecords(reportId, records);
+    this.answerFactChecks.set(reportId, structuredClone(records));
   }
 
   async saveCommunicationAnalysis(record: CommunicationAnalysisRecord): Promise<void> {
@@ -325,8 +516,15 @@ export class InMemoryAiResultRepository implements AiResultRepository {
 
   async saveGeneratedReport(record: GeneratedReportRecord): Promise<void> {
     assertScoresHaveEvidence(record.scores);
-    assertQuestionEvaluationsHaveEvidence(record.questionEvaluations);
-    await this.saveReportScoresAndEvidences({ reportId: record.reportId, scores: record.scores });
+    if (record.questionEvaluations.length > 0) {
+      assertQuestionEvaluationsHaveEvidence(record.questionEvaluations);
+    }
+    await this.saveReportScoresAndEvidences({
+      reportId: record.reportId,
+      scores: record.scores,
+      ncsAnswerEvaluations: record.ncsAnswerEvaluations,
+      answerFactChecks: record.answerFactChecks,
+    });
     this.generatedReports.set(record.reportId, record);
     this.failedReports.delete(record.reportId);
   }
@@ -357,4 +555,62 @@ export class InMemoryAiResultRepository implements AiResultRepository {
 
 export function hashSourceText(sourceText: string): string {
   return createHash("sha256").update(sourceText).digest("hex");
+}
+
+export function assertAnswerFactCheckRecords(reportId: number, records: AnswerFactCheckRunRecord[]): void {
+  if (records.some((record) => record.reportId !== reportId)) {
+    throw new NonRetryableAiWorkerFailure("fact-check reportId mismatch");
+  }
+  const keys = new Set<string>();
+  for (const record of records) {
+    const key = `${record.answerId}:${record.policyVersion}`;
+    if (keys.has(key)) {
+      throw new NonRetryableAiWorkerFailure("duplicate fact-check answer policy record");
+    }
+    keys.add(key);
+    const completed = record.providerStatus === "COMPLETED";
+    const combined = record.inputCompositionVersion === "BASE_FOLLOW_UP_V1";
+    if (
+      !Number.isSafeInteger(record.answerId) || record.answerId <= 0 ||
+      !(FACT_CHECK_INPUT_COMPOSITION_VERSIONS as readonly string[]).includes(record.inputCompositionVersion) ||
+      (combined && (!Number.isSafeInteger(record.followUpAnswerId) || record.followUpAnswerId! <= 0 || record.followUpAnswerId === record.answerId)) ||
+      (!combined && record.followUpAnswerId !== undefined) ||
+      !record.modelVersion.trim() || !record.promptVersion.trim() ||
+      !record.knowledgeSnapshotVersion.trim() || !record.policyVersion.trim() ||
+      !validIsoDate(record.startedAt) || (record.completedAt !== null && !validIsoDate(record.completedAt)) ||
+      (completed && (record.gateStatus === null || record.failureReason !== null)) ||
+      (!completed && (record.gateStatus !== null || !record.failureReason?.trim() || record.claims.length > 0))
+    ) {
+      throw new NonRetryableAiWorkerFailure(`invalid fact-check run for answer ${record.answerId}`);
+    }
+    record.claims.forEach((claim, claimIndex) => {
+      if (
+        !claim.claimText || !claim.rationale.trim() ||
+        !Number.isSafeInteger(claim.answerStartOffset) || !Number.isSafeInteger(claim.answerEndOffset) ||
+        claim.answerStartOffset < 0 || claim.answerEndOffset <= claim.answerStartOffset ||
+        !Number.isFinite(claim.confidence) || claim.confidence < 0 || claim.confidence > 1
+      ) {
+        throw new NonRetryableAiWorkerFailure(`invalid fact-check claim ${claimIndex + 1} for answer ${record.answerId}`);
+      }
+      const evidenceIds = new Set<string>();
+      for (const evidence of claim.evidences) {
+        if (
+          !evidence.evidenceLedgerId.trim() || !evidence.sourceSnapshotId.trim() ||
+          evidenceIds.has(evidence.evidenceLedgerId) ||
+          !Number.isSafeInteger(evidence.sourceStartOffset) || !Number.isSafeInteger(evidence.sourceEndOffset) ||
+          evidence.sourceStartOffset < 0 || evidence.sourceEndOffset <= evidence.sourceStartOffset
+        ) {
+          throw new NonRetryableAiWorkerFailure(`invalid fact-check evidence for answer ${record.answerId}`);
+        }
+        evidenceIds.add(evidence.evidenceLedgerId);
+      }
+      if ((claim.verdict === "SUPPORTED" || claim.verdict === "CONTRADICTED") && claim.evidences.length === 0) {
+        throw new NonRetryableAiWorkerFailure(`${claim.verdict} fact-check claim requires evidence`);
+      }
+    });
+  }
+}
+
+function validIsoDate(value: string): boolean {
+  return value.trim().length > 0 && Number.isFinite(Date.parse(value));
 }

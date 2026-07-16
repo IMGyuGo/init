@@ -28,6 +28,18 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | `consent_type` | `ConsentType` |
 | `question_type` | `QuestionType` |
 | `question_origin` | `QuestionOrigin` |
+| `evaluation_framework` | `EvaluationFramework` |
+| `ncs_profile_id` | `NcsProfileId` |
+| `ncs_question_mode` | `NcsQuestionMode` |
+| `ncs_threshold_result` | `NcsThresholdResult` |
+| `ncs_ai_decision` | `NcsAiDecision` |
+| `question_generation_source` | `QuestionGenerationSource` |
+| `question_alignment_status` | `QuestionAlignmentStatus` |
+| `ncs_answer_score_status` | `NcsAnswerScoreStatus` |
+| `resume_question_generation_status` | `ResumeQuestionGenerationStatus` |
+| `follow_up_generation_status` | `FollowUpGenerationStatus` |
+| `follow_up_reason` | `FollowUpReason` |
+| `follow_up_skip_reason` | `FollowUpSkipReason` |
 | `notification_channel` | `NotificationChannel` |
 | `ai_process_type` | `AiProcessType` |
 | `ai_process_status` | `AiProcessStatus` |
@@ -80,6 +92,7 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | `interview_status` | D | `NOT_READY -> READY -> IN_PROGRESS -> COMPLETED`, `READY -> FAILED`, `IN_PROGRESS -> FAILED` |
 | `report_status` | E | `PENDING -> GENERATING -> COMPLETED`, `PENDING -> FAILED`, `GENERATING -> FAILED`, `FAILED -> GENERATING` |
 | `ai_process_status` | E | `PENDING -> RUNNING -> COMPLETED`, `PENDING -> FAILED`, `RUNNING -> FAILED`, `FAILED -> PENDING` for explicit retry only |
+| `resume_question_generation_status` | C/D/E | `WAITING_APPLICATION -> WAITING_DOCUMENT -> GENERATING -> READY`, `WAITING_DOCUMENT -> FAILED`, `GENERATING -> REVIEW_REQUIRED`, `GENERATING -> FAILED`, `READY -> STALE`, `REVIEW_REQUIRED -> STALE`, `STALE -> GENERATING`, `REVIEW_REQUIRED -> GENERATING`, `FAILED -> GENERATING` for explicit retry only |
 | `screening_decision` | B | `UNDECIDED -> PASS`, `UNDECIDED -> HOLD`, `UNDECIDED -> FAIL`, `HOLD -> PASS`, `HOLD -> FAIL` |
 
 상태를 되돌리는 rollback 전이는 기본 금지다. 운영자가 명시적으로 재처리하는 retry는 audit log 또는 `ai_process_logs`에 사유를 남긴다.
@@ -104,12 +117,53 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | consent_type | PRIVACY_COLLECTION, AI_DOCUMENT_ANALYSIS, AI_INTERVIEW_RECORDING | 필수 동의 유형 |
 | question_type | INTRO, TECHNICAL, EXPERIENCE, SITUATION, FOLLOW_UP, CLOSING | 면접 질문 유형 |
 | question_origin | MANUAL, AI_GENERATED | 질문 최초 작성 출처 |
+| evaluation_framework | LEGACY, NCS_3_PROFILE_V1 | 공고 면접 평가 체계. `NCS_3_PROFILE_V1`은 초기 NCS 3개 프로필 고정 구성을 뜻함 |
+| ncs_profile_id | JOB_TECHNICAL, COLLABORATION_COMMUNICATION, PROBLEM_SOLVING | 최종 채용 평가 NCS 프로필 식별자. migration 기간에는 `DIGITAL -> JOB_TECHNICAL`, `COMMUNICATION -> COLLABORATION_COMMUNICATION` compatibility read만 허용한다. E evaluator adapter는 각각 `digital`, `communication`, `problem-solving`로 매핑 |
+| ncs_question_mode | EXPERIENCE_BEHAVIOR, TECHNICAL_KNOWLEDGE, SITUATIONAL_DESIGN | 답변에서 수집할 NCS 근거 유형. 기존 `question_type`과 별도 관리 |
+| ncs_threshold_result | MEETS_THRESHOLD, BELOW_THRESHOLD, INCOMPLETE | deterministic NCS 기준 충족 결과. `INCOMPLETE`는 점수 NULL을 유지한다. |
+| ncs_ai_decision | PASS, FAIL | NCS AI 추천 판정. 발표용 `NCS_INCOMPLETE_AS_FAIL_DEMO_V1`에서는 `INCOMPLETE`를 FAIL로 표시하지만 실제 screening decision을 자동 변경하지 않는다. |
+| question_generation_source | JD_CRITERIA, RESUME_PERSONALIZED | JD 공통 질문과 지원자별 이력서 질문의 생성 출처 |
+| question_alignment_status | NOT_EVALUATED, ALIGNED, LOW_ALIGNMENT, REVIEW_REQUIRED | 질문과 선택 NCS 프로필의 정렬 검증 상태 |
+| ncs_answer_score_status | SCORED, INSUFFICIENT_INPUT, LOW_ALIGNMENT, BLOCKED | 답변별 NCS 평가 상태. `SCORED`만 점수를 가지며 나머지 상태는 competency/evidence/total score가 모두 NULL |
+| interview_answer_stt_status | NOT_SUBMITTED, PENDING, AVAILABLE, REANSWER_AVAILABLE, UNAVAILABLE, PROCESSING_FAILED | 질문 조회 API의 답변별 STT read model. DB enum이 아니며 `interview_answers`와 `ai_process_logs`에서 계산한다. |
+| resume_question_generation_status | DISABLED, WAITING_APPLICATION, WAITING_DOCUMENT, GENERATING, READY, REVIEW_REQUIRED, FAILED | 공고/지원서 관점의 이력서 개인화 질문 준비 상태. `DISABLED`, `WAITING_APPLICATION`은 설정 조회 projection 값 |
+| follow_up_generation_status | READY, INSERTED, SKIPPED | guardrail 통과 결과의 저장 상태. `READY`는 같은 transaction에서 즉시 `INSERTED` 또는 `SKIPPED`로 전이하며 정상 종료 후 장기 잔류하지 않는다. |
+| follow_up_reason | NCS_EVIDENCE_GAP, FACT_CLARIFICATION, GENERAL_EVIDENCE_GAP | NCS 행동·논리 근거, 팩트 확인 또는 모의면접 일반 근거를 보완하는 꼬리질문 사유. NCS와 팩트 보완이 동시에 필요하면 질문은 하나만 만들고 `FACT_CLARIFICATION`을 정본 사유로 저장한다. |
+| follow_up_skip_reason | NOT_REQUIRED, SESSION_NOT_IN_PROGRESS | base 평가상 불필요하거나 결과 저장 시 세션이 진행 중이 아니어서 질문을 추가하지 않은 사유 |
 | notification_channel | EMAIL, IN_APP | 알림 채널 |
-| ai_process_type | DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING, GUARDRAIL_VALIDATE, CRITERIA_SUGGEST, QUESTION_GENERATE, QUESTION_SET_GENERATE, POSTING_DRAFT_GENERATE | AI 처리 유형 |
+| ai_process_type | DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING, GUARDRAIL_VALIDATE, CRITERIA_SUGGEST, QUESTION_GENERATE, RESUME_QUESTION_GENERATE, QUESTION_SET_GENERATE, POSTING_DRAFT_GENERATE | AI 처리 유형 |
 | ai_process_status | PENDING, RUNNING, COMPLETED, FAILED | AI 처리 상태 |
-| failure_category | RETRYABLE, NON_RETRYABLE | AI 실패 재시도 가능 여부 |
+| failure_category | RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED | AI 실패 재시도 가능 여부. `STT_RETRYABLE`은 worker 자동 재시도, `REANSWER_REQUIRED`는 지원자 재답변이 필요한 인식 실패다. |
 | guardrail_result | PASS, BLOCKED, REGENERATED | AI 안전 검증 결과 |
 | embedding_source_type | POSTING_JD, CRITERION_TAG, QUESTION, APPLICATION_DOCUMENT, INTERVIEW_ANSWER, EVALUATION_REPORT | 임베딩 원천 유형 |
+## NCS Question Mapping
+
+`NcsQuestionMode`는 평가 근거 구조이고 `QuestionType`은 질문 뱅크/런타임 분류다. 두 enum을 같은 이름으로 합치지 않는다.
+
+| NcsProfileId | Default NcsQuestionMode | QuestionType | Allowed Fallback |
+| --- | --- | --- | --- |
+| `PROBLEM_SOLVING` | `EXPERIENCE_BEHAVIOR` | `EXPERIENCE` | `SITUATIONAL_DESIGN` -> `SITUATION` |
+| `COLLABORATION_COMMUNICATION` | `EXPERIENCE_BEHAVIOR` | `EXPERIENCE` | 없음 |
+| `JOB_TECHNICAL` | `TECHNICAL_KNOWLEDGE` | `TECHNICAL` | 실제 수행 경험이면 `EXPERIENCE_BEHAVIOR` -> `EXPERIENCE` |
+
+정렬점수 통과를 목적으로 질문 유형만 임의 변경하지 않는다. 동일 profile/mode로 최대 2회 질문을 재작성한 뒤 위 표의 fallback만 허용한다.
+
+### NCS Answer Fact Check
+
+| Enum | Values |
+| --- | --- |
+| `FactCheckVerdict` | `SUPPORTED`, `CONTRADICTED`, `AMBIGUOUS`, `UNVERIFIABLE`, `NOT_CHECKABLE` |
+| `FactCheckProviderStatus` | `COMPLETED`, `FAILED`, `TIMEOUT`, `INVALID_OUTPUT` |
+| `FactCheckGateStatus` | `PASS_THROUGH`, `CLARIFICATION_CANDIDATE`, `FACT_CHECK_REQUIRED` |
+| `FactClaimType` | `TECHNICAL_FACT`, `PERSONAL_EXPERIENCE`, `OPINION`, `OTHER` |
+| `FactClaimRole` | `ANSWER_CORE`, `SUPPORTING` |
+| `FactEvidenceSourceKind` | `ANSWER_SNAPSHOT`, `RESUME_SNAPSHOT`, `JD_SNAPSHOT`, `KNOWLEDGE_SNAPSHOT` |
+
+- provider 실행 실패 상태는 claim 판정과 구분한다. `FAILED`, `TIMEOUT`, `INVALID_OUTPUT`을 `UNVERIFIABLE`로 변환하지 않는다.
+- gate precedence와 임계치는 [`ncs-answer-fact-check.md`](./ncs-answer-fact-check.md)의 versioned deterministic policy를 따른다.
+
+## Candidate Profile Enums
+
 | candidate_education_level | HIGH_SCHOOL, COLLEGE, UNIVERSITY, GRADUATE_SCHOOL, OTHER | 학력 구분 |
 | candidate_degree_type | HIGH_SCHOOL_DIPLOMA, ASSOCIATE, BACHELOR, MASTER, DOCTORATE, OTHER | 학위 또는 대학 구분 |
 | candidate_education_status | ENROLLED, LEAVE_OF_ABSENCE, GRADUATED, EXPECTED_GRADUATION, COMPLETED, WITHDRAWN | 재학·졸업 상태 |

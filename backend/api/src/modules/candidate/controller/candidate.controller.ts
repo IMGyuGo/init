@@ -205,6 +205,14 @@ export class CandidateController {
     });
   }
 
+  @Patch(candidateApiRoutes.cancelApplication)
+  cancelApplication(@Req() request: CandidateRequest, @Param("applicationId") applicationId: string) {
+    return this.handle(() => {
+      const currentUser = resolveCurrentCandidate(request.currentUser);
+      return this.candidateService.cancelApplication(Number(applicationId), currentUser);
+    });
+  }
+
   @Post(candidateApiRoutes.demoApplicationResetUnlock)
   unlockDemoApplicationReset(@Req() request: CandidateRequest, @Body() dto: UnlockDemoApplicationResetDto) {
     return this.handle(async () => {

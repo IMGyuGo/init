@@ -14,6 +14,7 @@ import {
   type ConsentRecord,
   type FileAsset,
   type InterviewSession,
+  type InterviewQuestionSnapshotResult,
   type PortfolioLink,
 } from "../candidate.types";
 
@@ -312,6 +313,29 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     return session;
   }
 
+  async prepareInterviewSessionQuestionSnapshot(
+    applicationId: number,
+  ): Promise<InterviewQuestionSnapshotResult | undefined> {
+    const application = await this.findApplication(applicationId);
+    if (!application) return undefined;
+    const session = await this.ensureInterviewSessionByApplication(applicationId);
+    if (!session) return undefined;
+    return {
+      readiness: "READY",
+      applicationId,
+      postingId: application.postingId,
+      sessionId: session.sessionId,
+      snapshotCreated: false,
+      commonQuestionCount: 0,
+      personalizedQuestionCount: 0,
+      totalQuestionCount: 0,
+      expectedCommonQuestionCount: 0,
+      expectedPersonalizedQuestionCount: 0,
+      policyVersion: 0,
+      criteriaVersion: 0,
+    };
+  }
+
   async saveDeviceCheck(
     sessionId: number,
     deviceCheck: { cameraGranted: boolean; microphoneGranted: boolean; networkStable: boolean },
@@ -330,6 +354,21 @@ export class InMemoryCandidateRepository implements CandidateRepository {
   async updateApplicationInterviewStatus(applicationId: number, status: InterviewSession["status"]): Promise<Application> {
     const application = await this.requiredApplication(applicationId);
     application.interviewStatus = status;
+    application.updatedAt = new Date().toISOString();
+    return application;
+  }
+
+  async cancelApplication(applicationId: number): Promise<Application | undefined> {
+    const application = this.applications.find((item) => item.applicationId === applicationId);
+    if (!application) return undefined;
+    if (application.applicationStatus === "CANCELED") return application;
+    if (
+      !["SUBMITTED", "IN_REVIEW"].includes(application.applicationStatus) ||
+      !["NOT_READY", "READY"].includes(application.interviewStatus)
+    ) {
+      return undefined;
+    }
+    application.applicationStatus = "CANCELED";
     application.updatedAt = new Date().toISOString();
     return application;
   }

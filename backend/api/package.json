@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node dist/src/main.js",
     "dev": "nest start --watch",
-    "start:dev": "tsx src/main.ts",
+    "start:dev": "npm run dev",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "jest --runInBand",

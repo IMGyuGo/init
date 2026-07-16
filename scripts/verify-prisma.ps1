@@ -7,6 +7,7 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $schema = Join-Path $root "backend/api/prisma/schema.prisma"
 $apiDir = Join-Path $root "backend/api"
+$temporaryPrismaRoot = $null
 
 if (-not (Test-Path -LiteralPath $schema)) {
   Write-Host "[skip] backend/api/prisma/schema.prisma not found"
@@ -62,7 +63,25 @@ try {
     throw "prisma validate failed"
   }
 
-  & $prisma generate
+  $temporaryPrismaRoot = Join-Path $apiDir (".prisma-verify-" + [Guid]::NewGuid().ToString("N"))
+  New-Item -ItemType Directory -Path $temporaryPrismaRoot | Out-Null
+  $temporarySchema = Join-Path $temporaryPrismaRoot "schema.prisma"
+  $schemaText = Get-Content -Encoding UTF8 -Raw -LiteralPath $schema
+  $isolatedGenerator = @"
+generator client {
+  provider = "prisma-client-js"
+  output   = "./generated-client"
+}
+"@
+  $schemaText = [regex]::Replace(
+    $schemaText,
+    'generator client \{\s*provider\s*=\s*"prisma-client-js"\s*\}',
+    $isolatedGenerator,
+    1
+  )
+  [System.IO.File]::WriteAllText($temporarySchema, $schemaText, [System.Text.UTF8Encoding]::new($false))
+
+  & $prisma generate --schema $temporarySchema
   if ($LASTEXITCODE -ne 0) {
     throw "prisma generate failed"
   }
@@ -71,6 +90,14 @@ try {
     exit $LASTEXITCODE
   }
 } finally {
+  if ($temporaryPrismaRoot -and (Test-Path -LiteralPath $temporaryPrismaRoot)) {
+    $apiRootPath = [System.IO.Path]::GetFullPath($apiDir).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+    $temporaryPath = [System.IO.Path]::GetFullPath($temporaryPrismaRoot)
+    if (-not $temporaryPath.StartsWith($apiRootPath + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+      throw "refusing to remove Prisma verification path outside backend/api: $temporaryPath"
+    }
+    Remove-Item -Recurse -Force -LiteralPath $temporaryPath
+  }
   if (-not $hadDatabaseUrl) {
     Remove-Item Env:\DATABASE_URL -ErrorAction SilentlyContinue
   }

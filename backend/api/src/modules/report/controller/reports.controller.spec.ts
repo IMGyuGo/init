@@ -318,55 +318,10 @@ describe("ReportsController", () => {
       .expect(400);
   });
 
-  it("queues company AI criteria suggestions", async () => {
-    const response = await companyRequest("/api/v1/company/interviews/evaluation-criteria/suggest")
-      .send({
-        postingId: 2,
-        jobDescription: "Backend engineer with NestJS and PostgreSQL experience.",
-        talentProfile: "Pragmatic problem solver",
-        evaluationPolicy: "Prefer evidence-backed backend ownership."
-      })
-      .expect(202);
-
-    expect(response.body.data.processType).toBe("CRITERIA_SUGGEST");
-    expect(response.body.data.status).toBe("PENDING");
-    expect(response.body.data.queued).toBe(true);
-    expect(response.body.data.inputRef).toContain("Pragmatic problem solver");
-    expect(response.body.data.inputRef).toContain("Prefer evidence-backed backend ownership.");
-  });
-
-  it("exposes parsed criteria suggestion output for review before final criteria save", async () => {
-    const response = await companyRequest("/api/v1/company/interviews/evaluation-criteria/suggest")
-      .send({
-        postingId: 2,
-        jobDescription: "Backend engineer with NestJS and PostgreSQL experience.",
-        talentProfile: "Pragmatic problem solver",
-        evaluationPolicy: "Prefer evidence-backed backend ownership."
-      })
-      .expect(202);
-
-    await repository.markQueuedProcessCompleted(
-      response.body.data.processLogId,
-      JSON.stringify({
-        kind: "CRITERIA_SUGGEST",
-        sourceProcessLogId: response.body.data.processLogId,
-        items: ["Problem solving", "Backend ownership"],
-        reviewRequired: true,
-        reviewStatus: "PENDING_REVIEW",
-        targetTables: ["criterion_tags", "evaluation_criteria"],
-        postingId: 2
-      })
-    );
-
-    const statusResponse = await companyGet(`/api/v1/ai/jobs/${response.body.data.processLogId}/status`).expect(200);
-
-    expect(statusResponse.body.data.status).toBe("COMPLETED");
-    expect(statusResponse.body.data.output.sourceProcessLogId).toBe(response.body.data.processLogId);
-    expect(statusResponse.body.data.output.items).toEqual(["Problem solving", "Backend ownership"]);
-    expect(statusResponse.body.data.output.reviewRequired).toBe(true);
-    expect(statusResponse.body.data.output.reviewStatus).toBe("PENDING_REVIEW");
-    expect(statusResponse.body.data.output.targetTables).toEqual(["criterion_tags", "evaluation_criteria"]);
-    expect(statusResponse.body.data.output.postingId).toBe(2);
+  it("does not expose the retired AI criteria suggestion route", async () => {
+    await companyRequest("/api/v1/company/interviews/evaluation-criteria/suggest")
+      .send({ postingId: 2 })
+      .expect(404);
   });
 
   it("queues company recruitment posting draft generation before draft save", async () => {
@@ -653,63 +608,10 @@ describe("ReportsController", () => {
     expect(statusResponse.body.data.output.postingId).toBe(2);
   });
 
-  it("queues question-set generation with criteria and question type conditions", async () => {
-    const response = await companyRequest("/api/v1/company/interviews/question-sets")
-      .send({
-        postingId: 2,
-        questionCount: 2,
-        criteria: [{ criterionId: 1, name: "Problem solving", weight: 40 }],
-        questionTypes: ["TECHNICAL", "EXPERIENCE"]
-      })
-      .expect(202);
-
-    expect(response.body.data.processType).toBe("QUESTION_SET_GENERATE");
-    expect(response.body.data.status).toBe("PENDING");
-    expect(response.body.data.inputRef).toContain("Problem solving");
-    expect(response.body.data.inputRef).toContain("TECHNICAL");
-  });
-
-  it("exposes parsed question-set output for C screen consumption", async () => {
-    const response = await companyRequest("/api/v1/company/interviews/question-sets")
-      .send({
-        postingId: 2,
-        questionCount: 2,
-        criteria: [{ criterionId: 1, name: "Problem solving", weight: 40 }],
-        questionTypes: ["TECHNICAL", "EXPERIENCE"]
-      })
-      .expect(202);
-
-    await repository.markQueuedProcessCompleted(
-      response.body.data.processLogId,
-      JSON.stringify({
-        kind: "QUESTION_SET_GENERATE",
-        sourceProcessLogId: response.body.data.processLogId,
-        items: ["TECHNICAL question 1", "EXPERIENCE question 2"],
-        reviewRequired: true,
-        reviewStatus: "PENDING_REVIEW",
-        targetTables: ["question_bank"],
-        postingId: 2
-      })
-    );
-
-    const statusResponse = await companyGet(`/api/v1/ai/jobs/${response.body.data.processLogId}/status`).expect(200);
-
-    expect(statusResponse.body.data.status).toBe("COMPLETED");
-    expect(statusResponse.body.data.output.sourceProcessLogId).toBe(response.body.data.processLogId);
-    expect(statusResponse.body.data.output.items).toEqual(["TECHNICAL question 1", "EXPERIENCE question 2"]);
-    expect(statusResponse.body.data.output.reviewRequired).toBe(true);
-    expect(statusResponse.body.data.output.reviewStatus).toBe("PENDING_REVIEW");
-    expect(statusResponse.body.data.output.targetTables).toEqual(["question_bank"]);
-    expect(statusResponse.body.data.output.postingId).toBe(2);
-  });
-
-  it("rejects criteria suggestion without talent profile and evaluation policy", async () => {
-    await companyRequest("/api/v1/company/interviews/evaluation-criteria/suggest")
-      .send({
-        postingId: 2,
-        jobDescription: "Backend engineer with NestJS and PostgreSQL experience."
-      })
-      .expect(400);
+  it("does not expose the retired question-set generation route", async () => {
+    await companyRequest("/api/v1/company/interviews/question-sets")
+      .send({ postingId: 2 })
+      .expect(404);
   });
 
   it("exposes parsed candidate mock-question output through AI job status", async () => {
@@ -822,12 +724,11 @@ describe("ReportsController", () => {
   });
 
   it("allows bearer authenticated users to poll AI job status", async () => {
-    const response = await companyRequest("/api/v1/company/interviews/evaluation-criteria/suggest")
+    const response = await companyRequest("/api/v1/company/interviews/questions/generate")
       .send({
         postingId: 2,
-        jobDescription: "Backend engineer with NestJS and PostgreSQL experience.",
-        talentProfile: "Pragmatic problem solver",
-        evaluationPolicy: "Prefer evidence-backed backend ownership."
+        questionCount: 2,
+        criteria: [{ criterionId: 1, name: "Problem solving", category: "직무역량", weight: 40 }]
       })
       .expect(202);
 

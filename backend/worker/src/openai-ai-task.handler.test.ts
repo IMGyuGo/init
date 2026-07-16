@@ -10,6 +10,7 @@ import { ReportAiProvider, ReportGenerationInput } from "./openai-report.provide
 import { InMemoryAiProcessLogRepository } from "./process-log.repository";
 import { InMemoryAiJobQueue } from "./queue";
 import { AiWorkerRunner } from "./worker-runner";
+import type { AnswerFactCheckProvider } from "./answer-fact-check.types";
 
 const provider: FollowUpAiProvider = {
   async generateFollowUpQuestion() {
@@ -312,11 +313,15 @@ test("OpenAiAiTaskHandler uses provider for recruiting question generation and k
   await handled.finalSave?.();
   const output = JSON.parse(handled.outputRef ?? "{}") as {
     draftSource?: string;
+    providerMode?: string;
+    providerSource?: string;
     model?: string;
     questionCandidates?: Array<{ criterionId?: number; criterionTitle?: string; category?: string }>;
   };
 
   assert.equal(output.draftSource, "OPENAI_QUESTION_GENERATION");
+  assert.equal(output.providerMode, "openai");
+  assert.equal(output.providerSource, "OPENAI_QUESTION_GENERATION");
   assert.equal(output.model, "question-model");
   assert.equal(output.questionCandidates?.[0]?.criterionId, 1);
   assert.equal(output.questionCandidates?.[0]?.criterionTitle, "문제 해결력");
@@ -413,6 +418,174 @@ test("OpenAiAiTaskHandler blocks mock questions that leak candidate contact info
   assert.match(handled.guardrail?.reason ?? "", /contact information/);
 });
 
+test("OpenAiAiTaskHandler combines NCS and fact needs into one persisted follow-up", async () => {
+  const results = new InMemoryAiResultRepository();
+  const inputs: FollowUpGenerationInput[] = [];
+  const capturingProvider: FollowUpAiProvider = {
+    async generateFollowUpQuestion(input) {
+      inputs.push(input);
+      return { content: "C에서 객체지향 구조를 어떤 방식으로 구현했는지 구체적으로 설명해주세요?", model: "test-model" };
+    },
+  };
+  const factProvider: AnswerFactCheckProvider = {
+    async evaluate(input) {
+      const claimText = "C는 객체지향 언어입니다.";
+      return {
+        model: "fact-test-model",
+        claims: [{
+          claimText,
+          startOffset: input.answerText.indexOf(claimText),
+          endOffset: input.answerText.indexOf(claimText) + claimText.length,
+          claimType: "TECHNICAL_FACT",
+          claimRole: "ANSWER_CORE",
+          verdict: "CONTRADICTED",
+          confidence: 0.99,
+          evidenceIds: [],
+          rationale: "기술 근거와 모순됩니다.",
+        }],
+      };
+    },
+  };
+  const handler = new OpenAiAiTaskHandler(
+    new MockAiTaskHandler(results),
+    results,
+    capturingProvider,
+    undefined,
+    undefined,
+    undefined,
+    {
+      provider: factProvider,
+      configuredModelVersion: "fact-test-model",
+      providerMode: "mock",
+    },
+  );
+  const handled = await handler.handle({
+    processLogId: 32,
+    processType: "FOLLOW_UP",
+    attempt: 1,
+    inputRef: JSON.stringify({
+      kind: "RECRUITING_FOLLOW_UP",
+      payload: {
+        sessionId: 7,
+        answerId: 11,
+        sessionQuestionId: 21,
+        previousQuestion: "C 프로젝트의 설계와 검증 결과를 설명해주세요.",
+        transcript: "C는 객체지향 언어입니다. 클래스로 설계했습니다.",
+        jobDescription: "C 기반 시스템 구현 역량을 검증합니다.",
+        ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+        answerTimeSec: 90,
+        ncsBindings: [{
+          criterionId: 1,
+          criterionTitleSnapshot: "기술 직무",
+          ncsProfileId: "JOB_TECHNICAL",
+          ncsProfileVersion: "2025.12-v1",
+          alignmentStatus: "ALIGNED",
+          bindingOrder: 1,
+        }],
+      },
+    }),
+  });
+
+  await handled.finalSave?.();
+  assert.equal(inputs.length, 1);
+  assert.equal(inputs[0]?.factClarificationClaims?.length, 1);
+  assert.equal(results.followUpQuestions.length, 1);
+  assert.equal(results.followUpQuestions[0]?.reason, "FACT_CLARIFICATION");
+  const output = JSON.parse(handled.outputRef ?? "{}") as Record<string, unknown>;
+  assert.equal(JSON.stringify(output).includes("C는 객체지향 언어입니다."), false);
+});
+
+test("OpenAiAiTaskHandler preserves canonical NCS links and evaluates JD questions", async () => {
+  const results = new InMemoryAiResultRepository();
+  const seenProfiles: string[] = [];
+  const questionProvider: QuestionAiProvider = {
+    async generateQuestions(input) {
+      seenProfiles.push(
+        ...input.criteria.map((criterion) => criterion.ncsProfileId ?? "MISSING"),
+      );
+      return {
+        questionCandidates: input.criteria.map((criterion) => ({
+          content: criterion.ncsProfileId === "JOB_TECHNICAL"
+            ? "NestJS API 기술의 동작 원리와 선택 이유, 실무 적용 방식 및 장애와 보안 위험을 어떻게 검증했는지 설명해주세요?"
+            : "비개발 이해관계자에게 기술 내용을 구조적으로 설명하고 상대의 피드백을 경청해 협업 합의를 어떻게 확인했는지 설명해주세요?",
+          category: criterion.category ?? "NCS",
+          difficulty: "MEDIUM" as const,
+          criterionId: criterion.criterionId,
+          criterionTitle: criterion.name,
+          expectedKeywords: ["근거", "검증"],
+          suggestionReason: "JD와 NCS 평가 기준을 함께 확인합니다.",
+          questionType: criterion.ncsQuestionMode === "TECHNICAL_KNOWLEDGE"
+            ? "TECHNICAL" as const
+            : "EXPERIENCE" as const,
+        })),
+        model: "question-model",
+      };
+    },
+  };
+  const handler = new OpenAiAiTaskHandler(
+    new MockAiTaskHandler(results),
+    results,
+    provider,
+    undefined,
+    undefined,
+    questionProvider,
+  );
+
+  const handled = await handler.handle({
+    processLogId: 240,
+    processType: "QUESTION_GENERATE",
+    attempt: 1,
+    inputRef: JSON.stringify({
+      kind: "RECRUITING_QUESTION_GENERATE",
+      payload: {
+        postingId: 2,
+        jobDescription: "NestJS API와 PostgreSQL 기반 백엔드 운영 경험을 요구합니다.",
+        questionCount: 2,
+        evaluationFramework: "NCS_3_PROFILE_V1",
+        criteria: [
+          {
+            criterionId: 1,
+            name: "직무/기술 역량",
+            category: "NCS",
+            questionCount: 1,
+            ncsProfileId: "JOB_TECHNICAL",
+            ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+            ncsProfileVersion: "2025.12-v1",
+          },
+          {
+            criterionId: 2,
+            name: "협업/의사소통 역량",
+            category: "NCS",
+            questionCount: 1,
+            ncsProfileId: "COLLABORATION_COMMUNICATION",
+            ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+            ncsProfileVersion: "2025.12-v1",
+          },
+        ],
+      },
+    }),
+  });
+
+  const output = JSON.parse(handled.outputRef ?? "{}") as {
+    questionCandidates?: Array<{
+      ncsProfileId?: string;
+      alignmentStatus?: string;
+      source?: string;
+    }>;
+  };
+
+  assert.deepEqual(seenProfiles, ["JOB_TECHNICAL", "COLLABORATION_COMMUNICATION"]);
+  assert.deepEqual(
+    output.questionCandidates?.map((candidate) => candidate.ncsProfileId),
+    ["JOB_TECHNICAL", "COLLABORATION_COMMUNICATION"],
+  );
+  assert.deepEqual(
+    output.questionCandidates?.map((candidate) => candidate.alignmentStatus),
+    ["ALIGNED", "ALIGNED"],
+  );
+  assert.ok(output.questionCandidates?.every((candidate) => candidate.source === "JD_CRITERIA"));
+});
+
 test("OpenAiAiTaskHandler rejects provider question candidates without criterionId", async () => {
   const results = new InMemoryAiResultRepository();
   const questionProvider: QuestionAiProvider = {
@@ -468,6 +641,173 @@ test("OpenAiAiTaskHandler rejects provider question candidates without criterion
     /question candidate criterionId and criterionTitle are required/
   );
   assert.equal(results.generatedDrafts.length, 0);
+});
+
+test("OpenAiAiTaskHandler generates personalized questions from scrubbed resume context", async () => {
+  const results = new InMemoryAiResultRepository();
+  const seenResumeTexts: Array<string | undefined> = [];
+  const questionProvider: QuestionAiProvider = {
+    async generateQuestions(input) {
+      seenResumeTexts.push(input.resumeText);
+      return {
+        questionCandidates: input.criteria.map((criterion) => ({
+          content: criterion.ncsProfileId === "PROBLEM_SOLVING"
+            ? "장애 원인을 분석하고 대안을 선택해 결과를 검증한 경험은 무엇인가요?"
+            : criterion.ncsProfileId === "COLLABORATION_COMMUNICATION"
+              ? "이해관계자에게 내용을 전달하고 피드백으로 이해를 확인한 경험이 있나요?"
+              : "Kubernetes 운영에서 기술 구조를 선택하고 장애 위험을 검증한 방법은 무엇인가요?",
+          category: criterion.category ?? "NCS",
+          difficulty: "MEDIUM" as const,
+          criterionId: criterion.criterionId,
+          criterionTitle: criterion.name,
+          expectedKeywords: ["근거", "검증"],
+          suggestionReason: "이력서 경험과 NCS 기준을 확인합니다.",
+          questionType: criterion.ncsQuestionMode === "TECHNICAL_KNOWLEDGE"
+            ? "TECHNICAL" as const
+            : "EXPERIENCE" as const,
+        })),
+        model: "question-model",
+      };
+    },
+  };
+  const reference = {
+    processLogId: 241,
+    applicationId: 101,
+    postingId: 7,
+    documentId: 1001,
+    policyVersion: 3,
+    criteriaVersion: 2,
+    inputVersion: "resume-input-101",
+    resumeDocumentHash: "resume-hash-101",
+    jdSnapshotHash: "jd-hash-7",
+  };
+  results.setResumeQuestionGenerationContext({
+    ...reference,
+    batchId: 2001,
+    questionCount: 3,
+    jobDescription: "Kubernetes와 PostgreSQL 운영 경험을 요구합니다.",
+    resumeText: "candidate@example.com / 010-1234-5678 / Kubernetes 배포 자동화 경험",
+    criteria: [
+      {
+        criterionId: 1,
+        name: "문제해결능력",
+        category: "NCS",
+        questionCount: 1,
+        ncsProfileId: "PROBLEM_SOLVING",
+        ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+        ncsProfileVersion: "2025.12-v1",
+      },
+      {
+        criterionId: 2,
+        name: "의사소통능력",
+        category: "NCS",
+        questionCount: 1,
+        ncsProfileId: "COLLABORATION_COMMUNICATION",
+        ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+        ncsProfileVersion: "2025.12-v1",
+      },
+      {
+        criterionId: 3,
+        name: "직무기술능력",
+        category: "NCS",
+        questionCount: 1,
+        ncsProfileId: "JOB_TECHNICAL",
+        ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+        ncsProfileVersion: "2025.12-v1",
+      },
+    ],
+  });
+  const handler = new OpenAiAiTaskHandler(
+    new MockAiTaskHandler(results),
+    results,
+    provider,
+    undefined,
+    undefined,
+    questionProvider,
+  );
+
+  const handled = await handler.handle({
+    ...reference,
+    processType: "RESUME_QUESTION_GENERATE",
+    attempt: 1,
+    inputRef: JSON.stringify(reference),
+  });
+  await handled.finalSave?.();
+
+  assert.equal(seenResumeTexts.length, 1);
+  assert.equal(seenResumeTexts[0]?.includes("candidate@example.com"), false);
+  assert.equal(seenResumeTexts[0]?.includes("010-1234-5678"), false);
+  assert.equal(seenResumeTexts[0]?.includes("Kubernetes 배포 자동화 경험"), true);
+  assert.equal(results.resumeQuestionResults.get(101)?.status, "READY");
+  const output = JSON.parse(handled.outputRef ?? "{}") as Record<string, unknown>;
+  assert.equal(output.providerMode, "openai");
+  assert.equal(JSON.stringify(output).includes("candidate@example.com"), false);
+});
+
+test("OpenAiAiTaskHandler allows technical incident wording in personalized questions", async () => {
+  const results = new InMemoryAiResultRepository();
+  const questionProvider: QuestionAiProvider = {
+    async generateQuestions(input) {
+      return {
+        questionCandidates: input.criteria.map((criterion) => ({
+          content: "서비스 장애 원인을 분석하고 대안을 선택해 결과를 검증한 경험은 무엇인가요?",
+          category: "NCS",
+          difficulty: "MEDIUM",
+          criterionId: criterion.criterionId,
+          criterionTitle: criterion.name,
+          expectedKeywords: ["장애", "원인", "검증"],
+          suggestionReason: "기술 장애 대응 경험을 확인합니다.",
+          questionType: "EXPERIENCE",
+        })),
+        model: "question-model",
+      };
+    },
+  };
+  const reference = {
+    processLogId: 242,
+    applicationId: 102,
+    postingId: 7,
+    documentId: 1002,
+    policyVersion: 3,
+    criteriaVersion: 2,
+    inputVersion: "resume-input-102",
+    resumeDocumentHash: "resume-hash-102",
+    jdSnapshotHash: "jd-hash-7",
+  };
+  results.setResumeQuestionGenerationContext({
+    ...reference,
+    batchId: 2002,
+    questionCount: 1,
+    jobDescription: "서비스 운영 경험",
+    resumeText: "서비스 장애 대응 경험",
+    criteria: [{
+      criterionId: 1,
+      name: "문제해결능력",
+      category: "NCS",
+      questionCount: 1,
+      ncsProfileId: "PROBLEM_SOLVING",
+      ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+      ncsProfileVersion: "2025.12-v1",
+    }],
+  });
+  const handler = new OpenAiAiTaskHandler(
+    new MockAiTaskHandler(results),
+    results,
+    provider,
+    undefined,
+    undefined,
+    questionProvider,
+  );
+
+  const handled = await handler.handle({
+    processLogId: reference.processLogId,
+    processType: "RESUME_QUESTION_GENERATE",
+    attempt: 1,
+    inputRef: JSON.stringify(reference),
+  });
+  assert.equal(handled.guardrail?.result, "PASS");
+  await handled.finalSave?.();
+  assert.equal(results.resumeQuestionResults.get(102)?.status, "READY");
 });
 
 test("OpenAiAiTaskHandler leaves report pipeline steps on the fallback handler", async () => {
@@ -567,6 +907,8 @@ test("OpenAiAiTaskHandler uses provider for posting draft generation and keeps r
   const output = JSON.parse(handled.outputRef ?? "{}") as {
     kind?: string;
     draftSource?: string;
+    providerMode?: string;
+    providerSource?: string;
     model?: string;
     postingDraft?: { title?: string; sections?: Record<string, string>; tags?: string[] };
   };
@@ -575,6 +917,8 @@ test("OpenAiAiTaskHandler uses provider for posting draft generation and keeps r
   assert.deepEqual(postingDraftInputs[0]?.keywords, ["NestJS", "PostgreSQL"]);
   assert.equal(output.kind, "POSTING_DRAFT_GENERATE");
   assert.equal(output.draftSource, "OPENAI_POSTING_DRAFT_GENERATION");
+  assert.equal(output.providerMode, "openai");
+  assert.equal(output.providerSource, "OPENAI_POSTING_DRAFT_GENERATION");
   assert.equal(output.model, "posting-draft-model");
   assert.equal(output.postingDraft?.title, "2026 신입 백엔드 채용");
   assert.match(output.postingDraft?.sections?.positionDetail ?? "", /Backend Developer/);

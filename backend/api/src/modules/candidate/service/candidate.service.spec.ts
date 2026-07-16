@@ -9,6 +9,9 @@ import { InMemoryCandidateDocumentStorageAdapter } from "./candidate-document-st
 import { createCandidateValidationException } from "../candidate.validation";
 import { InMemoryCandidateRepository } from "../repository/in-memory-candidate.repository";
 import type { SubmitApplicationDto } from "../dto/submit-application.dto";
+import { AiJobDispatcherService } from "../../report/service/ai-job-dispatcher.service";
+import { InMemoryAiJobQueuePublisher } from "../../report/service/ai-job-queue.publisher";
+import { InMemoryReportRepository } from "../../report/repository/in-memory-report.repository";
 
 class MissingApplicationSummaryDependencyRepository extends InMemoryCandidateRepository {
   async findJob(jobId: number) {
@@ -55,7 +58,16 @@ function createSubmitApplicationDto(overrides: Partial<SubmitApplicationDto> = {
 }
 
 async function run() {
-  const service = new CandidateService(new InMemoryCandidateRepository());
+  const aiJobPublisher = new InMemoryAiJobQueuePublisher();
+  const aiJobDispatcher = new AiJobDispatcherService(
+    new InMemoryReportRepository(),
+    aiJobPublisher,
+  );
+  const service = new CandidateService(
+    new InMemoryCandidateRepository(),
+    undefined,
+    aiJobDispatcher,
+  );
 
   const currentUser = DEV_CANDIDATE_USER;
   assert.deepEqual(resolveCurrentCandidate(currentUser), currentUser);
@@ -704,6 +716,16 @@ async function run() {
   assert.equal(submitted.data.application.documentStatus, "SUBMITTED");
   assert.equal(submitted.data.application.interviewStatus, "NOT_READY");
   assert.equal(submitted.data.application.postingId, 1);
+  assert.equal(aiJobPublisher.messages.length, 1);
+  assert.equal(aiJobPublisher.messages[0].processType, "DOCUMENT_EXTRACT");
+  const extractionInput = JSON.parse(aiJobPublisher.messages[0].inputRef) as {
+    payload?: Record<string, unknown>;
+  };
+  assert.equal(extractionInput.payload?.applicationId, submitted.data.application.applicationId);
+  assert.equal(extractionInput.payload?.fileId, resume.data.fileId);
+  assert.equal(extractionInput.payload?.s3Key, resume.data.storageKey);
+  assert.equal("fileContent" in (extractionInput.payload ?? {}), false);
+  assert.equal("extractedText" in (extractionInput.payload ?? {}), false);
   assert.equal(submitted.data.application.candidateId, currentUser.candidateId);
   assert.deepEqual((submitted.data.application as { profileSnapshot?: unknown }).profileSnapshot, submittedProfileSnapshot);
   assert.equal(submitted.data.documents.length, 1);
@@ -779,6 +801,47 @@ async function run() {
   await assert.rejects(
     () => service.getInterviewGuide(submitted.data.application.applicationId, otherCandidateUser),
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_FORBIDDEN",
+  );
+
+  const cancelRepository = new InMemoryCandidateRepository();
+  const cancelService = new CandidateService(cancelRepository);
+  const cancelSubmission = await cancelRepository.createApplication({
+    postingId: 1,
+    candidateId: currentUser.candidateId,
+    resumeFileId: 1,
+    consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
+  });
+  const canceled = await cancelService.cancelApplication(cancelSubmission.application.applicationId, currentUser);
+  assert.equal(canceled.data.applicationStatus, "CANCELED");
+  const repeatedCancellation = await cancelService.cancelApplication(cancelSubmission.application.applicationId, currentUser);
+  assert.equal(repeatedCancellation.data.canceledAt, canceled.data.canceledAt);
+  const canceledList = await cancelService.listApplications(currentUser);
+  assert.equal(canceledList.data.items[0]?.applicationStatus, "CANCELED");
+  assert.equal(canceledList.data.items[0]?.canStartInterview, false);
+  await assert.rejects(
+    () => cancelService.getInterviewGuide(cancelSubmission.application.applicationId, currentUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_CONFLICT",
+  );
+  await assert.rejects(
+    () => cancelService.cancelApplication(cancelSubmission.application.applicationId, otherCandidateUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_FORBIDDEN",
+  );
+
+  const startedCancellationRepository = new InMemoryCandidateRepository();
+  const startedCancellationService = new CandidateService(startedCancellationRepository);
+  const startedCancellationSubmission = await startedCancellationRepository.createApplication({
+    postingId: 1,
+    candidateId: currentUser.candidateId,
+    resumeFileId: 1,
+    consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
+  });
+  await startedCancellationRepository.updateApplicationInterviewStatus(
+    startedCancellationSubmission.application.applicationId,
+    "IN_PROGRESS",
+  );
+  await assert.rejects(
+    () => startedCancellationService.cancelApplication(startedCancellationSubmission.application.applicationId, currentUser),
+    (error) => error instanceof CandidateDomainError && error.code === "COMMON_CONFLICT",
   );
 
   const guide = await service.getInterviewGuide(submitted.data.application.applicationId, currentUser);

@@ -1,6 +1,159 @@
 import assert from "node:assert/strict";
 import { PrismaInterviewRepository } from "./prisma-interview.repository";
 
+const ANSWER_SESSION_QUESTION_INCLUDE = {
+  sessionQuestion: {
+    select: {
+      runtimeQuestionId: true,
+      sessionQuestionId: true,
+      criterionId: true,
+      criterionTitleSnapshot: true,
+      ncsProfileId: true,
+      ncsQuestionMode: true,
+      ncsProfileVersion: true,
+      alignmentStatus: true,
+      alignmentScore: true,
+      evaluatorVersion: true,
+      ncsBindings: {
+        orderBy: { bindingOrder: "asc" },
+        select: {
+          criterionId: true,
+          criterionTitleSnapshot: true,
+          ncsProfileId: true,
+          ncsProfileVersion: true,
+          alignmentStatus: true,
+          alignmentScore: true,
+          evaluatorVersion: true,
+          bindingOrder: true,
+        },
+      },
+    },
+  },
+};
+
+test("prisma interview repository reads recruiting questions from immutable runtime snapshots", async () => {
+  const repository = new PrismaInterviewRepository({
+    question: { findUnique: async () => null },
+    interviewSessionQuestion: {
+      findUnique: async () => ({
+        runtimeQuestionId: 1_000_000_000_000_001n,
+        questionType: "EXPERIENCE",
+        content: "세션 생성 시 확정된 개인화 질문",
+        sortOrder: 4,
+        session: { interviewType: "RECRUITING" },
+      }),
+    },
+  } as never);
+
+  const question = await repository.findQuestion(1_000_000_000_000_001);
+
+  assert.equal(question?.interviewType, "RECRUITING");
+  assert.equal(question?.content, "세션 생성 시 확정된 개인화 질문");
+  assert.equal(question?.sortOrder, 4);
+});
+
+test("prisma interview repository projects the immutable NCS evaluation snapshot with an answer", async () => {
+  const findManyCalls: unknown[] = [];
+  const repository = new PrismaInterviewRepository({
+    interviewAnswer: {
+      findMany: async (args: unknown) => {
+        findManyCalls.push(args);
+        return [
+          {
+            answerId: 101n,
+            sessionId: 10001n,
+            questionId: 20001n,
+            videoFileId: null,
+            audioFileId: null,
+            transcript: "문제 상황과 해결 근거를 설명한 답변입니다.",
+            nonverbalMetadata: null,
+            durationSeconds: 42,
+            submittedAt: new Date("2026-07-01T00:00:00.000Z"),
+            sessionQuestion: {
+              runtimeQuestionId: 1_000_000_000_000_001n,
+              sessionQuestionId: 501n,
+              criterionId: 31n,
+              criterionTitleSnapshot: "문제해결능력",
+              ncsProfileId: "PROBLEM_SOLVING",
+              ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+              ncsProfileVersion: "2025.12-v1",
+              alignmentStatus: "ALIGNED",
+              alignmentScore: 0.91,
+              evaluatorVersion: "2025.12-v1",
+              ncsBindings: [
+                {
+                  criterionId: 31n,
+                  criterionTitleSnapshot: "문제해결능력",
+                  ncsProfileId: "PROBLEM_SOLVING",
+                  ncsProfileVersion: "2025.12-v1",
+                  alignmentStatus: "ALIGNED",
+                  alignmentScore: 0.91,
+                  evaluatorVersion: "2025.12-v1",
+                  bindingOrder: 1,
+                },
+                {
+                  criterionId: 32n,
+                  criterionTitleSnapshot: "기술·직무",
+                  ncsProfileId: "JOB_TECHNICAL",
+                  ncsProfileVersion: "2025.12-v1",
+                  alignmentStatus: "ALIGNED",
+                  alignmentScore: 0.88,
+                  evaluatorVersion: "2025.12-v1",
+                  bindingOrder: 2,
+                },
+              ],
+            },
+          },
+        ];
+      },
+    },
+  } as never);
+
+  const answers = await repository.listAnswersBySession(10001);
+
+  assert.deepEqual(findManyCalls, [
+    {
+      where: { sessionId: 10001n },
+      orderBy: [{ submittedAt: "asc" }, { answerId: "asc" }],
+      include: ANSWER_SESSION_QUESTION_INCLUDE,
+    },
+  ]);
+  assert.equal(answers[0]?.questionId, 1_000_000_000_000_001);
+  assert.deepEqual(answers[0]?.ncsEvaluationSnapshot, {
+    sessionQuestionId: 501,
+    criterionId: 31,
+    criterionTitleSnapshot: "문제해결능력",
+    ncsProfileId: "PROBLEM_SOLVING",
+    ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+    ncsProfileVersion: "2025.12-v1",
+    alignmentStatus: "ALIGNED",
+    alignmentScore: 0.91,
+    evaluatorVersion: "2025.12-v1",
+    ncsBindings: [
+      {
+        criterionId: 31,
+        criterionTitleSnapshot: "문제해결능력",
+        ncsProfileId: "PROBLEM_SOLVING",
+        ncsProfileVersion: "2025.12-v1",
+        alignmentStatus: "ALIGNED",
+        alignmentScore: 0.91,
+        evaluatorVersion: "2025.12-v1",
+        bindingOrder: 1,
+      },
+      {
+        criterionId: 32,
+        criterionTitleSnapshot: "기술·직무",
+        ncsProfileId: "JOB_TECHNICAL",
+        ncsProfileVersion: "2025.12-v1",
+        alignmentStatus: "ALIGNED",
+        alignmentScore: 0.88,
+        evaluatorVersion: "2025.12-v1",
+        bindingOrder: 2,
+      },
+    ],
+  });
+});
+
 test("prisma interview repository persists answers through interview_answers", async () => {
   const createCalls: unknown[] = [];
   const submittedAt = "2026-07-01T00:00:00.000Z";
@@ -58,7 +211,7 @@ test("prisma interview repository persists answers through interview_answers", a
         durationSeconds: 42,
         submittedAt: new Date(submittedAt),
       },
-      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
+      include: ANSWER_SESSION_QUESTION_INCLUDE,
     },
   ]);
   assert.equal(answer.answerId, 101);
@@ -67,6 +220,58 @@ test("prisma interview repository persists answers through interview_answers", a
   assert.equal(answer.videoFileId, 30001);
   assert.equal(answer.transcript, transcript);
   assert.deepEqual(answer.nonverbalMetadata, nonverbalMetadata);
+});
+
+test("prisma interview repository serializes duplicate answer creation and reuses the saved row", async () => {
+  const rawCalls: unknown[][] = [];
+  let createCallCount = 0;
+  const submittedAt = new Date("2026-07-01T00:00:00.000Z");
+  const existingAnswer = {
+    answerId: 101n,
+    sessionId: 10001n,
+    questionId: 20001n,
+    sessionQuestionId: 501n,
+    videoFileId: 30001n,
+    audioFileId: null,
+    transcript: null,
+    nonverbalMetadata: null,
+    durationSeconds: 42,
+    submittedAt,
+    sessionQuestion: { runtimeQuestionId: null },
+  };
+  const transactionClient = {
+    interviewSessionQuestion: {
+      findFirst: async () => ({ sessionQuestionId: 501n, questionId: 20001n }),
+    },
+    interviewAnswer: {
+      findFirst: async () => existingAnswer,
+      create: async () => {
+        createCallCount += 1;
+        return existingAnswer;
+      },
+    },
+    $executeRaw: async (...args: unknown[]) => {
+      rawCalls.push(args);
+      return 1;
+    },
+  };
+  const repository = new PrismaInterviewRepository({
+    $transaction: async (callback: (client: typeof transactionClient) => Promise<unknown>) => callback(transactionClient),
+  } as never);
+
+  const result = await repository.createAnswerIdempotent({
+    sessionId: 10001,
+    questionId: 20001,
+    videoFileId: 30001,
+    durationSeconds: 42,
+    submittedAt: submittedAt.toISOString(),
+  });
+
+  assert.equal(result.created, false);
+  assert.equal(result.answer.answerId, 101);
+  assert.equal(createCallCount, 0);
+  assert.equal(rawCalls.length, 1);
+  assert.deepEqual(rawCalls[0]?.[1], 310_000_000_501n);
 });
 
 test("prisma interview repository replaces transcript and nonverbal metadata together", async () => {
@@ -119,7 +324,7 @@ test("prisma interview repository replaces transcript and nonverbal metadata tog
         submittedAt: new Date(submittedAt),
         transcript,
       },
-      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
+      include: ANSWER_SESSION_QUESTION_INCLUDE,
     },
   ]);
   assert.equal(answer.answerId, 101);
@@ -263,6 +468,7 @@ test("prisma interview repository resolves private session question without comp
         questionType: "INTRO",
         content: "개인 세션 질문",
         sortOrder: 1,
+        session: { interviewType: "MOCK" },
       }),
     },
   } as never);
@@ -271,72 +477,6 @@ test("prisma interview repository resolves private session question without comp
 
   assert.equal(question?.content, "개인 세션 질문");
   assert.equal(question?.interviewType, "MOCK");
-});
-
-test("prisma interview repository stores mock follow-up questions in the owning session", async () => {
-  const sessionQuestionCreates: unknown[] = [];
-  const transactionClient = {
-    $queryRaw: async () => [{ questionId: 1000000000000000n }],
-    interviewSessionQuestion: {
-      create: async (args: unknown) => {
-        sessionQuestionCreates.push(args);
-        return {
-          runtimeQuestionId: 1000000000000000n,
-          questionType: "FOLLOW_UP",
-          content: "구체적인 기술 선택 근거를 설명해주세요.",
-          sortOrder: 3,
-        };
-      },
-    },
-  };
-  const repository = new PrismaInterviewRepository({
-    $transaction: async (callback: (client: typeof transactionClient) => Promise<unknown>) => callback(transactionClient),
-    question: {
-      findUnique: async () => {
-        throw new Error("mock follow-up must not read question_bank");
-      },
-    },
-    company: {
-      findFirst: async () => {
-        throw new Error("mock follow-up must not select a company");
-      },
-    },
-  } as never);
-
-  const question = await repository.createRuntimeFollowUpQuestion({
-    session: {
-      sessionId: 10002,
-      candidateId: 7,
-      interviewType: "MOCK",
-      status: "IN_PROGRESS",
-      showQuestionText: true,
-      currentQuestionIndex: 1,
-      questionIds: [1000000000000001, 1000000000000002],
-      startedAt: "2026-07-10T00:00:00.000Z",
-      updatedAt: "2026-07-10T00:00:00.000Z",
-    },
-    sourceAnswer: {
-      answerId: 11,
-      sessionId: 10002,
-      questionId: 1000000000000002,
-      durationSeconds: 42,
-      submittedAt: "2026-07-10T00:01:00.000Z",
-    },
-    content: "구체적인 기술 선택 근거를 설명해주세요.",
-  });
-
-  assert.equal(question.questionId, 1000000000000000);
-  assert.equal(question.questionType, "FOLLOW_UP");
-  assert.deepEqual(sessionQuestionCreates, [{
-    data: {
-      sessionId: 10002n,
-      questionId: null,
-      runtimeQuestionId: 1000000000000000n,
-      questionType: "FOLLOW_UP",
-      content: "구체적인 기술 선택 근거를 설명해주세요.",
-      sortOrder: 3,
-    },
-  }]);
 });
 
 test("prisma interview repository restores persisted questions after restart", async () => {

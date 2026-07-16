@@ -106,14 +106,31 @@ export type ApplicantRecord = {
   };
   evaluationReports: Array<{
     reportId: number;
+    applicationId?: number | null;
+    sessionId?: number | null;
     status: string;
     totalScore: number | null;
     summary: string | null;
+    ncsCompletionStatus?: string | null;
+    ncsThresholdResult?: string | null;
+    ncsAiDecision?: string | null;
+    ncsDecisionReasonCode?: string | null;
+    ncsScoringVersion?: string | null;
+    ncsDecisionPolicyVersion?: string | null;
+    ncsSummary?: unknown;
     generatedAt: Date | null;
     scores?: Array<{
       scoreId: number;
-      score: number;
+      score: number | null;
       rationale: string | null;
+      ncsProfileId?: string | null;
+      averageScore?: number | null;
+      normalizedScore?: number | null;
+      weight?: number | null;
+      weightedScore?: number | null;
+      minimumAverageScore?: number | null;
+      assignedQuestionCount?: number | null;
+      validQuestionCount?: number | null;
       criterion: {
         criterionId: number;
         tagName: string | null;
@@ -123,6 +140,47 @@ export type ApplicantRecord = {
         evidenceText: string;
       }>;
     }>;
+    ncsAnswerEvaluations?: Array<{
+      ncsEvaluationId: number;
+      answerId: number;
+      sessionQuestionId: number;
+      criterionId: number | null;
+      criterionTitleSnapshot: string;
+      ncsProfileId: string;
+      ncsQuestionMode: string;
+      ncsProfileVersion: string;
+      scoreStatus: string;
+      competencyScore: number | null;
+      evidenceScore: number | null;
+      totalScore: number | null;
+      behaviorPoints?: number | null;
+      logicPoints?: number | null;
+      baseScore?: number | null;
+      effectiveScore?: number | null;
+      followUpApplied?: boolean;
+      coverage: number;
+      confidence: string;
+      rubricVersion: string;
+      promptVersion: string;
+      providerMode: string;
+      modelName: string | null;
+      result: unknown;
+      evidences?: Array<{
+        evidenceId: number;
+        sourceAnswerId: number;
+        sourceKind: string;
+        quote: string;
+        sortOrder: number;
+      }>;
+      sessionQuestion?: {
+        runtimeQuestionId: number | null;
+        generationSource: string | null;
+        content: string | null;
+        ncsQuestionMode: string | null;
+        sortOrder: number;
+      };
+      updatedAt: Date;
+    }>;
   }>;
   interviewSessions: Array<{
     sessionId: number;
@@ -130,6 +188,7 @@ export type ApplicantRecord = {
     interviewType: string;
     startedAt: Date | null;
     completedAt: Date | null;
+    answerTimeSecSnapshot?: number | null;
     answers?: Array<{
       answerId: number;
       questionId: number | null;

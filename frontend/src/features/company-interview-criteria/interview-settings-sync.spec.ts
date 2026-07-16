@@ -12,6 +12,9 @@ const oldCriterion = {
   weight: 100,
   passScore: null,
   sortOrder: 1,
+  ncsProfileId: null,
+  ncsQuestionMode: null,
+  ncsProfileVersion: null,
 };
 
 const newCriterion = {
@@ -37,6 +40,16 @@ function createSettings(): InterviewSettings {
         origin: "AI_GENERATED",
         isAiEdited: false,
         isActive: true,
+        generationSource: null,
+        ncsProfileId: null,
+        ncsQuestionMode: null,
+        ncsProfileVersion: null,
+        alignmentStatus: null,
+        alignmentScore: null,
+        alignmentReason: null,
+        evaluatorVersion: null,
+        sourceProcessLogId: null,
+        ncsBindings: [],
       },
       {
         questionId: 2,
@@ -46,12 +59,31 @@ function createSettings(): InterviewSettings {
         origin: "MANUAL",
         isAiEdited: false,
         isActive: true,
+        generationSource: null,
+        ncsProfileId: null,
+        ncsQuestionMode: null,
+        ncsProfileVersion: null,
+        alignmentStatus: null,
+        alignmentScore: null,
+        alignmentReason: null,
+        evaluatorVersion: null,
+        sourceProcessLogId: null,
+        ncsBindings: [],
       },
     ],
     timePolicy: {
       preparationTimeSec: 30,
       answerTimeSec: 120,
       retryAllowed: false,
+    },
+    evaluationFramework: "LEGACY",
+    questionGenerationPolicy: {
+      postingId: 15,
+      jdCriteriaQuestionCount: 0,
+      resumeQuestionCount: 0,
+      policyVersion: 0,
+      criteriaVersion: 0,
+      allocations: [],
     },
   };
 }

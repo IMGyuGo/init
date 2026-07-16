@@ -18,6 +18,7 @@ import { CreatePortfolioLinkDto } from "../dto/create-portfolio-link.dto";
 import { SaveInterviewConsentDto } from "../dto/save-interview-consent.dto";
 import { SubmitApplicationDto } from "../dto/submit-application.dto";
 import { UploadResumeDto } from "../dto/upload-resume.dto";
+import { AiJobDispatcherService } from "../../report/service/ai-job-dispatcher.service";
 import { UnlockDemoApplicationResetDto } from "../dto/unlock-demo-application-reset.dto";
 import { FORBIDDEN_FILE_PAYLOAD_FIELDS } from "../candidate.constants";
 import { CandidateDomainError } from "../candidate.errors";
@@ -32,6 +33,7 @@ import {
   Application,
   ApplicationDocument,
   ApplicationSubmissionResult,
+  CancelApplicationResult,
   CandidateApplicationSummary,
   CandidateDemoApplicationResetResult,
   CandidateApplyView,
@@ -51,6 +53,7 @@ import {
   UpdateCandidateProfileInput,
   FileAsset,
   InterviewDeviceCheckResult,
+  InterviewQuestionSnapshotResult,
   InterviewSession,
   PageMeta,
   PortfolioLink,
@@ -143,6 +146,9 @@ export class CandidateService {
     @Optional()
     @Inject(CANDIDATE_DOCUMENT_STORAGE)
     private readonly documentStorage: CandidateDocumentStoragePort = new InMemoryCandidateDocumentStorageAdapter(),
+    @Optional()
+    @Inject(AiJobDispatcherService)
+    private readonly aiJobDispatcher?: AiJobDispatcherService,
   ) {}
 
   async listJobs(
@@ -265,6 +271,23 @@ export class CandidateService {
       // 연락처를 지원서 생성과 같은 트랜잭션에서 저장 → 다음 지원 자동 입력에 재사용(원자적). (#272 P2)
       contactUserId: applicationFields.phone ? currentUser.userId : undefined,
     });
+
+    const resumeDocument = result.documents.find((document) => document.documentType === "RESUME");
+    if (resumeDocument && this.aiJobDispatcher) {
+      await this.aiJobDispatcher.dispatch({
+        processType: "DOCUMENT_EXTRACT",
+        input: {
+          kind: "DOCUMENT_EXTRACT",
+          payload: {
+            applicationId: result.application.applicationId,
+            documentId: resumeDocument.documentId,
+            fileId: resumeDocument.fileId,
+            s3Key: resumeFileAsset.storageKey,
+          },
+        },
+        refs: { applicationId: result.application.applicationId },
+      });
+    }
 
     return this.envelope(result);
   }
@@ -659,6 +682,41 @@ export class CandidateService {
     return this.listEnvelope(items, this.createPageMeta(1, Math.max(items.length, 1), items.length));
   }
 
+  async cancelApplication(
+    applicationId: number,
+    currentUser: CurrentCandidateUser,
+  ): Promise<ApiResponse<CancelApplicationResult>> {
+    const application = await this.getOwnedApplication(applicationId, currentUser);
+    if (application.applicationStatus === "CANCELED") {
+      return this.envelope({
+        applicationId: application.applicationId,
+        applicationStatus: "CANCELED",
+        canceledAt: application.updatedAt,
+      });
+    }
+    if (
+      !["SUBMITTED", "IN_REVIEW"].includes(application.applicationStatus) ||
+      !["NOT_READY", "READY"].includes(application.interviewStatus)
+    ) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "Application can no longer be canceled.", 409, [
+        { field: "applicationStatus", reason: `current status is ${application.applicationStatus}` },
+        { field: "interviewStatus", reason: `current status is ${application.interviewStatus}` },
+      ]);
+    }
+
+    const canceled = await this.repository.cancelApplication(application.applicationId);
+    if (!canceled) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "Application can no longer be canceled.", 409, [
+        { field: "applicationId", reason: "application state changed before cancellation" },
+      ]);
+    }
+    return this.envelope({
+      applicationId: canceled.applicationId,
+      applicationStatus: "CANCELED",
+      canceledAt: canceled.updatedAt,
+    });
+  }
+
   unlockDemoApplicationReset(
     dto: UnlockDemoApplicationResetDto,
     currentUser: CurrentCandidateUser,
@@ -740,6 +798,7 @@ export class CandidateService {
     }
 
     const application = await this.getOwnedApplication(session.applicationId, currentUser);
+    this.assertApplicationNotCanceled(application);
     this.assertSessionNotExpired(session);
     this.assertInterviewNotCompleted(application, session);
     this.assertDeviceCheckRequest(dto);
@@ -780,6 +839,7 @@ export class CandidateService {
         { field: "deviceCheck", reason: "camera, microphone, and network checks are required" },
       ]);
     }
+    await this.prepareRecruitingInterviewSessionSnapshot(application.applicationId);
     if (refreshedSession.status === "IN_PROGRESS") {
       if (application.interviewStatus !== "IN_PROGRESS") {
         await this.repository.updateApplicationInterviewStatus(application.applicationId, "IN_PROGRESS");
@@ -811,6 +871,67 @@ export class CandidateService {
       interviewUrl: `/candidate/applications/${application.applicationId}/interview`,
       startedAt: now,
     });
+  }
+
+  async prepareRecruitingInterviewSessionSnapshot(applicationId: number): Promise<InterviewQuestionSnapshotResult> {
+    this.assertPositiveIntegerId(applicationId, "applicationId");
+    const result = await this.repository.prepareInterviewSessionQuestionSnapshot(applicationId);
+    if (!result) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "Application was not found.", 404, [
+        { field: "applicationId", reason: "application not found" },
+      ]);
+    }
+    if (result.readiness === "PERSONALIZED_QUESTIONS_NOT_READY") {
+      throw new CandidateDomainError(
+        "INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY",
+        "Personalized interview questions are not ready.",
+        409,
+        [{
+          field: "resumeQuestions",
+          reason: "READY_BATCH_REQUIRED",
+          expectedCount: result.expectedPersonalizedQuestionCount,
+          actualCount: result.personalizedQuestionCount,
+        }],
+      );
+    }
+    if (result.readiness === "COMMON_QUESTIONS_NOT_READY") {
+      throw new CandidateDomainError(
+        "INTERVIEW_QUESTION_COUNT_INVALID",
+        "Common interview questions do not match the configured policy.",
+        409,
+        [{
+          field: "commonQuestions",
+          reason: "ACTIVE_QUESTION_SET_COUNT_MISMATCH",
+          expectedCount: result.expectedCommonQuestionCount,
+          actualCount: result.commonQuestionCount,
+        }],
+      );
+    }
+    if (result.readiness === "NCS_QUESTION_COVERAGE_INVALID") {
+      throw new CandidateDomainError(
+        "INTERVIEW_NCS_QUESTION_COVERAGE_INVALID",
+        "Each NCS profile must be connected to at least two base questions.",
+        409,
+        (result.ncsCoverage ?? []).map((coverage) => ({
+          field: `ncsCoverage.${coverage.ncsProfileId}`,
+          reason: "MINIMUM_BASE_QUESTION_COUNT_NOT_MET",
+          expectedCount: coverage.requiredQuestionCount,
+          actualCount: coverage.actualQuestionCount,
+        })),
+      );
+    }
+    if (result.readiness === "NCS_SNAPSHOT_INVALID") {
+      throw new CandidateDomainError(
+        "INTERVIEW_NCS_SNAPSHOT_INVALID",
+        "The existing NCS interview snapshot does not satisfy the runtime contract.",
+        409,
+        (result.snapshotValidationErrors ?? ["UNKNOWN_SNAPSHOT_ERROR"]).map((reason) => ({
+          field: "sessionSnapshot",
+          reason,
+        })),
+      );
+    }
+    return result;
   }
 
   async getInterviewRuntime(
@@ -851,6 +972,7 @@ export class CandidateService {
         { field: "applicationId", reason: "application not found" },
       ]);
     }
+    this.assertApplicationNotCanceled(application);
 
     const session = await this.repository.ensureInterviewSessionByApplication(application.applicationId);
     if (!session) {
@@ -890,6 +1012,7 @@ export class CandidateService {
     }
 
     const application = await this.getOwnedApplication(session.applicationId, currentUser);
+    this.assertApplicationNotCanceled(application);
     this.assertSessionNotExpired(session);
     return { application, session };
   }
@@ -999,6 +1122,7 @@ export class CandidateService {
     currentUser: CurrentCandidateUser,
   ): Promise<{ application: Application; session: InterviewSession }> {
     const application = await this.getOwnedApplication(applicationId, currentUser);
+    this.assertApplicationNotCanceled(application);
     const session = await this.repository.findInterviewSessionByApplication(application.applicationId);
     if (!session) {
       throw new CandidateDomainError("COMMON_NOT_FOUND", "Interview session was not found.", 404, [
@@ -1057,6 +1181,14 @@ export class CandidateService {
     if (application.interviewStatus === "COMPLETED" || session.status === "COMPLETED") {
       throw new CandidateDomainError("COMMON_CONFLICT", "Interview has already been completed.", 409, [
         { field: "interviewStatus", reason: "interview already completed" },
+      ]);
+    }
+  }
+
+  private assertApplicationNotCanceled(application: Application): void {
+    if (application.applicationStatus === "CANCELED") {
+      throw new CandidateDomainError("COMMON_CONFLICT", "Canceled application cannot access the interview.", 409, [
+        { field: "applicationStatus", reason: "application has been canceled" },
       ]);
     }
   }
@@ -1168,7 +1300,12 @@ export class CandidateService {
       interviewWindowEndsAt: session?.windowEndsAt ?? null,
       consentCompleted,
       deviceCheckCompleted,
-      canStartInterview: !unavailableReason && consentCompleted && deviceCheckCompleted && session?.status === "READY",
+      canStartInterview:
+        application.applicationStatus !== "CANCELED" &&
+        !unavailableReason &&
+        consentCompleted &&
+        deviceCheckCompleted &&
+        session?.status === "READY",
     };
   }
 

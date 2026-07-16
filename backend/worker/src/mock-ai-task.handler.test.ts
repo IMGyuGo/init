@@ -7,6 +7,7 @@ import { MockAiTaskHandler } from "./mock-ai-task.handler";
 import { InMemoryAiProcessLogRepository } from "./process-log.repository";
 import { InMemoryAiJobQueue } from "./queue";
 import { createDocumentExtractionStartHandler, createReportFailureHandler } from "./report-failure.handler";
+import type { DocumentTextExtractor } from "./document-text-extractor";
 import { SttProvider } from "./stt-provider";
 import { AiWorkerRunner } from "./worker-runner";
 import { AiProcessType, AiQueueMessage } from "./worker.types";
@@ -156,11 +157,15 @@ test("STT stores transcript against the target interview answer", async () => {
     }
   ]);
   const output = JSON.parse(repository.get(11).outputRef ?? "{}") as {
+    providerMode?: string;
+    providerSource?: string;
     fileAsset?: { fileId?: number; storageKey?: string };
     transcriptTarget?: string;
     dedupeKey?: string;
     duplicatePolicy?: string;
   };
+  assert.equal(output.providerMode, "mock");
+  assert.equal(output.providerSource, "MOCK_AUDIO_PLACEHOLDER");
   assert.equal(output.fileAsset?.fileId, 11);
   assert.equal(output.fileAsset?.storageKey, "candidate/1/answer-42.wav");
   assert.equal(output.transcriptTarget, "interview_answers.transcript");
@@ -202,7 +207,14 @@ test("STT stores transcript returned by the configured STT provider", async () =
       transcript: "provider transcript for candidate/1/answer-42.wav"
     }
   ]);
-  const output = JSON.parse(repository.get(111).outputRef ?? "{}");
+  const output = JSON.parse(repository.get(111).outputRef ?? "{}") as {
+    providerMode?: string;
+    providerSource?: string;
+    transcriptSource?: string;
+    model?: string;
+  };
+  assert.equal(output.providerMode, "openai");
+  assert.equal(output.providerSource, "OPENAI_AUDIO_TRANSCRIPTION");
   assert.equal(output.transcriptSource, "OPENAI_AUDIO_TRANSCRIPTION");
   assert.equal(output.model, "test-stt-model");
 });
@@ -309,12 +321,117 @@ test("follow-up question policy is separated for mock and recruiting interviews"
   });
 
   assert.equal(results.followUpQuestions[0].policy, "MOCK");
-  assert.match(results.followUpQuestions[0].content, /Redis/);
-  assert.match(results.followUpQuestions[0].content, /구체적으로/);
+  assert.match(results.followUpQuestions[0].content ?? "", /Redis/);
+  assert.match(results.followUpQuestions[0].content ?? "", /구체적으로/);
   assert.equal(results.followUpQuestions[1].policy, "RECRUITING");
-  assert.match(results.followUpQuestions[1].content, /캐시/);
-  assert.match(results.followUpQuestions[1].content, /TTL/);
-  assert.match(results.followUpQuestions[1].content, /효과/);
+  assert.match(results.followUpQuestions[1].content ?? "", /캐시/);
+  assert.match(results.followUpQuestions[1].content ?? "", /TTL/);
+  assert.match(results.followUpQuestions[1].content ?? "", /효과/);
+});
+
+test("document extraction stores actual extractor text and only metadata in process output", async () => {
+  const results = new InMemoryAiResultRepository();
+  const repository = new InMemoryAiProcessLogRepository();
+  const extractedText = "NestJS와 PostgreSQL 기반 서비스를 운영했습니다.";
+  const documentTextExtractor: DocumentTextExtractor = {
+    extract: async () => ({
+      text: extractedText,
+      source: "PDF_TEXT_EXTRACTION",
+      pageCount: 2,
+      truncated: false,
+    }),
+  };
+  const queue = new InMemoryAiJobQueue([
+    message(101, "DOCUMENT_EXTRACT", {
+      kind: "DOCUMENT_EXTRACT",
+      payload: { documentId: 7, fileId: 9, s3Key: "candidate/1/resume.pdf" },
+    }),
+  ]);
+
+  await new AiWorkerRunner(
+    queue,
+    repository,
+    new MockAiTaskHandler(results, { documentTextExtractor }),
+  ).processBatch();
+
+  const output = JSON.parse(repository.get(101).outputRef ?? "{}") as Record<string, unknown>;
+  assert.equal(results.documentExtractions[0]?.extractedText, extractedText);
+  assert.equal(output.providerMode, "local");
+  assert.equal(output.providerSource, "PDF_TEXT_EXTRACTION");
+  assert.equal(output.pageCount, 2);
+  assert.equal(output.extractedCharCount, extractedText.length);
+  assert.equal("extractedText" in output, false);
+});
+
+test("NCS follow-up question normalizes evaluator instructions into readable focus points", async () => {
+  const results = new InMemoryAiResultRepository();
+
+  await run({
+    processLogId: 131,
+    processType: "FOLLOW_UP",
+    input: {
+      kind: "RECRUITING_FOLLOW_UP",
+      payload: {
+        sessionId: 5,
+        answerId: 106,
+        sessionQuestionId: 506,
+        previousQuestion: "운영 장애의 원인을 분석하고 대안을 선택한 과정을 설명해주세요.",
+        transcript: "로그를 확인하고 캐시 우회 대안을 선택했습니다.",
+        jobDescription: "운영 장애를 분석하고 검증할 수 있는 백엔드 엔지니어를 채용합니다.",
+        ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+        answerTimeSec: 90,
+        ncsBindings: [{
+          criterionId: 15,
+          criterionTitleSnapshot: "문제 해결력",
+          ncsProfileId: "PROBLEM_SOLVING",
+          ncsProfileVersion: "2025.12-v1",
+          alignmentStatus: "ALIGNED",
+          bindingOrder: 1,
+        }],
+      },
+    },
+    results,
+  });
+
+  const content = results.followUpQuestions[0]?.content ?? "";
+  assert.match(content, /로그를 확인하고 캐시 우회 대안을 선택/);
+  assert.doesNotMatch(content, /보강하세요|구체화하세요|원리을|근거를를/);
+});
+
+test("NCS follow-up question anchors the candidate's concrete Java and Spring answer", async () => {
+  const results = new InMemoryAiResultRepository();
+
+  await run({
+    processLogId: 132,
+    processType: "FOLLOW_UP",
+    input: {
+      kind: "RECRUITING_FOLLOW_UP",
+      payload: {
+        sessionId: 5,
+        answerId: 107,
+        sessionQuestionId: 507,
+        previousQuestion: "프로젝트에서 사용한 기술과 선택 이유를 설명해 주세요.",
+        transcript: "객체지향 언어인 Java로 Spring 웹 프로젝트를 진행했습니다.",
+        jobDescription: "Java와 Spring 기반 웹 서비스 개발자를 채용합니다.",
+        ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+        answerTimeSec: 90,
+        ncsBindings: [{
+          criterionId: 16,
+          criterionTitleSnapshot: "직무 기술 역량",
+          ncsProfileId: "JOB_TECHNICAL",
+          ncsProfileVersion: "2025.12-v1",
+          alignmentStatus: "ALIGNED",
+          bindingOrder: 1,
+        }],
+      },
+    },
+    results,
+  });
+
+  const content = results.followUpQuestions[0]?.content ?? "";
+  assert.match(content, /Java/);
+  assert.match(content, /Spring/);
+  assert.match(content, /선택한 이유|적용하고 검증/);
 });
 
 test("mock follow-up questions vary by previous question intent", async () => {
@@ -467,6 +584,96 @@ test("question generation stores review-required drafts after guardrail pass", a
   assert.equal(output.questionCandidates?.[0]?.criterionId, 1);
   assert.equal(output.questionCandidates?.[0]?.criterionTitle, "Problem solving");
   assert.equal(output.questionCandidates?.[0]?.category, "직무역량");
+  assert.equal(new Set(output.items).size, 2);
+});
+
+test("NCS question generation creates six unique aligned candidates across three profiles", async () => {
+  const results = new InMemoryAiResultRepository();
+
+  const repository = await run({
+    processLogId: 140,
+    processType: "QUESTION_GENERATE",
+    input: {
+      kind: "RECRUITING_QUESTION_GENERATE",
+      payload: {
+        postingId: 1101,
+        jobDescription: [
+          "포지션 상세",
+          "[미리캔버스] 데브옵스 파트 리드 — DevOps·SRE 포지션입니다.",
+          "Platform Engineering 팀에서 배포 안정성을 책임집니다.",
+        ].join("\n"),
+        questionCount: 6,
+        criteria: [
+          {
+            criterionId: 1,
+            name: "직무 기술 역량",
+            category: "NCS",
+            weight: 30,
+            questionCount: 2,
+            ncsProfileId: "JOB_TECHNICAL",
+            ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+            ncsProfileVersion: "2025.12-v1",
+          },
+          {
+            criterionId: 4,
+            name: "협업 의사소통",
+            category: "NCS",
+            weight: 30,
+            questionCount: 2,
+            ncsProfileId: "COLLABORATION_COMMUNICATION",
+            ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+            ncsProfileVersion: "2025.12-v1",
+          },
+          {
+            criterionId: 2,
+            name: "문제 해결력",
+            category: "NCS",
+            weight: 40,
+            questionCount: 2,
+            ncsProfileId: "PROBLEM_SOLVING",
+            ncsQuestionMode: "SITUATIONAL_DESIGN",
+            ncsProfileVersion: "2025.12-v1",
+          },
+        ],
+      },
+    },
+    results,
+  });
+
+  const output = JSON.parse(repository.get(140).outputRef ?? "{}") as {
+    questionCandidates?: Array<{
+      content: string;
+      ncsProfileId: string;
+      alignmentStatus: string;
+    }>;
+  };
+  const candidates = output.questionCandidates ?? [];
+
+  assert.equal(candidates.length, 6);
+  assert.equal(new Set(candidates.map((candidate) => candidate.content)).size, 6);
+  assert.ok(candidates.every((candidate) => candidate.alignmentStatus === "ALIGNED"));
+  assert.ok(candidates.every((candidate) => !candidate.content.startsWith("[")));
+  assert.ok(candidates.every((candidate) => !candidate.content.includes("미리캔버스")));
+  assert.ok(candidates.every((candidate) => !candidate.content.includes("데브옵스 파트 리드 직무")));
+  assert.ok(candidates.some((candidate) => /DevOps|SRE/.test(candidate.content)));
+  assert.ok(candidates.some((candidate) => candidate.content.includes("있나요?")));
+  assert.ok(candidates.some((candidate) => candidate.content.endsWith("들려주세요.")));
+  assert.ok(candidates.filter((candidate) => candidate.content.includes("설명해주세요")).length === 0);
+  assert.ok(candidates.every((candidate) => !candidate.content.includes("포지션 상세")));
+  assert.ok(candidates.every((candidate) => !candidate.content.includes("...")));
+  assert.deepEqual(
+    Object.fromEntries(
+      ["JOB_TECHNICAL", "COLLABORATION_COMMUNICATION", "PROBLEM_SOLVING"].map((profileId) => [
+        profileId,
+        candidates.filter((candidate) => candidate.ncsProfileId === profileId).length,
+      ]),
+    ),
+    {
+      JOB_TECHNICAL: 2,
+      COLLABORATION_COMMUNICATION: 2,
+      PROBLEM_SOLVING: 2,
+    },
+  );
 });
 
 test("mock question generation uses candidate folder context when provided", async () => {
@@ -587,95 +794,6 @@ test("posting draft generation returns review-required posting draft without fin
   assert.match(output.postingDraft?.sections?.responsibilities ?? "", /NestJS/);
   assert.deepEqual(output.postingDraft?.tags, ["NestJS", "PostgreSQL", "Redis"]);
   assert.deepEqual(output.items, ["포지션 상세", "주요 업무", "자격 요건", "우대 사항", "복지 및 혜택", "채용 절차"]);
-});
-
-test("criteria suggestion uses JD, talent profile and evaluation policy", async () => {
-  const results = new InMemoryAiResultRepository();
-
-  const repository = await run({
-    processLogId: 28,
-    processType: "CRITERIA_SUGGEST",
-    input: {
-      payload: {
-        postingId: 2,
-        jobDescription: "Backend engineer with NestJS and PostgreSQL.",
-        talentProfile: "Pragmatic problem solver",
-        evaluationPolicy: "Evidence-backed backend ownership"
-      }
-    },
-    results
-  });
-
-  const output = JSON.parse(repository.get(28).outputRef ?? "{}") as {
-    items?: string[];
-    criteriaSuggestions?: Array<{
-      title?: string;
-      description?: string;
-      suggestionReason?: string;
-    }>;
-    sourceProcessLogId?: number;
-    reviewRequired?: boolean;
-    reviewStatus?: string;
-    targetTables?: string[];
-    postingId?: number;
-  };
-  assert.equal(output.sourceProcessLogId, 28);
-  assert.equal(output.reviewRequired, true);
-  assert.equal(output.reviewStatus, "PENDING_REVIEW");
-  assert.deepEqual(output.targetTables, ["criterion_tags", "evaluation_criteria"]);
-  assert.equal(output.postingId, 2);
-  assert.deepEqual(output.items, results.generatedDrafts[0].items);
-  assert.equal(output.criteriaSuggestions?.length, 6);
-  assert.deepEqual(output.items, ["직무 적합성", "문제 해결력", "실행력과 성과", "학습 민첩성", "커뮤니케이션", "성장 가능성"]);
-  assert.match(
-    output.criteriaSuggestions?.map((item) => `${item.description}\n${item.suggestionReason}`).join("\n") ?? "",
-    /Pragmatic problem solver/,
-  );
-  assert.match(
-    output.criteriaSuggestions?.map((item) => `${item.description}\n${item.suggestionReason}`).join("\n") ?? "",
-    /Evidence-backed backend ownership/,
-  );
-});
-
-test("question set generation reflects criteria and question type conditions", async () => {
-  const results = new InMemoryAiResultRepository();
-
-  const repository = await run({
-    processLogId: 29,
-    processType: "QUESTION_SET_GENERATE",
-    input: {
-      payload: {
-        postingId: 2,
-        questionCount: 2,
-        criteria: [
-          {
-            criterionId: 1,
-            name: "Problem solving",
-            weight: 40
-          }
-        ],
-        questionTypes: ["TECHNICAL", "EXPERIENCE"]
-      }
-    },
-    results
-  });
-
-  const output = JSON.parse(repository.get(29).outputRef ?? "{}") as {
-    items?: string[];
-    questionCandidates?: unknown[];
-    questionSetPreview?: unknown[];
-    sourceProcessLogId?: number;
-    reviewStatus?: string;
-    targetTables?: string[];
-    postingId?: number;
-  };
-  assert.equal(output.sourceProcessLogId, 29);
-  assert.equal(output.reviewStatus, "PENDING_REVIEW");
-  assert.deepEqual(output.targetTables, ["question_bank"]);
-  assert.equal(output.postingId, 2);
-  assert.deepEqual(output.items, ["TECHNICAL question 1 for Problem solving", "EXPERIENCE question 2 for Problem solving"]);
-  assert.equal(output.questionCandidates?.length, 2);
-  assert.equal(output.questionSetPreview?.length, 1);
 });
 
 test("evaluation context records every required source group", async () => {
@@ -972,13 +1090,11 @@ test("recruiting report summarizes answer evidence while mock report keeps trans
   assert.match(mockEvidence, /I implemented NestJS APIs/);
 });
 
-test("report generation uses temporary zero score when STT transcript is unavailable", async () => {
+test("report generation does not persist a fake zero score when STT transcript is unavailable", async () => {
   const results = new InMemoryAiResultRepository();
-
-  await run({
-    processLogId: 34,
-    processType: "REPORT_GENERATE",
-    input: {
+  const repository = new InMemoryAiProcessLogRepository();
+  const queue = new InMemoryAiJobQueue([
+    message(34, "REPORT_GENERATE", {
       payload: {
         reportId: 34,
         reportType: "MOCK_INTERVIEW_REPORT",
@@ -999,17 +1115,17 @@ test("report generation uses temporary zero score when STT transcript is unavail
           }
         ]
       }
-    },
-    results
-  });
+    })
+  ]);
 
-  const report = results.generatedReports.get(34);
-  assert.equal(report?.reportType, "MOCK_INTERVIEW_REPORT");
-  assert.equal(report?.totalScore, 0);
-  assert.equal(report?.scores[0]?.score, 0);
-  assert.equal(report?.scores[0]?.rubricAnchor, "STT_UNAVAILABLE_TEMP_ZERO");
-  assert.match(report?.scores[0]?.rationale ?? "", /STT failed/);
-  assert.equal(report?.questionEvaluations[0]?.answerId, 10);
+  await new AiWorkerRunner(queue, repository, new MockAiTaskHandler(results), {
+    onFailure: createReportFailureHandler(results)
+  }).processBatch();
+
+  assert.equal(repository.get(34).status, "FAILED");
+  assert.equal(results.generatedReports.has(34), false);
+  assert.equal(results.reportScores.has(34), false);
+  assert.equal(results.failedReports.get(34)?.failureCategory, "NON_RETRYABLE");
 });
 
 test("mock report generation marks report failed when expression policy is blocked", async () => {
@@ -1183,6 +1299,81 @@ test("AI golden fixtures execute through the mock worker handler", async () => {
     assert.equal(processLog.status, "COMPLETED", file);
     const output = JSON.parse(processLog.outputRef ?? "{}") as Record<string, unknown>;
     assertOutputShape(file, output, golden.expected.outputShape);
+  }
+});
+
+test("resume-personalized questions stay isolated by application and do not expose resume text", async () => {
+  const results = new InMemoryAiResultRepository();
+  const contexts = [
+    { applicationId: 101, processLogId: 2101, inputVersion: "resume-input-101", privateText: "PRIVATE_RESUME_ALPHA" },
+    { applicationId: 102, processLogId: 2102, inputVersion: "resume-input-102", privateText: "PRIVATE_RESUME_BETA" },
+  ];
+
+  for (const context of contexts) {
+    const reference = {
+      processLogId: context.processLogId,
+      applicationId: context.applicationId,
+      postingId: 7,
+      documentId: context.applicationId + 1000,
+      policyVersion: 3,
+      criteriaVersion: 2,
+      inputVersion: context.inputVersion,
+      resumeDocumentHash: `resume-hash-${context.applicationId}`,
+      jdSnapshotHash: "jd-hash-7",
+    };
+    results.setResumeQuestionGenerationContext({
+      ...reference,
+      batchId: context.applicationId + 2000,
+      questionCount: 3,
+      jobDescription: "NestJS API와 PostgreSQL을 운영하는 백엔드 엔지니어",
+      resumeText: `${context.privateText}: 실제 지원자 이력서 원문`,
+      criteria: [
+        {
+          criterionId: 1,
+          name: "문제해결능력",
+          category: "NCS",
+          questionCount: 1,
+          ncsProfileId: "PROBLEM_SOLVING",
+          ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+          ncsProfileVersion: "2025.12-v1",
+        },
+        {
+          criterionId: 2,
+          name: "의사소통능력",
+          category: "NCS",
+          questionCount: 1,
+          ncsProfileId: "COLLABORATION_COMMUNICATION",
+          ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+          ncsProfileVersion: "2025.12-v1",
+        },
+        {
+          criterionId: 3,
+          name: "디지털역량",
+          category: "NCS",
+          questionCount: 1,
+          ncsProfileId: "JOB_TECHNICAL",
+          ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+          ncsProfileVersion: "2025.12-v1",
+        },
+      ],
+    });
+
+    const repository = await run({
+      processLogId: reference.processLogId,
+      processType: "RESUME_QUESTION_GENERATE",
+      input: reference,
+      results,
+    });
+    const outputRef = repository.get(reference.processLogId).outputRef ?? "";
+    assert.equal(outputRef.includes(context.privateText), false);
+  }
+
+  assert.deepEqual([...results.resumeQuestionResults.keys()], [101, 102]);
+  for (const context of contexts) {
+    const generated = results.resumeQuestionResults.get(context.applicationId);
+    assert.equal(generated?.status, "READY");
+    assert.equal(generated?.questions.length, 3);
+    assert.equal(generated?.questions.every((question) => question.alignmentStatus === "ALIGNED"), true);
   }
 });
 

@@ -84,7 +84,7 @@ test("question provider applies contextual punctuation to generated candidates",
   assert.equal(result.questionCandidates[0]?.content, "구체적인 사례를 들어 설명해 주세요.");
 });
 
-test("follow-up provider keeps its first-line behavior and applies contextual punctuation", async () => {
+test("follow-up provider keeps its first-line behavior, anchors the answer, and applies contextual punctuation", async () => {
   const provider = new OpenAiFollowUpProvider("test-key", "test-model");
   Object.defineProperty(provider, "client", {
     value: openAiClientReturning("답변에서 언급한 선택 이유를 설명해 주세요.?\n추가 문장")
@@ -96,7 +96,10 @@ test("follow-up provider keeps its first-line behavior and applies contextual pu
     transcript: "NestJS를 사용했습니다."
   });
 
-  assert.equal(result.content, "답변에서 언급한 선택 이유를 설명해 주세요.");
+  assert.equal(
+    result.content,
+    '답변에서 "NestJS를 사용했습니다."라고 말씀하셨는데, 답변에서 언급한 선택 이유를 설명해 주세요.',
+  );
 });
 
 test("question and follow-up prompts distinguish direct questions from answer requests", async () => {

@@ -7,6 +7,7 @@ assert.equal(candidateApiRoutes.jobDetail, "jobs/:jobId");
 assert.equal(candidateApiRoutes.applyView, "jobs/:jobId/apply");
 assert.equal(candidateApiRoutes.submitApplication, "jobs/:jobId/applications");
 assert.equal(candidateApiRoutes.applications, "applications");
+assert.equal(candidateApiRoutes.cancelApplication, "applications/:applicationId/cancel");
 assert.equal(candidateApiRoutes.demoApplicationResetUnlock, "demo-tools/applications/unlock");
 assert.equal(candidateApiRoutes.demoApplicationsReset, "demo-tools/applications");
 assert.equal(candidateApiRoutes.demoApplicationReset, "demo-tools/applications/:applicationId");

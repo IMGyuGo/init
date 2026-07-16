@@ -10,13 +10,13 @@ import type {
   CreateInterviewQuestionResult,
   EvaluationCriteriaResult,
   GenerateInterviewQuestionsInput,
-  GenerateQuestionSetInput,
   InterviewSettings,
-  SuggestEvaluationCriteriaInput,
   UpdateInterviewQuestionInput,
   UpdateEvaluationCriteriaInput,
   UpdateInterviewTimePolicyInput,
   UpdateInterviewTimePolicyResult,
+  UpdateQuestionGenerationPolicyInput,
+  UpdateQuestionGenerationPolicyResult,
 } from "./types";
 import { authFetch } from "../../api/client";
 import { getApiBaseUrl } from "../../api/api-base-url";
@@ -37,13 +37,6 @@ export async function createCriterionTag(input: CreateCriterionTagInput) {
 export async function updateEvaluationCriteria(input: UpdateEvaluationCriteriaInput) {
   return request<EvaluationCriteriaResult>("/company/interviews/evaluation-criteria", {
     method: "PATCH",
-    body: input,
-  });
-}
-
-export async function suggestEvaluationCriteria(input: SuggestEvaluationCriteriaInput) {
-  return request<AiJobResult>("/company/interviews/evaluation-criteria/suggest", {
-    method: "POST",
     body: input,
   });
 }
@@ -75,15 +68,15 @@ export async function updateInterviewTimePolicy(input: UpdateInterviewTimePolicy
   });
 }
 
-export async function generateInterviewQuestions(input: GenerateInterviewQuestionsInput) {
-  return request<AiJobResult>("/company/interviews/questions/generate", {
-    method: "POST",
+export async function updateQuestionGenerationPolicy(input: UpdateQuestionGenerationPolicyInput) {
+  return request<UpdateQuestionGenerationPolicyResult>("/company/interviews/question-generation-policy", {
+    method: "PATCH",
     body: input,
   });
 }
 
-export async function generateQuestionSet(input: GenerateQuestionSetInput) {
-  return request<AiJobResult>("/company/interviews/question-sets", {
+export async function generateInterviewQuestions(input: GenerateInterviewQuestionsInput) {
+  return request<AiJobResult>("/company/interviews/questions/generate", {
     method: "POST",
     body: input,
   });

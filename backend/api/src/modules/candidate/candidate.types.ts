@@ -407,6 +407,36 @@ export interface StartInterviewResult {
   startedAt: string;
 }
 
+export type InterviewQuestionSnapshotReadiness =
+  | "READY"
+  | "COMMON_QUESTIONS_NOT_READY"
+  | "PERSONALIZED_QUESTIONS_NOT_READY"
+  | "NCS_QUESTION_COVERAGE_INVALID"
+  | "NCS_SNAPSHOT_INVALID";
+
+export interface InterviewNcsCoverageCount {
+  ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
+  requiredQuestionCount: number;
+  actualQuestionCount: number;
+}
+
+export interface InterviewQuestionSnapshotResult {
+  readiness: InterviewQuestionSnapshotReadiness;
+  applicationId: number;
+  postingId: number;
+  sessionId: number | null;
+  snapshotCreated: boolean;
+  commonQuestionCount: number;
+  personalizedQuestionCount: number;
+  totalQuestionCount: number;
+  expectedCommonQuestionCount: number;
+  expectedPersonalizedQuestionCount: number;
+  policyVersion: number;
+  criteriaVersion: number;
+  ncsCoverage?: InterviewNcsCoverageCount[];
+  snapshotValidationErrors?: string[];
+}
+
 export interface CandidateInterviewRuntimeView {
   applicationId: number;
   sessionId: number;
@@ -431,6 +461,12 @@ export interface ApplicationSubmissionResult {
   documents: ApplicationDocument[];
   consents: ConsentRecord[];
   portfolioLink?: PortfolioLink;
+}
+
+export interface CancelApplicationResult {
+  applicationId: number;
+  applicationStatus: "CANCELED";
+  canceledAt: string;
 }
 
 export interface CandidateDemoApplicationResetRepositoryResult {
@@ -464,6 +500,8 @@ export interface CandidateRepository {
   findInterviewSession(sessionId: number): Promise<InterviewSession | undefined>;
   findInterviewSessionByApplication(applicationId: number): Promise<InterviewSession | undefined>;
   ensureInterviewSessionByApplication(applicationId: number): Promise<InterviewSession | undefined>;
+  cancelApplication(applicationId: number): Promise<Application | undefined>;
+  prepareInterviewSessionQuestionSnapshot(applicationId: number): Promise<InterviewQuestionSnapshotResult | undefined>;
   saveDeviceCheck(sessionId: number, deviceCheck: Omit<InterviewDeviceCheck, "status" | "checkedAt">): Promise<InterviewSession>;
   updateApplicationInterviewStatus(applicationId: number, status: InterviewStatus): Promise<Application>;
   updateApplicationReportStatus(applicationId: number, status: ReportStatus): Promise<Application>;

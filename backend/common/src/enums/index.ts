@@ -55,6 +55,7 @@ export const AI_PROCESS_TYPES = [
   "GUARDRAIL_VALIDATE",
   "CRITERIA_SUGGEST",
   "QUESTION_GENERATE",
+  "RESUME_QUESTION_GENERATE",
   "QUESTION_SET_GENERATE",
   "POSTING_DRAFT_GENERATE",
 ] as const;
@@ -62,6 +63,18 @@ export type AiProcessType = (typeof AI_PROCESS_TYPES)[number];
 
 export const AI_PROCESS_STATUSES = ["PENDING", "RUNNING", "COMPLETED", "FAILED"] as const;
 export type AiProcessStatus = (typeof AI_PROCESS_STATUSES)[number];
+
+export const RESUME_QUESTION_GENERATION_STATUSES = [
+  "DISABLED",
+  "WAITING_APPLICATION",
+  "WAITING_DOCUMENT",
+  "GENERATING",
+  "READY",
+  "REVIEW_REQUIRED",
+  "FAILED",
+  "STALE",
+] as const;
+export type ResumeQuestionGenerationStatus = (typeof RESUME_QUESTION_GENERATION_STATUSES)[number];
 
 export const GUARDRAIL_RESULTS = ["PASS", "BLOCKED", "REGENERATED"] as const;
 export type GuardrailResult = (typeof GUARDRAIL_RESULTS)[number];

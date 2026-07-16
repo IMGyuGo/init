@@ -26,6 +26,8 @@
 
 도메인별 데이터 소유권과 주요 필드를 정리한다.
 
+NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recruiting-question-generation.md](./ncs-recruiting-question-generation.md)를 따른다. 해당 문서의 신규 table/column은 표에 지정된 milestone의 Prisma·SQL migration 전까지 물리 구현 baseline이 아니다.
+
 ## Implementation Naming Baseline
 
 구현 시작 이후 팀별 이름 충돌을 줄이기 위해 DB, Prisma, TypeScript 코드에서 사용할 이름을 아래처럼 고정한다.
@@ -51,15 +53,24 @@
 | `criterion_tags` | `CriterionTag` | C |
 | `evaluation_criteria` | `EvaluationCriterion` | C |
 | `question_bank` | `Question` | C |
+| `question_ncs_bindings` | `QuestionNcsBinding` | C/E |
 | `interview_time_policies` | `InterviewTimePolicy` | C |
 | `applications` | `Application` | B/D |
 | `application_documents` | `ApplicationDocument` | D/E |
 | `consent_records` | `ConsentRecord` | D |
 | `interview_sessions` | `InterviewSession` | D/E |
+| `interview_session_ncs_policies` | `InterviewSessionNcsPolicy` | D/E |
 | `interview_session_questions` | `InterviewSessionQuestion` | D/E |
+| `application_question_ncs_bindings` | `ApplicationQuestionNcsBinding` | C/E |
+| `session_question_ncs_bindings` | `SessionQuestionNcsBinding` | D/E |
 | `interview_answers` | `InterviewAnswer` | D/E |
 | `follow_up_questions` | `FollowUpQuestion` | E |
 | `evaluation_reports` | `EvaluationReport` | E |
+| `ncs_answer_evaluations` | `NcsAnswerEvaluation` | E |
+| `ncs_answer_evaluation_evidences` | `NcsAnswerEvaluationEvidence` | E |
+| `answer_fact_check_runs` | `AnswerFactCheckRun` | E |
+| `answer_fact_check_claims` | `AnswerFactCheckClaim` | E |
+| `answer_fact_check_evidences` | `AnswerFactCheckEvidence` | E |
 | `report_scores` | `ReportScore` | E |
 | `report_evidences` | `ReportEvidence` | E |
 | `manual_evaluations` | `ManualEvaluation` | B/E |
@@ -70,15 +81,25 @@
 
 `question_bank`는 DB table 이름만 유지하고 Prisma model은 `Question`으로 둔다. row 하나가 질문 한 건이기 때문이다. `evaluation_criteria`의 Prisma model은 복수형 `EvaluationCriteria`가 아니라 단수형 `EvaluationCriterion`이다. `ai_*` 계열 class/model 이름은 TypeScript 관례에 맞춰 `AiProcessLog`, `AiGuardrailLog`처럼 쓴다.
 
+### NQ-M0 Planned Naming
+
+아래 이름은 계약 단계에서 고정한 logical target이다. 각 Physical Milestone 전에는 ERDCloud SQL이나 Prisma schema에 존재한다고 가정하지 않는다.
+
+| DB Table | Prisma Model | Primary Owner | Physical Milestone |
+| --- | --- | --- | --- |
+| `interview_question_generation_policies` | `InterviewQuestionGenerationPolicy` | C | NQ-M1 |
+| `application_interview_question_batches` | `ApplicationInterviewQuestionBatch` | E | NQ-M3 |
+| `application_interview_questions` | `ApplicationInterviewQuestion` | E | NQ-M3 |
+
 ## Aggregates
 
 | Aggregate | Owned Tables | Responsibility |
 | --- |--- |--- |
 | Account | users, companies, candidate_profiles, candidate_educations, candidate_careers, candidate_activities, candidate_credentials | 로그인 계정, 기업/지원자 구조화 프로필, 기본 파일 참조 |
-| Recruiting | postings, criterion_tags, evaluation_criteria, question_bank, interview_time_policies | 공고, JD, 평가 기준, 질문, 면접 시간 정책 관리 |
+| Recruiting | postings, criterion_tags, evaluation_criteria, question_bank, question_ncs_bindings, application_question_ncs_bindings, interview_time_policies | 공고, JD, 평가 기준, 질문, 면접 시간 정책 관리 |
 | Application | applications, application_documents, consent_records | 지원서 제출, 서류 파싱, 동의 이력 |
-| Interview | interview_sessions, interview_session_questions, interview_answers, follow_up_questions | 모의/채용 AI 면접 실행, 세션별 질문 순서와 답변 |
-| Report | evaluation_reports, report_scores, report_evidences, manual_evaluations | AI 평가 결과와 면접관 검토 |
+| Interview | interview_sessions, interview_session_ncs_policies, interview_session_questions, session_question_ncs_bindings, interview_answers, follow_up_questions | 모의/채용 AI 면접 실행, 세션별 시간·가중치 정책과 질문 순서·profile snapshot, 답변 |
+| Report | evaluation_reports, ncs_answer_evaluations, ncs_answer_evaluation_evidences, answer_fact_check_runs, answer_fact_check_claims, answer_fact_check_evidences, report_scores, report_evidences, manual_evaluations | 답변·profile별 NCS 평가, 점수와 분리된 사실 검증, exact evidence, AI 집계 결과와 면접관 검토 |
 | AI Infra | ai_process_logs, ai_guardrail_logs, embeddings | AI 처리 상태, 안전성 검증, 검색/추천 |
 | Notification/File | notifications, file_assets | 알림과 업로드 파일 메타데이터 |
 
@@ -314,7 +335,9 @@
 질문 세트 런타임 소비 정책:
 
 - D 담당 채용 면접 런타임은 세션 생성 시 공고의 `ACTIVE` 질문 세트가 있으면 `interview_question_set_items.sort_order` 순서로 질문을 소비한다.
-- `ACTIVE` 질문 세트가 없으면 기존 공고별 활성 `question_bank` 질문을 사용한다.
+- LEGACY 공고에서 `ACTIVE` 질문 세트가 없으면 기존 공고별 활성 `question_bank` 질문을 사용할 수 있다.
+- `NCS_3_PROFILE_V1` 공고는 `ACTIVE` 질문 세트가 필수다. 세트에는 `JD_CRITERIA`, `ALIGNED`, canonical 1~2 binding 조건을 만족한 질문만 들어가며 legacy/seed 질문을 자동 혼합하지 않는다.
+- NCS 질문 세트 확정 시 canonical profile별 binding이 최소 2개인지 검증한다.
 - 세션 생성 이후 질문 세트 변경은 이미 생성된 세션에 소급 적용하지 않는다.
 
 ### interview_time_policies
@@ -388,8 +411,27 @@
 | status | VARCHAR(40) NOT NULL | 면접 상태: NOT_READY, READY, IN_PROGRESS, COMPLETED, FAILED |
 | title | VARCHAR(100) | 연습(모의면접) 세션 사용자 지정 제목. NULL이면 기본 '세션 #N' 표기 |
 | show_question_text | BOOLEAN NOT NULL DEFAULT FALSE | 면접 질문 텍스트 표시 여부 |
+| preparation_time_sec_snapshot | INTEGER | 세션 확정 당시 준비 시간. legacy 세션은 NULL |
+| answer_time_sec_snapshot | INTEGER | 세션 확정 당시 본 질문·꼬리질문 공통 답변 시간. legacy 세션은 NULL |
+| retry_allowed_snapshot | BOOLEAN | 세션 확정 당시 재답변 허용 여부. legacy 세션은 NULL |
+| ncs_scoring_version | VARCHAR(80) | 세션에 고정한 NCS 점수 계산 계약 version. legacy 세션은 NULL |
 | started_at | TIMESTAMP | 면접 시작 시각 |
 | completed_at | TIMESTAMP | 면접 완료 시각 |
+
+### interview_session_ncs_policies
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| session_id | BIGINT NOT NULL | 연결된 면접 세션 FK |
+| ncs_profile_id | VARCHAR(50) NOT NULL | canonical NCS profile ID |
+| criterion_id | BIGINT | 세션 확정 당시 평가 기준 FK. 삭제 시 NULL 허용 |
+| criterion_title_snapshot | VARCHAR(200) NOT NULL | 세션 확정 당시 평가 기준 표시명 |
+| weight | INTEGER NOT NULL | 세션에 고정한 profile 가중치. 세 profile 합계 100 |
+| minimum_average_score | DECIMAL(5,2) NOT NULL DEFAULT 3 | profile 최소 통과 평균 |
+| required_question_count | INTEGER NOT NULL DEFAULT 2 | profile별 최소 base question 수 |
+| ncs_profile_version | VARCHAR(80) NOT NULL | profile version snapshot |
+
+`(session_id, ncs_profile_id)`를 PK로 사용한다. NCS 세션을 확정할 때 canonical profile 세 개를 각각 한 행씩 저장하고 가중치 합계 100, profile별 연결 문항 최소 2개를 같은 transaction에서 검증한다. 세션 시작 이후 평가 기준·가중치·시간 정책 원본 변경은 이 snapshot에 소급하지 않는다. legacy 세션은 정책 행이 없을 수 있으며 평가 시 임의 기본값을 채우지 않고 `INCOMPLETE`로 처리한다.
 
 ### interview_session_questions
 
@@ -397,14 +439,39 @@
 | --- |--- |--- |
 | session_question_id | BIGINT PRIMARY KEY | 세션 질문 행 PK |
 | session_id | BIGINT NOT NULL | 연결된 면접 세션 FK |
-| question_id | BIGINT | 기업 `question_bank` 질문을 사용할 때의 FK. 개인 모의면접 런타임 질문은 NULL |
-| runtime_question_id | BIGINT | API에서 사용하는 질문 ID. 개인 런타임 질문 전용 시퀀스에서 발급해 기업 질문 ID와 분리 |
-| question_type | VARCHAR(40) | 개인 모의면접 런타임 질문 유형 |
-| content | TEXT | 개인 모의면접 런타임 질문 본문. 지원서 원문 전체가 아니라 제한된 컨텍스트로 만든 질문만 저장 |
+| question_id | BIGINT | 기업 `question_bank` 질문 원본 FK. 개인 질문은 NULL |
+| personalized_question_id | BIGINT | `application_interview_questions` 개인화 질문 원본 FK. 공통/legacy 질문은 NULL |
+| runtime_question_id | BIGINT | API에서 사용하는 session 전용 질문 ID. NCS 공통·개인화 질문과 개인 모의면접 질문에 발급 |
+| criterion_id | BIGINT | 생성 당시 평가 기준 FK. 삭제 시 NULL 허용 |
+| criterion_title_snapshot | VARCHAR(200) | 생성 당시 평가 기준 표시명 snapshot |
+| generation_source | VARCHAR(50) | `JD_CRITERIA`, `RESUME_PERSONALIZED`; legacy는 NULL |
+| question_type | VARCHAR(40) | session 질문 유형 snapshot |
+| content | TEXT | session 질문 본문 snapshot. 지원서 원문 전체는 저장하지 않음 |
+| ncs_profile_id | VARCHAR(50) | NCS profile snapshot |
+| ncs_question_mode | VARCHAR(50) | NCS question mode snapshot |
+| ncs_profile_version | VARCHAR(80) | NCS profile version snapshot |
+| alignment_status | VARCHAR(40) | 세션 확정 시 정렬 상태 |
+| alignment_score | DECIMAL(8,6) | 세션 확정 시 정렬 점수 |
+| alignment_reason | TEXT | 세션 확정 시 정렬 사유 |
+| evaluator_version | VARCHAR(80) | 정렬 adapter version snapshot |
+| policy_version | INTEGER | 세션 생성 당시 질문 정책 version |
+| criteria_version | INTEGER | 세션 생성 당시 평가 기준 version |
 | sort_order | INTEGER NOT NULL | 세션 안의 질문 표시 순서 |
 | created_at | TIMESTAMP NOT NULL | 세션 질문 연결 생성 시각 |
 
-`(session_id, sort_order)`는 unique다. 기업 질문은 `question_id`를 참조하고, 지원자 개인 모의면접 질문은 `question_id=NULL`과 자체 `runtime_question_id`, `question_type`, `content`를 사용한다. 세션 삭제 시 런타임 질문도 함께 삭제한다.
+`(session_id, sort_order)`와 `runtime_question_id`는 unique다. NCS 채용 질문은 `question_id`와 `personalized_question_id` 중 정확히 하나를 원본으로 가지며 session 전용 `runtime_question_id`, 본문·유형·NCS metadata snapshot을 사용한다. 공통 질문을 먼저, 개인화 질문을 다음에 저장하고 세션 생성 이후 원본 변경을 소급하지 않는다. 세션 삭제 시 snapshot도 함께 삭제한다.
+
+### NCS question binding tables
+
+세 binding table은 기존 singular `ncs_profile_id`를 제거하지 않고 확장한다. 신규 row는 canonical profile ID만 저장하고 `binding_order`는 1 또는 2다.
+
+| Table | Parent key | Criterion | Snapshot fields | Delete behavior |
+| --- | --- | --- | --- | --- |
+| `question_ncs_bindings` | `question_id` | `criterion_id` 필수 | profile/version, alignment status/score/reason, evaluator version | 질문 삭제 시 CASCADE, 기준 삭제 RESTRICT |
+| `application_question_ncs_bindings` | `personalized_question_id` | `criterion_id` nullable | profile/version, alignment status/score/reason, evaluator version | 질문 삭제 시 CASCADE, 기준 삭제 SET NULL |
+| `session_question_ncs_bindings` | `session_question_id` | `criterion_id` nullable | criterion title, profile/version, alignment status/score/reason, evaluator version | 세션 질문 삭제 시 CASCADE, 기준 삭제 SET NULL |
+
+각 table은 `(parent_id, ncs_profile_id)`를 PK로 사용하고 `(parent_id, binding_order)`를 unique로 둔다. PostgreSQL은 parent별 row count 2 이하를 check constraint 하나로 보장할 수 없으므로 M2/M3/M4의 write boundary가 길이 1~2와 profile 중복을 검증한다.
 
 ### interview_answers
 
@@ -420,15 +487,30 @@
 | duration_seconds | INTEGER | 답변 시간 초 단위 |
 | submitted_at | TIMESTAMP | 답변 제출 시각 |
 
+채용면접 런타임에서 `interview_session_questions.sort_order`와 `interview_answers`가 진행 상태의 정본이다. 일반 답변 저장은 세션 질문 단위로 멱등 처리하며, 동일 질문의 재전송은 최초 답변을 그대로 반환한다. 명시적 재답변만 기존 답변 행을 갱신한다. 현재 질문 index는 별도 클라이언트 cursor로 확정하지 않고, 저장된 답변이 없는 첫 세션 질문을 매 조회·전환 시 계산한다. 따라서 API 재시작, 응답 유실, 중복 다음 질문 요청 이후에도 질문을 건너뛰지 않는다. 답변 저장 transaction과 first-unanswered 계산 사이에는 AI process 상태를 전제조건으로 두지 않는다.
+
+STT와 재답변 상태는 별도 컬럼을 추가하지 않고 `interview_answers.submitted_at`과 해당 답변을 참조하는 `ai_process_logs`의 STT 기록으로 계산한다. 최초 `REANSWER_REQUIRED`가 현재 제출 이후 발생하면 재답변 가능, 두 번째 발생이면 인식 불가 확정이다. 재답변은 같은 answer row의 파일, transcript, `submitted_at`을 갱신하므로 새로고침과 API 재시작 이후에도 사용 여부를 복원할 수 있다. `STT_RETRYABLE` 자동 재시도와 provider 실패는 이 횟수에 포함하지 않는다.
+
 ### follow_up_questions
 
 | Column | Definition | Description |
 | --- |--- |--- |
 | follow_up_id | BIGINT PRIMARY KEY | 꼬리질문 PK |
 | answer_id | BIGINT NOT NULL | 어떤 답변에서 파생된 꼬리질문인지 |
-| content | TEXT NOT NULL | 꼬리질문 내용 |
-| generation_status | VARCHAR(40) NOT NULL | 생성 상태: PENDING, GENERATED, FAILED |
+| source_session_question_id | BIGINT | 원본 base session question FK. 정식 M4 기록은 필수이며 과거 매핑 불가 row만 NULL 허용 |
+| inserted_session_question_id | BIGINT | 실제 세션에 추가된 private FOLLOW_UP question FK |
+| content | TEXT NOT NULL | 생성된 꼬리질문. 불필요 판정이면 빈 문자열 |
+| generation_status | VARCHAR(40) NOT NULL | READY, INSERTED, SKIPPED |
+| policy | VARCHAR(40) NOT NULL | MOCK, RECRUITING |
+| reason | VARCHAR(40) | NCS_EVIDENCE_GAP, FACT_CLARIFICATION, GENERAL_EVIDENCE_GAP |
+| skip_reason | VARCHAR(50) | NOT_REQUIRED, SESSION_NOT_IN_PROGRESS |
+| question_mode | VARCHAR(50) | 원본 base question의 NCS question mode snapshot |
+| answer_time_sec | INTEGER | 세션 확정 당시 꼬리질문 답변 제한 시간 snapshot |
+| inserted_at | TIMESTAMP | private session question 승격 시각 |
 | created_at | TIMESTAMP NOT NULL | 생성 시각 |
+| updated_at | TIMESTAMP NOT NULL | 상태 갱신 시각 |
+
+`(answer_id, policy)`는 unique이며 base 답변 하나당 꼬리질문 결정은 최대 한 번만 저장한다. `INSERTED` 전이는 worker guardrail 통과 결과 저장 transaction에서 원본 `interview_session_questions.sort_order` 바로 다음 순서 확보와 private runtime question 생성을 함께 처리한다. 원본보다 뒤에 있는 질문은 같은 transaction에서 한 칸씩 이동하며 상대 순서는 유지한다. 추가 질문은 `question_bank`에 등록하지 않고 해당 세션의 private runtime question으로만 저장하며, 원본 질문의 canonical `session_question_ncs_bindings` 1~2개를 같은 transaction에서 복제한다. NCS 근거와 fact clarification이 동시에 필요하면 질문은 하나만 만들고 `FACT_CLARIFICATION`을 우선 사유로 저장한다. `SKIPPED`는 질문을 생성하지 않으며 worker 실패·timeout은 이 테이블의 판정으로 변환하지 않고 `ai_process_logs` 실패 상태를 유지한다.
 
 ### evaluation_reports
 
@@ -441,6 +523,13 @@
 | status | VARCHAR(40) NOT NULL | 리포트 상태: PENDING, GENERATING, COMPLETED, FAILED |
 | total_score | INTEGER | 총점 |
 | summary | TEXT | 리포트 요약 |
+| ncs_completion_status | VARCHAR(40) | NCS 평가 완료 상태: COMPLETE, INCOMPLETE |
+| ncs_threshold_result | VARCHAR(40) | MEETS_THRESHOLD, BELOW_THRESHOLD, INCOMPLETE |
+| ncs_ai_decision | VARCHAR(20) | AI 추천 판정: PASS, FAIL. 실제 applications.screening_decision과 별도 |
+| ncs_decision_reason_code | VARCHAR(80) | threshold 또는 평가 미완료 판정 사유 |
+| ncs_scoring_version | VARCHAR(80) | NCS 점수 계산 계약 version |
+| ncs_decision_policy_version | VARCHAR(80) | NCS 판정 정책 version |
+| ncs_summary_json | JSONB | finding, notice, incomplete reason 표시 snapshot. 점수 정본으로 사용 금지 |
 | generated_at | TIMESTAMP | 리포트 생성 시각 |
 | failure_category | VARCHAR(40) | 실패 구분: RETRYABLE, NON_RETRYABLE |
 | failure_reason | TEXT | 실패 사유. 재시도 가능 여부와 함께 화면/운영 로그에 사용 |
@@ -452,8 +541,128 @@
 | score_id | BIGINT PRIMARY KEY | 평가 항목별 점수 PK |
 | report_id | BIGINT NOT NULL | 연결된 리포트 FK |
 | criterion_id | BIGINT | 평가 기준 FK |
-| score | INTEGER NOT NULL | 점수 |
+| score | INTEGER | legacy 점수. NCS profile 집계 row에서는 canonical NCS 필드를 사용하며 미완료를 0으로 채우지 않음 |
 | rationale | TEXT | 평가 사유 |
+| ncs_profile_id | VARCHAR(50) | NCS profile별 집계 row 식별자 |
+| average_score | DECIMAL(5,2) | 유효 질문의 profile 평균 0~5 |
+| normalized_score | INTEGER | average_score를 0~100으로 정규화한 값 |
+| weight | INTEGER | 세션 시작 시 snapshot한 profile 가중치 |
+| weighted_score | DECIMAL(5,2) | normalized_score에 weight를 적용한 점수 |
+| minimum_average_score | DECIMAL(5,2) | profile 최소 통과 평균. V1 기본값 3 |
+| assigned_question_count | INTEGER | 세션에 배정된 profile 질문 수 |
+| valid_question_count | INTEGER | SCORED 상태로 평균에 포함된 질문 수 |
+
+NCS 리포트의 `report_scores`에는 `ncs_answer_evaluations.score_status=SCORED`인 답변만 profile별로 평균 집계한다. 평가 불충분·미정렬·차단 결과는 0점으로 만들지 않는다.
+
+NCS profile 집계 row는 `(report_id, ncs_profile_id)`를 unique key로 사용한다. profile이 불완전하면 `average_score`, `normalized_score`, `weighted_score`는 NULL로 유지하고 배정·유효 문항 수는 그대로 저장한다.
+
+최종 NCS 평가 target model은 공통 질문, 개인화 질문, 세션 질문에 각각 1~2개의 profile binding 관계를 둔다. `question_ncs_bindings`, `application_question_ncs_bindings`, `session_question_ncs_bindings`를 사용하며 세션 binding은 원본 변경이 소급되지 않는 snapshot이다. 세션 확정 시 canonical profile `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING`마다 scoring base question이 최소 2개인지 검증한다.
+
+### ncs_answer_evaluations
+
+| Column | Definition | Description |
+| --- |--- |--- |
+| ncs_evaluation_id | BIGINT PRIMARY KEY | 답변별 NCS 평가 PK |
+| report_id | BIGINT NOT NULL | 평가 리포트 FK |
+| answer_id | BIGINT NOT NULL | 평가한 base 답변 FK |
+| session_question_id | BIGINT NOT NULL | 평가 질문 snapshot FK |
+| criterion_id | BIGINT | 평가 기준 FK. 기준 삭제 후 snapshot 보존을 위해 NULL 가능 |
+| criterion_title_snapshot | VARCHAR(200) NOT NULL | 평가 당시 기준명 |
+| ncs_profile_id | VARCHAR(50) NOT NULL | NCS profile snapshot |
+| ncs_question_mode | VARCHAR(50) NOT NULL | NCS question mode snapshot |
+| ncs_profile_version | VARCHAR(80) NOT NULL | NCS profile version |
+| score_status | VARCHAR(40) NOT NULL | SCORED, INSUFFICIENT_INPUT, LOW_ALIGNMENT, BLOCKED |
+| competency_score | INTEGER | legacy 0~100 역량 진단. 신규 0~5 평가 row에서는 NULL 허용, SCORED가 아니면 NULL |
+| evidence_score | INTEGER | legacy 0~100 수행 근거 진단. 신규 0~5 평가 row에서는 NULL 허용, SCORED가 아니면 NULL |
+| total_score | INTEGER | legacy 0~100 총점. 신규 0~5 평가 row에서는 NULL 허용, SCORED가 아니면 NULL |
+| behavior_points | INTEGER | 원답의 NCS 행동 포인트 0~3. SCORED가 아니면 NULL |
+| logic_points | INTEGER | 원답의 질문 유형별 논리 구조 포인트 0~2. SCORED가 아니면 NULL |
+| base_score | INTEGER | 원답 점수 0~5. SCORED가 아니면 NULL |
+| effective_score | INTEGER | 꼬리답변 보강 반영 점수 0~5. SCORED가 아니면 NULL |
+| follow_up_applied | BOOLEAN NOT NULL DEFAULT FALSE | 꼬리답변 보강 적용 여부 |
+| coverage | DECIMAL(8,6) NOT NULL | 질문/profile 정렬 coverage |
+| confidence | VARCHAR(20) NOT NULL | HIGH, MEDIUM, LOW |
+| rubric_version | VARCHAR(80) NOT NULL | 점수 rubric version |
+| prompt_version | VARCHAR(100) NOT NULL | prompt contract version |
+| provider_mode | VARCHAR(20) NOT NULL | mock, openai |
+| model_name | VARCHAR(120) | 실제 provider model |
+| result_json | JSONB NOT NULL | competencies, evidence maturity, growth, guardrail canonical output |
+| created_at | TIMESTAMP NOT NULL | 최초 평가 시각 |
+| updated_at | TIMESTAMP NOT NULL | 최종 평가 갱신 시각 |
+
+신규 정본 unique key는 `(report_id, answer_id, ncs_profile_id)`다. `SCORED`이면 신규 0~5 점수 필드가 범위 안에 있고, 나머지 상태이면 신규 점수 필드는 모두 NULL인 check constraint를 둔다. 기존 0~100 세 점수는 evaluator 상세 진단과 migration 호환용이며 최종 NCS 채용 점수에는 사용하지 않는다.
+
+`ncs_answer_evaluation_evidences`는 평가 row, source answer, `BASE | FOLLOW_UP`, exact quote와 순서를 저장한다. 원답과 꼬리답변을 하나의 문자열로 덮어쓰지 않는다. profile 평균과 가중 점수는 `report_scores`, 전체 threshold result와 임시 AI decision은 `evaluation_reports`에 저장한다. `ncs_summary_json`은 finding과 notice를 위한 display snapshot일 뿐 점수 재계산의 입력으로 사용하지 않는다. 정본 계산·판정 계약은 [`ncs-final-evaluation.md`](../03_contracts/ncs-final-evaluation.md), API 출력 계약은 [`ncs-report-output-contract.md`](../03_contracts/ncs-report-output-contract.md)를 따른다.
+
+### ncs_answer_evaluation_evidences
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| evidence_id | BIGINT PRIMARY KEY | NCS exact evidence PK |
+| ncs_evaluation_id | BIGINT NOT NULL | 답변·profile 평가 row FK |
+| source_answer_id | BIGINT NOT NULL | quote가 실제로 나온 원답 또는 꼬리답변 FK |
+| source_kind | VARCHAR(20) NOT NULL | BASE, FOLLOW_UP |
+| quote | TEXT NOT NULL | 원문에서 검증된 비어 있지 않은 exact quote |
+| sort_order | INTEGER NOT NULL | 같은 source answer 안의 근거 순서, 1 이상 |
+
+기존 `result_json`에서 source answer를 확정할 수 없는 근거는 migration이 추측하여 이 table로 옮기지 않는다. M4 이후 새 평가부터 source answer가 검증된 row만 저장한다.
+
+### answer_fact_check_runs
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| fact_check_run_id | BIGINT PRIMARY KEY | 답변 사실 검증 실행 PK |
+| report_id | BIGINT NOT NULL | 평가 리포트 FK |
+| answer_id | BIGINT NOT NULL | 검증한 base 답변 FK |
+| follow_up_answer_id | BIGINT | 합산 재검증에 사용한 꼬리답변 FK |
+| input_composition_version | VARCHAR(50) NOT NULL | BASE_ONLY_V1, BASE_FOLLOW_UP_V1 |
+| provider_status | VARCHAR(40) NOT NULL | COMPLETED, FAILED, TIMEOUT, INVALID_OUTPUT |
+| gate_status | VARCHAR(40) | PASS_THROUGH, CLARIFICATION_CANDIDATE, FACT_CHECK_REQUIRED. provider 실패면 NULL |
+| provider_mode | VARCHAR(20) NOT NULL | mock, openai |
+| model_version | VARCHAR(120) NOT NULL | 실행에 사용한 provider model |
+| prompt_version | VARCHAR(100) NOT NULL | strict prompt contract version |
+| knowledge_snapshot_version | VARCHAR(100) NOT NULL | provider에 전달한 지식 snapshot 버전 |
+| policy_version | VARCHAR(100) NOT NULL | deterministic gate policy 버전 |
+| failure_reason | TEXT | provider 실패 또는 invalid output 사유 |
+| started_at | TIMESTAMP NOT NULL | 실행 시작 시각 |
+| completed_at | TIMESTAMP | 실행 완료 시각 |
+| created_at | TIMESTAMP NOT NULL | 최초 저장 시각 |
+| updated_at | TIMESTAMP NOT NULL | 최종 갱신 시각 |
+
+정본 unique key는 `(report_id, answer_id, policy_version)`다. `BASE_ONLY_V1`이면 `follow_up_answer_id`는 NULL이고, `BASE_FOLLOW_UP_V1`이면 같은 base 질문에서 파생된 꼬리답변 ID가 필수다. 합산 문자열은 `baseTranscript + "\n" + followUpTranscript`로 재구성하며 claim offset은 이 문자열 기준이다. provider 실패는 `gate_status=NULL`로 저장하며 `UNVERIFIABLE` claim을 만들지 않는다.
+
+### answer_fact_check_claims
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| fact_check_claim_id | BIGINT PRIMARY KEY | 사실 검증 claim PK |
+| fact_check_run_id | BIGINT NOT NULL | 실행 FK |
+| claim_text | TEXT NOT NULL | 답변 원문 exact segment |
+| answer_start_offset | INTEGER NOT NULL | 답변 원문의 UTF-16 시작 offset |
+| answer_end_offset | INTEGER NOT NULL | 답변 원문의 UTF-16 종료 offset, exclusive |
+| claim_type | VARCHAR(40) NOT NULL | TECHNICAL_FACT, PERSONAL_EXPERIENCE, OPINION, OTHER |
+| claim_role | VARCHAR(40) NOT NULL | ANSWER_CORE, SUPPORTING |
+| verdict | VARCHAR(40) NOT NULL | SUPPORTED, CONTRADICTED, AMBIGUOUS, UNVERIFIABLE, NOT_CHECKABLE |
+| confidence | DECIMAL(5,4) NOT NULL | 0 이상 1 이하 provider confidence |
+| rationale | TEXT NOT NULL | claim 판정의 간단한 설명 |
+| sort_order | INTEGER NOT NULL | 실행 내 claim 순서, 1 이상 |
+
+`claim_text`는 `interview_answers.transcript`의 offset 구간과 정확히 일치해야 한다. 원본 답변을 수정하거나 claim으로 대체하지 않는다.
+
+### answer_fact_check_evidences
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| fact_check_evidence_id | BIGINT PRIMARY KEY | claim 근거 연결 PK |
+| fact_check_claim_id | BIGINT NOT NULL | claim FK |
+| evidence_ledger_id | VARCHAR(80) NOT NULL | provider 입력 ledger의 요청 범위 식별자 |
+| source_snapshot_id | VARCHAR(160) NOT NULL | 이력서/JD/답변/지식 snapshot 불변 ID |
+| source_kind | VARCHAR(40) NOT NULL | ANSWER_SNAPSHOT, RESUME_SNAPSHOT, JD_SNAPSHOT, KNOWLEDGE_SNAPSHOT |
+| source_start_offset | INTEGER NOT NULL | source snapshot 시작 offset |
+| source_end_offset | INTEGER NOT NULL | source snapshot 종료 offset, exclusive |
+| sort_order | INTEGER NOT NULL | claim 내 근거 순서, 1 이상 |
+
+민감 원문은 snapshot과 offset으로 재현하고 evidence row에 중복 저장하지 않는다. source snapshot이 없으면 저장 근거로 인정하지 않는다.
 
 ### report_evidences
 
@@ -497,13 +706,26 @@
 | process_log_id | BIGINT PRIMARY KEY | AI 비동기 처리 로그 PK |
 | application_id | BIGINT | 관련 지원서 FK |
 | session_id | BIGINT | 관련 면접 세션 FK |
-| process_type | VARCHAR(80) NOT NULL | 처리 유형: DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING, GUARDRAIL_VALIDATE, CRITERIA_SUGGEST, QUESTION_GENERATE, QUESTION_SET_GENERATE, POSTING_DRAFT_GENERATE |
+| process_type | VARCHAR(80) NOT NULL | 처리 유형: DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING, GUARDRAIL_VALIDATE, QUESTION_GENERATE, RESUME_QUESTION_GENERATE, POSTING_DRAFT_GENERATE. 폐기된 유형 값은 과거 로그 조회 호환을 위해 enum에 남길 수 있다. |
 | status | VARCHAR(40) NOT NULL | 처리 상태: PENDING, RUNNING, COMPLETED, FAILED |
 | input_ref | TEXT | 입력 참조값 |
 | output_ref | TEXT | 출력 참조값 |
-| failure_category | VARCHAR(40) | 실패 구분: RETRYABLE, NON_RETRYABLE |
+| failure_category | VARCHAR(40) | 실패 구분: RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED |
 | failure_reason | TEXT | 실패 사유. 재시도 가능 여부와 함께 기록 |
+| lease_owner | VARCHAR(160) | 현재 작업을 원자적으로 claim한 worker 실행 식별자 |
+| lease_expires_at | TIMESTAMP | worker claim 만료 시각. heartbeat마다 연장하며 만료된 RUNNING 작업만 재claim할 수 있다. |
+| started_at | TIMESTAMP | 현재 처리 시도 시작 시각 |
+| completed_at | TIMESTAMP | 처리 완료 또는 실패 시각 |
+| duration_ms | INTEGER | 현재 처리 시도의 실행 시간 |
+| model_name | VARCHAR(120) | 사용 model 이름 |
+| input_tokens | INTEGER | 입력 token 사용량 |
+| output_tokens | INTEGER | 출력 token 사용량 |
+| audio_seconds | INTEGER | STT 오디오 길이 |
+| estimated_cost_usd | DECIMAL(12,6) | 추정 AI 비용 |
+| cost_metadata_json | TEXT | 비용 계산 메타데이터 |
 | created_at | TIMESTAMP NOT NULL | 생성 시각 |
+
+`(status, lease_expires_at)` 조건부 갱신이 worker claim의 정본이다. `COMPLETED` 재전달은 provider를 호출하지 않고 ack하며, 유효한 lease가 있는 `RUNNING` 중복 메시지도 실행하지 않는다. `PENDING`, `FAILED`, 만료된 `RUNNING`만 새 lease를 획득할 수 있다. migration 이전에 생성된 `lease_expires_at IS NULL`인 `RUNNING` row는 배포 시 기존 worker를 중지한 뒤 새 worker가 한 번 재claim한다.
 
 ### ai_guardrail_logs
 
