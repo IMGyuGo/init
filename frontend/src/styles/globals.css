@@ -11180,6 +11180,112 @@ p {
 .notion .report-findings-list li small { display: block; margin-top: 3px; color: rgba(55, 53, 47, 0.45); font-size: 11.5px; }
 
 /* 꼬리질문 (#289) */
+/* 모의면접 종합 피드백 — 강점/보완 2열 카드 + 다음 연습 스텝 (#289) */
+.notion .mockfb-findings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.notion .mockfb-card {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 18px 20px;
+  background: #fbfbfa;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 12px;
+}
+.notion .mockfb-card-head { display: flex; align-items: center; gap: 8px; }
+.notion .mockfb-card-head h3 { margin: 0; font-size: 14.5px; font-weight: 700; color: #191919; }
+.notion .mockfb-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  color: #0f7a43;
+  background: #d5f2df;
+}
+.notion .mockfb-card.is-improve .mockfb-card-icon { color: #b45f06; background: #faebdd; }
+.notion .mockfb-card ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.notion .mockfb-card li {
+  position: relative;
+  padding-left: 14px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #37352f;
+  word-break: keep-all;
+}
+.notion .mockfb-card li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 9px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #0f7a43;
+}
+.notion .mockfb-card.is-improve li::before { background: #d9730d; }
+@media (max-width: 720px) {
+  .notion .mockfb-findings { grid-template-columns: 1fr; }
+}
+
+.notion .mockfb-practice {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+  background: #f6f9ff;
+  border: 1px solid rgba(59, 111, 224, 0.18);
+  border-radius: 12px;
+}
+.notion .mockfb-practice-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.notion .mockfb-practice-head h3 { margin: 0; font-size: 14.5px; font-weight: 700; color: #191919; }
+.notion .mockfb-practice-head span { font-size: 12.5px; color: rgba(55, 53, 47, 0.55); }
+.notion .mockfb-practice-steps { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.notion .mockfb-practice-steps li { display: flex; align-items: flex-start; gap: 10px; }
+.notion .mockfb-practice-steps p { margin: 2px 0 0; font-size: 13.5px; line-height: 1.6; color: #37352f; word-break: keep-all; }
+.notion .mockfb-step-number {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #fff;
+  background: #3b6fe0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* 비언어 지표 타일 — 신호 있는 항목만 주황 강조 (#289) */
+.notion .report-nonverbal-tiles {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+.notion .report-nonverbal-tile {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  padding: 12px 8px;
+  background: #f7f7f5;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 10px;
+  text-align: center;
+}
+.notion .report-nonverbal-tile strong { font-size: 17px; font-weight: 800; color: rgba(55, 53, 47, 0.45); font-variant-numeric: tabular-nums; }
+.notion .report-nonverbal-tile span { font-size: 11.5px; font-weight: 600; color: rgba(55, 53, 47, 0.5); }
+.notion .report-nonverbal-tile.is-flag { background: #fdf3e7; border-color: rgba(217, 115, 13, 0.35); }
+.notion .report-nonverbal-tile.is-flag strong { color: #b45f06; }
+.notion .report-nonverbal-tile.is-flag span { color: #8a5a00; }
+.notion .report-nonverbal-tile.is-wide strong { color: #37352f; }
+@media (max-width: 860px) {
+  .notion .report-nonverbal-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
 .notion .report-followup { display: grid; gap: 14px; }
 .notion .report-followup h3 { margin: 0; font-size: 15px; font-weight: 700; color: #191919; }
 .notion .report-followup-list { display: grid; gap: 10px; }

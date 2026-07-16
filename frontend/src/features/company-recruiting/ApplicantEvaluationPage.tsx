@@ -3,6 +3,13 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  clampPercent,
+  competencyBand,
+  CompetencyRadar,
+  GAUGE_CIRCUMFERENCE,
+  scoreBand,
+} from "../interview-report/report-visuals";
 import { createApplicantInterviewMediaSession, getApplicantDocument, getApplicantEvaluation, updateScreeningStatus } from "./api";
 import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
 import type {
@@ -1092,134 +1099,6 @@ function NcsQuestionProfileResult({
 type ReportScore = NonNullable<ApplicantEvaluation["report"]>["scores"][number];
 
 // 역량별 레이더 그래프. 축 개수는 역량 수에 따라 동적(NCS 3역량 → 삼각형). 꼭짓점/라벨 클릭 시 우측 상세로 연동한다. (#289)
-const RADAR_VIEW_WIDTH = 460;
-const RADAR_VIEW_HEIGHT = 340;
-const RADAR_CX = 230;
-const RADAR_CY = 170;
-const RADAR_RADIUS = 104;
-
-// 레이더가 그리는 항목. 레거시 scores와 NCS profiles 를 같은 모양으로 주입한다. (#289)
-type RadarItem = {
-  id: number;
-  name: string;
-  value: number; // 0~100
-  cutline: number | null; // 0~100, 전 항목 존재 시에만 점선 표시
-};
-
-function CompetencyRadar({
-  items,
-  selectedId,
-  onSelect,
-}: {
-  items: RadarItem[];
-  selectedId: number;
-  onSelect: (id: number) => void;
-}) {
-  // hover한 역량 축을 통째로 하이라이트(축선·꼭짓점·라벨)한다. (#289)
-  const [hoveredId, setHoveredId] = useState<number | null>(null);
-  const count = items.length;
-  const angleAt = (index: number) => ((-90 + (360 / count) * index) * Math.PI) / 180;
-  const pointAt = (index: number, r: number): [number, number] => [
-    RADAR_CX + r * Math.cos(angleAt(index)),
-    RADAR_CY + r * Math.sin(angleAt(index)),
-  ];
-  const ringPoints = (r: number) =>
-    items.map((_, index) => pointAt(index, r).map((value) => value.toFixed(1)).join(",")).join(" ");
-  const dataPoints = items.map((item, index) => pointAt(index, (RADAR_RADIUS * clampPercent(item.value)) / 100));
-  // 역량별 합격선. 모든 역량에 합격선이 있을 때만 점선 다각형으로 표시한다. (#289)
-  const hasCutline = items.every((item) => item.cutline != null);
-  const cutlinePoints = hasCutline
-    ? items
-        .map((item, index) =>
-          pointAt(index, (RADAR_RADIUS * clampPercent(item.cutline ?? 0)) / 100)
-            .map((value) => value.toFixed(1))
-            .join(","),
-        )
-        .join(" ")
-    : null;
-
-  return (
-    <svg
-      className="report-radar"
-      viewBox={`0 0 ${RADAR_VIEW_WIDTH} ${RADAR_VIEW_HEIGHT}`}
-      role="img"
-      aria-label="역량별 점수 그래프"
-    >
-      {[0.25, 0.5, 0.75, 1].map((fraction) => (
-        <polygon key={fraction} className="report-radar-ring" points={ringPoints(RADAR_RADIUS * fraction)} />
-      ))}
-      {items.map((item, index) => {
-        const [x, y] = pointAt(index, RADAR_RADIUS);
-        const isHot = item.id === hoveredId || item.id === selectedId;
-        return (
-          <line
-            key={item.id}
-            className={`report-radar-axis${isHot ? " is-hot" : ""}`}
-            x1={RADAR_CX}
-            y1={RADAR_CY}
-            x2={x}
-            y2={y}
-          />
-        );
-      })}
-      {cutlinePoints ? <polygon className="report-radar-cutline" points={cutlinePoints} /> : null}
-      <g className="report-radar-shape">
-        <polygon
-          className="report-radar-area"
-          points={dataPoints.map((point) => point.map((value) => value.toFixed(1)).join(",")).join(" ")}
-        />
-        {dataPoints.map((point, index) => {
-          const isSelected = items[index].id === selectedId;
-          const isHovered = items[index].id === hoveredId;
-          return (
-            <g key={items[index].id}>
-              {isSelected || isHovered ? (
-                <circle className="report-radar-halo" cx={point[0]} cy={point[1]} r={13} />
-              ) : null}
-              <circle
-                className={`report-radar-dot${isSelected ? " is-selected" : ""}`}
-                cx={point[0]}
-                cy={point[1]}
-                r={isSelected ? 6 : isHovered ? 5.5 : 4}
-                onClick={() => onSelect(items[index].id)}
-                onMouseEnter={() => setHoveredId(items[index].id)}
-                onMouseLeave={() => setHoveredId(null)}
-              />
-            </g>
-          );
-        })}
-      </g>
-      {items.map((item, index) => {
-        const [labelX, labelY] = pointAt(index, RADAR_RADIUS + 24);
-        const cos = Math.cos(angleAt(index));
-        const sin = Math.sin(angleAt(index));
-        const anchor = Math.abs(cos) < 0.35 ? "middle" : cos > 0 ? "start" : "end";
-        const baseY = sin < -0.35 ? labelY - 14 : labelY;
-        const isSelected = item.id === selectedId;
-        const isHovered = item.id === hoveredId;
-        return (
-          <g
-            key={item.id}
-            className={`report-radar-label${isSelected ? " is-selected" : ""}${isHovered ? " is-hot" : ""}`}
-            onClick={() => onSelect(item.id)}
-            onMouseEnter={() => setHoveredId(item.id)}
-            onMouseLeave={() => setHoveredId(null)}
-          >
-            <text x={labelX} y={baseY} textAnchor={anchor}>
-              <tspan className="report-radar-label-name" x={labelX} dy="0">
-                {item.name}
-              </tspan>
-              <tspan className="report-radar-label-score" x={labelX} dy="16">
-                {item.value}
-              </tspan>
-            </text>
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
 // 레이더에서 선택한 역량의 근거/증거 상세. (#289)
 function CompetencyDetailCard({ score }: { score: ReportScore }) {
   const band = competencyBand(score.score);
@@ -1256,33 +1135,10 @@ function CompetencyDetailCard({ score }: { score: ReportScore }) {
   );
 }
 
-const GAUGE_CIRCUMFERENCE = 2 * Math.PI * 52;
-
 function reportResult(result: string | null | undefined): { label: string; tone: "pass" | "fail" } | null {
   if (result === "PASS") return { label: "합격", tone: "pass" };
   if (result === "FAIL") return { label: "불합격", tone: "fail" };
   return null;
-}
-
-function clampPercent(value: number) {
-  return Math.max(0, Math.min(100, value));
-}
-
-function scoreBand(score: number | null): { label: string; tone: "high" | "mid" | "low" | "min" } | null {
-  if (score == null) return null;
-  if (score >= 80) return { label: "우수", tone: "high" };
-  if (score >= 60) return { label: "양호", tone: "mid" };
-  if (score >= 40) return { label: "보통", tone: "low" };
-  return { label: "미흡", tone: "min" };
-}
-
-type CompetencyTone = "high" | "good" | "mid" | "low";
-
-function competencyBand(score: number): { label: string; tone: CompetencyTone } {
-  if (score >= 80) return { label: "우수", tone: "high" };
-  if (score >= 65) return { label: "양호", tone: "good" };
-  if (score >= 50) return { label: "보통", tone: "mid" };
-  return { label: "미흡", tone: "low" };
 }
 
 function stripHtml(value: string | null | undefined): string {

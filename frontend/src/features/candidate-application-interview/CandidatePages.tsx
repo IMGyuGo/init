@@ -8,6 +8,15 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { DependencyList, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FaceLandmarker as MediaPipeFaceLandmarker, NormalizedLandmark, ObjectDetector as MediaPipeObjectDetector } from "@mediapipe/tasks-vision";
 
+import {
+  clampPercent,
+  competencyBand,
+  CompetencyRadar,
+  ReportGauge,
+  scoreBand,
+} from "../interview-report/report-visuals";
+import { MOCK_REPORT_PREVIEW_FEEDBACK, MOCK_REPORT_PREVIEW_MEDIA } from "./mock-report-preview.fixture";
+
 import { getApiBaseUrl } from "../../api/api-base-url";
 import { getAccessToken } from "../../api/client";
 import { sendClientPerformanceLog } from "../ai-performance/api";
@@ -2420,6 +2429,18 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [generationRequested, setGenerationRequested] = useState(false);
+  // 실전 리포트처럼 종합/답변 탭으로 분리해 스크롤 부담을 줄인다. (#289)
+  const [tab, setTab] = useState<"overview" | "answers">("overview");
+  // dev 전용 미리보기: /candidate/mock-interview/reports/1?preview=1 로 목데이터 렌더 확인. (#289)
+  const [isPreview, setIsPreview] = useState(false);
+  useEffect(() => {
+    if (
+      process.env.NODE_ENV !== "production" &&
+      new URLSearchParams(window.location.search).get("preview") === "1"
+    ) {
+      setIsPreview(true);
+    }
+  }, []);
   const load = useCallback(async (): Promise<MockReportDetailData> => {
     const api = getCandidateApi();
     const [feedbackResult, mediaResult] = await Promise.allSettled([
@@ -2433,7 +2454,12 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
       mediaError: mediaResult.status === "rejected" ? toErrorMessage(mediaResult.reason) : undefined,
     };
   }, [reportId]);
-  const { data, loading, error, refresh } = useCandidateResource(load, [reportId]);
+  const resource = useCandidateResource(load, [reportId]);
+  const previewData: MockReportDetailData = { feedback: MOCK_REPORT_PREVIEW_FEEDBACK, media: MOCK_REPORT_PREVIEW_MEDIA };
+  const data = isPreview ? previewData : resource.data;
+  const loading = isPreview ? false : resource.loading;
+  const error = isPreview ? undefined : resource.error;
+  const refresh = resource.refresh;
   const reportStatus = data?.feedback?.status ?? data?.media?.status ?? (generationRequested ? "GENERATING" : undefined);
   const reportStatusView = getMockReportStatusView(reportStatus, data?.feedbackError);
   const canRequestReport = !busy && reportStatus !== "GENERATING" && reportStatus !== "COMPLETED";
@@ -2469,31 +2495,62 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
         actions={<Link className="btn secondary" href={candidateApplicationInterviewRoutes.mockReports}>목록</Link>}
       />
       <StatusNotice loading={loading || busy} error={error} message={message} />
-      <section className="panel">
-        <div className="panel-head">
-          <div>
-            <h2>종합 피드백</h2>
-            <p>합격/탈락 판단이나 내부 점수는 노출하지 않습니다.</p>
-          </div>
-          {showReportRequestButton ? (
-            <button className="btn secondary" type="button" disabled={!canRequestReport} onClick={() => void handleGenerate()}>
-              {reportStatus === "FAILED" ? "분석 다시 요청" : "AI 분석 시작"}
-            </button>
-          ) : null}
+
+      <nav className="report-tabs" role="tablist" aria-label="모의면접 리포트 탭">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "overview"}
+          className={`report-tab${tab === "overview" ? " is-active" : ""}`}
+          onClick={() => setTab("overview")}
+        >
+          종합 피드백
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "answers"}
+          className={`report-tab${tab === "answers" ? " is-active" : ""}`}
+          onClick={() => setTab("answers")}
+        >
+          답변 스크립트
+        </button>
+      </nav>
+
+      {tab === "overview" ? (
+        <div className="report-tabpanel" role="tabpanel">
+          <section className="panel">
+            <div className="panel-head">
+              <div>
+                <h2>종합 피드백</h2>
+                <p>합격/탈락 판단이나 내부 점수는 노출하지 않습니다.</p>
+              </div>
+              {showReportRequestButton ? (
+                <button className="btn secondary" type="button" disabled={!canRequestReport} onClick={() => void handleGenerate()}>
+                  {reportStatus === "FAILED" ? "분석 다시 요청" : "AI 분석 시작"}
+                </button>
+              ) : null}
+            </div>
+            {data?.feedback && data.feedback.status === "COMPLETED"
+              ? <MockFeedbackView feedback={data.feedback} />
+              : <MockReportStatusPanel view={reportStatusView} />}
+          </section>
         </div>
-        {data?.feedback && data.feedback.status === "COMPLETED"
-          ? <MockFeedbackView feedback={data.feedback} />
-          : <MockReportStatusPanel view={reportStatusView} />}
-      </section>
-      <section className="panel">
-        <div className="panel-head">
-          <div>
-            <h2>답변 스크립트</h2>
-            <p>녹음 답변에서 변환된 텍스트와 생성된 꼬리질문을 확인합니다.</p>
-          </div>
+      ) : null}
+
+      {tab === "answers" ? (
+        <div className="report-tabpanel" role="tabpanel">
+          <section className="panel">
+            <div className="panel-head">
+              <div>
+                <h2>답변 스크립트</h2>
+                <p>녹음 답변에서 변환된 텍스트·비언어(아이트래킹) 분석과 생성된 꼬리질문을 확인합니다.</p>
+              </div>
+            </div>
+            {data?.media ? <MockMediaView media={data.media} /> : <p className="notice danger">{data?.mediaError ?? "미디어를 불러오지 못했습니다."}</p>}
+          </section>
         </div>
-        {data?.media ? <MockMediaView media={data.media} /> : <p className="notice danger">{data?.mediaError ?? "미디어를 불러오지 못했습니다."}</p>}
-      </section>
+      ) : null}
     </CandidatePageShell>
   );
 }
@@ -9175,8 +9232,11 @@ function isReportNotReadyMessage(message: string): boolean {
   return message.includes("Report is not ready") || message.includes("REPORT_NOT_READY");
 }
 
+// 모의 리포트 종합 — 실전(기업) 리포트와 동일한 게이지+레이더+강점/보완 레이아웃. (#289)
+// 연습용 정책(visibilityPolicy)에 따라 합격/탈락 판정·내부 점수는 노출하지 않는다.
 function MockFeedbackView({ feedback }: { feedback: CandidateMockReportFeedback }) {
   const scores = feedback.scores ?? [];
+  const [selectedScoreId, setSelectedScoreId] = useState<number>(-1);
   const improvementItems = feedback.improvements.length > 0
     ? feedback.improvements
     : buildMockReportImprovementItems(scores);
@@ -9184,19 +9244,133 @@ function MockFeedbackView({ feedback }: { feedback: CandidateMockReportFeedback 
     ? feedback.nextPractice
     : buildMockReportPracticeItems(scores);
 
+  const totalScore = feedback.totalScore ?? null;
+  const band = scoreBand(totalScore);
+  const topScore = scores.length > 0 ? [...scores].sort((a, b) => b.score - a.score)[0] : null;
+  const selectedScore = scores.find((score) => score.scoreId === selectedScoreId) ?? topScore;
+  const radarReady = scores.length >= 3;
+
   return (
-    <div className="detail-stack">
-      <div className="report-summary-callout">
-        <span className="report-summary-callout__icon" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a7 7 0 0 0-4 12.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3A7 7 0 0 0 12 2z" /><path d="M9 21h6" /></svg>
-        </span>
-        <p>{feedback.summary ?? "리포트 생성 중입니다."}</p>
+    <div className="report-overview">
+      <div className="report-score-hero">
+        <ReportGauge score={totalScore} tone="accent" valueLabel="종합 점수" emptyLabel="점수 준비 중" />
+        <div className="report-score-side">
+          <span className="report-result-row">
+            {band ? <span className={`report-score-band band-${band.tone}`}>{band.label}</span> : null}
+            <span className="report-cutline-caption">연습용 리포트 · 합격/탈락 판정은 제공하지 않아요</span>
+          </span>
+          <p className="report-summary-text">{feedback.summary ?? "리포트 요약이 아직 없습니다."}</p>
+        </div>
       </div>
-      {scores.length ? null : <ListBlock title="강점" items={feedback.strengths} />}
-      <ListBlock title="개선점" items={improvementItems} />
-      <ListBlock title="다음 연습" items={nextPracticeItems} />
-      <ReportScoreList scores={scores} />
+
+      {scores.length ? (
+        <div className="report-competency">
+          <h3>역량별 평가</h3>
+          {radarReady ? (
+            <div className="report-competency-layout">
+              <div className="report-radar-wrap">
+                <CompetencyRadar
+                  items={scores.map((score) => ({
+                    id: score.scoreId,
+                    name: score.criterionName ?? "역량",
+                    value: clampPercent(score.score),
+                    cutline: null,
+                  }))}
+                  selectedId={selectedScore?.scoreId ?? -1}
+                  onSelect={setSelectedScoreId}
+                />
+                <p className="report-radar-hint">그래프의 역량을 클릭하면 오른쪽에서 근거를 볼 수 있어요.</p>
+              </div>
+              {selectedScore ? <MockCompetencyDetailCard score={selectedScore} /> : null}
+            </div>
+          ) : (
+            <ReportScoreList scores={scores} />
+          )}
+        </div>
+      ) : null}
+
+      {feedback.strengths.length > 0 || improvementItems.length > 0 ? (
+        <div className="mockfb-findings">
+          {feedback.strengths.length > 0 ? (
+            <div className="mockfb-card is-strength">
+              <div className="mockfb-card-head">
+                <span className="mockfb-card-icon" aria-hidden="true">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                </span>
+                <h3>잘한 점</h3>
+              </div>
+              <ul>
+                {feedback.strengths.map((text, index) => (
+                  <li key={`strength-${index}`}>{text}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {improvementItems.length > 0 ? (
+            <div className="mockfb-card is-improve">
+              <div className="mockfb-card-head">
+                <span className="mockfb-card-icon" aria-hidden="true">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5" /><path d="m5 12 7-7 7 7" /></svg>
+                </span>
+                <h3>보완할 점</h3>
+              </div>
+              <ul>
+                {improvementItems.map((text, index) => (
+                  <li key={`improve-${index}`}>{text}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {nextPracticeItems.length > 0 ? (
+        <div className="mockfb-practice">
+          <div className="mockfb-practice-head">
+            <h3>다음 연습</h3>
+            <span>다음 모의면접 전에 이것만 해보세요</span>
+          </div>
+          <ol className="mockfb-practice-steps">
+            {nextPracticeItems.map((text, index) => (
+              <li key={`practice-${index}`}>
+                <span className="mockfb-step-number" aria-hidden="true">{index + 1}</span>
+                <p>{text}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+// 모의 레이더에서 선택한 역량 상세. 실전 CompetencyDetailCard와 동일 톤(가중치·합격선 없는 연습용). (#289)
+function MockCompetencyDetailCard({ score }: { score: CandidateReportScoreView }) {
+  const band = competencyBand(score.score);
+  return (
+    <aside className="report-competency-detailpanel" key={score.scoreId}>
+      <div className="report-competency-detailpanel-head">
+        <span className="report-competency-namewrap">
+          <span className="report-competency-name">{score.criterionName ?? "역량"}</span>
+        </span>
+        <span className="report-competency-detailpanel-score">
+          <span className={`report-competency-band tone-${band.tone}`}>{band.label}</span>
+          <span className={`report-competency-score tone-${band.tone}`}>{score.score}</span>
+        </span>
+      </div>
+      {score.rationale?.trim() ? (
+        <p className="report-competency-rationale">{score.rationale}</p>
+      ) : (
+        <p className="report-competency-rationale is-empty">등록된 근거가 없습니다.</p>
+      )}
+      {score.evidences.length > 0 ? (
+        <div className="report-competency-evidence">
+          {score.evidences.map((evidence) => (
+            <blockquote key={evidence.evidenceId}>{evidence.evidenceText}</blockquote>
+          ))}
+        </div>
+      ) : null}
+    </aside>
   );
 }
 
@@ -9705,20 +9879,34 @@ function MockNonverbalSummaryPanel({ summary }: { summary: MockNonverbalSummary 
         </div>
         <StatusPill value={statusLabel} />
       </div>
-      <dl className="candidate-feature__summary compact report-nonverbal-summary__metrics">
-        <Definition label="분석 답변" value={`${summary.answersWithMetadata}/${summary.answerCount}`} />
-        <Definition label="무결성 확인" value={`${summary.integritySignalAnswers}`} />
-        <Definition label="화면 이탈" value={`${summary.screenAwaySignalAnswers}`} />
-        <Definition label="카메라 이탈" value={`${summary.cameraIntegritySignalAnswers}`} />
-        <Definition label="얼굴 이탈" value={`${summary.faceAwaySignalAnswers}`} />
-        <Definition label="여러 사람" value={`${summary.multipleFaceSignalAnswers}`} />
-        <Definition label="위치 급변" value={`${summary.faceShiftSignalAnswers}`} />
-        <Definition label="시선 이탈" value={`${summary.gazeAwaySignalAnswers}`} />
-        <Definition label="음성-입모양" value={`${summary.voiceMouthMismatchSignalAnswers}`} />
-        <Definition label="음성-얼굴" value={`${summary.voiceWithoutFaceSignalAnswers}`} />
-        <Definition label="영상 고정" value={`${summary.staticVideoFrameSignalAnswers}`} />
-        <Definition label="초반 이탈" value={`${summary.earlyScreenAwaySignalAnswers}`} />
-      </dl>
+      <div className="report-nonverbal-tiles" role="list">
+        {[
+          { label: "분석 답변", value: `${summary.answersWithMetadata}/${summary.answerCount}`, flagged: false, wide: true },
+          { label: "무결성 확인", count: summary.integritySignalAnswers },
+          { label: "시선 이탈", count: summary.gazeAwaySignalAnswers },
+          { label: "화면 이탈", count: summary.screenAwaySignalAnswers },
+          { label: "카메라 이탈", count: summary.cameraIntegritySignalAnswers },
+          { label: "얼굴 이탈", count: summary.faceAwaySignalAnswers },
+          { label: "여러 사람", count: summary.multipleFaceSignalAnswers },
+          { label: "위치 급변", count: summary.faceShiftSignalAnswers },
+          { label: "음성-입모양", count: summary.voiceMouthMismatchSignalAnswers },
+          { label: "음성-얼굴", count: summary.voiceWithoutFaceSignalAnswers },
+          { label: "영상 고정", count: summary.staticVideoFrameSignalAnswers },
+          { label: "초반 이탈", count: summary.earlyScreenAwaySignalAnswers },
+        ].map((tile) => {
+          const flagged = tile.flagged ?? (tile.count ?? 0) > 0;
+          return (
+            <div
+              key={tile.label}
+              role="listitem"
+              className={`report-nonverbal-tile${flagged ? " is-flag" : ""}${tile.wide ? " is-wide" : ""}`}
+            >
+              <strong>{tile.value ?? `${tile.count}`}</strong>
+              <span>{tile.label}</span>
+            </div>
+          );
+        })}
+      </div>
       <ul className="report-nonverbal-summary__guide">
         {guideItems.map((item) => (
           <li key={item}>{item}</li>
@@ -10643,21 +10831,6 @@ function findKoreanSpeechVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisV
     voices.find((voice) => voice.lang.toLowerCase() === "ko-kr") ??
     voices.find((voice) => voice.lang.toLowerCase().startsWith("ko")) ??
     voices.find((voice) => voice.default)
-  );
-}
-
-function ListBlock({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div>
-      <h3 className="candidate-section-title">{title}</h3>
-      {items.length ? (
-        <ul className="candidate-feature__tags">
-          {items.map((item, index) => <li key={`${title}-${index}-${item}`}>{item}</li>)}
-        </ul>
-      ) : (
-        <p className="empty">표시할 항목이 없습니다.</p>
-      )}
-    </div>
   );
 }
 
