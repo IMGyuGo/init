@@ -1,5 +1,5 @@
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { PrismaClient } from "@prisma/client";
+import type { PrismaClient as PrismaClientInstance } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 import {
@@ -10,6 +10,10 @@ import {
 } from "./seed-data";
 import { buildSeedS3ClientOptions } from "./seed-s3-client-options";
 
+type PrismaClientConstructor = new () => PrismaClientInstance;
+
+const prismaClientModule = process.env.PRISMA_SEED_CLIENT_MODULE?.trim() || "@prisma/client";
+const { PrismaClient } = require(prismaClientModule) as { PrismaClient: PrismaClientConstructor };
 const prisma = new PrismaClient();
 const s3Client = new S3Client(buildSeedS3ClientOptions());
 const s3Bucket = process.env.S3_BUCKET_NAME ?? process.env.S3_BUCKET;
@@ -120,6 +124,9 @@ const criterionTagSeeds = [
     description: "JD와 연결되는 기술 지식, 구현 경험, 설계 판단을 답변 근거로 확인한다.",
     category: "서비스 기본 평가",
     sortOrder: 1,
+    ncsProfileId: "JOB_TECHNICAL",
+    defaultNcsQuestionMode: "TECHNICAL_KNOWLEDGE",
+    ncsProfileVersion: "2025.12-v1",
   },
   {
     tagId: 2,
@@ -128,6 +135,9 @@ const criterionTagSeeds = [
     description: "문제 원인을 나누어 확인하고 제약, 대안, 해결 과정을 설명하는지 확인한다.",
     category: "서비스 기본 평가",
     sortOrder: 2,
+    ncsProfileId: "PROBLEM_SOLVING",
+    defaultNcsQuestionMode: "EXPERIENCE_BEHAVIOR",
+    ncsProfileVersion: "2025.12-v1",
   },
   {
     tagId: 3,
@@ -136,6 +146,9 @@ const criterionTagSeeds = [
     description: "본인이 맡은 행동, 완성도, 결과나 개선 효과가 답변에 드러나는지 확인한다.",
     category: "서비스 기본 평가",
     sortOrder: 3,
+    ncsProfileId: null,
+    defaultNcsQuestionMode: null,
+    ncsProfileVersion: null,
   },
   {
     tagId: 4,
@@ -144,6 +157,9 @@ const criterionTagSeeds = [
     description: "상황, 역할, 의사소통 방식, 협업 조정 과정을 구조적으로 전달하는지 확인한다.",
     category: "서비스 기본 평가",
     sortOrder: 4,
+    ncsProfileId: "COLLABORATION_COMMUNICATION",
+    defaultNcsQuestionMode: "EXPERIENCE_BEHAVIOR",
+    ncsProfileVersion: "2025.12-v1",
   },
   {
     tagId: 5,
@@ -152,6 +168,9 @@ const criterionTagSeeds = [
     description: "새로운 도구나 도메인을 학습하고 실제 문제에 적용한 흐름을 확인한다.",
     category: "서비스 기본 평가",
     sortOrder: 5,
+    ncsProfileId: null,
+    defaultNcsQuestionMode: null,
+    ncsProfileVersion: null,
   },
   {
     tagId: 6,
@@ -160,6 +179,9 @@ const criterionTagSeeds = [
     description: "맡은 범위를 끝까지 확인하고 재발 방지, 검증, 공유까지 수행했는지 확인한다.",
     category: "서비스 기본 평가",
     sortOrder: 6,
+    ncsProfileId: null,
+    defaultNcsQuestionMode: null,
+    ncsProfileVersion: null,
   },
 ];
 
@@ -532,6 +554,9 @@ async function main() {
         category: tag.category,
         isActive: true,
         sortOrder: tag.sortOrder,
+        ncsProfileId: tag.ncsProfileId,
+        defaultNcsQuestionMode: tag.defaultNcsQuestionMode,
+        ncsProfileVersion: tag.ncsProfileVersion,
       },
       create: {
         tagId: tag.tagId,
@@ -541,6 +566,9 @@ async function main() {
         category: tag.category,
         isActive: true,
         sortOrder: tag.sortOrder,
+        ncsProfileId: tag.ncsProfileId,
+        defaultNcsQuestionMode: tag.defaultNcsQuestionMode,
+        ncsProfileVersion: tag.ncsProfileVersion,
       },
     });
   }

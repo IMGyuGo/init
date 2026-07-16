@@ -11,6 +11,7 @@ import {
   appendProfileSnapshotItem,
   getAccordionIndicator,
   isSupportedProfileDateInput,
+  preserveNullableTextInput,
   profileDateInputBounds,
   type ProfileSection,
 } from "./candidate-profile-form";
@@ -73,7 +74,7 @@ export function CandidateProfileSnapshotEditor({ value, onChange, emailReadOnly 
           <EditorField field="githubUrl" label="GitHub URL" error={fieldErrors.githubUrl} errorId="candidate-profile-github-error"><input type="url" value={value.githubUrl ?? ""} maxLength={500} aria-invalid={Boolean(fieldErrors.githubUrl)} aria-describedby={fieldErrors.githubUrl ? "candidate-profile-github-error" : undefined} onChange={(event) => patch({ githubUrl: nullable(event.currentTarget.value) })} /></EditorField>
           <EditorField field="blogUrl" label="블로그 URL" error={fieldErrors.blogUrl} errorId="candidate-profile-blog-error"><input type="url" value={value.blogUrl ?? ""} maxLength={500} aria-invalid={Boolean(fieldErrors.blogUrl)} aria-describedby={fieldErrors.blogUrl ? "candidate-profile-blog-error" : undefined} onChange={(event) => patch({ blogUrl: nullable(event.currentTarget.value) })} /></EditorField>
           <EditorField label="포트폴리오 URL"><input type="url" value={value.portfolioUrl ?? ""} maxLength={500} onChange={(event) => patch({ portfolioUrl: nullable(event.currentTarget.value) })} /></EditorField>
-          <EditorField field="profileSummary" label="한 줄 소개" wide error={fieldErrors.profileSummary} errorId="candidate-profile-summary-error"><textarea value={value.summary ?? ""} maxLength={2000} aria-invalid={Boolean(fieldErrors.profileSummary)} aria-describedby={fieldErrors.profileSummary ? "candidate-profile-summary-error" : undefined} onChange={(event) => patch({ summary: nullable(event.currentTarget.value) })} /></EditorField>
+          <EditorField field="profileSummary" label="한 줄 소개" wide error={fieldErrors.profileSummary} errorId="candidate-profile-summary-error"><textarea value={value.summary ?? ""} maxLength={2000} aria-invalid={Boolean(fieldErrors.profileSummary)} aria-describedby={fieldErrors.profileSummary ? "candidate-profile-summary-error" : undefined} onChange={(event) => patch({ summary: preserveNullableTextInput(event.currentTarget.value) })} /></EditorField>
         </div>
       </fieldset>
 
@@ -124,7 +125,7 @@ export function CandidateProfileSnapshotEditor({ value, onChange, emailReadOnly 
       </SnapshotSection>
 
       <SnapshotTextSection field="profileCoverLetter" error={fieldErrors.profileCoverLetter} title="자기소개서" open={open.coverLetter} filled={Boolean(value.coverLetter?.trim())} onToggle={() => toggle("coverLetter")}>
-        <EditorField label="자기소개서" wide><textarea value={value.coverLetter ?? ""} maxLength={5000} rows={10} aria-invalid={Boolean(fieldErrors.profileCoverLetter)} onChange={(event) => patch({ coverLetter: nullable(event.currentTarget.value) })} /></EditorField>
+        <EditorField label="자기소개서" wide><textarea value={value.coverLetter ?? ""} maxLength={5000} rows={10} aria-invalid={Boolean(fieldErrors.profileCoverLetter)} onChange={(event) => patch({ coverLetter: preserveNullableTextInput(event.currentTarget.value) })} /></EditorField>
       </SnapshotTextSection>
     </div>
   );

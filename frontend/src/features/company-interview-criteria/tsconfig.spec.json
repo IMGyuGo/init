@@ -10,5 +10,11 @@
     "rootDir": ".",
     "outDir": "../../../.next/tests/company-interview-criteria"
   },
-  "files": ["ai-job-polling.ts", "ai-job-polling.spec.ts"]
+  "files": [
+    "ai-job-polling.ts",
+    "ai-job-polling.spec.ts",
+    "question-set-workflow.ts",
+    "question-set-workflow.spec.ts",
+    "types.ts"
+  ]
 }

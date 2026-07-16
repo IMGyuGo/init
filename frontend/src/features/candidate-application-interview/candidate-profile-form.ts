@@ -61,6 +61,10 @@ export function isSupportedProfileDateInput(value: string, type: keyof typeof pr
   return pattern.test(value) && value >= profileDateInputBounds[type].min && value <= profileDateInputBounds[type].max;
 }
 
+export function preserveNullableTextInput(value: string): string | null {
+  return value === "" ? null : value;
+}
+
 export function getAccordionIndicator(open: boolean): "▲" | "▼" {
   return open ? "▲" : "▼";
 }

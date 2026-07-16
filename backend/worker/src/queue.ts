@@ -1,18 +1,37 @@
-import { DeleteMessageCommand, MessageSystemAttributeName, ReceiveMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
-import { AiQueueMessage } from "./worker.types";
+import {
+  ChangeMessageVisibilityCommand,
+  DeleteMessageCommand,
+  MessageSystemAttributeName,
+  ReceiveMessageCommand,
+  SendMessageCommand,
+  SQSClient,
+} from "@aws-sdk/client-sqs";
+import { AiQueueMessage, AiWorkerJob } from "./worker.types";
 
 export interface AiJobQueue {
   receive(maxMessages: number): Promise<AiQueueMessage[]>;
+  publish(job: AiWorkerJob): Promise<void>;
+  extendVisibility(message: AiQueueMessage, timeoutSeconds: number): Promise<void>;
   delete(message: AiQueueMessage): Promise<void>;
 }
 
 export class InMemoryAiJobQueue implements AiJobQueue {
   readonly deletedMessageIds: string[] = [];
+  readonly visibilityExtensions: Array<{ messageId: string; timeoutSeconds: number }> = [];
 
   constructor(private readonly messages: AiQueueMessage[]) {}
 
   async receive(maxMessages: number): Promise<AiQueueMessage[]> {
     return this.messages.slice(0, maxMessages);
+  }
+
+  async publish(job: AiWorkerJob): Promise<void> {
+    this.messages.push({
+      messageId: `memory-${job.processLogId}-${this.messages.length + 1}`,
+      receiptHandle: `memory-receipt-${job.processLogId}-${this.messages.length + 1}`,
+      job,
+      receiveCount: 1,
+    });
   }
 
   async delete(message: AiQueueMessage): Promise<void> {
@@ -22,6 +41,11 @@ export class InMemoryAiJobQueue implements AiJobQueue {
       this.messages.splice(index, 1);
     }
   }
+
+  async extendVisibility(message: AiQueueMessage, timeoutSeconds: number): Promise<void> {
+    this.visibilityExtensions.push({ messageId: message.messageId, timeoutSeconds });
+  }
+
 }
 
 export class SqsAiJobQueue implements AiJobQueue {
@@ -52,6 +76,29 @@ export class SqsAiJobQueue implements AiJobQueue {
         receiveCount: parseReceiveCount(message.Attributes?.ApproximateReceiveCount)
       };
     });
+  }
+
+  async publish(job: AiWorkerJob): Promise<void> {
+    await this.client.send(
+      new SendMessageCommand({
+        QueueUrl: this.queueUrl,
+        MessageBody: JSON.stringify(job),
+        MessageAttributes: {
+          processType: { DataType: "String", StringValue: job.processType },
+          processLogId: { DataType: "Number", StringValue: String(job.processLogId) },
+        },
+      })
+    );
+  }
+
+  async extendVisibility(message: AiQueueMessage, timeoutSeconds: number): Promise<void> {
+    await this.client.send(
+      new ChangeMessageVisibilityCommand({
+        QueueUrl: this.queueUrl,
+        ReceiptHandle: message.receiptHandle,
+        VisibilityTimeout: timeoutSeconds,
+      })
+    );
   }
 
   async delete(message: AiQueueMessage): Promise<void> {

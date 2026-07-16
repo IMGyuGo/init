@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { CandidateApiError, type CandidateProfileSnapshotV1 } from "./api";
 import { toCandidateApplicationError, validateCandidateApplication } from "./candidate-application-error";
-import { appendProfileSnapshotItem, createProfileFormState, getAccordionIndicator, isSupportedProfileDateInput, serializeProfileForm, validateProfileForm } from "./candidate-profile-form";
+import { appendProfileSnapshotItem, createProfileFormState, getAccordionIndicator, isSupportedProfileDateInput, preserveNullableTextInput, serializeProfileForm, validateProfileForm } from "./candidate-profile-form";
 import { isCandidateNameConfirmed, toSubmitApplicationRequest } from "./view-model";
 
 assert.equal(getAccordionIndicator(false), "▼");
@@ -11,6 +11,10 @@ assert.equal(isSupportedProfileDateInput("2026-07", "month"), true);
 assert.equal(isSupportedProfileDateInput("12026-07", "month"), false);
 assert.equal(isSupportedProfileDateInput("2026-07-16", "date"), true);
 assert.equal(isSupportedProfileDateInput("0999-12-31", "date"), false);
+assert.equal(preserveNullableTextInput(""), null);
+assert.equal(preserveNullableTextInput("백엔드 "), "백엔드 ");
+assert.equal(preserveNullableTextInput("첫 줄\n둘째 줄"), "첫 줄\n둘째 줄");
+assert.equal(preserveNullableTextInput("\n"), "\n");
 assert.equal(isCandidateNameConfirmed("candidate", "candidate@example.com"), false);
 assert.equal(isCandidateNameConfirmed("candidate@example.com", "candidate@example.com"), false);
 assert.equal(isCandidateNameConfirmed("홍길동", "candidate@example.com"), true);
@@ -152,6 +156,14 @@ assert.equal(snapshotEditorSource.includes("const nullable = (value: string) => 
 assert.equal(snapshotEditorSource.includes('data-apply-field={field}'), true);
 assert.equal(snapshotEditorSource.includes('aria-invalid={Boolean(fieldErrors.email)}'), true);
 assert.equal(snapshotEditorSource.includes('profileCareers: "careers"'), true);
+assert.equal(
+  snapshotEditorSource.includes("summary: preserveNullableTextInput(event.currentTarget.value)"),
+  true,
+);
+assert.equal(
+  snapshotEditorSource.includes("coverLetter: preserveNullableTextInput(event.currentTarget.value)"),
+  true,
+);
 
 const mypageProfileSource = readFileSync("src/features/candidate-application-interview/CandidateProfileSection.tsx", "utf8");
 assert.equal(mypageProfileSource.includes('section="coverLetter"'), true);

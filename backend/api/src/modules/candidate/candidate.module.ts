@@ -7,9 +7,10 @@ import { InMemoryCandidateRepository } from "./repository/in-memory-candidate.re
 import { PrismaCandidateRepository } from "./repository/prisma-candidate.repository";
 import { CANDIDATE_DOCUMENT_STORAGE, S3CandidateDocumentStorageAdapter } from "./service/candidate-document-storage.adapter";
 import { CANDIDATE_REPOSITORY, CandidateService } from "./service/candidate.service";
+import { AiJobDispatchModule } from "../report/ai-job-dispatch.module";
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, AiJobDispatchModule],
   controllers: [CandidateController, PublicCandidateController],
   providers: [
     PrismaService,

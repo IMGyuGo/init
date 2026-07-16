@@ -1,15 +1,36 @@
-import { AiResultRepository } from "./ai-result.repository";
-import { createAiProcessUsage } from "./ai-usage";
+import {
+  AiResultRepository,
+  DEFAULT_STT_UNAVAILABLE_REASON,
+  PersonalizedQuestionRecord,
+  ResumeQuestionGenerationContext,
+  ResumeQuestionJobReference,
+} from "./ai-result.repository";
+import { createAiProcessUsage, mergeAiProcessUsage } from "./ai-usage";
+import {
+  factCheckContextOf,
+  type FactCheckContextOptions,
+} from "./answer-fact-check-context";
 import { FollowUpAiProvider } from "./openai-follow-up.provider";
+import { planFactClarification, planNcsFollowUp } from "./ncs-report-evaluation.adapter";
 import { PostingDraftAiProvider, PostingDraftGenerationResult } from "./openai-posting-draft.provider";
-import { QuestionAiProvider, QuestionGenerationResult, type QuestionGenerationType } from "./openai-question.provider";
+import {
+  QuestionAiProvider,
+  QuestionGenerationCriterion,
+  QuestionGenerationInput,
+  QuestionGenerationResult,
+  questionQualityIssue,
+  type QuestionGenerationType,
+} from "./openai-question.provider";
 import { ReportAiProvider, ReportGenerationResult } from "./openai-report.provider";
+import {
+  alignNcsQuestion,
+  canonicalNcsProfileIdOf,
+  NcsApiProfileId,
+  NcsQuestionMode,
+} from "./ncs-question-alignment.adapter";
 import { sanitizePostingDraftHtml } from "./posting-draft-html";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import { AiTaskHandler, AiTaskResult, AiWorkerJob } from "./worker.types";
-
-const STT_UNAVAILABLE_TEMP_ZERO_REASON =
-  "STT transcript is unavailable; this answer is temporarily scored as 0 because speech recognition failed, not because of answer quality.";
 
 interface WorkerInput {
   kind?: string;
@@ -45,7 +66,8 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     private readonly followUpProvider: FollowUpAiProvider,
     private readonly reportProvider?: ReportAiProvider,
     private readonly postingDraftProvider?: PostingDraftAiProvider,
-    private readonly questionProvider?: QuestionAiProvider
+    private readonly questionProvider?: QuestionAiProvider,
+    private readonly factCheckOptions: FactCheckContextOptions = {},
   ) {}
 
   async handle(job: AiWorkerJob): Promise<AiTaskResult> {
@@ -53,7 +75,8 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       job.processType !== "FOLLOW_UP" &&
       job.processType !== "REPORT_GENERATE" &&
       job.processType !== "POSTING_DRAFT_GENERATE" &&
-      job.processType !== "QUESTION_GENERATE"
+      job.processType !== "QUESTION_GENERATE" &&
+      job.processType !== "RESUME_QUESTION_GENERATE"
     ) {
       return this.fallback.handle(job);
     }
@@ -72,6 +95,10 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
 
     if (job.processType === "QUESTION_GENERATE") {
       return this.questionGenerate(job, kind, payload);
+    }
+
+    if (job.processType === "RESUME_QUESTION_GENERATE") {
+      return this.resumeQuestionGenerate(job);
     }
 
     return this.followUp(kind, payload);
@@ -96,6 +123,9 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     const savedDraft = {
       kind: "POSTING_DRAFT_GENERATE",
       sourceProcessLogId: job.processLogId,
+      providerMode: "openai" as const,
+      providerSource: "OPENAI_POSTING_DRAFT_GENERATION",
+      model: generated.model,
       items,
       postingDraft: {
         title: generated.title,
@@ -112,7 +142,6 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       outputRef: JSON.stringify({
         ...savedDraft,
         draftSource: "OPENAI_POSTING_DRAFT_GENERATION",
-        model: generated.model
       }),
       guardrail: validatePostingDraft(generated),
       finalSave: () => this.results.saveGeneratedDraft(savedDraft)
@@ -132,12 +161,54 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       throw new NonRetryableAiWorkerFailure("jobDescription or documentSummary is required");
     }
 
+    const ncsPlan = policy === "RECRUITING" ? planNcsFollowUp(payload) : undefined;
+    const factPlan = ncsPlan
+      ? await planFactClarification(payload, factCheckContextOf(payload.factCheckContext, {
+          ...this.factCheckOptions,
+          jobDescription,
+          documentSummary,
+        }))
+      : undefined;
+    if (ncsPlan && !ncsPlan.required && !factPlan?.required) {
+      return {
+        outputRef: JSON.stringify({
+          sessionId,
+          answerId,
+          policy,
+          followUpRequired: false,
+          questionMode: ncsPlan.questionMode,
+          answerTimeSec: ncsPlan.answerTimeSec,
+          baseScores: ncsPlan.baseScores,
+          factCheck: factPlan ? factCheckFollowUpSummary(factPlan) : undefined,
+          dedupeKey: `${policy}:${sessionId}:${answerId}`,
+          duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP",
+        }),
+        guardrail: { result: "PASS", reason: null },
+        finalSave: () =>
+          this.results.saveFollowUpQuestion({
+            sessionId,
+            answerId,
+            required: false,
+            policy,
+            reason: "NCS_EVIDENCE_GAP",
+            questionMode: ncsPlan.questionMode,
+            answerTimeSec: ncsPlan.answerTimeSec,
+          }),
+      };
+    }
+
     const generated = await this.followUpProvider.generateFollowUpQuestion({
       kind,
       previousQuestion,
       transcript,
       jobDescription,
       documentSummary,
+      questionMode: ncsPlan?.questionMode,
+      focusPoints: ncsPlan?.focusPoints,
+      logicalStructureGap: ncsPlan?.logicalStructureGap,
+      alreadyConfirmedEvidence: ncsPlan?.alreadyConfirmedEvidence,
+      factClarificationClaims: factPlan?.required ? factPlan.clarificationClaims : undefined,
+      factSupportedClaims: factPlan?.supportedClaims,
       profileContext,
     });
     const guardrail = this.validateMockPolicy(policy, generated.content);
@@ -146,23 +217,52 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       outputRef: JSON.stringify({
         sessionId,
         answerId,
+        providerMode: "openai",
+        providerSource: "OPENAI_FOLLOW_UP_GENERATION",
         policy,
         previousQuestion,
         content: generated.content,
         model: generated.model,
         jobDescription,
         documentSummary,
+        followUpRequired: true,
+        questionMode: ncsPlan?.questionMode,
+        answerTimeSec: ncsPlan?.answerTimeSec,
+        baseScores: ncsPlan?.baseScores,
+        focusPoints: ncsPlan?.focusPoints,
+        factCheck: factPlan ? factCheckFollowUpSummary(factPlan) : undefined,
         dedupeKey: `${policy}:${sessionId}:${answerId}`,
         duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP"
       }),
       guardrail,
-      usage: createAiProcessUsage({
-        modelName: generated.model,
-        inputTokens: generated.usage?.inputTokens,
-        outputTokens: generated.usage?.outputTokens,
-        metadata: { processType: "FOLLOW_UP" }
-      }),
-      finalSave: () => this.results.saveFollowUpQuestion({ sessionId, answerId, content: generated.content, policy })
+      usage: mergeAiProcessUsage(
+        createAiProcessUsage({
+          modelName: generated.model,
+          inputTokens: generated.usage?.inputTokens,
+          outputTokens: generated.usage?.outputTokens,
+          metadata: { processType: "FOLLOW_UP", stage: "QUESTION_GENERATION" },
+        }),
+        factPlan?.usage ? createAiProcessUsage({
+          modelName: factPlan.usage.modelName,
+          inputTokens: factPlan.usage.inputTokens,
+          outputTokens: factPlan.usage.outputTokens,
+          metadata: { processType: "FOLLOW_UP", stage: "FACT_PRECHECK" },
+        }) : undefined,
+        { processType: "FOLLOW_UP" },
+      ),
+      finalSave: () =>
+        this.results.saveFollowUpQuestion({
+          sessionId,
+          answerId,
+          required: true,
+          content: generated.content,
+          policy,
+          reason: factPlan?.required
+            ? "FACT_CLARIFICATION"
+            : ncsPlan ? "NCS_EVIDENCE_GAP" : "GENERAL_EVIDENCE_GAP",
+          questionMode: ncsPlan?.questionMode,
+          answerTimeSec: ncsPlan?.answerTimeSec,
+        })
     };
   }
 
@@ -172,28 +272,50 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     payload: Record<string, unknown>
   ): Promise<AiTaskResult> {
     if (!this.questionProvider) {
-      return this.fallback.handle(job);
+      throw new NonRetryableAiWorkerFailure("OpenAI question provider is required for QUESTION_GENERATE");
     }
 
     const mock = kind.startsWith("MOCK");
     const postingId = mock ? undefined : positiveNumber(payload.postingId, "postingId");
     const questionCount = positiveNumber(payload.questionCount, "questionCount");
-    const generated = await this.questionProvider.generateQuestions({
+    const criteria = mock ? [] : criteriaOf(payload.criteria);
+    const generationInput: QuestionGenerationInput = {
       kind,
       jobRole: mock ? optionalText(payload.jobRole) : undefined,
       requestedDifficulty: mock ? mockDifficultyOf(payload.difficulty) : undefined,
       postingId,
       jobDescription: mock ? undefined : requiredText(payload.jobDescription, "jobDescription"),
       questionCount,
-      criteria: mock ? [] : criteriaOf(payload.criteria),
+      criteria,
       profileContext: mock ? scrubMockContext(profileContextOf(payload.profileContext)) : undefined,
       folderContext: mock ? scrubMockContext(optionalObject(payload.folderContext, "folderContext"), true) : undefined,
       questionTypes: mock ? questionTypesOf(payload.questionTypes) : undefined,
-    });
-    const questionCandidates = sanitizeQuestionGenerationResult(generated, !mock);
+    };
+    const ncsGeneration = !mock && isNcsCriteria(criteria);
+    const generated = ncsGeneration
+      ? await generateAlignedNcsQuestions(this.questionProvider, generationInput)
+      : await this.questionProvider.generateQuestions(generationInput);
+    const questionCandidates = ncsGeneration
+      ? generated.questionCandidates
+      : mock
+        ? sanitizeQuestionGenerationResult(generated, false)
+        : sanitizeQuestionGenerationResult(generated).map((candidate) => ({
+          ...candidate,
+          source: "JD_CRITERIA" as const,
+          ncsProfileId: null,
+          ncsQuestionMode: null,
+          ncsProfileVersion: null,
+          alignmentStatus: "NOT_EVALUATED" as const,
+          alignmentScore: null,
+          alignmentReason: null,
+          evaluatorVersion: null,
+        }));
     const savedDraft = {
       kind: mock ? "MOCK_QUESTION_GENERATE" : "RECRUITING_QUESTION_GENERATE",
       sourceProcessLogId: job.processLogId,
+      providerMode: "openai" as const,
+      providerSource: "OPENAI_QUESTION_GENERATION",
+      model: generated.model,
       items: questionCandidates.map((candidate) => candidate.content),
       questionCandidates,
       reviewRequired: true as const,
@@ -206,7 +328,6 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       outputRef: JSON.stringify({
         ...savedDraft,
         draftSource: "OPENAI_QUESTION_GENERATION",
-        model: generated.model
       }),
       guardrail: mock ? validateMockQuestionCandidates(questionCandidates) : { result: "PASS", reason: null },
       usage: createAiProcessUsage({
@@ -216,6 +337,73 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
         metadata: { processType: "QUESTION_GENERATE" }
       }),
       finalSave: () => this.results.saveGeneratedDraft(savedDraft)
+    };
+  }
+
+  private async resumeQuestionGenerate(job: AiWorkerJob): Promise<AiTaskResult> {
+    if (!this.questionProvider) {
+      throw new NonRetryableAiWorkerFailure("OpenAI question provider is required for RESUME_QUESTION_GENERATE");
+    }
+
+    const reference = resumeQuestionReferenceOf(job);
+    const context = await this.results.loadResumeQuestionGenerationContext(reference);
+    const generated = await generateAlignedNcsQuestions(this.questionProvider, {
+      kind: "RESUME_PERSONALIZED_QUESTION_GENERATE",
+      postingId: context.postingId,
+      jobDescription: context.jobDescription,
+      questionCount: context.questionCount,
+      criteria: context.criteria,
+      source: "RESUME_PERSONALIZED",
+      resumeText: scrubResumeTextForAi(context.resumeText),
+    }, "RESUME_PERSONALIZED");
+    const candidates = generated.questionCandidates;
+    const unsafe = candidates.find((candidate) => personalizedQuestionUnsafeReason(candidate.content));
+    if (unsafe) {
+      return {
+        outputRef: JSON.stringify({
+          kind: "RESUME_PERSONALIZED_QUESTION_GENERATE",
+          applicationId: context.applicationId,
+          inputVersion: context.inputVersion,
+          reviewStatus: "BLOCKED",
+        }),
+        guardrail: {
+          result: "BLOCKED",
+          reason: personalizedQuestionUnsafeReason(unsafe.content),
+          failureCategory: "NON_RETRYABLE",
+        },
+      };
+    }
+
+    const questions = toPersonalizedQuestionRecords(candidates, context);
+    const ready = questions.length === context.questionCount && questions.every((question) => question.alignmentStatus === "ALIGNED");
+    const result = {
+      reference,
+      status: ready ? "READY" as const : "REVIEW_REQUIRED" as const,
+      evaluatorVersion: questions.find((question) => question.evaluatorVersion)?.evaluatorVersion ?? null,
+      failureReason: ready ? null : "One or more personalized questions require alignment review.",
+      questions,
+    };
+
+    return {
+      outputRef: JSON.stringify({
+        kind: "RESUME_PERSONALIZED_QUESTION_GENERATE",
+        providerMode: "openai",
+        providerSource: "OPENAI_QUESTION_GENERATION",
+        applicationId: context.applicationId,
+        postingId: context.postingId,
+        inputVersion: context.inputVersion,
+        status: result.status,
+        questions,
+        model: generated.model,
+      }),
+      guardrail: { result: "PASS", reason: null },
+      usage: createAiProcessUsage({
+        modelName: generated.model,
+        inputTokens: generated.usage?.inputTokens,
+        outputTokens: generated.usage?.outputTokens,
+        metadata: { processType: "RESUME_QUESTION_GENERATE" },
+      }),
+      finalSave: () => this.results.saveResumeQuestionGeneration(result),
     };
   }
 
@@ -262,14 +450,18 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       })
     });
 
+    const reportUsage = createAiProcessUsage({
+      modelName: generated.model,
+      inputTokens: generated.usage?.inputTokens,
+      outputTokens: generated.usage?.outputTokens,
+      metadata: { processType: "REPORT_GENERATE", stage: "REPORT_SUMMARY" }
+    });
     return {
       ...fallbackResult,
       outputRef: appendReportProviderMetadata(fallbackResult.outputRef, generated, reportType),
-      usage: createAiProcessUsage({
-        modelName: generated.model,
-        inputTokens: generated.usage?.inputTokens,
-        outputTokens: generated.usage?.outputTokens,
-        metadata: { processType: "REPORT_GENERATE" }
+      usage: mergeAiProcessUsage(reportUsage, fallbackResult.usage, {
+        processType: "REPORT_GENERATE",
+        includesNcsEvaluation: Boolean(fallbackResult.usage),
       })
     };
   }
@@ -296,6 +488,20 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
         }
       : { result: "PASS" as const, reason: null };
   }
+}
+
+function factCheckFollowUpSummary(plan: {
+  required: boolean;
+  providerStatus: string;
+  gateStatus: string | null;
+  clarificationClaims: unknown[];
+}): Record<string, unknown> {
+  return {
+    providerStatus: plan.providerStatus,
+    gateStatus: plan.gateStatus,
+    clarificationRequired: plan.required,
+    clarificationClaimCount: plan.clarificationClaims.length,
+  };
 }
 
 function profileContextOf(value: unknown): Record<string, unknown> | undefined {
@@ -347,7 +553,7 @@ function reportTypeOf(value: unknown): "RECRUITING_REPORT" | "MOCK_INTERVIEW_REP
   throw new NonRetryableAiWorkerFailure("reportType is invalid");
 }
 
-function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; category?: string; weight?: number; description?: string }> {
+function criteriaOf(value: unknown): QuestionGenerationCriterion[] {
   if (!Array.isArray(value) || value.length === 0) {
     throw new NonRetryableAiWorkerFailure("criteria is required");
   }
@@ -362,9 +568,257 @@ function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; 
       name: requiredText(record.name, "criterion name"),
       category: optionalText(record.category),
       description: typeof record.description === "string" ? record.description : undefined,
-      weight: Number.isFinite(Number(record.weight)) ? Number(record.weight) : undefined
+      weight: Number.isFinite(Number(record.weight)) ? Number(record.weight) : undefined,
+      questionCount: optionalPositiveNumber(record.questionCount, "questionCount"),
+      ncsProfileId: ncsProfileIdOf(record.ncsProfileId),
+      ncsQuestionMode: ncsQuestionModeOf(record.ncsQuestionMode),
+      ncsProfileVersion: optionalText(record.ncsProfileVersion),
     };
   });
+}
+
+type NcsGenerationCriterion = QuestionGenerationCriterion & {
+  questionCount: number;
+  ncsProfileId: NcsApiProfileId;
+  ncsQuestionMode: NcsQuestionMode;
+  ncsProfileVersion: string;
+};
+
+type SanitizedQuestionCandidate = ReturnType<typeof sanitizeQuestionGenerationResult>[number];
+
+async function generateAlignedNcsQuestions(
+  provider: QuestionAiProvider,
+  input: QuestionGenerationInput,
+  source: "JD_CRITERIA" | "RESUME_PERSONALIZED" = "JD_CRITERIA",
+): Promise<QuestionGenerationResult> {
+  const criteria = input.criteria as NcsGenerationCriterion[];
+  const allocatedTotal = criteria.reduce((sum, criterion) => sum + criterion.questionCount, 0);
+  if (allocatedTotal !== input.questionCount) {
+    throw new NonRetryableAiWorkerFailure("NCS criterion allocation must equal questionCount");
+  }
+
+  const remaining = new Map(criteria.map((criterion) => [criterion.criterionId, criterion.questionCount]));
+  const accepted: Array<SanitizedQuestionCandidate & Record<string, unknown>> = [];
+  const rejectedQuestions: string[] = [];
+  let latestModel = "unknown";
+  let inputTokens = 0;
+  let outputTokens = 0;
+
+  const collect = async (requestedCriteria: NcsGenerationCriterion[]) => {
+    const requestedCount = requestedCriteria.reduce(
+      (sum, criterion) => sum + (remaining.get(criterion.criterionId) ?? 0),
+      0,
+    );
+    if (requestedCount === 0) return;
+
+    const generated = await provider.generateQuestions({
+      ...input,
+      questionCount: requestedCount,
+      criteria: requestedCriteria.map((criterion) => ({
+        ...criterion,
+        questionCount: remaining.get(criterion.criterionId) ?? 0,
+      })),
+      avoidQuestions: [...accepted.map((candidate) => candidate.content), ...rejectedQuestions].slice(-30),
+    });
+    latestModel = generated.model;
+    inputTokens += generated.usage?.inputTokens ?? 0;
+    outputTokens += generated.usage?.outputTokens ?? 0;
+
+    for (const candidate of sanitizeQuestionGenerationResult(generated)) {
+      const candidateCriterionId = candidate.criterionId;
+      if (candidateCriterionId === undefined) {
+        throw new NonRetryableAiWorkerFailure("NCS question candidate criterionId is required");
+      }
+      const criterion = requestedCriteria.find((item) => item.criterionId === candidateCriterionId);
+      const slots = remaining.get(candidateCriterionId) ?? 0;
+      if (!criterion || slots === 0) continue;
+
+      const qualityIssue = questionQualityIssue(
+        candidate.content,
+        accepted.map((acceptedCandidate) => acceptedCandidate.content),
+      );
+      if (qualityIssue) {
+        rejectedQuestions.push(candidate.content);
+        continue;
+      }
+
+      const alignment = alignNcsQuestion({
+        question: candidate.content,
+        profileId: criterion.ncsProfileId,
+        questionMode: criterion.ncsQuestionMode,
+        profileVersion: criterion.ncsProfileVersion,
+      });
+      const decorated = {
+        ...candidate,
+        source,
+        ncsProfileId: criterion.ncsProfileId,
+        ncsQuestionMode: criterion.ncsQuestionMode,
+        ncsProfileVersion: alignment.profileVersion,
+        alignmentStatus: alignment.status,
+        alignmentScore: alignment.score,
+        alignmentReason: alignment.reason,
+        evaluatorVersion: alignment.evaluatorVersion,
+      };
+
+      if (alignment.status === "ALIGNED") {
+        accepted.push(decorated);
+        remaining.set(candidateCriterionId, slots - 1);
+      } else {
+        rejectedQuestions.push(candidate.content);
+      }
+    }
+  };
+
+  for (let attempt = 0; attempt < 3 && totalRemaining(remaining) > 0; attempt += 1) {
+    await collect(criteria.filter((criterion) => (remaining.get(criterion.criterionId) ?? 0) > 0));
+  }
+
+  const fallbackCriteria = criteria
+    .filter((criterion) => (remaining.get(criterion.criterionId) ?? 0) > 0)
+    .map((criterion) => fallbackCriterion(criterion))
+    .filter((criterion): criterion is NcsGenerationCriterion => criterion !== null);
+  await collect(fallbackCriteria);
+
+  if (totalRemaining(remaining) > 0) {
+    const missing = criteria
+      .filter((criterion) => (remaining.get(criterion.criterionId) ?? 0) > 0)
+      .map((criterion) => `${criterion.criterionId}:${remaining.get(criterion.criterionId)}`)
+      .join(", ");
+    throw new NonRetryableAiWorkerFailure(
+      `question provider did not return enough natural aligned candidates: ${missing}`,
+    );
+  }
+
+  return {
+    questionCandidates: accepted.slice(0, input.questionCount),
+    model: latestModel,
+    usage: {
+      inputTokens: inputTokens || undefined,
+      outputTokens: outputTokens || undefined,
+    },
+  };
+}
+
+function scrubResumeTextForAi(value: string): string {
+  return value
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[이메일 비공개]")
+    .replace(/(?:\+?82[-\s]?)?0\d{1,2}[-\s]?\d{3,4}[-\s]?\d{4}/g, "[연락처 비공개]")
+    .slice(0, 50_000)
+    .trim();
+}
+
+function isNcsCriteria(criteria: QuestionGenerationCriterion[]): criteria is NcsGenerationCriterion[] {
+  return (
+    criteria.length > 0 &&
+    criteria.every(
+      (criterion) =>
+        criterion.questionCount !== undefined &&
+        criterion.ncsProfileId !== undefined &&
+        criterion.ncsQuestionMode !== undefined &&
+        criterion.ncsProfileVersion !== undefined,
+    )
+  );
+}
+
+function resumeQuestionReferenceOf(job: AiWorkerJob): ResumeQuestionJobReference {
+  let input: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(job.inputRef) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("invalid input");
+    input = parsed as Record<string, unknown>;
+  } catch {
+    throw new NonRetryableAiWorkerFailure("resume question job inputRef is invalid");
+  }
+
+  return {
+    processLogId: job.processLogId,
+    applicationId: positiveNumber(input.applicationId, "applicationId"),
+    postingId: positiveNumber(input.postingId, "postingId"),
+    documentId: positiveNumber(input.documentId, "documentId"),
+    policyVersion: positiveNumber(input.policyVersion, "policyVersion"),
+    criteriaVersion: positiveNumber(input.criteriaVersion, "criteriaVersion"),
+    inputVersion: requiredText(input.inputVersion, "inputVersion"),
+    resumeDocumentHash: requiredText(input.resumeDocumentHash, "resumeDocumentHash"),
+    jdSnapshotHash: requiredText(input.jdSnapshotHash, "jdSnapshotHash"),
+  };
+}
+
+function toPersonalizedQuestionRecords(
+  candidates: QuestionGenerationResult["questionCandidates"],
+  context: ResumeQuestionGenerationContext,
+): PersonalizedQuestionRecord[] {
+  return candidates.slice(0, context.questionCount).map((candidate, index) => {
+    const criterion = context.criteria.find((item) => item.criterionId === candidate.criterionId);
+    if (!criterion || !candidate.content.trim()) {
+      throw new NonRetryableAiWorkerFailure("personalized question criterion binding is invalid");
+    }
+    const metadata = candidate as QuestionGenerationResult["questionCandidates"][number] & {
+      ncsProfileId?: unknown;
+      ncsQuestionMode?: unknown;
+      ncsProfileVersion?: unknown;
+      alignmentStatus?: unknown;
+      alignmentScore?: unknown;
+      alignmentReason?: unknown;
+      evaluatorVersion?: unknown;
+    };
+    const alignmentStatus = metadata.alignmentStatus === "ALIGNED" ? "ALIGNED" : "REVIEW_REQUIRED";
+    return {
+      criterionId: criterion.criterionId,
+      criterionTitleSnapshot: criterion.name,
+      questionType: candidate.questionType ?? questionTypeForMode(criterion.ncsQuestionMode),
+      content: candidate.content.trim(),
+      ncsProfileId: criterion.ncsProfileId,
+      ncsQuestionMode: criterion.ncsQuestionMode,
+      ncsProfileVersion: typeof metadata.ncsProfileVersion === "string" ? metadata.ncsProfileVersion : criterion.ncsProfileVersion,
+      alignmentStatus,
+      alignmentScore: typeof metadata.alignmentScore === "number" ? metadata.alignmentScore : null,
+      alignmentReason: typeof metadata.alignmentReason === "string" ? metadata.alignmentReason : null,
+      evaluatorVersion: typeof metadata.evaluatorVersion === "string" ? metadata.evaluatorVersion : null,
+      sortOrder: index + 1,
+    };
+  });
+}
+
+function questionTypeForMode(mode: ResumeQuestionGenerationContext["criteria"][number]["ncsQuestionMode"]): PersonalizedQuestionRecord["questionType"] {
+  if (mode === "TECHNICAL_KNOWLEDGE") return "TECHNICAL";
+  if (mode === "SITUATIONAL_DESIGN") return "SITUATION";
+  return "EXPERIENCE";
+}
+
+function personalizedQuestionUnsafeReason(content: string): string | null {
+  const unsafePatterns: Array<[RegExp, string]> = [
+    [/(나이|생년|연령|몇\s*살)/i, "age attribute"],
+    [/(성별|남성|여성|남자|여자)/i, "gender attribute"],
+    [/(외모|용모|사진)/i, "appearance attribute"],
+    [/(가족|부모|결혼|임신|출산)/i, "family attribute"],
+    [/(장애인|장애\s*(?:여부|등급)|(?:신체|정신|발달|시각|청각)\s*장애|질병|건강 상태)/i, "health attribute"],
+    [/(학교명|출신 학교|학벌)/i, "school attribute"],
+  ];
+  return unsafePatterns.find(([pattern]) => pattern.test(content))?.[1] ?? null;
+}
+
+function fallbackCriterion(criterion: NcsGenerationCriterion): NcsGenerationCriterion | null {
+  if (criterion.ncsProfileId === "PROBLEM_SOLVING" && criterion.ncsQuestionMode === "EXPERIENCE_BEHAVIOR") {
+    return { ...criterion, ncsQuestionMode: "SITUATIONAL_DESIGN" };
+  }
+  if (criterion.ncsProfileId === "JOB_TECHNICAL" && criterion.ncsQuestionMode === "TECHNICAL_KNOWLEDGE") {
+    return { ...criterion, ncsQuestionMode: "EXPERIENCE_BEHAVIOR" };
+  }
+  return null;
+}
+
+function totalRemaining(remaining: Map<number, number>): number {
+  return [...remaining.values()].reduce((sum, count) => sum + count, 0);
+}
+
+function ncsProfileIdOf(value: unknown): NcsApiProfileId | undefined {
+  return canonicalNcsProfileIdOf(value);
+}
+
+function ncsQuestionModeOf(value: unknown): NcsQuestionMode | undefined {
+  return value === "EXPERIENCE_BEHAVIOR" || value === "TECHNICAL_KNOWLEDGE" || value === "SITUATIONAL_DESIGN"
+    ? value
+    : undefined;
 }
 
 function sanitizeQuestionGenerationResult(generated: QuestionGenerationResult, requireCriterion = true) {
@@ -469,6 +923,7 @@ function answersOf(value: unknown): Array<{
   sortOrder?: number;
   isFollowUpAnswer?: boolean;
   parentAnswerId?: number;
+  followUpReason?: "NCS_EVIDENCE_GAP" | "FACT_CLARIFICATION" | "GENERAL_EVIDENCE_GAP";
   transcript: string;
   evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
   transcriptUnavailableReason?: string;
@@ -485,7 +940,7 @@ function answersOf(value: unknown): Array<{
     const record = item as Record<string, unknown>;
     const evaluationStatus = record.evaluationStatus === "STT_UNAVAILABLE" ? "STT_UNAVAILABLE" : "EVALUATED";
     const transcriptUnavailableReason =
-      optionalText(record.transcriptUnavailableReason) ?? STT_UNAVAILABLE_TEMP_ZERO_REASON;
+      optionalText(record.transcriptUnavailableReason) ?? DEFAULT_STT_UNAVAILABLE_REASON;
     const transcript =
       evaluationStatus === "STT_UNAVAILABLE"
         ? optionalText(record.transcript) ?? ""
@@ -499,6 +954,7 @@ function answersOf(value: unknown): Array<{
       sortOrder: Number.isFinite(Number(record.sortOrder)) ? Number(record.sortOrder) : undefined,
       isFollowUpAnswer: record.isFollowUpAnswer === true,
       parentAnswerId: optionalPositiveNumber(record.parentAnswerId, "parentAnswerId"),
+      followUpReason: followUpReasonOf(record.followUpReason),
       transcript,
       evaluationStatus,
       transcriptUnavailableReason: evaluationStatus === "STT_UNAVAILABLE" ? transcriptUnavailableReason : undefined,
@@ -552,6 +1008,8 @@ function appendReportProviderMetadata(
     const output = JSON.parse(outputRef) as Record<string, unknown>;
     return JSON.stringify({
       ...output,
+      providerMode: "openai",
+      providerSource: "OPENAI_REPORT_GENERATION",
       summarySource: "OPENAI_REPORT_GENERATION",
       model: generated.model,
       ...(reportType === "RECRUITING_REPORT"
@@ -590,6 +1048,14 @@ function questionTypeOf(value: unknown): "INTRO" | "TECHNICAL" | "EXPERIENCE" | 
     value === "SITUATION" ||
     value === "FOLLOW_UP" ||
     value === "CLOSING"
+    ? value
+    : undefined;
+}
+
+function followUpReasonOf(
+  value: unknown,
+): "NCS_EVIDENCE_GAP" | "FACT_CLARIFICATION" | "GENERAL_EVIDENCE_GAP" | undefined {
+  return value === "NCS_EVIDENCE_GAP" || value === "FACT_CLARIFICATION" || value === "GENERAL_EVIDENCE_GAP"
     ? value
     : undefined;
 }

@@ -13,9 +13,10 @@ import {
   CompanyRecruitmentAiJobsController,
 } from "./controller/ai-jobs.controller";
 import { AiPerformanceService } from "./service/ai-performance.service";
+import { CompanyInterviewModule } from "../company-interview/company-interview.module";
 
 @Module({
-  imports: [ReportModule, AuthModule, CandidateModule, InterviewModule],
+  imports: [ReportModule, AuthModule, CandidateModule, InterviewModule, CompanyInterviewModule],
   controllers: [
     AiGuardrailsController,
     CandidateAiJobsController,

@@ -250,6 +250,19 @@ export interface CandidateApplicationSummary {
   canStartInterview: boolean;
 }
 
+export interface CancelApplicationResponse {
+  applicationId: number;
+  applicationStatus: "CANCELED";
+  canceledAt: string;
+}
+
+export interface CandidateDemoApplicationResetResult {
+  resetCount: number;
+  applicationIds: number[];
+  mediaFileCount: number;
+  storageCleanupFailedCount: number;
+}
+
 export interface CandidateInterviewGuide {
   applicationId: number;
   sessionId: number;
@@ -369,6 +382,16 @@ export interface RuntimeQuestionView {
   audioPrompt: string;
   answered: boolean;
   current: boolean;
+  answerId?: number;
+  sttStatus?:
+    | "NOT_SUBMITTED"
+    | "PENDING"
+    | "AVAILABLE"
+    | "REANSWER_AVAILABLE"
+    | "UNAVAILABLE"
+    | "PROCESSING_FAILED";
+  sttFailureReason?: string;
+  reanswerAvailable?: boolean;
 }
 
 export interface InterviewRuntimeSessionView {
@@ -428,7 +451,10 @@ export interface SaveInterviewAnswerResponse {
   answer: InterviewAnswer;
   videoFile?: CandidateFileAsset;
   audioFile?: CandidateFileAsset;
+  idempotentReplay: boolean;
   nextQuestionAvailable: boolean;
+  completionReady: boolean;
+  currentQuestion?: RuntimeQuestionView;
 }
 
 export interface NextInterviewQuestionResponse {
@@ -436,6 +462,7 @@ export interface NextInterviewQuestionResponse {
   previousQuestionId: number;
   currentQuestion?: RuntimeQuestionView;
   isLastQuestion: boolean;
+  completionReady: boolean;
 }
 
 export interface CompleteInterviewResponse {
@@ -497,21 +524,6 @@ export interface RealtimeInterviewSessionResponse {
   clientSecretType: "ephemeral";
   expiresAt: string;
   endpoint: string;
-}
-
-export interface InsertFollowUpQuestionRequest {
-  processLogId: number;
-}
-
-export interface InsertFollowUpQuestionResponse {
-  sessionId: number;
-  processLogId: number;
-  sourceAnswerId: number;
-  sourceQuestionId: number;
-  question: RuntimeQuestionView;
-  inserted: boolean;
-  totalQuestions: number;
-  nextQuestionAvailable: boolean;
 }
 
 export interface AiJobStatusResponse {
@@ -883,7 +895,6 @@ export const candidateApiPaths = {
   mockStt: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/stt`,
   mockRealtimeSession: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/realtime-session`,
   mockFollowUpQuestion: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/follow-up-question`,
-  mockFollowUpQuestionInsert: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/follow-up-questions/insert`,
   mockReports: "/api/v1/candidate/mock-interview/reports",
   mockHistory: "/api/v1/candidate/mock-interviews/history",
   mockReportFeedback: (reportId: number) => `/api/v1/candidate/mock-interview/reports/${reportId}/feedback`,
@@ -891,6 +902,10 @@ export const candidateApiPaths = {
   mockReportMediaSession: (reportId: number) => `/api/v1/candidate/mock-interview/reports/${reportId}/media/session`,
   mockReportGenerate: (reportId: number) => `/api/v1/candidate/mock-interview/reports/${reportId}/generate`,
   applications: "/api/v1/candidate/applications",
+  cancelApplication: (applicationId: number) => `/api/v1/candidate/applications/${applicationId}/cancel`,
+  demoApplicationResetUnlock: "/api/v1/candidate/demo-tools/applications/unlock",
+  demoApplicationsReset: "/api/v1/candidate/demo-tools/applications",
+  demoApplicationReset: (applicationId: number) => `/api/v1/candidate/demo-tools/applications/${applicationId}`,
   interviewGuide: (applicationId: number) => `/api/v1/candidate/applications/${applicationId}/interview-guide`,
   interviewConsent: (applicationId: number) => `/api/v1/candidate/applications/${applicationId}/consent`,
   applicationReport: (applicationId: number) => `/api/v1/candidate/applications/${applicationId}/report`,
@@ -907,7 +922,6 @@ export const candidateApiPaths = {
   recruitingStt: (sessionId: number) => `/api/v1/candidate/interviews/${sessionId}/stt`,
   recruitingRealtimeSession: (sessionId: number) => `/api/v1/candidate/interviews/${sessionId}/realtime-session`,
   recruitingFollowUpQuestion: (sessionId: number) => `/api/v1/candidate/interviews/${sessionId}/follow-up-question`,
-  recruitingFollowUpQuestionInsert: (sessionId: number) => `/api/v1/candidate/interviews/${sessionId}/follow-up-questions/insert`,
   aiJobStatus: (processLogId: number) => `/api/v1/ai/jobs/${processLogId}/status`,
   resume: "/api/v1/candidate/resume",
   portfolioLinks: "/api/v1/candidate/portfolio-links",
@@ -928,7 +942,6 @@ export const publicInterviewApiPaths = {
   stt: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/stt`,
   realtimeSession: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/realtime-session`,
   followUpQuestion: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/follow-up-question`,
-  followUpQuestionInsert: (sessionId: number) => `/api/v1/public/interviews/${sessionId}/follow-up-questions/insert`,
 } as const;
 
 export const publicCandidateApiPaths = {
@@ -983,10 +996,6 @@ export interface CandidateApiClient {
     sessionId: number,
     body: AiInterviewRequest,
   ): Promise<ApiResponse<AiInterviewHandoffResponse>>;
-  insertMockFollowUpQuestion(
-    sessionId: number,
-    body: InsertFollowUpQuestionRequest,
-  ): Promise<ApiResponse<InsertFollowUpQuestionResponse>>;
   listMockReports(): Promise<ApiListResponse<CandidateMockReportSummary>>;
   listMockInterviewHistory(): Promise<ApiListResponse<CandidateMockInterviewHistoryItem>>;
   updateMockSessionTitle(sessionId: number, title: string): Promise<ApiResponse<{ sessionId: number; title: string | null }>>;
@@ -996,6 +1005,10 @@ export interface CandidateApiClient {
   createMockReportMediaSession(reportId: number): Promise<ApiResponse<CandidateMockReportMediaPlaybackSession>>;
   requestMockReportGeneration(reportId: number): Promise<ApiResponse<CandidateReportGenerationHandoff>>;
   listApplications(): Promise<ApiListResponse<CandidateApplicationSummary>>;
+  cancelApplication(applicationId: number): Promise<ApiResponse<CancelApplicationResponse>>;
+  unlockDemoApplicationReset(command: string): Promise<ApiResponse<{ enabled: true }>>;
+  resetAllDemoApplications(): Promise<ApiResponse<CandidateDemoApplicationResetResult>>;
+  resetDemoApplication(applicationId: number): Promise<ApiResponse<CandidateDemoApplicationResetResult>>;
   getInterviewGuide(applicationId: number): Promise<ApiResponse<CandidateInterviewGuide>>;
   saveInterviewConsent(
     applicationId: number,
@@ -1024,10 +1037,6 @@ export interface CandidateApiClient {
     sessionId: number,
     body: AiInterviewRequest,
   ): Promise<ApiResponse<AiInterviewHandoffResponse>>;
-  insertRecruitingFollowUpQuestion(
-    sessionId: number,
-    body: InsertFollowUpQuestionRequest,
-  ): Promise<ApiResponse<InsertFollowUpQuestionResponse>>;
   getAiJobStatus(processLogId: number): Promise<ApiResponse<AiJobStatusResponse>>;
   getApplicationReport(applicationId: number): Promise<ApiResponse<CandidateRecruitingReportView>>;
   requestApplicationReportGeneration(applicationId: number): Promise<ApiResponse<CandidateReportGenerationHandoff>>;
@@ -1060,8 +1069,6 @@ export type InterviewRuntimeApiClient = Pick<
   | "createRecruitingRealtimeSession"
   | "requestMockFollowUpQuestion"
   | "requestRecruitingFollowUpQuestion"
-  | "insertMockFollowUpQuestion"
-  | "insertRecruitingFollowUpQuestion"
 >;
 
 export interface PublicInterviewApiClient extends InterviewRuntimeApiClient {
@@ -1175,11 +1182,6 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
         method: "POST",
         body: JSON.stringify(body),
       }),
-    insertMockFollowUpQuestion: (sessionId, body) =>
-      request<ApiResponse<InsertFollowUpQuestionResponse>>(candidateApiPaths.mockFollowUpQuestionInsert(sessionId), {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
     listMockReports: () =>
       request<ApiListResponse<CandidateMockReportSummary>>(candidateApiPaths.mockReports),
     listMockInterviewHistory: () =>
@@ -1216,6 +1218,23 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
       }),
     listApplications: () =>
       request<ApiListResponse<CandidateApplicationSummary>>(candidateApiPaths.applications),
+    cancelApplication: (applicationId) =>
+      request<ApiResponse<CancelApplicationResponse>>(candidateApiPaths.cancelApplication(applicationId), {
+        method: "PATCH",
+      }),
+    unlockDemoApplicationReset: (command) =>
+      request<ApiResponse<{ enabled: true }>>(candidateApiPaths.demoApplicationResetUnlock, {
+        method: "POST",
+        body: JSON.stringify({ command }),
+      }),
+    resetAllDemoApplications: () =>
+      request<ApiResponse<CandidateDemoApplicationResetResult>>(candidateApiPaths.demoApplicationsReset, {
+        method: "DELETE",
+      }),
+    resetDemoApplication: (applicationId) =>
+      request<ApiResponse<CandidateDemoApplicationResetResult>>(candidateApiPaths.demoApplicationReset(applicationId), {
+        method: "DELETE",
+      }),
     getInterviewGuide: (applicationId) =>
       request<ApiResponse<CandidateInterviewGuide>>(candidateApiPaths.interviewGuide(applicationId)),
     saveInterviewConsent: (applicationId, body) =>
@@ -1266,11 +1285,6 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
       }),
     requestRecruitingFollowUpQuestion: (sessionId, body) =>
       request<ApiResponse<AiInterviewHandoffResponse>>(candidateApiPaths.recruitingFollowUpQuestion(sessionId), {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    insertRecruitingFollowUpQuestion: (sessionId, body) =>
-      request<ApiResponse<InsertFollowUpQuestionResponse>>(candidateApiPaths.recruitingFollowUpQuestionInsert(sessionId), {
         method: "POST",
         body: JSON.stringify(body),
       }),
@@ -1422,18 +1436,12 @@ export function createPublicInterviewApiClient(
         method: "POST",
         body: JSON.stringify(body),
       }),
-    insertRecruitingFollowUpQuestion: (sessionId, body) =>
-      request<ApiResponse<InsertFollowUpQuestionResponse>>(publicInterviewApiPaths.followUpQuestionInsert(sessionId), {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
     saveMockAnswer: unsupportedMockMethod,
     moveMockNextQuestion: unsupportedMockMethod,
     completeMockInterview: unsupportedMockMethod,
     requestMockStt: unsupportedMockMethod,
     createMockRealtimeSession: unsupportedMockMethod,
     requestMockFollowUpQuestion: unsupportedMockMethod,
-    insertMockFollowUpQuestion: unsupportedMockMethod,
   };
 }
 

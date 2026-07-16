@@ -14,6 +14,7 @@ import {
   type ConsentRecord,
   type FileAsset,
   type InterviewSession,
+  type InterviewQuestionSnapshotResult,
   type PortfolioLink,
 } from "../candidate.types";
 
@@ -312,6 +313,29 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     return session;
   }
 
+  async prepareInterviewSessionQuestionSnapshot(
+    applicationId: number,
+  ): Promise<InterviewQuestionSnapshotResult | undefined> {
+    const application = await this.findApplication(applicationId);
+    if (!application) return undefined;
+    const session = await this.ensureInterviewSessionByApplication(applicationId);
+    if (!session) return undefined;
+    return {
+      readiness: "READY",
+      applicationId,
+      postingId: application.postingId,
+      sessionId: session.sessionId,
+      snapshotCreated: false,
+      commonQuestionCount: 0,
+      personalizedQuestionCount: 0,
+      totalQuestionCount: 0,
+      expectedCommonQuestionCount: 0,
+      expectedPersonalizedQuestionCount: 0,
+      policyVersion: 0,
+      criteriaVersion: 0,
+    };
+  }
+
   async saveDeviceCheck(
     sessionId: number,
     deviceCheck: { cameraGranted: boolean; microphoneGranted: boolean; networkStable: boolean },
@@ -330,6 +354,21 @@ export class InMemoryCandidateRepository implements CandidateRepository {
   async updateApplicationInterviewStatus(applicationId: number, status: InterviewSession["status"]): Promise<Application> {
     const application = await this.requiredApplication(applicationId);
     application.interviewStatus = status;
+    application.updatedAt = new Date().toISOString();
+    return application;
+  }
+
+  async cancelApplication(applicationId: number): Promise<Application | undefined> {
+    const application = this.applications.find((item) => item.applicationId === applicationId);
+    if (!application) return undefined;
+    if (application.applicationStatus === "CANCELED") return application;
+    if (
+      !["SUBMITTED", "IN_REVIEW"].includes(application.applicationStatus) ||
+      !["NOT_READY", "READY"].includes(application.interviewStatus)
+    ) {
+      return undefined;
+    }
+    application.applicationStatus = "CANCELED";
     application.updatedAt = new Date().toISOString();
     return application;
   }
@@ -445,6 +484,29 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     return { application, documents, consents, portfolioLink };
   }
 
+  async resetDemoApplications(input: {
+    candidateId: number;
+    ownerUserId: number;
+    applicationId?: number;
+  }): Promise<{ applicationIds: number[]; mediaStorageKeys: string[] }> {
+    const applicationIds = this.applications
+      .filter(
+        (application) =>
+          application.candidateId === input.candidateId &&
+          (input.applicationId === undefined || application.applicationId === input.applicationId),
+      )
+      .map((application) => application.applicationId);
+    const applicationIdSet = new Set(applicationIds);
+
+    this.removeItems(this.documents, (document) => applicationIdSet.has(document.applicationId));
+    this.removeItems(this.consentRecords, (consent) => applicationIdSet.has(consent.applicationId));
+    this.removeItems(this.interviewSessions, (session) => applicationIdSet.has(session.applicationId));
+    this.removeItems(this.portfolioLinks, (link) => link.applicationId !== undefined && applicationIdSet.has(link.applicationId));
+    this.removeItems(this.applications, (application) => applicationIdSet.has(application.applicationId));
+
+    return { applicationIds, mediaStorageKeys: [] };
+  }
+
   async createFileAsset(input: Omit<FileAsset, "fileId" | "createdAt" | "status">): Promise<FileAsset> {
     const requestBody = input as unknown as Record<string, unknown>;
     const forbiddenField = FORBIDDEN_FILE_PAYLOAD_FIELDS.find((field) => Object.hasOwn(requestBody, field));
@@ -545,6 +607,11 @@ export class InMemoryCandidateRepository implements CandidateRepository {
   private resolveFolderResumeFileName(resumeFileId: number | null): string | null {
     if (!resumeFileId) return null;
     return this.fileAssets.find((fileAsset) => fileAsset.fileId === resumeFileId)?.originalName ?? null;
+  }
+
+  private removeItems<T>(items: T[], shouldRemove: (item: T) => boolean): void {
+    const remaining = items.filter((item) => !shouldRemove(item));
+    items.splice(0, items.length, ...remaining);
   }
 
   private createRecruitingInterviewSession(application: Application, createdAt: string): InterviewSession {

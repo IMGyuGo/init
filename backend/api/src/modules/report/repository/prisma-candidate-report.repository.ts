@@ -103,6 +103,7 @@ export class PrismaCandidateReportRepository implements CandidateReportRepositor
       content: question.content,
       generationStatus: question.generationStatus,
       policy: question.policy,
+      ...(isFollowUpReason(question.reason) ? { reason: question.reason } : {}),
       createdAt: question.createdAt.toISOString(),
     }));
   }
@@ -180,11 +181,19 @@ export class PrismaCandidateReportRepository implements CandidateReportRepositor
       generatedAt: report.generatedAt?.toISOString(),
       failureCategory: report.failureCategory ?? undefined,
       failureReason: report.failureReason ?? undefined,
-      scores: report.scores.map((score) => this.toScore(score)),
+      scores: report.scores.flatMap((score) => {
+        const candidateScore = this.toScore(score);
+        return candidateScore ? [candidateScore] : [];
+      }),
     };
   }
 
-  private toScore(score: CandidateReportScoreWithIncludes): CandidateReportScoreRecord {
+  private toScore(score: CandidateReportScoreWithIncludes): CandidateReportScoreRecord | undefined {
+    // Incomplete NCS aggregates are internal state, not candidate-facing feedback scores.
+    if (score.score === null) {
+      return undefined;
+    }
+
     return {
       scoreId: Number(score.scoreId),
       criterionId: score.criterionId ? Number(score.criterionId) : undefined,
@@ -233,6 +242,12 @@ export class PrismaCandidateReportRepository implements CandidateReportRepositor
       return undefined;
     }
   }
+}
+
+function isFollowUpReason(
+  value: string | null,
+): value is "NCS_EVIDENCE_GAP" | "FACT_CLARIFICATION" | "GENERAL_EVIDENCE_GAP" {
+  return value === "NCS_EVIDENCE_GAP" || value === "FACT_CLARIFICATION" || value === "GENERAL_EVIDENCE_GAP";
 }
 
 type CandidateReportWithScores = Prisma.EvaluationReportGetPayload<{ include: typeof candidateReportInclude }>;

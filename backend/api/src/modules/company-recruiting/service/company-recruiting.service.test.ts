@@ -304,6 +304,83 @@ function createApplicantRecord(overrides: Partial<ApplicantRecord> = {}): Applic
   };
 }
 
+function ncsProfileScore(
+  scoreId: number,
+  ncsProfileId: string,
+  averageScore: number,
+  weight: number,
+  weightedScore: number,
+): NonNullable<ApplicantRecord["evaluationReports"][number]["scores"]>[number] {
+  return {
+    scoreId,
+    score: Math.round(averageScore * 20),
+    rationale: `${ncsProfileId} 집계`,
+    ncsProfileId,
+    averageScore,
+    normalizedScore: Math.round(averageScore * 20),
+    weight,
+    weightedScore,
+    minimumAverageScore: 3,
+    assignedQuestionCount: 2,
+    validQuestionCount: 2,
+    criterion: null,
+    evidences: [],
+  };
+}
+
+function ncsEvaluation(
+  ncsEvaluationId: number,
+  ncsProfileId: string,
+  evidenceId: number,
+): NonNullable<ApplicantRecord["evaluationReports"][number]["ncsAnswerEvaluations"]>[number] {
+  return {
+    ncsEvaluationId,
+    answerId: 801,
+    sessionQuestionId: 701,
+    criterionId: ncsProfileId === "JOB_TECHNICAL" ? 1 : 3,
+    criterionTitleSnapshot: ncsProfileId,
+    ncsProfileId,
+    ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+    ncsProfileVersion: "2025.12-v1",
+    scoreStatus: "SCORED",
+    competencyScore: 3,
+    evidenceScore: 1,
+    totalScore: 4,
+    behaviorPoints: 3,
+    logicPoints: 1,
+    baseScore: 4,
+    effectiveScore: 4,
+    followUpApplied: false,
+    coverage: 1,
+    confidence: "HIGH",
+    rubricVersion: "ncs-evidence-growth-v1",
+    promptVersion: "ncs-text-evaluation-v1",
+    providerMode: "mock",
+    modelName: null,
+    result: {
+      competencies: [{
+        profileId: ncsProfileId === "JOB_TECHNICAL" ? "digital" : "problem-solving",
+        rationale: "답변 원문에서 행동 근거가 확인되었습니다.",
+      }],
+    },
+    evidences: [{
+      evidenceId,
+      sourceAnswerId: 801,
+      sourceKind: "BASE",
+      quote: `근거 ${evidenceId}`,
+      sortOrder: 1,
+    }],
+    sessionQuestion: {
+      runtimeQuestionId: 9001,
+      generationSource: "JD_CRITERIA",
+      content: "장애 원인을 분석하고 대안을 선택한 경험을 설명해 주세요.",
+      ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+      sortOrder: 1,
+    },
+    updatedAt: new Date("2026-07-14T12:00:00.000Z"),
+  };
+}
+
 function createPublicApplicationAuthAdapter(
   tokenPayload: { applicationId: number; recruitmentId: number; email: string; purpose: "PUBLIC_APPLICATION_STATUS"; createdAt: string } | null = {
     applicationId: 77,
@@ -1371,6 +1448,37 @@ describe("CompanyRecruitingService", () => {
                   criterion: { criterionId: 10, tagName: "Backend" },
                   evidences: [{ evidenceId: 1, evidenceText: "NestJS 기반 API 구축 경험" }],
                 },
+                {
+                  scoreId: 9002,
+                  score: null,
+                  rationale: "NCS 평가가 아직 완료되지 않았습니다.",
+                  criterion: null,
+                  evidences: [],
+                },
+              ],
+              ncsAnswerEvaluations: [
+                {
+                  ncsEvaluationId: 7001,
+                  answerId: 801,
+                  sessionQuestionId: 901,
+                  criterionId: 10,
+                  criterionTitleSnapshot: "문제해결능력",
+                  ncsProfileId: "PROBLEM_SOLVING",
+                  ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+                  ncsProfileVersion: "2025.12-v1",
+                  scoreStatus: "INSUFFICIENT_INPUT",
+                  competencyScore: null,
+                  evidenceScore: null,
+                  totalScore: null,
+                  coverage: 0.3,
+                  confidence: "LOW",
+                  rubricVersion: "ncs-evidence-growth-v1",
+                  promptVersion: "ncs-text-evaluation-v1",
+                  providerMode: "mock",
+                  modelName: null,
+                  result: { guardrail: { result: "REGENERATED" } },
+                  updatedAt: new Date("2026-06-30T08:00:01.000Z"),
+                },
               ],
             },
           ],
@@ -1384,6 +1492,78 @@ describe("CompanyRecruitingService", () => {
     assert.equal(result.reportAvailability, "AVAILABLE");
     assert.equal(result.report?.totalScore, 82);
     assert.equal(result.report?.scores[0]?.evidences[0]?.evidenceText, "NestJS 기반 API 구축 경험");
+    assert.equal(result.report?.scores[1]?.score, null);
+    assert.equal(result.report?.ncsAnswerEvaluations[0]?.scoreStatus, "INSUFFICIENT_INPUT");
+    assert.deepEqual(result.report?.ncsAnswerEvaluations[0]?.scores, {
+      competency: null,
+      evidence: null,
+      total: null,
+    });
+    assert.equal(result.report?.ncsAnswerEvaluations[0]?.updatedAt, "2026-06-30T08:00:01.000Z");
+    assert.equal(result.report?.ncsEvaluation, null);
+  });
+
+  it("projects the stored NCS evaluation as the versioned API-020 report contract", async () => {
+    const repository = createRepository({
+      async findApplicationForCompany() {
+        return createApplicantRecord({
+          evaluationReports: [{
+            reportId: 501,
+            applicationId: 77,
+            sessionId: 901,
+            status: "COMPLETED",
+            totalScore: 84,
+            summary: "NCS 평가가 완료되었습니다.",
+            ncsCompletionStatus: "COMPLETE",
+            ncsThresholdResult: "MEETS_THRESHOLD",
+            ncsAiDecision: "PASS",
+            ncsDecisionReasonCode: "THRESHOLD_MET",
+            ncsScoringVersion: "NCS_RECRUITING_SCORING_V1",
+            ncsDecisionPolicyVersion: "NCS_INCOMPLETE_AS_FAIL_DEMO_V1",
+            ncsSummary: { incompleteReasons: [] },
+            generatedAt: new Date("2026-07-14T12:00:00.000Z"),
+            scores: [
+              ncsProfileScore(1, "JOB_TECHNICAL", 4.5, 30, 27),
+              ncsProfileScore(2, "COLLABORATION_COMMUNICATION", 3.5, 30, 21),
+              ncsProfileScore(3, "PROBLEM_SOLVING", 4.5, 40, 36),
+            ],
+            ncsAnswerEvaluations: [
+              ncsEvaluation(7001, "JOB_TECHNICAL", 2001),
+              ncsEvaluation(7002, "PROBLEM_SOLVING", 2002),
+            ],
+          }],
+          interviewSessions: [{
+            sessionId: 901,
+            status: "COMPLETED",
+            interviewType: "RECRUITING",
+            startedAt: new Date("2026-07-14T11:00:00.000Z"),
+            completedAt: new Date("2026-07-14T11:30:00.000Z"),
+            answerTimeSecSnapshot: 90,
+            answers: [],
+          }],
+        });
+      },
+    });
+    const service = new CompanyRecruitingService(repository);
+
+    const result = await service.getApplicantEvaluation(companyUser, 77);
+    const ncs = result.report?.ncsEvaluation;
+
+    assert.equal(ncs?.schemaVersion, "ncs-report-evaluation-output-v1");
+    assert.deepEqual(ncs?.result, {
+      completionStatus: "COMPLETE",
+      thresholdResult: "MEETS_THRESHOLD",
+      aiDecision: "PASS",
+      decisionReasonCode: "THRESHOLD_MET",
+      totalScore: 84,
+    });
+    assert.equal(ncs?.profiles.length, 3);
+    assert.equal(ncs?.questions.length, 1);
+    assert.equal(ncs?.questions[0]?.profileEvaluations.length, 2);
+    assert.deepEqual(ncs?.evidences.map((evidence) => evidence.evidenceId), [2001, 2002]);
+    assert.equal(ncs?.findings.every((finding) => finding.evidenceIds.length > 0), true);
+    assert.equal(result.report?.scores.length, 0);
+    assert.equal(result.report?.ncsAnswerEvaluations.length, 2);
   });
 
   it("keeps recruiting telemetry as an unverified reference without changing scores", async () => {

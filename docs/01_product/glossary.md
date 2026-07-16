@@ -16,6 +16,10 @@
 | 면접 세션 | Interview Session | 모의면접 또는 채용 AI 면접의 실행 단위. |
 | 답변 | Interview Answer | 질문별 영상/음성/STT 스크립트 단위. |
 | 평가 기준 | Evaluation Criteria | 공고별 선택된 평가 태그와 가중치. |
+| NCS 평가 프로필 | NCS Evaluation Profile | 질문과 답변이 측정할 역량 단위. 초기 버전은 문제해결능력, 의사소통능력, 디지털능력 3개를 고정 사용한다. |
+| JD 공통 질문 | JD Criteria Question | 저장된 NCS 평가 기준과 공고 JD를 기반으로 생성하며 같은 공고의 모든 지원자에게 적용하는 질문. |
+| 이력서 개인화 질문 | Resume Personalized Question | NCS 평가 기준, 공고 JD, 지원 완료된 지원자의 이력서를 함께 사용해 해당 지원자에게만 생성하는 질문. |
+| 질문 정렬 | Question Alignment | 질문이 지정된 NCS 평가 프로필과 question mode에 맞는 답변 근거를 수집할 수 있는지 versioned evaluator로 검증하는 절차. |
 | 리포트 | Evaluation Report | 서류/면접 평가 결과와 점수/근거의 집합. |
 | 가드레일 | Guardrail | AI 출력이 평가 범위와 안전 정책을 벗어나지 않도록 검증하는 레이어. |
 | 임베딩 | Embedding | JD, 질문, 답변, 리포트 근거 검색/추천을 위한 벡터화 데이터. |
@@ -39,8 +43,14 @@
 | document_type | RESUME, PORTFOLIO | 지원 서류 유형 |
 | consent_type | PRIVACY_COLLECTION, AI_DOCUMENT_ANALYSIS, AI_INTERVIEW_RECORDING | 필수 동의 유형 |
 | question_type | INTRO, TECHNICAL, EXPERIENCE, SITUATION, FOLLOW_UP, CLOSING | 면접 질문 유형 |
+| evaluation_framework | LEGACY, NCS_3_PROFILE_V1 | 공고 면접 평가 체계 |
+| ncs_profile_id | PROBLEM_SOLVING, COMMUNICATION, DIGITAL | 초기 NCS 평가 프로필 |
+| ncs_question_mode | EXPERIENCE_BEHAVIOR, TECHNICAL_KNOWLEDGE, SITUATIONAL_DESIGN | NCS 답변 근거를 수집하는 질문 mode |
+| question_generation_source | JD_CRITERIA, RESUME_PERSONALIZED | 질문 생성 출처 |
+| question_alignment_status | NOT_EVALUATED, ALIGNED, LOW_ALIGNMENT, REVIEW_REQUIRED | 질문과 NCS profile의 정렬 검증 상태 |
+| resume_question_generation_status | DISABLED, WAITING_APPLICATION, WAITING_DOCUMENT, GENERATING, READY, REVIEW_REQUIRED, FAILED | 이력서 질문 준비 상태 |
 | notification_channel | EMAIL, IN_APP | 알림 채널 |
-| ai_process_type | DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING | AI 처리 유형 |
+| ai_process_type | DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING, GUARDRAIL_VALIDATE, CRITERIA_SUGGEST, QUESTION_GENERATE, RESUME_QUESTION_GENERATE, QUESTION_SET_GENERATE, POSTING_DRAFT_GENERATE | AI 처리 유형 |
 | ai_process_status | PENDING, RUNNING, COMPLETED, FAILED | AI 처리 상태 |
 | guardrail_result | PASS, BLOCKED, REGENERATED | AI 안전 검증 결과 |
 | embedding_source_type | POSTING_JD, CRITERION_TAG, QUESTION, APPLICATION_DOCUMENT, INTERVIEW_ANSWER, EVALUATION_REPORT | 임베딩 원천 유형 |

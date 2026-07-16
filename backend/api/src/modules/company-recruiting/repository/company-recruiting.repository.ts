@@ -468,6 +468,21 @@ const applicantInclude = {
     orderBy: { reportId: "desc" as const },
     take: 1,
     include: {
+      ncsAnswerEvaluations: {
+        orderBy: [{ answerId: "asc" as const }, { ncsEvaluationId: "asc" as const }],
+        include: {
+          evidences: { orderBy: { sortOrder: "asc" as const } },
+          sessionQuestion: {
+            select: {
+              runtimeQuestionId: true,
+              generationSource: true,
+              content: true,
+              ncsQuestionMode: true,
+              sortOrder: true,
+            },
+          },
+        },
+      },
       scores: {
         include: {
           criterion: {
@@ -708,14 +723,31 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
     },
     evaluationReports: application.evaluationReports.map((report) => ({
       reportId: Number(report.reportId),
+      applicationId: report.applicationId === null ? null : Number(report.applicationId),
+      sessionId: report.sessionId === null ? null : Number(report.sessionId),
       status: report.status,
       totalScore: report.totalScore,
       summary: report.summary,
+      ncsCompletionStatus: report.ncsCompletionStatus,
+      ncsThresholdResult: report.ncsThresholdResult,
+      ncsAiDecision: report.ncsAiDecision,
+      ncsDecisionReasonCode: report.ncsDecisionReasonCode,
+      ncsScoringVersion: report.ncsScoringVersion,
+      ncsDecisionPolicyVersion: report.ncsDecisionPolicyVersion,
+      ncsSummary: report.ncsSummaryJson,
       generatedAt: report.generatedAt,
       scores: report.scores.map((score) => ({
         scoreId: Number(score.scoreId),
         score: score.score,
         rationale: score.rationale,
+        ncsProfileId: score.ncsProfileId,
+        averageScore: score.averageScore === null ? null : Number(score.averageScore),
+        normalizedScore: score.normalizedScore,
+        weight: score.weight,
+        weightedScore: score.weightedScore === null ? null : Number(score.weightedScore),
+        minimumAverageScore: score.minimumAverageScore === null ? null : Number(score.minimumAverageScore),
+        assignedQuestionCount: score.assignedQuestionCount,
+        validQuestionCount: score.validQuestionCount,
         criterion: score.criterion
           ? {
               criterionId: Number(score.criterion.criterionId),
@@ -727,6 +759,49 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
           evidenceText: evidence.evidenceText,
         })),
       })),
+      ncsAnswerEvaluations: report.ncsAnswerEvaluations.map((evaluation) => ({
+        ncsEvaluationId: Number(evaluation.ncsEvaluationId),
+        answerId: Number(evaluation.answerId),
+        sessionQuestionId: Number(evaluation.sessionQuestionId),
+        criterionId: evaluation.criterionId === null ? null : Number(evaluation.criterionId),
+        criterionTitleSnapshot: evaluation.criterionTitleSnapshot,
+        ncsProfileId: evaluation.ncsProfileId,
+        ncsQuestionMode: evaluation.ncsQuestionMode,
+        ncsProfileVersion: evaluation.ncsProfileVersion,
+        scoreStatus: evaluation.scoreStatus,
+        competencyScore: evaluation.competencyScore,
+        evidenceScore: evaluation.evidenceScore,
+        totalScore: evaluation.totalScore,
+        behaviorPoints: evaluation.behaviorPoints,
+        logicPoints: evaluation.logicPoints,
+        baseScore: evaluation.baseScore,
+        effectiveScore: evaluation.effectiveScore,
+        followUpApplied: evaluation.followUpApplied,
+        coverage: Number(evaluation.coverage),
+        confidence: evaluation.confidence,
+        rubricVersion: evaluation.rubricVersion,
+        promptVersion: evaluation.promptVersion,
+        providerMode: evaluation.providerMode,
+        modelName: evaluation.modelName,
+        result: evaluation.resultJson,
+        evidences: evaluation.evidences.map((evidence) => ({
+          evidenceId: Number(evidence.evidenceId),
+          sourceAnswerId: Number(evidence.sourceAnswerId),
+          sourceKind: evidence.sourceKind,
+          quote: evidence.quote,
+          sortOrder: evidence.sortOrder,
+        })),
+        sessionQuestion: {
+          runtimeQuestionId: evaluation.sessionQuestion.runtimeQuestionId === null
+            ? null
+            : Number(evaluation.sessionQuestion.runtimeQuestionId),
+          generationSource: evaluation.sessionQuestion.generationSource,
+          content: evaluation.sessionQuestion.content,
+          ncsQuestionMode: evaluation.sessionQuestion.ncsQuestionMode,
+          sortOrder: evaluation.sessionQuestion.sortOrder,
+        },
+        updatedAt: evaluation.updatedAt,
+      })),
     })),
     interviewSessions: application.interviewSessions.map((session) => {
       const sessionAnswers = "answers" in session ? session.answers : [];
@@ -737,6 +812,7 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
         interviewType: session.interviewType,
         startedAt: session.startedAt,
         completedAt: session.completedAt,
+        answerTimeSecSnapshot: session.answerTimeSecSnapshot,
         answers: sessionAnswers.map((answer) => ({
           answerId: Number(answer.answerId),
           questionId: answer.questionId == null ? null : Number(answer.questionId),

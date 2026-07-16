@@ -157,9 +157,3 @@ export class CreateRealtimeInterviewSessionDto {
   @IsIn(["webrtc"])
   transport?: "webrtc";
 }
-
-export class InsertFollowUpQuestionDto {
-  @IsInt()
-  @IsPositive()
-  processLogId!: number;
-}

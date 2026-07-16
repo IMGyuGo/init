@@ -186,12 +186,13 @@ export interface InterviewRuntimeProgressionStateInput {
   hasRuntimeData: boolean;
   currentQuestionAnswered: boolean;
   isCurrentQuestionLast: boolean;
-  generatedFollowUpReady: boolean;
   answerProcessingBusy: boolean;
   isReansweringCurrentQuestion: boolean;
   recording: boolean;
   answeredQuestionCount: number;
   totalQuestions: number;
+  /** @deprecated Kept for legacy test and caller compatibility; server state is authoritative. */
+  generatedFollowUpReady?: boolean;
   gazeRetakeRequired?: boolean;
 }
 
@@ -1116,7 +1117,6 @@ export function getInterviewRuntimeProgressionState({
   hasRuntimeData,
   currentQuestionAnswered,
   isCurrentQuestionLast,
-  generatedFollowUpReady,
   answerProcessingBusy,
   isReansweringCurrentQuestion,
   recording,
@@ -1127,7 +1127,7 @@ export function getInterviewRuntimeProgressionState({
   const canMoveNextQuestion = Boolean(
     hasRuntimeData &&
       currentQuestionAnswered &&
-      (!isCurrentQuestionLast || generatedFollowUpReady) &&
+      !isCurrentQuestionLast &&
       !answerProcessingBusy &&
       !isReansweringCurrentQuestion &&
       !recording &&
@@ -1135,11 +1135,10 @@ export function getInterviewRuntimeProgressionState({
   );
   const canCompleteInterview = Boolean(
     hasRuntimeData &&
-      currentQuestionAnswered &&
-      isCurrentQuestionLast &&
-      !generatedFollowUpReady &&
-      !answerProcessingBusy &&
+      (currentQuestionAnswered || answeredQuestionCount >= totalQuestions) &&
+      (isCurrentQuestionLast || answeredQuestionCount >= totalQuestions) &&
       answeredQuestionCount >= totalQuestions &&
+      !answerProcessingBusy &&
       !isReansweringCurrentQuestion &&
       !recording &&
       !gazeRetakeRequired,
@@ -1149,6 +1148,10 @@ export function getInterviewRuntimeProgressionState({
     canMoveNextQuestion,
     canCompleteInterview,
   };
+}
+
+export function shouldDeferQuestionTransitionForFollowUp(questionType?: string): boolean {
+  return Boolean(questionType && questionType !== "FOLLOW_UP");
 }
 
 export function getInterviewAiPollingPolicy({
@@ -1182,7 +1185,8 @@ export function shouldContinueInterviewWithoutFollowUp(args: {
   failureCategory?: string;
   pipelineError?: unknown;
 }): boolean {
-  return Boolean(args.pipelineError || args.failureCategory === "TIMEOUT");
+  void args;
+  return true;
 }
 
 export function getRealtimeSessionUserNotice({

@@ -1,4 +1,4 @@
-import { AiProcessLogRepository } from "./process-log.repository";
+import { AiProcessClaimResult, AiProcessLogRepository } from "./process-log.repository";
 import {
   AiProcessLogSnapshot,
   AiProcessUsage,
@@ -16,6 +16,8 @@ interface PrismaAiProcessLogRecord {
   outputRef: string | null;
   failureCategory: string | null;
   failureReason: string | null;
+  leaseOwner: string | null;
+  leaseExpiresAt: Date | null;
   startedAt: Date | null;
   completedAt: Date | null;
   durationMs: number | null;
@@ -32,6 +34,7 @@ interface PrismaAiProcessLogClient {
     findUnique(args: unknown): Promise<PrismaAiProcessLogRecord | null>;
     upsert(args: unknown): Promise<PrismaAiProcessLogRecord>;
     update(args: unknown): Promise<PrismaAiProcessLogRecord>;
+    updateMany(args: unknown): Promise<{ count: number }>;
   };
   aiGuardrailLog: {
     create(args: unknown): Promise<{ guardrailLogId: bigint }>;
@@ -72,38 +75,103 @@ export class PrismaAiProcessLogRepository implements AiProcessLogRepository {
     return this.toSnapshot(processLog);
   }
 
-  async markCompleted(processLogId: number, outputRef?: string, usage?: AiProcessUsage): Promise<AiProcessLogSnapshot> {
-    const completedAt = new Date();
-    const durationMs = await this.durationMs(processLogId, completedAt);
-    const processLog = await this.prisma.aiProcessLog.update({
-      where: { processLogId: BigInt(processLogId) },
+  async claim(job: AiWorkerJob, leaseOwner: string, leaseExpiresAt: Date): Promise<AiProcessClaimResult> {
+    await this.ensurePending(job);
+    const now = new Date();
+    const claimed = await this.prisma.aiProcessLog.updateMany({
+      where: {
+        processLogId: BigInt(job.processLogId),
+        OR: [
+          { status: { in: ["PENDING", "FAILED"] } },
+          { status: "RUNNING", leaseExpiresAt: null },
+          { status: "RUNNING", leaseExpiresAt: { lte: now } },
+        ],
+      },
       data: {
-        status: "COMPLETED",
-        outputRef,
-        completedAt,
-        durationMs,
-        ...this.usageData(usage),
+        status: "RUNNING",
+        leaseOwner,
+        leaseExpiresAt,
+        startedAt: now,
+        completedAt: null,
+        durationMs: null,
         failureCategory: null,
-        failureReason: null
-      }
+        failureReason: null,
+      },
     });
-    return this.toSnapshot(processLog);
+    const snapshot = await this.findSnapshot(job.processLogId);
+    if (claimed.count === 1) {
+      return { status: "CLAIMED", snapshot };
+    }
+    return { status: snapshot.status === "COMPLETED" ? "COMPLETED" : "BUSY", snapshot };
   }
 
-  async markFailed(processLogId: number, failure: FailureReason): Promise<AiProcessLogSnapshot> {
+  async renewClaim(processLogId: number, leaseOwner: string, leaseExpiresAt: Date): Promise<boolean> {
+    const renewed = await this.prisma.aiProcessLog.updateMany({
+      where: {
+        processLogId: BigInt(processLogId),
+        status: "RUNNING",
+        leaseOwner,
+      },
+      data: { leaseExpiresAt },
+    });
+    return renewed.count === 1;
+  }
+
+  async markCompleted(
+    processLogId: number,
+    outputRef?: string,
+    usage?: AiProcessUsage,
+    leaseOwner?: string,
+  ): Promise<AiProcessLogSnapshot> {
     const completedAt = new Date();
     const durationMs = await this.durationMs(processLogId, completedAt);
-    const processLog = await this.prisma.aiProcessLog.update({
-      where: { processLogId: BigInt(processLogId) },
-      data: {
-        status: "FAILED",
-        completedAt,
-        durationMs,
-        failureCategory: failure.category,
-        failureReason: failure.reason
-      }
+    const data = {
+      status: "COMPLETED",
+      outputRef,
+      completedAt,
+      durationMs,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      ...this.usageData(usage),
+      failureCategory: null,
+      failureReason: null,
+    };
+    if (!leaseOwner) {
+      return this.toSnapshot(await this.prisma.aiProcessLog.update({
+        where: { processLogId: BigInt(processLogId) },
+        data,
+      }));
+    }
+    await this.prisma.aiProcessLog.updateMany({
+      where: { processLogId: BigInt(processLogId), status: "RUNNING", leaseOwner },
+      data,
     });
-    return this.toSnapshot(processLog);
+    return this.findSnapshot(processLogId);
+  }
+
+  async markFailed(processLogId: number, failure: FailureReason, leaseOwner?: string): Promise<AiProcessLogSnapshot> {
+    const completedAt = new Date();
+    const durationMs = await this.durationMs(processLogId, completedAt);
+    const data = {
+      status: "FAILED",
+      completedAt,
+      durationMs,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      failureCategory: failure.category,
+      failureReason: failure.reason,
+    };
+    if (!leaseOwner) {
+      return this.toSnapshot(await this.prisma.aiProcessLog.update({
+        where: { processLogId: BigInt(processLogId) },
+        data,
+      }));
+    }
+    await this.prisma.aiProcessLog.updateMany({
+      where: { processLogId: BigInt(processLogId), status: "RUNNING", leaseOwner },
+      data,
+    });
+    return this.findSnapshot(processLogId);
   }
 
   async saveGuardrailLog(processLogId: number, policyName: string, decision: GuardrailDecision): Promise<number> {
@@ -129,6 +197,8 @@ export class PrismaAiProcessLogRepository implements AiProcessLogRepository {
       status: processLog.status as AiProcessLogSnapshot["status"],
       inputRef: processLog.inputRef ?? "",
       outputRef: processLog.outputRef ?? undefined,
+      leaseOwner: processLog.leaseOwner ?? undefined,
+      leaseExpiresAt: processLog.leaseExpiresAt?.toISOString(),
       startedAt: processLog.startedAt?.toISOString(),
       completedAt: processLog.completedAt?.toISOString(),
       durationMs: processLog.durationMs ?? undefined,
@@ -151,6 +221,16 @@ export class PrismaAiProcessLogRepository implements AiProcessLogRepository {
 
   private nextId(): bigint {
     return BigInt(Date.now()) * BigInt(1000) + BigInt(Math.floor(Math.random() * 1000));
+  }
+
+  private async findSnapshot(processLogId: number): Promise<AiProcessLogSnapshot> {
+    const processLog = await this.prisma.aiProcessLog.findUnique({
+      where: { processLogId: BigInt(processLogId) },
+    });
+    if (!processLog) {
+      throw new Error(`Process log ${processLogId} was not initialized.`);
+    }
+    return this.toSnapshot(processLog);
   }
 
   private guardrailFailureCategory(decision: GuardrailDecision): GuardrailDecision["failureCategory"] {

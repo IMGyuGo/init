@@ -1,10 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import {
+  AiQuestionGenerationProcessRecord,
   CriterionTagRecord,
   EvaluationCriterionRecord,
   PostingRecord,
   QuestionRecord,
+  QuestionGenerationPolicyRecord,
   QuestionSetRecord,
+  ResumeQuestionApplicationRecord,
+  ResumeQuestionRetryJobRecord,
   TimePolicyRecord,
 } from '../company-interview.types';
 import {
@@ -14,6 +18,7 @@ import {
   CreateQuestionInput,
   UpdateCriterionInput,
   UpdateQuestionInput,
+  UpdateQuestionGenerationPolicyInput,
   UpdateTimePolicyInput,
 } from './company-interview.repository';
 
@@ -49,6 +54,9 @@ export class InMemoryCompanyInterviewRepository
       category: '서비스 기본 평가',
       isActive: true,
       sortOrder: 1,
+      ncsProfileId: 'JOB_TECHNICAL',
+      defaultNcsQuestionMode: 'TECHNICAL_KNOWLEDGE',
+      ncsProfileVersion: '2025.12-v1',
     },
     {
       tagId: 2,
@@ -58,6 +66,9 @@ export class InMemoryCompanyInterviewRepository
       category: '서비스 기본 평가',
       isActive: true,
       sortOrder: 2,
+      ncsProfileId: 'PROBLEM_SOLVING',
+      defaultNcsQuestionMode: 'EXPERIENCE_BEHAVIOR',
+      ncsProfileVersion: '2025.12-v1',
     },
     {
       tagId: 3,
@@ -67,6 +78,9 @@ export class InMemoryCompanyInterviewRepository
       category: '서비스 기본 평가',
       isActive: true,
       sortOrder: 3,
+      ncsProfileId: null,
+      defaultNcsQuestionMode: null,
+      ncsProfileVersion: null,
     },
     {
       tagId: 4,
@@ -76,6 +90,9 @@ export class InMemoryCompanyInterviewRepository
       category: '서비스 기본 평가',
       isActive: true,
       sortOrder: 4,
+      ncsProfileId: 'COLLABORATION_COMMUNICATION',
+      defaultNcsQuestionMode: 'EXPERIENCE_BEHAVIOR',
+      ncsProfileVersion: '2025.12-v1',
     },
     {
       tagId: 5,
@@ -85,6 +102,9 @@ export class InMemoryCompanyInterviewRepository
       category: '서비스 기본 평가',
       isActive: true,
       sortOrder: 5,
+      ncsProfileId: null,
+      defaultNcsQuestionMode: null,
+      ncsProfileVersion: null,
     },
     {
       tagId: 6,
@@ -94,6 +114,9 @@ export class InMemoryCompanyInterviewRepository
       category: '서비스 기본 평가',
       isActive: true,
       sortOrder: 6,
+      ncsProfileId: null,
+      defaultNcsQuestionMode: null,
+      ncsProfileVersion: null,
     },
   ];
 
@@ -106,6 +129,9 @@ export class InMemoryCompanyInterviewRepository
       weight: 30,
       passScore: 70,
       sortOrder: 1,
+      ncsProfileId: null,
+      ncsQuestionMode: null,
+      ncsProfileVersion: null,
     },
     {
       criterionId: 2,
@@ -115,6 +141,9 @@ export class InMemoryCompanyInterviewRepository
       weight: 20,
       passScore: 70,
       sortOrder: 2,
+      ncsProfileId: null,
+      ncsQuestionMode: null,
+      ncsProfileVersion: null,
     },
     {
       criterionId: 3,
@@ -124,6 +153,9 @@ export class InMemoryCompanyInterviewRepository
       weight: 20,
       passScore: 70,
       sortOrder: 3,
+      ncsProfileId: null,
+      ncsQuestionMode: null,
+      ncsProfileVersion: null,
     },
     {
       criterionId: 4,
@@ -133,6 +165,9 @@ export class InMemoryCompanyInterviewRepository
       weight: 15,
       passScore: 70,
       sortOrder: 4,
+      ncsProfileId: null,
+      ncsQuestionMode: null,
+      ncsProfileVersion: null,
     },
     {
       criterionId: 5,
@@ -142,6 +177,9 @@ export class InMemoryCompanyInterviewRepository
       weight: 10,
       passScore: 70,
       sortOrder: 5,
+      ncsProfileId: null,
+      ncsQuestionMode: null,
+      ncsProfileVersion: null,
     },
     {
       criterionId: 6,
@@ -151,6 +189,9 @@ export class InMemoryCompanyInterviewRepository
       weight: 5,
       passScore: 70,
       sortOrder: 6,
+      ncsProfileId: null,
+      ncsQuestionMode: null,
+      ncsProfileVersion: null,
     },
     {
       criterionId: 7,
@@ -160,6 +201,9 @@ export class InMemoryCompanyInterviewRepository
       weight: 100,
       passScore: 70,
       sortOrder: 1,
+      ncsProfileId: null,
+      ncsQuestionMode: null,
+      ncsProfileVersion: null,
     },
   ];
 
@@ -174,6 +218,16 @@ export class InMemoryCompanyInterviewRepository
       origin: 'MANUAL',
       isAiEdited: false,
       isActive: true,
+      generationSource: null,
+      ncsProfileId: null,
+      ncsQuestionMode: null,
+      ncsProfileVersion: null,
+      alignmentStatus: 'NOT_EVALUATED',
+      alignmentScore: null,
+      alignmentReason: null,
+      evaluatorVersion: null,
+      sourceProcessLogId: null,
+      ncsBindings: [],
     },
     {
       questionId: 2,
@@ -185,6 +239,16 @@ export class InMemoryCompanyInterviewRepository
       origin: 'MANUAL',
       isAiEdited: false,
       isActive: true,
+      generationSource: null,
+      ncsProfileId: null,
+      ncsQuestionMode: null,
+      ncsProfileVersion: null,
+      alignmentStatus: 'NOT_EVALUATED',
+      alignmentScore: null,
+      alignmentReason: null,
+      evaluatorVersion: null,
+      sourceProcessLogId: null,
+      ncsBindings: [],
     },
     {
       questionId: 3,
@@ -196,6 +260,16 @@ export class InMemoryCompanyInterviewRepository
       origin: 'MANUAL',
       isAiEdited: false,
       isActive: true,
+      generationSource: null,
+      ncsProfileId: null,
+      ncsQuestionMode: null,
+      ncsProfileVersion: null,
+      alignmentStatus: 'NOT_EVALUATED',
+      alignmentScore: null,
+      alignmentReason: null,
+      evaluatorVersion: null,
+      sourceProcessLogId: null,
+      ncsBindings: [],
     },
     {
       questionId: 4,
@@ -207,6 +281,16 @@ export class InMemoryCompanyInterviewRepository
       origin: 'MANUAL',
       isAiEdited: false,
       isActive: true,
+      generationSource: null,
+      ncsProfileId: null,
+      ncsQuestionMode: null,
+      ncsProfileVersion: null,
+      alignmentStatus: 'NOT_EVALUATED',
+      alignmentScore: null,
+      alignmentReason: null,
+      evaluatorVersion: null,
+      sourceProcessLogId: null,
+      ncsBindings: [],
     },
   ];
 
@@ -225,6 +309,10 @@ export class InMemoryCompanyInterviewRepository
   private nextQuestionSetId = 1;
   private nextQuestionSetItemId = 1;
   private questionSets: QuestionSetRecord[] = [];
+  private questionGenerationPolicies: QuestionGenerationPolicyRecord[] = [];
+  private readonly questionGenerationProcesses = new Map<number, AiQuestionGenerationProcessRecord>();
+  private readonly resumeQuestionGenerations = new Map<number, ResumeQuestionApplicationRecord>();
+  private nextResumeQuestionProcessLogId = 5000;
 
   async findPosting(postingId: number): Promise<PostingRecord | undefined> {
     return this.postings.find((posting) => posting.postingId === postingId);
@@ -293,6 +381,9 @@ export class InMemoryCompanyInterviewRepository
       category: input.category.trim(),
       isActive: true,
       sortOrder: Math.max(0, ...this.criterionTags.map((item) => item.sortOrder)) + 1,
+      ncsProfileId: null,
+      defaultNcsQuestionMode: null,
+      ncsProfileVersion: null,
     };
 
     this.criterionTags = [...this.criterionTags, tag];
@@ -310,10 +401,29 @@ export class InMemoryCompanyInterviewRepository
     );
   }
 
+  async findQuestionGenerationProcess(
+    processLogId: number,
+  ): Promise<AiQuestionGenerationProcessRecord | undefined> {
+    return this.questionGenerationProcesses.get(processLogId);
+  }
+
+  setQuestionGenerationProcess(record: AiQuestionGenerationProcessRecord): void {
+    this.questionGenerationProcesses.set(record.processLogId, record);
+  }
+
+  async getQuestionGenerationPolicy(
+    postingId: number,
+  ): Promise<QuestionGenerationPolicyRecord | undefined> {
+    return this.questionGenerationPolicies.find(
+      (policy) => policy.postingId === postingId,
+    );
+  }
+
   async replaceCriteria(
     postingId: number,
+    evaluationFramework: QuestionGenerationPolicyRecord['evaluationFramework'],
     criteria: UpdateCriterionInput[],
-  ): Promise<EvaluationCriterionRecord[]> {
+  ) {
     const nextCriterionIds = new Set(
       criteria
         .map((criterion) => criterion.criterionId)
@@ -335,6 +445,9 @@ export class InMemoryCompanyInterviewRepository
       weight: criterion.weight,
       passScore: criterion.passScore ?? null,
       sortOrder: criterion.sortOrder,
+      ncsProfileId: criterion.ncsProfileId,
+      ncsQuestionMode: criterion.ncsQuestionMode,
+      ncsProfileVersion: criterion.ncsProfileVersion,
     }));
 
     this.evaluationCriteria = [
@@ -352,7 +465,57 @@ export class InMemoryCompanyInterviewRepository
         : question,
     );
 
-    return this.listCriteria(postingId);
+    const currentPolicy = await this.getQuestionGenerationPolicy(postingId);
+    const policy: QuestionGenerationPolicyRecord = {
+      postingId,
+      evaluationFramework,
+      jdCriteriaQuestionCount: currentPolicy?.jdCriteriaQuestionCount ?? 0,
+      resumeQuestionCount: currentPolicy?.resumeQuestionCount ?? 0,
+      policyVersion: currentPolicy?.policyVersion ?? 0,
+      criteriaVersion: (currentPolicy?.criteriaVersion ?? 0) + 1,
+    };
+    this.questionGenerationPolicies = [
+      ...this.questionGenerationPolicies.filter((item) => item.postingId !== postingId),
+      policy,
+    ];
+
+    return { criteria: await this.listCriteria(postingId), policy };
+  }
+
+  async updateQuestionGenerationPolicy(
+    postingId: number,
+    input: UpdateQuestionGenerationPolicyInput,
+  ): Promise<QuestionGenerationPolicyRecord | undefined> {
+    const current = await this.getQuestionGenerationPolicy(postingId);
+    const currentVersion = current?.policyVersion ?? 0;
+    if (
+      input.expectedPolicyVersion !== undefined &&
+      input.expectedPolicyVersion !== currentVersion
+    ) {
+      return undefined;
+    }
+    if (
+      current &&
+      current.evaluationFramework === input.evaluationFramework &&
+      current.jdCriteriaQuestionCount === input.jdCriteriaQuestionCount &&
+      current.resumeQuestionCount === input.resumeQuestionCount
+    ) {
+      return current;
+    }
+
+    const policy: QuestionGenerationPolicyRecord = {
+      postingId,
+      evaluationFramework: input.evaluationFramework,
+      jdCriteriaQuestionCount: input.jdCriteriaQuestionCount,
+      resumeQuestionCount: input.resumeQuestionCount,
+      policyVersion: currentVersion + 1,
+      criteriaVersion: current?.criteriaVersion ?? 0,
+    };
+    this.questionGenerationPolicies = [
+      ...this.questionGenerationPolicies.filter((item) => item.postingId !== postingId),
+      policy,
+    ];
+    return policy;
   }
 
   async createQuestion(input: CreateQuestionInput): Promise<QuestionRecord> {
@@ -366,6 +529,16 @@ export class InMemoryCompanyInterviewRepository
       origin: input.origin,
       isAiEdited: false,
       isActive: true,
+      generationSource: input.generationSource,
+      ncsProfileId: input.ncsProfileId,
+      ncsQuestionMode: input.ncsQuestionMode,
+      ncsProfileVersion: input.ncsProfileVersion,
+      alignmentStatus: input.alignmentStatus,
+      alignmentScore: input.alignmentScore,
+      alignmentReason: input.alignmentReason,
+      evaluatorVersion: input.evaluatorVersion,
+      sourceProcessLogId: input.sourceProcessLogId,
+      ncsBindings: input.ncsBindings,
     };
 
     this.questions = [...this.questions, question];
@@ -387,6 +560,15 @@ export class InMemoryCompanyInterviewRepository
       questionType: input.questionType,
       content: input.content.trim(),
       isAiEdited: input.isAiEdited,
+      generationSource: input.generationSource,
+      ncsProfileId: input.ncsProfileId,
+      ncsQuestionMode: input.ncsQuestionMode,
+      ncsProfileVersion: input.ncsProfileVersion,
+      alignmentStatus: input.alignmentStatus,
+      alignmentScore: input.alignmentScore,
+      alignmentReason: input.alignmentReason,
+      evaluatorVersion: input.evaluatorVersion,
+      ncsBindings: input.ncsBindings,
     };
     this.questions = this.questions.map((item) =>
       item.questionId === questionId ? updated : item,
@@ -474,5 +656,98 @@ export class InMemoryCompanyInterviewRepository
             })),
         }
       : undefined;
+  }
+
+  setResumeQuestionGeneration(record: ResumeQuestionApplicationRecord): void {
+    this.resumeQuestionGenerations.set(record.applicationId, structuredClone(record));
+  }
+
+  async findResumeQuestionGeneration(
+    applicationId: number,
+  ): Promise<ResumeQuestionApplicationRecord | undefined> {
+    const state = this.resumeQuestionGenerations.get(applicationId);
+    return state ? structuredClone(state) : undefined;
+  }
+
+  async listResumeQuestionGenerations(
+    postingId: number,
+  ): Promise<ResumeQuestionApplicationRecord[]> {
+    const policy = await this.getQuestionGenerationPolicy(postingId);
+    return [...this.resumeQuestionGenerations.values()]
+      .filter(
+        (state) =>
+          state.postingId === postingId && state.applicationStatus === 'SUBMITTED',
+      )
+      .map((state) => {
+        if (!policy) return structuredClone(state);
+        const currentBatch =
+          state.currentBatch?.policyVersion === policy.policyVersion &&
+          state.currentBatch.criteriaVersion === policy.criteriaVersion
+            ? state.currentBatch
+            : null;
+        return structuredClone({
+          ...state,
+          policy,
+          currentInputVersion: state.currentInputVersion
+            ? `${state.applicationId}:${policy.policyVersion}:${policy.criteriaVersion}:${state.currentResumeDocumentHash}:${state.currentJdSnapshotHash}`
+            : null,
+          currentBatch,
+          hasStaleBatch: state.hasStaleBatch || state.currentBatch !== currentBatch,
+        });
+      });
+  }
+
+  async createResumeQuestionRetry(input: {
+    state: ResumeQuestionApplicationRecord;
+    reason: string | null;
+  }): Promise<ResumeQuestionRetryJobRecord> {
+    const state = structuredClone(input.state);
+    if (!state.documentId || !state.currentInputVersion || !state.currentResumeDocumentHash || !state.currentJdSnapshotHash) {
+      throw new Error('resume question retry input snapshot is incomplete');
+    }
+    const processLogId = this.nextResumeQuestionProcessLogId++;
+    const attempt = (state.currentBatch?.attemptCount ?? 0) + 1;
+    state.currentBatch = {
+      batchId: state.currentBatch?.batchId ?? processLogId,
+      latestProcessLogId: processLogId,
+      processStatus: 'PENDING',
+      status: 'GENERATING',
+      policyVersion: state.policy.policyVersion,
+      criteriaVersion: state.policy.criteriaVersion,
+      inputVersion: state.currentInputVersion,
+      resumeDocumentHash: state.currentResumeDocumentHash,
+      jdSnapshotHash: state.currentJdSnapshotHash,
+      attemptCount: attempt,
+      questions: state.currentBatch?.questions ?? [],
+    };
+    state.hasStaleBatch = false;
+    this.resumeQuestionGenerations.set(state.applicationId, state);
+
+    return {
+      processLogId,
+      applicationId: state.applicationId,
+      postingId: state.postingId,
+      documentId: state.documentId,
+      policyVersion: state.policy.policyVersion,
+      criteriaVersion: state.policy.criteriaVersion,
+      inputVersion: state.currentInputVersion,
+      resumeDocumentHash: state.currentResumeDocumentHash,
+      jdSnapshotHash: state.currentJdSnapshotHash,
+      attempt,
+    };
+  }
+
+  async markResumeQuestionRetryQueueFailed(processLogId: number, _reason: string): Promise<void> {
+    for (const [applicationId, state] of this.resumeQuestionGenerations.entries()) {
+      if (state.currentBatch?.latestProcessLogId !== processLogId) continue;
+      this.resumeQuestionGenerations.set(applicationId, {
+        ...state,
+        currentBatch: {
+          ...state.currentBatch,
+          processStatus: 'FAILED',
+          status: 'FAILED',
+        },
+      });
+    }
   }
 }

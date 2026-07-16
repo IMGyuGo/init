@@ -43,3 +43,70 @@ export function validationFailed(
     details,
   );
 }
+
+export function questionCountInvalid(
+  message = '질문 개수 정책을 확인해주세요.',
+  details: ErrorDetail[] = [],
+): never {
+  apiError(
+    ERROR_CODES.INTERVIEW_QUESTION_COUNT_INVALID,
+    message,
+    HttpStatus.BAD_REQUEST,
+    details,
+  );
+}
+
+export function ncsBindingInvalid(
+  message = 'NCS 평가 기준 연결을 확인해주세요.',
+  details: ErrorDetail[] = [],
+): never {
+  apiError(
+    ERROR_CODES.INTERVIEW_NCS_BINDING_INVALID,
+    message,
+    HttpStatus.UNPROCESSABLE_ENTITY,
+    details,
+  );
+}
+
+export function ncsWeightInvalid(
+  message = 'NCS 평가 기준 가중치를 확인해주세요.',
+  details: ErrorDetail[] = [],
+): never {
+  apiError(
+    ERROR_CODES.INTERVIEW_NCS_WEIGHT_INVALID,
+    message,
+    HttpStatus.UNPROCESSABLE_ENTITY,
+    details,
+  );
+}
+
+export function ncsQuestionCoverageInvalid(
+  message = 'NCS 질문의 profile별 문항 수를 확인해주세요.',
+  details: ErrorDetail[] = [],
+): never {
+  apiError(
+    ERROR_CODES.INTERVIEW_NCS_QUESTION_COVERAGE_INVALID,
+    message,
+    HttpStatus.UNPROCESSABLE_ENTITY,
+    details,
+  );
+}
+
+export function personalizedQuestionsNotReady(
+  message = '이력서 개인화 질문이 아직 준비되지 않았습니다.',
+  details: ErrorDetail[] = [],
+): never {
+  apiError(
+    ERROR_CODES.INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY,
+    message,
+    HttpStatus.CONFLICT,
+    details,
+  );
+}
+
+export function aiProcessFailed(
+  message = 'AI 작업을 생성하지 못했습니다.',
+  details: ErrorDetail[] = [],
+): never {
+  apiError(ERROR_CODES.AI_PROCESS_FAILED, message, HttpStatus.INTERNAL_SERVER_ERROR, details);
+}

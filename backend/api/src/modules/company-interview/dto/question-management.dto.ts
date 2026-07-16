@@ -1,5 +1,9 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  ArrayUnique,
+  IsArray,
   IsIn,
   IsInt,
   IsOptional,
@@ -12,6 +16,9 @@ import {
   QUESTION_ORIGINS,
   QUESTION_TYPES,
   QuestionOrigin,
+  NcsProfileId,
+  NcsQuestionMode,
+  QuestionGenerationSource,
   QuestionType,
 } from '../company-interview.types';
 
@@ -26,6 +33,16 @@ export class CreateInterviewQuestionDto {
   @Min(1)
   criterionId!: number;
 
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(2)
+  @ArrayUnique()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  criterionIds?: number[];
+
   @IsIn(QUESTION_TYPES)
   questionType!: QuestionType;
 
@@ -37,6 +54,12 @@ export class CreateInterviewQuestionDto {
   @IsOptional()
   @IsIn(QUESTION_ORIGINS)
   origin?: QuestionOrigin;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  sourceProcessLogId?: number;
 }
 
 export class UpdateInterviewQuestionDto {
@@ -44,6 +67,16 @@ export class UpdateInterviewQuestionDto {
   @IsInt()
   @Min(1)
   criterionId!: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(2)
+  @ArrayUnique()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  criterionIds?: number[];
 
   @IsIn(QUESTION_TYPES)
   questionType!: QuestionType;
@@ -63,6 +96,25 @@ export class InterviewQuestionResponseItemDto {
   origin!: QuestionOrigin;
   isAiEdited!: boolean;
   isActive!: boolean;
+  generationSource!: QuestionGenerationSource | null;
+  ncsProfileId!: NcsProfileId | null;
+  ncsQuestionMode!: NcsQuestionMode | null;
+  ncsProfileVersion!: string | null;
+  alignmentStatus!: string | null;
+  alignmentScore!: number | null;
+  alignmentReason!: string | null;
+  evaluatorVersion!: string | null;
+  sourceProcessLogId!: number | null;
+  ncsBindings!: Array<{
+    criterionId: number;
+    ncsProfileId: NcsProfileId;
+    ncsProfileVersion: string;
+    alignmentStatus: string;
+    alignmentScore: number | null;
+    alignmentReason: string | null;
+    evaluatorVersion: string | null;
+    bindingOrder: number;
+  }>;
 }
 
 export class CreateInterviewQuestionResponseDto {

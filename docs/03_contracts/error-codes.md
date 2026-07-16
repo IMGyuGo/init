@@ -21,6 +21,12 @@
 | FILE_SIZE_EXCEEDED | 400 | 파일 용량 초과 | 업로드 제한 안내 |
 | APPLICATION_ALREADY_SUBMITTED | 409 | 이미 지원한 공고 | 중복 지원 방지 |
 | INTERVIEW_SESSION_EXPIRED | 409 | 응시 기간 만료 또는 비활성 세션 | 재초대 또는 고객지원 안내 |
+| INTERVIEW_QUESTION_COUNT_INVALID | 400 | JD 질문 수와 이력서 질문 수 또는 합계가 정책 범위를 벗어남 | 두 입력의 필드 오류와 허용 범위를 표시 |
+| INTERVIEW_NCS_BINDING_INVALID | 422 | 평가 기준 또는 확정 질문의 NCS profile·question mode·binding·version 연결이 누락되거나 중복됨 | NCS 기준과 ALIGNED 질문 binding을 다시 저장하도록 안내 |
+| INTERVIEW_NCS_WEIGHT_INVALID | 422 | NCS profile 가중치가 음수·비정수이거나 합계가 100이 아님 | 자동 기본값 대체 없이 면접 설정에서 가중치를 수정하도록 안내 |
+| INTERVIEW_NCS_QUESTION_COVERAGE_INVALID | 422 | 질문 세트 또는 세션 확정 시 NCS profile별 scoring base question이 2개 미만 | 공통·개인화 질문과 profile binding을 보완한 뒤 확정 또는 세션 생성을 재시도 |
+| INTERVIEW_NCS_SNAPSHOT_INVALID | 409 | 진행·완료 또는 답변이 존재하는 세션의 NCS 질문·binding·시간·가중치 snapshot이 계약을 충족하지 않음 | 기존 세션을 자동 변경하지 않고 운영자에게 새 세션 생성 또는 데이터 복구를 안내 |
+| INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY | 409 | 이력서 개인화 질문이 필요한데 아직 READY가 아님 | 문서 추출/생성 상태를 표시하고 면접 시작을 제한 |
 | INTERVIEW_GAZE_DATA_INVALID | 422 | 답변의 시선 타임라인 offset이 유한수가 아니거나 `-1..1` 허용 범위를 벗어남 | 답변을 저장하지 않고 정상 시선 데이터가 생성될 때까지 재촬영과 카메라 위치 조정을 안내 |
 | DEVICE_PERMISSION_DENIED | 400 | 카메라/마이크 권한 거부 | 브라우저 권한 해결 안내 |
 | AI_PROCESS_NOT_FOUND | 404 | AI 작업 로그 없음 | 상태 조회 중 삭제되었거나 잘못된 processLogId |

@@ -14,7 +14,6 @@ import { UpdateMockSessionTitleDto } from "../dto/update-mock-session-title.dto"
 import {
   AiInterviewRequestDto,
   CreateRealtimeInterviewSessionDto,
-  InsertFollowUpQuestionDto,
   RuntimeFileAssetDto,
   SaveInterviewAnswerDto,
   StartMockInterviewDto,
@@ -23,12 +22,12 @@ import {
   AiHandoffResult,
   CompleteInterviewResult,
   InterviewAnswer,
+  InterviewAnswerSttStatus,
   InterviewAnswerNonverbalMetadata,
   InterviewQuestion,
   InterviewQuestionListResult,
   InterviewQuestionView,
   InterviewRuntimeView,
-  InsertFollowUpQuestionResult,
   NextInterviewQuestionResult,
   RealtimeInterviewProvider,
   RealtimeInterviewSessionResult,
@@ -46,7 +45,6 @@ import {
   INTERVIEW_REPOSITORY,
   type CreateMockContextQuestionInput,
   type CreateMockInterviewSessionInput,
-  type FollowUpQuestionPolicy,
   type InterviewRepository,
 } from "../repository/interview.repository";
 import {
@@ -279,15 +277,6 @@ export class InterviewService {
     return this.createRealtimeSession(session, dto, currentUser);
   }
 
-  async insertMockFollowUpQuestion(
-    sessionId: number,
-    dto: InsertFollowUpQuestionDto,
-    currentUser: CurrentCandidateUser,
-  ) {
-    const session = await this.getOwnedMockSession(sessionId, currentUser);
-    return this.insertFollowUpQuestion(session, dto);
-  }
-
   async listRecruitingQuestions(sessionId: number, currentUser: CurrentCandidateUser) {
     const session = await this.syncCurrentQuestionToFirstUnanswered(
       await this.getRecruitingRuntimeSession(sessionId, currentUser),
@@ -343,15 +332,6 @@ export class InterviewService {
   ) {
     const session = await this.getRecruitingRuntimeSession(sessionId, currentUser);
     return this.createRealtimeSession(session, dto, currentUser);
-  }
-
-  async insertRecruitingFollowUpQuestion(
-    sessionId: number,
-    dto: InsertFollowUpQuestionDto,
-    currentUser: CurrentCandidateUser,
-  ) {
-    const session = await this.getRecruitingRuntimeSession(sessionId, currentUser);
-    return this.insertFollowUpQuestion(session, dto);
   }
 
   async uploadInterviewMedia(
@@ -501,6 +481,10 @@ export class InterviewService {
   ): Promise<{ data: SaveInterviewAnswerResult; meta: { traceId: string; timestamp: string } }> {
     const requestBody = this.assertAnswerRequest(dto);
     if (!requestBody.allowReanswer && !requestBody.retryAnswerId) {
+      const replayedAnswer = await this.interviewRepository.findAnswer(session.sessionId, requestBody.questionId);
+      if (replayedAnswer) {
+        return this.buildSaveAnswerResponse(session, replayedAnswer, undefined, undefined, true);
+      }
       session = await this.syncCurrentQuestionToFirstUnanswered(session);
     }
 
@@ -521,17 +505,22 @@ export class InterviewService {
         ]);
       }
       session.currentQuestionIndex = retryQuestionIndex;
+    } else if (requestBody.allowReanswer) {
+      existingAnswer = await this.interviewRepository.findAnswer(session.sessionId, requestBody.questionId);
+      if (existingAnswer) {
+        const reanswerQuestionIndex = session.questionIds.indexOf(requestBody.questionId);
+        if (reanswerQuestionIndex < 0) {
+          throw new CandidateDomainError("COMMON_CONFLICT", "Reanswer question does not belong to the session.", 409, [
+            { field: "questionId", reason: "questionId must belong to the current session" },
+          ]);
+        }
+        session.currentQuestionIndex = reanswerQuestionIndex;
+      }
     } else {
       const currentQuestionId = this.currentQuestionId(session);
       if (requestBody.questionId !== currentQuestionId) {
         throw new CandidateDomainError("COMMON_CONFLICT", "Answer must match the current question.", 409, [
           { field: "questionId", reason: `current question is ${currentQuestionId}` },
-        ]);
-      }
-      existingAnswer = await this.interviewRepository.findAnswer(session.sessionId, requestBody.questionId);
-      if (existingAnswer && !requestBody.allowReanswer) {
-        throw new CandidateDomainError("COMMON_CONFLICT", "Current question has already been answered.", 409, [
-          { field: "questionId", reason: "question already answered" },
         ]);
       }
     }
@@ -576,30 +565,55 @@ export class InterviewService {
       durationSeconds: requestBody.durationSeconds,
       submittedAt,
     };
-    const answer = requestBody.allowReanswer && existingAnswer
-      ? await this.replaceAnswerAfterReanswerRequest(session, existingAnswer, {
-          videoFileId: videoFile?.fileId,
-          audioFileId: audioFile?.fileId,
-          transcript: submittedTranscript,
-          nonverbalMetadata: requestBody.nonverbalMetadata,
-          durationSeconds: requestBody.durationSeconds,
-          submittedAt,
-        })
-      : requestBody.retryAnswerId && existingAnswer
-        ? await this.interviewRepository.updateAnswer({
-            ...answerInput,
-            answerId: existingAnswer.answerId,
-          })
-        : await this.interviewRepository.createAnswer(answerInput);
-    session.updatedAt = submittedAt;
-    await this.interviewRepository.saveRuntimeSession(session);
+    let answer: InterviewAnswer;
+    let idempotentReplay = false;
+    if (requestBody.allowReanswer && existingAnswer) {
+      answer = await this.replaceAnswerAfterReanswerRequest(session, existingAnswer, {
+        videoFileId: videoFile?.fileId,
+        audioFileId: audioFile?.fileId,
+        transcript: submittedTranscript,
+        nonverbalMetadata: requestBody.nonverbalMetadata,
+        durationSeconds: requestBody.durationSeconds,
+        submittedAt,
+      });
+    } else if (requestBody.retryAnswerId && existingAnswer) {
+      await this.assertReanswerAllowed(session, existingAnswer);
+      answer = await this.interviewRepository.updateAnswer({
+        ...answerInput,
+        answerId: existingAnswer.answerId,
+      });
+    } else {
+      const result = await this.interviewRepository.createAnswerIdempotent(answerInput);
+      answer = result.answer;
+      idempotentReplay = !result.created;
+    }
 
+    return this.buildSaveAnswerResponse(
+      session,
+      answer,
+      idempotentReplay ? undefined : videoFile,
+      idempotentReplay ? undefined : audioFile,
+      idempotentReplay,
+    );
+  }
+
+  private async buildSaveAnswerResponse(
+    session: RuntimeInterviewSession,
+    answer: InterviewAnswer,
+    videoFile: FileAsset | undefined,
+    audioFile: FileAsset | undefined,
+    idempotentReplay: boolean,
+  ): Promise<{ data: SaveInterviewAnswerResult; meta: { traceId: string; timestamp: string } }> {
+    const progress = await this.resolveFirstUnansweredProgress(session);
     return this.envelope({
       sessionId: session.sessionId,
       answer,
       videoFile,
       audioFile,
-      nextQuestionAvailable: session.currentQuestionIndex < session.questionIds.length - 1,
+      idempotentReplay,
+      nextQuestionAvailable: Boolean(progress.currentQuestion),
+      completionReady: progress.completionReady,
+      currentQuestion: progress.currentQuestion,
     });
   }
 
@@ -607,108 +621,33 @@ export class InterviewService {
     session: RuntimeInterviewSession,
   ): Promise<{ data: NextInterviewQuestionResult; meta: { traceId: string; timestamp: string } }> {
     this.assertInProgress(session);
-    const previousQuestion = await this.currentQuestion(session);
-    const previousQuestionId = previousQuestion.questionId;
-    const answer = await this.interviewRepository.findAnswer(session.sessionId, previousQuestionId);
-    if (!answer) {
-      const answeredCount = await this.countAnswers(session.sessionId);
-      if (session.currentQuestionIndex > 0 && answeredCount === session.currentQuestionIndex) {
-        const answeredQuestionIndex = session.currentQuestionIndex - 1;
-        const answeredQuestionId = session.questionIds[answeredQuestionIndex];
-        if (answeredQuestionId) {
-          const answeredQuestion = await this.requiredQuestion(answeredQuestionId);
-          const previousAnswer = await this.interviewRepository.findAnswer(session.sessionId, answeredQuestionId);
-          if (previousAnswer) {
-            await this.insertGeneratedFollowUpQuestionIfReady(
-              session,
-              answeredQuestion,
-              previousAnswer,
-              answeredQuestionIndex,
-            );
-          }
-        }
-
-        return this.envelope({
-          sessionId: session.sessionId,
-          previousQuestionId: session.questionIds[session.currentQuestionIndex - 1],
-          currentQuestion: await this.toQuestionView(
-            session,
-            await this.currentQuestion(session),
-            true,
-            session.currentQuestionIndex + 1,
-          ),
-          isLastQuestion: session.currentQuestionIndex === session.questionIds.length - 1,
-        });
-      }
+    session = await this.syncCurrentQuestionToFirstUnanswered(session);
+    const answeredCount = await this.countAnswers(session.sessionId);
+    const completionReady = answeredCount >= session.questionIds.length;
+    const previousQuestionIndex = completionReady
+      ? session.questionIds.length - 1
+      : session.currentQuestionIndex - 1;
+    const previousQuestionId = session.questionIds[previousQuestionIndex];
+    if (!previousQuestionId) {
       throw new CandidateDomainError("COMMON_CONFLICT", "Current question must be answered before moving next.", 409, [
         { field: "questionId", reason: "current question answer is missing" },
       ]);
     }
 
-    await this.insertGeneratedFollowUpQuestionIfReady(session, previousQuestion, answer);
-    if (session.currentQuestionIndex >= session.questionIds.length - 1) {
-      throw new CandidateDomainError("COMMON_CONFLICT", "Already at the last question.", 409, [
-        { field: "questionId", reason: "last question reached" },
+    const previousAnswer = await this.interviewRepository.findAnswer(session.sessionId, previousQuestionId);
+    if (!previousAnswer) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "Current question must be answered before moving next.", 409, [
+        { field: "questionId", reason: "previous question answer is missing" },
       ]);
     }
-
-    session.currentQuestionIndex += 1;
-    session.updatedAt = new Date().toISOString();
-    const updatedSession = await this.interviewRepository.saveRuntimeSession(session);
+    const progress = await this.resolveFirstUnansweredProgress(session);
     return this.envelope({
-      sessionId: updatedSession.sessionId,
+      sessionId: session.sessionId,
       previousQuestionId,
-      currentQuestion: await this.toQuestionView(
-        updatedSession,
-        await this.currentQuestion(updatedSession),
-        true,
-        updatedSession.currentQuestionIndex + 1,
-      ),
-      isLastQuestion: updatedSession.currentQuestionIndex === updatedSession.questionIds.length - 1,
+      currentQuestion: progress.currentQuestion,
+      isLastQuestion: progress.completionReady || session.currentQuestionIndex === session.questionIds.length - 1,
+      completionReady: progress.completionReady,
     });
-  }
-
-  private async insertGeneratedFollowUpQuestionIfReady(
-    session: RuntimeInterviewSession,
-    previousQuestion: InterviewQuestion,
-    answer: InterviewAnswer,
-    insertAfterIndex = session.currentQuestionIndex,
-  ): Promise<boolean> {
-    if (previousQuestion.questionType === "FOLLOW_UP") {
-      return false;
-    }
-
-    const nextQuestionId = session.questionIds[insertAfterIndex + 1];
-    if (nextQuestionId) {
-      const nextQuestion = await this.interviewRepository.findQuestion(nextQuestionId);
-      if (nextQuestion?.questionType === "FOLLOW_UP") {
-        return false;
-      }
-    }
-    if (!(await this.canAddRuntimeFollowUpQuestion(session))) {
-      return false;
-    }
-
-    const policy: FollowUpQuestionPolicy = session.interviewType === "MOCK" ? "MOCK" : "RECRUITING";
-    const generatedFollowUp = await this.interviewRepository.findGeneratedFollowUpQuestion(answer.answerId, policy);
-    const content = generatedFollowUp?.content.trim();
-    if (!content) {
-      return false;
-    }
-
-    const followUpQuestion = await this.interviewRepository.createRuntimeFollowUpQuestion({
-      session,
-      sourceAnswer: answer,
-      content,
-    });
-    if (session.questionIds.includes(followUpQuestion.questionId)) {
-      return false;
-    }
-
-    session.questionIds.splice(insertAfterIndex + 1, 0, followUpQuestion.questionId);
-    session.updatedAt = new Date().toISOString();
-    await this.interviewRepository.saveRuntimeSession(session);
-    return true;
   }
 
   private async completeRuntimeSession(
@@ -991,104 +930,6 @@ export class InterviewService {
     ].join(" ");
   }
 
-  private async insertFollowUpQuestion(
-    session: RuntimeInterviewSession,
-    dto: InsertFollowUpQuestionDto,
-  ): Promise<{ data: InsertFollowUpQuestionResult; meta: { traceId: string; timestamp: string } }> {
-    this.assertInProgress(session);
-    const processLogId = this.assertInsertRequest(dto);
-    const process = await this.interviewRepository.findCompletedFollowUpProcess(processLogId);
-    if (!process) {
-      throw new CandidateDomainError("COMMON_NOT_FOUND", "Completed follow-up process was not found.", 404, [
-        { field: "processLogId", reason: "completed FOLLOW_UP process not found" },
-      ]);
-    }
-    if (process.sessionId !== session.sessionId) {
-      throw new CandidateDomainError("COMMON_FORBIDDEN", "Follow-up process does not belong to this interview session.", 403, [
-        { field: "processLogId", reason: "session mismatch" },
-      ]);
-    }
-    if (
-      (session.interviewType === "MOCK" && process.policy !== "MOCK") ||
-      (session.interviewType === "RECRUITING" && process.policy !== "RECRUITING")
-    ) {
-      throw new CandidateDomainError("COMMON_CONFLICT", "Follow-up policy does not match interview type.", 409, [
-        { field: "policy", reason: `expected ${session.interviewType}` },
-      ]);
-    }
-
-    const answer = await this.interviewRepository.findAnswerById(session.sessionId, process.answerId);
-    if (!answer) {
-      throw new CandidateDomainError("COMMON_NOT_FOUND", "Interview answer for follow-up was not found.", 404, [
-        { field: "answerId", reason: "answer not found for session" },
-      ]);
-    }
-    const sourceQuestionIndex = session.questionIds.indexOf(answer.questionId);
-    const sourceIsCurrentQuestion = sourceQuestionIndex === session.currentQuestionIndex;
-    const sourceIsPreviousQuestion = sourceQuestionIndex === session.currentQuestionIndex - 1;
-    if (!sourceIsCurrentQuestion && !sourceIsPreviousQuestion) {
-      throw new CandidateDomainError("COMMON_CONFLICT", "Follow-up must be added before answering another question.", 409, [
-        { field: "questionId", reason: "source answer is not the current or previous question" },
-      ]);
-    }
-    if (sourceIsPreviousQuestion) {
-      const currentQuestionAnswer = await this.interviewRepository.findAnswer(
-        session.sessionId,
-        this.currentQuestionId(session),
-      );
-      if (currentQuestionAnswer) {
-        throw new CandidateDomainError("COMMON_CONFLICT", "Follow-up must be added before answering another question.", 409, [
-          { field: "questionId", reason: "current question is already answered" },
-        ]);
-      }
-    }
-    const sourceQuestion = await this.requiredQuestion(answer.questionId);
-    if (sourceQuestion.questionType === "FOLLOW_UP") {
-      throw new CandidateDomainError("COMMON_CONFLICT", "Follow-up questions cannot create another follow-up question.", 409, [
-        { field: "questionType", reason: "source question is FOLLOW_UP" },
-      ]);
-    }
-
-    let question = await this.findExistingRuntimeFollowUpQuestion(session, sourceQuestionIndex, process.content);
-    let questionIndex = question ? session.questionIds.indexOf(question.questionId) : -1;
-    let inserted = false;
-
-    if (!question) {
-      if (!(await this.canAddRuntimeFollowUpQuestion(session))) {
-        throw new CandidateDomainError("COMMON_CONFLICT", "Follow-up question limit has been reached.", 409, [
-          { field: "followUpQuestions", reason: "maximum one follow-up question per base question" },
-        ]);
-      }
-
-      question = await this.interviewRepository.createRuntimeFollowUpQuestion({
-        session,
-        sourceAnswer: answer,
-        content: process.content,
-      });
-      questionIndex = session.questionIds.indexOf(question.questionId);
-      if (questionIndex < 0) {
-        questionIndex = sourceQuestionIndex + 1;
-        session.questionIds.splice(questionIndex, 0, question.questionId);
-        inserted = true;
-      }
-    }
-
-    session.currentQuestionIndex = questionIndex;
-    session.updatedAt = new Date().toISOString();
-    session = await this.interviewRepository.saveRuntimeSession(session);
-
-    return this.envelope({
-      sessionId: session.sessionId,
-      processLogId,
-      sourceAnswerId: answer.answerId,
-      sourceQuestionId: answer.questionId,
-      question: await this.toQuestionView(session, question, false, questionIndex + 1),
-      inserted,
-      totalQuestions: session.questionIds.length,
-      nextQuestionAvailable: session.currentQuestionIndex < session.questionIds.length - 1,
-    });
-  }
-
   private async replaceAnswerAfterReanswerRequest(
     session: RuntimeInterviewSession,
     answer: InterviewAnswer,
@@ -1206,6 +1047,14 @@ export class InterviewService {
       jobDescription,
       documentSummary,
       sessionId: session.sessionId,
+      ...(answer.ncsEvaluationSnapshot?.ncsBindings?.length
+        ? {
+            sessionQuestionId: answer.ncsEvaluationSnapshot.sessionQuestionId,
+            ncsQuestionMode: answer.ncsEvaluationSnapshot.ncsQuestionMode,
+            ncsBindings: answer.ncsEvaluationSnapshot.ncsBindings,
+            answerTimeSec: session.answerTimeSecSnapshot,
+          }
+        : {}),
     };
   }
 
@@ -1310,21 +1159,17 @@ export class InterviewService {
   }
 
   private async toRuntimeView(session: RuntimeInterviewSession, routeKind: "mock" | "recruiting"): Promise<InterviewRuntimeView> {
+    const progress = session.status === "IN_PROGRESS"
+      ? await this.resolveFirstUnansweredProgress(session)
+      : { session, completionReady: false, currentQuestion: undefined };
+    session = progress.session;
     return {
       sessionId: session.sessionId,
       applicationId: session.applicationId,
       interviewType: session.interviewType,
       status: session.status,
       showQuestionText: this.shouldExposeQuestionText(session),
-      currentQuestion:
-        session.status === "IN_PROGRESS"
-          ? await this.toQuestionView(
-              session,
-              await this.currentQuestion(session),
-              true,
-              session.currentQuestionIndex + 1,
-            )
-          : undefined,
+      currentQuestion: progress.currentQuestion,
       totalQuestions: session.questionIds.length,
       answeredCount: await this.countAnswers(session.sessionId),
       canRecord: session.status === "IN_PROGRESS",
@@ -1340,17 +1185,21 @@ export class InterviewService {
   }
 
   private async toQuestionList(session: RuntimeInterviewSession): Promise<InterviewQuestionListResult> {
+    const progress = session.status === "IN_PROGRESS"
+      ? await this.resolveFirstUnansweredProgress(session)
+      : { session, completionReady: false, currentQuestion: undefined };
+    session = progress.session;
     return {
       sessionId: session.sessionId,
       interviewType: session.interviewType,
       showQuestionText: this.shouldExposeQuestionText(session),
-      currentQuestionId: session.status === "IN_PROGRESS" ? this.currentQuestionId(session) : undefined,
+      currentQuestionId: progress.currentQuestion?.questionId,
       questions: await Promise.all(
         session.questionIds.map(async (questionId, index) =>
           this.toQuestionView(
             session,
             await this.requiredQuestion(questionId),
-            index === session.currentQuestionIndex,
+            Boolean(progress.currentQuestion) && index === session.currentQuestionIndex,
             index + 1,
           ),
         ),
@@ -1364,15 +1213,57 @@ export class InterviewService {
     current: boolean,
     runtimeSortOrder?: number,
   ): Promise<InterviewQuestionView> {
+    const answer = await this.interviewRepository.findAnswer(session.sessionId, question.questionId);
+    const stt = await this.resolveAnswerSttState(session, answer);
     return {
       questionId: question.questionId,
       questionType: question.questionType,
       sortOrder: runtimeSortOrder ?? question.sortOrder,
       content: this.shouldExposeQuestionText(session) ? question.content : undefined,
       audioPrompt: `audio://interview-questions/${question.questionId}`,
-      answered: Boolean(await this.interviewRepository.findAnswer(session.sessionId, question.questionId)),
+      answered: Boolean(answer),
       current,
+      answerId: answer?.answerId,
+      sttStatus: stt.status,
+      sttFailureReason: stt.failureReason,
+      reanswerAvailable: stt.status === "REANSWER_AVAILABLE",
     };
+  }
+
+  private async resolveAnswerSttState(
+    session: RuntimeInterviewSession,
+    answer: InterviewAnswer | undefined,
+  ): Promise<{ status: InterviewAnswerSttStatus; failureReason?: string }> {
+    if (!answer) return { status: "NOT_SUBMITTED" };
+    if (answer.transcript?.trim()) return { status: "AVAILABLE" };
+
+    const processes = await this.interviewRepository.listSttProcesses(session.sessionId, answer.answerId);
+    const submittedAt = Date.parse(answer.submittedAt);
+    const currentAttempt = processes.filter((process) => Date.parse(process.createdAt) >= submittedAt);
+    const latest = currentAttempt[0];
+    if (!latest || latest.status === "PENDING" || latest.status === "RUNNING") {
+      return { status: "PENDING" };
+    }
+    if (latest.status === "COMPLETED") {
+      return {
+        status: "PROCESSING_FAILED",
+        failureReason: "STT completed without a transcript.",
+      };
+    }
+    if (latest.failureCategory !== "REANSWER_REQUIRED") {
+      return {
+        status: "PROCESSING_FAILED",
+        failureReason: latest.failureReason,
+      };
+    }
+
+    const recognitionFailureCount = processes.filter(
+      (process) => process.status === "FAILED" && process.failureCategory === "REANSWER_REQUIRED",
+    ).length;
+    if (recognitionFailureCount === 1 && session.status === "IN_PROGRESS") {
+      return { status: "REANSWER_AVAILABLE", failureReason: latest.failureReason };
+    }
+    return { status: "UNAVAILABLE", failureReason: latest.failureReason };
   }
 
   private shouldExposeQuestionText(session: RuntimeInterviewSession): boolean {
@@ -1637,46 +1528,6 @@ export class InterviewService {
     };
   }
 
-  private assertInsertRequest(dto: InsertFollowUpQuestionDto): number {
-    const requestBody = this.toRequestBody(dto, "followUpPromotion");
-    if (!this.isPositiveInteger(requestBody.processLogId)) {
-      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "processLogId is invalid.", 400, [
-        { field: "processLogId", reason: "processLogId must be a positive integer" },
-      ]);
-    }
-    return requestBody.processLogId;
-  }
-
-  private async countFollowUpQuestions(session: RuntimeInterviewSession): Promise<number> {
-    const questions = await Promise.all(session.questionIds.map((questionId) => this.interviewRepository.findQuestion(questionId)));
-    return questions.filter((question) => question?.questionType === "FOLLOW_UP").length;
-  }
-
-  private async canAddRuntimeFollowUpQuestion(session: RuntimeInterviewSession): Promise<boolean> {
-    const questions = await Promise.all(session.questionIds.map((questionId) => this.interviewRepository.findQuestion(questionId)));
-    const followUpQuestionCount = questions.filter((question) => question?.questionType === "FOLLOW_UP").length;
-    const baseQuestionCount = questions.filter((question) => question && question.questionType !== "FOLLOW_UP").length;
-    return followUpQuestionCount < baseQuestionCount;
-  }
-
-  private async findExistingRuntimeFollowUpQuestion(
-    session: RuntimeInterviewSession,
-    sourceQuestionIndex: number,
-    content: string,
-  ): Promise<InterviewQuestion | undefined> {
-    const normalizedContent = content.trim();
-    for (let index = sourceQuestionIndex + 1; index < session.questionIds.length; index += 1) {
-      const questionId = session.questionIds[index];
-      if (!questionId) continue;
-
-      const question = await this.interviewRepository.findQuestion(questionId);
-      if (question?.questionType === "FOLLOW_UP" && question.content.trim() === normalizedContent) {
-        return question;
-      }
-    }
-    return undefined;
-  }
-
   private assertInProgress(session: RuntimeInterviewSession): void {
     if (session.status !== "IN_PROGRESS") {
       throw new CandidateDomainError("COMMON_CONFLICT", "Interview is not in progress.", 409, [
@@ -1729,6 +1580,28 @@ export class InterviewService {
     session.currentQuestionIndex = firstUnansweredIndex;
     session.updatedAt = new Date().toISOString();
     return this.interviewRepository.saveRuntimeSession(session);
+  }
+
+  private async resolveFirstUnansweredProgress(session: RuntimeInterviewSession): Promise<{
+    session: RuntimeInterviewSession;
+    completionReady: boolean;
+    currentQuestion?: InterviewQuestionView;
+  }> {
+    session = await this.syncCurrentQuestionToFirstUnanswered(session);
+    const answeredCount = await this.countAnswers(session.sessionId);
+    if (session.questionIds.length > 0 && answeredCount >= session.questionIds.length) {
+      return { session, completionReady: true };
+    }
+    return {
+      session,
+      completionReady: false,
+      currentQuestion: await this.toQuestionView(
+        session,
+        await this.currentQuestion(session),
+        true,
+        session.currentQuestionIndex + 1,
+      ),
+    };
   }
 
   private async requiredQuestion(questionId: number): Promise<InterviewQuestion> {

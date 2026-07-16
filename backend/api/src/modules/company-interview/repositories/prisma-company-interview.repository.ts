@@ -1,22 +1,30 @@
 import { Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import type { QuestionType } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma.service';
 import {
   CriterionTagRecord,
   EvaluationCriterionRecord,
+  EvaluationFramework,
   PostingRecord,
   QuestionOrigin,
   QuestionRecord,
+  QuestionGenerationPolicyRecord,
   QuestionSetRecord,
+  ResumeQuestionApplicationRecord,
+  ResumeQuestionBatchRecord,
+  ResumeQuestionRetryJobRecord,
   TimePolicyRecord,
 } from '../company-interview.types';
 import {
   CompanyInterviewRepository,
   ConfirmQuestionSetInput,
   CreateCriterionTagInput,
+  CreateQuestionInput,
   UpdateTimePolicyInput,
   UpdateCriterionInput,
   UpdateQuestionInput,
+  UpdateQuestionGenerationPolicyInput,
 } from './company-interview.repository';
 
 @Injectable()
@@ -65,6 +73,7 @@ export class PrismaCompanyInterviewRepository
         questionType: { not: 'FOLLOW_UP' },
       },
       orderBy: { questionId: 'asc' },
+      include: { ncsBindings: { orderBy: { bindingOrder: 'asc' } } },
     });
     return questions.map(mapQuestion);
   }
@@ -72,6 +81,7 @@ export class PrismaCompanyInterviewRepository
   async findQuestion(questionId: number): Promise<QuestionRecord | undefined> {
     const question = await this.prisma.question.findUnique({
       where: { questionId: BigInt(questionId) },
+      include: { ncsBindings: { orderBy: { bindingOrder: 'asc' } } },
     });
     return question ? mapQuestion(question) : undefined;
   }
@@ -88,6 +98,28 @@ export class PrismaCompanyInterviewRepository
       (question) => normalizeQuestionContent(question.content) === normalized,
     );
     return duplicate ? mapQuestion(duplicate) : undefined;
+  }
+
+  async findQuestionGenerationProcess(processLogId: number) {
+    const process = await this.prisma.aiProcessLog.findUnique({
+      where: { processLogId: BigInt(processLogId) },
+      select: {
+        processLogId: true,
+        processType: true,
+        status: true,
+        inputRef: true,
+        outputRef: true,
+      },
+    });
+    return process
+      ? {
+          processLogId: Number(process.processLogId),
+          processType: process.processType,
+          status: process.status,
+          inputRef: process.inputRef,
+          outputRef: process.outputRef,
+        }
+      : undefined;
   }
 
   async listTags(): Promise<CriterionTagRecord[]> {
@@ -139,11 +171,21 @@ export class PrismaCompanyInterviewRepository
     };
   }
 
+  async getQuestionGenerationPolicy(
+    postingId: number,
+  ): Promise<QuestionGenerationPolicyRecord | undefined> {
+    const policy = await this.prisma.interviewQuestionGenerationPolicy.findUnique({
+      where: { postingId: BigInt(postingId) },
+    });
+    return policy ? mapQuestionGenerationPolicy(policy) : undefined;
+  }
+
   async replaceCriteria(
     postingId: number,
+    evaluationFramework: EvaluationFramework,
     criteria: UpdateCriterionInput[],
-  ): Promise<EvaluationCriterionRecord[]> {
-    const savedIds = await this.prisma.$transaction(async (tx) => {
+  ) {
+    const result = await this.prisma.$transaction(async (tx) => {
       const nextIds: bigint[] = [];
 
       for (const criterion of criteria) {
@@ -156,6 +198,9 @@ export class PrismaCompanyInterviewRepository
               weight: criterion.weight,
               passScore: criterion.passScore ?? null,
               sortOrder: criterion.sortOrder,
+              ncsProfileId: criterion.ncsProfileId,
+              ncsQuestionMode: criterion.ncsQuestionMode,
+              ncsProfileVersion: criterion.ncsProfileVersion,
             },
           });
           nextIds.push(updated.criterionId);
@@ -170,6 +215,9 @@ export class PrismaCompanyInterviewRepository
             weight: criterion.weight,
             passScore: criterion.passScore ?? null,
             sortOrder: criterion.sortOrder,
+            ncsProfileId: criterion.ncsProfileId,
+            ncsQuestionMode: criterion.ncsQuestionMode,
+            ncsProfileVersion: criterion.ncsProfileVersion,
           },
         });
         nextIds.push(created.criterionId);
@@ -203,24 +251,77 @@ export class PrismaCompanyInterviewRepository
         },
       });
 
-      return nextIds;
+      const policy = await tx.interviewQuestionGenerationPolicy.upsert({
+        where: { postingId: BigInt(postingId) },
+        create: {
+          postingId: BigInt(postingId),
+          evaluationFramework,
+          criteriaVersion: 1,
+        },
+        update: {
+          evaluationFramework,
+          criteriaVersion: { increment: 1 },
+        },
+      });
+
+      return { nextIds, policy };
     });
 
     const saved = await this.prisma.evaluationCriterion.findMany({
-      where: { criterionId: { in: savedIds } },
+      where: { criterionId: { in: result.nextIds } },
       orderBy: { sortOrder: 'asc' },
     });
-    return saved.map(mapCriterion);
+    return {
+      criteria: saved.map(mapCriterion),
+      policy: mapQuestionGenerationPolicy(result.policy),
+    };
   }
 
-  async createQuestion(input: {
-    companyId: number;
-    postingId: number;
-    criterionId: number;
-    questionType: QuestionType;
-    content: string;
-    origin: QuestionOrigin;
-  }): Promise<QuestionRecord> {
+  async updateQuestionGenerationPolicy(
+    postingId: number,
+    input: UpdateQuestionGenerationPolicyInput,
+  ): Promise<QuestionGenerationPolicyRecord | undefined> {
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.interviewQuestionGenerationPolicy.findUnique({
+        where: { postingId: BigInt(postingId) },
+      });
+      const currentVersion = current?.policyVersion ?? 0;
+      if (
+        input.expectedPolicyVersion !== undefined &&
+        input.expectedPolicyVersion !== currentVersion
+      ) {
+        return undefined;
+      }
+      if (
+        current &&
+        current.evaluationFramework === input.evaluationFramework &&
+        current.jdCriteriaQuestionCount === input.jdCriteriaQuestionCount &&
+        current.resumeQuestionCount === input.resumeQuestionCount
+      ) {
+        return mapQuestionGenerationPolicy(current);
+      }
+
+      const saved = await tx.interviewQuestionGenerationPolicy.upsert({
+        where: { postingId: BigInt(postingId) },
+        create: {
+          postingId: BigInt(postingId),
+          evaluationFramework: input.evaluationFramework,
+          jdCriteriaQuestionCount: input.jdCriteriaQuestionCount,
+          resumeQuestionCount: input.resumeQuestionCount,
+          policyVersion: 1,
+        },
+        update: {
+          evaluationFramework: input.evaluationFramework,
+          jdCriteriaQuestionCount: input.jdCriteriaQuestionCount,
+          resumeQuestionCount: input.resumeQuestionCount,
+          policyVersion: { increment: 1 },
+        },
+      });
+      return mapQuestionGenerationPolicy(saved);
+    });
+  }
+
+  async createQuestion(input: CreateQuestionInput): Promise<QuestionRecord> {
     const question = await this.prisma.question.create({
       data: {
         companyId: BigInt(input.companyId),
@@ -231,7 +332,32 @@ export class PrismaCompanyInterviewRepository
         origin: input.origin,
         isAiEdited: false,
         isActive: true,
+        generationSource: input.generationSource,
+        ncsProfileId: input.ncsProfileId,
+        ncsQuestionMode: input.ncsQuestionMode,
+        ncsProfileVersion: input.ncsProfileVersion,
+        alignmentStatus: input.alignmentStatus,
+        alignmentScore: input.alignmentScore,
+        alignmentReason: input.alignmentReason,
+        evaluatorVersion: input.evaluatorVersion,
+        sourceProcessLogId:
+          input.sourceProcessLogId === null
+            ? null
+            : BigInt(input.sourceProcessLogId),
+        ncsBindings: {
+          create: input.ncsBindings.map((binding) => ({
+            criterionId: BigInt(binding.criterionId),
+            ncsProfileId: binding.ncsProfileId,
+            ncsProfileVersion: binding.ncsProfileVersion,
+            alignmentStatus: binding.alignmentStatus,
+            alignmentScore: binding.alignmentScore,
+            alignmentReason: binding.alignmentReason,
+            evaluatorVersion: binding.evaluatorVersion,
+            bindingOrder: binding.bindingOrder,
+          })),
+        },
       },
+      include: { ncsBindings: { orderBy: { bindingOrder: 'asc' } } },
     });
     return mapQuestion(question);
   }
@@ -247,7 +373,29 @@ export class PrismaCompanyInterviewRepository
         questionType: input.questionType,
         content: input.content.trim(),
         isAiEdited: input.isAiEdited,
+        generationSource: input.generationSource,
+        ncsProfileId: input.ncsProfileId,
+        ncsQuestionMode: input.ncsQuestionMode,
+        ncsProfileVersion: input.ncsProfileVersion,
+        alignmentStatus: input.alignmentStatus,
+        alignmentScore: input.alignmentScore,
+        alignmentReason: input.alignmentReason,
+        evaluatorVersion: input.evaluatorVersion,
+        ncsBindings: {
+          deleteMany: {},
+          create: input.ncsBindings.map((binding) => ({
+            criterionId: BigInt(binding.criterionId),
+            ncsProfileId: binding.ncsProfileId,
+            ncsProfileVersion: binding.ncsProfileVersion,
+            alignmentStatus: binding.alignmentStatus,
+            alignmentScore: binding.alignmentScore,
+            alignmentReason: binding.alignmentReason,
+            evaluatorVersion: binding.evaluatorVersion,
+            bindingOrder: binding.bindingOrder,
+          })),
+        },
       },
+      include: { ncsBindings: { orderBy: { bindingOrder: 'asc' } } },
     });
     return mapQuestion(question);
   }
@@ -333,6 +481,195 @@ export class PrismaCompanyInterviewRepository
 
     return questionSet ? mapQuestionSet(questionSet) : undefined;
   }
+
+  async findResumeQuestionGeneration(
+    applicationId: number,
+  ): Promise<ResumeQuestionApplicationRecord | undefined> {
+    const application = await (this.prisma as any).application.findUnique({
+      where: { applicationId: BigInt(applicationId) },
+      include: {
+        documents: {
+          where: { documentType: 'RESUME' },
+          orderBy: { uploadedAt: 'desc' },
+          take: 1,
+        },
+        posting: {
+          include: {
+            questionGenerationPolicy: true,
+          },
+        },
+        interviewQuestionBatches: {
+          orderBy: { createdAt: 'desc' },
+          include: {
+            latestProcessLog: true,
+            questions: { orderBy: { sortOrder: 'asc' } },
+          },
+        },
+      },
+    });
+    if (!application) return undefined;
+
+    const policy = application.posting.questionGenerationPolicy
+      ? mapQuestionGenerationPolicy(application.posting.questionGenerationPolicy)
+      : {
+          postingId: Number(application.postingId),
+          evaluationFramework: 'LEGACY' as const,
+          jdCriteriaQuestionCount: 0,
+          resumeQuestionCount: 0,
+          policyVersion: 0,
+          criteriaVersion: 0,
+        };
+    const document = application.documents[0] ?? null;
+    const jobDescription = application.posting.jobDescription?.trim() ?? '';
+    const extractedText = document?.parseStatus === 'EXTRACTED' ? document.extractedText?.trim() ?? '' : '';
+    const resumeDocumentHash = extractedText ? hashSnapshot(extractedText) : null;
+    const jdSnapshotHash = jobDescription ? hashSnapshot(jobDescription) : null;
+    const inputVersion = resumeDocumentHash && jdSnapshotHash && policy.policyVersion > 0 && policy.criteriaVersion > 0
+      ? hashSnapshot([
+          applicationId,
+          policy.policyVersion,
+          policy.criteriaVersion,
+          jdSnapshotHash,
+          resumeDocumentHash,
+        ].join(':'))
+      : null;
+    const matchingBatch = resumeDocumentHash && jdSnapshotHash
+      ? application.interviewQuestionBatches.find((batch: any) =>
+          batch.policyVersion === policy.policyVersion &&
+          batch.criteriaVersion === policy.criteriaVersion &&
+          batch.resumeDocumentHash === resumeDocumentHash &&
+          batch.jdSnapshotHash === jdSnapshotHash,
+        )
+      : null;
+
+    return {
+      applicationId,
+      postingId: Number(application.postingId),
+      companyId: Number(application.posting.companyId),
+      applicationStatus: application.applicationStatus,
+      documentStatus: document?.parseStatus ?? null,
+      documentId: document ? Number(document.documentId) : null,
+      policy,
+      currentInputVersion: inputVersion,
+      currentResumeDocumentHash: resumeDocumentHash,
+      currentJdSnapshotHash: jdSnapshotHash,
+      currentBatch: matchingBatch ? mapResumeQuestionBatch(matchingBatch) : null,
+      hasStaleBatch: application.interviewQuestionBatches.some((batch: any) =>
+        !matchingBatch || batch.batchId !== matchingBatch.batchId,
+      ),
+    };
+  }
+
+  async listResumeQuestionGenerations(
+    postingId: number,
+  ): Promise<ResumeQuestionApplicationRecord[]> {
+    const applications = await this.prisma.application.findMany({
+      where: {
+        postingId: BigInt(postingId),
+        applicationStatus: 'SUBMITTED',
+      },
+      select: { applicationId: true },
+      orderBy: { applicationId: 'asc' },
+    });
+    const states = await Promise.all(
+      applications.map((application) =>
+        this.findResumeQuestionGeneration(Number(application.applicationId)),
+      ),
+    );
+    return states.filter(
+      (state): state is ResumeQuestionApplicationRecord => state !== undefined,
+    );
+  }
+
+  async createResumeQuestionRetry(input: {
+    state: ResumeQuestionApplicationRecord;
+    reason: string | null;
+  }): Promise<ResumeQuestionRetryJobRecord> {
+    const { state } = input;
+    if (!state.documentId || !state.currentInputVersion || !state.currentResumeDocumentHash || !state.currentJdSnapshotHash) {
+      throw new Error('resume question retry input snapshot is incomplete');
+    }
+    const documentId = state.documentId;
+    const inputVersion = state.currentInputVersion;
+    const resumeDocumentHash = state.currentResumeDocumentHash;
+    const jdSnapshotHash = state.currentJdSnapshotHash;
+
+    return this.prisma.$transaction(async (transaction) => {
+      const process = await transaction.aiProcessLog.create({
+        data: {
+          applicationId: BigInt(state.applicationId),
+          processType: 'RESUME_QUESTION_GENERATE',
+          status: 'PENDING',
+          inputRef: null,
+        },
+        select: { processLogId: true },
+      });
+      const attempt = (state.currentBatch?.attemptCount ?? 0) + 1;
+      const job: ResumeQuestionRetryJobRecord = {
+        processLogId: Number(process.processLogId),
+        applicationId: state.applicationId,
+        postingId: state.postingId,
+        documentId,
+        policyVersion: state.policy.policyVersion,
+        criteriaVersion: state.policy.criteriaVersion,
+        inputVersion,
+        resumeDocumentHash,
+        jdSnapshotHash,
+        attempt,
+      };
+      await transaction.aiProcessLog.update({
+        where: { processLogId: process.processLogId },
+        data: { inputRef: JSON.stringify(job) },
+      });
+
+      const businessKey = {
+        applicationId: BigInt(state.applicationId),
+        policyVersion: state.policy.policyVersion,
+        criteriaVersion: state.policy.criteriaVersion,
+        jdSnapshotHash,
+        resumeDocumentHash,
+      };
+      await transaction.applicationInterviewQuestionBatch.upsert({
+        where: {
+          applicationId_policyVersion_criteriaVersion_jdSnapshotHash_resumeDocumentHash: businessKey,
+        },
+        create: {
+          ...businessKey,
+          latestProcessLogId: process.processLogId,
+          status: 'GENERATING',
+          inputVersion,
+          attemptCount: attempt,
+          failureReason: input.reason,
+        },
+        update: {
+          latestProcessLogId: process.processLogId,
+          status: 'GENERATING',
+          inputVersion,
+          attemptCount: attempt,
+          failureReason: input.reason,
+        },
+      });
+      return job;
+    });
+  }
+
+  async markResumeQuestionRetryQueueFailed(processLogId: number, reason: string): Promise<void> {
+    await this.prisma.$transaction([
+      this.prisma.aiProcessLog.update({
+        where: { processLogId: BigInt(processLogId) },
+        data: {
+          status: 'FAILED',
+          failureCategory: 'RETRYABLE',
+          failureReason: reason.slice(0, 500),
+          completedAt: new Date(),
+        },
+      }),
+      this.prisma.applicationInterviewQuestionBatch.updateMany({
+        where: { latestProcessLogId: BigInt(processLogId) },
+        data: { status: 'FAILED', failureReason: reason.slice(0, 500) },
+      }),
+    ]);
+  }
 }
 
 function normalizeQuestionContent(content: string): string {
@@ -365,6 +702,9 @@ function mapTag(tag: {
   category: string;
   isActive: boolean;
   sortOrder: number;
+  ncsProfileId: string | null;
+  defaultNcsQuestionMode: string | null;
+  ncsProfileVersion: string | null;
 }): CriterionTagRecord {
   return {
     tagId: Number(tag.tagId),
@@ -374,6 +714,10 @@ function mapTag(tag: {
     category: tag.category,
     isActive: tag.isActive,
     sortOrder: tag.sortOrder,
+    ncsProfileId: tag.ncsProfileId as CriterionTagRecord['ncsProfileId'],
+    defaultNcsQuestionMode:
+      tag.defaultNcsQuestionMode as CriterionTagRecord['defaultNcsQuestionMode'],
+    ncsProfileVersion: tag.ncsProfileVersion,
   };
 }
 
@@ -385,6 +729,9 @@ function mapCriterion(criterion: {
   weight: number;
   passScore: number | null;
   sortOrder: number;
+  ncsProfileId: string | null;
+  ncsQuestionMode: string | null;
+  ncsProfileVersion: string | null;
 }): EvaluationCriterionRecord {
   return {
     criterionId: Number(criterion.criterionId),
@@ -394,6 +741,64 @@ function mapCriterion(criterion: {
     weight: criterion.weight,
     passScore: criterion.passScore,
     sortOrder: criterion.sortOrder,
+    ncsProfileId:
+      criterion.ncsProfileId as EvaluationCriterionRecord['ncsProfileId'],
+    ncsQuestionMode:
+      criterion.ncsQuestionMode as EvaluationCriterionRecord['ncsQuestionMode'],
+    ncsProfileVersion: criterion.ncsProfileVersion,
+  };
+}
+
+function hashSnapshot(value: string): string {
+  return createHash('sha256').update(value.trim(), 'utf8').digest('hex');
+}
+
+function mapResumeQuestionBatch(batch: any): ResumeQuestionBatchRecord {
+  return {
+    batchId: Number(batch.batchId),
+    latestProcessLogId: Number(batch.latestProcessLogId),
+    processStatus: batch.latestProcessLog.status,
+    status: batch.status,
+    policyVersion: batch.policyVersion,
+    criteriaVersion: batch.criteriaVersion,
+    inputVersion: batch.inputVersion,
+    resumeDocumentHash: batch.resumeDocumentHash,
+    jdSnapshotHash: batch.jdSnapshotHash,
+    attemptCount: batch.attemptCount,
+    questions: batch.questions.map((question: any) => ({
+      personalizedQuestionId: Number(question.personalizedQuestionId),
+      criterionId: question.criterionId === null ? null : Number(question.criterionId),
+      source: 'RESUME_PERSONALIZED' as const,
+      questionType: question.questionType,
+      content: question.content,
+      ncsProfileId: question.ncsProfileId,
+      ncsQuestionMode: question.ncsQuestionMode,
+      ncsProfileVersion: question.ncsProfileVersion,
+      alignmentStatus: question.alignmentStatus,
+      alignmentScore: question.alignmentScore === null ? null : Number(question.alignmentScore.toString()),
+      alignmentReason: question.alignmentReason,
+      evaluatorVersion: question.evaluatorVersion,
+      sortOrder: question.sortOrder,
+    })),
+  };
+}
+
+function mapQuestionGenerationPolicy(policy: {
+  postingId: bigint;
+  evaluationFramework: string;
+  jdCriteriaQuestionCount: number;
+  resumeQuestionCount: number;
+  policyVersion: number;
+  criteriaVersion: number;
+}): QuestionGenerationPolicyRecord {
+  return {
+    postingId: Number(policy.postingId),
+    evaluationFramework:
+      policy.evaluationFramework as QuestionGenerationPolicyRecord['evaluationFramework'],
+    jdCriteriaQuestionCount: policy.jdCriteriaQuestionCount,
+    resumeQuestionCount: policy.resumeQuestionCount,
+    policyVersion: policy.policyVersion,
+    criteriaVersion: policy.criteriaVersion,
   };
 }
 
@@ -407,6 +812,25 @@ function mapQuestion(question: {
   origin: QuestionOrigin;
   isAiEdited: boolean;
   isActive: boolean;
+  generationSource?: string | null;
+  ncsProfileId?: string | null;
+  ncsQuestionMode?: string | null;
+  ncsProfileVersion?: string | null;
+  alignmentStatus?: string | null;
+  alignmentScore?: { toString(): string } | number | null;
+  alignmentReason?: string | null;
+  evaluatorVersion?: string | null;
+  sourceProcessLogId?: bigint | null;
+  ncsBindings?: Array<{
+    criterionId: bigint;
+    ncsProfileId: string;
+    ncsProfileVersion: string;
+    alignmentStatus: string;
+    alignmentScore: { toString(): string } | number | null;
+    alignmentReason: string | null;
+    evaluatorVersion: string | null;
+    bindingOrder: number;
+  }>;
 }): QuestionRecord {
   return {
     questionId: Number(question.questionId),
@@ -419,6 +843,35 @@ function mapQuestion(question: {
     origin: question.origin,
     isAiEdited: question.isAiEdited,
     isActive: question.isActive,
+    generationSource:
+      (question.generationSource ?? null) as QuestionRecord['generationSource'],
+    ncsProfileId: (question.ncsProfileId ?? null) as QuestionRecord['ncsProfileId'],
+    ncsQuestionMode:
+      (question.ncsQuestionMode ?? null) as QuestionRecord['ncsQuestionMode'],
+    ncsProfileVersion: question.ncsProfileVersion ?? null,
+    alignmentStatus:
+      (question.alignmentStatus ?? null) as QuestionRecord['alignmentStatus'],
+    alignmentScore:
+      question.alignmentScore === null || question.alignmentScore === undefined
+        ? null
+        : Number(question.alignmentScore.toString()),
+    alignmentReason: question.alignmentReason ?? null,
+    evaluatorVersion: question.evaluatorVersion ?? null,
+    sourceProcessLogId:
+      question.sourceProcessLogId === null || question.sourceProcessLogId === undefined
+        ? null
+        : Number(question.sourceProcessLogId),
+    ncsBindings: (question.ncsBindings ?? []).map((binding) => ({
+      criterionId: Number(binding.criterionId),
+      ncsProfileId: binding.ncsProfileId as QuestionRecord['ncsBindings'][number]['ncsProfileId'],
+      ncsProfileVersion: binding.ncsProfileVersion,
+      alignmentStatus: binding.alignmentStatus as QuestionRecord['ncsBindings'][number]['alignmentStatus'],
+      alignmentScore:
+        binding.alignmentScore === null ? null : Number(binding.alignmentScore.toString()),
+      alignmentReason: binding.alignmentReason,
+      evaluatorVersion: binding.evaluatorVersion,
+      bindingOrder: binding.bindingOrder,
+    })),
   };
 }
 
