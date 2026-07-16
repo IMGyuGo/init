@@ -19,6 +19,7 @@ import {
   getCandidateJobDetailActionHref,
   hasPortfolioArtifact,
   hasRequiredConsents,
+  isCandidateNameConfirmed,
   toSubmitApplicationRequest,
 } from "./view-model";
 import { JobDescriptionViewer } from "../company-recruiting/JobDescriptionViewer";
@@ -1235,7 +1236,7 @@ export function CandidateApplicationView({
   const portfolioFromUpload = Boolean(latestPortfolioFile && latestPortfolioFile.fileId === state.portfolioFileId);
 
   const basicComplete = Boolean(
-    state.profileSnapshot && state.candidateName.trim() && state.email.trim() && state.phone.trim(),
+    state.profileSnapshot && isCandidateNameConfirmed(state.candidateName, state.email) && state.email.trim() && state.phone.trim(),
   );
   const resumeComplete = Boolean(state.resumeFileId);
   const portfolioComplete = hasPortfolioArtifact(state);
@@ -1471,6 +1472,7 @@ export interface CandidateApplyModalProps {
 }
 
 const APPLY_STEPS = ["기본 정보", "서류", "동의 및 제출"] as const;
+type PortfolioSubmissionMethod = "url" | "pdf";
 
 // 공고 상세 위에서 단계별로 지원서를 작성하는 모달(이슈 #207). 기존 제출 API 흐름을 그대로 사용한다.
 export function CandidateApplyModal({
@@ -1494,6 +1496,9 @@ export function CandidateApplyModal({
   const [loadedResumeName, setLoadedResumeName] = useState<string | null>(null);
   const [loadedPortfolioName, setLoadedPortfolioName] = useState<string | null>(null);
   const [preSetSnapshot, setPreSetSnapshot] = useState<CandidateApplicationFormState | null>(null);
+  const [portfolioMethod, setPortfolioMethod] = useState<PortfolioSubmissionMethod>(() =>
+    state.portfolioUrl?.trim() ? "url" : state.portfolioFileId ? "pdf" : "url",
+  );
 
   function handleLoadSet(folder: CandidateFolder) {
     // 이미 불러온 세트를 다시 누르면 불러오기 이전 상태로 되돌린다(아무것도 선택하지 않은 상태). (#272)
@@ -1524,12 +1529,21 @@ export function CandidateApplyModal({
     setValidationMessage("");
   }, [state]);
 
+  useEffect(() => {
+    if (state.portfolioUrl?.trim()) setPortfolioMethod("url");
+    else if (state.portfolioFileId) setPortfolioMethod("pdf");
+  }, [state.portfolioFileId, state.portfolioUrl]);
+
   // 표시 파일명은 현재 파일 ID 가 실제로 가리키는 파일 기준. (직접 업로드 후 세트 불러오기 시 불일치 방지) (#272 P2)
   const resumeFromUpload = Boolean(latestResumeFile && latestResumeFile.fileId === state.resumeFileId);
   const portfolioFromUpload = Boolean(latestPortfolioFile && latestPortfolioFile.fileId === state.portfolioFileId);
+  const candidateNameConfirmed = isCandidateNameConfirmed(state.candidateName, state.email);
+  const candidateNameError = state.candidateName.trim() && !candidateNameConfirmed
+    ? "OAuth 계정 ID 대신 실제 이름을 입력해주세요."
+    : undefined;
 
   const basicComplete = Boolean(
-    state.profileSnapshot && state.candidateName.trim() && state.email.trim() && state.phone.trim(),
+    state.profileSnapshot && candidateNameConfirmed && state.email.trim() && state.phone.trim(),
   );
   const resumeComplete = Boolean(state.resumeFileId);
   const portfolioComplete = hasPortfolioArtifact(state);
@@ -1545,6 +1559,20 @@ export function CandidateApplyModal({
     );
     if (dirty && !window.confirm("작성 중인 내용이 있습니다. 지원서를 닫을까요?")) return;
     onClose();
+  }
+
+  function selectPortfolioMethod(method: PortfolioSubmissionMethod) {
+    setPortfolioMethod(method);
+    if (method === "url") {
+      setLoadedPortfolioName(null);
+      onStateChange({ ...state, portfolioFileId: undefined });
+      return;
+    }
+    onStateChange({
+      ...state,
+      portfolioUrl: undefined,
+      profileSnapshot: state.profileSnapshot ? { ...state.profileSnapshot, portfolioUrl: null } : state.profileSnapshot,
+    });
   }
 
   async function handleFinalSubmit() {
@@ -1592,6 +1620,7 @@ export function CandidateApplyModal({
               {state.profileSnapshot ? (
                 <CandidateProfileSnapshotEditor
                   value={state.profileSnapshot}
+                  nameError={candidateNameError}
                   onChange={(profileSnapshot) => onStateChange({
                     ...state,
                     profileSnapshot,
@@ -1627,31 +1656,42 @@ export function CandidateApplyModal({
                   <strong>{resumeFromUpload ? "업로드 완료" : loadedResumeName ? "세트 이력서" : "파일 선택"}</strong>
                 </span>
               </label>
-              <label>
-                <span className="candidate-apply-required-label">포트폴리오 URL (URL 또는 PDF 중 하나 필수) <span className="req-mark">*</span></span>
-                <input
-                  placeholder="https://portfolio.example.com"
-                  type="url"
-                  value={state.portfolioUrl ?? ""}
-                  onChange={(event) => onStateChange({ ...state, portfolioUrl: event.currentTarget.value })}
-                />
-              </label>
-              <label className="candidate-apply-file-label">
-                <span className="candidate-apply-required-label">포트폴리오 PDF (URL 또는 PDF 중 하나 필수) <span className="req-mark">*</span></span>
-                <span className="candidate-apply-file-row">
+              <fieldset className="candidate-portfolio-method">
+                <legend>포트폴리오 제출 방식 <span className="req-mark">*</span></legend>
+                <div className="candidate-portfolio-method__options">
+                  <button type="button" className={portfolioMethod === "url" ? "is-selected" : ""} aria-pressed={portfolioMethod === "url"} onClick={() => selectPortfolioMethod("url")}>URL로 제출</button>
+                  <button type="button" className={portfolioMethod === "pdf" ? "is-selected" : ""} aria-pressed={portfolioMethod === "pdf"} onClick={() => selectPortfolioMethod("pdf")}>PDF로 제출</button>
+                </div>
+                <p>선택한 방식 하나만 제출합니다.</p>
+              </fieldset>
+              {portfolioMethod === "url" ? (
+                <label>
+                  <span className="candidate-apply-required-label">포트폴리오 URL <span className="req-mark">*</span></span>
                   <input
-                    accept=".pdf,application/pdf"
-                    className="candidate-hidden-file"
-                    type="file"
-                    onChange={(event) => {
-                      const file = event.currentTarget.files?.[0];
-                      if (file && onPortfolioFileSelect) void onPortfolioFileSelect(file);
-                    }}
+                    placeholder="https://portfolio.example.com"
+                    type="url"
+                    value={state.portfolioUrl ?? ""}
+                    onChange={(event) => onStateChange({ ...state, portfolioUrl: event.currentTarget.value })}
                   />
-                  <span>{portfolioFromUpload ? latestPortfolioFile?.originalName : loadedPortfolioName ?? "포트폴리오 PDF를 선택하세요"}</span>
-                  <strong>{portfolioFromUpload ? "업로드 완료" : loadedPortfolioName ? "세트 포트폴리오" : "파일 선택"}</strong>
-                </span>
-              </label>
+                </label>
+              ) : (
+                <label className="candidate-apply-file-label">
+                  <span className="candidate-apply-required-label">포트폴리오 PDF <span className="req-mark">*</span></span>
+                  <span className="candidate-apply-file-row">
+                    <input
+                      accept=".pdf,application/pdf"
+                      className="candidate-hidden-file"
+                      type="file"
+                      onChange={(event) => {
+                        const file = event.currentTarget.files?.[0];
+                        if (file && onPortfolioFileSelect) void onPortfolioFileSelect(file);
+                      }}
+                    />
+                    <span>{portfolioFromUpload ? latestPortfolioFile?.originalName : loadedPortfolioName ?? "포트폴리오 PDF를 선택하세요"}</span>
+                    <strong>{portfolioFromUpload ? "업로드 완료" : loadedPortfolioName ? "세트 포트폴리오" : "파일 선택"}</strong>
+                  </span>
+                </label>
+              )}
               <label>
                 <span className="candidate-apply-required-label">지원 동기 <span className="req-mark">*</span></span>
                 <textarea
@@ -1682,8 +1722,7 @@ export function CandidateApplyModal({
                 <div><span>GitHub</span><strong>{state.githubUrl || "-"}</strong></div>
                 <div><span>블로그</span><strong>{state.blogUrl || "-"}</strong></div>
                 <div><span>이력서</span><strong>{resumeFromUpload ? latestResumeFile?.originalName : loadedResumeName ?? "-"}</strong></div>
-                <div><span>포트폴리오 URL</span><strong>{state.portfolioUrl || "-"}</strong></div>
-                <div><span>포트폴리오 PDF</span><strong>{portfolioFromUpload ? latestPortfolioFile?.originalName : loadedPortfolioName ?? "-"}</strong></div>
+                <div><span>포트폴리오</span><strong>{state.portfolioUrl || (portfolioFromUpload ? latestPortfolioFile?.originalName : loadedPortfolioName) || "-"}</strong></div>
                 <div><span>지원 동기</span><strong>{state.motivation || "-"}</strong></div>
                 <div><span>추가 설명</span><strong>{state.additionalInfo || "-"}</strong></div>
               </div>
@@ -1735,6 +1774,7 @@ export function CandidateApplyModal({
 
 function toApplyValidationMessage(error: unknown): string {
   if (!(error instanceof Error)) return "지원서 입력값을 확인해주세요.";
+  if (error.message.includes("candidateName")) return "OAuth 계정 ID 대신 실제 이름을 입력해주세요.";
   if (error.message.includes("portfolioFileId") || error.message.includes("portfolioUrl")) {
     return "포트폴리오 URL 또는 PDF를 제출해주세요.";
   }

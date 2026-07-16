@@ -1,10 +1,28 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import type { CandidateProfileSnapshotV1 } from "./api";
-import { appendProfileSnapshotItem, createProfileFormState, getAccordionIndicator, serializeProfileForm, validateProfileForm } from "./candidate-profile-form";
+import { appendProfileSnapshotItem, createProfileFormState, getAccordionIndicator, isSupportedProfileDateInput, serializeProfileForm, validateProfileForm } from "./candidate-profile-form";
+import { isCandidateNameConfirmed, toSubmitApplicationRequest } from "./view-model";
 
 assert.equal(getAccordionIndicator(false), "▼");
 assert.equal(getAccordionIndicator(true), "▲");
+assert.equal(isSupportedProfileDateInput("2026-07", "month"), true);
+assert.equal(isSupportedProfileDateInput("12026-07", "month"), false);
+assert.equal(isSupportedProfileDateInput("2026-07-16", "date"), true);
+assert.equal(isSupportedProfileDateInput("0999-12-31", "date"), false);
+assert.equal(isCandidateNameConfirmed("candidate", "candidate@example.com"), false);
+assert.equal(isCandidateNameConfirmed("candidate@example.com", "candidate@example.com"), false);
+assert.equal(isCandidateNameConfirmed("홍길동", "candidate@example.com"), true);
+assert.throws(() => toSubmitApplicationRequest({
+  candidateName: "candidate",
+  email: "candidate@example.com",
+  phone: "010-0000-0000",
+  githubUrl: "",
+  blogUrl: "",
+  motivation: "",
+  additionalInfo: "",
+  consentTypes: [],
+}), /OAuth account ID/);
 
 const form = createProfileFormState({
   name: "지원자",
@@ -69,6 +87,8 @@ const snapshotEditorSource = readFileSync("src/features/candidate-application-in
 assert.equal(snapshotEditorSource.includes("<details"), false);
 assert.equal(snapshotEditorSource.includes('className="candidate-profile-remove"'), true);
 assert.equal(snapshotEditorSource.includes("aria-expanded={open}"), true);
+assert.equal(snapshotEditorSource.includes("isSupportedProfileDateInput(nextValue, type)"), true);
+assert.equal(snapshotEditorSource.includes("const nullable = (value: string) => value || null;"), true);
 
 const mypageProfileSource = readFileSync("src/features/candidate-application-interview/CandidateProfileSection.tsx", "utf8");
 assert.equal(mypageProfileSource.includes('section="coverLetter"'), true);
@@ -76,6 +96,7 @@ assert.equal(mypageProfileSource.includes("open={open.coverLetter}"), true);
 
 const candidatePagesSource = readFileSync("src/features/candidate-application-interview/CandidatePages.tsx", "utf8");
 assert.equal(candidatePagesSource.includes('value={form.githubUrl ?? ""}'), false);
+assert.equal(candidatePagesSource.includes('const recruitingActive = active === "jobs";'), true);
 
 const viewsSource = readFileSync("src/features/candidate-application-interview/views.tsx", "utf8");
 assert.equal(viewsSource.includes('aria-label="편집"'), true);
@@ -89,8 +110,6 @@ assert.notEqual(modalReviewStepStart, -1);
 const modalDocumentsStepSource = viewsSource.slice(modalDocumentsStepStart, modalReviewStepStart);
 for (const requiredLabel of [
   "이력서",
-  "포트폴리오 URL (URL 또는 PDF 중 하나 필수)",
-  "포트폴리오 PDF (URL 또는 PDF 중 하나 필수)",
   "지원 동기",
   "추가 설명",
 ]) {
@@ -102,5 +121,10 @@ for (const requiredLabel of [
     `${requiredLabel} 문구와 필수 표시가 같은 라벨 래퍼 안에 있어야 합니다.`,
   );
 }
+assert.equal(modalDocumentsStepSource.includes("포트폴리오 제출 방식"), true);
+assert.equal(modalDocumentsStepSource.includes("URL로 제출"), true);
+assert.equal(modalDocumentsStepSource.includes("PDF로 제출"), true);
+assert.equal(modalDocumentsStepSource.includes('portfolioMethod === "url"'), true);
+assert.equal(modalDocumentsStepSource.includes("URL 또는 PDF 중 하나 필수"), false);
 
 console.log("candidate profile form helpers: ok");

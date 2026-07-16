@@ -502,6 +502,15 @@ export const defaultApplicationFormState: CandidateApplicationFormState = {
   consentTypes: [],
 };
 
+export function isCandidateNameConfirmed(name: string, email: string): boolean {
+  const normalizedName = name.trim().toLocaleLowerCase();
+  if (!normalizedName) return false;
+
+  const normalizedEmail = email.trim().toLocaleLowerCase();
+  const emailId = normalizedEmail.split("@", 1)[0] ?? "";
+  return normalizedName !== normalizedEmail && normalizedName !== emailId;
+}
+
 // 세트 override/해제 순수 로직은 apply-set.ts 로 분리(단위 테스트 대상). 재노출로 기존 import 유지. (#272)
 export { applyFolderToApplicationForm, restoreApplicationSetContent } from "./apply-set";
 
@@ -561,6 +570,10 @@ export function toSubmitApplicationRequest(state: CandidateApplicationFormState)
 
   if (!isEmail(email)) {
     throw new Error("email must be a valid email address before submitting an application.");
+  }
+
+  if (!isCandidateNameConfirmed(candidateName, email)) {
+    throw new Error("candidateName must be confirmed instead of using the OAuth account ID.");
   }
 
   if (!state.resumeFileId) {

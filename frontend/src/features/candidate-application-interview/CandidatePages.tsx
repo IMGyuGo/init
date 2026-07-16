@@ -8287,7 +8287,7 @@ function CandidateNav({ active, publicEntry = false }: { active: CandidateNavSec
   const pathname = usePathname();
   const { status, user } = useAuth();
   const mockActive = active === "interview" || active === "reports";
-  const recruitingActive = active === "jobs" || active === "applications";
+  const recruitingActive = active === "jobs";
   // 지표는 마이페이지 하위 흐름으로 배치되어 GNB 최상위 탭에서는 제외한다(마이페이지 활성으로 묶임).
   const accountBillingActive =
     active === "accountBilling" || active === "performance" || isCandidateAccountBillingPath(pathname);
