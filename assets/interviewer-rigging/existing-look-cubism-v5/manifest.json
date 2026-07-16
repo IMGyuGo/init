@@ -10,5 +10,60 @@
     "keyforms": [0, 0.5, 1],
     "controlType": "layered-warp-deformation"
   },
-  "layers": []
+  "layers": [
+    {
+      "name": "mouth-skin-underlay",
+      "pngPath": "normalized/mouth-skin-underlay.png",
+      "rgbaPath": "normalized/mouth-skin-underlay.rgba",
+      "visible": true,
+      "anchor": { "x": 512, "y": 585 },
+      "sourceType": "identity-preserve-edit",
+      "role": "underlay"
+    },
+    {
+      "name": "mouth-interior",
+      "pngPath": "normalized/mouth-interior.png",
+      "rgbaPath": "normalized/mouth-interior.rgba",
+      "visible": true,
+      "anchor": { "x": 512, "y": 585 },
+      "sourceType": "hybrid-reconstruction",
+      "role": "clipping-owner"
+    },
+    {
+      "name": "mouth-upper-teeth",
+      "pngPath": "normalized/mouth-upper-teeth.png",
+      "rgbaPath": "normalized/mouth-upper-teeth.rgba",
+      "visible": true,
+      "anchor": { "x": 512, "y": 585 },
+      "sourceType": "hybrid-reconstruction",
+      "role": "clipped-content"
+    },
+    {
+      "name": "mouth-tongue",
+      "pngPath": "normalized/mouth-tongue.png",
+      "rgbaPath": "normalized/mouth-tongue.rgba",
+      "visible": true,
+      "anchor": { "x": 512, "y": 585 },
+      "sourceType": "hybrid-reconstruction",
+      "role": "clipped-content"
+    },
+    {
+      "name": "mouth-upper-lip",
+      "pngPath": "normalized/mouth-upper-lip.png",
+      "rgbaPath": "normalized/mouth-upper-lip.rgba",
+      "visible": true,
+      "anchor": { "x": 512, "y": 585 },
+      "sourceType": "identity-preserve-edit",
+      "role": "opaque-deforming-lip"
+    },
+    {
+      "name": "mouth-lower-lip",
+      "pngPath": "normalized/mouth-lower-lip.png",
+      "rgbaPath": "normalized/mouth-lower-lip.rgba",
+      "visible": true,
+      "anchor": { "x": 512, "y": 585 },
+      "sourceType": "identity-preserve-edit",
+      "role": "opaque-deforming-lip"
+    }
+  ]
 }
