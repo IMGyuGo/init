@@ -8,3 +8,4 @@ export * from "./repository/in-memory-interview.repository";
 export * from "./repository/interview.repository";
 export * from "./repository/prisma-interview.repository";
 export * from "./service/interview.service";
+export * from "./service/interview-media-storage.adapter";

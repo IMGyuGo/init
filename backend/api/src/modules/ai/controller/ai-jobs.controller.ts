@@ -36,6 +36,7 @@ import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
 import { CandidateDomainError, CandidateService, type CandidateFolderContext, type CandidateProfileAiContextV1, type CurrentCandidateUser } from "../../candidate";
 import { InterviewService } from "../../interview";
 import { CompanyInterviewService } from "../../company-interview/company-interview.service";
+import { getValidationTextLength } from "../../../shared/api-validation";
 
 type HeaderMap = Record<string, string | string[] | undefined>;
 type CandidateAiRequest = {
@@ -450,7 +451,7 @@ export class CompanyRecruitmentAiJobsController {
   private requiredBoundedText(value: unknown, name: string, maxLength: number): string {
     this.requireText(value, name);
     const normalized = String(value).trim();
-    if (normalized.length > maxLength) {
+    if (getValidationTextLength(normalized) > maxLength) {
       throw this.validation(`${name} must be ${maxLength} characters or fewer.`);
     }
     return normalized;
@@ -467,7 +468,7 @@ export class CompanyRecruitmentAiJobsController {
     if (!normalized) {
       return undefined;
     }
-    if (normalized.length > maxLength) {
+    if (getValidationTextLength(normalized) > maxLength) {
       throw this.validation(`${name} must be ${maxLength} characters or fewer.`);
     }
     return normalized;
@@ -490,7 +491,7 @@ export class CompanyRecruitmentAiJobsController {
           throw this.validation(`keywords[${index}] must be a string.`);
         }
         const normalized = keyword.trim();
-        if (normalized.length > POSTING_DRAFT_INPUT_LIMITS.keywordMaxLength) {
+        if (getValidationTextLength(normalized) > POSTING_DRAFT_INPUT_LIMITS.keywordMaxLength) {
           throw this.validation(`keywords[${index}] must be ${POSTING_DRAFT_INPUT_LIMITS.keywordMaxLength} characters or fewer.`);
         }
         return normalized;

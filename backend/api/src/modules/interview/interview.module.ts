@@ -47,6 +47,7 @@ import { InterviewService } from "./service/interview.service";
   exports: [
     INTERVIEW_REPOSITORY,
     AiJobDispatchModule,
+    INTERVIEW_MEDIA_STORAGE,
     InterviewService,
     PublicInterviewService,
   ],

@@ -1,5 +1,9 @@
 import OpenAI from "openai";
 import type { NcsApiProfileId } from "./ncs-question-alignment.adapter";
+import {
+  INTERVIEW_QUESTION_PUNCTUATION_PROMPT,
+  normalizeInterviewQuestionPunctuation
+} from "./question-punctuation";
 
 export type QuestionGenerationDifficulty = "EASY" | "MEDIUM" | "HARD";
 export type QuestionGenerationType = "INTRO" | "TECHNICAL" | "EXPERIENCE" | "SITUATION" | "FOLLOW_UP" | "CLOSING";
@@ -100,6 +104,7 @@ export function buildQuestionMessages(input: QuestionGenerationInput): Array<{ r
           "Return JSON only with key questionCandidates.",
           "Ground every question in the supplied candidate profile, cover letter, resume text, links, motivation, or activity history.",
           "Ask for verifiable decisions, actions, trade-offs, and outcomes. Do not invent experiences that are absent from context.",
+          INTERVIEW_QUESTION_PUNCTUATION_PROMPT,
           "Never use or mention name, email, phone, age, gender, address, disability, health, appearance, school prestige, or other sensitive attributes.",
           "Do not make hiring pass/fail judgments. These questions are practice-only and must not be saved to a company question bank."
         ].join("\n")
@@ -146,6 +151,7 @@ export function buildQuestionMessages(input: QuestionGenerationInput): Array<{ r
         "criterionTitle must equal the matched criterion name.",
         "category must equal the matched criterion category when provided, otherwise use a concise Korean category.",
         "Generate only questions that can be saved to the question bank after human review.",
+        INTERVIEW_QUESTION_PUNCTUATION_PROMPT,
         "Do not include final hiring pass/fail judgments, sensitive attributes, appearance, eye contact, voice tone, age, gender, school, region, disability, or health.",
         "Questions must evaluate observable work evidence through answer content.",
         "For resume-personalized questions, use only experiences present in resumeText and include only the minimum non-sensitive experience context needed to identify the experience.",
@@ -248,7 +254,7 @@ function normalizeCandidate(
   }
 
   return {
-    content: normalizeQuestion(content),
+    content: normalizeInterviewQuestionPunctuation(content),
     category: normalizeText(record.category) ?? criterion?.category ?? (mock ? "맞춤형 모의면접" : "공통 질문"),
     difficulty: difficultyOf(record.difficulty),
     criterionId: mock ? undefined : criterionId,
@@ -287,11 +293,6 @@ function normalizeText(value: unknown): string | undefined {
   }
   const normalized = value.replace(/\s+/g, " ").trim();
   return normalized.length > 0 ? normalized : undefined;
-}
-
-function normalizeQuestion(value: string): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized.endsWith("?") ? normalized : `${normalized}?`;
 }
 
 function canonicalQuestion(value: string): string {

@@ -191,6 +191,9 @@ export interface InterviewRuntimeProgressionStateInput {
   recording: boolean;
   answeredQuestionCount: number;
   totalQuestions: number;
+  /** @deprecated Kept for legacy test and caller compatibility; server state is authoritative. */
+  generatedFollowUpReady?: boolean;
+  gazeRetakeRequired?: boolean;
 }
 
 export interface InterviewRuntimeProgressionState {
@@ -454,6 +457,7 @@ export type InvalidRecordingRecoveryAction = "retry" | "hold";
 export interface InvalidRecordingRecoveryActionInput {
   failedAttemptCount: number;
   maxAutoRetryCount: number;
+  gazeRetakeRequired?: boolean;
 }
 
 export const requiredApplicationConsents: ConsentType[] = [
@@ -1105,6 +1109,7 @@ export function getInterviewRuntimeProgressionState({
   recording,
   answeredQuestionCount,
   totalQuestions,
+  gazeRetakeRequired = false,
 }: InterviewRuntimeProgressionStateInput): InterviewRuntimeProgressionState {
   const canMoveNextQuestion = Boolean(
     hasRuntimeData &&
@@ -1112,7 +1117,8 @@ export function getInterviewRuntimeProgressionState({
       !isCurrentQuestionLast &&
       !answerProcessingBusy &&
       !isReansweringCurrentQuestion &&
-      !recording,
+      !recording &&
+      !gazeRetakeRequired,
   );
   const canCompleteInterview = Boolean(
     hasRuntimeData &&
@@ -1121,7 +1127,8 @@ export function getInterviewRuntimeProgressionState({
       answeredQuestionCount >= totalQuestions &&
       !answerProcessingBusy &&
       !isReansweringCurrentQuestion &&
-      !recording,
+      !recording &&
+      !gazeRetakeRequired,
   );
 
   return {
@@ -1350,7 +1357,9 @@ export function getRealtimeSilenceEncouragementDecision({
 export function getInvalidRecordingRecoveryAction({
   failedAttemptCount,
   maxAutoRetryCount,
+  gazeRetakeRequired = false,
 }: InvalidRecordingRecoveryActionInput): InvalidRecordingRecoveryAction {
+  if (gazeRetakeRequired) return "retry";
   return failedAttemptCount <= maxAutoRetryCount ? "retry" : "hold";
 }
 

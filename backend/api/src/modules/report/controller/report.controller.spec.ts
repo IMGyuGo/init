@@ -3,11 +3,16 @@ import { strict as assert } from "node:assert";
 import { HttpException, RequestMethod } from "@nestjs/common";
 import { HTTP_CODE_METADATA, METHOD_METADATA, PATH_METADATA } from "@nestjs/common/constants";
 import {
+  CandidateDomainError,
   CandidateService,
   DEV_CANDIDATE_USER,
   InMemoryCandidateRepository,
 } from "../../candidate";
-import { InMemoryInterviewRepository, InterviewService } from "../../interview";
+import {
+  InMemoryInterviewMediaStorageAdapter,
+  InMemoryInterviewRepository,
+  InterviewService,
+} from "../../interview";
 import { ReportController } from "./report.controller";
 import { reportApiRoutePrefix, reportApiRoutes } from "../report.routes";
 import { InMemoryCandidateReportRepository } from "../repository/in-memory-candidate-report.repository";
@@ -150,14 +155,20 @@ async function runReportControllerAssertions() {
   const repository = new InMemoryCandidateRepository();
   const candidateService = new CandidateService(repository);
   const interviewRepository = new InMemoryInterviewRepository();
-  const interviewService = new InterviewService(candidateService, interviewRepository);
+  const mediaStorage = new InMemoryInterviewMediaStorageAdapter();
+  const interviewService = new InterviewService(candidateService, interviewRepository, undefined, mediaStorage);
   const candidateReportRepository = new InMemoryCandidateReportRepository();
   const reportRepository = new InMemoryReportRepository();
   const queuePublisher = new InMemoryAiJobQueuePublisher();
   const dispatcher = new AiJobDispatcherService(reportRepository, queuePublisher);
-  const controller = new ReportController(
-    new ReportService(candidateService, interviewRepository, candidateReportRepository, dispatcher),
+  const reportService = new ReportService(
+    candidateService,
+    interviewRepository,
+    candidateReportRepository,
+    dispatcher,
+    mediaStorage,
   );
+  const controller = new ReportController(reportService);
 
   const startedMock = await interviewService.startMockInterview(
     { questionTypes: ["INTRO", "TECHNICAL"], showQuestionText: true },
@@ -304,6 +315,38 @@ async function runReportControllerAssertions() {
   assert.equal(legacyMedia.data.media[0]?.transcriptStatus, "UNAVAILABLE");
   assert.equal(legacyMedia.data.media[0]?.evaluationStatus, "STT_UNAVAILABLE");
   assert.match(legacyMedia.data.media[0]?.transcriptUnavailableReason ?? "", /임시 0점/);
+
+  const firstVideoFile = media.data.media[0]?.videoFile;
+  assert.ok(firstVideoFile);
+  await mediaStorage.putObject({
+    key: firstVideoFile.storageKey,
+    body: Buffer.from("mock-video"),
+    contentLength: 10,
+    contentType: firstVideoFile.mimeType,
+  });
+  const playbackSession = await reportService.createMockReportMediaSession(mockReportId, DEV_CANDIDATE_USER);
+  assert.equal(playbackSession.cookieName, "candidateMockMediaAccess");
+  assert.equal(playbackSession.mediaBasePath, `/api/v1/candidate/mock-interview/reports/${mockReportId}/media`);
+  const playbackUser = reportService.verifyMockReportMediaSession(playbackSession.token, mockReportId);
+  assert.equal(playbackUser.candidateId, DEV_CANDIDATE_USER.candidateId);
+  const streamedMedia = await reportService.getMockReportMediaFile(
+    mockReportId,
+    firstVideoFile.fileId,
+    playbackUser,
+    { range: "bytes=0-3" },
+  );
+  assert.equal(streamedMedia.statusCode, 206);
+  assert.equal(streamedMedia.contentRange, "bytes 0-3/10");
+  assert.equal(Buffer.isBuffer(streamedMedia.body) ? streamedMedia.body.toString("utf8") : "", "mock");
+
+  await assert.rejects(
+    () => reportService.createMockReportMediaSession(mockReportId, otherCandidateRequest.currentUser),
+    (error: unknown) => error instanceof CandidateDomainError && error.code === "COMMON_FORBIDDEN",
+  );
+  await assert.rejects(
+    () => reportService.getMockReportMediaFile(mockReportId, 99999, playbackUser),
+    (error: unknown) => error instanceof CandidateDomainError && error.code === "COMMON_NOT_FOUND",
+  );
 
   const generation = await controller.requestMockReportGeneration(validCandidateRequest, String(mockReportId));
   assert.equal(generation.data.accepted, true);

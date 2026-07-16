@@ -45,6 +45,11 @@ export type TimelineAnalysisQuality = {
 
 export const INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES = 120;
 
+export function normalizeGazeTimelineOffset(value: number): number | undefined {
+  if (!Number.isFinite(value)) return undefined;
+  return Math.min(1, Math.max(-1, value));
+}
+
 const GAZE_DIRECTIONS: readonly InterviewGazeDirection[] = ["CENTER", "LEFT", "RIGHT", "UP", "DOWN"];
 const GAZE_AWAY_DIRECTIONS: readonly Exclude<InterviewGazeDirection, "CENTER">[] = ["LEFT", "RIGHT", "UP", "DOWN"];
 const TIMELINE_SAMPLE_INTERVAL_MS = 1000;

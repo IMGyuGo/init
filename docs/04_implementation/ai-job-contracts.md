@@ -119,7 +119,7 @@ GET /api/v1/ai/jobs/101/status
 | `POST /candidate/interviews/{sessionId}/stt` | Candidate | answerId, audioFileId, audioS3Key | transcript 없을 때만 저장 |
 | `POST /candidate/mock-interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript, profileContext(V1, server-built) | 모의면접 표현 정책과 guardrail 통과 후 답변 문맥을 포함한 private session question을 원 질문 바로 다음에 원자적으로 추가. 불필요·실패·timeout이면 다음 기본 질문으로 복구 |
 | `POST /candidate/interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript, jobDescription 또는 documentSummary, profileContext(V1, server-built) | NCS 근거와 fact gate를 병렬 확인한다. 둘 중 하나라도 보완이 필요하면 답변의 구체 표현을 포함한 동일 mode·답변시간의 private session question 하나만 원 질문 바로 다음에 추가 |
-| `POST /company/recruitments/ai-draft` | Company | title(max 120), jobRole(max 80), keywords?(max 10, each max 40), summary?(max 1000), careerRequirement?, employmentType?, workLocation? | reviewRequired draft 반환, 확정 전 최종 저장 금지 |
+| `POST /company/recruitments/ai-draft` | Company | title(max 120), jobRole(max 80), keywords?(max 10, each max 40), summary?(max 3000), careerRequirement?, employmentType?, workLocation? | reviewRequired draft 반환, 확정 전 최종 저장 금지 |
 | `POST /company/interviews/questions/generate` | Company | postingId, jobDescription, questionCount | reviewRequired draft 반환 |
 | `POST /candidate/mock-interviews/questions/generate` | Candidate | questionCount, folderContext?, profileContext(V1, server-built) | JD/posting/기업 기준 없이 동작 |
 | `POST /ai/guardrails/validate` | Admin/System | reportType, target, scores, summary? | PASS/BLOCKED/REGENERATED 기록 |

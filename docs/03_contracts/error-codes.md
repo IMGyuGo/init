@@ -27,6 +27,7 @@
 | INTERVIEW_NCS_QUESTION_COVERAGE_INVALID | 422 | 질문 세트 또는 세션 확정 시 NCS profile별 scoring base question이 2개 미만 | 공통·개인화 질문과 profile binding을 보완한 뒤 확정 또는 세션 생성을 재시도 |
 | INTERVIEW_NCS_SNAPSHOT_INVALID | 409 | 진행·완료 또는 답변이 존재하는 세션의 NCS 질문·binding·시간·가중치 snapshot이 계약을 충족하지 않음 | 기존 세션을 자동 변경하지 않고 운영자에게 새 세션 생성 또는 데이터 복구를 안내 |
 | INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY | 409 | 이력서 개인화 질문이 필요한데 아직 READY가 아님 | 문서 추출/생성 상태를 표시하고 면접 시작을 제한 |
+| INTERVIEW_GAZE_DATA_INVALID | 422 | 답변의 시선 타임라인 offset이 유한수가 아니거나 `-1..1` 허용 범위를 벗어남 | 답변을 저장하지 않고 정상 시선 데이터가 생성될 때까지 재촬영과 카메라 위치 조정을 안내 |
 | DEVICE_PERMISSION_DENIED | 400 | 카메라/마이크 권한 거부 | 브라우저 권한 해결 안내 |
 | AI_PROCESS_NOT_FOUND | 404 | AI 작업 로그 없음 | 상태 조회 중 삭제되었거나 잘못된 processLogId |
 | AI_PROCESS_FAILED | 500 | AI 처리 실패 | `ai_process_logs.status=FAILED`와 재시도 안내 |
@@ -41,8 +42,16 @@
     "code": "COMMON_VALIDATION_FAILED",
     "message": "입력값을 확인해주세요.",
     "details": [
-      { "field": "email", "reason": "INVALID_FORMAT" }
+      {
+        "field": "summary",
+        "reason": "MAX_LENGTH",
+        "limit": 3000,
+        "actualLength": 3001,
+        "message": "핵심 내용은 최대 3,000자까지 입력할 수 있습니다."
+      }
     ]
   }
 }
 ```
+
+검증 오류의 `details`는 `field`, `reason`, `message`를 기본으로 하며 길이·개수 제한에는 `limit`와 `actualLength`를 추가한다. 보안을 위해 사용자가 제출한 실제 값은 반환하지 않는다.

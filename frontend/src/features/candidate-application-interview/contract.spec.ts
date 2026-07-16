@@ -1377,6 +1377,24 @@ assert.deepEqual(
     canCompleteInterview: true,
   },
 );
+assert.deepEqual(
+  getInterviewRuntimeProgressionState({
+    hasRuntimeData: true,
+    currentQuestionAnswered: true,
+    isCurrentQuestionLast: false,
+    generatedFollowUpReady: false,
+    answerProcessingBusy: false,
+    isReansweringCurrentQuestion: false,
+    recording: false,
+    answeredQuestionCount: 1,
+    totalQuestions: 4,
+    gazeRetakeRequired: true,
+  }),
+  {
+    canMoveNextQuestion: false,
+    canCompleteInterview: false,
+  },
+);
 const defaultInterviewerSessionModePolicy = resolveInterviewerSessionMode({});
 assert.deepEqual(defaultInterviewerSessionModePolicy, {
   requestedMode: "tts-file",

@@ -184,6 +184,21 @@ export class InMemoryInterviewRepository implements InterviewRepository {
     return this.cloneSession(updated);
   }
 
+  deleteMockSession(sessionId: number, candidateId: number): boolean {
+    const session = this.mockSessions.get(sessionId);
+    if (!session || session.candidateId !== candidateId) {
+      return false;
+    }
+
+    this.mockSessions.delete(sessionId);
+    for (let index = this.answers.length - 1; index >= 0; index -= 1) {
+      if (this.answers[index]?.sessionId === sessionId) {
+        this.answers.splice(index, 1);
+      }
+    }
+    return true;
+  }
+
   createMockSession(input: CreateMockInterviewSessionInput): RuntimeInterviewSession {
     const contextQuestionIds = input.contextQuestions
       ? this.createMockContextQuestions(input.contextQuestions).map((question) => question.questionId)

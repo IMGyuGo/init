@@ -66,6 +66,10 @@ const OPERATION_DOCUMENTATION_BY_HANDLER: Record<string, OperationDocumentation>
     summary: "지원자의 지원현황 목록 조회",
     description: "로그인한 지원자의 지원서, 공고, 채용면접 세션, 동의·장치 점검 및 리포트 상태를 결합해 최신순으로 반환합니다.",
   },
+  cancelApplication: {
+    summary: "지원서 제출 취소",
+    description: "로그인한 지원자의 지원서 소유권과 취소 가능 상태를 확인한 뒤 해당 지원서를 취소 처리합니다.",
+  },
   getInterviewGuide: {
     summary: "채용면접 응시 안내 조회",
     description: "본인 지원 건의 면접 기간, 필수 동의, 장치 점검 및 면접 시작 가능 상태를 조회합니다.",
@@ -121,6 +125,10 @@ const OPERATION_DOCUMENTATION_BY_HANDLER: Record<string, OperationDocumentation>
   updateMockInterviewTitle: {
     summary: "모의면접 세션 제목 수정",
     description: "로그인한 지원자가 소유한 모의면접 세션의 제목을 최대 100자로 수정하며, 빈 값이면 제목을 초기화합니다. 이력 목록에서 세션을 쉽게 식별하기 위한 사용자 지정 제목입니다.",
+  },
+  deleteMockInterview: {
+    summary: "모의면접 연습 이력 삭제",
+    description: "로그인한 지원자가 소유한 모의면접 세션을 소프트 삭제해 연습 이력, 면접 재개 및 리포트 조회에서 제외합니다. 사용한 이용권과 관련 데이터는 보존합니다.",
   },
   getMockRuntime: {
     summary: "모의면접 런타임 조회",

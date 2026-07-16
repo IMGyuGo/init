@@ -4,6 +4,7 @@ import { PrismaService } from "../../shared/prisma.service";
 import { AuthModule } from "../auth/auth.module";
 import { CandidateModule } from "../candidate";
 import { InterviewModule } from "../interview";
+import { CandidateReportMediaController } from "./controller/candidate-report-media.controller";
 import { ReportController } from "./controller/report.controller";
 import { ReportsController } from "./controller/reports.controller";
 import { CANDIDATE_REPORT_REPOSITORY } from "./repository/candidate-report.repository";
@@ -30,7 +31,7 @@ const candidateReportRepositoryProvider = usePrismaRepository
 
 @Module({
   imports: [AuthModule, CandidateModule, InterviewModule, AiJobDispatchModule],
-  controllers: [ReportsController, ReportController],
+  controllers: [ReportsController, ReportController, CandidateReportMediaController],
   providers: [
     DevAuthAdapter,
     PrismaService,

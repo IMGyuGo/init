@@ -9,13 +9,15 @@ const postureImageByState: Record<AvatarPresentationState, string> = {
   thinking: "/assets/interviewer-avatar/thinking.png",
 };
 
+const mouthShapes: MouthShape[] = ["rest", "closed", "open", "wide", "round", "teeth"];
+
 const mouthImageByShape: Record<MouthShape, string> = {
-  rest: "/assets/interviewer-avatar/mouth/rest.png",
-  closed: "/assets/interviewer-avatar/mouth/closed.png",
-  open: "/assets/interviewer-avatar/mouth/open.png",
-  wide: "/assets/interviewer-avatar/mouth/wide.png",
-  round: "/assets/interviewer-avatar/mouth/round.png",
-  teeth: "/assets/interviewer-avatar/mouth/teeth.png",
+  rest: "/assets/interviewer-avatar/mouth-sprite/rest.png",
+  closed: "/assets/interviewer-avatar/mouth-sprite/closed.png",
+  open: "/assets/interviewer-avatar/mouth-sprite/open.png",
+  wide: "/assets/interviewer-avatar/mouth-sprite/wide.png",
+  round: "/assets/interviewer-avatar/mouth-sprite/round.png",
+  teeth: "/assets/interviewer-avatar/mouth-sprite/teeth.png",
 };
 
 export interface LocalInterviewerAvatarProps {
@@ -41,7 +43,7 @@ export function LocalInterviewerAvatar({
   const renderedMouthShape: MouthShape = presentationState === "speaking" && !reducedMotion ? mouthShape : "rest";
   const renderState = presentationState === "speaking" ? "talking" : presentationState;
   const postureState = presentationState === "speaking" && reducedMotion ? "idle" : presentationState;
-  const shouldRenderMouthOverlay = presentationState === "speaking" && !reducedMotion;
+  const shouldActivateMouth = presentationState === "speaking" && !reducedMotion;
 
   return (
     <div
@@ -58,19 +60,23 @@ export function LocalInterviewerAvatar({
         height={1448}
         src={postureImageByState[postureState]}
         unoptimized
-        width={1088}
+        width={1086}
       />
-      {shouldRenderMouthOverlay ? (
+      {mouthShapes.map((shape) => (
         <Image
+          key={shape}
           alt=""
           className="local-interviewer-avatar__mouth"
+          data-mouth-shape={shape}
+          data-active={shouldActivateMouth && shape === mouthShape ? "true" : "false"}
           draggable={false}
-          height={1448}
-          src={mouthImageByShape[renderedMouthShape]}
+          height={105}
+          loading="eager"
+          src={mouthImageByShape[shape]}
           unoptimized
-          width={1088}
+          width={230}
         />
-      ) : null}
+      ))}
     </div>
   );
 }

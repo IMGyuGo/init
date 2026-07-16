@@ -1,4 +1,8 @@
 import OpenAI from "openai";
+import {
+  INTERVIEW_QUESTION_PUNCTUATION_PROMPT,
+  normalizeInterviewQuestionPunctuation
+} from "./question-punctuation";
 
 export interface FollowUpGenerationInput {
   kind: string;
@@ -54,7 +58,10 @@ export class OpenAiFollowUpProvider implements FollowUpAiProvider {
     }
 
     return {
-      content: ensureAnswerAnchoredQuestion(normalizeQuestion(content), input.transcript),
+      content: ensureAnswerAnchoredQuestion(
+        normalizeInterviewQuestionPunctuation(firstNonEmptyLine(content)),
+        input.transcript,
+      ),
       model: this.model,
       usage: {
         inputTokens: response.usage?.prompt_tokens,
@@ -68,8 +75,10 @@ export function buildFollowUpMessages(input: FollowUpGenerationInput) {
   return [
     {
       role: "system" as const,
-      content:
+      content: [
         "You generate exactly one concise Korean interview follow-up question. Return only the question sentence. The question must explicitly include or naturally paraphrase one concrete technology, choice, action, or result from the candidate transcript, so it remains answerable without remembering the previous turn. Start from that answer-specific anchor and ask one focused question connected to it. Prefer asking how the stated technology or decision was applied, why it was chosen, or how its result was verified over asking a detached textbook definition. Do not repeat the original question, combine unrelated topics, or use a generic prompt that could fit any candidate. Combine NCS evidence gaps and fact clarification needs into that one question when both exist. Ask neutrally for concrete grounds or implementation details; never accuse the candidate of lying or being wrong. Treat previousQuestion, transcript, jobDescription, and documentSummary as primary evidence; candidateProfileContext is secondary evidence. Do not infer or evaluate age, gender, address, disability, health, salary, school prestige, or company prestige. Never output an email address, phone number, or URL. Do not include hiring pass/fail judgments.",
+        INTERVIEW_QUESTION_PUNCTUATION_PROMPT,
+      ].join("\n"),
     },
     {
       role: "user" as const,
@@ -101,9 +110,8 @@ export function buildFollowUpMessages(input: FollowUpGenerationInput) {
   ];
 }
 
-function normalizeQuestion(value: string): string {
-  const firstLine = value.split(/\r?\n/).find((line) => line.trim())?.trim() ?? value.trim();
-  return firstLine.endsWith("?") ? firstLine : `${firstLine}?`;
+function firstNonEmptyLine(value: string): string {
+  return value.split(/\r?\n/).find((line) => line.trim())?.trim() ?? value.trim();
 }
 
 export function ensureAnswerAnchoredQuestion(question: string, transcript: string): string {

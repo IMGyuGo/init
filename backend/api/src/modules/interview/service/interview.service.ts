@@ -221,6 +221,16 @@ export class InterviewService {
     return this.envelope({ sessionId: updated.sessionId, title: updated.title ?? null });
   }
 
+  async deleteMockInterview(sessionId: number, currentUser: CurrentCandidateUser): Promise<void> {
+    await this.getOwnedMockSession(sessionId, currentUser);
+    const deleted = await this.interviewRepository.deleteMockSession(sessionId, currentUser.candidateId);
+    if (!deleted) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "Interview session was not found.", 404, [
+        { field: "sessionId", reason: "mock interview session was already deleted" },
+      ]);
+    }
+  }
+
   async getMockRuntime(sessionId: number, currentUser: CurrentCandidateUser) {
     const session = await this.getOwnedMockSession(sessionId, currentUser);
     this.assertInProgress(session);
@@ -1494,9 +1504,21 @@ export class InterviewService {
       const reason = error instanceof InterviewNonverbalMetadataValidationError
         ? error.reason
         : "nonverbalMetadata is invalid";
-      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "nonverbalMetadata is invalid.", 400, [
-        { field: "nonverbalMetadata", reason },
-      ]);
+      const field = error instanceof InterviewNonverbalMetadataValidationError
+        ? error.field
+        : undefined;
+      const gazeOffsetInvalid = field !== undefined &&
+        /^nonverbalMetadata\.gazeTimeline\[\d+\]\.(horizontalOffset|verticalOffset)$/.test(field);
+      throw new CandidateDomainError(
+        gazeOffsetInvalid ? "INTERVIEW_GAZE_DATA_INVALID" : "COMMON_VALIDATION_FAILED",
+        gazeOffsetInvalid
+          ? "Gaze timeline data is invalid. Retake the answer."
+          : "nonverbalMetadata is invalid.",
+        gazeOffsetInvalid ? 422 : 400,
+        [
+          { field: field ?? "nonverbalMetadata", reason },
+        ],
+      );
     }
 
     return {
