@@ -11291,9 +11291,19 @@ p {
 }
 .notion .report-nonverbal-more[open] > summary::before,
 .notion .report-answer-detail[open] > summary::before { content: "▾"; }
-.notion .report-nonverbal-more > summary:hover,
-.notion .report-answer-detail > summary:hover { color: #191919; border-color: rgba(55, 53, 47, 0.2); }
+.notion .report-nonverbal-more > summary:hover { color: #191919; border-color: rgba(55, 53, 47, 0.2); }
 .notion .report-nonverbal-more > div { margin-top: 12px; }
+
+/* 답변 상세 보기 — 오른쪽 정렬 + 파란 버튼 (#289) */
+.notion .report-answer-detail { display: flex; flex-direction: column; }
+.notion .report-answer-detail > summary {
+  align-self: flex-end;
+  color: #ffffff;
+  background: #3b6fe0;
+  border-color: #3b6fe0;
+}
+.notion .report-answer-detail > summary:hover { color: #ffffff; background: #2f5fd6; border-color: #2f5fd6; }
+.notion .report-answer-detail > summary::before { color: rgba(255, 255, 255, 0.75); }
 .notion .report-answer-detail__body { display: grid; gap: 18px; margin-top: 16px; }
 .notion .report-nonverbal-summary__ok {
   margin: 0;

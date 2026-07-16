@@ -9474,7 +9474,7 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
         </div>
       </div>
       <details className="report-answer-detail">
-        <summary>상세 분석 보기 · 시선·고개 움직임, 참고 신호, 고득점 예시</summary>
+        <summary>상세 보기</summary>
         <div className="report-answer-detail__body">
           <MockVisualAnalysisPanel
             metadata={item.nonverbalMetadata}
@@ -9581,7 +9581,7 @@ function MockVisualAnalysisPanel({
               durationMs={analysisDurationMs}
               playbackTimeMs={playbackTimeMs}
               series={[
-                { label: "좌우", color: "#6257e7", value: (sample) => sample.horizontalOffset },
+                { label: "좌우", color: "#3B6FE0", value: (sample) => sample.horizontalOffset },
                 { label: "상하", color: "#159a8c", value: (sample) => sample.verticalOffset },
               ]}
               minimumScale={0.2}
@@ -9602,7 +9602,7 @@ function MockVisualAnalysisPanel({
             durationMs={analysisDurationMs}
             playbackTimeMs={playbackTimeMs}
             series={[
-              { label: "좌우", color: "#6257e7", value: (sample) => sample.yawDegrees },
+              { label: "좌우", color: "#3B6FE0", value: (sample) => sample.yawDegrees },
               { label: "상하", color: "#159a8c", value: (sample) => sample.pitchDegrees },
               { label: "기울기", color: "#d97706", value: (sample) => sample.rollDegrees },
             ]}
