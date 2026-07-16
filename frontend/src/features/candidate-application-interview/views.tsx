@@ -26,6 +26,12 @@ import { JobDescriptionViewer } from "../company-recruiting/JobDescriptionViewer
 import { extractPostingExtraInfo, postingExtraInfoFields } from "../company-recruiting/posting-extra-info";
 import { loadKakaoMaps } from "../../lib/kakao-maps";
 import { CandidateProfileSnapshotEditor } from "./CandidateProfileSnapshotEditor";
+import {
+  candidateApplicationFieldStep,
+  toCandidateApplicationError,
+  validateCandidateApplication,
+  type CandidateApplicationErrorState,
+} from "./candidate-application-error";
 
 export interface CandidateJobsViewProps {
   jobs: CandidateJobSummary[];
@@ -1462,7 +1468,7 @@ export interface CandidateApplyModalProps {
   latestPortfolioFile?: CandidateFileAsset;
   folders?: CandidateFolder[];
   busy?: boolean;
-  errorMessage?: string;
+  submissionError?: CandidateApplicationErrorState | null;
   onResumeFileSelect?: (file: File) => void | Promise<void>;
   onPortfolioFileSelect?: (file: File) => void | Promise<void>;
   onStateChange: (state: CandidateApplicationFormState) => void;
@@ -1482,7 +1488,7 @@ export function CandidateApplyModal({
   latestPortfolioFile,
   folders = [],
   busy = false,
-  errorMessage,
+  submissionError,
   onResumeFileSelect,
   onPortfolioFileSelect,
   onStateChange,
@@ -1491,7 +1497,8 @@ export function CandidateApplyModal({
   onEditFolder,
 }: CandidateApplyModalProps) {
   const [step, setStep] = useState(0);
-  const [validationMessage, setValidationMessage] = useState("");
+  const [localError, setLocalError] = useState<CandidateApplicationErrorState | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
   const [activeSetId, setActiveSetId] = useState<number | null>(null);
   const [loadedResumeName, setLoadedResumeName] = useState<string | null>(null);
   const [loadedPortfolioName, setLoadedPortfolioName] = useState<string | null>(null);
@@ -1526,7 +1533,7 @@ export function CandidateApplyModal({
   }
 
   useEffect(() => {
-    setValidationMessage("");
+    setLocalError((current) => current ? validateCandidateApplication(state) : null);
   }, [state]);
 
   useEffect(() => {
@@ -1541,6 +1548,29 @@ export function CandidateApplyModal({
   const candidateNameError = state.candidateName.trim() && !candidateNameConfirmed
     ? "OAuth 계정 ID 대신 실제 이름을 입력해주세요."
     : undefined;
+  const displayError = localError ?? submissionError ?? null;
+  const fieldErrors = displayError?.fieldErrors ?? {};
+  const firstErrorField = displayError?.firstField;
+
+  useEffect(() => {
+    const firstField = firstErrorField;
+    if (!firstField) return;
+    const errorStep = candidateApplicationFieldStep(firstField);
+    if (step !== errorStep) {
+      setStep(errorStep);
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      const field = modalRef.current?.querySelector<HTMLElement>(`[data-apply-field="${firstField}"]`);
+      const input = field?.matches("input, textarea, select, button")
+        ? field
+        : field?.querySelector<HTMLElement>("input, textarea, select, button");
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      field?.scrollIntoView({ block: "center", behavior: reduceMotion ? "auto" : "smooth" });
+      input?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [firstErrorField, step]);
 
   const basicComplete = Boolean(
     state.profileSnapshot && candidateNameConfirmed && state.email.trim() && state.phone.trim(),
@@ -1576,11 +1606,16 @@ export function CandidateApplyModal({
   }
 
   async function handleFinalSubmit() {
-    setValidationMessage("");
+    const validationError = validateCandidateApplication(state);
+    if (validationError) {
+      setLocalError(validationError);
+      return;
+    }
+    setLocalError(null);
     try {
       await onSubmit(toSubmitApplicationRequest(state));
     } catch (error) {
-      setValidationMessage(toApplyValidationMessage(error));
+      setLocalError(toCandidateApplicationError(error, { operation: "지원서 제출" }));
     }
   }
 
@@ -1592,7 +1627,7 @@ export function CandidateApplyModal({
         if (event.target === event.currentTarget) requestClose();
       }}
     >
-      <div className="candidate-apply-modal" role="dialog" aria-modal="true" aria-label="지원서 작성">
+      <div ref={modalRef} className="candidate-apply-modal" role="dialog" aria-modal="true" aria-label="지원서 작성">
         <header className="candidate-apply-modal-head">
           <div>
             <h3>지원서 작성</h3>
@@ -1612,7 +1647,19 @@ export function CandidateApplyModal({
         </div>
 
         <div className="candidate-apply-modal-body">
-          {errorMessage || validationMessage ? <p className="notice danger">{errorMessage || validationMessage}</p> : null}
+          {displayError ? (
+            <div className="candidate-apply-error-block">
+              <p className="notice danger candidate-apply-error-summary" role="alert">{displayError.summary}</p>
+              {(displayError.issues ?? []).length ? (
+                <details className="candidate-apply-error-details">
+                  <summary>오류 상세</summary>
+                  <ul>
+                    {(displayError.issues ?? []).map((issue) => <li key={issue}>{issue}</li>)}
+                  </ul>
+                </details>
+              ) : null}
+            </div>
+          ) : null}
 
           {step === 0 ? (
             <div className="candidate-apply-modal-fields">
@@ -1620,7 +1667,9 @@ export function CandidateApplyModal({
               {state.profileSnapshot ? (
                 <CandidateProfileSnapshotEditor
                   value={state.profileSnapshot}
-                  nameError={candidateNameError}
+                  nameError={fieldErrors.candidateName ?? candidateNameError}
+                  fieldErrors={fieldErrors}
+                  focusField={firstErrorField}
                   onChange={(profileSnapshot) => onStateChange({
                     ...state,
                     profileSnapshot,
@@ -1638,11 +1687,13 @@ export function CandidateApplyModal({
 
           {step === 1 ? (
             <div className="candidate-apply-modal-fields">
-              <label className="candidate-apply-file-label">
+              <label data-apply-field="resumeFileId" className={`candidate-apply-file-label${fieldErrors.resumeFileId ? " is-error" : ""}`}>
                 <span className="candidate-apply-required-label">이력서 <span className="req-mark">*</span></span>
                 <span className="candidate-apply-file-row">
                   <input
                     accept=".pdf,application/pdf"
+                    aria-describedby={fieldErrors.resumeFileId ? "candidate-resume-error" : undefined}
+                    aria-invalid={Boolean(fieldErrors.resumeFileId)}
                     className="candidate-hidden-file"
                     type="file"
                     onChange={(event) => {
@@ -1655,27 +1706,33 @@ export function CandidateApplyModal({
                   <span>{resumeFromUpload ? latestResumeFile?.originalName : loadedResumeName ?? "이력서 PDF를 선택하세요 (20MB 이하)"}</span>
                   <strong>{resumeFromUpload ? "업로드 완료" : loadedResumeName ? "세트 이력서" : "파일 선택"}</strong>
                 </span>
+                {fieldErrors.resumeFileId ? <small id="candidate-resume-error" className="candidate-apply-field-error" role="alert">{fieldErrors.resumeFileId}</small> : null}
               </label>
-              <fieldset className="candidate-portfolio-method">
+              <fieldset data-apply-field="portfolio" className={`candidate-portfolio-method${fieldErrors.portfolio ? " is-error" : ""}`}>
                 <legend>포트폴리오 제출 방식 <span className="req-mark">*</span></legend>
                 <div className="candidate-portfolio-method__options">
                   <button type="button" className={portfolioMethod === "url" ? "is-selected" : ""} aria-pressed={portfolioMethod === "url"} onClick={() => selectPortfolioMethod("url")}>URL로 제출</button>
                   <button type="button" className={portfolioMethod === "pdf" ? "is-selected" : ""} aria-pressed={portfolioMethod === "pdf"} onClick={() => selectPortfolioMethod("pdf")}>PDF로 제출</button>
                 </div>
                 <p>선택한 방식 하나만 제출합니다.</p>
+                {fieldErrors.portfolio ? <small className="candidate-apply-field-error" role="alert">{fieldErrors.portfolio}</small> : null}
               </fieldset>
               {portfolioMethod === "url" ? (
-                <label>
+                <label data-apply-field="portfolioUrl" className={fieldErrors.portfolioUrl ? "is-error" : undefined}>
                   <span className="candidate-apply-required-label">포트폴리오 URL <span className="req-mark">*</span></span>
                   <input
+                    aria-describedby={fieldErrors.portfolioUrl ? "candidate-portfolio-url-error" : undefined}
+                    aria-invalid={Boolean(fieldErrors.portfolioUrl)}
+                    maxLength={500}
                     placeholder="https://portfolio.example.com"
                     type="url"
                     value={state.portfolioUrl ?? ""}
                     onChange={(event) => onStateChange({ ...state, portfolioUrl: event.currentTarget.value })}
                   />
+                  {fieldErrors.portfolioUrl ? <small id="candidate-portfolio-url-error" className="candidate-apply-field-error" role="alert">{fieldErrors.portfolioUrl}</small> : null}
                 </label>
               ) : (
-                <label className="candidate-apply-file-label">
+                <label data-apply-field="portfolio" className={`candidate-apply-file-label${fieldErrors.portfolio ? " is-error" : ""}`}>
                   <span className="candidate-apply-required-label">포트폴리오 PDF <span className="req-mark">*</span></span>
                   <span className="candidate-apply-file-row">
                     <input
@@ -1692,23 +1749,31 @@ export function CandidateApplyModal({
                   </span>
                 </label>
               )}
-              <label>
+              <label data-apply-field="motivation" className={fieldErrors.motivation ? "is-error" : undefined}>
                 <span className="candidate-apply-required-label">지원 동기 <span className="req-mark">*</span></span>
                 <textarea
+                  aria-describedby={fieldErrors.motivation ? "candidate-motivation-error" : undefined}
+                  aria-invalid={Boolean(fieldErrors.motivation)}
+                  maxLength={3000}
                   placeholder="이 공고에 지원한 동기를 입력하세요."
                   required
                   value={state.motivation}
                   onChange={(event) => onStateChange({ ...state, motivation: event.currentTarget.value })}
                 />
+                {fieldErrors.motivation ? <small id="candidate-motivation-error" className="candidate-apply-field-error" role="alert">{fieldErrors.motivation}</small> : null}
               </label>
-              <label>
+              <label data-apply-field="additionalInfo" className={fieldErrors.additionalInfo ? "is-error" : undefined}>
                 <span className="candidate-apply-required-label">추가 설명 <span className="req-mark">*</span></span>
                 <textarea
+                  aria-describedby={fieldErrors.additionalInfo ? "candidate-additional-info-error" : undefined}
+                  aria-invalid={Boolean(fieldErrors.additionalInfo)}
+                  maxLength={5000}
                   placeholder="관련 프로젝트, 본인이 맡은 역할 등 추가 설명을 입력하세요."
                   required
                   value={state.additionalInfo}
                   onChange={(event) => onStateChange({ ...state, additionalInfo: event.currentTarget.value })}
                 />
+                {fieldErrors.additionalInfo ? <small id="candidate-additional-info-error" className="candidate-apply-field-error" role="alert">{fieldErrors.additionalInfo}</small> : null}
               </label>
             </div>
           ) : null}
@@ -1726,7 +1791,7 @@ export function CandidateApplyModal({
                 <div><span>지원 동기</span><strong>{state.motivation || "-"}</strong></div>
                 <div><span>추가 설명</span><strong>{state.additionalInfo || "-"}</strong></div>
               </div>
-              <fieldset className="candidate-apply-modal-consents">
+              <fieldset data-apply-field="consentTypes" className={`candidate-apply-modal-consents${fieldErrors.consentTypes ? " is-error" : ""}`}>
                 <legend>동의 항목</legend>
                 {applicationConsentOptions.map((consentType) => (
                   <label key={consentType}>
@@ -1738,6 +1803,7 @@ export function CandidateApplyModal({
                     {consentLabel[consentType]}
                   </label>
                 ))}
+                {fieldErrors.consentTypes ? <small className="candidate-apply-field-error" role="alert">{fieldErrors.consentTypes}</small> : null}
               </fieldset>
             </div>
           ) : null}
@@ -1770,22 +1836,6 @@ export function CandidateApplyModal({
       </div>
     </div>
   );
-}
-
-function toApplyValidationMessage(error: unknown): string {
-  if (!(error instanceof Error)) return "지원서 입력값을 확인해주세요.";
-  if (error.message.includes("candidateName")) return "OAuth 계정 ID 대신 실제 이름을 입력해주세요.";
-  if (error.message.includes("portfolioFileId") || error.message.includes("portfolioUrl")) {
-    return "포트폴리오 URL 또는 PDF를 제출해주세요.";
-  }
-  if (error.message.includes("githubUrl") || error.message.includes("blogUrl")) return "GitHub·블로그 URL 형식을 확인해주세요.";
-  if (error.message.includes("motivation") || error.message.includes("additionalInfo")) return "지원동기와 추가 설명을 모두 입력해주세요.";
-  if (error.message.includes("resumeFileId")) return "이력서 파일을 업로드해주세요.";
-  if (error.message.includes("candidateName") || error.message.includes("email") || error.message.includes("phone")) {
-    return "이름, 이메일, 연락처를 모두 입력해주세요.";
-  }
-  if (error.message.includes("consentTypes")) return "필수 동의 항목을 모두 체크해주세요.";
-  return error.message;
 }
 
 function StatusCheck({

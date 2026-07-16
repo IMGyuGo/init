@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import type { CandidateProfileSnapshotV1 } from "./api";
+import { CandidateApiError, type CandidateProfileSnapshotV1 } from "./api";
+import { toCandidateApplicationError, validateCandidateApplication } from "./candidate-application-error";
 import { appendProfileSnapshotItem, createProfileFormState, getAccordionIndicator, isSupportedProfileDateInput, serializeProfileForm, validateProfileForm } from "./candidate-profile-form";
 import { isCandidateNameConfirmed, toSubmitApplicationRequest } from "./view-model";
 
@@ -77,6 +78,65 @@ const emptySnapshot: CandidateProfileSnapshotV1 = {
   activities: [],
   credentials: [],
 };
+const invalidPortfolioUrl = validateCandidateApplication({
+  candidateName: "홍길동",
+  email: "candidate@example.com",
+  phone: "010-0000-0000",
+  githubUrl: "https://github.com/candidate",
+  blogUrl: "",
+  resumeFileId: 1,
+  portfolioUrl: "portfolio.example.com",
+  motivation: "지원 동기",
+  additionalInfo: "추가 설명",
+  profileSnapshot: emptySnapshot,
+  consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS", "AI_INTERVIEW_RECORDING"],
+});
+assert.equal(invalidPortfolioUrl?.summary, "입력값 1곳을 확인해주세요.");
+assert.equal(invalidPortfolioUrl?.fieldErrors.portfolioUrl, "http:// 또는 https://로 시작하는 주소를 입력해주세요.");
+assert.equal(invalidPortfolioUrl?.step, 1);
+
+const mappedApiError = toCandidateApplicationError(new CandidateApiError(400, {
+  error: {
+    code: "COMMON_VALIDATION_FAILED",
+    message: "입력값을 확인해주세요.",
+    details: [{ field: "motivation", reason: "MAX_LENGTH", limit: 3000, actualLength: 3245 }],
+  },
+  meta: { traceId: "trace-application-error", timestamp: "2026-07-16T00:00:00.000Z" },
+}), { operation: "지원서 제출" });
+assert.equal(mappedApiError.summary, "입력값 1곳을 확인해주세요.");
+assert.equal(mappedApiError.firstField, "motivation");
+assert.equal(mappedApiError.fieldErrors.motivation, "최대 3,000자까지 입력할 수 있습니다. 현재 3,245자입니다.");
+assert.deepEqual(mappedApiError.issues, ["최대 3,000자까지 입력할 수 있습니다. 현재 3,245자입니다."]);
+
+const nestedProfileError = toCandidateApplicationError(new CandidateApiError(400, {
+  error: {
+    code: "COMMON_VALIDATION_FAILED",
+    message: "프로필 입력값을 확인해주세요.",
+    details: [{ field: "profileSnapshot.careers.0.end", reason: "end is required when not ongoing" }],
+  },
+  meta: { traceId: "trace-profile-error", timestamp: "2026-07-16T00:00:00.000Z" },
+}), { operation: "지원서 제출" });
+assert.equal(nestedProfileError.summary, "입력값 1곳을 확인해주세요.");
+assert.equal(nestedProfileError.firstField, "profileCareers");
+assert.equal(nestedProfileError.step, 0);
+assert.equal(nestedProfileError.fieldErrors.profileCareers, "경력 1번의 퇴사 연월을 입력하거나 재직 중을 체크해주세요.");
+assert.deepEqual(nestedProfileError.issues, ["경력 1번의 퇴사 연월을 입력하거나 재직 중을 체크해주세요."]);
+
+const networkError = toCandidateApplicationError(new TypeError("Failed to fetch"), {
+  fallbackField: "resumeFileId",
+  operation: "이력서 업로드",
+});
+assert.equal(networkError.summary, "이력서 업로드에 실패했습니다. 다시 시도해주세요.");
+assert.deepEqual(networkError.fieldErrors, {});
+
+const genericApiError = toCandidateApplicationError(new CandidateApiError(500, {
+  error: { code: "COMMON_INTERNAL_ERROR", message: "요청을 처리할 수 없습니다.", details: [] },
+  meta: { traceId: "trace-generic-error", timestamp: "2026-07-16T00:00:00.000Z" },
+}), { operation: "지원서 제출" });
+assert.equal(genericApiError.summary, "지원서 제출에 실패했습니다. 다시 시도해주세요.");
+assert.equal(genericApiError.firstField, undefined);
+assert.deepEqual(genericApiError.issues, ["지원서 제출 중 서버 연결 또는 처리 문제가 발생했습니다. 잠시 후 다시 시도해주세요."]);
+
 const withEducation = appendProfileSnapshotItem(emptySnapshot, "educations");
 assert.equal(withEducation.educations.length, 1);
 assert.equal(withEducation.educations[0]?.educationLevel, "UNIVERSITY");
@@ -89,6 +149,9 @@ assert.equal(snapshotEditorSource.includes('className="candidate-profile-remove"
 assert.equal(snapshotEditorSource.includes("aria-expanded={open}"), true);
 assert.equal(snapshotEditorSource.includes("isSupportedProfileDateInput(nextValue, type)"), true);
 assert.equal(snapshotEditorSource.includes("const nullable = (value: string) => value || null;"), true);
+assert.equal(snapshotEditorSource.includes('data-apply-field={field}'), true);
+assert.equal(snapshotEditorSource.includes('aria-invalid={Boolean(fieldErrors.email)}'), true);
+assert.equal(snapshotEditorSource.includes('profileCareers: "careers"'), true);
 
 const mypageProfileSource = readFileSync("src/features/candidate-application-interview/CandidateProfileSection.tsx", "utf8");
 assert.equal(mypageProfileSource.includes('section="coverLetter"'), true);
@@ -126,5 +189,11 @@ assert.equal(modalDocumentsStepSource.includes("URL로 제출"), true);
 assert.equal(modalDocumentsStepSource.includes("PDF로 제출"), true);
 assert.equal(modalDocumentsStepSource.includes('portfolioMethod === "url"'), true);
 assert.equal(modalDocumentsStepSource.includes("URL 또는 PDF 중 하나 필수"), false);
+assert.equal(viewsSource.includes('role="alert">{displayError.summary}'), true);
+assert.equal(viewsSource.includes("<summary>오류 상세</summary>"), true);
+assert.equal(viewsSource.includes("displayError.issues ?? []"), true);
+assert.equal(viewsSource.includes("focusField={firstErrorField}"), true);
+assert.equal(viewsSource.includes('data-apply-field="motivation"'), true);
+assert.equal(viewsSource.includes("validateCandidateApplication(state)"), true);
 
 console.log("candidate profile form helpers: ok");

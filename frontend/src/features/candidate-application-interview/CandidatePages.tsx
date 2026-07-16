@@ -194,6 +194,7 @@ import {
   toStartMockInterviewRequest,
 } from "./view-model";
 import { candidateAccountBillingNav, candidateNavLabels, isCandidateAccountBillingPath } from "./candidate-nav-config";
+import { toCandidateApplicationError, type CandidateApplicationErrorState } from "./candidate-application-error";
 import { CandidateApplicationView, CandidateApplyModal, CandidateJobDetailView, CandidateJobsView } from "./views";
 
 const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY ?? "";
@@ -744,7 +745,7 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
   const [latestResumeFile, setLatestResumeFile] = useState<CandidateFileAsset>();
   const [latestPortfolioFile, setLatestPortfolioFile] = useState<CandidateFileAsset>();
   const [applyBusy, setApplyBusy] = useState(false);
-  const [applyError, setApplyError] = useState("");
+  const [applyError, setApplyError] = useState<CandidateApplicationErrorState | null>(null);
   const [message, setMessage] = useState("");
   // #272 지원 모달을 열 때 회원 기본정보 자동 입력 + 지원서 세트 목록을 지연 로딩한다.
   const [applyFolders, setApplyFolders] = useState<CandidateFolder[]>([]);
@@ -857,13 +858,13 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
 
   async function handleResumeFileSelect(file: File) {
     setApplyBusy(true);
-    setApplyError("");
+    setApplyError(null);
     try {
       const result = await getCandidateApi().uploadResume(file);
       setLatestResumeFile(result.data);
       setApplyForm((current) => ({ ...current, resumeFileId: result.data.fileId }));
     } catch (submitError) {
-      setApplyError(toErrorMessage(submitError));
+      setApplyError(toCandidateApplicationError(submitError, { fallbackField: "resumeFileId", operation: "이력서 업로드" }));
     } finally {
       setApplyBusy(false);
     }
@@ -871,13 +872,13 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
 
   async function handlePortfolioFileSelect(file: File) {
     setApplyBusy(true);
-    setApplyError("");
+    setApplyError(null);
     try {
       const result = await getCandidateApi().uploadResume(file);
       setLatestPortfolioFile(result.data);
       setApplyForm((current) => ({ ...current, portfolioFileId: result.data.fileId }));
     } catch (submitError) {
-      setApplyError(toErrorMessage(submitError));
+      setApplyError(toCandidateApplicationError(submitError, { fallbackField: "portfolio", operation: "포트폴리오 업로드" }));
     } finally {
       setApplyBusy(false);
     }
@@ -885,7 +886,7 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
 
   async function handleApplicationSubmit(request: Parameters<ReturnType<typeof getCandidateApi>["submitApplication"]>[1]) {
     setApplyBusy(true);
-    setApplyError("");
+    setApplyError(null);
     try {
       const result = await getCandidateApi().submitApplication(jobId, request);
       setApplyOpen(false);
@@ -893,7 +894,7 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
       void refresh().catch(() => undefined);
     } catch (submitError) {
       // 실패 시 모달을 유지하고 입력값을 보존한 채 에러만 보여준다.
-      setApplyError(toErrorMessage(submitError));
+      setApplyError(toCandidateApplicationError(submitError, { operation: "지원서 제출" }));
     } finally {
       setApplyBusy(false);
     }
@@ -911,12 +912,18 @@ export function CandidateJobDetailPage({ jobId }: { jobId: number }) {
           latestPortfolioFile={latestPortfolioFile}
           folders={applyFolders}
           busy={applyBusy}
-          errorMessage={applyError}
+          submissionError={applyError}
           onResumeFileSelect={handleResumeFileSelect}
           onPortfolioFileSelect={handlePortfolioFileSelect}
-          onStateChange={setApplyForm}
+          onStateChange={(nextState) => {
+            setApplyError(null);
+            setApplyForm(nextState);
+          }}
           onSubmit={handleApplicationSubmit}
-          onClose={() => setApplyOpen(false)}
+          onClose={() => {
+            setApplyError(null);
+            setApplyOpen(false);
+          }}
           onEditFolder={handleEditApplyFolder}
         />
       ) : null}
