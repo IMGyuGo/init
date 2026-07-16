@@ -67,6 +67,7 @@ import {
   type RealtimeInterviewSessionResponse,
   createCandidateApiClient,
   createPublicInterviewApiClient,
+  isInterviewGazeDataInvalidError,
   publicCandidateApiPaths,
   type InterviewRuntimeApiClient,
 } from "./api";
@@ -114,6 +115,7 @@ import {
 import {
   INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES,
   evaluateTimelineAnalysisQuality,
+  normalizeGazeTimelineOffset,
   readGazeAwayIntervals,
   readGazeTimeline,
   readHeadPoseTimeline,
@@ -227,6 +229,7 @@ const MIN_INTERVIEW_RECORDING_BLOB_SIZE_BYTES = 10 * 1024;
 const MIN_INTERVIEW_RECORDING_VOICE_LEVEL = 3;
 const MIN_INTERVIEW_RECORDING_VOICE_FRAME_COUNT = 6;
 const MAX_INVALID_RECORDING_AUTO_RETRY_COUNT = 1;
+const GAZE_DATA_RETAKE_GUIDANCE = "시선 데이터가 정상 범위를 벗어났습니다. 얼굴 전체가 보이도록 카메라를 눈높이에 두고 화면 중앙을 바라본 뒤 다시 촬영해 주세요.";
 const REALTIME_SILENCE_GRACE_MS = 2000;
 const NONVERBAL_SHORT_ANSWER_SECONDS = 10;
 const NONVERBAL_CAMERA_SAMPLE_INTERVAL_MS = 500;
@@ -3000,6 +3003,7 @@ function InterviewRuntimePanel({
   const [answer, setAnswer] = useState<InterviewAnswerFormState>(defaultInterviewAnswerFormState);
   const [retryAnswerId, setRetryAnswerId] = useState<number>();
   const [retryingQuestionId, setRetryingQuestionId] = useState<number>();
+  const [gazeRetakeQuestionId, setGazeRetakeQuestionId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [integrityWarning, setIntegrityWarning] = useState<RuntimeIntegrityWarning | null>(null);
   const [nonverbalDeviceQaEnabled, setNonverbalDeviceQaEnabled] = useState(false);
@@ -3152,6 +3156,7 @@ function InterviewRuntimePanel({
   );
   const isReansweringCurrentQuestion = Boolean(currentQuestion && reansweringQuestionId === currentQuestion.questionId);
   const currentQuestionLocked = currentQuestionAnswered && !isReansweringCurrentQuestion;
+  const gazeRetakeRequired = Boolean(currentQuestion && gazeRetakeQuestionId === currentQuestion.questionId);
   const realtimeSpeechReady =
     AI_INTERVIEWER_SESSION_MODE_POLICY.activeMode === "realtime-voice" &&
     realtimeProvider === "openai" &&
@@ -4944,13 +4949,21 @@ function InterviewRuntimePanel({
       tracker.gazeTimeline.length < INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES &&
       canAppendTimelineSample(tracker.lastGazeTimelineSampleAtMs, nowMs)
     ) {
-      tracker.gazeTimeline.push({
-        tMs: Math.max(0, nowMs - tracker.recordingStartedAtMs),
-        horizontalOffset: roundTimelineValue(smoothedIrisPosition.horizontalRatio - irisBaseline.horizontalRatio, 3),
-        verticalOffset: roundTimelineValue(smoothedIrisPosition.verticalRatio - irisBaseline.verticalRatio, 3),
-        direction: classifyIrisGazeDirection(smoothedIrisPosition, irisBaseline),
-      });
-      tracker.lastGazeTimelineSampleAtMs = nowMs;
+      const horizontalOffset = normalizeGazeTimelineOffset(
+        smoothedIrisPosition.horizontalRatio - irisBaseline.horizontalRatio,
+      );
+      const verticalOffset = normalizeGazeTimelineOffset(
+        smoothedIrisPosition.verticalRatio - irisBaseline.verticalRatio,
+      );
+      if (horizontalOffset !== undefined && verticalOffset !== undefined) {
+        tracker.gazeTimeline.push({
+          tMs: Math.max(0, nowMs - tracker.recordingStartedAtMs),
+          horizontalOffset: roundTimelineValue(horizontalOffset, 3),
+          verticalOffset: roundTimelineValue(verticalOffset, 3),
+          direction: classifyIrisGazeDirection(smoothedIrisPosition, irisBaseline),
+        });
+        tracker.lastGazeTimelineSampleAtMs = nowMs;
+      }
     }
     if (
       mode === "mock" &&
@@ -6311,9 +6324,46 @@ function InterviewRuntimePanel({
     setRecording(false);
   }
 
+  function clearGazeInvalidRecordingDraft(questionId: number) {
+    clearAnswerSubmitToNextReadyMetric(questionId);
+    submitAfterRecordingStopRef.current = false;
+    autoAdvanceAfterAnswerSubmitRef.current = false;
+    realtimeSttTranscriptByQuestionRef.current.delete(questionId);
+    lastInvalidRecordingMetadataRef.current.delete(questionId);
+    setGazeRetakeQuestionId(questionId);
+    setRecordedFileName("");
+    setAnswer((current) => ({
+      ...current,
+      questionId,
+      durationSeconds: 0,
+      videoFile: undefined,
+      videoFileId: undefined,
+      audioFile: undefined,
+      audioFileId: undefined,
+      nonverbalMetadata: undefined,
+    }));
+    setRecording(false);
+    autoRecordingQuestionRef.current = questionId;
+    timeExpiredQuestionRef.current = null;
+    setTimerPhase("ANSWERING");
+    setRemainingSeconds(getRuntimeAnswerTimeLimitSeconds(data?.runtime));
+    setMessage("");
+  }
+
   function clearInvalidRecordingDraft(questionId: number, message: string) {
     const retryCount = invalidRecordingRetryCountsRef.current.get(questionId) ?? 0;
     const nextRetryCount = retryCount + 1;
+    const gazeRetakeActive = gazeRetakeQuestionId === questionId;
+    const recoveryAction = getInvalidRecordingRecoveryAction({
+      failedAttemptCount: nextRetryCount,
+      maxAutoRetryCount: MAX_INVALID_RECORDING_AUTO_RETRY_COUNT,
+      gazeRetakeRequired: gazeRetakeActive,
+    });
+    if (gazeRetakeActive) {
+      clearGazeInvalidRecordingDraft(questionId);
+      return;
+    }
+
     invalidRecordingRetryCountsRef.current.set(questionId, nextRetryCount);
 
     clearAnswerSubmitToNextReadyMetric(questionId);
@@ -6331,11 +6381,6 @@ function InterviewRuntimePanel({
       nonverbalMetadata: undefined,
     }));
     setRecording(false);
-
-    const recoveryAction = getInvalidRecordingRecoveryAction({
-      failedAttemptCount: nextRetryCount,
-      maxAutoRetryCount: MAX_INVALID_RECORDING_AUTO_RETRY_COUNT,
-    });
 
     if (recoveryAction === "retry") {
       autoRecordingQuestionRef.current = questionId;
@@ -6462,6 +6507,7 @@ function InterviewRuntimePanel({
         mode === "mock"
           ? await api.saveMockAnswer(data.runtime.sessionId, preparedRequest)
           : await api.saveRecruitingAnswer(data.runtime.sessionId, preparedRequest);
+      setGazeRetakeQuestionId((current) => current === preparedRequest.questionId ? null : current);
       realtimeSttTranscriptByQuestionRef.current.delete(preparedRequest.questionId);
       const audioFileId = result.data.audioFile?.fileId ?? result.data.answer.audioFileId;
       const videoFileId = result.data.videoFile?.fileId ?? result.data.answer.videoFileId;
@@ -6535,6 +6581,10 @@ function InterviewRuntimePanel({
       if (isQuestionStateConflict(submitError)) {
         setMessage("답변은 이미 반영된 상태입니다. 질문 상태를 새로고침합니다.");
         void refresh().catch(() => undefined);
+        return;
+      }
+      if (isInterviewGazeDataInvalidError(submitError)) {
+        clearGazeInvalidRecordingDraft(request.questionId);
         return;
       }
       setMessage(toErrorMessage(submitError));
@@ -7261,6 +7311,10 @@ function InterviewRuntimePanel({
 
   async function handleNextQuestion() {
     if (!data) return;
+    if (gazeRetakeRequired) {
+      setMessage(GAZE_DATA_RETAKE_GUIDANCE);
+      return;
+    }
     if (answerProcessingBusy) {
       setMessage("꼬리질문 생성이 완료된 뒤 다음 질문으로 이동할 수 있습니다.");
       return;
@@ -7405,6 +7459,7 @@ function InterviewRuntimePanel({
     recording,
     answeredQuestionCount,
     totalQuestions: data?.runtime.totalQuestions ?? 0,
+    gazeRetakeRequired,
   });
   const canMoveNextQuestion = runtimeProgressionState.canMoveNextQuestion;
   const canCompleteInterview = runtimeProgressionState.canCompleteInterview;
@@ -7739,6 +7794,9 @@ function InterviewRuntimePanel({
 
       <section className="iv-body">
         <StatusNotice loading={loading || busy} error={error} message={message} />
+        {gazeRetakeRequired ? (
+          <p className="notice danger" role="alert">{GAZE_DATA_RETAKE_GUIDANCE}</p>
+        ) : null}
         {showDeviceSetup ? (
           <section className="candidate-device-setup">
             <div className="candidate-device-setup__head">
@@ -8730,10 +8788,28 @@ function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryI
   const [draft, setDraft] = useState("");
   const [savingId, setSavingId] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [deletedIds, setDeletedIds] = useState<ReadonlySet<number>>(() => new Set());
+  const [deleteTarget, setDeleteTarget] = useState<CandidateMockInterviewHistoryItem | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteMessage, setDeleteMessage] = useState("");
 
   const rawTitle = (item: CandidateMockInterviewHistoryItem) =>
     item.sessionId in localTitles ? localTitles[item.sessionId] : item.title;
   const displayTitle = (item: CandidateMockInterviewHistoryItem) => rawTitle(item) || `세션 #${item.sessionId}`;
+  const visibleHistory = history.filter((item) => !deletedIds.has(item.sessionId));
+
+  useEffect(() => {
+    if (!deleteTarget) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && deletingId === null) {
+        setDeleteTarget(null);
+        setDeleteError(null);
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [deleteTarget, deletingId]);
 
   function startEdit(item: CandidateMockInterviewHistoryItem) {
     setEditingId(item.sessionId);
@@ -8756,72 +8832,172 @@ function MockHistoryTable({ history }: { history: CandidateMockInterviewHistoryI
     }
   }
 
+  function openDelete(item: CandidateMockInterviewHistoryItem) {
+    setDeleteTarget(item);
+    setDeleteError(null);
+    setDeleteMessage("");
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget || deletingId !== null) return;
+    const sessionId = deleteTarget.sessionId;
+    const title = displayTitle(deleteTarget);
+    setDeletingId(sessionId);
+    setDeleteError(null);
+    try {
+      await getCandidateApi().deleteMockInterview(sessionId);
+      setDeletedIds((current) => new Set([...current, sessionId]));
+      setDeleteMessage(`"${title}" 연습 이력이 삭제되었습니다.`);
+      if (editingId === sessionId) {
+        setEditingId(null);
+      }
+      setDeleteTarget(null);
+    } catch (error) {
+      setDeleteError(toErrorMessage(error));
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
-    <div className="table-wrap">
-      <table className="mock-history-table">
-        <thead>
-          <tr>
-            <th>연습 제목</th>
-            <th>면접 상태</th>
-            <th>리포트 상태</th>
-            <th>답변</th>
-            <th>액션</th>
-          </tr>
-        </thead>
-        <tbody>
-          {history.map((item) => (
-            <tr key={item.sessionId}>
-              <td>
-                {editingId === item.sessionId ? (
-                  <span className="mock-title-edit">
-                    <input
-                      autoFocus
-                      value={draft}
-                      maxLength={100}
-                      placeholder={`세션 #${item.sessionId}`}
-                      onChange={(event) => setDraft(event.currentTarget.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") void saveTitle(item.sessionId);
-                        if (event.key === "Escape") setEditingId(null);
-                      }}
-                    />
-                    <button type="button" className="mock-title-btn" disabled={savingId === item.sessionId} onClick={() => void saveTitle(item.sessionId)}>
-                      저장
-                    </button>
-                    <button type="button" className="mock-title-btn ghost" onClick={() => setEditingId(null)}>
-                      취소
-                    </button>
-                    {saveError ? <span className="mock-title-error" role="alert">{saveError}</span> : null}
-                  </span>
-                ) : (
-                  <span className="mock-title-cell">
-                    <button type="button" className="mock-title-name" title="제목 편집" onClick={() => startEdit(item)}>
-                      {displayTitle(item)}
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
-                    </button>
-                    <span>{formatDateTime(item.updatedAt)}</span>
-                  </span>
-                )}
-              </td>
-              <td><StatusPill value={item.status} /></td>
-              <td><StatusPill value={item.reportStatus} /></td>
-              <td>{item.answeredCount}/{item.totalQuestions}</td>
-              <td>
-                {item.status === "IN_PROGRESS" ? (
-                  <Link className="btn secondary compact" href={candidateApplicationInterviewRoutes.mockInterview(item.sessionId)}>이어하기</Link>
-                ) : item.reportId ? (
-                  <Link className="btn secondary compact" href={candidateApplicationInterviewRoutes.mockReportDetail(item.reportId)}>
-                    {formatMockHistoryActionLabel(item.reportStatus)}
-                  </Link>
-                ) : (
-                  <span className="btn secondary compact is-disabled" aria-disabled="true">준비 중</span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <>
+      {deleteMessage ? <p className="notice success mock-history-delete-notice" role="status">{deleteMessage}</p> : null}
+      {visibleHistory.length > 0 ? (
+        <div className="table-wrap">
+          <table className="mock-history-table">
+            <thead>
+              <tr>
+                <th>연습 제목</th>
+                <th>면접 상태</th>
+                <th>리포트 상태</th>
+                <th>답변</th>
+                <th>액션</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleHistory.map((item) => (
+                <tr key={item.sessionId}>
+                  <td>
+                    {editingId === item.sessionId ? (
+                      <span className="mock-title-edit">
+                        <input
+                          autoFocus
+                          value={draft}
+                          maxLength={100}
+                          placeholder={`세션 #${item.sessionId}`}
+                          onChange={(event) => setDraft(event.currentTarget.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") void saveTitle(item.sessionId);
+                            if (event.key === "Escape") setEditingId(null);
+                          }}
+                        />
+                        <button type="button" className="mock-title-btn" disabled={savingId === item.sessionId} onClick={() => void saveTitle(item.sessionId)}>
+                          저장
+                        </button>
+                        <button type="button" className="mock-title-btn ghost" onClick={() => setEditingId(null)}>
+                          취소
+                        </button>
+                        {saveError ? <span className="mock-title-error" role="alert">{saveError}</span> : null}
+                      </span>
+                    ) : (
+                      <span className="mock-title-cell">
+                        <button type="button" className="mock-title-name" title="제목 편집" onClick={() => startEdit(item)}>
+                          {displayTitle(item)}
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+                        </button>
+                        <span>{formatDateTime(item.updatedAt)}</span>
+                      </span>
+                    )}
+                  </td>
+                  <td><StatusPill value={item.status} /></td>
+                  <td><StatusPill value={item.reportStatus} /></td>
+                  <td>{item.answeredCount}/{item.totalQuestions}</td>
+                  <td>
+                    <div className="mock-history-actions">
+                      {item.status === "IN_PROGRESS" ? (
+                        <Link className="btn secondary compact" href={candidateApplicationInterviewRoutes.mockInterview(item.sessionId)}>이어하기</Link>
+                      ) : item.reportId ? (
+                        <Link className="btn secondary compact" href={candidateApplicationInterviewRoutes.mockReportDetail(item.reportId)}>
+                          {formatMockHistoryActionLabel(item.reportStatus)}
+                        </Link>
+                      ) : (
+                        <span className="btn secondary compact is-disabled" aria-disabled="true">준비 중</span>
+                      )}
+                      <button
+                        className="btn secondary compact mock-history-delete-trigger"
+                        type="button"
+                        aria-label={`${displayTitle(item)} 삭제`}
+                        disabled={deletingId === item.sessionId}
+                        onClick={() => openDelete(item)}
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="empty">남아 있는 모의면접 연습 이력이 없어요.</p>
+      )}
+
+      {deleteTarget ? (
+        <div
+          className="modal-backdrop mock-history-delete-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && deletingId === null) {
+              setDeleteTarget(null);
+              setDeleteError(null);
+            }
+          }}
+        >
+          <div
+            className="modal mock-history-delete-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mock-history-delete-title"
+            aria-describedby="mock-history-delete-description"
+          >
+            <div className="modal-head">
+              <div>
+                <h2 id="mock-history-delete-title">연습 이력 삭제</h2>
+                <p id="mock-history-delete-description">삭제하면 연습 이력과 리포트에서 더 이상 확인할 수 없습니다. 사용한 이용권은 복구되지 않습니다.</p>
+              </div>
+            </div>
+            <div className="confirm-box mock-history-delete-summary">
+              <strong>{displayTitle(deleteTarget)}</strong>
+              <span>{formatDateTime(deleteTarget.updatedAt)}</span>
+            </div>
+            {deleteError ? <p className="notice danger" role="alert">{deleteError}</p> : null}
+            <div className="modal-actions split-actions">
+              <button
+                autoFocus
+                className="btn secondary"
+                type="button"
+                disabled={deletingId !== null}
+                onClick={() => {
+                  setDeleteTarget(null);
+                  setDeleteError(null);
+                }}
+              >
+                취소
+              </button>
+              <button
+                className="btn primary danger"
+                type="button"
+                disabled={deletingId !== null}
+                onClick={() => void confirmDelete()}
+              >
+                {deletingId !== null ? "삭제 중..." : "삭제"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -9397,6 +9573,8 @@ function buildMockReportPracticeItems(scores: CandidateReportScoreView[]): strin
 }
 
 function MockMediaView({ media }: { media: CandidateMockReportMedia }) {
+  const hasStoredMedia = media.media.some((item) => item.videoFile || item.audioFile);
+  const playbackSession = useMockReportMediaPlaybackSession(media.reportId, hasStoredMedia);
   if (!media.media.length) return <p className="empty">연결된 답변 파일이 없습니다.</p>;
   const mediaItems = orderReportAnswersByInterviewFlow(media.media);
   const nonverbalSummary = buildMockNonverbalSummary(mediaItems);
@@ -9405,19 +9583,83 @@ function MockMediaView({ media }: { media: CandidateMockReportMedia }) {
       <MockNonverbalSummaryPanel summary={nonverbalSummary} />
       <div className="report-media-list">
         {mediaItems.map((item, index) => (
-          <MockMediaAnswerCard key={item.answerId} item={item} questionNumber={index + 1} />
+          <MockMediaAnswerCard
+            key={item.answerId}
+            item={item}
+            mediaBaseUrl={playbackSession.mediaBaseUrl}
+            mediaError={playbackSession.error}
+            mediaLoading={playbackSession.loading}
+            questionNumber={index + 1}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockReportMedia["media"][number]; questionNumber: number }) {
-  const videoUrl = getCachedRecordingObjectUrl(item.videoFile?.storageKey);
-  const audioUrl = getCachedRecordingObjectUrl(item.audioFile?.storageKey);
+function useMockReportMediaPlaybackSession(reportId: number, enabled: boolean) {
+  const [state, setState] = useState<{ error?: string; loading: boolean; mediaBaseUrl?: string }>({
+    loading: enabled,
+  });
+
+  useEffect(() => {
+    if (!enabled) {
+      setState({ loading: false });
+      return;
+    }
+
+    let disposed = false;
+    setState({ loading: true });
+    getCandidateApi().createMockReportMediaSession(reportId)
+      .then((response) => {
+        if (!disposed) {
+          setState({ loading: false, mediaBaseUrl: response.data.mediaBaseUrl });
+        }
+      })
+      .catch((error) => {
+        if (!disposed) {
+          setState({
+            error: toErrorMessage(error),
+            loading: false,
+          });
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [enabled, reportId]);
+
+  return state;
+}
+
+function MockMediaAnswerCard({
+  item,
+  mediaBaseUrl,
+  mediaError,
+  mediaLoading,
+  questionNumber,
+}: {
+  item: CandidateMockReportMedia["media"][number];
+  mediaBaseUrl?: string;
+  mediaError?: string;
+  mediaLoading: boolean;
+  questionNumber: number;
+}) {
+  const videoUrl = getCachedRecordingObjectUrl(item.videoFile?.storageKey)
+    ?? getMockReportMediaPlaybackUrl(mediaBaseUrl, item.videoFile?.fileId);
+  const audioUrl = getCachedRecordingObjectUrl(item.audioFile?.storageKey)
+    ?? getMockReportMediaPlaybackUrl(mediaBaseUrl, item.audioFile?.fileId);
   const practiceGuide = buildMockAnswerPracticeGuide(item);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playbackTimeMs, setPlaybackTimeMs] = useState(0);
+  const videoPlaceholderMessage = item.videoFile
+    ? mediaLoading
+      ? "저장된 녹화 영상을 불러오는 중입니다."
+      : mediaError || "저장된 녹화 영상을 불러오지 못했습니다."
+    : item.audioFile
+      ? "이 답변은 음성 녹화만 저장되었습니다."
+      : "저장된 녹화 원본이 없습니다.";
 
   const seekVideo = (timeMs: number) => {
     const video = videoRef.current;
@@ -9441,6 +9683,7 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
             <video
               ref={videoRef}
               controls
+              crossOrigin="use-credentials"
               preload="metadata"
               src={videoUrl}
               onTimeUpdate={(event) => setPlaybackTimeMs(event.currentTarget.currentTime * 1000)}
@@ -9450,7 +9693,7 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
           ) : (
             <div className="report-media-placeholder">
               <strong>답변 영상</strong>
-              <span>현재 브라우저 세션에 녹화 원본이 없습니다.</span>
+              <span>{videoPlaceholderMessage}</span>
             </div>
           )}
         </div>
@@ -9467,7 +9710,7 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
             <Definition label="답변 시간" value={`${item.durationSeconds}s`} />
           </dl>
           {audioUrl ? (
-            <audio className="report-audio-player" controls preload="metadata" src={audioUrl}>
+            <audio className="report-audio-player" controls crossOrigin="use-credentials" preload="metadata" src={audioUrl}>
               음성 파일을 재생할 수 없습니다.
             </audio>
           ) : null}
@@ -9489,6 +9732,13 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
       </details>
     </article>
   );
+}
+
+function getMockReportMediaPlaybackUrl(mediaBaseUrl?: string, fileId?: number): string | undefined {
+  if (!mediaBaseUrl || !fileId) {
+    return undefined;
+  }
+  return `${mediaBaseUrl.replace(/\/+$/, "")}/${encodeURIComponent(String(fileId))}`;
 }
 
 type MockVisualAnalysisTab = "gaze" | "headPose";

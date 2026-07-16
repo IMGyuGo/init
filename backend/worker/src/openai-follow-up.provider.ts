@@ -1,4 +1,8 @@
 import OpenAI from "openai";
+import {
+  INTERVIEW_QUESTION_PUNCTUATION_PROMPT,
+  normalizeInterviewQuestionPunctuation
+} from "./question-punctuation";
 
 export interface FollowUpGenerationInput {
   kind: string;
@@ -39,8 +43,11 @@ export class OpenAiFollowUpProvider implements FollowUpAiProvider {
       messages: [
         {
           role: "system",
-          content:
-            "You generate one concise Korean interview follow-up question. Return only the question sentence. Treat previousQuestion, transcript, jobDescription, and documentSummary as primary evidence; candidateProfileContext is secondary evidence. Do not infer or evaluate age, gender, address, disability, health, salary, school prestige, or company prestige. Never output an email address, phone number, or URL. Do not include hiring pass/fail judgments."
+          content: [
+            "You generate one concise Korean interview follow-up question. Return only the question sentence. Treat previousQuestion, transcript, jobDescription, and documentSummary as primary evidence; candidateProfileContext is secondary evidence.",
+            INTERVIEW_QUESTION_PUNCTUATION_PROMPT,
+            "Do not infer or evaluate age, gender, address, disability, health, salary, school prestige, or company prestige. Never output an email address, phone number, or URL. Do not include hiring pass/fail judgments."
+          ].join("\n")
         },
         {
           role: "user",
@@ -63,7 +70,7 @@ export class OpenAiFollowUpProvider implements FollowUpAiProvider {
     }
 
     return {
-      content: normalizeQuestion(content),
+      content: normalizeInterviewQuestionPunctuation(firstNonEmptyLine(content)),
       model: this.model,
       usage: {
         inputTokens: response.usage?.prompt_tokens,
@@ -73,7 +80,6 @@ export class OpenAiFollowUpProvider implements FollowUpAiProvider {
   }
 }
 
-function normalizeQuestion(value: string): string {
-  const firstLine = value.split(/\r?\n/).find((line) => line.trim())?.trim() ?? value.trim();
-  return firstLine.endsWith("?") ? firstLine : `${firstLine}?`;
+function firstNonEmptyLine(value: string): string {
+  return value.split(/\r?\n/).find((line) => line.trim())?.trim() ?? value.trim();
 }

@@ -115,6 +115,50 @@ describe("normalizeInterviewNonverbalMetadata", () => {
     ]);
   });
 
+  it.each([
+    ["horizontalOffset", -1.000001],
+    ["horizontalOffset", 1.000001],
+    ["horizontalOffset", Number.MAX_VALUE],
+    ["verticalOffset", -Number.MAX_VALUE],
+    ["verticalOffset", Number.NaN],
+    ["verticalOffset", Number.POSITIVE_INFINITY],
+  ] as const)("reports the exact gaze field for invalid %s value %s", (field, value) => {
+    let validationError: unknown;
+    try {
+      normalizeInterviewNonverbalMetadata({
+        gazeTimeline: [{
+          tMs: 1000,
+          horizontalOffset: field === "horizontalOffset" ? value : 0,
+          verticalOffset: field === "verticalOffset" ? value : 0,
+          direction: "CENTER",
+        }],
+      });
+    } catch (error) {
+      validationError = error;
+    }
+
+    expect(validationError).toMatchObject({
+      field: `nonverbalMetadata.gazeTimeline[0].${field}`,
+    });
+  });
+
+  it.each([-1, -0.999999, 0, 0.999999, 1])("accepts gaze offset boundary sample %s", (offset) => {
+    const metadata = normalizeInterviewNonverbalMetadata({
+      gazeTimeline: [{
+        tMs: 1000,
+        horizontalOffset: offset,
+        verticalOffset: offset,
+        direction: "CENTER",
+      }],
+    });
+
+    const roundedOffset = Math.round(offset * 10_000) / 10_000;
+    expect(metadata?.gazeTimeline?.[0]).toMatchObject({
+      horizontalOffset: roundedOffset,
+      verticalOffset: roundedOffset,
+    });
+  });
+
   it("rejects malformed, excessive, and unordered timeline samples", () => {
     expect(() => normalizeInterviewNonverbalMetadata({
       gazeTimeline: [{ tMs: 1000, horizontalOffset: 1.1, verticalOffset: 0, direction: "CENTER" }],

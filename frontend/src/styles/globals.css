@@ -1624,6 +1624,43 @@ input[type="radio"] {
   cursor: pointer;
 }
 .mock-title-btn:disabled { opacity: 0.5; cursor: default; }
+
+.mock-history-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.mock-history-delete-trigger {
+  color: #b42318;
+  background: #fff;
+  border-color: #f0b8b3;
+}
+
+.mock-history-delete-trigger:hover,
+.mock-history-delete-trigger:focus-visible {
+  color: #912018;
+  background: #fff1f0;
+  border-color: #e79a93;
+}
+
+.mock-history-delete-notice {
+  margin-bottom: 12px;
+}
+
+.mock-history-delete-backdrop {
+  z-index: 40;
+}
+
+.mock-history-delete-modal {
+  width: min(480px, 100%);
+}
+
+.mock-history-delete-summary {
+  overflow-wrap: anywhere;
+}
 .mock-title-btn.ghost { background: #fff; color: rgba(55, 53, 47, 0.6); border-color: rgba(55, 53, 47, 0.16); }
 
 /* ===== 면접 안내 모달 위저드(#288) — design.md §14 노션 톤 (그림자 없음·hairline·카드 중첩 금지) ===== */

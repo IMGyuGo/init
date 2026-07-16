@@ -75,6 +75,7 @@ const reportRepositoryProviders = usePrismaReportRepository
   exports: [
     INTERVIEW_REPOSITORY,
     REPORT_REPOSITORY,
+    INTERVIEW_MEDIA_STORAGE,
     AiJobDispatcherService,
     InterviewService,
     PublicInterviewService,

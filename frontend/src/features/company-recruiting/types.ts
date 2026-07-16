@@ -9,11 +9,20 @@ export type ApiEnvelope<T> = {
   };
 };
 
+export type ApiValidationDetail = {
+  field?: string;
+  reason?: string;
+  limit?: number;
+  actualLength?: number;
+  message?: string;
+  [key: string]: unknown;
+};
+
 export type ApiErrorEnvelope = {
   error: {
     code: string;
     message: string;
-    details: unknown[];
+    details: ApiValidationDetail[];
   };
   meta?: {
     traceId: string;

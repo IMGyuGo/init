@@ -11,6 +11,7 @@ import type {
   PageMeta,
 } from "./api";
 import { candidateApplicationInterviewRoutes } from "./routes";
+import { candidateJobSortOptions, toCandidateJobSortQuery } from "./candidate-job-sort";
 import {
   type CandidateApplicationFormState,
   applyFolderToApplicationForm,
@@ -32,14 +33,6 @@ export interface CandidateJobsViewProps {
   pageMeta?: PageMeta;
   onQueryChange: (query: CandidateJobQuery) => void;
 }
-
-const SORT_OPTIONS: { value: NonNullable<CandidateJobQuery["sort"]>; label: string }[] = [
-  { value: "createdAt", label: "최신순" },
-  { value: "endsOn", label: "마감임박순" },
-  { value: "title", label: "제목순" },
-];
-
-
 
 type FilterCatKey = "jobRole" | "career" | "location" | "recruitment";
 
@@ -613,7 +606,7 @@ export function CandidateJobsView({ jobs, query, totalItems, pageMeta, onQueryCh
               </div>
             </div>
             <div className="candidate-jobs-toolbar-right">
-              <SortDropdown value={query.sort ?? "createdAt"} onChange={(next) => patch({ sort: next })} />
+              <SortDropdown value={query.sort ?? "createdAt"} onChange={(next) => patch(toCandidateJobSortQuery(next))} />
             </div>
           </div>
 
@@ -1795,7 +1788,7 @@ function SortDropdown({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [open]);
 
-  const current = SORT_OPTIONS.find((option) => option.value === value) ?? SORT_OPTIONS[0];
+  const current = candidateJobSortOptions.find((option) => option.value === value) ?? candidateJobSortOptions[0];
 
   return (
     <div className="candidate-sort" ref={ref}>
@@ -1824,7 +1817,7 @@ function SortDropdown({
       </button>
       {open ? (
         <ul className="candidate-sort-menu" role="listbox">
-          {SORT_OPTIONS.map((option) => (
+          {candidateJobSortOptions.map((option) => (
             <li key={option.value}>
               <button
                 type="button"

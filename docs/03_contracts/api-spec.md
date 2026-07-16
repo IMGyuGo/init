@@ -557,7 +557,7 @@ AI 리포트 금지 기준:
   - title: string, max 120
   - jobRole: string, max 80
   - keywords: string[] optional, max 10 items, each max 40
-  - summary: string optional, max 1000
+  - summary: string optional, max 3000
   - careerRequirement: string optional, max 80
   - employmentType: string optional, max 40
   - workLocation: string optional, max 120
@@ -574,6 +574,7 @@ AI 리포트 금지 기준:
   - AI 초안은 `postings`에 자동 저장하지 않는다. 사용자가 초안 적용 후 수정/확인한 뒤 기존 `API-080 POST /company/recruitments`로 `DRAFT` 저장한다.
 - 오류/예외:
   - 필수값 누락 또는 입력 상한 초과는 `COMMON_VALIDATION_FAILED`를 반환한다.
+  - 검증 실패 원인은 `error.details[]`의 `field`, `reason`, `limit`, `actualLength`, `message`로 구분한다. 입력 원문은 오류 응답에 포함하지 않는다.
   - 상태 polling 주체가 AI job 생성자와 다르면 `COMMON_FORBIDDEN`을 반환한다.
   - 큐 발행 실패는 `queued=false`, `status=FAILED`, `failure.retryable=true`를 포함한다.
   - 가드레일 `BLOCKED`는 최종 저장 없이 `AI_GUARDRAIL_BLOCKED` 성격의 실패 안내로 표시한다.
@@ -1439,6 +1440,8 @@ AI 리포트 금지 기준:
   - publicAccessToken의 sessionId가 path sessionId와 일치해야 한다.
 - 성공 응답/처리:
   - 기존 채용면접 답변 저장 흐름으로 interview_answers와 file_assets 메타데이터를 저장한다.
+- 오류/예외:
+  - `gazeTimeline[].horizontalOffset` 또는 `verticalOffset`이 유한수가 아니거나 `-1..1` 범위를 벗어나면 `422 INTERVIEW_GAZE_DATA_INVALID`를 반환한다. 답변과 파일 참조는 저장하지 않으며 정상 답변 저장 전까지 다음 질문 이동을 차단하고 재촬영을 안내한다.
 - 관련 ERD 테이블:
   - file_assets, applications, interview_sessions, interview_answers
 
@@ -2471,6 +2474,7 @@ CandidateFolder 입력 제한:
   - 답변 파일 업로드 완료
 - 오류/예외:
   - 녹화 실패 시 재녹화 안내를 표시한다.
+  - `gazeTimeline[].horizontalOffset` 또는 `verticalOffset`이 유한수가 아니거나 `-1..1` 범위를 벗어나면 `422 INTERVIEW_GAZE_DATA_INVALID`를 반환한다. 답변과 파일 참조는 저장하지 않으며 정상 답변 저장 전까지 다음 질문 이동을 차단하고 재촬영을 안내한다.
 - 관련 ERD 테이블:
   - candidate_profiles, file_assets, applications, interview_sessions, interview_answers, ai_process_logs
 - 비고/미결:
@@ -2663,6 +2667,26 @@ CandidateFolder 입력 제한:
   - interview_sessions.title 갱신 후 { sessionId, title } 반환
 - 오류/예외:
   - 타 지원자 세션 접근 시 403(COMMON_FORBIDDEN), 없는 세션 404(COMMON_NOT_FOUND), 100자 초과 시 400(COMMON_VALIDATION_FAILED)
+- 관련 ERD 테이블:
+  - interview_sessions
+
+### API-054B DELETE /candidate/mock-interviews/{sessionId}
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 모의면접 평가 리포트 화면 (/candidate/mock-interview/reports)
+- UI Type: system process
+- 상태 코드: 204 No Content
+- 비동기: N
+- Path Params: sessionId
+- 요청 데이터: 없음
+- 검증/전제조건:
+  - 로그인 사용자, 모의면접 세션 소유자(본인) 확인
+- 성공 응답/처리:
+  - interview_sessions.deleted_at을 기록하여 연습 이력을 소프트 삭제한다.
+  - 삭제된 세션은 연습 이력, 리포트 상세, 면접 재개 조회에서 제외한다.
+  - 이미 사용한 모의면접 이용권은 복구하지 않는다.
+- 오류/예외:
+  - 타 지원자 세션 접근 시 403(COMMON_FORBIDDEN), 없거나 이미 삭제된 세션은 404(COMMON_NOT_FOUND), 잘못된 sessionId는 400(COMMON_VALIDATION_FAILED)
 - 관련 ERD 테이블:
   - interview_sessions
 
@@ -3111,6 +3135,7 @@ CandidateFolder 입력 제한:
   - 답변 파일 업로드 완료
 - 오류/예외:
   - 녹화 실패 시 재녹화 또는 고객지원 안내를 표시한다.
+  - `gazeTimeline[].horizontalOffset` 또는 `verticalOffset`이 유한수가 아니거나 `-1..1` 범위를 벗어나면 `422 INTERVIEW_GAZE_DATA_INVALID`를 반환한다. 답변과 파일 참조는 저장하지 않으며 정상 답변 저장 전까지 다음 질문 이동을 차단하고 재촬영을 안내한다.
 - 관련 ERD 테이블:
   - candidate_profiles, file_assets, postings, applications, interview_sessions, interview_answers, ai_process_logs
 - 비고/미결:
@@ -3337,7 +3362,8 @@ CandidateFolder 입력 제한:
 - Shape: JSON object. Initial MVP keys may include `cameraWarnings`, `microphoneWarnings`, `longSilenceCount`, `shortAnswerCount`, `testModeUsed`, `voicePeakLevel`, `lowAudioFrameCount`, `observedAudioFrameCount`, `cameraDisconnectedCount`, `integrityEvents`, `integritySummary`, `gazeTimeline`, and `headPoseTimeline`.
 - Maximum serialized UTF-8 size: 32 KiB.
 - `integrityEvents` maximum length: 100.
-- Unknown top-level, summary, or event keys; unsupported event types; malformed timestamps; and out-of-range numeric values are rejected with `400 COMMON_VALIDATION_FAILED`.
+- Unknown top-level, summary, or event keys; unsupported event types; malformed timestamps; and out-of-range numeric values other than gaze timeline offsets are rejected with `400 COMMON_VALIDATION_FAILED`.
+- A non-finite or out-of-range `gazeTimeline[].horizontalOffset` or `verticalOffset` is rejected with `422 INTERVIEW_GAZE_DATA_INVALID`. The error detail identifies the exact sample field. The client discards the invalid recording and blocks answer submission and next-question movement until a newly recorded answer is saved successfully.
 - `integrityEvents` may include browser-runtime events such as `TAB_HIDDEN`, `WINDOW_BLUR`, `CAMERA_LOST`, `FACE_MISSING`, `FACE_OUT_OF_FRAME`, `MULTIPLE_FACES`, `FACE_POSITION_SHIFT`, `GAZE_AWAY`, `VOICE_MOUTH_MISMATCH`, `VOICE_WITHOUT_FACE`, `STATIC_VIDEO_FRAME`, and `EARLY_SCREEN_AWAY`.
 - `MULTIPLE_FACES` is retained as the legacy event code for compatibility. The runtime emits it when either face landmarks or the MediaPipe person-object detector finds more than one person in at least two samples within 1.5 seconds. Person-object samples use a `0.35` confidence threshold, run every `0.5` seconds, and keep an active signal for a `1.5`-second miss grace period so a covered face does not cause the warning to flicker.
 - Integrity events may include `offsetMs`, a non-negative integer measured from the answer recording start. It is used to align an event with the recorded video and analysis timeline; events without it remain valid for backward compatibility.
@@ -3351,7 +3377,8 @@ CandidateFolder 입력 제한:
   - The API rebuilds event-derived counts, away durations, and `suspicionLevel` from the allowlisted events instead of trusting client summary counts.
   - The API writes `schemaVersion: 1` and `source: CLIENT_RUNTIME_UNVERIFIED` before saving on `interview_answers.nonverbal_metadata`.
   - Empty metadata objects are treated as absent.
-  - When recording validation fails twice, the already collected metadata is preserved for both mock and recruiting answers.
+  - When general recording validation fails twice, the already collected metadata is preserved for both mock and recruiting answers.
+  - Gaze timeline offset validation is excluded from the two-attempt skip policy. It always requires another recording and cannot be converted to `RECORDING_VALIDATION_FAILED` while the current question remains unanswered.
 - Report read:
   - API-056 `GET /candidate/mock-interview/reports/{reportId}/media` may expose `media[].nonverbalMetadata`.
   - Candidate UI may aggregate the values into a mock interview nonverbal summary card and per-answer practice feedback.

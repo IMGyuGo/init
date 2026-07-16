@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpException, Inject, Param, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, HttpException, Inject, Param, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { CurrentUser } from "@init/common";
 import { type RequestLike } from "../../../shared/response-envelope";
@@ -47,6 +47,14 @@ export class InterviewController {
   ) {
     return this.handle(() =>
       this.interviewService.updateMockInterviewTitle(Number(sessionId), dto, resolveCurrentCandidate(request.currentUser)),
+    );
+  }
+
+  @Delete(interviewApiRoutes.mockRuntime)
+  @HttpCode(204)
+  deleteMockInterview(@Req() request: CandidateRequest, @Param("sessionId") sessionId: string) {
+    return this.handle(() =>
+      this.interviewService.deleteMockInterview(Number(sessionId), resolveCurrentCandidate(request.currentUser)),
     );
   }
 
