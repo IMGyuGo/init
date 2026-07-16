@@ -26,7 +26,7 @@ export default function CompanyLoginPage() {
     <main className="company-auth-page">
       <section className="company-auth-main">
         <Link className="company-auth-logo" href="/" aria-label="init 지원자 서비스 홈">
-          <Image src="/logo-init-v4.png" alt="init" width={1108} height={460} priority />
+          <Image src="/logo-init-v4.png" alt="init" width={1900} height={580} priority />
         </Link>
 
         <div className="company-auth-form">

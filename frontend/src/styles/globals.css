@@ -1059,8 +1059,8 @@ textarea {
   gap: 24px;
   width: 100%;
   height: 56px;
-  margin: 0 auto;
-  padding: 0 200px;
+  margin: 0;
+  padding: 0 32px;
   background: transparent;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -1079,7 +1079,7 @@ textarea {
 .brand img {
   display: block;
   width: auto;
-  height: 38px;
+  height: 34px;
 }
 
 /* plain-text nav */
@@ -7218,7 +7218,7 @@ td input {
 
 .company-auth-logo img {
   width: auto;
-  height: 42px;
+  height: 38px;
 }
 
 .company-auth-form {
@@ -8705,7 +8705,7 @@ p {
   padding-top: 64px;
 }
 .app.auth.notion .auth-logo { display: block; }
-.app.auth.notion .auth-logo img { display: block; width: auto; height: 38px; }
+.app.auth.notion .auth-logo img { display: block; width: auto; height: 34px; }
 
 .app.auth.notion .form-card {
   border: 0;

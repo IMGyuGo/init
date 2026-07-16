@@ -19,7 +19,7 @@ export function CompanyNav({ active }: { active?: CompanyNavSection }) {
     <header className="gnb">
       <div className="gnb-inner">
         <Link className="brand" href="/company/recruitments">
-          <Image src="/logo-init-v4.png" alt="init" width={1108} height={460} priority />
+          <Image src="/logo-init-v4.png" alt="init" width={1900} height={580} priority />
         </Link>
         <nav className="gnb-menu" aria-label="기업 메뉴">
           <div className={`gnb-item ${current === "postings" ? "active" : ""}`}>
