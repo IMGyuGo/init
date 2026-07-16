@@ -436,6 +436,53 @@ test("prisma interview repository persists appended runtime questions", async ()
   ]);
 });
 
+test("prisma interview repository hides and soft deletes mock sessions", async () => {
+  const findManyCalls: unknown[] = [];
+  const findFirstCalls: unknown[] = [];
+  const updateManyCalls: unknown[] = [];
+  const repository = new PrismaInterviewRepository({
+    interviewSession: {
+      findMany: async (args: unknown) => {
+        findManyCalls.push(args);
+        return [];
+      },
+      findFirst: async (args: unknown) => {
+        findFirstCalls.push(args);
+        return undefined;
+      },
+      updateMany: async (args: unknown) => {
+        updateManyCalls.push(args);
+        return { count: 1 };
+      },
+    },
+  } as never);
+
+  assert.deepEqual(await repository.listOwnedMockSessions(7), []);
+  assert.equal(await repository.findMockSession(10001), undefined);
+  assert.equal(await repository.deleteMockSession(10001, 7), true);
+
+  assert.deepEqual(findManyCalls, [
+    {
+      where: { candidateId: 7n, interviewType: "MOCK", deletedAt: null },
+      orderBy: [{ completedAt: "desc" }, { startedAt: "desc" }, { sessionId: "desc" }],
+    },
+  ]);
+  assert.deepEqual(findFirstCalls, [
+    { where: { sessionId: 10001n, interviewType: "MOCK", deletedAt: null } },
+  ]);
+  const updateCall = updateManyCalls[0] as {
+    where: Record<string, unknown>;
+    data: { deletedAt: unknown };
+  };
+  assert.deepEqual(updateCall.where, {
+    sessionId: 10001n,
+    candidateId: 7n,
+    interviewType: "MOCK",
+    deletedAt: null,
+  });
+  assert.ok(updateCall.data.deletedAt instanceof Date);
+});
+
 test("prisma interview repository resolves inactive questions linked to a session", async () => {
   const repository = new PrismaInterviewRepository({
     question: {

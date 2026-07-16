@@ -24,6 +24,7 @@ type InterviewControllerRoute =
   | "startMockInterview"
   | "listMockInterviewHistory"
   | "updateMockInterviewTitle"
+  | "deleteMockInterview"
   | "getMockRuntime"
   | "listMockQuestions"
   | "saveMockAnswer"
@@ -85,6 +86,7 @@ assert.equal(Reflect.getMetadata(PATH_METADATA, InterviewController), interviewA
 assertRoute("startMockInterview", interviewApiRoutes.mockInterviews, RequestMethod.POST);
 assertRoute("listMockInterviewHistory", interviewApiRoutes.mockHistory, RequestMethod.GET);
 assertRoute("updateMockInterviewTitle", interviewApiRoutes.mockTitle, RequestMethod.PATCH);
+assertRoute("deleteMockInterview", interviewApiRoutes.mockRuntime, RequestMethod.DELETE, 204);
 assertRoute("getMockRuntime", interviewApiRoutes.mockRuntime, RequestMethod.GET);
 assertRoute("listMockQuestions", interviewApiRoutes.mockQuestions, RequestMethod.GET);
 assertRoute("saveMockAnswer", interviewApiRoutes.mockAnswers, RequestMethod.POST, 201);
@@ -1227,6 +1229,40 @@ test("mock session title DTO enforces the 100 character limit", async () => {
 
   const boundary = plainToInstance(UpdateMockSessionTitleDto, { title: "가".repeat(100) });
   assert.equal((await validate(boundary)).length, 0);
+});
+
+test("mock session deletion removes owned history and blocks later access", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["INTRO"],
+    showQuestionText: false,
+  });
+  const sessionId = String(started.data.sessionId);
+
+  await assertInterviewHttpError(
+    () => controller.deleteMockInterview(otherCandidateRequest, sessionId),
+    403,
+    "COMMON_FORBIDDEN",
+  );
+
+  assert.equal(await controller.deleteMockInterview(validCandidateRequest, sessionId), undefined);
+  const history = await controller.listMockInterviewHistory(validCandidateRequest);
+  assert.equal(history.data.items.some((item) => item.sessionId === started.data.sessionId), false);
+
+  await assertInterviewHttpError(
+    () => controller.getMockRuntime(validCandidateRequest, sessionId),
+    404,
+    "COMMON_NOT_FOUND",
+  );
+  await assertInterviewHttpError(
+    () => controller.deleteMockInterview(validCandidateRequest, sessionId),
+    404,
+    "COMMON_NOT_FOUND",
+  );
 });
 
 test("interview controller contract", async () => {

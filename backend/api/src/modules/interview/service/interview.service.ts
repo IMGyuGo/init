@@ -223,6 +223,16 @@ export class InterviewService {
     return this.envelope({ sessionId: updated.sessionId, title: updated.title ?? null });
   }
 
+  async deleteMockInterview(sessionId: number, currentUser: CurrentCandidateUser): Promise<void> {
+    await this.getOwnedMockSession(sessionId, currentUser);
+    const deleted = await this.interviewRepository.deleteMockSession(sessionId, currentUser.candidateId);
+    if (!deleted) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "Interview session was not found.", 404, [
+        { field: "sessionId", reason: "mock interview session was already deleted" },
+      ]);
+    }
+  }
+
   async getMockRuntime(sessionId: number, currentUser: CurrentCandidateUser) {
     const session = await this.getOwnedMockSession(sessionId, currentUser);
     this.assertInProgress(session);

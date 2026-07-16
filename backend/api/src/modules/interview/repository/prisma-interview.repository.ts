@@ -132,7 +132,11 @@ export class PrismaInterviewRepository implements InterviewRepository {
 
   async listOwnedMockSessions(candidateId: number): Promise<RuntimeInterviewSession[]> {
     const sessions = await this.prisma.interviewSession.findMany({
-      where: { candidateId: BigInt(candidateId), interviewType: PrismaInterviewType.MOCK },
+      where: {
+        candidateId: BigInt(candidateId),
+        interviewType: PrismaInterviewType.MOCK,
+        deletedAt: null,
+      },
       orderBy: [{ completedAt: "desc" }, { startedAt: "desc" }, { sessionId: "desc" }],
     });
     return Promise.all(sessions.map((session) => this.toRuntimeSession(session)));
@@ -140,7 +144,11 @@ export class PrismaInterviewRepository implements InterviewRepository {
 
   async findMockSession(sessionId: number): Promise<RuntimeInterviewSession | undefined> {
     const session = await this.prisma.interviewSession.findFirst({
-      where: { sessionId: BigInt(sessionId), interviewType: PrismaInterviewType.MOCK },
+      where: {
+        sessionId: BigInt(sessionId),
+        interviewType: PrismaInterviewType.MOCK,
+        deletedAt: null,
+      },
     });
     return session ? this.toRuntimeSession(session) : undefined;
   }
@@ -151,6 +159,19 @@ export class PrismaInterviewRepository implements InterviewRepository {
       data: { title },
     });
     return this.toRuntimeSession(session);
+  }
+
+  async deleteMockSession(sessionId: number, candidateId: number): Promise<boolean> {
+    const result = await this.prisma.interviewSession.updateMany({
+      where: {
+        sessionId: BigInt(sessionId),
+        candidateId: BigInt(candidateId),
+        interviewType: PrismaInterviewType.MOCK,
+        deletedAt: null,
+      },
+      data: { deletedAt: new Date() },
+    });
+    return result.count === 1;
   }
 
   async createMockSession(input: CreateMockInterviewSessionInput): Promise<RuntimeInterviewSession> {
