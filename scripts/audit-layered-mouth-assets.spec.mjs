@@ -55,11 +55,15 @@ function createLayers(overrides = {}) {
 }
 
 async function writeManifest(directory, layers) {
-  const manifestPath = join(directory, "manifest.json");
-  await writeFile(manifestPath, JSON.stringify({
+  return writeManifestWith(directory, {
     canvas: { width: 1024, height: 1536 },
     layers,
-  }));
+  });
+}
+
+async function writeManifestWith(directory, manifest) {
+  const manifestPath = join(directory, "manifest.json");
+  await writeFile(manifestPath, JSON.stringify(manifest));
   return manifestPath;
 }
 
@@ -121,6 +125,119 @@ test("unit: rejects a layer with a missing required field", async () => {
     const manifestPath = await writeManifest(directory, layers);
 
     await assert.rejects(auditLayeredMouthAssets(manifestPath), /layer mouth-skin-underlay is missing anchor/);
+  });
+});
+
+test("unit: rejects canvas width and height mismatches", async () => {
+  const cases = [
+    { canvas: { width: 1023, height: 1536 }, label: "width" },
+    { canvas: { width: 1024, height: 1535 }, label: "height" },
+  ];
+
+  for (const { canvas, label } of cases) {
+    await withFixture(async (directory) => {
+      const manifestPath = await writeManifestWith(directory, { canvas, layers: [] });
+
+      await assert.rejects(auditLayeredMouthAssets(manifestPath), /canvas must be 1024x1536/, label);
+    });
+  }
+});
+
+test("unit: rejects a non-array layers value", async () => {
+  await withFixture(async (directory) => {
+    const manifestPath = await writeManifestWith(directory, {
+      canvas: { width: 1024, height: 1536 },
+      layers: { name: "mouth-skin-underlay" },
+    });
+
+    await assert.rejects(auditLayeredMouthAssets(manifestPath), /layers must be an array/);
+  });
+});
+
+test("unit: rejects exact layer-name contract violations after required fields", async () => {
+  const cases = [
+    { layers: createLayers().slice(0, 5), label: "insufficient layer count" },
+    { layers: createLayers({ 2: { name: "mouth-gums" } }), label: "wrong name" },
+    {
+      layers: createLayers({
+        0: { name: EXPECTED_LAYER_NAMES[1] },
+        1: { name: EXPECTED_LAYER_NAMES[0] },
+      }),
+      label: "wrong order",
+    },
+  ];
+
+  for (const { layers, label } of cases) {
+    await withFixture(async (directory) => {
+      const manifestPath = await writeManifest(directory, layers);
+
+      await assert.rejects(auditLayeredMouthAssets(manifestPath), /manifest layer names must match/, label);
+    });
+  }
+});
+
+test("unit: rejects an invalid PNG signature", async () => {
+  await withFixture(async (directory) => {
+    const layers = createLayers();
+    await writeFile(join(directory, layers[0].pngPath), Buffer.alloc(33));
+    const manifestPath = await writeManifest(directory, layers);
+
+    await assert.rejects(auditLayeredMouthAssets(manifestPath), /mouth-skin-underlay\.png is not a valid PNG file/);
+  });
+});
+
+test("unit: rejects a PNG whose height does not match the canvas", async () => {
+  await withFixture(async (directory) => {
+    const layers = createLayers();
+    await writeFile(join(directory, layers[0].pngPath), createPngHeader(0, { height: 1535 }));
+    const manifestPath = await writeManifest(directory, layers);
+
+    await assert.rejects(auditLayeredMouthAssets(manifestPath), /mouth-skin-underlay PNG must be 1024x1536/);
+  });
+});
+
+test("unit: rejects every missing required layer field before name validation", async () => {
+  for (const field of ["name", "pngPath", "rgbaPath", "visible", "anchor", "sourceType", "role"]) {
+    await withFixture(async (directory) => {
+      const layers = createLayers();
+      delete layers[0][field];
+      const manifestPath = await writeManifest(directory, layers);
+
+      await assert.rejects(
+        auditLayeredMouthAssets(manifestPath),
+        new RegExp(`layer ${field === "name" ? "undefined" : "mouth-skin-underlay"} is missing ${field}`),
+        field,
+      );
+    });
+  }
+});
+
+test("unit: returns the complete audit contract for a valid temporary fixture", async () => {
+  await withFixture(async (directory) => {
+    const layers = createLayers();
+    await writeCompleteLayerFiles(directory, layers);
+    const manifestPath = await writeManifest(directory, layers);
+
+    const audit = await auditLayeredMouthAssets(manifestPath);
+
+    assert.deepEqual(audit.canvas, { width: 1024, height: 1536 });
+    assert.deepEqual(audit.layerNames, EXPECTED_LAYER_NAMES);
+    assert.equal(audit.layers.length, 6);
+    assert.ok(audit.layers.every((layer) => layer.width === 1024 && layer.height === 1536));
+    assert.ok(audit.layers.every((layer) => layer.colorType === 6 && layer.nonTransparent));
+    assert.equal(new Set(audit.layers.map((layer) => layer.sha256)).size, 6);
+    assert.deepEqual(
+      audit.layers.map(({ name, pngPath, rgbaPath, visible, anchor, sourceType, role }) => ({
+        name,
+        pngPath,
+        rgbaPath,
+        visible,
+        anchor,
+        sourceType,
+        role,
+      })),
+      layers,
+    );
   });
 });
 

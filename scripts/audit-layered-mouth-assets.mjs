@@ -77,6 +77,12 @@ export async function auditLayeredMouthAssets(manifestPath) {
     }
   }
 
+  for (const layer of manifest.layers) {
+    for (const field of REQUIRED_LAYER_FIELDS) {
+      if (!(field in layer)) throw new Error(`layer ${layer.name} is missing ${field}`);
+    }
+  }
+
   const names = new Set();
   for (const layer of manifest.layers) {
     if (names.has(layer.name)) throw new Error(`duplicate layer: ${layer.name}`);
@@ -86,9 +92,6 @@ export async function auditLayeredMouthAssets(manifestPath) {
 
   const layers = [];
   for (const layer of manifest.layers) {
-    for (const field of REQUIRED_LAYER_FIELDS) {
-      if (!(field in layer)) throw new Error(`layer ${layer.name} is missing ${field}`);
-    }
     if (!hasExpectedAnchor(layer.anchor)) {
       throw new Error(`${layer.name} anchor must be exactly {x:512,y:585}`);
     }
