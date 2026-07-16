@@ -1067,6 +1067,29 @@ CREATE TABLE ai_process_logs (
     -- 실패 사유
     failure_reason TEXT,
 
+    -- 현재 작업을 claim한 worker 실행 식별자
+    lease_owner VARCHAR(160),
+
+    -- worker claim 만료 시각
+    lease_expires_at TIMESTAMP,
+
+    -- 현재 처리 시도 시작 시각
+    started_at TIMESTAMP,
+
+    -- 처리 완료 또는 실패 시각
+    completed_at TIMESTAMP,
+
+    -- 현재 처리 시도 실행 시간(ms)
+    duration_ms INTEGER,
+
+    -- AI provider model과 사용량
+    model_name VARCHAR(120),
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    audio_seconds INTEGER,
+    estimated_cost_usd DECIMAL(12, 6),
+    cost_metadata_json TEXT,
+
     -- 생성 시각
     created_at TIMESTAMP NOT NULL
 );
@@ -1557,5 +1580,6 @@ CREATE INDEX idx_answer_fact_check_runs_report_status ON answer_fact_check_runs(
 CREATE INDEX idx_answer_fact_check_claims_verdict ON answer_fact_check_claims(verdict);
 CREATE INDEX idx_answer_fact_check_evidences_snapshot ON answer_fact_check_evidences(source_snapshot_id);
 CREATE INDEX idx_ai_process_logs_application ON ai_process_logs(application_id);
+CREATE INDEX idx_ai_process_logs_status_lease ON ai_process_logs(status, lease_expires_at);
 CREATE INDEX idx_embeddings_source_type ON embeddings(source_type);
 CREATE INDEX idx_embeddings_source_hash ON embeddings(source_text_hash);

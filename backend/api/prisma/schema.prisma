@@ -1106,6 +1106,8 @@ model AiProcessLog {
   outputRef                   String?                             @map("output_ref")
   failureCategory             String?                             @map("failure_category") @db.VarChar(40)
   failureReason               String?                             @map("failure_reason")
+  leaseOwner                  String?                             @map("lease_owner") @db.VarChar(160)
+  leaseExpiresAt              DateTime?                           @map("lease_expires_at")
   startedAt                   DateTime?                           @map("started_at")
   completedAt                 DateTime?                           @map("completed_at")
   durationMs                  Int?                                @map("duration_ms")
@@ -1126,6 +1128,7 @@ model AiProcessLog {
   latestResumeQuestionBatches ApplicationInterviewQuestionBatch[] @relation("LatestResumeQuestionProcess")
   personalizedQuestions       ApplicationInterviewQuestion[]      @relation("ResumeQuestionSourceProcess")
 
+  @@index([status, leaseExpiresAt], map: "idx_ai_process_logs_status_lease")
   @@map("ai_process_logs")
 }
 

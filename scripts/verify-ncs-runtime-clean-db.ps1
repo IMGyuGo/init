@@ -128,6 +128,13 @@ generator client {
 
   $requiredSchemaSql = @"
 SELECT CASE WHEN
+  (
+    SELECT count(*) FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'ai_process_logs'
+      AND column_name IN ('lease_owner', 'lease_expires_at')
+  ) = 2
+  AND
   EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public'

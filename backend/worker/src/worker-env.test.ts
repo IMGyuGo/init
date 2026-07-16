@@ -39,6 +39,8 @@ test("loadWorkerEnv returns defaults for optional worker settings", () => {
     workerBatchSize: 1,
     workerMaxRetryableReceives: 3,
     workerPollIntervalMs: 1000,
+    workerVisibilityTimeoutSeconds: 900,
+    workerHeartbeatIntervalMs: 300000,
     workerRepositoryMode: "memory",
     prismaClientModule: undefined
   });
@@ -67,6 +69,8 @@ test("loadWorkerEnv accepts legacy API env aliases", () => {
       workerBatchSize: 1,
       workerMaxRetryableReceives: 3,
       workerPollIntervalMs: 1000,
+      workerVisibilityTimeoutSeconds: 900,
+      workerHeartbeatIntervalMs: 300000,
       workerRepositoryMode: "memory",
       prismaClientModule: undefined
     }
@@ -77,6 +81,12 @@ test("loadWorkerEnv validates bounded numeric worker settings", () => {
   assert.equal(loadWorkerEnv({ ...validEnv, WORKER_BATCH_SIZE: "10" }).workerBatchSize, 10);
   assert.equal(loadWorkerEnv({ ...validEnv, WORKER_MAX_RETRYABLE_RECEIVES: "4" }).workerMaxRetryableReceives, 4);
   assert.equal(loadWorkerEnv({ ...validEnv, WORKER_POLL_INTERVAL_MS: "60000" }).workerPollIntervalMs, 60000);
+  assert.equal(loadWorkerEnv({ ...validEnv, WORKER_VISIBILITY_TIMEOUT_SECONDS: "120" }).workerVisibilityTimeoutSeconds, 120);
+  assert.equal(
+    loadWorkerEnv({ ...validEnv, WORKER_VISIBILITY_TIMEOUT_SECONDS: "120", WORKER_VISIBILITY_HEARTBEAT_MS: "30000" })
+      .workerHeartbeatIntervalMs,
+    30000,
+  );
   assert.equal(loadWorkerEnv({ ...validEnv, OPENAI_STT_TIMEOUT_MS: "20000" }).openaiSttTimeoutMs, 20000);
 
   assert.throws(() => loadWorkerEnv({ ...validEnv, WORKER_BATCH_SIZE: "0" }), /Expected integer between 1 and 10/);
@@ -91,6 +101,18 @@ test("loadWorkerEnv validates bounded numeric worker settings", () => {
   assert.throws(
     () => loadWorkerEnv({ ...validEnv, OPENAI_STT_TIMEOUT_MS: "999" }),
     /Expected integer between 1000 and 600000/
+  );
+  assert.throws(
+    () => loadWorkerEnv({ ...validEnv, WORKER_VISIBILITY_TIMEOUT_SECONDS: "29" }),
+    /Expected integer between 30 and 43200/
+  );
+  assert.throws(
+    () => loadWorkerEnv({
+      ...validEnv,
+      WORKER_VISIBILITY_TIMEOUT_SECONDS: "30",
+      WORKER_VISIBILITY_HEARTBEAT_MS: "30000",
+    }),
+    /Expected integer between 1000 and 29000/
   );
 });
 

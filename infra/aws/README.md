@@ -679,7 +679,7 @@ aws ecs describe-tasks --cluster $cluster --tasks $taskArn `
 - migration task가 실패한다.
 - 일부 DDL이 적용된 뒤 실패했다. 이 경우 service update를 멈추고 보정 migration을 작성한다.
 - RDS 연결, secret, private subnet network 오류가 발생한다.
-- real AI provider traffic을 받을 예정인데 worker에 SQS visibility heartbeat와 `processLogId` 멱등성 보강이 없다.
+- `20260716090000_ai_process_worker_lease` migration이 적용되지 않았거나 worker visibility heartbeat 환경변수가 누락됐다.
 
 ### 9. ECS service activation
 
@@ -729,7 +729,7 @@ aws elbv2 describe-target-health --target-group-arn $apiTgArn
 - ECS service가 stable 상태가 되지 않는다.
 - ALB target health가 `healthy`가 아니다.
 - API task가 secret, DB, Valkey 연결 오류로 반복 재시작한다.
-- worker가 real AI provider traffic을 받을 예정인데 `ChangeMessageVisibility` heartbeat와 duplicate `processLogId` skip/claim 테스트가 없다.
+- worker가 `ChangeMessageVisibility` 권한을 사용하지 못하거나 `ai_process_logs` lease 갱신에 실패한다.
 
 ### 10. Domain smoke test
 

@@ -1,14 +1,23 @@
-import { DeleteMessageCommand, MessageSystemAttributeName, ReceiveMessageCommand, SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import {
+  ChangeMessageVisibilityCommand,
+  DeleteMessageCommand,
+  MessageSystemAttributeName,
+  ReceiveMessageCommand,
+  SendMessageCommand,
+  SQSClient,
+} from "@aws-sdk/client-sqs";
 import { AiQueueMessage, AiWorkerJob } from "./worker.types";
 
 export interface AiJobQueue {
   receive(maxMessages: number): Promise<AiQueueMessage[]>;
   publish(job: AiWorkerJob): Promise<void>;
+  extendVisibility(message: AiQueueMessage, timeoutSeconds: number): Promise<void>;
   delete(message: AiQueueMessage): Promise<void>;
 }
 
 export class InMemoryAiJobQueue implements AiJobQueue {
   readonly deletedMessageIds: string[] = [];
+  readonly visibilityExtensions: Array<{ messageId: string; timeoutSeconds: number }> = [];
 
   constructor(private readonly messages: AiQueueMessage[]) {}
 
@@ -31,6 +40,10 @@ export class InMemoryAiJobQueue implements AiJobQueue {
     if (index >= 0) {
       this.messages.splice(index, 1);
     }
+  }
+
+  async extendVisibility(message: AiQueueMessage, timeoutSeconds: number): Promise<void> {
+    this.visibilityExtensions.push({ messageId: message.messageId, timeoutSeconds });
   }
 
 }
@@ -74,6 +87,16 @@ export class SqsAiJobQueue implements AiJobQueue {
           processType: { DataType: "String", StringValue: job.processType },
           processLogId: { DataType: "Number", StringValue: String(job.processLogId) },
         },
+      })
+    );
+  }
+
+  async extendVisibility(message: AiQueueMessage, timeoutSeconds: number): Promise<void> {
+    await this.client.send(
+      new ChangeMessageVisibilityCommand({
+        QueueUrl: this.queueUrl,
+        ReceiptHandle: message.receiptHandle,
+        VisibilityTimeout: timeoutSeconds,
       })
     );
   }

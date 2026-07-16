@@ -17,10 +17,11 @@ Production SQS contract:
 - SQS Standard can redeliver a message. Treat `processLogId` as the idempotency
   key and skip expensive AI provider calls when a redelivered job is already
   `COMPLETED`.
-- Long-running jobs must either finish within the queue visibility timeout or
-  extend it with `ChangeMessageVisibility` heartbeat. Do not connect real AI
-  provider traffic until heartbeat and duplicate `processLogId` claim/skip tests
-  are present.
+- Long-running jobs extend SQS visibility and the `ai_process_logs` lease together.
+  `WORKER_VISIBILITY_TIMEOUT_SECONDS` controls both lease duration and message
+  visibility; `WORKER_VISIBILITY_HEARTBEAT_MS` must be shorter than that timeout.
+- Apply the worker lease migration before real AI traffic. Completed redeliveries
+  and concurrent valid leases are acknowledged without calling the provider.
 
 Runtime commands:
 

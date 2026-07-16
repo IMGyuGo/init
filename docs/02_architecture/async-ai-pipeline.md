@@ -11,8 +11,8 @@ AI 처리와 비동기 작업의 실행 흐름을 정리한다.
 - 실패한 작업은 `FAILED` 상태와 재시도 가능 사유를 화면에 노출한다.
 - 임베딩은 원문 해시(`source_text_hash`)로 중복 생성을 방지하고, `ai_guardrail_logs`에 PASS를 기록한 뒤 저장한다. `ai_process_logs.outputRef`에는 원문 대신 `sourceTextHash`, `dedupeKey`, `duplicatePolicy=UPSERT_BY_SOURCE_TEXT_HASH`만 남긴다.
 - AWS 실배포 worker queue는 SQS Standard를 기준으로 한다. Redis는 인증 TTL/cache 용도이며, AI worker queue backend로 전환하지 않는다.
-- SQS Standard는 중복 전달이 가능하므로 worker는 `processLogId`를 idempotency key로 사용한다. 이미 `COMPLETED`인 작업 재전달은 AI provider 호출 없이 ack하고, 처리 중인 작업은 원자적 claim/lease로 중복 실행을 막는다.
-- 장기 AI 작업은 SQS visibility timeout 안에 끝나거나 `ChangeMessageVisibility` heartbeat로 visibility를 연장해야 한다. 이 보강 전에는 real AI provider traffic을 worker에 연결하지 않는다.
+- SQS Standard는 중복 전달이 가능하므로 worker는 `processLogId`를 idempotency key로 사용한다. 이미 `COMPLETED`인 작업 재전달은 AI provider 호출 없이 ack하고, 처리 중인 작업은 `lease_owner`, `lease_expires_at` 조건부 갱신으로 원자적 claim을 획득한 worker만 실행한다.
+- 장기 AI 작업은 주기적으로 `ChangeMessageVisibility`와 DB lease 갱신을 함께 수행한다. heartbeat 실패 또는 lease 상실 시 guardrail·최종 저장을 진행하지 않고 메시지를 재전달 가능 상태로 남긴다.
 - NCS 이력서 질문 생성의 logical model과 개인정보 경계는 [ncs-recruiting-question-generation.md](./ncs-recruiting-question-generation.md)를 따른다.
 
 ## Main Flows
@@ -34,7 +34,11 @@ sequenceDiagram
   else Queue publish succeeded
   API-->>UI: processLogId 반환
   Worker->>Queue: 메시지 수신
-  Worker->>Log: RUNNING 기록
+  Worker->>Log: processLogId 원자적 claim, RUNNING 기록
+  loop 장기 작업 heartbeat
+    Worker->>Queue: ChangeMessageVisibility
+    Worker->>Log: lease_expires_at 갱신
+  end
   Worker->>Worker: 서류 추출/STT/질문 생성/평가
   Worker->>Guard: 정책 검증
   Guard-->>Worker: PASS/BLOCKED/REGENERATED
@@ -127,9 +131,7 @@ SQS message와 `ai_process_logs.input_ref`에는 아래 참조값만 넣는다.
 | API-029 | POST | /reports/{reportId}/answer-evaluation | 답변 채점 및 근거 생성 | companies, candidate_profiles, postings, criterion_tags, evaluation_criteria, applications, interview_sessions, interview_session_questions, interview_answers, evaluation_reports, ncs_answer_evaluations, report_scores, report_evidences, manual_evaluations, ai_process_logs |
 | API-030 | POST | /reports/{reportId}/communication-analysis | 비언어/음성 지표 보조 분석 | companies, candidate_profiles, file_assets, postings, applications, consent_records, evaluation_reports, report_scores, report_evidences, ai_process_logs |
 | API-031 | POST | /reports/{reportId}/generate | 리포트 생성 | companies, candidate_profiles, postings, criterion_tags, evaluation_criteria, applications, application_documents, interview_sessions, interview_session_questions, interview_answers, evaluation_reports, ncs_answer_evaluations, report_scores, report_evidences, ai_process_logs |
-| API-035 | POST | /company/interviews/evaluation-criteria/suggest | AI 평가 역량 태그 추천 | companies, postings, criterion_tags, evaluation_criteria, interview_sessions, ai_process_logs, embeddings |
 | API-038 | POST | /company/interviews/questions/generate | 저장된 평가 기준 기반 공통 질문 추천 | companies, postings, criterion_tags, evaluation_criteria, question_bank, applications, interview_sessions, manual_evaluations, ai_process_logs |
-| API-039 | POST | /company/interviews/question-sets | 면접 질문 목록 구성 | companies, postings, criterion_tags, evaluation_criteria, question_bank, application_documents, interview_sessions, manual_evaluations, ai_process_logs |
 | API-085 | POST | /company/recruitments/ai-draft | 공고 생성 AI 초안 작성 | companies, postings, ai_process_logs, ai_guardrail_logs |
 | API-045 | POST | /candidate/mock-interviews/questions/generate | 연습용 질문 목록 구성 | candidate_profiles, question_bank, interview_sessions, ai_process_logs |
 | API-050 | POST | /candidate/mock-interviews/{sessionId}/stt | STT 처리 | candidate_profiles, file_assets, applications, interview_sessions, interview_answers, evaluation_reports, report_scores, report_evidences, ai_process_logs |
@@ -159,4 +161,4 @@ API-045 결과는 프론트가 최대 약 15초 동안 API-080으로 조회한�
 - `FAILED` 상태는 `failure.category`, `failure.reason`, `failure.retryable`을 포함한다.
 - worker의 `finalSave`는 guardrail `PASS` 또는 `REGENERATED` 이후에만 실행된다.
 - `BLOCKED` 결과는 최종 저장 없이 `ai_guardrail_logs`와 `ai_process_logs.status=FAILED`로 기록한다.
-- B/C 화면에서 소비하는 AI draft output은 자동 저장하지 않는다. 공고 초안은 `postingDraft`, 평가 기준 추천은 `criteriaSuggestions`, JD 질문 생성은 `questionCandidates`, 질문 세트 구성은 `questionSetPreview`를 미리보기로 표시하고 사용자가 선택/적용한 항목만 기존 저장 API로 반영한다. 질문 세트 preview는 후보별 포함/제외 선택을 거친 뒤 질문 뱅크의 활성 질문과 매칭되는 항목만 확정한다.
+- B의 공고 초안 `postingDraft`는 사용자 검토 전 저장하지 않는다. C의 JD 질문 `questionCandidates`는 guardrail과 NCS 정렬 검증을 모두 통과한 항목만 공통 질문 목록에 저장하고, 사용자가 Drawer에서 수정·삭제한 뒤 다음 단계 이동 시 현재 목록을 활성 질문 세트로 확정한다.

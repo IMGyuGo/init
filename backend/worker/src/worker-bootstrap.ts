@@ -76,6 +76,8 @@ export async function createWorkerRuntime(queue: AiJobQueue, env: WorkerEnv): Pr
     runner: new AiWorkerRunner(queue, repositories.processLogs, handler, {
       maxMessages: env.workerBatchSize,
       maxRetryableReceives: env.workerMaxRetryableReceives,
+      visibilityTimeoutSeconds: env.workerVisibilityTimeoutSeconds,
+      heartbeatIntervalMs: env.workerHeartbeatIntervalMs,
       onStart: createDocumentExtractionStartHandler(repositories.results),
       onFailure: createReportFailureHandler(repositories.results)
     }),

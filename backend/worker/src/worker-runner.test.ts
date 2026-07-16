@@ -278,10 +278,113 @@ test("loads SQS, S3 and AI provider settings from environment variables", () => 
       workerBatchSize: 5,
       workerMaxRetryableReceives: 3,
       workerPollIntervalMs: 2500,
+      workerVisibilityTimeoutSeconds: 900,
+      workerHeartbeatIntervalMs: 300000,
       workerRepositoryMode: "prisma",
       prismaClientModule: "../api/node_modules/@prisma/client"
     }
   );
+});
+
+test("extends SQS visibility and process lease while a provider call is running", async () => {
+  const queue = new InMemoryAiJobQueue([message(13)]);
+  const repository = new InMemoryAiProcessLogRepository();
+  const handler: AiTaskHandler = {
+    async handle() {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      return { outputRef: "question:13", guardrail: { result: "PASS", reason: null } };
+    },
+  };
+
+  await new AiWorkerRunner(queue, repository, handler, {
+    workerId: "worker-heartbeat",
+    visibilityTimeoutSeconds: 30,
+    heartbeatIntervalMs: 5,
+  }).processBatch();
+
+  assert.equal(repository.get(13).status, "COMPLETED");
+  assert.equal(repository.get(13).leaseOwner, undefined);
+  assert.ok(queue.visibilityExtensions.length >= 2);
+  assert.ok(queue.visibilityExtensions.every((extension) => extension.timeoutSeconds === 30));
+});
+
+test("acks duplicate processLogId deliveries without invoking the provider twice", async () => {
+  const queue = new InMemoryAiJobQueue([message(14)]);
+  const repository = new InMemoryAiProcessLogRepository();
+  let calls = 0;
+  const handler: AiTaskHandler = {
+    async handle() {
+      calls += 1;
+      return { outputRef: "question:14", guardrail: { result: "PASS", reason: null } };
+    },
+  };
+  const runner = new AiWorkerRunner(queue, repository, handler, { workerId: "worker-dedupe" });
+
+  await runner.processBatch();
+  await queue.publish(message(14).job);
+  await runner.processBatch();
+
+  assert.equal(calls, 1);
+  assert.equal(repository.get(14).status, "COMPLETED");
+  assert.equal(queue.deletedMessageIds.length, 2);
+});
+
+test("does not execute a concurrently leased processLogId", async () => {
+  const queue = new InMemoryAiJobQueue([message(15)]);
+  const repository = new InMemoryAiProcessLogRepository();
+  let calls = 0;
+  await repository.claim(message(15).job, "worker-a:message-15", new Date(Date.now() + 60_000));
+
+  await new AiWorkerRunner(queue, repository, {
+    async handle() {
+      calls += 1;
+      return { guardrail: { result: "PASS", reason: null } };
+    },
+  }, { workerId: "worker-b" }).processBatch();
+
+  assert.equal(calls, 0);
+  assert.equal(repository.get(15).status, "RUNNING");
+  assert.deepEqual(queue.deletedMessageIds, ["message-15"]);
+});
+
+test("heartbeat failure prevents final save and leaves the message for retry", async () => {
+  class FailingHeartbeatQueue extends InMemoryAiJobQueue {
+    private extensionCount = 0;
+
+    override async extendVisibility(queueMessage: AiQueueMessage, timeoutSeconds: number): Promise<void> {
+      this.extensionCount += 1;
+      if (this.extensionCount > 1) {
+        throw new Error("SQS visibility extension failed");
+      }
+      await super.extendVisibility(queueMessage, timeoutSeconds);
+    }
+  }
+
+  const queue = new FailingHeartbeatQueue([message(17)]);
+  const repository = new InMemoryAiProcessLogRepository();
+  let saved = false;
+  const handler: AiTaskHandler = {
+    async handle() {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return {
+        guardrail: { result: "PASS", reason: null },
+        finalSave: async () => {
+          saved = true;
+        },
+      };
+    },
+  };
+
+  await new AiWorkerRunner(queue, repository, handler, {
+    workerId: "worker-heartbeat-failure",
+    visibilityTimeoutSeconds: 30,
+    heartbeatIntervalMs: 5,
+  }).processBatch();
+
+  assert.equal(saved, false);
+  assert.equal(repository.get(17).status, "FAILED");
+  assert.match(repository.get(17).failure?.reason ?? "", /heartbeat failed/);
+  assert.deepEqual(queue.deletedMessageIds, []);
 });
 
 function message(processLogId: number, receiveCount?: number): AiQueueMessage {

@@ -68,6 +68,8 @@ export interface AiProcessLogSnapshot {
   inputRef: string;
   outputRef?: string;
   failure?: FailureReason;
+  leaseOwner?: string;
+  leaseExpiresAt?: string;
   startedAt?: string;
   completedAt?: string;
   durationMs?: number;

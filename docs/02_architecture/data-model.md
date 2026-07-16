@@ -706,13 +706,26 @@ NCS profile 집계 row는 `(report_id, ncs_profile_id)`를 unique key로 사용�
 | process_log_id | BIGINT PRIMARY KEY | AI 비동기 처리 로그 PK |
 | application_id | BIGINT | 관련 지원서 FK |
 | session_id | BIGINT | 관련 면접 세션 FK |
-| process_type | VARCHAR(80) NOT NULL | 처리 유형: DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING, GUARDRAIL_VALIDATE, CRITERIA_SUGGEST, QUESTION_GENERATE, RESUME_QUESTION_GENERATE(NQ-M3 예정), QUESTION_SET_GENERATE, POSTING_DRAFT_GENERATE |
+| process_type | VARCHAR(80) NOT NULL | 처리 유형: DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING, GUARDRAIL_VALIDATE, QUESTION_GENERATE, RESUME_QUESTION_GENERATE, POSTING_DRAFT_GENERATE. 폐기된 유형 값은 과거 로그 조회 호환을 위해 enum에 남길 수 있다. |
 | status | VARCHAR(40) NOT NULL | 처리 상태: PENDING, RUNNING, COMPLETED, FAILED |
 | input_ref | TEXT | 입력 참조값 |
 | output_ref | TEXT | 출력 참조값 |
 | failure_category | VARCHAR(40) | 실패 구분: RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED |
 | failure_reason | TEXT | 실패 사유. 재시도 가능 여부와 함께 기록 |
+| lease_owner | VARCHAR(160) | 현재 작업을 원자적으로 claim한 worker 실행 식별자 |
+| lease_expires_at | TIMESTAMP | worker claim 만료 시각. heartbeat마다 연장하며 만료된 RUNNING 작업만 재claim할 수 있다. |
+| started_at | TIMESTAMP | 현재 처리 시도 시작 시각 |
+| completed_at | TIMESTAMP | 처리 완료 또는 실패 시각 |
+| duration_ms | INTEGER | 현재 처리 시도의 실행 시간 |
+| model_name | VARCHAR(120) | 사용 model 이름 |
+| input_tokens | INTEGER | 입력 token 사용량 |
+| output_tokens | INTEGER | 출력 token 사용량 |
+| audio_seconds | INTEGER | STT 오디오 길이 |
+| estimated_cost_usd | DECIMAL(12,6) | 추정 AI 비용 |
+| cost_metadata_json | TEXT | 비용 계산 메타데이터 |
 | created_at | TIMESTAMP NOT NULL | 생성 시각 |
+
+`(status, lease_expires_at)` 조건부 갱신이 worker claim의 정본이다. `COMPLETED` 재전달은 provider를 호출하지 않고 ack하며, 유효한 lease가 있는 `RUNNING` 중복 메시지도 실행하지 않는다. `PENDING`, `FAILED`, 만료된 `RUNNING`만 새 lease를 획득할 수 있다. migration 이전에 생성된 `lease_expires_at IS NULL`인 `RUNNING` row는 배포 시 기존 worker를 중지한 뒤 새 worker가 한 번 재claim한다.
 
 ### ai_guardrail_logs
 

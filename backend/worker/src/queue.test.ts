@@ -96,6 +96,35 @@ test("SqsAiJobQueue deletes processed SQS messages by receipt handle", async () 
   });
 });
 
+test("SqsAiJobQueue extends message visibility for long AI provider calls", async () => {
+  const sentInputs: Array<Record<string, unknown>> = [];
+  const client = {
+    async send(command: unknown) {
+      sentInputs.push((command as { input: Record<string, unknown> }).input);
+      return {};
+    },
+  } as unknown as SQSClient;
+  const queue = new SqsAiJobQueue(client, "https://sqs.local/init-ai");
+  const queueMessage = {
+    messageId: "message-visibility",
+    receiptHandle: "receipt-visibility",
+    job: {
+      processLogId: 16,
+      processType: "QUESTION_GENERATE" as const,
+      inputRef: "question:16",
+      attempt: 1,
+    },
+  };
+
+  await queue.extendVisibility(queueMessage, 900);
+
+  assert.deepEqual(sentInputs[0], {
+    QueueUrl: "https://sqs.local/init-ai",
+    ReceiptHandle: "receipt-visibility",
+    VisibilityTimeout: 900,
+  });
+});
+
 test("createAiJobQueue selects SQS when AI_SQS_QUEUE_URL is configured", () => {
   const queue = createAiJobQueue({
     AI_SQS_QUEUE_URL: "https://sqs.local/init-ai",
