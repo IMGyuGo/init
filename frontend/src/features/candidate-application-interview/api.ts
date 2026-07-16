@@ -53,6 +53,8 @@ export interface ApiErrorDetail {
   field?: string;
   reason: string;
   message?: string;
+  limit?: number;
+  actualLength?: number;
 }
 
 export interface ApiErrorBody {

@@ -8,10 +8,12 @@ import {
   createEmptyProfileForm,
   createProfileFormState,
   getAccordionIndicator,
+  isSupportedProfileDateInput,
   newActivity,
   newCareer,
   newCredential,
   newEducation,
+  profileDateInputBounds,
   serializeProfileForm,
   validateProfileForm,
   type CandidateProfileFormState,
@@ -128,8 +130,8 @@ export function CandidateProfileSection() {
               <Field label="전공"><input value={item.major ?? ""} maxLength={150} onChange={(event) => updateEducation(index, { major: event.currentTarget.value })} /></Field>
               <Field label="학위·대학구분" error={fieldError(`educations.${index}.degreeType`)}><select data-profile-field={`educations.${index}.degreeType`} value={item.degreeType} onChange={(event) => updateEducation(index, { degreeType: event.currentTarget.value as typeof item.degreeType })}><option value="HIGH_SCHOOL_DIPLOMA">고등학교 졸업</option><option value="ASSOCIATE">전문학사</option><option value="BACHELOR">학사</option><option value="MASTER">석사</option><option value="DOCTORATE">박사</option><option value="OTHER">기타</option></select></Field>
               <Field label="재학·졸업 상태"><select value={item.status} onChange={(event) => { const status = event.currentTarget.value as typeof item.status; updateEducation(index, { status, endMonth: status === "ENROLLED" || status === "LEAVE_OF_ABSENCE" ? "" : item.endMonth }); }}><option value="ENROLLED">재학</option><option value="LEAVE_OF_ABSENCE">휴학</option><option value="GRADUATED">졸업</option><option value="EXPECTED_GRADUATION">졸업예정</option><option value="COMPLETED">수료</option><option value="WITHDRAWN">중퇴</option></select></Field>
-              <Field label="입학년월" error={fieldError(`educations.${index}.startMonth`)}><input data-profile-field={`educations.${index}.startMonth`} type="month" value={item.startMonth} onChange={(event) => updateEducation(index, { startMonth: event.currentTarget.value })} /></Field>
-              <Field label="졸업·예정년월" error={fieldError(`educations.${index}.endMonth`)}><input data-profile-field={`educations.${index}.endMonth`} type="month" disabled={item.status === "ENROLLED" || item.status === "LEAVE_OF_ABSENCE"} value={item.endMonth ?? ""} onChange={(event) => updateEducation(index, { endMonth: event.currentTarget.value })} /></Field>
+              <Field label="입학년월" error={fieldError(`educations.${index}.startMonth`)}><ProfileDateInput dataField={`educations.${index}.startMonth`} type="month" value={item.startMonth} onChange={(startMonth) => updateEducation(index, { startMonth })} /></Field>
+              <Field label="졸업·예정년월" error={fieldError(`educations.${index}.endMonth`)}><ProfileDateInput dataField={`educations.${index}.endMonth`} type="month" disabled={item.status === "ENROLLED" || item.status === "LEAVE_OF_ABSENCE"} value={item.endMonth ?? ""} onChange={(endMonth) => updateEducation(index, { endMonth })} /></Field>
             </fieldset>
           ))}
         </Accordion>
@@ -140,8 +142,8 @@ export function CandidateProfileSection() {
               <legend>경력 {index + 1}</legend><button type="button" className={styles.remove} aria-label={`경력 ${index + 1} 삭제`} onClick={() => setForm({ ...form, careers: form.careers.filter((_, i) => i !== index) })}>삭제</button>
               <Field label="회사명" error={fieldError(`careers.${index}.companyName`)}><input data-profile-field={`careers.${index}.companyName`} value={item.companyName} maxLength={150} onChange={(e) => updateCareer(index, { companyName: e.currentTarget.value })} /></Field>
               <Field label="직무" error={fieldError(`careers.${index}.jobRole`)}><input data-profile-field={`careers.${index}.jobRole`} value={item.jobRole} maxLength={100} onChange={(e) => updateCareer(index, { jobRole: e.currentTarget.value })} /></Field>
-              <Field label="입사년월" error={fieldError(`careers.${index}.startMonth`)}><input data-profile-field={`careers.${index}.startMonth`} type="month" value={item.startMonth} onChange={(e) => updateCareer(index, { startMonth: e.currentTarget.value })} /></Field>
-              <Field label="퇴사년월" error={fieldError(`careers.${index}.endMonth`)}><input data-profile-field={`careers.${index}.endMonth`} type="month" disabled={item.isCurrent} value={item.endMonth ?? ""} onChange={(e) => updateCareer(index, { endMonth: e.currentTarget.value })} /></Field>
+              <Field label="입사년월" error={fieldError(`careers.${index}.startMonth`)}><ProfileDateInput dataField={`careers.${index}.startMonth`} type="month" value={item.startMonth} onChange={(startMonth) => updateCareer(index, { startMonth })} /></Field>
+              <Field label="퇴사년월" error={fieldError(`careers.${index}.endMonth`)}><ProfileDateInput dataField={`careers.${index}.endMonth`} type="month" disabled={item.isCurrent} value={item.endMonth ?? ""} onChange={(endMonth) => updateCareer(index, { endMonth })} /></Field>
               <label className={styles.check}><input type="checkbox" checked={item.isCurrent} onChange={(e) => updateCareer(index, { isCurrent: e.currentTarget.checked, endMonth: e.currentTarget.checked ? "" : item.endMonth })} /> 재직 중</label>
               <Field label="근무부서"><input value={item.department ?? ""} maxLength={100} onChange={(e) => updateCareer(index, { department: e.currentTarget.value })} /></Field>
               <Field label="직급·직책"><input value={item.position ?? ""} maxLength={100} onChange={(e) => updateCareer(index, { position: e.currentTarget.value })} /></Field>
@@ -156,8 +158,8 @@ export function CandidateProfileSection() {
               <legend>활동 {index + 1}</legend><button type="button" className={styles.remove} aria-label={`활동 ${index + 1} 삭제`} onClick={() => setForm({ ...form, activities: form.activities.filter((_, i) => i !== index) })}>삭제</button>
               <Field label="활동구분"><select value={item.activityType} onChange={(e) => updateActivity(index, { activityType: e.currentTarget.value as typeof item.activityType })}><option value="SCHOOL_ACTIVITY">교내활동</option><option value="INTERNSHIP">인턴</option><option value="CLUB">동아리</option><option value="PROJECT_TASK">수행과제</option><option value="OVERSEAS_TRAINING">해외연수</option><option value="EDUCATION">교육이수내역</option></select></Field>
               <Field label="기관·회사명" error={fieldError(`activities.${index}.organizationName`)}><input data-profile-field={`activities.${index}.organizationName`} value={item.organizationName} maxLength={150} onChange={(e) => updateActivity(index, { organizationName: e.currentTarget.value })} /></Field>
-              <Field label="시작일" error={fieldError(`activities.${index}.startDate`)}><input data-profile-field={`activities.${index}.startDate`} type="date" value={item.startDate} onChange={(e) => updateActivity(index, { startDate: e.currentTarget.value })} /></Field>
-              <Field label="종료일" error={fieldError(`activities.${index}.endDate`)}><input data-profile-field={`activities.${index}.endDate`} type="date" disabled={item.isOngoing} value={item.endDate ?? ""} onChange={(e) => updateActivity(index, { endDate: e.currentTarget.value })} /></Field>
+              <Field label="시작일" error={fieldError(`activities.${index}.startDate`)}><ProfileDateInput dataField={`activities.${index}.startDate`} type="date" value={item.startDate} onChange={(startDate) => updateActivity(index, { startDate })} /></Field>
+              <Field label="종료일" error={fieldError(`activities.${index}.endDate`)}><ProfileDateInput dataField={`activities.${index}.endDate`} type="date" disabled={item.isOngoing} value={item.endDate ?? ""} onChange={(endDate) => updateActivity(index, { endDate })} /></Field>
               <label className={styles.check}><input type="checkbox" checked={item.isOngoing} onChange={(e) => updateActivity(index, { isOngoing: e.currentTarget.checked, endDate: e.currentTarget.checked ? "" : item.endDate })} /> 진행 중</label>
               <Field label="활동 내용" wide error={fieldError(`activities.${index}.description`)}><textarea data-profile-field={`activities.${index}.description`} value={item.description} maxLength={1000} onChange={(e) => updateActivity(index, { description: e.currentTarget.value })} /></Field>
             </fieldset>
@@ -171,7 +173,7 @@ export function CandidateProfileSection() {
               <Field label="구분"><select value={item.credentialType} onChange={(e) => updateCredential(index, { credentialType: e.currentTarget.value as typeof item.credentialType })}><option value="CERTIFICATE">자격증</option><option value="LANGUAGE_TEST">어학시험</option><option value="AWARD">수상·공모전</option></select></Field>
               <Field label="명칭" error={fieldError(`credentials.${index}.name`)}><input data-profile-field={`credentials.${index}.name`} value={item.name} maxLength={150} onChange={(e) => updateCredential(index, { name: e.currentTarget.value })} /></Field>
               <Field label="발행·주최기관" error={fieldError(`credentials.${index}.issuer`)}><input data-profile-field={`credentials.${index}.issuer`} value={item.issuer} maxLength={150} onChange={(e) => updateCredential(index, { issuer: e.currentTarget.value })} /></Field>
-              <Field label="취득년월" error={fieldError(`credentials.${index}.acquiredMonth`)}><input data-profile-field={`credentials.${index}.acquiredMonth`} type="month" value={item.acquiredMonth} onChange={(e) => updateCredential(index, { acquiredMonth: e.currentTarget.value })} /></Field>
+              <Field label="취득년월" error={fieldError(`credentials.${index}.acquiredMonth`)}><ProfileDateInput dataField={`credentials.${index}.acquiredMonth`} type="month" value={item.acquiredMonth} onChange={(acquiredMonth) => updateCredential(index, { acquiredMonth })} /></Field>
               <Field label="점수·등급·수상 결과"><input value={item.result ?? ""} maxLength={200} onChange={(e) => updateCredential(index, { result: e.currentTarget.value })} /></Field>
             </fieldset>
           ))}
@@ -204,6 +206,22 @@ export function CandidateProfileSection() {
   function updateCareer(index: number, patch: Partial<CandidateProfileFormState["careers"][number]>) { setForm((value) => ({ ...value, careers: value.careers.map((item, i) => i === index ? { ...item, ...patch } : item) })); }
   function updateActivity(index: number, patch: Partial<CandidateProfileFormState["activities"][number]>) { setForm((value) => ({ ...value, activities: value.activities.map((item, i) => i === index ? { ...item, ...patch } : item) })); }
   function updateCredential(index: number, patch: Partial<CandidateProfileFormState["credentials"][number]>) { setForm((value) => ({ ...value, credentials: value.credentials.map((item, i) => i === index ? { ...item, ...patch } : item) })); }
+}
+
+function ProfileDateInput({ dataField, type, value, disabled = false, onChange, ...ariaProps }: {
+  dataField: string;
+  type: "date" | "month";
+  value: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+  "aria-invalid"?: boolean;
+  "aria-describedby"?: string;
+}) {
+  const bounds = profileDateInputBounds[type];
+  return <input {...ariaProps} data-profile-field={dataField} type={type} min={bounds.min} max={bounds.max} disabled={disabled} value={value} onChange={(event) => {
+    const nextValue = event.currentTarget.value;
+    if (isSupportedProfileDateInput(nextValue, type)) onChange(nextValue);
+  }} />;
 }
 
 function Field({ label, children, error, wide = false }: { label: string; children: ReactNode; error?: ProfileFormError; wide?: boolean }) {

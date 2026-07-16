@@ -21,7 +21,7 @@
 .items { display: grid; gap: 14px; padding: 10px 16px 16px; }
 .item { background: #fff; }
 .remove { position: absolute; top: 8px; right: 12px; min-height: 30px; padding: 4px 9px; font-size: 12px; color: #b42318; }
-.check { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 14px; font-weight: 600; }
+.check { align-self: end; box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; font-size: 14px; font-weight: 600; }
 .check input { width: 18px; height: 18px; }
 .empty { margin: 4px 0; color: #69758d; }
 .textItems { grid-template-columns: 1fr; }
