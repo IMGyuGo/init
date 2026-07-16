@@ -122,6 +122,10 @@ const OPERATION_DOCUMENTATION_BY_HANDLER: Record<string, OperationDocumentation>
     summary: "모의면접 세션 제목 수정",
     description: "로그인한 지원자가 소유한 모의면접 세션의 제목을 최대 100자로 수정하며, 빈 값이면 제목을 초기화합니다. 이력 목록에서 세션을 쉽게 식별하기 위한 사용자 지정 제목입니다.",
   },
+  deleteMockInterview: {
+    summary: "모의면접 연습 이력 삭제",
+    description: "로그인한 지원자가 소유한 모의면접 세션을 소프트 삭제해 연습 이력, 면접 재개 및 리포트 조회에서 제외합니다. 사용한 이용권과 관련 데이터는 보존합니다.",
+  },
   getMockRuntime: {
     summary: "모의면접 런타임 조회",
     description: "본인 모의면접 세션의 현재 질문, 진행 상태, 시간 정책과 답변 진행 정보를 조회합니다.",
