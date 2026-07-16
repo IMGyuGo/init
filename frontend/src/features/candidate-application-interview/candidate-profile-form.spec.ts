@@ -1,10 +1,21 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import type { CandidateProfileSnapshotV1 } from "./api";
-import { appendProfileSnapshotItem, createProfileFormState, getAccordionIndicator, serializeProfileForm, validateProfileForm } from "./candidate-profile-form";
+import {
+  appendProfileSnapshotItem,
+  createProfileFormState,
+  getAccordionIndicator,
+  preserveNullableTextInput,
+  serializeProfileForm,
+  validateProfileForm,
+} from "./candidate-profile-form";
 
 assert.equal(getAccordionIndicator(false), "▼");
 assert.equal(getAccordionIndicator(true), "▲");
+assert.equal(preserveNullableTextInput(""), null);
+assert.equal(preserveNullableTextInput("백엔드 "), "백엔드 ");
+assert.equal(preserveNullableTextInput("첫 줄\n둘째 줄"), "첫 줄\n둘째 줄");
+assert.equal(preserveNullableTextInput("\n"), "\n");
 
 const form = createProfileFormState({
   name: "지원자",
@@ -69,6 +80,14 @@ const snapshotEditorSource = readFileSync("src/features/candidate-application-in
 assert.equal(snapshotEditorSource.includes("<details"), false);
 assert.equal(snapshotEditorSource.includes('className="candidate-profile-remove"'), true);
 assert.equal(snapshotEditorSource.includes("aria-expanded={open}"), true);
+assert.equal(
+  snapshotEditorSource.includes("summary: preserveNullableTextInput(event.currentTarget.value)"),
+  true,
+);
+assert.equal(
+  snapshotEditorSource.includes("coverLetter: preserveNullableTextInput(event.currentTarget.value)"),
+  true,
+);
 
 const mypageProfileSource = readFileSync("src/features/candidate-application-interview/CandidateProfileSection.tsx", "utf8");
 assert.equal(mypageProfileSource.includes('section="coverLetter"'), true);
