@@ -244,6 +244,8 @@ export class MockAiTaskHandler implements AiTaskHandler {
     return {
       outputRef: JSON.stringify({
         answerId,
+        providerMode: this.options.sttProvider ? "openai" : "mock",
+        providerSource: providerResult.transcriptSource,
         fileAsset: fileAssetRef(audioFileId, audioS3Key),
         transcript: providerResult.transcript,
         transcriptSource: providerResult.transcriptSource,
@@ -888,6 +890,8 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const draft = {
       kind,
       sourceProcessLogId: options.sourceProcessLogId,
+      providerMode: "mock" as const,
+      providerSource: "DETERMINISTIC_MOCK",
       items,
       postingDraft: options.postingDraft,
       criteriaSuggestions: options.criteriaSuggestions,
@@ -958,6 +962,8 @@ export class MockAiTaskHandler implements AiTaskHandler {
     return {
       outputRef: JSON.stringify({
         kind: "RESUME_PERSONALIZED_QUESTION_GENERATE",
+        providerMode: "mock",
+        providerSource: "DETERMINISTIC_MOCK",
         applicationId: context.applicationId,
         postingId: context.postingId,
         inputVersion: context.inputVersion,

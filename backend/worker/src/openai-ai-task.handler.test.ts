@@ -313,11 +313,15 @@ test("OpenAiAiTaskHandler uses provider for recruiting question generation and k
   await handled.finalSave?.();
   const output = JSON.parse(handled.outputRef ?? "{}") as {
     draftSource?: string;
+    providerMode?: string;
+    providerSource?: string;
     model?: string;
     questionCandidates?: Array<{ criterionId?: number; criterionTitle?: string; category?: string }>;
   };
 
   assert.equal(output.draftSource, "OPENAI_QUESTION_GENERATION");
+  assert.equal(output.providerMode, "openai");
+  assert.equal(output.providerSource, "OPENAI_QUESTION_GENERATION");
   assert.equal(output.model, "question-model");
   assert.equal(output.questionCandidates?.[0]?.criterionId, 1);
   assert.equal(output.questionCandidates?.[0]?.criterionTitle, "문제 해결력");
@@ -736,6 +740,8 @@ test("OpenAiAiTaskHandler uses provider for posting draft generation and keeps r
   const output = JSON.parse(handled.outputRef ?? "{}") as {
     kind?: string;
     draftSource?: string;
+    providerMode?: string;
+    providerSource?: string;
     model?: string;
     postingDraft?: { title?: string; sections?: Record<string, string>; tags?: string[] };
   };
@@ -744,6 +750,8 @@ test("OpenAiAiTaskHandler uses provider for posting draft generation and keeps r
   assert.deepEqual(postingDraftInputs[0]?.keywords, ["NestJS", "PostgreSQL"]);
   assert.equal(output.kind, "POSTING_DRAFT_GENERATE");
   assert.equal(output.draftSource, "OPENAI_POSTING_DRAFT_GENERATION");
+  assert.equal(output.providerMode, "openai");
+  assert.equal(output.providerSource, "OPENAI_POSTING_DRAFT_GENERATION");
   assert.equal(output.model, "posting-draft-model");
   assert.equal(output.postingDraft?.title, "2026 신입 백엔드 채용");
   assert.match(output.postingDraft?.sections?.positionDetail ?? "", /Backend Developer/);

@@ -156,11 +156,15 @@ test("STT stores transcript against the target interview answer", async () => {
     }
   ]);
   const output = JSON.parse(repository.get(11).outputRef ?? "{}") as {
+    providerMode?: string;
+    providerSource?: string;
     fileAsset?: { fileId?: number; storageKey?: string };
     transcriptTarget?: string;
     dedupeKey?: string;
     duplicatePolicy?: string;
   };
+  assert.equal(output.providerMode, "mock");
+  assert.equal(output.providerSource, "MOCK_AUDIO_PLACEHOLDER");
   assert.equal(output.fileAsset?.fileId, 11);
   assert.equal(output.fileAsset?.storageKey, "candidate/1/answer-42.wav");
   assert.equal(output.transcriptTarget, "interview_answers.transcript");
@@ -202,7 +206,14 @@ test("STT stores transcript returned by the configured STT provider", async () =
       transcript: "provider transcript for candidate/1/answer-42.wav"
     }
   ]);
-  const output = JSON.parse(repository.get(111).outputRef ?? "{}");
+  const output = JSON.parse(repository.get(111).outputRef ?? "{}") as {
+    providerMode?: string;
+    providerSource?: string;
+    transcriptSource?: string;
+    model?: string;
+  };
+  assert.equal(output.providerMode, "openai");
+  assert.equal(output.providerSource, "OPENAI_AUDIO_TRANSCRIPTION");
   assert.equal(output.transcriptSource, "OPENAI_AUDIO_TRANSCRIPTION");
   assert.equal(output.model, "test-stt-model");
 });

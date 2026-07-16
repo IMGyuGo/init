@@ -123,6 +123,9 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     const savedDraft = {
       kind: "POSTING_DRAFT_GENERATE",
       sourceProcessLogId: job.processLogId,
+      providerMode: "openai" as const,
+      providerSource: "OPENAI_POSTING_DRAFT_GENERATION",
+      model: generated.model,
       items,
       postingDraft: {
         title: generated.title,
@@ -139,7 +142,6 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       outputRef: JSON.stringify({
         ...savedDraft,
         draftSource: "OPENAI_POSTING_DRAFT_GENERATION",
-        model: generated.model
       }),
       guardrail: validatePostingDraft(generated),
       finalSave: () => this.results.saveGeneratedDraft(savedDraft)
@@ -215,6 +217,8 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       outputRef: JSON.stringify({
         sessionId,
         answerId,
+        providerMode: "openai",
+        providerSource: "OPENAI_FOLLOW_UP_GENERATION",
         policy,
         previousQuestion,
         content: generated.content,
@@ -309,6 +313,9 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     const savedDraft = {
       kind: mock ? "MOCK_QUESTION_GENERATE" : "RECRUITING_QUESTION_GENERATE",
       sourceProcessLogId: job.processLogId,
+      providerMode: "openai" as const,
+      providerSource: "OPENAI_QUESTION_GENERATION",
+      model: generated.model,
       items: questionCandidates.map((candidate) => candidate.content),
       questionCandidates,
       reviewRequired: true as const,
@@ -321,7 +328,6 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       outputRef: JSON.stringify({
         ...savedDraft,
         draftSource: "OPENAI_QUESTION_GENERATION",
-        model: generated.model
       }),
       guardrail: mock ? validateMockQuestionCandidates(questionCandidates) : { result: "PASS", reason: null },
       usage: createAiProcessUsage({
@@ -381,6 +387,8 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     return {
       outputRef: JSON.stringify({
         kind: "RESUME_PERSONALIZED_QUESTION_GENERATE",
+        providerMode: "openai",
+        providerSource: "OPENAI_QUESTION_GENERATION",
         applicationId: context.applicationId,
         postingId: context.postingId,
         inputVersion: context.inputVersion,
@@ -1001,6 +1009,8 @@ function appendReportProviderMetadata(
     const output = JSON.parse(outputRef) as Record<string, unknown>;
     return JSON.stringify({
       ...output,
+      providerMode: "openai",
+      providerSource: "OPENAI_REPORT_GENERATION",
       summarySource: "OPENAI_REPORT_GENERATION",
       model: generated.model,
       ...(reportType === "RECRUITING_REPORT"

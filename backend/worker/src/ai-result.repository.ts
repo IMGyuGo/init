@@ -108,6 +108,9 @@ export interface FollowUpQuestionRecord {
 export interface GeneratedDraftRecord {
   kind: string;
   sourceProcessLogId: number;
+  providerMode?: "mock" | "openai";
+  providerSource?: string;
+  model?: string;
   items: string[];
   postingDraft?: {
     title: string;

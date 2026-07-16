@@ -20,6 +20,7 @@ export interface WorkerEnv {
 export function loadWorkerEnv(env: NodeJS.ProcessEnv = process.env): WorkerEnv {
   const aiProviderMode = providerMode(env.AI_PROVIDER_MODE, "AI_PROVIDER_MODE");
   const aiSttProviderMode = providerMode(env.AI_STT_PROVIDER, "AI_STT_PROVIDER");
+  assertProductionProviderModes(env.NODE_ENV, aiProviderMode, aiSttProviderMode);
   return {
     aiSqsQueueUrl: requiredOneOf(env, ["AI_SQS_QUEUE_URL", "SQS_QUEUE_URL"]),
     awsRegion: required(env, "AWS_REGION"),
@@ -38,6 +39,27 @@ export function loadWorkerEnv(env: NodeJS.ProcessEnv = process.env): WorkerEnv {
     workerRepositoryMode: repositoryMode(env.WORKER_REPOSITORY_MODE),
     prismaClientModule: optional(env.PRISMA_CLIENT_MODULE)
   };
+}
+
+function assertProductionProviderModes(
+  nodeEnv: string | undefined,
+  aiProviderMode: WorkerEnv["aiProviderMode"],
+  aiSttProviderMode: WorkerEnv["aiSttProviderMode"],
+): void {
+  if (nodeEnv?.trim().toLowerCase() !== "production") {
+    return;
+  }
+
+  const invalidModes = [
+    aiProviderMode !== "openai" ? `AI_PROVIDER_MODE=${aiProviderMode}` : undefined,
+    aiSttProviderMode !== "openai" ? `AI_STT_PROVIDER=${aiSttProviderMode}` : undefined,
+  ].filter((value): value is string => Boolean(value));
+
+  if (invalidModes.length > 0) {
+    throw new Error(
+      `Production worker requires AI_PROVIDER_MODE=openai and AI_STT_PROVIDER=openai. Invalid: ${invalidModes.join(", ")}.`,
+    );
+  }
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {

@@ -134,3 +134,28 @@ test("loadWorkerEnv validates provider mode and OpenAI runtime settings", () => 
     /OPENAI_API_KEY or AI_PROVIDER_API_KEY is required/
   );
 });
+
+test("loadWorkerEnv rejects mock providers in production", () => {
+  assert.throws(
+    () => loadWorkerEnv({ ...validEnv, NODE_ENV: "production" }),
+    /Production worker requires AI_PROVIDER_MODE=openai and AI_STT_PROVIDER=openai/,
+  );
+  assert.throws(
+    () => loadWorkerEnv({
+      ...validEnv,
+      NODE_ENV: "production",
+      AI_PROVIDER_MODE: "openai",
+      AI_STT_PROVIDER: "mock",
+    }),
+    /AI_STT_PROVIDER=mock/,
+  );
+
+  const production = loadWorkerEnv({
+    ...validEnv,
+    NODE_ENV: "production",
+    AI_PROVIDER_MODE: "openai",
+    AI_STT_PROVIDER: "openai",
+  });
+  assert.equal(production.aiProviderMode, "openai");
+  assert.equal(production.aiSttProviderMode, "openai");
+});

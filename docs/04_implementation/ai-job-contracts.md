@@ -48,6 +48,9 @@ GET /api/v1/ai/jobs/101/status
     "status": "COMPLETED",
     "output": {
       "sourceProcessLogId": 101,
+      "providerMode": "openai",
+      "providerSource": "OPENAI_QUESTION_GENERATION",
+      "model": "gpt-4o-mini",
       "items": ["Question 1", "Question 2"],
       "questionCandidates": [
         {
@@ -69,6 +72,21 @@ GET /api/v1/ai/jobs/101/status
   }
 }
 ```
+
+### Provider provenance와 운영 안전 규칙
+
+모든 AI worker 완료 output은 실제 실행 경로를 구분할 수 있도록 아래 필드를 포함한다.
+
+| Field | Value | Rule |
+| --- | --- | --- |
+| `providerMode` | `openai`, `mock` | 실제 외부 provider 호출 여부를 나타낸다. |
+| `providerSource` | 작업별 고정 source 문자열 | `OPENAI_QUESTION_GENERATION`, `OPENAI_REPORT_GENERATION`, `OPENAI_AUDIO_TRANSCRIPTION`, `DETERMINISTIC_MOCK`처럼 결과 생성 경로를 나타낸다. |
+| `model` | nullable string | 외부 모델을 호출한 경우 실제 모델명을 기록한다. |
+
+- `NODE_ENV=production`인 worker는 `AI_PROVIDER_MODE=openai`와 `AI_STT_PROVIDER=openai`를 모두 요구한다. 하나라도 `mock`이거나 생략되면 worker는 시작하지 않는다.
+- local/CI의 결정론적 fixture는 `mock`을 계속 사용할 수 있지만 완료 output에 `providerMode=mock`, `providerSource=DETERMINISTIC_MOCK`을 명시한다.
+- `openai` 모드에서 지원하지 않는 process type을 mock 결과로 조용히 대체해서는 안 된다. 운영 연결 전 실제 adapter가 없는 process type은 명시적으로 실패시킨다.
+- provider mode와 source는 화면 표시용 추정값이 아니라 worker가 결과 생성 시 기록하는 정본이다.
 
 실패 응답은 재시도 가능 여부를 포함한다.
 
@@ -299,6 +317,9 @@ type CandidateProfileAiContextV1 = {
 ```json
 {
   "sourceProcessLogId": 101,
+  "providerMode": "openai",
+  "providerSource": "OPENAI_QUESTION_GENERATION",
+  "model": "gpt-4o-mini",
   "items": ["Question 1", "Question 2"],
   "questionCandidates": [
     {
