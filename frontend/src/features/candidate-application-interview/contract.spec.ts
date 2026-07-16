@@ -531,7 +531,7 @@ const query: CandidateJobQuery = {
 const closedFilterQuery: CandidateJobQuery = { postingStatus: "CLOSED" };
 
 const submitRequest: SubmitApplicationRequest = toSubmitApplicationRequest({
-  candidateName: " Kim ",
+  candidateName: " Kim Applicant ",
   email: " kim@example.com ",
   phone: " 010-0000-0000 ",
   githubUrl: " https://github.com/kim ",
@@ -542,7 +542,7 @@ const submitRequest: SubmitApplicationRequest = toSubmitApplicationRequest({
   additionalInfo: " 추가 설명 ",
   profileSnapshot: {
     schemaVersion: 1,
-    name: "Kim",
+    name: "Kim Applicant",
     email: "kim@example.com",
     phone: "010-0000-0000",
     githubUrl: "https://github.com/kim",
