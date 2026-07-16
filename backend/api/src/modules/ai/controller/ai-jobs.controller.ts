@@ -27,7 +27,6 @@ import {
   POSTING_DRAFT_INPUT_LIMITS,
   PostingDraftGenerateRequestDto,
   QuestionGenerateRequestDto,
-  QuestionSetGenerateRequestDto,
   SttRequestDto,
 } from "../dto/ai-job.dto";
 import { AiJobResponseDto } from "../../report/dto/report-response.dto";
@@ -547,20 +546,6 @@ export class CompanyAiJobsController {
       body,
     );
     return this.dispatchCompanyJob("QUESTION_GENERATE", "RECRUITING_QUESTION_GENERATE", request, payload);
-  }
-
-  @Post("question-sets")
-  @HttpCode(HttpStatus.ACCEPTED)
-  @ApiOperationId("API-039")
-  @ApiOperation({ summary: "면접 질문 목록 구성 작업 생성" })
-  @ApiEnvelopeResponse(AiJobResponseDto, 202)
-  async generateQuestionSet(@Req() request: CompanyAiRequest, @Body() body: QuestionSetGenerateRequestDto) {
-    const currentUser = this.company(request);
-    const payload = await this.companyInterviewService.prepareQuestionSetGeneration(
-      { ...currentUser, companyId: currentUser.companyId ?? null, candidateId: currentUser.candidateId ?? null },
-      body,
-    );
-    return this.dispatchCompanyJob("QUESTION_SET_GENERATE", "QUESTION_SET_GENERATE", request, payload);
   }
 
   private async dispatchCompanyJob(processType: AiProcessType, kind: string, request: CompanyAiRequest, body: object) {

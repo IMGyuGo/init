@@ -12,7 +12,6 @@ import {
   createInterviewQuestion,
   deleteInterviewQuestion,
   generateInterviewQuestions,
-  generateQuestionSet,
   getAiJobStatus,
   getInterviewSettings,
   suggestEvaluationCriteria,
@@ -33,7 +32,6 @@ import type {
   AiProcessStatus,
   CriteriaSuggestionCandidate,
   GeneratedQuestionCandidate,
-  GeneratedQuestionSetCandidate,
   InterviewSettings,
   EvaluationFramework,
   NcsProfileId,
@@ -76,7 +74,7 @@ type QuestionGenerationPolicyDraft = {
   resumeQuestionCount: string;
 };
 
-type AiJobKind = "criteria" | "questions" | "questionSet";
+type AiJobKind = "criteria" | "questions";
 
 type AiJobNotice = {
   kind: AiJobKind;
@@ -87,20 +85,6 @@ type AiJobNotice = {
   failure?: AiJobResult["failure"];
   requestedAt: number;
   lastCheckedAt: number;
-};
-
-type QuestionSetPreviewItem = {
-  criterionId: number;
-  criterionLabel: string;
-  questionId: number | null;
-  questionType: QuestionType | null;
-  content: string;
-};
-
-type QuestionSetConfirmSummary = {
-  confirmableCount: number;
-  missingCriteriaCount: number;
-  totalCriteriaCount: number;
 };
 
 const QUESTION_TYPE_OPTIONS: Array<{ value: QuestionType; label: string }> = [
@@ -335,7 +319,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     return settings.questions.filter((question) => question.criterionId === null || visibleCriterionIds.has(question.criterionId));
   }, [criteriaDrafts, settings]);
 
-  const questionSetPreview = useMemo(() => buildQuestionSetPreview(settings), [settings]);
   const activeAiJobKinds = useMemo(
     () => new Set(aiJobNotices.filter((notice) => !isTerminalAiStatus(notice.status)).map((notice) => notice.kind)),
     [aiJobNotices],
@@ -1003,37 +986,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     }
   }
 
-  async function handleGenerateQuestionSet() {
-    if (!settings) return;
-    if (isAiRequestBlocked("questionSet", aiJobSubmitting, activeAiJobKinds)) return;
-
-    if (settings.criteria.length === 0 || settings.questions.length === 0) {
-      setAiJobError("질문 세트를 구성하려면 평가 기준과 면접 질문 구성이 필요합니다.");
-      return;
-    }
-
-    setAiJobSubmitting("questionSet");
-    setAiJobError("");
-    try {
-      const questionTypes = uniqueQuestionTypes(settings.questions);
-      const response = await generateQuestionSet({
-        postingId: settings.posting.postingId,
-        questionCount: Math.max(1, questionSetPreview.filter((item) => item.questionId !== null).length),
-        criteria: settings.criteria.map((criterion) => ({
-          criterionId: criterion.criterionId,
-          name: criterion.tagName,
-          weight: criterion.weight,
-        })),
-        questionTypes: questionTypes.length > 0 ? questionTypes : ["TECHNICAL"],
-      });
-      rememberAiJob("questionSet", "면접 질문 세트 구성", response.data);
-    } catch (error) {
-      setAiJobError(formatAiRequestError(error instanceof Error ? error.message : "질문 세트 구성 요청에 실패했습니다."));
-    } finally {
-      setAiJobSubmitting(null);
-    }
-  }
-
   function rememberAiJob(kind: AiJobKind, label: string, result: AiJobResult) {
     setAiJobNotices((current) => [
       {
@@ -1261,34 +1213,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     }
     if (kind === "questions") {
       void handleGenerateQuestions();
-      return;
-    }
-    void handleGenerateQuestionSet();
-  }
-
-  async function confirmAiQuestionSet(notice: AiJobNotice, groups: GeneratedQuestionSetCandidate[]) {
-    if (!settings) return;
-
-    const items = buildQuestionSetConfirmItems(settings, groups);
-    if (items.length === 0) {
-      setAiJobError("확정할 수 있는 질문이 없습니다. 면접 질문 구성에 저장된 질문만 질문 세트로 확정할 수 있습니다.");
-      return;
-    }
-
-    setQuestionSetConfirming(true);
-    setAiJobError("");
-    try {
-      await confirmQuestionSet({
-        postingId: settings.posting.postingId,
-        title: `${settings.posting.title} 면접 질문 세트`,
-        sourceProcessLogId: notice.processLogId,
-        items,
-      });
-      setMessage(`면접 질문 세트가 확정되었습니다. 저장된 질문 ${items.length}개`);
-    } catch (error) {
-      setAiJobError(error instanceof Error ? error.message : "질문 세트 확정에 실패했습니다.");
-    } finally {
-      setQuestionSetConfirming(false);
     }
   }
 
@@ -1421,14 +1345,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                   >
                     {getAiRequestButtonLabel("questions", "AI 질문 추천받기", aiJobSubmitting, activeAiJobKinds)}
                   </button>
-                  <button
-                    className="btn primary compact"
-                    type="button"
-                    disabled={isAiRequestBlocked("questionSet", aiJobSubmitting, activeAiJobKinds)}
-                    onClick={() => void handleGenerateQuestionSet()}
-                  >
-                    {getAiRequestButtonLabel("questionSet", "질문 세트 만들기", aiJobSubmitting, activeAiJobKinds)}
-                  </button>
                 </div>
               </div>
               {aiJobError ? <p className="notice danger">{aiJobError}</p> : null}
@@ -1457,12 +1373,10 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                             settings={settings}
                             criteriaDrafts={criteriaDrafts}
                             questionSaving={questionSaving}
-                            questionSetConfirming={questionSetConfirming}
                             onApplyCriteria={(candidate, selectedTagId) => void applyCriteriaSuggestion(candidate, selectedTagId)}
                             onApplyQuestion={(candidate, selectedCriterionId) =>
                               void applyQuestionCandidate(candidate, selectedCriterionId, "ai", notice.processLogId)
                             }
-                            onConfirmQuestionSet={(groups) => void confirmAiQuestionSet(notice, groups)}
                           />
                         ) : null}
                       </div>
@@ -2036,28 +1950,6 @@ function buildJobDescription(settings: InterviewSettings) {
   return `공고명: ${settings.posting.title}\n평가 기준: ${criteriaText}\n면접 질문 구성: ${questionText}`;
 }
 
-function uniqueQuestionTypes(questions: InterviewSettings["questions"]) {
-  return Array.from(new Set(questions.map((question) => question.questionType)));
-}
-
-function buildQuestionSetPreview(settings: InterviewSettings | null): QuestionSetPreviewItem[] {
-  if (!settings) return [];
-
-  return [...settings.criteria]
-    .sort((left, right) => left.sortOrder - right.sortOrder)
-    .map((criterion) => {
-      const question = settings.questions.find((item) => item.criterionId === criterion.criterionId && item.isActive);
-
-      return {
-        criterionId: criterion.criterionId,
-        criterionLabel: `${criterion.tagName} · ${criterion.category}`,
-        questionId: question?.questionId ?? null,
-        questionType: question?.questionType ?? null,
-        content: question?.content ?? "연결된 활성 질문이 없습니다.",
-      };
-    });
-}
-
 function validateQuestionForm(
   settings: InterviewSettings,
   criterionId: number,
@@ -2266,26 +2158,20 @@ function AiJobPreview({
   settings,
   criteriaDrafts,
   questionSaving,
-  questionSetConfirming,
   onApplyCriteria,
   onApplyQuestion,
-  onConfirmQuestionSet,
 }: {
   notice: AiJobNotice;
   settings: InterviewSettings;
   criteriaDrafts: CriteriaDraft[];
   questionSaving: boolean;
-  questionSetConfirming: boolean;
   onApplyCriteria: (candidate: CriteriaSuggestionCandidate, selectedTagId?: number) => void | Promise<void>;
   onApplyQuestion: (candidate: GeneratedQuestionCandidate, selectedCriterionId?: number) => void;
-  onConfirmQuestionSet: (groups: GeneratedQuestionSetCandidate[]) => void;
 }) {
   const [criteriaTagSelections, setCriteriaTagSelections] = useState<Record<string, string>>({});
   const [questionCriterionSelections, setQuestionCriterionSelections] = useState<Record<string, string>>({});
-  const [questionSetSelections, setQuestionSetSelections] = useState<Record<string, boolean>>({});
   const criteriaSuggestions = getCriteriaSuggestions(notice.output);
   const questionCandidates = getQuestionCandidates(notice.output);
-  const questionSetPreview = getGeneratedQuestionSetPreview(notice.output);
 
   if (notice.kind === "criteria") {
     return (
@@ -2429,113 +2315,7 @@ function AiJobPreview({
     );
   }
 
-  const selectedQuestionSetPreview = questionSetPreview
-    .map((group, groupIndex) => ({
-      ...group,
-      questions: group.questions.filter((candidate, questionIndex) => {
-        const key = getQuestionSetCandidateKey(group, groupIndex, candidate, questionIndex);
-        const question = findQuestionForCandidate(settings, candidate, group);
-        return Boolean(question) && questionSetSelections[key] !== false;
-      }),
-    }))
-    .filter((group) => group.questions.length > 0);
-  const selectedSummary = buildQuestionSetConfirmSummary(settings, selectedQuestionSetPreview);
-  const selectedItems = buildQuestionSetConfirmItems(settings, selectedQuestionSetPreview);
-
-  return (
-    <div className="posting-list ai-result-list">
-      {questionSetPreview.length > 0 ? (
-        <QuestionSetConfirmNotice summary={selectedSummary} />
-      ) : null}
-      {questionSetPreview.map((group, groupIndex) => {
-        const includedQuestions = group.questions.filter((candidate, questionIndex) => {
-          const key = getQuestionSetCandidateKey(group, groupIndex, candidate, questionIndex);
-          return questionSetSelections[key] !== false;
-        });
-        const groupSummary = buildQuestionSetConfirmSummary(settings, [{ ...group, questions: includedQuestions }]);
-        const firstConfirmableQuestion = buildQuestionSetConfirmItems(settings, [{ ...group, questions: includedQuestions }]).length > 0;
-        return (
-          <div className="posting ai-result-card" key={`${group.criterionTitle}-${groupIndex}`}>
-            <div className="ai-result-main">
-              <h3>{group.criterionTitle}</h3>
-              <div className="posting-list" style={{ marginTop: 8 }}>
-                {group.questions.length > 0 ? (
-                  group.questions.map((candidate, questionIndex) => {
-                    const key = getQuestionSetCandidateKey(group, groupIndex, candidate, questionIndex);
-                    const question = findQuestionForCandidate(settings, candidate, group);
-                    const checked = Boolean(question) && questionSetSelections[key] !== false;
-                    return (
-                      <label className="check-row" key={key}>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          disabled={!question || questionSetConfirming}
-                          onChange={(event) =>
-                            setQuestionSetSelections((current) => ({
-                              ...current,
-                              [key]: event.target.checked,
-                            }))
-                          }
-                        />
-                        <span>
-                          {candidate.content}
-                          <span>
-                            {question
-                              ? `${getQuestionTypeLabel(question.questionType)} · ${getCriterionLabel(settings, question.criterionId)}`
-                              : "면접 질문 구성에 저장된 활성 질문과 매칭되지 않아 확정할 수 없습니다."}
-                          </span>
-                        </span>
-                      </label>
-                    );
-                  })
-                ) : (
-                  <p>AI가 제안한 질문이 없습니다.</p>
-                )}
-              </div>
-              {groupSummary.confirmableCount > 0 ? (
-                <p>선택된 활성 질문 {groupSummary.confirmableCount}개가 확정 대상입니다.</p>
-              ) : (
-                <p>선택된 확정 대상이 없습니다. 질문을 포함하거나 면접 질문 구성에 먼저 저장해주세요.</p>
-              )}
-            </div>
-            <span className={`badge ${firstConfirmableQuestion ? "success" : "warning"}`}>
-              {firstConfirmableQuestion ? "확정 가능" : "질문 없음"}
-            </span>
-          </div>
-        );
-      })}
-      {questionSetPreview.length > 0 ? (
-        <button
-          className="btn primary compact"
-          type="button"
-          disabled={questionSetConfirming || selectedItems.length === 0}
-          onClick={() => onConfirmQuestionSet(selectedQuestionSetPreview)}
-        >
-          {questionSetConfirming ? "확정 중" : `선택 질문 ${selectedItems.length}개 확정`}
-        </button>
-      ) : null}
-      {questionSetPreview.length === 0 ? <div className="empty">{getEmptyAiOutputMessage(notice)}</div> : null}
-    </div>
-  );
-}
-
-function QuestionSetConfirmNotice({ summary }: { summary: QuestionSetConfirmSummary }) {
-  if (summary.confirmableCount === 0) {
-    return (
-      <div className="empty">
-        질문 세트로 확정할 수 있는 활성 질문이 없습니다. 면접 질문 구성에 평가 기준과 연결된 활성 질문을 먼저 추가해주세요.
-      </div>
-    );
-  }
-
-  return (
-    <div className="empty">
-      확정 시 활성 질문 {summary.confirmableCount}개가 저장됩니다.
-      {summary.missingCriteriaCount > 0
-        ? ` 연결된 질문이 없는 평가 기준 ${summary.missingCriteriaCount}개는 이번 질문 세트에서 제외됩니다.`
-        : " 모든 평가 기준에 확정 가능한 질문이 연결되어 있습니다."}
-    </div>
-  );
+  return null;
 }
 
 function isTerminalAiStatus(status: AiProcessStatus) {
@@ -2609,36 +2389,6 @@ function getQuestionCandidates(output?: AiJobOutput): GeneratedQuestionCandidate
     suggestionReason: "AI 생성 결과 검토가 필요합니다.",
     questionType: "TECHNICAL",
   }));
-}
-
-function getGeneratedQuestionSetPreview(output?: AiJobOutput): GeneratedQuestionSetCandidate[] {
-  if (Array.isArray(output?.questionSetPreview)) {
-    return output.questionSetPreview;
-  }
-
-  const questions = getQuestionCandidates(output);
-  if (questions.length === 0) return [];
-
-  return [
-    {
-      criterionTitle: "AI 질문 세트",
-      questions,
-    },
-  ];
-}
-
-function getQuestionSetCandidateKey(
-  group: GeneratedQuestionSetCandidate,
-  groupIndex: number,
-  candidate: GeneratedQuestionCandidate,
-  questionIndex: number,
-) {
-  return [
-    group.criterionId ?? group.criterionTitle,
-    groupIndex,
-    candidate.questionId ?? normalizeText(candidate.content),
-    questionIndex,
-  ].join(":");
 }
 
 function findSuggestionTag(
@@ -2719,75 +2469,6 @@ function findSavedQuestionCandidate(settings: InterviewSettings, candidate: Gene
     if (normalizeText(question.content) !== normalizedContent) return false;
     return true;
   });
-}
-
-function buildQuestionSetConfirmItems(settings: InterviewSettings, groups: GeneratedQuestionSetCandidate[]) {
-  const usedQuestionIds = new Set<number>();
-  const items: Array<{ questionId: number; criterionId?: number | null; sortOrder: number }> = [];
-
-  for (const group of groups) {
-    for (const candidate of group.questions) {
-      const question = findQuestionForCandidate(settings, candidate, group);
-      if (!question || usedQuestionIds.has(question.questionId)) continue;
-      usedQuestionIds.add(question.questionId);
-      items.push({
-        questionId: question.questionId,
-        criterionId: question.criterionId,
-        sortOrder: items.length + 1,
-      });
-    }
-  }
-
-  return items;
-}
-
-function buildQuestionSetConfirmSummary(settings: InterviewSettings, groups: GeneratedQuestionSetCandidate[]): QuestionSetConfirmSummary {
-  const items = buildQuestionSetConfirmItems(settings, groups);
-  const matchedCriterionIds = new Set(items.map((item) => item.criterionId).filter((criterionId): criterionId is number => Number.isInteger(criterionId)));
-  const groupCriterionIds = new Set(
-    groups
-      .map((group) => group.criterionId ?? findCriterionIdByTitle(settings, group.criterionTitle))
-      .filter((criterionId): criterionId is number => Number.isInteger(criterionId)),
-  );
-  const totalCriteriaCount = groupCriterionIds.size || groups.length;
-
-  return {
-    confirmableCount: items.length,
-    missingCriteriaCount: Math.max(totalCriteriaCount - matchedCriterionIds.size, 0),
-    totalCriteriaCount,
-  };
-}
-
-function findQuestionForCandidate(
-  settings: InterviewSettings,
-  candidate: GeneratedQuestionCandidate,
-  group?: GeneratedQuestionSetCandidate,
-) {
-  if (candidate.questionId) {
-    return settings.questions.find((question) => question.questionId === candidate.questionId && question.isActive);
-  }
-
-  const normalizedContent = normalizeText(candidate.content);
-  const exact = settings.questions.find((question) => normalizeText(question.content) === normalizedContent && question.isActive);
-  if (exact) return exact;
-
-  const criterionId =
-    candidate.criterionId ??
-    group?.criterionId ??
-    findCriterionIdByTitle(settings, candidate.criterionTitle ?? group?.criterionTitle);
-  if (!criterionId) return undefined;
-
-  return settings.questions.find((question) => question.criterionId === criterionId && question.isActive);
-}
-
-function findCriterionIdByTitle(settings: InterviewSettings, title: string | undefined) {
-  const normalizedTitle = normalizeText(title ?? "");
-  if (!normalizedTitle) return undefined;
-  return (
-    settings.criteria.find((criterion) => normalizeText(criterion.tagName) === normalizedTitle)?.criterionId ??
-    settings.criteria.find((criterion) => normalizedTitle.includes(normalizeText(criterion.tagName)))?.criterionId ??
-    settings.criteria.find((criterion) => normalizeText(criterion.category) === normalizedTitle)?.criterionId
-  );
 }
 
 function getQuestionTypeLabel(type: QuestionType) {

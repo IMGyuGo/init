@@ -82,13 +82,6 @@ type CommonQuestionGenerationRequest = {
   questionCount?: number;
 };
 
-type QuestionSetGenerationRequest = {
-  postingId: number;
-  questionCount: number;
-  criteria: Array<{ criterionId: number; name: string; weight?: number }>;
-  questionTypes: string[];
-};
-
 const COMPANY_QUESTION_REVIEW_EVALUATOR_VERSION = 'company-question-review-v1';
 const COMPANY_QUESTION_CREATE_REVIEW_REASON =
   '기업 면접관이 질문을 작성하고 NCS 평가 기준 연결을 확인했습니다.';
@@ -558,52 +551,6 @@ export class CompanyInterviewService {
           };
         }),
       ),
-    };
-  }
-
-  async prepareQuestionSetGeneration(
-    currentUser: CurrentUser,
-    dto: QuestionSetGenerationRequest,
-  ) {
-    const posting = await this.getOwnedPosting(currentUser, dto.postingId);
-    const criteria = await this.repository.listCriteria(posting.postingId);
-    const policy =
-      (await this.repository.getQuestionGenerationPolicy(posting.postingId)) ??
-      defaultQuestionGenerationPolicy(posting.postingId);
-    const questionCount =
-      policy.evaluationFramework === 'NCS_3_PROFILE_V1'
-        ? policy.jdCriteriaQuestionCount
-        : dto.questionCount;
-
-    if (
-      policy.evaluationFramework === 'NCS_3_PROFILE_V1' &&
-      dto.questionCount !== questionCount
-    ) {
-      questionCountInvalid('NCS 질문 세트 개수는 저장된 JD 공통 질문 개수와 일치해야 합니다.', [
-        { field: 'questionCount', reason: 'POLICY_COUNT_MISMATCH' },
-      ]);
-    }
-    if (questionCount < 1 || criteria.length === 0) {
-      validationFailed('질문 세트 생성을 위한 질문 개수와 평가 기준을 확인해주세요.');
-    }
-
-    return {
-      postingId: posting.postingId,
-      questionCount,
-      criteria:
-        policy.evaluationFramework === 'NCS_3_PROFILE_V1'
-          ? await this.mapCriteria(criteria).then((items) =>
-              items.map((criterion) => ({
-                criterionId: criterion.criterionId,
-                name: criterion.tagName,
-                weight: criterion.weight,
-              })),
-            )
-          : dto.criteria,
-      questionTypes: dto.questionTypes,
-      policyVersion: policy.policyVersion,
-      criteriaVersion: policy.criteriaVersion,
-      source: 'JD_CRITERIA' as const,
     };
   }
 

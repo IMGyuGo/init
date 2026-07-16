@@ -373,46 +373,16 @@ type CandidateProfileAiContextV1 = {
 }
 ```
 
-질문 세트 draft 출력:
-
-```json
-{
-  "sourceProcessLogId": 103,
-  "items": ["TECHNICAL question 1 for 문제 해결력"],
-  "questionSetPreview": [
-    {
-      "criterionId": 1,
-      "criterionTitle": "문제 해결력",
-      "questions": [
-        {
-          "content": "TECHNICAL question 1 for 문제 해결력",
-          "category": "질문 세트",
-          "difficulty": "MEDIUM",
-          "criterionId": 1,
-          "criterionTitle": "문제 해결력",
-          "expectedKeywords": ["상황", "행동", "결과"],
-          "suggestionReason": "평가 기준별 질문 세트 구성을 위해 선택된 후보입니다.",
-          "questionType": "TECHNICAL"
-        }
-      ]
-    }
-  ],
-  "reviewRequired": true,
-  "reviewStatus": "PENDING_REVIEW",
-  "targetTables": ["question_bank", "interview_question_sets"],
-  "postingId": 2
-}
-```
-
 ## C 면접 설정 화면 적용 규칙
 
-C 화면은 E worker가 반환한 draft output을 자동 저장하지 않는다. 화면은 아래 규칙으로 미리보기와 수동 적용 상태만 관리한다.
+C 화면은 E worker가 반환한 평가 기준 draft와 정렬 검증을 통과한 질문 결과를 아래 규칙으로 적용한다.
 
 | Output field | C 화면 표시 | 사용자 적용 | 중복/빈 결과 처리 |
 | --- | --- | --- | --- |
 | `criteriaSuggestions[]` | 평가 기준 추천 목록 | 사용자가 태그를 선택하거나 자동 매칭된 태그를 확인한 뒤 평가 기준 draft에 추가 | 이미 선택된 태그는 `적용됨`으로 표시하고 중복 추가하지 않는다. 적용 시 배점 합계가 100을 넘으면 적용을 막는다. |
-| `questionCandidates[]` | JD 질문 후보 목록 | 사용자가 평가 기준을 선택한 뒤 기존 `POST /company/interviews/questions`로 질문 뱅크에 저장 | 같은 공고에 동일한 활성 질문이 있으면 `저장됨`으로 표시하고 중복 저장하지 않는다. |
-| `questionSetPreview[]` | 평가 기준별 질문 세트 후보 | 사용자가 후보별 포함/제외를 선택한 뒤 기존 `POST /company/interviews/question-sets/confirm`으로 확정 | 질문 뱅크의 활성 질문과 매칭되지 않는 후보는 확정 대상에서 제외한다. 선택된 확정 대상이 없으면 확정을 막는다. |
+| `questionCandidates[]` | 하단 공통 질문 목록 | `ALIGNED` 결과를 기존 `POST /company/interviews/questions`로 즉시 저장하고 사용자는 Drawer에서 수정·삭제 | 같은 공고의 동일 질문은 중복 저장하지 않는다. 정렬 미통과 또는 평가 기준 연결 실패 질문은 저장하지 않는다. |
+
+별도의 `QUESTION_SET_GENERATE` draft와 질문 세트 미리보기 UI는 사용하지 않는다. 사용자가 3단계로 이동할 때 현재 하단 공통 질문 목록을 `POST /company/interviews/question-sets/confirm`으로 한 번에 확정한다.
 
 AI 결과가 비어 있거나 `guardrail.result=BLOCKED`이면 C 화면은 최종 저장을 시도하지 않고 한글 안내 문구와 재요청 흐름을 제공한다. `failure.category`, `failure.reason`, `failure.retryable`은 사용자 문구 변환에 사용하며 원문을 그대로 장문 노출하지 않는다.
 
@@ -423,10 +393,9 @@ AI 결과가 비어 있거나 `guardrail.result=BLOCKED`이면 C 화면은 최�
 | 실패 | `status=FAILED`, `failure.reason` 존재 | 실패 badge와 한글 안내 문구, `다시 요청` 버튼 표시 | 불가 |
 | 빈 평가 기준 결과 | `status=COMPLETED`, `criteriaSuggestions=[]` | "추천 가능한 평가 기준 결과가 없습니다" 계열 안내 표시 | 불가 |
 | 빈 질문 후보 결과 | `status=COMPLETED`, `questionCandidates=[]` | "저장 가능한 질문 후보가 없습니다" 계열 안내 표시 | 불가 |
-| 빈 질문 세트 결과 | `status=COMPLETED`, `questionSetPreview=[]` | "확정 가능한 질문 세트 결과가 없습니다" 계열 안내 표시 | 불가 |
 | Guardrail 차단 | `output.guardrail.result=BLOCKED` 또는 실패 reason에 guardrail 포함 | 정책 검수 차단 안내와 재요청 흐름 표시 | 불가 |
 
-QA는 정상 완료 흐름과 별개로 위 5개 상태를 최소 1회씩 확인한다. C 화면은 예외 상태에서 기존 `evaluation_criteria`, `question_bank`, `interview_question_sets`에 자동 저장을 시도하지 않아야 한다.
+QA는 정상 완료 흐름과 별개로 위 예외 상태를 최소 1회씩 확인한다. C 화면은 빈 결과 또는 차단 상태에서 `evaluation_criteria`, `question_bank`, `interview_question_sets`에 저장을 시도하지 않아야 한다.
 
 리포트 생성 완료 출력:
 
@@ -466,7 +435,7 @@ QA는 정상 완료 흐름과 별개로 위 5개 상태를 최소 1회씩 확인
 - A는 SQS queue URL, S3 bucket, AI provider secret, worker 배포/재시작을 제공한다.
 - D는 파일 원본을 API payload에 넣지 않고 S3 업로드 후 fileId와 storage key만 E API에 전달한다.
 - C는 평가 기준/질문 생성 화면에서 `reviewRequired=true` 결과를 사용자 확정 전 draft로 취급한다. 사용자 화면 상태는 `대기 중`, `처리 중`, `완료`, `실패` 한글 라벨로 표시한다.
-- C는 `criteriaSuggestions`, `questionCandidates`, `questionSetPreview`를 자동 저장하지 않고 미리보기로 표시한 뒤 사용자가 선택한 항목만 기존 C 저장 API에 반영한다.
+- C는 `criteriaSuggestions`를 draft로 검토하고, 정렬 검증된 `questionCandidates`는 하단 공통 질문 목록에 반영한다. 사용자가 다음 단계로 이동할 때 목록을 활성 질문 세트로 확정한다.
 - D는 STT와 꼬리질문 입력으로 `answerId`, `audioFileId`, `audioS3Key`, transcript를 넘긴다.
 - B는 리포트 화면에서 `evaluation_reports.status`와 `GET /ai/jobs/{processLogId}/status` 결과를 함께 표시한다.
 - E는 guardrail PASS/REGENERATED 전에는 `evaluation_reports`, `report_scores`, `report_evidences`, `question_bank`, `evaluation_criteria`에 최종 저장하지 않는다.

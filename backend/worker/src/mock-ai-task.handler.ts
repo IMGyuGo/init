@@ -194,8 +194,6 @@ export class MockAiTaskHandler implements AiTaskHandler {
         return this.questionGenerate(input.kind ?? "RECRUITING_QUESTION_GENERATE", payload, job.processLogId);
       case "RESUME_QUESTION_GENERATE":
         return this.resumeQuestionGenerate(job);
-      case "QUESTION_SET_GENERATE":
-        return this.questionSetGenerate(payload, job.processLogId);
       case "POSTING_DRAFT_GENERATE":
         return this.postingDraftGenerate(payload, job.processLogId);
       case "EMBEDDING":
@@ -811,45 +809,6 @@ export class MockAiTaskHandler implements AiTaskHandler {
         sections,
         tags
       }
-    });
-  }
-
-  private questionSetGenerate(payload: Record<string, unknown>, processLogId: number): AiTaskResult {
-    const postingId = positiveNumber(payload.postingId, "postingId");
-    const questionCount = positiveNumber(payload.questionCount, "questionCount");
-    const criteria = criteriaOf(payload.criteria);
-    const questionTypes = nonEmptyStringArrayOf(payload.questionTypes, "questionTypes");
-    const items = Array.from({ length: questionCount }, (_, index) => {
-      const criterion = criteria[index % criteria.length];
-      const questionType = questionTypes[index % questionTypes.length];
-      return `${questionType} question ${index + 1} for ${criterion.name}`;
-    });
-    const questionCandidates = items.map((content, index) => {
-      const criterion = criteria[index % criteria.length];
-      const questionType = questionTypes[index % questionTypes.length];
-      return {
-        content,
-        category: "질문 세트",
-        difficulty: "MEDIUM" as const,
-        criterionId: criterion.criterionId,
-        criterionTitle: criterion.name,
-        expectedKeywords: ["상황", "행동", "결과"],
-        suggestionReason: "평가 기준별 질문 세트 구성을 위해 선택된 후보입니다.",
-        questionType
-      };
-    });
-    const questionSetPreview = criteria.map((criterion) => ({
-      criterionId: criterion.criterionId,
-      criterionTitle: criterion.name,
-      questions: questionCandidates.filter((question) => question.criterionId === criterion.criterionId)
-    }));
-
-    return this.generatedDraft("QUESTION_SET_GENERATE", items, {
-      sourceProcessLogId: processLogId,
-      postingId,
-      targetTables: ["question_bank"],
-      questionCandidates,
-      questionSetPreview
     });
   }
 

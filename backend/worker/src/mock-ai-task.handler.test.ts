@@ -844,47 +844,6 @@ test("criteria suggestion uses JD, talent profile and evaluation policy", async 
   );
 });
 
-test("question set generation reflects criteria and question type conditions", async () => {
-  const results = new InMemoryAiResultRepository();
-
-  const repository = await run({
-    processLogId: 29,
-    processType: "QUESTION_SET_GENERATE",
-    input: {
-      payload: {
-        postingId: 2,
-        questionCount: 2,
-        criteria: [
-          {
-            criterionId: 1,
-            name: "Problem solving",
-            weight: 40
-          }
-        ],
-        questionTypes: ["TECHNICAL", "EXPERIENCE"]
-      }
-    },
-    results
-  });
-
-  const output = JSON.parse(repository.get(29).outputRef ?? "{}") as {
-    items?: string[];
-    questionCandidates?: unknown[];
-    questionSetPreview?: unknown[];
-    sourceProcessLogId?: number;
-    reviewStatus?: string;
-    targetTables?: string[];
-    postingId?: number;
-  };
-  assert.equal(output.sourceProcessLogId, 29);
-  assert.equal(output.reviewStatus, "PENDING_REVIEW");
-  assert.deepEqual(output.targetTables, ["question_bank"]);
-  assert.equal(output.postingId, 2);
-  assert.deepEqual(output.items, ["TECHNICAL question 1 for Problem solving", "EXPERIENCE question 2 for Problem solving"]);
-  assert.equal(output.questionCandidates?.length, 2);
-  assert.equal(output.questionSetPreview?.length, 1);
-});
-
 test("evaluation context records every required source group", async () => {
   const results = new InMemoryAiResultRepository();
 

@@ -1984,57 +1984,14 @@ AI 리포트 금지 기준:
   - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`, `INTERVIEW_QUESTION_COUNT_INVALID`, `INTERVIEW_NCS_BINDING_INVALID`, `AI_PROCESS_FAILED`
 
 ### API-039 POST /company/interviews/question-sets
-- 도메인: 기업 - 면접관리
-- 권한/인증: 기업 / 기업 사용자 로그인
-- 관련 화면: 면접 관리 화면 (/company/interviews/settings)
-- UI Type: system process
-- 상태 코드: 202 Accepted
-- 비동기: Y
-- 요청 데이터:
-  - 질문 유형, 질문 수, 평가 역량
-- 검증/전제조건:
-  - 평가 기준과 질문 뱅크 존재
-- 성공 응답/처리:
-  - 면접 질문 세트 구성 AI job 생성
-- 오류/예외:
-  - 질문 수 부족 시 AI 생성 또는 수동 추가를 안내한다.
-- 관련 ERD 테이블:
-  - companies, postings, criterion_tags, evaluation_criteria, question_bank, application_documents, interview_sessions, manual_evaluations, ai_process_logs
-- 비고/미결:
-  - 질문 뱅크 관리 화면에서 요청 상태와 구성 미리보기를 확인
-
-#### Contract Baseline
-- Route Owner:
-  - 현재 이 route는 `backend/api/src/modules/ai/ai-jobs.controller.ts`의 `CompanyAiJobsController`가 등록한다.
-  - C 모듈의 `CompanyInterviewController`는 동일 method/path를 중복 등록하지 않는다.
-  - API-039를 비동기 AI job 생성으로 유지할지, C의 단순 질문 선택/세트 구성 API로 분리할지는 E/A/C/D 리뷰 후 확정한다.
-- Request Body:
-  - `postingId`: number, required
-  - `questionCount`: number, required, 1~20
-  - `criteria`: `{ criterionId: number, name: string, weight?: number }[]`, required
-  - `questionTypes`: string[], required
-- Response Body:
-  - `processLogId`: number
-  - `status`: `PENDING`
-  - `queued?: boolean`
-  - `inputRef?: string`
-- Completed Output:
-  - `questionSetPreview[]`
-    - `criterionId?: number`
-    - `criterionTitle: string`
-    - `questions: questionCandidates[]`
-  - 화면은 질문 세트를 최종 저장하지 않고 평가 기준별 질문 묶음 미리보기로 표시한다.
-  - C 화면 적용 규칙:
-    - 사용자는 질문 후보별 포함/제외를 선택할 수 있다.
-    - 질문 뱅크의 활성 질문과 매칭되는 후보만 확정 대상에 포함한다.
-    - 포함 선택된 확정 대상이 없으면 `POST /company/interviews/question-sets/confirm`을 호출하지 않는다.
-    - 확정 시 선택된 항목만 `items[]`로 전달한다.
-- Validation:
-  - 평가 기준과 활성 질문 뱅크가 존재해야 한다.
-  - `criteria`, `questionTypes`는 비어 있을 수 없다.
-  - API 서버는 질문 세트를 직접 저장하지 않고 AI job 생성 상태를 반환한다.
-- Error Codes:
-  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`
+- 상태: 폐기
+- 폐기 사유:
+  - 질문 추천 결과를 별도의 AI 질문 세트 draft로 다시 생성하면 동일 질문을 두 번 검토하게 되고 실제 OpenAI provider에는 이 작업 구현이 없다.
+  - `POST /company/interviews/questions/generate`가 정렬 검증된 질문을 만들고 C 화면이 하단 공통 질문 목록에 저장한다.
+  - 사용자가 다음 단계로 이동할 때 하단 목록을 API-039A로 확정하므로 별도 미리보기·확정 단계가 필요하지 않다.
+- 호환 정책:
+  - 과거 `QUESTION_SET_GENERATE` process log와 enum 값은 조회 호환을 위해 유지한다.
+  - 신규 요청 route와 worker handler는 제공하지 않는다.
 
 ### API-039A POST /company/interviews/question-sets/confirm
 - 도메인: 기업 - 면접관리

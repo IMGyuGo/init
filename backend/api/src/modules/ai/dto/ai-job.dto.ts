@@ -213,46 +213,6 @@ export class QuestionGenerateRequestDto {
   criteria?: QuestionGenerateCriterionDto[];
 }
 
-export class QuestionSetCriterionDto {
-  @ApiProperty({ example: 1 })
-  @IsInt()
-  @Min(1)
-  criterionId!: number;
-
-  @ApiProperty({ example: "Problem solving" })
-  @IsString()
-  @IsNotEmpty()
-  name!: string;
-
-  @ApiPropertyOptional({ example: 40 })
-  @IsOptional()
-  @IsInt()
-  weight?: number;
-}
-
-export class QuestionSetGenerateRequestDto {
-  @ApiProperty({ example: 2 })
-  @IsInt()
-  @Min(1)
-  postingId!: number;
-
-  @ApiProperty({ example: 2 })
-  @IsInt()
-  @Min(1)
-  questionCount!: number;
-
-  @ApiProperty({ type: [QuestionSetCriterionDto] })
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => QuestionSetCriterionDto)
-  criteria!: QuestionSetCriterionDto[];
-
-  @ApiProperty({ type: [String], example: ["TECHNICAL", "EXPERIENCE"] })
-  @IsArray()
-  @IsString({ each: true })
-  questionTypes!: string[];
-}
-
 export class PostingDraftGenerateRequestDto {
   @ApiProperty({ example: "2026 신입 백엔드 채용", maxLength: POSTING_DRAFT_INPUT_LIMITS.titleMaxLength })
   @IsString()

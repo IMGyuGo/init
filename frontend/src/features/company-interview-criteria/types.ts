@@ -278,17 +278,6 @@ export type GenerateInterviewQuestionsInput = {
   expectedPolicyVersion?: number;
 };
 
-export type GenerateQuestionSetInput = {
-  postingId: number;
-  questionCount: number;
-  criteria: Array<{
-    criterionId: number;
-    name: string;
-    weight?: number;
-  }>;
-  questionTypes: string[];
-};
-
 export type ConfirmQuestionSetInput = {
   postingId: number;
   title: string;

@@ -536,54 +536,10 @@ describe("ReportsController", () => {
     expect(statusResponse.body.data.output.postingId).toBe(2);
   });
 
-  it("queues question-set generation with criteria and question type conditions", async () => {
-    const response = await companyRequest("/api/v1/company/interviews/question-sets")
-      .send({
-        postingId: 2,
-        questionCount: 2,
-        criteria: [{ criterionId: 1, name: "Problem solving", weight: 40 }],
-        questionTypes: ["TECHNICAL", "EXPERIENCE"]
-      })
-      .expect(202);
-
-    expect(response.body.data.processType).toBe("QUESTION_SET_GENERATE");
-    expect(response.body.data.status).toBe("PENDING");
-    expect(response.body.data.inputRef).toContain("Problem solving");
-    expect(response.body.data.inputRef).toContain("TECHNICAL");
-  });
-
-  it("exposes parsed question-set output for C screen consumption", async () => {
-    const response = await companyRequest("/api/v1/company/interviews/question-sets")
-      .send({
-        postingId: 2,
-        questionCount: 2,
-        criteria: [{ criterionId: 1, name: "Problem solving", weight: 40 }],
-        questionTypes: ["TECHNICAL", "EXPERIENCE"]
-      })
-      .expect(202);
-
-    await repository.markQueuedProcessCompleted(
-      response.body.data.processLogId,
-      JSON.stringify({
-        kind: "QUESTION_SET_GENERATE",
-        sourceProcessLogId: response.body.data.processLogId,
-        items: ["TECHNICAL question 1", "EXPERIENCE question 2"],
-        reviewRequired: true,
-        reviewStatus: "PENDING_REVIEW",
-        targetTables: ["question_bank"],
-        postingId: 2
-      })
-    );
-
-    const statusResponse = await companyGet(`/api/v1/ai/jobs/${response.body.data.processLogId}/status`).expect(200);
-
-    expect(statusResponse.body.data.status).toBe("COMPLETED");
-    expect(statusResponse.body.data.output.sourceProcessLogId).toBe(response.body.data.processLogId);
-    expect(statusResponse.body.data.output.items).toEqual(["TECHNICAL question 1", "EXPERIENCE question 2"]);
-    expect(statusResponse.body.data.output.reviewRequired).toBe(true);
-    expect(statusResponse.body.data.output.reviewStatus).toBe("PENDING_REVIEW");
-    expect(statusResponse.body.data.output.targetTables).toEqual(["question_bank"]);
-    expect(statusResponse.body.data.output.postingId).toBe(2);
+  it("does not expose the retired question-set generation route", async () => {
+    await companyRequest("/api/v1/company/interviews/question-sets")
+      .send({ postingId: 2 })
+      .expect(404);
   });
 
   it("rejects criteria suggestion without talent profile and evaluation policy", async () => {

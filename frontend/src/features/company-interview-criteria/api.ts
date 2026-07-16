@@ -10,7 +10,6 @@ import type {
   CreateInterviewQuestionResult,
   EvaluationCriteriaResult,
   GenerateInterviewQuestionsInput,
-  GenerateQuestionSetInput,
   InterviewSettings,
   SuggestEvaluationCriteriaInput,
   UpdateInterviewQuestionInput,
@@ -86,13 +85,6 @@ export async function updateQuestionGenerationPolicy(input: UpdateQuestionGenera
 
 export async function generateInterviewQuestions(input: GenerateInterviewQuestionsInput) {
   return request<AiJobResult>("/company/interviews/questions/generate", {
-    method: "POST",
-    body: input,
-  });
-}
-
-export async function generateQuestionSet(input: GenerateQuestionSetInput) {
-  return request<AiJobResult>("/company/interviews/question-sets", {
     method: "POST",
     body: input,
   });
