@@ -290,7 +290,7 @@ Amazon Q Developer Slack channel configuration의 자체 logging은 `logging_lev
 | Frontend public payment key | 결제 화면을 운영에 노출한다면 `NEXT_PUBLIC_TOSS_CLIENT_KEY` build-time 주입 방식을 확정한다. | Toss client key가 빈 값인 image를 운영 배포함 |
 | API runtime env | `infra/aws/locals.tf`의 secret key 목록이 코드에서 실제 사용하는 운영 env와 일치해야 한다. 결제, OAuth, public link, upload limit, CORS/origin 값도 포함한다. | 코드가 `TOSS_SECRET_KEY`, `APP_FRONTEND_URL`, `PUBLIC_APPLICATION_DOCUMENT_MAX_UPLOAD_BYTES` 등 운영 값을 요구하지만 secret mapping에 없음 |
 | AWS SDK local override | ECS production secret에는 `AWS_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` 같은 LocalStack/static key 값을 넣지 않는다. ECS task role/default credential chain을 사용한다. | production task가 LocalStack endpoint 또는 static access key를 사용함 |
-| S3 public/private split | CloudFront로 공개할 prefix는 회사 로고/JD 이미지처럼 bucket policy가 허용한 prefix와 맞아야 한다. 지원자 문서, 면접 음성/영상 원본은 public URL로 노출하지 않는다. | private object에 `S3_PUBLIC_BASE_URL` 기반 공개 URL을 제공함 |
+| S3 public/private split | CloudFront 공개 prefix는 회사 프로필 로고(`/company/*/profile-logo/*`), JD 이미지(`/company/*/jd-images/*`), seed 회사 로고(`/seed/company-logos/*`)로 제한하고 bucket policy와 behavior를 함께 맞춘다. 지원자 문서, 면접 음성/영상 원본은 public URL로 노출하지 않는다. | private object에 `S3_PUBLIC_BASE_URL` 기반 공개 URL을 제공함 |
 | S3 candidate file upload | candidate resume/portfolio 경로가 실제 S3 object를 생성하는지 확인한다. metadata-only 기록만으로 `file_assets`를 만들면 안 된다. | S3 object 없이 DB metadata만 생성됨 |
 | S3 AI key trust | document extract/STT dispatch에서 client-supplied `s3Key`/`audioS3Key`를 그대로 worker에 넘기지 않는다. DB file asset/application/answer 기준 canonical key를 재조회한다. | worker가 검증되지 않은 S3 key를 `GetObject`함 |
 | S3 public base URL | 회사 로고/JD 이미지 public URL은 CloudFront OAC 허용 prefix와 `S3_PUBLIC_BASE_URL=https://init-jungle.cloud`가 맞아야 한다. | private S3 direct URL을 public URL로 반환함 |
@@ -476,6 +476,8 @@ SMTP 발신자 규칙:
 배포 workflow의 성공은 SMTP server가 메일을 접수했다는 의미다. 최초 provider 전환과 credential 변경 시에는 `SMTP_SMOKE_TO` 수신함에서 실제 도착, 스팸 분류 여부, 발신 주소를 사람이 확인해야 한다.
 
 일반 SMTP의 세 발송 흐름과 운영 관찰이 끝난 뒤에는 SES를 롤백 경로로 사용하지 않는다. Terraform에서 SES identity, DKIM, custom MAIL FROM과 관련 Route53 record를 제거하고 API ECS task role의 `ses:SendEmail`, `ses:SendRawEmail` 권한도 제거한다. 이 변경은 애플리케이션 배포 변경과 분리한 Terraform 전용 PR에서 수행한다.
+
+AWS Console에서 만든 SES SMTP credential은 Terraform state 밖의 IAM user/group/access key로 남을 수 있다. 외부 SMTP 전환 후에는 runtime `SMTP_HOST`와 ECS SMTP smoke를 먼저 확인하고, access key, SMTP IAM user, console 생성 group의 inline policy와 group, SES email identity 순으로 제거한다. 삭제 후 동일한 SMTP smoke와 IAM/SES absence check를 다시 수행한다.
 
 기존 main state에서 SES를 제거하는 plan은 SES 및 SES 전용 Route53 resource 10개 삭제와 API task inline policy의 in-place 갱신만 포함해야 한다. Route53 hosted zone, ACM validation record, CloudFront, ALB, ECS, RDS, Valkey, S3, SQS의 삭제 또는 replacement가 포함되면 apply하지 않는다. 검토한 saved plan에 사용자 승인을 받은 뒤에만 `terraform apply`를 실행하고, 적용 후 외부 SMTP smoke와 세 발송 흐름을 다시 확인한다.
 

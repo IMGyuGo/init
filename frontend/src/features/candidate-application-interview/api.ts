@@ -939,6 +939,12 @@ export class CandidateApiError extends Error {
   }
 }
 
+export function isInterviewGazeDataInvalidError(error: unknown): error is CandidateApiError {
+  return error instanceof CandidateApiError &&
+    error.status === 422 &&
+    error.body?.error.code === "INTERVIEW_GAZE_DATA_INVALID";
+}
+
 export interface CandidateApiClientOptions {
   baseUrl?: string;
   headers?: HeadersInit;

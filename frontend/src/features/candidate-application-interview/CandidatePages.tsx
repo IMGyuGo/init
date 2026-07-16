@@ -58,6 +58,7 @@ import {
   type RealtimeInterviewSessionResponse,
   createCandidateApiClient,
   createPublicInterviewApiClient,
+  isInterviewGazeDataInvalidError,
   publicCandidateApiPaths,
   type InterviewRuntimeApiClient,
 } from "./api";
@@ -105,6 +106,7 @@ import {
 import {
   INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES,
   evaluateTimelineAnalysisQuality,
+  normalizeGazeTimelineOffset,
   readGazeAwayIntervals,
   readGazeTimeline,
   readHeadPoseTimeline,
@@ -218,6 +220,7 @@ const MIN_INTERVIEW_RECORDING_BLOB_SIZE_BYTES = 10 * 1024;
 const MIN_INTERVIEW_RECORDING_VOICE_LEVEL = 3;
 const MIN_INTERVIEW_RECORDING_VOICE_FRAME_COUNT = 6;
 const MAX_INVALID_RECORDING_AUTO_RETRY_COUNT = 1;
+const GAZE_DATA_RETAKE_GUIDANCE = "시선 데이터가 정상 범위를 벗어났습니다. 얼굴 전체가 보이도록 카메라를 눈높이에 두고 화면 중앙을 바라본 뒤 다시 촬영해 주세요.";
 const REALTIME_SILENCE_GRACE_MS = 2000;
 const NONVERBAL_SHORT_ANSWER_SECONDS = 10;
 const NONVERBAL_CAMERA_SAMPLE_INTERVAL_MS = 500;
@@ -2943,6 +2946,7 @@ function InterviewRuntimePanel({
   const [answer, setAnswer] = useState<InterviewAnswerFormState>(defaultInterviewAnswerFormState);
   const [retryAnswerId, setRetryAnswerId] = useState<number>();
   const [retryingQuestionId, setRetryingQuestionId] = useState<number>();
+  const [gazeRetakeQuestionId, setGazeRetakeQuestionId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [integrityWarning, setIntegrityWarning] = useState<RuntimeIntegrityWarning | null>(null);
   const [nonverbalDeviceQaEnabled, setNonverbalDeviceQaEnabled] = useState(false);
@@ -3095,6 +3099,7 @@ function InterviewRuntimePanel({
   );
   const isReansweringCurrentQuestion = Boolean(currentQuestion && reansweringQuestionId === currentQuestion.questionId);
   const currentQuestionLocked = currentQuestionAnswered && !isReansweringCurrentQuestion;
+  const gazeRetakeRequired = Boolean(currentQuestion && gazeRetakeQuestionId === currentQuestion.questionId);
   const realtimeSpeechReady =
     AI_INTERVIEWER_SESSION_MODE_POLICY.activeMode === "realtime-voice" &&
     realtimeProvider === "openai" &&
@@ -4887,13 +4892,21 @@ function InterviewRuntimePanel({
       tracker.gazeTimeline.length < INTERVIEW_NONVERBAL_TIMELINE_MAX_SAMPLES &&
       canAppendTimelineSample(tracker.lastGazeTimelineSampleAtMs, nowMs)
     ) {
-      tracker.gazeTimeline.push({
-        tMs: Math.max(0, nowMs - tracker.recordingStartedAtMs),
-        horizontalOffset: roundTimelineValue(smoothedIrisPosition.horizontalRatio - irisBaseline.horizontalRatio, 3),
-        verticalOffset: roundTimelineValue(smoothedIrisPosition.verticalRatio - irisBaseline.verticalRatio, 3),
-        direction: classifyIrisGazeDirection(smoothedIrisPosition, irisBaseline),
-      });
-      tracker.lastGazeTimelineSampleAtMs = nowMs;
+      const horizontalOffset = normalizeGazeTimelineOffset(
+        smoothedIrisPosition.horizontalRatio - irisBaseline.horizontalRatio,
+      );
+      const verticalOffset = normalizeGazeTimelineOffset(
+        smoothedIrisPosition.verticalRatio - irisBaseline.verticalRatio,
+      );
+      if (horizontalOffset !== undefined && verticalOffset !== undefined) {
+        tracker.gazeTimeline.push({
+          tMs: Math.max(0, nowMs - tracker.recordingStartedAtMs),
+          horizontalOffset: roundTimelineValue(horizontalOffset, 3),
+          verticalOffset: roundTimelineValue(verticalOffset, 3),
+          direction: classifyIrisGazeDirection(smoothedIrisPosition, irisBaseline),
+        });
+        tracker.lastGazeTimelineSampleAtMs = nowMs;
+      }
     }
     if (
       mode === "mock" &&
@@ -6254,9 +6267,46 @@ function InterviewRuntimePanel({
     setRecording(false);
   }
 
+  function clearGazeInvalidRecordingDraft(questionId: number) {
+    clearAnswerSubmitToNextReadyMetric(questionId);
+    submitAfterRecordingStopRef.current = false;
+    autoAdvanceAfterAnswerSubmitRef.current = false;
+    realtimeSttTranscriptByQuestionRef.current.delete(questionId);
+    lastInvalidRecordingMetadataRef.current.delete(questionId);
+    setGazeRetakeQuestionId(questionId);
+    setRecordedFileName("");
+    setAnswer((current) => ({
+      ...current,
+      questionId,
+      durationSeconds: 0,
+      videoFile: undefined,
+      videoFileId: undefined,
+      audioFile: undefined,
+      audioFileId: undefined,
+      nonverbalMetadata: undefined,
+    }));
+    setRecording(false);
+    autoRecordingQuestionRef.current = questionId;
+    timeExpiredQuestionRef.current = null;
+    setTimerPhase("ANSWERING");
+    setRemainingSeconds(getRuntimeAnswerTimeLimitSeconds(data?.runtime));
+    setMessage("");
+  }
+
   function clearInvalidRecordingDraft(questionId: number, message: string) {
     const retryCount = invalidRecordingRetryCountsRef.current.get(questionId) ?? 0;
     const nextRetryCount = retryCount + 1;
+    const gazeRetakeActive = gazeRetakeQuestionId === questionId;
+    const recoveryAction = getInvalidRecordingRecoveryAction({
+      failedAttemptCount: nextRetryCount,
+      maxAutoRetryCount: MAX_INVALID_RECORDING_AUTO_RETRY_COUNT,
+      gazeRetakeRequired: gazeRetakeActive,
+    });
+    if (gazeRetakeActive) {
+      clearGazeInvalidRecordingDraft(questionId);
+      return;
+    }
+
     invalidRecordingRetryCountsRef.current.set(questionId, nextRetryCount);
 
     clearAnswerSubmitToNextReadyMetric(questionId);
@@ -6274,11 +6324,6 @@ function InterviewRuntimePanel({
       nonverbalMetadata: undefined,
     }));
     setRecording(false);
-
-    const recoveryAction = getInvalidRecordingRecoveryAction({
-      failedAttemptCount: nextRetryCount,
-      maxAutoRetryCount: MAX_INVALID_RECORDING_AUTO_RETRY_COUNT,
-    });
 
     if (recoveryAction === "retry") {
       autoRecordingQuestionRef.current = questionId;
@@ -6405,6 +6450,7 @@ function InterviewRuntimePanel({
         mode === "mock"
           ? await api.saveMockAnswer(data.runtime.sessionId, preparedRequest)
           : await api.saveRecruitingAnswer(data.runtime.sessionId, preparedRequest);
+      setGazeRetakeQuestionId((current) => current === preparedRequest.questionId ? null : current);
       realtimeSttTranscriptByQuestionRef.current.delete(preparedRequest.questionId);
       const audioFileId = result.data.audioFile?.fileId ?? result.data.answer.audioFileId;
       const videoFileId = result.data.videoFile?.fileId ?? result.data.answer.videoFileId;
@@ -6478,6 +6524,10 @@ function InterviewRuntimePanel({
       if (isQuestionStateConflict(submitError)) {
         setMessage("답변은 이미 반영된 상태입니다. 질문 상태를 새로고침합니다.");
         void refresh().catch(() => undefined);
+        return;
+      }
+      if (isInterviewGazeDataInvalidError(submitError)) {
+        clearGazeInvalidRecordingDraft(request.questionId);
         return;
       }
       setMessage(toErrorMessage(submitError));
@@ -7204,6 +7254,10 @@ function InterviewRuntimePanel({
 
   async function handleNextQuestion() {
     if (!data) return;
+    if (gazeRetakeRequired) {
+      setMessage(GAZE_DATA_RETAKE_GUIDANCE);
+      return;
+    }
     if (answerProcessingBusy) {
       setMessage("꼬리질문 생성이 완료된 뒤 다음 질문으로 이동할 수 있습니다.");
       return;
@@ -7348,6 +7402,7 @@ function InterviewRuntimePanel({
     recording,
     answeredQuestionCount,
     totalQuestions: data?.runtime.totalQuestions ?? 0,
+    gazeRetakeRequired,
   });
   const canMoveNextQuestion = runtimeProgressionState.canMoveNextQuestion;
   const canCompleteInterview = runtimeProgressionState.canCompleteInterview;
@@ -7682,6 +7737,9 @@ function InterviewRuntimePanel({
 
       <section className="iv-body">
         <StatusNotice loading={loading || busy} error={error} message={message} />
+        {gazeRetakeRequired ? (
+          <p className="notice danger" role="alert">{GAZE_DATA_RETAKE_GUIDANCE}</p>
+        ) : null}
         {showDeviceSetup ? (
           <section className="candidate-device-setup">
             <div className="candidate-device-setup__head">

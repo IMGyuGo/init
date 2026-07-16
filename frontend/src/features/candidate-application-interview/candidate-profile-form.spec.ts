@@ -81,4 +81,26 @@ const viewsSource = readFileSync("src/features/candidate-application-interview/v
 assert.equal(viewsSource.includes('aria-label="편집"'), true);
 assert.equal(viewsSource.includes('{folder.motivation || "지원 동기 미작성"}'), true);
 
+const modalDocumentsStepStart = viewsSource.indexOf("{step === 1 ? (");
+const modalReviewStepStart = viewsSource.indexOf("{step === 2 ? (");
+assert.notEqual(modalDocumentsStepStart, -1);
+assert.notEqual(modalReviewStepStart, -1);
+
+const modalDocumentsStepSource = viewsSource.slice(modalDocumentsStepStart, modalReviewStepStart);
+for (const requiredLabel of [
+  "이력서",
+  "포트폴리오 URL (URL 또는 PDF 중 하나 필수)",
+  "포트폴리오 PDF (URL 또는 PDF 중 하나 필수)",
+  "지원 동기",
+  "추가 설명",
+]) {
+  assert.equal(
+    modalDocumentsStepSource.includes(
+      `<span className="candidate-apply-required-label">${requiredLabel} <span className="req-mark">*</span></span>`,
+    ),
+    true,
+    `${requiredLabel} 문구와 필수 표시가 같은 라벨 래퍼 안에 있어야 합니다.`,
+  );
+}
+
 console.log("candidate profile form helpers: ok");

@@ -11,6 +11,7 @@ import type {
   PageMeta,
 } from "./api";
 import { candidateApplicationInterviewRoutes } from "./routes";
+import { candidateJobSortOptions, toCandidateJobSortQuery } from "./candidate-job-sort";
 import {
   type CandidateApplicationFormState,
   applyFolderToApplicationForm,
@@ -32,14 +33,6 @@ export interface CandidateJobsViewProps {
   pageMeta?: PageMeta;
   onQueryChange: (query: CandidateJobQuery) => void;
 }
-
-const SORT_OPTIONS: { value: NonNullable<CandidateJobQuery["sort"]>; label: string }[] = [
-  { value: "createdAt", label: "최신순" },
-  { value: "endsOn", label: "마감임박순" },
-  { value: "title", label: "제목순" },
-];
-
-
 
 type FilterCatKey = "jobRole" | "career" | "location" | "recruitment";
 
@@ -613,7 +606,7 @@ export function CandidateJobsView({ jobs, query, totalItems, pageMeta, onQueryCh
               </div>
             </div>
             <div className="candidate-jobs-toolbar-right">
-              <SortDropdown value={query.sort ?? "createdAt"} onChange={(next) => patch({ sort: next })} />
+              <SortDropdown value={query.sort ?? "createdAt"} onChange={(next) => patch(toCandidateJobSortQuery(next))} />
             </div>
           </div>
 
@@ -1617,7 +1610,7 @@ export function CandidateApplyModal({
           {step === 1 ? (
             <div className="candidate-apply-modal-fields">
               <label className="candidate-apply-file-label">
-                이력서 <span className="req-mark">*</span>
+                <span className="candidate-apply-required-label">이력서 <span className="req-mark">*</span></span>
                 <span className="candidate-apply-file-row">
                   <input
                     accept=".pdf,application/pdf"
@@ -1635,7 +1628,7 @@ export function CandidateApplyModal({
                 </span>
               </label>
               <label>
-                포트폴리오 URL (URL 또는 PDF 중 하나 필수)
+                <span className="candidate-apply-required-label">포트폴리오 URL (URL 또는 PDF 중 하나 필수) <span className="req-mark">*</span></span>
                 <input
                   placeholder="https://portfolio.example.com"
                   type="url"
@@ -1644,7 +1637,7 @@ export function CandidateApplyModal({
                 />
               </label>
               <label className="candidate-apply-file-label">
-                포트폴리오 PDF (URL 또는 PDF 중 하나 필수)
+                <span className="candidate-apply-required-label">포트폴리오 PDF (URL 또는 PDF 중 하나 필수) <span className="req-mark">*</span></span>
                 <span className="candidate-apply-file-row">
                   <input
                     accept=".pdf,application/pdf"
@@ -1660,7 +1653,7 @@ export function CandidateApplyModal({
                 </span>
               </label>
               <label>
-                지원 동기 <span className="req-mark">*</span>
+                <span className="candidate-apply-required-label">지원 동기 <span className="req-mark">*</span></span>
                 <textarea
                   placeholder="이 공고에 지원한 동기를 입력하세요."
                   required
@@ -1669,7 +1662,7 @@ export function CandidateApplyModal({
                 />
               </label>
               <label>
-                추가 설명 <span className="req-mark">*</span>
+                <span className="candidate-apply-required-label">추가 설명 <span className="req-mark">*</span></span>
                 <textarea
                   placeholder="관련 프로젝트, 본인이 맡은 역할 등 추가 설명을 입력하세요."
                   required
@@ -1795,7 +1788,7 @@ function SortDropdown({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [open]);
 
-  const current = SORT_OPTIONS.find((option) => option.value === value) ?? SORT_OPTIONS[0];
+  const current = candidateJobSortOptions.find((option) => option.value === value) ?? candidateJobSortOptions[0];
 
   return (
     <div className="candidate-sort" ref={ref}>
@@ -1824,7 +1817,7 @@ function SortDropdown({
       </button>
       {open ? (
         <ul className="candidate-sort-menu" role="listbox">
-          {SORT_OPTIONS.map((option) => (
+          {candidateJobSortOptions.map((option) => (
             <li key={option.value}>
               <button
                 type="button"
