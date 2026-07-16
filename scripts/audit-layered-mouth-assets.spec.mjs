@@ -186,6 +186,31 @@ test("unit: rejects an invalid PNG signature", async () => {
   });
 });
 
+test("unit: rejects a missing PNG asset", async () => {
+  await withFixture(async (directory) => {
+    const layers = createLayers();
+    const manifestPath = await writeManifest(directory, layers);
+
+    await assert.rejects(
+      auditLayeredMouthAssets(manifestPath),
+      (error) => error?.code === "ENOENT" && error.message.includes(layers[0].pngPath),
+    );
+  });
+});
+
+test("unit: rejects a missing RGBA asset", async () => {
+  await withFixture(async (directory) => {
+    const layers = createLayers();
+    await writeFile(join(directory, layers[0].pngPath), createPngHeader(0));
+    const manifestPath = await writeManifest(directory, layers);
+
+    await assert.rejects(
+      auditLayeredMouthAssets(manifestPath),
+      (error) => error?.code === "ENOENT" && error.message.includes(layers[0].rgbaPath),
+    );
+  });
+});
+
 test("unit: rejects a PNG whose height does not match the canvas", async () => {
   await withFixture(async (directory) => {
     const layers = createLayers();
