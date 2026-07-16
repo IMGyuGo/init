@@ -308,7 +308,7 @@ export type ApplicantEvaluation = {
       scoreId: number;
       criterionId: number | null;
       criterionName: string | null;
-      score: number;
+      score: number | null;
       // 역량 원점수(가중 반영 전). (#289)
       rawScore?: number | null;
       // 역량 가중치(%). NCS 역량 비율 설정값. (#289)
@@ -322,6 +322,30 @@ export type ApplicantEvaluation = {
         evidenceId: number;
         evidenceText: string;
       }>;
+    }>;
+    ncsAnswerEvaluations: Array<{
+      ncsEvaluationId: number;
+      answerId: number;
+      sessionQuestionId: number;
+      criterionId: number | null;
+      criterionTitleSnapshot: string;
+      ncsProfileId: "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL";
+      ncsQuestionMode: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
+      ncsProfileVersion: string;
+      scoreStatus: "SCORED" | "INSUFFICIENT_INPUT" | "LOW_ALIGNMENT" | "BLOCKED";
+      scores: {
+        competency: number | null;
+        evidence: number | null;
+        total: number | null;
+      };
+      coverage: number;
+      confidence: "HIGH" | "MEDIUM" | "LOW";
+      rubricVersion: string;
+      promptVersion: string;
+      providerMode: "mock" | "openai";
+      model: string | null;
+      result: unknown;
+      updatedAt: string;
     }>;
   } | null;
 };

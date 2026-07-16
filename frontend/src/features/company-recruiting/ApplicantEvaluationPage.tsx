@@ -542,7 +542,8 @@ function ReportOverview({
   const gaugeTone = result ? result.tone : "accent";
   const keyFindings = report.keyFindings ?? [];
   const followUps = report.followUps ?? [];
-  const topScore = report.scores.length > 0 ? [...report.scores].sort((a, b) => b.score - a.score)[0] : null;
+  // 평가 미완료(score=null)는 정렬에서 뒤로 보낸다. (m6 병합: score nullable)
+  const topScore = report.scores.length > 0 ? [...report.scores].sort((a, b) => (b.score ?? -1) - (a.score ?? -1))[0] : null;
   const selectedScore = report.scores.find((score) => score.scoreId === selectedScoreId) ?? topScore;
 
   return (
@@ -627,7 +628,7 @@ function ReportOverview({
                 items={report.scores.map((score) => ({
                   id: score.scoreId,
                   name: formatScoreCriterionName(score.criterionName, score.rationale),
-                  value: clampPercent(score.score),
+                  value: clampPercent(score.score ?? 0),
                   cutline: score.passScore ?? null,
                 }))}
                 selectedId={selectedScore?.scoreId ?? -1}
@@ -643,10 +644,10 @@ function ReportOverview({
         ) : report.scores.length > 0 ? (
           <ul className="report-competency-list">
             {[...report.scores]
-              .sort((a, b) => b.score - a.score)
+              .sort((a, b) => (b.score ?? -1) - (a.score ?? -1))
               .map((score) => {
-              const pct = clampPercent(score.score);
-              const scoreTone = competencyBand(score.score).tone;
+              const pct = clampPercent(score.score ?? 0);
+              const scoreTone = score.score != null ? competencyBand(score.score).tone : "low";
               const hasDetail = Boolean(score.rationale?.trim()) || score.evidences.length > 0;
               const isOpen = expanded.has(score.scoreId);
               return (
@@ -656,7 +657,7 @@ function ReportOverview({
                       <span className="report-competency-name">{formatScoreCriterionName(score.criterionName, score.rationale)}</span>
                       {score.weight != null ? <span className="report-competency-weight">가중치 {score.weight}%</span> : null}
                     </span>
-                    <span className={`report-competency-score tone-${scoreTone}`}>{score.score}</span>
+                    <span className={`report-competency-score tone-${scoreTone}`}>{score.score ?? "평가 미완료"}</span>
                   </div>
                   <div className="report-competency-bar" aria-hidden="true">
                     <span className={`tone-${scoreTone}`} style={{ width: `${pct}%` }} />
@@ -1101,7 +1102,8 @@ type ReportScore = NonNullable<ApplicantEvaluation["report"]>["scores"][number];
 // 역량별 레이더 그래프. 축 개수는 역량 수에 따라 동적(NCS 3역량 → 삼각형). 꼭짓점/라벨 클릭 시 우측 상세로 연동한다. (#289)
 // 레이더에서 선택한 역량의 근거/증거 상세. (#289)
 function CompetencyDetailCard({ score }: { score: ReportScore }) {
-  const band = competencyBand(score.score);
+  // 평가 미완료(score=null)면 등급/합격선 판정 대신 미완료로 표시한다. (m6 병합: score nullable)
+  const band = score.score != null ? competencyBand(score.score) : null;
   return (
     <aside className="report-competency-detailpanel" key={score.scoreId}>
       <div className="report-competency-detailpanel-head">
@@ -1110,11 +1112,11 @@ function CompetencyDetailCard({ score }: { score: ReportScore }) {
           {score.weight != null ? <span className="report-competency-weight">가중치 {score.weight}%</span> : null}
         </span>
         <span className="report-competency-detailpanel-score">
-          <span className={`report-competency-band tone-${band.tone}`}>{band.label}</span>
-          <span className={`report-competency-score tone-${band.tone}`}>{score.score}</span>
+          <span className={`report-competency-band tone-${band?.tone ?? "low"}`}>{band?.label ?? "평가 미완료"}</span>
+          <span className={`report-competency-score tone-${band?.tone ?? "low"}`}>{score.score ?? "—"}</span>
         </span>
       </div>
-      {score.passScore != null ? (
+      {score.passScore != null && score.score != null ? (
         <span className={`report-competency-cutstatus ${score.score >= score.passScore ? "is-met" : "is-missed"}`}>
           합격선 {score.passScore}점 · {score.score >= score.passScore ? "충족" : "미달"}
         </span>

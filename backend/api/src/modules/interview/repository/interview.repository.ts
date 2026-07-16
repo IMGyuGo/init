@@ -36,6 +36,11 @@ export interface CreateInterviewAnswerInput {
   submittedAt: string;
 }
 
+export interface CreateInterviewAnswerIdempotentResult {
+  answer: InterviewAnswer;
+  created: boolean;
+}
+
 export interface ReplaceInterviewAnswerInput {
   answerId: number;
   videoFileId?: number;
@@ -53,32 +58,27 @@ export interface ReanswerRequiredFailure {
   failureReason?: string;
 }
 
+export interface InterviewSttProcessRecord {
+  processLogId: number;
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+  failureCategory?: string;
+  failureReason?: string;
+  createdAt: string;
+  completedAt?: string;
+}
+
 export interface UpdateInterviewAnswerInput extends CreateInterviewAnswerInput {
   answerId: number;
 }
 
-export interface CompletedFollowUpProcess {
-  processLogId: number;
-  sessionId: number;
-  answerId: number;
-  content: string;
-  policy: "MOCK" | "RECRUITING";
-}
-
-export type FollowUpQuestionPolicy = "MOCK" | "RECRUITING";
-
-export interface GeneratedFollowUpQuestion {
-  followUpId: number;
-  answerId: number;
-  content: string;
-  generationStatus: string;
-  policy: FollowUpQuestionPolicy;
-}
-
-export interface CreateRuntimeFollowUpQuestionInput {
-  session: RuntimeInterviewSession;
-  sourceAnswer: InterviewAnswer;
-  content: string;
+export interface InterviewSessionNcsPolicySnapshot {
+  ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
+  criterionId?: number;
+  criterionTitleSnapshot: string;
+  weight: number;
+  minimumAverageScore: number;
+  requiredQuestionCount: number;
+  ncsProfileVersion: string;
 }
 
 export interface InterviewQuestionFilter {
@@ -100,18 +100,15 @@ export interface InterviewRepository {
   saveRecruitingRuntimeSession(session: RuntimeInterviewSession): MaybePromise<RuntimeInterviewSession>;
   saveRuntimeSession(session: RuntimeInterviewSession): MaybePromise<RuntimeInterviewSession>;
   listAnswersBySession(sessionId: number): MaybePromise<InterviewAnswer[]>;
+  listNcsSessionPolicies?(sessionId: number): MaybePromise<InterviewSessionNcsPolicySnapshot[]>;
   countAnswersBySession(sessionId: number): MaybePromise<number>;
   findAnswer(sessionId: number, questionId: number): MaybePromise<InterviewAnswer | undefined>;
   findAnswerById(sessionId: number, answerId: number): MaybePromise<InterviewAnswer | undefined>;
   findLatestAnswer(sessionId: number): MaybePromise<InterviewAnswer | undefined>;
   createAnswer(input: CreateInterviewAnswerInput): MaybePromise<InterviewAnswer>;
+  createAnswerIdempotent(input: CreateInterviewAnswerInput): MaybePromise<CreateInterviewAnswerIdempotentResult>;
   replaceAnswer(input: ReplaceInterviewAnswerInput): MaybePromise<InterviewAnswer>;
   listReanswerRequiredFailures(sessionId: number, answerId: number): MaybePromise<ReanswerRequiredFailure[]>;
+  listSttProcesses(sessionId: number, answerId: number): MaybePromise<InterviewSttProcessRecord[]>;
   updateAnswer(input: UpdateInterviewAnswerInput): MaybePromise<InterviewAnswer>;
-  findCompletedFollowUpProcess(processLogId: number): MaybePromise<CompletedFollowUpProcess | undefined>;
-  findGeneratedFollowUpQuestion(
-    answerId: number,
-    policy: FollowUpQuestionPolicy,
-  ): MaybePromise<GeneratedFollowUpQuestion | undefined>;
-  createRuntimeFollowUpQuestion(input: CreateRuntimeFollowUpQuestionInput): MaybePromise<InterviewQuestion>;
 }

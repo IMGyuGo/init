@@ -207,6 +207,15 @@ async function runReportControllerAssertions() {
       );
     }
   });
+  const unavailableMockAnswer = mockAnswers[1];
+  assert.ok(unavailableMockAnswer);
+  interviewRepository.saveReanswerRequiredFailureForTest({
+    processLogId: 9101,
+    sessionId: mockReportId,
+    answerId: unavailableMockAnswer.answerId,
+    createdAt: unavailableMockAnswer.submittedAt,
+    failureReason: "STT 실패로 음성을 인식하지 못했습니다.",
+  });
   candidateReportRepository.saveFollowUpQuestion({
     followUpId: 1,
     answerId: firstMockAnswer.answerId,
@@ -266,6 +275,46 @@ async function runReportControllerAssertions() {
   assert.match(media.data.media[1]?.transcriptUnavailableReason ?? "", /STT 실패/);
   assert.equal(media.data.media[0]?.followUpQuestions[0]?.content, "Which tradeoff had the largest impact?");
   assert.ok(media.data.media[0]?.questionContent);
+
+  const legacyStarted = await interviewService.startMockInterview(
+    { questionTypes: ["INTRO"], showQuestionText: true },
+    DEV_CANDIDATE_USER,
+  );
+  const legacyReportId = legacyStarted.data.sessionId;
+  await answerAllMockQuestions(interviewService, legacyReportId);
+  await interviewService.completeMockInterview(legacyReportId, DEV_CANDIDATE_USER);
+  const legacyAnswer = interviewRepository.listAnswersBySession(legacyReportId)[0];
+  assert.ok(legacyAnswer);
+  candidateReportRepository.saveReport({
+    reportId: legacyReportId,
+    sessionId: legacyReportId,
+    reportType: "MOCK_INTERVIEW_REPORT",
+    status: "COMPLETED",
+    totalScore: 0,
+    summary: "Legacy practice feedback is available.",
+    generatedAt: "2026-07-02T00:02:00.000Z",
+    scores: [
+      {
+        scoreId: 2,
+        criterionId: 1,
+        criterionName: "Clarity",
+        score: 0,
+        rationale: "STT 실패로 transcript가 없어 임시 0점 처리되었습니다.",
+        evidences: [
+          {
+            evidenceId: 2,
+            sourceType: "INTERVIEW_ANSWER",
+            answerId: legacyAnswer.answerId,
+            evidenceText: "STT transcript is unavailable.",
+          },
+        ],
+      },
+    ],
+  });
+  const legacyMedia = await controller.getMockReportMedia(validCandidateRequest, String(legacyReportId));
+  assert.equal(legacyMedia.data.media[0]?.transcriptStatus, "UNAVAILABLE");
+  assert.equal(legacyMedia.data.media[0]?.evaluationStatus, "STT_UNAVAILABLE");
+  assert.match(legacyMedia.data.media[0]?.transcriptUnavailableReason ?? "", /임시 0점/);
 
   const firstVideoFile = media.data.media[0]?.videoFile;
   assert.ok(firstVideoFile);

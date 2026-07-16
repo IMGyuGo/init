@@ -1,15 +1,12 @@
 import { CandidateDomainError } from "../../candidate";
 import type { InterviewAnswer, InterviewQuestion, RuntimeInterviewSession } from "../interview.runtime.types";
 import type {
-  CompletedFollowUpProcess,
   CreateMockContextQuestionInput,
   CreateInterviewAnswerInput,
   CreateMockInterviewSessionInput,
-  CreateRuntimeFollowUpQuestionInput,
-  FollowUpQuestionPolicy,
-  GeneratedFollowUpQuestion,
   InterviewQuestionFilter,
   InterviewRepository,
+  InterviewSttProcessRecord,
   ReanswerRequiredFailure,
   ReplaceInterviewAnswerInput,
 } from "./interview.repository";
@@ -126,9 +123,7 @@ export class InMemoryInterviewRepository implements InterviewRepository {
   private readonly recruitingSessions = new Map<number, RuntimeInterviewSession>();
   private readonly answers: InterviewAnswer[] = [];
   private readonly runtimeQuestionIds = new Set<number>();
-  private readonly followUpProcesses = new Map<number, CompletedFollowUpProcess>();
-  private readonly followUpQuestions = new Map<string, GeneratedFollowUpQuestion>();
-  private readonly reanswerRequiredFailures: Array<ReanswerRequiredFailure & { sessionId: number; answerId: number }> = [];
+  private readonly sttProcesses: Array<InterviewSttProcessRecord & { sessionId: number; answerId: number }> = [];
 
   listQuestions(filter: InterviewQuestionFilter = {}): InterviewQuestion[] {
     return this.questions
@@ -199,11 +194,6 @@ export class InMemoryInterviewRepository implements InterviewRepository {
     for (let index = this.answers.length - 1; index >= 0; index -= 1) {
       if (this.answers[index]?.sessionId === sessionId) {
         this.answers.splice(index, 1);
-      }
-    }
-    for (const [processLogId, process] of this.followUpProcesses) {
-      if (process.sessionId === sessionId) {
-        this.followUpProcesses.delete(processLogId);
       }
     }
     return true;
@@ -295,6 +285,16 @@ export class InMemoryInterviewRepository implements InterviewRepository {
     return this.cloneAnswer(answer);
   }
 
+  createAnswerIdempotent(input: CreateInterviewAnswerInput) {
+    const existing = this.answers.find(
+      (answer) => answer.sessionId === input.sessionId && answer.questionId === input.questionId,
+    );
+    if (existing) {
+      return { answer: this.cloneAnswer(existing), created: false };
+    }
+    return { answer: this.createAnswer(input), created: true };
+  }
+
   replaceAnswer(input: ReplaceInterviewAnswerInput): InterviewAnswer {
     const answer = this.answers.find((candidate) => candidate.answerId === input.answerId);
     if (!answer) {
@@ -311,11 +311,21 @@ export class InMemoryInterviewRepository implements InterviewRepository {
   }
 
   listReanswerRequiredFailures(sessionId: number, answerId: number): ReanswerRequiredFailure[] {
-    return this.reanswerRequiredFailures
-      .filter((failure) => failure.failureCategory === "REANSWER_REQUIRED")
-      .filter((failure) => failure.sessionId === sessionId && failure.answerId === answerId)
+    return this.listSttProcesses(sessionId, answerId)
+      .filter((process) => process.status === "FAILED" && process.failureCategory === "REANSWER_REQUIRED")
+      .map((process) => ({
+        processLogId: process.processLogId,
+        createdAt: process.createdAt,
+        failureCategory: "REANSWER_REQUIRED",
+        failureReason: process.failureReason,
+      }));
+  }
+
+  listSttProcesses(sessionId: number, answerId: number): InterviewSttProcessRecord[] {
+    return this.sttProcesses
+      .filter((process) => process.sessionId === sessionId && process.answerId === answerId)
       .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt) || right.processLogId - left.processLogId)
-      .map(({ sessionId: _sessionId, answerId: _answerId, ...failure }) => ({ ...failure }));
+      .map(({ sessionId: _sessionId, answerId: _answerId, ...process }) => ({ ...process }));
   }
 
   updateAnswer(input: CreateInterviewAnswerInput & { answerId: number }): InterviewAnswer {
@@ -341,63 +351,11 @@ export class InMemoryInterviewRepository implements InterviewRepository {
     return this.cloneAnswer(answer);
   }
 
-  findCompletedFollowUpProcess(processLogId: number): CompletedFollowUpProcess | undefined {
-    const process = this.followUpProcesses.get(processLogId);
-    return process ? { ...process } : undefined;
-  }
-
-  findGeneratedFollowUpQuestion(
-    answerId: number,
-    policy: FollowUpQuestionPolicy,
-  ): GeneratedFollowUpQuestion | undefined {
-    const question = this.followUpQuestions.get(this.followUpKey(answerId, policy));
-    if (!question || question.generationStatus !== "GENERATED") {
-      return undefined;
-    }
-    return { ...question };
-  }
-
-  createRuntimeFollowUpQuestion(input: CreateRuntimeFollowUpQuestionInput): InterviewQuestion {
-    const sourceQuestion = this.questions.find((question) => question.questionId === input.sourceAnswer.questionId);
-    const followUpQuestion: InterviewQuestion = {
-      questionId: Math.max(...this.questions.map((question) => question.questionId), 0) + 1,
-      questionType: "FOLLOW_UP",
-      content: input.content,
-      sortOrder: (sourceQuestion?.sortOrder ?? input.session.currentQuestionIndex + 1) + 0.5,
-      interviewType: input.session.interviewType,
-      postingId: input.session.interviewType === "RECRUITING" ? sourceQuestion?.postingId : undefined,
-      isActive: true,
-    };
-    this.questions.push(followUpQuestion);
-    return this.cloneQuestion(followUpQuestion);
-  }
-
-  saveGeneratedFollowUpQuestionForTest(
-    answerId: number,
-    policy: FollowUpQuestionPolicy,
-    content: string,
-    generationStatus = "GENERATED",
-  ): GeneratedFollowUpQuestion {
-    const question: GeneratedFollowUpQuestion = {
-      followUpId: this.followUpQuestions.size + 1,
-      answerId,
-      content,
-      generationStatus,
-      policy,
-    };
-    this.followUpQuestions.set(this.followUpKey(answerId, policy), question);
-    return { ...question };
-  }
-
   saveAnswerTranscript(answerId: number, transcript: string): void {
     const answer = this.answers.find((candidate) => candidate.answerId === answerId);
     if (answer) {
       answer.transcript = transcript;
     }
-  }
-
-  saveCompletedFollowUpProcess(process: CompletedFollowUpProcess): void {
-    this.followUpProcesses.set(process.processLogId, { ...process });
   }
 
   saveReanswerRequiredFailureForTest(input: {
@@ -413,8 +371,17 @@ export class InMemoryInterviewRepository implements InterviewRepository {
       failureCategory: "REANSWER_REQUIRED",
       failureReason: input.failureReason,
     };
-    this.reanswerRequiredFailures.push({ ...failure, sessionId: input.sessionId, answerId: input.answerId });
+    this.sttProcesses.push({
+      ...failure,
+      sessionId: input.sessionId,
+      answerId: input.answerId,
+      status: "FAILED",
+    });
     return { ...failure };
+  }
+
+  saveSttProcessForTest(input: InterviewSttProcessRecord & { sessionId: number; answerId: number }): void {
+    this.sttProcesses.push({ ...input });
   }
 
   private questionSortOrder(questionId: number): number {
@@ -433,7 +400,4 @@ export class InMemoryInterviewRepository implements InterviewRepository {
     return { ...session, questionIds: [...session.questionIds] };
   }
 
-  private followUpKey(answerId: number, policy: FollowUpQuestionPolicy): string {
-    return `${policy}:${answerId}`;
-  }
 }

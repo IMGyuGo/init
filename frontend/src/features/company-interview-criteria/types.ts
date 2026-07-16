@@ -2,6 +2,11 @@ export type PostingStatus = "DRAFT" | "OPEN" | "CLOSING_SOON" | "CLOSED" | "ARCH
 
 export type QuestionType = "INTRO" | "TECHNICAL" | "EXPERIENCE" | "SITUATION" | "FOLLOW_UP" | "CLOSING";
 export type QuestionOrigin = "MANUAL" | "AI_GENERATED";
+export type EvaluationFramework = "LEGACY" | "NCS_3_PROFILE_V1";
+export type NcsProfileId = "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
+export type NcsQuestionMode = "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
+export type QuestionGenerationSource = "JD_CRITERIA" | "RESUME_PERSONALIZED";
+export type QuestionAlignmentStatus = "NOT_EVALUATED" | "ALIGNED" | "LOW_ALIGNMENT" | "REVIEW_REQUIRED";
 
 export type InterviewSettings = {
   posting: {
@@ -16,6 +21,9 @@ export type InterviewSettings = {
     category: string;
     description: string | null;
     sortOrder: number;
+    ncsProfileId: NcsProfileId | null;
+    defaultNcsQuestionMode: NcsQuestionMode | null;
+    ncsProfileVersion: string | null;
   }>;
   criteria: Array<{
     criterionId: number;
@@ -26,6 +34,9 @@ export type InterviewSettings = {
     weight: number;
     passScore: number | null;
     sortOrder: number;
+    ncsProfileId: NcsProfileId | null;
+    ncsQuestionMode: NcsQuestionMode | null;
+    ncsProfileVersion: string | null;
   }>;
   questions: Array<{
     questionId: number;
@@ -35,12 +46,52 @@ export type InterviewSettings = {
     origin: QuestionOrigin;
     isAiEdited: boolean;
     isActive: boolean;
+    generationSource: QuestionGenerationSource | null;
+    ncsProfileId: NcsProfileId | null;
+    ncsQuestionMode: NcsQuestionMode | null;
+    ncsProfileVersion: string | null;
+    alignmentStatus: QuestionAlignmentStatus | null;
+    alignmentScore: number | null;
+    alignmentReason: string | null;
+    evaluatorVersion: string | null;
+    sourceProcessLogId: number | null;
+    ncsBindings: Array<{
+      criterionId: number;
+      ncsProfileId: NcsProfileId;
+      ncsProfileVersion: string;
+      alignmentStatus: QuestionAlignmentStatus;
+      alignmentScore: number | null;
+      alignmentReason: string | null;
+      evaluatorVersion: string | null;
+      bindingOrder: number;
+    }>;
   }>;
   timePolicy: {
     preparationTimeSec: number;
     answerTimeSec: number;
     retryAllowed: boolean;
   };
+  evaluationFramework: EvaluationFramework;
+  questionGenerationPolicy: QuestionGenerationPolicy;
+};
+
+export type QuestionGenerationAllocation = {
+  source: QuestionGenerationSource;
+  ncsProfileId: NcsProfileId;
+  ncsQuestionMode: NcsQuestionMode;
+  count: number;
+};
+
+export type QuestionGenerationPolicy = {
+  postingId: number;
+  jdCriteriaQuestionCount: number;
+  resumeQuestionCount: number;
+  policyVersion: number;
+  criteriaVersion: number;
+  allocations: QuestionGenerationAllocation[];
+  resumeQuestionStatus?: "DISABLED" | "WAITING_APPLICATION";
+  evaluationFramework?: EvaluationFramework;
+  warnings?: string[];
 };
 
 export type CriterionTag = InterviewSettings["availableTags"][number];
@@ -59,6 +110,7 @@ export type CreateCriterionTagResult = {
 
 export type UpdateEvaluationCriteriaInput = {
   postingId: number;
+  evaluationFramework?: EvaluationFramework;
   criteria: Array<{
     criterionId?: number;
     tagId: number;
@@ -73,6 +125,20 @@ export type EvaluationCriteriaResult = {
   postingId: number;
   criteria: InterviewSettings["criteria"];
   totalWeight: number;
+  evaluationFramework: EvaluationFramework;
+  criteriaVersion: number;
+};
+
+export type UpdateQuestionGenerationPolicyInput = {
+  postingId: number;
+  jdCriteriaQuestionCount: number;
+  resumeQuestionCount: number;
+  expectedPolicyVersion?: number;
+};
+
+export type UpdateQuestionGenerationPolicyResult = QuestionGenerationPolicy & {
+  evaluationFramework: EvaluationFramework;
+  warnings: string[];
 };
 
 export type AiProcessStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
@@ -99,6 +165,14 @@ export type GeneratedQuestionCandidate = {
   expectedKeywords: string[];
   suggestionReason: string;
   questionType?: QuestionType;
+  source?: QuestionGenerationSource;
+  ncsProfileId?: NcsProfileId | null;
+  ncsQuestionMode?: NcsQuestionMode | null;
+  ncsProfileVersion?: string | null;
+  alignmentStatus?: QuestionAlignmentStatus;
+  alignmentScore?: number | null;
+  alignmentReason?: string | null;
+  evaluatorVersion?: string | null;
 };
 
 export type GeneratedQuestionSetCandidate = {
@@ -138,23 +212,19 @@ export type AiJobResult = {
   };
 };
 
-export type SuggestEvaluationCriteriaInput = {
-  postingId: number;
-  jobDescription: string;
-  talentProfile: string;
-  evaluationPolicy: string;
-};
-
 export type CreateInterviewQuestionInput = {
   postingId: number;
   criterionId: number;
+  criterionIds?: number[];
   questionType: QuestionType;
   content: string;
   origin?: QuestionOrigin;
+  sourceProcessLogId?: number;
 };
 
 export type UpdateInterviewQuestionInput = {
   criterionId: number;
+  criterionIds?: number[];
   questionType: QuestionType;
   content: string;
 };
@@ -170,6 +240,16 @@ export type CreateInterviewQuestionResult = {
     origin: QuestionOrigin;
     isAiEdited: boolean;
     isActive: boolean;
+    generationSource: QuestionGenerationSource | null;
+    ncsProfileId: NcsProfileId | null;
+    ncsQuestionMode: NcsQuestionMode | null;
+    ncsProfileVersion: string | null;
+    alignmentStatus: QuestionAlignmentStatus | null;
+    alignmentScore: number | null;
+    alignmentReason: string | null;
+    evaluatorVersion: string | null;
+    sourceProcessLogId: number | null;
+    ncsBindings: InterviewSettings["questions"][number]["ncsBindings"];
   };
 };
 
@@ -187,25 +267,8 @@ export type UpdateInterviewTimePolicyResult = {
 
 export type GenerateInterviewQuestionsInput = {
   postingId: number;
-  jobDescription: string;
-  questionCount: number;
-  criteria: Array<{
-    criterionId: number;
-    name: string;
-    category?: string;
-    weight?: number;
-  }>;
-};
-
-export type GenerateQuestionSetInput = {
-  postingId: number;
-  questionCount: number;
-  criteria: Array<{
-    criterionId: number;
-    name: string;
-    weight?: number;
-  }>;
-  questionTypes: string[];
+  jdCriteriaQuestionCount: number;
+  expectedPolicyVersion?: number;
 };
 
 export type ConfirmQuestionSetInput = {

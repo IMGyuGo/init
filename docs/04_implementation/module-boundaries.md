@@ -100,7 +100,13 @@ DTO와 API client 타입은 아래 naming을 따른다. 같은 요청/응답 타
 | `interview_answers` | `transcript` | E | B/D |
 | `evaluation_reports` | 생성, 상태, 요약, 총점 | E | B/D 제한 조회 |
 | `question_bank` | CRUD, 공고/평가 기준 연결 | C | D/E |
+| `question_bank` | NCS binding/alignment snapshot 최종 적용 | C | D/E |
 | `evaluation_criteria` | CRUD, weight/pass score | C | B/E |
+| `evaluation_criteria` | NCS profile/mode/version snapshot, criteria version 증가 | C | D/E |
+| `interview_question_generation_policies` (NQ-M1 예정) | framework, 출처별 질문 수, policy/criteria version | C | D/E |
+| `application_interview_question_batches` (NQ-M3 예정) | 생성 상태, 입력 version, 멱등 key, 실패 사유 | E | C/D/A |
+| `application_interview_questions` (NQ-M3 예정) | 개인화 질문, NCS 정렬 결과, 생성 snapshot | E | C/D |
+| `interview_session_questions` (NQ-M4 예정) | 공통·개인화 질문 합성 및 NCS snapshot | D | C/E |
 
 공유 테이블을 수정하는 PR은 위 field owner를 기준으로 리뷰어를 지정한다. owner가 아닌 모듈에서 직접 write가 필요하면 먼저 `docs/03_contracts`와 이 문서를 수정한다.
 

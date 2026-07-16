@@ -129,7 +129,7 @@ describe("AiReportPipelineService", () => {
     expect(result.questionEvaluations).toHaveLength(1);
   });
 
-  it("generates a report with temporary zero score when STT transcript is unavailable", async () => {
+  it("does not store a score or evidence when every STT transcript is unavailable", async () => {
     const request = validGenerateRequest();
     request.answers = [
       {
@@ -146,22 +146,15 @@ describe("AiReportPipelineService", () => {
       body: request
     });
 
-    expect(result.status).toBe("COMPLETED");
-    expect(result.report.status).toBe("COMPLETED");
-    expect(result.totalScore).toBe(0);
-    expect(result.scores[0]).toMatchObject({
-      score: 0,
-      rubricAnchor: "STT_UNAVAILABLE_TEMP_ZERO",
-      confidence: "LOW"
-    });
-    expect(result.scores[0].rationale).toContain("STT failed");
-    expect(result.questionEvaluations[0]).toMatchObject({
-      answerId: 10,
-      rubricAnchor: "STT_UNAVAILABLE_TEMP_ZERO"
-    });
+    expect(result.status).toBe("FAILED");
+    expect(result.report.status).toBe("FAILED");
+    expect(result.scores).toEqual([]);
+    expect(result.questionEvaluations).toEqual([]);
+    expect(result.stored.scoreCount).toBe(0);
+    expect(result.stored.evidenceCount).toBe(0);
   });
 
-  it("keeps temporary zero score evidence for unavailable transcripts beyond criterion count", async () => {
+  it("excludes unavailable transcripts when other answers can be evaluated", async () => {
     const request = validGenerateRequest();
     request.answers = [
       ...request.answers,
@@ -180,18 +173,11 @@ describe("AiReportPipelineService", () => {
     });
 
     const unavailableQuestion = result.questionEvaluations.find((evaluation) => evaluation.answerId === 11);
-    const unavailableScore = result.scores.find((score) => score.rubricAnchor === "STT_UNAVAILABLE_TEMP_ZERO");
-
     expect(result.status).toBe("COMPLETED");
-    expect(result.scores).toHaveLength(2);
-    expect(unavailableQuestion).toMatchObject({
-      answerId: 11,
-      rubricAnchor: "STT_UNAVAILABLE_TEMP_ZERO"
-    });
-    expect(unavailableScore).toMatchObject({
-      score: 0,
-      confidence: "LOW"
-    });
+    expect(result.scores).toHaveLength(1);
+    expect(result.questionEvaluations).toHaveLength(1);
+    expect(unavailableQuestion).toBeUndefined();
+    expect(result.scores.some((score) => score.score === 0 && score.rationale.includes("STT"))).toBe(false);
   });
 
   it("records unexpected report generation failures as retryable without storing final scores", async () => {

@@ -2557,12 +2557,173 @@
   position: relative;
   z-index: 1;
   display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   justify-items: center;
-  align-self: center;
-  gap: 14px;
+  align-self: stretch;
+  gap: 10px;
   width: min(560px, 100%);
-  margin: 66px auto 16px;
+  min-height: 0;
+  margin: 28px auto 12px;
   text-align: center;
+}
+
+:global(.notion.candidate-mypage .application-row__actions) {
+  display: grid;
+  gap: 3px;
+  width: 108px;
+}
+
+:global(.notion.candidate-mypage .application-row__cancel) {
+  min-height: 32px;
+  padding: 0 8px;
+  color: rgba(55, 53, 47, 0.5);
+  font-size: 12px;
+  font-weight: 500;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+:global(.notion.candidate-mypage .application-row__cancel:hover) {
+  color: #b9382f;
+  background: rgba(185, 56, 47, 0.07);
+}
+
+:global(.notion.candidate-mypage .application-row__cancel:focus-visible) {
+  color: #b9382f;
+  outline: 2px solid rgba(185, 56, 47, 0.32);
+  outline-offset: 1px;
+}
+
+:global(.application-cancel-backdrop) {
+  background: rgba(25, 25, 25, 0.42);
+}
+
+:global(.application-cancel-modal) {
+  width: min(420px, 100%);
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.2);
+  animation: applicationCancelModalIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:global(.application-cancel-modal__body) {
+  padding: 24px 24px 20px;
+}
+
+:global(.application-cancel-modal__body h2) {
+  margin: 0;
+  color: #191919;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+:global(.application-cancel-modal__body p) {
+  margin: 10px 0 0;
+  color: rgba(55, 53, 47, 0.66);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+:global(.application-cancel-modal__body p strong) {
+  color: #37352f;
+  font-weight: 600;
+}
+
+:global(.application-cancel-modal__body .application-cancel-modal__error) {
+  padding: 10px 12px;
+  color: #a8322b;
+  background: #fff1f0;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+:global(.application-cancel-modal__actions) {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 16px 24px 20px;
+  border-top: 1px solid rgba(55, 53, 47, 0.08);
+}
+
+:global(.application-cancel-modal__actions button) {
+  height: 42px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+:global(.application-cancel-modal__keep) {
+  color: #37352f;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.16);
+}
+
+:global(.application-cancel-modal__keep:hover:not(:disabled)) {
+  background: #f7f7f5;
+}
+
+:global(.application-cancel-modal__confirm) {
+  color: #fff;
+  background: #b9382f;
+  border: 1px solid #b9382f;
+}
+
+:global(.application-cancel-modal__confirm:hover:not(:disabled)) {
+  background: #a8322b;
+  border-color: #a8322b;
+}
+
+:global(.application-cancel-modal__actions button:focus-visible) {
+  outline: 3px solid rgba(59, 111, 224, 0.2);
+  outline-offset: 2px;
+}
+
+:global(.application-cancel-modal__actions button:disabled) {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+@keyframes applicationCancelModalIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 640px) {
+  :global(.notion.candidate-mypage .application-row__actions) {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  :global(.notion.candidate-mypage .application-row__cta) {
+    grid-column: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :global(.application-cancel-modal) {
+    animation: none;
+  }
+}
+
+:global(.ai-interviewer-figure > .local-interviewer-avatar) {
+  width: auto;
+  height: 100%;
+  min-height: 0;
+  max-height: 340px;
 }
 
 :global(.ai-interviewer-avatar) {
@@ -5171,7 +5332,11 @@
   }
 
   :global(.ai-interviewer-stage) {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
     min-height: 0;
+    aspect-ratio: auto;
     padding: 18px;
   }
 
@@ -5182,6 +5347,7 @@
     max-height: 100vh;
     max-height: 100dvh;
     padding: 20px;
+    overflow-y: auto;
   }
 
   :global(.ai-interviewer-stage__top) {
@@ -5199,17 +5365,29 @@
   }
 
   :global(.runtime-status-hud) {
-    top: 82px;
-    left: 18px;
-    max-width: calc(100% - 36px);
+    position: static;
+    display: flex;
+    flex-wrap: wrap;
+    width: 100%;
+    max-width: none;
   }
 
   :global(.ai-interviewer-figure) {
-    margin-top: 104px;
+    flex: 0 0 auto;
+    grid-template-rows: auto auto;
+    align-self: center;
+    height: auto;
+    margin: 4px auto 0;
   }
 
   :global(.ai-interviewer-stage:fullscreen .ai-interviewer-figure) {
-    margin-top: 126px;
+    margin: 4px auto 0;
+  }
+
+  :global(.ai-interviewer-figure > .local-interviewer-avatar) {
+    width: min(190px, 58vw);
+    height: auto;
+    max-height: none;
   }
 
   :global(.ai-interviewer-copy h1) {
@@ -5217,10 +5395,27 @@
   }
 
   :global(.candidate-camera-pip) {
-    top: 50%;
-    right: 18px;
-    bottom: auto;
-    width: 190px;
+    position: relative;
+    inset: auto !important;
+    width: 100%;
+    margin-top: 0;
+    transform: none;
+  }
+
+  :global(.candidate-camera-pip.positioned),
+  :global(.candidate-camera-pip.dragged) {
+    inset: auto !important;
+    transform: none;
+  }
+
+  :global(.candidate-camera-pip__video) {
+    max-height: 160px;
+    aspect-ratio: 16 / 9;
+  }
+
+  :global(.runtime-integrity-warning) {
+    position: static;
+    width: 100%;
   }
 
   :global(.ai-interviewer-stage--candidate-primary) {
@@ -5232,9 +5427,10 @@
   }
 
   :global(.ai-interviewer-stage--candidate-primary .ai-interviewer-figure--pip) {
-    top: 128px;
-    right: 18px;
-    width: min(220px, calc(100% - 36px));
+    position: relative;
+    inset: auto !important;
+    width: 100%;
+    transform: none;
   }
 
   :global(.ai-interviewer-stage--candidate-primary .ai-interviewer-figure--pip .ai-interviewer-avatar) {

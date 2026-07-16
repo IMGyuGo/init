@@ -50,6 +50,10 @@ const keyOf = (prefix: string) => `${prefix}-${++nextKey}`;
 const text = (value: string | null | undefined) => value ?? "";
 const nullable = (value: string) => value.trim() || null;
 
+export function preserveNullableTextInput(value: string): string | null {
+  return value === "" ? null : value;
+}
+
 export function getAccordionIndicator(open: boolean): "▲" | "▼" {
   return open ? "▲" : "▼";
 }

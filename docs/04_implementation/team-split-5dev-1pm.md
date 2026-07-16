@@ -154,6 +154,17 @@ C와 E가 함께 사용한다.
 - C: 설정 CRUD, 질문 뱅크 관리, 평가 기준 관리
 - E: AI 생성/추천 결과 저장 규칙, 리포트 평가 기준 사용
 
+### NCS 공통·개인화 질문 생성
+
+C/D/E/A가 함께 사용한다. 세부 logical model은 `docs/02_architecture/ncs-recruiting-question-generation.md`를 따른다.
+
+- C: NCS 평가 기준 binding, 출처별 질문 개수 정책, JD 공통 질문 최종 적용
+- D: 지원 완료·문서 상태, `READY` 개인화 질문의 세션 snapshot 합성
+- E: 이력서 질문 batch, NCS 정렬·가드레일, 개인화 질문 저장
+- A/E: SQS 중복 전달, worker lease, 재시도 및 개인정보 로그 정책
+
+NQ-M0에서는 계약과 소유권만 고정한다. C 정책/NCS 기준 snapshot은 NQ-M1, 공통 질문 metadata는 NQ-M2, application 질문은 NQ-M3, session snapshot은 NQ-M4에서 관련 owner 리뷰 후 순차 구현한다.
+
 ## Branch Strategy
 
 ```text

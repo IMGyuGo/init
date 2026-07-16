@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsInt,
+  IsIn,
   IsOptional,
   IsString,
   Max,
@@ -9,6 +10,12 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import {
+  EVALUATION_FRAMEWORKS,
+  EvaluationFramework,
+  NcsProfileId,
+  NcsQuestionMode,
+} from '../company-interview.types';
 export class EvaluationCriterionItemDto {
   @IsOptional()
   @Type(() => Number)
@@ -51,6 +58,10 @@ export class UpdateEvaluationCriterionDto {
   @Min(1)
   postingId!: number;
 
+  @IsOptional()
+  @IsIn(EVALUATION_FRAMEWORKS)
+  evaluationFramework?: EvaluationFramework;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => EvaluationCriterionItemDto)
@@ -66,10 +77,15 @@ export class EvaluationCriterionResponseItemDto {
   weight!: number;
   passScore!: number | null;
   sortOrder!: number;
+  ncsProfileId!: NcsProfileId | null;
+  ncsQuestionMode!: NcsQuestionMode | null;
+  ncsProfileVersion!: string | null;
 }
 
 export class EvaluationCriterionResponseDto {
   postingId!: number;
   criteria!: EvaluationCriterionResponseItemDto[];
   totalWeight!: number;
+  evaluationFramework!: EvaluationFramework;
+  criteriaVersion!: number;
 }

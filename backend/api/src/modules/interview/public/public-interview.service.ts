@@ -7,7 +7,7 @@ import {
   type CurrentCandidateUser,
 } from "../../candidate";
 import { DeviceCheckDto } from "../dto/interview.device-check.dto";
-import { AiInterviewRequestDto, CreateRealtimeInterviewSessionDto, InsertFollowUpQuestionDto, SaveInterviewAnswerDto } from "../dto/interview.runtime.dto";
+import { AiInterviewRequestDto, CreateRealtimeInterviewSessionDto, SaveInterviewAnswerDto } from "../dto/interview.runtime.dto";
 import { InterviewService } from "../service/interview.service";
 import type { UploadedInterviewMediaFile } from "../service/interview.service";
 import {
@@ -140,11 +140,6 @@ export class PublicInterviewService {
   requestFollowUpQuestion(sessionId: number, dto: AiInterviewRequestDto, access: PublicInterviewAccess) {
     this.assertAccessSession(sessionId, access);
     return this.interviewService.requestRecruitingFollowUpQuestion(sessionId, dto, this.toCurrentCandidateUser(access));
-  }
-
-  insertFollowUpQuestion(sessionId: number, dto: InsertFollowUpQuestionDto, access: PublicInterviewAccess) {
-    this.assertAccessSession(sessionId, access);
-    return this.interviewService.insertRecruitingFollowUpQuestion(sessionId, dto, this.toCurrentCandidateUser(access));
   }
 
   createRealtimeSession(sessionId: number, dto: CreateRealtimeInterviewSessionDto, access: PublicInterviewAccess) {

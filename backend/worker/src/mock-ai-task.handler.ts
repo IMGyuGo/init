@@ -1,23 +1,49 @@
 import {
   AiResultRepository,
+  AnswerFactCheckRunRecord,
   CommunicationAnalysisRecord,
   GeneratedDraftRecord,
   GeneratedQuestionEvaluationRecord,
   GeneratedReportRecord,
   GeneratedReportScoreRecord,
+  PersonalizedQuestionRecord,
+  ResumeQuestionGenerationContext,
+  ResumeQuestionJobReference,
   ReportAnswerEvaluationStatusRecord,
-  STT_UNAVAILABLE_TEMP_ZERO_REASON,
+  DEFAULT_STT_UNAVAILABLE_REASON,
   hashSourceText
 } from "./ai-result.repository";
 import { createAiProcessUsage } from "./ai-usage";
+import type { DocumentTextExtractor } from "./document-text-extractor";
+import { factCheckContextOf } from "./answer-fact-check-context";
+import {
+  type AnswerFactCheckProvider,
+  type FactCheckProviderMode,
+} from "./answer-fact-check.types";
+import {
+  evaluateNcsReportAnswers,
+  hasNcsAnswerSnapshots,
+  planFactClarification,
+  planNcsFollowUp,
+  type NcsApiProfileId as NcsReportApiProfileId,
+  type NcsReportEvaluationBatch,
+  type NcsReportQuestionBindingSnapshot,
+} from "./ncs-report-evaluation.adapter";
+import type { NcsTextEvaluationProvider } from "./ncs-text-evaluation.types";
+import type { NcsSessionPolicyInput } from "./ncs-final-evaluation";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import { AiTaskHandler, AiTaskResult, AiWorkerJob } from "./worker.types";
 import { SttProvider } from "./stt-provider";
 import {
+  alignNcsQuestion,
+  canonicalNcsProfileIdOf,
+  NcsApiProfileId,
+  NcsQuestionMode,
+} from "./ncs-question-alignment.adapter";
+import {
   assessReportEvidence,
   normalizeReportCriterionName,
   scoreBandFor,
-  SERVICE_INTERVIEW_RUBRIC,
   weightedTotalScore
 } from "./service-interview-rubric";
 
@@ -39,10 +65,21 @@ interface ReportAnswerForScoring {
   sortOrder?: number;
   isFollowUpAnswer?: boolean;
   parentAnswerId?: number;
+  followUpReason?: "NCS_EVIDENCE_GAP" | "FACT_CLARIFICATION" | "GENERAL_EVIDENCE_GAP";
   transcript: string;
   evaluationStatus: ReportAnswerEvaluationStatusRecord;
   transcriptUnavailableReason?: string;
   nonverbalMetadata?: ReportAnswerNonverbalMetadata;
+  sessionQuestionId?: number;
+  criterionId?: number;
+  criterionTitleSnapshot?: string;
+  ncsProfileId?: NcsReportApiProfileId;
+  ncsQuestionMode?: NcsQuestionMode;
+  ncsProfileVersion?: string;
+  alignmentStatus?: string;
+  alignmentScore?: number;
+  evaluatorVersion?: string;
+  ncsBindings?: NcsReportQuestionBindingSnapshot[];
 }
 
 interface ReportScoringContext {
@@ -127,7 +164,14 @@ const MOCK_HIRING_DECISION_TERMS = [
 export class MockAiTaskHandler implements AiTaskHandler {
   constructor(
     private readonly results: AiResultRepository,
-    private readonly options: { sttProvider?: SttProvider } = {}
+    private readonly options: {
+      sttProvider?: SttProvider;
+      documentTextExtractor?: DocumentTextExtractor;
+      ncsTextEvaluationProvider?: NcsTextEvaluationProvider;
+      answerFactCheckProvider?: AnswerFactCheckProvider;
+      answerFactCheckModelVersion?: string;
+      answerFactCheckProviderMode?: FactCheckProviderMode;
+    } = {}
   ) {}
 
   async handle(job: AiWorkerJob): Promise<AiTaskResult> {
@@ -143,12 +187,10 @@ export class MockAiTaskHandler implements AiTaskHandler {
         return this.followUp(input.kind ?? "RECRUITING_FOLLOW_UP", payload);
       case "REPORT_GENERATE":
         return this.reportGenerate(input.kind ?? "RECRUITING_REPORT_GENERATE", payload, job.processLogId);
-      case "CRITERIA_SUGGEST":
-        return this.criteriaSuggest(payload, job.processLogId);
       case "QUESTION_GENERATE":
         return this.questionGenerate(input.kind ?? "RECRUITING_QUESTION_GENERATE", payload, job.processLogId);
-      case "QUESTION_SET_GENERATE":
-        return this.questionSetGenerate(payload, job.processLogId);
+      case "RESUME_QUESTION_GENERATE":
+        return this.resumeQuestionGenerate(job);
       case "POSTING_DRAFT_GENERATE":
         return this.postingDraftGenerate(payload, job.processLogId);
       case "EMBEDDING":
@@ -158,7 +200,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
     }
   }
 
-  private documentExtract(payload: Record<string, unknown>): AiTaskResult {
+  private async documentExtract(payload: Record<string, unknown>): Promise<AiTaskResult> {
     if ("fileContent" in payload) {
       throw new NonRetryableAiWorkerFailure("raw file content must not be sent to document extraction worker");
     }
@@ -166,11 +208,23 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const documentId = positiveNumber(payload.documentId, "documentId");
     const fileId = positiveNumber(payload.fileId, "fileId");
     const s3Key = requiredText(payload.s3Key, "s3Key");
-    const extractedText = `Extracted text from ${s3Key}`;
+    const extracted = this.options.documentTextExtractor
+      ? await this.options.documentTextExtractor.extract({ fileId, s3Key })
+      : {
+          text: `Extracted text from ${s3Key}`,
+          source: "DETERMINISTIC_MOCK" as const,
+          pageCount: 0,
+          truncated: false,
+        };
 
     return {
       outputRef: JSON.stringify({
         documentId,
+        providerMode: this.options.documentTextExtractor ? "local" : "mock",
+        providerSource: extracted.source,
+        pageCount: extracted.pageCount,
+        extractedCharCount: extracted.text.length,
+        truncated: extracted.truncated,
         fileAsset: fileAssetRef(fileId, s3Key)
       }),
       guardrail: { result: "PASS", reason: null },
@@ -179,7 +233,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
           documentId,
           fileId,
           s3Key,
-          extractedText
+          extractedText: extracted.text
         })
     };
   }
@@ -199,6 +253,8 @@ export class MockAiTaskHandler implements AiTaskHandler {
     return {
       outputRef: JSON.stringify({
         answerId,
+        providerMode: this.options.sttProvider ? "openai" : "mock",
+        providerSource: providerResult.transcriptSource,
         fileAsset: fileAssetRef(audioFileId, audioS3Key),
         transcript: providerResult.transcript,
         transcriptSource: providerResult.transcriptSource,
@@ -224,7 +280,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
     };
   }
 
-  private followUp(kind: string, payload: Record<string, unknown>): AiTaskResult {
+  private async followUp(kind: string, payload: Record<string, unknown>): Promise<AiTaskResult> {
     const sessionId = positiveNumber(payload.sessionId, "sessionId");
     const answerId = positiveNumber(payload.answerId, "answerId");
     const previousQuestion = requiredText(payload.previousQuestion, "previousQuestion");
@@ -243,14 +299,59 @@ export class MockAiTaskHandler implements AiTaskHandler {
             .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
             .map(shorten)
             .join(" | ");
-    const content = buildFollowUpQuestion({
-      policy,
-      previousQuestion,
-      transcript,
-      context,
-      jobDescription,
-      documentSummary
-    });
+    const ncsPlan = policy === "RECRUITING" ? planNcsFollowUp(payload) : undefined;
+    const factPlan = ncsPlan
+      ? await planFactClarification(payload, factCheckContextOf(payload.factCheckContext, {
+          provider: this.options.answerFactCheckProvider,
+          configuredModelVersion: this.options.answerFactCheckModelVersion,
+          providerMode: this.options.answerFactCheckProviderMode,
+          jobDescription,
+          documentSummary,
+        }))
+      : undefined;
+    if (ncsPlan && !ncsPlan.required && !factPlan?.required) {
+      return {
+        outputRef: JSON.stringify({
+          sessionId,
+          answerId,
+          policy,
+          followUpRequired: false,
+          questionMode: ncsPlan.questionMode,
+          answerTimeSec: ncsPlan.answerTimeSec,
+          baseScores: ncsPlan.baseScores,
+          factCheck: factPlan ? factCheckFollowUpSummary(factPlan) : undefined,
+          dedupeKey: `${policy}:${sessionId}:${answerId}`,
+          duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP",
+        }),
+        guardrail: { result: "PASS", reason: null },
+        finalSave: () =>
+          this.results.saveFollowUpQuestion({
+            sessionId,
+            answerId,
+            required: false,
+            policy,
+            reason: "NCS_EVIDENCE_GAP",
+            questionMode: ncsPlan.questionMode,
+            answerTimeSec: ncsPlan.answerTimeSec,
+          }),
+      };
+    }
+    const content = ncsPlan
+      ? buildNcsFollowUpQuestion(
+          transcript,
+          ncsPlan.questionMode,
+          ncsPlan.focusPoints,
+          ncsPlan.logicalStructureGap,
+          factPlan?.required ? factPlan.clarificationClaims : [],
+        )
+      : buildFollowUpQuestion({
+          policy,
+          previousQuestion,
+          transcript,
+          context,
+          jobDescription,
+          documentSummary,
+        });
 
     return {
       outputRef: JSON.stringify({
@@ -261,38 +362,45 @@ export class MockAiTaskHandler implements AiTaskHandler {
         content,
         jobDescription,
         documentSummary,
+        followUpRequired: true,
+        questionMode: ncsPlan?.questionMode,
+        answerTimeSec: ncsPlan?.answerTimeSec,
+        baseScores: ncsPlan?.baseScores,
+        focusPoints: ncsPlan?.focusPoints,
+        factCheck: factPlan ? factCheckFollowUpSummary(factPlan) : undefined,
         dedupeKey: `${policy}:${sessionId}:${answerId}`,
         duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP"
       }),
       guardrail: this.validateMockPolicy(policy, content),
-      finalSave: () => this.results.saveFollowUpQuestion({ sessionId, answerId, content, policy })
+      usage: factPlan?.usage
+        ? createAiProcessUsage({
+            modelName: factPlan.usage.modelName,
+            inputTokens: factPlan.usage.inputTokens,
+            outputTokens: factPlan.usage.outputTokens,
+            metadata: { processType: "FOLLOW_UP", stage: "FACT_PRECHECK" },
+          })
+        : undefined,
+      finalSave: () =>
+        this.results.saveFollowUpQuestion({
+          sessionId,
+          answerId,
+          required: true,
+          content,
+          policy,
+          reason: factPlan?.required
+            ? "FACT_CLARIFICATION"
+            : ncsPlan ? "NCS_EVIDENCE_GAP" : "GENERAL_EVIDENCE_GAP",
+          questionMode: ncsPlan?.questionMode,
+          answerTimeSec: ncsPlan?.answerTimeSec,
+        })
     };
   }
 
-  private criteriaSuggest(payload: Record<string, unknown>, processLogId: number): AiTaskResult {
-    const postingId = positiveNumber(payload.postingId, "postingId");
-    const jobDescription = requiredText(payload.jobDescription, "jobDescription");
-    const talentProfile = requiredText(payload.talentProfile, "talentProfile");
-    const evaluationPolicy = requiredText(payload.evaluationPolicy, "evaluationPolicy");
-    const criteriaSuggestions = SERVICE_INTERVIEW_RUBRIC.map((criterion, index) => ({
-      title: criterion.name,
-      description: `${criterion.description} JD: ${shorten(jobDescription)}`,
-      weight: criterion.weight,
-      order: index + 1,
-      suggestionReason: `인재상(${shorten(talentProfile)})과 평가 정책(${shorten(evaluationPolicy)})을 답변 근거 중심으로 검증하기 위한 기본 기준입니다.`,
-      category: "서비스 기본 평가"
-    }));
-    const items = criteriaSuggestions.map((candidate) => candidate.title);
-
-    return this.generatedDraft("CRITERIA_SUGGEST", items, {
-      sourceProcessLogId: processLogId,
-      postingId,
-      targetTables: ["criterion_tags", "evaluation_criteria"],
-      criteriaSuggestions
-    });
-  }
-
-  private reportGenerate(kind: string, payload: Record<string, unknown>, processLogId: number): AiTaskResult {
+  private async reportGenerate(
+    kind: string,
+    payload: Record<string, unknown>,
+    processLogId: number,
+  ): Promise<AiTaskResult> {
     switch (payload.step) {
       case "EVALUATION_CONTEXT":
         return this.evaluationContext(payload, processLogId);
@@ -343,19 +451,35 @@ export class MockAiTaskHandler implements AiTaskHandler {
     };
   }
 
-  private answerEvaluation(payload: Record<string, unknown>, processLogId: number): AiTaskResult {
+  private async answerEvaluation(payload: Record<string, unknown>, processLogId: number): Promise<AiTaskResult> {
     const reportType = reportTypeOf(payload.reportType);
     const reportId = optionalPositiveNumber(payload.reportId, "reportId") ?? processLogId;
-    const { scores, questionEvaluations } = this.scoreReport(
-      criteriaOf(payload.criteria),
-      answersOf(payload.answers),
+    const criteria = criteriaOf(payload.criteria);
+    const answers = answersOf(payload.answers);
+    const ncsBatch = hasNcsAnswerSnapshots(answers)
+      ? await evaluateNcsReportAnswers(
+          reportId,
+          answers,
+          criteria.map((criterion) => criterion.criterionId),
+          this.options.ncsTextEvaluationProvider,
+          ncsSessionPoliciesOf(payload.ncsSessionPolicy),
+          factCheckContextOf(payload.factCheckContext, {
+            provider: this.options.answerFactCheckProvider,
+            configuredModelVersion: this.options.answerFactCheckModelVersion,
+            providerMode: this.options.answerFactCheckProviderMode,
+          }),
+        )
+      : undefined;
+    const { scores, questionEvaluations } = ncsBatch ?? this.scoreReport(
+      criteria,
+      answers,
       typeof payload.documentText === "string" ? payload.documentText : undefined,
       {
         reportType,
         jobDescription: typeof payload.jobDescription === "string" ? payload.jobDescription : undefined
       }
     );
-    const guardrail = this.validateScores(reportType, scores);
+    const guardrail = ncsBatch ? this.validateNcsEvaluationBatch(ncsBatch) : this.validateScores(reportType, scores);
     const evidences = scores.flatMap((score) => score.evidences);
 
     return {
@@ -364,6 +488,9 @@ export class MockAiTaskHandler implements AiTaskHandler {
         report: reportSnapshot(reportId, reportType),
         scores,
         questionEvaluations,
+        ncsAnswerEvaluations: ncsBatch?.evaluations,
+        ncsFinalEvaluation: ncsBatch?.finalEvaluation,
+        factCheckSummary: factCheckSummary(ncsBatch?.factChecks),
         evidences,
         guardrail,
         stored: {
@@ -372,7 +499,18 @@ export class MockAiTaskHandler implements AiTaskHandler {
         }
       }),
       guardrail,
-      finalSave: () => this.results.saveReportScoresAndEvidences({ reportId, scores })
+      usage: ncsBatch?.usage
+        ? createAiProcessUsage({
+            ...ncsBatch.usage,
+            metadata: { processType: "REPORT_GENERATE", kind: "NCS_ANSWER_EVALUATION" },
+          })
+        : undefined,
+      finalSave: () => this.results.saveReportScoresAndEvidences({
+        reportId,
+        scores,
+        ncsAnswerEvaluations: ncsBatch?.evaluations,
+        answerFactChecks: ncsBatch?.factChecks,
+      })
     };
   }
 
@@ -415,7 +553,11 @@ export class MockAiTaskHandler implements AiTaskHandler {
     };
   }
 
-  private finalReportGenerate(kind: string, payload: Record<string, unknown>, processLogId: number): AiTaskResult {
+  private async finalReportGenerate(
+    kind: string,
+    payload: Record<string, unknown>,
+    processLogId: number,
+  ): Promise<AiTaskResult> {
     const reportId = optionalPositiveNumber(payload.reportId, "reportId") ?? processLogId;
     const reportType = reportTypeOf(payload.reportType);
     const generatedSummary = typeof payload.summary === "string" && payload.summary.trim() ? payload.summary : undefined;
@@ -435,11 +577,29 @@ export class MockAiTaskHandler implements AiTaskHandler {
         ? [{ answerId: 1, transcript: generatedSummary, evaluationStatus: "EVALUATED" as const }]
         : answersOf(payload.answers);
     const documentText = typeof payload.documentText === "string" ? payload.documentText : undefined;
-    const { scores, questionEvaluations } = this.scoreReport(criteria, answers, documentText, {
+    const ncsBatch = hasNcsAnswerSnapshots(answers)
+      ? await evaluateNcsReportAnswers(
+          reportId,
+          answers,
+          criteria.map((criterion) => criterion.criterionId),
+          this.options.ncsTextEvaluationProvider,
+          ncsSessionPoliciesOf(payload.ncsSessionPolicy),
+          factCheckContextOf(payload.factCheckContext, {
+            provider: this.options.answerFactCheckProvider,
+            configuredModelVersion: this.options.answerFactCheckModelVersion,
+            providerMode: this.options.answerFactCheckProviderMode,
+          }),
+        )
+      : undefined;
+    const { scores, questionEvaluations } = ncsBatch ?? this.scoreReport(criteria, answers, documentText, {
       reportType,
       jobDescription
     });
-    const totalScore = weightedTotalScore(scores, criteria);
+    const totalScore = ncsBatch?.finalEvaluation
+      ? ncsBatch.finalEvaluation.totalScore
+      : ncsBatch && scores.length === 0
+        ? null
+        : weightedTotalScore(scores, criteria);
     const companyName = typeof payload.companyName === "string" && payload.companyName.trim() ? payload.companyName.trim() : undefined;
     const jobTitle = typeof payload.jobTitle === "string" && payload.jobTitle.trim() ? payload.jobTitle.trim() : undefined;
     const summary = generatedSummary ?? (reportType === "RECRUITING_REPORT"
@@ -453,7 +613,10 @@ export class MockAiTaskHandler implements AiTaskHandler {
       summary,
       totalScore,
       scores,
-      questionEvaluations
+      questionEvaluations,
+      ncsAnswerEvaluations: ncsBatch?.evaluations,
+      answerFactChecks: ncsBatch?.factChecks,
+      ncsFinalEvaluation: ncsBatch?.finalEvaluation,
     };
     const guardrail = this.validateReport(report);
 
@@ -465,10 +628,19 @@ export class MockAiTaskHandler implements AiTaskHandler {
         totalScore,
         scores,
         questionEvaluations,
+        ncsAnswerEvaluations: ncsBatch?.evaluations,
+        ncsFinalEvaluation: ncsBatch?.finalEvaluation,
+        factCheckSummary: factCheckSummary(ncsBatch?.factChecks),
         evidences: scores.flatMap((score) => score.evidences),
         guardrail
       }),
       guardrail,
+      usage: ncsBatch?.usage
+        ? createAiProcessUsage({
+            ...ncsBatch.usage,
+            metadata: { processType: "REPORT_GENERATE", kind: "NCS_REPORT_GENERATE" },
+          })
+        : undefined,
       finalSave: () => this.results.saveGeneratedReport(report)
     };
   }
@@ -484,11 +656,36 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const folderContext = kind.startsWith("MOCK") ? mockQuestionFolderContextOf(payload.folderContext) : undefined;
     const profileSources = kind.startsWith("MOCK") ? candidateProfileSources(payload.profileContext) : [];
 
+    const allocatedCriteria = criteria.some((criterion) => criterion.questionCount !== undefined)
+      ? criteria.flatMap((criterion) =>
+          Array.from({ length: criterion.questionCount ?? 0 }, () => criterion),
+        )
+      : Array.from({ length: questionCount }, (_, index) => criteria[index % Math.max(criteria.length, 1)]);
+    if (!kind.startsWith("MOCK") && allocatedCriteria.length !== questionCount) {
+      throw new NonRetryableAiWorkerFailure("NCS criterion allocation must equal questionCount");
+    }
+
+    const criterionOccurrences = new Map<number, number>();
     const questionCandidates = Array.from({ length: questionCount }, (_, index) => {
-      const criterion = criteria[index % Math.max(criteria.length, 1)];
+      const criterion = allocatedCriteria[index];
+      const criterionOccurrence = criterion
+        ? criterionOccurrences.get(criterion.criterionId) ?? 0
+        : index;
+      if (criterion) {
+        criterionOccurrences.set(criterion.criterionId, criterionOccurrence + 1);
+      }
       const content = kind.startsWith("MOCK")
         ? buildMockQuestionCandidate(index, folderContext, profileSources)
-        : `${criterion.name} 기준으로 ${shorten(jobDescription ?? "")} 경험을 검증할 수 있는 사례를 설명해주세요.`;
+        : buildRecruitingQuestionCandidate(criterion, jobDescription ?? "", criterionOccurrence);
+
+      const alignment = criterion?.ncsProfileId && criterion.ncsQuestionMode && criterion.ncsProfileVersion
+        ? alignNcsQuestion({
+            question: content,
+            profileId: criterion.ncsProfileId,
+            questionMode: criterion.ncsQuestionMode,
+            profileVersion: criterion.ncsProfileVersion,
+          })
+        : null;
 
       return {
         content,
@@ -502,7 +699,23 @@ export class MockAiTaskHandler implements AiTaskHandler {
           : folderContext
             ? "지원서 세트의 이력서, URL, 지원 동기, 추가 설명을 바탕으로 검증 가능한 답변을 유도합니다."
             : "면접 연습을 위해 검증 가능한 답변을 유도합니다.",
-        questionType: index % 2 === 0 ? "TECHNICAL" : "EXPERIENCE"
+        questionType: criterion?.ncsQuestionMode === "TECHNICAL_KNOWLEDGE"
+          ? "TECHNICAL"
+          : criterion?.ncsQuestionMode === "SITUATIONAL_DESIGN"
+            ? "SITUATION"
+            : index % 2 === 0 ? "TECHNICAL" : "EXPERIENCE",
+        source: kind.startsWith("MOCK") ? undefined : "JD_CRITERIA" as const,
+        ncsProfileId: criterion?.ncsProfileId ?? null,
+        ncsQuestionMode: criterion?.ncsQuestionMode ?? null,
+        ncsProfileVersion: alignment?.profileVersion ?? null,
+        alignmentStatus: (alignment?.status ?? "NOT_EVALUATED") as
+          | "NOT_EVALUATED"
+          | "ALIGNED"
+          | "LOW_ALIGNMENT"
+          | "REVIEW_REQUIRED",
+        alignmentScore: alignment?.score ?? null,
+        alignmentReason: alignment?.reason ?? null,
+        evaluatorVersion: alignment?.evaluatorVersion ?? null,
       };
     });
     const items = questionCandidates.map((candidate) => candidate.content);
@@ -573,45 +786,6 @@ export class MockAiTaskHandler implements AiTaskHandler {
     });
   }
 
-  private questionSetGenerate(payload: Record<string, unknown>, processLogId: number): AiTaskResult {
-    const postingId = positiveNumber(payload.postingId, "postingId");
-    const questionCount = positiveNumber(payload.questionCount, "questionCount");
-    const criteria = criteriaOf(payload.criteria);
-    const questionTypes = nonEmptyStringArrayOf(payload.questionTypes, "questionTypes");
-    const items = Array.from({ length: questionCount }, (_, index) => {
-      const criterion = criteria[index % criteria.length];
-      const questionType = questionTypes[index % questionTypes.length];
-      return `${questionType} question ${index + 1} for ${criterion.name}`;
-    });
-    const questionCandidates = items.map((content, index) => {
-      const criterion = criteria[index % criteria.length];
-      const questionType = questionTypes[index % questionTypes.length];
-      return {
-        content,
-        category: "질문 세트",
-        difficulty: "MEDIUM" as const,
-        criterionId: criterion.criterionId,
-        criterionTitle: criterion.name,
-        expectedKeywords: ["상황", "행동", "결과"],
-        suggestionReason: "평가 기준별 질문 세트 구성을 위해 선택된 후보입니다.",
-        questionType
-      };
-    });
-    const questionSetPreview = criteria.map((criterion) => ({
-      criterionId: criterion.criterionId,
-      criterionTitle: criterion.name,
-      questions: questionCandidates.filter((question) => question.criterionId === criterion.criterionId)
-    }));
-
-    return this.generatedDraft("QUESTION_SET_GENERATE", items, {
-      sourceProcessLogId: processLogId,
-      postingId,
-      targetTables: ["question_bank"],
-      questionCandidates,
-      questionSetPreview
-    });
-  }
-
   private embedding(payload: Record<string, unknown>): AiTaskResult {
     const sourceType = requiredText(payload.sourceType, "sourceType");
     const sourceText = requiredText(payload.sourceText, "sourceText");
@@ -654,7 +828,6 @@ export class MockAiTaskHandler implements AiTaskHandler {
       targetTables: GeneratedDraftRecord["targetTables"];
       postingId?: number;
       postingDraft?: GeneratedDraftRecord["postingDraft"];
-      criteriaSuggestions?: GeneratedDraftRecord["criteriaSuggestions"];
       questionCandidates?: GeneratedDraftRecord["questionCandidates"];
       questionSetPreview?: GeneratedDraftRecord["questionSetPreview"];
     }
@@ -663,9 +836,10 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const draft = {
       kind,
       sourceProcessLogId: options.sourceProcessLogId,
+      providerMode: "mock" as const,
+      providerSource: "DETERMINISTIC_MOCK",
       items,
       postingDraft: options.postingDraft,
-      criteriaSuggestions: options.criteriaSuggestions,
       questionCandidates: options.questionCandidates,
       questionSetPreview: options.questionSetPreview,
       reviewRequired: true as const,
@@ -678,6 +852,71 @@ export class MockAiTaskHandler implements AiTaskHandler {
       guardrail,
       finalSave: () =>
         this.results.saveGeneratedDraft(draft)
+    };
+  }
+
+  private async resumeQuestionGenerate(job: AiWorkerJob): Promise<AiTaskResult> {
+    const reference = resumeQuestionReferenceOf(job);
+    const context = await this.results.loadResumeQuestionGenerationContext(reference);
+    const allocatedCriteria = context.criteria.flatMap((criterion) =>
+      Array.from({ length: criterion.questionCount }, () => criterion),
+    );
+    if (allocatedCriteria.length !== context.questionCount) {
+      throw new NonRetryableAiWorkerFailure("resume question allocation must equal questionCount");
+    }
+
+    const questions: PersonalizedQuestionRecord[] = allocatedCriteria.map((criterion, index) => {
+      const content = buildMockPersonalizedQuestion(
+        criterion.ncsProfileId,
+        index,
+        context.resumeText,
+      );
+      const alignment = alignNcsQuestion({
+        question: content,
+        profileId: criterion.ncsProfileId,
+        questionMode: criterion.ncsQuestionMode,
+        profileVersion: criterion.ncsProfileVersion,
+      });
+      return {
+        criterionId: criterion.criterionId,
+        criterionTitleSnapshot: criterion.name,
+        questionType: criterion.ncsQuestionMode === "TECHNICAL_KNOWLEDGE"
+          ? "TECHNICAL"
+          : criterion.ncsQuestionMode === "SITUATIONAL_DESIGN"
+            ? "SITUATION"
+            : "EXPERIENCE",
+        content,
+        ncsProfileId: criterion.ncsProfileId,
+        ncsQuestionMode: criterion.ncsQuestionMode,
+        ncsProfileVersion: alignment.profileVersion,
+        alignmentStatus: alignment.status === "ALIGNED" ? "ALIGNED" : "REVIEW_REQUIRED",
+        alignmentScore: alignment.score,
+        alignmentReason: alignment.reason,
+        evaluatorVersion: alignment.evaluatorVersion,
+        sortOrder: index + 1,
+      };
+    });
+    const ready = questions.every((question) => question.alignmentStatus === "ALIGNED");
+    const result = {
+      reference,
+      status: ready ? "READY" as const : "REVIEW_REQUIRED" as const,
+      evaluatorVersion: questions[0]?.evaluatorVersion ?? null,
+      failureReason: ready ? null : "Mock personalized question alignment requires review.",
+      questions,
+    };
+    return {
+      outputRef: JSON.stringify({
+        kind: "RESUME_PERSONALIZED_QUESTION_GENERATE",
+        providerMode: "mock",
+        providerSource: "DETERMINISTIC_MOCK",
+        applicationId: context.applicationId,
+        postingId: context.postingId,
+        inputVersion: context.inputVersion,
+        status: result.status,
+        questions,
+      }),
+      guardrail: { result: "PASS", reason: null },
+      finalSave: () => this.results.saveResumeQuestionGeneration(result),
     };
   }
 
@@ -704,7 +943,6 @@ export class MockAiTaskHandler implements AiTaskHandler {
   ): StructuredReportEvaluation {
     const scores: GeneratedReportScoreRecord[] = [];
     const questionEvaluations: GeneratedQuestionEvaluationRecord[] = [];
-    const evaluatedAnswerIds = new Set<number>();
     const childAnswersByParent = groupFollowUpAnswersByParent(answers);
     const primaryEvaluatedAnswers = answers
       .filter((answer) => answer.evaluationStatus !== "STT_UNAVAILABLE" && !answer.isFollowUpAnswer)
@@ -719,15 +957,8 @@ export class MockAiTaskHandler implements AiTaskHandler {
       const answer =
         selectAnswerForCriterion(criterionName, criterion, primaryEvaluatedAnswers, usedPrimaryAnswerIds) ??
         primaryEvaluatedAnswers[index % Math.max(primaryEvaluatedAnswers.length, 1)] ??
-        fallbackEvaluatedAnswers[index % Math.max(fallbackEvaluatedAnswers.length, 1)] ??
-        answers[index % answers.length];
-      if (answer.evaluationStatus === "STT_UNAVAILABLE") {
-        const zeroEvaluation = zeroScoreForUnavailableTranscript(criterion, answer);
-        scores.push(zeroEvaluation.score);
-        questionEvaluations.push(zeroEvaluation.questionEvaluation);
-        evaluatedAnswerIds.add(answer.answerId);
-        return;
-      }
+        fallbackEvaluatedAnswers[index % Math.max(fallbackEvaluatedAnswers.length, 1)];
+      if (!answer) return;
 
       usedPrimaryAnswerIds.add(answer.answerId);
       const supportingFollowUps = childAnswersByParent.get(answer.answerId) ?? [];
@@ -781,28 +1012,43 @@ export class MockAiTaskHandler implements AiTaskHandler {
         uncertaintyReasons,
         evidences
       });
-      evaluatedAnswerIds.add(answer.answerId);
     });
-
-    answers
-      .filter((answer) => answer.evaluationStatus === "STT_UNAVAILABLE" && !evaluatedAnswerIds.has(answer.answerId))
-      .forEach((answer) => {
-        const criterion = criteria[scores.length % criteria.length];
-        const zeroEvaluation = zeroScoreForUnavailableTranscript(criterion, answer);
-        scores.push(zeroEvaluation.score);
-        questionEvaluations.push(zeroEvaluation.questionEvaluation);
-        evaluatedAnswerIds.add(answer.answerId);
-      });
 
     return { scores, questionEvaluations };
   }
 
   private validateReport(report: GeneratedReportRecord) {
+    if (report.ncsAnswerEvaluations) {
+      const ncsDecision = this.validateNcsEvaluationBatch({
+        evaluations: report.ncsAnswerEvaluations,
+        factChecks: report.answerFactChecks ?? [],
+        scores: report.scores,
+        questionEvaluations: report.questionEvaluations,
+        allProfilesScored: report.totalScore !== null,
+      });
+      if (ncsDecision.result !== "PASS") {
+        return ncsDecision;
+      }
+      return report.questionEvaluations.length > 0
+        ? this.validateQuestionEvaluations(report.questionEvaluations)
+        : { result: "PASS" as const, reason: null };
+    }
     const scoreDecision = this.validateScores(report.reportType, report.scores, report.summary);
     if (scoreDecision.result === "BLOCKED") {
       return scoreDecision;
     }
     return this.validateQuestionEvaluations(report.questionEvaluations);
+  }
+
+  private validateNcsEvaluationBatch(batch: NcsReportEvaluationBatch) {
+    const blocked = batch.evaluations.filter((evaluation) => evaluation.output.guardrail.result === "BLOCKED");
+    if (blocked.length > 0) {
+      return {
+        result: "REGENERATED" as const,
+        reason: `NCS evaluator blocked ${blocked.length} answer result(s); nullable safe envelopes were stored.`,
+      };
+    }
+    return this.validateScores("RECRUITING_REPORT", batch.scores);
   }
 
   private validateScores(
@@ -956,6 +1202,14 @@ function positiveNumber(value: unknown, name: string): number {
   return parsed;
 }
 
+function nonNegativeInteger(value: unknown, name: string): number {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new NonRetryableAiWorkerFailure(`${name} must be a non-negative safe integer`);
+  }
+  return parsed;
+}
+
 function optionalPositiveNumber(value: unknown, name: string): number | undefined {
   if (value === undefined || value === null || value === "") {
     return undefined;
@@ -1093,7 +1347,17 @@ function reportTypeOf(value: unknown): GeneratedReportRecord["reportType"] {
   throw new NonRetryableAiWorkerFailure("reportType is invalid");
 }
 
-function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; weight: number; category?: string; description?: string }> {
+function criteriaOf(value: unknown): Array<{
+  criterionId: number;
+  name: string;
+  weight: number;
+  category?: string;
+  description?: string;
+  questionCount?: number;
+  ncsProfileId?: NcsApiProfileId;
+  ncsQuestionMode?: NcsQuestionMode;
+  ncsProfileVersion?: string;
+}> {
   if (!Array.isArray(value) || value.length === 0) {
     throw new NonRetryableAiWorkerFailure("criteria is required");
   }
@@ -1108,9 +1372,188 @@ function criteriaOf(value: unknown): Array<{ criterionId: number; name: string; 
       name: requiredText(record.name, "criterion name"),
       category: typeof record.category === "string" ? record.category : undefined,
       description: typeof record.description === "string" ? record.description : undefined,
-      weight: Number.isFinite(Number(record.weight)) ? Number(record.weight) : 0
+      weight: Number.isFinite(Number(record.weight)) ? Number(record.weight) : 0,
+      questionCount: optionalPositiveNumber(record.questionCount, "questionCount"),
+      ncsProfileId: ncsProfileIdOf(record.ncsProfileId),
+      ncsQuestionMode: ncsQuestionModeOf(record.ncsQuestionMode),
+      ncsProfileVersion: optionalText(record.ncsProfileVersion),
     };
   });
+}
+
+function optionalFiniteNumber(value: unknown, name: string): number | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new NonRetryableAiWorkerFailure(`${name} must be a finite number`);
+  }
+  return parsed;
+}
+
+function buildRecruitingQuestionCandidate(
+  criterion: ReturnType<typeof criteriaOf>[number],
+  jobDescription: string,
+  criterionOccurrence: number,
+): string {
+  const topic = recruitingQuestionTopic(jobDescription, criterionOccurrence);
+  if (criterion.ncsProfileId === "PROBLEM_SOLVING") {
+    const questions = [
+      "원인이 바로 드러나지 않는 문제를 해결한 경험이 있나요? 원인을 좁히고 대안을 선택한 기준과 결과를 확인한 방법을 말씀해 주세요.",
+      "제약이 많은 상황에서 여러 해결책을 비교했던 사례를 들려주세요. 최종안을 선택한 이유와 개선 효과를 어떻게 측정했나요?",
+      "반복되는 운영 문제를 발견하고 재발을 막기 위해 개선한 경험이 있나요? 문제를 분석한 과정과 검증 결과를 중심으로 말씀해 주세요.",
+    ];
+    return questions[criterionOccurrence % questions.length];
+  }
+
+  if (criterion.ncsProfileId === "COLLABORATION_COMMUNICATION") {
+    const questions = [
+      "기술적인 내용을 다른 직군이나 이해관계자에게 설명해야 했던 경험을 말씀해 주시겠어요? 상대의 눈높이에 맞춰 전달하고 이해 여부를 어떻게 확인했나요?",
+      "협업 중 의견이 엇갈렸던 상황에서 어떤 정보를 공유하고 조율했나요? 서로 합의했다는 것을 확인한 방식도 함께 들려주세요.",
+      "긴급한 문제를 여러 팀과 함께 해결한 경험이 있나요? 상황을 어떻게 정리해 전달했고, 받은 피드백을 어떻게 반영했나요?",
+    ];
+    return questions[criterionOccurrence % questions.length];
+  }
+  if (criterion.ncsProfileId === "JOB_TECHNICAL") {
+    const questions = [
+      `${topic} 관련 기술을 운영 환경에 도입하거나 개선한 경험이 있나요? 선택 기준과 예상한 위험을 어떻게 검증했는지 말씀해 주세요.`,
+      `${topic} 환경에서 장애나 성능 문제를 다룬 사례를 들려주세요. 시스템 동작 원리를 바탕으로 원인을 찾고, 적용한 개선이 유효했는지 어떻게 확인했나요?`,
+      `새로운 ${topic} 기술을 선택할 때 어떤 기준을 사용하나요? 실제 시스템에 적용하기 전 테스트한 최근 사례를 중심으로 말씀해 주시겠어요?`,
+    ];
+    return questions[criterionOccurrence % questions.length];
+  }
+  const questions = [
+    `${criterion.name}과 관련해 본인이 직접 판단하고 실행한 경험을 하나 들려주세요. 당시 선택한 방법과 결과를 어떻게 확인했나요?`,
+    `${criterion.name} 역량이 가장 필요했던 최근 사례는 무엇인가요? 맡은 역할과 실행 결과를 중심으로 말씀해 주세요.`,
+    `${criterion.name}과 관련된 실패나 시행착오를 어떻게 개선했나요? 이후 달라진 결과도 함께 들려주세요.`,
+  ];
+  return questions[criterionOccurrence % questions.length];
+}
+
+function recruitingQuestionTopic(jobDescription: string, occurrence: number): string {
+  const topics = [
+    "Kubernetes",
+    "AWS",
+    "Docker",
+    "Terraform",
+    "CI/CD",
+    "GitHub Actions",
+    "EKS",
+    "Kafka",
+    "Redis",
+    "PostgreSQL",
+    "NestJS",
+    "TypeScript",
+    "Node.js",
+    "SRE",
+    "DevOps",
+    "모니터링",
+    "배포 자동화",
+    "클라우드",
+  ].filter((topic) => jobDescription.toLowerCase().includes(topic.toLowerCase()));
+  return topics[occurrence % Math.max(topics.length, 1)] ?? "서비스 운영";
+}
+
+function reportNcsProfileIdOf(value: unknown): NcsReportApiProfileId | undefined {
+  return value === "PROBLEM_SOLVING" ||
+    value === "COMMUNICATION" ||
+    value === "DIGITAL" ||
+    value === "JOB_TECHNICAL" ||
+    value === "COLLABORATION_COMMUNICATION"
+    ? value
+    : undefined;
+}
+
+function ncsProfileIdOf(value: unknown): NcsApiProfileId | undefined {
+  return canonicalNcsProfileIdOf(value);
+}
+
+function ncsBindingsOf(value: unknown): NcsReportQuestionBindingSnapshot[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const bindings = value.map((item, index) => {
+    if (!item || typeof item !== "object") {
+      throw new NonRetryableAiWorkerFailure("ncsBindings item must be an object");
+    }
+    const record = item as Record<string, unknown>;
+    const ncsProfileId = reportNcsProfileIdOf(record.ncsProfileId);
+    const bindingOrder = Number(record.bindingOrder);
+    if (!ncsProfileId || (bindingOrder !== 1 && bindingOrder !== 2)) {
+      throw new NonRetryableAiWorkerFailure(`ncsBindings[${index}] profile or order is invalid`);
+    }
+    return {
+      criterionId: optionalPositiveNumber(record.criterionId, `ncsBindings[${index}].criterionId`),
+      criterionTitleSnapshot: requiredText(
+        record.criterionTitleSnapshot,
+        `ncsBindings[${index}].criterionTitleSnapshot`,
+      ),
+      ncsProfileId,
+      ncsProfileVersion: requiredText(record.ncsProfileVersion, `ncsBindings[${index}].ncsProfileVersion`),
+      alignmentStatus: requiredText(record.alignmentStatus, `ncsBindings[${index}].alignmentStatus`),
+      alignmentScore: optionalFiniteNumber(record.alignmentScore, `ncsBindings[${index}].alignmentScore`),
+      evaluatorVersion: optionalText(record.evaluatorVersion),
+      bindingOrder,
+    } as NcsReportQuestionBindingSnapshot;
+  });
+  return bindings.length > 0 ? bindings : undefined;
+}
+
+function ncsSessionPoliciesOf(value: unknown): NcsSessionPolicyInput[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const policies = value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const record = item as Record<string, unknown>;
+    const ncsProfileId = reportNcsProfileIdOf(record.ncsProfileId);
+    if (
+      ncsProfileId !== "JOB_TECHNICAL" &&
+      ncsProfileId !== "COLLABORATION_COMMUNICATION" &&
+      ncsProfileId !== "PROBLEM_SOLVING"
+    ) return [];
+    const criterionId = Number(record.criterionId);
+    const weight = Number(record.weight);
+    const minimumAverageScore = Number(record.minimumAverageScore);
+    const requiredQuestionCount = Number(record.requiredQuestionCount);
+    if (
+      typeof record.criterionTitleSnapshot !== "string" || !record.criterionTitleSnapshot.trim() ||
+      typeof record.ncsProfileVersion !== "string" || !record.ncsProfileVersion.trim() ||
+      !Number.isInteger(weight) ||
+      !Number.isFinite(minimumAverageScore) ||
+      !Number.isInteger(requiredQuestionCount)
+    ) return [];
+    return [{
+      ncsProfileId,
+      ...(Number.isSafeInteger(criterionId) && criterionId > 0 ? { criterionId } : {}),
+      criterionTitleSnapshot: record.criterionTitleSnapshot.trim(),
+      weight,
+      minimumAverageScore,
+      requiredQuestionCount,
+      ncsProfileVersion: record.ncsProfileVersion.trim(),
+    }];
+  });
+  return policies;
+}
+
+function ncsQuestionModeOf(value: unknown): NcsQuestionMode | undefined {
+  return value === "EXPERIENCE_BEHAVIOR" || value === "TECHNICAL_KNOWLEDGE" || value === "SITUATIONAL_DESIGN"
+    ? value
+    : undefined;
+}
+
+function factCheckSummary(records?: AnswerFactCheckRunRecord[]): Record<string, unknown> | undefined {
+  if (!records) return undefined;
+  return {
+    runCount: records.length,
+    claimCount: records.reduce((sum, record) => sum + record.claims.length, 0),
+    providerStatuses: countBy(records.map((record) => record.providerStatus)),
+    gateStatuses: countBy(records.map((record) => record.gateStatus ?? "NOT_DETERMINED")),
+  };
+}
+
+function countBy(values: string[]): Record<string, number> {
+  return values.reduce<Record<string, number>>((counts, value) => {
+    counts[value] = (counts[value] ?? 0) + 1;
+    return counts;
+  }, {});
 }
 
 function answersOf(value: unknown): ReportAnswerForScoring[] {
@@ -1126,7 +1569,7 @@ function answersOf(value: unknown): ReportAnswerForScoring[] {
     const evaluationStatus: ReportAnswerEvaluationStatusRecord =
       record.evaluationStatus === "STT_UNAVAILABLE" ? "STT_UNAVAILABLE" : "EVALUATED";
     const transcriptUnavailableReason =
-      optionalText(record.transcriptUnavailableReason) ?? STT_UNAVAILABLE_TEMP_ZERO_REASON;
+      optionalText(record.transcriptUnavailableReason) ?? DEFAULT_STT_UNAVAILABLE_REASON;
     const transcript =
       evaluationStatus === "STT_UNAVAILABLE"
         ? optionalText(record.transcript) ?? ""
@@ -1140,10 +1583,21 @@ function answersOf(value: unknown): ReportAnswerForScoring[] {
       sortOrder: Number.isFinite(Number(record.sortOrder)) ? Number(record.sortOrder) : undefined,
       isFollowUpAnswer: record.isFollowUpAnswer === true,
       parentAnswerId: optionalPositiveNumber(record.parentAnswerId, "parentAnswerId"),
+      followUpReason: followUpReasonOf(record.followUpReason),
       transcript,
       evaluationStatus,
       transcriptUnavailableReason: evaluationStatus === "STT_UNAVAILABLE" ? transcriptUnavailableReason : undefined,
-      nonverbalMetadata: optionalNonverbalMetadata(record.nonverbalMetadata)
+      nonverbalMetadata: optionalNonverbalMetadata(record.nonverbalMetadata),
+      sessionQuestionId: optionalPositiveNumber(record.sessionQuestionId, "sessionQuestionId"),
+      criterionId: optionalPositiveNumber(record.criterionId, "criterionId"),
+      criterionTitleSnapshot: optionalText(record.criterionTitleSnapshot),
+      ncsProfileId: reportNcsProfileIdOf(record.ncsProfileId),
+      ncsQuestionMode: ncsQuestionModeOf(record.ncsQuestionMode),
+      ncsProfileVersion: optionalText(record.ncsProfileVersion),
+      alignmentStatus: optionalText(record.alignmentStatus),
+      alignmentScore: optionalFiniteNumber(record.alignmentScore, "alignmentScore"),
+      evaluatorVersion: optionalText(record.evaluatorVersion),
+      ncsBindings: ncsBindingsOf(record.ncsBindings),
     };
   });
 }
@@ -1551,49 +2005,74 @@ const COMMON_KEYWORDS = new Set([
   "for",
 ]);
 
-function zeroScoreForUnavailableTranscript(
-  criterion: { criterionId: number; name: string },
-  answer: ReportAnswerForScoring
-): { score: GeneratedReportScoreRecord; questionEvaluation: GeneratedQuestionEvaluationRecord } {
-  const reason = answer.transcriptUnavailableReason ?? STT_UNAVAILABLE_TEMP_ZERO_REASON;
-  const evidences: GeneratedReportScoreRecord["evidences"] = [
-    {
-      sourceType: "INTERVIEW_ANSWER",
-      answerId: answer.answerId,
-      text: reason
-    }
-  ];
-  const score: GeneratedReportScoreRecord = {
-    criterionId: criterion.criterionId,
-    criterionName: criterion.name,
-    score: 0,
-    rationale: reason,
-    rubricAnchor: "STT_UNAVAILABLE_TEMP_ZERO",
-    confidence: "LOW",
-    uncertaintyReasons: [reason],
-    evidences
-  };
-  return {
-    score,
-    questionEvaluation: {
-      criterionId: criterion.criterionId,
-      criterionName: criterion.name,
-      answerId: answer.answerId,
-      question: answer.question ?? `Answer ${answer.answerId}`,
-      rubricAnchor: score.rubricAnchor,
-      confidence: score.confidence,
-      uncertaintyReasons: score.uncertaintyReasons,
-      evidences
-    }
-  };
-}
-
 function optionalText(value: unknown): string | undefined {
   if (typeof value !== "string") {
     return undefined;
   }
   const trimmed = normalizeSpace(value);
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function buildNcsFollowUpQuestion(
+  transcript: string,
+  questionMode: NcsQuestionMode,
+  focusPoints: string[],
+  logicalStructureGap?: string,
+  factClaims: Array<{ claimText: string; rationale: string }> = [],
+): string {
+  const normalizedFocusPoints = uniqueStrings(
+    focusPoints.map(normalizeNcsFollowUpFocusPoint).filter(hasText),
+  );
+  const focus = normalizedFocusPoints.slice(0, 3).join(" 및 ") || "아직 확인되지 않은 행동 근거";
+  const factFocus = factClaims.slice(0, 2).map((claim) => claim.claimText).join(", ");
+  const anchor = followUpAnswerAnchor(transcript);
+  if (factFocus) {
+    const ncsFocus = normalizedFocusPoints.length > 0 ? ` 이 과정에서 ${focus}도 함께 확인할 수 있게 말씀해 주세요.` : "";
+    return `답변에서 "${anchor}"라고 말씀하셨는데, ${factFocus}을 실제로 어떻게 적용하거나 확인했는지 설명해 주세요.${ncsFocus}`;
+  }
+  const gap = logicalStructureGap ? ` ${logicalStructureGap}의 연결도 함께 설명해 주세요.` : "";
+  if (questionMode === "TECHNICAL_KNOWLEDGE") {
+    return `답변에서 "${anchor}"라고 말씀하셨는데, 그 기술이나 방식을 선택한 이유와 ${focus}을 실제로 어떻게 적용하고 검증했는지 설명해 주세요.${gap}`;
+  }
+  if (questionMode === "SITUATIONAL_DESIGN") {
+    return `답변에서 "${anchor}"라고 말씀하셨는데, 당시 어떤 제약과 대안을 비교했고 ${focus}을 기준으로 최종 선택을 검증했는지 설명해 주세요.${gap}`;
+  }
+  return `답변에서 "${anchor}"라고 말씀하셨는데, 그 상황에서 ${focus}이 드러나는 본인의 행동과 결과를 구체적으로 설명해 주세요.${gap}`;
+}
+
+function followUpAnswerAnchor(transcript: string): string {
+  const normalized = normalizeSpace(transcript).replace(/["“”]/g, "");
+  if (!normalized) return "방금 설명한 경험";
+  const firstSentence = normalized.split(/(?<=[.!?。])\s+/)[0] ?? normalized;
+  return firstSentence.length > 72 ? `${firstSentence.slice(0, 69).trim()}...` : firstSentence;
+}
+
+function normalizeNcsFollowUpFocusPoint(value: string): string {
+  return normalizeSpace(value)
+    .replace(/[을를] 보여주는 구체 문장을 보강하세요[.!?]?$/, "")
+    .replace(/\s*근거를 한 단계 더 구체화하세요[.!?]?$/, " 근거")
+    .replace(/[.!?]+$/, "")
+    .trim();
+}
+
+function followUpReasonOf(value: unknown): ReportAnswerForScoring["followUpReason"] {
+  return value === "NCS_EVIDENCE_GAP" || value === "FACT_CLARIFICATION" || value === "GENERAL_EVIDENCE_GAP"
+    ? value
+    : undefined;
+}
+
+function factCheckFollowUpSummary(plan: {
+  required: boolean;
+  providerStatus: string;
+  gateStatus: string | null;
+  clarificationClaims: unknown[];
+}): Record<string, unknown> {
+  return {
+    providerStatus: plan.providerStatus,
+    gateStatus: plan.gateStatus,
+    clarificationRequired: plan.required,
+    clarificationClaimCount: plan.clarificationClaims.length,
+  };
 }
 
 function buildFollowUpQuestion(input: {
@@ -1816,4 +2295,65 @@ function structuredAssessment(
 
 function shorten(value: string): string {
   return value.length > 80 ? `${value.slice(0, 77)}...` : value;
+}
+
+function resumeQuestionReferenceOf(job: AiWorkerJob): ResumeQuestionJobReference {
+  let input: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(job.inputRef) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("invalid input");
+    input = parsed as Record<string, unknown>;
+  } catch {
+    throw new NonRetryableAiWorkerFailure("resume question job inputRef is invalid");
+  }
+
+  return {
+    processLogId: job.processLogId,
+    applicationId: positiveNumber(input.applicationId, "applicationId"),
+    postingId: positiveNumber(input.postingId, "postingId"),
+    documentId: positiveNumber(input.documentId, "documentId"),
+    policyVersion: positiveNumber(input.policyVersion, "policyVersion"),
+    criteriaVersion: positiveNumber(input.criteriaVersion, "criteriaVersion"),
+    inputVersion: requiredText(input.inputVersion, "inputVersion"),
+    resumeDocumentHash: requiredText(input.resumeDocumentHash, "resumeDocumentHash"),
+    jdSnapshotHash: requiredText(input.jdSnapshotHash, "jdSnapshotHash"),
+  };
+}
+
+function buildMockPersonalizedQuestion(
+  profileId: ResumeQuestionGenerationContext["criteria"][number]["ncsProfileId"],
+  index: number,
+  resumeText: string,
+): string {
+  const evidence = resumeEvidenceTopic(resumeText, index);
+  if (profileId === "PROBLEM_SOLVING") {
+    return `${evidence}에서 예상과 다르게 문제가 발생했던 순간을 말씀해 주세요. 원인을 좁히고 해결책을 선택한 기준과 결과를 어떻게 확인했나요?`;
+  }
+  if (profileId === "COLLABORATION_COMMUNICATION") {
+    return `${evidence}에서 다른 사람과 의견을 맞춰야 했던 경험이 있나요? 상황을 어떻게 설명하고 상대의 피드백을 반영해 합의했는지 들려주세요.`;
+  }
+  return `${evidence}에서 핵심 기술을 선택한 이유가 궁금합니다. 시스템의 동작 원리를 실제 구현에 어떻게 적용했고, 장애나 보안 위험은 어떤 테스트로 확인했나요?`;
+}
+
+function resumeEvidenceTopic(resumeText: string, index: number): string {
+  if (/^Extracted text from\s/i.test(resumeText.trim())) {
+    return index === 0 ? "이력서에 적은 프로젝트" : "이력서에 적은 업무 경험";
+  }
+  const topics = [
+    "Kubernetes",
+    "AWS",
+    "Docker",
+    "Terraform",
+    "Kafka",
+    "Redis",
+    "PostgreSQL",
+    "NestJS",
+    "Spring",
+    "React",
+    "TypeScript",
+    "Java",
+    "Python",
+  ].filter((topic) => resumeText.toLowerCase().includes(topic.toLowerCase()));
+  const topic = topics[index % Math.max(topics.length, 1)];
+  return topic ? `이력서에 적은 ${topic} 경험` : "이력서에 적은 프로젝트";
 }

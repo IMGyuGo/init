@@ -130,28 +130,6 @@ export class MockQuestionGenerateRequestDto {
   questionTypes?: string[];
 }
 
-export class CriteriaSuggestRequestDto {
-  @ApiProperty({ example: 2 })
-  @IsInt()
-  @Min(1)
-  postingId!: number;
-
-  @ApiProperty({ example: "Backend engineer with NestJS and PostgreSQL experience." })
-  @IsString()
-  @IsNotEmpty()
-  jobDescription!: string;
-
-  @ApiProperty({ example: "Pragmatic problem solver" })
-  @IsString()
-  @IsNotEmpty()
-  talentProfile!: string;
-
-  @ApiProperty({ example: "Prefer evidence-backed backend ownership." })
-  @IsString()
-  @IsNotEmpty()
-  evaluationPolicy!: string;
-}
-
 export class QuestionGenerateCriterionDto {
   @ApiProperty({ example: 1 })
   @IsInt()
@@ -180,61 +158,37 @@ export class QuestionGenerateRequestDto {
   @Min(1)
   postingId!: number;
 
-  @ApiProperty({ example: "Backend engineer with NestJS and PostgreSQL experience." })
-  @IsString()
-  @IsNotEmpty()
-  jobDescription!: string;
-
-  @ApiProperty({ example: 2 })
+  @ApiPropertyOptional({ example: 3 })
+  @IsOptional()
   @IsInt()
   @Min(1)
-  questionCount!: number;
+  @Max(20)
+  jdCriteriaQuestionCount?: number;
 
-  @ApiProperty({ type: [QuestionGenerateCriterionDto] })
+  @ApiPropertyOptional({ example: 1 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  expectedPolicyVersion?: number;
+
+  @ApiPropertyOptional({ example: "Backend engineer with NestJS and PostgreSQL experience." })
+  @IsOptional()
+  @IsString()
+  jobDescription?: string;
+
+  @ApiPropertyOptional({ example: 2 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  questionCount?: number;
+
+  @ApiPropertyOptional({ type: [QuestionGenerateCriterionDto] })
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => QuestionGenerateCriterionDto)
-  criteria!: QuestionGenerateCriterionDto[];
-}
-
-export class QuestionSetCriterionDto {
-  @ApiProperty({ example: 1 })
-  @IsInt()
-  @Min(1)
-  criterionId!: number;
-
-  @ApiProperty({ example: "Problem solving" })
-  @IsString()
-  @IsNotEmpty()
-  name!: string;
-
-  @ApiPropertyOptional({ example: 40 })
-  @IsOptional()
-  @IsInt()
-  weight?: number;
-}
-
-export class QuestionSetGenerateRequestDto {
-  @ApiProperty({ example: 2 })
-  @IsInt()
-  @Min(1)
-  postingId!: number;
-
-  @ApiProperty({ example: 2 })
-  @IsInt()
-  @Min(1)
-  questionCount!: number;
-
-  @ApiProperty({ type: [QuestionSetCriterionDto] })
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => QuestionSetCriterionDto)
-  criteria!: QuestionSetCriterionDto[];
-
-  @ApiProperty({ type: [String], example: ["TECHNICAL", "EXPERIENCE"] })
-  @IsArray()
-  @IsString({ each: true })
-  questionTypes!: string[];
+  criteria?: QuestionGenerateCriterionDto[];
 }
 
 export class PostingDraftGenerateRequestDto {

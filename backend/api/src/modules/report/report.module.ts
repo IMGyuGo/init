@@ -14,6 +14,7 @@ import { AiReportPipelineService } from "./service/ai-report-pipeline.service";
 import { GuardrailService } from "./service/guardrail.service";
 import { MockAiReportProvider } from "./service/mock-ai-report.provider";
 import { ReportService } from "./service/report.service";
+import { AiJobDispatchModule } from "./ai-job-dispatch.module";
 
 const usePrismaRepository = process.env.NODE_ENV !== "test" && Boolean(process.env.DATABASE_URL);
 
@@ -29,7 +30,7 @@ const candidateReportRepositoryProvider = usePrismaRepository
     };
 
 @Module({
-  imports: [AuthModule, CandidateModule, InterviewModule],
+  imports: [AuthModule, CandidateModule, InterviewModule, AiJobDispatchModule],
   controllers: [ReportsController, ReportController, CandidateReportMediaController],
   providers: [
     DevAuthAdapter,
@@ -46,6 +47,7 @@ const candidateReportRepositoryProvider = usePrismaRepository
     CANDIDATE_REPORT_REPOSITORY,
     InterviewModule,
     ReportService,
+    AiJobDispatchModule,
   ],
 })
 export class ReportModule {}

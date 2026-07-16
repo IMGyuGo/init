@@ -14,15 +14,12 @@ import {
 } from "../../payment/service/candidate-mock-interview-pass.service";
 import type { InterviewAnswer, InterviewQuestion, RuntimeInterviewSession } from "../interview.runtime.types";
 import type {
-  CompletedFollowUpProcess,
   CreateInterviewAnswerInput,
   CreateMockContextQuestionInput,
   CreateMockInterviewSessionInput,
-  CreateRuntimeFollowUpQuestionInput,
-  FollowUpQuestionPolicy,
-  GeneratedFollowUpQuestion,
   InterviewQuestionFilter,
   InterviewRepository,
+  InterviewSttProcessRecord,
   ReanswerRequiredFailure,
   ReplaceInterviewAnswerInput,
 } from "./interview.repository";
@@ -73,6 +70,32 @@ const FALLBACK_RECRUITING_QUESTIONS: Omit<InterviewQuestion, "questionId" | "isA
   },
 ];
 
+const ANSWER_SESSION_QUESTION_SELECT = {
+  runtimeQuestionId: true,
+  sessionQuestionId: true,
+  criterionId: true,
+  criterionTitleSnapshot: true,
+  ncsProfileId: true,
+  ncsQuestionMode: true,
+  ncsProfileVersion: true,
+  alignmentStatus: true,
+  alignmentScore: true,
+  evaluatorVersion: true,
+  ncsBindings: {
+    orderBy: { bindingOrder: "asc" as const },
+    select: {
+      criterionId: true,
+      criterionTitleSnapshot: true,
+      ncsProfileId: true,
+      ncsProfileVersion: true,
+      alignmentStatus: true,
+      alignmentScore: true,
+      evaluatorVersion: true,
+      bindingOrder: true,
+    },
+  },
+} as const;
+
 @Injectable()
 export class PrismaInterviewRepository implements InterviewRepository {
   private readonly mockSessionQuestionIds = new Map<number, number[]>();
@@ -118,6 +141,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
 
     const runtimeQuestion = await this.prisma.interviewSessionQuestion.findUnique({
       where: { runtimeQuestionId: BigInt(questionId) },
+      include: { session: { select: { interviewType: true } } },
     });
     if (!runtimeQuestion?.questionType || !runtimeQuestion.content) return undefined;
     return {
@@ -125,7 +149,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
       questionType: runtimeQuestion.questionType,
       content: runtimeQuestion.content,
       sortOrder: runtimeQuestion.sortOrder,
-      interviewType: "MOCK",
+      interviewType: runtimeQuestion.session.interviewType,
       isActive: false,
     };
   }
@@ -353,7 +377,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
       select: { sessionQuestionId: true, questionId: true, runtimeQuestionId: true },
     });
     const existingByRuntimeId = new Map(
-      existing.map((item) => [Number(item.questionId ?? item.runtimeQuestionId), item]),
+      existing.map((item) => [Number(item.runtimeQuestionId ?? item.questionId), item]),
     );
     const requested = new Set(questionIds);
     const removedPrivateQuestion = existing.find(
@@ -387,7 +411,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
     }
 
     const removedIds = existing
-      .filter((item) => !requested.has(Number(item.questionId ?? item.runtimeQuestionId)))
+      .filter((item) => !requested.has(Number(item.runtimeQuestionId ?? item.questionId)))
       .map((item) => item.sessionQuestionId);
     if (removedIds.length > 0) {
       await transaction.interviewSessionQuestion.deleteMany({
@@ -400,7 +424,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
     const answers = await this.prisma.interviewAnswer.findMany({
       where: { sessionId: BigInt(sessionId) },
       orderBy: [{ submittedAt: "asc" }, { answerId: "asc" }],
-      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
+      include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
     });
     return answers.map((answer) => this.toAnswer(answer));
   }
@@ -419,7 +443,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
         ],
       },
       orderBy: { answerId: "asc" },
-      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
+      include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
     });
     return answer ? this.toAnswer(answer) : undefined;
   }
@@ -427,7 +451,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
   async findAnswerById(sessionId: number, answerId: number): Promise<InterviewAnswer | undefined> {
     const answer = await this.prisma.interviewAnswer.findFirst({
       where: { sessionId: BigInt(sessionId), answerId: BigInt(answerId) },
-      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
+      include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
     });
     return answer ? this.toAnswer(answer) : undefined;
   }
@@ -436,7 +460,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
     const answer = await this.prisma.interviewAnswer.findFirst({
       where: { sessionId: BigInt(sessionId) },
       orderBy: [{ submittedAt: "desc" }, { answerId: "desc" }],
-      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
+      include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
     });
     return answer ? this.toAnswer(answer) : undefined;
   }
@@ -467,9 +491,57 @@ export class PrismaInterviewRepository implements InterviewRepository {
         durationSeconds: input.durationSeconds,
         submittedAt: new Date(input.submittedAt),
       },
-      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
+      include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
     });
     return this.toAnswer(answer);
+  }
+
+  async createAnswerIdempotent(input: CreateInterviewAnswerInput) {
+    return this.prisma.$transaction(async (transaction) => {
+      const sessionQuestion = await transaction.interviewSessionQuestion.findFirst({
+        where: {
+          sessionId: BigInt(input.sessionId),
+          OR: [
+            { questionId: BigInt(input.questionId) },
+            { runtimeQuestionId: BigInt(input.questionId) },
+          ],
+        },
+        select: { sessionQuestionId: true, questionId: true },
+      });
+      if (!sessionQuestion) {
+        throw new ApiException(ERROR_CODES.COMMON_NOT_FOUND, "세션 질문을 찾을 수 없습니다.", 404);
+      }
+
+      const lockKey = 310_000_000_000n + sessionQuestion.sessionQuestionId;
+      await transaction.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
+      const existing = await transaction.interviewAnswer.findFirst({
+        where: {
+          sessionId: BigInt(input.sessionId),
+          sessionQuestionId: sessionQuestion.sessionQuestionId,
+        },
+        orderBy: { answerId: "asc" },
+        include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
+      });
+      if (existing) {
+        return { answer: this.toAnswer(existing), created: false };
+      }
+
+      const answer = await transaction.interviewAnswer.create({
+        data: {
+          sessionId: BigInt(input.sessionId),
+          questionId: sessionQuestion.questionId,
+          sessionQuestionId: sessionQuestion.sessionQuestionId,
+          videoFileId: input.videoFileId ? BigInt(input.videoFileId) : null,
+          audioFileId: input.audioFileId ? BigInt(input.audioFileId) : null,
+          ...(input.transcript !== undefined ? { transcript: input.transcript } : {}),
+          ...(input.nonverbalMetadata !== undefined ? { nonverbalMetadata: this.toPrismaJson(input.nonverbalMetadata) } : {}),
+          durationSeconds: input.durationSeconds,
+          submittedAt: new Date(input.submittedAt),
+        },
+        include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
+      });
+      return { answer: this.toAnswer(answer), created: true };
+    });
   }
 
   async updateAnswer(input: CreateInterviewAnswerInput & { answerId: number }): Promise<InterviewAnswer> {
@@ -483,7 +555,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
         durationSeconds: input.durationSeconds,
         submittedAt: new Date(input.submittedAt),
       },
-      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
+      include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
     });
     return this.toAnswer(answer);
   }
@@ -499,7 +571,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
         submittedAt: new Date(input.submittedAt),
         transcript: input.transcript ?? null,
       },
-      include: { sessionQuestion: { select: { runtimeQuestionId: true } } },
+      include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
     });
     return this.toAnswer(answer);
   }
@@ -524,114 +596,25 @@ export class PrismaInterviewRepository implements InterviewRepository {
       }));
   }
 
-  async findCompletedFollowUpProcess(processLogId: number): Promise<CompletedFollowUpProcess | undefined> {
-    const processLog = await this.prisma.aiProcessLog.findUnique({
-      where: { processLogId: BigInt(processLogId) },
-    });
-    if (!processLog || processLog.processType !== "FOLLOW_UP" || processLog.status !== "COMPLETED" || !processLog.outputRef) {
-      return undefined;
-    }
-
-    const output = parseFollowUpOutput(processLog.outputRef);
-    if (!output) {
-      return undefined;
-    }
-
-    return {
-      processLogId,
-      sessionId: output.sessionId,
-      answerId: output.answerId,
-      content: output.content,
-      policy: output.policy,
-    };
-  }
-
-  async findGeneratedFollowUpQuestion(
-    answerId: number,
-    policy: FollowUpQuestionPolicy,
-  ): Promise<GeneratedFollowUpQuestion | undefined> {
-    const followUpQuestion = await this.prisma.followUpQuestion.findUnique({
-      where: { answerIdPolicy: { answerId: BigInt(answerId), policy } },
-    });
-    if (!followUpQuestion || followUpQuestion.generationStatus !== "GENERATED") {
-      return undefined;
-    }
-    return {
-      followUpId: Number(followUpQuestion.followUpId),
-      answerId: Number(followUpQuestion.answerId),
-      content: followUpQuestion.content,
-      generationStatus: followUpQuestion.generationStatus,
-      policy: followUpQuestion.policy as FollowUpQuestionPolicy,
-    };
-  }
-
-  async createRuntimeFollowUpQuestion(input: CreateRuntimeFollowUpQuestionInput): Promise<InterviewQuestion> {
-    if (input.session.interviewType === "MOCK") {
-      return this.createPrivateMockFollowUpQuestion(input);
-    }
-
-    const sourceQuestion = await this.prisma.question.findUnique({
-      where: { questionId: BigInt(input.sourceAnswer.questionId) },
-      select: { companyId: true, postingId: true },
-    });
-    const fallbackCompany = sourceQuestion
-      ? undefined
-      : await this.prisma.company.findFirst({ orderBy: { companyId: "asc" }, select: { companyId: true } });
-    const companyId = sourceQuestion?.companyId ?? fallbackCompany?.companyId;
-    if (!companyId) {
-      throw new Error("Company is required to create a runtime follow-up question.");
-    }
-
-    let postingId = sourceQuestion?.postingId ?? null;
-    if (!postingId && input.session.applicationId) {
-      const application = await this.prisma.application.findUnique({
-        where: { applicationId: BigInt(input.session.applicationId) },
-        select: { postingId: true },
-      });
-      postingId = application?.postingId ?? null;
-    }
-
-    const question = await this.prisma.question.create({
-      data: {
-        companyId,
-        postingId,
-        criterionId: null,
-        questionType: PrismaQuestionType.FOLLOW_UP,
-        content: input.content,
-        isActive: true,
+  async listSttProcesses(sessionId: number, answerId: number): Promise<InterviewSttProcessRecord[]> {
+    const logs = await this.prisma.aiProcessLog.findMany({
+      where: {
+        sessionId: BigInt(sessionId),
+        processType: "STT",
       },
+      orderBy: [{ createdAt: "desc" }, { processLogId: "desc" }],
     });
-    return this.toQuestion(question, "RECRUITING");
+    return logs
+      .filter((log) => parseAiJobAnswerId(log.inputRef) === answerId)
+      .map((log) => ({
+        processLogId: Number(log.processLogId),
+        status: log.status,
+        failureCategory: log.failureCategory ?? undefined,
+        failureReason: log.failureReason ?? undefined,
+        createdAt: log.createdAt.toISOString(),
+        completedAt: log.completedAt?.toISOString(),
+      }));
   }
-
-  private async createPrivateMockFollowUpQuestion(
-    input: CreateRuntimeFollowUpQuestionInput,
-  ): Promise<InterviewQuestion> {
-    const runtimeQuestion = await this.prisma.$transaction(async (transaction) => {
-      const runtimeQuestionId = await this.allocatePrivateRuntimeQuestionId(transaction);
-      const created = await transaction.interviewSessionQuestion.create({
-        data: {
-          sessionId: BigInt(input.session.sessionId),
-          questionId: null,
-          runtimeQuestionId,
-          questionType: PrismaQuestionType.FOLLOW_UP,
-          content: input.content,
-          sortOrder: input.session.questionIds.length + 1,
-        },
-      });
-      return created;
-    });
-
-    return {
-      questionId: Number(runtimeQuestion.runtimeQuestionId),
-      questionType: runtimeQuestion.questionType as InterviewQuestion["questionType"],
-      content: runtimeQuestion.content ?? input.content,
-      sortOrder: runtimeQuestion.sortOrder,
-      interviewType: "MOCK",
-      isActive: false,
-    };
-  }
-
   private async allocatePrivateRuntimeQuestionId(transaction: Prisma.TransactionClient): Promise<bigint> {
     const [sequence] = await transaction.$queryRaw<Array<{ questionId: bigint }>>`
       SELECT nextval('interview_runtime_question_id_seq') AS "questionId"
@@ -772,6 +755,9 @@ export class PrismaInterviewRepository implements InterviewRepository {
       title: session.title ?? null,
       status: session.status,
       showQuestionText: session.showQuestionText,
+      preparationTimeSecSnapshot: session.preparationTimeSecSnapshot ?? undefined,
+      answerTimeSecSnapshot: session.answerTimeSecSnapshot ?? undefined,
+      ncsScoringVersion: session.ncsScoringVersion ?? undefined,
       currentQuestionIndex,
       questionIds,
       startedAt,
@@ -789,7 +775,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
     });
     if (persisted.length > 0) {
       return persisted
-        .map((item) => item.questionId ?? item.runtimeQuestionId)
+        .map((item) => item.runtimeQuestionId ?? item.questionId)
         .filter((questionId): questionId is bigint => questionId !== null)
         .map(Number);
     }
@@ -835,7 +821,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
     const seenQuestionIds = new Set<number>();
 
     for (const answer of answers) {
-      const resolved = answer.questionId ?? answer.sessionQuestion?.runtimeQuestionId;
+      const resolved = answer.sessionQuestion?.runtimeQuestionId ?? answer.questionId;
       if (resolved === null || resolved === undefined) continue;
       const questionId = Number(resolved);
       if (seenQuestionIds.has(questionId)) continue;
@@ -863,7 +849,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
     });
     const answeredIds = new Set(
       answers
-        .map((answer) => answer.questionId ?? answer.sessionQuestion?.runtimeQuestionId)
+        .map((answer) => answer.sessionQuestion?.runtimeQuestionId ?? answer.questionId)
         .filter((questionId): questionId is bigint => questionId !== null && questionId !== undefined)
         .map(Number),
     );
@@ -885,7 +871,8 @@ export class PrismaInterviewRepository implements InterviewRepository {
   }
 
   private toAnswer(answer: AnswerRecord): InterviewAnswer {
-    const questionId = answer.questionId ?? answer.sessionQuestion?.runtimeQuestionId;
+    const questionId = answer.sessionQuestion?.runtimeQuestionId ?? answer.questionId;
+    const ncsEvaluationSnapshot = this.toNcsEvaluationSnapshot(answer.sessionQuestion);
     return {
       answerId: Number(answer.answerId),
       sessionId: Number(answer.sessionId),
@@ -896,7 +883,84 @@ export class PrismaInterviewRepository implements InterviewRepository {
       nonverbalMetadata: this.toAnswerNonverbalMetadata(answer.nonverbalMetadata),
       durationSeconds: answer.durationSeconds ?? 0,
       submittedAt: (answer.submittedAt ?? new Date()).toISOString(),
+      ...(ncsEvaluationSnapshot ? { ncsEvaluationSnapshot } : {}),
     };
+  }
+
+  async listNcsSessionPolicies(sessionId: number) {
+    const policies = await this.prisma.interviewSessionNcsPolicy.findMany({
+      where: { sessionId: BigInt(sessionId) },
+      orderBy: { ncsProfileId: "asc" },
+    });
+    return policies.flatMap((policy) => {
+      const ncsProfileId = this.toNcsProfileId(policy.ncsProfileId);
+      if (!ncsProfileId) return [];
+      return [{
+        ncsProfileId,
+        criterionId: policy.criterionId ? Number(policy.criterionId) : undefined,
+        criterionTitleSnapshot: policy.criterionTitleSnapshot,
+        weight: policy.weight,
+        minimumAverageScore: Number(policy.minimumAverageScore),
+        requiredQuestionCount: policy.requiredQuestionCount,
+        ncsProfileVersion: policy.ncsProfileVersion,
+      }];
+    });
+  }
+
+  private toNcsEvaluationSnapshot(sessionQuestion: AnswerRecord["sessionQuestion"]): InterviewAnswer["ncsEvaluationSnapshot"] {
+    if (!sessionQuestion) {
+      return undefined;
+    }
+    const ncsBindings = (sessionQuestion.ncsBindings ?? [])
+      .map((binding) => {
+        const ncsProfileId = this.toNcsProfileId(binding.ncsProfileId);
+        if (!ncsProfileId || (binding.bindingOrder !== 1 && binding.bindingOrder !== 2)) return null;
+        return {
+          criterionId: binding.criterionId ? Number(binding.criterionId) : undefined,
+          criterionTitleSnapshot: binding.criterionTitleSnapshot,
+          ncsProfileId,
+          ncsProfileVersion: binding.ncsProfileVersion,
+          alignmentStatus: binding.alignmentStatus,
+          alignmentScore: binding.alignmentScore === null ? undefined : Number(binding.alignmentScore),
+          evaluatorVersion: binding.evaluatorVersion ?? undefined,
+          bindingOrder: binding.bindingOrder,
+        } as const;
+      })
+      .filter((binding): binding is NonNullable<typeof binding> => binding !== null);
+    const ncsProfileId = ncsBindings[0]?.ncsProfileId ?? this.toNcsProfileId(sessionQuestion.ncsProfileId);
+    if (!ncsProfileId) {
+      return undefined;
+    }
+    return {
+      sessionQuestionId: Number(sessionQuestion.sessionQuestionId),
+      criterionId: sessionQuestion.criterionId ? Number(sessionQuestion.criterionId) : undefined,
+      criterionTitleSnapshot: sessionQuestion.criterionTitleSnapshot ?? undefined,
+      ncsProfileId,
+      ncsQuestionMode: this.toNcsQuestionMode(sessionQuestion.ncsQuestionMode),
+      ncsProfileVersion: sessionQuestion.ncsProfileVersion ?? undefined,
+      alignmentStatus: sessionQuestion.alignmentStatus ?? undefined,
+      alignmentScore: sessionQuestion.alignmentScore === null ? undefined : Number(sessionQuestion.alignmentScore),
+      evaluatorVersion: sessionQuestion.evaluatorVersion ?? undefined,
+      ...(ncsBindings.length > 0 ? { ncsBindings } : {}),
+    };
+  }
+
+  private toNcsProfileId(
+    value: string | null,
+  ): "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING" | undefined {
+    if (value === "DIGITAL" || value === "JOB_TECHNICAL") return "JOB_TECHNICAL";
+    if (value === "COMMUNICATION" || value === "COLLABORATION_COMMUNICATION") {
+      return "COLLABORATION_COMMUNICATION";
+    }
+    return value === "PROBLEM_SOLVING" ? value : undefined;
+  }
+
+  private toNcsQuestionMode(
+    value: string | null,
+  ): "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN" | undefined {
+    return value === "EXPERIENCE_BEHAVIOR" || value === "TECHNICAL_KNOWLEDGE" || value === "SITUATIONAL_DESIGN"
+      ? value
+      : undefined;
   }
 
   private toPrismaJson(value: Record<string, unknown>): Prisma.InputJsonObject {
@@ -925,35 +989,6 @@ export class PrismaInterviewRepository implements InterviewRepository {
       FOLLOW_UP: 5,
       CLOSING: 6,
     }[questionType];
-  }
-}
-
-function parseFollowUpOutput(outputRef: string): Omit<CompletedFollowUpProcess, "processLogId"> | undefined {
-  try {
-    const output = JSON.parse(outputRef) as Record<string, unknown>;
-    const sessionId = Number(output.sessionId);
-    const answerId = Number(output.answerId);
-    const content = typeof output.content === "string" ? output.content.trim() : "";
-    const policy = output.policy;
-    if (
-      !Number.isInteger(sessionId) ||
-      sessionId <= 0 ||
-      !Number.isInteger(answerId) ||
-      answerId <= 0 ||
-      !content ||
-      (policy !== "MOCK" && policy !== "RECRUITING")
-    ) {
-      return undefined;
-    }
-
-    return {
-      sessionId,
-      answerId,
-      content,
-      policy,
-    };
-  } catch {
-    return undefined;
   }
 }
 
@@ -997,7 +1032,28 @@ type AnswerRecord = {
   nonverbalMetadata: unknown;
   durationSeconds: number | null;
   submittedAt: Date | null;
-  sessionQuestion?: { runtimeQuestionId: bigint | null } | null;
+  sessionQuestion?: {
+    runtimeQuestionId: bigint | null;
+    sessionQuestionId: bigint;
+    criterionId: bigint | null;
+    criterionTitleSnapshot: string | null;
+    ncsProfileId: string | null;
+    ncsQuestionMode: string | null;
+    ncsProfileVersion: string | null;
+    alignmentStatus: string | null;
+    alignmentScore: unknown | null;
+    evaluatorVersion: string | null;
+    ncsBindings: Array<{
+      criterionId: bigint | null;
+      criterionTitleSnapshot: string;
+      ncsProfileId: string;
+      ncsProfileVersion: string;
+      alignmentStatus: string;
+      alignmentScore: unknown | null;
+      evaluatorVersion: string | null;
+      bindingOrder: number;
+    }>;
+  } | null;
 };
 
 type InterviewSessionRecord = {
@@ -1008,6 +1064,9 @@ type InterviewSessionRecord = {
   title: string | null;
   status: PrismaInterviewStatus;
   showQuestionText: boolean;
+  preparationTimeSecSnapshot: number | null;
+  answerTimeSecSnapshot: number | null;
+  ncsScoringVersion: string | null;
   startedAt: Date | null;
   completedAt: Date | null;
   application?: { postingId: bigint } | null;

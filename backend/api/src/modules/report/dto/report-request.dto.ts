@@ -59,7 +59,7 @@ export class InterviewAnswerInputDto {
   evaluationStatus?: "EVALUATED" | "STT_UNAVAILABLE";
 
   @ApiPropertyOptional({
-    example: "STT transcript is unavailable; temporary score is 0 because speech recognition failed."
+    example: "STT transcript is unavailable because speech recognition failed."
   })
   @IsOptional()
   @IsString()
