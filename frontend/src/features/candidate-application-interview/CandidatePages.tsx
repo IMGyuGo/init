@@ -9463,8 +9463,6 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
             transcriptUnavailableReason={item.transcriptUnavailableReason}
           />
           <FollowUpQuestionList questions={item.followUpQuestions} />
-          <MockNonverbalFeedbackView metadata={item.nonverbalMetadata} />
-          <AnswerPracticeGuideView guide={practiceGuide} />
           <dl className="report-answer-meta">
             <Definition label="답변 시간" value={`${item.durationSeconds}s`} />
           </dl>
@@ -9475,13 +9473,20 @@ function MockMediaAnswerCard({ item, questionNumber }: { item: CandidateMockRepo
           ) : null}
         </div>
       </div>
-      <MockVisualAnalysisPanel
-        metadata={item.nonverbalMetadata}
-        durationMs={Math.max(1000, item.durationSeconds * 1000)}
-        playbackTimeMs={playbackTimeMs}
-        videoAvailable={Boolean(videoUrl)}
-        onSeek={seekVideo}
-      />
+      <details className="report-answer-detail">
+        <summary>상세 분석 보기 · 시선·고개 움직임, 참고 신호, 고득점 예시</summary>
+        <div className="report-answer-detail__body">
+          <MockVisualAnalysisPanel
+            metadata={item.nonverbalMetadata}
+            durationMs={Math.max(1000, item.durationSeconds * 1000)}
+            playbackTimeMs={playbackTimeMs}
+            videoAvailable={Boolean(videoUrl)}
+            onSeek={seekVideo}
+          />
+          <MockNonverbalFeedbackView metadata={item.nonverbalMetadata} />
+          <AnswerPracticeGuideView guide={practiceGuide} />
+        </div>
+      </details>
     </article>
   );
 }
@@ -9866,45 +9871,58 @@ type MockNonverbalSummary = {
 function MockNonverbalSummaryPanel({ summary }: { summary: MockNonverbalSummary }) {
   if (summary.answersWithMetadata === 0) return null;
 
-  const statusLabel = summary.integritySignalAnswers === 0 ? "무결성 안정" : "무결성 확인 필요";
+  const hasSignal = summary.integritySignalAnswers > 0;
+  const statusLabel = hasSignal ? "무결성 확인 필요" : "무결성 안정";
+
+  // 신호 있는 항목만 기본 노출, 0인 항목은 접기 안으로. (#289 정리)
+  const signalTiles = [
+    { label: "시선 이탈", count: summary.gazeAwaySignalAnswers },
+    { label: "화면 이탈", count: summary.screenAwaySignalAnswers },
+    { label: "카메라 이탈", count: summary.cameraIntegritySignalAnswers },
+    { label: "얼굴 이탈", count: summary.faceAwaySignalAnswers },
+    { label: "여러 사람", count: summary.multipleFaceSignalAnswers },
+    { label: "위치 급변", count: summary.faceShiftSignalAnswers },
+    { label: "음성-입모양", count: summary.voiceMouthMismatchSignalAnswers },
+    { label: "음성-얼굴", count: summary.voiceWithoutFaceSignalAnswers },
+    { label: "영상 고정", count: summary.staticVideoFrameSignalAnswers },
+    { label: "초반 이탈", count: summary.earlyScreenAwaySignalAnswers },
+  ];
+  const flaggedTiles = signalTiles.filter((tile) => tile.count > 0);
 
   return (
     <section className="report-nonverbal-summary">
       <div className="report-nonverbal-summary__head">
         <div>
           <strong>모의면접 부정행위 의심 신호</strong>
-          <p>화면 이탈, 얼굴 화면 밖, 여러 사람 감지처럼 면접 중 응시 무결성 확인이 필요한 신호를 기록합니다. 확정 판정이 아니라 연습용 피드백입니다.</p>
+          <p>화면 이탈, 얼굴 화면 밖, 여러 사람 감지처럼 면접 중 응시 무결성 확인이 필요한 신호입니다. 확정 판정이 아니라 연습용 참고 정보예요.</p>
         </div>
         <StatusPill value={statusLabel} />
       </div>
-      <div className="report-nonverbal-tiles" role="list">
-        {[
-          { label: "분석 답변", value: `${summary.answersWithMetadata}/${summary.answerCount}`, flagged: false, wide: true },
-          { label: "무결성 확인", count: summary.integritySignalAnswers },
-          { label: "시선 이탈", count: summary.gazeAwaySignalAnswers },
-          { label: "화면 이탈", count: summary.screenAwaySignalAnswers },
-          { label: "카메라 이탈", count: summary.cameraIntegritySignalAnswers },
-          { label: "얼굴 이탈", count: summary.faceAwaySignalAnswers },
-          { label: "여러 사람", count: summary.multipleFaceSignalAnswers },
-          { label: "위치 급변", count: summary.faceShiftSignalAnswers },
-          { label: "음성-입모양", count: summary.voiceMouthMismatchSignalAnswers },
-          { label: "음성-얼굴", count: summary.voiceWithoutFaceSignalAnswers },
-          { label: "영상 고정", count: summary.staticVideoFrameSignalAnswers },
-          { label: "초반 이탈", count: summary.earlyScreenAwaySignalAnswers },
-        ].map((tile) => {
-          const flagged = tile.flagged ?? (tile.count ?? 0) > 0;
-          return (
-            <div
-              key={tile.label}
-              role="listitem"
-              className={`report-nonverbal-tile${flagged ? " is-flag" : ""}${tile.wide ? " is-wide" : ""}`}
-            >
-              <strong>{tile.value ?? `${tile.count}`}</strong>
+
+      {hasSignal ? (
+        <div className="report-nonverbal-tiles" role="list">
+          {flaggedTiles.map((tile) => (
+            <div key={tile.label} role="listitem" className="report-nonverbal-tile is-flag">
+              <strong>{tile.count}</strong>
               <span>{tile.label}</span>
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <p className="report-nonverbal-summary__ok">특이 신호 없이 안정적으로 응시했어요. ({summary.answersWithMetadata}/{summary.answerCount}개 답변 분석)</p>
+      )}
+
+      <details className="report-nonverbal-more">
+        <summary>전체 지표 보기</summary>
+        <div className="report-nonverbal-tiles" role="list">
+          {signalTiles.map((tile) => (
+            <div key={tile.label} role="listitem" className={`report-nonverbal-tile${tile.count > 0 ? " is-flag" : ""}`}>
+              <strong>{tile.count}</strong>
+              <span>{tile.label}</span>
+            </div>
+          ))}
+        </div>
+      </details>
     </section>
   );
 }

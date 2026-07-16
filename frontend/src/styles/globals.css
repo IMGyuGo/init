@@ -11260,6 +11260,51 @@ p {
   font-weight: 700;
 }
 
+/* 접기 — 요약/답변 상세를 기본 숨김으로 정리 (#289) */
+.notion .report-nonverbal-more,
+.notion .report-answer-detail {
+  margin-top: 4px;
+}
+.notion .report-nonverbal-more > summary,
+.notion .report-answer-detail > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 7px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgba(55, 53, 47, 0.6);
+  background: #f7f7f5;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+.notion .report-nonverbal-more > summary::-webkit-details-marker,
+.notion .report-answer-detail > summary::-webkit-details-marker { display: none; }
+.notion .report-nonverbal-more > summary::before,
+.notion .report-answer-detail > summary::before {
+  content: "▸";
+  font-size: 10px;
+  color: rgba(55, 53, 47, 0.4);
+}
+.notion .report-nonverbal-more[open] > summary::before,
+.notion .report-answer-detail[open] > summary::before { content: "▾"; }
+.notion .report-nonverbal-more > summary:hover,
+.notion .report-answer-detail > summary:hover { color: #191919; border-color: rgba(55, 53, 47, 0.2); }
+.notion .report-nonverbal-more > div { margin-top: 12px; }
+.notion .report-answer-detail__body { display: grid; gap: 18px; margin-top: 16px; }
+.notion .report-nonverbal-summary__ok {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 13px;
+  color: #2f855a;
+  background: #edf7f0;
+  border: 1px solid rgba(15, 122, 67, 0.18);
+  border-radius: 10px;
+}
+
 /* 비언어 지표 타일 — 신호 있는 항목만 주황 강조 (#289) */
 .notion .report-nonverbal-tiles {
   display: grid;
