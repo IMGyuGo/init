@@ -7732,7 +7732,7 @@ function InterviewRuntimePanel({
     <main className="candidate-interview-app">
       <header className="iv-top">
         <Link className="brand" href={candidateApplicationInterviewRoutes.mockInterviewStart}>
-          <Image src="/logo-init.png" alt="init" width={1010} height={375} priority />
+          <Image src="/logo-init-v5.png" alt="init" width={2030} height={775} priority />
         </Link>
         <span className="center">{runtimeTitle}</span>
       </header>
@@ -8295,7 +8295,7 @@ function CandidateNav({ active, publicEntry = false }: { active: CandidateNavSec
     <header className="gnb">
       <div className="gnb-inner">
         <Link className="brand" href={publicEntry ? "/" : candidateApplicationInterviewRoutes.jobs}>
-          <Image src="/logo-init-v4.png" alt="init" width={1900} height={580} priority />
+          <Image src="/logo-init-v5.png" alt="init" width={2030} height={775} priority />
         </Link>
         <nav className="gnb-menu" aria-label="지원자 메뉴">
           <div className={`gnb-item ${recruitingActive ? "active" : ""}`}>
