@@ -35,6 +35,12 @@ import {
   splitDraftKeywords,
   toggleDraftKeyword,
 } from "./posting-draft-keywords";
+import {
+  AI_DRAFT_SUMMARY_MAX_LENGTH,
+  getPostingDraftSummaryLength,
+  getPostingDraftSummaryValidation,
+  getPostingDraftSummaryUiState,
+} from "./posting-draft-summary";
 import { applyPostingDraftToFormState } from "./posting-ai-draft-form";
 import {
   buildRecruitmentCreateSearch,
@@ -322,6 +328,8 @@ export function RecruitmentCreatePage() {
       ? `${AI_DRAFT_KEYWORD_MAX_LENGTH}자를 넘는 키워드는 생성 시 ${AI_DRAFT_KEYWORD_MAX_LENGTH}자까지만 저장돼요.`
       : "";
   const [aiSummary, setAiSummary] = useState("");
+  const aiSummaryLength = getPostingDraftSummaryLength(aiSummary);
+  const aiSummaryValidation = getPostingDraftSummaryValidation(aiSummary);
   const [aiFilled, setAiFilled] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiDraftMessage, setAiDraftMessage] = useState("");
@@ -332,6 +340,11 @@ export function RecruitmentCreatePage() {
   const [phase, setPhase] = useState<RecruitmentCreatePhase>("intro");
   const [entryMode, setEntryMode] = useState<"manual" | "ai">("manual");
   const [createdRecruitmentId, setCreatedRecruitmentId] = useState<number | null>(null);
+  const aiSummaryUiState = getPostingDraftSummaryUiState(
+    aiSummaryValidation,
+    aiDraftMessage,
+    aiGenerating,
+  );
 
   // 미리보기 모달에 실제 회사명·로고를 표시하기 위해 회사 프로필을 로드한다.
   useEffect(() => {
@@ -349,6 +362,9 @@ export function RecruitmentCreatePage() {
   async function handleGenerateDraft() {
     if (!form.title.trim() || !form.jobRole.trim()) {
       setAiDraftMessage("공고 제목과 직무명을 먼저 입력해주세요.");
+      return;
+    }
+    if (aiSummaryValidation) {
       return;
     }
 
@@ -853,11 +869,13 @@ export function RecruitmentCreatePage() {
   const pendingDraftSections = pendingPostingDraft
     ? structuredJobSectionDefinitions.filter((section) => pendingPostingDraft.sections[section.key]?.trim())
     : [];
+  const visibleAiDraftMessage = aiSummaryUiState.visibleDraftMessage ?? "";
   const isAiDraftMessageError =
-    aiDraftMessage.includes("입력") ||
-    aiDraftMessage.includes("실패") ||
-    aiDraftMessage.includes("없습니다") ||
-    aiDraftMessage.includes("길어지고");
+    visibleAiDraftMessage.includes("입력") ||
+    visibleAiDraftMessage.includes("최대") ||
+    visibleAiDraftMessage.includes("실패") ||
+    visibleAiDraftMessage.includes("없습니다") ||
+    visibleAiDraftMessage.includes("길어지고");
 
   const writeWizardHistory = useCallback((route: RecruitmentCreateRouteState) => {
     if (typeof window === "undefined") {
@@ -1170,12 +1188,25 @@ export function RecruitmentCreatePage() {
             </label>
             <label>
               핵심 내용 / 한 줄 소개
-              <textarea value={aiSummary} onChange={(event) => setAiSummary(event.target.value)} placeholder="어떤 팀에서 어떤 문제를 푸는 포지션인지 간단히 적어주세요." />
+              <textarea
+                value={aiSummary}
+                onChange={(event) => setAiSummary(event.target.value)}
+                placeholder="어떤 팀에서 어떤 문제를 푸는 포지션인지 간단히 적어주세요."
+                aria-invalid={Boolean(aiSummaryValidation)}
+                aria-describedby="ai-draft-summary-limit"
+              />
+              <span
+                id="ai-draft-summary-limit"
+                className={`wizard-ai-hint${aiSummaryValidation ? " is-error" : ""}`}
+                aria-live="polite"
+              >
+                {aiSummaryValidation ?? `최대 ${AI_DRAFT_SUMMARY_MAX_LENGTH.toLocaleString("ko-KR")}자 · 현재 ${aiSummaryLength.toLocaleString("ko-KR")}자`}
+              </span>
             </label>
             <div className="wizard-ai-actions">
-              {aiDraftMessage ? (
+              {visibleAiDraftMessage ? (
                 <span className={`wizard-ai-status${isAiDraftMessageError ? " is-error" : ""}`} aria-live="polite">
-                  {aiDraftMessage}
+                  {visibleAiDraftMessage}
                 </span>
               ) : null}
             </div>
@@ -1194,7 +1225,7 @@ export function RecruitmentCreatePage() {
                 className={`btn primary${aiGenerating ? " is-loading" : ""}`}
                 type="button"
                 onClick={() => void handleGenerateDraft()}
-                disabled={aiGenerating}
+                disabled={aiSummaryUiState.generateDisabled}
                 aria-busy={aiGenerating}
               >
                 {aiGenerating ? (

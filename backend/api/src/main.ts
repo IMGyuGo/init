@@ -4,6 +4,7 @@ import { Logger, ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./modules/app.module";
 import { ApiExceptionFilter } from "./shared/api-exception.filter";
+import { createApiValidationException } from "./shared/api-validation";
 import { ApiResponseInterceptor } from "./shared/api-response.interceptor";
 import { createCorsOriginDelegate } from "./shared/cors-origin";
 import { setupSwagger } from "./swagger/swagger";
@@ -34,6 +35,7 @@ async function bootstrap() {
       transform: true,
       whitelist: true,
       forbidNonWhitelisted: true,
+      exceptionFactory: createApiValidationException,
     }),
   );
   if (process.env.DISABLE_SWAGGER !== "true") {

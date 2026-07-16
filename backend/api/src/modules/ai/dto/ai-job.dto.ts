@@ -18,7 +18,7 @@ import {
 export const POSTING_DRAFT_INPUT_LIMITS = {
   titleMaxLength: 120,
   jobRoleMaxLength: 80,
-  summaryMaxLength: 1000,
+  summaryMaxLength: 3000,
   careerRequirementMaxLength: 80,
   employmentTypeMaxLength: 40,
   workLocationMaxLength: 120,
@@ -240,14 +240,18 @@ export class QuestionSetGenerateRequestDto {
 export class PostingDraftGenerateRequestDto {
   @ApiProperty({ example: "2026 신입 백엔드 채용", maxLength: POSTING_DRAFT_INPUT_LIMITS.titleMaxLength })
   @IsString()
-  @IsNotEmpty()
-  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.titleMaxLength)
+  @IsNotEmpty({ context: { reason: "REQUIRED", message: "공고 제목을 입력해주세요." } })
+  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.titleMaxLength, {
+    context: { reason: "MAX_LENGTH", limit: POSTING_DRAFT_INPUT_LIMITS.titleMaxLength }
+  })
   title!: string;
 
   @ApiProperty({ example: "Backend Developer", maxLength: POSTING_DRAFT_INPUT_LIMITS.jobRoleMaxLength })
   @IsString()
-  @IsNotEmpty()
-  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.jobRoleMaxLength)
+  @IsNotEmpty({ context: { reason: "REQUIRED", message: "직무명을 입력해주세요." } })
+  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.jobRoleMaxLength, {
+    context: { reason: "MAX_LENGTH", limit: POSTING_DRAFT_INPUT_LIMITS.jobRoleMaxLength }
+  })
   jobRole!: string;
 
   @ApiPropertyOptional({
@@ -258,33 +262,54 @@ export class PostingDraftGenerateRequestDto {
   })
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(POSTING_DRAFT_INPUT_LIMITS.keywordMaxCount)
+  @ArrayMaxSize(POSTING_DRAFT_INPUT_LIMITS.keywordMaxCount, {
+    context: { reason: "MAX_ITEMS", limit: POSTING_DRAFT_INPUT_LIMITS.keywordMaxCount }
+  })
   @IsString({ each: true })
-  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.keywordMaxLength, { each: true })
+  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.keywordMaxLength, {
+    each: true,
+    context: {
+      reason: "MAX_LENGTH",
+      limit: POSTING_DRAFT_INPUT_LIMITS.keywordMaxLength,
+      measure: "EACH_STRING"
+    }
+  })
   keywords?: string[];
 
   @ApiPropertyOptional({ example: "대용량 채용 플랫폼 API를 함께 설계하고 운영합니다.", maxLength: POSTING_DRAFT_INPUT_LIMITS.summaryMaxLength })
   @IsOptional()
   @IsString()
-  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.summaryMaxLength)
+  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.summaryMaxLength, {
+    context: {
+      reason: "MAX_LENGTH",
+      limit: POSTING_DRAFT_INPUT_LIMITS.summaryMaxLength,
+      message: "핵심 내용은 최대 3,000자까지 입력할 수 있습니다."
+    }
+  })
   summary?: string;
 
   @ApiPropertyOptional({ example: "신입 이상", maxLength: POSTING_DRAFT_INPUT_LIMITS.careerRequirementMaxLength })
   @IsOptional()
   @IsString()
-  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.careerRequirementMaxLength)
+  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.careerRequirementMaxLength, {
+    context: { reason: "MAX_LENGTH", limit: POSTING_DRAFT_INPUT_LIMITS.careerRequirementMaxLength }
+  })
   careerRequirement?: string;
 
   @ApiPropertyOptional({ example: "정규직", maxLength: POSTING_DRAFT_INPUT_LIMITS.employmentTypeMaxLength })
   @IsOptional()
   @IsString()
-  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.employmentTypeMaxLength)
+  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.employmentTypeMaxLength, {
+    context: { reason: "MAX_LENGTH", limit: POSTING_DRAFT_INPUT_LIMITS.employmentTypeMaxLength }
+  })
   employmentType?: string;
 
   @ApiPropertyOptional({ example: "서울", maxLength: POSTING_DRAFT_INPUT_LIMITS.workLocationMaxLength })
   @IsOptional()
   @IsString()
-  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.workLocationMaxLength)
+  @MaxLength(POSTING_DRAFT_INPUT_LIMITS.workLocationMaxLength, {
+    context: { reason: "MAX_LENGTH", limit: POSTING_DRAFT_INPUT_LIMITS.workLocationMaxLength }
+  })
   workLocation?: string;
 }
 

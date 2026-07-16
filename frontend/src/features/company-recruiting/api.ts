@@ -14,6 +14,7 @@ import type {
 } from "./types";
 import { authFetch } from "../../api/client";
 import { getApiBaseUrl } from "../../api/api-base-url";
+import { createApiRequestError } from "./api-error";
 
 type ListQuery = {
   page?: number;
@@ -165,8 +166,10 @@ async function request<T>(
 
   const payload = (await response.json()) as ApiEnvelope<T> | ApiErrorEnvelope;
   if (!response.ok || "error" in payload) {
-    const message = "error" in payload ? payload.error.message : "요청 처리 중 오류가 발생했습니다.";
-    throw new Error(message);
+    if ("error" in payload) {
+      throw createApiRequestError(payload.error);
+    }
+    throw new Error("요청 처리 중 오류가 발생했습니다.");
   }
 
   return payload;
