@@ -36,8 +36,16 @@
     "code": "COMMON_VALIDATION_FAILED",
     "message": "입력값을 확인해주세요.",
     "details": [
-      { "field": "email", "reason": "INVALID_FORMAT" }
+      {
+        "field": "summary",
+        "reason": "MAX_LENGTH",
+        "limit": 3000,
+        "actualLength": 3001,
+        "message": "핵심 내용은 최대 3,000자까지 입력할 수 있습니다."
+      }
     ]
   }
 }
 ```
+
+검증 오류의 `details`는 `field`, `reason`, `message`를 기본으로 하며 길이·개수 제한에는 `limit`와 `actualLength`를 추가한다. 보안을 위해 사용자가 제출한 실제 값은 반환하지 않는다.

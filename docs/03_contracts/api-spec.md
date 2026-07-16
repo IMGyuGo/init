@@ -557,7 +557,7 @@ AI 리포트 금지 기준:
   - title: string, max 120
   - jobRole: string, max 80
   - keywords: string[] optional, max 10 items, each max 40
-  - summary: string optional, max 1000
+  - summary: string optional, max 3000
   - careerRequirement: string optional, max 80
   - employmentType: string optional, max 40
   - workLocation: string optional, max 120
@@ -574,6 +574,7 @@ AI 리포트 금지 기준:
   - AI 초안은 `postings`에 자동 저장하지 않는다. 사용자가 초안 적용 후 수정/확인한 뒤 기존 `API-080 POST /company/recruitments`로 `DRAFT` 저장한다.
 - 오류/예외:
   - 필수값 누락 또는 입력 상한 초과는 `COMMON_VALIDATION_FAILED`를 반환한다.
+  - 검증 실패 원인은 `error.details[]`의 `field`, `reason`, `limit`, `actualLength`, `message`로 구분한다. 입력 원문은 오류 응답에 포함하지 않는다.
   - 상태 polling 주체가 AI job 생성자와 다르면 `COMMON_FORBIDDEN`을 반환한다.
   - 큐 발행 실패는 `queued=false`, `status=FAILED`, `failure.retryable=true`를 포함한다.
   - 가드레일 `BLOCKED`는 최종 저장 없이 `AI_GUARDRAIL_BLOCKED` 성격의 실패 안내로 표시한다.
