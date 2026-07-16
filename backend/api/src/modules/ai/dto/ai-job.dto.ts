@@ -130,28 +130,6 @@ export class MockQuestionGenerateRequestDto {
   questionTypes?: string[];
 }
 
-export class CriteriaSuggestRequestDto {
-  @ApiProperty({ example: 2 })
-  @IsInt()
-  @Min(1)
-  postingId!: number;
-
-  @ApiProperty({ example: "Backend engineer with NestJS and PostgreSQL experience." })
-  @IsString()
-  @IsNotEmpty()
-  jobDescription!: string;
-
-  @ApiProperty({ example: "Pragmatic problem solver" })
-  @IsString()
-  @IsNotEmpty()
-  talentProfile!: string;
-
-  @ApiProperty({ example: "Prefer evidence-backed backend ownership." })
-  @IsString()
-  @IsNotEmpty()
-  evaluationPolicy!: string;
-}
-
 export class QuestionGenerateCriterionDto {
   @ApiProperty({ example: 1 })
   @IsInt()

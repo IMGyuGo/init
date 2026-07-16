@@ -1,20 +1,18 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import interviewBanner from "../company-recruiting/assets/interview-banner.png";
 
 import { BackButton, StatusBadge } from "../company-recruiting/CompanyRecruitingChrome";
 import {
   confirmQuestionSet,
-  createCriterionTag,
   createInterviewQuestion,
   deleteInterviewQuestion,
   generateInterviewQuestions,
   getAiJobStatus,
   getInterviewSettings,
-  suggestEvaluationCriteria,
   updateEvaluationCriteria,
   updateInterviewQuestion,
   updateInterviewTimePolicy,
@@ -30,14 +28,12 @@ import type {
   AiJobOutput,
   AiJobResult,
   AiProcessStatus,
-  CriteriaSuggestionCandidate,
   GeneratedQuestionCandidate,
   InterviewSettings,
   EvaluationFramework,
   NcsProfileId,
   QuestionType,
 } from "./types";
-import { isNcsQuestionPolicyEnabled } from "./ncs-feature-flag";
 
 type CriteriaDraft = {
   draftId: string;
@@ -49,7 +45,6 @@ type CriteriaDraft = {
   weight: string;
   passScore: string;
   sortOrder: string;
-  isCustomTag?: boolean;
 };
 
 type QuestionForm = {
@@ -74,7 +69,7 @@ type QuestionGenerationPolicyDraft = {
   resumeQuestionCount: string;
 };
 
-type AiJobKind = "criteria" | "questions";
+type AiJobKind = "questions";
 
 type AiJobNotice = {
   kind: AiJobKind;
@@ -116,10 +111,6 @@ const NCS_PROFILE_LABELS: Record<NcsProfileId, string> = {
   COLLABORATION_COMMUNICATION: "협업·의사소통",
   PROBLEM_SOLVING: "문제 해결력",
 };
-const NCS_QUESTION_POLICY_ENABLED = isNcsQuestionPolicyEnabled(
-  process.env.NEXT_PUBLIC_NCS_QUESTION_POLICY_ENABLED,
-);
-
 function getSettingsStepStorageKey(postingId: number) {
   return `company-interview-settings-step:${postingId}`;
 }
@@ -129,7 +120,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
   const [settingsStep, setSettingsStep] = useState(1);
   const [criteriaDrafts, setCriteriaDrafts] = useState<CriteriaDraft[]>([]);
   const [timePolicyDraft, setTimePolicyDraft] = useState<TimePolicyDraft | null>(null);
-  const [evaluationFramework, setEvaluationFramework] = useState<EvaluationFramework>("LEGACY");
+  const [evaluationFramework, setEvaluationFramework] = useState<EvaluationFramework>("NCS_3_PROFILE_V1");
   const [questionPolicyDraft, setQuestionPolicyDraft] = useState<QuestionGenerationPolicyDraft | null>(null);
   const [questionForm, setQuestionForm] = useState<QuestionForm>(initialQuestionForm);
   const [editingQuestionId, setEditingQuestionId] = useState<number | null>(null);
@@ -150,12 +141,8 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
   const [aiJobNotices, setAiJobNotices] = useState<AiJobNotice[]>([]);
   const [questionSetConfirming, setQuestionSetConfirming] = useState(false);
   const [editingTimePolicyField, setEditingTimePolicyField] = useState<TimePolicyField | null>(null);
-  const [draggedCriteriaId, setDraggedCriteriaId] = useState<string | null>(null);
-  const [autoAppliedCriteriaProcessIds, setAutoAppliedCriteriaProcessIds] = useState<number[]>([]);
   const [autoAppliedQuestionProcessIds, setAutoAppliedQuestionProcessIds] = useState<number[]>([]);
   const [isQuestionDrawerOpen, setIsQuestionDrawerOpen] = useState(false);
-  const [editingCriteriaDetailId, setEditingCriteriaDetailId] = useState<string | null>(null);
-  const [selectedCriteriaDraftIds, setSelectedCriteriaDraftIds] = useState<string[]>([]);
   const [settingsStepRestored, setSettingsStepRestored] = useState(false);
   const aiJobNoticesRef = useRef(aiJobNotices);
   const hasActiveAiJobNotices = useMemo(() => hasActiveAiJobs(aiJobNotices), [aiJobNotices]);
@@ -169,11 +156,14 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     setAiJobError("");
     try {
       const response = await getInterviewSettings(postingId);
+      const fixedNcsCriteria = toFixedNcsCriteriaDrafts(response.data);
       setSettings(response.data);
-      setCriteriaDrafts(toCriteriaDrafts(response.data));
-      setSelectedCriteriaDraftIds([]);
+      setCriteriaDrafts(fixedNcsCriteria ?? []);
       setTimePolicyDraft(toTimePolicyDraft(response.data));
-      setEvaluationFramework(response.data.evaluationFramework);
+      setEvaluationFramework("NCS_3_PROFILE_V1");
+      if (!fixedNcsCriteria) {
+        setCriteriaError("NCS 3개 평가 기준 binding이 준비되지 않았습니다. seed와 migration 적용 상태를 확인해주세요.");
+      }
       setQuestionPolicyDraft(toQuestionGenerationPolicyDraft(response.data));
       setEditingQuestionId(null);
       setQuestionEditDraft(null);
@@ -323,42 +313,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     () => new Set(aiJobNotices.filter((notice) => !isTerminalAiStatus(notice.status)).map((notice) => notice.kind)),
     [aiJobNotices],
   );
-  const criteriaAiNotices = useMemo(() => aiJobNotices.filter((notice) => notice.kind === "criteria"), [aiJobNotices]);
   const questionAiNotices = useMemo(() => aiJobNotices.filter((notice) => notice.kind === "questions"), [aiJobNotices]);
-  const editingCriteriaDetail = useMemo(
-    () => criteriaDrafts.find((criterion) => criterion.draftId === editingCriteriaDetailId) ?? null,
-    [criteriaDrafts, editingCriteriaDetailId],
-  );
-
-  useEffect(() => {
-    if (!settings) return;
-
-    const completedNotices = criteriaAiNotices.filter(
-      (notice) => notice.status === "COMPLETED" && !autoAppliedCriteriaProcessIds.includes(notice.processLogId),
-    );
-    if (completedNotices.length === 0) return;
-
-    const processLogIds = completedNotices.map((notice) => notice.processLogId);
-    setAutoAppliedCriteriaProcessIds((current) => [...current, ...processLogIds.filter((processLogId) => !current.includes(processLogId))]);
-
-    void (async () => {
-      try {
-        for (const notice of completedNotices) {
-          const candidates = getCriteriaSuggestions(notice.output);
-          if (candidates.length === 0) {
-            setCriteriaError("저장 가능한 평가 기준 추천 결과가 없습니다. JD나 인재상 조건을 보강한 뒤 다시 요청해주세요.");
-            continue;
-          }
-          await applyCriteriaSuggestions(candidates);
-        }
-      } catch (error) {
-        setCriteriaError(error instanceof Error ? error.message : "AI 추천 기준을 평가 기준 표에 반영하지 못했습니다.");
-      }
-    })();
-    // AI 결과는 processLogId당 한 번만 적용하므로 handler identity로 effect를 재실행하지 않는다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoAppliedCriteriaProcessIds, criteriaAiNotices, settings]);
-
   useEffect(() => {
     if (!settings || settings.evaluationFramework !== "NCS_3_PROFILE_V1") return;
 
@@ -410,114 +365,9 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoAppliedQuestionProcessIds, questionAiNotices, settings]);
 
-  function addCustomCriteriaDraft() {
-    setCriteriaError("");
-    setCriteriaDrafts((current) => {
-      const normalizedCriteria = normalizeCriteriaOrder(current);
-      const draftId = `custom-${Date.now()}`;
-      return [
-        ...normalizedCriteria,
-        {
-          draftId,
-          tagId: -Date.now(),
-          tagName: "",
-          category: "",
-          description: null,
-          weight: "10",
-          passScore: "",
-          sortOrder: String(normalizedCriteria.length + 1),
-          isCustomTag: true,
-        },
-      ];
-    });
-  }
-
-  function toggleCriteriaDraftSelection(draftId: string, checked: boolean) {
-    setSelectedCriteriaDraftIds((current) =>
-      checked ? Array.from(new Set([...current, draftId])) : current.filter((item) => item !== draftId),
-    );
-  }
-
-  function toggleAllCriteriaDraftSelection(checked: boolean) {
-    setSelectedCriteriaDraftIds(checked ? criteriaDrafts.map((criterion) => criterion.draftId) : []);
-  }
-
-  function removeSelectedCriteriaDrafts() {
-    if (!settings || selectedCriteriaDraftIds.length === 0) return;
-
-    const selectedSet = new Set(selectedCriteriaDraftIds);
-    const selectedCriteria = criteriaDrafts.filter((criterion) => selectedSet.has(criterion.draftId));
-    const linkedQuestionCount = selectedCriteria.reduce(
-      (count, criterion) =>
-        criterion.criterionId === undefined
-          ? count
-          : count + settings.questions.filter((question) => question.criterionId === criterion.criterionId).length,
-      0,
-    );
-
-    if (
-      linkedQuestionCount > 0 &&
-      !window.confirm(
-        `선택한 평가 기준에 연결된 질문 ${linkedQuestionCount}개가 있습니다. 계속 진행하면 저장 시 연결된 질문이 비활성화됩니다. 계속하시겠습니까?`,
-      )
-    ) {
-      return;
-    }
-
-    setCriteriaError("");
-    const nextCriteriaDrafts = normalizeCriteriaOrder(criteriaDrafts.filter((criterion) => !selectedSet.has(criterion.draftId)));
-    setCriteriaDrafts(nextCriteriaDrafts);
-    setSelectedCriteriaDraftIds([]);
-    if (selectedCriteria.some((criterion) => criterion.criterionId !== undefined && questionForm.criterionId === String(criterion.criterionId))) {
-      const nextCriterionId = String(nextCriteriaDrafts.find((item) => item.criterionId !== undefined)?.criterionId ?? "");
-      resetQuestionEditor();
-      resetQuestionForm(nextCriterionId);
-    }
-  }
-
-  function reorderCriteriaDrafts(sourceDraftId: string, targetDraftId: string) {
-    if (sourceDraftId === targetDraftId || criteriaSaving) return;
-    setCriteriaError("");
-    setCriteriaDrafts((current) => {
-      const sourceIndex = current.findIndex((criterion) => criterion.draftId === sourceDraftId);
-      const targetIndex = current.findIndex((criterion) => criterion.draftId === targetDraftId);
-      if (sourceIndex < 0 || targetIndex < 0) return current;
-      const next = [...current];
-      const [moved] = next.splice(sourceIndex, 1);
-      if (!moved) return current;
-      next.splice(targetIndex, 0, moved);
-      return next.map((criterion, index) => ({
-        ...criterion,
-        sortOrder: String(index + 1),
-      }));
-    });
-  }
-
-  function handleCriteriaDragStart(event: DragEvent<HTMLElement>, draftId: string) {
-    if (criteriaSaving) return;
-    setDraggedCriteriaId(draftId);
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", draftId);
-  }
-
-  function handleCriteriaDragOver(event: DragEvent<HTMLTableRowElement>) {
-    if (!draggedCriteriaId || criteriaSaving) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-  }
-
-  function handleCriteriaDrop(event: DragEvent<HTMLTableRowElement>, targetDraftId: string) {
-    event.preventDefault();
-    const sourceDraftId = event.dataTransfer.getData("text/plain") || draggedCriteriaId;
-    if (sourceDraftId) {
-      reorderCriteriaDrafts(sourceDraftId, targetDraftId);
-    }
-    setDraggedCriteriaId(null);
-  }
-
   function updateCriteriaDraft(
     draftId: string,
-    field: "tagName" | "category" | "description" | "weight" | "passScore" | "sortOrder",
+    field: "weight" | "passScore",
     value: string,
   ) {
     setCriteriaError("");
@@ -526,8 +376,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
         criterion.draftId === draftId
           ? {
               ...criterion,
-              [field]: field === "description" && value.trim() === "" ? null : value,
-              isCustomTag: field === "tagName" || field === "category" ? true : criterion.isCustomTag,
+              [field]: value,
             }
           : criterion,
       ),
@@ -549,41 +398,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     setTimePolicyDraft(toTimePolicyDraft(settings));
   }
 
-  function changeEvaluationFramework(nextFramework: EvaluationFramework) {
-    setCriteriaError("");
-    setEvaluationFramework(nextFramework);
-    if (!settings || nextFramework !== "NCS_3_PROFILE_V1") return;
-
-    const ncsTags = NCS_PROFILE_ORDER.map((profileId) =>
-      settings.availableTags.find((tag) => tag.ncsProfileId === profileId),
-    );
-    if (ncsTags.some((tag) => !tag)) {
-      setCriteriaError("NCS 3개 평가 기준 binding이 준비되지 않았습니다. seed와 migration 적용 상태를 확인해주세요.");
-      setEvaluationFramework(settings.evaluationFramework);
-      return;
-    }
-
-    const weights = [30, 30, 40];
-    setCriteriaDrafts(
-      ncsTags.map((tag, index) => {
-        const resolvedTag = tag!;
-        const existing = settings.criteria.find((criterion) => criterion.tagId === resolvedTag.tagId);
-        return {
-          draftId: existing ? String(existing.criterionId) : `ncs-${resolvedTag.tagId}`,
-          criterionId: existing?.criterionId,
-          tagId: resolvedTag.tagId,
-          tagName: resolvedTag.tagName,
-          category: resolvedTag.category,
-          description: existing?.description ?? resolvedTag.description,
-          weight: String(existing?.weight ?? weights[index]),
-          passScore: existing?.passScore === null || existing?.passScore === undefined ? "" : String(existing.passScore),
-          sortOrder: String(index + 1),
-        };
-      }),
-    );
-    setSelectedCriteriaDraftIds([]);
-  }
-
   async function saveCriteriaDrafts(): Promise<boolean> {
     if (!settings) return true;
 
@@ -597,34 +411,10 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     setCriteriaError("");
     try {
       const normalizedCriteria = normalizeCriteriaOrder(criteriaDrafts);
-      const resolvedCriteria: CriteriaDraft[] = [];
-      const createdTags: InterviewSettings["availableTags"] = [];
-      for (const criterion of normalizedCriteria) {
-        if (criterion.isCustomTag || criterion.tagId < 0) {
-          const response = await createCriterionTag({
-            postingId: settings.posting.postingId,
-            tagName: criterion.tagName.trim(),
-            category: criterion.category.trim(),
-            description: criterion.description,
-          });
-          createdTags.push(response.data.tag);
-          resolvedCriteria.push({
-            ...criterion,
-            tagId: response.data.tag.tagId,
-            tagName: response.data.tag.tagName,
-            category: response.data.tag.category,
-            description: criterion.description,
-            isCustomTag: false,
-          });
-        } else {
-          resolvedCriteria.push(criterion);
-        }
-      }
-
       const response = await updateEvaluationCriteria({
         postingId: settings.posting.postingId,
         evaluationFramework,
-        criteria: resolvedCriteria.map((criterion) => ({
+        criteria: normalizedCriteria.map((criterion) => ({
           criterionId: criterion.criterionId,
           tagId: criterion.tagId,
           description: criterion.description,
@@ -638,13 +428,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
         current
           ? {
               ...current,
-              availableTags:
-                createdTags.length === 0
-                  ? current.availableTags
-                  : [
-                      ...current.availableTags,
-                      ...createdTags.filter((createdTag) => !current.availableTags.some((tag) => tag.tagId === createdTag.tagId)),
-                    ],
               criteria: response.data.criteria,
               evaluationFramework: response.data.evaluationFramework,
               questionGenerationPolicy: {
@@ -923,28 +706,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     }
   }
 
-  async function handleSuggestCriteria() {
-    if (!settings) return;
-    if (isAiRequestBlocked("criteria", aiJobSubmitting, activeAiJobKinds)) return;
-
-    setAiJobSubmitting("criteria");
-    setAiJobError("");
-    try {
-      const jobDescription = buildJobDescription(settings);
-      const response = await suggestEvaluationCriteria({
-        postingId: settings.posting.postingId,
-        jobDescription,
-        talentProfile: "문제 해결력과 협업 태도를 갖춘 지원자",
-        evaluationPolicy: "평가 기준과 면접 질문 구성을 기반으로 근거 중심 평가 항목을 추천합니다.",
-      });
-      rememberAiJob("criteria", "AI 평가 기준 추천", response.data);
-    } catch (error) {
-      setAiJobError(formatAiRequestError(error instanceof Error ? error.message : "AI 평가 기준 추천 요청에 실패했습니다."));
-    } finally {
-      setAiJobSubmitting(null);
-    }
-  }
-
   async function handleGenerateQuestions() {
     if (!settings) return;
     if (
@@ -960,7 +721,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       return;
     }
     if (settings.criteria.length === 0) {
-      setAiJobError("공통 질문을 추천받으려면 먼저 JD 기반 평가 기준을 생성하고 저장해주세요.");
+      setAiJobError("공통 질문을 추천받으려면 먼저 NCS 평가 기준을 저장해주세요.");
       return;
     }
 
@@ -1000,66 +761,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       },
       ...current.filter((item) => item.kind !== kind),
     ]);
-  }
-
-  async function applyCriteriaSuggestion(candidate: CriteriaSuggestionCandidate, selectedTagId?: number) {
-    await applyCriteriaSuggestions([candidate], selectedTagId);
-  }
-
-  async function applyCriteriaSuggestions(candidates: CriteriaSuggestionCandidate[], selectedTagId?: number) {
-    if (!settings) return;
-
-    let nextCriteriaDrafts = normalizeCriteriaOrder(criteriaDrafts);
-
-    for (const candidate of candidates) {
-      if (findAppliedSuggestionCriteria(nextCriteriaDrafts, candidate)) {
-        continue;
-      }
-
-      const matchedTag = findSuggestionTag(settings, nextCriteriaDrafts, candidate, selectedTagId);
-      const projectedTotalWeight = getCriteriaTotalWeight(nextCriteriaDrafts) + normalizeCriteriaSuggestionWeight(candidate.weight);
-      if (projectedTotalWeight > 100) {
-        setCriteriaError("추천 기준을 적용하면 배점 합계가 100을 초과합니다. 기존 기준의 배점을 먼저 조정해주세요.");
-        continue;
-      }
-
-      if (!matchedTag) {
-        nextCriteriaDrafts = [
-          ...nextCriteriaDrafts,
-          {
-            draftId: `ai-custom-${Date.now()}-${nextCriteriaDrafts.length}`,
-            tagId: -Date.now() - nextCriteriaDrafts.length,
-            tagName: candidate.title.trim(),
-            category: candidate.category?.trim() || "JD 기반 평가",
-            description: candidate.description?.trim() || candidate.suggestionReason?.trim() || null,
-            weight: String(normalizeCriteriaSuggestionWeight(candidate.weight)),
-            passScore: "",
-            sortOrder: String(nextCriteriaDrafts.length + 1),
-            isCustomTag: true,
-          },
-        ];
-        continue;
-      }
-
-      if (nextCriteriaDrafts.some((criterion) => criterion.tagId === matchedTag.tagId)) continue;
-
-      nextCriteriaDrafts = [
-        ...nextCriteriaDrafts,
-        {
-          draftId: `ai-${matchedTag.tagId}-${Date.now()}-${nextCriteriaDrafts.length}`,
-          tagId: matchedTag.tagId,
-          tagName: matchedTag.tagName,
-          category: matchedTag.category,
-          description: matchedTag.description ?? candidate.description,
-          weight: String(normalizeCriteriaSuggestionWeight(candidate.weight)),
-          passScore: "",
-          sortOrder: String(nextCriteriaDrafts.length + 1),
-        },
-      ];
-    }
-
-    setCriteriaError("");
-    setCriteriaDrafts(normalizeCriteriaOrder(nextCriteriaDrafts));
   }
 
   async function applyQuestionCandidate(
@@ -1206,14 +907,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
 
   function retryAiJob(kind: AiJobKind) {
     if (isAiRequestBlocked(kind, aiJobSubmitting, activeAiJobKinds)) return;
-
-    if (kind === "criteria") {
-      void handleSuggestCriteria();
-      return;
-    }
-    if (kind === "questions") {
-      void handleGenerateQuestions();
-    }
+    void handleGenerateQuestions();
   }
 
   return (
@@ -1244,7 +938,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
               <div className="settings-steps-meta">
                 <span className="settings-steps-step">단계 {settingsStep} / 3</span>
                 <span className="settings-steps-title">
-                  {settingsStep === 1 ? "평가 기준 추천" : settingsStep === 2 ? "면접 질문 구성" : "면접 시간 설정"}
+                  {settingsStep === 1 ? "평가 기준 설정" : settingsStep === 2 ? "면접 질문 구성" : "면접 시간 설정"}
                 </span>
               </div>
               <div className="settings-steps-bar" role="presentation">
@@ -1330,105 +1024,19 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
 
             {settingsStep === 1 ? (
               <>
-            <section className="panel criteria-ai-legacy-panel" hidden>
-              <div className="panel-head">
-                <div>
-                  <h2>AI로 자동 구성</h2>
-                  <p>공고 내용을 바탕으로 평가 기준과 면접 질문을 AI가 초안으로 만들어줘요. 필요 없으면 건너뛰고 직접 입력해도 돼요.</p>
-                </div>
-                <div className="toolbar">
-                  <button
-                    className="btn secondary compact"
-                    type="button"
-                    disabled={isAiRequestBlocked("questions", aiJobSubmitting, activeAiJobKinds)}
-                    onClick={() => void handleGenerateQuestions()}
-                  >
-                    {getAiRequestButtonLabel("questions", "AI 질문 추천받기", aiJobSubmitting, activeAiJobKinds)}
-                  </button>
-                </div>
-              </div>
-              {aiJobError ? <p className="notice danger">{aiJobError}</p> : null}
-              {aiJobNotices.length > 0 ? (
-                <div className="posting-list ai-job-list">
-                  {aiJobNotices.map((notice) => (
-                    <article className="posting ai-job-card" key={notice.kind}>
-                      <div className="ai-job-card-body">
-                        <div className="ai-job-card-head">
-                          <h3>{notice.label}</h3>
-                          {notice.status === "FAILED" ? (
-                            <button
-                              className="btn secondary compact"
-                              type="button"
-                              disabled={isAiRequestBlocked(notice.kind, aiJobSubmitting, activeAiJobKinds)}
-                              onClick={() => retryAiJob(notice.kind)}
-                            >
-                              다시 요청
-                            </button>
-                          ) : null}
-                          <AiStatusBadge status={notice.status} />
-                        </div>
-                        {notice.status === "COMPLETED" ? (
-                          <AiJobPreview
-                            notice={notice}
-                            settings={settings}
-                            criteriaDrafts={criteriaDrafts}
-                            questionSaving={questionSaving}
-                            onApplyCriteria={(candidate, selectedTagId) => void applyCriteriaSuggestion(candidate, selectedTagId)}
-                            onApplyQuestion={(candidate, selectedCriterionId) =>
-                              void applyQuestionCandidate(candidate, selectedCriterionId, "ai", notice.processLogId)
-                            }
-                          />
-                        ) : null}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className="empty">등록된 AI 요청이 없습니다.</div>
-              )}
-            </section>
-
             <form className="panel" onSubmit={handleCriteriaSave}>
               <div className="panel-head">
                 <div>
                   <h2>평가 기준</h2>
-                  <p>배점, 합격점, 표시 순서를 공고 기준으로 조정합니다.</p>
+                  <p>세 NCS 역량의 배점과 합격점을 공고 기준으로 조정합니다.</p>
                 </div>
                 <div className="toolbar">
-                  <label className="framework-select-label">
-                    <span>평가 체계</span>
-                    <select
-                      value={evaluationFramework}
-                      disabled={criteriaSaving}
-                      onChange={(event) => changeEvaluationFramework(event.target.value as EvaluationFramework)}
-                    >
-                      <option value="LEGACY">기존 평가 기준</option>
-                      {NCS_QUESTION_POLICY_ENABLED ? (
-                        <option value="NCS_3_PROFILE_V1">NCS 3개 기준</option>
-                      ) : null}
-                    </select>
-                  </label>
-                  <button
-                    className="btn secondary compact"
-                    type="button"
-                    disabled={evaluationFramework === "NCS_3_PROFILE_V1" || isAiRequestBlocked("criteria", aiJobSubmitting, activeAiJobKinds)}
-                    onClick={() => void handleSuggestCriteria()}
-                  >
-                    {getAiRequestButtonLabel("criteria", "평가 기준 추천받기", aiJobSubmitting, activeAiJobKinds)}
-                  </button>
+                  <span className="badge info">NCS 3개 고정 기준</span>
                 </div>
               </div>
               {criteriaError ? <p className="notice danger">{criteriaError}</p> : null}
               {aiJobError ? <p className="notice danger">{aiJobError}</p> : null}
               <div className="criteria-table-summary">
-                <button
-                  className="btn secondary compact"
-                  type="button"
-                  disabled={evaluationFramework === "NCS_3_PROFILE_V1" || selectedCriteriaDraftIds.length === 0 || criteriaSaving}
-                  onClick={removeSelectedCriteriaDrafts}
-                >
-                  선택 삭제
-                </button>
                 <span className={`badge ${criteriaTotalWeight > 0 && criteriaTotalWeight <= 100 ? "info" : "danger"}`}>
                   배점 합계 {criteriaTotalWeight}
                 </span>
@@ -1437,15 +1045,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                 <table className="data-table criteria-table">
                   <thead>
                     <tr>
-                      <th className="criteria-col-select">
-                        <input
-                          aria-label="평가 기준 전체 선택"
-                          checked={criteriaDrafts.length > 0 && selectedCriteriaDraftIds.length === criteriaDrafts.length}
-                          disabled={criteriaDrafts.length === 0 || criteriaSaving}
-                          type="checkbox"
-                          onChange={(event) => toggleAllCriteriaDraftSelection(event.target.checked)}
-                        />
-                      </th>
                       <th className="criteria-col-order">순서</th>
                       <th>태그</th>
                       <th>분류</th>
@@ -1455,43 +1054,12 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                   </thead>
                   <tbody>
                     {criteriaDrafts.map((criterion) => (
-                      <tr
-                        className={draggedCriteriaId === criterion.draftId ? "is-dragging" : undefined}
-                        key={criterion.draftId}
-                        onDragEnd={() => setDraggedCriteriaId(null)}
-                        onDragOver={handleCriteriaDragOver}
-                        onDrop={(event) => handleCriteriaDrop(event, criterion.draftId)}
-                      >
-                        <td className="criteria-cell-select">
-                          <input
-                            aria-label={`${criterion.tagName || "평가 기준"} 선택`}
-                            checked={selectedCriteriaDraftIds.includes(criterion.draftId)}
-                            disabled={evaluationFramework === "NCS_3_PROFILE_V1" || criteriaSaving}
-                            type="checkbox"
-                            onChange={(event) => toggleCriteriaDraftSelection(criterion.draftId, event.target.checked)}
-                          />
-                        </td>
+                      <tr key={criterion.draftId}>
                         <td className="criteria-cell-order">
-                          <button
-                            className="criteria-drag-handle"
-                            draggable={evaluationFramework !== "NCS_3_PROFILE_V1" && !criteriaSaving}
-                            onDragStart={(event) => handleCriteriaDragStart(event, criterion.draftId)}
-                            type="button"
-                            aria-label={`${criterion.tagName} 순서 변경`}
-                          >
-                            ⋮⋮
-                          </button>
                           <span>{criterion.sortOrder}</span>
                         </td>
                         <td className="criteria-cell-tag">
-                          <button
-                            className="criteria-tag-button"
-                            type="button"
-                            disabled={evaluationFramework === "NCS_3_PROFILE_V1"}
-                            onClick={() => setEditingCriteriaDetailId(criterion.draftId)}
-                          >
-                            {criterion.tagName || "태그 입력"}
-                          </button>
+                          <strong>{criterion.tagName}</strong>
                         </td>
                         <td className="criteria-cell-category">
                           {criterion.category || "-"}
@@ -1500,7 +1068,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                           <input
                             aria-label={`${criterion.tagName} 배점`}
                             inputMode="numeric"
-                            min={1}
+                            min={0}
                             max={100}
                             type="number"
                             value={criterion.weight}
@@ -1523,15 +1091,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                     ))}
                   </tbody>
                 </table>
-                <button
-                  className="criteria-add-row-button"
-                  type="button"
-                  disabled={evaluationFramework === "NCS_3_PROFILE_V1" || criteriaSaving}
-                  onClick={addCustomCriteriaDraft}
-                  aria-label="평가 기준 행 추가"
-                >
-                  +
-                </button>
               </div>
             </form>
 
@@ -1769,55 +1328,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
             ) : null}
           </>
         )}
-        {editingCriteriaDetail ? (
-          <div className="modal-backdrop" role="presentation" onMouseDown={() => setEditingCriteriaDetailId(null)}>
-            <section
-              className="modal criteria-detail-modal"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="criteria-detail-title"
-              onMouseDown={(event) => event.stopPropagation()}
-            >
-              <div className="modal-head">
-                <div>
-                  <h2 id="criteria-detail-title">평가 기준 상세</h2>
-                  <p>태그명, 분류, 상세 설명을 수정합니다.</p>
-                </div>
-                <button className="btn secondary compact" type="button" onClick={() => setEditingCriteriaDetailId(null)}>
-                  닫기
-                </button>
-              </div>
-              <div className="criteria-detail-fields">
-                <label>
-                  태그
-                  <input
-                    value={editingCriteriaDetail.tagName}
-                    onChange={(event) => updateCriteriaDraft(editingCriteriaDetail.draftId, "tagName", event.target.value)}
-                  />
-                </label>
-                <label>
-                  분류
-                  <input
-                    value={editingCriteriaDetail.category}
-                    onChange={(event) => updateCriteriaDraft(editingCriteriaDetail.draftId, "category", event.target.value)}
-                  />
-                </label>
-                <label className="grid-full">
-                  상세 설명
-                  <textarea
-                    value={editingCriteriaDetail.description ?? ""}
-                    onChange={(event) => updateCriteriaDraft(editingCriteriaDetail.draftId, "description", event.target.value)}
-                  />
-                </label>
-              </div>
-              <div className="modal-actions">
-                <button className="btn primary" type="button" onClick={() => setEditingCriteriaDetailId(null)}>
-                  적용
-                </button>
-              </div>
-            </section>
-          </div>
-        ) : null}
         {isQuestionDrawerOpen && settings ? (
           <div className="drawer-backdrop" role="presentation" onMouseDown={closeQuestionDrawer}>
             <aside
@@ -1932,22 +1442,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
         ) : null}
     </section>
   );
-}
-
-function buildJobDescription(settings: InterviewSettings) {
-  const criteriaText =
-    settings.criteria.length > 0
-      ? settings.criteria.map((criterion) => `${criterion.tagName}(${criterion.category})`).join(", ")
-      : "등록된 평가 기준 없음";
-  const questionText =
-    settings.questions.length > 0
-      ? settings.questions
-          .slice(0, 5)
-          .map((question) => question.content)
-          .join(" / ")
-      : "등록된 질문 없음";
-
-  return `공고명: ${settings.posting.title}\n평가 기준: ${criteriaText}\n면접 질문 구성: ${questionText}`;
 }
 
 function validateQuestionForm(
@@ -2153,171 +1647,6 @@ function AiStatusBadge({ status }: { status: AiProcessStatus }) {
   return <span className={`badge ${tone}`}>{AI_STATUS_LABELS[status]}</span>;
 }
 
-function AiJobPreview({
-  notice,
-  settings,
-  criteriaDrafts,
-  questionSaving,
-  onApplyCriteria,
-  onApplyQuestion,
-}: {
-  notice: AiJobNotice;
-  settings: InterviewSettings;
-  criteriaDrafts: CriteriaDraft[];
-  questionSaving: boolean;
-  onApplyCriteria: (candidate: CriteriaSuggestionCandidate, selectedTagId?: number) => void | Promise<void>;
-  onApplyQuestion: (candidate: GeneratedQuestionCandidate, selectedCriterionId?: number) => void;
-}) {
-  const [criteriaTagSelections, setCriteriaTagSelections] = useState<Record<string, string>>({});
-  const [questionCriterionSelections, setQuestionCriterionSelections] = useState<Record<string, string>>({});
-  const criteriaSuggestions = getCriteriaSuggestions(notice.output);
-  const questionCandidates = getQuestionCandidates(notice.output);
-
-  if (notice.kind === "criteria") {
-    return (
-      <div className="posting-list ai-result-list">
-        {criteriaSuggestions.map((candidate, index) => {
-          const key = `${candidate.title}-${index}`;
-          const selectedTagId = toOptionalNumber(criteriaTagSelections[key]);
-          const matchedTag = findSuggestionTag(settings, criteriaDrafts, candidate, selectedTagId);
-          const availableTags = getAvailableSuggestionTags(settings, criteriaDrafts, candidate);
-          const appliedCriterion = findAppliedSuggestionCriteria(criteriaDrafts, candidate);
-          const projectedTotalWeight = getCriteriaTotalWeight(criteriaDrafts) + normalizeCriteriaSuggestionWeight(candidate.weight);
-          const isWeightOverflow = !appliedCriterion && projectedTotalWeight > 100;
-          const canApply = !appliedCriterion && !isWeightOverflow;
-          return (
-            <div className="posting ai-result-card" key={key}>
-              <div className="ai-result-main">
-                <h3>{candidate.title}</h3>
-                <p>{candidate.description}</p>
-                <p>{candidate.suggestionReason}</p>
-                {appliedCriterion ? <p>{appliedCriterion.tagName} 태그로 이미 적용된 추천 기준입니다.</p> : null}
-                {isWeightOverflow ? <p>적용 시 배점 합계가 100을 초과합니다. 기존 배점을 조정한 뒤 적용해주세요.</p> : null}
-                {!matchedTag && !appliedCriterion ? <p>연결할 태그가 없으면 JD 기반 새 평가 태그로 생성됩니다.</p> : null}
-                <select
-                  className="field"
-                  value={appliedCriterion?.tagId ?? matchedTag?.tagId ?? ""}
-                  disabled={Boolean(appliedCriterion)}
-                  onChange={(event) =>
-                    setCriteriaTagSelections((current) => ({
-                      ...current,
-                      [key]: event.target.value,
-                    }))
-                  }
-                >
-                  <option value="">연결 태그 선택</option>
-                  {availableTags.map((tag) => (
-                    <option key={tag.tagId} value={tag.tagId}>
-                      {tag.tagName} · {tag.category}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <span className="badge info">배점 {candidate.weight}</span>
-              <button className="btn secondary compact" type="button" disabled={!canApply} onClick={() => void onApplyCriteria(candidate, matchedTag?.tagId)}>
-                {appliedCriterion ? "적용됨" : isWeightOverflow ? "배점 초과" : matchedTag ? "적용" : "새 태그 생성"}
-              </button>
-            </div>
-          );
-        })}
-        {criteriaSuggestions.length === 0 ? <div className="empty">{getEmptyAiOutputMessage(notice)}</div> : null}
-      </div>
-    );
-  }
-
-  if (notice.kind === "questions") {
-    return (
-      <div className="posting-list ai-result-list">
-        {questionCandidates.map((candidate, index) => {
-          const key = `${candidate.content}-${index}`;
-          const selectedCriterionId = toOptionalNumber(questionCriterionSelections[key]);
-          const savedQuestion = findSavedQuestionCandidate(settings, candidate);
-          const criterionId = selectedCriterionId ?? findCandidateCriterionId(settings, candidate) ?? savedQuestion?.criterionId ?? undefined;
-          const isSaved = Boolean(savedQuestion);
-          const requiresAlignment = settings.evaluationFramework === "NCS_3_PROFILE_V1";
-          const alignmentBlocked = requiresAlignment && candidate.alignmentStatus !== "ALIGNED";
-          const alignmentTone =
-            candidate.alignmentStatus === "ALIGNED"
-              ? "success"
-              : candidate.alignmentStatus === "LOW_ALIGNMENT"
-                ? "warning"
-                : candidate.alignmentStatus === "REVIEW_REQUIRED"
-                  ? "danger"
-                  : "neutral";
-          const alignmentLabel =
-            candidate.alignmentStatus === "ALIGNED"
-              ? "정렬 통과"
-              : candidate.alignmentStatus === "LOW_ALIGNMENT"
-                ? "정렬 미달"
-                : candidate.alignmentStatus === "REVIEW_REQUIRED"
-                  ? "검토 필요"
-                  : "정렬 전";
-          return (
-            <div className="posting ai-result-card" key={key}>
-              <div className="ai-result-main">
-                <h3>{candidate.content}</h3>
-                <p>
-                  {isSaved
-                    ? `이미 ${criterionId ? getCriterionLabel(settings, criterionId) : "면접 질문 구성"}에 저장된 질문입니다.`
-                    : criterionId
-                      ? getCriterionLabel(settings, criterionId)
-                      : "저장하려면 연결할 평가 기준을 선택해야 합니다."}
-                </p>
-                <p>
-                  {candidate.category} · {candidate.difficulty} · {candidate.suggestionReason}
-                </p>
-                {requiresAlignment ? (
-                  <>
-                    <p>
-                      <span className={`badge ${alignmentTone}`}>{alignmentLabel}</span>
-                      {typeof candidate.alignmentScore === "number" ? ` 정렬 점수 ${Math.round(candidate.alignmentScore * 100)}%` : ""}
-                    </p>
-                    <p>
-                      {candidate.ncsProfileId ?? "NCS 프로필 미지정"}
-                      {candidate.ncsQuestionMode ? ` · ${candidate.ncsQuestionMode}` : ""}
-                      {candidate.ncsProfileVersion ? ` · ${candidate.ncsProfileVersion}` : ""}
-                    </p>
-                    {candidate.alignmentReason ? <p>{candidate.alignmentReason}</p> : null}
-                  </>
-                ) : null}
-                <select
-                  className="field"
-                  value={criterionId ?? ""}
-                  disabled={isSaved || requiresAlignment}
-                  onChange={(event) =>
-                    setQuestionCriterionSelections((current) => ({
-                      ...current,
-                      [key]: event.target.value,
-                    }))
-                  }
-                >
-                  <option value="">평가 기준 선택</option>
-                  {settings.criteria.map((criterion) => (
-                    <option key={criterion.criterionId} value={criterion.criterionId}>
-                      {criterion.tagName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <button
-                className="btn secondary compact"
-                type="button"
-                disabled={!criterionId || questionSaving || isSaved || alignmentBlocked}
-                onClick={() => onApplyQuestion(candidate, criterionId)}
-              >
-                {isSaved ? "저장됨" : alignmentBlocked ? alignmentLabel : criterionId ? "질문 저장" : "기준 선택 필요"}
-              </button>
-            </div>
-          );
-        })}
-        {questionCandidates.length === 0 ? <div className="empty">{getEmptyAiOutputMessage(notice)}</div> : null}
-      </div>
-    );
-  }
-
-  return null;
-}
-
 function isTerminalAiStatus(status: AiProcessStatus) {
   return status === "COMPLETED" || status === "FAILED";
 }
@@ -2337,42 +1666,11 @@ function getAiRequestButtonLabel(
   return defaultLabel;
 }
 
-function getEmptyAiOutputMessage(notice: AiJobNotice) {
-  const guardrailReason = notice.output?.guardrail?.reason;
-  if (guardrailReason) {
-    return `AI 결과를 적용할 수 없습니다. 검수 사유: ${guardrailReason}`;
-  }
-  if (!notice.output) {
-    return "AI 작업은 완료되었지만 결과 본문이 없습니다. worker 결과 저장 상태를 확인해주세요.";
-  }
-  if (notice.kind === "criteria") {
-    return "저장 가능한 평가 기준 추천 결과가 없습니다. JD나 인재상 조건을 보강한 뒤 다시 요청해주세요.";
-  }
-  if (notice.kind === "questions") {
-    return "저장 가능한 질문 후보가 없습니다. 평가 기준을 저장하거나 JD 내용을 보강한 뒤 다시 요청해주세요.";
-  }
-  return "확정 가능한 질문 세트 결과가 없습니다. 질문 후보를 면접 질문 구성에 저장한 뒤 다시 구성해주세요.";
-}
-
 function normalizeAiJobOutput(output: unknown): AiJobOutput | undefined {
   if (!output || typeof output !== "object" || Array.isArray(output)) {
     return undefined;
   }
   return output as AiJobOutput;
-}
-
-function getCriteriaSuggestions(output?: AiJobOutput): CriteriaSuggestionCandidate[] {
-  if (Array.isArray(output?.criteriaSuggestions)) {
-    return output.criteriaSuggestions;
-  }
-
-  return (output?.items ?? []).map((item, index) => ({
-    title: item,
-    description: "AI가 추천한 평가 기준 후보입니다.",
-    weight: 10,
-    order: index + 1,
-    suggestionReason: "AI 생성 결과 검토가 필요합니다.",
-  }));
 }
 
 function getQuestionCandidates(output?: AiJobOutput): GeneratedQuestionCandidate[] {
@@ -2389,59 +1687,6 @@ function getQuestionCandidates(output?: AiJobOutput): GeneratedQuestionCandidate
     suggestionReason: "AI 생성 결과 검토가 필요합니다.",
     questionType: "TECHNICAL",
   }));
-}
-
-function findSuggestionTag(
-  settings: InterviewSettings,
-  criteriaDrafts: CriteriaDraft[],
-  candidate: CriteriaSuggestionCandidate,
-  selectedTagId?: number,
-) {
-  const selectedTagIds = new Set(criteriaDrafts.map((criterion) => criterion.tagId));
-  const availableTags = settings.availableTags.filter((tag) => !selectedTagIds.has(tag.tagId));
-  if (selectedTagId) {
-    const selected = availableTags.find((tag) => tag.tagId === selectedTagId);
-    if (selected) return selected;
-  }
-  if (candidate.tagId) {
-    const exact = availableTags.find((tag) => tag.tagId === candidate.tagId);
-    if (exact) return exact;
-  }
-
-  const normalizedTitle = normalizeText(candidate.tagName ?? candidate.title);
-  return (
-    availableTags.find((tag) => normalizeText(tag.tagName) === normalizedTitle) ??
-    availableTags.find((tag) => normalizedTitle.includes(normalizeText(tag.tagName)))
-  );
-}
-
-function findAppliedSuggestionCriteria(criteriaDrafts: CriteriaDraft[], candidate: CriteriaSuggestionCandidate) {
-  const normalizedTitle = normalizeText(candidate.tagName ?? candidate.title);
-
-  return criteriaDrafts.find((criterion) => {
-    if (candidate.tagId && criterion.tagId === candidate.tagId) return true;
-    if (normalizeText(criterion.tagName) === normalizedTitle) return true;
-    return normalizedTitle.includes(normalizeText(criterion.tagName));
-  });
-}
-
-function normalizeCriteriaSuggestionWeight(weight: number | undefined) {
-  return Number.isInteger(weight) && weight !== undefined && weight > 0 ? weight : 10;
-}
-
-function getCriteriaTotalWeight(criteriaDrafts: CriteriaDraft[]) {
-  return criteriaDrafts.reduce((total, criterion) => total + (toNumber(criterion.weight) ?? 0), 0);
-}
-
-function getAvailableSuggestionTags(
-  settings: InterviewSettings,
-  criteriaDrafts: CriteriaDraft[],
-  candidate: CriteriaSuggestionCandidate,
-) {
-  const selectedTagIds = new Set(criteriaDrafts.map((criterion) => criterion.tagId));
-  return settings.availableTags
-    .filter((tag) => !selectedTagIds.has(tag.tagId) || tag.tagId === candidate.tagId)
-    .sort((a, b) => a.sortOrder - b.sortOrder || a.tagId - b.tagId);
 }
 
 function findCandidateCriterionId(settings: InterviewSettings, candidate: GeneratedQuestionCandidate) {
@@ -2461,24 +1706,8 @@ function findCandidateCriterionId(settings: InterviewSettings, candidate: Genera
   );
 }
 
-function findSavedQuestionCandidate(settings: InterviewSettings, candidate: GeneratedQuestionCandidate) {
-  const normalizedContent = normalizeText(candidate.content);
-
-  return settings.questions.find((question) => {
-    if (!question.isActive) return false;
-    if (normalizeText(question.content) !== normalizedContent) return false;
-    return true;
-  });
-}
-
 function getQuestionTypeLabel(type: QuestionType) {
   return QUESTION_TYPE_OPTIONS.find((option) => option.value === type)?.label ?? type;
-}
-
-function toOptionalNumber(value: string | undefined) {
-  if (!value) return undefined;
-  const numeric = Number(value);
-  return Number.isInteger(numeric) && numeric > 0 ? numeric : undefined;
 }
 
 function formatAiRequestError(message: string) {
@@ -2502,6 +1731,30 @@ function formatAiRequestError(message: string) {
 
 function normalizeQuestionType(value: string | undefined): QuestionType {
   return QUESTION_TYPE_OPTIONS.some((option) => option.value === value) ? (value as QuestionType) : "TECHNICAL";
+}
+
+function toFixedNcsCriteriaDrafts(settings: InterviewSettings): CriteriaDraft[] | null {
+  const tags = NCS_PROFILE_ORDER.map((profileId) =>
+    settings.availableTags.find((tag) => tag.ncsProfileId === profileId),
+  );
+  if (tags.some((tag) => !tag)) return null;
+
+  const defaultWeights = [30, 30, 40];
+  return tags.map((tag, index) => {
+    const resolvedTag = tag!;
+    const existing = settings.criteria.find((criterion) => criterion.tagId === resolvedTag.tagId);
+    return {
+      draftId: existing ? String(existing.criterionId) : `ncs-${resolvedTag.tagId}`,
+      criterionId: existing?.criterionId,
+      tagId: resolvedTag.tagId,
+      tagName: resolvedTag.tagName,
+      category: resolvedTag.category,
+      description: existing?.description ?? resolvedTag.description,
+      weight: String(existing?.weight ?? defaultWeights[index]),
+      passScore: existing?.passScore === null || existing?.passScore === undefined ? "" : String(existing.passScore),
+      sortOrder: String(index + 1),
+    };
+  });
 }
 
 function toCriteriaDrafts(settings: InterviewSettings): CriteriaDraft[] {
@@ -2564,7 +1817,6 @@ function validateCriteriaDrafts(criteria: CriteriaDraft[], framework: Evaluation
 
   const sortOrders = new Set<number>();
   const tagIds = new Set<number>();
-  const customTagKeys = new Set<string>();
   let totalWeight = 0;
 
   for (const criterion of criteria) {
@@ -2582,19 +1834,7 @@ function validateCriteriaDrafts(criteria: CriteriaDraft[], framework: Evaluation
       return "평가 기준 순서가 중복되었습니다.";
     }
     sortOrders.add(sortOrder);
-    if (criterion.isCustomTag || criterion.tagId < 0) {
-      if (criterion.tagName.trim() === "") {
-        return "커스텀 평가 태그명을 입력해주세요.";
-      }
-      if (criterion.category.trim() === "") {
-        return "커스텀 평가 분류를 입력해주세요.";
-      }
-      const customTagKey = `${normalizeText(criterion.tagName)}:${normalizeText(criterion.category)}`;
-      if (customTagKeys.has(customTagKey)) {
-        return "커스텀 평가 태그와 분류가 중복되었습니다.";
-      }
-      customTagKeys.add(customTagKey);
-    } else if (tagIds.has(criterion.tagId)) {
+    if (tagIds.has(criterion.tagId)) {
       return "평가 태그가 중복되었습니다.";
     } else {
       tagIds.add(criterion.tagId);

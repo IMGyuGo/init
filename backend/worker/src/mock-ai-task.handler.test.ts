@@ -796,54 +796,6 @@ test("posting draft generation returns review-required posting draft without fin
   assert.deepEqual(output.items, ["포지션 상세", "주요 업무", "자격 요건", "우대 사항", "복지 및 혜택", "채용 절차"]);
 });
 
-test("criteria suggestion uses JD, talent profile and evaluation policy", async () => {
-  const results = new InMemoryAiResultRepository();
-
-  const repository = await run({
-    processLogId: 28,
-    processType: "CRITERIA_SUGGEST",
-    input: {
-      payload: {
-        postingId: 2,
-        jobDescription: "Backend engineer with NestJS and PostgreSQL.",
-        talentProfile: "Pragmatic problem solver",
-        evaluationPolicy: "Evidence-backed backend ownership"
-      }
-    },
-    results
-  });
-
-  const output = JSON.parse(repository.get(28).outputRef ?? "{}") as {
-    items?: string[];
-    criteriaSuggestions?: Array<{
-      title?: string;
-      description?: string;
-      suggestionReason?: string;
-    }>;
-    sourceProcessLogId?: number;
-    reviewRequired?: boolean;
-    reviewStatus?: string;
-    targetTables?: string[];
-    postingId?: number;
-  };
-  assert.equal(output.sourceProcessLogId, 28);
-  assert.equal(output.reviewRequired, true);
-  assert.equal(output.reviewStatus, "PENDING_REVIEW");
-  assert.deepEqual(output.targetTables, ["criterion_tags", "evaluation_criteria"]);
-  assert.equal(output.postingId, 2);
-  assert.deepEqual(output.items, results.generatedDrafts[0].items);
-  assert.equal(output.criteriaSuggestions?.length, 6);
-  assert.deepEqual(output.items, ["직무 적합성", "문제 해결력", "실행력과 성과", "학습 민첩성", "커뮤니케이션", "성장 가능성"]);
-  assert.match(
-    output.criteriaSuggestions?.map((item) => `${item.description}\n${item.suggestionReason}`).join("\n") ?? "",
-    /Pragmatic problem solver/,
-  );
-  assert.match(
-    output.criteriaSuggestions?.map((item) => `${item.description}\n${item.suggestionReason}`).join("\n") ?? "",
-    /Evidence-backed backend ownership/,
-  );
-});
-
 test("evaluation context records every required source group", async () => {
   const results = new InMemoryAiResultRepository();
 

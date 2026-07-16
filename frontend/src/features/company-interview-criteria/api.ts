@@ -11,7 +11,6 @@ import type {
   EvaluationCriteriaResult,
   GenerateInterviewQuestionsInput,
   InterviewSettings,
-  SuggestEvaluationCriteriaInput,
   UpdateInterviewQuestionInput,
   UpdateEvaluationCriteriaInput,
   UpdateInterviewTimePolicyInput,
@@ -38,13 +37,6 @@ export async function createCriterionTag(input: CreateCriterionTagInput) {
 export async function updateEvaluationCriteria(input: UpdateEvaluationCriteriaInput) {
   return request<EvaluationCriteriaResult>("/company/interviews/evaluation-criteria", {
     method: "PATCH",
-    body: input,
-  });
-}
-
-export async function suggestEvaluationCriteria(input: SuggestEvaluationCriteriaInput) {
-  return request<AiJobResult>("/company/interviews/evaluation-criteria/suggest", {
-    method: "POST",
     body: input,
   });
 }

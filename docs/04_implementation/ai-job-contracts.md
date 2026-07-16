@@ -120,9 +120,7 @@ GET /api/v1/ai/jobs/101/status
 | `POST /candidate/mock-interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript, profileContext(V1, server-built) | 모의면접 표현 정책과 guardrail 통과 후 답변 문맥을 포함한 private session question을 원 질문 바로 다음에 원자적으로 추가. 불필요·실패·timeout이면 다음 기본 질문으로 복구 |
 | `POST /candidate/interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript, jobDescription 또는 documentSummary, profileContext(V1, server-built) | NCS 근거와 fact gate를 병렬 확인한다. 둘 중 하나라도 보완이 필요하면 답변의 구체 표현을 포함한 동일 mode·답변시간의 private session question 하나만 원 질문 바로 다음에 추가 |
 | `POST /company/recruitments/ai-draft` | Company | title(max 120), jobRole(max 80), keywords?(max 10, each max 40), summary?(max 1000), careerRequirement?, employmentType?, workLocation? | reviewRequired draft 반환, 확정 전 최종 저장 금지 |
-| `POST /company/interviews/evaluation-criteria/suggest` | Company | postingId, jobDescription, talentProfile, evaluationPolicy | reviewRequired draft 반환, 확정 전 최종 저장 금지 |
 | `POST /company/interviews/questions/generate` | Company | postingId, jobDescription, questionCount | reviewRequired draft 반환 |
-| `POST /company/interviews/question-sets` | Company | postingId, questionCount, criteria, questionTypes | reviewRequired draft 반환 |
 | `POST /candidate/mock-interviews/questions/generate` | Candidate | questionCount, folderContext?, profileContext(V1, server-built) | JD/posting/기업 기준 없이 동작 |
 | `POST /ai/guardrails/validate` | Admin/System | reportType, target, scores, summary? | PASS/BLOCKED/REGENERATED 기록 |
 
@@ -350,37 +348,15 @@ type CandidateProfileAiContextV1 = {
 - HTML/editor markup, 공고·회사·직무 접두어, 15자 미만 또는 180자 초과 질문, 동일·유사 질문, 동일 종결 표현의 과도한 반복은 저장 후보에서 제외하고 재생성한다.
 - NCS 질문은 정해진 재생성 횟수 안에 요청 수만큼 `alignmentStatus=ALIGNED` 결과를 만들지 못하면 job을 실패시킨다. `LOW_ALIGNMENT` 또는 `REVIEW_REQUIRED` 질문을 공통/개인화 질문으로 자동 대체하지 않는다.
 
-평가 기준 추천 draft 출력:
-
-```json
-{
-  "sourceProcessLogId": 102,
-  "items": ["문제 해결력", "조직 적합도"],
-  "criteriaSuggestions": [
-    {
-      "title": "문제 해결력",
-      "description": "JD 맥락: NestJS와 PostgreSQL 기반 백엔드 개발",
-      "weight": 40,
-      "order": 1,
-      "suggestionReason": "직무 요구사항에서 문제 분석과 해결 역량 검증이 필요합니다.",
-      "category": "직무 역량"
-    }
-  ],
-  "reviewRequired": true,
-  "reviewStatus": "PENDING_REVIEW",
-  "targetTables": ["criterion_tags", "evaluation_criteria"],
-  "postingId": 2
-}
-```
-
 ## C 면접 설정 화면 적용 규칙
 
-C 화면은 E worker가 반환한 평가 기준 draft와 정렬 검증을 통과한 질문 결과를 아래 규칙으로 적용한다.
+C 화면은 고정 NCS 3개 평가 기준과 E worker가 반환한 정렬 검증 질문 결과를 아래 규칙으로 적용한다.
 
 | Output field | C 화면 표시 | 사용자 적용 | 중복/빈 결과 처리 |
 | --- | --- | --- | --- |
-| `criteriaSuggestions[]` | 평가 기준 추천 목록 | 사용자가 태그를 선택하거나 자동 매칭된 태그를 확인한 뒤 평가 기준 draft에 추가 | 이미 선택된 태그는 `적용됨`으로 표시하고 중복 추가하지 않는다. 적용 시 배점 합계가 100을 넘으면 적용을 막는다. |
 | `questionCandidates[]` | 하단 공통 질문 목록 | `ALIGNED` 결과를 기존 `POST /company/interviews/questions`로 즉시 저장하고 사용자는 Drawer에서 수정·삭제 | 같은 공고의 동일 질문은 중복 저장하지 않는다. 정렬 미통과 또는 평가 기준 연결 실패 질문은 저장하지 않는다. |
+
+평가 기준 추천 AI job은 사용하지 않는다. 면접관은 `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING` 세 기준의 가중치와 합격점만 조정한다.
 
 별도의 `QUESTION_SET_GENERATE` draft와 질문 세트 미리보기 UI는 사용하지 않는다. 사용자가 3단계로 이동할 때 현재 하단 공통 질문 목록을 `POST /company/interviews/question-sets/confirm`으로 한 번에 확정한다.
 
@@ -391,7 +367,6 @@ AI 결과가 비어 있거나 `guardrail.result=BLOCKED`이면 C 화면은 최�
 | 상태 | Worker/API 응답 조건 | C 화면 기대 동작 | 저장/확정 가능 여부 |
 | --- | --- | --- | --- |
 | 실패 | `status=FAILED`, `failure.reason` 존재 | 실패 badge와 한글 안내 문구, `다시 요청` 버튼 표시 | 불가 |
-| 빈 평가 기준 결과 | `status=COMPLETED`, `criteriaSuggestions=[]` | "추천 가능한 평가 기준 결과가 없습니다" 계열 안내 표시 | 불가 |
 | 빈 질문 후보 결과 | `status=COMPLETED`, `questionCandidates=[]` | "저장 가능한 질문 후보가 없습니다" 계열 안내 표시 | 불가 |
 | Guardrail 차단 | `output.guardrail.result=BLOCKED` 또는 실패 reason에 guardrail 포함 | 정책 검수 차단 안내와 재요청 흐름 표시 | 불가 |
 
@@ -434,8 +409,8 @@ QA는 정상 완료 흐름과 별개로 위 예외 상태를 최소 1회씩 확�
 
 - A는 SQS queue URL, S3 bucket, AI provider secret, worker 배포/재시작을 제공한다.
 - D는 파일 원본을 API payload에 넣지 않고 S3 업로드 후 fileId와 storage key만 E API에 전달한다.
-- C는 평가 기준/질문 생성 화면에서 `reviewRequired=true` 결과를 사용자 확정 전 draft로 취급한다. 사용자 화면 상태는 `대기 중`, `처리 중`, `완료`, `실패` 한글 라벨로 표시한다.
-- C는 `criteriaSuggestions`를 draft로 검토하고, 정렬 검증된 `questionCandidates`는 하단 공통 질문 목록에 반영한다. 사용자가 다음 단계로 이동할 때 목록을 활성 질문 세트로 확정한다.
+- C는 질문 생성 화면에서 `reviewRequired=true` 결과 중 guardrail과 NCS 정렬 검증을 통과한 질문만 공통 질문 목록에 저장한다. 사용자는 Drawer에서 수정·삭제하고 다음 단계 이동으로 목록 전체를 확정한다. 사용자 화면 상태는 `대기 중`, `처리 중`, `완료`, `실패` 한글 라벨로 표시한다.
+- C는 고정 NCS 3개 평가 기준을 사용하고, 정렬 검증된 `questionCandidates`를 하단 공통 질문 목록에 반영한다. 사용자가 다음 단계로 이동할 때 목록을 활성 질문 세트로 확정한다.
 - D는 STT와 꼬리질문 입력으로 `answerId`, `audioFileId`, `audioS3Key`, transcript를 넘긴다.
 - B는 리포트 화면에서 `evaluation_reports.status`와 `GET /ai/jobs/{processLogId}/status` 결과를 함께 표시한다.
 - E는 guardrail PASS/REGENERATED 전에는 `evaluation_reports`, `report_scores`, `report_evidences`, `question_bank`, `evaluation_criteria`에 최종 저장하지 않는다.

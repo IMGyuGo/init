@@ -20,7 +20,6 @@ import { DevAuthAdapter } from "../../../common/dev-auth/dev-auth.adapter";
 import { CurrentUser } from "../../../common/dev-auth/current-user";
 import { ApiDevAuthHeaders, ApiEnvelopeResponse, ApiErrorResponses, ApiOperationId, ApiParamId } from "../../../swagger/swagger.decorators";
 import {
-  CriteriaSuggestRequestDto,
   DocumentExtractRequestDto,
   FollowUpQuestionRequestDto,
   MockQuestionGenerateRequestDto,
@@ -519,20 +518,6 @@ export class CompanyAiJobsController {
     @Inject(AiJobDispatcherService) private readonly dispatcher: AiJobDispatcherService,
     @Inject(CompanyInterviewService) private readonly companyInterviewService: CompanyInterviewService,
   ) {}
-
-  @Post("evaluation-criteria/suggest")
-  @HttpCode(HttpStatus.ACCEPTED)
-  @ApiOperationId("API-035")
-  @ApiOperation({ summary: "AI 평가 역량 태그 추천 작업 생성" })
-  @ApiEnvelopeResponse(AiJobResponseDto, 202)
-  async suggestCriteria(@Req() request: CompanyAiRequest, @Body() body: CriteriaSuggestRequestDto) {
-    this.requirePositive(body.postingId, "postingId");
-    this.requireText(body.jobDescription, "jobDescription");
-    this.requireText(body.talentProfile, "talentProfile");
-    this.requireText(body.evaluationPolicy, "evaluationPolicy");
-
-    return this.dispatchCompanyJob("CRITERIA_SUGGEST", "CRITERIA_SUGGEST", request, body);
-  }
 
   @Post("questions/generate")
   @HttpCode(HttpStatus.ACCEPTED)

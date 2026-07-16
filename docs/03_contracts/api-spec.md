@@ -1656,62 +1656,17 @@ AI 리포트 금지 기준:
   - `timePolicy`는 공고별 1:1 설정으로 `interview_time_policies`에 저장한다.
   - `evaluationFramework=NCS_3_PROFILE_V1`이면 criteria는 `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING`을 각각 한 번 포함한다.
   - NCS evaluator가 아직 연결되지 않은 환경에서도 binding 필드는 nullable로 응답하되 기존 LEGACY 설정 조회를 깨지 않는다.
+  - 신규 면접 설정 화면은 `NCS_3_PROFILE_V1`만 제공한다. 기존 `LEGACY` 데이터는 조회 호환하되 설정 저장 시 고정 NCS 3개 기준으로 전환한다.
 
 ### API-035 POST /company/interviews/evaluation-criteria/suggest
-- 도메인: 기업 - 면접관리
-- 권한/인증: 기업 / 기업 사용자 로그인
-- 관련 화면: 면접 관리 화면 (/company/interviews/settings)
-- UI Type: section
-- 상태 코드: 202 Accepted
-- 비동기: Y
-- DTO:
-  - Request DTO: `CriteriaSuggestRequestDto`
-  - Response DTO: `AiJobResponseDto`
-- 요청 데이터:
-  - `postingId: number`
-  - `jobDescription: string`
-  - `talentProfile: string`
-  - `evaluationPolicy: string`
-- 검증/전제조건:
-  - 채용 공고가 생성되어 있어야 함
-  - `postingId`, `jobDescription`, `talentProfile`, `evaluationPolicy`는 필수다.
-- 성공 응답/처리:
-  - 평가 역량 추천 AI job 생성
-  - Response envelope: `{ data, meta }`
-  - `data.processLogId: number`
-  - `data.status: AiProcessStatus`
-  - `data.queued?: boolean`
-  - `data.inputRef?: string`
-  - 완료 결과는 `GET /ai/jobs/{processLogId}/status`의 `data.output.criteriaSuggestions[]`로 조회한다.
-    - `title: string`
-    - `description: string`
-    - `weight: number`
-    - `order: number`
-    - `suggestionReason: string`
-    - `category?: string`
-    - `tagId?: number`
-  - C 화면은 추천 결과를 자동 저장하지 않고 미리보기로 표시한 뒤, 사용자가 선택한 항목만 기존 `PATCH /company/interviews/evaluation-criteria` 흐름에 반영한다.
-  - C 화면 적용 규칙:
-    - 추천 항목은 `tagId`, `tagName`, `category`, `title` 순서로 활성 `criterion_tags`와 매칭한다.
-    - 이미 선택된 태그는 `적용됨`으로 표시하고 중복 추가하지 않는다.
-    - 적용 시 배점 합계가 100을 넘으면 적용을 막고 기존 배점 조정을 안내한다.
-    - 결과가 비어 있거나 guardrail이 차단한 경우 자동 저장하지 않고 재요청 안내를 표시한다.
-  - 사용자 화면 상태 라벨은 `PENDING=대기 중`, `RUNNING=처리 중`, `COMPLETED=완료`, `FAILED=실패`를 사용한다.
-- 오류/예외:
-  - AI 생성 실패 시 기본 역량 템플릿을 제공하고 재시도 버튼을 표시한다.
-  - 인증 누락: `COMMON_UNAUTHORIZED`
-  - 기업 권한 또는 공고 소유권 불일치: `COMMON_FORBIDDEN`
-  - 입력 검증 실패: `COMMON_VALIDATION_FAILED`
-  - 공고 없음: `COMMON_NOT_FOUND`
-- 관련 ERD 테이블:
-  - companies, postings, criterion_tags, evaluation_criteria, interview_sessions, ai_process_logs, embeddings
-- 비고/미결:
-  - Route Owner: `backend/api/src/modules/ai/ai-jobs.controller.ts`의 `CompanyAiJobsController`
-  - C 모듈의 `CompanyInterviewController`는 동일 method/path를 중복 등록하지 않는다.
-  - 태그 추천 세부 정책 확정 필요
-  - AI 추천 평가 기준 후보 저장 방식은 E 리뷰 필요
-  - API-035 worker/SQS 메시지 구조는 E/A 리뷰 필요
-  - `evaluationFramework=NCS_3_PROFILE_V1`에서는 고정된 NCS 3개 기준을 사용하므로 이 추천 API를 호출하지 않는다. API-035는 LEGACY 평가 기준 추천용으로 유지한다.
+- 상태: 폐기
+- 폐기 사유:
+  - 채용 면접 평가는 `NCS_3_PROFILE_V1`의 `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING` 세 기준으로 고정한다.
+  - 면접관은 기준을 생성·교체하지 않고 세 기준의 가중치와 합격점만 설정한다.
+  - 실제 OpenAI provider 구현 없이 deterministic mock으로 fallback하던 평가 기준 추천 작업을 신규 운영 경로에서 제거한다.
+- 호환 정책:
+  - 과거 `CRITERIA_SUGGEST` process log와 enum 값은 조회·통계 호환을 위해 유지한다.
+  - 신규 요청 route와 worker handler는 제공하지 않는다.
 
 ### API-036 PATCH /company/interviews/evaluation-criteria
 - 도메인: 기업 - 면접관리

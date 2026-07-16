@@ -212,13 +212,6 @@ export type AiJobResult = {
   };
 };
 
-export type SuggestEvaluationCriteriaInput = {
-  postingId: number;
-  jobDescription: string;
-  talentProfile: string;
-  evaluationPolicy: string;
-};
-
 export type CreateInterviewQuestionInput = {
   postingId: number;
   criterionId: number;

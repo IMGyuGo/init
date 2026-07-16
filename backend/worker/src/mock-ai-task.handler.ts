@@ -44,7 +44,6 @@ import {
   assessReportEvidence,
   normalizeReportCriterionName,
   scoreBandFor,
-  SERVICE_INTERVIEW_RUBRIC,
   weightedTotalScore
 } from "./service-interview-rubric";
 
@@ -188,8 +187,6 @@ export class MockAiTaskHandler implements AiTaskHandler {
         return this.followUp(input.kind ?? "RECRUITING_FOLLOW_UP", payload);
       case "REPORT_GENERATE":
         return this.reportGenerate(input.kind ?? "RECRUITING_REPORT_GENERATE", payload, job.processLogId);
-      case "CRITERIA_SUGGEST":
-        return this.criteriaSuggest(payload, job.processLogId);
       case "QUESTION_GENERATE":
         return this.questionGenerate(input.kind ?? "RECRUITING_QUESTION_GENERATE", payload, job.processLogId);
       case "RESUME_QUESTION_GENERATE":
@@ -397,29 +394,6 @@ export class MockAiTaskHandler implements AiTaskHandler {
           answerTimeSec: ncsPlan?.answerTimeSec,
         })
     };
-  }
-
-  private criteriaSuggest(payload: Record<string, unknown>, processLogId: number): AiTaskResult {
-    const postingId = positiveNumber(payload.postingId, "postingId");
-    const jobDescription = requiredText(payload.jobDescription, "jobDescription");
-    const talentProfile = requiredText(payload.talentProfile, "talentProfile");
-    const evaluationPolicy = requiredText(payload.evaluationPolicy, "evaluationPolicy");
-    const criteriaSuggestions = SERVICE_INTERVIEW_RUBRIC.map((criterion, index) => ({
-      title: criterion.name,
-      description: `${criterion.description} JD: ${shorten(jobDescription)}`,
-      weight: criterion.weight,
-      order: index + 1,
-      suggestionReason: `인재상(${shorten(talentProfile)})과 평가 정책(${shorten(evaluationPolicy)})을 답변 근거 중심으로 검증하기 위한 기본 기준입니다.`,
-      category: "서비스 기본 평가"
-    }));
-    const items = criteriaSuggestions.map((candidate) => candidate.title);
-
-    return this.generatedDraft("CRITERIA_SUGGEST", items, {
-      sourceProcessLogId: processLogId,
-      postingId,
-      targetTables: ["criterion_tags", "evaluation_criteria"],
-      criteriaSuggestions
-    });
   }
 
   private async reportGenerate(
@@ -854,7 +828,6 @@ export class MockAiTaskHandler implements AiTaskHandler {
       targetTables: GeneratedDraftRecord["targetTables"];
       postingId?: number;
       postingDraft?: GeneratedDraftRecord["postingDraft"];
-      criteriaSuggestions?: GeneratedDraftRecord["criteriaSuggestions"];
       questionCandidates?: GeneratedDraftRecord["questionCandidates"];
       questionSetPreview?: GeneratedDraftRecord["questionSetPreview"];
     }
@@ -867,7 +840,6 @@ export class MockAiTaskHandler implements AiTaskHandler {
       providerSource: "DETERMINISTIC_MOCK",
       items,
       postingDraft: options.postingDraft,
-      criteriaSuggestions: options.criteriaSuggestions,
       questionCandidates: options.questionCandidates,
       questionSetPreview: options.questionSetPreview,
       reviewRequired: true as const,
