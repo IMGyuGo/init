@@ -9866,14 +9866,12 @@ type MockNonverbalSummary = {
 function MockNonverbalSummaryPanel({ summary }: { summary: MockNonverbalSummary }) {
   if (summary.answersWithMetadata === 0) return null;
 
-  const guideItems = buildMockNonverbalSummaryGuide(summary);
   const statusLabel = summary.integritySignalAnswers === 0 ? "무결성 안정" : "무결성 확인 필요";
 
   return (
     <section className="report-nonverbal-summary">
       <div className="report-nonverbal-summary__head">
         <div>
-          <span>응시 무결성</span>
           <strong>모의면접 부정행위 의심 신호</strong>
           <p>화면 이탈, 얼굴 화면 밖, 여러 사람 감지처럼 면접 중 응시 무결성 확인이 필요한 신호를 기록합니다. 확정 판정이 아니라 연습용 피드백입니다.</p>
         </div>
@@ -9907,11 +9905,6 @@ function MockNonverbalSummaryPanel({ summary }: { summary: MockNonverbalSummary 
           );
         })}
       </div>
-      <ul className="report-nonverbal-summary__guide">
-        {guideItems.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
     </section>
   );
 }
@@ -9977,46 +9970,6 @@ function buildMockNonverbalSummary(items: CandidateMockReportMedia["media"]): Mo
     staticVideoFrameSignalAnswers: 0,
     earlyScreenAwaySignalAnswers: 0,
   });
-}
-
-function buildMockNonverbalSummaryGuide(summary: MockNonverbalSummary): string[] {
-  const items: string[] = [];
-
-  if (summary.integritySignalAnswers === 0) {
-    return ["전체 답변에서 화면 이탈, 얼굴 화면 밖, 여러 사람 감지 같은 응시 무결성 신호가 감지되지 않았습니다."];
-  }
-  if (summary.screenAwaySignalAnswers > 0) {
-    items.push(`${summary.screenAwaySignalAnswers}개 답변에서 면접 화면을 벗어나거나 탭이 숨겨진 신호가 감지되었습니다.`);
-  }
-  if (summary.cameraIntegritySignalAnswers > 0) {
-    items.push(`${summary.cameraIntegritySignalAnswers}개 답변에서 카메라 끊김 또는 카메라 판단 제한 신호가 감지되었습니다.`);
-  }
-  if (summary.faceAwaySignalAnswers > 0) {
-    items.push(`${summary.faceAwaySignalAnswers}개 답변에서 얼굴이 화면 밖으로 나가거나 카메라 안에서 안정적으로 감지되지 않았습니다.`);
-  }
-  if (summary.multipleFaceSignalAnswers > 0) {
-    items.push(`${summary.multipleFaceSignalAnswers}개 답변에서 여러 사람이 감지되어 대리 응시나 주변 도움 여부를 확인할 필요가 있습니다.`);
-  }
-  if (summary.faceShiftSignalAnswers > 0) {
-    items.push(`${summary.faceShiftSignalAnswers}개 답변에서 얼굴 위치가 기준 위치와 크게 달라져 응시자 변경 또는 자리 이탈 의심 신호로 참고할 수 있습니다.`);
-  }
-  if (summary.gazeAwaySignalAnswers > 0) {
-    items.push(`${summary.gazeAwaySignalAnswers}개 답변에서 시선이 화면 밖으로 오래 벗어난 신호가 감지되었습니다.`);
-  }
-  if (summary.voiceMouthMismatchSignalAnswers > 0) {
-    items.push(`${summary.voiceMouthMismatchSignalAnswers}개 답변에서 음성은 감지됐지만 화면 속 입 움직임이 거의 없는 구간이 기록되었습니다.`);
-  }
-  if (summary.voiceWithoutFaceSignalAnswers > 0) {
-    items.push(`${summary.voiceWithoutFaceSignalAnswers}개 답변에서 얼굴이 감지되지 않는 상태로 음성 입력이 지속된 구간이 기록되었습니다.`);
-  }
-  if (summary.staticVideoFrameSignalAnswers > 0) {
-    items.push(`${summary.staticVideoFrameSignalAnswers}개 답변에서 영상 변화가 거의 없는 구간이 기록되었습니다.`);
-  }
-  if (summary.earlyScreenAwaySignalAnswers > 0) {
-    items.push(`${summary.earlyScreenAwaySignalAnswers}개 답변에서 질문 직후 면접 화면을 벗어난 신호가 기록되었습니다.`);
-  }
-
-  return items;
 }
 
 function MockNonverbalFeedbackView({ metadata }: { metadata?: Record<string, unknown> }) {
@@ -10469,7 +10422,6 @@ function FollowUpQuestionList({ questions }: { questions: CandidateReportAnswerV
         {questions.map((question) => (
           <li key={question.followUpId}>
             <span>{question.content}</span>
-            <small>{question.policy} · {formatStatusLabel(question.generationStatus)}</small>
           </li>
         ))}
       </ul>

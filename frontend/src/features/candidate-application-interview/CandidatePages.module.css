@@ -3940,6 +3940,10 @@
   justify-content: space-between;
 }
 
+:global(.report-nonverbal-summary__head > div) {
+  min-width: 0;
+}
+
 :global(.report-nonverbal-summary__head span) {
   display: block;
   margin-bottom: 6px;
@@ -3956,33 +3960,16 @@
 }
 
 :global(.report-nonverbal-summary__head p) {
-  max-width: 720px;
   margin: 8px 0 0;
   color: var(--ink-600);
   font-size: 14px;
   line-height: 1.6;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 :global(.report-nonverbal-summary__metrics) {
   margin: 0;
-}
-
-:global(.report-nonverbal-summary__guide) {
-  display: grid;
-  gap: 8px;
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-:global(.report-nonverbal-summary__guide li) {
-  padding: 12px 14px;
-  color: var(--ink-700);
-  font-size: 13px;
-  line-height: 1.55;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
 }
 
 :global(.report-answer-card) {
