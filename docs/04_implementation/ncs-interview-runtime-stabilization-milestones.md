@@ -42,11 +42,11 @@ NCS 공통·개인화 질문 생성 결과가 채용면접 세션 snapshot으로
 ### R-03. 다음 질문 이동이 프론트 비동기 상태에 과도하게 결합되어 있다
 
 - 답변 저장 후 프론트가 STT와 꼬리질문 작업을 자동 실행한다.
-- 작업이 `PENDING` 또는 `RUNNING`이면 다음 질문 버튼을 막는다.
-- 일반 모드에서는 최대 90초 polling하며, worker 또는 DB 상태가 불안정하면 질문 진행도 함께 정지한다.
+- 작업이 `PENDING` 또는 `RUNNING`일 때 다음 기본 질문을 먼저 노출하면 뒤늦게 생성된 꼬리질문이 원 질문과 분리된다.
+- 반대로 실패·시간 초과 이후에도 계속 막으면 worker 또는 DB 상태가 불안정할 때 질문 진행 전체가 정지한다.
 - 다음 질문 API 응답의 authoritative question을 화면 상태에 직접 적용하지 않고 `refresh()`를 fire-and-forget으로 실행한다.
 
-질문 진행은 AI 작업 성공 여부와 분리해야 한다. AI 결과가 준비되면 꼬리질문을 먼저 보여주고, 실패·시간 초과·불필요 판정이면 다음 기본 질문으로 진행해야 한다.
+답변 저장은 AI 작업 성공 여부와 분리하되 화면 전환에는 제한된 꼬리질문 결정 구간을 둔다. AI 결과가 준비되면 원 질문 직후 꼬리질문을 보여주고, 실패·시간 초과·불필요 판정이면 다음 기본 질문으로 진행해야 한다.
 
 ### R-04. 꼬리질문 삽입 경로가 이중화되어 있다
 
@@ -55,7 +55,7 @@ NCS 공통·개인화 질문 생성 결과가 채용면접 세션 snapshot으로
 - 현재/직전 질문 판정과 세션 인덱스 복원이 두 경로에 걸쳐 있어 race와 중복 삽입 가능성이 있다.
 - 꼬리질문 생성 전 `baseScore < 5`, 질문당 최대 1회, 같은 question mode 유지 조건을 하나의 상태 전이로 보장하지 않는다.
 
-정식 경로는 서버가 답변 ID를 기준으로 생성 상태를 소유하고, worker의 guardrail 통과 결과 저장 transaction에서 READY 꼬리질문을 private session question으로 원자적으로 승격하는 방식으로 통일한다. 승격된 질문은 세션 질문 맨 뒤에 추가해 이미 표시되거나 답변한 기본 질문을 되감지 않는다.
+정식 경로는 서버가 답변 ID를 기준으로 생성 상태를 소유하고, worker의 guardrail 통과 결과 저장 transaction에서 READY 꼬리질문을 private session question으로 원자적으로 승격하는 방식으로 통일한다. 승격된 질문은 원본 base 질문 바로 다음 순서에 추가하며, 클라이언트는 생성 판단이 끝나기 전에 다음 기본 질문을 먼저 노출하지 않는다.
 
 ### R-05. STT 실패의 임시 0점과 NCS 평가 미완료 계약이 충돌한다
 
@@ -87,8 +87,8 @@ NCS 질문 생성
 | NR-M0 | DB·migration 기준 복구 | 격리 PostgreSQL 구성, `origin/dev`와 NCS migration 순서 병합, Prisma generate/migrate/seed 검증 | 깨끗한 DB에서 migration divergence 없이 전체 적용되고 NCS table·column이 존재 | A / C,D,E | 2~4시간 |
 | NR-M1 | NCS 질문 형성 검증 | canonical 3 profile 통일, 질문별 1~2 binding, `ALIGNED`만 확정, 세 역량별 최소 2문항, 개인화 0개 정책 지원 | JD 공통 질문 6개만으로도 profile별 2문항을 충족하고 ACTIVE 세트에 seed/legacy 질문이 섞이지 않음 | C/E / D,PM | 3~5시간 |
 | NR-M2 | 세션 snapshot gate 수정 | 기존 snapshot도 전체 계약 재검증, 유효하지 않은 미시작 세션은 원자적 재생성, 진행·완료 세션은 변경하지 않고 명시적 오류 반환 | 질문·binding·가중치·시간·version이 모두 저장된 세션만 시작 가능 | D/C / E,A | 3~5시간 |
-| NR-M3 | 답변·다음 질문 전환 안정화 | 답변 저장과 first-unanswered 복원 멱등화, 다음 질문 API 응답을 프론트에 즉시 반영, refresh 실패 처리, AI job과 기본 진행 분리 | 답변 저장 후 worker 지연·재시작과 무관하게 다음 기본 질문으로 이동하며 중복 클릭에도 순서가 유지 | D / C,E,PM | 3~5시간 |
-| NR-M4 | 꼬리질문 정식 상태 전이 | `API-051-TMP`, `API-071-TMP` 의존 제거, base 평가 후 필요 여부 판정, READY 결과 원자적 삽입, 질문당 1회·동일 mode·답변시간 snapshot 보장 | 꼬리질문이 필요한 경우에만 세션 끝에 한 번 삽입되고 실패·timeout이면 기본 질문 진행 | E/D / C,A,PM | 4~7시간 |
+| NR-M3 | 답변·다음 질문 전환 안정화 | 답변 저장과 first-unanswered 복원 멱등화, 서버 질문 순서를 프론트 정본으로 사용, refresh 실패 처리, 답변 저장과 AI job 영속성 분리 | 답변 저장은 worker 상태와 독립적으로 유지되고, M4 결정 구간 이후 인접 꼬리질문 또는 다음 기본 질문 순서가 중복 클릭에도 유지 | D / C,E,PM | 3~5시간 |
+| NR-M4 | 꼬리질문 정식 상태 전이 | `API-051-TMP`, `API-071-TMP` 의존 제거, base 평가 후 필요 여부 판정, READY 결과 원자적 인접 삽입, 질문당 1회·동일 mode·답변시간 snapshot 보장 | 꼬리질문이 필요한 경우에만 원 질문 직후 한 번 삽입되고 실패·timeout이면 다음 기본 질문으로 복구 | E/D / C,A,PM | 4~7시간 |
 | NR-M5 | STT 평가 미완료 정렬 | 임시 0점 제거, `STT_UNAVAILABLE + score NULL` 저장, 재답변 1회, 진행 허용, 리포트 reason 전달 | STT 실패가 질문 진행을 막지 않고 0점과 평가 미완료가 구분됨 | E/D / B,PM | 2~4시간 |
 | NR-M6 | 회귀·브라우저 E2E | 공통 6·개인화 2 대표 시나리오와 공통 6·개인화 0 자동 회귀, API/worker 재시작, 꼬리질문 성공·실패, STT 실패, 완료·리포트 검증 | C/D/E 집중 테스트, clean DB E2E, 역할별 harness와 브라우저 체크리스트 통과 | PM/A / 전 owner | 3~5시간 |
 

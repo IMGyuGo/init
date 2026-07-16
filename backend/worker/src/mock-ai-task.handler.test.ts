@@ -348,8 +348,44 @@ test("NCS follow-up question normalizes evaluator instructions into readable foc
   });
 
   const content = results.followUpQuestions[0]?.content ?? "";
-  assert.match(content, /앞서 확인된 내용은 반복하지 말고/);
+  assert.match(content, /로그를 확인하고 캐시 우회 대안을 선택/);
   assert.doesNotMatch(content, /보강하세요|구체화하세요|원리을|근거를를/);
+});
+
+test("NCS follow-up question anchors the candidate's concrete Java and Spring answer", async () => {
+  const results = new InMemoryAiResultRepository();
+
+  await run({
+    processLogId: 132,
+    processType: "FOLLOW_UP",
+    input: {
+      kind: "RECRUITING_FOLLOW_UP",
+      payload: {
+        sessionId: 5,
+        answerId: 107,
+        sessionQuestionId: 507,
+        previousQuestion: "프로젝트에서 사용한 기술과 선택 이유를 설명해 주세요.",
+        transcript: "객체지향 언어인 Java로 Spring 웹 프로젝트를 진행했습니다.",
+        jobDescription: "Java와 Spring 기반 웹 서비스 개발자를 채용합니다.",
+        ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+        answerTimeSec: 90,
+        ncsBindings: [{
+          criterionId: 16,
+          criterionTitleSnapshot: "직무 기술 역량",
+          ncsProfileId: "JOB_TECHNICAL",
+          ncsProfileVersion: "2025.12-v1",
+          alignmentStatus: "ALIGNED",
+          bindingOrder: 1,
+        }],
+      },
+    },
+    results,
+  });
+
+  const content = results.followUpQuestions[0]?.content ?? "";
+  assert.match(content, /Java/);
+  assert.match(content, /Spring/);
+  assert.match(content, /선택한 이유|적용하고 검증/);
 });
 
 test("mock follow-up questions vary by previous question intent", async () => {

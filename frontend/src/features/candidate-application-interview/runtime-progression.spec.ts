@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { getInterviewRuntimeProgressionState } from "./view-model";
+import {
+  getInterviewRuntimeProgressionState,
+  shouldDeferQuestionTransitionForFollowUp,
+} from "./view-model";
 
 assert.deepEqual(
   getInterviewRuntimeProgressionState({
@@ -13,7 +16,7 @@ assert.deepEqual(
     totalQuestions: 4,
   }),
   {
-    canMoveNextQuestion: true,
+    canMoveNextQuestion: false,
     canCompleteInterview: false,
   },
 );
@@ -85,5 +88,10 @@ assert.deepEqual(
     canCompleteInterview: false,
   },
 );
+
+assert.equal(shouldDeferQuestionTransitionForFollowUp("TECHNICAL"), true);
+assert.equal(shouldDeferQuestionTransitionForFollowUp("EXPERIENCE"), true);
+assert.equal(shouldDeferQuestionTransitionForFollowUp("FOLLOW_UP"), false);
+assert.equal(shouldDeferQuestionTransitionForFollowUp(undefined), false);
 
 console.log("interview runtime progression: ok");

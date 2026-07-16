@@ -177,6 +177,7 @@ import {
   resolveInterviewerSessionMode,
   shouldAutoStartInterviewRecording,
   shouldContinueInterviewWithoutFollowUp,
+  shouldDeferQuestionTransitionForFollowUp,
   shouldEnableManualInterviewRecording,
   shouldOpenRealtimeMicrophoneForRecordingStart,
   shouldPollRecruitingReportCompletion,
@@ -6468,23 +6469,28 @@ function InterviewRuntimePanel({
         });
       }
       markQuestionAnswered(preparedRequest.questionId);
-      applyAuthoritativeQuestionTransition(
-        preparedRequest.questionId,
-        result.data.currentQuestion,
-        result.data.completionReady,
-      );
-      prepareAuthoritativeNextQuestion(result.data.currentQuestion);
+      const shouldPrepareFollowUp = shouldDeferQuestionTransitionForFollowUp(question?.questionType);
+      if (shouldPrepareFollowUp) {
+        stopQuestionSpeech();
+        setQuestionSpeechStatus("답변 분석 중");
+      } else {
+        applyAuthoritativeQuestionTransition(
+          preparedRequest.questionId,
+          result.data.currentQuestion,
+          result.data.completionReady,
+        );
+        prepareAuthoritativeNextQuestion(result.data.currentQuestion);
+      }
       setRetryAnswerId(undefined);
       setRetryingQuestionId(undefined);
       const shouldAutoAdvance = autoAdvanceAfterAnswerSubmitRef.current;
       autoAdvanceAfterAnswerSubmitRef.current = false;
-      const shouldPrepareFollowUp = question?.questionType !== "FOLLOW_UP";
       setMessage(
-        result.data.completionReady && !shouldPrepareFollowUp
-          ? "답변이 저장되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
+        shouldPrepareFollowUp
+          ? "답변이 저장되었습니다. 답변에 이어질 꼬리질문을 준비하고 있습니다."
           : result.data.completionReady
-            ? "답변이 저장되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
-            : "답변이 저장되었습니다. 다음 질문으로 이동했습니다.",
+          ? "답변이 저장되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
+          : "답변이 저장되었습니다. 다음 질문으로 이동했습니다.",
       );
       void runAutomaticAiPipeline(
         savedAnswer,
@@ -6591,6 +6597,15 @@ function InterviewRuntimePanel({
     submitAfterRecordingStopRef.current = false;
     autoAdvanceAfterAnswerSubmitRef.current = false;
     setMessage(question.sttFailureReason ?? "음성 인식에 실패해 같은 질문에 한 번 더 답변할 수 있습니다.");
+  }
+
+  async function syncRuntimeAfterFollowUpDecision() {
+    setRuntimeQuestionSyncRequired(true);
+    try {
+      await refresh();
+    } finally {
+      setRuntimeQuestionSyncRequired(false);
+    }
   }
 
   async function runAutomaticAiPipeline(
@@ -6709,6 +6724,9 @@ function InterviewRuntimePanel({
               ? followUpStatus.failure?.reason ?? "꼬리질문 생성에 실패했습니다."
               : undefined,
           }));
+          if (shouldSkipFollowUp) {
+            await syncRuntimeAfterFollowUpDecision();
+          }
           completeAnswerSubmitToNextReadyMetric({
             questionId: savedAnswer.questionId,
             processLogId: followUpProcessLogId,
@@ -6727,9 +6745,7 @@ function InterviewRuntimePanel({
           extractAiJobBoolean(followUpStatus.outputRef, "followUpRequired") ??
           Boolean(followUpQuestion);
 
-        if (followUpRequired) setRuntimeQuestionSyncRequired(true);
-        await refresh();
-        setRuntimeQuestionSyncRequired(false);
+        await syncRuntimeAfterFollowUpDecision();
         setAutoAiPipeline((current) => ({
           answerId: savedAnswer.answerId,
           ...current,
@@ -6743,14 +6759,14 @@ function InterviewRuntimePanel({
 
         setMessage(
           followUpRequired && followUpQuestion
-            ? "꼬리질문이 질문 목록 끝에 추가되었습니다."
+            ? "답변에 이어질 꼬리질문이 바로 다음 질문으로 준비되었습니다."
             : "답변 처리가 완료되었습니다. 다음 기본 질문을 계속 진행해주세요.",
         );
         completeAnswerSubmitToNextReadyMetric({
           questionId: savedAnswer.questionId,
           processLogId: followUpProcessLogId,
           followUpProcessLogId,
-          outcome: followUpRequired ? "REALTIME_STT_FOLLOW_UP_INSERTED" : "REALTIME_STT_FOLLOW_UP_SKIPPED",
+          outcome: followUpRequired ? "REALTIME_STT_FOLLOW_UP_READY" : "REALTIME_STT_FOLLOW_UP_SKIPPED",
           nextReady: true,
         });
         return;
@@ -6809,7 +6825,9 @@ function InterviewRuntimePanel({
             ? sttStatus.failure?.reason ?? "STT 처리에 실패했습니다."
             : "STT 처리가 아직 진행 중입니다. 잠시 후 상태를 다시 확인해주세요.",
         }));
-        void refresh().catch(() => undefined);
+        if (shouldSkipFollowUp) {
+          await syncRuntimeAfterFollowUpDecision();
+        }
         completeAnswerSubmitToNextReadyMetric({
           questionId: savedAnswer.questionId,
           processLogId: sttProcessLogId,
@@ -6833,6 +6851,7 @@ function InterviewRuntimePanel({
           sttProcessLogId,
           error: "STT 결과에서 transcript를 찾지 못했습니다.",
         }));
+        await syncRuntimeAfterFollowUpDecision();
         completeAnswerSubmitToNextReadyMetric({
           questionId: savedAnswer.questionId,
           processLogId: sttProcessLogId,
@@ -6953,6 +6972,9 @@ function InterviewRuntimePanel({
             ? followUpStatus.failure?.reason ?? "꼬리질문 생성에 실패했습니다."
             : undefined,
         }));
+        if (shouldSkipFollowUp) {
+          await syncRuntimeAfterFollowUpDecision();
+        }
         completeAnswerSubmitToNextReadyMetric({
           questionId: savedAnswer.questionId,
           processLogId: followUpProcessLogId,
@@ -6972,9 +6994,7 @@ function InterviewRuntimePanel({
         extractAiJobBoolean(followUpStatus.outputRef, "followUpRequired") ??
         Boolean(followUpQuestion);
 
-      if (followUpRequired) setRuntimeQuestionSyncRequired(true);
-      await refresh();
-      setRuntimeQuestionSyncRequired(false);
+      await syncRuntimeAfterFollowUpDecision();
       setAutoAiPipeline((current) => ({
         answerId: savedAnswer.answerId,
         ...current,
@@ -6988,7 +7008,7 @@ function InterviewRuntimePanel({
 
       setMessage(
         followUpRequired && followUpQuestion
-          ? "꼬리질문이 질문 목록 끝에 추가되었습니다."
+          ? "답변에 이어질 꼬리질문이 바로 다음 질문으로 준비되었습니다."
           : "답변 처리가 완료되었습니다. 다음 기본 질문을 계속 진행해주세요.",
       );
       completeAnswerSubmitToNextReadyMetric({
@@ -6996,7 +7016,7 @@ function InterviewRuntimePanel({
         processLogId: followUpProcessLogId,
         sttProcessLogId,
         followUpProcessLogId,
-        outcome: followUpRequired ? "FOLLOW_UP_INSERTED" : "FOLLOW_UP_SKIPPED",
+        outcome: followUpRequired ? "FOLLOW_UP_READY" : "FOLLOW_UP_SKIPPED",
         nextReady: true,
       });
     } catch (pipelineError) {
@@ -7009,6 +7029,9 @@ function InterviewRuntimePanel({
         followUpSkipped: shouldSkipFollowUp,
         error: shouldSkipFollowUp ? undefined : toErrorMessage(pipelineError),
       }));
+      if (shouldSkipFollowUp) {
+        await syncRuntimeAfterFollowUpDecision();
+      }
       completeAnswerSubmitToNextReadyMetric({
         questionId: savedAnswer.questionId,
         processLogId: followUpProcessLogId ?? sttProcessLogId,

@@ -510,7 +510,7 @@ STT와 재답변 상태는 별도 컬럼을 추가하지 않고 `interview_answe
 | created_at | TIMESTAMP NOT NULL | 생성 시각 |
 | updated_at | TIMESTAMP NOT NULL | 상태 갱신 시각 |
 
-`(answer_id, policy)`는 unique이며 base 답변 하나당 꼬리질문 결정은 최대 한 번만 저장한다. `INSERTED` 전이는 worker guardrail 통과 결과 저장 transaction에서 `interview_session_questions` append와 함께 처리한다. 추가 질문은 `question_bank`에 등록하지 않고 해당 세션의 private runtime question으로만 저장하며, 원본 질문의 canonical `session_question_ncs_bindings` 1~2개를 같은 transaction에서 복제한다. 세션 끝에 append하므로 이미 표시되거나 답변한 기본 질문의 순서를 변경하지 않는다. NCS 근거와 fact clarification이 동시에 필요하면 질문은 하나만 만들고 `FACT_CLARIFICATION`을 우선 사유로 저장한다. `SKIPPED`는 질문을 생성하지 않으며 worker 실패·timeout은 이 테이블의 판정으로 변환하지 않고 `ai_process_logs` 실패 상태를 유지한다.
+`(answer_id, policy)`는 unique이며 base 답변 하나당 꼬리질문 결정은 최대 한 번만 저장한다. `INSERTED` 전이는 worker guardrail 통과 결과 저장 transaction에서 원본 `interview_session_questions.sort_order` 바로 다음 순서 확보와 private runtime question 생성을 함께 처리한다. 원본보다 뒤에 있는 질문은 같은 transaction에서 한 칸씩 이동하며 상대 순서는 유지한다. 추가 질문은 `question_bank`에 등록하지 않고 해당 세션의 private runtime question으로만 저장하며, 원본 질문의 canonical `session_question_ncs_bindings` 1~2개를 같은 transaction에서 복제한다. NCS 근거와 fact clarification이 동시에 필요하면 질문은 하나만 만들고 `FACT_CLARIFICATION`을 우선 사유로 저장한다. `SKIPPED`는 질문을 생성하지 않으며 worker 실패·timeout은 이 테이블의 판정으로 변환하지 않고 `ai_process_logs` 실패 상태를 유지한다.
 
 ### evaluation_reports
 

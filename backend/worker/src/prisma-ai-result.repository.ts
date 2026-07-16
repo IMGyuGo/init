@@ -72,6 +72,7 @@ interface ResumeQuestionBatchRow {
 
 const FOLLOW_UP_SOURCE_QUESTION_SELECT = {
   sessionQuestionId: true,
+  sortOrder: true,
   questionType: true,
   criterionId: true,
   criterionTitleSnapshot: true,
@@ -570,11 +571,24 @@ export class PrismaAiResultRepository implements AiResultRepository {
       if (!sequence) {
         throw new NonRetryableAiWorkerFailure("failed to allocate a private runtime question ID");
       }
-      const lastQuestion = await sessionQuestions.findFirst({
-        where: { sessionId: answer.sessionId },
-        orderBy: { sortOrder: "desc" },
-        select: { sortOrder: true },
-      });
+      const sourceSortOrder = sourceQuestion.sortOrder;
+      const reorderOffset = 1_000_000;
+      await transaction.$executeRawUnsafe(
+        `UPDATE interview_session_questions
+         SET sort_order = sort_order + $3
+         WHERE session_id = $1 AND sort_order > $2`,
+        answer.sessionId,
+        sourceSortOrder,
+        reorderOffset,
+      );
+      await transaction.$executeRawUnsafe(
+        `UPDATE interview_session_questions
+         SET sort_order = sort_order - $3
+         WHERE session_id = $1 AND sort_order > $2`,
+        answer.sessionId,
+        sourceSortOrder + reorderOffset,
+        reorderOffset - 1,
+      );
       const inserted = await sessionQuestions.create({
         data: {
           sessionId: answer.sessionId,
@@ -595,7 +609,7 @@ export class PrismaAiResultRepository implements AiResultRepository {
           evaluatorVersion: sourceQuestion.evaluatorVersion,
           policyVersion: sourceQuestion.policyVersion,
           criteriaVersion: sourceQuestion.criteriaVersion,
-          sortOrder: (lastQuestion?.sortOrder ?? 0) + 1,
+          sortOrder: sourceSortOrder + 1,
           ncsBindings: {
             create: (sourceQuestion.ncsBindings ?? []).map((binding: any) => ({
               criterionId: binding.criterionId,

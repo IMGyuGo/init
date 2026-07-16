@@ -2841,14 +2841,15 @@ CandidateFolder 입력 제한:
   - 답변 텍스트가 충분해야 함
 - 성공 응답/처리:
   - worker guardrail 통과 결과 저장 transaction에서 꼬리질문 결정을 `follow_up_questions`에 저장한다.
-  - 필요한 질문은 해당 세션의 private `FOLLOW_UP` session question으로 세션 질문 맨 뒤에 한 번만 추가한다.
+  - 필요한 질문은 해당 세션의 private `FOLLOW_UP` session question으로 원본 base 질문 바로 다음 순서에 한 번만 추가한다.
+  - 꼬리질문 문장에는 답변에서 실제로 언급한 기술, 선택, 행동 또는 결과 중 하나를 짧게 인용하거나 자연스럽게 바꿔 포함한다. 답변과 직접 연결되지 않은 일반 지식 질문은 생성하지 않는다.
   - 채용면접은 NCS 근거 보완과 fact gate를 병렬 확인한다. `CLARIFICATION_CANDIDATE` 또는 `FACT_CHECK_REQUIRED`이면 `FACT_CLARIFICATION` 사유를 사용한다.
   - NCS와 팩트 확인이 모두 필요해도 질문은 하나만 생성한다.
   - 불필요 판정은 `SKIPPED/NOT_REQUIRED`로 저장하고 세션 질문을 추가하지 않는다.
   - 프론트는 완료된 job 상태를 확인한 뒤 정식 질문 목록을 다시 조회하며 별도 삽입 API를 호출하지 않는다.
   - 서버가 최신 `CandidateProfileAiContextV1`을 worker 입력에 추가한다. 답변 스크립트와 이전 질문을 주 근거로, 프로필은 보조 근거로 사용한다.
 - 오류/예외:
-  - worker 실패·timeout은 `ai_process_logs`의 실패 상태로 남기고 기본 질문 진행을 막지 않는다.
+  - 클라이언트는 꼬리질문 필요 여부가 결정되는 동안 다음 기본 질문을 먼저 노출하지 않는다. worker 실패·timeout이면 `ai_process_logs`의 실패 상태를 남기고 다음 기본 질문으로 복구한다.
 - 관련 ERD 테이블:
   - candidate_profiles, postings, question_bank, applications, interview_sessions, interview_answers, follow_up_questions, ai_process_logs
 - 비고/미결:
@@ -3493,7 +3494,8 @@ CandidateFolder 입력 제한:
   - base question과 같은 question mode로 부족한 behavior point와 logic link만 묻는 꼬리질문을 생성한다.
   - 답변 제한 시간은 session snapshot의 `answerTimeSec`와 같다.
   - 서버가 최신 `CandidateProfileAiContextV1`을 worker 입력에 추가한다. 이전 질문, 답변 스크립트, JD/서류 요약을 주 근거로, 프로필은 보조 근거로 사용한다.
-  - worker guardrail 통과 결과 저장 transaction에서 `READY` 결정을 private `FOLLOW_UP` session question으로 세션 질문 맨 뒤에 추가하고 `INSERTED`로 전이한다.
+  - worker guardrail 통과 결과 저장 transaction에서 `READY` 결정을 원본 base 질문 바로 다음 순서의 private `FOLLOW_UP` session question으로 추가하고 `INSERTED`로 전이한다. 뒤쪽 질문의 상대 순서는 유지한다.
+  - 생성 문장은 transcript의 구체적인 기술, 선택, 행동 또는 결과를 짧게 인용하거나 자연스럽게 바꿔 포함하고, 그 문맥에서 아직 확인되지 않은 NCS 근거 또는 사실 확인 항목 하나만 묻는다.
   - 원본 질문의 `ALIGNED` canonical NCS binding 1~2개를 private 질문 snapshot에 그대로 복제한다.
   - `(answerId, policy)`와 `insertedSessionQuestionId` unique 제약으로 중복 job과 재시도에도 질문을 한 번만 추가한다.
   - base 평가상 불필요하면 `SKIPPED/NOT_REQUIRED`로 저장하며 질문 목록은 변경하지 않는다.
@@ -3501,7 +3503,7 @@ CandidateFolder 입력 제한:
 - 오류/예외:
   - 이미 1회 생성했거나 snapshot이 불완전하면 `INTERVIEW_NCS_BINDING_INVALID`로 생성하지 않는다.
   - 결과 저장 시 세션이 `IN_PROGRESS`가 아니면 `SKIPPED/SESSION_NOT_IN_PROGRESS`로 저장한다.
-  - worker 실패·timeout은 `ai_process_logs`의 실패 상태로 남기고 기본 질문 진행을 막지 않는다.
+  - 클라이언트는 꼬리질문 필요 여부가 결정되는 동안 다음 기본 질문을 먼저 노출하지 않는다. worker 실패·timeout이면 `ai_process_logs`의 실패 상태를 남기고 다음 기본 질문으로 복구한다.
 - 관련 ERD 테이블:
   - candidate_profiles, postings, question_bank, applications, application_documents, interview_sessions, interview_answers, follow_up_questions, ai_process_logs
 - 비고/미결:

@@ -1340,7 +1340,7 @@ assert.deepEqual(
     totalQuestions: 4,
   }),
   {
-    canMoveNextQuestion: true,
+    canMoveNextQuestion: false,
     canCompleteInterview: false,
   },
 );

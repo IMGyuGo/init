@@ -1110,6 +1110,7 @@ export function getInterviewRuntimeProgressionState({
     hasRuntimeData &&
       currentQuestionAnswered &&
       !isCurrentQuestionLast &&
+      !answerProcessingBusy &&
       !isReansweringCurrentQuestion &&
       !recording,
   );
@@ -1127,6 +1128,10 @@ export function getInterviewRuntimeProgressionState({
     canMoveNextQuestion,
     canCompleteInterview,
   };
+}
+
+export function shouldDeferQuestionTransitionForFollowUp(questionType?: string): boolean {
+  return Boolean(questionType && questionType !== "FOLLOW_UP");
 }
 
 export function getInterviewAiPollingPolicy({

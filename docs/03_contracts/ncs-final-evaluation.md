@@ -180,7 +180,7 @@ otherwise
 - NCS 5점 평가와 사실 검증은 병렬 실행한다.
 - 사실 검증 결과는 `behaviorPoints`, `logicPoints`, profile 평균, 가중치, 총점 또는 PASS/FAIL을 직접 변경하지 않는다.
 - 고신뢰 핵심 기술 claim의 모순은 별도 `FACT_CHECK_REQUIRED` gate로 보류하며 점수 감점으로 표현하지 않는다.
-- provider 실패는 `UNVERIFIABLE`과 구분하고 NCS 평가 또는 다음 기본 질문 이동을 막지 않는다.
+- provider 실패는 `UNVERIFIABLE`과 구분한다. 제한된 꼬리질문 결정 구간이 끝나면 NCS 평가 또는 다음 기본 질문 이동을 계속 막지 않는다.
 - 팩트 확인 꼬리질문은 M4의 private session question 삽입 경로를 사용하며 질문당 최대 1회만 허용한다.
 - 합산 재검증은 NCS 점수를 직접 감점하지 않고 fact gate만 갱신한다.
 

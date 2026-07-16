@@ -198,7 +198,7 @@ NR-M6의 대표 브라우저 경로는 공통 질문 6개와 이력서 개인화
 | Personalized readiness | 개인화 질문이 `READY` 전 면접 시작 | `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`, 공통 질문 자동 대체 없음 |
 | Snapshot | 개인화 질문 준비 후 세션 생성 | 공통 6개 다음 개인화 2개, 총 8개와 canonical binding 1~2개 저장 |
 | Recovery | API 재시작 또는 화면 새로고침 | 동일한 질문 순서와 first-unanswered 질문 복원 |
-| Progression | worker 지연 중 기본 답변 제출 | AI job 완료와 무관하게 다음 기본 질문 진행 |
+| Progression | worker 지연 중 기본 답변 제출 | 꼬리질문 판단 중 다음 기본 질문을 먼저 노출하지 않고, 생성 완료 시 인접 꼬리질문 또는 실패·timeout 시 다음 기본 질문으로 전환 |
 | Follow-up | 근거 보완 필요·불필요·실패·timeout | 필요할 때만 같은 mode로 최대 1회, 그 외 기본 진행 유지 |
 | STT | STT 재답변도 실패 | `STT_UNAVAILABLE`, 점수 `NULL`, 진행 허용, 미완료 사유 저장 |
 | Fact check | NCS 보완과 사실 확인이 함께 필요 | 한 꼬리질문으로 결합하고 팩트 판정이 NCS 점수를 직접 감점하지 않음 |

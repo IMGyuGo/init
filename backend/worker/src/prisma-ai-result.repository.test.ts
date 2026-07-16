@@ -260,7 +260,7 @@ test("PrismaAiResultRepository stores STT transcript into interview_answers", as
   });
 });
 
-test("PrismaAiResultRepository atomically appends one private follow-up per base answer", async () => {
+test("PrismaAiResultRepository atomically inserts one private follow-up after its base question", async () => {
   const fixture = followUpRuntimePrisma();
   const repository = new PrismaAiResultRepository(fixture.prisma);
   const record = {
@@ -279,7 +279,7 @@ test("PrismaAiResultRepository atomically appends one private follow-up per base
 
   assert.equal(fixture.createdSessionQuestions.length, 1);
   assert.equal(fixture.createdSessionQuestions[0]?.data.questionType, "FOLLOW_UP");
-  assert.equal(fixture.createdSessionQuestions[0]?.data.sortOrder, 3);
+  assert.equal(fixture.createdSessionQuestions[0]?.data.sortOrder, 2);
   assert.equal(fixture.createdSessionQuestions[0]?.data.ncsQuestionMode, "TECHNICAL_KNOWLEDGE");
   assert.deepEqual(
     fixture.createdSessionQuestions[0]?.data.ncsBindings.create.map((binding: any) => binding.ncsProfileId),
@@ -289,6 +289,10 @@ test("PrismaAiResultRepository atomically appends one private follow-up per base
   assert.equal(fixture.followUp()?.answerTimeSec, 90);
   assert.equal(fixture.followUp()?.insertedSessionQuestionId, 800n);
   assert.equal(fixture.advisoryLockCalls(), 2);
+  assert.deepEqual(fixture.reorderValues(), [
+    [3n, 1, 1_000_000],
+    [3n, 1_000_001, 999_999],
+  ]);
 });
 
 test("PrismaAiResultRepository stores a no-follow-up decision without changing session questions", async () => {
@@ -739,9 +743,11 @@ test("PrismaAiResultRepository marks recruiting application report failed with g
 function followUpRuntimePrisma(options: { sessionStatus?: string; sourceQuestionType?: string } = {}) {
   let followUp: any;
   let advisoryLockCallCount = 0;
+  const reorderCallValues: unknown[][] = [];
   const createdSessionQuestions: any[] = [];
   const sourceSessionQuestion = {
     sessionQuestionId: 700n,
+    sortOrder: 1,
     questionType: options.sourceQuestionType ?? "TECHNICAL",
     criterionId: 11n,
     criterionTitleSnapshot: "직무 기술",
@@ -783,9 +789,13 @@ function followUpRuntimePrisma(options: { sessionStatus?: string; sourceQuestion
     async $transaction(operation: (transaction: any) => Promise<unknown>) {
       return operation(prisma);
     },
-    async $executeRawUnsafe(query: string) {
-      assert.match(query, /pg_advisory_xact_lock/);
-      advisoryLockCallCount += 1;
+    async $executeRawUnsafe(query: string, ...values: unknown[]) {
+      if (/pg_advisory_xact_lock/.test(query)) {
+        advisoryLockCallCount += 1;
+        return 1;
+      }
+      assert.match(query, /UPDATE interview_session_questions/);
+      reorderCallValues.push(values);
       return 1;
     },
     async $queryRawUnsafe(query: string) {
@@ -835,6 +845,7 @@ function followUpRuntimePrisma(options: { sessionStatus?: string; sourceQuestion
     prisma,
     createdSessionQuestions,
     advisoryLockCalls: () => advisoryLockCallCount,
+    reorderValues: () => reorderCallValues,
     followUp: () => followUp,
   };
 }

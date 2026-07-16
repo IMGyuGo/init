@@ -327,6 +327,8 @@ export class MockAiTaskHandler implements AiTaskHandler {
     }
     const content = ncsPlan
       ? buildNcsFollowUpQuestion(
+          transcript,
+          ncsPlan.questionMode,
           ncsPlan.focusPoints,
           ncsPlan.logicalStructureGap,
           factPlan?.required ? factPlan.clarificationClaims : [],
@@ -2061,6 +2063,8 @@ function optionalText(value: unknown): string | undefined {
 }
 
 function buildNcsFollowUpQuestion(
+  transcript: string,
+  questionMode: NcsQuestionMode,
   focusPoints: string[],
   logicalStructureGap?: string,
   factClaims: Array<{ claimText: string; rationale: string }> = [],
@@ -2070,13 +2074,26 @@ function buildNcsFollowUpQuestion(
   );
   const focus = normalizedFocusPoints.slice(0, 3).join(" 및 ") || "아직 확인되지 않은 행동 근거";
   const factFocus = factClaims.slice(0, 2).map((claim) => claim.claimText).join(", ");
+  const anchor = followUpAnswerAnchor(transcript);
   if (factFocus) {
-    const ncsFocus = normalizedFocusPoints.length > 0 ? ` 답변에는 ${focus}도 함께 드러나야 합니다.` : "";
-    return `앞서 확인된 내용은 반복하지 말고, ${factFocus}에 대한 구체적인 근거나 구현 방식을 설명해주세요.${ncsFocus}`;
+    const ncsFocus = normalizedFocusPoints.length > 0 ? ` 이 과정에서 ${focus}도 함께 확인할 수 있게 말씀해 주세요.` : "";
+    return `답변에서 "${anchor}"라고 말씀하셨는데, ${factFocus}을 실제로 어떻게 적용하거나 확인했는지 설명해 주세요.${ncsFocus}`;
   }
-  return logicalStructureGap
-    ? `앞서 확인된 내용은 반복하지 말고, ${focus}가 드러나며 ${logicalStructureGap}의 연결을 확인할 수 있도록 본인의 구체적인 행동과 결과를 설명해주세요.`
-    : `앞서 확인된 내용은 반복하지 말고, ${focus}가 드러나도록 본인의 구체적인 행동과 결과를 설명해주세요.`;
+  const gap = logicalStructureGap ? ` ${logicalStructureGap}의 연결도 함께 설명해 주세요.` : "";
+  if (questionMode === "TECHNICAL_KNOWLEDGE") {
+    return `답변에서 "${anchor}"라고 말씀하셨는데, 그 기술이나 방식을 선택한 이유와 ${focus}을 실제로 어떻게 적용하고 검증했는지 설명해 주세요.${gap}`;
+  }
+  if (questionMode === "SITUATIONAL_DESIGN") {
+    return `답변에서 "${anchor}"라고 말씀하셨는데, 당시 어떤 제약과 대안을 비교했고 ${focus}을 기준으로 최종 선택을 검증했는지 설명해 주세요.${gap}`;
+  }
+  return `답변에서 "${anchor}"라고 말씀하셨는데, 그 상황에서 ${focus}이 드러나는 본인의 행동과 결과를 구체적으로 설명해 주세요.${gap}`;
+}
+
+function followUpAnswerAnchor(transcript: string): string {
+  const normalized = normalizeSpace(transcript).replace(/["“”]/g, "");
+  if (!normalized) return "방금 설명한 경험";
+  const firstSentence = normalized.split(/(?<=[.!?。])\s+/)[0] ?? normalized;
+  return firstSentence.length > 72 ? `${firstSentence.slice(0, 69).trim()}...` : firstSentence;
 }
 
 function normalizeNcsFollowUpFocusPoint(value: string): string {
