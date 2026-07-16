@@ -1155,7 +1155,7 @@ export function CandidateApplicationsPage() {
     return () => window.clearTimeout(timeoutId);
   }, [cancelMessage]);
 
-  const confirmApplicationCancellation = useCallback(async () => {
+  async function confirmApplicationCancellation() {
     if (!cancelTarget || cancelBusy) return;
     setCancelBusy(true);
     setCancelError("");
@@ -1188,7 +1188,7 @@ export function CandidateApplicationsPage() {
     } finally {
       setCancelBusy(false);
     }
-  }, [cancelBusy, cancelTarget, updateData]);
+  }
 
   async function handleDemoCommandSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -7562,23 +7562,6 @@ function InterviewRuntimePanel({
 
     autoAdvanceAfterAnswerSubmitRef.current = false;
     setMessage("답변 시간이 종료됐지만 제출할 녹화 파일이 아직 준비되지 않았습니다. 답변 완료를 눌러 제출해주세요.");
-  }
-
-  async function advanceAfterTimedAnswer(question = currentQuestion) {
-    if (!data) return;
-    const questionIndex = question
-      ? data.questions.questions.findIndex((candidateQuestion) => candidateQuestion.questionId === question.questionId)
-      : -1;
-    const isLastQuestion = questionIndex >= 0
-      ? questionIndex >= data.runtime.totalQuestions - 1
-      : answeredQuestionCount + 1 >= data.runtime.totalQuestions;
-
-    if (isLastQuestion) {
-      setMessage("마지막 답변이 저장되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요.");
-      return;
-    }
-
-    await handleNextQuestion();
   }
 
   async function handleNextQuestion() {

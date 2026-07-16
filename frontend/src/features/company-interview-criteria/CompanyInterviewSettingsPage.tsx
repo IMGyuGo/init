@@ -315,56 +315,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     [aiJobNotices],
   );
   const questionAiNotices = useMemo(() => aiJobNotices.filter((notice) => notice.kind === "questions"), [aiJobNotices]);
-  useEffect(() => {
-    if (!settings || settings.evaluationFramework !== "NCS_3_PROFILE_V1") return;
-
-    const completedNotices = questionAiNotices.filter(
-      (notice) => notice.status === "COMPLETED" && !autoAppliedQuestionProcessIds.includes(notice.processLogId),
-    );
-    if (completedNotices.length === 0) return;
-
-    const processLogIds = completedNotices.map((notice) => notice.processLogId);
-    setAutoAppliedQuestionProcessIds((current) => [
-      ...current,
-      ...processLogIds.filter((processLogId) => !current.includes(processLogId)),
-    ]);
-
-    void (async () => {
-      let savedCount = 0;
-      let alreadySavedCount = 0;
-      let rejectedCount = 0;
-      let removedCount = 0;
-
-      for (const notice of completedNotices) {
-        const result = await applyQuestionCandidatesToList(
-          getQuestionCandidates(notice.output),
-          notice.processLogId,
-        );
-        savedCount += result.savedCount;
-        alreadySavedCount += result.alreadySavedCount;
-        rejectedCount += result.rejectedCount;
-        removedCount += result.removedCount;
-      }
-
-      if (savedCount > 0 || removedCount > 0) {
-        await loadSettings();
-        setMessage(
-          removedCount > 0
-            ? `AI 추천 질문 ${savedCount}개를 반영하고 이전 추천 질문 ${removedCount}개를 정리했습니다.`
-            : `AI 추천 질문 ${savedCount}개를 공통 질문 목록에 추가했습니다.`,
-        );
-      } else if (alreadySavedCount > 0 && rejectedCount === 0) {
-        setMessage("AI 추천 질문이 이미 공통 질문 목록에 반영되어 있습니다.");
-      }
-      if (rejectedCount > 0) {
-        setQuestionError(`정렬 미통과 또는 평가 기준 연결 실패로 ${rejectedCount}개 질문을 반영하지 못했습니다.`);
-      }
-    })().catch((error) => {
-      setQuestionError(error instanceof Error ? error.message : "AI 추천 질문을 공통 질문 목록에 반영하지 못했습니다.");
-    });
-    // AI 결과는 processLogId당 한 번만 적용하므로 handler identity로 effect를 재실행하지 않는다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoAppliedQuestionProcessIds, questionAiNotices, settings]);
 
   function updateCriteriaDraft(
     draftId: string,
@@ -885,6 +835,57 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       removedCount,
     };
   }
+
+  useEffect(() => {
+    if (!settings || settings.evaluationFramework !== "NCS_3_PROFILE_V1") return;
+
+    const completedNotices = questionAiNotices.filter(
+      (notice) => notice.status === "COMPLETED" && !autoAppliedQuestionProcessIds.includes(notice.processLogId),
+    );
+    if (completedNotices.length === 0) return;
+
+    const processLogIds = completedNotices.map((notice) => notice.processLogId);
+    setAutoAppliedQuestionProcessIds((current) => [
+      ...current,
+      ...processLogIds.filter((processLogId) => !current.includes(processLogId)),
+    ]);
+
+    void (async () => {
+      let savedCount = 0;
+      let alreadySavedCount = 0;
+      let rejectedCount = 0;
+      let removedCount = 0;
+
+      for (const notice of completedNotices) {
+        const result = await applyQuestionCandidatesToList(
+          getQuestionCandidates(notice.output),
+          notice.processLogId,
+        );
+        savedCount += result.savedCount;
+        alreadySavedCount += result.alreadySavedCount;
+        rejectedCount += result.rejectedCount;
+        removedCount += result.removedCount;
+      }
+
+      if (savedCount > 0 || removedCount > 0) {
+        await loadSettings();
+        setMessage(
+          removedCount > 0
+            ? `AI 추천 질문 ${savedCount}개를 반영하고 이전 추천 질문 ${removedCount}개를 정리했습니다.`
+            : `AI 추천 질문 ${savedCount}개를 공통 질문 목록에 추가했습니다.`,
+        );
+      } else if (alreadySavedCount > 0 && rejectedCount === 0) {
+        setMessage("AI 추천 질문이 이미 공통 질문 목록에 반영되어 있습니다.");
+      }
+      if (rejectedCount > 0) {
+        setQuestionError(`정렬 미통과 또는 평가 기준 연결 실패로 ${rejectedCount}개 질문을 반영하지 못했습니다.`);
+      }
+    })().catch((error) => {
+      setQuestionError(error instanceof Error ? error.message : "AI 추천 질문을 공통 질문 목록에 반영하지 못했습니다.");
+    });
+    // AI 결과는 processLogId당 한 번만 적용하므로 handler identity로 effect를 재실행하지 않는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoAppliedQuestionProcessIds, questionAiNotices, settings]);
 
   async function saveAndConfirmQuestionSettings() {
     if (!settings || !questionPolicyDraft) return;
