@@ -14,6 +14,7 @@ import { PrismaAiResultRepository } from "./prisma-ai-result.repository";
 import { PrismaAiProcessLogRepository } from "./prisma-process-log.repository";
 import { AiJobQueue } from "./queue";
 import { createDocumentExtractionStartHandler, createReportFailureHandler } from "./report-failure.handler";
+import { S3PdfDocumentTextExtractor } from "./document-text-extractor";
 import { OpenAiS3SttProvider, SttProvider } from "./stt-provider";
 import { WorkerEnv } from "./worker-env";
 import { AiWorkerRunner } from "./worker-runner";
@@ -43,6 +44,11 @@ export async function createWorkerRuntime(queue: AiJobQueue, env: WorkerEnv): Pr
     ? new OpenAiAnswerFactCheckProvider(env.aiProviderApiKey, env.openaiModel)
     : undefined;
   const mockHandler = new MockAiTaskHandler(repositories.results, {
+    documentTextExtractor: new S3PdfDocumentTextExtractor({
+      bucketName: env.s3BucketName,
+      region: env.awsRegion,
+      endpoint: env.awsEndpointUrl,
+    }),
     sttProvider: createSttProvider(env),
     ncsTextEvaluationProvider,
     answerFactCheckProvider,

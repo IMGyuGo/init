@@ -14,6 +14,7 @@ import {
   hashSourceText
 } from "./ai-result.repository";
 import { createAiProcessUsage } from "./ai-usage";
+import type { DocumentTextExtractor } from "./document-text-extractor";
 import { factCheckContextOf } from "./answer-fact-check-context";
 import {
   type AnswerFactCheckProvider,
@@ -166,6 +167,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
     private readonly results: AiResultRepository,
     private readonly options: {
       sttProvider?: SttProvider;
+      documentTextExtractor?: DocumentTextExtractor;
       ncsTextEvaluationProvider?: NcsTextEvaluationProvider;
       answerFactCheckProvider?: AnswerFactCheckProvider;
       answerFactCheckModelVersion?: string;
@@ -203,7 +205,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
     }
   }
 
-  private documentExtract(payload: Record<string, unknown>): AiTaskResult {
+  private async documentExtract(payload: Record<string, unknown>): Promise<AiTaskResult> {
     if ("fileContent" in payload) {
       throw new NonRetryableAiWorkerFailure("raw file content must not be sent to document extraction worker");
     }
@@ -211,11 +213,23 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const documentId = positiveNumber(payload.documentId, "documentId");
     const fileId = positiveNumber(payload.fileId, "fileId");
     const s3Key = requiredText(payload.s3Key, "s3Key");
-    const extractedText = `Extracted text from ${s3Key}`;
+    const extracted = this.options.documentTextExtractor
+      ? await this.options.documentTextExtractor.extract({ fileId, s3Key })
+      : {
+          text: `Extracted text from ${s3Key}`,
+          source: "DETERMINISTIC_MOCK" as const,
+          pageCount: 0,
+          truncated: false,
+        };
 
     return {
       outputRef: JSON.stringify({
         documentId,
+        providerMode: this.options.documentTextExtractor ? "local" : "mock",
+        providerSource: extracted.source,
+        pageCount: extracted.pageCount,
+        extractedCharCount: extracted.text.length,
+        truncated: extracted.truncated,
         fileAsset: fileAssetRef(fileId, s3Key)
       }),
       guardrail: { result: "PASS", reason: null },
@@ -224,7 +238,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
           documentId,
           fileId,
           s3Key,
-          extractedText
+          extractedText: extracted.text
         })
     };
   }

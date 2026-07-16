@@ -79,7 +79,7 @@ GET /api/v1/ai/jobs/101/status
 
 | Field | Value | Rule |
 | --- | --- | --- |
-| `providerMode` | `openai`, `mock` | 실제 외부 provider 호출 여부를 나타낸다. |
+| `providerMode` | `openai`, `local`, `mock` | 실제 외부 provider, 로컬 결정론적 parser, mock 실행 여부를 나타낸다. |
 | `providerSource` | 작업별 고정 source 문자열 | `OPENAI_QUESTION_GENERATION`, `OPENAI_REPORT_GENERATION`, `OPENAI_AUDIO_TRANSCRIPTION`, `DETERMINISTIC_MOCK`처럼 결과 생성 경로를 나타낸다. |
 | `model` | nullable string | 외부 모델을 호출한 경우 실제 모델명을 기록한다. |
 
@@ -272,6 +272,8 @@ Policy:
   "s3Key": "candidate/4/resume.pdf"
 }
 ```
+
+문서 추출 worker는 S3의 PDF magic bytes와 크기를 검증한 뒤 PDF parser로 실제 본문을 추출한다. `outputRef`에는 이력서 원문을 기록하지 않고 `providerMode=local`, `providerSource=PDF_TEXT_EXTRACTION`, `pageCount`, `extractedCharCount`, `truncated`만 기록한다. 텍스트가 없는 스캔 PDF와 손상 PDF는 `application_documents.parse_status=FAILED`로 처리하며 placeholder 본문을 저장하지 않는다.
 
 STT 입력:
 

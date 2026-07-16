@@ -7,6 +7,7 @@ import { MockAiTaskHandler } from "./mock-ai-task.handler";
 import { InMemoryAiProcessLogRepository } from "./process-log.repository";
 import { InMemoryAiJobQueue } from "./queue";
 import { createDocumentExtractionStartHandler, createReportFailureHandler } from "./report-failure.handler";
+import type { DocumentTextExtractor } from "./document-text-extractor";
 import { SttProvider } from "./stt-provider";
 import { AiWorkerRunner } from "./worker-runner";
 import { AiProcessType, AiQueueMessage } from "./worker.types";
@@ -326,6 +327,40 @@ test("follow-up question policy is separated for mock and recruiting interviews"
   assert.match(results.followUpQuestions[1].content ?? "", /캐시/);
   assert.match(results.followUpQuestions[1].content ?? "", /TTL/);
   assert.match(results.followUpQuestions[1].content ?? "", /효과/);
+});
+
+test("document extraction stores actual extractor text and only metadata in process output", async () => {
+  const results = new InMemoryAiResultRepository();
+  const repository = new InMemoryAiProcessLogRepository();
+  const extractedText = "NestJS와 PostgreSQL 기반 서비스를 운영했습니다.";
+  const documentTextExtractor: DocumentTextExtractor = {
+    extract: async () => ({
+      text: extractedText,
+      source: "PDF_TEXT_EXTRACTION",
+      pageCount: 2,
+      truncated: false,
+    }),
+  };
+  const queue = new InMemoryAiJobQueue([
+    message(101, "DOCUMENT_EXTRACT", {
+      kind: "DOCUMENT_EXTRACT",
+      payload: { documentId: 7, fileId: 9, s3Key: "candidate/1/resume.pdf" },
+    }),
+  ]);
+
+  await new AiWorkerRunner(
+    queue,
+    repository,
+    new MockAiTaskHandler(results, { documentTextExtractor }),
+  ).processBatch();
+
+  const output = JSON.parse(repository.get(101).outputRef ?? "{}") as Record<string, unknown>;
+  assert.equal(results.documentExtractions[0]?.extractedText, extractedText);
+  assert.equal(output.providerMode, "local");
+  assert.equal(output.providerSource, "PDF_TEXT_EXTRACTION");
+  assert.equal(output.pageCount, 2);
+  assert.equal(output.extractedCharCount, extractedText.length);
+  assert.equal("extractedText" in output, false);
 });
 
 test("NCS follow-up question normalizes evaluator instructions into readable focus points", async () => {

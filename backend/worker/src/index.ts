@@ -1,4 +1,5 @@
 export * from "./ai-result.repository";
+export * from "./document-text-extractor";
 export * from "./mock-ai-task.handler";
 export * from "./ncs-report-evaluation.adapter";
 export * from "./ncs-text-evaluation.profiles";
