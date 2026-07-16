@@ -26,6 +26,7 @@ export interface QuestionGenerationInput {
   criteria: QuestionGenerationCriterion[];
   source?: "JD_CRITERIA" | "RESUME_PERSONALIZED";
   resumeText?: string;
+  avoidQuestions?: string[];
   profileContext?: Record<string, unknown>;
   folderContext?: Record<string, unknown>;
   questionTypes?: QuestionGenerationType[];
@@ -168,6 +169,7 @@ export function buildQuestionMessages(input: QuestionGenerationInput): Array<{ r
         questionCount: input.questionCount,
         criteria: input.criteria,
         resumeText: input.source === "RESUME_PERSONALIZED" ? input.resumeText : undefined,
+        avoidQuestions: input.avoidQuestions,
         outputContract: {
           questionCandidates: [
             {
@@ -185,6 +187,28 @@ export function buildQuestionMessages(input: QuestionGenerationInput): Array<{ r
       })
     }
   ];
+}
+
+export function questionQualityIssue(content: string, acceptedQuestions: string[] = []): string | null {
+  const normalized = normalizeText(content);
+  if (!normalized || normalized.length < 15) return "QUESTION_TOO_SHORT";
+  if (normalized.length > 180) return "QUESTION_TOO_LONG";
+  if (/<[^>]+>|&lt;|&gt;|blockquote|data-init-/i.test(normalized)) return "HTML_OR_EDITOR_MARKUP";
+  if (/^\s*(?:\[[^\]]+\]|공고명\s*:|회사명\s*:|직무\s*:)/i.test(normalized)) return "CONTEXT_PREFIX";
+
+  const canonical = canonicalQuestion(normalized);
+  if (acceptedQuestions.some((question) => canonicalQuestion(question) === canonical)) {
+    return "DUPLICATE_QUESTION";
+  }
+  if (acceptedQuestions.some((question) => tokenSimilarity(question, normalized) >= 0.82)) {
+    return "NEAR_DUPLICATE_QUESTION";
+  }
+
+  const ending = repeatedEnding(normalized);
+  if (ending && acceptedQuestions.filter((question) => repeatedEnding(question) === ending).length >= 2) {
+    return "REPEATED_QUESTION_ENDING";
+  }
+  return null;
 }
 
 function parseQuestionContent(content: string, input: QuestionGenerationInput): QuestionGenerationCandidate[] {
@@ -268,6 +292,31 @@ function normalizeText(value: unknown): string | undefined {
 function normalizeQuestion(value: string): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   return normalized.endsWith("?") ? normalized : `${normalized}?`;
+}
+
+function canonicalQuestion(value: string): string {
+  return value.toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
+}
+
+function tokenSimilarity(left: string, right: string): number {
+  const leftTokens = new Set(left.toLowerCase().match(/[0-9a-z가-힣]{2,}/g) ?? []);
+  const rightTokens = new Set(right.toLowerCase().match(/[0-9a-z가-힣]{2,}/g) ?? []);
+  if (leftTokens.size === 0 || rightTokens.size === 0) return 0;
+  const intersection = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  const union = new Set([...leftTokens, ...rightTokens]).size;
+  return union === 0 ? 0 : intersection / union;
+}
+
+function repeatedEnding(value: string): string | null {
+  const normalized = value.replace(/[?!.\s]+$/g, "");
+  const endings = [
+    "설명해주세요",
+    "설명해 주세요",
+    "말씀해주세요",
+    "말씀해 주세요",
+    "들려주세요",
+  ];
+  return endings.find((ending) => normalized.endsWith(ending)) ?? null;
 }
 
 function stringArrayOf(value: unknown): string[] {

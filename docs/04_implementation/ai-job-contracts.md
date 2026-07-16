@@ -342,6 +342,14 @@ type CandidateProfileAiContextV1 = {
 }
 ```
 
+실제 질문 생성 규칙:
+
+- `AI_PROVIDER_MODE=openai`에서는 공통 질문과 개인화 질문을 모두 OpenAI question provider로 생성한다. provider 누락 시 deterministic mock으로 대체하지 않고 job을 실패시킨다.
+- 공통 질문은 저장된 JD와 NCS 평가 기준을 입력으로 사용하고, 개인화 질문은 동일 입력에 실제 PDF 추출 이력서 본문을 추가한다.
+- 개인화 질문 provider 입력에서 이메일과 전화번호를 제거하고 이력서 본문은 최대 50,000자로 제한한다. 원문은 outputRef나 질문 metadata에 복제하지 않는다.
+- HTML/editor markup, 공고·회사·직무 접두어, 15자 미만 또는 180자 초과 질문, 동일·유사 질문, 동일 종결 표현의 과도한 반복은 저장 후보에서 제외하고 재생성한다.
+- NCS 질문은 정해진 재생성 횟수 안에 요청 수만큼 `alignmentStatus=ALIGNED` 결과를 만들지 못하면 job을 실패시킨다. `LOW_ALIGNMENT` 또는 `REVIEW_REQUIRED` 질문을 공통/개인화 질문으로 자동 대체하지 않는다.
+
 평가 기준 추천 draft 출력:
 
 ```json

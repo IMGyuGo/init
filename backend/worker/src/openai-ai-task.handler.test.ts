@@ -643,6 +643,173 @@ test("OpenAiAiTaskHandler rejects provider question candidates without criterion
   assert.equal(results.generatedDrafts.length, 0);
 });
 
+test("OpenAiAiTaskHandler generates personalized questions from scrubbed resume context", async () => {
+  const results = new InMemoryAiResultRepository();
+  const seenResumeTexts: Array<string | undefined> = [];
+  const questionProvider: QuestionAiProvider = {
+    async generateQuestions(input) {
+      seenResumeTexts.push(input.resumeText);
+      return {
+        questionCandidates: input.criteria.map((criterion) => ({
+          content: criterion.ncsProfileId === "PROBLEM_SOLVING"
+            ? "장애 원인을 분석하고 대안을 선택해 결과를 검증한 경험은 무엇인가요?"
+            : criterion.ncsProfileId === "COLLABORATION_COMMUNICATION"
+              ? "이해관계자에게 내용을 전달하고 피드백으로 이해를 확인한 경험이 있나요?"
+              : "Kubernetes 운영에서 기술 구조를 선택하고 장애 위험을 검증한 방법은 무엇인가요?",
+          category: criterion.category ?? "NCS",
+          difficulty: "MEDIUM" as const,
+          criterionId: criterion.criterionId,
+          criterionTitle: criterion.name,
+          expectedKeywords: ["근거", "검증"],
+          suggestionReason: "이력서 경험과 NCS 기준을 확인합니다.",
+          questionType: criterion.ncsQuestionMode === "TECHNICAL_KNOWLEDGE"
+            ? "TECHNICAL" as const
+            : "EXPERIENCE" as const,
+        })),
+        model: "question-model",
+      };
+    },
+  };
+  const reference = {
+    processLogId: 241,
+    applicationId: 101,
+    postingId: 7,
+    documentId: 1001,
+    policyVersion: 3,
+    criteriaVersion: 2,
+    inputVersion: "resume-input-101",
+    resumeDocumentHash: "resume-hash-101",
+    jdSnapshotHash: "jd-hash-7",
+  };
+  results.setResumeQuestionGenerationContext({
+    ...reference,
+    batchId: 2001,
+    questionCount: 3,
+    jobDescription: "Kubernetes와 PostgreSQL 운영 경험을 요구합니다.",
+    resumeText: "candidate@example.com / 010-1234-5678 / Kubernetes 배포 자동화 경험",
+    criteria: [
+      {
+        criterionId: 1,
+        name: "문제해결능력",
+        category: "NCS",
+        questionCount: 1,
+        ncsProfileId: "PROBLEM_SOLVING",
+        ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+        ncsProfileVersion: "2025.12-v1",
+      },
+      {
+        criterionId: 2,
+        name: "의사소통능력",
+        category: "NCS",
+        questionCount: 1,
+        ncsProfileId: "COLLABORATION_COMMUNICATION",
+        ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+        ncsProfileVersion: "2025.12-v1",
+      },
+      {
+        criterionId: 3,
+        name: "직무기술능력",
+        category: "NCS",
+        questionCount: 1,
+        ncsProfileId: "JOB_TECHNICAL",
+        ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+        ncsProfileVersion: "2025.12-v1",
+      },
+    ],
+  });
+  const handler = new OpenAiAiTaskHandler(
+    new MockAiTaskHandler(results),
+    results,
+    provider,
+    undefined,
+    undefined,
+    questionProvider,
+  );
+
+  const handled = await handler.handle({
+    ...reference,
+    processType: "RESUME_QUESTION_GENERATE",
+    attempt: 1,
+    inputRef: JSON.stringify(reference),
+  });
+  await handled.finalSave?.();
+
+  assert.equal(seenResumeTexts.length, 1);
+  assert.equal(seenResumeTexts[0]?.includes("candidate@example.com"), false);
+  assert.equal(seenResumeTexts[0]?.includes("010-1234-5678"), false);
+  assert.equal(seenResumeTexts[0]?.includes("Kubernetes 배포 자동화 경험"), true);
+  assert.equal(results.resumeQuestionResults.get(101)?.status, "READY");
+  const output = JSON.parse(handled.outputRef ?? "{}") as Record<string, unknown>;
+  assert.equal(output.providerMode, "openai");
+  assert.equal(JSON.stringify(output).includes("candidate@example.com"), false);
+});
+
+test("OpenAiAiTaskHandler allows technical incident wording in personalized questions", async () => {
+  const results = new InMemoryAiResultRepository();
+  const questionProvider: QuestionAiProvider = {
+    async generateQuestions(input) {
+      return {
+        questionCandidates: input.criteria.map((criterion) => ({
+          content: "서비스 장애 원인을 분석하고 대안을 선택해 결과를 검증한 경험은 무엇인가요?",
+          category: "NCS",
+          difficulty: "MEDIUM",
+          criterionId: criterion.criterionId,
+          criterionTitle: criterion.name,
+          expectedKeywords: ["장애", "원인", "검증"],
+          suggestionReason: "기술 장애 대응 경험을 확인합니다.",
+          questionType: "EXPERIENCE",
+        })),
+        model: "question-model",
+      };
+    },
+  };
+  const reference = {
+    processLogId: 242,
+    applicationId: 102,
+    postingId: 7,
+    documentId: 1002,
+    policyVersion: 3,
+    criteriaVersion: 2,
+    inputVersion: "resume-input-102",
+    resumeDocumentHash: "resume-hash-102",
+    jdSnapshotHash: "jd-hash-7",
+  };
+  results.setResumeQuestionGenerationContext({
+    ...reference,
+    batchId: 2002,
+    questionCount: 1,
+    jobDescription: "서비스 운영 경험",
+    resumeText: "서비스 장애 대응 경험",
+    criteria: [{
+      criterionId: 1,
+      name: "문제해결능력",
+      category: "NCS",
+      questionCount: 1,
+      ncsProfileId: "PROBLEM_SOLVING",
+      ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+      ncsProfileVersion: "2025.12-v1",
+    }],
+  });
+  const handler = new OpenAiAiTaskHandler(
+    new MockAiTaskHandler(results),
+    results,
+    provider,
+    undefined,
+    undefined,
+    questionProvider,
+  );
+
+  const handled = await handler.handle({
+    processLogId: reference.processLogId,
+    processType: "RESUME_QUESTION_GENERATE",
+    attempt: 1,
+    inputRef: JSON.stringify(reference),
+  });
+  assert.equal(handled.guardrail?.result, "PASS");
+  await handled.finalSave?.();
+  assert.equal(results.resumeQuestionResults.get(102)?.status, "READY");
+});
+
 test("OpenAiAiTaskHandler leaves report pipeline steps on the fallback handler", async () => {
   const results = new InMemoryAiResultRepository();
   let reportProviderCalls = 0;

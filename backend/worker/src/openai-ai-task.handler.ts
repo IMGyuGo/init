@@ -18,13 +18,13 @@ import {
   QuestionGenerationCriterion,
   QuestionGenerationInput,
   QuestionGenerationResult,
+  questionQualityIssue,
   type QuestionGenerationType,
 } from "./openai-question.provider";
 import { ReportAiProvider, ReportGenerationResult } from "./openai-report.provider";
 import {
   alignNcsQuestion,
   canonicalNcsProfileIdOf,
-  markQuestionReviewRequired,
   NcsApiProfileId,
   NcsQuestionMode,
 } from "./ncs-question-alignment.adapter";
@@ -272,7 +272,7 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     payload: Record<string, unknown>
   ): Promise<AiTaskResult> {
     if (!this.questionProvider) {
-      return this.fallback.handle(job);
+      throw new NonRetryableAiWorkerFailure("OpenAI question provider is required for QUESTION_GENERATE");
     }
 
     const mock = kind.startsWith("MOCK");
@@ -342,7 +342,7 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
 
   private async resumeQuestionGenerate(job: AiWorkerJob): Promise<AiTaskResult> {
     if (!this.questionProvider) {
-      return this.fallback.handle(job);
+      throw new NonRetryableAiWorkerFailure("OpenAI question provider is required for RESUME_QUESTION_GENERATE");
     }
 
     const reference = resumeQuestionReferenceOf(job);
@@ -354,7 +354,7 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       questionCount: context.questionCount,
       criteria: context.criteria,
       source: "RESUME_PERSONALIZED",
-      resumeText: context.resumeText,
+      resumeText: scrubResumeTextForAi(context.resumeText),
     }, "RESUME_PERSONALIZED");
     const candidates = generated.questionCandidates;
     const unsafe = candidates.find((candidate) => personalizedQuestionUnsafeReason(candidate.content));
@@ -599,7 +599,7 @@ async function generateAlignedNcsQuestions(
 
   const remaining = new Map(criteria.map((criterion) => [criterion.criterionId, criterion.questionCount]));
   const accepted: Array<SanitizedQuestionCandidate & Record<string, unknown>> = [];
-  const reviewCandidates = new Map<number, Array<SanitizedQuestionCandidate & Record<string, unknown>>>();
+  const rejectedQuestions: string[] = [];
   let latestModel = "unknown";
   let inputTokens = 0;
   let outputTokens = 0;
@@ -618,6 +618,7 @@ async function generateAlignedNcsQuestions(
         ...criterion,
         questionCount: remaining.get(criterion.criterionId) ?? 0,
       })),
+      avoidQuestions: [...accepted.map((candidate) => candidate.content), ...rejectedQuestions].slice(-30),
     });
     latestModel = generated.model;
     inputTokens += generated.usage?.inputTokens ?? 0;
@@ -631,6 +632,15 @@ async function generateAlignedNcsQuestions(
       const criterion = requestedCriteria.find((item) => item.criterionId === candidateCriterionId);
       const slots = remaining.get(candidateCriterionId) ?? 0;
       if (!criterion || slots === 0) continue;
+
+      const qualityIssue = questionQualityIssue(
+        candidate.content,
+        accepted.map((acceptedCandidate) => acceptedCandidate.content),
+      );
+      if (qualityIssue) {
+        rejectedQuestions.push(candidate.content);
+        continue;
+      }
 
       const alignment = alignNcsQuestion({
         question: candidate.content,
@@ -654,9 +664,7 @@ async function generateAlignedNcsQuestions(
         accepted.push(decorated);
         remaining.set(candidateCriterionId, slots - 1);
       } else {
-        const current = reviewCandidates.get(candidateCriterionId) ?? [];
-        current.push(decorated);
-        reviewCandidates.set(candidateCriterionId, current);
+        rejectedQuestions.push(candidate.content);
       }
     }
   };
@@ -671,30 +679,13 @@ async function generateAlignedNcsQuestions(
     .filter((criterion): criterion is NcsGenerationCriterion => criterion !== null);
   await collect(fallbackCriteria);
 
-  for (const criterion of criteria) {
-    const missing = remaining.get(criterion.criterionId) ?? 0;
-    if (missing === 0) continue;
-    const candidates = reviewCandidates.get(criterion.criterionId) ?? [];
-    if (candidates.length < missing) {
-      throw new NonRetryableAiWorkerFailure(
-        `question provider did not return enough candidates for criterion ${criterion.criterionId}`,
-      );
-    }
-    accepted.push(
-      ...candidates.slice(-missing).map((candidate) => {
-        const review = markQuestionReviewRequired({
-          status: candidate.alignmentStatus as "LOW_ALIGNMENT" | "REVIEW_REQUIRED",
-          score: candidate.alignmentScore as number | null,
-          reason: candidate.alignmentReason as string | null,
-          evaluatorVersion: candidate.evaluatorVersion as "ncs-question-alignment-v1",
-          profileVersion: candidate.ncsProfileVersion as "2025.12-v1",
-        });
-        return {
-          ...candidate,
-          alignmentStatus: review.status,
-          alignmentReason: review.reason,
-        };
-      }),
+  if (totalRemaining(remaining) > 0) {
+    const missing = criteria
+      .filter((criterion) => (remaining.get(criterion.criterionId) ?? 0) > 0)
+      .map((criterion) => `${criterion.criterionId}:${remaining.get(criterion.criterionId)}`)
+      .join(", ");
+    throw new NonRetryableAiWorkerFailure(
+      `question provider did not return enough natural aligned candidates: ${missing}`,
     );
   }
 
@@ -706,6 +697,14 @@ async function generateAlignedNcsQuestions(
       outputTokens: outputTokens || undefined,
     },
   };
+}
+
+function scrubResumeTextForAi(value: string): string {
+  return value
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[이메일 비공개]")
+    .replace(/(?:\+?82[-\s]?)?0\d{1,2}[-\s]?\d{3,4}[-\s]?\d{4}/g, "[연락처 비공개]")
+    .slice(0, 50_000)
+    .trim();
 }
 
 function isNcsCriteria(criteria: QuestionGenerationCriterion[]): criteria is NcsGenerationCriterion[] {
@@ -792,7 +791,7 @@ function personalizedQuestionUnsafeReason(content: string): string | null {
     [/(성별|남성|여성|남자|여자)/i, "gender attribute"],
     [/(외모|용모|사진)/i, "appearance attribute"],
     [/(가족|부모|결혼|임신|출산)/i, "family attribute"],
-    [/(장애|질병|건강 상태)/i, "health attribute"],
+    [/(장애인|장애\s*(?:여부|등급)|(?:신체|정신|발달|시각|청각)\s*장애|질병|건강 상태)/i, "health attribute"],
     [/(학교명|출신 학교|학벌)/i, "school attribute"],
   ];
   return unsafePatterns.find(([pattern]) => pattern.test(content))?.[1] ?? null;
