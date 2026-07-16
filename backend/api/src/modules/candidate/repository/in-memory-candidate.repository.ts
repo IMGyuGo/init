@@ -484,6 +484,29 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     return { application, documents, consents, portfolioLink };
   }
 
+  async resetDemoApplications(input: {
+    candidateId: number;
+    ownerUserId: number;
+    applicationId?: number;
+  }): Promise<{ applicationIds: number[]; mediaStorageKeys: string[] }> {
+    const applicationIds = this.applications
+      .filter(
+        (application) =>
+          application.candidateId === input.candidateId &&
+          (input.applicationId === undefined || application.applicationId === input.applicationId),
+      )
+      .map((application) => application.applicationId);
+    const applicationIdSet = new Set(applicationIds);
+
+    this.removeItems(this.documents, (document) => applicationIdSet.has(document.applicationId));
+    this.removeItems(this.consentRecords, (consent) => applicationIdSet.has(consent.applicationId));
+    this.removeItems(this.interviewSessions, (session) => applicationIdSet.has(session.applicationId));
+    this.removeItems(this.portfolioLinks, (link) => link.applicationId !== undefined && applicationIdSet.has(link.applicationId));
+    this.removeItems(this.applications, (application) => applicationIdSet.has(application.applicationId));
+
+    return { applicationIds, mediaStorageKeys: [] };
+  }
+
   async createFileAsset(input: Omit<FileAsset, "fileId" | "createdAt" | "status">): Promise<FileAsset> {
     const requestBody = input as unknown as Record<string, unknown>;
     const forbiddenField = FORBIDDEN_FILE_PAYLOAD_FIELDS.find((field) => Object.hasOwn(requestBody, field));
@@ -584,6 +607,11 @@ export class InMemoryCandidateRepository implements CandidateRepository {
   private resolveFolderResumeFileName(resumeFileId: number | null): string | null {
     if (!resumeFileId) return null;
     return this.fileAssets.find((fileAsset) => fileAsset.fileId === resumeFileId)?.originalName ?? null;
+  }
+
+  private removeItems<T>(items: T[], shouldRemove: (item: T) => boolean): void {
+    const remaining = items.filter((item) => !shouldRemove(item));
+    items.splice(0, items.length, ...remaining);
   }
 
   private createRecruitingInterviewSession(application: Application, createdAt: string): InterviewSession {

@@ -3151,6 +3151,34 @@ CandidateFolder 입력 제한:
   - applications, interview_sessions
 - 비고/미결:
   - 면접 세션과 질문 스냅샷은 감사·추적을 위해 삭제하지 않는다.
+### API-061A POST /candidate/demo-tools/applications/unlock
+- 도메인: 지원자 - 시연 도구
+- 권한/인증: 지원자 로그인
+- 관련 화면: 지원현황 화면 (/candidate/applications)
+- 상태 코드: 200 OK
+- 요청 데이터: `command` (`demo:reset`)
+- 성공 응답/처리: `{ enabled: true }`를 반환하고 현재 화면에 시연 데이터 관리 UI를 표시한다.
+- 오류/예외: 명령어가 일치하지 않으면 400을 반환한다.
+
+### API-061B DELETE /candidate/demo-tools/applications/{applicationId}
+- 도메인: 지원자 - 시연 도구
+- 권한/인증: 지원자 로그인 + 현재 지원자 소유 지원서 검증
+- 관련 화면: 지원현황 화면 (/candidate/applications)
+- 상태 코드: 200 OK
+- Path Params: applicationId
+- 성공 응답/처리:
+  - 현재 지원자 소유의 단일 지원서와 종속 면접 세션, 답변, 리포트, 알림, AI 처리 로그를 트랜잭션으로 삭제한다.
+  - 다른 곳에서 참조하지 않는 답변 영상·음성 파일 메타데이터와 S3 객체를 정리한다.
+  - 이력서·포트폴리오 원본 파일과 지원서 세트는 보존하여 같은 공고에 다시 지원할 수 있다.
+- 오류/예외: 소유하지 않았거나 존재하지 않는 지원 건은 404를 반환한다.
+
+### API-061C DELETE /candidate/demo-tools/applications
+- 도메인: 지원자 - 시연 도구
+- 권한/인증: 지원자 로그인
+- 관련 화면: 지원현황 화면 (/candidate/applications)
+- 상태 코드: 200 OK
+- 성공 응답/처리: 현재 지원자의 모든 채용 지원 내역을 API-061B와 같은 기준으로 초기화한다.
+- 오류/예외: 삭제 대상이 없어도 `resetCount: 0`으로 성공하며 반복 호출할 수 있다.
 
 ### API-062 GET /candidate/applications/{applicationId}/interview-guide
 - 도메인: 지원자 - 지원현황/채용면접

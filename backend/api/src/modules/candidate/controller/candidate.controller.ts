@@ -37,6 +37,7 @@ import { CreatePortfolioLinkDto } from "../dto/create-portfolio-link.dto";
 import { SaveInterviewConsentDto } from "../dto/save-interview-consent.dto";
 import { SubmitApplicationDto } from "../dto/submit-application.dto";
 import { UploadResumeDto } from "../dto/upload-resume.dto";
+import { UnlockDemoApplicationResetDto } from "../dto/unlock-demo-application-reset.dto";
 
 type CandidateRequest = RequestLike & { currentUser: CurrentUser };
 type UploadedResumeFile = {
@@ -209,6 +210,30 @@ export class CandidateController {
     return this.handle(() => {
       const currentUser = resolveCurrentCandidate(request.currentUser);
       return this.candidateService.cancelApplication(Number(applicationId), currentUser);
+    });
+  }
+
+  @Post(candidateApiRoutes.demoApplicationResetUnlock)
+  unlockDemoApplicationReset(@Req() request: CandidateRequest, @Body() dto: UnlockDemoApplicationResetDto) {
+    return this.handle(async () => {
+      const currentUser = resolveCurrentCandidate(request.currentUser);
+      return this.candidateService.unlockDemoApplicationReset(dto, currentUser);
+    });
+  }
+
+  @Delete(candidateApiRoutes.demoApplicationsReset)
+  resetAllDemoApplications(@Req() request: CandidateRequest) {
+    return this.handle(() => {
+      const currentUser = resolveCurrentCandidate(request.currentUser);
+      return this.candidateService.resetAllDemoApplications(currentUser);
+    });
+  }
+
+  @Delete(candidateApiRoutes.demoApplicationReset)
+  resetDemoApplication(@Req() request: CandidateRequest, @Param("applicationId") applicationId: string) {
+    return this.handle(() => {
+      const currentUser = resolveCurrentCandidate(request.currentUser);
+      return this.candidateService.resetDemoApplication(Number(applicationId), currentUser);
     });
   }
 

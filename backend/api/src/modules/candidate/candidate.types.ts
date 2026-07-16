@@ -469,6 +469,18 @@ export interface CancelApplicationResult {
   canceledAt: string;
 }
 
+export interface CandidateDemoApplicationResetRepositoryResult {
+  applicationIds: number[];
+  mediaStorageKeys: string[];
+}
+
+export interface CandidateDemoApplicationResetResult {
+  resetCount: number;
+  applicationIds: number[];
+  mediaFileCount: number;
+  storageCleanupFailedCount: number;
+}
+
 export interface CandidateRepository {
   listJobs(): Promise<CandidateJob[]>;
   findJob(jobId: number): Promise<CandidateJob | undefined>;
@@ -512,6 +524,11 @@ export interface CandidateRepository {
     consentTypes: ConsentType[];
     contactUserId?: number;
   }): Promise<ApplicationSubmissionResult>;
+  resetDemoApplications(input: {
+    candidateId: number;
+    ownerUserId: number;
+    applicationId?: number;
+  }): Promise<CandidateDemoApplicationResetRepositoryResult>;
   createFileAsset(input: Omit<FileAsset, "fileId" | "createdAt" | "status">): Promise<FileAsset>;
   createPortfolioLink(input: Omit<PortfolioLink, "portfolioLinkId" | "createdAt">): Promise<PortfolioLink>;
   countFolders(candidateId: number): Promise<number>;

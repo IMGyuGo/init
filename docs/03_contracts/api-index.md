@@ -131,6 +131,9 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-059 | 지원자 - 채용공고/지원 | GET | /candidate/jobs/{jobId} | 채용공고 상세 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-060 | 지원자 - 채용공고/지원 | POST | /candidate/jobs/{jobId}/applications | 기업별 지원 서류 제출 | 지원자 / 지원자 사용자 로그인 | N | 201 Created |
 | API-061 | 지원자 - 지원현황/채용면접 | GET | /candidate/applications | 지원 상태 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
+| API-061A | 지원자 - 시연 도구 | POST | /candidate/demo-tools/applications/unlock | 지원 내역 초기화 도구 활성화 검증 | 지원자 로그인 | N | 200 OK |
+| API-061B | 지원자 - 시연 도구 | DELETE | /candidate/demo-tools/applications/{applicationId} | 단일 지원 내역 초기화 | 지원자 로그인 | N | 200 OK |
+| API-061C | 지원자 - 시연 도구 | DELETE | /candidate/demo-tools/applications | 전체 지원 내역 초기화 | 지원자 로그인 | N | 200 OK |
 | API-062 | 지원자 - 지원현황/채용면접 | GET | /candidate/applications/{applicationId}/interview-guide | 채용 AI 면접 방식 안내 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-063 | 지원자 - 지원현황/채용면접 | POST | /candidate/applications/{applicationId}/consent | 개인정보/분석 동의 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-064 | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/device-check | 카메라/마이크/네트워크 점검 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |

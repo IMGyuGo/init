@@ -17,6 +17,7 @@ import {
   type Application,
   type ApplicationDocument,
   type ApplicationSubmissionResult,
+  type CandidateDemoApplicationResetRepositoryResult,
   type CandidateFolder,
   type CandidateProfileSnapshotV1,
   type CandidateProfileView,
@@ -1467,6 +1468,156 @@ export class PrismaCandidateRepository implements CandidateRepository {
       }
       throw error;
     }
+  }
+
+  async resetDemoApplications(input: {
+    candidateId: number;
+    ownerUserId: number;
+    applicationId?: number;
+  }): Promise<CandidateDemoApplicationResetRepositoryResult> {
+    return this.prisma.$transaction(async (tx) => {
+      const lockKey = 332_000_000_000n + BigInt(input.candidateId);
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
+
+      const applications = await tx.application.findMany({
+        where: {
+          candidateId: BigInt(input.candidateId),
+          ...(input.applicationId === undefined ? {} : { applicationId: BigInt(input.applicationId) }),
+        },
+        select: { applicationId: true },
+        orderBy: { applicationId: "asc" },
+      });
+      const applicationIds = applications.map((application) => application.applicationId);
+      if (applicationIds.length === 0) {
+        return { applicationIds: [], mediaStorageKeys: [] };
+      }
+
+      const documents = await tx.applicationDocument.findMany({
+        where: { applicationId: { in: applicationIds } },
+        select: { documentId: true, fileId: true },
+      });
+      const documentIds = documents.map((document) => document.documentId);
+      const documentFileIds = new Set(
+        documents.flatMap((document) => (document.fileId === null ? [] : [document.fileId.toString()])),
+      );
+
+      const sessions = await tx.interviewSession.findMany({
+        where: { applicationId: { in: applicationIds } },
+        select: { sessionId: true },
+      });
+      const sessionIds = sessions.map((session) => session.sessionId);
+
+      const answers = await tx.interviewAnswer.findMany({
+        where: { sessionId: { in: sessionIds } },
+        select: { answerId: true, videoFileId: true, audioFileId: true },
+      });
+      const answerIds = answers.map((answer) => answer.answerId);
+      const mediaFileIds = [
+        ...new Map(
+          answers
+            .flatMap((answer) => [answer.videoFileId, answer.audioFileId])
+            .filter((fileId): fileId is bigint => fileId !== null)
+            .filter((fileId) => !documentFileIds.has(fileId.toString()))
+            .map((fileId) => [fileId.toString(), fileId]),
+        ).values(),
+      ];
+
+      const reports = await tx.evaluationReport.findMany({
+        where: {
+          OR: [{ applicationId: { in: applicationIds } }, { sessionId: { in: sessionIds } }],
+        },
+        select: { reportId: true },
+      });
+      const reportIds = reports.map((report) => report.reportId);
+      const scores = await tx.reportScore.findMany({
+        where: { reportId: { in: reportIds } },
+        select: { scoreId: true },
+      });
+      const scoreIds = scores.map((score) => score.scoreId);
+
+      const processLogs = await tx.aiProcessLog.findMany({
+        where: {
+          OR: [{ applicationId: { in: applicationIds } }, { sessionId: { in: sessionIds } }],
+        },
+        select: { processLogId: true },
+      });
+      const processLogIds = processLogs.map((processLog) => processLog.processLogId);
+
+      await tx.embedding.deleteMany({
+        where: {
+          OR: [
+            { documentId: { in: documentIds } },
+            { answerId: { in: answerIds } },
+            { reportId: { in: reportIds } },
+          ],
+        },
+      });
+      await tx.reportEvidence.deleteMany({
+        where: {
+          OR: [
+            { scoreId: { in: scoreIds } },
+            { answerId: { in: answerIds } },
+            { documentId: { in: documentIds } },
+          ],
+        },
+      });
+      await tx.manualEvaluation.deleteMany({ where: { reportId: { in: reportIds } } });
+      await tx.reportScore.deleteMany({ where: { reportId: { in: reportIds } } });
+      await tx.evaluationReport.deleteMany({ where: { reportId: { in: reportIds } } });
+
+      await tx.followUpQuestion.deleteMany({ where: { answerId: { in: answerIds } } });
+      await tx.interviewAnswer.deleteMany({ where: { answerId: { in: answerIds } } });
+
+      await tx.clientPerformanceLog.deleteMany({
+        where: {
+          OR: [
+            { applicationId: { in: applicationIds } },
+            { sessionId: { in: sessionIds } },
+            { processLogId: { in: processLogIds } },
+          ],
+        },
+      });
+      await tx.aiProcessTimingEvent.deleteMany({ where: { processLogId: { in: processLogIds } } });
+      await tx.aiGuardrailLog.deleteMany({ where: { processLogId: { in: processLogIds } } });
+      await tx.interviewQuestionSet.updateMany({
+        where: { createdByProcessLogId: { in: processLogIds } },
+        data: { createdByProcessLogId: null },
+      });
+      await tx.aiProcessLog.deleteMany({ where: { processLogId: { in: processLogIds } } });
+
+      await tx.notification.deleteMany({ where: { applicationId: { in: applicationIds } } });
+      await tx.consentRecord.deleteMany({ where: { applicationId: { in: applicationIds } } });
+      await tx.applicationDocument.deleteMany({ where: { applicationId: { in: applicationIds } } });
+      await tx.candidateMockInterviewPassLedger.updateMany({
+        where: { usedSessionId: { in: sessionIds } },
+        data: { usedSessionId: null },
+      });
+      await tx.interviewSession.deleteMany({ where: { sessionId: { in: sessionIds } } });
+      await tx.application.deleteMany({ where: { applicationId: { in: applicationIds } } });
+
+      const deletableMedia = await tx.fileAsset.findMany({
+        where: {
+          fileId: { in: mediaFileIds },
+          ownerUserId: BigInt(input.ownerUserId),
+          companyLogos: { none: {} },
+          candidateProfiles: { none: {} },
+          candidateFolders: { none: {} },
+          candidateFolderPortfolios: { none: {} },
+          documents: { none: {} },
+          videoAnswers: { none: {} },
+          audioAnswers: { none: {} },
+        },
+        select: { fileId: true, storageKey: true },
+      });
+      await tx.fileAsset.deleteMany({
+        where: { fileId: { in: deletableMedia.map((media) => media.fileId) } },
+      });
+
+      return {
+        applicationIds: applicationIds.map(Number),
+        mediaStorageKeys: deletableMedia.map((media) => media.storageKey),
+      };
+    }, { maxWait: 5_000, timeout: 30_000 });
   }
 
   async createFileAsset(input: Omit<FileAsset, "fileId" | "createdAt" | "status">): Promise<FileAsset> {

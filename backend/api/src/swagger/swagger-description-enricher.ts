@@ -70,6 +70,18 @@ const OPERATION_DOCUMENTATION_BY_HANDLER: Record<string, OperationDocumentation>
     summary: "지원서 제출 취소",
     description: "로그인한 지원자의 지원서 소유권과 취소 가능 상태를 확인한 뒤 해당 지원서를 취소 처리합니다.",
   },
+  unlockDemoApplicationReset: {
+    summary: "지원 내역 초기화 도구 활성화",
+    description: "올바른 명령어를 입력한 로그인 지원자에게 현재 화면의 초기화 도구를 활성화합니다.",
+  },
+  resetAllDemoApplications: {
+    summary: "전체 지원 내역 초기화",
+    description: "로그인 지원자의 모든 지원서와 종속 면접·답변·리포트 데이터를 삭제하고 재지원 가능한 상태로 초기화합니다.",
+  },
+  resetDemoApplication: {
+    summary: "단일 지원 내역 초기화",
+    description: "로그인 지원자가 소유한 지정 지원서와 종속 면접·답변·리포트 데이터를 삭제하고 관련 답변 미디어를 정리합니다.",
+  },
   getInterviewGuide: {
     summary: "채용면접 응시 안내 조회",
     description: "본인 지원 건의 면접 기간, 필수 동의, 장치 점검 및 면접 시작 가능 상태를 조회합니다.",
