@@ -248,6 +248,13 @@ export interface CandidateApplicationSummary {
   canStartInterview: boolean;
 }
 
+export interface CandidateDemoApplicationResetResult {
+  resetCount: number;
+  applicationIds: number[];
+  mediaFileCount: number;
+  storageCleanupFailedCount: number;
+}
+
 export interface CandidateInterviewGuide {
   applicationId: number;
   sessionId: number;
@@ -889,6 +896,9 @@ export const candidateApiPaths = {
   mockReportMediaSession: (reportId: number) => `/api/v1/candidate/mock-interview/reports/${reportId}/media/session`,
   mockReportGenerate: (reportId: number) => `/api/v1/candidate/mock-interview/reports/${reportId}/generate`,
   applications: "/api/v1/candidate/applications",
+  demoApplicationResetUnlock: "/api/v1/candidate/demo-tools/applications/unlock",
+  demoApplicationsReset: "/api/v1/candidate/demo-tools/applications",
+  demoApplicationReset: (applicationId: number) => `/api/v1/candidate/demo-tools/applications/${applicationId}`,
   interviewGuide: (applicationId: number) => `/api/v1/candidate/applications/${applicationId}/interview-guide`,
   interviewConsent: (applicationId: number) => `/api/v1/candidate/applications/${applicationId}/consent`,
   applicationReport: (applicationId: number) => `/api/v1/candidate/applications/${applicationId}/report`,
@@ -994,6 +1004,9 @@ export interface CandidateApiClient {
   createMockReportMediaSession(reportId: number): Promise<ApiResponse<CandidateMockReportMediaPlaybackSession>>;
   requestMockReportGeneration(reportId: number): Promise<ApiResponse<CandidateReportGenerationHandoff>>;
   listApplications(): Promise<ApiListResponse<CandidateApplicationSummary>>;
+  unlockDemoApplicationReset(command: string): Promise<ApiResponse<{ enabled: true }>>;
+  resetAllDemoApplications(): Promise<ApiResponse<CandidateDemoApplicationResetResult>>;
+  resetDemoApplication(applicationId: number): Promise<ApiResponse<CandidateDemoApplicationResetResult>>;
   getInterviewGuide(applicationId: number): Promise<ApiResponse<CandidateInterviewGuide>>;
   saveInterviewConsent(
     applicationId: number,
@@ -1214,6 +1227,19 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
       }),
     listApplications: () =>
       request<ApiListResponse<CandidateApplicationSummary>>(candidateApiPaths.applications),
+    unlockDemoApplicationReset: (command) =>
+      request<ApiResponse<{ enabled: true }>>(candidateApiPaths.demoApplicationResetUnlock, {
+        method: "POST",
+        body: JSON.stringify({ command }),
+      }),
+    resetAllDemoApplications: () =>
+      request<ApiResponse<CandidateDemoApplicationResetResult>>(candidateApiPaths.demoApplicationsReset, {
+        method: "DELETE",
+      }),
+    resetDemoApplication: (applicationId) =>
+      request<ApiResponse<CandidateDemoApplicationResetResult>>(candidateApiPaths.demoApplicationReset(applicationId), {
+        method: "DELETE",
+      }),
     getInterviewGuide: (applicationId) =>
       request<ApiResponse<CandidateInterviewGuide>>(candidateApiPaths.interviewGuide(applicationId)),
     saveInterviewConsent: (applicationId, body) =>

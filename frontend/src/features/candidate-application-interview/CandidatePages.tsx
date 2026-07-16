@@ -64,6 +64,7 @@ import {
 } from "./api";
 import { CandidateProfileSection } from "./CandidateProfileSection";
 import { CandidateProfileSnapshotEditor } from "./CandidateProfileSnapshotEditor";
+import { isCandidateDemoCommandShortcut } from "./candidate-demo-tools";
 import {
   createRealtimeInterviewSpeechResponseEvent,
   createRealtimeInterviewWebRtcConnection,
@@ -1064,15 +1065,25 @@ const APPLICATION_STATUS_FILTERS: { value: CandidateApplicationStatusFilter; lab
 ];
 
 const APPLICATIONS_PAGE_SIZE = 8;
+type CandidateDemoResetTarget = CandidateApplicationSummary | "ALL";
 
 // 마이페이지 '지원 내역' 탭 — 지원 요약 + 지원한 공고 목록(페이지네이션). (#272 마이페이지 탭 재편)
 export function CandidateApplicationsPage() {
   const router = useRouter();
   const load = useCallback(() => getCandidateApi().listApplications(), []);
-  const { data, loading, error } = useCandidateResource(load, []);
+  const { data, loading, error, refresh } = useCandidateResource(load, []);
   const applications = data?.data.items ?? [];
   const availableApplications = applications.filter((application) => application.availabilityStatus !== "UNAVAILABLE");
   const [statusFilter, setStatusFilter] = useState<CandidateApplicationStatusFilter>("ALL");
+  const [demoCommandOpen, setDemoCommandOpen] = useState(false);
+  const [demoCommand, setDemoCommand] = useState("");
+  const [demoCommandError, setDemoCommandError] = useState("");
+  const [demoCommandBusy, setDemoCommandBusy] = useState(false);
+  const [demoResetEnabled, setDemoResetEnabled] = useState(false);
+  const [demoResetTarget, setDemoResetTarget] = useState<CandidateDemoResetTarget | null>(null);
+  const [demoResetError, setDemoResetError] = useState("");
+  const [demoResetNotice, setDemoResetNotice] = useState("");
+  const [demoResetBusy, setDemoResetBusy] = useState(false);
   // 면접 안내 모달을 지원 내역 위에서 연다. 완료 시 장치 점검 라우트로 이동. (#288)
   const [guideAppId, setGuideAppId] = useState<number | null>(null);
   // /interview-guide 라우트로 직접 진입한 경우 ?guide=id 로 리다이렉트되어 여기서 모달을 연다.
@@ -1086,6 +1097,28 @@ export function CandidateApplicationsPage() {
       }
     }
   }, [guideParam]);
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (!isCandidateDemoCommandShortcut(event) || isRuntimeShortcutIgnoredTarget(event.target)) return;
+      event.preventDefault();
+      setDemoCommand("");
+      setDemoCommandError("");
+      setDemoCommandOpen(true);
+    };
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, []);
+
+  useEffect(() => {
+    if (!demoCommandOpen) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !demoCommandBusy) setDemoCommandOpen(false);
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [demoCommandBusy, demoCommandOpen]);
+
   const [page, setPage] = useState(1);
   const summary = {
     total: applications.length,
@@ -1111,6 +1144,51 @@ export function CandidateApplicationsPage() {
   useEffect(() => {
     setPage(1);
   }, [statusFilter]);
+
+  async function handleDemoCommandSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setDemoCommandBusy(true);
+    setDemoCommandError("");
+    try {
+      await getCandidateApi().unlockDemoApplicationReset(demoCommand);
+      setDemoResetEnabled(true);
+      setDemoCommandOpen(false);
+      setDemoCommand("");
+    } catch (commandError) {
+      setDemoCommandError(toErrorMessage(commandError));
+    } finally {
+      setDemoCommandBusy(false);
+    }
+  }
+
+  async function handleDemoResetConfirmed() {
+    if (!demoResetTarget) return;
+    setDemoResetBusy(true);
+    setDemoResetError("");
+    setDemoResetNotice("");
+    try {
+      const response =
+        demoResetTarget === "ALL"
+          ? await getCandidateApi().resetAllDemoApplications()
+          : await getCandidateApi().resetDemoApplication(demoResetTarget.applicationId);
+      const successMessage =
+        response.data.storageCleanupFailedCount > 0
+          ? `${response.data.resetCount}건을 초기화했습니다. 일부 녹화 파일 정리는 확인이 필요합니다.`
+          : `${response.data.resetCount}건의 지원 내역을 초기화했습니다.`;
+      setDemoResetTarget(null);
+      setPage(1);
+      try {
+        await refresh();
+        setDemoResetNotice(successMessage);
+      } catch {
+        setDemoResetNotice(`${successMessage} 목록은 페이지를 새로고침해 확인해주세요.`);
+      }
+    } catch (resetError) {
+      setDemoResetError(toErrorMessage(resetError));
+    } finally {
+      setDemoResetBusy(false);
+    }
+  }
 
   return (
     <CandidatePageShell active="accountBilling">
@@ -1150,6 +1228,24 @@ export function CandidateApplicationsPage() {
             </div>
           </div>
 
+          {demoResetEnabled ? (
+            <div className="demo-reset-toolbar">
+              <strong>시연 데이터 관리</strong>
+              <button
+                className="demo-reset-toolbar__button"
+                type="button"
+                disabled={applications.length === 0 || demoResetBusy}
+                onClick={() => {
+                  setDemoResetError("");
+                  setDemoResetTarget("ALL");
+                }}
+              >
+                전체 초기화
+              </button>
+            </div>
+          ) : null}
+          {demoResetNotice ? <p className="notice success demo-reset-notice">{demoResetNotice}</p> : null}
+
           {loading ? (
             <p className="applications-empty">지원 내역을 불러오는 중이에요.</p>
           ) : filteredApplications.length ? (
@@ -1182,23 +1278,39 @@ export function CandidateApplicationsPage() {
                       />
                       {renderCandidateReportStatus(application.reportStatus)}
                     </div>
-                    {action.href === candidateApplicationInterviewRoutes.interviewGuide(application.applicationId) ? (
-                      <button
-                        className="application-row__cta"
-                        type="button"
-                        onClick={() => setGuideAppId(application.applicationId)}
-                      >
-                        {action.label}
-                      </button>
-                    ) : action.href ? (
-                      <Link className="application-row__cta" href={action.href}>
-                        {action.label}
-                      </Link>
-                    ) : (
-                      <span className="application-row__cta is-disabled" aria-disabled="true">
-                        {action.label}
-                      </span>
-                    )}
+                    <div className="application-row__actions">
+                      {action.href === candidateApplicationInterviewRoutes.interviewGuide(application.applicationId) ? (
+                        <button
+                          className="application-row__cta"
+                          type="button"
+                          onClick={() => setGuideAppId(application.applicationId)}
+                        >
+                          {action.label}
+                        </button>
+                      ) : action.href ? (
+                        <Link className="application-row__cta" href={action.href}>
+                          {action.label}
+                        </Link>
+                      ) : (
+                        <span className="application-row__cta is-disabled" aria-disabled="true">
+                          {action.label}
+                        </span>
+                      )}
+                      {demoResetEnabled ? (
+                        <button
+                          className="application-row__reset"
+                          type="button"
+                          disabled={demoResetBusy}
+                          aria-label={`${application.jobTitle ?? "삭제된 공고"} 지원 내역 초기화`}
+                          onClick={() => {
+                            setDemoResetError("");
+                            setDemoResetTarget(application);
+                          }}
+                        >
+                          초기화
+                        </button>
+                      ) : null}
+                    </div>
                   </li>
                 );
               })}
@@ -1245,6 +1357,111 @@ export function CandidateApplicationsPage() {
           ) : null}
         </section>
       </section>
+
+      {demoCommandOpen ? (
+        <div
+          className="modal-backdrop demo-command-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !demoCommandBusy) setDemoCommandOpen(false);
+          }}
+        >
+          <form
+            className="modal demo-command-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="demo-command-title"
+            onSubmit={(event) => void handleDemoCommandSubmit(event)}
+          >
+            <div className="modal-head">
+              <div>
+                <h2 id="demo-command-title">명령 실행</h2>
+              </div>
+            </div>
+            <label className="demo-command-field" htmlFor="candidate-demo-command">
+              <span>명령어</span>
+              <input
+                id="candidate-demo-command"
+                autoFocus
+                autoComplete="off"
+                spellCheck={false}
+                value={demoCommand}
+                disabled={demoCommandBusy}
+                onChange={(event) => setDemoCommand(event.target.value)}
+              />
+            </label>
+            {demoCommandError ? <p className="notice danger" role="alert">{demoCommandError}</p> : null}
+            <div className="modal-actions">
+              <button
+                className="btn secondary"
+                type="button"
+                disabled={demoCommandBusy}
+                onClick={() => setDemoCommandOpen(false)}
+              >
+                취소
+              </button>
+              <button className="btn primary" type="submit" disabled={demoCommandBusy || !demoCommand.trim()}>
+                {demoCommandBusy ? "확인 중" : "실행"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {demoResetTarget ? (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !demoResetBusy) setDemoResetTarget(null);
+          }}
+        >
+          <section
+            className="modal demo-reset-confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="demo-reset-confirm-title"
+            aria-describedby="demo-reset-confirm-description"
+          >
+            <div className="modal-head">
+              <div>
+                <h2 id="demo-reset-confirm-title">지원 내역 초기화</h2>
+                <p id="demo-reset-confirm-description">
+                  면접 답변, 리포트, 녹화 데이터가 함께 삭제되며 되돌릴 수 없습니다.
+                </p>
+              </div>
+            </div>
+            <div className="confirm-box">
+              <strong>{demoResetTarget === "ALL" ? "전체 지원 내역" : demoResetTarget.jobTitle ?? "삭제된 공고"}</strong>
+              <span>
+                {demoResetTarget === "ALL"
+                  ? `${applications.length}건`
+                  : demoResetTarget.companyName ?? "알 수 없는 기업"}
+              </span>
+            </div>
+            {demoResetError ? <p className="notice danger" role="alert">{demoResetError}</p> : null}
+            <div className="modal-actions split-actions">
+              <button
+                autoFocus
+                className="btn secondary"
+                type="button"
+                disabled={demoResetBusy}
+                onClick={() => setDemoResetTarget(null)}
+              >
+                취소
+              </button>
+              <button
+                className="btn primary danger"
+                type="button"
+                disabled={demoResetBusy}
+                onClick={() => void handleDemoResetConfirmed()}
+              >
+                {demoResetBusy ? "초기화 중" : "초기화"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {guideAppId != null ? (
         <InterviewGuideModal

@@ -31,6 +31,9 @@ type CandidateControllerRoute =
   | "updateFolder"
   | "deleteFolder"
   | "listApplications"
+  | "unlockDemoApplicationReset"
+  | "resetAllDemoApplications"
+  | "resetDemoApplication"
   | "getInterviewGuide"
   | "saveInterviewConsent";
 
@@ -64,6 +67,9 @@ assertRoute("getFolder", candidateApiRoutes.folderDetail, RequestMethod.GET);
 assertRoute("updateFolder", candidateApiRoutes.folderDetail, RequestMethod.PATCH);
 assertRoute("deleteFolder", candidateApiRoutes.folderDetail, RequestMethod.DELETE, 204);
 assertRoute("listApplications", candidateApiRoutes.applications, RequestMethod.GET);
+assertRoute("unlockDemoApplicationReset", candidateApiRoutes.demoApplicationResetUnlock, RequestMethod.POST);
+assertRoute("resetAllDemoApplications", candidateApiRoutes.demoApplicationsReset, RequestMethod.DELETE);
+assertRoute("resetDemoApplication", candidateApiRoutes.demoApplicationReset, RequestMethod.DELETE);
 assertRoute("getInterviewGuide", candidateApiRoutes.interviewGuide, RequestMethod.GET);
 assertRoute("saveInterviewConsent", candidateApiRoutes.interviewConsent, RequestMethod.POST);
 
@@ -313,6 +319,39 @@ async function runControllerRuntimeAssertions() {
     409,
     "APPLICATION_ALREADY_SUBMITTED",
   );
+
+  await assertCandidateHttpError(
+    () => controller.unlockDemoApplicationReset(validCandidateRequest, { command: "demo:delete" }),
+    400,
+    "COMMON_VALIDATION_FAILED",
+  );
+  const unlocked = await controller.unlockDemoApplicationReset(validCandidateRequest, { command: " DEMO:RESET " });
+  assert.equal(unlocked.data.enabled, true);
+
+  const singleReset = await controller.resetDemoApplication(
+    validCandidateRequest,
+    String(submitted.data.application.applicationId),
+  );
+  assert.deepEqual(singleReset.data.applicationIds, [submitted.data.application.applicationId]);
+  assert.equal(singleReset.data.resetCount, 1);
+  assert.equal((await controller.listApplications(validCandidateRequest)).data.items.length, 0);
+
+  const reapplied = await controller.submitApplication(validCandidateRequest, "1", {
+    ...validSubmitApplication,
+    resumeFileId: resume.data.fileId,
+    consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
+  });
+  await controller.submitApplication(validCandidateRequest, "2", {
+    ...validSubmitApplication,
+    resumeFileId: resume.data.fileId,
+    consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
+  });
+  assert.equal(reapplied.data.application.postingId, 1);
+
+  const allReset = await controller.resetAllDemoApplications(validCandidateRequest);
+  assert.equal(allReset.data.resetCount, 2);
+  assert.equal((await controller.listApplications(validCandidateRequest)).data.items.length, 0);
+  assert.equal((await controller.resetAllDemoApplications(validCandidateRequest)).data.resetCount, 0);
 }
 
 test("candidate controller contract", async () => {

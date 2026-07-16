@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import {
   CANDIDATE_ACTIVITY_TYPES,
   CANDIDATE_CREDENTIAL_TYPES,
@@ -18,6 +18,7 @@ import { CreatePortfolioLinkDto } from "../dto/create-portfolio-link.dto";
 import { SaveInterviewConsentDto } from "../dto/save-interview-consent.dto";
 import { SubmitApplicationDto } from "../dto/submit-application.dto";
 import { UploadResumeDto } from "../dto/upload-resume.dto";
+import { UnlockDemoApplicationResetDto } from "../dto/unlock-demo-application-reset.dto";
 import { FORBIDDEN_FILE_PAYLOAD_FIELDS } from "../candidate.constants";
 import { CandidateDomainError } from "../candidate.errors";
 import {
@@ -32,6 +33,7 @@ import {
   ApplicationDocument,
   ApplicationSubmissionResult,
   CandidateApplicationSummary,
+  CandidateDemoApplicationResetResult,
   CandidateApplyView,
   CandidateFolder,
   CandidateFolderContext,
@@ -70,6 +72,7 @@ const APPLICATION_CONSENT_TYPES = ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS",
 const CANDIDATE_LIST_POSTING_STATUSES = ["OPEN", "CLOSING_SOON"] as const;
 const CANDIDATE_LIST_SORT_FIELDS = ["createdAt", "endsOn", "title"] as const;
 const SORT_ORDERS = ["asc", "desc"] as const;
+const DEMO_APPLICATION_RESET_COMMAND = "demo:reset";
 
 type CandidateListPostingStatus = (typeof CANDIDATE_LIST_POSTING_STATUSES)[number];
 type CandidateListSortField = (typeof CANDIDATE_LIST_SORT_FIELDS)[number];
@@ -133,6 +136,8 @@ export { DEV_CANDIDATE_USER } from "../candidate.constants";
 
 @Injectable()
 export class CandidateService {
+  private readonly logger = new Logger(CandidateService.name);
+
   constructor(
     @Inject(CANDIDATE_REPOSITORY) private readonly repository: CandidateRepository,
     @Optional()
@@ -652,6 +657,40 @@ export class CandidateService {
     const applications = await this.repository.listApplications(currentUser.candidateId);
     const items = await Promise.all(applications.map((application) => this.toApplicationSummary(application)));
     return this.listEnvelope(items, this.createPageMeta(1, Math.max(items.length, 1), items.length));
+  }
+
+  unlockDemoApplicationReset(
+    dto: UnlockDemoApplicationResetDto,
+    currentUser: CurrentCandidateUser,
+  ): ApiResponse<{ enabled: true }> {
+    if (dto.command.trim().toLowerCase() !== DEMO_APPLICATION_RESET_COMMAND) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "시연 도구 명령어를 확인해주세요.", 400, [
+        { field: "command", reason: "command is invalid" },
+      ]);
+    }
+
+    this.logger.log(
+      JSON.stringify({
+        event: "candidate_demo_application_reset_unlocked",
+        userId: currentUser.userId,
+        candidateId: currentUser.candidateId,
+      }),
+    );
+    return this.envelope({ enabled: true });
+  }
+
+  async resetDemoApplication(
+    applicationId: number,
+    currentUser: CurrentCandidateUser,
+  ): Promise<ApiResponse<CandidateDemoApplicationResetResult>> {
+    this.assertPositiveIntegerId(applicationId, "applicationId");
+    return this.resetDemoApplications(currentUser, applicationId);
+  }
+
+  async resetAllDemoApplications(
+    currentUser: CurrentCandidateUser,
+  ): Promise<ApiResponse<CandidateDemoApplicationResetResult>> {
+    return this.resetDemoApplications(currentUser);
   }
 
   async getInterviewGuide(
@@ -1931,6 +1970,57 @@ export class CandidateService {
         { field: "storageKey", reason: `storageKey must be an object key under ${expectedPrefix}` },
       ]);
     }
+  }
+
+  private async resetDemoApplications(
+    currentUser: CurrentCandidateUser,
+    applicationId?: number,
+  ): Promise<ApiResponse<CandidateDemoApplicationResetResult>> {
+    const reset = await this.repository.resetDemoApplications({
+      candidateId: currentUser.candidateId,
+      ownerUserId: currentUser.userId,
+      applicationId,
+    });
+    if (applicationId !== undefined && reset.applicationIds.length === 0) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "지원 내역을 찾을 수 없습니다.", 404);
+    }
+
+    let failedKeys: string[] = [];
+    if (reset.mediaStorageKeys.length > 0) {
+      try {
+        ({ failedKeys } = await this.documentStorage.deleteObjects(reset.mediaStorageKeys));
+      } catch {
+        failedKeys = [...reset.mediaStorageKeys];
+      }
+    }
+
+    const result: CandidateDemoApplicationResetResult = {
+      resetCount: reset.applicationIds.length,
+      applicationIds: reset.applicationIds,
+      mediaFileCount: reset.mediaStorageKeys.length,
+      storageCleanupFailedCount: failedKeys.length,
+    };
+    this.logger.log(
+      JSON.stringify({
+        event: "candidate_demo_applications_reset",
+        userId: currentUser.userId,
+        candidateId: currentUser.candidateId,
+        requestedApplicationId: applicationId ?? null,
+        ...result,
+      }),
+    );
+    if (failedKeys.length > 0) {
+      this.logger.warn(
+        JSON.stringify({
+          event: "candidate_demo_application_media_cleanup_incomplete",
+          userId: currentUser.userId,
+          candidateId: currentUser.candidateId,
+          failedCount: failedKeys.length,
+          failedStorageKeys: failedKeys,
+        }),
+      );
+    }
+    return this.envelope(result);
   }
 
   private async assertFileAssetForCurrentUser(fileId: number, ownerUserId: number, field: string): Promise<FileAsset> {

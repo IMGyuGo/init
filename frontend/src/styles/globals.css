@@ -10353,6 +10353,45 @@ p {
   border-color: #3b6fe0;
 }
 
+.notion.candidate-mypage .demo-reset-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 46px;
+  margin: 0 0 14px;
+  padding: 8px 12px;
+  color: #37352f;
+  background: #f7f7f5;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 8px;
+}
+.notion.candidate-mypage .demo-reset-toolbar strong { font-size: 13px; font-weight: 600; }
+.notion.candidate-mypage .demo-reset-toolbar__button,
+.notion.candidate-mypage .application-row__reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 10px;
+  color: #b42318;
+  background: #fff;
+  border: 1px solid rgba(180, 35, 24, 0.28);
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.notion.candidate-mypage .demo-reset-toolbar__button:hover:not(:disabled),
+.notion.candidate-mypage .application-row__reset:hover:not(:disabled) {
+  background: #fff4f2;
+  border-color: rgba(180, 35, 24, 0.5);
+}
+.notion.candidate-mypage .demo-reset-toolbar__button:disabled,
+.notion.candidate-mypage .application-row__reset:disabled { opacity: 0.45; cursor: not-allowed; }
+.notion.candidate-mypage .demo-reset-notice { margin: 0 0 14px; }
+
 .notion.candidate-mypage .applications-list {
   list-style: none;
   margin: 8px 0 0;
@@ -10394,6 +10433,11 @@ p {
   align-items: center;
   gap: 6px;
   justify-self: end;
+}
+.notion.candidate-mypage .application-row__actions {
+  display: grid;
+  width: 108px;
+  gap: 6px;
 }
 /* 결과 확인·면접 준비하기 등 라벨 길이와 무관하게 버튼 크기 통일 (고정 폭 열 + 꽉 채움) */
 .notion.candidate-mypage .application-row__cta {
@@ -10472,7 +10516,32 @@ p {
 
 @media (max-width: 640px) {
   .notion.candidate-mypage .application-row { grid-template-columns: 1fr auto; }
-  .notion.candidate-mypage .application-row__cta { grid-column: 1 / -1; justify-self: start; }
+  .notion.candidate-mypage .application-row__actions {
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1fr) auto;
+    width: 100%;
+  }
+  .notion.candidate-mypage .application-row__cta { justify-self: start; }
+}
+
+.demo-command-modal,
+.demo-reset-confirm-modal { width: min(460px, 100%); border-radius: 8px; }
+.demo-command-field { display: grid; gap: 7px; }
+.demo-command-field span { color: #37352f; font-size: 13px; font-weight: 600; }
+.demo-command-field input {
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  color: #191919;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.2);
+  border-radius: 8px;
+  font: inherit;
+  outline: none;
+}
+.demo-command-field input:focus {
+  border-color: #3b6fe0;
+  box-shadow: 0 0 0 3px rgba(59, 111, 224, 0.14);
 }
 
 /* 지원자 공고: 인기 TOP 별 아이콘 + 해당 공고 개수 문구 */
