@@ -1769,6 +1769,8 @@ AI 리포트 금지 기준:
   - `data.criteriaVersion: number`, 평가 기준 저장 성공 시 1 증가한다.
   - 정책 row가 없으면 같은 transaction에서 기본 정책 row를 생성하고 첫 저장 결과의 `criteriaVersion=1`로 응답한다.
   - 평가 기준 변경과 `criteriaVersion` 증가는 하나의 transaction으로 처리한다.
+  - `criteriaVersion`이 변경되고 개인화 질문 수가 1개 이상이면, 이미 지원 완료됐고 이력서 추출이 끝난 지원자의 현재 입력 snapshot을 기준으로 `RESUME_QUESTION_GENERATE` 작업을 자동 등록한다.
+  - 현재 version의 `READY` 또는 `GENERATING` batch가 이미 있으면 중복 작업을 만들지 않는다. queue 등록 실패는 해당 batch/process를 `FAILED`로 기록하며 평가 기준 저장 자체를 되돌리지 않는다.
 - 오류/예외:
   - 배점 합계 오류 또는 필수 평가 항목 삭제 시 저장을 제한한다.
   - 인증 누락: `COMMON_UNAUTHORIZED`
@@ -1824,7 +1826,8 @@ AI 리포트 금지 기준:
   - 같은 공고 안에서 같은 `content`의 활성 질문은 중복 등록하지 않는다.
   - NCS framework에서는 profile/mode/version을 클라이언트가 직접 지정하지 않고 연결된 criterion snapshot에서 가져온다.
   - NCS AI 후보 적용은 `sourceProcessLogId`의 완료 output에서 content와 criterion이 일치하고 `alignmentStatus=ALIGNED`인 결과만 허용한다.
-  - 수동 작성 질문은 `generationSource=null`, `alignmentStatus=NOT_EVALUATED`, `sourceProcessLogId=null`로 저장한다.
+  - LEGACY 수동 작성 질문은 `generationSource=null`, `alignmentStatus=NOT_EVALUATED`, `sourceProcessLogId=null`로 저장한다.
+  - `NCS_3_PROFILE_V1` 수동 작성 질문은 기업 면접관이 JD 공통 질문과 canonical criterion binding을 직접 확인한 것으로 보고 `generationSource=JD_CRITERIA`, `alignmentStatus=ALIGNED`, `alignmentScore=null`, `evaluatorVersion=company-question-review-v1`, `sourceProcessLogId=null`로 저장한다.
 - Error Codes:
   - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_CONFLICT`, `COMMON_VALIDATION_FAILED`, `INTERVIEW_NCS_BINDING_INVALID`
 
@@ -1850,7 +1853,12 @@ AI 리포트 금지 기준:
 - Processing:
   - `origin=AI_GENERATED`인 질문을 수정하면 `isAiEdited=true`로 저장한다.
   - 직접 작성 질문은 수정 후에도 `origin=MANUAL`, `isAiEdited=false`를 유지한다.
-  - criterion binding을 변경하면 NCS profile/version snapshot을 새 criterion 값으로 교체하고 기존 alignment 결과는 `NOT_EVALUATED`로 초기화한다.
+  - `NCS_3_PROFILE_V1`에서 기업 면접관이 공통 질문을 작성하거나 AI 질문을 Drawer에서 수정하면 연결된 criterion을 사람이 확인한 것으로 기록한다.
+    - `generationSource=JD_CRITERIA`, `alignmentStatus=ALIGNED`, `alignmentScore=null`
+    - `evaluatorVersion=company-question-review-v1`
+    - `alignmentReason`에는 기업 면접관의 작성·수정 검토임을 기록한다.
+  - 위 사람 검토는 E evaluator의 점수 임계값을 대신 계산하지 않는다. 질문 문구와 1~2개 canonical criterion binding을 기업 사용자가 명시적으로 확인한 사실만 나타낸다.
+  - LEGACY 질문 또는 NCS가 아닌 질문의 criterion binding을 변경하면 기존 alignment 결과는 `NOT_EVALUATED`로 초기화한다.
 - Validation:
   - `questionId`는 로그인한 기업 소유 질문이어야 한다.
   - `criterionIds`의 모든 값은 해당 질문과 같은 공고의 평가 기준이어야 하며 NCS framework에서는 1~2개여야 한다.
@@ -1948,7 +1956,11 @@ AI 리포트 금지 기준:
     - `expectedKeywords: string[]`
     - `suggestionReason: string`
     - `questionType?: QuestionType`
-  - C 화면은 질문 후보를 자동 저장하지 않고 미리보기로 표시한 뒤, 사용자가 선택한 질문만 기존 `POST /company/interviews/questions` 흐름에 반영한다.
+  - `NCS_3_PROFILE_V1` C 화면은 완료 결과 중 `alignmentStatus=ALIGNED`이고 criterion을 매칭할 수 있는 후보를 기존 `POST /company/interviews/questions` 흐름으로 멱등 반영한다.
+  - 새 추천 결과를 모두 반영한 경우 같은 공고의 이전 AI 생성 `JD_CRITERIA` 질문 중 새 결과에 포함되지 않은 항목은 비활성화한다. 기업이 직접 작성한 질문은 자동 비활성화하지 않는다.
+  - 반영된 질문은 별도 후보 확정 화면을 거치지 않고 하단 공통 질문 목록에 즉시 표시한다. 사용자는 Drawer에서 질문 문구·유형·binding을 수정할 수 있다.
+  - 2단계의 다음 버튼은 정책 저장 후 하단 목록에서 현재 정책 개수와 NCS profile별 최소 2문항을 만족하는 질문 전체를 `POST /company/interviews/question-sets/confirm`으로 확정한 경우에만 3단계로 이동한다.
+  - `LOW_ALIGNMENT`, `REVIEW_REQUIRED`, criterion 매칭 실패 후보는 자동 반영하지 않고 원인을 표시한다.
   - 평가 기준 매칭 실패 시 사용자 화면에는 `연결할 평가 기준 선택 필요`를 표시한다.
   - C 화면 적용 규칙:
     - `criterionId`가 있으면 같은 공고의 평가 기준과 먼저 매칭한다.
@@ -1958,8 +1970,13 @@ AI 리포트 금지 기준:
     - 저장 가능한 후보가 없으면 `저장 가능한 질문 후보가 없습니다` 계열의 안내를 표시한다.
 - Processing:
   - API 서버는 장기 AI 생성을 직접 수행하지 않고 `ai_process_logs` 추적 ID만 반환한다.
+  - 저장된 JD가 rich HTML이면 공고 조건 메타 블록, 이미지·스크립트·스타일·HTML 태그를 제거하고 사람이 읽을 수 있는 본문 일반 텍스트만 worker payload에 포함한다.
   - worker/SQS 페이로드에는 `postingId`, `policyVersion`, `criteriaVersion`, `source=JD_CRITERIA`와 서버가 조회한 평가 기준 snapshot을 포함한다.
   - 각 질문 후보는 하나의 `criterionId`와 하나의 NCS profile/mode에만 연결한다.
+  - 질문 본문에는 회사명이나 공고 제목을 대괄호 접두사로 붙이지 않고, 직무명을 모든 질문 첫머리에 반복하지 않는다.
+  - JD는 질문 주제를 고르는 근거로 사용하되 공고 문장을 그대로 복사하지 않는다. 도구·업무·책임 같은 구체 맥락은 해당 질문에 필요한 경우에만 자연스럽게 언급한다.
+  - 질문 하나는 하나의 핵심 경험이나 판단을 묻는다. 여러 행동지표를 쉼표로 나열한 장문 체크리스트형 질문을 만들지 않는다.
+  - 같은 batch 안에서 도입부와 종결어미를 반복하지 않고, 실제 면접관이 말하는 간결한 한국어 문장으로 생성한다.
   - evaluator가 `LOW_ALIGNMENT`를 반환하면 같은 question mode로 최대 2회 재생성한다.
   - 2회 실패 후에는 `enums.md`의 허용 fallback mode만 사용할 수 있으며, 여전히 기준 미달이면 `REVIEW_REQUIRED`로 남겨 자동 저장하지 않는다.
   - evaluator 임계값은 NCS evaluator 계약의 버전값을 사용하며 C 모듈에 별도 상수로 복제하지 않는다.
@@ -2044,6 +2061,7 @@ AI 리포트 금지 기준:
 - 성공 응답/처리:
   - 같은 공고의 기존 `ACTIVE` 질문 세트는 `DRAFT`로 변경한다.
   - 새 질문 세트를 `ACTIVE` 상태로 저장한다.
+  - NCS 면접 설정 2단계에서는 사용자가 다음 단계로 이동할 때 현재 하단 공통 질문 목록을 이 API로 확정한다. 별도의 질문 세트 미리보기·확정 UI는 필수 흐름으로 사용하지 않는다.
 - 응답 데이터:
   - `questionSetId`: number
   - `postingId`: number
@@ -2149,11 +2167,12 @@ AI 리포트 금지 기준:
   - 동시 수정 충돌 방지를 위해 `expectedPolicyVersion` 불일치 시 `COMMON_CONFLICT`를 반환한다.
   - 정책 row가 없으면 현재 version은 0으로 본다. 최초 저장은 `expectedPolicyVersion=0` 또는 생략을 허용하고 결과 version은 1이다.
 - Processing:
-  - 저장 성공 시 `policyVersion`을 1 증가시킨다.
+  - 질문 수 또는 평가 framework가 실제로 변경된 경우에만 `policyVersion`을 1 증가시킨다. 현재 값과 동일한 멱등 요청은 기존 version을 그대로 반환한다.
   - 전체 질문 수만큼 평가 기준 `sortOrder` 순환 배열을 만든다. 예: 총 6개면 `1,2,3,1,2,3`이다.
   - 순환 배열의 앞 `jdCriteriaQuestionCount`개를 `JD_CRITERIA`, 나머지를 `RESUME_PERSONALIZED`에 배정한다.
   - 두 source를 합친 profile별 질문 수 차이는 최대 1이며, source별 요청 개수는 정확히 보존한다. 동일 입력과 version은 항상 같은 allocation을 만든다.
-  - 이 API는 생성 정책만 저장하며 AI job을 시작하지 않는다.
+  - 실제 정책 변경으로 새 `policyVersion`이 생성되고 `resumeQuestionCount > 0`이면, 이미 지원 완료됐고 이력서 추출이 끝난 지원자의 현재 입력 snapshot을 기준으로 `RESUME_QUESTION_GENERATE` 작업을 자동 등록한다.
+  - 현재 version의 `READY` 또는 `GENERATING` batch가 이미 있으면 중복 작업을 만들지 않는다. queue 등록 실패는 해당 batch/process를 `FAILED`로 기록하고 `warnings[]`에 요약하되 정책 저장은 유지한다.
   - 정책 저장과 version 증가는 하나의 transaction으로 처리한다.
 
 Allocation Examples:
@@ -2178,6 +2197,7 @@ Allocation Examples:
     - `ncsQuestionMode: NcsQuestionMode`
     - `count: number`
   - `warnings: string[]`
+    - 개인화 질문 자동 재생성 queue를 등록하지 못한 지원자가 있으면 원문이나 지원자 개인정보 없이 실패 건수를 제공한다.
 - Error Codes:
   - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_CONFLICT`, `COMMON_VALIDATION_FAILED`
   - `INTERVIEW_QUESTION_COUNT_INVALID`, `INTERVIEW_NCS_BINDING_INVALID`

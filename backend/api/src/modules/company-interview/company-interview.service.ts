@@ -73,6 +73,7 @@ import {
   CompanyInterviewSessionResponseDto,
   CreateCompanyInterviewSessionDto,
 } from './dto/company-interview-session.dto';
+import { toAiJobDescriptionText } from './job-description-text';
 
 type CommonQuestionGenerationRequest = {
   postingId: number;
@@ -87,6 +88,12 @@ type QuestionSetGenerationRequest = {
   criteria: Array<{ criterionId: number; name: string; weight?: number }>;
   questionTypes: string[];
 };
+
+const COMPANY_QUESTION_REVIEW_EVALUATOR_VERSION = 'company-question-review-v1';
+const COMPANY_QUESTION_CREATE_REVIEW_REASON =
+  '기업 면접관이 질문을 작성하고 NCS 평가 기준 연결을 확인했습니다.';
+const COMPANY_QUESTION_EDIT_REVIEW_REASON =
+  '기업 면접관이 질문을 수정하고 NCS 평가 기준 연결을 다시 확인했습니다.';
 
 @Injectable()
 export class CompanyInterviewService {
@@ -398,6 +405,10 @@ export class CompanyInterviewService {
       evaluationFramework,
       normalizedCriteria,
     );
+    await this.queuePersonalizedQuestionRegenerations(
+      posting.postingId,
+      '평가 기준 변경 반영',
+    );
     return {
       postingId: posting.postingId,
       criteria: await this.mapCriteria(saved.criteria),
@@ -447,10 +458,18 @@ export class CompanyInterviewService {
       conflict('다른 사용자가 질문 생성 정책을 먼저 수정했습니다. 새로고침 후 다시 시도해주세요.');
     }
 
+    const policyChanged = saved.policyVersion !== current.policyVersion;
+    const warnings = policyChanged
+      ? await this.queuePersonalizedQuestionRegenerations(
+          posting.postingId,
+          '질문 생성 정책 변경 반영',
+        )
+      : [];
+
     return {
       ...saved,
       allocations: buildQuestionAllocations(saved, criteria),
-      warnings: [],
+      warnings,
     };
   }
 
@@ -465,7 +484,8 @@ export class CompanyInterviewService {
       defaultQuestionGenerationPolicy(posting.postingId);
     const requestedCount = dto.jdCriteriaQuestionCount ?? dto.questionCount;
 
-    if (!posting.jobDescription?.trim()) {
+    const jobDescription = toAiJobDescriptionText(posting.jobDescription);
+    if (!jobDescription) {
       validationFailed('공고의 직무명세서를 먼저 저장해주세요.', [
         { field: 'postingId', reason: 'JOB_DESCRIPTION_REQUIRED' },
       ]);
@@ -514,7 +534,7 @@ export class CompanyInterviewService {
 
     return {
       postingId: posting.postingId,
-      jobDescription: posting.jobDescription.trim(),
+      jobDescription,
       questionCount,
       jdCriteriaQuestionCount: questionCount,
       source: 'JD_CRITERIA' as const,
@@ -635,6 +655,8 @@ export class CompanyInterviewService {
             policy.evaluationFramework,
           )
         : null;
+    const isCompanyReviewedNcsQuestion =
+      policy.evaluationFramework === 'NCS_3_PROFILE_V1' && origin === 'MANUAL';
     if (origin === 'MANUAL' && dto.sourceProcessLogId !== undefined) {
       validationFailed('수동 질문에는 AI 작업 ID를 지정할 수 없습니다.', [
         { field: 'sourceProcessLogId', reason: 'MANUAL_QUESTION' },
@@ -648,22 +670,26 @@ export class CompanyInterviewService {
       questionType: dto.questionType,
       content: dto.content,
       origin,
-      generationSource: aiCandidate ? 'JD_CRITERIA' : null,
+      generationSource:
+        aiCandidate || isCompanyReviewedNcsQuestion ? 'JD_CRITERIA' : null,
       ncsProfileId: aiCandidate?.ncsProfileId ?? ncsSnapshot.ncsProfileId,
       ncsQuestionMode:
         aiCandidate?.ncsQuestionMode ?? ncsSnapshot.ncsQuestionMode,
       ncsProfileVersion:
         aiCandidate?.ncsProfileVersion ?? ncsSnapshot.ncsProfileVersion,
-      alignmentStatus:
-        aiCandidate?.alignmentStatus ?? 'NOT_EVALUATED',
+      alignmentStatus: aiCandidate?.alignmentStatus ??
+        (isCompanyReviewedNcsQuestion ? 'ALIGNED' : 'NOT_EVALUATED'),
       alignmentScore: aiCandidate?.alignmentScore ?? null,
-      alignmentReason: aiCandidate?.alignmentReason ?? null,
-      evaluatorVersion: aiCandidate?.evaluatorVersion ?? null,
+      alignmentReason: aiCandidate?.alignmentReason ??
+        (isCompanyReviewedNcsQuestion ? COMPANY_QUESTION_CREATE_REVIEW_REASON : null),
+      evaluatorVersion: aiCandidate?.evaluatorVersion ??
+        (isCompanyReviewedNcsQuestion ? COMPANY_QUESTION_REVIEW_EVALUATOR_VERSION : null),
       sourceProcessLogId: dto.sourceProcessLogId ?? null,
-      ncsBindings:
-        policy.evaluationFramework === 'NCS_3_PROFILE_V1'
-          ? buildQuestionNcsBindings(bindingCriteria, aiCandidate)
-          : [],
+      ncsBindings: policy.evaluationFramework === 'NCS_3_PROFILE_V1'
+        ? isCompanyReviewedNcsQuestion
+          ? buildCompanyReviewedNcsBindings(bindingCriteria, COMPANY_QUESTION_CREATE_REVIEW_REASON)
+          : buildQuestionNcsBindings(bindingCriteria, aiCandidate)
+        : [],
     });
 
     return {
@@ -707,22 +733,31 @@ export class CompanyInterviewService {
       conflict('이미 등록된 질문입니다.');
     }
 
+    const isCompanyReviewedNcsQuestion =
+      policy.evaluationFramework === 'NCS_3_PROFILE_V1';
+
     const saved = await this.repository.updateQuestion(questionId, {
       criterionId: criterion.criterionId,
       questionType: dto.questionType,
       content: dto.content,
       isAiEdited:
         question.origin === 'AI_GENERATED' ? true : question.isAiEdited,
+      generationSource:
+        isCompanyReviewedNcsQuestion ? 'JD_CRITERIA' : question.generationSource,
       ncsProfileId: criterion.ncsProfileId,
       ncsQuestionMode: criterion.ncsQuestionMode,
       ncsProfileVersion: criterion.ncsProfileVersion,
-      alignmentStatus: 'NOT_EVALUATED',
+      alignmentStatus: isCompanyReviewedNcsQuestion ? 'ALIGNED' : 'NOT_EVALUATED',
       alignmentScore: null,
-      alignmentReason: '질문 내용 또는 평가 기준이 수정되어 정렬 재검증이 필요합니다.',
-      evaluatorVersion: null,
+      alignmentReason: isCompanyReviewedNcsQuestion
+        ? COMPANY_QUESTION_EDIT_REVIEW_REASON
+        : '질문 내용 또는 평가 기준이 수정되어 정렬 재검증이 필요합니다.',
+      evaluatorVersion: isCompanyReviewedNcsQuestion
+        ? COMPANY_QUESTION_REVIEW_EVALUATOR_VERSION
+        : null,
       ncsBindings:
         policy.evaluationFramework === 'NCS_3_PROFILE_V1'
-          ? buildQuestionNcsBindings(bindingCriteria, null)
+          ? buildCompanyReviewedNcsBindings(bindingCriteria, COMPANY_QUESTION_EDIT_REVIEW_REASON)
           : [],
     });
 
@@ -1065,6 +1100,57 @@ export class CompanyInterviewService {
     if (state.documentStatus !== 'EXTRACTED') return 'WAITING_DOCUMENT';
     if (!state.currentBatch) return state.hasStaleBatch ? 'STALE' : 'WAITING_DOCUMENT';
     return state.currentBatch.status;
+  }
+
+  private async queuePersonalizedQuestionRegenerations(
+    postingId: number,
+    reason: string,
+  ): Promise<string[]> {
+    const states = await this.repository.listResumeQuestionGenerations(postingId);
+    const eligible = states.filter((state) => {
+      if (
+        state.policy.resumeQuestionCount <= 0 ||
+        state.applicationStatus !== 'SUBMITTED' ||
+        state.documentStatus !== 'EXTRACTED' ||
+        !state.currentInputVersion
+      ) {
+        return false;
+      }
+      const status = this.resumeQuestionStatus(state);
+      return (
+        ['FAILED', 'REVIEW_REQUIRED', 'STALE'].includes(status) ||
+        (status === 'WAITING_DOCUMENT' && state.currentBatch === null)
+      );
+    });
+    if (eligible.length === 0) return [];
+    if (!this.queuePublisher) {
+      return [`개인화 질문 자동 재생성 ${eligible.length}건을 queue에 등록하지 못했습니다.`];
+    }
+
+    let failedCount = 0;
+    for (const state of eligible) {
+      const job = await this.repository.createResumeQuestionRetry({ state, reason });
+      try {
+        await this.queuePublisher.publish({
+          processLogId: job.processLogId,
+          processType: 'RESUME_QUESTION_GENERATE',
+          inputRef: JSON.stringify(job),
+          attempt: job.attempt,
+        });
+      } catch (error) {
+        failedCount += 1;
+        const failureReason =
+          error instanceof Error ? error.message : 'unknown queue publish failure';
+        await this.repository.markResumeQuestionRetryQueueFailed(
+          job.processLogId,
+          failureReason,
+        );
+      }
+    }
+
+    return failedCount > 0
+      ? [`개인화 질문 자동 재생성 ${failedCount}건을 queue에 등록하지 못했습니다.`]
+      : [];
   }
 
   private assertCompanyUser(
@@ -1455,6 +1541,22 @@ function validateConfirmableNcsQuestion(
   }
 
   return profileIds;
+}
+
+function buildCompanyReviewedNcsBindings(
+  criteria: EvaluationCriterionRecord[],
+  reason: string,
+): QuestionNcsBindingRecord[] {
+  return criteria.map((criterion, index) => ({
+    criterionId: criterion.criterionId,
+    ncsProfileId: criterion.ncsProfileId as NcsProfileId,
+    ncsProfileVersion: criterion.ncsProfileVersion as string,
+    alignmentStatus: 'ALIGNED',
+    alignmentScore: null,
+    alignmentReason: reason,
+    evaluatorVersion: COMPANY_QUESTION_REVIEW_EVALUATOR_VERSION,
+    bindingOrder: index + 1,
+  }));
 }
 
 function defaultQuestionGenerationPolicy(

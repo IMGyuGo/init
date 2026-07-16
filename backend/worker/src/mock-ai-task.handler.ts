@@ -915,7 +915,11 @@ export class MockAiTaskHandler implements AiTaskHandler {
     }
 
     const questions: PersonalizedQuestionRecord[] = allocatedCriteria.map((criterion, index) => {
-      const content = buildMockPersonalizedQuestion(criterion.ncsProfileId, index);
+      const content = buildMockPersonalizedQuestion(
+        criterion.ncsProfileId,
+        index,
+        context.resumeText,
+      );
       const alignment = alignNcsQuestion({
         question: content,
         profileId: criterion.ncsProfileId,
@@ -1440,24 +1444,62 @@ function buildRecruitingQuestionCandidate(
   jobDescription: string,
   criterionOccurrence: number,
 ): string {
-  const jd = shorten(jobDescription);
-  const focus = recruitingQuestionFocus(criterionOccurrence);
+  const topic = recruitingQuestionTopic(jobDescription, criterionOccurrence);
   if (criterion.ncsProfileId === "PROBLEM_SOLVING") {
-    return `${jd} 업무의 ${focus}에서 문제 원인을 분석하고 대안을 비교해 선택한 뒤 결과를 어떻게 검증했는지 설명해주세요.`;
+    const questions = [
+      "원인이 바로 드러나지 않는 문제를 해결한 경험이 있나요? 원인을 좁히고 대안을 선택한 기준과 결과를 확인한 방법을 말씀해 주세요.",
+      "제약이 많은 상황에서 여러 해결책을 비교했던 사례를 들려주세요. 최종안을 선택한 이유와 개선 효과를 어떻게 측정했나요?",
+      "반복되는 운영 문제를 발견하고 재발을 막기 위해 개선한 경험이 있나요? 문제를 분석한 과정과 검증 결과를 중심으로 말씀해 주세요.",
+    ];
+    return questions[criterionOccurrence % questions.length];
   }
 
   if (criterion.ncsProfileId === "COLLABORATION_COMMUNICATION") {
-    return `${jd} 업무의 ${focus}를 상대에 맞춰 구조적으로 설명하고 협업 과정의 이해와 합의를 어떻게 확인했는지 설명해주세요.`;
+    const questions = [
+      "기술적인 내용을 다른 직군이나 이해관계자에게 설명해야 했던 경험을 말씀해 주시겠어요? 상대의 눈높이에 맞춰 전달하고 이해 여부를 어떻게 확인했나요?",
+      "협업 중 의견이 엇갈렸던 상황에서 어떤 정보를 공유하고 조율했나요? 서로 합의했다는 것을 확인한 방식도 함께 들려주세요.",
+      "긴급한 문제를 여러 팀과 함께 해결한 경험이 있나요? 상황을 어떻게 정리해 전달했고, 받은 피드백을 어떻게 반영했나요?",
+    ];
+    return questions[criterionOccurrence % questions.length];
   }
   if (criterion.ncsProfileId === "JOB_TECHNICAL") {
-    return `${jd} 관련 ${focus}에서 기술의 동작 원리와 선택 이유, 실무 적용 방식, 장애와 보안 위험을 어떻게 검증했는지 설명해주세요.`;
+    const questions = [
+      `${topic} 관련 기술을 운영 환경에 도입하거나 개선한 경험이 있나요? 선택 기준과 예상한 위험을 어떻게 검증했는지 말씀해 주세요.`,
+      `${topic} 환경에서 장애나 성능 문제를 다룬 사례를 들려주세요. 시스템 동작 원리를 바탕으로 원인을 찾고, 적용한 개선이 유효했는지 어떻게 확인했나요?`,
+      `새로운 ${topic} 기술을 선택할 때 어떤 기준을 사용하나요? 실제 시스템에 적용하기 전 테스트한 최근 사례를 중심으로 말씀해 주시겠어요?`,
+    ];
+    return questions[criterionOccurrence % questions.length];
   }
-  return `${criterion.name} 기준으로 ${jd} 경험의 ${focus}를 검증할 수 있도록 설명해주세요.`;
+  const questions = [
+    `${criterion.name}과 관련해 본인이 직접 판단하고 실행한 경험을 하나 들려주세요. 당시 선택한 방법과 결과를 어떻게 확인했나요?`,
+    `${criterion.name} 역량이 가장 필요했던 최근 사례는 무엇인가요? 맡은 역할과 실행 결과를 중심으로 말씀해 주세요.`,
+    `${criterion.name}과 관련된 실패나 시행착오를 어떻게 개선했나요? 이후 달라진 결과도 함께 들려주세요.`,
+  ];
+  return questions[criterionOccurrence % questions.length];
 }
 
-function recruitingQuestionFocus(criterionOccurrence: number): string {
-  const focuses = ["대표 사례", "최근 의사결정 사례", "가장 복잡했던 사례", "실패 후 개선한 사례"];
-  return focuses[criterionOccurrence] ?? `${criterionOccurrence + 1}번째 사례`;
+function recruitingQuestionTopic(jobDescription: string, occurrence: number): string {
+  const topics = [
+    "Kubernetes",
+    "AWS",
+    "Docker",
+    "Terraform",
+    "CI/CD",
+    "GitHub Actions",
+    "EKS",
+    "Kafka",
+    "Redis",
+    "PostgreSQL",
+    "NestJS",
+    "TypeScript",
+    "Node.js",
+    "SRE",
+    "DevOps",
+    "모니터링",
+    "배포 자동화",
+    "클라우드",
+  ].filter((topic) => jobDescription.toLowerCase().includes(topic.toLowerCase()));
+  return topics[occurrence % Math.max(topics.length, 1)] ?? "서비스 운영";
 }
 
 function reportNcsProfileIdOf(value: unknown): NcsReportApiProfileId | undefined {
@@ -2313,12 +2355,37 @@ function resumeQuestionReferenceOf(job: AiWorkerJob): ResumeQuestionJobReference
 function buildMockPersonalizedQuestion(
   profileId: ResumeQuestionGenerationContext["criteria"][number]["ncsProfileId"],
   index: number,
+  resumeText: string,
 ): string {
+  const evidence = resumeEvidenceTopic(resumeText, index);
   if (profileId === "PROBLEM_SOLVING") {
-    return `이력서의 프로젝트 경험 ${index + 1}에서 문제 원인을 분석하고 대안을 비교해 선택한 뒤 결과를 측정하고 검증한 과정을 설명해주세요?`;
+    return `${evidence}에서 예상과 다르게 문제가 발생했던 순간을 말씀해 주세요. 원인을 좁히고 해결책을 선택한 기준과 결과를 어떻게 확인했나요?`;
   }
   if (profileId === "COLLABORATION_COMMUNICATION") {
-    return `이력서의 협업 경험 ${index + 1}에서 이해관계자에게 내용을 구조적으로 설명하고 상대의 피드백을 확인해 합의한 과정을 설명해주세요?`;
+    return `${evidence}에서 다른 사람과 의견을 맞춰야 했던 경험이 있나요? 상황을 어떻게 설명하고 상대의 피드백을 반영해 합의했는지 들려주세요.`;
   }
-  return `이력서의 기술 경험 ${index + 1}에서 시스템 원리를 이해하고 실제 구현에 적용한 뒤 장애·보안 위험을 테스트하고 검증한 과정을 설명해주세요?`;
+  return `${evidence}에서 핵심 기술을 선택한 이유가 궁금합니다. 시스템의 동작 원리를 실제 구현에 어떻게 적용했고, 장애나 보안 위험은 어떤 테스트로 확인했나요?`;
+}
+
+function resumeEvidenceTopic(resumeText: string, index: number): string {
+  if (/^Extracted text from\s/i.test(resumeText.trim())) {
+    return index === 0 ? "이력서에 적은 프로젝트" : "이력서에 적은 업무 경험";
+  }
+  const topics = [
+    "Kubernetes",
+    "AWS",
+    "Docker",
+    "Terraform",
+    "Kafka",
+    "Redis",
+    "PostgreSQL",
+    "NestJS",
+    "Spring",
+    "React",
+    "TypeScript",
+    "Java",
+    "Python",
+  ].filter((topic) => resumeText.toLowerCase().includes(topic.toLowerCase()));
+  const topic = topics[index % Math.max(topics.length, 1)];
+  return topic ? `이력서에 적은 ${topic} 경험` : "이력서에 적은 프로젝트";
 }

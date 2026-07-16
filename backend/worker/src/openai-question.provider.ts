@@ -147,7 +147,13 @@ export function buildQuestionMessages(input: QuestionGenerationInput): Array<{ r
         "Generate only questions that can be saved to the question bank after human review.",
         "Do not include final hiring pass/fail judgments, sensitive attributes, appearance, eye contact, voice tone, age, gender, school, region, disability, or health.",
         "Questions must evaluate observable work evidence through answer content.",
-        "For resume-personalized questions, use only experiences present in resumeText and include only the minimum non-sensitive experience context needed to identify the experience."
+        "For resume-personalized questions, use only experiences present in resumeText and include only the minimum non-sensitive experience context needed to identify the experience.",
+        "Write concise, conversational Korean that a real interviewer could say aloud without editing.",
+        "Do not prefix questions with a company name, posting title, bracketed label, or repeated job-role phrase.",
+        "Use the JD to choose relevant responsibilities or technologies, but do not copy JD sentences verbatim and do not mention the same role context in every question.",
+        "Each question must focus on one experience or one decision. Avoid comma-separated rubric checklists and overloaded multi-topic questions.",
+        "Vary openings and endings across the batch. Do not end every question with 설명해주세요 or 말씀해 주세요.",
+        "Candidates already know which company and role they applied for, so mention a company, role, or technology only when it is essential to the question."
       ].join("\n")
     },
     {

@@ -22,6 +22,11 @@ import {
   updateQuestionGenerationPolicy,
 } from "./api";
 import { hasActiveAiJobs, startAiJobPolling } from "./ai-job-polling";
+import {
+  buildAutoApplyQuestionPlan,
+  buildCommonQuestionSetPlan,
+  findStaleGeneratedQuestionIds,
+} from "./question-set-workflow";
 import type {
   AiJobOutput,
   AiJobResult,
@@ -160,10 +165,10 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
   const [aiJobError, setAiJobError] = useState("");
   const [aiJobNotices, setAiJobNotices] = useState<AiJobNotice[]>([]);
   const [questionSetConfirming, setQuestionSetConfirming] = useState(false);
-  const [showQuestionSetPreview, setShowQuestionSetPreview] = useState(false);
   const [editingTimePolicyField, setEditingTimePolicyField] = useState<TimePolicyField | null>(null);
   const [draggedCriteriaId, setDraggedCriteriaId] = useState<string | null>(null);
   const [autoAppliedCriteriaProcessIds, setAutoAppliedCriteriaProcessIds] = useState<number[]>([]);
+  const [autoAppliedQuestionProcessIds, setAutoAppliedQuestionProcessIds] = useState<number[]>([]);
   const [isQuestionDrawerOpen, setIsQuestionDrawerOpen] = useState(false);
   const [editingCriteriaDetailId, setEditingCriteriaDetailId] = useState<string | null>(null);
   const [selectedCriteriaDraftIds, setSelectedCriteriaDraftIds] = useState<string[]>([]);
@@ -191,7 +196,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       setOpenQuestionMenuId(null);
       setIsQuestionDrawerOpen(false);
       setEditingTimePolicyField(null);
-      setShowQuestionSetPreview(false);
       setQuestionForm({
         ...initialQuestionForm,
         criterionId: String(response.data.criteria[0]?.criterionId ?? ""),
@@ -332,7 +336,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
   }, [criteriaDrafts, settings]);
 
   const questionSetPreview = useMemo(() => buildQuestionSetPreview(settings), [settings]);
-  const questionSetPreviewSummary = useMemo(() => buildQuestionSetPreviewSummary(questionSetPreview), [questionSetPreview]);
   const activeAiJobKinds = useMemo(
     () => new Set(aiJobNotices.filter((notice) => !isTerminalAiStatus(notice.status)).map((notice) => notice.kind)),
     [aiJobNotices],
@@ -372,6 +375,57 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     // AI 결과는 processLogId당 한 번만 적용하므로 handler identity로 effect를 재실행하지 않는다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoAppliedCriteriaProcessIds, criteriaAiNotices, settings]);
+
+  useEffect(() => {
+    if (!settings || settings.evaluationFramework !== "NCS_3_PROFILE_V1") return;
+
+    const completedNotices = questionAiNotices.filter(
+      (notice) => notice.status === "COMPLETED" && !autoAppliedQuestionProcessIds.includes(notice.processLogId),
+    );
+    if (completedNotices.length === 0) return;
+
+    const processLogIds = completedNotices.map((notice) => notice.processLogId);
+    setAutoAppliedQuestionProcessIds((current) => [
+      ...current,
+      ...processLogIds.filter((processLogId) => !current.includes(processLogId)),
+    ]);
+
+    void (async () => {
+      let savedCount = 0;
+      let alreadySavedCount = 0;
+      let rejectedCount = 0;
+      let removedCount = 0;
+
+      for (const notice of completedNotices) {
+        const result = await applyQuestionCandidatesToList(
+          getQuestionCandidates(notice.output),
+          notice.processLogId,
+        );
+        savedCount += result.savedCount;
+        alreadySavedCount += result.alreadySavedCount;
+        rejectedCount += result.rejectedCount;
+        removedCount += result.removedCount;
+      }
+
+      if (savedCount > 0 || removedCount > 0) {
+        await loadSettings();
+        setMessage(
+          removedCount > 0
+            ? `AI 추천 질문 ${savedCount}개를 반영하고 이전 추천 질문 ${removedCount}개를 정리했습니다.`
+            : `AI 추천 질문 ${savedCount}개를 공통 질문 목록에 추가했습니다.`,
+        );
+      } else if (alreadySavedCount > 0 && rejectedCount === 0) {
+        setMessage("AI 추천 질문이 이미 공통 질문 목록에 반영되어 있습니다.");
+      }
+      if (rejectedCount > 0) {
+        setQuestionError(`정렬 미통과 또는 평가 기준 연결 실패로 ${rejectedCount}개 질문을 반영하지 못했습니다.`);
+      }
+    })().catch((error) => {
+      setQuestionError(error instanceof Error ? error.message : "AI 추천 질문을 공통 질문 목록에 반영하지 못했습니다.");
+    });
+    // AI 결과는 processLogId당 한 번만 적용하므로 handler identity로 effect를 재실행하지 않는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoAppliedQuestionProcessIds, questionAiNotices, settings]);
 
   function addCustomCriteriaDraft() {
     setCriteriaError("");
@@ -953,8 +1007,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     if (!settings) return;
     if (isAiRequestBlocked("questionSet", aiJobSubmitting, activeAiJobKinds)) return;
 
-    setShowQuestionSetPreview(true);
-
     if (settings.criteria.length === 0 || settings.questions.length === 0) {
       setAiJobError("질문 세트를 구성하려면 평가 기준과 면접 질문 구성이 필요합니다.");
       return;
@@ -1110,6 +1162,93 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       return null;
     } finally {
       setQuestionSaving(false);
+    }
+  }
+
+  async function applyQuestionCandidatesToList(
+    candidates: GeneratedQuestionCandidate[],
+    sourceProcessLogId: number,
+  ) {
+    if (!settings) return { savedCount: 0, alreadySavedCount: 0, rejectedCount: candidates.length, removedCount: 0 };
+
+    const plan = buildAutoApplyQuestionPlan(settings, candidates);
+    let savedCount = 0;
+    let rejectedCount = plan.rejectedCount;
+    for (const item of plan.applicable) {
+      const questionId = await applyQuestionCandidate(
+        item.candidate,
+        item.criterionId,
+        "ai",
+        sourceProcessLogId,
+      );
+      if (questionId) savedCount += 1;
+      else rejectedCount += 1;
+    }
+
+    let removedCount = 0;
+    if (
+      candidates.length > 0 &&
+      rejectedCount === 0 &&
+      savedCount + plan.alreadySavedCount === candidates.length
+    ) {
+      const staleQuestionIds = findStaleGeneratedQuestionIds(settings, candidates, sourceProcessLogId);
+      if (staleQuestionIds.length > 0) {
+        setQuestionSaving(true);
+        try {
+          for (const questionId of staleQuestionIds) {
+            await deleteInterviewQuestion(questionId);
+            removedCount += 1;
+          }
+        } finally {
+          setQuestionSaving(false);
+        }
+      }
+    }
+
+    return {
+      savedCount,
+      alreadySavedCount: plan.alreadySavedCount,
+      rejectedCount,
+      removedCount,
+    };
+  }
+
+  async function saveAndConfirmQuestionSettings() {
+    if (!settings || !questionPolicyDraft) return;
+    if (hasActiveAiJobs(questionAiNotices) || questionSaving) {
+      setQuestionError("AI 질문 추천 또는 질문 저장이 끝난 뒤 다음 단계로 이동해주세요.");
+      return;
+    }
+
+    const policySaved = await saveQuestionPolicy();
+    if (!policySaved) return;
+    if (evaluationFramework !== "NCS_3_PROFILE_V1") {
+      setSettingsStep(3);
+      return;
+    }
+
+    const expectedQuestionCount = toNumber(questionPolicyDraft.jdCriteriaQuestionCount);
+    const plan = buildCommonQuestionSetPlan(settings, expectedQuestionCount);
+    if (plan.error) {
+      setQuestionError(plan.error);
+      return;
+    }
+
+    setQuestionSetConfirming(true);
+    setQuestionError("");
+    try {
+      await confirmQuestionSet({
+        postingId: settings.posting.postingId,
+        title: `${settings.posting.title} 공통 질문 세트`,
+        sourceProcessLogId: plan.sourceProcessLogId,
+        items: plan.items,
+      });
+      setMessage(`공통 질문 ${plan.items.length}개를 저장하고 면접에 적용했습니다.`);
+      setSettingsStep(3);
+    } catch (error) {
+      setQuestionError(error instanceof Error ? error.message : "공통 질문을 면접에 적용하지 못했습니다.");
+    } finally {
+      setQuestionSetConfirming(false);
     }
   }
 
@@ -1600,14 +1739,14 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
               </div>
               {aiJobError ? <p className="notice danger">{aiJobError}</p> : null}
               {questionError ? <p className="notice danger">{questionError}</p> : null}
-              {questionAiNotices.length > 0 ? (
+              {questionAiNotices.some((notice) => notice.status !== "COMPLETED") ? (
                 <div className="question-workflow-block" aria-live="polite">
                   <div className="question-section-head">
-                    <h3>AI 추천 질문</h3>
-                    <p>추천 결과를 검토하고 저장하면 아래 확정 질문 목록에 반영됩니다.</p>
+                    <h3>AI 질문 추천 상태</h3>
+                    <p>정렬 검증을 통과한 질문은 완료 즉시 아래 공통 질문 목록에 반영됩니다.</p>
                   </div>
                   <div className="posting-list ai-job-list">
-                    {questionAiNotices.map((notice) => (
+                    {questionAiNotices.filter((notice) => notice.status !== "COMPLETED").map((notice) => (
                       <article className="posting ai-job-card" key={notice.kind}>
                         <div className="ai-job-card-body">
                           <div className="ai-job-card-head">
@@ -1624,20 +1763,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                             ) : null}
                             <AiStatusBadge status={notice.status} />
                           </div>
-                          {notice.status === "COMPLETED" ? (
-                            <AiJobPreview
-                              notice={notice}
-                              settings={settings}
-                              criteriaDrafts={criteriaDrafts}
-                              questionSaving={questionSaving}
-                              questionSetConfirming={questionSetConfirming}
-                              onApplyCriteria={(candidate, selectedTagId) => void applyCriteriaSuggestion(candidate, selectedTagId)}
-                              onApplyQuestion={(candidate, selectedCriterionId) =>
-                                void applyQuestionCandidate(candidate, selectedCriterionId, "ai", notice.processLogId)
-                              }
-                              onConfirmQuestionSet={(groups) => void confirmAiQuestionSet(notice, groups)}
-                            />
-                          ) : null}
                         </div>
                       </article>
                     ))}
@@ -1646,8 +1771,8 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
               ) : null}
               <div className="question-workflow-block">
                 <div className="question-section-head">
-                  <h3>확정 질문 목록</h3>
-                  <p>면접에서 사용할 공통 질문입니다. 기본은 AI 추천으로 구성하고, 필요한 질문만 직접 추가합니다.</p>
+                  <h3>공통 질문 목록</h3>
+                  <p>AI 추천 질문을 확인하고 필요한 경우 수정합니다. 다음 단계로 이동하면 이 목록이 면접에 적용됩니다.</p>
                 </div>
               <div className="posting-list question-list">
                 {visibleQuestions.map((question) => {
@@ -1711,46 +1836,6 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                 ) : null}
               </div>
               </div>
-              {showQuestionSetPreview ? (
-                <>
-                  <div className="panel-head">
-                    <div>
-                      <h2>면접 질문 세트 미리보기</h2>
-                      <p>평가 기준별 첫 번째 활성 질문을 기준으로 구성합니다. 연결된 질문이 없는 기준은 확정 대상에서 제외됩니다.</p>
-                      {questionSetPreview.length > 0 ? (
-                        <p>
-                          확정 가능 질문 {questionSetPreviewSummary.confirmableCount}개
-                          {questionSetPreviewSummary.missingCriteriaCount > 0
-                            ? ` · 누락 기준 ${questionSetPreviewSummary.missingCriteriaCount}개`
-                            : " · 모든 기준 연결 완료"}
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="posting-list question-list">
-                    {questionSetPreview.map((item) => (
-                      <article className="posting" key={item.criterionId}>
-                        <div className="logo-chip">
-                          {item.questionType ? getQuestionTypeLabel(item.questionType) : "미연결"}
-                        </div>
-                        <div>
-                          <h3>{item.content}</h3>
-                          <p>{item.criterionLabel}</p>
-                          {item.questionId === null ? (
-                            <p>면접 질문 구성에 활성 질문을 추가하면 질문 세트에 포함할 수 있습니다.</p>
-                          ) : null}
-                        </div>
-                        <span className={`badge ${item.questionId === null ? "warning" : "success"}`}>
-                          {item.questionId === null ? "질문 없음" : "확정 가능"}
-                        </span>
-                      </article>
-                    ))}
-                    {questionSetPreview.length === 0 ? (
-                      <div className="empty">미리보기할 평가 기준이 없습니다.</div>
-                    ) : null}
-                  </div>
-                </>
-              ) : null}
             </section>
 
             <div className="settings-step-nav">
@@ -1760,13 +1845,10 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
               <button
                 className="btn primary settings-next-large"
                 type="button"
-                disabled={questionPolicySaving}
-                onClick={async () => {
-                  const ok = await saveQuestionPolicy();
-                  if (ok) setSettingsStep(3);
-                }}
+                disabled={questionPolicySaving || questionSetConfirming || questionSaving || hasActiveAiJobs(questionAiNotices)}
+                onClick={() => void saveAndConfirmQuestionSettings()}
               >
-                다음: 면접 시간 설정 →
+                {questionSetConfirming ? "공통 질문 적용 중…" : "다음: 면접 시간 설정 →"}
               </button>
             </div>
               </>
@@ -1974,15 +2056,6 @@ function buildQuestionSetPreview(settings: InterviewSettings | null): QuestionSe
         content: question?.content ?? "연결된 활성 질문이 없습니다.",
       };
     });
-}
-
-function buildQuestionSetPreviewSummary(items: QuestionSetPreviewItem[]) {
-  const confirmableCount = items.filter((item) => item.questionId !== null).length;
-
-  return {
-    confirmableCount,
-    missingCriteriaCount: Math.max(items.length - confirmableCount, 0),
-  };
 }
 
 function validateQuestionForm(

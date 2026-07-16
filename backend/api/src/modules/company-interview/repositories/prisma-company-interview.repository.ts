@@ -292,6 +292,14 @@ export class PrismaCompanyInterviewRepository
       ) {
         return undefined;
       }
+      if (
+        current &&
+        current.evaluationFramework === input.evaluationFramework &&
+        current.jdCriteriaQuestionCount === input.jdCriteriaQuestionCount &&
+        current.resumeQuestionCount === input.resumeQuestionCount
+      ) {
+        return mapQuestionGenerationPolicy(current);
+      }
 
       const saved = await tx.interviewQuestionGenerationPolicy.upsert({
         where: { postingId: BigInt(postingId) },
@@ -365,6 +373,7 @@ export class PrismaCompanyInterviewRepository
         questionType: input.questionType,
         content: input.content.trim(),
         isAiEdited: input.isAiEdited,
+        generationSource: input.generationSource,
         ncsProfileId: input.ncsProfileId,
         ncsQuestionMode: input.ncsQuestionMode,
         ncsProfileVersion: input.ncsProfileVersion,
@@ -549,6 +558,27 @@ export class PrismaCompanyInterviewRepository
         !matchingBatch || batch.batchId !== matchingBatch.batchId,
       ),
     };
+  }
+
+  async listResumeQuestionGenerations(
+    postingId: number,
+  ): Promise<ResumeQuestionApplicationRecord[]> {
+    const applications = await this.prisma.application.findMany({
+      where: {
+        postingId: BigInt(postingId),
+        applicationStatus: 'SUBMITTED',
+      },
+      select: { applicationId: true },
+      orderBy: { applicationId: 'asc' },
+    });
+    const states = await Promise.all(
+      applications.map((application) =>
+        this.findResumeQuestionGeneration(Number(application.applicationId)),
+      ),
+    );
+    return states.filter(
+      (state): state is ResumeQuestionApplicationRecord => state !== undefined,
+    );
   }
 
   async createResumeQuestionRetry(input: {

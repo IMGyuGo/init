@@ -202,8 +202,10 @@ NQ-M5는 리포트의 기준별 집계 점수와 답변별 evaluator 결과를 �
 
 ## Version And Mutation Rules
 
-- 질문 개수 또는 `evaluation_framework` 변경은 `policy_version`을 증가시킨다.
+- 질문 개수 또는 `evaluation_framework`의 실제 변경은 `policy_version`을 증가시킨다. 현재 값과 동일한 멱등 저장은 version을 증가시키지 않는다.
 - 평가 기준 추가·삭제·순서·weight·NCS binding 변경은 `criteria_version`을 증가시킨다.
+- 정책 또는 평가 기준 version이 변경되면 제출 완료·이력서 추출 완료 상태인 기존 지원자의 이전 batch는 stale이 된다. API는 현재 입력 snapshot의 신규 batch/job을 멱등 생성하고 worker가 새 개인화 질문을 확정한다.
+- 현재 business key의 `READY` 또는 `GENERATING` batch가 있으면 자동 재생성 작업을 중복 등록하지 않는다. queue 실패는 신규 process와 batch를 `FAILED`로 남겨 운영자가 API-099로 재시도할 수 있게 한다.
 - 진행 중 batch의 입력 version은 변경하지 않는다. 새 정책/기준을 적용하려면 새 business key로 재생성한다.
 - 세션 생성은 정책·기준·질문을 한 트랜잭션 snapshot으로 복사한다.
 - 기준 삭제로 FK가 NULL이 되어도 질문의 profile/mode/version과 기준 제목 snapshot은 유지한다.

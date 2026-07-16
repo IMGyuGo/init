@@ -373,6 +373,87 @@ describe('CompanyInterviewService', () => {
     assert.deepEqual(settings.questionGenerationPolicy.allocations, policy.allocations);
   });
 
+  it('keeps an identical question policy request idempotent', async () => {
+    const { service } = createFixture();
+    await service.updateEvaluationCriteria(companyUser, {
+      postingId: 1,
+      evaluationFramework: 'NCS_3_PROFILE_V1',
+      criteria: [
+        { criterionId: 1, tagId: 1, weight: 30, sortOrder: 1 },
+        { criterionId: 4, tagId: 4, weight: 30, sortOrder: 2 },
+        { criterionId: 2, tagId: 2, weight: 40, sortOrder: 3 },
+      ],
+    });
+    const first = await service.updateQuestionGenerationPolicy(companyUser, {
+      postingId: 1,
+      jdCriteriaQuestionCount: 6,
+      resumeQuestionCount: 2,
+      expectedPolicyVersion: 0,
+    });
+    const repeated = await service.updateQuestionGenerationPolicy(companyUser, {
+      postingId: 1,
+      jdCriteriaQuestionCount: 6,
+      resumeQuestionCount: 2,
+      expectedPolicyVersion: first.policyVersion,
+    });
+
+    assert.equal(first.policyVersion, 1);
+    assert.equal(repeated.policyVersion, 1);
+    assert.deepEqual(repeated.allocations, first.allocations);
+  });
+
+  it('queues new personalized questions when a saved policy makes an existing batch stale', async () => {
+    const repository = new InMemoryCompanyInterviewRepository();
+    const publisher = new InMemoryAiJobQueuePublisher();
+    const service = new CompanyInterviewService(repository, publisher);
+    const criteria = await service.updateEvaluationCriteria(companyUser, {
+      postingId: 1,
+      evaluationFramework: 'NCS_3_PROFILE_V1',
+      criteria: [
+        { criterionId: 1, tagId: 1, weight: 30, sortOrder: 1 },
+        { criterionId: 4, tagId: 4, weight: 30, sortOrder: 2 },
+        { criterionId: 2, tagId: 2, weight: 40, sortOrder: 3 },
+      ],
+    });
+    const initialPolicy = await service.updateQuestionGenerationPolicy(companyUser, {
+      postingId: 1,
+      jdCriteriaQuestionCount: 6,
+      resumeQuestionCount: 2,
+      expectedPolicyVersion: 0,
+    });
+    repository.setResumeQuestionGeneration(resumeQuestionFixture({
+      policy: {
+        ...resumeQuestionFixture().policy,
+        jdCriteriaQuestionCount: 6,
+        resumeQuestionCount: 2,
+        policyVersion: initialPolicy.policyVersion,
+        criteriaVersion: criteria.criteriaVersion,
+      },
+      currentBatch: {
+        ...resumeQuestionFixture().currentBatch!,
+        policyVersion: initialPolicy.policyVersion,
+        criteriaVersion: criteria.criteriaVersion,
+      },
+    }));
+
+    const changed = await service.updateQuestionGenerationPolicy(companyUser, {
+      postingId: 1,
+      jdCriteriaQuestionCount: 7,
+      resumeQuestionCount: 2,
+      expectedPolicyVersion: initialPolicy.policyVersion,
+    });
+
+    assert.equal(changed.policyVersion, initialPolicy.policyVersion + 1);
+    assert.deepEqual(changed.warnings, []);
+    assert.equal(publisher.messages.length, 1);
+    assert.equal(publisher.messages[0].processType, 'RESUME_QUESTION_GENERATE');
+    const queued = JSON.parse(publisher.messages[0].inputRef) as Record<string, unknown>;
+    assert.equal(queued.applicationId, 101);
+    assert.equal(queued.policyVersion, changed.policyVersion);
+    assert.equal(queued.criteriaVersion, criteria.criteriaVersion);
+    assert.equal((await service.getResumeQuestions(companyUser, 101)).status, 'GENERATING');
+  });
+
   it('prepares NCS common question jobs from the stored JD, policy and balanced criteria snapshot', async () => {
     const service = createService();
     await service.updateEvaluationCriteria(companyUser, {
@@ -711,6 +792,51 @@ describe('CompanyInterviewService', () => {
     );
     assert.equal(persisted?.origin, 'AI_GENERATED');
     assert.equal(persisted?.isAiEdited, true);
+  });
+
+  it('stores NCS manual and edited questions as company-reviewed JD questions', async () => {
+    const service = createService();
+    await service.updateEvaluationCriteria(companyUser, {
+      postingId: 1,
+      evaluationFramework: 'NCS_3_PROFILE_V1',
+      criteria: [
+        { criterionId: 2, tagId: 2, weight: 40, sortOrder: 1 },
+        { criterionId: 4, tagId: 4, weight: 30, sortOrder: 2 },
+        { criterionId: 1, tagId: 1, weight: 30, sortOrder: 3 },
+      ],
+    });
+    await service.updateQuestionGenerationPolicy(companyUser, {
+      postingId: 1,
+      jdCriteriaQuestionCount: 6,
+      resumeQuestionCount: 0,
+      expectedPolicyVersion: 0,
+    });
+
+    const created = await service.createQuestion(companyUser, {
+      postingId: 1,
+      criterionId: 1,
+      questionType: 'TECHNICAL',
+      content: '장애 상황에서 기술적 원인을 검증한 과정을 설명해주세요.',
+    });
+
+    assert.equal(created.question.origin, 'MANUAL');
+    assert.equal(created.question.generationSource, 'JD_CRITERIA');
+    assert.equal(created.question.alignmentStatus, 'ALIGNED');
+    assert.equal(created.question.alignmentScore, null);
+    assert.equal(created.question.evaluatorVersion, 'company-question-review-v1');
+    assert.equal(created.question.ncsBindings[0]?.alignmentStatus, 'ALIGNED');
+    assert.equal(created.question.ncsBindings[0]?.evaluatorVersion, 'company-question-review-v1');
+
+    const updated = await service.updateQuestion(companyUser, created.question.questionId, {
+      criterionId: 1,
+      questionType: 'TECHNICAL',
+      content: '장애 상황에서 기술적 원인과 대안을 검증한 과정을 설명해주세요.',
+    });
+
+    assert.equal(updated.question.generationSource, 'JD_CRITERIA');
+    assert.equal(updated.question.alignmentStatus, 'ALIGNED');
+    assert.equal(updated.question.evaluatorVersion, 'company-question-review-v1');
+    assert.match(updated.question.alignmentReason ?? '', /수정/);
   });
 
   it('stores only an ALIGNED NCS candidate from the matching completed process', async () => {

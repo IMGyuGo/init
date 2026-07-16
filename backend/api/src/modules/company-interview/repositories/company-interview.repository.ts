@@ -61,6 +61,7 @@ export type UpdateQuestionInput = {
   questionType: QuestionType;
   content: string;
   isAiEdited: boolean;
+  generationSource: QuestionRecord['generationSource'];
   ncsProfileId: QuestionRecord['ncsProfileId'];
   ncsQuestionMode: QuestionRecord['ncsQuestionMode'];
   ncsProfileVersion: string | null;
@@ -140,6 +141,7 @@ export interface CompanyInterviewRepository {
   confirmQuestionSet(input: ConfirmQuestionSetInput): Promise<QuestionSetRecord>;
   findActiveQuestionSet(postingId: number): Promise<QuestionSetRecord | undefined>;
   findResumeQuestionGeneration(applicationId: number): Promise<ResumeQuestionApplicationRecord | undefined>;
+  listResumeQuestionGenerations(postingId: number): Promise<ResumeQuestionApplicationRecord[]>;
   createResumeQuestionRetry(input: {
     state: ResumeQuestionApplicationRecord;
     reason: string | null;

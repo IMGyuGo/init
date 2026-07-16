@@ -515,7 +515,11 @@ test("NCS question generation creates six unique aligned candidates across three
       kind: "RECRUITING_QUESTION_GENERATE",
       payload: {
         postingId: 1101,
-        jobDescription: "온디바이스 AI 플랫폼의 API, 데이터, 배포 안정성을 책임지는 엔지니어",
+        jobDescription: [
+          "포지션 상세",
+          "[미리캔버스] 데브옵스 파트 리드 — DevOps·SRE 포지션입니다.",
+          "Platform Engineering 팀에서 배포 안정성을 책임집니다.",
+        ].join("\n"),
         questionCount: 6,
         criteria: [
           {
@@ -566,6 +570,15 @@ test("NCS question generation creates six unique aligned candidates across three
   assert.equal(candidates.length, 6);
   assert.equal(new Set(candidates.map((candidate) => candidate.content)).size, 6);
   assert.ok(candidates.every((candidate) => candidate.alignmentStatus === "ALIGNED"));
+  assert.ok(candidates.every((candidate) => !candidate.content.startsWith("[")));
+  assert.ok(candidates.every((candidate) => !candidate.content.includes("미리캔버스")));
+  assert.ok(candidates.every((candidate) => !candidate.content.includes("데브옵스 파트 리드 직무")));
+  assert.ok(candidates.some((candidate) => /DevOps|SRE/.test(candidate.content)));
+  assert.ok(candidates.some((candidate) => candidate.content.includes("있나요?")));
+  assert.ok(candidates.some((candidate) => candidate.content.endsWith("들려주세요.")));
+  assert.ok(candidates.filter((candidate) => candidate.content.includes("설명해주세요")).length === 0);
+  assert.ok(candidates.every((candidate) => !candidate.content.includes("포지션 상세")));
+  assert.ok(candidates.every((candidate) => !candidate.content.includes("...")));
   assert.deepEqual(
     Object.fromEntries(
       ["JOB_TECHNICAL", "COLLABORATION_COMMUNICATION", "PROBLEM_SOLVING"].map((profileId) => [

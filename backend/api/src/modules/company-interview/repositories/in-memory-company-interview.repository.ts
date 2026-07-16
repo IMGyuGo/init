@@ -494,6 +494,14 @@ export class InMemoryCompanyInterviewRepository
     ) {
       return undefined;
     }
+    if (
+      current &&
+      current.evaluationFramework === input.evaluationFramework &&
+      current.jdCriteriaQuestionCount === input.jdCriteriaQuestionCount &&
+      current.resumeQuestionCount === input.resumeQuestionCount
+    ) {
+      return current;
+    }
 
     const policy: QuestionGenerationPolicyRecord = {
       postingId,
@@ -552,6 +560,7 @@ export class InMemoryCompanyInterviewRepository
       questionType: input.questionType,
       content: input.content.trim(),
       isAiEdited: input.isAiEdited,
+      generationSource: input.generationSource,
       ncsProfileId: input.ncsProfileId,
       ncsQuestionMode: input.ncsQuestionMode,
       ncsProfileVersion: input.ncsProfileVersion,
@@ -658,6 +667,34 @@ export class InMemoryCompanyInterviewRepository
   ): Promise<ResumeQuestionApplicationRecord | undefined> {
     const state = this.resumeQuestionGenerations.get(applicationId);
     return state ? structuredClone(state) : undefined;
+  }
+
+  async listResumeQuestionGenerations(
+    postingId: number,
+  ): Promise<ResumeQuestionApplicationRecord[]> {
+    const policy = await this.getQuestionGenerationPolicy(postingId);
+    return [...this.resumeQuestionGenerations.values()]
+      .filter(
+        (state) =>
+          state.postingId === postingId && state.applicationStatus === 'SUBMITTED',
+      )
+      .map((state) => {
+        if (!policy) return structuredClone(state);
+        const currentBatch =
+          state.currentBatch?.policyVersion === policy.policyVersion &&
+          state.currentBatch.criteriaVersion === policy.criteriaVersion
+            ? state.currentBatch
+            : null;
+        return structuredClone({
+          ...state,
+          policy,
+          currentInputVersion: state.currentInputVersion
+            ? `${state.applicationId}:${policy.policyVersion}:${policy.criteriaVersion}:${state.currentResumeDocumentHash}:${state.currentJdSnapshotHash}`
+            : null,
+          currentBatch,
+          hasStaleBatch: state.hasStaleBatch || state.currentBatch !== currentBatch,
+        });
+      });
   }
 
   async createResumeQuestionRetry(input: {
