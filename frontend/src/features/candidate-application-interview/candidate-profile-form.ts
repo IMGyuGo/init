@@ -50,6 +50,17 @@ const keyOf = (prefix: string) => `${prefix}-${++nextKey}`;
 const text = (value: string | null | undefined) => value ?? "";
 const nullable = (value: string) => value.trim() || null;
 
+export const profileDateInputBounds = {
+  month: { min: "1900-01", max: "9999-12" },
+  date: { min: "1900-01-01", max: "9999-12-31" },
+} as const;
+
+export function isSupportedProfileDateInput(value: string, type: keyof typeof profileDateInputBounds): boolean {
+  if (!value) return true;
+  const pattern = type === "month" ? /^\d{4}-\d{2}$/ : /^\d{4}-\d{2}-\d{2}$/;
+  return pattern.test(value) && value >= profileDateInputBounds[type].min && value <= profileDateInputBounds[type].max;
+}
+
 export function preserveNullableTextInput(value: string): string | null {
   return value === "" ? null : value;
 }
