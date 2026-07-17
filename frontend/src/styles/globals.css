@@ -1071,7 +1071,7 @@ textarea {
 .brand img {
   display: block;
   width: auto;
-  height: 34px;
+  height: 42px;
 }
 
 /* plain-text nav */
@@ -2885,91 +2885,123 @@ td span {
 
 .company-answer-list {
   display: grid;
-  gap: 14px;
+  gap: 0;
 }
 
-.company-answer-card {
+/* 질문 = 세로 타임라인. 번호 노드가 선으로 이어져 면접 흐름이 보이게 */
+.company-answer-item {
   display: grid;
-  gap: 14px;
-  padding: 18px;
+  grid-template-columns: 30px minmax(0, 1fr);
+  column-gap: 18px;
+  padding-bottom: 34px;
+}
+
+.company-answer-item:last-child {
+  padding-bottom: 4px;
+}
+
+/* 좌측 레일: 노드 + 다음 노드로 이어지는 연결선 */
+.company-answer-rail {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.company-answer-rail::before {
+  content: "";
+  position: absolute;
+  top: 32px;
+  bottom: -34px;
+  width: 2px;
+  background: rgba(55, 53, 47, 0.1);
+}
+
+.company-answer-item:last-child .company-answer-rail::before {
+  display: none;
+}
+
+.company-answer-qnum {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: #3B6FE0;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* 본문: 질문 하나 = 카드 하나 */
+.company-answer-body {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+  padding: 20px 22px 18px;
   background: #fff;
-  border: 1px solid var(--line-soft);
+  border: 1px solid rgba(55, 53, 47, 0.1);
   border-radius: 14px;
+  transition: border-color 0.15s ease;
 }
 
-.company-answer-card-head {
+.company-answer-item:hover .company-answer-body {
+  border-color: rgba(59, 111, 224, 0.35);
+}
+
+/* 꼬리질문 등 보조 섹션 */
+.company-answer-section {
+  padding-top: 2px;
+}
+
+.company-answer-qhead {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 14px;
+  gap: 3px;
+  min-width: 0;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(55, 53, 47, 0.08);
 }
 
-.company-answer-card-head span {
-  color: var(--ink-300);
-  font-size: 12.5px;
-  font-weight: 700;
+.company-answer-qmeta {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(55, 53, 47, 0.5);
 }
 
-.company-answer-card-head h3 {
-  margin: 5px 0 0;
-  color: var(--ink-900);
-  font-size: 16px;
+.company-answer-type {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  margin-left: 6px;
+  padding: 0 7px;
+  border-radius: 4px;
+  background: rgba(59, 111, 224, 0.1);
+  color: #3B6FE0;
+  font-size: 11.5px;
+  font-weight: 600;
+  vertical-align: 1px;
+}
+
+.company-answer-qhead h3 {
+  margin: 2px 0 0;
+  color: #191919;
+  font-size: 16.5px;
   font-weight: 700;
-  line-height: 1.45;
+  line-height: 1.5;
   word-break: keep-all;
   overflow-wrap: break-word;
 }
 
-.company-question-type {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 28px;
-  padding: 0 10px;
-  color: #315fc6;
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-  background: #f2f6ff;
-  border: 1px solid #d9e4ff;
-  border-radius: 999px;
-}
-
 .company-answer-media {
   display: grid;
-  gap: 10px;
-  padding: 12px;
-  background: #111827;
-  border: 1px solid rgba(17, 24, 39, 0.16);
-  border-radius: 10px;
+  gap: 0;
 }
 
 .company-answer-media.compact {
   margin-top: 8px;
-  padding: 10px;
-}
-
-.company-answer-media-head,
-.company-answer-media-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.company-answer-media-head strong {
-  color: #fff;
-  font-size: 13px;
-}
-
-.company-answer-media-head span,
-.company-answer-media-meta span {
-  min-width: 0;
-  color: rgba(255, 255, 255, 0.68);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .company-answer-media video {
@@ -2977,8 +3009,9 @@ td span {
   width: 100%;
   max-height: 360px;
   aspect-ratio: 16 / 9;
-  background: #050816;
-  border-radius: 8px;
+  background: #111214;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 10px;
 }
 
 .company-answer-media audio {
@@ -2988,23 +3021,24 @@ td span {
 .company-answer-media-placeholder {
   display: grid;
   place-items: center;
-  min-height: 160px;
+  min-height: 150px;
   padding: 18px;
-  color: rgba(255, 255, 255, 0.72);
+  color: rgba(55, 53, 47, 0.55);
   text-align: center;
-  background: #0b1020;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
+  background: #FBFBFA;
+  border: 1px dashed rgba(55, 53, 47, 0.16);
+  border-radius: 10px;
 }
 
 .company-answer-media-placeholder strong {
-  color: #fff;
-  font-size: 14px;
+  color: #37352F;
+  font-size: 13.5px;
+  font-weight: 600;
 }
 
 .company-answer-media-placeholder span {
-  margin-top: 6px;
-  font-size: 12.5px;
+  margin-top: 5px;
+  font-size: 12px;
 }
 
 .company-answer-block {
@@ -3012,159 +3046,203 @@ td span {
   gap: 8px;
 }
 
-.company-answer-block strong {
-  color: var(--ink-900);
-  font-size: 13px;
+/* 답변 스크립트 버블 */
+.company-answer-bubble {
+  gap: 10px;
+  padding: 14px 16px;
+  background: #FBFBFA;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 12px;
+}
+
+/* 라벨(답변/꼬리질문): 진하게 + 파란 틱으로 잘 보이게 */
+.company-answer-label {
+  display: inline-flex;
+  align-items: center;
+  color: #191919;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.company-answer-label::before {
+  content: "";
+  width: 3px;
+  height: 14px;
+  margin-right: 8px;
+  border-radius: 2px;
+  background: #3B6FE0;
+}
+
+.company-answer-label.is-sub {
+  color: rgba(55, 53, 47, 0.6);
+  font-size: 12px;
+}
+
+.company-answer-label.is-sub::before {
+  height: 12px;
+  background: rgba(55, 53, 47, 0.3);
+}
+
+/* 답변 라벨은 주황으로 질문/꼬리질문과 구별 */
+.company-answer-label.is-answer {
+  color: #D9730D;
+}
+.company-answer-label.is-answer::before {
+  background: #D9730D;
 }
 
 .company-answer-block p {
   margin: 0;
-  color: var(--ink-600);
-  font-size: 14px;
-  line-height: 1.7;
+  color: #37352F;
+  font-size: 14.5px;
+  line-height: 1.75;
   word-break: keep-all;
   overflow-wrap: break-word;
 }
 
-.company-answer-block ul {
+/* 긴 답변 스크립트: 4줄 클램프 + 더 보기 */
+.company-answer-transcript.is-expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+.company-answer-transcript:not(.is-expanded) {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.company-answer-more {
+  justify-self: start;
+  margin-top: 2px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: #3B6FE0;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.company-answer-more:hover {
+  color: #315FC6;
+}
+.company-answer-empty-text {
+  margin: 0;
+  color: rgba(55, 53, 47, 0.45);
+  font-size: 14px;
+}
+
+/* 꼬리질문 카드 */
+.company-followup-list {
   display: grid;
-  gap: 8px;
+  gap: 12px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.company-answer-block li {
-  padding: 12px 14px;
-  color: var(--ink-600);
-  font-size: 13.5px;
-  line-height: 1.55;
-  background: var(--surface-soft);
-  border: 1px solid var(--line-soft);
-  border-radius: 10px;
+.company-followup-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  background: #FBFBFA;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 12px;
 }
 
 .company-follow-up-question {
-  display: block;
-  color: var(--ink-800);
+  margin: 0;
+  color: #191919;
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.company-follow-up-question::before {
+  content: "Q. ";
+  color: #3B6FE0;
   font-weight: 700;
 }
 
+/* 꼬리질문 답변: 카드 안 흰색 내부 박스 */
 .company-follow-up-answer {
   display: grid;
-  gap: 6px;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line-soft);
-}
-
-.company-follow-up-answer strong {
-  color: var(--ink-500);
-  font-size: 12.5px;
+  gap: 8px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 10px;
 }
 
 .company-follow-up-answer p {
   margin: 0;
-  color: var(--ink-600);
+  color: #37352F;
   font-size: 13.5px;
-  line-height: 1.65;
+  line-height: 1.7;
 }
 
 .company-answer-meta {
-  color: var(--ink-300);
-  font-size: 12.5px;
-  font-weight: 700;
-}
-
-.company-integrity-panel {
-  display: grid;
-  gap: 18px;
-}
-
-.company-integrity-panel-head {
-  align-items: flex-start;
-}
-
-.company-integrity-metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 10px;
-}
-
-.company-integrity-metrics > div {
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 8px;
-  background: rgba(248, 250, 252, 0.78);
-  padding: 12px 14px;
-}
-
-.company-integrity-metrics span {
-  display: block;
-  color: var(--ink-400);
+  justify-self: end;
+  padding: 4px 11px;
+  background: #F7F7F5;
+  border-radius: 999px;
+  color: rgba(55, 53, 47, 0.55);
   font-size: 12px;
-  font-weight: 700;
-  margin-bottom: 6px;
-}
-
-.company-integrity-metrics strong {
-  color: var(--ink-900);
-  font-size: 18px;
-  font-weight: 800;
-}
-
-.company-integrity-guide {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-  padding-left: 18px;
-  color: var(--ink-500);
-  font-size: 14px;
-  line-height: 1.6;
+  font-weight: 500;
 }
 
 .company-integrity-signals {
   display: grid;
-  gap: 10px;
-  border: 1px solid rgba(245, 158, 11, 0.24);
-  border-radius: 8px;
-  background: rgba(255, 251, 235, 0.64);
+  gap: 8px;
   padding: 14px 16px;
+  background: #FBF4E8;
+  border-radius: 12px;
 }
 
 .company-integrity-signals.compact {
-  margin-top: 10px;
+  margin-top: 4px;
   padding: 12px 14px;
 }
 
 .company-integrity-signals strong {
-  color: #92400e;
-  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #B7791F;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.company-integrity-warn {
+  flex: none;
+  display: block;
 }
 
 .company-integrity-signals > div {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .company-integrity-signals p {
   margin: 0;
-  color: var(--ink-500);
-  font-size: 13px;
-  line-height: 1.5;
+  color: rgba(55, 53, 47, 0.5);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .company-integrity-chip {
   display: inline-flex;
   align-items: center;
-  border: 1px solid rgba(217, 119, 6, 0.28);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
-  color: #92400e;
-  font-size: 12px;
-  font-weight: 800;
+  border-radius: 4px;
+  background: #fff;
+  border: 1px solid rgba(217, 119, 6, 0.25);
+  color: #B7791F;
+  font-size: 11.5px;
+  font-weight: 600;
   line-height: 1;
-  padding: 7px 10px;
+  padding: 4px 8px;
 }
 
 .setup-card-grid {
@@ -3226,12 +3304,12 @@ table {
 }
 
 .screening-table {
-  min-width: 860px;
+  min-width: 920px;
   table-layout: fixed;
 }
 
 .screening-col-candidate {
-  width: 24%;
+  width: 22%;
 }
 
 .screening-col-interview {
@@ -3239,7 +3317,11 @@ table {
 }
 
 .screening-col-report {
-  width: 24%;
+  width: 12%;
+}
+
+.screening-col-score {
+  width: 9%;
 }
 
 .screening-col-decision {
@@ -3247,7 +3329,7 @@ table {
 }
 
 .screening-col-memo {
-  width: 28%;
+  width: 33%;
 }
 
 .recruitment-detail-head {
@@ -3364,43 +3446,68 @@ table {
   max-width: none;
 }
 
-.screening-report-cell {
-  display: grid;
-  grid-template-columns: minmax(76px, max-content) max-content;
-  align-items: center;
-  justify-content: start;
-  gap: 10px;
-  min-width: 0;
-}
-
-.screening-report-cell .badge,
-.screening-report-cell .status-badge {
-  flex: none;
+.screening-report-score {
+  font-size: 14px;
+  font-weight: 700;
+  color: #191919;
   white-space: nowrap;
 }
+/* 점수가 높을수록 진한 파랑 (#289) */
+.screening-report-score.tier-top { color: #1A55C8; }
+.screening-report-score.tier-high { color: #3B6FE0; }
+.screening-report-score.tier-mid { color: #7CA3EC; }
+.screening-report-score.tier-low { color: rgba(55, 53, 47, 0.45); }
+.screening-report-score.is-empty {
+  color: rgba(55, 53, 47, 0.4);
+  font-weight: 500;
+}
 
-.screening-report-link {
-  flex: none;
+.screening-sort {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  min-height: 28px;
-  padding: 0 10px;
-  color: #315fc6;
-  font-size: 12.5px;
-  font-weight: 700;
-  line-height: 1;
+  gap: 8px;
+  flex: none;
+}
+.screening-sort > span {
+  font-size: 13px;
+  color: rgba(55, 53, 47, 0.55);
+  font-weight: 500;
   white-space: nowrap;
-  background: #f7faff;
-  border: 1px solid #d9e4ff;
-  border-radius: 8px;
+}
+.screening-sort select {
+  min-height: 34px;
+  width: auto;
+  min-width: 120px;
+  padding: 0 30px 0 12px;
+  font-size: 13px;
 }
 
-.screening-report-link:hover {
-  color: #244dad;
-  background: #edf3ff;
-  border-color: #bdd0ff;
+.notion .screening-row {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.notion .screening-row:hover {
+  background: #F7F7F5;
+}
+
+.notion .screening-candidate-link {
+  display: grid;
+  gap: 2px;
+  color: inherit;
+}
+.notion .screening-candidate-link:hover {
   text-decoration: none;
+}
+.notion .screening-candidate-link:hover strong {
+  color: #3B6FE0;
+}
+.notion .screening-candidate-link strong {
+  color: #191919;
+  font-weight: 700;
+}
+.notion .screening-candidate-link span {
+  color: rgba(55, 53, 47, 0.55);
+  font-size: 12.5px;
 }
 
 th {
@@ -5922,8 +6029,7 @@ td input {
 
 /* KPI 플랫 */
 .glass-page.notion .kpi-summary { gap: 12px; }
-.glass-page.notion .kpi { background: #ffffff; backdrop-filter: none; -webkit-backdrop-filter: none; border: 1px solid rgba(55, 53, 47, 0.1); border-radius: 10px; box-shadow: none; padding: 18px 20px; transition: border-color 0.12s ease; }
-.glass-page.notion:not(.list-page) .kpi:hover { border-color: #3b6fe0; }
+.glass-page.notion .kpi { background: #ffffff; backdrop-filter: none; -webkit-backdrop-filter: none; border: 1px solid rgba(55, 53, 47, 0.1); border-radius: 10px; box-shadow: none; padding: 18px 20px; }
 .glass-page.notion .kpi span { font-size: 13px; font-weight: 500; color: rgba(55, 53, 47, 0.6); }
 .glass-page.notion .kpi strong { color: #191919; font-weight: 700; font-variant-numeric: tabular-nums; }
 .glass-page.notion .kpi.primary { background: #ffffff; box-shadow: none; }
@@ -7234,7 +7340,7 @@ td input {
 
 .company-auth-logo img {
   width: auto;
-  height: 38px;
+  height: 46px;
 }
 
 .company-auth-form {
@@ -8721,7 +8827,7 @@ p {
   padding-top: 64px;
 }
 .app.auth.notion .auth-logo { display: block; }
-.app.auth.notion .auth-logo img { display: block; width: auto; height: 34px; }
+.app.auth.notion .auth-logo img { display: block; width: auto; height: 42px; }
 
 .app.auth.notion .form-card {
   border: 0;
@@ -10035,7 +10141,20 @@ p {
 .notion.candidate-mock-start-page .page-head { padding-bottom: 22px; border-bottom: 1px solid rgba(55, 53, 47, 0.12); }
 
 /* 마이페이지 대시보드 */
-.notion.candidate-mypage .candidate-mypage__head h1 { font-size: 26px; font-weight: 700; color: #191919; }
+/* 마이페이지 헤드 배너 — 리포트와 동일한 파란 그라데이션 (#289) */
+.notion.candidate-mypage .candidate-mypage__head {
+  min-height: 150px;
+  align-content: center;
+  padding: 38px 34px;
+  border-radius: 16px;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 190% at 90% 95%, #1A63E8 0%, rgba(26, 99, 232, 0) 55%),
+    radial-gradient(85% 130% at 68% 25%, rgba(120, 172, 246, 0.5) 0%, rgba(120, 172, 246, 0) 60%),
+    linear-gradient(100deg, #F4F9FE 0%, #E4F0FC 40%, #BAD9F8 72%, #4C8BEE 100%);
+}
+.notion.candidate-mypage .candidate-mypage__head h1 { font-size: 26px; font-weight: 700; color: #14213A; }
+.notion.candidate-mypage .candidate-mypage__head p { color: rgba(20, 33, 58, 0.6); }
 
 .notion.candidate-mypage .mypage-block { margin-top: 36px; }
 .notion.candidate-mypage .mypage-block__title h2 { margin: 0; font-size: 17px; font-weight: 600; color: #191919; }
@@ -10953,84 +11072,749 @@ p {
 .notion .applicant-document-row strong { font-size: 14px; }
 .notion .applicant-document-row span { overflow: hidden; color: rgba(55, 53, 47, 0.58); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 
-/* 기업 평가 상세: 답변별 NCS 평가 결과 */
-.notion .ncs-evaluation-section {
-  border-top: 1px solid rgba(55, 53, 47, 0.14);
-  border-bottom: 1px solid rgba(55, 53, 47, 0.14);
-}
-.notion .ncs-evaluation-section__head {
+/* ===== 기업용 지원자 면접 결과 리포트 (#289) ===== */
+/* 마이페이지식 밑줄 탭 */
+.notion .report-tabs {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 18px 4px 14px;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0 22px;
+  border-bottom: 1px solid rgba(55, 53, 47, 0.12);
+  overflow-x: auto;
 }
-.notion .ncs-evaluation-section__head h3 { margin: 0; font-size: 16px; color: #191919; }
-.notion .ncs-evaluation-section__head p { margin: 5px 0 0; font-size: 13px; line-height: 1.5; color: rgba(55, 53, 47, 0.58); }
-.notion .ncs-evaluation-section__head > strong { flex: none; font-size: 13px; color: #315fc6; }
-.notion .ncs-evaluation-section__list { display: grid; }
-.notion .ncs-evaluation-row {
-  min-width: 0;
-  padding: 18px 4px 20px;
-  border-top: 1px solid rgba(55, 53, 47, 0.1);
+.notion .report-tab {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 40px;
+  padding: 0 14px;
+  margin-bottom: -1px;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(55, 53, 47, 0.55);
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease;
 }
-.notion .ncs-evaluation-row__head {
+.notion .report-tab:hover { color: #191919; }
+.notion .report-tab.is-active { color: #191919; border-bottom-color: #191919; }
+.notion .report-tabpanel { display: grid; gap: 20px; }
+
+/* 종합 탭: 점수 히어로 */
+.notion .report-overview { display: grid; gap: 24px; }
+.notion .report-score-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 16px;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 28px;
+  align-items: center;
+  padding-bottom: 24px;
+  border-bottom: 1px solid rgba(55, 53, 47, 0.1);
 }
-.notion .ncs-evaluation-row__head span:first-child { font-size: 12px; font-weight: 600; color: rgba(55, 53, 47, 0.58); }
-.notion .ncs-evaluation-row__head h4 { margin: 5px 0 0; font-size: 15px; line-height: 1.45; color: #191919; overflow-wrap: anywhere; }
-.notion .ncs-evaluation-status {
+.notion .report-gauge { position: relative; width: 148px; height: 148px; flex: none; }
+.notion .report-gauge svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.notion .report-gauge-track { fill: none; stroke: rgba(55, 53, 47, 0.1); stroke-width: 12; }
+.notion .report-gauge-fill {
+  fill: none;
+  stroke: #3B6FE0;
+  stroke-width: 12;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* 탭 진입 시 0에서 점수까지 차오르는 애니메이션. to 값은 인라인 stroke-dasharray. (#289) */
+  animation: reportGaugeFill 1s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes reportGaugeFill {
+  from { stroke-dasharray: 0 326.73; }
+}
+.notion .report-gauge.gauge-pass .report-gauge-fill { stroke: #0F7A43; }
+.notion .report-gauge.gauge-hold .report-gauge-fill { stroke: #D9730D; }
+.notion .report-gauge.gauge-fail .report-gauge-fill { stroke: #C4554D; }
+
+/* 최종 결과 배지 (#289) */
+.notion .report-result {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.notion .report-result-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.notion .report-result.result-pass { color: #0F7A43; background: #D5F2DF; }
+.notion .report-result.result-hold { color: #B7791F; background: #FBEBD6; }
+.notion .report-result.result-fail { color: #C4554D; background: #FDEBEC; }
+
+/* 합격선 (#289) */
+.notion .report-result-row { display: inline-flex; align-items: center; gap: 10px; justify-self: start; }
+.notion .report-cutline-caption { font-size: 12px; font-weight: 600; color: rgba(55, 53, 47, 0.5); }
+.notion .report-gauge-cutline { stroke: rgba(55, 53, 47, 0.45); stroke-width: 2; stroke-linecap: round; }
+.notion .report-radar-cutline {
+  fill: none;
+  stroke: rgba(196, 85, 77, 0.55);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  stroke-linejoin: round;
+}
+.notion .report-competency-cutstatus {
+  justify-self: start;
+  padding: 3px 9px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.notion .report-competency-cutstatus.is-met { color: #0F7A43; background: #D5F2DF; }
+.notion .report-competency-cutstatus.is-missed { color: #C4554D; background: #FDEBEC; }
+.notion .report-gauge-value {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 2px;
+}
+.notion .report-gauge-value strong { font-size: 40px; font-weight: 800; color: #191919; letter-spacing: -0.02em; line-height: 1; }
+.notion .report-gauge-value span { font-size: 12px; color: rgba(55, 53, 47, 0.55); }
+
+.notion .report-score-side { display: grid; gap: 12px; align-content: center; }
+.notion .report-score-band {
+  justify-self: start;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.notion .report-score-band.band-high { color: #1F6E3D; background: rgba(31, 110, 61, 0.1); }
+.notion .report-score-band.band-mid { color: #3B6FE0; background: rgba(59, 111, 224, 0.1); }
+.notion .report-score-band.band-low { color: #B7791F; background: rgba(183, 121, 31, 0.12); }
+.notion .report-score-band.band-min { color: #C0392B; background: rgba(192, 57, 43, 0.1); }
+
+.notion .report-integrity-note {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 10px;
+  background: #FBFBFA;
+}
+.notion .report-integrity-note-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.notion .report-integrity-badge { padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 700; }
+.notion .report-integrity-badge.level-low { color: #B7791F; background: rgba(183, 121, 31, 0.12); }
+.notion .report-integrity-badge.level-medium { color: #C0603B; background: rgba(192, 96, 59, 0.12); }
+.notion .report-integrity-badge.level-high { color: #C0392B; background: rgba(192, 57, 43, 0.1); }
+.notion .report-integrity-raw { font-size: 12.5px; color: rgba(55, 53, 47, 0.6); }
+.notion .report-integrity-note p { margin: 0; font-size: 13px; line-height: 1.6; color: rgba(55, 53, 47, 0.7); }
+.notion .report-integrity-note .report-integrity-hint { font-size: 12px; color: rgba(55, 53, 47, 0.5); }
+.notion .report-integrity-badge.level-none { color: rgba(55, 53, 47, 0.6); background: rgba(55, 53, 47, 0.08); }
+.notion .report-summary-text { margin: 0; font-size: 14.5px; line-height: 1.7; color: #37352F; word-break: keep-all; }
+
+/* 종합 탭: 역량별 바 */
+.notion .report-competency { display: grid; gap: 14px; }
+.notion .report-competency h3 { margin: 0; font-size: 15px; font-weight: 700; color: #191919; }
+.notion .report-competency-list { display: grid; gap: 18px; margin: 0; padding: 0; list-style: none; }
+.notion .report-competency-item { display: grid; gap: 8px; }
+.notion .report-competency-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.notion .report-competency-namewrap { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
+.notion .report-competency-name { font-size: 14px; font-weight: 600; color: #191919; }
+.notion .report-competency-weight { flex: none; font-size: 12px; font-weight: 600; color: rgba(55, 53, 47, 0.45); }
+.notion .report-competency-band { display: inline-flex; align-items: center; flex: none; padding: 2px 8px; border-radius: 4px; font-size: 11.5px; font-weight: 700; }
+.notion .report-competency-band.tone-high { color: #0F7A43; background: #D5F2DF; }
+.notion .report-competency-band.tone-good { color: #337EA9; background: #E7F3F8; }
+.notion .report-competency-band.tone-mid { color: #D9730D; background: #FAEBDD; }
+.notion .report-competency-band.tone-low { color: #C4554D; background: #FDEBEC; }
+.notion .report-competency-score { font-size: 15px; font-weight: 800; letter-spacing: -0.01em; }
+.notion .report-competency-score.tone-high { color: #0F7A43; }
+.notion .report-competency-score.tone-good { color: #337EA9; }
+.notion .report-competency-score.tone-mid { color: #D9730D; }
+.notion .report-competency-score.tone-low { color: #C4554D; }
+.notion .report-competency-bar { height: 8px; border-radius: 999px; background: rgba(55, 53, 47, 0.08); overflow: hidden; }
+.notion .report-competency-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: #3B6FE0;
+  transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.notion .report-competency-bar > span.tone-high { background: #0F7A43; }
+.notion .report-competency-bar > span.tone-good { background: #337EA9; }
+.notion .report-competency-bar > span.tone-mid { background: #D9730D; }
+.notion .report-competency-bar > span.tone-low { background: #C4554D; }
+.notion .report-competency-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  justify-self: end;
+  padding: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgba(55, 53, 47, 0.55);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+.notion .report-competency-toggle:hover { color: #3B6FE0; }
+.notion .report-competency-caret { font-size: 13px; line-height: 1; transition: transform 0.15s ease; }
+.notion .report-competency-caret.is-open { transform: rotate(180deg); }
+.notion .report-competency-detail { display: grid; gap: 8px; }
+.notion .report-competency-rationale { margin: 0; font-size: 13px; line-height: 1.6; color: rgba(55, 53, 47, 0.7); word-break: keep-all; }
+.notion .report-competency-evidence { display: grid; gap: 6px; }
+.notion .report-competency-evidence blockquote {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 2px solid rgba(59, 111, 224, 0.4);
+  border-radius: 0 6px 6px 0;
+  background: #F7F7F5;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #37352F;
+}
+
+/* 역량 레이더 그래프 + 우측 상세 (#289) */
+.notion .report-competency-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+  gap: 26px;
+  align-items: center;
+}
+.notion .report-radar-wrap { display: grid; gap: 4px; min-width: 0; }
+.notion .report-radar { display: block; width: 100%; max-width: 440px; margin: 0 auto; overflow: visible; }
+.notion .report-radar-ring { fill: none; stroke: rgba(55, 53, 47, 0.07); }
+.notion .report-radar-ring:last-of-type { stroke: rgba(55, 53, 47, 0.14); }
+.notion .report-radar-axis { stroke: rgba(55, 53, 47, 0.07); transition: stroke 0.18s ease; }
+.notion .report-radar-axis.is-hot { stroke: rgba(59, 111, 224, 0.35); }
+.notion .report-radar-halo {
+  fill: rgba(59, 111, 224, 0.12);
+  pointer-events: none;
+  animation: reportRadarHalo 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes reportRadarHalo {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.notion .report-radar-area {
+  fill: rgba(59, 111, 224, 0.14);
+  stroke: #3B6FE0;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.notion .report-radar-shape {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+  animation: reportRadarGrow 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes reportRadarGrow {
+  from { transform: scale(0.2); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.notion .report-radar-dot {
+  fill: #fff;
+  stroke: #3B6FE0;
+  stroke-width: 2;
+  cursor: pointer;
+  transition: r 0.15s ease;
+}
+.notion .report-radar-dot.is-selected { fill: #3B6FE0; }
+.notion .report-radar-label { cursor: pointer; pointer-events: bounding-box; }
+.notion .report-radar-label text { font-size: 12.5px; font-weight: 600; fill: rgba(55, 53, 47, 0.6); }
+.notion .report-radar-label .report-radar-label-score { font-size: 13.5px; font-weight: 800; fill: #191919; }
+.notion .report-radar-label text { transition: fill 0.15s ease; }
+.notion .report-radar-label:hover .report-radar-label-name,
+.notion .report-radar-label:hover .report-radar-label-score,
+.notion .report-radar-label.is-hot .report-radar-label-name,
+.notion .report-radar-label.is-hot .report-radar-label-score,
+.notion .report-radar-label.is-selected .report-radar-label-name,
+.notion .report-radar-label.is-selected .report-radar-label-score { fill: #3B6FE0; }
+.notion .report-radar-hint { margin: 0; text-align: center; font-size: 12px; color: rgba(55, 53, 47, 0.45); }
+
+.notion .report-competency-detailpanel {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  min-height: 240px;
+  padding: 20px;
+  background: #FBFBFA;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 12px;
+  animation: reportDetailFade 0.25s ease both;
+}
+@keyframes reportDetailFade {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.notion .report-competency-detailpanel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.notion .report-competency-detailpanel-score { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.notion .report-competency-detailpanel .report-competency-score { font-size: 20px; }
+.notion .report-competency-rationale.is-empty { color: rgba(55, 53, 47, 0.45); }
+
+@media (max-width: 860px) {
+  .notion .report-competency-layout { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .notion .report-radar-shape,
+  .notion .report-radar-halo,
+  .notion .report-gauge-fill,
+  .notion .report-competency-detailpanel { animation: none; }
+}
+
+/* 주요 근거 (#289) */
+.notion .report-findings { display: grid; gap: 14px; }
+.notion .report-findings h3 { margin: 0; font-size: 15px; font-weight: 700; color: #191919; }
+.notion .report-findings-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.notion .report-findings-list li {
+  position: relative;
+  padding-left: 18px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #37352F;
+  word-break: keep-all;
+}
+.notion .report-findings-list li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 9px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #3B6FE0;
+}
+.notion .report-findings-list li.is-gap { color: rgba(55, 53, 47, 0.75); }
+.notion .report-findings-list li.is-gap::before { background: #D9730D; }
+/* NCS findings: 제목 + 상세 + 역량 메타를 한 항목으로 (#289) */
+.notion .report-findings-list li strong { display: block; color: #191919; font-size: 14px; }
+.notion .report-findings-list li p { margin: 2px 0 0; color: rgba(55, 53, 47, 0.72); font-size: 13px; line-height: 1.6; }
+.notion .report-findings-list li small { display: block; margin-top: 3px; color: rgba(55, 53, 47, 0.45); font-size: 11.5px; }
+
+/* 꼬리질문 (#289) */
+/* 모의면접 종합 피드백 — 강점/보완 2열 카드 + 다음 연습 스텝 (#289) */
+.notion .mockfb-findings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.notion .mockfb-card {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 18px 20px;
+  background: #fbfbfa;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 12px;
+}
+.notion .mockfb-card-head { display: flex; align-items: center; gap: 8px; }
+.notion .mockfb-card-head h3 { margin: 0; font-size: 14.5px; font-weight: 700; color: #191919; }
+.notion .mockfb-card-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 28px;
-  padding: 0 10px;
-  border: 1px solid transparent;
-  border-radius: 999px;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  color: #0f7a43;
+  background: #d5f2df;
+}
+.notion .mockfb-card.is-improve .mockfb-card-icon { color: #b45f06; background: #faebdd; }
+.notion .mockfb-card ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.notion .mockfb-card li {
+  position: relative;
+  padding-left: 14px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #37352f;
+  word-break: keep-all;
+}
+.notion .mockfb-card li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 9px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #0f7a43;
+}
+.notion .mockfb-card.is-improve li::before { background: #d9730d; }
+@media (max-width: 720px) {
+  .notion .mockfb-findings { grid-template-columns: 1fr; }
+}
+
+.notion .mockfb-practice {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+  background: #f6f9ff;
+  border: 1px solid rgba(59, 111, 224, 0.18);
+  border-radius: 12px;
+}
+.notion .mockfb-practice-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.notion .mockfb-practice-head h3 { margin: 0; font-size: 14.5px; font-weight: 700; color: #191919; }
+.notion .mockfb-practice-head span { font-size: 12.5px; color: rgba(55, 53, 47, 0.55); }
+.notion .mockfb-practice-steps { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.notion .mockfb-practice-steps li { display: flex; align-items: flex-start; gap: 10px; }
+.notion .mockfb-practice-steps p { margin: 2px 0 0; font-size: 13.5px; line-height: 1.6; color: #37352f; word-break: keep-all; }
+.notion .mockfb-step-number {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #fff;
+  background: #3b6fe0;
   font-size: 12px;
   font-weight: 700;
-  white-space: nowrap;
 }
-.notion .ncs-evaluation-status.is-success { color: #177245; background: #eef8f2; border-color: #cce9d8; }
-.notion .ncs-evaluation-status.is-warning { color: #8a5a12; background: #fff8e8; border-color: #f2dfb7; }
-.notion .ncs-evaluation-status.is-danger { color: #b33a3a; background: #fff1f1; border-color: #f0cccc; }
-.notion .ncs-evaluation-row__question { margin: 14px 0 0; font-size: 14px; line-height: 1.6; color: #37352f; overflow-wrap: anywhere; }
-.notion .ncs-evaluation-row__meta { display: flex; flex-wrap: wrap; gap: 7px 14px; margin-top: 10px; }
-.notion .ncs-evaluation-row__meta span { font-size: 12px; color: rgba(55, 53, 47, 0.58); }
-.notion .ncs-evaluation-scores {
+
+/* 접기 — 요약/답변 상세를 기본 숨김으로 정리 (#289) */
+.notion .report-nonverbal-more,
+.notion .report-answer-detail {
+  margin-top: 4px;
+}
+.notion .report-nonverbal-more > summary,
+.notion .report-answer-detail > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 7px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgba(55, 53, 47, 0.6);
+  background: #f7f7f5;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+.notion .report-nonverbal-more > summary::-webkit-details-marker,
+.notion .report-answer-detail > summary::-webkit-details-marker { display: none; }
+.notion .report-nonverbal-more > summary::before,
+.notion .report-answer-detail > summary::before {
+  content: "▸";
+  font-size: 10px;
+  color: rgba(55, 53, 47, 0.4);
+}
+.notion .report-nonverbal-more[open] > summary::before,
+.notion .report-answer-detail[open] > summary::before { content: "▾"; }
+.notion .report-nonverbal-more > summary:hover { color: #191919; border-color: rgba(55, 53, 47, 0.2); }
+.notion .report-nonverbal-more > div { margin-top: 12px; }
+
+/* 답변 상세 보기 — 오른쪽 정렬 + 파란 버튼 (#289) */
+.notion .report-answer-detail { display: flex; flex-direction: column; }
+.notion .report-answer-detail > summary {
+  align-self: flex-end;
+  color: #ffffff;
+  background: #3b6fe0;
+  border-color: #3b6fe0;
+}
+.notion .report-answer-detail > summary:hover { color: #ffffff; background: #2f5fd6; border-color: #2f5fd6; }
+.notion .report-answer-detail > summary::before { color: rgba(255, 255, 255, 0.75); }
+.notion .report-answer-detail__body { display: grid; gap: 18px; margin-top: 16px; }
+.notion .report-nonverbal-summary__ok {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 13px;
+  color: #2f855a;
+  background: #edf7f0;
+  border: 1px solid rgba(15, 122, 67, 0.18);
+  border-radius: 10px;
+}
+
+/* 비언어 지표 타일 — 신호 있는 항목만 주황 강조 (#289) */
+.notion .report-nonverbal-tiles {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+.notion .report-nonverbal-tile {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  padding: 12px 8px;
+  background: #f7f7f5;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 10px;
+  text-align: center;
+}
+.notion .report-nonverbal-tile strong { font-size: 17px; font-weight: 800; color: rgba(55, 53, 47, 0.45); font-variant-numeric: tabular-nums; }
+.notion .report-nonverbal-tile span { font-size: 11.5px; font-weight: 600; color: rgba(55, 53, 47, 0.5); }
+.notion .report-nonverbal-tile.is-flag { background: #fdf3e7; border-color: rgba(217, 115, 13, 0.35); }
+.notion .report-nonverbal-tile.is-flag strong { color: #b45f06; }
+.notion .report-nonverbal-tile.is-flag span { color: #8a5a00; }
+.notion .report-nonverbal-tile.is-wide strong { color: #37352f; }
+@media (max-width: 860px) {
+  .notion .report-nonverbal-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+.notion .report-followup { display: grid; gap: 14px; }
+.notion .report-followup h3 { margin: 0; font-size: 15px; font-weight: 700; color: #191919; }
+.notion .report-followup-list { display: grid; gap: 10px; }
+.notion .report-followup-box {
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px;
+  background: #FBFBFA;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 12px;
+}
+.notion .report-followup-row { display: grid; gap: 3px; }
+.notion .report-followup-label { font-size: 11.5px; font-weight: 600; color: rgba(55, 53, 47, 0.5); }
+.notion .report-followup-text { font-size: 14px; color: #191919; }
+
+/* NCS canonical V1 리포트 소비 UI (#289) */
+.notion .ncs-decision-compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 340px;
+  border-top: 1px solid rgba(55, 53, 47, 0.1);
+}
+.notion .ncs-decision-compare > div { display: grid; gap: 3px; padding: 12px 18px 0 0; }
+.notion .ncs-decision-compare > div + div { padding-left: 18px; border-left: 1px solid rgba(55, 53, 47, 0.1); }
+.notion .ncs-decision-compare span { color: rgba(55, 53, 47, 0.52); font-size: 11.5px; font-weight: 600; }
+.notion .ncs-decision-compare strong { color: #191919; font-size: 14px; }
+
+.notion .ncs-incomplete {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+  gap: 24px;
+  padding: 18px 20px;
+  border-top: 1px solid rgba(217, 115, 13, 0.45);
+  border-bottom: 1px solid rgba(217, 115, 13, 0.28);
+  background: rgba(217, 115, 13, 0.05);
+}
+.notion .ncs-incomplete > div { display: grid; align-content: start; gap: 5px; }
+.notion .ncs-incomplete > div strong { color: #8A4B08; font-size: 14px; }
+.notion .ncs-incomplete > div span { color: rgba(55, 53, 47, 0.65); font-size: 12.5px; line-height: 1.55; }
+.notion .ncs-incomplete ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.notion .ncs-incomplete li { display: grid; gap: 2px; }
+.notion .ncs-incomplete li strong { color: #8A4B08; font-size: 12.5px; }
+.notion .ncs-incomplete li span { color: #37352F; font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+
+.notion .ncs-section-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; }
+.notion .ncs-section-head h3 { margin: 0; color: #191919; font-size: 17px; letter-spacing: 0; }
+.notion .ncs-section-head > span { color: rgba(55, 53, 47, 0.5); font-size: 12px; text-align: right; }
+
+/* NCS 역량 상세 패널(레이더 우측) 통계/강점·보완 (#289) */
+.notion .ncs-profile-detail-stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin: 16px 0 0;
-  border-top: 1px solid rgba(55, 53, 47, 0.12);
-  border-bottom: 1px solid rgba(55, 53, 47, 0.12);
+  margin: 0;
+  border-top: 1px solid rgba(55, 53, 47, 0.1);
+  border-bottom: 1px solid rgba(55, 53, 47, 0.1);
 }
-.notion .ncs-evaluation-scores > div { padding: 12px 14px; border-right: 1px solid rgba(55, 53, 47, 0.12); }
-.notion .ncs-evaluation-scores > div:last-child { border-right: 0; }
-.notion .ncs-evaluation-scores dt { font-size: 12px; color: rgba(55, 53, 47, 0.58); }
-.notion .ncs-evaluation-scores dd { margin: 5px 0 0; font-size: 20px; font-weight: 700; color: #37352f; }
-.notion .ncs-evaluation-scores .is-emphasized dd { color: #315fc6; }
-.notion .ncs-evaluation-evidence,
-.notion .ncs-evaluation-growth { margin-top: 16px; }
-.notion .ncs-evaluation-evidence > strong { font-size: 13px; color: #37352f; }
-.notion .ncs-evaluation-evidence ul { display: grid; gap: 7px; margin: 8px 0 0; padding: 0; list-style: none; }
-.notion .ncs-evaluation-evidence li { padding-left: 12px; border-left: 2px solid #8aacfa; font-size: 13px; line-height: 1.6; color: rgba(55, 53, 47, 0.76); overflow-wrap: anywhere; }
-.notion .ncs-evaluation-growth { display: grid; gap: 7px; }
-.notion .ncs-evaluation-growth p { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; margin: 0; font-size: 13px; line-height: 1.55; color: rgba(55, 53, 47, 0.76); }
-.notion .ncs-evaluation-growth strong { color: #37352f; }
-.notion .ncs-evaluation-message { margin: 16px 0 0; padding: 12px 14px; border-left: 3px solid; font-size: 13px; line-height: 1.55; }
-.notion .ncs-evaluation-message.is-warning { color: #765017; background: #fffbf0; border-color: #d9a441; }
-.notion .ncs-evaluation-message.is-danger { color: #9a3434; background: #fff5f5; border-color: #d45a5a; }
+.notion .ncs-profile-detail-stats > div { display: grid; gap: 3px; min-width: 0; padding: 10px 12px 10px 0; }
+.notion .ncs-profile-detail-stats > div + div { padding-left: 12px; border-left: 1px solid rgba(55, 53, 47, 0.08); }
+.notion .ncs-profile-detail-stats dt { color: rgba(55, 53, 47, 0.5); font-size: 11.5px; font-weight: 600; }
+.notion .ncs-profile-detail-stats dd { margin: 0; color: #37352F; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.notion .ncs-profile-detail-findings { display: grid; gap: 8px; }
+.notion .ncs-profile-detail-findings p { display: flex; align-items: baseline; gap: 8px; margin: 0; color: #37352F; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+.notion .ncs-profile-detail-findings strong {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 4px;
+  color: #0F7A43;
+  background: #D5F2DF;
+  font-size: 11px;
+  font-weight: 700;
+}
+.notion .ncs-profile-detail-findings p.is-gap strong { color: #B45F06; background: #FAEBDD; }
+.notion .ncs-profile-detail-hint { margin: 0; color: rgba(55, 53, 47, 0.45); font-size: 12px; }
 
-@media (max-width: 720px) {
-  .notion .ncs-evaluation-section__head { display: grid; gap: 10px; }
-  .notion .ncs-evaluation-row__head { grid-template-columns: minmax(0, 1fr); }
-  .notion .ncs-evaluation-status { justify-self: start; }
-  .notion .ncs-evaluation-growth p { grid-template-columns: 1fr; gap: 3px; }
+.notion .ncs-question-list { display: grid; border-top: 1px solid rgba(55, 53, 47, 0.14); }
+.notion .ncs-question { border-bottom: 1px solid rgba(55, 53, 47, 0.12); }
+.notion .ncs-question > summary {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 52px;
+  align-items: center;
+  gap: 14px;
+  min-height: 86px;
+  padding: 12px 4px;
+  cursor: pointer;
+  list-style: none;
+}
+.notion .ncs-question > summary::-webkit-details-marker { display: none; }
+.notion .ncs-question > summary:focus-visible { outline: 2px solid rgba(59, 111, 224, 0.65); outline-offset: 3px; }
+.notion .ncs-question-number { display: grid; place-content: center; width: 36px; height: 36px; border-radius: 50%; color: #3B6FE0; background: rgba(59, 111, 224, 0.1); font-size: 12px; font-weight: 800; }
+.notion .ncs-question-heading { display: grid; gap: 7px; min-width: 0; }
+.notion .ncs-question-heading strong { color: #191919; font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
+.notion .ncs-question-heading small { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: rgba(55, 53, 47, 0.5); font-size: 11.5px; }
+.notion .ncs-question-heading i { font-style: normal; }
+.notion .ncs-question-toggle { color: rgba(55, 53, 47, 0.48); font-size: 11.5px; font-weight: 600; text-align: right; }
+.notion .ncs-question[open] .ncs-question-toggle { color: #3B6FE0; }
+.notion .ncs-question-detail { display: grid; gap: 0; padding: 0 0 18px 58px; }
+
+.notion .ncs-profile-evaluation { display: grid; gap: 12px; padding: 18px 0; border-top: 1px solid rgba(55, 53, 47, 0.08); }
+.notion .ncs-profile-evaluation-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.notion .ncs-profile-evaluation-head > div { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; min-width: 0; }
+.notion .ncs-profile-evaluation-head > div > strong { color: #191919; font-size: 13.5px; }
+.notion .ncs-score-status,
+.notion .ncs-followup-applied,
+.notion .ncs-reason-tags span {
+  padding: 2px 7px;
+  border-radius: 4px;
+  color: #0F7A43;
+  background: rgba(15, 122, 67, 0.09);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.notion .ncs-score-status:not(.status-scored),
+.notion .ncs-reason-tags span { color: #B45F06; background: rgba(217, 115, 13, 0.1); }
+.notion .ncs-followup-applied { color: #3B6FE0; background: rgba(59, 111, 224, 0.09); }
+.notion .ncs-effective-score { flex: none; color: #191919; font-size: 16px; }
+.notion .ncs-score-breakdown { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border-top: 1px solid rgba(55, 53, 47, 0.08); border-bottom: 1px solid rgba(55, 53, 47, 0.08); }
+.notion .ncs-score-breakdown > div { display: grid; gap: 3px; padding: 10px 12px; }
+.notion .ncs-score-breakdown > div + div { border-left: 1px solid rgba(55, 53, 47, 0.08); }
+.notion .ncs-score-breakdown dt { color: rgba(55, 53, 47, 0.48); font-size: 10.5px; font-weight: 600; }
+.notion .ncs-score-breakdown dd { margin: 0; color: #37352F; font-size: 12.5px; font-weight: 700; }
+.notion .ncs-rationale { margin: 0; color: rgba(55, 53, 47, 0.72); font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.notion .ncs-reason-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.notion .ncs-evidence-list { display: grid; gap: 8px; }
+.notion .ncs-evidence-list blockquote { display: grid; gap: 6px; margin: 0; padding: 11px 14px; border-left: 3px solid rgba(59, 111, 224, 0.45); background: #F7F7F5; }
+.notion .ncs-evidence-list blockquote span { color: #3B6FE0; font-size: 10.5px; font-weight: 700; }
+.notion .ncs-evidence-list q { color: #37352F; font-size: 13px; line-height: 1.65; quotes: none; overflow-wrap: anywhere; }
+.notion .ncs-followup-detail { display: flex; align-items: start; justify-content: space-between; gap: 16px; padding: 14px 0; border-top: 1px solid rgba(55, 53, 47, 0.1); }
+.notion .ncs-followup-detail > div { display: grid; gap: 4px; min-width: 0; }
+.notion .ncs-followup-detail > div span { color: #3B6FE0; font-size: 10.5px; font-weight: 700; }
+.notion .ncs-followup-detail > div strong { color: #191919; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+.notion .ncs-followup-status { flex: none; padding: 3px 8px; border-radius: 4px; color: #0F7A43; background: #D5F2DF; font-size: 11px; font-weight: 700; }
+.notion .ncs-followup-status.status-not_answered,
+.notion .ncs-followup-status.status-not_recovered { color: #C4554D; background: #FDEBEC; }
+.notion .ncs-followup-status.status-partially_recovered { color: #B45F06; background: #FAEBDD; }
+
+.notion .ncs-notices { display: grid; gap: 8px; padding-top: 4px; }
+.notion .ncs-notices p { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 14px; margin: 0; padding: 12px 14px; border-left: 3px solid rgba(59, 111, 224, 0.45); background: #F7F7F5; }
+.notion .ncs-notices p.is-warning { border-left-color: rgba(217, 115, 13, 0.65); background: rgba(217, 115, 13, 0.06); }
+.notion .ncs-notices strong { color: #191919; font-size: 11.5px; }
+.notion .ncs-notices span { color: rgba(55, 53, 47, 0.68); font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; }
+
+/* 리포트 페이지 헤드 배너 — 파란 그라데이션 (#289) */
+.notion.applicant-report-page .page-head {
+  position: relative;
+  align-items: center;
+  min-height: 150px;
+  margin-bottom: 26px;
+  padding: 34px 34px;
+  border-radius: 16px;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 190% at 90% 95%, #1A63E8 0%, rgba(26, 99, 232, 0) 55%),
+    radial-gradient(85% 130% at 68% 25%, rgba(120, 172, 246, 0.5) 0%, rgba(120, 172, 246, 0) 60%),
+    linear-gradient(100deg, #F4F9FE 0%, #E4F0FC 40%, #BAD9F8 72%, #4C8BEE 100%);
+}
+.notion.applicant-report-page .page-head h1 { color: #14213A; }
+.notion.applicant-report-page .page-head .page-sub { color: rgba(20, 33, 58, 0.6); }
+.notion.applicant-report-page .page-head .btn.secondary {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(255, 255, 255, 0.6);
 }
 
+/* 전형 결정 탭 (#289) */
+.notion .decision-panel { display: grid; gap: 24px; }
+.notion .decision-summary {
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px;
+  background: #FBFBFA;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 12px;
+}
+.notion .decision-summary.is-empty p { margin: 0; font-size: 13.5px; color: rgba(55, 53, 47, 0.6); }
+.notion .decision-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.notion .decision-summary-label { font-size: 12px; font-weight: 700; color: rgba(55, 53, 47, 0.5); letter-spacing: 0.02em; }
+.notion .decision-summary-badges { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.notion .decision-summary-score { font-size: 17px; font-weight: 800; color: #191919; letter-spacing: -0.01em; }
+.notion .decision-summary-result { font-size: 12.5px; padding: 3px 10px; }
+.notion .decision-summary-findings { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.notion .decision-summary-findings li {
+  position: relative;
+  padding-left: 16px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: #37352F;
+  word-break: keep-all;
+}
+.notion .decision-summary-findings li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 8px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #3B6FE0;
+}
+.notion .decision-summary-findings li.is-gap { color: rgba(55, 53, 47, 0.7); }
+.notion .decision-summary-findings li.is-gap::before { background: #D9730D; }
+.notion .decision-summary-text { margin: 0; font-size: 13.5px; line-height: 1.6; color: rgba(55, 53, 47, 0.75); word-break: keep-all; }
+
+.notion .decision-field { display: grid; gap: 10px; }
+.notion .decision-field-label { font-size: 13px; font-weight: 700; color: #191919; }
+.notion .decision-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.notion .decision-option {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  text-align: left;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.14);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.notion .decision-option strong { font-size: 14px; font-weight: 700; color: #191919; }
+.notion .decision-option span { font-size: 12px; color: rgba(55, 53, 47, 0.55); }
+.notion .decision-option:hover { border-color: rgba(55, 53, 47, 0.3); }
+.notion .decision-option.is-selected.tone-neutral { border-color: #37352F; background: rgba(55, 53, 47, 0.04); }
+.notion .decision-option.is-selected.tone-pass { border-color: #0F7A43; background: rgba(15, 122, 67, 0.06); }
+.notion .decision-option.is-selected.tone-pass strong { color: #0F7A43; }
+.notion .decision-option.is-selected.tone-hold { border-color: #D9730D; background: rgba(217, 115, 13, 0.06); }
+.notion .decision-option.is-selected.tone-hold strong { color: #B7791F; }
+.notion .decision-option.is-selected.tone-fail { border-color: #C4554D; background: rgba(196, 85, 77, 0.06); }
+.notion .decision-option.is-selected.tone-fail strong { color: #C4554D; }
+
+.notion .decision-memo {
+  width: 100%;
+  min-height: 120px;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #37352F;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.16);
+  border-radius: 8px;
+  resize: vertical;
+}
+.notion .decision-memo:focus { outline: none; border-color: #3B6FE0; }
+.notion .decision-actions { display: flex; justify-content: flex-end; }
+
+@media (max-width: 760px) {
+  .notion .decision-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .notion .report-score-hero { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+  .notion .report-score-side { justify-items: center; }
+  .notion .report-score-band { justify-self: center; }
+}
 /* 전체 지원자 프로필 스냅샷 편집기 — 지원 모달/지원서 세트 페이지 공용 */
 .candidate-profile-snapshot-editor { display: grid; gap: 14px; width: 100%; }
 .candidate-profile-snapshot-basic,
