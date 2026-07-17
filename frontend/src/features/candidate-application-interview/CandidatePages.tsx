@@ -142,6 +142,7 @@ import {
   type CameraPipPosition,
   type CandidateApplicationFormState,
   applyFolderToApplicationForm,
+  canSubmitInterviewAnswer,
   type CandidateDeviceCheckState,
   type CandidateInterviewConsentState,
   type CandidateNotificationItem,
@@ -153,6 +154,7 @@ import {
   buildCandidateReportCompleteNotifications,
   clampCameraPipPosition,
   countUnreadCandidateNotifications,
+  createInterviewAnswerFormStateForQuestion,
   createInterviewerSessionActionEvent,
   defaultApplicationFormState,
   defaultCandidateJobQuery,
@@ -180,6 +182,7 @@ import {
   getRealtimeSessionUserNotice,
   getRuntimeDeviceRecheckState,
   getTimedOutAiJobStatus,
+  hasMeaningfulInterviewRecordingVoice,
   getCandidateApplicationReportHref,
   getMockInterviewDeviceCheckHref,
   isInterviewSpeechPlaybackEventCurrent,
@@ -191,6 +194,7 @@ import {
   shouldContinueInterviewWithoutFollowUp,
   shouldDeferQuestionTransitionForFollowUp,
   shouldEnableManualInterviewRecording,
+  shouldHandleInterviewAnswerTimeout,
   shouldOpenRealtimeMicrophoneForRecordingStart,
   shouldPollRecruitingReportCompletion,
   shouldRunInterviewRuntimeCountdown,
@@ -3335,7 +3339,7 @@ function InterviewRuntimePanel({
   const runtimePreparationTimeSec = data?.runtime.timePolicy?.preparationTimeSec;
   const runtimeAnswerTimeSec = data?.runtime.timePolicy?.answerTimeSec;
   const runtimeRetryAllowed = data?.runtime.timePolicy?.retryAllowed ?? false;
-  const [answer, setAnswer] = useState<InterviewAnswerFormState>(defaultInterviewAnswerFormState);
+  const [answer, setAnswer] = useState<InterviewAnswerFormState>(() => createInterviewAnswerFormStateForQuestion());
   const [retryAnswerId, setRetryAnswerId] = useState<number>();
   const [retryingQuestionId, setRetryingQuestionId] = useState<number>();
   const [gazeRetakeQuestionId, setGazeRetakeQuestionId] = useState<number | null>(null);
@@ -3475,6 +3479,7 @@ function InterviewRuntimePanel({
   const microphoneLevelRef = useRef(0);
   const recordingVoicePeakRef = useRef(0);
   const recordingVoiceFrameCountRef = useRef(0);
+  const initializedQuestionIdRef = useRef<number | undefined>(undefined);
   const realtimeSilenceStartedAtRef = useRef<number | null>(null);
   const realtimeEncouragedQuestionRef = useRef<number | null>(null);
   const videoAttachRunRef = useRef(0);
@@ -3482,8 +3487,23 @@ function InterviewRuntimePanel({
     realtimeRemoteAudioRef.current = element;
     setRealtimeRemoteAudioElement(element);
   }, []);
+  const currentQuestionId = currentQuestion?.questionId;
+  const currentQuestionStateReady = typeof currentQuestionId === "number" && answer.questionId === currentQuestionId;
   const hasAnswerFile = Boolean(answer.videoFile || answer.audioFile || answer.videoFileId || answer.audioFileId);
-  const canSubmitAnswer = Boolean(currentQuestion && hasAnswerFile && answer.durationSeconds > 0 && !recording);
+  const hasMeaningfulAnswerVoice = hasMeaningfulInterviewRecordingVoice({
+    peakLevel: recordingVoicePeakRef.current,
+    activeFrameCount: recordingVoiceFrameCountRef.current,
+    minPeakLevel: MIN_INTERVIEW_RECORDING_VOICE_LEVEL,
+    minActiveFrameCount: MIN_INTERVIEW_RECORDING_VOICE_FRAME_COUNT,
+  });
+  const canSubmitAnswer = canSubmitInterviewAnswer({
+    currentQuestionId,
+    answer,
+    recording,
+    questionSpeechCompleted,
+    questionSpeechPlaying,
+    hasMeaningfulVoice: hasMeaningfulAnswerVoice,
+  });
   const retryingCurrentQuestion = Boolean(currentQuestion && retryingQuestionId === currentQuestion.questionId);
   const currentQuestionAnswered = Boolean(
     currentQuestion &&
@@ -3514,7 +3534,7 @@ function InterviewRuntimePanel({
     cameraReady,
     microphoneReady,
     networkReady,
-    hasCurrentQuestion: Boolean(currentQuestion),
+    hasCurrentQuestion: currentQuestionStateReady,
     currentQuestionLocked,
     timerPhase,
     recording,
@@ -3524,6 +3544,7 @@ function InterviewRuntimePanel({
   const shouldShowRecordingStartLabel = Boolean(
     data?.runtime.canRecord &&
       currentQuestion &&
+      currentQuestionStateReady &&
       setupCompleted &&
       introCompleted &&
       questionSpeechCompleted &&
@@ -3660,7 +3681,9 @@ function InterviewRuntimePanel({
 
   function prepareAuthoritativeNextQuestion(nextQuestion: RuntimeQuestionView | undefined) {
     stopQuestionSpeech();
-    setAnswer(nextQuestion ? { ...defaultInterviewAnswerFormState, questionId: nextQuestion.questionId } : defaultInterviewAnswerFormState);
+    setAnswer(createInterviewAnswerFormStateForQuestion(nextQuestion?.questionId));
+    recordingVoicePeakRef.current = 0;
+    recordingVoiceFrameCountRef.current = 0;
     setRecordedFileName("");
     setQuestionSpeechStatus(nextQuestion ? "다음 질문 음성 대기" : "면접 답변 완료");
     setQuestionSpeechCompleted(false);
@@ -4193,40 +4216,48 @@ function InterviewRuntimePanel({
   }, [mode]);
 
   useEffect(() => {
-    if (currentQuestion) {
-      setAnswer((current) => ({ ...current, questionId: currentQuestion.questionId }));
-      setReansweringQuestionId((current) => (current === currentQuestion.questionId ? current : null));
-      setRecordedFileName("");
-      submitAfterRecordingStopRef.current = false;
-      autoAdvanceAfterAnswerSubmitRef.current = false;
-      timeExpiredQuestionRef.current = null;
-      answerStartCueQuestionRef.current = null;
-      invalidRecordingRetryCountsRef.current.delete(currentQuestion.questionId);
-      realtimeSilenceStartedAtRef.current = null;
-      realtimeEncouragedQuestionRef.current = null;
-      setRetryAnswerId(undefined);
-      setRetryingQuestionId(undefined);
-      setQuestionSpeechCompleted(false);
-      setQuestionSpeechPlaying(false);
-      resetRuntimeQuestionTimer(
-        runtimeInterviewType
-          ? {
-              interviewType: runtimeInterviewType,
-              timePolicy:
-                typeof runtimePreparationTimeSec === "number" && typeof runtimeAnswerTimeSec === "number"
-                  ? {
-                      preparationTimeSec: runtimePreparationTimeSec,
-                      answerTimeSec: runtimeAnswerTimeSec,
-                      retryAllowed: runtimeRetryAllowed,
-                    }
-                  : undefined,
-            }
-          : undefined,
-        setTimerPhase,
-        setRemainingSeconds,
-      );
+    if (typeof currentQuestionId !== "number") {
+      initializedQuestionIdRef.current = undefined;
+      return;
     }
-  }, [currentQuestion, runtimeAnswerTimeSec, runtimeInterviewType, runtimePreparationTimeSec, runtimeRetryAllowed]);
+    if (initializedQuestionIdRef.current === currentQuestionId) return;
+    initializedQuestionIdRef.current = currentQuestionId;
+
+    setAnswer(createInterviewAnswerFormStateForQuestion(currentQuestionId));
+    recordingVoicePeakRef.current = 0;
+    recordingVoiceFrameCountRef.current = 0;
+    setReansweringQuestionId((current) => (current === currentQuestionId ? current : null));
+    setRecordedFileName("");
+    submitAfterRecordingStopRef.current = false;
+    autoAdvanceAfterAnswerSubmitRef.current = false;
+    timeExpiredQuestionRef.current = null;
+    autoRecordingQuestionRef.current = null;
+    answerStartCueQuestionRef.current = null;
+    invalidRecordingRetryCountsRef.current.delete(currentQuestionId);
+    realtimeSilenceStartedAtRef.current = null;
+    realtimeEncouragedQuestionRef.current = null;
+    setRetryAnswerId(undefined);
+    setRetryingQuestionId(undefined);
+    setQuestionSpeechCompleted(false);
+    setQuestionSpeechPlaying(false);
+    resetRuntimeQuestionTimer(
+      runtimeInterviewType
+        ? {
+            interviewType: runtimeInterviewType,
+            timePolicy:
+              typeof runtimePreparationTimeSec === "number" && typeof runtimeAnswerTimeSec === "number"
+                ? {
+                    preparationTimeSec: runtimePreparationTimeSec,
+                    answerTimeSec: runtimeAnswerTimeSec,
+                    retryAllowed: runtimeRetryAllowed,
+                  }
+                : undefined,
+          }
+        : undefined,
+      setTimerPhase,
+      setRemainingSeconds,
+    );
+  }, [currentQuestionId, runtimeAnswerTimeSec, runtimeInterviewType, runtimePreparationTimeSec, runtimeRetryAllowed]);
 
   useEffect(() => {
     const metric = answerToNextQuestionPerfRef.current;
@@ -4478,11 +4509,10 @@ function InterviewRuntimePanel({
       introCompleted,
       questionSpeechCompleted,
       questionSpeechPlaying,
-      hasCurrentQuestion: Boolean(currentQuestion),
+      hasCurrentQuestion: currentQuestionStateReady,
       currentQuestionLocked,
       busy,
       timerPhase,
-      recording,
     })) {
       return;
     }
@@ -4492,12 +4522,11 @@ function InterviewRuntimePanel({
     return () => window.clearInterval(intervalId);
   }, [
     busy,
-    currentQuestion,
+    currentQuestionStateReady,
     currentQuestionLocked,
     introCompleted,
     questionSpeechCompleted,
     questionSpeechPlaying,
-    recording,
     setupCompleted,
     timerPhase,
   ]);
@@ -4511,6 +4540,7 @@ function InterviewRuntimePanel({
       !questionSpeechCompleted ||
       questionSpeechPlaying ||
       !currentQuestion ||
+      !currentQuestionStateReady ||
       currentQuestionAnswered ||
       busy
     ) {
@@ -4527,6 +4557,7 @@ function InterviewRuntimePanel({
     busy,
     currentQuestion,
     currentQuestionAnswered,
+    currentQuestionStateReady,
     data?.runtime,
     introCompleted,
     questionSpeechCompleted,
@@ -4538,16 +4569,18 @@ function InterviewRuntimePanel({
 
   useEffect(() => {
     if (
-      remainingSeconds > 0 ||
-      timerPhase !== "ANSWERING" ||
-      !recording ||
-      !setupCompleted ||
-      !introCompleted ||
-      !questionSpeechCompleted ||
-      questionSpeechPlaying ||
       !currentQuestion ||
-      currentQuestionLocked ||
-      busy
+      !shouldHandleInterviewAnswerTimeout({
+        remainingSeconds,
+        timerPhase,
+        setupCompleted,
+        introCompleted,
+        questionSpeechCompleted,
+        questionSpeechPlaying,
+        hasCurrentQuestion: currentQuestionStateReady,
+        currentQuestionLocked,
+        busy,
+      })
     ) {
       return;
     }
@@ -4560,10 +4593,10 @@ function InterviewRuntimePanel({
     busy,
     currentQuestion,
     currentQuestionLocked,
+    currentQuestionStateReady,
     introCompleted,
     questionSpeechCompleted,
     questionSpeechPlaying,
-    recording,
     remainingSeconds,
     setupCompleted,
     timerPhase,
@@ -4593,17 +4626,17 @@ function InterviewRuntimePanel({
         questionSpeechPlaying,
         cameraReady,
         microphoneReady,
-        hasCurrentQuestion: Boolean(currentQuestion),
+        hasCurrentQuestion: currentQuestionStateReady,
         currentQuestionLocked,
         timerPhase,
         recording,
-        hasAnswerFile: Boolean(answer.videoFile || answer.audioFile),
+        hasAnswerFile,
         microphoneLevel: microphoneLevelRef.current,
       })
     ) {
       return;
     }
-    if (recording || answer.videoFile || answer.audioFile) return;
+    if (recording || hasAnswerFile) return;
     if (autoRecordingQuestionRef.current === currentQuestion.questionId) return;
     autoRecordingQuestionRef.current = currentQuestion.questionId;
     void handleStartRecording();
@@ -4619,11 +4652,11 @@ function InterviewRuntimePanel({
     questionSpeechCompleted,
     questionSpeechPlaying,
     currentQuestion?.questionId,
+    currentQuestionStateReady,
     currentQuestionLocked,
     timerPhase,
     recording,
-    answer.videoFile,
-    answer.audioFile,
+    hasAnswerFile,
   ]);
 
   useEffect(() => {
@@ -6596,25 +6629,33 @@ function InterviewRuntimePanel({
         const fileName = `${mode}-answer-${data.runtime.sessionId}-${currentQuestion.questionId}.${getInterviewMediaFileExtension(recordedMimeType)}`;
 
         if (durationSeconds < MIN_INTERVIEW_RECORDING_DURATION_SECONDS) {
-          if (nonverbalMetadata) {
-            lastInvalidRecordingMetadataRef.current.set(currentQuestion.questionId, nonverbalMetadata);
-          }
-          discardRealtimeSttRelay();
-          clearInvalidRecordingDraft(
+          handleInvalidRecordingResult(
             currentQuestion.questionId,
+            nonverbalMetadata,
             `답변 녹음이 너무 짧습니다. 최소 ${MIN_INTERVIEW_RECORDING_DURATION_SECONDS}초 이상 답변한 뒤 다시 제출해주세요.`,
           );
           return;
         }
 
         if (blob.size < MIN_INTERVIEW_RECORDING_BLOB_SIZE_BYTES) {
-          if (nonverbalMetadata) {
-            lastInvalidRecordingMetadataRef.current.set(currentQuestion.questionId, nonverbalMetadata);
-          }
-          discardRealtimeSttRelay();
-          clearInvalidRecordingDraft(
+          handleInvalidRecordingResult(
             currentQuestion.questionId,
+            nonverbalMetadata,
             "녹음 파일이 너무 작아 저장되지 않았습니다. 마이크 입력을 확인한 뒤 다시 답변해주세요.",
+          );
+          return;
+        }
+
+        if (!hasMeaningfulInterviewRecordingVoice({
+          peakLevel: recordingVoicePeakRef.current,
+          activeFrameCount: recordingVoiceFrameCountRef.current,
+          minPeakLevel: MIN_INTERVIEW_RECORDING_VOICE_LEVEL,
+          minActiveFrameCount: MIN_INTERVIEW_RECORDING_VOICE_FRAME_COUNT,
+        })) {
+          handleInvalidRecordingResult(
+            currentQuestion.questionId,
+            nonverbalMetadata,
+            "마이크에서 답변 음성이 감지되지 않았습니다. 마이크 상태를 확인하고 다시 답변해주세요.",
           );
           return;
         }
@@ -6703,6 +6744,28 @@ function InterviewRuntimePanel({
     }
     setRealtimeMicrophoneOpen(false);
     setRecording(false);
+  }
+
+  function handleInvalidRecordingResult(
+    questionId: number,
+    nonverbalMetadata: InterviewAnswerNonverbalMetadata | undefined,
+    message: string,
+  ) {
+    if (nonverbalMetadata) {
+      lastInvalidRecordingMetadataRef.current.set(questionId, nonverbalMetadata);
+    }
+    discardRealtimeSttRelay();
+
+    if (autoAdvanceAfterAnswerSubmitRef.current) {
+      clearAnswerSubmitToNextReadyMetric(questionId);
+      submitAfterRecordingStopRef.current = false;
+      autoAdvanceAfterAnswerSubmitRef.current = false;
+      setRecording(false);
+      void submitSkippedAnswerAndMoveNext(questionId, message);
+      return;
+    }
+
+    clearInvalidRecordingDraft(questionId, message);
   }
 
   function clearGazeInvalidRecordingDraft(questionId: number) {
@@ -6971,6 +7034,16 @@ function InterviewRuntimePanel({
   function handleAnswerComplete() {
     if (currentQuestionLocked) {
       setMessage("이미 저장된 답변입니다. 다음 질문으로 이동해주세요.");
+      return;
+    }
+
+    if (!currentQuestionStateReady) {
+      setMessage("다음 질문을 준비하고 있습니다. 잠시만 기다려주세요.");
+      return;
+    }
+
+    if (!questionSpeechCompleted || questionSpeechPlaying) {
+      setMessage("질문 음성 안내가 끝난 뒤 답변해주세요.");
       return;
     }
 
@@ -7596,10 +7669,12 @@ function InterviewRuntimePanel({
     autoAdvanceAfterAnswerSubmitRef.current = true;
 
     const recorder = recorderRef.current;
-    if (recorder?.state === "recording") {
+    if (recording) {
       beginAnswerSubmitToNextReadyMetric(currentQuestion.questionId, "time_expired");
       submitAfterRecordingStopRef.current = true;
-      handleStopRecording();
+      if (recorder?.state === "recording") {
+        handleStopRecording();
+      }
       return;
     }
 
@@ -7609,7 +7684,10 @@ function InterviewRuntimePanel({
     }
 
     autoAdvanceAfterAnswerSubmitRef.current = false;
-    setMessage("답변 시간이 종료됐지만 제출할 녹화 파일이 아직 준비되지 않았습니다. 답변 완료를 눌러 제출해주세요.");
+    await submitSkippedAnswerAndMoveNext(
+      currentQuestion.questionId,
+      "답변 시간이 종료되었지만 제출 가능한 음성이 없어 미답변 처리했습니다.",
+    );
   }
 
   async function handleNextQuestion() {
@@ -8367,7 +8445,15 @@ function InterviewRuntimePanel({
                 <button
                   className="btn primary"
                   type="button"
-                  disabled={busy || !currentQuestion || currentQuestionLocked || (!recording && !canSubmitAnswer && !canStartManualRecording)}
+                  disabled={
+                    busy ||
+                    !currentQuestion ||
+                    !currentQuestionStateReady ||
+                    currentQuestionLocked ||
+                    !questionSpeechCompleted ||
+                    questionSpeechPlaying ||
+                    (!recording && !canSubmitAnswer && !canStartManualRecording)
+                  }
                   onClick={handleAnswerComplete}
                 >
                   <span>{shouldShowRecordingStartLabel ? "녹화 시작" : "답변 완료"}</span>

@@ -7,12 +7,13 @@
     "npm": ">=10"
   },
   "scripts": {
-    "pretest": "npm run test:candidate-profile",
+    "pretest": "npm run test:candidate-profile && npm run test:recruitment-settings-layout",
     "dev": "next dev",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . --max-warnings=0",
     "audit:avatar-assets": "node ../scripts/audit-interviewer-avatar-assets.mjs",
     "test:candidate-avatar": "tsx src/features/candidate-application-interview/LipSyncDriver.spec.ts && tsx src/features/candidate-application-interview/CubismMouthOpacity.spec.ts && tsx src/features/candidate-application-interview/LocalInterviewerAvatar.spec.tsx && tsx src/features/candidate-application-interview/LocalInterviewerAvatarCss.spec.ts && tsx src/features/candidate-application-interview/InterviewerRiggingPreview.spec.tsx && tsx src/features/candidate-application-interview/CubismSdkRuntime.spec.ts && node ../scripts/audit-interviewer-avatar-assets.spec.mjs",
+    "test:recruitment-settings-layout": "tsx src/features/company-recruiting/recruitment-settings-layout-css.spec.ts",
     "test": "npm run typecheck && npm run test:candidate-job-sort && npm run test:candidate-mock-delete && npm run test:candidate-demo-tools && npm run test:candidate-mock-media && npm run test:candidate-nonverbal && npm run test:route-policy && npm run test:signup-payload && npm run test:ai-job-polling && npm run test:criteria-settings-sync && npm run test:ai-performance && npm run test:apply-set-override && npm run test:candidate-contract && npm run test:interview-runtime-progression && npm run test:posting-draft-keywords && npm run test:posting-draft-summary && npm run test:ncs-feature-flag && npm run test:ncs-evaluation-view && npm run test:ncs-report",
     "test:ncs-report": "tsx src/features/company-recruiting/ncs-report-view-model.spec.ts",
     "test:candidate-job-sort": "tsx src/features/candidate-application-interview/candidate-job-sort.spec.ts",
