@@ -429,14 +429,6 @@
   padding: 26px 30px;
 }
 
-.posting-create-flow .grid-2 {
-  grid-template-columns: 1fr;
-}
-
-.posting-create-flow .grid-2 .wide {
-  grid-column: auto;
-}
-
 .posting-create-flow .form-actions {
   position: sticky;
   bottom: 18px;
