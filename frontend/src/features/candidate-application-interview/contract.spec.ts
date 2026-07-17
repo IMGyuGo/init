@@ -53,7 +53,9 @@ import {
   summarizeNonverbalDeviceQaRun,
 } from "./nonverbal-device-qa";
 import {
+  canSubmitInterviewAnswer,
   clampCameraPipPosition,
+  createInterviewAnswerFormStateForQuestion,
   createCameralessInterviewTestDeviceCheckState,
   createInterviewerSessionActionEvent,
   createInterviewerSessionEvent,
@@ -87,6 +89,7 @@ import {
   shouldContinueInterviewWithoutFollowUp,
   shouldPollRecruitingReportCompletion,
   shouldEnableManualInterviewRecording,
+  shouldHandleInterviewAnswerTimeout,
   shouldOpenRealtimeMicrophoneForRecordingStart,
   shouldRunInterviewRuntimeCountdown,
   shouldShowPaymentDevTools,
@@ -1003,6 +1006,64 @@ assert.equal(
   }),
   true,
 );
+assert.deepEqual(createInterviewAnswerFormStateForQuestion(101), {
+  questionId: 101,
+  durationSeconds: 0,
+});
+const recordedAnswerForQuestion = {
+  questionId: 100,
+  videoFile: {
+    storageKey: "candidate/1/mock-answer.webm",
+    originalName: "mock-answer.webm",
+    mimeType: "video/webm" as const,
+    sizeBytes: 1024,
+  },
+  durationSeconds: 30,
+};
+assert.equal(
+  canSubmitInterviewAnswer({
+    currentQuestionId: 100,
+    answer: recordedAnswerForQuestion,
+    recording: false,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: false,
+    hasMeaningfulVoice: true,
+  }),
+  true,
+);
+assert.equal(
+  canSubmitInterviewAnswer({
+    currentQuestionId: 101,
+    answer: recordedAnswerForQuestion,
+    recording: false,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: false,
+    hasMeaningfulVoice: true,
+  }),
+  false,
+);
+assert.equal(
+  canSubmitInterviewAnswer({
+    currentQuestionId: 100,
+    answer: recordedAnswerForQuestion,
+    recording: false,
+    questionSpeechCompleted: false,
+    questionSpeechPlaying: true,
+    hasMeaningfulVoice: true,
+  }),
+  false,
+);
+assert.equal(
+  canSubmitInterviewAnswer({
+    currentQuestionId: 100,
+    answer: recordedAnswerForQuestion,
+    recording: false,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: false,
+    hasMeaningfulVoice: false,
+  }),
+  false,
+);
 assert.equal(
   shouldAutoStartInterviewRecording({
     setupCompleted: true,
@@ -1180,7 +1241,6 @@ assert.equal(
     currentQuestionLocked: false,
     busy: false,
     timerPhase: "PREPARING",
-    recording: false,
   }),
   true,
 );
@@ -1194,9 +1254,8 @@ assert.equal(
     currentQuestionLocked: false,
     busy: false,
     timerPhase: "ANSWERING",
-    recording: false,
   }),
-  false,
+  true,
 );
 assert.equal(
   shouldRunInterviewRuntimeCountdown({
@@ -1208,7 +1267,6 @@ assert.equal(
     currentQuestionLocked: false,
     busy: false,
     timerPhase: "ANSWERING",
-    recording: true,
   }),
   true,
 );
@@ -1222,7 +1280,34 @@ assert.equal(
     currentQuestionLocked: false,
     busy: false,
     timerPhase: "ANSWERING",
-    recording: true,
+  }),
+  false,
+);
+assert.equal(
+  shouldHandleInterviewAnswerTimeout({
+    remainingSeconds: 0,
+    timerPhase: "ANSWERING",
+    setupCompleted: true,
+    introCompleted: true,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: false,
+    hasCurrentQuestion: true,
+    currentQuestionLocked: false,
+    busy: false,
+  }),
+  true,
+);
+assert.equal(
+  shouldHandleInterviewAnswerTimeout({
+    remainingSeconds: 1,
+    timerPhase: "ANSWERING",
+    setupCompleted: true,
+    introCompleted: true,
+    questionSpeechCompleted: true,
+    questionSpeechPlaying: false,
+    hasCurrentQuestion: true,
+    currentQuestionLocked: false,
+    busy: false,
   }),
   false,
 );
