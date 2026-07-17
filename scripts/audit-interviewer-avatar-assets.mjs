@@ -141,6 +141,7 @@ export async function auditCubismProofModel(modelJsonPath) {
     },
     textures,
     displayInfo: {
+      path: displayInfoReference.relativePath,
       parameterCount: displayInfo.Parameters?.length ?? 0,
       hasMouthOpenParameter: Boolean(
         displayInfo.Parameters?.some((parameter) => parameter.Id === "ParamMouthOpenY"),

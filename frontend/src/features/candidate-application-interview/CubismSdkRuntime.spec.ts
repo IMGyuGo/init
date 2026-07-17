@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import {
   CUBISM_PROOF_MODEL_URL,
+  getCubismMouthLayerVisibility,
   getCubismMouthOpenValue,
   getCubismRuntimeAvailability,
   resolveCubismProofModelReferences,
@@ -28,21 +29,21 @@ assert.deepEqual(
 
 assert.equal(
   CUBISM_PROOF_MODEL_URL,
-  "/assets/interviewer-cubism/v4-deformation-proof/interviewer-v4-deformation-proof.model3.json",
+  "/assets/interviewer-cubism/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.model3.json",
 );
 
 assert.deepEqual(
   resolveCubismProofModelReferences(CUBISM_PROOF_MODEL_URL, {
     Version: 3,
     FileReferences: {
-      Moc: "interviewer-v4-deformation-proof.moc3",
-      Textures: ["interviewer-v4-deformation-proof.2048/texture_00.png"],
+      Moc: "interviewer-v6-coherent-mouth-proof.moc3",
+      Textures: ["interviewer-v6-coherent-mouth-proof.2048/texture_00.png"],
     },
   }),
   {
-    mocUrl: "/assets/interviewer-cubism/v4-deformation-proof/interviewer-v4-deformation-proof.moc3",
+    mocUrl: "/assets/interviewer-cubism/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.moc3",
     textureUrls: [
-      "/assets/interviewer-cubism/v4-deformation-proof/interviewer-v4-deformation-proof.2048/texture_00.png",
+      "/assets/interviewer-cubism/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.2048/texture_00.png",
     ],
   },
 );
@@ -52,7 +53,7 @@ assert.throws(
     Version: 3,
     FileReferences: {
       Moc: "../../outside.moc3",
-      Textures: ["interviewer-v4-deformation-proof.2048/texture_00.png"],
+      Textures: ["interviewer-v6-coherent-mouth-proof.2048/texture_00.png"],
     },
   }),
   /must stay inside the model directory/,
@@ -64,3 +65,16 @@ assert.equal(getCubismMouthOpenValue("teeth"), 0.45);
 assert.equal(getCubismMouthOpenValue("round"), 0.6);
 assert.equal(getCubismMouthOpenValue("open"), 0.78);
 assert.equal(getCubismMouthOpenValue("wide"), 1);
+
+assert.deepEqual(getCubismMouthLayerVisibility(0), {
+  interior: 0,
+  tongue: 0,
+  upperTeeth: 0,
+});
+assert.deepEqual(getCubismMouthLayerVisibility(1), {
+  interior: 1,
+  tongue: 1,
+  upperTeeth: 1,
+});
+assert.equal(getCubismMouthLayerVisibility(0.55).interior, 1);
+assert.equal(getCubismMouthLayerVisibility(0.55).upperTeeth, 0);

@@ -2,7 +2,27 @@ export { getMouthOpenValueForShape as getCubismMouthOpenValue } from "./LipSyncD
 
 export const CUBISM_CORE_SCRIPT_SRC = "/assets/interviewer-cubism/sdk/live2dcubismcore.min.js";
 export const CUBISM_PROOF_MODEL_URL =
-  "/assets/interviewer-cubism/v4-deformation-proof/interviewer-v4-deformation-proof.model3.json";
+  "/assets/interviewer-cubism/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.model3.json";
+
+export type CubismMouthLayerVisibility = {
+  interior: number;
+  tongue: number;
+  upperTeeth: number;
+};
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const normalized = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
+  return normalized * normalized * (3 - 2 * normalized);
+}
+
+export function getCubismMouthLayerVisibility(value: number): CubismMouthLayerVisibility {
+  const mouthOpen = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
+  return {
+    interior: smoothstep(0, 0.55, mouthOpen),
+    tongue: smoothstep(0.2, 0.75, mouthOpen),
+    upperTeeth: smoothstep(0.55, 0.85, mouthOpen),
+  };
+}
 
 export type CubismModelManifest = {
   Version: number;

@@ -40,9 +40,9 @@ assert.match(markup, /controls=""/);
 assert.match(markup, />로컬 음원 재생</);
 assert.match(markup, /data-cubism-proof-qa="true"/);
 assert.match(markup, /ParamMouthOpenY/);
-assert.match(markup, /Cubism V4 deformation proof/);
-assert.match(markup, /단일 ArtMesh 변형/);
-assert.match(markup, /완성형 자연 변형 아님/);
+assert.match(markup, /Cubism V6 coherent mouth proof/);
+assert.match(markup, /하나의 완성 입에서 분리/);
+assert.match(markup, /운영 적용 전 QA 모델/);
 
 const reducedAudioQaMarkup = renderToStaticMarkup(
   <InterviewerAudioLipSyncQa reducedMotion />,
@@ -77,9 +77,9 @@ assert.match(cubismProofMarkup, /data-cubism-mouth-open="0\.42"/);
 assert.match(cubismProofMarkup, /data-cubism-diagnostic=""/);
 assert.match(
   cubismProofMarkup,
-  /src="\/assets\/interviewer-cubism\/v4-deformation-proof\/interviewer-v4-deformation-proof-base\.png"/,
+  /src="\/assets\/interviewer-cubism\/v6-coherent-mouth-proof\/interviewer-v6-coherent-mouth-proof-base\.png"/,
 );
-assert.match(cubismProofMarkup, /aria-label="Cubism V4 면접관 변형 proof 모델"/);
+assert.match(cubismProofMarkup, /aria-label="Cubism V6 coherent mouth proof 모델"/);
 assert.match(cubismProofMarkup, /<canvas/);
 
 const clampedCubismProofMarkup = renderToStaticMarkup(

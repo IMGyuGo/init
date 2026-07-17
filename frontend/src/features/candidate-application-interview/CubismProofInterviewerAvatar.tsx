@@ -83,11 +83,11 @@ export function CubismProofInterviewerAvatar({
         draggable={false}
         height={1536}
         loading="eager"
-        src="/assets/interviewer-cubism/v4-deformation-proof/interviewer-v4-deformation-proof-base.png"
+        src="/assets/interviewer-cubism/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof-base.png"
         unoptimized
         width={1024}
       />
-      <canvas aria-label="Cubism V4 면접관 변형 proof 모델" ref={canvasRef} />
+      <canvas aria-label="Cubism V6 coherent mouth proof 모델" ref={canvasRef} />
     </div>
   );
 }

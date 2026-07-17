@@ -1,5 +1,6 @@
 import {
   CUBISM_PROOF_MODEL_URL,
+  getCubismMouthLayerVisibility,
   initializeCubismSdk,
   resolveCubismProofModelReferences,
   type CubismModelManifest,
@@ -19,12 +20,15 @@ export type CubismProofDiagnostic = {
   parameterIndex: number;
   drawables: Array<{
     id: string;
+    maskIds: string[];
     opacityAt0: number;
     opacityAt1: number;
     widthAt0: number;
     widthAt1: number;
     heightAt0: number;
     heightAt1: number;
+    centerXAt0: number;
+    centerXAt1: number;
   }>;
 };
 
@@ -137,6 +141,8 @@ export async function createCubismProofRenderer(
   const captureDrawableState = (value: number) => {
     model.setParameterValueById(mouthParameterId, value);
     model.update();
+    const drawableMaskCounts = model.getDrawableMaskCounts();
+    const drawableMasks = model.getDrawableMasks();
     return Array.from({ length: model.getDrawableCount() }, (_, index) => {
       const vertices = model.getDrawableVertices(index);
       let minX = Number.POSITIVE_INFINITY;
@@ -151,9 +157,13 @@ export async function createCubismProofRenderer(
       }
       return {
         id: model.getDrawableId(index).getString(),
+        maskIds: Array.from(drawableMasks[index])
+          .slice(0, drawableMaskCounts[index])
+          .map((maskIndex) => model.getDrawableId(maskIndex).getString()),
         opacity: model.getDrawableOpacity(index),
         width: maxX - minX,
         height: maxY - minY,
+        centerX: (minX + maxX) / 2,
       };
     });
   };
@@ -163,13 +173,36 @@ export async function createCubismProofRenderer(
     parameterIndex,
     drawables: stateAt0.map((drawable, index) => ({
       id: drawable.id,
+      maskIds: stateAt1[index].maskIds,
       opacityAt0: Math.round(drawable.opacity * 1000) / 1000,
       opacityAt1: Math.round(stateAt1[index].opacity * 1000) / 1000,
       widthAt0: Math.round(drawable.width * 1000) / 1000,
       widthAt1: Math.round(stateAt1[index].width * 1000) / 1000,
       heightAt0: Math.round(drawable.height * 1000) / 1000,
       heightAt1: Math.round(stateAt1[index].height * 1000) / 1000,
+      centerXAt0: Math.round(drawable.centerX * 1000) / 1000,
+      centerXAt1: Math.round(stateAt1[index].centerX * 1000) / 1000,
     })),
+  };
+  const coreModel = model.getModel();
+  const mouthDrawableIndices = {
+    interior: Array.from({ length: model.getDrawableCount() }, (_, index) => index)
+      .find((index) => model.getDrawableId(index).getString() === "ArtMesh17"),
+    upperTeeth: Array.from({ length: model.getDrawableCount() }, (_, index) => index)
+      .find((index) => model.getDrawableId(index).getString() === "ArtMesh16"),
+    tongue: Array.from({ length: model.getDrawableCount() }, (_, index) => index)
+      .find((index) => model.getDrawableId(index).getString() === "ArtMesh15"),
+  };
+  if (Object.values(mouthDrawableIndices).some((index) => index === undefined)) {
+    textures.forEach((texture) => gl.deleteTexture(texture));
+    userModel.release();
+    throw new Error("Cubism V6 mouth drawable IDs are incomplete");
+  }
+  const applyMouthLayerVisibility = (value: number) => {
+    const visibility = getCubismMouthLayerVisibility(value);
+    coreModel.drawables.opacities[mouthDrawableIndices.interior!] = visibility.interior;
+    coreModel.drawables.opacities[mouthDrawableIndices.upperTeeth!] = visibility.upperTeeth;
+    coreModel.drawables.opacities[mouthDrawableIndices.tongue!] = visibility.tongue;
   };
   const modelMatrix = userModel.getModelMatrix();
   let mouthOpen = clampMouthOpen(initialMouthOpen);
@@ -185,6 +218,7 @@ export async function createCubismProofRenderer(
 
       model.setParameterValueById(mouthParameterId, mouthOpen);
       model.update();
+      applyMouthLayerVisibility(mouthOpen);
 
       const projection = new matrixModule.CubismMatrix44();
       if (model.getCanvasWidth() > 1 && canvas.width < canvas.height) {
