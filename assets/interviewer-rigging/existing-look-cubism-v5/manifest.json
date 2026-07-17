@@ -1,7 +1,25 @@
 {
   "id": "existing-look-cubism-v5",
-  "status": "layered-mouth-source-preparation",
+  "status": "cubism-v5-exported",
   "derivedFrom": "../existing-look-cubism-v4/interviewer-import-v4.cmo3",
+  "sourceCmo3Path": "interviewer-import-v5.cmo3",
+  "webExport": {
+    "directory": "frontend/public/assets/interviewer-cubism/v5-layered-mouth-proof",
+    "modelName": "interviewer-v5-layered-mouth-proof",
+    "model3JsonPath": "frontend/public/assets/interviewer-cubism/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.model3.json",
+    "moc3Path": "frontend/public/assets/interviewer-cubism/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.moc3",
+    "baseImagePath": "frontend/public/assets/interviewer-cubism/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof-base.png",
+    "displayInfoPath": "frontend/public/assets/interviewer-cubism/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.cdi3.json",
+    "texturePath": "frontend/public/assets/interviewer-cubism/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.2048/texture_00.png",
+    "textureSize": 2048,
+    "fileReferences": {
+      "Moc": "interviewer-v5-layered-mouth-proof.moc3",
+      "Textures": [
+        "interviewer-v5-layered-mouth-proof.2048/texture_00.png"
+      ],
+      "DisplayInfo": "interviewer-v5-layered-mouth-proof.cdi3.json"
+    }
+  },
   "canvas": { "width": 1024, "height": 1536 },
   "mouthAnchor": { "x": 512, "y": 585 },
   "mouthOpenParameter": {
@@ -9,6 +27,81 @@
     "range": { "min": 0, "max": 1, "default": 0 },
     "keyforms": [0, 0.5, 1],
     "controlType": "layered-warp-deformation"
+  },
+  "cubismRig": {
+    "artMeshes": {
+      "MouthLowerLip": "ArtMesh13",
+      "MouthUpperLip": "ArtMesh14",
+      "MouthTongue": "ArtMesh15",
+      "MouthUpperTeeth": "ArtMesh16",
+      "MouthInterior": "ArtMesh17",
+      "MouthSkinUnderlay": "ArtMesh18"
+    },
+    "deformers": {
+      "mouth-open-deform": "Warp",
+      "mouth-lower-lip-deform": "Warp2",
+      "mouth-upper-lip-deform": "Warp3",
+      "mouth-interior-deform": "Warp4",
+      "mouth-root": "Warp5"
+    },
+    "hierarchy": {
+      "mouth-open-deform": ["mouth-root"],
+      "mouth-root": [
+        "MouthSkinUnderlay",
+        "mouth-lower-lip-deform",
+        "mouth-upper-lip-deform",
+        "mouth-interior-deform"
+      ],
+      "mouth-lower-lip-deform": ["MouthLowerLip"],
+      "mouth-upper-lip-deform": ["MouthUpperLip"],
+      "mouth-interior-deform": [
+        "MouthTongue",
+        "MouthUpperTeeth",
+        "MouthInterior"
+      ]
+    },
+    "clipping": {
+      "owner": "MouthInterior",
+      "ownerArtMeshId": "ArtMesh17",
+      "clippedArtMeshes": {
+        "MouthTongue": "ArtMesh15",
+        "MouthUpperTeeth": "ArtMesh16"
+      }
+    },
+    "parameterBindings": {
+      "ParamMouthOpenY": {
+        "keyforms": [0, 0.5, 1],
+        "deformers": [
+          "mouth-upper-lip-deform",
+          "mouth-lower-lip-deform",
+          "mouth-interior-deform"
+        ],
+        "keyformMotion": {
+          "mouth-upper-lip-deform": {
+            "0": "lowered 15 px",
+            "0.5": "lowered 5 px",
+            "1": "neutral open position"
+          },
+          "mouth-lower-lip-deform": {
+            "0": "raised 15 px",
+            "0.5": "raised 5 px",
+            "1": "neutral open position"
+          },
+          "mouth-interior-deform": {
+            "0": "raised 10 px behind closed lips",
+            "0.5": "raised 3 px for partial reveal",
+            "1": "neutral open position"
+          }
+        },
+        "opacityInvariantArtMeshes": [
+          "MouthUpperLip",
+          "MouthLowerLip",
+          "MouthInterior",
+          "MouthUpperTeeth",
+          "MouthTongue"
+        ]
+      }
+    }
   },
   "layers": [
     {

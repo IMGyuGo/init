@@ -1,0 +1,22 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "interviewer-v5-layered-mouth-proof.moc3",
+		"Textures": [
+			"interviewer-v5-layered-mouth-proof.2048/texture_00.png"
+		],
+		"DisplayInfo": "interviewer-v5-layered-mouth-proof.cdi3.json"
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": []
+		},
+		{
+			"Target": "Parameter",
+			"Name": "LipSync",
+			"Ids": []
+		}
+	]
+}
