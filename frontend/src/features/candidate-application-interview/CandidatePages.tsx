@@ -15,7 +15,6 @@ import {
   ReportGauge,
   scoreBand,
 } from "../interview-report/report-visuals";
-import { MOCK_REPORT_PREVIEW_FEEDBACK, MOCK_REPORT_PREVIEW_MEDIA } from "./mock-report-preview.fixture";
 
 import { getApiBaseUrl } from "../../api/api-base-url";
 import { getAccessToken } from "../../api/client";
@@ -2785,16 +2784,6 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
   const [generationRequested, setGenerationRequested] = useState(false);
   // 실전 리포트처럼 종합/답변 탭으로 분리해 스크롤 부담을 줄인다. (#289)
   const [tab, setTab] = useState<"overview" | "answers">("overview");
-  // dev 전용 미리보기: /candidate/mock-interview/reports/1?preview=1 로 목데이터 렌더 확인. (#289)
-  const [isPreview, setIsPreview] = useState(false);
-  useEffect(() => {
-    if (
-      process.env.NODE_ENV !== "production" &&
-      new URLSearchParams(window.location.search).get("preview") === "1"
-    ) {
-      setIsPreview(true);
-    }
-  }, []);
   const load = useCallback(async (): Promise<MockReportDetailData> => {
     const api = getCandidateApi();
     const [feedbackResult, mediaResult] = await Promise.allSettled([
@@ -2808,12 +2797,7 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
       mediaError: mediaResult.status === "rejected" ? toErrorMessage(mediaResult.reason) : undefined,
     };
   }, [reportId]);
-  const resource = useCandidateResource(load, [reportId]);
-  const previewData: MockReportDetailData = { feedback: MOCK_REPORT_PREVIEW_FEEDBACK, media: MOCK_REPORT_PREVIEW_MEDIA };
-  const data = isPreview ? previewData : resource.data;
-  const loading = isPreview ? false : resource.loading;
-  const error = isPreview ? undefined : resource.error;
-  const refresh = resource.refresh;
+  const { data, loading, error, refresh } = useCandidateResource(load, [reportId]);
   const reportStatus = data?.feedback?.status ?? data?.media?.status ?? (generationRequested ? "GENERATING" : undefined);
   const reportStatusView = getMockReportStatusView(reportStatus, data?.feedbackError);
   const canRequestReport = !busy && reportStatus !== "GENERATING" && reportStatus !== "COMPLETED";
@@ -8059,7 +8043,7 @@ function InterviewRuntimePanel({
     <main className="candidate-interview-app">
       <header className="iv-top">
         <Link className="brand" href={candidateApplicationInterviewRoutes.mockInterviewStart}>
-          <Image src="/logo-init-v5.png" alt="init" width={2030} height={775} priority />
+          <Image src="/logo-init.png" alt="init" width={1010} height={375} priority />
         </Link>
         <span className="center">{runtimeTitle}</span>
       </header>
@@ -8615,7 +8599,7 @@ function CandidateNav({ active, publicEntry = false }: { active: CandidateNavSec
     <header className="gnb">
       <div className="gnb-inner">
         <Link className="brand" href={publicEntry ? "/" : candidateApplicationInterviewRoutes.jobs}>
-          <Image src="/logo-init-v5.png" alt="init" width={2030} height={775} priority />
+          <Image src="/logo-init-v4.png" alt="init" width={1900} height={580} priority />
         </Link>
         <nav className="gnb-menu" aria-label="지원자 메뉴">
           <div className={`gnb-item ${recruitingActive ? "active" : ""}`}>
@@ -9676,12 +9660,8 @@ function isReportNotReadyMessage(message: string): boolean {
 function MockFeedbackView({ feedback }: { feedback: CandidateMockReportFeedback }) {
   const scores = feedback.scores ?? [];
   const [selectedScoreId, setSelectedScoreId] = useState<number>(-1);
-  const improvementItems = feedback.improvements.length > 0
-    ? feedback.improvements
-    : buildMockReportImprovementItems(scores);
-  const nextPracticeItems = feedback.nextPractice.length > 0
-    ? feedback.nextPractice
-    : buildMockReportPracticeItems(scores);
+  const improvementItems = feedback.improvements;
+  const nextPracticeItems = feedback.nextPractice;
 
   const totalScore = feedback.totalScore ?? null;
   const band = scoreBand(totalScore);
@@ -9779,6 +9759,10 @@ function MockFeedbackView({ feedback }: { feedback: CandidateMockReportFeedback 
           </ol>
         </div>
       ) : null}
+
+      {feedback.strengths.length === 0 && improvementItems.length === 0 && nextPracticeItems.length === 0 ? (
+        <div className="empty">AI가 제공한 연습 피드백이 없습니다.</div>
+      ) : null}
     </div>
   );
 }
@@ -9811,28 +9795,6 @@ function MockCompetencyDetailCard({ score }: { score: CandidateReportScoreView }
       ) : null}
     </aside>
   );
-}
-
-function buildMockReportImprovementItems(scores: CandidateReportScoreView[]): string[] {
-  if (!scores.length) {
-    return ["답변별 상황, 본인 행동, 결과를 구분해서 말하면 피드백 정확도가 높아집니다."];
-  }
-
-  return [...scores]
-    .sort((left, right) => left.score - right.score)
-    .slice(0, 3)
-    .map((score) => `${score.criterionName} 답변은 사례의 배경, 본인 행동, 결과를 조금 더 분리해서 말하면 좋아집니다.`);
-}
-
-function buildMockReportPracticeItems(scores: CandidateReportScoreView[]): string[] {
-  if (!scores.length) {
-    return ["다음 연습에서는 한 답변 안에 문제 상황, 내가 한 일, 확인한 결과를 차례로 담아 보세요."];
-  }
-
-  const lowestScore = [...scores].sort((left, right) => left.score - right.score)[0];
-  return [
-    `${lowestScore.criterionName} 항목을 중심으로 STAR 방식으로 30초 답변을 다시 연습해 보세요.`,
-  ];
 }
 
 function MockMediaView({ media }: { media: CandidateMockReportMedia }) {
@@ -9913,7 +9875,6 @@ function MockMediaAnswerCard({
     ?? getMockReportMediaPlaybackUrl(mediaBaseUrl, item.videoFile?.fileId);
   const audioUrl = getCachedRecordingObjectUrl(item.audioFile?.storageKey)
     ?? getMockReportMediaPlaybackUrl(mediaBaseUrl, item.audioFile?.fileId);
-  const practiceGuide = buildMockAnswerPracticeGuide(item);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playbackTimeMs, setPlaybackTimeMs] = useState(0);
   const videoPlaceholderMessage = item.videoFile
@@ -9990,7 +9951,6 @@ function MockMediaAnswerCard({
             onSeek={seekVideo}
           />
           <MockNonverbalFeedbackView metadata={item.nonverbalMetadata} />
-          <AnswerPracticeGuideView guide={practiceGuide} />
         </div>
       </details>
     </article>
@@ -10359,11 +10319,6 @@ function formatAnalysisTime(timeMs: number) {
   return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
-type AnswerPracticeGuide = {
-  example: string;
-  gaps: string[];
-};
-
 type MockNonverbalSummary = {
   answerCount: number;
   answersWithMetadata: number;
@@ -10689,116 +10644,6 @@ function readNonverbalIntegritySuspicionLevel(metadata: Record<string, unknown>)
 function readNonverbalTestModeUsed(metadata: Record<string, unknown>): boolean {
   const risk = readNonverbalRecord(metadata, "risk");
   return readNonverbalBoolean(metadata, "testModeUsed") || Boolean(risk?.testModeUsed);
-}
-
-function AnswerPracticeGuideView({ guide }: { guide: AnswerPracticeGuide }) {
-  return (
-    <section className="report-practice-guide">
-      <h4>고득점 답변 예시 템플릿</h4>
-      <div className="report-practice-guide__block">
-        <strong>STAR 답변 예시</strong>
-        <p>{guide.example}</p>
-      </div>
-      <div className="report-practice-guide__block">
-        <strong>내 답변 보완점</strong>
-        <ul>
-          {guide.gaps.map((gap) => (
-            <li key={gap}>{gap}</li>
-          ))}
-        </ul>
-      </div>
-    </section>
-  );
-}
-
-function buildMockAnswerPracticeGuide(item: CandidateMockReportMedia["media"][number]): AnswerPracticeGuide {
-  const transcript = item.transcript ?? "";
-  return {
-    example: buildMockAnswerExample(item),
-    gaps: buildMockAnswerGaps(item.questionType, item.questionContent, transcript),
-  };
-}
-
-function buildMockAnswerExample(item: CandidateMockReportMedia["media"][number]): string {
-  const question = item.questionContent ?? "";
-
-  if (item.questionType === "INTRO" || question.includes("자기소개")) {
-    return "저는 지원 직무와 연결되는 프로젝트 경험을 통해 문제를 구조적으로 해결해 온 지원자입니다. 최근에는 사용자 흐름이 끊기는 문제를 맡아 원인을 단계별로 나누고, 제가 담당한 기능의 입력값, 처리 과정, 결과 화면을 끝까지 확인했습니다. 그 결과 반복되던 오류를 줄이고 사용자가 더 안정적으로 기능을 사용할 수 있도록 개선했습니다.";
-  }
-
-  if (item.questionType === "TECHNICAL" || question.includes("어려웠던") || question.includes("기술")) {
-    return "가장 어려웠던 문제는 기능 일부가 정상처럼 보이지만 최종 결과가 사용자에게 전달되지 않는 상황이었습니다. 저는 문제를 화면 입력, 서버 처리, 데이터 저장, 결과 표시 단계로 나누어 확인했고, 중간 단계에서 필요한 값이 누락되는 지점을 찾았습니다. 이후 누락 조건을 보완하고 같은 시나리오로 다시 검증해 정상 동작을 확인했습니다.";
-  }
-
-  if (item.questionType === "EXPERIENCE" || question.includes("학습") || question.includes("적용")) {
-    return "새로운 기술을 적용해야 했을 때 먼저 작은 예제로 동작 원리를 확인했습니다. 이후 실제 프로젝트 흐름에 맞춰 입력, 처리, 저장, 조회 기준을 정리했고, 실패했을 때 어느 단계에서 문제가 생겼는지 추적할 수 있게 했습니다. 덕분에 낯선 기술도 짧은 시간 안에 실제 기능으로 연결할 수 있었습니다.";
-  }
-
-  if (item.questionType === "CLOSING" || question.includes("강점") || question.includes("기억")) {
-    return "제 강점은 문제를 감으로 추측하지 않고 확인 가능한 근거를 기준으로 좁혀가는 점입니다. 문제가 생기면 사용자 동작, 요청 결과, 저장 상태, 화면 반영 순서로 확인하고, 원인이 확인되면 같은 경로로 다시 검증합니다. 이 방식으로 팀원이 보기에도 재현 가능하고 설명 가능한 해결 과정을 만들 수 있습니다.";
-  }
-
-  if (item.questionType === "FOLLOW_UP") {
-    if (question.includes("어려웠던 점")) {
-      return "가장 어려웠던 점은 겉으로는 일부 단계가 성공했지만 최종 결과가 나오지 않는 원인을 구분하는 것이었습니다. 저는 각 단계에서 반드시 남아야 하는 값과 상태를 정리하고, 어느 지점에서 흐름이 끊기는지 비교했습니다. 그 결과 문제 원인을 특정하고 사용자 화면까지 정상적으로 이어지도록 수정했습니다.";
-    }
-    if (question.includes("구체적인 조치")) {
-      return "먼저 문제를 입력, 요청, 처리, 저장, 화면 반영 단계로 나눴습니다. 각 단계에서 기대값과 실제 값을 비교해 값이 끊기는 지점을 찾았고, 수정 후 같은 시나리오를 다시 수행해 결과가 끝까지 이어지는지 확인했습니다. 이 방식 덕분에 원인을 재현 가능하게 설명할 수 있었습니다.";
-    }
-    if (question.includes("비동기") || question.includes("상태")) {
-      return "비동기 처리에서는 요청 직후 결과가 바로 보이지 않기 때문에 상태 변화와 저장 지점을 기준으로 확인했습니다. 작업이 접수됐는지, 처리 중인지, 완료 또는 실패했는지를 구분하고 각 단계의 결과가 다음 단계로 전달되는지 검증했습니다. 이 기준을 세운 뒤 문제 상황도 단계별로 재현할 수 있었습니다.";
-    }
-    return "질문에 바로 답한 뒤 당시 상황, 본인이 맡은 역할, 직접 한 행동, 확인한 결과를 차례로 설명하는 것이 좋습니다. 특히 문제를 어떤 기준으로 나눴는지, 수정 후 어떤 변화가 있었는지를 함께 말하면 답변의 신뢰도가 높아집니다.";
-  }
-
-  return "좋은 답변은 상황을 간단히 설명한 뒤 본인이 맡은 역할, 직접 한 행동, 확인한 결과를 차례로 말합니다. 마지막에는 수치, 전후 비교, 재검증 결과 중 하나를 덧붙이면 답변의 신뢰도가 높아집니다.";
-}
-
-function buildMockAnswerGaps(questionType: QuestionType, questionContent: string | undefined, transcript: string): string[] {
-  const normalized = transcript.replace(/\s+/g, " ").trim();
-  if (!normalized || normalized.startsWith("[NO_ANSWER]")) {
-    return ["답변 내용이 없어 평가 근거가 부족합니다. 다음 연습에서는 상황, 행동, 결과를 각각 한 문장씩이라도 남겨 주세요."];
-  }
-
-  const gaps: string[] = [];
-  const hasMetric = /\d|%|ms|초|분|시간|건|배|회|명|개|KB|MB/i.test(normalized);
-  const hasRole = /(제가|저는|맡|담당|구현|수정|연결|확인|검증|분석|해결|비교|나눴|적용)/.test(normalized);
-  const hasResult = /(결과|완료|성공|통과|개선|해결|안정화|줄였|확인|검증|저장|갱신|연결|반영)/.test(normalized);
-  const hasProcess = /(먼저|이후|그 결과|순서|단계|기준|비교|추적|확인)/.test(normalized);
-
-  if (!hasRole) {
-    gaps.push("본인이 직접 맡은 역할과 행동을 더 분명히 말하면 점수가 올라갑니다.");
-  }
-  if (!hasProcess && questionType !== "CLOSING") {
-    gaps.push("문제를 어떤 순서와 기준으로 확인했는지 단계가 더 드러나면 좋습니다.");
-  }
-  if (!hasResult) {
-    gaps.push("수정 후 어떤 결과가 나왔는지, 어떻게 재검증했는지를 덧붙이면 좋습니다.");
-  }
-  if (!hasMetric) {
-    gaps.push("가능하면 처리 시간, 실패 조건, 전후 비교, 개선 수치처럼 확인 가능한 근거 한 가지를 추가해 보세요.");
-  }
-  if (hasLikelyNoisyTranscript(normalized)) {
-    gaps.push("STT에서 어색하게 인식된 기술 용어가 보입니다. 핵심 용어는 천천히 또렷하게 말하면 평가 근거가 더 선명해집니다.");
-  }
-
-  if (questionType === "FOLLOW_UP" && gaps.length < 3) {
-    gaps.push("꼬리질문은 질문에 바로 답한 뒤, 구체적인 행동과 결과를 짧게 붙이면 더 좋습니다.");
-  }
-
-  if ((questionContent?.includes("강점") || questionType === "CLOSING") && !normalized.includes("예를 들어")) {
-    gaps.push("강점 답변에는 짧은 사례를 하나 붙이면 기억에 더 남습니다.");
-  }
-
-  if (!gaps.length) {
-    return ["전체 흐름은 좋습니다. 더 높은 점수를 위해 성과를 수치나 전후 비교로 한 번 더 압축해 말해 보세요."];
-  }
-
-  return gaps.slice(0, 3);
-}
-
-function hasLikelyNoisyTranscript(value: string): boolean {
-  return /(인적 답변|오퍼 처리|파일 레스셋|프로시스|인풋 레프|블랍|마인 타입|동신|인털|소사례)/.test(value);
 }
 
 function ApplicationStatusView({ status }: { status: CandidateApplicationStatusView }) {

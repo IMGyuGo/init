@@ -66,7 +66,7 @@ export function LandingPage() {
       <header className="gnb landing-gnb">
         <div className="gnb-inner">
           <Link className="brand" href="/" aria-label="init 홈">
-            <Image src="/logo-init-v5.png" alt="init" width={2030} height={775} priority />
+            <Image src="/logo-init-v4.png" alt="init" width={1900} height={580} priority />
           </Link>
           <div className="gnb-right">
             <Link className="btn secondary" href="/login">

@@ -55,6 +55,33 @@ export const NCS_FOLLOW_UP_STATUS_LABELS: Record<NcsFollowUpAnswerStatus, string
   RECOVERED: "보완 완료",
 };
 
+const CANONICAL_PROFILE_IDS: NcsReportProfileId[] = [
+  "JOB_TECHNICAL",
+  "COLLABORATION_COMMUNICATION",
+  "PROBLEM_SOLVING",
+];
+
+export function isCanonicalNcsReportEvaluation(value: unknown): value is NcsReportEvaluationOutputV1 {
+  if (!isRecord(value) || value.schemaVersion !== "ncs-report-evaluation-output-v1") return false;
+  if (!isRecord(value.report) || !isRecord(value.policy) || !isRecord(value.result)) return false;
+  if (!Array.isArray(value.profiles) || value.profiles.length !== CANONICAL_PROFILE_IDS.length) return false;
+  if (!Array.isArray(value.questions) || !Array.isArray(value.evidences) || !Array.isArray(value.findings)) return false;
+  if (!Array.isArray(value.incompleteReasons) || !Array.isArray(value.notices)) return false;
+
+  const profileIds = value.profiles.flatMap((profile) =>
+    isRecord(profile) && typeof profile.ncsProfileId === "string" ? [profile.ncsProfileId] : [],
+  );
+  if (!CANONICAL_PROFILE_IDS.every((profileId) => profileIds.includes(profileId))) return false;
+
+  return (
+    typeof value.policy.overallPassScore === "number" &&
+    typeof value.policy.profileMinimumAverageScore === "number" &&
+    typeof value.policy.requiredQuestionCountPerProfile === "number" &&
+    (typeof value.result.totalScore === "number" || value.result.totalScore === null) &&
+    value.questions.every((question) => isRecord(question) && Array.isArray(question.profileEvaluations))
+  );
+}
+
 export function formatNcsScore(value: number | null, suffix = "점"): string {
   return value === null ? "점수 산정 불가" : `${value}${suffix}`;
 }
@@ -91,4 +118,8 @@ export function getNcsEvaluationEvidences(
 
 export function getNcsProfileLabel(profileId: NcsReportProfileId, displayName?: string): string {
   return displayName?.trim() || NCS_PROFILE_LABELS[profileId];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

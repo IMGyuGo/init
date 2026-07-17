@@ -8,6 +8,7 @@ import {
   formatNcsScore,
   getNcsEvaluationEvidences,
   getValidNcsFindings,
+  isCanonicalNcsReportEvaluation,
 } from "./ncs-report-view-model";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -27,6 +28,15 @@ assert(NCS_INCOMPLETE_FIXTURE.result.decisionReasonCode === "EVALUATION_INCOMPLE
 assert(NCS_INCOMPLETE_FIXTURE.notices.some((notice) => notice.code === "INCOMPLETE_FAIL_CLOSED"), "INCOMPLETE 정책 안내가 누락됐다.");
 assert(formatNcsScore(0) === "0점", "0점은 유효한 점수로 표시해야 한다.");
 assert(formatNcsScore(null) === "점수 산정 불가", "null은 점수 산정 불가로 표시해야 한다.");
+assert(isCanonicalNcsReportEvaluation(NCS_COMPLETE_PASS_FIXTURE), "canonical NCS 응답을 거부하면 안 된다.");
+assert(
+  !isCanonicalNcsReportEvaluation({ ...NCS_COMPLETE_PASS_FIXTURE, profiles: NCS_COMPLETE_PASS_FIXTURE.profiles.slice(0, 2) }),
+  "canonical profile이 빠진 응답을 허용하면 안 된다.",
+);
+assert(
+  !isCanonicalNcsReportEvaluation({ ...NCS_COMPLETE_PASS_FIXTURE, questions: [{ sessionQuestionId: 1 }] }),
+  "문항별 profile 평가가 없는 응답을 허용하면 안 된다.",
+);
 
 const dualProfileQuestion = NCS_COMPLETE_PASS_FIXTURE.questions[0];
 assert(NCS_COMPLETE_PASS_FIXTURE.questions.length === 3, "질문은 profile 수만큼 중복되면 안 된다.");

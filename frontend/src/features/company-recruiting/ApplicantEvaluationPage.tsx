@@ -27,8 +27,8 @@ import {
   getNcsEvaluationEvidences,
   getNcsProfileLabel,
   getValidNcsFindings,
+  isCanonicalNcsReportEvaluation,
 } from "./ncs-report-view-model";
-import { NCS_COMPLETE_PASS_FIXTURE } from "./ncs-report.fixtures";
 import { formatRecruitingStatusLabel } from "./status-labels";
 import type { ApplicantEvaluation, ApplicantInterviewFileAsset, ScreeningDecision } from "./types";
 
@@ -59,7 +59,6 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   const [loading, setLoading] = useState(false);
   const [openingDocumentId, setOpeningDocumentId] = useState<number | null>(null);
   const [tab, setTab] = useState<ReportTab>("overview");
-  const [isNcsPreview, setIsNcsPreview] = useState(false);
 
   const load = useCallback(async (options: { clearMessage?: boolean } = {}) => {
     setLoading(true);
@@ -79,13 +78,6 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   }, [applicantId]);
 
   useEffect(() => {
-    if (
-      process.env.NODE_ENV !== "production" &&
-      new URLSearchParams(window.location.search).get("ncsPreview") === "1"
-    ) {
-      setIsNcsPreview(true);
-      return;
-    }
     void load();
   }, [load]);
 
@@ -135,18 +127,6 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   const report = evaluation?.report ?? null;
   const displayAnswers = evaluation ? getDisplayAnswers(evaluation.answers) : [];
   const integritySummary = evaluation ? buildRecruitingIntegritySummary(displayAnswers) : null;
-
-  if (isNcsPreview) {
-    return (
-      <section className="app-page glass-page notion applicant-report-page">
-        <NcsReportOverview
-          evaluation={NCS_COMPLETE_PASS_FIXTURE}
-          integritySummary={null}
-          screeningDecision="HOLD"
-        />
-      </section>
-    );
-  }
 
   return (
     <section className="app-page glass-page notion applicant-report-page">
@@ -411,7 +391,9 @@ function DecisionSummary({ report }: { report: ApplicantEvaluation["report"] }) 
     );
   }
 
-  const ncsEvaluation = report.ncsEvaluation ?? null;
+  const ncsEvaluation = isCanonicalNcsReportEvaluation(report.ncsEvaluation)
+    ? report.ncsEvaluation
+    : null;
   const displayedScore = ncsEvaluation
     ? ncsEvaluation.result.totalScore
     : report.adjustedTotalScore ?? report.totalScore ?? null;
@@ -512,7 +494,7 @@ function ReportOverview({
     );
   }
 
-  if (report.ncsEvaluation) {
+  if (isCanonicalNcsReportEvaluation(report.ncsEvaluation)) {
     return (
       <NcsReportOverview
         evaluation={report.ncsEvaluation}
