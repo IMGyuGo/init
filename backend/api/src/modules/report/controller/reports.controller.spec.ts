@@ -1,10 +1,11 @@
-import { INestApplication } from "@nestjs/common";
+import { INestApplication, ValidationPipe } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import jwt from "jsonwebtoken";
 import request from "supertest";
 import { AppModule } from "../../app.module";
 import { ApiExceptionFilter } from "../../../shared/api-exception.filter";
 import { ApiResponseInterceptor } from "../../../shared/api-response.interceptor";
+import { createApiValidationException } from "../../../shared/api-validation";
 import { PrismaService } from "../../../shared/prisma.service";
 import { CANDIDATE_REPOSITORY, type CandidateRepository } from "../../candidate";
 import { POSTING_DRAFT_INPUT_LIMITS } from "../../ai/dto/ai-job.dto";
@@ -49,6 +50,14 @@ describe("ReportsController", () => {
     app.setGlobalPrefix("api/v1");
     app.useGlobalFilters(new ApiExceptionFilter());
     app.useGlobalInterceptors(new ApiResponseInterceptor());
+    app.useGlobalPipes(
+      new ValidationPipe({
+        transform: true,
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        exceptionFactory: createApiValidationException,
+      }),
+    );
     await app.init();
     repository = app.get(InMemoryReportRepository);
     candidateRepository = app.get<CandidateRepository>(CANDIDATE_REPOSITORY);
@@ -309,55 +318,10 @@ describe("ReportsController", () => {
       .expect(400);
   });
 
-  it("queues company AI criteria suggestions", async () => {
-    const response = await companyRequest("/api/v1/company/interviews/evaluation-criteria/suggest")
-      .send({
-        postingId: 2,
-        jobDescription: "Backend engineer with NestJS and PostgreSQL experience.",
-        talentProfile: "Pragmatic problem solver",
-        evaluationPolicy: "Prefer evidence-backed backend ownership."
-      })
-      .expect(202);
-
-    expect(response.body.data.processType).toBe("CRITERIA_SUGGEST");
-    expect(response.body.data.status).toBe("PENDING");
-    expect(response.body.data.queued).toBe(true);
-    expect(response.body.data.inputRef).toContain("Pragmatic problem solver");
-    expect(response.body.data.inputRef).toContain("Prefer evidence-backed backend ownership.");
-  });
-
-  it("exposes parsed criteria suggestion output for review before final criteria save", async () => {
-    const response = await companyRequest("/api/v1/company/interviews/evaluation-criteria/suggest")
-      .send({
-        postingId: 2,
-        jobDescription: "Backend engineer with NestJS and PostgreSQL experience.",
-        talentProfile: "Pragmatic problem solver",
-        evaluationPolicy: "Prefer evidence-backed backend ownership."
-      })
-      .expect(202);
-
-    await repository.markQueuedProcessCompleted(
-      response.body.data.processLogId,
-      JSON.stringify({
-        kind: "CRITERIA_SUGGEST",
-        sourceProcessLogId: response.body.data.processLogId,
-        items: ["Problem solving", "Backend ownership"],
-        reviewRequired: true,
-        reviewStatus: "PENDING_REVIEW",
-        targetTables: ["criterion_tags", "evaluation_criteria"],
-        postingId: 2
-      })
-    );
-
-    const statusResponse = await companyGet(`/api/v1/ai/jobs/${response.body.data.processLogId}/status`).expect(200);
-
-    expect(statusResponse.body.data.status).toBe("COMPLETED");
-    expect(statusResponse.body.data.output.sourceProcessLogId).toBe(response.body.data.processLogId);
-    expect(statusResponse.body.data.output.items).toEqual(["Problem solving", "Backend ownership"]);
-    expect(statusResponse.body.data.output.reviewRequired).toBe(true);
-    expect(statusResponse.body.data.output.reviewStatus).toBe("PENDING_REVIEW");
-    expect(statusResponse.body.data.output.targetTables).toEqual(["criterion_tags", "evaluation_criteria"]);
-    expect(statusResponse.body.data.output.postingId).toBe(2);
+  it("does not expose the retired AI criteria suggestion route", async () => {
+    await companyRequest("/api/v1/company/interviews/evaluation-criteria/suggest")
+      .send({ postingId: 2 })
+      .expect(404);
   });
 
   it("queues company recruitment posting draft generation before draft save", async () => {
@@ -455,7 +419,36 @@ describe("ReportsController", () => {
     expect(differentCompany.body.error.code).toBe("COMMON_FORBIDDEN");
   });
 
-  it("rejects oversized posting draft inputs before queuing AI work", async () => {
+  it("accepts a posting draft summary at the 3,000 character boundary", async () => {
+    await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS"],
+        summary: "a".repeat(3000)
+      })
+      .expect(202);
+
+    await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS"],
+        summary: "❤️".repeat(3000)
+      })
+      .expect(202);
+
+    await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS"],
+        summary: "👩‍💻".repeat(1000)
+      })
+      .expect(202);
+  });
+
+  it("returns structured posting draft input validation details", async () => {
     const tooManyKeywords = await companyRequest("/api/v1/company/recruitments/ai-draft")
       .send({
         title: "2026 신입 백엔드 채용",
@@ -471,10 +464,89 @@ describe("ReportsController", () => {
         title: "2026 신입 백엔드 채용",
         jobRole: "Backend Developer",
         keywords: ["NestJS"],
-        summary: "a".repeat(1001)
+        summary: "a".repeat(3001)
       })
       .expect(400);
     expect(tooLongSummary.body.error.code).toBe("COMMON_VALIDATION_FAILED");
+    expect(tooLongSummary.body.error.details).toContainEqual({
+      field: "summary",
+      reason: "MAX_LENGTH",
+      limit: 3000,
+      actualLength: 3001,
+      message: "핵심 내용은 최대 3,000자까지 입력할 수 있습니다."
+    });
+
+    const tooLongPresentationSequenceSummary = await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS"],
+        summary: "❤️".repeat(3001)
+      })
+      .expect(400);
+    expect(tooLongPresentationSequenceSummary.body.error.details).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: "summary",
+          reason: "MAX_LENGTH",
+          limit: 3000,
+          actualLength: 3001
+        })
+      ])
+    );
+
+    const tooLongZwjSummary = await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS"],
+        summary: `${"👩‍💻".repeat(1000)}a`
+      })
+      .expect(400);
+    expect(tooLongZwjSummary.body.error.details).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: "summary",
+          reason: "MAX_LENGTH",
+          limit: 3000,
+          actualLength: 3001
+        })
+      ])
+    );
+
+    const tooLongKeyword = await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["k".repeat(41)]
+      })
+      .expect(400);
+    expect(tooLongKeyword.body.error.details).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: "keywords",
+          reason: "MAX_LENGTH",
+          limit: 40,
+          actualLength: 41
+        })
+      ])
+    );
+
+    const missingTitle = await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        jobRole: "Backend Developer",
+        keywords: ["NestJS"],
+        summary: "채용 플랫폼 API를 함께 만듭니다."
+      })
+      .expect(400);
+    expect(missingTitle.body.error.details).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: "title",
+          reason: "REQUIRED"
+        })
+      ])
+    );
 
     const boundedOptionalInputs = [
       ["careerRequirement", "a".repeat(POSTING_DRAFT_INPUT_LIMITS.careerRequirementMaxLength + 1)],
@@ -536,63 +608,10 @@ describe("ReportsController", () => {
     expect(statusResponse.body.data.output.postingId).toBe(2);
   });
 
-  it("queues question-set generation with criteria and question type conditions", async () => {
-    const response = await companyRequest("/api/v1/company/interviews/question-sets")
-      .send({
-        postingId: 2,
-        questionCount: 2,
-        criteria: [{ criterionId: 1, name: "Problem solving", weight: 40 }],
-        questionTypes: ["TECHNICAL", "EXPERIENCE"]
-      })
-      .expect(202);
-
-    expect(response.body.data.processType).toBe("QUESTION_SET_GENERATE");
-    expect(response.body.data.status).toBe("PENDING");
-    expect(response.body.data.inputRef).toContain("Problem solving");
-    expect(response.body.data.inputRef).toContain("TECHNICAL");
-  });
-
-  it("exposes parsed question-set output for C screen consumption", async () => {
-    const response = await companyRequest("/api/v1/company/interviews/question-sets")
-      .send({
-        postingId: 2,
-        questionCount: 2,
-        criteria: [{ criterionId: 1, name: "Problem solving", weight: 40 }],
-        questionTypes: ["TECHNICAL", "EXPERIENCE"]
-      })
-      .expect(202);
-
-    await repository.markQueuedProcessCompleted(
-      response.body.data.processLogId,
-      JSON.stringify({
-        kind: "QUESTION_SET_GENERATE",
-        sourceProcessLogId: response.body.data.processLogId,
-        items: ["TECHNICAL question 1", "EXPERIENCE question 2"],
-        reviewRequired: true,
-        reviewStatus: "PENDING_REVIEW",
-        targetTables: ["question_bank"],
-        postingId: 2
-      })
-    );
-
-    const statusResponse = await companyGet(`/api/v1/ai/jobs/${response.body.data.processLogId}/status`).expect(200);
-
-    expect(statusResponse.body.data.status).toBe("COMPLETED");
-    expect(statusResponse.body.data.output.sourceProcessLogId).toBe(response.body.data.processLogId);
-    expect(statusResponse.body.data.output.items).toEqual(["TECHNICAL question 1", "EXPERIENCE question 2"]);
-    expect(statusResponse.body.data.output.reviewRequired).toBe(true);
-    expect(statusResponse.body.data.output.reviewStatus).toBe("PENDING_REVIEW");
-    expect(statusResponse.body.data.output.targetTables).toEqual(["question_bank"]);
-    expect(statusResponse.body.data.output.postingId).toBe(2);
-  });
-
-  it("rejects criteria suggestion without talent profile and evaluation policy", async () => {
-    await companyRequest("/api/v1/company/interviews/evaluation-criteria/suggest")
-      .send({
-        postingId: 2,
-        jobDescription: "Backend engineer with NestJS and PostgreSQL experience."
-      })
-      .expect(400);
+  it("does not expose the retired question-set generation route", async () => {
+    await companyRequest("/api/v1/company/interviews/question-sets")
+      .send({ postingId: 2 })
+      .expect(404);
   });
 
   it("exposes parsed candidate mock-question output through AI job status", async () => {
@@ -705,12 +724,11 @@ describe("ReportsController", () => {
   });
 
   it("allows bearer authenticated users to poll AI job status", async () => {
-    const response = await companyRequest("/api/v1/company/interviews/evaluation-criteria/suggest")
+    const response = await companyRequest("/api/v1/company/interviews/questions/generate")
       .send({
         postingId: 2,
-        jobDescription: "Backend engineer with NestJS and PostgreSQL experience.",
-        talentProfile: "Pragmatic problem solver",
-        evaluationPolicy: "Prefer evidence-backed backend ownership."
+        questionCount: 2,
+        criteria: [{ criterionId: 1, name: "Problem solving", category: "직무역량", weight: 40 }]
       })
       .expect(202);
 

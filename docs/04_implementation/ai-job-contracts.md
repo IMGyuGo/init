@@ -48,6 +48,9 @@ GET /api/v1/ai/jobs/101/status
     "status": "COMPLETED",
     "output": {
       "sourceProcessLogId": 101,
+      "providerMode": "openai",
+      "providerSource": "OPENAI_QUESTION_GENERATION",
+      "model": "gpt-4o-mini",
       "items": ["Question 1", "Question 2"],
       "questionCandidates": [
         {
@@ -69,6 +72,21 @@ GET /api/v1/ai/jobs/101/status
   }
 }
 ```
+
+### Provider provenance와 운영 안전 규칙
+
+모든 AI worker 완료 output은 실제 실행 경로를 구분할 수 있도록 아래 필드를 포함한다.
+
+| Field | Value | Rule |
+| --- | --- | --- |
+| `providerMode` | `openai`, `local`, `mock` | 실제 외부 provider, 로컬 결정론적 parser, mock 실행 여부를 나타낸다. |
+| `providerSource` | 작업별 고정 source 문자열 | `OPENAI_QUESTION_GENERATION`, `OPENAI_REPORT_GENERATION`, `OPENAI_AUDIO_TRANSCRIPTION`, `DETERMINISTIC_MOCK`처럼 결과 생성 경로를 나타낸다. |
+| `model` | nullable string | 외부 모델을 호출한 경우 실제 모델명을 기록한다. |
+
+- `NODE_ENV=production`인 worker는 `AI_PROVIDER_MODE=openai`와 `AI_STT_PROVIDER=openai`를 모두 요구한다. 하나라도 `mock`이거나 생략되면 worker는 시작하지 않는다.
+- local/CI의 결정론적 fixture는 `mock`을 계속 사용할 수 있지만 완료 output에 `providerMode=mock`, `providerSource=DETERMINISTIC_MOCK`을 명시한다.
+- `openai` 모드에서 지원하지 않는 process type을 mock 결과로 조용히 대체해서는 안 된다. 운영 연결 전 실제 adapter가 없는 process type은 명시적으로 실패시킨다.
+- provider mode와 source는 화면 표시용 추정값이 아니라 worker가 결과 생성 시 기록하는 정본이다.
 
 실패 응답은 재시도 가능 여부를 포함한다.
 
@@ -99,14 +117,10 @@ GET /api/v1/ai/jobs/101/status
 | `POST /candidate/documents/extract` | Candidate | applicationId, documentId, fileId, s3Key | 원본 파일은 DB 저장 금지, S3 key 참조 |
 | `POST /candidate/mock-interviews/{sessionId}/stt` | Candidate | answerId, audioFileId, audioS3Key | transcript 없을 때만 저장 |
 | `POST /candidate/interviews/{sessionId}/stt` | Candidate | answerId, audioFileId, audioS3Key | transcript 없을 때만 저장 |
-| `POST /candidate/mock-interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript, profileContext(V1, server-built) | 모의면접 표현 정책 적용 |
-| `POST /candidate/mock-interviews/{sessionId}/follow-up-questions/insert` | Candidate | processLogId | MVP 임시 브릿지. 완료된 FOLLOW_UP 작업 결과를 면접 질문 흐름에 추가 |
-| `POST /candidate/interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript, jobDescription 또는 documentSummary, profileContext(V1, server-built) | 채용면접 표현 정책 적용 |
-| `POST /candidate/interviews/{sessionId}/follow-up-questions/insert` | Candidate | processLogId | MVP 임시 브릿지. 완료된 FOLLOW_UP 작업 결과를 면접 질문 흐름에 추가 |
-| `POST /company/recruitments/ai-draft` | Company | title(max 120), jobRole(max 80), keywords?(max 10, each max 40), summary?(max 1000), careerRequirement?, employmentType?, workLocation? | reviewRequired draft 반환, 확정 전 최종 저장 금지 |
-| `POST /company/interviews/evaluation-criteria/suggest` | Company | postingId, jobDescription, talentProfile, evaluationPolicy | reviewRequired draft 반환, 확정 전 최종 저장 금지 |
+| `POST /candidate/mock-interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript, profileContext(V1, server-built) | 모의면접 표현 정책과 guardrail 통과 후 답변 문맥을 포함한 private session question을 원 질문 바로 다음에 원자적으로 추가. 불필요·실패·timeout이면 다음 기본 질문으로 복구 |
+| `POST /candidate/interviews/{sessionId}/follow-up-question` | Candidate | answerId, previousQuestion, transcript, jobDescription 또는 documentSummary, profileContext(V1, server-built) | NCS 근거와 fact gate를 병렬 확인한다. 둘 중 하나라도 보완이 필요하면 답변의 구체 표현을 포함한 동일 mode·답변시간의 private session question 하나만 원 질문 바로 다음에 추가 |
+| `POST /company/recruitments/ai-draft` | Company | title(max 120), jobRole(max 80), keywords?(max 10, each max 40), summary?(max 3000), careerRequirement?, employmentType?, workLocation? | reviewRequired draft 반환, 확정 전 최종 저장 금지 |
 | `POST /company/interviews/questions/generate` | Company | postingId, jobDescription, questionCount | reviewRequired draft 반환 |
-| `POST /company/interviews/question-sets` | Company | postingId, questionCount, criteria, questionTypes | reviewRequired draft 반환 |
 | `POST /candidate/mock-interviews/questions/generate` | Candidate | questionCount, folderContext?, profileContext(V1, server-built) | JD/posting/기업 기준 없이 동작 |
 | `POST /ai/guardrails/validate` | Admin/System | reportType, target, scores, summary? | PASS/BLOCKED/REGENERATED 기록 |
 
@@ -257,6 +271,8 @@ Policy:
 }
 ```
 
+문서 추출 worker는 S3의 PDF magic bytes와 크기를 검증한 뒤 PDF parser로 실제 본문을 추출한다. `outputRef`에는 이력서 원문을 기록하지 않고 `providerMode=local`, `providerSource=PDF_TEXT_EXTRACTION`, `pageCount`, `extractedCharCount`, `truncated`만 기록한다. 텍스트가 없는 스캔 PDF와 손상 PDF는 `application_documents.parse_status=FAILED`로 처리하며 placeholder 본문을 저장하지 않는다.
+
 STT 입력:
 
 ```json
@@ -301,6 +317,9 @@ type CandidateProfileAiContextV1 = {
 ```json
 {
   "sourceProcessLogId": 101,
+  "providerMode": "openai",
+  "providerSource": "OPENAI_QUESTION_GENERATION",
+  "model": "gpt-4o-mini",
   "items": ["Question 1", "Question 2"],
   "questionCandidates": [
     {
@@ -321,69 +340,25 @@ type CandidateProfileAiContextV1 = {
 }
 ```
 
-평가 기준 추천 draft 출력:
+실제 질문 생성 규칙:
 
-```json
-{
-  "sourceProcessLogId": 102,
-  "items": ["문제 해결력", "조직 적합도"],
-  "criteriaSuggestions": [
-    {
-      "title": "문제 해결력",
-      "description": "JD 맥락: NestJS와 PostgreSQL 기반 백엔드 개발",
-      "weight": 40,
-      "order": 1,
-      "suggestionReason": "직무 요구사항에서 문제 분석과 해결 역량 검증이 필요합니다.",
-      "category": "직무 역량"
-    }
-  ],
-  "reviewRequired": true,
-  "reviewStatus": "PENDING_REVIEW",
-  "targetTables": ["criterion_tags", "evaluation_criteria"],
-  "postingId": 2
-}
-```
-
-질문 세트 draft 출력:
-
-```json
-{
-  "sourceProcessLogId": 103,
-  "items": ["TECHNICAL question 1 for 문제 해결력"],
-  "questionSetPreview": [
-    {
-      "criterionId": 1,
-      "criterionTitle": "문제 해결력",
-      "questions": [
-        {
-          "content": "TECHNICAL question 1 for 문제 해결력",
-          "category": "질문 세트",
-          "difficulty": "MEDIUM",
-          "criterionId": 1,
-          "criterionTitle": "문제 해결력",
-          "expectedKeywords": ["상황", "행동", "결과"],
-          "suggestionReason": "평가 기준별 질문 세트 구성을 위해 선택된 후보입니다.",
-          "questionType": "TECHNICAL"
-        }
-      ]
-    }
-  ],
-  "reviewRequired": true,
-  "reviewStatus": "PENDING_REVIEW",
-  "targetTables": ["question_bank", "interview_question_sets"],
-  "postingId": 2
-}
-```
+- `AI_PROVIDER_MODE=openai`에서는 공통 질문과 개인화 질문을 모두 OpenAI question provider로 생성한다. provider 누락 시 deterministic mock으로 대체하지 않고 job을 실패시킨다.
+- 공통 질문은 저장된 JD와 NCS 평가 기준을 입력으로 사용하고, 개인화 질문은 동일 입력에 실제 PDF 추출 이력서 본문을 추가한다.
+- 개인화 질문 provider 입력에서 이메일과 전화번호를 제거하고 이력서 본문은 최대 50,000자로 제한한다. 원문은 outputRef나 질문 metadata에 복제하지 않는다.
+- HTML/editor markup, 공고·회사·직무 접두어, 15자 미만 또는 180자 초과 질문, 동일·유사 질문, 동일 종결 표현의 과도한 반복은 저장 후보에서 제외하고 재생성한다.
+- NCS 질문은 정해진 재생성 횟수 안에 요청 수만큼 `alignmentStatus=ALIGNED` 결과를 만들지 못하면 job을 실패시킨다. `LOW_ALIGNMENT` 또는 `REVIEW_REQUIRED` 질문을 공통/개인화 질문으로 자동 대체하지 않는다.
 
 ## C 면접 설정 화면 적용 규칙
 
-C 화면은 E worker가 반환한 draft output을 자동 저장하지 않는다. 화면은 아래 규칙으로 미리보기와 수동 적용 상태만 관리한다.
+C 화면은 고정 NCS 3개 평가 기준과 E worker가 반환한 정렬 검증 질문 결과를 아래 규칙으로 적용한다.
 
 | Output field | C 화면 표시 | 사용자 적용 | 중복/빈 결과 처리 |
 | --- | --- | --- | --- |
-| `criteriaSuggestions[]` | 평가 기준 추천 목록 | 사용자가 태그를 선택하거나 자동 매칭된 태그를 확인한 뒤 평가 기준 draft에 추가 | 이미 선택된 태그는 `적용됨`으로 표시하고 중복 추가하지 않는다. 적용 시 배점 합계가 100을 넘으면 적용을 막는다. |
-| `questionCandidates[]` | JD 질문 후보 목록 | 사용자가 평가 기준을 선택한 뒤 기존 `POST /company/interviews/questions`로 질문 뱅크에 저장 | 같은 공고에 동일한 활성 질문이 있으면 `저장됨`으로 표시하고 중복 저장하지 않는다. |
-| `questionSetPreview[]` | 평가 기준별 질문 세트 후보 | 사용자가 후보별 포함/제외를 선택한 뒤 기존 `POST /company/interviews/question-sets/confirm`으로 확정 | 질문 뱅크의 활성 질문과 매칭되지 않는 후보는 확정 대상에서 제외한다. 선택된 확정 대상이 없으면 확정을 막는다. |
+| `questionCandidates[]` | 하단 공통 질문 목록 | `ALIGNED` 결과를 기존 `POST /company/interviews/questions`로 즉시 저장하고 사용자는 Drawer에서 수정·삭제 | 같은 공고의 동일 질문은 중복 저장하지 않는다. 정렬 미통과 또는 평가 기준 연결 실패 질문은 저장하지 않는다. |
+
+평가 기준 추천 AI job은 사용하지 않는다. 면접관은 `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING` 세 기준의 가중치와 합격점만 조정한다.
+
+별도의 `QUESTION_SET_GENERATE` draft와 질문 세트 미리보기 UI는 사용하지 않는다. 사용자가 3단계로 이동할 때 현재 하단 공통 질문 목록을 `POST /company/interviews/question-sets/confirm`으로 한 번에 확정한다.
 
 AI 결과가 비어 있거나 `guardrail.result=BLOCKED`이면 C 화면은 최종 저장을 시도하지 않고 한글 안내 문구와 재요청 흐름을 제공한다. `failure.category`, `failure.reason`, `failure.retryable`은 사용자 문구 변환에 사용하며 원문을 그대로 장문 노출하지 않는다.
 
@@ -392,12 +367,10 @@ AI 결과가 비어 있거나 `guardrail.result=BLOCKED`이면 C 화면은 최�
 | 상태 | Worker/API 응답 조건 | C 화면 기대 동작 | 저장/확정 가능 여부 |
 | --- | --- | --- | --- |
 | 실패 | `status=FAILED`, `failure.reason` 존재 | 실패 badge와 한글 안내 문구, `다시 요청` 버튼 표시 | 불가 |
-| 빈 평가 기준 결과 | `status=COMPLETED`, `criteriaSuggestions=[]` | "추천 가능한 평가 기준 결과가 없습니다" 계열 안내 표시 | 불가 |
 | 빈 질문 후보 결과 | `status=COMPLETED`, `questionCandidates=[]` | "저장 가능한 질문 후보가 없습니다" 계열 안내 표시 | 불가 |
-| 빈 질문 세트 결과 | `status=COMPLETED`, `questionSetPreview=[]` | "확정 가능한 질문 세트 결과가 없습니다" 계열 안내 표시 | 불가 |
 | Guardrail 차단 | `output.guardrail.result=BLOCKED` 또는 실패 reason에 guardrail 포함 | 정책 검수 차단 안내와 재요청 흐름 표시 | 불가 |
 
-QA는 정상 완료 흐름과 별개로 위 5개 상태를 최소 1회씩 확인한다. C 화면은 예외 상태에서 기존 `evaluation_criteria`, `question_bank`, `interview_question_sets`에 자동 저장을 시도하지 않아야 한다.
+QA는 정상 완료 흐름과 별개로 위 예외 상태를 최소 1회씩 확인한다. C 화면은 빈 결과 또는 차단 상태에서 `evaluation_criteria`, `question_bank`, `interview_question_sets`에 저장을 시도하지 않아야 한다.
 
 리포트 생성 완료 출력:
 
@@ -436,9 +409,11 @@ QA는 정상 완료 흐름과 별개로 위 5개 상태를 최소 1회씩 확인
 
 - A는 SQS queue URL, S3 bucket, AI provider secret, worker 배포/재시작을 제공한다.
 - D는 파일 원본을 API payload에 넣지 않고 S3 업로드 후 fileId와 storage key만 E API에 전달한다.
-- C는 평가 기준/질문 생성 화면에서 `reviewRequired=true` 결과를 사용자 확정 전 draft로 취급한다. 사용자 화면 상태는 `대기 중`, `처리 중`, `완료`, `실패` 한글 라벨로 표시한다.
-- C는 `criteriaSuggestions`, `questionCandidates`, `questionSetPreview`를 자동 저장하지 않고 미리보기로 표시한 뒤 사용자가 선택한 항목만 기존 C 저장 API에 반영한다.
+- C는 질문 생성 화면에서 `reviewRequired=true` 결과 중 guardrail과 NCS 정렬 검증을 통과한 질문만 공통 질문 목록에 저장한다. 사용자는 Drawer에서 수정·삭제하고 다음 단계 이동으로 목록 전체를 확정한다. 사용자 화면 상태는 `대기 중`, `처리 중`, `완료`, `실패` 한글 라벨로 표시한다.
+- C는 고정 NCS 3개 평가 기준을 사용하고, 정렬 검증된 `questionCandidates`를 하단 공통 질문 목록에 반영한다. 사용자가 다음 단계로 이동할 때 목록을 활성 질문 세트로 확정한다.
 - D는 STT와 꼬리질문 입력으로 `answerId`, `audioFileId`, `audioS3Key`, transcript를 넘긴다.
 - B는 리포트 화면에서 `evaluation_reports.status`와 `GET /ai/jobs/{processLogId}/status` 결과를 함께 표시한다.
 - E는 guardrail PASS/REGENERATED 전에는 `evaluation_reports`, `report_scores`, `report_evidences`, `question_bank`, `evaluation_criteria`에 최종 저장하지 않는다.
-- E는 `transcript`를 실제 답변 텍스트 전용으로 유지한다. STT 실패로 transcript가 없는 답변은 `evaluationStatus=STT_UNAVAILABLE`, `transcriptUnavailableReason`으로 사유를 분리하고, 현재는 보고서 생성을 막지 않기 위해 임시 0점 처리한다. 이 점수 정책은 팀 논의 후 변경될 수 있다.
+- E는 `transcript`를 실제 답변 텍스트 전용으로 유지한다. 실제 음성 인식 실패로 transcript가 없는 답변은 `evaluationStatus=STT_UNAVAILABLE`, `transcriptUnavailableReason`으로 사유를 분리하고, 답변별 NCS 점수와 최종 리포트 점수는 `NULL`로 유지한다. 평가 근거와 가짜 0점 `ReportScore`는 생성하지 않는다.
+- `STT_RETRYABLE` worker 자동 재시도와 provider timeout/실패는 지원자 재답변 횟수에 포함하지 않는다. `REANSWER_REQUIRED`만 지원자 재답변 대상으로 투영하고 같은 답변에 한 번만 허용한다.
+- 과거 `STT_UNAVAILABLE_TEMP_ZERO` 데이터는 조회 호환만 유지한다. 신규 worker/API/mock provider는 해당 rubric 또는 0점 행을 생성하지 않는다.

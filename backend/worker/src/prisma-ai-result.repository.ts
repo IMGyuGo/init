@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import {
   AiResultRepository,
+  AnswerFactCheckRunRecord,
   CommunicationAnalysisRecord,
   DocumentExtractionRecord,
   DocumentExtractionStatusRecord,
@@ -10,24 +12,123 @@ import {
   GeneratedDraftRecord,
   GeneratedReportRecord,
   GeneratedReportScoreRecord,
+  NcsAnswerEvaluationRecord,
+  ResumeQuestionGenerationContext,
+  ResumeQuestionGenerationResult,
+  ResumeQuestionJobReference,
   assertQuestionEvaluationsHaveEvidence,
+  assertAnswerFactCheckRecords,
   TranscriptRecord,
   assertScoresHaveEvidence,
   hashSourceText
 } from "./ai-result.repository";
+import { canonicalNcsProfileIdOf } from "./ncs-question-alignment.adapter";
+import { NonRetryableAiWorkerFailure } from "./worker-errors";
+import { AiWorkerJob, FailureReason } from "./worker.types";
+
+interface ResumeQuestionDocumentRow {
+  documentId: bigint;
+  documentType: string;
+  parseStatus: string;
+  extractedText: string | null;
+  application: {
+    applicationId: bigint;
+    applicationStatus: string;
+    submittedAt: Date | null;
+    posting: {
+      postingId: bigint;
+      jobDescription: string | null;
+      questionGenerationPolicy: {
+        evaluationFramework: string;
+        jdCriteriaQuestionCount: number;
+        resumeQuestionCount: number;
+        policyVersion: number;
+        criteriaVersion: number;
+      } | null;
+      criteria: Array<{
+        criterionId: bigint;
+        description: string | null;
+        sortOrder: number;
+        ncsProfileId: string | null;
+        ncsQuestionMode: string | null;
+        ncsProfileVersion: string | null;
+        tag: { name: string; category: string };
+      }>;
+    };
+  };
+}
+
+interface ResumeQuestionBatchRow {
+  batchId: bigint;
+  applicationId: bigint;
+  latestProcessLogId: bigint;
+  status: string;
+  policyVersion: number;
+  criteriaVersion: number;
+  inputVersion: string;
+  resumeDocumentHash: string;
+  jdSnapshotHash: string;
+}
+
+const FOLLOW_UP_SOURCE_QUESTION_SELECT = {
+  sessionQuestionId: true,
+  sortOrder: true,
+  questionType: true,
+  criterionId: true,
+  criterionTitleSnapshot: true,
+  ncsProfileId: true,
+  ncsQuestionMode: true,
+  ncsProfileVersion: true,
+  alignmentStatus: true,
+  alignmentScore: true,
+  alignmentReason: true,
+  evaluatorVersion: true,
+  policyVersion: true,
+  criteriaVersion: true,
+  ncsBindings: {
+    orderBy: { bindingOrder: "asc" as const },
+    select: {
+      criterionId: true,
+      criterionTitleSnapshot: true,
+      ncsProfileId: true,
+      ncsProfileVersion: true,
+      alignmentStatus: true,
+      alignmentScore: true,
+      alignmentReason: true,
+      evaluatorVersion: true,
+      bindingOrder: true,
+    },
+  },
+} as const;
+
+function defaultFollowUpReason(policy: FollowUpQuestionRecord["policy"]): FollowUpQuestionRecord["reason"] {
+  return policy === "RECRUITING" ? "NCS_EVIDENCE_GAP" : "GENERAL_EVIDENCE_GAP";
+}
 
 interface PrismaAiResultClient {
+  $transaction?<T>(operation: (transaction: PrismaAiResultClient) => Promise<T>): Promise<T>;
+  $executeRawUnsafe?(query: string, ...values: unknown[]): Promise<number>;
+  $queryRawUnsafe?<T>(query: string, ...values: unknown[]): Promise<T>;
   application: {
     updateMany(args: unknown): Promise<unknown>;
+    findUnique?(args: unknown): Promise<ResumeQuestionDocumentRow["application"] | null>;
   };
   applicationDocument: {
     updateMany(args: unknown): Promise<unknown>;
+    findUnique?(args: unknown): Promise<ResumeQuestionDocumentRow | null>;
   };
   interviewAnswer: {
     updateMany(args: unknown): Promise<unknown>;
+    findUnique?(args: unknown): Promise<any>;
   };
   followUpQuestion: {
-    upsert(args: unknown): Promise<unknown>;
+    findUnique?(args: unknown): Promise<any>;
+    upsert(args: unknown): Promise<any>;
+    update?(args: unknown): Promise<any>;
+  };
+  interviewSessionQuestion?: {
+    findFirst(args: unknown): Promise<any>;
+    create(args: unknown): Promise<any>;
   };
   evaluationReport: {
     upsert(args: unknown): Promise<unknown>;
@@ -42,11 +143,29 @@ interface PrismaAiResultClient {
   reportEvidence: {
     deleteMany(args: unknown): Promise<unknown>;
   };
+  ncsAnswerEvaluation?: {
+    deleteMany(args: unknown): Promise<unknown>;
+    create(args: unknown): Promise<unknown>;
+  };
+  answerFactCheckRun?: {
+    deleteMany(args: unknown): Promise<unknown>;
+    create(args: unknown): Promise<unknown>;
+  };
   embedding: {
     upsert(args: unknown): Promise<EmbeddingRecord & { embeddingId?: bigint }>;
   };
   aiProcessLog: {
     update(args: unknown): Promise<unknown>;
+    create?(args: unknown): Promise<unknown>;
+  };
+  applicationInterviewQuestionBatch?: {
+    findUnique(args: unknown): Promise<ResumeQuestionBatchRow | null>;
+    create(args: unknown): Promise<ResumeQuestionBatchRow>;
+    updateMany(args: unknown): Promise<unknown>;
+  };
+  applicationInterviewQuestion?: {
+    deleteMany(args: unknown): Promise<unknown>;
+    create(args: unknown): Promise<unknown>;
   };
 }
 
@@ -66,18 +185,27 @@ export class PrismaAiResultRepository implements AiResultRepository {
     });
   }
 
-  async saveDocumentExtraction(record: DocumentExtractionRecord): Promise<void> {
-    await this.prisma.applicationDocument.updateMany({
-      where: {
-        documentId: BigInt(record.documentId),
-        fileId: BigInt(record.fileId),
-        parseStatus: { not: "EXTRACTED" }
-      },
-      data: {
-        parseStatus: "EXTRACTED",
-        extractedText: record.extractedText
-      }
-    });
+  async saveDocumentExtraction(record: DocumentExtractionRecord): Promise<AiWorkerJob[]> {
+    try {
+      return await this.transaction(async (transaction) => {
+        await transaction.applicationDocument.updateMany({
+          where: {
+            documentId: BigInt(record.documentId),
+            fileId: BigInt(record.fileId),
+            parseStatus: { not: "EXTRACTED" }
+          },
+          data: {
+            parseStatus: "EXTRACTED",
+            extractedText: record.extractedText
+          }
+        });
+
+        return this.prepareResumeQuestionGeneration(transaction, record.documentId);
+      });
+    } catch (error) {
+      if (isUniqueConstraintFailure(error)) return [];
+      throw error;
+    }
   }
 
   async markDocumentExtractionFailed(record: FailedDocumentExtractionRecord): Promise<void> {
@@ -89,6 +217,154 @@ export class PrismaAiResultRepository implements AiResultRepository {
       },
       data: {
         parseStatus: "FAILED"
+      }
+    });
+  }
+
+  async loadResumeQuestionGenerationContext(reference: ResumeQuestionJobReference): Promise<ResumeQuestionGenerationContext> {
+    const application = await this.prisma.application.findUnique!({
+      where: { applicationId: BigInt(reference.applicationId) },
+      include: {
+        documents: { where: { documentId: BigInt(reference.documentId) } },
+        posting: {
+          include: {
+            questionGenerationPolicy: true,
+            criteria: { include: { tag: true }, orderBy: { sortOrder: "asc" } }
+          }
+        }
+      }
+    }) as (ResumeQuestionDocumentRow["application"] & { documents: Array<Omit<ResumeQuestionDocumentRow, "application">> }) | null;
+    if (!application) {
+      throw new NonRetryableAiWorkerFailure("resume question application was not found");
+    }
+
+    const document = application.documents[0];
+    const policy = application.posting.questionGenerationPolicy;
+    const jobDescription = application.posting.jobDescription?.trim();
+    if (!document || document.parseStatus !== "EXTRACTED" || !document.extractedText?.trim()) {
+      throw new NonRetryableAiWorkerFailure("extracted resume document is required");
+    }
+    if (!policy || policy.resumeQuestionCount <= 0 || policy.evaluationFramework !== "NCS_3_PROFILE_V1") {
+      throw new NonRetryableAiWorkerFailure("NCS resume question policy is not enabled");
+    }
+    if (!jobDescription) {
+      throw new NonRetryableAiWorkerFailure("posting job description is required");
+    }
+
+    const resumeDocumentHash = hashText(document.extractedText);
+    const jdSnapshotHash = hashText(jobDescription);
+    if (
+      policy.policyVersion !== reference.policyVersion ||
+      policy.criteriaVersion !== reference.criteriaVersion ||
+      resumeDocumentHash !== reference.resumeDocumentHash ||
+      jdSnapshotHash !== reference.jdSnapshotHash
+    ) {
+      throw new NonRetryableAiWorkerFailure("resume question input snapshot is stale");
+    }
+
+    const batch = await this.prisma.applicationInterviewQuestionBatch!.findUnique({
+      where: {
+        applicationId_policyVersion_criteriaVersion_jdSnapshotHash_resumeDocumentHash: {
+          applicationId: BigInt(reference.applicationId),
+          policyVersion: reference.policyVersion,
+          criteriaVersion: reference.criteriaVersion,
+          jdSnapshotHash,
+          resumeDocumentHash
+        }
+      }
+    });
+    if (!batch || Number(batch.latestProcessLogId) !== reference.processLogId || batch.status !== "GENERATING") {
+      throw new NonRetryableAiWorkerFailure("resume question generation batch is not active");
+    }
+
+    const allocatedCriteria = allocateResumeCriteria(
+      application.posting.criteria,
+      policy.jdCriteriaQuestionCount,
+      policy.resumeQuestionCount,
+    );
+
+    return {
+      ...reference,
+      batchId: Number(batch.batchId),
+      questionCount: policy.resumeQuestionCount,
+      jobDescription,
+      resumeText: document.extractedText,
+      criteria: allocatedCriteria,
+    };
+  }
+
+  async saveResumeQuestionGeneration(record: ResumeQuestionGenerationResult): Promise<void> {
+    await this.transaction(async (transaction) => {
+      const batch = await transaction.applicationInterviewQuestionBatch!.findUnique({
+        where: {
+          applicationId_policyVersion_criteriaVersion_jdSnapshotHash_resumeDocumentHash: {
+            applicationId: BigInt(record.reference.applicationId),
+            policyVersion: record.reference.policyVersion,
+            criteriaVersion: record.reference.criteriaVersion,
+            jdSnapshotHash: record.reference.jdSnapshotHash,
+            resumeDocumentHash: record.reference.resumeDocumentHash
+          }
+        }
+      });
+      if (!batch || Number(batch.latestProcessLogId) !== record.reference.processLogId) {
+        throw new NonRetryableAiWorkerFailure("resume question generation batch changed before save");
+      }
+
+      await transaction.applicationInterviewQuestion!.deleteMany({ where: { batchId: batch.batchId } });
+      for (const question of record.questions) {
+        await transaction.applicationInterviewQuestion!.create({
+          data: {
+            batchId: batch.batchId,
+            criterionId: BigInt(question.criterionId),
+            sourceProcessLogId: BigInt(record.reference.processLogId),
+            criterionTitleSnapshot: question.criterionTitleSnapshot,
+            source: "RESUME_PERSONALIZED",
+            questionType: question.questionType,
+            content: question.content,
+            ncsProfileId: question.ncsProfileId,
+            ncsQuestionMode: question.ncsQuestionMode,
+            ncsProfileVersion: question.ncsProfileVersion,
+            alignmentStatus: question.alignmentStatus,
+            alignmentScore: question.alignmentScore,
+            alignmentReason: question.alignmentReason,
+            evaluatorVersion: question.evaluatorVersion,
+            sortOrder: question.sortOrder,
+            ncsBindings: {
+              create: {
+                criterionId: BigInt(question.criterionId),
+                ncsProfileId: question.ncsProfileId,
+                ncsProfileVersion: question.ncsProfileVersion,
+                alignmentStatus: question.alignmentStatus,
+                alignmentScore: question.alignmentScore,
+                alignmentReason: question.alignmentReason,
+                evaluatorVersion: question.evaluatorVersion,
+                bindingOrder: 1,
+              },
+            },
+          },
+        });
+      }
+      await transaction.applicationInterviewQuestionBatch!.updateMany({
+        where: { batchId: batch.batchId, latestProcessLogId: BigInt(record.reference.processLogId) },
+        data: {
+          status: record.status,
+          evaluatorVersion: record.evaluatorVersion,
+          failureReason: record.failureReason
+        }
+      });
+    });
+  }
+
+  async markResumeQuestionGenerationFailed(reference: ResumeQuestionJobReference, failure: FailureReason): Promise<void> {
+    await this.prisma.applicationInterviewQuestionBatch!.updateMany({
+      where: {
+        applicationId: BigInt(reference.applicationId),
+        latestProcessLogId: BigInt(reference.processLogId),
+        inputVersion: reference.inputVersion
+      },
+      data: {
+        status: "FAILED",
+        failureReason: sanitizeFailureReason(failure.reason)
       }
     });
   }
@@ -110,22 +386,253 @@ export class PrismaAiResultRepository implements AiResultRepository {
   }
 
   async saveFollowUpQuestion(record: FollowUpQuestionRecord): Promise<void> {
-    await this.prisma.followUpQuestion.upsert({
-      where: {
+    if (!this.prisma.$transaction) {
+      throw new NonRetryableAiWorkerFailure("follow-up runtime transition requires a Prisma transaction");
+    }
+
+    await this.prisma.$transaction(async (transaction) => {
+      const followUps = transaction.followUpQuestion;
+      const sessionQuestions = transaction.interviewSessionQuestion;
+      if (
+        !transaction.$executeRawUnsafe ||
+        !transaction.$queryRawUnsafe ||
+        !transaction.interviewAnswer.findUnique ||
+        !followUps.findUnique ||
+        !followUps.update ||
+        !sessionQuestions
+      ) {
+        throw new NonRetryableAiWorkerFailure("follow-up runtime repositories are unavailable");
+      }
+
+      await transaction.$executeRawUnsafe(
+        "SELECT pg_advisory_xact_lock($1)",
+        BigInt(record.sessionId),
+      );
+      const answer = await transaction.interviewAnswer.findUnique({
+        where: { answerId: BigInt(record.answerId) },
+        select: {
+          answerId: true,
+          sessionId: true,
+          questionId: true,
+          sessionQuestionId: true,
+          session: {
+            select: {
+              status: true,
+              answerTimeSecSnapshot: true,
+            },
+          },
+          sessionQuestion: {
+            select: FOLLOW_UP_SOURCE_QUESTION_SELECT,
+          },
+        },
+      });
+      if (!answer || Number(answer.sessionId) !== record.sessionId) {
+        throw new NonRetryableAiWorkerFailure("follow-up answer does not belong to the requested session");
+      }
+
+      const sourceQuestion =
+        answer.sessionQuestion ??
+        (answer.questionId
+          ? await sessionQuestions.findFirst({
+              where: {
+                sessionId: answer.sessionId,
+                questionId: answer.questionId,
+              },
+              select: FOLLOW_UP_SOURCE_QUESTION_SELECT,
+            })
+          : null);
+      const key = {
         answerIdPolicy: {
           answerId: BigInt(record.answerId),
-          policy: record.policy
+          policy: record.policy,
+        },
+      };
+      const existing = await followUps.findUnique({ where: key });
+      if (existing?.generationStatus === "INSERTED" || existing?.generationStatus === "SKIPPED") {
+        return;
+      }
+
+      const shouldInsert = record.required || existing?.generationStatus === "READY";
+      const reason = shouldInsert
+        ? existing?.reason ?? record.reason ?? defaultFollowUpReason(record.policy)
+        : null;
+      const questionMode = existing?.questionMode ?? record.questionMode ?? sourceQuestion?.ncsQuestionMode ?? null;
+      const answerTimeSec =
+        existing?.answerTimeSec ?? record.answerTimeSec ?? answer.session.answerTimeSecSnapshot ?? null;
+      if (!shouldInsert || answer.session.status !== "IN_PROGRESS") {
+        const skipReason = shouldInsert ? "SESSION_NOT_IN_PROGRESS" : "NOT_REQUIRED";
+        await followUps.upsert({
+          where: key,
+          create: {
+            followUpId: this.nextId(),
+            answerId: BigInt(record.answerId),
+            sourceSessionQuestionId: sourceQuestion?.sessionQuestionId ?? null,
+            insertedSessionQuestionId: null,
+            content: "",
+            generationStatus: "SKIPPED",
+            policy: record.policy,
+            reason,
+            skipReason,
+            questionMode,
+            answerTimeSec,
+            insertedAt: null,
+            createdAt: new Date(),
+          },
+          update: {
+            sourceSessionQuestionId: sourceQuestion?.sessionQuestionId ?? existing?.sourceSessionQuestionId ?? null,
+            content: "",
+            generationStatus: "SKIPPED",
+            reason,
+            skipReason,
+            questionMode,
+            answerTimeSec,
+            insertedSessionQuestionId: null,
+            insertedAt: null,
+          },
+        });
+        return;
+      }
+
+      if (!sourceQuestion || sourceQuestion.questionType === "FOLLOW_UP") {
+        throw new NonRetryableAiWorkerFailure("follow-up source must be a base session question");
+      }
+      const content = existing?.content?.trim() || record.content?.trim();
+      if (!content) {
+        throw new NonRetryableAiWorkerFailure("follow-up content is required");
+      }
+      if (record.policy === "RECRUITING") {
+        if (!questionMode || !answerTimeSec) {
+          throw new NonRetryableAiWorkerFailure("recruiting follow-up mode and answer time snapshot are required");
         }
-      },
-      create: {
-        followUpId: this.nextId(),
-        answerId: BigInt(record.answerId),
-        content: record.content,
-        generationStatus: "GENERATED",
-        policy: record.policy,
-        createdAt: new Date()
-      },
-      update: {}
+        const sourceBindings = sourceQuestion.ncsBindings ?? [];
+        if (
+          sourceBindings.length < 1 ||
+          sourceBindings.length > 2 ||
+          sourceBindings.some((binding: any, index: number) =>
+            binding.alignmentStatus !== "ALIGNED" ||
+            canonicalNcsProfileIdOf(binding.ncsProfileId) !== binding.ncsProfileId ||
+            binding.bindingOrder !== index + 1
+          )
+        ) {
+          throw new NonRetryableAiWorkerFailure("recruiting follow-up requires one or two aligned canonical bindings");
+        }
+        if (sourceQuestion.ncsQuestionMode && questionMode !== sourceQuestion.ncsQuestionMode) {
+          throw new NonRetryableAiWorkerFailure("follow-up question mode must match the base question mode");
+        }
+        if (
+          answer.session.answerTimeSecSnapshot &&
+          answerTimeSec !== answer.session.answerTimeSecSnapshot
+        ) {
+          throw new NonRetryableAiWorkerFailure("follow-up answer time must match the session snapshot");
+        }
+      }
+
+      const ready = existing
+        ? await followUps.update({
+            where: { followUpId: existing.followUpId },
+            data: {
+              sourceSessionQuestionId: sourceQuestion.sessionQuestionId,
+              content,
+              generationStatus: "READY",
+              reason,
+              skipReason: null,
+              questionMode,
+              answerTimeSec,
+              insertedSessionQuestionId: null,
+              insertedAt: null,
+            },
+          })
+        : await followUps.upsert({
+            where: key,
+            create: {
+              followUpId: this.nextId(),
+              answerId: BigInt(record.answerId),
+              sourceSessionQuestionId: sourceQuestion.sessionQuestionId,
+              insertedSessionQuestionId: null,
+              content,
+              generationStatus: "READY",
+              policy: record.policy,
+              reason,
+              skipReason: null,
+              questionMode,
+              answerTimeSec,
+              insertedAt: null,
+              createdAt: new Date(),
+            },
+            update: {},
+          });
+      if (ready.generationStatus === "INSERTED") {
+        return;
+      }
+
+      const [sequence] = await transaction.$queryRawUnsafe<Array<{ questionId: bigint }>>(
+        `SELECT nextval('interview_runtime_question_id_seq') AS "questionId"`,
+      );
+      if (!sequence) {
+        throw new NonRetryableAiWorkerFailure("failed to allocate a private runtime question ID");
+      }
+      const sourceSortOrder = sourceQuestion.sortOrder;
+      const reorderOffset = 1_000_000;
+      await transaction.$executeRawUnsafe(
+        `UPDATE interview_session_questions
+         SET sort_order = sort_order + $3
+         WHERE session_id = $1 AND sort_order > $2`,
+        answer.sessionId,
+        sourceSortOrder,
+        reorderOffset,
+      );
+      await transaction.$executeRawUnsafe(
+        `UPDATE interview_session_questions
+         SET sort_order = sort_order - $3
+         WHERE session_id = $1 AND sort_order > $2`,
+        answer.sessionId,
+        sourceSortOrder + reorderOffset,
+        reorderOffset - 1,
+      );
+      const inserted = await sessionQuestions.create({
+        data: {
+          sessionId: answer.sessionId,
+          questionId: null,
+          personalizedQuestionId: null,
+          runtimeQuestionId: sequence.questionId,
+          criterionId: sourceQuestion.criterionId,
+          criterionTitleSnapshot: sourceQuestion.criterionTitleSnapshot,
+          generationSource: null,
+          questionType: "FOLLOW_UP",
+          content,
+          ncsProfileId: sourceQuestion.ncsProfileId,
+          ncsQuestionMode: questionMode,
+          ncsProfileVersion: sourceQuestion.ncsProfileVersion,
+          alignmentStatus: sourceQuestion.alignmentStatus,
+          alignmentScore: sourceQuestion.alignmentScore,
+          alignmentReason: sourceQuestion.alignmentReason,
+          evaluatorVersion: sourceQuestion.evaluatorVersion,
+          policyVersion: sourceQuestion.policyVersion,
+          criteriaVersion: sourceQuestion.criteriaVersion,
+          sortOrder: sourceSortOrder + 1,
+          ncsBindings: {
+            create: (sourceQuestion.ncsBindings ?? []).map((binding: any) => ({
+              criterionId: binding.criterionId,
+              criterionTitleSnapshot: binding.criterionTitleSnapshot,
+              ncsProfileId: binding.ncsProfileId,
+              ncsProfileVersion: binding.ncsProfileVersion,
+              alignmentStatus: binding.alignmentStatus,
+              alignmentScore: binding.alignmentScore,
+              alignmentReason: binding.alignmentReason,
+              evaluatorVersion: binding.evaluatorVersion,
+              bindingOrder: binding.bindingOrder,
+            })),
+          },
+        },
+      });
+      await followUps.update({
+        where: { followUpId: ready.followUpId },
+        data: {
+          generationStatus: "INSERTED",
+          insertedSessionQuestionId: inserted.sessionQuestionId,
+          insertedAt: new Date(),
+        },
+      });
     });
   }
 
@@ -133,9 +640,84 @@ export class PrismaAiResultRepository implements AiResultRepository {
     return;
   }
 
-  async saveReportScoresAndEvidences(record: { reportId: number; scores: GeneratedReportScoreRecord[] }): Promise<void> {
+  async saveReportScoresAndEvidences(record: {
+    reportId: number;
+    scores: GeneratedReportScoreRecord[];
+    ncsAnswerEvaluations?: NcsAnswerEvaluationRecord[];
+    answerFactChecks?: AnswerFactCheckRunRecord[];
+  }): Promise<void> {
     assertScoresHaveEvidence(record.scores);
     await this.replaceReportScores(record.reportId, record.scores);
+    if (record.ncsAnswerEvaluations) {
+      await this.replaceNcsAnswerEvaluations(record.reportId, record.ncsAnswerEvaluations);
+    }
+    if (record.answerFactChecks) {
+      await this.saveAnswerFactChecks(record.reportId, record.answerFactChecks);
+    }
+  }
+
+  async saveAnswerFactChecks(reportId: number, records: AnswerFactCheckRunRecord[]): Promise<void> {
+    assertAnswerFactCheckRecords(reportId, records);
+    const replace = async (client: PrismaAiResultClient): Promise<void> => {
+      const repository = client.answerFactCheckRun;
+      if (!repository) {
+        throw new NonRetryableAiWorkerFailure("answer fact-check repository is unavailable");
+      }
+      await repository.deleteMany({ where: { reportId: BigInt(reportId) } });
+      for (const record of records) {
+        await repository.create({
+          data: {
+            reportId: BigInt(reportId),
+            answerId: BigInt(record.answerId),
+            followUpAnswerId: record.followUpAnswerId ? BigInt(record.followUpAnswerId) : null,
+            inputCompositionVersion: record.inputCompositionVersion,
+            providerStatus: record.providerStatus,
+            gateStatus: record.gateStatus,
+            providerMode: record.providerMode,
+            modelVersion: record.modelVersion,
+            promptVersion: record.promptVersion,
+            knowledgeSnapshotVersion: record.knowledgeSnapshotVersion,
+            policyVersion: record.policyVersion,
+            failureReason: record.failureReason,
+            startedAt: new Date(record.startedAt),
+            completedAt: record.completedAt ? new Date(record.completedAt) : null,
+            ...(record.claims.length > 0 ? {
+              claims: {
+                create: record.claims.map((claim, claimIndex) => ({
+                  claimText: claim.claimText,
+                  answerStartOffset: claim.answerStartOffset,
+                  answerEndOffset: claim.answerEndOffset,
+                  claimType: claim.claimType,
+                  claimRole: claim.claimRole,
+                  verdict: claim.verdict,
+                  confidence: claim.confidence,
+                  rationale: claim.rationale,
+                  sortOrder: claimIndex + 1,
+                  ...(claim.evidences.length > 0 ? {
+                    evidences: {
+                      create: claim.evidences.map((evidence, evidenceIndex) => ({
+                        evidenceLedgerId: evidence.evidenceLedgerId,
+                        sourceSnapshotId: evidence.sourceSnapshotId,
+                        sourceKind: evidence.sourceKind,
+                        sourceStartOffset: evidence.sourceStartOffset,
+                        sourceEndOffset: evidence.sourceEndOffset,
+                        sortOrder: evidenceIndex + 1,
+                      })),
+                    },
+                  } : {}),
+                })),
+              },
+            } : {}),
+          },
+        });
+      }
+    };
+
+    if (this.prisma.$transaction) {
+      await this.prisma.$transaction(replace);
+      return;
+    }
+    await replace(this.prisma);
   }
 
   async saveCommunicationAnalysis(record: CommunicationAnalysisRecord): Promise<void> {
@@ -157,16 +739,43 @@ export class PrismaAiResultRepository implements AiResultRepository {
 
   async saveGeneratedReport(record: GeneratedReportRecord): Promise<void> {
     assertScoresHaveEvidence(record.scores);
-    assertQuestionEvaluationsHaveEvidence(record.questionEvaluations);
+    if (record.questionEvaluations.length > 0) {
+      assertQuestionEvaluationsHaveEvidence(record.questionEvaluations);
+    }
+    const ncsReportData = record.ncsFinalEvaluation
+      ? {
+          ncsCompletionStatus: record.ncsFinalEvaluation.completionStatus,
+          ncsThresholdResult: record.ncsFinalEvaluation.thresholdResult,
+          ncsAiDecision: record.ncsFinalEvaluation.aiDecision,
+          ncsDecisionReasonCode: record.ncsFinalEvaluation.decisionReasonCode,
+          ncsScoringVersion: record.ncsFinalEvaluation.scoringVersion,
+          ncsDecisionPolicyVersion: record.ncsFinalEvaluation.decisionPolicyVersion,
+          ncsSummaryJson: {
+            schemaVersion: "ncs-report-evaluation-output-v1",
+            result: {
+              completionStatus: record.ncsFinalEvaluation.completionStatus,
+              thresholdResult: record.ncsFinalEvaluation.thresholdResult,
+              aiDecision: record.ncsFinalEvaluation.aiDecision,
+              decisionReasonCode: record.ncsFinalEvaluation.decisionReasonCode,
+              totalScore: record.ncsFinalEvaluation.totalScore,
+            },
+            profiles: record.ncsFinalEvaluation.profiles,
+            incompleteReasons: record.ncsFinalEvaluation.incompleteReasons,
+          },
+        }
+      : {};
     await this.prisma.evaluationReport.upsert({
       where: { reportId: BigInt(record.reportId) },
       create: {
         reportId: BigInt(record.reportId),
+        applicationId: record.applicationId ? BigInt(record.applicationId) : null,
+        sessionId: record.sessionId ? BigInt(record.sessionId) : null,
         reportType: record.reportType,
         status: "COMPLETED",
         summary: record.summary,
         totalScore: record.totalScore,
-        generatedAt: new Date()
+        generatedAt: new Date(),
+        ...ncsReportData,
       },
       update: {
         reportType: record.reportType,
@@ -175,11 +784,21 @@ export class PrismaAiResultRepository implements AiResultRepository {
         totalScore: record.totalScore,
         generatedAt: new Date(),
         failureCategory: null,
-        failureReason: null
+        failureReason: null,
+        ...ncsReportData,
       }
     });
 
     await this.replaceReportScores(record.reportId, record.scores);
+    if (record.ncsFinalEvaluation) {
+      await this.createNcsProfileScores(record.reportId, record.ncsFinalEvaluation);
+    }
+    if (record.ncsAnswerEvaluations) {
+      await this.replaceNcsAnswerEvaluations(record.reportId, record.ncsAnswerEvaluations);
+    }
+    if (record.answerFactChecks) {
+      await this.saveAnswerFactChecks(record.reportId, record.answerFactChecks);
+    }
     await this.updateApplicationReportStatus(record, "COMPLETED");
   }
 
@@ -252,6 +871,133 @@ export class PrismaAiResultRepository implements AiResultRepository {
     };
   }
 
+  private async transaction<T>(operation: (transaction: PrismaAiResultClient) => Promise<T>): Promise<T> {
+    return this.prisma.$transaction ? this.prisma.$transaction(operation) : operation(this.prisma);
+  }
+
+  private async prepareResumeQuestionGeneration(
+    transaction: PrismaAiResultClient,
+    documentId: number,
+  ): Promise<AiWorkerJob[]> {
+    const document = await transaction.applicationDocument.findUnique!({
+      where: { documentId: BigInt(documentId) },
+      include: {
+        application: {
+          include: {
+            posting: {
+              include: {
+                questionGenerationPolicy: true,
+                criteria: { include: { tag: true }, orderBy: { sortOrder: "asc" } }
+              }
+            }
+          }
+        }
+      }
+    });
+    if (
+      !document ||
+      document.documentType !== "RESUME" ||
+      document.parseStatus !== "EXTRACTED" ||
+      !document.extractedText?.trim() ||
+      document.application.applicationStatus !== "SUBMITTED" ||
+      !document.application.submittedAt
+    ) {
+      return [];
+    }
+
+    const posting = document.application.posting;
+    const policy = posting.questionGenerationPolicy;
+    const jobDescription = posting.jobDescription?.trim();
+    if (
+      !policy ||
+      policy.evaluationFramework !== "NCS_3_PROFILE_V1" ||
+      policy.resumeQuestionCount <= 0 ||
+      policy.policyVersion <= 0 ||
+      policy.criteriaVersion <= 0 ||
+      !jobDescription ||
+      !hasCompleteNcsCriteria(posting.criteria)
+    ) {
+      return [];
+    }
+
+    const applicationId = Number(document.application.applicationId);
+    const postingId = Number(posting.postingId);
+    const resumeDocumentHash = hashText(document.extractedText);
+    const jdSnapshotHash = hashText(jobDescription);
+    const inputVersion = hashText([
+      applicationId,
+      policy.policyVersion,
+      policy.criteriaVersion,
+      jdSnapshotHash,
+      resumeDocumentHash,
+    ].join(":"));
+    const businessKey = {
+      applicationId: BigInt(applicationId),
+      policyVersion: policy.policyVersion,
+      criteriaVersion: policy.criteriaVersion,
+      jdSnapshotHash,
+      resumeDocumentHash,
+    };
+
+    await transaction.applicationInterviewQuestionBatch!.updateMany({
+      where: {
+        applicationId: BigInt(applicationId),
+        status: { in: ["READY", "REVIEW_REQUIRED"] },
+        NOT: businessKey,
+      },
+      data: { status: "STALE" },
+    });
+
+    const existing = await transaction.applicationInterviewQuestionBatch!.findUnique({
+      where: { applicationId_policyVersion_criteriaVersion_jdSnapshotHash_resumeDocumentHash: businessKey },
+    });
+    if (existing) {
+      return [];
+    }
+
+    const process = await transaction.aiProcessLog.create!({
+      data: {
+        applicationId: BigInt(applicationId),
+        processType: "RESUME_QUESTION_GENERATE",
+        status: "PENDING",
+        inputRef: null,
+      },
+      select: { processLogId: true },
+    }) as { processLogId: bigint };
+    const reference: ResumeQuestionJobReference = {
+      processLogId: Number(process.processLogId),
+      applicationId,
+      postingId,
+      documentId,
+      policyVersion: policy.policyVersion,
+      criteriaVersion: policy.criteriaVersion,
+      inputVersion,
+      resumeDocumentHash,
+      jdSnapshotHash,
+    };
+    const inputRef = JSON.stringify(reference);
+    await transaction.aiProcessLog.update({
+      where: { processLogId: process.processLogId },
+      data: { inputRef },
+    });
+    await transaction.applicationInterviewQuestionBatch!.create({
+      data: {
+        ...businessKey,
+        latestProcessLogId: process.processLogId,
+        status: "GENERATING",
+        inputVersion,
+        attemptCount: 1,
+      },
+    });
+
+    return [{
+      processLogId: reference.processLogId,
+      processType: "RESUME_QUESTION_GENERATE",
+      inputRef,
+      attempt: 1,
+    }];
+  }
+
   private nextId(): bigint {
     return BigInt(Date.now()) * BigInt(1000) + BigInt(Math.floor(Math.random() * 1000));
   }
@@ -293,6 +1039,90 @@ export class PrismaAiResultRepository implements AiResultRepository {
     }
   }
 
+  private async replaceNcsAnswerEvaluations(
+    reportId: number,
+    evaluations: NcsAnswerEvaluationRecord[],
+  ): Promise<void> {
+    if (evaluations.some((evaluation) => evaluation.reportId !== reportId)) {
+      throw new NonRetryableAiWorkerFailure("NCS answer evaluation reportId mismatch");
+    }
+
+    const repository = this.prisma.ncsAnswerEvaluation;
+    if (!repository) {
+      throw new NonRetryableAiWorkerFailure("NCS answer evaluation repository is unavailable");
+    }
+
+    await repository.deleteMany({
+      where: { reportId: BigInt(reportId) },
+    });
+    for (const evaluation of evaluations) {
+      const output = evaluation.output;
+      await repository.create({
+        data: {
+          reportId: BigInt(reportId),
+          answerId: BigInt(evaluation.answerId),
+          sessionQuestionId: BigInt(evaluation.sessionQuestionId),
+          criterionId: await this.resolveCriterionId(evaluation.criterionId),
+          criterionTitleSnapshot: evaluation.criterionTitleSnapshot,
+          ncsProfileId: canonicalNcsProfileId(evaluation.ncsProfileId),
+          ncsQuestionMode: evaluation.ncsQuestionMode,
+          ncsProfileVersion: evaluation.ncsProfileVersion,
+          scoreStatus: output.scoreStatus,
+          competencyScore: output.scores.competency,
+          evidenceScore: output.scores.evidence,
+          totalScore: output.scores.total,
+          behaviorPoints: evaluation.behaviorPoints,
+          logicPoints: evaluation.logicPoints,
+          baseScore: evaluation.baseScore,
+          effectiveScore: evaluation.effectiveScore,
+          followUpApplied: evaluation.followUpApplied,
+          coverage: output.coverage,
+          confidence: output.confidence,
+          rubricVersion: output.rubricVersion,
+          promptVersion: output.promptVersion,
+          providerMode: output.providerMode,
+          modelName: output.model ?? null,
+          resultJson: output,
+          evidences: {
+            create: evaluation.evidences.map((evidence, index) => ({
+              sourceAnswerId: BigInt(evidence.sourceAnswerId),
+              sourceKind: evidence.sourceKind,
+              quote: evidence.quote,
+              sortOrder: index + 1,
+            })),
+          },
+        },
+      });
+    }
+  }
+
+  private async createNcsProfileScores(
+    reportId: number,
+    evaluation: NonNullable<GeneratedReportRecord["ncsFinalEvaluation"]>,
+  ): Promise<void> {
+    for (const profile of evaluation.profiles) {
+      await this.prisma.reportScore.create({
+        data: {
+          scoreId: this.nextId(),
+          reportId: BigInt(reportId),
+          criterionId: profile.criterionId ? await this.resolveCriterionId(profile.criterionId) : null,
+          score: profile.normalizedScore,
+          rationale: profile.status === "SCORED"
+            ? `${profile.displayName} 유효 답변 ${profile.validQuestionCount}개의 5점 평균입니다.`
+            : `${profile.displayName} 평가가 완료되지 않았습니다.`,
+          ncsProfileId: profile.ncsProfileId,
+          averageScore: profile.averageScore,
+          normalizedScore: profile.normalizedScore,
+          weight: profile.weight,
+          weightedScore: profile.weightedScore,
+          minimumAverageScore: profile.minimumAverageScore,
+          assignedQuestionCount: profile.assignedQuestionCount,
+          validQuestionCount: profile.validQuestionCount,
+        },
+      });
+    }
+  }
+
   private async resolveCriterionId(criterionId: number): Promise<bigint | null> {
     const criterion = await this.prisma.evaluationCriterion.findUnique({
       where: { criterionId: BigInt(criterionId) },
@@ -300,4 +1130,76 @@ export class PrismaAiResultRepository implements AiResultRepository {
     });
     return criterion ? BigInt(criterionId) : null;
   }
+}
+
+function hashText(value: string): string {
+  return createHash("sha256").update(value.trim(), "utf8").digest("hex");
+}
+
+function canonicalNcsProfileId(
+  value: NcsAnswerEvaluationRecord["ncsProfileId"],
+): "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING" {
+  if (value === "JOB_TECHNICAL") return "JOB_TECHNICAL";
+  if (value === "COLLABORATION_COMMUNICATION") return "COLLABORATION_COMMUNICATION";
+  return "PROBLEM_SOLVING";
+}
+
+function hasCompleteNcsCriteria(criteria: ResumeQuestionDocumentRow["application"]["posting"]["criteria"]): boolean {
+  return criteria.length > 0 && criteria.every((criterion) =>
+    canonicalNcsProfileIdOf(criterion.ncsProfileId) !== undefined &&
+    isNcsQuestionMode(criterion.ncsQuestionMode) &&
+    Boolean(criterion.ncsProfileVersion?.trim())
+  );
+}
+
+function allocateResumeCriteria(
+  criteria: ResumeQuestionDocumentRow["application"]["posting"]["criteria"],
+  jdQuestionCount: number,
+  resumeQuestionCount: number,
+): ResumeQuestionGenerationContext["criteria"] {
+  if (!hasCompleteNcsCriteria(criteria)) {
+    throw new NonRetryableAiWorkerFailure("complete NCS criteria are required");
+  }
+
+  const allocations = new Map<number, number>();
+  const total = jdQuestionCount + resumeQuestionCount;
+  for (let index = jdQuestionCount; index < total; index += 1) {
+    const criterion = criteria[index % criteria.length];
+    const criterionId = Number(criterion.criterionId);
+    allocations.set(criterionId, (allocations.get(criterionId) ?? 0) + 1);
+  }
+
+  return criteria
+    .map((criterion) => {
+      const criterionId = Number(criterion.criterionId);
+      const questionCount = allocations.get(criterionId) ?? 0;
+      if (questionCount === 0) return null;
+      const ncsProfileId = canonicalNcsProfileIdOf(criterion.ncsProfileId);
+      if (!ncsProfileId || !isNcsQuestionMode(criterion.ncsQuestionMode) || !criterion.ncsProfileVersion) {
+        throw new NonRetryableAiWorkerFailure("NCS criterion metadata is invalid");
+      }
+      return {
+        criterionId,
+        name: criterion.tag.name,
+        category: criterion.tag.category,
+        description: criterion.description ?? undefined,
+        questionCount,
+        ncsProfileId,
+        ncsQuestionMode: criterion.ncsQuestionMode,
+        ncsProfileVersion: criterion.ncsProfileVersion,
+      };
+    })
+    .filter((criterion): criterion is NonNullable<typeof criterion> => criterion !== null);
+}
+
+function isNcsQuestionMode(value: string | null): value is ResumeQuestionGenerationContext["criteria"][number]["ncsQuestionMode"] {
+  return value === "EXPERIENCE_BEHAVIOR" || value === "TECHNICAL_KNOWLEDGE" || value === "SITUATIONAL_DESIGN";
+}
+
+function sanitizeFailureReason(value: string): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, 500);
+}
+
+function isUniqueConstraintFailure(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "P2002");
 }

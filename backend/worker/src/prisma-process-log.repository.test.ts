@@ -36,6 +36,14 @@ test("PrismaAiProcessLogRepository writes process state transitions to ai_proces
         };
         records.set(id, updated);
         return updated;
+      },
+      async updateMany(args: any) {
+        calls.push({ method: "updateMany", args });
+        const id = args.where.processLogId;
+        const existing = records.get(id);
+        if (!existing) return { count: 0 };
+        records.set(id, { ...existing, ...args.data });
+        return { count: 1 };
       }
     },
     aiGuardrailLog: {
@@ -98,6 +106,13 @@ test("PrismaAiProcessLogRepository records retryability on failed worker jobs", 
         };
         records.set(id, updated);
         return updated;
+      },
+      async updateMany(args: any) {
+        const id = args.where.processLogId;
+        const existing = records.get(id);
+        if (!existing) return { count: 0 };
+        records.set(id, { ...existing, ...args.data });
+        return { count: 1 };
       }
     },
     aiGuardrailLog: {
@@ -152,6 +167,8 @@ test("PrismaAiProcessLogRepository records guardrail retryability", async () => 
           outputRef: null,
           failureCategory: args.data.failureCategory ?? null,
           failureReason: args.data.failureReason ?? null,
+          leaseOwner: args.data.leaseOwner ?? null,
+          leaseExpiresAt: args.data.leaseExpiresAt ?? null,
           startedAt: args.data.startedAt ?? null,
           completedAt: args.data.completedAt ?? null,
           durationMs: args.data.durationMs ?? null,
@@ -162,6 +179,9 @@ test("PrismaAiProcessLogRepository records guardrail retryability", async () => 
           estimatedCostUsd: args.data.estimatedCostUsd ?? null,
           costMetadataJson: args.data.costMetadataJson ?? null
         };
+      },
+      async updateMany(_args: any) {
+        return { count: 0 };
       }
     },
     aiGuardrailLog: {
@@ -180,4 +200,83 @@ test("PrismaAiProcessLogRepository records guardrail retryability", async () => 
 
   assert.equal(guardrailCreateArgs.data.result, "BLOCKED");
   assert.equal(guardrailCreateArgs.data.failureCategory, "NON_RETRYABLE");
+});
+
+test("PrismaAiProcessLogRepository atomically claims and renews an AI process lease", async () => {
+  const records = new Map<bigint, any>();
+  const updateManyCalls: any[] = [];
+  const prisma = {
+    aiProcessLog: {
+      async upsert(args: any) {
+        const id = args.where.processLogId;
+        const existing = records.get(id);
+        if (existing) return existing;
+        const created = {
+          ...args.create,
+          outputRef: null,
+          failureCategory: null,
+          failureReason: null,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          startedAt: null,
+          completedAt: null,
+          durationMs: null,
+          modelName: null,
+          inputTokens: null,
+          outputTokens: null,
+          audioSeconds: null,
+          estimatedCostUsd: null,
+          costMetadataJson: null,
+        };
+        records.set(id, created);
+        return created;
+      },
+      async findUnique(args: any) {
+        return records.get(args.where.processLogId) ?? null;
+      },
+      async update(args: any) {
+        const id = args.where.processLogId;
+        const updated = { ...records.get(id), ...args.data };
+        records.set(id, updated);
+        return updated;
+      },
+      async updateMany(args: any) {
+        updateManyCalls.push(args);
+        const id = args.where.processLogId;
+        const existing = records.get(id);
+        if (!existing) return { count: 0 };
+        records.set(id, { ...existing, ...args.data });
+        return { count: 1 };
+      },
+    },
+    aiGuardrailLog: {
+      async create(args: any) {
+        return { guardrailLogId: args.data.guardrailLogId };
+      },
+    },
+  };
+  const repository = new PrismaAiProcessLogRepository(prisma);
+  const leaseExpiresAt = new Date("2026-07-16T12:00:00.000Z");
+
+  const claim = await repository.claim({
+    processLogId: 21,
+    processType: "QUESTION_GENERATE",
+    inputRef: "question:21",
+    attempt: 1,
+  }, "worker-a:message-21", leaseExpiresAt);
+  const renewed = await repository.renewClaim(21, "worker-a:message-21", new Date("2026-07-16T12:05:00.000Z"));
+
+  assert.equal(claim.status, "CLAIMED");
+  assert.equal(claim.snapshot.leaseOwner, "worker-a:message-21");
+  assert.equal(renewed, true);
+  assert.deepEqual(updateManyCalls[0].where.OR, [
+    { status: { in: ["PENDING", "FAILED"] } },
+    { status: "RUNNING", leaseExpiresAt: null },
+    { status: "RUNNING", leaseExpiresAt: { lte: updateManyCalls[0].where.OR[2].leaseExpiresAt.lte } },
+  ]);
+  assert.deepEqual(updateManyCalls[1].where, {
+    processLogId: BigInt(21),
+    status: "RUNNING",
+    leaseOwner: "worker-a:message-21",
+  });
 });

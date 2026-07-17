@@ -19,6 +19,7 @@ import type {
   UploadResumeRequest,
 } from "./api";
 import { candidateApiPaths } from "./api";
+import { isCandidateApplicationCancelable } from "./application-cancellation";
 import {
   createRealtimeInterviewWebRtcConnection,
   type RealtimePeerConnectionLike,
@@ -530,7 +531,7 @@ const query: CandidateJobQuery = {
 const closedFilterQuery: CandidateJobQuery = { postingStatus: "CLOSED" };
 
 const submitRequest: SubmitApplicationRequest = toSubmitApplicationRequest({
-  candidateName: " Kim ",
+  candidateName: " Kim Applicant ",
   email: " kim@example.com ",
   phone: " 010-0000-0000 ",
   githubUrl: " https://github.com/kim ",
@@ -539,6 +540,21 @@ const submitRequest: SubmitApplicationRequest = toSubmitApplicationRequest({
   portfolioUrl: " https://portfolio.example.com/kim ",
   motivation: " 지원 동기 ",
   additionalInfo: " 추가 설명 ",
+  profileSnapshot: {
+    schemaVersion: 1,
+    name: "Kim Applicant",
+    email: "kim@example.com",
+    phone: "010-0000-0000",
+    githubUrl: "https://github.com/kim",
+    blogUrl: "https://blog.example.com/kim",
+    portfolioUrl: "https://portfolio.example.com/kim",
+    summary: "백엔드 개발자",
+    coverLetter: "지원 동기",
+    educations: [],
+    careers: [],
+    activities: [],
+    credentials: [],
+  },
   consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS", "AI_INTERVIEW_RECORDING"],
 });
 
@@ -933,7 +949,7 @@ assert.deepEqual(getInterviewAiPollingPolicy({ timedAutoAdvance: true }), {
 });
 assert.equal(shouldContinueInterviewWithoutFollowUp({ failureCategory: "TIMEOUT" }), true);
 assert.equal(shouldContinueInterviewWithoutFollowUp({ pipelineError: new Error("worker unavailable") }), true);
-assert.equal(shouldContinueInterviewWithoutFollowUp({ failureCategory: "REANSWER_REQUIRED" }), false);
+assert.equal(shouldContinueInterviewWithoutFollowUp({ failureCategory: "REANSWER_REQUIRED" }), true);
 assert.equal(getRealtimeSessionUserNotice({ provider: "mock" }), "");
 assert.equal(getRealtimeSessionUserNotice({ provider: "openai" }), "실시간 AI 면접 연결을 준비했습니다.");
 assert.equal(
@@ -1318,7 +1334,6 @@ assert.deepEqual(
     hasRuntimeData: true,
     currentQuestionAnswered: true,
     isCurrentQuestionLast: false,
-    generatedFollowUpReady: false,
     answerProcessingBusy: true,
     isReansweringCurrentQuestion: false,
     recording: false,
@@ -1335,7 +1350,6 @@ assert.deepEqual(
     hasRuntimeData: true,
     currentQuestionAnswered: true,
     isCurrentQuestionLast: false,
-    generatedFollowUpReady: false,
     answerProcessingBusy: false,
     isReansweringCurrentQuestion: false,
     recording: false,
@@ -1352,7 +1366,6 @@ assert.deepEqual(
     hasRuntimeData: true,
     currentQuestionAnswered: true,
     isCurrentQuestionLast: true,
-    generatedFollowUpReady: false,
     answerProcessingBusy: false,
     isReansweringCurrentQuestion: false,
     recording: false,
@@ -1835,6 +1848,15 @@ const recruitingReport: CandidateRecruitingReportView = {
 const applicationInterviewHref = getCandidateApplicationInterviewActionHref(applicationSummary);
 const applicationReportHref = getCandidateApplicationReportHref(applicationSummary);
 const applicationCanStart = isCandidateInterviewStartEnabled(applicationSummary);
+assert.equal(isCandidateApplicationCancelable(applicationSummary), true);
+assert.equal(
+  isCandidateApplicationCancelable({ ...applicationSummary, applicationStatus: "CANCELED" }),
+  false,
+);
+assert.equal(
+  isCandidateApplicationCancelable({ ...applicationSummary, interviewStatus: "IN_PROGRESS" }),
+  false,
+);
 const mockInterviewHref = getMockInterviewHref({ sessionId: 10001 });
 const mockInterviewDeviceCheckHref = getMockInterviewDeviceCheckHref({ sessionId: 10001 });
 const mockReportHref = getMockReportHref(mockReport);
@@ -1864,7 +1886,6 @@ const mockNextQuestionPath = candidateApiPaths.mockNextQuestion(10001);
 const mockCompletePath = candidateApiPaths.mockComplete(10001);
 const mockSttPath = candidateApiPaths.mockStt(10001);
 const mockFollowUpPath = candidateApiPaths.mockFollowUpQuestion(10001);
-const mockFollowUpInsertPath = candidateApiPaths.mockFollowUpQuestionInsert(10001);
 const mockRealtimeSessionPath = candidateApiPaths.mockRealtimeSession(10001);
 const mockReportsPath = candidateApiPaths.mockReports;
 const mockHistoryPath = candidateApiPaths.mockHistory;
@@ -1872,6 +1893,8 @@ const mockReportFeedbackPath = candidateApiPaths.mockReportFeedback(10001);
 const mockReportMediaPath = candidateApiPaths.mockReportMedia(10001);
 const mockReportGeneratePath = candidateApiPaths.mockReportGenerate(10001);
 const applicationsPath = candidateApiPaths.applications;
+const cancelApplicationPath = candidateApiPaths.cancelApplication(1);
+assert.equal(cancelApplicationPath, "/api/v1/candidate/applications/1/cancel");
 const interviewGuidePath = candidateApiPaths.interviewGuide(1);
 const applicationReportPath = candidateApiPaths.applicationReport(1);
 const applicationReportGeneratePath = candidateApiPaths.applicationReportGenerate(1);
@@ -1885,7 +1908,6 @@ const recruitingNextQuestionPath = candidateApiPaths.recruitingNextQuestion(1);
 const recruitingCompletePath = candidateApiPaths.recruitingComplete(1);
 const recruitingSttPath = candidateApiPaths.recruitingStt(1);
 const recruitingFollowUpPath = candidateApiPaths.recruitingFollowUpQuestion(1);
-const recruitingFollowUpInsertPath = candidateApiPaths.recruitingFollowUpQuestionInsert(1);
 const recruitingRealtimeSessionPath = candidateApiPaths.recruitingRealtimeSession(1);
 assert.equal(mockRealtimeSessionPath, "/api/v1/candidate/mock-interviews/10001/realtime-session");
 assert.equal(recruitingRealtimeSessionPath, "/api/v1/candidate/interviews/1/realtime-session");
@@ -2049,7 +2071,6 @@ void mockNextQuestionPath;
 void mockCompletePath;
 void mockSttPath;
 void mockFollowUpPath;
-void mockFollowUpInsertPath;
 void mockRealtimeSessionPath;
 void realtimeWebRtcConnectionPromise;
 void mockReportsPath;
@@ -2058,6 +2079,7 @@ void mockReportFeedbackPath;
 void mockReportMediaPath;
 void mockReportGeneratePath;
 void applicationsPath;
+void cancelApplicationPath;
 void interviewGuidePath;
 void applicationReportPath;
 void applicationReportGeneratePath;
@@ -2071,7 +2093,6 @@ void recruitingNextQuestionPath;
 void recruitingCompletePath;
 void recruitingSttPath;
 void recruitingFollowUpPath;
-void recruitingFollowUpInsertPath;
 void recruitingRealtimeSessionPath;
 void applyActionHref;
 void appliedActionHref;

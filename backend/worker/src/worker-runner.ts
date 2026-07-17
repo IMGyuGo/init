@@ -1,18 +1,30 @@
+import { randomUUID } from "node:crypto";
 import { AiJobQueue } from "./queue";
 import { AiProcessLogRepository } from "./process-log.repository";
-import { NonRetryableAiWorkerFailure, isRetryableFailureCategory, toFailureReason } from "./worker-errors";
+import {
+  NonRetryableAiWorkerFailure,
+  RetryableAiWorkerFailure,
+  isRetryableFailureCategory,
+  toFailureReason,
+} from "./worker-errors";
 import { AiQueueMessage, AiTaskHandler, AiWorkerJob, FailureReason } from "./worker.types";
 
 export interface AiWorkerRunnerOptions {
   maxMessages?: number;
   maxRetryableReceives?: number;
   guardrailPolicyName?: string;
+  visibilityTimeoutSeconds?: number;
+  heartbeatIntervalMs?: number;
+  workerId?: string;
   onStart?: (job: AiWorkerJob) => Promise<void>;
   onFailure?: (job: AiWorkerJob, failure: FailureReason) => Promise<void>;
 }
 
 export class AiWorkerRunner {
-  private readonly options: Required<Pick<AiWorkerRunnerOptions, "maxMessages" | "maxRetryableReceives" | "guardrailPolicyName">> &
+  private readonly options: Required<Pick<
+    AiWorkerRunnerOptions,
+    "maxMessages" | "maxRetryableReceives" | "guardrailPolicyName" | "visibilityTimeoutSeconds" | "heartbeatIntervalMs" | "workerId"
+  >> &
     Pick<AiWorkerRunnerOptions, "onStart" | "onFailure">;
 
   constructor(
@@ -25,6 +37,9 @@ export class AiWorkerRunner {
       maxMessages: 1,
       maxRetryableReceives: 3,
       guardrailPolicyName: "AI_WORKER_OUTPUT_VALIDATE",
+      visibilityTimeoutSeconds: 900,
+      heartbeatIntervalMs: 300_000,
+      workerId: `worker-${randomUUID()}`,
       ...options
     };
   }
@@ -38,12 +53,21 @@ export class AiWorkerRunner {
   }
 
   private async processMessage(message: AiQueueMessage): Promise<void> {
-    await this.repository.ensurePending(message.job);
-    await this.repository.markRunning(message.job.processLogId);
+    const leaseOwner = `${this.options.workerId}:${message.messageId}`;
+    const claim = await this.repository.claim(message.job, leaseOwner, this.nextLeaseExpiration());
+    if (claim.status !== "CLAIMED") {
+      await this.queue.delete(message);
+      return;
+    }
+
+    let heartbeat: ReturnType<AiWorkerRunner["startHeartbeat"]> | undefined;
 
     try {
+      await this.renewVisibilityAndClaim(message, leaseOwner);
+      heartbeat = this.startHeartbeat(message, leaseOwner);
       await this.options.onStart?.(message.job);
       const result = await this.handler.handle(message.job);
+      await heartbeat.assertHealthy();
 
       if (result.guardrail) {
         await this.repository.saveGuardrailLog(
@@ -54,7 +78,9 @@ export class AiWorkerRunner {
 
         if (result.guardrail.result === "BLOCKED") {
           const category = result.guardrail.failureCategory ?? "NON_RETRYABLE";
-          await this.failAndAck(message, {
+          await heartbeat.stop();
+          heartbeat = undefined;
+          await this.failAndAck(message, leaseOwner, {
             category,
             reason: result.guardrail.reason ?? "guardrail blocked output",
             retryable: isRetryableFailureCategory(category)
@@ -67,35 +93,105 @@ export class AiWorkerRunner {
         if (!result.guardrail) {
           throw new NonRetryableAiWorkerFailure("guardrail result is required before final save");
         }
-        await result.finalSave();
+        await this.renewVisibilityAndClaim(message, leaseOwner);
+        const followUpJobs = await result.finalSave();
+        for (const followUpJob of followUpJobs ?? []) {
+          await this.queue.publish(followUpJob);
+        }
       }
 
-      await this.repository.markCompleted(message.job.processLogId, result.outputRef, result.usage);
+      await heartbeat.assertHealthy();
+      await heartbeat.stop();
+      heartbeat = undefined;
+      const completed = await this.repository.markCompleted(
+        message.job.processLogId,
+        result.outputRef,
+        result.usage,
+        leaseOwner,
+      );
+      if (completed.status !== "COMPLETED") {
+        throw new RetryableAiWorkerFailure("AI worker claim was lost before completion");
+      }
       await this.queue.delete(message);
     } catch (error) {
+      await heartbeat?.stop().catch(() => undefined);
+      heartbeat = undefined;
       const failure = toFailureReason(error);
       if (isRetryableFailureCategory(failure.category)) {
         if (this.retryableReceiveCount(message) > this.options.maxRetryableReceives) {
-          await this.failAndAck(message, this.retryLimitExceededFailure(failure));
+          await this.failAndAck(message, leaseOwner, this.retryLimitExceededFailure(failure));
           return;
         }
 
-        await this.markFailed(message, failure);
+        await this.markFailed(message, leaseOwner, failure);
         return;
       }
 
-      await this.failAndAck(message, failure);
+      await this.failAndAck(message, leaseOwner, failure);
     }
   }
 
-  private async failAndAck(message: AiQueueMessage, failure: FailureReason): Promise<void> {
-    await this.markFailed(message, failure);
-    await this.queue.delete(message);
+  private async failAndAck(message: AiQueueMessage, leaseOwner: string, failure: FailureReason): Promise<void> {
+    const failed = await this.markFailed(message, leaseOwner, failure);
+    if (failed) {
+      await this.queue.delete(message);
+    }
   }
 
-  private async markFailed(message: AiQueueMessage, failure: FailureReason): Promise<void> {
+  private async markFailed(message: AiQueueMessage, leaseOwner: string, failure: FailureReason): Promise<boolean> {
     await this.options.onFailure?.(message.job, failure);
-    await this.repository.markFailed(message.job.processLogId, failure);
+    const snapshot = await this.repository.markFailed(message.job.processLogId, failure, leaseOwner);
+    return snapshot.status === "FAILED" && snapshot.leaseOwner === undefined;
+  }
+
+  private startHeartbeat(message: AiQueueMessage, leaseOwner: string) {
+    let stopped = false;
+    let failure: unknown;
+    let inFlight = Promise.resolve();
+    const timer = setInterval(() => {
+      inFlight = inFlight.then(async () => {
+        if (stopped || failure) return;
+        try {
+          await this.renewVisibilityAndClaim(message, leaseOwner);
+        } catch (error) {
+          failure = error;
+        }
+      });
+    }, this.options.heartbeatIntervalMs);
+
+    return {
+      assertHealthy: async () => {
+        await inFlight;
+        if (failure) throw failure;
+      },
+      stop: async () => {
+        stopped = true;
+        clearInterval(timer);
+        await inFlight;
+        if (failure) throw failure;
+      },
+    };
+  }
+
+  private async renewVisibilityAndClaim(message: AiQueueMessage, leaseOwner: string): Promise<void> {
+    try {
+      const renewed = await this.repository.renewClaim(
+        message.job.processLogId,
+        leaseOwner,
+        this.nextLeaseExpiration(),
+      );
+      if (!renewed) {
+        throw new Error("process claim lease was lost");
+      }
+      await this.queue.extendVisibility(message, this.options.visibilityTimeoutSeconds);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new RetryableAiWorkerFailure(`AI worker heartbeat failed: ${reason}`);
+    }
+  }
+
+  private nextLeaseExpiration(): Date {
+    return new Date(Date.now() + this.options.visibilityTimeoutSeconds * 1_000);
   }
 
   private retryableReceiveCount(message: AiQueueMessage): number {

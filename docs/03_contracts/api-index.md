@@ -18,6 +18,8 @@ Detailed PM-facing payment contract: `.PM/payments/결제-api-명세.md`.
 
 API 전체 목록을 도메인별로 빠르게 탐색한다.
 
+채용면접 NCS 답변 평가, 꼬리질문, 점수 집계와 임시 AI 판정의 정본은 [`ncs-final-evaluation.md`](./ncs-final-evaluation.md)를 따른다. 리포트 팀에 전달하는 API-020 출력 정본은 [`ncs-report-output-contract.md`](./ncs-report-output-contract.md)를 따른다.
+
 ## API Module Baseline
 
 NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 않고 아래 module/controller 기준으로 묶는다.
@@ -26,7 +28,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | --- | --- | --- | --- | --- |
 | `backend/api/src/modules/auth` | `AuthController` | `/api/v1/auth` | A | API-001..009 |
 | `backend/api/src/modules/company-recruiting` | `CompanyRecruitingController`, `PublicRecruitmentController`, `PublicApplicationController` | `/api/v1/company/recruitments`, `/api/v1/company/applicants`, `/api/v1/public/recruitments`, `/api/v1/public/applications` | B | API-010..033 중 공고/지원자 운영, API-080, API-085, API-086..089 |
-| `backend/api/src/modules/company-interview` | `CompanyInterviewController` | `/api/v1/company/interviews` | C | API-034..040 |
+| `backend/api/src/modules/company-interview` | `CompanyInterviewController` | `/api/v1/company/interviews` | C | API-034..040, API-097..099 |
 | `backend/api/src/modules/company-profile` | `CompanyProfileController` | `/api/v1/company/profile`, `/api/v1/company/notifications` | A/B | API-041..043 |
 | `backend/api/src/modules/candidate` | `CandidateController` | `/api/v1/candidate/profile`, `/api/v1/candidate/jobs`, `/api/v1/candidate/applications`, `/api/v1/candidate/resume`, `/api/v1/candidate/portfolio-links` | D | API-057F..078 중 프로필/지원/마이페이지 |
 | `backend/api/src/modules/interview` | `InterviewController`, `PublicInterviewController` | `/api/v1/candidate/mock-interviews`, `/api/v1/candidate/interviews`, `/api/v1/public` | D/E | API-044..057, API-064..072, API-087..096 |
@@ -93,6 +95,9 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-039A | 기업 - 면접관리 | POST | /company/interviews/question-sets/confirm | 면접 질문 세트 확정 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-039B | 기업 - 면접관리 | GET | /company/interviews/question-sets/active | 활성 면접 질문 세트 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-040 | 기업 - 면접관리 | PATCH | /company/interviews/time-policy | 면접 시간 정책 설정 | 기업 / 기업 사용자 로그인 | N | 200 OK |
+| API-097 | 기업 - 면접관리 | PATCH | /company/interviews/question-generation-policy | JD·이력서 질문 개수와 NCS 배분 정책 저장 | 기업 / 기업 사용자 로그인 | N | 200 OK |
+| API-098 | 기업 - 면접관리 | GET | /company/interviews/applications/{applicationId}/resume-questions | 지원자별 이력서 질문 생성 상태·검토 목록 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
+| API-099 | 기업 - 면접관리 | POST | /company/interviews/applications/{applicationId}/resume-questions/retry | 실패·검토 필요 이력서 질문 재생성 | 기업 / 기업 사용자 로그인 | Y | 202 Accepted |
 | API-087 | 기업 - 설정 | GET | /company/profile | 회사 정보 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-041 | 기업 - 설정 | PATCH | /company/profile | 회사 정보 수정 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-042 | 기업 - 설정 | POST | /company/profile/logo | 회사 로고 이미지 업로드 | 기업 / 기업 사용자 로그인 | N | 201 Created |
@@ -106,11 +111,11 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-050 | 지원자 - 모의면접 | POST | /candidate/mock-interviews/{sessionId}/stt | STT 처리 | 지원자 / 지원자 사용자 로그인 | Y | 202 Accepted |
 | API-050-RT | 지원자 - 모의면접 | POST | /candidate/mock-interviews/{sessionId}/realtime-session | 실시간 AI 면접 세션 생성 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-051 | 지원자 - 모의면접 | POST | /candidate/mock-interviews/{sessionId}/follow-up-question | 꼬리질문 생성 | 지원자 / 지원자 사용자 로그인 | Y | 202 Accepted |
-| API-051-TMP | 지원자 - 모의면접 | POST | /candidate/mock-interviews/{sessionId}/follow-up-questions/insert | 생성된 꼬리질문을 면접 질문 흐름에 추가 (MVP 임시 브릿지) | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-052 | 지원자 - 모의면접 | PATCH | /candidate/mock-interviews/{sessionId}/complete | 면접 종료 및 분석 상태 전환 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-053 | 지원자 - 모의면접 | GET | /candidate/mock-interview/reports | 연습 이력 및 리포트 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-054 | 지원자 - 모의면접 | GET | /candidate/mock-interviews/history | 연습 이력 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-054A | 지원자 - 모의면접 | PATCH | /candidate/mock-interviews/{sessionId}/title | 연습 세션 제목 수정 (빈 값이면 기본값 초기화) | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
+| API-054B | 지원자 - 모의면접 | DELETE | /candidate/mock-interviews/{sessionId} | 모의면접 연습 이력 삭제 | 지원자 / 지원자 사용자 로그인 | N | 204 No Content |
 | API-055 | 지원자 - 모의면접 | GET | /candidate/mock-interview/reports/{reportId}/feedback | 모의면접 피드백 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-056 | 지원자 - 모의면접 | GET | /candidate/mock-interview/reports/{reportId}/media | 영상/스크립트 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-057 | 지원자 - 모의면접 | POST | /candidate/mock-interview/reports/{reportId}/generate | 피드백 리포트 생성 | 지원자 / 지원자 사용자 로그인 | Y | 202 Accepted |
@@ -126,6 +131,9 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-059 | 지원자 - 채용공고/지원 | GET | /candidate/jobs/{jobId} | 채용공고 상세 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-060 | 지원자 - 채용공고/지원 | POST | /candidate/jobs/{jobId}/applications | 기업별 지원 서류 제출 | 지원자 / 지원자 사용자 로그인 | N | 201 Created |
 | API-061 | 지원자 - 지원현황/채용면접 | GET | /candidate/applications | 지원 상태 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
+| API-061A | 지원자 - 시연 도구 | POST | /candidate/demo-tools/applications/unlock | 지원 내역 초기화 도구 활성화 검증 | 지원자 로그인 | N | 200 OK |
+| API-061B | 지원자 - 시연 도구 | DELETE | /candidate/demo-tools/applications/{applicationId} | 단일 지원 내역 초기화 | 지원자 로그인 | N | 200 OK |
+| API-061C | 지원자 - 시연 도구 | DELETE | /candidate/demo-tools/applications | 전체 지원 내역 초기화 | 지원자 로그인 | N | 200 OK |
 | API-062 | 지원자 - 지원현황/채용면접 | GET | /candidate/applications/{applicationId}/interview-guide | 채용 AI 면접 방식 안내 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-063 | 지원자 - 지원현황/채용면접 | POST | /candidate/applications/{applicationId}/consent | 개인정보/분석 동의 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-064 | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/device-check | 카메라/마이크/네트워크 점검 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
@@ -137,7 +145,6 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-070 | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/stt | STT 처리 | 지원자 / 지원자 사용자 로그인 | Y | 202 Accepted |
 | API-070-RT | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/realtime-session | 실시간 AI 면접 세션 생성 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-071 | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/follow-up-question | 꼬리질문 생성 | 지원자 / 지원자 사용자 로그인 | Y | 202 Accepted |
-| API-071-TMP | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/follow-up-questions/insert | 생성된 꼬리질문을 면접 질문 흐름에 추가 (MVP 임시 브릿지) | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-072 | 지원자 - 채용면접 | PATCH | /candidate/interviews/{sessionId}/complete | 면접 종료 및 분석 상태 전환 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-087 | 지원자 - Public 채용면접 | POST | /public/applications/{applicationId}/interview/start | public 면접 access token 발급 및 세션 조회/생성 | B magic token | N | 200 OK |
 | API-088 | 지원자 - Public 채용면접 | POST | /public/applications/{applicationId}/interview/begin | public 채용면접 시작/재개 | publicAccessToken | N | 200 OK |

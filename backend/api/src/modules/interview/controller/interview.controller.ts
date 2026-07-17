@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpException, Inject, Param, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, HttpException, Inject, Param, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { CurrentUser } from "@init/common";
 import { type RequestLike } from "../../../shared/response-envelope";
@@ -8,7 +8,6 @@ import { DeviceCheckDto } from "../dto/interview.device-check.dto";
 import {
   AiInterviewRequestDto,
   CreateRealtimeInterviewSessionDto,
-  InsertFollowUpQuestionDto,
   SaveInterviewAnswerDto,
   StartMockInterviewDto,
 } from "../dto/interview.runtime.dto";
@@ -47,6 +46,14 @@ export class InterviewController {
   ) {
     return this.handle(() =>
       this.interviewService.updateMockInterviewTitle(Number(sessionId), dto, resolveCurrentCandidate(request.currentUser)),
+    );
+  }
+
+  @Delete(interviewApiRoutes.mockRuntime)
+  @HttpCode(204)
+  deleteMockInterview(@Req() request: CandidateRequest, @Param("sessionId") sessionId: string) {
+    return this.handle(() =>
+      this.interviewService.deleteMockInterview(Number(sessionId), resolveCurrentCandidate(request.currentUser)),
     );
   }
 
@@ -105,17 +112,6 @@ export class InterviewController {
   ) {
     return this.handle(() =>
       this.interviewService.requestMockFollowUpQuestion(Number(sessionId), dto, resolveCurrentCandidate(request.currentUser)),
-    );
-  }
-
-  @Post(interviewApiRoutes.mockFollowUpQuestionInsert)
-  insertMockFollowUpQuestion(
-    @Req() request: CandidateRequest,
-    @Param("sessionId") sessionId: string,
-    @Body() dto: InsertFollowUpQuestionDto,
-  ) {
-    return this.handle(() =>
-      this.interviewService.insertMockFollowUpQuestion(Number(sessionId), dto, resolveCurrentCandidate(request.currentUser)),
     );
   }
 
@@ -231,17 +227,6 @@ export class InterviewController {
   ) {
     return this.handle(() =>
       this.interviewService.requestRecruitingFollowUpQuestion(Number(sessionId), dto, resolveCurrentCandidate(request.currentUser)),
-    );
-  }
-
-  @Post(interviewApiRoutes.recruitingFollowUpQuestionInsert)
-  insertRecruitingFollowUpQuestion(
-    @Req() request: CandidateRequest,
-    @Param("sessionId") sessionId: string,
-    @Body() dto: InsertFollowUpQuestionDto,
-  ) {
-    return this.handle(() =>
-      this.interviewService.insertRecruitingFollowUpQuestion(Number(sessionId), dto, resolveCurrentCandidate(request.currentUser)),
     );
   }
 

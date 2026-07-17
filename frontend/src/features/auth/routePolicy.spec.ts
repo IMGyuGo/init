@@ -11,6 +11,23 @@ test("company application pages remain company-only", () => {
   assert.deepEqual(getRouteAccess("/company/applications/dashboard"), {
     kind: "protected",
     allowedUserTypes: ["COMPANY"],
+    loginPath: "/company/login",
+  });
+});
+
+test("company recruitment pages use the company login destination", () => {
+  assert.deepEqual(getRouteAccess("/company/recruitments"), {
+    kind: "protected",
+    allowedUserTypes: ["COMPANY"],
+    loginPath: "/company/login",
+  });
+});
+
+test("nested company recruitment pages inherit the company login destination", () => {
+  assert.deepEqual(getRouteAccess("/company/recruitments/42/settings"), {
+    kind: "protected",
+    allowedUserTypes: ["COMPANY"],
+    loginPath: "/company/login",
   });
 });
 
@@ -18,6 +35,7 @@ test("candidate pages remain candidate-only", () => {
   assert.deepEqual(getRouteAccess("/candidate/jobs"), {
     kind: "protected",
     allowedUserTypes: ["CANDIDATE"],
+    loginPath: "/login",
   });
 });
 

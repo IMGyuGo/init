@@ -22,6 +22,9 @@ export interface RuntimeInterviewSession {
   title?: string | null;
   status: InterviewStatus;
   showQuestionText: boolean;
+  preparationTimeSecSnapshot?: number;
+  answerTimeSecSnapshot?: number;
+  ncsScoringVersion?: string;
   currentQuestionIndex: number;
   questionIds: number[];
   startedAt?: string;
@@ -121,6 +124,30 @@ export interface InterviewAnswerNonverbalMetadata extends Record<string, unknown
   headPoseTimeline?: InterviewHeadPoseTimelineSample[];
 }
 
+export interface InterviewAnswerNcsEvaluationSnapshot {
+  sessionQuestionId: number;
+  criterionId?: number;
+  criterionTitleSnapshot?: string;
+  ncsProfileId?: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
+  ncsQuestionMode?: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
+  ncsProfileVersion?: string;
+  alignmentStatus?: string;
+  alignmentScore?: number;
+  evaluatorVersion?: string;
+  ncsBindings?: InterviewAnswerNcsBindingSnapshot[];
+}
+
+export interface InterviewAnswerNcsBindingSnapshot {
+  criterionId?: number;
+  criterionTitleSnapshot: string;
+  ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
+  ncsProfileVersion: string;
+  alignmentStatus: string;
+  alignmentScore?: number;
+  evaluatorVersion?: string;
+  bindingOrder: 1 | 2;
+}
+
 export interface InterviewAnswer {
   answerId: number;
   sessionId: number;
@@ -131,7 +158,16 @@ export interface InterviewAnswer {
   nonverbalMetadata?: InterviewAnswerNonverbalMetadata;
   durationSeconds: number;
   submittedAt: string;
+  ncsEvaluationSnapshot?: InterviewAnswerNcsEvaluationSnapshot;
 }
+
+export type InterviewAnswerSttStatus =
+  | "NOT_SUBMITTED"
+  | "PENDING"
+  | "AVAILABLE"
+  | "REANSWER_AVAILABLE"
+  | "UNAVAILABLE"
+  | "PROCESSING_FAILED";
 
 export interface InterviewQuestionView {
   questionId: number;
@@ -141,6 +177,10 @@ export interface InterviewQuestionView {
   audioPrompt: string;
   answered: boolean;
   current: boolean;
+  answerId?: number;
+  sttStatus: InterviewAnswerSttStatus;
+  sttFailureReason?: string;
+  reanswerAvailable: boolean;
 }
 
 export interface InterviewRuntimeView {
@@ -174,7 +214,10 @@ export interface SaveInterviewAnswerResult {
   answer: InterviewAnswer;
   videoFile?: FileAsset;
   audioFile?: FileAsset;
+  idempotentReplay: boolean;
   nextQuestionAvailable: boolean;
+  completionReady: boolean;
+  currentQuestion?: InterviewQuestionView;
 }
 
 export interface NextInterviewQuestionResult {
@@ -182,6 +225,7 @@ export interface NextInterviewQuestionResult {
   previousQuestionId: number;
   currentQuestion?: InterviewQuestionView;
   isLastQuestion: boolean;
+  completionReady: boolean;
 }
 
 export interface CompleteInterviewResult {
@@ -228,15 +272,4 @@ export interface RealtimeInterviewSessionResult {
   clientSecretType: "ephemeral";
   expiresAt: string;
   endpoint: string;
-}
-
-export interface InsertFollowUpQuestionResult {
-  sessionId: number;
-  processLogId: number;
-  sourceAnswerId: number;
-  sourceQuestionId: number;
-  question: InterviewQuestionView;
-  inserted: boolean;
-  totalQuestions: number;
-  nextQuestionAvailable: boolean;
 }

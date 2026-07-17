@@ -7,11 +7,20 @@ export type ApiEnvelope<T> = {
   };
 };
 
+export type ApiValidationDetail = {
+  field?: string;
+  reason?: string;
+  limit?: number;
+  actualLength?: number;
+  message?: string;
+  [key: string]: unknown;
+};
+
 export type ApiErrorEnvelope = {
   error: {
     code: string;
     message: string;
-    details: unknown[];
+    details: ApiValidationDetail[];
   };
   meta?: {
     traceId: string;
@@ -282,12 +291,36 @@ export type ApplicantEvaluation = {
       scoreId: number;
       criterionId: number | null;
       criterionName: string | null;
-      score: number;
+      score: number | null;
       rationale: string | null;
       evidences: Array<{
         evidenceId: number;
         evidenceText: string;
       }>;
+    }>;
+    ncsAnswerEvaluations: Array<{
+      ncsEvaluationId: number;
+      answerId: number;
+      sessionQuestionId: number;
+      criterionId: number | null;
+      criterionTitleSnapshot: string;
+      ncsProfileId: "PROBLEM_SOLVING" | "COMMUNICATION" | "DIGITAL";
+      ncsQuestionMode: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
+      ncsProfileVersion: string;
+      scoreStatus: "SCORED" | "INSUFFICIENT_INPUT" | "LOW_ALIGNMENT" | "BLOCKED";
+      scores: {
+        competency: number | null;
+        evidence: number | null;
+        total: number | null;
+      };
+      coverage: number;
+      confidence: "HIGH" | "MEDIUM" | "LOW";
+      rubricVersion: string;
+      promptVersion: string;
+      providerMode: "mock" | "openai";
+      model: string | null;
+      result: unknown;
+      updatedAt: string;
     }>;
   } | null;
 };

@@ -59,6 +59,29 @@ flowchart TD
 - C의 실제 면접 설정 경로는 `/company/interviews/settings`이며, 평가 기준/질문 뱅크/면접 시간 저장은 C 담당 영역이다.
 - B 임시 브릿지는 실제 C 저장, AI 생성, 면접 세션 연결을 대체하지 않는다.
 
+## NCS Recruiting Question Setup Target Flow
+
+NQ-M1 이후 면접 설정은 평가 기준과 질문 출처를 아래 순서로 확정한다. NQ-M0에서는 이 흐름의 계약만 고정하며 현재 화면 구현 완료를 의미하지 않는다.
+
+```text
+1단계 NCS 평가 기준 설정
+-> 문제해결능력 / 의사소통능력 / 디지털능력 저장
+-> 2단계 질문 구성
+-> JD·평가 기준 공통 질문 수 + 이력서 개인화 질문 수 저장
+-> JD 공통 질문 즉시 생성·검토
+-> 공고 공개 및 지원 대기
+-> 지원 완료 + 이력서 추출 완료
+-> 지원자별 이력서 질문 생성·정렬 검증
+-> READY 질문을 면접 세션에 합성
+```
+
+- 1단계에서 `NCS_3_PROFILE_V1`을 선택하면 세 기준을 추가·삭제해 임의 조합하지 않는다. 배점과 순서는 편집할 수 있지만 profile binding은 서버가 제공한다.
+- 2단계는 `JD·평가 기준 공통 질문`과 `이력서 개인화 질문` 개수를 별도 numeric control로 입력한다.
+- JD 공통 질문은 설정 화면에서 즉시 생성하고 면접관이 적용한다.
+- 이력서 질문은 아직 지원자가 없으면 `지원 후 생성`, 문서 추출 대기면 `이력서 분석 대기`, 생성 중이면 `생성 중`, 완료면 `준비 완료`, 실패/검토 필요면 해당 상태를 표시한다.
+- `REVIEW_REQUIRED` 또는 `FAILED`인데 이력서 질문 수가 1 이상인 지원자는 면접 세션을 자동 생성하지 않는다. 공통 질문만으로 조용히 대체하지 않는다.
+- 지원자 화면에는 개인화 질문 생성 내부 상태, 이력서 추출 텍스트, 정렬점수·실패 사유를 노출하지 않는다. 면접 준비가 끝나지 않았으면 일반적인 `면접 준비 중` 상태만 표시한다.
+
 ## Screen Catalog
 
 | Screen | Path | Actor | Depth | Linked API/Route |
@@ -71,22 +94,22 @@ flowchart TD
 | 비밀번호 재설정 화면 | /password/reset | 공통 | 로그인 | POST /auth/password/reset / POST /auth/password/send-code / POST /auth/password/verify-code |
 | 공고 관리 화면 | /company/applications/dashboard | 기업 | 지원현황 (GNB button) | GET /company/dashboard / GET /company/recruitments / PATCH /company/applicants/{applicantId}/screening-status |
 | 공고 세부내용 화면 | /company/recruitments/{recruitmentId} | 기업 | 지원현황 (GNB button) | GET /company/recruitments/{recruitmentId} |
-| 지원자 관리 화면 | /company/recruitments/{recruitmentId}/applicants | 기업 | 지원현황 (GNB button) | GET /company/recruitments/{recruitmentId}/applicants / POST /company/applicants / POST /company/applicants/invitations / POST /company/interview-sessions / GET /company/applicants / GET /company/reports |
+| 지원자 관리 화면 | /company/recruitments/{recruitmentId}/applicants | 기업 | 지원현황 (GNB button) | GET /company/recruitments/{recruitmentId}/applicants / POST /company/applicants / POST /company/applicants/invitations / POST /company/interview-sessions / GET /company/applicants / GET /company/reports / GET /company/interviews/applications/{applicationId}/resume-questions / POST /company/interviews/applications/{applicationId}/resume-questions/retry |
 | 지원자 평가 상세 화면 | /company/applicants/{applicantId}/evaluation | 기업 | 지원현황 (GNB button) | GET /company/applicants/{applicantId}/evaluation / GET /company/applicants/{applicantId}/document-evaluation / GET /company/reports/{reportId} / GET /company/reports/{reportId}/evidence / POST /company/applicants/{applicantId}/media/{fileId}/session / GET /company/applicants/{applicantId}/media/{fileId} / GET /company/applicants/compare / PATCH /company/applicants/{applicantId}/manual-evaluation / GET /company/reports/{reportId}/download / POST /reports/{reportId}/evaluation-context / POST /reports/{reportId}/answer-evaluation / POST /reports/{reportId}/communication-analysis / POST /reports/{reportId}/generate |
 | 채용 공고 관리 화면 | /company/recruitments | 기업 | 채용관리 (GNB button) | GET /company/recruitments / GET /company/recruitments?keyword={keyword}&status={status} / /company/recruitments/new / /company/recruitments/{recruitmentId} / /company/recruitments/{recruitmentId}/settings / POST /company/recruitments/{recruitmentId}/copy |
 | 공고 생성 화면 | /company/recruitments/new | 기업 | 채용관리 (GNB button) | POST /company/recruitments / POST /company/recruitments/ai-draft / GET /ai/jobs/{processLogId}/status |
 | 면접 설정 브릿지 화면 | /company/recruitments/{recruitmentId}/interview-settings | 기업 | 채용관리 (GNB button) | GET /company/recruitments/{recruitmentId} / PATCH /company/recruitments/{recruitmentId} |
-| 면접 관리 화면 | /company/interviews/settings | 기업 | 채용관리 (GNB button) | GET /company/interviews/settings / POST /company/interviews/evaluation-criteria/suggest / PATCH /company/interviews/evaluation-criteria / POST /company/interviews/questions / POST /company/interviews/questions/generate / POST /company/interviews/question-sets / PATCH /company/interviews/time-policy |
+| 면접 관리 화면 | /company/interviews/settings | 기업 | 채용관리 (GNB button) | GET /company/interviews/settings / POST /company/interviews/evaluation-criteria/suggest / PATCH /company/interviews/evaluation-criteria / PATCH /company/interviews/question-generation-policy / POST /company/interviews/questions / POST /company/interviews/questions/generate / POST /company/interviews/question-sets / PATCH /company/interviews/time-policy |
 | 회사 정보 관리 화면 | /company/mypage | 기업 | 회사 정보 관리 (GNB button) | PATCH /company/profile / POST /company/profile/logo / PATCH /company/notifications/settings |
 | AI 모의면접 시작 화면 | /candidate/mock-interview/start | 지원자 | AI 모의면접 (GNB button) | POST /candidate/mock-interviews / POST /candidate/mock-interviews/questions/generate |
-| AI 모의면접 진행 화면 | /candidate/mock-interviews/{sessionId} | 지원자 | AI 모의면접 (GNB button) | GET /candidate/mock-interviews/{sessionId} / GET /candidate/mock-interviews/{sessionId}/questions / POST /candidate/mock-interviews/{sessionId}/answers / POST /candidate/mock-interviews/{sessionId}/next-question / POST /candidate/mock-interviews/{sessionId}/stt / POST /candidate/mock-interviews/{sessionId}/follow-up-question / POST /candidate/mock-interviews/{sessionId}/follow-up-questions/insert (MVP 임시 브릿지) / PATCH /candidate/mock-interviews/{sessionId}/complete |
+| AI 모의면접 진행 화면 | /candidate/mock-interviews/{sessionId} | 지원자 | AI 모의면접 (GNB button) | GET /candidate/mock-interviews/{sessionId} / GET /candidate/mock-interviews/{sessionId}/questions / POST /candidate/mock-interviews/{sessionId}/answers / POST /candidate/mock-interviews/{sessionId}/next-question / POST /candidate/mock-interviews/{sessionId}/stt / POST /candidate/mock-interviews/{sessionId}/follow-up-question / PATCH /candidate/mock-interviews/{sessionId}/complete |
 | 모의면접 평가 리포트 화면 | /candidate/mock-interview/reports | 지원자 | AI 모의면접 (GNB button) | GET /candidate/mock-interview/reports / GET /candidate/mock-interviews/history |
 | 모의면접 평가 리포트 화면 | /candidate/mock-interview/reports/{reportId} | 지원자 | AI 모의면접 (GNB button) | GET /candidate/mock-interview/reports/{reportId}/feedback / GET /candidate/mock-interview/reports/{reportId}/media / POST /candidate/mock-interview/reports/{reportId}/generate |
 | 회사 리스트 화면 | /candidate/jobs | 지원자 | 채용정보 (GNB button) | GET /candidate/jobs |
 | 회사 상세 화면 | /candidate/jobs/{jobId} | 지원자 | 채용정보 (GNB button) | GET /candidate/jobs/{jobId} / /candidate/jobs/{jobId}/apply |
 | 기업별 이력서 제출 화면 | /candidate/jobs/{jobId}/apply | 지원자 | 채용정보 (GNB button) | POST /candidate/jobs/{jobId}/applications |
 | 지원현황 화면 | /candidate/applications | 지원자 | 채용정보 (GNB button) | GET /candidate/applications / GET /candidate/applications/{applicationId}/interview-guide / POST /candidate/applications/{applicationId}/consent / POST /candidate/interviews/{sessionId}/device-check / POST /candidate/applications/{applicationId}/interview/start |
-| 채용 AI 면접 진행 화면 | /candidate/applications/{applicationId}/interview | 지원자 | 채용정보 (GNB button) | GET /candidate/applications/{applicationId}/interview / GET /candidate/interviews/{sessionId}/questions / POST /candidate/interviews/{sessionId}/answers / POST /candidate/interviews/{sessionId}/next-question / POST /candidate/interviews/{sessionId}/stt / POST /candidate/interviews/{sessionId}/follow-up-question / POST /candidate/interviews/{sessionId}/follow-up-questions/insert (MVP 임시 브릿지) / PATCH /candidate/interviews/{sessionId}/complete |
+| 채용 AI 면접 진행 화면 | /candidate/applications/{applicationId}/interview | 지원자 | 채용정보 (GNB button) | GET /candidate/applications/{applicationId}/interview / GET /candidate/interviews/{sessionId}/questions / POST /candidate/interviews/{sessionId}/answers / POST /candidate/interviews/{sessionId}/next-question / POST /candidate/interviews/{sessionId}/stt / POST /candidate/interviews/{sessionId}/follow-up-question / PATCH /candidate/interviews/{sessionId}/complete |
 | 채용 AI 면접 결과 화면 | /candidate/applications/{applicationId}/report | 지원자 | 채용정보 (GNB button) | GET /candidate/applications/{applicationId}/report / GET /candidate/applications/{applicationId}/status |
 | 지원자 마이페이지 화면 | /candidate/mypage | 지원자 | 마이페이지 (GNB button) | GET /candidate/profile / PUT /candidate/profile / POST /candidate/resume / POST /candidate/documents/extract / POST /candidate/portfolio-links / GET /candidate/notifications/interview-invitations |
 | 공통 AI 시스템 처리 | - | 시스템 |  | POST /ai/guardrails/validate |

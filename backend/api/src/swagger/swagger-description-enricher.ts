@@ -66,6 +66,22 @@ const OPERATION_DOCUMENTATION_BY_HANDLER: Record<string, OperationDocumentation>
     summary: "지원자의 지원현황 목록 조회",
     description: "로그인한 지원자의 지원서, 공고, 채용면접 세션, 동의·장치 점검 및 리포트 상태를 결합해 최신순으로 반환합니다.",
   },
+  cancelApplication: {
+    summary: "지원서 제출 취소",
+    description: "로그인한 지원자의 지원서 소유권과 취소 가능 상태를 확인한 뒤 해당 지원서를 취소 처리합니다.",
+  },
+  unlockDemoApplicationReset: {
+    summary: "지원 내역 초기화 도구 활성화",
+    description: "올바른 명령어를 입력한 로그인 지원자에게 현재 화면의 초기화 도구를 활성화합니다.",
+  },
+  resetAllDemoApplications: {
+    summary: "전체 지원 내역 초기화",
+    description: "로그인 지원자의 모든 지원서와 종속 면접·답변·리포트 데이터를 삭제하고 재지원 가능한 상태로 초기화합니다.",
+  },
+  resetDemoApplication: {
+    summary: "단일 지원 내역 초기화",
+    description: "로그인 지원자가 소유한 지정 지원서와 종속 면접·답변·리포트 데이터를 삭제하고 관련 답변 미디어를 정리합니다.",
+  },
   getInterviewGuide: {
     summary: "채용면접 응시 안내 조회",
     description: "본인 지원 건의 면접 기간, 필수 동의, 장치 점검 및 면접 시작 가능 상태를 조회합니다.",
@@ -122,6 +138,10 @@ const OPERATION_DOCUMENTATION_BY_HANDLER: Record<string, OperationDocumentation>
     summary: "모의면접 세션 제목 수정",
     description: "로그인한 지원자가 소유한 모의면접 세션의 제목을 최대 100자로 수정하며, 빈 값이면 제목을 초기화합니다. 이력 목록에서 세션을 쉽게 식별하기 위한 사용자 지정 제목입니다.",
   },
+  deleteMockInterview: {
+    summary: "모의면접 연습 이력 삭제",
+    description: "로그인한 지원자가 소유한 모의면접 세션을 소프트 삭제해 연습 이력, 면접 재개 및 리포트 조회에서 제외합니다. 사용한 이용권과 관련 데이터는 보존합니다.",
+  },
   getMockRuntime: {
     summary: "모의면접 런타임 조회",
     description: "본인 모의면접 세션의 현재 질문, 진행 상태, 시간 정책과 답변 진행 정보를 조회합니다.",
@@ -149,10 +169,6 @@ const OPERATION_DOCUMENTATION_BY_HANDLER: Record<string, OperationDocumentation>
   requestMockFollowUpQuestion: {
     summary: "모의면접 꼬리질문 생성 요청",
     description: "현재 질문과 STT 답변을 바탕으로 꼬리질문을 생성하는 비동기 작업을 요청합니다.",
-  },
-  insertMockFollowUpQuestion: {
-    summary: "모의면접 꼬리질문 런타임 삽입",
-    description: "완료된 꼬리질문 생성 결과를 검증해 해당 모의면접 세션의 다음 질문 흐름에 삽입합니다.",
   },
   createMockRealtimeSession: {
     summary: "모의면접 실시간 AI 세션 생성",
@@ -202,10 +218,6 @@ const OPERATION_DOCUMENTATION_BY_HANDLER: Record<string, OperationDocumentation>
     summary: "채용면접 꼬리질문 생성 요청",
     description: "기업 JD, 이전 질문과 STT 답변을 바탕으로 채용면접 꼬리질문 생성 작업을 요청합니다.",
   },
-  insertRecruitingFollowUpQuestion: {
-    summary: "채용면접 꼬리질문 런타임 삽입",
-    description: "완료된 꼬리질문 생성 결과를 검증해 해당 채용면접 세션의 다음 질문 흐름에 삽입합니다.",
-  },
   createRecruitingRealtimeSession: {
     summary: "채용면접 실시간 AI 세션 생성",
     description: "채용면접의 실시간 음성 안내 또는 STT 연결에 사용할 단기 세션 정보를 생성합니다.",
@@ -249,10 +261,6 @@ const OPERATION_DOCUMENTATION_BY_HANDLER: Record<string, OperationDocumentation>
   requestFollowUpQuestion: {
     summary: "비회원 채용면접 꼬리질문 생성 요청",
     description: "public 면접의 이전 질문과 STT 답변을 바탕으로 꼬리질문 생성 작업을 요청합니다.",
-  },
-  insertFollowUpQuestion: {
-    summary: "비회원 채용면접 꼬리질문 삽입",
-    description: "생성 완료된 꼬리질문을 public 채용면접 세션의 다음 질문 흐름에 삽입합니다.",
   },
   createRealtimeSession: {
     summary: "비회원 채용면접 실시간 AI 세션 생성",

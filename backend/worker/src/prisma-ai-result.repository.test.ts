@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PrismaAiResultRepository } from "./prisma-ai-result.repository";
+import { evaluateNcsTextDeterministically } from "./ncs-text-evaluator";
 
 test("PrismaAiResultRepository stores document extraction into application_documents", async () => {
   const calls: Array<{ model: string; method: string; args: any }> = [];
@@ -27,6 +28,173 @@ test("PrismaAiResultRepository stores document extraction into application_docum
         extractedText: "parsed resume text"
       }
     }
+  });
+});
+
+test("PrismaAiResultRepository creates one idempotent resume-question job per input snapshot", async () => {
+  const calls: Array<{ model: string; method: string; args: any }> = [];
+  let batch: any = null;
+  const document = {
+    documentId: BigInt(7),
+    documentType: "RESUME",
+    parseStatus: "EXTRACTED",
+    extractedText: "PRIVATE_RESUME_TEXT",
+    application: {
+      applicationId: BigInt(101),
+      applicationStatus: "SUBMITTED",
+      submittedAt: new Date("2026-07-14T00:00:00.000Z"),
+      posting: {
+        postingId: BigInt(1),
+        jobDescription: "NestJS와 PostgreSQL 기반 백엔드 개발",
+        questionGenerationPolicy: {
+          evaluationFramework: "NCS_3_PROFILE_V1",
+          jdCriteriaQuestionCount: 3,
+          resumeQuestionCount: 3,
+          policyVersion: 2,
+          criteriaVersion: 4,
+        },
+        criteria: [
+          ncsCriterion(1, "문제해결능력", "PROBLEM_SOLVING", "EXPERIENCE_BEHAVIOR"),
+          ncsCriterion(2, "의사소통능력", "COMMUNICATION", "EXPERIENCE_BEHAVIOR"),
+          ncsCriterion(3, "디지털역량", "DIGITAL", "TECHNICAL_KNOWLEDGE"),
+        ],
+      },
+    },
+  };
+  const prisma: any = {
+    applicationDocument: {
+      async updateMany(args: any) {
+        calls.push({ model: "applicationDocument", method: "updateMany", args });
+      },
+      async findUnique(args: any) {
+        calls.push({ model: "applicationDocument", method: "findUnique", args });
+        return document;
+      },
+    },
+    applicationInterviewQuestionBatch: {
+      async updateMany(args: any) {
+        calls.push({ model: "applicationInterviewQuestionBatch", method: "updateMany", args });
+      },
+      async findUnique(args: any) {
+        calls.push({ model: "applicationInterviewQuestionBatch", method: "findUnique", args });
+        return batch;
+      },
+      async create(args: any) {
+        calls.push({ model: "applicationInterviewQuestionBatch", method: "create", args });
+        batch = {
+          batchId: BigInt(701),
+          applicationId: BigInt(101),
+          latestProcessLogId: BigInt(901),
+          status: "GENERATING",
+          ...args.data,
+        };
+        return batch;
+      },
+    },
+    aiProcessLog: {
+      async create(args: any) {
+        calls.push({ model: "aiProcessLog", method: "create", args });
+        return { processLogId: BigInt(901) };
+      },
+      async update(args: any) {
+        calls.push({ model: "aiProcessLog", method: "update", args });
+      },
+    },
+  };
+  prisma.$transaction = async (operation: (transaction: unknown) => Promise<unknown>) => operation(prisma);
+  const repository = new PrismaAiResultRepository(prisma);
+  const extraction = {
+    documentId: 7,
+    fileId: 9,
+    s3Key: "candidate/1/resume.pdf",
+    extractedText: "PRIVATE_RESUME_TEXT",
+  };
+
+  const firstJobs = await repository.saveDocumentExtraction(extraction);
+  const duplicateJobs = await repository.saveDocumentExtraction(extraction);
+
+  assert.equal(firstJobs.length, 1);
+  assert.equal(firstJobs[0].processType, "RESUME_QUESTION_GENERATE");
+  assert.equal(firstJobs[0].inputRef.includes("PRIVATE_RESUME_TEXT"), false);
+  assert.equal(firstJobs[0].inputRef.includes("NestJS와 PostgreSQL"), false);
+  assert.equal(duplicateJobs.length, 0);
+  assert.equal(calls.filter((call) => call.model === "aiProcessLog" && call.method === "create").length, 1);
+  assert.equal(calls.filter((call) => call.model === "applicationInterviewQuestionBatch" && call.method === "create").length, 1);
+});
+
+test("PrismaAiResultRepository stores an NCS binding with each personalized question", async () => {
+  const calls: Array<{ model: string; method: string; args: any }> = [];
+  const prisma: any = {
+    applicationInterviewQuestionBatch: {
+      async findUnique(args: any) {
+        calls.push({ model: "applicationInterviewQuestionBatch", method: "findUnique", args });
+        return {
+          batchId: BigInt(701),
+          latestProcessLogId: BigInt(901),
+          status: "GENERATING",
+        };
+      },
+      async updateMany(args: any) {
+        calls.push({ model: "applicationInterviewQuestionBatch", method: "updateMany", args });
+      },
+    },
+    applicationInterviewQuestion: {
+      async deleteMany(args: any) {
+        calls.push({ model: "applicationInterviewQuestion", method: "deleteMany", args });
+      },
+      async create(args: any) {
+        calls.push({ model: "applicationInterviewQuestion", method: "create", args });
+      },
+    },
+  };
+  prisma.$transaction = async (operation: (transaction: unknown) => Promise<unknown>) => operation(prisma);
+  const repository = new PrismaAiResultRepository(prisma);
+
+  await repository.saveResumeQuestionGeneration({
+    reference: {
+      processLogId: 901,
+      applicationId: 101,
+      postingId: 1,
+      documentId: 7,
+      policyVersion: 2,
+      criteriaVersion: 4,
+      inputVersion: "input-version-101",
+      resumeDocumentHash: "resume-hash-101",
+      jdSnapshotHash: "jd-hash-1",
+    },
+    status: "READY",
+    evaluatorVersion: "ncs-question-alignment-v1",
+    failureReason: null,
+    questions: [{
+      criterionId: 1,
+      criterionTitleSnapshot: "직무/기술 역량",
+      questionType: "TECHNICAL",
+      content: "이력서의 기술 선택 근거와 검증 과정을 설명해주세요.",
+      ncsProfileId: "JOB_TECHNICAL",
+      ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+      ncsProfileVersion: "2025.12-v1",
+      alignmentStatus: "ALIGNED",
+      alignmentScore: 0.91,
+      alignmentReason: "기술 선택과 검증 근거를 함께 묻습니다.",
+      evaluatorVersion: "ncs-question-alignment-v1",
+      sortOrder: 1,
+    }],
+  });
+
+  const create = calls.find((call) =>
+    call.model === "applicationInterviewQuestion" && call.method === "create"
+  );
+  assert.deepEqual(create?.args.data.ncsBindings, {
+    create: {
+      criterionId: BigInt(1),
+      ncsProfileId: "JOB_TECHNICAL",
+      ncsProfileVersion: "2025.12-v1",
+      alignmentStatus: "ALIGNED",
+      alignmentScore: 0.91,
+      alignmentReason: "기술 선택과 검증 근거를 함께 묻습니다.",
+      evaluatorVersion: "ncs-question-alignment-v1",
+      bindingOrder: 1,
+    },
   });
 });
 
@@ -92,27 +260,105 @@ test("PrismaAiResultRepository stores STT transcript into interview_answers", as
   });
 });
 
-test("PrismaAiResultRepository upserts one follow-up per answer and policy", async () => {
-  const calls: Array<{ model: string; method: string; args: any }> = [];
-  const repository = new PrismaAiResultRepository(fakePrisma(calls));
+test("PrismaAiResultRepository atomically inserts one private follow-up after its base question", async () => {
+  const fixture = followUpRuntimePrisma();
+  const repository = new PrismaAiResultRepository(fixture.prisma);
+  const record = {
+    sessionId: 3,
+    answerId: 4,
+    required: true,
+    content: "Practice follow-up",
+    policy: "RECRUITING" as const,
+    reason: "NCS_EVIDENCE_GAP" as const,
+    questionMode: "TECHNICAL_KNOWLEDGE" as const,
+    answerTimeSec: 90,
+  };
+
+  await repository.saveFollowUpQuestion(record);
+  await repository.saveFollowUpQuestion(record);
+
+  assert.equal(fixture.createdSessionQuestions.length, 1);
+  assert.equal(fixture.createdSessionQuestions[0]?.data.questionType, "FOLLOW_UP");
+  assert.equal(fixture.createdSessionQuestions[0]?.data.sortOrder, 2);
+  assert.equal(fixture.createdSessionQuestions[0]?.data.ncsQuestionMode, "TECHNICAL_KNOWLEDGE");
+  assert.deepEqual(
+    fixture.createdSessionQuestions[0]?.data.ncsBindings.create.map((binding: any) => binding.ncsProfileId),
+    ["JOB_TECHNICAL", "PROBLEM_SOLVING"],
+  );
+  assert.equal(fixture.followUp()?.generationStatus, "INSERTED");
+  assert.equal(fixture.followUp()?.answerTimeSec, 90);
+  assert.equal(fixture.followUp()?.insertedSessionQuestionId, 800n);
+  assert.equal(fixture.advisoryLockCalls(), 2);
+  assert.deepEqual(fixture.reorderValues(), [
+    [3n, 1, 1_000_000],
+    [3n, 1_000_001, 999_999],
+  ]);
+});
+
+test("PrismaAiResultRepository stores a no-follow-up decision without changing session questions", async () => {
+  const fixture = followUpRuntimePrisma();
+  const repository = new PrismaAiResultRepository(fixture.prisma);
 
   await repository.saveFollowUpQuestion({
     sessionId: 3,
     answerId: 4,
-    content: "Practice follow-up",
-    policy: "MOCK"
+    required: false,
+    policy: "RECRUITING",
+    reason: "NCS_EVIDENCE_GAP",
+    questionMode: "TECHNICAL_KNOWLEDGE",
+    answerTimeSec: 90,
   });
 
-  assert.equal(calls[0].model, "followUpQuestion");
-  assert.equal(calls[0].method, "upsert");
-  assert.deepEqual(calls[0].args.where, {
-    answerIdPolicy: {
-      answerId: BigInt(4),
-      policy: "MOCK"
-    }
+  assert.equal(fixture.createdSessionQuestions.length, 0);
+  assert.equal(fixture.followUp()?.generationStatus, "SKIPPED");
+  assert.equal(fixture.followUp()?.skipReason, "NOT_REQUIRED");
+  assert.equal(fixture.followUp()?.reason, null);
+});
+
+test("PrismaAiResultRepository skips a generated follow-up when the session is no longer in progress", async () => {
+  const fixture = followUpRuntimePrisma({ sessionStatus: "COMPLETED" });
+  const repository = new PrismaAiResultRepository(fixture.prisma);
+
+  await repository.saveFollowUpQuestion({
+    sessionId: 3,
+    answerId: 4,
+    required: true,
+    content: "This question must not be inserted",
+    policy: "RECRUITING",
+    reason: "NCS_EVIDENCE_GAP",
+    questionMode: "TECHNICAL_KNOWLEDGE",
+    answerTimeSec: 90,
   });
-  assert.equal(calls[0].args.create.generationStatus, "GENERATED");
-  assert.deepEqual(calls[0].args.update, {});
+
+  assert.equal(fixture.createdSessionQuestions.length, 0);
+  assert.equal(fixture.followUp()?.generationStatus, "SKIPPED");
+  assert.equal(fixture.followUp()?.skipReason, "SESSION_NOT_IN_PROGRESS");
+  assert.equal(fixture.followUp()?.content, "");
+});
+
+test("PrismaAiResultRepository rejects a recruiting follow-up with a different question mode", async () => {
+  const fixture = followUpRuntimePrisma();
+  const repository = new PrismaAiResultRepository(fixture.prisma);
+
+  await assert.rejects(
+    () =>
+      repository.saveFollowUpQuestion({
+        sessionId: 3,
+        answerId: 4,
+        required: true,
+        content: "Mismatched follow-up",
+        policy: "RECRUITING",
+        reason: "NCS_EVIDENCE_GAP",
+        questionMode: "EXPERIENCE_BEHAVIOR",
+        answerTimeSec: 90,
+      }),
+    {
+      name: "NonRetryableAiWorkerFailure",
+      message: "follow-up question mode must match the base question mode",
+    },
+  );
+
+  assert.equal(fixture.createdSessionQuestions.length, 0);
 });
 
 test("PrismaAiResultRepository upserts embeddings by source_type and source_text_hash", async () => {
@@ -180,6 +426,57 @@ test("PrismaAiResultRepository stores report scores without completing a report"
   assert.equal(calls[3].model, "reportScore");
   assert.equal(calls[3].method, "create");
   assert.equal(calls.some((call) => call.model === "evaluationReport"), false);
+});
+
+test("PrismaAiResultRepository stores an insufficient NCS answer without creating a report score", async () => {
+  const calls: Array<{ model: string; method: string; args: any }> = [];
+  const repository = new PrismaAiResultRepository(fakePrisma(calls));
+  const output = evaluateNcsTextDeterministically({
+    questionMode: "TECHNICAL_KNOWLEDGE",
+    question: "Redis 장애 위험과 검증 방법을 설명해 주세요.",
+    answerText: "잘 모르겠습니다.",
+    profileIds: ["digital"],
+  });
+
+  await repository.saveReportScoresAndEvidences({
+    reportId: 30,
+    scores: [],
+    ncsAnswerEvaluations: [
+      {
+        reportId: 30,
+        answerId: 10,
+        sessionQuestionId: 501,
+        criterionId: 3,
+        criterionTitleSnapshot: "디지털역량",
+        ncsProfileId: "JOB_TECHNICAL",
+        ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+        ncsProfileVersion: "2025.12-v1",
+        output,
+        question: "Redis 장애 위험과 검증 방법을 설명해 주세요.",
+        behaviorPoints: null,
+        logicPoints: null,
+        baseScore: null,
+        effectiveScore: null,
+        followUpApplied: false,
+        evidences: [],
+      },
+    ],
+  });
+
+  assert.equal(output.scoreStatus, "INSUFFICIENT_INPUT");
+  assert.equal(calls.filter((call) => call.model === "reportScore" && call.method === "create").length, 0);
+  const created = calls.find((call) => call.model === "ncsAnswerEvaluation" && call.method === "create");
+  assert.equal(created?.args.data.scoreStatus, "INSUFFICIENT_INPUT");
+  assert.equal(created?.args.data.ncsProfileId, "JOB_TECHNICAL");
+  assert.equal(created?.args.data.competencyScore, null);
+  assert.equal(created?.args.data.evidenceScore, null);
+  assert.equal(created?.args.data.totalScore, null);
+  assert.equal(created?.args.data.behaviorPoints, null);
+  assert.equal(created?.args.data.logicPoints, null);
+  assert.equal(created?.args.data.baseScore, null);
+  assert.equal(created?.args.data.effectiveScore, null);
+  assert.equal(created?.args.data.followUpApplied, false);
+  assert.deepEqual(created?.args.data.evidences.create, []);
 });
 
 test("PrismaAiResultRepository rejects scores without evidence before deleting existing scores", async () => {
@@ -322,6 +619,50 @@ test("PrismaAiResultRepository stores generated reports after guardrail pass", a
   assert.equal(calls[4].args.data.evidences.create[0].sourceType, "INTERVIEW_ANSWER");
 });
 
+test("PrismaAiResultRepository stores NCS decision header and normalized profile scores", async () => {
+  const calls: Array<{ model: string; method: string; args: any }> = [];
+  const repository = new PrismaAiResultRepository(fakePrisma(calls));
+
+  await repository.saveGeneratedReport({
+    reportId: 30,
+    reportType: "RECRUITING_REPORT",
+    applicationId: 22,
+    sessionId: 65,
+    summary: "NCS evaluation completed",
+    totalScore: 83,
+    scores: [],
+    questionEvaluations: [],
+    ncsFinalEvaluation: {
+      scoringVersion: "NCS_RECRUITING_SCORING_V1",
+      decisionPolicyVersion: "NCS_INCOMPLETE_AS_FAIL_DEMO_V1",
+      completionStatus: "COMPLETE",
+      thresholdResult: "MEETS_THRESHOLD",
+      aiDecision: "PASS",
+      decisionReasonCode: "THRESHOLD_MET",
+      totalScore: 83,
+      profiles: [
+        finalProfile("JOB_TECHNICAL", 1, "기술·직무", 4.5, 30, 27),
+        finalProfile("COLLABORATION_COMMUNICATION", 2, "협업·의사소통", 4, 30, 24),
+        finalProfile("PROBLEM_SOLVING", 3, "문제 해결력", 4, 40, 32),
+      ],
+      incompleteReasons: [],
+    },
+  });
+
+  const reportUpsert = calls.find((call) => call.model === "evaluationReport" && call.method === "upsert");
+  assert.equal(reportUpsert?.args.create.applicationId, BigInt(22));
+  assert.equal(reportUpsert?.args.create.sessionId, BigInt(65));
+  assert.equal(reportUpsert?.args.update.ncsThresholdResult, "MEETS_THRESHOLD");
+  assert.equal(reportUpsert?.args.update.ncsAiDecision, "PASS");
+  assert.equal(reportUpsert?.args.update.ncsSummaryJson.schemaVersion, "ncs-report-evaluation-output-v1");
+  const profileRows = calls.filter((call) =>
+    call.model === "reportScore" && call.method === "create" && call.args.data.ncsProfileId,
+  );
+  assert.equal(profileRows.length, 3);
+  assert.equal(profileRows[0]?.args.data.averageScore, 4.5);
+  assert.equal(profileRows[2]?.args.data.weightedScore, 32);
+});
+
 test("PrismaAiResultRepository marks recruiting application report completed with generated report", async () => {
   const calls: Array<{ model: string; method: string; args: any }> = [];
   const repository = new PrismaAiResultRepository(fakePrisma(calls));
@@ -399,6 +740,116 @@ test("PrismaAiResultRepository marks recruiting application report failed with g
   assert.deepEqual(applicationUpdate?.args.data, { reportStatus: "FAILED" });
 });
 
+function followUpRuntimePrisma(options: { sessionStatus?: string; sourceQuestionType?: string } = {}) {
+  let followUp: any;
+  let advisoryLockCallCount = 0;
+  const reorderCallValues: unknown[][] = [];
+  const createdSessionQuestions: any[] = [];
+  const sourceSessionQuestion = {
+    sessionQuestionId: 700n,
+    sortOrder: 1,
+    questionType: options.sourceQuestionType ?? "TECHNICAL",
+    criterionId: 11n,
+    criterionTitleSnapshot: "직무 기술",
+    ncsProfileId: "JOB_TECHNICAL",
+    ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+    ncsProfileVersion: "ncs-v1",
+    alignmentStatus: "ALIGNED",
+    alignmentScore: 0.9,
+    alignmentReason: "aligned",
+    evaluatorVersion: "evaluator-v1",
+    policyVersion: 1,
+    criteriaVersion: 1,
+    ncsBindings: [
+      {
+        criterionId: 11n,
+        criterionTitleSnapshot: "직무 기술",
+        ncsProfileId: "JOB_TECHNICAL",
+        ncsProfileVersion: "ncs-v1",
+        alignmentStatus: "ALIGNED",
+        alignmentScore: 0.9,
+        alignmentReason: "aligned",
+        evaluatorVersion: "evaluator-v1",
+        bindingOrder: 1,
+      },
+      {
+        criterionId: 12n,
+        criterionTitleSnapshot: "문제 해결",
+        ncsProfileId: "PROBLEM_SOLVING",
+        ncsProfileVersion: "ncs-v1",
+        alignmentStatus: "ALIGNED",
+        alignmentScore: 0.88,
+        alignmentReason: "aligned",
+        evaluatorVersion: "evaluator-v1",
+        bindingOrder: 2,
+      },
+    ],
+  };
+  const prisma: any = {
+    async $transaction(operation: (transaction: any) => Promise<unknown>) {
+      return operation(prisma);
+    },
+    async $executeRawUnsafe(query: string, ...values: unknown[]) {
+      if (/pg_advisory_xact_lock/.test(query)) {
+        advisoryLockCallCount += 1;
+        return 1;
+      }
+      assert.match(query, /UPDATE interview_session_questions/);
+      reorderCallValues.push(values);
+      return 1;
+    },
+    async $queryRawUnsafe(query: string) {
+      assert.match(query, /nextval/);
+      return [{ questionId: 9000n }];
+    },
+    interviewAnswer: {
+      async updateMany() {},
+      async findUnique() {
+        return {
+          answerId: 4n,
+          sessionId: 3n,
+          questionId: 21n,
+          sessionQuestionId: 700n,
+          session: { status: options.sessionStatus ?? "IN_PROGRESS", answerTimeSecSnapshot: 90 },
+          sessionQuestion: sourceSessionQuestion,
+        };
+      },
+    },
+    followUpQuestion: {
+      async findUnique() {
+        return followUp;
+      },
+      async upsert(args: any) {
+        followUp = followUp
+          ? { ...followUp, ...args.update }
+          : { followUpId: args.create.followUpId, ...args.create };
+        return followUp;
+      },
+      async update(args: any) {
+        followUp = { ...followUp, ...args.data };
+        return followUp;
+      },
+    },
+    interviewSessionQuestion: {
+      async findFirst(args: any) {
+        return args.orderBy ? { sortOrder: 2 } : sourceSessionQuestion;
+      },
+      async create(args: any) {
+        createdSessionQuestions.push(args);
+        return { sessionQuestionId: 800n, ...args.data };
+      },
+    },
+  };
+
+  return {
+    prisma,
+    createdSessionQuestions,
+    advisoryLockCalls: () => advisoryLockCallCount,
+    reorderValues: () => reorderCallValues,
+    followUp: () => followUp,
+  };
+}
+
 function fakePrisma(calls: Array<{ model: string; method: string; args: any }>) {
   return {
     application: {
@@ -409,6 +860,10 @@ function fakePrisma(calls: Array<{ model: string; method: string; args: any }>) 
     applicationDocument: {
       async updateMany(args: any) {
         calls.push({ model: "applicationDocument", method: "updateMany", args });
+      },
+      async findUnique(args: any) {
+        calls.push({ model: "applicationDocument", method: "findUnique", args });
+        return null;
       }
     },
     interviewAnswer: {
@@ -445,6 +900,14 @@ function fakePrisma(calls: Array<{ model: string; method: string; args: any }>) 
         calls.push({ model: "reportEvidence", method: "deleteMany", args });
       }
     },
+    ncsAnswerEvaluation: {
+      async deleteMany(args: any) {
+        calls.push({ model: "ncsAnswerEvaluation", method: "deleteMany", args });
+      },
+      async create(args: any) {
+        calls.push({ model: "ncsAnswerEvaluation", method: "create", args });
+      }
+    },
     embedding: {
       async upsert(args: any) {
         calls.push({ model: "embedding", method: "upsert", args });
@@ -465,5 +928,48 @@ function fakePrisma(calls: Array<{ model: string; method: string; args: any }>) 
         calls.push({ model: "aiProcessLog", method: "update", args });
       }
     }
+  };
+}
+
+function ncsCriterion(
+  criterionId: number,
+  name: string,
+  ncsProfileId: string,
+  ncsQuestionMode: string,
+) {
+  return {
+    criterionId: BigInt(criterionId),
+    description: `${name} 설명`,
+    sortOrder: criterionId,
+    ncsProfileId,
+    ncsQuestionMode,
+    ncsProfileVersion: "2025.12-v1",
+    tag: { name, category: "NCS" },
+  };
+}
+
+function finalProfile(
+  ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING",
+  profileOrder: 1 | 2 | 3,
+  displayName: string,
+  averageScore: number,
+  weight: number,
+  weightedScore: number,
+) {
+  return {
+    ncsProfileId,
+    profileOrder,
+    displayName,
+    criterionId: profileOrder,
+    criterionTitleSnapshot: displayName,
+    status: "SCORED" as const,
+    averageScore,
+    normalizedScore: Math.round(averageScore * 20),
+    weight,
+    weightedScore,
+    minimumAverageScore: 3,
+    assignedQuestionCount: 2,
+    validQuestionCount: 2,
+    requiredQuestionCount: 2,
   };
 }

@@ -1,4 +1,9 @@
 import OpenAI from "openai";
+import type { NcsApiProfileId } from "./ncs-question-alignment.adapter";
+import {
+  INTERVIEW_QUESTION_PUNCTUATION_PROMPT,
+  normalizeInterviewQuestionPunctuation
+} from "./question-punctuation";
 
 export type QuestionGenerationDifficulty = "EASY" | "MEDIUM" | "HARD";
 export type QuestionGenerationType = "INTRO" | "TECHNICAL" | "EXPERIENCE" | "SITUATION" | "FOLLOW_UP" | "CLOSING";
@@ -9,6 +14,10 @@ export interface QuestionGenerationCriterion {
   category?: string;
   weight?: number;
   description?: string;
+  questionCount?: number;
+  ncsProfileId?: NcsApiProfileId;
+  ncsQuestionMode?: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
+  ncsProfileVersion?: string;
 }
 
 export interface QuestionGenerationInput {
@@ -19,6 +28,9 @@ export interface QuestionGenerationInput {
   jobDescription?: string;
   questionCount: number;
   criteria: QuestionGenerationCriterion[];
+  source?: "JD_CRITERIA" | "RESUME_PERSONALIZED";
+  resumeText?: string;
+  avoidQuestions?: string[];
   profileContext?: Record<string, unknown>;
   folderContext?: Record<string, unknown>;
   questionTypes?: QuestionGenerationType[];
@@ -92,6 +104,7 @@ export function buildQuestionMessages(input: QuestionGenerationInput): Array<{ r
           "Return JSON only with key questionCandidates.",
           "Ground every question in the supplied candidate profile, cover letter, resume text, links, motivation, or activity history.",
           "Ask for verifiable decisions, actions, trade-offs, and outcomes. Do not invent experiences that are absent from context.",
+          INTERVIEW_QUESTION_PUNCTUATION_PROMPT,
           "Never use or mention name, email, phone, age, gender, address, disability, health, appearance, school prestige, or other sensitive attributes.",
           "Do not make hiring pass/fail judgments. These questions are practice-only and must not be saved to a company question bank."
         ].join("\n")
@@ -124,26 +137,45 @@ export function buildQuestionMessages(input: QuestionGenerationInput): Array<{ r
     {
       role: "system",
       content: [
-        "You generate Korean common interview question candidates for a company interview settings screen.",
+        input.source === "RESUME_PERSONALIZED"
+          ? "You generate Korean resume-personalized recruiting interview questions."
+          : "You generate Korean common interview question candidates for a company interview settings screen.",
         "Return JSON only with key questionCandidates.",
         "Every question candidate must use exactly one criterionId from the provided criteria array.",
+        "When criteria[].questionCount is provided, generate exactly that many candidates for each criterion.",
+        "For NCS criteria, make the question collect observable evidence for the provided ncsProfileId and ncsQuestionMode.",
+        "Problem solving questions must ask for problem analysis, alternative selection, and result validation evidence.",
+        "COLLABORATION_COMMUNICATION questions must ask for structured explanation, audience adjustment, and mutual-understanding confirmation evidence.",
+        "JOB_TECHNICAL questions must ask for technical principles, practical application, and risk validation evidence.",
         "Do not invent criterionId values. Do not omit criterionId.",
         "criterionTitle must equal the matched criterion name.",
         "category must equal the matched criterion category when provided, otherwise use a concise Korean category.",
         "Generate only questions that can be saved to the question bank after human review.",
+        INTERVIEW_QUESTION_PUNCTUATION_PROMPT,
         "Do not include final hiring pass/fail judgments, sensitive attributes, appearance, eye contact, voice tone, age, gender, school, region, disability, or health.",
-        "Questions must evaluate observable work evidence through answer content."
+        "Questions must evaluate observable work evidence through answer content.",
+        "For resume-personalized questions, use only experiences present in resumeText and include only the minimum non-sensitive experience context needed to identify the experience.",
+        "Write concise, conversational Korean that a real interviewer could say aloud without editing.",
+        "Do not prefix questions with a company name, posting title, bracketed label, or repeated job-role phrase.",
+        "Use the JD to choose relevant responsibilities or technologies, but do not copy JD sentences verbatim and do not mention the same role context in every question.",
+        "Each question must focus on one experience or one decision. Avoid comma-separated rubric checklists and overloaded multi-topic questions.",
+        "Vary openings and endings across the batch. Do not end every question with 설명해주세요 or 말씀해 주세요.",
+        "Candidates already know which company and role they applied for, so mention a company, role, or technology only when it is essential to the question."
       ].join("\n")
     },
     {
       role: "user",
       content: JSON.stringify({
-        task: "Generate review-only common interview question candidates based on the JD and saved evaluation criteria.",
+        task: input.source === "RESUME_PERSONALIZED"
+          ? "Generate application-specific interview questions based on the JD, saved evaluation criteria, and extracted resume text."
+          : "Generate review-only common interview question candidates based on the JD and saved evaluation criteria.",
         kind: input.kind,
         postingId: input.postingId,
         jobDescription: input.jobDescription,
         questionCount: input.questionCount,
         criteria: input.criteria,
+        resumeText: input.source === "RESUME_PERSONALIZED" ? input.resumeText : undefined,
+        avoidQuestions: input.avoidQuestions,
         outputContract: {
           questionCandidates: [
             {
@@ -161,6 +193,28 @@ export function buildQuestionMessages(input: QuestionGenerationInput): Array<{ r
       })
     }
   ];
+}
+
+export function questionQualityIssue(content: string, acceptedQuestions: string[] = []): string | null {
+  const normalized = normalizeText(content);
+  if (!normalized || normalized.length < 15) return "QUESTION_TOO_SHORT";
+  if (normalized.length > 180) return "QUESTION_TOO_LONG";
+  if (/<[^>]+>|&lt;|&gt;|blockquote|data-init-/i.test(normalized)) return "HTML_OR_EDITOR_MARKUP";
+  if (/^\s*(?:\[[^\]]+\]|공고명\s*:|회사명\s*:|직무\s*:)/i.test(normalized)) return "CONTEXT_PREFIX";
+
+  const canonical = canonicalQuestion(normalized);
+  if (acceptedQuestions.some((question) => canonicalQuestion(question) === canonical)) {
+    return "DUPLICATE_QUESTION";
+  }
+  if (acceptedQuestions.some((question) => tokenSimilarity(question, normalized) >= 0.82)) {
+    return "NEAR_DUPLICATE_QUESTION";
+  }
+
+  const ending = repeatedEnding(normalized);
+  if (ending && acceptedQuestions.filter((question) => repeatedEnding(question) === ending).length >= 2) {
+    return "REPEATED_QUESTION_ENDING";
+  }
+  return null;
 }
 
 function parseQuestionContent(content: string, input: QuestionGenerationInput): QuestionGenerationCandidate[] {
@@ -200,7 +254,7 @@ function normalizeCandidate(
   }
 
   return {
-    content: normalizeQuestion(content),
+    content: normalizeInterviewQuestionPunctuation(content),
     category: normalizeText(record.category) ?? criterion?.category ?? (mock ? "맞춤형 모의면접" : "공통 질문"),
     difficulty: difficultyOf(record.difficulty),
     criterionId: mock ? undefined : criterionId,
@@ -241,9 +295,29 @@ function normalizeText(value: unknown): string | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
-function normalizeQuestion(value: string): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized.endsWith("?") ? normalized : `${normalized}?`;
+function canonicalQuestion(value: string): string {
+  return value.toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
+}
+
+function tokenSimilarity(left: string, right: string): number {
+  const leftTokens = new Set(left.toLowerCase().match(/[0-9a-z가-힣]{2,}/g) ?? []);
+  const rightTokens = new Set(right.toLowerCase().match(/[0-9a-z가-힣]{2,}/g) ?? []);
+  if (leftTokens.size === 0 || rightTokens.size === 0) return 0;
+  const intersection = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  const union = new Set([...leftTokens, ...rightTokens]).size;
+  return union === 0 ? 0 : intersection / union;
+}
+
+function repeatedEnding(value: string): string | null {
+  const normalized = value.replace(/[?!.\s]+$/g, "");
+  const endings = [
+    "설명해주세요",
+    "설명해 주세요",
+    "말씀해주세요",
+    "말씀해 주세요",
+    "들려주세요",
+  ];
+  return endings.find((ending) => normalized.endsWith(ending)) ?? null;
 }
 
 function stringArrayOf(value: unknown): string[] {

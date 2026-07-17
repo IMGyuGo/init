@@ -150,7 +150,7 @@ function AuthRouteGuard({ children }: { children: ReactNode }) {
     if (status === "checking") return;
 
     if (routeAccess.kind === "protected" && status === "unauthenticated") {
-      router.replace("/login");
+      router.replace(routeAccess.loginPath);
       return;
     }
 

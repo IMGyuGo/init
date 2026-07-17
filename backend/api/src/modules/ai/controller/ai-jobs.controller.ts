@@ -20,14 +20,12 @@ import { DevAuthAdapter } from "../../../common/dev-auth/dev-auth.adapter";
 import { CurrentUser } from "../../../common/dev-auth/current-user";
 import { ApiDevAuthHeaders, ApiEnvelopeResponse, ApiErrorResponses, ApiOperationId, ApiParamId } from "../../../swagger/swagger.decorators";
 import {
-  CriteriaSuggestRequestDto,
   DocumentExtractRequestDto,
   FollowUpQuestionRequestDto,
   MockQuestionGenerateRequestDto,
   POSTING_DRAFT_INPUT_LIMITS,
   PostingDraftGenerateRequestDto,
   QuestionGenerateRequestDto,
-  QuestionSetGenerateRequestDto,
   SttRequestDto,
 } from "../dto/ai-job.dto";
 import { AiJobResponseDto } from "../../report/dto/report-response.dto";
@@ -37,6 +35,8 @@ import { AiProcessType, QueuedAiProcessSnapshot } from "../../report/report.type
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
 import { CandidateDomainError, CandidateService, type CandidateFolderContext, type CandidateProfileAiContextV1, type CurrentCandidateUser } from "../../candidate";
 import { InterviewService } from "../../interview";
+import { CompanyInterviewService } from "../../company-interview/company-interview.service";
+import { getValidationTextLength } from "../../../shared/api-validation";
 
 type HeaderMap = Record<string, string | string[] | undefined>;
 type CandidateAiRequest = {
@@ -377,7 +377,7 @@ export class CandidateAiJobsController {
 export class CompanyRecruitmentAiJobsController {
   constructor(
     @Inject(DevAuthAdapter) private readonly devAuthAdapter: DevAuthAdapter,
-    @Inject(AiJobDispatcherService) private readonly dispatcher: AiJobDispatcherService
+    @Inject(AiJobDispatcherService) private readonly dispatcher: AiJobDispatcherService,
   ) {}
 
   @Post("ai-draft")
@@ -451,7 +451,7 @@ export class CompanyRecruitmentAiJobsController {
   private requiredBoundedText(value: unknown, name: string, maxLength: number): string {
     this.requireText(value, name);
     const normalized = String(value).trim();
-    if (normalized.length > maxLength) {
+    if (getValidationTextLength(normalized) > maxLength) {
       throw this.validation(`${name} must be ${maxLength} characters or fewer.`);
     }
     return normalized;
@@ -468,7 +468,7 @@ export class CompanyRecruitmentAiJobsController {
     if (!normalized) {
       return undefined;
     }
-    if (normalized.length > maxLength) {
+    if (getValidationTextLength(normalized) > maxLength) {
       throw this.validation(`${name} must be ${maxLength} characters or fewer.`);
     }
     return normalized;
@@ -491,7 +491,7 @@ export class CompanyRecruitmentAiJobsController {
           throw this.validation(`keywords[${index}] must be a string.`);
         }
         const normalized = keyword.trim();
-        if (normalized.length > POSTING_DRAFT_INPUT_LIMITS.keywordMaxLength) {
+        if (getValidationTextLength(normalized) > POSTING_DRAFT_INPUT_LIMITS.keywordMaxLength) {
           throw this.validation(`keywords[${index}] must be ${POSTING_DRAFT_INPUT_LIMITS.keywordMaxLength} characters or fewer.`);
         }
         return normalized;
@@ -516,22 +516,9 @@ export class CompanyRecruitmentAiJobsController {
 export class CompanyAiJobsController {
   constructor(
     @Inject(DevAuthAdapter) private readonly devAuthAdapter: DevAuthAdapter,
-    @Inject(AiJobDispatcherService) private readonly dispatcher: AiJobDispatcherService
+    @Inject(AiJobDispatcherService) private readonly dispatcher: AiJobDispatcherService,
+    @Inject(CompanyInterviewService) private readonly companyInterviewService: CompanyInterviewService,
   ) {}
-
-  @Post("evaluation-criteria/suggest")
-  @HttpCode(HttpStatus.ACCEPTED)
-  @ApiOperationId("API-035")
-  @ApiOperation({ summary: "AI 평가 역량 태그 추천 작업 생성" })
-  @ApiEnvelopeResponse(AiJobResponseDto, 202)
-  async suggestCriteria(@Req() request: CompanyAiRequest, @Body() body: CriteriaSuggestRequestDto) {
-    this.requirePositive(body.postingId, "postingId");
-    this.requireText(body.jobDescription, "jobDescription");
-    this.requireText(body.talentProfile, "talentProfile");
-    this.requireText(body.evaluationPolicy, "evaluationPolicy");
-
-    return this.dispatchCompanyJob("CRITERIA_SUGGEST", "CRITERIA_SUGGEST", request, body);
-  }
 
   @Post("questions/generate")
   @HttpCode(HttpStatus.ACCEPTED)
@@ -539,26 +526,12 @@ export class CompanyAiJobsController {
   @ApiOperation({ summary: "JD 기반 직무 질문 생성 작업 생성" })
   @ApiEnvelopeResponse(AiJobResponseDto, 202)
   async generateQuestions(@Req() request: CompanyAiRequest, @Body() body: QuestionGenerateRequestDto) {
-    this.requirePositive(body.postingId, "postingId");
-    this.requireText(body.jobDescription, "jobDescription");
-    this.requirePositive(body.questionCount, "questionCount");
-    this.requireNonEmptyArray(body.criteria, "criteria");
-
-    return this.dispatchCompanyJob("QUESTION_GENERATE", "RECRUITING_QUESTION_GENERATE", request, body);
-  }
-
-  @Post("question-sets")
-  @HttpCode(HttpStatus.ACCEPTED)
-  @ApiOperationId("API-039")
-  @ApiOperation({ summary: "면접 질문 목록 구성 작업 생성" })
-  @ApiEnvelopeResponse(AiJobResponseDto, 202)
-  async generateQuestionSet(@Req() request: CompanyAiRequest, @Body() body: QuestionSetGenerateRequestDto) {
-    this.requirePositive(body.postingId, "postingId");
-    this.requirePositive(body.questionCount, "questionCount");
-    this.requireNonEmptyArray(body.criteria, "criteria");
-    this.requireNonEmptyArray(body.questionTypes, "questionTypes");
-
-    return this.dispatchCompanyJob("QUESTION_SET_GENERATE", "QUESTION_SET_GENERATE", request, body);
+    const currentUser = this.company(request);
+    const payload = await this.companyInterviewService.prepareCommonQuestionGeneration(
+      { ...currentUser, companyId: currentUser.companyId ?? null, candidateId: currentUser.candidateId ?? null },
+      body,
+    );
+    return this.dispatchCompanyJob("QUESTION_GENERATE", "RECRUITING_QUESTION_GENERATE", request, payload);
   }
 
   private async dispatchCompanyJob(processType: AiProcessType, kind: string, request: CompanyAiRequest, body: object) {

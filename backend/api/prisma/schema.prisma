@@ -122,6 +122,7 @@ enum AiProcessType {
   GUARDRAIL_VALIDATE
   CRITERIA_SUGGEST
   QUESTION_GENERATE
+  RESUME_QUESTION_GENERATE
   QUESTION_SET_GENERATE
   POSTING_DRAFT_GENERATE
 }
@@ -213,20 +214,20 @@ model User {
 }
 
 model Company {
-  companyId                  BigInt     @id @default(autoincrement()) @map("company_id")
-  ownerUserId                BigInt     @unique @map("owner_user_id")
-  name                       String     @db.VarChar(150)
-  businessRegistrationNumber String     @unique @map("business_registration_number") @db.VarChar(10)
-  verificationStatus         String     @map("verification_status") @db.VarChar(30)
-  logoFileId                 BigInt?    @map("logo_file_id")
-  industry                   String?    @db.VarChar(100)
+  companyId                  BigInt            @id @default(autoincrement()) @map("company_id")
+  ownerUserId                BigInt            @unique @map("owner_user_id")
+  name                       String            @db.VarChar(150)
+  businessRegistrationNumber String            @unique @map("business_registration_number") @db.VarChar(10)
+  verificationStatus         String            @map("verification_status") @db.VarChar(30)
+  logoFileId                 BigInt?           @map("logo_file_id")
+  industry                   String?           @db.VarChar(100)
   profile                    String?
-  talentProfile              String?    @map("talent_profile")
-  evaluationPolicy           String?    @map("evaluation_policy")
-  createdAt                  DateTime   @default(now()) @map("created_at")
-  updatedAt                  DateTime   @updatedAt @map("updated_at")
-  owner                      User       @relation("CompanyOwner", fields: [ownerUserId], references: [userId])
-  logoFile                   FileAsset? @relation("CompanyLogo", fields: [logoFileId], references: [fileId])
+  talentProfile              String?           @map("talent_profile")
+  evaluationPolicy           String?           @map("evaluation_policy")
+  createdAt                  DateTime          @default(now()) @map("created_at")
+  updatedAt                  DateTime          @updatedAt @map("updated_at")
+  owner                      User              @relation("CompanyOwner", fields: [ownerUserId], references: [userId])
+  logoFile                   FileAsset?        @relation("CompanyLogo", fields: [logoFileId], references: [fileId])
   postings                   Posting[]
   questions                  Question[]
   paymentCustomers           PaymentCustomer[]
@@ -236,42 +237,42 @@ model Company {
 }
 
 model FileAsset {
-  fileId            BigInt                @id @default(autoincrement()) @map("file_id")
-  ownerUserId       BigInt                @map("owner_user_id")
-  storageKey        String                @map("storage_key") @db.VarChar(500)
-  originalName      String                @map("original_name") @db.VarChar(255)
-  mimeType          String                @map("mime_type") @db.VarChar(100)
-  sizeBytes         BigInt                @map("size_bytes")
-  status            String                @db.VarChar(30)
-  createdAt         DateTime              @default(now()) @map("created_at")
-  owner             User                  @relation(fields: [ownerUserId], references: [userId])
-  companyLogos      Company[]             @relation("CompanyLogo")
-  candidateProfiles CandidateProfile[]
-  candidateFolders  CandidateFolder[]      @relation("CandidateFolderResume")
-  candidateFolderPortfolios CandidateFolder[] @relation("CandidateFolderPortfolio")
-  documents         ApplicationDocument[]
-  videoAnswers      InterviewAnswer[]     @relation("VideoFile")
-  audioAnswers      InterviewAnswer[]     @relation("AudioFile")
+  fileId                    BigInt                @id @default(autoincrement()) @map("file_id")
+  ownerUserId               BigInt                @map("owner_user_id")
+  storageKey                String                @map("storage_key") @db.VarChar(500)
+  originalName              String                @map("original_name") @db.VarChar(255)
+  mimeType                  String                @map("mime_type") @db.VarChar(100)
+  sizeBytes                 BigInt                @map("size_bytes")
+  status                    String                @db.VarChar(30)
+  createdAt                 DateTime              @default(now()) @map("created_at")
+  owner                     User                  @relation(fields: [ownerUserId], references: [userId])
+  companyLogos              Company[]             @relation("CompanyLogo")
+  candidateProfiles         CandidateProfile[]
+  candidateFolders          CandidateFolder[]     @relation("CandidateFolderResume")
+  candidateFolderPortfolios CandidateFolder[]     @relation("CandidateFolderPortfolio")
+  documents                 ApplicationDocument[]
+  videoAnswers              InterviewAnswer[]     @relation("VideoFile")
+  audioAnswers              InterviewAnswer[]     @relation("AudioFile")
 
   @@map("file_assets")
 }
 
 model CandidateProfile {
-  candidateId         BigInt             @id @default(autoincrement()) @map("candidate_id")
-  userId              BigInt             @unique @map("user_id")
-  defaultResumeFileId BigInt?            @map("default_resume_file_id")
-  portfolioUrl        String?            @map("portfolio_url") @db.VarChar(500)
-  githubUrl           String?            @map("github_url") @db.VarChar(500)
-  blogUrl             String?            @map("blog_url") @db.VarChar(500)
+  candidateId         BigInt                             @id @default(autoincrement()) @map("candidate_id")
+  userId              BigInt                             @unique @map("user_id")
+  defaultResumeFileId BigInt?                            @map("default_resume_file_id")
+  portfolioUrl        String?                            @map("portfolio_url") @db.VarChar(500)
+  githubUrl           String?                            @map("github_url") @db.VarChar(500)
+  blogUrl             String?                            @map("blog_url") @db.VarChar(500)
   summary             String?
-  coverLetter         String?            @map("cover_letter")
-  createdAt           DateTime           @default(now()) @map("created_at")
-  updatedAt           DateTime           @updatedAt @map("updated_at")
-  user                User               @relation(fields: [userId], references: [userId])
-  defaultResumeFile   FileAsset?         @relation(fields: [defaultResumeFileId], references: [fileId])
+  coverLetter         String?                            @map("cover_letter")
+  createdAt           DateTime                           @default(now()) @map("created_at")
+  updatedAt           DateTime                           @updatedAt @map("updated_at")
+  user                User                               @relation(fields: [userId], references: [userId])
+  defaultResumeFile   FileAsset?                         @relation(fields: [defaultResumeFileId], references: [fileId])
   applications        Application[]
   interviewSessions   InterviewSession[]
-  candidateFolders     CandidateFolder[]
+  candidateFolders    CandidateFolder[]
   mockPassLedgers     CandidateMockInterviewPassLedger[]
   paymentCustomers    PaymentCustomer[]
   paymentOrders       PaymentOrder[]
@@ -284,39 +285,39 @@ model CandidateProfile {
 }
 
 model CandidateEducation {
-  educationId   BigInt                   @id @default(autoincrement()) @map("education_id")
-  candidateId   BigInt                   @map("candidate_id")
-  sortOrder     Int                      @map("sort_order")
-  educationLevel CandidateEducationLevel @map("education_level")
-  schoolName    String                   @map("school_name") @db.VarChar(150)
-  major         String?                  @db.VarChar(150)
-  degreeType    CandidateDegreeType      @map("degree_type")
-  status        CandidateEducationStatus
-  startMonth    DateTime                 @map("start_month") @db.Date
-  endMonth      DateTime?                @map("end_month") @db.Date
-  createdAt     DateTime                 @default(now()) @map("created_at")
-  updatedAt     DateTime                 @updatedAt @map("updated_at")
-  candidate     CandidateProfile         @relation(fields: [candidateId], references: [candidateId], onDelete: Cascade)
+  educationId    BigInt                   @id @default(autoincrement()) @map("education_id")
+  candidateId    BigInt                   @map("candidate_id")
+  sortOrder      Int                      @map("sort_order")
+  educationLevel CandidateEducationLevel  @map("education_level")
+  schoolName     String                   @map("school_name") @db.VarChar(150)
+  major          String?                  @db.VarChar(150)
+  degreeType     CandidateDegreeType      @map("degree_type")
+  status         CandidateEducationStatus
+  startMonth     DateTime                 @map("start_month") @db.Date
+  endMonth       DateTime?                @map("end_month") @db.Date
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  updatedAt      DateTime                 @updatedAt @map("updated_at")
+  candidate      CandidateProfile         @relation(fields: [candidateId], references: [candidateId], onDelete: Cascade)
 
   @@unique([candidateId, sortOrder], map: "uk_candidate_educations_order")
   @@map("candidate_educations")
 }
 
 model CandidateCareer {
-  careerId        BigInt           @id @default(autoincrement()) @map("career_id")
-  candidateId     BigInt           @map("candidate_id")
-  sortOrder       Int              @map("sort_order")
-  companyName     String           @map("company_name") @db.VarChar(150)
-  startMonth      DateTime         @map("start_month") @db.Date
-  endMonth        DateTime?        @map("end_month") @db.Date
-  isCurrent       Boolean          @map("is_current")
-  jobRole         String           @map("job_role") @db.VarChar(100)
-  department      String?          @db.VarChar(100)
-  position        String?          @db.VarChar(100)
-  responsibilities String          @db.VarChar(1000)
-  createdAt       DateTime         @default(now()) @map("created_at")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
-  candidate       CandidateProfile @relation(fields: [candidateId], references: [candidateId], onDelete: Cascade)
+  careerId         BigInt           @id @default(autoincrement()) @map("career_id")
+  candidateId      BigInt           @map("candidate_id")
+  sortOrder        Int              @map("sort_order")
+  companyName      String           @map("company_name") @db.VarChar(150)
+  startMonth       DateTime         @map("start_month") @db.Date
+  endMonth         DateTime?        @map("end_month") @db.Date
+  isCurrent        Boolean          @map("is_current")
+  jobRole          String           @map("job_role") @db.VarChar(100)
+  department       String?          @db.VarChar(100)
+  position         String?          @db.VarChar(100)
+  responsibilities String           @db.VarChar(1000)
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  candidate        CandidateProfile @relation(fields: [candidateId], references: [candidateId], onDelete: Cascade)
 
   @@unique([candidateId, sortOrder], map: "uk_candidate_careers_order")
   @@map("candidate_careers")
@@ -358,112 +359,138 @@ model CandidateCredential {
 }
 
 model CandidateFolder {
-  id            BigInt           @id @default(autoincrement())
-  candidateId   BigInt           @map("candidate_id")
-  name          String           @db.VarChar(100)
-  githubUrl     String?          @map("github_url") @db.VarChar(500)
-  blogUrl       String?          @map("blog_url") @db.VarChar(500)
-  portfolioUrl  String?          @map("portfolio_url") @db.VarChar(500)
-  resumeFileId  BigInt?          @map("resume_file_id")
-  portfolioFileId BigInt?        @map("portfolio_file_id")
-  motivation    String?
-  extraNote     String?          @map("extra_note")
-  profileSnapshot Json?          @map("profile_snapshot")
-  createdAt     DateTime         @default(now()) @map("created_at")
-  updatedAt     DateTime         @updatedAt @map("updated_at")
-  candidate     CandidateProfile @relation(fields: [candidateId], references: [candidateId], onDelete: Cascade)
-  resumeFile    FileAsset?       @relation("CandidateFolderResume", fields: [resumeFileId], references: [fileId], onDelete: SetNull)
-  portfolioFile FileAsset?       @relation("CandidateFolderPortfolio", fields: [portfolioFileId], references: [fileId], onDelete: SetNull)
+  id              BigInt           @id @default(autoincrement())
+  candidateId     BigInt           @map("candidate_id")
+  name            String           @db.VarChar(100)
+  githubUrl       String?          @map("github_url") @db.VarChar(500)
+  blogUrl         String?          @map("blog_url") @db.VarChar(500)
+  portfolioUrl    String?          @map("portfolio_url") @db.VarChar(500)
+  resumeFileId    BigInt?          @map("resume_file_id")
+  portfolioFileId BigInt?          @map("portfolio_file_id")
+  motivation      String?
+  extraNote       String?          @map("extra_note")
+  profileSnapshot Json?            @map("profile_snapshot")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  candidate       CandidateProfile @relation(fields: [candidateId], references: [candidateId], onDelete: Cascade)
+  resumeFile      FileAsset?       @relation("CandidateFolderResume", fields: [resumeFileId], references: [fileId], onDelete: SetNull)
+  portfolioFile   FileAsset?       @relation("CandidateFolderPortfolio", fields: [portfolioFileId], references: [fileId], onDelete: SetNull)
 
   @@index([candidateId], map: "idx_candidate_folders_candidate_id")
   @@map("candidate_folders")
 }
 
 model Posting {
-  postingId            BigInt                 @id @default(autoincrement()) @map("posting_id")
-  companyId            BigInt                 @map("company_id")
-  title                String                 @db.VarChar(200)
-  jobRole              String                 @map("job_role") @db.VarChar(100)
-  jobDescription       String?                @map("job_description")
-  careerRequirement    String?                @map("career_requirement") @db.VarChar(150)
-  educationRequirement String?                @map("education_requirement") @db.VarChar(150)
-  salaryInfo           String?                @map("salary_info") @db.VarChar(150)
-  workLocation         String?                @map("work_location") @db.VarChar(150)
-  employmentType       String?                @map("employment_type") @db.VarChar(150)
+  postingId                BigInt                             @id @default(autoincrement()) @map("posting_id")
+  companyId                BigInt                             @map("company_id")
+  title                    String                             @db.VarChar(200)
+  jobRole                  String                             @map("job_role") @db.VarChar(100)
+  jobDescription           String?                            @map("job_description")
+  careerRequirement        String?                            @map("career_requirement") @db.VarChar(150)
+  educationRequirement     String?                            @map("education_requirement") @db.VarChar(150)
+  salaryInfo               String?                            @map("salary_info") @db.VarChar(150)
+  workLocation             String?                            @map("work_location") @db.VarChar(150)
+  employmentType           String?                            @map("employment_type") @db.VarChar(150)
   // 지원자 필터용 구조화 필드(한글 라벨 코드). 값 검증은 애플리케이션단(IsIn)에서 수행.
-  jobRoleCode          String?                @map("job_role_code") @db.VarChar(50)
-  regionCode           String?                @map("region_code") @db.VarChar(30)
-  careerMinYears       Int?                   @map("career_min_years")
-  careerMaxYears       Int?                   @map("career_max_years")
-  employmentTypeCode   String?                @map("employment_type_code") @db.VarChar(20)
-  recruitmentType      String?                @map("recruitment_type") @db.VarChar(20)
+  jobRoleCode              String?                            @map("job_role_code") @db.VarChar(50)
+  regionCode               String?                            @map("region_code") @db.VarChar(30)
+  careerMinYears           Int?                               @map("career_min_years")
+  careerMaxYears           Int?                               @map("career_max_years")
+  employmentTypeCode       String?                            @map("employment_type_code") @db.VarChar(20)
+  recruitmentType          String?                            @map("recruitment_type") @db.VarChar(20)
   // 회사 위치: 도로명 주소 + 위경도(지원자 공고 상세 지도 핀용). 좌표는 프론트 geocoder 로 채워 저장.
-  workplaceAddress     String?                @map("workplace_address") @db.VarChar(300)
-  workplaceLat         Float?                 @map("workplace_lat")
-  workplaceLng         Float?                 @map("workplace_lng")
-  startsOn             DateTime?              @map("starts_on") @db.Date
-  endsOn               DateTime?              @map("ends_on") @db.Date
-  status               PostingStatus          @default(DRAFT)
-  createdAt            DateTime               @default(now()) @map("created_at")
-  updatedAt            DateTime               @updatedAt @map("updated_at")
-  company              Company                @relation(fields: [companyId], references: [companyId])
-  criteria             EvaluationCriterion[]
-  questions            Question[]
-  applications         Application[]
-  questionSets         InterviewQuestionSet[]
-  timePolicy           InterviewTimePolicy?
+  workplaceAddress         String?                            @map("workplace_address") @db.VarChar(300)
+  workplaceLat             Float?                             @map("workplace_lat")
+  workplaceLng             Float?                             @map("workplace_lng")
+  startsOn                 DateTime?                          @map("starts_on") @db.Date
+  endsOn                   DateTime?                          @map("ends_on") @db.Date
+  status                   PostingStatus                      @default(DRAFT)
+  createdAt                DateTime                           @default(now()) @map("created_at")
+  updatedAt                DateTime                           @updatedAt @map("updated_at")
+  company                  Company                            @relation(fields: [companyId], references: [companyId])
+  criteria                 EvaluationCriterion[]
+  questions                Question[]
+  applications             Application[]
+  questionSets             InterviewQuestionSet[]
+  timePolicy               InterviewTimePolicy?
+  questionGenerationPolicy InterviewQuestionGenerationPolicy?
 
   @@index([companyId, status])
   @@map("postings")
 }
 
 model CriterionTag {
-  tagId       BigInt                @id @default(autoincrement()) @map("tag_id")
-  jobRole     String                @map("job_role") @db.VarChar(100)
-  name        String                @db.VarChar(100)
-  description String?
-  category    String                @db.VarChar(80)
-  isActive    Boolean               @default(true) @map("is_active")
-  sortOrder   Int                   @map("sort_order")
-  criteria    EvaluationCriterion[]
+  tagId                  BigInt                @id @default(autoincrement()) @map("tag_id")
+  jobRole                String                @map("job_role") @db.VarChar(100)
+  name                   String                @db.VarChar(100)
+  description            String?
+  category               String                @db.VarChar(80)
+  isActive               Boolean               @default(true) @map("is_active")
+  sortOrder              Int                   @map("sort_order")
+  ncsProfileId           String?               @map("ncs_profile_id") @db.VarChar(50)
+  defaultNcsQuestionMode String?               @map("default_ncs_question_mode") @db.VarChar(50)
+  ncsProfileVersion      String?               @map("ncs_profile_version") @db.VarChar(80)
+  criteria               EvaluationCriterion[]
 
   @@map("criterion_tags")
 }
 
 model EvaluationCriterion {
-  criterionId      BigInt                     @id @default(autoincrement()) @map("criterion_id")
-  postingId        BigInt                     @map("posting_id")
-  tagId            BigInt                     @map("tag_id")
-  description      String?
-  weight           Int
-  passScore        Int?                       @map("pass_score")
-  sortOrder        Int                        @map("sort_order")
-  posting          Posting                    @relation(fields: [postingId], references: [postingId])
-  tag              CriterionTag               @relation(fields: [tagId], references: [tagId])
-  questions        Question[]
-  reportScores     ReportScore[]
-  questionSetItems InterviewQuestionSetItem[]
+  criterionId            BigInt                          @id @default(autoincrement()) @map("criterion_id")
+  postingId              BigInt                          @map("posting_id")
+  tagId                  BigInt                          @map("tag_id")
+  description            String?
+  weight                 Int
+  passScore              Int?                            @map("pass_score")
+  sortOrder              Int                             @map("sort_order")
+  ncsProfileId           String?                         @map("ncs_profile_id") @db.VarChar(50)
+  ncsQuestionMode        String?                         @map("ncs_question_mode") @db.VarChar(50)
+  ncsProfileVersion      String?                         @map("ncs_profile_version") @db.VarChar(80)
+  posting                Posting                         @relation(fields: [postingId], references: [postingId])
+  tag                    CriterionTag                    @relation(fields: [tagId], references: [tagId])
+  questions              Question[]
+  reportScores           ReportScore[]
+  questionSetItems       InterviewQuestionSetItem[]
+  personalizedQuestions  ApplicationInterviewQuestion[]
+  sessionQuestions       InterviewSessionQuestion[]
+  ncsAnswerEvaluations   NcsAnswerEvaluation[]
+  questionNcsBindings    QuestionNcsBinding[]
+  applicationNcsBindings ApplicationQuestionNcsBinding[]
+  sessionNcsBindings     SessionQuestionNcsBinding[]
+  sessionNcsPolicies     InterviewSessionNcsPolicy[]
 
   @@map("evaluation_criteria")
 }
 
 model Question {
-  questionId       BigInt                     @id @default(autoincrement()) @map("question_id")
-  companyId        BigInt                     @map("company_id")
-  postingId        BigInt?                    @map("posting_id")
-  criterionId      BigInt?                    @map("criterion_id")
-  questionType     QuestionType               @map("question_type")
-  content          String
-  origin           QuestionOrigin             @default(MANUAL)
-  isAiEdited       Boolean                    @default(false) @map("is_ai_edited")
-  isActive         Boolean                    @default(true) @map("is_active")
-  company          Company                    @relation(fields: [companyId], references: [companyId])
-  posting          Posting?                   @relation(fields: [postingId], references: [postingId])
-  criterion        EvaluationCriterion?       @relation(fields: [criterionId], references: [criterionId])
-  answers          InterviewAnswer[]
-  questionSetItems InterviewQuestionSetItem[]
-  sessionQuestions InterviewSessionQuestion[]
+  questionId         BigInt                     @id @default(autoincrement()) @map("question_id")
+  companyId          BigInt                     @map("company_id")
+  postingId          BigInt?                    @map("posting_id")
+  criterionId        BigInt?                    @map("criterion_id")
+  questionType       QuestionType               @map("question_type")
+  content            String
+  origin             QuestionOrigin             @default(MANUAL)
+  isAiEdited         Boolean                    @default(false) @map("is_ai_edited")
+  isActive           Boolean                    @default(true) @map("is_active")
+  generationSource   String?                    @map("generation_source") @db.VarChar(50)
+  ncsProfileId       String?                    @map("ncs_profile_id") @db.VarChar(50)
+  ncsQuestionMode    String?                    @map("ncs_question_mode") @db.VarChar(50)
+  ncsProfileVersion  String?                    @map("ncs_profile_version") @db.VarChar(80)
+  alignmentStatus    String?                    @map("alignment_status") @db.VarChar(40)
+  alignmentScore     Decimal?                   @map("alignment_score") @db.Decimal(8, 6)
+  alignmentReason    String?                    @map("alignment_reason")
+  evaluatorVersion   String?                    @map("evaluator_version") @db.VarChar(80)
+  sourceProcessLogId BigInt?                    @map("source_process_log_id")
+  company            Company                    @relation(fields: [companyId], references: [companyId])
+  posting            Posting?                   @relation(fields: [postingId], references: [postingId])
+  criterion          EvaluationCriterion?       @relation(fields: [criterionId], references: [criterionId])
+  sourceProcessLog   AiProcessLog?              @relation(fields: [sourceProcessLogId], references: [processLogId], onDelete: SetNull)
+  answers            InterviewAnswer[]
+  questionSetItems   InterviewQuestionSetItem[]
+  sessionQuestions   InterviewSessionQuestion[]
+  ncsBindings        QuestionNcsBinding[]
 
+  @@index([sourceProcessLogId], map: "idx_question_bank_source_process_log")
   @@map("question_bank")
 }
 
@@ -509,36 +536,106 @@ model InterviewTimePolicy {
   @@map("interview_time_policies")
 }
 
+model InterviewQuestionGenerationPolicy {
+  postingId               BigInt   @id @map("posting_id")
+  evaluationFramework     String   @default("LEGACY") @map("evaluation_framework") @db.VarChar(50)
+  jdCriteriaQuestionCount Int      @default(0) @map("jd_criteria_question_count")
+  resumeQuestionCount     Int      @default(0) @map("resume_question_count")
+  policyVersion           Int      @default(0) @map("policy_version")
+  criteriaVersion         Int      @default(0) @map("criteria_version")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+  posting                 Posting  @relation(fields: [postingId], references: [postingId], onDelete: Cascade)
+
+  @@map("interview_question_generation_policies")
+}
+
+model ApplicationInterviewQuestionBatch {
+  batchId            BigInt                         @id @default(autoincrement()) @map("batch_id")
+  applicationId      BigInt                         @map("application_id")
+  latestProcessLogId BigInt                         @map("latest_process_log_id")
+  status             String                         @db.VarChar(40)
+  policyVersion      Int                            @map("policy_version")
+  criteriaVersion    Int                            @map("criteria_version")
+  inputVersion       String                         @map("input_version") @db.VarChar(128)
+  resumeDocumentHash String                         @map("resume_document_hash") @db.VarChar(128)
+  jdSnapshotHash     String                         @map("jd_snapshot_hash") @db.VarChar(128)
+  evaluatorVersion   String?                        @map("evaluator_version") @db.VarChar(80)
+  failureReason      String?                        @map("failure_reason")
+  attemptCount       Int                            @default(1) @map("attempt_count")
+  createdAt          DateTime                       @default(now()) @map("created_at")
+  updatedAt          DateTime                       @updatedAt @map("updated_at")
+  application        Application                    @relation(fields: [applicationId], references: [applicationId], onDelete: Cascade)
+  latestProcessLog   AiProcessLog                   @relation("LatestResumeQuestionProcess", fields: [latestProcessLogId], references: [processLogId], onDelete: Restrict)
+  questions          ApplicationInterviewQuestion[]
+
+  @@unique([applicationId, policyVersion, criteriaVersion, jdSnapshotHash, resumeDocumentHash], map: "uq_application_interview_question_batches_business")
+  @@index([applicationId, status], map: "idx_application_interview_question_batches_status")
+  @@index([latestProcessLogId], map: "idx_application_interview_question_batches_process")
+  @@map("application_interview_question_batches")
+}
+
+model ApplicationInterviewQuestion {
+  personalizedQuestionId BigInt                            @id @default(autoincrement()) @map("personalized_question_id")
+  batchId                BigInt                            @map("batch_id")
+  criterionId            BigInt?                           @map("criterion_id")
+  sourceProcessLogId     BigInt                            @map("source_process_log_id")
+  criterionTitleSnapshot String                            @map("criterion_title_snapshot") @db.VarChar(200)
+  source                 String                            @default("RESUME_PERSONALIZED") @db.VarChar(50)
+  questionType           QuestionType                      @map("question_type")
+  content                String
+  ncsProfileId           String                            @map("ncs_profile_id") @db.VarChar(50)
+  ncsQuestionMode        String                            @map("ncs_question_mode") @db.VarChar(50)
+  ncsProfileVersion      String                            @map("ncs_profile_version") @db.VarChar(80)
+  alignmentStatus        String                            @map("alignment_status") @db.VarChar(40)
+  alignmentScore         Decimal?                          @map("alignment_score") @db.Decimal(8, 6)
+  alignmentReason        String?                           @map("alignment_reason")
+  evaluatorVersion       String?                           @map("evaluator_version") @db.VarChar(80)
+  sortOrder              Int                               @map("sort_order")
+  createdAt              DateTime                          @default(now()) @map("created_at")
+  batch                  ApplicationInterviewQuestionBatch @relation(fields: [batchId], references: [batchId], onDelete: Cascade)
+  criterion              EvaluationCriterion?              @relation(fields: [criterionId], references: [criterionId], onDelete: SetNull)
+  sourceProcessLog       AiProcessLog                      @relation("ResumeQuestionSourceProcess", fields: [sourceProcessLogId], references: [processLogId], onDelete: Restrict)
+  sessionQuestions       InterviewSessionQuestion[]
+  ncsBindings            ApplicationQuestionNcsBinding[]
+
+  @@unique([batchId, sortOrder], map: "uq_application_interview_questions_order")
+  @@index([criterionId], map: "idx_application_interview_questions_criterion")
+  @@index([sourceProcessLogId], map: "idx_application_interview_questions_process")
+  @@map("application_interview_questions")
+}
+
 model Application {
-  applicationId         BigInt                 @id @default(autoincrement()) @map("application_id")
-  postingId             BigInt                 @map("posting_id")
-  candidateId           BigInt                 @map("candidate_id")
-  applicantName         String?                @map("applicant_name") @db.VarChar(100)
-  applicantEmail        String?                @map("applicant_email") @db.VarChar(255)
-  applicantPhone        String?                @map("applicant_phone") @db.VarChar(50)
-  githubUrl             String?                @map("github_url") @db.VarChar(500)
-  blogUrl               String?                @map("blog_url") @db.VarChar(500)
-  portfolioUrl          String?                @map("portfolio_url") @db.VarChar(500)
-  motivation            String?
-  additionalInfo        String?                @map("additional_info")
-  profileSnapshot       Json?                  @map("profile_snapshot")
-  applicationStatus     ApplicationStatus      @default(SUBMITTED) @map("application_status")
-  documentStatus        DocumentStatus         @default(NOT_SUBMITTED) @map("document_status")
-  interviewStatus       InterviewStatus        @default(NOT_READY) @map("interview_status")
-  reportStatus          ReportStatus           @default(PENDING) @map("report_status")
-  screeningDecision     ScreeningDecision?     @default(UNDECIDED) @map("screening_decision")
-  screeningMemo         String?                @map("screening_memo")
-  submittedAt           DateTime?              @map("submitted_at")
-  updatedAt             DateTime               @updatedAt @map("updated_at")
-  posting               Posting                @relation(fields: [postingId], references: [postingId])
-  candidate             CandidateProfile       @relation(fields: [candidateId], references: [candidateId])
-  documents             ApplicationDocument[]
-  consentRecords        ConsentRecord[]
-  interviewSessions     InterviewSession[]
-  evaluationReports     EvaluationReport[]
-  notifications         Notification[]
-  aiProcessLogs         AiProcessLog[]
-  clientPerformanceLogs ClientPerformanceLog[]
+  applicationId            BigInt                              @id @default(autoincrement()) @map("application_id")
+  postingId                BigInt                              @map("posting_id")
+  candidateId              BigInt                              @map("candidate_id")
+  applicantName            String?                             @map("applicant_name") @db.VarChar(100)
+  applicantEmail           String?                             @map("applicant_email") @db.VarChar(255)
+  applicantPhone           String?                             @map("applicant_phone") @db.VarChar(50)
+  githubUrl                String?                             @map("github_url") @db.VarChar(500)
+  blogUrl                  String?                             @map("blog_url") @db.VarChar(500)
+  portfolioUrl             String?                             @map("portfolio_url") @db.VarChar(500)
+  motivation               String?
+  additionalInfo           String?                             @map("additional_info")
+  profileSnapshot          Json?                               @map("profile_snapshot")
+  applicationStatus        ApplicationStatus                   @default(SUBMITTED) @map("application_status")
+  documentStatus           DocumentStatus                      @default(NOT_SUBMITTED) @map("document_status")
+  interviewStatus          InterviewStatus                     @default(NOT_READY) @map("interview_status")
+  reportStatus             ReportStatus                        @default(PENDING) @map("report_status")
+  screeningDecision        ScreeningDecision?                  @default(UNDECIDED) @map("screening_decision")
+  screeningMemo            String?                             @map("screening_memo")
+  submittedAt              DateTime?                           @map("submitted_at")
+  updatedAt                DateTime                            @updatedAt @map("updated_at")
+  posting                  Posting                             @relation(fields: [postingId], references: [postingId])
+  candidate                CandidateProfile                    @relation(fields: [candidateId], references: [candidateId])
+  documents                ApplicationDocument[]
+  consentRecords           ConsentRecord[]
+  interviewSessions        InterviewSession[]
+  evaluationReports        EvaluationReport[]
+  notifications            Notification[]
+  aiProcessLogs            AiProcessLog[]
+  clientPerformanceLogs    ClientPerformanceLog[]
+  interviewQuestionBatches ApplicationInterviewQuestionBatch[]
 
   @@unique([postingId, candidateId])
   @@index([postingId, applicationStatus])
@@ -571,43 +668,89 @@ model ConsentRecord {
 }
 
 model InterviewSession {
-  sessionId             BigInt                             @id @default(autoincrement()) @map("session_id")
-  applicationId         BigInt?                            @map("application_id")
-  candidateId           BigInt                             @map("candidate_id")
-  interviewType         InterviewType                      @map("interview_type")
-  title                 String?                            @db.VarChar(100)
-  status                InterviewStatus                    @default(NOT_READY)
-  showQuestionText      Boolean                            @default(false) @map("show_question_text")
-  startedAt             DateTime?                          @map("started_at")
-  completedAt           DateTime?                          @map("completed_at")
-  application           Application?                       @relation(fields: [applicationId], references: [applicationId])
-  candidate             CandidateProfile                   @relation(fields: [candidateId], references: [candidateId])
-  answers               InterviewAnswer[]
-  sessionQuestions      InterviewSessionQuestion[]
-  evaluationReports     EvaluationReport[]
-  aiProcessLogs         AiProcessLog[]
-  clientPerformanceLogs ClientPerformanceLog[]
-  mockPassUsages        CandidateMockInterviewPassLedger[]
+  sessionId                  BigInt                             @id @default(autoincrement()) @map("session_id")
+  applicationId              BigInt?                            @map("application_id")
+  candidateId                BigInt                             @map("candidate_id")
+  interviewType              InterviewType                      @map("interview_type")
+  title                      String?                            @db.VarChar(100)
+  status                     InterviewStatus                    @default(NOT_READY)
+  showQuestionText           Boolean                            @default(false) @map("show_question_text")
+  preparationTimeSecSnapshot Int?                               @map("preparation_time_sec_snapshot")
+  answerTimeSecSnapshot      Int?                               @map("answer_time_sec_snapshot")
+  retryAllowedSnapshot       Boolean?                           @map("retry_allowed_snapshot")
+  ncsScoringVersion          String?                            @map("ncs_scoring_version") @db.VarChar(80)
+  startedAt                  DateTime?                          @map("started_at")
+  completedAt                DateTime?                          @map("completed_at")
+  deletedAt                  DateTime?                          @map("deleted_at")
+  application                Application?                       @relation(fields: [applicationId], references: [applicationId])
+  candidate                  CandidateProfile                   @relation(fields: [candidateId], references: [candidateId])
+  answers                    InterviewAnswer[]
+  sessionQuestions           InterviewSessionQuestion[]
+  ncsProfilePolicies         InterviewSessionNcsPolicy[]
+  evaluationReports          EvaluationReport[]
+  aiProcessLogs              AiProcessLog[]
+  clientPerformanceLogs      ClientPerformanceLog[]
+  mockPassUsages             CandidateMockInterviewPassLedger[]
 
+  @@index([candidateId, interviewType, deletedAt], map: "idx_interview_sessions_candidate_type_deleted")
   @@map("interview_sessions")
 }
 
+model InterviewSessionNcsPolicy {
+  sessionId              BigInt               @map("session_id")
+  ncsProfileId           String               @map("ncs_profile_id") @db.VarChar(50)
+  criterionId            BigInt?              @map("criterion_id")
+  criterionTitleSnapshot String               @map("criterion_title_snapshot") @db.VarChar(200)
+  weight                 Int
+  minimumAverageScore    Decimal              @default(3) @map("minimum_average_score") @db.Decimal(5, 2)
+  requiredQuestionCount  Int                  @default(2) @map("required_question_count")
+  ncsProfileVersion      String               @map("ncs_profile_version") @db.VarChar(80)
+  session                InterviewSession     @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
+  criterion              EvaluationCriterion? @relation(fields: [criterionId], references: [criterionId], onDelete: SetNull)
+
+  @@id([sessionId, ncsProfileId])
+  @@index([criterionId], map: "idx_interview_session_ncs_policies_criterion")
+  @@map("interview_session_ncs_policies")
+}
+
 model InterviewSessionQuestion {
-  sessionQuestionId BigInt            @id @default(autoincrement()) @map("session_question_id")
-  sessionId         BigInt            @map("session_id")
-  questionId        BigInt?           @map("question_id")
-  runtimeQuestionId BigInt?           @unique(map: "uq_interview_session_questions_runtime_question") @map("runtime_question_id")
-  questionType      QuestionType?     @map("question_type")
-  content           String?
-  sortOrder         Int               @map("sort_order")
-  createdAt         DateTime          @default(now()) @map("created_at")
-  session           InterviewSession  @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
-  question          Question?         @relation(fields: [questionId], references: [questionId], onDelete: Restrict)
-  answers           InterviewAnswer[]
+  sessionQuestionId      BigInt                        @id @default(autoincrement()) @map("session_question_id")
+  sessionId              BigInt                        @map("session_id")
+  questionId             BigInt?                       @map("question_id")
+  personalizedQuestionId BigInt?                       @map("personalized_question_id")
+  runtimeQuestionId      BigInt?                       @unique(map: "uq_interview_session_questions_runtime_question") @map("runtime_question_id")
+  criterionId            BigInt?                       @map("criterion_id")
+  criterionTitleSnapshot String?                       @map("criterion_title_snapshot") @db.VarChar(200)
+  generationSource       String?                       @map("generation_source") @db.VarChar(50)
+  questionType           QuestionType?                 @map("question_type")
+  content                String?
+  ncsProfileId           String?                       @map("ncs_profile_id") @db.VarChar(50)
+  ncsQuestionMode        String?                       @map("ncs_question_mode") @db.VarChar(50)
+  ncsProfileVersion      String?                       @map("ncs_profile_version") @db.VarChar(80)
+  alignmentStatus        String?                       @map("alignment_status") @db.VarChar(40)
+  alignmentScore         Decimal?                      @map("alignment_score") @db.Decimal(8, 6)
+  alignmentReason        String?                       @map("alignment_reason")
+  evaluatorVersion       String?                       @map("evaluator_version") @db.VarChar(80)
+  policyVersion          Int?                          @map("policy_version")
+  criteriaVersion        Int?                          @map("criteria_version")
+  sortOrder              Int                           @map("sort_order")
+  createdAt              DateTime                      @default(now()) @map("created_at")
+  session                InterviewSession              @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
+  question               Question?                     @relation(fields: [questionId], references: [questionId], onDelete: Restrict)
+  personalizedQuestion   ApplicationInterviewQuestion? @relation(fields: [personalizedQuestionId], references: [personalizedQuestionId], onDelete: SetNull)
+  criterion              EvaluationCriterion?          @relation(fields: [criterionId], references: [criterionId], onDelete: SetNull)
+  answers                InterviewAnswer[]
+  ncsAnswerEvaluations   NcsAnswerEvaluation[]
+  ncsBindings            SessionQuestionNcsBinding[]
+  sourcedFollowUps       FollowUpQuestion[]            @relation("FollowUpSourceSessionQuestion")
+  insertedFollowUp       FollowUpQuestion?             @relation("FollowUpInsertedSessionQuestion")
 
   @@unique([sessionId, questionId], map: "uq_interview_session_questions_question")
+  @@unique([sessionId, personalizedQuestionId], map: "uq_interview_session_questions_personalized")
   @@unique([sessionId, sortOrder], map: "uq_interview_session_questions_order")
   @@index([questionId], map: "idx_interview_session_questions_question")
+  @@index([personalizedQuestionId], map: "idx_interview_session_questions_personalized")
+  @@index([criterionId], map: "idx_interview_session_questions_criterion")
   @@map("interview_session_questions")
 }
 
@@ -624,78 +767,294 @@ model CandidateMockInterviewPassLedger {
   paymentOrder   PaymentOrder?     @relation(fields: [paymentOrderId], references: [paymentOrderId])
   usedSession    InterviewSession? @relation(fields: [usedSessionId], references: [sessionId])
 
+  @@unique([paymentOrderId], map: "uk_candidate_mock_pass_payment_order")
   @@index([candidateId, createdAt], map: "idx_candidate_mock_pass_candidate_created")
   @@index([candidateId, expiresAt], map: "idx_candidate_mock_pass_candidate_expires")
-  @@unique([paymentOrderId], map: "uk_candidate_mock_pass_payment_order")
   @@map("candidate_mock_interview_pass_ledgers")
 }
 
 model InterviewAnswer {
-  answerId          BigInt             @id @default(autoincrement()) @map("answer_id")
-  sessionId         BigInt             @map("session_id")
-  questionId        BigInt?            @map("question_id")
-  sessionQuestionId BigInt?            @map("session_question_id")
-  videoFileId       BigInt?            @map("video_file_id")
-  audioFileId       BigInt?            @map("audio_file_id")
-  transcript        String?
-  nonverbalMetadata Json?              @map("nonverbal_metadata")
-  durationSeconds   Int?               @map("duration_seconds")
-  submittedAt       DateTime?          @map("submitted_at")
-  session           InterviewSession   @relation(fields: [sessionId], references: [sessionId])
-  question          Question?          @relation(fields: [questionId], references: [questionId])
-  sessionQuestion   InterviewSessionQuestion? @relation(fields: [sessionQuestionId], references: [sessionQuestionId], onDelete: SetNull)
-  videoFile         FileAsset?         @relation("VideoFile", fields: [videoFileId], references: [fileId])
-  audioFile         FileAsset?         @relation("AudioFile", fields: [audioFileId], references: [fileId])
-  followUpQuestions FollowUpQuestion[]
-  reportEvidences   ReportEvidence[]
+  answerId               BigInt                        @id @default(autoincrement()) @map("answer_id")
+  sessionId              BigInt                        @map("session_id")
+  questionId             BigInt?                       @map("question_id")
+  sessionQuestionId      BigInt?                       @map("session_question_id")
+  videoFileId            BigInt?                       @map("video_file_id")
+  audioFileId            BigInt?                       @map("audio_file_id")
+  transcript             String?
+  nonverbalMetadata      Json?                         @map("nonverbal_metadata")
+  durationSeconds        Int?                          @map("duration_seconds")
+  submittedAt            DateTime?                     @map("submitted_at")
+  session                InterviewSession              @relation(fields: [sessionId], references: [sessionId])
+  question               Question?                     @relation(fields: [questionId], references: [questionId])
+  sessionQuestion        InterviewSessionQuestion?     @relation(fields: [sessionQuestionId], references: [sessionQuestionId], onDelete: SetNull)
+  videoFile              FileAsset?                    @relation("VideoFile", fields: [videoFileId], references: [fileId])
+  audioFile              FileAsset?                    @relation("AudioFile", fields: [audioFileId], references: [fileId])
+  followUpQuestions      FollowUpQuestion[]
+  reportEvidences        ReportEvidence[]
+  ncsAnswerEvaluations   NcsAnswerEvaluation[]
+  ncsEvaluationEvidences NcsAnswerEvaluationEvidence[]
+  answerFactCheckRuns    AnswerFactCheckRun[]          @relation("FactCheckBaseAnswer")
+  followUpFactCheckRuns  AnswerFactCheckRun[]          @relation("FactCheckFollowUpAnswer")
 
   @@index([sessionQuestionId], map: "idx_interview_answers_session_question")
   @@map("interview_answers")
 }
 
 model FollowUpQuestion {
-  followUpId       BigInt          @id @default(autoincrement()) @map("follow_up_id")
-  answerId         BigInt          @map("answer_id")
-  content          String
-  generationStatus String          @map("generation_status") @db.VarChar(40)
-  policy           String          @default("RECRUITING") @db.VarChar(40)
-  createdAt        DateTime        @default(now()) @map("created_at")
-  answer           InterviewAnswer @relation(fields: [answerId], references: [answerId])
+  followUpId                BigInt                    @id @default(autoincrement()) @map("follow_up_id")
+  answerId                  BigInt                    @map("answer_id")
+  sourceSessionQuestionId   BigInt?                   @map("source_session_question_id")
+  insertedSessionQuestionId BigInt?                   @unique(map: "uq_follow_up_questions_inserted_session_question") @map("inserted_session_question_id")
+  content                   String
+  generationStatus          String                    @map("generation_status") @db.VarChar(40)
+  policy                    String                    @default("RECRUITING") @db.VarChar(40)
+  reason                    String?                   @db.VarChar(40)
+  skipReason                String?                   @map("skip_reason") @db.VarChar(50)
+  questionMode              String?                   @map("question_mode") @db.VarChar(50)
+  answerTimeSec             Int?                      @map("answer_time_sec")
+  insertedAt                DateTime?                 @map("inserted_at")
+  createdAt                 DateTime                  @default(now()) @map("created_at")
+  updatedAt                 DateTime                  @updatedAt @map("updated_at")
+  answer                    InterviewAnswer           @relation(fields: [answerId], references: [answerId])
+  sourceSessionQuestion     InterviewSessionQuestion? @relation("FollowUpSourceSessionQuestion", fields: [sourceSessionQuestionId], references: [sessionQuestionId], onDelete: Restrict)
+  insertedSessionQuestion   InterviewSessionQuestion? @relation("FollowUpInsertedSessionQuestion", fields: [insertedSessionQuestionId], references: [sessionQuestionId], onDelete: Restrict)
 
   @@unique([answerId, policy], name: "answerIdPolicy", map: "uq_follow_up_questions_answer_policy")
+  @@index([sourceSessionQuestionId], map: "idx_follow_up_questions_source_session_question")
+  @@index([generationStatus], map: "idx_follow_up_questions_generation_status")
   @@map("follow_up_questions")
 }
 
 model EvaluationReport {
-  reportId          BigInt             @id @default(autoincrement()) @map("report_id")
-  applicationId     BigInt?            @map("application_id")
-  sessionId         BigInt?            @map("session_id")
-  reportType        ReportType         @map("report_type")
-  status            ReportStatus       @default(PENDING)
-  totalScore        Int?               @map("total_score")
-  summary           String?
-  generatedAt       DateTime?          @map("generated_at")
-  failureCategory   String?            @map("failure_category") @db.VarChar(40)
-  failureReason     String?            @map("failure_reason")
-  application       Application?       @relation(fields: [applicationId], references: [applicationId])
-  session           InterviewSession?  @relation(fields: [sessionId], references: [sessionId])
-  scores            ReportScore[]
-  manualEvaluations ManualEvaluation[]
+  reportId                 BigInt                @id @default(autoincrement()) @map("report_id")
+  applicationId            BigInt?               @map("application_id")
+  sessionId                BigInt?               @map("session_id")
+  reportType               ReportType            @map("report_type")
+  status                   ReportStatus          @default(PENDING)
+  totalScore               Int?                  @map("total_score")
+  summary                  String?
+  ncsCompletionStatus      String?               @map("ncs_completion_status") @db.VarChar(40)
+  ncsThresholdResult       String?               @map("ncs_threshold_result") @db.VarChar(40)
+  ncsAiDecision            String?               @map("ncs_ai_decision") @db.VarChar(20)
+  ncsDecisionReasonCode    String?               @map("ncs_decision_reason_code") @db.VarChar(80)
+  ncsScoringVersion        String?               @map("ncs_scoring_version") @db.VarChar(80)
+  ncsDecisionPolicyVersion String?               @map("ncs_decision_policy_version") @db.VarChar(80)
+  ncsSummaryJson           Json?                 @map("ncs_summary_json")
+  generatedAt              DateTime?             @map("generated_at")
+  failureCategory          String?               @map("failure_category") @db.VarChar(40)
+  failureReason            String?               @map("failure_reason")
+  application              Application?          @relation(fields: [applicationId], references: [applicationId])
+  session                  InterviewSession?     @relation(fields: [sessionId], references: [sessionId])
+  scores                   ReportScore[]
+  ncsAnswerEvaluations     NcsAnswerEvaluation[]
+  answerFactCheckRuns      AnswerFactCheckRun[]
+  manualEvaluations        ManualEvaluation[]
 
   @@map("evaluation_reports")
 }
 
-model ReportScore {
-  scoreId     BigInt               @id @default(autoincrement()) @map("score_id")
-  reportId    BigInt               @map("report_id")
-  criterionId BigInt?              @map("criterion_id")
-  score       Int
-  rationale   String?
-  report      EvaluationReport     @relation(fields: [reportId], references: [reportId])
-  criterion   EvaluationCriterion? @relation(fields: [criterionId], references: [criterionId])
-  evidences   ReportEvidence[]
+model NcsAnswerEvaluation {
+  ncsEvaluationId        BigInt                        @id @default(autoincrement()) @map("ncs_evaluation_id")
+  reportId               BigInt                        @map("report_id")
+  answerId               BigInt                        @map("answer_id")
+  sessionQuestionId      BigInt                        @map("session_question_id")
+  criterionId            BigInt?                       @map("criterion_id")
+  criterionTitleSnapshot String                        @map("criterion_title_snapshot") @db.VarChar(200)
+  ncsProfileId           String                        @map("ncs_profile_id") @db.VarChar(50)
+  ncsQuestionMode        String                        @map("ncs_question_mode") @db.VarChar(50)
+  ncsProfileVersion      String                        @map("ncs_profile_version") @db.VarChar(80)
+  scoreStatus            String                        @map("score_status") @db.VarChar(40)
+  competencyScore        Int?                          @map("competency_score")
+  evidenceScore          Int?                          @map("evidence_score")
+  totalScore             Int?                          @map("total_score")
+  behaviorPoints         Int?                          @map("behavior_points")
+  logicPoints            Int?                          @map("logic_points")
+  baseScore              Int?                          @map("base_score")
+  effectiveScore         Int?                          @map("effective_score")
+  followUpApplied        Boolean                       @default(false) @map("follow_up_applied")
+  coverage               Decimal                       @db.Decimal(8, 6)
+  confidence             String                        @db.VarChar(20)
+  rubricVersion          String                        @map("rubric_version") @db.VarChar(80)
+  promptVersion          String                        @map("prompt_version") @db.VarChar(100)
+  providerMode           String                        @map("provider_mode") @db.VarChar(20)
+  modelName              String?                       @map("model_name") @db.VarChar(120)
+  resultJson             Json                          @map("result_json")
+  createdAt              DateTime                      @default(now()) @map("created_at")
+  updatedAt              DateTime                      @updatedAt @map("updated_at")
+  report                 EvaluationReport              @relation(fields: [reportId], references: [reportId], onDelete: Cascade)
+  answer                 InterviewAnswer               @relation(fields: [answerId], references: [answerId], onDelete: Cascade)
+  sessionQuestion        InterviewSessionQuestion      @relation(fields: [sessionQuestionId], references: [sessionQuestionId], onDelete: Cascade)
+  criterion              EvaluationCriterion?          @relation(fields: [criterionId], references: [criterionId], onDelete: SetNull)
+  evidences              NcsAnswerEvaluationEvidence[]
 
+  @@unique([reportId, answerId, ncsProfileId], map: "uq_ncs_answer_evaluations_report_answer_profile")
+  @@index([answerId], map: "idx_ncs_answer_evaluations_answer")
+  @@index([sessionQuestionId], map: "idx_ncs_answer_evaluations_session_question")
+  @@index([criterionId], map: "idx_ncs_answer_evaluations_criterion")
+  @@index([reportId, scoreStatus], map: "idx_ncs_answer_evaluations_report_status")
+  @@map("ncs_answer_evaluations")
+}
+
+model ReportScore {
+  scoreId               BigInt               @id @default(autoincrement()) @map("score_id")
+  reportId              BigInt               @map("report_id")
+  criterionId           BigInt?              @map("criterion_id")
+  score                 Int?
+  rationale             String?
+  ncsProfileId          String?              @map("ncs_profile_id") @db.VarChar(50)
+  averageScore          Decimal?             @map("average_score") @db.Decimal(5, 2)
+  normalizedScore       Int?                 @map("normalized_score")
+  weight                Int?
+  weightedScore         Decimal?             @map("weighted_score") @db.Decimal(5, 2)
+  minimumAverageScore   Decimal?             @map("minimum_average_score") @db.Decimal(5, 2)
+  assignedQuestionCount Int?                 @map("assigned_question_count")
+  validQuestionCount    Int?                 @map("valid_question_count")
+  report                EvaluationReport     @relation(fields: [reportId], references: [reportId])
+  criterion             EvaluationCriterion? @relation(fields: [criterionId], references: [criterionId])
+  evidences             ReportEvidence[]
+
+  @@unique([reportId, ncsProfileId], map: "uq_report_scores_report_ncs_profile")
   @@map("report_scores")
+}
+
+model QuestionNcsBinding {
+  questionId        BigInt              @map("question_id")
+  criterionId       BigInt              @map("criterion_id")
+  ncsProfileId      String              @map("ncs_profile_id") @db.VarChar(50)
+  ncsProfileVersion String              @map("ncs_profile_version") @db.VarChar(80)
+  alignmentStatus   String              @map("alignment_status") @db.VarChar(40)
+  alignmentScore    Decimal?            @map("alignment_score") @db.Decimal(8, 6)
+  alignmentReason   String?             @map("alignment_reason")
+  evaluatorVersion  String?             @map("evaluator_version") @db.VarChar(80)
+  bindingOrder      Int                 @map("binding_order")
+  question          Question            @relation(fields: [questionId], references: [questionId], onDelete: Cascade)
+  criterion         EvaluationCriterion @relation(fields: [criterionId], references: [criterionId], onDelete: Restrict)
+
+  @@id([questionId, ncsProfileId])
+  @@unique([questionId, bindingOrder], map: "uq_question_ncs_bindings_order")
+  @@index([criterionId], map: "idx_question_ncs_bindings_criterion")
+  @@map("question_ncs_bindings")
+}
+
+model ApplicationQuestionNcsBinding {
+  personalizedQuestionId BigInt                       @map("personalized_question_id")
+  criterionId            BigInt?                      @map("criterion_id")
+  ncsProfileId           String                       @map("ncs_profile_id") @db.VarChar(50)
+  ncsProfileVersion      String                       @map("ncs_profile_version") @db.VarChar(80)
+  alignmentStatus        String                       @map("alignment_status") @db.VarChar(40)
+  alignmentScore         Decimal?                     @map("alignment_score") @db.Decimal(8, 6)
+  alignmentReason        String?                      @map("alignment_reason")
+  evaluatorVersion       String?                      @map("evaluator_version") @db.VarChar(80)
+  bindingOrder           Int                          @map("binding_order")
+  personalizedQuestion   ApplicationInterviewQuestion @relation(fields: [personalizedQuestionId], references: [personalizedQuestionId], onDelete: Cascade)
+  criterion              EvaluationCriterion?         @relation(fields: [criterionId], references: [criterionId], onDelete: SetNull)
+
+  @@id([personalizedQuestionId, ncsProfileId])
+  @@unique([personalizedQuestionId, bindingOrder], map: "uq_application_question_ncs_bindings_order")
+  @@index([criterionId], map: "idx_application_question_ncs_bindings_criterion")
+  @@map("application_question_ncs_bindings")
+}
+
+model SessionQuestionNcsBinding {
+  sessionQuestionId      BigInt                   @map("session_question_id")
+  criterionId            BigInt?                  @map("criterion_id")
+  criterionTitleSnapshot String                   @map("criterion_title_snapshot") @db.VarChar(200)
+  ncsProfileId           String                   @map("ncs_profile_id") @db.VarChar(50)
+  ncsProfileVersion      String                   @map("ncs_profile_version") @db.VarChar(80)
+  alignmentStatus        String                   @map("alignment_status") @db.VarChar(40)
+  alignmentScore         Decimal?                 @map("alignment_score") @db.Decimal(8, 6)
+  alignmentReason        String?                  @map("alignment_reason")
+  evaluatorVersion       String?                  @map("evaluator_version") @db.VarChar(80)
+  bindingOrder           Int                      @map("binding_order")
+  sessionQuestion        InterviewSessionQuestion @relation(fields: [sessionQuestionId], references: [sessionQuestionId], onDelete: Cascade)
+  criterion              EvaluationCriterion?     @relation(fields: [criterionId], references: [criterionId], onDelete: SetNull)
+
+  @@id([sessionQuestionId, ncsProfileId])
+  @@unique([sessionQuestionId, bindingOrder], map: "uq_session_question_ncs_bindings_order")
+  @@index([criterionId], map: "idx_session_question_ncs_bindings_criterion")
+  @@map("session_question_ncs_bindings")
+}
+
+model NcsAnswerEvaluationEvidence {
+  evidenceId      BigInt              @id @default(autoincrement()) @map("evidence_id")
+  ncsEvaluationId BigInt              @map("ncs_evaluation_id")
+  sourceAnswerId  BigInt              @map("source_answer_id")
+  sourceKind      String              @map("source_kind") @db.VarChar(20)
+  quote           String
+  sortOrder       Int                 @map("sort_order")
+  evaluation      NcsAnswerEvaluation @relation(fields: [ncsEvaluationId], references: [ncsEvaluationId], onDelete: Cascade)
+  sourceAnswer    InterviewAnswer     @relation(fields: [sourceAnswerId], references: [answerId], onDelete: Cascade)
+
+  @@unique([ncsEvaluationId, sourceAnswerId, sortOrder], map: "uq_ncs_answer_evaluation_evidences_source_order")
+  @@index([sourceAnswerId], map: "idx_ncs_answer_evaluation_evidences_source_answer")
+  @@map("ncs_answer_evaluation_evidences")
+}
+
+model AnswerFactCheckRun {
+  factCheckRunId           BigInt                 @id @default(autoincrement()) @map("fact_check_run_id")
+  reportId                 BigInt                 @map("report_id")
+  answerId                 BigInt                 @map("answer_id")
+  followUpAnswerId         BigInt?                @map("follow_up_answer_id")
+  inputCompositionVersion  String                 @default("BASE_ONLY_V1") @map("input_composition_version") @db.VarChar(50)
+  providerStatus           String                 @map("provider_status") @db.VarChar(40)
+  gateStatus               String?                @map("gate_status") @db.VarChar(40)
+  providerMode             String                 @map("provider_mode") @db.VarChar(20)
+  modelVersion             String                 @map("model_version") @db.VarChar(120)
+  promptVersion            String                 @map("prompt_version") @db.VarChar(100)
+  knowledgeSnapshotVersion String                 @map("knowledge_snapshot_version") @db.VarChar(100)
+  policyVersion            String                 @map("policy_version") @db.VarChar(100)
+  failureReason            String?                @map("failure_reason")
+  startedAt                DateTime               @map("started_at")
+  completedAt              DateTime?              @map("completed_at")
+  createdAt                DateTime               @default(now()) @map("created_at")
+  updatedAt                DateTime               @updatedAt @map("updated_at")
+  report                   EvaluationReport       @relation(fields: [reportId], references: [reportId], onDelete: Cascade)
+  answer                   InterviewAnswer        @relation("FactCheckBaseAnswer", fields: [answerId], references: [answerId], onDelete: Cascade)
+  followUpAnswer           InterviewAnswer?       @relation("FactCheckFollowUpAnswer", fields: [followUpAnswerId], references: [answerId], onDelete: Cascade)
+  claims                   AnswerFactCheckClaim[]
+
+  @@unique([reportId, answerId, policyVersion], map: "uq_answer_fact_check_runs_report_answer_policy")
+  @@index([answerId], map: "idx_answer_fact_check_runs_answer")
+  @@index([followUpAnswerId], map: "idx_answer_fact_check_runs_follow_up_answer")
+  @@index([reportId, providerStatus], map: "idx_answer_fact_check_runs_report_status")
+  @@map("answer_fact_check_runs")
+}
+
+model AnswerFactCheckClaim {
+  factCheckClaimId  BigInt                    @id @default(autoincrement()) @map("fact_check_claim_id")
+  factCheckRunId    BigInt                    @map("fact_check_run_id")
+  claimText         String                    @map("claim_text")
+  answerStartOffset Int                       @map("answer_start_offset")
+  answerEndOffset   Int                       @map("answer_end_offset")
+  claimType         String                    @map("claim_type") @db.VarChar(40)
+  claimRole         String                    @map("claim_role") @db.VarChar(40)
+  verdict           String                    @db.VarChar(40)
+  confidence        Decimal                   @db.Decimal(5, 4)
+  rationale         String
+  sortOrder         Int                       @map("sort_order")
+  run               AnswerFactCheckRun        @relation(fields: [factCheckRunId], references: [factCheckRunId], onDelete: Cascade)
+  evidences         AnswerFactCheckEvidence[]
+
+  @@unique([factCheckRunId, sortOrder], map: "uq_answer_fact_check_claims_run_order")
+  @@index([verdict], map: "idx_answer_fact_check_claims_verdict")
+  @@map("answer_fact_check_claims")
+}
+
+model AnswerFactCheckEvidence {
+  factCheckEvidenceId BigInt               @id @default(autoincrement()) @map("fact_check_evidence_id")
+  factCheckClaimId    BigInt               @map("fact_check_claim_id")
+  evidenceLedgerId    String               @map("evidence_ledger_id") @db.VarChar(80)
+  sourceSnapshotId    String               @map("source_snapshot_id") @db.VarChar(160)
+  sourceKind          String               @map("source_kind") @db.VarChar(40)
+  sourceStartOffset   Int                  @map("source_start_offset")
+  sourceEndOffset     Int                  @map("source_end_offset")
+  sortOrder           Int                  @map("sort_order")
+  claim               AnswerFactCheckClaim @relation(fields: [factCheckClaimId], references: [factCheckClaimId], onDelete: Cascade)
+
+  @@unique([factCheckClaimId, sortOrder], map: "uq_answer_fact_check_evidences_claim_order")
+  @@unique([factCheckClaimId, evidenceLedgerId], map: "uq_answer_fact_check_evidences_claim_ledger")
+  @@index([sourceSnapshotId], map: "idx_answer_fact_check_evidences_snapshot")
+  @@map("answer_fact_check_evidences")
 }
 
 model ReportEvidence {
@@ -740,32 +1099,38 @@ model Notification {
 }
 
 model AiProcessLog {
-  processLogId          BigInt                 @id @default(autoincrement()) @map("process_log_id")
-  applicationId         BigInt?                @map("application_id")
-  sessionId             BigInt?                @map("session_id")
-  processType           AiProcessType          @map("process_type")
-  status                AiProcessStatus        @default(PENDING)
-  inputRef              String?                @map("input_ref")
-  outputRef             String?                @map("output_ref")
-  failureCategory       String?                @map("failure_category") @db.VarChar(40)
-  failureReason         String?                @map("failure_reason")
-  startedAt             DateTime?              @map("started_at")
-  completedAt           DateTime?              @map("completed_at")
-  durationMs            Int?                   @map("duration_ms")
-  modelName             String?                @map("model_name") @db.VarChar(120)
-  inputTokens           Int?                   @map("input_tokens")
-  outputTokens          Int?                   @map("output_tokens")
-  audioSeconds          Int?                   @map("audio_seconds")
-  estimatedCostUsd      Decimal?               @map("estimated_cost_usd") @db.Decimal(12, 6)
-  costMetadataJson      String?                @map("cost_metadata_json")
-  createdAt             DateTime               @default(now()) @map("created_at")
-  application           Application?           @relation(fields: [applicationId], references: [applicationId])
-  session               InterviewSession?      @relation(fields: [sessionId], references: [sessionId])
-  guardrailLogs         AiGuardrailLog[]
-  timingEvents          AiProcessTimingEvent[]
-  clientPerformanceLogs ClientPerformanceLog[]
-  createdQuestionSets   InterviewQuestionSet[]
+  processLogId                BigInt                              @id @default(autoincrement()) @map("process_log_id")
+  applicationId               BigInt?                             @map("application_id")
+  sessionId                   BigInt?                             @map("session_id")
+  processType                 AiProcessType                       @map("process_type")
+  status                      AiProcessStatus                     @default(PENDING)
+  inputRef                    String?                             @map("input_ref")
+  outputRef                   String?                             @map("output_ref")
+  failureCategory             String?                             @map("failure_category") @db.VarChar(40)
+  failureReason               String?                             @map("failure_reason")
+  leaseOwner                  String?                             @map("lease_owner") @db.VarChar(160)
+  leaseExpiresAt              DateTime?                           @map("lease_expires_at")
+  startedAt                   DateTime?                           @map("started_at")
+  completedAt                 DateTime?                           @map("completed_at")
+  durationMs                  Int?                                @map("duration_ms")
+  modelName                   String?                             @map("model_name") @db.VarChar(120)
+  inputTokens                 Int?                                @map("input_tokens")
+  outputTokens                Int?                                @map("output_tokens")
+  audioSeconds                Int?                                @map("audio_seconds")
+  estimatedCostUsd            Decimal?                            @map("estimated_cost_usd") @db.Decimal(12, 6)
+  costMetadataJson            String?                             @map("cost_metadata_json")
+  createdAt                   DateTime                            @default(now()) @map("created_at")
+  application                 Application?                        @relation(fields: [applicationId], references: [applicationId])
+  session                     InterviewSession?                   @relation(fields: [sessionId], references: [sessionId])
+  guardrailLogs               AiGuardrailLog[]
+  timingEvents                AiProcessTimingEvent[]
+  clientPerformanceLogs       ClientPerformanceLog[]
+  createdQuestionSets         InterviewQuestionSet[]
+  generatedQuestions          Question[]
+  latestResumeQuestionBatches ApplicationInterviewQuestionBatch[] @relation("LatestResumeQuestionProcess")
+  personalizedQuestions       ApplicationInterviewQuestion[]      @relation("ResumeQuestionSourceProcess")
 
+  @@index([status, leaseExpiresAt], map: "idx_ai_process_logs_status_lease")
   @@map("ai_process_logs")
 }
 
@@ -844,16 +1209,16 @@ model Embedding {
 }
 
 model PaymentCustomer {
-  paymentCustomerId BigInt         @id @default(autoincrement()) @map("payment_customer_id")
-  userId            BigInt         @map("user_id")
-  companyId         BigInt?        @map("company_id")
-  candidateId       BigInt?        @map("candidate_id")
-  provider          String         @db.VarChar(30)
-  customerKey       String         @map("customer_key") @db.VarChar(100)
-  createdAt         DateTime       @default(now()) @map("created_at")
-  updatedAt         DateTime       @updatedAt @map("updated_at")
-  user              User           @relation(fields: [userId], references: [userId])
-  company           Company?       @relation(fields: [companyId], references: [companyId])
+  paymentCustomerId BigInt            @id @default(autoincrement()) @map("payment_customer_id")
+  userId            BigInt            @map("user_id")
+  companyId         BigInt?           @map("company_id")
+  candidateId       BigInt?           @map("candidate_id")
+  provider          String            @db.VarChar(30)
+  customerKey       String            @map("customer_key") @db.VarChar(100)
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  user              User              @relation(fields: [userId], references: [userId])
+  company           Company?          @relation(fields: [companyId], references: [companyId])
   candidate         CandidateProfile? @relation(fields: [candidateId], references: [candidateId])
   orders            PaymentOrder[]
 
@@ -864,33 +1229,33 @@ model PaymentCustomer {
 }
 
 model PaymentOrder {
-  paymentOrderId   BigInt          @id @default(autoincrement()) @map("payment_order_id")
-  paymentCustomerId BigInt         @map("payment_customer_id")
-  companyId        BigInt?         @map("company_id")
-  candidateId      BigInt?         @map("candidate_id")
-  provider         String          @db.VarChar(30)
-  orderId          String          @map("order_id") @db.VarChar(100)
-  paymentKey       String?         @map("payment_key") @db.VarChar(200)
-  productCode      String          @map("product_code") @db.VarChar(50)
-  orderName        String          @map("order_name") @db.VarChar(150)
-  type             String          @db.VarChar(30)
-  status           String          @db.VarChar(30)
-  amount           Int
-  currency         String          @db.VarChar(3)
-  method           String?         @db.VarChar(30)
-  receiptUrl       String?         @map("receipt_url")
-  failureCode      String?         @map("failure_code") @db.VarChar(100)
-  failureMessage   String?         @map("failure_message")
-  providerPayload  Json?           @map("provider_payload")
-  requestedAt      DateTime?       @map("requested_at")
-  approvedAt       DateTime?       @map("approved_at")
-  failedAt         DateTime?       @map("failed_at")
-  createdAt        DateTime        @default(now()) @map("created_at")
-  updatedAt        DateTime        @updatedAt @map("updated_at")
-  paymentCustomer  PaymentCustomer @relation(fields: [paymentCustomerId], references: [paymentCustomerId])
-  company          Company?        @relation(fields: [companyId], references: [companyId])
-  candidate        CandidateProfile? @relation(fields: [candidateId], references: [candidateId])
-  mockPassLedgers  CandidateMockInterviewPassLedger[]
+  paymentOrderId    BigInt                             @id @default(autoincrement()) @map("payment_order_id")
+  paymentCustomerId BigInt                             @map("payment_customer_id")
+  companyId         BigInt?                            @map("company_id")
+  candidateId       BigInt?                            @map("candidate_id")
+  provider          String                             @db.VarChar(30)
+  orderId           String                             @map("order_id") @db.VarChar(100)
+  paymentKey        String?                            @map("payment_key") @db.VarChar(200)
+  productCode       String                             @map("product_code") @db.VarChar(50)
+  orderName         String                             @map("order_name") @db.VarChar(150)
+  type              String                             @db.VarChar(30)
+  status            String                             @db.VarChar(30)
+  amount            Int
+  currency          String                             @db.VarChar(3)
+  method            String?                            @db.VarChar(30)
+  receiptUrl        String?                            @map("receipt_url")
+  failureCode       String?                            @map("failure_code") @db.VarChar(100)
+  failureMessage    String?                            @map("failure_message")
+  providerPayload   Json?                              @map("provider_payload")
+  requestedAt       DateTime?                          @map("requested_at")
+  approvedAt        DateTime?                          @map("approved_at")
+  failedAt          DateTime?                          @map("failed_at")
+  createdAt         DateTime                           @default(now()) @map("created_at")
+  updatedAt         DateTime                           @updatedAt @map("updated_at")
+  paymentCustomer   PaymentCustomer                    @relation(fields: [paymentCustomerId], references: [paymentCustomerId])
+  company           Company?                           @relation(fields: [companyId], references: [companyId])
+  candidate         CandidateProfile?                  @relation(fields: [candidateId], references: [candidateId])
+  mockPassLedgers   CandidateMockInterviewPassLedger[]
 
   @@unique([provider, orderId], map: "uk_payment_orders_provider_order")
   @@unique([provider, paymentKey], map: "uk_payment_orders_provider_payment_key")

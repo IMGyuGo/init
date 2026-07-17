@@ -45,6 +45,32 @@ export function createAiProcessUsage(input: TokenUsageInput): AiProcessUsage | u
   };
 }
 
+export function mergeAiProcessUsage(
+  primary: AiProcessUsage | undefined,
+  secondary: AiProcessUsage | undefined,
+  metadata: Record<string, unknown> = {},
+): AiProcessUsage | undefined {
+  if (!primary && !secondary) {
+    return undefined;
+  }
+  const stages = [primary, secondary].filter((usage): usage is AiProcessUsage => Boolean(usage));
+  return createAiProcessUsage({
+    modelName: primary?.modelName ?? secondary?.modelName,
+    inputTokens: sumUsage(stages, "inputTokens"),
+    outputTokens: sumUsage(stages, "outputTokens"),
+    audioSeconds: sumUsage(stages, "audioSeconds"),
+    metadata: {
+      ...metadata,
+      stages: stages.map((usage) => ({
+        modelName: usage.modelName,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        audioSeconds: usage.audioSeconds,
+      })),
+    },
+  });
+}
+
 function estimateCost(input: {
   inputTokens?: number;
   outputTokens?: number;
@@ -78,6 +104,14 @@ function positiveInteger(value: unknown): number | undefined {
     return undefined;
   }
   return parsed;
+}
+
+function sumUsage(
+  usages: AiProcessUsage[],
+  key: "inputTokens" | "outputTokens" | "audioSeconds",
+): number | undefined {
+  const values = usages.map((usage) => usage[key]).filter((value): value is number => value !== undefined);
+  return values.length > 0 ? values.reduce((sum, value) => sum + value, 0) : undefined;
 }
 
 function positiveNumberFromEnv(name: string): number | undefined {
