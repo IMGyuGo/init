@@ -52,7 +52,7 @@ resource "aws_instance" "ngrinder" {
     exec > >(tee /var/log/ngrinder-user-data.log | logger -t ngrinder-user-data -s 2>/dev/console) 2>&1
 
     dnf update -y
-    dnf install -y amazon-ssm-agent gzip java-17-amazon-corretto-headless shadow-utils tar
+    dnf install -y amazon-ssm-agent gzip java-11-amazon-corretto-headless shadow-utils tar
 
     systemctl enable --now amazon-ssm-agent
 
