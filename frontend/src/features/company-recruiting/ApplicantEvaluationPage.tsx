@@ -13,7 +13,7 @@ import {
 import { createApplicantInterviewMediaSession, getApplicantDocument, getApplicantEvaluation, updateScreeningStatus } from "./api";
 import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
 import type {
-  NcsReportEvaluationOutputV1,
+  NcsReportEvaluationOutput,
   NcsReportQuestionProfileEvaluationV1,
 } from "./ncs-report-contract";
 import {
@@ -721,7 +721,7 @@ function NcsReportOverview({
   integritySummary,
   screeningDecision,
 }: {
-  evaluation: NcsReportEvaluationOutputV1;
+  evaluation: NcsReportEvaluationOutput;
   integritySummary: RecruitingIntegritySummary | null;
   screeningDecision: ScreeningDecision;
 }) {
@@ -972,7 +972,7 @@ function NcsProfileDetailCard({
   profile,
   findings,
 }: {
-  profile: NcsReportEvaluationOutputV1["profiles"][number];
+  profile: NcsReportEvaluationOutput["profiles"][number];
   findings: ReturnType<typeof getValidNcsFindings>;
 }) {
   const normalized = profile.normalizedScore;
@@ -1026,7 +1026,7 @@ function NcsQuestionProfileResult({
   profileEvaluation,
   sessionQuestionId,
 }: {
-  output: NcsReportEvaluationOutputV1;
+  output: NcsReportEvaluationOutput;
   profileEvaluation: NcsReportQuestionProfileEvaluationV1;
   sessionQuestionId: number;
 }) {

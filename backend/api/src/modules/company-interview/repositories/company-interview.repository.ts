@@ -147,7 +147,7 @@ export interface CompanyInterviewRepository {
   ): Promise<TimePolicyRecord>;
   confirmQuestionSet(input: ConfirmQuestionSetInput): Promise<QuestionSetRecord>;
   findActiveQuestionSet(postingId: number): Promise<QuestionSetRecord | undefined>;
-  findResumeQuestionGeneration(applicationId: number): Promise<ResumeQuestionApplicationRecord | undefined>;
+  findResumeQuestionGeneration(applicationId: number, usageScope?: 'STANDARD' | 'DEMO_PRESET'): Promise<ResumeQuestionApplicationRecord | undefined>;
   listResumeQuestionGenerations(postingId: number): Promise<ResumeQuestionApplicationRecord[]>;
   createResumeQuestionRetry(input: {
     state: ResumeQuestionApplicationRecord;

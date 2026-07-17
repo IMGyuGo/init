@@ -3,7 +3,7 @@ import type {
   NcsFollowUpAnswerStatus,
   NcsIncompleteReasonCode,
   NcsQuestionMode,
-  NcsReportEvaluationOutputV1,
+  NcsReportEvaluationOutput,
   NcsReportEvidenceV1,
   NcsReportFindingV1,
   NcsReportProfileId,
@@ -61,22 +61,44 @@ const CANONICAL_PROFILE_IDS: NcsReportProfileId[] = [
   "PROBLEM_SOLVING",
 ];
 
-export function isCanonicalNcsReportEvaluation(value: unknown): value is NcsReportEvaluationOutputV1 {
-  if (!isRecord(value) || value.schemaVersion !== "ncs-report-evaluation-output-v1") return false;
+export function isCanonicalNcsReportEvaluation(value: unknown): value is NcsReportEvaluationOutput {
+  if (!isRecord(value)) return false;
+  const isV1 = value.schemaVersion === "ncs-report-evaluation-output-v1";
+  const isV2 = value.schemaVersion === "ncs-report-evaluation-output-v2";
+  if (!isV1 && !isV2) return false;
   if (!isRecord(value.report) || !isRecord(value.policy) || !isRecord(value.result)) return false;
-  if (!Array.isArray(value.profiles) || value.profiles.length !== CANONICAL_PROFILE_IDS.length) return false;
+  if (!Array.isArray(value.profiles) || (isV1
+    ? value.profiles.length !== CANONICAL_PROFILE_IDS.length
+    : value.profiles.length < 1 || value.profiles.length > CANONICAL_PROFILE_IDS.length)) return false;
   if (!Array.isArray(value.questions) || !Array.isArray(value.evidences) || !Array.isArray(value.findings)) return false;
   if (!Array.isArray(value.incompleteReasons) || !Array.isArray(value.notices)) return false;
 
   const profileIds = value.profiles.flatMap((profile) =>
     isRecord(profile) && typeof profile.ncsProfileId === "string" ? [profile.ncsProfileId] : [],
   );
-  if (!CANONICAL_PROFILE_IDS.every((profileId) => profileIds.includes(profileId))) return false;
+  if (new Set(profileIds).size !== profileIds.length) return false;
+  if (!profileIds.every((profileId) => CANONICAL_PROFILE_IDS.includes(profileId as NcsReportProfileId))) return false;
+  if (isV1 && !CANONICAL_PROFILE_IDS.every((profileId) => profileIds.includes(profileId))) return false;
+  if (isV2 && value.policy.activeProfileCount !== profileIds.length) return false;
+  const activeProfileIds = new Set(profileIds);
+  if (isV2 && !value.questions.every((question) =>
+    isRecord(question) &&
+    Array.isArray(question.profileEvaluations) &&
+    question.profileEvaluations.every((evaluation) =>
+      isRecord(evaluation) && activeProfileIds.has(evaluation.ncsProfileId as string),
+    ),
+  )) return false;
+  if (isV2 && !value.evidences.every((evidence) =>
+    isRecord(evidence) && activeProfileIds.has(evidence.ncsProfileId as string),
+  )) return false;
+  if (isV2 && !value.findings.every((finding) =>
+    isRecord(finding) && activeProfileIds.has(finding.ncsProfileId as string),
+  )) return false;
 
   return (
     typeof value.policy.overallPassScore === "number" &&
     typeof value.policy.profileMinimumAverageScore === "number" &&
-    typeof value.policy.requiredQuestionCountPerProfile === "number" &&
+    (isV2 || typeof value.policy.requiredQuestionCountPerProfile === "number") &&
     (typeof value.result.totalScore === "number" || value.result.totalScore === null) &&
     value.questions.every((question) => isRecord(question) && Array.isArray(question.profileEvaluations))
   );
@@ -86,7 +108,7 @@ export function formatNcsScore(value: number | null, suffix = "점"): string {
   return value === null ? "점수 산정 불가" : `${value}${suffix}`;
 }
 
-export function getValidNcsFindings(output: NcsReportEvaluationOutputV1): NcsReportFindingV1[] {
+export function getValidNcsFindings(output: NcsReportEvaluationOutput): NcsReportFindingV1[] {
   const evidencesById = new Map(output.evidences.map((evidence) => [evidence.evidenceId, evidence]));
   return output.findings.filter((finding) =>
     finding.evidenceIds.length > 0 &&
@@ -97,7 +119,7 @@ export function getValidNcsFindings(output: NcsReportEvaluationOutputV1): NcsRep
 }
 
 export function getNcsEvaluationEvidences(
-  output: NcsReportEvaluationOutputV1,
+  output: NcsReportEvaluationOutput,
   sessionQuestionId: number,
   ncsProfileId: NcsReportProfileId,
   requestedEvidenceIds: number[],

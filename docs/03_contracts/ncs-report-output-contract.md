@@ -593,3 +593,5 @@ type ApplicantEvaluationReport = {
 - 비활성 profile의 0점/NULL placeholder row를 만들지 않는다.
 - total과 threshold는 [`ncs-active-profile-demo-preset-foundation.md`](./ncs-active-profile-demo-preset-foundation.md)의 active-only 공식을 사용한다.
 - frontend는 `schemaVersion`으로 V1/V2를 분기하고 어느 버전도 재계산하지 않는다.
+
+V2의 확정 schema, scoring version과 active-only field 계약은 [`ncs-report-output-v2.md`](./ncs-report-output-v2.md)를 따른다.

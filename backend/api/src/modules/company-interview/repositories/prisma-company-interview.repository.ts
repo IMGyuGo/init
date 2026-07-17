@@ -561,6 +561,7 @@ export class PrismaCompanyInterviewRepository
 
   async findResumeQuestionGeneration(
     applicationId: number,
+    usageScope: 'STANDARD' | 'DEMO_PRESET' = 'STANDARD',
   ): Promise<ResumeQuestionApplicationRecord | undefined> {
     const application = await (this.prisma as any).application.findUnique({
       where: { applicationId: BigInt(applicationId) },
@@ -576,10 +577,14 @@ export class PrismaCompanyInterviewRepository
           },
         },
         interviewQuestionBatches: {
+          where: { usageScope },
           orderBy: { createdAt: 'desc' },
           include: {
             latestProcessLog: true,
-            questions: { orderBy: { sortOrder: 'asc' } },
+            questions: {
+              orderBy: { sortOrder: 'asc' },
+              include: { ncsBindings: { orderBy: { bindingOrder: 'asc' } } },
+            },
           },
         },
       },
@@ -604,6 +609,7 @@ export class PrismaCompanyInterviewRepository
     const inputVersion = resumeDocumentHash && jdSnapshotHash && policy.policyVersion > 0 && policy.criteriaVersion > 0
       ? hashSnapshot([
           applicationId,
+          usageScope,
           policy.policyVersion,
           policy.criteriaVersion,
           jdSnapshotHash,
@@ -613,6 +619,7 @@ export class PrismaCompanyInterviewRepository
     const matchingBatch = resumeDocumentHash && jdSnapshotHash
       ? application.interviewQuestionBatches.find((batch: any) =>
           batch.policyVersion === policy.policyVersion &&
+          batch.usageScope === usageScope &&
           batch.criteriaVersion === policy.criteriaVersion &&
           batch.resumeDocumentHash === resumeDocumentHash &&
           batch.jdSnapshotHash === jdSnapshotHash,
@@ -631,6 +638,7 @@ export class PrismaCompanyInterviewRepository
       currentResumeDocumentHash: resumeDocumentHash,
       currentJdSnapshotHash: jdSnapshotHash,
       currentBatch: matchingBatch ? mapResumeQuestionBatch(matchingBatch) : null,
+      usageScope,
       hasStaleBatch: application.interviewQuestionBatches.some((batch: any) =>
         !matchingBatch || batch.batchId !== matchingBatch.batchId,
       ),
@@ -693,6 +701,7 @@ export class PrismaCompanyInterviewRepository
         resumeDocumentHash,
         jdSnapshotHash,
         attempt,
+        usageScope: state.usageScope ?? 'STANDARD',
       };
       await transaction.aiProcessLog.update({
         where: { processLogId: process.processLogId },
@@ -701,7 +710,7 @@ export class PrismaCompanyInterviewRepository
 
       const businessKey = {
         applicationId: BigInt(state.applicationId),
-        usageScope: 'STANDARD' as const,
+        usageScope: state.usageScope ?? 'STANDARD',
         policyVersion: state.policy.policyVersion,
         criteriaVersion: state.policy.criteriaVersion,
         jdSnapshotHash,
@@ -844,6 +853,7 @@ function mapResumeQuestionBatch(batch: any): ResumeQuestionBatchRecord {
     resumeDocumentHash: batch.resumeDocumentHash,
     jdSnapshotHash: batch.jdSnapshotHash,
     attemptCount: batch.attemptCount,
+    usageScope: batch.usageScope ?? 'STANDARD',
     questions: batch.questions.map((question: any) => ({
       personalizedQuestionId: Number(question.personalizedQuestionId),
       criterionId: question.criterionId === null ? null : Number(question.criterionId),
@@ -858,6 +868,17 @@ function mapResumeQuestionBatch(batch: any): ResumeQuestionBatchRecord {
       alignmentReason: question.alignmentReason,
       evaluatorVersion: question.evaluatorVersion,
       sortOrder: question.sortOrder,
+      usageScope: question.usageScope ?? batch.usageScope ?? 'STANDARD',
+      ncsBindings: (question.ncsBindings ?? []).map((binding: any) => ({
+        criterionId: Number(binding.criterionId),
+        ncsProfileId: binding.ncsProfileId,
+        ncsProfileVersion: binding.ncsProfileVersion,
+        alignmentStatus: binding.alignmentStatus,
+        alignmentScore: binding.alignmentScore === null ? null : Number(binding.alignmentScore.toString()),
+        alignmentReason: binding.alignmentReason,
+        evaluatorVersion: binding.evaluatorVersion,
+        bindingOrder: binding.bindingOrder,
+      })),
     })),
   };
 }

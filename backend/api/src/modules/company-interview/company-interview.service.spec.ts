@@ -248,6 +248,36 @@ describe('CompanyInterviewService', () => {
     assert.equal(JSON.stringify(result).includes('PRIVATE_RESUME'), false);
   });
 
+  it('isolates STANDARD and DEMO_PRESET personalized question batches', async () => {
+    const repository = new InMemoryCompanyInterviewRepository();
+    const standard = resumeQuestionFixture({ usageScope: 'STANDARD' });
+    const demo = resumeQuestionFixture({
+      usageScope: 'DEMO_PRESET',
+      policy: { ...resumeQuestionFixture().policy, evaluationFramework: 'NCS_ACTIVE_PROFILE_V2' },
+      currentBatch: {
+        ...resumeQuestionFixture().currentBatch!,
+        batchId: 702,
+        usageScope: 'DEMO_PRESET',
+        questions: [{
+          ...resumeQuestionFixture().currentBatch!.questions[0]!,
+          personalizedQuestionId: 902,
+          content: '이력서의 Redis 장애 개선 경험에서 기술 선택과 문제 해결 근거를 설명해주세요.',
+          usageScope: 'DEMO_PRESET',
+        }],
+      },
+    });
+    repository.setResumeQuestionGeneration(standard);
+    repository.setResumeQuestionGeneration(demo);
+    const service = new CompanyInterviewService(repository);
+
+    const standardResult = await service.getResumeQuestions(companyUser, 101);
+    const demoResult = await service.getResumeQuestions(companyUser, 101, 'DEMO_PRESET');
+    assert.equal(standardResult.usageScope, 'STANDARD');
+    assert.equal(standardResult.items[0]?.personalizedQuestionId, 901);
+    assert.equal(demoResult.usageScope, 'DEMO_PRESET');
+    assert.equal(demoResult.items[0]?.personalizedQuestionId, 902);
+  });
+
   it('retries stale personalized questions with IDs, versions and hashes only', async () => {
     const repository = new InMemoryCompanyInterviewRepository();
     const publisher = new InMemoryAiJobQueuePublisher();

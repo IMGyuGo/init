@@ -1,4 +1,4 @@
-import type { NcsReportEvaluationOutputV1 } from "./ncs-report-contract";
+import type { NcsReportEvaluationOutput } from "./ncs-report-contract";
 
 export type ApiEnvelope<T> = {
   data: T;
@@ -290,7 +290,7 @@ export type ApplicantEvaluation = {
     summary: string | null;
     generatedAt: string | null;
     // NCS 평가 생산자의 canonical V1 output. 생산자 미배포 기간에는 null이다.
-    ncsEvaluation?: NcsReportEvaluationOutputV1 | null;
+    ncsEvaluation?: NcsReportEvaluationOutput | null;
     // NCS 평가 최종 결과(aiDecision). PASS/FAIL 2단계. (#289)
     result?: "PASS" | "FAIL" | null;
     // 총점 합격선(100점 만점 기준). 게이지에 마커로 표시한다.

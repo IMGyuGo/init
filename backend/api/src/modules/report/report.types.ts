@@ -125,6 +125,7 @@ export interface GenerateReportRequest {
   documentText?: string;
   criteria: EvaluationCriterionInput[];
   answers: InterviewAnswerInput[];
+  ncsScoringVersion?: "NCS_RECRUITING_SCORING_V1" | "NCS_RECRUITING_SCORING_V2";
   ncsSessionPolicy?: Array<{
     ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
     criterionId?: number;

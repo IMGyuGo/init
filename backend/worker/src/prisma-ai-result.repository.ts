@@ -13,6 +13,7 @@ import {
   GeneratedReportRecord,
   GeneratedReportScoreRecord,
   NcsAnswerEvaluationRecord,
+  PersonalizedQuestionRecord,
   ResumeQuestionGenerationContext,
   ResumeQuestionGenerationResult,
   ResumeQuestionJobReference,
@@ -23,6 +24,10 @@ import {
   hashSourceText
 } from "./ai-result.repository";
 import { canonicalNcsProfileIdOf } from "./ncs-question-alignment.adapter";
+import {
+  exactDemoBindingProfiles,
+  extractDemoFactualAnchor,
+} from "./demo-preset-personalization";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import { AiWorkerJob, FailureReason } from "./worker.types";
 
@@ -35,6 +40,9 @@ interface ResumeQuestionDocumentRow {
     applicationId: bigint;
     applicationStatus: string;
     submittedAt: Date | null;
+    profileSnapshot: unknown;
+    motivation: string | null;
+    additionalInfo: string | null;
     posting: {
       postingId: bigint;
       jobDescription: string | null;
@@ -49,6 +57,7 @@ interface ResumeQuestionDocumentRow {
         criterionId: bigint;
         description: string | null;
         sortOrder: number;
+        weight: number;
         ncsProfileId: string | null;
         ncsQuestionMode: string | null;
         ncsProfileVersion: string | null;
@@ -68,6 +77,7 @@ interface ResumeQuestionBatchRow {
   inputVersion: string;
   resumeDocumentHash: string;
   jdSnapshotHash: string;
+  usageScope: "STANDARD" | "DEMO_PRESET";
 }
 
 const FOLLOW_UP_SOURCE_QUESTION_SELECT = {
@@ -83,6 +93,8 @@ const FOLLOW_UP_SOURCE_QUESTION_SELECT = {
   alignmentScore: true,
   alignmentReason: true,
   evaluatorVersion: true,
+  generationSource: true,
+  usageScope: true,
   policyVersion: true,
   criteriaVersion: true,
   ncsBindings: {
@@ -244,7 +256,17 @@ export class PrismaAiResultRepository implements AiResultRepository {
     if (!document || document.parseStatus !== "EXTRACTED" || !document.extractedText?.trim()) {
       throw new NonRetryableAiWorkerFailure("extracted resume document is required");
     }
-    if (!policy || policy.resumeQuestionCount <= 0 || policy.evaluationFramework !== "NCS_3_PROFILE_V1") {
+    const usageScope = reference.usageScope ?? "STANDARD";
+    const standardEnabled =
+      usageScope === "STANDARD" &&
+      policy &&
+      policy.resumeQuestionCount > 0 &&
+      (policy.evaluationFramework === "NCS_3_PROFILE_V1" || policy.evaluationFramework === "NCS_ACTIVE_PROFILE_V2");
+    const demoEnabled =
+      usageScope === "DEMO_PRESET" &&
+      policy?.evaluationFramework === "NCS_ACTIVE_PROFILE_V2" &&
+      hasAllActiveCanonicalCriteria(application.posting.criteria);
+    if (!policy || (!standardEnabled && !demoEnabled)) {
       throw new NonRetryableAiWorkerFailure("NCS resume question policy is not enabled");
     }
     if (!jobDescription) {
@@ -266,7 +288,7 @@ export class PrismaAiResultRepository implements AiResultRepository {
       where: {
         applicationId_usageScope_policyVersion_criteriaVersion_jdSnapshotHash_resumeDocumentHash: {
           applicationId: BigInt(reference.applicationId),
-          usageScope: "STANDARD",
+          usageScope,
           policyVersion: reference.policyVersion,
           criteriaVersion: reference.criteriaVersion,
           jdSnapshotHash,
@@ -278,19 +300,30 @@ export class PrismaAiResultRepository implements AiResultRepository {
       throw new NonRetryableAiWorkerFailure("resume question generation batch is not active");
     }
 
-    const allocatedCriteria = allocateResumeCriteria(
-      application.posting.criteria,
-      policy.jdCriteriaQuestionCount,
-      policy.resumeQuestionCount,
-    );
+    const allocatedCriteria = usageScope === "DEMO_PRESET"
+      ? demoPresetCriteria(application.posting.criteria)
+      : allocateResumeCriteria(
+          activeCriteriaForFramework(application.posting.criteria, policy.evaluationFramework),
+          policy.jdCriteriaQuestionCount,
+          policy.resumeQuestionCount,
+        );
+    const factualAnchor = usageScope === "DEMO_PRESET"
+      ? extractDemoFactualAnchor(
+          document.extractedText,
+          ...snapshotFactualSources(application.profileSnapshot),
+          application.motivation,
+          application.additionalInfo,
+        )
+      : null;
 
     return {
       ...reference,
       batchId: Number(batch.batchId),
-      questionCount: policy.resumeQuestionCount,
+      questionCount: usageScope === "DEMO_PRESET" ? 1 : policy.resumeQuestionCount,
       jobDescription,
       resumeText: document.extractedText,
       criteria: allocatedCriteria,
+      factualAnchor,
     };
   }
 
@@ -300,7 +333,7 @@ export class PrismaAiResultRepository implements AiResultRepository {
         where: {
           applicationId_usageScope_policyVersion_criteriaVersion_jdSnapshotHash_resumeDocumentHash: {
             applicationId: BigInt(record.reference.applicationId),
-            usageScope: "STANDARD",
+            usageScope: record.reference.usageScope ?? "STANDARD",
             policyVersion: record.reference.policyVersion,
             criteriaVersion: record.reference.criteriaVersion,
             jdSnapshotHash: record.reference.jdSnapshotHash,
@@ -313,6 +346,13 @@ export class PrismaAiResultRepository implements AiResultRepository {
       }
 
       await transaction.applicationInterviewQuestion!.deleteMany({ where: { batchId: batch.batchId } });
+      if (
+        record.reference.usageScope === "DEMO_PRESET" &&
+        record.status !== "FAILED" &&
+        (record.questions.length !== 1 || !exactDemoBindingProfiles(record.questions[0]!.ncsBindings ?? []))
+      ) {
+        throw new NonRetryableAiWorkerFailure("DEMO_PRESET requires one question with exact job and problem bindings");
+      }
       for (const question of record.questions) {
         await transaction.applicationInterviewQuestion!.create({
           data: {
@@ -321,6 +361,7 @@ export class PrismaAiResultRepository implements AiResultRepository {
             sourceProcessLogId: BigInt(record.reference.processLogId),
             criterionTitleSnapshot: question.criterionTitleSnapshot,
             source: "RESUME_PERSONALIZED",
+            usageScope: record.reference.usageScope ?? "STANDARD",
             questionType: question.questionType,
             content: question.content,
             ncsProfileId: question.ncsProfileId,
@@ -332,16 +373,7 @@ export class PrismaAiResultRepository implements AiResultRepository {
             evaluatorVersion: question.evaluatorVersion,
             sortOrder: question.sortOrder,
             ncsBindings: {
-              create: {
-                criterionId: BigInt(question.criterionId),
-                ncsProfileId: question.ncsProfileId,
-                ncsProfileVersion: question.ncsProfileVersion,
-                alignmentStatus: question.alignmentStatus,
-                alignmentScore: question.alignmentScore,
-                alignmentReason: question.alignmentReason,
-                evaluatorVersion: question.evaluatorVersion,
-                bindingOrder: 1,
-              },
+              create: bindingCreates(question),
             },
           },
         });
@@ -361,6 +393,7 @@ export class PrismaAiResultRepository implements AiResultRepository {
     await this.prisma.applicationInterviewQuestionBatch!.updateMany({
       where: {
         applicationId: BigInt(reference.applicationId),
+        usageScope: reference.usageScope ?? "STANDARD",
         latestProcessLogId: BigInt(reference.processLogId),
         inputVersion: reference.inputVersion
       },
@@ -454,7 +487,10 @@ export class PrismaAiResultRepository implements AiResultRepository {
         return;
       }
 
-      const shouldInsert = record.required || existing?.generationStatus === "READY";
+      const demoCommonQuestion =
+        sourceQuestion?.usageScope === "DEMO_PRESET" &&
+        sourceQuestion.generationSource !== "RESUME_PERSONALIZED";
+      const shouldInsert = !demoCommonQuestion && (record.required || existing?.generationStatus === "READY");
       const reason = shouldInsert
         ? existing?.reason ?? record.reason ?? defaultFollowUpReason(record.policy)
         : null;
@@ -507,6 +543,14 @@ export class PrismaAiResultRepository implements AiResultRepository {
           throw new NonRetryableAiWorkerFailure("recruiting follow-up mode and answer time snapshot are required");
         }
         const sourceBindings = sourceQuestion.ncsBindings ?? [];
+        if (
+          sourceQuestion.usageScope === "DEMO_PRESET" &&
+          !exactDemoBindingProfiles(sourceBindings)
+        ) {
+          throw new NonRetryableAiWorkerFailure(
+            "DEMO_PRESET follow-up requires exact job and problem bindings",
+          );
+        }
         if (
           sourceBindings.length < 1 ||
           sourceBindings.length > 2 ||
@@ -600,6 +644,7 @@ export class PrismaAiResultRepository implements AiResultRepository {
           criterionId: sourceQuestion.criterionId,
           criterionTitleSnapshot: sourceQuestion.criterionTitleSnapshot,
           generationSource: null,
+          usageScope: sourceQuestion.usageScope,
           questionType: "FOLLOW_UP",
           content,
           ncsProfileId: sourceQuestion.ncsProfileId,
@@ -753,7 +798,9 @@ export class PrismaAiResultRepository implements AiResultRepository {
           ncsScoringVersion: record.ncsFinalEvaluation.scoringVersion,
           ncsDecisionPolicyVersion: record.ncsFinalEvaluation.decisionPolicyVersion,
           ncsSummaryJson: {
-            schemaVersion: "ncs-report-evaluation-output-v1",
+            schemaVersion: record.ncsFinalEvaluation.scoringVersion === "NCS_RECRUITING_SCORING_V2"
+              ? "ncs-report-evaluation-output-v2"
+              : "ncs-report-evaluation-output-v1",
             result: {
               completionStatus: record.ncsFinalEvaluation.completionStatus,
               thresholdResult: record.ncsFinalEvaluation.thresholdResult,
@@ -912,12 +959,11 @@ export class PrismaAiResultRepository implements AiResultRepository {
     const jobDescription = posting.jobDescription?.trim();
     if (
       !policy ||
-      policy.evaluationFramework !== "NCS_3_PROFILE_V1" ||
-      policy.resumeQuestionCount <= 0 ||
+      (policy.evaluationFramework !== "NCS_3_PROFILE_V1" && policy.evaluationFramework !== "NCS_ACTIVE_PROFILE_V2") ||
       policy.policyVersion <= 0 ||
       policy.criteriaVersion <= 0 ||
       !jobDescription ||
-      !hasCompleteNcsCriteria(posting.criteria)
+      !hasCompleteNcsCriteria(activeCriteriaForFramework(posting.criteria, policy.evaluationFramework))
     ) {
       return [];
     }
@@ -926,26 +972,63 @@ export class PrismaAiResultRepository implements AiResultRepository {
     const postingId = Number(posting.postingId);
     const resumeDocumentHash = hashText(document.extractedText);
     const jdSnapshotHash = hashText(jobDescription);
+    const jobs: AiWorkerJob[] = [];
+    if (policy.resumeQuestionCount > 0) {
+      const standard = await this.prepareResumeQuestionScope(transaction, {
+        applicationId,
+        postingId,
+        documentId,
+        usageScope: "STANDARD",
+        policyVersion: policy.policyVersion,
+        criteriaVersion: policy.criteriaVersion,
+        resumeDocumentHash,
+        jdSnapshotHash,
+      });
+      if (standard) jobs.push(standard);
+    }
+    if (policy.evaluationFramework === "NCS_ACTIVE_PROFILE_V2" && hasAllActiveCanonicalCriteria(posting.criteria)) {
+      const demo = await this.prepareResumeQuestionScope(transaction, {
+        applicationId,
+        postingId,
+        documentId,
+        usageScope: "DEMO_PRESET",
+        policyVersion: policy.policyVersion,
+        criteriaVersion: policy.criteriaVersion,
+        resumeDocumentHash,
+        jdSnapshotHash,
+      });
+      if (demo) jobs.push(demo);
+    }
+    return jobs;
+  }
+
+  private async prepareResumeQuestionScope(
+    transaction: PrismaAiResultClient,
+    input: Omit<ResumeQuestionJobReference, "processLogId" | "inputVersion" | "usageScope"> & {
+      usageScope: "STANDARD" | "DEMO_PRESET";
+    },
+  ): Promise<AiWorkerJob | null> {
     const inputVersion = hashText([
-      applicationId,
-      policy.policyVersion,
-      policy.criteriaVersion,
-      jdSnapshotHash,
-      resumeDocumentHash,
+      input.applicationId,
+      input.usageScope,
+      input.policyVersion,
+      input.criteriaVersion,
+      input.jdSnapshotHash,
+      input.resumeDocumentHash,
     ].join(":"));
     const businessKey = {
-      applicationId: BigInt(applicationId),
-      usageScope: "STANDARD",
-      policyVersion: policy.policyVersion,
-      criteriaVersion: policy.criteriaVersion,
-      jdSnapshotHash,
-      resumeDocumentHash,
+      applicationId: BigInt(input.applicationId),
+      usageScope: input.usageScope,
+      policyVersion: input.policyVersion,
+      criteriaVersion: input.criteriaVersion,
+      jdSnapshotHash: input.jdSnapshotHash,
+      resumeDocumentHash: input.resumeDocumentHash,
     };
 
     await transaction.applicationInterviewQuestionBatch!.updateMany({
       where: {
-        applicationId: BigInt(applicationId),
-        usageScope: "STANDARD",
+        applicationId: BigInt(input.applicationId),
+        usageScope: input.usageScope,
         status: { in: ["READY", "REVIEW_REQUIRED"] },
         NOT: businessKey,
       },
@@ -956,12 +1039,12 @@ export class PrismaAiResultRepository implements AiResultRepository {
       where: { applicationId_usageScope_policyVersion_criteriaVersion_jdSnapshotHash_resumeDocumentHash: businessKey },
     });
     if (existing) {
-      return [];
+      return null;
     }
 
     const process = await transaction.aiProcessLog.create!({
       data: {
-        applicationId: BigInt(applicationId),
+        applicationId: BigInt(input.applicationId),
         processType: "RESUME_QUESTION_GENERATE",
         status: "PENDING",
         inputRef: null,
@@ -970,14 +1053,8 @@ export class PrismaAiResultRepository implements AiResultRepository {
     }) as { processLogId: bigint };
     const reference: ResumeQuestionJobReference = {
       processLogId: Number(process.processLogId),
-      applicationId,
-      postingId,
-      documentId,
-      policyVersion: policy.policyVersion,
-      criteriaVersion: policy.criteriaVersion,
+      ...input,
       inputVersion,
-      resumeDocumentHash,
-      jdSnapshotHash,
     };
     const inputRef = JSON.stringify(reference);
     await transaction.aiProcessLog.update({
@@ -994,12 +1071,12 @@ export class PrismaAiResultRepository implements AiResultRepository {
       },
     });
 
-    return [{
+    return {
       processLogId: reference.processLogId,
       processType: "RESUME_QUESTION_GENERATE",
       inputRef,
       attempt: 1,
-    }];
+    };
   }
 
   private nextId(): bigint {
@@ -1154,6 +1231,93 @@ function hasCompleteNcsCriteria(criteria: ResumeQuestionDocumentRow["application
     isNcsQuestionMode(criterion.ncsQuestionMode) &&
     Boolean(criterion.ncsProfileVersion?.trim())
   );
+}
+
+function bindingCreates(question: PersonalizedQuestionRecord) {
+  const bindings = question.ncsBindings?.length
+    ? question.ncsBindings
+    : [{
+        criterionId: question.criterionId,
+        ncsProfileId: question.ncsProfileId,
+        ncsProfileVersion: question.ncsProfileVersion,
+        alignmentStatus: question.alignmentStatus,
+        alignmentScore: question.alignmentScore,
+        alignmentReason: question.alignmentReason,
+        evaluatorVersion: question.evaluatorVersion,
+        bindingOrder: 1 as const,
+      }];
+  const creates = bindings.map((binding) => ({
+    criterionId: BigInt(binding.criterionId),
+    ncsProfileId: binding.ncsProfileId,
+    ncsProfileVersion: binding.ncsProfileVersion,
+    alignmentStatus: binding.alignmentStatus,
+    alignmentScore: binding.alignmentScore,
+    alignmentReason: binding.alignmentReason,
+    evaluatorVersion: binding.evaluatorVersion,
+    bindingOrder: binding.bindingOrder,
+  }));
+  return creates.length === 1 ? creates[0] : creates;
+}
+
+function activeCriteriaForFramework(
+  criteria: ResumeQuestionDocumentRow["application"]["posting"]["criteria"],
+  framework: string,
+): ResumeQuestionDocumentRow["application"]["posting"]["criteria"] {
+  return framework === "NCS_ACTIVE_PROFILE_V2" ? criteria.filter((criterion) => criterion.weight > 0) : criteria;
+}
+
+function hasAllActiveCanonicalCriteria(
+  criteria: ResumeQuestionDocumentRow["application"]["posting"]["criteria"],
+): boolean {
+  const active = activeCriteriaForFramework(criteria, "NCS_ACTIVE_PROFILE_V2");
+  const profiles = active.map((criterion) => canonicalNcsProfileIdOf(criterion.ncsProfileId));
+  return active.length === 3 &&
+    new Set(profiles).size === 3 &&
+    ["JOB_TECHNICAL", "COLLABORATION_COMMUNICATION", "PROBLEM_SOLVING"].every((profile) => profiles.includes(profile as any)) &&
+    active.reduce((sum, criterion) => sum + criterion.weight, 0) === 100 &&
+    hasCompleteNcsCriteria(active);
+}
+
+function demoPresetCriteria(
+  criteria: ResumeQuestionDocumentRow["application"]["posting"]["criteria"],
+): ResumeQuestionGenerationContext["criteria"] {
+  if (!hasAllActiveCanonicalCriteria(criteria)) {
+    throw new NonRetryableAiWorkerFailure("DEMO_PRESET requires all three active canonical criteria");
+  }
+  return (["JOB_TECHNICAL", "PROBLEM_SOLVING"] as const).map((profileId, index) => {
+    const criterion = criteria.find((candidate) => canonicalNcsProfileIdOf(candidate.ncsProfileId) === profileId)!;
+    return {
+      criterionId: Number(criterion.criterionId),
+      name: criterion.tag.name,
+      category: criterion.tag.category,
+      description: criterion.description ?? undefined,
+      questionCount: index === 0 ? 1 : 0,
+      ncsProfileId: profileId,
+      ncsQuestionMode: index === 0 ? "TECHNICAL_KNOWLEDGE" : "EXPERIENCE_BEHAVIOR",
+      ncsProfileVersion: criterion.ncsProfileVersion!,
+      weight: criterion.weight,
+    };
+  });
+}
+
+function snapshotFactualSources(value: unknown): string[] {
+  const values: string[] = [];
+  const visit = (current: unknown, key = "") => {
+    if (/(name|email|phone|url|address|school|gender|birth|salary|health|disability)/i.test(key)) return;
+    if (typeof current === "string") {
+      if (current.trim()) values.push(current.trim());
+      return;
+    }
+    if (Array.isArray(current)) {
+      current.forEach((item) => visit(item, key));
+      return;
+    }
+    if (current && typeof current === "object") {
+      Object.entries(current as Record<string, unknown>).forEach(([childKey, child]) => visit(child, childKey));
+    }
+  };
+  visit(value);
+  return values;
 }
 
 function allocateResumeCriteria(

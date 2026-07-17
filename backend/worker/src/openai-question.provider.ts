@@ -34,6 +34,8 @@ export interface QuestionGenerationInput {
   profileContext?: Record<string, unknown>;
   folderContext?: Record<string, unknown>;
   questionTypes?: QuestionGenerationType[];
+  requiredFactualAnchor?: string;
+  requiredNcsProfileIds?: NcsApiProfileId[];
 }
 
 export interface QuestionGenerationCandidate {
@@ -155,6 +157,9 @@ export function buildQuestionMessages(input: QuestionGenerationInput): Array<{ r
         "Do not include final hiring pass/fail judgments, sensitive attributes, appearance, eye contact, voice tone, age, gender, school, region, disability, or health.",
         "Questions must evaluate observable work evidence through answer content.",
         "For resume-personalized questions, use only experiences present in resumeText and include only the minimum non-sensitive experience context needed to identify the experience.",
+        input.requiredFactualAnchor
+          ? "The single question must explicitly contain the supplied requiredFactualAnchor and collect evidence for every requiredNcsProfileId. Do not replace the anchor with an invented experience."
+          : "Do not invent experience details that are absent from resumeText.",
         "Write concise, conversational Korean that a real interviewer could say aloud without editing.",
         "Do not prefix questions with a company name, posting title, bracketed label, or repeated job-role phrase.",
         "Use the JD to choose relevant responsibilities or technologies, but do not copy JD sentences verbatim and do not mention the same role context in every question.",
@@ -176,6 +181,8 @@ export function buildQuestionMessages(input: QuestionGenerationInput): Array<{ r
         criteria: input.criteria,
         resumeText: input.source === "RESUME_PERSONALIZED" ? input.resumeText : undefined,
         avoidQuestions: input.avoidQuestions,
+        requiredFactualAnchor: input.requiredFactualAnchor,
+        requiredNcsProfileIds: input.requiredNcsProfileIds,
         outputContract: {
           questionCandidates: [
             {

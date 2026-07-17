@@ -316,7 +316,7 @@ export class InMemoryCompanyInterviewRepository
   private questionSets: QuestionSetRecord[] = [];
   private questionGenerationPolicies: QuestionGenerationPolicyRecord[] = [];
   private readonly questionGenerationProcesses = new Map<number, AiQuestionGenerationProcessRecord>();
-  private readonly resumeQuestionGenerations = new Map<number, ResumeQuestionApplicationRecord>();
+  private readonly resumeQuestionGenerations = new Map<string, ResumeQuestionApplicationRecord>();
   private nextResumeQuestionProcessLogId = 5000;
   private readonly configurationLockedPostings = new Set<number>();
 
@@ -723,14 +723,15 @@ export class InMemoryCompanyInterviewRepository
   }
 
   setResumeQuestionGeneration(record: ResumeQuestionApplicationRecord): void {
-    this.resumeQuestionGenerations.set(record.applicationId, structuredClone(record));
+    this.resumeQuestionGenerations.set(resumeQuestionStateKey(record.applicationId, record.usageScope), structuredClone(record));
   }
 
   async findResumeQuestionGeneration(
     applicationId: number,
+    usageScope: 'STANDARD' | 'DEMO_PRESET' = 'STANDARD',
   ): Promise<ResumeQuestionApplicationRecord | undefined> {
-    const state = this.resumeQuestionGenerations.get(applicationId);
-    return state ? structuredClone(state) : undefined;
+    const state = this.resumeQuestionGenerations.get(resumeQuestionStateKey(applicationId, usageScope));
+    return state ? structuredClone({ ...state, usageScope }) : undefined;
   }
 
   async listResumeQuestionGenerations(
@@ -740,7 +741,9 @@ export class InMemoryCompanyInterviewRepository
     return [...this.resumeQuestionGenerations.values()]
       .filter(
         (state) =>
-          state.postingId === postingId && state.applicationStatus === 'SUBMITTED',
+          state.postingId === postingId &&
+          state.applicationStatus === 'SUBMITTED' &&
+          (state.usageScope ?? 'STANDARD') === 'STANDARD',
       )
       .map((state) => {
         if (!policy) return structuredClone(state);
@@ -785,7 +788,8 @@ export class InMemoryCompanyInterviewRepository
       questions: state.currentBatch?.questions ?? [],
     };
     state.hasStaleBatch = false;
-    this.resumeQuestionGenerations.set(state.applicationId, state);
+    const usageScope = state.usageScope ?? 'STANDARD';
+    this.resumeQuestionGenerations.set(resumeQuestionStateKey(state.applicationId, usageScope), state);
 
     return {
       processLogId,
@@ -798,13 +802,14 @@ export class InMemoryCompanyInterviewRepository
       resumeDocumentHash: state.currentResumeDocumentHash,
       jdSnapshotHash: state.currentJdSnapshotHash,
       attempt,
+      usageScope,
     };
   }
 
   async markResumeQuestionRetryQueueFailed(processLogId: number, _reason: string): Promise<void> {
-    for (const [applicationId, state] of this.resumeQuestionGenerations.entries()) {
+    for (const [key, state] of this.resumeQuestionGenerations.entries()) {
       if (state.currentBatch?.latestProcessLogId !== processLogId) continue;
-      this.resumeQuestionGenerations.set(applicationId, {
+      this.resumeQuestionGenerations.set(key, {
         ...state,
         currentBatch: {
           ...state.currentBatch,
@@ -814,4 +819,11 @@ export class InMemoryCompanyInterviewRepository
       });
     }
   }
+}
+
+function resumeQuestionStateKey(
+  applicationId: number,
+  usageScope: 'STANDARD' | 'DEMO_PRESET' = 'STANDARD',
+): string {
+  return `${applicationId}:${usageScope}`;
 }
