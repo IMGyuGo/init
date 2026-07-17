@@ -698,7 +698,7 @@ function ReportOverview({
             {followUps.map((item, index) => (
               <div className="report-followup-box" key={`${item.baseAnswerId}-${item.followUpAnswerId}-${index}`}>
                 <div className="report-followup-row">
-                  <span className="report-followup-label">부족 포인트</span>
+                  <span className="report-followup-label">확인 필요 항목</span>
                   <span className="report-followup-text">
                     {item.gapPoints.length > 0 ? item.gapPoints.join(", ") : "특이 사항 없음"}
                   </span>
@@ -894,7 +894,7 @@ function NcsReportOverview({
 
       {findings.length > 0 ? (
         <div className="report-findings">
-          <h3>강점과 보완점</h3>
+          <h3>핵심 평가 근거</h3>
           <ul className="report-findings-list">
             {findings.map((finding) => (
               <li key={finding.findingId} className={finding.type === "GAP" ? "is-gap" : undefined}>
@@ -967,7 +967,7 @@ function NcsReportOverview({
   );
 }
 
-// 레이더에서 선택한 NCS 역량의 상세. 평균/환산/반영 점수 + 유효 문항 + 관련 강점·보완점. (#289)
+// 레이더에서 선택한 NCS 역량의 상세. 평균/환산/반영 점수 + 유효 문항 + 평가 근거. (#289)
 function NcsProfileDetailCard({
   profile,
   findings,
@@ -1008,13 +1008,13 @@ function NcsProfileDetailCard({
         <div className="ncs-profile-detail-findings">
           {profileFindings.map((finding) => (
             <p key={finding.findingId} className={finding.type === "GAP" ? "is-gap" : undefined}>
-              <strong>{finding.type === "STRENGTH" ? "강점" : "보완점"}</strong>
+              <strong>{finding.type === "STRENGTH" ? "강점" : "검토 필요"}</strong>
               {finding.title}
             </p>
           ))}
         </div>
       ) : (
-        <p className="report-competency-rationale is-empty">이 역량에 연결된 강점·보완점이 없습니다.</p>
+        <p className="report-competency-rationale is-empty">이 역량에 연결된 평가 근거가 없습니다.</p>
       )}
       <p className="ncs-profile-detail-hint">문항별 근거는 아래 문항별 평가 근거에서 확인할 수 있어요.</p>
     </aside>
