@@ -37,6 +37,14 @@ export class QuestionGenerationAllocationDto {
   ncsProfileId!: NcsProfileId;
   ncsQuestionMode!: NcsQuestionMode;
   count!: number;
+  usageScope!: 'STANDARD';
+}
+
+export class ActiveProfileCoverageDto {
+  ncsProfileId!: NcsProfileId;
+  requiredBaseQuestionCount!: number;
+  actualBaseQuestionCount!: number;
+  covered!: boolean;
 }
 
 export class QuestionGenerationPolicyResponseDto {
@@ -47,5 +55,7 @@ export class QuestionGenerationPolicyResponseDto {
   policyVersion!: number;
   criteriaVersion!: number;
   allocations!: QuestionGenerationAllocationDto[];
+  activeProfileCoverage!: ActiveProfileCoverageDto[];
+  questionSetRequiresReconfirmation!: boolean;
   warnings!: string[];
 }

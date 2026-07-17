@@ -26,6 +26,21 @@ function createFixture() {
   };
 }
 
+async function configureV2(
+  service: CompanyInterviewService,
+  weights: [number, number, number] = [40, 30, 30],
+) {
+  return service.updateEvaluationCriteria(companyUser, {
+    postingId: 1,
+    evaluationFramework: 'NCS_ACTIVE_PROFILE_V2',
+    criteria: [
+      { criterionId: 1, tagId: 1, weight: weights[0], sortOrder: 1 },
+      { criterionId: 4, tagId: 4, weight: weights[1], sortOrder: 2 },
+      { criterionId: 2, tagId: 2, weight: weights[2], sortOrder: 3 },
+    ],
+  });
+}
+
 type TestNcsProfileId =
   | 'JOB_TECHNICAL'
   | 'COLLABORATION_COMMUNICATION'
@@ -304,6 +319,8 @@ describe('CompanyInterviewService', () => {
       criteriaVersion: 0,
       allocations: [],
       resumeQuestionStatus: 'DISABLED',
+      activeProfileCoverage: [],
+      questionSetRequiresReconfirmation: false,
     });
   });
 
@@ -341,30 +358,35 @@ describe('CompanyInterviewService', () => {
         ncsProfileId: 'PROBLEM_SOLVING',
         ncsQuestionMode: 'EXPERIENCE_BEHAVIOR',
         count: 2,
+        usageScope: 'STANDARD',
       },
       {
         source: 'JD_CRITERIA',
         ncsProfileId: 'COLLABORATION_COMMUNICATION',
         ncsQuestionMode: 'EXPERIENCE_BEHAVIOR',
         count: 2,
+        usageScope: 'STANDARD',
       },
       {
         source: 'JD_CRITERIA',
         ncsProfileId: 'JOB_TECHNICAL',
         ncsQuestionMode: 'TECHNICAL_KNOWLEDGE',
         count: 2,
+        usageScope: 'STANDARD',
       },
       {
         source: 'RESUME_PERSONALIZED',
         ncsProfileId: 'PROBLEM_SOLVING',
         ncsQuestionMode: 'EXPERIENCE_BEHAVIOR',
         count: 1,
+        usageScope: 'STANDARD',
       },
       {
         source: 'RESUME_PERSONALIZED',
         ncsProfileId: 'COLLABORATION_COMMUNICATION',
         ncsQuestionMode: 'EXPERIENCE_BEHAVIOR',
         count: 1,
+        usageScope: 'STANDARD',
       },
     ]);
 
@@ -1173,6 +1195,194 @@ describe('CompanyInterviewService', () => {
         title: '다른 공고 질문 포함',
         items: [{ questionId: 4, criterionId: 7, sortOrder: 1 }],
       }),
+    );
+  });
+
+  it.each([
+    [[100, 0, 0], 1],
+    [[60, 40, 0], 2],
+    [[40, 30, 30], 3],
+  ] as Array<[[number, number, number], number]>) (
+    'saves V2 with %s and derives %s active profile rows',
+    async (weights, activeCount) => {
+      const result = await configureV2(createService(), weights);
+
+      assert.equal(result.evaluationFramework, 'NCS_ACTIVE_PROFILE_V2');
+      assert.equal(result.criteria.length, 3);
+      assert.equal(
+        result.criteria.filter((criterion) => criterion.isActive).length,
+        activeCount,
+      );
+      assert.equal(
+        result.criteria.reduce((sum, criterion) => sum + criterion.weight, 0),
+        100,
+      );
+    },
+  );
+
+  it('rejects V2 zero-active, fractional, negative, missing and duplicate criteria', async () => {
+    const invalidCases = [
+      () => configureV2(createService(), [0, 0, 0]),
+      () => configureV2(createService(), [50.5, 49.5, 0]),
+      () => configureV2(createService(), [-1, 51, 50]),
+      () => createService().updateEvaluationCriteria(companyUser, {
+        postingId: 1,
+        evaluationFramework: 'NCS_ACTIVE_PROFILE_V2',
+        criteria: [
+          { criterionId: 1, tagId: 1, weight: 50, sortOrder: 1 },
+          { criterionId: 2, tagId: 2, weight: 50, sortOrder: 2 },
+        ],
+      }),
+      () => createService().updateEvaluationCriteria(companyUser, {
+        postingId: 1,
+        evaluationFramework: 'NCS_ACTIVE_PROFILE_V2',
+        criteria: [
+          { criterionId: 1, tagId: 1, weight: 50, sortOrder: 1 },
+          { criterionId: 4, tagId: 4, weight: 25, sortOrder: 2 },
+          { criterionId: 2, tagId: 4, weight: 25, sortOrder: 3 },
+        ],
+      }),
+    ];
+
+    for (const action of invalidCases) {
+      await assert.rejects(action, ApiException);
+    }
+  });
+
+  it('keeps DRAFT-only configuration mutable and locks all configured mutations after submission history', async () => {
+    const { repository, service } = createFixture();
+    repository.setConfigurationLocked(1, false);
+    await configureV2(service);
+
+    repository.setConfigurationLocked(1, true);
+    const settings = await service.getSettings(companyUser, { postingId: 1 });
+    assert.equal(settings.configurationLocked, true);
+    assert.equal(settings.configurationLockedReason, 'SUBMITTED_APPLICATION_EXISTS');
+
+    for (const action of [
+      () => configureV2(service, [50, 25, 25]),
+      () => service.updateQuestionGenerationPolicy(companyUser, {
+        postingId: 1,
+        jdCriteriaQuestionCount: 3,
+        resumeQuestionCount: 1,
+      }),
+      () => service.createQuestion(companyUser, {
+        postingId: 1,
+        criterionId: 1,
+        questionType: 'TECHNICAL',
+        content: '제출 이력 잠금 뒤에는 추가할 수 없는 충분히 긴 질문입니다.',
+      }),
+    ]) {
+      await assert.rejects(
+        action,
+        (error: unknown) =>
+          error instanceof ApiException &&
+          error.code === 'INTERVIEW_CONFIGURATION_LOCKED',
+      );
+    }
+
+    repository.setConfigurationLocked(1, true);
+    assert.equal(
+      (await service.getSettings(companyUser, { postingId: 1 })).configurationLocked,
+      true,
+      'canceled/failed/completed transitions do not clear historical lock',
+    );
+  });
+
+  it('requires confirmation before V2 deactivation and atomically updates exclusive, multi and ACTIVE set state', async () => {
+    const { repository, service } = createFixture();
+    const criteria = await configureV2(service);
+    const byProfile = new Map(
+      criteria.criteria.map((criterion) => [criterion.ncsProfileId, criterion]),
+    );
+    const job = byProfile.get('JOB_TECHNICAL')!;
+    const collaboration = byProfile.get('COLLABORATION_COMMUNICATION')!;
+    const problem = byProfile.get('PROBLEM_SOLVING')!;
+
+    const exclusive = await service.createQuestion(companyUser, {
+      postingId: 1,
+      criterionId: job.criterionId,
+      criterionIds: [job.criterionId],
+      questionType: 'TECHNICAL',
+      content: '직무 기술 역량의 근거를 구체적으로 설명하는 첫 번째 질문입니다.',
+    });
+    const multi = await service.createQuestion(companyUser, {
+      postingId: 1,
+      criterionId: job.criterionId,
+      criterionIds: [job.criterionId, problem.criterionId],
+      questionType: 'EXPERIENCE',
+      content: '기술 문제를 해결한 과정과 판단 근거를 함께 설명하는 질문입니다.',
+    });
+    const collaborationQuestion = await service.createQuestion(companyUser, {
+      postingId: 1,
+      criterionId: collaboration.criterionId,
+      criterionIds: [collaboration.criterionId],
+      questionType: 'EXPERIENCE',
+      content: '협업 과정에서 의견을 조율한 방법을 구체적으로 설명하는 질문입니다.',
+    });
+    await service.updateQuestionGenerationPolicy(companyUser, {
+      postingId: 1,
+      jdCriteriaQuestionCount: 3,
+      resumeQuestionCount: 1,
+    });
+    await service.confirmQuestionSet(companyUser, {
+      postingId: 1,
+      title: 'V2 활성 질문 세트',
+      items: [exclusive, multi, collaborationQuestion].map((result, index) => ({
+        questionId: result.question.questionId,
+        criterionId: result.question.criterionId,
+        sortOrder: index + 1,
+      })),
+    });
+
+    const deactivateJob = {
+      postingId: 1,
+      evaluationFramework: 'NCS_ACTIVE_PROFILE_V2' as const,
+      criteria: [
+        { criterionId: job.criterionId, tagId: job.tagId, weight: 0, sortOrder: 1 },
+        { criterionId: collaboration.criterionId, tagId: collaboration.tagId, weight: 50, sortOrder: 2 },
+        { criterionId: problem.criterionId, tagId: problem.tagId, weight: 50, sortOrder: 3 },
+      ],
+    };
+    await assert.rejects(
+      () => service.updateEvaluationCriteria(companyUser, deactivateJob),
+      (error: unknown) =>
+        error instanceof ApiException && error.code === 'COMMON_CONFLICT',
+    );
+    assert.equal((await repository.findQuestion(exclusive.question.questionId))?.isActive, true);
+
+    const saved = await service.updateEvaluationCriteria(companyUser, {
+      ...deactivateJob,
+      confirmQuestionImpact: true,
+    });
+    assert.equal((await repository.findQuestion(exclusive.question.questionId))?.isActive, false);
+    assert.equal((await repository.findQuestion(multi.question.questionId))?.alignmentStatus, 'REVIEW_REQUIRED');
+    assert.equal((await service.getActiveQuestionSet(companyUser, 1)).questionSet, null);
+    assert.equal(saved.questionSetRequiresReconfirmation, true);
+    assert.equal(saved.criteriaVersion, 2);
+  });
+
+  it('allocates V2 STANDARD questions only across active profiles without changing V1 rules', async () => {
+    const service = createService();
+    await configureV2(service, [60, 0, 40]);
+    const policy = await service.updateQuestionGenerationPolicy(companyUser, {
+      postingId: 1,
+      jdCriteriaQuestionCount: 3,
+      resumeQuestionCount: 1,
+    });
+
+    assert.deepEqual(
+      [...new Set(policy.allocations.map((allocation) => allocation.ncsProfileId))],
+      ['JOB_TECHNICAL', 'PROBLEM_SOLVING'],
+    );
+    assert.equal(
+      policy.allocations.reduce((sum, allocation) => sum + allocation.count, 0),
+      4,
+    );
+    assert.ok(policy.allocations.every((allocation) => allocation.usageScope === 'STANDARD'));
+    assert.deepEqual(
+      policy.activeProfileCoverage.map((coverage) => coverage.requiredBaseQuestionCount),
+      [1, 1],
     );
   });
 

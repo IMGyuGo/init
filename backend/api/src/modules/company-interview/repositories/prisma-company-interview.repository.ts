@@ -6,6 +6,7 @@ import {
   CriterionTagRecord,
   EvaluationCriterionRecord,
   EvaluationFramework,
+  NcsProfileId,
   PostingRecord,
   QuestionOrigin,
   QuestionRecord,
@@ -180,10 +181,27 @@ export class PrismaCompanyInterviewRepository
     return policy ? mapQuestionGenerationPolicy(policy) : undefined;
   }
 
+  async isConfigurationLocked(postingId: number): Promise<boolean> {
+    const application = await this.prisma.application.findFirst({
+      where: {
+        postingId: BigInt(postingId),
+        OR: [
+          { submittedAt: { not: null } },
+          { applicationStatus: { not: 'DRAFT' } },
+        ],
+      },
+      select: { applicationId: true },
+    });
+    return application !== null;
+  }
+
   async replaceCriteria(
     postingId: number,
     evaluationFramework: EvaluationFramework,
     criteria: UpdateCriterionInput[],
+    options: { deactivatedProfileIds: NcsProfileId[] } = {
+      deactivatedProfileIds: [],
+    },
   ) {
     const result = await this.prisma.$transaction(async (tx) => {
       const nextIds: bigint[] = [];
@@ -244,6 +262,48 @@ export class PrismaCompanyInterviewRepository
         });
       }
 
+      if (options.deactivatedProfileIds.length > 0) {
+        const affectedQuestions = await tx.question.findMany({
+          where: {
+            postingId: BigInt(postingId),
+            isActive: true,
+            ncsBindings: {
+              some: { ncsProfileId: { in: options.deactivatedProfileIds } },
+            },
+          },
+          include: { ncsBindings: true },
+        });
+        const exclusiveQuestionIds = affectedQuestions
+          .filter((question) => question.ncsBindings.length === 1)
+          .map((question) => question.questionId);
+        const multiQuestionIds = affectedQuestions
+          .filter((question) => question.ncsBindings.length > 1)
+          .map((question) => question.questionId);
+
+        if (exclusiveQuestionIds.length > 0) {
+          await tx.question.updateMany({
+            where: { questionId: { in: exclusiveQuestionIds } },
+            data: { isActive: false },
+          });
+        }
+        if (multiQuestionIds.length > 0) {
+          await tx.question.updateMany({
+            where: { questionId: { in: multiQuestionIds } },
+            data: { alignmentStatus: 'REVIEW_REQUIRED' },
+          });
+          await tx.questionNcsBinding.updateMany({
+            where: { questionId: { in: multiQuestionIds } },
+            data: { alignmentStatus: 'REVIEW_REQUIRED' },
+          });
+        }
+        if (affectedQuestions.length > 0) {
+          await tx.interviewQuestionSet.updateMany({
+            where: { postingId: BigInt(postingId), status: 'ACTIVE' },
+            data: { status: 'DRAFT' },
+          });
+        }
+      }
+
       await tx.evaluationCriterion.deleteMany({
         where: {
           postingId: BigInt(postingId),
@@ -263,6 +323,13 @@ export class PrismaCompanyInterviewRepository
           criteriaVersion: { increment: 1 },
         },
       });
+
+      if (evaluationFramework !== 'LEGACY') {
+        await tx.interviewQuestionSet.updateMany({
+          where: { postingId: BigInt(postingId), status: 'ACTIVE' },
+          data: { status: 'DRAFT' },
+        });
+      }
 
       return { nextIds, policy };
     });
@@ -317,6 +384,12 @@ export class PrismaCompanyInterviewRepository
           policyVersion: { increment: 1 },
         },
       });
+      if (input.evaluationFramework !== 'LEGACY') {
+        await tx.interviewQuestionSet.updateMany({
+          where: { postingId: BigInt(postingId), status: 'ACTIVE' },
+          data: { status: 'DRAFT' },
+        });
+      }
       return mapQuestionGenerationPolicy(saved);
     });
   }
@@ -474,7 +547,11 @@ export class PrismaCompanyInterviewRepository
       include: {
         items: {
           orderBy: { sortOrder: 'asc' },
-          include: { question: true },
+          include: {
+            question: {
+              include: { ncsBindings: { orderBy: { bindingOrder: 'asc' } } },
+            },
+          },
         },
       },
     });
@@ -702,6 +779,7 @@ function mapTag(tag: {
   description: string | null;
   category: string;
   isActive: boolean;
+  usageScope?: 'STANDARD' | 'DEMO_PRESET';
   sortOrder: number;
   ncsProfileId: string | null;
   defaultNcsQuestionMode: string | null;
@@ -813,6 +891,7 @@ function mapQuestion(question: {
   origin: QuestionOrigin;
   isAiEdited: boolean;
   isActive: boolean;
+  usageScope?: 'STANDARD' | 'DEMO_PRESET';
   generationSource?: string | null;
   ncsProfileId?: string | null;
   ncsQuestionMode?: string | null;
@@ -844,6 +923,7 @@ function mapQuestion(question: {
     origin: question.origin,
     isAiEdited: question.isAiEdited,
     isActive: question.isActive,
+    usageScope: question.usageScope ?? 'STANDARD',
     generationSource:
       (question.generationSource ?? null) as QuestionRecord['generationSource'],
     ncsProfileId: (question.ncsProfileId ?? null) as QuestionRecord['ncsProfileId'],

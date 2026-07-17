@@ -37,6 +37,7 @@ export class InterviewSettingsCriterionDto {
   ncsProfileId!: NcsProfileId | null;
   ncsQuestionMode!: NcsQuestionMode | null;
   ncsProfileVersion!: string | null;
+  isActive!: boolean;
 }
 
 export class InterviewSettingsAvailableTagDto {
@@ -64,6 +65,7 @@ export class InterviewSettingsQuestionDto {
   ncsQuestionMode!: NcsQuestionMode | null;
   ncsProfileVersion!: string | null;
   alignmentStatus!: string | null;
+  usageScope!: 'STANDARD' | 'DEMO_PRESET';
 }
 
 export class InterviewTimePolicyDto {
@@ -77,6 +79,7 @@ export class InterviewQuestionGenerationAllocationDto {
   ncsProfileId!: NcsProfileId;
   ncsQuestionMode!: NcsQuestionMode;
   count!: number;
+  usageScope!: 'STANDARD';
 }
 
 export class InterviewQuestionGenerationPolicyDto {
@@ -87,6 +90,13 @@ export class InterviewQuestionGenerationPolicyDto {
   criteriaVersion!: number;
   allocations!: InterviewQuestionGenerationAllocationDto[];
   resumeQuestionStatus!: ResumeQuestionGenerationStatus;
+  activeProfileCoverage!: Array<{
+    ncsProfileId: NcsProfileId;
+    requiredBaseQuestionCount: number;
+    actualBaseQuestionCount: number;
+    covered: boolean;
+  }>;
+  questionSetRequiresReconfirmation!: boolean;
 }
 
 export class InterviewSettingsResponseDto {
@@ -97,4 +107,12 @@ export class InterviewSettingsResponseDto {
   timePolicy!: InterviewTimePolicyDto;
   evaluationFramework!: EvaluationFramework;
   questionGenerationPolicy!: InterviewQuestionGenerationPolicyDto;
+  configurationLocked!: boolean;
+  configurationLockedReason!: 'SUBMITTED_APPLICATION_EXISTS' | null;
+  questionImpactByProfile!: Array<{
+    ncsProfileId: NcsProfileId;
+    exclusivelyBoundActiveQuestionCount: number;
+    multiBoundActiveQuestionCount: number;
+  }>;
+  questionSetRequiresReconfirmation!: boolean;
 }

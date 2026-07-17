@@ -12,6 +12,7 @@ import {
   ResumeQuestionRetryJobRecord,
   QuestionType,
   TimePolicyRecord,
+  NcsProfileId,
 } from '../company-interview.types';
 
 export const COMPANY_INTERVIEW_REPOSITORY = Symbol(
@@ -90,6 +91,10 @@ export type ReplaceCriteriaResult = {
   policy: QuestionGenerationPolicyRecord;
 };
 
+export type ReplaceCriteriaOptions = {
+  deactivatedProfileIds: NcsProfileId[];
+};
+
 export type ConfirmQuestionSetInput = {
   postingId: number;
   title: string;
@@ -122,10 +127,12 @@ export interface CompanyInterviewRepository {
   getQuestionGenerationPolicy(
     postingId: number,
   ): Promise<QuestionGenerationPolicyRecord | undefined>;
+  isConfigurationLocked(postingId: number): Promise<boolean>;
   replaceCriteria(
     postingId: number,
     evaluationFramework: EvaluationFramework,
     criteria: UpdateCriterionInput[],
+    options?: ReplaceCriteriaOptions,
   ): Promise<ReplaceCriteriaResult>;
   updateQuestionGenerationPolicy(
     postingId: number,

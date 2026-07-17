@@ -15,6 +15,7 @@ const oldCriterion = {
   ncsProfileId: null,
   ncsQuestionMode: null,
   ncsProfileVersion: null,
+  isActive: true,
 };
 
 const newCriterion = {
@@ -40,6 +41,7 @@ function createSettings(): InterviewSettings {
         origin: "AI_GENERATED",
         isAiEdited: false,
         isActive: true,
+        usageScope: "STANDARD",
         generationSource: null,
         ncsProfileId: null,
         ncsQuestionMode: null,
@@ -59,6 +61,7 @@ function createSettings(): InterviewSettings {
         origin: "MANUAL",
         isAiEdited: false,
         isActive: true,
+        usageScope: "STANDARD",
         generationSource: null,
         ncsProfileId: null,
         ncsQuestionMode: null,
@@ -84,7 +87,13 @@ function createSettings(): InterviewSettings {
       policyVersion: 0,
       criteriaVersion: 0,
       allocations: [],
+      activeProfileCoverage: [],
+      questionSetRequiresReconfirmation: false,
     },
+    configurationLocked: false,
+    configurationLockedReason: null,
+    questionImpactByProfile: [],
+    questionSetRequiresReconfirmation: false,
   };
 }
 

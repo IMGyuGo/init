@@ -70,7 +70,7 @@ export function buildAutoApplyQuestionPlan(
       alreadySavedCount += 1;
       continue;
     }
-    if (settings.evaluationFramework === "NCS_3_PROFILE_V1" && candidate.alignmentStatus !== "ALIGNED") {
+    if (settings.evaluationFramework !== "LEGACY" && candidate.alignmentStatus !== "ALIGNED") {
       rejectedCount += 1;
       continue;
     }
@@ -120,18 +120,23 @@ export function buildCommonQuestionSetPlan(
     };
   }
 
-  if (settings.evaluationFramework === "NCS_3_PROFILE_V1") {
+  if (settings.evaluationFramework !== "LEGACY") {
+    const activeProfiles = settings.criteria
+      .filter((criterion) => settings.evaluationFramework !== "NCS_ACTIVE_PROFILE_V2" || criterion.isActive)
+      .map((criterion) => criterion.ncsProfileId)
+      .filter((profileId): profileId is NcsProfileId => profileId !== null);
+    const requiredCount = settings.evaluationFramework === "NCS_3_PROFILE_V1" ? 2 : 1;
     const coverage = new Map<NcsProfileId, number>(NCS_PROFILE_IDS.map((profileId) => [profileId, 0]));
     for (const question of eligible) {
       for (const binding of question.ncsBindings) {
         coverage.set(binding.ncsProfileId, (coverage.get(binding.ncsProfileId) ?? 0) + 1);
       }
     }
-    const missingProfiles = NCS_PROFILE_IDS.filter((profileId) => (coverage.get(profileId) ?? 0) < 2);
+    const missingProfiles = activeProfiles.filter((profileId) => (coverage.get(profileId) ?? 0) < requiredCount);
     if (missingProfiles.length > 0) {
       return {
         items: [],
-        error: "각 NCS 평가 기준에 연결된 공통 질문이 최소 2개씩 필요합니다.",
+        error: `각 활성 NCS 평가 기준에 연결된 공통 질문이 최소 ${requiredCount}개씩 필요합니다.`,
       };
     }
   }
@@ -155,7 +160,7 @@ function isConfirmableQuestion(
   question: InterviewSettings["questions"][number],
 ): boolean {
   if (!question.isActive) return false;
-  if (settings.evaluationFramework !== "NCS_3_PROFILE_V1") return true;
+  if (settings.evaluationFramework === "LEGACY") return true;
   if (
     question.generationSource !== "JD_CRITERIA" ||
     question.alignmentStatus !== "ALIGNED" ||
@@ -179,6 +184,7 @@ function isConfirmableQuestion(
       Boolean(binding.ncsProfileVersion) &&
       Boolean(binding.evaluatorVersion) &&
       criterion?.ncsProfileId === binding.ncsProfileId &&
+      (settings.evaluationFramework !== "NCS_ACTIVE_PROFILE_V2" || criterion.isActive) &&
       criterion.ncsProfileVersion === binding.ncsProfileVersion &&
       !profiles.has(binding.ncsProfileId) &&
       !criteria.has(binding.criterionId);
@@ -192,16 +198,24 @@ function findCandidateCriterionId(
   settings: InterviewSettings,
   candidate: GeneratedQuestionCandidate,
 ): number | undefined {
-  if (candidate.criterionId && settings.criteria.some((criterion) => criterion.criterionId === candidate.criterionId)) {
+  if (candidate.criterionId && settings.criteria.some((criterion) =>
+    criterion.criterionId === candidate.criterionId &&
+    (settings.evaluationFramework !== "NCS_ACTIVE_PROFILE_V2" || criterion.isActive)
+  )) {
     return candidate.criterionId;
   }
 
   const title = normalizeText(candidate.criterionTitle ?? "");
   if (!title) return undefined;
+  const selectableCriteria = settings.criteria.filter(
+    (criterion) =>
+      settings.evaluationFramework !== "NCS_ACTIVE_PROFILE_V2" ||
+      criterion.isActive,
+  );
   return (
-    settings.criteria.find((criterion) => normalizeText(criterion.tagName) === title)?.criterionId ??
-    settings.criteria.find((criterion) => title.includes(normalizeText(criterion.tagName)))?.criterionId ??
-    settings.criteria.find((criterion) => normalizeText(criterion.category) === title)?.criterionId
+    selectableCriteria.find((criterion) => normalizeText(criterion.tagName) === title)?.criterionId ??
+    selectableCriteria.find((criterion) => title.includes(normalizeText(criterion.tagName)))?.criterionId ??
+    selectableCriteria.find((criterion) => normalizeText(criterion.category) === title)?.criterionId
   );
 }
 
