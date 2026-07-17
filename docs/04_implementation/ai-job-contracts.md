@@ -112,7 +112,7 @@ GET /api/v1/ai/jobs/101/status
 | `POST /reports/{reportId}/evaluation-context` | Company | reportType=`RECRUITING_REPORT`, company, posting, criteria, application, answers, manualEvaluations? | status output에 context 반환 |
 | `POST /reports/{reportId}/answer-evaluation` | Company | reportType=`RECRUITING_REPORT`, criteria, answers, documentText? | guardrail 통과 후 `report_scores`, `report_evidences` 저장 |
 | `POST /reports/{reportId}/communication-analysis` | Company | reportType=`RECRUITING_REPORT`, consentConfirmed, mediaQuality, metrics? | 보조 지표로만 저장, decisionWeight는 0 |
-| `POST /reports/{reportId}/generate` | Company | reportType=`RECRUITING_REPORT`, jobDescription, criteria, answers | guardrail 통과 후 리포트/점수/근거 최종 저장 |
+| `POST /reports/{reportId}/generate` | Company | reportType=`RECRUITING_REPORT`, jobDescription, criteria, answers, session snapshot의 ncsScoringVersion/ncsSessionPolicy | guardrail 통과 후 리포트/점수/근거 최종 저장 |
 | `POST /candidate/mock-interview/reports/{reportId}/generate` | Candidate | reportType=`MOCK_INTERVIEW_REPORT`, jobDescription, criteria, answers | 합격/탈락 판단 표현 금지 |
 | `POST /candidate/documents/extract` | Candidate | applicationId, documentId, fileId, s3Key | 원본 파일은 DB 저장 금지, S3 key 참조 |
 | `POST /candidate/mock-interviews/{sessionId}/stt` | Candidate | answerId, audioFileId, audioS3Key | transcript 없을 때만 저장 |

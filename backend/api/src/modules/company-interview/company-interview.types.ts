@@ -2,6 +2,7 @@ import {
   type EvaluationFramework as SharedEvaluationFramework,
   type NcsProfileId as SharedNcsProfileId,
   type NcsQuestionMode as SharedNcsQuestionMode,
+  type QuestionUsageScope,
 } from '@init/common';
 
 export type PostingStatus =
@@ -159,6 +160,8 @@ export type PersonalizedQuestionRecord = {
   alignmentReason: string | null;
   evaluatorVersion: string | null;
   sortOrder: number;
+  usageScope?: QuestionUsageScope;
+  ncsBindings?: QuestionNcsBindingRecord[];
 };
 
 export type ResumeQuestionBatchRecord = {
@@ -173,6 +176,7 @@ export type ResumeQuestionBatchRecord = {
   jdSnapshotHash: string;
   attemptCount: number;
   questions: PersonalizedQuestionRecord[];
+  usageScope?: QuestionUsageScope;
 };
 
 export type ResumeQuestionApplicationRecord = {
@@ -188,6 +192,7 @@ export type ResumeQuestionApplicationRecord = {
   currentJdSnapshotHash: string | null;
   currentBatch: ResumeQuestionBatchRecord | null;
   hasStaleBatch: boolean;
+  usageScope?: QuestionUsageScope;
 };
 
 export type ResumeQuestionRetryJobRecord = {
@@ -201,6 +206,7 @@ export type ResumeQuestionRetryJobRecord = {
   resumeDocumentHash: string;
   jdSnapshotHash: string;
   attempt: number;
+  usageScope: QuestionUsageScope;
 };
 
 export type TimePolicyRecord = {

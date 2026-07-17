@@ -67,6 +67,29 @@ export type NcsReportEvaluationOutputV1 = {
   notices: NcsReportNoticeV1[];
 };
 
+export type NcsReportProfileScoreV2 = Omit<NcsReportProfileScoreV1, "requiredQuestionCount"> & {
+  requiredQuestionCount: number;
+};
+
+export type NcsReportEvaluationOutputV2 = Omit<
+  NcsReportEvaluationOutputV1,
+  "schemaVersion" | "policy" | "profiles"
+> & {
+  schemaVersion: "ncs-report-evaluation-output-v2";
+  policy: {
+    evaluationFramework: "NCS_ACTIVE_PROFILE_V2";
+    scoringVersion: "NCS_RECRUITING_SCORING_V2";
+    decisionPolicyVersion: string;
+    scoreScale: 5;
+    overallPassScore: 80;
+    profileMinimumAverageScore: 3;
+    activeProfileCount: number;
+  };
+  profiles: NcsReportProfileScoreV2[];
+};
+
+export type NcsReportEvaluationOutput = NcsReportEvaluationOutputV1 | NcsReportEvaluationOutputV2;
+
 export type NcsReportProfileScoreV1 = {
   ncsProfileId: NcsReportProfileId;
   profileOrder: 1 | 2 | 3;

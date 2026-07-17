@@ -54,7 +54,10 @@ import {
 import { AiJobDispatcherService } from "./ai-job-dispatcher.service";
 import { buildDefaultReportCriteria, normalizeReportCriterionName } from "./service-interview-rubric";
 
-type ReportAnswerSession = Pick<RuntimeInterviewSession, "sessionId" | "interviewType" | "showQuestionText">;
+type ReportAnswerSession = Pick<
+  RuntimeInterviewSession,
+  "sessionId" | "interviewType" | "showQuestionText" | "ncsScoringVersion"
+>;
 type ReportGenerationKind = "MOCK_REPORT_GENERATE" | "RECRUITING_REPORT_GENERATE";
 export const CANDIDATE_MOCK_MEDIA_COOKIE_NAME = "candidateMockMediaAccess";
 const CANDIDATE_MOCK_MEDIA_COOKIE_MAX_AGE_SECONDS = 15 * 60;
@@ -536,6 +539,11 @@ export class ReportService {
       jobDescription: this.cleanOptionalText(args.jobDescription) ?? "Interview report generation",
       criteria: await this.reportCriteria(args.reportType, args.postingId, answers),
       answers: await this.reportAnswerInputs(answers, args.reportType),
+      ...(args.reportType === "RECRUITING_REPORT" &&
+      (args.session.ncsScoringVersion === "NCS_RECRUITING_SCORING_V1" ||
+        args.session.ncsScoringVersion === "NCS_RECRUITING_SCORING_V2")
+        ? { ncsScoringVersion: args.session.ncsScoringVersion }
+        : {}),
       ...(args.reportType === "RECRUITING_REPORT" && this.interviewRepository.listNcsSessionPolicies
         ? { ncsSessionPolicy: await this.interviewRepository.listNcsSessionPolicies(args.session.sessionId) }
         : {}),

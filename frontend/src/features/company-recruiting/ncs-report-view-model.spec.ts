@@ -38,6 +38,44 @@ assert(
   "문항별 profile 평가가 없는 응답을 허용하면 안 된다.",
 );
 
+const v2ActiveProfiles = new Set(["JOB_TECHNICAL", "PROBLEM_SOLVING"]);
+const v2Output = {
+  ...NCS_COMPLETE_PASS_FIXTURE,
+  schemaVersion: "ncs-report-evaluation-output-v2",
+  policy: {
+    evaluationFramework: "NCS_ACTIVE_PROFILE_V2",
+    scoringVersion: "NCS_RECRUITING_SCORING_V2",
+    decisionPolicyVersion: NCS_COMPLETE_PASS_FIXTURE.policy.decisionPolicyVersion,
+    scoreScale: 5,
+    overallPassScore: 80,
+    profileMinimumAverageScore: 3,
+    activeProfileCount: 2,
+  },
+  profiles: NCS_COMPLETE_PASS_FIXTURE.profiles
+    .filter((profile) => v2ActiveProfiles.has(profile.ncsProfileId))
+    .map((profile) => ({ ...profile, requiredQuestionCount: 1 })),
+  questions: NCS_COMPLETE_PASS_FIXTURE.questions.flatMap((question) => {
+    const profileEvaluations = question.profileEvaluations.filter((evaluation) =>
+      v2ActiveProfiles.has(evaluation.ncsProfileId),
+    );
+    return profileEvaluations.length ? [{ ...question, profileEvaluations }] : [];
+  }),
+  evidences: NCS_COMPLETE_PASS_FIXTURE.evidences.filter((evidence) =>
+    v2ActiveProfiles.has(evidence.ncsProfileId),
+  ),
+  findings: NCS_COMPLETE_PASS_FIXTURE.findings.filter((finding) =>
+    v2ActiveProfiles.has(finding.ncsProfileId),
+  ),
+};
+assert(isCanonicalNcsReportEvaluation(v2Output), "V2 active-only profile 응답을 허용해야 한다.");
+assert(
+  !isCanonicalNcsReportEvaluation({
+    ...v2Output,
+    profiles: [...v2Output.profiles, NCS_COMPLETE_PASS_FIXTURE.profiles[1]],
+  }),
+  "V2 응답에 비활성 profile placeholder를 허용하면 안 된다.",
+);
+
 const dualProfileQuestion = NCS_COMPLETE_PASS_FIXTURE.questions[0];
 assert(NCS_COMPLETE_PASS_FIXTURE.questions.length === 3, "질문은 profile 수만큼 중복되면 안 된다.");
 assert(dualProfileQuestion.profileEvaluations.length === 2, "한 질문에서 두 profile 평가를 유지해야 한다.");

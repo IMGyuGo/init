@@ -35,6 +35,9 @@ import {
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import {
   aggregateNcsFinalEvaluation,
+  NCS_SCORING_VERSION,
+  NCS_SCORING_VERSION_V2,
+  type NcsScoringVersion,
   type NcsFinalEvaluation,
   type NcsIncompleteReason,
   type NcsSessionPolicyInput,
@@ -254,12 +257,19 @@ export async function evaluateNcsReportAnswers(
   provider?: NcsTextEvaluationProvider,
   sessionPolicies?: NcsSessionPolicyInput[],
   factCheckContext?: NcsAnswerFactCheckContext,
+  scoringVersion: NcsScoringVersion = NCS_SCORING_VERSION,
 ): Promise<NcsReportEvaluationBatch> {
   const primaryAnswers = answers.filter((answer) => !answer.isFollowUpAnswer);
+  const activeProfileIds = new Set(sessionPolicies?.map((policy) => policy.ncsProfileId) ?? []);
   const structuralReasons: NcsIncompleteReason[] = [];
-  const snapshotCandidates = primaryAnswers.filter((answer) =>
+  const snapshotCandidates = primaryAnswers.map((answer) =>
+    scoringVersion === NCS_SCORING_VERSION_V2 && sessionPolicies
+      ? activeOnlyAnswerSnapshot(answer, activeProfileIds)
+      : answer,
+  ).filter((answer): answer is NcsReportAnswerSnapshot => answer !== null).filter((answer) =>
     (answer.ncsBindings?.length ?? 0) > 0 || answer.ncsProfileId !== undefined,
   );
+  const snapshotCandidateAnswerIds = new Set(snapshotCandidates.map((answer) => answer.answerId));
   const ncsAnswers = sessionPolicies === undefined
     ? snapshotCandidates
     : snapshotCandidates.filter((answer) => {
@@ -268,7 +278,11 @@ export async function evaluateNcsReportAnswers(
         return reasons.length === 0;
       });
   if (sessionPolicies !== undefined) {
-    for (const answer of primaryAnswers.filter((item) => !snapshotCandidates.includes(item))) {
+    for (const answer of primaryAnswers.filter((item) =>
+      !snapshotCandidateAnswerIds.has(item.answerId) &&
+      !(scoringVersion === NCS_SCORING_VERSION_V2 &&
+        ((item.ncsBindings?.length ?? 0) > 0 || item.ncsProfileId !== undefined)),
+    )) {
       structuralReasons.push(structuralReason(
         "SESSION_SNAPSHOT_MISSING",
         `Answer ${answer.answerId} has no NCS session question snapshot.`,
@@ -286,7 +300,7 @@ export async function evaluateNcsReportAnswers(
       scores: [],
       questionEvaluations: [],
       allProfilesScored: false,
-      finalEvaluation: aggregateNcsFinalEvaluation(sessionPolicies, [], structuralReasons),
+      finalEvaluation: aggregateNcsFinalEvaluation(sessionPolicies, [], structuralReasons, scoringVersion),
     };
   }
 
@@ -374,9 +388,25 @@ export async function evaluateNcsReportAnswers(
         scoreStatus: evaluation.output.scoreStatus,
         effectiveScore: evaluation.effectiveScore,
         evidenceCount: evaluation.evidences.length,
-      })), structuralReasons)
+      })), structuralReasons, scoringVersion)
     : undefined;
   return { evaluations, factChecks, scores, questionEvaluations, allProfilesScored, usage, finalEvaluation };
+}
+
+function activeOnlyAnswerSnapshot(
+  answer: NcsReportAnswerSnapshot,
+  activeProfileIds: Set<string>,
+): NcsReportAnswerSnapshot | null {
+  if (answer.ncsBindings?.length) {
+    const ncsBindings = answer.ncsBindings
+      .filter((binding) => activeProfileIds.has(canonicalNcsProfileId(binding.ncsProfileId)))
+      .map((binding, index) => ({ ...binding, bindingOrder: (index + 1) as 1 | 2 }));
+    return ncsBindings.length > 0 ? { ...answer, ncsBindings } : null;
+  }
+  if (answer.ncsProfileId && activeProfileIds.has(canonicalNcsProfileId(answer.ncsProfileId))) {
+    return answer;
+  }
+  return null;
 }
 
 function currentSnapshotReasons(answer: NcsReportAnswerSnapshot): NcsIncompleteReason[] {

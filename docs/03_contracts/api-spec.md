@@ -1084,7 +1084,7 @@ AI 리포트 금지 기준:
 - Report response:
   - `report.totalScore` is the AI evaluation score and is the company-facing displayed score.
   - `report.adjustedTotalScore` is retained for compatibility and has the same value as `report.totalScore`.
-  - NCS 리포트는 `report.ncsEvaluation`에 `NcsReportEvaluationOutputV1`을 반환한다. 상세 shape은 `docs/03_contracts/ncs-report-output-contract.md`를 따른다.
+  - NCS 리포트는 `report.ncsEvaluation`에 framework별 versioned output을 반환한다. `NCS_3_PROFILE_V1`은 `NcsReportEvaluationOutputV1`, `NCS_ACTIVE_PROFILE_V2`는 `NcsReportEvaluationOutputV2`를 사용한다. 상세 shape은 `docs/03_contracts/ncs-report-output-contract.md`와 `docs/03_contracts/ncs-report-output-v2.md`를 따른다.
   - NCS 결과가 아직 준비되지 않았으면 `report.ncsEvaluation=null`이다. 평가가 끝났지만 불완전하면 `report.ncsEvaluation.result.completionStatus=INCOMPLETE`, `result.totalScore=null`, 구조화된 `incompleteReasons`로 표현한다.
   - 기존 `report.ncsAnswerEvaluations`는 migration 호환용이며 신규 리포트 UI는 `report.ncsEvaluation`을 우선 사용한다.
   - API consumer는 profile 평균, 가중 점수, 총점 또는 PASS/FAIL을 재계산하지 않는다.
@@ -2321,12 +2321,13 @@ Allocation Examples:
 - Path Params: reportId
 - 요청 데이터:
   - 서류 평가 결과, 면접 평가 결과, 평가 기준
+  - NCS 세션이면 `ncsScoringVersion`과 `ncsSessionPolicy`를 현재 공고가 아니라 session snapshot에서 전달한다.
 - 검증/전제조건:
   - 평가 완료 상태 또는 NCS `INCOMPLETE` 상태가 명시적으로 확정됨
 - 성공 응답/처리:
   - 평가 리포트 저장
   - NCS 리포트는 `profileScores`, `totalScore`, `thresholdResult`, `aiDecision`, `decisionReason`, `scoringVersion`, `decisionPolicyVersion`을 저장·응답한다.
-  - API-020이 사용할 `ncs-report-evaluation-output-v1` projection을 생성할 수 있도록 답변별 평가, profile 집계, exact evidence와 versioned summary snapshot을 함께 확정한다.
+  - API-020이 사용할 framework별 `ncs-report-evaluation-output-v1 | ncs-report-evaluation-output-v2` projection을 생성할 수 있도록 답변별 평가, active-only profile 집계, exact evidence와 versioned summary snapshot을 함께 확정한다.
   - projection의 field, NULL, evidence와 privacy 규칙은 `docs/03_contracts/ncs-report-output-contract.md`를 따른다.
   - `MEETS_THRESHOLD -> PASS`, `BELOW_THRESHOLD -> FAIL`로 deterministic 매핑한다.
   - 발표용 `NCS_INCOMPLETE_AS_FAIL_DEMO_V1`에서는 `INCOMPLETE -> FAIL`로 표시하되 `totalScore=NULL`과 미완료 원인을 유지하고 실제 `screening_decision`은 변경하지 않는다.

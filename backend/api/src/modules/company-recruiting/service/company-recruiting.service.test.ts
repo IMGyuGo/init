@@ -1566,6 +1566,62 @@ describe("CompanyRecruitingService", () => {
     assert.equal(result.report?.ncsAnswerEvaluations.length, 2);
   });
 
+  it("projects V2 with active profiles only and no inactive placeholders", async () => {
+    const repository = createRepository({
+      async findApplicationForCompany() {
+        return createApplicantRecord({
+          evaluationReports: [{
+            reportId: 502,
+            applicationId: 77,
+            sessionId: 902,
+            status: "COMPLETED",
+            totalScore: 90,
+            summary: "NCS V2 평가가 완료되었습니다.",
+            ncsCompletionStatus: "COMPLETE",
+            ncsThresholdResult: "MEETS_THRESHOLD",
+            ncsAiDecision: "PASS",
+            ncsDecisionReasonCode: "THRESHOLD_MET",
+            ncsScoringVersion: "NCS_RECRUITING_SCORING_V2",
+            ncsDecisionPolicyVersion: "NCS_INCOMPLETE_AS_FAIL_DEMO_V1",
+            ncsSummary: {
+              schemaVersion: "ncs-report-evaluation-output-v2",
+              profiles: [
+                { ncsProfileId: "JOB_TECHNICAL", requiredQuestionCount: 1 },
+                { ncsProfileId: "PROBLEM_SOLVING", requiredQuestionCount: 1 },
+              ],
+              incompleteReasons: [],
+            },
+            generatedAt: new Date("2026-07-15T12:00:00.000Z"),
+            scores: [
+              ncsProfileScore(1, "JOB_TECHNICAL", 4.5, 60, 54),
+              ncsProfileScore(3, "PROBLEM_SOLVING", 4.5, 40, 36),
+            ],
+            ncsAnswerEvaluations: [
+              ncsEvaluation(7101, "JOB_TECHNICAL", 2101),
+              ncsEvaluation(7102, "PROBLEM_SOLVING", 2102),
+            ],
+          }],
+          interviewSessions: [{
+            sessionId: 902,
+            status: "COMPLETED",
+            interviewType: "RECRUITING",
+            startedAt: new Date("2026-07-15T11:00:00.000Z"),
+            completedAt: new Date("2026-07-15T11:30:00.000Z"),
+            answerTimeSecSnapshot: 90,
+            answers: [],
+          }],
+        });
+      },
+    });
+    const result = await new CompanyRecruitingService(repository).getApplicantEvaluation(companyUser, 77);
+    const ncs = result.report?.ncsEvaluation;
+
+    assert.equal(ncs?.schemaVersion, "ncs-report-evaluation-output-v2");
+    assert.deepEqual(ncs?.profiles.map((profile) => profile.ncsProfileId), ["JOB_TECHNICAL", "PROBLEM_SOLVING"]);
+    assert.equal(ncs?.profiles.every((profile) => profile.requiredQuestionCount === 1), true);
+    assert.equal(ncs?.policy.scoringVersion, "NCS_RECRUITING_SCORING_V2");
+  });
+
   it("keeps recruiting telemetry as an unverified reference without changing scores", async () => {
     const repository = createRepository({
       async findApplicationForCompany(applicationId: number, companyId: number) {

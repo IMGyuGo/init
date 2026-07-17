@@ -1,7 +1,18 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { QUESTION_USAGE_SCOPES, type QuestionUsageScope } from '@init/common';
+
+export class ResumeQuestionsQueryDto {
+  @IsOptional()
+  @IsIn(QUESTION_USAGE_SCOPES)
+  usageScope?: QuestionUsageScope;
+}
 
 export class RetryResumeQuestionsDto {
+  @IsOptional()
+  @IsIn(QUESTION_USAGE_SCOPES)
+  usageScope?: QuestionUsageScope;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()

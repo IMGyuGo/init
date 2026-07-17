@@ -136,8 +136,8 @@ export class CompanyInterviewService {
     }
   }
 
-  async getResumeQuestions(currentUser: CurrentUser, applicationId: number) {
-    const state = await this.getOwnedResumeQuestionState(currentUser, applicationId);
+  async getResumeQuestions(currentUser: CurrentUser, applicationId: number, usageScope: 'STANDARD' | 'DEMO_PRESET' = 'STANDARD') {
+    const state = await this.getOwnedResumeQuestionState(currentUser, applicationId, usageScope);
     const status = this.resumeQuestionStatus(state);
     const batch = state.currentBatch;
     const items = status === 'READY' || status === 'REVIEW_REQUIRED'
@@ -146,6 +146,7 @@ export class CompanyInterviewService {
 
     return {
       applicationId: state.applicationId,
+      usageScope,
       postingId: state.postingId,
       status,
       processLogId: batch?.latestProcessLogId ?? null,
@@ -161,7 +162,8 @@ export class CompanyInterviewService {
     applicationId: number,
     dto: RetryResumeQuestionsDto,
   ) {
-    const state = await this.getOwnedResumeQuestionState(currentUser, applicationId);
+    const usageScope = dto.usageScope ?? 'STANDARD';
+    const state = await this.getOwnedResumeQuestionState(currentUser, applicationId, usageScope);
     const status = this.resumeQuestionStatus(state);
     const canRecoverMissingBatch =
       status === 'WAITING_DOCUMENT' &&
@@ -1022,6 +1024,7 @@ export class CompanyInterviewService {
   private async getOwnedResumeQuestionState(
     currentUser: CurrentUser,
     applicationId: number,
+    usageScope: 'STANDARD' | 'DEMO_PRESET' = 'STANDARD',
   ): Promise<ResumeQuestionApplicationRecord> {
     this.assertCompanyUser(currentUser);
     if (!Number.isInteger(applicationId) || applicationId <= 0) {
@@ -1029,7 +1032,7 @@ export class CompanyInterviewService {
         { field: 'applicationId', reason: 'POSITIVE_INTEGER_REQUIRED' },
       ]);
     }
-    const state = await this.repository.findResumeQuestionGeneration(applicationId);
+    const state = await this.repository.findResumeQuestionGeneration(applicationId, usageScope);
     if (!state) {
       notFound('지원서를 찾을 수 없습니다.');
     }
@@ -1042,7 +1045,8 @@ export class CompanyInterviewService {
   private resumeQuestionStatus(
     state: ResumeQuestionApplicationRecord,
   ): ResumeQuestionGenerationStatus {
-    if (state.policy.resumeQuestionCount <= 0) return 'DISABLED';
+    if ((state.usageScope ?? 'STANDARD') === 'STANDARD' && state.policy.resumeQuestionCount <= 0) return 'DISABLED';
+    if (state.usageScope === 'DEMO_PRESET' && state.policy.evaluationFramework !== 'NCS_ACTIVE_PROFILE_V2') return 'DISABLED';
     if (state.applicationStatus === 'DRAFT') return 'WAITING_APPLICATION';
     if (state.documentStatus !== 'EXTRACTED') return 'WAITING_DOCUMENT';
     if (!state.currentBatch) return state.hasStaleBatch ? 'STALE' : 'WAITING_DOCUMENT';
