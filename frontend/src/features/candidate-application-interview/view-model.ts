@@ -363,6 +363,15 @@ export interface MeaningfulInterviewRecordingVoiceInput {
   minActiveFrameCount: number;
 }
 
+export interface InterviewAnswerSubmissionInput {
+  currentQuestionId?: number;
+  answer: InterviewAnswerFormState;
+  recording: boolean;
+  questionSpeechCompleted: boolean;
+  questionSpeechPlaying: boolean;
+  hasMeaningfulVoice: boolean;
+}
+
 export interface AutoStartInterviewRecordingInput {
   setupCompleted: boolean;
   introCompleted: boolean;
@@ -427,7 +436,10 @@ export interface InterviewRuntimeCountdownInput {
   currentQuestionLocked: boolean;
   busy: boolean;
   timerPhase: "PREPARING" | "ANSWERING";
-  recording: boolean;
+}
+
+export interface InterviewAnswerTimeoutInput extends InterviewRuntimeCountdownInput {
+  remainingSeconds: number;
 }
 
 export interface RealtimeSilenceEncouragementDecisionInput {
@@ -550,6 +562,12 @@ export const defaultStartMockInterviewState: StartMockInterviewState = {
 export const defaultInterviewAnswerFormState: InterviewAnswerFormState = {
   durationSeconds: 0,
 };
+
+export function createInterviewAnswerFormStateForQuestion(questionId?: number): InterviewAnswerFormState {
+  return typeof questionId === "number"
+    ? { ...defaultInterviewAnswerFormState, questionId }
+    : { ...defaultInterviewAnswerFormState };
+}
 
 export function shouldShowPaymentDevTools(env: PaymentDevToolsVisibilityEnv = {}): boolean {
   if (env.nodeEnv === "production") return true;
@@ -1218,6 +1236,28 @@ export function hasMeaningfulInterviewRecordingVoice({
   return peakLevel >= minPeakLevel && activeFrameCount >= minActiveFrameCount;
 }
 
+export function canSubmitInterviewAnswer({
+  currentQuestionId,
+  answer,
+  recording,
+  questionSpeechCompleted,
+  questionSpeechPlaying,
+  hasMeaningfulVoice,
+}: InterviewAnswerSubmissionInput): boolean {
+  const hasAnswerFile = Boolean(answer.videoFile || answer.audioFile || answer.videoFileId || answer.audioFileId);
+  return (
+    typeof currentQuestionId === "number" &&
+    answer.questionId === currentQuestionId &&
+    hasAnswerFile &&
+    Number.isFinite(answer.durationSeconds) &&
+    answer.durationSeconds > 0 &&
+    !recording &&
+    questionSpeechCompleted &&
+    !questionSpeechPlaying &&
+    hasMeaningfulVoice
+  );
+}
+
 export function shouldAutoStartInterviewRecording(input: AutoStartInterviewRecordingInput): boolean {
   return (
     input.setupCompleted &&
@@ -1317,7 +1357,6 @@ export function shouldRunInterviewRuntimeCountdown({
   currentQuestionLocked,
   busy,
   timerPhase,
-  recording,
 }: InterviewRuntimeCountdownInput): boolean {
   if (
     !setupCompleted ||
@@ -1331,7 +1370,15 @@ export function shouldRunInterviewRuntimeCountdown({
     return false;
   }
 
-  return timerPhase === "PREPARING" || recording;
+  return timerPhase === "PREPARING" || timerPhase === "ANSWERING";
+}
+
+export function shouldHandleInterviewAnswerTimeout(input: InterviewAnswerTimeoutInput): boolean {
+  return (
+    input.remainingSeconds <= 0 &&
+    input.timerPhase === "ANSWERING" &&
+    shouldRunInterviewRuntimeCountdown(input)
+  );
 }
 
 export function getRealtimeSilenceEncouragementDecision({

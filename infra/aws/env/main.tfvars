@@ -31,3 +31,9 @@ rds_skip_final_snapshot        = false
 rds_apply_immediately          = false
 redis_snapshot_retention_days  = 1
 asset_bucket_versioning_status = "Enabled"
+
+enable_ngrinder = true
+ngrinder_allowed_cidr_blocks = [
+  "1.238.129.195/32"
+]
+ngrinder_instance_type = "t3.medium"
