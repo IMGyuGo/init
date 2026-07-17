@@ -258,6 +258,16 @@
       ]
     },
     {
+      "name": "company and candidate interview report visuals bridge",
+      "patterns": [
+        "^frontend/src/features/interview-report/report-visuals\\.tsx$"
+      ],
+      "roles": [
+        "B",
+        "D"
+      ]
+    },
+    {
       "name": "company recruiting SMTP delivery bridge",
       "patterns": [
         "^backend/api/src/modules/company-recruiting/company-recruiting\\.module\\.ts$",
