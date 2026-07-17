@@ -211,7 +211,7 @@ export async function buildCubismV6Export() {
   await Promise.all([
     copyFile(resolve(V5_ASSET_ROOT, "interviewer-import-v5.cmo3"), v6Cmo3Path),
     copyFile(v5Moc3Path, v6Moc3Path),
-    copyFile(resolve(V6_ASSET_ROOT, "sources/mouth-open-coherent.png"), v6BasePath),
+    copyFile(resolve(V6_ASSET_ROOT, "../existing-look/normalized/master.png"), v6BasePath),
   ]);
   const layerRecords = await repackV6Texture({
     v5TexturePath,

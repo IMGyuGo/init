@@ -5,8 +5,12 @@ export const CUBISM_PROOF_MODEL_URL =
   "/assets/interviewer-cubism/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.model3.json";
 
 export type CubismMouthLayerVisibility = {
+  modelMouthOpen: number;
+  lowerLip: number;
   interior: number;
+  skinUnderlay: number;
   tongue: number;
+  upperLip: number;
   upperTeeth: number;
 };
 
@@ -17,10 +21,15 @@ function smoothstep(edge0: number, edge1: number, value: number): number {
 
 export function getCubismMouthLayerVisibility(value: number): CubismMouthLayerVisibility {
   const mouthOpen = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
+  const overlay = smoothstep(0.08, 0.28, mouthOpen);
   return {
-    interior: smoothstep(0, 0.55, mouthOpen),
-    tongue: smoothstep(0.2, 0.75, mouthOpen),
-    upperTeeth: smoothstep(0.55, 0.85, mouthOpen),
+    modelMouthOpen: 0.38 + mouthOpen * 0.62,
+    lowerLip: overlay,
+    interior: overlay * smoothstep(0.12, 0.4, mouthOpen),
+    skinUnderlay: overlay,
+    tongue: overlay * smoothstep(0.3, 0.75, mouthOpen),
+    upperLip: overlay,
+    upperTeeth: overlay * smoothstep(0.3, 0.58, mouthOpen),
   };
 }
 

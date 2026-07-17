@@ -495,31 +495,53 @@ def warp_layer(layer: np.ndarray, center_offset: int) -> np.ndarray:
     return output
 
 
+def smoothstep(edge0: float, edge1: float, value: float) -> float:
+    normalized = min(1.0, max(0.0, (value - edge0) / (edge1 - edge0)))
+    return normalized * normalized * (3 - 2 * normalized)
+
+
+def mouth_layer_visibility(value: float) -> dict[str, float]:
+    mouth_open = min(1.0, max(0.0, value))
+    overlay = smoothstep(0.08, 0.28, mouth_open)
+    return {
+        "model-mouth-open": 0.38 + mouth_open * 0.62,
+        "mouth-skin-underlay": overlay,
+        "mouth-interior": overlay * smoothstep(0.12, 0.4, mouth_open),
+        "mouth-upper-teeth": overlay * smoothstep(0.3, 0.58, mouth_open),
+        "mouth-tongue": overlay * smoothstep(0.3, 0.75, mouth_open),
+        "mouth-upper-lip": overlay,
+        "mouth-lower-lip": overlay,
+    }
+
+
+def layer_with_opacity(layer: np.ndarray, opacity: float) -> np.ndarray:
+    visible = layer.copy()
+    visible[:, :, 3] = np.rint(visible[:, :, 3].astype(np.float32) * opacity).astype(np.uint8)
+    visible[visible[:, :, 3] == 0, :3] = 0
+    return visible
+
+
 def create_state_reference(
     master: np.ndarray,
     layers: dict[str, np.ndarray],
     state: float,
 ) -> np.ndarray:
+    visibility = mouth_layer_visibility(state)
+    model_mouth_open = visibility["model-mouth-open"]
     offsets = {
-        0.0: {
-            "mouth-upper-lip": 15,
-            "mouth-lower-lip": -15,
-            "mouth-interior": 0,
-            "mouth-upper-teeth": 10,
-            "mouth-tongue": -8,
-        },
-        0.5: {
-            "mouth-upper-lip": 7,
-            "mouth-lower-lip": -7,
-            "mouth-interior": 0,
-            "mouth-upper-teeth": 4,
-            "mouth-tongue": -3,
-        },
-        1.0: {name: 0 for name in SEMANTIC_LAYER_NAMES},
-    }[state]
-    reference = alpha_composite(master, layers["mouth-skin-underlay"])
+        "mouth-upper-lip": round(15 * (1 - model_mouth_open)),
+        "mouth-lower-lip": round(-15 * (1 - model_mouth_open)),
+        "mouth-interior": 0,
+        "mouth-upper-teeth": round(10 * (1 - model_mouth_open)),
+        "mouth-tongue": round(-8 * (1 - model_mouth_open)),
+    }
+    reference = alpha_composite(
+        master,
+        layer_with_opacity(layers["mouth-skin-underlay"], visibility["mouth-skin-underlay"]),
+    )
     for name in COMPOSITE_ORDER:
-        reference = alpha_composite(reference, warp_layer(layers[name], offsets[name]))
+        warped = warp_layer(layers[name], offsets[name])
+        reference = alpha_composite(reference, layer_with_opacity(warped, visibility[name]))
     return reference
 
 

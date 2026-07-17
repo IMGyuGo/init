@@ -21,6 +21,20 @@ SPEC.loader.exec_module(MODULE)
 
 
 class CoherentMouthMetricsTest(unittest.TestCase):
+    def test_closed_reference_preserves_natural_master_mouth(self) -> None:
+        master = np.zeros((MODULE.CANVAS[1], MODULE.CANVAS[0], 4), dtype=np.uint8)
+        master[:, :, :] = (32, 64, 96, 255)
+        layers = {
+            name: np.zeros_like(master)
+            for name in ("mouth-skin-underlay", *MODULE.SEMANTIC_LAYER_NAMES)
+        }
+        for index, layer in enumerate(layers.values(), start=1):
+            layer[570:620, 460:590, :] = (index * 10, index * 10, index * 10, 255)
+
+        reference = MODULE.create_state_reference(master, layers, 0.0)
+
+        np.testing.assert_array_equal(reference, master)
+
     def test_metrics_accept_centered_connected_partition(self) -> None:
         shape = (MODULE.CANVAS[1], MODULE.CANVAS[0])
         opening = np.zeros(shape, dtype=bool)

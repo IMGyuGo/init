@@ -67,14 +67,23 @@ assert.equal(getCubismMouthOpenValue("open"), 0.78);
 assert.equal(getCubismMouthOpenValue("wide"), 1);
 
 assert.deepEqual(getCubismMouthLayerVisibility(0), {
+  modelMouthOpen: 0.38,
+  lowerLip: 0,
   interior: 0,
+  skinUnderlay: 0,
   tongue: 0,
+  upperLip: 0,
   upperTeeth: 0,
 });
 assert.deepEqual(getCubismMouthLayerVisibility(1), {
+  modelMouthOpen: 1,
+  lowerLip: 1,
   interior: 1,
+  skinUnderlay: 1,
   tongue: 1,
+  upperLip: 1,
   upperTeeth: 1,
 });
-assert.equal(getCubismMouthLayerVisibility(0.55).interior, 1);
-assert.equal(getCubismMouthLayerVisibility(0.55).upperTeeth, 0);
+assert.equal(getCubismMouthLayerVisibility(0.08).upperLip, 0);
+assert.equal(getCubismMouthLayerVisibility(0.28).upperLip, 1);
+assert.ok(getCubismMouthLayerVisibility(0.45).upperTeeth > 0.5);

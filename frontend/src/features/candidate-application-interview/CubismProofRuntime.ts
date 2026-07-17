@@ -186,23 +186,33 @@ export async function createCubismProofRenderer(
   };
   const coreModel = model.getModel();
   const mouthDrawableIndices = {
+    lowerLip: Array.from({ length: model.getDrawableCount() }, (_, index) => index)
+      .find((index) => model.getDrawableId(index).getString() === "ArtMesh13"),
+    upperLip: Array.from({ length: model.getDrawableCount() }, (_, index) => index)
+      .find((index) => model.getDrawableId(index).getString() === "ArtMesh14"),
     interior: Array.from({ length: model.getDrawableCount() }, (_, index) => index)
       .find((index) => model.getDrawableId(index).getString() === "ArtMesh17"),
     upperTeeth: Array.from({ length: model.getDrawableCount() }, (_, index) => index)
       .find((index) => model.getDrawableId(index).getString() === "ArtMesh16"),
     tongue: Array.from({ length: model.getDrawableCount() }, (_, index) => index)
       .find((index) => model.getDrawableId(index).getString() === "ArtMesh15"),
+    skinUnderlay: Array.from({ length: model.getDrawableCount() }, (_, index) => index)
+      .find((index) => model.getDrawableId(index).getString() === "ArtMesh18"),
   };
   if (Object.values(mouthDrawableIndices).some((index) => index === undefined)) {
     textures.forEach((texture) => gl.deleteTexture(texture));
     userModel.release();
     throw new Error("Cubism V6 mouth drawable IDs are incomplete");
   }
-  const applyMouthLayerVisibility = (value: number) => {
-    const visibility = getCubismMouthLayerVisibility(value);
+  const applyMouthLayerVisibility = (
+    visibility: ReturnType<typeof getCubismMouthLayerVisibility>,
+  ) => {
+    coreModel.drawables.opacities[mouthDrawableIndices.lowerLip!] = visibility.lowerLip;
+    coreModel.drawables.opacities[mouthDrawableIndices.upperLip!] = visibility.upperLip;
     coreModel.drawables.opacities[mouthDrawableIndices.interior!] = visibility.interior;
     coreModel.drawables.opacities[mouthDrawableIndices.upperTeeth!] = visibility.upperTeeth;
     coreModel.drawables.opacities[mouthDrawableIndices.tongue!] = visibility.tongue;
+    coreModel.drawables.opacities[mouthDrawableIndices.skinUnderlay!] = visibility.skinUnderlay;
   };
   const modelMatrix = userModel.getModelMatrix();
   let mouthOpen = clampMouthOpen(initialMouthOpen);
@@ -216,9 +226,10 @@ export async function createCubismProofRenderer(
       lastFrameAt = now;
       if (resizeCanvas(canvas)) userModel.setRenderTargetSize(canvas.width, canvas.height);
 
-      model.setParameterValueById(mouthParameterId, mouthOpen);
+      const visibility = getCubismMouthLayerVisibility(mouthOpen);
+      model.setParameterValueById(mouthParameterId, visibility.modelMouthOpen);
       model.update();
-      applyMouthLayerVisibility(mouthOpen);
+      applyMouthLayerVisibility(visibility);
 
       const projection = new matrixModule.CubismMatrix44();
       if (model.getCanvasWidth() > 1 && canvas.width < canvas.height) {
