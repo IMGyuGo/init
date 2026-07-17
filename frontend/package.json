@@ -18,7 +18,7 @@
     "test:ncs-report": "tsx src/features/company-recruiting/ncs-report-view-model.spec.ts",
     "test:candidate-job-sort": "tsx src/features/candidate-application-interview/candidate-job-sort.spec.ts",
     "test:candidate-mock-delete": "tsx src/features/candidate-application-interview/candidate-mock-delete.spec.ts",
-    "test:candidate-demo-tools": "tsx src/features/candidate-application-interview/candidate-demo-tools.spec.ts",
+    "test:candidate-demo-tools": "tsx src/features/candidate-application-interview/candidate-demo-tools.spec.ts && tsx src/features/candidate-application-interview/demo-preset-runtime.spec.ts",
     "test:candidate-mock-media": "tsx src/features/candidate-application-interview/candidate-mock-media.spec.ts",
     "test:posting-draft-keywords": "tsx src/features/company-recruiting/posting-draft-keywords.spec.ts",
     "test:posting-draft-summary": "tsx src/features/company-recruiting/posting-draft-summary.spec.ts",

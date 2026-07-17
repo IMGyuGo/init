@@ -19,7 +19,10 @@ import {
   updateQuestionGenerationPolicy,
 } from "./api";
 import { hasActiveAiJobs, startAiJobPolling } from "./ai-job-polling";
-import { reconcileSettingsAfterCriteriaSave } from "./interview-settings-sync";
+import {
+  reconcileSettingsAfterCriteriaSave,
+  reconcileSettingsAfterQuestionSetConfirm,
+} from "./interview-settings-sync";
 import {
   findNewlyDeactivatedQuestionImpacts,
   getConfigurationLockedMessage,
@@ -969,6 +972,9 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
         sourceProcessLogId: plan.sourceProcessLogId,
         items: plan.items,
       });
+      setSettings((current) =>
+        current ? reconcileSettingsAfterQuestionSetConfirm(current) : current,
+      );
       setMessage(`공통 질문 ${plan.items.length}개를 저장하고 면접에 적용했습니다.`);
       setSettingsStep(3);
     } catch (error) {

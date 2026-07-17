@@ -1,6 +1,9 @@
 import { strict as assert } from "node:assert";
 
-import { reconcileSettingsAfterCriteriaSave } from "./interview-settings-sync";
+import {
+  reconcileSettingsAfterCriteriaSave,
+  reconcileSettingsAfterQuestionSetConfirm,
+} from "./interview-settings-sync";
 import type { InterviewSettings } from "./types";
 
 const oldCriterion = {
@@ -129,8 +132,22 @@ function testDoesNotMutateCurrentSettings() {
   assert.deepEqual(current, original);
 }
 
+function testClearsQuestionSetReconfirmationAfterConfirm() {
+  const current = createSettings();
+  current.questionGenerationPolicy.questionSetRequiresReconfirmation = true;
+  current.questionSetRequiresReconfirmation = true;
+
+  const result = reconcileSettingsAfterQuestionSetConfirm(current);
+
+  assert.equal(result.questionGenerationPolicy.questionSetRequiresReconfirmation, false);
+  assert.equal(result.questionSetRequiresReconfirmation, false);
+  assert.equal(current.questionGenerationPolicy.questionSetRequiresReconfirmation, true);
+  assert.equal(current.questionSetRequiresReconfirmation, true);
+}
+
 testRemovesQuestionsLinkedToReplacedCriteria();
 testKeepsQuestionsLinkedToRetainedCriteria();
 testDoesNotMutateCurrentSettings();
+testClearsQuestionSetReconfirmationAfterConfirm();
 
 console.log("interview-settings-sync.spec: all assertions passed");

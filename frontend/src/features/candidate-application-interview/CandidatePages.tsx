@@ -74,6 +74,7 @@ import { CandidateProfileSection } from "./CandidateProfileSection";
 import { CandidateProfileSnapshotEditor } from "./CandidateProfileSnapshotEditor";
 import { isCandidateApplicationCancelable } from "./application-cancellation";
 import { isCandidateDemoCommandShortcut } from "./candidate-demo-tools";
+import { getRecruitingRuntimeTotalQuestions } from "./demo-preset-runtime";
 import {
   createRealtimeInterviewSpeechResponseEvent,
   createRealtimeInterviewWebRtcConnection,
@@ -11576,7 +11577,10 @@ function toRecruitingRuntimeSession(
     canRecord: runtime.canRecord,
     ...(runtime.jobDescription ? { jobDescription: runtime.jobDescription } : {}),
     ...(runtime.timePolicy ? { timePolicy: runtime.timePolicy } : {}),
-    totalQuestions: questions.questions.length,
+    totalQuestions: getRecruitingRuntimeTotalQuestions(
+      runtime.sessionMode,
+      questions.questions.length,
+    ),
     answeredCount: questions.questions.filter((question) => question.answered).length,
     currentQuestion,
     nextQuestionEndpoint: runtime.nextQuestionEndpoint,

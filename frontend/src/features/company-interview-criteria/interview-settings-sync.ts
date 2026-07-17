@@ -14,3 +14,16 @@ export function reconcileSettingsAfterCriteriaSave(
     ),
   };
 }
+
+export function reconcileSettingsAfterQuestionSetConfirm(
+  currentSettings: InterviewSettings,
+): InterviewSettings {
+  return {
+    ...currentSettings,
+    questionGenerationPolicy: {
+      ...currentSettings.questionGenerationPolicy,
+      questionSetRequiresReconfirmation: false,
+    },
+    questionSetRequiresReconfirmation: false,
+  };
+}
