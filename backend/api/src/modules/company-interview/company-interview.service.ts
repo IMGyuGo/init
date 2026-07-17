@@ -118,7 +118,10 @@ export class CompanyInterviewService {
       conflict('면접 세션 준비 서비스를 사용할 수 없습니다.');
     }
     try {
-      const result = await this.candidateService.prepareRecruitingInterviewSessionSnapshot(dto.applicationId);
+      const result = await this.candidateService.prepareRecruitingInterviewSessionSnapshot(
+        dto.applicationId,
+        dto.mode ?? 'STANDARD',
+      );
       if (result.sessionId === null) {
         conflict('면접 세션을 생성하지 못했습니다.');
       }
@@ -131,6 +134,8 @@ export class CompanyInterviewService {
         totalQuestionCount: result.totalQuestionCount,
         policyVersion: result.policyVersion,
         criteriaVersion: result.criteriaVersion,
+        sessionMode: result.sessionMode ?? dto.mode ?? 'STANDARD',
+        questions: result.questions ?? [],
       };
     } catch (error) {
       if (error instanceof CandidateDomainError) {

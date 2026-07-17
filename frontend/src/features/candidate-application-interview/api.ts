@@ -20,6 +20,25 @@ export type DeviceCheckStatus = "PENDING" | "PASSED" | "FAILED";
 export type ReportStatus = "PENDING" | "GENERATING" | "COMPLETED" | "FAILED";
 export type ConsentType = "PRIVACY_COLLECTION" | "AI_DOCUMENT_ANALYSIS" | "AI_INTERVIEW_RECORDING";
 export type PortfolioLinkType = "PORTFOLIO" | "GITHUB";
+export type InterviewSessionMode = "STANDARD" | "DEMO_PRESET";
+export type DemoPresetReadinessReasonCode =
+  | "CANONICAL_PROFILES_NOT_ALL_ACTIVE"
+  | "COLLABORATION_COMMON_QUESTION_MISSING"
+  | "DEMO_PERSONALIZED_QUESTION_GENERATING"
+  | "DEMO_PERSONALIZED_QUESTION_REVIEW_REQUIRED"
+  | "DEMO_PERSONALIZED_QUESTION_FAILED"
+  | "FACTUAL_ANCHOR_MISSING"
+  | "OFFICIAL_SESSION_EXISTS"
+  | "OFFICIAL_SESSION_MODE_CONFLICT"
+  | "CONFIGURATION_COVERAGE_MISMATCH";
+
+export interface DemoPresetReadiness {
+  status: "READY" | "PENDING" | "UNAVAILABLE";
+  canStart: boolean;
+  reasonCode: DemoPresetReadinessReasonCode | null;
+  existingSessionId: number | null;
+  existingSessionMode: InterviewSessionMode | null;
+}
 
 export interface PageMeta {
   page: number;
@@ -248,6 +267,8 @@ export interface CandidateApplicationSummary {
   consentCompleted: boolean;
   deviceCheckCompleted: boolean;
   canStartInterview: boolean;
+  sessionMode?: InterviewSessionMode | null;
+  demoPreset?: DemoPresetReadiness;
 }
 
 export interface CancelApplicationResponse {
@@ -277,6 +298,8 @@ export interface CandidateInterviewGuide {
   consentCompleted: boolean;
   deviceCheckCompleted: boolean;
   canStart: boolean;
+  sessionMode: InterviewSessionMode | null;
+  demoPreset: DemoPresetReadiness;
 }
 
 export interface SaveInterviewConsentRequest {
@@ -314,6 +337,14 @@ export interface StartInterviewResponse {
   sessionStatus: "IN_PROGRESS";
   interviewUrl: string;
   startedAt: string;
+  sessionMode: InterviewSessionMode;
+  snapshotCreated: boolean;
+  questions: Array<{
+    sessionQuestionId: number;
+    usageScope: "STANDARD" | "DEMO_PRESET";
+    ncsProfileIds: string[];
+    sortOrder: number;
+  }>;
 }
 
 export interface PublicInterviewStartRequest {
@@ -334,6 +365,7 @@ export interface CandidateInterviewRuntimeView {
   applicationId: number;
   sessionId: number;
   interviewType: "RECRUITING";
+  sessionMode: InterviewSessionMode;
   status: InterviewStatus;
   showQuestionText: boolean;
   canRecord: boolean;
@@ -1018,7 +1050,7 @@ export interface CandidateApiClient {
     sessionId: number,
     body: InterviewDeviceCheckRequest,
   ): Promise<ApiResponse<InterviewDeviceCheckResponse>>;
-  startInterview(applicationId: number): Promise<ApiResponse<StartInterviewResponse>>;
+  startInterview(applicationId: number, mode?: InterviewSessionMode): Promise<ApiResponse<StartInterviewResponse>>;
   getInterviewRuntime(applicationId: number): Promise<ApiResponse<CandidateInterviewRuntimeView>>;
   listRecruitingQuestions(sessionId: number): Promise<ApiResponse<RuntimeQuestionListResponse>>;
   uploadInterviewMedia(sessionId: number, file: File): Promise<ApiResponse<CandidateFileAsset>>;
@@ -1247,9 +1279,10 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
         method: "POST",
         body: JSON.stringify(body),
       }),
-    startInterview: (applicationId) =>
+    startInterview: (applicationId, mode = "STANDARD") =>
       request<ApiResponse<StartInterviewResponse>>(candidateApiPaths.startInterview(applicationId), {
         method: "POST",
+        body: JSON.stringify({ mode }),
       }),
     getInterviewRuntime: (applicationId) =>
       request<ApiResponse<CandidateInterviewRuntimeView>>(candidateApiPaths.interviewRuntime(applicationId)),
