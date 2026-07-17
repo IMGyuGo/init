@@ -43,6 +43,7 @@ export interface ResumeQuestionJobReference {
   inputVersion: string;
   resumeDocumentHash: string;
   jdSnapshotHash: string;
+  usageScope?: "STANDARD" | "DEMO_PRESET";
 }
 
 export interface ResumeQuestionGenerationCriterion {
@@ -54,6 +55,19 @@ export interface ResumeQuestionGenerationCriterion {
   ncsProfileId: NcsApiProfileId;
   ncsQuestionMode: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
   ncsProfileVersion: string;
+  weight?: number;
+}
+
+export interface PersonalizedQuestionBindingRecord {
+  criterionId: number;
+  criterionTitleSnapshot: string;
+  ncsProfileId: ResumeQuestionGenerationCriterion["ncsProfileId"];
+  ncsProfileVersion: string;
+  alignmentStatus: "ALIGNED" | "REVIEW_REQUIRED";
+  alignmentScore: number | null;
+  alignmentReason: string | null;
+  evaluatorVersion: string | null;
+  bindingOrder: 1 | 2;
 }
 
 export interface ResumeQuestionGenerationContext extends ResumeQuestionJobReference {
@@ -62,6 +76,7 @@ export interface ResumeQuestionGenerationContext extends ResumeQuestionJobRefere
   jobDescription: string;
   resumeText: string;
   criteria: ResumeQuestionGenerationCriterion[];
+  factualAnchor?: string | null;
 }
 
 export interface PersonalizedQuestionRecord {
@@ -77,11 +92,12 @@ export interface PersonalizedQuestionRecord {
   alignmentReason: string | null;
   evaluatorVersion: string | null;
   sortOrder: number;
+  ncsBindings?: PersonalizedQuestionBindingRecord[];
 }
 
 export interface ResumeQuestionGenerationResult {
   reference: ResumeQuestionJobReference;
-  status: "READY" | "REVIEW_REQUIRED";
+  status: "READY" | "REVIEW_REQUIRED" | "FAILED";
   evaluatorVersion: string | null;
   failureReason: string | null;
   questions: PersonalizedQuestionRecord[];
@@ -103,6 +119,7 @@ export interface FollowUpQuestionRecord {
   reason?: "NCS_EVIDENCE_GAP" | "FACT_CLARIFICATION" | "GENERAL_EVIDENCE_GAP";
   questionMode?: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
   answerTimeSec?: number;
+  usageScope?: "STANDARD" | "DEMO_PRESET";
 }
 
 export interface GeneratedDraftRecord {
@@ -415,6 +432,8 @@ export class InMemoryAiResultRepository implements AiResultRepository {
   readonly resumeQuestionContexts = new Map<string, ResumeQuestionGenerationContext>();
   readonly resumeQuestionResults = new Map<number, ResumeQuestionGenerationResult>();
   readonly failedResumeQuestions = new Map<number, FailureReason>();
+  readonly scopedResumeQuestionResults = new Map<string, ResumeQuestionGenerationResult>();
+  readonly scopedFailedResumeQuestions = new Map<string, FailureReason>();
 
   private readonly documentExtractionsById = new Map<number, DocumentExtractionRecord>();
   private readonly transcriptsByAnswerId = new Map<number, TranscriptRecord>();
@@ -454,12 +473,34 @@ export class InMemoryAiResultRepository implements AiResultRepository {
   }
 
   async saveResumeQuestionGeneration(record: ResumeQuestionGenerationResult): Promise<void> {
-    this.resumeQuestionResults.set(record.reference.applicationId, record);
-    this.failedResumeQuestions.delete(record.reference.applicationId);
+    const key = resumeQuestionResultKey(record.reference);
+    this.scopedResumeQuestionResults.set(key, record);
+    if ((record.reference.usageScope ?? "STANDARD") === "STANDARD") {
+      this.resumeQuestionResults.set(record.reference.applicationId, record);
+    }
+    if (record.status === "FAILED") {
+      const failure = {
+        category: "NON_RETRYABLE",
+        reason: record.failureReason ?? "resume question generation failed",
+        retryable: false,
+      } as const;
+      this.scopedFailedResumeQuestions.set(key, failure);
+      if ((record.reference.usageScope ?? "STANDARD") === "STANDARD") {
+        this.failedResumeQuestions.set(record.reference.applicationId, failure);
+      }
+    } else {
+      this.scopedFailedResumeQuestions.delete(key);
+      if ((record.reference.usageScope ?? "STANDARD") === "STANDARD") {
+        this.failedResumeQuestions.delete(record.reference.applicationId);
+      }
+    }
   }
 
   async markResumeQuestionGenerationFailed(reference: ResumeQuestionJobReference, failure: FailureReason): Promise<void> {
-    this.failedResumeQuestions.set(reference.applicationId, failure);
+    this.scopedFailedResumeQuestions.set(resumeQuestionResultKey(reference), failure);
+    if ((reference.usageScope ?? "STANDARD") === "STANDARD") {
+      this.failedResumeQuestions.set(reference.applicationId, failure);
+    }
   }
 
   async markDocumentExtractionFailed(record: FailedDocumentExtractionRecord): Promise<void> {
@@ -551,6 +592,10 @@ export class InMemoryAiResultRepository implements AiResultRepository {
     this.embeddings.set(key, created);
     return created;
   }
+}
+
+function resumeQuestionResultKey(reference: Pick<ResumeQuestionJobReference, "applicationId" | "usageScope">): string {
+  return `${reference.applicationId}:${reference.usageScope ?? "STANDARD"}`;
 }
 
 export function hashSourceText(sourceText: string): string {

@@ -1210,3 +1210,46 @@ test("candidate demo reset removes answer media from object storage", async () =
   assert.equal(storage.objects.length, 0);
   assert.equal((await service.listApplications(DEV_CANDIDATE_USER)).data.items.length, 0);
 });
+
+test("official recruiting session mode is idempotent and rejects a cross-mode retry", async () => {
+  const repository = new InMemoryCandidateRepository({ seedDemoApplication: true });
+  const [application] = await repository.listApplications(DEV_CANDIDATE_USER.candidateId);
+  assert.ok(application);
+
+  const first = await repository.ensureInterviewSessionByApplication(application.applicationId, "STANDARD");
+  const replay = await repository.ensureInterviewSessionByApplication(application.applicationId, "STANDARD");
+  assert.equal(replay?.sessionId, first?.sessionId);
+
+  const concurrentSameMode = await Promise.all([
+    repository.ensureInterviewSessionByApplication(application.applicationId, "STANDARD"),
+    repository.ensureInterviewSessionByApplication(application.applicationId, "STANDARD"),
+  ]);
+  assert.deepEqual(
+    concurrentSameMode.map((session) => session?.sessionId),
+    [first?.sessionId, first?.sessionId],
+  );
+
+  const concurrentCrossMode = await Promise.allSettled([
+    repository.ensureInterviewSessionByApplication(application.applicationId, "STANDARD"),
+    repository.ensureInterviewSessionByApplication(application.applicationId, "DEMO_PRESET"),
+  ]);
+  assert.equal(concurrentCrossMode[0]?.status, "fulfilled");
+  assert.equal(concurrentCrossMode[1]?.status, "rejected");
+  if (concurrentCrossMode[1]?.status === "rejected") {
+    assert.equal(concurrentCrossMode[1].reason instanceof CandidateDomainError, true);
+    assert.equal(concurrentCrossMode[1].reason.code, "INTERVIEW_SESSION_MODE_CONFLICT");
+  }
+
+  await assert.rejects(
+    () => repository.ensureInterviewSessionByApplication(application.applicationId, "DEMO_PRESET"),
+    (error) => error instanceof CandidateDomainError && error.code === "INTERVIEW_SESSION_MODE_CONFLICT",
+  );
+  const readiness = await repository.getDemoPresetReadiness(application.applicationId);
+  assert.deepEqual(readiness, {
+    status: "UNAVAILABLE",
+    canStart: false,
+    reasonCode: "OFFICIAL_SESSION_MODE_CONFLICT",
+    existingSessionId: first?.sessionId ?? null,
+    existingSessionMode: "STANDARD",
+  });
+});

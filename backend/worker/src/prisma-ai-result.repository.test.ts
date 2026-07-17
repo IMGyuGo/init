@@ -281,6 +281,7 @@ test("PrismaAiResultRepository atomically inserts one private follow-up after it
   assert.equal(fixture.createdSessionQuestions[0]?.data.questionType, "FOLLOW_UP");
   assert.equal(fixture.createdSessionQuestions[0]?.data.sortOrder, 2);
   assert.equal(fixture.createdSessionQuestions[0]?.data.ncsQuestionMode, "TECHNICAL_KNOWLEDGE");
+  assert.equal(fixture.createdSessionQuestions[0]?.data.usageScope, "STANDARD");
   assert.deepEqual(
     fixture.createdSessionQuestions[0]?.data.ncsBindings.create.map((binding: any) => binding.ncsProfileId),
     ["JOB_TECHNICAL", "PROBLEM_SOLVING"],
@@ -293,6 +294,38 @@ test("PrismaAiResultRepository atomically inserts one private follow-up after it
     [3n, 1, 1_000_000],
     [3n, 1_000_001, 999_999],
   ]);
+});
+
+test("PrismaAiResultRepository inherits DEMO_PRESET scope and skips demo common follow-up", async () => {
+  const personal = followUpRuntimePrisma({ usageScope: "DEMO_PRESET", generationSource: "RESUME_PERSONALIZED" });
+  const repository = new PrismaAiResultRepository(personal.prisma);
+  await repository.saveFollowUpQuestion({
+    sessionId: 3,
+    answerId: 4,
+    required: true,
+    content: "답변의 기술 선택과 문제 해결 근거를 더 설명해주세요.",
+    policy: "RECRUITING",
+    questionMode: "TECHNICAL_KNOWLEDGE",
+    answerTimeSec: 90,
+    usageScope: "DEMO_PRESET",
+  });
+  assert.equal(personal.createdSessionQuestions[0]?.data.usageScope, "DEMO_PRESET");
+  assert.deepEqual(
+    personal.createdSessionQuestions[0]?.data.ncsBindings.create.map((binding: any) => binding.ncsProfileId),
+    ["JOB_TECHNICAL", "PROBLEM_SOLVING"],
+  );
+
+  const common = followUpRuntimePrisma({ usageScope: "DEMO_PRESET", generationSource: "JD_CRITERIA" });
+  await new PrismaAiResultRepository(common.prisma).saveFollowUpQuestion({
+    sessionId: 3,
+    answerId: 4,
+    required: true,
+    content: "생성되지 않아야 하는 질문",
+    policy: "RECRUITING",
+    usageScope: "DEMO_PRESET",
+  });
+  assert.equal(common.createdSessionQuestions.length, 0);
+  assert.equal(common.followUp()?.generationStatus, "SKIPPED");
 });
 
 test("PrismaAiResultRepository stores a no-follow-up decision without changing session questions", async () => {
@@ -740,7 +773,12 @@ test("PrismaAiResultRepository marks recruiting application report failed with g
   assert.deepEqual(applicationUpdate?.args.data, { reportStatus: "FAILED" });
 });
 
-function followUpRuntimePrisma(options: { sessionStatus?: string; sourceQuestionType?: string } = {}) {
+function followUpRuntimePrisma(options: {
+  sessionStatus?: string;
+  sourceQuestionType?: string;
+  usageScope?: "STANDARD" | "DEMO_PRESET";
+  generationSource?: string;
+} = {}) {
   let followUp: any;
   let advisoryLockCallCount = 0;
   const reorderCallValues: unknown[][] = [];
@@ -749,6 +787,8 @@ function followUpRuntimePrisma(options: { sessionStatus?: string; sourceQuestion
     sessionQuestionId: 700n,
     sortOrder: 1,
     questionType: options.sourceQuestionType ?? "TECHNICAL",
+    usageScope: options.usageScope ?? "STANDARD",
+    generationSource: options.generationSource ?? "RESUME_PERSONALIZED",
     criterionId: 11n,
     criterionTitleSnapshot: "직무 기술",
     ncsProfileId: "JOB_TECHNICAL",

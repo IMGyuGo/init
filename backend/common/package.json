@@ -11,7 +11,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run typecheck",
+    "test": "npm run build && node --test test/ncs-foundation-validator.test.cjs",
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {

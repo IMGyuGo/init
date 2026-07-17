@@ -4,6 +4,9 @@ import type {
   CandidateDegreeType,
   CandidateEducationLevel,
   CandidateEducationStatus,
+  DemoPresetReadinessProjectionDto,
+  InterviewSessionMode,
+  QuestionUsageScope,
 } from "@init/common";
 
 export type PostingStatus = "DRAFT" | "OPEN" | "CLOSING_SOON" | "CLOSED" | "ARCHIVED";
@@ -328,6 +331,7 @@ export interface InterviewSession {
   applicationId: number;
   candidateId: number;
   interviewType: InterviewType;
+  sessionMode: InterviewSessionMode;
   status: InterviewStatus;
   showQuestionText: boolean;
   windowStartsAt: string;
@@ -362,6 +366,8 @@ export interface CandidateApplicationSummary {
   consentCompleted: boolean;
   deviceCheckCompleted: boolean;
   canStartInterview: boolean;
+  sessionMode: InterviewSessionMode | null;
+  demoPreset: DemoPresetReadinessProjectionDto;
 }
 
 export interface CandidateInterviewGuide {
@@ -378,6 +384,8 @@ export interface CandidateInterviewGuide {
   consentCompleted: boolean;
   deviceCheckCompleted: boolean;
   canStart: boolean;
+  sessionMode: InterviewSessionMode | null;
+  demoPreset: DemoPresetReadinessProjectionDto;
 }
 
 export interface SaveInterviewConsentResult {
@@ -405,6 +413,9 @@ export interface StartInterviewResult {
   sessionStatus: "IN_PROGRESS";
   interviewUrl: string;
   startedAt: string;
+  sessionMode: InterviewSessionMode;
+  snapshotCreated: boolean;
+  questions: NonNullable<InterviewQuestionSnapshotResult["questions"]>;
 }
 
 export type InterviewQuestionSnapshotReadiness =
@@ -412,7 +423,10 @@ export type InterviewQuestionSnapshotReadiness =
   | "COMMON_QUESTIONS_NOT_READY"
   | "PERSONALIZED_QUESTIONS_NOT_READY"
   | "NCS_QUESTION_COVERAGE_INVALID"
-  | "NCS_SNAPSHOT_INVALID";
+  | "NCS_SNAPSHOT_INVALID"
+  | "DEMO_PRESET_NOT_READY"
+  | "DEMO_PRESET_QUESTION_POOL_INSUFFICIENT"
+  | "SESSION_MODE_CONFLICT";
 
 export interface InterviewNcsCoverageCount {
   ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
@@ -435,12 +449,20 @@ export interface InterviewQuestionSnapshotResult {
   criteriaVersion: number;
   ncsCoverage?: InterviewNcsCoverageCount[];
   snapshotValidationErrors?: string[];
+  sessionMode?: InterviewSessionMode;
+  questions?: Array<{
+    sessionQuestionId: number;
+    usageScope: QuestionUsageScope;
+    ncsProfileIds: Array<"JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING">;
+    sortOrder: number;
+  }>;
 }
 
 export interface CandidateInterviewRuntimeView {
   applicationId: number;
   sessionId: number;
   interviewType: "RECRUITING";
+  sessionMode: InterviewSessionMode;
   status: InterviewStatus;
   showQuestionText: boolean;
   canRecord: boolean;
@@ -499,9 +521,10 @@ export interface CandidateRepository {
   saveConsentRecords(applicationId: number, consentTypes: ConsentType[]): Promise<ConsentRecord[]>;
   findInterviewSession(sessionId: number): Promise<InterviewSession | undefined>;
   findInterviewSessionByApplication(applicationId: number): Promise<InterviewSession | undefined>;
-  ensureInterviewSessionByApplication(applicationId: number): Promise<InterviewSession | undefined>;
+  ensureInterviewSessionByApplication(applicationId: number, mode?: InterviewSessionMode): Promise<InterviewSession | undefined>;
+  getDemoPresetReadiness(applicationId: number): Promise<DemoPresetReadinessProjectionDto>;
   cancelApplication(applicationId: number): Promise<Application | undefined>;
-  prepareInterviewSessionQuestionSnapshot(applicationId: number): Promise<InterviewQuestionSnapshotResult | undefined>;
+  prepareInterviewSessionQuestionSnapshot(applicationId: number, mode?: InterviewSessionMode): Promise<InterviewQuestionSnapshotResult | undefined>;
   saveDeviceCheck(sessionId: number, deviceCheck: Omit<InterviewDeviceCheck, "status" | "checkedAt">): Promise<InterviewSession>;
   updateApplicationInterviewStatus(applicationId: number, status: InterviewStatus): Promise<Application>;
   updateApplicationReportStatus(applicationId: number, status: ReportStatus): Promise<Application>;

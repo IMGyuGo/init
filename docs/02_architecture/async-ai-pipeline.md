@@ -115,9 +115,15 @@ SQS message와 `ai_process_logs.input_ref`에는 아래 참조값만 넣는다.
 }
 ```
 
+`NCS_ACTIVE_PROFILE_V2`부터 message/input metadata에 `usageScope: STANDARD | DEMO_PRESET`을 포함한다. 기존 message의 생략값은 STANDARD다. business key는 `applicationId + usageScope + policyVersion + criteriaVersion + jdSnapshotHash + resumeDocumentHash`이며 STANDARD와 DEMO_PRESET batch는 서로의 status/stale/retry를 변경하지 않는다.
+
+DEMO_PRESET 개인화 작업은 STANDARD `resumeQuestionCount`와 별개인 추가 BASE 1개를 만든다. 지원 완료와 서류 추출 완료 뒤 사전 생성하며, 버튼 클릭이나 session start에서 새 AI job을 만들지 않는다. 결과는 `JOB_TECHNICAL + PROBLEM_SOLVING` 두 binding과 factual anchor를 가져야 한다. anchor가 없으면 demo readiness만 UNAVAILABLE로 투영하고 STANDARD 작업은 실패시키지 않는다.
+
+공식 DEMO_PRESET follow-up은 공통 질문에는 생성하지 않고 개인화 BASE에만 정확히 한 번 결정한다. 첫 provider 실패는 한 번 재시도하고, 재실패하면 답변을 근거로 한 안전 fallback을 사용한다. 원본 두 binding, question mode, answer time과 `usageScope=DEMO_PRESET`을 session private question에 상속한다.
+
 - 이력서 원문, 추출 텍스트, 질문 결과는 message에 넣지 않는다.
 - worker는 `applicationId`와 `documentId`의 소유 관계를 재검증한 뒤 repository에서 입력을 읽는다.
-- SQS delivery 멱등 key는 `processLogId`, business 멱등 key는 `applicationId + policyVersion + criteriaVersion + resumeDocumentHash`다.
+- SQS delivery 멱등 key는 `processLogId`, business 멱등 key는 `applicationId + usageScope + policyVersion + criteriaVersion + jdSnapshotHash + resumeDocumentHash`다. legacy input의 usage scope는 STANDARD다.
 - 동일 business key의 `GENERATING`, `READY`, `REVIEW_REQUIRED` batch가 있으면 새 batch를 만들지 않는다. `FAILED`는 API-099의 명시적 retry로만 새 process log를 연결한다.
 - 정렬 실패는 같은 mode로 최대 2회 재생성하고 계약에 허용된 fallback만 사용한다.
 - 요청 개수보다 적은 질문을 `READY`로 저장하지 않는다. 일부 실패는 전체 batch를 `REVIEW_REQUIRED`로 둔다.

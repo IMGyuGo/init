@@ -1,5 +1,10 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import type { CurrentUser } from '@init/common';
+import {
+  activeNcsProfileIds,
+  validateNcsProfileWeights,
+  validateStandardQuestionCounts,
+  type CurrentUser,
+} from '@init/common';
 import {
   CreateCriterionTagDto,
   CreateCriterionTagResponseDto,
@@ -33,9 +38,11 @@ import {
 } from './dto/question-generation-policy.dto';
 import {
   conflict,
+  configurationLocked,
   aiProcessFailed,
   forbidden,
   ncsBindingInvalid,
+  ncsActiveProfileInvalid,
   ncsQuestionCoverageInvalid,
   ncsWeightInvalid,
   notFound,
@@ -57,6 +64,8 @@ import {
   QuestionSetRecord,
   ResumeQuestionApplicationRecord,
   ResumeQuestionGenerationStatus,
+  NcsActiveProfileCoverageRecord,
+  NcsQuestionImpactRecord,
 } from './company-interview.types';
 import {
   COMPANY_INTERVIEW_REPOSITORY,
@@ -109,7 +118,10 @@ export class CompanyInterviewService {
       conflict('면접 세션 준비 서비스를 사용할 수 없습니다.');
     }
     try {
-      const result = await this.candidateService.prepareRecruitingInterviewSessionSnapshot(dto.applicationId);
+      const result = await this.candidateService.prepareRecruitingInterviewSessionSnapshot(
+        dto.applicationId,
+        dto.mode ?? 'STANDARD',
+      );
       if (result.sessionId === null) {
         conflict('면접 세션을 생성하지 못했습니다.');
       }
@@ -122,6 +134,8 @@ export class CompanyInterviewService {
         totalQuestionCount: result.totalQuestionCount,
         policyVersion: result.policyVersion,
         criteriaVersion: result.criteriaVersion,
+        sessionMode: result.sessionMode ?? dto.mode ?? 'STANDARD',
+        questions: result.questions ?? [],
       };
     } catch (error) {
       if (error instanceof CandidateDomainError) {
@@ -136,8 +150,8 @@ export class CompanyInterviewService {
     }
   }
 
-  async getResumeQuestions(currentUser: CurrentUser, applicationId: number) {
-    const state = await this.getOwnedResumeQuestionState(currentUser, applicationId);
+  async getResumeQuestions(currentUser: CurrentUser, applicationId: number, usageScope: 'STANDARD' | 'DEMO_PRESET' = 'STANDARD') {
+    const state = await this.getOwnedResumeQuestionState(currentUser, applicationId, usageScope);
     const status = this.resumeQuestionStatus(state);
     const batch = state.currentBatch;
     const items = status === 'READY' || status === 'REVIEW_REQUIRED'
@@ -146,6 +160,7 @@ export class CompanyInterviewService {
 
     return {
       applicationId: state.applicationId,
+      usageScope,
       postingId: state.postingId,
       status,
       processLogId: batch?.latestProcessLogId ?? null,
@@ -161,7 +176,8 @@ export class CompanyInterviewService {
     applicationId: number,
     dto: RetryResumeQuestionsDto,
   ) {
-    const state = await this.getOwnedResumeQuestionState(currentUser, applicationId);
+    const usageScope = dto.usageScope ?? 'STANDARD';
+    const state = await this.getOwnedResumeQuestionState(currentUser, applicationId, usageScope);
     const status = this.resumeQuestionStatus(state);
     const canRecoverMissingBatch =
       status === 'WAITING_DOCUMENT' &&
@@ -220,6 +236,23 @@ export class CompanyInterviewService {
       posting.postingId,
     );
     const policy = storedPolicy ?? defaultQuestionGenerationPolicy(posting.postingId);
+    const configurationLocked = await this.repository.isConfigurationLocked(
+      posting.postingId,
+    );
+    const questionImpactByProfile = buildQuestionImpactByProfile(questions);
+    const activeQuestionSet = await this.repository.findActiveQuestionSet(
+      posting.postingId,
+    );
+    const activeProfileCoverage = buildActiveProfileCoverage(
+      policy.evaluationFramework,
+      criteria,
+      activeQuestionSet,
+    );
+    const questionSetRequiresReconfirmation = requiresQuestionSetReconfirmation(
+      policy,
+      activeQuestionSet,
+      activeProfileCoverage,
+    );
 
     return {
       posting: {
@@ -251,7 +284,15 @@ export class CompanyInterviewService {
         allocations: buildQuestionAllocations(policy, criteria),
         resumeQuestionStatus:
           policy.resumeQuestionCount === 0 ? 'DISABLED' : 'WAITING_APPLICATION',
+        activeProfileCoverage,
+        questionSetRequiresReconfirmation,
       },
+      configurationLocked,
+      configurationLockedReason: configurationLocked
+        ? 'SUBMITTED_APPLICATION_EXISTS'
+        : null,
+      questionImpactByProfile,
+      questionSetRequiresReconfirmation,
     };
   }
 
@@ -301,6 +342,7 @@ export class CompanyInterviewService {
     dto: UpdateEvaluationCriterionDto,
   ): Promise<EvaluationCriterionResponseDto> {
     const posting = await this.getOwnedPosting(currentUser, dto.postingId);
+    await this.assertConfigurationMutable(posting.postingId);
     const existingCriteria = await this.repository.listCriteria(posting.postingId);
     const currentPolicy = await this.repository.getQuestionGenerationPolicy(
       posting.postingId,
@@ -347,13 +389,13 @@ export class CompanyInterviewService {
             ? existingCriterion?.description ?? tag.description
             : criterion.description?.trim() || null,
         ncsProfileId:
-          evaluationFramework === 'NCS_3_PROFILE_V1' ? tag.ncsProfileId : null,
+          isNcsFramework(evaluationFramework) ? tag.ncsProfileId : null,
         ncsQuestionMode:
-          evaluationFramework === 'NCS_3_PROFILE_V1'
+          isNcsFramework(evaluationFramework)
             ? tag.defaultNcsQuestionMode
             : null,
         ncsProfileVersion:
-          evaluationFramework === 'NCS_3_PROFILE_V1'
+          isNcsFramework(evaluationFramework)
             ? tag.ncsProfileVersion
             : null,
       });
@@ -393,14 +435,64 @@ export class CompanyInterviewService {
       }
     }
 
+    if (evaluationFramework === 'NCS_ACTIVE_PROFILE_V2') {
+      assertNcsActiveCriteria(normalizedCriteria);
+    }
+
+    const nextActiveProfileIds =
+      evaluationFramework === 'NCS_ACTIVE_PROFILE_V2'
+        ? activeNcsProfileIds('NCS_ACTIVE_PROFILE_V2', toProfileWeights(normalizedCriteria))
+        : NCS_PROFILE_IDS;
+    const currentActiveProfileIds =
+      currentPolicy?.evaluationFramework === 'NCS_ACTIVE_PROFILE_V2'
+        ? activeNcsProfileIds(
+            'NCS_ACTIVE_PROFILE_V2',
+            toProfileWeights(existingCriteria),
+          )
+        : NCS_PROFILE_IDS;
+    const deactivatedProfileIds = currentActiveProfileIds.filter(
+      (profileId) => !nextActiveProfileIds.includes(profileId),
+    );
+    const currentQuestions = await this.repository.listQuestions(posting.postingId);
+    const questionImpactByProfile = buildQuestionImpactByProfile(currentQuestions);
+    const impactedDeactivations = questionImpactByProfile.filter(
+      (impact) =>
+        deactivatedProfileIds.includes(impact.ncsProfileId) &&
+        impact.exclusivelyBoundActiveQuestionCount + impact.multiBoundActiveQuestionCount > 0,
+    );
+    if (impactedDeactivations.length > 0 && dto.confirmQuestionImpact !== true) {
+      conflict(
+        '비활성화할 평가 기준에 연결된 질문이 있습니다. 질문 영향을 확인한 뒤 다시 저장해주세요.',
+        impactedDeactivations.map((impact) => ({
+          field: 'confirmQuestionImpact',
+          reason: `QUESTION_IMPACT_CONFIRMATION_REQUIRED:${impact.ncsProfileId}:${impact.exclusivelyBoundActiveQuestionCount}:${impact.multiBoundActiveQuestionCount}`,
+        })),
+      );
+    }
+
     const saved = await this.repository.replaceCriteria(
       posting.postingId,
       evaluationFramework,
       normalizedCriteria,
+      { deactivatedProfileIds },
     );
     await this.queuePersonalizedQuestionRegenerations(
       posting.postingId,
       '평가 기준 변경 반영',
+    );
+    const savedQuestions = await this.repository.listQuestions(posting.postingId);
+    const activeQuestionSet = await this.repository.findActiveQuestionSet(
+      posting.postingId,
+    );
+    const activeProfileCoverage = buildActiveProfileCoverage(
+      saved.policy.evaluationFramework,
+      saved.criteria,
+      activeQuestionSet,
+    );
+    const questionSetRequiresReconfirmation = requiresQuestionSetReconfirmation(
+      saved.policy,
+      activeQuestionSet,
+      activeProfileCoverage,
     );
     return {
       postingId: posting.postingId,
@@ -408,6 +500,10 @@ export class CompanyInterviewService {
       totalWeight,
       evaluationFramework: saved.policy.evaluationFramework,
       criteriaVersion: saved.policy.criteriaVersion,
+      configurationLocked: false,
+      configurationLockedReason: null,
+      questionImpactByProfile: buildQuestionImpactByProfile(savedQuestions),
+      questionSetRequiresReconfirmation,
     };
   }
 
@@ -416,6 +512,7 @@ export class CompanyInterviewService {
     dto: UpdateQuestionGenerationPolicyDto,
   ): Promise<QuestionGenerationPolicyResponseDto> {
     const posting = await this.getOwnedPosting(currentUser, dto.postingId);
+    await this.assertConfigurationMutable(posting.postingId);
     const criteria = await this.repository.listCriteria(posting.postingId);
     const current =
       (await this.repository.getQuestionGenerationPolicy(posting.postingId)) ??
@@ -435,6 +532,23 @@ export class CompanyInterviewService {
           { field: 'jdCriteriaQuestionCount', reason: 'NCS_TOTAL_MIN_3' },
           { field: 'resumeQuestionCount', reason: 'NCS_TOTAL_MIN_3' },
         ]);
+      }
+    }
+    if (current.evaluationFramework === 'NCS_ACTIVE_PROFILE_V2') {
+      assertNcsActiveCriteria(criteria);
+      const countIssues = validateStandardQuestionCounts(
+        current.evaluationFramework,
+        dto.jdCriteriaQuestionCount,
+        dto.resumeQuestionCount,
+      );
+      if (countIssues.length > 0) {
+        questionCountInvalid(
+          '동적 NCS 면접은 공통 질문 3개 이상, 개인화 질문 1개 이상이어야 합니다.',
+          countIssues.map((issue) => ({
+            field: issue.path,
+            reason: issue.code,
+          })),
+        );
       }
     }
 
@@ -459,9 +573,23 @@ export class CompanyInterviewService {
         )
       : [];
 
+    const activeQuestionSet = await this.repository.findActiveQuestionSet(
+      posting.postingId,
+    );
+    const activeProfileCoverage = buildActiveProfileCoverage(
+      saved.evaluationFramework,
+      criteria,
+      activeQuestionSet,
+    );
     return {
       ...saved,
       allocations: buildQuestionAllocations(saved, criteria),
+      activeProfileCoverage,
+      questionSetRequiresReconfirmation: requiresQuestionSetReconfirmation(
+        saved,
+        activeQuestionSet,
+        activeProfileCoverage,
+      ),
       warnings,
     };
   }
@@ -471,6 +599,7 @@ export class CompanyInterviewService {
     dto: CommonQuestionGenerationRequest,
   ) {
     const posting = await this.getOwnedPosting(currentUser, dto.postingId);
+    await this.assertConfigurationMutable(posting.postingId);
     const criteria = await this.repository.listCriteria(posting.postingId);
     const policy =
       (await this.repository.getQuestionGenerationPolicy(posting.postingId)) ??
@@ -521,7 +650,7 @@ export class CompanyInterviewService {
       ? policy.jdCriteriaQuestionCount
       : requestedCount as number;
     const criteriaPayload =
-      policy.evaluationFramework === 'NCS_3_PROFILE_V1'
+      isNcsFramework(policy.evaluationFramework)
         ? this.buildNcsGenerationCriteria(policy, criteria)
         : buildLegacyGenerationCriteria(questionCount, criteria);
 
@@ -559,6 +688,7 @@ export class CompanyInterviewService {
     dto: CreateInterviewQuestionDto,
   ): Promise<CreateInterviewQuestionResponseDto> {
     const posting = await this.getOwnedPosting(currentUser, dto.postingId);
+    await this.assertConfigurationMutable(posting.postingId);
     const criterion = await this.findPostingCriterion(
       posting.postingId,
       dto.criterionId,
@@ -573,15 +703,16 @@ export class CompanyInterviewService {
       (await this.repository.getQuestionGenerationPolicy(posting.postingId)) ??
       defaultQuestionGenerationPolicy(posting.postingId);
     const bindingCriteria =
-      policy.evaluationFramework === 'NCS_3_PROFILE_V1'
+      isNcsFramework(policy.evaluationFramework)
         ? await this.resolveQuestionBindingCriteria(
             posting.postingId,
             dto.criterionId,
             dto.criterionIds,
+            policy.evaluationFramework === 'NCS_ACTIVE_PROFILE_V2',
           )
         : [criterion];
     const ncsSnapshot =
-      policy.evaluationFramework === 'NCS_3_PROFILE_V1'
+      isNcsFramework(policy.evaluationFramework)
         ? {
             ncsProfileId: criterion.ncsProfileId,
             ncsQuestionMode: criterion.ncsQuestionMode,
@@ -603,7 +734,7 @@ export class CompanyInterviewService {
           )
         : null;
     const isCompanyReviewedNcsQuestion =
-      policy.evaluationFramework === 'NCS_3_PROFILE_V1' && origin === 'MANUAL';
+      isNcsFramework(policy.evaluationFramework) && origin === 'MANUAL';
     if (origin === 'MANUAL' && dto.sourceProcessLogId !== undefined) {
       validationFailed('수동 질문에는 AI 작업 ID를 지정할 수 없습니다.', [
         { field: 'sourceProcessLogId', reason: 'MANUAL_QUESTION' },
@@ -632,7 +763,7 @@ export class CompanyInterviewService {
       evaluatorVersion: aiCandidate?.evaluatorVersion ??
         (isCompanyReviewedNcsQuestion ? COMPANY_QUESTION_REVIEW_EVALUATOR_VERSION : null),
       sourceProcessLogId: dto.sourceProcessLogId ?? null,
-      ncsBindings: policy.evaluationFramework === 'NCS_3_PROFILE_V1'
+      ncsBindings: isNcsFramework(policy.evaluationFramework)
         ? isCompanyReviewedNcsQuestion
           ? buildCompanyReviewedNcsBindings(bindingCriteria, COMPANY_QUESTION_CREATE_REVIEW_REASON)
           : buildQuestionNcsBindings(bindingCriteria, aiCandidate)
@@ -657,6 +788,7 @@ export class CompanyInterviewService {
         { field: 'questionId', reason: 'POSTING_REQUIRED' },
       ]);
     }
+    await this.assertConfigurationMutable(question.postingId);
     const criterion = await this.findPostingCriterion(
       question.postingId,
       dto.criterionId,
@@ -665,11 +797,12 @@ export class CompanyInterviewService {
       (await this.repository.getQuestionGenerationPolicy(question.postingId)) ??
       defaultQuestionGenerationPolicy(question.postingId);
     const bindingCriteria =
-      policy.evaluationFramework === 'NCS_3_PROFILE_V1'
+      isNcsFramework(policy.evaluationFramework)
         ? await this.resolveQuestionBindingCriteria(
             question.postingId,
             dto.criterionId,
             dto.criterionIds,
+            policy.evaluationFramework === 'NCS_ACTIVE_PROFILE_V2',
           )
         : [criterion];
     const duplicate = await this.repository.findDuplicateQuestion(
@@ -681,7 +814,7 @@ export class CompanyInterviewService {
     }
 
     const isCompanyReviewedNcsQuestion =
-      policy.evaluationFramework === 'NCS_3_PROFILE_V1';
+      isNcsFramework(policy.evaluationFramework);
 
     const saved = await this.repository.updateQuestion(questionId, {
       criterionId: criterion.criterionId,
@@ -703,7 +836,7 @@ export class CompanyInterviewService {
         ? COMPANY_QUESTION_REVIEW_EVALUATOR_VERSION
         : null,
       ncsBindings:
-        policy.evaluationFramework === 'NCS_3_PROFILE_V1'
+        isNcsFramework(policy.evaluationFramework)
           ? buildCompanyReviewedNcsBindings(bindingCriteria, COMPANY_QUESTION_EDIT_REVIEW_REASON)
           : [],
     });
@@ -725,6 +858,7 @@ export class CompanyInterviewService {
         { field: 'questionId', reason: 'POSTING_REQUIRED' },
       ]);
     }
+    await this.assertConfigurationMutable(question.postingId);
     const saved = await this.repository.deactivateQuestion(questionId);
 
     return {
@@ -767,11 +901,12 @@ export class CompanyInterviewService {
   ): Promise<QuestionSetResponseDto> {
     this.assertCompanyUser(currentUser);
     const posting = await this.getOwnedPosting(currentUser, dto.postingId);
+    await this.assertConfigurationMutable(posting.postingId);
     const policy =
       (await this.repository.getQuestionGenerationPolicy(posting.postingId)) ??
       defaultQuestionGenerationPolicy(posting.postingId);
     if (
-      policy.evaluationFramework === 'NCS_3_PROFILE_V1' &&
+      isNcsFramework(policy.evaluationFramework) &&
       dto.items.length !== policy.jdCriteriaQuestionCount
     ) {
       questionCountInvalid('NCS 질문 세트는 저장된 JD 공통 질문 개수와 일치해야 합니다.', [
@@ -779,12 +914,20 @@ export class CompanyInterviewService {
       ]);
     }
     const ncsCriteria =
-      policy.evaluationFramework === 'NCS_3_PROFILE_V1'
+      isNcsFramework(policy.evaluationFramework)
         ? await this.repository.listCriteria(posting.postingId)
         : [];
     if (policy.evaluationFramework === 'NCS_3_PROFILE_V1') {
       assertNcsCriteria(ncsCriteria);
+    } else if (policy.evaluationFramework === 'NCS_ACTIVE_PROFILE_V2') {
+      assertNcsActiveCriteria(ncsCriteria);
     }
+    const requiredProfileIds = isNcsFramework(policy.evaluationFramework)
+      ? activeNcsProfileIds(
+          policy.evaluationFramework,
+          toProfileWeights(ncsCriteria),
+        )
+      : [];
     const ncsCriteriaById = new Map(
       ncsCriteria.map((criterion) => [criterion.criterionId, criterion]),
     );
@@ -815,10 +958,11 @@ export class CompanyInterviewService {
           { field: 'items[].questionId', reason: 'POSTING_MISMATCH' },
         ]);
       }
-      if (policy.evaluationFramework === 'NCS_3_PROFILE_V1') {
+      if (isNcsFramework(policy.evaluationFramework)) {
         for (const profileId of validateConfirmableNcsQuestion(
           question,
           ncsCriteriaById,
+          requiredProfileIds,
         )) {
           ncsProfileCoverage.set(
             profileId,
@@ -841,16 +985,19 @@ export class CompanyInterviewService {
       }
     }
 
-    if (policy.evaluationFramework === 'NCS_3_PROFILE_V1') {
-      const uncoveredProfiles = NCS_PROFILE_IDS.filter(
-        (profileId) => (ncsProfileCoverage.get(profileId) ?? 0) < 2,
+    if (isNcsFramework(policy.evaluationFramework)) {
+      const requiredCount =
+        policy.evaluationFramework === 'NCS_3_PROFILE_V1' ? 2 : 1;
+      const uncoveredProfiles = requiredProfileIds.filter(
+        (profileId) =>
+          (ncsProfileCoverage.get(profileId) ?? 0) < requiredCount,
       );
       if (uncoveredProfiles.length > 0) {
         ncsQuestionCoverageInvalid(
-          'NCS 질문 세트는 canonical profile별로 최소 2문항을 포함해야 합니다.',
+          `NCS 질문 세트는 활성 profile별로 최소 ${requiredCount}문항을 포함해야 합니다.`,
           uncoveredProfiles.map((profileId) => ({
             field: 'items',
-            reason: `PROFILE_MIN_2:${profileId}`,
+            reason: `PROFILE_MIN_${requiredCount}:${profileId}`,
           })),
         );
       }
@@ -886,7 +1033,11 @@ export class CompanyInterviewService {
     policy: QuestionGenerationPolicyRecord,
     criteria: EvaluationCriterionRecord[],
   ) {
-    assertNcsCriteria(criteria);
+    if (policy.evaluationFramework === 'NCS_ACTIVE_PROFILE_V2') {
+      assertNcsActiveCriteria(criteria);
+    } else {
+      assertNcsCriteria(criteria);
+    }
     const allocations = buildQuestionAllocations(policy, criteria).filter(
       (allocation) => allocation.source === 'JD_CRITERIA',
     );
@@ -972,7 +1123,7 @@ export class CompanyInterviewService {
       ]);
     }
 
-    if (evaluationFramework === 'NCS_3_PROFILE_V1') {
+    if (isNcsFramework(evaluationFramework)) {
       if (
         candidate.source !== 'JD_CRITERIA' ||
         candidate.alignmentStatus !== 'ALIGNED' ||
@@ -1000,6 +1151,12 @@ export class CompanyInterviewService {
     };
   }
 
+  private async assertConfigurationMutable(postingId: number): Promise<void> {
+    if (await this.repository.isConfigurationLocked(postingId)) {
+      configurationLocked();
+    }
+  }
+
   private async getOwnedPosting(currentUser: CurrentUser, postingId?: number) {
     this.assertCompanyUser(currentUser);
 
@@ -1022,6 +1179,7 @@ export class CompanyInterviewService {
   private async getOwnedResumeQuestionState(
     currentUser: CurrentUser,
     applicationId: number,
+    usageScope: 'STANDARD' | 'DEMO_PRESET' = 'STANDARD',
   ): Promise<ResumeQuestionApplicationRecord> {
     this.assertCompanyUser(currentUser);
     if (!Number.isInteger(applicationId) || applicationId <= 0) {
@@ -1029,7 +1187,7 @@ export class CompanyInterviewService {
         { field: 'applicationId', reason: 'POSITIVE_INTEGER_REQUIRED' },
       ]);
     }
-    const state = await this.repository.findResumeQuestionGeneration(applicationId);
+    const state = await this.repository.findResumeQuestionGeneration(applicationId, usageScope);
     if (!state) {
       notFound('지원서를 찾을 수 없습니다.');
     }
@@ -1042,7 +1200,8 @@ export class CompanyInterviewService {
   private resumeQuestionStatus(
     state: ResumeQuestionApplicationRecord,
   ): ResumeQuestionGenerationStatus {
-    if (state.policy.resumeQuestionCount <= 0) return 'DISABLED';
+    if ((state.usageScope ?? 'STANDARD') === 'STANDARD' && state.policy.resumeQuestionCount <= 0) return 'DISABLED';
+    if (state.usageScope === 'DEMO_PRESET' && state.policy.evaluationFramework !== 'NCS_ACTIVE_PROFILE_V2') return 'DISABLED';
     if (state.applicationStatus === 'DRAFT') return 'WAITING_APPLICATION';
     if (state.documentStatus !== 'EXTRACTED') return 'WAITING_DOCUMENT';
     if (!state.currentBatch) return state.hasStaleBatch ? 'STALE' : 'WAITING_DOCUMENT';
@@ -1137,6 +1296,7 @@ export class CompanyInterviewService {
     postingId: number,
     primaryCriterionId: number,
     requestedCriterionIds?: number[],
+    requireActive = false,
   ): Promise<EvaluationCriterionRecord[]> {
     const criterionIds = requestedCriterionIds ?? [primaryCriterionId];
     if (
@@ -1167,6 +1327,11 @@ export class CompanyInterviewService {
     ) {
       ncsBindingInvalid('질문 NCS binding에는 서로 다른 canonical profile이 필요합니다.', [
         { field: 'criterionIds', reason: 'NCS_PROFILE_INVALID' },
+      ]);
+    }
+    if (requireActive && criteria.some((criterion) => criterion.weight <= 0)) {
+      ncsBindingInvalid('동적 NCS 질문에는 활성 평가 기준만 연결할 수 있습니다.', [
+        { field: 'criterionIds', reason: 'INACTIVE_PROFILE_BOUND' },
       ]);
     }
     return criteria;
@@ -1209,6 +1374,7 @@ export class CompanyInterviewService {
           ncsProfileId: criterion.ncsProfileId,
           ncsQuestionMode: criterion.ncsQuestionMode,
           ncsProfileVersion: criterion.ncsProfileVersion,
+          isActive: criterion.weight > 0,
         };
       }),
     );
@@ -1233,6 +1399,7 @@ export class CompanyInterviewService {
       origin: question.origin,
       isAiEdited: question.isAiEdited,
       isActive: question.isActive,
+      usageScope: question.usageScope,
       generationSource: question.generationSource,
       ncsProfileId: question.ncsProfileId,
       ncsQuestionMode: question.ncsQuestionMode,
@@ -1425,9 +1592,152 @@ const NCS_PROFILE_IDS: NcsProfileId[] = [
   'PROBLEM_SOLVING',
 ];
 
+function isNcsFramework(framework: EvaluationFramework): boolean {
+  return (
+    framework === 'NCS_3_PROFILE_V1' ||
+    framework === 'NCS_ACTIVE_PROFILE_V2'
+  );
+}
+
+function toProfileWeights(
+  criteria: Array<{
+    ncsProfileId: NcsProfileId | null;
+    weight: number;
+  }>,
+) {
+  return criteria
+    .filter(
+      (criterion): criterion is { ncsProfileId: NcsProfileId; weight: number } =>
+        criterion.ncsProfileId !== null,
+    )
+    .map((criterion) => ({
+      ncsProfileId: criterion.ncsProfileId,
+      weight: criterion.weight,
+    }));
+}
+
+function assertNcsActiveCriteria(
+  criteria: Array<{
+    ncsProfileId: NcsProfileId | null;
+    ncsQuestionMode: NcsQuestionMode | null;
+    ncsProfileVersion: string | null;
+    weight: number;
+  }>,
+) {
+  const profileWeights = toProfileWeights(criteria);
+  const issues = validateNcsProfileWeights(
+    'NCS_ACTIVE_PROFILE_V2',
+    profileWeights,
+  );
+  const hasBindingGap = criteria.some(
+    (criterion) =>
+      criterion.ncsProfileId === null ||
+      criterion.ncsQuestionMode === null ||
+      criterion.ncsProfileVersion === null,
+  );
+  if (
+    hasBindingGap ||
+    issues.some(
+      (issue) =>
+        issue.code === 'CANONICAL_PROFILE_CONFIGURATION_INVALID' ||
+        issue.code === 'ACTIVE_PROFILE_COUNT_INVALID',
+    )
+  ) {
+    ncsActiveProfileInvalid(
+      '동적 NCS 평가 기준은 canonical profile 세 개를 유지하고 최소 한 개를 활성화해야 합니다.',
+      [{ field: 'criteria', reason: 'CANONICAL_ACTIVE_PROFILE_INVALID' }],
+    );
+  }
+  const weightIssues = issues.filter(
+    (issue) =>
+      issue.code === 'WEIGHT_INVALID' || issue.code === 'WEIGHT_SUM_INVALID',
+  );
+  if (weightIssues.length > 0) {
+    ncsWeightInvalid(
+      '동적 NCS 배점은 0~100 정수이며 합계가 정확히 100이어야 합니다.',
+      weightIssues.map((issue) => ({
+        field: issue.path,
+        reason: issue.code,
+      })),
+    );
+  }
+}
+
+function buildQuestionImpactByProfile(
+  questions: QuestionRecord[],
+): NcsQuestionImpactRecord[] {
+  return NCS_PROFILE_IDS.map((ncsProfileId) => {
+    const boundQuestions = questions.filter((question) =>
+      question.ncsBindings.some(
+        (binding) => binding.ncsProfileId === ncsProfileId,
+      ),
+    );
+    return {
+      ncsProfileId,
+      exclusivelyBoundActiveQuestionCount: boundQuestions.filter(
+        (question) => question.ncsBindings.length === 1,
+      ).length,
+      multiBoundActiveQuestionCount: boundQuestions.filter(
+        (question) => question.ncsBindings.length > 1,
+      ).length,
+    };
+  });
+}
+
+function buildActiveProfileCoverage(
+  framework: EvaluationFramework,
+  criteria: EvaluationCriterionRecord[],
+  questionSet: QuestionSetRecord | undefined,
+): NcsActiveProfileCoverageRecord[] {
+  if (!isNcsFramework(framework)) return [];
+  const activeProfileIds = activeNcsProfileIds(
+    framework,
+    toProfileWeights(criteria),
+  );
+  const requiredBaseQuestionCount =
+    framework === 'NCS_3_PROFILE_V1' ? 2 : 1;
+  return activeProfileIds.map((ncsProfileId) => {
+    const actualBaseQuestionCount =
+      questionSet?.items.filter((item) => {
+        const question = item.question;
+        return (
+          question?.isActive === true &&
+          question.usageScope === 'STANDARD' &&
+          question.questionType !== 'FOLLOW_UP' &&
+          question.alignmentStatus === 'ALIGNED' &&
+          question.ncsBindings.some(
+            (binding) => binding.ncsProfileId === ncsProfileId,
+          )
+        );
+      }).length ?? 0;
+    return {
+      ncsProfileId,
+      requiredBaseQuestionCount,
+      actualBaseQuestionCount,
+      covered: actualBaseQuestionCount >= requiredBaseQuestionCount,
+    };
+  });
+}
+
+function requiresQuestionSetReconfirmation(
+  policy: QuestionGenerationPolicyRecord,
+  questionSet: QuestionSetRecord | undefined,
+  coverage: NcsActiveProfileCoverageRecord[],
+): boolean {
+  if (!isNcsFramework(policy.evaluationFramework) || policy.policyVersion === 0) {
+    return false;
+  }
+  return (
+    questionSet === undefined ||
+    questionSet.items.length !== policy.jdCriteriaQuestionCount ||
+    coverage.some((item) => !item.covered)
+  );
+}
+
 function validateConfirmableNcsQuestion(
   question: QuestionRecord,
   criteriaById: Map<number, EvaluationCriterionRecord>,
+  activeProfileIds: NcsProfileId[],
 ): NcsProfileId[] {
   const hasQuestionMetadata =
     question.generationSource === 'JD_CRITERIA' &&
@@ -1460,6 +1770,7 @@ function validateConfirmableNcsQuestion(
       return (
         binding.bindingOrder === index + 1 &&
         NCS_PROFILE_IDS.includes(binding.ncsProfileId) &&
+        activeProfileIds.includes(binding.ncsProfileId) &&
         binding.alignmentStatus === 'ALIGNED' &&
         Boolean(binding.ncsProfileVersion.trim()) &&
         Boolean(binding.evaluatorVersion?.trim()) &&
@@ -1547,13 +1858,21 @@ function buildQuestionAllocations(
   policy: QuestionGenerationPolicyRecord,
   criteria: EvaluationCriterionRecord[],
 ) {
-  if (policy.evaluationFramework !== 'NCS_3_PROFILE_V1') {
+  if (!isNcsFramework(policy.evaluationFramework)) {
     return [];
   }
 
-  const ordered = [...criteria].sort((a, b) => a.sortOrder - b.sortOrder);
+  const ordered = [...criteria]
+    .filter(
+      (criterion) =>
+        policy.evaluationFramework !== 'NCS_ACTIVE_PROFILE_V2' ||
+        criterion.weight > 0,
+    )
+    .sort((a, b) => a.sortOrder - b.sortOrder);
   if (
-    ordered.length !== NCS_PROFILE_IDS.length ||
+    ordered.length === 0 ||
+    (policy.evaluationFramework === 'NCS_3_PROFILE_V1' &&
+      ordered.length !== NCS_PROFILE_IDS.length) ||
     ordered.some(
       (criterion) =>
         criterion.ncsProfileId === null || criterion.ncsQuestionMode === null,
@@ -1567,6 +1886,7 @@ function buildQuestionAllocations(
     ncsProfileId: NcsProfileId;
     ncsQuestionMode: NcsQuestionMode;
     count: number;
+    usageScope: 'STANDARD';
   }>();
   const total = policy.jdCriteriaQuestionCount + policy.resumeQuestionCount;
 
@@ -1583,6 +1903,7 @@ function buildQuestionAllocations(
       ncsProfileId,
       ncsQuestionMode,
       count: (current?.count ?? 0) + 1,
+      usageScope: 'STANDARD' as const,
     });
   }
 

@@ -29,8 +29,12 @@ import {
   type NcsReportEvaluationBatch,
   type NcsReportQuestionBindingSnapshot,
 } from "./ncs-report-evaluation.adapter";
+import {
+  FACTUAL_ANCHOR_MISSING,
+  buildAnchoredDemoQuestion,
+} from "./demo-preset-personalization";
 import type { NcsTextEvaluationProvider } from "./ncs-text-evaluation.types";
-import type { NcsSessionPolicyInput } from "./ncs-final-evaluation";
+import type { NcsScoringVersion, NcsSessionPolicyInput } from "./ncs-final-evaluation";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import { AiTaskHandler, AiTaskResult, AiWorkerJob } from "./worker.types";
 import { SttProvider } from "./stt-provider";
@@ -289,6 +293,8 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const jobDescription = typeof payload.jobDescription === "string" ? payload.jobDescription : undefined;
     const documentSummary = typeof payload.documentSummary === "string" ? payload.documentSummary : undefined;
     const profileHint = candidateProfileHint(payload.profileContext);
+    const usageScope = payload.usageScope === "DEMO_PRESET" ? "DEMO_PRESET" : "STANDARD";
+    const generationSource = typeof payload.generationSource === "string" ? payload.generationSource : undefined;
     if (policy === "RECRUITING" && !hasText(jobDescription) && !hasText(documentSummary)) {
       throw new NonRetryableAiWorkerFailure("jobDescription or documentSummary is required");
     }
@@ -300,6 +306,15 @@ export class MockAiTaskHandler implements AiTaskHandler {
             .map(shorten)
             .join(" | ");
     const ncsPlan = policy === "RECRUITING" ? planNcsFollowUp(payload) : undefined;
+    if (usageScope === "DEMO_PRESET" && generationSource && generationSource !== "RESUME_PERSONALIZED") {
+      return {
+        outputRef: JSON.stringify({ sessionId, answerId, policy, usageScope, followUpRequired: false }),
+        guardrail: { result: "PASS", reason: null },
+        finalSave: () => this.results.saveFollowUpQuestion({
+          sessionId, answerId, required: false, policy, usageScope,
+        }),
+      };
+    }
     const factPlan = ncsPlan
       ? await planFactClarification(payload, factCheckContextOf(payload.factCheckContext, {
           provider: this.options.answerFactCheckProvider,
@@ -309,7 +324,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
           documentSummary,
         }))
       : undefined;
-    if (ncsPlan && !ncsPlan.required && !factPlan?.required) {
+    if (usageScope !== "DEMO_PRESET" && ncsPlan && !ncsPlan.required && !factPlan?.required) {
       return {
         outputRef: JSON.stringify({
           sessionId,
@@ -333,6 +348,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
             reason: "NCS_EVIDENCE_GAP",
             questionMode: ncsPlan.questionMode,
             answerTimeSec: ncsPlan.answerTimeSec,
+            usageScope,
           }),
       };
     }
@@ -392,6 +408,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
             : ncsPlan ? "NCS_EVIDENCE_GAP" : "GENERAL_EVIDENCE_GAP",
           questionMode: ncsPlan?.questionMode,
           answerTimeSec: ncsPlan?.answerTimeSec,
+          usageScope,
         })
     };
   }
@@ -468,6 +485,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
             configuredModelVersion: this.options.answerFactCheckModelVersion,
             providerMode: this.options.answerFactCheckProviderMode,
           }),
+          ncsScoringVersionOf(payload.ncsScoringVersion),
         )
       : undefined;
     const { scores, questionEvaluations } = ncsBatch ?? this.scoreReport(
@@ -589,6 +607,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
             configuredModelVersion: this.options.answerFactCheckModelVersion,
             providerMode: this.options.answerFactCheckProviderMode,
           }),
+          ncsScoringVersionOf(payload.ncsScoringVersion),
         )
       : undefined;
     const { scores, questionEvaluations } = ncsBatch ?? this.scoreReport(criteria, answers, documentText, {
@@ -858,6 +877,112 @@ export class MockAiTaskHandler implements AiTaskHandler {
   private async resumeQuestionGenerate(job: AiWorkerJob): Promise<AiTaskResult> {
     const reference = resumeQuestionReferenceOf(job);
     const context = await this.results.loadResumeQuestionGenerationContext(reference);
+    if (reference.usageScope === "DEMO_PRESET") {
+      const anchor = context.factualAnchor;
+      if (!anchor) {
+        const result = {
+          reference,
+          status: "FAILED" as const,
+          evaluatorVersion: null,
+          failureReason: FACTUAL_ANCHOR_MISSING,
+          questions: [],
+        };
+        return {
+          outputRef: JSON.stringify({
+            kind: "DEMO_PRESET_RESUME_PERSONALIZED_QUESTION_GENERATE",
+            providerMode: "mock",
+            providerSource: "DETERMINISTIC_MOCK",
+            applicationId: context.applicationId,
+            usageScope: context.usageScope,
+            inputVersion: context.inputVersion,
+            status: result.status,
+            reasonCode: FACTUAL_ANCHOR_MISSING,
+          }),
+          guardrail: { result: "PASS", reason: null },
+          finalSave: () => this.results.saveResumeQuestionGeneration(result),
+        };
+      }
+      const jobCriterion = context.criteria.find((criterion) => criterion.ncsProfileId === "JOB_TECHNICAL");
+      const problemCriterion = context.criteria.find((criterion) => criterion.ncsProfileId === "PROBLEM_SOLVING");
+      if (!jobCriterion || !problemCriterion) {
+        throw new NonRetryableAiWorkerFailure("DEMO_PRESET job and problem criteria are required");
+      }
+      const content = buildAnchoredDemoQuestion(anchor);
+      const jobAlignment = alignNcsQuestion({
+        question: content,
+        profileId: "JOB_TECHNICAL",
+        questionMode: "TECHNICAL_KNOWLEDGE",
+        profileVersion: jobCriterion.ncsProfileVersion,
+      });
+      const problemAlignment = alignNcsQuestion({
+        question: content,
+        profileId: "PROBLEM_SOLVING",
+        questionMode: "TECHNICAL_KNOWLEDGE",
+        profileVersion: problemCriterion.ncsProfileVersion,
+      });
+      if (jobAlignment.status !== "ALIGNED" || problemAlignment.status !== "ALIGNED") {
+        throw new NonRetryableAiWorkerFailure("mock DEMO_PRESET question must align to job and problem profiles");
+      }
+      const question: PersonalizedQuestionRecord = {
+        criterionId: jobCriterion.criterionId,
+        criterionTitleSnapshot: jobCriterion.name,
+        questionType: "TECHNICAL",
+        content,
+        ncsProfileId: "JOB_TECHNICAL",
+        ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+        ncsProfileVersion: jobAlignment.profileVersion,
+        alignmentStatus: "ALIGNED",
+        alignmentScore: Math.min(jobAlignment.score ?? 0, problemAlignment.score ?? 0),
+        alignmentReason: null,
+        evaluatorVersion: jobAlignment.evaluatorVersion,
+        sortOrder: 1,
+        ncsBindings: [
+          {
+            criterionId: jobCriterion.criterionId,
+            criterionTitleSnapshot: jobCriterion.name,
+            ncsProfileId: "JOB_TECHNICAL",
+            ncsProfileVersion: jobAlignment.profileVersion,
+            alignmentStatus: "ALIGNED",
+            alignmentScore: jobAlignment.score,
+            alignmentReason: null,
+            evaluatorVersion: jobAlignment.evaluatorVersion,
+            bindingOrder: 1,
+          },
+          {
+            criterionId: problemCriterion.criterionId,
+            criterionTitleSnapshot: problemCriterion.name,
+            ncsProfileId: "PROBLEM_SOLVING",
+            ncsProfileVersion: problemAlignment.profileVersion,
+            alignmentStatus: "ALIGNED",
+            alignmentScore: problemAlignment.score,
+            alignmentReason: null,
+            evaluatorVersion: problemAlignment.evaluatorVersion,
+            bindingOrder: 2,
+          },
+        ],
+      };
+      const result = {
+        reference,
+        status: "READY" as const,
+        evaluatorVersion: question.evaluatorVersion,
+        failureReason: null,
+        questions: [question],
+      };
+      return {
+        outputRef: JSON.stringify({
+          kind: "DEMO_PRESET_RESUME_PERSONALIZED_QUESTION_GENERATE",
+          providerMode: "mock",
+          providerSource: "ANCHORED_SAFE_TEMPLATE",
+          applicationId: context.applicationId,
+          usageScope: context.usageScope,
+          inputVersion: context.inputVersion,
+          status: result.status,
+          questions: result.questions,
+        }),
+        guardrail: { result: "PASS", reason: null },
+        finalSave: () => this.results.saveResumeQuestionGeneration(result),
+      };
+    }
     const allocatedCriteria = context.criteria.flatMap((criterion) =>
       Array.from({ length: criterion.questionCount }, () => criterion),
     );
@@ -894,6 +1019,17 @@ export class MockAiTaskHandler implements AiTaskHandler {
         alignmentReason: alignment.reason,
         evaluatorVersion: alignment.evaluatorVersion,
         sortOrder: index + 1,
+        ncsBindings: [{
+          criterionId: criterion.criterionId,
+          criterionTitleSnapshot: criterion.name,
+          ncsProfileId: criterion.ncsProfileId,
+          ncsProfileVersion: alignment.profileVersion,
+          alignmentStatus: alignment.status === "ALIGNED" ? "ALIGNED" : "REVIEW_REQUIRED",
+          alignmentScore: alignment.score,
+          alignmentReason: alignment.reason,
+          evaluatorVersion: alignment.evaluatorVersion,
+          bindingOrder: 1,
+        }],
       };
     });
     const ready = questions.every((question) => question.alignmentStatus === "ALIGNED");
@@ -2317,7 +2453,14 @@ function resumeQuestionReferenceOf(job: AiWorkerJob): ResumeQuestionJobReference
     inputVersion: requiredText(input.inputVersion, "inputVersion"),
     resumeDocumentHash: requiredText(input.resumeDocumentHash, "resumeDocumentHash"),
     jdSnapshotHash: requiredText(input.jdSnapshotHash, "jdSnapshotHash"),
+    usageScope: input.usageScope === "DEMO_PRESET" ? "DEMO_PRESET" : "STANDARD",
   };
+}
+
+function ncsScoringVersionOf(value: unknown): NcsScoringVersion {
+  return value === "NCS_RECRUITING_SCORING_V2"
+    ? "NCS_RECRUITING_SCORING_V2"
+    : "NCS_RECRUITING_SCORING_V1";
 }
 
 function buildMockPersonalizedQuestion(

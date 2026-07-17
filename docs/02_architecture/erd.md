@@ -40,6 +40,8 @@ ERDCloud SQL을 사람이 읽는 테이블/관계 문서로 변환한다.
 - ERDCloud SQL은 sequence/identity, runtime index, check constraint, migration rollback 정책을 확정하는 파일이 아니다.
 - 구현에서는 ERD table 이름을 그대로 유지하고 Prisma model은 `docs/02_architecture/data-model.md`의 `Implementation Naming Baseline`을 따른다.
 - `question_bank`는 Prisma model `Question`, `evaluation_criteria`는 `EvaluationCriterion`, `ai_process_logs`는 `AiProcessLog`로 구현한다.
+- `NCS_ACTIVE_PROFILE_V2`는 `evaluation_criteria.weight > 0`을 활성 기준으로 사용하고 별도 active column을 만들지 않는다.
+- 기존 row는 `interview_sessions.session_mode=STANDARD`와 질문/batch의 `usage_scope=STANDARD`로 해석한다. DEMO_PRESET 개인화 batch는 usage scope가 포함된 business key로 STANDARD와 격리한다.
 
 ## Table Summary
 
@@ -56,14 +58,17 @@ ERDCloud SQL을 사람이 읽는 테이블/관계 문서로 변환한다.
 | postings | posting_id | 10 | 채용 공고/JD | company_id -> companies.company_id |
 | criterion_tags | tag_id | 7 | 평가 태그 후보 |  |
 | evaluation_criteria | criterion_id | 7 | 공고별 평가 기준, 상세 설명 스냅샷과 가중치 | posting_id -> postings.posting_id / tag_id -> criterion_tags.tag_id |
-| question_bank | question_id | 9 | 면접 질문 뱅크 | company_id -> companies.company_id / posting_id -> postings.posting_id / criterion_id -> evaluation_criteria.criterion_id |
+| question_bank | question_id | 19 | usage scope와 NCS snapshot을 포함한 면접 질문 뱅크 | company_id -> companies.company_id / posting_id -> postings.posting_id / criterion_id -> evaluation_criteria.criterion_id |
 | interview_question_sets | question_set_id | 7 | 공고별 면접 질문 세트 | posting_id -> postings.posting_id / created_by_process_log_id -> ai_process_logs.process_log_id |
 | interview_question_set_items | question_set_item_id | 5 | 면접 질문 세트 항목 | question_set_id -> interview_question_sets.question_set_id / question_id -> question_bank.question_id / criterion_id -> evaluation_criteria.criterion_id |
 | interview_time_policies | posting_id | 6 | 공고별 면접 시간 정책 | posting_id -> postings.posting_id |
 | applications | application_id | 12 | 제출 프로필 스냅샷을 포함한 지원서와 전형 상태 | posting_id -> postings.posting_id / candidate_id -> candidate_profiles.candidate_id |
 | application_documents | document_id | 7 | 지원서 첨부 서류와 파싱 결과 | application_id -> applications.application_id / file_id -> file_assets.file_id |
 | consent_records | consent_id | 5 | 지원/면접 동의 이력 | application_id -> applications.application_id |
-| interview_sessions | session_id | 8 | 모의/채용 면접 세션 | application_id -> applications.application_id / candidate_id -> candidate_profiles.candidate_id |
+| application_interview_question_batches | batch_id | 16 | usage-scoped 개인화 질문 생성 batch와 멱등 snapshot | application_id -> applications.application_id / latest_process_log_id -> ai_process_logs.process_log_id |
+| application_interview_questions | personalized_question_id | 19 | STANDARD/DEMO_PRESET 지원자별 질문 | batch_id -> application_interview_question_batches.batch_id / criterion_id -> evaluation_criteria.criterion_id / source_process_log_id -> ai_process_logs.process_log_id |
+| interview_sessions | session_id | 14 | STANDARD/DEMO_PRESET mode snapshot을 포함한 모의/채용 면접 세션 | application_id -> applications.application_id / candidate_id -> candidate_profiles.candidate_id |
+| interview_session_questions | session_question_id | 24 | usage scope를 포함한 불변 런타임 질문 snapshot | session_id -> interview_sessions.session_id / question_id -> question_bank.question_id / personalized_question_id -> application_interview_questions.personalized_question_id |
 | interview_answers | answer_id | 8 | 질문별 영상/음성/STT 답변 | session_id -> interview_sessions.session_id / question_id -> question_bank.question_id / video_file_id -> file_assets.file_id / audio_file_id -> file_assets.file_id |
 | follow_up_questions | follow_up_id | 13 | 답변 기반 꼬리질문 결정과 private session question 승격 상태 | answer_id -> interview_answers.answer_id, source_session_question_id/inserted_session_question_id -> interview_session_questions.session_question_id |
 | evaluation_reports | report_id | 8 | 평가 리포트 헤더 | application_id -> applications.application_id / session_id -> interview_sessions.session_id |

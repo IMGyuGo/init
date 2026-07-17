@@ -1451,6 +1451,18 @@ function buildNcsReportEvaluation(
     })),
   );
   const summary = recordOf(report.ncsSummary);
+  const isV2 = report.ncsScoringVersion === "NCS_RECRUITING_SCORING_V2" ||
+    summary?.schemaVersion === "ncs-report-evaluation-output-v2";
+  const summaryProfiles = arrayOfRecords(summary?.profiles);
+  const activeProfileIds = isV2
+    ? NCS_REPORT_PROFILE_IDS.filter((profileId) =>
+        summaryProfiles.length > 0
+          ? summaryProfiles.some((item) => nullableProfileId(item.ncsProfileId) === profileId)
+          : (report.scores ?? []).some((score) =>
+              typeof score.ncsProfileId === "string" && canonicalReportProfileId(score.ncsProfileId) === profileId,
+            ),
+      )
+    : [...NCS_REPORT_PROFILE_IDS];
   const incompleteReasons = arrayOfRecords(summary?.incompleteReasons).map((item) => ({
     code: stringOf(item.code, "SESSION_SNAPSHOT_MISSING"),
     message: stringOf(item.message, "NCS 평가 입력 snapshot이 완전하지 않습니다."),
@@ -1459,7 +1471,7 @@ function buildNcsReportEvaluation(
     answerId: nullableNumber(item.answerId),
     retryable: item.retryable === true,
   }));
-  const findings = NCS_REPORT_PROFILE_IDS.flatMap((ncsProfileId) => {
+  const findings = activeProfileIds.flatMap((ncsProfileId) => {
     const profileEvidenceIds = evidences
       .filter((evidence) => evidence.ncsProfileId === ncsProfileId)
       .map((evidence) => evidence.evidenceId);
@@ -1483,12 +1495,13 @@ function buildNcsReportEvaluation(
     }];
   });
   const findingsByProfile = new Map(findings.map((finding) => [finding.ncsProfileId, finding.findingId]));
-  const profileScores = NCS_REPORT_PROFILE_IDS.map((ncsProfileId, index) => {
+  const profileScores = activeProfileIds.map((ncsProfileId, index) => {
     const score = (report.scores ?? []).find((item) =>
       typeof item.ncsProfileId === "string" && canonicalReportProfileId(item.ncsProfileId) === ncsProfileId,
     );
     const status = score?.averageScore == null ? "INCOMPLETE" as const : "SCORED" as const;
     const findingId = findingsByProfile.get(ncsProfileId);
+    const summaryProfile = summaryProfiles.find((item) => nullableProfileId(item.ncsProfileId) === ncsProfileId);
     return {
       ncsProfileId,
       profileOrder: (index + 1) as 1 | 2 | 3,
@@ -1501,7 +1514,7 @@ function buildNcsReportEvaluation(
       minimumAverageScore: score?.minimumAverageScore ?? 3,
       assignedQuestionCount: score?.assignedQuestionCount ?? 0,
       validQuestionCount: score?.validQuestionCount ?? 0,
-      requiredQuestionCount: 2,
+      requiredQuestionCount: isV2 ? (nullableNumber(summaryProfile?.requiredQuestionCount) ?? 1) : 2,
       findingIds: findingId ? [findingId] : [],
     };
   });
@@ -1516,7 +1529,9 @@ function buildNcsReportEvaluation(
     .sort((left, right) => left.sortOrder - right.sortOrder);
 
   return {
-    schemaVersion: "ncs-report-evaluation-output-v1" as const,
+    schemaVersion: isV2
+      ? "ncs-report-evaluation-output-v2" as const
+      : "ncs-report-evaluation-output-v1" as const,
     report: {
       reportId: report.reportId,
       applicationId: report.applicationId ?? application.applicationId,
@@ -1524,7 +1539,15 @@ function buildNcsReportEvaluation(
       reportStatus: "COMPLETED" as const,
       generatedAt: report.generatedAt?.toISOString() ?? null,
     },
-    policy: {
+    policy: isV2 ? {
+      evaluationFramework: "NCS_ACTIVE_PROFILE_V2" as const,
+      scoringVersion: "NCS_RECRUITING_SCORING_V2" as const,
+      decisionPolicyVersion: report.ncsDecisionPolicyVersion,
+      scoreScale: 5 as const,
+      overallPassScore: 80 as const,
+      profileMinimumAverageScore: 3 as const,
+      activeProfileCount: activeProfileIds.length,
+    } : {
       scoringVersion: "NCS_RECRUITING_SCORING_V1" as const,
       decisionPolicyVersion: report.ncsDecisionPolicyVersion,
       scoreScale: 5 as const,

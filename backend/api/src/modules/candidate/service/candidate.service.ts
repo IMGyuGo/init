@@ -10,6 +10,7 @@ import {
   type CandidateDegreeType,
   type CandidateEducationLevel,
   type CandidateEducationStatus,
+  type InterviewSessionMode,
 } from "@init/common";
 import { CandidateJobListQueryDto } from "../dto/candidate-job-list-query.dto";
 import { CreateCandidateFolderDto, UpdateCandidateFolderDto } from "../dto/candidate-folder.dto";
@@ -822,6 +823,7 @@ export class CandidateService {
   async startInterview(
     applicationId: number,
     currentUser: CurrentCandidateUser,
+    mode: InterviewSessionMode = "STANDARD",
   ): Promise<ApiResponse<StartInterviewResult>> {
     const { application, session } = await this.getOwnedApplicationWithSession(applicationId, currentUser);
     this.assertSessionNotExpired(session);
@@ -839,7 +841,7 @@ export class CandidateService {
         { field: "deviceCheck", reason: "camera, microphone, and network checks are required" },
       ]);
     }
-    await this.prepareRecruitingInterviewSessionSnapshot(application.applicationId);
+    const snapshot = await this.prepareRecruitingInterviewSessionSnapshot(application.applicationId, mode);
     if (refreshedSession.status === "IN_PROGRESS") {
       if (application.interviewStatus !== "IN_PROGRESS") {
         await this.repository.updateApplicationInterviewStatus(application.applicationId, "IN_PROGRESS");
@@ -851,6 +853,9 @@ export class CandidateService {
         sessionStatus: "IN_PROGRESS",
         interviewUrl: `/candidate/applications/${application.applicationId}/interview`,
         startedAt: refreshedSession.startedAt ?? new Date().toISOString(),
+        sessionMode: refreshedSession.sessionMode,
+        snapshotCreated: snapshot.snapshotCreated,
+        questions: snapshot.questions ?? [],
       });
     }
     if (refreshedSession.status !== "READY") {
@@ -870,12 +875,18 @@ export class CandidateService {
       sessionStatus: "IN_PROGRESS",
       interviewUrl: `/candidate/applications/${application.applicationId}/interview`,
       startedAt: now,
+      sessionMode: startedSession.sessionMode,
+      snapshotCreated: snapshot.snapshotCreated,
+      questions: snapshot.questions ?? [],
     });
   }
 
-  async prepareRecruitingInterviewSessionSnapshot(applicationId: number): Promise<InterviewQuestionSnapshotResult> {
+  async prepareRecruitingInterviewSessionSnapshot(
+    applicationId: number,
+    mode: InterviewSessionMode = "STANDARD",
+  ): Promise<InterviewQuestionSnapshotResult> {
     this.assertPositiveIntegerId(applicationId, "applicationId");
-    const result = await this.repository.prepareInterviewSessionQuestionSnapshot(applicationId);
+    const result = await this.repository.prepareInterviewSessionQuestionSnapshot(applicationId, mode);
     if (!result) {
       throw new CandidateDomainError("COMMON_NOT_FOUND", "Application was not found.", 404, [
         { field: "applicationId", reason: "application not found" },
@@ -910,7 +921,7 @@ export class CandidateService {
     if (result.readiness === "NCS_QUESTION_COVERAGE_INVALID") {
       throw new CandidateDomainError(
         "INTERVIEW_NCS_QUESTION_COVERAGE_INVALID",
-        "Each NCS profile must be connected to at least two base questions.",
+        "NCS 활성 평가 기준별 필수 BASE 질문 coverage를 충족해야 합니다.",
         409,
         (result.ncsCoverage ?? []).map((coverage) => ({
           field: `ncsCoverage.${coverage.ncsProfileId}`,
@@ -929,6 +940,30 @@ export class CandidateService {
           field: "sessionSnapshot",
           reason,
         })),
+      );
+    }
+    if (result.readiness === "SESSION_MODE_CONFLICT") {
+      throw new CandidateDomainError(
+        "INTERVIEW_SESSION_MODE_CONFLICT",
+        "이미 다른 방식의 공식 면접이 시작되었습니다.",
+        409,
+        [{ field: "mode", reason: `existing mode is ${result.sessionMode ?? "STANDARD"}` }],
+      );
+    }
+    if (result.readiness === "DEMO_PRESET_NOT_READY") {
+      throw new CandidateDomainError(
+        "INTERVIEW_DEMO_PRESET_NOT_READY",
+        "공식 3문항 시연 면접 준비가 완료되지 않았습니다.",
+        409,
+        [{ field: "demoPreset", reason: "readiness is not READY" }],
+      );
+    }
+    if (result.readiness === "DEMO_PRESET_QUESTION_POOL_INSUFFICIENT") {
+      throw new CandidateDomainError(
+        "INTERVIEW_DEMO_PRESET_QUESTION_POOL_INSUFFICIENT",
+        "공식 3문항 시연에 필요한 질문이 준비되지 않았습니다.",
+        409,
+        [{ field: "demoPreset", reason: "eligible question pool is insufficient" }],
       );
     }
     return result;
@@ -952,6 +987,7 @@ export class CandidateService {
       applicationId: application.applicationId,
       sessionId: session.sessionId,
       interviewType: "RECRUITING",
+      sessionMode: session.sessionMode,
       status: session.status,
       showQuestionText: true,
       canRecord: session.status === "IN_PROGRESS",
@@ -1268,10 +1304,11 @@ export class CandidateService {
   }
 
   private async toApplicationSummary(application: Application): Promise<CandidateApplicationSummary> {
-    const [job, session, consents] = await Promise.all([
+    const [job, session, consents, demoPreset] = await Promise.all([
       this.repository.findJob(application.postingId),
       this.repository.findInterviewSessionByApplication(application.applicationId),
       this.repository.listConsentRecords(application.applicationId),
+      this.repository.getDemoPresetReadiness(application.applicationId),
     ]);
     const unavailableReason = !job ? "POSTING_NOT_FOUND" : !session ? "INTERVIEW_SESSION_NOT_FOUND" : null;
 
@@ -1306,6 +1343,8 @@ export class CandidateService {
         consentCompleted &&
         deviceCheckCompleted &&
         session?.status === "READY",
+      sessionMode: session?.sessionMode ?? null,
+      demoPreset,
     };
   }
 
@@ -1313,7 +1352,10 @@ export class CandidateService {
     application: Application,
     session: InterviewSession,
   ): Promise<CandidateInterviewGuide> {
-    const consents = await this.repository.listConsentRecords(application.applicationId);
+    const [consents, demoPreset] = await Promise.all([
+      this.repository.listConsentRecords(application.applicationId),
+      this.repository.getDemoPresetReadiness(application.applicationId),
+    ]);
     const consentCompleted = this.hasRequiredInterviewConsents(consents);
     const deviceCheckCompleted = this.isDeviceCheckPassed(session);
     return {
@@ -1338,6 +1380,8 @@ export class CandidateService {
       consentCompleted,
       deviceCheckCompleted,
       canStart: consentCompleted && deviceCheckCompleted && ["READY", "IN_PROGRESS"].includes(session.status),
+      sessionMode: session.sessionMode,
+      demoPreset,
     };
   }
 
