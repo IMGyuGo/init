@@ -10,6 +10,7 @@ import {
   CreateRealtimeInterviewSessionDto,
   SaveInterviewAnswerDto,
   StartMockInterviewDto,
+  StartOfficialInterviewDto,
 } from "../dto/interview.runtime.dto";
 import { UpdateMockSessionTitleDto } from "../dto/update-mock-session-title.dto";
 import { interviewApiRoutePrefix, interviewApiRoutes } from "../interview.routes";
@@ -136,8 +137,16 @@ export class InterviewController {
   }
 
   @Post(interviewApiRoutes.startInterview)
-  startInterview(@Req() request: CandidateRequest, @Param("applicationId") applicationId: string) {
-    return this.handle(() => this.interviewService.startInterview(Number(applicationId), resolveCurrentCandidate(request.currentUser)));
+  startInterview(
+    @Req() request: CandidateRequest,
+    @Param("applicationId") applicationId: string,
+    @Body() dto: StartOfficialInterviewDto = {},
+  ) {
+    return this.handle(() => this.interviewService.startInterview(
+      Number(applicationId),
+      resolveCurrentCandidate(request.currentUser),
+      dto.mode ?? "STANDARD",
+    ));
   }
 
   @Get(interviewApiRoutes.interviewRuntime)

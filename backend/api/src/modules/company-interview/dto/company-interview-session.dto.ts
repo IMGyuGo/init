@@ -1,11 +1,15 @@
 import { Type } from 'class-transformer';
-import { IsInt, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, Min } from 'class-validator';
 
 export class CreateCompanyInterviewSessionDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
   applicationId!: number;
+
+  @IsOptional()
+  @IsIn(['STANDARD', 'DEMO_PRESET'])
+  mode?: 'STANDARD' | 'DEMO_PRESET';
 }
 
 export class CompanyInterviewSessionResponseDto {
@@ -17,4 +21,11 @@ export class CompanyInterviewSessionResponseDto {
   totalQuestionCount!: number;
   policyVersion!: number;
   criteriaVersion!: number;
+  sessionMode!: 'STANDARD' | 'DEMO_PRESET';
+  questions!: Array<{
+    sessionQuestionId: number;
+    usageScope: 'STANDARD' | 'DEMO_PRESET';
+    ncsProfileIds: string[];
+    sortOrder: number;
+  }>;
 }

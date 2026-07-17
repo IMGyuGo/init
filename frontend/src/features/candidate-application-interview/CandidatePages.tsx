@@ -537,6 +537,7 @@ type RuntimePageSession = {
   sessionId: number;
   applicationId?: number;
   interviewType: InterviewRuntimeSessionView["interviewType"];
+  sessionMode?: "STANDARD" | "DEMO_PRESET";
   status: InterviewRuntimeSessionView["status"];
   showQuestionText: boolean;
   canRecord: boolean;
@@ -1844,6 +1845,9 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
   const guide = data?.data;
   const guideInterviewAlreadyInProgress = guide?.interviewSessionStatus === "IN_PROGRESS";
   const guidePrimaryActionLabel = guideInterviewAlreadyInProgress ? "면접 재개" : "면접 시작";
+  const demoPresetActionLabel = guide?.demoPreset.reasonCode === "OFFICIAL_SESSION_EXISTS"
+    ? "공식 3문항 시연 이어하기"
+    : "공식 3문항 시연 시작";
   const deviceTestSentence = useMemo(() => pickDeviceTestSentence(), []);
 
   // 동의 전(면접 안내 필요) 상태로 이 라우트에 직접 진입하면, 지원 내역 위에서 안내 모달이 뜨도록 리다이렉트한다. (#288)
@@ -2032,7 +2036,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
     }
   }
 
-  async function handleStartInterview() {
+  async function handleStartInterview(mode: "STANDARD" | "DEMO_PRESET" = "STANDARD") {
     warmUpInterviewAudioOutput();
     if (!guide) return;
     if (!cameraReady || !microphoneReady || !deviceState.networkStable) {
@@ -2055,7 +2059,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
       if (!guide.deviceCheckCompleted) {
         await getCandidateApi().saveDeviceCheck(guide.sessionId, toDeviceCheckRequest(deviceState));
       }
-      await getCandidateApi().startInterview(applicationId);
+      await getCandidateApi().startInterview(applicationId, mode);
       stopGuideCameraQualityMonitor();
       stopGuideMicrophoneMeter();
       stopMediaStream(mediaStreamRef.current);
@@ -2094,7 +2098,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
         await api.saveDeviceCheck(guide.sessionId, toDeviceCheckRequest(testDeviceState));
       }
       if (!guideInterviewAlreadyInProgress) {
-        await api.startInterview(applicationId);
+        await api.startInterview(applicationId, guide.sessionMode ?? "STANDARD");
       }
       rememberCameralessInterviewTestEntry("recruiting", guide.sessionId);
       router.push(candidateApplicationInterviewRoutes.interview(applicationId));
@@ -2137,6 +2141,12 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
                 </div>
 
                 <aside className="dvc__side">
+                  {guide.demoPreset ? (
+                    <div className="dvc__card" aria-live="polite">
+                      <h3>공식 3문항 시연</h3>
+                      <p>{getDemoPresetReadinessMessage(guide.demoPreset.reasonCode, guide.demoPreset.status)}</p>
+                    </div>
+                  ) : null}
                   <div className="dvc__card">
                     <h3>준비 상태</h3>
                     <ul className="dvc__check">
@@ -2237,10 +2247,18 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
                     </button>
                   ) : null}
                   <button
+                    className="btn secondary"
+                    type="button"
+                    disabled={busy || !guide.demoPreset?.canStart || !cameraReady || !microphoneReady || !deviceState.networkStable}
+                    onClick={() => void handleStartInterview("DEMO_PRESET")}
+                  >
+                    {demoPresetActionLabel}
+                  </button>
+                  <button
                     className="btn primary"
                     type="button"
                     disabled={busy || !cameraReady || !microphoneReady || !deviceState.networkStable}
-                    onClick={() => void handleStartInterview()}
+                    onClick={() => void handleStartInterview("STANDARD")}
                   >
                     {guidePrimaryActionLabel}
                   </button>
@@ -7405,13 +7423,20 @@ function InterviewRuntimePanel({
 
       const answerWithTranscript = { ...savedAnswer, transcript: normalizedTranscript };
       const isFollowUpAnswer = question?.questionType === "FOLLOW_UP";
+      const answeredQuestionIndex = question
+        ? data.questions.questions.findIndex((candidateQuestion) => candidateQuestion.questionId === question.questionId)
+        : -1;
+      const skipDemoCommonFollowUp =
+        mode === "recruiting" &&
+        data.runtime.sessionMode === "DEMO_PRESET" &&
+        answeredQuestionIndex === 0;
       setLastAnswer(answerWithTranscript);
 
       setAutoAiPipeline((current) => ({
         answerId: savedAnswer.answerId,
         ...current,
         sttStatus: "COMPLETED",
-        followUpStatus: isFollowUpAnswer ? "IDLE" : "PENDING",
+        followUpStatus: isFollowUpAnswer || skipDemoCommonFollowUp ? "IDLE" : "PENDING",
         sttProcessLogId,
         transcript: normalizedTranscript,
         failureCategory: undefined,
@@ -7420,15 +7445,14 @@ function InterviewRuntimePanel({
         error: undefined,
       }));
 
-      if (isFollowUpAnswer) {
-        const questionIndex = question
-          ? data.questions.questions.findIndex((candidateQuestion) => candidateQuestion.questionId === question.questionId)
-          : -1;
-        const isLastFollowUpQuestion = questionIndex >= 0
-          ? questionIndex >= data.runtime.totalQuestions - 1
+      if (isFollowUpAnswer || skipDemoCommonFollowUp) {
+        const isLastFollowUpQuestion = answeredQuestionIndex >= 0
+          ? answeredQuestionIndex >= data.runtime.totalQuestions - 1
           : false;
         setMessage(
-          isLastFollowUpQuestion
+          skipDemoCommonFollowUp
+            ? "협업 공통 답변이 저장되었습니다. 개인화 질문으로 이동해주세요."
+            : isLastFollowUpQuestion
             ? "마지막 답변 처리가 완료되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
             : "답변 처리가 완료되었습니다. 다음 질문으로 이동해주세요.",
         );
@@ -7436,7 +7460,7 @@ function InterviewRuntimePanel({
           questionId: savedAnswer.questionId,
           processLogId: sttProcessLogId,
           sttProcessLogId,
-          outcome: isLastFollowUpQuestion ? "INTERVIEW_COMPLETE_READY" : "NEXT_QUESTION_READY",
+          outcome: skipDemoCommonFollowUp ? "DEMO_COMMON_NEXT_READY" : isLastFollowUpQuestion ? "INTERVIEW_COMPLETE_READY" : "NEXT_QUESTION_READY",
           nextReady: true,
         });
         return;
@@ -11546,6 +11570,7 @@ function toRecruitingRuntimeSession(
     sessionId: runtime.sessionId,
     applicationId: runtime.applicationId,
     interviewType: runtime.interviewType,
+    sessionMode: runtime.sessionMode,
     status: runtime.status,
     showQuestionText: runtime.showQuestionText,
     canRecord: runtime.canRecord,
@@ -11681,6 +11706,25 @@ function playAnswerStartCue() {
 
 function isRealtimeQuestionSpeechPurpose(purpose: string): purpose is "interview_question" | "interview_follow_up_question" {
   return purpose === "interview_question" || purpose === "interview_follow_up_question";
+}
+
+function getDemoPresetReadinessMessage(
+  reasonCode: import("./api").DemoPresetReadinessReasonCode | null,
+  status: "READY" | "PENDING" | "UNAVAILABLE",
+): string {
+  if (reasonCode === "OFFICIAL_SESSION_EXISTS") return "이미 시작한 공식 3문항 시연을 같은 질문으로 이어갑니다.";
+  if (status === "READY") return "협업 공통 1문항과 개인화 1문항, 개인화 꼬리질문 1문항이 준비되었습니다.";
+  const messages: Record<Exclude<import("./api").DemoPresetReadinessReasonCode, "OFFICIAL_SESSION_EXISTS">, string> = {
+    CANONICAL_PROFILES_NOT_ALL_ACTIVE: "평가 기준 3개가 모두 활성화되어야 시연을 시작할 수 있습니다.",
+    COLLABORATION_COMMON_QUESTION_MISSING: "협업 공통 질문이 아직 확정되지 않았습니다.",
+    DEMO_PERSONALIZED_QUESTION_GENERATING: "지원 서류를 바탕으로 개인화 질문을 준비하고 있습니다.",
+    DEMO_PERSONALIZED_QUESTION_REVIEW_REQUIRED: "개인화 질문 검토가 필요합니다. 채용 담당자에게 문의해주세요.",
+    DEMO_PERSONALIZED_QUESTION_FAILED: "개인화 질문 준비에 실패했습니다. 채용 담당자에게 재준비를 요청해주세요.",
+    FACTUAL_ANCHOR_MISSING: "지원 서류 분석이 완료되어야 개인화 시연을 시작할 수 있습니다.",
+    OFFICIAL_SESSION_MODE_CONFLICT: "이미 일반 공식 면접이 선택되어 3문항 시연으로 변경할 수 없습니다.",
+    CONFIGURATION_COVERAGE_MISMATCH: "면접 설정과 질문 구성이 일치하지 않습니다. 채용 담당자에게 확인을 요청해주세요.",
+  };
+  return reasonCode ? messages[reasonCode] : "공식 3문항 시연 준비 상태를 확인하고 있습니다.";
 }
 
 function createRuntimeFileAssetFromMetadata(

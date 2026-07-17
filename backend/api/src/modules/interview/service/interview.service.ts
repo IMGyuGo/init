@@ -123,8 +123,12 @@ export class InterviewService {
     return this.candidateService.saveDeviceCheck(sessionId, dto, currentUser);
   }
 
-  startInterview(applicationId: number, currentUser: CurrentCandidateUser) {
-    return this.candidateService.startInterview(applicationId, currentUser);
+  startInterview(
+    applicationId: number,
+    currentUser: CurrentCandidateUser,
+    mode: "STANDARD" | "DEMO_PRESET" = "STANDARD",
+  ) {
+    return this.candidateService.startInterview(applicationId, currentUser, mode);
   }
 
   getInterviewRuntime(applicationId: number, currentUser: CurrentCandidateUser) {
