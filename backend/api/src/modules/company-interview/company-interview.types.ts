@@ -40,7 +40,11 @@ export type AiProcessStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 export type EvaluationFramework = SharedEvaluationFramework;
 // WT2 adds V2 to this request allow-list together with the V2 mutation rules.
 // Keeping the current runtime gate fail-closed prevents V2 from falling through LEGACY logic.
-export const EVALUATION_FRAMEWORKS: EvaluationFramework[] = ['LEGACY', 'NCS_3_PROFILE_V1'];
+export const EVALUATION_FRAMEWORKS: EvaluationFramework[] = [
+  'LEGACY',
+  'NCS_3_PROFILE_V1',
+  'NCS_ACTIVE_PROFILE_V2',
+];
 
 export type NcsProfileId = SharedNcsProfileId;
 export type NcsQuestionMode = SharedNcsQuestionMode;
@@ -114,6 +118,7 @@ export type QuestionRecord = {
   origin: QuestionOrigin;
   isAiEdited: boolean;
   isActive: boolean;
+  usageScope: 'STANDARD' | 'DEMO_PRESET';
   generationSource: QuestionGenerationSource | null;
   ncsProfileId: NcsProfileId | null;
   ncsQuestionMode: NcsQuestionMode | null;
@@ -124,6 +129,19 @@ export type QuestionRecord = {
   evaluatorVersion: string | null;
   sourceProcessLogId: number | null;
   ncsBindings: QuestionNcsBindingRecord[];
+};
+
+export type NcsQuestionImpactRecord = {
+  ncsProfileId: NcsProfileId;
+  exclusivelyBoundActiveQuestionCount: number;
+  multiBoundActiveQuestionCount: number;
+};
+
+export type NcsActiveProfileCoverageRecord = {
+  ncsProfileId: NcsProfileId;
+  requiredBaseQuestionCount: number;
+  actualBaseQuestionCount: number;
+  covered: boolean;
 };
 
 export type QuestionNcsBindingRecord = {

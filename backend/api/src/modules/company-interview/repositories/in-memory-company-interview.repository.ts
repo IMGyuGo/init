@@ -6,6 +6,7 @@ import {
   PostingRecord,
   QuestionRecord,
   QuestionGenerationPolicyRecord,
+  NcsProfileId,
   QuestionSetRecord,
   ResumeQuestionApplicationRecord,
   ResumeQuestionRetryJobRecord,
@@ -218,6 +219,7 @@ export class InMemoryCompanyInterviewRepository
       origin: 'MANUAL',
       isAiEdited: false,
       isActive: true,
+      usageScope: 'STANDARD',
       generationSource: null,
       ncsProfileId: null,
       ncsQuestionMode: null,
@@ -239,6 +241,7 @@ export class InMemoryCompanyInterviewRepository
       origin: 'MANUAL',
       isAiEdited: false,
       isActive: true,
+      usageScope: 'STANDARD',
       generationSource: null,
       ncsProfileId: null,
       ncsQuestionMode: null,
@@ -260,6 +263,7 @@ export class InMemoryCompanyInterviewRepository
       origin: 'MANUAL',
       isAiEdited: false,
       isActive: true,
+      usageScope: 'STANDARD',
       generationSource: null,
       ncsProfileId: null,
       ncsQuestionMode: null,
@@ -281,6 +285,7 @@ export class InMemoryCompanyInterviewRepository
       origin: 'MANUAL',
       isAiEdited: false,
       isActive: true,
+      usageScope: 'STANDARD',
       generationSource: null,
       ncsProfileId: null,
       ncsQuestionMode: null,
@@ -313,6 +318,7 @@ export class InMemoryCompanyInterviewRepository
   private readonly questionGenerationProcesses = new Map<number, AiQuestionGenerationProcessRecord>();
   private readonly resumeQuestionGenerations = new Map<number, ResumeQuestionApplicationRecord>();
   private nextResumeQuestionProcessLogId = 5000;
+  private readonly configurationLockedPostings = new Set<number>();
 
   async findPosting(postingId: number): Promise<PostingRecord | undefined> {
     return this.postings.find((posting) => posting.postingId === postingId);
@@ -419,10 +425,22 @@ export class InMemoryCompanyInterviewRepository
     );
   }
 
+  async isConfigurationLocked(postingId: number): Promise<boolean> {
+    return this.configurationLockedPostings.has(postingId);
+  }
+
+  setConfigurationLocked(postingId: number, locked: boolean): void {
+    if (locked) this.configurationLockedPostings.add(postingId);
+    else this.configurationLockedPostings.delete(postingId);
+  }
+
   async replaceCriteria(
     postingId: number,
     evaluationFramework: QuestionGenerationPolicyRecord['evaluationFramework'],
     criteria: UpdateCriterionInput[],
+    options: { deactivatedProfileIds: NcsProfileId[] } = {
+      deactivatedProfileIds: [],
+    },
   ) {
     const nextCriterionIds = new Set(
       criteria
@@ -465,6 +483,36 @@ export class InMemoryCompanyInterviewRepository
         : question,
     );
 
+    if (options.deactivatedProfileIds.length > 0) {
+      this.questions = this.questions.map((question) => {
+        if (
+          question.postingId !== postingId ||
+          !question.isActive ||
+          !question.ncsBindings.some((binding) =>
+            options.deactivatedProfileIds.includes(binding.ncsProfileId),
+          )
+        ) {
+          return question;
+        }
+        if (question.ncsBindings.length === 1) {
+          return { ...question, isActive: false };
+        }
+        return {
+          ...question,
+          alignmentStatus: 'REVIEW_REQUIRED' as const,
+          ncsBindings: question.ncsBindings.map((binding) => ({
+            ...binding,
+            alignmentStatus: 'REVIEW_REQUIRED' as const,
+          })),
+        };
+      });
+      this.questionSets = this.questionSets.map((questionSet) =>
+        questionSet.postingId === postingId && questionSet.status === 'ACTIVE'
+          ? { ...questionSet, status: 'DRAFT' }
+          : questionSet,
+      );
+    }
+
     const currentPolicy = await this.getQuestionGenerationPolicy(postingId);
     const policy: QuestionGenerationPolicyRecord = {
       postingId,
@@ -478,6 +526,14 @@ export class InMemoryCompanyInterviewRepository
       ...this.questionGenerationPolicies.filter((item) => item.postingId !== postingId),
       policy,
     ];
+
+    if (evaluationFramework !== 'LEGACY') {
+      this.questionSets = this.questionSets.map((questionSet) =>
+        questionSet.postingId === postingId && questionSet.status === 'ACTIVE'
+          ? { ...questionSet, status: 'DRAFT' }
+          : questionSet,
+      );
+    }
 
     return { criteria: await this.listCriteria(postingId), policy };
   }
@@ -515,6 +571,13 @@ export class InMemoryCompanyInterviewRepository
       ...this.questionGenerationPolicies.filter((item) => item.postingId !== postingId),
       policy,
     ];
+    if (input.evaluationFramework !== 'LEGACY') {
+      this.questionSets = this.questionSets.map((questionSet) =>
+        questionSet.postingId === postingId && questionSet.status === 'ACTIVE'
+          ? { ...questionSet, status: 'DRAFT' }
+          : questionSet,
+      );
+    }
     return policy;
   }
 
@@ -529,6 +592,7 @@ export class InMemoryCompanyInterviewRepository
       origin: input.origin,
       isAiEdited: false,
       isActive: true,
+      usageScope: 'STANDARD',
       generationSource: input.generationSource,
       ncsProfileId: input.ncsProfileId,
       ncsQuestionMode: input.ncsQuestionMode,

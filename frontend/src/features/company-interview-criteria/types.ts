@@ -37,6 +37,7 @@ export type InterviewSettings = {
     ncsProfileId: NcsProfileId | null;
     ncsQuestionMode: NcsQuestionMode | null;
     ncsProfileVersion: string | null;
+    isActive: boolean;
   }>;
   questions: Array<{
     questionId: number;
@@ -46,6 +47,7 @@ export type InterviewSettings = {
     origin: QuestionOrigin;
     isAiEdited: boolean;
     isActive: boolean;
+    usageScope: "STANDARD" | "DEMO_PRESET";
     generationSource: QuestionGenerationSource | null;
     ncsProfileId: NcsProfileId | null;
     ncsQuestionMode: NcsQuestionMode | null;
@@ -73,6 +75,23 @@ export type InterviewSettings = {
   };
   evaluationFramework: EvaluationFramework;
   questionGenerationPolicy: QuestionGenerationPolicy;
+  configurationLocked: boolean;
+  configurationLockedReason: "SUBMITTED_APPLICATION_EXISTS" | null;
+  questionImpactByProfile: NcsQuestionImpact[];
+  questionSetRequiresReconfirmation: boolean;
+};
+
+export type NcsQuestionImpact = {
+  ncsProfileId: NcsProfileId;
+  exclusivelyBoundActiveQuestionCount: number;
+  multiBoundActiveQuestionCount: number;
+};
+
+export type ActiveProfileCoverage = {
+  ncsProfileId: NcsProfileId;
+  requiredBaseQuestionCount: number;
+  actualBaseQuestionCount: number;
+  covered: boolean;
 };
 
 export type QuestionGenerationAllocation = {
@@ -80,6 +99,7 @@ export type QuestionGenerationAllocation = {
   ncsProfileId: NcsProfileId;
   ncsQuestionMode: NcsQuestionMode;
   count: number;
+  usageScope: "STANDARD";
 };
 
 export type QuestionGenerationPolicy = {
@@ -92,6 +112,8 @@ export type QuestionGenerationPolicy = {
   resumeQuestionStatus?: "DISABLED" | "WAITING_APPLICATION";
   evaluationFramework?: EvaluationFramework;
   warnings?: string[];
+  activeProfileCoverage: ActiveProfileCoverage[];
+  questionSetRequiresReconfirmation: boolean;
 };
 
 export type CriterionTag = InterviewSettings["availableTags"][number];
@@ -119,6 +141,7 @@ export type UpdateEvaluationCriteriaInput = {
     passScore?: number | null;
     sortOrder: number;
   }>;
+  confirmQuestionImpact?: boolean;
 };
 
 export type EvaluationCriteriaResult = {
@@ -127,6 +150,10 @@ export type EvaluationCriteriaResult = {
   totalWeight: number;
   evaluationFramework: EvaluationFramework;
   criteriaVersion: number;
+  configurationLocked: boolean;
+  configurationLockedReason: "SUBMITTED_APPLICATION_EXISTS" | null;
+  questionImpactByProfile: NcsQuestionImpact[];
+  questionSetRequiresReconfirmation: boolean;
 };
 
 export type UpdateQuestionGenerationPolicyInput = {
@@ -240,6 +267,7 @@ export type CreateInterviewQuestionResult = {
     origin: QuestionOrigin;
     isAiEdited: boolean;
     isActive: boolean;
+    usageScope: "STANDARD" | "DEMO_PRESET";
     generationSource: QuestionGenerationSource | null;
     ncsProfileId: NcsProfileId | null;
     ncsQuestionMode: NcsQuestionMode | null;

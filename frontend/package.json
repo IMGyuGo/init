@@ -25,7 +25,7 @@
     "test:route-policy": "tsc -p src/features/auth/tsconfig.route-policy-spec.json && node .next/tests/auth-route-policy/features/auth/routePolicy.spec.js",
     "test:signup-payload": "tsc -p src/features/auth/tsconfig.spec.json && node .next/tests/auth/signup-payload.spec.js",
     "test:ai-job-polling": "tsc -p src/features/company-interview-criteria/tsconfig.spec.json && node .next/tests/company-interview-criteria/ai-job-polling.spec.js && node .next/tests/company-interview-criteria/question-set-workflow.spec.js",
-    "test:criteria-settings-sync": "tsx src/features/company-interview-criteria/interview-settings-sync.spec.ts",
+    "test:criteria-settings-sync": "tsx src/features/company-interview-criteria/interview-settings-sync.spec.ts && tsx src/features/company-interview-criteria/ncs-active-profile-settings.spec.ts",
     "test:ai-performance": "tsc -p src/features/ai-performance/tsconfig.spec.json && node .next/tests/ai-performance/client-next-step.spec.js",
     "test:apply-set-override": "tsc -p src/features/candidate-application-interview/tsconfig.apply-set-spec.json && node .next/tests/candidate-apply-set/features/candidate-application-interview/apply-set-override.spec.js",
     "test:candidate-contract": "tsx src/features/candidate-application-interview/contract.spec.ts",
