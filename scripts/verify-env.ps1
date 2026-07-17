@@ -99,7 +99,9 @@ $requiredApiSecretKeys = @(
 $requiredWorkerSecretKeys = @(
   "AI_TEXT_INPUT_USD_PER_1M_TOKENS",
   "AI_TEXT_OUTPUT_USD_PER_1M_TOKENS",
-  "AI_STT_USD_PER_MINUTE"
+  "AI_STT_USD_PER_MINUTE",
+  "WORKER_VISIBILITY_TIMEOUT_SECONDS",
+  "WORKER_VISIBILITY_HEARTBEAT_MS"
 )
 
 $apiSecretKeys = Get-TerraformSecretKeys "api"

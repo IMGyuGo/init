@@ -539,9 +539,13 @@ frontend와 worker도 같은 방식으로 넣는다.
   "WORKER_CONCURRENCY": "1",
   "WORKER_BATCH_SIZE": "1",
   "WORKER_MAX_RETRYABLE_RECEIVES": "3",
-  "WORKER_POLL_INTERVAL_MS": "1000"
+  "WORKER_POLL_INTERVAL_MS": "1000",
+  "WORKER_VISIBILITY_TIMEOUT_SECONDS": "900",
+  "WORKER_VISIBILITY_HEARTBEAT_MS": "300000"
 }
 ```
+
+`WORKER_VISIBILITY_HEARTBEAT_MS`는 `WORKER_VISIBILITY_TIMEOUT_SECONDS`보다 짧아야 한다. 운영 기본값은 15분 visibility/lease와 5분 heartbeat를 사용하며, 두 값은 `init/main/worker` secret JSON과 ECS task definition mapping에 함께 존재해야 한다.
 
 ```powershell
 aws secretsmanager put-secret-value `
