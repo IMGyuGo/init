@@ -264,8 +264,9 @@ export class PrismaAiResultRepository implements AiResultRepository {
 
     const batch = await this.prisma.applicationInterviewQuestionBatch!.findUnique({
       where: {
-        applicationId_policyVersion_criteriaVersion_jdSnapshotHash_resumeDocumentHash: {
+        applicationId_usageScope_policyVersion_criteriaVersion_jdSnapshotHash_resumeDocumentHash: {
           applicationId: BigInt(reference.applicationId),
+          usageScope: "STANDARD",
           policyVersion: reference.policyVersion,
           criteriaVersion: reference.criteriaVersion,
           jdSnapshotHash,
@@ -297,8 +298,9 @@ export class PrismaAiResultRepository implements AiResultRepository {
     await this.transaction(async (transaction) => {
       const batch = await transaction.applicationInterviewQuestionBatch!.findUnique({
         where: {
-          applicationId_policyVersion_criteriaVersion_jdSnapshotHash_resumeDocumentHash: {
+          applicationId_usageScope_policyVersion_criteriaVersion_jdSnapshotHash_resumeDocumentHash: {
             applicationId: BigInt(record.reference.applicationId),
+            usageScope: "STANDARD",
             policyVersion: record.reference.policyVersion,
             criteriaVersion: record.reference.criteriaVersion,
             jdSnapshotHash: record.reference.jdSnapshotHash,
@@ -933,6 +935,7 @@ export class PrismaAiResultRepository implements AiResultRepository {
     ].join(":"));
     const businessKey = {
       applicationId: BigInt(applicationId),
+      usageScope: "STANDARD",
       policyVersion: policy.policyVersion,
       criteriaVersion: policy.criteriaVersion,
       jdSnapshotHash,
@@ -942,6 +945,7 @@ export class PrismaAiResultRepository implements AiResultRepository {
     await transaction.applicationInterviewQuestionBatch!.updateMany({
       where: {
         applicationId: BigInt(applicationId),
+        usageScope: "STANDARD",
         status: { in: ["READY", "REVIEW_REQUIRED"] },
         NOT: businessKey,
       },
@@ -949,7 +953,7 @@ export class PrismaAiResultRepository implements AiResultRepository {
     });
 
     const existing = await transaction.applicationInterviewQuestionBatch!.findUnique({
-      where: { applicationId_policyVersion_criteriaVersion_jdSnapshotHash_resumeDocumentHash: businessKey },
+      where: { applicationId_usageScope_policyVersion_criteriaVersion_jdSnapshotHash_resumeDocumentHash: businessKey },
     });
     if (existing) {
       return [];

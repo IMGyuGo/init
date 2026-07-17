@@ -10,6 +10,8 @@
 
 이 문서는 채용면접 NCS 최종 평가의 정본 계약이다. 기존 준비 문서나 브랜치 구현이 이 문서와 다르면 이 문서를 우선한다.
 
+이 문서의 기존 공식과 `NcsReportEvaluationOutputV1`은 `NCS_3_PROFILE_V1` 정본으로 보존한다. 동적 활성 기준 `NCS_ACTIVE_PROFILE_V2`의 차이와 공식 3문항 시연 면접 경계는 [`ncs-active-profile-demo-preset-foundation.md`](./ncs-active-profile-demo-preset-foundation.md)를 따른다. V1 row나 완료 리포트를 V2로 재계산하지 않는다.
+
 ## Canonical Decisions
 
 | Topic | Contract |
@@ -235,6 +237,21 @@ score_status     SCORED | INSUFFICIENT_INPUT | LOW_ALIGNMENT | BLOCKED
 | Evaluation | STT/근거 부족/미정렬/guardrail 차단 | 해당 score status와 NULL 점수 저장, 전체 `INCOMPLETE` |
 
 잘못된 설정을 기본 가중치로 조용히 대체하거나 질문 문구에서 profile을 추측하지 않는다.
+
+## NCS_ACTIVE_PROFILE_V2 Delta
+
+V2는 V1의 답변·profile별 0~5 평가, binding 1~2, exact evidence, follow-up 보강과 threshold 80/profile 평균 3을 재사용하며 아래만 다르다.
+
+- 활성 profile은 `evaluation_criteria.weight > 0`인 canonical profile 1~3개다.
+- 세 canonical criteria row는 삭제하지 않으며 비활성 row의 weight는 0이다.
+- 활성 profile별 유효 scoring BASE 최소 문항 수는 1이다. follow-up은 문항 수에 포함하지 않는다.
+- 세션의 `interview_session_ncs_policies`에는 활성 profile만 저장하고 `required_question_count=1`을 snapshot한다.
+- 비활성 profile에는 신규 평가와 `report_scores` row를 만들지 않는다.
+- 총점은 활성 profile의 weighted score만 합산한다. weight 합계는 100이다.
+- 활성 profile 중 하나라도 평가 불가능하면 전체 결과는 `INCOMPLETE`와 NULL total이다.
+- `DEMO_PRESET`은 세 canonical profile이 모두 활성일 때만 허용하며 공통 협업 BASE, 직무+문제해결 개인화 BASE와 그 binding을 상속한 follow-up을 사용한다.
+
+V2 리포트는 기존 `ncs-report-evaluation-output-v1`을 의미 변경하여 재사용하지 않는다. producer/consumer가 active profile cardinality를 표현할 수 있는 `ncs-report-evaluation-output-v2`를 별도 계약으로 확정한 뒤 전환한다.
 
 ## Ownership And Review
 

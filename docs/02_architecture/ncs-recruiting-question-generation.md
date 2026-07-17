@@ -19,6 +19,20 @@
 5. 면접 세션 생성 시 확정 질문을 `interview_session_questions`에 복사한다. 이후 정책·평가 기준·질문 변경을 기존 세션에 소급하지 않는다.
 6. 이력서 원문과 추출 텍스트는 SQS message, 질문 결과, `ai_process_logs.output_ref`에 복제하지 않는다.
 7. NCS 정렬 임계값과 판정 로직은 E의 versioned evaluator adapter가 소유한다. C/D는 판정 결과와 버전만 저장·소비한다.
+8. `NCS_3_PROFILE_V1`은 기존 3개 profile·profile별 BASE 2개 계약으로 보존한다. 신규 `NCS_ACTIVE_PROFILE_V2`만 `weight > 0`인 profile 1~3개와 profile별 BASE 1개를 사용한다.
+9. 공식 3문항 시연 면접은 `DEMO_PRESET` session mode이며 STANDARD 개인화 질문 수와 별도인 usage-scoped batch를 사용한다.
+
+## NCS_ACTIVE_PROFILE_V2 Foundation
+
+상세 정본은 [`ncs-active-profile-demo-preset-foundation.md`](../03_contracts/ncs-active-profile-demo-preset-foundation.md)다.
+
+- canonical criteria 세 행은 유지하고 `weight=0`을 비활성 정본으로 사용한다. `is_active`를 추가하지 않는다.
+- STANDARD 질문 정책은 공통 최소 3, 개인화 최소 1이며 모든 활성 profile에 scoring BASE 최소 1개를 제공한다.
+- batch business key에 `usage_scope`를 포함해 STANDARD N개와 DEMO_PRESET 추가 1개를 분리한다.
+- DEMO_PRESET common은 확정 STANDARD ACTIVE pool의 협업 단일 binding 질문, personalized는 DEMO_PRESET READY batch의 직무+문제해결 두 binding 질문이다.
+- session은 `session_mode`, question은 `usage_scope`, 활성 profile policy/weight/version을 불변 snapshot으로 저장한다.
+- readiness는 criteria/policy/question set/document/batch/session에서 계산하며 별도 상태 table을 만들지 않는다.
+- 제출 이력이 있는 공고는 이후 application 상태와 무관하게 설정 변경을 잠근다.
 
 ## Logical Models
 
@@ -82,6 +96,7 @@ Prisma model 이름은 `ApplicationInterviewQuestionBatch`로 고정한다. 지�
 | application_id | BIGINT NOT NULL | 지원서 FK |
 | latest_process_log_id | BIGINT NOT NULL | 가장 최근 `RESUME_QUESTION_GENERATE` job FK |
 | status | VARCHAR(40) NOT NULL | `GENERATING`, `READY`, `REVIEW_REQUIRED`, `FAILED` |
+| usage_scope | QuestionUsageScope NOT NULL DEFAULT STANDARD | STANDARD N개와 DEMO_PRESET 추가 1개 batch를 분리 |
 | policy_version | INTEGER NOT NULL | 생성 당시 정책 version |
 | criteria_version | INTEGER NOT NULL | 생성 당시 평가 기준 version |
 | input_version | VARCHAR(128) NOT NULL | 원문을 노출하지 않는 입력 snapshot 식별자 |
@@ -96,8 +111,10 @@ Prisma model 이름은 `ApplicationInterviewQuestionBatch`로 고정한다. 지�
 Business unique key:
 
 ```text
-application_id + policy_version + criteria_version + jd_snapshot_hash + resume_document_hash
+application_id + usage_scope + policy_version + criteria_version + jd_snapshot_hash + resume_document_hash
 ```
+
+`usage_scope` 생략·기존 row는 STANDARD다. DEMO_PRESET은 STANDARD `resume_question_count`에 포함되지 않는 추가 1개 슬롯이며 같은 scope 안에서만 stale/retry를 계산한다.
 
 `WAITING_APPLICATION`, `WAITING_DOCUMENT`, `DISABLED`는 공고 정책·지원서·문서 상태로 계산하는 projection이며 batch row로 저장하지 않는다. 현재 입력 version/hash와 다른 기존 `READY` 또는 `REVIEW_REQUIRED` batch는 `STALE`로 전환하고 세션 생성에서 제외한다.
 
@@ -112,6 +129,7 @@ Prisma model 이름은 `ApplicationInterviewQuestion`으로 고정한다. 이 ta
 | criterion_id | BIGINT | 공고 평가 기준 FK; 삭제 시 NULL 허용 |
 | criterion_title_snapshot | VARCHAR(200) NOT NULL | 기준 삭제 후에도 남는 표시/평가 snapshot |
 | source | VARCHAR(50) NOT NULL DEFAULT 'RESUME_PERSONALIZED' | 질문 생성 출처 |
+| usage_scope | QuestionUsageScope NOT NULL DEFAULT STANDARD | 개인화 질문의 생성 목적. 기존 row는 STANDARD |
 | question_type | VARCHAR(50) NOT NULL | 런타임 질문 유형 |
 | content | TEXT NOT NULL | 최소 경험 맥락만 포함한 질문 본문 |
 | ncs_profile_id | VARCHAR(50) NOT NULL | profile snapshot |
@@ -150,6 +168,7 @@ Prisma model 이름은 `ApplicationInterviewQuestion`으로 고정한다. 이 ta
 | evaluator_version | VARCHAR(80) NULL | 확정 당시 adapter version |
 | policy_version | INTEGER NULL | 세션 생성 당시 정책 version |
 | criteria_version | INTEGER NULL | 세션 생성 당시 기준 version |
+| usage_scope | QuestionUsageScope NOT NULL DEFAULT STANDARD | session에서 소비한 목적. DEMO_PRESET의 세 질문은 모두 DEMO_PRESET |
 
 NCS 세션은 `interview_sessions`에 준비 시간, 답변 시간, 재시도 허용 여부, scoring version을 함께 고정한다. 기존 snapshot 재사용 시에도 질문·binding·version·시간·profile policy를 전부 검증하며, 미시작·무답변 상태의 불완전 snapshot만 같은 transaction에서 전량 재생성한다.
 

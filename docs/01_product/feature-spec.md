@@ -112,11 +112,14 @@ init v0.5의 화면/기능 정의를 구현 단위로 정리한다.
 | 면접 관리 화면 | /company/interviews/settings | page | 면접 관리 | 면접 설정 관리 | 채용 공고, 평가 기준, 질문 세트, 시간 정책 | 면접 관리 화면 표시 | GET /company/interviews/settings | v1.0 | 기존 SNB 삭제. 2-depth는 GNB hover dropdown으로 노출 |
 | 면접 관리 화면 | /company/interviews/settings | section | AI 평가 역량 제안 | legacy AI 평가 역량 태그 추천 | JD, 인재상, 평가 템플릿 | 평가 역량 후보 표시 | POST /company/interviews/evaluation-criteria/suggest | v1.0 | NCS_3_PROFILE_V1에서는 호출하지 않음 |
 | 면접 관리 화면 | /company/interviews/settings | form | NCS 평가 기준 설정 | 문제해결·의사소통·디지털 3개 기준의 배점과 순서 편집 | 평가 체계, 배점, 기준 점수, 순서 | NCS profile binding과 criteria version을 포함해 저장 | PATCH /company/interviews/evaluation-criteria | NQ-M1 | profile 추가·삭제·임의 변경은 불가 |
+| 면접 관리 화면 | /company/interviews/settings | form | 동적 NCS 평가 기준 설정 | canonical 3개 기준 중 weight가 1 이상인 기준만 활성화하고 배점 합계 100을 유지 | 평가 체계, 기준별 배점, 질문 영향 확인 | 활성 기준·criteria version과 질문 영향 projection을 포함해 저장 | PATCH /company/interviews/evaluation-criteria | NCS-V2 | `NCS_ACTIVE_PROFILE_V2` 전용. 제출 이력이 생기면 설정 잠금 |
 | 면접 관리 화면 | /company/interviews/settings | form | 질문 생성 정책 | JD 공통 질문 수와 이력서 개인화 질문 수 설정 | 공고 ID, 출처별 질문 수, 정책 version | NCS profile별 allocation과 새 version 표시 | PATCH /company/interviews/question-generation-policy | NQ-M1 | 합계 1~20, NCS는 합계 3 이상 |
+| 면접 관리 화면 | /company/interviews/settings | section | 공식 3문항 데모 준비 상태 | 활성 기준·질문·지원자 문서·공식 세션 상태를 종합해 데모 진입 가능 여부 표시 | 공고 ID, 지원자 ID | READY 또는 차단 사유와 해결 안내 표시 | GET /candidate/applications/{applicationId}/interview-guide | NCS-V2 | 별도 상태 테이블 없이 현재 설정과 질문 snapshot에서 계산 |
 | 면접 관리 화면 | /company/interviews/settings | section | 질문 뱅크 관리 | 질문 등록/연결 | 질문 내용, 질문 유형, 평가 역량 | 질문 저장 및 공고 연결 | POST /company/interviews/questions | v1.0 | 질문 저장 버튼은 질문 뱅크 관리 영역 우측 상단 배치 |
 | 면접 관리 화면 | /company/interviews/settings | system process | JD 공통 질문 생성 | 저장된 JD와 NCS 평가 기준 기반 공통 질문 생성 | 공고 ID, JD 질문 수, 정책 version | 정렬 결과가 포함된 공통 질문 후보 표시 | POST /company/interviews/questions/generate | NQ-M2 | 이력서 질문은 이 API에서 만들지 않음 |
 | 면접 관리 화면 | /company/interviews/settings | system process | 채용 면접 질문 구성 | 면접 질문 목록 구성 | 질문 유형, 질문 수, 평가 역량 | 면접 질문 목록 생성 및 세션 연결 가능 상태 전환 | POST /company/interviews/question-sets | v1.0 | 질문 뱅크 관리 화면에서 결과 확인 |
 | 면접 관리 화면 | /company/interviews/settings | form | 면접 시간 설정 | 면접 시간 정책 설정 | 준비 시간, 답변 시간, 재응시 허용 여부 | 면접 설정 저장 | PATCH /company/interviews/time-policy | v1.0 | 설정 저장 버튼은 면접 시간 설정 영역 우측 상단 배치 |
+| 지원현황 화면 | /candidate/applications | button | 공식 3문항 데모 시작 | 공통 1개, 개인화 1개, 개인화 꼬리질문 1개로 구성된 공식 채용 면접 시작 | 지원 ID, sessionMode=DEMO_PRESET | 동일 mode 재호출 시 기존 세션 재개, 다른 mode면 충돌 안내 | POST /candidate/applications/{applicationId}/interview/start | NCS-V2 | readiness가 READY일 때만 노출·활성화하며 서버가 질문을 선택 |
 
 ## 회사 정보 관리 (GNB button)
 

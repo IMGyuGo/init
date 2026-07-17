@@ -78,6 +78,16 @@ enum InterviewType {
   RECRUITING
 }
 
+enum InterviewSessionMode {
+  STANDARD
+  DEMO_PRESET
+}
+
+enum QuestionUsageScope {
+  STANDARD
+  DEMO_PRESET
+}
+
 enum ReportType {
   MOCK_INTERVIEW_REPORT
   RECRUITING_REPORT
@@ -472,6 +482,7 @@ model Question {
   origin             QuestionOrigin             @default(MANUAL)
   isAiEdited         Boolean                    @default(false) @map("is_ai_edited")
   isActive           Boolean                    @default(true) @map("is_active")
+  usageScope         QuestionUsageScope         @default(STANDARD) @map("usage_scope")
   generationSource   String?                    @map("generation_source") @db.VarChar(50)
   ncsProfileId       String?                    @map("ncs_profile_id") @db.VarChar(50)
   ncsQuestionMode    String?                    @map("ncs_question_mode") @db.VarChar(50)
@@ -491,6 +502,7 @@ model Question {
   ncsBindings        QuestionNcsBinding[]
 
   @@index([sourceProcessLogId], map: "idx_question_bank_source_process_log")
+  @@index([postingId, usageScope, isActive], map: "idx_question_bank_posting_usage_active")
   @@map("question_bank")
 }
 
@@ -555,6 +567,7 @@ model ApplicationInterviewQuestionBatch {
   applicationId      BigInt                         @map("application_id")
   latestProcessLogId BigInt                         @map("latest_process_log_id")
   status             String                         @db.VarChar(40)
+  usageScope         QuestionUsageScope             @default(STANDARD) @map("usage_scope")
   policyVersion      Int                            @map("policy_version")
   criteriaVersion    Int                            @map("criteria_version")
   inputVersion       String                         @map("input_version") @db.VarChar(128)
@@ -569,8 +582,9 @@ model ApplicationInterviewQuestionBatch {
   latestProcessLog   AiProcessLog                   @relation("LatestResumeQuestionProcess", fields: [latestProcessLogId], references: [processLogId], onDelete: Restrict)
   questions          ApplicationInterviewQuestion[]
 
-  @@unique([applicationId, policyVersion, criteriaVersion, jdSnapshotHash, resumeDocumentHash], map: "uq_application_interview_question_batches_business")
+  @@unique([applicationId, usageScope, policyVersion, criteriaVersion, jdSnapshotHash, resumeDocumentHash], map: "uq_application_interview_question_batches_business")
   @@index([applicationId, status], map: "idx_application_interview_question_batches_status")
+  @@index([applicationId, usageScope, status], map: "idx_application_interview_question_batches_usage_status")
   @@index([latestProcessLogId], map: "idx_application_interview_question_batches_process")
   @@map("application_interview_question_batches")
 }
@@ -582,6 +596,7 @@ model ApplicationInterviewQuestion {
   sourceProcessLogId     BigInt                            @map("source_process_log_id")
   criterionTitleSnapshot String                            @map("criterion_title_snapshot") @db.VarChar(200)
   source                 String                            @default("RESUME_PERSONALIZED") @db.VarChar(50)
+  usageScope             QuestionUsageScope                @default(STANDARD) @map("usage_scope")
   questionType           QuestionType                      @map("question_type")
   content                String
   ncsProfileId           String                            @map("ncs_profile_id") @db.VarChar(50)
@@ -672,6 +687,7 @@ model InterviewSession {
   applicationId              BigInt?                            @map("application_id")
   candidateId                BigInt                             @map("candidate_id")
   interviewType              InterviewType                      @map("interview_type")
+  sessionMode                InterviewSessionMode               @default(STANDARD) @map("session_mode")
   title                      String?                            @db.VarChar(100)
   status                     InterviewStatus                    @default(NOT_READY)
   showQuestionText           Boolean                            @default(false) @map("show_question_text")
@@ -693,6 +709,7 @@ model InterviewSession {
   mockPassUsages             CandidateMockInterviewPassLedger[]
 
   @@index([candidateId, interviewType, deletedAt], map: "idx_interview_sessions_candidate_type_deleted")
+  @@index([applicationId, interviewType, sessionMode, deletedAt], map: "idx_interview_sessions_application_mode_deleted")
   @@map("interview_sessions")
 }
 
@@ -733,6 +750,7 @@ model InterviewSessionQuestion {
   evaluatorVersion       String?                       @map("evaluator_version") @db.VarChar(80)
   policyVersion          Int?                          @map("policy_version")
   criteriaVersion        Int?                          @map("criteria_version")
+  usageScope             QuestionUsageScope            @default(STANDARD) @map("usage_scope")
   sortOrder              Int                           @map("sort_order")
   createdAt              DateTime                      @default(now()) @map("created_at")
   session                InterviewSession              @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)

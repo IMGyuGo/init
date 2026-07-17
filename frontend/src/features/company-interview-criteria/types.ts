@@ -2,7 +2,7 @@ export type PostingStatus = "DRAFT" | "OPEN" | "CLOSING_SOON" | "CLOSED" | "ARCH
 
 export type QuestionType = "INTRO" | "TECHNICAL" | "EXPERIENCE" | "SITUATION" | "FOLLOW_UP" | "CLOSING";
 export type QuestionOrigin = "MANUAL" | "AI_GENERATED";
-export type EvaluationFramework = "LEGACY" | "NCS_3_PROFILE_V1";
+export type EvaluationFramework = "LEGACY" | "NCS_3_PROFILE_V1" | "NCS_ACTIVE_PROFILE_V2";
 export type NcsProfileId = "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
 export type NcsQuestionMode = "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
 export type QuestionGenerationSource = "JD_CRITERIA" | "RESUME_PERSONALIZED";

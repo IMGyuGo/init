@@ -1543,15 +1543,19 @@ AI 리포트 금지 기준:
 - 요청 데이터:
   - Request DTO: `CreateCompanyInterviewSessionDto`
   - `applicationId: number`
+  - `mode?: InterviewSessionMode`, 기존 client 호환 기본값 `STANDARD`
 - 검증/전제조건:
   - 지원서와 공고가 로그인 기업 소유
   - NCS 공고는 ACTIVE 질문 세트의 `JD_CRITERIA + ALIGNED` 질문 수가 `jdCriteriaQuestionCount`와 동일
   - 공고의 `resumeQuestionCount`가 1 이상이면 해당 지원서의 `resumeQuestionStatus=READY`여야 한다.
-  - 공통·개인화 질문을 합성한 뒤 canonical NCS profile별 scoring base question이 최소 2개여야 한다.
+  - 공통·개인화 질문을 합성한 뒤 V1은 canonical profile별 scoring BASE 2개, V2 STANDARD는 활성 profile별 BASE 1개여야 한다.
+  - `DEMO_PRESET`은 canonical profile 3개가 모두 활성이고 협업 단일 binding 공통 후보와 직무+문제해결 개인화 후보가 준비돼야 한다.
+  - 같은 application의 삭제되지 않은 공식 session이 있으면 같은 mode는 기존 session을 반환하고 다른 mode는 `INTERVIEW_SESSION_MODE_CONFLICT`다.
 - 성공 응답/처리:
   - Response envelope: `{ data, meta }`
   - `data.applicationId: number`
   - `data.sessionId: number`
+  - `data.sessionMode: InterviewSessionMode`
   - `data.snapshotCreated: boolean`
   - `data.commonQuestionCount: number`
   - `data.personalizedQuestionCount: number`
@@ -1565,7 +1569,7 @@ AI 리포트 금지 기준:
   - 기간 오류, 질문 없음, 세션 생성 실패 시 초대 발송을 제한한다.
   - 이력서 질문이 준비되지 않았으면 `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`를 반환하고 공통 질문만으로 자동 대체하지 않는다.
   - ACTIVE 공통 질문 수 또는 정렬 상태가 정책과 다르면 `INTERVIEW_QUESTION_COUNT_INVALID`를 반환한다.
-  - profile별 scoring base question이 2개 미만이면 `INTERVIEW_NCS_QUESTION_COVERAGE_INVALID`를 반환한다.
+  - V1 profile별 scoring BASE 2개 또는 V2 활성 profile별 BASE 1개가 충족되지 않으면 `INTERVIEW_NCS_QUESTION_COVERAGE_INVALID`를 반환한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, question_bank, applications, interview_sessions, notifications, ai_process_logs
 - 비고/미결:
@@ -1617,6 +1621,7 @@ AI 리포트 금지 기준:
     - `ncsProfileId: NcsProfileId | null`
     - `ncsQuestionMode: NcsQuestionMode | null`
     - `ncsProfileVersion: string | null`
+    - `isActive: boolean`, V2에서 `weight > 0`으로 파생하며 request 정본이 아님
   - `data.questions[]`
     - `questionId: number`
     - `criterionId: number | null`
@@ -1630,6 +1635,7 @@ AI 리포트 금지 기준:
     - `ncsQuestionMode: NcsQuestionMode | null`
     - `ncsProfileVersion: string | null`
     - `alignmentStatus: QuestionAlignmentStatus | null`
+    - `usageScope: QuestionUsageScope`
   - `data.timePolicy`
     - `preparationTimeSec: number`
     - `answerTimeSec: number`
@@ -1643,6 +1649,11 @@ AI 리포트 금지 기준:
     - `criteriaVersion: number`
     - `allocations[]: { source: QuestionGenerationSource, ncsProfileId: NcsProfileId, ncsQuestionMode: NcsQuestionMode, count: number }`
     - `resumeQuestionStatus: ResumeQuestionGenerationStatus`
+    - `activeProfileCoverage[]: { ncsProfileId, requiredBaseQuestionCount, actualBaseQuestionCount, covered }`
+    - `questionSetRequiresReconfirmation: boolean`
+  - `data.configurationLocked: boolean`
+  - `data.configurationLockedReason: "SUBMITTED_APPLICATION_EXISTS" | null`
+  - `data.questionImpactByProfile[]: { ncsProfileId, exclusivelyBoundActiveQuestionCount, multiBoundActiveQuestionCount }`
 - Default Projection:
   - 정책 row가 아직 없으면 `evaluationFramework=LEGACY`, 두 질문 수와 version은 모두 0, `allocations=[]`로 응답한다.
   - posting 범위 설정 조회의 `resumeQuestionStatus`는 지원자별 상태를 집계하지 않는다. `resumeQuestionCount=0`이면 `DISABLED`, 1 이상이면 `WAITING_APPLICATION`을 반환한다.
@@ -1659,7 +1670,7 @@ AI 리포트 금지 기준:
   - `timePolicy`는 공고별 1:1 설정으로 `interview_time_policies`에 저장한다.
   - `evaluationFramework=NCS_3_PROFILE_V1`이면 criteria는 `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING`을 각각 한 번 포함한다.
   - NCS evaluator가 아직 연결되지 않은 환경에서도 binding 필드는 nullable로 응답하되 기존 LEGACY 설정 조회를 깨지 않는다.
-  - 신규 면접 설정 화면은 `NCS_3_PROFILE_V1`만 제공한다. 기존 `LEGACY` 데이터는 조회 호환하되 설정 저장 시 고정 NCS 3개 기준으로 전환한다.
+  - 신규 동적 설정은 `NCS_ACTIVE_PROFILE_V2`를 사용한다. `LEGACY`와 `NCS_3_PROFILE_V1` 데이터·세션·리포트는 조회 호환하며 V2로 자동 변환하지 않는다.
 
 ### API-035 POST /company/interviews/evaluation-criteria/suggest
 - 상태: 폐기
@@ -1691,6 +1702,7 @@ AI 리포트 금지 기준:
   - `criteria[].weight: number`
   - `criteria[].passScore?: number | null`
   - `criteria[].sortOrder: number`
+  - `confirmQuestionImpact?: boolean`, 연결 질문이 있는 profile을 `weight=0`으로 바꿀 때 필수
 - 검증/전제조건:
   - 총 배점 합계가 정책 범위 내여야 함
   - `postingId`는 로그인 기업 소유 공고여야 함
@@ -1702,11 +1714,13 @@ AI 리포트 금지 기준:
   - `description`을 생략하면 기존 기준 설명을 유지하며, 신규 기준이면 태그 기본 설명을 사용한다.
   - `evaluationFramework=LEGACY`이면 현재 동작을 유지해 빈 criteria를 허용하고, 1개 이상이면 `weight` 합계가 1~100이어야 한다.
   - `evaluationFramework=NCS_3_PROFILE_V1`이면 criteria는 정확히 3개이며 각 tag는 서버의 NCS binding 기준으로 `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING`에 하나씩 연결되어야 한다.
+  - `evaluationFramework=NCS_ACTIVE_PROFILE_V2`도 canonical criteria 세 행을 유지하며 `weight > 0`인 profile 1~3개를 활성으로 본다. `weight` 합계는 100이다.
+  - 해당 공고에 `submitted_at IS NOT NULL OR application_status <> DRAFT`인 application이 하나라도 있으면 `INTERVIEW_CONFIGURATION_LOCKED`로 전체 설정 mutation을 차단한다.
   - NCS profile과 기본 question mode는 서버가 tag binding에서 결정하며 클라이언트 입력으로 임의 변경하지 않는다.
   - NCS 3개 기준의 `weight`는 0 이상의 정수이며 합계는 정확히 100이어야 한다. 잘못된 값을 30/30/40으로 자동 대체하지 않는다.
 - 성공 응답/처리:
   - 평가 기준 저장
-  - 요청에서 제외된 기존 평가 기준은 삭제한다.
+  - LEGACY에서 요청에서 제외된 기존 평가 기준은 삭제한다. V1/V2 canonical 기준 사용 해제는 행 삭제가 아니라 V2의 `weight=0`으로 저장한다.
   - 삭제되는 평가 기준에 연결된 활성 질문은 `isActive=false`로 비활성화하고 질문 목록에서 제외한다.
   - Response envelope: `{ data, meta }`
   - `data.postingId: number`
@@ -1725,6 +1739,8 @@ AI 리포트 금지 기준:
   - `data.totalWeight: number`
   - `data.evaluationFramework: EvaluationFramework`
   - `data.criteriaVersion: number`, 평가 기준 저장 성공 시 1 증가한다.
+  - `data.criteria[].isActive`, `data.configurationLocked`, `data.configurationLockedReason`, `data.questionImpactByProfile[]`, `data.questionSetRequiresReconfirmation`을 API-034와 같은 shape로 반환한다.
+  - V2 profile 해제 시 단일 binding 질문은 `isActive=false`, multi-binding 질문은 `REVIEW_REQUIRED`로 보존하고 ACTIVE 질문 세트를 재확정 대상으로 만든다.
   - 정책 row가 없으면 같은 transaction에서 기본 정책 row를 생성하고 첫 저장 결과의 `criteriaVersion=1`로 응답한다.
   - 평가 기준 변경과 `criteriaVersion` 증가는 하나의 transaction으로 처리한다.
   - `criteriaVersion`이 변경되고 개인화 질문 수가 1개 이상이면, 이미 지원 완료됐고 이력서 추출이 끝난 지원자의 현재 입력 snapshot을 기준으로 `RESUME_QUESTION_GENERATE` 작업을 자동 등록한다.
@@ -1972,7 +1988,7 @@ AI 리포트 금지 기준:
   - `NCS_3_PROFILE_V1`에서는 `items` 개수가 API-097의 `jdCriteriaQuestionCount`와 같아야 한다.
   - `NCS_3_PROFILE_V1` 질문은 `generationSource=JD_CRITERIA`, `alignmentStatus=ALIGNED`, question mode, profile version, evaluator version을 모두 가져야 한다.
   - NCS 질문 하나에는 1~2개의 binding이 있어야 한다. 모든 binding은 서로 다른 canonical profile `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING` 중 하나이며 `alignmentStatus=ALIGNED`, profile version, evaluator version을 가져야 한다.
-  - NCS 질문 세트 전체에서 canonical profile별 binding이 최소 2개여야 한다. C API는 alignment score 임계값을 다시 판정하지 않고 E adapter가 저장한 상태와 version만 검증한다.
+  - NCS 질문 세트 전체에서 V1은 canonical profile별 binding 최소 2개, V2는 활성 profile별 binding 최소 1개여야 한다. C API는 alignment score 임계값을 다시 판정하지 않고 E adapter가 저장한 상태와 version만 검증한다.
 - 성공 응답/처리:
   - 같은 공고의 기존 `ACTIVE` 질문 세트는 `DRAFT`로 변경한다.
   - 새 질문 세트를 `ACTIVE` 상태로 저장한다.
@@ -2079,11 +2095,14 @@ AI 리포트 금지 기준:
   - `postingId`는 로그인 기업 소유 공고여야 한다.
   - 두 질문 수의 합은 1~20이어야 한다.
   - `evaluationFramework=NCS_3_PROFILE_V1`이면 전체 질문 수는 3 이상이고 평가 기준은 NCS 3개 profile에 정확히 하나씩 연결되어 있어야 한다.
+  - `evaluationFramework=NCS_ACTIVE_PROFILE_V2`이면 `jdCriteriaQuestionCount >= 3`, `resumeQuestionCount >= 1`이고 활성 profile별 STANDARD scoring BASE coverage가 최소 1이어야 한다.
+  - 이 API의 두 count는 `usageScope=STANDARD`만 나타낸다. DEMO_PRESET 개인화 추가 1개는 포함하지 않는다.
+  - 제출 이력 잠금 predicate를 충족하면 `INTERVIEW_CONFIGURATION_LOCKED`를 반환한다.
   - 동시 수정 충돌 방지를 위해 `expectedPolicyVersion` 불일치 시 `COMMON_CONFLICT`를 반환한다.
   - 정책 row가 없으면 현재 version은 0으로 본다. 최초 저장은 `expectedPolicyVersion=0` 또는 생략을 허용하고 결과 version은 1이다.
 - Processing:
   - 질문 수 또는 평가 framework가 실제로 변경된 경우에만 `policyVersion`을 1 증가시킨다. 현재 값과 동일한 멱등 요청은 기존 version을 그대로 반환한다.
-  - 전체 질문 수만큼 평가 기준 `sortOrder` 순환 배열을 만든다. 예: 총 6개면 `1,2,3,1,2,3`이다.
+  - V1은 전체 질문 수만큼 세 평가 기준 `sortOrder` 순환 배열을 만든다. V2는 `weight > 0`인 평가 기준만 `sortOrder`로 순환하며 V1 allocation을 변경하지 않는다.
   - 순환 배열의 앞 `jdCriteriaQuestionCount`개를 `JD_CRITERIA`, 나머지를 `RESUME_PERSONALIZED`에 배정한다.
   - 두 source를 합친 profile별 질문 수 차이는 최대 1이며, source별 요청 개수는 정확히 보존한다. 동일 입력과 version은 항상 같은 allocation을 만든다.
   - 실제 정책 변경으로 새 `policyVersion`이 생성되고 `resumeQuestionCount > 0`이면, 이미 지원 완료됐고 이력서 추출이 끝난 지원자의 현재 입력 snapshot을 기준으로 `RESUME_QUESTION_GENERATE` 작업을 자동 등록한다.
@@ -2111,11 +2130,14 @@ Allocation Examples:
     - `ncsProfileId: NcsProfileId`
     - `ncsQuestionMode: NcsQuestionMode`
     - `count: number`
+    - `usageScope: "STANDARD"`
+  - `activeProfileCoverage[]: { ncsProfileId, requiredBaseQuestionCount, actualBaseQuestionCount, covered }`
+  - `questionSetRequiresReconfirmation: boolean`
   - `warnings: string[]`
     - 개인화 질문 자동 재생성 queue를 등록하지 못한 지원자가 있으면 원문이나 지원자 개인정보 없이 실패 건수를 제공한다.
 - Error Codes:
   - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_CONFLICT`, `COMMON_VALIDATION_FAILED`
-  - `INTERVIEW_QUESTION_COUNT_INVALID`, `INTERVIEW_NCS_BINDING_INVALID`
+  - `INTERVIEW_QUESTION_COUNT_INVALID`, `INTERVIEW_NCS_ACTIVE_PROFILE_INVALID`, `INTERVIEW_NCS_BINDING_INVALID`, `INTERVIEW_NCS_QUESTION_COVERAGE_INVALID`, `INTERVIEW_CONFIGURATION_LOCKED`
 - 관련 ERD 테이블:
   - postings, evaluation_criteria, interview_question_generation_policies
 
@@ -2138,6 +2160,7 @@ Allocation Examples:
   - `processLogId: number | null`
   - `policyVersion: number`
   - `criteriaVersion: number`
+  - `usageScope: QuestionUsageScope`, query 생략 시 `STANDARD`
   - `inputVersion: string | null`, 원문을 노출하지 않는 입력 snapshot 식별자
   - `items[]`
     - `personalizedQuestionId: number`
@@ -2153,6 +2176,7 @@ Allocation Examples:
     - `alignmentReason: string | null`
     - `evaluatorVersion: string | null`
     - `sortOrder: number`
+    - `usageScope: QuestionUsageScope`
 - Processing:
   - 이력서 원문·추출 텍스트는 응답하지 않는다.
   - `READY` 또는 `REVIEW_REQUIRED`일 때 검토 가능한 `items`를 반환한다. 그 외 상태는 `items=[]`와 현재 상태, 추적 가능한 `processLogId`만 제공한다.
@@ -2176,18 +2200,21 @@ Allocation Examples:
 - Request Body:
   - `expectedPolicyVersion?: number`
   - `reason?: string`, 500자 이하의 운영 메모
+  - `usageScope?: QuestionUsageScope`, 생략 시 `STANDARD`
 - Validation:
   - 지원서와 공고가 로그인 기업 소유여야 한다.
   - 현재 상태가 `FAILED`, `REVIEW_REQUIRED`, `STALE` 중 하나이거나, 이력서 추출은 완료됐지만 현재 입력 version의 batch가 없는 `WAITING_DOCUMENT` 복구 상태여야 한다.
   - 이력서 문서 추출 상태가 `EXTRACTED`여야 한다.
 - Processing:
-  - 현재 `policyVersion`, `criteriaVersion`, 이력서 입력 snapshot으로 `RESUME_QUESTION_GENERATE` job을 생성한다.
+  - 현재 `policyVersion`, `criteriaVersion`, 이력서 입력 snapshot과 `usageScope`로 `RESUME_QUESTION_GENERATE` job을 생성한다.
+  - 동일 business key와 stale/retry 판정은 같은 usage scope 안에서만 수행한다.
   - 동일 input version의 `PENDING` 또는 `RUNNING` job이 있으면 새 job을 만들지 않고 기존 추적 ID를 반환한다.
 - Response Body:
   - `processLogId: number`
   - `status: "PENDING" | "RUNNING"`
   - `resumeQuestionStatus: "GENERATING"`
   - `queued: boolean`
+  - `usageScope: QuestionUsageScope`
 - Error Codes:
   - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_CONFLICT`, `COMMON_VALIDATION_FAILED`
   - `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`, `AI_PROCESS_FAILED`
@@ -2250,7 +2277,7 @@ Allocation Examples:
   - `INSUFFICIENT_INPUT`, `LOW_ALIGNMENT`, `BLOCKED`는 점수가 모두 NULL이며 0점 또는 평균 분모로 환산하지 않는다.
   - `report_scores`의 NCS 점수는 profile별 유효 0~5점 평균이고, `evaluation_criteria.weight`는 최종 100점 계산에만 사용한다.
   - 공통 질문과 이력서 개인화 질문을 같은 scoring 대상으로 포함한다.
-  - profile별 유효 base question은 최소 2개여야 한다.
+  - V1은 profile별 유효 BASE 최소 2개, V2는 세션 policy snapshot의 활성 profile별 BASE 최소 1개여야 한다.
   - 꼬리답변은 base와 구분된 segment로 전달하고 `effectiveScore=max(baseScore, combinedScore)`를 적용한다.
 - 오류/예외:
   - 답변 원문이 없거나 너무 짧으면 `INSUFFICIENT_INPUT`으로 저장한다.
@@ -3116,6 +3143,7 @@ CandidateFolder 입력 제한:
   - 각 항목은 영속 지원 상태와 별도로 `availabilityStatus`를 반환한다. 정상 항목은 `AVAILABLE`이며, 연결된 공고 또는 면접 세션을 찾지 못한 항목은 `UNAVAILABLE`이다.
   - `UNAVAILABLE` 항목은 `unavailableReason`으로 `POSTING_NOT_FOUND` 또는 `INTERVIEW_SESSION_NOT_FOUND`를 반환하고, 누락된 연결 정보 필드는 `null`로 반환한다.
   - `UNAVAILABLE` 항목은 면접 및 리포트 진입을 허용하지 않으며, 화면에서는 "더 이상 조회할 수 없는 지원입니다."로 표시한다.
+  - 각 item에 `sessionMode: InterviewSessionMode | null`과 `demoPreset: { status, canStart, reasonCode, existingSessionId, existingSessionMode }` readiness projection을 반환한다.
 - 오류/예외:
   - 지원 내역이 없으면 채용공고 탐색 CTA를 표시한다.
   - 일부 지원 항목의 공고 또는 면접 세션 연결 정보가 없어도 목록 전체를 404로 반환하지 않는다.
@@ -3197,6 +3225,8 @@ CandidateFolder 입력 제한:
   - interviewWindowStartsAt, interviewWindowEndsAt
   - method, requiredPreparations, requiredConsentTypes
   - consentCompleted, deviceCheckCompleted, canStart
+  - `sessionMode: InterviewSessionMode | null`
+  - `demoPreset: { status: DemoPresetReadinessStatus, canStart, reasonCode, existingSessionId, existingSessionMode }`
 - 검증/전제조건:
   - 면접 세션 활성 상태
 - 성공 응답/처리:
@@ -3239,21 +3269,25 @@ CandidateFolder 입력 제한:
 - Path Params: applicationId
 - 요청 데이터:
   - 지원 ID, 면접 세션 ID, 동의 상태, 장치 점검 결과
+  - `mode?: InterviewSessionMode`, 생략 시 `STANDARD`
 - 검증/전제조건:
   - 응시 기간 내, 필수 동의 완료, 장치 점검 완료
   - 공고의 `resumeQuestionCount`가 1 이상이면 지원서별 이력서 질문 상태가 `READY`이고 세션 질문 snapshot이 생성되어 있어야 한다.
   - snapshot이 없으면 API-017과 동일한 transaction으로 생성한다.
-  - 기존 NCS snapshot도 generation source, 질문별 canonical 1~2 ALIGNED binding, profile별 최소 2문항, policy/criteria/profile version, 준비·답변·재시도 시간 정책, NCS 가중치 합계 100, canonical session policy 3행을 모두 재검증한다.
+  - 기존 NCS snapshot도 generation source, 질문별 canonical 1~2 ALIGNED binding, framework별 coverage(V1=각 2, V2=활성 각 1), policy/criteria/profile version, 준비·답변·재시도 시간 정책과 NCS 가중치 합계 100을 재검증한다.
   - 미시작·무답변 세션의 불완전 snapshot은 같은 transaction에서 기존 질문·binding·session policy를 전량 제거한 뒤 재생성한다. 일부 row만 남기는 partial snapshot은 허용하지 않는다.
   - `IN_PROGRESS`, `COMPLETED` 또는 답변이 존재하는 세션의 불완전 snapshot은 변경하지 않는다.
-  - 세션 snapshot의 canonical NCS profile별 scoring base question이 최소 2개여야 한다.
+  - `DEMO_PRESET`은 canonical 3개가 모두 활성이고 eligible 공통 1개와 DEMO_PRESET 개인화 1개가 준비돼야 하며 서버가 선택해 최초 snapshot에 고정한다.
+  - 같은 mode 재호출은 기존 session을 resume하고 다른 mode는 `INTERVIEW_SESSION_MODE_CONFLICT`로 차단한다.
 - 성공 응답/처리:
   - 채용 AI 면접 진행 화면으로 이동
+  - `sessionMode`, `snapshotCreated`와 질문별 `usageScope`를 반환한다.
 - 오류/예외:
   - 세션 만료, 동의 누락, 장치 권한 오류 시 시작을 제한한다.
   - 이력서 질문이 준비되지 않았으면 `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`를 반환하며 공통 질문만으로 자동 시작하지 않는다.
   - ACTIVE 공통 질문 수 또는 정렬 상태가 정책과 다르면 `INTERVIEW_QUESTION_COUNT_INVALID`를 반환한다.
-  - profile별 scoring base question이 2개 미만이면 `INTERVIEW_NCS_QUESTION_COVERAGE_INVALID`를 반환한다.
+  - framework별 scoring BASE coverage를 충족하지 못하면 `INTERVIEW_NCS_QUESTION_COVERAGE_INVALID`를 반환한다.
+  - demo readiness 미완료/후보 부족은 각각 `INTERVIEW_DEMO_PRESET_NOT_READY`, `INTERVIEW_DEMO_PRESET_QUESTION_POOL_INSUFFICIENT`를 반환한다.
   - 진행·완료 또는 답변이 존재하는 세션의 기존 NCS snapshot 계약이 불완전하면 `INTERVIEW_NCS_SNAPSHOT_INVALID`를 반환한다.
 - 관련 ERD 테이블:
   - candidate_profiles, postings, applications, consent_records, interview_sessions, ai_process_logs

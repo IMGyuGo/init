@@ -1,3 +1,9 @@
+import {
+  type EvaluationFramework as SharedEvaluationFramework,
+  type NcsProfileId as SharedNcsProfileId,
+  type NcsQuestionMode as SharedNcsQuestionMode,
+} from '@init/common';
+
 export type PostingStatus =
   | 'DRAFT'
   | 'OPEN'
@@ -31,20 +37,13 @@ export const QUESTION_ORIGINS: QuestionOrigin[] = [
 
 export type AiProcessStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 
-export type EvaluationFramework = 'LEGACY' | 'NCS_3_PROFILE_V1';
-export const EVALUATION_FRAMEWORKS: EvaluationFramework[] = [
-  'LEGACY',
-  'NCS_3_PROFILE_V1',
-];
+export type EvaluationFramework = SharedEvaluationFramework;
+// WT2 adds V2 to this request allow-list together with the V2 mutation rules.
+// Keeping the current runtime gate fail-closed prevents V2 from falling through LEGACY logic.
+export const EVALUATION_FRAMEWORKS: EvaluationFramework[] = ['LEGACY', 'NCS_3_PROFILE_V1'];
 
-export type NcsProfileId =
-  | 'JOB_TECHNICAL'
-  | 'COLLABORATION_COMMUNICATION'
-  | 'PROBLEM_SOLVING';
-export type NcsQuestionMode =
-  | 'EXPERIENCE_BEHAVIOR'
-  | 'TECHNICAL_KNOWLEDGE'
-  | 'SITUATIONAL_DESIGN';
+export type NcsProfileId = SharedNcsProfileId;
+export type NcsQuestionMode = SharedNcsQuestionMode;
 export type QuestionGenerationSource = 'JD_CRITERIA' | 'RESUME_PERSONALIZED';
 export type QuestionAlignmentStatus =
   | 'NOT_EVALUATED'

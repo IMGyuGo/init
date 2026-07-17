@@ -367,6 +367,9 @@ CREATE TABLE question_bank (
     -- 현재 사용 가능한 질문인지 여부
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
+    -- 질문 원본 사용 목적: STANDARD, DEMO_PRESET
+    usage_scope VARCHAR(30) NOT NULL DEFAULT 'STANDARD',
+
     generation_source VARCHAR(50),
 
     ncs_profile_id VARCHAR(50),
@@ -402,6 +405,7 @@ CREATE TABLE application_interview_question_batches (
     application_id BIGINT NOT NULL,
     latest_process_log_id BIGINT NOT NULL,
     status VARCHAR(40) NOT NULL,
+    usage_scope VARCHAR(30) NOT NULL DEFAULT 'STANDARD',
     policy_version INTEGER NOT NULL,
     criteria_version INTEGER NOT NULL,
     input_version VARCHAR(128) NOT NULL,
@@ -421,6 +425,7 @@ CREATE TABLE application_interview_questions (
     source_process_log_id BIGINT NOT NULL,
     criterion_title_snapshot VARCHAR(200) NOT NULL,
     source VARCHAR(50) NOT NULL DEFAULT 'RESUME_PERSONALIZED',
+    usage_scope VARCHAR(30) NOT NULL DEFAULT 'STANDARD',
     question_type VARCHAR(50) NOT NULL,
     content TEXT NOT NULL,
     ncs_profile_id VARCHAR(50) NOT NULL,
@@ -562,6 +567,9 @@ CREATE TABLE interview_sessions (
     -- 면접 유형: MOCK, RECRUITING
     interview_type VARCHAR(40) NOT NULL,
 
+    -- 공식 채용면접 선택 모드: STANDARD, DEMO_PRESET
+    session_mode VARCHAR(30) NOT NULL DEFAULT 'STANDARD',
+
     -- 면접 상태: NOT_READY, READY, IN_PROGRESS, COMPLETED, FAILED
     status VARCHAR(40) NOT NULL,
 
@@ -578,6 +586,9 @@ CREATE TABLE interview_sessions (
     retry_allowed_snapshot BOOLEAN,
 
     ncs_scoring_version VARCHAR(80),
+
+    -- soft-deleted session은 공식 mode 충돌 검사에서 제외
+    deleted_at TIMESTAMP,
 
     -- 면접 시작 시각
     started_at TIMESTAMP,
@@ -671,6 +682,9 @@ CREATE TABLE interview_session_questions (
     policy_version INTEGER,
 
     criteria_version INTEGER,
+
+    -- session에서 소비한 질문 목적: STANDARD, DEMO_PRESET
+    usage_scope VARCHAR(30) NOT NULL DEFAULT 'STANDARD',
 
     -- 세션 안의 질문 표시 순서
     sort_order INTEGER NOT NULL,
@@ -1546,11 +1560,26 @@ CREATE INDEX idx_postings_company ON postings(company_id);
 CREATE INDEX idx_criterion_tags_job_role ON criterion_tags(job_role);
 CREATE INDEX idx_evaluation_criteria_posting ON evaluation_criteria(posting_id);
 CREATE INDEX idx_question_bank_posting ON question_bank(posting_id);
+CREATE INDEX idx_question_bank_posting_usage_active
+    ON question_bank(posting_id, usage_scope, is_active);
 CREATE INDEX idx_question_ncs_bindings_criterion ON question_ncs_bindings(criterion_id);
 CREATE INDEX idx_application_question_ncs_bindings_criterion ON application_question_ncs_bindings(criterion_id);
+CREATE UNIQUE INDEX uq_application_interview_question_batches_business
+    ON application_interview_question_batches(
+        application_id,
+        usage_scope,
+        policy_version,
+        criteria_version,
+        jd_snapshot_hash,
+        resume_document_hash
+    );
+CREATE INDEX idx_application_interview_question_batches_usage_status
+    ON application_interview_question_batches(application_id, usage_scope, status);
 CREATE INDEX idx_applications_posting ON applications(posting_id);
 CREATE INDEX idx_applications_candidate ON applications(candidate_id);
 CREATE INDEX idx_interview_sessions_application ON interview_sessions(application_id);
+CREATE INDEX idx_interview_sessions_application_mode_deleted
+    ON interview_sessions(application_id, interview_type, session_mode, deleted_at);
 CREATE INDEX idx_interview_session_ncs_policies_criterion ON interview_session_ncs_policies(criterion_id);
 CREATE INDEX idx_interview_answers_session_question ON interview_answers(session_question_id);
 CREATE UNIQUE INDEX uq_interview_session_questions_runtime_question

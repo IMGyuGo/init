@@ -624,6 +624,7 @@ export class PrismaCompanyInterviewRepository
 
       const businessKey = {
         applicationId: BigInt(state.applicationId),
+        usageScope: 'STANDARD' as const,
         policyVersion: state.policy.policyVersion,
         criteriaVersion: state.policy.criteriaVersion,
         jdSnapshotHash,
@@ -631,7 +632,7 @@ export class PrismaCompanyInterviewRepository
       };
       await transaction.applicationInterviewQuestionBatch.upsert({
         where: {
-          applicationId_policyVersion_criteriaVersion_jdSnapshotHash_resumeDocumentHash: businessKey,
+          applicationId_usageScope_policyVersion_criteriaVersion_jdSnapshotHash_resumeDocumentHash: businessKey,
         },
         create: {
           ...businessKey,

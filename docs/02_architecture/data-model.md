@@ -309,6 +309,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | origin | QuestionOrigin NOT NULL DEFAULT MANUAL | 최초 작성 출처: MANUAL, AI_GENERATED |
 | is_ai_edited | BOOLEAN NOT NULL DEFAULT FALSE | AI 생성 질문이 사용자에 의해 수정되었는지 여부 |
 | is_active | BOOLEAN NOT NULL DEFAULT TRUE | 현재 사용 가능한 질문인지 여부 |
+| usage_scope | QuestionUsageScope NOT NULL DEFAULT STANDARD | 질문 원본의 저장 목적. 기존·일반 공통 질문은 STANDARD이며 demo 공통 후보도 확정 STANDARD 풀에서 선택 |
 
 ### interview_question_sets
 
@@ -337,7 +338,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 - D 담당 채용 면접 런타임은 세션 생성 시 공고의 `ACTIVE` 질문 세트가 있으면 `interview_question_set_items.sort_order` 순서로 질문을 소비한다.
 - LEGACY 공고에서 `ACTIVE` 질문 세트가 없으면 기존 공고별 활성 `question_bank` 질문을 사용할 수 있다.
 - `NCS_3_PROFILE_V1` 공고는 `ACTIVE` 질문 세트가 필수다. 세트에는 `JD_CRITERIA`, `ALIGNED`, canonical 1~2 binding 조건을 만족한 질문만 들어가며 legacy/seed 질문을 자동 혼합하지 않는다.
-- NCS 질문 세트 확정 시 canonical profile별 binding이 최소 2개인지 검증한다.
+- NCS 질문 세트 확정 시 V1은 canonical profile별 binding 최소 2개, V2는 활성 profile별 binding 최소 1개인지 검증한다.
 - 세션 생성 이후 질문 세트 변경은 이미 생성된 세션에 소급 적용하지 않는다.
 
 ### interview_time_policies
@@ -350,6 +351,14 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | retry_allowed | BOOLEAN NOT NULL DEFAULT FALSE | 지원자의 재시도 허용 여부 |
 | created_at | TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP | 생성 시각 |
 | updated_at | TIMESTAMP NOT NULL | 수정 시각 |
+
+### interview_question_generation_policies and personalized question scope
+
+`interview_question_generation_policies.evaluation_framework`는 `LEGACY`, `NCS_3_PROFILE_V1`, `NCS_ACTIVE_PROFILE_V2`를 허용한다. 기존 V1의 세 profile·profile별 최소 2개 계약은 유지하고, V2만 `weight > 0`인 canonical profile 1~3개와 profile별 최소 1개를 사용한다.
+
+두 table은 `usage_scope QuestionUsageScope NOT NULL DEFAULT STANDARD`를 가진다. 기존 row는 STANDARD다. DEMO_PRESET 개인화 1개는 STANDARD `resume_question_count`에 포함하지 않으며 별도 batch로 생성한다.
+
+batch business unique key는 `(application_id, usage_scope, policy_version, criteria_version, jd_snapshot_hash, resume_document_hash)`다. stale/retry/status 전이는 같은 usage scope 안에서만 적용한다. `application_interview_questions.usage_scope`는 parent batch와 같아야 하며 write transaction에서 검증한다.
 
 ### applications
 
@@ -408,6 +417,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | application_id | BIGINT | 채용 AI 면접이면 지원서 FK, 모의면접이면 NULL 가능 |
 | candidate_id | BIGINT NOT NULL | 면접 응시 지원자 FK |
 | interview_type | VARCHAR(40) NOT NULL | 면접 유형: MOCK, RECRUITING |
+| session_mode | InterviewSessionMode NOT NULL DEFAULT STANDARD | 공식 채용면접 선택 snapshot: STANDARD, DEMO_PRESET. 기존 row와 기존 request는 STANDARD |
 | status | VARCHAR(40) NOT NULL | 면접 상태: NOT_READY, READY, IN_PROGRESS, COMPLETED, FAILED |
 | title | VARCHAR(100) | 연습(모의면접) 세션 사용자 지정 제목. NULL이면 기본 '세션 #N' 표기 |
 | show_question_text | BOOLEAN NOT NULL DEFAULT FALSE | 면접 질문 텍스트 표시 여부 |
@@ -428,10 +438,10 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | criterion_title_snapshot | VARCHAR(200) NOT NULL | 세션 확정 당시 평가 기준 표시명 |
 | weight | INTEGER NOT NULL | 세션에 고정한 profile 가중치. 세 profile 합계 100 |
 | minimum_average_score | DECIMAL(5,2) NOT NULL DEFAULT 3 | profile 최소 통과 평균 |
-| required_question_count | INTEGER NOT NULL DEFAULT 2 | profile별 최소 base question 수 |
+| required_question_count | INTEGER NOT NULL DEFAULT 2 | profile별 최소 scoring BASE 수. V1 snapshot은 2, V2 활성 profile snapshot은 1 |
 | ncs_profile_version | VARCHAR(80) NOT NULL | profile version snapshot |
 
-`(session_id, ncs_profile_id)`를 PK로 사용한다. NCS 세션을 확정할 때 canonical profile 세 개를 각각 한 행씩 저장하고 가중치 합계 100, profile별 연결 문항 최소 2개를 같은 transaction에서 검증한다. 세션 시작 이후 평가 기준·가중치·시간 정책 원본 변경은 이 snapshot에 소급하지 않는다. legacy 세션은 정책 행이 없을 수 있으며 평가 시 임의 기본값을 채우지 않고 `INCOMPLETE`로 처리한다.
+`(session_id, ncs_profile_id)`를 PK로 사용한다. V1은 canonical profile 세 개를 각각 한 행씩 저장하고 profile별 최소 2개를 검증한다. V2는 `weight > 0`인 활성 profile만 행으로 저장하고 `required_question_count=1`, 가중치 합계 100을 검증한다. 세션 시작 이후 평가 기준·가중치·시간 정책 원본 변경은 이 snapshot에 소급하지 않는다. legacy 세션은 정책 행이 없을 수 있으며 평가 시 임의 기본값을 채우지 않고 `INCOMPLETE`로 처리한다.
 
 ### interview_session_questions
 
@@ -456,6 +466,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | evaluator_version | VARCHAR(80) | 정렬 adapter version snapshot |
 | policy_version | INTEGER | 세션 생성 당시 질문 정책 version |
 | criteria_version | INTEGER | 세션 생성 당시 평가 기준 version |
+| usage_scope | QuestionUsageScope NOT NULL DEFAULT STANDARD | session에서 소비한 질문 목적. DEMO_PRESET session의 공통·개인화·follow-up은 모두 DEMO_PRESET |
 | sort_order | INTEGER NOT NULL | 세션 안의 질문 표시 순서 |
 | created_at | TIMESTAMP NOT NULL | 세션 질문 연결 생성 시각 |
 
@@ -556,7 +567,7 @@ NCS 리포트의 `report_scores`에는 `ncs_answer_evaluations.score_status=SCOR
 
 NCS profile 집계 row는 `(report_id, ncs_profile_id)`를 unique key로 사용한다. profile이 불완전하면 `average_score`, `normalized_score`, `weighted_score`는 NULL로 유지하고 배정·유효 문항 수는 그대로 저장한다.
 
-최종 NCS 평가 target model은 공통 질문, 개인화 질문, 세션 질문에 각각 1~2개의 profile binding 관계를 둔다. `question_ncs_bindings`, `application_question_ncs_bindings`, `session_question_ncs_bindings`를 사용하며 세션 binding은 원본 변경이 소급되지 않는 snapshot이다. 세션 확정 시 canonical profile `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING`마다 scoring base question이 최소 2개인지 검증한다.
+최종 NCS 평가 target model은 공통 질문, 개인화 질문, 세션 질문에 각각 1~2개의 profile binding 관계를 둔다. `question_ncs_bindings`, `application_question_ncs_bindings`, `session_question_ncs_bindings`를 사용하며 세션 binding은 원본 변경이 소급되지 않는 snapshot이다. 세션 확정 시 V1은 canonical profile마다 scoring BASE 최소 2개, V2는 세션 policy snapshot의 활성 profile마다 BASE 최소 1개인지 검증한다.
 
 ### ncs_answer_evaluations
 
