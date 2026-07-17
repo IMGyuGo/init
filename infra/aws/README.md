@@ -817,6 +817,7 @@ GitHub repository에 필요한 값:
 | `AWS_REGION` | GitHub Environment `init-main` variable | `ap-northeast-2` |
 | `AWS_DEPLOY_ROLE_ARN` | GitHub Environment `init-main` variable | `terraform output github_deploy_role_arn` |
 | `APP_BASE_URL` | GitHub Environment `init-main` variable | `https://init-jungle.cloud` |
+| `NEXT_PUBLIC_NCS_QUESTION_POLICY_ENABLED` | GitHub Environment `init-main` variable | `true` (`false`로 frontend를 재빌드하면 NCS 질문 정책 UI rollback) |
 | `NEXT_PUBLIC_TOSS_CLIENT_KEY` | GitHub Environment `init-main` secret | Toss public client key |
 
 중단 기준:
