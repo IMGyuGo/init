@@ -101,7 +101,7 @@ NQ-M1 이후 면접 설정은 평가 기준과 질문 출처를 아래 순서로
 
 - 공통 질문은 활성 STANDARD 공통 풀에서 `COLLABORATION_COMMUNICATION` 단일 binding 질문을 서버가 선택한다.
 - 개인화 BASE는 `DEMO_PRESET` batch에서 `JOB_TECHNICAL`과 `PROBLEM_SOLVING` 두 binding을 가진 질문을 서버가 선택한다.
-- 동일 mode 재호출은 기존 공식 세션을 재개하고, 이미 다른 mode의 공식 세션이 있으면 새 세션을 만들지 않는다.
+- 동일 mode 재호출은 `READY` 또는 `IN_PROGRESS`이고 응시 기간이 남은 기존 공식 세션만 재개한다. 완료·실패·만료 세션은 재개 버튼을 노출하지 않으며, 이미 다른 mode의 공식 세션이 있으면 새 세션을 만들지 않는다.
 - 준비 불가 상태는 내부 추적번호가 아니라 설정, 질문 풀, 문서 anchor, 기존 세션 등 사용자가 해결할 수 있는 사유로 안내한다.
 
 ## Screen Catalog

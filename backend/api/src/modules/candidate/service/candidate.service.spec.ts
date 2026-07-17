@@ -1253,3 +1253,29 @@ test("official recruiting session mode is idempotent and rejects a cross-mode re
     existingSessionMode: "STANDARD",
   });
 });
+
+test("completed or expired demo preset sessions are not resumable", async () => {
+  const repository = new InMemoryCandidateRepository({ seedDemoApplication: true });
+  const [application] = await repository.listApplications(DEV_CANDIDATE_USER.candidateId);
+  assert.ok(application);
+  const session = await repository.findInterviewSessionByApplication(application.applicationId);
+  assert.ok(session);
+  session.sessionMode = "DEMO_PRESET";
+
+  await repository.updateInterviewSessionStatus(session.sessionId, "COMPLETED");
+  const completed = await repository.getDemoPresetReadiness(application.applicationId);
+  assert.deepEqual(completed, {
+    status: "UNAVAILABLE",
+    canStart: false,
+    reasonCode: "OFFICIAL_SESSION_EXISTS",
+    existingSessionId: session.sessionId,
+    existingSessionMode: "DEMO_PRESET",
+  });
+
+  await repository.updateInterviewSessionStatus(session.sessionId, "READY");
+  session.windowEndsAt = new Date(Date.now() - 1_000).toISOString();
+  const expired = await repository.getDemoPresetReadiness(application.applicationId);
+  assert.equal(expired.status, "UNAVAILABLE");
+  assert.equal(expired.canStart, false);
+  assert.equal(expired.reasonCode, "OFFICIAL_SESSION_EXISTS");
+});

@@ -1847,7 +1847,9 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
   const guideInterviewAlreadyInProgress = guide?.interviewSessionStatus === "IN_PROGRESS";
   const guidePrimaryActionLabel = guideInterviewAlreadyInProgress ? "면접 재개" : "면접 시작";
   const demoPresetActionLabel = guide?.demoPreset.reasonCode === "OFFICIAL_SESSION_EXISTS"
-    ? "공식 3문항 시연 이어하기"
+    ? guide.demoPreset.status === "READY"
+      ? "공식 3문항 시연 이어하기"
+      : "공식 3문항 시연 이용 불가"
     : "공식 3문항 시연 시작";
   const deviceTestSentence = useMemo(() => pickDeviceTestSentence(), []);
 
@@ -11716,7 +11718,11 @@ function getDemoPresetReadinessMessage(
   reasonCode: import("./api").DemoPresetReadinessReasonCode | null,
   status: "READY" | "PENDING" | "UNAVAILABLE",
 ): string {
-  if (reasonCode === "OFFICIAL_SESSION_EXISTS") return "이미 시작한 공식 3문항 시연을 같은 질문으로 이어갑니다.";
+  if (reasonCode === "OFFICIAL_SESSION_EXISTS") {
+    return status === "READY"
+      ? "이미 시작한 공식 3문항 시연을 같은 질문으로 이어갑니다."
+      : "이미 종료되었거나 응시 기간이 지난 공식 3문항 시연입니다.";
+  }
   if (status === "READY") return "협업 공통 1문항과 개인화 1문항, 개인화 꼬리질문 1문항이 준비되었습니다.";
   const messages: Record<Exclude<import("./api").DemoPresetReadinessReasonCode, "OFFICIAL_SESSION_EXISTS">, string> = {
     CANONICAL_PROFILES_NOT_ALL_ACTIVE: "평가 기준 3개가 모두 활성화되어야 시연을 시작할 수 있습니다.",

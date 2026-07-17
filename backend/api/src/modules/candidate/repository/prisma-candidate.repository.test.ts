@@ -65,11 +65,13 @@ describe("PrismaCandidateRepository", () => {
     sessionStatus?: "NOT_READY" | "READY" | "IN_PROGRESS" | "COMPLETED";
     hasAnswer?: boolean;
     personalizedQuestionCount?: 0 | 2;
+    evaluationFramework?: "NCS_3_PROFILE_V1" | "NCS_ACTIVE_PROFILE_V2";
   } = {}) {
     const jd = "NestJS와 PostgreSQL 기반 백엔드 개발자";
     const resume = "결제 장애의 원인을 추적하고 재발 방지 테스트를 추가했습니다.";
     const commonQuestionCount = 6;
     const personalizedQuestionCount = options.personalizedQuestionCount ?? 2;
+    const evaluationFramework = options.evaluationFramework ?? "NCS_3_PROFILE_V1";
     const hash = (value: string) => createHash("sha256").update(value, "utf8").digest("hex");
     let runtimeQuestionId = 1_000_000_000_000_000n;
     let snapshotRows: Array<Record<string, unknown>> =
@@ -106,7 +108,18 @@ describe("PrismaCandidateRepository", () => {
           ["COLLABORATION_COMMUNICATION", "PROBLEM_SOLVING"],
           ["PROBLEM_SOLVING", "COLLABORATION_COMMUNICATION"],
         ]
-      : [
+      : evaluationFramework === "NCS_ACTIVE_PROFILE_V2"
+        ? [
+          ["JOB_TECHNICAL"],
+          ["COLLABORATION_COMMUNICATION"],
+          ["JOB_TECHNICAL"],
+          ["COLLABORATION_COMMUNICATION"],
+          ["JOB_TECHNICAL"],
+          ["COLLABORATION_COMMUNICATION"],
+          ["JOB_TECHNICAL"],
+          ["COLLABORATION_COMMUNICATION"],
+        ]
+        : [
           ["JOB_TECHNICAL", "PROBLEM_SOLVING"],
           ["COLLABORATION_COMMUNICATION", "JOB_TECHNICAL"],
           ["PROBLEM_SOLVING", "COLLABORATION_COMMUNICATION"],
@@ -202,12 +215,12 @@ describe("PrismaCandidateRepository", () => {
             jobDescription: jd,
             timePolicy: { preparationTimeSec: 30, answerTimeSec: 90, retryAllowed: false },
             criteria: [
-              { criterionId: 1n, ncsProfileId: "JOB_TECHNICAL", ncsProfileVersion: "2025.12-v1", weight: 30, tag: { name: "기술·직무" } },
-              { criterionId: 2n, ncsProfileId: "COLLABORATION_COMMUNICATION", ncsProfileVersion: "2025.12-v1", weight: 30, tag: { name: "협업·의사소통" } },
-              { criterionId: 3n, ncsProfileId: "PROBLEM_SOLVING", ncsProfileVersion: "2025.12-v1", weight: 40, tag: { name: "문제 해결력" } },
+              { criterionId: 1n, ncsProfileId: "JOB_TECHNICAL", ncsProfileVersion: "2025.12-v1", weight: evaluationFramework === "NCS_ACTIVE_PROFILE_V2" ? 50 : 30, tag: { name: "기술·직무" } },
+              { criterionId: 2n, ncsProfileId: "COLLABORATION_COMMUNICATION", ncsProfileVersion: "2025.12-v1", weight: evaluationFramework === "NCS_ACTIVE_PROFILE_V2" ? 50 : 30, tag: { name: "협업·의사소통" } },
+              { criterionId: 3n, ncsProfileId: "PROBLEM_SOLVING", ncsProfileVersion: "2025.12-v1", weight: evaluationFramework === "NCS_ACTIVE_PROFILE_V2" ? 0 : 40, tag: { name: "문제 해결력" } },
             ],
             questionGenerationPolicy: {
-              evaluationFramework: "NCS_3_PROFILE_V1",
+              evaluationFramework,
               jdCriteriaQuestionCount: commonQuestionCount,
               resumeQuestionCount: personalizedQuestionCount,
               policyVersion: currentPolicyVersion,
@@ -290,6 +303,7 @@ describe("PrismaCandidateRepository", () => {
       getSessionPolicyRows: () => sessionPolicyRows,
       getCreateManyCalls: () => createManyCalls,
       getDeleteManyCalls: () => deleteManyCalls,
+      getSessionState: () => sessionState,
       setSessionStatus: (status: string) => {
         sessionState.status = status;
       },
@@ -348,6 +362,66 @@ describe("PrismaCandidateRepository", () => {
     );
     assert.deepEqual(fixture.getSnapshotRows().map((row) => row.sortOrder), [1, 2, 3, 4, 5, 6]);
     assert.equal(fixture.getSnapshotBindingRows().length, 12);
+  });
+
+  it("stores and reuses the V2 scoring contract for a two-active-profile snapshot", async () => {
+    const fixture = createSnapshotRepository({ evaluationFramework: "NCS_ACTIVE_PROFILE_V2" });
+
+    const created = await fixture.repository.prepareInterviewSessionQuestionSnapshot(10);
+
+    assert.equal(created?.readiness, "READY", JSON.stringify(created));
+    assert.equal(fixture.getSessionState().ncsScoringVersion, "NCS_RECRUITING_SCORING_V2");
+    assert.deepEqual(
+      fixture.getSessionPolicyRows().map((row) => row.ncsProfileId),
+      ["JOB_TECHNICAL", "COLLABORATION_COMMUNICATION"],
+    );
+    assert.deepEqual(created?.ncsCoverage?.map((coverage) => coverage.ncsProfileId), [
+      "JOB_TECHNICAL",
+      "COLLABORATION_COMMUNICATION",
+    ]);
+
+    fixture.setSessionStatus("IN_PROGRESS");
+    const reused = await fixture.repository.prepareInterviewSessionQuestionSnapshot(10);
+    assert.equal(reused?.readiness, "READY", JSON.stringify(reused));
+    assert.equal(reused?.snapshotCreated, false);
+  });
+
+  it("only exposes an unexpired READY or IN_PROGRESS demo session as resumable", async () => {
+    const readinessFor = async (status: "READY" | "IN_PROGRESS" | "COMPLETED" | "FAILED", startedAt: Date) => {
+      const repository = new PrismaCandidateRepository({
+        application: {
+          findUnique: async () => ({
+            submittedAt: startedAt,
+            interviewSessions: [{
+              sessionId: 40n,
+              sessionMode: "DEMO_PRESET",
+              status,
+              startedAt,
+              _count: { sessionQuestions: 1, ncsProfilePolicies: 2, answers: 0 },
+            }],
+          }),
+        },
+      } as never);
+      return repository.getDemoPresetReadiness(10);
+    };
+    const activeStartedAt = new Date(Date.now() - 60_000);
+
+    for (const status of ["READY", "IN_PROGRESS"] as const) {
+      const readiness = await readinessFor(status, activeStartedAt);
+      assert.equal(readiness.status, "READY");
+      assert.equal(readiness.canStart, true);
+    }
+    for (const status of ["COMPLETED", "FAILED"] as const) {
+      const readiness = await readinessFor(status, activeStartedAt);
+      assert.equal(readiness.status, "UNAVAILABLE");
+      assert.equal(readiness.canStart, false);
+      assert.equal(readiness.reasonCode, "OFFICIAL_SESSION_EXISTS");
+    }
+
+    const expired = await readinessFor("READY", new Date(Date.now() - 8 * 24 * 60 * 60 * 1000));
+    assert.equal(expired.status, "UNAVAILABLE");
+    assert.equal(expired.canStart, false);
+    assert.equal(expired.reasonCode, "OFFICIAL_SESSION_EXISTS");
   });
 
   it("rebuilds an invalid unanswered snapshot in one transaction before interview start", async () => {

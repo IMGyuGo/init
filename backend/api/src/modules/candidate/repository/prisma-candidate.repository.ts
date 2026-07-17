@@ -77,7 +77,11 @@ type ConsentRecordModel = Prisma.ConsentRecordGetPayload<Record<string, never>>;
 type FileAssetRecord = Prisma.FileAssetGetPayload<Record<string, never>>;
 type InterviewSessionRecord = Prisma.InterviewSessionGetPayload<{ include: { application: true } }>;
 
-const NCS_SCORING_VERSION = "NCS_RECRUITING_SCORING_V1";
+const NCS_SCORING_VERSION_BY_FRAMEWORK = {
+  NCS_3_PROFILE_V1: "NCS_RECRUITING_SCORING_V1",
+  NCS_ACTIVE_PROFILE_V2: "NCS_RECRUITING_SCORING_V2",
+} as const;
+type NcsScoringVersion = (typeof NCS_SCORING_VERSION_BY_FRAMEWORK)[keyof typeof NCS_SCORING_VERSION_BY_FRAMEWORK];
 const NCS_REQUIRED_QUESTION_COUNT = 2;
 const NCS_PROFILE_IDS = [
   "JOB_TECHNICAL",
@@ -236,6 +240,7 @@ function validateExistingNcsSessionSnapshot(
     requireCurrentVersions: boolean;
     expectedProfiles: CanonicalNcsProfileId[];
     requiredQuestionCount: number;
+    expectedScoringVersion: NcsScoringVersion;
   },
 ): ExistingNcsSnapshotValidation {
   const errors = new Set<string>();
@@ -247,7 +252,7 @@ function validateExistingNcsSessionSnapshot(
     (question) => question.generationSource === "RESUME_PERSONALIZED",
   ).length;
 
-  if (session.ncsScoringVersion !== NCS_SCORING_VERSION) {
+  if (session.ncsScoringVersion !== current.expectedScoringVersion) {
     errors.add("NCS_SCORING_VERSION_INVALID");
   }
   if (
@@ -318,6 +323,7 @@ function validateExistingNcsSessionSnapshot(
       if (
         binding.bindingOrder !== bindingIndex + 1 ||
         !isCanonicalNcsProfileId(binding.ncsProfileId) ||
+        !current.expectedProfiles.includes(binding.ncsProfileId as CanonicalNcsProfileId) ||
         bindingProfiles.has(binding.ncsProfileId) ||
         binding.alignmentStatus !== "ALIGNED" ||
         !binding.ncsProfileVersion.trim() ||
@@ -838,7 +844,11 @@ export class PrismaCandidateRepository implements CandidateRepository {
       },
     });
     const existing = application?.interviewSessions[0];
+    const sessionWindowStartedAt = existing?.startedAt ?? application?.submittedAt ?? null;
+    const existingIsExpired = sessionWindowStartedAt !== null &&
+      sessionWindowStartedAt.getTime() + 7 * 24 * 60 * 60 * 1000 <= Date.now();
     const existingIsUnclaimed = Boolean(existing) &&
+      !existingIsExpired &&
       (existing!.status === PrismaInterviewStatus.NOT_READY || existing!.status === PrismaInterviewStatus.READY) &&
       existing!.startedAt === null &&
       existing!._count.sessionQuestions === 0 &&
@@ -846,9 +856,12 @@ export class PrismaCandidateRepository implements CandidateRepository {
       existing!._count.answers === 0;
     if (existing && !existingIsUnclaimed) {
       const sessionMode = existing.sessionMode as InterviewSessionMode;
-      return sessionMode === "DEMO_PRESET"
+      const canResumeDemo = sessionMode === "DEMO_PRESET" &&
+        !existingIsExpired &&
+        (existing.status === PrismaInterviewStatus.READY || existing.status === PrismaInterviewStatus.IN_PROGRESS);
+      return canResumeDemo
         ? { status: "READY", canStart: true, reasonCode: "OFFICIAL_SESSION_EXISTS", existingSessionId: Number(existing.sessionId), existingSessionMode: sessionMode }
-        : { status: "UNAVAILABLE", canStart: false, reasonCode: "OFFICIAL_SESSION_MODE_CONFLICT", existingSessionId: Number(existing.sessionId), existingSessionMode: sessionMode };
+        : { status: "UNAVAILABLE", canStart: false, reasonCode: sessionMode === "DEMO_PRESET" ? "OFFICIAL_SESSION_EXISTS" : "OFFICIAL_SESSION_MODE_CONFLICT", existingSessionId: Number(existing.sessionId), existingSessionMode: sessionMode };
     }
     if (!application) return this.unavailableDemo("CONFIGURATION_COVERAGE_MISMATCH");
 
@@ -1033,21 +1046,12 @@ export class PrismaCandidateRepository implements CandidateRepository {
           criteriaVersion,
         };
       }
-      if (mode === "DEMO_PRESET" && existingSession && existingSnapshot.length > 0) {
-        return {
-          readiness: "READY", applicationId, postingId: Number(application.postingId),
-          sessionId: Number(existingSession.sessionId), sessionMode: mode, snapshotCreated: false,
-          commonQuestionCount: existingSnapshot.filter((question) => question.generationSource === "JD_CRITERIA").length,
-          personalizedQuestionCount: existingSnapshot.filter((question) => question.generationSource === "RESUME_PERSONALIZED").length,
-          totalQuestionCount: existingSnapshot.length, expectedCommonQuestionCount, expectedPersonalizedQuestionCount,
-          policyVersion: existingSnapshot[0]?.policyVersion ?? policyVersion,
-          criteriaVersion: existingSnapshot[0]?.criteriaVersion ?? criteriaVersion,
-          questions: toExistingSnapshotQuestionDtos(existingSnapshot as unknown as ExistingNcsSnapshotQuestion[]),
-        };
-      }
       const isV1Policy = policy?.evaluationFramework === "NCS_3_PROFILE_V1";
       const isV2Policy = policy?.evaluationFramework === "NCS_ACTIVE_PROFILE_V2";
       const isNcsPolicy = isV1Policy || isV2Policy;
+      const expectedScoringVersion = isV2Policy
+        ? NCS_SCORING_VERSION_BY_FRAMEWORK.NCS_ACTIVE_PROFILE_V2
+        : NCS_SCORING_VERSION_BY_FRAMEWORK.NCS_3_PROFILE_V1;
       const expectedSnapshotProfiles = isV2Policy
         ? application.posting.criteria
             .filter((criterion) => criterion.weight > 0 && isCanonicalNcsProfileId(criterion.ncsProfileId))
@@ -1093,6 +1097,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
             requireCurrentVersions: canReplaceSnapshot,
             expectedProfiles: expectedSnapshotProfiles,
             requiredQuestionCount: expectedSnapshotRequiredCount,
+            expectedScoringVersion,
           },
         );
         if (validation.valid) {
@@ -1232,6 +1237,9 @@ export class PrismaCandidateRepository implements CandidateRepository {
         item.question.generationSource === "JD_CRITERIA" &&
         (item.question.usageScope ?? PrismaQuestionUsageScope.STANDARD) === PrismaQuestionUsageScope.STANDARD &&
         hasValidNcsSourceBindings(item.question) &&
+        item.question.ncsBindings.every((binding) =>
+          expectedSnapshotProfiles.includes(binding.ncsProfileId as CanonicalNcsProfileId),
+        ) &&
         (mode !== "DEMO_PRESET" || (
           item.question.ncsBindings.length === 1 &&
           item.question.ncsBindings[0]?.ncsProfileId === "COLLABORATION_COMMUNICATION"
@@ -1282,6 +1290,9 @@ export class PrismaCandidateRepository implements CandidateRepository {
               (question.usageScope ?? PrismaQuestionUsageScope.STANDARD) === (mode as PrismaQuestionUsageScope) &&
               Boolean(question.content.trim()) &&
               hasValidNcsSourceBindings(question) &&
+              question.ncsBindings.every((binding) =>
+                expectedSnapshotProfiles.includes(binding.ncsProfileId as CanonicalNcsProfileId),
+              ) &&
               (mode !== "DEMO_PRESET" || (
                 question.ncsBindings.length === 2 &&
                 question.ncsBindings.some((binding) => binding.ncsProfileId === "JOB_TECHNICAL") &&
@@ -1326,7 +1337,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
           }
         }
       }
-      const ncsCoverage = NCS_PROFILE_IDS.map((ncsProfileId) => ({
+      const ncsCoverage = expectedSnapshotProfiles.map((ncsProfileId) => ({
         ncsProfileId,
         requiredQuestionCount,
         actualQuestionCount: profileQuestionCounts.get(ncsProfileId) ?? 0,
@@ -1365,7 +1376,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
               preparationTimeSecSnapshot,
               answerTimeSecSnapshot,
               retryAllowedSnapshot,
-              ncsScoringVersion: NCS_SCORING_VERSION,
+              ncsScoringVersion: expectedScoringVersion,
               sessionMode: mode as PrismaInterviewSessionMode,
             } as Prisma.InterviewSessionUpdateInput,
           })
@@ -1380,7 +1391,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
               preparationTimeSecSnapshot,
               answerTimeSecSnapshot,
               retryAllowedSnapshot,
-              ncsScoringVersion: NCS_SCORING_VERSION,
+              ncsScoringVersion: expectedScoringVersion,
             } as Prisma.InterviewSessionUncheckedCreateInput,
           });
       const snapshotRows: Prisma.InterviewSessionQuestionCreateManyInput[] = [];
