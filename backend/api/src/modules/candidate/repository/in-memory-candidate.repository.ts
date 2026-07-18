@@ -426,9 +426,12 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     return session;
   }
 
-  async hasApplication(candidateId: number, postingId: number): Promise<boolean> {
+  async hasActiveApplication(candidateId: number, postingId: number): Promise<boolean> {
     return this.applications.some(
-      (application) => application.candidateId === candidateId && application.postingId === postingId,
+      (application) =>
+        application.candidateId === candidateId &&
+        application.postingId === postingId &&
+        application.applicationStatus !== "CANCELED",
     );
   }
 
@@ -449,7 +452,7 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     consentTypes: ConsentRecord["consentType"][];
     contactUserId?: number;
   }): Promise<ApplicationSubmissionResult> {
-    if (await this.hasApplication(input.candidateId, input.postingId)) {
+    if (await this.hasActiveApplication(input.candidateId, input.postingId)) {
       throw new CandidateDomainError("APPLICATION_ALREADY_SUBMITTED", "이미 지원한 채용공고입니다.", 409);
     }
 

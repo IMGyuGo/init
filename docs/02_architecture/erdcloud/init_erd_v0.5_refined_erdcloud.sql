@@ -514,6 +514,12 @@ CREATE TABLE applications (
     updated_at TIMESTAMP NOT NULL
 );
 
+-- 동일 지원자·공고에는 취소되지 않은 활성 지원서가 최대 하나만 존재한다.
+-- 취소 이력은 보존하고 재지원은 새 application_id로 생성한다.
+CREATE UNIQUE INDEX uq_applications_active_posting_candidate
+    ON applications (posting_id, candidate_id)
+    WHERE application_status <> 'CANCELED';
+
 CREATE TABLE application_documents (
     -- 지원서 첨부 서류 PK
     document_id BIGINT PRIMARY KEY,
