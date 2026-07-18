@@ -68,6 +68,73 @@ test("publishes follow-up jobs returned by final save after the source message i
   assert.equal(pending[0].job.processType, "RESUME_QUESTION_GENERATE");
 });
 
+test("marks a follow-up process failed when publishing its SQS message fails", async () => {
+  class FailingFollowUpQueue extends InMemoryAiJobQueue {
+    override async publish(job: AiQueueMessage["job"]): Promise<void> {
+      if (job.processLogId === 22) throw new Error("AccessDenied: sqs:SendMessage");
+      await super.publish(job);
+    }
+  }
+
+  const queue = new FailingFollowUpQueue([message(21)]);
+  const repository = new InMemoryAiProcessLogRepository();
+  const failedJobs: number[] = [];
+  const handler: AiTaskHandler = {
+    async handle() {
+      return {
+        outputRef: "document:extracted:21",
+        guardrail: { result: "PASS", reason: null },
+        finalSave: async () => [{
+          processLogId: 22,
+          processType: "RESUME_QUESTION_GENERATE",
+          inputRef: JSON.stringify({ applicationId: 206, inputVersion: "input-206" }),
+          attempt: 1,
+        }],
+      };
+    },
+  };
+
+  await new AiWorkerRunner(queue, repository, handler, {
+    onFailure: async (job) => {
+      failedJobs.push(job.processLogId);
+    },
+  }).processBatch();
+
+  assert.equal(repository.get(21).status, "FAILED");
+  assert.equal(repository.get(22).status, "FAILED");
+  assert.match(repository.get(22).failure?.reason ?? "", /sqs:SendMessage/);
+  assert.deepEqual(failedJobs, [22, 21]);
+  assert.deepEqual(queue.deletedMessageIds, []);
+});
+
+test("republishes an orphaned pending personalized-question job with the same process id", async () => {
+  const queue = new InMemoryAiJobQueue([]);
+  const repository = new InMemoryAiProcessLogRepository();
+  const orphan = {
+    processLogId: 31,
+    processType: "RESUME_QUESTION_GENERATE" as const,
+    inputRef: JSON.stringify({ applicationId: 206, inputVersion: "input-206", attempt: 2 }),
+    attempt: 2,
+  };
+  await repository.ensurePending(orphan);
+  let handled = 0;
+
+  await new AiWorkerRunner(queue, repository, {
+    async handle(job) {
+      handled += 1;
+      assert.equal(job.processLogId, orphan.processLogId);
+      assert.equal(job.attempt, orphan.attempt);
+      return { guardrail: { result: "PASS", reason: null } };
+    },
+  }, {
+    orphanPendingThresholdMs: 0,
+    orphanRecoveryIntervalMs: 0,
+  }).processBatch();
+
+  assert.equal(handled, 1);
+  assert.equal(repository.get(orphan.processLogId).status, "COMPLETED");
+});
+
 test("saves final output when guardrail result is regenerated", async () => {
   const queue = new InMemoryAiJobQueue([message(5)]);
   const repository = new InMemoryAiProcessLogRepository();

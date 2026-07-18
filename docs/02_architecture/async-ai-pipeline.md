@@ -125,6 +125,9 @@ DEMO_PRESET 개인화 작업은 STANDARD `resumeQuestionCount`와 별개인 추�
 - worker는 `applicationId`와 `documentId`의 소유 관계를 재검증한 뒤 repository에서 입력을 읽는다.
 - SQS delivery 멱등 key는 `processLogId`, business 멱등 key는 `applicationId + usageScope + policyVersion + criteriaVersion + jdSnapshotHash + resumeDocumentHash`다. legacy input의 usage scope는 STANDARD다.
 - 동일 business key의 `GENERATING`, `READY`, `REVIEW_REQUIRED` batch가 있으면 새 batch를 만들지 않는다. `FAILED`는 API-099의 명시적 retry로만 새 process log를 연결한다.
+- document worker는 추출 결과 저장 뒤 생성한 후속 job을 SQS에 발행한다. 후속 발행이 실패하면 해당 child `ai_process_logs`와 연결 batch만 `FAILED`로 보상하고, 이미 `EXTRACTED`로 저장한 문서 상태는 되돌리지 않는다.
+- worker는 `RESUME_QUESTION_GENERATE`, `PENDING`, 연결 batch `GENERATING` 조건을 15분 이상 만족하는 작업을 고아 작업으로 간주한다. 동일 `processLogId`, `processType`, `inputRef`, `attempt` envelope를 재발행하며 worker claim이 중복 delivery를 멱등 처리한다.
+- worker ECS task role은 AI job queue를 소비하는 권한과 함께 후속·복구 job 발행에 필요한 `sqs:SendMessage`를 같은 queue ARN 범위로 가져야 한다.
 - 정렬 실패는 같은 mode로 최대 2회 재생성하고 계약에 허용된 fallback만 사용한다.
 - 요청 개수보다 적은 질문을 `READY`로 저장하지 않는다. 일부 실패는 전체 batch를 `REVIEW_REQUIRED`로 둔다.
 - `ai_process_logs.status=COMPLETED`는 worker 실행 완료를 뜻한다. 업무 상태가 `REVIEW_REQUIRED`일 수 있으므로 두 상태를 같은 enum으로 합치지 않는다.

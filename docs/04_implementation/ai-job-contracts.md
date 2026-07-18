@@ -343,6 +343,8 @@ type CandidateProfileAiContextV1 = {
 실제 질문 생성 규칙:
 
 - `AI_PROVIDER_MODE=openai`에서는 공통 질문과 개인화 질문을 모두 OpenAI question provider로 생성한다. provider 누락 시 deterministic mock으로 대체하지 않고 job을 실패시킨다.
+- worker가 final save에서 생성한 후속 job은 동일 AI SQS queue에 발행한다. worker ECS task role은 queue ARN에 대한 `sqs:SendMessage`를 가져야 하며, 발행 실패 시 child process와 개인화 질문 batch를 `FAILED`로 보상한다.
+- `RESUME_QUESTION_GENERATE` process가 15분 이상 `PENDING`이고 최신 개인화 질문 batch가 `GENERATING`이면 worker가 저장된 message envelope를 재발행한다. 동일 `processLogId` 중복 delivery는 claim으로 한 번만 실행한다.
 - 공통 질문은 저장된 JD와 NCS 평가 기준을 입력으로 사용하고, 개인화 질문은 동일 입력에 실제 PDF 추출 이력서 본문을 추가한다.
 - 개인화 질문 provider 입력에서 이메일과 전화번호를 제거하고 이력서 본문은 최대 50,000자로 제한한다. 원문은 outputRef나 질문 metadata에 복제하지 않는다.
 - HTML/editor markup, 공고·회사·직무 접두어, 15자 미만 또는 180자 초과 질문, 동일·유사 질문, 동일 종결 표현의 과도한 반복은 저장 후보에서 제외하고 재생성한다.

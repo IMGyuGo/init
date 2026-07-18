@@ -32,6 +32,11 @@ interface PrismaAiProcessLogRecord {
 interface PrismaAiProcessLogClient {
   aiProcessLog: {
     findUnique(args: unknown): Promise<PrismaAiProcessLogRecord | null>;
+    findMany?(args: unknown): Promise<Array<{
+      processLogId: bigint;
+      processType: string;
+      inputRef: string | null;
+    }>>;
     upsert(args: unknown): Promise<PrismaAiProcessLogRecord>;
     update(args: unknown): Promise<PrismaAiProcessLogRecord>;
     updateMany(args: unknown): Promise<{ count: number }>;
@@ -57,6 +62,38 @@ export class PrismaAiProcessLogRepository implements AiProcessLogRepository {
       update: {}
     });
     return this.toSnapshot(processLog);
+  }
+
+  async findOrphanedPendingJobs(createdBefore: Date, limit: number): Promise<AiWorkerJob[]> {
+    if (!this.prisma.aiProcessLog.findMany) return [];
+    const processLogs = await this.prisma.aiProcessLog.findMany({
+      where: {
+        processType: "RESUME_QUESTION_GENERATE",
+        status: "PENDING",
+        createdAt: { lte: createdBefore },
+        inputRef: { not: null },
+        latestResumeQuestionBatches: {
+          some: { status: "GENERATING" },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+      take: Math.max(1, limit),
+      select: {
+        processLogId: true,
+        processType: true,
+        inputRef: true,
+      },
+    });
+
+    return processLogs.flatMap((processLog) => {
+      if (!processLog.inputRef) return [];
+      return [{
+        processLogId: Number(processLog.processLogId),
+        processType: processLog.processType as AiWorkerJob["processType"],
+        inputRef: processLog.inputRef,
+        attempt: attemptFromInputRef(processLog.inputRef),
+      }];
+    });
   }
 
   async markRunning(processLogId: number): Promise<AiProcessLogSnapshot> {
@@ -258,6 +295,15 @@ export class PrismaAiProcessLogRepository implements AiProcessLogRepository {
           costMetadataJson: usage.costMetadataJson
         }
       : {};
+  }
+}
+
+function attemptFromInputRef(inputRef: string): number {
+  try {
+    const attempt = Number((JSON.parse(inputRef) as { attempt?: unknown }).attempt);
+    return Number.isInteger(attempt) && attempt > 0 ? attempt : 1;
+  } catch {
+    return 1;
   }
 }
 
