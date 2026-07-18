@@ -124,7 +124,8 @@ EXISTS (
 
 - 기존 row와 mode를 생략한 기존 API request는 `STANDARD`로 해석한다.
 - 한 application에는 삭제되지 않은 최초 `RECRUITING` session 하나만 공식 선택으로 사용한다.
-- 동일 mode 재호출은 기존 session resume/멱등 응답이다.
+- 동일 mode 재호출은 `READY` 또는 `IN_PROGRESS`이고 응시 기간이 남은 기존 session만 resume/멱등 응답이다.
+- `COMPLETED`, `FAILED` 또는 응시 기간이 지난 기존 session은 새 session을 만들지 않으며 readiness를 `UNAVAILABLE`로 투영한다.
 - 다른 mode 재호출은 `INTERVIEW_SESSION_MODE_CONFLICT`다.
 - uniqueness를 기존 데이터에 위험하게 소급하는 DB unique index는 추가하지 않는다. D가 application advisory lock과 transaction 안에서 기존 non-deleted recruiting session을 조회한 뒤 생성한다.
 - snapshot 생성 후 공고 설정·질문 원본·batch 변경은 기존 session에 소급하지 않는다.
@@ -164,7 +165,8 @@ type DemoPresetReadinessProjection = {
 | Condition | status | canStart | reasonCode |
 | --- | --- | --- | --- |
 | 조건 충족, session 없음 | READY | true | null |
-| 동일 DEMO_PRESET session 존재 | READY | true(resume) | OFFICIAL_SESSION_EXISTS |
+| 동일 DEMO_PRESET session이 READY/IN_PROGRESS이고 미만료 | READY | true(resume) | OFFICIAL_SESSION_EXISTS |
+| 동일 DEMO_PRESET session이 COMPLETED/FAILED 또는 만료 | UNAVAILABLE | false | OFFICIAL_SESSION_EXISTS |
 | personalized 생성 중 | PENDING | false | DEMO_PERSONALIZED_QUESTION_GENERATING |
 | canonical 3개가 모두 활성 아님 | UNAVAILABLE | false | CANONICAL_PROFILES_NOT_ALL_ACTIVE |
 | 협업 공통 후보 없음 | UNAVAILABLE | false | COLLABORATION_COMMON_QUESTION_MISSING |

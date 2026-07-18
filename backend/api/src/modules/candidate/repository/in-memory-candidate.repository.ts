@@ -330,9 +330,12 @@ export class InMemoryCandidateRepository implements CandidateRepository {
   async getDemoPresetReadiness(applicationId: number): Promise<DemoPresetReadinessProjectionDto> {
     const existing = await this.findInterviewSessionByApplication(applicationId);
     if (existing) {
-      return existing.sessionMode === "DEMO_PRESET"
+      const canResumeDemo = existing.sessionMode === "DEMO_PRESET" &&
+        Date.parse(existing.windowEndsAt) > Date.now() &&
+        (existing.status === "READY" || existing.status === "IN_PROGRESS");
+      return canResumeDemo
         ? { status: "READY" as const, canStart: true, reasonCode: "OFFICIAL_SESSION_EXISTS" as const, existingSessionId: existing.sessionId, existingSessionMode: existing.sessionMode }
-        : { status: "UNAVAILABLE" as const, canStart: false, reasonCode: "OFFICIAL_SESSION_MODE_CONFLICT" as const, existingSessionId: existing.sessionId, existingSessionMode: existing.sessionMode };
+        : { status: "UNAVAILABLE" as const, canStart: false, reasonCode: existing.sessionMode === "DEMO_PRESET" ? "OFFICIAL_SESSION_EXISTS" as const : "OFFICIAL_SESSION_MODE_CONFLICT" as const, existingSessionId: existing.sessionId, existingSessionMode: existing.sessionMode };
     }
     return { status: "UNAVAILABLE", canStart: false, reasonCode: "CONFIGURATION_COVERAGE_MISMATCH", existingSessionId: null, existingSessionMode: null };
   }
