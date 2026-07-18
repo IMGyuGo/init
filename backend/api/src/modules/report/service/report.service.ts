@@ -967,9 +967,11 @@ export class ReportService {
 
   private async sttRecognitionFailureReason(answer: InterviewAnswer): Promise<string | undefined> {
     const processes = await this.interviewRepository.listSttProcesses(answer.sessionId, answer.answerId);
-    const failure = processes.find(
-      (process) => process.status === "FAILED" && process.failureCategory === "REANSWER_REQUIRED",
-    );
+    const latestProcess = processes[0];
+    const failure = latestProcess?.status === "FAILED" &&
+      (latestProcess.failureCategory === "REANSWER_REQUIRED" || latestProcess.failureCategory === "NON_RETRYABLE")
+      ? latestProcess
+      : undefined;
     return failure?.failureReason?.trim() || (failure ? DEFAULT_STT_UNAVAILABLE_REASON : undefined);
   }
 

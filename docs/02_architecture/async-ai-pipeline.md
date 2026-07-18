@@ -121,7 +121,7 @@ DEMO_PRESET 개인화 작업은 STANDARD `resumeQuestionCount`와 별개인 추�
 
 공식 DEMO_PRESET follow-up은 공통 질문에는 생성하지 않고 개인화 BASE에만 정확히 한 번 결정한다. 첫 provider 실패는 한 번 재시도하고, 재실패하면 답변을 근거로 한 안전 fallback을 사용한다. 원본 두 binding, question mode, answer time과 `usageScope=DEMO_PRESET`을 session private question에 상속한다.
 
-private follow-up 답변의 부모 관계는 질문 문구가 아니라 저장 ID를 정본으로 사용한다. `follow_up_questions.answer_id`는 원본 BASE 답변, `follow_up_questions.inserted_session_question_id`는 꼬리답변의 `interview_answers.session_question_id`와 연결된다. REPORT_GENERATE는 모든 세션 답변의 STT가 transcript 저장 또는 `STT_UNAVAILABLE` terminal 상태에 도달한 뒤에만 발행한다.
+private follow-up 답변의 부모 관계는 질문 문구가 아니라 저장 ID를 정본으로 사용한다. `follow_up_questions.answer_id`는 원본 BASE 답변, `follow_up_questions.inserted_session_question_id`는 꼬리답변의 `interview_answers.session_question_id`와 연결된다. REPORT_GENERATE는 모든 세션 답변의 STT가 transcript 저장 또는 `STT_UNAVAILABLE` terminal 상태에 도달한 뒤에만 발행한다. 최신 STT process의 `FAILED + REANSWER_REQUIRED`와 재시도 한도를 소진한 `FAILED + NON_RETRYABLE`을 terminal로 취급하며, 이전 실패 뒤 더 최신 PENDING/RUNNING 재시도가 있으면 계속 대기한다.
 
 - 이력서 원문, 추출 텍스트, 질문 결과는 message에 넣지 않는다.
 - worker는 `applicationId`와 `documentId`의 소유 관계를 재검증한 뒤 repository에서 입력을 읽는다.
