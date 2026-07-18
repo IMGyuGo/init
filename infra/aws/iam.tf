@@ -176,9 +176,17 @@ data "aws_iam_policy_document" "worker_task" {
       "sqs:DeleteMessage",
       "sqs:GetQueueAttributes",
       "sqs:GetQueueUrl",
-      "sqs:ReceiveMessage"
+      "sqs:ReceiveMessage",
+      "sqs:SendMessage"
     ]
     resources = [aws_sqs_queue.ai_jobs.arn]
+  }
+}
+
+check "worker_task_can_publish_follow_up_jobs" {
+  assert {
+    condition     = strcontains(data.aws_iam_policy_document.worker_task.json, "sqs:SendMessage")
+    error_message = "Worker task role must allow sqs:SendMessage for follow-up AI jobs."
   }
 }
 
