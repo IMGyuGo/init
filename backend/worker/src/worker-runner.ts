@@ -15,17 +15,30 @@ export interface AiWorkerRunnerOptions {
   guardrailPolicyName?: string;
   visibilityTimeoutSeconds?: number;
   heartbeatIntervalMs?: number;
+  orphanPendingThresholdMs?: number;
+  orphanRecoveryIntervalMs?: number;
+  orphanRecoveryBatchSize?: number;
   workerId?: string;
   onStart?: (job: AiWorkerJob) => Promise<void>;
   onFailure?: (job: AiWorkerJob, failure: FailureReason) => Promise<void>;
+  onOrphanRecoveryFailure?: (context: OrphanRecoveryFailureContext) => Promise<void> | void;
+}
+
+export interface OrphanRecoveryFailureContext {
+  stage: "LOOKUP" | "PUBLISH";
+  failure: FailureReason;
+  job?: AiWorkerJob;
 }
 
 export class AiWorkerRunner {
   private readonly options: Required<Pick<
     AiWorkerRunnerOptions,
-    "maxMessages" | "maxRetryableReceives" | "guardrailPolicyName" | "visibilityTimeoutSeconds" | "heartbeatIntervalMs" | "workerId"
-  >> &
+    "maxMessages" | "maxRetryableReceives" | "guardrailPolicyName" | "visibilityTimeoutSeconds" | "heartbeatIntervalMs" |
+      "orphanPendingThresholdMs" | "orphanRecoveryIntervalMs" | "orphanRecoveryBatchSize" | "workerId" |
+      "onOrphanRecoveryFailure"
+    >> &
     Pick<AiWorkerRunnerOptions, "onStart" | "onFailure">;
+  private lastOrphanRecoveryAt = 0;
 
   constructor(
     private readonly queue: AiJobQueue,
@@ -39,12 +52,17 @@ export class AiWorkerRunner {
       guardrailPolicyName: "AI_WORKER_OUTPUT_VALIDATE",
       visibilityTimeoutSeconds: 900,
       heartbeatIntervalMs: 300_000,
+      orphanPendingThresholdMs: 15 * 60_000,
+      orphanRecoveryIntervalMs: 60_000,
+      orphanRecoveryBatchSize: 10,
       workerId: `worker-${randomUUID()}`,
-      ...options
+      ...options,
+      onOrphanRecoveryFailure: options.onOrphanRecoveryFailure ?? logOrphanRecoveryFailure,
     };
   }
 
   async processBatch(): Promise<number> {
+    await this.republishOrphanedPendingJobs();
     const messages = await this.queue.receive(this.options.maxMessages);
     for (const message of messages) {
       await this.processMessage(message);
@@ -96,7 +114,14 @@ export class AiWorkerRunner {
         await this.renewVisibilityAndClaim(message, leaseOwner);
         const followUpJobs = await result.finalSave();
         for (const followUpJob of followUpJobs ?? []) {
-          await this.queue.publish(followUpJob);
+          await this.repository.ensurePending(followUpJob);
+          try {
+            await this.queue.publish(followUpJob);
+          } catch (error) {
+            const failure = toFailureReason(error);
+            await this.compensateFollowUpPublishFailure(followUpJob, failure);
+            throw error;
+          }
         }
       }
 
@@ -128,6 +153,65 @@ export class AiWorkerRunner {
       }
 
       await this.failAndAck(message, leaseOwner, failure);
+    }
+  }
+
+  private async republishOrphanedPendingJobs(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastOrphanRecoveryAt < this.options.orphanRecoveryIntervalMs) {
+      return;
+    }
+    this.lastOrphanRecoveryAt = now;
+    let jobs: AiWorkerJob[];
+    try {
+      jobs = await this.repository.findOrphanedPendingJobs(
+        new Date(now - this.options.orphanPendingThresholdMs),
+        this.options.orphanRecoveryBatchSize,
+      );
+    } catch (error) {
+      await this.reportOrphanRecoveryFailure("LOOKUP", error);
+      return;
+    }
+
+    for (const job of jobs) {
+      try {
+        await this.queue.publish(job);
+      } catch (error) {
+        await this.reportOrphanRecoveryFailure("PUBLISH", error, job);
+      }
+    }
+  }
+
+  private async reportOrphanRecoveryFailure(
+    stage: OrphanRecoveryFailureContext["stage"],
+    error: unknown,
+    job?: AiWorkerJob,
+  ): Promise<void> {
+    const context: OrphanRecoveryFailureContext = {
+      stage,
+      failure: toFailureReason(error),
+      job,
+    };
+    try {
+      await this.options.onOrphanRecoveryFailure(context);
+    } catch (reportingError) {
+      console.error("AI worker stale pending recovery failure reporting failed", {
+        stage,
+        processLogId: job?.processLogId,
+        reason: reportingError instanceof Error ? reportingError.message : String(reportingError),
+      });
+    }
+  }
+
+  private async compensateFollowUpPublishFailure(job: AiWorkerJob, failure: FailureReason): Promise<void> {
+    const results = await Promise.allSettled([
+      this.repository.markFailed(job.processLogId, failure),
+      this.options.onFailure?.(job, failure) ?? Promise.resolve(),
+    ]);
+    const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (rejected) {
+      const reason = rejected.reason instanceof Error ? rejected.reason.message : String(rejected.reason);
+      throw new RetryableAiWorkerFailure(`follow-up publish compensation failed: ${reason}`);
     }
   }
 
@@ -206,4 +290,14 @@ export class AiWorkerRunner {
       retryable: false
     };
   }
+}
+
+function logOrphanRecoveryFailure(context: OrphanRecoveryFailureContext): void {
+  console.error("AI worker stale pending recovery failed", {
+    stage: context.stage,
+    processLogId: context.job?.processLogId,
+    processType: context.job?.processType,
+    failureCategory: context.failure.category,
+    reason: context.failure.reason,
+  });
 }
