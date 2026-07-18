@@ -1,6 +1,9 @@
 import { strict as assert } from "node:assert";
 
-import { reconcileSettingsAfterCriteriaSave } from "./interview-settings-sync";
+import {
+  reconcileSettingsAfterCriteriaSave,
+  reconcileSettingsAfterQuestionSetConfirm,
+} from "./interview-settings-sync";
 import type { InterviewSettings } from "./types";
 
 const oldCriterion = {
@@ -15,6 +18,7 @@ const oldCriterion = {
   ncsProfileId: null,
   ncsQuestionMode: null,
   ncsProfileVersion: null,
+  isActive: true,
 };
 
 const newCriterion = {
@@ -40,6 +44,7 @@ function createSettings(): InterviewSettings {
         origin: "AI_GENERATED",
         isAiEdited: false,
         isActive: true,
+        usageScope: "STANDARD",
         generationSource: null,
         ncsProfileId: null,
         ncsQuestionMode: null,
@@ -59,6 +64,7 @@ function createSettings(): InterviewSettings {
         origin: "MANUAL",
         isAiEdited: false,
         isActive: true,
+        usageScope: "STANDARD",
         generationSource: null,
         ncsProfileId: null,
         ncsQuestionMode: null,
@@ -84,7 +90,13 @@ function createSettings(): InterviewSettings {
       policyVersion: 0,
       criteriaVersion: 0,
       allocations: [],
+      activeProfileCoverage: [],
+      questionSetRequiresReconfirmation: false,
     },
+    configurationLocked: false,
+    configurationLockedReason: null,
+    questionImpactByProfile: [],
+    questionSetRequiresReconfirmation: false,
   };
 }
 
@@ -120,8 +132,22 @@ function testDoesNotMutateCurrentSettings() {
   assert.deepEqual(current, original);
 }
 
+function testClearsQuestionSetReconfirmationAfterConfirm() {
+  const current = createSettings();
+  current.questionGenerationPolicy.questionSetRequiresReconfirmation = true;
+  current.questionSetRequiresReconfirmation = true;
+
+  const result = reconcileSettingsAfterQuestionSetConfirm(current);
+
+  assert.equal(result.questionGenerationPolicy.questionSetRequiresReconfirmation, false);
+  assert.equal(result.questionSetRequiresReconfirmation, false);
+  assert.equal(current.questionGenerationPolicy.questionSetRequiresReconfirmation, true);
+  assert.equal(current.questionSetRequiresReconfirmation, true);
+}
+
 testRemovesQuestionsLinkedToReplacedCriteria();
 testKeepsQuestionsLinkedToRetainedCriteria();
 testDoesNotMutateCurrentSettings();
+testClearsQuestionSetReconfirmationAfterConfirm();
 
 console.log("interview-settings-sync.spec: all assertions passed");

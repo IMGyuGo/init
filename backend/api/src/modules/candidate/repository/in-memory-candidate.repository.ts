@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import type { DemoPresetReadinessProjectionDto } from "@init/common";
 import { DEV_CANDIDATE_USER, FORBIDDEN_FILE_PAYLOAD_FIELDS } from "../candidate.constants";
 import { CandidateDomainError } from "../candidate.errors";
 import {
@@ -301,24 +302,51 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     return this.interviewSessions.find((session) => session.applicationId === applicationId);
   }
 
-  async ensureInterviewSessionByApplication(applicationId: number): Promise<InterviewSession | undefined> {
+  async ensureInterviewSessionByApplication(
+    applicationId: number,
+    mode: "STANDARD" | "DEMO_PRESET" = "STANDARD",
+  ): Promise<InterviewSession | undefined> {
     const existing = await this.findInterviewSessionByApplication(applicationId);
-    if (existing) return existing;
+    if (existing) {
+      if (existing.sessionMode !== mode) {
+        throw new CandidateDomainError(
+          "INTERVIEW_SESSION_MODE_CONFLICT",
+          "이미 다른 방식의 공식 면접이 시작되었습니다.",
+          409,
+          [{ field: "mode", reason: `existing mode is ${existing.sessionMode}` }],
+        );
+      }
+      return existing;
+    }
 
     const application = await this.findApplication(applicationId);
     if (!application) return undefined;
 
-    const session = this.createRecruitingInterviewSession(application, new Date().toISOString());
+    const session = this.createRecruitingInterviewSession(application, new Date().toISOString(), mode);
     this.interviewSessions.push(session);
     return session;
   }
 
+  async getDemoPresetReadiness(applicationId: number): Promise<DemoPresetReadinessProjectionDto> {
+    const existing = await this.findInterviewSessionByApplication(applicationId);
+    if (existing) {
+      const canResumeDemo = existing.sessionMode === "DEMO_PRESET" &&
+        Date.parse(existing.windowEndsAt) > Date.now() &&
+        (existing.status === "READY" || existing.status === "IN_PROGRESS");
+      return canResumeDemo
+        ? { status: "READY" as const, canStart: true, reasonCode: "OFFICIAL_SESSION_EXISTS" as const, existingSessionId: existing.sessionId, existingSessionMode: existing.sessionMode }
+        : { status: "UNAVAILABLE" as const, canStart: false, reasonCode: existing.sessionMode === "DEMO_PRESET" ? "OFFICIAL_SESSION_EXISTS" as const : "OFFICIAL_SESSION_MODE_CONFLICT" as const, existingSessionId: existing.sessionId, existingSessionMode: existing.sessionMode };
+    }
+    return { status: "UNAVAILABLE", canStart: false, reasonCode: "CONFIGURATION_COVERAGE_MISMATCH", existingSessionId: null, existingSessionMode: null };
+  }
+
   async prepareInterviewSessionQuestionSnapshot(
     applicationId: number,
+    mode: "STANDARD" | "DEMO_PRESET" = "STANDARD",
   ): Promise<InterviewQuestionSnapshotResult | undefined> {
     const application = await this.findApplication(applicationId);
     if (!application) return undefined;
-    const session = await this.ensureInterviewSessionByApplication(applicationId);
+    const session = await this.ensureInterviewSessionByApplication(applicationId, mode);
     if (!session) return undefined;
     return {
       readiness: "READY",
@@ -333,6 +361,7 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       expectedPersonalizedQuestionCount: 0,
       policyVersion: 0,
       criteriaVersion: 0,
+      sessionMode: mode,
     };
   }
 
@@ -614,13 +643,18 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     items.splice(0, items.length, ...remaining);
   }
 
-  private createRecruitingInterviewSession(application: Application, createdAt: string): InterviewSession {
+  private createRecruitingInterviewSession(
+    application: Application,
+    createdAt: string,
+    sessionMode: "STANDARD" | "DEMO_PRESET" = "STANDARD",
+  ): InterviewSession {
     const windowEndsAt = new Date(Date.parse(createdAt) + 7 * 24 * 60 * 60 * 1000).toISOString();
     return {
       sessionId: this.interviewSessions.length + 1,
       applicationId: application.applicationId,
       candidateId: application.candidateId,
       interviewType: "RECRUITING",
+      sessionMode,
       status: "NOT_READY",
       showQuestionText: true,
       windowStartsAt: createdAt,

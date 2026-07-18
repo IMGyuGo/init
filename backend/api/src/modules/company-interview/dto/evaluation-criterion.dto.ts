@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsInt,
   IsIn,
   IsOptional,
@@ -66,6 +67,10 @@ export class UpdateEvaluationCriterionDto {
   @ValidateNested({ each: true })
   @Type(() => EvaluationCriterionItemDto)
   criteria!: EvaluationCriterionItemDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  confirmQuestionImpact?: boolean;
 }
 
 export class EvaluationCriterionResponseItemDto {
@@ -80,6 +85,7 @@ export class EvaluationCriterionResponseItemDto {
   ncsProfileId!: NcsProfileId | null;
   ncsQuestionMode!: NcsQuestionMode | null;
   ncsProfileVersion!: string | null;
+  isActive!: boolean;
 }
 
 export class EvaluationCriterionResponseDto {
@@ -88,4 +94,12 @@ export class EvaluationCriterionResponseDto {
   totalWeight!: number;
   evaluationFramework!: EvaluationFramework;
   criteriaVersion!: number;
+  configurationLocked!: boolean;
+  configurationLockedReason!: 'SUBMITTED_APPLICATION_EXISTS' | null;
+  questionImpactByProfile!: Array<{
+    ncsProfileId: NcsProfileId;
+    exclusivelyBoundActiveQuestionCount: number;
+    multiBoundActiveQuestionCount: number;
+  }>;
+  questionSetRequiresReconfirmation!: boolean;
 }

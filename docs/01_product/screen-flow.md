@@ -76,11 +76,33 @@ NQ-M1 이후 면접 설정은 평가 기준과 질문 출처를 아래 순서로
 ```
 
 - 1단계에서 `NCS_3_PROFILE_V1`을 선택하면 세 기준을 추가·삭제해 임의 조합하지 않는다. 배점과 순서는 편집할 수 있지만 profile binding은 서버가 제공한다.
+- `NCS_ACTIVE_PROFILE_V2`에서는 canonical 세 기준을 유지하되 `weight=0`인 기준을 비활성으로 해석한다. 활성 기준은 1~3개, 활성 배점 합계는 100이어야 한다.
+- 지원서 제출 이력이 생긴 공고의 평가 체계·기준·질문 정책은 잠근다. 연결 질문이 있는 기준을 비활성화하려면 질문 영향 확인을 거친다.
 - 2단계는 `JD·평가 기준 공통 질문`과 `이력서 개인화 질문` 개수를 별도 numeric control로 입력한다.
 - JD 공통 질문은 설정 화면에서 즉시 생성하고 면접관이 적용한다.
 - 이력서 질문은 아직 지원자가 없으면 `지원 후 생성`, 문서 추출 대기면 `이력서 분석 대기`, 생성 중이면 `생성 중`, 완료면 `준비 완료`, 실패/검토 필요면 해당 상태를 표시한다.
 - `REVIEW_REQUIRED` 또는 `FAILED`인데 이력서 질문 수가 1 이상인 지원자는 면접 세션을 자동 생성하지 않는다. 공통 질문만으로 조용히 대체하지 않는다.
 - 지원자 화면에는 개인화 질문 생성 내부 상태, 이력서 추출 텍스트, 정렬점수·실패 사유를 노출하지 않는다. 면접 준비가 끝나지 않았으면 일반적인 `면접 준비 중` 상태만 표시한다.
+
+### Official Three-question Demo Flow
+
+`NCS_ACTIVE_PROFILE_V2`의 공식 데모는 STANDARD 면접을 축약하지 않고 별도 `DEMO_PRESET` 사용 범위와 공식 세션 mode로 고정한다.
+
+```text
+활성 기준 3개 + 확정 STANDARD 공통 질문 확인
+-> 지원자 문서 factual anchor + DEMO_PRESET 개인화 질문 확인
+-> readiness READY
+-> DEMO_PRESET 공식 세션 시작
+-> 공통 1개
+-> 개인화 BASE 1개(JOB_TECHNICAL + PROBLEM_SOLVING)
+-> 개인화 follow-up 1개(원본 binding 상속)
+-> 총 3문항 snapshot 확정
+```
+
+- 공통 질문은 활성 STANDARD 공통 풀에서 `COLLABORATION_COMMUNICATION` 단일 binding 질문을 서버가 선택한다.
+- 개인화 BASE는 `DEMO_PRESET` batch에서 `JOB_TECHNICAL`과 `PROBLEM_SOLVING` 두 binding을 가진 질문을 서버가 선택한다.
+- 동일 mode 재호출은 `READY` 또는 `IN_PROGRESS`이고 응시 기간이 남은 기존 공식 세션만 재개한다. 완료·실패·만료 세션은 재개 버튼을 노출하지 않으며, 이미 다른 mode의 공식 세션이 있으면 새 세션을 만들지 않는다.
+- 준비 불가 상태는 내부 추적번호가 아니라 설정, 질문 풀, 문서 anchor, 기존 세션 등 사용자가 해결할 수 있는 사유로 안내한다.
 
 ## Screen Catalog
 
@@ -99,7 +121,7 @@ NQ-M1 이후 면접 설정은 평가 기준과 질문 출처를 아래 순서로
 | 채용 공고 관리 화면 | /company/recruitments | 기업 | 채용관리 (GNB button) | GET /company/recruitments / GET /company/recruitments?keyword={keyword}&status={status} / /company/recruitments/new / /company/recruitments/{recruitmentId} / /company/recruitments/{recruitmentId}/settings / POST /company/recruitments/{recruitmentId}/copy |
 | 공고 생성 화면 | /company/recruitments/new | 기업 | 채용관리 (GNB button) | POST /company/recruitments / POST /company/recruitments/ai-draft / GET /ai/jobs/{processLogId}/status |
 | 면접 설정 브릿지 화면 | /company/recruitments/{recruitmentId}/interview-settings | 기업 | 채용관리 (GNB button) | GET /company/recruitments/{recruitmentId} / PATCH /company/recruitments/{recruitmentId} |
-| 면접 관리 화면 | /company/interviews/settings | 기업 | 채용관리 (GNB button) | GET /company/interviews/settings / POST /company/interviews/evaluation-criteria/suggest / PATCH /company/interviews/evaluation-criteria / PATCH /company/interviews/question-generation-policy / POST /company/interviews/questions / POST /company/interviews/questions/generate / POST /company/interviews/question-sets / PATCH /company/interviews/time-policy |
+| 면접 관리 화면 | /company/interviews/settings | 기업 | 채용관리 (GNB button) | GET /company/interviews/settings / POST /company/interviews/evaluation-criteria/suggest / PATCH /company/interviews/evaluation-criteria / PATCH /company/interviews/question-generation-policy / POST /company/interviews/questions / POST /company/interviews/questions/generate / POST /company/interviews/question-sets / PATCH /company/interviews/time-policy / GET /candidate/applications/{applicationId}/interview-guide |
 | 회사 정보 관리 화면 | /company/mypage | 기업 | 회사 정보 관리 (GNB button) | PATCH /company/profile / POST /company/profile/logo / PATCH /company/notifications/settings |
 | AI 모의면접 시작 화면 | /candidate/mock-interview/start | 지원자 | AI 모의면접 (GNB button) | POST /candidate/mock-interviews / POST /candidate/mock-interviews/questions/generate |
 | AI 모의면접 진행 화면 | /candidate/mock-interviews/{sessionId} | 지원자 | AI 모의면접 (GNB button) | GET /candidate/mock-interviews/{sessionId} / GET /candidate/mock-interviews/{sessionId}/questions / POST /candidate/mock-interviews/{sessionId}/answers / POST /candidate/mock-interviews/{sessionId}/next-question / POST /candidate/mock-interviews/{sessionId}/stt / POST /candidate/mock-interviews/{sessionId}/follow-up-question / PATCH /candidate/mock-interviews/{sessionId}/complete |

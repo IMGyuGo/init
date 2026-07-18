@@ -74,6 +74,62 @@ test("aggregateNcsFinalEvaluation rejects a missing profile policy and invalid t
   assert.equal(result.incompleteReasons.some((reason) => reason.code === "SESSION_SNAPSHOT_MISSING"), true);
 });
 
+test("V2 emits only active profiles and accepts one scored question per active profile", () => {
+  const activePolicies = [
+    { ...policy("JOB_TECHNICAL", 60), requiredQuestionCount: 1 },
+    { ...policy("PROBLEM_SOLVING", 40), requiredQuestionCount: 1 },
+  ];
+  const result = aggregateNcsFinalEvaluation(
+    activePolicies,
+    [
+      scored(1, 201, "JOB_TECHNICAL", 5),
+      scored(1, 201, "PROBLEM_SOLVING", 4),
+    ],
+    [],
+    "NCS_RECRUITING_SCORING_V2",
+  );
+
+  assert.equal(result.scoringVersion, "NCS_RECRUITING_SCORING_V2");
+  assert.equal(result.completionStatus, "COMPLETE");
+  assert.deepEqual(result.profiles.map((profile) => profile.ncsProfileId), [
+    "JOB_TECHNICAL",
+    "PROBLEM_SOLVING",
+  ]);
+  assert.equal(result.profiles.some((profile) => profile.ncsProfileId === "COLLABORATION_COMMUNICATION"), false);
+});
+
+test("V2 supports one and three active profile snapshots", () => {
+  for (const activePolicies of [
+    [{ ...policy("JOB_TECHNICAL", 100), requiredQuestionCount: 1 }],
+    [
+      { ...policy("JOB_TECHNICAL", 30), requiredQuestionCount: 1 },
+      { ...policy("COLLABORATION_COMMUNICATION", 30), requiredQuestionCount: 1 },
+      { ...policy("PROBLEM_SOLVING", 40), requiredQuestionCount: 1 },
+    ],
+  ]) {
+    const result = aggregateNcsFinalEvaluation(
+      activePolicies,
+      activePolicies.map((item, index) => scored(index + 20, index + 220, item.ncsProfileId, 5)),
+      [],
+      "NCS_RECRUITING_SCORING_V2",
+    );
+    assert.equal(result.completionStatus, "COMPLETE");
+    assert.equal(result.profiles.length, activePolicies.length);
+  }
+});
+
+test("V2 keeps an incomplete active profile total null", () => {
+  const result = aggregateNcsFinalEvaluation(
+    [{ ...policy("JOB_TECHNICAL", 100), requiredQuestionCount: 1 }],
+    [],
+    [],
+    "NCS_RECRUITING_SCORING_V2",
+  );
+  assert.equal(result.completionStatus, "INCOMPLETE");
+  assert.equal(result.totalScore, null);
+  assert.equal(result.aiDecision, "FAIL");
+});
+
 function policy(ncsProfileId: NcsSessionPolicyInput["ncsProfileId"], weight: number): NcsSessionPolicyInput {
   return {
     ncsProfileId,

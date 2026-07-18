@@ -118,6 +118,76 @@ test("OpenAiAiTaskHandler blocks follow-up output that leaks contact information
   assert.match(handled.guardrail?.reason ?? "", /contact information|URL/);
 });
 
+test("DEMO_PRESET follow-up retries once then uses an answer-grounded fallback", async () => {
+  const results = new InMemoryAiResultRepository();
+  let calls = 0;
+  const failingProvider: FollowUpAiProvider = {
+    async generateFollowUpQuestion() {
+      calls += 1;
+      throw new Error("provider unavailable");
+    },
+  };
+  const handler = new OpenAiAiTaskHandler(new MockAiTaskHandler(results), results, failingProvider);
+  const handled = await handler.handle({
+    processLogId: 32,
+    processType: "FOLLOW_UP",
+    attempt: 1,
+    inputRef: JSON.stringify({
+      kind: "RECRUITING_FOLLOW_UP",
+      payload: {
+        sessionId: 8,
+        answerId: 12,
+        previousQuestion: "Redis 장애 개선 경험을 설명해주세요.",
+        transcript: "Redis 장애 로그를 분석하고 우회 대안을 적용한 뒤 p95 지표로 결과를 검증했습니다.",
+        jobDescription: "백엔드 시스템 운영",
+        usageScope: "DEMO_PRESET",
+        generationSource: "RESUME_PERSONALIZED",
+      },
+    }),
+  });
+
+  await handled.finalSave?.();
+  const output = JSON.parse(handled.outputRef ?? "{}") as Record<string, unknown>;
+  assert.equal(calls, 2);
+  assert.equal(output.fallbackUsed, true);
+  assert.equal(output.attempts, 2);
+  assert.match(String(output.content), /Redis|방금 답변/);
+  assert.equal(results.followUpQuestions[0]?.usageScope, "DEMO_PRESET");
+});
+
+test("DEMO_PRESET common questions do not call the follow-up provider", async () => {
+  const results = new InMemoryAiResultRepository();
+  let calls = 0;
+  const countingProvider: FollowUpAiProvider = {
+    async generateFollowUpQuestion() {
+      calls += 1;
+      return { content: "호출되면 안 됩니다?", model: "test" };
+    },
+  };
+  const handler = new OpenAiAiTaskHandler(new MockAiTaskHandler(results), results, countingProvider);
+  const handled = await handler.handle({
+    processLogId: 33,
+    processType: "FOLLOW_UP",
+    attempt: 1,
+    inputRef: JSON.stringify({
+      kind: "RECRUITING_FOLLOW_UP",
+      payload: {
+        sessionId: 8,
+        answerId: 13,
+        previousQuestion: "협업 경험을 설명해주세요.",
+        transcript: "팀과 합의했습니다.",
+        jobDescription: "백엔드 시스템 운영",
+        usageScope: "DEMO_PRESET",
+        generationSource: "JD_CRITERIA",
+      },
+    }),
+  });
+
+  await handled.finalSave?.();
+  assert.equal(calls, 0);
+  assert.equal(results.followUpQuestions[0]?.required, false);
+});
+
 test("OpenAiAiTaskHandler uses provider for final report generation and keeps save contract", async () => {
   const results = new InMemoryAiResultRepository();
   const reportInputs: ReportGenerationInput[] = [];
@@ -808,6 +878,115 @@ test("OpenAiAiTaskHandler allows technical incident wording in personalized ques
   assert.equal(handled.guardrail?.result, "PASS");
   await handled.finalSave?.();
   assert.equal(results.resumeQuestionResults.get(102)?.status, "READY");
+});
+
+test("DEMO_PRESET personalized generation retries once then uses the factual-anchor template", async () => {
+  const results = new InMemoryAiResultRepository();
+  let calls = 0;
+  const questionProvider: QuestionAiProvider = {
+    async generateQuestions() {
+      calls += 1;
+      throw new Error("provider unavailable");
+    },
+  };
+  const reference = {
+    processLogId: 243,
+    applicationId: 103,
+    postingId: 7,
+    documentId: 1003,
+    policyVersion: 4,
+    criteriaVersion: 3,
+    inputVersion: "demo-input-103",
+    resumeDocumentHash: "resume-hash-103",
+    jdSnapshotHash: "jd-hash-7",
+    usageScope: "DEMO_PRESET" as const,
+  };
+  const factualAnchor = "Redis 장애 로그를 분석하고 우회 대안을 적용한 뒤 p95 지표를 검증했습니다";
+  results.setResumeQuestionGenerationContext({
+    ...reference,
+    batchId: 2003,
+    questionCount: 1,
+    jobDescription: "백엔드 시스템 운영",
+    resumeText: factualAnchor,
+    factualAnchor,
+    criteria: [
+      {
+        criterionId: 1,
+        name: "직무 수행 역량",
+        category: "NCS",
+        questionCount: 1,
+        ncsProfileId: "JOB_TECHNICAL",
+        ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+        ncsProfileVersion: "2025.12-v1",
+      },
+      {
+        criterionId: 2,
+        name: "문제 해결력",
+        category: "NCS",
+        questionCount: 0,
+        ncsProfileId: "PROBLEM_SOLVING",
+        ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+        ncsProfileVersion: "2025.12-v1",
+      },
+    ],
+  });
+  const handler = new OpenAiAiTaskHandler(
+    new MockAiTaskHandler(results), results, provider, undefined, undefined, questionProvider,
+  );
+  const handled = await handler.handle({
+    processLogId: reference.processLogId,
+    processType: "RESUME_QUESTION_GENERATE",
+    attempt: 1,
+    inputRef: JSON.stringify(reference),
+  });
+  await handled.finalSave?.();
+
+  const output = JSON.parse(handled.outputRef ?? "{}") as Record<string, unknown>;
+  const saved = results.scopedResumeQuestionResults.get("103:DEMO_PRESET");
+  assert.equal(calls, 2);
+  assert.equal(output.fallbackUsed, true);
+  assert.equal(saved?.questions.length, 1);
+  assert.equal(saved?.questions[0]?.content.includes(factualAnchor), true);
+  assert.deepEqual(saved?.questions[0]?.ncsBindings?.map((binding) => binding.ncsProfileId), [
+    "JOB_TECHNICAL",
+    "PROBLEM_SOLVING",
+  ]);
+});
+
+test("missing DEMO_PRESET factual anchor fails only the demo scope", async () => {
+  const results = new InMemoryAiResultRepository();
+  const reference = {
+    processLogId: 244,
+    applicationId: 104,
+    postingId: 7,
+    documentId: 1004,
+    policyVersion: 4,
+    criteriaVersion: 3,
+    inputVersion: "demo-input-104",
+    resumeDocumentHash: "resume-hash-104",
+    jdSnapshotHash: "jd-hash-7",
+    usageScope: "DEMO_PRESET" as const,
+  };
+  results.setResumeQuestionGenerationContext({
+    ...reference,
+    batchId: 2004,
+    questionCount: 1,
+    jobDescription: "백엔드 시스템 운영",
+    resumeText: "일반적인 자기소개",
+    factualAnchor: null,
+    criteria: [],
+  });
+  const handler = new OpenAiAiTaskHandler(new MockAiTaskHandler(results), results, provider);
+  const handled = await handler.handle({
+    processLogId: reference.processLogId,
+    processType: "RESUME_QUESTION_GENERATE",
+    attempt: 1,
+    inputRef: JSON.stringify(reference),
+  });
+  await handled.finalSave?.();
+
+  assert.equal(results.scopedResumeQuestionResults.get("104:DEMO_PRESET")?.status, "FAILED");
+  assert.equal(results.resumeQuestionResults.has(104), false);
 });
 
 test("OpenAiAiTaskHandler leaves report pipeline steps on the fallback handler", async () => {

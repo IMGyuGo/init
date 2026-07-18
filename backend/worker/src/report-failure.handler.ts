@@ -71,6 +71,7 @@ function resumeQuestionReferenceFromJob(job: AiWorkerJob): ResumeQuestionJobRefe
       inputVersion: String(input.inputVersion ?? ""),
       resumeDocumentHash: String(input.resumeDocumentHash ?? ""),
       jdSnapshotHash: String(input.jdSnapshotHash ?? ""),
+      usageScope: input.usageScope === "DEMO_PRESET" ? "DEMO_PRESET" as const : "STANDARD" as const,
     };
     const positiveNumbers = [
       reference.processLogId,

@@ -76,3 +76,15 @@ output "cloudwatch_dashboard_name" {
 output "chatbot_slack_channel_configuration_arn" {
   value = aws_chatbot_slack_channel_configuration.ops_alerts.chat_configuration_arn
 }
+
+output "ngrinder_instance_id" {
+  value = var.enable_ngrinder ? aws_instance.ngrinder[0].id : null
+}
+
+output "ngrinder_public_ip" {
+  value = var.enable_ngrinder ? aws_instance.ngrinder[0].public_ip : null
+}
+
+output "ngrinder_controller_url" {
+  value = var.enable_ngrinder ? "http://${aws_instance.ngrinder[0].public_dns}:${var.ngrinder_controller_port}" : null
+}

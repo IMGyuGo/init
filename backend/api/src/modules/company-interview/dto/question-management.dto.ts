@@ -96,6 +96,7 @@ export class InterviewQuestionResponseItemDto {
   origin!: QuestionOrigin;
   isAiEdited!: boolean;
   isActive!: boolean;
+  usageScope!: 'STANDARD' | 'DEMO_PRESET';
   generationSource!: QuestionGenerationSource | null;
   ncsProfileId!: NcsProfileId | null;
   ncsQuestionMode!: NcsQuestionMode | null;

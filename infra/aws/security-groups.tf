@@ -50,6 +50,21 @@ resource "aws_vpc_security_group_egress_rule" "alb_all" {
   }
 }
 
+resource "aws_vpc_security_group_ingress_rule" "alb_http_ngrinder" {
+  count = var.enable_ngrinder ? 1 : 0
+
+  security_group_id            = aws_security_group.alb.id
+  referenced_security_group_id = aws_security_group.ngrinder[0].id
+  from_port                    = 80
+  ip_protocol                  = "tcp"
+  to_port                      = 80
+
+  tags = {
+    Name   = "${local.name_prefix}-alb-http-ngrinder"
+    Source = "ngrinder"
+  }
+}
+
 resource "aws_security_group" "ecs_frontend" {
   name        = "${local.name_prefix}-ecs-frontend"
   description = "Frontend ECS task ingress from ALB"
@@ -77,6 +92,47 @@ resource "aws_security_group" "ecs_worker" {
 
   tags = {
     Name = "${local.name_prefix}-ecs-worker"
+  }
+}
+
+resource "aws_security_group" "ngrinder" {
+  count = var.enable_ngrinder ? 1 : 0
+
+  name        = "${local.name_prefix}-ngrinder"
+  description = "nGrinder controller UI access from operator CIDRs and outbound load tests"
+  vpc_id      = aws_vpc.main.id
+
+  tags = {
+    Name    = "${local.name_prefix}-ngrinder"
+    Service = "ngrinder"
+  }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "ngrinder_controller_from_operator" {
+  for_each = var.enable_ngrinder ? toset(var.ngrinder_allowed_cidr_blocks) : toset([])
+
+  security_group_id = aws_security_group.ngrinder[0].id
+  cidr_ipv4         = each.value
+  from_port         = var.ngrinder_controller_port
+  ip_protocol       = "tcp"
+  to_port           = var.ngrinder_controller_port
+
+  tags = {
+    Name   = "${local.name_prefix}-ngrinder-controller"
+    Source = each.value
+  }
+}
+
+resource "aws_vpc_security_group_egress_rule" "ngrinder_all" {
+  count = var.enable_ngrinder ? 1 : 0
+
+  security_group_id = aws_security_group.ngrinder[0].id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1"
+
+  tags = {
+    Name    = "${local.name_prefix}-ngrinder-all-egress"
+    Service = "ngrinder"
   }
 }
 

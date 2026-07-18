@@ -8,6 +8,14 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { DependencyList, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FaceLandmarker as MediaPipeFaceLandmarker, NormalizedLandmark, ObjectDetector as MediaPipeObjectDetector } from "@mediapipe/tasks-vision";
 
+import {
+  clampPercent,
+  competencyBand,
+  CompetencyRadar,
+  ReportGauge,
+  scoreBand,
+} from "../interview-report/report-visuals";
+
 import { getApiBaseUrl } from "../../api/api-base-url";
 import { getAccessToken } from "../../api/client";
 import { sendClientPerformanceLog } from "../ai-performance/api";
@@ -66,6 +74,7 @@ import { CandidateProfileSection } from "./CandidateProfileSection";
 import { CandidateProfileSnapshotEditor } from "./CandidateProfileSnapshotEditor";
 import { isCandidateApplicationCancelable } from "./application-cancellation";
 import { isCandidateDemoCommandShortcut } from "./candidate-demo-tools";
+import { getRecruitingRuntimeTotalQuestions } from "./demo-preset-runtime";
 import {
   createRealtimeInterviewSpeechResponseEvent,
   createRealtimeInterviewWebRtcConnection,
@@ -529,6 +538,7 @@ type RuntimePageSession = {
   sessionId: number;
   applicationId?: number;
   interviewType: InterviewRuntimeSessionView["interviewType"];
+  sessionMode?: "STANDARD" | "DEMO_PRESET";
   status: InterviewRuntimeSessionView["status"];
   showQuestionText: boolean;
   canRecord: boolean;
@@ -1836,6 +1846,11 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
   const guide = data?.data;
   const guideInterviewAlreadyInProgress = guide?.interviewSessionStatus === "IN_PROGRESS";
   const guidePrimaryActionLabel = guideInterviewAlreadyInProgress ? "면접 재개" : "면접 시작";
+  const demoPresetActionLabel = guide?.demoPreset.reasonCode === "OFFICIAL_SESSION_EXISTS"
+    ? guide.demoPreset.status === "READY"
+      ? "공식 3문항 시연 이어하기"
+      : "공식 3문항 시연 이용 불가"
+    : "공식 3문항 시연 시작";
   const deviceTestSentence = useMemo(() => pickDeviceTestSentence(), []);
 
   // 동의 전(면접 안내 필요) 상태로 이 라우트에 직접 진입하면, 지원 내역 위에서 안내 모달이 뜨도록 리다이렉트한다. (#288)
@@ -2024,7 +2039,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
     }
   }
 
-  async function handleStartInterview() {
+  async function handleStartInterview(mode: "STANDARD" | "DEMO_PRESET" = "STANDARD") {
     warmUpInterviewAudioOutput();
     if (!guide) return;
     if (!cameraReady || !microphoneReady || !deviceState.networkStable) {
@@ -2047,7 +2062,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
       if (!guide.deviceCheckCompleted) {
         await getCandidateApi().saveDeviceCheck(guide.sessionId, toDeviceCheckRequest(deviceState));
       }
-      await getCandidateApi().startInterview(applicationId);
+      await getCandidateApi().startInterview(applicationId, mode);
       stopGuideCameraQualityMonitor();
       stopGuideMicrophoneMeter();
       stopMediaStream(mediaStreamRef.current);
@@ -2086,7 +2101,7 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
         await api.saveDeviceCheck(guide.sessionId, toDeviceCheckRequest(testDeviceState));
       }
       if (!guideInterviewAlreadyInProgress) {
-        await api.startInterview(applicationId);
+        await api.startInterview(applicationId, guide.sessionMode ?? "STANDARD");
       }
       rememberCameralessInterviewTestEntry("recruiting", guide.sessionId);
       router.push(candidateApplicationInterviewRoutes.interview(applicationId));
@@ -2129,6 +2144,12 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
                 </div>
 
                 <aside className="dvc__side">
+                  {guide.demoPreset ? (
+                    <div className="dvc__card" aria-live="polite">
+                      <h3>공식 3문항 시연</h3>
+                      <p>{getDemoPresetReadinessMessage(guide.demoPreset.reasonCode, guide.demoPreset.status)}</p>
+                    </div>
+                  ) : null}
                   <div className="dvc__card">
                     <h3>준비 상태</h3>
                     <ul className="dvc__check">
@@ -2229,10 +2250,18 @@ export function CandidateInterviewGuidePage({ applicationId }: { applicationId: 
                     </button>
                   ) : null}
                   <button
+                    className="btn secondary"
+                    type="button"
+                    disabled={busy || !guide.demoPreset?.canStart || !cameraReady || !microphoneReady || !deviceState.networkStable}
+                    onClick={() => void handleStartInterview("DEMO_PRESET")}
+                  >
+                    {demoPresetActionLabel}
+                  </button>
+                  <button
                     className="btn primary"
                     type="button"
                     disabled={busy || !cameraReady || !microphoneReady || !deviceState.networkStable}
-                    onClick={() => void handleStartInterview()}
+                    onClick={() => void handleStartInterview("STANDARD")}
                   >
                     {guidePrimaryActionLabel}
                   </button>
@@ -2778,6 +2807,8 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [generationRequested, setGenerationRequested] = useState(false);
+  // 실전 리포트처럼 종합/답변 탭으로 분리해 스크롤 부담을 줄인다. (#289)
+  const [tab, setTab] = useState<"overview" | "answers">("overview");
   const load = useCallback(async (): Promise<MockReportDetailData> => {
     const api = getCandidateApi();
     const [feedbackResult, mediaResult] = await Promise.allSettled([
@@ -2827,31 +2858,62 @@ export function CandidateMockReportDetailPage({ reportId }: { reportId: number }
         actions={<Link className="btn secondary" href={candidateApplicationInterviewRoutes.mockReports}>목록</Link>}
       />
       <StatusNotice loading={loading || busy} error={error} message={message} />
-      <section className="panel">
-        <div className="panel-head">
-          <div>
-            <h2>종합 피드백</h2>
-            <p>합격/탈락 판단이나 내부 점수는 노출하지 않습니다.</p>
-          </div>
-          {showReportRequestButton ? (
-            <button className="btn secondary" type="button" disabled={!canRequestReport} onClick={() => void handleGenerate()}>
-              {reportStatus === "FAILED" ? "분석 다시 요청" : "AI 분석 시작"}
-            </button>
-          ) : null}
+
+      <nav className="report-tabs" role="tablist" aria-label="모의면접 리포트 탭">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "overview"}
+          className={`report-tab${tab === "overview" ? " is-active" : ""}`}
+          onClick={() => setTab("overview")}
+        >
+          종합 피드백
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "answers"}
+          className={`report-tab${tab === "answers" ? " is-active" : ""}`}
+          onClick={() => setTab("answers")}
+        >
+          답변 스크립트
+        </button>
+      </nav>
+
+      {tab === "overview" ? (
+        <div className="report-tabpanel" role="tabpanel">
+          <section className="panel">
+            <div className="panel-head">
+              <div>
+                <h2>종합 피드백</h2>
+                <p>합격/탈락 판단이나 내부 점수는 노출하지 않습니다.</p>
+              </div>
+              {showReportRequestButton ? (
+                <button className="btn secondary" type="button" disabled={!canRequestReport} onClick={() => void handleGenerate()}>
+                  {reportStatus === "FAILED" ? "분석 다시 요청" : "AI 분석 시작"}
+                </button>
+              ) : null}
+            </div>
+            {data?.feedback && data.feedback.status === "COMPLETED"
+              ? <MockFeedbackView feedback={data.feedback} />
+              : <MockReportStatusPanel view={reportStatusView} />}
+          </section>
         </div>
-        {data?.feedback && data.feedback.status === "COMPLETED"
-          ? <MockFeedbackView feedback={data.feedback} />
-          : <MockReportStatusPanel view={reportStatusView} />}
-      </section>
-      <section className="panel">
-        <div className="panel-head">
-          <div>
-            <h2>답변 스크립트</h2>
-            <p>녹음 답변에서 변환된 텍스트와 생성된 꼬리질문을 확인합니다.</p>
-          </div>
+      ) : null}
+
+      {tab === "answers" ? (
+        <div className="report-tabpanel" role="tabpanel">
+          <section className="panel">
+            <div className="panel-head">
+              <div>
+                <h2>답변 스크립트</h2>
+                <p>녹음 답변에서 변환된 텍스트·비언어(아이트래킹) 분석과 생성된 꼬리질문을 확인합니다.</p>
+              </div>
+            </div>
+            {data?.media ? <MockMediaView media={data.media} /> : <p className="notice danger">{data?.mediaError ?? "미디어를 불러오지 못했습니다."}</p>}
+          </section>
         </div>
-        {data?.media ? <MockMediaView media={data.media} /> : <p className="notice danger">{data?.mediaError ?? "미디어를 불러오지 못했습니다."}</p>}
-      </section>
+      ) : null}
     </CandidatePageShell>
   );
 }
@@ -7364,13 +7426,20 @@ function InterviewRuntimePanel({
 
       const answerWithTranscript = { ...savedAnswer, transcript: normalizedTranscript };
       const isFollowUpAnswer = question?.questionType === "FOLLOW_UP";
+      const answeredQuestionIndex = question
+        ? data.questions.questions.findIndex((candidateQuestion) => candidateQuestion.questionId === question.questionId)
+        : -1;
+      const skipDemoCommonFollowUp =
+        mode === "recruiting" &&
+        data.runtime.sessionMode === "DEMO_PRESET" &&
+        answeredQuestionIndex === 0;
       setLastAnswer(answerWithTranscript);
 
       setAutoAiPipeline((current) => ({
         answerId: savedAnswer.answerId,
         ...current,
         sttStatus: "COMPLETED",
-        followUpStatus: isFollowUpAnswer ? "IDLE" : "PENDING",
+        followUpStatus: isFollowUpAnswer || skipDemoCommonFollowUp ? "IDLE" : "PENDING",
         sttProcessLogId,
         transcript: normalizedTranscript,
         failureCategory: undefined,
@@ -7379,15 +7448,14 @@ function InterviewRuntimePanel({
         error: undefined,
       }));
 
-      if (isFollowUpAnswer) {
-        const questionIndex = question
-          ? data.questions.questions.findIndex((candidateQuestion) => candidateQuestion.questionId === question.questionId)
-          : -1;
-        const isLastFollowUpQuestion = questionIndex >= 0
-          ? questionIndex >= data.runtime.totalQuestions - 1
+      if (isFollowUpAnswer || skipDemoCommonFollowUp) {
+        const isLastFollowUpQuestion = answeredQuestionIndex >= 0
+          ? answeredQuestionIndex >= data.runtime.totalQuestions - 1
           : false;
         setMessage(
-          isLastFollowUpQuestion
+          skipDemoCommonFollowUp
+            ? "협업 공통 답변이 저장되었습니다. 개인화 질문으로 이동해주세요."
+            : isLastFollowUpQuestion
             ? "마지막 답변 처리가 완료되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
             : "답변 처리가 완료되었습니다. 다음 질문으로 이동해주세요.",
         );
@@ -7395,7 +7463,7 @@ function InterviewRuntimePanel({
           questionId: savedAnswer.questionId,
           processLogId: sttProcessLogId,
           sttProcessLogId,
-          outcome: isLastFollowUpQuestion ? "INTERVIEW_COMPLETE_READY" : "NEXT_QUESTION_READY",
+          outcome: skipDemoCommonFollowUp ? "DEMO_COMMON_NEXT_READY" : isLastFollowUpQuestion ? "INTERVIEW_COMPLETE_READY" : "NEXT_QUESTION_READY",
           nextReady: true,
         });
         return;
@@ -9700,51 +9768,146 @@ function isReportNotReadyMessage(message: string): boolean {
   return message.includes("Report is not ready") || message.includes("REPORT_NOT_READY");
 }
 
+// 모의 리포트 종합 — 실전(기업) 리포트와 동일한 게이지+레이더+강점/보완 레이아웃. (#289)
+// 연습용 정책(visibilityPolicy)에 따라 합격/탈락 판정·내부 점수는 노출하지 않는다.
 function MockFeedbackView({ feedback }: { feedback: CandidateMockReportFeedback }) {
   const scores = feedback.scores ?? [];
-  const improvementItems = feedback.improvements.length > 0
-    ? feedback.improvements
-    : buildMockReportImprovementItems(scores);
-  const nextPracticeItems = feedback.nextPractice.length > 0
-    ? feedback.nextPractice
-    : buildMockReportPracticeItems(scores);
+  const [selectedScoreId, setSelectedScoreId] = useState<number>(-1);
+  const improvementItems = feedback.improvements;
+  const nextPracticeItems = feedback.nextPractice;
+
+  const totalScore = feedback.totalScore ?? null;
+  const band = scoreBand(totalScore);
+  const topScore = scores.length > 0 ? [...scores].sort((a, b) => b.score - a.score)[0] : null;
+  const selectedScore = scores.find((score) => score.scoreId === selectedScoreId) ?? topScore;
+  const radarReady = scores.length >= 3;
 
   return (
-    <div className="detail-stack">
-      <div className="report-summary-callout">
-        <span className="report-summary-callout__icon" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a7 7 0 0 0-4 12.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3A7 7 0 0 0 12 2z" /><path d="M9 21h6" /></svg>
-        </span>
-        <p>{feedback.summary ?? "리포트 생성 중입니다."}</p>
+    <div className="report-overview">
+      <div className="report-score-hero">
+        <ReportGauge score={totalScore} tone="accent" valueLabel="종합 점수" emptyLabel="점수 준비 중" />
+        <div className="report-score-side">
+          <span className="report-result-row">
+            {band ? <span className={`report-score-band band-${band.tone}`}>{band.label}</span> : null}
+            <span className="report-cutline-caption">연습용 리포트 · 합격/탈락 판정은 제공하지 않아요</span>
+          </span>
+          <p className="report-summary-text">{feedback.summary ?? "리포트 요약이 아직 없습니다."}</p>
+        </div>
       </div>
-      {scores.length ? null : <ListBlock title="강점" items={feedback.strengths} />}
-      <ListBlock title="개선점" items={improvementItems} />
-      <ListBlock title="다음 연습" items={nextPracticeItems} />
-      <ReportScoreList scores={scores} />
+
+      {scores.length ? (
+        <div className="report-competency">
+          <h3>역량별 평가</h3>
+          {radarReady ? (
+            <div className="report-competency-layout">
+              <div className="report-radar-wrap">
+                <CompetencyRadar
+                  items={scores.map((score) => ({
+                    id: score.scoreId,
+                    name: score.criterionName ?? "역량",
+                    value: clampPercent(score.score),
+                    cutline: null,
+                  }))}
+                  selectedId={selectedScore?.scoreId ?? -1}
+                  onSelect={setSelectedScoreId}
+                />
+                <p className="report-radar-hint">그래프의 역량을 클릭하면 오른쪽에서 근거를 볼 수 있어요.</p>
+              </div>
+              {selectedScore ? <MockCompetencyDetailCard score={selectedScore} /> : null}
+            </div>
+          ) : (
+            <ReportScoreList scores={scores} />
+          )}
+        </div>
+      ) : null}
+
+      {feedback.strengths.length > 0 || improvementItems.length > 0 ? (
+        <div className="mockfb-findings">
+          {feedback.strengths.length > 0 ? (
+            <div className="mockfb-card is-strength">
+              <div className="mockfb-card-head">
+                <span className="mockfb-card-icon" aria-hidden="true">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                </span>
+                <h3>잘한 점</h3>
+              </div>
+              <ul>
+                {feedback.strengths.map((text, index) => (
+                  <li key={`strength-${index}`}>{text}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {improvementItems.length > 0 ? (
+            <div className="mockfb-card is-improve">
+              <div className="mockfb-card-head">
+                <span className="mockfb-card-icon" aria-hidden="true">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5" /><path d="m5 12 7-7 7 7" /></svg>
+                </span>
+                <h3>보완할 점</h3>
+              </div>
+              <ul>
+                {improvementItems.map((text, index) => (
+                  <li key={`improve-${index}`}>{text}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {nextPracticeItems.length > 0 ? (
+        <div className="mockfb-practice">
+          <div className="mockfb-practice-head">
+            <h3>다음 연습</h3>
+            <span>다음 모의면접 전에 이것만 해보세요</span>
+          </div>
+          <ol className="mockfb-practice-steps">
+            {nextPracticeItems.map((text, index) => (
+              <li key={`practice-${index}`}>
+                <span className="mockfb-step-number" aria-hidden="true">{index + 1}</span>
+                <p>{text}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
+
+      {feedback.strengths.length === 0 && improvementItems.length === 0 && nextPracticeItems.length === 0 ? (
+        <div className="empty">AI가 제공한 연습 피드백이 없습니다.</div>
+      ) : null}
     </div>
   );
 }
 
-function buildMockReportImprovementItems(scores: CandidateReportScoreView[]): string[] {
-  if (!scores.length) {
-    return ["답변별 상황, 본인 행동, 결과를 구분해서 말하면 피드백 정확도가 높아집니다."];
-  }
-
-  return [...scores]
-    .sort((left, right) => left.score - right.score)
-    .slice(0, 3)
-    .map((score) => `${score.criterionName} 답변은 사례의 배경, 본인 행동, 결과를 조금 더 분리해서 말하면 좋아집니다.`);
-}
-
-function buildMockReportPracticeItems(scores: CandidateReportScoreView[]): string[] {
-  if (!scores.length) {
-    return ["다음 연습에서는 한 답변 안에 문제 상황, 내가 한 일, 확인한 결과를 차례로 담아 보세요."];
-  }
-
-  const lowestScore = [...scores].sort((left, right) => left.score - right.score)[0];
-  return [
-    `${lowestScore.criterionName} 항목을 중심으로 STAR 방식으로 30초 답변을 다시 연습해 보세요.`,
-  ];
+// 모의 레이더에서 선택한 역량 상세. 실전 CompetencyDetailCard와 동일 톤(가중치·합격선 없는 연습용). (#289)
+function MockCompetencyDetailCard({ score }: { score: CandidateReportScoreView }) {
+  const band = competencyBand(score.score);
+  return (
+    <aside className="report-competency-detailpanel" key={score.scoreId}>
+      <div className="report-competency-detailpanel-head">
+        <span className="report-competency-namewrap">
+          <span className="report-competency-name">{score.criterionName ?? "역량"}</span>
+        </span>
+        <span className="report-competency-detailpanel-score">
+          <span className={`report-competency-band tone-${band.tone}`}>{band.label}</span>
+          <span className={`report-competency-score tone-${band.tone}`}>{score.score}</span>
+        </span>
+      </div>
+      {score.rationale?.trim() ? (
+        <p className="report-competency-rationale">{score.rationale}</p>
+      ) : (
+        <p className="report-competency-rationale is-empty">등록된 근거가 없습니다.</p>
+      )}
+      {score.evidences.length > 0 ? (
+        <div className="report-competency-evidence">
+          {score.evidences.map((evidence) => (
+            <blockquote key={evidence.evidenceId}>{evidence.evidenceText}</blockquote>
+          ))}
+        </div>
+      ) : null}
+    </aside>
+  );
 }
 
 function MockMediaView({ media }: { media: CandidateMockReportMedia }) {
@@ -9825,7 +9988,6 @@ function MockMediaAnswerCard({
     ?? getMockReportMediaPlaybackUrl(mediaBaseUrl, item.videoFile?.fileId);
   const audioUrl = getCachedRecordingObjectUrl(item.audioFile?.storageKey)
     ?? getMockReportMediaPlaybackUrl(mediaBaseUrl, item.audioFile?.fileId);
-  const practiceGuide = buildMockAnswerPracticeGuide(item);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playbackTimeMs, setPlaybackTimeMs] = useState(0);
   const videoPlaceholderMessage = item.videoFile
@@ -9881,8 +10043,6 @@ function MockMediaAnswerCard({
             transcriptUnavailableReason={item.transcriptUnavailableReason}
           />
           <FollowUpQuestionList questions={item.followUpQuestions} />
-          <MockNonverbalFeedbackView metadata={item.nonverbalMetadata} />
-          <AnswerPracticeGuideView guide={practiceGuide} />
           <dl className="report-answer-meta">
             <Definition label="답변 시간" value={`${item.durationSeconds}s`} />
           </dl>
@@ -9893,13 +10053,19 @@ function MockMediaAnswerCard({
           ) : null}
         </div>
       </div>
-      <MockVisualAnalysisPanel
-        metadata={item.nonverbalMetadata}
-        durationMs={Math.max(1000, item.durationSeconds * 1000)}
-        playbackTimeMs={playbackTimeMs}
-        videoAvailable={Boolean(videoUrl)}
-        onSeek={seekVideo}
-      />
+      <details className="report-answer-detail">
+        <summary>상세 보기</summary>
+        <div className="report-answer-detail__body">
+          <MockVisualAnalysisPanel
+            metadata={item.nonverbalMetadata}
+            durationMs={Math.max(1000, item.durationSeconds * 1000)}
+            playbackTimeMs={playbackTimeMs}
+            videoAvailable={Boolean(videoUrl)}
+            onSeek={seekVideo}
+          />
+          <MockNonverbalFeedbackView metadata={item.nonverbalMetadata} />
+        </div>
+      </details>
     </article>
   );
 }
@@ -10001,7 +10167,7 @@ function MockVisualAnalysisPanel({
               durationMs={analysisDurationMs}
               playbackTimeMs={playbackTimeMs}
               series={[
-                { label: "좌우", color: "#6257e7", value: (sample) => sample.horizontalOffset },
+                { label: "좌우", color: "#3B6FE0", value: (sample) => sample.horizontalOffset },
                 { label: "상하", color: "#159a8c", value: (sample) => sample.verticalOffset },
               ]}
               minimumScale={0.2}
@@ -10022,7 +10188,7 @@ function MockVisualAnalysisPanel({
             durationMs={analysisDurationMs}
             playbackTimeMs={playbackTimeMs}
             series={[
-              { label: "좌우", color: "#6257e7", value: (sample) => sample.yawDegrees },
+              { label: "좌우", color: "#3B6FE0", value: (sample) => sample.yawDegrees },
               { label: "상하", color: "#159a8c", value: (sample) => sample.pitchDegrees },
               { label: "기울기", color: "#d97706", value: (sample) => sample.rollDegrees },
             ]}
@@ -10266,11 +10432,6 @@ function formatAnalysisTime(timeMs: number) {
   return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
-type AnswerPracticeGuide = {
-  example: string;
-  gaps: string[];
-};
-
 type MockNonverbalSummary = {
   answerCount: number;
   answersWithMetadata: number;
@@ -10291,38 +10452,58 @@ type MockNonverbalSummary = {
 function MockNonverbalSummaryPanel({ summary }: { summary: MockNonverbalSummary }) {
   if (summary.answersWithMetadata === 0) return null;
 
-  const guideItems = buildMockNonverbalSummaryGuide(summary);
-  const statusLabel = summary.integritySignalAnswers === 0 ? "무결성 안정" : "무결성 확인 필요";
+  const hasSignal = summary.integritySignalAnswers > 0;
+  const statusLabel = hasSignal ? "무결성 확인 필요" : "무결성 안정";
+
+  // 신호 있는 항목만 기본 노출, 0인 항목은 접기 안으로. (#289 정리)
+  const signalTiles = [
+    { label: "시선 이탈", count: summary.gazeAwaySignalAnswers },
+    { label: "화면 이탈", count: summary.screenAwaySignalAnswers },
+    { label: "카메라 이탈", count: summary.cameraIntegritySignalAnswers },
+    { label: "얼굴 이탈", count: summary.faceAwaySignalAnswers },
+    { label: "여러 사람", count: summary.multipleFaceSignalAnswers },
+    { label: "위치 급변", count: summary.faceShiftSignalAnswers },
+    { label: "음성-입모양", count: summary.voiceMouthMismatchSignalAnswers },
+    { label: "음성-얼굴", count: summary.voiceWithoutFaceSignalAnswers },
+    { label: "영상 고정", count: summary.staticVideoFrameSignalAnswers },
+    { label: "초반 이탈", count: summary.earlyScreenAwaySignalAnswers },
+  ];
+  const flaggedTiles = signalTiles.filter((tile) => tile.count > 0);
 
   return (
     <section className="report-nonverbal-summary">
       <div className="report-nonverbal-summary__head">
         <div>
-          <span>응시 무결성</span>
           <strong>모의면접 부정행위 의심 신호</strong>
-          <p>화면 이탈, 얼굴 화면 밖, 여러 사람 감지처럼 면접 중 응시 무결성 확인이 필요한 신호를 기록합니다. 확정 판정이 아니라 연습용 피드백입니다.</p>
+          <p>화면 이탈, 얼굴 화면 밖, 여러 사람 감지처럼 면접 중 응시 무결성 확인이 필요한 신호입니다. 확정 판정이 아니라 연습용 참고 정보예요.</p>
         </div>
         <StatusPill value={statusLabel} />
       </div>
-      <dl className="candidate-feature__summary compact report-nonverbal-summary__metrics">
-        <Definition label="분석 답변" value={`${summary.answersWithMetadata}/${summary.answerCount}`} />
-        <Definition label="무결성 확인" value={`${summary.integritySignalAnswers}`} />
-        <Definition label="화면 이탈" value={`${summary.screenAwaySignalAnswers}`} />
-        <Definition label="카메라 이탈" value={`${summary.cameraIntegritySignalAnswers}`} />
-        <Definition label="얼굴 이탈" value={`${summary.faceAwaySignalAnswers}`} />
-        <Definition label="여러 사람" value={`${summary.multipleFaceSignalAnswers}`} />
-        <Definition label="위치 급변" value={`${summary.faceShiftSignalAnswers}`} />
-        <Definition label="시선 이탈" value={`${summary.gazeAwaySignalAnswers}`} />
-        <Definition label="음성-입모양" value={`${summary.voiceMouthMismatchSignalAnswers}`} />
-        <Definition label="음성-얼굴" value={`${summary.voiceWithoutFaceSignalAnswers}`} />
-        <Definition label="영상 고정" value={`${summary.staticVideoFrameSignalAnswers}`} />
-        <Definition label="초반 이탈" value={`${summary.earlyScreenAwaySignalAnswers}`} />
-      </dl>
-      <ul className="report-nonverbal-summary__guide">
-        {guideItems.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
+
+      {hasSignal ? (
+        <div className="report-nonverbal-tiles" role="list">
+          {flaggedTiles.map((tile) => (
+            <div key={tile.label} role="listitem" className="report-nonverbal-tile is-flag">
+              <strong>{tile.count}</strong>
+              <span>{tile.label}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="report-nonverbal-summary__ok">특이 신호 없이 안정적으로 응시했어요. ({summary.answersWithMetadata}/{summary.answerCount}개 답변 분석)</p>
+      )}
+
+      <details className="report-nonverbal-more">
+        <summary>전체 지표 보기</summary>
+        <div className="report-nonverbal-tiles" role="list">
+          {signalTiles.map((tile) => (
+            <div key={tile.label} role="listitem" className={`report-nonverbal-tile${tile.count > 0 ? " is-flag" : ""}`}>
+              <strong>{tile.count}</strong>
+              <span>{tile.label}</span>
+            </div>
+          ))}
+        </div>
+      </details>
     </section>
   );
 }
@@ -10388,46 +10569,6 @@ function buildMockNonverbalSummary(items: CandidateMockReportMedia["media"]): Mo
     staticVideoFrameSignalAnswers: 0,
     earlyScreenAwaySignalAnswers: 0,
   });
-}
-
-function buildMockNonverbalSummaryGuide(summary: MockNonverbalSummary): string[] {
-  const items: string[] = [];
-
-  if (summary.integritySignalAnswers === 0) {
-    return ["전체 답변에서 화면 이탈, 얼굴 화면 밖, 여러 사람 감지 같은 응시 무결성 신호가 감지되지 않았습니다."];
-  }
-  if (summary.screenAwaySignalAnswers > 0) {
-    items.push(`${summary.screenAwaySignalAnswers}개 답변에서 면접 화면을 벗어나거나 탭이 숨겨진 신호가 감지되었습니다.`);
-  }
-  if (summary.cameraIntegritySignalAnswers > 0) {
-    items.push(`${summary.cameraIntegritySignalAnswers}개 답변에서 카메라 끊김 또는 카메라 판단 제한 신호가 감지되었습니다.`);
-  }
-  if (summary.faceAwaySignalAnswers > 0) {
-    items.push(`${summary.faceAwaySignalAnswers}개 답변에서 얼굴이 화면 밖으로 나가거나 카메라 안에서 안정적으로 감지되지 않았습니다.`);
-  }
-  if (summary.multipleFaceSignalAnswers > 0) {
-    items.push(`${summary.multipleFaceSignalAnswers}개 답변에서 여러 사람이 감지되어 대리 응시나 주변 도움 여부를 확인할 필요가 있습니다.`);
-  }
-  if (summary.faceShiftSignalAnswers > 0) {
-    items.push(`${summary.faceShiftSignalAnswers}개 답변에서 얼굴 위치가 기준 위치와 크게 달라져 응시자 변경 또는 자리 이탈 의심 신호로 참고할 수 있습니다.`);
-  }
-  if (summary.gazeAwaySignalAnswers > 0) {
-    items.push(`${summary.gazeAwaySignalAnswers}개 답변에서 시선이 화면 밖으로 오래 벗어난 신호가 감지되었습니다.`);
-  }
-  if (summary.voiceMouthMismatchSignalAnswers > 0) {
-    items.push(`${summary.voiceMouthMismatchSignalAnswers}개 답변에서 음성은 감지됐지만 화면 속 입 움직임이 거의 없는 구간이 기록되었습니다.`);
-  }
-  if (summary.voiceWithoutFaceSignalAnswers > 0) {
-    items.push(`${summary.voiceWithoutFaceSignalAnswers}개 답변에서 얼굴이 감지되지 않는 상태로 음성 입력이 지속된 구간이 기록되었습니다.`);
-  }
-  if (summary.staticVideoFrameSignalAnswers > 0) {
-    items.push(`${summary.staticVideoFrameSignalAnswers}개 답변에서 영상 변화가 거의 없는 구간이 기록되었습니다.`);
-  }
-  if (summary.earlyScreenAwaySignalAnswers > 0) {
-    items.push(`${summary.earlyScreenAwaySignalAnswers}개 답변에서 질문 직후 면접 화면을 벗어난 신호가 기록되었습니다.`);
-  }
-
-  return items;
 }
 
 function MockNonverbalFeedbackView({ metadata }: { metadata?: Record<string, unknown> }) {
@@ -10618,116 +10759,6 @@ function readNonverbalTestModeUsed(metadata: Record<string, unknown>): boolean {
   return readNonverbalBoolean(metadata, "testModeUsed") || Boolean(risk?.testModeUsed);
 }
 
-function AnswerPracticeGuideView({ guide }: { guide: AnswerPracticeGuide }) {
-  return (
-    <section className="report-practice-guide">
-      <h4>고득점 답변 예시 템플릿</h4>
-      <div className="report-practice-guide__block">
-        <strong>STAR 답변 예시</strong>
-        <p>{guide.example}</p>
-      </div>
-      <div className="report-practice-guide__block">
-        <strong>내 답변 보완점</strong>
-        <ul>
-          {guide.gaps.map((gap) => (
-            <li key={gap}>{gap}</li>
-          ))}
-        </ul>
-      </div>
-    </section>
-  );
-}
-
-function buildMockAnswerPracticeGuide(item: CandidateMockReportMedia["media"][number]): AnswerPracticeGuide {
-  const transcript = item.transcript ?? "";
-  return {
-    example: buildMockAnswerExample(item),
-    gaps: buildMockAnswerGaps(item.questionType, item.questionContent, transcript),
-  };
-}
-
-function buildMockAnswerExample(item: CandidateMockReportMedia["media"][number]): string {
-  const question = item.questionContent ?? "";
-
-  if (item.questionType === "INTRO" || question.includes("자기소개")) {
-    return "저는 지원 직무와 연결되는 프로젝트 경험을 통해 문제를 구조적으로 해결해 온 지원자입니다. 최근에는 사용자 흐름이 끊기는 문제를 맡아 원인을 단계별로 나누고, 제가 담당한 기능의 입력값, 처리 과정, 결과 화면을 끝까지 확인했습니다. 그 결과 반복되던 오류를 줄이고 사용자가 더 안정적으로 기능을 사용할 수 있도록 개선했습니다.";
-  }
-
-  if (item.questionType === "TECHNICAL" || question.includes("어려웠던") || question.includes("기술")) {
-    return "가장 어려웠던 문제는 기능 일부가 정상처럼 보이지만 최종 결과가 사용자에게 전달되지 않는 상황이었습니다. 저는 문제를 화면 입력, 서버 처리, 데이터 저장, 결과 표시 단계로 나누어 확인했고, 중간 단계에서 필요한 값이 누락되는 지점을 찾았습니다. 이후 누락 조건을 보완하고 같은 시나리오로 다시 검증해 정상 동작을 확인했습니다.";
-  }
-
-  if (item.questionType === "EXPERIENCE" || question.includes("학습") || question.includes("적용")) {
-    return "새로운 기술을 적용해야 했을 때 먼저 작은 예제로 동작 원리를 확인했습니다. 이후 실제 프로젝트 흐름에 맞춰 입력, 처리, 저장, 조회 기준을 정리했고, 실패했을 때 어느 단계에서 문제가 생겼는지 추적할 수 있게 했습니다. 덕분에 낯선 기술도 짧은 시간 안에 실제 기능으로 연결할 수 있었습니다.";
-  }
-
-  if (item.questionType === "CLOSING" || question.includes("강점") || question.includes("기억")) {
-    return "제 강점은 문제를 감으로 추측하지 않고 확인 가능한 근거를 기준으로 좁혀가는 점입니다. 문제가 생기면 사용자 동작, 요청 결과, 저장 상태, 화면 반영 순서로 확인하고, 원인이 확인되면 같은 경로로 다시 검증합니다. 이 방식으로 팀원이 보기에도 재현 가능하고 설명 가능한 해결 과정을 만들 수 있습니다.";
-  }
-
-  if (item.questionType === "FOLLOW_UP") {
-    if (question.includes("어려웠던 점")) {
-      return "가장 어려웠던 점은 겉으로는 일부 단계가 성공했지만 최종 결과가 나오지 않는 원인을 구분하는 것이었습니다. 저는 각 단계에서 반드시 남아야 하는 값과 상태를 정리하고, 어느 지점에서 흐름이 끊기는지 비교했습니다. 그 결과 문제 원인을 특정하고 사용자 화면까지 정상적으로 이어지도록 수정했습니다.";
-    }
-    if (question.includes("구체적인 조치")) {
-      return "먼저 문제를 입력, 요청, 처리, 저장, 화면 반영 단계로 나눴습니다. 각 단계에서 기대값과 실제 값을 비교해 값이 끊기는 지점을 찾았고, 수정 후 같은 시나리오를 다시 수행해 결과가 끝까지 이어지는지 확인했습니다. 이 방식 덕분에 원인을 재현 가능하게 설명할 수 있었습니다.";
-    }
-    if (question.includes("비동기") || question.includes("상태")) {
-      return "비동기 처리에서는 요청 직후 결과가 바로 보이지 않기 때문에 상태 변화와 저장 지점을 기준으로 확인했습니다. 작업이 접수됐는지, 처리 중인지, 완료 또는 실패했는지를 구분하고 각 단계의 결과가 다음 단계로 전달되는지 검증했습니다. 이 기준을 세운 뒤 문제 상황도 단계별로 재현할 수 있었습니다.";
-    }
-    return "질문에 바로 답한 뒤 당시 상황, 본인이 맡은 역할, 직접 한 행동, 확인한 결과를 차례로 설명하는 것이 좋습니다. 특히 문제를 어떤 기준으로 나눴는지, 수정 후 어떤 변화가 있었는지를 함께 말하면 답변의 신뢰도가 높아집니다.";
-  }
-
-  return "좋은 답변은 상황을 간단히 설명한 뒤 본인이 맡은 역할, 직접 한 행동, 확인한 결과를 차례로 말합니다. 마지막에는 수치, 전후 비교, 재검증 결과 중 하나를 덧붙이면 답변의 신뢰도가 높아집니다.";
-}
-
-function buildMockAnswerGaps(questionType: QuestionType, questionContent: string | undefined, transcript: string): string[] {
-  const normalized = transcript.replace(/\s+/g, " ").trim();
-  if (!normalized || normalized.startsWith("[NO_ANSWER]")) {
-    return ["답변 내용이 없어 평가 근거가 부족합니다. 다음 연습에서는 상황, 행동, 결과를 각각 한 문장씩이라도 남겨 주세요."];
-  }
-
-  const gaps: string[] = [];
-  const hasMetric = /\d|%|ms|초|분|시간|건|배|회|명|개|KB|MB/i.test(normalized);
-  const hasRole = /(제가|저는|맡|담당|구현|수정|연결|확인|검증|분석|해결|비교|나눴|적용)/.test(normalized);
-  const hasResult = /(결과|완료|성공|통과|개선|해결|안정화|줄였|확인|검증|저장|갱신|연결|반영)/.test(normalized);
-  const hasProcess = /(먼저|이후|그 결과|순서|단계|기준|비교|추적|확인)/.test(normalized);
-
-  if (!hasRole) {
-    gaps.push("본인이 직접 맡은 역할과 행동을 더 분명히 말하면 점수가 올라갑니다.");
-  }
-  if (!hasProcess && questionType !== "CLOSING") {
-    gaps.push("문제를 어떤 순서와 기준으로 확인했는지 단계가 더 드러나면 좋습니다.");
-  }
-  if (!hasResult) {
-    gaps.push("수정 후 어떤 결과가 나왔는지, 어떻게 재검증했는지를 덧붙이면 좋습니다.");
-  }
-  if (!hasMetric) {
-    gaps.push("가능하면 처리 시간, 실패 조건, 전후 비교, 개선 수치처럼 확인 가능한 근거 한 가지를 추가해 보세요.");
-  }
-  if (hasLikelyNoisyTranscript(normalized)) {
-    gaps.push("STT에서 어색하게 인식된 기술 용어가 보입니다. 핵심 용어는 천천히 또렷하게 말하면 평가 근거가 더 선명해집니다.");
-  }
-
-  if (questionType === "FOLLOW_UP" && gaps.length < 3) {
-    gaps.push("꼬리질문은 질문에 바로 답한 뒤, 구체적인 행동과 결과를 짧게 붙이면 더 좋습니다.");
-  }
-
-  if ((questionContent?.includes("강점") || questionType === "CLOSING") && !normalized.includes("예를 들어")) {
-    gaps.push("강점 답변에는 짧은 사례를 하나 붙이면 기억에 더 남습니다.");
-  }
-
-  if (!gaps.length) {
-    return ["전체 흐름은 좋습니다. 더 높은 점수를 위해 성과를 수치나 전후 비교로 한 번 더 압축해 말해 보세요."];
-  }
-
-  return gaps.slice(0, 3);
-}
-
-function hasLikelyNoisyTranscript(value: string): boolean {
-  return /(인적 답변|오퍼 처리|파일 레스셋|프로시스|인풋 레프|블랍|마인 타입|동신|인털|소사례)/.test(value);
-}
-
 function ApplicationStatusView({ status }: { status: CandidateApplicationStatusView }) {
   return (
     <dl className="candidate-feature__summary">
@@ -10880,7 +10911,6 @@ function FollowUpQuestionList({ questions }: { questions: CandidateReportAnswerV
         {questions.map((question) => (
           <li key={question.followUpId}>
             <span>{question.content}</span>
-            <small>{question.policy} · {formatStatusLabel(question.generationStatus)}</small>
           </li>
         ))}
       </ul>
@@ -11254,21 +11284,6 @@ function findKoreanSpeechVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisV
   );
 }
 
-function ListBlock({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div>
-      <h3 className="candidate-section-title">{title}</h3>
-      {items.length ? (
-        <ul className="candidate-feature__tags">
-          {items.map((item, index) => <li key={`${title}-${index}-${item}`}>{item}</li>)}
-        </ul>
-      ) : (
-        <p className="empty">표시할 항목이 없습니다.</p>
-      )}
-    </div>
-  );
-}
-
 function RecruitingIntegrityNotice() {
   return (
     <aside className="candidate-integrity-notice" role="note" aria-label="응시 무결성 안내">
@@ -11558,12 +11573,16 @@ function toRecruitingRuntimeSession(
     sessionId: runtime.sessionId,
     applicationId: runtime.applicationId,
     interviewType: runtime.interviewType,
+    sessionMode: runtime.sessionMode,
     status: runtime.status,
     showQuestionText: runtime.showQuestionText,
     canRecord: runtime.canRecord,
     ...(runtime.jobDescription ? { jobDescription: runtime.jobDescription } : {}),
     ...(runtime.timePolicy ? { timePolicy: runtime.timePolicy } : {}),
-    totalQuestions: questions.questions.length,
+    totalQuestions: getRecruitingRuntimeTotalQuestions(
+      runtime.sessionMode,
+      questions.questions.length,
+    ),
     answeredCount: questions.questions.filter((question) => question.answered).length,
     currentQuestion,
     nextQuestionEndpoint: runtime.nextQuestionEndpoint,
@@ -11693,6 +11712,29 @@ function playAnswerStartCue() {
 
 function isRealtimeQuestionSpeechPurpose(purpose: string): purpose is "interview_question" | "interview_follow_up_question" {
   return purpose === "interview_question" || purpose === "interview_follow_up_question";
+}
+
+function getDemoPresetReadinessMessage(
+  reasonCode: import("./api").DemoPresetReadinessReasonCode | null,
+  status: "READY" | "PENDING" | "UNAVAILABLE",
+): string {
+  if (reasonCode === "OFFICIAL_SESSION_EXISTS") {
+    return status === "READY"
+      ? "이미 시작한 공식 3문항 시연을 같은 질문으로 이어갑니다."
+      : "이미 종료되었거나 응시 기간이 지난 공식 3문항 시연입니다.";
+  }
+  if (status === "READY") return "협업 공통 1문항과 개인화 1문항, 개인화 꼬리질문 1문항이 준비되었습니다.";
+  const messages: Record<Exclude<import("./api").DemoPresetReadinessReasonCode, "OFFICIAL_SESSION_EXISTS">, string> = {
+    CANONICAL_PROFILES_NOT_ALL_ACTIVE: "평가 기준 3개가 모두 활성화되어야 시연을 시작할 수 있습니다.",
+    COLLABORATION_COMMON_QUESTION_MISSING: "협업 공통 질문이 아직 확정되지 않았습니다.",
+    DEMO_PERSONALIZED_QUESTION_GENERATING: "지원 서류를 바탕으로 개인화 질문을 준비하고 있습니다.",
+    DEMO_PERSONALIZED_QUESTION_REVIEW_REQUIRED: "개인화 질문 검토가 필요합니다. 채용 담당자에게 문의해주세요.",
+    DEMO_PERSONALIZED_QUESTION_FAILED: "개인화 질문 준비에 실패했습니다. 채용 담당자에게 재준비를 요청해주세요.",
+    FACTUAL_ANCHOR_MISSING: "지원 서류 분석이 완료되어야 개인화 시연을 시작할 수 있습니다.",
+    OFFICIAL_SESSION_MODE_CONFLICT: "이미 일반 공식 면접이 선택되어 3문항 시연으로 변경할 수 없습니다.",
+    CONFIGURATION_COVERAGE_MISMATCH: "면접 설정과 질문 구성이 일치하지 않습니다. 채용 담당자에게 확인을 요청해주세요.",
+  };
+  return reasonCode ? messages[reasonCode] : "공식 3문항 시연 준비 상태를 확인하고 있습니다.";
 }
 
 function createRuntimeFileAssetFromMetadata(

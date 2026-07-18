@@ -52,6 +52,76 @@ variable "admin_cidr_blocks" {
   default     = []
 }
 
+variable "enable_ngrinder" {
+  description = "Whether to create a temporary public EC2 instance for nGrinder load testing."
+  type        = bool
+  default     = false
+}
+
+variable "ngrinder_allowed_cidr_blocks" {
+  description = "CIDR blocks allowed to access the nGrinder controller UI on port 8080. Use your current public IP as /32."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = !var.enable_ngrinder || length(var.ngrinder_allowed_cidr_blocks) > 0
+    error_message = "ngrinder_allowed_cidr_blocks must include at least one CIDR when enable_ngrinder is true."
+  }
+
+  validation {
+    condition = alltrue([
+      for cidr in var.ngrinder_allowed_cidr_blocks : can(cidrhost(cidr, 0))
+    ])
+    error_message = "ngrinder_allowed_cidr_blocks values must be valid CIDR blocks, for example 203.0.113.10/32."
+  }
+}
+
+variable "ngrinder_subnet_key" {
+  description = "Public subnet key where the nGrinder EC2 instance is placed."
+  type        = string
+  default     = "public-1"
+}
+
+variable "ngrinder_instance_type" {
+  description = "EC2 instance type for the nGrinder controller and local agent."
+  type        = string
+  default     = "t3.medium"
+}
+
+variable "ngrinder_root_volume_size_gb" {
+  description = "Root EBS volume size for the nGrinder EC2 instance."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.ngrinder_root_volume_size_gb >= 20
+    error_message = "ngrinder_root_volume_size_gb must be at least 20."
+  }
+}
+
+variable "ngrinder_controller_port" {
+  description = "nGrinder controller web UI port."
+  type        = number
+  default     = 8080
+
+  validation {
+    condition     = var.ngrinder_controller_port > 0 && var.ngrinder_controller_port < 65536
+    error_message = "ngrinder_controller_port must be a valid TCP port."
+  }
+}
+
+variable "ngrinder_controller_download_url" {
+  description = "Download URL for the nGrinder controller WAR."
+  type        = string
+  default     = "https://github.com/naver/ngrinder/releases/download/ngrinder-3.5.9-p1-20240613/ngrinder-controller-3.5.9-p1.war"
+}
+
+variable "ngrinder_agent_enabled" {
+  description = "Whether user_data should download and run a local nGrinder agent from the controller."
+  type        = bool
+  default     = true
+}
+
 variable "enable_interface_endpoints" {
   description = "Cost-sensitive interface VPC endpoint toggles. NAT remains the default outbound path."
   type = object({

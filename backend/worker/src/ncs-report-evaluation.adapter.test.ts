@@ -46,6 +46,54 @@ test("NCS report evaluation stores exact answer evidence and aggregates only sco
   }
 });
 
+test("V2 evaluates only active bindings and omits inactive profile placeholders", async () => {
+  const result = await evaluateNcsReportAnswers(
+    170,
+    [{
+      answerId: 1701,
+      question: "Redis 캐시 구조를 선택한 이유와 장애 원인 및 검증 결과를 설명해주세요.",
+      transcript: "Redis 캐시 구조를 설계하고 장애 로그를 분석했습니다. 우회 대안을 비교해 적용한 뒤 부하 테스트와 p95 지표로 결과를 검증했습니다.",
+      sessionQuestionId: 17001,
+      ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+      ncsBindings: [
+        {
+          criterionId: 21,
+          criterionTitleSnapshot: "직무 수행 역량",
+          ncsProfileId: "JOB_TECHNICAL",
+          ncsProfileVersion: PROFILE_VERSION,
+          alignmentStatus: "ALIGNED",
+          bindingOrder: 1,
+        },
+        {
+          criterionId: 22,
+          criterionTitleSnapshot: "협업·의사소통",
+          ncsProfileId: "COLLABORATION_COMMUNICATION",
+          ncsProfileVersion: PROFILE_VERSION,
+          alignmentStatus: "ALIGNED",
+          bindingOrder: 2,
+        },
+      ],
+    }],
+    [21],
+    undefined,
+    [{
+      ncsProfileId: "JOB_TECHNICAL",
+      criterionId: 21,
+      criterionTitleSnapshot: "직무 수행 역량",
+      weight: 100,
+      minimumAverageScore: 3,
+      requiredQuestionCount: 1,
+      ncsProfileVersion: PROFILE_VERSION,
+    }],
+    undefined,
+    "NCS_RECRUITING_SCORING_V2",
+  );
+
+  assert.deepEqual(result.evaluations.map((evaluation) => evaluation.ncsProfileId), ["JOB_TECHNICAL"]);
+  assert.deepEqual(result.finalEvaluation?.profiles.map((profile) => profile.ncsProfileId), ["JOB_TECHNICAL"]);
+  assert.equal(result.finalEvaluation?.completionStatus, "COMPLETE");
+});
+
 test("insufficient NCS answers keep nullable scores and are excluded from report averages", async () => {
   const result = await evaluateNcsReportAnswers(
     78,

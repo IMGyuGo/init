@@ -11,6 +11,14 @@ import {
   type FactCheckContextOptions,
 } from "./answer-fact-check-context";
 import { FollowUpAiProvider } from "./openai-follow-up.provider";
+import {
+  FACTUAL_ANCHOR_MISSING,
+  buildAnswerAnchoredDemoFollowUp,
+  buildAnchoredDemoQuestion,
+  demoQuestionUnsafeReason,
+  extractDemoFollowUpAnchor,
+  questionContainsFactualAnchor,
+} from "./demo-preset-personalization";
 import { planFactClarification, planNcsFollowUp } from "./ncs-report-evaluation.adapter";
 import { PostingDraftAiProvider, PostingDraftGenerationResult } from "./openai-posting-draft.provider";
 import {
@@ -157,11 +165,22 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     const jobDescription = typeof payload.jobDescription === "string" ? payload.jobDescription : undefined;
     const documentSummary = typeof payload.documentSummary === "string" ? payload.documentSummary : undefined;
     const profileContext = profileContextOf(payload.profileContext);
+    const usageScope = payload.usageScope === "DEMO_PRESET" ? "DEMO_PRESET" : "STANDARD";
+    const generationSource = optionalText(payload.generationSource);
     if (policy === "RECRUITING" && !hasText(jobDescription) && !hasText(documentSummary)) {
       throw new NonRetryableAiWorkerFailure("jobDescription or documentSummary is required");
     }
 
     const ncsPlan = policy === "RECRUITING" ? planNcsFollowUp(payload) : undefined;
+    if (usageScope === "DEMO_PRESET" && generationSource && generationSource !== "RESUME_PERSONALIZED") {
+      return {
+        outputRef: JSON.stringify({ sessionId, answerId, policy, usageScope, followUpRequired: false }),
+        guardrail: { result: "PASS", reason: null },
+        finalSave: () => this.results.saveFollowUpQuestion({
+          sessionId, answerId, required: false, policy, usageScope,
+        }),
+      };
+    }
     const factPlan = ncsPlan
       ? await planFactClarification(payload, factCheckContextOf(payload.factCheckContext, {
           ...this.factCheckOptions,
@@ -169,7 +188,7 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
           documentSummary,
         }))
       : undefined;
-    if (ncsPlan && !ncsPlan.required && !factPlan?.required) {
+    if (usageScope !== "DEMO_PRESET" && ncsPlan && !ncsPlan.required && !factPlan?.required) {
       return {
         outputRef: JSON.stringify({
           sessionId,
@@ -193,11 +212,12 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
             reason: "NCS_EVIDENCE_GAP",
             questionMode: ncsPlan.questionMode,
             answerTimeSec: ncsPlan.answerTimeSec,
+            usageScope,
           }),
       };
     }
 
-    const generated = await this.followUpProvider.generateFollowUpQuestion({
+    const followUpInput = {
       kind,
       previousQuestion,
       transcript,
@@ -210,7 +230,34 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       factClarificationClaims: factPlan?.required ? factPlan.clarificationClaims : undefined,
       factSupportedClaims: factPlan?.supportedClaims,
       profileContext,
-    });
+    };
+    let generated: Awaited<ReturnType<FollowUpAiProvider["generateFollowUpQuestion"]>> | undefined;
+    let followUpAttempts = 0;
+    if (usageScope === "DEMO_PRESET") {
+      const answerAnchor = extractDemoFollowUpAnchor(transcript);
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        followUpAttempts = attempt;
+        try {
+          const candidate = await this.followUpProvider.generateFollowUpQuestion(followUpInput);
+          if (
+            !demoQuestionUnsafeReason(candidate.content) &&
+            (!answerAnchor || questionContainsFactualAnchor(candidate.content, answerAnchor))
+          ) {
+            generated = candidate;
+            break;
+          }
+        } catch {
+          // DEMO_PRESET retries once and then falls back to an answer-grounded safe question.
+        }
+      }
+      generated ??= {
+        content: buildAnswerAnchoredDemoFollowUp(transcript),
+        model: "answer-anchored-safe-template",
+      };
+    } else {
+      generated = await this.followUpProvider.generateFollowUpQuestion(followUpInput);
+      followUpAttempts = 1;
+    }
     const guardrail = this.validateMockPolicy(policy, generated.content);
 
     return {
@@ -226,6 +273,9 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
         jobDescription,
         documentSummary,
         followUpRequired: true,
+        usageScope,
+        attempts: followUpAttempts,
+        fallbackUsed: generated.model === "answer-anchored-safe-template",
         questionMode: ncsPlan?.questionMode,
         answerTimeSec: ncsPlan?.answerTimeSec,
         baseScores: ncsPlan?.baseScores,
@@ -262,6 +312,7 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
             : ncsPlan ? "NCS_EVIDENCE_GAP" : "GENERAL_EVIDENCE_GAP",
           questionMode: ncsPlan?.questionMode,
           answerTimeSec: ncsPlan?.answerTimeSec,
+          usageScope,
         })
     };
   }
@@ -341,12 +392,14 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
   }
 
   private async resumeQuestionGenerate(job: AiWorkerJob): Promise<AiTaskResult> {
+    const reference = resumeQuestionReferenceOf(job);
+    const context = await this.results.loadResumeQuestionGenerationContext(reference);
+    if (reference.usageScope === "DEMO_PRESET") {
+      return this.demoPresetResumeQuestionGenerate(context);
+    }
     if (!this.questionProvider) {
       throw new NonRetryableAiWorkerFailure("OpenAI question provider is required for RESUME_QUESTION_GENERATE");
     }
-
-    const reference = resumeQuestionReferenceOf(job);
-    const context = await this.results.loadResumeQuestionGenerationContext(reference);
     const generated = await generateAlignedNcsQuestions(this.questionProvider, {
       kind: "RESUME_PERSONALIZED_QUESTION_GENERATE",
       postingId: context.postingId,
@@ -403,6 +456,63 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
         outputTokens: generated.usage?.outputTokens,
         metadata: { processType: "RESUME_QUESTION_GENERATE" },
       }),
+      finalSave: () => this.results.saveResumeQuestionGeneration(result),
+    };
+  }
+
+  private async demoPresetResumeQuestionGenerate(context: ResumeQuestionGenerationContext): Promise<AiTaskResult> {
+    const anchor = context.factualAnchor;
+    if (!anchor) {
+      const result = {
+        reference: context,
+        status: "FAILED" as const,
+        evaluatorVersion: null,
+        failureReason: FACTUAL_ANCHOR_MISSING,
+        questions: [],
+      };
+      return {
+        outputRef: JSON.stringify({
+          kind: "DEMO_PRESET_RESUME_PERSONALIZED_QUESTION_GENERATE",
+          applicationId: context.applicationId,
+          usageScope: context.usageScope,
+          inputVersion: context.inputVersion,
+          status: result.status,
+          reasonCode: FACTUAL_ANCHOR_MISSING,
+        }),
+        guardrail: { result: "PASS", reason: null },
+        finalSave: () => this.results.saveResumeQuestionGeneration(result),
+      };
+    }
+
+    if (!this.questionProvider) {
+      throw new NonRetryableAiWorkerFailure("OpenAI question provider is required for DEMO_PRESET generation");
+    }
+
+    const generated = await generateDemoPresetQuestion(this.questionProvider, context, anchor);
+    const result = {
+      reference: context,
+      status: "READY" as const,
+      evaluatorVersion: generated.question.evaluatorVersion,
+      failureReason: null,
+      questions: [generated.question],
+    };
+    return {
+      outputRef: JSON.stringify({
+        kind: "DEMO_PRESET_RESUME_PERSONALIZED_QUESTION_GENERATE",
+        providerMode: generated.fallbackUsed ? "local" : "openai",
+        providerSource: generated.fallbackUsed ? "ANCHORED_SAFE_TEMPLATE" : "OPENAI_QUESTION_GENERATION",
+        applicationId: context.applicationId,
+        postingId: context.postingId,
+        usageScope: context.usageScope,
+        inputVersion: context.inputVersion,
+        status: result.status,
+        attempts: generated.attempts,
+        fallbackUsed: generated.fallbackUsed,
+        questions: result.questions,
+        model: generated.model,
+      }),
+      guardrail: { result: "PASS", reason: null },
+      usage: generated.usage,
       finalSave: () => this.results.saveResumeQuestionGeneration(result),
     };
   }
@@ -740,6 +850,7 @@ function resumeQuestionReferenceOf(job: AiWorkerJob): ResumeQuestionJobReference
     inputVersion: requiredText(input.inputVersion, "inputVersion"),
     resumeDocumentHash: requiredText(input.resumeDocumentHash, "resumeDocumentHash"),
     jdSnapshotHash: requiredText(input.jdSnapshotHash, "jdSnapshotHash"),
+    usageScope: input.usageScope === "DEMO_PRESET" ? "DEMO_PRESET" : "STANDARD",
   };
 }
 
@@ -775,8 +886,156 @@ function toPersonalizedQuestionRecords(
       alignmentReason: typeof metadata.alignmentReason === "string" ? metadata.alignmentReason : null,
       evaluatorVersion: typeof metadata.evaluatorVersion === "string" ? metadata.evaluatorVersion : null,
       sortOrder: index + 1,
+      ncsBindings: [{
+        criterionId: criterion.criterionId,
+        criterionTitleSnapshot: criterion.name,
+        ncsProfileId: criterion.ncsProfileId,
+        ncsProfileVersion: typeof metadata.ncsProfileVersion === "string" ? metadata.ncsProfileVersion : criterion.ncsProfileVersion,
+        alignmentStatus,
+        alignmentScore: typeof metadata.alignmentScore === "number" ? metadata.alignmentScore : null,
+        alignmentReason: typeof metadata.alignmentReason === "string" ? metadata.alignmentReason : null,
+        evaluatorVersion: typeof metadata.evaluatorVersion === "string" ? metadata.evaluatorVersion : null,
+        bindingOrder: 1,
+      }],
     };
   });
+}
+
+async function generateDemoPresetQuestion(
+  provider: QuestionAiProvider,
+  context: ResumeQuestionGenerationContext,
+  anchor: string,
+): Promise<{
+  question: PersonalizedQuestionRecord;
+  attempts: number;
+  fallbackUsed: boolean;
+  model: string;
+  usage?: ReturnType<typeof createAiProcessUsage>;
+}> {
+  const jobCriterion = context.criteria.find((criterion) => criterion.ncsProfileId === "JOB_TECHNICAL");
+  const problemCriterion = context.criteria.find((criterion) => criterion.ncsProfileId === "PROBLEM_SOLVING");
+  if (!jobCriterion || !problemCriterion) {
+    throw new NonRetryableAiWorkerFailure("DEMO_PRESET job and problem criteria are required");
+  }
+
+  let attempts = 0;
+  let model = "anchored-safe-template";
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let content: string | null = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    attempts = attempt;
+    try {
+      const generated = await provider.generateQuestions({
+        kind: "DEMO_PRESET_RESUME_PERSONALIZED_QUESTION_GENERATE",
+        postingId: context.postingId,
+        jobDescription: context.jobDescription,
+        questionCount: 1,
+        criteria: [{ ...jobCriterion, questionCount: 1 }],
+        source: "RESUME_PERSONALIZED",
+        resumeText: scrubResumeTextForAi(context.resumeText),
+        requiredFactualAnchor: anchor,
+        requiredNcsProfileIds: ["JOB_TECHNICAL", "PROBLEM_SOLVING"],
+      });
+      model = generated.model;
+      inputTokens += generated.usage?.inputTokens ?? 0;
+      outputTokens += generated.usage?.outputTokens ?? 0;
+      const candidate = generated.questionCandidates[0]?.content?.trim();
+      if (
+        candidate &&
+        !questionQualityIssue(candidate) &&
+        !personalizedQuestionUnsafeReason(candidate) &&
+        !demoQuestionUnsafeReason(candidate) &&
+        questionContainsFactualAnchor(candidate, anchor) &&
+        demoAlignments(candidate, jobCriterion.ncsProfileVersion, problemCriterion.ncsProfileVersion).every((item) => item.status === "ALIGNED")
+      ) {
+        content = candidate;
+        break;
+      }
+    } catch {
+      // The DEMO_PRESET contract permits one retry, then requires the anchored safe template.
+    }
+  }
+
+  const fallbackUsed = content === null;
+  content ??= buildAnchoredDemoQuestion(anchor);
+  const [jobAlignment, problemAlignment] = demoAlignments(
+    content,
+    jobCriterion.ncsProfileVersion,
+    problemCriterion.ncsProfileVersion,
+  );
+  if (jobAlignment.status !== "ALIGNED" || problemAlignment.status !== "ALIGNED") {
+    throw new NonRetryableAiWorkerFailure("anchored DEMO_PRESET safe template must align to job and problem profiles");
+  }
+  const question: PersonalizedQuestionRecord = {
+    criterionId: jobCriterion.criterionId,
+    criterionTitleSnapshot: jobCriterion.name,
+    questionType: "TECHNICAL",
+    content,
+    ncsProfileId: "JOB_TECHNICAL",
+    ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+    ncsProfileVersion: jobAlignment.profileVersion,
+    alignmentStatus: "ALIGNED",
+    alignmentScore: Math.min(jobAlignment.score ?? 0, problemAlignment.score ?? 0),
+    alignmentReason: null,
+    evaluatorVersion: jobAlignment.evaluatorVersion,
+    sortOrder: 1,
+    ncsBindings: [
+      {
+        criterionId: jobCriterion.criterionId,
+        criterionTitleSnapshot: jobCriterion.name,
+        ncsProfileId: "JOB_TECHNICAL",
+        ncsProfileVersion: jobAlignment.profileVersion,
+        alignmentStatus: "ALIGNED",
+        alignmentScore: jobAlignment.score,
+        alignmentReason: null,
+        evaluatorVersion: jobAlignment.evaluatorVersion,
+        bindingOrder: 1,
+      },
+      {
+        criterionId: problemCriterion.criterionId,
+        criterionTitleSnapshot: problemCriterion.name,
+        ncsProfileId: "PROBLEM_SOLVING",
+        ncsProfileVersion: problemAlignment.profileVersion,
+        alignmentStatus: "ALIGNED",
+        alignmentScore: problemAlignment.score,
+        alignmentReason: null,
+        evaluatorVersion: problemAlignment.evaluatorVersion,
+        bindingOrder: 2,
+      },
+    ],
+  };
+  return {
+    question,
+    attempts,
+    fallbackUsed,
+    model,
+    usage: inputTokens || outputTokens
+      ? createAiProcessUsage({
+          modelName: model,
+          inputTokens: inputTokens || undefined,
+          outputTokens: outputTokens || undefined,
+          metadata: { processType: "RESUME_QUESTION_GENERATE", usageScope: "DEMO_PRESET" },
+        })
+      : undefined,
+  };
+}
+
+function demoAlignments(question: string, jobVersion: string, problemVersion: string) {
+  return [
+    alignNcsQuestion({
+      question,
+      profileId: "JOB_TECHNICAL",
+      questionMode: "TECHNICAL_KNOWLEDGE",
+      profileVersion: jobVersion,
+    }),
+    alignNcsQuestion({
+      question,
+      profileId: "PROBLEM_SOLVING",
+      questionMode: "TECHNICAL_KNOWLEDGE",
+      profileVersion: problemVersion,
+    }),
+  ] as const;
 }
 
 function questionTypeForMode(mode: ResumeQuestionGenerationContext["criteria"][number]["ncsQuestionMode"]): PersonalizedQuestionRecord["questionType"] {

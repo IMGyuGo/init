@@ -1,4 +1,6 @@
 export const NCS_SCORING_VERSION = "NCS_RECRUITING_SCORING_V1" as const;
+export const NCS_SCORING_VERSION_V2 = "NCS_RECRUITING_SCORING_V2" as const;
+export type NcsScoringVersion = typeof NCS_SCORING_VERSION | typeof NCS_SCORING_VERSION_V2;
 export const NCS_DECISION_POLICY_VERSION = "NCS_INCOMPLETE_AS_FAIL_DEMO_V1" as const;
 
 export const NCS_FINAL_PROFILE_IDS = [
@@ -65,7 +67,7 @@ export interface NcsProfileAggregate {
 }
 
 export interface NcsFinalEvaluation {
-  scoringVersion: typeof NCS_SCORING_VERSION;
+  scoringVersion: NcsScoringVersion;
   decisionPolicyVersion: typeof NCS_DECISION_POLICY_VERSION;
   completionStatus: "COMPLETE" | "INCOMPLETE";
   thresholdResult: "MEETS_THRESHOLD" | "BELOW_THRESHOLD" | "INCOMPLETE";
@@ -90,6 +92,7 @@ export function aggregateNcsFinalEvaluation(
   policies: NcsSessionPolicyInput[],
   evaluations: NcsEvaluationForAggregation[],
   structuralReasons: NcsIncompleteReason[] = [],
+  scoringVersion: NcsScoringVersion = NCS_SCORING_VERSION,
 ): NcsFinalEvaluation {
   const incompleteReasons: NcsIncompleteReason[] = [...structuralReasons];
   const sttUnavailableKeys = new Set(
@@ -109,19 +112,27 @@ export function aggregateNcsFinalEvaluation(
     }
     policyByProfile.set(policy.ncsProfileId, policy);
   }
-  if (
-    policies.length !== NCS_FINAL_PROFILE_IDS.length ||
-    NCS_FINAL_PROFILE_IDS.some((profileId) => !policyByProfile.has(profileId)) ||
-    policies.reduce((sum, policy) => sum + policy.weight, 0) !== 100
-  ) {
+  const profileIds = scoringVersion === NCS_SCORING_VERSION_V2
+    ? NCS_FINAL_PROFILE_IDS.filter((profileId) => policyByProfile.has(profileId))
+    : [...NCS_FINAL_PROFILE_IDS];
+  const validPolicySet = scoringVersion === NCS_SCORING_VERSION_V2
+    ? policies.length >= 1 &&
+      policies.length <= 3 &&
+      policies.length === profileIds.length &&
+      policies.every((policy) => policy.weight > 0 && policy.requiredQuestionCount >= 1)
+    : policies.length === NCS_FINAL_PROFILE_IDS.length &&
+      NCS_FINAL_PROFILE_IDS.every((profileId) => policyByProfile.has(profileId));
+  if (!validPolicySet || policies.reduce((sum, policy) => sum + policy.weight, 0) !== 100) {
     incompleteReasons.push(reason(
       "SESSION_SNAPSHOT_MISSING",
-      "The session NCS policy must contain three unique profiles with weights totaling 100.",
+      scoringVersion === NCS_SCORING_VERSION_V2
+        ? "The session NCS V2 policy must contain one to three unique active profiles with weights totaling 100."
+        : "The session NCS policy must contain three unique profiles with weights totaling 100.",
       null,
     ));
   }
 
-  const profiles = NCS_FINAL_PROFILE_IDS.map((ncsProfileId, index): NcsProfileAggregate => {
+  const profiles = profileIds.map((ncsProfileId, index): NcsProfileAggregate => {
     const policy = policyByProfile.get(ncsProfileId);
     const assigned = evaluations.filter((evaluation) => evaluation.ncsProfileId === ncsProfileId);
     const valid = assigned.filter((evaluation) =>
@@ -129,7 +140,7 @@ export function aggregateNcsFinalEvaluation(
       evaluation.effectiveScore !== null &&
       evaluation.evidenceCount > 0,
     );
-    const requiredQuestionCount = policy?.requiredQuestionCount ?? 2;
+    const requiredQuestionCount = policy?.requiredQuestionCount ?? (scoringVersion === NCS_SCORING_VERSION_V2 ? 1 : 2);
     if (assigned.length < requiredQuestionCount) {
       incompleteReasons.push({
         ...reason(
@@ -190,7 +201,7 @@ export function aggregateNcsFinalEvaluation(
   const isComplete = uniqueIncompleteReasons.length === 0 && profiles.every((profile) => profile.status === "SCORED");
   if (!isComplete) {
     return {
-      scoringVersion: NCS_SCORING_VERSION,
+      scoringVersion,
       decisionPolicyVersion: NCS_DECISION_POLICY_VERSION,
       completionStatus: "INCOMPLETE",
       thresholdResult: "INCOMPLETE",
@@ -206,7 +217,7 @@ export function aggregateNcsFinalEvaluation(
   const profileBelow = profiles.some((profile) => profile.averageScore! < profile.minimumAverageScore);
   const thresholdMet = totalScore >= 80 && !profileBelow;
   return {
-    scoringVersion: NCS_SCORING_VERSION,
+    scoringVersion,
     decisionPolicyVersion: NCS_DECISION_POLICY_VERSION,
     completionStatus: "COMPLETE",
     thresholdResult: thresholdMet ? "MEETS_THRESHOLD" : "BELOW_THRESHOLD",

@@ -375,6 +375,7 @@ async function runReportControllerAssertions() {
   });
   const session = await repository.findInterviewSessionByApplication(submitted.application.applicationId);
   assert.ok(session);
+  Reflect.set(session, "ncsScoringVersion", "NCS_RECRUITING_SCORING_V2");
 
   await assertReportHttpError(
     () => controller.getApplicationReport(validCandidateRequest, String(submitted.application.applicationId)),
@@ -463,9 +464,13 @@ async function runReportControllerAssertions() {
   const recruitingReportJob = queuePublisher.messages.filter((message) => message.processType === "REPORT_GENERATE").at(-1);
   assert.ok(recruitingReportJob);
   const recruitingReportInput = JSON.parse(recruitingReportJob.inputRef) as {
-    payload?: { answers?: Array<Record<string, unknown>> };
+    payload?: {
+      answers?: Array<Record<string, unknown>>;
+      ncsScoringVersion?: string;
+    };
   };
   assert.ok(recruitingReportInput.payload?.answers?.length);
+  assert.equal(recruitingReportInput.payload?.ncsScoringVersion, "NCS_RECRUITING_SCORING_V2");
   assert.equal(
     recruitingReportInput.payload?.answers?.some((answer) => "nonverbalMetadata" in answer),
     false,
