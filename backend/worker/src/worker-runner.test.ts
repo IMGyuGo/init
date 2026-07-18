@@ -5,6 +5,7 @@ import { InMemoryAiJobQueue } from "./queue";
 import { loadWorkerEnv } from "./worker-env";
 import {
   NonRetryableAiWorkerFailure,
+  RegenerationRequiredAiWorkerFailure,
   ReanswerRequiredAiWorkerFailure,
   RetryableAiWorkerFailure,
   SttRetryableAiWorkerFailure
@@ -330,6 +331,27 @@ test("keeps STT retryable failures on the queue for redelivery", async () => {
     retryable: true
   });
   assert.deepEqual(queue.deletedMessageIds, []);
+});
+
+test("acks regeneration-required failures while exposing user retryability", async () => {
+  const queue = new InMemoryAiJobQueue([message(10)]);
+  const repository = new InMemoryAiProcessLogRepository();
+  const handler: AiTaskHandler = {
+    async handle() {
+      throw new RegenerationRequiredAiWorkerFailure(
+        "aligned candidates exhausted; missing=229:1; primaryAttempts=3; fallbackAttempts=1; rejections=LOW_ALIGNMENT:4",
+      );
+    },
+  };
+
+  await new AiWorkerRunner(queue, repository, handler).processBatch();
+
+  assert.deepEqual(repository.get(10).failure, {
+    category: "REGENERATION_REQUIRED",
+    reason: "aligned candidates exhausted; missing=229:1; primaryAttempts=3; fallbackAttempts=1; rejections=LOW_ALIGNMENT:4",
+    retryable: true,
+  });
+  assert.deepEqual(queue.deletedMessageIds, ["message-10"]);
 });
 
 test("acks retryable failures after the total receive attempt limit is exceeded", async () => {

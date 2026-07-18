@@ -38,12 +38,19 @@ export class ReanswerRequiredAiWorkerFailure extends AiWorkerFailure {
   }
 }
 
+export class RegenerationRequiredAiWorkerFailure extends AiWorkerFailure {
+  constructor(message: string) {
+    super("REGENERATION_REQUIRED", message);
+    this.name = "RegenerationRequiredAiWorkerFailure";
+  }
+}
+
 export function toFailureReason(error: unknown): FailureReason {
   if (error instanceof AiWorkerFailure) {
     return {
       category: error.category,
       reason: error.message,
-      retryable: isRetryableFailureCategory(error.category)
+      retryable: isUserRetryableFailureCategory(error.category)
     };
   }
 
@@ -54,6 +61,10 @@ export function toFailureReason(error: unknown): FailureReason {
   };
 }
 
-export function isRetryableFailureCategory(category: FailureCategory): boolean {
+export function isAutomaticRetryFailureCategory(category: FailureCategory): boolean {
   return category === "RETRYABLE" || category === "STT_RETRYABLE";
+}
+
+export function isUserRetryableFailureCategory(category: FailureCategory): boolean {
+  return isAutomaticRetryFailureCategory(category) || category === "REGENERATION_REQUIRED";
 }

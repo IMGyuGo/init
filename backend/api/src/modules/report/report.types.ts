@@ -21,10 +21,17 @@ export type ReportPipelineStep =
   | "ANSWER_EVALUATION"
   | "COMMUNICATION_ANALYSIS"
   | "REPORT_GENERATE";
-export type FailureCategory = "RETRYABLE" | "NON_RETRYABLE" | "STT_RETRYABLE" | "REANSWER_REQUIRED";
+export type FailureCategory =
+  | "RETRYABLE"
+  | "NON_RETRYABLE"
+  | "STT_RETRYABLE"
+  | "REANSWER_REQUIRED"
+  | "REGENERATION_REQUIRED";
 
 export function isRetryableFailureCategory(category: FailureCategory): boolean {
-  return category === "RETRYABLE" || category === "STT_RETRYABLE";
+  return category === "RETRYABLE" ||
+    category === "STT_RETRYABLE" ||
+    category === "REGENERATION_REQUIRED";
 }
 
 export interface EvaluationCriterionInput {

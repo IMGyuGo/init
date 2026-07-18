@@ -348,7 +348,10 @@ type CandidateProfileAiContextV1 = {
 - 공통 질문은 저장된 JD와 NCS 평가 기준을 입력으로 사용하고, 개인화 질문은 동일 입력에 실제 PDF 추출 이력서 본문을 추가한다.
 - 개인화 질문 provider 입력에서 이메일과 전화번호를 제거하고 이력서 본문은 최대 50,000자로 제한한다. 원문은 outputRef나 질문 metadata에 복제하지 않는다.
 - HTML/editor markup, 공고·회사·직무 접두어, 15자 미만 또는 180자 초과 질문, 동일·유사 질문, 동일 종결 표현의 과도한 반복은 저장 후보에서 제외하고 재생성한다.
-- NCS 질문은 정해진 재생성 횟수 안에 요청 수만큼 `alignmentStatus=ALIGNED` 결과를 만들지 못하면 job을 실패시킨다. `LOW_ALIGNMENT` 또는 `REVIEW_REQUIRED` 질문을 공통/개인화 질문으로 자동 대체하지 않는다.
+- 각 provider 호출은 활성 criterion별 남은 슬롯에 후보 1개를 더해 요청하며, 필터를 통과한 결과만 원래 요청한 배분까지 채택한다.
+- NCS 질문은 primary mode 최초 생성과 최대 2회 재작성, 문서화된 단방향 fallback 1회 안에 요청 수만큼 `alignmentStatus=ALIGNED` 결과를 만들지 못하면 draft 없이 `REGENERATION_REQUIRED`로 실패시킨다. `LOW_ALIGNMENT` 또는 `REVIEW_REQUIRED` 질문을 공통/개인화 질문으로 자동 대체하지 않는다.
+- `REGENERATION_REQUIRED`의 `failure.retryable=true`는 C 화면에서 사용자가 새 job을 요청할 수 있다는 의미다. E worker는 현재 메시지를 ACK하고 같은 job을 큐에서 자동 재시도하지 않는다.
+- NCS AI 질문 저장 시 C API는 검증된 candidate의 effective mode를 저장하고 `TECHNICAL_KNOWLEDGE -> TECHNICAL`, `EXPERIENCE_BEHAVIOR -> EXPERIENCE`, `SITUATIONAL_DESIGN -> SITUATION`으로 `questionType`을 정규화한다. 저장과 질문 세트 확정은 `JOB_TECHNICAL: TECHNICAL_KNOWLEDGE -> EXPERIENCE_BEHAVIOR`, `PROBLEM_SOLVING: EXPERIENCE_BEHAVIOR -> SITUATIONAL_DESIGN`만 허용하며 협업 profile, 역방향, cross-profile fallback은 거부한다.
 
 ## C 면접 설정 화면 적용 규칙
 

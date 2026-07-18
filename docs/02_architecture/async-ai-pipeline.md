@@ -9,6 +9,7 @@ AI 처리와 비동기 작업의 실행 흐름을 정리한다.
 - 장기 작업은 `ai_process_logs`에 작업 유형, 상태, 입력 참조, 출력 참조를 기록한다.
 - AI 결과 저장 전 guardrail 정책 위반 여부를 검증하고 `ai_guardrail_logs`에 PASS/BLOCKED/REGENERATED를 기록한다.
 - 실패한 작업은 `FAILED` 상태와 재시도 가능 사유를 화면에 노출한다.
+- `failure.retryable=true`는 사용자에게 새 job 시작을 허용할 수 있음을 의미할 뿐, queue 자동 retry/redelivery를 뜻하지 않는다. `REGENERATION_REQUIRED` 실패는 최종 `FAILED`를 기록하고 메시지를 ACK한다.
 - 임베딩은 원문 해시(`source_text_hash`)로 중복 생성을 방지하고, `ai_guardrail_logs`에 PASS를 기록한 뒤 저장한다. `ai_process_logs.outputRef`에는 원문 대신 `sourceTextHash`, `dedupeKey`, `duplicatePolicy=UPSERT_BY_SOURCE_TEXT_HASH`만 남긴다.
 - AWS 실배포 worker queue는 SQS Standard를 기준으로 한다. Redis는 인증 TTL/cache 용도이며, AI worker queue backend로 전환하지 않는다.
 - SQS Standard는 중복 전달이 가능하므로 worker는 `processLogId`를 idempotency key로 사용한다. 이미 `COMPLETED`인 작업 재전달은 AI provider 호출 없이 ack하고, 처리 중인 작업은 `lease_owner`, `lease_expires_at` 조건부 갱신으로 원자적 claim을 획득한 worker만 실행한다.
@@ -80,8 +81,8 @@ sequenceDiagram
       QWorker->>Batch: questions transaction save, READY
       QWorker->>Log: COMPLETED
     else retry/fallback exhausted
-      QWorker->>Batch: review candidates save, REVIEW_REQUIRED
-      QWorker->>Log: COMPLETED with domain status
+      QWorker->>Batch: no draft save, FAILED
+      QWorker->>Log: FAILED, REGENERATION_REQUIRED
     else provider or persistence failure
       QWorker->>Batch: FAILED with sanitized reason
       QWorker->>Log: FAILED
@@ -128,9 +129,10 @@ DEMO_PRESET 개인화 작업은 STANDARD `resumeQuestionCount`와 별개인 추�
 - document worker는 추출 결과 저장 뒤 생성한 후속 job을 SQS에 발행한다. 후속 발행이 실패하면 해당 child `ai_process_logs`와 연결 batch만 `FAILED`로 보상하고, 이미 `EXTRACTED`로 저장한 문서 상태는 되돌리지 않는다.
 - worker는 `RESUME_QUESTION_GENERATE`, `PENDING`, 연결 batch `GENERATING` 조건을 15분 이상 만족하는 작업을 큐 미발행·유실로 실행 주체와 연결되지 않은 장기 PENDING 복구 대상(고아 작업)으로 간주한다. 동일 `processLogId`, `processType`, `inputRef`, `attempt` envelope를 재발행하며 worker claim이 중복 delivery를 멱등 처리한다. 복구 조회나 개별 발행 실패는 기록하되 다른 복구 작업과 일반 queue 소비를 중단하지 않는다.
 - worker ECS task role은 AI job queue를 소비하는 권한과 함께 후속·복구 job 발행에 필요한 `sqs:SendMessage`를 같은 queue ARN 범위로 가져야 한다.
-- 정렬 실패는 같은 mode로 최대 2회 재생성하고 계약에 허용된 fallback만 사용한다.
-- 요청 개수보다 적은 질문을 `READY`로 저장하지 않는다. 일부 실패는 전체 batch를 `REVIEW_REQUIRED`로 둔다.
-- `ai_process_logs.status=COMPLETED`는 worker 실행 완료를 뜻한다. 업무 상태가 `REVIEW_REQUIRED`일 수 있으므로 두 상태를 같은 enum으로 합치지 않는다.
+- 각 질문 생성 호출은 활성 profile별 남은 슬롯보다 후보를 1개 더 요청하고 품질·중복·정렬 검증을 통과한 후보만 요청 개수까지 채택한다.
+- 정렬 실패는 같은 mode로 최초 생성 후 최대 2회 재생성하고 계약에 허용된 단방향 fallback만 한 번 사용한다.
+- 요청 개수보다 적은 질문을 `READY`로 저장하지 않는다. fallback까지 소진해 정확한 `ALIGNED` 세트를 만들지 못하면 draft를 저장하지 않고 process와 연결 batch를 `FAILED/REGENERATION_REQUIRED`로 기록한다.
+- `REGENERATION_REQUIRED`는 상태 응답에서 `failure.retryable=true`지만 사용자가 새 job을 요청할 수 있다는 뜻이다. 현재 SQS 메시지는 ACK하며 큐 자동 재시도·재전달 대상이 아니다.
 
 ## Async Endpoint Map
 

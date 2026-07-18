@@ -124,12 +124,12 @@ NCS profile + question mode + 행동지표
 → 동일 profile/question mode로 질문 문장 재작성
 → 최대 2회 정렬 재검증
 → 여전히 미달이면 허용된 fallback mode로 재생성
-→ fallback도 미달이면 REVIEW_REQUIRED
+→ fallback도 미달이면 draft 없이 FAILED/REGENERATION_REQUIRED
 ```
 
 - 정렬 기준과 실패 이유는 NCS adapter 응답을 사용한다.
 - 질문 유형 변경은 점수를 통과시키기 위한 우회가 아니라 확인하려는 증거가 실제 경험·기술 지식·상황 설계 중 무엇인지 바뀔 때만 허용한다.
-- `REVIEW_REQUIRED` 질문은 면접에 자동 포함하지 않는다.
+- `REGENERATION_REQUIRED`는 현재 queue message를 ACK하고, 사용자가 새 생성 job을 요청할 수 있도록 `failure.retryable=true`로 노출한다. 정렬 미달 후보는 draft나 면접 질문에 저장하지 않는다.
 - 질문 정렬이 통과해도 답변이 짧거나 근거가 없으면 `INSUFFICIENT_INPUT` 또는 평가 불충분으로 처리한다.
 - 평가 불충분은 0점으로 환산하지 않는다.
 

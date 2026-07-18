@@ -6,7 +6,7 @@ import {
   FailureReason,
   GuardrailDecision
 } from "./worker.types";
-import { isRetryableFailureCategory } from "./worker-errors";
+import { isUserRetryableFailureCategory } from "./worker-errors";
 
 interface PrismaAiProcessLogRecord {
   processLogId: bigint;
@@ -250,7 +250,7 @@ export class PrismaAiProcessLogRepository implements AiProcessLogRepository {
           ? {
               category: processLog.failureCategory as FailureReason["category"],
               reason: processLog.failureReason,
-              retryable: isRetryableFailureCategory(processLog.failureCategory as FailureReason["category"])
+              retryable: isUserRetryableFailureCategory(processLog.failureCategory as FailureReason["category"])
             }
           : undefined
     };
