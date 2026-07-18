@@ -1,0 +1,154 @@
+#!/bin/bash
+set -euxo pipefail
+
+exec > >(tee /var/log/playwright-loadtest-user-data.log | logger -t playwright-loadtest-user-data -s 2>/dev/console) 2>&1
+
+dnf update -y
+dnf install -y \
+  alsa-lib \
+  amazon-ssm-agent \
+  at-spi2-atk \
+  at-spi2-core \
+  atk \
+  cups-libs \
+  dbus-glib \
+  git \
+  gtk3 \
+  jq \
+  libXcomposite \
+  libXcursor \
+  libXdamage \
+  libXext \
+  libXi \
+  libXrandr \
+  libXScrnSaver \
+  libXtst \
+  libdrm \
+  libxkbcommon \
+  mesa-libgbm \
+  nodejs20 \
+  nodejs20-npm \
+  nss \
+  nspr \
+  pango \
+  shadow-utils \
+  xorg-x11-server-Xvfb
+
+systemctl enable --now amazon-ssm-agent
+
+alternatives --set node /usr/bin/node-20 || true
+alternatives --set npm /usr/bin/npm-20 || true
+
+id playwright >/dev/null 2>&1 || useradd --create-home --shell /bin/bash playwright
+
+mkdir -p /opt/playwright-loadtest/tests /opt/playwright-loadtest/logs /opt/playwright-loadtest/artifacts
+
+cat >/tmp/package.json.gz.b64 <<'PACKAGE_B64'
+${package_json_gz_b64}
+PACKAGE_B64
+base64 -d /tmp/package.json.gz.b64 | gzip -d >/opt/playwright-loadtest/package.json
+rm -f /tmp/package.json.gz.b64
+
+cat >/tmp/playwright.config.ts.gz.b64 <<'CONFIG_B64'
+${playwright_config_gz_b64}
+CONFIG_B64
+base64 -d /tmp/playwright.config.ts.gz.b64 | gzip -d >/opt/playwright-loadtest/playwright.config.ts
+rm -f /tmp/playwright.config.ts.gz.b64
+
+cat >/tmp/realtime-session-hold.spec.ts.gz.b64 <<'SPEC_B64'
+${realtime_spec_gz_b64}
+SPEC_B64
+base64 -d /tmp/realtime-session-hold.spec.ts.gz.b64 | gzip -d >/opt/playwright-loadtest/tests/realtime-session-hold.spec.ts
+rm -f /tmp/realtime-session-hold.spec.ts.gz.b64
+
+cat >/opt/playwright-loadtest/.env <<'ENV'
+PLAYWRIGHT_LOADTEST_INSTANCE_INDEX=${instance_index}
+PLAYWRIGHT_TOKEN_ROW_START=${token_row_start}
+PLAYWRIGHT_TOKEN_ROW_END=${token_row_end}
+PLAYWRIGHT_BASE_URL=${playwright_base_url}
+PLAYWRIGHT_API_BASE_URL=${playwright_api_base_url}
+PLAYWRIGHT_CSV_PATH=${playwright_csv_path}
+PLAYWRIGHT_WORKERS=${playwright_workers}
+PLAYWRIGHT_HOLD_SECONDS=${playwright_hold_seconds}
+ENV
+
+cat >/opt/playwright-loadtest/README.txt <<'README'
+Playwright realtime interview load test host.
+
+This instance is prepared for browser-based interview tests.
+It does not contain interview_tokens.csv because that file contains secrets.
+
+Required manual files:
+- /opt/playwright-loadtest/interview_tokens.csv
+
+Auto-created files:
+- /opt/playwright-loadtest/package.json
+- /opt/playwright-loadtest/playwright.config.ts
+- /opt/playwright-loadtest/tests/realtime-session-hold.spec.ts
+
+Useful commands:
+- node-20 --version
+- npm-20 --version
+- cd /opt/playwright-loadtest && npm-20 exec -- playwright --version
+- cd /opt/playwright-loadtest && npm-20 run test:list
+- sudo /usr/local/bin/run-playwright-loadtest
+
+The .env file contains this instance's CSV row range.
+README
+
+cat >/usr/local/bin/run-playwright-loadtest <<'RUNNER'
+#!/bin/bash
+set -euo pipefail
+
+cd /opt/playwright-loadtest
+
+if [ -f .env ]; then
+  while IFS='=' read -r key value; do
+    case "$key" in
+      ''|'#'*) continue ;;
+    esac
+    if [ -z "$${!key+x}" ]; then
+      export "$key=$value"
+    fi
+  done < .env
+fi
+
+if [ ! -f "$PLAYWRIGHT_CSV_PATH" ]; then
+  echo "Missing $PLAYWRIGHT_CSV_PATH. Copy interview_tokens.csv by SSM before running."
+  exit 2
+fi
+
+if ! find tests -maxdepth 1 -type f -name '*.spec.ts' | grep -q .; then
+  echo "Missing Playwright test file under /opt/playwright-loadtest/tests."
+  exit 3
+fi
+
+chown playwright:playwright "$PLAYWRIGHT_CSV_PATH"
+chmod 600 "$PLAYWRIGHT_CSV_PATH"
+chown -R playwright:playwright tests artifacts logs
+
+exec runuser -u playwright -- env \
+  PLAYWRIGHT_LOADTEST_INSTANCE_INDEX="$PLAYWRIGHT_LOADTEST_INSTANCE_INDEX" \
+  PLAYWRIGHT_TOKEN_ROW_START="$PLAYWRIGHT_TOKEN_ROW_START" \
+  PLAYWRIGHT_TOKEN_ROW_END="$PLAYWRIGHT_TOKEN_ROW_END" \
+  PLAYWRIGHT_BASE_URL="$PLAYWRIGHT_BASE_URL" \
+  PLAYWRIGHT_API_BASE_URL="$PLAYWRIGHT_API_BASE_URL" \
+  PLAYWRIGHT_CSV_PATH="$PLAYWRIGHT_CSV_PATH" \
+  PLAYWRIGHT_WORKERS="$PLAYWRIGHT_WORKERS" \
+  PLAYWRIGHT_HOLD_SECONDS="$PLAYWRIGHT_HOLD_SECONDS" \
+  PLAYWRIGHT_MAX_ROWS="$${PLAYWRIGHT_MAX_ROWS:-}" \
+  PLAYWRIGHT_REALTIME_READY_TIMEOUT_MS="$${PLAYWRIGHT_REALTIME_READY_TIMEOUT_MS:-}" \
+  PLAYWRIGHT_HOLD_POLL_INTERVAL_MS="$${PLAYWRIGHT_HOLD_POLL_INTERVAL_MS:-}" \
+  /usr/bin/npm-20 test -- "$@"
+RUNNER
+
+chmod +x /usr/local/bin/run-playwright-loadtest
+chown -R playwright:playwright /opt/playwright-loadtest
+
+runuser -u playwright -- bash -lc 'cd /opt/playwright-loadtest && /usr/bin/npm-20 install && /usr/bin/npm-20 exec -- playwright install chromium'
+
+/usr/bin/node-20 --version > /opt/playwright-loadtest/node-version.txt
+/usr/bin/npm-20 --version > /opt/playwright-loadtest/npm-version.txt
+runuser -u playwright -- bash -lc 'cd /opt/playwright-loadtest && /usr/bin/npm-20 exec -- playwright --version' > /opt/playwright-loadtest/playwright-version.txt
+
+chown -R playwright:playwright /opt/playwright-loadtest
