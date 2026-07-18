@@ -21,14 +21,22 @@ export interface AiWorkerRunnerOptions {
   workerId?: string;
   onStart?: (job: AiWorkerJob) => Promise<void>;
   onFailure?: (job: AiWorkerJob, failure: FailureReason) => Promise<void>;
+  onOrphanRecoveryFailure?: (context: OrphanRecoveryFailureContext) => Promise<void> | void;
+}
+
+export interface OrphanRecoveryFailureContext {
+  stage: "LOOKUP" | "PUBLISH";
+  failure: FailureReason;
+  job?: AiWorkerJob;
 }
 
 export class AiWorkerRunner {
   private readonly options: Required<Pick<
     AiWorkerRunnerOptions,
     "maxMessages" | "maxRetryableReceives" | "guardrailPolicyName" | "visibilityTimeoutSeconds" | "heartbeatIntervalMs" |
-      "orphanPendingThresholdMs" | "orphanRecoveryIntervalMs" | "orphanRecoveryBatchSize" | "workerId"
-  >> &
+      "orphanPendingThresholdMs" | "orphanRecoveryIntervalMs" | "orphanRecoveryBatchSize" | "workerId" |
+      "onOrphanRecoveryFailure"
+    >> &
     Pick<AiWorkerRunnerOptions, "onStart" | "onFailure">;
   private lastOrphanRecoveryAt = 0;
 
@@ -48,7 +56,8 @@ export class AiWorkerRunner {
       orphanRecoveryIntervalMs: 60_000,
       orphanRecoveryBatchSize: 10,
       workerId: `worker-${randomUUID()}`,
-      ...options
+      ...options,
+      onOrphanRecoveryFailure: options.onOrphanRecoveryFailure ?? logOrphanRecoveryFailure,
     };
   }
 
@@ -153,12 +162,44 @@ export class AiWorkerRunner {
       return;
     }
     this.lastOrphanRecoveryAt = now;
-    const jobs = await this.repository.findOrphanedPendingJobs(
-      new Date(now - this.options.orphanPendingThresholdMs),
-      this.options.orphanRecoveryBatchSize,
-    );
+    let jobs: AiWorkerJob[];
+    try {
+      jobs = await this.repository.findOrphanedPendingJobs(
+        new Date(now - this.options.orphanPendingThresholdMs),
+        this.options.orphanRecoveryBatchSize,
+      );
+    } catch (error) {
+      await this.reportOrphanRecoveryFailure("LOOKUP", error);
+      return;
+    }
+
     for (const job of jobs) {
-      await this.queue.publish(job);
+      try {
+        await this.queue.publish(job);
+      } catch (error) {
+        await this.reportOrphanRecoveryFailure("PUBLISH", error, job);
+      }
+    }
+  }
+
+  private async reportOrphanRecoveryFailure(
+    stage: OrphanRecoveryFailureContext["stage"],
+    error: unknown,
+    job?: AiWorkerJob,
+  ): Promise<void> {
+    const context: OrphanRecoveryFailureContext = {
+      stage,
+      failure: toFailureReason(error),
+      job,
+    };
+    try {
+      await this.options.onOrphanRecoveryFailure(context);
+    } catch (reportingError) {
+      console.error("AI worker stale pending recovery failure reporting failed", {
+        stage,
+        processLogId: job?.processLogId,
+        reason: reportingError instanceof Error ? reportingError.message : String(reportingError),
+      });
     }
   }
 
@@ -249,4 +290,14 @@ export class AiWorkerRunner {
       retryable: false
     };
   }
+}
+
+function logOrphanRecoveryFailure(context: OrphanRecoveryFailureContext): void {
+  console.error("AI worker stale pending recovery failed", {
+    stage: context.stage,
+    processLogId: context.job?.processLogId,
+    processType: context.job?.processType,
+    failureCategory: context.failure.category,
+    reason: context.failure.reason,
+  });
 }
