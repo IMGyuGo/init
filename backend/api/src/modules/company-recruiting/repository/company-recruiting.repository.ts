@@ -20,6 +20,16 @@ import type {
   RecruitmentRecord,
 } from "../company-recruiting.types";
 
+const postingActiveApplicationCountInclude = {
+  _count: {
+    select: {
+      applications: {
+        where: { applicationStatus: { not: ApplicationStatus.CANCELED } },
+      },
+    },
+  },
+} satisfies Prisma.PostingInclude;
+
 // update 시 값이 없는 필드는 prisma 에서 건드리지 않도록 undefined 를 허용한다(발행 등 부분 수정에서 기존 값 보존).
 export type PostingFilterFields = {
   jobRoleCode?: string | null;
@@ -154,7 +164,7 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
         ...input,
         companyId: BigInt(input.companyId),
       },
-      include: { _count: { select: { applications: true } } },
+      include: postingActiveApplicationCountInclude,
     });
     return mapPosting(posting);
   }
@@ -171,7 +181,7 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
     const posting = await this.prisma.posting.update({
       where: { postingId: BigInt(postingId) },
       data: input,
-      include: { _count: { select: { applications: true } } },
+      include: postingActiveApplicationCountInclude,
     });
     return mapPosting(posting);
   }
@@ -188,7 +198,7 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
     const posting = await this.prisma.posting.update({
       where: { postingId: BigInt(postingId) },
       data: { status: PostingStatus.ARCHIVED },
-      include: { _count: { select: { applications: true } } },
+      include: postingActiveApplicationCountInclude,
     });
     return mapPosting(posting);
   }
@@ -199,7 +209,7 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
       orderBy: buildPostingOrderBy(query),
       skip: query.skip,
       take: query.take,
-      include: { _count: { select: { applications: true } } },
+      include: postingActiveApplicationCountInclude,
     });
     return postings.map(mapPosting);
   }
@@ -211,7 +221,7 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
   async findPostingForCompany(postingId: number, companyId: number): Promise<RecruitmentRecord | null> {
     const posting = await this.prisma.posting.findFirst({
       where: { postingId: BigInt(postingId), companyId: BigInt(companyId) },
-      include: { _count: { select: { applications: true } } },
+      include: postingActiveApplicationCountInclude,
     });
     return posting ? mapPosting(posting) : null;
   }
@@ -570,6 +580,7 @@ function buildApplicationWhere(
   return {
     postingId: BigInt(postingId),
     posting: { companyId: BigInt(companyId) },
+    applicationStatus: { not: ApplicationStatus.CANCELED },
     ...(q
       ? {
           OR: [
@@ -591,7 +602,9 @@ function buildApplicationOrderBy(query: NormalizedListQuery): Prisma.Application
   return { [allowed.has(query.sort) ? query.sort : "updatedAt"]: query.order };
 }
 
-function mapPosting(posting: Prisma.PostingGetPayload<{ include: { _count: { select: { applications: true } } } }>): RecruitmentRecord {
+function mapPosting(
+  posting: Prisma.PostingGetPayload<{ include: typeof postingActiveApplicationCountInclude }>,
+): RecruitmentRecord {
   return {
     postingId: Number(posting.postingId),
     companyId: Number(posting.companyId),

@@ -58,6 +58,26 @@ function postingRow(input: Partial<Record<string, unknown>> = {}) {
 }
 
 describe("PrismaCandidateRepository", () => {
+  it("checks duplicate applications using only non-canceled rows", async () => {
+    let capturedWhere: Record<string, unknown> | null = null;
+    const prisma = {
+      application: {
+        async count(args: { where: Record<string, unknown> }) {
+          capturedWhere = args.where;
+          return 0;
+        },
+      },
+    };
+    const repository = new PrismaCandidateRepository(prisma as never);
+
+    assert.equal(await repository.hasActiveApplication(44, 101), false);
+    assert.deepEqual(capturedWhere, {
+      candidateId: 44n,
+      postingId: 101n,
+      applicationStatus: { not: "CANCELED" },
+    });
+  });
+
   function createSnapshotRepository(options: {
     batchStatus?: string;
     insufficientCoverage?: boolean;

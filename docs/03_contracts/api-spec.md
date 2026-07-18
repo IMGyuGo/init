@@ -500,6 +500,7 @@ AI 리포트 금지 기준:
   - 채용 공고 목록 표시
   - 공고 리스트 표시 및 공고 상세/수정/복사 가능
   - 별도 상태 필터가 없으면 `ARCHIVED` 공고는 기본 목록에서 제외한다.
+  - `applicantCount`는 `application_status != CANCELED`인 활성 지원 건만 집계한다. 취소 후 재지원한 경우 취소 이력은 수에 중복 반영하지 않는다.
 - 오류/예외:
   - 공고가 없으면 공고 생성 안내를 표시한다.
   - 공고가 없으면 빈 상태와 공고 생성 CTA를 표시한다.
@@ -735,6 +736,7 @@ AI 리포트 금지 기준:
   - 공고 조회 권한 보유
 - 성공 응답/처리:
   - 공고별 지원자 관리 화면 표시
+  - 기본 지원자 목록과 pagination count는 `application_status != CANCELED`인 활성 지원 건만 포함한다. 취소 이력은 DB에서 삭제하지 않는다.
 - 오류/예외:
   - 공고 정보가 없거나 권한이 없으면 접근 제한 메시지를 표시한다.
 - 관련 ERD 테이블:
@@ -1049,6 +1051,7 @@ AI 리포트 금지 기준:
   - 조회 권한 보유
 - 성공 응답/처리:
   - 지원자 목록 표시
+  - 기본 지원자 목록과 count는 `application_status != CANCELED`인 활성 지원 건만 포함한다.
 - 오류/예외:
   - 데이터가 없으면 빈 상태 안내를 표시한다.
 - 관련 ERD 테이블:
@@ -3109,9 +3112,11 @@ CandidateFolder 입력 제한:
   - 기본정보(이름/이메일/연락처), 이력서 PDF, 지원동기, 추가설명을 입력해야 한다. GitHub·블로그 URL은 선택이며 프로필에서 자동 입력된다.
   - 포트폴리오 URL 또는 PDF FileAsset 중 하나 이상을 제출해야 하며, 둘 다 제출할 수도 있다.
   - 제출 파일은 현재 지원자 소유의 ACTIVE FileAsset이어야 한다.
+  - 동일 지원자·공고 조합에 `CANCELED`가 아닌 지원서가 존재하면 중복 지원으로 차단한다. `CANCELED` 이력만 존재하면 재지원을 허용한다.
 - 성공 응답/처리:
   - 지원서 제출 당시 기본정보와 전체 `profileSnapshot`을 `applications`에 불변 스냅샷으로 저장한다.
   - 이력서/포트폴리오 PDF를 `application_documents`에 연결하고 지원서 제출을 완료한다.
+  - 취소 후 재지원은 기존 지원서를 되살리지 않고 새 `applicationId`, 서류, 동의, 채용면접 세션을 생성한다. 취소된 지원서와 연결 스냅샷은 감사·추적을 위해 보존한다.
   - (#272) 입력한 연락처(`phone`)를 회원(`users.phone`)에 저장하여 다음 지원 화면에서 자동 입력에 재사용한다.
   - 공고의 `resumeQuestionCount`가 1 이상이면 응답 projection의 `resumeQuestionStatus=WAITING_DOCUMENT`, 0이면 `DISABLED`로 반환한다. batch row는 문서 추출 완료 후 생성한다.
   - 문서 추출 job은 기존 `DOCUMENT_EXTRACT` 흐름으로 시작하며, 지원서 제출 트랜잭션 안에서 이력서 질문을 직접 생성하지 않는다.
@@ -3120,7 +3125,7 @@ CandidateFolder 입력 제한:
   - 지원 화면 진입 시 기존 `applicant`와 전체 `profileSnapshot`을 함께 반환한다. 모든 프로필 항목은 공고별로 수정 가능하다.
   - 지원서 세트는 목록 조회 후 상세 API로 불러오며 프로필, 링크, 첨부, 지원동기, 추가설명을 빈 값까지 포함해 전체 교체한다. 원본 세트는 불변이다.
 - 오류/예외:
-  - 파일 형식 오류, 용량 초과, 이미 지원한 공고, 마감 공고이면 제출을 제한한다.
+  - 파일 형식 오류, 용량 초과, 취소되지 않은 지원서가 이미 존재하는 공고, 마감 공고이면 제출을 제한한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, file_assets, postings, applications, application_documents
 - 비고/미결:
@@ -3141,6 +3146,7 @@ CandidateFolder 입력 제한:
   - 로그인 사용자
 - 성공 응답/처리:
   - 지원현황 목록을 200 OK로 반환한다.
+  - 취소 후 재지원한 경우 취소 이력과 새 지원 건을 서로 다른 `applicationId`의 항목으로 반환한다.
   - 각 항목은 영속 지원 상태와 별도로 `availabilityStatus`를 반환한다. 정상 항목은 `AVAILABLE`이며, 연결된 공고 또는 면접 세션을 찾지 못한 항목은 `UNAVAILABLE`이다.
   - `UNAVAILABLE` 항목은 `unavailableReason`으로 `POSTING_NOT_FOUND` 또는 `INTERVIEW_SESSION_NOT_FOUND`를 반환하고, 누락된 연결 정보 필드는 `null`로 반환한다.
   - `UNAVAILABLE` 항목은 면접 및 리포트 진입을 허용하지 않으며, 화면에서는 "더 이상 조회할 수 없는 지원입니다."로 표시한다.
@@ -3173,6 +3179,7 @@ CandidateFolder 입력 제한:
 - 성공 응답/처리:
   - 지원 상태를 `CANCELED`로 변경하고 지원 내역 목록에서 즉시 반영한다.
   - 같은 요청을 다시 보내면 기존 취소 결과를 반환한다.
+  - 취소 완료 후 같은 공고의 다른 비취소 지원서가 없다면 공고 목록·상세·지원 화면은 다시 지원 가능한 상태를 반환한다.
 - 오류/예외:
   - 지원 내역이 없으면 `COMMON_NOT_FOUND`, 다른 지원자의 내역이면 `COMMON_FORBIDDEN`을 반환한다.
   - 면접이 시작됐거나 완료된 지원, 또는 취소할 수 없는 전형 상태면 `COMMON_CONFLICT`를 반환한다.

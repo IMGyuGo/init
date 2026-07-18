@@ -110,6 +110,8 @@ DTO와 API client 타입은 아래 naming을 따른다. 같은 요청/응답 타
 
 공유 테이블을 수정하는 PR은 위 field owner를 기준으로 리뷰어를 지정한다. owner가 아닌 모듈에서 직접 write가 필요하면 먼저 `docs/03_contracts`와 이 문서를 수정한다.
 
+`applications`의 재지원 불변식은 동일 `(posting_id, candidate_id)`에서 `CANCELED`가 아닌 row를 최대 하나로 제한한다. 취소 후 재지원은 D가 새 row를 생성하고 기존 취소 이력을 보존한다. B의 기본 지원자 목록과 `applicantCount`는 `CANCELED`를 제외하지만, C의 평가 기준·질문 설정 잠금은 취소 여부와 관계없이 제출 이력을 계속 포함한다. 이 제약 또는 집계 기준을 변경하는 PR은 B/C/D cross-owner 리뷰를 받는다.
+
 ## Permission Matrix Baseline
 
 모든 protected API는 `CurrentUser`와 role guard를 기준으로 접근을 판단한다. service 내부에서 `userType` 문자열 비교를 반복 구현하지 않고 guard/decorator/helper를 사용한다.

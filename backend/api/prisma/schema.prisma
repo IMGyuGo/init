@@ -652,7 +652,7 @@ model Application {
   clientPerformanceLogs    ClientPerformanceLog[]
   interviewQuestionBatches ApplicationInterviewQuestionBatch[]
 
-  @@unique([postingId, candidateId])
+  // Prisma 6.19 cannot model a partial index; the active-row unique invariant is managed in migration SQL.
   @@index([postingId, applicationStatus])
   @@map("applications")
 }
