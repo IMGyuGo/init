@@ -2,12 +2,6 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CubismProofInterviewerAvatar } from "./CubismProofInterviewerAvatar";
-import {
-  getCubismMouthOpenValue,
-  initializeCubismSdk,
-  type CubismRuntimeAvailability,
-} from "./CubismSdkRuntime";
 import { usePrefersReducedMotion } from "./InterviewAvatar";
 import { LocalInterviewerAvatar } from "./LocalInterviewerAvatar";
 import {
@@ -19,7 +13,6 @@ import {
 const STORAGE_KEY = "candidate.interviewer-rigging-preview";
 
 export type RiggingPreviewVariantId = "existing-look" | "rigged-look";
-type CubismRuntimeState = CubismRuntimeAvailability["kind"] | "initializing";
 
 type RiggingPreviewVariant = {
   id: RiggingPreviewVariantId;
@@ -136,7 +129,6 @@ export function InterviewerAudioLipSyncQa({ reducedMotion }: InterviewerAudioLip
   const [playbackState, setPlaybackState] = useState<"idle" | "playing" | "error">("idle");
   const [playbackError, setPlaybackError] = useState("");
   const [observedMouthShapes, setObservedMouthShapes] = useState<MouthShape[]>(["rest"]);
-  const [observedCubismRange, setObservedCubismRange] = useState({ min: 0, max: 0 });
   const playing = playbackState === "playing";
   const presentationState: AvatarPresentationState = playing ? "speaking" : "idle";
   const lipSyncState = useLipSyncDriverState({
@@ -172,13 +164,6 @@ export function InterviewerAudioLipSyncQa({ reducedMotion }: InterviewerAudioLip
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
-    setObservedCubismRange((current) => ({
-      min: Math.min(current.min, lipSyncState.mouthOpen),
-      max: Math.max(current.max, lipSyncState.mouthOpen),
-    }));
-  }, [lipSyncState.mouthOpen]);
-
   const bindAudioElement = useCallback((element: HTMLAudioElement | null) => {
     audioElementRef.current = element;
     setAudioElement(element);
@@ -197,7 +182,6 @@ export function InterviewerAudioLipSyncQa({ reducedMotion }: InterviewerAudioLip
     currentAudioElement.currentTime = 0;
     setPlaybackError("");
     setObservedMouthShapes(["rest"]);
-    setObservedCubismRange({ min: 0, max: 0 });
     try {
       await currentAudioElement.play();
     } catch (error) {
@@ -209,8 +193,6 @@ export function InterviewerAudioLipSyncQa({ reducedMotion }: InterviewerAudioLip
   return (
     <div
       className="interviewer-rigging-preview__audio-qa"
-      data-audio-qa-cubism-max={observedCubismRange.max.toFixed(3)}
-      data-audio-qa-cubism-min={observedCubismRange.min.toFixed(3)}
       data-audio-qa-error={playbackError}
       data-audio-qa-observed-shapes={observedMouthShapes.join(",")}
       data-audio-qa-reduced-motion={reducedMotion ? "true" : "false"}
@@ -226,9 +208,7 @@ export function InterviewerAudioLipSyncQa({ reducedMotion }: InterviewerAudioLip
         <span aria-live="polite">
           {playbackState === "error" ? "재생 실패" : playing ? "재생 중" : "준비"}
         </span>
-        <small>
-          {observedMouthShapes.join(" -> ")} · Cubism {lipSyncState.mouthOpen.toFixed(3)}
-        </small>
+        <small>{observedMouthShapes.join(" -> ")}</small>
         <audio
           aria-label="로컬 RMS QA 음원"
           controls
@@ -252,9 +232,6 @@ export function InterviewerAudioLipSyncQa({ reducedMotion }: InterviewerAudioLip
             reducedMotion={reducedMotion}
           />
         </div>
-        <div className="interviewer-rigging-preview__runtime-stage" data-audio-qa-renderer="cubism">
-          <CubismProofInterviewerAvatar mouthOpen={lipSyncState.mouthOpen} reducedMotion={reducedMotion} />
-        </div>
       </div>
     </div>
   );
@@ -262,7 +239,6 @@ export function InterviewerAudioLipSyncQa({ reducedMotion }: InterviewerAudioLip
 
 export function InterviewerRiggingPreview() {
   const [selectedId, setSelectedId] = useState<RiggingPreviewVariantId>("existing-look");
-  const [cubismRuntime, setCubismRuntime] = useState<CubismRuntimeState>("initializing");
   const [avatarQaState, setAvatarQaState] = useState<AvatarQaState>(DEFAULT_AVATAR_QA_STATE);
   const reducedMotion = usePrefersReducedMotion();
   const selected = getRiggingPreviewVariant(selectedId);
@@ -271,25 +247,13 @@ export function InterviewerRiggingPreview() {
     setSelectedId(getRiggingPreviewVariant(window.localStorage.getItem(STORAGE_KEY)).id);
   }, []);
 
-  useEffect(() => {
-    let mounted = true;
-
-    void initializeCubismSdk(document, true).then((result) => {
-      if (mounted) setCubismRuntime(result.kind);
-    });
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
   function selectVariant(id: RiggingPreviewVariantId) {
     setSelectedId(id);
     window.localStorage.setItem(STORAGE_KEY, id);
   }
 
   return (
-    <main className="interviewer-rigging-preview" data-cubism-runtime={cubismRuntime} data-rigging-variant={selected.id}>
+    <main className="interviewer-rigging-preview" data-avatar-renderer="png" data-rigging-variant={selected.id}>
       <header className="interviewer-rigging-preview__header">
         <p>AI Interviewer</p>
         <h1>2D 리깅 원본 시안</h1>
@@ -369,20 +333,6 @@ export function InterviewerRiggingPreview() {
 
           <div className="interviewer-rigging-preview__runtime-stage">
             <LocalInterviewerAvatar {...avatarQaState} />
-          </div>
-        </div>
-
-        <div className="interviewer-rigging-preview__cubism-proof" data-cubism-proof-qa="true">
-          <div className="interviewer-rigging-preview__proof-record">
-            <strong>Cubism V6 coherent mouth proof</strong>
-            <code>ParamMouthOpenY · 0 → 1</code>
-            <span>하나의 완성 입에서 분리 · 상순 · 하순 · 구강 · 윗니 · 혀 · 운영 적용 전 QA 모델</span>
-          </div>
-          <div className="interviewer-rigging-preview__runtime-stage">
-            <CubismProofInterviewerAvatar
-              mouthOpen={getCubismMouthOpenValue(avatarQaState.mouthShape)}
-              reducedMotion={avatarQaState.reducedMotion}
-            />
           </div>
         </div>
 

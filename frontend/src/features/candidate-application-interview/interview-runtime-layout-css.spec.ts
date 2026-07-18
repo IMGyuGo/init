@@ -29,6 +29,33 @@ assert.match(
   "the interviewer figure should be allowed to shrink inside the stage grid",
 );
 
+const interviewerAvatarRule = css.match(
+  /:global\(\.ai-interviewer-figure > \.local-interviewer-avatar\)\s*\{(?<body>[^}]*)\}/,
+);
+assert.ok(interviewerAvatarRule?.groups?.body, "interviewer avatar CSS rule should exist");
+assert.match(
+  interviewerAvatarRule.groups.body,
+  /max-height:\s*410px;/,
+  "the interviewer avatar should use the enlarged desktop presentation size",
+);
+
+const interviewerNameRule = css.match(
+  /:global\(\.ai-interviewer-copy h1\)\s*\{(?<body>[^}]*)\}/,
+);
+assert.ok(interviewerNameRule?.groups?.body, "interviewer name CSS rule should exist");
+assert.match(
+  interviewerNameRule.groups.body,
+  /font-size:\s*20px;/,
+  "the interviewer name should leave more room for the avatar",
+);
+
+const interviewerStatusRule = css.match(
+  /:global\(\.ai-interviewer-session-chip\)\s*\{(?<body>[^}]*)\}/,
+);
+assert.ok(interviewerStatusRule?.groups?.body, "interviewer status CSS rule should exist");
+assert.match(interviewerStatusRule.groups.body, /min-height:\s*20px;/);
+assert.match(interviewerStatusRule.groups.body, /font-size:\s*10px;/);
+
 assert.match(
   css,
   /@media \(max-width:\s*760px\)[\s\S]*?:global\(\.ai-interviewer-stage\)\s*\{[\s\S]*?aspect-ratio:\s*auto;/,
@@ -43,6 +70,11 @@ assert.match(
   css,
   /@media \(max-width:\s*760px\)[\s\S]*?:global\(\.candidate-camera-pip\)\s*\{[\s\S]*?position:\s*relative;/,
   "mobile camera preview should participate in layout instead of covering the question",
+);
+assert.match(
+  css,
+  /@media \(max-width:\s*760px\)[\s\S]*?:global\(\.ai-interviewer-figure > \.local-interviewer-avatar\)\s*\{[\s\S]*?width:\s*min\(230px,\s*68vw\);/,
+  "mobile should keep the enlarged interviewer inside the viewport",
 );
 
 const candidatePrimaryCameraPanelRule = css.match(

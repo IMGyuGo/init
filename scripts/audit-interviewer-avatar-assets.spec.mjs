@@ -5,10 +5,9 @@ import { fileURLToPath } from "node:url";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-let auditCubismProofModel;
 let auditInterviewerAvatarAssets;
 try {
-  ({ auditCubismProofModel, auditInterviewerAvatarAssets } = await import("./audit-interviewer-avatar-assets.mjs"));
+  ({ auditInterviewerAvatarAssets } = await import("./audit-interviewer-avatar-assets.mjs"));
 } catch (error) {
   assert.fail(`avatar asset audit module must exist: ${error instanceof Error ? error.message : String(error)}`);
 }
@@ -40,42 +39,6 @@ assert.deepEqual(
   ],
 );
 
-assert.equal(typeof auditCubismProofModel, "function");
-const cubismProof = await auditCubismProofModel(
-  resolve(
-    projectRoot,
-    "frontend/public/assets/interviewer-cubism/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.model3.json",
-  ),
-);
-
-assert.equal(cubismProof.version, 3);
-assert.ok(cubismProof.moc.bytes > 15_000);
-assert.equal(cubismProof.moc.path, "interviewer-v6-coherent-mouth-proof.moc3");
-assert.equal(cubismProof.base.path, "interviewer-v6-coherent-mouth-proof-base.png");
-assert.ok(cubismProof.base.bytes > 1_000_000);
-assert.equal(cubismProof.base.width, 1024);
-assert.equal(cubismProof.base.height, 1536);
-assert.equal(cubismProof.textures.length, 1);
-assert.equal(
-  cubismProof.textures[0].path,
-  "interviewer-v6-coherent-mouth-proof.2048/texture_00.png",
-);
-assert.ok(cubismProof.textures[0].bytes > 300_000);
-assert.equal(cubismProof.textures[0].width, 2048);
-assert.equal(cubismProof.textures[0].height, 2048);
-assert.equal(cubismProof.displayInfo.parameterCount, 27);
-assert.equal(cubismProof.displayInfo.hasMouthOpenParameter, true);
-assert.equal(cubismProof.displayInfo.path, "interviewer-v6-coherent-mouth-proof.cdi3.json");
-
-const preservedV5Proof = await auditCubismProofModel(
-  resolve(
-    projectRoot,
-    "frontend/public/assets/interviewer-cubism/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.model3.json",
-  ),
-);
-assert.equal(preservedV5Proof.moc.path, "interviewer-v5-layered-mouth-proof.moc3");
-assert.equal(preservedV5Proof.textures[0].path, "interviewer-v5-layered-mouth-proof.2048/texture_00.png");
-
 const frontendPackage = JSON.parse(
   await readFile(resolve(projectRoot, "frontend/package.json"), "utf8"),
 );
@@ -83,6 +46,5 @@ const frontendPackage = JSON.parse(
 assert.equal(frontendPackage.scripts["audit:avatar-assets"], "node ../scripts/audit-interviewer-avatar-assets.mjs");
 assert.match(frontendPackage.scripts["test:candidate-avatar"], /InterviewerRiggingPreview\.spec\.tsx/);
 assert.match(frontendPackage.scripts["test:candidate-avatar"], /audit-interviewer-avatar-assets\.spec\.mjs/);
-assert.match(frontendPackage.scripts["test:candidate-avatar"], /audit-coherent-mouth-source\.spec\.mjs/);
-assert.match(frontendPackage.scripts["test:candidate-avatar"], /build-cubism-v6-export\.spec\.mjs/);
+assert.doesNotMatch(frontendPackage.scripts["test:candidate-avatar"], /Cubism|cubism|coherent-mouth/);
 assert.equal(frontendPackage.devDependencies.tsx, "4.22.4");

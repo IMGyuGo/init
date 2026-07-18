@@ -4,7 +4,7 @@ import type { AvatarPresentationState, MouthShape } from "./LipSyncDriver";
 
 const postureImageByState: Record<AvatarPresentationState, string> = {
   idle: "/assets/interviewer-avatar/listening.png",
-  speaking: "/assets/interviewer-avatar/talking.png",
+  speaking: "/assets/interviewer-avatar/listening.png",
   listening: "/assets/interviewer-avatar/listening.png",
   thinking: "/assets/interviewer-avatar/thinking.png",
 };
@@ -43,7 +43,10 @@ export function LocalInterviewerAvatar({
   const renderedMouthShape: MouthShape = presentationState === "speaking" && !reducedMotion ? mouthShape : "rest";
   const renderState = presentationState === "speaking" ? "talking" : presentationState;
   const postureState = presentationState === "speaking" && reducedMotion ? "idle" : presentationState;
-  const shouldActivateMouth = presentationState === "speaking" && !reducedMotion;
+  const shouldActivateMouth = presentationState === "speaking"
+    && !reducedMotion
+    && mouthShape !== "rest"
+    && mouthShape !== "closed";
 
   return (
     <div

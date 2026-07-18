@@ -56,7 +56,7 @@ const talkingMarkup = renderAvatar("speaking", "wide");
 
 assert.match(talkingMarkup, /data-state="talking"/);
 assert.match(talkingMarkup, /data-mouth-shape="wide"/);
-assert.match(talkingMarkup, /src="\/assets\/interviewer-avatar\/talking\.png"/);
+assert.match(talkingMarkup, /src="\/assets\/interviewer-avatar\/listening\.png"/);
 assertAllMouthSprites(talkingMarkup);
 assertActiveMouthShape(talkingMarkup, "wide");
 assert.match(talkingMarkup, /width="1086" height="1448"/);
@@ -102,6 +102,7 @@ for (const { presentationState, mouthShape, reducedMotion, posturePath } of nonS
 }
 
 const openTalkingMarkup = renderAvatar("speaking", "open");
+const closedTalkingMarkup = renderAvatar("speaking", "closed");
 const teethTalkingMarkup = renderAvatar("speaking", "teeth");
 const extractMouthSpriteSources = (markup: string) =>
   [...markup.matchAll(/src="(\/assets\/interviewer-avatar\/mouth-sprite\/[^"]+)"/g)].map(
@@ -111,4 +112,5 @@ const extractMouthSpriteSources = (markup: string) =>
 assert.deepEqual(extractMouthSpriteSources(openTalkingMarkup), mouthSpritePaths);
 assert.deepEqual(extractMouthSpriteSources(teethTalkingMarkup), mouthSpritePaths);
 assertActiveMouthShape(openTalkingMarkup, "open");
+assertActiveMouthShape(closedTalkingMarkup);
 assertActiveMouthShape(teethTalkingMarkup, "teeth");
