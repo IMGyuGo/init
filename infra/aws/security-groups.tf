@@ -65,18 +65,18 @@ resource "aws_vpc_security_group_ingress_rule" "alb_http_ngrinder" {
   }
 }
 
-resource "aws_vpc_security_group_ingress_rule" "alb_http_ngrinder_public_ip" {
-  count = var.enable_ngrinder ? 1 : 0
+resource "aws_vpc_security_group_ingress_rule" "alb_http_playwright_loadtest" {
+  count = var.enable_playwright_loadtest && var.playwright_loadtest_instance_count > 0 ? 1 : 0
 
-  security_group_id = aws_security_group.alb.id
-  cidr_ipv4         = "${aws_instance.ngrinder[0].public_ip}/32"
-  from_port         = 80
-  ip_protocol       = "tcp"
-  to_port           = 80
+  security_group_id            = aws_security_group.alb.id
+  referenced_security_group_id = aws_security_group.playwright_loadtest[0].id
+  from_port                    = 80
+  ip_protocol                  = "tcp"
+  to_port                      = 80
 
   tags = {
-    Name   = "${local.name_prefix}-alb-http-ngrinder-public-ip"
-    Source = "ngrinder-public-ip"
+    Name   = "${local.name_prefix}-alb-http-playwright-loadtest"
+    Source = "playwright-loadtest"
   }
 }
 
@@ -148,6 +148,32 @@ resource "aws_vpc_security_group_egress_rule" "ngrinder_all" {
   tags = {
     Name    = "${local.name_prefix}-ngrinder-all-egress"
     Service = "ngrinder"
+  }
+}
+
+resource "aws_security_group" "playwright_loadtest" {
+  count = var.enable_playwright_loadtest && var.playwright_loadtest_instance_count > 0 ? 1 : 0
+
+  name        = "${local.name_prefix}-playwright-loadtest"
+  description = "Playwright load test EC2 outbound only with SSM access"
+  vpc_id      = aws_vpc.main.id
+
+  tags = {
+    Name    = "${local.name_prefix}-playwright-loadtest"
+    Service = "playwright-loadtest"
+  }
+}
+
+resource "aws_vpc_security_group_egress_rule" "playwright_loadtest_all" {
+  count = var.enable_playwright_loadtest && var.playwright_loadtest_instance_count > 0 ? 1 : 0
+
+  security_group_id = aws_security_group.playwright_loadtest[0].id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1"
+
+  tags = {
+    Name    = "${local.name_prefix}-playwright-loadtest-all-egress"
+    Service = "playwright-loadtest"
   }
 }
 

@@ -280,3 +280,44 @@ test("PrismaAiProcessLogRepository atomically claims and renews an AI process le
     leaseOwner: "worker-a:message-21",
   });
 });
+
+test("PrismaAiProcessLogRepository finds only stale pending resume-question jobs with generating batches", async () => {
+  let findManyArgs: any;
+  const prisma = {
+    aiProcessLog: {
+      async findMany(args: any) {
+        findManyArgs = args;
+        return [{
+          processLogId: BigInt(41),
+          processType: "RESUME_QUESTION_GENERATE",
+          inputRef: JSON.stringify({ applicationId: 206, attempt: 3 }),
+        }];
+      },
+      async upsert(_args: any) { throw new Error("not used"); },
+      async findUnique(_args: any) { return null; },
+      async update(_args: any) { throw new Error("not used"); },
+      async updateMany(_args: any) { return { count: 0 }; },
+    },
+    aiGuardrailLog: {
+      async create(_args: any) { return { guardrailLogId: BigInt(1) }; },
+    },
+  };
+  const repository = new PrismaAiProcessLogRepository(prisma);
+  const createdBefore = new Date("2026-07-18T03:35:00.000Z");
+
+  const jobs = await repository.findOrphanedPendingJobs(createdBefore, 5);
+
+  assert.deepEqual(findManyArgs.where, {
+    processType: "RESUME_QUESTION_GENERATE",
+    status: "PENDING",
+    createdAt: { lte: createdBefore },
+    inputRef: { not: null },
+    latestResumeQuestionBatches: { some: { status: "GENERATING" } },
+  });
+  assert.deepEqual(jobs, [{
+    processLogId: 41,
+    processType: "RESUME_QUESTION_GENERATE",
+    inputRef: JSON.stringify({ applicationId: 206, attempt: 3 }),
+    attempt: 3,
+  }]);
+});

@@ -406,7 +406,7 @@ export function SignupForm({ userType }: { userType: UserType }) {
         method: "POST",
         body: JSON.stringify(buildSignupPayload(userType, form)),
       });
-      router.push("/login");
+      router.push(isCompany ? "/company/login" : "/login");
     } catch (error) {
       setOk(false);
       setMessage(error instanceof Error ? error.message : "가입에 실패했습니다.");

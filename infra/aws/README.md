@@ -295,6 +295,7 @@ Amazon Q Developer Slack channel configuration의 자체 logging은 `logging_lev
 | S3 AI key trust | document extract/STT dispatch에서 client-supplied `s3Key`/`audioS3Key`를 그대로 worker에 넘기지 않는다. DB file asset/application/answer 기준 canonical key를 재조회한다. | worker가 검증되지 않은 S3 key를 `GetObject`함 |
 | S3 public base URL | 회사 로고/JD 이미지 public URL은 CloudFront OAC 허용 prefix와 `S3_PUBLIC_BASE_URL=https://init-jungle.cloud`가 맞아야 한다. | private S3 direct URL을 public URL로 반환함 |
 | SQS real queue | API publisher와 worker consumer가 실제 `AI_SQS_QUEUE_URL`을 사용해야 한다. queue URL 누락으로 in-memory queue에 fallback되면 안 된다. | API가 SQS 대신 in-memory publisher로 기동됨 |
+| Worker SQS publish permission | worker task role은 소비 권한(`ReceiveMessage`, `ChangeMessageVisibility`, `DeleteMessage`, `GetQueueAttributes`, `GetQueueUrl`)뿐 아니라 문서 추출 뒤 후속 질문 작업과 고아 작업을 같은 queue에 다시 발행할 `SendMessage` 권한도 가져야 한다. | 추출은 끝났지만 후속 `RESUME_QUESTION_GENERATE` 작업이 DB의 `PENDING`/batch `GENERATING` 상태에 고립됨 |
 | Worker real mode | worker는 `WORKER_REPOSITORY_MODE=prisma`, `AI_PROVIDER_MODE=openai`, `AI_STT_PROVIDER=openai` 등 실제 처리 모드와 provider key를 사용한다. | worker가 memory repository 또는 mock AI/STT provider로 운영 기동됨 |
 | Valkey cache required behavior | 인증 코드와 public magic link가 ElastiCache Valkey를 Redis protocol로 사용해야 한다. 운영에서 cache 장애를 조용히 memory fallback으로 숨기지 않는지 확인한다. | production에서 Valkey cache 없이 인증/매직링크가 성공한 것처럼 보임 |
 | External SMTP | provider credential, `SMTP_FROM`, TLS, 발신 도메인/SPF/DKIM/DMARC 검증 상태를 확인한다. | 인증 메일 또는 public application magic link 발송이 실패함 |
@@ -539,9 +540,13 @@ frontend와 worker도 같은 방식으로 넣는다.
   "WORKER_CONCURRENCY": "1",
   "WORKER_BATCH_SIZE": "1",
   "WORKER_MAX_RETRYABLE_RECEIVES": "3",
-  "WORKER_POLL_INTERVAL_MS": "1000"
+  "WORKER_POLL_INTERVAL_MS": "1000",
+  "WORKER_VISIBILITY_TIMEOUT_SECONDS": "900",
+  "WORKER_VISIBILITY_HEARTBEAT_MS": "300000"
 }
 ```
+
+`WORKER_VISIBILITY_HEARTBEAT_MS`는 `WORKER_VISIBILITY_TIMEOUT_SECONDS`보다 짧아야 한다. 운영 기본값은 15분 visibility/lease와 5분 heartbeat를 사용하며, 두 값은 `init/main/worker` secret JSON과 ECS task definition mapping에 함께 존재해야 한다.
 
 ```powershell
 aws secretsmanager put-secret-value `
@@ -729,7 +734,7 @@ aws elbv2 describe-target-health --target-group-arn $apiTgArn
 - ECS service가 stable 상태가 되지 않는다.
 - ALB target health가 `healthy`가 아니다.
 - API task가 secret, DB, Valkey 연결 오류로 반복 재시작한다.
-- worker가 `ChangeMessageVisibility` 권한을 사용하지 못하거나 `ai_process_logs` lease 갱신에 실패한다.
+- worker가 `ChangeMessageVisibility` 또는 후속 작업 발행용 `SendMessage` 권한을 사용하지 못하거나 `ai_process_logs` lease 갱신에 실패한다.
 
 ### 10. Domain smoke test
 
@@ -804,6 +809,8 @@ GitHub Actions만 사용하되, 배포 권한 경계는 GitHub Environment `init
 
 Terraform 변경과 application 변경이 같은 PR에 섞이면 workflow는 배포를 중단한다. Terraform 변경은 별도 PR에서 plan/apply를 먼저 검토하고, 앱 배포는 다음 merge에서 수행한다.
 
+worker가 처리 중 후속 SQS 작업을 발행하도록 권한과 코드를 함께 바꾸는 경우에도 같은 경계를 지킨다. 먼저 Terraform 전용 plan에서 worker task role의 queue ARN과 `sqs:SendMessage` 추가만 포함되는지 검토해 apply하고, 그 다음 worker 애플리케이션 변경을 배포한다. 권한 적용 전에 고아 작업 재발행 코드를 먼저 배포하면 재발행도 동일한 IAM 오류로 실패한다.
+
 GitHub Actions는 ECS task definition revision을 직접 등록하고 service를 갱신한다. Terraform은 service의 `task_definition` drift를 무시해 이후 infra apply가 앱 image tag를 `bootstrap`으로 되돌리지 않게 한다. ECS task definition의 CPU/memory/env/secret 구조를 바꾼 Terraform 변경은 다음 앱 배포 때 새 live revision의 기준으로 사용된다.
 
 GitHub repository에 필요한 값:
@@ -813,6 +820,7 @@ GitHub repository에 필요한 값:
 | `AWS_REGION` | GitHub Environment `init-main` variable | `ap-northeast-2` |
 | `AWS_DEPLOY_ROLE_ARN` | GitHub Environment `init-main` variable | `terraform output github_deploy_role_arn` |
 | `APP_BASE_URL` | GitHub Environment `init-main` variable | `https://init-jungle.cloud` |
+| `NEXT_PUBLIC_NCS_QUESTION_POLICY_ENABLED` | GitHub Environment `init-main` variable | `true` (`false`로 frontend를 재빌드하면 NCS 질문 정책 UI rollback) |
 | `NEXT_PUBLIC_TOSS_CLIENT_KEY` | GitHub Environment `init-main` secret | Toss public client key |
 
 중단 기준:
@@ -902,6 +910,7 @@ AWS Console에서 직접 수정하지 않는 것을 원칙으로 한다. 리소�
 | Redis protocol cache TLS/auth 변경 | `redis.tf` | 앱 `REDIS_URL`을 `rediss://`로 바꾸는 코드/secret 변경 필요 |
 | S3 공개 asset prefix 변경 | `alb-cloudfront.tf`, `s3-sqs.tf` | private bucket 유지, OAC policy 범위 |
 | SQS visibility timeout 변경 | `s3-sqs.tf` | worker 처리 시간, DLQ redrive 기준 |
+| Worker SQS 권한 변경 | `iam.tf` | 소비 권한과 후속 작업 발행용 `sqs:SendMessage`가 동일한 AI queue ARN으로 제한되는지 |
 | Secret key 추가/삭제 | `.env.example`, `locals.tf`, Secrets Manager JSON | task definition secret mapping과 실제 secret JSON 일치 |
 | GitHub Actions deploy 권한 변경 | `iam.tf` | OIDC trust, GitHub Environment 제한, `iam:PassRole` 범위 |
 | Slack 운영 알림 변경 | `cloudwatch.tf`, `iam.tf`, `providers.tf`, `env/main.tfvars` | SNS topic, Q Developer Slack channel configuration, guardrail policy, `alarm_actions`/`ok_actions`, Slack workspace/channel ID |

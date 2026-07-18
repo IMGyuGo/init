@@ -1,3 +1,5 @@
+import type { NcsReportEvaluationOutput } from "./ncs-report-contract";
+
 export type ApiEnvelope<T> = {
   data: T;
   meta: {
@@ -287,11 +289,34 @@ export type ApplicantEvaluation = {
     } | null;
     summary: string | null;
     generatedAt: string | null;
+    // NCS 평가 생산자의 canonical V1 output. 생산자 미배포 기간에는 null이다.
+    ncsEvaluation?: NcsReportEvaluationOutput | null;
+    // NCS 평가 최종 결과(aiDecision). PASS/FAIL 2단계. (#289)
+    result?: "PASS" | "FAIL" | null;
+    // 총점 합격선(100점 만점 기준). 게이지에 마커로 표시한다.
+    passScore?: number | null;
+    // 주요 근거 요약. isGap=true 이면 근거 부족 항목으로 구분 표시한다.
+    keyFindings?: Array<{ text: string; isGap?: boolean }> | null;
+    // 꼬리질문 평가 요약(부족 포인트 목록 / 답변 보완 상태). ncsEvaluation.followUps. (#289)
+    followUps?: Array<{
+      baseAnswerId: number;
+      followUpAnswerId: number;
+      gapPoints: string[];
+      answerStatus: string;
+    }> | null;
     scores: Array<{
       scoreId: number;
       criterionId: number | null;
       criterionName: string | null;
       score: number | null;
+      // 역량 원점수(가중 반영 전). (#289)
+      rawScore?: number | null;
+      // 역량 가중치(%). NCS 역량 비율 설정값. (#289)
+      weight?: number | null;
+      // 역량별 합격선(100점 환산). 레이더 점선·상세 충족 여부에 사용한다.
+      passScore?: number | null;
+      // NCS 역량 구분. criterionName 이 없을 때 라벨 대체에 사용됐다. (#289)
+      ncsCompetency?: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING" | null;
       rationale: string | null;
       evidences: Array<{
         evidenceId: number;

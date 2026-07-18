@@ -122,6 +122,62 @@ variable "ngrinder_agent_enabled" {
   default     = true
 }
 
+variable "enable_playwright_loadtest" {
+  description = "Whether to create temporary public EC2 instances for Playwright realtime interview load testing."
+  type        = bool
+  default     = false
+}
+
+variable "playwright_loadtest_instance_count" {
+  description = "Number of Playwright load test EC2 instances. Start small, then increase for distributed browser load testing."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.playwright_loadtest_instance_count >= 0 && var.playwright_loadtest_instance_count <= 10
+    error_message = "playwright_loadtest_instance_count must be between 0 and 10."
+  }
+}
+
+variable "playwright_loadtest_rows_per_instance" {
+  description = "Number of interview token CSV rows assigned to each Playwright load test EC2 instance."
+  type        = number
+  default     = 20
+
+  validation {
+    condition     = var.playwright_loadtest_rows_per_instance >= 1
+    error_message = "playwright_loadtest_rows_per_instance must be at least 1."
+  }
+}
+
+variable "playwright_loadtest_subnet_keys" {
+  description = "Public subnet keys used by Playwright load test EC2 instances, rotated by instance index."
+  type        = list(string)
+  default     = ["public-1", "public-2"]
+
+  validation {
+    condition     = length(var.playwright_loadtest_subnet_keys) > 0
+    error_message = "playwright_loadtest_subnet_keys must include at least one public subnet key."
+  }
+}
+
+variable "playwright_loadtest_instance_type" {
+  description = "EC2 instance type for Playwright realtime interview load testing."
+  type        = string
+  default     = "t3.large"
+}
+
+variable "playwright_loadtest_root_volume_size_gb" {
+  description = "Root EBS volume size for each Playwright load test EC2 instance."
+  type        = number
+  default     = 40
+
+  validation {
+    condition     = var.playwright_loadtest_root_volume_size_gb >= 30
+    error_message = "playwright_loadtest_root_volume_size_gb must be at least 30."
+  }
+}
+
 variable "enable_interface_endpoints" {
   description = "Cost-sensitive interface VPC endpoint toggles. NAT remains the default outbound path."
   type = object({

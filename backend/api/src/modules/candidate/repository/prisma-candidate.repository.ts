@@ -6,12 +6,15 @@ import {
   DocumentStatus as PrismaDocumentStatus,
   DocumentType as PrismaDocumentType,
   InterviewStatus as PrismaInterviewStatus,
+  InterviewSessionMode as PrismaInterviewSessionMode,
   InterviewType as PrismaInterviewType,
+  QuestionUsageScope as PrismaQuestionUsageScope,
   ReportStatus as PrismaReportStatus,
   type Prisma,
 } from "@prisma/client";
 import { PrismaService } from "../../../shared/prisma.service";
 import { CandidateDomainError } from "../candidate.errors";
+import type { DemoPresetReadinessProjectionDto, InterviewSessionMode } from "@init/common";
 import {
   type ApplicantContact,
   type Application,
@@ -74,7 +77,11 @@ type ConsentRecordModel = Prisma.ConsentRecordGetPayload<Record<string, never>>;
 type FileAssetRecord = Prisma.FileAssetGetPayload<Record<string, never>>;
 type InterviewSessionRecord = Prisma.InterviewSessionGetPayload<{ include: { application: true } }>;
 
-const NCS_SCORING_VERSION = "NCS_RECRUITING_SCORING_V1";
+const NCS_SCORING_VERSION_BY_FRAMEWORK = {
+  NCS_3_PROFILE_V1: "NCS_RECRUITING_SCORING_V1",
+  NCS_ACTIVE_PROFILE_V2: "NCS_RECRUITING_SCORING_V2",
+} as const;
+type NcsScoringVersion = (typeof NCS_SCORING_VERSION_BY_FRAMEWORK)[keyof typeof NCS_SCORING_VERSION_BY_FRAMEWORK];
 const NCS_REQUIRED_QUESTION_COUNT = 2;
 const NCS_PROFILE_IDS = [
   "JOB_TECHNICAL",
@@ -120,6 +127,7 @@ type ExistingNcsSnapshotQuestion = {
   policyVersion: number | null;
   criteriaVersion: number | null;
   sortOrder: number;
+  usageScope?: string;
   ncsBindings: ExistingNcsSnapshotBinding[];
 };
 
@@ -179,6 +187,19 @@ type NcsSourceQuestion = {
   }>;
 };
 
+function toExistingSnapshotQuestionDtos(
+  questions: ExistingNcsSnapshotQuestion[],
+): NonNullable<InterviewQuestionSnapshotResult["questions"]> {
+  return questions.map((question) => ({
+    sessionQuestionId: Number(question.sessionQuestionId),
+    usageScope: question.usageScope === "DEMO_PRESET" ? "DEMO_PRESET" : "STANDARD",
+    ncsProfileIds: question.ncsBindings
+      .map((binding) => binding.ncsProfileId)
+      .filter(isCanonicalNcsProfileId),
+    sortOrder: question.sortOrder,
+  }));
+}
+
 function hasValidNcsSourceBindings(question: NcsSourceQuestion): boolean {
   const bindings = question.ncsBindings;
   const primaryBinding = bindings[0];
@@ -217,6 +238,9 @@ function validateExistingNcsSessionSnapshot(
     currentPolicyVersion: number;
     currentCriteriaVersion: number;
     requireCurrentVersions: boolean;
+    expectedProfiles: CanonicalNcsProfileId[];
+    requiredQuestionCount: number;
+    expectedScoringVersion: NcsScoringVersion;
   },
 ): ExistingNcsSnapshotValidation {
   const errors = new Set<string>();
@@ -228,7 +252,7 @@ function validateExistingNcsSessionSnapshot(
     (question) => question.generationSource === "RESUME_PERSONALIZED",
   ).length;
 
-  if (session.ncsScoringVersion !== NCS_SCORING_VERSION) {
+  if (session.ncsScoringVersion !== current.expectedScoringVersion) {
     errors.add("NCS_SCORING_VERSION_INVALID");
   }
   if (
@@ -299,6 +323,7 @@ function validateExistingNcsSessionSnapshot(
       if (
         binding.bindingOrder !== bindingIndex + 1 ||
         !isCanonicalNcsProfileId(binding.ncsProfileId) ||
+        !current.expectedProfiles.includes(binding.ncsProfileId as CanonicalNcsProfileId) ||
         bindingProfiles.has(binding.ncsProfileId) ||
         binding.alignmentStatus !== "ALIGNED" ||
         !binding.ncsProfileVersion.trim() ||
@@ -347,7 +372,7 @@ function validateExistingNcsSessionSnapshot(
   }
 
   const policiesByProfile = new Map<CanonicalNcsProfileId, ExistingNcsSessionPolicy>();
-  if (session.ncsProfilePolicies.length !== NCS_PROFILE_IDS.length) {
+  if (session.ncsProfilePolicies.length !== current.expectedProfiles.length) {
     errors.add("SESSION_POLICY_COUNT_INVALID");
   }
   for (const policy of session.ncsProfilePolicies) {
@@ -357,7 +382,7 @@ function validateExistingNcsSessionSnapshot(
       !Number.isInteger(policy.weight) ||
       policy.weight < 0 ||
       !Number.isInteger(policy.requiredQuestionCount) ||
-      policy.requiredQuestionCount < NCS_REQUIRED_QUESTION_COUNT ||
+      policy.requiredQuestionCount < current.requiredQuestionCount ||
       !policy.criterionTitleSnapshot.trim() ||
       !policy.ncsProfileVersion.trim()
     ) {
@@ -367,15 +392,15 @@ function validateExistingNcsSessionSnapshot(
     policiesByProfile.set(policy.ncsProfileId, policy);
   }
   if (
-    NCS_PROFILE_IDS.some((profileId) => !policiesByProfile.has(profileId)) ||
+    current.expectedProfiles.some((profileId) => !policiesByProfile.has(profileId)) ||
     [...policiesByProfile.values()].reduce((total, policy) => total + policy.weight, 0) !== 100
   ) {
     errors.add("SESSION_POLICY_WEIGHT_INVALID");
   }
 
-  const ncsCoverage = NCS_PROFILE_IDS.map((ncsProfileId) => {
+  const ncsCoverage = current.expectedProfiles.map((ncsProfileId) => {
     const policy = policiesByProfile.get(ncsProfileId);
-    const requiredQuestionCount = policy?.requiredQuestionCount ?? NCS_REQUIRED_QUESTION_COUNT;
+    const requiredQuestionCount = policy?.requiredQuestionCount ?? current.requiredQuestionCount;
     const actualQuestionCount = profileQuestionCounts.get(ncsProfileId) ?? 0;
     if (actualQuestionCount < requiredQuestionCount) {
       errors.add(`PROFILE_COVERAGE_INVALID:${ncsProfileId}`);
@@ -726,35 +751,181 @@ export class PrismaCandidateRepository implements CandidateRepository {
 
   async findInterviewSessionByApplication(applicationId: number): Promise<InterviewSession | undefined> {
     const existing = await this.prisma.interviewSession.findFirst({
-      where: { applicationId: BigInt(applicationId), interviewType: PrismaInterviewType.RECRUITING },
-      orderBy: { sessionId: "desc" },
+      where: {
+        applicationId: BigInt(applicationId),
+        interviewType: PrismaInterviewType.RECRUITING,
+        deletedAt: null,
+      },
+      orderBy: { sessionId: "asc" },
       include: { application: true },
     });
     return existing ? this.toInterviewSession(existing) : undefined;
   }
 
-  async ensureInterviewSessionByApplication(applicationId: number): Promise<InterviewSession | undefined> {
-    const existing = await this.findInterviewSessionByApplication(applicationId);
-    if (existing) return existing;
-
-    const application = await this.prisma.application.findUnique({ where: { applicationId: BigInt(applicationId) } });
-    if (!application) return undefined;
-
-    const created = await this.prisma.interviewSession.create({
-      data: {
-        applicationId: application.applicationId,
-        candidateId: application.candidateId,
-        interviewType: PrismaInterviewType.RECRUITING,
-        status: PrismaInterviewStatus.NOT_READY,
-        showQuestionText: true,
-      },
-      include: { application: true },
+  async ensureInterviewSessionByApplication(
+    applicationId: number,
+    mode: InterviewSessionMode = "STANDARD",
+  ): Promise<InterviewSession | undefined> {
+    return this.prisma.$transaction(async (tx) => {
+      const lockKey = 417_000_000_000n + BigInt(applicationId);
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
+      const existing = await tx.interviewSession.findFirst({
+        where: { applicationId: BigInt(applicationId), interviewType: PrismaInterviewType.RECRUITING, deletedAt: null },
+        orderBy: { sessionId: "asc" },
+        include: { application: true },
+      });
+      if (existing) {
+        if (existing.sessionMode !== mode) {
+          throw new CandidateDomainError(
+            "INTERVIEW_SESSION_MODE_CONFLICT",
+            "이미 다른 방식의 공식 면접이 시작되었습니다.",
+            409,
+            [{ field: "mode", reason: `existing mode is ${existing.sessionMode}` }],
+          );
+        }
+        return this.toInterviewSession(existing);
+      }
+      const application = await tx.application.findUnique({ where: { applicationId: BigInt(applicationId) } });
+      if (!application) return undefined;
+      const created = await tx.interviewSession.create({
+        data: {
+          applicationId: application.applicationId,
+          candidateId: application.candidateId,
+          interviewType: PrismaInterviewType.RECRUITING,
+          sessionMode: mode as PrismaInterviewSessionMode,
+          status: PrismaInterviewStatus.NOT_READY,
+          showQuestionText: true,
+        },
+        include: { application: true },
+      });
+      return this.toInterviewSession(created);
     });
-    return this.toInterviewSession(created);
+  }
+
+  async getDemoPresetReadiness(applicationId: number): Promise<DemoPresetReadinessProjectionDto> {
+    const application = await this.prisma.application.findUnique({
+      where: { applicationId: BigInt(applicationId) },
+      include: {
+        posting: {
+          include: {
+            criteria: { orderBy: { sortOrder: "asc" } },
+            questionGenerationPolicy: true,
+            questionSets: {
+              where: { status: "ACTIVE" },
+              orderBy: { questionSetId: "desc" },
+              take: 1,
+              include: {
+                items: {
+                  orderBy: { sortOrder: "asc" },
+                  include: { question: { include: { ncsBindings: { orderBy: { bindingOrder: "asc" } } } } },
+                },
+              },
+            },
+          },
+        },
+        documents: {
+          where: { documentType: PrismaDocumentType.RESUME },
+          orderBy: { uploadedAt: "desc" },
+          take: 1,
+        },
+        interviewQuestionBatches: {
+          where: { usageScope: PrismaQuestionUsageScope.DEMO_PRESET },
+          orderBy: { createdAt: "desc" },
+          include: { questions: { include: { ncsBindings: { orderBy: { bindingOrder: "asc" } } } } },
+        },
+        interviewSessions: {
+          where: { interviewType: PrismaInterviewType.RECRUITING, deletedAt: null },
+          orderBy: { sessionId: "asc" },
+          take: 1,
+          include: {
+            _count: { select: { sessionQuestions: true, ncsProfilePolicies: true, answers: true } },
+          },
+        },
+      },
+    });
+    const existing = application?.interviewSessions[0];
+    const sessionWindowStartedAt = existing?.startedAt ?? application?.submittedAt ?? null;
+    const existingIsExpired = sessionWindowStartedAt !== null &&
+      sessionWindowStartedAt.getTime() + 7 * 24 * 60 * 60 * 1000 <= Date.now();
+    const existingIsUnclaimed = Boolean(existing) &&
+      !existingIsExpired &&
+      (existing!.status === PrismaInterviewStatus.NOT_READY || existing!.status === PrismaInterviewStatus.READY) &&
+      existing!.startedAt === null &&
+      existing!._count.sessionQuestions === 0 &&
+      existing!._count.ncsProfilePolicies === 0 &&
+      existing!._count.answers === 0;
+    if (existing && !existingIsUnclaimed) {
+      const sessionMode = existing.sessionMode as InterviewSessionMode;
+      const canResumeDemo = sessionMode === "DEMO_PRESET" &&
+        !existingIsExpired &&
+        (existing.status === PrismaInterviewStatus.READY || existing.status === PrismaInterviewStatus.IN_PROGRESS);
+      return canResumeDemo
+        ? { status: "READY", canStart: true, reasonCode: "OFFICIAL_SESSION_EXISTS", existingSessionId: Number(existing.sessionId), existingSessionMode: sessionMode }
+        : { status: "UNAVAILABLE", canStart: false, reasonCode: sessionMode === "DEMO_PRESET" ? "OFFICIAL_SESSION_EXISTS" : "OFFICIAL_SESSION_MODE_CONFLICT", existingSessionId: Number(existing.sessionId), existingSessionMode: sessionMode };
+    }
+    if (!application) return this.unavailableDemo("CONFIGURATION_COVERAGE_MISMATCH");
+
+    const policy = application.posting.questionGenerationPolicy;
+    const criteria = application.posting.criteria.filter((criterion) =>
+      isCanonicalNcsProfileId(criterion.ncsProfileId),
+    );
+    const allCanonicalActive =
+      policy?.evaluationFramework === "NCS_ACTIVE_PROFILE_V2" &&
+      criteria.length === NCS_PROFILE_IDS.length &&
+      NCS_PROFILE_IDS.every((profileId) => criteria.filter((criterion) => criterion.ncsProfileId === profileId && criterion.weight > 0).length === 1);
+    if (!allCanonicalActive) return this.unavailableDemo("CANONICAL_PROFILES_NOT_ALL_ACTIVE");
+
+    const commonCandidates = (application.posting.questionSets[0]?.items ?? []).filter((item) => {
+      const bindings = item.question.ncsBindings;
+      return item.question.isActive &&
+        item.question.generationSource === "JD_CRITERIA" &&
+        (item.question.usageScope ?? PrismaQuestionUsageScope.STANDARD) === PrismaQuestionUsageScope.STANDARD &&
+        item.question.alignmentStatus === "ALIGNED" &&
+        bindings.length === 1 &&
+        bindings[0]?.ncsProfileId === "COLLABORATION_COMMUNICATION";
+    });
+    if (commonCandidates.length === 0) return this.unavailableDemo("COLLABORATION_COMMON_QUESTION_MISSING");
+
+    const resumeDocument = application.documents[0];
+    const resumeText = resumeDocument?.parseStatus === PrismaDocumentStatus.EXTRACTED
+      ? resumeDocument.extractedText?.trim() ?? ""
+      : "";
+    const jobDescription = application.posting.jobDescription?.trim() ?? "";
+    if (!resumeText) return this.unavailableDemo("FACTUAL_ANCHOR_MISSING");
+    if (!policy || !jobDescription) return this.unavailableDemo("CONFIGURATION_COVERAGE_MISMATCH");
+    const resumeHash = hashInterviewSnapshot(resumeText);
+    const jdHash = hashInterviewSnapshot(jobDescription);
+    const batch = application.interviewQuestionBatches.find((candidate) =>
+      candidate.policyVersion === policy.policyVersion &&
+      candidate.criteriaVersion === policy.criteriaVersion &&
+      candidate.resumeDocumentHash === resumeHash &&
+      candidate.jdSnapshotHash === jdHash,
+    );
+    if (!batch || batch.status === "GENERATING") {
+      return { status: "PENDING", canStart: false, reasonCode: "DEMO_PERSONALIZED_QUESTION_GENERATING", existingSessionId: null, existingSessionMode: null };
+    }
+    if (batch.status === "REVIEW_REQUIRED") return this.unavailableDemo("DEMO_PERSONALIZED_QUESTION_REVIEW_REQUIRED");
+    if (batch.status === "FAILED") return this.unavailableDemo("DEMO_PERSONALIZED_QUESTION_FAILED");
+    const personalCandidates = batch.questions.filter((question) => {
+      const profiles = question.ncsBindings.map((binding) => binding.ncsProfileId);
+      return question.usageScope === PrismaQuestionUsageScope.DEMO_PRESET &&
+        question.alignmentStatus === "ALIGNED" &&
+        profiles.length === 2 &&
+        profiles.includes("JOB_TECHNICAL") && profiles.includes("PROBLEM_SOLVING");
+    });
+    if (batch.status !== "READY" || personalCandidates.length === 0) {
+      return this.unavailableDemo("CONFIGURATION_COVERAGE_MISMATCH");
+    }
+    return { status: "READY", canStart: true, reasonCode: null, existingSessionId: null, existingSessionMode: null };
+  }
+
+  private unavailableDemo(reasonCode: Exclude<DemoPresetReadinessProjectionDto["reasonCode"], null>): DemoPresetReadinessProjectionDto {
+    return { status: "UNAVAILABLE", canStart: false, reasonCode, existingSessionId: null, existingSessionMode: null };
   }
 
   async prepareInterviewSessionQuestionSnapshot(
     applicationId: number,
+    mode: InterviewSessionMode = "STANDARD",
   ): Promise<InterviewQuestionSnapshotResult | undefined> {
     return this.prisma.$transaction(async (transaction) => {
       const lockKey = 417_000_000_000n + BigInt(applicationId);
@@ -814,8 +985,8 @@ export class PrismaCandidateRepository implements CandidateRepository {
             },
           },
           interviewSessions: {
-            where: { interviewType: PrismaInterviewType.RECRUITING },
-            orderBy: { sessionId: "desc" },
+            where: { interviewType: PrismaInterviewType.RECRUITING, deletedAt: null },
+            orderBy: { sessionId: "asc" },
             take: 1,
             include: {
               sessionQuestions: {
@@ -833,13 +1004,60 @@ export class PrismaCandidateRepository implements CandidateRepository {
       if (!application) return undefined;
 
       const policy = application.posting.questionGenerationPolicy;
-      const expectedCommonQuestionCount = policy?.jdCriteriaQuestionCount ?? 0;
-      const expectedPersonalizedQuestionCount = policy?.resumeQuestionCount ?? 0;
+      const expectedCommonQuestionCount = mode === "DEMO_PRESET" ? 1 : policy?.jdCriteriaQuestionCount ?? 0;
+      const expectedPersonalizedQuestionCount = mode === "DEMO_PRESET" ? 1 : policy?.resumeQuestionCount ?? 0;
       const policyVersion = policy?.policyVersion ?? 0;
       const criteriaVersion = policy?.criteriaVersion ?? 0;
-      const existingSession = application.interviewSessions[0] ?? null;
+      let existingSession = application.interviewSessions[0] ?? null;
       const existingSnapshot = existingSession?.sessionQuestions ?? [];
-      const isNcsPolicy = policy?.evaluationFramework === "NCS_3_PROFILE_V1";
+      const canClaimRequestedMode = existingSession &&
+        existingSession.sessionMode !== mode &&
+        (existingSession.status === PrismaInterviewStatus.NOT_READY || existingSession.status === PrismaInterviewStatus.READY) &&
+        existingSession.startedAt === null &&
+        existingSnapshot.length === 0 &&
+        existingSession.ncsProfilePolicies.length === 0 &&
+        existingSession.answers.length === 0;
+      if (canClaimRequestedMode && existingSession) {
+        existingSession = await transaction.interviewSession.update({
+          where: { sessionId: existingSession.sessionId },
+          data: { sessionMode: mode as PrismaInterviewSessionMode },
+          include: {
+            sessionQuestions: { orderBy: { sortOrder: "asc" }, include: { ncsBindings: { orderBy: { bindingOrder: "asc" } } } },
+            ncsProfilePolicies: { orderBy: { ncsProfileId: "asc" } },
+            answers: { select: { answerId: true }, take: 1 },
+          },
+        });
+      }
+      const existingSessionMode = (existingSession?.sessionMode ?? "STANDARD") as InterviewSessionMode;
+      if (existingSession && existingSessionMode !== mode) {
+        return {
+          readiness: "SESSION_MODE_CONFLICT",
+          applicationId,
+          postingId: Number(application.postingId),
+          sessionId: Number(existingSession.sessionId),
+          sessionMode: existingSessionMode,
+          snapshotCreated: false,
+          commonQuestionCount: 0,
+          personalizedQuestionCount: 0,
+          totalQuestionCount: existingSnapshot.length,
+          expectedCommonQuestionCount,
+          expectedPersonalizedQuestionCount,
+          policyVersion,
+          criteriaVersion,
+        };
+      }
+      const isV1Policy = policy?.evaluationFramework === "NCS_3_PROFILE_V1";
+      const isV2Policy = policy?.evaluationFramework === "NCS_ACTIVE_PROFILE_V2";
+      const isNcsPolicy = isV1Policy || isV2Policy;
+      const expectedScoringVersion = isV2Policy
+        ? NCS_SCORING_VERSION_BY_FRAMEWORK.NCS_ACTIVE_PROFILE_V2
+        : NCS_SCORING_VERSION_BY_FRAMEWORK.NCS_3_PROFILE_V1;
+      const expectedSnapshotProfiles = isV2Policy
+        ? application.posting.criteria
+            .filter((criterion) => criterion.weight > 0 && isCanonicalNcsProfileId(criterion.ncsProfileId))
+            .map((criterion) => criterion.ncsProfileId as CanonicalNcsProfileId)
+        : [...NCS_PROFILE_IDS];
+      const expectedSnapshotRequiredCount = isV1Policy ? 2 : 1;
       if (existingSession && existingSnapshot.length > 0 && !isNcsPolicy) {
         const commonQuestionCount = existingSnapshot.filter((item) =>
           item.generationSource === "JD_CRITERIA" || (item.generationSource === null && item.questionId !== null),
@@ -877,6 +1095,9 @@ export class PrismaCandidateRepository implements CandidateRepository {
             currentPolicyVersion: policyVersion,
             currentCriteriaVersion: criteriaVersion,
             requireCurrentVersions: canReplaceSnapshot,
+            expectedProfiles: expectedSnapshotProfiles,
+            requiredQuestionCount: expectedSnapshotRequiredCount,
+            expectedScoringVersion,
           },
         );
         if (validation.valid) {
@@ -894,6 +1115,8 @@ export class PrismaCandidateRepository implements CandidateRepository {
             policyVersion: validation.policyVersion,
             criteriaVersion: validation.criteriaVersion,
             ncsCoverage: validation.ncsCoverage,
+            sessionMode: mode,
+            questions: toExistingSnapshotQuestionDtos(existingSnapshot as unknown as ExistingNcsSnapshotQuestion[]),
           };
         }
         if (!canReplaceSnapshot) {
@@ -912,6 +1135,8 @@ export class PrismaCandidateRepository implements CandidateRepository {
             criteriaVersion: validation.criteriaVersion,
             ncsCoverage: validation.ncsCoverage,
             snapshotValidationErrors: validation.errors,
+            sessionMode: mode,
+            questions: toExistingSnapshotQuestionDtos(existingSnapshot as unknown as ExistingNcsSnapshotQuestion[]),
           };
         }
         const retryAllowedSnapshot = (
@@ -932,6 +1157,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
             applicationId: application.applicationId,
             candidateId: application.candidateId,
             interviewType: PrismaInterviewType.RECRUITING,
+            sessionMode: mode as PrismaInterviewSessionMode,
             status: PrismaInterviewStatus.NOT_READY,
             showQuestionText: true,
           },
@@ -949,21 +1175,41 @@ export class PrismaCandidateRepository implements CandidateRepository {
           expectedPersonalizedQuestionCount,
           policyVersion,
           criteriaVersion,
+          sessionMode: mode,
         };
       }
 
       const ncsCriteria = application.posting.criteria.filter((criterion) =>
         isCanonicalNcsProfileId(criterion.ncsProfileId) &&
+        (!isV2Policy || criterion.weight > 0) &&
         Boolean(criterion.ncsProfileVersion) &&
         Boolean(criterion.tag.name.trim()),
       );
       const criteriaProfiles = ncsCriteria.map((criterion) => criterion.ncsProfileId);
       const hasValidNcsPolicy =
-        ncsCriteria.length === NCS_PROFILE_IDS.length &&
-        NCS_PROFILE_IDS.every(
-          (profileId) => criteriaProfiles.filter((candidate) => candidate === profileId).length === 1,
-        ) &&
+        ncsCriteria.length >= 1 &&
+        (isV1Policy
+          ? ncsCriteria.length === NCS_PROFILE_IDS.length && NCS_PROFILE_IDS.every(
+              (profileId) => criteriaProfiles.filter((candidate) => candidate === profileId).length === 1,
+            )
+          : new Set(criteriaProfiles).size === ncsCriteria.length) &&
         ncsCriteria.reduce((total, criterion) => total + criterion.weight, 0) === 100;
+      const requiredQuestionCount = isV1Policy ? 2 : 1;
+      if (mode === "DEMO_PRESET" && (!isV2Policy || ncsCriteria.length !== NCS_PROFILE_IDS.length)) {
+        return this.snapshotReadinessResult({
+          readiness: "DEMO_PRESET_NOT_READY",
+          applicationId,
+          postingId: Number(application.postingId),
+          sessionId: existingSession ? Number(existingSession.sessionId) : null,
+          sessionMode: mode,
+          commonQuestionCount: 0,
+          personalizedQuestionCount: 0,
+          expectedCommonQuestionCount,
+          expectedPersonalizedQuestionCount,
+          policyVersion,
+          criteriaVersion,
+        });
+      }
       if (!hasValidNcsPolicy) {
         return this.snapshotReadinessResult({
           readiness: "NCS_QUESTION_COVERAGE_INVALID",
@@ -978,7 +1224,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
           criteriaVersion,
           ncsCoverage: NCS_PROFILE_IDS.map((ncsProfileId) => ({
             ncsProfileId,
-            requiredQuestionCount: NCS_REQUIRED_QUESTION_COUNT,
+            requiredQuestionCount,
             actualQuestionCount: 0,
           })),
         });
@@ -986,17 +1232,28 @@ export class PrismaCandidateRepository implements CandidateRepository {
 
       const activeQuestionSet = application.posting.questionSets[0] ?? null;
       const activeQuestionSetItems = activeQuestionSet?.items ?? [];
-      const commonQuestions = activeQuestionSetItems.filter((item) =>
+      const eligibleCommonQuestions = activeQuestionSetItems.filter((item) =>
         item.question.isActive &&
         item.question.generationSource === "JD_CRITERIA" &&
-        hasValidNcsSourceBindings(item.question),
+        (item.question.usageScope ?? PrismaQuestionUsageScope.STANDARD) === PrismaQuestionUsageScope.STANDARD &&
+        hasValidNcsSourceBindings(item.question) &&
+        item.question.ncsBindings.every((binding) =>
+          expectedSnapshotProfiles.includes(binding.ncsProfileId as CanonicalNcsProfileId),
+        ) &&
+        (mode !== "DEMO_PRESET" || (
+          item.question.ncsBindings.length === 1 &&
+          item.question.ncsBindings[0]?.ncsProfileId === "COLLABORATION_COMMUNICATION"
+        )),
       );
+      const commonQuestions = mode === "DEMO_PRESET"
+        ? eligibleCommonQuestions.slice(0, 1)
+        : eligibleCommonQuestions;
       if (
-        activeQuestionSetItems.length !== expectedCommonQuestionCount ||
+        (mode === "STANDARD" && activeQuestionSetItems.length !== expectedCommonQuestionCount) ||
         commonQuestions.length !== expectedCommonQuestionCount
       ) {
         return this.snapshotReadinessResult({
-          readiness: "COMMON_QUESTIONS_NOT_READY",
+          readiness: mode === "DEMO_PRESET" ? "DEMO_PRESET_QUESTION_POOL_INSUFFICIENT" : "COMMON_QUESTIONS_NOT_READY",
           applicationId,
           postingId: Number(application.postingId),
           sessionId: existingSession ? Number(existingSession.sessionId) : null,
@@ -1020,22 +1277,37 @@ export class PrismaCandidateRepository implements CandidateRepository {
         const jdSnapshotHash = jobDescription ? hashInterviewSnapshot(jobDescription) : null;
         const batch = resumeDocumentHash && jdSnapshotHash
           ? application.interviewQuestionBatches.find((candidate) =>
+              (candidate.usageScope ?? PrismaQuestionUsageScope.STANDARD) === (mode as PrismaQuestionUsageScope) &&
               candidate.policyVersion === policyVersion &&
               candidate.criteriaVersion === criteriaVersion &&
               candidate.resumeDocumentHash === resumeDocumentHash &&
               candidate.jdSnapshotHash === jdSnapshotHash,
             )
           : null;
-        personalizedQuestions = batch?.status === "READY" && batch.questions.length === expectedPersonalizedQuestionCount
+        const eligiblePersonalizedQuestions = batch?.status === "READY"
             ? batch.questions.filter((question) =>
               question.source === "RESUME_PERSONALIZED" &&
+              (question.usageScope ?? PrismaQuestionUsageScope.STANDARD) === (mode as PrismaQuestionUsageScope) &&
               Boolean(question.content.trim()) &&
-              hasValidNcsSourceBindings(question),
+              hasValidNcsSourceBindings(question) &&
+              question.ncsBindings.every((binding) =>
+                expectedSnapshotProfiles.includes(binding.ncsProfileId as CanonicalNcsProfileId),
+              ) &&
+              (mode !== "DEMO_PRESET" || (
+                question.ncsBindings.length === 2 &&
+                question.ncsBindings.some((binding) => binding.ncsProfileId === "JOB_TECHNICAL") &&
+                question.ncsBindings.some((binding) => binding.ncsProfileId === "PROBLEM_SOLVING")
+              )),
             )
           : [];
+        personalizedQuestions = mode === "DEMO_PRESET"
+          ? eligiblePersonalizedQuestions.slice(0, 1)
+          : eligiblePersonalizedQuestions.length === expectedPersonalizedQuestionCount
+            ? eligiblePersonalizedQuestions
+            : [];
         if (personalizedQuestions.length !== expectedPersonalizedQuestionCount) {
           return this.snapshotReadinessResult({
-            readiness: "PERSONALIZED_QUESTIONS_NOT_READY",
+            readiness: mode === "DEMO_PRESET" ? "DEMO_PRESET_QUESTION_POOL_INSUFFICIENT" : "PERSONALIZED_QUESTIONS_NOT_READY",
             applicationId,
             postingId: Number(application.postingId),
             sessionId: existingSession ? Number(existingSession.sessionId) : null,
@@ -1065,9 +1337,9 @@ export class PrismaCandidateRepository implements CandidateRepository {
           }
         }
       }
-      const ncsCoverage = NCS_PROFILE_IDS.map((ncsProfileId) => ({
+      const ncsCoverage = expectedSnapshotProfiles.map((ncsProfileId) => ({
         ncsProfileId,
-        requiredQuestionCount: NCS_REQUIRED_QUESTION_COUNT,
+        requiredQuestionCount,
         actualQuestionCount: profileQuestionCounts.get(ncsProfileId) ?? 0,
       }));
       if (ncsCoverage.some((coverage) => coverage.actualQuestionCount < coverage.requiredQuestionCount)) {
@@ -1104,7 +1376,8 @@ export class PrismaCandidateRepository implements CandidateRepository {
               preparationTimeSecSnapshot,
               answerTimeSecSnapshot,
               retryAllowedSnapshot,
-              ncsScoringVersion: NCS_SCORING_VERSION,
+              ncsScoringVersion: expectedScoringVersion,
+              sessionMode: mode as PrismaInterviewSessionMode,
             } as Prisma.InterviewSessionUpdateInput,
           })
         : await transaction.interviewSession.create({
@@ -1112,12 +1385,13 @@ export class PrismaCandidateRepository implements CandidateRepository {
               applicationId: application.applicationId,
               candidateId: application.candidateId,
               interviewType: PrismaInterviewType.RECRUITING,
+              sessionMode: mode as PrismaInterviewSessionMode,
               status: PrismaInterviewStatus.NOT_READY,
               showQuestionText: true,
               preparationTimeSecSnapshot,
               answerTimeSecSnapshot,
               retryAllowedSnapshot,
-              ncsScoringVersion: NCS_SCORING_VERSION,
+              ncsScoringVersion: expectedScoringVersion,
             } as Prisma.InterviewSessionUncheckedCreateInput,
           });
       const snapshotRows: Prisma.InterviewSessionQuestionCreateManyInput[] = [];
@@ -1125,6 +1399,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
         Prisma.SessionQuestionNcsBindingCreateManyInput,
         "sessionQuestionId"
       >>> = [];
+      let createdQuestionIds: bigint[] = [];
       for (const item of commonQuestions) {
         const runtimeQuestionId = await this.allocateSessionRuntimeQuestionId(transaction);
         const primaryBinding = item.question.ncsBindings[0];
@@ -1148,6 +1423,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
           evaluatorVersion: primaryBinding.evaluatorVersion,
           policyVersion,
           criteriaVersion,
+          usageScope: mode as PrismaQuestionUsageScope,
           sortOrder: snapshotRows.length + 1,
         });
         snapshotBindings.push(item.question.ncsBindings.map((binding) => ({
@@ -1185,6 +1461,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
           evaluatorVersion: primaryBinding.evaluatorVersion,
           policyVersion,
           criteriaVersion,
+          usageScope: mode as PrismaQuestionUsageScope,
           sortOrder: snapshotRows.length + 1,
         });
         snapshotBindings.push(question.ncsBindings.map((binding) => ({
@@ -1209,6 +1486,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
         if (createdQuestions.length !== snapshotBindings.length) {
           throw new Error("NCS session question snapshot count mismatch.");
         }
+        createdQuestionIds = createdQuestions.map((question) => question.sessionQuestionId);
         await transaction.sessionQuestionNcsBinding.createMany({
           data: createdQuestions.flatMap((createdQuestion, index) =>
             (snapshotBindings[index] ?? []).map((binding) => ({
@@ -1226,7 +1504,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
           criterionTitleSnapshot: criterion.tag.name,
           weight: criterion.weight,
           minimumAverageScore: 3,
-          requiredQuestionCount: NCS_REQUIRED_QUESTION_COUNT,
+          requiredQuestionCount,
           ncsProfileVersion: criterion.ncsProfileVersion ?? "",
         })),
       });
@@ -1244,7 +1522,16 @@ export class PrismaCandidateRepository implements CandidateRepository {
         expectedPersonalizedQuestionCount,
         policyVersion,
         criteriaVersion,
+        sessionMode: mode,
         ncsCoverage,
+        questions: createdQuestionIds.map((sessionQuestionId, index) => ({
+          sessionQuestionId: Number(sessionQuestionId),
+          usageScope: mode,
+          ncsProfileIds: (snapshotBindings[index] ?? [])
+            .map((binding) => binding.ncsProfileId)
+            .filter(isCanonicalNcsProfileId),
+          sortOrder: index + 1,
+        })),
       };
     });
   }
@@ -1943,6 +2230,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
       applicationId: Number(session.applicationId ?? 0),
       candidateId: Number(session.candidateId),
       interviewType: session.interviewType,
+      sessionMode: (session.sessionMode ?? "STANDARD") as InterviewSessionMode,
       status: session.status,
       showQuestionText: session.showQuestionText,
       windowStartsAt,

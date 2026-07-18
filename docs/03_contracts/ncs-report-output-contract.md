@@ -582,3 +582,16 @@ type ApplicantEvaluationReport = {
 - profile별 assigned/valid count와 question evaluation cardinality가 일치한다.
 - `ai_process_logs.output_ref`에는 전체 평가·quote·transcript를 저장하지 않는다.
 - contract fixture와 실제 projection을 비교하는 contract test를 둔다.
+
+## 12. V2 Evolution Boundary
+
+이 문서의 V1 shape는 `NCS_3_PROFILE_V1` 전용이며 profile 3개와 `requiredQuestionCount=2` 의미를 유지한다. `NCS_ACTIVE_PROFILE_V2`는 활성 profile 1~3개, profile별 BASE 최소 1개와 비활성 score card 제외를 표현해야 하므로 다음 원칙으로 `ncs-report-evaluation-output-v2`를 별도 추가한다.
+
+- V1 응답, fixture, 완료 session/report를 수정하거나 재계산하지 않는다.
+- V2 `profiles[]`에는 세션 policy snapshot에 존재하는 활성 profile만 포함한다.
+- V2 required count는 session snapshot의 `required_question_count`를 반환한다.
+- 비활성 profile의 0점/NULL placeholder row를 만들지 않는다.
+- total과 threshold는 [`ncs-active-profile-demo-preset-foundation.md`](./ncs-active-profile-demo-preset-foundation.md)의 active-only 공식을 사용한다.
+- frontend는 `schemaVersion`으로 V1/V2를 분기하고 어느 버전도 재계산하지 않는다.
+
+V2의 확정 schema, scoring version과 active-only field 계약은 [`ncs-report-output-v2.md`](./ncs-report-output-v2.md)를 따른다.

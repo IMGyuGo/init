@@ -16,6 +16,7 @@ export interface AiProcessClaimResult {
 
 export interface AiProcessLogRepository {
   ensurePending(job: AiWorkerJob): Promise<AiProcessLogSnapshot>;
+  findOrphanedPendingJobs(createdBefore: Date, limit: number): Promise<AiWorkerJob[]>;
   markRunning(processLogId: number): Promise<AiProcessLogSnapshot>;
   claim(job: AiWorkerJob, leaseOwner: string, leaseExpiresAt: Date): Promise<AiProcessClaimResult>;
   renewClaim(processLogId: number, leaseOwner: string, leaseExpiresAt: Date): Promise<boolean>;
@@ -36,6 +37,7 @@ export class InMemoryAiProcessLogRepository implements AiProcessLogRepository {
 
   private nextGuardrailLogId = 1;
   private readonly processLogs = new Map<number, AiProcessLogSnapshot>();
+  private readonly processLogCreatedAt = new Map<number, Date>();
 
   async ensurePending(job: AiWorkerJob): Promise<AiProcessLogSnapshot> {
     const existing = this.processLogs.get(job.processLogId);
@@ -50,8 +52,25 @@ export class InMemoryAiProcessLogRepository implements AiProcessLogRepository {
       inputRef: job.inputRef
     };
     this.processLogs.set(job.processLogId, created);
+    this.processLogCreatedAt.set(job.processLogId, new Date());
     this.events.push({ processLogId: job.processLogId, status: "PENDING" });
     return { ...created };
+  }
+
+  async findOrphanedPendingJobs(createdBefore: Date, limit: number): Promise<AiWorkerJob[]> {
+    return [...this.processLogs.values()]
+      .filter((processLog) =>
+        processLog.processType === "RESUME_QUESTION_GENERATE" &&
+        processLog.status === "PENDING" &&
+        (this.processLogCreatedAt.get(processLog.processLogId)?.getTime() ?? Number.POSITIVE_INFINITY) <= createdBefore.getTime()
+      )
+      .slice(0, Math.max(0, limit))
+      .map((processLog) => ({
+        processLogId: processLog.processLogId,
+        processType: processLog.processType,
+        inputRef: processLog.inputRef,
+        attempt: attemptFromInputRef(processLog.inputRef),
+      }));
   }
 
   async markRunning(processLogId: number): Promise<AiProcessLogSnapshot> {
@@ -168,6 +187,15 @@ export class InMemoryAiProcessLogRepository implements AiProcessLogRepository {
 
   private guardrailFailureCategory(decision: GuardrailDecision): GuardrailDecision["failureCategory"] {
     return decision.failureCategory ?? (decision.result === "BLOCKED" ? "NON_RETRYABLE" : null);
+  }
+}
+
+function attemptFromInputRef(inputRef: string): number {
+  try {
+    const attempt = Number((JSON.parse(inputRef) as { attempt?: unknown }).attempt);
+    return Number.isInteger(attempt) && attempt > 0 ? attempt : 1;
+  } catch {
+    return 1;
   }
 }
 

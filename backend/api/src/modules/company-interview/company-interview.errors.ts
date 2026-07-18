@@ -28,8 +28,34 @@ export function notFound(message = '리소스를 찾을 수 없습니다.'): nev
   apiError(ERROR_CODES.COMMON_NOT_FOUND, message, HttpStatus.NOT_FOUND);
 }
 
-export function conflict(message = '이미 존재하는 리소스입니다.'): never {
-  apiError(ERROR_CODES.COMMON_CONFLICT, message, HttpStatus.CONFLICT);
+export function conflict(
+  message = '이미 존재하는 리소스입니다.',
+  details: ErrorDetail[] = [],
+): never {
+  apiError(ERROR_CODES.COMMON_CONFLICT, message, HttpStatus.CONFLICT, details);
+}
+
+export function ncsActiveProfileInvalid(
+  message = 'NCS 활성 평가 기준 구성을 확인해주세요.',
+  details: ErrorDetail[] = [],
+): never {
+  apiError(
+    ERROR_CODES.INTERVIEW_NCS_ACTIVE_PROFILE_INVALID,
+    message,
+    HttpStatus.UNPROCESSABLE_ENTITY,
+    details,
+  );
+}
+
+export function configurationLocked(
+  message = '제출 이력이 있어 면접 설정을 변경할 수 없습니다.',
+): never {
+  apiError(
+    ERROR_CODES.INTERVIEW_CONFIGURATION_LOCKED,
+    message,
+    HttpStatus.CONFLICT,
+    [{ field: 'postingId', reason: 'SUBMITTED_APPLICATION_EXISTS' }],
+  );
 }
 
 export function validationFailed(

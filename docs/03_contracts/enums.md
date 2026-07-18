@@ -117,7 +117,11 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | consent_type | PRIVACY_COLLECTION, AI_DOCUMENT_ANALYSIS, AI_INTERVIEW_RECORDING | 필수 동의 유형 |
 | question_type | INTRO, TECHNICAL, EXPERIENCE, SITUATION, FOLLOW_UP, CLOSING | 면접 질문 유형 |
 | question_origin | MANUAL, AI_GENERATED | 질문 최초 작성 출처 |
-| evaluation_framework | LEGACY, NCS_3_PROFILE_V1 | 공고 면접 평가 체계. `NCS_3_PROFILE_V1`은 초기 NCS 3개 프로필 고정 구성을 뜻함 |
+| evaluation_framework | LEGACY, NCS_3_PROFILE_V1, NCS_ACTIVE_PROFILE_V2 | 공고 면접 평가 체계. V1은 canonical 3개와 profile별 BASE 2개를 고정하고, V2는 `weight > 0`인 canonical profile 1~3개와 profile별 BASE 1개를 사용한다. |
+| interview_session_mode | STANDARD, DEMO_PRESET | 공식 채용면접 질문 선택 모드. 기존 row와 생략 request는 STANDARD로 해석하며 최초 공식 session의 mode는 application에 대해 불변이다. |
+| question_usage_scope | STANDARD, DEMO_PRESET | 질문 원본·개인화 batch·application 질문·session 질문의 사용 목적. 기존 row는 STANDARD다. |
+| demo_preset_readiness_status | READY, PENDING, UNAVAILABLE | 3문항 공식 시연 면접 준비 projection. 별도 DB 상태로 저장하지 않는다. |
+| demo_preset_readiness_reason | CANONICAL_PROFILES_NOT_ALL_ACTIVE, COLLABORATION_COMMON_QUESTION_MISSING, DEMO_PERSONALIZED_QUESTION_GENERATING, DEMO_PERSONALIZED_QUESTION_REVIEW_REQUIRED, DEMO_PERSONALIZED_QUESTION_FAILED, FACTUAL_ANCHOR_MISSING, OFFICIAL_SESSION_EXISTS, OFFICIAL_SESSION_MODE_CONFLICT, CONFIGURATION_COVERAGE_MISMATCH | 시연 면접 준비 또는 시작 불가 사유. READY 신규 session은 null이고 동일 DEMO session resume만 OFFICIAL_SESSION_EXISTS를 사용할 수 있다. |
 | ncs_profile_id | JOB_TECHNICAL, COLLABORATION_COMMUNICATION, PROBLEM_SOLVING | 최종 채용 평가 NCS 프로필 식별자. migration 기간에는 `DIGITAL -> JOB_TECHNICAL`, `COMMUNICATION -> COLLABORATION_COMMUNICATION` compatibility read만 허용한다. E evaluator adapter는 각각 `digital`, `communication`, `problem-solving`로 매핑 |
 | ncs_question_mode | EXPERIENCE_BEHAVIOR, TECHNICAL_KNOWLEDGE, SITUATIONAL_DESIGN | 답변에서 수집할 NCS 근거 유형. 기존 `question_type`과 별도 관리 |
 | ncs_threshold_result | MEETS_THRESHOLD, BELOW_THRESHOLD, INCOMPLETE | deterministic NCS 기준 충족 결과. `INCOMPLETE`는 점수 NULL을 유지한다. |

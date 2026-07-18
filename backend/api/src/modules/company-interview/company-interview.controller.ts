@@ -27,7 +27,7 @@ import {
 import { ConfirmQuestionSetDto } from './dto/question-set.dto';
 import { UpdateQuestionGenerationPolicyDto } from './dto/question-generation-policy.dto';
 import { UpdateInterviewTimePolicyDto } from './dto/time-policy.dto';
-import { RetryResumeQuestionsDto } from './dto/resume-question.dto';
+import { ResumeQuestionsQueryDto, RetryResumeQuestionsDto } from './dto/resume-question.dto';
 
 type CompanyRequest = RequestLike & { currentUser: CurrentUser };
 
@@ -115,8 +115,9 @@ export class CompanyInterviewController {
   async getResumeQuestions(
     @Req() request: CompanyRequest,
     @Param('applicationId', ParseIntPipe) applicationId: number,
+    @Query() query: ResumeQuestionsQueryDto,
   ) {
-    const data = await this.service.getResumeQuestions(request.currentUser, applicationId);
+    const data = await this.service.getResumeQuestions(request.currentUser, applicationId, query.usageScope);
     return ok(request, data);
   }
 

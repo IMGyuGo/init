@@ -1,3 +1,10 @@
+import {
+  type EvaluationFramework as SharedEvaluationFramework,
+  type NcsProfileId as SharedNcsProfileId,
+  type NcsQuestionMode as SharedNcsQuestionMode,
+  type QuestionUsageScope,
+} from '@init/common';
+
 export type PostingStatus =
   | 'DRAFT'
   | 'OPEN'
@@ -31,20 +38,17 @@ export const QUESTION_ORIGINS: QuestionOrigin[] = [
 
 export type AiProcessStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 
-export type EvaluationFramework = 'LEGACY' | 'NCS_3_PROFILE_V1';
+export type EvaluationFramework = SharedEvaluationFramework;
+// WT2 adds V2 to this request allow-list together with the V2 mutation rules.
+// Keeping the current runtime gate fail-closed prevents V2 from falling through LEGACY logic.
 export const EVALUATION_FRAMEWORKS: EvaluationFramework[] = [
   'LEGACY',
   'NCS_3_PROFILE_V1',
+  'NCS_ACTIVE_PROFILE_V2',
 ];
 
-export type NcsProfileId =
-  | 'JOB_TECHNICAL'
-  | 'COLLABORATION_COMMUNICATION'
-  | 'PROBLEM_SOLVING';
-export type NcsQuestionMode =
-  | 'EXPERIENCE_BEHAVIOR'
-  | 'TECHNICAL_KNOWLEDGE'
-  | 'SITUATIONAL_DESIGN';
+export type NcsProfileId = SharedNcsProfileId;
+export type NcsQuestionMode = SharedNcsQuestionMode;
 export type QuestionGenerationSource = 'JD_CRITERIA' | 'RESUME_PERSONALIZED';
 export type QuestionAlignmentStatus =
   | 'NOT_EVALUATED'
@@ -115,6 +119,7 @@ export type QuestionRecord = {
   origin: QuestionOrigin;
   isAiEdited: boolean;
   isActive: boolean;
+  usageScope: 'STANDARD' | 'DEMO_PRESET';
   generationSource: QuestionGenerationSource | null;
   ncsProfileId: NcsProfileId | null;
   ncsQuestionMode: NcsQuestionMode | null;
@@ -125,6 +130,19 @@ export type QuestionRecord = {
   evaluatorVersion: string | null;
   sourceProcessLogId: number | null;
   ncsBindings: QuestionNcsBindingRecord[];
+};
+
+export type NcsQuestionImpactRecord = {
+  ncsProfileId: NcsProfileId;
+  exclusivelyBoundActiveQuestionCount: number;
+  multiBoundActiveQuestionCount: number;
+};
+
+export type NcsActiveProfileCoverageRecord = {
+  ncsProfileId: NcsProfileId;
+  requiredBaseQuestionCount: number;
+  actualBaseQuestionCount: number;
+  covered: boolean;
 };
 
 export type QuestionNcsBindingRecord = {
@@ -160,6 +178,8 @@ export type PersonalizedQuestionRecord = {
   alignmentReason: string | null;
   evaluatorVersion: string | null;
   sortOrder: number;
+  usageScope?: QuestionUsageScope;
+  ncsBindings?: QuestionNcsBindingRecord[];
 };
 
 export type ResumeQuestionBatchRecord = {
@@ -174,6 +194,7 @@ export type ResumeQuestionBatchRecord = {
   jdSnapshotHash: string;
   attemptCount: number;
   questions: PersonalizedQuestionRecord[];
+  usageScope?: QuestionUsageScope;
 };
 
 export type ResumeQuestionApplicationRecord = {
@@ -189,6 +210,7 @@ export type ResumeQuestionApplicationRecord = {
   currentJdSnapshotHash: string | null;
   currentBatch: ResumeQuestionBatchRecord | null;
   hasStaleBatch: boolean;
+  usageScope?: QuestionUsageScope;
 };
 
 export type ResumeQuestionRetryJobRecord = {
@@ -202,6 +224,7 @@ export type ResumeQuestionRetryJobRecord = {
   resumeDocumentHash: string;
   jdSnapshotHash: string;
   attempt: number;
+  usageScope: QuestionUsageScope;
 };
 
 export type TimePolicyRecord = {

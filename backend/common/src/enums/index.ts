@@ -31,6 +31,49 @@ export type ScreeningDecision = (typeof SCREENING_DECISIONS)[number];
 export const INTERVIEW_TYPES = ["MOCK", "RECRUITING"] as const;
 export type InterviewType = (typeof INTERVIEW_TYPES)[number];
 
+export const EVALUATION_FRAMEWORKS = [
+  "LEGACY",
+  "NCS_3_PROFILE_V1",
+  "NCS_ACTIVE_PROFILE_V2",
+] as const;
+export type EvaluationFramework = (typeof EVALUATION_FRAMEWORKS)[number];
+
+export const NCS_PROFILE_IDS = [
+  "JOB_TECHNICAL",
+  "COLLABORATION_COMMUNICATION",
+  "PROBLEM_SOLVING",
+] as const;
+export type NcsProfileId = (typeof NCS_PROFILE_IDS)[number];
+
+export const NCS_QUESTION_MODES = [
+  "EXPERIENCE_BEHAVIOR",
+  "TECHNICAL_KNOWLEDGE",
+  "SITUATIONAL_DESIGN",
+] as const;
+export type NcsQuestionMode = (typeof NCS_QUESTION_MODES)[number];
+
+export const INTERVIEW_SESSION_MODES = ["STANDARD", "DEMO_PRESET"] as const;
+export type InterviewSessionMode = (typeof INTERVIEW_SESSION_MODES)[number];
+
+export const QUESTION_USAGE_SCOPES = ["STANDARD", "DEMO_PRESET"] as const;
+export type QuestionUsageScope = (typeof QUESTION_USAGE_SCOPES)[number];
+
+export const DEMO_PRESET_READINESS_STATUSES = ["READY", "PENDING", "UNAVAILABLE"] as const;
+export type DemoPresetReadinessStatus = (typeof DEMO_PRESET_READINESS_STATUSES)[number];
+
+export const DEMO_PRESET_READINESS_REASON_CODES = [
+  "CANONICAL_PROFILES_NOT_ALL_ACTIVE",
+  "COLLABORATION_COMMON_QUESTION_MISSING",
+  "DEMO_PERSONALIZED_QUESTION_GENERATING",
+  "DEMO_PERSONALIZED_QUESTION_REVIEW_REQUIRED",
+  "DEMO_PERSONALIZED_QUESTION_FAILED",
+  "FACTUAL_ANCHOR_MISSING",
+  "OFFICIAL_SESSION_EXISTS",
+  "OFFICIAL_SESSION_MODE_CONFLICT",
+  "CONFIGURATION_COVERAGE_MISMATCH",
+] as const;
+export type DemoPresetReadinessReasonCode = (typeof DEMO_PRESET_READINESS_REASON_CODES)[number];
+
 export const REPORT_TYPES = ["MOCK_INTERVIEW_REPORT", "RECRUITING_REPORT"] as const;
 export type ReportType = (typeof REPORT_TYPES)[number];
 

@@ -59,6 +59,12 @@ export class StartMockInterviewDto {
   showQuestionText?: boolean;
 }
 
+export class StartOfficialInterviewDto {
+  @IsOptional()
+  @IsIn(["STANDARD", "DEMO_PRESET"])
+  mode?: "STANDARD" | "DEMO_PRESET";
+}
+
 export class SaveInterviewAnswerDto {
   @IsInt()
   @IsPositive()

@@ -22,6 +22,7 @@ function createSettings(): InterviewSettings {
     ncsProfileId,
     ncsQuestionMode: "EXPERIENCE_BEHAVIOR" as const,
     ncsProfileVersion: "2025.12-v1",
+    isActive: true,
   }));
   const questions = criteria.flatMap((criterion, criterionIndex) =>
     [0, 1].map((questionIndex) => ({
@@ -32,6 +33,7 @@ function createSettings(): InterviewSettings {
       origin: "AI_GENERATED" as const,
       isAiEdited: false,
       isActive: true,
+      usageScope: "STANDARD" as const,
       generationSource: "JD_CRITERIA" as const,
       ncsProfileId: criterion.ncsProfileId,
       ncsQuestionMode: criterion.ncsQuestionMode,
@@ -68,7 +70,13 @@ function createSettings(): InterviewSettings {
       policyVersion: 1,
       criteriaVersion: 1,
       allocations: [],
+      activeProfileCoverage: [],
+      questionSetRequiresReconfirmation: false,
     },
+    configurationLocked: false,
+    configurationLockedReason: null,
+    questionImpactByProfile: [],
+    questionSetRequiresReconfirmation: false,
   };
 }
 
@@ -124,6 +132,18 @@ function testPlansOnlyNewAlignedCandidates() {
   assert.deepEqual(plan.applicable.map((item) => item.criterionId), [1]);
 }
 
+function testV2RequiresCoverageOnlyForActiveProfiles() {
+  const settings = createSettings();
+  settings.evaluationFramework = "NCS_ACTIVE_PROFILE_V2";
+  settings.criteria[1] = { ...settings.criteria[1], weight: 0, isActive: false };
+  settings.questions = [settings.questions[0], settings.questions[4]];
+  settings.questionGenerationPolicy.jdCriteriaQuestionCount = 2;
+
+  const plan = buildCommonQuestionSetPlan(settings, 2);
+  assert.equal(plan.error, undefined);
+  assert.deepEqual(plan.items.map((item) => item.questionId), [1, 5]);
+}
+
 function testFindsOnlyOldGeneratedQuestionsMissingFromNewBatch() {
   const settings = createSettings();
   settings.questions.push({
@@ -152,4 +172,5 @@ function testFindsOnlyOldGeneratedQuestionsMissingFromNewBatch() {
 testBuildsAllSixQuestionsInsteadOfOnePerCriterion();
 testRejectsIncompleteProfileCoverage();
 testPlansOnlyNewAlignedCandidates();
+testV2RequiresCoverageOnlyForActiveProfiles();
 testFindsOnlyOldGeneratedQuestionsMissingFromNewBatch();

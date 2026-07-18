@@ -110,6 +110,37 @@ resource "aws_iam_instance_profile" "ngrinder" {
   }
 }
 
+resource "aws_iam_role" "playwright_loadtest" {
+  count = var.enable_playwright_loadtest && var.playwright_loadtest_instance_count > 0 ? 1 : 0
+
+  name               = "${local.name_prefix}-playwright-loadtest"
+  assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
+
+  tags = {
+    Name = "${local.name_prefix}-playwright-loadtest"
+    Role = "playwright-loadtest-ec2"
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "playwright_loadtest_ssm" {
+  count = var.enable_playwright_loadtest && var.playwright_loadtest_instance_count > 0 ? 1 : 0
+
+  role       = aws_iam_role.playwright_loadtest[0].name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_instance_profile" "playwright_loadtest" {
+  count = var.enable_playwright_loadtest && var.playwright_loadtest_instance_count > 0 ? 1 : 0
+
+  name = "${local.name_prefix}-playwright-loadtest"
+  role = aws_iam_role.playwright_loadtest[0].name
+
+  tags = {
+    Name = "${local.name_prefix}-playwright-loadtest"
+    Role = "playwright-loadtest-ec2"
+  }
+}
+
 resource "aws_iam_role" "ecs_task" {
   for_each = local.services
 
@@ -176,9 +207,17 @@ data "aws_iam_policy_document" "worker_task" {
       "sqs:DeleteMessage",
       "sqs:GetQueueAttributes",
       "sqs:GetQueueUrl",
-      "sqs:ReceiveMessage"
+      "sqs:ReceiveMessage",
+      "sqs:SendMessage"
     ]
     resources = [aws_sqs_queue.ai_jobs.arn]
+  }
+}
+
+check "worker_task_can_publish_follow_up_jobs" {
+  assert {
+    condition     = strcontains(data.aws_iam_policy_document.worker_task.json, "sqs:SendMessage")
+    error_message = "Worker task role must allow sqs:SendMessage for follow-up AI jobs."
   }
 }
 

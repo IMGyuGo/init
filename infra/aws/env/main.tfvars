@@ -37,3 +37,10 @@ ngrinder_allowed_cidr_blocks = [
   "1.238.129.195/32"
 ]
 ngrinder_instance_type = "t3.medium"
+
+# Playwright load-test EC2 is kept in Terraform code, but disabled after testing.
+# Turn this back to true and increase the count when another browser load test is needed.
+enable_playwright_loadtest            = false
+playwright_loadtest_instance_count    = 0
+playwright_loadtest_instance_type     = "m7i.xlarge"
+playwright_loadtest_rows_per_instance = 15
