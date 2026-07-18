@@ -741,7 +741,7 @@ export function shouldPollRecruitingReportCompletion(
 
   const interviewCompleted =
     status.interviewStatus === "COMPLETED" || status.interviewSessionStatus === "COMPLETED";
-  return interviewCompleted && status.reportStatus === "GENERATING";
+  return interviewCompleted && (status.reportStatus === "PENDING" || status.reportStatus === "GENERATING");
 }
 
 export function getRecruitingReportPollingIntervalMs(elapsedMs: number): number {

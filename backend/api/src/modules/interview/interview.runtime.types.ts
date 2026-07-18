@@ -152,6 +152,7 @@ export interface InterviewAnswer {
   answerId: number;
   sessionId: number;
   questionId: number;
+  sessionQuestionId?: number;
   videoFileId?: number;
   audioFileId?: number;
   transcript?: string;
