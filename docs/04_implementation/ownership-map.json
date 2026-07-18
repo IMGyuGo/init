@@ -326,6 +326,7 @@
       "^frontend/src/features/auth/",
       "^frontend/src/features/payment/",
       "^infra/",
+      "^tools/realtime-playwright/",
       "^\\.dockerignore$",
       "^docs/04_implementation/aws-deployment-solution\\.md$",
       "^docs/03_contracts/",

@@ -5,6 +5,9 @@
 .env*.local
 .gitignore
 
+tmp/ngrinder/
+interview_tokens.csv
+
 # 로컬 개발 서버 로그·PID
 .local/
 \nogitdocs
