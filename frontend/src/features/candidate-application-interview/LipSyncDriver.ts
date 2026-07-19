@@ -380,8 +380,10 @@ export function useLipSyncDriverState(input: LipSyncDriverInput): LipSyncDriverS
   const speakingRef = useRef(speaking);
   const reducedMotionRef = useRef(input.reducedMotion);
 
-  speakingRef.current = speaking;
-  reducedMotionRef.current = input.reducedMotion;
+  useEffect(() => {
+    speakingRef.current = speaking;
+    reducedMotionRef.current = input.reducedMotion;
+  }, [input.reducedMotion, speaking]);
 
   useEffect(() => {
     const audioSource = input.audioSource;

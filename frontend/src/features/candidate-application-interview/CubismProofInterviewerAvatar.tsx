@@ -30,7 +30,9 @@ export function CubismProofInterviewerAvatar({
   const [error, setError] = useState("");
   const [diagnostic, setDiagnostic] = useState("");
 
-  mouthOpenRef.current = renderedMouthOpen;
+  useEffect(() => {
+    mouthOpenRef.current = renderedMouthOpen;
+  }, [renderedMouthOpen]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
