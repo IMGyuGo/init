@@ -14,6 +14,7 @@ import { loadWorkerEnv } from "./worker-env";
 import { AiWorkerJob } from "./worker.types";
 
 type ProviderMode = "mock" | "openai";
+type SmokeScenario = "standard" | "demo-preset";
 type CanonicalProfileId = "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
 type QuestionMode = "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE" | "SITUATIONAL_DESIGN";
 
@@ -29,7 +30,7 @@ interface SmokeCriterion {
 interface SmokeAnswer {
   answerId: bigint;
   sessionQuestionId: bigint;
-  criterion: SmokeCriterion;
+  criteria: SmokeCriterion[];
   question: string;
   transcript: string;
   sortOrder: number;
@@ -39,7 +40,6 @@ const DEFAULT_DATABASE_URL = "postgresql://init:init@localhost:5432/init_ncs_rea
 const DEFAULT_AWS_ENDPOINT = "http://localhost:14566";
 const DEFAULT_AWS_REGION = "ap-northeast-2";
 const DEFAULT_S3_BUCKET = "init-local-assets";
-const FOLLOW_UP_BASE_INDEX = 4;
 
 const QUESTION_FIXTURES: ReadonlyArray<{
   profileId: CanonicalProfileId;
@@ -113,6 +113,7 @@ const QUESTION_FIXTURES: ReadonlyArray<{
 
 async function main(): Promise<void> {
   const providerMode = providerModeOf(providerArgument() ?? process.env.AI_PROVIDER_MODE);
+  const scenarios = scenariosOf(scenarioArgument());
   const databaseUrl = process.env.NCS_SMOKE_DATABASE_URL?.trim() || process.env.DATABASE_URL?.trim() || DEFAULT_DATABASE_URL;
   assertIsolatedDatabase(databaseUrl);
   process.env.DATABASE_URL = databaseUrl;
@@ -146,14 +147,17 @@ async function main(): Promise<void> {
 
   try {
     await prisma.$connect();
-    const fixture = await createFixture(prisma);
-    const followUpQuestion = await runFollowUpJob(prisma, queue, runtime.runner.processBatch.bind(runtime.runner), fixture);
-    const followUpAnswerId = await createFollowUpAnswer(prisma, fixture, followUpQuestion);
-    const reportJob = await createReportJob(prisma, fixture, followUpAnswerId);
-    await queue.publish(reportJob);
-    assert.equal(await runtime.runner.processBatch(), 1, "report job was not consumed from SQS");
-    const summary = await verifyPipeline(prisma, sqsClient, queueUrl, fixture, followUpAnswerId, providerMode);
-    process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+    const summaries: Record<string, unknown>[] = [];
+    for (const scenario of scenarios) {
+      const fixture = await createFixture(prisma, scenario);
+      const followUpQuestion = await runFollowUpJob(prisma, queue, runtime.runner.processBatch.bind(runtime.runner), fixture);
+      const followUpAnswerId = await createFollowUpAnswer(prisma, fixture, followUpQuestion);
+      const reportJob = await createReportJob(prisma, fixture, followUpAnswerId);
+      await queue.publish(reportJob);
+      assert.equal(await runtime.runner.processBatch(), 1, `${scenario} report job was not consumed from SQS`);
+      summaries.push(await verifyPipeline(prisma, sqsClient, queueUrl, fixture, followUpAnswerId, providerMode));
+    }
+    process.stdout.write(`${JSON.stringify({ scenarios: summaries }, null, 2)}\n`);
   } finally {
     await runtime.disconnect?.();
     await prisma.$disconnect();
@@ -172,32 +176,95 @@ async function createIsolatedQueue(client: SQSClient, queueName: string): Promis
   return result.QueueUrl;
 }
 
-async function createFixture(prisma: PrismaClient): Promise<{
+async function createFixture(prisma: PrismaClient, scenario: SmokeScenario): Promise<{
+  scenario: SmokeScenario;
   applicationId: bigint;
   sessionId: bigint;
   reportId: bigint;
   criteria: SmokeCriterion[];
   answers: SmokeAnswer[];
+  followUpBaseIndex: number;
+  expectedEvaluationCount: number;
 }> {
-  const company = await prisma.company.findFirst({ select: { companyId: true } });
-  const candidate = await prisma.candidateProfile.findFirst({ select: { candidateId: true } });
-  assert(company, "seeded company is required");
-  assert(candidate, "seeded candidate is required");
-
   const baseId = BigInt(Date.now()) * 1000n + BigInt(Math.floor(Math.random() * 100));
+  const companyUserId = baseId + 10n;
+  const candidateUserId = baseId + 11n;
+  const companyId = baseId + 12n;
+  const candidateId = baseId + 13n;
+  const resumeFileId = baseId + 14n;
+  const audioFileId = baseId + 15n;
   const postingId = baseId + 1n;
   const applicationId = baseId + 2n;
   const sessionId = baseId + 3n;
   const reportId = baseId + 4n;
   const criteria: SmokeCriterion[] = [];
   const answers: SmokeAnswer[] = [];
+  const usageScope = scenario === "demo-preset" ? "DEMO_PRESET" : "STANDARD";
+  const requiredQuestionCount = scenario === "demo-preset" ? 1 : 2;
 
   await prisma.$transaction(async (transaction) => {
+    await transaction.user.createMany({
+      data: [
+        {
+          userId: companyUserId,
+          email: `ncs-company-${baseId}@example.test`,
+          userType: "COMPANY",
+          name: "NCS 자동 통합 회사 사용자",
+          status: "ACTIVE",
+        },
+        {
+          userId: candidateUserId,
+          email: `ncs-candidate-${baseId}@example.test`,
+          userType: "CANDIDATE",
+          name: "NCS 자동 통합 지원자",
+          status: "ACTIVE",
+        },
+      ],
+    });
+    await transaction.fileAsset.createMany({
+      data: [
+        {
+          fileId: resumeFileId,
+          ownerUserId: candidateUserId,
+          storageKey: `integration/${baseId}/resume.pdf`,
+          originalName: `${scenario}-resume.pdf`,
+          mimeType: "application/pdf",
+          sizeBytes: 4096n,
+          status: "UPLOADED",
+        },
+        {
+          fileId: audioFileId,
+          ownerUserId: candidateUserId,
+          storageKey: `integration/${baseId}/answers.webm`,
+          originalName: `${scenario}-answers.webm`,
+          mimeType: "audio/webm",
+          sizeBytes: 8192n,
+          status: "UPLOADED",
+        },
+      ],
+    });
+    await transaction.company.create({
+      data: {
+        companyId,
+        ownerUserId: companyUserId,
+        name: `NCS 자동 통합 ${scenario}`,
+        businessRegistrationNumber: baseId.toString().slice(-10).padStart(10, "0"),
+        verificationStatus: "VERIFIED",
+      },
+    });
+    await transaction.candidateProfile.create({
+      data: {
+        candidateId,
+        userId: candidateUserId,
+        defaultResumeFileId: resumeFileId,
+        summary: "NestJS, PostgreSQL, Redis, SQS 기반 백엔드 프로젝트 경험",
+      },
+    });
     await transaction.posting.create({
       data: {
         postingId,
-        companyId: company.companyId,
-        title: `[NCS smoke] Backend Engineer ${baseId}`,
+        companyId,
+        title: `[NCS ${scenario}] Backend Engineer ${baseId}`,
         jobRole: "Backend Engineer",
         jobDescription: "NestJS, PostgreSQL, Redis, SQS 기반 API를 설계하고 협업하며 장애를 해결하는 백엔드 엔지니어",
         status: "OPEN",
@@ -207,23 +274,37 @@ async function createFixture(prisma: PrismaClient): Promise<{
       data: {
         applicationId,
         postingId,
-        candidateId: candidate.candidateId,
-        applicationStatus: "SUBMITTED",
-        interviewStatus: "COMPLETED",
+        candidateId,
+        applicantName: "NCS 자동 통합 지원자",
+        applicantEmail: `ncs-candidate-${baseId}@example.test`,
+        applicationStatus: "INTERVIEW_DONE",
+        documentStatus: "EXTRACTED",
+        interviewStatus: "IN_PROGRESS",
         reportStatus: "PENDING",
         submittedAt: new Date(),
+      },
+    });
+    await transaction.applicationDocument.create({
+      data: {
+        documentId: baseId + 16n,
+        applicationId,
+        fileId: resumeFileId,
+        documentType: "RESUME",
+        parseStatus: "EXTRACTED",
+        extractedText: "지원자는 NestJS API와 Redis cache-aside, SQS worker를 구현하고 장애 지표를 개선했다.",
       },
     });
     await transaction.interviewSession.create({
       data: {
         sessionId,
         applicationId,
-        candidateId: candidate.candidateId,
+        candidateId,
         interviewType: "RECRUITING",
-        status: "COMPLETED",
+        sessionMode: scenario === "demo-preset" ? "DEMO_PRESET" : "STANDARD",
+        status: "IN_PROGRESS",
         preparationTimeSecSnapshot: 30,
         answerTimeSecSnapshot: 90,
-        ncsScoringVersion: "ncs-5point-v1",
+        ncsScoringVersion: "NCS_RECRUITING_SCORING_V2",
         startedAt: new Date(Date.now() - 10 * 60 * 1000),
         completedAt: new Date(),
       },
@@ -276,70 +357,104 @@ async function createFixture(prisma: PrismaClient): Promise<{
           criterionTitleSnapshot: fixture.title,
           weight: fixture.weight,
           minimumAverageScore: 3,
-          requiredQuestionCount: 2,
+          requiredQuestionCount,
           ncsProfileVersion: NCS_PROFILE_VERSION,
         },
       });
+    }
 
-      for (const [questionIndex, questionFixture] of fixture.questions.entries()) {
-        const globalIndex = criterionIndex * 2 + questionIndex;
-        const sessionQuestionId = baseId + BigInt(300 + globalIndex);
-        const answerId = baseId + BigInt(400 + globalIndex);
-        await transaction.interviewSessionQuestion.create({
-          data: {
-            sessionQuestionId,
-            sessionId,
-            criterionId,
-            criterionTitleSnapshot: fixture.title,
-            questionType: questionTypeOf(fixture.questionMode),
-            content: questionFixture.question,
-            ncsProfileId: fixture.profileId,
-            ncsQuestionMode: fixture.questionMode,
-            ncsProfileVersion: NCS_PROFILE_VERSION,
-            alignmentStatus: "ALIGNED",
-            alignmentScore: 1,
-            alignmentReason: "integration smoke fixture",
-            evaluatorVersion: "ncs-smoke-v1",
-            sortOrder: globalIndex + 1,
+    const answerDefinitions = scenario === "demo-preset"
+      ? [
+          {
+            criteria: [criteria[1]!],
+            ...QUESTION_FIXTURES[1]!.questions[0],
           },
-        });
+          {
+            criteria: [criteria[0]!, criteria[2]!],
+            question: "이력서의 Redis 장애 개선 경험에서 적용 구조와 원인 분석, 대안 선택, 결과 검증을 설명해 주세요.",
+            transcript: "저는 Redis cache-aside 구조를 구현한 담당자였습니다. 로그와 hit ratio를 분석해 TTL 동시 만료가 DB 부하의 원인임을 확인했습니다. TTL 분산, circuit breaker, 캐시 우회 대안을 복구 시간과 일관성 기준으로 비교해 TTL 분산과 DB fallback을 선택했습니다. staging 부하 테스트 후 점진 배포했고 p95가 900ms에서 210ms로 개선됐는지 모니터링해 검증했습니다.",
+          },
+        ]
+      : QUESTION_FIXTURES.flatMap((fixture, criterionIndex) => fixture.questions.map((question) => ({
+          criteria: [criteria[criterionIndex]!],
+          ...question,
+        })));
+
+    for (const [globalIndex, answerDefinition] of answerDefinitions.entries()) {
+      const primaryCriterion = answerDefinition.criteria[0]!;
+      const sessionQuestionId = baseId + BigInt(300 + globalIndex);
+      const answerId = baseId + BigInt(400 + globalIndex);
+      await transaction.interviewSessionQuestion.create({
+        data: {
+          sessionQuestionId,
+          sessionId,
+          runtimeQuestionId: scenario === "demo-preset" ? baseId + BigInt(500 + globalIndex) : null,
+          criterionId: primaryCriterion.criterionId,
+          criterionTitleSnapshot: primaryCriterion.title,
+          generationSource: scenario === "demo-preset" ? "RESUME_PERSONALIZED" : null,
+          questionType: questionTypeOf(primaryCriterion.questionMode),
+          content: answerDefinition.question,
+          ncsProfileId: primaryCriterion.profileId,
+          ncsQuestionMode: primaryCriterion.questionMode,
+          ncsProfileVersion: NCS_PROFILE_VERSION,
+          alignmentStatus: "ALIGNED",
+          alignmentScore: 1,
+          alignmentReason: "integration smoke fixture",
+          evaluatorVersion: "ncs-smoke-v1",
+          policyVersion: scenario === "demo-preset" ? 1 : null,
+          criteriaVersion: scenario === "demo-preset" ? 1 : null,
+          usageScope,
+          sortOrder: globalIndex + 1,
+        },
+      });
+      for (const [bindingIndex, criterion] of answerDefinition.criteria.entries()) {
         await transaction.sessionQuestionNcsBinding.create({
           data: {
             sessionQuestionId,
-            criterionId,
-            criterionTitleSnapshot: fixture.title,
-            ncsProfileId: fixture.profileId,
+            criterionId: criterion.criterionId,
+            criterionTitleSnapshot: criterion.title,
+            ncsProfileId: criterion.profileId,
             ncsProfileVersion: NCS_PROFILE_VERSION,
             alignmentStatus: "ALIGNED",
             alignmentScore: 1,
             alignmentReason: "integration smoke fixture",
             evaluatorVersion: "ncs-smoke-v1",
-            bindingOrder: 1,
+            bindingOrder: bindingIndex + 1,
           },
-        });
-        await transaction.interviewAnswer.create({
-          data: {
-            answerId,
-            sessionId,
-            sessionQuestionId,
-            transcript: questionFixture.transcript,
-            durationSeconds: 75,
-            submittedAt: new Date(),
-          },
-        });
-        answers.push({
-          answerId,
-          sessionQuestionId,
-          criterion,
-          question: questionFixture.question,
-          transcript: questionFixture.transcript,
-          sortOrder: globalIndex + 1,
         });
       }
+      await transaction.interviewAnswer.create({
+        data: {
+          answerId,
+          sessionId,
+          sessionQuestionId,
+          audioFileId,
+          transcript: answerDefinition.transcript,
+          durationSeconds: 75,
+          submittedAt: new Date(),
+        },
+      });
+      answers.push({
+        answerId,
+        sessionQuestionId,
+        criteria: answerDefinition.criteria,
+        question: answerDefinition.question,
+        transcript: answerDefinition.transcript,
+        sortOrder: globalIndex + 1,
+      });
     }
   });
 
-  return { applicationId, sessionId, reportId, criteria, answers };
+  return {
+    scenario,
+    applicationId,
+    sessionId,
+    reportId,
+    criteria,
+    answers,
+    followUpBaseIndex: scenario === "demo-preset" ? 1 : 4,
+    expectedEvaluationCount: answers.reduce((sum, answer) => sum + answer.criteria.length, 0),
+  };
 }
 
 async function runFollowUpJob(
@@ -348,8 +463,9 @@ async function runFollowUpJob(
   processBatch: () => Promise<number>,
   fixture: Awaited<ReturnType<typeof createFixture>>,
 ): Promise<{ content: string; sessionQuestionId: bigint }> {
-  const baseAnswer = fixture.answers[FOLLOW_UP_BASE_INDEX];
+  const baseAnswer = fixture.answers[fixture.followUpBaseIndex];
   assert(baseAnswer, "follow-up base answer fixture is missing");
+  const primaryCriterion = baseAnswer.criteria[0]!;
   const processLogId = fixture.reportId + 100n;
   const inputRef = JSON.stringify({
     kind: "RECRUITING_FOLLOW_UP",
@@ -361,8 +477,10 @@ async function runFollowUpJob(
       transcript: baseAnswer.transcript,
       jobDescription: "NestJS, PostgreSQL, Redis, SQS 기반 API의 안정성을 개선합니다.",
       answerTimeSec: 90,
-      ncsQuestionMode: baseAnswer.criterion.questionMode,
-      ncsBindings: [bindingPayload(baseAnswer.criterion)],
+      usageScope: fixture.scenario === "demo-preset" ? "DEMO_PRESET" : "STANDARD",
+      generationSource: fixture.scenario === "demo-preset" ? "RESUME_PERSONALIZED" : "RUNTIME",
+      ncsQuestionMode: primaryCriterion.questionMode,
+      ncsBindings: baseAnswer.criteria.map(bindingPayload),
     },
   });
   const job = await createProcessJob(prisma, {
@@ -378,11 +496,17 @@ async function runFollowUpJob(
   assert.equal(processLog?.status, "COMPLETED", processLog?.failureReason ?? "follow-up process did not complete");
   const followUp = await prisma.followUpQuestion.findUnique({
     where: { answerIdPolicy: { answerId: baseAnswer.answerId, policy: "RECRUITING" } },
-    select: { content: true, generationStatus: true, insertedSessionQuestionId: true },
+    select: {
+      content: true,
+      generationStatus: true,
+      insertedSessionQuestionId: true,
+      skipReason: true,
+      reason: true,
+    },
   });
   const content = followUp?.content?.trim();
   if (!content || followUp?.generationStatus !== "INSERTED" || !followUp.insertedSessionQuestionId) {
-    throw new Error("follow-up question was not inserted into the session");
+    throw new Error(`follow-up question was not inserted into the session: ${JSON.stringify(followUp)}`);
   }
   return { content, sessionQuestionId: followUp.insertedSessionQuestionId };
 }
@@ -393,22 +517,32 @@ async function createFollowUpAnswer(
   generatedQuestion: { content: string; sessionQuestionId: bigint },
 ): Promise<bigint> {
   const answerId = fixture.reportId + 200n;
-  await prisma.interviewAnswer.create({
-    data: {
-      answerId,
-      sessionId: fixture.sessionId,
-      sessionQuestionId: generatedQuestion.sessionQuestionId,
-      transcript: [
-        `생성된 꼬리질문은 '${generatedQuestion.content}'이었습니다.`,
-        "DB 부하 제약을 기준으로 TTL 조정, circuit breaker, 캐시 우회 대안을 비교했습니다.",
-        "복구 시간과 데이터 일관성 장단점을 검토해 circuit breaker와 DB fallback을 선택했습니다.",
-        "먼저 staging 부하 테스트를 실행하고 다음으로 점진 배포했으며 실패 시 롤백하도록 계획했습니다.",
-        "적용 뒤 p95 응답 시간과 오류율을 모니터링해 40% 개선 결과를 검증했고 재발 방지 알림을 추가했습니다.",
-      ].join(" "),
-      durationSeconds: 90,
-      submittedAt: new Date(),
-    },
-  });
+  await prisma.$transaction([
+    prisma.interviewAnswer.create({
+      data: {
+        answerId,
+        sessionId: fixture.sessionId,
+        sessionQuestionId: generatedQuestion.sessionQuestionId,
+        transcript: [
+          `생성된 꼬리질문은 '${generatedQuestion.content}'이었습니다.`,
+          "DB 부하 제약을 기준으로 TTL 조정, circuit breaker, 캐시 우회 대안을 비교했습니다.",
+          "복구 시간과 데이터 일관성 장단점을 검토해 circuit breaker와 DB fallback을 선택했습니다.",
+          "먼저 staging 부하 테스트를 실행하고 다음으로 점진 배포했으며 실패 시 롤백하도록 계획했습니다.",
+          "적용 뒤 p95 응답 시간과 오류율을 모니터링해 40% 개선 결과를 검증했고 재발 방지 알림을 추가했습니다.",
+        ].join(" "),
+        durationSeconds: 90,
+        submittedAt: new Date(),
+      },
+    }),
+    prisma.interviewSession.update({
+      where: { sessionId: fixture.sessionId },
+      data: { status: "COMPLETED", completedAt: new Date() },
+    }),
+    prisma.application.update({
+      where: { applicationId: fixture.applicationId },
+      data: { interviewStatus: "COMPLETED" },
+    }),
+  ]);
   return answerId;
 }
 
@@ -417,6 +551,10 @@ async function createReportJob(
   fixture: Awaited<ReturnType<typeof createFixture>>,
   followUpAnswerId: bigint,
 ): Promise<AiWorkerJob> {
+  const sessionPolicies = await prisma.interviewSessionNcsPolicy.findMany({
+    where: { sessionId: fixture.sessionId },
+    orderBy: { ncsProfileId: "asc" },
+  });
   const inputRef = JSON.stringify({
     kind: "RECRUITING_REPORT_GENERATE",
     payload: {
@@ -433,26 +571,26 @@ async function createReportJob(
         category: criterion.category,
         weight: criterion.weight,
       })),
-      ncsSessionPolicy: fixture.criteria.map((criterion) => ({
-        ncsProfileId: criterion.profileId,
-        criterionId: numberOf(criterion.criterionId),
-        criterionTitleSnapshot: criterion.title,
-        weight: criterion.weight,
-        minimumAverageScore: 3,
-        requiredQuestionCount: 2,
-        ncsProfileVersion: NCS_PROFILE_VERSION,
+      ncsSessionPolicy: sessionPolicies.map((policy) => ({
+        ncsProfileId: policy.ncsProfileId,
+        criterionId: policy.criterionId === null ? undefined : numberOf(policy.criterionId),
+        criterionTitleSnapshot: policy.criterionTitleSnapshot,
+        weight: policy.weight,
+        minimumAverageScore: Number(policy.minimumAverageScore),
+        requiredQuestionCount: policy.requiredQuestionCount,
+        ncsProfileVersion: policy.ncsProfileVersion,
       })),
       answers: [
         ...fixture.answers.map((answer) => ({
           answerId: numberOf(answer.answerId),
           sessionQuestionId: numberOf(answer.sessionQuestionId),
           question: answer.question,
-          questionType: questionTypeOf(answer.criterion.questionMode),
+          questionType: questionTypeOf(answer.criteria[0]!.questionMode),
           sortOrder: answer.sortOrder,
           transcript: answer.transcript,
           evaluationStatus: "EVALUATED",
-          ncsQuestionMode: answer.criterion.questionMode,
-          ncsBindings: [bindingPayload(answer.criterion)],
+          ncsQuestionMode: answer.criteria[0]!.questionMode,
+          ncsBindings: answer.criteria.map(bindingPayload),
         })),
         {
           answerId: numberOf(followUpAnswerId),
@@ -462,7 +600,7 @@ async function createReportJob(
           })).transcript,
           evaluationStatus: "EVALUATED",
           isFollowUpAnswer: true,
-          parentAnswerId: numberOf(fixture.answers[FOLLOW_UP_BASE_INDEX]!.answerId),
+          parentAnswerId: numberOf(fixture.answers[fixture.followUpBaseIndex]!.answerId),
           sortOrder: fixture.answers.length + 1,
         },
       ],
@@ -530,21 +668,43 @@ async function verifyPipeline(
   });
   assert(report, "evaluation report was not saved");
   assert.equal(report.status, "COMPLETED");
-  assert.equal(report.ncsCompletionStatus, "COMPLETE");
+  if (report.ncsCompletionStatus !== "COMPLETE") {
+    throw new Error(JSON.stringify({
+      scenario: fixture.scenario,
+      completionStatus: report.ncsCompletionStatus,
+      summary: report.ncsSummaryJson,
+      scores: report.scores.map((score) => ({
+        profile: score.ncsProfileId,
+        validQuestionCount: score.validQuestionCount,
+        averageScore: score.averageScore?.toString(),
+      })),
+      evaluations: report.ncsAnswerEvaluations.map((evaluation) => ({
+        answerId: evaluation.answerId.toString(),
+        profile: evaluation.ncsProfileId,
+        scoreStatus: evaluation.scoreStatus,
+        errorCode: evaluation.errorCode,
+        baseScore: evaluation.baseScore,
+        effectiveScore: evaluation.effectiveScore,
+        followUpApplied: evaluation.followUpApplied,
+      })),
+    }, null, 2));
+  }
   assert.notEqual(report.totalScore, null);
-  assert.equal(report.ncsAnswerEvaluations.length, fixture.answers.length);
+  assert.equal(report.ncsAnswerEvaluations.length, fixture.expectedEvaluationCount);
   assert(report.ncsAnswerEvaluations.every((evaluation) => evaluation.scoreStatus === "SCORED"));
   assert(report.ncsAnswerEvaluations.every((evaluation) => evaluation.evidences.length > 0));
 
   const profileScores = report.scores.filter((score) => score.ncsProfileId !== null);
   assert.equal(profileScores.length, QUESTION_FIXTURES.length);
-  assert(profileScores.every((score) => (score.validQuestionCount ?? 0) >= 2));
+  const expectedRequiredCount = fixture.scenario === "demo-preset" ? 1 : 2;
+  assert(profileScores.every((score) => (score.validQuestionCount ?? 0) >= expectedRequiredCount));
   assert(profileScores.every((score) => score.weight !== null && score.weight > 0));
-  const baseAnswer = fixture.answers[FOLLOW_UP_BASE_INDEX]!;
-  const reevaluated = report.ncsAnswerEvaluations.find((evaluation) => evaluation.answerId === baseAnswer.answerId);
-  assert(reevaluated?.followUpApplied, "base answer was not reevaluated with its follow-up answer");
-  assert((reevaluated.effectiveScore ?? 0) >= (reevaluated.baseScore ?? 0));
-  assert(reevaluated.evidences.some((evidence) => evidence.sourceAnswerId === followUpAnswerId));
+  const baseAnswer = fixture.answers[fixture.followUpBaseIndex]!;
+  const reevaluated = report.ncsAnswerEvaluations.filter((evaluation) => evaluation.answerId === baseAnswer.answerId);
+  assert.equal(reevaluated.length, baseAnswer.criteria.length);
+  assert(reevaluated.every((evaluation) => evaluation.followUpApplied), "base answer was not reevaluated with its follow-up answer");
+  assert(reevaluated.every((evaluation) => (evaluation.effectiveScore ?? 0) >= (evaluation.baseScore ?? 0)));
+  assert(reevaluated.every((evaluation) => evaluation.evidences.some((evidence) => evidence.sourceAnswerId === followUpAnswerId)));
 
   const application = await prisma.application.findUnique({ where: { applicationId: fixture.applicationId } });
   assert.equal(application?.reportStatus, "COMPLETED");
@@ -556,6 +716,7 @@ async function verifyPipeline(
   assert.equal(attributes.Attributes?.ApproximateNumberOfMessagesNotVisible ?? "0", "0");
 
   return {
+    scenario: fixture.scenario,
     providerMode,
     applicationId: numberOf(fixture.applicationId),
     sessionId: numberOf(fixture.sessionId),
@@ -573,8 +734,9 @@ async function verifyPipeline(
       weightedScore: score.weightedScore?.toString(),
       validQuestionCount: score.validQuestionCount,
     })),
+    askedQuestionCount: fixture.answers.length + 1,
     answerEvaluationCount: report.ncsAnswerEvaluations.length,
-    followUpReevaluationApplied: reevaluated.followUpApplied,
+    followUpReevaluationApplied: reevaluated.every((evaluation) => evaluation.followUpApplied),
     evidenceCount: report.ncsAnswerEvaluations.reduce((sum, evaluation) => sum + evaluation.evidences.length, 0),
     modelName: reportProcess.modelName,
     inputTokens: reportProcess.inputTokens,
@@ -603,6 +765,17 @@ function providerModeOf(value: string | undefined): ProviderMode {
 
 function providerArgument(): string | undefined {
   return process.argv.find((value) => value.startsWith("--provider="))?.slice("--provider=".length);
+}
+
+function scenarioArgument(): string | undefined {
+  return process.argv.find((value) => value.startsWith("--scenario="))?.slice("--scenario=".length);
+}
+
+function scenariosOf(value: string | undefined): SmokeScenario[] {
+  if (!value?.trim() || value === "standard") return ["standard"];
+  if (value === "demo-preset") return ["demo-preset"];
+  if (value === "all") return ["demo-preset", "standard"];
+  throw new Error("--scenario must be standard, demo-preset, or all");
 }
 
 function assertIsolatedDatabase(databaseUrl: string): void {
