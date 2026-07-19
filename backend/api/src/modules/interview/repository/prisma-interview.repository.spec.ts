@@ -645,3 +645,49 @@ test("prisma interview repository resolves inactive questions linked to a sessio
 
   assert.equal(question?.content, "폴더 컨텍스트 질문");
 });
+
+test("prisma interview repository matches STT logs from persisted AI job payloads", async () => {
+  const repository = new PrismaInterviewRepository({
+    aiProcessLog: {
+      findMany: async () => [
+        {
+          processLogId: 103n,
+          status: "FAILED",
+          failureCategory: "REANSWER_REQUIRED",
+          failureReason: "speech was still not detected after reanswer",
+          inputRef: JSON.stringify({
+            kind: "RECRUITING_STT",
+            requestedBy: { candidateId: 7 },
+            payload: { sessionId: 10001, answerId: 156 },
+          }),
+          createdAt: new Date("2026-07-19T08:03:00.000Z"),
+          completedAt: new Date("2026-07-19T08:03:05.000Z"),
+        },
+        {
+          processLogId: 102n,
+          status: "FAILED",
+          failureCategory: "REANSWER_REQUIRED",
+          failureReason: "speech was not detected",
+          inputRef: JSON.stringify({ answerId: 156 }),
+          createdAt: new Date("2026-07-19T08:02:00.000Z"),
+          completedAt: new Date("2026-07-19T08:02:05.000Z"),
+        },
+        {
+          processLogId: 101n,
+          status: "COMPLETED",
+          failureCategory: null,
+          failureReason: null,
+          inputRef: JSON.stringify({ payload: { answerId: 999 } }),
+          createdAt: new Date("2026-07-19T08:01:00.000Z"),
+          completedAt: new Date("2026-07-19T08:01:05.000Z"),
+        },
+      ],
+    },
+  } as never);
+
+  const processes = await repository.listSttProcesses(10001, 156);
+
+  assert.deepEqual(processes.map((process) => process.processLogId), [103, 102]);
+  assert.equal(processes[0]?.failureCategory, "REANSWER_REQUIRED");
+  assert.equal(processes[0]?.failureReason, "speech was still not detected after reanswer");
+});
