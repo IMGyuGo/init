@@ -184,6 +184,7 @@ export interface InterviewRuntimePipShortcutState {
 
 export interface InterviewRuntimeProgressionStateInput {
   hasRuntimeData: boolean;
+  completionReady?: boolean;
   currentQuestionAnswered: boolean;
   isCurrentQuestionLast: boolean;
   answerProcessingBusy: boolean;
@@ -237,8 +238,8 @@ export type InterviewerSessionAvatarClassName = "" | "speaking";
 export interface InterviewerSessionStateInput {
   mode?: InterviewerSessionMode;
   setupCompleted: boolean;
+  completionReady?: boolean;
   hasCurrentQuestion: boolean;
-  questionFlowComplete?: boolean;
   questionSpeechPlaying: boolean;
   questionSpeechSupported: boolean;
   recording: boolean;
@@ -983,13 +984,13 @@ export function getAiInterviewerProfile(mode: InterviewDeviceSetupMode): AiInter
 export function formatAiInterviewerQuestionPrompt({
   question,
   questionVisible,
-  questionFlowComplete = false,
+  completionReady = false,
 }: {
   question?: Pick<RuntimeQuestionView, "content" | "audioPrompt">;
   questionVisible: boolean;
-  questionFlowComplete?: boolean;
+  completionReady?: boolean;
 }): string {
-  if (questionFlowComplete) return "모든 질문에 답변했습니다.";
+  if (completionReady) return "모든 질문에 답변했습니다.";
   if (!question) return "현재 질문을 불러올 수 없습니다.";
   if (questionVisible) return toRuntimeQuestionSpeechText(question);
 
@@ -1146,6 +1147,7 @@ export function getInterviewRuntimePipShortcutState({
 
 export function getInterviewRuntimeProgressionState({
   hasRuntimeData,
+  completionReady = false,
   currentQuestionAnswered,
   isCurrentQuestionLast,
   answerProcessingBusy,
@@ -1157,6 +1159,7 @@ export function getInterviewRuntimeProgressionState({
 }: InterviewRuntimeProgressionStateInput): InterviewRuntimeProgressionState {
   const canMoveNextQuestion = Boolean(
     hasRuntimeData &&
+      !completionReady &&
       currentQuestionAnswered &&
       !isCurrentQuestionLast &&
       !answerProcessingBusy &&
@@ -1166,9 +1169,11 @@ export function getInterviewRuntimeProgressionState({
   );
   const canCompleteInterview = Boolean(
     hasRuntimeData &&
-      (currentQuestionAnswered || answeredQuestionCount >= totalQuestions) &&
-      (isCurrentQuestionLast || answeredQuestionCount >= totalQuestions) &&
-      answeredQuestionCount >= totalQuestions &&
+      (completionReady || (
+        (currentQuestionAnswered || answeredQuestionCount >= totalQuestions) &&
+        (isCurrentQuestionLast || answeredQuestionCount >= totalQuestions) &&
+        answeredQuestionCount >= totalQuestions
+      )) &&
       !answerProcessingBusy &&
       !isReansweringCurrentQuestion &&
       !recording &&
@@ -1487,8 +1492,8 @@ export function resolveInterviewerSessionMode({
 export function getInterviewerSessionState({
   mode = "tts-file",
   setupCompleted,
+  completionReady = false,
   hasCurrentQuestion,
-  questionFlowComplete = false,
   questionSpeechPlaying,
   questionSpeechSupported,
   recording,
@@ -1508,18 +1513,6 @@ export function getInterviewerSessionState({
     });
   }
 
-  if (questionFlowComplete) {
-    return createInterviewerSessionState({
-      mode,
-      phase: "CONNECTING",
-      label: "면접 답변 완료",
-      description: "모든 질문에 답변했습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요.",
-      tone: "neutral",
-      stageClassName: "ai-interviewer-stage--connecting",
-      avatarClassName: "",
-    });
-  }
-
   if (answerProcessingBusy || (busy && currentQuestionLocked)) {
     return createInterviewerSessionState({
       mode,
@@ -1528,6 +1521,18 @@ export function getInterviewerSessionState({
       description: "AI 면접관이 답변 처리 결과를 기다리고 있습니다.",
       tone: "thinking",
       stageClassName: "ai-interviewer-stage--ai-thinking",
+      avatarClassName: "",
+    });
+  }
+
+  if (completionReady && !hasCurrentQuestion) {
+    return createInterviewerSessionState({
+      mode,
+      phase: "CONNECTING",
+      label: "면접 종료 준비",
+      description: "모든 질문 처리가 끝났습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요.",
+      tone: "neutral",
+      stageClassName: "ai-interviewer-stage--connecting",
       avatarClassName: "",
     });
   }

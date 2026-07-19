@@ -719,6 +719,13 @@ assert.equal(
   }),
   "최근 프로젝트에서 가장 어려웠던 기술적 문제는 무엇이었나요?",
 );
+assert.equal(
+  formatAiInterviewerQuestionPrompt({
+    questionVisible: true,
+    completionReady: true,
+  }),
+  "모든 질문에 답변했습니다.",
+);
 assert.deepEqual(
   clampCameraPipPosition(
     { x: 820, y: 640 },
@@ -1960,6 +1967,7 @@ const recruitingReport: CandidateRecruitingReportView = {
   status: "GENERATING",
   applicationStatus: "SUBMITTED",
   interviewStatus: "COMPLETED",
+  screeningDecision: "UNDECIDED",
   companyName: "Init Labs",
   jobTitle: "Backend Developer",
   candidateMessage: "면접 분석이 진행 중입니다.",
@@ -1992,6 +2000,7 @@ const mockInterviewDeviceCheckHref = getMockInterviewDeviceCheckHref({ sessionId
 const mockReportHref = getMockReportHref(mockReport);
 const mockFeedbackIsSafe = isCandidateFacingMockFeedbackSafe(mockFeedback);
 const recruitingReportIsLimited = isCandidateRecruitingReportLimited(recruitingReport);
+assert.equal(recruitingReport.screeningDecision, "UNDECIDED");
 const recruitingReadyShowsDeviceSetup = shouldShowInterviewDeviceSetup({
   mode: "recruiting",
   setupCompleted: false,

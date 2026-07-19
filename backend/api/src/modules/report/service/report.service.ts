@@ -443,6 +443,7 @@ export class ReportService {
       reportStatus,
       sessionId: session.sessionId,
       interviewSessionStatus: session.status,
+      screeningDecision: application.screeningDecision,
       submittedAt: application.submittedAt,
       updatedAt: application.updatedAt,
       reportAvailable: reportStatus === "COMPLETED" && Boolean(report),
@@ -479,6 +480,7 @@ export class ReportService {
       status,
       applicationStatus: application.applicationStatus,
       interviewStatus: application.interviewStatus,
+      screeningDecision: application.screeningDecision,
       companyName: job.companyName,
       jobTitle: job.title,
       reportId: report?.reportId,
@@ -515,10 +517,11 @@ export class ReportService {
       });
     }
 
+    const decisionPresentation = this.recruitingDecisionPresentation(application.screeningDecision);
     return this.envelope({
       ...base,
-      candidateMessage: "AI 분석이 완료되어 기업 검토 단계로 전달되었습니다.",
-      nextStepLabel: "기업 검토 대기",
+      candidateMessage: decisionPresentation.message,
+      nextStepLabel: decisionPresentation.label,
     });
   }
 
@@ -1047,6 +1050,34 @@ export class ReportService {
       excludesInternalMemo: true,
       excludesManualEvaluation: true,
     };
+  }
+
+  private recruitingDecisionPresentation(
+    decision: CandidateRecruitingReportView["screeningDecision"],
+  ): { label: string; message: string } {
+    const presentation: Record<
+      CandidateRecruitingReportView["screeningDecision"],
+      { label: string; message: string }
+    > = {
+      UNDECIDED: {
+        label: "기업 검토 대기",
+        message: "AI 분석이 완료되어 기업 검토 단계로 전달되었습니다.",
+      },
+      PASS: {
+        label: "합격",
+        message: "기업 담당자가 합격으로 결정했습니다.",
+      },
+      HOLD: {
+        label: "보류",
+        message: "기업 담당자가 보류로 결정했습니다. 추가 안내를 기다려주세요.",
+      },
+      FAIL: {
+        label: "불합격",
+        message: "기업 담당자가 불합격으로 결정했습니다.",
+      },
+    };
+
+    return presentation[decision];
   }
 
   private toCandidateScores(scores: CandidateReportScoreRecord[]): CandidateReportScoreView[] {

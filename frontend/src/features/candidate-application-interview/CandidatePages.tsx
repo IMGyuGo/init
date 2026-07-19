@@ -63,6 +63,7 @@ import {
   type RuntimeQuestionListResponse,
   type RuntimeQuestionView,
   type SaveInterviewAnswerRequest,
+  type ScreeningDecision,
   type RealtimeInterviewSessionResponse,
   createCandidateApiClient,
   createPublicInterviewApiClient,
@@ -548,6 +549,7 @@ type RuntimePageSession = {
   timePolicy?: CandidateInterviewRuntimeView["timePolicy"];
   totalQuestions: number;
   answeredCount: number;
+  completionReady?: boolean;
   currentQuestion?: RuntimeQuestionView;
   nextQuestionEndpoint: string;
   answerUploadEndpoint: string;
@@ -3359,6 +3361,7 @@ function InterviewRuntimePanel({
   const router = useRouter();
   const runtimeApi = apiClient ?? getCandidateApi();
   const currentQuestion = data?.runtime.currentQuestion;
+  const completionReady = Boolean(data?.runtime.completionReady);
   const runtimeInterviewType = data?.runtime.interviewType;
   const runtimePreparationTimeSec = data?.runtime.timePolicy?.preparationTimeSec;
   const runtimeAnswerTimeSec = data?.runtime.timePolicy?.answerTimeSec;
@@ -3430,6 +3433,7 @@ function InterviewRuntimePanel({
   const [reansweredQuestionIds, setReansweredQuestionIds] = useState<Set<number>>(() => new Set());
   const answeredQuestionIdsRef = useRef<Set<number>>(new Set());
   const completionReadyRef = useRef(false);
+  completionReadyRef.current = completionReady;
   const savingQuestionIdsRef = useRef<Set<number>>(new Set());
   const interviewerStageRef = useRef<HTMLDivElement | null>(null);
   const cameraPipRef = useRef<HTMLDivElement | null>(null);
@@ -3700,6 +3704,10 @@ function InterviewRuntimePanel({
         runtime: {
           ...current.runtime,
           answeredCount,
+          completionReady,
+          totalQuestions: completionReady && answeredCount > 0
+            ? Math.max(answeredCount, questions.length)
+            : current.runtime.totalQuestions,
           currentQuestion: completionReady ? undefined : nextQuestion,
         },
         questions: {
@@ -3713,6 +3721,31 @@ function InterviewRuntimePanel({
 
   function markInterviewQuestionFlowComplete() {
     completionReadyRef.current = true;
+    updateData((current) => {
+      const questions = current.questions.questions.map((question) =>
+        question.questionId === currentQuestion?.questionId
+          ? { ...question, answered: true, current: false }
+          : { ...question, current: false },
+      );
+      const answeredCount = questions.filter(
+        (question) => question.answered || answeredQuestionIdsRef.current.has(question.questionId),
+      ).length;
+      return {
+        ...current,
+        runtime: {
+          ...current.runtime,
+          completionReady: true,
+          answeredCount,
+          totalQuestions: Math.max(answeredCount, questions.length),
+          currentQuestion: undefined,
+        },
+        questions: {
+          ...current.questions,
+          currentQuestionId: undefined,
+          questions,
+        },
+      };
+    });
     stopQuestionSpeech();
     setQuestionSpeechStatus("모든 질문에 답변했습니다.");
     setQuestionSpeechCompleted(true);
@@ -7932,6 +7965,7 @@ function InterviewRuntimePanel({
   );
   const runtimeProgressionState = getInterviewRuntimeProgressionState({
     hasRuntimeData: Boolean(data),
+    completionReady,
     currentQuestionAnswered,
     isCurrentQuestionLast,
     answerProcessingBusy,
@@ -7957,7 +7991,7 @@ function InterviewRuntimePanel({
   const interviewerQuestionPrompt = formatAiInterviewerQuestionPrompt({
     question: currentQuestion,
     questionVisible: subtitlesEnabled,
-    questionFlowComplete: completionReadyRef.current,
+    completionReady,
   });
   const interviewerSpeechText = (activeInterviewerSpeechText || currentQuestion?.content) ?? "";
   const cameraPipStyle = cameraPipPosition && runtimePrimaryScreen === "interviewer"
@@ -7992,8 +8026,8 @@ function InterviewRuntimePanel({
   const interviewerSessionState = getInterviewerSessionState({
     mode: AI_INTERVIEWER_SESSION_MODE_POLICY.activeMode,
     setupCompleted,
+    completionReady,
     hasCurrentQuestion: Boolean(currentQuestion),
-    questionFlowComplete: completionReadyRef.current,
     questionSpeechPlaying,
     questionSpeechSupported,
     recording,
@@ -10891,6 +10925,7 @@ function ApplicationStatusView({ status }: { status: CandidateApplicationStatusV
       <Definition label="서류 상태" value={<StatusPill value={status.documentStatus} />} />
       <Definition label="면접 상태" value={<StatusPill value={status.interviewStatus} />} />
       <Definition label="리포트 상태" value={<StatusPill value={status.reportStatus} />} />
+      <Definition label="기업 전형 결과" value={<StatusPill value={status.screeningDecision} />} />
       <Definition label="세션 ID" value={status.sessionId} />
       <Definition label="제출일" value={formatDateTime(status.submittedAt)} />
     </dl>
@@ -10905,6 +10940,7 @@ function RecruitingReportView({ report }: { report: CandidateRecruitingReportVie
     : isFailed
       ? "면접은 제출되었지만 AI 분석 상태 확인이 필요합니다. 기업 담당자가 확인 후 안내할 예정입니다."
       : "면접이 정상적으로 제출되었습니다. AI 분석이 완료되면 기업 검토 단계로 전달됩니다.";
+  const screeningDecisionMessage = getCandidateScreeningDecisionMessage(report.screeningDecision);
 
   return (
     <div className="detail-stack">
@@ -10913,11 +10949,12 @@ function RecruitingReportView({ report }: { report: CandidateRecruitingReportVie
         <Definition label="회사" value={report.companyName} />
         <Definition label="공고" value={report.jobTitle} />
         <Definition label="다음 단계" value={report.nextStepLabel} />
+        <Definition label="기업 전형 결과" value={<StatusPill value={report.screeningDecision} />} />
       </dl>
       <div className="description-box">
         <strong>면접이 정상적으로 제출되었습니다.</strong>
         <p>{statusMessage}</p>
-        <p>최종 결과는 기업 검토 후 안내됩니다.</p>
+        <p>{screeningDecisionMessage}</p>
       </div>
     </div>
   );
@@ -11438,7 +11475,7 @@ function StatusPill({ value }: { value: ReactNode }) {
   return <span className={`badge ${tone}`}>{formatStatusLabel(text)}</span>;
 }
 
-function getStatusTone(value: string): "success" | "warning" | "neutral" {
+function getStatusTone(value: string): "success" | "warning" | "danger" | "neutral" {
   const successValues = new Set([
     "ANSWERED",
     "COMPLETED",
@@ -11449,6 +11486,7 @@ function getStatusTone(value: string): "success" | "warning" | "neutral" {
     "READY",
     "START_READY",
     "SUBMITTED",
+    "PASS",
     "응시 가능",
   ]);
   const warningValues = new Set([
@@ -11463,12 +11501,26 @@ function getStatusTone(value: string): "success" | "warning" | "neutral" {
     "PENDING",
     "PREP_REQUIRED",
     "WAITING",
+    "HOLD",
+    "UNDECIDED",
     "응시 대기",
   ]);
 
   if (successValues.has(value)) return "success";
   if (warningValues.has(value)) return "warning";
+  if (value === "FAIL") return "danger";
   return "neutral";
+}
+
+function getCandidateScreeningDecisionMessage(decision: ScreeningDecision): string {
+  const messages: Record<ScreeningDecision, string> = {
+    UNDECIDED: "아직 기업 전형 결과가 결정되지 않았습니다. 기업 검토가 완료되면 이 화면에 표시됩니다.",
+    PASS: "기업 담당자가 합격으로 결정했습니다.",
+    HOLD: "기업 담당자가 보류로 결정했습니다. 추가 안내를 기다려주세요.",
+    FAIL: "기업 담당자가 불합격으로 결정했습니다.",
+  };
+
+  return messages[decision];
 }
 
 function formatStatusLabel(value: string): string {
@@ -11502,6 +11554,10 @@ function formatStatusLabel(value: string): string {
     SUBMITTED: "제출 완료",
     CANCELED: "취소",
     WAITING: "대기",
+    UNDECIDED: "기업 검토 대기",
+    PASS: "합격",
+    HOLD: "보류",
+    FAIL: "불합격",
     "채용 리포트": "채용 리포트",
     "지원자 제한 조회": "지원자 제한 조회",
     "응시 가능": "응시 가능",
@@ -11691,6 +11747,13 @@ function toRecruitingRuntimeSession(
     questions.questions.find((question) => question.current) ??
     questions.questions.find((question) => question.questionId === questions.currentQuestionId) ??
     questions.questions.find((question) => !question.answered);
+  const answeredCount = questions.questions.filter((question) => question.answered).length;
+  const completionReady = Boolean(
+    runtime.status === "IN_PROGRESS" &&
+      !currentQuestion &&
+      questions.questions.length > 0 &&
+      answeredCount >= questions.questions.length,
+  );
 
   return {
     sessionId: runtime.sessionId,
@@ -11702,11 +11765,11 @@ function toRecruitingRuntimeSession(
     canRecord: runtime.canRecord,
     ...(runtime.jobDescription ? { jobDescription: runtime.jobDescription } : {}),
     ...(runtime.timePolicy ? { timePolicy: runtime.timePolicy } : {}),
-    totalQuestions: getRecruitingRuntimeTotalQuestions(
-      runtime.sessionMode,
-      questions.questions.length,
-    ),
-    answeredCount: questions.questions.filter((question) => question.answered).length,
+    totalQuestions: completionReady
+      ? Math.max(answeredCount, questions.questions.length)
+      : getRecruitingRuntimeTotalQuestions(runtime.sessionMode, questions.questions.length),
+    answeredCount,
+    completionReady,
     currentQuestion,
     nextQuestionEndpoint: runtime.nextQuestionEndpoint,
     answerUploadEndpoint: runtime.answerUploadEndpoint,

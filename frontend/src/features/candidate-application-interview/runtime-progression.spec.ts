@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   getInterviewRuntimeProgressionState,
+  getInterviewerSessionState,
   shouldDeferQuestionTransitionForFollowUp,
 } from "./view-model";
 
@@ -18,6 +19,39 @@ assert.deepEqual(
   {
     canMoveNextQuestion: false,
     canCompleteInterview: false,
+  },
+);
+
+assert.equal(
+  getInterviewerSessionState({
+    setupCompleted: true,
+    completionReady: true,
+    hasCurrentQuestion: false,
+    questionSpeechPlaying: false,
+    questionSpeechSupported: true,
+    recording: false,
+    answerProcessingBusy: false,
+    busy: false,
+    currentQuestionLocked: false,
+  }).label,
+  "면접 종료 준비",
+);
+
+assert.deepEqual(
+  getInterviewRuntimeProgressionState({
+    hasRuntimeData: true,
+    completionReady: true,
+    currentQuestionAnswered: false,
+    isCurrentQuestionLast: false,
+    answerProcessingBusy: false,
+    isReansweringCurrentQuestion: false,
+    recording: false,
+    answeredQuestionCount: 2,
+    totalQuestions: 3,
+  }),
+  {
+    canMoveNextQuestion: false,
+    canCompleteInterview: true,
   },
 );
 
