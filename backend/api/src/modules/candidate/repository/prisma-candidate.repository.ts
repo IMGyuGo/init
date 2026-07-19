@@ -1870,6 +1870,9 @@ export class PrismaCandidateRepository implements CandidateRepository {
       });
       await tx.aiProcessTimingEvent.deleteMany({ where: { processLogId: { in: processLogIds } } });
       await tx.aiGuardrailLog.deleteMany({ where: { processLogId: { in: processLogIds } } });
+      await tx.applicationInterviewQuestionBatch.deleteMany({
+        where: { applicationId: { in: applicationIds } },
+      });
       await tx.interviewQuestionSet.updateMany({
         where: { createdByProcessLogId: { in: processLogIds } },
         data: { createdByProcessLogId: null },
