@@ -57,6 +57,8 @@ const MOUTH_OPEN_ATTACK = 0.58;
 const MOUTH_OPEN_RELEASE = 0.32;
 const MAX_LIP_SYNC_FPS = 30;
 const MAX_AUDIO_DRIVEN_FRAME_DELTA_MS = 100;
+const BROWSER_ESTIMATED_SPEECH_SYLLABLE_MS = 155;
+const REALTIME_ESTIMATED_SPEECH_SYLLABLE_MS = 180;
 const HANGUL_BASE_CODE_POINT = 0xac00;
 const HANGUL_LAST_CODE_POINT = 0xd7a3;
 const HANGUL_FINAL_COUNT = 28;
@@ -145,10 +147,12 @@ export function advanceAudioDrivenTimelineElapsedMs(
   frameDeltaMs: number,
   rms: number,
   audioStarted = previousElapsedMs > 0,
+  currentMouthShape?: MouthShape,
 ): number {
   const safePrevious = Number.isFinite(previousElapsedMs) ? Math.max(0, previousElapsedMs) : 0;
   if (!Number.isFinite(frameDeltaMs) || frameDeltaMs <= 0) return safePrevious;
   if (!audioStarted && rms <= SILENCE_RMS_THRESHOLD) return safePrevious;
+  if (rms <= SILENCE_RMS_THRESHOLD && currentMouthShape !== "rest") return safePrevious;
   return safePrevious + Math.min(frameDeltaMs, MAX_AUDIO_DRIVEN_FRAME_DELTA_MS);
 }
 
@@ -281,9 +285,16 @@ export function resolveLipSyncMouthShape(input: ResolveLipSyncMouthShapeInput): 
   return timelineShape ?? rmsShape;
 }
 
-function getEstimatedSpeechDurationMs(text: string, audioDurationMs: number | undefined): number {
+export function getEstimatedSpeechDurationMs(
+  text: string,
+  audioDurationMs: number | undefined,
+  realtimeAudio = false,
+): number {
   if (audioDurationMs && Number.isFinite(audioDurationMs) && audioDurationMs > 0) return audioDurationMs;
-  return Math.max(600, [...text].filter((character) => getHangulIndices(character)).length * 155);
+  const syllableDurationMs = realtimeAudio
+    ? REALTIME_ESTIMATED_SPEECH_SYLLABLE_MS
+    : BROWSER_ESTIMATED_SPEECH_SYLLABLE_MS;
+  return Math.max(600, [...text].filter((character) => getHangulIndices(character)).length * syllableDurationMs);
 }
 
 function calculateRms(samples: Uint8Array<ArrayBuffer>): number {
@@ -350,8 +361,11 @@ export function useLipSyncDriverState(input: LipSyncDriverInput): LipSyncDriverS
   );
   const speaking = input.presentationState === "speaking";
   const timeline = useMemo(
-    () => buildKoreanVisemeTimeline(input.speechText, getEstimatedSpeechDurationMs(input.speechText, audioDurationMs)),
-    [audioDurationMs, input.speechText],
+    () => buildKoreanVisemeTimeline(
+      input.speechText,
+      getEstimatedSpeechDurationMs(input.speechText, audioDurationMs, Boolean(input.audioStream)),
+    ),
+    [audioDurationMs, input.audioStream, input.speechText],
   );
   const startTimeRef = useRef(0);
   const audioStartTimeRef = useRef(0);
@@ -490,11 +504,16 @@ export function useLipSyncDriverState(input: LipSyncDriverInput): LipSyncDriverS
             : 0;
           lastAudioDrivenFrameAtRef.current = now;
           if (nextRms > SILENCE_RMS_THRESHOLD) audioDrivenStartedRef.current = true;
+          const currentMouthShape = getTimelineMouthShape(
+            timeline,
+            audioDrivenElapsedMsRef.current,
+          );
           audioDrivenElapsedMsRef.current = advanceAudioDrivenTimelineElapsedMs(
             audioDrivenElapsedMsRef.current,
             frameDeltaMs,
             nextRms,
             audioDrivenStartedRef.current,
+            currentMouthShape,
           );
           sourceElapsedMs = audioDrivenElapsedMsRef.current;
         } else if (boundaryAnchorRef.current) {

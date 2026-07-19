@@ -451,7 +451,7 @@ function getRealtimeInterviewSpeechInstructions(purpose: RealtimeInterviewSpeech
     return [
       "Say the provided Korean interview intro exactly once.",
       "Do not add follow-up questions, explanations, or evaluation.",
-      "Use a calm, natural interviewer voice.",
+      "Use a calm, natural interviewer voice at a slightly slower than normal pace.",
     ].join(" ");
   }
 
@@ -459,7 +459,7 @@ function getRealtimeInterviewSpeechInstructions(purpose: RealtimeInterviewSpeech
     return [
       "Say only the provided encouragement line.",
       "Do not ask a new question, do not evaluate the candidate, and do not continue the conversation.",
-      "Use a brief, reassuring Korean tone.",
+      "Use a brief, reassuring Korean tone at a slightly slower than normal pace.",
     ].join(" ");
   }
 
@@ -467,14 +467,14 @@ function getRealtimeInterviewSpeechInstructions(purpose: RealtimeInterviewSpeech
     return [
       "Read the provided Korean follow-up interview question exactly once.",
       "The backend already generated this follow-up question; do not generate another follow-up, explanations, or evaluation.",
-      "Use a calm, natural interviewer voice.",
+      "Use a calm, natural interviewer voice at a slightly slower than normal pace.",
     ].join(" ");
   }
 
   return [
     "Read the provided Korean interview question exactly once.",
     "Do not add follow-up questions, explanations, or evaluation.",
-    "Use a calm, natural interviewer voice.",
+    "Use a calm, natural interviewer voice at a slightly slower than normal pace.",
   ].join(" ");
 }
 

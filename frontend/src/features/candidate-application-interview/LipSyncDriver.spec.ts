@@ -4,6 +4,7 @@ import {
   advanceAudioDrivenTimelineElapsedMs,
   buildKoreanVisemeTimeline,
   getBoundaryAlignedTimelineElapsedMs,
+  getEstimatedSpeechDurationMs,
   getMouthOpenValueForRms,
   getMouthOpenValueForShape,
   getMouthShapeForKoreanCharacter,
@@ -155,9 +156,14 @@ assert.equal(smoothMouthOpenValue(0, 0), 0);
 assert.equal(getRelativeAudioElapsedMs(42.75, 42.5), 250);
 assert.equal(getRelativeAudioElapsedMs(42.5, 42.75), 0);
 assert.equal(getRelativeAudioElapsedMs(Number.NaN, 42.5), 0);
+assert.equal(getEstimatedSpeechDurationMs("가나다라마바사아자차", undefined, false), 1_550);
+assert.equal(getEstimatedSpeechDurationMs("가나다라마바사아자차", undefined, true), 1_800);
+assert.equal(getEstimatedSpeechDurationMs("가나다라마바사아자차", 2_125, true), 2_125);
 assert.equal(advanceAudioDrivenTimelineElapsedMs(0, 34, 0), 0);
 assert.equal(advanceAudioDrivenTimelineElapsedMs(0, 34, 0.08), 34);
-assert.equal(advanceAudioDrivenTimelineElapsedMs(400, 34, 0), 434);
+assert.equal(advanceAudioDrivenTimelineElapsedMs(400, 34, 0, true, "open"), 400);
+assert.equal(advanceAudioDrivenTimelineElapsedMs(400, 34, 0, true, "rest"), 434);
+assert.equal(advanceAudioDrivenTimelineElapsedMs(400, 34, 0.08, true, "open"), 434);
 assert.equal(advanceAudioDrivenTimelineElapsedMs(400, 500, 0.08), 500);
 
 const timeline = buildKoreanVisemeTimeline("안녕하세요", 900);

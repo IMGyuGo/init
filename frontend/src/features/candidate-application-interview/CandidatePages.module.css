@@ -2563,7 +2563,7 @@
   gap: 6px;
   width: min(560px, 100%);
   min-height: 0;
-  margin: 28px auto 12px;
+  margin: 16px auto 8px;
   text-align: center;
 }
 
@@ -2723,7 +2723,7 @@
   width: auto;
   height: 100%;
   min-height: 0;
-  max-height: 410px;
+  max-height: 450px;
 }
 
 :global(.ai-interviewer-avatar) {
@@ -2814,9 +2814,17 @@
 }
 
 :global(.ai-interviewer-stage:fullscreen .ai-interviewer-figure) {
+  grid-template-rows: auto auto;
+  align-self: center;
   gap: 10px;
   width: min(720px, 100%);
-  margin: 96px auto 34px;
+  height: auto;
+  margin: 24px auto 34px;
+}
+
+:global(.ai-interviewer-stage:fullscreen .ai-interviewer-figure > .local-interviewer-avatar) {
+  width: min(340px, 42vh);
+  height: auto;
 }
 
 :global(.ai-interviewer-stage--reserved-info-gap) {
@@ -2824,7 +2832,7 @@
 }
 
 :global(.ai-interviewer-stage--reserved-info-gap .ai-interviewer-figure) {
-  margin-bottom: 112px;
+  margin-bottom: 20px;
 }
 
 :global(.ai-interviewer-stage:fullscreen.ai-interviewer-stage--reserved-info-gap) {
@@ -2833,7 +2841,7 @@
 }
 
 :global(.ai-interviewer-stage:fullscreen.ai-interviewer-stage--reserved-info-gap .ai-interviewer-figure) {
-  margin-bottom: 132px;
+  margin-bottom: 34px;
 }
 
 :global(.ai-interviewer-stage:fullscreen .ai-interviewer-avatar) {
@@ -2914,20 +2922,20 @@
 :global(.ai-interviewer-copy) {
   position: relative;
   display: grid;
-  gap: 5px;
+  gap: 4px;
   justify-items: center;
 }
 
 :global(.ai-interviewer-copy h1) {
   margin: 0;
   color: #fff;
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 900;
   line-height: 1.12;
 }
 
 :global(.ai-interviewer-stage:fullscreen .ai-interviewer-copy h1) {
-  font-size: 28px;
+  font-size: 22px;
 }
 
 :global(.ai-interviewer-title-row) {
@@ -2935,7 +2943,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 6px;
 }
 
 :global(.ai-interviewer-session-chip) {
@@ -2988,8 +2996,8 @@
 
 :global(.ai-interviewer-info-button) {
   display: inline-grid;
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   place-items: center;
   color: #fff;
@@ -2999,6 +3007,14 @@
   cursor: pointer;
 }
 
+:global(.ai-interviewer-info-button kbd) {
+  min-width: 0;
+  padding: 0;
+  font-size: 10px;
+  background: transparent;
+  border: 0;
+}
+
 :global(.ai-interviewer-info-button.open) {
   background: rgba(110, 91, 246, 0.46);
   border-color: rgba(255, 255, 255, 0.28);
@@ -3006,19 +3022,20 @@
 
 :global(.ai-interviewer-info-panel) {
   position: absolute;
-  top: calc(100% + 12px);
-  left: 50%;
+  right: auto;
+  bottom: 84px;
+  left: 24px;
   z-index: 6;
   display: grid;
   gap: 5px;
-  width: min(280px, calc(100vw - 48px));
-  padding: 12px 14px;
+  width: min(240px, calc(100% - 48px));
+  padding: 10px 12px;
   text-align: left;
   background: rgba(16, 16, 25, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 14px;
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
-  transform: translateX(-50%);
+  transform: none;
 }
 
 :global(.ai-interviewer-info-panel strong) {
@@ -3037,8 +3054,14 @@
 
 @media (max-height: 620px) {
   :global(.ai-interviewer-stage:fullscreen.ai-interviewer-stage--reserved-info-gap .ai-interviewer-figure) {
-    gap: 10px;
-    margin: 42px auto 112px;
+    gap: 6px;
+    margin: 8px auto 12px;
+  }
+
+  :global(.ai-interviewer-stage:fullscreen.ai-interviewer-stage--reserved-info-gap .ai-interviewer-figure > .local-interviewer-avatar) {
+    width: min(210px, 30vh);
+    height: auto;
+    max-height: none;
   }
 
   :global(.ai-interviewer-stage:fullscreen.ai-interviewer-stage--reserved-info-gap .ai-interviewer-avatar) {
@@ -3046,7 +3069,7 @@
   }
 
   :global(.ai-interviewer-stage:fullscreen.ai-interviewer-stage--reserved-info-gap .ai-interviewer-copy h1) {
-    font-size: 26px;
+    font-size: 18px;
   }
 }
 
@@ -5391,7 +5414,13 @@
   }
 
   :global(.ai-interviewer-copy h1) {
-    font-size: 20px;
+    font-size: 16px;
+  }
+
+  :global(.ai-interviewer-info-panel) {
+    position: static;
+    width: 100%;
+    transform: none;
   }
 
   :global(.candidate-camera-pip) {

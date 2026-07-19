@@ -57,8 +57,25 @@ assert.doesNotMatch(lipSyncDriverSource, /Cubism|interviewer-cubism/);
 
 const candidatePagesSource = readFileSync(new URL("./CandidatePages.tsx", import.meta.url), "utf8");
 assert.match(candidatePagesSource, /utterance\.onboundary/);
+assert.match(candidatePagesSource, /utterance\.rate\s*=\s*0\.9;/);
+assert.doesNotMatch(candidatePagesSource, /utterance\.rate\s*=\s*0\.95;/);
 assert.match(candidatePagesSource, /speechBoundary=\{interviewerSpeechBoundary\}/);
 assert.match(candidatePagesSource, /interviewerSpeechUsesRealtimeAudio \? realtimeRemoteAudioStream : null/);
+assert.match(
+  candidatePagesSource,
+  /purpose:\s*"interview_encouragement"[\s\S]{0,900}setActiveInterviewerSpeechText\(decision\.text\)[\s\S]{0,300}setInterviewerSpeechUsesRealtimeAudio\(true\)[\s\S]{0,300}setQuestionSpeechPlaying\(true\)/,
+  "silence encouragement should drive the same realtime lip-sync presentation as question speech",
+);
+assert.match(
+  candidatePagesSource,
+  /metadata\.purpose === "interview_encouragement"[\s\S]{0,500}setQuestionSpeechPlaying\(false\)[\s\S]{0,300}setInterviewerSpeechUsesRealtimeAudio\(false\)/,
+  "silence encouragement completion should return the avatar to its listening mouth",
+);
+assert.match(
+  candidatePagesSource,
+  /runtimePrimaryScreen === "interviewer"\s*&&\s*showInterviewerPanel\s*&&\s*interviewerInfoOpen/,
+  "the interviewer info panel should close out of the candidate-primary layout",
+);
 
 const previewCssSource = readFileSync(new URL("./InterviewerRiggingPreview.module.css", import.meta.url), "utf8");
 assert.doesNotMatch(previewCssSource, /__runtime-stage \.local-interviewer-avatar/);

@@ -247,6 +247,7 @@ function testQuestionSpeechResponseEventUsesOpenAiResponseCreate() {
   assert.equal(event.response.metadata.question_id, "101");
   assert.equal(event.response.metadata.playback_id, "7");
   assert.match(event.response.instructions, /read the provided Korean interview question exactly once/i);
+  assert.match(event.response.instructions, /slightly slower than normal pace/i);
   assert.deepEqual(event.response.input, [
     {
       type: "message",
@@ -268,6 +269,7 @@ function testFollowUpQuestionSpeechResponseEventUsesFollowUpPurpose() {
   assert.equal(event.response.metadata.question_id, "202");
   assert.match(event.response.instructions, /follow-up interview question/i);
   assert.match(event.response.instructions, /do not generate another follow-up/i);
+  assert.match(event.response.instructions, /slightly slower than normal pace/i);
   assert.deepEqual(event.response.input[0]?.content, [
     { type: "input_text", text: "방금 답변에서 말한 성능 개선 과정을 더 구체적으로 설명해주세요." },
   ]);
@@ -283,9 +285,21 @@ function testEncouragementSpeechResponseEventUsesExactText() {
 
   assert.equal(event.response.metadata.response_purpose, "interview_encouragement");
   assert.match(event.response.instructions, /say only the provided encouragement line/i);
+  assert.match(event.response.instructions, /slightly slower than normal pace/i);
   assert.deepEqual(event.response.input[0]?.content, [
     { type: "input_text", text: "괜찮습니다. 긴장하지 말고 말해보세요." },
   ]);
+}
+
+function testIntroSpeechResponseEventUsesSlightlySlowerPace() {
+  const event = createRealtimeInterviewSpeechResponseEvent({
+    purpose: "interview_intro",
+    text: "안녕하세요. 지금부터 AI 모의면접을 시작하겠습니다.",
+    playbackId: 1,
+  });
+
+  assert.match(event.response.instructions, /say the provided Korean interview intro exactly once/i);
+  assert.match(event.response.instructions, /slightly slower than normal pace/i);
 }
 
 function testSendRealtimeClientEventOnlySendsWhenDataChannelIsOpen() {
@@ -521,6 +535,7 @@ function testSpeechClientEventRestoresRealtimeMicrophoneWhenSendFails() {
 
 async function main() {
   testRealtimeSessionRequestWaitsForLiveMicrophoneStream();
+  testIntroSpeechResponseEventUsesSlightlySlowerPace();
   testQuestionSpeechResponseEventUsesOpenAiResponseCreate();
   testFollowUpQuestionSpeechResponseEventUsesFollowUpPurpose();
   testEncouragementSpeechResponseEventUsesExactText();
