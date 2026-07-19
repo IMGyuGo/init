@@ -78,6 +78,7 @@ import {
   getInterviewRuntimeProgressionState,
   getInterviewRuntimeStatusChips,
   getInterviewerSessionState,
+  getInterviewIntroPlaybackAction,
   getInvalidRecordingRecoveryAction,
   getRealtimeSilenceEncouragementDecision,
   getRealtimeSessionUserNotice,
@@ -962,6 +963,42 @@ assert.equal(shouldContinueInterviewWithoutFollowUp({ pipelineError: new Error("
 assert.equal(shouldContinueInterviewWithoutFollowUp({ failureCategory: "REANSWER_REQUIRED" }), true);
 assert.equal(getRealtimeSessionUserNotice({ provider: "mock" }), "");
 assert.equal(getRealtimeSessionUserNotice({ provider: "openai" }), "실시간 AI 면접 연결을 준비했습니다.");
+assert.equal(
+  getInterviewIntroPlaybackAction({
+    sessionId: 11,
+    startedSessionId: null,
+    playbackInFlight: false,
+    introCompleted: false,
+  }),
+  "start",
+);
+assert.equal(
+  getInterviewIntroPlaybackAction({
+    sessionId: 11,
+    startedSessionId: 11,
+    playbackInFlight: true,
+    introCompleted: false,
+  }),
+  "wait",
+);
+assert.equal(
+  getInterviewIntroPlaybackAction({
+    sessionId: 11,
+    startedSessionId: 11,
+    playbackInFlight: false,
+    introCompleted: false,
+  }),
+  "complete",
+);
+assert.equal(
+  getInterviewIntroPlaybackAction({
+    sessionId: 11,
+    startedSessionId: 11,
+    playbackInFlight: false,
+    introCompleted: true,
+  }),
+  "none",
+);
 assert.equal(
   isInterviewSpeechPlaybackEventCurrent({
     playbackId: 3,

@@ -90,6 +90,66 @@ export async function auditInterviewerAvatarAssets(baseDirectory) {
   };
 }
 
+function resolveModelReference(modelDirectory, reference) {
+  const path = resolve(modelDirectory, reference);
+  const relativePath = relative(modelDirectory, path);
+  if (relativePath.startsWith("..") || resolve(path) === resolve(modelDirectory)) {
+    throw new Error(`Cubism model reference leaves its directory: ${reference}`);
+  }
+  return { path, relativePath: toPosixPath(relativePath) };
+}
+
+export async function auditCubismProofModel(modelJsonPath) {
+  const modelDirectory = dirname(modelJsonPath);
+  const manifest = JSON.parse(await readFile(modelJsonPath, "utf8"));
+  if (manifest.Version !== 3 || !manifest.FileReferences?.Moc || !manifest.FileReferences.Textures?.length) {
+    throw new Error(`${modelJsonPath} is not a complete Cubism model3 manifest`);
+  }
+
+  const mocReference = resolveModelReference(modelDirectory, manifest.FileReferences.Moc);
+  const moc = await readFile(mocReference.path);
+  const baseReferenceName = manifest.FileReferences.Moc.replace(/\.moc3$/i, "-base.png");
+  if (baseReferenceName === manifest.FileReferences.Moc) {
+    throw new Error(`${modelJsonPath} has an invalid Cubism MOC3 reference`);
+  }
+  const baseReference = resolveModelReference(modelDirectory, baseReferenceName);
+  const base = await readFile(baseReference.path);
+  const textures = [];
+  for (const reference of manifest.FileReferences.Textures) {
+    const textureReference = resolveModelReference(modelDirectory, reference);
+    const bytes = await readFile(textureReference.path);
+    textures.push({
+      path: textureReference.relativePath,
+      bytes: bytes.byteLength,
+      ...readPngDimensions(bytes, textureReference.path),
+    });
+  }
+
+  const displayInfoReference = resolveModelReference(modelDirectory, manifest.FileReferences.DisplayInfo);
+  const displayInfo = JSON.parse(await readFile(displayInfoReference.path, "utf8"));
+
+  return {
+    version: manifest.Version,
+    moc: {
+      path: mocReference.relativePath,
+      bytes: moc.byteLength,
+    },
+    base: {
+      path: baseReference.relativePath,
+      bytes: base.byteLength,
+      ...readPngDimensions(base, baseReference.path),
+    },
+    textures,
+    displayInfo: {
+      path: displayInfoReference.relativePath,
+      parameterCount: displayInfo.Parameters?.length ?? 0,
+      hasMouthOpenParameter: Boolean(
+        displayInfo.Parameters?.some((parameter) => parameter.Id === "ParamMouthOpenY"),
+      ),
+    },
+  };
+}
+
 const currentFilePath = fileURLToPath(import.meta.url);
 if (process.argv[1] && resolve(process.argv[1]) === currentFilePath) {
   const projectRoot = resolve(dirname(currentFilePath), "..");

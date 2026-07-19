@@ -349,6 +349,15 @@ export interface RealtimeSessionUserNoticeInput {
   provider: "mock" | "openai" | string;
 }
 
+export interface InterviewIntroPlaybackActionInput {
+  sessionId: number;
+  startedSessionId: number | null;
+  playbackInFlight: boolean;
+  introCompleted: boolean;
+}
+
+export type InterviewIntroPlaybackAction = "start" | "wait" | "complete" | "none";
+
 export interface InterviewSpeechPlaybackEventCurrentInput {
   playbackId: number;
   activePlaybackId: number;
@@ -1220,6 +1229,17 @@ export function getRealtimeSessionUserNotice({
   provider,
 }: RealtimeSessionUserNoticeInput): string {
   return provider === "openai" ? "실시간 AI 면접 연결을 준비했습니다." : "";
+}
+
+export function getInterviewIntroPlaybackAction({
+  sessionId,
+  startedSessionId,
+  playbackInFlight,
+  introCompleted,
+}: InterviewIntroPlaybackActionInput): InterviewIntroPlaybackAction {
+  if (introCompleted) return "none";
+  if (startedSessionId !== sessionId) return "start";
+  return playbackInFlight ? "wait" : "complete";
 }
 
 export function isInterviewSpeechPlaybackEventCurrent({

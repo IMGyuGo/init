@@ -94,6 +94,7 @@ import {
   type RealtimeSttRelaySession,
 } from "./realtime-stt-relay";
 import { InterviewAvatar } from "./InterviewAvatar";
+import type { SpeechBoundaryTiming } from "./LipSyncDriver";
 import { candidateApplicationInterviewRoutes } from "./routes";
 import {
   GAZE_CALIBRATION_REQUIRED_SAMPLES,
@@ -177,6 +178,7 @@ import {
   getInterviewRuntimeProgressionState,
   getInterviewRuntimeScreenSwapState,
   getInterviewRuntimeStatusChips,
+  getInterviewIntroPlaybackAction,
   getInterviewerSessionState,
   getInvalidRecordingRecoveryAction,
   getRecruitingReportPollingIntervalMs,
@@ -3408,6 +3410,9 @@ function InterviewRuntimePanel({
   const [introCompleted, setIntroCompleted] = useState(false);
   const [questionSpeechCompleted, setQuestionSpeechCompleted] = useState(false);
   const [questionSpeechPlaying, setQuestionSpeechPlaying] = useState(false);
+  const [activeInterviewerSpeechText, setActiveInterviewerSpeechText] = useState("");
+  const [interviewerSpeechBoundary, setInterviewerSpeechBoundary] = useState<SpeechBoundaryTiming>();
+  const [interviewerSpeechUsesRealtimeAudio, setInterviewerSpeechUsesRealtimeAudio] = useState(false);
   const [questionSpeechStatus, setQuestionSpeechStatus] = useState("AI 안내 대기");
   const [questionSpeechSupported, setQuestionSpeechSupported] = useState(true);
   const [interviewerSessionEventCount, setInterviewerSessionEventCount] = useState(0);
@@ -3453,6 +3458,8 @@ function InterviewRuntimePanel({
   const autoRecordingQuestionRef = useRef<number | null>(null);
   const autoSpokenQuestionRef = useRef<number | null>(null);
   const introSpokenSessionRef = useRef<number | null>(null);
+  const introPlaybackStartedSessionRef = useRef<number | null>(null);
+  const introSpeechInFlightRef = useRef(false);
   const timeExpiredQuestionRef = useRef<number | null>(null);
   const answerStartCueQuestionRef = useRef<number | null>(null);
   const invalidRecordingRetryCountsRef = useRef<Map<number, number>>(new Map());
@@ -3500,6 +3507,7 @@ function InterviewRuntimePanel({
   const realtimeSpeechResponseMetadataByIdRef = useRef<Map<string, RealtimeResponseMetadata>>(new Map());
   const realtimeAudioCompletedResponseIdsRef = useRef<Set<string>>(new Set());
   const speechPlaybackIdRef = useRef(0);
+  const speechBoundarySequenceRef = useRef(0);
   const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const browserSpeechStartTimeoutRef = useRef<number | null>(null);
   const browserSpeechCompletionTimeoutRef = useRef<number | null>(null);
@@ -3776,12 +3784,29 @@ function InterviewRuntimePanel({
     });
   }, []);
 
+  const updateInterviewerSpeechBoundary = useCallback((
+    event: SpeechSynthesisEvent,
+    playbackId: number,
+    questionId?: number,
+    sessionId?: number,
+  ) => {
+    if (!isCurrentSpeechPlayback(playbackId, questionId, sessionId)) return;
+    setInterviewerSpeechBoundary({
+      sequence: ++speechBoundarySequenceRef.current,
+      characterIndex: Math.max(0, event.charIndex),
+      elapsedMs: Math.max(0, event.elapsedTime * 1000),
+    });
+  }, [isCurrentSpeechPlayback]);
+
   const stopQuestionSpeech = useCallback((options: { restoreRealtimeMicrophone?: boolean } = {}) => {
     const restoreRealtimeMicrophone = options.restoreRealtimeMicrophone ?? true;
     clearRealtimeSpeechTimeout();
     clearBrowserSpeechTimeouts();
     clearRealtimeSpeechCompletionState();
+    introSpeechInFlightRef.current = false;
     speechPlaybackIdRef.current += 1;
+    setInterviewerSpeechBoundary(undefined);
+    setInterviewerSpeechUsesRealtimeAudio(false);
     if (restoreRealtimeMicrophone) {
       setRealtimeMicrophoneOpen(true);
     }
@@ -3793,9 +3818,25 @@ function InterviewRuntimePanel({
 
   const speakInterviewIntro = useCallback((options: { forceBrowserSpeech?: boolean } = {}) => {
     if (!data) return;
+    const sessionId = data.runtime.sessionId;
+    const forceBrowserSpeech = options.forceBrowserSpeech ?? false;
     if (introSpokenSessionRef.current === data.runtime.sessionId) {
       setIntroCompleted(true);
       return;
+    }
+    if (!forceBrowserSpeech) {
+      const playbackAction = getInterviewIntroPlaybackAction({
+        sessionId,
+        startedSessionId: introPlaybackStartedSessionRef.current,
+        playbackInFlight: introSpeechInFlightRef.current,
+        introCompleted,
+      });
+      if (playbackAction === "wait" || playbackAction === "none") return;
+      if (playbackAction === "complete") {
+        introSpokenSessionRef.current = sessionId;
+        setIntroCompleted(true);
+        return;
+      }
     }
 
     const preparationTimeSec = getRuntimePreparationTimeLimitSeconds(data.runtime);
@@ -3808,10 +3849,11 @@ function InterviewRuntimePanel({
         ? `안녕하세요. 지금부터 채용 AI 면접을 시작하겠습니다. ${timingGuide}`
         : `안녕하세요. 지금부터 AI 모의면접을 시작하겠습니다. ${timingGuide}`;
 
-    const forceBrowserSpeech = options.forceBrowserSpeech ?? false;
     stopQuestionSpeech({ restoreRealtimeMicrophone: !realtimeSpeechReady && !forceBrowserSpeech });
+    introPlaybackStartedSessionRef.current = sessionId;
+    introSpeechInFlightRef.current = true;
+    setActiveInterviewerSpeechText(text);
     const playbackId = ++speechPlaybackIdRef.current;
-    const sessionId = data.runtime.sessionId;
 
     if (realtimeSpeechReady && !forceBrowserSpeech) {
       setRealtimeMicrophoneOpen(false);
@@ -3824,6 +3866,7 @@ function InterviewRuntimePanel({
         }),
       );
       if (sent) {
+        setInterviewerSpeechUsesRealtimeAudio(true);
         setQuestionSpeechSupported(true);
         setQuestionSpeechPlaying(true);
         setQuestionSpeechStatus("Realtime AI 안내를 재생 중입니다.");
@@ -3855,6 +3898,8 @@ function InterviewRuntimePanel({
     }
 
     if (!isQuestionSpeechSupported()) {
+      introSpeechInFlightRef.current = false;
+      introSpokenSessionRef.current = sessionId;
       setQuestionSpeechSupported(false);
       setIntroCompleted(true);
       setQuestionSpeechStatus("이 브라우저에서는 AI 음성 안내를 지원하지 않아 질문으로 바로 이동합니다.");
@@ -3869,9 +3914,12 @@ function InterviewRuntimePanel({
     const utterance = new SpeechSynthesisUtterance(text);
     const koreanVoice = findKoreanSpeechVoice(window.speechSynthesis.getVoices());
     utterance.lang = "ko-KR";
-    utterance.rate = 0.95;
+    utterance.rate = 0.9;
     utterance.pitch = 1;
     if (koreanVoice) utterance.voice = koreanVoice;
+    utterance.onboundary = (event) => {
+      updateInterviewerSpeechBoundary(event, playbackId, undefined, sessionId);
+    };
     utterance.onstart = () => {
       if (!isCurrentSpeechPlayback(playbackId, undefined, sessionId)) return;
       setQuestionSpeechPlaying(true);
@@ -3885,6 +3933,7 @@ function InterviewRuntimePanel({
     utterance.onend = () => {
       if (speechUtteranceRef.current !== utterance || !isCurrentSpeechPlayback(playbackId, undefined, sessionId)) return;
       speechUtteranceRef.current = null;
+      introSpeechInFlightRef.current = false;
       introSpokenSessionRef.current = data.runtime.sessionId;
       setQuestionSpeechPlaying(false);
       setIntroCompleted(true);
@@ -3898,6 +3947,7 @@ function InterviewRuntimePanel({
     utterance.onerror = () => {
       if (speechUtteranceRef.current !== utterance || !isCurrentSpeechPlayback(playbackId, undefined, sessionId)) return;
       speechUtteranceRef.current = null;
+      introSpeechInFlightRef.current = false;
       introSpokenSessionRef.current = data.runtime.sessionId;
       setQuestionSpeechPlaying(false);
       setIntroCompleted(true);
@@ -3908,7 +3958,7 @@ function InterviewRuntimePanel({
     setQuestionSpeechSupported(true);
     setQuestionSpeechStatus("AI 안내 재생 준비 중입니다.");
     window.speechSynthesis.speak(utterance);
-  }, [appendInterviewerSessionActionEvent, data, isCurrentSpeechPlayback, mode, realtimeSpeechReady, setRealtimeMicrophoneOpen, stopQuestionSpeech]);
+  }, [appendInterviewerSessionActionEvent, data, introCompleted, isCurrentSpeechPlayback, mode, realtimeSpeechReady, setRealtimeMicrophoneOpen, stopQuestionSpeech, updateInterviewerSpeechBoundary]);
 
   const speakCurrentQuestion = useCallback(
     (source: "auto" | "manual", options: { forceBrowserSpeech?: boolean; browserRetryCount?: number } = {}) => {
@@ -3934,6 +3984,7 @@ function InterviewRuntimePanel({
       const forceBrowserSpeech = options.forceBrowserSpeech ?? false;
       const browserRetryCount = options.browserRetryCount ?? 0;
       stopQuestionSpeech({ restoreRealtimeMicrophone: !realtimeSpeechReady && !forceBrowserSpeech });
+      setActiveInterviewerSpeechText(text);
       const playbackId = ++speechPlaybackIdRef.current;
       const questionId = currentQuestion.questionId;
       const sessionId = data?.runtime.sessionId;
@@ -3955,6 +4006,7 @@ function InterviewRuntimePanel({
           }),
         );
         if (sent) {
+          setInterviewerSpeechUsesRealtimeAudio(true);
           setQuestionSpeechSupported(true);
           setQuestionSpeechPlaying(true);
           setQuestionSpeechStatus(source === "manual" ? `${realtimeQuestionSpeechLabel}을 다시 재생 중입니다.` : `${realtimeQuestionSpeechLabel}을 재생 중입니다.`);
@@ -4035,9 +4087,12 @@ function InterviewRuntimePanel({
 
       const koreanVoice = findKoreanSpeechVoice(window.speechSynthesis.getVoices());
       utterance.lang = "ko-KR";
-      utterance.rate = 0.95;
+      utterance.rate = 0.9;
       utterance.pitch = 1;
       if (koreanVoice) utterance.voice = koreanVoice;
+      utterance.onboundary = (event) => {
+        updateInterviewerSpeechBoundary(event, playbackId, questionId, sessionId);
+      };
       utterance.onstart = () => {
         if (!isCurrentSpeechPlayback(playbackId, questionId, sessionId)) return;
         clearBrowserSpeechTimeouts();
@@ -4095,7 +4150,7 @@ function InterviewRuntimePanel({
         retryOrCompleteBrowserSpeech("질문 음성을 시작하지 못했습니다.");
       }
     },
-    [appendInterviewerSessionActionEvent, clearBrowserSpeechTimeouts, currentQuestion, data?.runtime.sessionId, isCurrentSpeechPlayback, realtimeSpeechReady, setRealtimeMicrophoneOpen, stopQuestionSpeech],
+    [appendInterviewerSessionActionEvent, clearBrowserSpeechTimeouts, currentQuestion, data?.runtime.sessionId, isCurrentSpeechPlayback, realtimeSpeechReady, setRealtimeMicrophoneOpen, stopQuestionSpeech, updateInterviewerSpeechBoundary],
   );
 
   const completeRealtimeSpeechPlayback = useCallback((metadata: RealtimeResponseMetadata) => {
@@ -4110,6 +4165,7 @@ function InterviewRuntimePanel({
       if (typeof sessionId === "number") {
         introSpokenSessionRef.current = sessionId;
       }
+      introSpeechInFlightRef.current = false;
       setQuestionSpeechPlaying(false);
       setIntroCompleted(true);
       setQuestionSpeechStatus("Realtime AI 안내 완료. 질문 음성을 준비합니다.");
@@ -4140,6 +4196,17 @@ function InterviewRuntimePanel({
         label: metadata.purpose === "interview_follow_up_question" ? "Realtime 꼬리질문 음성 완료" : "Realtime 질문 음성 완료",
         questionId: metadata.questionId,
       });
+      return;
+    }
+
+    if (metadata.purpose === "interview_encouragement") {
+      if (typeof metadata.responseId === "string") {
+        realtimeSpeechResponseMetadataByIdRef.current.delete(metadata.responseId);
+        realtimeAudioCompletedResponseIdsRef.current.delete(metadata.responseId);
+      }
+      setQuestionSpeechPlaying(false);
+      setInterviewerSpeechUsesRealtimeAudio(false);
+      setQuestionSpeechStatus("Realtime 격려 안내를 재생했습니다.");
       return;
     }
 
@@ -4175,6 +4242,7 @@ function InterviewRuntimePanel({
           clearRealtimeSpeechTimeout();
         }
         setQuestionSpeechPlaying(false);
+        setInterviewerSpeechUsesRealtimeAudio(false);
         setQuestionSpeechCompleted(false);
 
         if (metadata.purpose === "interview_intro") {
@@ -4207,15 +4275,28 @@ function InterviewRuntimePanel({
         return;
       }
 
-      if ((metadata.purpose === "interview_intro" || isRealtimeQuestionSpeechPurpose(metadata.purpose)) && metadata.responseId) {
+      if (
+        (metadata.purpose === "interview_intro"
+          || isRealtimeQuestionSpeechPurpose(metadata.purpose)
+          || metadata.purpose === "interview_encouragement")
+        && metadata.responseId
+      ) {
         realtimeSpeechResponseMetadataByIdRef.current.set(metadata.responseId, metadata);
         if (!realtimeAudioCompletedResponseIdsRef.current.has(metadata.responseId)) {
-          setQuestionSpeechStatus("Realtime 질문 음성 출력 완료를 기다리는 중입니다.");
+          setQuestionSpeechStatus(
+            metadata.purpose === "interview_encouragement"
+              ? "Realtime 격려 음성 출력 완료를 기다리는 중입니다."
+              : "Realtime 질문 음성 출력 완료를 기다리는 중입니다.",
+          );
           return;
         }
       }
 
-      if (metadata.purpose === "interview_intro" || isRealtimeQuestionSpeechPurpose(metadata.purpose)) {
+      if (
+        metadata.purpose === "interview_intro"
+        || isRealtimeQuestionSpeechPurpose(metadata.purpose)
+        || metadata.purpose === "interview_encouragement"
+      ) {
         completeRealtimeSpeechPlayback(metadata);
         return;
       }
@@ -4533,6 +4614,18 @@ function InterviewRuntimePanel({
       setQuestionSpeechStatus("실시간 AI 음성 연결을 준비 중입니다.");
       return;
     }
+    const playbackAction = getInterviewIntroPlaybackAction({
+      sessionId: data.runtime.sessionId,
+      startedSessionId: introPlaybackStartedSessionRef.current,
+      playbackInFlight: introSpeechInFlightRef.current,
+      introCompleted,
+    });
+    if (playbackAction === "wait" || playbackAction === "none") return;
+    if (playbackAction === "complete") {
+      introSpokenSessionRef.current = data.runtime.sessionId;
+      setIntroCompleted(true);
+      return;
+    }
     const timer = window.setTimeout(() => speakInterviewIntro(), 250);
     return () => window.clearTimeout(timer);
   }, [
@@ -4776,6 +4869,10 @@ function InterviewRuntimePanel({
       );
       if (!sent) return;
 
+      setActiveInterviewerSpeechText(decision.text);
+      setInterviewerSpeechBoundary(undefined);
+      setInterviewerSpeechUsesRealtimeAudio(true);
+      setQuestionSpeechPlaying(true);
       realtimeEncouragedQuestionRef.current = questionId;
       setQuestionSpeechStatus("답변을 기다리며 짧은 격려 안내를 재생합니다.");
       window.clearInterval(intervalId);
@@ -7896,7 +7993,7 @@ function InterviewRuntimePanel({
     questionVisible: subtitlesEnabled,
     completionReady,
   });
-  const interviewerSpeechText = currentQuestion?.content ?? "";
+  const interviewerSpeechText = (activeInterviewerSpeechText || currentQuestion?.content) ?? "";
   const cameraPipStyle = cameraPipPosition && runtimePrimaryScreen === "interviewer"
     ? {
         left: `${cameraPipPosition.x}px`,
@@ -8391,9 +8488,10 @@ function InterviewRuntimePanel({
                   <InterviewAvatar
                     className={interviewerAvatarClassName}
                     phase={interviewerSessionState.phase}
-                    audioSource={realtimeRemoteAudioElement}
-                    audioStream={realtimeRemoteAudioStream}
+                    audioSource={interviewerSpeechUsesRealtimeAudio ? realtimeRemoteAudioElement : null}
+                    audioStream={interviewerSpeechUsesRealtimeAudio ? realtimeRemoteAudioStream : null}
                     speechText={interviewerSpeechText}
+                    speechBoundary={interviewerSpeechBoundary}
                   />
                   <div className="ai-interviewer-copy">
                     <div className="ai-interviewer-title-row">
@@ -8415,13 +8513,6 @@ function InterviewRuntimePanel({
                     >
                       {interviewerSessionState.label}
                     </span>
-                    {interviewerInfoOpen ? (
-                      <div className="ai-interviewer-info-panel" id={interviewerInfoPanelId} role="note">
-                        <strong>{interviewerProfile.toneLabel}</strong>
-                        <span>{interviewerProfile.voiceGuide}</span>
-                        <p>{interviewerProfile.disclosure}</p>
-                      </div>
-                    ) : null}
                   </div>
                 </div>
               ) : (
@@ -8433,6 +8524,14 @@ function InterviewRuntimePanel({
                   AI 면접관 열기
                 </button>
               )}
+
+              {runtimePrimaryScreen === "interviewer" && showInterviewerPanel && interviewerInfoOpen ? (
+                <div className="ai-interviewer-info-panel" id={interviewerInfoPanelId} role="note">
+                  <strong>{interviewerProfile.toneLabel}</strong>
+                  <span>{interviewerProfile.voiceGuide}</span>
+                  <p>{interviewerProfile.disclosure}</p>
+                </div>
+              ) : null}
 
               <div className={`ai-interviewer-question ${subtitlesEnabled ? "" : "muted"}`}>
                 <span>{subtitlesEnabled ? "질문 보기" : "질문 음성 안내"}</span>

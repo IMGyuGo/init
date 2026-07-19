@@ -28,7 +28,15 @@ coverage/
 *.tsbuildinfo
 
 # Regeneratable avatar rigging intermediates
+frontend/public/assets/interviewer-cubism/
 assets/interviewer-rigging/**/normalized/*.rgba
+assets/interviewer-rigging/existing-look-cubism-v5/layers/
+assets/interviewer-rigging/existing-look-cubism-v5/normalized/
+assets/interviewer-rigging/existing-look-cubism-v5/references/
+assets/interviewer-rigging/existing-look-cubism-v6/masks/
+assets/interviewer-rigging/existing-look-cubism-v6/normalized/
+assets/interviewer-rigging/existing-look-cubism-v6/references/
+assets/interviewer-rigging/existing-look-cubism-v6/sources/mouth-open-coherent-generated.png
 
 # Logs
 npm-debug.log*

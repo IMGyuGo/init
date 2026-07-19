@@ -1,9 +1,9 @@
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import * as lipSyncDriver from "./LipSyncDriver";
+import * as cubismSdkRuntime from "./CubismSdkRuntime";
 
-const resolveCrossfade = (lipSyncDriver as Record<string, unknown>).resolveCubismMouthOpacityCrossfade;
+const resolveCrossfade = (cubismSdkRuntime as Record<string, unknown>).resolveCubismMouthOpacityCrossfade;
 
 assert.equal(typeof resolveCrossfade, "function");
 

@@ -1,0 +1,31 @@
+{
+  "id": "existing-look-cubism-v4",
+  "status": "single-artmesh-deformation-proof",
+  "derivedFrom": "../existing-look-cubism-v3/interviewer-import-v3.cmo3",
+  "sourceFile": "interviewer-import-v4.cmo3",
+  "mouthOpenParameter": {
+    "id": "ParamMouthOpenY",
+    "range": { "min": 0, "max": 1, "default": 0 },
+    "controlType": "warp-deformation",
+    "visibleArtMesh": {
+      "name": "mouth-open-reference",
+      "id": "ArtMesh3"
+    },
+    "deformer": {
+      "name": "mouth-open-deform",
+      "id": "Warp",
+      "division": { "horizontal": 3, "vertical": 3 }
+    },
+    "keyforms": [0, 0.5, 1],
+    "opacity": [1, 1, 1],
+    "notes": [
+      "A single mouth-open-reference ArtMesh remains visible while ParamMouthOpenY changes its geometry through the mouth-open-deform warp deformer.",
+      "The keyforms record compressed, intermediate, and source-open geometry at parameter values 0, 0.5, and 1."
+    ]
+  },
+  "knownLimitations": [
+    "This is a deformation proof, not production-ready natural mouth rigging.",
+    "Upper lip, lower lip, teeth, tongue, and mouth interior are not separated into independently deformable ArtMeshes.",
+    "The mouth-rest ArtMesh is hidden for this proof; the runtime verifies geometry change on the single visible mouth-open-reference ArtMesh rather than an opacity crossfade."
+  ]
+}

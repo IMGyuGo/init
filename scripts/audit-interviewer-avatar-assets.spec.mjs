@@ -46,4 +46,5 @@ const frontendPackage = JSON.parse(
 assert.equal(frontendPackage.scripts["audit:avatar-assets"], "node ../scripts/audit-interviewer-avatar-assets.mjs");
 assert.match(frontendPackage.scripts["test:candidate-avatar"], /InterviewerRiggingPreview\.spec\.tsx/);
 assert.match(frontendPackage.scripts["test:candidate-avatar"], /audit-interviewer-avatar-assets\.spec\.mjs/);
+assert.doesNotMatch(frontendPackage.scripts["test:candidate-avatar"], /Cubism|cubism|coherent-mouth/);
 assert.equal(frontendPackage.devDependencies.tsx, "4.22.4");

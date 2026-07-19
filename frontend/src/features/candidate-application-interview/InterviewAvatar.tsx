@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { LocalInterviewerAvatar, getAvatarPresentationState } from "./LocalInterviewerAvatar";
 import { useLipSyncDriver } from "./LipSyncDriver";
+import type { SpeechBoundaryTiming } from "./LipSyncDriver";
 import type { InterviewerSessionPhase } from "./view-model";
 
 export interface InterviewAvatarProps {
@@ -10,10 +11,11 @@ export interface InterviewAvatarProps {
   audioSource?: HTMLMediaElement | null;
   audioStream?: MediaStream | null;
   speechText: string;
+  speechBoundary?: SpeechBoundaryTiming;
   className?: string;
 }
 
-function usePrefersReducedMotion() {
+export function usePrefersReducedMotion() {
   const [reducedMotion, setReducedMotion] = useState(false);
 
   useEffect(() => {
@@ -27,7 +29,7 @@ function usePrefersReducedMotion() {
   return reducedMotion;
 }
 
-export function InterviewAvatar({ phase, audioSource, audioStream, speechText, className }: InterviewAvatarProps) {
+export function InterviewAvatar({ phase, audioSource, audioStream, speechText, speechBoundary, className }: InterviewAvatarProps) {
   const presentationState = getAvatarPresentationState(phase);
   const reducedMotion = usePrefersReducedMotion();
   const mouthShape = useLipSyncDriver({
@@ -35,6 +37,7 @@ export function InterviewAvatar({ phase, audioSource, audioStream, speechText, c
     audioSource,
     audioStream,
     speechText,
+    speechBoundary,
     reducedMotion,
   });
 

@@ -42,7 +42,14 @@ local current = cjson.decode(raw)
 if current.issueId ~= ARGV[1] then
   return 0
 end
-redis.call("SET", KEYS[1], ARGV[2], "KEEPTTL")
+local ttl = redis.call("PTTL", KEYS[1])
+if ttl > 0 then
+  redis.call("SET", KEYS[1], ARGV[2], "PX", ttl)
+elseif ttl == -1 then
+  redis.call("SET", KEYS[1], ARGV[2])
+else
+  return 0
+end
 return 1
 `;
 

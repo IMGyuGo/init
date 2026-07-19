@@ -29,6 +29,73 @@ assert.match(
   "the interviewer figure should be allowed to shrink inside the stage grid",
 );
 
+const fullscreenInterviewerFigureRule = css.match(
+  /:global\(\.ai-interviewer-stage:fullscreen \.ai-interviewer-figure\)\s*\{(?<body>[^}]*)\}/,
+);
+assert.ok(fullscreenInterviewerFigureRule?.groups?.body, "fullscreen interviewer figure CSS rule should exist");
+assert.match(fullscreenInterviewerFigureRule.groups.body, /grid-template-rows:\s*auto\s+auto;/);
+assert.match(fullscreenInterviewerFigureRule.groups.body, /align-self:\s*center;/);
+assert.match(fullscreenInterviewerFigureRule.groups.body, /height:\s*auto;/);
+
+const fullscreenInterviewerAvatarRule = css.match(
+  /:global\(\.ai-interviewer-stage:fullscreen \.ai-interviewer-figure > \.local-interviewer-avatar\)\s*\{(?<body>[^}]*)\}/,
+);
+assert.ok(fullscreenInterviewerAvatarRule?.groups?.body, "fullscreen interviewer avatar CSS rule should exist");
+assert.match(fullscreenInterviewerAvatarRule.groups.body, /width:\s*min\(340px,\s*42vh\);/);
+assert.match(fullscreenInterviewerAvatarRule.groups.body, /height:\s*auto;/);
+
+const interviewerAvatarRule = css.match(
+  /:global\(\.ai-interviewer-figure > \.local-interviewer-avatar\)\s*\{(?<body>[^}]*)\}/,
+);
+assert.ok(interviewerAvatarRule?.groups?.body, "interviewer avatar CSS rule should exist");
+assert.match(
+  interviewerAvatarRule.groups.body,
+  /max-height:\s*450px;/,
+  "the interviewer avatar should use the enlarged desktop presentation size",
+);
+
+const reservedInfoFigureRule = css.match(
+  /:global\(\.ai-interviewer-stage--reserved-info-gap \.ai-interviewer-figure\)\s*\{(?<body>[^}]*)\}/,
+);
+assert.ok(reservedInfoFigureRule?.groups?.body, "reserved info figure CSS rule should exist");
+assert.match(
+  reservedInfoFigureRule.groups.body,
+  /margin-bottom:\s*20px;/,
+  "the left-side info panel should no longer reserve the avatar's vertical presentation space",
+);
+
+const interviewerNameRule = css.match(
+  /:global\(\.ai-interviewer-copy h1\)\s*\{(?<body>[^}]*)\}/,
+);
+assert.ok(interviewerNameRule?.groups?.body, "interviewer name CSS rule should exist");
+assert.match(
+  interviewerNameRule.groups.body,
+  /font-size:\s*16px;/,
+  "the interviewer name should leave more room for the avatar",
+);
+
+const interviewerInfoButtonRule = css.match(
+  /:global\(\.ai-interviewer-info-button\)\s*\{(?<body>[^}]*)\}/,
+);
+assert.ok(interviewerInfoButtonRule?.groups?.body, "interviewer info button CSS rule should exist");
+assert.match(interviewerInfoButtonRule.groups.body, /width:\s*24px;/);
+assert.match(interviewerInfoButtonRule.groups.body, /height:\s*24px;/);
+
+const interviewerInfoPanelRule = css.match(
+  /:global\(\.ai-interviewer-info-panel\)\s*\{(?<body>[^}]*)\}/,
+);
+assert.ok(interviewerInfoPanelRule?.groups?.body, "interviewer info panel CSS rule should exist");
+assert.match(interviewerInfoPanelRule.groups.body, /left:\s*24px;/);
+assert.match(interviewerInfoPanelRule.groups.body, /bottom:\s*84px;/);
+assert.match(interviewerInfoPanelRule.groups.body, /transform:\s*none;/);
+
+const interviewerStatusRule = css.match(
+  /:global\(\.ai-interviewer-session-chip\)\s*\{(?<body>[^}]*)\}/,
+);
+assert.ok(interviewerStatusRule?.groups?.body, "interviewer status CSS rule should exist");
+assert.match(interviewerStatusRule.groups.body, /min-height:\s*20px;/);
+assert.match(interviewerStatusRule.groups.body, /font-size:\s*10px;/);
+
 assert.match(
   css,
   /@media \(max-width:\s*760px\)[\s\S]*?:global\(\.ai-interviewer-stage\)\s*\{[\s\S]*?aspect-ratio:\s*auto;/,
@@ -43,6 +110,11 @@ assert.match(
   css,
   /@media \(max-width:\s*760px\)[\s\S]*?:global\(\.candidate-camera-pip\)\s*\{[\s\S]*?position:\s*relative;/,
   "mobile camera preview should participate in layout instead of covering the question",
+);
+assert.match(
+  css,
+  /@media \(max-width:\s*760px\)[\s\S]*?:global\(\.ai-interviewer-figure > \.local-interviewer-avatar\)\s*\{[\s\S]*?width:\s*min\(230px,\s*68vw\);/,
+  "mobile should keep the enlarged interviewer inside the viewport",
 );
 
 const candidatePrimaryCameraPanelRule = css.match(
