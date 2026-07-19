@@ -849,6 +849,7 @@ describe("PrismaCandidateRepository", () => {
       clientPerformanceLog: { deleteMany: deleteMany("client-performance") },
       aiProcessTimingEvent: { deleteMany: deleteMany("timing-events") },
       aiGuardrailLog: { deleteMany: deleteMany("guardrails") },
+      applicationInterviewQuestionBatch: { deleteMany: deleteMany("personalized-question-batches") },
       interviewQuestionSet: { updateMany: updateMany("question-set-unlink") },
       notification: { deleteMany: deleteMany("notifications") },
       consentRecord: { deleteMany: deleteMany("consents") },
@@ -884,6 +885,7 @@ describe("PrismaCandidateRepository", () => {
     });
     assert.equal(calls[0], "lock");
     assert.ok(calls.indexOf("evidences") < calls.indexOf("answers"));
+    assert.ok(calls.indexOf("personalized-question-batches") < calls.indexOf("process-logs"));
     assert.ok(calls.indexOf("question-set-unlink") < calls.indexOf("process-logs"));
     assert.ok(calls.indexOf("answers") < calls.indexOf("sessions"));
     assert.ok(calls.indexOf("sessions") < calls.indexOf("applications"));
