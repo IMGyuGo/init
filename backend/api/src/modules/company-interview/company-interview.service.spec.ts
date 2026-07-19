@@ -1503,6 +1503,61 @@ describe('CompanyInterviewService', () => {
     );
   });
 
+  it('requires persisted settings before a posting can be published', async () => {
+    const { repository, service, questionIds } = await createAlignedNcsQuestionSetFixture();
+
+    await service.confirmQuestionSet(companyUser, {
+      postingId: 1,
+      title: 'NCS 공통 질문 6개',
+      items: questionIds.map((questionId, index) => ({
+        questionId,
+        sortOrder: index + 1,
+      })),
+    });
+
+    repository.clearTimePolicy(1);
+
+    const missingTimePolicy = await service.getPublicationReadiness(companyUser, 1);
+    assert.deepEqual(missingTimePolicy, {
+      canPublish: false,
+      reasons: ['TIME_POLICY_MISSING'],
+    });
+
+    await service.updateTimePolicy(companyUser, {
+      postingId: 1,
+      preparationTimeSec: 30,
+      answerTimeSec: 180,
+      retryAllowed: false,
+    });
+
+    assert.deepEqual(await service.getPublicationReadiness(companyUser, 1), {
+      canPublish: true,
+      reasons: [],
+    });
+  });
+
+  it('returns an OPEN posting to DRAFT when its question policy makes the active set stale', async () => {
+    const { repository, service, questionIds } = await createAlignedNcsQuestionSetFixture();
+
+    await service.confirmQuestionSet(companyUser, {
+      postingId: 1,
+      title: 'NCS 공통 질문 6개',
+      items: questionIds.map((questionId, index) => ({
+        questionId,
+        sortOrder: index + 1,
+      })),
+    });
+    await repository.updatePostingStatus(1, 'OPEN');
+
+    await service.updateQuestionGenerationPolicy(companyUser, {
+      postingId: 1,
+      jdCriteriaQuestionCount: 5,
+      resumeQuestionCount: 0,
+    });
+
+    assert.equal((await repository.findPosting(1))?.status, 'DRAFT');
+  });
+
   it('updates the interview time policy and validates runtime bounds', async () => {
     const service = createService();
     const result = await service.updateTimePolicy(companyUser, {

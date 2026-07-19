@@ -54,6 +54,8 @@ import {
   CriterionTagRecord,
   EvaluationCriterionRecord,
   EvaluationFramework,
+  InterviewPublicationReadiness,
+  InterviewPublicationReadinessReason,
   NcsProfileId,
   NcsQuestionMode,
   QuestionAlignmentStatus,
@@ -297,6 +299,54 @@ export class CompanyInterviewService {
     };
   }
 
+  async getPublicationReadiness(
+    currentUser: CurrentUser,
+    postingId: number,
+  ): Promise<InterviewPublicationReadiness> {
+    const posting = await this.getOwnedPosting(currentUser, postingId);
+    const [criteria, storedPolicy, activeQuestionSet, hasTimePolicy] =
+      await Promise.all([
+        this.repository.listCriteria(posting.postingId),
+        this.repository.getQuestionGenerationPolicy(posting.postingId),
+        this.repository.findActiveQuestionSet(posting.postingId),
+        this.repository.hasTimePolicy(posting.postingId),
+      ]);
+
+    const reasons: InterviewPublicationReadinessReason[] = [];
+    if (!storedPolicy) {
+      reasons.push('QUESTION_GENERATION_POLICY_MISSING');
+    }
+
+    const policy = storedPolicy ?? defaultQuestionGenerationPolicy(posting.postingId);
+    const activeProfileCoverage = buildActiveProfileCoverage(
+      policy.evaluationFramework,
+      criteria,
+      activeQuestionSet,
+    );
+    if (!isPublishableCriteria(policy.evaluationFramework, criteria)) {
+      reasons.push('CRITERIA_NOT_READY');
+    }
+    if (!activeQuestionSet) {
+      reasons.push('ACTIVE_QUESTION_SET_MISSING');
+    } else if (
+      requiresQuestionSetReconfirmation(
+        policy,
+        activeQuestionSet,
+        activeProfileCoverage,
+      )
+    ) {
+      reasons.push('QUESTION_SET_RECONFIRMATION_REQUIRED');
+    }
+    if (!hasTimePolicy) {
+      reasons.push('TIME_POLICY_MISSING');
+    }
+
+    return {
+      canPublish: reasons.length === 0,
+      reasons,
+    };
+  }
+
   async createCriterionTag(
     currentUser: CurrentUser,
     dto: CreateCriterionTagDto,
@@ -495,6 +545,10 @@ export class CompanyInterviewService {
       activeQuestionSet,
       activeProfileCoverage,
     );
+    await this.returnOpenPostingToDraftWhenQuestionSetIsStale(
+      posting,
+      questionSetRequiresReconfirmation,
+    );
     return {
       postingId: posting.postingId,
       criteria: await this.mapCriteria(saved.criteria),
@@ -582,15 +636,20 @@ export class CompanyInterviewService {
       criteria,
       activeQuestionSet,
     );
+    const questionSetRequiresReconfirmation = requiresQuestionSetReconfirmation(
+      saved,
+      activeQuestionSet,
+      activeProfileCoverage,
+    );
+    await this.returnOpenPostingToDraftWhenQuestionSetIsStale(
+      posting,
+      questionSetRequiresReconfirmation,
+    );
     return {
       ...saved,
       allocations: buildQuestionAllocations(saved, criteria),
       activeProfileCoverage,
-      questionSetRequiresReconfirmation: requiresQuestionSetReconfirmation(
-        saved,
-        activeQuestionSet,
-        activeProfileCoverage,
-      ),
+      questionSetRequiresReconfirmation,
       warnings,
     };
   }
@@ -1163,6 +1222,15 @@ export class CompanyInterviewService {
     };
   }
 
+  private async returnOpenPostingToDraftWhenQuestionSetIsStale(
+    posting: { postingId: number; status: string },
+    questionSetRequiresReconfirmation: boolean,
+  ): Promise<void> {
+    if (posting.status === 'OPEN' && questionSetRequiresReconfirmation) {
+      await this.repository.updatePostingStatus(posting.postingId, 'DRAFT');
+    }
+  }
+
   private async assertConfigurationMutable(postingId: number): Promise<void> {
     if (await this.repository.isConfigurationLocked(postingId)) {
       configurationLocked();
@@ -1673,6 +1741,51 @@ function assertNcsActiveCriteria(
       })),
     );
   }
+}
+
+function isPublishableCriteria(
+  framework: EvaluationFramework,
+  criteria: EvaluationCriterionRecord[],
+): boolean {
+  if (criteria.length === 0) {
+    return false;
+  }
+  if (framework === 'LEGACY') {
+    return true;
+  }
+  if (framework === 'NCS_3_PROFILE_V1') {
+    const profiles = criteria.map((criterion) => criterion.ncsProfileId);
+    return (
+      criteria.length === NCS_PROFILE_IDS.length &&
+      NCS_PROFILE_IDS.every(
+        (profileId) => profiles.filter((candidate) => candidate === profileId).length === 1,
+      ) &&
+      criteria.every(
+        (criterion) =>
+          criterion.ncsQuestionMode !== null &&
+          criterion.ncsProfileVersion !== null,
+      )
+    );
+  }
+
+  const profileWeights = toProfileWeights(criteria);
+  const issues = validateNcsProfileWeights('NCS_ACTIVE_PROFILE_V2', profileWeights);
+  const hasBindingGap = criteria.some(
+    (criterion) =>
+      criterion.ncsProfileId === null ||
+      criterion.ncsQuestionMode === null ||
+      criterion.ncsProfileVersion === null,
+  );
+  return (
+    !hasBindingGap &&
+    !issues.some(
+      (issue) =>
+        issue.code === 'CANONICAL_PROFILE_CONFIGURATION_INVALID' ||
+        issue.code === 'ACTIVE_PROFILE_COUNT_INVALID' ||
+        issue.code === 'WEIGHT_INVALID' ||
+        issue.code === 'WEIGHT_SUM_INVALID',
+    )
+  );
 }
 
 function buildQuestionImpactByProfile(

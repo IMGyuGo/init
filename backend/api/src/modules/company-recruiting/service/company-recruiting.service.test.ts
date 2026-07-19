@@ -40,7 +40,7 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         workplaceLng: (input as { workplaceLng?: number | null }).workplaceLng ?? null,
         startsOn: new Date("2026-06-29T00:00:00.000Z"),
         endsOn: new Date("2026-07-15T00:00:00.000Z"),
-        status: "OPEN",
+        status: (input as { status: string }).status,
         createdAt: new Date("2026-06-29T00:00:00.000Z"),
         updatedAt: new Date("2026-06-29T00:00:00.000Z"),
         applicantCount: 0,
@@ -447,6 +447,36 @@ function createPublicApplicationDto(
   };
 }
 
+function createDraftPosting(postingId: number, companyId: number) {
+  return {
+    postingId,
+    companyId,
+    title: "Backend Developer",
+    jobRole: "Backend",
+    jobDescription: "Build APIs",
+    careerRequirement: null,
+    educationRequirement: null,
+    salaryInfo: null,
+    workLocation: null,
+    employmentType: null,
+    jobRoleCode: null,
+    regionCode: null,
+    careerMinYears: null,
+    careerMaxYears: null,
+    employmentTypeCode: null,
+    recruitmentType: null,
+    workplaceAddress: null,
+    workplaceLat: null,
+    workplaceLng: null,
+    startsOn: null,
+    endsOn: null,
+    status: "DRAFT",
+    createdAt: new Date("2026-06-29T00:00:00.000Z"),
+    updatedAt: new Date("2026-06-29T00:00:00.000Z"),
+    applicantCount: 0,
+  };
+}
+
 describe("CompanyRecruitingService", () => {
   it("creates recruitments for the current company only", async () => {
     const repository = createRepository();
@@ -463,11 +493,11 @@ describe("CompanyRecruitingService", () => {
       employmentType: "정규직",
       startsOn: "2026-06-29",
       endsOn: "2026-07-15",
-      status: "OPEN",
+      status: "DRAFT",
     });
 
     assert.equal(result.companyId, 7);
-    assert.equal(result.status, "OPEN");
+    assert.equal(result.status, "DRAFT");
     assert.equal(result.careerRequirement, "경력 3년 이상");
     assert.equal(result.workLocation, "판교");
     assert.deepEqual(repository.calls.createPosting, [
@@ -492,9 +522,25 @@ describe("CompanyRecruitingService", () => {
         workplaceLng: undefined,
         startsOn: new Date("2026-06-29T00:00:00.000Z"),
         endsOn: new Date("2026-07-15T00:00:00.000Z"),
-        status: "OPEN",
+        status: "DRAFT",
       },
     ]);
+  });
+
+  it("rejects initial OPEN recruitment creation", async () => {
+    const repository = createRepository();
+    const service = new CompanyRecruitingService(repository);
+
+    await assert.rejects(
+      service.createRecruitment(companyUser, {
+        title: "Backend Developer",
+        jobRole: "Backend",
+        status: "OPEN",
+      }),
+      (error: unknown) =>
+        typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
+    assert.equal(repository.calls.createPosting, undefined);
   });
 
   it("rejects recruitment creation when careerMinYears is greater than careerMaxYears", async () => {
@@ -559,11 +605,91 @@ describe("CompanyRecruitingService", () => {
       title: "Backend Developer",
       jobRole: "Backend",
       workplaceAddress: "서울 강남구 테헤란로 123",
+      status: "DRAFT",
+    });
+
+    assert.equal(result.status, "DRAFT");
+    assert.deepEqual((repository.calls.createPosting?.[0] as { workplaceAddress?: string }).workplaceAddress, "서울 강남구 테헤란로 123");
+  });
+
+  it("blocks DRAFT to OPEN when interview settings are incomplete", async () => {
+    const repository = createRepository({
+      async findPostingForCompany(postingId: number, companyId: number) {
+        return createDraftPosting(postingId, companyId);
+      },
+    });
+    const service = new CompanyRecruitingService(
+      repository,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        async getPublicationReadiness() {
+          return { canPublish: false, reasons: ["TIME_POLICY_MISSING"] };
+        },
+      },
+    );
+
+    await assert.rejects(
+      service.updateRecruitment(companyUser, 101, {
+        title: "Backend Developer",
+        jobRole: "Backend",
+        status: "OPEN",
+      }),
+      (error: unknown) =>
+        typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_CONFLICT",
+    );
+    assert.equal(repository.calls.updatePosting, undefined);
+  });
+
+  it("allows DRAFT to OPEN when all interview settings are ready", async () => {
+    const repository = createRepository({
+      async findPostingForCompany(postingId: number, companyId: number) {
+        return createDraftPosting(postingId, companyId);
+      },
+    });
+    const service = new CompanyRecruitingService(
+      repository,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        async getPublicationReadiness() {
+          return { canPublish: true, reasons: [] };
+        },
+      },
+    );
+
+    const result = await service.updateRecruitment(companyUser, 101, {
+      title: "Backend Developer",
+      jobRole: "Backend",
       status: "OPEN",
     });
 
     assert.equal(result.status, "OPEN");
-    assert.deepEqual((repository.calls.createPosting?.[0] as { workplaceAddress?: string }).workplaceAddress, "서울 강남구 테헤란로 123");
+    assert.equal((repository.calls.updatePosting?.[2] as { status?: string }).status, "OPEN");
+  });
+
+  it("rejects OPEN transitions from a non-DRAFT posting", async () => {
+    const repository = createRepository({
+      async findPostingForCompany(postingId: number, companyId: number) {
+        return { ...createDraftPosting(postingId, companyId), status: "CLOSED" };
+      },
+    });
+    const service = new CompanyRecruitingService(repository);
+
+    await assert.rejects(
+      service.updateRecruitment(companyUser, 101, {
+        title: "Backend Developer",
+        jobRole: "Backend",
+        status: "OPEN",
+      }),
+      (error: unknown) =>
+        typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_VALIDATION_FAILED",
+    );
+    assert.equal(repository.calls.updatePosting, undefined);
   });
 
   it("rejects recruitment update when careerMinYears is greater than careerMaxYears", async () => {

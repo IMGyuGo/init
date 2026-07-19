@@ -7,6 +7,7 @@ import {
   QuestionRecord,
   QuestionGenerationPolicyRecord,
   NcsProfileId,
+  PostingStatus,
   QuestionSetRecord,
   ResumeQuestionApplicationRecord,
   ResumeQuestionRetryJobRecord,
@@ -328,6 +329,13 @@ export class InMemoryCompanyInterviewRepository
     return this.postings.find((posting) => posting.companyId === companyId);
   }
 
+  async updatePostingStatus(postingId: number, status: PostingStatus): Promise<void> {
+    const posting = this.postings.find((item) => item.postingId === postingId);
+    if (posting) {
+      posting.status = status;
+    }
+  }
+
   async listCriteria(postingId: number): Promise<EvaluationCriterionRecord[]> {
     return this.evaluationCriteria
       .filter((criterion) => criterion.postingId === postingId)
@@ -405,6 +413,14 @@ export class InMemoryCompanyInterviewRepository
         retryAllowed: false,
       }
     );
+  }
+
+  async hasTimePolicy(postingId: number): Promise<boolean> {
+    return this.timePolicies.some((policy) => policy.postingId === postingId);
+  }
+
+  clearTimePolicy(postingId: number): void {
+    this.timePolicies = this.timePolicies.filter((policy) => policy.postingId !== postingId);
   }
 
   async findQuestionGenerationProcess(
