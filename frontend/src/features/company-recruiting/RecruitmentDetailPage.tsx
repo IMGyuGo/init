@@ -316,6 +316,20 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                   <Link className="detail-action-item" role="menuitem" href={buildInterviewSettingsHref(recruitmentId)}>
                     면접 설정
                   </Link>
+                  {recruitment?.status === "DRAFT" ? (
+                    <button
+                      className="detail-action-item"
+                      role="menuitem"
+                      type="button"
+                      onClick={() => {
+                        setPublishError("");
+                        setActionMenuOpen(false);
+                        setOpenPromptOpen(true);
+                      }}
+                    >
+                      공고 공개
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -550,12 +564,20 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
               <p className="open-confirm-desc">공고를 열면 공개 지원 링크로 지원자가 지원할 수 있습니다.</p>
               {publishError ? <p className="notice danger">{publishError}</p> : null}
               <div className="open-confirm-actions">
-                <button className="btn secondary" type="button" disabled={publishing} onClick={handleOpenDismissed}>
-                  아니오
-                </button>
-                <button className="btn primary" type="button" disabled={publishing} onClick={() => void handleOpenConfirmed()}>
-                  {publishing ? "여는 중…" : "네"}
-                </button>
+                {publishError ? (
+                  <button className="btn primary" type="button" onClick={handleOpenDismissed}>
+                    닫기
+                  </button>
+                ) : (
+                  <>
+                    <button className="btn secondary" type="button" disabled={publishing} onClick={handleOpenDismissed}>
+                      아니오
+                    </button>
+                    <button className="btn primary" type="button" disabled={publishing} onClick={() => void handleOpenConfirmed()}>
+                      {publishing ? "여는 중…" : "네"}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>

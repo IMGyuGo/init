@@ -58,14 +58,16 @@ describe("PrismaCompanyRecruitingRepository", () => {
   it("archives postings instead of physically deleting recruitment data", async () => {
     let capturedWhere: Record<string, unknown> | null = null;
     let capturedData: Record<string, unknown> | null = null;
+    let capturedInclude: Record<string, unknown> | null = null;
     const prisma = {
       posting: {
         async findFirst(args: { where: Record<string, unknown> }) {
           capturedWhere = args.where;
           return { postingId: 101n };
         },
-        async update(args: { data: Record<string, unknown> }) {
+        async update(args: { data: Record<string, unknown>; include: Record<string, unknown> }) {
           capturedData = args.data;
+          capturedInclude = args.include;
           return {
             postingId: 101n,
             companyId: 7n,
@@ -91,8 +93,50 @@ describe("PrismaCompanyRecruitingRepository", () => {
       companyId: 7n,
     });
     assert.deepEqual(capturedData, { status: "ARCHIVED" });
+    assert.deepEqual(capturedInclude, {
+      _count: {
+        select: {
+          applications: {
+            where: { applicationStatus: { not: "CANCELED" } },
+          },
+        },
+      },
+    });
     assert.equal(result?.status, "ARCHIVED");
     assert.equal(result?.applicantCount, 3);
+  });
+
+  it("excludes canceled rows from the active applicant list and count", async () => {
+    const capturedWheres: Record<string, unknown>[] = [];
+    const prisma = {
+      application: {
+        async findMany(args: { where: Record<string, unknown> }) {
+          capturedWheres.push(args.where);
+          return [];
+        },
+        async count(args: { where: Record<string, unknown> }) {
+          capturedWheres.push(args.where);
+          return 0;
+        },
+      },
+    };
+    const repository = new PrismaCompanyRecruitingRepository(prisma as never);
+    const query = { skip: 0, take: 20, sort: "updatedAt", order: "desc" } as never;
+
+    assert.deepEqual(await repository.listApplicationsForPosting(101, 7, query), []);
+    assert.equal(await repository.countApplicationsForPosting(101, 7, query), 0);
+    assert.deepEqual(capturedWheres, [
+      {
+        postingId: 101n,
+        posting: { companyId: 7n },
+        applicationStatus: { not: "CANCELED" },
+      },
+      {
+        postingId: 101n,
+        posting: { companyId: 7n },
+        applicationStatus: { not: "CANCELED" },
+      },
+    ]);
   });
 
   it("updates only B-owned screening fields", async () => {
@@ -247,6 +291,7 @@ describe("PrismaCompanyRecruitingRepository", () => {
                       {
                         followUpId: 7001n,
                         answerId: 1001n,
+                        insertedSessionQuestionId: 6001n,
                         content: duplicateFollowUp,
                         generationStatus: "GENERATED",
                         policy: "RECRUITING",
@@ -269,6 +314,7 @@ describe("PrismaCompanyRecruitingRepository", () => {
                       {
                         followUpId: 7002n,
                         answerId: 1002n,
+                        insertedSessionQuestionId: 6002n,
                         content: duplicateFollowUp,
                         generationStatus: "GENERATED",
                         policy: "RECRUITING",
@@ -278,9 +324,12 @@ describe("PrismaCompanyRecruitingRepository", () => {
                   },
                   {
                     answerId: 1003n,
-                    questionId: 503n,
-                    question: {
-                      questionId: 503n,
+                    questionId: null,
+                    sessionQuestionId: 6002n,
+                    question: null,
+                    sessionQuestion: {
+                      sessionQuestionId: 6002n,
+                      runtimeQuestionId: 9003n,
                       questionType: "FOLLOW_UP",
                       content: duplicateFollowUp,
                     },
@@ -304,5 +353,7 @@ describe("PrismaCompanyRecruitingRepository", () => {
     assert.equal(answers[0]?.followUpQuestions[0]?.answer, null);
     assert.equal(answers[1]?.followUpQuestions[0]?.answer?.answerId, 1003);
     assert.equal(answers[1]?.followUpQuestions[0]?.answer?.transcript, "두 번째 꼬리질문 답변");
+    assert.equal(answers[2]?.questionId, 9003);
+    assert.equal(answers[2]?.questionType, "FOLLOW_UP");
   });
 });

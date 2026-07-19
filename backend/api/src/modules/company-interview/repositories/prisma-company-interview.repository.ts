@@ -7,6 +7,7 @@ import {
   EvaluationCriterionRecord,
   EvaluationFramework,
   NcsProfileId,
+  PostingStatus,
   PostingRecord,
   QuestionOrigin,
   QuestionRecord,
@@ -47,6 +48,13 @@ export class PrismaCompanyInterviewRepository
       orderBy: { postingId: 'desc' },
     });
     return posting ? mapPosting(posting) : undefined;
+  }
+
+  async updatePostingStatus(postingId: number, status: PostingStatus): Promise<void> {
+    await this.prisma.posting.update({
+      where: { postingId: BigInt(postingId) },
+      data: { status },
+    });
   }
 
   async listCriteria(postingId: number): Promise<EvaluationCriterionRecord[]> {
@@ -170,6 +178,14 @@ export class PrismaCompanyInterviewRepository
       answerTimeSec: 90,
       retryAllowed: false,
     };
+  }
+
+  async hasTimePolicy(postingId: number): Promise<boolean> {
+    const timePolicy = await this.prisma.interviewTimePolicy.findUnique({
+      where: { postingId: BigInt(postingId) },
+      select: { postingId: true },
+    });
+    return timePolicy !== null;
   }
 
   async getQuestionGenerationPolicy(

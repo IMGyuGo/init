@@ -2,6 +2,8 @@ import { Module } from "@nestjs/common";
 
 import { PrismaService } from "../../shared/prisma.service";
 import { AuthModule } from "../auth/auth.module";
+import { CompanyInterviewModule } from "../company-interview/company-interview.module";
+import { CompanyInterviewService } from "../company-interview/company-interview.service";
 import { MailModule } from "../mail/mail.module";
 import { MailService } from "../mail/mail.service";
 import { CompanyRecruitingController } from "./controller/company-recruiting.controller";
@@ -28,7 +30,7 @@ import {
 } from "./service/company-recruiting.service";
 
 @Module({
-  imports: [AuthModule, MailModule],
+  imports: [AuthModule, MailModule, CompanyInterviewModule],
   controllers: [CompanyRecruitingController, CompanyRecruitingMediaController, PublicRecruitmentController, PublicApplicationController],
   providers: [
     PrismaService,
@@ -49,12 +51,21 @@ import {
         storageAdapter: CompanyRecruitingStorageAdapterPort,
         publicApplicationAuthAdapter: PublicApplicationAuthAdapterPort,
         publicInterviewEntryAdapter: PublicInterviewEntryAdapterPort,
-      ) => new CompanyRecruitingService(repository, storageAdapter, {}, publicApplicationAuthAdapter, publicInterviewEntryAdapter),
+        interviewPublicationReadiness: CompanyInterviewService,
+      ) => new CompanyRecruitingService(
+        repository,
+        storageAdapter,
+        {},
+        publicApplicationAuthAdapter,
+        publicInterviewEntryAdapter,
+        interviewPublicationReadiness,
+      ),
       inject: [
         PrismaCompanyRecruitingRepository,
         S3CompanyRecruitingStorageAdapter,
         PublicApplicationAuthAdapter,
         DeferredPublicInterviewEntryAdapter,
+        CompanyInterviewService,
       ],
     },
   ],

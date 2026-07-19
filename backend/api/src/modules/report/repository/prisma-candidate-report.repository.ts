@@ -100,6 +100,9 @@ export class PrismaCandidateReportRepository implements CandidateReportRepositor
     return questions.map((question) => ({
       followUpId: Number(question.followUpId),
       answerId: Number(question.answerId),
+      ...(question.insertedSessionQuestionId
+        ? { insertedSessionQuestionId: Number(question.insertedSessionQuestionId) }
+        : {}),
       content: question.content,
       generationStatus: question.generationStatus,
       policy: question.policy,

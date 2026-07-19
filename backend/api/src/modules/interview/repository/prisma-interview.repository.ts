@@ -877,6 +877,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
       answerId: Number(answer.answerId),
       sessionId: Number(answer.sessionId),
       questionId: Number(questionId ?? 0),
+      ...(answer.sessionQuestionId ? { sessionQuestionId: Number(answer.sessionQuestionId) } : {}),
       videoFileId: answer.videoFileId ? Number(answer.videoFileId) : undefined,
       audioFileId: answer.audioFileId ? Number(answer.audioFileId) : undefined,
       transcript: answer.transcript ?? undefined,
@@ -1026,6 +1027,7 @@ type AnswerRecord = {
   answerId: bigint;
   sessionId: bigint;
   questionId: bigint | null;
+  sessionQuestionId: bigint | null;
   videoFileId: bigint | null;
   audioFileId: bigint | null;
   transcript: string | null;

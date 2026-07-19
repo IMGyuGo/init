@@ -175,7 +175,7 @@ export class CandidateService {
 
   async getJobDetail(jobId: number, currentUser: CurrentCandidateUser): Promise<ApiResponse<CandidateJobDetail>> {
     const job = await this.getApplyAvailableJob(jobId);
-    const alreadyApplied = await this.repository.hasApplication(currentUser.candidateId, job.jobId);
+    const alreadyApplied = await this.repository.hasActiveApplication(currentUser.candidateId, job.jobId);
 
     return this.envelope({
       ...job,
@@ -250,7 +250,7 @@ export class CandidateService {
       this.assertUrl(applicationFields.portfolioUrl, "portfolioUrl");
     }
 
-    if (await this.repository.hasApplication(currentUser.candidateId, jobId)) {
+    if (await this.repository.hasActiveApplication(currentUser.candidateId, jobId)) {
       throw new CandidateDomainError("APPLICATION_ALREADY_SUBMITTED", "이미 지원한 채용공고입니다.", 409);
     }
 
@@ -2258,7 +2258,7 @@ export class CandidateService {
 
   private async toJobSummary(job: CandidateJob, currentUser?: CurrentCandidateUser): Promise<CandidateJobSummary> {
     const alreadyApplied = currentUser
-      ? await this.repository.hasApplication(currentUser.candidateId, job.jobId)
+      ? await this.repository.hasActiveApplication(currentUser.candidateId, job.jobId)
       : false;
 
     return {

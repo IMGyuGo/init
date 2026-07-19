@@ -815,9 +815,38 @@ async function run() {
   assert.equal(canceled.data.applicationStatus, "CANCELED");
   const repeatedCancellation = await cancelService.cancelApplication(cancelSubmission.application.applicationId, currentUser);
   assert.equal(repeatedCancellation.data.canceledAt, canceled.data.canceledAt);
+  const reapplyAvailableJob = await cancelService.getJobDetail(1, currentUser);
+  assert.equal(reapplyAvailableJob.data.alreadyApplied, false);
+  assert.equal(reapplyAvailableJob.data.canApply, true);
+
+  const reappliedSubmission = await cancelRepository.createApplication({
+    postingId: 1,
+    candidateId: currentUser.candidateId,
+    resumeFileId: 1,
+    consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
+  });
+  assert.notEqual(reappliedSubmission.application.applicationId, cancelSubmission.application.applicationId);
+  assert.equal(await cancelRepository.hasActiveApplication(currentUser.candidateId, 1), true);
+  const activeApplicationJob = await cancelService.getJobDetail(1, currentUser);
+  assert.equal(activeApplicationJob.data.alreadyApplied, true);
+  assert.equal(activeApplicationJob.data.canApply, false);
+  await assert.rejects(
+    () =>
+      cancelRepository.createApplication({
+        postingId: 1,
+        candidateId: currentUser.candidateId,
+        resumeFileId: 1,
+        consentTypes: ["PRIVACY_COLLECTION", "AI_DOCUMENT_ANALYSIS"],
+      }),
+    (error) => error instanceof CandidateDomainError && error.code === "APPLICATION_ALREADY_SUBMITTED",
+  );
   const canceledList = await cancelService.listApplications(currentUser);
-  assert.equal(canceledList.data.items[0]?.applicationStatus, "CANCELED");
-  assert.equal(canceledList.data.items[0]?.canStartInterview, false);
+  assert.equal(canceledList.data.items.length, 2);
+  assert.equal(canceledList.data.items.some((application) => application.applicationStatus === "CANCELED"), true);
+  assert.equal(
+    canceledList.data.items.find((application) => application.applicationStatus === "CANCELED")?.canStartInterview,
+    false,
+  );
   await assert.rejects(
     () => cancelService.getInterviewGuide(cancelSubmission.application.applicationId, currentUser),
     (error) => error instanceof CandidateDomainError && error.code === "COMMON_CONFLICT",

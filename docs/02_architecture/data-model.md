@@ -387,6 +387,8 @@ batch business unique key는 `(application_id, usage_scope, policy_version, crit
 
 신규 회원 지원서는 이름, 이메일, 연락처, GitHub URL, 블로그 URL, 이력서 PDF, 지원동기, 추가 설명과 전체 프로필 스냅샷을 제출한다. 포트폴리오는 URL 또는 PDF 중 하나 이상을 제출한다. 프로필 값이 이후 변경되어도 기업은 지원 당시 스냅샷을 확인한다. 기존/공개 지원의 NULL 스냅샷은 현재 프로필로 역보정하지 않는다.
 
+동일한 `(posting_id, candidate_id)`에는 `application_status <> 'CANCELED'`인 활성 지원서가 최대 하나만 존재한다. 이 조건은 PostgreSQL 부분 유일 인덱스로 보장한다. 지원 취소 후 재지원할 때는 취소된 row를 복구하지 않고 새 `applications` row와 새 서류·동의·면접 세션을 생성하며, 취소 row와 연결된 질문·세션 snapshot은 감사·추적을 위해 보존한다. 기업의 활성 지원자 목록과 `applicantCount`에서는 `CANCELED`를 제외하지만, 평가 기준·질문 설정 잠금의 제출 이력 판단에는 취소 row도 계속 포함한다.
+
 ### application_documents
 
 | Column | Definition | Description |

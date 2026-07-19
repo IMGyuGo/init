@@ -54,6 +54,8 @@ import {
   CriterionTagRecord,
   EvaluationCriterionRecord,
   EvaluationFramework,
+  InterviewPublicationReadiness,
+  InterviewPublicationReadinessReason,
   NcsProfileId,
   NcsQuestionMode,
   QuestionAlignmentStatus,
@@ -62,6 +64,7 @@ import {
   QuestionNcsBindingRecord,
   QuestionRecord,
   QuestionSetRecord,
+  QuestionType,
   ResumeQuestionApplicationRecord,
   ResumeQuestionGenerationStatus,
   NcsActiveProfileCoverageRecord,
@@ -296,6 +299,54 @@ export class CompanyInterviewService {
     };
   }
 
+  async getPublicationReadiness(
+    currentUser: CurrentUser,
+    postingId: number,
+  ): Promise<InterviewPublicationReadiness> {
+    const posting = await this.getOwnedPosting(currentUser, postingId);
+    const [criteria, storedPolicy, activeQuestionSet, hasTimePolicy] =
+      await Promise.all([
+        this.repository.listCriteria(posting.postingId),
+        this.repository.getQuestionGenerationPolicy(posting.postingId),
+        this.repository.findActiveQuestionSet(posting.postingId),
+        this.repository.hasTimePolicy(posting.postingId),
+      ]);
+
+    const reasons: InterviewPublicationReadinessReason[] = [];
+    if (!storedPolicy) {
+      reasons.push('QUESTION_GENERATION_POLICY_MISSING');
+    }
+
+    const policy = storedPolicy ?? defaultQuestionGenerationPolicy(posting.postingId);
+    const activeProfileCoverage = buildActiveProfileCoverage(
+      policy.evaluationFramework,
+      criteria,
+      activeQuestionSet,
+    );
+    if (!isPublishableCriteria(policy.evaluationFramework, criteria)) {
+      reasons.push('CRITERIA_NOT_READY');
+    }
+    if (!activeQuestionSet) {
+      reasons.push('ACTIVE_QUESTION_SET_MISSING');
+    } else if (
+      requiresQuestionSetReconfirmation(
+        policy,
+        activeQuestionSet,
+        activeProfileCoverage,
+      )
+    ) {
+      reasons.push('QUESTION_SET_RECONFIRMATION_REQUIRED');
+    }
+    if (!hasTimePolicy) {
+      reasons.push('TIME_POLICY_MISSING');
+    }
+
+    return {
+      canPublish: reasons.length === 0,
+      reasons,
+    };
+  }
+
   async createCriterionTag(
     currentUser: CurrentUser,
     dto: CreateCriterionTagDto,
@@ -494,6 +545,10 @@ export class CompanyInterviewService {
       activeQuestionSet,
       activeProfileCoverage,
     );
+    await this.returnOpenPostingToDraftWhenQuestionSetIsStale(
+      posting,
+      questionSetRequiresReconfirmation,
+    );
     return {
       postingId: posting.postingId,
       criteria: await this.mapCriteria(saved.criteria),
@@ -581,15 +636,20 @@ export class CompanyInterviewService {
       criteria,
       activeQuestionSet,
     );
+    const questionSetRequiresReconfirmation = requiresQuestionSetReconfirmation(
+      saved,
+      activeQuestionSet,
+      activeProfileCoverage,
+    );
+    await this.returnOpenPostingToDraftWhenQuestionSetIsStale(
+      posting,
+      questionSetRequiresReconfirmation,
+    );
     return {
       ...saved,
       allocations: buildQuestionAllocations(saved, criteria),
       activeProfileCoverage,
-      questionSetRequiresReconfirmation: requiresQuestionSetReconfirmation(
-        saved,
-        activeQuestionSet,
-        activeProfileCoverage,
-      ),
+      questionSetRequiresReconfirmation,
       warnings,
     };
   }
@@ -740,19 +800,23 @@ export class CompanyInterviewService {
         { field: 'sourceProcessLogId', reason: 'MANUAL_QUESTION' },
       ]);
     }
+    const effectiveNcsQuestionMode =
+      aiCandidate?.ncsQuestionMode ?? ncsSnapshot.ncsQuestionMode;
 
     const question = await this.repository.createQuestion({
       companyId: posting.companyId,
       postingId: posting.postingId,
       criterionId: criterion.criterionId,
-      questionType: dto.questionType,
+      questionType:
+        isNcsFramework(policy.evaluationFramework) && effectiveNcsQuestionMode
+        ? questionTypeForNcsQuestionMode(effectiveNcsQuestionMode)
+        : dto.questionType,
       content: dto.content,
       origin,
       generationSource:
         aiCandidate || isCompanyReviewedNcsQuestion ? 'JD_CRITERIA' : null,
       ncsProfileId: aiCandidate?.ncsProfileId ?? ncsSnapshot.ncsProfileId,
-      ncsQuestionMode:
-        aiCandidate?.ncsQuestionMode ?? ncsSnapshot.ncsQuestionMode,
+      ncsQuestionMode: effectiveNcsQuestionMode,
       ncsProfileVersion:
         aiCandidate?.ncsProfileVersion ?? ncsSnapshot.ncsProfileVersion,
       alignmentStatus: aiCandidate?.alignmentStatus ??
@@ -818,7 +882,10 @@ export class CompanyInterviewService {
 
     const saved = await this.repository.updateQuestion(questionId, {
       criterionId: criterion.criterionId,
-      questionType: dto.questionType,
+      questionType:
+        isCompanyReviewedNcsQuestion && criterion.ncsQuestionMode
+          ? questionTypeForNcsQuestionMode(criterion.ncsQuestionMode)
+          : dto.questionType,
       content: dto.content,
       isAiEdited:
         question.origin === 'AI_GENERATED' ? true : question.isAiEdited,
@@ -1128,7 +1195,11 @@ export class CompanyInterviewService {
         candidate.source !== 'JD_CRITERIA' ||
         candidate.alignmentStatus !== 'ALIGNED' ||
         candidate.ncsProfileId !== criterion.ncsProfileId ||
-        candidate.ncsQuestionMode !== criterion.ncsQuestionMode ||
+        !isAllowedNcsQuestionMode(
+          criterion.ncsProfileId,
+          criterion.ncsQuestionMode,
+          candidate.ncsQuestionMode,
+        ) ||
         candidate.ncsProfileVersion !== criterion.ncsProfileVersion
       ) {
         ncsBindingInvalid('NCS 정렬 검증을 통과한 동일 평가 기준 질문만 저장할 수 있습니다.', [
@@ -1149,6 +1220,15 @@ export class CompanyInterviewService {
       alignmentReason: null,
       evaluatorVersion: null,
     };
+  }
+
+  private async returnOpenPostingToDraftWhenQuestionSetIsStale(
+    posting: { postingId: number; status: string },
+    questionSetRequiresReconfirmation: boolean,
+  ): Promise<void> {
+    if (posting.status === 'OPEN' && questionSetRequiresReconfirmation) {
+      await this.repository.updatePostingStatus(posting.postingId, 'DRAFT');
+    }
   }
 
   private async assertConfigurationMutable(postingId: number): Promise<void> {
@@ -1663,6 +1743,51 @@ function assertNcsActiveCriteria(
   }
 }
 
+function isPublishableCriteria(
+  framework: EvaluationFramework,
+  criteria: EvaluationCriterionRecord[],
+): boolean {
+  if (criteria.length === 0) {
+    return false;
+  }
+  if (framework === 'LEGACY') {
+    return true;
+  }
+  if (framework === 'NCS_3_PROFILE_V1') {
+    const profiles = criteria.map((criterion) => criterion.ncsProfileId);
+    return (
+      criteria.length === NCS_PROFILE_IDS.length &&
+      NCS_PROFILE_IDS.every(
+        (profileId) => profiles.filter((candidate) => candidate === profileId).length === 1,
+      ) &&
+      criteria.every(
+        (criterion) =>
+          criterion.ncsQuestionMode !== null &&
+          criterion.ncsProfileVersion !== null,
+      )
+    );
+  }
+
+  const profileWeights = toProfileWeights(criteria);
+  const issues = validateNcsProfileWeights('NCS_ACTIVE_PROFILE_V2', profileWeights);
+  const hasBindingGap = criteria.some(
+    (criterion) =>
+      criterion.ncsProfileId === null ||
+      criterion.ncsQuestionMode === null ||
+      criterion.ncsProfileVersion === null,
+  );
+  return (
+    !hasBindingGap &&
+    !issues.some(
+      (issue) =>
+        issue.code === 'CANONICAL_PROFILE_CONFIGURATION_INVALID' ||
+        issue.code === 'ACTIVE_PROFILE_COUNT_INVALID' ||
+        issue.code === 'WEIGHT_INVALID' ||
+        issue.code === 'WEIGHT_SUM_INVALID',
+    )
+  );
+}
+
 function buildQuestionImpactByProfile(
   questions: QuestionRecord[],
 ): NcsQuestionImpactRecord[] {
@@ -1789,7 +1914,13 @@ function validateConfirmableNcsQuestion(
     question.ncsProfileId === primaryBinding.ncsProfileId &&
     question.ncsProfileVersion === primaryBinding.ncsProfileVersion &&
     question.evaluatorVersion === primaryBinding.evaluatorVersion &&
-    question.ncsQuestionMode === primaryCriterion.ncsQuestionMode;
+    question.ncsQuestionMode !== null &&
+    question.questionType === questionTypeForNcsQuestionMode(question.ncsQuestionMode) &&
+    isAllowedNcsQuestionMode(
+      primaryCriterion.ncsProfileId,
+      primaryCriterion.ncsQuestionMode,
+      question.ncsQuestionMode,
+    );
 
   if (!hasValidBindings || !hasConsistentPrimaryBinding) {
     ncsBindingInvalid(
@@ -1815,6 +1946,29 @@ function buildCompanyReviewedNcsBindings(
     evaluatorVersion: COMPANY_QUESTION_REVIEW_EVALUATOR_VERSION,
     bindingOrder: index + 1,
   }));
+}
+
+function isAllowedNcsQuestionMode(
+  profileId: NcsProfileId | null,
+  configuredMode: NcsQuestionMode | null,
+  effectiveMode: NcsQuestionMode | null,
+): boolean {
+  if (!profileId || !configuredMode || !effectiveMode) return false;
+  if (configuredMode === effectiveMode) return true;
+  return (
+    (profileId === 'JOB_TECHNICAL' &&
+      configuredMode === 'TECHNICAL_KNOWLEDGE' &&
+      effectiveMode === 'EXPERIENCE_BEHAVIOR') ||
+    (profileId === 'PROBLEM_SOLVING' &&
+      configuredMode === 'EXPERIENCE_BEHAVIOR' &&
+      effectiveMode === 'SITUATIONAL_DESIGN')
+  );
+}
+
+function questionTypeForNcsQuestionMode(mode: NcsQuestionMode): QuestionType {
+  if (mode === 'TECHNICAL_KNOWLEDGE') return 'TECHNICAL';
+  if (mode === 'SITUATIONAL_DESIGN') return 'SITUATION';
+  return 'EXPERIENCE';
 }
 
 function defaultQuestionGenerationPolicy(

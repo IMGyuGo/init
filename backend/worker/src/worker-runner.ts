@@ -4,7 +4,8 @@ import { AiProcessLogRepository } from "./process-log.repository";
 import {
   NonRetryableAiWorkerFailure,
   RetryableAiWorkerFailure,
-  isRetryableFailureCategory,
+  isAutomaticRetryFailureCategory,
+  isUserRetryableFailureCategory,
   toFailureReason,
 } from "./worker-errors";
 import { AiQueueMessage, AiTaskHandler, AiWorkerJob, FailureReason } from "./worker.types";
@@ -101,7 +102,7 @@ export class AiWorkerRunner {
           await this.failAndAck(message, leaseOwner, {
             category,
             reason: result.guardrail.reason ?? "guardrail blocked output",
-            retryable: isRetryableFailureCategory(category)
+            retryable: isUserRetryableFailureCategory(category)
           });
           return;
         }
@@ -142,7 +143,7 @@ export class AiWorkerRunner {
       await heartbeat?.stop().catch(() => undefined);
       heartbeat = undefined;
       const failure = toFailureReason(error);
-      if (isRetryableFailureCategory(failure.category)) {
+      if (isAutomaticRetryFailureCategory(failure.category)) {
         if (this.retryableReceiveCount(message) > this.options.maxRetryableReceives) {
           await this.failAndAck(message, leaseOwner, this.retryLimitExceededFailure(failure));
           return;

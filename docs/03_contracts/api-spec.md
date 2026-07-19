@@ -204,7 +204,7 @@ STT 미인식 답변 처리:
 - 이 경우 답변별 NCS 평가는 `scoreStatus=INSUFFICIENT_INPUT`과 모든 nullable 점수 `NULL`로 저장하고 평가 근거 및 `ReportScore`를 생성하지 않는다.
 - 최종 리포트는 해당 profile 점수와 `totalScore`를 `NULL`, `thresholdResult=INCOMPLETE`로 유지한다. 발표 정책 `NCS_INCOMPLETE_AS_FAIL_DEMO_V1`에 따라 화면상 AI 판정만 `FAIL`이며 실제 `applications.screening_decision`은 변경하지 않는다.
 - 화면 피드백은 `평가 미완료`와 인식 실패 사유를 표시한다. 최초 `REANSWER_REQUIRED`에는 한 번의 재답변을 제공하고, 두 번째 인식 실패 또는 재답변 미사용 상태로 면접을 완료한 경우 `STT_UNAVAILABLE`로 확정한다.
-- STT job의 provider `FAILED`, timeout, worker 중단은 `STT_UNAVAILABLE`로 변환하지 않는다. 별도 process 실패 상태로 유지하고 실제 인식 실패와 구분한다.
+- STT job의 provider timeout과 worker 중단이 재시도 중인 동안에는 `STT_UNAVAILABLE`로 변환하지 않는다. 최신 STT process가 `FAILED + REANSWER_REQUIRED`이거나 재시도 한도를 소진한 `FAILED + NON_RETRYABLE`이면 terminal `STT_UNAVAILABLE`로 확정한다.
 - 과거 `STT_UNAVAILABLE_TEMP_ZERO` 행은 조회 호환만 유지하며 신규 생성하거나 NCS 집계에 재사용하지 않는다.
 - 정상 transcript가 있는 답변만 서비스 기본 평가 기준과 점수 구간에 따라 품질 평가한다.
 
@@ -500,6 +500,7 @@ AI 리포트 금지 기준:
   - 채용 공고 목록 표시
   - 공고 리스트 표시 및 공고 상세/수정/복사 가능
   - 별도 상태 필터가 없으면 `ARCHIVED` 공고는 기본 목록에서 제외한다.
+  - `applicantCount`는 `application_status != CANCELED`인 활성 지원 건만 집계한다. 취소 후 재지원한 경우 취소 이력은 수에 중복 반영하지 않는다.
 - 오류/예외:
   - 공고가 없으면 공고 생성 안내를 표시한다.
   - 공고가 없으면 빈 상태와 공고 생성 CTA를 표시한다.
@@ -735,6 +736,7 @@ AI 리포트 금지 기준:
   - 공고 조회 권한 보유
 - 성공 응답/처리:
   - 공고별 지원자 관리 화면 표시
+  - 기본 지원자 목록과 pagination count는 `application_status != CANCELED`인 활성 지원 건만 포함한다. 취소 이력은 DB에서 삭제하지 않는다.
 - 오류/예외:
   - 공고 정보가 없거나 권한이 없으면 접근 제한 메시지를 표시한다.
 - 관련 ERD 테이블:
@@ -1049,6 +1051,7 @@ AI 리포트 금지 기준:
   - 조회 권한 보유
 - 성공 응답/처리:
   - 지원자 목록 표시
+  - 기본 지원자 목록과 count는 `application_status != CANCELED`인 활성 지원 건만 포함한다.
 - 오류/예외:
   - 데이터가 없으면 빈 상태 안내를 표시한다.
 - 관련 ERD 테이블:
@@ -1800,6 +1803,7 @@ AI 리포트 금지 기준:
   - 같은 공고 안에서 같은 `content`의 활성 질문은 중복 등록하지 않는다.
   - NCS framework에서는 profile/mode/version을 클라이언트가 직접 지정하지 않고 연결된 criterion snapshot에서 가져온다.
   - NCS AI 후보 적용은 `sourceProcessLogId`의 완료 output에서 content와 criterion이 일치하고 `alignmentStatus=ALIGNED`인 결과만 허용한다.
+  - NCS AI 후보 적용 시 후보의 effective `ncsQuestionMode`는 연결된 canonical profile의 primary mode 또는 `enums.md`에 정의된 해당 profile의 directed fallback이어야 한다. 검증된 후보 effective mode를 질문에 그대로 저장하고 `questionType`은 `TECHNICAL_KNOWLEDGE -> TECHNICAL`, `EXPERIENCE_BEHAVIOR -> EXPERIENCE`, `SITUATIONAL_DESIGN -> SITUATION`으로 정규화한다. reverse fallback과 cross-profile mode는 거부한다.
   - LEGACY 수동 작성 질문은 `generationSource=null`, `alignmentStatus=NOT_EVALUATED`, `sourceProcessLogId=null`로 저장한다.
   - `NCS_3_PROFILE_V1` 수동 작성 질문은 기업 면접관이 JD 공통 질문과 canonical criterion binding을 직접 확인한 것으로 보고 `generationSource=JD_CRITERIA`, `alignmentStatus=ALIGNED`, `alignmentScore=null`, `evaluatorVersion=company-question-review-v1`, `sourceProcessLogId=null`로 저장한다.
 - Error Codes:
@@ -1951,8 +1955,9 @@ AI 리포트 금지 기준:
   - JD는 질문 주제를 고르는 근거로 사용하되 공고 문장을 그대로 복사하지 않는다. 도구·업무·책임 같은 구체 맥락은 해당 질문에 필요한 경우에만 자연스럽게 언급한다.
   - 질문 하나는 하나의 핵심 경험이나 판단을 묻는다. 여러 행동지표를 쉼표로 나열한 장문 체크리스트형 질문을 만들지 않는다.
   - 같은 batch 안에서 도입부와 종결어미를 반복하지 않고, 실제 면접관이 말하는 간결한 한국어 문장으로 생성한다.
-  - evaluator가 `LOW_ALIGNMENT`를 반환하면 같은 question mode로 최대 2회 재생성한다.
-  - 2회 실패 후에는 `enums.md`의 허용 fallback mode만 사용할 수 있으며, 여전히 기준 미달이면 `REVIEW_REQUIRED`로 남겨 자동 저장하지 않는다.
+  - `QUESTION_GENERATE`는 활성 criterion마다 남은 요청 수에 1을 더한 candidate pool을 매 호출 요청한다. primary mode는 최초 호출을 포함해 최대 3회 호출하고, 그 뒤 `enums.md`의 directed fallback이 있는 profile만 fallback mode로 한 번 더 호출할 수 있다.
+  - worker는 각 후보의 질문 품질과 NCS alignment를 필터링하고, 활성 criterion별로 정확히 요청된 수만 `alignmentStatus=ALIGNED` 후보로 반환한다. 부족한 수의 후보를 완료 draft로 반환하거나 질문 뱅크에 저장하지 않는다.
+  - primary와 허용 fallback을 모두 소진한 뒤에도 요청 수를 채우지 못하면 job은 draft 없이 `FAILED`가 되고 `failure.category=REGENERATION_REQUIRED`, `failure.retryable=true`를 기록한다. 이는 사용자의 새 job 시작만 허용하며 queue 자동 retry/redelivery는 하지 않고 현재 메시지를 ACK한다.
   - evaluator 임계값은 NCS evaluator 계약의 버전값을 사용하며 C 모듈에 별도 상수로 복제하지 않는다.
 - Error Codes:
   - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`, `INTERVIEW_QUESTION_COUNT_INVALID`, `INTERVIEW_NCS_BINDING_INVALID`, `AI_PROCESS_FAILED`
@@ -1988,6 +1993,7 @@ AI 리포트 금지 기준:
   - `NCS_3_PROFILE_V1`에서는 `items` 개수가 API-097의 `jdCriteriaQuestionCount`와 같아야 한다.
   - `NCS_3_PROFILE_V1` 질문은 `generationSource=JD_CRITERIA`, `alignmentStatus=ALIGNED`, question mode, profile version, evaluator version을 모두 가져야 한다.
   - NCS 질문 하나에는 1~2개의 binding이 있어야 한다. 모든 binding은 서로 다른 canonical profile `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING` 중 하나이며 `alignmentStatus=ALIGNED`, profile version, evaluator version을 가져야 한다.
+  - NCS 질문의 저장된 effective `ncsQuestionMode`와 정규화된 `questionType`은 `enums.md`의 primary/directed fallback 정책을 만족해야 한다. confirm은 reverse 또는 cross-profile fallback을 허용하지 않는다.
   - NCS 질문 세트 전체에서 V1은 canonical profile별 binding 최소 2개, V2는 활성 profile별 binding 최소 1개여야 한다. C API는 alignment score 임계값을 다시 판정하지 않고 E adapter가 저장한 상태와 version만 검증한다.
 - 성공 응답/처리:
   - 같은 공고의 기존 `ACTIVE` 질문 세트는 `DRAFT`로 변경한다.
@@ -2324,6 +2330,8 @@ Allocation Examples:
   - NCS 세션이면 `ncsScoringVersion`과 `ncsSessionPolicy`를 현재 공고가 아니라 session snapshot에서 전달한다.
 - 검증/전제조건:
   - 평가 완료 상태 또는 NCS `INCOMPLETE` 상태가 명시적으로 확정됨
+  - private follow-up 답변은 `follow_up_questions.inserted_session_question_id = interview_answers.session_question_id`로 원본 `answer_id`와 연결한다. 질문 문장, 답변 순서 또는 생성 시각으로 부모 답변을 추측하지 않는다.
+  - 세션의 모든 답변은 transcript가 저장됐거나 최신 STT process가 `FAILED + REANSWER_REQUIRED` 또는 재시도 소진 `FAILED + NON_RETRYABLE`인 `STT_UNAVAILABLE` terminal 상태여야 한다. STT가 아직 처리 중인 답변이 있으면 리포트 작업을 생성하지 않고 `409 COMMON_CONFLICT`를 반환한다.
 - 성공 응답/처리:
   - 평가 리포트 저장
   - NCS 리포트는 `profileScores`, `totalScore`, `thresholdResult`, `aiDecision`, `decisionReason`, `scoringVersion`, `decisionPolicyVersion`을 저장·응답한다.
@@ -2333,6 +2341,7 @@ Allocation Examples:
   - 발표용 `NCS_INCOMPLETE_AS_FAIL_DEMO_V1`에서는 `INCOMPLETE -> FAIL`로 표시하되 `totalScore=NULL`과 미완료 원인을 유지하고 실제 `screening_decision`은 변경하지 않는다.
 - 오류/예외:
   - 리포트 생성 실패 시 재생성 버튼과 오류 상태를 표시한다.
+  - STT 처리 중 충돌은 완료 후 동일 요청을 멱등하게 재시도하며, 완료된 V1 세션·리포트는 V2로 재계산하지 않는다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, criterion_tags, evaluation_criteria, applications, application_documents, interview_sessions, interview_answers, evaluation_reports, report_scores, report_evidences, ai_process_logs
 - 비고/미결:
@@ -3109,9 +3118,11 @@ CandidateFolder 입력 제한:
   - 기본정보(이름/이메일/연락처), 이력서 PDF, 지원동기, 추가설명을 입력해야 한다. GitHub·블로그 URL은 선택이며 프로필에서 자동 입력된다.
   - 포트폴리오 URL 또는 PDF FileAsset 중 하나 이상을 제출해야 하며, 둘 다 제출할 수도 있다.
   - 제출 파일은 현재 지원자 소유의 ACTIVE FileAsset이어야 한다.
+  - 동일 지원자·공고 조합에 `CANCELED`가 아닌 지원서가 존재하면 중복 지원으로 차단한다. `CANCELED` 이력만 존재하면 재지원을 허용한다.
 - 성공 응답/처리:
   - 지원서 제출 당시 기본정보와 전체 `profileSnapshot`을 `applications`에 불변 스냅샷으로 저장한다.
   - 이력서/포트폴리오 PDF를 `application_documents`에 연결하고 지원서 제출을 완료한다.
+  - 취소 후 재지원은 기존 지원서를 되살리지 않고 새 `applicationId`, 서류, 동의, 채용면접 세션을 생성한다. 취소된 지원서와 연결 스냅샷은 감사·추적을 위해 보존한다.
   - (#272) 입력한 연락처(`phone`)를 회원(`users.phone`)에 저장하여 다음 지원 화면에서 자동 입력에 재사용한다.
   - 공고의 `resumeQuestionCount`가 1 이상이면 응답 projection의 `resumeQuestionStatus=WAITING_DOCUMENT`, 0이면 `DISABLED`로 반환한다. batch row는 문서 추출 완료 후 생성한다.
   - 문서 추출 job은 기존 `DOCUMENT_EXTRACT` 흐름으로 시작하며, 지원서 제출 트랜잭션 안에서 이력서 질문을 직접 생성하지 않는다.
@@ -3120,7 +3131,7 @@ CandidateFolder 입력 제한:
   - 지원 화면 진입 시 기존 `applicant`와 전체 `profileSnapshot`을 함께 반환한다. 모든 프로필 항목은 공고별로 수정 가능하다.
   - 지원서 세트는 목록 조회 후 상세 API로 불러오며 프로필, 링크, 첨부, 지원동기, 추가설명을 빈 값까지 포함해 전체 교체한다. 원본 세트는 불변이다.
 - 오류/예외:
-  - 파일 형식 오류, 용량 초과, 이미 지원한 공고, 마감 공고이면 제출을 제한한다.
+  - 파일 형식 오류, 용량 초과, 취소되지 않은 지원서가 이미 존재하는 공고, 마감 공고이면 제출을 제한한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, file_assets, postings, applications, application_documents
 - 비고/미결:
@@ -3141,6 +3152,7 @@ CandidateFolder 입력 제한:
   - 로그인 사용자
 - 성공 응답/처리:
   - 지원현황 목록을 200 OK로 반환한다.
+  - 취소 후 재지원한 경우 취소 이력과 새 지원 건을 서로 다른 `applicationId`의 항목으로 반환한다.
   - 각 항목은 영속 지원 상태와 별도로 `availabilityStatus`를 반환한다. 정상 항목은 `AVAILABLE`이며, 연결된 공고 또는 면접 세션을 찾지 못한 항목은 `UNAVAILABLE`이다.
   - `UNAVAILABLE` 항목은 `unavailableReason`으로 `POSTING_NOT_FOUND` 또는 `INTERVIEW_SESSION_NOT_FOUND`를 반환하고, 누락된 연결 정보 필드는 `null`로 반환한다.
   - `UNAVAILABLE` 항목은 면접 및 리포트 진입을 허용하지 않으며, 화면에서는 "더 이상 조회할 수 없는 지원입니다."로 표시한다.
@@ -3173,6 +3185,7 @@ CandidateFolder 입력 제한:
 - 성공 응답/처리:
   - 지원 상태를 `CANCELED`로 변경하고 지원 내역 목록에서 즉시 반영한다.
   - 같은 요청을 다시 보내면 기존 취소 결과를 반환한다.
+  - 취소 완료 후 같은 공고의 다른 비취소 지원서가 없다면 공고 목록·상세·지원 화면은 다시 지원 가능한 상태를 반환한다.
 - 오류/예외:
   - 지원 내역이 없으면 `COMMON_NOT_FOUND`, 다른 지원자의 내역이면 `COMMON_FORBIDDEN`을 반환한다.
   - 면접이 시작됐거나 완료된 지원, 또는 취소할 수 없는 전형 상태면 `COMMON_CONFLICT`를 반환한다.

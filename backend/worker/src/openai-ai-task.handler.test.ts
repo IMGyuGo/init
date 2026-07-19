@@ -568,8 +568,13 @@ test("OpenAiAiTaskHandler combines NCS and fact needs into one persisted follow-
 test("OpenAiAiTaskHandler preserves canonical NCS links and evaluates JD questions", async () => {
   const results = new InMemoryAiResultRepository();
   const seenProfiles: string[] = [];
+  const seenRequestCounts: Array<{ total: number; criteria: number[] }> = [];
   const questionProvider: QuestionAiProvider = {
     async generateQuestions(input) {
+      seenRequestCounts.push({
+        total: input.questionCount,
+        criteria: input.criteria.map((criterion) => criterion.questionCount ?? 0),
+      });
       seenProfiles.push(
         ...input.criteria.map((criterion) => criterion.ncsProfileId ?? "MISSING"),
       );
@@ -584,9 +589,7 @@ test("OpenAiAiTaskHandler preserves canonical NCS links and evaluates JD questio
           criterionTitle: criterion.name,
           expectedKeywords: ["근거", "검증"],
           suggestionReason: "JD와 NCS 평가 기준을 함께 확인합니다.",
-          questionType: criterion.ncsQuestionMode === "TECHNICAL_KNOWLEDGE"
-            ? "TECHNICAL" as const
-            : "EXPERIENCE" as const,
+          questionType: "TECHNICAL" as const,
         })),
         model: "question-model",
       };
@@ -641,9 +644,11 @@ test("OpenAiAiTaskHandler preserves canonical NCS links and evaluates JD questio
       ncsProfileId?: string;
       alignmentStatus?: string;
       source?: string;
+      questionType?: string;
     }>;
   };
 
+  assert.deepEqual(seenRequestCounts, [{ total: 4, criteria: [2, 2] }]);
   assert.deepEqual(seenProfiles, ["JOB_TECHNICAL", "COLLABORATION_COMMUNICATION"]);
   assert.deepEqual(
     output.questionCandidates?.map((candidate) => candidate.ncsProfileId),
@@ -653,7 +658,82 @@ test("OpenAiAiTaskHandler preserves canonical NCS links and evaluates JD questio
     output.questionCandidates?.map((candidate) => candidate.alignmentStatus),
     ["ALIGNED", "ALIGNED"],
   );
+  assert.deepEqual(
+    output.questionCandidates?.map((candidate) => candidate.questionType),
+    ["TECHNICAL", "EXPERIENCE"],
+  );
   assert.ok(output.questionCandidates?.every((candidate) => candidate.source === "JD_CRITERIA"));
+});
+
+test("OpenAiAiTaskHandler reports sanitized regeneration details after aligned candidates are exhausted", async () => {
+  const results = new InMemoryAiResultRepository();
+  const requestCounts: number[] = [];
+  const rejectedQuestion = "리눅스 커널의 인터럽트 처리 원리와 컨텍스트 전환 과정은 무엇인가요?";
+  const questionProvider: QuestionAiProvider = {
+    async generateQuestions(input) {
+      requestCounts.push(input.questionCount);
+      const criterion = input.criteria[0];
+      return {
+        questionCandidates: [{
+          content: rejectedQuestion,
+          category: criterion?.category ?? "NCS",
+          difficulty: "MEDIUM",
+          criterionId: criterion?.criterionId,
+          criterionTitle: criterion?.name,
+          expectedKeywords: ["인터럽트", "컨텍스트 전환"],
+          suggestionReason: "기술 지식을 확인합니다.",
+          questionType: "TECHNICAL",
+        }],
+        model: "question-model",
+      };
+    },
+  };
+  const handler = new OpenAiAiTaskHandler(
+    new MockAiTaskHandler(results),
+    results,
+    provider,
+    undefined,
+    undefined,
+    questionProvider,
+  );
+
+  await assert.rejects(
+    () => handler.handle({
+      processLogId: 241,
+      processType: "QUESTION_GENERATE",
+      attempt: 1,
+      inputRef: JSON.stringify({
+        kind: "RECRUITING_QUESTION_GENERATE",
+        payload: {
+          postingId: 2,
+          jobDescription: "민감한 원문 JD는 실패 사유에 포함하지 않습니다.",
+          questionCount: 1,
+          evaluationFramework: "NCS_3_PROFILE_V1",
+          criteria: [{
+            criterionId: 2,
+            name: "협업/의사소통 역량",
+            category: "NCS",
+            questionCount: 1,
+            ncsProfileId: "COLLABORATION_COMMUNICATION",
+            ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+            ncsProfileVersion: "2025.12-v1",
+          }],
+        },
+      }),
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.name, "RegenerationRequiredAiWorkerFailure");
+      assert.match(error.message, /missing=2:1/);
+      assert.match(error.message, /primaryAttempts=3/);
+      assert.match(error.message, /fallbackAttempts=0/);
+      assert.match(error.message, /LOW_ALIGNMENT:3/);
+      assert.equal(error.message.includes(rejectedQuestion), false);
+      assert.equal(error.message.includes("민감한 원문 JD"), false);
+      return true;
+    },
+  );
+  assert.deepEqual(requestCounts, [2, 2, 2]);
 });
 
 test("OpenAiAiTaskHandler rejects provider question candidates without criterionId", async () => {
@@ -812,6 +892,86 @@ test("OpenAiAiTaskHandler generates personalized questions from scrubbed resume 
   const output = JSON.parse(handled.outputRef ?? "{}") as Record<string, unknown>;
   assert.equal(output.providerMode, "openai");
   assert.equal(JSON.stringify(output).includes("candidate@example.com"), false);
+});
+
+test("OpenAiAiTaskHandler persists the effective fallback mode for personalized questions", async () => {
+  const results = new InMemoryAiResultRepository();
+  const seenModes: string[] = [];
+  const questionProvider: QuestionAiProvider = {
+    async generateQuestions(input) {
+      const criterion = input.criteria[0];
+      seenModes.push(String(criterion?.ncsQuestionMode));
+      const isFallback = criterion?.ncsQuestionMode === "EXPERIENCE_BEHAVIOR";
+      return {
+        questionCandidates: [{
+          content: isFallback
+            ? "기술 시스템을 구현할 때 발생한 장애의 대안을 선택하고 결과를 검증한 경험은 무엇인가요?"
+            : "최근 프로젝트에서 가장 기억에 남는 순간은 무엇인가요?",
+          category: "NCS",
+          difficulty: "MEDIUM",
+          criterionId: criterion?.criterionId,
+          criterionTitle: criterion?.name,
+          expectedKeywords: ["구현", "장애", "검증"],
+          suggestionReason: "직무 경험을 확인합니다.",
+          questionType: "TECHNICAL",
+        }],
+        model: "question-model",
+      };
+    },
+  };
+  const reference = {
+    processLogId: 245,
+    applicationId: 105,
+    postingId: 7,
+    documentId: 1005,
+    policyVersion: 3,
+    criteriaVersion: 2,
+    inputVersion: "resume-input-105",
+    resumeDocumentHash: "resume-hash-105",
+    jdSnapshotHash: "jd-hash-7",
+  };
+  results.setResumeQuestionGenerationContext({
+    ...reference,
+    batchId: 2005,
+    questionCount: 1,
+    jobDescription: "기술 시스템 운영 경험",
+    resumeText: "서비스 운영 경험",
+    criteria: [{
+      criterionId: 3,
+      name: "직무기술능력",
+      category: "NCS",
+      questionCount: 1,
+      ncsProfileId: "JOB_TECHNICAL",
+      ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+      ncsProfileVersion: "2025.12-v1",
+    }],
+  });
+  const handler = new OpenAiAiTaskHandler(
+    new MockAiTaskHandler(results),
+    results,
+    provider,
+    undefined,
+    undefined,
+    questionProvider,
+  );
+
+  const handled = await handler.handle({
+    ...reference,
+    processType: "RESUME_QUESTION_GENERATE",
+    attempt: 1,
+    inputRef: JSON.stringify(reference),
+  });
+  await handled.finalSave?.();
+
+  assert.deepEqual(seenModes, [
+    "TECHNICAL_KNOWLEDGE",
+    "TECHNICAL_KNOWLEDGE",
+    "TECHNICAL_KNOWLEDGE",
+    "EXPERIENCE_BEHAVIOR",
+  ]);
+  const saved = results.resumeQuestionResults.get(105)?.questions[0];
+  assert.equal(saved?.ncsQuestionMode, "EXPERIENCE_BEHAVIOR");
+  assert.equal(saved?.questionType, "EXPERIENCE");
 });
 
 test("OpenAiAiTaskHandler allows technical incident wording in personalized questions", async () => {

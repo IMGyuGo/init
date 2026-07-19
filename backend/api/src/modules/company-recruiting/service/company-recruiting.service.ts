@@ -20,6 +20,7 @@ import type { SubmitPublicApplicationDto } from "../dto/submit-public-applicatio
 import type { UpdateRecruitmentDto } from "../dto/update-recruitment.dto";
 import type { UpdateScreeningStatusDto } from "../dto/update-screening-status.dto";
 import type { CompanyRecruitingRepositoryPort } from "../repository/company-recruiting.repository";
+import type { InterviewPublicationReadiness } from "../../company-interview/company-interview.types";
 import type {
   ApplicantRecord,
   CompanyFileAssetRecord,
@@ -100,10 +101,21 @@ export class CompanyRecruitingService {
     private readonly uploadConfig: CompanyRecruitingUploadConfig = {},
     private readonly publicApplicationAuthAdapter: PublicApplicationAuthAdapterPort = new InMemoryPublicApplicationAuthAdapter(),
     private readonly publicInterviewEntryAdapter: PublicInterviewEntryAdapterPort = new DeferredPublicInterviewEntryAdapter(),
+    private readonly interviewPublicationReadiness?: {
+      getPublicationReadiness(
+        currentUser: CurrentUser,
+        postingId: number,
+      ): Promise<InterviewPublicationReadiness>;
+    },
   ) {}
 
   async createRecruitment(user: CurrentUser, dto: CreateRecruitmentDto) {
     const companyId = requireCompanyId(user);
+    if (dto.status === "OPEN") {
+      throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, "새 공고는 면접 설정 완료 후 공개할 수 있습니다.", [
+        { field: "status", reason: "INITIAL_OPEN_NOT_ALLOWED" },
+      ]);
+    }
     const startsOn = parseOptionalDate(dto.startsOn, "startsOn");
     const endsOn = parseOptionalDate(dto.endsOn, "endsOn");
     if (startsOn && endsOn && startsOn > endsOn) {
@@ -122,7 +134,7 @@ export class CompanyRecruitingService {
       ...buildPostingExtraInfoInput(dto),
       startsOn,
       endsOn,
-      status: (dto.status ?? PostingStatus.DRAFT) as PostingStatus,
+      status: PostingStatus.DRAFT,
     });
     return toRecruitmentResponse(posting);
   }
@@ -207,6 +219,22 @@ export class CompanyRecruitingService {
       dto.workplaceLng ?? posting.workplaceLng,
     );
 
+    const nextStatus = dto.status
+      ? parseEditablePostingStatus(dto.status)
+      : (posting.status as PostingStatus);
+    if (
+      nextStatus === PostingStatus.OPEN &&
+      posting.status !== PostingStatus.DRAFT &&
+      posting.status !== PostingStatus.OPEN
+    ) {
+      throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, "임시저장 공고만 공개할 수 있습니다.", [
+        { field: "status", reason: "INVALID_OPEN_TRANSITION" },
+      ]);
+    }
+    if (posting.status !== PostingStatus.OPEN && nextStatus === PostingStatus.OPEN) {
+      await this.assertInterviewSettingsReadyToPublish(user, recruitmentId);
+    }
+
     const updated = await this.repository.updatePosting(recruitmentId, companyId, {
       title: dto.title.trim(),
       jobRole: dto.jobRole.trim(),
@@ -214,13 +242,39 @@ export class CompanyRecruitingService {
       ...buildPostingExtraInfoInput(dto),
       startsOn,
       endsOn,
-      status: dto.status ? parseEditablePostingStatus(dto.status) : (posting.status as PostingStatus),
+      status: nextStatus,
     });
 
     if (!updated) {
       throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "공고를 찾을 수 없습니다.");
     }
     return toRecruitmentResponse(updated);
+  }
+
+  private async assertInterviewSettingsReadyToPublish(
+    user: CurrentUser,
+    recruitmentId: number,
+  ): Promise<void> {
+    if (!this.interviewPublicationReadiness) {
+      throw new Error("Interview publication readiness dependency is not configured.");
+    }
+    const readiness = await this.interviewPublicationReadiness.getPublicationReadiness(
+      user,
+      recruitmentId,
+    );
+    if (readiness.canPublish) {
+      return;
+    }
+
+    const missingSettings = readiness.reasons
+      .map((reason) => publicationReadinessReasonLabel(reason))
+      .join(", ");
+    throw new CompanyRecruitingException(
+      409,
+      ERROR_CODES.COMMON_CONFLICT,
+      `면접 설정이 완료되지 않아 공고를 공개할 수 없습니다: ${missingSettings}`,
+      readiness.reasons.map((reason) => ({ field: "interviewSettings", reason })),
+    );
   }
 
   async listRecruitments(user: CurrentUser, query: ListQueryDto) {
@@ -1055,6 +1109,17 @@ function parseEditablePostingStatus(value: string): PostingStatus {
     ]);
   }
   return value as PostingStatus;
+}
+
+function publicationReadinessReasonLabel(reason: InterviewPublicationReadiness["reasons"][number]): string {
+  const labels: Record<InterviewPublicationReadiness["reasons"][number], string> = {
+    CRITERIA_NOT_READY: "평가 기준",
+    QUESTION_GENERATION_POLICY_MISSING: "질문 생성 정책",
+    ACTIVE_QUESTION_SET_MISSING: "확정 질문 세트",
+    QUESTION_SET_RECONFIRMATION_REQUIRED: "최신 평가 기준에 맞는 질문 세트 재확정",
+    TIME_POLICY_MISSING: "면접 시간 설정",
+  };
+  return labels[reason];
 }
 
 function buildCopyTitle(title: string) {
