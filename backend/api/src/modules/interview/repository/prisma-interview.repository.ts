@@ -997,7 +997,11 @@ function parseAiJobAnswerId(inputRef: string | null): number | undefined {
   if (!inputRef) return undefined;
   try {
     const input = JSON.parse(inputRef) as Record<string, unknown>;
-    const answerId = Number(input.answerId);
+    const payload = input.payload;
+    const nestedAnswerId = payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>).answerId
+      : undefined;
+    const answerId = Number(nestedAnswerId ?? input.answerId);
     return Number.isInteger(answerId) && answerId > 0 ? answerId : undefined;
   } catch {
     return undefined;
