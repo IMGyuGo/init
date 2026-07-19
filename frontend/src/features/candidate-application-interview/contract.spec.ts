@@ -718,6 +718,13 @@ assert.equal(
   }),
   "최근 프로젝트에서 가장 어려웠던 기술적 문제는 무엇이었나요?",
 );
+assert.equal(
+  formatAiInterviewerQuestionPrompt({
+    questionVisible: true,
+    completionReady: true,
+  }),
+  "모든 질문에 답변했습니다.",
+);
 assert.deepEqual(
   clampCameraPipPosition(
     { x: 820, y: 640 },
