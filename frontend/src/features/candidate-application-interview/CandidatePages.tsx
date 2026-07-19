@@ -3425,6 +3425,7 @@ function InterviewRuntimePanel({
   const [reansweringQuestionId, setReansweringQuestionId] = useState<number | null>(null);
   const [reansweredQuestionIds, setReansweredQuestionIds] = useState<Set<number>>(() => new Set());
   const answeredQuestionIdsRef = useRef<Set<number>>(new Set());
+  const completionReadyRef = useRef(false);
   const savingQuestionIdsRef = useRef<Set<number>>(new Set());
   const interviewerStageRef = useRef<HTMLDivElement | null>(null);
   const cameraPipRef = useRef<HTMLDivElement | null>(null);
@@ -3675,6 +3676,7 @@ function InterviewRuntimePanel({
     nextQuestion: RuntimeQuestionView | undefined,
     completionReady: boolean,
   ) {
+    completionReadyRef.current = completionReady;
     updateData((current) => {
       const questions = current.questions.questions.map((question) => {
         if (nextQuestion && question.questionId === nextQuestion.questionId) {
@@ -3704,6 +3706,13 @@ function InterviewRuntimePanel({
         },
       };
     });
+  }
+
+  function markInterviewQuestionFlowComplete() {
+    completionReadyRef.current = true;
+    stopQuestionSpeech();
+    setQuestionSpeechStatus("모든 질문에 답변했습니다.");
+    setQuestionSpeechCompleted(true);
   }
 
   function prepareAuthoritativeNextQuestion(nextQuestion: RuntimeQuestionView | undefined) {
@@ -3875,6 +3884,12 @@ function InterviewRuntimePanel({
 
   const speakCurrentQuestion = useCallback(
     (source: "auto" | "manual", options: { forceBrowserSpeech?: boolean; browserRetryCount?: number } = {}) => {
+      if (completionReadyRef.current) {
+        setQuestionSpeechStatus("모든 질문에 답변했습니다.");
+        setQuestionSpeechCompleted(true);
+        return;
+      }
+
       if (!currentQuestion) {
         setQuestionSpeechStatus("현재 질문을 불러올 수 없습니다.");
         setQuestionSpeechCompleted(true);
@@ -7215,6 +7230,9 @@ function InterviewRuntimePanel({
               ? "마지막 답변 처리가 완료되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
               : "답변 처리가 완료되었습니다. 다음 질문으로 이동해주세요.",
           );
+          if (isLastFollowUpQuestion) {
+            markInterviewQuestionFlowComplete();
+          }
           completeAnswerSubmitToNextReadyMetric({
             questionId: savedAnswer.questionId,
             outcome: isLastFollowUpQuestion ? "INTERVIEW_COMPLETE_READY" : "NEXT_QUESTION_READY",
@@ -7465,6 +7483,9 @@ function InterviewRuntimePanel({
             ? "마지막 답변 처리가 완료되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
             : "답변 처리가 완료되었습니다. 다음 질문으로 이동해주세요.",
         );
+        if (isLastFollowUpQuestion) {
+          markInterviewQuestionFlowComplete();
+        }
         completeAnswerSubmitToNextReadyMetric({
           questionId: savedAnswer.questionId,
           processLogId: sttProcessLogId,
@@ -7845,6 +7866,7 @@ function InterviewRuntimePanel({
   const interviewerQuestionPrompt = formatAiInterviewerQuestionPrompt({
     question: currentQuestion,
     questionVisible: subtitlesEnabled,
+    questionFlowComplete: completionReadyRef.current,
   });
   const interviewerSpeechText = currentQuestion?.content ?? "";
   const cameraPipStyle = cameraPipPosition && runtimePrimaryScreen === "interviewer"
@@ -7881,6 +7903,7 @@ function InterviewRuntimePanel({
     setupCompleted,
     completionReady: data?.runtime.completionReady,
     hasCurrentQuestion: Boolean(currentQuestion),
+    questionFlowComplete: completionReadyRef.current,
     questionSpeechPlaying,
     questionSpeechSupported,
     recording,

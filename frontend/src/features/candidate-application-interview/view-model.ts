@@ -240,6 +240,7 @@ export interface InterviewerSessionStateInput {
   setupCompleted: boolean;
   completionReady?: boolean;
   hasCurrentQuestion: boolean;
+  questionFlowComplete?: boolean;
   questionSpeechPlaying: boolean;
   questionSpeechSupported: boolean;
   recording: boolean;
@@ -975,10 +976,13 @@ export function getAiInterviewerProfile(mode: InterviewDeviceSetupMode): AiInter
 export function formatAiInterviewerQuestionPrompt({
   question,
   questionVisible,
+  questionFlowComplete = false,
 }: {
   question?: Pick<RuntimeQuestionView, "content" | "audioPrompt">;
   questionVisible: boolean;
+  questionFlowComplete?: boolean;
 }): string {
+  if (questionFlowComplete) return "모든 질문에 답변했습니다.";
   if (!question) return "현재 질문을 불러올 수 없습니다.";
   if (questionVisible) return toRuntimeQuestionSpeechText(question);
 
@@ -1471,6 +1475,7 @@ export function getInterviewerSessionState({
   setupCompleted,
   completionReady = false,
   hasCurrentQuestion,
+  questionFlowComplete = false,
   questionSpeechPlaying,
   questionSpeechSupported,
   recording,
@@ -1486,6 +1491,18 @@ export function getInterviewerSessionState({
       description: "장치 점검과 면접 시작을 기다리고 있습니다.",
       tone: "neutral",
       stageClassName: "",
+      avatarClassName: "",
+    });
+  }
+
+  if (questionFlowComplete) {
+    return createInterviewerSessionState({
+      mode,
+      phase: "CONNECTING",
+      label: "면접 답변 완료",
+      description: "모든 질문에 답변했습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요.",
+      tone: "neutral",
+      stageClassName: "ai-interviewer-stage--connecting",
       avatarClassName: "",
     });
   }
