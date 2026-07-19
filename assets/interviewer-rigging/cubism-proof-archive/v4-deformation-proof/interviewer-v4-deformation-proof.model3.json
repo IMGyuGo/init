@@ -1,0 +1,10 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "interviewer-v4-deformation-proof.moc3",
+		"Textures": [
+			"interviewer-v4-deformation-proof.2048/texture_00.png"
+		],
+		"DisplayInfo": "interviewer-v4-deformation-proof.cdi3.json"
+	}
+}

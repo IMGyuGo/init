@@ -16,9 +16,9 @@ const result = await auditCubismMouthRig({
   manifestPath: resolve(projectRoot, "assets/interviewer-rigging/existing-look-cubism-v5/manifest.json"),
   model3JsonPath: resolve(
     projectRoot,
-    "frontend/public/assets/interviewer-cubism/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.model3.json",
+    "assets/interviewer-rigging/cubism-proof-archive/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.model3.json",
   ),
-  coreScriptPath: resolve(projectRoot, "frontend/public/assets/interviewer-cubism/sdk/live2dcubismcore.min.js"),
+  coreScriptPath: resolve(projectRoot, "assets/interviewer-rigging/cubism-proof-archive/sdk/live2dcubismcore.min.js"),
 });
 
 assert.equal(result.parameter.id, "ParamMouthOpenY");
@@ -51,9 +51,9 @@ const v6Result = await auditCubismMouthRig({
   manifestPath: resolve(projectRoot, "assets/interviewer-rigging/existing-look-cubism-v6/manifest.json"),
   model3JsonPath: resolve(
     projectRoot,
-    "frontend/public/assets/interviewer-cubism/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.model3.json",
+    "assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.model3.json",
   ),
-  coreScriptPath: resolve(projectRoot, "frontend/public/assets/interviewer-cubism/sdk/live2dcubismcore.min.js"),
+  coreScriptPath: resolve(projectRoot, "assets/interviewer-rigging/cubism-proof-archive/sdk/live2dcubismcore.min.js"),
 });
 
 for (const name of ["MouthUpperLip", "MouthLowerLip", "MouthInterior"]) {
@@ -74,4 +74,4 @@ assert.deepEqual(v6Result.parameterBindings.deformers, [
 ]);
 
 const frontendPackage = JSON.parse(await readFile(resolve(projectRoot, "frontend/package.json"), "utf8"));
-assert.match(frontendPackage.scripts["test:candidate-avatar"], /audit-cubism-mouth-rig\.spec\.mjs/);
+assert.doesNotMatch(frontendPackage.scripts["test:candidate-avatar"], /Cubism|cubism/);

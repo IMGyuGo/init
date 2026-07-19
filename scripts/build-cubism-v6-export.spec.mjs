@@ -36,7 +36,7 @@ test("production: V6 base keeps the natural closed mouth without baked semantic 
   const [exportedBase, naturalMaster, coherentOpenMouth] = await Promise.all([
     readFile(resolve(
       REPOSITORY_ROOT,
-      "frontend/public/assets/interviewer-cubism/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof-base.png",
+      "assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof-base.png",
     )),
     readFile(resolve(REPOSITORY_ROOT, "assets/interviewer-rigging/existing-look/normalized/master.png")),
     readFile(resolve(

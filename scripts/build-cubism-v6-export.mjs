@@ -12,11 +12,11 @@ const V5_ASSET_ROOT = resolve(PROJECT_ROOT, "assets/interviewer-rigging/existing
 const V6_ASSET_ROOT = resolve(PROJECT_ROOT, "assets/interviewer-rigging/existing-look-cubism-v6");
 const V5_EXPORT_ROOT = resolve(
   PROJECT_ROOT,
-  "frontend/public/assets/interviewer-cubism/v5-layered-mouth-proof",
+  "assets/interviewer-rigging/cubism-proof-archive/v5-layered-mouth-proof",
 );
 const V6_EXPORT_ROOT = resolve(
   PROJECT_ROOT,
-  "frontend/public/assets/interviewer-cubism/v6-coherent-mouth-proof",
+  "assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof",
 );
 const V5_MODEL_NAME = "interviewer-v5-layered-mouth-proof";
 const V6_MODEL_NAME = "interviewer-v6-coherent-mouth-proof";
@@ -252,18 +252,18 @@ export async function buildCubismV6Export() {
       layers: layerRecords,
     },
     webExport: {
-      directory: "frontend/public/assets/interviewer-cubism/v6-coherent-mouth-proof",
+      directory: "assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof",
       modelName: V6_MODEL_NAME,
       model3JsonPath:
-        `frontend/public/assets/interviewer-cubism/v6-coherent-mouth-proof/${V6_MODEL_NAME}.model3.json`,
+        `assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof/${V6_MODEL_NAME}.model3.json`,
       moc3Path:
-        `frontend/public/assets/interviewer-cubism/v6-coherent-mouth-proof/${V6_MODEL_NAME}.moc3`,
+        `assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof/${V6_MODEL_NAME}.moc3`,
       baseImagePath:
-        `frontend/public/assets/interviewer-cubism/v6-coherent-mouth-proof/${V6_MODEL_NAME}-base.png`,
+        `assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof/${V6_MODEL_NAME}-base.png`,
       displayInfoPath:
-        `frontend/public/assets/interviewer-cubism/v6-coherent-mouth-proof/${V6_MODEL_NAME}.cdi3.json`,
+        `assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof/${V6_MODEL_NAME}.cdi3.json`,
       texturePath:
-        `frontend/public/assets/interviewer-cubism/v6-coherent-mouth-proof/${V6_MODEL_NAME}.2048/texture_00.png`,
+        `assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof/${V6_MODEL_NAME}.2048/texture_00.png`,
       textureSize: TEXTURE_SIZE,
       fileReferences: model3.FileReferences,
     },

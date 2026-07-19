@@ -37,4 +37,3 @@
 5. `powershell -ExecutionPolicy Bypass -File scripts\check-local.ps1 -Role D`
 6. 실제 면접 화면에서 Realtime 음성의 문장 초반·중간 무음·문장 후반 입 모양을 확인하고 브라우저 콘솔 오류를 확인한다.
 7. 기존 Cubism 기대값이나 사용자 소유 migration 때문에 별도 검증이 실패하면 이번 변경과 분리해 결과에 기록한다.
-

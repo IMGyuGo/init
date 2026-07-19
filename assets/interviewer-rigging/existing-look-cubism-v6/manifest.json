@@ -21,9 +21,9 @@
     "recordedAt": "2026-07-16T22:52:42+09:00",
     "paths": {
       "cmo3": "assets/interviewer-rigging/existing-look-cubism-v5/interviewer-import-v5.cmo3",
-      "moc3": "frontend/public/assets/interviewer-cubism/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.moc3",
-      "model3": "frontend/public/assets/interviewer-cubism/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.model3.json",
-      "texture": "frontend/public/assets/interviewer-cubism/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.2048/texture_00.png"
+      "moc3": "assets/interviewer-rigging/cubism-proof-archive/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.moc3",
+      "model3": "assets/interviewer-rigging/cubism-proof-archive/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.model3.json",
+      "texture": "assets/interviewer-rigging/cubism-proof-archive/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.2048/texture_00.png"
     },
     "sha256": {
       "cmo3": "e7227a20b4d1729e6ae1d3197c0698b9876d082528e8bada12fd4a602295ac08",
@@ -249,7 +249,7 @@
   },
   "textureRepack": {
     "textureSize": 2048,
-    "sourceTexture": "frontend/public/assets/interviewer-cubism/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.2048/texture_00.png",
+    "sourceTexture": "assets/interviewer-rigging/cubism-proof-archive/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.2048/texture_00.png",
     "layers": {
       "MouthSkinUnderlay": {
         "layerName": "mouth-skin-underlay",
@@ -326,13 +326,13 @@
     }
   },
   "webExport": {
-    "directory": "frontend/public/assets/interviewer-cubism/v6-coherent-mouth-proof",
+    "directory": "assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof",
     "modelName": "interviewer-v6-coherent-mouth-proof",
-    "model3JsonPath": "frontend/public/assets/interviewer-cubism/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.model3.json",
-    "moc3Path": "frontend/public/assets/interviewer-cubism/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.moc3",
-    "baseImagePath": "frontend/public/assets/interviewer-cubism/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof-base.png",
-    "displayInfoPath": "frontend/public/assets/interviewer-cubism/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.cdi3.json",
-    "texturePath": "frontend/public/assets/interviewer-cubism/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.2048/texture_00.png",
+    "model3JsonPath": "assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.model3.json",
+    "moc3Path": "assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.moc3",
+    "baseImagePath": "assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof-base.png",
+    "displayInfoPath": "assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.cdi3.json",
+    "texturePath": "assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.2048/texture_00.png",
     "textureSize": 2048,
     "fileReferences": {
       "Moc": "interviewer-v6-coherent-mouth-proof.moc3",

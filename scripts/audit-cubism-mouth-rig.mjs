@@ -162,9 +162,9 @@ export async function auditCubismMouthRig({
   manifestPath = resolve(PROJECT_ROOT, "assets/interviewer-rigging/existing-look-cubism-v5/manifest.json"),
   model3JsonPath = resolve(
     PROJECT_ROOT,
-    "frontend/public/assets/interviewer-cubism/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.model3.json",
+    "assets/interviewer-rigging/cubism-proof-archive/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.model3.json",
   ),
-  coreScriptPath = resolve(PROJECT_ROOT, "frontend/public/assets/interviewer-cubism/sdk/live2dcubismcore.min.js"),
+  coreScriptPath = resolve(PROJECT_ROOT, "assets/interviewer-rigging/cubism-proof-archive/sdk/live2dcubismcore.min.js"),
 } = {}) {
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   const model3 = JSON.parse(await readFile(model3JsonPath, "utf8"));
