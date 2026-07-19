@@ -152,6 +152,10 @@ export class AiInterviewRequestDto {
   @IsOptional()
   @IsString()
   documentSummary?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  qualityCheckOnly?: boolean;
 }
 
 export class CreateRealtimeInterviewSessionDto {

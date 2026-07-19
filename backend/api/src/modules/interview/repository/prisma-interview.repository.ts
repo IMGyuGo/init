@@ -580,7 +580,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
     const logs = await this.prisma.aiProcessLog.findMany({
       where: {
         sessionId: BigInt(sessionId),
-        processType: "STT",
+        processType: { in: ["STT", "FOLLOW_UP"] },
         status: "FAILED",
         failureCategory: "REANSWER_REQUIRED",
       },
@@ -601,6 +601,29 @@ export class PrismaInterviewRepository implements InterviewRepository {
       where: {
         sessionId: BigInt(sessionId),
         processType: "STT",
+      },
+      orderBy: [{ createdAt: "desc" }, { processLogId: "desc" }],
+    });
+    return logs
+      .filter((log) => parseAiJobAnswerId(log.inputRef) === answerId)
+      .map((log) => ({
+        processLogId: Number(log.processLogId),
+        status: log.status,
+        failureCategory: log.failureCategory ?? undefined,
+        failureReason: log.failureReason ?? undefined,
+        createdAt: log.createdAt.toISOString(),
+        completedAt: log.completedAt?.toISOString(),
+      }));
+  }
+
+  async listTranscriptProcesses(sessionId: number, answerId: number): Promise<InterviewSttProcessRecord[]> {
+    const logs = await this.prisma.aiProcessLog.findMany({
+      where: {
+        sessionId: BigInt(sessionId),
+        OR: [
+          { processType: "STT" },
+          { processType: "FOLLOW_UP", status: "FAILED", failureCategory: "REANSWER_REQUIRED" },
+        ],
       },
       orderBy: [{ createdAt: "desc" }, { processLogId: "desc" }],
     });

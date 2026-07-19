@@ -311,7 +311,7 @@ export class InMemoryInterviewRepository implements InterviewRepository {
   }
 
   listReanswerRequiredFailures(sessionId: number, answerId: number): ReanswerRequiredFailure[] {
-    return this.listSttProcesses(sessionId, answerId)
+    return this.listTranscriptProcesses(sessionId, answerId)
       .filter((process) => process.status === "FAILED" && process.failureCategory === "REANSWER_REQUIRED")
       .map((process) => ({
         processLogId: process.processLogId,
@@ -326,6 +326,10 @@ export class InMemoryInterviewRepository implements InterviewRepository {
       .filter((process) => process.sessionId === sessionId && process.answerId === answerId)
       .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt) || right.processLogId - left.processLogId)
       .map(({ sessionId: _sessionId, answerId: _answerId, ...process }) => ({ ...process }));
+  }
+
+  listTranscriptProcesses(sessionId: number, answerId: number): InterviewSttProcessRecord[] {
+    return this.listSttProcesses(sessionId, answerId);
   }
 
   updateAnswer(input: CreateInterviewAnswerInput & { answerId: number }): InterviewAnswer {

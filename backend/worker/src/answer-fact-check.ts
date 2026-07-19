@@ -54,6 +54,7 @@ export type AnswerFactCheckPrecheckRecord = Omit<
 >;
 
 export interface AnswerFactCheckPrecheckExecution {
+  transcriptUsability?: "USABLE" | "UNUSABLE";
   record: AnswerFactCheckPrecheckRecord;
   usage?: AnswerFactCheckExecution["usage"];
 }
@@ -75,6 +76,7 @@ export async function evaluateAnswerFactCheck(
     const completedAt = now();
     const claims = result.claims.map((claim) => toStoredClaim(claim, options.input));
     return {
+      transcriptUsability: result.transcriptUsability ?? "USABLE",
       record: {
         answerId: options.input.answerId,
         providerStatus: "COMPLETED",

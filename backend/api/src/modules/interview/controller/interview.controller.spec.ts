@@ -549,7 +549,7 @@ test("openai realtime session reads client supplied speech events without automa
   }
 });
 
-test("REANSWER_REQUIRED allows replacing the current answer once without creating a new answer", async () => {
+test("REANSWER_REQUIRED allows replacing a transcript-bearing answer once without creating a new answer", async () => {
   const repository = new InMemoryCandidateRepository();
   const candidateService = new CandidateService(repository);
   const interviewRepository = new InMemoryInterviewRepository();
@@ -574,6 +574,10 @@ test("REANSWER_REQUIRED allows replacing the current answer once without creatin
   });
   const originalAnswerId = answer.data.answer.answerId;
   const originalAudioFileId = answer.data.answer.audioFileId;
+  interviewRepository.saveAnswerTranscript(
+    originalAnswerId,
+    "의미 품질 검사 전 저장된 손상 transcript입니다.",
+  );
 
   interviewRepository.saveReanswerRequiredFailureForTest({
     processLogId: 9101,
@@ -582,6 +586,15 @@ test("REANSWER_REQUIRED allows replacing the current answer once without creatin
     createdAt: new Date(Date.parse(answer.data.answer.submittedAt) + 1000).toISOString(),
     failureReason: "transcript was empty",
   });
+  const firstFailureQuestions = await controller.listMockQuestions(
+    validCandidateRequest,
+    String(started.data.sessionId),
+  );
+  const firstFailureQuestion = firstFailureQuestions.data.questions.find(
+    (question) => question.questionId === firstQuestionId,
+  );
+  assert.equal(firstFailureQuestion?.sttStatus, "REANSWER_AVAILABLE");
+  assert.equal(firstFailureQuestion?.reanswerAvailable, true);
 
   const replaced = await controller.saveMockAnswer(validCandidateRequest, String(started.data.sessionId), {
     questionId: firstQuestionId,
@@ -606,6 +619,15 @@ test("REANSWER_REQUIRED allows replacing the current answer once without creatin
     createdAt: new Date(Date.parse(replaced.data.answer.submittedAt) + 1000).toISOString(),
     failureReason: "transcript was still empty after reanswer",
   });
+  const exhaustedQuestions = await controller.listMockQuestions(
+    validCandidateRequest,
+    String(started.data.sessionId),
+  );
+  const exhaustedQuestion = exhaustedQuestions.data.questions.find(
+    (question) => question.questionId === firstQuestionId,
+  );
+  assert.equal(exhaustedQuestion?.sttStatus, "UNAVAILABLE");
+  assert.equal(exhaustedQuestion?.reanswerAvailable, false);
 
   await assertInterviewHttpError(
     () =>

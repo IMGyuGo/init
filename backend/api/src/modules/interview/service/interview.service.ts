@@ -959,12 +959,6 @@ export class InterviewService {
   }
 
   private async assertReanswerAllowed(session: RuntimeInterviewSession, answer: InterviewAnswer): Promise<void> {
-    if (answer.transcript?.trim()) {
-      throw new CandidateDomainError("COMMON_CONFLICT", "Reanswer is allowed only when transcript is missing.", 409, [
-        { field: "answerId", reason: "answer already has transcript" },
-      ]);
-    }
-
     const failures = await this.interviewRepository.listReanswerRequiredFailures(session.sessionId, answer.answerId);
     if (failures.length !== 1) {
       throw new CandidateDomainError("COMMON_CONFLICT", "Reanswer is allowed only once after REANSWER_REQUIRED.", 409, [
@@ -1050,6 +1044,7 @@ export class InterviewService {
       transcript,
       jobDescription,
       documentSummary,
+      ...(requestBody.qualityCheckOnly === true ? { qualityCheckOnly: true } : {}),
       sessionId: session.sessionId,
       ...(answer.ncsEvaluationSnapshot?.ncsBindings?.length
         ? {
@@ -1239,16 +1234,21 @@ export class InterviewService {
     answer: InterviewAnswer | undefined,
   ): Promise<{ status: InterviewAnswerSttStatus; failureReason?: string }> {
     if (!answer) return { status: "NOT_SUBMITTED" };
-    if (answer.transcript?.trim()) return { status: "AVAILABLE" };
 
-    const processes = await this.interviewRepository.listSttProcesses(session.sessionId, answer.answerId);
+    const processes = await this.interviewRepository.listTranscriptProcesses(session.sessionId, answer.answerId);
     const submittedAt = Date.parse(answer.submittedAt);
     const currentAttempt = processes.filter((process) => Date.parse(process.createdAt) >= submittedAt);
     const latest = currentAttempt[0];
-    if (!latest || latest.status === "PENDING" || latest.status === "RUNNING") {
+    if (!latest) {
+      return answer.transcript?.trim() ? { status: "AVAILABLE" } : { status: "PENDING" };
+    }
+    if (latest.status === "PENDING" || latest.status === "RUNNING") {
       return { status: "PENDING" };
     }
     if (latest.status === "COMPLETED") {
+      if (answer.transcript?.trim()) {
+        return { status: "AVAILABLE" };
+      }
       return {
         status: "PROCESSING_FAILED",
         failureReason: "STT completed without a transcript.",

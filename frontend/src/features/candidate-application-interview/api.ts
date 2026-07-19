@@ -518,6 +518,7 @@ export interface AiInterviewRequest {
   transcript?: string;
   jobDescription?: string;
   documentSummary?: string;
+  qualityCheckOnly?: boolean;
 }
 
 export interface AiInterviewHandoffResponse {

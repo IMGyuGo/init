@@ -37,8 +37,13 @@ import {
   NcsQuestionMode,
 } from "./ncs-question-alignment.adapter";
 import { sanitizePostingDraftHtml } from "./posting-draft-html";
-import { NonRetryableAiWorkerFailure, RegenerationRequiredAiWorkerFailure } from "./worker-errors";
+import {
+  NonRetryableAiWorkerFailure,
+  ReanswerRequiredAiWorkerFailure,
+  RegenerationRequiredAiWorkerFailure,
+} from "./worker-errors";
 import { AiTaskHandler, AiTaskResult, AiWorkerJob } from "./worker.types";
+import { transcriptHardGateFailureReason } from "./transcript-usability";
 
 interface WorkerInput {
   kind?: string;
@@ -161,17 +166,55 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     const answerId = positiveNumber(payload.answerId, "answerId");
     const previousQuestion = requiredText(payload.previousQuestion, "previousQuestion");
     const transcript = requiredText(payload.transcript, "transcript");
+    const hardGateFailureReason = transcriptHardGateFailureReason(transcript);
+    if (hardGateFailureReason) {
+      throw new ReanswerRequiredAiWorkerFailure(hardGateFailureReason);
+    }
     const policy = kind.startsWith("MOCK") ? "MOCK" : "RECRUITING";
     const jobDescription = typeof payload.jobDescription === "string" ? payload.jobDescription : undefined;
     const documentSummary = typeof payload.documentSummary === "string" ? payload.documentSummary : undefined;
     const profileContext = profileContextOf(payload.profileContext);
     const usageScope = payload.usageScope === "DEMO_PRESET" ? "DEMO_PRESET" : "STANDARD";
     const generationSource = optionalText(payload.generationSource);
+    const qualityCheckOnly = payload.qualityCheckOnly === true;
     if (policy === "RECRUITING" && !hasText(jobDescription) && !hasText(documentSummary)) {
       throw new NonRetryableAiWorkerFailure("jobDescription or documentSummary is required");
     }
 
     const ncsPlan = policy === "RECRUITING" ? planNcsFollowUp(payload) : undefined;
+    const factPlan = ncsPlan
+      ? await planFactClarification(payload, factCheckContextOf(payload.factCheckContext, {
+          ...this.factCheckOptions,
+          jobDescription,
+          documentSummary,
+        }))
+      : undefined;
+    if (factPlan?.transcriptUsability === "UNUSABLE") {
+      throw new ReanswerRequiredAiWorkerFailure(
+        "음성 인식 결과의 문맥을 신뢰하기 어려워 답변을 평가할 수 없습니다.",
+      );
+    }
+    if (qualityCheckOnly) {
+      return {
+        outputRef: JSON.stringify({
+          sessionId,
+          answerId,
+          policy,
+          usageScope,
+          qualityCheckOnly: true,
+          transcriptUsability: factPlan?.transcriptUsability ?? "CHECK_UNAVAILABLE",
+          followUpRequired: false,
+        }),
+        guardrail: { result: "PASS", reason: null },
+        usage: factPlan?.usage ? createAiProcessUsage({
+          modelName: factPlan.usage.modelName,
+          inputTokens: factPlan.usage.inputTokens,
+          outputTokens: factPlan.usage.outputTokens,
+          metadata: { processType: "FOLLOW_UP", stage: "TRANSCRIPT_QUALITY_CHECK" },
+        }) : undefined,
+        finalSave: async () => undefined,
+      };
+    }
     if (usageScope === "DEMO_PRESET" && generationSource && generationSource !== "RESUME_PERSONALIZED") {
       return {
         outputRef: JSON.stringify({ sessionId, answerId, policy, usageScope, followUpRequired: false }),
@@ -181,13 +224,6 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
         }),
       };
     }
-    const factPlan = ncsPlan
-      ? await planFactClarification(payload, factCheckContextOf(payload.factCheckContext, {
-          ...this.factCheckOptions,
-          jobDescription,
-          documentSummary,
-        }))
-      : undefined;
     if (usageScope !== "DEMO_PRESET" && ncsPlan && !ncsPlan.required && !factPlan?.required) {
       return {
         outputRef: JSON.stringify({

@@ -9,11 +9,15 @@ import {
 import {
   assertAnswerFactCheckInput,
   parseAnswerFactCheckContent,
+  parseAnswerFactCheckResponse,
 } from "./openai-answer-fact-check.provider";
 
 for (const golden of ANSWER_FACT_CHECK_GOLDEN_CASES) {
   test(`fact-check golden: ${golden.name}`, () => {
-    const parsed = parseAnswerFactCheckContent(JSON.stringify({ claims: golden.claims }), golden.input);
+    const parsed = parseAnswerFactCheckContent(
+      JSON.stringify({ transcriptUsability: "USABLE", claims: golden.claims }),
+      golden.input,
+    );
     assert.deepEqual(parsed, golden.claims);
     assert.equal(determineFactCheckGate(parsed), golden.expectedGateStatus);
   });
@@ -23,7 +27,7 @@ test("fact-check rejects unsupported claims without supplied evidence", () => {
   const golden = ANSWER_FACT_CHECK_GOLDEN_CASES[1]!;
   const claim = { ...golden.claims[0]!, evidenceIds: [] };
   assert.throws(
-    () => parseAnswerFactCheckContent(JSON.stringify({ claims: [claim] }), golden.input),
+    () => parseAnswerFactCheckContent(JSON.stringify({ transcriptUsability: "USABLE", claims: [claim] }), golden.input),
     AnswerFactCheckInvalidOutputError,
   );
 });
@@ -32,7 +36,7 @@ test("fact-check rejects model assertions that cite unknown evidence", () => {
   const golden = ANSWER_FACT_CHECK_GOLDEN_CASES[0]!;
   const claim = { ...golden.claims[0]!, evidenceIds: ["MODEL_MEMORY"] };
   assert.throws(
-    () => parseAnswerFactCheckContent(JSON.stringify({ claims: [claim] }), golden.input),
+    () => parseAnswerFactCheckContent(JSON.stringify({ transcriptUsability: "USABLE", claims: [claim] }), golden.input),
     /unknown evidence ID/,
   );
 });
@@ -40,7 +44,7 @@ test("fact-check rejects model assertions that cite unknown evidence", () => {
 test("fact-check normalizes model offset drift for a unique exact claim", () => {
   const golden = ANSWER_FACT_CHECK_GOLDEN_CASES[0]!;
   const claim = { ...golden.claims[0]!, startOffset: 1 };
-  const parsed = parseAnswerFactCheckContent(JSON.stringify({ claims: [claim] }), golden.input);
+  const parsed = parseAnswerFactCheckContent(JSON.stringify({ transcriptUsability: "USABLE", claims: [claim] }), golden.input);
   assert.equal(parsed[0]?.startOffset, golden.claims[0]?.startOffset);
   assert.equal(parsed[0]?.endOffset, golden.claims[0]?.endOffset);
 });
@@ -49,14 +53,14 @@ test("fact-check rejects claims that cannot be mapped to one exact answer segmen
   const golden = ANSWER_FACT_CHECK_GOLDEN_CASES[0]!;
   const claim = { ...golden.claims[0]!, claimText: "원문에 없는 주장", startOffset: 0, endOffset: 8 };
   assert.throws(
-    () => parseAnswerFactCheckContent(JSON.stringify({ claims: [claim] }), golden.input),
+    () => parseAnswerFactCheckContent(JSON.stringify({ transcriptUsability: "USABLE", claims: [claim] }), golden.input),
     /unique exact answer segment/,
   );
 
   const duplicatedText = `${golden.input.answerText} ${golden.input.answerText}`;
   assert.throws(
     () => parseAnswerFactCheckContent(
-      JSON.stringify({ claims: [{ ...golden.claims[0], startOffset: 1 }] }),
+      JSON.stringify({ transcriptUsability: "USABLE", claims: [{ ...golden.claims[0], startOffset: 1 }] }),
       { ...golden.input, answerText: duplicatedText },
     ),
     /unique exact answer segment/,
@@ -66,12 +70,30 @@ test("fact-check rejects claims that cannot be mapped to one exact answer segmen
 test("fact-check rejects strict schema violations", () => {
   const golden = ANSWER_FACT_CHECK_GOLDEN_CASES[0]!;
   assert.throws(
-    () => parseAnswerFactCheckContent(JSON.stringify({ claims: golden.claims, gateStatus: "PASS_THROUGH" }), golden.input),
+    () => parseAnswerFactCheckContent(JSON.stringify({ transcriptUsability: "USABLE", claims: golden.claims, gateStatus: "PASS_THROUGH" }), golden.input),
     /must contain exactly/,
   );
   assert.throws(
-    () => parseAnswerFactCheckContent(JSON.stringify({ claims: [{ ...golden.claims[0], confidence: "HIGH" }] }), golden.input),
+    () => parseAnswerFactCheckContent(JSON.stringify({ transcriptUsability: "USABLE", claims: [{ ...golden.claims[0], confidence: "HIGH" }] }), golden.input),
     /confidence must be between/,
+  );
+});
+
+test("fact-check accepts an unusable transcript only without claims", () => {
+  const golden = ANSWER_FACT_CHECK_GOLDEN_CASES[0]!;
+  assert.deepEqual(
+    parseAnswerFactCheckResponse(
+      JSON.stringify({ transcriptUsability: "UNUSABLE", claims: [] }),
+      golden.input,
+    ),
+    { transcriptUsability: "UNUSABLE", claims: [] },
+  );
+  assert.throws(
+    () => parseAnswerFactCheckResponse(
+      JSON.stringify({ transcriptUsability: "UNUSABLE", claims: golden.claims }),
+      golden.input,
+    ),
+    /must not produce claims/,
   );
 });
 

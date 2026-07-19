@@ -282,7 +282,6 @@ const REALTIME_SPEECH_RESPONSE_TIMEOUT_MS = 30000;
 const BROWSER_SPEECH_START_TIMEOUT_MS = 2500;
 const BROWSER_SPEECH_MIN_COMPLETION_TIMEOUT_MS = 8000;
 const BROWSER_SPEECH_MAX_COMPLETION_TIMEOUT_MS = 45000;
-const MIN_STT_TRANSCRIPT_MEANINGFUL_LENGTH = 10;
 const RUNTIME_PIP_RESERVED_TOP_HEIGHT = 96;
 const MAX_INTERVIEWER_SESSION_EVENTS = 40;
 const questionTypeOptions: QuestionType[] = ["INTRO", "TECHNICAL", "EXPERIENCE", "SITUATION", "CLOSING"];
@@ -7211,34 +7210,23 @@ function InterviewRuntimePanel({
           ? savedAnswer.transcript.trim()
           : "";
       if (realtimeTranscript) {
-        const transcriptRetryReason = getInterviewTranscriptRetryReason(realtimeTranscript);
         const answerWithTranscript = { ...savedAnswer, transcript: realtimeTranscript };
-        if (transcriptRetryReason) {
-          setLastAnswer(answerWithTranscript);
-          setAutoAiPipeline((current) => ({
-            answerId: savedAnswer.answerId,
-            ...current,
-            sttStatus: "COMPLETED",
-            followUpStatus: "FAILED",
-            transcript: realtimeTranscript,
-            error: transcriptRetryReason,
-          }));
-          setMessage(`${transcriptRetryReason} 다시 답변하기를 눌러 현재 질문을 다시 녹음해주세요.`);
-          completeAnswerSubmitToNextReadyMetric({
-            questionId: savedAnswer.questionId,
-            outcome: "REALTIME_STT_TRANSCRIPT_REANSWER_REQUIRED",
-            nextReady: false,
-          });
-          return;
-        }
 
         const isFollowUpAnswer = question?.questionType === "FOLLOW_UP";
+        const answeredQuestionIndex = question
+          ? data.questions.questions.findIndex((candidateQuestion) => candidateQuestion.questionId === question.questionId)
+          : -1;
+        const skipDemoCommonFollowUp =
+          mode === "recruiting" &&
+          data.runtime.sessionMode === "DEMO_PRESET" &&
+          answeredQuestionIndex === 0;
+        const qualityCheckOnly = isFollowUpAnswer || skipDemoCommonFollowUp;
         setLastAnswer(answerWithTranscript);
         setAutoAiPipeline((current) => ({
           answerId: savedAnswer.answerId,
           ...current,
           sttStatus: "COMPLETED",
-          followUpStatus: isFollowUpAnswer ? "IDLE" : "PENDING",
+          followUpStatus: "PENDING",
           transcript: realtimeTranscript,
           failureCategory: undefined,
           failureReason: undefined,
@@ -7246,30 +7234,7 @@ function InterviewRuntimePanel({
           error: undefined,
         }));
 
-        if (isFollowUpAnswer) {
-          const questionIndex = question
-            ? data.questions.questions.findIndex((candidateQuestion) => candidateQuestion.questionId === question.questionId)
-            : -1;
-          const isLastFollowUpQuestion = questionIndex >= 0
-            ? questionIndex >= data.runtime.totalQuestions - 1
-            : false;
-          setMessage(
-            isLastFollowUpQuestion
-              ? "마지막 답변 처리가 완료되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
-              : "답변 처리가 완료되었습니다. 다음 질문으로 이동해주세요.",
-          );
-          if (isLastFollowUpQuestion) {
-            markInterviewQuestionFlowComplete();
-          }
-          completeAnswerSubmitToNextReadyMetric({
-            questionId: savedAnswer.questionId,
-            outcome: isLastFollowUpQuestion ? "INTERVIEW_COMPLETE_READY" : "NEXT_QUESTION_READY",
-            nextReady: true,
-          });
-          return;
-        }
-
-        const followUpHandoff = await requestAiPipeline("FOLLOW_UP", answerWithTranscript);
+        const followUpHandoff = await requestAiPipeline("FOLLOW_UP", answerWithTranscript, qualityCheckOnly);
         followUpProcessLogId = followUpHandoff.processLogId;
         if (!followUpProcessLogId) {
           setAutoAiPipeline((current) => ({
@@ -7298,8 +7263,10 @@ function InterviewRuntimePanel({
 
         const followUpStatus = await pollAiJobUntilSettled(followUpProcessLogId, pollingPolicy);
         if (followUpStatus.status !== "COMPLETED") {
+          const reanswerRequired = followUpStatus.failure?.category === "REANSWER_REQUIRED";
           const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({
             failureCategory: followUpStatus.failure?.category,
+            reanswerAlreadyUsed: Boolean(question && reansweredQuestionIds.has(question.questionId)),
           });
           setAutoAiPipeline((current) => ({
             answerId: savedAnswer.answerId,
@@ -7315,6 +7282,14 @@ function InterviewRuntimePanel({
           }));
           if (shouldSkipFollowUp) {
             await syncRuntimeAfterFollowUpDecision();
+            if (reanswerRequired) {
+              setMessage("재답변에서도 음성 인식 내용을 확인하기 어려워 이 답변은 평가에서 제외됩니다. 다음 질문으로 이동해주세요.");
+            }
+          } else if (reanswerRequired) {
+            await syncRuntimeAfterFollowUpDecision();
+            setMessage(
+              `${followUpStatus.failure?.reason ?? "음성 인식 결과의 문맥을 확인하기 어렵습니다."} 다시 답변을 눌러 현재 질문을 한 번 더 녹음해주세요.`,
+            );
           }
           completeAnswerSubmitToNextReadyMetric({
             questionId: savedAnswer.questionId,
@@ -7322,6 +7297,44 @@ function InterviewRuntimePanel({
             followUpProcessLogId,
             outcome: shouldSkipFollowUp ? "REALTIME_STT_FOLLOW_UP_FAILED_CONTINUE" : "REALTIME_STT_FOLLOW_UP_FAILED_BLOCKED",
             nextReady: shouldSkipFollowUp,
+          });
+          return;
+        }
+
+        if (qualityCheckOnly) {
+          const isLastFollowUpQuestion = answeredQuestionIndex >= 0
+            ? answeredQuestionIndex >= data.runtime.totalQuestions - 1
+            : false;
+          await syncRuntimeAfterFollowUpDecision();
+          setAutoAiPipeline((current) => ({
+            answerId: savedAnswer.answerId,
+            ...current,
+            sttStatus: "COMPLETED",
+            followUpStatus: "COMPLETED",
+            followUpProcessLogId,
+            followUpSkipped: true,
+            error: undefined,
+          }));
+          setMessage(
+            skipDemoCommonFollowUp
+              ? "협업 공통 답변의 음성 인식 확인이 완료되었습니다. 개인화 질문으로 이동해주세요."
+              : isLastFollowUpQuestion
+                ? "마지막 답변 처리가 완료되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
+                : "답변 처리가 완료되었습니다. 다음 질문으로 이동해주세요.",
+          );
+          if (isLastFollowUpQuestion) {
+            markInterviewQuestionFlowComplete();
+          }
+          completeAnswerSubmitToNextReadyMetric({
+            questionId: savedAnswer.questionId,
+            processLogId: followUpProcessLogId,
+            followUpProcessLogId,
+            outcome: skipDemoCommonFollowUp
+              ? "REALTIME_STT_DEMO_COMMON_QUALITY_READY"
+              : isLastFollowUpQuestion
+                ? "INTERVIEW_COMPLETE_READY"
+                : "NEXT_QUESTION_READY",
+            nextReady: true,
           });
           return;
         }
@@ -7396,8 +7409,10 @@ function InterviewRuntimePanel({
 
       const sttStatus = await pollAiJobUntilSettled(sttProcessLogId, pollingPolicy);
       if (sttStatus.status !== "COMPLETED") {
+        const reanswerRequired = sttStatus.failure?.category === "REANSWER_REQUIRED";
         const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({
           failureCategory: sttStatus.failure?.category,
+          reanswerAlreadyUsed: Boolean(question && reansweredQuestionIds.has(question.questionId)),
         });
         setAutoAiPipeline((current) => ({
           answerId: savedAnswer.answerId,
@@ -7416,6 +7431,14 @@ function InterviewRuntimePanel({
         }));
         if (shouldSkipFollowUp) {
           await syncRuntimeAfterFollowUpDecision();
+          if (reanswerRequired) {
+            setMessage("재답변에서도 음성 인식 내용을 확인하기 어려워 이 답변은 평가에서 제외됩니다. 다음 질문으로 이동해주세요.");
+          }
+        } else if (reanswerRequired) {
+          await syncRuntimeAfterFollowUpDecision();
+          setMessage(
+            `${sttStatus.failure?.reason ?? "음성 인식 결과를 확인하기 어렵습니다."} 다시 답변을 눌러 해당 질문을 한 번 더 녹음해주세요.`,
+          );
         }
         completeAnswerSubmitToNextReadyMetric({
           questionId: savedAnswer.questionId,
@@ -7452,30 +7475,6 @@ function InterviewRuntimePanel({
       }
 
       const normalizedTranscript = transcript.trim();
-      const transcriptRetryReason = getInterviewTranscriptRetryReason(normalizedTranscript);
-      if (transcriptRetryReason) {
-        const answerWithTranscript = { ...savedAnswer, transcript: normalizedTranscript };
-        setLastAnswer(answerWithTranscript);
-        setAutoAiPipeline((current) => ({
-          answerId: savedAnswer.answerId,
-          ...current,
-          sttStatus: "COMPLETED",
-          followUpStatus: "FAILED",
-          sttProcessLogId,
-          transcript: normalizedTranscript,
-          error: transcriptRetryReason,
-        }));
-        setMessage(`${transcriptRetryReason} 다시 답변하기를 눌러 해당 질문을 다시 녹음해주세요.`);
-        completeAnswerSubmitToNextReadyMetric({
-          questionId: savedAnswer.questionId,
-          processLogId: sttProcessLogId,
-          sttProcessLogId,
-          outcome: "STT_TRANSCRIPT_REANSWER_REQUIRED",
-          nextReady: false,
-        });
-        return;
-      }
-
       const answerWithTranscript = { ...savedAnswer, transcript: normalizedTranscript };
       const isFollowUpAnswer = question?.questionType === "FOLLOW_UP";
       const answeredQuestionIndex = question
@@ -7485,13 +7484,14 @@ function InterviewRuntimePanel({
         mode === "recruiting" &&
         data.runtime.sessionMode === "DEMO_PRESET" &&
         answeredQuestionIndex === 0;
+      const qualityCheckOnly = isFollowUpAnswer || skipDemoCommonFollowUp;
       setLastAnswer(answerWithTranscript);
 
       setAutoAiPipeline((current) => ({
         answerId: savedAnswer.answerId,
         ...current,
         sttStatus: "COMPLETED",
-        followUpStatus: isFollowUpAnswer || skipDemoCommonFollowUp ? "IDLE" : "PENDING",
+        followUpStatus: "PENDING",
         sttProcessLogId,
         transcript: normalizedTranscript,
         failureCategory: undefined,
@@ -7500,31 +7500,7 @@ function InterviewRuntimePanel({
         error: undefined,
       }));
 
-      if (isFollowUpAnswer || skipDemoCommonFollowUp) {
-        const isLastFollowUpQuestion = answeredQuestionIndex >= 0
-          ? answeredQuestionIndex >= data.runtime.totalQuestions - 1
-          : false;
-        setMessage(
-          skipDemoCommonFollowUp
-            ? "협업 공통 답변이 저장되었습니다. 개인화 질문으로 이동해주세요."
-            : isLastFollowUpQuestion
-            ? "마지막 답변 처리가 완료되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
-            : "답변 처리가 완료되었습니다. 다음 질문으로 이동해주세요.",
-        );
-        if (isLastFollowUpQuestion) {
-          markInterviewQuestionFlowComplete();
-        }
-        completeAnswerSubmitToNextReadyMetric({
-          questionId: savedAnswer.questionId,
-          processLogId: sttProcessLogId,
-          sttProcessLogId,
-          outcome: skipDemoCommonFollowUp ? "DEMO_COMMON_NEXT_READY" : isLastFollowUpQuestion ? "INTERVIEW_COMPLETE_READY" : "NEXT_QUESTION_READY",
-          nextReady: true,
-        });
-        return;
-      }
-
-      const followUpHandoff = await requestAiPipeline("FOLLOW_UP", answerWithTranscript);
+      const followUpHandoff = await requestAiPipeline("FOLLOW_UP", answerWithTranscript, qualityCheckOnly);
       followUpProcessLogId = followUpHandoff.processLogId;
       if (!followUpProcessLogId) {
         setAutoAiPipeline((current) => ({
@@ -7555,8 +7531,10 @@ function InterviewRuntimePanel({
 
       const followUpStatus = await pollAiJobUntilSettled(followUpProcessLogId, pollingPolicy);
       if (followUpStatus.status !== "COMPLETED") {
+        const reanswerRequired = followUpStatus.failure?.category === "REANSWER_REQUIRED";
         const shouldSkipFollowUp = shouldContinueInterviewWithoutFollowUp({
           failureCategory: followUpStatus.failure?.category,
+          reanswerAlreadyUsed: Boolean(question && reansweredQuestionIds.has(question.questionId)),
         });
         setAutoAiPipeline((current) => ({
           answerId: savedAnswer.answerId,
@@ -7572,6 +7550,14 @@ function InterviewRuntimePanel({
         }));
         if (shouldSkipFollowUp) {
           await syncRuntimeAfterFollowUpDecision();
+          if (reanswerRequired) {
+            setMessage("재답변에서도 음성 인식 내용을 확인하기 어려워 이 답변은 평가에서 제외됩니다. 다음 질문으로 이동해주세요.");
+          }
+        } else if (reanswerRequired) {
+          await syncRuntimeAfterFollowUpDecision();
+          setMessage(
+            `${followUpStatus.failure?.reason ?? "음성 인식 결과의 문맥을 확인하기 어렵습니다."} 다시 답변을 눌러 해당 질문을 한 번 더 녹음해주세요.`,
+          );
         }
         completeAnswerSubmitToNextReadyMetric({
           questionId: savedAnswer.questionId,
@@ -7580,6 +7566,45 @@ function InterviewRuntimePanel({
           followUpProcessLogId,
           outcome: shouldSkipFollowUp ? "FOLLOW_UP_FAILED_CONTINUE" : "FOLLOW_UP_FAILED_BLOCKED",
           nextReady: shouldSkipFollowUp,
+        });
+        return;
+      }
+
+      if (qualityCheckOnly) {
+        const isLastFollowUpQuestion = answeredQuestionIndex >= 0
+          ? answeredQuestionIndex >= data.runtime.totalQuestions - 1
+          : false;
+        await syncRuntimeAfterFollowUpDecision();
+        setAutoAiPipeline((current) => ({
+          answerId: savedAnswer.answerId,
+          ...current,
+          sttStatus: current?.sttStatus ?? "COMPLETED",
+          followUpStatus: "COMPLETED",
+          followUpProcessLogId,
+          followUpSkipped: true,
+          error: undefined,
+        }));
+        setMessage(
+          skipDemoCommonFollowUp
+            ? "협업 공통 답변의 음성 인식 확인이 완료되었습니다. 개인화 질문으로 이동해주세요."
+            : isLastFollowUpQuestion
+              ? "마지막 답변 처리가 완료되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
+              : "답변 처리가 완료되었습니다. 다음 질문으로 이동해주세요.",
+        );
+        if (isLastFollowUpQuestion) {
+          markInterviewQuestionFlowComplete();
+        }
+        completeAnswerSubmitToNextReadyMetric({
+          questionId: savedAnswer.questionId,
+          processLogId: followUpProcessLogId,
+          sttProcessLogId,
+          followUpProcessLogId,
+          outcome: skipDemoCommonFollowUp
+            ? "DEMO_COMMON_QUALITY_READY"
+            : isLastFollowUpQuestion
+              ? "INTERVIEW_COMPLETE_READY"
+              : "NEXT_QUESTION_READY",
+          nextReady: true,
         });
         return;
       }
@@ -7646,13 +7671,20 @@ function InterviewRuntimePanel({
   async function requestAiPipeline(
     processType: "STT" | "FOLLOW_UP",
     targetAnswer: LastSavedAnswer,
+    qualityCheckOnly = false,
   ): Promise<AiInterviewHandoffResponse> {
     if (!data) {
       throw new Error("면접 런타임 정보를 찾지 못했습니다.");
     }
 
     const api = runtimeApi;
-    const request = buildAiInterviewRequest(processType, targetAnswer, data.runtime.jobDescription, mode);
+    const request = buildAiInterviewRequest(
+      processType,
+      targetAnswer,
+      data.runtime.jobDescription,
+      mode,
+      qualityCheckOnly,
+    );
     const result =
       processType === "STT"
         ? mode === "mock"
@@ -11127,6 +11159,7 @@ function buildAiInterviewRequest(
   answer: LastSavedAnswer,
   jobDescription: string | undefined,
   mode: RuntimeMode,
+  qualityCheckOnly = false,
 ): AiInterviewRequest {
   if (processType === "STT") {
     const audioFileId = answer.audioFileId ?? answer.fileAssetId ?? answer.videoFileId;
@@ -11149,6 +11182,7 @@ function buildAiInterviewRequest(
     previousQuestion: answer.questionText,
     transcript: answer.transcript,
     jobDescription: mode === "recruiting" ? jobDescription : undefined,
+    qualityCheckOnly: qualityCheckOnly || undefined,
   }) as AiInterviewRequest;
 }
 
@@ -11707,24 +11741,6 @@ function resetRuntimeQuestionTimer(
 
   setTimerPhase("ANSWERING");
   setRemainingSeconds(getRuntimeAnswerTimeLimitSeconds(runtime));
-}
-
-function getMeaningfulTranscriptLength(transcript: string) {
-  return transcript.replace(/\s/g, "").length;
-}
-
-function getInterviewTranscriptRetryReason(transcript: string): string | undefined {
-  const normalized = transcript.trim();
-  const meaningfulLength = getMeaningfulTranscriptLength(normalized);
-  if (!normalized || normalized.includes("[NO_ANSWER]")) {
-    return "답변 녹음이 정상적으로 저장되지 않았습니다.";
-  }
-
-  if (meaningfulLength < MIN_STT_TRANSCRIPT_MEANINGFUL_LENGTH) {
-    return `STT 텍스트가 ${MIN_STT_TRANSCRIPT_MEANINGFUL_LENGTH}자 미만이라 답변 내용이 충분하지 않습니다.`;
-  }
-
-  return undefined;
 }
 
 type WindowWithWebkitAudioContext = Window & typeof globalThis & {

@@ -119,6 +119,7 @@ export interface NcsFollowUpPlan {
 }
 
 export interface FactClarificationPlan {
+  transcriptUsability?: "USABLE" | "UNUSABLE";
   required: boolean;
   providerStatus: "COMPLETED" | "FAILED" | "TIMEOUT" | "INVALID_OUTPUT";
   gateStatus: "PASS_THROUGH" | "CLARIFICATION_CANDIDATE" | "FACT_CHECK_REQUIRED" | null;
@@ -160,6 +161,7 @@ export async function planFactClarification(
     record.gateStatus === "CLARIFICATION_CANDIDATE" || record.gateStatus === "FACT_CHECK_REQUIRED"
   );
   return {
+    transcriptUsability: execution.transcriptUsability,
     required,
     providerStatus: record.providerStatus,
     gateStatus: record.gateStatus,
