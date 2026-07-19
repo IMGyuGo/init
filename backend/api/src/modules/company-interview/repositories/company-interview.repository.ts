@@ -3,6 +3,7 @@ import {
   CriterionTagRecord,
   EvaluationCriterionRecord,
   EvaluationFramework,
+  PostingStatus,
   PostingRecord,
   QuestionRecord,
   QuestionOrigin,
@@ -109,6 +110,7 @@ export type ConfirmQuestionSetInput = {
 export interface CompanyInterviewRepository {
   findPosting(postingId: number): Promise<PostingRecord | undefined>;
   findDefaultPosting(companyId: number): Promise<PostingRecord | undefined>;
+  updatePostingStatus(postingId: number, status: PostingStatus): Promise<void>;
   listCriteria(postingId: number): Promise<EvaluationCriterionRecord[]>;
   findCriterion(criterionId: number): Promise<EvaluationCriterionRecord | undefined>;
   listQuestions(postingId: number): Promise<QuestionRecord[]>;
@@ -124,6 +126,7 @@ export interface CompanyInterviewRepository {
   findTag(tagId: number): Promise<CriterionTagRecord | undefined>;
   createTag(input: CreateCriterionTagInput): Promise<CriterionTagRecord>;
   getTimePolicy(postingId: number): Promise<TimePolicyRecord>;
+  hasTimePolicy(postingId: number): Promise<boolean>;
   getQuestionGenerationPolicy(
     postingId: number,
   ): Promise<QuestionGenerationPolicyRecord | undefined>;

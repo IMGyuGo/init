@@ -109,6 +109,18 @@ export type QuestionGenerationPolicyRecord = {
   criteriaVersion: number;
 };
 
+export type InterviewPublicationReadinessReason =
+  | 'CRITERIA_NOT_READY'
+  | 'QUESTION_GENERATION_POLICY_MISSING'
+  | 'ACTIVE_QUESTION_SET_MISSING'
+  | 'QUESTION_SET_RECONFIRMATION_REQUIRED'
+  | 'TIME_POLICY_MISSING';
+
+export type InterviewPublicationReadiness = {
+  canPublish: boolean;
+  reasons: InterviewPublicationReadinessReason[];
+};
+
 export type QuestionRecord = {
   questionId: number;
   companyId: number;

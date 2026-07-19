@@ -129,8 +129,8 @@ export class CreateRecruitmentDto {
   @IsDateString()
   endsOn?: string;
 
-  @ApiPropertyOptional({ enum: ["DRAFT", "OPEN"], example: "OPEN" })
+  @ApiPropertyOptional({ enum: ["DRAFT"], example: "DRAFT" })
   @IsOptional()
-  @IsIn(["DRAFT", "OPEN"])
+  @IsIn(["DRAFT"])
   status?: PostingStatusValue;
 }
