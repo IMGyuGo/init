@@ -1100,14 +1100,12 @@ export class PrismaAiResultRepository implements AiResultRepository {
       const criterionId = await this.resolveCriterionId(score.criterionId);
       await this.prisma.reportScore.create({
         data: {
-          scoreId: this.nextId(),
           reportId: BigInt(reportId),
           criterionId,
           score: score.score,
           rationale: score.rationale,
           evidences: {
             create: score.evidences.map((evidence) => ({
-              evidenceId: this.nextId(),
               sourceType: evidence.sourceType,
               answerId: evidence.answerId ? BigInt(evidence.answerId) : null,
               documentId: evidence.documentId ? BigInt(evidence.documentId) : null,
@@ -1184,7 +1182,6 @@ export class PrismaAiResultRepository implements AiResultRepository {
     for (const profile of evaluation.profiles) {
       await this.prisma.reportScore.create({
         data: {
-          scoreId: this.nextId(),
           reportId: BigInt(reportId),
           criterionId: profile.criterionId ? await this.resolveCriterionId(profile.criterionId) : null,
           score: profile.normalizedScore,

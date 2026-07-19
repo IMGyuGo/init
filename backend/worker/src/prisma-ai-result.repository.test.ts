@@ -649,6 +649,8 @@ test("PrismaAiResultRepository stores generated reports after guardrail pass", a
   assert.equal(calls[3].method, "findUnique");
   assert.equal(calls[4].model, "reportScore");
   assert.equal(calls[4].method, "create");
+  assert.equal("scoreId" in calls[4].args.data, false);
+  assert.equal("evidenceId" in calls[4].args.data.evidences.create[0], false);
   assert.equal(calls[4].args.data.evidences.create[0].sourceType, "INTERVIEW_ANSWER");
 });
 
@@ -692,6 +694,7 @@ test("PrismaAiResultRepository stores NCS decision header and normalized profile
     call.model === "reportScore" && call.method === "create" && call.args.data.ncsProfileId,
   );
   assert.equal(profileRows.length, 3);
+  assert.equal(profileRows.every((call) => !("scoreId" in call.args.data)), true);
   assert.equal(profileRows[0]?.args.data.averageScore, 4.5);
   assert.equal(profileRows[2]?.args.data.weightedScore, 32);
 });
