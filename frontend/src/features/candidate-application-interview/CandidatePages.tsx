@@ -3358,6 +3358,7 @@ function InterviewRuntimePanel({
   const router = useRouter();
   const runtimeApi = apiClient ?? getCandidateApi();
   const currentQuestion = data?.runtime.currentQuestion;
+  const completionReady = Boolean(data?.runtime.completionReady);
   const runtimeInterviewType = data?.runtime.interviewType;
   const runtimePreparationTimeSec = data?.runtime.timePolicy?.preparationTimeSec;
   const runtimeAnswerTimeSec = data?.runtime.timePolicy?.answerTimeSec;
@@ -3426,6 +3427,7 @@ function InterviewRuntimePanel({
   const [reansweredQuestionIds, setReansweredQuestionIds] = useState<Set<number>>(() => new Set());
   const answeredQuestionIdsRef = useRef<Set<number>>(new Set());
   const completionReadyRef = useRef(false);
+  completionReadyRef.current = completionReady;
   const savingQuestionIdsRef = useRef<Set<number>>(new Set());
   const interviewerStageRef = useRef<HTMLDivElement | null>(null);
   const cameraPipRef = useRef<HTMLDivElement | null>(null);
@@ -3710,6 +3712,31 @@ function InterviewRuntimePanel({
 
   function markInterviewQuestionFlowComplete() {
     completionReadyRef.current = true;
+    updateData((current) => {
+      const questions = current.questions.questions.map((question) =>
+        question.questionId === currentQuestion?.questionId
+          ? { ...question, answered: true, current: false }
+          : { ...question, current: false },
+      );
+      const answeredCount = questions.filter(
+        (question) => question.answered || answeredQuestionIdsRef.current.has(question.questionId),
+      ).length;
+      return {
+        ...current,
+        runtime: {
+          ...current.runtime,
+          completionReady: true,
+          answeredCount,
+          totalQuestions: Math.max(answeredCount, questions.length),
+          currentQuestion: undefined,
+        },
+        questions: {
+          ...current.questions,
+          currentQuestionId: undefined,
+          questions,
+        },
+      };
+    });
     stopQuestionSpeech();
     setQuestionSpeechStatus("모든 질문에 답변했습니다.");
     setQuestionSpeechCompleted(true);
@@ -7840,7 +7867,7 @@ function InterviewRuntimePanel({
   );
   const runtimeProgressionState = getInterviewRuntimeProgressionState({
     hasRuntimeData: Boolean(data),
-    completionReady: data?.runtime.completionReady,
+    completionReady,
     currentQuestionAnswered,
     isCurrentQuestionLast,
     answerProcessingBusy,
@@ -7866,7 +7893,7 @@ function InterviewRuntimePanel({
   const interviewerQuestionPrompt = formatAiInterviewerQuestionPrompt({
     question: currentQuestion,
     questionVisible: subtitlesEnabled,
-    questionFlowComplete: completionReadyRef.current,
+    completionReady,
   });
   const interviewerSpeechText = currentQuestion?.content ?? "";
   const cameraPipStyle = cameraPipPosition && runtimePrimaryScreen === "interviewer"
@@ -7901,9 +7928,8 @@ function InterviewRuntimePanel({
   const interviewerSessionState = getInterviewerSessionState({
     mode: AI_INTERVIEWER_SESSION_MODE_POLICY.activeMode,
     setupCompleted,
-    completionReady: data?.runtime.completionReady,
+    completionReady,
     hasCurrentQuestion: Boolean(currentQuestion),
-    questionFlowComplete: completionReadyRef.current,
     questionSpeechPlaying,
     questionSpeechSupported,
     recording,
