@@ -1621,9 +1621,13 @@ export class PrismaCandidateRepository implements CandidateRepository {
     return this.toInterviewSession(session);
   }
 
-  async hasApplication(candidateId: number, postingId: number): Promise<boolean> {
+  async hasActiveApplication(candidateId: number, postingId: number): Promise<boolean> {
     const count = await this.prisma.application.count({
-      where: { candidateId: BigInt(candidateId), postingId: BigInt(postingId) },
+      where: {
+        candidateId: BigInt(candidateId),
+        postingId: BigInt(postingId),
+        applicationStatus: { not: PrismaApplicationStatus.CANCELED },
+      },
     });
     return count > 0;
   }
@@ -1866,6 +1870,9 @@ export class PrismaCandidateRepository implements CandidateRepository {
       });
       await tx.aiProcessTimingEvent.deleteMany({ where: { processLogId: { in: processLogIds } } });
       await tx.aiGuardrailLog.deleteMany({ where: { processLogId: { in: processLogIds } } });
+      await tx.applicationInterviewQuestionBatch.deleteMany({
+        where: { applicationId: { in: applicationIds } },
+      });
       await tx.interviewQuestionSet.updateMany({
         where: { createdByProcessLogId: { in: processLogIds } },
         data: { createdByProcessLogId: null },

@@ -88,3 +88,21 @@ output "ngrinder_public_ip" {
 output "ngrinder_controller_url" {
   value = var.enable_ngrinder ? "http://${aws_instance.ngrinder[0].public_dns}:${var.ngrinder_controller_port}" : null
 }
+
+output "playwright_loadtest_instance_ids" {
+  value = var.enable_playwright_loadtest ? aws_instance.playwright_loadtest[*].id : []
+}
+
+output "playwright_loadtest_public_ips" {
+  value = var.enable_playwright_loadtest ? aws_instance.playwright_loadtest[*].public_ip : []
+}
+
+output "playwright_loadtest_row_ranges" {
+  value = var.enable_playwright_loadtest ? {
+    for idx, instance in aws_instance.playwright_loadtest : instance.id => {
+      instance_index = idx + 1
+      row_start      = idx * var.playwright_loadtest_rows_per_instance + 1
+      row_end        = (idx + 1) * var.playwright_loadtest_rows_per_instance
+    }
+  } : {}
+}

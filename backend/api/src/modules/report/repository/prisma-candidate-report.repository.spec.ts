@@ -10,6 +10,7 @@ describe("PrismaCandidateReportRepository", () => {
           return [{
             followUpId: 8n,
             answerId: 21n,
+            insertedSessionQuestionId: 501n,
             content: "C에서 다형성을 어떤 방식으로 구현했나요?",
             generationStatus: "INSERTED",
             policy: "RECRUITING",
@@ -24,6 +25,7 @@ describe("PrismaCandidateReportRepository", () => {
     const followUps = await repository.listFollowUpQuestionsByAnswerIds([21]);
 
     assert.equal(followUps[0]?.reason, "FACT_CLARIFICATION");
+    assert.equal(followUps[0]?.insertedSessionQuestionId, 501);
   });
 
   it("omits incomplete NCS aggregate rows from candidate-facing scores", async () => {

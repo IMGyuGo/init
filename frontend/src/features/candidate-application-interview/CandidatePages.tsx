@@ -2969,6 +2969,7 @@ export function CandidateApplicationReportPage({ applicationId }: { applicationI
         if (cancelled) {
           return;
         }
+        requestedReportApplicationRef.current = null;
         setGenerationMessage(toErrorMessage(reportGenerationError));
       })
       .finally(() => {

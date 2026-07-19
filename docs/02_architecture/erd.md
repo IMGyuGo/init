@@ -152,3 +152,7 @@ ERDCloud SQL을 사람이 읽는 테이블/관계 문서로 변환한다.
 | embeddings | document_id | application_documents.document_id | fk_embeddings_document |
 | embeddings | answer_id | interview_answers.answer_id | fk_embeddings_answer |
 | embeddings | report_id | evaluation_reports.report_id | fk_embeddings_report |
+
+## Business Uniqueness
+
+- `applications`: `(posting_id, candidate_id)` 조합은 `application_status <> 'CANCELED'`인 row에 한해 유일하다. 취소 이력은 여러 건 보존할 수 있고, 재지원은 새 `application_id`를 생성한다.

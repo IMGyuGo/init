@@ -37,7 +37,7 @@ import {
   NcsQuestionMode,
 } from "./ncs-question-alignment.adapter";
 import { sanitizePostingDraftHtml } from "./posting-draft-html";
-import { NonRetryableAiWorkerFailure } from "./worker-errors";
+import { NonRetryableAiWorkerFailure, RegenerationRequiredAiWorkerFailure } from "./worker-errors";
 import { AiTaskHandler, AiTaskResult, AiWorkerJob } from "./worker.types";
 
 interface WorkerInput {
@@ -710,23 +710,35 @@ async function generateAlignedNcsQuestions(
   const remaining = new Map(criteria.map((criterion) => [criterion.criterionId, criterion.questionCount]));
   const accepted: Array<SanitizedQuestionCandidate & Record<string, unknown>> = [];
   const rejectedQuestions: string[] = [];
+  const rejectionCounts = new Map<string, number>();
   let latestModel = "unknown";
   let inputTokens = 0;
   let outputTokens = 0;
+  let primaryAttempts = 0;
+  let fallbackAttempts = 0;
 
-  const collect = async (requestedCriteria: NcsGenerationCriterion[]) => {
+  const recordRejection = (reason: string) => {
+    rejectionCounts.set(reason, (rejectionCounts.get(reason) ?? 0) + 1);
+  };
+
+  const collect = async (
+    requestedCriteria: NcsGenerationCriterion[],
+    attemptKind: "PRIMARY" | "FALLBACK",
+  ) => {
     const requestedCount = requestedCriteria.reduce(
-      (sum, criterion) => sum + (remaining.get(criterion.criterionId) ?? 0),
+      (sum, criterion) => sum + (remaining.get(criterion.criterionId) ?? 0) + 1,
       0,
     );
     if (requestedCount === 0) return;
+    if (attemptKind === "PRIMARY") primaryAttempts += 1;
+    else fallbackAttempts += 1;
 
     const generated = await provider.generateQuestions({
       ...input,
       questionCount: requestedCount,
       criteria: requestedCriteria.map((criterion) => ({
         ...criterion,
-        questionCount: remaining.get(criterion.criterionId) ?? 0,
+        questionCount: (remaining.get(criterion.criterionId) ?? 0) + 1,
       })),
       avoidQuestions: [...accepted.map((candidate) => candidate.content), ...rejectedQuestions].slice(-30),
     });
@@ -749,6 +761,7 @@ async function generateAlignedNcsQuestions(
       );
       if (qualityIssue) {
         rejectedQuestions.push(candidate.content);
+        recordRejection(qualityIssue);
         continue;
       }
 
@@ -760,6 +773,7 @@ async function generateAlignedNcsQuestions(
       });
       const decorated = {
         ...candidate,
+        questionType: questionTypeForMode(criterion.ncsQuestionMode),
         source,
         ncsProfileId: criterion.ncsProfileId,
         ncsQuestionMode: criterion.ncsQuestionMode,
@@ -775,27 +789,35 @@ async function generateAlignedNcsQuestions(
         remaining.set(candidateCriterionId, slots - 1);
       } else {
         rejectedQuestions.push(candidate.content);
+        recordRejection(alignment.status);
       }
     }
   };
 
   for (let attempt = 0; attempt < 3 && totalRemaining(remaining) > 0; attempt += 1) {
-    await collect(criteria.filter((criterion) => (remaining.get(criterion.criterionId) ?? 0) > 0));
+    await collect(
+      criteria.filter((criterion) => (remaining.get(criterion.criterionId) ?? 0) > 0),
+      "PRIMARY",
+    );
   }
 
   const fallbackCriteria = criteria
     .filter((criterion) => (remaining.get(criterion.criterionId) ?? 0) > 0)
     .map((criterion) => fallbackCriterion(criterion))
     .filter((criterion): criterion is NcsGenerationCriterion => criterion !== null);
-  await collect(fallbackCriteria);
+  await collect(fallbackCriteria, "FALLBACK");
 
   if (totalRemaining(remaining) > 0) {
     const missing = criteria
       .filter((criterion) => (remaining.get(criterion.criterionId) ?? 0) > 0)
       .map((criterion) => `${criterion.criterionId}:${remaining.get(criterion.criterionId)}`)
       .join(", ");
-    throw new NonRetryableAiWorkerFailure(
-      `question provider did not return enough natural aligned candidates: ${missing}`,
+    const rejections = [...rejectionCounts.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([reason, count]) => `${reason}:${count}`)
+      .join(",") || "none";
+    throw new RegenerationRequiredAiWorkerFailure(
+      `aligned candidates exhausted; missing=${missing}; primaryAttempts=${primaryAttempts}; fallbackAttempts=${fallbackAttempts}; rejections=${rejections}`,
     );
   }
 
@@ -873,13 +895,19 @@ function toPersonalizedQuestionRecords(
       evaluatorVersion?: unknown;
     };
     const alignmentStatus = metadata.alignmentStatus === "ALIGNED" ? "ALIGNED" : "REVIEW_REQUIRED";
+    const effectiveQuestionMode =
+      metadata.ncsQuestionMode === "TECHNICAL_KNOWLEDGE" ||
+      metadata.ncsQuestionMode === "EXPERIENCE_BEHAVIOR" ||
+      metadata.ncsQuestionMode === "SITUATIONAL_DESIGN"
+        ? metadata.ncsQuestionMode
+        : criterion.ncsQuestionMode;
     return {
       criterionId: criterion.criterionId,
       criterionTitleSnapshot: criterion.name,
-      questionType: candidate.questionType ?? questionTypeForMode(criterion.ncsQuestionMode),
+      questionType: questionTypeForMode(effectiveQuestionMode),
       content: candidate.content.trim(),
       ncsProfileId: criterion.ncsProfileId,
-      ncsQuestionMode: criterion.ncsQuestionMode,
+      ncsQuestionMode: effectiveQuestionMode,
       ncsProfileVersion: typeof metadata.ncsProfileVersion === "string" ? metadata.ncsProfileVersion : criterion.ncsProfileVersion,
       alignmentStatus,
       alignmentScore: typeof metadata.alignmentScore === "number" ? metadata.alignmentScore : null,

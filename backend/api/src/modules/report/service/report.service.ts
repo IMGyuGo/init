@@ -529,6 +529,18 @@ export class ReportService {
         { field: "answers", reason: "answers are missing" },
       ]);
     }
+    const reportAnswers = await this.reportAnswerInputs(answers, args.reportType);
+    const pendingSttAnswerIds = reportAnswers
+      .filter((answer) => answer.evaluationStatus !== "STT_UNAVAILABLE" && !answer.transcript?.trim())
+      .map((answer) => answer.answerId);
+    if (pendingSttAnswerIds.length > 0) {
+      throw new CandidateDomainError(
+        "COMMON_CONFLICT",
+        "모든 답변의 음성 인식 처리가 완료된 뒤 리포트를 생성할 수 있습니다.",
+        409,
+        [{ field: "answers", reason: `STT_PROCESSING:${pendingSttAnswerIds.join(",")}` }],
+      );
+    }
 
     const body: GenerateReportRequest = {
       reportType: args.reportType,
@@ -538,7 +550,7 @@ export class ReportService {
       ...(args.postingId !== undefined ? { postingId: args.postingId } : {}),
       jobDescription: this.cleanOptionalText(args.jobDescription) ?? "Interview report generation",
       criteria: await this.reportCriteria(args.reportType, args.postingId, answers),
-      answers: await this.reportAnswerInputs(answers, args.reportType),
+      answers: reportAnswers,
       ...(args.reportType === "RECRUITING_REPORT" &&
       (args.session.ncsScoringVersion === "NCS_RECRUITING_SCORING_V1" ||
         args.session.ncsScoringVersion === "NCS_RECRUITING_SCORING_V2")
@@ -580,9 +592,15 @@ export class ReportService {
     const followUps = await this.candidateReportRepository.listFollowUpQuestionsByAnswerIds(
       answers.map((answer) => answer.answerId),
     );
-    const parentByFollowUpContent = new Map<string, { answerId: number; reason?: CandidateFollowUpQuestionRecord["reason"] }>();
+    const parentByInsertedSessionQuestionId = new Map<
+      number,
+      { answerId: number; reason?: CandidateFollowUpQuestionRecord["reason"] }
+    >();
     for (const followUp of followUps) {
-      parentByFollowUpContent.set(this.normalizeQuestionContent(followUp.content), {
+      if (!followUp.insertedSessionQuestionId) {
+        continue;
+      }
+      parentByInsertedSessionQuestionId.set(followUp.insertedSessionQuestionId, {
         answerId: followUp.answerId,
         reason: followUp.reason,
       });
@@ -593,8 +611,8 @@ export class ReportService {
         const transcript = this.cleanOptionalText(answer.transcript);
         const question = await this.interviewRepository.findQuestion(answer.questionId);
         const isFollowUpAnswer = question?.questionType === "FOLLOW_UP";
-        const parent = isFollowUpAnswer
-          ? parentByFollowUpContent.get(this.normalizeQuestionContent(question?.content))
+        const parent = isFollowUpAnswer && answer.sessionQuestionId
+          ? parentByInsertedSessionQuestionId.get(answer.sessionQuestionId)
           : undefined;
         const unavailableReason = transcript ? undefined : await this.sttRecognitionFailureReason(answer);
         const ncsSnapshot = answer.ncsEvaluationSnapshot;
@@ -607,6 +625,7 @@ export class ReportService {
           ...(isFollowUpAnswer ? { isFollowUpAnswer: true } : {}),
           ...(parent ? { parentAnswerId: parent.answerId } : {}),
           ...(parent?.reason ? { followUpReason: parent.reason } : {}),
+          ...(answer.sessionQuestionId ? { sessionQuestionId: answer.sessionQuestionId } : {}),
           ...(transcript ? { transcript } : {}),
           ...(reportType === "MOCK_INTERVIEW_REPORT" && answer.nonverbalMetadata
             ? { nonverbalMetadata: answer.nonverbalMetadata }
@@ -615,7 +634,6 @@ export class ReportService {
           transcriptUnavailableReason: unavailableReason,
           ...(ncsSnapshot?.ncsProfileId
             ? {
-                sessionQuestionId: ncsSnapshot.sessionQuestionId,
                 criterionId: ncsSnapshot.criterionId,
                 criterionTitleSnapshot: ncsSnapshot.criterionTitleSnapshot,
                 ncsProfileId: ncsSnapshot.ncsProfileId,
@@ -949,9 +967,11 @@ export class ReportService {
 
   private async sttRecognitionFailureReason(answer: InterviewAnswer): Promise<string | undefined> {
     const processes = await this.interviewRepository.listSttProcesses(answer.sessionId, answer.answerId);
-    const failure = processes.find(
-      (process) => process.status === "FAILED" && process.failureCategory === "REANSWER_REQUIRED",
-    );
+    const latestProcess = processes[0];
+    const failure = latestProcess?.status === "FAILED" &&
+      (latestProcess.failureCategory === "REANSWER_REQUIRED" || latestProcess.failureCategory === "NON_RETRYABLE")
+      ? latestProcess
+      : undefined;
     return failure?.failureReason?.trim() || (failure ? DEFAULT_STT_UNAVAILABLE_REASON : undefined);
   }
 
@@ -1152,10 +1172,6 @@ export class ReportService {
   private cleanOptionalText(value?: string): string | undefined {
     const trimmed = value?.trim();
     return trimmed ? trimmed : undefined;
-  }
-
-  private normalizeQuestionContent(value?: string): string {
-    return value?.replace(/\s+/g, " ").trim().toLowerCase() ?? "";
   }
 
   private deriveStrengths(scores: CandidateReportScoreRecord[]): string[] {

@@ -5,6 +5,7 @@ import { InMemoryAiJobQueue } from "./queue";
 import { loadWorkerEnv } from "./worker-env";
 import {
   NonRetryableAiWorkerFailure,
+  RegenerationRequiredAiWorkerFailure,
   ReanswerRequiredAiWorkerFailure,
   RetryableAiWorkerFailure,
   SttRetryableAiWorkerFailure
@@ -66,6 +67,147 @@ test("publishes follow-up jobs returned by final save after the source message i
   assert.equal(pending.length, 1);
   assert.equal(pending[0].job.processLogId, 12);
   assert.equal(pending[0].job.processType, "RESUME_QUESTION_GENERATE");
+});
+
+test("marks a follow-up process failed when publishing its SQS message fails", async () => {
+  class FailingFollowUpQueue extends InMemoryAiJobQueue {
+    override async publish(job: AiQueueMessage["job"]): Promise<void> {
+      if (job.processLogId === 22) throw new Error("AccessDenied: sqs:SendMessage");
+      await super.publish(job);
+    }
+  }
+
+  const queue = new FailingFollowUpQueue([message(21)]);
+  const repository = new InMemoryAiProcessLogRepository();
+  const failedJobs: number[] = [];
+  const handler: AiTaskHandler = {
+    async handle() {
+      return {
+        outputRef: "document:extracted:21",
+        guardrail: { result: "PASS", reason: null },
+        finalSave: async () => [{
+          processLogId: 22,
+          processType: "RESUME_QUESTION_GENERATE",
+          inputRef: JSON.stringify({ applicationId: 206, inputVersion: "input-206" }),
+          attempt: 1,
+        }],
+      };
+    },
+  };
+
+  await new AiWorkerRunner(queue, repository, handler, {
+    onFailure: async (job) => {
+      failedJobs.push(job.processLogId);
+    },
+  }).processBatch();
+
+  assert.equal(repository.get(21).status, "FAILED");
+  assert.equal(repository.get(22).status, "FAILED");
+  assert.match(repository.get(22).failure?.reason ?? "", /sqs:SendMessage/);
+  assert.deepEqual(failedJobs, [22, 21]);
+  assert.deepEqual(queue.deletedMessageIds, []);
+});
+
+test("republishes a stale pending personalized-question job with the same process id", async () => {
+  const queue = new InMemoryAiJobQueue([]);
+  const repository = new InMemoryAiProcessLogRepository();
+  const stalePendingJob = {
+    processLogId: 31,
+    processType: "RESUME_QUESTION_GENERATE" as const,
+    inputRef: JSON.stringify({ applicationId: 206, inputVersion: "input-206", attempt: 2 }),
+    attempt: 2,
+  };
+  await repository.ensurePending(stalePendingJob);
+  let handled = 0;
+
+  await new AiWorkerRunner(queue, repository, {
+    async handle(job) {
+      handled += 1;
+      assert.equal(job.processLogId, stalePendingJob.processLogId);
+      assert.equal(job.attempt, stalePendingJob.attempt);
+      return { guardrail: { result: "PASS", reason: null } };
+    },
+  }, {
+    orphanPendingThresholdMs: 0,
+    orphanRecoveryIntervalMs: 0,
+  }).processBatch();
+
+  assert.equal(handled, 1);
+  assert.equal(repository.get(stalePendingJob.processLogId).status, "COMPLETED");
+});
+
+test("continues normal queue consumption when stale pending lookup fails", async () => {
+  class FailingRecoveryRepository extends InMemoryAiProcessLogRepository {
+    override async findOrphanedPendingJobs(): Promise<never> {
+      throw new Error("database connection unavailable");
+    }
+  }
+
+  const queue = new InMemoryAiJobQueue([message(32)]);
+  const repository = new FailingRecoveryRepository();
+  const handled: number[] = [];
+  const recoveryFailures: Array<{ stage: string; reason: string }> = [];
+
+  await new AiWorkerRunner(queue, repository, {
+    async handle(job) {
+      handled.push(job.processLogId);
+      return { guardrail: { result: "PASS", reason: null } };
+    },
+  }, {
+    orphanRecoveryIntervalMs: 0,
+    onOrphanRecoveryFailure(context) {
+      recoveryFailures.push({ stage: context.stage, reason: context.failure.reason });
+    },
+  }).processBatch();
+
+  assert.deepEqual(handled, [32]);
+  assert.equal(repository.get(32).status, "COMPLETED");
+  assert.deepEqual(recoveryFailures, [{ stage: "LOOKUP", reason: "database connection unavailable" }]);
+});
+
+test("continues other recovery publishes and normal consumption when one stale pending publish fails", async () => {
+  class PartiallyFailingRecoveryQueue extends InMemoryAiJobQueue {
+    readonly publishedProcessLogIds: number[] = [];
+
+    override async publish(job: AiQueueMessage["job"]): Promise<void> {
+      this.publishedProcessLogIds.push(job.processLogId);
+      if (job.processLogId === 33) throw new Error("SQS publish unavailable");
+      await super.publish(job);
+    }
+  }
+
+  const queue = new PartiallyFailingRecoveryQueue([message(35)]);
+  const repository = new InMemoryAiProcessLogRepository();
+  const stalePendingJobs = [33, 34].map((processLogId) => ({
+    processLogId,
+    processType: "RESUME_QUESTION_GENERATE" as const,
+    inputRef: JSON.stringify({ applicationId: 206, attempt: 1 }),
+    attempt: 1,
+  }));
+  for (const job of stalePendingJobs) {
+    await repository.ensurePending(job);
+  }
+  const handled: number[] = [];
+  const recoveryFailures: Array<{ stage: string; processLogId?: number }> = [];
+
+  await new AiWorkerRunner(queue, repository, {
+    async handle(job) {
+      handled.push(job.processLogId);
+      return { guardrail: { result: "PASS", reason: null } };
+    },
+  }, {
+    orphanPendingThresholdMs: 0,
+    orphanRecoveryIntervalMs: 0,
+    onOrphanRecoveryFailure(context) {
+      recoveryFailures.push({ stage: context.stage, processLogId: context.job?.processLogId });
+    },
+  }).processBatch();
+
+  assert.deepEqual(queue.publishedProcessLogIds, [33, 34]);
+  assert.deepEqual(handled, [35]);
+  assert.equal(repository.get(35).status, "COMPLETED");
+  assert.deepEqual(recoveryFailures, [{ stage: "PUBLISH", processLogId: 33 }]);
+  assert.deepEqual((await queue.receive(10)).map((item) => item.job.processLogId), [34]);
 });
 
 test("saves final output when guardrail result is regenerated", async () => {
@@ -189,6 +331,27 @@ test("keeps STT retryable failures on the queue for redelivery", async () => {
     retryable: true
   });
   assert.deepEqual(queue.deletedMessageIds, []);
+});
+
+test("acks regeneration-required failures while exposing user retryability", async () => {
+  const queue = new InMemoryAiJobQueue([message(10)]);
+  const repository = new InMemoryAiProcessLogRepository();
+  const handler: AiTaskHandler = {
+    async handle() {
+      throw new RegenerationRequiredAiWorkerFailure(
+        "aligned candidates exhausted; missing=229:1; primaryAttempts=3; fallbackAttempts=1; rejections=LOW_ALIGNMENT:4",
+      );
+    },
+  };
+
+  await new AiWorkerRunner(queue, repository, handler).processBatch();
+
+  assert.deepEqual(repository.get(10).failure, {
+    category: "REGENERATION_REQUIRED",
+    reason: "aligned candidates exhausted; missing=229:1; primaryAttempts=3; fallbackAttempts=1; rejections=LOW_ALIGNMENT:4",
+    retryable: true,
+  });
+  assert.deepEqual(queue.deletedMessageIds, ["message-10"]);
 });
 
 test("acks retryable failures after the total receive attempt limit is exceeded", async () => {

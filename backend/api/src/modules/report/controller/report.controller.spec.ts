@@ -430,6 +430,15 @@ async function runReportControllerAssertions() {
   const firstRecruitingAnswer = recruitingAnswers[0];
   assert.ok(firstRecruitingAnswer);
   assert.equal(firstRecruitingAnswer.nonverbalMetadata?.source, "CLIENT_RUNTIME_UNVERIFIED");
+  await assertReportHttpError(
+    () => controller.requestApplicationReportGeneration(
+      validCandidateRequest,
+      String(submitted.application.applicationId),
+    ),
+    409,
+    "COMMON_CONFLICT",
+  );
+  assert.equal(queuePublisher.messages.length, 1);
   recruitingAnswers.forEach((answer, index) => {
     interviewRepository.saveAnswerTranscript(
       answer.answerId,

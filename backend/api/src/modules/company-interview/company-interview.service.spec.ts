@@ -55,6 +55,7 @@ async function createAlignedNcsQuestionSetFixture(
     'COLLABORATION_COMMUNICATION',
     'PROBLEM_SOLVING',
   ],
+  effectiveModes: Partial<Record<number, 'TECHNICAL_KNOWLEDGE' | 'EXPERIENCE_BEHAVIOR' | 'SITUATIONAL_DESIGN'>> = {},
 ) {
   const { repository, service } = createFixture();
   const criteriaResult = await service.updateEvaluationCriteria(companyUser, {
@@ -99,7 +100,7 @@ async function createAlignedNcsQuestionSetFixture(
           criterionId: criterion.criterionId,
           source: 'JD_CRITERIA',
           ncsProfileId: criterion.ncsProfileId,
-          ncsQuestionMode: criterion.ncsQuestionMode,
+          ncsQuestionMode: effectiveModes[index] ?? criterion.ncsQuestionMode,
           ncsProfileVersion: criterion.ncsProfileVersion,
           alignmentStatus: 'ALIGNED',
           alignmentScore: 0.8,
@@ -1127,6 +1128,92 @@ describe('CompanyInterviewService', () => {
       assert.equal(question.ncsBindings[0].alignmentStatus, 'ALIGNED');
       assert.ok(question.ncsBindings[0].evaluatorVersion);
     }
+  });
+
+  it('stores and confirms documented NCS fallback modes with normalized question types', async () => {
+    const { repository, service, questionIds } = await createAlignedNcsQuestionSetFixture(
+      undefined,
+      {
+        0: 'EXPERIENCE_BEHAVIOR',
+        2: 'SITUATIONAL_DESIGN',
+      },
+    );
+
+    const stored = (await repository.listQuestions(1)).filter((question) =>
+      questionIds.includes(question.questionId));
+    assert.equal(stored[0]?.ncsProfileId, 'JOB_TECHNICAL');
+    assert.equal(stored[0]?.ncsQuestionMode, 'EXPERIENCE_BEHAVIOR');
+    assert.equal(stored[0]?.questionType, 'EXPERIENCE');
+    assert.equal(stored[2]?.ncsProfileId, 'PROBLEM_SOLVING');
+    assert.equal(stored[2]?.ncsQuestionMode, 'SITUATIONAL_DESIGN');
+    assert.equal(stored[2]?.questionType, 'SITUATION');
+
+    const result = await service.confirmQuestionSet(companyUser, {
+      postingId: 1,
+      title: 'NCS fallback 공통 질문 6개',
+      items: questionIds.map((questionId, index) => ({
+        questionId,
+        sortOrder: index + 1,
+      })),
+    });
+    assert.equal(result.status, 'ACTIVE');
+  });
+
+  it.each([
+    [0, 'SITUATIONAL_DESIGN'],
+    [1, 'SITUATIONAL_DESIGN'],
+  ] as const)(
+    'rejects unsupported NCS fallback mode for candidate index %s',
+    async (candidateIndex, effectiveMode) => {
+      await assert.rejects(
+        () => createAlignedNcsQuestionSetFixture(undefined, {
+          [candidateIndex]: effectiveMode,
+        }),
+        (error) =>
+          error instanceof ApiException &&
+          (error.getResponse() as { code?: string }).code ===
+            'INTERVIEW_NCS_BINDING_INVALID',
+      );
+    },
+  );
+
+  it('rejects a question set whose stored question type conflicts with its NCS mode', async () => {
+    const { repository, service, questionIds } = await createAlignedNcsQuestionSetFixture();
+    const question = (await repository.listQuestions(1)).find(
+      (item) => item.questionId === questionIds[0],
+    );
+    assert.ok(question);
+    assert.ok(question.criterionId);
+    await repository.updateQuestion(question.questionId, {
+      criterionId: question.criterionId,
+      questionType: 'SITUATION',
+      content: question.content,
+      isAiEdited: question.isAiEdited,
+      generationSource: question.generationSource,
+      ncsProfileId: question.ncsProfileId,
+      ncsQuestionMode: question.ncsQuestionMode,
+      ncsProfileVersion: question.ncsProfileVersion,
+      alignmentStatus: question.alignmentStatus,
+      alignmentScore: question.alignmentScore,
+      alignmentReason: question.alignmentReason,
+      evaluatorVersion: question.evaluatorVersion,
+      ncsBindings: question.ncsBindings,
+    });
+
+    await assert.rejects(
+      () => service.confirmQuestionSet(companyUser, {
+        postingId: 1,
+        title: 'NCS mode/type 불일치 질문 세트',
+        items: questionIds.map((questionId, index) => ({
+          questionId,
+          sortOrder: index + 1,
+        })),
+      }),
+      (error) =>
+        error instanceof ApiException &&
+        (error.getResponse() as { code?: string }).code ===
+          'INTERVIEW_NCS_BINDING_INVALID',
+    );
   });
 
   it('rejects legacy questions and incomplete canonical coverage from an NCS active set', async () => {

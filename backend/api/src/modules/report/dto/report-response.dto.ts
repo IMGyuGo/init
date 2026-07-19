@@ -1,7 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 
 export class FailureReasonDto {
-  @ApiProperty({ enum: ["RETRYABLE", "NON_RETRYABLE"], example: "RETRYABLE" })
+  @ApiProperty({
+    enum: [
+      "RETRYABLE",
+      "NON_RETRYABLE",
+      "STT_RETRYABLE",
+      "REANSWER_REQUIRED",
+      "REGENERATION_REQUIRED",
+    ],
+    example: "RETRYABLE",
+  })
   category!: string;
 
   @ApiProperty({ example: "AI queue publish failed: SQS unavailable" })

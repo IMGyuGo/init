@@ -58,6 +58,26 @@ function postingRow(input: Partial<Record<string, unknown>> = {}) {
 }
 
 describe("PrismaCandidateRepository", () => {
+  it("checks duplicate applications using only non-canceled rows", async () => {
+    let capturedWhere: Record<string, unknown> | null = null;
+    const prisma = {
+      application: {
+        async count(args: { where: Record<string, unknown> }) {
+          capturedWhere = args.where;
+          return 0;
+        },
+      },
+    };
+    const repository = new PrismaCandidateRepository(prisma as never);
+
+    assert.equal(await repository.hasActiveApplication(44, 101), false);
+    assert.deepEqual(capturedWhere, {
+      candidateId: 44n,
+      postingId: 101n,
+      applicationStatus: { not: "CANCELED" },
+    });
+  });
+
   function createSnapshotRepository(options: {
     batchStatus?: string;
     insufficientCoverage?: boolean;
@@ -923,6 +943,7 @@ describe("PrismaCandidateRepository", () => {
       clientPerformanceLog: { deleteMany: deleteMany("client-performance") },
       aiProcessTimingEvent: { deleteMany: deleteMany("timing-events") },
       aiGuardrailLog: { deleteMany: deleteMany("guardrails") },
+      applicationInterviewQuestionBatch: { deleteMany: deleteMany("personalized-question-batches") },
       interviewQuestionSet: { updateMany: updateMany("question-set-unlink") },
       notification: { deleteMany: deleteMany("notifications") },
       consentRecord: { deleteMany: deleteMany("consents") },
@@ -958,6 +979,7 @@ describe("PrismaCandidateRepository", () => {
     });
     assert.equal(calls[0], "lock");
     assert.ok(calls.indexOf("evidences") < calls.indexOf("answers"));
+    assert.ok(calls.indexOf("personalized-question-batches") < calls.indexOf("process-logs"));
     assert.ok(calls.indexOf("question-set-unlink") < calls.indexOf("process-logs"));
     assert.ok(calls.indexOf("answers") < calls.indexOf("sessions"));
     assert.ok(calls.indexOf("sessions") < calls.indexOf("applications"));

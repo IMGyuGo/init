@@ -19,7 +19,7 @@
 | MAIL_DELIVERY_FAILED | 503 | SMTP 서버가 메일을 접수하지 못함 | 인증 코드 상태를 정리하고 잠시 후 재시도를 안내 |
 | FILE_INVALID_TYPE | 400 | 허용하지 않는 파일 형식 | PDF/DOCX/JD 이미지 정책에 맞춰 검증 |
 | FILE_SIZE_EXCEEDED | 400 | 파일 용량 초과 | 업로드 제한 안내 |
-| APPLICATION_ALREADY_SUBMITTED | 409 | 이미 지원한 공고 | 중복 지원 방지 |
+| APPLICATION_ALREADY_SUBMITTED | 409 | 취소되지 않은 지원서가 이미 존재하는 공고 | 동일 지원자·공고의 활성 지원 중복 방지. `CANCELED` 이력만 있으면 재지원 허용 |
 | INTERVIEW_SESSION_EXPIRED | 409 | 응시 기간 만료 또는 비활성 세션 | 재초대 또는 고객지원 안내 |
 | INTERVIEW_QUESTION_COUNT_INVALID | 400 | JD 질문 수와 이력서 질문 수 또는 합계가 정책 범위를 벗어남 | 두 입력의 필드 오류와 허용 범위를 표시 |
 | INTERVIEW_NCS_ACTIVE_PROFILE_INVALID | 422 | `NCS_ACTIVE_PROFILE_V2` canonical 구성, 중복 또는 활성 profile 1~3개 조건을 위반함 | 세 canonical 기준을 유지하고 1개 이상의 weight를 0보다 크게 수정 |
