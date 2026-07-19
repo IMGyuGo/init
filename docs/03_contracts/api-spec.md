@@ -1803,6 +1803,7 @@ AI 리포트 금지 기준:
   - 같은 공고 안에서 같은 `content`의 활성 질문은 중복 등록하지 않는다.
   - NCS framework에서는 profile/mode/version을 클라이언트가 직접 지정하지 않고 연결된 criterion snapshot에서 가져온다.
   - NCS AI 후보 적용은 `sourceProcessLogId`의 완료 output에서 content와 criterion이 일치하고 `alignmentStatus=ALIGNED`인 결과만 허용한다.
+  - NCS AI 후보 적용 시 후보의 effective `ncsQuestionMode`는 연결된 canonical profile의 primary mode 또는 `enums.md`에 정의된 해당 profile의 directed fallback이어야 한다. 검증된 후보 effective mode를 질문에 그대로 저장하고 `questionType`은 `TECHNICAL_KNOWLEDGE -> TECHNICAL`, `EXPERIENCE_BEHAVIOR -> EXPERIENCE`, `SITUATIONAL_DESIGN -> SITUATION`으로 정규화한다. reverse fallback과 cross-profile mode는 거부한다.
   - LEGACY 수동 작성 질문은 `generationSource=null`, `alignmentStatus=NOT_EVALUATED`, `sourceProcessLogId=null`로 저장한다.
   - `NCS_3_PROFILE_V1` 수동 작성 질문은 기업 면접관이 JD 공통 질문과 canonical criterion binding을 직접 확인한 것으로 보고 `generationSource=JD_CRITERIA`, `alignmentStatus=ALIGNED`, `alignmentScore=null`, `evaluatorVersion=company-question-review-v1`, `sourceProcessLogId=null`로 저장한다.
 - Error Codes:
@@ -1954,8 +1955,9 @@ AI 리포트 금지 기준:
   - JD는 질문 주제를 고르는 근거로 사용하되 공고 문장을 그대로 복사하지 않는다. 도구·업무·책임 같은 구체 맥락은 해당 질문에 필요한 경우에만 자연스럽게 언급한다.
   - 질문 하나는 하나의 핵심 경험이나 판단을 묻는다. 여러 행동지표를 쉼표로 나열한 장문 체크리스트형 질문을 만들지 않는다.
   - 같은 batch 안에서 도입부와 종결어미를 반복하지 않고, 실제 면접관이 말하는 간결한 한국어 문장으로 생성한다.
-  - evaluator가 `LOW_ALIGNMENT`를 반환하면 같은 question mode로 최대 2회 재생성한다.
-  - 2회 실패 후에는 `enums.md`의 허용 fallback mode만 사용할 수 있으며, 여전히 기준 미달이면 `REVIEW_REQUIRED`로 남겨 자동 저장하지 않는다.
+  - `QUESTION_GENERATE`는 활성 criterion마다 남은 요청 수에 1을 더한 candidate pool을 매 호출 요청한다. primary mode는 최초 호출을 포함해 최대 3회 호출하고, 그 뒤 `enums.md`의 directed fallback이 있는 profile만 fallback mode로 한 번 더 호출할 수 있다.
+  - worker는 각 후보의 질문 품질과 NCS alignment를 필터링하고, 활성 criterion별로 정확히 요청된 수만 `alignmentStatus=ALIGNED` 후보로 반환한다. 부족한 수의 후보를 완료 draft로 반환하거나 질문 뱅크에 저장하지 않는다.
+  - primary와 허용 fallback을 모두 소진한 뒤에도 요청 수를 채우지 못하면 job은 draft 없이 `FAILED`가 되고 `failure.category=REGENERATION_REQUIRED`, `failure.retryable=true`를 기록한다. 이는 사용자의 새 job 시작만 허용하며 queue 자동 retry/redelivery는 하지 않고 현재 메시지를 ACK한다.
   - evaluator 임계값은 NCS evaluator 계약의 버전값을 사용하며 C 모듈에 별도 상수로 복제하지 않는다.
 - Error Codes:
   - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`, `INTERVIEW_QUESTION_COUNT_INVALID`, `INTERVIEW_NCS_BINDING_INVALID`, `AI_PROCESS_FAILED`
@@ -1991,6 +1993,7 @@ AI 리포트 금지 기준:
   - `NCS_3_PROFILE_V1`에서는 `items` 개수가 API-097의 `jdCriteriaQuestionCount`와 같아야 한다.
   - `NCS_3_PROFILE_V1` 질문은 `generationSource=JD_CRITERIA`, `alignmentStatus=ALIGNED`, question mode, profile version, evaluator version을 모두 가져야 한다.
   - NCS 질문 하나에는 1~2개의 binding이 있어야 한다. 모든 binding은 서로 다른 canonical profile `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING` 중 하나이며 `alignmentStatus=ALIGNED`, profile version, evaluator version을 가져야 한다.
+  - NCS 질문의 저장된 effective `ncsQuestionMode`와 정규화된 `questionType`은 `enums.md`의 primary/directed fallback 정책을 만족해야 한다. confirm은 reverse 또는 cross-profile fallback을 허용하지 않는다.
   - NCS 질문 세트 전체에서 V1은 canonical profile별 binding 최소 2개, V2는 활성 profile별 binding 최소 1개여야 한다. C API는 alignment score 임계값을 다시 판정하지 않고 E adapter가 저장한 상태와 version만 검증한다.
 - 성공 응답/처리:
   - 같은 공고의 기존 `ACTIVE` 질문 세트는 `DRAFT`로 변경한다.

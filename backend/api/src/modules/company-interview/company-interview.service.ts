@@ -62,6 +62,7 @@ import {
   QuestionNcsBindingRecord,
   QuestionRecord,
   QuestionSetRecord,
+  QuestionType,
   ResumeQuestionApplicationRecord,
   ResumeQuestionGenerationStatus,
   NcsActiveProfileCoverageRecord,
@@ -740,19 +741,23 @@ export class CompanyInterviewService {
         { field: 'sourceProcessLogId', reason: 'MANUAL_QUESTION' },
       ]);
     }
+    const effectiveNcsQuestionMode =
+      aiCandidate?.ncsQuestionMode ?? ncsSnapshot.ncsQuestionMode;
 
     const question = await this.repository.createQuestion({
       companyId: posting.companyId,
       postingId: posting.postingId,
       criterionId: criterion.criterionId,
-      questionType: dto.questionType,
+      questionType:
+        isNcsFramework(policy.evaluationFramework) && effectiveNcsQuestionMode
+        ? questionTypeForNcsQuestionMode(effectiveNcsQuestionMode)
+        : dto.questionType,
       content: dto.content,
       origin,
       generationSource:
         aiCandidate || isCompanyReviewedNcsQuestion ? 'JD_CRITERIA' : null,
       ncsProfileId: aiCandidate?.ncsProfileId ?? ncsSnapshot.ncsProfileId,
-      ncsQuestionMode:
-        aiCandidate?.ncsQuestionMode ?? ncsSnapshot.ncsQuestionMode,
+      ncsQuestionMode: effectiveNcsQuestionMode,
       ncsProfileVersion:
         aiCandidate?.ncsProfileVersion ?? ncsSnapshot.ncsProfileVersion,
       alignmentStatus: aiCandidate?.alignmentStatus ??
@@ -818,7 +823,10 @@ export class CompanyInterviewService {
 
     const saved = await this.repository.updateQuestion(questionId, {
       criterionId: criterion.criterionId,
-      questionType: dto.questionType,
+      questionType:
+        isCompanyReviewedNcsQuestion && criterion.ncsQuestionMode
+          ? questionTypeForNcsQuestionMode(criterion.ncsQuestionMode)
+          : dto.questionType,
       content: dto.content,
       isAiEdited:
         question.origin === 'AI_GENERATED' ? true : question.isAiEdited,
@@ -1128,7 +1136,11 @@ export class CompanyInterviewService {
         candidate.source !== 'JD_CRITERIA' ||
         candidate.alignmentStatus !== 'ALIGNED' ||
         candidate.ncsProfileId !== criterion.ncsProfileId ||
-        candidate.ncsQuestionMode !== criterion.ncsQuestionMode ||
+        !isAllowedNcsQuestionMode(
+          criterion.ncsProfileId,
+          criterion.ncsQuestionMode,
+          candidate.ncsQuestionMode,
+        ) ||
         candidate.ncsProfileVersion !== criterion.ncsProfileVersion
       ) {
         ncsBindingInvalid('NCS 정렬 검증을 통과한 동일 평가 기준 질문만 저장할 수 있습니다.', [
@@ -1789,7 +1801,13 @@ function validateConfirmableNcsQuestion(
     question.ncsProfileId === primaryBinding.ncsProfileId &&
     question.ncsProfileVersion === primaryBinding.ncsProfileVersion &&
     question.evaluatorVersion === primaryBinding.evaluatorVersion &&
-    question.ncsQuestionMode === primaryCriterion.ncsQuestionMode;
+    question.ncsQuestionMode !== null &&
+    question.questionType === questionTypeForNcsQuestionMode(question.ncsQuestionMode) &&
+    isAllowedNcsQuestionMode(
+      primaryCriterion.ncsProfileId,
+      primaryCriterion.ncsQuestionMode,
+      question.ncsQuestionMode,
+    );
 
   if (!hasValidBindings || !hasConsistentPrimaryBinding) {
     ncsBindingInvalid(
@@ -1815,6 +1833,29 @@ function buildCompanyReviewedNcsBindings(
     evaluatorVersion: COMPANY_QUESTION_REVIEW_EVALUATOR_VERSION,
     bindingOrder: index + 1,
   }));
+}
+
+function isAllowedNcsQuestionMode(
+  profileId: NcsProfileId | null,
+  configuredMode: NcsQuestionMode | null,
+  effectiveMode: NcsQuestionMode | null,
+): boolean {
+  if (!profileId || !configuredMode || !effectiveMode) return false;
+  if (configuredMode === effectiveMode) return true;
+  return (
+    (profileId === 'JOB_TECHNICAL' &&
+      configuredMode === 'TECHNICAL_KNOWLEDGE' &&
+      effectiveMode === 'EXPERIENCE_BEHAVIOR') ||
+    (profileId === 'PROBLEM_SOLVING' &&
+      configuredMode === 'EXPERIENCE_BEHAVIOR' &&
+      effectiveMode === 'SITUATIONAL_DESIGN')
+  );
+}
+
+function questionTypeForNcsQuestionMode(mode: NcsQuestionMode): QuestionType {
+  if (mode === 'TECHNICAL_KNOWLEDGE') return 'TECHNICAL';
+  if (mode === 'SITUATIONAL_DESIGN') return 'SITUATION';
+  return 'EXPERIENCE';
 }
 
 function defaultQuestionGenerationPolicy(

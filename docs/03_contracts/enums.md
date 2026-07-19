@@ -137,7 +137,7 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | notification_channel | EMAIL, IN_APP | 알림 채널 |
 | ai_process_type | DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING, GUARDRAIL_VALIDATE, CRITERIA_SUGGEST, QUESTION_GENERATE, RESUME_QUESTION_GENERATE, QUESTION_SET_GENERATE, POSTING_DRAFT_GENERATE | AI 처리 유형 |
 | ai_process_status | PENDING, RUNNING, COMPLETED, FAILED | AI 처리 상태 |
-| failure_category | RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED | AI 실패 재시도 가능 여부. `STT_RETRYABLE`은 worker 자동 재시도, `REANSWER_REQUIRED`는 지원자 재답변이 필요한 인식 실패다. |
+| failure_category | RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED, REGENERATION_REQUIRED | AI 실패 재시도 가능 여부. `STT_RETRYABLE`은 worker 자동 재시도, `REANSWER_REQUIRED`는 지원자 재답변이 필요한 인식 실패다. `REGENERATION_REQUIRED`는 생성·품질·정렬 검증을 소진해 사용자가 새 job을 시작해야 하는 질문 생성 실패다. 이 경우 `failure.retryable=true`는 사용자 새 job 시작 가능 여부만 뜻하며 queue 자동 재시도·redelivery는 하지 않고 현재 메시지를 ACK한다. |
 | guardrail_result | PASS, BLOCKED, REGENERATED | AI 안전 검증 결과 |
 | embedding_source_type | POSTING_JD, CRITERION_TAG, QUESTION, APPLICATION_DOCUMENT, INTERVIEW_ANSWER, EVALUATION_REPORT | 임베딩 원천 유형 |
 ## NCS Question Mapping
@@ -146,11 +146,11 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 
 | NcsProfileId | Default NcsQuestionMode | QuestionType | Allowed Fallback |
 | --- | --- | --- | --- |
-| `PROBLEM_SOLVING` | `EXPERIENCE_BEHAVIOR` | `EXPERIENCE` | `SITUATIONAL_DESIGN` -> `SITUATION` |
+| `PROBLEM_SOLVING` | `EXPERIENCE_BEHAVIOR` | `EXPERIENCE` | `EXPERIENCE_BEHAVIOR` -> `SITUATIONAL_DESIGN` -> `SITUATION` |
 | `COLLABORATION_COMMUNICATION` | `EXPERIENCE_BEHAVIOR` | `EXPERIENCE` | 없음 |
-| `JOB_TECHNICAL` | `TECHNICAL_KNOWLEDGE` | `TECHNICAL` | 실제 수행 경험이면 `EXPERIENCE_BEHAVIOR` -> `EXPERIENCE` |
+| `JOB_TECHNICAL` | `TECHNICAL_KNOWLEDGE` | `TECHNICAL` | `TECHNICAL_KNOWLEDGE` -> `EXPERIENCE_BEHAVIOR` -> `EXPERIENCE` |
 
-정렬점수 통과를 목적으로 질문 유형만 임의 변경하지 않는다. 동일 profile/mode로 최대 2회 질문을 재작성한 뒤 위 표의 fallback만 허용한다.
+정렬점수 통과를 목적으로 질문 유형만 임의 변경하지 않는다. 최초 호출을 포함해 동일 profile/primary mode로 최대 3회 생성한 뒤 위 표의 directed fallback을 한 번만 허용한다. 허용하지 않은 reverse fallback, 다른 profile의 mode를 사용하는 cross-profile fallback, `COLLABORATION_COMMUNICATION`의 fallback은 모두 거부한다.
 
 ### NCS Answer Fact Check
 
