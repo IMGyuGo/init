@@ -405,6 +405,8 @@ async function runReportControllerAssertions() {
   assert.equal(applicationStatus.data.interviewSessionStatus, "COMPLETED");
   assert.equal(applicationStatus.data.reportStatus, "PENDING");
   assert.equal(applicationStatus.data.reportAvailable, false);
+  assert.equal(applicationStatus.data.screeningDecision, "UNDECIDED");
+  assertNoRecruitingInternalFields(applicationStatus.data as unknown as Record<string, unknown>);
 
   await repository.updateApplicationReportStatus(submitted.application.applicationId, "GENERATING");
   const generatingApplicationStatus = await controller.getApplicationStatus(
@@ -421,6 +423,7 @@ async function runReportControllerAssertions() {
   );
   assert.equal(applicationReport.data.reportType, "RECRUITING_REPORT");
   assert.equal(applicationReport.data.status, "PENDING");
+  assert.equal(applicationReport.data.screeningDecision, "UNDECIDED");
   assert.deepEqual(applicationReport.data.scores, []);
   assert.equal(applicationReport.data.visibilityPolicy.excludesInternalMemo, true);
   assert.equal(applicationReport.data.visibilityPolicy.excludesManualEvaluation, true);
@@ -512,6 +515,7 @@ async function runReportControllerAssertions() {
       },
     ],
   });
+  submitted.application.screeningDecision = "PASS";
 
   const completedApplicationStatus = await controller.getApplicationStatus(
     validCandidateRequest,
@@ -519,17 +523,23 @@ async function runReportControllerAssertions() {
   );
   assert.equal(completedApplicationStatus.data.reportStatus, "COMPLETED");
   assert.equal(completedApplicationStatus.data.reportAvailable, true);
+  assert.equal(completedApplicationStatus.data.screeningDecision, "PASS");
+  assertNoRecruitingInternalFields(completedApplicationStatus.data as unknown as Record<string, unknown>);
 
   const completedApplicationReport = await controller.getApplicationReport(
     validCandidateRequest,
     String(submitted.application.applicationId),
   );
   assert.equal(completedApplicationReport.data.status, "COMPLETED");
+  assert.equal(completedApplicationReport.data.screeningDecision, "PASS");
+  assert.equal(completedApplicationReport.data.nextStepLabel, "합격");
+  assert.equal(completedApplicationReport.data.candidateMessage, "기업 담당자가 합격으로 결정했습니다.");
   assert.equal(completedApplicationReport.data.totalScore, undefined);
   assert.deepEqual(completedApplicationReport.data.scores, []);
   assert.deepEqual(completedApplicationReport.data.answers, []);
   assert.equal(completedApplicationReport.data.visibilityPolicy.excludesDetailedScores, true);
   assert.equal(completedApplicationReport.data.visibilityPolicy.excludesEvaluationEvidence, true);
+  assertNoRecruitingInternalFields(completedApplicationReport.data as unknown as Record<string, unknown>);
 
   await assertReportHttpError(
     () => controller.getApplicationStatus(otherCandidateRequest, String(submitted.application.applicationId)),

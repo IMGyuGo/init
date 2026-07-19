@@ -2160,6 +2160,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
       documentStatus: application.documentStatus,
       interviewStatus: application.interviewStatus,
       reportStatus: application.reportStatus,
+      screeningDecision: application.screeningDecision ?? "UNDECIDED",
       submittedAt: submittedAt.toISOString(),
       updatedAt: application.updatedAt.toISOString(),
     };

@@ -480,6 +480,7 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       documentStatus: "SUBMITTED",
       interviewStatus: "NOT_READY",
       reportStatus: "PENDING",
+      screeningDecision: "UNDECIDED",
       submittedAt: now,
       updatedAt: now,
     };
@@ -702,6 +703,7 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       documentStatus: "SUBMITTED",
       interviewStatus: "NOT_READY",
       reportStatus: "PENDING",
+      screeningDecision: "UNDECIDED",
       profileSnapshot: null,
       submittedAt: now,
       updatedAt: now,

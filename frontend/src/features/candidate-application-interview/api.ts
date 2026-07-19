@@ -18,6 +18,7 @@ export type InterviewType = "MOCK" | "RECRUITING";
 export type QuestionType = "INTRO" | "TECHNICAL" | "EXPERIENCE" | "SITUATION" | "FOLLOW_UP" | "CLOSING";
 export type DeviceCheckStatus = "PENDING" | "PASSED" | "FAILED";
 export type ReportStatus = "PENDING" | "GENERATING" | "COMPLETED" | "FAILED";
+export type ScreeningDecision = "UNDECIDED" | "PASS" | "HOLD" | "FAIL";
 export type ConsentType = "PRIVACY_COLLECTION" | "AI_DOCUMENT_ANALYSIS" | "AI_INTERVIEW_RECORDING";
 export type PortfolioLinkType = "PORTFOLIO" | "GITHUB";
 export type InterviewSessionMode = "STANDARD" | "DEMO_PRESET";
@@ -752,6 +753,7 @@ export interface CandidateApplicationStatusView {
   reportStatus: ReportStatus;
   sessionId: number;
   interviewSessionStatus: InterviewStatus;
+  screeningDecision: ScreeningDecision;
   submittedAt: string;
   updatedAt: string;
   reportAvailable: boolean;
@@ -764,6 +766,7 @@ export interface CandidateRecruitingReportView {
   status: ReportStatus;
   applicationStatus: ApplicationStatus;
   interviewStatus: InterviewStatus;
+  screeningDecision: ScreeningDecision;
   companyName: string;
   jobTitle: string;
   reportId?: number;

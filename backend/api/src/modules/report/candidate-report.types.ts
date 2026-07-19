@@ -5,6 +5,7 @@ import type {
   InterviewStatus,
   ReportStatus,
 } from "../candidate";
+import type { ScreeningDecision } from "@init/common";
 import type { QuestionType } from "../interview";
 
 export type CandidateReportType = "MOCK_INTERVIEW_REPORT" | "RECRUITING_REPORT";
@@ -171,6 +172,7 @@ export interface CandidateApplicationStatusView {
   reportStatus: ReportStatus;
   sessionId: number;
   interviewSessionStatus: InterviewStatus;
+  screeningDecision: ScreeningDecision;
   submittedAt: string;
   updatedAt: string;
   reportAvailable: boolean;
@@ -183,6 +185,7 @@ export interface CandidateRecruitingReportView {
   status: ReportStatus;
   applicationStatus: ApplicationStatus;
   interviewStatus: InterviewStatus;
+  screeningDecision: ScreeningDecision;
   companyName: string;
   jobTitle: string;
   reportId?: number;

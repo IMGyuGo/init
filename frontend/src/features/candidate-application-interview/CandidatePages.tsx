@@ -63,6 +63,7 @@ import {
   type RuntimeQuestionListResponse,
   type RuntimeQuestionView,
   type SaveInterviewAnswerRequest,
+  type ScreeningDecision,
   type RealtimeInterviewSessionResponse,
   createCandidateApiClient,
   createPublicInterviewApiClient,
@@ -10825,6 +10826,7 @@ function ApplicationStatusView({ status }: { status: CandidateApplicationStatusV
       <Definition label="서류 상태" value={<StatusPill value={status.documentStatus} />} />
       <Definition label="면접 상태" value={<StatusPill value={status.interviewStatus} />} />
       <Definition label="리포트 상태" value={<StatusPill value={status.reportStatus} />} />
+      <Definition label="기업 전형 결과" value={<StatusPill value={status.screeningDecision} />} />
       <Definition label="세션 ID" value={status.sessionId} />
       <Definition label="제출일" value={formatDateTime(status.submittedAt)} />
     </dl>
@@ -10839,6 +10841,7 @@ function RecruitingReportView({ report }: { report: CandidateRecruitingReportVie
     : isFailed
       ? "면접은 제출되었지만 AI 분석 상태 확인이 필요합니다. 기업 담당자가 확인 후 안내할 예정입니다."
       : "면접이 정상적으로 제출되었습니다. AI 분석이 완료되면 기업 검토 단계로 전달됩니다.";
+  const screeningDecisionMessage = getCandidateScreeningDecisionMessage(report.screeningDecision);
 
   return (
     <div className="detail-stack">
@@ -10847,11 +10850,12 @@ function RecruitingReportView({ report }: { report: CandidateRecruitingReportVie
         <Definition label="회사" value={report.companyName} />
         <Definition label="공고" value={report.jobTitle} />
         <Definition label="다음 단계" value={report.nextStepLabel} />
+        <Definition label="기업 전형 결과" value={<StatusPill value={report.screeningDecision} />} />
       </dl>
       <div className="description-box">
         <strong>면접이 정상적으로 제출되었습니다.</strong>
         <p>{statusMessage}</p>
-        <p>최종 결과는 기업 검토 후 안내됩니다.</p>
+        <p>{screeningDecisionMessage}</p>
       </div>
     </div>
   );
@@ -11372,7 +11376,7 @@ function StatusPill({ value }: { value: ReactNode }) {
   return <span className={`badge ${tone}`}>{formatStatusLabel(text)}</span>;
 }
 
-function getStatusTone(value: string): "success" | "warning" | "neutral" {
+function getStatusTone(value: string): "success" | "warning" | "danger" | "neutral" {
   const successValues = new Set([
     "ANSWERED",
     "COMPLETED",
@@ -11383,6 +11387,7 @@ function getStatusTone(value: string): "success" | "warning" | "neutral" {
     "READY",
     "START_READY",
     "SUBMITTED",
+    "PASS",
     "응시 가능",
   ]);
   const warningValues = new Set([
@@ -11397,12 +11402,26 @@ function getStatusTone(value: string): "success" | "warning" | "neutral" {
     "PENDING",
     "PREP_REQUIRED",
     "WAITING",
+    "HOLD",
+    "UNDECIDED",
     "응시 대기",
   ]);
 
   if (successValues.has(value)) return "success";
   if (warningValues.has(value)) return "warning";
+  if (value === "FAIL") return "danger";
   return "neutral";
+}
+
+function getCandidateScreeningDecisionMessage(decision: ScreeningDecision): string {
+  const messages: Record<ScreeningDecision, string> = {
+    UNDECIDED: "아직 기업 전형 결과가 결정되지 않았습니다. 기업 검토가 완료되면 이 화면에 표시됩니다.",
+    PASS: "기업 담당자가 합격으로 결정했습니다.",
+    HOLD: "기업 담당자가 보류로 결정했습니다. 추가 안내를 기다려주세요.",
+    FAIL: "기업 담당자가 불합격으로 결정했습니다.",
+  };
+
+  return messages[decision];
 }
 
 function formatStatusLabel(value: string): string {
@@ -11436,6 +11455,10 @@ function formatStatusLabel(value: string): string {
     SUBMITTED: "제출 완료",
     CANCELED: "취소",
     WAITING: "대기",
+    UNDECIDED: "기업 검토 대기",
+    PASS: "합격",
+    HOLD: "보류",
+    FAIL: "불합격",
     "채용 리포트": "채용 리포트",
     "지원자 제한 조회": "지원자 제한 조회",
     "응시 가능": "응시 가능",

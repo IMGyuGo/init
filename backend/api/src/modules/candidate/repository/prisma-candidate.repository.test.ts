@@ -58,6 +58,44 @@ function postingRow(input: Partial<Record<string, unknown>> = {}) {
 }
 
 describe("PrismaCandidateRepository", () => {
+  it("maps only the candidate-visible screening decision from an application", async () => {
+    const updatedAt = new Date("2026-07-19T00:00:00.000Z");
+    const prisma = {
+      application: {
+        async findUnique() {
+          return {
+            applicationId: 10n,
+            postingId: 101n,
+            candidateId: 44n,
+            applicantName: "Candidate",
+            applicantEmail: "candidate@example.com",
+            applicantPhone: null,
+            githubUrl: null,
+            blogUrl: null,
+            portfolioUrl: null,
+            motivation: null,
+            additionalInfo: null,
+            profileSnapshot: null,
+            applicationStatus: "COMPLETED",
+            documentStatus: "EXTRACTED",
+            interviewStatus: "COMPLETED",
+            reportStatus: "COMPLETED",
+            screeningDecision: "HOLD",
+            screeningMemo: "지원자에게 공개하면 안 되는 내부 메모",
+            submittedAt: updatedAt,
+            updatedAt,
+          };
+        },
+      },
+    };
+    const repository = new PrismaCandidateRepository(prisma as never);
+
+    const application = await repository.findApplication(10);
+
+    assert.equal(application?.screeningDecision, "HOLD");
+    assert.equal(application && "screeningMemo" in application, false);
+  });
+
   it("checks duplicate applications using only non-canceled rows", async () => {
     let capturedWhere: Record<string, unknown> | null = null;
     const prisma = {

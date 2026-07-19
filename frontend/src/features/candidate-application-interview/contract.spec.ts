@@ -1930,6 +1930,7 @@ const recruitingReport: CandidateRecruitingReportView = {
   status: "GENERATING",
   applicationStatus: "SUBMITTED",
   interviewStatus: "COMPLETED",
+  screeningDecision: "UNDECIDED",
   companyName: "Init Labs",
   jobTitle: "Backend Developer",
   candidateMessage: "면접 분석이 진행 중입니다.",
@@ -1962,6 +1963,7 @@ const mockInterviewDeviceCheckHref = getMockInterviewDeviceCheckHref({ sessionId
 const mockReportHref = getMockReportHref(mockReport);
 const mockFeedbackIsSafe = isCandidateFacingMockFeedbackSafe(mockFeedback);
 const recruitingReportIsLimited = isCandidateRecruitingReportLimited(recruitingReport);
+assert.equal(recruitingReport.screeningDecision, "UNDECIDED");
 const recruitingReadyShowsDeviceSetup = shouldShowInterviewDeviceSetup({
   mode: "recruiting",
   setupCompleted: false,

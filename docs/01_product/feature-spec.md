@@ -170,8 +170,8 @@ init v0.5의 화면/기능 정의를 구현 단위로 정리한다.
 | 채용 AI 면접 진행 화면 | /candidate/applications/{applicationId}/interview | system process | 채용 면접 답변 스크립트 생성 | STT 처리 | 음성 파일, 언어 설정 | 답변 스크립트 저장 | POST /candidate/interviews/{sessionId}/stt | v1.0 | 독립 화면 아님. 기업 지원자 평가 상세에서 결과 확인 |
 | 채용 AI 면접 진행 화면 | /candidate/applications/{applicationId}/interview | system process | 실시간 꼬리질문 생성 | NCS 근거 부족 판정과 자동 삽입 | 이전 질문, 답변 스크립트, 서류 요약, question mode, 답변시간 snapshot | 답변의 구체 표현을 포함한 FOLLOW_UP 질문을 원 질문 직후 한 번 추가 | POST /candidate/interviews/{sessionId}/follow-up-question | v1.0 | base 질문과 같은 mode를 사용하고 실패·timeout이면 다음 기본 질문으로 복구 |
 | 채용 AI 면접 진행 화면 | /candidate/applications/{applicationId}/interview | system process | 채용 면접 완료 처리 | 면접 종료 및 분석 상태 전환 | 면접 세션, 답변 파일, 스크립트 | 분석 대기 상태로 전환 | PATCH /candidate/interviews/{sessionId}/complete | v1.0 | 완료 후 지원현황에는 분석중 상태 표시 |
-| 채용 AI 면접 결과 화면 | /candidate/applications/{applicationId}/report | page | 채용 AI 면접 결과 | 지원자용 제한 결과 조회 | 지원 ID, 면접 세션 ID | 응시 결과 또는 제한된 피드백 표시 | GET /candidate/applications/{applicationId}/report | v1.0 | reportType=RECRUITING_REPORT, 지원자 제한 조회 |
-| 채용 AI 면접 결과 화면 | /candidate/applications/{applicationId}/report | section | 전형 상태 표시 | 채용 전형 진행 상태 조회 | 지원 ID | 전형 상태 표시 | GET /candidate/applications/{applicationId}/status | v1.0 | 기업용 합격/탈락 내부 메모는 노출하지 않음 |
+| 채용 AI 면접 결과 화면 | /candidate/applications/{applicationId}/report | page | 채용 AI 면접 결과 | 지원자용 제한 결과 조회 | 지원 ID, 면접 세션 ID | 응시 결과와 저장된 기업 전형 결정 표시 | GET /candidate/applications/{applicationId}/report | v1.0 | reportType=RECRUITING_REPORT. 전형 결정은 저장 즉시 공개하고 내부 메모·평가 상세는 제외 |
+| 채용 AI 면접 결과 화면 | /candidate/applications/{applicationId}/report | section | 전형 상태 표시 | 채용 전형 진행 상태 조회 | 지원 ID | 전형 상태와 저장된 기업 전형 결정 표시 | GET /candidate/applications/{applicationId}/status | v1.0 | 전형 결정은 저장 즉시 공개. UNDECIDED는 기업 검토 대기. 기업용 내부 메모·수동 평가 상세는 노출하지 않음 |
 
 ## 마이페이지 (GNB button)
 
