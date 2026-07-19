@@ -40,6 +40,7 @@ export interface CandidateStoredReport {
 export interface CandidateFollowUpQuestionRecord {
   followUpId: number;
   answerId: number;
+  insertedSessionQuestionId?: number;
   content: string;
   generationStatus: string;
   policy: string;

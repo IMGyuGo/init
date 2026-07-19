@@ -1823,6 +1823,14 @@ assert.equal(
   shouldPollRecruitingReportCompletion({
     interviewStatus: "COMPLETED",
     interviewSessionStatus: "COMPLETED",
+    reportStatus: "PENDING",
+  }),
+  true,
+);
+assert.equal(
+  shouldPollRecruitingReportCompletion({
+    interviewStatus: "COMPLETED",
+    interviewSessionStatus: "COMPLETED",
     reportStatus: "GENERATING",
   }),
   true,

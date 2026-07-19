@@ -204,7 +204,7 @@ STT 미인식 답변 처리:
 - 이 경우 답변별 NCS 평가는 `scoreStatus=INSUFFICIENT_INPUT`과 모든 nullable 점수 `NULL`로 저장하고 평가 근거 및 `ReportScore`를 생성하지 않는다.
 - 최종 리포트는 해당 profile 점수와 `totalScore`를 `NULL`, `thresholdResult=INCOMPLETE`로 유지한다. 발표 정책 `NCS_INCOMPLETE_AS_FAIL_DEMO_V1`에 따라 화면상 AI 판정만 `FAIL`이며 실제 `applications.screening_decision`은 변경하지 않는다.
 - 화면 피드백은 `평가 미완료`와 인식 실패 사유를 표시한다. 최초 `REANSWER_REQUIRED`에는 한 번의 재답변을 제공하고, 두 번째 인식 실패 또는 재답변 미사용 상태로 면접을 완료한 경우 `STT_UNAVAILABLE`로 확정한다.
-- STT job의 provider `FAILED`, timeout, worker 중단은 `STT_UNAVAILABLE`로 변환하지 않는다. 별도 process 실패 상태로 유지하고 실제 인식 실패와 구분한다.
+- STT job의 provider timeout과 worker 중단이 재시도 중인 동안에는 `STT_UNAVAILABLE`로 변환하지 않는다. 최신 STT process가 `FAILED + REANSWER_REQUIRED`이거나 재시도 한도를 소진한 `FAILED + NON_RETRYABLE`이면 terminal `STT_UNAVAILABLE`로 확정한다.
 - 과거 `STT_UNAVAILABLE_TEMP_ZERO` 행은 조회 호환만 유지하며 신규 생성하거나 NCS 집계에 재사용하지 않는다.
 - 정상 transcript가 있는 답변만 서비스 기본 평가 기준과 점수 구간에 따라 품질 평가한다.
 
@@ -2327,6 +2327,8 @@ Allocation Examples:
   - NCS 세션이면 `ncsScoringVersion`과 `ncsSessionPolicy`를 현재 공고가 아니라 session snapshot에서 전달한다.
 - 검증/전제조건:
   - 평가 완료 상태 또는 NCS `INCOMPLETE` 상태가 명시적으로 확정됨
+  - private follow-up 답변은 `follow_up_questions.inserted_session_question_id = interview_answers.session_question_id`로 원본 `answer_id`와 연결한다. 질문 문장, 답변 순서 또는 생성 시각으로 부모 답변을 추측하지 않는다.
+  - 세션의 모든 답변은 transcript가 저장됐거나 최신 STT process가 `FAILED + REANSWER_REQUIRED` 또는 재시도 소진 `FAILED + NON_RETRYABLE`인 `STT_UNAVAILABLE` terminal 상태여야 한다. STT가 아직 처리 중인 답변이 있으면 리포트 작업을 생성하지 않고 `409 COMMON_CONFLICT`를 반환한다.
 - 성공 응답/처리:
   - 평가 리포트 저장
   - NCS 리포트는 `profileScores`, `totalScore`, `thresholdResult`, `aiDecision`, `decisionReason`, `scoringVersion`, `decisionPolicyVersion`을 저장·응답한다.
@@ -2336,6 +2338,7 @@ Allocation Examples:
   - 발표용 `NCS_INCOMPLETE_AS_FAIL_DEMO_V1`에서는 `INCOMPLETE -> FAIL`로 표시하되 `totalScore=NULL`과 미완료 원인을 유지하고 실제 `screening_decision`은 변경하지 않는다.
 - 오류/예외:
   - 리포트 생성 실패 시 재생성 버튼과 오류 상태를 표시한다.
+  - STT 처리 중 충돌은 완료 후 동일 요청을 멱등하게 재시도하며, 완료된 V1 세션·리포트는 V2로 재계산하지 않는다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, criterion_tags, evaluation_criteria, applications, application_documents, interview_sessions, interview_answers, evaluation_reports, report_scores, report_evidences, ai_process_logs
 - 비고/미결:

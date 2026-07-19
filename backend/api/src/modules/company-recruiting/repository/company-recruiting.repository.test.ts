@@ -291,6 +291,7 @@ describe("PrismaCompanyRecruitingRepository", () => {
                       {
                         followUpId: 7001n,
                         answerId: 1001n,
+                        insertedSessionQuestionId: 6001n,
                         content: duplicateFollowUp,
                         generationStatus: "GENERATED",
                         policy: "RECRUITING",
@@ -313,6 +314,7 @@ describe("PrismaCompanyRecruitingRepository", () => {
                       {
                         followUpId: 7002n,
                         answerId: 1002n,
+                        insertedSessionQuestionId: 6002n,
                         content: duplicateFollowUp,
                         generationStatus: "GENERATED",
                         policy: "RECRUITING",
@@ -322,9 +324,12 @@ describe("PrismaCompanyRecruitingRepository", () => {
                   },
                   {
                     answerId: 1003n,
-                    questionId: 503n,
-                    question: {
-                      questionId: 503n,
+                    questionId: null,
+                    sessionQuestionId: 6002n,
+                    question: null,
+                    sessionQuestion: {
+                      sessionQuestionId: 6002n,
+                      runtimeQuestionId: 9003n,
                       questionType: "FOLLOW_UP",
                       content: duplicateFollowUp,
                     },
@@ -348,5 +353,7 @@ describe("PrismaCompanyRecruitingRepository", () => {
     assert.equal(answers[0]?.followUpQuestions[0]?.answer, null);
     assert.equal(answers[1]?.followUpQuestions[0]?.answer?.answerId, 1003);
     assert.equal(answers[1]?.followUpQuestions[0]?.answer?.transcript, "두 번째 꼬리질문 답변");
+    assert.equal(answers[2]?.questionId, 9003);
+    assert.equal(answers[2]?.questionType, "FOLLOW_UP");
   });
 });

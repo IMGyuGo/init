@@ -525,6 +525,14 @@ const applicantDetailInclude = {
         orderBy: { answerId: "asc" as const },
         include: {
           question: true,
+          sessionQuestion: {
+            select: {
+              sessionQuestionId: true,
+              runtimeQuestionId: true,
+              questionType: true,
+              content: true,
+            },
+          },
           videoFile: true,
           audioFile: true,
           followUpQuestions: {
@@ -538,14 +546,21 @@ const applicantDetailInclude = {
 
 type FollowUpAnswerCandidate = {
   answerId: bigint | number;
+  sessionQuestionId?: bigint | number | null;
   submittedAt: Date | null;
   question?: {
+    questionType?: string | null;
+    content?: string | null;
+  } | null;
+  sessionQuestion?: {
+    sessionQuestionId?: bigint | number | null;
     questionType?: string | null;
     content?: string | null;
   } | null;
 };
 
 type FollowUpQuestionCandidate = {
+  insertedSessionQuestionId?: bigint | number | null;
   content: string;
   createdAt: Date;
 };
@@ -828,20 +843,21 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
         answerTimeSecSnapshot: session.answerTimeSecSnapshot,
         answers: sessionAnswers.map((answer) => ({
           answerId: Number(answer.answerId),
-          questionId: answer.questionId == null ? null : Number(answer.questionId),
+          questionId: answer.sessionQuestion?.runtimeQuestionId == null
+            ? answer.questionId == null ? null : Number(answer.questionId)
+            : Number(answer.sessionQuestion.runtimeQuestionId),
           videoFileId: answer.videoFileId == null ? null : Number(answer.videoFileId),
           audioFileId: answer.audioFileId == null ? null : Number(answer.audioFileId),
           videoFile: answer.videoFile ? mapFileAsset(answer.videoFile) : null,
           audioFile: answer.audioFile ? mapFileAsset(answer.audioFile) : null,
-          questionType: answer.question?.questionType ?? null,
-          questionContent: answer.question?.content ?? null,
+          questionType: answer.sessionQuestion?.questionType ?? answer.question?.questionType ?? null,
+          questionContent: answer.sessionQuestion?.content ?? answer.question?.content ?? null,
           transcript: answer.transcript,
           durationSeconds: answer.durationSeconds,
           submittedAt: answer.submittedAt,
           nonverbalMetadata: mapJsonObject(answer.nonverbalMetadata),
           followUpQuestions: answer.followUpQuestions.map((followUp) => {
             const followUpAnswer = findLinkedFollowUpAnswer(
-              answer,
               followUp,
               sessionAnswers,
               usedFollowUpAnswerIds,
@@ -876,91 +892,22 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
 }
 
 function findLinkedFollowUpAnswer<T extends FollowUpAnswerCandidate>(
-  parentAnswer: T,
   followUp: FollowUpQuestionCandidate,
   sessionAnswers: T[],
   usedAnswerIds: Set<string>,
 ): T | undefined {
-  const nextBaseAnswer = findNextBaseAnswer(parentAnswer, sessionAnswers);
-  return sessionAnswers
-    .filter((candidate) =>
-      isFollowUpAnswerForQuestion(candidate, parentAnswer, followUp, nextBaseAnswer, usedAnswerIds),
-    )
-    .sort((left, right) => compareFollowUpAnswerCandidates(left, right, followUp))[0];
-}
-
-function isFollowUpAnswerForQuestion<T extends FollowUpAnswerCandidate>(
-  candidate: T,
-  parentAnswer: T,
-  followUp: FollowUpQuestionCandidate,
-  nextBaseAnswer: T | undefined,
-  usedAnswerIds: Set<string>,
-): boolean {
-  if (
-    usedAnswerIds.has(answerIdKey(candidate.answerId)) ||
-    compareAnswerIds(candidate.answerId, parentAnswer.answerId) <= 0 ||
-    candidate.question?.questionType !== "FOLLOW_UP" ||
-    normalizeQuestionText(candidate.question.content) !== normalizeQuestionText(followUp.content)
-  ) {
-    return false;
+  if (followUp.insertedSessionQuestionId == null) {
+    return undefined;
   }
-
-  if (nextBaseAnswer && compareAnswerIds(candidate.answerId, nextBaseAnswer.answerId) >= 0) {
-    return false;
-  }
-
-  if (candidate.submittedAt && candidate.submittedAt < followUp.createdAt) {
-    return false;
-  }
-
-  return true;
-}
-
-function findNextBaseAnswer<T extends FollowUpAnswerCandidate>(
-  parentAnswer: T,
-  sessionAnswers: T[],
-): T | undefined {
-  return sessionAnswers
-    .filter(
-      (candidate) =>
-        compareAnswerIds(candidate.answerId, parentAnswer.answerId) > 0 &&
-        candidate.question?.questionType !== "FOLLOW_UP",
-    )
-    .sort((left, right) => compareAnswerIds(left.answerId, right.answerId))[0];
-}
-
-function compareFollowUpAnswerCandidates(
-  left: FollowUpAnswerCandidate,
-  right: FollowUpAnswerCandidate,
-  followUp: FollowUpQuestionCandidate,
-) {
-  return (
-    followUpAnswerTimeDistance(left, followUp) -
-      followUpAnswerTimeDistance(right, followUp) ||
-    compareAnswerIds(left.answerId, right.answerId)
-  );
-}
-
-function followUpAnswerTimeDistance(answer: FollowUpAnswerCandidate, followUp: FollowUpQuestionCandidate) {
-  if (!answer.submittedAt) {
-    return Number.MAX_SAFE_INTEGER;
-  }
-  return Math.max(0, answer.submittedAt.getTime() - followUp.createdAt.getTime());
-}
-
-function compareAnswerIds(left: bigint | number, right: bigint | number) {
-  const leftId = BigInt(left);
-  const rightId = BigInt(right);
-  if (leftId === rightId) {
-    return 0;
-  }
-  return leftId > rightId ? 1 : -1;
+  const insertedSessionQuestionId = answerIdKey(followUp.insertedSessionQuestionId);
+  return sessionAnswers.find((candidate) => {
+    const candidateSessionQuestionId = candidate.sessionQuestionId ?? candidate.sessionQuestion?.sessionQuestionId;
+    return candidateSessionQuestionId != null &&
+      answerIdKey(candidateSessionQuestionId) === insertedSessionQuestionId &&
+      !usedAnswerIds.has(answerIdKey(candidate.answerId));
+  });
 }
 
 function answerIdKey(answerId: bigint | number) {
   return answerId.toString();
-}
-
-function normalizeQuestionText(value: string | null | undefined) {
-  return (value ?? "").trim().replace(/\s+/g, " ");
 }
