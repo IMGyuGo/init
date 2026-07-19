@@ -7,6 +7,7 @@ import type {
   DemoPresetReadinessProjectionDto,
   InterviewSessionMode,
   QuestionUsageScope,
+  ScreeningDecision,
 } from "@init/common";
 
 export type PostingStatus = "DRAFT" | "OPEN" | "CLOSING_SOON" | "CLOSED" | "ARCHIVED";
@@ -262,6 +263,7 @@ export interface Application {
   documentStatus: DocumentStatus;
   interviewStatus: InterviewStatus;
   reportStatus: ReportStatus;
+  screeningDecision: ScreeningDecision;
   submittedAt: string;
   updatedAt: string;
 }

@@ -3343,12 +3343,16 @@ CandidateFolder 입력 제한:
   - 본인 지원 건이며 응시 완료 상태
 - 성공 응답/처리:
   - 응시 결과 또는 제한된 피드백 표시
+  - 기업 담당자가 저장한 전형 결정 `screeningDecision`을 `UNDECIDED | PASS | HOLD | FAIL`로 반환한다.
+  - 전형 결정은 기업 담당자가 저장하는 즉시 지원자에게 공개한다. 별도 발표·게시 상태는 두지 않는다.
+  - `UNDECIDED`는 합불 미결정 상태이며 지원자 화면에서 `기업 검토 대기`로 표시한다.
 - 오류/예외:
   - 리포트 생성 중이면 처리 상태를 표시하고 접근 제한 항목은 안내 문구를 표시한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, ai_process_logs
 - 비고/미결:
   - reportType=RECRUITING_REPORT, 지원자 제한 조회
+  - 기업 내부 메모, 수동 평가 상세, AI 근거·내부 점수는 지원자 응답에 포함하지 않는다.
 
 ### API-074 GET /candidate/applications/{applicationId}/status
 - 도메인: 지원자 - 지원현황/채용면접
@@ -3364,12 +3368,14 @@ CandidateFolder 입력 제한:
   - 본인 지원 건
 - 성공 응답/처리:
   - 전형 상태 표시
+  - 기업 담당자가 저장한 전형 결정 `screeningDecision`을 `UNDECIDED | PASS | HOLD | FAIL`로 반환한다.
+  - 전형 결정은 저장 즉시 공개하며 `UNDECIDED`는 지원자 화면에서 `기업 검토 대기`로 표시한다.
 - 오류/예외:
   - 상태 조회 실패 시 다시 조회 버튼을 제공한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, manual_evaluations, ai_process_logs
 - 비고/미결:
-  - 기업용 합격/탈락 내부 메모는 노출하지 않음
+  - 기업용 합격/탈락 내부 메모와 수동 평가 상세는 노출하지 않음
 
 ## 지원자 - 채용면접
 
