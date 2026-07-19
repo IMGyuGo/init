@@ -546,6 +546,7 @@ type RuntimePageSession = {
   timePolicy?: CandidateInterviewRuntimeView["timePolicy"];
   totalQuestions: number;
   answeredCount: number;
+  completionReady?: boolean;
   currentQuestion?: RuntimeQuestionView;
   nextQuestionEndpoint: string;
   answerUploadEndpoint: string;
@@ -3690,6 +3691,10 @@ function InterviewRuntimePanel({
         runtime: {
           ...current.runtime,
           answeredCount,
+          completionReady,
+          totalQuestions: completionReady && answeredCount > 0
+            ? Math.max(answeredCount, questions.length)
+            : current.runtime.totalQuestions,
           currentQuestion: completionReady ? undefined : nextQuestion,
         },
         questions: {
@@ -7814,6 +7819,7 @@ function InterviewRuntimePanel({
   );
   const runtimeProgressionState = getInterviewRuntimeProgressionState({
     hasRuntimeData: Boolean(data),
+    completionReady: data?.runtime.completionReady,
     currentQuestionAnswered,
     isCurrentQuestionLast,
     answerProcessingBusy,
@@ -7873,6 +7879,7 @@ function InterviewRuntimePanel({
   const interviewerSessionState = getInterviewerSessionState({
     mode: AI_INTERVIEWER_SESSION_MODE_POLICY.activeMode,
     setupCompleted,
+    completionReady: data?.runtime.completionReady,
     hasCurrentQuestion: Boolean(currentQuestion),
     questionSpeechPlaying,
     questionSpeechSupported,
@@ -11569,6 +11576,13 @@ function toRecruitingRuntimeSession(
     questions.questions.find((question) => question.current) ??
     questions.questions.find((question) => question.questionId === questions.currentQuestionId) ??
     questions.questions.find((question) => !question.answered);
+  const answeredCount = questions.questions.filter((question) => question.answered).length;
+  const completionReady = Boolean(
+    runtime.status === "IN_PROGRESS" &&
+      !currentQuestion &&
+      questions.questions.length > 0 &&
+      answeredCount >= questions.questions.length,
+  );
 
   return {
     sessionId: runtime.sessionId,
@@ -11580,11 +11594,11 @@ function toRecruitingRuntimeSession(
     canRecord: runtime.canRecord,
     ...(runtime.jobDescription ? { jobDescription: runtime.jobDescription } : {}),
     ...(runtime.timePolicy ? { timePolicy: runtime.timePolicy } : {}),
-    totalQuestions: getRecruitingRuntimeTotalQuestions(
-      runtime.sessionMode,
-      questions.questions.length,
-    ),
-    answeredCount: questions.questions.filter((question) => question.answered).length,
+    totalQuestions: completionReady
+      ? Math.max(answeredCount, questions.questions.length)
+      : getRecruitingRuntimeTotalQuestions(runtime.sessionMode, questions.questions.length),
+    answeredCount,
+    completionReady,
     currentQuestion,
     nextQuestionEndpoint: runtime.nextQuestionEndpoint,
     answerUploadEndpoint: runtime.answerUploadEndpoint,
