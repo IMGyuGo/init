@@ -93,6 +93,7 @@ export function buildSyntheticApplicantPlanV2(options: SyntheticImporterOptions)
     });
   }
 
+  resolveDuplicateEmails(records, options.datasetId);
   if (new Set(records.map((record) => record.email)).size !== records.length) {
     throw new Error("V2 합성 지원자 이메일이 중복되었습니다.");
   }
@@ -106,8 +107,7 @@ function buildStages(activeCount: number, datasetId: string): SyntheticLifecycle
     .sort((left, right) => deterministicOrder(datasetId, left.index, left.stage).localeCompare(deterministicOrder(datasetId, right.index, right.stage)))
     .map(({ stage }) => stage);
 
-  swapInReport(stages, 8);
-  swapInReport(stages, 10);
+  reserveReportShowcase(stages);
   return stages;
 }
 
@@ -146,7 +146,7 @@ function identity(datasetId: string, ordinal: number): Pick<SyntheticApplicantPl
   ];
 
   return {
-    email: `${localParts[ordinal % localParts.length]}.${ordinal.toString(36)}@${domain}`,
+    email: `${localParts[ordinal % localParts.length]}@${domain}`,
     name: `${surname[0]}${given[0]}`,
     phone: `010-****-${code}`,
   };
@@ -218,11 +218,54 @@ function deterministicOrder(datasetId: string, index: number, namespace: string)
   return createHash("sha256").update(`${datasetId}:${namespace}:${index}`).digest("hex");
 }
 
-function swapInReport(stages: SyntheticLifecycleStage[], targetIndex: number) {
-  if (stages[targetIndex] === "REPORT_COMPLETED") return;
-  const reportIndex = stages.findIndex((stage, index) => index > targetIndex && stage === "REPORT_COMPLETED");
-  if (reportIndex === -1) throw new Error("첫 페이지에 완료 리포트를 배치하지 못했습니다.");
-  [stages[targetIndex], stages[reportIndex]] = [stages[reportIndex], stages[targetIndex]];
+function reserveReportShowcase(stages: SyntheticLifecycleStage[]) {
+  const targets = [8, 10];
+  const forbidden = [...Array.from({ length: 8 }, (_, index) => index), 9];
+  const reportCount = stages.filter((stage) => stage === "REPORT_COMPLETED").length;
+  if (stages.length <= 10 || reportCount < targets.length) {
+    throw new Error("활성 지원자 수가 첫 페이지 리포트 showcase를 지원하지 않습니다.");
+  }
+
+  const targetIndexes = new Set(targets);
+  for (const targetIndex of targets) {
+    if (stages[targetIndex] === "REPORT_COMPLETED") continue;
+    const reportIndex = stages.findIndex((stage, index) => !targetIndexes.has(index) && stage === "REPORT_COMPLETED");
+    if (reportIndex === -1) throw new Error("첫 페이지에 완료 리포트를 배치하지 못했습니다.");
+    [stages[targetIndex], stages[reportIndex]] = [stages[reportIndex], stages[targetIndex]];
+  }
+
+  for (const forbiddenIndex of forbidden) {
+    if (stages[forbiddenIndex] !== "REPORT_COMPLETED") continue;
+    const replacementIndex = stages.findIndex((stage, index) => index > 10 && !targetIndexes.has(index) && stage !== "REPORT_COMPLETED");
+    if (replacementIndex === -1) throw new Error("첫 페이지 리포트 showcase 순서를 보장할 수 없습니다.");
+    [stages[forbiddenIndex], stages[replacementIndex]] = [stages[replacementIndex], stages[forbiddenIndex]];
+  }
+}
+
+function resolveDuplicateEmails(records: SyntheticApplicantPlanRecord[], datasetId: string) {
+  const used = new Set<string>();
+  for (const record of records) {
+    if (!used.has(record.email)) {
+      used.add(record.email);
+      continue;
+    }
+
+    const [localPart, domain] = record.email.split("@");
+    let attempt = 0;
+    let resolved: string;
+    do {
+      resolved = `${localPart}.${collisionToken(datasetId, record.ordinal, attempt)}@${domain}`;
+      attempt += 1;
+    } while (used.has(resolved));
+    record.email = resolved;
+    used.add(resolved);
+  }
+}
+
+function collisionToken(datasetId: string, ordinal: number, attempt: number) {
+  const digest = createHash("sha256").update(`${datasetId}:${ordinal}:email-collision:${attempt}`).digest("hex");
+  const alphabet = "abcdefghijklmnop";
+  return Array.from(digest.slice(0, 8), (character) => alphabet[Number.parseInt(character, 16)]).join("");
 }
 
 function ensureInteractiveDepth(depths: SyntheticDataDepth[], interactiveCount: number) {

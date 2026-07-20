@@ -10,6 +10,7 @@ describe("synthetic applicant importer V2", () => {
     expect(new Set(plan.map((record) => record.email)).size).toBe(1_050);
     expect(plan.every((record) => V2_EMAIL_DOMAINS.some((domain) => record.email.endsWith(`@${domain}`)))).toBe(true);
     expect(plan.every((record) => !/demo|dataset|issue411|\d{5}/i.test(`${record.name} ${record.email}`))).toBe(true);
+    expect(plan.some((record) => !emailLocalPart(record.email).endsWith(`.${record.ordinal.toString(36)}`))).toBe(true);
     expect(new Set(plan.map((record) => record.name)).size).toBeLessThan(plan.length);
     expect(plan.every((record) => /^010-\*{4}-\d{4}$/.test(record.phone))).toBe(true);
   });
@@ -31,6 +32,19 @@ describe("synthetic applicant importer V2", () => {
     const firstPageDecisions = active.slice(0, 20).map((record) => record.screeningDecision);
     expect(firstPageDecisions).toContain("PASS");
     expect(firstPageDecisions).toContain("FAIL");
+  });
+
+  it("reserves the first completed report ranks for the showcase positions", () => {
+    const active = buildSyntheticApplicantPlanV2(options({
+      datasetId: "stage-showcase-1",
+      activeCount: 100,
+      canceledCount: 0,
+    })).filter((record) => !record.isCanceled);
+
+    expect(active.slice(0, 8).every((record) => record.lifecycleStage !== "REPORT_COMPLETED")).toBe(true);
+    expect(active[8]).toMatchObject({ lifecycleStage: "REPORT_COMPLETED", screeningDecision: "PASS" });
+    expect(active[9].lifecycleStage).not.toBe("REPORT_COMPLETED");
+    expect(active[10]).toMatchObject({ lifecycleStage: "REPORT_COMPLETED", screeningDecision: "FAIL" });
   });
 
   it("creates one hundred diverse completed reports with a 20/80 decision split", () => {
@@ -60,7 +74,7 @@ describe("synthetic applicant importer V2", () => {
   });
 });
 
-function options(): SyntheticImporterOptions {
+function options(overrides: Partial<SyntheticImporterOptions> = {}): SyntheticImporterOptions {
   return {
     action: "plan",
     environment: "production",
@@ -72,7 +86,12 @@ function options(): SyntheticImporterOptions {
     interactiveCount: 10,
     pipelineSelectionCount: 0,
     batchSize: 100,
+    ...overrides,
   };
+}
+
+function emailLocalPart(email: string) {
+  return email.slice(0, email.indexOf("@"));
 }
 
 function countBy<T>(records: T[], selector: (record: T) => string) {
