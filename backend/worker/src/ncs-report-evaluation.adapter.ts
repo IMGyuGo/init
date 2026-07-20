@@ -892,7 +892,7 @@ function unscoredOutput(
   scoreStatus: "INSUFFICIENT_INPUT" | "LOW_ALIGNMENT",
   coverage: number,
   reasons: string[],
-  providerMode: "mock" | "openai" = "mock",
+  providerMode: "mock" | "openai" | "fixed" = "mock",
   model?: string,
 ): NcsTextEvaluationOutput {
   return {

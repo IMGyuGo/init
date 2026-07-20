@@ -56,6 +56,10 @@ import {
   InterviewNonverbalMetadataValidationError,
   normalizeInterviewNonverbalMetadata,
 } from "./interview-nonverbal-metadata";
+import {
+  SALTLUX_FIXED_DEMO,
+  isSaltluxFixedDemoPersonalizedQuestion,
+} from "../../../shared/saltlux-fixed-demo";
 
 const DEFAULT_MOCK_QUESTION_TYPES = ["INTRO", "TECHNICAL", "EXPERIENCE", "CLOSING"] as const;
 const DEFAULT_REALTIME_MODEL = "gpt-realtime-2";
@@ -1046,6 +1050,10 @@ export class InterviewService {
       documentSummary,
       ...(requestBody.qualityCheckOnly === true ? { qualityCheckOnly: true } : {}),
       sessionId: session.sessionId,
+      ...(session.sessionMode === "DEMO_PRESET" ? { usageScope: "DEMO_PRESET" } : {}),
+      ...(session.sessionMode === "DEMO_PRESET" && isSaltluxFixedDemoPersonalizedQuestion(previousQuestion)
+        ? { fixedFollowUpQuestion: SALTLUX_FIXED_DEMO.questions.followUp }
+        : {}),
       ...(answer.ncsEvaluationSnapshot?.ncsBindings?.length
         ? {
             sessionQuestionId: answer.ncsEvaluationSnapshot.sessionQuestionId,

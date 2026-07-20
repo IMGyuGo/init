@@ -53,10 +53,14 @@ import {
 } from "../report.types";
 import { AiJobDispatcherService } from "./ai-job-dispatcher.service";
 import { buildDefaultReportCriteria, normalizeReportCriterionName } from "./service-interview-rubric";
+import {
+  SALTLUX_FIXED_DEMO_FIXTURE_ID,
+  isSaltluxFixedDemoPosting,
+} from "../../../shared/saltlux-fixed-demo";
 
 type ReportAnswerSession = Pick<
   RuntimeInterviewSession,
-  "sessionId" | "interviewType" | "showQuestionText" | "ncsScoringVersion"
+  "sessionId" | "interviewType" | "showQuestionText" | "ncsScoringVersion" | "sessionMode"
 >;
 type ReportGenerationKind = "MOCK_REPORT_GENERATE" | "RECRUITING_REPORT_GENERATE";
 export const CANDIDATE_MOCK_MEDIA_COOKIE_NAME = "candidateMockMediaAccess";
@@ -561,6 +565,11 @@ export class ReportService {
         : {}),
       ...(args.reportType === "RECRUITING_REPORT" && this.interviewRepository.listNcsSessionPolicies
         ? { ncsSessionPolicy: await this.interviewRepository.listNcsSessionPolicies(args.session.sessionId) }
+        : {}),
+      ...(args.reportType === "RECRUITING_REPORT" &&
+      args.session.sessionMode === "DEMO_PRESET" &&
+      isSaltluxFixedDemoPosting(args.companyName, args.jobTitle)
+        ? { presentationFixtureId: SALTLUX_FIXED_DEMO_FIXTURE_ID }
         : {}),
     };
 
@@ -1075,6 +1084,10 @@ export class ReportService {
       FAIL: {
         label: "불합격",
         message: "기업 담당자가 불합격으로 결정했습니다.",
+      },
+      RETRY: {
+        label: "재평가",
+        message: "기업 담당자가 재평가 대상으로 결정했습니다. 추가 안내를 기다려주세요.",
       },
     };
 

@@ -51,6 +51,10 @@ import {
   scoreBandFor,
   weightedTotalScore
 } from "./service-interview-rubric";
+import {
+  SALTLUX_FIXED_PRESENTATION_FIXTURE_ID,
+  buildSaltluxFixedPresentationReport,
+} from "./fixed-presentation-report";
 
 interface WorkerInput {
   kind?: string;
@@ -620,6 +624,37 @@ export class MockAiTaskHandler implements AiTaskHandler {
       : generatedSummary
         ? [{ answerId: 1, transcript: generatedSummary, evaluationStatus: "EVALUATED" as const }]
         : answersOf(payload.answers);
+    if (payload.presentationFixtureId === SALTLUX_FIXED_PRESENTATION_FIXTURE_ID) {
+      const policies = ncsSessionPoliciesOf(payload.ncsSessionPolicy) ?? [];
+      const report = buildSaltluxFixedPresentationReport({
+        reportId,
+        applicationId: optionalPositiveNumber(payload.applicationId, "applicationId"),
+        sessionId: optionalPositiveNumber(payload.sessionId, "sessionId"),
+        answers,
+        criteria,
+        policies,
+      });
+      const guardrail = this.validateReport(report);
+      return {
+        outputRef: JSON.stringify({
+          presentationFixtureId: SALTLUX_FIXED_PRESENTATION_FIXTURE_ID,
+          providerMode: "fixed",
+          model: "fixed-demo-fixture-v1",
+          reportId,
+          reportType,
+          summary: report.summary,
+          totalScore: report.totalScore,
+          scores: report.scores,
+          questionEvaluations: report.questionEvaluations,
+          ncsAnswerEvaluations: report.ncsAnswerEvaluations,
+          ncsFinalEvaluation: report.ncsFinalEvaluation,
+          evidences: report.scores.flatMap((score) => score.evidences),
+          guardrail,
+        }),
+        guardrail,
+        finalSave: () => this.results.saveGeneratedReport(report),
+      };
+    }
     const documentText = typeof payload.documentText === "string" ? payload.documentText : undefined;
     const ncsBatch = hasNcsAnswerSnapshots(answers)
       ? await evaluateNcsReportAnswers(
