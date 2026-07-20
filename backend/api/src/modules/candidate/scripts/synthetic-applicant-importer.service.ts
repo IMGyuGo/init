@@ -1,6 +1,7 @@
 import {
   SYNTHETIC_MANIFEST_V2,
   assertSyntheticManifestVersion,
+  assertV2SyntheticOperationalContract,
   buildSyntheticApplicantPlan,
   chunkSyntheticRecords,
   sanitizeSyntheticError,
@@ -73,6 +74,10 @@ export class SyntheticApplicantImporterService {
     const target = await this.requireTarget(options);
     const existing = await this.store.findDataset(options.datasetId);
     const manifestVersion = this.resolveManifestVersion(existing);
+    if (manifestVersion === SYNTHETIC_MANIFEST_V2) {
+      assertV2SyntheticOperationalContract(options);
+      if (existing) assertV2SyntheticOperationalContract(existing);
+    }
     const records = buildSyntheticApplicantPlan(options, manifestVersion);
     const optionsHash = syntheticOptionsHash(options, manifestVersion);
     if (existing && existing.optionsHash !== optionsHash) {
@@ -83,19 +88,10 @@ export class SyntheticApplicantImporterService {
       target,
       datasetId: options.datasetId,
       manifestVersion,
-      optionsHash,
       existingDatasetStatus: existing?.status ?? null,
       summary: summarizeSyntheticPlan(records),
-      interactiveAccounts: records.filter((record) => record.isInteractive).map((record) => ({
-        ordinal: record.ordinal,
-        email: record.email,
-        lifecycleStage: record.lifecycleStage,
-        dataDepth: record.dataDepth,
-      })),
-      pipelineSelection: records.filter((record) => record.pipelineSelected).map((record) => ({
-        ordinal: record.ordinal,
-        email: record.email,
-      })),
+      interactiveEvidence: summarizeOutputRecords(records.filter((record) => record.isInteractive)),
+      pipelineEvidence: summarizeOutputRecords(records.filter((record) => record.pipelineSelected)),
     };
   }
 
@@ -103,6 +99,10 @@ export class SyntheticApplicantImporterService {
     const target = await this.requireTarget(options);
     let dataset = await this.store.findDataset(options.datasetId);
     const manifestVersion = this.resolveManifestVersion(dataset);
+    if (manifestVersion === SYNTHETIC_MANIFEST_V2) {
+      assertV2SyntheticOperationalContract(options);
+      if (dataset) assertV2SyntheticOperationalContract(dataset);
+    }
     const plannedRecords = buildSyntheticApplicantPlan(options, manifestVersion);
     const optionsHash = syntheticOptionsHash(options, manifestVersion);
     if (!dataset) dataset = await this.store.createDataset(options, optionsHash, manifestVersion);
@@ -192,7 +192,6 @@ export class SyntheticApplicantImporterService {
         recordCount: pending.length,
         firstOrdinal: pending[0]?.ordinal ?? null,
         lastOrdinal: pending.at(-1)?.ordinal ?? null,
-        applicationIdSample: pending.slice(0, 5).map((record) => record.applicationId),
       },
     };
   }
@@ -253,13 +252,8 @@ export class SyntheticApplicantImporterService {
         canceled: activeRecords.filter((record) => record.isCanceled).length,
         interactive: activeRecords.filter((record) => record.isInteractive).length,
       },
-      interactiveAccounts: activeRecords.filter((record) => record.isInteractive).map((record) => ({
-        ordinal: record.ordinal,
-        userId: record.userId,
-        candidateId: record.candidateId,
-        applicationId: record.applicationId,
-      })),
-      pipelineApplicationIds: activeRecords.filter((record) => record.pipelineSelected).map((record) => record.applicationId),
+      interactiveEvidence: summarizeOutputRecords(activeRecords.filter((record) => record.isInteractive)),
+      pipelineEvidence: summarizeOutputRecords(activeRecords.filter((record) => record.pipelineSelected)),
     };
   }
 
@@ -280,4 +274,30 @@ export class SyntheticApplicantImporterService {
       remainingRecords: records.filter((record) => !record.cleanedAt).length,
     };
   }
+}
+
+type SyntheticOutputRecord = Pick<
+  SyntheticApplicantPlanRecord | SyntheticManifestRecord,
+  "ordinal" | "lifecycleStage" | "dataDepth"
+>;
+
+function summarizeOutputRecords(records: SyntheticOutputRecord[]) {
+  const ordinals = records.map((record) => record.ordinal);
+  return {
+    count: records.length,
+    ordinalRange: {
+      first: ordinals.length === 0 ? null : Math.min(...ordinals),
+      last: ordinals.length === 0 ? null : Math.max(...ordinals),
+    },
+    stages: countOutputRecords(records, "lifecycleStage"),
+    depths: countOutputRecords(records, "dataDepth"),
+  };
+}
+
+function countOutputRecords(records: SyntheticOutputRecord[], field: "lifecycleStage" | "dataDepth") {
+  return records.reduce<Record<string, number>>((counts, record) => {
+    const value = record[field];
+    counts[value] = (counts[value] ?? 0) + 1;
+    return counts;
+  }, {});
 }

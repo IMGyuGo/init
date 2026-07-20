@@ -8,6 +8,14 @@ export const SYNTHETIC_MANIFEST_V2 = "SYNTHETIC_APPLICANT_MANIFEST_V2" as const;
 export const SYNTHETIC_MANIFEST_VERSION = SYNTHETIC_MANIFEST_V2;
 export const SYNTHETIC_PRODUCTION_ACK = "ISSUE_393_DEPLOYED_AND_SNAPSHOT_READY";
 
+export const SYNTHETIC_V2_OPERATIONAL_CONTRACT = {
+  postingId: 36n,
+  activeCount: 1_000,
+  canceledCount: 50,
+  interactiveCount: 10,
+  pipelineSelectionCount: 0,
+} as const;
+
 export type SyntheticImporterAction = "plan" | "apply" | "cleanup";
 export type SyntheticLifecycleStage =
   | "DOCUMENT_PROCESSING"
@@ -224,6 +232,27 @@ export function assertSyntheticManifestVersion(value: string): asserts value is 
   }
 }
 
+export function assertV2SyntheticOperationalContract(
+  actual: Pick<
+    SyntheticImporterOptions,
+    "postingId" | "activeCount" | "canceledCount" | "interactiveCount" | "pipelineSelectionCount"
+  >,
+) {
+  for (const field of [
+    "postingId",
+    "activeCount",
+    "canceledCount",
+    "interactiveCount",
+    "pipelineSelectionCount",
+  ] as const) {
+    if (actual[field] !== SYNTHETIC_V2_OPERATIONAL_CONTRACT[field]) {
+      throw new Error(
+        `V2 operational contract ${field}가 승인값과 다릅니다: expected=${SYNTHETIC_V2_OPERATIONAL_CONTRACT[field]}, actual=${actual[field]}`,
+      );
+    }
+  }
+}
+
 export function buildSyntheticApplicantPlanV1(options: SyntheticImporterOptions): SyntheticApplicantPlanRecord[] {
   validateSyntheticImporterOptions(options);
   const stageCounts = allocateByWeight(options.activeCount, STAGE_WEIGHTS.map((entry) => entry[1]));
@@ -303,6 +332,14 @@ export function sanitizeSyntheticError(error: unknown) {
     .replace(/(["']?(?:password|passwordHash)["']?\s*[:=]\s*)[^,}\s]+/gi, "$1[REDACTED]")
     .replace(/[\r\n\t]+/g, " ")
     .slice(0, 1_000);
+}
+
+export function serializeSyntheticImporterOutput(value: unknown) {
+  return `${JSON.stringify(value, (_, nested) => typeof nested === "bigint" ? nested.toString() : nested, 2)}\n`;
+}
+
+export function formatSyntheticImporterFailure(_error: unknown) {
+  return "synthetic-applicant-importer failed: operation failed; inspect the dataset status for diagnostics\n";
 }
 
 function parseNamedArguments(argv: string[]) {

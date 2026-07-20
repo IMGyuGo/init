@@ -10,6 +10,7 @@ import {
   SYNTHETIC_MANIFEST_V1,
   SYNTHETIC_MANIFEST_V2,
   assertSyntheticManifestVersion,
+  assertV2SyntheticOperationalContract,
   buildSyntheticApplicantPlan,
   type SyntheticApplicantPlanRecord,
   type SyntheticImporterOptions,
@@ -19,6 +20,7 @@ import { V2_EMAIL_DOMAINS } from "../modules/candidate/scripts/synthetic-applica
 import type { PrismaService } from "../shared/prisma.service";
 import {
   assertV2SyntheticIdentityAggregate,
+  assertV2SyntheticManifestProjection,
   buildPostingValidationExpectations,
   buildSyntheticReportExpectations,
   countSyntheticReportDecisions,
@@ -86,6 +88,9 @@ async function main() {
   const dataset = await prisma.syntheticApplicantDataset.findUnique({ where: { datasetId: args.datasetId } });
   assert(dataset, `dataset을 찾을 수 없습니다: ${args.datasetId}`);
   assertSyntheticManifestVersion(dataset.manifestVersion);
+  if (dataset.manifestVersion === SYNTHETIC_MANIFEST_V2) {
+    assertV2SyntheticOperationalContract(dataset);
+  }
 
   const records = await prisma.syntheticApplicantRecord.findMany({
     where: { datasetId: args.datasetId },
@@ -147,6 +152,9 @@ async function main() {
     batchSize: dataset.batchSize,
   };
   const planned = buildSyntheticApplicantPlan(options, dataset.manifestVersion);
+  if (dataset.manifestVersion === SYNTHETIC_MANIFEST_V2) {
+    assertV2SyntheticManifestProjection(records, planned);
+  }
   const activeRecords = records.filter((record) => !record.isCanceled);
   const canceledRecords = records.filter((record) => record.isCanceled);
 

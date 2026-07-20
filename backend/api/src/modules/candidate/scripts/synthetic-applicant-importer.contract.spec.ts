@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
   SYNTHETIC_MANIFEST_V1,
   SYNTHETIC_MANIFEST_V2,
+  assertV2SyntheticOperationalContract,
   buildSyntheticApplicantPlan,
   parseSyntheticImporterArgs,
   sanitizeSyntheticError,
@@ -112,6 +113,21 @@ describe("synthetic applicant importer contract", () => {
     expect(syntheticOptionsHash(options)).toBe(syntheticOptionsHash(options, SYNTHETIC_MANIFEST_V2));
     expect(syntheticOptionsHash(options)).not.toBe(syntheticOptionsHash(options, SYNTHETIC_MANIFEST_V1));
     expect(() => buildSyntheticApplicantPlan(options, "UNKNOWN" as never)).toThrow("manifest version");
+  });
+
+  it("accepts only the exact posting-36 V2 operational contract", () => {
+    const valid = fixtureOptions({ postingId: 36n, pipelineSelectionCount: 0 });
+    expect(() => assertV2SyntheticOperationalContract(valid)).not.toThrow();
+
+    for (const invalid of [
+      { ...valid, postingId: 35n },
+      { ...valid, activeCount: 999 },
+      { ...valid, canceledCount: 51 },
+      { ...valid, interactiveCount: 9 },
+      { ...valid, pipelineSelectionCount: 1 },
+    ]) {
+      expect(() => assertV2SyntheticOperationalContract(invalid)).toThrow("V2 operational contract");
+    }
   });
 
   it("rejects a different environment, disabled writes, weak passwords and missing production ACK", () => {

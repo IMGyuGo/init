@@ -53,6 +53,32 @@ export type SyntheticIdentityAggregate = {
   domainCounts: Record<string, number>;
 };
 
+export type SyntheticManifestProjection = {
+  ordinal: number;
+  isCanceled: boolean;
+  isInteractive: boolean;
+  pipelineSelected: boolean;
+  lifecycleStage: string;
+  dataDepth: string;
+};
+
+const FIXED_V2_STAGE_COUNTS: Record<string, number> = {
+  DOCUMENT_PROCESSING: 350,
+  DOCUMENT_REVIEW: 250,
+  INTERVIEW_WAITING: 180,
+  INTERVIEW_IN_PROGRESS: 100,
+  REPORT_COMPLETED: 100,
+  FAILED: 20,
+  CANCELED: 50,
+};
+
+const FIXED_V2_DEPTH_COUNTS: Record<string, number> = {
+  LIGHTWEIGHT: 800,
+  PROFILE: 150,
+  INTERVIEW: 40,
+  REPORT: 10,
+};
+
 export function buildPostingValidationExpectations(
   syntheticPlan: SyntheticApplicantPlanRecord[],
   baselineApplications: ApplicantStateProjection[],
@@ -99,6 +125,38 @@ export function assertV2SyntheticIdentityAggregate(actual: SyntheticIdentityAggr
   if (actual.identityMatches !== 1_050) throw new Error("V2 identity match aggregate가 승인값과 다릅니다.");
 }
 
+export function assertV2SyntheticManifestProjection(
+  actual: readonly SyntheticManifestProjection[],
+  planned: readonly SyntheticApplicantPlanRecord[],
+) {
+  const actualByOrdinal = new Map(actual.map((record) => [record.ordinal, record]));
+  if (actualByOrdinal.size !== actual.length) throw new Error("V2 manifest ordinal이 중복되었습니다.");
+  if (actual.length !== planned.length) throw new Error("V2 manifest projection total이 plan과 다릅니다.");
+
+  for (const expected of planned) {
+    const record = actualByOrdinal.get(expected.ordinal);
+    if (!record) throw new Error(`V2 manifest ordinal=${expected.ordinal} projection이 누락되었습니다.`);
+    for (const field of [
+      "isCanceled",
+      "isInteractive",
+      "pipelineSelected",
+      "lifecycleStage",
+      "dataDepth",
+    ] as const) {
+      if (record[field] !== expected[field]) {
+        throw new Error(`V2 manifest ordinal=${expected.ordinal} ${field} projection이 plan과 다릅니다.`);
+      }
+    }
+  }
+
+  assertFixedCountMap(countByProjection(actual, "lifecycleStage"), FIXED_V2_STAGE_COUNTS, "stage aggregate");
+  assertFixedCountMap(
+    countByProjection(actual.filter((record) => !record.isCanceled), "dataDepth"),
+    FIXED_V2_DEPTH_COUNTS,
+    "depth aggregate",
+  );
+}
+
 export function countSyntheticReportDecisions(decisions: readonly string[]) {
   return decisions.reduce<Record<string, number>>((counts, decision) => {
     counts[decision] = (counts[decision] ?? 0) + 1;
@@ -119,6 +177,26 @@ function aggregate(active: ApplicantStateProjection[], canceled: number): Aggreg
     },
     attentionRequired: active.filter(requiresAttention).length,
   };
+}
+
+function countByProjection(
+  records: readonly SyntheticManifestProjection[],
+  field: "lifecycleStage" | "dataDepth",
+) {
+  return records.reduce<Record<string, number>>((counts, record) => {
+    const value = record[field];
+    counts[value] = (counts[value] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+function assertFixedCountMap(actual: Record<string, number>, expected: Record<string, number>, label: string) {
+  const keys = new Set([...Object.keys(actual), ...Object.keys(expected)]);
+  for (const key of keys) {
+    if ((actual[key] ?? 0) !== (expected[key] ?? 0)) {
+      throw new Error(`V2 ${label}.${key}가 승인값과 다릅니다.`);
+    }
+  }
 }
 
 function countBy(records: ApplicantStateProjection[], field: keyof ApplicantStateProjection) {

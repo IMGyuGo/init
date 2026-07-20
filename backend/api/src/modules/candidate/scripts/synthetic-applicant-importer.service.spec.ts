@@ -20,7 +20,7 @@ describe("SyntheticApplicantImporterService", () => {
 
     const result = await service.plan(fixtureOptions());
 
-    expect(result.summary.active).toBe(100);
+    expect(result.summary.active).toBe(1_000);
     expect(result.summary.interactive).toBe(10);
     expect(store.createBatchCalls).toBe(0);
     expect(store.dataset).toBeNull();
@@ -35,28 +35,28 @@ describe("SyntheticApplicantImporterService", () => {
     const callsAfterFirst = store.createBatchCalls;
     const second = await service.apply(options, "hashed-password");
 
-    expect(first.created).toEqual({ total: 105, active: 100, canceled: 5, interactive: 10 });
+    expect(first.created).toEqual({ total: 1_050, active: 1_000, canceled: 50, interactive: 10 });
     expect(first.idempotent).toBe(false);
     expect(second.idempotent).toBe(true);
     expect(store.createBatchCalls).toBe(callsAfterFirst);
-    expect(new Set(store.records.map((record) => record.applicationId)).size).toBe(105);
+    expect(new Set(store.records.map((record) => record.applicationId)).size).toBe(1_050);
   });
 
   it("records a partial batch failure and resumes only missing ordinals", async () => {
     const store = new FakeSyntheticApplicantStore();
     const service = new SyntheticApplicantImporterService(store);
-    const options = fixtureOptions({ batchSize: 50 });
+    const options = fixtureOptions({ batchSize: 500 });
     store.failOnCreateBatchCall = 2;
 
     await expect(service.apply(options, "hashed-password")).rejects.toThrow("simulated batch failure");
     expect(store.dataset?.status).toBe("PARTIAL");
-    expect(store.records).toHaveLength(50);
+    expect(store.records).toHaveLength(500);
 
     store.failOnCreateBatchCall = null;
     const resumed = await service.apply(options, "hashed-password");
 
-    expect(resumed.created.total).toBe(105);
-    expect(new Set(store.records.map((record) => record.ordinal)).size).toBe(105);
+    expect(resumed.created.total).toBe(1_050);
+    expect(new Set(store.records.map((record) => record.ordinal)).size).toBe(1_050);
     expect(store.dataset?.status).toBe("APPLIED");
   });
 
@@ -65,8 +65,8 @@ describe("SyntheticApplicantImporterService", () => {
     const service = new SyntheticApplicantImporterService(store);
     await service.apply(fixtureOptions(), "hashed-password");
 
-    await expect(service.apply(fixtureOptions({ activeCount: 101 }), "hashed-password")).rejects.toThrow("다른 옵션");
-    expect(store.records).toHaveLength(105);
+    await expect(service.apply(fixtureOptions({ batchSize: 200 }), "hashed-password")).rejects.toThrow("다른 옵션");
+    expect(store.records).toHaveLength(1_050);
   });
 
   it("cleans only manifest records and preserves the audit manifest", async () => {
@@ -79,12 +79,12 @@ describe("SyntheticApplicantImporterService", () => {
     const preview = await service.previewCleanup({ ...options, action: "cleanup" });
     const result = await service.cleanup({ ...options, action: "cleanup" });
 
-    expect(preview.deleteExpected).toEqual({ records: 105, active: 100, canceled: 5, interactive: 10 });
+    expect(preview.deleteExpected).toEqual({ records: 1_050, active: 1_000, canceled: 50, interactive: 10 });
     expect(result.remainingRecords).toBe(0);
-    expect(result.cleanedRecords).toBe(105);
+    expect(result.cleanedRecords).toBe(1_050);
     expect(store.dataset?.status).toBe("CLEANED");
     expect(store.dataset).not.toBeNull();
-    expect(preview.manifestScope.recordCount).toBe(105);
+    expect(preview.manifestScope.recordCount).toBe(1_050);
     expect(store.cleanedApplicationIds).toEqual(expectedApplicationIds);
   });
 
@@ -95,11 +95,42 @@ describe("SyntheticApplicantImporterService", () => {
     expect(v2Store.dataset?.manifestVersion).toBe("SYNTHETIC_APPLICANT_MANIFEST_V2");
 
     const v1Store = new FakeSyntheticApplicantStore();
-    v1Store.seedExistingDataset(fixtureOptions(), "SYNTHETIC_APPLICANT_MANIFEST_V1");
+    const legacy = legacyFixtureOptions();
+    v1Store.seedExistingDataset(legacy, "SYNTHETIC_APPLICANT_MANIFEST_V1");
     const v1Service = new SyntheticApplicantImporterService(v1Store);
-    const result = await v1Service.apply(fixtureOptions(), "hashed-password");
+    const result = await v1Service.apply(legacy, "hashed-password");
     expect(result.datasetStatus).toBe("APPLIED");
     expect(v1Store.dataset?.manifestVersion).toBe("SYNTHETIC_APPLICANT_MANIFEST_V1");
+  });
+
+  it("preserves V1 plan, partial resume, already-applied, preview and cleanup semantics", async () => {
+    const options = legacyFixtureOptions({ batchSize: 25 });
+    const store = new FakeSyntheticApplicantStore();
+    store.seedExistingDataset(options, SYNTHETIC_MANIFEST_V1);
+    const service = new SyntheticApplicantImporterService(store);
+
+    const plan = await service.plan({ ...options, action: "plan" });
+    expect(plan.summary).toMatchObject({ total: 105, active: 100, canceled: 5, interactive: 10 });
+
+    store.failOnCreateBatchCall = 2;
+    await expect(service.apply(options, "hashed-password")).rejects.toThrow("simulated batch failure");
+    expect(store.records).toHaveLength(25);
+    expect(store.dataset?.status).toBe("PARTIAL");
+
+    store.failOnCreateBatchCall = null;
+    const resumed = await service.apply(options, "hashed-password");
+    const callsAfterResume = store.createBatchCalls;
+    const alreadyApplied = await service.apply(options, "hashed-password");
+    expect(resumed.created.total).toBe(105);
+    expect(alreadyApplied.idempotent).toBe(true);
+    expect(store.createBatchCalls).toBe(callsAfterResume);
+
+    const cleanupOptions = { ...options, action: "cleanup" as const };
+    const preview = await service.previewCleanup(cleanupOptions);
+    const cleanup = await service.cleanup(cleanupOptions);
+    expect(preview.manifestScope).toEqual({ recordCount: 105, firstOrdinal: 1, lastOrdinal: 105 });
+    expect(cleanup).toMatchObject({ cleanedRecords: 105, remainingRecords: 0 });
+    expect(store.cleanedApplicationIds).toHaveLength(105);
   });
 
   it("fails closed for an unsupported stored manifest version", async () => {
@@ -108,12 +139,62 @@ describe("SyntheticApplicantImporterService", () => {
     const service = new SyntheticApplicantImporterService(store);
     await expect(service.plan(fixtureOptions())).rejects.toThrow("manifest version");
   });
+
+  it.each([
+    ["plan", { activeCount: 999, canceledCount: 51 }],
+    ["plan", { pipelineSelectionCount: 1 }],
+    ["apply", { activeCount: 999, canceledCount: 51 }],
+    ["apply", { pipelineSelectionCount: 1 }],
+  ] as const)("rejects a non-contract V2 %s before any write or manifest record read", async (action, overrides) => {
+    const store = new FakeSyntheticApplicantStore();
+    const service = new SyntheticApplicantImporterService(store);
+    const options = fixtureOptions({ action, ...overrides });
+
+    const operation = action === "plan"
+      ? service.plan(options)
+      : service.apply(options, "hashed-password");
+
+    await expect(operation).rejects.toThrow("V2");
+    expect(store.createDatasetCalls).toBe(0);
+    expect(store.listRecordsCalls).toBe(0);
+    expect(store.updateDatasetCalls).toBe(0);
+    expect(store.createBatchCalls).toBe(0);
+  });
+
+  it.each(["plan", "apply"] as const)(
+    "rejects a malformed stored V2 dataset during %s before any write or manifest record read",
+    async (action) => {
+      const options = fixtureOptions({ action });
+      const store = new FakeSyntheticApplicantStore();
+      store.seedExistingDataset(options, SYNTHETIC_MANIFEST_V2);
+      store.dataset = {
+        ...store.dataset!,
+        activeCount: 999,
+        canceledCount: 51,
+        optionsHash: syntheticOptionsHash(options, SYNTHETIC_MANIFEST_V2),
+      };
+      const service = new SyntheticApplicantImporterService(store);
+
+      const operation = action === "plan"
+        ? service.plan(options)
+        : service.apply(options, "hashed-password");
+
+      await expect(operation).rejects.toThrow("V2 operational contract");
+      expect(store.createDatasetCalls).toBe(0);
+      expect(store.listRecordsCalls).toBe(0);
+      expect(store.updateDatasetCalls).toBe(0);
+      expect(store.createBatchCalls).toBe(0);
+    },
+  );
 });
 
 class FakeSyntheticApplicantStore implements SyntheticApplicantStore {
   dataset: SyntheticDatasetManifest | null = null;
   records: SyntheticManifestRecord[] = [];
   createBatchCalls = 0;
+  createDatasetCalls = 0;
+  listRecordsCalls = 0;
+  updateDatasetCalls = 0;
   failOnCreateBatchCall: number | null = null;
   cleanedApplicationIds: bigint[] = [];
 
@@ -130,6 +211,7 @@ class FakeSyntheticApplicantStore implements SyntheticApplicantStore {
     optionsHash: string,
     manifestVersion: SyntheticManifestVersion,
   ) {
+    this.createDatasetCalls += 1;
     this.dataset = {
       datasetId: options.datasetId,
       environment: options.environment,
@@ -174,11 +256,13 @@ class FakeSyntheticApplicantStore implements SyntheticApplicantStore {
   }
 
   async updateDataset(_datasetId: string, data: { status: string; lastError?: string | null; appliedAt?: Date | null; cleanedAt?: Date | null }) {
+    this.updateDatasetCalls += 1;
     if (!this.dataset) throw new Error("missing dataset");
     this.dataset = { ...this.dataset, ...data };
   }
 
   async listRecords() {
+    this.listRecordsCalls += 1;
     return this.records.map((record) => ({ ...record }));
   }
 
@@ -211,13 +295,25 @@ function fixtureOptions(overrides: Partial<SyntheticImporterOptions> = {}): Synt
     action: "apply",
     environment: "local",
     companyId: 1n,
-    postingId: 2n,
+    postingId: 36n,
     datasetId: "demo-service",
+    activeCount: 1_000,
+    canceledCount: 50,
+    interactiveCount: 10,
+    pipelineSelectionCount: 0,
+    batchSize: 100,
+    ...overrides,
+  };
+}
+
+function legacyFixtureOptions(overrides: Partial<SyntheticImporterOptions> = {}): SyntheticImporterOptions {
+  return fixtureOptions({
+    postingId: 2n,
+    datasetId: "demo-service-v1",
     activeCount: 100,
     canceledCount: 5,
-    interactiveCount: 10,
     pipelineSelectionCount: 2,
     batchSize: 25,
     ...overrides,
-  };
+  });
 }
