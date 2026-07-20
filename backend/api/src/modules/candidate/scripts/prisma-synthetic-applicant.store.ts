@@ -1,6 +1,10 @@
 import { PrismaClient, type Prisma } from "@prisma/client";
 
-import { SYNTHETIC_MANIFEST_VERSION, type SyntheticApplicantPlanRecord, type SyntheticImporterOptions } from "./synthetic-applicant-importer.contract";
+import {
+  type SyntheticApplicantPlanRecord,
+  type SyntheticImporterOptions,
+  type SyntheticManifestVersion,
+} from "./synthetic-applicant-importer.contract";
 import type {
   SyntheticApplicantStore,
   SyntheticDatasetManifest,
@@ -28,7 +32,11 @@ export class PrismaSyntheticApplicantStore implements SyntheticApplicantStore {
     return this.prisma.syntheticApplicantDataset.findUnique({ where: { datasetId } });
   }
 
-  async createDataset(options: SyntheticImporterOptions, optionsHash: string): Promise<SyntheticDatasetManifest> {
+  async createDataset(
+    options: SyntheticImporterOptions,
+    optionsHash: string,
+    manifestVersion: SyntheticManifestVersion,
+  ): Promise<SyntheticDatasetManifest> {
     return this.prisma.syntheticApplicantDataset.create({
       data: {
         datasetId: options.datasetId,
@@ -41,7 +49,7 @@ export class PrismaSyntheticApplicantStore implements SyntheticApplicantStore {
         pipelineSelectionCount: options.pipelineSelectionCount,
         batchSize: options.batchSize,
         optionsHash,
-        manifestVersion: SYNTHETIC_MANIFEST_VERSION,
+        manifestVersion,
         status: "APPLYING",
       },
     });

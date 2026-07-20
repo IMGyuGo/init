@@ -1,4 +1,6 @@
 import {
+  SYNTHETIC_MANIFEST_V2,
+  assertSyntheticManifestVersion,
   buildSyntheticApplicantPlan,
   chunkSyntheticRecords,
   sanitizeSyntheticError,
@@ -6,6 +8,7 @@ import {
   syntheticOptionsHash,
   type SyntheticApplicantPlanRecord,
   type SyntheticImporterOptions,
+  type SyntheticManifestVersion,
 } from "./synthetic-applicant-importer.contract";
 
 export type SyntheticTargetPosting = {
@@ -25,6 +28,7 @@ export type SyntheticDatasetManifest = {
   interactiveCount: number;
   pipelineSelectionCount: number;
   batchSize: number;
+  manifestVersion: string;
   optionsHash: string;
   status: string;
   lastError: string | null;
@@ -48,7 +52,11 @@ export type SyntheticManifestRecord = {
 export interface SyntheticApplicantStore {
   findTargetPosting(postingId: bigint): Promise<SyntheticTargetPosting | null>;
   findDataset(datasetId: string): Promise<SyntheticDatasetManifest | null>;
-  createDataset(options: SyntheticImporterOptions, optionsHash: string): Promise<SyntheticDatasetManifest>;
+  createDataset(
+    options: SyntheticImporterOptions,
+    optionsHash: string,
+    manifestVersion: SyntheticManifestVersion,
+  ): Promise<SyntheticDatasetManifest>;
   updateDataset(
     datasetId: string,
     data: { status: string; lastError?: string | null; appliedAt?: Date | null; cleanedAt?: Date | null },
@@ -63,9 +71,10 @@ export class SyntheticApplicantImporterService {
 
   async plan(options: SyntheticImporterOptions) {
     const target = await this.requireTarget(options);
-    const records = buildSyntheticApplicantPlan(options);
-    const optionsHash = syntheticOptionsHash(options);
     const existing = await this.store.findDataset(options.datasetId);
+    const manifestVersion = this.resolveManifestVersion(existing);
+    const records = buildSyntheticApplicantPlan(options, manifestVersion);
+    const optionsHash = syntheticOptionsHash(options, manifestVersion);
     if (existing && existing.optionsHash !== optionsHash) {
       throw new Error("같은 datasetId가 다른 옵션으로 이미 존재합니다.");
     }
@@ -73,6 +82,7 @@ export class SyntheticApplicantImporterService {
       action: "plan" as const,
       target,
       datasetId: options.datasetId,
+      manifestVersion,
       optionsHash,
       existingDatasetStatus: existing?.status ?? null,
       summary: summarizeSyntheticPlan(records),
@@ -91,10 +101,11 @@ export class SyntheticApplicantImporterService {
 
   async apply(options: SyntheticImporterOptions, passwordHash: string) {
     const target = await this.requireTarget(options);
-    const plannedRecords = buildSyntheticApplicantPlan(options);
-    const optionsHash = syntheticOptionsHash(options);
     let dataset = await this.store.findDataset(options.datasetId);
-    if (!dataset) dataset = await this.store.createDataset(options, optionsHash);
+    const manifestVersion = this.resolveManifestVersion(dataset);
+    const plannedRecords = buildSyntheticApplicantPlan(options, manifestVersion);
+    const optionsHash = syntheticOptionsHash(options, manifestVersion);
+    if (!dataset) dataset = await this.store.createDataset(options, optionsHash, manifestVersion);
     this.assertDatasetContract(dataset, options, optionsHash);
 
     const existingRecords = await this.store.listRecords(options.datasetId);
@@ -134,6 +145,7 @@ export class SyntheticApplicantImporterService {
     const target = await this.requireTarget(options);
     const dataset = await this.store.findDataset(options.datasetId);
     if (!dataset) throw new Error("cleanup할 dataset manifest를 찾을 수 없습니다.");
+    this.resolveManifestVersion(dataset);
     this.assertCleanupTarget(dataset, options);
     const records = await this.store.listRecords(options.datasetId);
     const pending = records.filter((record) => !record.cleanedAt);
@@ -161,6 +173,7 @@ export class SyntheticApplicantImporterService {
     const target = await this.requireTarget(options);
     const dataset = await this.store.findDataset(options.datasetId);
     if (!dataset) throw new Error("cleanup할 dataset manifest를 찾을 수 없습니다.");
+    this.resolveManifestVersion(dataset);
     this.assertCleanupTarget(dataset, options);
     const records = await this.store.listRecords(options.datasetId);
     const pending = records.filter((record) => !record.cleanedAt);
@@ -189,6 +202,12 @@ export class SyntheticApplicantImporterService {
     if (!target) throw new Error("대상 postingId를 찾을 수 없습니다.");
     if (target.companyId !== options.companyId) throw new Error("postingId의 소유 기업이 --company-id와 일치하지 않습니다.");
     return target;
+  }
+
+  private resolveManifestVersion(dataset: SyntheticDatasetManifest | null): SyntheticManifestVersion {
+    if (!dataset) return SYNTHETIC_MANIFEST_V2;
+    assertSyntheticManifestVersion(dataset.manifestVersion);
+    return dataset.manifestVersion;
   }
 
   private assertDatasetContract(dataset: SyntheticDatasetManifest, options: SyntheticImporterOptions, optionsHash: string) {
@@ -226,6 +245,7 @@ export class SyntheticApplicantImporterService {
       idempotent,
       target,
       datasetId: dataset.datasetId,
+      manifestVersion: dataset.manifestVersion,
       datasetStatus: dataset.status,
       created: {
         total: activeRecords.length,

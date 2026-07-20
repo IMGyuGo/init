@@ -1,4 +1,11 @@
-import type { SyntheticApplicantPlanRecord, SyntheticImporterOptions } from "./synthetic-applicant-importer.contract";
+import {
+  SYNTHETIC_MANIFEST_V1,
+  SYNTHETIC_MANIFEST_V2,
+  syntheticOptionsHash,
+  type SyntheticApplicantPlanRecord,
+  type SyntheticImporterOptions,
+  type SyntheticManifestVersion,
+} from "./synthetic-applicant-importer.contract";
 import {
   SyntheticApplicantImporterService,
   type SyntheticApplicantStore,
@@ -80,6 +87,27 @@ describe("SyntheticApplicantImporterService", () => {
     expect(preview.manifestScope.recordCount).toBe(105);
     expect(store.cleanedApplicationIds).toEqual(expectedApplicationIds);
   });
+
+  it("creates new datasets as V2 and resumes an existing V1 dataset with V1 hash", async () => {
+    const v2Store = new FakeSyntheticApplicantStore();
+    const v2Service = new SyntheticApplicantImporterService(v2Store);
+    await v2Service.apply(fixtureOptions(), "hashed-password");
+    expect(v2Store.dataset?.manifestVersion).toBe("SYNTHETIC_APPLICANT_MANIFEST_V2");
+
+    const v1Store = new FakeSyntheticApplicantStore();
+    v1Store.seedExistingDataset(fixtureOptions(), "SYNTHETIC_APPLICANT_MANIFEST_V1");
+    const v1Service = new SyntheticApplicantImporterService(v1Store);
+    const result = await v1Service.apply(fixtureOptions(), "hashed-password");
+    expect(result.datasetStatus).toBe("APPLIED");
+    expect(v1Store.dataset?.manifestVersion).toBe("SYNTHETIC_APPLICANT_MANIFEST_V1");
+  });
+
+  it("fails closed for an unsupported stored manifest version", async () => {
+    const store = new FakeSyntheticApplicantStore();
+    store.seedExistingDataset(fixtureOptions(), "UNSUPPORTED");
+    const service = new SyntheticApplicantImporterService(store);
+    await expect(service.plan(fixtureOptions())).rejects.toThrow("manifest version");
+  });
 });
 
 class FakeSyntheticApplicantStore implements SyntheticApplicantStore {
@@ -97,7 +125,11 @@ class FakeSyntheticApplicantStore implements SyntheticApplicantStore {
     return this.dataset;
   }
 
-  async createDataset(options: SyntheticImporterOptions, optionsHash: string) {
+  async createDataset(
+    options: SyntheticImporterOptions,
+    optionsHash: string,
+    manifestVersion: SyntheticManifestVersion,
+  ) {
     this.dataset = {
       datasetId: options.datasetId,
       environment: options.environment,
@@ -108,6 +140,7 @@ class FakeSyntheticApplicantStore implements SyntheticApplicantStore {
       interactiveCount: options.interactiveCount,
       pipelineSelectionCount: options.pipelineSelectionCount,
       batchSize: options.batchSize,
+      manifestVersion,
       optionsHash,
       status: "APPLYING",
       lastError: null,
@@ -115,6 +148,29 @@ class FakeSyntheticApplicantStore implements SyntheticApplicantStore {
       cleanedAt: null,
     };
     return this.dataset;
+  }
+
+  seedExistingDataset(options: SyntheticImporterOptions, manifestVersion: string) {
+    const optionsHash = manifestVersion === SYNTHETIC_MANIFEST_V1 || manifestVersion === SYNTHETIC_MANIFEST_V2
+      ? syntheticOptionsHash(options, manifestVersion)
+      : "unsupported-test-options-hash";
+    this.dataset = {
+      datasetId: options.datasetId,
+      environment: options.environment,
+      postingId: options.postingId,
+      companyId: options.companyId,
+      activeCount: options.activeCount,
+      canceledCount: options.canceledCount,
+      interactiveCount: options.interactiveCount,
+      pipelineSelectionCount: options.pipelineSelectionCount,
+      batchSize: options.batchSize,
+      manifestVersion,
+      optionsHash,
+      status: "APPLYING",
+      lastError: null,
+      appliedAt: null,
+      cleanedAt: null,
+    };
   }
 
   async updateDataset(_datasetId: string, data: { status: string; lastError?: string | null; appliedAt?: Date | null; cleanedAt?: Date | null }) {

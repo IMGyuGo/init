@@ -1,8 +1,11 @@
 import { createHash } from "crypto";
 
 import { allocateByWeight } from "./synthetic-applicant-importer.allocation";
+import { buildSyntheticApplicantPlanV2 } from "./synthetic-applicant-importer.v2";
 
-export const SYNTHETIC_MANIFEST_VERSION = "SYNTHETIC_APPLICANT_MANIFEST_V1";
+export const SYNTHETIC_MANIFEST_V1 = "SYNTHETIC_APPLICANT_MANIFEST_V1" as const;
+export const SYNTHETIC_MANIFEST_V2 = "SYNTHETIC_APPLICANT_MANIFEST_V2" as const;
+export const SYNTHETIC_MANIFEST_VERSION = SYNTHETIC_MANIFEST_V2;
 export const SYNTHETIC_PRODUCTION_ACK = "ISSUE_393_DEPLOYED_AND_SNAPSHOT_READY";
 
 export type SyntheticImporterAction = "plan" | "apply" | "cleanup";
@@ -180,9 +183,13 @@ export function validateSyntheticEnvironment(
   }
 }
 
-export function syntheticOptionsHash(options: SyntheticImporterOptions) {
+export function syntheticOptionsHash(
+  options: SyntheticImporterOptions,
+  manifestVersion: SyntheticManifestVersion = SYNTHETIC_MANIFEST_V2,
+) {
+  assertSyntheticManifestVersion(manifestVersion);
   const canonical = JSON.stringify({
-    manifestVersion: SYNTHETIC_MANIFEST_VERSION,
+    manifestVersion,
     environment: options.environment,
     companyId: options.companyId.toString(),
     postingId: options.postingId.toString(),
@@ -196,7 +203,22 @@ export function syntheticOptionsHash(options: SyntheticImporterOptions) {
   return createHash("sha256").update(canonical).digest("hex");
 }
 
-export function buildSyntheticApplicantPlan(options: SyntheticImporterOptions): SyntheticApplicantPlanRecord[] {
+export function buildSyntheticApplicantPlan(
+  options: SyntheticImporterOptions,
+  manifestVersion: SyntheticManifestVersion = SYNTHETIC_MANIFEST_V2,
+) {
+  if (manifestVersion === SYNTHETIC_MANIFEST_V1) return buildSyntheticApplicantPlanV1(options);
+  if (manifestVersion === SYNTHETIC_MANIFEST_V2) return buildSyntheticApplicantPlanV2(options);
+  throw new Error(`지원하지 않는 synthetic manifest version입니다: ${String(manifestVersion)}`);
+}
+
+export function assertSyntheticManifestVersion(value: string): asserts value is SyntheticManifestVersion {
+  if (value !== SYNTHETIC_MANIFEST_V1 && value !== SYNTHETIC_MANIFEST_V2) {
+    throw new Error(`지원하지 않는 synthetic manifest version입니다: ${value}`);
+  }
+}
+
+export function buildSyntheticApplicantPlanV1(options: SyntheticImporterOptions): SyntheticApplicantPlanRecord[] {
   validateSyntheticImporterOptions(options);
   const stageCounts = allocateByWeight(options.activeCount, STAGE_WEIGHTS.map((entry) => entry[1]));
   const stages = STAGE_WEIGHTS.flatMap(([stage], index) => Array(stageCounts[index]).fill(stage)) as SyntheticLifecycleStage[];
