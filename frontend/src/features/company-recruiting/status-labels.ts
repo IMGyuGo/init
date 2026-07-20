@@ -34,6 +34,7 @@ const STATUS_LABELS: Record<string, string> = {
   PASS: "합격",
   HOLD: "보류",
   FAIL: "불합격",
+  RETRY: "재처리 중",
   D_PUBLIC_CONTEXT_PENDING: "면접 진입 준비 중",
 };
 
@@ -62,6 +63,7 @@ const WARNING_STATUSES = new Set([
   "GENERATING",
   "PENDING",
   "HOLD",
+  "RETRY",
   "REQUESTED",
   "NONE_OR_GENERATING",
   "D_PUBLIC_CONTEXT_PENDING",

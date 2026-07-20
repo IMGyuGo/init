@@ -337,6 +337,9 @@ export class ApplicantResponseDto {
   @ApiProperty({ enum: ["UNDECIDED", "PASS", "HOLD", "FAIL", "RETRY"], example: "UNDECIDED" })
   screeningDecision!: string;
 
+  @ApiProperty({ example: false })
+  autoScreeningPolicyEnabled!: boolean;
+
   @ApiPropertyOptional({ nullable: true })
   screeningDecisionReasonCode!: string | null;
 

@@ -234,6 +234,9 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
   }
 
   async function saveScreeningField(applicant: Applicant, field: ScreeningAutosaveField, draft: ScreeningDraft) {
+    if (applicant.autoScreeningPolicyEnabled) {
+      return;
+    }
     const savedDraft = savedScreeningDrafts[applicant.applicationId];
     if (savedDraft && !hasScreeningDraftChanged(savedDraft, draft)) {
       return;
@@ -563,36 +566,47 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                               )}
                             </td>
                             <td onClick={(event) => event.stopPropagation()}>
-                              <div className={`autosave-field ${decisionState === "saving" ? "is-saving" : ""} ${decisionState === "error" ? "is-error" : ""}`}>
-                                <select
-                                  aria-label={`${item.name} 전형 상태`}
-                                  value={screeningDrafts[item.applicationId]?.decision ?? "UNDECIDED"}
-                                  onChange={(event) => void handleDecisionChange(item, event.target.value as ScreeningDecision)}
-                                >
-                                  {decisions.map((decision) => (
-                                    <option key={decision} value={decision}>
-                                      {formatRecruitingStatusLabel(decision)}
-                                    </option>
-                                  ))}
-                                </select>
-                                <span className="autosave-state" aria-live="polite">
-                                  {decisionState === "error" ? "저장 실패" : ""}
-                                </span>
-                              </div>
+                              {item.autoScreeningPolicyEnabled ? (
+                                <div className="autosave-field">
+                                  <StatusBadge value={item.screeningDecision} />
+                                  <span className="autosave-state">자동 판정</span>
+                                </div>
+                              ) : (
+                                <div className={`autosave-field ${decisionState === "saving" ? "is-saving" : ""} ${decisionState === "error" ? "is-error" : ""}`}>
+                                  <select
+                                    aria-label={`${item.name} 전형 상태`}
+                                    value={screeningDrafts[item.applicationId]?.decision ?? "UNDECIDED"}
+                                    onChange={(event) => void handleDecisionChange(item, event.target.value as ScreeningDecision)}
+                                  >
+                                    {decisions.map((decision) => (
+                                      <option key={decision} value={decision}>
+                                        {formatRecruitingStatusLabel(decision)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <span className="autosave-state" aria-live="polite">
+                                    {decisionState === "error" ? "저장 실패" : ""}
+                                  </span>
+                                </div>
+                              )}
                             </td>
                             <td onClick={(event) => event.stopPropagation()}>
-                              <div className={`autosave-field ${memoState === "saving" ? "is-saving" : ""} ${memoState === "error" ? "is-error" : ""}`}>
-                                <input
-                                  aria-label={`${item.name} 메모`}
-                                  value={screeningDrafts[item.applicationId]?.memo ?? ""}
-                                  onBlur={() => void handleMemoBlur(item)}
-                                  onChange={(event) => updateDraft(item.applicationId, { memo: event.target.value })}
-                                  placeholder="수동 메모"
-                                />
-                                <span className="autosave-state" aria-live="polite">
-                                  {memoState === "error" ? "저장 실패" : ""}
-                                </span>
-                              </div>
+                              {item.autoScreeningPolicyEnabled ? (
+                                <span className="screening-report-score is-empty">자동 판정</span>
+                              ) : (
+                                <div className={`autosave-field ${memoState === "saving" ? "is-saving" : ""} ${memoState === "error" ? "is-error" : ""}`}>
+                                  <input
+                                    aria-label={`${item.name} 메모`}
+                                    value={screeningDrafts[item.applicationId]?.memo ?? ""}
+                                    onBlur={() => void handleMemoBlur(item)}
+                                    onChange={(event) => updateDraft(item.applicationId, { memo: event.target.value })}
+                                    placeholder="수동 메모"
+                                  />
+                                  <span className="autosave-state" aria-live="polite">
+                                    {memoState === "error" ? "저장 실패" : ""}
+                                  </span>
+                                </div>
+                              )}
                             </td>
                           </tr>
                         );
