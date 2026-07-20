@@ -8502,6 +8502,16 @@ function InterviewRuntimePanel({
                 </div>
               ) : null}
 
+              <div className={`ai-interviewer-question ${subtitlesEnabled ? "" : "muted"}`}>
+                <span
+                  className={`ai-interviewer-session-chip ai-interviewer-session-chip--${interviewerSessionState.tone}`}
+                  title={interviewerSessionState.description}
+                >
+                  {interviewerSessionState.label}
+                </span>
+                <strong>{interviewerQuestionPrompt}</strong>
+              </div>
+
               {showInterviewerPanel ? (
                 <div
                   className={interviewerFigureClassName}
@@ -8559,12 +8569,6 @@ function InterviewRuntimePanel({
                         <kbd>{interviewerProfile.infoShortcutKey}</kbd>
                       </button>
                     </div>
-                    <span
-                      className={`ai-interviewer-session-chip ai-interviewer-session-chip--${interviewerSessionState.tone}`}
-                      title={interviewerSessionState.description}
-                    >
-                      {interviewerSessionState.label}
-                    </span>
                   </div>
                 </div>
               ) : (
@@ -8584,11 +8588,6 @@ function InterviewRuntimePanel({
                   <p>{interviewerProfile.disclosure}</p>
                 </div>
               ) : null}
-
-              <div className={`ai-interviewer-question ${subtitlesEnabled ? "" : "muted"}`}>
-                <span>{subtitlesEnabled ? "질문 보기" : "질문 음성 안내"}</span>
-                <strong>{interviewerQuestionPrompt}</strong>
-              </div>
 
               {questionSpeechSupported ? (
                 <p className="sr-only" aria-live="polite">{questionSpeechStatus}</p>
