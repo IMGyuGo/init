@@ -11,7 +11,7 @@ export type NcsQuestionMode =
   | "SITUATIONAL_DESIGN";
 export type NcsEvaluationConfidence = "HIGH" | "MEDIUM" | "LOW";
 export type NcsScoreStatus = "SCORED" | "INSUFFICIENT_INPUT" | "LOW_ALIGNMENT" | "BLOCKED";
-export type NcsProviderMode = "mock" | "openai";
+export type NcsProviderMode = "mock" | "openai" | "fixed";
 export type NcsCompetencyLevel = 1 | 2 | 3 | 4 | 5;
 export type NcsEvidenceDimensionScore = 0 | 1 | 2;
 
