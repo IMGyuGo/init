@@ -8458,12 +8458,6 @@ function InterviewRuntimePanel({
                   <strong>질문 {questionNumber} / {data.runtime.totalQuestions}</strong>
                 </div>
                 <div className={`ai-interviewer-question ${subtitlesEnabled ? "" : "muted"}`}>
-                  <span
-                    className={`ai-interviewer-session-chip ai-interviewer-session-chip--${interviewerSessionState.tone}`}
-                    title={interviewerSessionState.description}
-                  >
-                    {interviewerSessionState.label}
-                  </span>
                   <strong>{interviewerQuestionPrompt}</strong>
                 </div>
                 <div className={`question-timer ${timerDanger ? "danger" : ""}`} aria-label={`${timerLabel} ${formattedRemainingTime}`}>
@@ -8481,6 +8475,13 @@ function InterviewRuntimePanel({
               </div>
 
               <div className="runtime-status-hud" aria-label="실시간 면접 상태">
+                <span
+                  className={`runtime-session-capsule runtime-session-capsule--${interviewerSessionState.tone}`}
+                  title={interviewerSessionState.description}
+                  aria-live="polite"
+                >
+                  {interviewerSessionState.label}
+                </span>
                 {runtimeStatusChips.map((chip) =>
                   chip.id === "microphone" ? (
                     <span

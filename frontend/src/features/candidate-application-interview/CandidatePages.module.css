@@ -2290,7 +2290,7 @@
 
 :global(.runtime-status-hud) {
   position: absolute;
-  top: 82px;
+  top: 78px;
   left: 24px;
   z-index: 4;
   display: grid;
@@ -2340,9 +2340,78 @@
   box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.16);
 }
 
+:global(.runtime-session-capsule) {
+  display: inline-flex;
+  gap: 11px;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0 18px;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 15px;
+  font-weight: 900;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  backdrop-filter: blur(10px);
+}
+
+:global(.runtime-session-capsule::before) {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  content: "";
+  background: currentcolor;
+  border-radius: 999px;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.1);
+}
+
+:global(.runtime-session-capsule--speaking) {
+  color: #d9d6ff;
+  background: rgba(110, 91, 246, 0.24);
+  border-color: rgba(160, 150, 255, 0.4);
+}
+
+:global(.runtime-session-capsule--speaking::before) {
+  box-shadow: 0 0 0 4px rgba(110, 91, 246, 0.22);
+  animation: initpulse 1.2s infinite;
+}
+
+:global(.runtime-session-capsule--recording) {
+  color: #b9f6d1;
+  background: rgba(22, 163, 74, 0.22);
+  border-color: rgba(74, 222, 128, 0.36);
+}
+
+:global(.runtime-session-capsule--recording::before) {
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.22);
+  animation: initpulse 1.2s infinite;
+}
+
+:global(.runtime-session-capsule--thinking) {
+  color: #ffe7a3;
+  background: rgba(245, 158, 11, 0.2);
+  border-color: rgba(251, 191, 36, 0.36);
+}
+
+:global(.runtime-session-capsule--warning) {
+  color: #ffd1d1;
+  background: rgba(229, 72, 77, 0.2);
+  border-color: rgba(248, 113, 113, 0.38);
+}
+
 :global(.runtime-status-chip--icon) {
-  gap: 9px;
-  padding: 0 13px;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+}
+
+:global(.runtime-status-chip--icon svg) {
+  width: 20px;
+  height: 20px;
 }
 
 :global(.runtime-status-chip--icon::before) {
@@ -2356,8 +2425,8 @@
 :global(.runtime-mic-level) {
   display: block;
   flex: 0 0 auto;
-  width: 52px;
-  height: 5px;
+  width: 92px;
+  height: 6px;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.18);
   border-radius: 999px;
@@ -3153,13 +3222,13 @@
   position: relative;
   z-index: 2;
   display: flex;
-  gap: 16px;
   align-items: center;
+  justify-content: center;
   justify-self: center;
   width: 100%;
-  max-width: 1020px;
-  min-height: 68px;
-  padding: 16px 24px;
+  max-width: 720px;
+  min-height: 64px;
+  padding: 16px 28px;
   margin: 0;
   color: #fff;
   background: rgba(12, 11, 22, 0.55);
@@ -3168,19 +3237,11 @@
   backdrop-filter: blur(10px);
 }
 
-:global(.ai-interviewer-question .ai-interviewer-session-chip) {
-  flex: 0 0 auto;
-  min-height: 34px;
-  padding: 0 14px;
-  font-size: 13px;
-}
-
 :global(.ai-interviewer-question strong) {
-  flex: 1 1 auto;
   font-size: 22px;
   font-weight: 900;
   line-height: 1.55;
-  text-align: left;
+  text-align: center;
   overflow-wrap: anywhere;
 }
 
@@ -3190,8 +3251,8 @@
 }
 
 :global(.ai-interviewer-stage:fullscreen .ai-interviewer-question) {
-  max-width: 1120px;
-  padding: 20px 28px;
+  max-width: 840px;
+  padding: 20px 32px;
 }
 
 :global(.ai-interviewer-stage:fullscreen .ai-interviewer-question strong) {
