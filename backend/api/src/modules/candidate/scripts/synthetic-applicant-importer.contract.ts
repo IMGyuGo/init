@@ -1,5 +1,7 @@
 import { createHash } from "crypto";
 
+import { allocateByWeight } from "./synthetic-applicant-importer.allocation";
+
 export const SYNTHETIC_MANIFEST_VERSION = "SYNTHETIC_APPLICANT_MANIFEST_V1";
 export const SYNTHETIC_PRODUCTION_ACK = "ISSUE_393_DEPLOYED_AND_SNAPSHOT_READY";
 
@@ -35,6 +37,21 @@ export type SyntheticApplicationProjection = {
   screeningDecision: "UNDECIDED" | "PASS" | "HOLD" | "FAIL";
 };
 
+export type SyntheticManifestVersion =
+  | "SYNTHETIC_APPLICANT_MANIFEST_V1"
+  | "SYNTHETIC_APPLICANT_MANIFEST_V2";
+
+export type SyntheticProfileScoreFixture = {
+  id: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
+  weight: 40 | 30;
+  score: number;
+};
+
+export type SyntheticReportFixture = {
+  totalScore: number;
+  profiles: SyntheticProfileScoreFixture[];
+};
+
 export type SyntheticApplicantPlanRecord = SyntheticApplicationProjection & {
   ordinal: number;
   email: string;
@@ -45,6 +62,7 @@ export type SyntheticApplicantPlanRecord = SyntheticApplicationProjection & {
   lifecycleStage: SyntheticLifecycleStage;
   dataDepth: SyntheticDataDepth;
   pipelineSelected: boolean;
+  reportFixture: SyntheticReportFixture | null;
 };
 
 const STAGE_WEIGHTS: Array<[SyntheticLifecycleStage, number]> = [
@@ -201,6 +219,7 @@ export function buildSyntheticApplicantPlan(options: SyntheticImporterOptions): 
       lifecycleStage: stage,
       dataDepth: depths[index],
       pipelineSelected: ordinal <= options.pipelineSelectionCount,
+      reportFixture: null,
       ...projectionFor(stage, ordinal),
     };
   });
@@ -215,6 +234,7 @@ export function buildSyntheticApplicantPlan(options: SyntheticImporterOptions): 
       lifecycleStage: "CANCELED",
       dataDepth: "LIGHTWEIGHT",
       pipelineSelected: false,
+      reportFixture: null,
       ...projectionFor("CANCELED", ordinal),
     });
   }
@@ -281,18 +301,6 @@ function integer(value: string, name: string) {
 function positiveBigInt(value: string, name: string) {
   if (!/^\d+$/.test(value) || BigInt(value) <= 0n) throw new Error(`--${name}은 1 이상의 정수여야 합니다.`);
   return BigInt(value);
-}
-
-function allocateByWeight(total: number, weights: number[]) {
-  const weightTotal = weights.reduce((sum, weight) => sum + weight, 0);
-  const raw = weights.map((weight) => (total * weight) / weightTotal);
-  const allocated = raw.map(Math.floor);
-  let remaining = total - allocated.reduce((sum, count) => sum + count, 0);
-  const order = raw
-    .map((value, index) => ({ index, remainder: value - Math.floor(value) }))
-    .sort((left, right) => right.remainder - left.remainder || left.index - right.index);
-  for (let index = 0; index < remaining; index += 1) allocated[order[index].index] += 1;
-  return allocated;
 }
 
 function spreadInteractiveStages(stages: SyntheticLifecycleStage[], interactiveCount: number) {
