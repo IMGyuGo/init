@@ -14,7 +14,7 @@ import {
 import type { CurrentUser } from "@init/common";
 import { ApiBearerAuth, ApiCookieAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { Request, Response } from "express";
-import type { Readable } from "stream";
+import { pipeReadableToResponse } from "../../../shared/pipe-readable-to-response";
 import { ok } from "../../../shared/response-envelope";
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
 import {
@@ -104,21 +104,8 @@ export class CandidateReportMediaController {
         response.end(media.body);
         return;
       }
-      this.pipeMediaBody(media.body, response);
+      pipeReadableToResponse(media.body, response);
     });
-  }
-
-  private pipeMediaBody(body: Readable, response: Response): void {
-    body.once("error", (error) => {
-      if (response.headersSent) {
-        response.destroy(error instanceof Error ? error : undefined);
-        return;
-      }
-      response.removeHeader("Content-Length");
-      response.removeHeader("Content-Range");
-      response.status(502).end();
-    });
-    body.pipe(response);
   }
 
   private resolveMediaUser(
