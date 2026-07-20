@@ -2294,9 +2294,15 @@
   left: 24px;
   z-index: 4;
   display: grid;
-  gap: 8px;
-  width: max-content;
-  max-width: min(260px, calc(100% - 40px));
+  gap: 10px;
+  width: min(260px, calc(100% - 48px));
+}
+
+:global(.runtime-status-hud .runtime-session-capsule),
+:global(.runtime-status-hud .runtime-status-chip) {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
 }
 
 :global(.runtime-status-chip) {
@@ -2424,8 +2430,7 @@
 
 :global(.runtime-mic-level) {
   display: block;
-  flex: 0 0 auto;
-  width: 92px;
+  flex: 1 1 auto;
   height: 6px;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.18);
@@ -2454,7 +2459,7 @@
   display: grid;
   gap: 5px;
   box-sizing: border-box;
-  width: min(360px, calc(100% - 40px));
+  width: min(260px, calc(100% - 48px));
   padding: 13px 15px;
   color: #fff7ed;
   background: rgba(124, 45, 18, 0.9);
