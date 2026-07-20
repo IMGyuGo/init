@@ -88,6 +88,11 @@
   border-color: #efd6da;
 }
 
+.resultRetry {
+  background: #f7f9fc;
+  border-color: #d6e0ec;
+}
+
 .header {
   display: grid;
   gap: 10px;
@@ -119,6 +124,11 @@
 .resultFail .badge {
   color: #8f3443;
   background: #fbe7ea;
+}
+
+.resultRetry .badge {
+  color: #365a7d;
+  background: #e7eff7;
 }
 
 .header h3 {
