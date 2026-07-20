@@ -741,6 +741,100 @@ test("PrismaAiResultRepository marks recruiting application report completed wit
   assert.deepEqual(applicationUpdate?.args.data, { reportStatus: "COMPLETED" });
 });
 
+test("PrismaAiResultRepository stores the automatic PASS snapshot and keeps duplicate decidedAt stable", async () => {
+  const fixture = autoScreeningPrisma();
+  const repository = new PrismaAiResultRepository(fixture.prisma);
+  const report = generatedRecruitingReport();
+
+  await repository.saveGeneratedReport(report);
+  const firstDecidedAt = fixture.application().screeningDecidedAt;
+  assert.equal(fixture.application().screeningDecision, "PASS");
+  assert.equal(
+    fixture.application().screeningDecisionReasonCode,
+    "PASS_TOTAL_AND_CRITERIA_MET",
+  );
+  assert.equal(fixture.application().screeningDecisionReportId, 30n);
+  assert.equal(fixture.application().screeningPolicyVersion, 2);
+  assert.equal(fixture.application().screeningCriteriaVersion, 4);
+  assert.equal(
+    fixture.application().screeningDecisionPolicyVersion,
+    "AUTO_SCREENING_DECISION_V1",
+  );
+  assert.ok(firstDecidedAt instanceof Date);
+
+  await repository.saveGeneratedReport(report);
+  assert.equal(fixture.application().screeningDecidedAt, firstDecidedAt);
+});
+
+test("PrismaAiResultRepository finalizes report data and the application in one transaction", async () => {
+  const fixture = autoScreeningPrisma();
+  const repository = new PrismaAiResultRepository(fixture.prisma);
+
+  await repository.saveGeneratedReport(generatedRecruitingReport());
+
+  assert.equal(fixture.transactionCount(), 1);
+  const reportUpsert = fixture.operations().find(
+    (operation) => operation.name === "evaluationReport.upsert",
+  );
+  const applicationUpdate = fixture.operations().find(
+    (operation) => operation.name === "application.updateMany",
+  );
+  assert.equal(reportUpsert?.insideTransaction, true);
+  assert.equal(applicationUpdate?.insideTransaction, true);
+});
+
+test("PrismaAiResultRepository ignores a delayed older report after a newer report snapshot", async () => {
+  const fixture = autoScreeningPrisma();
+  const repository = new PrismaAiResultRepository(fixture.prisma);
+
+  await repository.saveGeneratedReport({
+    ...generatedRecruitingReport(),
+    reportId: 31,
+  });
+  const newerDecidedAt = fixture.application().screeningDecidedAt;
+
+  await repository.saveGeneratedReport({
+    ...generatedRecruitingReport(),
+    reportId: 30,
+    totalScore: 10,
+  });
+
+  assert.equal(fixture.application().screeningDecisionReportId, 31n);
+  assert.equal(fixture.application().screeningDecision, "PASS");
+  assert.equal(fixture.application().screeningDecidedAt, newerDecidedAt);
+  assert.equal(fixture.application().reportStatus, "COMPLETED");
+  const savedReportIds = fixture.calls()
+    .filter((call) => call.model === "evaluationReport" && call.method === "upsert")
+    .map((call) => call.args.where.reportId);
+  assert.deepEqual(savedReportIds, [31n]);
+});
+
+test("PrismaAiResultRepository moves RETRY to PASS after the same report is regenerated", async () => {
+  const fixture = autoScreeningPrisma();
+  const repository = new PrismaAiResultRepository(fixture.prisma);
+
+  await repository.markReportFailed({
+    reportId: 30,
+    reportType: "RECRUITING_REPORT",
+    applicationId: 22,
+    sessionId: 65,
+    failureCategory: "RETRYABLE",
+    failureReason: "provider timeout",
+  });
+  assert.equal(fixture.application().screeningDecision, "RETRY");
+  assert.equal(
+    fixture.application().screeningDecisionReasonCode,
+    "RETRY_REPORT_FAILED",
+  );
+
+  await repository.saveGeneratedReport(generatedRecruitingReport());
+  assert.equal(fixture.application().screeningDecision, "PASS");
+  assert.equal(
+    fixture.application().screeningDecisionReasonCode,
+    "PASS_TOTAL_AND_CRITERIA_MET",
+  );
+});
+
 test("PrismaAiResultRepository marks generated reports failed with retryability", async () => {
   const calls: Array<{ model: string; method: string; args: any }> = [];
   const repository = new PrismaAiResultRepository(fakePrisma(calls));
@@ -774,6 +868,11 @@ test("PrismaAiResultRepository marks recruiting application report failed with g
   const applicationUpdate = calls.find((call) => call.model === "application" && call.method === "updateMany");
   assert.deepEqual(applicationUpdate?.args.where, { applicationId: BigInt(22) });
   assert.deepEqual(applicationUpdate?.args.data, { reportStatus: "FAILED" });
+  const reportUpsert = calls.find((call) => call.model === "evaluationReport" && call.method === "upsert");
+  assert.equal(reportUpsert?.args.create.applicationId, 22n);
+  assert.equal(reportUpsert?.args.create.sessionId, 65n);
+  assert.equal(reportUpsert?.args.update.applicationId, 22n);
+  assert.equal(reportUpsert?.args.update.sessionId, 65n);
 });
 
 function followUpRuntimePrisma(options: {
@@ -971,6 +1070,109 @@ function fakePrisma(calls: Array<{ model: string; method: string; args: any }>) 
         calls.push({ model: "aiProcessLog", method: "update", args });
       }
     }
+  };
+}
+
+function generatedRecruitingReport() {
+  return {
+    reportId: 30,
+    reportType: "RECRUITING_REPORT" as const,
+    applicationId: 22,
+    sessionId: 65,
+    summary: "summary",
+    totalScore: 82,
+    scores: [
+      {
+        criterionId: 1,
+        criterionName: "Problem solving",
+        score: 82,
+        rationale: "evidence-based score",
+        rubricAnchor: "Structured interview evidence is mapped to the requested evaluation criterion.",
+        confidence: "MEDIUM" as const,
+        uncertaintyReasons: [],
+        evidences: [
+          { sourceType: "INTERVIEW_ANSWER" as const, answerId: 10, text: "answer evidence" },
+        ],
+      },
+    ],
+    questionEvaluations: [
+      {
+        criterionId: 1,
+        criterionName: "Problem solving",
+        answerId: 10,
+        question: "Describe your Redis experience.",
+        rubricAnchor: "Structured interview evidence is mapped to the requested evaluation criterion.",
+        confidence: "MEDIUM" as const,
+        uncertaintyReasons: [],
+        evidences: [
+          { sourceType: "INTERVIEW_ANSWER" as const, answerId: 10, text: "answer evidence" },
+        ],
+      },
+    ],
+  };
+}
+
+function autoScreeningPrisma() {
+  const calls: Array<{ model: string; method: string; args: any }> = [];
+  const prisma: any = fakePrisma(calls);
+  const operations: Array<{ name: string; insideTransaction: boolean }> = [];
+  let insideTransaction = false;
+  let transactionCount = 0;
+  let application: any = {
+    applicationId: 22n,
+    reportStatus: "PENDING",
+    screeningDecision: "UNDECIDED",
+    screeningDecisionReasonCode: null,
+    screeningDecisionPolicyVersion: null,
+    screeningPolicyVersion: null,
+    screeningCriteriaVersion: null,
+    screeningDecisionReportId: null,
+    screeningDecidedAt: null,
+    posting: {
+      autoScreeningPolicy: {
+        enabled: true,
+        passMinTotalScore: 70,
+        holdMinTotalScore: 50,
+        requireAllCriteriaPass: true,
+        policyVersion: 2,
+        decisionPolicyVersion: "AUTO_SCREENING_DECISION_V1",
+      },
+      questionGenerationPolicy: {
+        evaluationFramework: "LEGACY",
+        criteriaVersion: 4,
+      },
+      criteria: [{ criterionId: 1n, weight: 100, passScore: 60 }],
+    },
+  };
+  prisma.evaluationReport.upsert = async (args: any) => {
+    calls.push({ model: "evaluationReport", method: "upsert", args });
+    operations.push({ name: "evaluationReport.upsert", insideTransaction });
+  };
+  prisma.application.findUnique = async () => application;
+  prisma.application.updateMany = async (args: any) => {
+    calls.push({ model: "application", method: "updateMany", args });
+    operations.push({ name: "application.updateMany", insideTransaction });
+    application = { ...application, ...args.data };
+    return { count: 1 };
+  };
+  prisma.$queryRawUnsafe = async () => [application];
+  prisma.$transaction = async (operation: (client: any) => Promise<unknown>) => {
+    transactionCount += 1;
+    insideTransaction = true;
+    const transaction = { ...prisma };
+    delete transaction.$transaction;
+    try {
+      return await operation(transaction);
+    } finally {
+      insideTransaction = false;
+    }
+  };
+  return {
+    prisma,
+    application: () => application,
+    calls: () => calls,
+    operations: () => operations,
+    transactionCount: () => transactionCount,
   };
 }
 

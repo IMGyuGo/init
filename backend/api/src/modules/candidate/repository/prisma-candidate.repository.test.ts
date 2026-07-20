@@ -781,6 +781,11 @@ describe("PrismaCandidateRepository", () => {
       updatedAt: now,
     };
     const tx = {
+      async $queryRaw(strings: TemplateStringsArray, postingId: bigint) {
+        assert.equal(postingId, 101n);
+        assert.match(strings.join("?"), /FOR KEY SHARE/);
+        return [{ posting_id: postingId }];
+      },
       application: {
         async create(args: { data: Record<string, unknown> }) {
           applicationData = args.data;
@@ -892,6 +897,9 @@ describe("PrismaCandidateRepository", () => {
         const uniqueError = new Error("Unique constraint failed") as Error & { code: string };
         uniqueError.code = "P2002";
         return callback({
+          async $queryRaw() {
+            return [{ posting_id: 101n }];
+          },
           application: {
             async create() {
               throw uniqueError;
@@ -936,6 +944,7 @@ describe("PrismaCandidateRepository", () => {
           applicationWhere = args.where;
           return [{ applicationId: 41n }];
         },
+        updateMany: updateMany("screening-snapshot-clear"),
         deleteMany: deleteMany("applications"),
       },
       applicationDocument: {
@@ -1017,6 +1026,7 @@ describe("PrismaCandidateRepository", () => {
     });
     assert.equal(calls[0], "lock");
     assert.ok(calls.indexOf("evidences") < calls.indexOf("answers"));
+    assert.ok(calls.indexOf("screening-snapshot-clear") < calls.indexOf("reports"));
     assert.ok(calls.indexOf("personalized-question-batches") < calls.indexOf("process-logs"));
     assert.ok(calls.indexOf("question-set-unlink") < calls.indexOf("process-logs"));
     assert.ok(calls.indexOf("answers") < calls.indexOf("sessions"));

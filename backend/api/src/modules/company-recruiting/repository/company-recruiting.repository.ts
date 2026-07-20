@@ -364,24 +364,32 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
   }
 
   async createApplication(input: CreateApplicationInput): Promise<ApplicantRecord> {
-    const application = await this.prisma.application.create({
-      data: {
-        postingId: BigInt(input.postingId),
-        candidateId: BigInt(input.candidateId),
-        ...(input.applicantName !== undefined ? { applicantName: input.applicantName } : {}),
-        ...(input.applicantEmail !== undefined ? { applicantEmail: input.applicantEmail } : {}),
-        ...(input.applicantPhone !== undefined ? { applicantPhone: input.applicantPhone } : {}),
-        ...(input.githubUrl !== undefined ? { githubUrl: input.githubUrl } : {}),
-        ...(input.blogUrl !== undefined ? { blogUrl: input.blogUrl } : {}),
-        ...(input.portfolioUrl !== undefined ? { portfolioUrl: input.portfolioUrl } : {}),
-        ...(input.motivation !== undefined ? { motivation: input.motivation } : {}),
-        ...(input.additionalInfo !== undefined ? { additionalInfo: input.additionalInfo } : {}),
-        applicationStatus: ApplicationStatus.SUBMITTED,
-        documentStatus: input.documentStatus ?? DocumentStatus.NOT_SUBMITTED,
-        screeningDecision: ScreeningDecision.UNDECIDED,
-        screeningMemo: input.screeningMemo,
-      },
-      include: applicantInclude,
+    const application = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw<Array<{ posting_id: bigint }>>`
+        SELECT "posting_id"
+        FROM "postings"
+        WHERE "posting_id" = ${BigInt(input.postingId)}
+        FOR KEY SHARE
+      `;
+      return tx.application.create({
+        data: {
+          postingId: BigInt(input.postingId),
+          candidateId: BigInt(input.candidateId),
+          ...(input.applicantName !== undefined ? { applicantName: input.applicantName } : {}),
+          ...(input.applicantEmail !== undefined ? { applicantEmail: input.applicantEmail } : {}),
+          ...(input.applicantPhone !== undefined ? { applicantPhone: input.applicantPhone } : {}),
+          ...(input.githubUrl !== undefined ? { githubUrl: input.githubUrl } : {}),
+          ...(input.blogUrl !== undefined ? { blogUrl: input.blogUrl } : {}),
+          ...(input.portfolioUrl !== undefined ? { portfolioUrl: input.portfolioUrl } : {}),
+          ...(input.motivation !== undefined ? { motivation: input.motivation } : {}),
+          ...(input.additionalInfo !== undefined ? { additionalInfo: input.additionalInfo } : {}),
+          applicationStatus: ApplicationStatus.SUBMITTED,
+          documentStatus: input.documentStatus ?? DocumentStatus.NOT_SUBMITTED,
+          screeningDecision: ScreeningDecision.UNDECIDED,
+          screeningMemo: input.screeningMemo,
+        },
+        include: applicantInclude,
+      });
     });
     return mapApplicant(application);
   }
@@ -473,7 +481,9 @@ const applicantInclude = {
       user: true,
     },
   },
-  posting: true,
+  posting: {
+    include: { autoScreeningPolicy: true },
+  },
   evaluationReports: {
     orderBy: { reportId: "desc" as const },
     take: 1,
@@ -720,6 +730,11 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
     interviewStatus: application.interviewStatus,
     reportStatus: application.reportStatus,
     screeningDecision: application.screeningDecision,
+    screeningDecisionReasonCode: application.screeningDecisionReasonCode,
+    screeningDecisionPolicyVersion: application.screeningDecisionPolicyVersion,
+    screeningPolicyVersion: application.screeningPolicyVersion,
+    screeningCriteriaVersion: application.screeningCriteriaVersion,
+    screeningDecidedAt: application.screeningDecidedAt,
     screeningMemo: application.screeningMemo,
     submittedAt: application.submittedAt,
     updatedAt: application.updatedAt,
@@ -748,6 +763,8 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
       postingId: Number(application.posting.postingId),
       title: application.posting.title,
       jobRole: application.posting.jobRole,
+      autoScreeningPolicyEnabled:
+        application.posting.autoScreeningPolicy?.enabled === true,
     },
     evaluationReports: application.evaluationReports.map((report) => ({
       reportId: Number(report.reportId),

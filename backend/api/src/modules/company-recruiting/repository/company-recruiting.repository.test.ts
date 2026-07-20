@@ -5,9 +5,15 @@ import { PrismaCompanyRecruitingRepository } from "./company-recruiting.reposito
 describe("PrismaCompanyRecruitingRepository", () => {
   it("writes application defaults when creating public applications", async () => {
     let capturedData: Record<string, unknown> | null = null;
-    const prisma = {
+    const calls: string[] = [];
+    const tx = {
+      async $queryRaw(strings: TemplateStringsArray, postingId: bigint) {
+        calls.push(`lock:${postingId}:${strings.join("?")}`);
+        return [{ posting_id: postingId }];
+      },
       application: {
         async create(args: { data: Record<string, unknown> }) {
+          calls.push("create");
           capturedData = args.data;
           return {
             applicationId: 77,
@@ -41,6 +47,11 @@ describe("PrismaCompanyRecruitingRepository", () => {
         },
       },
     };
+    const prisma = {
+      async $transaction<T>(callback: (client: typeof tx) => Promise<T>) {
+        return callback(tx);
+      },
+    };
     const repository = new PrismaCompanyRecruitingRepository(prisma as never);
 
     await repository.createApplication({ postingId: 101, candidateId: 44, screeningMemo: null });
@@ -53,6 +64,9 @@ describe("PrismaCompanyRecruitingRepository", () => {
       screeningDecision: "UNDECIDED",
       screeningMemo: null,
     });
+    assert.match(calls[0] ?? "", /^lock:101:\s*SELECT/);
+    assert.match(calls[0] ?? "", /FOR KEY SHARE/);
+    assert.equal(calls[1], "create");
   });
 
   it("archives postings instead of physically deleting recruitment data", async () => {

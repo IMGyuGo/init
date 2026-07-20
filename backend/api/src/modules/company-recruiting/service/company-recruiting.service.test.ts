@@ -258,6 +258,11 @@ function createApplicantRecord(overrides: Partial<ApplicantRecord> = {}): Applic
     interviewStatus: "NOT_READY",
     reportStatus: "PENDING",
     screeningDecision: "UNDECIDED",
+    screeningDecisionReasonCode: null,
+    screeningDecisionPolicyVersion: null,
+    screeningPolicyVersion: null,
+    screeningCriteriaVersion: null,
+    screeningDecidedAt: null,
     screeningMemo: null,
     submittedAt: null,
     updatedAt: new Date("2026-06-29T00:00:00.000Z"),
@@ -297,6 +302,7 @@ function createApplicantRecord(overrides: Partial<ApplicantRecord> = {}): Applic
       postingId: 101,
       title: "Backend Developer",
       jobRole: "Backend",
+      autoScreeningPolicyEnabled: false,
     },
     evaluationReports: [],
     interviewSessions: [],
@@ -2430,6 +2436,51 @@ describe("CompanyRecruitingService", () => {
       7,
       { screeningDecision: "HOLD", screeningMemo: "추가 확인 필요" },
     ]);
+  });
+
+  it("returns automatic screening details to the company and blocks manual changes when enabled", async () => {
+    const managedApplicant = createApplicantRecord({
+      screeningDecision: "HOLD",
+      screeningDecisionReasonCode: "HOLD_CRITERION_BELOW_PASS_SCORE",
+      screeningDecisionPolicyVersion: "AUTO_SCREENING_DECISION_V1",
+      screeningPolicyVersion: 2,
+      screeningCriteriaVersion: 4,
+      screeningDecidedAt: new Date("2026-07-20T01:00:00.000Z"),
+      posting: {
+        ...createApplicantRecord().posting,
+        autoScreeningPolicyEnabled: true,
+      },
+    });
+    const repository = createRepository({
+      async findApplicationForCompany() {
+        return managedApplicant;
+      },
+    });
+    const service = new CompanyRecruitingService(repository);
+
+    const result = await service.getApplicantEvaluation(companyUser, 77);
+    assert.deepEqual(result.screening, {
+      decision: "HOLD",
+      reasonCode: "HOLD_CRITERION_BELOW_PASS_SCORE",
+      decisionPolicyVersion: "AUTO_SCREENING_DECISION_V1",
+      policyVersion: 2,
+      criteriaVersion: 4,
+      decidedAt: "2026-07-20T01:00:00.000Z",
+      memo: null,
+    });
+    await assert.rejects(
+      service.updateScreeningStatus(companyUser, 77, {
+        screeningDecision: "PASS",
+      }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "COMMON_CONFLICT" &&
+        "details" in error &&
+        JSON.stringify(error.details).includes("SCREENING_DECISION_SYSTEM_MANAGED"),
+    );
+    assert.equal(repository.calls.updateApplicationScreening, undefined);
   });
 
   it("rejects screening decisions outside the agreed enum values", async () => {

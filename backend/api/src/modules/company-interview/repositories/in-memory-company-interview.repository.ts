@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import {
   AiQuestionGenerationProcessRecord,
+  AutoScreeningPolicyRecord,
   CriterionTagRecord,
   EvaluationCriterionRecord,
   PostingRecord,
@@ -316,6 +317,7 @@ export class InMemoryCompanyInterviewRepository
   private nextQuestionSetItemId = 1;
   private questionSets: QuestionSetRecord[] = [];
   private questionGenerationPolicies: QuestionGenerationPolicyRecord[] = [];
+  private autoScreeningPolicies: AutoScreeningPolicyRecord[] = [];
   private readonly questionGenerationProcesses = new Map<number, AiQuestionGenerationProcessRecord>();
   private readonly resumeQuestionGenerations = new Map<string, ResumeQuestionApplicationRecord>();
   private nextResumeQuestionProcessLogId = 5000;
@@ -441,6 +443,12 @@ export class InMemoryCompanyInterviewRepository
     );
   }
 
+  async getAutoScreeningPolicy(
+    postingId: number,
+  ): Promise<AutoScreeningPolicyRecord | undefined> {
+    return this.autoScreeningPolicies.find((policy) => policy.postingId === postingId);
+  }
+
   async isConfigurationLocked(postingId: number): Promise<boolean> {
     return this.configurationLockedPostings.has(postingId);
   }
@@ -454,10 +462,40 @@ export class InMemoryCompanyInterviewRepository
     postingId: number,
     evaluationFramework: QuestionGenerationPolicyRecord['evaluationFramework'],
     criteria: UpdateCriterionInput[],
-    options: { deactivatedProfileIds: NcsProfileId[] } = {
+    options: {
+      deactivatedProfileIds: NcsProfileId[];
+      screeningPolicy?: {
+        enabled: boolean;
+        passMinTotalScore: number;
+        holdMinTotalScore: number;
+        requireAllCriteriaPass: true;
+      };
+      criteriaPassScoresChanged: boolean;
+      expectedQuestionPolicyVersion?: number;
+      expectedCriteriaVersion?: number;
+    } = {
       deactivatedProfileIds: [],
+      criteriaPassScoresChanged: false,
     },
   ) {
+    if (await this.isConfigurationLocked(postingId)) {
+      return { locked: true as const };
+    }
+
+    const currentPolicy = await this.getQuestionGenerationPolicy(postingId);
+    if (
+      options.expectedQuestionPolicyVersion !== undefined &&
+      options.expectedQuestionPolicyVersion !== (currentPolicy?.policyVersion ?? 0)
+    ) {
+      return { conflicted: true as const };
+    }
+    if (
+      options.expectedCriteriaVersion !== undefined &&
+      options.expectedCriteriaVersion !== (currentPolicy?.criteriaVersion ?? 0)
+    ) {
+      return { conflicted: true as const };
+    }
+
     const nextCriterionIds = new Set(
       criteria
         .map((criterion) => criterion.criterionId)
@@ -529,7 +567,6 @@ export class InMemoryCompanyInterviewRepository
       );
     }
 
-    const currentPolicy = await this.getQuestionGenerationPolicy(postingId);
     const policy: QuestionGenerationPolicyRecord = {
       postingId,
       evaluationFramework,
@@ -551,7 +588,41 @@ export class InMemoryCompanyInterviewRepository
       );
     }
 
-    return { criteria: await this.listCriteria(postingId), policy };
+    const currentScreeningPolicy = await this.getAutoScreeningPolicy(postingId);
+    const nextPolicyInput = options.screeningPolicy ?? currentScreeningPolicy;
+    let screeningPolicy: AutoScreeningPolicyRecord | null = null;
+    if (nextPolicyInput) {
+      const policyChanged =
+        !currentScreeningPolicy ||
+        currentScreeningPolicy.enabled !== nextPolicyInput.enabled ||
+        currentScreeningPolicy.passMinTotalScore !== nextPolicyInput.passMinTotalScore ||
+        currentScreeningPolicy.holdMinTotalScore !== nextPolicyInput.holdMinTotalScore ||
+        currentScreeningPolicy.requireAllCriteriaPass !==
+          nextPolicyInput.requireAllCriteriaPass ||
+        options.criteriaPassScoresChanged;
+      screeningPolicy = {
+        postingId,
+        enabled: nextPolicyInput.enabled,
+        passMinTotalScore: nextPolicyInput.passMinTotalScore,
+        holdMinTotalScore: nextPolicyInput.holdMinTotalScore,
+        requireAllCriteriaPass: true,
+        policyVersion: currentScreeningPolicy
+          ? currentScreeningPolicy.policyVersion + (policyChanged ? 1 : 0)
+          : 1,
+        decisionPolicyVersion: 'AUTO_SCREENING_DECISION_V1',
+      };
+      this.autoScreeningPolicies = [
+        ...this.autoScreeningPolicies.filter((item) => item.postingId !== postingId),
+        screeningPolicy,
+      ];
+    }
+
+    return {
+      locked: false as const,
+      criteria: await this.listCriteria(postingId),
+      policy,
+      screeningPolicy,
+    };
   }
 
   async updateQuestionGenerationPolicy(
@@ -563,6 +634,12 @@ export class InMemoryCompanyInterviewRepository
     if (
       input.expectedPolicyVersion !== undefined &&
       input.expectedPolicyVersion !== currentVersion
+    ) {
+      return undefined;
+    }
+    if (
+      input.expectedCriteriaVersion !== undefined &&
+      input.expectedCriteriaVersion !== (current?.criteriaVersion ?? 0)
     ) {
       return undefined;
     }

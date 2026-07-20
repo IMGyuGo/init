@@ -353,6 +353,119 @@ describe('CompanyInterviewService', () => {
       activeProfileCoverage: [],
       questionSetRequiresReconfirmation: false,
     });
+    assert.equal(settings.screeningPolicy, null);
+  });
+
+  it('saves criteria and the automatic screening policy as one versioned setting', async () => {
+    const { service } = createFixture();
+    const first = await service.updateEvaluationCriteria(companyUser, {
+      postingId: 1,
+      criteria: [
+        { criterionId: 1, tagId: 1, weight: 60, passScore: 65, sortOrder: 1 },
+        { criterionId: 2, tagId: 2, weight: 40, passScore: 55, sortOrder: 2 },
+      ],
+      screeningPolicy: {
+        enabled: true,
+        passMinTotalScore: 70,
+        holdMinTotalScore: 50,
+        requireAllCriteriaPass: true,
+      },
+    });
+
+    assert.deepEqual(first.screeningPolicy, {
+      enabled: true,
+      passMinTotalScore: 70,
+      holdMinTotalScore: 50,
+      requireAllCriteriaPass: true,
+      policyVersion: 1,
+      decisionPolicyVersion: 'AUTO_SCREENING_DECISION_V1',
+    });
+    assert.deepEqual(
+      (await service.getSettings(companyUser, { postingId: 1 })).screeningPolicy,
+      first.screeningPolicy,
+    );
+
+    const unchanged = await service.updateEvaluationCriteria(companyUser, {
+      postingId: 1,
+      criteria: first.criteria.map((criterion) => ({
+        criterionId: criterion.criterionId,
+        tagId: criterion.tagId,
+        weight: criterion.weight,
+        passScore: criterion.passScore,
+        sortOrder: criterion.sortOrder,
+      })),
+      screeningPolicy: {
+        enabled: true,
+        passMinTotalScore: 70,
+        holdMinTotalScore: 50,
+        requireAllCriteriaPass: true,
+      },
+    });
+    assert.equal(unchanged.screeningPolicy?.policyVersion, 1);
+
+    const thresholdChanged = await service.updateEvaluationCriteria(companyUser, {
+      postingId: 1,
+      criteria: unchanged.criteria.map((criterion) => ({
+        criterionId: criterion.criterionId,
+        tagId: criterion.tagId,
+        weight: criterion.weight,
+        passScore: criterion.passScore,
+        sortOrder: criterion.sortOrder,
+      })),
+      screeningPolicy: {
+        enabled: true,
+        passMinTotalScore: 75,
+        holdMinTotalScore: 50,
+        requireAllCriteriaPass: true,
+      },
+    });
+    assert.equal(thresholdChanged.screeningPolicy?.policyVersion, 2);
+
+    const criterionThresholdChanged = await service.updateEvaluationCriteria(
+      companyUser,
+      {
+        postingId: 1,
+        criteria: thresholdChanged.criteria.map((criterion, index) => ({
+          criterionId: criterion.criterionId,
+          tagId: criterion.tagId,
+          weight: criterion.weight,
+          passScore:
+            index === 0 ? (criterion.passScore ?? 0) + 1 : criterion.passScore,
+          sortOrder: criterion.sortOrder,
+        })),
+      },
+    );
+    assert.equal(criterionThresholdChanged.screeningPolicy?.policyVersion, 3);
+  });
+
+  it('rejects invalid automatic screening thresholds and missing active pass scores', async () => {
+    const service = createService();
+    await assert.rejects(
+      () => service.updateEvaluationCriteria(companyUser, {
+        postingId: 1,
+        criteria: [{ criterionId: 1, tagId: 1, weight: 100, passScore: 70, sortOrder: 1 }],
+        screeningPolicy: {
+          enabled: true,
+          passMinTotalScore: 50,
+          holdMinTotalScore: 50,
+          requireAllCriteriaPass: true,
+        },
+      }),
+      (error: unknown) => error instanceof ApiException && error.code === 'COMMON_VALIDATION_FAILED',
+    );
+    await assert.rejects(
+      () => service.updateEvaluationCriteria(companyUser, {
+        postingId: 1,
+        criteria: [{ criterionId: 1, tagId: 1, weight: 100, passScore: null, sortOrder: 1 }],
+        screeningPolicy: {
+          enabled: true,
+          passMinTotalScore: 70,
+          holdMinTotalScore: 50,
+          requireAllCriteriaPass: true,
+        },
+      }),
+      (error: unknown) => error instanceof ApiException && error.code === 'COMMON_VALIDATION_FAILED',
+    );
   });
 
   it('saves the fixed NCS criteria snapshot and deterministic question allocation', async () => {

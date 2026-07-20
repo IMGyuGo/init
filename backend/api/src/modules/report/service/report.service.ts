@@ -512,7 +512,7 @@ export class ReportService {
     if (status === "FAILED") {
       return this.envelope({
         ...base,
-        candidateMessage: report?.failureReason ?? process?.failureReason ?? "면접 분석을 완료하지 못했습니다.",
+        candidateMessage: "면접 분석을 완료하지 못했습니다. 재처리를 진행하고 있습니다.",
         nextStepLabel: "분석 재시도 필요",
       });
     }

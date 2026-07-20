@@ -436,6 +436,7 @@ model Posting {
   questionSets             InterviewQuestionSet[]
   timePolicy               InterviewTimePolicy?
   questionGenerationPolicy InterviewQuestionGenerationPolicy?
+  autoScreeningPolicy      AutoScreeningPolicy?
 
   @@index([companyId, status])
   @@map("postings")
@@ -482,6 +483,21 @@ model EvaluationCriterion {
   sessionNcsPolicies     InterviewSessionNcsPolicy[]
 
   @@map("evaluation_criteria")
+}
+
+model AutoScreeningPolicy {
+  postingId              BigInt   @id @map("posting_id")
+  enabled                Boolean  @default(false)
+  passMinTotalScore      Int      @map("pass_min_total_score")
+  holdMinTotalScore      Int      @map("hold_min_total_score")
+  requireAllCriteriaPass Boolean  @default(true) @map("require_all_criteria_pass")
+  policyVersion          Int      @default(1) @map("policy_version")
+  decisionPolicyVersion  String   @default("AUTO_SCREENING_DECISION_V1") @map("decision_policy_version") @db.VarChar(80)
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+  posting                Posting  @relation(fields: [postingId], references: [postingId], onDelete: Cascade)
+
+  @@map("auto_screening_policies")
 }
 
 model Question {
@@ -633,39 +649,47 @@ model ApplicationInterviewQuestion {
 }
 
 model Application {
-  applicationId            BigInt                              @id @default(autoincrement()) @map("application_id")
-  postingId                BigInt                              @map("posting_id")
-  candidateId              BigInt                              @map("candidate_id")
-  applicantName            String?                             @map("applicant_name") @db.VarChar(100)
-  applicantEmail           String?                             @map("applicant_email") @db.VarChar(255)
-  applicantPhone           String?                             @map("applicant_phone") @db.VarChar(50)
-  githubUrl                String?                             @map("github_url") @db.VarChar(500)
-  blogUrl                  String?                             @map("blog_url") @db.VarChar(500)
-  portfolioUrl             String?                             @map("portfolio_url") @db.VarChar(500)
-  motivation               String?
-  additionalInfo           String?                             @map("additional_info")
-  profileSnapshot          Json?                               @map("profile_snapshot")
-  applicationStatus        ApplicationStatus                   @default(SUBMITTED) @map("application_status")
-  documentStatus           DocumentStatus                      @default(NOT_SUBMITTED) @map("document_status")
-  interviewStatus          InterviewStatus                     @default(NOT_READY) @map("interview_status")
-  reportStatus             ReportStatus                        @default(PENDING) @map("report_status")
-  screeningDecision        ScreeningDecision?                  @default(UNDECIDED) @map("screening_decision")
-  screeningMemo            String?                             @map("screening_memo")
-  submittedAt              DateTime?                           @map("submitted_at")
-  updatedAt                DateTime                            @updatedAt @map("updated_at")
-  posting                  Posting                             @relation(fields: [postingId], references: [postingId])
-  candidate                CandidateProfile                    @relation(fields: [candidateId], references: [candidateId])
-  documents                ApplicationDocument[]
-  consentRecords           ConsentRecord[]
-  interviewSessions        InterviewSession[]
-  evaluationReports        EvaluationReport[]
-  notifications            Notification[]
-  aiProcessLogs            AiProcessLog[]
-  clientPerformanceLogs    ClientPerformanceLog[]
-  interviewQuestionBatches ApplicationInterviewQuestionBatch[]
+  applicationId                  BigInt                              @id @default(autoincrement()) @map("application_id")
+  postingId                      BigInt                              @map("posting_id")
+  candidateId                    BigInt                              @map("candidate_id")
+  applicantName                  String?                             @map("applicant_name") @db.VarChar(100)
+  applicantEmail                 String?                             @map("applicant_email") @db.VarChar(255)
+  applicantPhone                 String?                             @map("applicant_phone") @db.VarChar(50)
+  githubUrl                      String?                             @map("github_url") @db.VarChar(500)
+  blogUrl                        String?                             @map("blog_url") @db.VarChar(500)
+  portfolioUrl                   String?                             @map("portfolio_url") @db.VarChar(500)
+  motivation                     String?
+  additionalInfo                 String?                             @map("additional_info")
+  profileSnapshot                Json?                               @map("profile_snapshot")
+  applicationStatus              ApplicationStatus                   @default(SUBMITTED) @map("application_status")
+  documentStatus                 DocumentStatus                      @default(NOT_SUBMITTED) @map("document_status")
+  interviewStatus                InterviewStatus                     @default(NOT_READY) @map("interview_status")
+  reportStatus                   ReportStatus                        @default(PENDING) @map("report_status")
+  screeningDecision              ScreeningDecision?                  @default(UNDECIDED) @map("screening_decision")
+  screeningDecisionReasonCode    ScreeningDecisionReasonCode?        @map("screening_decision_reason_code")
+  screeningDecisionPolicyVersion String?                             @map("screening_decision_policy_version") @db.VarChar(80)
+  screeningPolicyVersion         Int?                                @map("screening_policy_version")
+  screeningCriteriaVersion       Int?                                @map("screening_criteria_version")
+  screeningDecisionReportId      BigInt?                             @unique(map: "uk_applications_screening_decision_report") @map("screening_decision_report_id")
+  screeningDecidedAt             DateTime?                           @map("screening_decided_at")
+  screeningMemo                  String?                             @map("screening_memo")
+  submittedAt                    DateTime?                           @map("submitted_at")
+  updatedAt                      DateTime                            @updatedAt @map("updated_at")
+  posting                        Posting                             @relation(fields: [postingId], references: [postingId])
+  candidate                      CandidateProfile                    @relation(fields: [candidateId], references: [candidateId])
+  documents                      ApplicationDocument[]
+  consentRecords                 ConsentRecord[]
+  interviewSessions              InterviewSession[]
+  evaluationReports              EvaluationReport[]                  @relation("ApplicationEvaluationReports")
+  screeningDecisionReport        EvaluationReport?                   @relation("ApplicationScreeningDecisionReport", fields: [screeningDecisionReportId], references: [reportId], onDelete: Restrict)
+  notifications                  Notification[]
+  aiProcessLogs                  AiProcessLog[]
+  clientPerformanceLogs          ClientPerformanceLog[]
+  interviewQuestionBatches       ApplicationInterviewQuestionBatch[]
 
   // Prisma 6.19 cannot model a partial index; the active-row unique invariant is managed in migration SQL.
   @@index([postingId, applicationStatus])
+  @@index([screeningDecision], map: "idx_applications_screening_decision")
   @@map("applications")
 }
 
@@ -856,29 +880,30 @@ model FollowUpQuestion {
 }
 
 model EvaluationReport {
-  reportId                 BigInt                @id @default(autoincrement()) @map("report_id")
-  applicationId            BigInt?               @map("application_id")
-  sessionId                BigInt?               @map("session_id")
-  reportType               ReportType            @map("report_type")
-  status                   ReportStatus          @default(PENDING)
-  totalScore               Int?                  @map("total_score")
-  summary                  String?
-  ncsCompletionStatus      String?               @map("ncs_completion_status") @db.VarChar(40)
-  ncsThresholdResult       String?               @map("ncs_threshold_result") @db.VarChar(40)
-  ncsAiDecision            String?               @map("ncs_ai_decision") @db.VarChar(20)
-  ncsDecisionReasonCode    String?               @map("ncs_decision_reason_code") @db.VarChar(80)
-  ncsScoringVersion        String?               @map("ncs_scoring_version") @db.VarChar(80)
-  ncsDecisionPolicyVersion String?               @map("ncs_decision_policy_version") @db.VarChar(80)
-  ncsSummaryJson           Json?                 @map("ncs_summary_json")
-  generatedAt              DateTime?             @map("generated_at")
-  failureCategory          String?               @map("failure_category") @db.VarChar(40)
-  failureReason            String?               @map("failure_reason")
-  application              Application?          @relation(fields: [applicationId], references: [applicationId])
-  session                  InterviewSession?     @relation(fields: [sessionId], references: [sessionId])
-  scores                   ReportScore[]
-  ncsAnswerEvaluations     NcsAnswerEvaluation[]
-  answerFactCheckRuns      AnswerFactCheckRun[]
-  manualEvaluations        ManualEvaluation[]
+  reportId                      BigInt                @id @default(autoincrement()) @map("report_id")
+  applicationId                 BigInt?               @map("application_id")
+  sessionId                     BigInt?               @map("session_id")
+  reportType                    ReportType            @map("report_type")
+  status                        ReportStatus          @default(PENDING)
+  totalScore                    Int?                  @map("total_score")
+  summary                       String?
+  ncsCompletionStatus           String?               @map("ncs_completion_status") @db.VarChar(40)
+  ncsThresholdResult            String?               @map("ncs_threshold_result") @db.VarChar(40)
+  ncsAiDecision                 String?               @map("ncs_ai_decision") @db.VarChar(20)
+  ncsDecisionReasonCode         String?               @map("ncs_decision_reason_code") @db.VarChar(80)
+  ncsScoringVersion             String?               @map("ncs_scoring_version") @db.VarChar(80)
+  ncsDecisionPolicyVersion      String?               @map("ncs_decision_policy_version") @db.VarChar(80)
+  ncsSummaryJson                Json?                 @map("ncs_summary_json")
+  generatedAt                   DateTime?             @map("generated_at")
+  failureCategory               String?               @map("failure_category") @db.VarChar(40)
+  failureReason                 String?               @map("failure_reason")
+  application                   Application?          @relation("ApplicationEvaluationReports", fields: [applicationId], references: [applicationId])
+  screeningDecisionApplications Application[]         @relation("ApplicationScreeningDecisionReport")
+  session                       InterviewSession?     @relation(fields: [sessionId], references: [sessionId])
+  scores                        ReportScore[]
+  ncsAnswerEvaluations          NcsAnswerEvaluation[]
+  answerFactCheckRuns           AnswerFactCheckRun[]
+  manualEvaluations             ManualEvaluation[]
 
   @@map("evaluation_reports")
 }

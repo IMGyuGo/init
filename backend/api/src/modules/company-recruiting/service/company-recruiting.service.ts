@@ -756,6 +756,21 @@ export class CompanyRecruitingService {
 
   async updateScreeningStatus(user: CurrentUser, applicantId: number, dto: UpdateScreeningStatusDto) {
     const companyId = requireCompanyId(user);
+    const existing = await this.repository.findApplicationForCompany(
+      applicantId,
+      companyId,
+    );
+    if (!existing) {
+      throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "지원자를 찾을 수 없습니다.");
+    }
+    if (existing.posting.autoScreeningPolicyEnabled) {
+      throw new CompanyRecruitingException(
+        409,
+        ERROR_CODES.COMMON_CONFLICT,
+        "자동 판정이 활성화된 공고의 전형 결과는 직접 변경할 수 없습니다.",
+        [{ field: "screeningDecision", reason: "SCREENING_DECISION_SYSTEM_MANAGED" }],
+      );
+    }
     const screeningDecision = parseScreeningDecision(dto.screeningDecision);
     const application = await this.repository.updateApplicationScreening(applicantId, companyId, {
       screeningDecision,
@@ -1305,6 +1320,11 @@ function toApplicantResponse(application: ApplicantRecord) {
     interviewStatus: application.interviewStatus,
     reportStatus: latestReport?.status ?? application.reportStatus,
     screeningDecision: application.screeningDecision ?? "UNDECIDED",
+    screeningDecisionReasonCode: application.screeningDecisionReasonCode,
+    screeningDecisionPolicyVersion: application.screeningDecisionPolicyVersion,
+    screeningPolicyVersion: application.screeningPolicyVersion,
+    screeningCriteriaVersion: application.screeningCriteriaVersion,
+    screeningDecidedAt: application.screeningDecidedAt?.toISOString() ?? null,
     screeningMemo: application.screeningMemo,
     interviewSession: latestSession
       ? {
@@ -1353,6 +1373,11 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
     },
     screening: {
       decision: application.screeningDecision ?? "UNDECIDED",
+      reasonCode: application.screeningDecisionReasonCode,
+      decisionPolicyVersion: application.screeningDecisionPolicyVersion,
+      policyVersion: application.screeningPolicyVersion,
+      criteriaVersion: application.screeningCriteriaVersion,
+      decidedAt: application.screeningDecidedAt?.toISOString() ?? null,
       memo: application.screeningMemo,
     },
     submission: {
