@@ -78,12 +78,18 @@ describe("synthetic applicant importer contract", () => {
   it("keeps the V1 options hash and legacy identity stable", () => {
     const options = fixtureOptions();
     const plan = buildSyntheticApplicantPlan(options, SYNTHETIC_MANIFEST_V1);
+    const completedReports = plan.filter((record) => record.lifecycleStage === "REPORT_COMPLETED");
 
     expect(plan[0]).toMatchObject({
       email: "demo+demo-1000-00001@example.com",
       name: "시연 지원자 00001",
     });
     expect(plan[10].email).toBe("candidate-demo-1000-00011@demo.invalid");
+    expect(completedReports).toHaveLength(100);
+    expect(completedReports.every((record) => record.reportFixture?.totalScore === 81)).toBe(true);
+    expect(completedReports.filter((record) => record.reportFixture?.profiles.length === 3)).toHaveLength(10);
+    expect(completedReports.filter((record) => record.dataDepth !== "REPORT")
+      .every((record) => record.reportFixture?.profiles.length === 0)).toBe(true);
     expect(syntheticOptionsHash(options, SYNTHETIC_MANIFEST_V1)).toBe(
       createHash("sha256").update(JSON.stringify({
         manifestVersion: SYNTHETIC_MANIFEST_V1,

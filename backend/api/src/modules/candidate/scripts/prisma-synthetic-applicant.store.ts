@@ -12,11 +12,35 @@ import type {
 } from "./synthetic-applicant-importer.service";
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 } as const;
-const NCS_PROFILES = [
-  { id: "JOB_TECHNICAL", weight: 40, score: 84 },
-  { id: "COLLABORATION_COMMUNICATION", weight: 30, score: 78 },
-  { id: "PROBLEM_SOLVING", weight: 30, score: 81 },
-] as const;
+
+export function buildSyntheticReportWrite(record: SyntheticApplicantPlanRecord) {
+  const completed = record.reportStatus === "COMPLETED";
+  const fixture = record.reportFixture;
+  if (completed && !fixture) throw new Error(`완료 리포트 fixture가 없습니다: ordinal=${record.ordinal}`);
+  return {
+    report: {
+      status: record.reportStatus,
+      totalScore: completed ? fixture!.totalScore : null,
+      summary: completed ? `${record.name}의 데모 평가 리포트입니다.` : null,
+      generatedAtRequired: completed,
+      failureCategory: completed ? null : "NON_RETRYABLE",
+      failureReason: completed ? null : "합성 실패 상태 fixture",
+    },
+    scores: completed
+      ? fixture!.profiles.map((profile) => ({
+          ncsProfileId: profile.id,
+          score: profile.score,
+          averageScore: profile.score / 20,
+          normalizedScore: profile.score,
+          weight: profile.weight,
+          weightedScore: profile.score * profile.weight / 100,
+          minimumAverageScore: 3,
+          assignedQuestionCount: 1,
+          validQuestionCount: 1,
+        }))
+      : [],
+  };
+}
 
 export class PrismaSyntheticApplicantStore implements SyntheticApplicantStore {
   constructor(private readonly prisma: PrismaClient) {}
@@ -368,37 +392,36 @@ export class PrismaSyntheticApplicantStore implements SyntheticApplicantStore {
     record: SyntheticApplicantPlanRecord,
     now: Date,
   ) {
-    const completed = record.reportStatus === "COMPLETED";
+    const write = buildSyntheticReportWrite(record);
     const report = await tx.evaluationReport.create({
       data: {
         applicationId,
         sessionId,
         reportType: "RECRUITING_REPORT",
-        status: record.reportStatus,
-        totalScore: completed ? 81 : null,
-        summary: completed ? "합성 답변 근거를 사용한 시연용 리포트입니다." : null,
-        generatedAt: completed ? now : null,
-        failureCategory: completed ? null : "NON_RETRYABLE",
-        failureReason: completed ? null : "합성 실패 상태 fixture",
+        status: write.report.status,
+        totalScore: write.report.totalScore,
+        summary: write.report.summary,
+        generatedAt: write.report.generatedAtRequired ? now : null,
+        failureCategory: write.report.failureCategory,
+        failureReason: write.report.failureReason,
       },
       select: { reportId: true },
     });
-    if (!completed || record.dataDepth !== "REPORT") return;
-    for (const profile of NCS_PROFILES) {
+    for (const score of write.scores) {
       await tx.reportScore.create({
         data: {
           reportId: report.reportId,
           criterionId: null,
-          score: profile.score,
+          score: score.score,
           rationale: "합성 면접 답변에서 문제 구조화와 협업 근거를 확인했습니다.",
-          ncsProfileId: profile.id,
-          averageScore: profile.score / 20,
-          normalizedScore: profile.score,
-          weight: profile.weight,
-          weightedScore: (profile.score * profile.weight) / 100,
-          minimumAverageScore: 3,
-          assignedQuestionCount: 1,
-          validQuestionCount: 1,
+          ncsProfileId: score.ncsProfileId,
+          averageScore: score.averageScore,
+          normalizedScore: score.normalizedScore,
+          weight: score.weight,
+          weightedScore: score.weightedScore,
+          minimumAverageScore: score.minimumAverageScore,
+          assignedQuestionCount: score.assignedQuestionCount,
+          validQuestionCount: score.validQuestionCount,
         },
       });
     }

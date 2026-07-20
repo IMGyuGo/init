@@ -84,6 +84,12 @@ const DEPTH_WEIGHTS: Array<[SyntheticDataDepth, number]> = [
   ["REPORT", 10],
 ];
 
+const LEGACY_PROFILES: SyntheticProfileScoreFixture[] = [
+  { id: "JOB_TECHNICAL", weight: 40, score: 84 },
+  { id: "COLLABORATION_COMMUNICATION", weight: 30, score: 78 },
+  { id: "PROBLEM_SOLVING", weight: 30, score: 81 },
+];
+
 const INTERACTIVE_STAGE_SHOWCASE: SyntheticLifecycleStage[] = [
   "DOCUMENT_PROCESSING",
   "DOCUMENT_PROCESSING",
@@ -241,7 +247,7 @@ export function buildSyntheticApplicantPlanV1(options: SyntheticImporterOptions)
       lifecycleStage: stage,
       dataDepth: depths[index],
       pipelineSelected: ordinal <= options.pipelineSelectionCount,
-      reportFixture: null,
+      reportFixture: legacyReportFixture(stage, depths[index]),
       ...projectionFor(stage, ordinal),
     };
   });
@@ -261,6 +267,14 @@ export function buildSyntheticApplicantPlanV1(options: SyntheticImporterOptions)
     });
   }
   return records;
+}
+
+function legacyReportFixture(stage: SyntheticLifecycleStage, depth: SyntheticDataDepth): SyntheticReportFixture | null {
+  if (stage !== "REPORT_COMPLETED") return null;
+  return {
+    totalScore: 81,
+    profiles: depth === "REPORT" ? LEGACY_PROFILES.map((profile) => ({ ...profile })) : [],
+  };
 }
 
 export function summarizeSyntheticPlan(records: SyntheticApplicantPlanRecord[]) {
