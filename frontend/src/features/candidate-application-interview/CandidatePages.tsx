@@ -155,6 +155,7 @@ import {
   type StartMockInterviewState,
   buildCandidateReportCompleteNotification,
   buildCandidateReportCompleteNotifications,
+  buildCandidateScreeningResultNotifications,
   clampCameraPipPosition,
   countUnreadCandidateNotifications,
   createInterviewAnswerFormStateForQuestion,
@@ -9010,14 +9011,20 @@ function CandidateNotificationCenter() {
     setDismissedIds(nextDismissedIds);
 
     try {
-      const response = await getCandidateApi().listApplications();
+      const [applicationsResponse, screeningResultsResponse] = await Promise.all([
+        getCandidateApi().listApplications(),
+        getCandidateApi().listScreeningResultNotifications(),
+      ]);
       if (!notificationMountedRef.current) {
         return;
       }
 
       const latestReadIds = readCandidateNotificationReadIds();
       const latestDismissedIds = readCandidateNotificationDismissedIds();
-      let nextNotifications = buildCandidateReportCompleteNotifications(response.data.items, latestReadIds, latestDismissedIds);
+      let nextNotifications = mergeCandidateNotifications(
+        buildCandidateReportCompleteNotifications(applicationsResponse.data.items, latestReadIds, latestDismissedIds),
+        buildCandidateScreeningResultNotifications(screeningResultsResponse.data.items, latestReadIds, latestDismissedIds),
+      );
 
       if (options?.markReadAfterLoad && nextNotifications.length) {
         const readAfterOpenIds = new Set(latestReadIds);
