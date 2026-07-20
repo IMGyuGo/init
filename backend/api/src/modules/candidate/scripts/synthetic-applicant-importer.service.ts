@@ -1,4 +1,7 @@
 import {
+  SYNTHETIC_MANIFEST_V2,
+  assertSyntheticManifestVersion,
+  assertV2SyntheticOperationalContract,
   buildSyntheticApplicantPlan,
   chunkSyntheticRecords,
   sanitizeSyntheticError,
@@ -6,6 +9,7 @@ import {
   syntheticOptionsHash,
   type SyntheticApplicantPlanRecord,
   type SyntheticImporterOptions,
+  type SyntheticManifestVersion,
 } from "./synthetic-applicant-importer.contract";
 
 export type SyntheticTargetPosting = {
@@ -25,6 +29,7 @@ export type SyntheticDatasetManifest = {
   interactiveCount: number;
   pipelineSelectionCount: number;
   batchSize: number;
+  manifestVersion: string;
   optionsHash: string;
   status: string;
   lastError: string | null;
@@ -48,7 +53,11 @@ export type SyntheticManifestRecord = {
 export interface SyntheticApplicantStore {
   findTargetPosting(postingId: bigint): Promise<SyntheticTargetPosting | null>;
   findDataset(datasetId: string): Promise<SyntheticDatasetManifest | null>;
-  createDataset(options: SyntheticImporterOptions, optionsHash: string): Promise<SyntheticDatasetManifest>;
+  createDataset(
+    options: SyntheticImporterOptions,
+    optionsHash: string,
+    manifestVersion: SyntheticManifestVersion,
+  ): Promise<SyntheticDatasetManifest>;
   updateDataset(
     datasetId: string,
     data: { status: string; lastError?: string | null; appliedAt?: Date | null; cleanedAt?: Date | null },
@@ -63,9 +72,14 @@ export class SyntheticApplicantImporterService {
 
   async plan(options: SyntheticImporterOptions) {
     const target = await this.requireTarget(options);
-    const records = buildSyntheticApplicantPlan(options);
-    const optionsHash = syntheticOptionsHash(options);
     const existing = await this.store.findDataset(options.datasetId);
+    const manifestVersion = this.resolveManifestVersion(existing);
+    if (manifestVersion === SYNTHETIC_MANIFEST_V2) {
+      assertV2SyntheticOperationalContract(options);
+      if (existing) assertV2SyntheticOperationalContract(existing);
+    }
+    const records = buildSyntheticApplicantPlan(options, manifestVersion);
+    const optionsHash = syntheticOptionsHash(options, manifestVersion);
     if (existing && existing.optionsHash !== optionsHash) {
       throw new Error("같은 datasetId가 다른 옵션으로 이미 존재합니다.");
     }
@@ -73,28 +87,25 @@ export class SyntheticApplicantImporterService {
       action: "plan" as const,
       target,
       datasetId: options.datasetId,
-      optionsHash,
+      manifestVersion,
       existingDatasetStatus: existing?.status ?? null,
       summary: summarizeSyntheticPlan(records),
-      interactiveAccounts: records.filter((record) => record.isInteractive).map((record) => ({
-        ordinal: record.ordinal,
-        email: record.email,
-        lifecycleStage: record.lifecycleStage,
-        dataDepth: record.dataDepth,
-      })),
-      pipelineSelection: records.filter((record) => record.pipelineSelected).map((record) => ({
-        ordinal: record.ordinal,
-        email: record.email,
-      })),
+      interactiveEvidence: summarizeOutputRecords(records.filter((record) => record.isInteractive)),
+      pipelineEvidence: summarizeOutputRecords(records.filter((record) => record.pipelineSelected)),
     };
   }
 
   async apply(options: SyntheticImporterOptions, passwordHash: string) {
     const target = await this.requireTarget(options);
-    const plannedRecords = buildSyntheticApplicantPlan(options);
-    const optionsHash = syntheticOptionsHash(options);
     let dataset = await this.store.findDataset(options.datasetId);
-    if (!dataset) dataset = await this.store.createDataset(options, optionsHash);
+    const manifestVersion = this.resolveManifestVersion(dataset);
+    if (manifestVersion === SYNTHETIC_MANIFEST_V2) {
+      assertV2SyntheticOperationalContract(options);
+      if (dataset) assertV2SyntheticOperationalContract(dataset);
+    }
+    const plannedRecords = buildSyntheticApplicantPlan(options, manifestVersion);
+    const optionsHash = syntheticOptionsHash(options, manifestVersion);
+    if (!dataset) dataset = await this.store.createDataset(options, optionsHash, manifestVersion);
     this.assertDatasetContract(dataset, options, optionsHash);
 
     const existingRecords = await this.store.listRecords(options.datasetId);
@@ -134,7 +145,8 @@ export class SyntheticApplicantImporterService {
     const target = await this.requireTarget(options);
     const dataset = await this.store.findDataset(options.datasetId);
     if (!dataset) throw new Error("cleanup할 dataset manifest를 찾을 수 없습니다.");
-    this.assertCleanupTarget(dataset, options);
+    const manifestVersion = this.resolveManifestVersion(dataset);
+    this.assertCleanupContract(dataset, options, manifestVersion);
     const records = await this.store.listRecords(options.datasetId);
     const pending = records.filter((record) => !record.cleanedAt);
 
@@ -161,7 +173,8 @@ export class SyntheticApplicantImporterService {
     const target = await this.requireTarget(options);
     const dataset = await this.store.findDataset(options.datasetId);
     if (!dataset) throw new Error("cleanup할 dataset manifest를 찾을 수 없습니다.");
-    this.assertCleanupTarget(dataset, options);
+    const manifestVersion = this.resolveManifestVersion(dataset);
+    this.assertCleanupContract(dataset, options, manifestVersion);
     const records = await this.store.listRecords(options.datasetId);
     const pending = records.filter((record) => !record.cleanedAt);
     return {
@@ -179,7 +192,6 @@ export class SyntheticApplicantImporterService {
         recordCount: pending.length,
         firstOrdinal: pending[0]?.ordinal ?? null,
         lastOrdinal: pending.at(-1)?.ordinal ?? null,
-        applicationIdSample: pending.slice(0, 5).map((record) => record.applicationId),
       },
     };
   }
@@ -191,6 +203,12 @@ export class SyntheticApplicantImporterService {
     return target;
   }
 
+  private resolveManifestVersion(dataset: SyntheticDatasetManifest | null): SyntheticManifestVersion {
+    if (!dataset) return SYNTHETIC_MANIFEST_V2;
+    assertSyntheticManifestVersion(dataset.manifestVersion);
+    return dataset.manifestVersion;
+  }
+
   private assertDatasetContract(dataset: SyntheticDatasetManifest, options: SyntheticImporterOptions, optionsHash: string) {
     if (dataset.optionsHash !== optionsHash) throw new Error("같은 datasetId가 다른 옵션으로 이미 존재합니다.");
     this.assertCleanupTarget(dataset, options);
@@ -200,6 +218,17 @@ export class SyntheticApplicantImporterService {
     if (dataset.environment !== options.environment) throw new Error("dataset 환경이 실행 environment와 일치하지 않습니다.");
     if (dataset.postingId !== options.postingId || dataset.companyId !== options.companyId) {
       throw new Error("dataset의 companyId/postingId가 실행 대상과 일치하지 않습니다.");
+    }
+  }
+
+  private assertCleanupContract(
+    dataset: SyntheticDatasetManifest,
+    options: SyntheticImporterOptions,
+    manifestVersion: SyntheticManifestVersion,
+  ) {
+    this.assertCleanupTarget(dataset, options);
+    if (dataset.optionsHash !== syntheticOptionsHash(options, manifestVersion)) {
+      throw new Error("같은 datasetId가 다른 옵션으로 이미 존재합니다.");
     }
   }
 
@@ -226,6 +255,7 @@ export class SyntheticApplicantImporterService {
       idempotent,
       target,
       datasetId: dataset.datasetId,
+      manifestVersion: dataset.manifestVersion,
       datasetStatus: dataset.status,
       created: {
         total: activeRecords.length,
@@ -233,13 +263,8 @@ export class SyntheticApplicantImporterService {
         canceled: activeRecords.filter((record) => record.isCanceled).length,
         interactive: activeRecords.filter((record) => record.isInteractive).length,
       },
-      interactiveAccounts: activeRecords.filter((record) => record.isInteractive).map((record) => ({
-        ordinal: record.ordinal,
-        userId: record.userId,
-        candidateId: record.candidateId,
-        applicationId: record.applicationId,
-      })),
-      pipelineApplicationIds: activeRecords.filter((record) => record.pipelineSelected).map((record) => record.applicationId),
+      interactiveEvidence: summarizeOutputRecords(activeRecords.filter((record) => record.isInteractive)),
+      pipelineEvidence: summarizeOutputRecords(activeRecords.filter((record) => record.pipelineSelected)),
     };
   }
 
@@ -260,4 +285,30 @@ export class SyntheticApplicantImporterService {
       remainingRecords: records.filter((record) => !record.cleanedAt).length,
     };
   }
+}
+
+type SyntheticOutputRecord = Pick<
+  SyntheticApplicantPlanRecord | SyntheticManifestRecord,
+  "ordinal" | "lifecycleStage" | "dataDepth"
+>;
+
+function summarizeOutputRecords(records: SyntheticOutputRecord[]) {
+  const ordinals = records.map((record) => record.ordinal);
+  return {
+    count: records.length,
+    ordinalRange: {
+      first: ordinals.length === 0 ? null : Math.min(...ordinals),
+      last: ordinals.length === 0 ? null : Math.max(...ordinals),
+    },
+    stages: countOutputRecords(records, "lifecycleStage"),
+    depths: countOutputRecords(records, "dataDepth"),
+  };
+}
+
+function countOutputRecords(records: SyntheticOutputRecord[], field: "lifecycleStage" | "dataDepth") {
+  return records.reduce<Record<string, number>>((counts, record) => {
+    const value = record[field];
+    counts[value] = (counts[value] ?? 0) + 1;
+    return counts;
+  }, {});
 }

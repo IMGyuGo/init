@@ -1,8 +1,14 @@
+import { createHash } from "node:crypto";
+
 import {
+  SYNTHETIC_MANIFEST_V1,
+  SYNTHETIC_MANIFEST_V2,
+  assertV2SyntheticOperationalContract,
   buildSyntheticApplicantPlan,
   parseSyntheticImporterArgs,
   sanitizeSyntheticError,
   summarizeSyntheticPlan,
+  syntheticOptionsHash,
   validateSyntheticEnvironment,
   type SyntheticImporterOptions,
 } from "./synthetic-applicant-importer.contract";
@@ -36,8 +42,8 @@ describe("synthetic applicant importer contract", () => {
     [5000, 250],
   ])("builds a deterministic and unique %i applicant fixture", (activeCount, canceledCount) => {
     const options = fixtureOptions({ activeCount, canceledCount });
-    const first = buildSyntheticApplicantPlan(options);
-    const second = buildSyntheticApplicantPlan(options);
+    const first = buildSyntheticApplicantPlan(options, SYNTHETIC_MANIFEST_V1);
+    const second = buildSyntheticApplicantPlan(options, SYNTHETIC_MANIFEST_V1);
     const summary = summarizeSyntheticPlan(first);
 
     expect(first).toEqual(second);
@@ -51,7 +57,7 @@ describe("synthetic applicant importer contract", () => {
   });
 
   it("keeps the official 1,000 applicant stage and depth distribution", () => {
-    const summary = summarizeSyntheticPlan(buildSyntheticApplicantPlan(fixtureOptions()));
+    const summary = summarizeSyntheticPlan(buildSyntheticApplicantPlan(fixtureOptions(), SYNTHETIC_MANIFEST_V1));
 
     expect(summary.stages).toEqual({
       DOCUMENT_PROCESSING: 350,
@@ -68,6 +74,60 @@ describe("synthetic applicant importer contract", () => {
       INTERVIEW: 40,
       REPORT: 10,
     });
+  });
+
+  it("keeps the V1 options hash and legacy identity stable", () => {
+    const options = fixtureOptions();
+    const plan = buildSyntheticApplicantPlan(options, SYNTHETIC_MANIFEST_V1);
+    const completedReports = plan.filter((record) => record.lifecycleStage === "REPORT_COMPLETED");
+
+    expect(plan[0]).toMatchObject({
+      email: "demo+demo-1000-00001@example.com",
+      name: "시연 지원자 00001",
+    });
+    expect(plan[10].email).toBe("candidate-demo-1000-00011@demo.invalid");
+    expect(completedReports).toHaveLength(100);
+    expect(completedReports.every((record) => record.reportFixture?.totalScore === 81)).toBe(true);
+    expect(completedReports.filter((record) => record.reportFixture?.profiles.length === 3)).toHaveLength(10);
+    expect(completedReports.filter((record) => record.dataDepth !== "REPORT")
+      .every((record) => record.reportFixture?.profiles.length === 0)).toBe(true);
+    expect(syntheticOptionsHash(options, SYNTHETIC_MANIFEST_V1)).toBe(
+      createHash("sha256").update(JSON.stringify({
+        manifestVersion: SYNTHETIC_MANIFEST_V1,
+        environment: options.environment,
+        companyId: options.companyId.toString(),
+        postingId: options.postingId.toString(),
+        datasetId: options.datasetId,
+        activeCount: options.activeCount,
+        canceledCount: options.canceledCount,
+        interactiveCount: options.interactiveCount,
+        pipelineSelectionCount: options.pipelineSelectionCount,
+        batchSize: options.batchSize,
+      })).digest("hex"),
+    );
+  });
+
+  it("uses V2 for a new plan and rejects an unknown manifest version", () => {
+    const options = fixtureOptions();
+    expect(buildSyntheticApplicantPlan(options)[0].name).not.toContain("시연 지원자");
+    expect(syntheticOptionsHash(options)).toBe(syntheticOptionsHash(options, SYNTHETIC_MANIFEST_V2));
+    expect(syntheticOptionsHash(options)).not.toBe(syntheticOptionsHash(options, SYNTHETIC_MANIFEST_V1));
+    expect(() => buildSyntheticApplicantPlan(options, "UNKNOWN" as never)).toThrow("manifest version");
+  });
+
+  it("accepts only the exact posting-36 V2 operational contract", () => {
+    const valid = fixtureOptions({ postingId: 36n, pipelineSelectionCount: 0 });
+    expect(() => assertV2SyntheticOperationalContract(valid)).not.toThrow();
+
+    for (const invalid of [
+      { ...valid, postingId: 35n },
+      { ...valid, activeCount: 999 },
+      { ...valid, canceledCount: 51 },
+      { ...valid, interactiveCount: 9 },
+      { ...valid, pipelineSelectionCount: 1 },
+    ]) {
+      expect(() => assertV2SyntheticOperationalContract(invalid)).toThrow("V2 operational contract");
+    }
   });
 
   it("rejects a different environment, disabled writes, weak passwords and missing production ACK", () => {
