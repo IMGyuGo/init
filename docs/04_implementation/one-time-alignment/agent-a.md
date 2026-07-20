@@ -37,6 +37,7 @@
 - `backend/api/src/modules/auth`를 인증 module 기준 위치로 사용한다.
 - `backend/api/src/modules/company-profile`은 회사 프로필/로고/기업 알림 설정 API 위치로 사용한다.
 - 공통 enum은 `backend/common/src/enums`, 공통 DTO는 `backend/common/src/dto`, 공통 error mapping은 `backend/common/src/errors`에 둔다.
+- 자동 판정 공통 enum은 `ScreeningDecision`의 `RETRY`와 `ScreeningDecisionReasonCode`를 문서/Prisma/공통 TypeScript에 동일하게 유지한다.
 - Prisma model은 `User`, `Company`, `CandidateProfile`, `CandidateEducation`, `CandidateCareer`, `CandidateActivity`, `CandidateCredential`, `FileAsset` 이름을 사용하고 DB table은 `@@map`으로 기존 table에 연결한다.
 - 구조화 프로필 enum은 `CandidateEducationLevel`, `CandidateDegreeType`, `CandidateEducationStatus`, `CandidateActivityType`, `CandidateCredentialType`을 `backend/common/src/enums`와 Prisma에 같은 값으로 정의한다.
 - MVP 구현 단계에서는 Prisma CLI/Client를 `6.19.3`으로 고정한다. `prisma`와 `@prisma/client`는 모두 `6.19.3`을 사용하고 `package-lock.json`을 함께 커밋한다.

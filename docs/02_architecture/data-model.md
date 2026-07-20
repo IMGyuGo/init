@@ -296,6 +296,24 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | pass_score | INTEGER | 이 항목에서 통과로 볼 최소 점수 |
 | sort_order | INTEGER NOT NULL | 화면 표시 순서 |
 
+### auto_screening_policies
+
+공고별 자동 전형 판정 기준이다. 기업은 지원자별 결과를 직접 선택하지 않고, 지원서 제출 전에 이 정책과 `evaluation_criteria.pass_score`를 설정한다. 결정 알고리즘과 version 규칙은 [`automatic-screening-decision.md`](../03_contracts/automatic-screening-decision.md)를 따른다.
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| posting_id | BIGINT PRIMARY KEY | 정책 대상 공고 FK |
+| enabled | BOOLEAN NOT NULL DEFAULT FALSE | 자동 판정 활성화 여부 |
+| pass_min_total_score | INTEGER NOT NULL | PASS 총점 하한선, 0~100 |
+| hold_min_total_score | INTEGER NOT NULL | HOLD 총점 하한선, 0~100이며 PASS 하한선 미만 |
+| require_all_criteria_pass | BOOLEAN NOT NULL DEFAULT TRUE | 활성 기준별 `pass_score` 모두 충족 필요. V1은 TRUE만 허용 |
+| policy_version | INTEGER NOT NULL DEFAULT 1 | 정책 또는 기준 하한선 변경 시 증가 |
+| decision_policy_version | VARCHAR(80) NOT NULL | `AUTO_SCREENING_DECISION_V1` |
+| created_at | TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP | 생성 시각 |
+| updated_at | TIMESTAMP NOT NULL | 수정 시각 |
+
+submitted application이 존재하면 C의 기존 configuration lock과 함께 자동 판정 정책도 잠근다. 실제 Prisma model, migration, CHECK/FK와 ERDCloud SQL은 #398에서 추가한다.
+
 ### question_bank
 
 | Column | Definition | Description |
@@ -380,8 +398,13 @@ batch business unique key는 `(application_id, usage_scope, policy_version, crit
 | document_status | VARCHAR(40) NOT NULL | 서류 제출/분석 상태: NOT_SUBMITTED, SUBMITTED, EXTRACTING, EXTRACTED, FAILED |
 | interview_status | VARCHAR(40) NOT NULL | AI 면접 응시 상태: NOT_READY, READY, IN_PROGRESS, COMPLETED, FAILED |
 | report_status | VARCHAR(40) NOT NULL | 평가 리포트 생성 상태: PENDING, GENERATING, COMPLETED, FAILED |
-| screening_decision | VARCHAR(40) | 기업 담당자의 다음 전형 판정: UNDECIDED, PASS, HOLD, FAIL |
-| screening_memo | TEXT | 기업 담당자 메모 |
+| screening_decision | VARCHAR(40) | 자동 전형 판정: UNDECIDED, PASS, HOLD, FAIL, RETRY |
+| screening_decision_reason_code | VARCHAR(80) | 자동 판정 사유. UNDECIDED이면 NULL |
+| screening_decision_policy_version | VARCHAR(80) | 결정 알고리즘 version snapshot |
+| screening_policy_version | INTEGER | 공고별 자동 판정 정책 version snapshot |
+| screening_criteria_version | INTEGER | 평가 기준 version snapshot |
+| screening_decided_at | TIMESTAMP | 자동 판정 저장 시각 |
+| screening_memo | TEXT | 기업 내부 운영 메모. 자동 판정 입력이 아니며 지원자에게 비노출 |
 | submitted_at | TIMESTAMP | 지원서 최종 제출 시각 |
 | updated_at | TIMESTAMP NOT NULL | 지원 건 마지막 수정 시각 |
 
@@ -546,6 +569,8 @@ STT와 재답변 상태는 별도 컬럼을 추가하지 않고 `interview_answe
 | generated_at | TIMESTAMP | 리포트 생성 시각 |
 | failure_category | VARCHAR(40) | 실패 구분: RETRYABLE, NON_RETRYABLE |
 | failure_reason | TEXT | 실패 사유. 재시도 가능 여부와 함께 화면/운영 로그에 사용 |
+
+`evaluation_reports.status=PENDING | GENERATING` 동안 `applications.screening_decision`은 `UNDECIDED`를 유지한다. 리포트 terminal 실패, STT terminal 인식 불가, NCS 평가 불완전 또는 필수 점수 NULL은 `RETRY`로 저장하고 0점이나 `FAIL`로 변환하지 않는다. `PASS/HOLD/FAIL`은 `AUTO_SCREENING_DECISION_V1`의 유효 점수 조건을 만족할 때만 저장한다. 실제 application 컬럼과 migration은 #398에서 추가한다.
 
 ### report_scores
 

@@ -18,7 +18,7 @@
 ## Owns
 
 - `postings`
-- `applications` 기업 전형 판정 필드
+- `applications` 운영 상태와 screening memo, 자동 전형 판정 기업 조회
 - `notifications` 초대/안내 메일 흐름
 
 ## Outputs
@@ -29,7 +29,7 @@
 - `/company/recruitments/{recruitmentId}/applicants`
 - `/company/applicants`
 - `/company/applicants/invitations`
-- `/company/applicants/{applicantId}/screening-status`
+- `/company/applicants/{applicantId}/screening-status` (legacy, 폐기 예정)
 
 ## Codex Operating Rules
 
@@ -44,6 +44,7 @@ B 담당 Codex는 이 파일을 읽는 즉시 아래 규칙을 작업 전제에 
 - DB 테이블/상태 전이를 바꿔야 하면 `docs/02_architecture`와 `docs/04_implementation`을 먼저 맞춘다.
 - 기업은 자기 회사 공고/지원자만 접근할 수 있어야 한다.
 - `applications` 상태 필드는 D 담당자와 충돌 가능성이 있으므로 변경 시 D 리뷰가 필요하다.
+- 자동 판정 결과는 E write field다. B는 지원자별 `PASS/HOLD/FAIL/RETRY`를 직접 변경하지 않는다.
 - macOS/Linux 검증은 `bash scripts/check-local.sh -Role B`를 사용한다.
 - macOS/Linux 작업자에게 PowerShell Core 설치를 요구하지 않는다.
 
@@ -52,7 +53,7 @@ B 담당 Codex는 이 파일을 읽는 즉시 아래 규칙을 작업 전제에 
 - 기업은 자기 회사 공고/지원자만 접근
 - 중복 지원자/중복 초대 처리
 - 지원자 등록/초대 상태 전이
-- 전형 판정 권한 검증
+- 자동 판정 결과 조회 권한과 내부 메모 비노출 검증
 - macOS/Linux 검증 명령은 `bash scripts/check-local.sh -Role B`를 사용
 
 ## Must Coordinate With

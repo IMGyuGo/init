@@ -22,6 +22,7 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | `application_summary_availability_status` | `CandidateApplicationAvailabilityStatus` (API read model only) |
 | `application_summary_unavailable_reason` | `CandidateApplicationUnavailableReason` (API read model only) |
 | `screening_decision` | `ScreeningDecision` |
+| `screening_decision_reason_code` | `ScreeningDecisionReasonCode` |
 | `interview_type` | `InterviewType` |
 | `report_type` | `ReportType` |
 | `document_type` | `DocumentType` |
@@ -93,7 +94,7 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | `report_status` | E | `PENDING -> GENERATING -> COMPLETED`, `PENDING -> FAILED`, `GENERATING -> FAILED`, `FAILED -> GENERATING` |
 | `ai_process_status` | E | `PENDING -> RUNNING -> COMPLETED`, `PENDING -> FAILED`, `RUNNING -> FAILED`, `FAILED -> PENDING` for explicit retry only |
 | `resume_question_generation_status` | C/D/E | `WAITING_APPLICATION -> WAITING_DOCUMENT -> GENERATING -> READY`, `WAITING_DOCUMENT -> FAILED`, `GENERATING -> REVIEW_REQUIRED`, `GENERATING -> FAILED`, `READY -> STALE`, `REVIEW_REQUIRED -> STALE`, `STALE -> GENERATING`, `REVIEW_REQUIRED -> GENERATING`, `FAILED -> GENERATING` for explicit retry only |
-| `screening_decision` | B | `UNDECIDED -> PASS`, `UNDECIDED -> HOLD`, `UNDECIDED -> FAIL`, `HOLD -> PASS`, `HOLD -> FAIL` |
+| `screening_decision` | E | `UNDECIDED -> PASS`, `UNDECIDED -> HOLD`, `UNDECIDED -> FAIL`, `UNDECIDED -> RETRY`, `RETRY -> PASS`, `RETRY -> HOLD`, `RETRY -> FAIL`; 자동 판정 engine만 write |
 
 상태를 되돌리는 rollback 전이는 기본 금지다. 운영자가 명시적으로 재처리하는 retry는 audit log 또는 `ai_process_logs`에 사유를 남긴다.
 
@@ -110,7 +111,8 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | report_status | PENDING, GENERATING, COMPLETED, FAILED | 리포트 생성 상태 |
 | application_summary_availability_status | AVAILABLE, UNAVAILABLE | `GET /candidate/applications` item의 조회 가능 여부. DB 상태 전이가 아닌 API read model이다. |
 | application_summary_unavailable_reason | POSTING_NOT_FOUND, INTERVIEW_SESSION_NOT_FOUND | `availabilityStatus=UNAVAILABLE`일 때 반환하는 누락 의존성 사유 |
-| screening_decision | UNDECIDED, PASS, HOLD, FAIL | 기업 담당자 전형 판정 |
+| screening_decision | UNDECIDED, PASS, HOLD, FAIL, RETRY | 자동 전형 판정. PASS/HOLD/FAIL은 유효 점수가 필수이며 평가 불가·점수 없음·STT terminal 실패는 RETRY |
+| screening_decision_reason_code | PASS_TOTAL_AND_CRITERIA_MET, HOLD_TOTAL_BAND, HOLD_CRITERION_BELOW_PASS_SCORE, FAIL_BELOW_HOLD_THRESHOLD, RETRY_REPORT_FAILED, RETRY_STT_UNAVAILABLE, RETRY_EVALUATION_INCOMPLETE, RETRY_SCORE_MISSING | 자동 판정 사유. 지원자 API에는 노출하지 않음 |
 | interview_type | MOCK, RECRUITING | 모의면접/채용면접 구분 |
 | report_type | MOCK_INTERVIEW_REPORT, RECRUITING_REPORT | 리포트 구분 |
 | document_type | RESUME, PORTFOLIO | 지원 서류 유형 |

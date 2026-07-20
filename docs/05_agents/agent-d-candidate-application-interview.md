@@ -49,7 +49,7 @@ D 담당 Codex는 이 파일을 읽는 즉시 아래 규칙을 작업 전제에 
 - 파일 원본은 DB에 저장하지 않고 S3/file_assets 참조로 연결한다.
 - API path, request/response, enum, error code를 바꿔야 하면 `docs/03_contracts`를 먼저 수정한다.
 - `applications`, `interview_sessions`, `interview_answers` 구조나 상태 전이를 바꿔야 하면 `docs/02_architecture`와 `docs/04_implementation`을 먼저 맞춘다.
-- `applications` 기업 전형 판정 필드는 B 담당자와 충돌 가능성이 있으므로 변경 시 B 리뷰가 필요하다.
+- `applications` 자동 전형 판정은 E write/B 기업 조회 필드다. D는 지원자 제한 결과로만 읽고 내부 reason/점수/메모를 노출하지 않는다.
 - `interview_answers`는 E 담당 AI 처리 입력이므로 변경 시 E 리뷰가 필요하다.
 - Windows 검증은 `powershell -ExecutionPolicy Bypass -File scripts\check-local.ps1 -Role D`를 사용한다.
 - Windows 명령은 UTF-8 출력과 `-LiteralPath` 사용 규칙을 지킨다.

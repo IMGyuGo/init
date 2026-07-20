@@ -93,7 +93,8 @@ DTO와 API client 타입은 아래 naming을 따른다. 같은 요청/응답 타
 | `applications` | `application_status`, 초대/운영 상태 | B | D/E |
 | `applications` | `interview_status` | D | B/E |
 | `applications` | `report_status` | E | B/D |
-| `applications` | `screening_decision`, `screening_memo` | B | D/E 제한 조회 |
+| `applications` | `screening_decision`, 자동 판정 reason/version/decided_at | E | B/D 제한 조회, C 정책 연동 |
+| `applications` | `screening_memo` | B | E 읽기 금지, D 지원자 응답 비노출 |
 | `interview_sessions` | 세션 생성/시작/완료, `status` | D | E |
 | `interview_session_questions` | 세션별 질문 연결과 표시 순서 | D | E |
 | `interview_answers` | 답변 파일, 제출 시각, 질문 이동 | D | E |
@@ -103,6 +104,7 @@ DTO와 API client 타입은 아래 naming을 따른다. 같은 요청/응답 타
 | `question_bank` | NCS binding/alignment snapshot 최종 적용 | C | D/E |
 | `evaluation_criteria` | CRUD, weight/pass score | C | B/E |
 | `evaluation_criteria` | NCS profile/mode/version snapshot, criteria version 증가 | C | D/E |
+| `auto_screening_policies` | 총점 PASS/HOLD 하한선, criteria 통과 요구, policy version | C | B/E |
 | `interview_question_generation_policies` (NQ-M1 예정) | framework, 출처별 질문 수, policy/criteria version | C | D/E |
 | `application_interview_question_batches` (NQ-M3 예정) | 생성 상태, 입력 version, 멱등 key, 실패 사유 | E | C/D/A |
 | `application_interview_questions` (NQ-M3 예정) | 개인화 질문, NCS 정렬 결과, 생성 snapshot | E | C/D |
@@ -122,22 +124,22 @@ DTO와 API client 타입은 아래 naming을 따른다. 같은 요청/응답 타
 | `ADMIN` | 운영/검증 API | read/manage | MVP에서는 최소화하고 별도 관리자 API 추가 시 문서 갱신 |
 | `COMPANY` | own company profile | read/update | `CurrentUser.companyId`와 resource `companyId` 일치 |
 | `COMPANY` | own postings | create/read/update/archive | `postings.company_id = CurrentUser.companyId` |
-| `COMPANY` | own applicants/applications | read/update screening fields/invite | application이 자기 회사 공고에 속해야 함 |
+| `COMPANY` | own applicants/applications | read automatic screening result, update internal memo/invite | application이 자기 회사 공고에 속해야 함. 자동 판정 결과 직접 변경 금지 |
 | `COMPANY` | reports for own postings | read company report | 지원자 제한용 field를 제외한 기업용 report |
 | `CANDIDATE` | own profile/documents | read/update/upload | `CurrentUser.candidateId`와 resource `candidateId` 일치 |
 | `CANDIDATE` | public/open postings | read/apply | 공고가 공개/지원 가능 상태 |
 | `CANDIDATE` | own applications/interviews | read/start/answer/complete | application이 본인 소유이고 응시 기간/동의/장치 점검 조건 충족 |
 | `CANDIDATE` | own reports | read limited candidate report | 기업 내부 메모, screening memo, 전체 평가 근거는 노출 금지 |
-| Worker/System | AI process/report generation | update AI-owned fields | queue message와 process log 기준. public controller에서 직접 호출 금지 |
+| Worker/System | AI process/report generation and automatic screening decision | update AI-owned fields and applications automatic screening projection | queue message, process log와 policy snapshot 기준. public controller에서 직접 호출 금지 |
 
 권한 실패는 인증 누락이면 `COMMON_UNAUTHORIZED`, role/resource scope 불일치면 `COMMON_FORBIDDEN`을 반환한다. 존재하지 않는 resource와 권한 없는 resource를 구분해 정보가 누출될 수 있으면 `COMMON_FORBIDDEN` 또는 generic not found 정책을 API별로 명시한다.
 
 | Module | Owns | Reads | Representative APIs | Notes |
 | --- |--- |--- |--- |--- |
 | auth-common | users, companies, candidate_profiles | Redis/TTL cache | /auth/* | 이메일 인증 코드는 DB 저장 금지 |
-| company | postings, evaluation_criteria, question_bank, applications screening fields | reports, candidate_profiles | /company/* | 기업은 자기 회사 공고/지원자만 접근 |
+| company | postings, evaluation_criteria, auto_screening_policies, question_bank, applications screening memo | reports, candidate_profiles, automatic screening result | /company/* | 기업은 기준을 설정하고 지원자별 자동 판정 결과를 직접 변경하지 않음 |
 | candidate-interview | interview_sessions, interview_session_questions, interview_answers, consent_records | applications, postings, question_bank | /candidate/*interview* | 모의면접과 채용면접은 `interview_type`으로 분리 |
-| ai-report | evaluation_reports, report_scores, report_evidences, ai_process_logs, ai_guardrail_logs, embeddings | documents, answers, criteria | /reports/*, /ai/* | 가드레일 통과 전 결과 저장 금지 |
+| ai-report | evaluation_reports, report_scores, report_evidences, ai_process_logs, ai_guardrail_logs, embeddings, applications automatic screening projection | documents, answers, criteria, auto screening policy | /reports/*, /ai/* | 가드레일 통과 전 결과 저장 금지, 점수 없음은 RETRY |
 | file-storage | file_assets | users | /candidate/resume, /company/profile/logo | 원본 파일은 Object Storage |
 | notification | notifications | users, applications | invitation/notification endpoints | 메일 발송 실패 상태 기록 |
 

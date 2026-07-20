@@ -39,6 +39,7 @@
 - `evaluation_reports`는 `EvaluationReport`, `report_scores`는 `ReportScore`, `report_evidences`는 `ReportEvidence`, `ai_process_logs`는 `AiProcessLog`, `ai_guardrail_logs`는 `AiGuardrailLog` 이름을 사용한다.
 - `AIProcessLog`, `AIGuardrailLog` 같은 all-caps acronym class 이름을 새로 만들지 않는다.
 - `applications.report_status`, `evaluation_reports`, `interview_answers.transcript` write는 E 영역으로 둔다.
+- 리포트 final save 이후 공고별 policy snapshot으로 `applications.screening_decision`과 reason/version/decided_at을 결정론적으로 저장한다. 점수 없음·평가 불완전·STT terminal 실패는 FAIL이 아니라 RETRY다.
 
 ## Verify
 
