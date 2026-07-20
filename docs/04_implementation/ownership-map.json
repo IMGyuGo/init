@@ -342,6 +342,7 @@
       "^frontend/src/styles/",
       "^frontend/src/lib/kakao-maps\\.ts$",
       "^frontend/public/",
+      "^backend/api/scripts/large-applicant-query-plan\\.ts$",
       "^backend/api/src/modules/company-recruiting/",
       "^backend/api/src/modules/company-profile/",
       "^docs/03_contracts/(api-index|api-spec)\\.md$"

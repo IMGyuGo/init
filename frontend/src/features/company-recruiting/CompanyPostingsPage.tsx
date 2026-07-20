@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 
-import { listRecruitmentApplicants, listRecruitments } from "./api";
+import { getRecruitmentApplicantSummary, listRecruitments } from "./api";
 import { StatusBadge } from "./CompanyRecruitingChrome";
 import { getRecruitmentPaginationPages } from "./recruitment-list-pagination";
 import type { Recruitment, RecruitmentStatus } from "./types";
@@ -27,7 +27,6 @@ type StatusFilter = "ALL" | RecruitmentStatus;
 type CompletionStat = { rate: number; done: number; total: number };
 
 const ACTIVE_STATUSES: RecruitmentStatus[] = ["OPEN", "CLOSING_SOON"];
-const INTERVIEW_DONE_STATUSES = ["COMPLETED", "DONE"];
 const recruitmentPageSize = 10;
 
 // 카드 상단 컬러 헤더 (상태별)
@@ -56,25 +55,6 @@ export function CompanyPostingsPage() {
   const pendingFilterTopRef = useRef<number | null>(null);
   const paginationPages = getRecruitmentPaginationPages(pageMeta);
 
-  // list API에는 응시 완료율이 없어 현재 페이지 공고별 지원자를 읽어 카드에 표시할 면접 완료 비율을 계산한다.
-  const loadCompletion = useCallback(async (list: Recruitment[]) => {
-    try {
-      const results = await Promise.all(
-        list.map(async (item) => {
-          const res = await listRecruitmentApplicants(item.recruitmentId, { page: 1, limit: 100 });
-          const applicants = res.data.items;
-          const done = applicants.filter((a) => INTERVIEW_DONE_STATUSES.includes(a.interviewStatus)).length;
-          const total = applicants.length;
-          const rate = total > 0 ? Math.round((done / total) * 100) : 0;
-          return { id: item.recruitmentId, stat: { rate, done, total } };
-        }),
-      );
-      setCompletion((current) => ({ ...current, ...Object.fromEntries(results.map((r) => [r.id, r.stat])) }));
-    } catch {
-      // 완료율은 보조 지표 — 실패해도 목록 자체는 유지한다.
-    }
-  }, []);
-
   // KPI(진행 중 공고·총 지원자·검토 대기·마감 임박)는 현재 페이지가 아니라 전체 공고 기준으로 집계한다.
   const loadSummary = useCallback(async () => {
     try {
@@ -90,14 +70,21 @@ export function CompanyPostingsPage() {
       }
       setAllRecruitments(all);
 
-      // 검토 대기(미정 전형)는 전체 공고의 지원자를 합산해야 "총" 의미가 맞는다.
-      const pendings = await Promise.all(
+      const summaries = await Promise.all(
         all.map(async (item) => {
-          const res = await listRecruitmentApplicants(item.recruitmentId, { page: 1, limit: 100 });
-          return res.data.items.filter((a) => a.screeningDecision === "UNDECIDED").length;
+          const res = await getRecruitmentApplicantSummary(item.recruitmentId);
+          return { id: item.recruitmentId, summary: res.data };
         }),
       );
-      setReviewPending(pendings.reduce((sum, n) => sum + n, 0));
+      setCompletion(Object.fromEntries(summaries.map(({ id, summary }) => {
+        const done = summary.interviewStatusCounts.COMPLETED ?? 0;
+        const total = summary.activeTotal;
+        return [id, { done, total, rate: total > 0 ? Math.round((done / total) * 100) : 0 }];
+      })));
+      setReviewPending(summaries.reduce(
+        (sum, { summary }) => sum + (summary.screeningDecisionCounts.UNDECIDED ?? 0),
+        0,
+      ));
     } catch {
       // 집계는 보조 지표 — 실패해도 목록 자체는 유지한다.
     }
@@ -157,12 +144,6 @@ export function CompanyPostingsPage() {
     void loadCompanyProfile();
     void loadSummary();
   }, [loadCompanyProfile, loadRecruitments, loadSummary]);
-
-  useEffect(() => {
-    if (items.length > 0) {
-      void loadCompletion(items);
-    }
-  }, [items, loadCompletion]);
 
   async function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

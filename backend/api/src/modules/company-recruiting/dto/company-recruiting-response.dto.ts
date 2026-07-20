@@ -350,6 +350,32 @@ export class ApplicantResponseDto {
   updatedAt!: string;
 }
 
+export class ApplicantSummaryResponseDto {
+  @ApiProperty({ example: 1250 })
+  activeTotal!: number;
+
+  @ApiProperty({ example: 14 })
+  canceledHistoryTotal!: number;
+
+  @ApiProperty({ type: Object, example: { SUBMITTED: 900, IN_REVIEW: 350 } })
+  applicationStatusCounts!: Record<string, number>;
+
+  @ApiProperty({ type: Object, example: { EXTRACTED: 1200, FAILED: 50 } })
+  documentStatusCounts!: Record<string, number>;
+
+  @ApiProperty({ type: Object, example: { READY: 800, COMPLETED: 450 } })
+  interviewStatusCounts!: Record<string, number>;
+
+  @ApiProperty({ type: Object, example: { PENDING: 800, COMPLETED: 450 } })
+  reportStatusCounts!: Record<string, number>;
+
+  @ApiProperty({ type: Object, example: { UNDECIDED: 1100, PASS: 150 } })
+  screeningDecisionCounts!: Record<string, number>;
+
+  @ApiProperty({ example: 1120 })
+  attentionRequiredTotal!: number;
+}
+
 export class ApplicantEvaluationResponseDto {
   @ApiProperty({ type: ApplicantResponseDto })
   applicant!: ApplicantResponseDto;

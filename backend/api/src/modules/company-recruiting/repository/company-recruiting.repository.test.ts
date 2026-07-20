@@ -106,12 +106,16 @@ describe("PrismaCompanyRecruitingRepository", () => {
     assert.equal(result?.applicantCount, 3);
   });
 
-  it("excludes canceled rows from the active applicant list and count", async () => {
+  it("applies active-only filters and stable ordering to applicant pages", async () => {
     const capturedWheres: Record<string, unknown>[] = [];
+    let capturedOrderBy: unknown;
+    let capturedInclude: unknown;
     const prisma = {
       application: {
-        async findMany(args: { where: Record<string, unknown> }) {
+        async findMany(args: { where: Record<string, unknown>; orderBy: unknown; include: unknown }) {
           capturedWheres.push(args.where);
+          capturedOrderBy = args.orderBy;
+          capturedInclude = args.include;
           return [];
         },
         async count(args: { where: Record<string, unknown> }) {
@@ -121,7 +125,15 @@ describe("PrismaCompanyRecruitingRepository", () => {
       },
     };
     const repository = new PrismaCompanyRecruitingRepository(prisma as never);
-    const query = { skip: 0, take: 20, sort: "updatedAt", order: "desc" } as never;
+    const query = {
+      skip: 0,
+      take: 20,
+      sort: "interviewStatus",
+      order: "asc",
+      q: "kim",
+      documentStatus: "EXTRACTED",
+      screeningDecision: "UNDECIDED",
+    } as never;
 
     assert.deepEqual(await repository.listApplicationsForPosting(101, 7, query), []);
     assert.equal(await repository.countApplicationsForPosting(101, 7, query), 0);
@@ -130,13 +142,78 @@ describe("PrismaCompanyRecruitingRepository", () => {
         postingId: 101n,
         posting: { companyId: 7n },
         applicationStatus: { not: "CANCELED" },
+        documentStatus: "EXTRACTED",
+        AND: [{ OR: [{ screeningDecision: "UNDECIDED" }, { screeningDecision: null }] }],
+        OR: [
+          { candidate: { user: { name: { contains: "kim", mode: "insensitive" } } } },
+          { candidate: { user: { email: { contains: "kim", mode: "insensitive" } } } },
+        ],
       },
       {
         postingId: 101n,
         posting: { companyId: 7n },
         applicationStatus: { not: "CANCELED" },
+        documentStatus: "EXTRACTED",
+        AND: [{ OR: [{ screeningDecision: "UNDECIDED" }, { screeningDecision: null }] }],
+        OR: [
+          { candidate: { user: { name: { contains: "kim", mode: "insensitive" } } } },
+          { candidate: { user: { email: { contains: "kim", mode: "insensitive" } } } },
+        ],
       },
     ]);
+    assert.deepEqual(capturedOrderBy, [{ interviewStatus: "asc" }, { applicationId: "asc" }]);
+    assert.equal((capturedInclude as { evaluationReports: { select: Record<string, boolean> } }).evaluationReports.select.scores, undefined);
+  });
+
+  it("summarizes all active applicants without loading detail relations", async () => {
+    const countWheres: Array<Record<string, unknown>> = [];
+    const groupBys: string[] = [];
+    const prisma = {
+      application: {
+        async count(args: { where: Record<string, unknown> }) {
+          countWheres.push(args.where);
+          if (args.where.applicationStatus === "CANCELED") return 2;
+          if (args.where.OR) return 3;
+          return 10;
+        },
+        async groupBy(args: { by: string[] }) {
+          const field = args.by[0];
+          groupBys.push(field);
+          if (field === "screeningDecision") {
+            return [
+              { screeningDecision: "UNDECIDED", _count: { _all: 7 } },
+              { screeningDecision: null, _count: { _all: 3 } },
+            ];
+          }
+          const values: Record<string, string> = {
+            applicationStatus: "SUBMITTED",
+            documentStatus: "EXTRACTED",
+            interviewStatus: "COMPLETED",
+            reportStatus: "COMPLETED",
+            screeningDecision: "UNDECIDED",
+          };
+          return [{ [field]: values[field], _count: { _all: 10 } }];
+        },
+      },
+    };
+    const repository = new PrismaCompanyRecruitingRepository(prisma as never);
+
+    const result = await repository.summarizeApplicationsForPosting(101, 7);
+
+    assert.equal(result.activeTotal, 10);
+    assert.equal(result.canceledHistoryTotal, 2);
+    assert.equal(result.attentionRequiredTotal, 3);
+    assert.equal(result.applicationStatusCounts.SUBMITTED, 10);
+    assert.equal(result.interviewStatusCounts.COMPLETED, 10);
+    assert.equal(result.screeningDecisionCounts.UNDECIDED, 10);
+    assert.deepEqual(groupBys, [
+      "applicationStatus",
+      "documentStatus",
+      "interviewStatus",
+      "reportStatus",
+      "screeningDecision",
+    ]);
+    assert.equal(countWheres.length, 3);
   });
 
   it("updates only B-owned screening fields", async () => {

@@ -412,6 +412,10 @@ batch business unique key는 `(application_id, usage_scope, policy_version, crit
 
 동일한 `(posting_id, candidate_id)`에는 `application_status <> 'CANCELED'`인 활성 지원서가 최대 하나만 존재한다. 이 조건은 PostgreSQL 부분 유일 인덱스로 보장한다. 지원 취소 후 재지원할 때는 취소된 row를 복구하지 않고 새 `applications` row와 새 서류·동의·면접 세션을 생성하며, 취소 row와 연결된 질문·세션 snapshot은 감사·추적을 위해 보존한다. 기업의 활성 지원자 목록과 `applicantCount`에서는 `CANCELED`를 제외하지만, 평가 기준·질문 설정 잠금의 제출 이력 판단에는 취소 row도 계속 포함한다.
 
+대규모 지원자 목록은 `(posting_id, updated_at, application_id)` 안정 정렬 인덱스와 공고별 `document_status`, `interview_status`, `report_status`, `screening_decision` 복합 인덱스를 사용한다. 목록은 활성 지원서만 페이지 단위로 조회하고, 상태별 전체 수는 `applications`만 집계해 상세 면접·리포트 relation을 읽지 않는다.
+
+실데이터 규모 검증은 `backend/api`에서 `npm run verify:large-applicants -- <공고 ID>`로 실행한다. 출력의 `responseTimeMs`와 `queryPlan`(`EXPLAIN ANALYZE`, buffers 포함)을 함께 기록해 100/1,000/5,000명 구간의 회귀를 비교한다.
+
 ### application_documents
 
 | Column | Definition | Description |

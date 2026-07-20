@@ -733,17 +733,49 @@ AI 리포트 금지 기준:
 - Path Params: recruitmentId
 - 요청 데이터:
   - 공고 ID
+  - pagination: `page`(기본 1), `limit`(기본 20, 최대 100)
+  - 검색: `q` 또는 호환 alias `keyword`로 지원자 이름·이메일 부분 검색
+  - 상태 필터: `applicationStatus`, `documentStatus`, `interviewStatus`, `reportStatus`, `screeningDecision`
+  - 정렬: `sort=updatedAt|applicationStatus|interviewStatus|reportStatus`, `order=asc|desc`
 - 검증/전제조건:
   - 공고 조회 권한 보유
 - 성공 응답/처리:
   - 공고별 지원자 관리 화면 표시
   - 기본 지원자 목록과 pagination count는 `application_status != CANCELED`인 활성 지원 건만 포함한다. 취소 이력은 DB에서 삭제하지 않는다.
+  - 검색과 복수 상태 필터는 AND로 결합한다.
+  - 목록 응답은 화면 행에 필요한 지원자·최신 면접 세션·최신 리포트 요약만 반환하며, 점수 근거·답변·서류 본문은 API-020 상세 조회에서 반환한다.
+  - 정렬 값이 같은 경우 `applicationId`를 보조 정렬 키로 사용해 페이지 경계의 순서를 안정화한다.
 - 오류/예외:
   - 공고 정보가 없거나 권한이 없으면 접근 제한 메시지를 표시한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, applications, evaluation_reports, report_scores, report_evidences, notifications
 - 비고/미결:
   - 기존 구직자 관리 명칭을 지원자 관리로 변경. 평가 리포트 메뉴는 지원자 관리로 통합
+
+### API-014-SUMMARY GET /company/recruitments/{recruitmentId}/applicants/summary
+- 도메인: 기업 - 채용공고
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 채용 공고 목록 KPI, 지원자 관리 KPI
+- UI Type: data
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: recruitmentId
+- 요청 데이터:
+  - 공고 ID
+- 검증/전제조건:
+  - 공고 조회 권한 보유
+- 성공 응답/처리:
+  - `activeTotal`: `application_status != CANCELED`인 활성 지원 건 수
+  - `canceledHistoryTotal`: 취소 이력 수
+  - `applicationStatusCounts`, `documentStatusCounts`, `interviewStatusCounts`, `reportStatusCounts`, `screeningDecisionCounts`: 활성 지원 건의 상태별 수
+  - `attentionRequiredTotal`: 서류·면접·리포트 중 하나가 `FAILED`이거나 전형 판정이 `UNDECIDED`인 활성 지원 건 수
+  - 상태별 count map에 키가 없으면 0으로 해석한다.
+- 오류/예외:
+  - 공고 정보가 없거나 권한이 없으면 404를 반환한다.
+- 관련 ERD 테이블:
+  - companies, postings, applications
+- 비고/미결:
+  - 목록 page/limit와 무관한 전체 집계이며 지원자 상세 relation을 조회하지 않는다.
 
 ### API-032 GET /company/recruitments?keyword={keyword}&status={status}
 - 도메인: 기업 - 채용공고
@@ -1051,12 +1083,14 @@ AI 리포트 금지 기준:
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - 공고, 상태 필터, 검색어
+  - 필수 `recruitmentId`
+  - API-014와 동일한 pagination, 검색, 상태 필터, 정렬 query
 - 검증/전제조건:
   - 조회 권한 보유
 - 성공 응답/처리:
   - 지원자 목록 표시
   - 기본 지원자 목록과 count는 `application_status != CANCELED`인 활성 지원 건만 포함한다.
+  - query 결합, 경량 목록 응답, 안정 정렬 규칙은 API-014와 같다.
 - 오류/예외:
   - 데이터가 없으면 빈 상태 안내를 표시한다.
 - 관련 ERD 테이블:
