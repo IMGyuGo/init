@@ -109,6 +109,7 @@ DTO와 API client 타입은 아래 naming을 따른다. 같은 요청/응답 타
 | `application_interview_question_batches` (NQ-M3 예정) | 생성 상태, 입력 version, 멱등 key, 실패 사유 | E | C/D/A |
 | `application_interview_questions` (NQ-M3 예정) | 개인화 질문, NCS 정렬 결과, 생성 snapshot | E | C/D |
 | `interview_session_questions` (NQ-M4 예정) | 공통·개인화 질문 합성 및 NCS snapshot | D | C/E |
+| `synthetic_applicant_datasets`, `synthetic_applicant_records` | importer 실행, manifest, cleanup audit | D | A/B/C/E/PM |
 
 공유 테이블을 수정하는 PR은 위 field owner를 기준으로 리뷰어를 지정한다. owner가 아닌 모듈에서 직접 write가 필요하면 먼저 `docs/03_contracts`와 이 문서를 수정한다.
 
