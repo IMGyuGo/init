@@ -10,8 +10,13 @@ const baseStageRule = css.match(
 assert.ok(baseStageRule?.groups?.body, "base interview stage CSS rule should exist");
 assert.match(
   baseStageRule.groups.body,
-  /aspect-ratio:\s*16\s*\/\s*9;/,
-  "compact interview stage should keep a 16:9 frame instead of stretching to a full-height panel",
+  /flex:\s*1\s+1\s+auto;/,
+  "the interview stage should stretch to fill the viewport column so bottom controls stay visible",
+);
+assert.doesNotMatch(
+  baseStageRule.groups.body,
+  /aspect-ratio:/,
+  "a fixed stage aspect ratio pushes the control bar below the fold on shorter screens",
 );
 
 const interviewerFigureRule = css.match(
@@ -41,7 +46,7 @@ const fullscreenInterviewerAvatarRule = css.match(
   /:global\(\.ai-interviewer-stage:fullscreen \.ai-interviewer-figure > \.local-interviewer-avatar\)\s*\{(?<body>[^}]*)\}/,
 );
 assert.ok(fullscreenInterviewerAvatarRule?.groups?.body, "fullscreen interviewer avatar CSS rule should exist");
-assert.match(fullscreenInterviewerAvatarRule.groups.body, /width:\s*min\(340px,\s*42vh\);/);
+assert.match(fullscreenInterviewerAvatarRule.groups.body, /width:\s*min\(400px,\s*46vh\);/);
 assert.match(fullscreenInterviewerAvatarRule.groups.body, /height:\s*auto;/);
 
 const interviewerAvatarRule = css.match(
@@ -50,7 +55,7 @@ const interviewerAvatarRule = css.match(
 assert.ok(interviewerAvatarRule?.groups?.body, "interviewer avatar CSS rule should exist");
 assert.match(
   interviewerAvatarRule.groups.body,
-  /max-height:\s*450px;/,
+  /max-height:\s*520px;/,
   "the interviewer avatar should use the enlarged desktop presentation size",
 );
 
@@ -70,7 +75,7 @@ const interviewerNameRule = css.match(
 assert.ok(interviewerNameRule?.groups?.body, "interviewer name CSS rule should exist");
 assert.match(
   interviewerNameRule.groups.body,
-  /font-size:\s*16px;/,
+  /font-size:\s*18px;/,
   "the interviewer name should leave more room for the avatar",
 );
 
@@ -93,8 +98,8 @@ const interviewerStatusRule = css.match(
   /:global\(\.ai-interviewer-session-chip\)\s*\{(?<body>[^}]*)\}/,
 );
 assert.ok(interviewerStatusRule?.groups?.body, "interviewer status CSS rule should exist");
-assert.match(interviewerStatusRule.groups.body, /min-height:\s*20px;/);
-assert.match(interviewerStatusRule.groups.body, /font-size:\s*10px;/);
+assert.match(interviewerStatusRule.groups.body, /min-height:\s*22px;/);
+assert.match(interviewerStatusRule.groups.body, /font-size:\s*11px;/);
 
 assert.match(
   css,

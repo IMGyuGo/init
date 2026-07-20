@@ -11,6 +11,7 @@ import {
   scoreBand,
 } from "../interview-report/report-visuals";
 import { createApplicantInterviewMediaSession, getApplicantDocument, getApplicantEvaluation, updateScreeningStatus } from "./api";
+import { shouldPollApplicantEvaluation } from "./applicant-evaluation-polling";
 import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
 import type {
   NcsReportEvaluationOutput,
@@ -52,6 +53,7 @@ const REPORT_TABS: ReadonlyArray<{ id: ReportTab; label: string }> = [
   { id: "submission", label: "지원 정보" },
   { id: "decision", label: "전형 결정" },
 ];
+const REPORT_POLL_INTERVAL_MS = 2_000;
 
 export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }) {
   const [evaluation, setEvaluation] = useState<ApplicantEvaluation | null>(null);
@@ -82,6 +84,26 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!shouldPollApplicantEvaluation(evaluation)) return;
+
+    let cancelled = false;
+    const intervalId = window.setInterval(() => {
+      void getApplicantEvaluation(applicantId)
+        .then((result) => {
+          if (!cancelled) setEvaluation(result.data);
+        })
+        .catch(() => {
+          // 일시적인 조회 실패는 기존 화면을 유지하고 다음 주기에 다시 확인한다.
+        });
+    }, REPORT_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [applicantId, evaluation]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

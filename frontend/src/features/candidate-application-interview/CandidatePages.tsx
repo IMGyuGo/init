@@ -8334,10 +8334,10 @@ function InterviewRuntimePanel({
   ]);
 
   return (
-    <main className="candidate-interview-app">
+    <main className={`candidate-interview-app${data && setupCompleted ? " candidate-interview-app--live" : ""}`}>
       <header className="iv-top">
         <Link className="brand" href={candidateApplicationInterviewRoutes.mockInterviewStart}>
-          <Image src="/logo-init.png" alt="init" width={1010} height={375} priority />
+          <Image src="/logo-init-v4.png" alt="init" width={1900} height={580} priority />
         </Link>
         <span className="center">{runtimeTitle}</span>
       </header>
@@ -8457,24 +8457,54 @@ function InterviewRuntimePanel({
                 <div className="ai-interviewer-stage__meta">
                   <strong>질문 {questionNumber} / {data.runtime.totalQuestions}</strong>
                 </div>
+                <div className={`ai-interviewer-question ${subtitlesEnabled ? "" : "muted"}`}>
+                  <strong>{interviewerQuestionPrompt}</strong>
+                </div>
                 <div className={`question-timer ${timerDanger ? "danger" : ""}`} aria-label={`${timerLabel} ${formattedRemainingTime}`}>
                   <span>{timerLabel}</span>
                   <strong>{formattedRemainingTime}</strong>
                 </div>
-                <div className="ai-interviewer-stage__actions">
-                  <button className="stage-shortcut-button" type="button" onClick={() => void handleToggleFullscreen()}>
-                    <span>{runtimeLayoutState.fullscreenButtonLabel}</span>
-                    <kbd>F</kbd>
-                  </button>
-                </div>
+                {fullscreenActive ? (
+                  <div className="ai-interviewer-stage__actions">
+                    <button className="stage-shortcut-button" type="button" onClick={() => void handleToggleFullscreen()}>
+                      <span>{runtimeLayoutState.fullscreenButtonLabel}</span>
+                      <kbd>F</kbd>
+                    </button>
+                  </div>
+                ) : null}
               </div>
 
               <div className="runtime-status-hud" aria-label="실시간 면접 상태">
-                {runtimeStatusChips.map((chip) => (
-                  <span key={chip.id} className={`runtime-status-chip runtime-status-chip--${chip.id} runtime-status-chip--${chip.tone}`}>
-                    {chip.label}
-                  </span>
-                ))}
+                <span
+                  className={`runtime-session-capsule runtime-session-capsule--${interviewerSessionState.tone}`}
+                  title={interviewerSessionState.description}
+                  aria-live="polite"
+                >
+                  {interviewerSessionState.label}
+                </span>
+                {runtimeStatusChips.map((chip) =>
+                  chip.id === "microphone" ? (
+                    <span
+                      key={chip.id}
+                      className={`runtime-status-chip runtime-status-chip--${chip.id} runtime-status-chip--${chip.tone} runtime-status-chip--icon`}
+                      role="img"
+                      aria-label={chip.label}
+                    >
+                      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <rect x="9" y="2" width="6" height="12" rx="3" />
+                        <path d="M5 10v1a7 7 0 0 0 14 0v-1" />
+                        <path d="M12 18v4" />
+                      </svg>
+                      <i className="runtime-mic-level" aria-hidden="true">
+                        <i style={{ width: `${Math.max(0, Math.min(100, Math.round(microphoneLevel)))}%` }} />
+                      </i>
+                    </span>
+                  ) : (
+                    <span key={chip.id} className={`runtime-status-chip runtime-status-chip--${chip.id} runtime-status-chip--${chip.tone}`}>
+                      {chip.label}
+                    </span>
+                  ),
+                )}
               </div>
 
               {integrityWarning ? (
@@ -8541,12 +8571,6 @@ function InterviewRuntimePanel({
                         <kbd>{interviewerProfile.infoShortcutKey}</kbd>
                       </button>
                     </div>
-                    <span
-                      className={`ai-interviewer-session-chip ai-interviewer-session-chip--${interviewerSessionState.tone}`}
-                      title={interviewerSessionState.description}
-                    >
-                      {interviewerSessionState.label}
-                    </span>
                   </div>
                 </div>
               ) : (
@@ -8567,14 +8591,13 @@ function InterviewRuntimePanel({
                 </div>
               ) : null}
 
-              <div className={`ai-interviewer-question ${subtitlesEnabled ? "" : "muted"}`}>
-                <span>{subtitlesEnabled ? "질문 보기" : "질문 음성 안내"}</span>
-                <strong>{interviewerQuestionPrompt}</strong>
-              </div>
-
-              <div className={`question-voice-status ${questionSpeechSupported ? "" : "unsupported"}`} aria-live="polite">
-                {questionSpeechStatus}
-              </div>
+              {questionSpeechSupported ? (
+                <p className="sr-only" aria-live="polite">{questionSpeechStatus}</p>
+              ) : (
+                <div className="question-voice-status unsupported" aria-live="polite">
+                  {questionSpeechStatus}
+                </div>
+              )}
 
               {cameraPreviewVisible ? (
                 <div
@@ -8647,6 +8670,19 @@ function InterviewRuntimePanel({
             <form className="candidate-runtime-form" onSubmit={handleSaveAnswer}>
               <p className="sr-only" aria-live="polite">{runtimeAssistiveStatus}</p>
               <div className="toolbar candidate-interview-controls">
+                <button className="btn" type="button" onClick={() => void handleToggleFullscreen()}>
+                  <span>{runtimeLayoutState.fullscreenButtonLabel}</span>
+                  <kbd>F</kbd>
+                </button>
+                <button
+                  className={`subtitle-toggle ${subtitlesEnabled ? "on" : ""}`}
+                  type="button"
+                  aria-pressed={subtitlesEnabled}
+                  onClick={() => setSubtitlesEnabled((current) => !current)}
+                >
+                  <span>{subtitlesEnabled ? "질문 숨기기" : "질문 보기"}</span>
+                  <kbd>Q</kbd>
+                </button>
                 <button className="btn" type="button" disabled={busy || !currentQuestion || !questionSpeechSupported || currentQuestionReplayUsed} onClick={handleReplayPrompt}>
                   {currentQuestionReplayUsed ? "다시 듣기 완료" : "질문 음성 다시 듣기"}
                 </button>
@@ -8660,6 +8696,15 @@ function InterviewRuntimePanel({
                     {runtimeDeviceRecheckState.label}
                   </button>
                 ) : null}
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={!canStartCurrentQuestionReanswer}
+                  onClick={() => handleStartReanswer(reanswerCandidate)}
+                  hidden={!currentQuestionNeedsReanswer}
+                >
+                  다시 답변
+                </button>
                 <button
                   className="btn primary"
                   type="button"
@@ -8680,32 +8725,16 @@ function InterviewRuntimePanel({
                 <button
                   className="btn"
                   type="button"
-                  disabled={!canStartCurrentQuestionReanswer}
-                  onClick={() => handleStartReanswer(reanswerCandidate)}
-                  hidden={!currentQuestionNeedsReanswer}
-                >
-                  다시 답변
-                </button>
-                <button
-                  className="btn"
-                  type="button"
                   disabled={busy || recording || !canMoveNextQuestion}
                   onClick={() => void handleNextQuestion()}
                 >
                   <span>다음 질문</span>
                   <kbd>N</kbd>
                 </button>
-                <button
-                  className={`subtitle-toggle ${subtitlesEnabled ? "on" : ""}`}
-                  type="button"
-                  aria-pressed={subtitlesEnabled}
-                  onClick={() => setSubtitlesEnabled((current) => !current)}
-                >
-                  <span>{subtitlesEnabled ? "질문 숨기기" : "질문 보기"}</span>
-                  <kbd>Q</kbd>
-                </button>
               </div>
-              <p className="field-hint">STT 실패 시 재답변은 문항당 1회만 가능합니다.</p>
+              {currentQuestionNeedsReanswer ? (
+                <p className="field-hint">STT 실패 시 재답변은 문항당 1회만 가능합니다.</p>
+              ) : null}
               <div className="candidate-interview-complete-action">
                 <button
                   className="btn primary lg"

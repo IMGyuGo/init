@@ -71,6 +71,13 @@ export interface UpdateInterviewAnswerInput extends CreateInterviewAnswerInput {
   answerId: number;
 }
 
+export interface EnsureSaltluxDemoFollowUpInput {
+  sessionId: number;
+  answerId: number;
+  content: string;
+  answerTimeSec: number;
+}
+
 export interface InterviewSessionNcsPolicySnapshot {
   ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
   criterionId?: number;
@@ -107,6 +114,7 @@ export interface InterviewRepository {
   findLatestAnswer(sessionId: number): MaybePromise<InterviewAnswer | undefined>;
   createAnswer(input: CreateInterviewAnswerInput): MaybePromise<InterviewAnswer>;
   createAnswerIdempotent(input: CreateInterviewAnswerInput): MaybePromise<CreateInterviewAnswerIdempotentResult>;
+  ensureSaltluxDemoFollowUp?(input: EnsureSaltluxDemoFollowUpInput): MaybePromise<boolean>;
   replaceAnswer(input: ReplaceInterviewAnswerInput): MaybePromise<InterviewAnswer>;
   listReanswerRequiredFailures(sessionId: number, answerId: number): MaybePromise<ReanswerRequiredFailure[]>;
   listSttProcesses(sessionId: number, answerId: number): MaybePromise<InterviewSttProcessRecord[]>;

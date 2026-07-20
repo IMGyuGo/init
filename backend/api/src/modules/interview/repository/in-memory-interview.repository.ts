@@ -4,6 +4,7 @@ import type {
   CreateMockContextQuestionInput,
   CreateInterviewAnswerInput,
   CreateMockInterviewSessionInput,
+  EnsureSaltluxDemoFollowUpInput,
   InterviewQuestionFilter,
   InterviewRepository,
   InterviewSttProcessRecord,
@@ -293,6 +294,39 @@ export class InMemoryInterviewRepository implements InterviewRepository {
       return { answer: this.cloneAnswer(existing), created: false };
     }
     return { answer: this.createAnswer(input), created: true };
+  }
+
+  ensureSaltluxDemoFollowUp(input: EnsureSaltluxDemoFollowUpInput): boolean {
+    const session = this.recruitingSessions.get(input.sessionId);
+    const answer = this.answers.find((candidate) => candidate.answerId === input.answerId && candidate.sessionId === input.sessionId);
+    if (!session || !answer || session.sessionMode !== "DEMO_PRESET" || session.status !== "IN_PROGRESS") {
+      return false;
+    }
+    const sourceIndex = session.questionIds.indexOf(answer.questionId);
+    if (sourceIndex < 0) {
+      return false;
+    }
+    const nextQuestionId = session.questionIds[sourceIndex + 1];
+    if (nextQuestionId && this.findQuestion(nextQuestionId)?.content === input.content) {
+      return false;
+    }
+
+    const sourceQuestion = this.findQuestion(answer.questionId);
+    const questionId = 60_000 + this.runtimeQuestionIds.size + 1;
+    this.runtimeQuestionIds.add(questionId);
+    this.questions.push({
+      questionId,
+      questionType: "FOLLOW_UP",
+      content: input.content,
+      sortOrder: (sourceQuestion?.sortOrder ?? sourceIndex + 1) + 1,
+      interviewType: "RECRUITING",
+      postingId: sourceQuestion?.postingId,
+      isActive: false,
+      criterionId: sourceQuestion?.criterionId,
+    });
+    session.questionIds.splice(sourceIndex + 1, 0, questionId);
+    this.recruitingSessions.set(session.sessionId, this.cloneSession(session));
+    return true;
   }
 
   replaceAnswer(input: ReplaceInterviewAnswerInput): InterviewAnswer {

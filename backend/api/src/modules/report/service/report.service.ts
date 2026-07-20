@@ -49,6 +49,8 @@ import {
   type CandidateReportScoreRecord,
   type CandidateStoredReport,
 } from "../repository/candidate-report.repository";
+import { InMemoryReportRepository } from "../repository/in-memory-report.repository";
+import { REPORT_REPOSITORY, type ReportRepository } from "../repository/report.repository";
 import {
   type EvaluationCriterionInput,
   type GenerateReportRequest,
@@ -121,6 +123,8 @@ export class ReportService {
     @Inject(AiJobDispatcherService) private readonly aiJobDispatcher: AiJobDispatcherService,
     @Inject(INTERVIEW_MEDIA_STORAGE)
     private readonly mediaStorage: InterviewMediaStoragePort = new InMemoryInterviewMediaStorageAdapter(),
+    @Inject(REPORT_REPOSITORY)
+    private readonly reportRepository: ReportRepository = new InMemoryReportRepository(),
   ) {}
 
   async listMockReports(currentUser: CurrentCandidateUser): Promise<ApiListResponse<CandidateMockReportSummary>> {
@@ -411,6 +415,34 @@ export class ReportService {
       jobDescription: job.jobDescription,
       currentUser,
     });
+    if (
+      reportInput.input.payload.presentationFixtureId === SALTLUX_FIXED_DEMO_FIXTURE_ID &&
+      this.reportRepository.finalizeSaltluxFixedDemo
+    ) {
+      const finalized = await this.reportRepository.finalizeSaltluxFixedDemo({
+        reportId,
+        applicationId: application.applicationId,
+        sessionId: session.sessionId,
+        criteria: reportInput.input.payload.criteria,
+        answers: reportInput.input.payload.answers,
+      });
+      return this.envelope({
+        accepted: true,
+        queued: false,
+        processLogId: finalized.processLogId,
+        processType: "REPORT_GENERATE",
+        status: "COMPLETED",
+        reportStatus: "COMPLETED",
+        reportId: reportInput.reportId,
+        sessionId: reportInput.sessionId,
+        applicationId: application.applicationId,
+        reportType: reportInput.reportType,
+        answerIds: reportInput.answerIds,
+        fileIds: reportInput.fileIds,
+        callbackTopic: "ai.report.generate.requested",
+        inputRef: finalized.inputRef,
+      });
+    }
     const dispatched = await this.aiJobDispatcher.dispatchReportGeneration({
       reportId,
       reportType: "RECRUITING_REPORT",
