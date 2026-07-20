@@ -1583,6 +1583,16 @@ CREATE INDEX idx_application_interview_question_batches_usage_status
     ON application_interview_question_batches(application_id, usage_scope, status);
 CREATE INDEX idx_applications_posting ON applications(posting_id);
 CREATE INDEX idx_applications_candidate ON applications(candidate_id);
+CREATE INDEX idx_applications_posting_updated_id
+    ON applications(posting_id, updated_at DESC, application_id DESC);
+CREATE INDEX idx_applications_posting_document_status
+    ON applications(posting_id, document_status);
+CREATE INDEX idx_applications_posting_interview_status
+    ON applications(posting_id, interview_status);
+CREATE INDEX idx_applications_posting_report_status
+    ON applications(posting_id, report_status);
+CREATE INDEX idx_applications_posting_screening_decision
+    ON applications(posting_id, screening_decision);
 CREATE INDEX idx_interview_sessions_application ON interview_sessions(application_id);
 CREATE INDEX idx_interview_sessions_application_mode_deleted
     ON interview_sessions(application_id, interview_type, session_mode, deleted_at);

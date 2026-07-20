@@ -14,7 +14,7 @@ import {
   type PublicInterviewEntryAdapterPort,
 } from "./public-interview-entry.adapter";
 import type { CreateRecruitmentDto } from "../dto/create-recruitment.dto";
-import type { ListQueryDto } from "../dto/list-query.dto";
+import type { ListApplicantsQueryDto, ListQueryDto } from "../dto/list-query.dto";
 import type { RequestPublicApplicationAccessLinkDto } from "../dto/request-public-application-access-link.dto";
 import type { SubmitPublicApplicationDto } from "../dto/submit-public-application.dto";
 import type { UpdateRecruitmentDto } from "../dto/update-recruitment.dto";
@@ -23,13 +23,19 @@ import type { CompanyRecruitingRepositoryPort } from "../repository/company-recr
 import type { InterviewPublicationReadiness } from "../../company-interview/company-interview.types";
 import type {
   ApplicantRecord,
+  ApplicationStatusValue,
   CompanyFileAssetRecord,
+  DocumentStatusValue,
+  InterviewStatusValue,
   JobDescriptionImageUploadFile,
   JobDescriptionImageUploadResponse,
+  NormalizedApplicantListQuery,
   NormalizedListQuery,
   PublicApplicationDocumentUploadFile,
   PublicRecruitmentRecord,
   RecruitmentRecord,
+  ReportStatusValue,
+  ScreeningDecisionValue,
 } from "../company-recruiting.types";
 
 class CompanyRecruitingException extends SharedApiException {
@@ -561,13 +567,13 @@ export class CompanyRecruitingService {
     return toRecruitmentResponse(copied);
   }
 
-  async listRecruitmentApplicants(user: CurrentUser, recruitmentId: number, query: ListQueryDto) {
+  async listRecruitmentApplicants(user: CurrentUser, recruitmentId: number, query: ListApplicantsQueryDto) {
     const companyId = requireCompanyId(user);
     const posting = await this.repository.findPostingForCompany(recruitmentId, companyId);
     if (!posting) {
       throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "공고를 찾을 수 없습니다.");
     }
-    const normalized = normalizeListQuery(query, "updatedAt");
+    const normalized = normalizeApplicantListQuery(query);
     const [items, totalItems] = await Promise.all([
       this.repository.listApplicationsForPosting(recruitmentId, companyId, normalized),
       this.repository.countApplicationsForPosting(recruitmentId, companyId, normalized),
@@ -576,6 +582,15 @@ export class CompanyRecruitingService {
       items: items.map(toApplicantResponse),
       page: buildPageMeta(normalized.page, normalized.limit, totalItems),
     };
+  }
+
+  async getRecruitmentApplicantSummary(user: CurrentUser, recruitmentId: number) {
+    const companyId = requireCompanyId(user);
+    const posting = await this.repository.findPostingForCompany(recruitmentId, companyId);
+    if (!posting) {
+      throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "공고를 찾을 수 없습니다.");
+    }
+    return this.repository.summarizeApplicationsForPosting(recruitmentId, companyId);
   }
 
   async getApplicantEvaluation(user: CurrentUser, applicantId: number) {
@@ -876,6 +891,26 @@ export function normalizeListQuery(query: ListQueryDto, defaultSort: string): No
     ...(q ? { q } : {}),
     ...(status ? { status } : {}),
     sort: query.sort?.trim() || defaultSort,
+    order: query.order ?? "desc",
+    skip: (page - 1) * limit,
+    take: limit,
+  };
+}
+
+export function normalizeApplicantListQuery(query: ListApplicantsQueryDto): NormalizedApplicantListQuery {
+  const page = query.page ?? 1;
+  const limit = Math.min(query.limit ?? 20, 100);
+  const q = query.q?.trim() || query.keyword?.trim() || undefined;
+  return {
+    page,
+    limit,
+    ...(q ? { q } : {}),
+    ...(query.applicationStatus ? { applicationStatus: query.applicationStatus as ApplicationStatusValue } : {}),
+    ...(query.documentStatus ? { documentStatus: query.documentStatus as DocumentStatusValue } : {}),
+    ...(query.interviewStatus ? { interviewStatus: query.interviewStatus as InterviewStatusValue } : {}),
+    ...(query.reportStatus ? { reportStatus: query.reportStatus as ReportStatusValue } : {}),
+    ...(query.screeningDecision ? { screeningDecision: query.screeningDecision as ScreeningDecisionValue } : {}),
+    sort: query.sort?.trim() || "updatedAt",
     order: query.order ?? "desc",
     skip: (page - 1) * limit,
     take: limit,

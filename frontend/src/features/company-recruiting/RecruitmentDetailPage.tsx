@@ -3,13 +3,20 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import detailApplicantsIcon from "./assets/detail-applicants.png";
 import detailCompletionIcon from "./assets/detail-completion.png";
 import detailReportIcon from "./assets/detail-report.png";
 
-import { getRecruitment, listRecruitmentApplicants, publishRecruitment, updateScreeningStatus } from "./api";
+import { getRecruitment, getRecruitmentApplicantSummary, listRecruitmentApplicants, publishRecruitment, updateScreeningStatus } from "./api";
+import {
+  APPLICANTS_PAGE_SIZE,
+  APPLICANT_SORT_OPTIONS,
+  getApplicantSortQuery,
+  getApplicantSummaryMetrics,
+  type ApplicantSort,
+} from "./applicant-list";
 import { BackButton, Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
 import { JobDescriptionViewer } from "./JobDescriptionViewer";
 import { PostingExtraInfoSummary } from "./PostingExtraInfoFields";
@@ -34,18 +41,30 @@ import {
   type ScreeningAutosaveState,
   type ScreeningDraft,
 } from "./screening-autosave";
-import type { Applicant, Recruitment, ScreeningDecision } from "./types";
+import type { Applicant, ApplicantSummary, PageMeta, Recruitment, ScreeningDecision } from "./types";
 
 const decisions: ScreeningDecision[] = ["UNDECIDED", "PASS", "HOLD", "FAIL"];
 
-type ApplicantSort = "recent" | "scoreDesc" | "scoreAsc" | "nameAsc";
+type ApplicantFilters = {
+  applicationStatus: string;
+  documentStatus: string;
+  interviewStatus: string;
+  reportStatus: string;
+  screeningDecision: string;
+};
 
-const APPLICANT_SORT_OPTIONS: ReadonlyArray<{ value: ApplicantSort; label: string }> = [
-  { value: "recent", label: "최신순" },
-  { value: "scoreDesc", label: "점수 높은순" },
-  { value: "scoreAsc", label: "점수 낮은순" },
-  { value: "nameAsc", label: "이름순" },
-];
+const EMPTY_APPLICANT_FILTERS: ApplicantFilters = {
+  applicationStatus: "",
+  documentStatus: "",
+  interviewStatus: "",
+  reportStatus: "",
+  screeningDecision: "",
+};
+
+const APPLICATION_STATUS_OPTIONS = ["DRAFT", "SUBMITTED", "IN_REVIEW", "INTERVIEW_WAITING", "INTERVIEW_DONE", "COMPLETED"];
+const DOCUMENT_STATUS_OPTIONS = ["NOT_SUBMITTED", "SUBMITTED", "EXTRACTING", "EXTRACTED", "FAILED"];
+const INTERVIEW_STATUS_OPTIONS = ["NOT_READY", "READY", "IN_PROGRESS", "COMPLETED", "FAILED"];
+const REPORT_STATUS_OPTIONS = ["PENDING", "GENERATING", "COMPLETED", "FAILED"];
 
 // 점수가 높을수록 진한 파랑으로 표시하는 단계. (#289)
 function screeningScoreTier(score: number): string {
@@ -55,33 +74,12 @@ function screeningScoreTier(score: number): string {
   return "tier-low";
 }
 
-function compareByScore(a: Applicant, b: Applicant, dir: "asc" | "desc") {
-  const sa = a.report?.totalScore ?? null;
-  const sb = b.report?.totalScore ?? null;
-  if (sa == null && sb == null) return 0;
-  if (sa == null) return 1;
-  if (sb == null) return -1;
-  return dir === "desc" ? sb - sa : sa - sb;
-}
-
-function sortApplicants(list: Applicant[], sort: ApplicantSort): Applicant[] {
-  const copy = [...list];
-  switch (sort) {
-    case "scoreDesc":
-      return copy.sort((a, b) => compareByScore(a, b, "desc"));
-    case "scoreAsc":
-      return copy.sort((a, b) => compareByScore(a, b, "asc"));
-    case "nameAsc":
-      return copy.sort((a, b) => a.name.localeCompare(b.name, "ko"));
-    default:
-      return copy;
-  }
-}
-
 export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number }) {
   const router = useRouter();
   const [recruitment, setRecruitment] = useState<Recruitment | null>(null);
   const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const [applicantSummary, setApplicantSummary] = useState<ApplicantSummary | null>(null);
+  const [applicantPageMeta, setApplicantPageMeta] = useState<PageMeta | null>(null);
   const [screeningDrafts, setScreeningDrafts] = useState<Record<number, ScreeningDraft>>({});
   const [savedScreeningDrafts, setSavedScreeningDrafts] = useState<Record<number, ScreeningDraft>>({});
   const [autosaveState, setAutosaveState] = useState<ScreeningAutosaveState>({});
@@ -92,18 +90,16 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
   const [publishError, setPublishError] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [applicantsLoading, setApplicantsLoading] = useState(false);
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const actionMenuRef = useRef<HTMLDivElement>(null);
   const [applicantPage, setApplicantPage] = useState(1);
   const [applicantSort, setApplicantSort] = useState<ApplicantSort>("recent");
-  const APPLICANTS_PAGE_SIZE = 10;
-  const sortedApplicants = sortApplicants(applicants, applicantSort);
-  const totalApplicantPages = Math.max(1, Math.ceil(sortedApplicants.length / APPLICANTS_PAGE_SIZE));
-  const currentApplicantPage = Math.min(applicantPage, totalApplicantPages);
-  const pagedApplicants = sortedApplicants.slice(
-    (currentApplicantPage - 1) * APPLICANTS_PAGE_SIZE,
-    currentApplicantPage * APPLICANTS_PAGE_SIZE,
-  );
+  const [applicantSearchInput, setApplicantSearchInput] = useState("");
+  const [applicantQuery, setApplicantQuery] = useState("");
+  const [applicantFilters, setApplicantFilters] = useState<ApplicantFilters>(EMPTY_APPLICANT_FILTERS);
+  const totalApplicantPages = Math.max(1, applicantPageMeta?.totalPages ?? 1);
+  const currentApplicantPage = applicantPageMeta?.page ?? applicantPage;
   const applicantPageWindow = buildPageWindow(currentApplicantPage, totalApplicantPages, 5);
 
   useEffect(() => {
@@ -115,27 +111,21 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [actionMenuOpen]);
 
-  const load = useCallback(async (options: { clearMessage?: boolean } = {}) => {
+  const loadOverview = useCallback(async (options: { clearMessage?: boolean } = {}) => {
     setLoading(true);
     if (options.clearMessage !== false) {
       setMessage("");
     }
     try {
-      const [detail, applicantList] = await Promise.all([
+      const [detail, summary] = await Promise.all([
         getRecruitment(recruitmentId),
-        listRecruitmentApplicants(recruitmentId, { page: 1, limit: 20, sort: "updatedAt", order: "desc" }),
+        getRecruitmentApplicantSummary(recruitmentId),
       ]);
-      const nextDrafts = Object.fromEntries(
-        applicantList.data.items.map((item) => [item.applicationId, toScreeningDraft(item)]),
-      );
       setRecruitment(detail.data);
       if (detail.data.status === "DRAFT" && !isOpenPromptDismissed(recruitmentId)) {
         setOpenPromptOpen(true);
       }
-      setApplicants(applicantList.data.items);
-      setScreeningDrafts(nextDrafts);
-      setSavedScreeningDrafts(nextDrafts);
-      setAutosaveState({});
+      setApplicantSummary(summary.data);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "공고 대시보드를 불러오지 못했습니다.");
     } finally {
@@ -143,9 +133,43 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
     }
   }, [recruitmentId]);
 
+  const loadApplicants = useCallback(async () => {
+    setApplicantsLoading(true);
+    setMessage("");
+    try {
+      const applicantList = await listRecruitmentApplicants(recruitmentId, {
+        page: applicantPage,
+        limit: APPLICANTS_PAGE_SIZE,
+        q: applicantQuery || undefined,
+        applicationStatus: applicantFilters.applicationStatus || undefined,
+        documentStatus: applicantFilters.documentStatus || undefined,
+        interviewStatus: applicantFilters.interviewStatus || undefined,
+        reportStatus: applicantFilters.reportStatus || undefined,
+        screeningDecision: applicantFilters.screeningDecision || undefined,
+        ...getApplicantSortQuery(applicantSort),
+      });
+      const nextDrafts = Object.fromEntries(
+        applicantList.data.items.map((item) => [item.applicationId, toScreeningDraft(item)]),
+      );
+      setApplicants(applicantList.data.items);
+      setApplicantPageMeta(applicantList.meta.page ?? null);
+      setScreeningDrafts(nextDrafts);
+      setSavedScreeningDrafts(nextDrafts);
+      setAutosaveState({});
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "지원자 목록을 불러오지 못했습니다.");
+    } finally {
+      setApplicantsLoading(false);
+    }
+  }, [applicantFilters, applicantPage, applicantQuery, applicantSort, recruitmentId]);
+
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadOverview();
+  }, [loadOverview]);
+
+  useEffect(() => {
+    void loadApplicants();
+  }, [loadApplicants]);
 
   useEffect(() => {
     setPublicLinkOrigin(window.location.origin);
@@ -177,7 +201,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
       await publishRecruitment(recruitmentId);
       dismissOpenPrompt(recruitmentId);
       setOpenPromptOpen(false);
-      await load({ clearMessage: false });
+      await loadOverview({ clearMessage: false });
       window.alert("공고를 OPEN 상태로 전환했습니다.");
     } catch (error) {
       setPublishError(error instanceof Error ? error.message : "공고를 열지 못했습니다.");
@@ -256,9 +280,19 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
     }));
   }
 
-  const completedInterviews = applicants.filter((item) => isCompleted(item.interviewStatus)).length;
-  const reportCompleted = applicants.filter((item) => item.report && isCompleted(item.report.status)).length;
-  const completionRate = applicants.length === 0 ? 0 : Math.round((completedInterviews / applicants.length) * 100);
+  function handleApplicantSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setApplicantPage(1);
+    setApplicantQuery(applicantSearchInput.trim());
+  }
+
+  function updateApplicantFilter(field: keyof ApplicantFilters, value: string) {
+    setApplicantPage(1);
+    setApplicantFilters((current) => ({ ...current, [field]: value }));
+  }
+
+  const { activeTotal, reportCompleted, completionRate } = getApplicantSummaryMetrics(applicantSummary);
+  const hasApplicantFilter = Boolean(applicantQuery || Object.values(applicantFilters).some(Boolean));
   const parsedJobDescription = extractPostingExtraInfo(recruitment?.jobDescription);
   const postingExtraInfo = recruitment
     ? postingExtraInfoFromApiFields(recruitment, parsedJobDescription.extraInfo)
@@ -343,7 +377,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
               <div className="kpi">
                 <Image className="kpi-icon" src={detailApplicantsIcon} alt="" width={28} height={28} aria-hidden="true" />
                 <span>지원자 수</span>
-                <strong>{recruitment.applicantCount}</strong>
+                <strong>{activeTotal}</strong>
               </div>
               <div className="kpi">
                 <Image className="kpi-icon" src={detailCompletionIcon} alt="" width={28} height={28} aria-hidden="true" />
@@ -393,7 +427,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                 <div>
                   <h2>다음 전형 대상자 선별</h2>
                 </div>
-                {applicants.length > 0 ? (
+                {activeTotal > 0 ? (
                   <label className="screening-sort">
                     <span>정렬</span>
                     <select
@@ -413,8 +447,64 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                 ) : null}
               </div>
 
+              <form className="applicant-filter-toolbar" onSubmit={handleApplicantSearch}>
+                <input
+                  aria-label="지원자 이름 또는 이메일 검색"
+                  value={applicantSearchInput}
+                  onChange={(event) => setApplicantSearchInput(event.target.value)}
+                  placeholder="이름·이메일 검색"
+                />
+                <select
+                  aria-label="지원 상태 필터"
+                  value={applicantFilters.applicationStatus}
+                  onChange={(event) => updateApplicantFilter("applicationStatus", event.target.value)}
+                >
+                  <option value="">지원 상태 전체</option>
+                  {APPLICATION_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{formatRecruitingStatusLabel(status)}</option>)}
+                </select>
+                <select
+                  aria-label="서류 상태 필터"
+                  value={applicantFilters.documentStatus}
+                  onChange={(event) => updateApplicantFilter("documentStatus", event.target.value)}
+                >
+                  <option value="">서류 상태 전체</option>
+                  {DOCUMENT_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{formatRecruitingStatusLabel(status)}</option>)}
+                </select>
+                <select
+                  aria-label="면접 상태 필터"
+                  value={applicantFilters.interviewStatus}
+                  onChange={(event) => updateApplicantFilter("interviewStatus", event.target.value)}
+                >
+                  <option value="">면접 상태 전체</option>
+                  {INTERVIEW_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{formatRecruitingStatusLabel(status)}</option>)}
+                </select>
+                <select
+                  aria-label="리포트 상태 필터"
+                  value={applicantFilters.reportStatus}
+                  onChange={(event) => updateApplicantFilter("reportStatus", event.target.value)}
+                >
+                  <option value="">리포트 상태 전체</option>
+                  {REPORT_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{formatRecruitingStatusLabel(status)}</option>)}
+                </select>
+                <select
+                  aria-label="전형 상태 필터"
+                  value={applicantFilters.screeningDecision}
+                  onChange={(event) => updateApplicantFilter("screeningDecision", event.target.value)}
+                >
+                  <option value="">전형 상태 전체</option>
+                  {decisions.map((decision) => <option key={decision} value={decision}>{formatRecruitingStatusLabel(decision)}</option>)}
+                </select>
+                <button className="btn secondary" type="submit" disabled={applicantsLoading}>검색</button>
+              </form>
+
               {applicants.length === 0 ? (
-                <div className="empty">아직 지원한 지원자가 없습니다.</div>
+                <div className="empty">
+                  {applicantsLoading
+                    ? "지원자 목록을 불러오는 중입니다."
+                    : hasApplicantFilter
+                      ? "조건에 맞는 지원자가 없습니다."
+                      : "아직 지원한 지원자가 없습니다."}
+                </div>
               ) : (
                 <div className="table-wrap">
                   <table className="screening-table">
@@ -437,7 +527,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                       </tr>
                     </thead>
                     <tbody>
-                      {pagedApplicants.map((item) => {
+                      {applicants.map((item) => {
                         const decisionState = getScreeningAutosaveFieldState(autosaveState, item.applicationId, "decision");
                         const memoState = getScreeningAutosaveFieldState(autosaveState, item.applicationId, "memo");
 
@@ -516,7 +606,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                   <button
                     type="button"
                     className="applicant-page-btn"
-                    disabled={currentApplicantPage <= 1}
+                    disabled={applicantsLoading || currentApplicantPage <= 1}
                     aria-label="이전 페이지"
                     onClick={() => setApplicantPage(currentApplicantPage - 1)}
                   >
@@ -536,7 +626,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                   <button
                     type="button"
                     className="applicant-page-btn"
-                    disabled={currentApplicantPage >= totalApplicantPages}
+                    disabled={applicantsLoading || currentApplicantPage >= totalApplicantPages}
                     aria-label="다음 페이지"
                     onClick={() => setApplicantPage(currentApplicantPage + 1)}
                   >
@@ -616,10 +706,6 @@ function formatPeriod(item: Recruitment) {
     return "기간 미정";
   }
   return `${item.startsOn ?? "시작 미정"} ~ ${item.endsOn ?? "마감 미정"}`;
-}
-
-function isCompleted(value: string) {
-  return ["COMPLETED", "DONE", "GENERATED"].includes(value);
 }
 
 function RecruitmentInfoDescription({ value, emptyMessage }: { value: string | null | undefined; emptyMessage: string }) {

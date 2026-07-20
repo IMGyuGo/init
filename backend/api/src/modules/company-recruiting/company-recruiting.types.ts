@@ -25,6 +25,25 @@ export type NormalizedListQuery = {
   take: number;
 };
 
+export type NormalizedApplicantListQuery = Omit<NormalizedListQuery, "status"> & {
+  applicationStatus?: ApplicationStatusValue;
+  documentStatus?: DocumentStatusValue;
+  interviewStatus?: InterviewStatusValue;
+  reportStatus?: ReportStatusValue;
+  screeningDecision?: ScreeningDecisionValue;
+};
+
+export type ApplicantSummaryRecord = {
+  activeTotal: number;
+  canceledHistoryTotal: number;
+  applicationStatusCounts: Partial<Record<ApplicationStatusValue, number>>;
+  documentStatusCounts: Partial<Record<DocumentStatusValue, number>>;
+  interviewStatusCounts: Partial<Record<InterviewStatusValue, number>>;
+  reportStatusCounts: Partial<Record<ReportStatusValue, number>>;
+  screeningDecisionCounts: Partial<Record<ScreeningDecisionValue, number>>;
+  attentionRequiredTotal: number;
+};
+
 export type RecruitmentRecord = {
   postingId: number;
   companyId: number;

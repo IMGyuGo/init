@@ -654,6 +654,11 @@ model Application {
 
   // Prisma 6.19 cannot model a partial index; the active-row unique invariant is managed in migration SQL.
   @@index([postingId, applicationStatus])
+  @@index([postingId, updatedAt(sort: Desc), applicationId(sort: Desc)], map: "idx_applications_posting_updated_id")
+  @@index([postingId, documentStatus], map: "idx_applications_posting_document_status")
+  @@index([postingId, interviewStatus], map: "idx_applications_posting_interview_status")
+  @@index([postingId, reportStatus], map: "idx_applications_posting_report_status")
+  @@index([postingId, screeningDecision], map: "idx_applications_posting_screening_decision")
   @@map("applications")
 }
 

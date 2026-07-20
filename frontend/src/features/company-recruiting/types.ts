@@ -175,6 +175,17 @@ export type Applicant = {
   updatedAt: string;
 };
 
+export type ApplicantSummary = {
+  activeTotal: number;
+  canceledHistoryTotal: number;
+  applicationStatusCounts: Record<string, number>;
+  documentStatusCounts: Record<string, number>;
+  interviewStatusCounts: Record<string, number>;
+  reportStatusCounts: Record<string, number>;
+  screeningDecisionCounts: Record<string, number>;
+  attentionRequiredTotal: number;
+};
+
 export type ScreeningDecision = "UNDECIDED" | "PASS" | "HOLD" | "FAIL";
 
 export type ApplicantInterviewFileAsset = {
