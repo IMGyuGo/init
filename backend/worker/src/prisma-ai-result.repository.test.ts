@@ -809,6 +809,46 @@ test("PrismaAiResultRepository ignores a delayed older report after a newer repo
   assert.deepEqual(savedReportIds, [31n]);
 });
 
+test("PrismaAiResultRepository rejects a generated recruiting report when its application was deleted", async () => {
+  const fixture = autoScreeningPrisma();
+  fixture.prisma.application.findUnique = async () => null;
+  const repository = new PrismaAiResultRepository(fixture.prisma);
+
+  await assert.rejects(
+    () => repository.saveGeneratedReport(generatedRecruitingReport()),
+    (error: unknown) =>
+      error instanceof Error &&
+      "category" in error &&
+      error.category === "NON_RETRYABLE",
+  );
+
+  assert.equal(
+    fixture.calls().some((call) => call.model === "evaluationReport"),
+    false,
+  );
+});
+
+test("PrismaAiResultRepository skips a failed recruiting report when its application was deleted", async () => {
+  const fixture = autoScreeningPrisma();
+  fixture.prisma.application.findUnique = async () => null;
+  const repository = new PrismaAiResultRepository(fixture.prisma);
+
+  await repository.markReportFailed({
+    processLogId: 40,
+    reportId: 30,
+    reportType: "RECRUITING_REPORT",
+    applicationId: 22,
+    sessionId: 65,
+    failureCategory: "NON_RETRYABLE",
+    failureReason: "application was deleted",
+  });
+
+  assert.equal(
+    fixture.calls().some((call) => call.model === "evaluationReport"),
+    false,
+  );
+});
+
 test("PrismaAiResultRepository moves RETRY to PASS after the same report is regenerated", async () => {
   const fixture = autoScreeningPrisma();
   const repository = new PrismaAiResultRepository(fixture.prisma);

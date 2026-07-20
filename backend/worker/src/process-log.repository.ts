@@ -8,12 +8,14 @@ import {
 } from "./worker.types";
 import { automaticRetryExhaustedFailure, isAutomaticRetryFailureCategory } from "./worker-errors";
 
-export type AiProcessClaimStatus = "CLAIMED" | "COMPLETED" | "BUSY" | "BACKOFF" | "EXHAUSTED";
+export type AiProcessClaimStatus = "CLAIMED" | "COMPLETED" | "BUSY" | "BACKOFF" | "EXHAUSTED" | "MISSING";
 
-export interface AiProcessClaimResult {
-  status: AiProcessClaimStatus;
-  snapshot: AiProcessLogSnapshot;
-}
+export type AiProcessClaimResult =
+  | { status: "MISSING" }
+  | {
+      status: Exclude<AiProcessClaimStatus, "MISSING">;
+      snapshot: AiProcessLogSnapshot;
+    };
 
 export interface AiProcessRetryState {
   maxAttempts: number;
