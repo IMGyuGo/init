@@ -4,14 +4,14 @@ import { performance } from "node:perf_hooks";
 
 import { Prisma, PrismaClient } from "@prisma/client";
 
-import type { NormalizedApplicantListQuery } from "../src/modules/company-recruiting/company-recruiting.types";
-import { PrismaCompanyRecruitingRepository } from "../src/modules/company-recruiting/repository/company-recruiting.repository";
+import type { NormalizedApplicantListQuery } from "../modules/company-recruiting/company-recruiting.types";
+import { PrismaCompanyRecruitingRepository } from "../modules/company-recruiting/repository/company-recruiting.repository";
 import {
   buildSyntheticApplicantPlan,
   type SyntheticApplicantPlanRecord,
   type SyntheticImporterOptions,
-} from "../src/modules/candidate/scripts/synthetic-applicant-importer.contract";
-import type { PrismaService } from "../src/shared/prisma.service";
+} from "../modules/candidate/scripts/synthetic-applicant-importer.contract";
+import type { PrismaService } from "../shared/prisma.service";
 
 type ExpectedState = "applied" | "cleaned";
 

@@ -16,6 +16,13 @@
 
 로컬 단계는 `pipeline-count=0`을 고정한다. verifier는 DB read와 `EXPLAIN ANALYZE`만 수행하며 SMTP, S3, SQS, worker, OpenAI client를 사용하지 않는다. AWS 검증 환경이나 실제 pipeline은 이 문서의 로컬 결과만으로 자동 승격하지 않는다.
 
+production API image에서는 TypeScript source가 아니라 build 산출물을 사용한다.
+
+```text
+npm run synthetic:applicants:prod -- <arguments>
+npm run verify:synthetic-applicant-scale:prod -- <arguments>
+```
+
 ## Prerequisites
 
 1. #393 목록·집계 migration과 #391 importer migration을 빈 disposable PostgreSQL에 적용한다.
