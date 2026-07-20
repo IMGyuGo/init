@@ -70,7 +70,10 @@ describe("buildSaltluxFixedDemoFinalization", () => {
       "COLLABORATION_COMMUNICATION",
       "PROBLEM_SOLVING",
     ]);
-    expect(result.profiles.find((profile) => profile.ncsProfileId === "PROBLEM_SOLVING")?.score).toBe(5);
+    const problemSolving = result.profiles.find((profile) => profile.ncsProfileId === "PROBLEM_SOLVING");
+    expect(problemSolving?.score).toBe(5);
+    expect(problemSolving?.baseScore).toBe(5);
+    expect(result.profiles.every((profile) => profile.baseScore === profile.behaviorPoints + profile.logicPoints)).toBe(true);
     expect(result.profiles.filter((profile) => profile.followUpApplied)).toHaveLength(2);
   });
 

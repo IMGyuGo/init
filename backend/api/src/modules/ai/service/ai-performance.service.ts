@@ -378,10 +378,27 @@ export class AiPerformanceService {
 
   private async isQuestionInSession(questionId: bigint, sessionId: bigint, processLogId?: bigint): Promise<boolean> {
     const answer = await this.prisma.interviewAnswer.findFirst({
-      where: { sessionId, questionId },
+      where: {
+        sessionId,
+        OR: [
+          { questionId },
+          { sessionQuestion: { runtimeQuestionId: questionId } }
+        ]
+      },
       select: { answerId: true }
     });
     if (answer) {
+      return true;
+    }
+
+    const sessionQuestion = await this.prisma.interviewSessionQuestion.findFirst({
+      where: {
+        sessionId,
+        OR: [{ questionId }, { runtimeQuestionId: questionId }]
+      },
+      select: { sessionQuestionId: true }
+    });
+    if (sessionQuestion) {
       return true;
     }
 
