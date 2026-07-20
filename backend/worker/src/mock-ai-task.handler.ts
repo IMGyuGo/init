@@ -54,6 +54,7 @@ import {
 import {
   SALTLUX_FIXED_PRESENTATION_FIXTURE_ID,
   buildSaltluxFixedPresentationReport,
+  shouldUseSaltluxFixedPresentationReport,
 } from "./fixed-presentation-report";
 
 interface WorkerInput {
@@ -624,7 +625,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
       : generatedSummary
         ? [{ answerId: 1, transcript: generatedSummary, evaluationStatus: "EVALUATED" as const }]
         : answersOf(payload.answers);
-    if (payload.presentationFixtureId === SALTLUX_FIXED_PRESENTATION_FIXTURE_ID) {
+    if (shouldUseSaltluxFixedPresentationReport(payload)) {
       const policies = ncsSessionPoliciesOf(payload.ncsSessionPolicy) ?? [];
       const report = buildSaltluxFixedPresentationReport({
         reportId,

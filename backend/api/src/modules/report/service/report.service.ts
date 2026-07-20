@@ -55,8 +55,8 @@ import { AiJobDispatcherService } from "./ai-job-dispatcher.service";
 import { buildDefaultReportCriteria, normalizeReportCriterionName } from "./service-interview-rubric";
 import {
   SALTLUX_FIXED_DEMO_FIXTURE_ID,
-  isSaltluxFixedDemoPosting,
 } from "../../../shared/saltlux-fixed-demo";
+import { shouldUseSaltluxFixedDemoReport } from "./saltlux-fixed-demo-report";
 
 type ReportAnswerSession = Pick<
   RuntimeInterviewSession,
@@ -567,8 +567,12 @@ export class ReportService {
         ? { ncsSessionPolicy: await this.interviewRepository.listNcsSessionPolicies(args.session.sessionId) }
         : {}),
       ...(args.reportType === "RECRUITING_REPORT" &&
-      args.session.sessionMode === "DEMO_PRESET" &&
-      isSaltluxFixedDemoPosting(args.companyName, args.jobTitle)
+      shouldUseSaltluxFixedDemoReport({
+        companyName: args.companyName,
+        jobTitle: args.jobTitle,
+        sessionMode: args.session.sessionMode,
+        answers: reportAnswers,
+      })
         ? { presentationFixtureId: SALTLUX_FIXED_DEMO_FIXTURE_ID }
         : {}),
     };
