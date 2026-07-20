@@ -121,6 +121,7 @@ function failedReportFromJob(job: AiWorkerJob, failure: FailureReason): FailedRe
     }
 
     return {
+      processLogId: job.processLogId,
       reportId,
       reportType,
       ...positiveRef(input.payload?.applicationId, "applicationId"),

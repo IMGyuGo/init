@@ -982,7 +982,11 @@ export class ReportService {
     const processes = await this.interviewRepository.listTranscriptProcesses(answer.sessionId, answer.answerId);
     const latestProcess = processes[0];
     const failure = latestProcess?.status === "FAILED" &&
-      (latestProcess.failureCategory === "REANSWER_REQUIRED" || latestProcess.failureCategory === "NON_RETRYABLE")
+      (
+        latestProcess.failureCategory === "REANSWER_REQUIRED" ||
+        latestProcess.failureCategory === "NON_RETRYABLE" ||
+        latestProcess.failureCategory === "RETRY_EXHAUSTED"
+      )
       ? latestProcess
       : undefined;
     return failure?.failureReason?.trim() || (failure ? DEFAULT_STT_UNAVAILABLE_REASON : undefined);

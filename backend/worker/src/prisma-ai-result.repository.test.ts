@@ -814,6 +814,7 @@ test("PrismaAiResultRepository moves RETRY to PASS after the same report is rege
   const repository = new PrismaAiResultRepository(fixture.prisma);
 
   await repository.markReportFailed({
+    processLogId: 40,
     reportId: 30,
     reportType: "RECRUITING_REPORT",
     applicationId: 22,
@@ -835,17 +836,58 @@ test("PrismaAiResultRepository moves RETRY to PASS after the same report is rege
   );
 });
 
-test("PrismaAiResultRepository marks generated reports failed with retryability", async () => {
-  const calls: Array<{ model: string; method: string; args: any }> = [];
-  const repository = new PrismaAiResultRepository(fakePrisma(calls));
+test("PrismaAiResultRepository ignores an exhausted report process after a newer retry succeeds", async () => {
+  const fixture = autoScreeningPrisma();
+  fixture.prisma.aiProcessLog.findFirst = async () => ({ processLogId: BigInt(42) });
+  const repository = new PrismaAiResultRepository(fixture.prisma);
+
+  await repository.saveGeneratedReport(generatedRecruitingReport());
+  fixture.calls().length = 0;
 
   await repository.markReportFailed({
+    processLogId: 41,
+    reportId: 30,
+    reportType: "RECRUITING_REPORT",
+    applicationId: 22,
+    sessionId: 65,
+    failureCategory: "RETRY_EXHAUSTED",
+    failureReason: "Automatic retry limit exhausted after 3 total attempts.",
+  });
+
+  assert.equal(fixture.application().reportStatus, "COMPLETED");
+  assert.equal(fixture.application().screeningDecision, "PASS");
+  assert.equal(
+    fixture.calls().some((call) => call.model === "evaluationReport" && call.method === "upsert"),
+    false,
+  );
+});
+
+test("PrismaAiResultRepository marks generated reports failed with retryability", async () => {
+  const calls: Array<{ model: string; method: string; args: any }> = [];
+  const prisma: any = fakePrisma(calls);
+  const sessionLock = { query: "", value: BigInt(0) };
+  prisma.$queryRawUnsafe = async (query: string, value: bigint) => {
+    sessionLock.query = query;
+    sessionLock.value = value;
+    return [];
+  };
+  prisma.aiProcessLog.findFirst = async () => ({ processLogId: BigInt(40) });
+  const repository = new PrismaAiResultRepository(prisma);
+
+  await repository.markReportFailed({
+    processLogId: 40,
     reportId: 30,
     reportType: "MOCK_INTERVIEW_REPORT",
+    sessionId: 65,
     failureCategory: "NON_RETRYABLE",
     failureReason: "guardrail blocked output"
   });
 
+  assert.equal(
+    sessionLock.query,
+    'SELECT "session_id" FROM "interview_sessions" WHERE "session_id" = $1 FOR UPDATE',
+  );
+  assert.equal(sessionLock.value, BigInt(65));
   assert.equal(calls[0].model, "evaluationReport");
   assert.equal(calls[0].method, "upsert");
   assert.equal(calls[0].args.update.status, "FAILED");
@@ -857,6 +899,7 @@ test("PrismaAiResultRepository marks recruiting application report failed with g
   const repository = new PrismaAiResultRepository(fakePrisma(calls));
 
   await repository.markReportFailed({
+    processLogId: 40,
     reportId: 30,
     reportType: "RECRUITING_REPORT",
     applicationId: 22,

@@ -175,6 +175,7 @@ interface PrismaAiResultClient {
   aiProcessLog: {
     update(args: unknown): Promise<unknown>;
     create?(args: unknown): Promise<unknown>;
+    findFirst?(args: unknown): Promise<{ processLogId: bigint } | null>;
   };
   applicationInterviewQuestionBatch?: {
     findUnique(args: unknown): Promise<ResumeQuestionBatchRow | null>;
@@ -905,25 +906,46 @@ export class PrismaAiResultRepository implements AiResultRepository {
   }
 
   private async isStaleRecruitingReport(record: {
+    processLogId?: number;
     reportId: number;
     applicationId?: number;
+    sessionId?: number;
     reportType: "RECRUITING_REPORT" | "MOCK_INTERVIEW_REPORT";
   }): Promise<boolean> {
-    if (
-      record.reportType !== "RECRUITING_REPORT" ||
-      !record.applicationId ||
-      !this.prisma.application.findUnique
-    ) {
-      return false;
-    }
-    if (this.prisma.$queryRawUnsafe) {
+    const recruitingApplicationId = record.reportType === "RECRUITING_REPORT"
+      ? record.applicationId
+      : undefined;
+    if (recruitingApplicationId && this.prisma.application.findUnique && this.prisma.$queryRawUnsafe) {
       await this.prisma.$queryRawUnsafe(
         'SELECT "application_id" FROM "applications" WHERE "application_id" = $1 FOR UPDATE',
-        BigInt(record.applicationId),
+        BigInt(recruitingApplicationId),
+      );
+    } else if (record.reportType === "MOCK_INTERVIEW_REPORT" && record.sessionId && this.prisma.$queryRawUnsafe) {
+      await this.prisma.$queryRawUnsafe(
+        'SELECT "session_id" FROM "interview_sessions" WHERE "session_id" = $1 FOR UPDATE',
+        BigInt(record.sessionId),
       );
     }
+    const processScope = record.applicationId
+      ? { applicationId: BigInt(record.applicationId) }
+      : record.sessionId
+        ? { sessionId: BigInt(record.sessionId) }
+        : undefined;
+    if (record.processLogId && processScope && this.prisma.aiProcessLog.findFirst) {
+      const latestProcess = await this.prisma.aiProcessLog.findFirst({
+        where: { processType: "REPORT_GENERATE", ...processScope },
+        orderBy: [{ createdAt: "desc" }, { processLogId: "desc" }],
+        select: { processLogId: true },
+      });
+      if (latestProcess && latestProcess.processLogId !== BigInt(record.processLogId)) {
+        return true;
+      }
+    }
+    if (!recruitingApplicationId || !this.prisma.application.findUnique) {
+      return false;
+    }
     const application = await this.prisma.application.findUnique({
-      where: { applicationId: BigInt(record.applicationId) },
+      where: { applicationId: BigInt(recruitingApplicationId) },
       select: { screeningDecisionReportId: true },
     });
     return (

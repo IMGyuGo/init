@@ -88,6 +88,7 @@ test("report failure handler records report retryability from process input", as
   await onFailure(job, failure("RETRYABLE", "provider timeout for applicant@example.com transcript=private"));
 
   assert.deepEqual(results.failedReports.get(30), {
+    processLogId: job.processLogId,
     reportId: 30,
     reportType: "RECRUITING_REPORT",
     applicationId: 22,

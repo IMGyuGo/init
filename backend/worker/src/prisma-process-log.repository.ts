@@ -12,6 +12,7 @@ import {
   GuardrailDecision
 } from "./worker.types";
 import {
+  automaticRetryExhaustedFailure,
   isAutomaticRetryFailureCategory,
   isUserRetryableFailureCategory,
   toPersistedFailureReason,
@@ -146,7 +147,7 @@ export class PrismaAiProcessLogRepository implements AiProcessLogRepository {
     job: AiWorkerJob,
     leaseOwner: string,
     leaseExpiresAt: Date,
-    retryState: AiProcessRetryState = { attemptCount: Math.max(1, job.attempt), maxAttempts: 3 },
+    retryState: AiProcessRetryState = { maxAttempts: 3 },
   ): Promise<AiProcessClaimResult> {
     const existing = await this.ensurePending(job);
     const now = new Date();
@@ -156,6 +157,9 @@ export class PrismaAiProcessLogRepository implements AiProcessLogRepository {
       return { status: "COMPLETED", snapshot: existing };
     }
     if (existing.status === "FAILED") {
+      if (existing.failure?.category === "RETRY_EXHAUSTED") {
+        return { status: "EXHAUSTED", snapshot: existing };
+      }
       if (
         !existing.failure ||
         !isAutomaticRetryFailureCategory(existing.failure.category) ||
@@ -168,9 +172,45 @@ export class PrismaAiProcessLogRepository implements AiProcessLogRepository {
         return { status: "BACKOFF", snapshot: existing };
       }
     }
-    const attemptCount = existing.status === "FAILED"
-      ? Math.min(maxAttempts, currentAttempt + 1)
-      : Math.min(maxAttempts, Math.max(currentAttempt, retryState.attemptCount));
+    if (existing.status === "RUNNING" && currentAttempt >= maxAttempts) {
+      const failure = automaticRetryExhaustedFailure(maxAttempts);
+      const exhausted = await this.prisma.aiProcessLog.updateMany({
+        where: {
+          processLogId: BigInt(job.processLogId),
+          status: "RUNNING",
+          attemptCount: currentAttempt,
+          OR: [
+            { leaseExpiresAt: null },
+            { leaseExpiresAt: { lte: now } },
+          ],
+        },
+        data: {
+          status: "FAILED",
+          completedAt: now,
+          durationMs: existing.startedAt
+            ? Math.max(0, now.getTime() - Date.parse(existing.startedAt))
+            : null,
+          failureCategory: failure.category,
+          failureReason: failure.reason,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          nextRetryAt: null,
+        },
+      });
+      const snapshot = await this.findSnapshot(job.processLogId);
+      if (exhausted.count === 1) {
+        return { status: "EXHAUSTED", snapshot };
+      }
+      if (snapshot.status === "COMPLETED") {
+        return { status: "COMPLETED", snapshot };
+      }
+      return snapshot.failure?.category === "RETRY_EXHAUSTED"
+        ? { status: "EXHAUSTED", snapshot }
+        : { status: "BUSY", snapshot };
+    }
+    const attemptCount = existing.status === "PENDING"
+      ? currentAttempt
+      : Math.min(maxAttempts, currentAttempt + 1);
     const claimed = await this.prisma.aiProcessLog.updateMany({
       where: {
         processLogId: BigInt(job.processLogId),

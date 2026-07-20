@@ -205,7 +205,7 @@ STT 미인식·의미 품질 실패 답변 처리:
 - 이 경우 답변별 NCS 평가는 `scoreStatus=INSUFFICIENT_INPUT`과 모든 nullable 점수 `NULL`로 저장하고 평가 근거 및 `ReportScore`를 생성하지 않는다.
 - 최종 리포트는 해당 profile 점수와 `totalScore`를 `NULL`, `thresholdResult=INCOMPLETE`로 유지한다. 발표 정책 `NCS_INCOMPLETE_AS_FAIL_DEMO_V1`에 따라 화면상 AI 판정만 `FAIL`이며 실제 `applications.screening_decision`은 변경하지 않는다.
 - 화면 피드백은 `평가 미완료`와 인식 실패 사유를 표시한다. 최초 `REANSWER_REQUIRED`에는 한 번의 재답변을 제공하고, 두 번째 인식 실패 또는 재답변 미사용 상태로 면접을 완료한 경우 `STT_UNAVAILABLE`로 확정한다.
-- STT job의 provider timeout과 worker 중단이 재시도 중인 동안에는 `STT_UNAVAILABLE`로 변환하지 않는다. 최신 transcript 처리 process가 STT 또는 의미 품질 FOLLOW_UP의 `FAILED + REANSWER_REQUIRED`이거나 STT 재시도 한도를 소진한 `FAILED + NON_RETRYABLE`이면 terminal `STT_UNAVAILABLE`로 확정한다.
+- STT job의 provider timeout과 worker 중단이 재시도 중인 동안에는 `STT_UNAVAILABLE`로 변환하지 않는다. 최신 transcript 처리 process가 STT 또는 의미 품질 FOLLOW_UP의 `FAILED + REANSWER_REQUIRED`, 인식 불가로 분류된 `FAILED + NON_RETRYABLE`, 자동 재시도 한도를 소진한 `FAILED + RETRY_EXHAUSTED`이면 terminal `STT_UNAVAILABLE`로 확정한다. 단, `RETRY_EXHAUSTED`는 `REANSWER_REQUIRED`로 변환하지 않고 `reanswerAvailable=false`인 운영 확인 상태를 유지한다.
 - 의미 품질은 답변 내용을 잘했는지 평가하지 않고 STT 문장을 신뢰성 있게 해석할 수 있는지만 판별한다. 판별 provider 실패·timeout·invalid output은 fail-open으로 처리해 면접 진행을 막지 않는다.
 - 과거 `STT_UNAVAILABLE_TEMP_ZERO` 행은 조회 호환만 유지하며 신규 생성하거나 NCS 집계에 재사용하지 않는다.
 - 정상 transcript가 있는 답변만 서비스 기본 평가 기준과 점수 구간에 따라 품질 평가한다.
@@ -2397,7 +2397,7 @@ Allocation Examples:
 - 검증/전제조건:
   - 평가 완료 상태 또는 NCS `INCOMPLETE` 상태가 명시적으로 확정됨
   - private follow-up 답변은 `follow_up_questions.inserted_session_question_id = interview_answers.session_question_id`로 원본 `answer_id`와 연결한다. 질문 문장, 답변 순서 또는 생성 시각으로 부모 답변을 추측하지 않는다.
-  - 세션의 모든 답변은 transcript가 저장됐거나 최신 STT process가 `FAILED + REANSWER_REQUIRED` 또는 재시도 소진 `FAILED + NON_RETRYABLE`인 `STT_UNAVAILABLE` terminal 상태여야 한다. STT가 아직 처리 중인 답변이 있으면 리포트 작업을 생성하지 않고 `409 COMMON_CONFLICT`를 반환한다.
+  - 세션의 모든 답변은 transcript가 저장됐거나 최신 STT process가 `FAILED + REANSWER_REQUIRED`, 인식 불가 `FAILED + NON_RETRYABLE`, 자동 재시도 소진 `FAILED + RETRY_EXHAUSTED`인 `STT_UNAVAILABLE` terminal 상태여야 한다. STT가 아직 처리 중인 답변이 있으면 리포트 작업을 생성하지 않고 `409 COMMON_CONFLICT`를 반환한다. `RETRY_EXHAUSTED`는 리포트 생성을 더 이상 `STT_PROCESSING`으로 막지 않지만 지원자 재답변은 허용하지 않는다.
 - 성공 응답/처리:
   - 평가 리포트 저장
   - NCS 리포트는 `profileScores`, `totalScore`, `thresholdResult`, `aiDecision`, `decisionReason`, `scoringVersion`, `decisionPolicyVersion`을 저장·응답한다.
@@ -2443,7 +2443,7 @@ Allocation Examples:
 - 검증/전제조건:
   - application의 `screeningDecision=RETRY`여야 한다.
   - `RETRY_REPORT_FAILED`, `RETRY_EVALUATION_INCOMPLETE`, `RETRY_SCORE_MISSING`만 REPORT 재처리 job을 생성한다.
-  - `RETRY_STT_UNAVAILABLE`은 REPORT만 재처리하지 않고 `action=CANDIDATE_REANSWER_REQUIRED`, `operatorReviewRequired=true`를 반환한다.
+  - `RETRY_STT_UNAVAILABLE`은 REPORT만 재처리하지 않고 `action=CANDIDATE_REANSWER_REQUIRED`, `operatorReviewRequired=true`를 반환한다. 이 action은 기존 RETRY 라우팅 구분이며 재답변 허가 자체가 아니다. 실제 허가는 면접 조회의 `reanswerAvailable`을 따르고, 최신 STT가 `RETRY_EXHAUSTED`이면 `reanswerAvailable=false`인 운영 확인 상태다.
 - 성공 응답/처리:
   - 새 job은 이전 REPORT process의 server-side `inputRef`, 같은 `reportId`와 application/session 참조를 재사용한다.
   - 새 process log는 `retrySource=OPERATOR`, `retryOfProcessLogId`를 보존한다.

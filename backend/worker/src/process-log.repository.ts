@@ -6,9 +6,9 @@ import {
   FailureReason,
   GuardrailDecision
 } from "./worker.types";
-import { isAutomaticRetryFailureCategory } from "./worker-errors";
+import { automaticRetryExhaustedFailure, isAutomaticRetryFailureCategory } from "./worker-errors";
 
-export type AiProcessClaimStatus = "CLAIMED" | "COMPLETED" | "BUSY" | "BACKOFF";
+export type AiProcessClaimStatus = "CLAIMED" | "COMPLETED" | "BUSY" | "BACKOFF" | "EXHAUSTED";
 
 export interface AiProcessClaimResult {
   status: AiProcessClaimStatus;
@@ -16,7 +16,6 @@ export interface AiProcessClaimResult {
 }
 
 export interface AiProcessRetryState {
-  attemptCount: number;
   maxAttempts: number;
 }
 
@@ -101,13 +100,16 @@ export class InMemoryAiProcessLogRepository implements AiProcessLogRepository {
     job: AiWorkerJob,
     leaseOwner: string,
     leaseExpiresAt: Date,
-    retryState: AiProcessRetryState = { attemptCount: Math.max(1, job.attempt), maxAttempts: 3 },
+    retryState: AiProcessRetryState = { maxAttempts: 3 },
   ): Promise<AiProcessClaimResult> {
     const existing = await this.ensurePending(job);
     if (existing.status === "COMPLETED") {
       return { status: "COMPLETED", snapshot: existing };
     }
     if (existing.status === "FAILED") {
+      if (existing.failure?.category === "RETRY_EXHAUSTED") {
+        return { status: "EXHAUSTED", snapshot: existing };
+      }
       if (
         !existing.failure ||
         !isAutomaticRetryFailureCategory(existing.failure.category) ||
@@ -130,9 +132,25 @@ export class InMemoryAiProcessLogRepository implements AiProcessLogRepository {
 
     const currentAttempt = existing.attemptCount ?? 1;
     const maxAttempts = existing.maxAttempts ?? retryState.maxAttempts;
-    const attemptCount = existing.status === "FAILED"
-      ? Math.min(maxAttempts, currentAttempt + 1)
-      : Math.min(maxAttempts, Math.max(currentAttempt, retryState.attemptCount));
+    if (existing.status === "RUNNING" && currentAttempt >= maxAttempts) {
+      const completedAt = new Date();
+      const failure = automaticRetryExhaustedFailure(maxAttempts);
+      const snapshot = this.update(job.processLogId, {
+        status: "FAILED",
+        completedAt: completedAt.toISOString(),
+        durationMs: existing.startedAt
+          ? Math.max(0, completedAt.getTime() - Date.parse(existing.startedAt))
+          : undefined,
+        failure,
+        leaseOwner: undefined,
+        leaseExpiresAt: undefined,
+        nextRetryAt: undefined,
+      });
+      return { status: "EXHAUSTED", snapshot };
+    }
+    const attemptCount = existing.status === "PENDING"
+      ? currentAttempt
+      : Math.min(maxAttempts, currentAttempt + 1);
     const snapshot = this.update(job.processLogId, {
       status: "RUNNING",
       leaseOwner,
