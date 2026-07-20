@@ -10,8 +10,13 @@ const baseStageRule = css.match(
 assert.ok(baseStageRule?.groups?.body, "base interview stage CSS rule should exist");
 assert.match(
   baseStageRule.groups.body,
-  /aspect-ratio:\s*16\s*\/\s*9;/,
-  "compact interview stage should keep a 16:9 frame instead of stretching to a full-height panel",
+  /flex:\s*1\s+1\s+auto;/,
+  "the interview stage should stretch to fill the viewport column so bottom controls stay visible",
+);
+assert.doesNotMatch(
+  baseStageRule.groups.body,
+  /aspect-ratio:/,
+  "a fixed stage aspect ratio pushes the control bar below the fold on shorter screens",
 );
 
 const interviewerFigureRule = css.match(

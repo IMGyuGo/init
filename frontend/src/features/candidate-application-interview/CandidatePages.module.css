@@ -1657,6 +1657,27 @@
   margin: 0 auto;
 }
 
+:global(.candidate-interview-app--live .iv-body) {
+  display: flex;
+  flex-direction: column;
+  width: min(1720px, 100%);
+  height: calc(100dvh - 56px);
+  min-height: 0;
+  padding: 14px 24px 16px;
+}
+
+:global(.candidate-interview-app--live .iv-body > .notice) {
+  flex: 0 0 auto;
+  margin-bottom: 10px;
+}
+
+@media (max-width: 900px) {
+  :global(.candidate-interview-app--live .iv-body) {
+    height: auto;
+    min-height: calc(100dvh - 56px);
+  }
+}
+
 :global(.candidate-device-setup) {
   display: grid;
   gap: 18px;
@@ -2141,12 +2162,12 @@
 :global(.ai-interviewer-stage) {
   position: relative;
   display: grid;
+  flex: 1 1 auto;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
-  width: min(100%, 1360px);
+  width: 100%;
   min-height: 0;
-  aspect-ratio: 16 / 9;
-  padding: 20px;
-  margin: 0 auto 18px;
+  padding: 20px 24px;
+  margin: 0 auto 14px;
   overflow: hidden;
   color: #fff;
   background: linear-gradient(155deg, #171622 0%, #24233a 62%, #101019 100%);
@@ -2300,6 +2321,37 @@
 :global(.runtime-status-chip--warning::before) {
   background: #f59e0b;
   box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.16);
+}
+
+:global(.runtime-status-chip--icon) {
+  gap: 9px;
+  padding: 0 13px;
+}
+
+:global(.runtime-status-chip--icon::before) {
+  display: none;
+}
+
+:global(.runtime-status-chip--icon svg) {
+  flex: 0 0 auto;
+}
+
+:global(.runtime-mic-level) {
+  display: block;
+  flex: 0 0 auto;
+  width: 52px;
+  height: 5px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+}
+
+:global(.runtime-mic-level > i) {
+  display: block;
+  height: 100%;
+  background: currentcolor;
+  border-radius: inherit;
+  transition: width 90ms linear;
 }
 
 :global(.ai-interviewer-stage:fullscreen .runtime-status-hud) {
@@ -3970,6 +4022,7 @@
 }
 
 :global(.candidate-runtime-form) {
+  flex: 0 0 auto;
   display: flex;
   flex-wrap: wrap;
   align-items: center;

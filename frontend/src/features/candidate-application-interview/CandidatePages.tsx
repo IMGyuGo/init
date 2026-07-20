@@ -8334,7 +8334,7 @@ function InterviewRuntimePanel({
   ]);
 
   return (
-    <main className="candidate-interview-app">
+    <main className={`candidate-interview-app${data && setupCompleted ? " candidate-interview-app--live" : ""}`}>
       <header className="iv-top">
         <Link className="brand" href={candidateApplicationInterviewRoutes.mockInterviewStart}>
           <Image src="/logo-init.png" alt="init" width={1010} height={375} priority />
@@ -8470,11 +8470,29 @@ function InterviewRuntimePanel({
               </div>
 
               <div className="runtime-status-hud" aria-label="실시간 면접 상태">
-                {runtimeStatusChips.map((chip) => (
-                  <span key={chip.id} className={`runtime-status-chip runtime-status-chip--${chip.id} runtime-status-chip--${chip.tone}`}>
-                    {chip.label}
-                  </span>
-                ))}
+                {runtimeStatusChips.map((chip) =>
+                  chip.id === "microphone" ? (
+                    <span
+                      key={chip.id}
+                      className={`runtime-status-chip runtime-status-chip--${chip.id} runtime-status-chip--${chip.tone} runtime-status-chip--icon`}
+                      role="img"
+                      aria-label={chip.label}
+                    >
+                      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <rect x="9" y="2" width="6" height="12" rx="3" />
+                        <path d="M5 10v1a7 7 0 0 0 14 0v-1" />
+                        <path d="M12 18v4" />
+                      </svg>
+                      <i className="runtime-mic-level" aria-hidden="true">
+                        <i style={{ width: `${Math.max(0, Math.min(100, Math.round(microphoneLevel)))}%` }} />
+                      </i>
+                    </span>
+                  ) : (
+                    <span key={chip.id} className={`runtime-status-chip runtime-status-chip--${chip.id} runtime-status-chip--${chip.tone}`}>
+                      {chip.label}
+                    </span>
+                  ),
+                )}
               </div>
 
               {integrityWarning ? (
@@ -8572,9 +8590,13 @@ function InterviewRuntimePanel({
                 <strong>{interviewerQuestionPrompt}</strong>
               </div>
 
-              <div className={`question-voice-status ${questionSpeechSupported ? "" : "unsupported"}`} aria-live="polite">
-                {questionSpeechStatus}
-              </div>
+              {questionSpeechSupported ? (
+                <p className="sr-only" aria-live="polite">{questionSpeechStatus}</p>
+              ) : (
+                <div className="question-voice-status unsupported" aria-live="polite">
+                  {questionSpeechStatus}
+                </div>
+              )}
 
               {cameraPreviewVisible ? (
                 <div
@@ -8705,7 +8727,9 @@ function InterviewRuntimePanel({
                   <kbd>Q</kbd>
                 </button>
               </div>
-              <p className="field-hint">STT 실패 시 재답변은 문항당 1회만 가능합니다.</p>
+              {currentQuestionNeedsReanswer ? (
+                <p className="field-hint">STT 실패 시 재답변은 문항당 1회만 가능합니다.</p>
+              ) : null}
               <div className="candidate-interview-complete-action">
                 <button
                   className="btn primary lg"
