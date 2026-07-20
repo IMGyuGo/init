@@ -146,6 +146,7 @@ export type Applicant = {
   interviewStatus: string;
   reportStatus: string;
   screeningDecision: string;
+  autoScreeningPolicyEnabled: boolean;
   screeningMemo: string | null;
   interviewSession: {
     sessionId: number;
@@ -186,7 +187,7 @@ export type ApplicantSummary = {
   attentionRequiredTotal: number;
 };
 
-export type ScreeningDecision = "UNDECIDED" | "PASS" | "HOLD" | "FAIL";
+export type ScreeningDecision = "UNDECIDED" | "PASS" | "HOLD" | "FAIL" | "RETRY";
 
 export type ApplicantInterviewFileAsset = {
   fileId: number;
