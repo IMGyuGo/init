@@ -2447,10 +2447,9 @@
 
 :global(.runtime-integrity-warning) {
   position: absolute;
-  top: 118px;
+  top: 186px;
   right: auto;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 24px;
   z-index: 8;
   display: grid;
   gap: 5px;
@@ -2479,7 +2478,8 @@
 }
 
 :global(.ai-interviewer-stage:fullscreen .runtime-integrity-warning) {
-  top: 150px;
+  top: 218px;
+  left: 32px;
 }
 
 :global(.nonverbal-device-qa) {
