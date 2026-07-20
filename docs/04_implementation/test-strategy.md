@@ -158,6 +158,8 @@ cloud deploy workflow는 production 배포를 `docker-compose`로 수행하지 �
 | Cleanup | manifest ID로 cleanup | 기존 row 불변, 생성 row만 제거, audit manifest CLEANED |
 | Scale | 100/1,000/5,000 | 목표 count·상태 분포·10개 interactive 계약 일치 |
 
+규모별 통합 검증은 [`applicant-scale-validation-runbook.md`](./applicant-scale-validation-runbook.md)를 따른다. 로컬 100/1,000/5,000명 단계는 `pipeline-count=0`과 disposable PostgreSQL을 사용하고, AWS API/RDS 검증 및 SQS/worker/OpenAI pipeline은 별도 승인 전 실행하지 않는다.
+
 ## NQ-M0 NCS Question Contract Gates
 
 NQ-M0는 문서 계약 milestone이다. 아래 항목은 후속 구현 PR의 acceptance test 이름과 기대 결과를 고정한다.
