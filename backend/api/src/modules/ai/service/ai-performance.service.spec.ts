@@ -133,6 +133,47 @@ describe("AiPerformanceService", () => {
     );
   });
 
+  it("records client logs for a persisted runtime follow-up before its answer is saved", async () => {
+    const prisma = createPrisma();
+    prisma.interviewSession.findUnique.mockResolvedValue({
+      candidateId: BigInt(1),
+      application: null
+    });
+    prisma.interviewAnswer.findFirst.mockResolvedValue(null);
+    prisma.interviewSessionQuestion.findFirst.mockResolvedValue({
+      sessionQuestionId: BigInt(501)
+    });
+    prisma.clientPerformanceLog.create.mockResolvedValue({
+      clientPerformanceLogId: BigInt(81),
+      eventName: "REALTIME_STT_RELAY_CONNECTED",
+      durationMs: 240,
+      createdAt: new Date("2026-07-06T10:04:00.000Z")
+    });
+
+    const service = new AiPerformanceService(prisma as unknown as PrismaService);
+    await service.recordClientLog(
+      {
+        eventName: "REALTIME_STT_RELAY_CONNECTED",
+        durationMs: 240,
+        sessionId: 10,
+        questionId: 99
+      },
+      candidateUser
+    );
+
+    expect(prisma.interviewSessionQuestion.findFirst).toHaveBeenCalledWith({
+      where: {
+        sessionId: BigInt(10),
+        OR: [
+          { questionId: BigInt(99) },
+          { runtimeQuestionId: BigInt(99) }
+        ]
+      },
+      select: { sessionQuestionId: true }
+    });
+    expect(prisma.clientPerformanceLog.create).toHaveBeenCalled();
+  });
+
   it("rejects client logs when the question does not belong to the candidate session", async () => {
     const prisma = createPrisma();
     prisma.interviewSession.findUnique
@@ -568,6 +609,9 @@ function createPrisma() {
       findUnique: jest.fn()
     },
     interviewAnswer: {
+      findFirst: jest.fn()
+    },
+    interviewSessionQuestion: {
       findFirst: jest.fn()
     },
     question: {

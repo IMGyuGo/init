@@ -34,7 +34,7 @@ export interface SaltluxFixedDemoProfileResult {
   questionMode: "EXPERIENCE_BEHAVIOR" | "TECHNICAL_KNOWLEDGE";
   ncsProfileVersion: string;
   score: 4 | 5;
-  baseScore: 4;
+  baseScore: 4 | 5;
   behaviorPoints: 3;
   logicPoints: 1 | 2;
   followUpApplied: boolean;
@@ -122,6 +122,8 @@ export function buildSaltluxFixedDemoFinalization(
   ];
 
   const profiles = profileInputs.map((profile): SaltluxFixedDemoProfileResult => {
+    const behaviorPoints = 3 as const;
+    const baseScore: 4 | 5 = profile.logicPoints === 1 ? 4 : 5;
     const binding = profile.answer.ncsBindings?.find((candidate) => candidate.ncsProfileId === profile.ncsProfileId);
     const criterionId = binding?.criterionId;
     const sessionQuestionId = profile.answer.sessionQuestionId;
@@ -140,8 +142,8 @@ export function buildSaltluxFixedDemoFinalization(
       sessionQuestionId,
       question: profile.answer.question,
       ncsProfileVersion: binding.ncsProfileVersion,
-      baseScore: 4,
-      behaviorPoints: 3,
+      baseScore,
+      behaviorPoints,
       evidences: [
         { answerId: profile.answer.answerId, sourceKind: "BASE", text: baseText },
         ...(profile.followUpApplied
