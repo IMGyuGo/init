@@ -3,6 +3,7 @@ export type MailKind =
   | "PASSWORD_RESET_VERIFICATION"
   | "PUBLIC_APPLICATION_STATUS"
   | "RECRUITING_PASS_NOTICE"
+  | "SCREENING_RESULT_NOTICE"
   | "SMTP_SMOKE";
 
 export type MailMessage = {

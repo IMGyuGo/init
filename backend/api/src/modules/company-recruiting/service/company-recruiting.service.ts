@@ -20,6 +20,8 @@ import type { SubmitPublicApplicationDto } from "../dto/submit-public-applicatio
 import type { SendRecruitmentPassMailsDto } from "../dto/send-recruitment-pass-mails.dto";
 import type { UpdateRecruitmentDto } from "../dto/update-recruitment.dto";
 import type { UpdateScreeningStatusDto } from "../dto/update-screening-status.dto";
+import type { UpdateScreeningReviewDto } from "../dto/update-screening-review.dto";
+import type { ConfirmScreeningResultsDto } from "../dto/confirm-screening-results.dto";
 import type { CompanyRecruitingRepositoryPort } from "../repository/company-recruiting.repository";
 import type { InterviewPublicationReadiness } from "../../company-interview/company-interview.types";
 import type { MailMessage } from "../../mail/mail.types";
@@ -614,6 +616,14 @@ export class CompanyRecruitingService {
     }
 
     const applications = await this.repository.listApplicationsForPassTargeting(recruitmentId, companyId);
+    if (applications.some((application) => application.posting.autoScreeningPolicyEnabled)) {
+      throw new CompanyRecruitingException(
+        409,
+        ERROR_CODES.COMMON_CONFLICT,
+        "자동 전형 판정이 활성화된 공고는 결과 검토 후 일괄 확정 기능을 사용해주세요.",
+        [{ field: "targetPassCount", reason: "SCREENING_DECISION_SYSTEM_MANAGED" }],
+      );
+    }
     const previousById = new Map(applications.map((application) => [application.applicationId, application]));
     const currentPassApplications = applications
       .filter((application) => application.screeningDecision === ScreeningDecision.PASS)
@@ -908,12 +918,12 @@ export class CompanyRecruitingService {
     if (!existing) {
       throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "지원자를 찾을 수 없습니다.");
     }
-    if (existing.posting.autoScreeningPolicyEnabled && !canOverrideAutomaticScreening(existing)) {
+    if (existing.posting.autoScreeningPolicyEnabled) {
       throw new CompanyRecruitingException(
         409,
         ERROR_CODES.COMMON_CONFLICT,
-        "리포트 판정이 완료된 뒤 전형 결과를 변경할 수 있습니다.",
-        [{ field: "screeningDecision", reason: "SCREENING_DECISION_NOT_READY" }],
+        "자동 판정 공고의 결과는 검토 수정 API를 사용해야 합니다.",
+        [{ field: "screeningDecision", reason: "SCREENING_DECISION_SYSTEM_MANAGED" }],
       );
     }
     const screeningDecision = parseScreeningDecision(dto.screeningDecision);
@@ -927,6 +937,106 @@ export class CompanyRecruitingService {
     }
 
     return toApplicantResponse(application);
+  }
+
+  async updateScreeningReview(user: CurrentUser, applicantId: number, dto: UpdateScreeningReviewDto) {
+    const companyId = requireCompanyId(user);
+    const existing = await this.repository.findApplicationForCompany(applicantId, companyId);
+    if (!existing) {
+      throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "지원자를 찾을 수 없습니다.");
+    }
+    if (existing.screeningResultConfirmationStatus === "CONFIRMED") {
+      throw new CompanyRecruitingException(409, ERROR_CODES.COMMON_CONFLICT, "이미 확정된 결과는 변경할 수 없습니다.", [
+        { field: "screeningReviewerDecision", reason: "SCREENING_RESULT_ALREADY_CONFIRMED" },
+      ]);
+    }
+    const automaticDecision = existing.screeningDecision;
+    if (
+      automaticDecision !== ScreeningDecision.PASS &&
+      automaticDecision !== ScreeningDecision.HOLD &&
+      automaticDecision !== ScreeningDecision.FAIL
+    ) {
+      throw new CompanyRecruitingException(409, ERROR_CODES.COMMON_CONFLICT, "평가 가능한 자동 판정만 검토할 수 있습니다.", [
+        { field: "screeningReviewerDecision", reason: "SCREENING_DECISION_NOT_REVIEWABLE" },
+      ]);
+    }
+    if (
+      !existing.posting.autoScreeningPolicyEnabled ||
+      existing.reportStatus !== "COMPLETED" ||
+      !existing.screeningDecisionReasonCode ||
+      !existing.screeningDecisionPolicyVersion ||
+      !existing.screeningPolicyVersion ||
+      !existing.screeningCriteriaVersion ||
+      !existing.screeningDecisionReportId
+    ) {
+      throw new CompanyRecruitingException(409, ERROR_CODES.COMMON_CONFLICT, "자동 판정의 리포트·정책 snapshot을 확인할 수 없습니다.", [
+        { field: "screeningReviewerDecision", reason: "SCREENING_DECISION_NOT_REVIEWABLE" },
+      ]);
+    }
+
+    const requestedDecision = dto.screeningReviewerDecision ?? null;
+    const resetToAutomatic = requestedDecision === null || requestedDecision === automaticDecision;
+    const overrideReason = dto.overrideReason?.trim() || null;
+    if (!resetToAutomatic && (!overrideReason || overrideReason.length < 10 || overrideReason.length > 1000)) {
+      throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, "자동판정 변경 사유를 10~1000자로 입력해주세요.", [
+        { field: "overrideReason", reason: "SCREENING_OVERRIDE_REASON_REQUIRED" },
+      ]);
+    }
+
+    const updated = await this.repository.updateApplicationScreeningReview(applicantId, companyId, {
+      screeningReviewerDecision: resetToAutomatic ? null : requestedDecision as ScreeningDecision,
+      screeningDecisionOverrideReason: resetToAutomatic ? null : overrideReason,
+    });
+    if (!updated) {
+      throw new CompanyRecruitingException(409, ERROR_CODES.COMMON_CONFLICT, "결과 확정과 동시에 변경되어 저장할 수 없습니다. 목록을 새로고침해주세요.", [
+        { field: "screeningReviewerDecision", reason: "SCREENING_RESULT_ALREADY_CONFIRMED" },
+      ]);
+    }
+    return toApplicantResponse(updated);
+  }
+
+  async confirmScreeningResults(user: CurrentUser, recruitmentId: number, dto: ConfirmScreeningResultsDto) {
+    const companyId = requireCompanyId(user);
+    const posting = await this.repository.findPostingForCompany(recruitmentId, companyId);
+    if (!posting) {
+      throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "공고를 찾을 수 없습니다.");
+    }
+    const result = await this.repository.confirmScreeningResults(
+      recruitmentId,
+      companyId,
+      user.userId,
+      dto.expectedEligibleCount,
+    );
+    if (result.scopeChanged) {
+      throw new CompanyRecruitingException(409, ERROR_CODES.COMMON_CONFLICT, "확정 대상이 변경되었습니다. 목록을 새로고침해주세요.", [
+        { field: "expectedEligibleCount", reason: "SCREENING_CONFIRMATION_SCOPE_CHANGED" },
+      ]);
+    }
+
+    let emailSentCount = 0;
+    let emailFailedCount = 0;
+    for (const recipient of result.emailRecipients) {
+      if (!this.mailAdapter) break;
+      try {
+        await this.mailAdapter.send(buildScreeningResultMailMessage(posting, recipient));
+        await this.repository.markScreeningResultEmailNotification(recipient.notificationId, "SENT");
+        emailSentCount += 1;
+      } catch {
+        await this.repository.markScreeningResultEmailNotification(recipient.notificationId, "FAILED");
+        emailFailedCount += 1;
+      }
+    }
+
+    return {
+      recruitmentId,
+      idempotent: result.idempotent,
+      confirmedCount: result.confirmedCount,
+      confirmedCounts: result.decisionCounts,
+      excludedCounts: result.excludedCounts,
+      confirmedAt: result.confirmedAt?.toISOString() ?? null,
+      emailSentCount,
+      emailFailedCount,
+    };
   }
 
   private async assertPublicApplicationEmailCanBeUsed(email: string) {
@@ -1055,6 +1165,12 @@ export function normalizeApplicantListQuery(query: ListApplicantsQueryDto): Norm
     ...(query.interviewStatus ? { interviewStatus: query.interviewStatus as InterviewStatusValue } : {}),
     ...(query.reportStatus ? { reportStatus: query.reportStatus as ReportStatusValue } : {}),
     ...(query.screeningDecision ? { screeningDecision: query.screeningDecision as ScreeningDecisionValue } : {}),
+    ...(query.effectiveScreeningDecision
+      ? { effectiveScreeningDecision: query.effectiveScreeningDecision as ScreeningDecisionValue }
+      : {}),
+    ...(query.screeningResultConfirmationStatus
+      ? { screeningResultConfirmationStatus: query.screeningResultConfirmationStatus }
+      : {}),
     sort: query.sort?.trim() || "updatedAt",
     order: query.order ?? "desc",
     skip: (page - 1) * limit,
@@ -1131,6 +1247,27 @@ function buildPassMailMessage(posting: RecruitmentRecord, application: Applicant
       "",
       `${posting.title} 전형 합격을 안내드립니다.`,
       "추가 전형 또는 입사 안내는 채용 담당자가 별도로 전달드릴 예정입니다.",
+      "",
+      "감사합니다.",
+    ].join("\n"),
+  };
+}
+
+function buildScreeningResultMailMessage(
+  posting: RecruitmentRecord,
+  recipient: { email: string; name: string; decision: "PASS" | "HOLD" | "FAIL" },
+): MailMessage {
+  const label = recipient.decision === "PASS" ? "합격" : recipient.decision === "HOLD" ? "보류" : "불합격";
+  return {
+    kind: "SCREENING_RESULT_NOTICE",
+    to: recipient.email,
+    subject: `[init] ${posting.title} 전형 결과 안내`,
+    text: [
+      `안녕하세요, ${recipient.name}님.`,
+      "",
+      `${posting.title} 전형 결과가 확정되었습니다.`,
+      `최종 결과: ${label}`,
+      "상세 안내는 지원자 페이지에서 확인해주세요.",
       "",
       "감사합니다.",
     ].join("\n"),
@@ -1336,11 +1473,6 @@ function parseScreeningDecision(value: UpdateScreeningStatusDto["screeningDecisi
     ]);
   }
   return value as ScreeningDecision;
-}
-
-function canOverrideAutomaticScreening(application: ApplicantRecord): boolean {
-  const reportStatus = application.evaluationReports[0]?.status ?? application.reportStatus;
-  return reportStatus === "COMPLETED" && ["PASS", "HOLD", "FAIL"].includes(application.screeningDecision ?? "");
 }
 
 function errorMessage(error: unknown): string {
@@ -1562,6 +1694,12 @@ function toApplicantResponse(application: ApplicantRecord) {
     interviewStatus: application.interviewStatus,
     reportStatus: latestReport?.status ?? application.reportStatus,
     screeningDecision: application.screeningDecision ?? "UNDECIDED",
+    screeningReviewerDecision: application.screeningReviewerDecision,
+    effectiveScreeningDecision: application.effectiveScreeningDecision,
+    finalScreeningDecision: application.screeningFinalDecision,
+    screeningDecisionOverrideReason: application.screeningDecisionOverrideReason,
+    screeningResultConfirmationStatus: application.screeningResultConfirmationStatus,
+    screeningResultConfirmedAt: application.screeningResultConfirmedAt?.toISOString() ?? null,
     autoScreeningPolicyEnabled: application.posting.autoScreeningPolicyEnabled,
     screeningDecisionReasonCode: application.screeningDecisionReasonCode,
     screeningDecisionPolicyVersion: application.screeningDecisionPolicyVersion,
@@ -1616,6 +1754,12 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
     },
     screening: {
       decision: application.screeningDecision ?? "UNDECIDED",
+      reviewerDecision: application.screeningReviewerDecision,
+      effectiveDecision: application.effectiveScreeningDecision,
+      finalDecision: application.screeningFinalDecision,
+      overrideReason: application.screeningDecisionOverrideReason,
+      confirmationStatus: application.screeningResultConfirmationStatus,
+      confirmedAt: application.screeningResultConfirmedAt?.toISOString() ?? null,
       reasonCode: application.screeningDecisionReasonCode,
       decisionPolicyVersion: application.screeningDecisionPolicyVersion,
       policyVersion: application.screeningPolicyVersion,

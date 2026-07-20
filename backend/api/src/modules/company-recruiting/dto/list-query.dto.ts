@@ -6,7 +6,7 @@ const APPLICATION_STATUSES = ["DRAFT", "SUBMITTED", "IN_REVIEW", "INTERVIEW_WAIT
 const DOCUMENT_STATUSES = ["NOT_SUBMITTED", "SUBMITTED", "EXTRACTING", "EXTRACTED", "FAILED"] as const;
 const INTERVIEW_STATUSES = ["NOT_READY", "READY", "IN_PROGRESS", "COMPLETED", "FAILED"] as const;
 const REPORT_STATUSES = ["PENDING", "GENERATING", "COMPLETED", "FAILED"] as const;
-const SCREENING_DECISIONS = ["UNDECIDED", "PASS", "HOLD", "FAIL"] as const;
+const SCREENING_DECISIONS = ["UNDECIDED", "PASS", "HOLD", "FAIL", "RETRY"] as const;
 const APPLICANT_SORT_FIELDS = ["updatedAt", "applicationStatus", "interviewStatus", "reportStatus", "score"] as const;
 
 class PaginationQueryDto {
@@ -78,6 +78,16 @@ export class ListApplicantsQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsIn(SCREENING_DECISIONS)
   screeningDecision?: string;
+
+  @ApiPropertyOptional({ enum: SCREENING_DECISIONS })
+  @IsOptional()
+  @IsIn(SCREENING_DECISIONS)
+  effectiveScreeningDecision?: string;
+
+  @ApiPropertyOptional({ enum: ["PENDING", "CONFIRMED"] })
+  @IsOptional()
+  @IsIn(["PENDING", "CONFIRMED"])
+  screeningResultConfirmationStatus?: "PENDING" | "CONFIRMED";
 
   @ApiPropertyOptional({ enum: APPLICANT_SORT_FIELDS, default: "updatedAt" })
   @IsOptional()

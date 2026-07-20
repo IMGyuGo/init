@@ -800,6 +800,7 @@ AI 리포트 금지 기준:
 - Request Body:
   - `targetPassCount`: number, required, 0 이상 5000 이하 정수
 - 검증/전제조건:
+  - 자동 전형 판정 정책이 활성화된 공고에서는 이 legacy API를 사용하지 않고 API-012R 검토와 API-012C 일괄 확정 흐름을 사용한다. 호출 시 `409 COMMON_CONFLICT`, `reason=SCREENING_DECISION_SYSTEM_MANAGED`를 반환한다.
   - 공고 조회 권한 보유
   - 목표 인원만큼 최종 합격 대상을 선정할 수 있도록 `PASS` 또는 `FAIL` 판정이 완료된 활성 지원자가 있어야 한다.
 - 성공 응답/처리:
