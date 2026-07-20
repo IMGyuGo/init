@@ -180,7 +180,7 @@ export class PrismaReportRepository implements ReportRepository {
             confidence: "HIGH",
             rubricVersion: "ncs-evidence-growth-v1",
             promptVersion: "ncs-text-evaluation-playground-v1",
-            providerMode: "fixed",
+            providerMode: "mock",
             modelName: "fixed-demo-fixture-v1",
             resultJson: this.saltluxQuestionEvaluation(profile),
             evidences: {
@@ -215,7 +215,6 @@ export class PrismaReportRepository implements ReportRepository {
           inputRef,
           outputRef,
           attemptCount: 1,
-          maxAttempts: 1,
           startedAt: now,
           completedAt: now,
           durationMs: 0,
