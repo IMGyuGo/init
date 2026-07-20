@@ -148,4 +148,41 @@ describe("CandidateReportMediaController", () => {
 
     expect(body.listenerCount("error")).toBeGreaterThan(0);
   });
+
+  it("destroys streamed mock media when the client response closes early", async () => {
+    const body = new PassThrough();
+    service.verifyMockReportMediaSession.mockReturnValue(candidateUser);
+    service.getMockReportMediaFile.mockResolvedValue({
+      body,
+      contentLength: 5,
+      contentType: "video/webm",
+      originalName: "mock-answer.webm",
+      statusCode: 200,
+    });
+
+    const response = new Writable({
+      write(_chunk, _encoding, callback) {
+        callback();
+      },
+    }) as Writable & Pick<Response, "headersSent" | "removeHeader" | "setHeader" | "status">;
+    response.status = jest.fn().mockReturnValue(response);
+    response.removeHeader = jest.fn();
+    response.setHeader = jest.fn();
+    response.headersSent = false;
+
+    await controller.getMockReportMediaFile(
+      {
+        headers: {},
+        cookies: { [CANDIDATE_MOCK_MEDIA_COOKIE_NAME]: "media-token" },
+      } as never,
+      undefined,
+      41,
+      8001,
+      response as unknown as Response,
+    );
+
+    response.emit("close");
+
+    expect(body.destroyed).toBe(true);
+  });
 });
