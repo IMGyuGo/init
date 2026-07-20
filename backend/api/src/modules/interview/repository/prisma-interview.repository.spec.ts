@@ -576,6 +576,65 @@ test("prisma interview repository persists appended runtime questions", async ()
   ]);
 });
 
+test("prisma interview repository inserts the Saltlux demo follow-up as a runtime question", async () => {
+  const createCalls: Array<{ data: Record<string, unknown> }> = [];
+  const transactionClient = {
+    $queryRawUnsafe: async (query: string) =>
+      query.includes("nextval") ? [{ questionId: 1_000_000_000_000_001n }] : [],
+    $executeRawUnsafe: async () => 1,
+    interviewAnswer: {
+      findFirst: async () => ({
+        answerId: 101n,
+        sessionId: 10001n,
+        session: { sessionMode: "DEMO_PRESET", status: "IN_PROGRESS" },
+        sessionQuestion: {
+          sessionQuestionId: 501n,
+          sortOrder: 2,
+          criterionId: 31n,
+          criterionTitleSnapshot: "문제해결능력",
+          usageScope: "DEMO_PRESET",
+          ncsProfileId: "PROBLEM_SOLVING",
+          ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+          ncsProfileVersion: "2025.12-v1",
+          alignmentStatus: "ALIGNED",
+          alignmentScore: 0.91,
+          alignmentReason: null,
+          evaluatorVersion: "2025.12-v1",
+          policyVersion: 1,
+          criteriaVersion: 1,
+          ncsBindings: [],
+        },
+      }),
+    },
+    interviewSessionQuestion: {
+      create: async (args: { data: Record<string, unknown> }) => {
+        createCalls.push(args);
+        return { sessionQuestionId: 502n };
+      },
+    },
+    followUpQuestion: {
+      findUnique: async () => null,
+      upsert: async () => ({}),
+    },
+  };
+  const repository = new PrismaInterviewRepository({
+    $transaction: async (callback: (client: typeof transactionClient) => Promise<unknown>) => callback(transactionClient),
+  } as never);
+
+  const inserted = await repository.ensureSaltluxDemoFollowUp({
+    sessionId: 10001,
+    answerId: 101,
+    content: "선택한 해결 방식의 기준과 결과를 구체적으로 설명해 주세요.",
+    answerTimeSec: 90,
+  });
+
+  assert.equal(inserted, true);
+  assert.equal(createCalls.length, 1);
+  assert.equal(createCalls[0]?.data.generationSource, null);
+  assert.equal(createCalls[0]?.data.questionType, "FOLLOW_UP");
+  assert.equal(createCalls[0]?.data.runtimeQuestionId, 1_000_000_000_000_001n);
+});
+
 test("prisma interview repository hides and soft deletes mock sessions", async () => {
   const findManyCalls: unknown[] = [];
   const findFirstCalls: unknown[] = [];
