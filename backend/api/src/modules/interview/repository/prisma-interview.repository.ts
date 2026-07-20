@@ -610,7 +610,9 @@ export class PrismaInterviewRepository implements InterviewRepository {
           runtimeQuestionId: sequence.questionId,
           criterionId: sourceQuestion.criterionId,
           criterionTitleSnapshot: sourceQuestion.criterionTitleSnapshot,
-          generationSource: "PRESENTATION_FIXTURE",
+          // Runtime follow-ups are not generated question-bank rows. Keep this null so the
+          // interview_session_questions generation-source/shape constraints accept the row.
+          generationSource: null,
           usageScope: sourceQuestion.usageScope,
           questionType: "FOLLOW_UP",
           content: input.content,
