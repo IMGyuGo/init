@@ -4,7 +4,10 @@ import {
   buildSyntheticApplicantPlan,
   type SyntheticImporterOptions,
 } from "./synthetic-applicant-importer.contract";
-import { buildSyntheticReportWrite } from "./prisma-synthetic-applicant.store";
+import {
+  buildSyntheticReportWrite,
+  syntheticApplicationUpdatedAt,
+} from "./prisma-synthetic-applicant.store";
 
 describe("synthetic report persistence shape", () => {
   it("keeps the legacy V1 report total at 81", () => {
@@ -23,6 +26,23 @@ describe("synthetic report persistence shape", () => {
     expect(writes).toHaveLength(100);
     expect(writes.every((write) => write.scores.length === 3)).toBe(true);
     expect(new Set(writes.map((write) => write.report.totalScore)).size).toBeGreaterThan(20);
+  });
+});
+
+describe("synthetic application timestamps", () => {
+  const baseNow = Date.parse("2026-07-21T00:00:00.000Z");
+
+  it("makes lower V2 ordinals newer for the default descending UI sort", () => {
+    const first = syntheticApplicationUpdatedAt(SYNTHETIC_MANIFEST_V2, 1, baseNow);
+    const eleventh = syntheticApplicationUpdatedAt(SYNTHETIC_MANIFEST_V2, 11, baseNow);
+
+    expect(first?.getTime()).toBe(baseNow - 60_000);
+    expect(eleventh?.getTime()).toBe(baseNow - 11 * 60_000);
+    expect(first!.getTime()).toBeGreaterThan(eleventh!.getTime());
+  });
+
+  it("keeps application updatedAt omitted for V1", () => {
+    expect(syntheticApplicationUpdatedAt(SYNTHETIC_MANIFEST_V1, 1, baseNow)).toBeUndefined();
   });
 });
 

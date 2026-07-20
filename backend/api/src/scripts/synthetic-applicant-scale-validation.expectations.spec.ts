@@ -4,9 +4,12 @@ import {
   type SyntheticImporterOptions,
 } from "../modules/candidate/scripts/synthetic-applicant-importer.contract";
 import {
+  assertV2SyntheticIdentityAggregate,
   buildPostingValidationExpectations,
   buildSyntheticReportExpectations,
+  countSyntheticReportDecisions,
   type ApplicantStateProjection,
+  type SyntheticIdentityAggregate,
 } from "./synthetic-applicant-scale-validation.expectations";
 
 describe("synthetic applicant scale validation expectations", () => {
@@ -106,6 +109,26 @@ describe("synthetic applicant scale validation expectations", () => {
     expect(actual.uniqueScores).toBeGreaterThan(20);
     expect(JSON.stringify(actual)).not.toMatch(/applicationId|email|name|phone/);
   });
+
+  it("accepts only the approved fixed V2 identity aggregate", () => {
+    expect(() => assertV2SyntheticIdentityAggregate(v2IdentityAggregate())).not.toThrow();
+  });
+
+  it.each([
+    ["interactive", 9],
+    ["nonInteractive", 1_039],
+    ["invalidNonInteractive", 1],
+    ["identityMatches", 1_049],
+  ] as const)("rejects a V2 %s aggregate outside the approved total", (field, value) => {
+    expect(() => assertV2SyntheticIdentityAggregate({
+      ...v2IdentityAggregate(),
+      [field]: value,
+    })).toThrow();
+  });
+
+  it("counts the actual database report decisions supplied by the verifier", () => {
+    expect(countSyntheticReportDecisions(["FAIL", "PASS", "FAIL"])).toEqual({ FAIL: 2, PASS: 1 });
+  });
 });
 
 function options(): SyntheticImporterOptions {
@@ -131,5 +154,15 @@ function application(overrides: Partial<ApplicantStateProjection> = {}): Applica
     reportStatus: "PENDING",
     screeningDecision: "UNDECIDED",
     ...overrides,
+  };
+}
+
+function v2IdentityAggregate(): SyntheticIdentityAggregate {
+  return {
+    interactive: 10,
+    nonInteractive: 1_040,
+    invalidNonInteractive: 0,
+    identityMatches: 1_050,
+    domainCounts: {},
   };
 }

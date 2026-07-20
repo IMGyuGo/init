@@ -18,8 +18,10 @@ import {
 import { V2_EMAIL_DOMAINS } from "../modules/candidate/scripts/synthetic-applicant-importer.v2";
 import type { PrismaService } from "../shared/prisma.service";
 import {
+  assertV2SyntheticIdentityAggregate,
   buildPostingValidationExpectations,
   buildSyntheticReportExpectations,
+  countSyntheticReportDecisions,
   type PostingStatusCounts,
   type PostingValidationExpectations,
 } from "./synthetic-applicant-scale-validation.expectations";
@@ -332,7 +334,9 @@ async function verifySyntheticIdentities(
   assert(nonInteractive === records.length - interactive, "non-interactive 인증 격리 계약이 깨졌습니다.");
   assert(invalidNonInteractive === 0, "로그인 가능한 non-interactive 계정이 있습니다.");
   assert(identityMatches === records.length, "manifest identity가 plan과 일치하지 않습니다.");
-  return { interactive, nonInteractive, invalidNonInteractive, identityMatches, domainCounts };
+  const aggregate = { interactive, nonInteractive, invalidNonInteractive, identityMatches, domainCounts };
+  if (manifestVersion === SYNTHETIC_MANIFEST_V2) assertV2SyntheticIdentityAggregate(aggregate);
+  return aggregate;
 }
 
 function verifySummary(
@@ -421,7 +425,7 @@ async function verifyV2FirstPageDecisions(
   const items = await repository.listApplicationsForPosting(
     postingId,
     companyId,
-    query({ page, limit, order: "asc" }),
+    query({ page, limit, sort: "updatedAt", order: "desc" }),
   );
   const baselineIds = new Set(baselineApplicationIds.map((applicationId) => applicationId.toString()));
   const syntheticItems = items.filter((item) => !baselineIds.has(String(item.applicationId)));
@@ -503,6 +507,7 @@ async function verifyReportFixtures(
       applicationId: true,
       status: true,
       totalScore: true,
+      application: { select: { screeningDecision: true } },
       scores: {
         select: { ncsProfileId: true, score: true, weight: true, weightedScore: true },
         orderBy: { ncsProfileId: "asc" },
@@ -522,7 +527,7 @@ async function verifyReportFixtures(
 
   const expected = buildSyntheticReportExpectations(planned);
   const scores: number[] = [];
-  const decisions: Record<string, number> = {};
+  const actualDecisions: string[] = [];
   let profileRows = 0;
   let weightedTotalsMatched = 0;
 
@@ -537,8 +542,10 @@ async function verifyReportFixtures(
     const fixture = plannedRecord.reportFixture;
     assert(fixture, "완료 리포트 plan에 fixture가 없습니다.");
     assert(report.totalScore === fixture.totalScore, "완료 리포트 total score가 plan과 다릅니다.");
+    const actualDecision = report.application?.screeningDecision;
+    assert(actualDecision === plannedRecord.screeningDecision, "완료 리포트 application 판정이 plan과 다릅니다.");
     scores.push(report.totalScore);
-    decisions[plannedRecord.screeningDecision] = (decisions[plannedRecord.screeningDecision] ?? 0) + 1;
+    actualDecisions.push(actualDecision);
     profileRows += report.scores.length;
 
     const expectedProfiles = fixture.profiles;
@@ -569,6 +576,7 @@ async function verifyReportFixtures(
   }
 
   const completed = reports.filter((report) => report.status === "COMPLETED").length;
+  const decisions = countSyntheticReportDecisions(actualDecisions);
   const actual = {
     completed,
     decisions,
@@ -594,6 +602,7 @@ async function verifyReportFixtures(
   } else {
     assert(actual.completed === 100, "V2 완료 리포트가 정확히 100건이 아닙니다.");
     assertCountMap(actual.decisions, { PASS: 20, FAIL: 80 }, "V2 completedReportDecision");
+    assert((actual.decisions.HOLD ?? 0) === 0, "V2 완료 리포트 HOLD 판정이 0건이 아닙니다.");
     assert(actual.minimumScore === 45, "V2 완료 리포트 minimum score가 45가 아닙니다.");
     assert(actual.maximumScore === 96, "V2 완료 리포트 maximum score가 96이 아닙니다.");
     assert(actual.uniqueScores > 20, "V2 완료 리포트 unique score가 20개 이하입니다.");

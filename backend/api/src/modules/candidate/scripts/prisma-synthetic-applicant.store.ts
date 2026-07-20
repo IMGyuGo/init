@@ -1,6 +1,8 @@
 import { PrismaClient, type Prisma } from "@prisma/client";
 
 import {
+  SYNTHETIC_MANIFEST_V2,
+  assertSyntheticManifestVersion,
   type SyntheticApplicantPlanRecord,
   type SyntheticImporterOptions,
   type SyntheticManifestVersion,
@@ -12,6 +14,16 @@ import type {
 } from "./synthetic-applicant-importer.service";
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 } as const;
+
+export function syntheticApplicationUpdatedAt(
+  manifestVersion: SyntheticManifestVersion,
+  ordinal: number,
+  baseNow: number,
+) {
+  return manifestVersion === SYNTHETIC_MANIFEST_V2
+    ? new Date(baseNow - ordinal * 60_000)
+    : undefined;
+}
 
 export function buildSyntheticReportWrite(record: SyntheticApplicantPlanRecord) {
   const completed = record.reportStatus === "COMPLETED";
@@ -107,10 +119,14 @@ export class PrismaSyntheticApplicantStore implements SyntheticApplicantStore {
 
   async createBatch(datasetId: string, records: SyntheticApplicantPlanRecord[], passwordHash: string) {
     await this.prisma.$transaction(async (tx) => {
-      const dataset = await tx.syntheticApplicantDataset.findUnique({ where: { datasetId }, select: { postingId: true } });
+      const dataset = await tx.syntheticApplicantDataset.findUnique({
+        where: { datasetId },
+        select: { postingId: true, manifestVersion: true },
+      });
       if (!dataset) throw new Error(`dataset manifest가 없습니다: ${datasetId}`);
+      assertSyntheticManifestVersion(dataset.manifestVersion);
       for (const record of records) {
-        await this.createRecord(tx, datasetId, dataset.postingId, record, passwordHash);
+        await this.createRecord(tx, datasetId, dataset.postingId, record, passwordHash, dataset.manifestVersion);
       }
     }, TRANSACTION_OPTIONS);
   }
@@ -163,8 +179,11 @@ export class PrismaSyntheticApplicantStore implements SyntheticApplicantStore {
     postingId: bigint,
     record: SyntheticApplicantPlanRecord,
     passwordHash: string,
+    manifestVersion: SyntheticManifestVersion,
   ) {
-    const now = new Date(Date.now() - record.ordinal * 60_000);
+    const baseNow = Date.now();
+    const now = new Date(baseNow - record.ordinal * 60_000);
+    const applicationUpdatedAt = syntheticApplicationUpdatedAt(manifestVersion, record.ordinal, baseNow);
     const user = await tx.user.create({
       data: {
         email: record.email,
@@ -213,6 +232,7 @@ export class PrismaSyntheticApplicantStore implements SyntheticApplicantStore {
         screeningDecision: record.screeningDecision,
         screeningMemo: null,
         submittedAt: now,
+        ...(applicationUpdatedAt ? { updatedAt: applicationUpdatedAt } : {}),
       },
       select: { applicationId: true },
     });

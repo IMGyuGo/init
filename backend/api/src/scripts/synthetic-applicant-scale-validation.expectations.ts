@@ -45,6 +45,14 @@ export type SyntheticReportExpectations = {
   uniqueScores: number;
 };
 
+export type SyntheticIdentityAggregate = {
+  interactive: number;
+  nonInteractive: number;
+  invalidNonInteractive: number;
+  identityMatches: number;
+  domainCounts: Record<string, number>;
+};
+
 export function buildPostingValidationExpectations(
   syntheticPlan: SyntheticApplicantPlanRecord[],
   baselineApplications: ApplicantStateProjection[],
@@ -82,6 +90,20 @@ export function buildSyntheticReportExpectations(
     maximumScore: scores.length === 0 ? null : Math.max(...scores),
     uniqueScores: new Set(scores).size,
   };
+}
+
+export function assertV2SyntheticIdentityAggregate(actual: SyntheticIdentityAggregate) {
+  if (actual.interactive !== 10) throw new Error("V2 interactive identity aggregate가 승인값과 다릅니다.");
+  if (actual.nonInteractive !== 1_040) throw new Error("V2 non-interactive identity aggregate가 승인값과 다릅니다.");
+  if (actual.invalidNonInteractive !== 0) throw new Error("V2 invalid identity aggregate가 승인값과 다릅니다.");
+  if (actual.identityMatches !== 1_050) throw new Error("V2 identity match aggregate가 승인값과 다릅니다.");
+}
+
+export function countSyntheticReportDecisions(decisions: readonly string[]) {
+  return decisions.reduce<Record<string, number>>((counts, decision) => {
+    counts[decision] = (counts[decision] ?? 0) + 1;
+    return counts;
+  }, {});
 }
 
 function aggregate(active: ApplicantStateProjection[], canceled: number): AggregateExpectation {
