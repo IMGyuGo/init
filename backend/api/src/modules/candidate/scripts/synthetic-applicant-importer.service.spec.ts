@@ -186,6 +186,43 @@ describe("SyntheticApplicantImporterService", () => {
       expect(store.createBatchCalls).toBe(0);
     },
   );
+
+  it("allows only matching manifest-scoped cleanup recovery for a malformed partial V2 dataset", async () => {
+    const options = fixtureOptions({
+      action: "cleanup",
+      activeCount: 999,
+      canceledCount: 51,
+      pipelineSelectionCount: 1,
+    });
+    const store = new FakeSyntheticApplicantStore();
+    store.seedExistingDataset(options, SYNTHETIC_MANIFEST_V2);
+    store.dataset = { ...store.dataset!, status: "PARTIAL" };
+    store.records = [
+      fixtureManifestRecord(1, { isInteractive: true, pipelineSelected: true }),
+      fixtureManifestRecord(1_050, { isCanceled: true, lifecycleStage: "CANCELED" }),
+    ];
+    const service = new SyntheticApplicantImporterService(store);
+
+    await expect(service.previewCleanup({ ...options, batchSize: 200 })).rejects.toThrow("다른 옵션");
+    expect(store.listRecordsCalls).toBe(0);
+    expect(store.updateDatasetCalls).toBe(0);
+
+    await expect(service.previewCleanup({ ...options, environment: "staging" })).rejects.toThrow("environment");
+    await expect(service.previewCleanup({ ...options, postingId: 35n })).rejects.toThrow("companyId/postingId");
+
+    store.dataset = { ...store.dataset!, manifestVersion: "UNSUPPORTED" };
+    await expect(service.previewCleanup(options)).rejects.toThrow("manifest version");
+    store.dataset = { ...store.dataset!, manifestVersion: SYNTHETIC_MANIFEST_V2 };
+
+    const preview = await service.previewCleanup(options);
+    const result = await service.cleanup(options);
+
+    expect(preview.deleteExpected).toEqual({ records: 2, active: 1, canceled: 1, interactive: 1 });
+    expect(result).toMatchObject({ datasetStatus: "CLEANED", cleanedRecords: 2, remainingRecords: 0 });
+    expect(store.cleanedApplicationIds).toEqual([30_001n, 31_050n]);
+    expect(store.cleanedApplicationIds).not.toContain(99_999n);
+    expect(store.dataset?.status).toBe("CLEANED");
+  });
 });
 
 class FakeSyntheticApplicantStore implements SyntheticApplicantStore {
@@ -316,4 +353,23 @@ function legacyFixtureOptions(overrides: Partial<SyntheticImporterOptions> = {})
     batchSize: 25,
     ...overrides,
   });
+}
+
+function fixtureManifestRecord(
+  ordinal: number,
+  overrides: Partial<SyntheticManifestRecord> = {},
+): SyntheticManifestRecord {
+  return {
+    ordinal,
+    userId: BigInt(10_000 + ordinal),
+    candidateId: BigInt(20_000 + ordinal),
+    applicationId: BigInt(30_000 + ordinal),
+    isInteractive: false,
+    isCanceled: false,
+    lifecycleStage: "DOCUMENT_PROCESSING",
+    dataDepth: "LIGHTWEIGHT",
+    pipelineSelected: false,
+    cleanedAt: null,
+    ...overrides,
+  };
 }

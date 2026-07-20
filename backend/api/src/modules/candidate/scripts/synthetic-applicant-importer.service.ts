@@ -145,8 +145,8 @@ export class SyntheticApplicantImporterService {
     const target = await this.requireTarget(options);
     const dataset = await this.store.findDataset(options.datasetId);
     if (!dataset) throw new Error("cleanup할 dataset manifest를 찾을 수 없습니다.");
-    this.resolveManifestVersion(dataset);
-    this.assertCleanupTarget(dataset, options);
+    const manifestVersion = this.resolveManifestVersion(dataset);
+    this.assertCleanupContract(dataset, options, manifestVersion);
     const records = await this.store.listRecords(options.datasetId);
     const pending = records.filter((record) => !record.cleanedAt);
 
@@ -173,8 +173,8 @@ export class SyntheticApplicantImporterService {
     const target = await this.requireTarget(options);
     const dataset = await this.store.findDataset(options.datasetId);
     if (!dataset) throw new Error("cleanup할 dataset manifest를 찾을 수 없습니다.");
-    this.resolveManifestVersion(dataset);
-    this.assertCleanupTarget(dataset, options);
+    const manifestVersion = this.resolveManifestVersion(dataset);
+    this.assertCleanupContract(dataset, options, manifestVersion);
     const records = await this.store.listRecords(options.datasetId);
     const pending = records.filter((record) => !record.cleanedAt);
     return {
@@ -218,6 +218,17 @@ export class SyntheticApplicantImporterService {
     if (dataset.environment !== options.environment) throw new Error("dataset 환경이 실행 environment와 일치하지 않습니다.");
     if (dataset.postingId !== options.postingId || dataset.companyId !== options.companyId) {
       throw new Error("dataset의 companyId/postingId가 실행 대상과 일치하지 않습니다.");
+    }
+  }
+
+  private assertCleanupContract(
+    dataset: SyntheticDatasetManifest,
+    options: SyntheticImporterOptions,
+    manifestVersion: SyntheticManifestVersion,
+  ) {
+    this.assertCleanupTarget(dataset, options);
+    if (dataset.optionsHash !== syntheticOptionsHash(options, manifestVersion)) {
+      throw new Error("같은 datasetId가 다른 옵션으로 이미 존재합니다.");
     }
   }
 
