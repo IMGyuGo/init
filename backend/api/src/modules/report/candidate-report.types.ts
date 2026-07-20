@@ -172,7 +172,9 @@ export interface CandidateApplicationStatusView {
   reportStatus: ReportStatus;
   sessionId: number;
   interviewSessionStatus: InterviewStatus;
-  screeningDecision: ScreeningDecision;
+  resultPublicationStatus: "PENDING" | "CONFIRMED";
+  screeningDecision: ScreeningDecision | null;
+  screeningResultConfirmedAt: string | null;
   submittedAt: string;
   updatedAt: string;
   reportAvailable: boolean;
@@ -185,7 +187,9 @@ export interface CandidateRecruitingReportView {
   status: ReportStatus;
   applicationStatus: ApplicationStatus;
   interviewStatus: InterviewStatus;
-  screeningDecision: ScreeningDecision;
+  resultPublicationStatus: "PENDING" | "CONFIRMED";
+  screeningDecision: ScreeningDecision | null;
+  screeningResultConfirmedAt: string | null;
   companyName: string;
   jobTitle: string;
   reportId?: number;
