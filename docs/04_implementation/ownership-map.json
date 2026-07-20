@@ -371,6 +371,7 @@
       "^docs/",
       "^assets/",
       "^frontend/src/features/landing/",
+      "^backend/api/src/scripts/synthetic-applicant-scale-validation\\.ts$",
       "^design\\.md$"
     ]
   }
