@@ -109,6 +109,16 @@ export type QuestionGenerationPolicyRecord = {
   criteriaVersion: number;
 };
 
+export type AutoScreeningPolicyRecord = {
+  postingId: number;
+  enabled: boolean;
+  passMinTotalScore: number;
+  holdMinTotalScore: number;
+  requireAllCriteriaPass: true;
+  policyVersion: number;
+  decisionPolicyVersion: 'AUTO_SCREENING_DECISION_V1';
+};
+
 export type InterviewPublicationReadinessReason =
   | 'CRITERIA_NOT_READY'
   | 'QUESTION_GENERATION_POLICY_MISSING'

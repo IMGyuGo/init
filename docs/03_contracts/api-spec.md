@@ -1809,7 +1809,7 @@ AI 리포트 금지 기준:
   - 평가 기준과 자동 판정 정책은 하나의 transaction에서 저장하고, 둘 중 하나라도 실패하면 전체 rollback한다.
   - 평가 기준 하한선 또는 자동 판정 정책이 바뀌면 `policyVersion`을 1 증가시킨다.
   - V2 profile 해제 시 단일 binding 질문은 `isActive=false`, multi-binding 질문은 `REVIEW_REQUIRED`로 보존하고 ACTIVE 질문 세트를 재확정 대상으로 만든다.
-  - 정책 row가 없으면 같은 transaction에서 기본 정책 row를 생성하고 첫 저장 결과의 `criteriaVersion=1`로 응답한다.
+  - 요청에 `screeningPolicy`가 없고 기존 정책 row도 없으면 정책을 임의 생성하지 않으며 `screeningPolicy=null`로 응답한다. 이 경우 자동 판정은 `UNDECIDED`를 유지한다.
   - 평가 기준 변경과 `criteriaVersion` 증가는 하나의 transaction으로 처리한다.
   - `criteriaVersion`이 변경되고 개인화 질문 수가 1개 이상이면, 이미 지원 완료됐고 이력서 추출이 끝난 지원자의 현재 입력 snapshot을 기준으로 `RESUME_QUESTION_GENERATE` 작업을 자동 등록한다.
   - 현재 version의 `READY` 또는 `GENERATING` batch가 이미 있으면 중복 작업을 만들지 않는다. queue 등록 실패는 해당 batch/process를 `FAILED`로 기록하며 평가 기준 저장 자체를 되돌리지 않는다.

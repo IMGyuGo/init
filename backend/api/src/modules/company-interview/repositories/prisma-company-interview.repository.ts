@@ -4,6 +4,7 @@ import type { QuestionType } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma.service';
 import {
   CriterionTagRecord,
+  AutoScreeningPolicyRecord,
   EvaluationCriterionRecord,
   EvaluationFramework,
   NcsProfileId,
@@ -27,6 +28,7 @@ import {
   UpdateCriterionInput,
   UpdateQuestionInput,
   UpdateQuestionGenerationPolicyInput,
+  ReplaceCriteriaOptions,
 } from './company-interview.repository';
 
 @Injectable()
@@ -197,6 +199,15 @@ export class PrismaCompanyInterviewRepository
     return policy ? mapQuestionGenerationPolicy(policy) : undefined;
   }
 
+  async getAutoScreeningPolicy(
+    postingId: number,
+  ): Promise<AutoScreeningPolicyRecord | undefined> {
+    const policy = await this.prisma.autoScreeningPolicy.findUnique({
+      where: { postingId: BigInt(postingId) },
+    });
+    return policy ? mapAutoScreeningPolicy(policy) : undefined;
+  }
+
   async isConfigurationLocked(postingId: number): Promise<boolean> {
     const application = await this.prisma.application.findFirst({
       where: {
@@ -215,11 +226,54 @@ export class PrismaCompanyInterviewRepository
     postingId: number,
     evaluationFramework: EvaluationFramework,
     criteria: UpdateCriterionInput[],
-    options: { deactivatedProfileIds: NcsProfileId[] } = {
+    options: ReplaceCriteriaOptions = {
       deactivatedProfileIds: [],
+      criteriaPassScoresChanged: false,
     },
   ) {
     const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw<Array<{ posting_id: bigint }>>`
+        SELECT "posting_id"
+        FROM "postings"
+        WHERE "posting_id" = ${BigInt(postingId)}
+        FOR UPDATE
+      `;
+      const lockedApplication = await tx.application.findFirst({
+        where: {
+          postingId: BigInt(postingId),
+          OR: [
+            { submittedAt: { not: null } },
+            { applicationStatus: { not: 'DRAFT' } },
+          ],
+        },
+        select: { applicationId: true },
+      });
+      if (lockedApplication) {
+        return { locked: true as const };
+      }
+
+      const currentQuestionPolicy =
+        await tx.interviewQuestionGenerationPolicy.findUnique({
+          where: { postingId: BigInt(postingId) },
+        });
+      if (
+        options.expectedQuestionPolicyVersion !== undefined &&
+        options.expectedQuestionPolicyVersion !==
+          (currentQuestionPolicy?.policyVersion ?? 0)
+      ) {
+        return { conflicted: true as const };
+      }
+      if (
+        options.expectedCriteriaVersion !== undefined &&
+        options.expectedCriteriaVersion !==
+          (currentQuestionPolicy?.criteriaVersion ?? 0)
+      ) {
+        return { conflicted: true as const };
+      }
+
+      const currentScreeningPolicy = await tx.autoScreeningPolicy.findUnique({
+        where: { postingId: BigInt(postingId) },
+      });
       const nextIds: bigint[] = [];
 
       for (const criterion of criteria) {
@@ -347,16 +401,65 @@ export class PrismaCompanyInterviewRepository
         });
       }
 
-      return { nextIds, policy };
+      const nextScreeningPolicyInput =
+        options.screeningPolicy ?? currentScreeningPolicy;
+      let screeningPolicy = currentScreeningPolicy;
+      if (nextScreeningPolicyInput) {
+        const screeningPolicyChanged =
+          !currentScreeningPolicy ||
+          currentScreeningPolicy.enabled !== nextScreeningPolicyInput.enabled ||
+          currentScreeningPolicy.passMinTotalScore !==
+            nextScreeningPolicyInput.passMinTotalScore ||
+          currentScreeningPolicy.holdMinTotalScore !==
+            nextScreeningPolicyInput.holdMinTotalScore ||
+          currentScreeningPolicy.requireAllCriteriaPass !==
+            nextScreeningPolicyInput.requireAllCriteriaPass ||
+          options.criteriaPassScoresChanged;
+        if (screeningPolicyChanged) {
+          screeningPolicy = await tx.autoScreeningPolicy.upsert({
+            where: { postingId: BigInt(postingId) },
+            create: {
+              postingId: BigInt(postingId),
+              enabled: nextScreeningPolicyInput.enabled,
+              passMinTotalScore: nextScreeningPolicyInput.passMinTotalScore,
+              holdMinTotalScore: nextScreeningPolicyInput.holdMinTotalScore,
+              requireAllCriteriaPass: true,
+              policyVersion: 1,
+              decisionPolicyVersion: 'AUTO_SCREENING_DECISION_V1',
+            },
+            update: {
+              enabled: nextScreeningPolicyInput.enabled,
+              passMinTotalScore: nextScreeningPolicyInput.passMinTotalScore,
+              holdMinTotalScore: nextScreeningPolicyInput.holdMinTotalScore,
+              requireAllCriteriaPass: true,
+              policyVersion: { increment: 1 },
+              decisionPolicyVersion: 'AUTO_SCREENING_DECISION_V1',
+            },
+          });
+        }
+      }
+
+      return { locked: false as const, nextIds, policy, screeningPolicy };
     });
+
+    if ('locked' in result && result.locked) {
+      return result;
+    }
+    if ('conflicted' in result && result.conflicted) {
+      return result;
+    }
 
     const saved = await this.prisma.evaluationCriterion.findMany({
       where: { criterionId: { in: result.nextIds } },
       orderBy: { sortOrder: 'asc' },
     });
     return {
+      locked: false as const,
       criteria: saved.map(mapCriterion),
       policy: mapQuestionGenerationPolicy(result.policy),
+      screeningPolicy: result.screeningPolicy
+        ? mapAutoScreeningPolicy(result.screeningPolicy)
+        : null,
     };
   }
 
@@ -365,6 +468,25 @@ export class PrismaCompanyInterviewRepository
     input: UpdateQuestionGenerationPolicyInput,
   ): Promise<QuestionGenerationPolicyRecord | undefined> {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw<Array<{ posting_id: bigint }>>`
+        SELECT "posting_id"
+        FROM "postings"
+        WHERE "posting_id" = ${BigInt(postingId)}
+        FOR UPDATE
+      `;
+      const lockedApplication = await tx.application.findFirst({
+        where: {
+          postingId: BigInt(postingId),
+          OR: [
+            { submittedAt: { not: null } },
+            { applicationStatus: { not: 'DRAFT' } },
+          ],
+        },
+        select: { applicationId: true },
+      });
+      if (lockedApplication) {
+        return undefined;
+      }
       const current = await tx.interviewQuestionGenerationPolicy.findUnique({
         where: { postingId: BigInt(postingId) },
       });
@@ -372,6 +494,12 @@ export class PrismaCompanyInterviewRepository
       if (
         input.expectedPolicyVersion !== undefined &&
         input.expectedPolicyVersion !== currentVersion
+      ) {
+        return undefined;
+      }
+      if (
+        input.expectedCriteriaVersion !== undefined &&
+        input.expectedCriteriaVersion !== (current?.criteriaVersion ?? 0)
       ) {
         return undefined;
       }
@@ -915,6 +1043,32 @@ function mapQuestionGenerationPolicy(policy: {
     resumeQuestionCount: policy.resumeQuestionCount,
     policyVersion: policy.policyVersion,
     criteriaVersion: policy.criteriaVersion,
+  };
+}
+
+function mapAutoScreeningPolicy(policy: {
+  postingId: bigint;
+  enabled: boolean;
+  passMinTotalScore: number;
+  holdMinTotalScore: number;
+  requireAllCriteriaPass: boolean;
+  policyVersion: number;
+  decisionPolicyVersion: string;
+}): AutoScreeningPolicyRecord {
+  if (
+    policy.requireAllCriteriaPass !== true ||
+    policy.decisionPolicyVersion !== 'AUTO_SCREENING_DECISION_V1'
+  ) {
+    throw new Error('Unsupported auto screening policy row');
+  }
+  return {
+    postingId: Number(policy.postingId),
+    enabled: policy.enabled,
+    passMinTotalScore: policy.passMinTotalScore,
+    holdMinTotalScore: policy.holdMinTotalScore,
+    requireAllCriteriaPass: true,
+    policyVersion: policy.policyVersion,
+    decisionPolicyVersion: 'AUTO_SCREENING_DECISION_V1',
   };
 }
 

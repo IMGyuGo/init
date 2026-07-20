@@ -30,6 +30,12 @@ import {
 } from "./demo-preset-personalization";
 import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import { AiWorkerJob, FailureReason } from "./worker.types";
+import {
+  AUTO_SCREENING_DECISION_POLICY_VERSION,
+  decideAutoScreening,
+  type AutoScreeningCriterionSnapshot,
+  type AutoScreeningPolicySnapshot,
+} from "./auto-screening-decision";
 
 interface ResumeQuestionDocumentRow {
   documentId: bigint;
@@ -123,7 +129,7 @@ interface PrismaAiResultClient {
   $queryRawUnsafe?<T>(query: string, ...values: unknown[]): Promise<T>;
   application: {
     updateMany(args: unknown): Promise<unknown>;
-    findUnique?(args: unknown): Promise<ResumeQuestionDocumentRow["application"] | null>;
+    findUnique?(args: unknown): Promise<any>;
   };
   applicationDocument: {
     updateMany(args: unknown): Promise<unknown>;
@@ -182,7 +188,10 @@ interface PrismaAiResultClient {
 }
 
 export class PrismaAiResultRepository implements AiResultRepository {
-  constructor(private readonly prisma: PrismaAiResultClient) {}
+  constructor(
+    private readonly prisma: PrismaAiResultClient,
+    private readonly transactionScoped = false,
+  ) {}
 
   async markDocumentExtractionStarted(record: DocumentExtractionStatusRecord): Promise<void> {
     await this.prisma.applicationDocument.updateMany({
@@ -760,7 +769,7 @@ export class PrismaAiResultRepository implements AiResultRepository {
       }
     };
 
-    if (this.prisma.$transaction) {
+    if (!this.transactionScoped && this.prisma.$transaction) {
       await this.prisma.$transaction(replace);
       return;
     }
@@ -788,6 +797,16 @@ export class PrismaAiResultRepository implements AiResultRepository {
     assertScoresHaveEvidence(record.scores);
     if (record.questionEvaluations.length > 0) {
       assertQuestionEvaluationsHaveEvidence(record.questionEvaluations);
+    }
+    await this.transaction(async (transaction) => {
+      const repository = new PrismaAiResultRepository(transaction, true);
+      await repository.persistGeneratedReport(record);
+    });
+  }
+
+  private async persistGeneratedReport(record: GeneratedReportRecord): Promise<void> {
+    if (await this.isStaleRecruitingReport(record)) {
+      return;
     }
     const ncsReportData = record.ncsFinalEvaluation
       ? {
@@ -848,41 +867,254 @@ export class PrismaAiResultRepository implements AiResultRepository {
     if (record.answerFactChecks) {
       await this.saveAnswerFactChecks(record.reportId, record.answerFactChecks);
     }
-    await this.updateApplicationReportStatus(record, "COMPLETED");
+    await this.finalizeRecruitingApplication(record, "COMPLETED");
   }
 
   async markReportFailed(record: FailedReportRecord): Promise<void> {
+    await this.transaction(async (transaction) => {
+      const repository = new PrismaAiResultRepository(transaction, true);
+      await repository.persistFailedReport(record);
+    });
+  }
+
+  private async persistFailedReport(record: FailedReportRecord): Promise<void> {
+    if (await this.isStaleRecruitingReport(record)) {
+      return;
+    }
     await this.prisma.evaluationReport.upsert({
       where: { reportId: BigInt(record.reportId) },
       create: {
         reportId: BigInt(record.reportId),
+        applicationId: record.applicationId ? BigInt(record.applicationId) : null,
+        sessionId: record.sessionId ? BigInt(record.sessionId) : null,
         reportType: record.reportType,
         status: "FAILED",
         failureCategory: record.failureCategory,
         failureReason: record.failureReason
       },
       update: {
+        ...(record.applicationId ? { applicationId: BigInt(record.applicationId) } : {}),
+        ...(record.sessionId ? { sessionId: BigInt(record.sessionId) } : {}),
         reportType: record.reportType,
         status: "FAILED",
         failureCategory: record.failureCategory,
         failureReason: record.failureReason
       }
     });
-    await this.updateApplicationReportStatus(record, "FAILED");
+    await this.finalizeRecruitingApplication(record, "FAILED");
   }
 
-  private async updateApplicationReportStatus(
-    record: { applicationId?: number; reportType: "RECRUITING_REPORT" | "MOCK_INTERVIEW_REPORT" },
+  private async isStaleRecruitingReport(record: {
+    reportId: number;
+    applicationId?: number;
+    reportType: "RECRUITING_REPORT" | "MOCK_INTERVIEW_REPORT";
+  }): Promise<boolean> {
+    if (
+      record.reportType !== "RECRUITING_REPORT" ||
+      !record.applicationId ||
+      !this.prisma.application.findUnique
+    ) {
+      return false;
+    }
+    if (this.prisma.$queryRawUnsafe) {
+      await this.prisma.$queryRawUnsafe(
+        'SELECT "application_id" FROM "applications" WHERE "application_id" = $1 FOR UPDATE',
+        BigInt(record.applicationId),
+      );
+    }
+    const application = await this.prisma.application.findUnique({
+      where: { applicationId: BigInt(record.applicationId) },
+      select: { screeningDecisionReportId: true },
+    });
+    return (
+      application?.screeningDecisionReportId !== null &&
+      application?.screeningDecisionReportId !== undefined &&
+      application.screeningDecisionReportId > BigInt(record.reportId)
+    );
+  }
+
+  private async finalizeRecruitingApplication(
+    record: {
+      reportId: number;
+      applicationId?: number;
+      reportType: "RECRUITING_REPORT" | "MOCK_INTERVIEW_REPORT";
+      totalScore?: number | null;
+      scores?: GeneratedReportScoreRecord[];
+      ncsFinalEvaluation?: GeneratedReportRecord["ncsFinalEvaluation"];
+      hasTerminalSttUnavailable?: boolean;
+    },
     status: "COMPLETED" | "FAILED"
   ): Promise<void> {
     if (record.reportType !== "RECRUITING_REPORT" || !record.applicationId) {
       return;
     }
 
-    await this.prisma.application.updateMany({
-      where: { applicationId: BigInt(record.applicationId) },
-      data: { reportStatus: status }
-    });
+    if (!this.prisma.application.findUnique) {
+      await this.prisma.application.updateMany({
+        where: { applicationId: BigInt(record.applicationId) },
+        data: { reportStatus: status }
+      });
+      return;
+    }
+
+    const finalize = async (client: PrismaAiResultClient): Promise<void> => {
+      if (client.$queryRawUnsafe) {
+        await client.$queryRawUnsafe(
+          'SELECT "application_id" FROM "applications" WHERE "application_id" = $1 FOR UPDATE',
+          BigInt(record.applicationId!),
+        );
+      }
+      const application = await client.application.findUnique!({
+        where: { applicationId: BigInt(record.applicationId!) },
+        select: {
+          applicationId: true,
+          screeningDecision: true,
+          screeningDecisionReasonCode: true,
+          screeningDecisionPolicyVersion: true,
+          screeningPolicyVersion: true,
+          screeningCriteriaVersion: true,
+          screeningDecisionReportId: true,
+          screeningDecidedAt: true,
+          posting: {
+            select: {
+              autoScreeningPolicy: true,
+              questionGenerationPolicy: {
+                select: { evaluationFramework: true, criteriaVersion: true },
+              },
+              criteria: {
+                select: { criterionId: true, weight: true, passScore: true },
+              },
+            },
+          },
+        },
+      });
+      if (!application) {
+        return;
+      }
+
+      // 새 report version은 증가하는 report_id로 발급한다. 이미 반영된 더 큰
+      // report_id는 지연 도착한 이전 작업이 application projection을 덮어쓸 수 없다.
+      if (
+        application.screeningDecisionReportId !== null &&
+        application.screeningDecisionReportId !== undefined &&
+        application.screeningDecisionReportId > BigInt(record.reportId)
+      ) {
+        return;
+      }
+
+      const policyRow = application.posting.autoScreeningPolicy;
+      if (!policyRow?.enabled) {
+        await client.application.updateMany({
+          where: { applicationId: BigInt(record.applicationId!) },
+          data: { reportStatus: status },
+        });
+        return;
+      }
+      if (
+        policyRow.requireAllCriteriaPass !== true ||
+        policyRow.decisionPolicyVersion !==
+          AUTO_SCREENING_DECISION_POLICY_VERSION
+      ) {
+        throw new NonRetryableAiWorkerFailure(
+          "Unsupported automatic screening policy snapshot",
+        );
+      }
+      const generationPolicy = application.posting.questionGenerationPolicy;
+      if (!generationPolicy || generationPolicy.criteriaVersion < 1) {
+        throw new NonRetryableAiWorkerFailure(
+          "Automatic screening criteria version is unavailable",
+        );
+      }
+
+      const policy: AutoScreeningPolicySnapshot = {
+        enabled: true,
+        passMinTotalScore: policyRow.passMinTotalScore,
+        holdMinTotalScore: policyRow.holdMinTotalScore,
+        requireAllCriteriaPass: true,
+        policyVersion: policyRow.policyVersion,
+        decisionPolicyVersion: AUTO_SCREENING_DECISION_POLICY_VERSION,
+      };
+      const criteria = buildAutoScreeningCriteria(
+        application.posting.criteria,
+        generationPolicy.evaluationFramework,
+        record,
+      );
+      const decision = decideAutoScreening({
+        policy,
+        report: {
+          reportId: record.reportId,
+          status,
+          totalScore: record.totalScore ?? null,
+        },
+        hasTerminalSttUnavailable:
+          record.hasTerminalSttUnavailable === true,
+        evaluationComplete:
+          status === "FAILED"
+            ? false
+            : record.ncsFinalEvaluation
+              ? record.ncsFinalEvaluation.completionStatus === "COMPLETE"
+              : criteria
+                  .filter((criterion) => criterion.active)
+                  .every((criterion) => criterion.evaluationComplete),
+        criteria,
+      });
+
+      if (decision.decision === "UNDECIDED") {
+        await client.application.updateMany({
+          where: { applicationId: BigInt(record.applicationId!) },
+          data: { reportStatus: status },
+        });
+        return;
+      }
+
+      const sameSnapshot =
+        application.screeningDecisionReportId === BigInt(record.reportId) &&
+        application.screeningPolicyVersion === policy.policyVersion &&
+        application.screeningCriteriaVersion === generationPolicy.criteriaVersion &&
+        application.screeningDecisionPolicyVersion ===
+          AUTO_SCREENING_DECISION_POLICY_VERSION;
+      if (sameSnapshot) {
+        if (
+          application.screeningDecision === decision.decision &&
+          application.screeningDecisionReasonCode === decision.reasonCode
+        ) {
+          await client.application.updateMany({
+            where: { applicationId: BigInt(record.applicationId!) },
+            data: { reportStatus: status },
+          });
+          return;
+        }
+        const retryResolved =
+          application.screeningDecision === "RETRY" &&
+          decision.decision !== "RETRY";
+        if (!retryResolved) {
+          throw new NonRetryableAiWorkerFailure(
+            "Conflicting automatic screening result for an existing snapshot",
+          );
+        }
+      }
+
+      await client.application.updateMany({
+        where: { applicationId: BigInt(record.applicationId!) },
+        data: {
+          reportStatus: status,
+          screeningDecision: decision.decision,
+          screeningDecisionReasonCode: decision.reasonCode,
+          screeningDecisionPolicyVersion:
+            AUTO_SCREENING_DECISION_POLICY_VERSION,
+          screeningPolicyVersion: policy.policyVersion,
+          screeningCriteriaVersion: generationPolicy.criteriaVersion,
+          screeningDecisionReportId: BigInt(record.reportId),
+          screeningDecidedAt: new Date(),
+        },
+      });
+    };
+
+    if (!this.transactionScoped && this.prisma.$transaction) {
+      await this.prisma.$transaction(finalize);
+      return;
+    }
+    await finalize(this.prisma);
   }
 
   async upsertEmbedding(record: Omit<EmbeddingRecord, "sourceTextHash"> & { sourceText: string }): Promise<EmbeddingRecord> {
@@ -1220,6 +1452,43 @@ function canonicalNcsProfileId(
   if (value === "JOB_TECHNICAL") return "JOB_TECHNICAL";
   if (value === "COLLABORATION_COMMUNICATION") return "COLLABORATION_COMMUNICATION";
   return "PROBLEM_SOLVING";
+}
+
+function buildAutoScreeningCriteria(
+  criteria: Array<{ criterionId: bigint; weight: number; passScore: number | null }>,
+  evaluationFramework: string,
+  record: {
+    scores?: GeneratedReportScoreRecord[];
+    ncsFinalEvaluation?: GeneratedReportRecord["ncsFinalEvaluation"];
+  },
+): AutoScreeningCriterionSnapshot[] {
+  return criteria.map((criterion) => {
+    const criterionId = Number(criterion.criterionId);
+    const active =
+      evaluationFramework === "NCS_3_PROFILE_V1" || criterion.weight > 0;
+    if (record.ncsFinalEvaluation) {
+      const profile = record.ncsFinalEvaluation.profiles.find(
+        (item) => item.criterionId === criterionId,
+      );
+      return {
+        criterionId,
+        active,
+        evaluationComplete: profile?.status === "SCORED",
+        passScore: criterion.passScore,
+        score: profile?.normalizedScore ?? null,
+      };
+    }
+    const score = record.scores?.find(
+      (item) => item.criterionId === criterionId,
+    );
+    return {
+      criterionId,
+      active,
+      evaluationComplete: score !== undefined,
+      passScore: criterion.passScore,
+      score: score?.score ?? null,
+    };
+  });
 }
 
 function hasCompleteNcsCriteria(criteria: ResumeQuestionDocumentRow["application"]["posting"]["criteria"]): boolean {

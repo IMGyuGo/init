@@ -291,6 +291,7 @@ export interface GeneratedReportRecord {
   ncsAnswerEvaluations?: NcsAnswerEvaluationRecord[];
   answerFactChecks?: AnswerFactCheckRunRecord[];
   ncsFinalEvaluation?: NcsFinalEvaluation;
+  hasTerminalSttUnavailable?: boolean;
 }
 
 export interface CommunicationAnalysisRecord {

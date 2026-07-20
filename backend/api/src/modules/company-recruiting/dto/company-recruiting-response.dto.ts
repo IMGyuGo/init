@@ -334,8 +334,23 @@ export class ApplicantResponseDto {
   @ApiProperty({ example: "PENDING" })
   reportStatus!: string;
 
-  @ApiProperty({ enum: ["UNDECIDED", "PASS", "HOLD", "FAIL"], example: "UNDECIDED" })
+  @ApiProperty({ enum: ["UNDECIDED", "PASS", "HOLD", "FAIL", "RETRY"], example: "UNDECIDED" })
   screeningDecision!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  screeningDecisionReasonCode!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  screeningDecisionPolicyVersion!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  screeningPolicyVersion!: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  screeningCriteriaVersion!: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  screeningDecidedAt!: string | null;
 
   @ApiPropertyOptional({ nullable: true, example: "추가 확인 필요" })
   screeningMemo!: string | null;

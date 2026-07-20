@@ -339,6 +339,28 @@ CREATE TABLE evaluation_criteria (
     ncs_profile_version VARCHAR(80)
 );
 
+CREATE TABLE auto_screening_policies (
+    posting_id BIGINT PRIMARY KEY,
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    pass_min_total_score INTEGER NOT NULL,
+    hold_min_total_score INTEGER NOT NULL,
+    require_all_criteria_pass BOOLEAN NOT NULL DEFAULT TRUE,
+    policy_version INTEGER NOT NULL DEFAULT 1,
+    decision_policy_version VARCHAR(80) NOT NULL DEFAULT 'AUTO_SCREENING_DECISION_V1',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT ck_auto_screening_policy_total_scores CHECK (
+        hold_min_total_score >= 0
+        AND hold_min_total_score < pass_min_total_score
+        AND pass_min_total_score <= 100
+    ),
+    CONSTRAINT ck_auto_screening_policy_v1 CHECK (
+        require_all_criteria_pass = TRUE
+        AND policy_version >= 1
+        AND decision_policy_version = 'AUTO_SCREENING_DECISION_V1'
+    )
+);
+
 CREATE TABLE question_bank (
     -- 질문 PK
     question_id BIGINT PRIMARY KEY,
@@ -497,9 +519,21 @@ CREATE TABLE applications (
     -- PENDING, GENERATING, COMPLETED, FAILED
     report_status VARCHAR(40) NOT NULL,
 
-    -- 기업 담당자의 다음 전형 판정:
-    -- UNDECIDED, PASS, HOLD, FAIL
+    -- 자동 판정 결과: UNDECIDED, PASS, HOLD, FAIL, RETRY
     screening_decision VARCHAR(40),
+
+    screening_decision_reason_code VARCHAR(80),
+
+    screening_decision_policy_version VARCHAR(80),
+
+    screening_policy_version INTEGER,
+
+    screening_criteria_version INTEGER,
+
+    -- 멱등 snapshot에 적용한 리포트. API에는 노출하지 않음
+    screening_decision_report_id BIGINT UNIQUE,
+
+    screening_decided_at TIMESTAMP,
 
     -- 기업 담당자 메모
     screening_memo TEXT,
@@ -511,7 +545,27 @@ CREATE TABLE applications (
     submitted_at TIMESTAMP,
 
     -- 지원 건 마지막 수정 시각
-    updated_at TIMESTAMP NOT NULL
+    updated_at TIMESTAMP NOT NULL,
+
+    CONSTRAINT ck_applications_screening_reason_matches_decision CHECK (
+        screening_decision_reason_code IS NULL
+        OR (screening_decision = 'PASS' AND screening_decision_reason_code = 'PASS_TOTAL_AND_CRITERIA_MET')
+        OR (screening_decision = 'HOLD' AND screening_decision_reason_code IN ('HOLD_TOTAL_BAND', 'HOLD_CRITERION_BELOW_PASS_SCORE'))
+        OR (screening_decision = 'FAIL' AND screening_decision_reason_code = 'FAIL_BELOW_HOLD_THRESHOLD')
+        OR (screening_decision = 'RETRY' AND screening_decision_reason_code IN ('RETRY_REPORT_FAILED', 'RETRY_STT_UNAVAILABLE', 'RETRY_EVALUATION_INCOMPLETE', 'RETRY_SCORE_MISSING'))
+    ),
+    CONSTRAINT ck_applications_screening_snapshot_complete CHECK (
+        screening_decision_reason_code IS NULL
+        OR (
+            screening_decision_policy_version IS NOT NULL
+            AND screening_policy_version IS NOT NULL
+            AND screening_policy_version >= 1
+            AND screening_criteria_version IS NOT NULL
+            AND screening_criteria_version >= 1
+            AND screening_decision_report_id IS NOT NULL
+            AND screening_decided_at IS NOT NULL
+        )
+    )
 );
 
 -- 동일 지원자·공고에는 취소되지 않은 활성 지원서가 최대 하나만 존재한다.
@@ -1250,6 +1304,11 @@ ALTER TABLE evaluation_criteria
     ADD CONSTRAINT fk_evaluation_criteria_tag
     FOREIGN KEY (tag_id) REFERENCES criterion_tags(tag_id);
 
+ALTER TABLE auto_screening_policies
+    ADD CONSTRAINT fk_auto_screening_policies_posting
+    FOREIGN KEY (posting_id) REFERENCES postings(posting_id)
+    ON DELETE CASCADE;
+
 ALTER TABLE question_bank
     ADD CONSTRAINT fk_question_bank_company
     FOREIGN KEY (company_id) REFERENCES companies(company_id);
@@ -1324,6 +1383,11 @@ ALTER TABLE applications
 ALTER TABLE applications
     ADD CONSTRAINT fk_applications_candidate
     FOREIGN KEY (candidate_id) REFERENCES candidate_profiles(candidate_id);
+
+ALTER TABLE applications
+    ADD CONSTRAINT fk_applications_screening_decision_report
+    FOREIGN KEY (screening_decision_report_id) REFERENCES evaluation_reports(report_id)
+    ON DELETE RESTRICT;
 
 ALTER TABLE application_documents
     ADD CONSTRAINT fk_application_documents_application

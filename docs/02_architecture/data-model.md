@@ -350,7 +350,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | created_at | TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP | 생성 시각 |
 | updated_at | TIMESTAMP NOT NULL | 수정 시각 |
 
-submitted application이 존재하면 C의 기존 configuration lock과 함께 자동 판정 정책도 잠근다. 실제 Prisma model, migration, CHECK/FK와 ERDCloud SQL은 #398에서 추가한다.
+submitted application이 존재하면 C의 기존 configuration lock과 함께 자동 판정 정책도 잠근다. Prisma model, migration, CHECK/FK와 ERDCloud SQL은 #398에서 함께 관리한다.
 
 ### question_bank
 
@@ -439,8 +439,9 @@ batch business unique key는 `(application_id, usage_scope, policy_version, crit
 | screening_decision | VARCHAR(40) | 자동 전형 판정: UNDECIDED, PASS, HOLD, FAIL, RETRY |
 | screening_decision_reason_code | VARCHAR(80) | 자동 판정 사유. UNDECIDED이면 NULL |
 | screening_decision_policy_version | VARCHAR(80) | 결정 알고리즘 version snapshot |
-| screening_policy_version | INTEGER | 공고별 자동 판정 정책 version snapshot |
-| screening_criteria_version | INTEGER | 평가 기준 version snapshot |
+| screening_policy_version | INTEGER | 적용한 공고별 정책 version snapshot |
+| screening_criteria_version | INTEGER | 적용한 평가 기준 version snapshot |
+| screening_decision_report_id | BIGINT | 멱등 snapshot에 적용한 리포트 FK. API 비노출 |
 | screening_decided_at | TIMESTAMP | 자동 판정 저장 시각 |
 | screening_memo | TEXT | 기업 내부 운영 메모. 자동 판정 입력이 아니며 지원자에게 비노출 |
 | submitted_at | TIMESTAMP | 지원서 최종 제출 시각 |
@@ -612,7 +613,9 @@ STT와 재답변 상태는 별도 컬럼을 추가하지 않고 `interview_answe
 | failure_category | VARCHAR(40) | 실패 구분: RETRYABLE, NON_RETRYABLE |
 | failure_reason | TEXT | 실패 사유. 재시도 가능 여부와 함께 화면/운영 로그에 사용 |
 
-`evaluation_reports.status=PENDING | GENERATING` 동안 `applications.screening_decision`은 `UNDECIDED`를 유지한다. 리포트 terminal 실패, STT terminal 인식 불가, NCS 평가 불완전 또는 필수 점수 NULL은 `RETRY`로 저장하고 0점이나 `FAIL`로 변환하지 않는다. `PASS/HOLD/FAIL`은 `AUTO_SCREENING_DECISION_V1`의 유효 점수 조건을 만족할 때만 저장한다. 실제 application 컬럼과 migration은 #398에서 추가한다.
+`evaluation_reports.status=PENDING | GENERATING` 동안 `applications.screening_decision`은 `UNDECIDED`를 유지한다. 리포트 terminal 실패, STT terminal 인식 불가, NCS 평가 불완전 또는 필수 점수 NULL은 `RETRY`로 저장하고 0점이나 `FAIL`로 변환하지 않는다. `PASS/HOLD/FAIL`은 `AUTO_SCREENING_DECISION_V1`의 유효 점수 조건을 만족할 때만 저장한다. `screening_decision_report_id`는 자동 판정 멱등성 검증에만 사용하며 API projection에 포함하지 않는다.
+
+동일 지원서에 새 리포트 version을 만들 때는 증가하는 `report_id`를 발급한다. 같은 리포트의 명시적 재처리는 기존 `report_id`를 유지하며, worker는 application에 이미 반영된 `screening_decision_report_id`보다 작은 지연 작업을 저장하지 않는다.
 
 ### report_scores
 

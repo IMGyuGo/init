@@ -238,6 +238,9 @@ export class CompanyInterviewService {
     const storedPolicy = await this.repository.getQuestionGenerationPolicy(
       posting.postingId,
     );
+    const screeningPolicy = await this.repository.getAutoScreeningPolicy(
+      posting.postingId,
+    );
     const policy = storedPolicy ?? defaultQuestionGenerationPolicy(posting.postingId);
     const configurationLocked = await this.repository.isConfigurationLocked(
       posting.postingId,
@@ -296,6 +299,16 @@ export class CompanyInterviewService {
         : null,
       questionImpactByProfile,
       questionSetRequiresReconfirmation,
+      screeningPolicy: screeningPolicy
+        ? {
+            enabled: screeningPolicy.enabled,
+            passMinTotalScore: screeningPolicy.passMinTotalScore,
+            holdMinTotalScore: screeningPolicy.holdMinTotalScore,
+            requireAllCriteriaPass: screeningPolicy.requireAllCriteriaPass,
+            policyVersion: screeningPolicy.policyVersion,
+            decisionPolicyVersion: screeningPolicy.decisionPolicyVersion,
+          }
+        : null,
     };
   }
 
@@ -394,8 +407,11 @@ export class CompanyInterviewService {
   ): Promise<EvaluationCriterionResponseDto> {
     const posting = await this.getOwnedPosting(currentUser, dto.postingId);
     await this.assertConfigurationMutable(posting.postingId);
-    const existingCriteria = await this.repository.listCriteria(posting.postingId);
     const currentPolicy = await this.repository.getQuestionGenerationPolicy(
+      posting.postingId,
+    );
+    const existingCriteria = await this.repository.listCriteria(posting.postingId);
+    const currentScreeningPolicy = await this.repository.getAutoScreeningPolicy(
       posting.postingId,
     );
     const evaluationFramework =
@@ -490,6 +506,54 @@ export class CompanyInterviewService {
       assertNcsActiveCriteria(normalizedCriteria);
     }
 
+    const effectiveScreeningPolicy = dto.screeningPolicy ?? currentScreeningPolicy;
+    if (dto.screeningPolicy) {
+      if (
+        dto.screeningPolicy.requireAllCriteriaPass !== true ||
+        !Number.isInteger(dto.screeningPolicy.passMinTotalScore) ||
+        !Number.isInteger(dto.screeningPolicy.holdMinTotalScore) ||
+        dto.screeningPolicy.holdMinTotalScore < 0 ||
+        dto.screeningPolicy.passMinTotalScore > 100 ||
+        dto.screeningPolicy.holdMinTotalScore >=
+          dto.screeningPolicy.passMinTotalScore
+      ) {
+        validationFailed('자동 판정 점수 기준을 확인해주세요.', [
+          { field: 'screeningPolicy', reason: 'INVALID_AUTO_SCREENING_POLICY' },
+        ]);
+      }
+    }
+    if (effectiveScreeningPolicy?.enabled) {
+      const activeCriteria = normalizedCriteria.filter((criterion) =>
+        evaluationFramework === 'NCS_3_PROFILE_V1' ? true : criterion.weight > 0,
+      );
+      if (
+        activeCriteria.some(
+          (criterion) =>
+            criterion.passScore === null ||
+            criterion.passScore === undefined ||
+            !Number.isInteger(criterion.passScore) ||
+            criterion.passScore < 0 ||
+            criterion.passScore > 100,
+        )
+      ) {
+        validationFailed('자동 판정에 사용할 활성 평가 기준의 합격점을 입력해주세요.', [
+          { field: 'criteria[].passScore', reason: 'ACTIVE_PASS_SCORE_REQUIRED' },
+        ]);
+      }
+    }
+
+    const existingCriteriaById = new Map(
+      existingCriteria.map((criterion) => [criterion.criterionId, criterion]),
+    );
+    const criteriaPassScoresChanged =
+      existingCriteria.length !== normalizedCriteria.length ||
+      normalizedCriteria.some(
+        (criterion) =>
+          criterion.criterionId === undefined ||
+          existingCriteriaById.get(criterion.criterionId)?.passScore !==
+            (criterion.passScore ?? null),
+      );
+
     const nextActiveProfileIds =
       evaluationFramework === 'NCS_ACTIVE_PROFILE_V2'
         ? activeNcsProfileIds('NCS_ACTIVE_PROFILE_V2', toProfileWeights(normalizedCriteria))
@@ -521,12 +585,40 @@ export class CompanyInterviewService {
       );
     }
 
+    const latestPolicy = await this.repository.getQuestionGenerationPolicy(
+      posting.postingId,
+    );
+    if (
+      (latestPolicy?.policyVersion ?? 0) !==
+        (currentPolicy?.policyVersion ?? 0) ||
+      (latestPolicy?.criteriaVersion ?? 0) !==
+        (currentPolicy?.criteriaVersion ?? 0)
+    ) {
+      conflict('면접 설정이 다른 요청에서 변경되었습니다. 최신 설정을 다시 확인해주세요.', [
+        { field: 'criteriaVersion', reason: 'CONFIGURATION_VERSION_CONFLICT' },
+      ]);
+    }
+
     const saved = await this.repository.replaceCriteria(
       posting.postingId,
       evaluationFramework,
       normalizedCriteria,
-      { deactivatedProfileIds },
+      {
+        deactivatedProfileIds,
+        screeningPolicy: dto.screeningPolicy,
+        criteriaPassScoresChanged,
+        expectedQuestionPolicyVersion: currentPolicy?.policyVersion ?? 0,
+        expectedCriteriaVersion: currentPolicy?.criteriaVersion ?? 0,
+      },
     );
+    if ('conflicted' in saved) {
+      conflict('면접 설정이 다른 요청에서 변경되었습니다. 최신 설정을 다시 확인해주세요.', [
+        { field: 'criteriaVersion', reason: 'CONFIGURATION_VERSION_CONFLICT' },
+      ]);
+    }
+    if (saved.locked) {
+      configurationLocked();
+    }
     await this.queuePersonalizedQuestionRegenerations(
       posting.postingId,
       '평가 기준 변경 반영',
@@ -559,6 +651,16 @@ export class CompanyInterviewService {
       configurationLockedReason: null,
       questionImpactByProfile: buildQuestionImpactByProfile(savedQuestions),
       questionSetRequiresReconfirmation,
+      screeningPolicy: saved.screeningPolicy
+        ? {
+            enabled: saved.screeningPolicy.enabled,
+            passMinTotalScore: saved.screeningPolicy.passMinTotalScore,
+            holdMinTotalScore: saved.screeningPolicy.holdMinTotalScore,
+            requireAllCriteriaPass: saved.screeningPolicy.requireAllCriteriaPass,
+            policyVersion: saved.screeningPolicy.policyVersion,
+            decisionPolicyVersion: saved.screeningPolicy.decisionPolicyVersion,
+          }
+        : null,
     };
   }
 
@@ -568,10 +670,10 @@ export class CompanyInterviewService {
   ): Promise<QuestionGenerationPolicyResponseDto> {
     const posting = await this.getOwnedPosting(currentUser, dto.postingId);
     await this.assertConfigurationMutable(posting.postingId);
-    const criteria = await this.repository.listCriteria(posting.postingId);
     const current =
       (await this.repository.getQuestionGenerationPolicy(posting.postingId)) ??
       defaultQuestionGenerationPolicy(posting.postingId);
+    const criteria = await this.repository.listCriteria(posting.postingId);
     const total = dto.jdCriteriaQuestionCount + dto.resumeQuestionCount;
 
     if (total < 1 || total > 20) {
@@ -607,6 +709,18 @@ export class CompanyInterviewService {
       }
     }
 
+    const latest =
+      (await this.repository.getQuestionGenerationPolicy(posting.postingId)) ??
+      defaultQuestionGenerationPolicy(posting.postingId);
+    if (
+      latest.policyVersion !== current.policyVersion ||
+      latest.criteriaVersion !== current.criteriaVersion
+    ) {
+      conflict('면접 설정이 다른 요청에서 변경되었습니다. 최신 설정을 다시 확인해주세요.', [
+        { field: 'criteriaVersion', reason: 'CONFIGURATION_VERSION_CONFLICT' },
+      ]);
+    }
+
     const saved = await this.repository.updateQuestionGenerationPolicy(
       posting.postingId,
       {
@@ -614,6 +728,7 @@ export class CompanyInterviewService {
         jdCriteriaQuestionCount: dto.jdCriteriaQuestionCount,
         resumeQuestionCount: dto.resumeQuestionCount,
         expectedPolicyVersion: dto.expectedPolicyVersion,
+        expectedCriteriaVersion: current.criteriaVersion,
       },
     );
     if (!saved) {

@@ -697,6 +697,11 @@ export class MockAiTaskHandler implements AiTaskHandler {
       ncsAnswerEvaluations: ncsBatch?.evaluations,
       answerFactChecks: ncsBatch?.factChecks,
       ncsFinalEvaluation: ncsBatch?.finalEvaluation,
+      hasTerminalSttUnavailable: answers.some(
+        (answer) =>
+          answer.evaluationStatus === "STT_UNAVAILABLE" &&
+          !answer.isFollowUpAnswer,
+      ),
     };
     const guardrail = this.validateReport(report);
 

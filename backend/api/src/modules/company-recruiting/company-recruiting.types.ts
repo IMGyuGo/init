@@ -94,6 +94,11 @@ export type ApplicantRecord = {
   interviewStatus: string;
   reportStatus: string;
   screeningDecision: string | null;
+  screeningDecisionReasonCode: string | null;
+  screeningDecisionPolicyVersion: string | null;
+  screeningPolicyVersion: number | null;
+  screeningCriteriaVersion: number | null;
+  screeningDecidedAt: Date | null;
   screeningMemo: string | null;
   submittedAt: Date | null;
   updatedAt: Date;
@@ -122,6 +127,7 @@ export type ApplicantRecord = {
     postingId: number;
     title: string;
     jobRole: string;
+    autoScreeningPolicyEnabled: boolean;
   };
   evaluationReports: Array<{
     reportId: number;

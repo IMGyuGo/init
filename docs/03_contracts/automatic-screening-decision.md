@@ -112,9 +112,11 @@ RETRY의 재처리 횟수, backoff, 지원자 재답변과 운영자 재처리 �
 | `screening_decision_policy_version` | VARCHAR(80) nullable | `AUTO_SCREENING_DECISION_V1` |
 | `screening_policy_version` | INTEGER nullable | 적용한 공고별 정책 version |
 | `screening_criteria_version` | INTEGER nullable | 적용한 평가 기준 version |
+| `screening_decision_report_id` | BIGINT nullable | 멱등 snapshot에 적용한 리포트 FK. 내부 저장 전용 |
 | `screening_decided_at` | TIMESTAMP nullable | 자동 판정 저장 시각 |
 
 `screening_memo`는 기업 내부 운영 메모로 유지하지만 판정 입력이 아니며 지원자에게 노출하지 않는다.
+`screening_decision_report_id`는 `reportId + policyVersion + criteriaVersion + decisionPolicyVersion` 멱등 키를 DB에 보존하기 위한 내부 필드이며 기업·지원자 API 응답에는 노출하지 않는다.
 
 공고별 설정은 `auto_screening_policies`에 저장한다.
 
@@ -130,7 +132,7 @@ RETRY의 재처리 횟수, backoff, 지원자 재답변과 운영자 재처리 �
 | `created_at` | TIMESTAMP NOT NULL | 생성 시각 |
 | `updated_at` | TIMESTAMP NOT NULL | 수정 시각 |
 
-실제 migration과 repository 구현은 #398에서 진행한다. ERD SQL은 해당 구현 PR에서 PostgreSQL CHECK/FK와 함께 갱신한다.
+실제 migration과 repository 구현은 #398에서 관리한다. ERD SQL도 PostgreSQL CHECK/FK와 함께 동기화한다.
 
 ## API Projection
 

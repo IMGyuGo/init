@@ -1669,8 +1669,14 @@ export class PrismaCandidateRepository implements CandidateRepository {
   }): Promise<ApplicationSubmissionResult> {
     try {
       return await this.prisma.$transaction(async (tx) => {
-      const now = new Date();
-      const application = await tx.application.create({
+        await tx.$queryRaw<Array<{ posting_id: bigint }>>`
+          SELECT "posting_id"
+          FROM "postings"
+          WHERE "posting_id" = ${BigInt(input.postingId)}
+          FOR KEY SHARE
+        `;
+        const now = new Date();
+        const application = await tx.application.create({
         data: {
           postingId: BigInt(input.postingId),
           candidateId: BigInt(input.candidateId),
@@ -1871,6 +1877,18 @@ export class PrismaCandidateRepository implements CandidateRepository {
       });
       await tx.manualEvaluation.deleteMany({ where: { reportId: { in: reportIds } } });
       await tx.reportScore.deleteMany({ where: { reportId: { in: reportIds } } });
+      await tx.application.updateMany({
+        where: { applicationId: { in: applicationIds } },
+        data: {
+          screeningDecision: "UNDECIDED",
+          screeningDecisionReasonCode: null,
+          screeningDecisionPolicyVersion: null,
+          screeningPolicyVersion: null,
+          screeningCriteriaVersion: null,
+          screeningDecisionReportId: null,
+          screeningDecidedAt: null,
+        },
+      });
       await tx.evaluationReport.deleteMany({ where: { reportId: { in: reportIds } } });
 
       await tx.followUpQuestion.deleteMany({ where: { answerId: { in: answerIds } } });
