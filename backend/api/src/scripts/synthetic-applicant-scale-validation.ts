@@ -8,10 +8,14 @@ import type { NormalizedApplicantListQuery } from "../modules/company-recruiting
 import { PrismaCompanyRecruitingRepository } from "../modules/company-recruiting/repository/company-recruiting.repository";
 import {
   buildSyntheticApplicantPlan,
-  type SyntheticApplicantPlanRecord,
   type SyntheticImporterOptions,
 } from "../modules/candidate/scripts/synthetic-applicant-importer.contract";
 import type { PrismaService } from "../shared/prisma.service";
+import {
+  buildPostingValidationExpectations,
+  type PostingStatusCounts,
+  type PostingValidationExpectations,
+} from "./synthetic-applicant-scale-validation.expectations";
 
 type ExpectedState = "applied" | "cleaned";
 
@@ -27,8 +31,6 @@ type PageSnapshot = {
   limit: number;
   totalItems: number;
   returnedItems: number;
-  firstApplicationId: number | null;
-  lastApplicationId: number | null;
   responseBytes: number;
 };
 
@@ -123,7 +125,6 @@ async function main() {
     batchSize: dataset.batchSize,
   };
   const planned = buildSyntheticApplicantPlan(options);
-  const activePlan = planned.filter((record) => !record.isCanceled);
   const activeRecords = records.filter((record) => !record.isCanceled);
   const canceledRecords = records.filter((record) => record.isCanceled);
 
@@ -141,24 +142,41 @@ async function main() {
   });
   assert(posting, "dataset의 대상 기업·공고 소유 관계를 확인할 수 없습니다.");
 
+  const baselineRows = await prisma.application.findMany({
+    where: {
+      postingId: dataset.postingId,
+      applicationId: { notIn: ids.applicationIds },
+    },
+    select: {
+      applicationId: true,
+      applicationStatus: true,
+      documentStatus: true,
+      interviewStatus: true,
+      reportStatus: true,
+      screeningDecision: true,
+    },
+  });
+  const baselineApplications = baselineRows.map(({ applicationId: _applicationId, ...projection }) => projection);
+  const expectations = buildPostingValidationExpectations(planned, baselineApplications);
+
   const databaseCounts = await verifyDomainRows(ids, records);
   const authentication = await verifyAuthenticationIsolation(records);
   const summary = await repository.summarizeApplicationsForPosting(postingId, companyId);
-  verifySummary(summary, activePlan, dataset.canceledCount);
+  verifySummary(summary, expectations.posting);
 
-  const pageCoverage = await verifyAllPages(postingId, companyId, dataset.activeCount);
-  const pageSnapshots = await verifyRepresentativePages(postingId, companyId, dataset.activeCount);
-  const search = await verifySearch(postingId, companyId, dataset.datasetId, dataset.activeCount);
-  const filters = await verifyFilters(postingId, companyId, activePlan);
+  const pageCoverage = await verifyAllPages(postingId, companyId, expectations.posting.active);
+  const pageSnapshots = await verifyRepresentativePages(postingId, companyId, expectations.posting.active);
+  const search = await verifySearch(postingId, companyId, dataset.datasetId, expectations.synthetic.active);
+  const filters = await verifyFilters(postingId, companyId, expectations.posting.statusCounts);
   const sorts = await verifySorts(postingId, companyId);
   const details = await verifyDetailDepths(companyId, records);
-  const metrics = await measureQueries(postingId, companyId, dataset.activeCount, args.iterations);
+  const metrics = await measureQueries(postingId, companyId, expectations.posting.active, args.iterations);
 
-  const totalPages = Math.ceil(dataset.activeCount / 20);
+  const totalPages = Math.ceil(expectations.posting.active / 20);
   const planPages = [...new Set([1, Math.max(1, Math.ceil(totalPages / 2)), Math.max(1, totalPages)])];
   const queryPlans = [] as QueryPlanSummary[];
   for (const page of planPages) queryPlans.push(await explainApplicantPage(dataset.postingId, page, 20));
-  if (dataset.activeCount >= 1_000) {
+  if (expectations.posting.active >= 1_000) {
     assert(
       queryPlans.some((plan) => plan.indexNames.includes("idx_applications_posting_updated_id")),
       "1,000명 이상 실행계획에서 idx_applications_posting_updated_id 사용을 확인하지 못했습니다.",
@@ -170,6 +188,14 @@ async function main() {
     expectedState: args.expectedState,
     result: "PASS",
     target: { title: posting.title },
+    baseline: {
+      snapshot: "fixed-at-verifier-start",
+      active: expectations.baseline.active,
+      canceled: expectations.baseline.canceled,
+      statusCounts: expectations.baseline.statusCounts,
+      attentionRequired: expectations.baseline.attentionRequired,
+      concurrentChangeBehavior: "posting-wide validation fails closed",
+    },
     databaseCounts,
     authentication,
     summary,
@@ -254,23 +280,16 @@ async function verifyAuthenticationIsolation(
 
 function verifySummary(
   actual: Awaited<ReturnType<PrismaCompanyRecruitingRepository["summarizeApplicationsForPosting"]>>,
-  activePlan: SyntheticApplicantPlanRecord[],
-  canceledCount: number,
+  expected: PostingValidationExpectations["posting"],
 ) {
-  assert(actual.activeTotal === activePlan.length, "summary activeTotal이 다릅니다.");
-  assert(actual.canceledHistoryTotal === canceledCount, "summary canceledHistoryTotal이 다릅니다.");
-  assertCountMap(actual.applicationStatusCounts, countBy(activePlan, "applicationStatus"), "applicationStatus");
-  assertCountMap(actual.documentStatusCounts, countBy(activePlan, "documentStatus"), "documentStatus");
-  assertCountMap(actual.interviewStatusCounts, countBy(activePlan, "interviewStatus"), "interviewStatus");
-  assertCountMap(actual.reportStatusCounts, countBy(activePlan, "reportStatus"), "reportStatus");
-  assertCountMap(actual.screeningDecisionCounts, countBy(activePlan, "screeningDecision"), "screeningDecision");
-  const expectedAttention = activePlan.filter((record) =>
-    record.documentStatus === "FAILED"
-    || record.interviewStatus === "FAILED"
-    || record.reportStatus === "FAILED"
-    || record.screeningDecision === "UNDECIDED",
-  ).length;
-  assert(actual.attentionRequiredTotal === expectedAttention, "summary attentionRequiredTotal이 다릅니다.");
+  assert(actual.activeTotal === expected.active, "summary activeTotal이 다릅니다.");
+  assert(actual.canceledHistoryTotal === expected.canceled, "summary canceledHistoryTotal이 다릅니다.");
+  assertCountMap(actual.applicationStatusCounts, expected.statusCounts.applicationStatus, "applicationStatus");
+  assertCountMap(actual.documentStatusCounts, expected.statusCounts.documentStatus, "documentStatus");
+  assertCountMap(actual.interviewStatusCounts, expected.statusCounts.interviewStatus, "interviewStatus");
+  assertCountMap(actual.reportStatusCounts, expected.statusCounts.reportStatus, "reportStatus");
+  assertCountMap(actual.screeningDecisionCounts, expected.statusCounts.screeningDecision, "screeningDecision");
+  assert(actual.attentionRequiredTotal === expected.attentionRequired, "summary attentionRequiredTotal이 다릅니다.");
 }
 
 async function verifyAllPages(postingId: number, companyId: number, expectedTotal: number) {
@@ -305,8 +324,6 @@ async function verifyRepresentativePages(postingId: number, companyId: number, e
       limit,
       totalItems,
       returnedItems: items.length,
-      firstApplicationId: items[0]?.applicationId ?? null,
-      lastApplicationId: items.at(-1)?.applicationId ?? null,
       responseBytes: Buffer.byteLength(JSON.stringify(items)),
     });
   }
@@ -325,10 +342,14 @@ async function verifySearch(postingId: number, companyId: number, datasetId: str
   return { q, totalItems, returnedItems: items.length };
 }
 
-async function verifyFilters(postingId: number, companyId: number, activePlan: SyntheticApplicantPlanRecord[]) {
+async function verifyFilters(
+  postingId: number,
+  companyId: number,
+  expectedStatusCounts: PostingStatusCounts,
+) {
   const output: Record<string, Record<string, number>> = {};
   for (const field of ["applicationStatus", "documentStatus", "interviewStatus", "reportStatus", "screeningDecision"] as const) {
-    const expected = countBy(activePlan, field);
+    const expected = expectedStatusCounts[field];
     output[field] = {};
     for (const [value, expectedCount] of Object.entries(expected)) {
       const actualCount = await repository.countApplicationsForPosting(
@@ -344,16 +365,13 @@ async function verifyFilters(postingId: number, companyId: number, activePlan: S
 }
 
 async function verifySorts(postingId: number, companyId: number) {
-  const output: Record<string, { asc: number[]; desc: number[] }> = {};
+  const output: Record<string, { ascChecked: number; descChecked: number }> = {};
   for (const field of ["updatedAt", "applicationStatus", "interviewStatus", "reportStatus"] as const) {
     const asc = await repository.listApplicationsForPosting(postingId, companyId, query({ sort: field, order: "asc", limit: 100 }));
     const desc = await repository.listApplicationsForPosting(postingId, companyId, query({ sort: field, order: "desc", limit: 100 }));
     assertSorted(asc, field, "asc");
     assertSorted(desc, field, "desc");
-    output[field] = {
-      asc: asc.slice(0, 5).map((item) => item.applicationId),
-      desc: desc.slice(0, 5).map((item) => item.applicationId),
-    };
+    output[field] = { ascChecked: asc.length, descChecked: desc.length };
   }
   return output;
 }
@@ -482,7 +500,7 @@ function assertSorted(
     const fieldComparison = compareSortValue(field, previous[field], current[field]);
     const idComparison = previous.applicationId - current.applicationId;
     const comparison = fieldComparison === 0 ? idComparison : fieldComparison;
-    assert(order === "asc" ? comparison <= 0 : comparison >= 0, `${field} ${order} 정렬이 applicationId=${current.applicationId}에서 깨졌습니다.`);
+    assert(order === "asc" ? comparison <= 0 : comparison >= 0, `${field} ${order} 정렬이 index=${index}에서 깨졌습니다.`);
   }
 }
 
@@ -514,14 +532,6 @@ async function measure(iterations: number, operation: () => Promise<void>) {
 
 function percentile(sorted: number[], ratio: number) {
   return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * ratio) - 1))];
-}
-
-function countBy(records: SyntheticApplicantPlanRecord[], field: keyof SyntheticApplicantPlanRecord) {
-  return records.reduce<Record<string, number>>((counts, record) => {
-    const key = String(record[field]);
-    counts[key] = (counts[key] ?? 0) + 1;
-    return counts;
-  }, {});
 }
 
 function assertCountMap(actual: Record<string, number | undefined>, expected: Record<string, number>, label: string) {
