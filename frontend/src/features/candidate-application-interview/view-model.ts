@@ -17,6 +17,7 @@ import type {
   RuntimeQuestionView,
   SaveInterviewConsentRequest,
   SaveInterviewAnswerRequest,
+  ScreeningDecision,
   StartMockInterviewRequest,
   SubmitApplicationRequest,
   UploadResumeRequest,
@@ -802,6 +803,105 @@ export function isCandidateRecruitingReportLimited(report: CandidateRecruitingRe
       ]),
     ].join(" "))
   );
+}
+
+export type CandidateScreeningResultTone = "undecided" | "pass" | "hold" | "fail";
+
+export interface CandidateScreeningResultPresentation {
+  tone: CandidateScreeningResultTone;
+  badge: string;
+  title: string;
+  description: string;
+  nextStepTitle: string;
+  nextStepDescription: string;
+  actionLabel: string;
+  actionHref: string;
+}
+
+export function getCandidateScreeningResultPresentation(
+  report: Pick<CandidateRecruitingReportView, "status" | "screeningDecision">,
+): CandidateScreeningResultPresentation {
+  if (report.status === "FAILED") {
+    return {
+      tone: "fail",
+      badge: "확인 필요",
+      title: "면접 분석 결과를 준비하지 못했습니다.",
+      description: "제출한 면접은 보존되어 있으며, 기업 담당자가 처리 상태를 확인한 뒤 안내할 예정입니다.",
+      nextStepTitle: "기업 안내를 기다려주세요.",
+      nextStepDescription: "결과가 갱신되면 지원현황과 이 화면에서 다시 확인할 수 있습니다.",
+      actionLabel: "지원현황 보기",
+      actionHref: candidateApplicationInterviewRoutes.applications,
+    };
+  }
+
+  if (report.status !== "COMPLETED") {
+    return {
+      tone: "undecided",
+      badge: "분석 중",
+      title: "면접 답변을 분석하고 있습니다.",
+      description: "분석이 완료되면 기업 검토 단계로 전달되고, 확정된 결과는 이 화면에서 안내합니다.",
+      nextStepTitle: "분석 완료 후 기업 검토가 시작됩니다.",
+      nextStepDescription: "잠시 후 새로고침하거나 지원현황에서 진행 상태를 확인해주세요.",
+      actionLabel: "지원현황 보기",
+      actionHref: candidateApplicationInterviewRoutes.applications,
+    };
+  }
+
+  const presentations: Record<ScreeningDecision, CandidateScreeningResultPresentation> = {
+    UNDECIDED: {
+      tone: "undecided",
+      badge: "검토 중",
+      title: "기업에서 전형 결과를 검토하고 있습니다.",
+      description: "면접 분석은 완료되었으며, 기업 담당자의 최종 결정이 남아 있습니다.",
+      nextStepTitle: "결과 확정 후 이 화면에서 안내해드릴게요.",
+      nextStepDescription: "기업 검토가 완료될 때까지 조금만 기다려주세요.",
+      actionLabel: "지원현황 보기",
+      actionHref: candidateApplicationInterviewRoutes.applications,
+    },
+    PASS: {
+      tone: "pass",
+      badge: "합격",
+      title: "축하합니다, 전형에 합격했습니다.",
+      description: "지원한 전형의 결과가 합격으로 결정되었습니다.",
+      nextStepTitle: "기업의 후속 안내를 확인해주세요.",
+      nextStepDescription: "세부 일정과 준비 사항은 기업 담당자가 등록된 연락처로 안내할 예정입니다.",
+      actionLabel: "지원현황으로 돌아가기",
+      actionHref: candidateApplicationInterviewRoutes.applications,
+    },
+    HOLD: {
+      tone: "hold",
+      badge: "보류",
+      title: "기업에서 지원 결과를 추가 검토하고 있습니다.",
+      description: "최종 결정 전 확인이 필요한 항목이 있어 전형 결과가 보류되었습니다.",
+      nextStepTitle: "기업의 추가 안내를 기다려주세요.",
+      nextStepDescription: "결과가 변경되면 지원현황과 이 화면에 반영됩니다.",
+      actionLabel: "지원현황 보기",
+      actionHref: candidateApplicationInterviewRoutes.applications,
+    },
+    FAIL: {
+      tone: "fail",
+      badge: "전형 종료",
+      title: "이번 전형은 종료되었습니다.",
+      description: "아쉽게도 이번 전형에서는 함께하지 못하게 되었습니다. 지원해주셔서 감사합니다.",
+      nextStepTitle: "새로운 기회를 살펴보세요.",
+      nextStepDescription: "다른 채용 공고를 확인하고 새로운 전형에 지원할 수 있습니다.",
+      actionLabel: "다른 공고 보기",
+      actionHref: candidateApplicationInterviewRoutes.jobs,
+    },
+  };
+
+  return presentations[report.screeningDecision];
+}
+
+export function getCandidatePassRevealStorageKey(applicationId: number): string {
+  return `candidate-screening-result-seen:${applicationId}:PASS`;
+}
+
+export function shouldShowCandidatePassReveal(
+  report: Pick<CandidateRecruitingReportView, "status" | "screeningDecision">,
+  persistedValue: string | null,
+): boolean {
+  return report.status === "COMPLETED" && report.screeningDecision === "PASS" && persistedValue !== "true";
 }
 
 export function hasRequiredConsents(consentTypes: ConsentType[]): boolean {
