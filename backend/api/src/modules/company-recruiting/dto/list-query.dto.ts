@@ -7,7 +7,7 @@ const DOCUMENT_STATUSES = ["NOT_SUBMITTED", "SUBMITTED", "EXTRACTING", "EXTRACTE
 const INTERVIEW_STATUSES = ["NOT_READY", "READY", "IN_PROGRESS", "COMPLETED", "FAILED"] as const;
 const REPORT_STATUSES = ["PENDING", "GENERATING", "COMPLETED", "FAILED"] as const;
 const SCREENING_DECISIONS = ["UNDECIDED", "PASS", "HOLD", "FAIL"] as const;
-const APPLICANT_SORT_FIELDS = ["updatedAt", "applicationStatus", "interviewStatus", "reportStatus"] as const;
+const APPLICANT_SORT_FIELDS = ["updatedAt", "applicationStatus", "interviewStatus", "reportStatus", "score"] as const;
 
 class PaginationQueryDto {
   @ApiPropertyOptional({ example: 1, default: 1 })

@@ -366,3 +366,26 @@ export type UpdateScreeningStatusInput = {
   screeningDecision: ScreeningDecision;
   screeningMemo?: string;
 };
+
+export type SendPassMailsInput = {
+  targetPassCount: number;
+};
+
+export type PassMailRecipient = {
+  applicationId: number;
+  email: string;
+  name: string;
+  totalScore: number | null;
+  deliveryStatus: "SENT" | "FAILED" | "SKIPPED";
+};
+
+export type PassMailResult = {
+  currentPassCount: number;
+  targetPassCount: number;
+  promotedCount: number;
+  demotedCount: number;
+  sentCount: number;
+  failedCount: number;
+  skippedCount: number;
+  recipients: PassMailRecipient[];
+};

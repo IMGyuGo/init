@@ -147,6 +147,16 @@ export type CompanyRecruitingRepositoryPort = {
   ): Promise<ApplicantRecord[]>;
   countApplicationsForPosting(postingId: number, companyId: number, query: NormalizedApplicantListQuery): Promise<number>;
   summarizeApplicationsForPosting(postingId: number, companyId: number): Promise<ApplicantSummaryRecord>;
+  listApplicationsForPassTargeting(postingId: number, companyId: number): Promise<ApplicantRecord[]>;
+  finalizeApplicationsPassTarget(postingId: number, companyId: number, applicationIds: number[]): Promise<ApplicantRecord[]>;
+  promoteApplicationsToPass(applicationIds: number[], companyId: number): Promise<ApplicantRecord[]>;
+  markPassMailSent(applicationId: number, companyId: number): Promise<void>;
+  markPassMailFailed(applicationId: number, companyId: number, errorMessage: string): Promise<void>;
+  restoreApplicationScreeningDecisions(
+    postingId: number,
+    companyId: number,
+    states: ApplicationScreeningRestoreState[],
+  ): Promise<ApplicantRecord[]>;
   findApplicationForCompany(applicationId: number, companyId: number): Promise<ApplicantRecord | null>;
   updateApplicationScreening(
     applicationId: number,
@@ -155,6 +165,12 @@ export type CompanyRecruitingRepositoryPort = {
   ): Promise<ApplicantRecord | null>;
   createFileAsset(input: CreateFileAssetInput): Promise<CompanyFileAssetRecord>;
   createApplicationDocument(input: CreateApplicationDocumentInput): Promise<{ documentId: number }>;
+};
+
+export type ApplicationScreeningRestoreState = {
+  applicationId: number;
+  screeningDecision: string | null;
+  screeningMemo: string | null;
 };
 
 @Injectable()
@@ -402,6 +418,17 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
     companyId: number,
     query: NormalizedApplicantListQuery,
   ): Promise<ApplicantRecord[]> {
+    if (query.sort === "score") {
+      const applications = await this.prisma.application.findMany({
+        where: buildApplicationWhere(postingId, companyId, query),
+        include: applicantListInclude,
+      });
+      return applications
+        .map(mapApplicantList)
+        .sort((left, right) => compareApplicantsByScore(left, right, query.order))
+        .slice(query.skip, query.skip + query.take);
+    }
+
     const applications = await this.prisma.application.findMany({
       where: buildApplicationWhere(postingId, companyId, query),
       orderBy: buildApplicationOrderBy(query),
@@ -464,6 +491,113 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
     };
   }
 
+  async listApplicationsForPassTargeting(postingId: number, companyId: number): Promise<ApplicantRecord[]> {
+    const applications = await this.prisma.application.findMany({
+      where: {
+        postingId: BigInt(postingId),
+        posting: { companyId: BigInt(companyId) },
+        applicationStatus: { not: ApplicationStatus.CANCELED },
+      },
+      include: applicantListInclude,
+    });
+    return applications.map(mapApplicantList);
+  }
+
+  async finalizeApplicationsPassTarget(
+    postingId: number,
+    companyId: number,
+    applicationIds: number[],
+  ): Promise<ApplicantRecord[]> {
+    const passIds = applicationIds.map((applicationId) => BigInt(applicationId));
+    const activePostingWhere = {
+      postingId: BigInt(postingId),
+      posting: { companyId: BigInt(companyId) },
+      applicationStatus: { not: ApplicationStatus.CANCELED },
+    };
+    const passTargetDecisionWhere = {
+      screeningDecision: { in: [ScreeningDecision.PASS, ScreeningDecision.FAIL] },
+    };
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.application.updateMany({
+        where: {
+          ...activePostingWhere,
+          ...passTargetDecisionWhere,
+          ...(passIds.length > 0 ? { applicationId: { notIn: passIds } } : {}),
+        },
+        data: {
+          screeningDecision: ScreeningDecision.FAIL,
+          screeningDecisionReasonCode: null,
+          screeningDecisionPolicyVersion: null,
+          screeningPolicyVersion: null,
+          screeningCriteriaVersion: null,
+          screeningDecisionReportId: null,
+          screeningDecidedAt: null,
+          screeningMemo: "목표 합격자 수 기준 불합격 처리",
+        },
+      });
+
+      if (passIds.length === 0) {
+        return [];
+      }
+
+      await tx.application.updateMany({
+        where: {
+          ...activePostingWhere,
+          ...passTargetDecisionWhere,
+          applicationId: { in: passIds },
+        },
+        data: {
+          screeningDecision: ScreeningDecision.PASS,
+          screeningDecisionReasonCode: null,
+          screeningDecisionPolicyVersion: null,
+          screeningPolicyVersion: null,
+          screeningCriteriaVersion: null,
+          screeningDecisionReportId: null,
+          screeningDecidedAt: null,
+          screeningMemo: "목표 합격자 수 기준 합격 처리",
+        },
+      });
+
+      const applications = await tx.application.findMany({
+        where: {
+          ...activePostingWhere,
+          ...passTargetDecisionWhere,
+          applicationId: { in: passIds },
+        },
+        include: applicantListInclude,
+      });
+      return applications.map(mapApplicantList);
+    });
+  }
+
+  async promoteApplicationsToPass(applicationIds: number[], companyId: number): Promise<ApplicantRecord[]> {
+    if (applicationIds.length === 0) {
+      return [];
+    }
+
+    const ids = applicationIds.map((applicationId) => BigInt(applicationId));
+    await this.prisma.application.updateMany({
+      where: {
+        applicationId: { in: ids },
+        posting: { companyId: BigInt(companyId) },
+      },
+      data: {
+        screeningDecision: ScreeningDecision.PASS,
+        screeningMemo: "목표 합격자 수 기준 자동 합격 처리",
+      },
+    });
+
+    const applications = await this.prisma.application.findMany({
+      where: {
+        applicationId: { in: ids },
+        posting: { companyId: BigInt(companyId) },
+      },
+      include: applicantListInclude,
+    });
+    return applications.map(mapApplicantList);
+  }
+
   async findApplicationForCompany(applicationId: number, companyId: number): Promise<ApplicantRecord | null> {
     const application = await this.prisma.application.findFirst({
       where: { applicationId: BigInt(applicationId), posting: { companyId: BigInt(companyId) } },
@@ -490,10 +624,90 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
       data: {
         screeningDecision: input.screeningDecision,
         screeningMemo: input.screeningMemo,
+        screeningDecisionReasonCode: null,
+        screeningDecisionPolicyVersion: null,
+        screeningPolicyVersion: null,
+        screeningCriteriaVersion: null,
+        screeningDecisionReportId: null,
+        screeningDecidedAt: null,
       },
       include: applicantInclude,
     });
     return mapApplicant(application);
+  }
+
+  async markPassMailSent(applicationId: number, companyId: number): Promise<void> {
+    await this.prisma.application.updateMany({
+      where: {
+        applicationId: BigInt(applicationId),
+        posting: { companyId: BigInt(companyId) },
+      },
+      data: {
+        passMailDeliveryStatus: "SENT",
+        passMailSentAt: new Date(),
+        passMailFailedAt: null,
+        passMailFailureReason: null,
+      },
+    });
+  }
+
+  async markPassMailFailed(applicationId: number, companyId: number, errorMessage: string): Promise<void> {
+    await this.prisma.application.updateMany({
+      where: {
+        applicationId: BigInt(applicationId),
+        posting: { companyId: BigInt(companyId) },
+      },
+      data: {
+        passMailDeliveryStatus: "FAILED",
+        passMailFailedAt: new Date(),
+        passMailFailureReason: truncatePassMailFailureReason(errorMessage),
+      },
+    });
+  }
+
+  async restoreApplicationScreeningDecisions(
+    postingId: number,
+    companyId: number,
+    states: ApplicationScreeningRestoreState[],
+  ): Promise<ApplicantRecord[]> {
+    if (states.length === 0) {
+      return [];
+    }
+
+    const activePostingWhere = {
+      postingId: BigInt(postingId),
+      posting: { companyId: BigInt(companyId) },
+      applicationStatus: { not: ApplicationStatus.CANCELED },
+    };
+
+    await this.prisma.$transaction(states.map((state) =>
+      this.prisma.application.updateMany({
+        where: {
+          ...activePostingWhere,
+          applicationId: BigInt(state.applicationId),
+        },
+        data: {
+          screeningDecision: state.screeningDecision as ScreeningDecision | null,
+          screeningMemo: state.screeningMemo,
+          screeningDecisionReasonCode: null,
+          screeningDecisionPolicyVersion: null,
+          screeningPolicyVersion: null,
+          screeningCriteriaVersion: null,
+          screeningDecisionReportId: null,
+          screeningDecidedAt: null,
+        },
+      }),
+    ));
+
+    const ids = states.map((state) => BigInt(state.applicationId));
+    const applications = await this.prisma.application.findMany({
+      where: {
+        ...activePostingWhere,
+        applicationId: { in: ids },
+      },
+      include: applicantListInclude,
+    });
+    return applications.map(mapApplicantList);
   }
 
   async createFileAsset(input: CreateFileAssetInput): Promise<CompanyFileAssetRecord> {
@@ -721,6 +935,38 @@ function buildApplicationOrderBy(query: NormalizedApplicantListQuery): Prisma.Ap
   ];
 }
 
+function compareApplicantsByScore(
+  left: ApplicantRecord,
+  right: ApplicantRecord,
+  order: "asc" | "desc",
+): number {
+  const leftScore = latestReportScore(left);
+  const rightScore = latestReportScore(right);
+  if (leftScore === null && rightScore !== null) return 1;
+  if (leftScore !== null && rightScore === null) return -1;
+  if (leftScore !== null && rightScore !== null && leftScore !== rightScore) {
+    return order === "asc" ? leftScore - rightScore : rightScore - leftScore;
+  }
+
+  const submittedCompare = compareNullableDatesAsc(left.submittedAt, right.submittedAt);
+  if (submittedCompare !== 0) return submittedCompare;
+  return left.applicationId - right.applicationId;
+}
+
+function latestReportScore(application: ApplicantRecord): number | null {
+  return application.evaluationReports[0]?.totalScore ?? null;
+}
+
+function compareNullableDatesAsc(left: Date | null, right: Date | null): number {
+  const leftTime = left?.getTime() ?? Number.MAX_SAFE_INTEGER;
+  const rightTime = right?.getTime() ?? Number.MAX_SAFE_INTEGER;
+  return leftTime - rightTime;
+}
+
+function truncatePassMailFailureReason(message: string): string {
+  return message.slice(0, 500);
+}
+
 function mapPosting(
   posting: Prisma.PostingGetPayload<{ include: typeof postingActiveApplicationCountInclude }>,
 ): RecruitmentRecord {
@@ -831,6 +1077,10 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
     screeningCriteriaVersion: application.screeningCriteriaVersion,
     screeningDecidedAt: application.screeningDecidedAt,
     screeningMemo: application.screeningMemo,
+    passMailDeliveryStatus: application.passMailDeliveryStatus,
+    passMailSentAt: application.passMailSentAt,
+    passMailFailedAt: application.passMailFailedAt,
+    passMailFailureReason: application.passMailFailureReason,
     submittedAt: application.submittedAt,
     updatedAt: application.updatedAt,
     candidate: {
@@ -1028,6 +1278,10 @@ function mapApplicantList(application: ApplicationWithListIncludes): ApplicantRe
     screeningCriteriaVersion: application.screeningCriteriaVersion,
     screeningDecidedAt: application.screeningDecidedAt,
     screeningMemo: application.screeningMemo,
+    passMailDeliveryStatus: application.passMailDeliveryStatus,
+    passMailSentAt: application.passMailSentAt,
+    passMailFailedAt: application.passMailFailedAt,
+    passMailFailureReason: application.passMailFailureReason,
     submittedAt: application.submittedAt,
     updatedAt: application.updatedAt,
     candidate: {

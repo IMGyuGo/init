@@ -30,10 +30,12 @@ import {
   ApplicantResponseDto,
   ApplicantSummaryResponseDto,
   JdImageUploadResponseDto,
+  PassMailDispatchResponseDto,
   RecruitmentResponseDto,
 } from "../dto/company-recruiting-response.dto";
 import { CreateRecruitmentDto } from "../dto/create-recruitment.dto";
 import { ListApplicantsByRecruitmentQueryDto, ListApplicantsQueryDto, ListQueryDto } from "../dto/list-query.dto";
+import { SendRecruitmentPassMailsDto } from "../dto/send-recruitment-pass-mails.dto";
 import { UpdateRecruitmentDto } from "../dto/update-recruitment.dto";
 import { UpdateScreeningStatusDto } from "../dto/update-screening-status.dto";
 
@@ -195,6 +197,21 @@ export class CompanyRecruitingController {
     @Param("recruitmentId", ParseIntPipe) recruitmentId: number,
   ) {
     const data = await this.companyRecruitingService.getRecruitmentApplicantSummary(request.currentUser, recruitmentId);
+    return ok(request, data);
+  }
+
+  @Post("recruitments/:recruitmentId/applicants/pass-mails")
+  @HttpCode(200)
+  @ApiOperationId("API-014-PASS-MAILS")
+  @ApiOperation({ summary: "목표 합격자 수 기준 합격 처리 및 합격 메일 발송" })
+  @ApiParamId("recruitmentId", "채용 공고 ID")
+  @ApiEnvelopeResponse(PassMailDispatchResponseDto)
+  async sendRecruitmentPassMails(
+    @Req() request: CompanyRequest,
+    @Param("recruitmentId", ParseIntPipe) recruitmentId: number,
+    @Body() dto: SendRecruitmentPassMailsDto,
+  ) {
+    const data = await this.companyRecruitingService.sendRecruitmentPassMails(request.currentUser, recruitmentId, dto);
     return ok(request, data);
   }
 

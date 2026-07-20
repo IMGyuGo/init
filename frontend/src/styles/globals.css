@@ -3468,6 +3468,55 @@ table {
   gap: 8px;
   flex: none;
 }
+
+.screening-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1 1 auto;
+  gap: 10px;
+  min-width: min(620px, 100%);
+  flex-wrap: wrap;
+}
+
+.pass-target-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 1 1 360px;
+  min-width: min(430px, 100%);
+}
+
+.pass-target-current,
+.pass-target-field > span {
+  color: rgba(55, 53, 47, 0.55);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.pass-target-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.pass-target-field input {
+  width: 72px;
+  min-height: 34px;
+  padding: 0 8px;
+  font-size: 13px;
+  text-align: right;
+}
+
+.pass-mail-button {
+  min-height: 34px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
 .screening-sort > span {
   font-size: 13px;
   color: rgba(55, 53, 47, 0.55);
@@ -3503,12 +3552,41 @@ table {
 }
 
 @media (max-width: 1180px) {
+  .screening-head-actions {
+    min-width: 0;
+  }
+
+  .pass-target-control {
+    justify-content: flex-start;
+    min-width: 0;
+  }
+
   .applicant-filter-toolbar {
     grid-template-columns: repeat(3, minmax(150px, 1fr));
   }
 }
 
 @media (max-width: 720px) {
+  .screening-head-actions,
+  .pass-target-control {
+    width: 100%;
+  }
+
+  .screening-sort,
+  .screening-sort select,
+  .pass-mail-button {
+    width: 100%;
+  }
+
+  .pass-target-control {
+    display: grid;
+    grid-template-columns: 1fr auto;
+  }
+
+  .pass-mail-button {
+    grid-column: 1 / -1;
+  }
+
   .applicant-filter-toolbar {
     grid-template-columns: 1fr 1fr;
   }

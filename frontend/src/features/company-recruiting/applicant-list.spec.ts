@@ -1,9 +1,75 @@
 import assert from "node:assert/strict";
 
-import { getApplicantSortQuery, getApplicantSummaryMetrics } from "./applicant-list";
+import {
+  applyScreeningDecisionCountChange,
+  canEditScreeningDecision,
+  getApplicantSortQuery,
+  getPassMailTargetLimit,
+  getApplicantSummaryMetrics,
+} from "./applicant-list";
 
 assert.deepEqual(getApplicantSortQuery("recent"), { sort: "updatedAt", order: "desc" });
 assert.deepEqual(getApplicantSortQuery("interviewStatus"), { sort: "interviewStatus", order: "asc" });
+assert.deepEqual(getApplicantSortQuery("score"), { sort: "score", order: "desc" });
+
+assert.equal(
+  canEditScreeningDecision({
+    autoScreeningPolicyEnabled: true,
+    reportStatus: "COMPLETED",
+    screeningDecision: "FAIL",
+  }),
+  true,
+);
+
+assert.equal(
+  canEditScreeningDecision({
+    autoScreeningPolicyEnabled: true,
+    reportStatus: "GENERATING",
+    screeningDecision: "UNDECIDED",
+  }),
+  false,
+);
+
+assert.equal(
+  canEditScreeningDecision({
+    autoScreeningPolicyEnabled: false,
+    reportStatus: "PENDING",
+    screeningDecision: "UNDECIDED",
+  }),
+  true,
+);
+
+assert.deepEqual(
+  applyScreeningDecisionCountChange(
+    {
+      activeTotal: 100,
+      canceledHistoryTotal: 0,
+      applicationStatusCounts: { COMPLETED: 12 },
+      documentStatusCounts: { EXTRACTED: 100 },
+      interviewStatusCounts: { COMPLETED: 12 },
+      reportStatusCounts: { COMPLETED: 12 },
+      screeningDecisionCounts: { PASS: 10, HOLD: 4, FAIL: 2 },
+      attentionRequiredTotal: 0,
+    },
+    "PASS",
+    "FAIL",
+  )?.screeningDecisionCounts,
+  { PASS: 9, HOLD: 4, FAIL: 3 },
+);
+
+assert.equal(
+  getPassMailTargetLimit({
+    activeTotal: 100,
+    canceledHistoryTotal: 0,
+    applicationStatusCounts: { COMPLETED: 100 },
+    documentStatusCounts: { EXTRACTED: 100 },
+    interviewStatusCounts: { COMPLETED: 100 },
+    reportStatusCounts: { COMPLETED: 100 },
+    screeningDecisionCounts: { PASS: 10, HOLD: 30, FAIL: 7, UNDECIDED: 53 },
+    attentionRequiredTotal: 0,
+  }),
+  17,
+);
 
 assert.deepEqual(
   getApplicantSummaryMetrics({

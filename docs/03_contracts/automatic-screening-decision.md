@@ -162,7 +162,9 @@ RETRY의 재처리 횟수, backoff, 지원자 재답변과 운영자 재처리 �
 ### Company applicant/report
 
 - API-020과 지원자 목록은 `screeningDecision`, `screeningDecisionReasonCode`, 적용 policy/criteria version과 `screeningDecidedAt`을 기업에 반환한다.
-- API-012의 지원자별 `screeningDecision` 수동 mutation은 폐기한다. 자동 판정 활성 공고에 대한 호출은 `COMMON_CONFLICT`와 `reason=SCREENING_DECISION_SYSTEM_MANAGED`를 반환한다.
+- API-012의 지원자별 `screeningDecision` 수동 mutation은 리포트 판정 완료 뒤 허용한다. 완료 기준은 `reportStatus=COMPLETED`이고 현재 `screeningDecision`이 `PASS`, `HOLD`, `FAIL` 중 하나인 상태다.
+- 수동 변경 결과는 기업 화면의 최종 전형 결과가 되며, DB의 판정/사유 check constraint와 충돌하지 않도록 자동 판정 snapshot 컬럼을 비운다.
+- 리포트 판정 완료 전 호출은 `COMMON_CONFLICT`와 `reason=SCREENING_DECISION_NOT_READY`를 반환한다.
 - API-026 수동 평가는 메모를 저장할 수 있지만 최종 `screeningDecision`을 입력받지 않는다.
 
 ### Candidate result
