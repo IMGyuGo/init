@@ -754,7 +754,9 @@ export interface CandidateApplicationStatusView {
   reportStatus: ReportStatus;
   sessionId: number;
   interviewSessionStatus: InterviewStatus;
-  screeningDecision: ScreeningDecision;
+  resultPublicationStatus: "PENDING" | "CONFIRMED";
+  screeningDecision: ScreeningDecision | null;
+  screeningResultConfirmedAt: string | null;
   submittedAt: string;
   updatedAt: string;
   reportAvailable: boolean;
@@ -767,7 +769,9 @@ export interface CandidateRecruitingReportView {
   status: ReportStatus;
   applicationStatus: ApplicationStatus;
   interviewStatus: InterviewStatus;
-  screeningDecision: ScreeningDecision;
+  resultPublicationStatus: "PENDING" | "CONFIRMED";
+  screeningDecision: ScreeningDecision | null;
+  screeningResultConfirmedAt: string | null;
   companyName: string;
   jobTitle: string;
   reportId?: number;
@@ -786,6 +790,16 @@ export interface CandidateRecruitingReportView {
     excludesInternalMemo: true;
     excludesManualEvaluation: true;
   };
+}
+
+export interface CandidateScreeningResultNotification {
+  notificationId: number;
+  applicationId: number;
+  postingId: number;
+  companyName: string;
+  jobTitle: string;
+  screeningDecision: "PASS" | "HOLD" | "FAIL";
+  confirmedAt: string;
 }
 
 export interface CandidatePortfolioLink {
@@ -938,6 +952,7 @@ export const candidateApiPaths = {
   mockReportMediaSession: (reportId: number) => `/api/v1/candidate/mock-interview/reports/${reportId}/media/session`,
   mockReportGenerate: (reportId: number) => `/api/v1/candidate/mock-interview/reports/${reportId}/generate`,
   applications: "/api/v1/candidate/applications",
+  screeningResultNotifications: "/api/v1/candidate/notifications/screening-results",
   cancelApplication: (applicationId: number) => `/api/v1/candidate/applications/${applicationId}/cancel`,
   demoApplicationResetUnlock: "/api/v1/candidate/demo-tools/applications/unlock",
   demoApplicationsReset: "/api/v1/candidate/demo-tools/applications",
@@ -1041,6 +1056,7 @@ export interface CandidateApiClient {
   createMockReportMediaSession(reportId: number): Promise<ApiResponse<CandidateMockReportMediaPlaybackSession>>;
   requestMockReportGeneration(reportId: number): Promise<ApiResponse<CandidateReportGenerationHandoff>>;
   listApplications(): Promise<ApiListResponse<CandidateApplicationSummary>>;
+  listScreeningResultNotifications(): Promise<ApiListResponse<CandidateScreeningResultNotification>>;
   cancelApplication(applicationId: number): Promise<ApiResponse<CancelApplicationResponse>>;
   unlockDemoApplicationReset(command: string): Promise<ApiResponse<{ enabled: true }>>;
   resetAllDemoApplications(): Promise<ApiResponse<CandidateDemoApplicationResetResult>>;
@@ -1254,6 +1270,8 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
       }),
     listApplications: () =>
       request<ApiListResponse<CandidateApplicationSummary>>(candidateApiPaths.applications),
+    listScreeningResultNotifications: () =>
+      request<ApiListResponse<CandidateScreeningResultNotification>>(candidateApiPaths.screeningResultNotifications),
     cancelApplication: (applicationId) =>
       request<ApiResponse<CancelApplicationResponse>>(candidateApiPaths.cancelApplication(applicationId), {
         method: "PATCH",

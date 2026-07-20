@@ -146,6 +146,12 @@ export type Applicant = {
   interviewStatus: string;
   reportStatus: string;
   screeningDecision: string;
+  screeningReviewerDecision: ScreeningDecision | null;
+  effectiveScreeningDecision: ScreeningDecision;
+  finalScreeningDecision: Exclude<ScreeningDecision, "UNDECIDED" | "RETRY"> | null;
+  screeningDecisionOverrideReason: string | null;
+  screeningResultConfirmationStatus: "PENDING" | "CONFIRMED";
+  screeningResultConfirmedAt: string | null;
   autoScreeningPolicyEnabled: boolean;
   screeningMemo: string | null;
   interviewSession: {
@@ -184,6 +190,10 @@ export type ApplicantSummary = {
   interviewStatusCounts: Record<string, number>;
   reportStatusCounts: Record<string, number>;
   screeningDecisionCounts: Record<string, number>;
+  effectiveScreeningDecisionCounts: Record<string, number>;
+  confirmationEligibleTotal: number;
+  confirmedTotal: number;
+  excludedTotal: number;
   attentionRequiredTotal: number;
 };
 
@@ -216,6 +226,12 @@ export type ApplicantEvaluation = {
   };
   screening: {
     decision: ScreeningDecision;
+    reviewerDecision: Exclude<ScreeningDecision, "UNDECIDED" | "RETRY"> | null;
+    effectiveDecision: ScreeningDecision;
+    finalDecision: Exclude<ScreeningDecision, "UNDECIDED" | "RETRY"> | null;
+    overrideReason: string | null;
+    confirmationStatus: "PENDING" | "CONFIRMED";
+    confirmedAt: string | null;
     memo: string | null;
   };
   submission: {
@@ -365,6 +381,22 @@ export type ApplicantEvaluation = {
 export type UpdateScreeningStatusInput = {
   screeningDecision: ScreeningDecision;
   screeningMemo?: string;
+};
+
+export type UpdateScreeningReviewInput = {
+  screeningReviewerDecision: "PASS" | "HOLD" | "FAIL" | null;
+  overrideReason?: string | null;
+};
+
+export type ScreeningResultConfirmation = {
+  recruitmentId: number;
+  idempotent: boolean;
+  confirmedCount: number;
+  confirmedCounts: Record<"PASS" | "HOLD" | "FAIL", number>;
+  excludedCounts: Record<"UNDECIDED" | "RETRY", number>;
+  confirmedAt: string | null;
+  emailSentCount: number;
+  emailFailedCount: number;
 };
 
 export type SendPassMailsInput = {

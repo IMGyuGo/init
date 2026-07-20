@@ -10,7 +10,7 @@ import {
   GAUGE_CIRCUMFERENCE,
   scoreBand,
 } from "../interview-report/report-visuals";
-import { createApplicantInterviewMediaSession, getApplicantDocument, getApplicantEvaluation, updateScreeningStatus } from "./api";
+import { createApplicantInterviewMediaSession, getApplicantDocument, getApplicantEvaluation, updateScreeningReview } from "./api";
 import { shouldPollApplicantEvaluation } from "./applicant-evaluation-polling";
 import { canEditScreeningDecision } from "./applicant-list";
 import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
@@ -34,13 +34,12 @@ import {
 import { formatRecruitingStatusLabel } from "./status-labels";
 import type { ApplicantEvaluation, ApplicantInterviewFileAsset, ScreeningDecision } from "./types";
 
-type ManualScreeningDecision = Exclude<ScreeningDecision, "RETRY">;
+type ManualScreeningDecision = Exclude<ScreeningDecision, "UNDECIDED" | "RETRY">;
 
-const decisions: ManualScreeningDecision[] = ["UNDECIDED", "PASS", "HOLD", "FAIL"];
+const decisions: ManualScreeningDecision[] = ["PASS", "HOLD", "FAIL"];
 
 // 전형 결정 카드 라디오에 표시할 설명/톤. (#289)
 const DECISION_OPTION_META: Record<ManualScreeningDecision, { description: string; tone: "neutral" | "pass" | "hold" | "fail" }> = {
-  UNDECIDED: { description: "아직 결정하지 않음", tone: "neutral" },
   PASS: { description: "다음 전형으로 진행", tone: "pass" },
   HOLD: { description: "추가 검토 후 결정", tone: "hold" },
   FAIL: { description: "채용 진행 중단", tone: "fail" },
@@ -73,8 +72,8 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
     try {
       const result = await getApplicantEvaluation(applicantId);
       setEvaluation(result.data);
-      setDecision(result.data.screening.decision);
-      setMemo(result.data.screening.memo ?? "");
+      setDecision(result.data.screening.effectiveDecision);
+      setMemo(result.data.screening.overrideReason ?? "");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "평가 상세를 불러오지 못했습니다.");
     } finally {
@@ -109,15 +108,21 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canEditDecision) {
-      setMessage("리포트 판정이 완료된 뒤 전형 결과를 변경할 수 있습니다.");
+      setMessage("확정 전이며 자동 판정이 완료된 결과만 변경할 수 있습니다.");
+      return;
+    }
+    const automaticDecision = evaluation?.screening.decision;
+    const resetToAutomatic = decision === automaticDecision;
+    if (!resetToAutomatic && memo.trim().length < 10) {
+      setMessage("자동 판정을 변경하려면 10자 이상의 변경 사유를 입력해주세요.");
       return;
     }
     setLoading(true);
     setMessage("");
     try {
-      await updateScreeningStatus(applicantId, {
-        screeningDecision: decision,
-        screeningMemo: memo || undefined,
+      await updateScreeningReview(applicantId, {
+        screeningReviewerDecision: resetToAutomatic ? null : decision as ManualScreeningDecision,
+        overrideReason: resetToAutomatic ? null : memo.trim(),
       });
       await load({ clearMessage: false });
       window.alert("저장되었습니다.");
@@ -158,6 +163,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
     autoScreeningPolicyEnabled: evaluation.applicant.autoScreeningPolicyEnabled,
     reportStatus: evaluation.statuses.reportStatus,
     screeningDecision: evaluation.screening.decision,
+    screeningResultConfirmationStatus: evaluation.screening.confirmationStatus,
   }) : false;
   const isAutoScreeningLocked = evaluation?.applicant.autoScreeningPolicyEnabled === true && !canEditDecision;
   const displayAnswers = evaluation ? getDisplayAnswers(evaluation.answers) : [];
@@ -289,19 +295,28 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
 
                   <div className="decision-field">
                     <span className="decision-field-label">자동 판정 상태</span>
-                    <StatusBadge value={evaluation?.screening.decision} />
+                    <StatusBadge value={evaluation?.screening.effectiveDecision} />
                   </div>
-                  <p className="notice">리포트 판정이 완료된 뒤 전형 결과를 변경할 수 있습니다.</p>
+                  <p className="notice">
+                    {evaluation.screening.confirmationStatus === "CONFIRMED"
+                      ? "지원자에게 통보된 확정 결과이므로 변경할 수 없습니다."
+                      : "RETRY 또는 미판정 결과는 평가가 완료된 뒤 변경할 수 있습니다."}
+                  </p>
                 </section>
               ) : (
                 <form className="panel decision-panel" onSubmit={handleSubmit}>
                   <div className="panel-head">
                     <div>
-                      <h2>전형 결정</h2>
+                      <h2>자동 판정 검토</h2>
                     </div>
                   </div>
 
                   <DecisionSummary report={report} />
+
+                  <div className="decision-field">
+                    <span className="decision-field-label">시스템 자동 판정</span>
+                    <StatusBadge value={evaluation.screening.decision} />
+                  </div>
 
                   <div className="decision-field">
                     <span className="decision-field-label">전형 상태</span>
@@ -327,12 +342,12 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                   </div>
 
                   <div className="decision-field">
-                    <label className="decision-field-label" htmlFor="decision-memo">수동 메모</label>
+                    <label className="decision-field-label" htmlFor="decision-memo">자동 판정 변경 사유</label>
                     <textarea
                       id="decision-memo"
                       className="decision-memo"
                       value={memo}
-                      placeholder="결정 사유나 참고 사항을 남겨주세요. 팀원들이 함께 볼 수 있어요."
+                      placeholder="자동 판정과 다르게 변경할 때 10자 이상 입력해주세요."
                       onChange={(event) => setMemo(event.target.value)}
                     />
                   </div>

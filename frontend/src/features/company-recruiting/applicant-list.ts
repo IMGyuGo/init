@@ -47,13 +47,13 @@ export function applyScreeningDecisionCountChange(
     return summary;
   }
 
-  const screeningDecisionCounts = { ...summary.screeningDecisionCounts };
-  screeningDecisionCounts[previous] = Math.max(0, (screeningDecisionCounts[previous] ?? 0) - 1);
-  screeningDecisionCounts[next] = (screeningDecisionCounts[next] ?? 0) + 1;
+  const effectiveScreeningDecisionCounts = { ...summary.effectiveScreeningDecisionCounts };
+  effectiveScreeningDecisionCounts[previous] = Math.max(0, (effectiveScreeningDecisionCounts[previous] ?? 0) - 1);
+  effectiveScreeningDecisionCounts[next] = (effectiveScreeningDecisionCounts[next] ?? 0) + 1;
 
   return {
     ...summary,
-    screeningDecisionCounts,
+    effectiveScreeningDecisionCounts,
   };
 }
 
@@ -61,9 +61,10 @@ export function canEditScreeningDecision(input: {
   autoScreeningPolicyEnabled: boolean;
   reportStatus: string;
   screeningDecision: string | null;
+  screeningResultConfirmationStatus?: "PENDING" | "CONFIRMED";
 }) {
-  if (!input.autoScreeningPolicyEnabled) {
-    return true;
-  }
-  return input.reportStatus === "COMPLETED" && ["PASS", "HOLD", "FAIL"].includes(input.screeningDecision ?? "");
+  return input.autoScreeningPolicyEnabled &&
+    input.screeningResultConfirmationStatus !== "CONFIRMED" &&
+    input.reportStatus === "COMPLETED" &&
+    ["PASS", "HOLD", "FAIL"].includes(input.screeningDecision ?? "");
 }
