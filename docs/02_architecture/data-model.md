@@ -78,6 +78,8 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | `ai_process_logs` | `AiProcessLog` | E |
 | `ai_guardrail_logs` | `AiGuardrailLog` | E |
 | `embeddings` | `Embedding` | E |
+| `synthetic_applicant_datasets` | `SyntheticApplicantDataset` | D/A |
+| `synthetic_applicant_records` | `SyntheticApplicantRecord` | D/A |
 
 `question_bank`는 DB table 이름만 유지하고 Prisma model은 `Question`으로 둔다. row 하나가 질문 한 건이기 때문이다. `evaluation_criteria`의 Prisma model은 복수형 `EvaluationCriteria`가 아니라 단수형 `EvaluationCriterion`이다. `ai_*` 계열 class/model 이름은 TypeScript 관례에 맞춰 `AiProcessLog`, `AiGuardrailLog`처럼 쓴다.
 
@@ -102,6 +104,42 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | Report | evaluation_reports, ncs_answer_evaluations, ncs_answer_evaluation_evidences, answer_fact_check_runs, answer_fact_check_claims, answer_fact_check_evidences, report_scores, report_evidences, manual_evaluations | 답변·profile별 NCS 평가, 점수와 분리된 사실 검증, exact evidence, AI 집계 결과와 면접관 검토 |
 | AI Infra | ai_process_logs, ai_guardrail_logs, embeddings | AI 처리 상태, 안전성 검증, 검색/추천 |
 | Notification/File | notifications, file_assets | 알림과 업로드 파일 메타데이터 |
+| Demo Fixture Operations | synthetic_applicant_datasets, synthetic_applicant_records | 지정 공고용 합성 지원자 dataset, 생성 ID manifest, 멱등 재개와 cleanup audit |
+
+## Synthetic Applicant Manifest
+
+대규모 시연 fixture는 기존 전체 seed와 분리한다. 상세 실행 계약은 [`synthetic-applicant-importer.md`](../03_contracts/synthetic-applicant-importer.md)를 따른다.
+
+### synthetic_applicant_datasets
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| dataset_id | VARCHAR(64) PRIMARY KEY | 사용자가 지정한 멱등 dataset 식별자 |
+| environment | VARCHAR(30) NOT NULL | 실행 인자와 허용 환경값이 일치한 환경 |
+| posting_id / company_id | BIGINT NOT NULL | 기존 대상 공고와 소유 기업 |
+| active_count / canceled_count | INTEGER NOT NULL | 활성 지원자와 별도 취소 이력 목표 수 |
+| interactive_count | INTEGER NOT NULL CHECK = 10 | 로그인 가능한 시연 계정 수 |
+| pipeline_selection_count | INTEGER NOT NULL | 실제 pipeline 별도 검증 대상으로 선택할 수, 0~10 |
+| batch_size | INTEGER NOT NULL | batch transaction 크기 |
+| options_hash | VARCHAR(64) NOT NULL | 동일 dataset 옵션 변경을 차단하는 SHA-256 |
+| manifest_version | VARCHAR(40) NOT NULL | manifest schema version |
+| status | VARCHAR(30) NOT NULL | APPLYING, APPLIED, PARTIAL, FAILED, CLEANING, CLEANED |
+| last_error | TEXT | 비밀번호·민감 원문을 제외한 마지막 실패 요약 |
+| created_at / updated_at / applied_at / cleaned_at | TIMESTAMP | 실행 및 정리 audit 시각 |
+
+### synthetic_applicant_records
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| record_id | BIGINT PRIMARY KEY | manifest record PK |
+| dataset_id / ordinal | VARCHAR(64) / INTEGER NOT NULL | dataset 내 결정적 순서, unique |
+| user_id / candidate_id / application_id | BIGINT NOT NULL UNIQUE | importer가 생성한 row ID snapshot. cleanup 뒤 audit 보존을 위해 FK로 연결하지 않음 |
+| is_interactive / is_canceled | BOOLEAN NOT NULL | 로그인 계정과 취소 이력 구분 |
+| lifecycle_stage / data_depth | VARCHAR(40) NOT NULL | 상태 분포와 fixture 깊이 |
+| pipeline_selected | BOOLEAN NOT NULL | 별도 승인 pipeline 검증 대상으로 선택됨. importer가 직접 발행하지 않음 |
+| created_at / cleaned_at | TIMESTAMP | 생성 및 manifest 한정 cleanup 시각 |
+
+도메인 row와 record는 같은 batch transaction에서 생성한다. cleanup은 record ID snapshot만 사용하며 이메일 prefix, PK 범위, posting 전체 조건으로 삭제하지 않는다.
 
 ## Table Columns
 

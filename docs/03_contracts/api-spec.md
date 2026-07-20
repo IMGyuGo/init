@@ -84,6 +84,7 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - CurrentUser/Dev Auth: `docs/03_contracts/dev-auth-contract.md` 기준. JWT 구현 전에는 local/dev 환경에서 `X-Dev-*` 헤더로 동일한 `CurrentUser`를 만든다.
 - Session: 로그인 성공 시 `accessToken`은 응답 본문으로 반환하고 `refreshToken`은 HttpOnly cookie로 설정한다. 프론트엔드는 protected API에 `Authorization: Bearer {accessToken}`을 사용한다.
 - Google OAuth: 지원자(`CANDIDATE`) 개인 계정만 허용한다. 기업(`COMPANY`) 계정은 이메일 회원가입/로그인만 사용하며 Google OAuth 요청은 `AUTH_USER_TYPE_MISMATCH` 또는 `COMMON_FORBIDDEN`으로 거부한다.
+- 기존 이메일 계정의 Google OAuth 로그인은 `users.status=ACTIVE`, `auth_provider=GOOGLE`, provider user ID 일치 조건을 모두 만족해야 한다. LOCAL/PENDING 계정을 이메일 일치만으로 로그인시키지 않는다.
 - Email delivery: 이메일 인증과 비밀번호 재설정 코드는 Redis TTL 캐시에 저장하고 SMTP로 발송한다.
 
 ### Response Envelope Baseline
@@ -359,6 +360,7 @@ AI 리포트 금지 기준:
   - 이메일, 인증 코드, 새 비밀번호, 새 비밀번호 확인
 - 검증/전제조건:
   - 가입된 이메일, 인증 코드 유효, 새 비밀번호 정책 충족, 새 비밀번호 확인 일치
+  - `ACTIVE + LOCAL + passwordHash 존재` 계정만 비밀번호를 재설정할 수 있다.
 - 성공 응답/처리:
   - 비밀번호 재설정 완료 후 로그인 화면으로 이동
 - 오류/예외:
@@ -377,6 +379,7 @@ AI 리포트 금지 기준:
   - 이메일
 - 검증/전제조건:
   - 가입된 이메일이어야 함
+  - `ACTIVE + LOCAL + passwordHash 존재` 계정이어야 하며 PENDING 합성 계정에는 코드를 발송하지 않는다.
 - 성공 응답/처리:
   - 인증 코드 입력 영역 활성화
 - 오류/예외:
@@ -396,6 +399,7 @@ AI 리포트 금지 기준:
   - 이메일, 인증 코드
 - 검증/전제조건:
   - 인증 코드가 유효하고 만료되지 않아야 함
+  - `ACTIVE + LOCAL + passwordHash 존재` 계정이어야 한다.
 - 성공 응답/처리:
   - 새 비밀번호 입력 영역 활성화
 - 오류/예외:
