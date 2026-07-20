@@ -3482,6 +3482,42 @@ table {
   font-size: 13px;
 }
 
+.applicant-filter-toolbar {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.4fr) repeat(5, minmax(120px, 1fr)) auto;
+  gap: 8px;
+  margin: -4px 0 16px;
+}
+
+.applicant-filter-toolbar input,
+.applicant-filter-toolbar select {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  font-size: 13px;
+}
+
+.applicant-filter-toolbar .btn {
+  min-height: 38px;
+  white-space: nowrap;
+}
+
+@media (max-width: 1180px) {
+  .applicant-filter-toolbar {
+    grid-template-columns: repeat(3, minmax(150px, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .applicant-filter-toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .applicant-filter-toolbar input {
+    grid-column: 1 / -1;
+  }
+}
+
 .notion .screening-row {
   cursor: pointer;
   transition: background 0.12s ease;

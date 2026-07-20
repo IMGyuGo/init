@@ -143,6 +143,21 @@ cloud deploy workflow는 production 배포를 `docker-compose`로 수행하지 �
 - AI 처리 실패 시 리포트 생성 실패 상태와 재시도 안내 표시
 - 채용 리포트는 기업 상세에는 전체 노출, 지원자 결과 화면에는 제한 노출
 
+## Synthetic Applicant Importer Acceptance
+
+| Area | Scenario | Expected |
+| --- | --- | --- |
+| Plan | action 생략 또는 plan | posting/company 소유와 옵션을 출력하고 DB row를 만들지 않음 |
+| Environment | 실행 환경과 허용 환경 불일치 | DB write 전 거부 |
+| Interactive auth | 10개 interactive와 나머지 bulk 계정 | interactive만 ACTIVE/password hash, bulk는 PENDING/null/demo.invalid |
+| Auth isolation | bulk 계정 local login/reset/Google OAuth | 모두 generic 인증 실패, SMTP/OAuth 계정 연동 없음 |
+| Idempotency | 같은 datasetId/같은 옵션 재실행 | 중복 없이 기존 APPLIED manifest 반환 |
+| Conflict | 같은 datasetId/다른 옵션 재실행 | 기존 데이터 변경 없이 거부 |
+| Recovery | batch 일부 완료 뒤 재실행 | manifest에 없는 ordinal만 생성하고 목표 count 도달 |
+| External calls | bulk 기본 apply | SMTP, S3, SQS, worker, OpenAI 호출 0회 |
+| Cleanup | manifest ID로 cleanup | 기존 row 불변, 생성 row만 제거, audit manifest CLEANED |
+| Scale | 100/1,000/5,000 | 목표 count·상태 분포·10개 interactive 계약 일치 |
+
 ## NQ-M0 NCS Question Contract Gates
 
 NQ-M0는 문서 계약 milestone이다. 아래 항목은 후속 구현 PR의 acceptance test 이름과 기대 결과를 고정한다.

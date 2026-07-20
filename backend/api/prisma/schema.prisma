@@ -254,6 +254,7 @@ model Company {
   questions                  Question[]
   paymentCustomers           PaymentCustomer[]
   paymentOrders              PaymentOrder[]
+  syntheticApplicantDatasets SyntheticApplicantDataset[]
 
   @@map("companies")
 }
@@ -436,10 +437,62 @@ model Posting {
   questionSets             InterviewQuestionSet[]
   timePolicy               InterviewTimePolicy?
   questionGenerationPolicy InterviewQuestionGenerationPolicy?
-  autoScreeningPolicy      AutoScreeningPolicy?
+  autoScreeningPolicy        AutoScreeningPolicy?
+  syntheticApplicantDatasets SyntheticApplicantDataset[]
 
   @@index([companyId, status])
   @@map("postings")
+}
+
+model SyntheticApplicantDataset {
+  datasetId             String                     @id @map("dataset_id") @db.VarChar(64)
+  environment           String                     @db.VarChar(30)
+  postingId             BigInt                     @map("posting_id")
+  companyId             BigInt                     @map("company_id")
+  activeCount           Int                        @map("active_count")
+  canceledCount         Int                        @map("canceled_count")
+  interactiveCount      Int                        @map("interactive_count")
+  pipelineSelectionCount Int                       @default(0) @map("pipeline_selection_count")
+  batchSize             Int                        @map("batch_size")
+  optionsHash           String                     @map("options_hash") @db.VarChar(64)
+  manifestVersion       String                     @default("SYNTHETIC_APPLICANT_MANIFEST_V1") @map("manifest_version") @db.VarChar(40)
+  status                String                     @db.VarChar(30)
+  lastError             String?                    @map("last_error")
+  createdAt             DateTime                   @default(now()) @map("created_at")
+  updatedAt             DateTime                   @updatedAt @map("updated_at")
+  appliedAt             DateTime?                  @map("applied_at")
+  cleanedAt             DateTime?                  @map("cleaned_at")
+  posting               Posting                    @relation(fields: [postingId], references: [postingId], onDelete: Restrict)
+  company               Company                    @relation(fields: [companyId], references: [companyId], onDelete: Restrict)
+  records               SyntheticApplicantRecord[]
+
+  @@index([postingId, status], map: "idx_synthetic_applicant_datasets_posting_status")
+  @@index([companyId, status], map: "idx_synthetic_applicant_datasets_company_status")
+  @@map("synthetic_applicant_datasets")
+}
+
+model SyntheticApplicantRecord {
+  recordId         BigInt                    @id @default(autoincrement()) @map("record_id")
+  datasetId        String                    @map("dataset_id") @db.VarChar(64)
+  ordinal          Int
+  userId           BigInt                    @map("user_id")
+  candidateId      BigInt                    @map("candidate_id")
+  applicationId    BigInt                    @map("application_id")
+  isInteractive    Boolean                   @default(false) @map("is_interactive")
+  isCanceled       Boolean                   @default(false) @map("is_canceled")
+  lifecycleStage   String                    @map("lifecycle_stage") @db.VarChar(40)
+  dataDepth        String                    @map("data_depth") @db.VarChar(40)
+  pipelineSelected Boolean                   @default(false) @map("pipeline_selected")
+  createdAt        DateTime                  @default(now()) @map("created_at")
+  cleanedAt        DateTime?                 @map("cleaned_at")
+  dataset          SyntheticApplicantDataset @relation(fields: [datasetId], references: [datasetId], onDelete: Cascade)
+
+  @@unique([datasetId, ordinal], map: "uq_synthetic_applicant_records_dataset_ordinal")
+  @@unique([userId], map: "uq_synthetic_applicant_records_user")
+  @@unique([candidateId], map: "uq_synthetic_applicant_records_candidate")
+  @@unique([applicationId], map: "uq_synthetic_applicant_records_application")
+  @@index([datasetId, cleanedAt], map: "idx_synthetic_applicant_records_dataset_cleaned")
+  @@map("synthetic_applicant_records")
 }
 
 model CriterionTag {
@@ -689,7 +742,11 @@ model Application {
 
   // Prisma 6.19 cannot model a partial index; the active-row unique invariant is managed in migration SQL.
   @@index([postingId, applicationStatus])
-  @@index([screeningDecision], map: "idx_applications_screening_decision")
+  @@index([postingId, updatedAt(sort: Desc), applicationId(sort: Desc)], map: "idx_applications_posting_updated_id")
+  @@index([postingId, documentStatus], map: "idx_applications_posting_document_status")
+  @@index([postingId, interviewStatus], map: "idx_applications_posting_interview_status")
+  @@index([postingId, reportStatus], map: "idx_applications_posting_report_status")
+  @@index([postingId, screeningDecision], map: "idx_applications_posting_screening_decision")
   @@map("applications")
 }
 

@@ -276,3 +276,11 @@ Foundation migration은 다음만 수행한다.
 - D: official session mode lock/idempotency, server-side selection, snapshot/runtime
 - E: usage-scoped batch, factual anchor, follow-up, active-only evaluator/report
 - PM: demo readiness/잠금 문구, 3문항 흐름, V1/V2 리포트 표시
+
+## 12. Presentation-only fixed fixture
+
+- 식별자는 `SALTLUX_AI_BACKEND_V1`이며 회사명 `솔트룩스`, 공고명 `[Product Center] AI Backend Engineer (신입/경력)`, `sessionMode=DEMO_PRESET`이 모두 일치할 때만 적용한다.
+- 별도 DB 컬럼이나 사용자 화면의 시연 표시는 추가하지 않는다. 일반 공고와 STANDARD 면접은 기존 계약을 그대로 따른다.
+- session snapshot의 공통/개인화 질문 문구와 꼬리질문을 고정하고 준비 시간 0초, 답변 시간 22초를 사용한다. 각 질문 낭독과 준비된 답변 대본의 보수적 예상 합계는 30초 이하여야 한다.
+- 최종 리포트는 실제 session/answer/criterion 식별자에 연결하되 점수, 근거 문구, 요약은 버전 관리되는 fixture로 결정한다. worker는 외부 LLM을 호출하지 않고 `providerMode=fixed`, `model=fixed-demo-fixture-v1`을 기록한다.
+- 실제 STT 원문과 무관하게 고정 리포트를 저장하므로 발표 종료 후 fixture는 제거하거나 비활성화해야 한다. 질문 snapshot에 답변이 이미 존재하면 자동 교체하지 않는다.

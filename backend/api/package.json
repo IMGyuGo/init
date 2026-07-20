@@ -17,6 +17,8 @@
     "smoke:report": "tsx scripts/report-smoke.ts",
     "smoke:smtp": "tsx src/scripts/smtp-smoke.ts",
     "smoke:smtp:prod": "node dist/src/scripts/smtp-smoke.js",
+    "verify:large-applicants": "tsx scripts/large-applicant-query-plan.ts",
+    "synthetic:applicants": "tsx src/modules/candidate/scripts/synthetic-applicant-importer.cli.ts",
     "prisma:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",

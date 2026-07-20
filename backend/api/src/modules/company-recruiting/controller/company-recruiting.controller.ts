@@ -28,11 +28,12 @@ import { CompanyRecruitingService } from "../service/company-recruiting.service"
 import {
   ApplicantEvaluationResponseDto,
   ApplicantResponseDto,
+  ApplicantSummaryResponseDto,
   JdImageUploadResponseDto,
   RecruitmentResponseDto,
 } from "../dto/company-recruiting-response.dto";
 import { CreateRecruitmentDto } from "../dto/create-recruitment.dto";
-import { ListQueryDto } from "../dto/list-query.dto";
+import { ListApplicantsByRecruitmentQueryDto, ListApplicantsQueryDto, ListQueryDto } from "../dto/list-query.dto";
 import { UpdateRecruitmentDto } from "../dto/update-recruitment.dto";
 import { UpdateScreeningStatusDto } from "../dto/update-screening-status.dto";
 
@@ -178,10 +179,23 @@ export class CompanyRecruitingController {
   async listRecruitmentApplicants(
     @Req() request: CompanyRequest,
     @Param("recruitmentId", ParseIntPipe) recruitmentId: number,
-    @Query() query: ListQueryDto,
+    @Query() query: ListApplicantsQueryDto,
   ) {
     const result = await this.companyRecruitingService.listRecruitmentApplicants(request.currentUser, recruitmentId, query);
     return okList(request, result.items, result.page);
+  }
+
+  @Get("recruitments/:recruitmentId/applicants/summary")
+  @ApiOperationId("API-014-SUMMARY")
+  @ApiOperation({ summary: "공고별 지원자 상태 전체 집계" })
+  @ApiParamId("recruitmentId", "채용 공고 ID")
+  @ApiEnvelopeResponse(ApplicantSummaryResponseDto)
+  async getRecruitmentApplicantSummary(
+    @Req() request: CompanyRequest,
+    @Param("recruitmentId", ParseIntPipe) recruitmentId: number,
+  ) {
+    const data = await this.companyRecruitingService.getRecruitmentApplicantSummary(request.currentUser, recruitmentId);
+    return ok(request, data);
   }
 
   @Get("applicants")
@@ -190,10 +204,9 @@ export class CompanyRecruitingController {
   @ApiListEnvelopeResponse(ApplicantResponseDto)
   async listApplicants(
     @Req() request: CompanyRequest,
-    @Query() query: ListQueryDto & { recruitmentId?: number },
+    @Query() query: ListApplicantsByRecruitmentQueryDto,
   ) {
-    const recruitmentId = Number(query.recruitmentId);
-    const result = await this.companyRecruitingService.listRecruitmentApplicants(request.currentUser, recruitmentId, query);
+    const result = await this.companyRecruitingService.listRecruitmentApplicants(request.currentUser, query.recruitmentId, query);
     return okList(request, result.items, result.page);
   }
 

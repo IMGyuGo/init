@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { CompanyRecruitingService } from "./company-recruiting.service";
+import { CompanyRecruitingService, normalizeApplicantListQuery } from "./company-recruiting.service";
 import type { ApplicantRecord } from "../company-recruiting.types";
 import type { SubmitPublicApplicationDto } from "../dto/submit-public-application.dto";
 
@@ -205,6 +205,19 @@ function createRepository(overrides: Record<string, unknown> = {}) {
     async countApplicationsForPosting(postingId: number, companyId: number, query: unknown) {
       calls.countApplicationsForPosting = [postingId, companyId, query];
       return 0;
+    },
+    async summarizeApplicationsForPosting(postingId: number, companyId: number) {
+      calls.summarizeApplicationsForPosting = [postingId, companyId];
+      return {
+        activeTotal: 0,
+        canceledHistoryTotal: 0,
+        applicationStatusCounts: {},
+        documentStatusCounts: {},
+        interviewStatusCounts: {},
+        reportStatusCounts: {},
+        screeningDecisionCounts: {},
+        attentionRequiredTotal: 0,
+      };
     },
     async findApplicationForCompany(applicationId: number, companyId: number) {
       calls.findApplicationForCompany = [applicationId, companyId];
@@ -484,6 +497,94 @@ function createDraftPosting(postingId: number, companyId: number) {
 }
 
 describe("CompanyRecruitingService", () => {
+  it("normalizes applicant pagination and all status filters", () => {
+    assert.deepEqual(
+      normalizeApplicantListQuery({
+        page: 3,
+        limit: 50,
+        q: "  kim  ",
+        applicationStatus: "IN_REVIEW",
+        documentStatus: "EXTRACTED",
+        interviewStatus: "READY",
+        reportStatus: "PENDING",
+        screeningDecision: "UNDECIDED",
+        sort: "reportStatus",
+        order: "asc",
+      }),
+      {
+        page: 3,
+        limit: 50,
+        q: "kim",
+        applicationStatus: "IN_REVIEW",
+        documentStatus: "EXTRACTED",
+        interviewStatus: "READY",
+        reportStatus: "PENDING",
+        screeningDecision: "UNDECIDED",
+        sort: "reportStatus",
+        order: "asc",
+        skip: 100,
+        take: 50,
+      },
+    );
+  });
+
+  it("returns the posting-wide applicant summary", async () => {
+    const summary = {
+      activeTotal: 10,
+      canceledHistoryTotal: 2,
+      applicationStatusCounts: { SUBMITTED: 10 },
+      documentStatusCounts: { EXTRACTED: 10 },
+      interviewStatusCounts: { COMPLETED: 6 },
+      reportStatusCounts: { COMPLETED: 5 },
+      screeningDecisionCounts: { UNDECIDED: 4 },
+      attentionRequiredTotal: 4,
+    };
+    const repository = createRepository({
+      async summarizeApplicationsForPosting() {
+        return summary;
+      },
+    });
+    const service = new CompanyRecruitingService(repository);
+
+    assert.deepEqual(await service.getRecruitmentApplicantSummary(companyUser, 101), summary);
+  });
+
+  it.each([100, 1_000, 5_000])("keeps first, middle, and last page boundaries stable for %i applicants", async (size) => {
+    const fixtures = Array.from({ length: size }, (_, index) => createApplicantRecord({
+      applicationId: index + 1,
+      candidateId: index + 1,
+      applicantEmail: `candidate-${index + 1}@example.com`,
+    }));
+    const repository = createRepository({
+      async listApplicationsForPosting(_postingId: number, _companyId: number, query: unknown) {
+        const { skip, take } = query as { skip: number; take: number };
+        return fixtures.slice(skip, skip + take);
+      },
+      async countApplicationsForPosting() {
+        return size;
+      },
+    });
+    const service = new CompanyRecruitingService(repository);
+    const lastPage = Math.ceil(size / 20);
+    const middlePage = Math.ceil(lastPage / 2);
+
+    const first = await service.listRecruitmentApplicants(companyUser, 101, { page: 1, limit: 20 });
+    const middle = await service.listRecruitmentApplicants(companyUser, 101, { page: middlePage, limit: 20 });
+    const last = await service.listRecruitmentApplicants(companyUser, 101, { page: lastPage, limit: 20 });
+
+    assert.equal(first.items[0]?.applicationId, 1);
+    assert.equal(first.items[19]?.applicationId, 20);
+    assert.equal(middle.items[0]?.applicationId, (middlePage - 1) * 20 + 1);
+    assert.equal(last.items[0]?.applicationId, (lastPage - 1) * 20 + 1);
+    assert.equal(last.items.at(-1)?.applicationId, size);
+    assert.equal(last.page.totalItems, size);
+    assert.equal(last.page.totalPages, lastPage);
+
+    if (size >= 1_000) {
+      const pageAfterHundred = await service.listRecruitmentApplicants(companyUser, 101, { page: 6, limit: 20 });
+      assert.equal(pageAfterHundred.items[0]?.applicationId, 101);
+    }
+  });
   it("creates recruitments for the current company only", async () => {
     const repository = createRepository();
     const service = new CompanyRecruitingService(repository);

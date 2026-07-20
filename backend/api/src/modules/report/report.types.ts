@@ -133,6 +133,7 @@ export interface GenerateReportRequest {
   criteria: EvaluationCriterionInput[];
   answers: InterviewAnswerInput[];
   ncsScoringVersion?: "NCS_RECRUITING_SCORING_V1" | "NCS_RECRUITING_SCORING_V2";
+  presentationFixtureId?: "SALTLUX_AI_BACKEND_V1";
   ncsSessionPolicy?: Array<{
     ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
     criterionId?: number;

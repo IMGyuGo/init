@@ -79,6 +79,3 @@ ALTER TABLE "applications"
       AND "screening_decided_at" IS NOT NULL
     )
   );
-
-CREATE INDEX "idx_applications_screening_decision"
-  ON "applications"("screening_decision");

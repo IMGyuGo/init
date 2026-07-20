@@ -84,6 +84,7 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - CurrentUser/Dev Auth: `docs/03_contracts/dev-auth-contract.md` 기준. JWT 구현 전에는 local/dev 환경에서 `X-Dev-*` 헤더로 동일한 `CurrentUser`를 만든다.
 - Session: 로그인 성공 시 `accessToken`은 응답 본문으로 반환하고 `refreshToken`은 HttpOnly cookie로 설정한다. 프론트엔드는 protected API에 `Authorization: Bearer {accessToken}`을 사용한다.
 - Google OAuth: 지원자(`CANDIDATE`) 개인 계정만 허용한다. 기업(`COMPANY`) 계정은 이메일 회원가입/로그인만 사용하며 Google OAuth 요청은 `AUTH_USER_TYPE_MISMATCH` 또는 `COMMON_FORBIDDEN`으로 거부한다.
+- 기존 이메일 계정의 Google OAuth 로그인은 `users.status=ACTIVE`, `auth_provider=GOOGLE`, provider user ID 일치 조건을 모두 만족해야 한다. LOCAL/PENDING 계정을 이메일 일치만으로 로그인시키지 않는다.
 - Email delivery: 이메일 인증과 비밀번호 재설정 코드는 Redis TTL 캐시에 저장하고 SMTP로 발송한다.
 
 ### Response Envelope Baseline
@@ -359,6 +360,7 @@ AI 리포트 금지 기준:
   - 이메일, 인증 코드, 새 비밀번호, 새 비밀번호 확인
 - 검증/전제조건:
   - 가입된 이메일, 인증 코드 유효, 새 비밀번호 정책 충족, 새 비밀번호 확인 일치
+  - `ACTIVE + LOCAL + passwordHash 존재` 계정만 비밀번호를 재설정할 수 있다.
 - 성공 응답/처리:
   - 비밀번호 재설정 완료 후 로그인 화면으로 이동
 - 오류/예외:
@@ -377,6 +379,7 @@ AI 리포트 금지 기준:
   - 이메일
 - 검증/전제조건:
   - 가입된 이메일이어야 함
+  - `ACTIVE + LOCAL + passwordHash 존재` 계정이어야 하며 PENDING 합성 계정에는 코드를 발송하지 않는다.
 - 성공 응답/처리:
   - 인증 코드 입력 영역 활성화
 - 오류/예외:
@@ -396,6 +399,7 @@ AI 리포트 금지 기준:
   - 이메일, 인증 코드
 - 검증/전제조건:
   - 인증 코드가 유효하고 만료되지 않아야 함
+  - `ACTIVE + LOCAL + passwordHash 존재` 계정이어야 한다.
 - 성공 응답/처리:
   - 새 비밀번호 입력 영역 활성화
 - 오류/예외:
@@ -733,17 +737,49 @@ AI 리포트 금지 기준:
 - Path Params: recruitmentId
 - 요청 데이터:
   - 공고 ID
+  - pagination: `page`(기본 1), `limit`(기본 20, 최대 100)
+  - 검색: `q` 또는 호환 alias `keyword`로 지원자 이름·이메일 부분 검색
+  - 상태 필터: `applicationStatus`, `documentStatus`, `interviewStatus`, `reportStatus`, `screeningDecision`
+  - 정렬: `sort=updatedAt|applicationStatus|interviewStatus|reportStatus`, `order=asc|desc`
 - 검증/전제조건:
   - 공고 조회 권한 보유
 - 성공 응답/처리:
   - 공고별 지원자 관리 화면 표시
   - 기본 지원자 목록과 pagination count는 `application_status != CANCELED`인 활성 지원 건만 포함한다. 취소 이력은 DB에서 삭제하지 않는다.
+  - 검색과 복수 상태 필터는 AND로 결합한다.
+  - 목록 응답은 화면 행에 필요한 지원자·최신 면접 세션·최신 리포트 요약만 반환하며, 점수 근거·답변·서류 본문은 API-020 상세 조회에서 반환한다.
+  - 정렬 값이 같은 경우 `applicationId`를 보조 정렬 키로 사용해 페이지 경계의 순서를 안정화한다.
 - 오류/예외:
   - 공고 정보가 없거나 권한이 없으면 접근 제한 메시지를 표시한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, applications, evaluation_reports, report_scores, report_evidences, notifications
 - 비고/미결:
   - 기존 구직자 관리 명칭을 지원자 관리로 변경. 평가 리포트 메뉴는 지원자 관리로 통합
+
+### API-014-SUMMARY GET /company/recruitments/{recruitmentId}/applicants/summary
+- 도메인: 기업 - 채용공고
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 채용 공고 목록 KPI, 지원자 관리 KPI
+- UI Type: data
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: recruitmentId
+- 요청 데이터:
+  - 공고 ID
+- 검증/전제조건:
+  - 공고 조회 권한 보유
+- 성공 응답/처리:
+  - `activeTotal`: `application_status != CANCELED`인 활성 지원 건 수
+  - `canceledHistoryTotal`: 취소 이력 수
+  - `applicationStatusCounts`, `documentStatusCounts`, `interviewStatusCounts`, `reportStatusCounts`, `screeningDecisionCounts`: 활성 지원 건의 상태별 수
+  - `attentionRequiredTotal`: 서류·면접·리포트 중 하나가 `FAILED`이거나 전형 판정이 `UNDECIDED`인 활성 지원 건 수
+  - 상태별 count map에 키가 없으면 0으로 해석한다.
+- 오류/예외:
+  - 공고 정보가 없거나 권한이 없으면 404를 반환한다.
+- 관련 ERD 테이블:
+  - companies, postings, applications
+- 비고/미결:
+  - 목록 page/limit와 무관한 전체 집계이며 지원자 상세 relation을 조회하지 않는다.
 
 ### API-032 GET /company/recruitments?keyword={keyword}&status={status}
 - 도메인: 기업 - 채용공고
@@ -1051,12 +1087,14 @@ AI 리포트 금지 기준:
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - 공고, 상태 필터, 검색어
+  - 필수 `recruitmentId`
+  - API-014와 동일한 pagination, 검색, 상태 필터, 정렬 query
 - 검증/전제조건:
   - 조회 권한 보유
 - 성공 응답/처리:
   - 지원자 목록 표시
   - 기본 지원자 목록과 count는 `application_status != CANCELED`인 활성 지원 건만 포함한다.
+  - query 결합, 경량 목록 응답, 안정 정렬 규칙은 API-014와 같다.
 - 오류/예외:
   - 데이터가 없으면 빈 상태 안내를 표시한다.
 - 관련 ERD 테이블:

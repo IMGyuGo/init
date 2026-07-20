@@ -61,6 +61,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-084 | 기업 - 채용공고 | DELETE | /company/recruitments/{recruitmentId} | 공고 삭제/보관 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-086 | 기업 - 채용공고 | POST | /company/recruitments/jd-images | JD 에디터 이미지 업로드 | 기업 / 기업 사용자 로그인 | N | 201 Created |
 | API-014 | 기업 - 채용공고 | GET | /company/recruitments/{recruitmentId}/applicants | 공고별 지원자 관리 | 기업 / 기업 사용자 로그인 | N | 200 OK |
+| API-014-SUMMARY | 기업 - 채용공고 | GET | /company/recruitments/{recruitmentId}/applicants/summary | 공고별 활성 지원자 상태 집계 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-086 | 공개 - 채용공고/지원 | GET | /public/recruitments/{recruitmentId} | 공개 공고 상세 조회 | 비로그인 허용 | N | 200 OK |
 | API-087 | 공개 - 채용공고/지원 | POST | /public/recruitments/{recruitmentId}/applications | 공개 지원 폼 제출 | 비로그인 허용 | N | 201 Created |
 | API-088 | 공개 - 채용공고/지원 | POST | /public/recruitments/{recruitmentId}/applications/access-link | 지원 현황 매직링크 재발급 요청 | 비로그인 허용 | N | 200 OK |
