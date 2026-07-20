@@ -58,13 +58,24 @@ export class InMemoryReportRepository implements ReportRepository {
     inputRef: string,
     refs: AiProcessRefs = {}
   ): Promise<QueuedAiProcessSnapshot> {
+    if (processType === "REPORT_GENERATE" && refs.applicationId) {
+      const active = [...this.queuedProcesses.values()].find((process) =>
+        process.processType === "REPORT_GENERATE" &&
+        process.applicationId === refs.applicationId &&
+        isActiveReportProcess(process)
+      );
+      if (active) return { ...active, idempotentReplay: true };
+    }
     const process: QueuedAiProcessSnapshot = {
       processLogId: this.nextProcessLogId++,
       processType,
       status: "PENDING",
       inputRef,
       applicationId: refs.applicationId,
-      sessionId: refs.sessionId
+      sessionId: refs.sessionId,
+      attempt: 1,
+      maxAttempts: 3,
+      idempotentReplay: false,
     };
     this.queuedProcesses.set(process.processLogId, process);
     return { ...process };
@@ -324,4 +335,12 @@ function durationMs(startedAt: string | undefined, completedAt: string): number 
   const started = Date.parse(startedAt);
   const completed = Date.parse(completedAt);
   return Number.isFinite(started) && Number.isFinite(completed) ? Math.max(0, completed - started) : undefined;
+}
+
+function isActiveReportProcess(process: QueuedAiProcessSnapshot): boolean {
+  if (process.status === "PENDING" || process.status === "RUNNING") return true;
+  return process.status === "FAILED" &&
+    (process.failure?.category === "RETRYABLE" || process.failure?.category === "STT_RETRYABLE") &&
+    (process.attempt ?? 1) < (process.maxAttempts ?? 3) &&
+    Boolean(process.nextRetryAt);
 }

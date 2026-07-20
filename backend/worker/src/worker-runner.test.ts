@@ -104,7 +104,7 @@ test("marks a follow-up process failed when publishing its SQS message fails", a
   assert.equal(repository.get(21).status, "FAILED");
   assert.equal(repository.get(22).status, "FAILED");
   assert.match(repository.get(22).failure?.reason ?? "", /sqs:SendMessage/);
-  assert.deepEqual(failedJobs, [22, 21]);
+  assert.deepEqual(failedJobs, [22]);
   assert.deepEqual(queue.deletedMessageIds, []);
 });
 
@@ -134,6 +134,135 @@ test("republishes a stale pending personalized-question job with the same proces
 
   assert.equal(handled, 1);
   assert.equal(repository.get(stalePendingJob.processLogId).status, "COMPLETED");
+});
+
+test("republishes a stale pending report job committed before queue publication", async () => {
+  const queue = new InMemoryAiJobQueue([]);
+  const repository = new InMemoryAiProcessLogRepository();
+  const staleReportJob = {
+    processLogId: 33,
+    processType: "REPORT_GENERATE" as const,
+    inputRef: JSON.stringify({ payload: { reportId: 501 }, attempt: 1 }),
+    attempt: 1,
+  };
+  await repository.ensurePending(staleReportJob);
+  let handled = 0;
+
+  await new AiWorkerRunner(queue, repository, {
+    async handle(job) {
+      handled += 1;
+      assert.equal(job.processLogId, staleReportJob.processLogId);
+      return { guardrail: { result: "PASS", reason: null } };
+    },
+  }, {
+    orphanPendingThresholdMs: 0,
+    orphanRecoveryIntervalMs: 0,
+  }).processBatch();
+
+  assert.equal(handled, 1);
+  assert.equal(repository.get(staleReportJob.processLogId).status, "COMPLETED");
+});
+
+test("republishes a due failed report when the original queue message is missing", async () => {
+  const queue = new InMemoryAiJobQueue([]);
+  const repository = new InMemoryAiProcessLogRepository();
+  const failedReportJob = {
+    processLogId: 36,
+    processType: "REPORT_GENERATE" as const,
+    inputRef: JSON.stringify({ payload: { reportId: 502 }, attempt: 1 }),
+    attempt: 1,
+  };
+  await repository.ensurePending(failedReportJob);
+  const leaseOwner = "seed-worker:message-36";
+  await repository.claim(failedReportJob, leaseOwner, new Date(Date.now() + 1_000));
+  await repository.markFailed(
+    failedReportJob.processLogId,
+    { category: "RETRYABLE", reason: "temporary provider failure", retryable: true },
+    leaseOwner,
+    { nextRetryAt: new Date(Date.now() - 1_000) },
+  );
+  let handled = 0;
+
+  await new AiWorkerRunner(queue, repository, {
+    async handle(job) {
+      handled += 1;
+      assert.equal(job.processLogId, failedReportJob.processLogId);
+      return { guardrail: { result: "PASS", reason: null } };
+    },
+  }, {
+    orphanPendingThresholdMs: 0,
+    orphanRecoveryIntervalMs: 0,
+  }).processBatch();
+
+  assert.equal(handled, 1);
+  assert.equal(repository.get(failedReportJob.processLogId).attemptCount, 2);
+  assert.equal(repository.get(failedReportJob.processLogId).status, "COMPLETED");
+});
+
+test("duplicate recovery envelopes cannot bypass the retry backoff or reset attempts", async () => {
+  const duplicate = message(34, 1);
+  const queue = new InMemoryAiJobQueue([duplicate, { ...duplicate, messageId: "message-34-duplicate" }]);
+  const repository = new InMemoryAiProcessLogRepository();
+  let handled = 0;
+
+  await new AiWorkerRunner(queue, repository, {
+    async handle() {
+      handled += 1;
+      throw new RetryableAiWorkerFailure("temporary provider failure");
+    },
+  }, { maxMessages: 2 }).processBatch();
+
+  assert.equal(handled, 1);
+  assert.equal(repository.get(34).attemptCount, 1);
+  assert.equal(repository.get(34).status, "FAILED");
+  assert.ok(Date.parse(repository.get(34).nextRetryAt ?? "") > Date.now());
+  assert.deepEqual(queue.deletedMessageIds, []);
+  assert.equal(queue.visibilityExtensions.at(-1)?.messageId, "message-34-duplicate");
+});
+
+test("an early redelivery during backoff is deferred without deleting the only message", async () => {
+  class FailRetryVisibilityQueue extends InMemoryAiJobQueue {
+    private extensions = 0;
+
+    override async extendVisibility(message: AiQueueMessage, timeoutSeconds: number): Promise<void> {
+      this.extensions += 1;
+      if (this.extensions === 2) throw new Error("temporary ChangeMessageVisibility failure");
+      await super.extendVisibility(message, timeoutSeconds);
+    }
+  }
+
+  const repository = new InMemoryAiProcessLogRepository();
+  let handled = 0;
+  const handler: AiTaskHandler = {
+    async handle() {
+      handled += 1;
+      throw new RetryableAiWorkerFailure("temporary provider failure");
+    },
+  };
+  await new AiWorkerRunner(
+    new FailRetryVisibilityQueue([message(35, 1)]),
+    repository,
+    handler,
+    { visibilityTimeoutSeconds: 1 },
+  ).processBatch();
+
+  const earlyRedelivery = new InMemoryAiJobQueue([message(35, 2)]);
+  await new AiWorkerRunner(earlyRedelivery, repository, handler, { visibilityTimeoutSeconds: 1 }).processBatch();
+
+  assert.equal(handled, 1);
+  assert.deepEqual(earlyRedelivery.deletedMessageIds, []);
+  assert.equal(earlyRedelivery.visibilityExtensions.length, 1);
+  assert.ok((earlyRedelivery.visibilityExtensions[0]?.timeoutSeconds ?? 0) > 0);
+  assert.ok((earlyRedelivery.visibilityExtensions[0]?.timeoutSeconds ?? 0) <= 1);
+
+  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  const dueRedelivery = new InMemoryAiJobQueue([message(35, 3)]);
+  await new AiWorkerRunner(dueRedelivery, repository, handler, { visibilityTimeoutSeconds: 1 }).processBatch();
+
+  assert.equal(handled, 2);
+  assert.equal(repository.get(35).attemptCount, 2);
+  assert.equal(repository.get(35).failure?.category, "RETRYABLE");
+  assert.deepEqual(dueRedelivery.deletedMessageIds, []);
 });
 
 test("continues normal queue consumption when stale pending lookup fails", async () => {
@@ -296,13 +425,18 @@ test("rejects final save when a handler does not provide a guardrail result", as
 test("keeps retryable failures on the queue for redelivery", async () => {
   const queue = new InMemoryAiJobQueue([message(3)]);
   const repository = new InMemoryAiProcessLogRepository();
+  const terminalFailures: string[] = [];
   const handler: AiTaskHandler = {
     async handle() {
       throw new RetryableAiWorkerFailure("provider timeout");
     }
   };
 
-  await new AiWorkerRunner(queue, repository, handler).processBatch();
+  await new AiWorkerRunner(queue, repository, handler, {
+    onFailure: async (_job, failure) => {
+      terminalFailures.push(failure.category);
+    },
+  }).processBatch();
 
   assert.equal(repository.get(3).status, "FAILED");
   assert.deepEqual(repository.get(3).failure, {
@@ -310,11 +444,12 @@ test("keeps retryable failures on the queue for redelivery", async () => {
     reason: "provider timeout",
     retryable: true
   });
+  assert.deepEqual(terminalFailures, []);
   assert.deepEqual(queue.deletedMessageIds, []);
 });
 
-test("keeps STT retryable failures on the queue for redelivery", async () => {
-  const queue = new InMemoryAiJobQueue([message(7, 3)]);
+test("keeps STT retryable failures on the queue for a fixed 900 second redelivery before the third attempt", async () => {
+  const queue = new InMemoryAiJobQueue([message(7, 2)]);
   const repository = new InMemoryAiProcessLogRepository();
   const handler: AiTaskHandler = {
     async handle() {
@@ -330,6 +465,13 @@ test("keeps STT retryable failures on the queue for redelivery", async () => {
     reason: "OpenAI STT timeout",
     retryable: true
   });
+  assert.equal(repository.get(7).attemptCount, 2);
+  assert.equal(repository.get(7).maxAttempts, 3);
+  assert.ok(repository.get(7).nextRetryAt);
+  assert.deepEqual(queue.visibilityExtensions, [
+    { messageId: "message-7", timeoutSeconds: 900 },
+    { messageId: "message-7", timeoutSeconds: 900 },
+  ]);
   assert.deepEqual(queue.deletedMessageIds, []);
 });
 
@@ -354,24 +496,54 @@ test("acks regeneration-required failures while exposing user retryability", asy
   assert.deepEqual(queue.deletedMessageIds, ["message-10"]);
 });
 
-test("acks retryable failures after the total receive attempt limit is exceeded", async () => {
-  const queue = new InMemoryAiJobQueue([message(9, 4)]);
+test("acks retryable failures on the third total attempt without persisting provider raw content", async () => {
+  const queue = new InMemoryAiJobQueue([message(9, 3)]);
   const repository = new InMemoryAiProcessLogRepository();
+  const terminalFailures: string[] = [];
   const handler: AiTaskHandler = {
     async handle() {
-      throw new SttRetryableAiWorkerFailure("OpenAI STT connection error");
+      throw new SttRetryableAiWorkerFailure("OpenAI STT connection error for applicant@example.com transcript=private");
     }
   };
 
-  await new AiWorkerRunner(queue, repository, handler).processBatch();
+  await new AiWorkerRunner(queue, repository, handler, {
+    onFailure: async (_job, failure) => {
+      terminalFailures.push(failure.category);
+    },
+  }).processBatch();
 
   assert.equal(repository.get(9).status, "FAILED");
   assert.deepEqual(repository.get(9).failure, {
-    category: "NON_RETRYABLE",
-    reason: "STT retry limit exceeded after 3 total attempts: OpenAI STT connection error",
+    category: "RETRY_EXHAUSTED",
+    reason: "Automatic retry limit exhausted after 3 total attempts.",
     retryable: false
   });
+  assert.equal(repository.get(9).attemptCount, 3);
+  assert.equal(repository.get(9).maxAttempts, 3);
+  assert.equal(repository.get(9).nextRetryAt, undefined);
+  assert.deepEqual(terminalFailures, ["RETRY_EXHAUSTED"]);
+  assert.doesNotMatch(repository.get(9).failure?.reason ?? "", /applicant@example\.com|transcript=private/);
   assert.deepEqual(queue.deletedMessageIds, ["message-9"]);
+});
+
+test("acks a redelivered exhausted process without invoking the provider again", async () => {
+  const repository = new InMemoryAiProcessLogRepository();
+  let calls = 0;
+  const handler: AiTaskHandler = {
+    async handle() {
+      calls += 1;
+      throw new SttRetryableAiWorkerFailure("temporary STT failure");
+    },
+  };
+
+  await new AiWorkerRunner(new InMemoryAiJobQueue([message(19, 3)]), repository, handler).processBatch();
+  const redeliveryQueue = new InMemoryAiJobQueue([message(19, 4)]);
+  await new AiWorkerRunner(redeliveryQueue, repository, handler).processBatch();
+
+  assert.equal(calls, 1);
+  assert.equal(repository.get(19).status, "FAILED");
+  assert.equal(repository.get(19).failure?.category, "RETRY_EXHAUSTED");
+  assert.deepEqual(redeliveryQueue.deletedMessageIds, ["message-19"]);
 });
 
 test("acks non-retryable failures after recording the reason", async () => {

@@ -17,7 +17,8 @@ export type FailureCategory =
   | "NON_RETRYABLE"
   | "STT_RETRYABLE"
   | "REANSWER_REQUIRED"
-  | "REGENERATION_REQUIRED";
+  | "REGENERATION_REQUIRED"
+  | "RETRY_EXHAUSTED";
 export type GuardrailResult = "PASS" | "BLOCKED" | "REGENERATED";
 
 export interface AiWorkerJob {
@@ -73,6 +74,9 @@ export interface AiProcessLogSnapshot {
   inputRef: string;
   outputRef?: string;
   failure?: FailureReason;
+  attemptCount?: number;
+  maxAttempts?: number;
+  nextRetryAt?: string;
   leaseOwner?: string;
   leaseExpiresAt?: string;
   startedAt?: string;

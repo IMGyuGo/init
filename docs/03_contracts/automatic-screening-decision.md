@@ -18,6 +18,21 @@
 
 RETRY의 재처리 횟수, backoff, 지원자 재답변과 운영자 재처리 경계는 #397에서 확정한다. 이 문서는 RETRY 진입 조건과 결과 노출 계약만 고정한다.
 
+## RETRY Execution Policy (#397)
+
+- queue 자동 재시도는 최초 실행을 포함해 총 3회다.
+- `RETRYABLE`, `STT_RETRYABLE`만 queue 자동 재시도 대상이다. 각 실패 시점부터 SQS visibility timeout을 900초로 다시 설정하며 worker heartbeat는 300초 간격을 유지한다.
+- worker 환경변수로 위 값을 변경하지 않는다. 설정값이 있으면 각각 총 3회, 900초, 300초와 정확히 일치해야 한다.
+- 3번째 자동 시도가 실패하면 메시지를 ACK하고 `failure_category=RETRY_EXHAUSTED`로 종료한다. 이후 자동 job을 만들지 않으며 운영자 확인이 필요하다.
+- 1·2번째 `RETRYABLE | STT_RETRYABLE` 실패는 `ai_process_logs`와 backoff만 갱신한다. report, resume question batch 등 도메인 결과를 terminal `FAILED`로 바꾸는 후처리는 3회 소진 또는 다른 terminal 실패에서만 수행한다.
+- `REANSWER_REQUIRED`는 queue 자동 재시도 대상이 아니다. 기존 지원자 재답변 1회 계약을 사용하며 자동 시도 횟수에 포함하지 않는다.
+- `RETRY_REPORT_FAILED`, `RETRY_EVALUATION_INCOMPLETE`, `RETRY_SCORE_MISSING`은 ADMIN 명시적 REPORT 재처리 대상이다. 성공한 REPORT final save가 자동 판정 engine을 다시 실행한다.
+- `RETRY_STT_UNAVAILABLE`은 지원자 재답변 또는 운영 확인 대상이며 REPORT job만 다시 생성하지 않는다.
+- 같은 application의 최신 `REPORT_GENERATE`가 `PENDING | RUNNING` 또는 자동 재시도 backoff 중인 `FAILED(RETRYABLE | STT_RETRYABLE, attempt < 3, nextRetryAt 존재)`이면 새 job을 만들지 않고 기존 job을 멱등 성공으로 반환한다.
+- queue 발행 전에 프로세스가 종료되어 남은 `REPORT_GENERATE/PENDING`과 due `REPORT_GENERATE | RESUME_QUESTION_GENERATE/FAILED` 자동 재시도는 동일 `processLogId`로 복구 발행한다. migration 전 NULL-backoff 행은 `input_ref`가 있는 REPORT만 자동 복구하고, 이미 연결 batch가 terminal일 수 있는 legacy RESUME과 NULL input 등 나머지는 `RETRY_EXHAUSTED` 운영 확인 상태로 전환한다.
+- 명시적 재처리는 새 `ai_process_logs` row를 만들고 원본 process log와 재처리 주체를 audit snapshot으로 보존한다.
+- `failure_reason`에는 답변·서류 원문, 이메일, 전화번호, URL, provider 원문 응답을 저장하지 않는다.
+
 ## Shared Enums
 
 ### ScreeningDecision

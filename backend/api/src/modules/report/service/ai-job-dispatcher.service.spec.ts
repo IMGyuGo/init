@@ -49,7 +49,7 @@ describe("AiJobDispatcherService", () => {
     expect(result.status).toBe("FAILED");
     expect(result.failure).toEqual({
       category: "RETRYABLE",
-      reason: "AI queue publish failed: SQS unavailable",
+      reason: "AI queue publish failed.",
       retryable: true
     });
     await expect(repository.getProcess(result.processLogId)).resolves.toMatchObject({
@@ -83,5 +83,29 @@ describe("AiJobDispatcherService", () => {
     expect(result.status).toBe("FAILED");
     expect(result.report.status).toBe("FAILED");
     expect(result.report.failure).toEqual(result.failure);
+  });
+
+  it("reuses the active application report process without publishing a duplicate message", async () => {
+    const repository = new InMemoryReportRepository();
+    const published: number[] = [];
+    const publisher: AiJobQueuePublisher = {
+      async publish(job) {
+        published.push(job.processLogId);
+      },
+    };
+    const service = new AiJobDispatcherService(repository, publisher);
+    const command = {
+      reportId: 3,
+      reportType: "RECRUITING_REPORT" as const,
+      input: { payload: { reportId: 3, reportType: "RECRUITING_REPORT" } },
+      refs: { applicationId: 9, sessionId: 8 },
+    };
+
+    const first = await service.dispatchReportGeneration(command);
+    const replay = await service.dispatchReportGeneration(command);
+
+    expect(replay.processLogId).toBe(first.processLogId);
+    expect(replay.idempotentReplay).toBe(true);
+    expect(published).toEqual([first.processLogId]);
   });
 });

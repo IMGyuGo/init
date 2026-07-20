@@ -22,18 +22,8 @@ export interface WorkerEnv {
 export function loadWorkerEnv(env: NodeJS.ProcessEnv = process.env): WorkerEnv {
   const aiProviderMode = providerMode(env.AI_PROVIDER_MODE, "AI_PROVIDER_MODE");
   const aiSttProviderMode = providerMode(env.AI_STT_PROVIDER, "AI_STT_PROVIDER");
-  const workerVisibilityTimeoutSeconds = integer(
-    env.WORKER_VISIBILITY_TIMEOUT_SECONDS,
-    30,
-    43_200,
-    900,
-  );
-  const workerHeartbeatIntervalMs = integer(
-    env.WORKER_VISIBILITY_HEARTBEAT_MS,
-    1_000,
-    workerVisibilityTimeoutSeconds * 1_000 - 1_000,
-    Math.min(300_000, Math.floor((workerVisibilityTimeoutSeconds * 1_000) / 3)),
-  );
+  const workerVisibilityTimeoutSeconds = fixedInteger(env.WORKER_VISIBILITY_TIMEOUT_SECONDS, 900, "WORKER_VISIBILITY_TIMEOUT_SECONDS");
+  const workerHeartbeatIntervalMs = fixedInteger(env.WORKER_VISIBILITY_HEARTBEAT_MS, 300_000, "WORKER_VISIBILITY_HEARTBEAT_MS");
   assertProductionProviderModes(env.NODE_ENV, aiProviderMode, aiSttProviderMode);
   return {
     aiSqsQueueUrl: requiredOneOf(env, ["AI_SQS_QUEUE_URL", "SQS_QUEUE_URL"]),
@@ -48,7 +38,7 @@ export function loadWorkerEnv(env: NodeJS.ProcessEnv = process.env): WorkerEnv {
     openaiSttTimeoutMs: integer(env.OPENAI_STT_TIMEOUT_MS, 1_000, 600_000, 30_000),
     s3BucketName: requiredOneOf(env, ["S3_BUCKET_NAME", "S3_BUCKET"]),
     workerBatchSize: integer(env.WORKER_BATCH_SIZE, 1, 10, 1),
-    workerMaxRetryableReceives: integer(env.WORKER_MAX_RETRYABLE_RECEIVES, 1, 10, 3),
+    workerMaxRetryableReceives: fixedInteger(env.WORKER_MAX_RETRYABLE_RECEIVES, 3, "WORKER_MAX_RETRYABLE_RECEIVES"),
     workerPollIntervalMs: integer(env.WORKER_POLL_INTERVAL_MS, 100, 60_000, 1_000),
     workerVisibilityTimeoutSeconds,
     workerHeartbeatIntervalMs,
@@ -99,6 +89,15 @@ function requiredOneOf(env: NodeJS.ProcessEnv, names: string[]): string {
 function optional(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function fixedInteger(value: string | undefined, expected: number, name: string): number {
+  if (value === undefined || value.trim() === "") return expected;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed !== expected) {
+    throw new Error(`${name} must equal ${expected}.`);
+  }
+  return parsed;
 }
 
 function aiProviderKey(

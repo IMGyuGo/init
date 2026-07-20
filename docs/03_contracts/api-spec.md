@@ -2433,6 +2433,30 @@ Allocation Examples:
 - 비고/미결:
   - 독립 화면 아님. 모든 AI 평가/생성 단계의 공통 정책 레이어
 
+### API-100 POST /admin/applications/{applicationId}/screening-retry
+- 도메인: AI/리포트 처리
+- 권한/인증: ADMIN
+- 상태 코드: 202 Accepted
+- 비동기: Y
+- Path Params: applicationId
+- 요청 데이터: 없음
+- 검증/전제조건:
+  - application의 `screeningDecision=RETRY`여야 한다.
+  - `RETRY_REPORT_FAILED`, `RETRY_EVALUATION_INCOMPLETE`, `RETRY_SCORE_MISSING`만 REPORT 재처리 job을 생성한다.
+  - `RETRY_STT_UNAVAILABLE`은 REPORT만 재처리하지 않고 `action=CANDIDATE_REANSWER_REQUIRED`, `operatorReviewRequired=true`를 반환한다.
+- 성공 응답/처리:
+  - 새 job은 이전 REPORT process의 server-side `inputRef`, 같은 `reportId`와 application/session 참조를 재사용한다.
+  - 새 process log는 `retrySource=OPERATOR`, `retryOfProcessLogId`를 보존한다.
+  - 같은 application의 최신 REPORT job이 `PENDING | RUNNING` 또는 자동 재시도 backoff 중인 `FAILED(RETRYABLE | STT_RETRYABLE, attempt < 3, nextRetryAt 존재)`이면 새 row와 SQS 메시지를 만들지 않고 기존 `processLogId`, `idempotentReplay=true`를 반환한다.
+  - 응답은 `action`, `processLogId`, `status`, `queued`, `idempotentReplay`, `attempt`, `maxAttempts`, `nextRetryAt`, `operatorReviewRequired`를 포함한다.
+  - 생성된 `processLogId`는 기존 `GET /ai/jobs/{processLogId}/status`로 ADMIN이 확인한다.
+- 오류/예외:
+  - application 또는 재사용할 REPORT process가 없으면 `COMMON_NOT_FOUND`다.
+  - RETRY 상태가 아니면 `COMMON_CONFLICT`다.
+  - queue 발행 실패는 개인정보·원문 없는 고정 사유로 FAILED 처리한다.
+- 관련 ERD 테이블:
+  - applications, evaluation_reports, ai_process_logs
+
 ## 기업 - 설정
 
 ### API-087 GET /company/profile

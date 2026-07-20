@@ -156,6 +156,11 @@ enum AiProcessStatus {
   FAILED
 }
 
+enum AiRetrySource {
+  INITIAL
+  OPERATOR
+}
+
 enum GuardrailResult {
   PASS
   BLOCKED
@@ -1220,6 +1225,11 @@ model AiProcessLog {
   outputRef                   String?                             @map("output_ref")
   failureCategory             String?                             @map("failure_category") @db.VarChar(40)
   failureReason               String?                             @map("failure_reason")
+  attemptCount                Int                                 @default(1) @map("attempt_count")
+  maxAttempts                 Int                                 @default(3) @map("max_attempts")
+  nextRetryAt                 DateTime?                           @map("next_retry_at")
+  retrySource                 AiRetrySource                       @default(INITIAL) @map("retry_source")
+  retryOfProcessLogId         BigInt?                             @map("retry_of_process_log_id")
   leaseOwner                  String?                             @map("lease_owner") @db.VarChar(160)
   leaseExpiresAt              DateTime?                           @map("lease_expires_at")
   startedAt                   DateTime?                           @map("started_at")
@@ -1241,8 +1251,11 @@ model AiProcessLog {
   generatedQuestions          Question[]
   latestResumeQuestionBatches ApplicationInterviewQuestionBatch[] @relation("LatestResumeQuestionProcess")
   personalizedQuestions       ApplicationInterviewQuestion[]      @relation("ResumeQuestionSourceProcess")
+  retryOfProcessLog           AiProcessLog?                        @relation("AiProcessRetryChain", fields: [retryOfProcessLogId], references: [processLogId], onDelete: SetNull)
+  retryProcessLogs            AiProcessLog[]                       @relation("AiProcessRetryChain")
 
   @@index([status, leaseExpiresAt], map: "idx_ai_process_logs_status_lease")
+  @@index([retryOfProcessLogId], map: "idx_ai_process_logs_retry_of")
   @@map("ai_process_logs")
 }
 

@@ -132,6 +132,7 @@ DTO와 API client 타입은 아래 naming을 따른다. 같은 요청/응답 타
 | `CANDIDATE` | own applications/interviews | read/start/answer/complete | application이 본인 소유이고 응시 기간/동의/장치 점검 조건 충족 |
 | `CANDIDATE` | own reports | read limited candidate report | 기업 내부 메모, screening memo, 전체 평가 근거는 노출 금지 |
 | Worker/System | AI process/report generation and automatic screening decision | update AI-owned fields and applications automatic screening projection | queue message, process log와 policy snapshot 기준. public controller에서 직접 호출 금지 |
+| `ADMIN` | RETRY 상태의 REPORT 재처리 | explicit retry/create and status read | API-100, 활성 REPORT job 멱등성, audit process log 필수 |
 
 권한 실패는 인증 누락이면 `COMMON_UNAUTHORIZED`, role/resource scope 불일치면 `COMMON_FORBIDDEN`을 반환한다. 존재하지 않는 resource와 권한 없는 resource를 구분해 정보가 누출될 수 있으면 `COMMON_FORBIDDEN` 또는 generic not found 정책을 API별로 명시한다.
 

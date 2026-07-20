@@ -73,11 +73,21 @@ export class AiWorkerRunner {
 
   private async processMessage(message: AiQueueMessage): Promise<void> {
     const leaseOwner = `${this.options.workerId}:${message.messageId}`;
-    const claim = await this.repository.claim(message.job, leaseOwner, this.nextLeaseExpiration());
+    const receiveCount = this.retryableReceiveCount(message);
+    const attemptCount = Math.min(receiveCount, this.options.maxRetryableReceives);
+    const claim = await this.repository.claim(message.job, leaseOwner, this.nextLeaseExpiration(), {
+      attemptCount,
+      maxAttempts: this.options.maxRetryableReceives,
+    });
+    if (claim.status === "BACKOFF") {
+      await this.deferUntilBackoffExpires(message, claim.snapshot.nextRetryAt);
+      return;
+    }
     if (claim.status !== "CLAIMED") {
       await this.queue.delete(message);
       return;
     }
+    const executionAttempt = claim.snapshot.attemptCount ?? 1;
 
     let heartbeat: ReturnType<AiWorkerRunner["startHeartbeat"]> | undefined;
 
@@ -144,12 +154,23 @@ export class AiWorkerRunner {
       heartbeat = undefined;
       const failure = toFailureReason(error);
       if (isAutomaticRetryFailureCategory(failure.category)) {
-        if (this.retryableReceiveCount(message) > this.options.maxRetryableReceives) {
-          await this.failAndAck(message, leaseOwner, this.retryLimitExceededFailure(failure));
+        if (executionAttempt >= this.options.maxRetryableReceives) {
+          await this.failAndAck(message, leaseOwner, this.retryLimitExceededFailure());
           return;
         }
 
-        await this.markFailed(message, leaseOwner, failure);
+        const nextRetryAt = new Date(Date.now() + this.options.visibilityTimeoutSeconds * 1_000);
+        try {
+          await this.queue.extendVisibility(message, this.options.visibilityTimeoutSeconds);
+        } catch {
+          // The initial 900-second processing lease remains the conservative retry gate.
+        }
+        await this.repository.markFailed(
+          message.job.processLogId,
+          failure,
+          leaseOwner,
+          { nextRetryAt },
+        );
         return;
       }
 
@@ -223,9 +244,19 @@ export class AiWorkerRunner {
     }
   }
 
-  private async markFailed(message: AiQueueMessage, leaseOwner: string, failure: FailureReason): Promise<boolean> {
+  private async markFailed(
+    message: AiQueueMessage,
+    leaseOwner: string,
+    failure: FailureReason,
+    nextRetryAt?: Date,
+  ): Promise<boolean> {
     await this.options.onFailure?.(message.job, failure);
-    const snapshot = await this.repository.markFailed(message.job.processLogId, failure, leaseOwner);
+    const snapshot = await this.repository.markFailed(
+      message.job.processLogId,
+      failure,
+      leaseOwner,
+      { nextRetryAt: nextRetryAt ?? null },
+    );
     return snapshot.status === "FAILED" && snapshot.leaseOwner === undefined;
   }
 
@@ -283,11 +314,20 @@ export class AiWorkerRunner {
     return message.receiveCount ?? message.job.attempt;
   }
 
-  private retryLimitExceededFailure(failure: FailureReason): FailureReason {
-    const prefix = failure.category === "STT_RETRYABLE" ? "STT retry limit exceeded" : "Retry limit exceeded";
+  private async deferUntilBackoffExpires(message: AiQueueMessage, nextRetryAt: string | undefined): Promise<void> {
+    if (!nextRetryAt) return;
+    const remainingSeconds = Math.max(1, Math.ceil((Date.parse(nextRetryAt) - Date.now()) / 1_000));
+    try {
+      await this.queue.extendVisibility(message, Math.min(43_200, remainingSeconds));
+    } catch {
+      // Keep the message unacked so SQS can redeliver it using the current visibility deadline.
+    }
+  }
+
+  private retryLimitExceededFailure(): FailureReason {
     return {
-      category: "NON_RETRYABLE",
-      reason: `${prefix} after ${this.options.maxRetryableReceives} total attempts: ${failure.reason}`,
+      category: "RETRY_EXHAUSTED",
+      reason: `Automatic retry limit exhausted after ${this.options.maxRetryableReceives} total attempts.`,
       retryable: false
     };
   }

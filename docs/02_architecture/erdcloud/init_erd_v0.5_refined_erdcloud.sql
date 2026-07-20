@@ -845,7 +845,7 @@ CREATE TABLE evaluation_reports (
     -- 리포트 생성 시각
     generated_at TIMESTAMP,
 
-    -- 실패 구분: RETRYABLE, NON_RETRYABLE
+    -- 실패 구분: RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED, REGENERATION_REQUIRED, RETRY_EXHAUSTED
     failure_category VARCHAR(40),
 
     -- 실패 사유
@@ -1135,11 +1135,22 @@ CREATE TABLE ai_process_logs (
     -- 출력 참조값
     output_ref TEXT,
 
-    -- 실패 구분: RETRYABLE, NON_RETRYABLE
+    -- 실패 구분: RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED, REGENERATION_REQUIRED, RETRY_EXHAUSTED
     failure_category VARCHAR(40),
 
     -- 실패 사유
     failure_reason TEXT,
+
+    -- 실제 provider 실행 시도와 고정 한도
+    attempt_count INTEGER NOT NULL DEFAULT 1 CHECK (attempt_count BETWEEN 1 AND 3),
+    max_attempts INTEGER NOT NULL DEFAULT 3 CHECK (max_attempts = 3),
+
+    -- retryable 실패 뒤 900초 visibility 종료 예정 시각
+    next_retry_at TIMESTAMP,
+
+    -- INITIAL 또는 OPERATOR 명시적 재처리 audit
+    retry_source VARCHAR(30) NOT NULL DEFAULT 'INITIAL' CHECK (retry_source IN ('INITIAL', 'OPERATOR')),
+    retry_of_process_log_id BIGINT,
 
     -- 현재 작업을 claim한 worker 실행 식별자
     lease_owner VARCHAR(160),
@@ -1585,6 +1596,11 @@ ALTER TABLE ai_process_logs
     ADD CONSTRAINT fk_ai_process_logs_session
     FOREIGN KEY (session_id) REFERENCES interview_sessions(session_id);
 
+ALTER TABLE ai_process_logs
+    ADD CONSTRAINT fk_ai_process_logs_retry_of
+    FOREIGN KEY (retry_of_process_log_id) REFERENCES ai_process_logs(process_log_id)
+    ON DELETE SET NULL;
+
 ALTER TABLE ai_guardrail_logs
     ADD CONSTRAINT fk_ai_guardrail_logs_process
     FOREIGN KEY (process_log_id) REFERENCES ai_process_logs(process_log_id);
@@ -1690,6 +1706,20 @@ CREATE INDEX idx_answer_fact_check_claims_verdict ON answer_fact_check_claims(ve
 CREATE INDEX idx_answer_fact_check_evidences_snapshot ON answer_fact_check_evidences(source_snapshot_id);
 CREATE INDEX idx_ai_process_logs_application ON ai_process_logs(application_id);
 CREATE INDEX idx_ai_process_logs_status_lease ON ai_process_logs(status, lease_expires_at);
+CREATE INDEX idx_ai_process_logs_retry_of ON ai_process_logs(retry_of_process_log_id);
+CREATE UNIQUE INDEX uq_ai_process_logs_active_report_application
+    ON ai_process_logs(application_id)
+    WHERE application_id IS NOT NULL
+      AND process_type = 'REPORT_GENERATE'
+      AND (
+          status IN ('PENDING', 'RUNNING')
+          OR (
+              status = 'FAILED'
+              AND failure_category IN ('RETRYABLE', 'STT_RETRYABLE')
+              AND attempt_count < 3
+              AND next_retry_at IS NOT NULL
+          )
+      );
 CREATE INDEX idx_embeddings_source_type ON embeddings(source_type);
 CREATE INDEX idx_embeddings_source_hash ON embeddings(source_text_hash);
 

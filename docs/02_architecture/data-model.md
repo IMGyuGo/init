@@ -793,8 +793,13 @@ NCS profile 집계 row는 `(report_id, ncs_profile_id)`를 unique key로 사용�
 | status | VARCHAR(40) NOT NULL | 처리 상태: PENDING, RUNNING, COMPLETED, FAILED |
 | input_ref | TEXT | 입력 참조값 |
 | output_ref | TEXT | 출력 참조값 |
-| failure_category | VARCHAR(40) | 실패 구분: RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED |
+| failure_category | VARCHAR(40) | 실패 구분: RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED, REGENERATION_REQUIRED, RETRY_EXHAUSTED |
 | failure_reason | TEXT | 실패 사유. 재시도 가능 여부와 함께 기록 |
+| attempt_count | INTEGER NOT NULL DEFAULT 1 | 실제 provider 실행 시도 횟수. 최초 실행 포함 1~3 |
+| max_attempts | INTEGER NOT NULL DEFAULT 3 | #397에서 고정한 queue 자동 시도 한도 |
+| next_retry_at | TIMESTAMP | retryable 실패 뒤 900초 visibility 종료 예정 시각. terminal이면 NULL |
+| retry_source | VARCHAR(30) NOT NULL DEFAULT INITIAL | INITIAL 또는 OPERATOR |
+| retry_of_process_log_id | BIGINT | 명시적 재처리 원본 process log self FK |
 | lease_owner | VARCHAR(160) | 현재 작업을 원자적으로 claim한 worker 실행 식별자 |
 | lease_expires_at | TIMESTAMP | worker claim 만료 시각. heartbeat마다 연장하며 만료된 RUNNING 작업만 재claim할 수 있다. |
 | started_at | TIMESTAMP | 현재 처리 시도 시작 시각 |
@@ -808,7 +813,9 @@ NCS profile 집계 row는 `(report_id, ncs_profile_id)`를 unique key로 사용�
 | cost_metadata_json | TEXT | 비용 계산 메타데이터 |
 | created_at | TIMESTAMP NOT NULL | 생성 시각 |
 
-`(status, lease_expires_at)` 조건부 갱신이 worker claim의 정본이다. `COMPLETED` 재전달은 provider를 호출하지 않고 ack하며, 유효한 lease가 있는 `RUNNING` 중복 메시지도 실행하지 않는다. `PENDING`, `FAILED`, 만료된 `RUNNING`만 새 lease를 획득할 수 있다. migration 이전에 생성된 `lease_expires_at IS NULL`인 `RUNNING` row는 배포 시 기존 worker를 중지한 뒤 새 worker가 한 번 재claim한다.
+`(status, lease_expires_at)` 조건부 갱신이 worker claim의 정본이다. `COMPLETED` 재전달은 provider를 호출하지 않고 ack하며, 유효한 lease가 있는 `RUNNING` 중복 메시지도 실행하지 않는다. `PENDING`, 자동 재시도 가능한 `FAILED(RETRYABLE | STT_RETRYABLE)`이면서 `attempt_count < 3`인 row, 만료된 `RUNNING`만 새 lease를 획득할 수 있다. `RETRY_EXHAUSTED`를 포함한 terminal `FAILED`는 재전달돼도 provider를 호출하지 않는다. migration 이전에 생성된 `lease_expires_at IS NULL`인 `RUNNING` row는 배포 시 기존 worker를 중지한 뒤 새 worker가 한 번 재claim한다.
+
+`attempt_count`는 재시도 가능한 `FAILED` row를 claim할 때 기존 저장값에서 정확히 1씩 증가하고 3번째 실제 provider 실행 실패에서 `RETRY_EXHAUSTED`로 종료한다. 자동 재시도 `FAILED` row는 `next_retry_at <= now()`일 때만 claim한다. 그 전에 도착한 메시지는 삭제하지 않고 남은 시간만큼 visibility를 연장하며, 이 조기 SQS delivery는 실제 실행 attempt를 소비하지 않는다. migration 전 `REPORT_GENERATE`의 `FAILED + RETRYABLE | STT_RETRYABLE` row 중 `input_ref`가 있고 NULL `next_retry_at`인 행만 배포 시 `CURRENT_TIMESTAMP`로 backfill하고 worker 복구 발행 대상으로 삼는다. 이미 연결 batch가 terminal일 수 있는 legacy `RESUME_QUESTION_GENERATE`와 NULL input 등 안전한 server reference로 복구할 수 없는 다른 legacy NULL-backoff row는 `RETRY_EXHAUSTED` 운영 확인 상태로 전환한다. 새 코드로 생성되는 RESUME 자동 실패는 batch를 terminal로 바꾸지 않고 정확한 `next_retry_at`을 저장하므로 정상 복구 대상이다. 따라서 새 recovery message의 receive count가 1부터 시작하거나 backoff 중 receive count가 증가해도 attempt와 900초 backoff를 되돌리거나 건너뛰지 않는다. 동일 application의 `REPORT_GENERATE`는 `PENDING | RUNNING` 또는 자동 재시도 backoff 중인 `FAILED(RETRYABLE | STT_RETRYABLE, attempt_count < 3, next_retry_at IS NOT NULL)` row가 최대 하나가 되도록 PostgreSQL 부분 유일 인덱스로 보호한다. `failure_reason`에는 개인정보, 답변·서류 원문과 provider 원문 응답을 저장하지 않는다.
 
 ### ai_guardrail_logs
 
