@@ -43,7 +43,10 @@ import {
   RegenerationRequiredAiWorkerFailure,
 } from "./worker-errors";
 import { AiTaskHandler, AiTaskResult, AiWorkerJob } from "./worker.types";
-import { SALTLUX_FIXED_PRESENTATION_FIXTURE_ID } from "./fixed-presentation-report";
+import {
+  SALTLUX_FIXED_PRESENTATION_FIXTURE_ID,
+  shouldUseSaltluxFixedPresentationReport,
+} from "./fixed-presentation-report";
 import { transcriptHardGateFailureReason } from "./transcript-usability";
 
 interface WorkerInput {
@@ -605,8 +608,17 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
       ...job,
       inputRef: JSON.stringify({ kind, payload: sanitizedPayload })
     };
-    if (sanitizedPayload.presentationFixtureId === SALTLUX_FIXED_PRESENTATION_FIXTURE_ID) {
-      return this.fallback.handle(sanitizedJob);
+    if (shouldUseSaltluxFixedPresentationReport(sanitizedPayload)) {
+      return this.fallback.handle({
+        ...sanitizedJob,
+        inputRef: JSON.stringify({
+          kind,
+          payload: {
+            ...sanitizedPayload,
+            presentationFixtureId: SALTLUX_FIXED_PRESENTATION_FIXTURE_ID,
+          },
+        }),
+      });
     }
     if (!this.reportProvider || payload.step || !isFinalReportKind(kind)) {
       return this.fallback.handle(sanitizedJob);

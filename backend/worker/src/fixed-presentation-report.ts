@@ -23,6 +23,9 @@ import { NonRetryableAiWorkerFailure } from "./worker-errors";
 
 export const SALTLUX_FIXED_PRESENTATION_FIXTURE_ID = "SALTLUX_AI_BACKEND_V1" as const;
 
+const COMPANY_NAME = "솔트룩스";
+const JOB_TITLE = "[Product Center] AI Backend Engineer (신입/경력)";
+
 const QUESTIONS = {
   common: "AI 검색 품질 기준을 팀과 합의한 과정을 설명해 주세요.",
   personalized: "RAG 검색 정확도를 개선한 방법과 검증 결과를 설명해 주세요.",
@@ -60,6 +63,42 @@ export interface FixedPresentationCriterion {
   criterionId: number;
   name: string;
   weight: number;
+}
+
+export function shouldUseSaltluxFixedPresentationReport(payload: Record<string, unknown>) {
+  if (payload.presentationFixtureId === SALTLUX_FIXED_PRESENTATION_FIXTURE_ID) {
+    return true;
+  }
+  if (
+    payload.reportType !== "RECRUITING_REPORT" ||
+    !normalizedText(payload.companyName).includes(COMPANY_NAME) ||
+    normalizedText(payload.jobTitle) !== normalizedText(JOB_TITLE) ||
+    !Array.isArray(payload.answers)
+  ) {
+    return false;
+  }
+
+  const answers = payload.answers.filter(isRecord);
+  if (answers.length !== 3) {
+    return false;
+  }
+  const common = answers.find((answer) =>
+    answer.isFollowUpAnswer !== true &&
+    normalizedText(answer.question) === normalizedText(QUESTIONS.common),
+  );
+  const personalized = answers.find((answer) =>
+    answer.isFollowUpAnswer !== true &&
+    normalizedText(answer.question) === normalizedText(QUESTIONS.personalized),
+  );
+  if (!common || !personalized || typeof personalized.answerId !== "number") {
+    return false;
+  }
+
+  return answers.some((answer) =>
+    answer.isFollowUpAnswer === true &&
+    answer.parentAnswerId === personalized.answerId &&
+    normalizedText(answer.question) === normalizedText(QUESTIONS.followUp),
+  );
 }
 
 export function buildSaltluxFixedPresentationReport(input: {
@@ -327,4 +366,12 @@ function requirePolicy(policies: NcsSessionPolicyInput[], profileId: NcsFinalPro
 
 function normalized(value: string | undefined) {
   return (value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+}
+
+function normalizedText(value: unknown) {
+  return typeof value === "string" ? normalized(value) : "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

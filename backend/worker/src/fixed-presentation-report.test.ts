@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { InMemoryAiResultRepository } from "./ai-result.repository";
 import {
-  SALTLUX_FIXED_PRESENTATION_FIXTURE_ID,
   buildSaltluxFixedPresentationReport,
+  shouldUseSaltluxFixedPresentationReport,
 } from "./fixed-presentation-report";
 import { MockAiTaskHandler } from "./mock-ai-task.handler";
 import { OpenAiAiTaskHandler } from "./openai-ai-task.handler";
@@ -72,7 +72,28 @@ test("fixed Saltlux report produces the precomputed 88 point NCS result", () => 
   );
 });
 
-test("OpenAI handler bypasses providers and persists the fixed report fixture", async () => {
+test("fixed Saltlux report recovery requires the exact posting and three-question snapshot", () => {
+  assert.equal(shouldUseSaltluxFixedPresentationReport({
+    reportType: "RECRUITING_REPORT",
+    companyName: "㈜솔트룩스",
+    jobTitle: "[Product Center] AI Backend Engineer (신입/경력)",
+    answers,
+  }), true);
+  assert.equal(shouldUseSaltluxFixedPresentationReport({
+    reportType: "RECRUITING_REPORT",
+    companyName: "당근",
+    jobTitle: "[Product Center] AI Backend Engineer (신입/경력)",
+    answers,
+  }), false);
+  assert.equal(shouldUseSaltluxFixedPresentationReport({
+    reportType: "RECRUITING_REPORT",
+    companyName: "㈜솔트룩스",
+    jobTitle: "[Product Center] AI Backend Engineer (신입/경력)",
+    answers: [...answers, { answerId: 4, question: "추가 질문입니다." }],
+  }), false);
+});
+
+test("OpenAI handler recovers an unmarked fixed snapshot and bypasses providers", async () => {
   const results = new InMemoryAiResultRepository();
   let reportProviderCalls = 0;
   const fallback = new MockAiTaskHandler(results);
@@ -94,11 +115,12 @@ test("OpenAI handler bypasses providers and persists the fixed report fixture", 
     inputRef: JSON.stringify({
       kind: "RECRUITING_REPORT_GENERATE",
       payload: {
-        presentationFixtureId: SALTLUX_FIXED_PRESENTATION_FIXTURE_ID,
         reportId: 77,
         applicationId: 88,
         sessionId: 99,
         reportType: "RECRUITING_REPORT",
+        companyName: "㈜솔트룩스",
+        jobTitle: "[Product Center] AI Backend Engineer (신입/경력)",
         jobDescription: "AI Backend Engineer",
         criteria,
         answers: answers.map((answer) => ({
