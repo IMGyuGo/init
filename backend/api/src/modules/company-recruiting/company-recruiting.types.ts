@@ -25,6 +25,25 @@ export type NormalizedListQuery = {
   take: number;
 };
 
+export type NormalizedApplicantListQuery = Omit<NormalizedListQuery, "status"> & {
+  applicationStatus?: ApplicationStatusValue;
+  documentStatus?: DocumentStatusValue;
+  interviewStatus?: InterviewStatusValue;
+  reportStatus?: ReportStatusValue;
+  screeningDecision?: ScreeningDecisionValue;
+};
+
+export type ApplicantSummaryRecord = {
+  activeTotal: number;
+  canceledHistoryTotal: number;
+  applicationStatusCounts: Partial<Record<ApplicationStatusValue, number>>;
+  documentStatusCounts: Partial<Record<DocumentStatusValue, number>>;
+  interviewStatusCounts: Partial<Record<InterviewStatusValue, number>>;
+  reportStatusCounts: Partial<Record<ReportStatusValue, number>>;
+  screeningDecisionCounts: Partial<Record<ScreeningDecisionValue, number>>;
+  attentionRequiredTotal: number;
+};
+
 export type RecruitmentRecord = {
   postingId: number;
   companyId: number;
@@ -75,6 +94,11 @@ export type ApplicantRecord = {
   interviewStatus: string;
   reportStatus: string;
   screeningDecision: string | null;
+  screeningDecisionReasonCode: string | null;
+  screeningDecisionPolicyVersion: string | null;
+  screeningPolicyVersion: number | null;
+  screeningCriteriaVersion: number | null;
+  screeningDecidedAt: Date | null;
   screeningMemo: string | null;
   submittedAt: Date | null;
   updatedAt: Date;
@@ -103,6 +127,7 @@ export type ApplicantRecord = {
     postingId: number;
     title: string;
     jobRole: string;
+    autoScreeningPolicyEnabled: boolean;
   };
   evaluationReports: Array<{
     reportId: number;

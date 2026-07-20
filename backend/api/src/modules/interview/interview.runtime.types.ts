@@ -25,6 +25,7 @@ export interface RuntimeInterviewSession {
   preparationTimeSecSnapshot?: number;
   answerTimeSecSnapshot?: number;
   ncsScoringVersion?: string;
+  sessionMode?: "STANDARD" | "DEMO_PRESET";
   currentQuestionIndex: number;
   questionIds: number[];
   startedAt?: string;

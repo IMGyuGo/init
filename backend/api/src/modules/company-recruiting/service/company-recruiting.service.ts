@@ -14,7 +14,7 @@ import {
   type PublicInterviewEntryAdapterPort,
 } from "./public-interview-entry.adapter";
 import type { CreateRecruitmentDto } from "../dto/create-recruitment.dto";
-import type { ListQueryDto } from "../dto/list-query.dto";
+import type { ListApplicantsQueryDto, ListQueryDto } from "../dto/list-query.dto";
 import type { RequestPublicApplicationAccessLinkDto } from "../dto/request-public-application-access-link.dto";
 import type { SubmitPublicApplicationDto } from "../dto/submit-public-application.dto";
 import type { UpdateRecruitmentDto } from "../dto/update-recruitment.dto";
@@ -23,13 +23,19 @@ import type { CompanyRecruitingRepositoryPort } from "../repository/company-recr
 import type { InterviewPublicationReadiness } from "../../company-interview/company-interview.types";
 import type {
   ApplicantRecord,
+  ApplicationStatusValue,
   CompanyFileAssetRecord,
+  DocumentStatusValue,
+  InterviewStatusValue,
   JobDescriptionImageUploadFile,
   JobDescriptionImageUploadResponse,
+  NormalizedApplicantListQuery,
   NormalizedListQuery,
   PublicApplicationDocumentUploadFile,
   PublicRecruitmentRecord,
   RecruitmentRecord,
+  ReportStatusValue,
+  ScreeningDecisionValue,
 } from "../company-recruiting.types";
 
 class CompanyRecruitingException extends SharedApiException {
@@ -561,13 +567,13 @@ export class CompanyRecruitingService {
     return toRecruitmentResponse(copied);
   }
 
-  async listRecruitmentApplicants(user: CurrentUser, recruitmentId: number, query: ListQueryDto) {
+  async listRecruitmentApplicants(user: CurrentUser, recruitmentId: number, query: ListApplicantsQueryDto) {
     const companyId = requireCompanyId(user);
     const posting = await this.repository.findPostingForCompany(recruitmentId, companyId);
     if (!posting) {
       throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "공고를 찾을 수 없습니다.");
     }
-    const normalized = normalizeListQuery(query, "updatedAt");
+    const normalized = normalizeApplicantListQuery(query);
     const [items, totalItems] = await Promise.all([
       this.repository.listApplicationsForPosting(recruitmentId, companyId, normalized),
       this.repository.countApplicationsForPosting(recruitmentId, companyId, normalized),
@@ -576,6 +582,15 @@ export class CompanyRecruitingService {
       items: items.map(toApplicantResponse),
       page: buildPageMeta(normalized.page, normalized.limit, totalItems),
     };
+  }
+
+  async getRecruitmentApplicantSummary(user: CurrentUser, recruitmentId: number) {
+    const companyId = requireCompanyId(user);
+    const posting = await this.repository.findPostingForCompany(recruitmentId, companyId);
+    if (!posting) {
+      throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "공고를 찾을 수 없습니다.");
+    }
+    return this.repository.summarizeApplicationsForPosting(recruitmentId, companyId);
   }
 
   async getApplicantEvaluation(user: CurrentUser, applicantId: number) {
@@ -756,6 +771,21 @@ export class CompanyRecruitingService {
 
   async updateScreeningStatus(user: CurrentUser, applicantId: number, dto: UpdateScreeningStatusDto) {
     const companyId = requireCompanyId(user);
+    const existing = await this.repository.findApplicationForCompany(
+      applicantId,
+      companyId,
+    );
+    if (!existing) {
+      throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "지원자를 찾을 수 없습니다.");
+    }
+    if (existing.posting.autoScreeningPolicyEnabled) {
+      throw new CompanyRecruitingException(
+        409,
+        ERROR_CODES.COMMON_CONFLICT,
+        "자동 판정이 활성화된 공고의 전형 결과는 직접 변경할 수 없습니다.",
+        [{ field: "screeningDecision", reason: "SCREENING_DECISION_SYSTEM_MANAGED" }],
+      );
+    }
     const screeningDecision = parseScreeningDecision(dto.screeningDecision);
     const application = await this.repository.updateApplicationScreening(applicantId, companyId, {
       screeningDecision,
@@ -876,6 +906,26 @@ export function normalizeListQuery(query: ListQueryDto, defaultSort: string): No
     ...(q ? { q } : {}),
     ...(status ? { status } : {}),
     sort: query.sort?.trim() || defaultSort,
+    order: query.order ?? "desc",
+    skip: (page - 1) * limit,
+    take: limit,
+  };
+}
+
+export function normalizeApplicantListQuery(query: ListApplicantsQueryDto): NormalizedApplicantListQuery {
+  const page = query.page ?? 1;
+  const limit = Math.min(query.limit ?? 20, 100);
+  const q = query.q?.trim() || query.keyword?.trim() || undefined;
+  return {
+    page,
+    limit,
+    ...(q ? { q } : {}),
+    ...(query.applicationStatus ? { applicationStatus: query.applicationStatus as ApplicationStatusValue } : {}),
+    ...(query.documentStatus ? { documentStatus: query.documentStatus as DocumentStatusValue } : {}),
+    ...(query.interviewStatus ? { interviewStatus: query.interviewStatus as InterviewStatusValue } : {}),
+    ...(query.reportStatus ? { reportStatus: query.reportStatus as ReportStatusValue } : {}),
+    ...(query.screeningDecision ? { screeningDecision: query.screeningDecision as ScreeningDecisionValue } : {}),
+    sort: query.sort?.trim() || "updatedAt",
     order: query.order ?? "desc",
     skip: (page - 1) * limit,
     take: limit,
@@ -1305,6 +1355,11 @@ function toApplicantResponse(application: ApplicantRecord) {
     interviewStatus: application.interviewStatus,
     reportStatus: latestReport?.status ?? application.reportStatus,
     screeningDecision: application.screeningDecision ?? "UNDECIDED",
+    screeningDecisionReasonCode: application.screeningDecisionReasonCode,
+    screeningDecisionPolicyVersion: application.screeningDecisionPolicyVersion,
+    screeningPolicyVersion: application.screeningPolicyVersion,
+    screeningCriteriaVersion: application.screeningCriteriaVersion,
+    screeningDecidedAt: application.screeningDecidedAt?.toISOString() ?? null,
     screeningMemo: application.screeningMemo,
     interviewSession: latestSession
       ? {
@@ -1353,6 +1408,11 @@ function toApplicantEvaluationResponse(application: ApplicantRecord) {
     },
     screening: {
       decision: application.screeningDecision ?? "UNDECIDED",
+      reasonCode: application.screeningDecisionReasonCode,
+      decisionPolicyVersion: application.screeningDecisionPolicyVersion,
+      policyVersion: application.screeningPolicyVersion,
+      criteriaVersion: application.screeningCriteriaVersion,
+      decidedAt: application.screeningDecidedAt?.toISOString() ?? null,
       memo: application.screeningMemo,
     },
     submission: {

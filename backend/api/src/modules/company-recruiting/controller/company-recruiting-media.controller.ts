@@ -2,8 +2,8 @@ import { Controller, Get, Headers, Inject, Param, ParseIntPipe, Req, Res, UseGua
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { CurrentUser } from "@init/common";
 import type { Request, Response } from "express";
-import type { Readable } from "stream";
 
+import { pipeReadableToResponse } from "../../../shared/pipe-readable-to-response";
 import { ApiErrorResponses, ApiOperationId } from "../../../swagger/swagger.decorators";
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
 import {
@@ -50,7 +50,7 @@ export class CompanyRecruitingMediaController {
       response.end(document.body);
       return;
     }
-    this.pipeMediaBody(document.body, response);
+    pipeReadableToResponse(document.body, response);
   }
 
   @Get("applicants/:applicantId/media/:fileId")
@@ -81,21 +81,7 @@ export class CompanyRecruitingMediaController {
       response.end(media.body);
       return;
     }
-    this.pipeMediaBody(media.body, response);
-  }
-
-  private pipeMediaBody(body: Readable, response: Response): void {
-    body.once("error", (error) => {
-      if (response.headersSent) {
-        response.destroy(error instanceof Error ? error : undefined);
-        return;
-      }
-
-      response.removeHeader("Content-Length");
-      response.removeHeader("Content-Range");
-      response.status(502).end();
-    });
-    body.pipe(response);
+    pipeReadableToResponse(media.body, response);
   }
 
   private resolveMediaUser(

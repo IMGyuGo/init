@@ -334,8 +334,23 @@ export class ApplicantResponseDto {
   @ApiProperty({ example: "PENDING" })
   reportStatus!: string;
 
-  @ApiProperty({ enum: ["UNDECIDED", "PASS", "HOLD", "FAIL"], example: "UNDECIDED" })
+  @ApiProperty({ enum: ["UNDECIDED", "PASS", "HOLD", "FAIL", "RETRY"], example: "UNDECIDED" })
   screeningDecision!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  screeningDecisionReasonCode!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  screeningDecisionPolicyVersion!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  screeningPolicyVersion!: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  screeningCriteriaVersion!: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  screeningDecidedAt!: string | null;
 
   @ApiPropertyOptional({ nullable: true, example: "추가 확인 필요" })
   screeningMemo!: string | null;
@@ -348,6 +363,32 @@ export class ApplicantResponseDto {
 
   @ApiProperty({ example: "2026-06-29T00:00:00.000Z" })
   updatedAt!: string;
+}
+
+export class ApplicantSummaryResponseDto {
+  @ApiProperty({ example: 1250 })
+  activeTotal!: number;
+
+  @ApiProperty({ example: 14 })
+  canceledHistoryTotal!: number;
+
+  @ApiProperty({ type: Object, example: { SUBMITTED: 900, IN_REVIEW: 350 } })
+  applicationStatusCounts!: Record<string, number>;
+
+  @ApiProperty({ type: Object, example: { EXTRACTED: 1200, FAILED: 50 } })
+  documentStatusCounts!: Record<string, number>;
+
+  @ApiProperty({ type: Object, example: { READY: 800, COMPLETED: 450 } })
+  interviewStatusCounts!: Record<string, number>;
+
+  @ApiProperty({ type: Object, example: { PENDING: 800, COMPLETED: 450 } })
+  reportStatusCounts!: Record<string, number>;
+
+  @ApiProperty({ type: Object, example: { UNDECIDED: 1100, PASS: 150 } })
+  screeningDecisionCounts!: Record<string, number>;
+
+  @ApiProperty({ example: 1120 })
+  attentionRequiredTotal!: number;
 }
 
 export class ApplicantEvaluationResponseDto {

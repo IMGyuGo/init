@@ -2,6 +2,7 @@ import type {
   ApiEnvelope,
   ApiErrorEnvelope,
   Applicant,
+  ApplicantSummary,
   ApplicantEvaluation,
   AiJobStatusResponse,
   CreateRecruitmentInput,
@@ -23,6 +24,20 @@ type ListQuery = {
   keyword?: string;
   status?: RecruitmentStatus;
   sort?: string;
+  order?: "asc" | "desc";
+};
+
+export type ApplicantListQuery = {
+  page?: number;
+  limit?: number;
+  q?: string;
+  keyword?: string;
+  applicationStatus?: string;
+  documentStatus?: string;
+  interviewStatus?: string;
+  reportStatus?: string;
+  screeningDecision?: string;
+  sort?: "updatedAt" | "applicationStatus" | "interviewStatus" | "reportStatus";
   order?: "asc" | "desc";
 };
 
@@ -88,8 +103,12 @@ export async function getAiJobStatus(processLogId: number) {
   return request<AiJobStatusResponse>(`/ai/jobs/${processLogId}/status`);
 }
 
-export async function listRecruitmentApplicants(recruitmentId: number, query: ListQuery = {}) {
+export async function listRecruitmentApplicants(recruitmentId: number, query: ApplicantListQuery = {}) {
   return request<{ items: Applicant[] }>(`/company/recruitments/${recruitmentId}/applicants`, { query });
+}
+
+export async function getRecruitmentApplicantSummary(recruitmentId: number) {
+  return request<ApplicantSummary>(`/company/recruitments/${recruitmentId}/applicants/summary`);
 }
 
 export async function getApplicantEvaluation(applicantId: number) {

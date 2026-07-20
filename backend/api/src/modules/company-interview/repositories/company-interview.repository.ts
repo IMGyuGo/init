@@ -1,5 +1,6 @@
 import {
   AiQuestionGenerationProcessRecord,
+  AutoScreeningPolicyRecord,
   CriterionTagRecord,
   EvaluationCriterionRecord,
   EvaluationFramework,
@@ -85,15 +86,29 @@ export type UpdateQuestionGenerationPolicyInput = {
   jdCriteriaQuestionCount: number;
   resumeQuestionCount: number;
   expectedPolicyVersion?: number;
+  expectedCriteriaVersion?: number;
 };
 
 export type ReplaceCriteriaResult = {
+  locked: false;
   criteria: EvaluationCriterionRecord[];
   policy: QuestionGenerationPolicyRecord;
+  screeningPolicy: AutoScreeningPolicyRecord | null;
 };
 
 export type ReplaceCriteriaOptions = {
   deactivatedProfileIds: NcsProfileId[];
+  screeningPolicy?: UpdateAutoScreeningPolicyInput;
+  criteriaPassScoresChanged: boolean;
+  expectedQuestionPolicyVersion?: number;
+  expectedCriteriaVersion?: number;
+};
+
+export type UpdateAutoScreeningPolicyInput = {
+  enabled: boolean;
+  passMinTotalScore: number;
+  holdMinTotalScore: number;
+  requireAllCriteriaPass: true;
 };
 
 export type ConfirmQuestionSetInput = {
@@ -130,13 +145,16 @@ export interface CompanyInterviewRepository {
   getQuestionGenerationPolicy(
     postingId: number,
   ): Promise<QuestionGenerationPolicyRecord | undefined>;
+  getAutoScreeningPolicy(
+    postingId: number,
+  ): Promise<AutoScreeningPolicyRecord | undefined>;
   isConfigurationLocked(postingId: number): Promise<boolean>;
   replaceCriteria(
     postingId: number,
     evaluationFramework: EvaluationFramework,
     criteria: UpdateCriterionInput[],
     options?: ReplaceCriteriaOptions,
-  ): Promise<ReplaceCriteriaResult>;
+  ): Promise<ReplaceCriteriaResult | { locked: true } | { conflicted: true }>;
   updateQuestionGenerationPolicy(
     postingId: number,
     input: UpdateQuestionGenerationPolicyInput,

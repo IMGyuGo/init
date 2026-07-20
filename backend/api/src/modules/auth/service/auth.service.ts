@@ -106,16 +106,14 @@ export class AuthService {
 
   async sendPasswordCode(emailInput: string) {
     const email = this.normalizeEmail(emailInput);
-    const user = await this.authRepository.findUserByEmail(email);
-    if (!user || user.authProvider !== "LOCAL") {
-      throw new ApiException(ERROR_CODES.COMMON_NOT_FOUND, "가입된 이메일을 확인해 주세요.", HttpStatus.NOT_FOUND);
-    }
+    await this.requirePasswordResetAccount(email);
     await this.sendCode(email, "PASSWORD_RESET");
     return { sent: true };
   }
 
   async verifyPasswordCode(emailInput: string, code: string) {
     const email = this.normalizeEmail(emailInput);
+    await this.requirePasswordResetAccount(email);
     await this.verifyCode(email, "PASSWORD_RESET", code);
     return { verified: true };
   }
@@ -123,6 +121,7 @@ export class AuthService {
   async resetPassword(input: { email: string; code: string; password: string; passwordConfirm: string }) {
     const email = this.normalizeEmail(input.email);
     this.validatePasswordPair(input.password, input.passwordConfirm);
+    await this.requirePasswordResetAccount(email);
     await this.ensureVerified(email, "PASSWORD_RESET", input.code);
     const passwordHash = await bcrypt.hash(input.password, 12);
     await this.authRepository.updatePasswordHash(email, passwordHash);
@@ -181,6 +180,9 @@ export class AuthService {
     if (user && user.userType !== "CANDIDATE") {
       throw new ApiException(ERROR_CODES.AUTH_USER_TYPE_MISMATCH, "기업 계정은 Google 로그인을 사용할 수 없습니다.", HttpStatus.FORBIDDEN);
     }
+    if (user && (user.status !== "ACTIVE" || user.authProvider !== "GOOGLE" || user.providerUserId !== profile.sub)) {
+      throw new ApiException(ERROR_CODES.COMMON_UNAUTHORIZED, "Google 계정으로 로그인할 수 없습니다.", HttpStatus.UNAUTHORIZED);
+    }
     if (!user) {
       user = await this.authRepository.createGoogleCandidate({
         email: profile.email,
@@ -238,6 +240,14 @@ export class AuthService {
   private async ensureEmailAvailable(email: string) {
     const exists = await this.authRepository.findUserByEmail(email);
     if (exists) throw new ApiException(ERROR_CODES.AUTH_EMAIL_DUPLICATED, "이미 가입된 이메일입니다.", HttpStatus.CONFLICT);
+  }
+
+  private async requirePasswordResetAccount(email: string) {
+    const user = await this.authRepository.findUserByEmail(email);
+    if (!user || user.status !== "ACTIVE" || user.authProvider !== "LOCAL" || !user.passwordHash) {
+      throw new ApiException(ERROR_CODES.COMMON_NOT_FOUND, "가입된 이메일을 확인해 주세요.", HttpStatus.NOT_FOUND);
+    }
+    return user;
   }
 
   private validateSignupInput(input: SignupCandidateInput) {

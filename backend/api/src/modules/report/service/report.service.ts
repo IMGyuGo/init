@@ -53,10 +53,14 @@ import {
 } from "../report.types";
 import { AiJobDispatcherService } from "./ai-job-dispatcher.service";
 import { buildDefaultReportCriteria, normalizeReportCriterionName } from "./service-interview-rubric";
+import {
+  SALTLUX_FIXED_DEMO_FIXTURE_ID,
+  isSaltluxFixedDemoPosting,
+} from "../../../shared/saltlux-fixed-demo";
 
 type ReportAnswerSession = Pick<
   RuntimeInterviewSession,
-  "sessionId" | "interviewType" | "showQuestionText" | "ncsScoringVersion"
+  "sessionId" | "interviewType" | "showQuestionText" | "ncsScoringVersion" | "sessionMode"
 >;
 type ReportGenerationKind = "MOCK_REPORT_GENERATE" | "RECRUITING_REPORT_GENERATE";
 export const CANDIDATE_MOCK_MEDIA_COOKIE_NAME = "candidateMockMediaAccess";
@@ -512,7 +516,7 @@ export class ReportService {
     if (status === "FAILED") {
       return this.envelope({
         ...base,
-        candidateMessage: report?.failureReason ?? process?.failureReason ?? "면접 분석을 완료하지 못했습니다.",
+        candidateMessage: "면접 분석을 완료하지 못했습니다. 재처리를 진행하고 있습니다.",
         nextStepLabel: "분석 재시도 필요",
       });
     }
@@ -561,6 +565,11 @@ export class ReportService {
         : {}),
       ...(args.reportType === "RECRUITING_REPORT" && this.interviewRepository.listNcsSessionPolicies
         ? { ncsSessionPolicy: await this.interviewRepository.listNcsSessionPolicies(args.session.sessionId) }
+        : {}),
+      ...(args.reportType === "RECRUITING_REPORT" &&
+      args.session.sessionMode === "DEMO_PRESET" &&
+      isSaltluxFixedDemoPosting(args.companyName, args.jobTitle)
+        ? { presentationFixtureId: SALTLUX_FIXED_DEMO_FIXTURE_ID }
         : {}),
     };
 

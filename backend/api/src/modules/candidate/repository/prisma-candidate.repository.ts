@@ -13,6 +13,11 @@ import {
   type Prisma,
 } from "@prisma/client";
 import { PrismaService } from "../../../shared/prisma.service";
+import {
+  SALTLUX_FIXED_DEMO,
+  isSaltluxFixedDemoPosting,
+  isSaltluxFixedDemoQuestionSnapshot,
+} from "../../../shared/saltlux-fixed-demo";
 import { CandidateDomainError } from "../candidate.errors";
 import type { DemoPresetReadinessProjectionDto, InterviewSessionMode } from "@init/common";
 import {
@@ -936,6 +941,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
         include: {
           posting: {
             include: {
+              company: { select: { name: true } },
               timePolicy: true,
               criteria: {
                 orderBy: { sortOrder: "asc" },
@@ -1004,6 +1010,10 @@ export class PrismaCandidateRepository implements CandidateRepository {
       if (!application) return undefined;
 
       const policy = application.posting.questionGenerationPolicy;
+      const isFixedDemo = mode === "DEMO_PRESET" && isSaltluxFixedDemoPosting(
+        application.posting.company.name,
+        application.posting.title,
+      );
       const expectedCommonQuestionCount = mode === "DEMO_PRESET" ? 1 : policy?.jdCriteriaQuestionCount ?? 0;
       const expectedPersonalizedQuestionCount = mode === "DEMO_PRESET" ? 1 : policy?.resumeQuestionCount ?? 0;
       const policyVersion = policy?.policyVersion ?? 0;
@@ -1100,7 +1110,10 @@ export class PrismaCandidateRepository implements CandidateRepository {
             expectedScoringVersion,
           },
         );
-        if (validation.valid) {
+        const fixedDemoSnapshotMismatch = isFixedDemo && !isSaltluxFixedDemoQuestionSnapshot(
+          existingSnapshot.map((question) => question.content),
+        );
+        if (validation.valid && !fixedDemoSnapshotMismatch) {
           return {
             readiness: "READY",
             applicationId,
@@ -1142,7 +1155,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
         const retryAllowedSnapshot = (
           existingSession as unknown as { retryAllowedSnapshot: boolean | null }
         ).retryAllowedSnapshot;
-        replaceInvalidNcsSnapshot =
+        replaceInvalidNcsSnapshot = fixedDemoSnapshotMismatch ||
           existingSnapshot.length > 0 ||
           existingSession.ncsProfilePolicies.length > 0 ||
           existingSession.preparationTimeSecSnapshot !== null ||
@@ -1358,8 +1371,12 @@ export class PrismaCandidateRepository implements CandidateRepository {
         });
       }
 
-      const preparationTimeSecSnapshot = application.posting.timePolicy?.preparationTimeSec ?? 0;
-      const answerTimeSecSnapshot = application.posting.timePolicy?.answerTimeSec ?? 90;
+      const preparationTimeSecSnapshot = isFixedDemo
+        ? SALTLUX_FIXED_DEMO.preparationTimeSec
+        : application.posting.timePolicy?.preparationTimeSec ?? 0;
+      const answerTimeSecSnapshot = isFixedDemo
+        ? SALTLUX_FIXED_DEMO.answerTimeSec
+        : application.posting.timePolicy?.answerTimeSec ?? 90;
       const retryAllowedSnapshot = application.posting.timePolicy?.retryAllowed ?? false;
       if (existingSession && replaceInvalidNcsSnapshot) {
         await transaction.interviewSessionQuestion.deleteMany({
@@ -1413,7 +1430,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
           criterionTitleSnapshot: primaryBinding.criterion.tag.name,
           generationSource: "JD_CRITERIA",
           questionType: item.question.questionType,
-          content: item.question.content,
+          content: isFixedDemo ? SALTLUX_FIXED_DEMO.questions.common : item.question.content,
           ncsProfileId: primaryBinding.ncsProfileId,
           ncsQuestionMode: item.question.ncsQuestionMode,
           ncsProfileVersion: primaryBinding.ncsProfileVersion,
@@ -1451,7 +1468,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
           criterionTitleSnapshot: primaryBinding.criterion?.tag.name ?? question.criterionTitleSnapshot,
           generationSource: "RESUME_PERSONALIZED",
           questionType: question.questionType,
-          content: question.content,
+          content: isFixedDemo ? SALTLUX_FIXED_DEMO.questions.personalized : question.content,
           ncsProfileId: primaryBinding.ncsProfileId,
           ncsQuestionMode: question.ncsQuestionMode,
           ncsProfileVersion: primaryBinding.ncsProfileVersion,
@@ -1652,8 +1669,14 @@ export class PrismaCandidateRepository implements CandidateRepository {
   }): Promise<ApplicationSubmissionResult> {
     try {
       return await this.prisma.$transaction(async (tx) => {
-      const now = new Date();
-      const application = await tx.application.create({
+        await tx.$queryRaw<Array<{ posting_id: bigint }>>`
+          SELECT "posting_id"
+          FROM "postings"
+          WHERE "posting_id" = ${BigInt(input.postingId)}
+          FOR KEY SHARE
+        `;
+        const now = new Date();
+        const application = await tx.application.create({
         data: {
           postingId: BigInt(input.postingId),
           candidateId: BigInt(input.candidateId),
@@ -1854,6 +1877,18 @@ export class PrismaCandidateRepository implements CandidateRepository {
       });
       await tx.manualEvaluation.deleteMany({ where: { reportId: { in: reportIds } } });
       await tx.reportScore.deleteMany({ where: { reportId: { in: reportIds } } });
+      await tx.application.updateMany({
+        where: { applicationId: { in: applicationIds } },
+        data: {
+          screeningDecision: "UNDECIDED",
+          screeningDecisionReasonCode: null,
+          screeningDecisionPolicyVersion: null,
+          screeningPolicyVersion: null,
+          screeningCriteriaVersion: null,
+          screeningDecisionReportId: null,
+          screeningDecidedAt: null,
+        },
+      });
       await tx.evaluationReport.deleteMany({ where: { reportId: { in: reportIds } } });
 
       await tx.followUpQuestion.deleteMany({ where: { answerId: { in: answerIds } } });

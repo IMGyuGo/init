@@ -14,7 +14,9 @@ import {
 import { PrismaService } from "../../../shared/prisma.service";
 import type {
   ApplicantRecord,
+  ApplicantSummaryRecord,
   CompanyFileAssetRecord,
+  NormalizedApplicantListQuery,
   NormalizedListQuery,
   PublicRecruitmentRecord,
   RecruitmentRecord,
@@ -141,9 +143,10 @@ export type CompanyRecruitingRepositoryPort = {
   listApplicationsForPosting(
     postingId: number,
     companyId: number,
-    query: NormalizedListQuery,
+    query: NormalizedApplicantListQuery,
   ): Promise<ApplicantRecord[]>;
-  countApplicationsForPosting(postingId: number, companyId: number, query: NormalizedListQuery): Promise<number>;
+  countApplicationsForPosting(postingId: number, companyId: number, query: NormalizedApplicantListQuery): Promise<number>;
+  summarizeApplicationsForPosting(postingId: number, companyId: number): Promise<ApplicantSummaryRecord>;
   findApplicationForCompany(applicationId: number, companyId: number): Promise<ApplicantRecord | null>;
   updateApplicationScreening(
     applicationId: number,
@@ -364,24 +367,32 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
   }
 
   async createApplication(input: CreateApplicationInput): Promise<ApplicantRecord> {
-    const application = await this.prisma.application.create({
-      data: {
-        postingId: BigInt(input.postingId),
-        candidateId: BigInt(input.candidateId),
-        ...(input.applicantName !== undefined ? { applicantName: input.applicantName } : {}),
-        ...(input.applicantEmail !== undefined ? { applicantEmail: input.applicantEmail } : {}),
-        ...(input.applicantPhone !== undefined ? { applicantPhone: input.applicantPhone } : {}),
-        ...(input.githubUrl !== undefined ? { githubUrl: input.githubUrl } : {}),
-        ...(input.blogUrl !== undefined ? { blogUrl: input.blogUrl } : {}),
-        ...(input.portfolioUrl !== undefined ? { portfolioUrl: input.portfolioUrl } : {}),
-        ...(input.motivation !== undefined ? { motivation: input.motivation } : {}),
-        ...(input.additionalInfo !== undefined ? { additionalInfo: input.additionalInfo } : {}),
-        applicationStatus: ApplicationStatus.SUBMITTED,
-        documentStatus: input.documentStatus ?? DocumentStatus.NOT_SUBMITTED,
-        screeningDecision: ScreeningDecision.UNDECIDED,
-        screeningMemo: input.screeningMemo,
-      },
-      include: applicantInclude,
+    const application = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw<Array<{ posting_id: bigint }>>`
+        SELECT "posting_id"
+        FROM "postings"
+        WHERE "posting_id" = ${BigInt(input.postingId)}
+        FOR KEY SHARE
+      `;
+      return tx.application.create({
+        data: {
+          postingId: BigInt(input.postingId),
+          candidateId: BigInt(input.candidateId),
+          ...(input.applicantName !== undefined ? { applicantName: input.applicantName } : {}),
+          ...(input.applicantEmail !== undefined ? { applicantEmail: input.applicantEmail } : {}),
+          ...(input.applicantPhone !== undefined ? { applicantPhone: input.applicantPhone } : {}),
+          ...(input.githubUrl !== undefined ? { githubUrl: input.githubUrl } : {}),
+          ...(input.blogUrl !== undefined ? { blogUrl: input.blogUrl } : {}),
+          ...(input.portfolioUrl !== undefined ? { portfolioUrl: input.portfolioUrl } : {}),
+          ...(input.motivation !== undefined ? { motivation: input.motivation } : {}),
+          ...(input.additionalInfo !== undefined ? { additionalInfo: input.additionalInfo } : {}),
+          applicationStatus: ApplicationStatus.SUBMITTED,
+          documentStatus: input.documentStatus ?? DocumentStatus.NOT_SUBMITTED,
+          screeningDecision: ScreeningDecision.UNDECIDED,
+          screeningMemo: input.screeningMemo,
+        },
+        include: applicantInclude,
+      });
     });
     return mapApplicant(application);
   }
@@ -389,22 +400,68 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
   async listApplicationsForPosting(
     postingId: number,
     companyId: number,
-    query: NormalizedListQuery,
+    query: NormalizedApplicantListQuery,
   ): Promise<ApplicantRecord[]> {
     const applications = await this.prisma.application.findMany({
       where: buildApplicationWhere(postingId, companyId, query),
       orderBy: buildApplicationOrderBy(query),
       skip: query.skip,
       take: query.take,
-      include: applicantInclude,
+      include: applicantListInclude,
     });
-    return applications.map(mapApplicant);
+    return applications.map(mapApplicantList);
   }
 
-  async countApplicationsForPosting(postingId: number, companyId: number, query: NormalizedListQuery): Promise<number> {
+  async countApplicationsForPosting(postingId: number, companyId: number, query: NormalizedApplicantListQuery): Promise<number> {
     return this.prisma.application.count({
       where: buildApplicationWhere(postingId, companyId, query),
     });
+  }
+
+  async summarizeApplicationsForPosting(postingId: number, companyId: number): Promise<ApplicantSummaryRecord> {
+    const ownedPosting = { posting: { companyId: BigInt(companyId) }, postingId: BigInt(postingId) };
+    const activeWhere = { ...ownedPosting, applicationStatus: { not: ApplicationStatus.CANCELED } };
+    const [
+      activeTotal,
+      canceledHistoryTotal,
+      applicationStatuses,
+      documentStatuses,
+      interviewStatuses,
+      reportStatuses,
+      screeningDecisions,
+      attentionRequiredTotal,
+    ] = await Promise.all([
+      this.prisma.application.count({ where: activeWhere }),
+      this.prisma.application.count({ where: { ...ownedPosting, applicationStatus: ApplicationStatus.CANCELED } }),
+      this.prisma.application.groupBy({ by: ["applicationStatus"], where: activeWhere, _count: { _all: true } }),
+      this.prisma.application.groupBy({ by: ["documentStatus"], where: activeWhere, _count: { _all: true } }),
+      this.prisma.application.groupBy({ by: ["interviewStatus"], where: activeWhere, _count: { _all: true } }),
+      this.prisma.application.groupBy({ by: ["reportStatus"], where: activeWhere, _count: { _all: true } }),
+      this.prisma.application.groupBy({ by: ["screeningDecision"], where: activeWhere, _count: { _all: true } }),
+      this.prisma.application.count({
+        where: {
+          ...activeWhere,
+          OR: [
+            { documentStatus: DocumentStatus.FAILED },
+            { interviewStatus: "FAILED" },
+            { reportStatus: "FAILED" },
+            { screeningDecision: ScreeningDecision.UNDECIDED },
+            { screeningDecision: null },
+          ],
+        },
+      }),
+    ]);
+
+    return {
+      activeTotal,
+      canceledHistoryTotal,
+      applicationStatusCounts: toGroupCountMap(applicationStatuses, "applicationStatus"),
+      documentStatusCounts: toGroupCountMap(documentStatuses, "documentStatus"),
+      interviewStatusCounts: toGroupCountMap(interviewStatuses, "interviewStatus"),
+      reportStatusCounts: toGroupCountMap(reportStatuses, "reportStatus"),
+      screeningDecisionCounts: toScreeningDecisionCountMap(screeningDecisions),
+      attentionRequiredTotal,
+    };
   }
 
   async findApplicationForCompany(applicationId: number, companyId: number): Promise<ApplicantRecord | null> {
@@ -473,7 +530,9 @@ const applicantInclude = {
       user: true,
     },
   },
-  posting: true,
+  posting: {
+    include: { autoScreeningPolicy: true },
+  },
   evaluationReports: {
     orderBy: { reportId: "desc" as const },
     take: 1,
@@ -508,6 +567,39 @@ const applicantInclude = {
   interviewSessions: {
     orderBy: { sessionId: "desc" as const },
     take: 1,
+  },
+} satisfies Prisma.ApplicationInclude;
+
+const applicantListInclude = {
+  candidate: {
+    include: {
+      user: true,
+    },
+  },
+  posting: {
+    include: { autoScreeningPolicy: { select: { enabled: true } } },
+  },
+  evaluationReports: {
+    orderBy: { reportId: "desc" as const },
+    take: 1,
+    select: {
+      reportId: true,
+      status: true,
+      totalScore: true,
+      summary: true,
+      generatedAt: true,
+    },
+  },
+  interviewSessions: {
+    orderBy: { sessionId: "desc" as const },
+    take: 1,
+    select: {
+      sessionId: true,
+      status: true,
+      interviewType: true,
+      startedAt: true,
+      completedAt: true,
+    },
   },
 } satisfies Prisma.ApplicationInclude;
 
@@ -589,13 +681,22 @@ function buildPostingWhere(companyId: number, query: NormalizedListQuery): Prism
 function buildApplicationWhere(
   postingId: number,
   companyId: number,
-  query: NormalizedListQuery,
+  query: NormalizedApplicantListQuery,
 ): Prisma.ApplicationWhereInput {
   const q = query.q?.trim();
   return {
     postingId: BigInt(postingId),
     posting: { companyId: BigInt(companyId) },
     applicationStatus: { not: ApplicationStatus.CANCELED },
+    ...(query.applicationStatus ? { applicationStatus: query.applicationStatus } : {}),
+    ...(query.documentStatus ? { documentStatus: query.documentStatus } : {}),
+    ...(query.interviewStatus ? { interviewStatus: query.interviewStatus } : {}),
+    ...(query.reportStatus ? { reportStatus: query.reportStatus } : {}),
+    ...(query.screeningDecision === ScreeningDecision.UNDECIDED
+      ? { AND: [{ OR: [{ screeningDecision: ScreeningDecision.UNDECIDED }, { screeningDecision: null }] }] }
+      : query.screeningDecision
+        ? { screeningDecision: query.screeningDecision }
+        : {}),
     ...(q
       ? {
           OR: [
@@ -612,9 +713,12 @@ function buildPostingOrderBy(query: NormalizedListQuery): Prisma.PostingOrderByW
   return { [allowed.has(query.sort) ? query.sort : "createdAt"]: query.order };
 }
 
-function buildApplicationOrderBy(query: NormalizedListQuery): Prisma.ApplicationOrderByWithRelationInput {
+function buildApplicationOrderBy(query: NormalizedApplicantListQuery): Prisma.ApplicationOrderByWithRelationInput[] {
   const allowed = new Set(["updatedAt", "applicationStatus", "interviewStatus", "reportStatus"]);
-  return { [allowed.has(query.sort) ? query.sort : "updatedAt"]: query.order };
+  return [
+    { [allowed.has(query.sort) ? query.sort : "updatedAt"]: query.order },
+    { applicationId: query.order },
+  ];
 }
 
 function mapPosting(
@@ -677,6 +781,7 @@ function mapPublicPosting(posting: Prisma.PostingGetPayload<{ include: { company
 }
 
 type ApplicationWithIncludes = Prisma.ApplicationGetPayload<{ include: typeof applicantInclude }>;
+type ApplicationWithListIncludes = Prisma.ApplicationGetPayload<{ include: typeof applicantListInclude }>;
 type ApplicationWithDetailIncludes = Prisma.ApplicationGetPayload<{ include: typeof applicantDetailInclude }>;
 type FileAssetRecord = Prisma.FileAssetGetPayload<Record<string, never>>;
 
@@ -720,6 +825,11 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
     interviewStatus: application.interviewStatus,
     reportStatus: application.reportStatus,
     screeningDecision: application.screeningDecision,
+    screeningDecisionReasonCode: application.screeningDecisionReasonCode,
+    screeningDecisionPolicyVersion: application.screeningDecisionPolicyVersion,
+    screeningPolicyVersion: application.screeningPolicyVersion,
+    screeningCriteriaVersion: application.screeningCriteriaVersion,
+    screeningDecidedAt: application.screeningDecidedAt,
     screeningMemo: application.screeningMemo,
     submittedAt: application.submittedAt,
     updatedAt: application.updatedAt,
@@ -748,6 +858,8 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
       postingId: Number(application.posting.postingId),
       title: application.posting.title,
       jobRole: application.posting.jobRole,
+      autoScreeningPolicyEnabled:
+        application.posting.autoScreeningPolicy?.enabled === true,
     },
     evaluationReports: application.evaluationReports.map((report) => ({
       reportId: Number(report.reportId),
@@ -889,6 +1001,88 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
       };
     }),
   };
+}
+
+function mapApplicantList(application: ApplicationWithListIncludes): ApplicantRecord {
+  return {
+    applicationId: Number(application.applicationId),
+    postingId: Number(application.postingId),
+    candidateId: Number(application.candidateId),
+    applicantName: application.applicantName,
+    applicantEmail: application.applicantEmail,
+    applicantPhone: application.applicantPhone,
+    githubUrl: application.githubUrl,
+    blogUrl: application.blogUrl,
+    portfolioUrl: application.portfolioUrl,
+    motivation: application.motivation,
+    additionalInfo: application.additionalInfo,
+    profileSnapshot: mapJsonObject(application.profileSnapshot),
+    applicationStatus: application.applicationStatus,
+    documentStatus: application.documentStatus,
+    interviewStatus: application.interviewStatus,
+    reportStatus: application.reportStatus,
+    screeningDecision: application.screeningDecision,
+    screeningDecisionReasonCode: application.screeningDecisionReasonCode,
+    screeningDecisionPolicyVersion: application.screeningDecisionPolicyVersion,
+    screeningPolicyVersion: application.screeningPolicyVersion,
+    screeningCriteriaVersion: application.screeningCriteriaVersion,
+    screeningDecidedAt: application.screeningDecidedAt,
+    screeningMemo: application.screeningMemo,
+    submittedAt: application.submittedAt,
+    updatedAt: application.updatedAt,
+    candidate: {
+      candidateId: Number(application.candidate.candidateId),
+      githubUrl: application.candidate.githubUrl,
+      portfolioUrl: application.candidate.portfolioUrl,
+      summary: application.candidate.summary,
+      user: {
+        userId: Number(application.candidate.user.userId),
+        email: application.candidate.user.email,
+        name: application.candidate.user.name,
+        phone: application.candidate.user.phone,
+      },
+    },
+    posting: {
+      postingId: Number(application.posting.postingId),
+      title: application.posting.title,
+      jobRole: application.posting.jobRole,
+      autoScreeningPolicyEnabled:
+        application.posting.autoScreeningPolicy?.enabled === true,
+    },
+    evaluationReports: application.evaluationReports.map((report) => ({
+      reportId: Number(report.reportId),
+      status: report.status,
+      totalScore: report.totalScore,
+      summary: report.summary,
+      generatedAt: report.generatedAt,
+    })),
+    interviewSessions: application.interviewSessions.map((session) => ({
+      sessionId: Number(session.sessionId),
+      status: session.status,
+      interviewType: session.interviewType,
+      startedAt: session.startedAt,
+      completedAt: session.completedAt,
+    })),
+  };
+}
+
+function toGroupCountMap(
+  rows: Array<Record<string, unknown> & { _count: { _all: number } }>,
+  field: string,
+): Record<string, number> {
+  return Object.fromEntries(
+    rows.flatMap((row) => (typeof row[field] === "string" ? [[row[field] as string, row._count._all]] : [])),
+  );
+}
+
+function toScreeningDecisionCountMap(
+  rows: Array<Record<string, unknown> & { _count: { _all: number } }>,
+): Record<string, number> {
+  return rows.reduce<Record<string, number>>((counts, row) => {
+    const key = typeof row.screeningDecision === "string" ? row.screeningDecision : ScreeningDecision.UNDECIDED;
+    counts[key] = (counts[key] ?? 0) + row._count._all;
+    return counts;
+  }, {});
 }
 
 function findLinkedFollowUpAnswer<T extends FollowUpAnswerCandidate>(
