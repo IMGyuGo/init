@@ -66,6 +66,10 @@ const OPERATION_DOCUMENTATION_BY_HANDLER: Record<string, OperationDocumentation>
     summary: "지원자의 지원현황 목록 조회",
     description: "로그인한 지원자의 지원서, 공고, 채용면접 세션, 동의·장치 점검 및 리포트 상태를 결합해 최신순으로 반환합니다.",
   },
+  listScreeningResultNotifications: {
+    summary: "확정된 기업 전형 결과 알림 조회",
+    description: "면접관이 공고 단위로 확정한 로그인 지원자의 합격·보류·불합격 결과 알림만 조회하며 확정 전 자동판정은 노출하지 않습니다.",
+  },
   cancelApplication: {
     summary: "지원서 제출 취소",
     description: "로그인한 지원자의 지원서 소유권과 취소 가능 상태를 확인한 뒤 해당 지원서를 취소 처리합니다.",

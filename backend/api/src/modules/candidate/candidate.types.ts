@@ -263,7 +263,9 @@ export interface Application {
   documentStatus: DocumentStatus;
   interviewStatus: InterviewStatus;
   reportStatus: ReportStatus;
-  screeningDecision: ScreeningDecision;
+  resultPublicationStatus: "PENDING" | "CONFIRMED";
+  screeningDecision: ScreeningDecision | null;
+  screeningResultConfirmedAt: string | null;
   submittedAt: string;
   updatedAt: string;
 }
@@ -505,6 +507,16 @@ export interface CandidateDemoApplicationResetResult {
   storageCleanupFailedCount: number;
 }
 
+export interface CandidateScreeningResultNotification {
+  notificationId: number;
+  applicationId: number;
+  postingId: number;
+  companyName: string;
+  jobTitle: string;
+  screeningDecision: "PASS" | "HOLD" | "FAIL";
+  confirmedAt: string;
+}
+
 export interface CandidateRepository {
   listJobs(): Promise<CandidateJob[]>;
   findJob(jobId: number): Promise<CandidateJob | undefined>;
@@ -512,6 +524,7 @@ export interface CandidateRepository {
   findFileAsset(fileId: number): Promise<FileAsset | undefined>;
   findLatestExtractedTextByFileId(fileId: number): Promise<string | null>;
   listApplications(candidateId: number): Promise<Application[]>;
+  listScreeningResultNotifications(userId: number): Promise<CandidateScreeningResultNotification[]>;
   findApplication(applicationId: number): Promise<Application | undefined>;
   findCandidateUserId(candidateId: number): Promise<number | undefined>;
   findApplicantContact(userId: number): Promise<ApplicantContact | undefined>;

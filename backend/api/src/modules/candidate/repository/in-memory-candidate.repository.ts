@@ -191,6 +191,10 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     return this.applications.filter((application) => application.candidateId === candidateId);
   }
 
+  async listScreeningResultNotifications() {
+    return [];
+  }
+
   async findApplication(applicationId: number): Promise<Application | undefined> {
     return this.applications.find((application) => application.applicationId === applicationId);
   }
@@ -480,7 +484,9 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       documentStatus: "SUBMITTED",
       interviewStatus: "NOT_READY",
       reportStatus: "PENDING",
-      screeningDecision: "UNDECIDED",
+      resultPublicationStatus: "PENDING",
+      screeningDecision: null,
+      screeningResultConfirmedAt: null,
       submittedAt: now,
       updatedAt: now,
     };
@@ -703,7 +709,9 @@ export class InMemoryCandidateRepository implements CandidateRepository {
       documentStatus: "SUBMITTED",
       interviewStatus: "NOT_READY",
       reportStatus: "PENDING",
-      screeningDecision: "UNDECIDED",
+      resultPublicationStatus: "PENDING",
+      screeningDecision: null,
+      screeningResultConfirmedAt: null,
       profileSnapshot: null,
       submittedAt: now,
       updatedAt: now,

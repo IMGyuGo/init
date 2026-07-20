@@ -683,6 +683,11 @@ export class CandidateService {
     return this.listEnvelope(items, this.createPageMeta(1, Math.max(items.length, 1), items.length));
   }
 
+  async listScreeningResultNotifications(currentUser: CurrentCandidateUser) {
+    const items = await this.repository.listScreeningResultNotifications(currentUser.userId);
+    return this.listEnvelope(items, this.createPageMeta(1, Math.max(items.length, 1), items.length));
+  }
+
   async cancelApplication(
     applicationId: number,
     currentUser: CurrentCandidateUser,
