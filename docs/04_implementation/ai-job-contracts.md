@@ -124,6 +124,8 @@ GET /api/v1/ai/jobs/101/status
 | `POST /candidate/mock-interviews/questions/generate` | Candidate | questionCount, folderContext?, profileContext(V1, server-built) | JD/posting/기업 기준 없이 동작 |
 | `POST /ai/guardrails/validate` | Admin/System | reportType, target, scores, summary? | PASS/BLOCKED/REGENERATED 기록 |
 
+`SALTLUX_AI_BACKEND_V1 + DEMO_PRESET`은 발표 안정성을 위한 제한된 동기 예외다. API가 개인화 답변 저장 시 고정 꼬리질문을 멱등 삽입하고, 면접 완료 시 실제 answer/session/criterion ID를 검증한 고정 NCS 리포트를 저장한 뒤 `COMPLETED` process log를 남긴다. 이 조합에서는 `REPORT_GENERATE` SQS message를 발행하지 않으며, 그 외 모든 리포트는 아래 비동기 계약을 그대로 따른다.
+
 ## REPORT_GENERATE Nonverbal Metadata
 
 `REPORT_GENERATE` jobs may receive `answers[].nonverbalMetadata` when the answer was recorded through the browser interview runtime.

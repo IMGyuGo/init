@@ -13,6 +13,7 @@ import {
   ReportType,
   StoredCounts
 } from "../report.types";
+import type { SaltluxFixedDemoFinalizationInput } from "../service/saltlux-fixed-demo-finalization";
 
 export const REPORT_REPOSITORY = Symbol("REPORT_REPOSITORY");
 
@@ -23,6 +24,10 @@ export class AiProcessNotFoundError extends Error {
 }
 
 export interface ReportRepository {
+  finalizeSaltluxFixedDemo?(input: SaltluxFixedDemoFinalizationInput): Promise<{
+    processLogId: number;
+    inputRef: string;
+  }>;
   createQueuedProcess(
     processType: AiProcessType,
     inputRef: string,
