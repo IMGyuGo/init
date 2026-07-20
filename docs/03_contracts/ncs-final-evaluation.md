@@ -157,8 +157,8 @@ otherwise
 
 - `INCOMPLETE`를 0점으로 변환하지 않는다.
 - AI decision reason에 `EVALUATION_INCOMPLETE`와 구체적인 미완료 원인을 저장·노출한다.
-- 이 임시 AI 판정은 `applications.screening_decision` 또는 실제 전형 상태를 자동 변경하지 않는다.
-- 발표 이후 별도 milestone에서 `INCOMPLETE -> HOLD/재평가` 정책으로 교체한다.
+- 이 임시 AI 판정은 `applications.screening_decision` 또는 실제 전형 상태를 `FAIL`로 변경하지 않는다.
+- `AUTO_SCREENING_DECISION_V1`에서 `INCOMPLETE`는 `applications.screening_decision=RETRY`로 투영한다. 상세 진입 조건은 [`automatic-screening-decision.md`](./automatic-screening-decision.md)를 따른다.
 
 ## Follow-up Contract
 

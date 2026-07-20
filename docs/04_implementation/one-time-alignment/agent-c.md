@@ -37,6 +37,7 @@
 - `criterion_tags`는 `CriterionTag`, `evaluation_criteria`는 `EvaluationCriterion`, `question_bank`는 `Question` model 이름을 사용한다.
 - `QuestionBank`, `EvaluationCriteria`를 model/class 이름으로 새로 만들지 않는다.
 - `question_bank`, `evaluation_criteria` write는 C 영역으로 둔다. E가 AI 생성 결과를 저장해야 하면 C service 또는 명시된 API를 통해 연결한다.
+- `auto_screening_policies`와 평가 기준별 `pass_score`는 C 설정 영역이다. C는 정책/version을 저장하지만 지원자별 `screening_decision`을 계산하거나 write하지 않는다.
 - NQ-M1의 `interview_question_generation_policies`와 API-097은 C가 구현한다. 정책 미설정은 `policyVersion=0`, 질문 수 0/0 projection으로 처리한다.
 - API-098/099는 C route지만 application/document와 AI batch를 직접 소유하지 않는다. D/E repository 계약을 통해 조회·retry를 연결한다.
 - NCS evaluator의 profile ID, mode, threshold, version을 C 코드에 하드코딩하지 않는다.

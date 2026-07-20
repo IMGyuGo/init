@@ -55,7 +55,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-011 | 기업 - 채용공고 | GET | /company/recruitments | 회사별 공고 목록 조회 / 채용 공고 목록 조회 / 채용 공고 리스트 표시 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-080 | 기업 - 채용공고 | POST | /company/recruitments | 기업 공고 생성 | 기업 / 기업 사용자 로그인 | N | 201 Created |
 | API-085 | 기업 - 채용공고 | POST | /company/recruitments/ai-draft | 공고 생성 AI 초안 작성 | 기업 / 기업 사용자 로그인 | Y | 202 Accepted |
-| API-012 | 기업 - 지원자/리포트 | PATCH | /company/applicants/{applicantId}/screening-status | 전형 상태 지정 | 기업 / 기업 사용자 로그인 | N | 200 OK |
+| API-012 | 기업 - 지원자/리포트 | PATCH | /company/applicants/{applicantId}/screening-status | 지원자별 수동 전형 판정(폐기 예정) | 기업 / 기업 사용자 로그인 | N | 200 OK / 409 Conflict |
 | API-013 | 기업 - 채용공고 | GET | /company/recruitments/{recruitmentId} | 공고 상세 및 지원자 관리 진입 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-083 | 기업 - 채용공고 | PATCH | /company/recruitments/{recruitmentId} | 공고 설정 수정 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-084 | 기업 - 채용공고 | DELETE | /company/recruitments/{recruitmentId} | 공고 삭제/보관 | 기업 / 기업 사용자 로그인 | N | 200 OK |

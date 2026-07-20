@@ -798,22 +798,26 @@ AI 리포트 금지 기준:
 - 권한/인증: 기업 / 기업 사용자 로그인
 - 관련 화면: 공고 관리 화면 (/company/applications/dashboard)
 - UI Type: section
-- 상태 코드: 200 OK
+- 상태: 폐기 예정. 신규 consumer 추가 금지
+- 상태 코드: 200 OK, 409 Conflict
 - 비동기: N
 - Path Params: applicantId
 - 요청 데이터:
-  - 지원자 ID, 전형 상태(`UNDECIDED`, `PASS`, `HOLD`, `FAIL`), 메모
+  - legacy 지원자별 전형 상태(`UNDECIDED`, `PASS`, `HOLD`, `FAIL`)와 메모
+  - `RETRY`는 system-only 상태이므로 이 API에서 입력할 수 없다.
 - 검증/전제조건:
   - 자기 회사 공고에 연결된 지원자만 수정 가능
-  - B MVP에서는 `applications.screening_decision`, `applications.screening_memo`만 저장
+  - 자동 판정 정책이 활성화된 공고에는 지원자별 `screening_decision` mutation을 허용하지 않는다.
 - 성공 응답/처리:
-  - 편집 모드에서 전형 상태 저장
+  - legacy 자동 판정 비활성 공고의 이행 기간에만 기존 결과를 반환한다.
 - 오류/예외:
+  - 자동 판정 활성 공고이면 `COMMON_CONFLICT`, `reason=SCREENING_DECISION_SYSTEM_MANAGED`를 반환한다.
   - 허용되지 않은 전형 상태, 권한 없는 지원자, 존재하지 않는 지원자이면 오류를 반환한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, applications, evaluation_reports, report_scores, report_evidences, manual_evaluations
 - 비고/미결:
-  - `manual_evaluations` 저장은 E/PM 계약 합의 후 별도 구현
+  - 자동 판정 계약은 `automatic-screening-decision.md`를 따른다.
+  - #398에서 자동 판정 engine을 활성화한 뒤 기업 UI와 route를 제거한다.
 
 ## 공개 - 채용공고/지원
 
@@ -1105,6 +1109,8 @@ AI 리포트 금지 기준:
   - 지원자 조회 권한 보유
 - 성공 응답/처리:
   - 지원자 기본 정보, 지원/면접/리포트 상태, 전형 상태/메모 표시
+  - 자동 판정 projection으로 `screeningDecision`, `screeningDecisionReasonCode`, `screeningDecisionPolicyVersion`, `screeningPolicyVersion`, `screeningCriteriaVersion`, `screeningDecidedAt`을 반환한다.
+  - `screeningDecision=PASS | HOLD | FAIL`이면 유효 총점이 존재해야 하며, `RETRY`이면 점수를 0으로 대체하지 않는다.
   - `submission`에 제출 당시 `name`, `email`, `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `motivation`, `additionalInfo`를 반환한다.
   - 신규 회원 지원서는 `submission.profileSnapshot`에 제출 당시 `summary`, `coverLetter`, `educations`, `careers`, `activities`, `credentials`를 포함한 `CandidateProfileSnapshotV1`을 반환한다.
   - `submission.documents`에 `documentId`, `fileId`, `documentType`, `originalName`, `mimeType`, `sizeBytes`, `uploadedAt`을 반환한다.
@@ -1313,11 +1319,12 @@ AI 리포트 금지 기준:
 - 비동기: N
 - Path Params: applicantId
 - 요청 데이터:
-  - 수동 점수, 메모, 최종 상태
+  - 수동 검토 메모와 운영 참고 정보
+  - 최종 `screeningDecision`은 입력받지 않는다.
 - 검증/전제조건:
   - 면접관 또는 관리자 권한 보유
 - 성공 응답/처리:
-  - 수동 평가 저장
+  - 수동 검토 메모 저장. 자동 판정 결과는 변경하지 않는다.
 - 오류/예외:
   - 권한 없음 또는 필수 메모 누락 시 저장을 제한한다.
 - 관련 ERD 테이블:
@@ -1644,6 +1651,13 @@ AI 리포트 금지 기준:
     - `preparationTimeSec: number`
     - `answerTimeSec: number`
     - `retryAllowed: boolean`
+  - `data.screeningPolicy: AutoScreeningPolicyV1 | null`
+    - `enabled: boolean`
+    - `passMinTotalScore: number`
+    - `holdMinTotalScore: number`
+    - `requireAllCriteriaPass: true`
+    - `policyVersion: number`
+    - `decisionPolicyVersion: "AUTO_SCREENING_DECISION_V1"`
   - `data.evaluationFramework: EvaluationFramework`
   - `data.questionGenerationPolicy`
     - `postingId: number`
@@ -1660,6 +1674,7 @@ AI 리포트 금지 기준:
   - `data.questionImpactByProfile[]: { ncsProfileId, exclusivelyBoundActiveQuestionCount, multiBoundActiveQuestionCount }`
 - Default Projection:
   - 정책 row가 아직 없으면 `evaluationFramework=LEGACY`, 두 질문 수와 version은 모두 0, `allocations=[]`로 응답한다.
+  - 자동 판정 정책 row가 없으면 `screeningPolicy=null`을 반환하며 자동 판정은 `UNDECIDED`를 유지한다.
   - posting 범위 설정 조회의 `resumeQuestionStatus`는 지원자별 상태를 집계하지 않는다. `resumeQuestionCount=0`이면 `DISABLED`, 1 이상이면 `WAITING_APPLICATION`을 반환한다.
   - 지원자별 실제 생성 상태는 API-098에서만 조회한다.
 - 오류/예외:
@@ -1668,7 +1683,7 @@ AI 리포트 금지 기준:
   - 기업 권한 또는 공고 소유권 불일치: `COMMON_FORBIDDEN`
   - 공고 없음: `COMMON_NOT_FOUND`
 - 관련 ERD 테이블:
-  - companies, postings, criterion_tags, evaluation_criteria, question_bank, interview_time_policies, interview_sessions, ai_process_logs
+  - companies, postings, criterion_tags, evaluation_criteria, question_bank, interview_time_policies, auto_screening_policies, interview_sessions, ai_process_logs
 - 비고/미결:
   - 기존 SNB 삭제. 2-depth는 GNB hover dropdown으로 노출
   - `timePolicy`는 공고별 1:1 설정으로 `interview_time_policies`에 저장한다.
@@ -1706,6 +1721,11 @@ AI 리포트 금지 기준:
   - `criteria[].weight: number`
   - `criteria[].passScore?: number | null`
   - `criteria[].sortOrder: number`
+  - `screeningPolicy?: AutoScreeningPolicyV1`
+  - `screeningPolicy.enabled: boolean`
+  - `screeningPolicy.passMinTotalScore: number`
+  - `screeningPolicy.holdMinTotalScore: number`
+  - `screeningPolicy.requireAllCriteriaPass: true`
   - `confirmQuestionImpact?: boolean`, 연결 질문이 있는 profile을 `weight=0`으로 바꿀 때 필수
 - 검증/전제조건:
   - 총 배점 합계가 정책 범위 내여야 함
@@ -1714,6 +1734,9 @@ AI 리포트 금지 기준:
   - `criterionId`가 있으면 해당 공고의 `evaluation_criteria`에 존재해야 함
   - `sortOrder`는 요청 배열 안에서 중복될 수 없음
   - `passScore`는 nullable이며 값이 있으면 정책 점수 범위 안이어야 함
+  - `screeningPolicy.enabled=true`이면 활성 criteria의 `passScore`는 모두 0~100 정수여야 한다.
+  - `0 <= screeningPolicy.holdMinTotalScore < screeningPolicy.passMinTotalScore <= 100`을 만족해야 한다.
+  - `screeningPolicy.requireAllCriteriaPass`는 V1에서 `true`만 허용한다.
   - `description`은 공용 태그 설명을 변경하지 않고 해당 공고의 평가 기준 설명 스냅샷으로 저장한다.
   - `description`을 생략하면 기존 기준 설명을 유지하며, 신규 기준이면 태그 기본 설명을 사용한다.
   - `evaluationFramework=LEGACY`이면 현재 동작을 유지해 빈 criteria를 허용하고, 1개 이상이면 `weight` 합계가 1~100이어야 한다.
@@ -1744,6 +1767,9 @@ AI 리포트 금지 기준:
   - `data.evaluationFramework: EvaluationFramework`
   - `data.criteriaVersion: number`, 평가 기준 저장 성공 시 1 증가한다.
   - `data.criteria[].isActive`, `data.configurationLocked`, `data.configurationLockedReason`, `data.questionImpactByProfile[]`, `data.questionSetRequiresReconfirmation`을 API-034와 같은 shape로 반환한다.
+  - `data.screeningPolicy`를 API-034와 같은 shape로 반환한다.
+  - 평가 기준과 자동 판정 정책은 하나의 transaction에서 저장하고, 둘 중 하나라도 실패하면 전체 rollback한다.
+  - 평가 기준 하한선 또는 자동 판정 정책이 바뀌면 `policyVersion`을 1 증가시킨다.
   - V2 profile 해제 시 단일 binding 질문은 `isActive=false`, multi-binding 질문은 `REVIEW_REQUIRED`로 보존하고 ACTIVE 질문 세트를 재확정 대상으로 만든다.
   - 정책 row가 없으면 같은 transaction에서 기본 정책 row를 생성하고 첫 저장 결과의 `criteriaVersion=1`로 응답한다.
   - 평가 기준 변경과 `criteriaVersion` 증가는 하나의 transaction으로 처리한다.
@@ -1757,11 +1783,12 @@ AI 리포트 금지 기준:
   - NCS 가중치 오류: `INTERVIEW_NCS_WEIGHT_INVALID`
   - 공고/평가 태그/평가 기준 없음: `COMMON_NOT_FOUND`
 - 관련 ERD 테이블:
-  - companies, postings, criterion_tags, evaluation_criteria, interview_sessions, evaluation_reports, report_scores, report_evidences, manual_evaluations, ai_process_logs
+  - companies, postings, criterion_tags, evaluation_criteria, auto_screening_policies, interview_sessions, evaluation_reports, report_scores, report_evidences, manual_evaluations, ai_process_logs
 - 비고/미결:
   - 저장 버튼은 평가 기준 설정 영역 우측 상단 배치
   - `evaluation_criteria` 컬럼 추가/변경은 A/PM 리뷰 필요
   - 공통 DTO를 `backend/common/src/dto`에 추가해야 하면 A 리뷰 필요
+  - 자동 판정 정책과 결정 알고리즘은 `automatic-screening-decision.md`를 따른다.
 
 ### API-037 POST /company/interviews/questions
 - 도메인: 기업 - 면접관리
@@ -3344,9 +3371,12 @@ CandidateFolder 입력 제한:
   - 본인 지원 건이며 응시 완료 상태
 - 성공 응답/처리:
   - 응시 결과 또는 제한된 피드백 표시
-  - 기업 담당자가 저장한 전형 결정 `screeningDecision`을 `UNDECIDED | PASS | HOLD | FAIL`로 반환한다.
-  - 전형 결정은 기업 담당자가 저장하는 즉시 지원자에게 공개한다. 별도 발표·게시 상태는 두지 않는다.
-  - `UNDECIDED`는 합불 미결정 상태이며 지원자 화면에서 `기업 검토 대기`로 표시한다.
+  - 시스템 자동 판정 결과 `screeningDecision`을 `UNDECIDED | PASS | HOLD | FAIL | RETRY`로 반환한다.
+  - `PASS | HOLD | FAIL`은 판정 가능한 점수가 존재할 때만 반환한다.
+  - 리포트 실패, 점수 없음, 평가 불완전 또는 STT terminal 실패는 `RETRY`로 반환하며 0점 또는 `FAIL`로 변환하지 않는다.
+  - 자동 판정 결과는 저장 즉시 지원자에게 공개한다. 별도 발표·게시 상태는 두지 않는다.
+  - `UNDECIDED`는 리포트 생성 대기/진행 또는 정책 미설정 상태이며 지원자 화면에서 `결과 확인 중`으로 표시한다.
+  - `RETRY`여도 제한 결과 projection을 반환하며 내부 reason code, 점수, 기준 하한선과 기업 메모는 포함하지 않는다.
 - 오류/예외:
   - 리포트 생성 중이면 처리 상태를 표시하고 접근 제한 항목은 안내 문구를 표시한다.
 - 관련 ERD 테이블:
@@ -3354,6 +3384,7 @@ CandidateFolder 입력 제한:
 - 비고/미결:
   - reportType=RECRUITING_REPORT, 지원자 제한 조회
   - 기업 내부 메모, 수동 평가 상세, AI 근거·내부 점수는 지원자 응답에 포함하지 않는다.
+  - 자동 판정과 RETRY 진입 조건은 `automatic-screening-decision.md`를 따른다.
 
 ### API-074 GET /candidate/applications/{applicationId}/status
 - 도메인: 지원자 - 지원현황/채용면접
@@ -3369,14 +3400,16 @@ CandidateFolder 입력 제한:
   - 본인 지원 건
 - 성공 응답/처리:
   - 전형 상태 표시
-  - 기업 담당자가 저장한 전형 결정 `screeningDecision`을 `UNDECIDED | PASS | HOLD | FAIL`로 반환한다.
-  - 전형 결정은 저장 즉시 공개하며 `UNDECIDED`는 지원자 화면에서 `기업 검토 대기`로 표시한다.
+  - 시스템 자동 판정 결과 `screeningDecision`을 `UNDECIDED | PASS | HOLD | FAIL | RETRY`로 반환한다.
+  - 전형 결정은 저장 즉시 공개한다. `UNDECIDED`는 `결과 확인 중`, `RETRY`는 `평가 재시도`로 표시한다.
+  - `PASS | HOLD | FAIL`은 유효 점수가 있는 경우에만 허용하며 `RETRY`를 전형 종료로 표시하지 않는다.
 - 오류/예외:
   - 상태 조회 실패 시 다시 조회 버튼을 제공한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, manual_evaluations, ai_process_logs
 - 비고/미결:
   - 기업용 합격/탈락 내부 메모와 수동 평가 상세는 노출하지 않음
+  - 지원자 응답에는 `screeningDecisionReasonCode`를 포함하지 않는다.
 
 ## 지원자 - 채용면접
 

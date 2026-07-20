@@ -48,6 +48,39 @@ sequenceDiagram
   end
 ```
 
+### Automatic Screening Decision Flow
+
+자동 판정은 AI provider 출력이 아니라 guardrail을 통과해 저장된 리포트, 점수와 공고별 policy snapshot을 입력으로 사용하는 deterministic 단계다.
+
+```mermaid
+sequenceDiagram
+  participant Worker as Report Worker (E)
+  participant Guard as Guardrail
+  participant Report as evaluation_reports
+  participant Decision as Auto Decision Service
+  participant App as applications
+
+  Worker->>Guard: 리포트·점수 최종 검증
+  alt report pending or generating
+    Worker-->>App: screening_decision 유지 UNDECIDED
+  else terminal unscorable
+    Worker->>Report: FAILED 또는 INCOMPLETE/NULL score 저장
+    Worker->>Decision: report + STT terminal state + policy snapshot
+    Decision->>App: RETRY + reason/version snapshot
+  else scoreable report
+    Worker->>Report: COMPLETED + final scores 저장
+    Worker->>Decision: final scores + criteria/passScore + policy snapshot
+    Decision->>App: PASS/HOLD/FAIL + reason/version snapshot
+  end
+```
+
+- `PASS/HOLD/FAIL`은 guardrail 이후 저장된 유효 점수가 있을 때만 결정한다.
+- report 생성 중에는 `UNDECIDED`를 유지한다.
+- report terminal 실패, STT terminal 인식 불가, 평가 불완전 또는 필수 점수 NULL은 `RETRY`이며 0점/FAIL로 변환하지 않는다.
+- 자동 판정 저장은 `reportId + policyVersion + criteriaVersion + decisionPolicyVersion`을 멱등 key로 사용한다.
+- 자동 판정 규칙은 [`automatic-screening-decision.md`](../03_contracts/automatic-screening-decision.md)를 따른다.
+- RETRY job 생성, backoff와 한도는 #397에서 별도로 확정한다.
+
 ### Resume Personalized Question Flow
 
 ```mermaid

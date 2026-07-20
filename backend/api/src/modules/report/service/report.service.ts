@@ -1076,6 +1076,10 @@ export class ReportService {
         label: "불합격",
         message: "기업 담당자가 불합격으로 결정했습니다.",
       },
+      RETRY: {
+        label: "평가 재처리 중",
+        message: "평가 결과를 준비하고 있습니다. 완료되면 다시 안내드리겠습니다.",
+      },
     };
 
     return presentation[decision];
