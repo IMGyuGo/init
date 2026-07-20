@@ -77,6 +77,10 @@ export class AiWorkerRunner {
     const claim = await this.repository.claim(message.job, leaseOwner, this.nextLeaseExpiration(), {
       maxAttempts: this.options.maxRetryableReceives,
     });
+    if (claim.status === "MISSING") {
+      await this.queue.delete(message);
+      return;
+    }
     if (claim.status === "BACKOFF") {
       await this.deferUntilBackoffExpires(message, claim.snapshot.nextRetryAt);
       return;

@@ -806,8 +806,14 @@ export class PrismaAiResultRepository implements AiResultRepository {
   }
 
   private async persistGeneratedReport(record: GeneratedReportRecord): Promise<void> {
-    if (await this.isStaleRecruitingReport(record)) {
+    const reportState = await this.recruitingReportState(record);
+    if (reportState === "STALE") {
       return;
+    }
+    if (reportState === "MISSING_APPLICATION") {
+      throw new NonRetryableAiWorkerFailure(
+        "Recruiting application was deleted before report generation completed.",
+      );
     }
     const ncsReportData = record.ncsFinalEvaluation
       ? {
@@ -879,7 +885,7 @@ export class PrismaAiResultRepository implements AiResultRepository {
   }
 
   private async persistFailedReport(record: FailedReportRecord): Promise<void> {
-    if (await this.isStaleRecruitingReport(record)) {
+    if (await this.recruitingReportState(record) !== "CURRENT") {
       return;
     }
     await this.prisma.evaluationReport.upsert({
@@ -905,13 +911,13 @@ export class PrismaAiResultRepository implements AiResultRepository {
     await this.finalizeRecruitingApplication(record, "FAILED");
   }
 
-  private async isStaleRecruitingReport(record: {
+  private async recruitingReportState(record: {
     processLogId?: number;
     reportId: number;
     applicationId?: number;
     sessionId?: number;
     reportType: "RECRUITING_REPORT" | "MOCK_INTERVIEW_REPORT";
-  }): Promise<boolean> {
+  }): Promise<"CURRENT" | "STALE" | "MISSING_APPLICATION"> {
     const recruitingApplicationId = record.reportType === "RECRUITING_REPORT"
       ? record.applicationId
       : undefined;
@@ -926,6 +932,15 @@ export class PrismaAiResultRepository implements AiResultRepository {
         BigInt(record.sessionId),
       );
     }
+    const application = recruitingApplicationId && this.prisma.application.findUnique
+      ? await this.prisma.application.findUnique({
+          where: { applicationId: BigInt(recruitingApplicationId) },
+          select: { screeningDecisionReportId: true },
+        })
+      : undefined;
+    if (recruitingApplicationId && this.prisma.application.findUnique && !application) {
+      return "MISSING_APPLICATION";
+    }
     const processScope = record.applicationId
       ? { applicationId: BigInt(record.applicationId) }
       : record.sessionId
@@ -938,21 +953,17 @@ export class PrismaAiResultRepository implements AiResultRepository {
         select: { processLogId: true },
       });
       if (latestProcess && latestProcess.processLogId !== BigInt(record.processLogId)) {
-        return true;
+        return "STALE";
       }
     }
     if (!recruitingApplicationId || !this.prisma.application.findUnique) {
-      return false;
+      return "CURRENT";
     }
-    const application = await this.prisma.application.findUnique({
-      where: { applicationId: BigInt(recruitingApplicationId) },
-      select: { screeningDecisionReportId: true },
-    });
     return (
       application?.screeningDecisionReportId !== null &&
       application?.screeningDecisionReportId !== undefined &&
       application.screeningDecisionReportId > BigInt(record.reportId)
-    );
+    ) ? "STALE" : "CURRENT";
   }
 
   private async finalizeRecruitingApplication(

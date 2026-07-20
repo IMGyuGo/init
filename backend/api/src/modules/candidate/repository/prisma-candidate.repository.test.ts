@@ -922,6 +922,74 @@ describe("PrismaCandidateRepository", () => {
     );
   });
 
+  it("rejects demo reset while an AI process is still active", async () => {
+    let deleteCalls = 0;
+    let applicationLocked = false;
+    let sessionLocked = false;
+    const tx = {
+      async $executeRaw() {
+        return 0;
+      },
+      async $queryRaw(strings: TemplateStringsArray) {
+        const query = strings.join("?");
+        if (query.includes('FROM "applications"')) {
+          applicationLocked = true;
+          return [{ applicationId: 41n }];
+        }
+        sessionLocked = true;
+        return [{ sessionId: 61n }];
+      },
+      application: {
+        async findMany() {
+          return [{ applicationId: 41n }];
+        },
+      },
+      applicationDocument: {
+        async findMany() {
+          return [];
+        },
+      },
+      interviewSession: {
+        async findMany() {
+          return [{ sessionId: 61n }];
+        },
+      },
+      aiProcessLog: {
+        async findMany() {
+          return [{
+            processLogId: 111n,
+            status: "PENDING",
+            failureCategory: null,
+            attemptCount: 0,
+            maxAttempts: 3,
+            nextRetryAt: null,
+          }];
+        },
+        async deleteMany() {
+          deleteCalls += 1;
+          return { count: 1 };
+        },
+      },
+    };
+    const prisma = {
+      async $transaction<T>(callback: (transactionClient: typeof tx) => Promise<T>) {
+        return callback(tx);
+      },
+    };
+    const repository = new PrismaCandidateRepository(prisma as never);
+
+    await assert.rejects(
+      () => repository.resetDemoApplications({ candidateId: 44, ownerUserId: 7 }),
+      (error) =>
+        error instanceof CandidateDomainError &&
+        error.code === "COMMON_CONFLICT" &&
+        error.statusCode === 409,
+    );
+    assert.equal(applicationLocked, true);
+    assert.equal(sessionLocked, true);
+    assert.equal(deleteCalls, 0);
+  });
+
   it("removes an owned demo application graph before deleting unreferenced answer media", async () => {
     const calls: string[] = [];
     let applicationWhere: unknown;
@@ -938,6 +1006,15 @@ describe("PrismaCandidateRepository", () => {
       async $executeRaw() {
         calls.push("lock");
         return 0;
+      },
+      async $queryRaw(strings: TemplateStringsArray) {
+        const query = strings.join("?");
+        if (query.includes('FROM "applications"')) {
+          calls.push("application-lock");
+          return [{ applicationId: 41n }];
+        }
+        calls.push("session-lock");
+        return [{ sessionId: 61n }];
       },
       application: {
         async findMany(args: { where: unknown }) {
