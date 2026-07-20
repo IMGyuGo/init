@@ -19,6 +19,7 @@ const resultToneClasses = {
   pass: styles.resultPass,
   hold: styles.resultHold,
   fail: styles.resultFail,
+  retry: styles.resultRetry,
 } as const;
 
 export function CandidateScreeningResult({
@@ -108,7 +109,7 @@ export function CandidateScreeningResult({
           <dt>AI 분석 상태</dt>
           <dd>{statusView}</dd>
         </div>
-        {report.generatedAt ? (
+        {presentation.showGeneratedAt && report.generatedAt ? (
           <div>
             <dt>결과 생성일</dt>
             <dd>{formatDateTime(report.generatedAt)}</dd>

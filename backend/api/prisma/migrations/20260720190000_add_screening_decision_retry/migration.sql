@@ -1,0 +1,1 @@
+ALTER TYPE "ScreeningDecision" ADD VALUE IF NOT EXISTS 'RETRY';

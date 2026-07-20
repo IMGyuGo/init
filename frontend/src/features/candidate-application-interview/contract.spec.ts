@@ -2032,11 +2032,16 @@ const undecidedResult = getCandidateScreeningResultPresentation({ status: "COMPL
 assert.equal(undecidedResult.badge, "검토 중");
 assert.equal(undecidedResult.tone, "undecided");
 const failResult = getCandidateScreeningResultPresentation({ status: "COMPLETED", screeningDecision: "FAIL" });
-assert.equal(failResult.badge, "전형 종료");
+assert.equal(failResult.badge, "불합격");
+assert.equal(failResult.title, "이번 지원 결과는 불합격입니다.");
 assert.equal(failResult.actionHref, "/candidate/jobs");
-const failedReportResult = getCandidateScreeningResultPresentation({ status: "FAILED", screeningDecision: "UNDECIDED" });
-assert.equal(failedReportResult.badge, "확인 필요");
-assert.equal(failedReportResult.tone, "fail");
+const retryResult = getCandidateScreeningResultPresentation({ status: "FAILED", screeningDecision: "RETRY" });
+assert.equal(retryResult.badge, "결과 확인 중");
+assert.equal(retryResult.tone, "retry");
+assert.equal(retryResult.showGeneratedAt, false);
+const unknownScreeningResult = getCandidateScreeningResultPresentation({ status: "COMPLETED", screeningDecision: "PENDING_REVIEW" });
+assert.equal(unknownScreeningResult.badge, "결과 확인 중");
+assert.equal(unknownScreeningResult.showGeneratedAt, false);
 assert.equal(getCandidatePassRevealStorageKey(17), "candidate-screening-result-seen:17:PASS");
 assert.equal(
   shouldShowCandidatePassReveal({ status: "COMPLETED", screeningDecision: "PASS" }, null),
