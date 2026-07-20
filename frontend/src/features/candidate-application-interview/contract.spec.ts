@@ -960,7 +960,11 @@ assert.deepEqual(getInterviewAiPollingPolicy({ timedAutoAdvance: true }), {
 });
 assert.equal(shouldContinueInterviewWithoutFollowUp({ failureCategory: "TIMEOUT" }), true);
 assert.equal(shouldContinueInterviewWithoutFollowUp({ pipelineError: new Error("worker unavailable") }), true);
-assert.equal(shouldContinueInterviewWithoutFollowUp({ failureCategory: "REANSWER_REQUIRED" }), true);
+assert.equal(shouldContinueInterviewWithoutFollowUp({ failureCategory: "REANSWER_REQUIRED" }), false);
+assert.equal(
+  shouldContinueInterviewWithoutFollowUp({ failureCategory: "REANSWER_REQUIRED", reanswerAlreadyUsed: true }),
+  true,
+);
 assert.equal(getRealtimeSessionUserNotice({ provider: "mock" }), "");
 assert.equal(getRealtimeSessionUserNotice({ provider: "openai" }), "실시간 AI 면접 연결을 준비했습니다.");
 assert.equal(

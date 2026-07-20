@@ -4,7 +4,7 @@
 
 - Contract status: `APPROVED_FOR_FACT_01_06`
 - Fact-check policy version: `NCS_ANSWER_FACT_CHECK_POLICY_V1`
-- Prompt version: `NCS_ANSWER_FACT_CHECK_PROMPT_V3`
+- Prompt version: `NCS_ANSWER_FACT_CHECK_PROMPT_V4`
 - Default knowledge snapshot version: `NO_EXTERNAL_KNOWLEDGE_V1`
 - Scope: 답변 claim 추출, snapshot 근거 검증, 실행 결과 저장, NCS 점수와 분리된 deterministic gate, 팩트 확인 꼬리질문과 합산 재검증, FACT-06 회귀·오탐·실 Provider 검증
 - Out of scope: 최종 브라우저 통합과 전체 런타임 E2E(NR-M6)
@@ -19,6 +19,7 @@ LLM provider는 다음 항목만 수행한다.
 - 답변 원문의 정확한 구간과 offset 반환
 - 전달받은 evidence ledger의 근거 연결
 - claim별 판정, 신뢰도와 간단한 근거 반환
+- 답변 문장을 신뢰성 있게 해석할 수 있는지 `transcriptUsability`로 반환
 
 LLM provider는 다음 항목을 결정하지 않는다.
 
@@ -66,6 +67,24 @@ type AnswerFactCheckInput = {
 - `sourceSnapshotId`는 이력서, JD, 답변 또는 승인된 지식 snapshot을 재현할 수 있는 불변 식별자다.
 - 외부 지식 snapshot이 없으면 `knowledgeSnapshotVersion=NO_EXTERNAL_KNOWLEDGE_V1`을 사용한다.
 - provider는 전달받지 않은 URL, 모델 기억 또는 일반 상식을 저장 근거로 사용할 수 없다.
+
+## Transcript Usability And Claim Output
+
+```ts
+type TranscriptUsability = "USABLE" | "UNUSABLE";
+
+type AnswerFactCheckProviderResult = {
+  transcriptUsability: TranscriptUsability;
+  claims: FactCheckClaim[];
+};
+```
+
+- `UNUSABLE`은 STT 손상, 비정상 반복, 문장 파편화 등으로 답변 의미를 신뢰성 있게 복원할 수 없는 경우에만 사용한다.
+- 짧거나 구체성이 낮은 답변, 질문과 다소 무관한 답변, 불리한 답변을 채용 품질만으로 `UNUSABLE` 처리하지 않는다.
+- 일반 BASE 답변은 기존 FOLLOW_UP fact precheck 응답에 이 값을 함께 받아 추가 LLM 호출을 만들지 않는다.
+- FOLLOW_UP 답변과 시연 공통 질문처럼 추가 질문을 생성하지 않는 경로는 `qualityCheckOnly=true` FOLLOW_UP job으로 같은 provider를 한 번 호출한다.
+- `UNUSABLE`은 worker에서 `REANSWER_REQUIRED`로 전환한다. 같은 답변의 두 번째 실패는 답변 단위 `STT_UNAVAILABLE` terminal 상태다.
+- provider 실패·timeout·invalid output으로 usability를 판별하지 못한 경우에는 면접 진행을 막지 않고 기존 fact failure isolation 정책을 따른다.
 
 ## Claim Output
 
@@ -227,6 +246,7 @@ Promise.allSettled([
 - 둘 다 성공: NCS 결과와 FACT run/claim/evidence를 한 report 저장 경계에서 기록한다.
 - FACT 결과가 늦거나 없는 상태에서도 D runtime의 first-unanswered 전환은 worker를 기다리지 않는다.
 - `evaluationStatus=STT_UNAVAILABLE`인 답변은 검증할 transcript가 없으므로 fact provider를 호출하거나 fact run/claim/gate를 만들지 않는다. NCS 평가는 기존 nullable 미완료 계약을 유지한다.
+- 의미 품질 실패로 transcript 문자열이 DB에 남아 있더라도 terminal `STT_UNAVAILABLE`로 판정된 답변은 report worker 입력에서 transcript를 제거하고 동일하게 평가·fact check 대상에서 제외한다.
 
 ## FACT-06 Verification Contract
 
@@ -244,6 +264,8 @@ FACT-06 기본 회귀 테스트는 외부 API 없이 fixture와 mock provider로
 | provider 실패·timeout·invalid output | claim과 gate를 만들지 않고 기존 NCS 점수 유지 |
 | `STT_UNAVAILABLE` 답변 | provider 미호출, fact run 미생성, NCS 점수 `NULL` 유지 |
 | base와 꼬리답변 합산 | `BASE_FOLLOW_UP_V1`로 한 번 재검증하고 원점수 이하로 내리지 않음 |
+| 의미가 깨진 10자 이상 transcript | `transcriptUsability=UNUSABLE`, `REANSWER_REQUIRED`, claim·꼬리질문 미생성 |
+| 짧지만 해석 가능한 답변 또는 내용이 부족한 답변 | `transcriptUsability=USABLE`, 기존 NCS 근거 부족 정책 적용 |
 
 실 Provider smoke는 기본 CI와 분리한다. `RUN_ANSWER_FACT_CHECK_SMOKE=true`를 명시한 경우에만 실행하며, `OPENAI_API_KEY`와 `OPENAI_MODEL`은 로컬 secret 환경에서 읽는다. smoke는 원문을 출력하지 않고 case 이름, verdict 집합, deterministic gate와 모델명만 출력한다. 각 golden case가 위 표의 verdict와 gate를 만족하지 않거나 strict schema 검증에 실패하면 종료 코드 1을 반환한다.
 

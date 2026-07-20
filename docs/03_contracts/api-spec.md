@@ -198,13 +198,14 @@ API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따�
 | 4 | 원인, 행동, 결과가 구체적 |
 | 5 | 제약, 대안 비교, 정량 성과, 재발 방지까지 명확 |
 
-STT 미인식 답변 처리:
+STT 미인식·의미 품질 실패 답변 처리:
 
-- 음성 인식 실패로 transcript가 생성되지 않은 답변은 `evaluationStatus=STT_UNAVAILABLE`로 구분한다.
+- 음성 인식 실패로 transcript가 생성되지 않았거나 의미 품질 gate에서 `UNUSABLE`로 판정된 답변은 `evaluationStatus=STT_UNAVAILABLE`로 구분한다.
 - 이 경우 답변별 NCS 평가는 `scoreStatus=INSUFFICIENT_INPUT`과 모든 nullable 점수 `NULL`로 저장하고 평가 근거 및 `ReportScore`를 생성하지 않는다.
 - 최종 리포트는 해당 profile 점수와 `totalScore`를 `NULL`, `thresholdResult=INCOMPLETE`로 유지한다. 발표 정책 `NCS_INCOMPLETE_AS_FAIL_DEMO_V1`에 따라 화면상 AI 판정만 `FAIL`이며 실제 `applications.screening_decision`은 변경하지 않는다.
 - 화면 피드백은 `평가 미완료`와 인식 실패 사유를 표시한다. 최초 `REANSWER_REQUIRED`에는 한 번의 재답변을 제공하고, 두 번째 인식 실패 또는 재답변 미사용 상태로 면접을 완료한 경우 `STT_UNAVAILABLE`로 확정한다.
-- STT job의 provider timeout과 worker 중단이 재시도 중인 동안에는 `STT_UNAVAILABLE`로 변환하지 않는다. 최신 STT process가 `FAILED + REANSWER_REQUIRED`이거나 재시도 한도를 소진한 `FAILED + NON_RETRYABLE`이면 terminal `STT_UNAVAILABLE`로 확정한다.
+- STT job의 provider timeout과 worker 중단이 재시도 중인 동안에는 `STT_UNAVAILABLE`로 변환하지 않는다. 최신 transcript 처리 process가 STT 또는 의미 품질 FOLLOW_UP의 `FAILED + REANSWER_REQUIRED`이거나 STT 재시도 한도를 소진한 `FAILED + NON_RETRYABLE`이면 terminal `STT_UNAVAILABLE`로 확정한다.
+- 의미 품질은 답변 내용을 잘했는지 평가하지 않고 STT 문장을 신뢰성 있게 해석할 수 있는지만 판별한다. 판별 provider 실패·timeout·invalid output은 fail-open으로 처리해 면접 진행을 막지 않는다.
 - 과거 `STT_UNAVAILABLE_TEMP_ZERO` 행은 조회 호환만 유지하며 신규 생성하거나 NCS 집계에 재사용하지 않는다.
 - 정상 transcript가 있는 답변만 서비스 기본 평가 기준과 점수 구간에 따라 품질 평가한다.
 
@@ -3416,8 +3417,8 @@ CandidateFolder 입력 제한:
   - API 또는 브라우저 재시작 이후에도 클라이언트가 보낸 index를 사용하지 않고 같은 first-unanswered 질문을 복원한다.
   - 모든 세션 질문이 답변된 경우 `currentQuestionId`는 생략하고 모든 질문을 `answered=true`, `current=false`로 반환한다.
   - 각 질문은 `answerId?`, `sttStatus`, `sttFailureReason?`, `reanswerAvailable`을 포함한다.
-  - `sttStatus`는 `NOT_SUBMITTED | PENDING | AVAILABLE | REANSWER_AVAILABLE | UNAVAILABLE | PROCESSING_FAILED`이며 DB에 중복 저장하지 않고 답변 제출 시각과 STT process log를 기준으로 계산한다.
-  - 최초 `REANSWER_REQUIRED` 실패가 현재 답변 제출 이후 발생하면 `REANSWER_AVAILABLE`, 두 번째 인식 실패면 `UNAVAILABLE`이다. worker 자동 재시도는 지원자 재답변 횟수에 포함하지 않는다.
+  - `sttStatus`는 `NOT_SUBMITTED | PENDING | AVAILABLE | REANSWER_AVAILABLE | UNAVAILABLE | PROCESSING_FAILED`이며 DB에 중복 저장하지 않고 답변 제출 시각과 STT 및 transcript 의미 품질 process log를 기준으로 계산한다.
+  - 최초 `REANSWER_REQUIRED` 실패가 현재 답변 제출 이후 발생하면 transcript 문자열 저장 여부와 무관하게 `REANSWER_AVAILABLE`, 두 번째 인식·의미 품질 실패면 `UNAVAILABLE`이다. worker 자동 재시도는 지원자 재답변 횟수에 포함하지 않는다.
   - 재답변 제출 시 같은 `answerId`를 유지하며 신규 STT job 결과가 확정되기 전까지 `PENDING`이다. 따라서 새로고침과 API 재시작 후에도 재답변 사용 여부가 유지된다.
 - 오류/예외:
   - 질문 로딩 실패 시 안내 메시지를 표시하고 재시도를 제공한다.
@@ -3447,7 +3448,7 @@ CandidateFolder 입력 제한:
   - `currentQuestion`은 답변 저장 직후 서버가 계산한 first-unanswered 질문이며 프론트는 추가 조회 없이 이 값을 현재 질문으로 적용한다.
   - 모든 질문 답변이 저장됐으면 `currentQuestion`을 생략하고 `nextQuestionAvailable=false`, `completionReady=true`를 반환한다.
   - STT, NCS 평가, 꼬리질문 AI job은 답변 저장 이후 별도로 실행하며 `PENDING`, `RUNNING`, 실패 또는 timeout 상태가 기본 질문 전환을 막지 않는다.
-  - 재답변은 기존 `retryAnswerId`로 같은 답변 행을 갱신한다. 서버는 `REANSWER_REQUIRED` 로그와 답변 제출 시각을 기준으로 최초 1회만 허용하며 중복 클릭과 응답 유실 재시도가 기회를 추가 소비하지 않게 한다.
+  - 재답변은 기존 `retryAnswerId`로 같은 답변 행을 갱신한다. 서버는 STT 또는 의미 품질 FOLLOW_UP의 `REANSWER_REQUIRED` 로그와 답변 제출 시각을 기준으로 최초 1회만 허용하며, 의미 품질 검사 전 저장된 transcript가 있어도 재답변을 허용한다. 중복 클릭과 응답 유실 재시도는 기회를 추가 소비하지 않는다.
 - 오류/예외:
   - 녹화 실패 시 재녹화 또는 고객지원 안내를 표시한다.
   - `gazeTimeline[].horizontalOffset` 또는 `verticalOffset`이 유한수가 아니거나 `-1..1` 범위를 벗어나면 `422 INTERVIEW_GAZE_DATA_INVALID`를 반환한다. 답변과 파일 참조는 저장하지 않으며 정상 답변 저장 전까지 다음 질문 이동을 차단하고 재촬영을 안내한다.
@@ -3533,10 +3534,12 @@ CandidateFolder 입력 제한:
 - Path Params: sessionId
 - 요청 데이터:
   - 클라이언트는 session/base answer 식별자만 전달하고 질문, 답변, profile metadata는 서버 snapshot에서 조회한다.
+  - 꼬리답변 또는 시연 공통 질문의 의미 품질만 검사할 때는 `qualityCheckOnly=true`를 전달한다.
 - 검증/전제조건:
   - base question의 profile별 `baseScore` 중 하나라도 5 미만이어야 한다.
   - base question당 최대 1회이며 기존 꼬리질문이 없어야 한다.
   - session question snapshot의 profile binding, question mode와 time policy가 완전해야 한다.
+  - `qualityCheckOnly=true`는 새 꼬리질문 생성 조건을 적용하지 않고 transcript usability만 검사한다.
 - 성공 응답/처리:
   - base question과 같은 question mode로 부족한 behavior point와 logic link만 묻는 꼬리질문을 생성한다.
   - 답변 제한 시간은 session snapshot의 `answerTimeSec`와 같다.
@@ -3547,10 +3550,12 @@ CandidateFolder 입력 제한:
   - `(answerId, policy)`와 `insertedSessionQuestionId` unique 제약으로 중복 job과 재시도에도 질문을 한 번만 추가한다.
   - base 평가상 불필요하면 `SKIPPED/NOT_REQUIRED`로 저장하며 질문 목록은 변경하지 않는다.
   - 프론트는 완료된 job 상태를 확인한 뒤 정식 질문 목록을 다시 조회하며 별도 삽입 API를 호출하지 않는다.
+  - `qualityCheckOnly=true` 성공은 `followUpRequired=false`, `transcriptUsability=USABLE|CHECK_UNAVAILABLE`을 반환하고 `follow_up_questions` row를 만들지 않는다.
 - 오류/예외:
   - 이미 1회 생성했거나 snapshot이 불완전하면 `INTERVIEW_NCS_BINDING_INVALID`로 생성하지 않는다.
   - 결과 저장 시 세션이 `IN_PROGRESS`가 아니면 `SKIPPED/SESSION_NOT_IN_PROGRESS`로 저장한다.
   - 클라이언트는 꼬리질문 필요 여부가 결정되는 동안 다음 기본 질문을 먼저 노출하지 않는다. worker 실패·timeout이면 `ai_process_logs`의 실패 상태를 남기고 다음 기본 질문으로 복구한다.
+  - 의미 품질 `UNUSABLE`은 `FAILED + REANSWER_REQUIRED`로 반환한다. 첫 실패는 재답변을 노출하고 이미 재답변을 사용한 두 번째 실패는 평가 제외 후 다음 질문 진행을 허용한다.
 - 관련 ERD 테이블:
   - candidate_profiles, postings, question_bank, applications, application_documents, interview_sessions, interview_answers, follow_up_questions, ai_process_logs
 - 비고/미결:

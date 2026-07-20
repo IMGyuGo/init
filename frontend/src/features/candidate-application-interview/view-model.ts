@@ -1220,9 +1220,9 @@ export function getTimedOutAiJobStatus<T extends TimedOutAiJobStatusInput>(lates
 export function shouldContinueInterviewWithoutFollowUp(args: {
   failureCategory?: string;
   pipelineError?: unknown;
+  reanswerAlreadyUsed?: boolean;
 }): boolean {
-  void args;
-  return true;
+  return args.failureCategory !== "REANSWER_REQUIRED" || args.reanswerAlreadyUsed === true;
 }
 
 export function getRealtimeSessionUserNotice({

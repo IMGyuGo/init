@@ -175,7 +175,7 @@ test("DEMO_PRESET common questions do not call the follow-up provider", async ()
         sessionId: 8,
         answerId: 13,
         previousQuestion: "협업 경험을 설명해주세요.",
-        transcript: "팀과 합의했습니다.",
+        transcript: "팀원들과 대안을 비교하고 합의했습니다.",
         jobDescription: "백엔드 시스템 운영",
         usageScope: "DEMO_PRESET",
         generationSource: "JD_CRITERIA",
@@ -186,6 +186,134 @@ test("DEMO_PRESET common questions do not call the follow-up provider", async ()
   await handled.finalSave?.();
   assert.equal(calls, 0);
   assert.equal(results.followUpQuestions[0]?.required, false);
+});
+
+test("OpenAiAiTaskHandler rejects a semantically unusable transcript before follow-up generation", async () => {
+  const results = new InMemoryAiResultRepository();
+  let followUpCalls = 0;
+  const countingProvider: FollowUpAiProvider = {
+    async generateFollowUpQuestion() {
+      followUpCalls += 1;
+      return { content: "호출되면 안 됩니다?", model: "test-model" };
+    },
+  };
+  const unusableFactProvider: AnswerFactCheckProvider = {
+    async evaluate() {
+      return {
+        transcriptUsability: "UNUSABLE",
+        claims: [],
+        model: "fact-test-model",
+      };
+    },
+  };
+  const handler = new OpenAiAiTaskHandler(
+    new MockAiTaskHandler(results),
+    results,
+    countingProvider,
+    undefined,
+    undefined,
+    undefined,
+    { provider: unusableFactProvider, configuredModelVersion: "fact-test-model", providerMode: "mock" },
+  );
+
+  await assert.rejects(
+    () => handler.handle({
+      processLogId: 34,
+      processType: "FOLLOW_UP",
+      attempt: 1,
+      inputRef: JSON.stringify({
+        kind: "RECRUITING_FOLLOW_UP",
+        payload: {
+          sessionId: 8,
+          answerId: 14,
+          sessionQuestionId: 24,
+          previousQuestion: "장애 대응 경험을 설명해주세요.",
+          transcript: "캐시 캐시 장애를 하고 하고 해결 말이 끊긴 문장입니다.",
+          jobDescription: "백엔드 시스템 운영",
+          ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+          answerTimeSec: 90,
+          ncsBindings: [{
+            criterionId: 1,
+            criterionTitleSnapshot: "문제 해결력",
+            ncsProfileId: "PROBLEM_SOLVING",
+            ncsProfileVersion: "2025.12-v1",
+            alignmentStatus: "ALIGNED",
+            bindingOrder: 1,
+          }],
+        },
+      }),
+    }),
+    (error: unknown) =>
+      error instanceof Error &&
+      "category" in error &&
+      (error as Error & { category: string }).category === "REANSWER_REQUIRED",
+  );
+  assert.equal(followUpCalls, 0);
+  assert.equal(results.followUpQuestions.length, 0);
+});
+
+test("qualityCheckOnly validates a follow-up answer without creating another follow-up", async () => {
+  const results = new InMemoryAiResultRepository();
+  let followUpCalls = 0;
+  const countingProvider: FollowUpAiProvider = {
+    async generateFollowUpQuestion() {
+      followUpCalls += 1;
+      return { content: "호출되면 안 됩니다?", model: "test-model" };
+    },
+  };
+  const usableFactProvider: AnswerFactCheckProvider = {
+    async evaluate() {
+      return {
+        transcriptUsability: "USABLE",
+        claims: [],
+        model: "fact-test-model",
+      };
+    },
+  };
+  const handler = new OpenAiAiTaskHandler(
+    new MockAiTaskHandler(results),
+    results,
+    countingProvider,
+    undefined,
+    undefined,
+    undefined,
+    { provider: usableFactProvider, configuredModelVersion: "fact-test-model", providerMode: "mock" },
+  );
+  const handled = await handler.handle({
+    processLogId: 35,
+    processType: "FOLLOW_UP",
+    attempt: 1,
+    inputRef: JSON.stringify({
+      kind: "RECRUITING_FOLLOW_UP",
+      payload: {
+        sessionId: 8,
+        answerId: 15,
+        sessionQuestionId: 25,
+        previousQuestion: "개선 결과를 어떻게 확인했나요?",
+        transcript: "적용 전후의 p95 지연 시간을 비교해 결과를 확인했습니다.",
+        jobDescription: "백엔드 시스템 운영",
+        qualityCheckOnly: true,
+        ncsQuestionMode: "EXPERIENCE_BEHAVIOR",
+        answerTimeSec: 90,
+        ncsBindings: [{
+          criterionId: 1,
+          criterionTitleSnapshot: "문제 해결력",
+          ncsProfileId: "PROBLEM_SOLVING",
+          ncsProfileVersion: "2025.12-v1",
+          alignmentStatus: "ALIGNED",
+          bindingOrder: 1,
+        }],
+      },
+    }),
+  });
+
+  await handled.finalSave?.();
+  const output = JSON.parse(handled.outputRef ?? "{}") as Record<string, unknown>;
+  assert.equal(output.qualityCheckOnly, true);
+  assert.equal(output.transcriptUsability, "USABLE");
+  assert.equal(output.followUpRequired, false);
+  assert.equal(followUpCalls, 0);
+  assert.equal(results.followUpQuestions.length, 0);
 });
 
 test("OpenAiAiTaskHandler uses provider for final report generation and keeps save contract", async () => {

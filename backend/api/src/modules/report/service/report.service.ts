@@ -617,7 +617,7 @@ export class ReportService {
         const parent = isFollowUpAnswer && answer.sessionQuestionId
           ? parentByInsertedSessionQuestionId.get(answer.sessionQuestionId)
           : undefined;
-        const unavailableReason = transcript ? undefined : await this.sttRecognitionFailureReason(answer);
+        const unavailableReason = await this.sttRecognitionFailureReason(answer);
         const ncsSnapshot = answer.ncsEvaluationSnapshot;
         return {
           answerId: answer.answerId,
@@ -629,11 +629,11 @@ export class ReportService {
           ...(parent ? { parentAnswerId: parent.answerId } : {}),
           ...(parent?.reason ? { followUpReason: parent.reason } : {}),
           ...(answer.sessionQuestionId ? { sessionQuestionId: answer.sessionQuestionId } : {}),
-          ...(transcript ? { transcript } : {}),
+          ...(transcript && !unavailableReason ? { transcript } : {}),
           ...(reportType === "MOCK_INTERVIEW_REPORT" && answer.nonverbalMetadata
             ? { nonverbalMetadata: answer.nonverbalMetadata }
             : {}),
-          evaluationStatus: transcript ? "EVALUATED" : unavailableReason ? "STT_UNAVAILABLE" : undefined,
+          evaluationStatus: unavailableReason ? "STT_UNAVAILABLE" : transcript ? "EVALUATED" : undefined,
           transcriptUnavailableReason: unavailableReason,
           ...(ncsSnapshot?.ncsProfileId
             ? {
@@ -962,14 +962,15 @@ export class ReportService {
     transcript: string | undefined,
     unavailableReasonsByAnswerId: Map<number, string>,
   ): Promise<string | undefined> {
-    if (transcript) {
-      return undefined;
+    const recognitionFailureReason = await this.sttRecognitionFailureReason(answer);
+    if (recognitionFailureReason) {
+      return recognitionFailureReason;
     }
-    return await this.sttRecognitionFailureReason(answer) ?? unavailableReasonsByAnswerId.get(answer.answerId);
+    return transcript ? undefined : unavailableReasonsByAnswerId.get(answer.answerId);
   }
 
   private async sttRecognitionFailureReason(answer: InterviewAnswer): Promise<string | undefined> {
-    const processes = await this.interviewRepository.listSttProcesses(answer.sessionId, answer.answerId);
+    const processes = await this.interviewRepository.listTranscriptProcesses(answer.sessionId, answer.answerId);
     const latestProcess = processes[0];
     const failure = latestProcess?.status === "FAILED" &&
       (latestProcess.failureCategory === "REANSWER_REQUIRED" || latestProcess.failureCategory === "NON_RETRYABLE")

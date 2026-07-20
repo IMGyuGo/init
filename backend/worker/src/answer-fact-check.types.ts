@@ -1,6 +1,6 @@
 import type { NcsQuestionMode } from "./ncs-text-evaluation.types";
 
-export const ANSWER_FACT_CHECK_PROMPT_VERSION = "NCS_ANSWER_FACT_CHECK_PROMPT_V3" as const;
+export const ANSWER_FACT_CHECK_PROMPT_VERSION = "NCS_ANSWER_FACT_CHECK_PROMPT_V4" as const;
 export const ANSWER_FACT_CHECK_POLICY_VERSION = "NCS_ANSWER_FACT_CHECK_POLICY_V1" as const;
 export const NO_EXTERNAL_KNOWLEDGE_VERSION = "NO_EXTERNAL_KNOWLEDGE_V1" as const;
 
@@ -34,6 +34,7 @@ export type FactCheckInputCompositionVersion = (typeof FACT_CHECK_INPUT_COMPOSIT
 export type FactCheckProviderMode = "mock" | "openai";
 export type FactCheckProviderStatus = "COMPLETED" | "FAILED" | "TIMEOUT" | "INVALID_OUTPUT";
 export type FactCheckGateStatus = "PASS_THROUGH" | "CLARIFICATION_CANDIDATE" | "FACT_CHECK_REQUIRED";
+export type TranscriptUsability = "USABLE" | "UNUSABLE";
 
 export interface FactEvidenceLedgerItem {
   evidenceId: string;
@@ -66,6 +67,7 @@ export interface AnswerFactCheckClaim {
 }
 
 export interface AnswerFactCheckProviderResult {
+  transcriptUsability?: TranscriptUsability;
   claims: AnswerFactCheckClaim[];
   model: string;
   usage?: {
