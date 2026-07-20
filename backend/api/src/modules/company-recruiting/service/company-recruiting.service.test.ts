@@ -2560,6 +2560,7 @@ describe("CompanyRecruitingService", () => {
     const service = new CompanyRecruitingService(repository);
 
     const result = await service.getApplicantEvaluation(companyUser, 77);
+    assert.equal(result.applicant.autoScreeningPolicyEnabled, true);
     assert.deepEqual(result.screening, {
       decision: "HOLD",
       reasonCode: "HOLD_CRITERION_BELOW_PASS_SCORE",

@@ -1355,6 +1355,7 @@ function toApplicantResponse(application: ApplicantRecord) {
     interviewStatus: application.interviewStatus,
     reportStatus: latestReport?.status ?? application.reportStatus,
     screeningDecision: application.screeningDecision ?? "UNDECIDED",
+    autoScreeningPolicyEnabled: application.posting.autoScreeningPolicyEnabled,
     screeningDecisionReasonCode: application.screeningDecisionReasonCode,
     screeningDecisionPolicyVersion: application.screeningDecisionPolicyVersion,
     screeningPolicyVersion: application.screeningPolicyVersion,
