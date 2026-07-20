@@ -8337,7 +8337,7 @@ function InterviewRuntimePanel({
     <main className={`candidate-interview-app${data && setupCompleted ? " candidate-interview-app--live" : ""}`}>
       <header className="iv-top">
         <Link className="brand" href={candidateApplicationInterviewRoutes.mockInterviewStart}>
-          <Image src="/logo-init.png" alt="init" width={1010} height={375} priority />
+          <Image src="/logo-init-v4.png" alt="init" width={1900} height={580} priority />
         </Link>
         <span className="center">{runtimeTitle}</span>
       </header>
@@ -8457,6 +8457,15 @@ function InterviewRuntimePanel({
                 <div className="ai-interviewer-stage__meta">
                   <strong>질문 {questionNumber} / {data.runtime.totalQuestions}</strong>
                 </div>
+                <div className={`ai-interviewer-question ${subtitlesEnabled ? "" : "muted"}`}>
+                  <span
+                    className={`ai-interviewer-session-chip ai-interviewer-session-chip--${interviewerSessionState.tone}`}
+                    title={interviewerSessionState.description}
+                  >
+                    {interviewerSessionState.label}
+                  </span>
+                  <strong>{interviewerQuestionPrompt}</strong>
+                </div>
                 <div className={`question-timer ${timerDanger ? "danger" : ""}`} aria-label={`${timerLabel} ${formattedRemainingTime}`}>
                   <span>{timerLabel}</span>
                   <strong>{formattedRemainingTime}</strong>
@@ -8503,16 +8512,6 @@ function InterviewRuntimePanel({
                   <span>{integrityWarning.message}</span>
                 </div>
               ) : null}
-
-              <div className={`ai-interviewer-question ${subtitlesEnabled ? "" : "muted"}`}>
-                <span
-                  className={`ai-interviewer-session-chip ai-interviewer-session-chip--${interviewerSessionState.tone}`}
-                  title={interviewerSessionState.description}
-                >
-                  {interviewerSessionState.label}
-                </span>
-                <strong>{interviewerQuestionPrompt}</strong>
-              </div>
 
               {showInterviewerPanel ? (
                 <div
