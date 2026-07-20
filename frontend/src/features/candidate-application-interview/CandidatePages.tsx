@@ -8461,12 +8461,14 @@ function InterviewRuntimePanel({
                   <span>{timerLabel}</span>
                   <strong>{formattedRemainingTime}</strong>
                 </div>
-                <div className="ai-interviewer-stage__actions">
-                  <button className="stage-shortcut-button" type="button" onClick={() => void handleToggleFullscreen()}>
-                    <span>{runtimeLayoutState.fullscreenButtonLabel}</span>
-                    <kbd>F</kbd>
-                  </button>
-                </div>
+                {fullscreenActive ? (
+                  <div className="ai-interviewer-stage__actions">
+                    <button className="stage-shortcut-button" type="button" onClick={() => void handleToggleFullscreen()}>
+                      <span>{runtimeLayoutState.fullscreenButtonLabel}</span>
+                      <kbd>F</kbd>
+                    </button>
+                  </div>
+                ) : null}
               </div>
 
               <div className="runtime-status-hud" aria-label="실시간 면접 상태">
@@ -8668,6 +8670,19 @@ function InterviewRuntimePanel({
             <form className="candidate-runtime-form" onSubmit={handleSaveAnswer}>
               <p className="sr-only" aria-live="polite">{runtimeAssistiveStatus}</p>
               <div className="toolbar candidate-interview-controls">
+                <button className="btn" type="button" onClick={() => void handleToggleFullscreen()}>
+                  <span>{runtimeLayoutState.fullscreenButtonLabel}</span>
+                  <kbd>F</kbd>
+                </button>
+                <button
+                  className={`subtitle-toggle ${subtitlesEnabled ? "on" : ""}`}
+                  type="button"
+                  aria-pressed={subtitlesEnabled}
+                  onClick={() => setSubtitlesEnabled((current) => !current)}
+                >
+                  <span>{subtitlesEnabled ? "질문 숨기기" : "질문 보기"}</span>
+                  <kbd>Q</kbd>
+                </button>
                 <button className="btn" type="button" disabled={busy || !currentQuestion || !questionSpeechSupported || currentQuestionReplayUsed} onClick={handleReplayPrompt}>
                   {currentQuestionReplayUsed ? "다시 듣기 완료" : "질문 음성 다시 듣기"}
                 </button>
@@ -8681,6 +8696,15 @@ function InterviewRuntimePanel({
                     {runtimeDeviceRecheckState.label}
                   </button>
                 ) : null}
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={!canStartCurrentQuestionReanswer}
+                  onClick={() => handleStartReanswer(reanswerCandidate)}
+                  hidden={!currentQuestionNeedsReanswer}
+                >
+                  다시 답변
+                </button>
                 <button
                   className="btn primary"
                   type="button"
@@ -8701,29 +8725,11 @@ function InterviewRuntimePanel({
                 <button
                   className="btn"
                   type="button"
-                  disabled={!canStartCurrentQuestionReanswer}
-                  onClick={() => handleStartReanswer(reanswerCandidate)}
-                  hidden={!currentQuestionNeedsReanswer}
-                >
-                  다시 답변
-                </button>
-                <button
-                  className="btn"
-                  type="button"
                   disabled={busy || recording || !canMoveNextQuestion}
                   onClick={() => void handleNextQuestion()}
                 >
                   <span>다음 질문</span>
                   <kbd>N</kbd>
-                </button>
-                <button
-                  className={`subtitle-toggle ${subtitlesEnabled ? "on" : ""}`}
-                  type="button"
-                  aria-pressed={subtitlesEnabled}
-                  onClick={() => setSubtitlesEnabled((current) => !current)}
-                >
-                  <span>{subtitlesEnabled ? "질문 숨기기" : "질문 보기"}</span>
-                  <kbd>Q</kbd>
                 </button>
               </div>
               {currentQuestionNeedsReanswer ? (
