@@ -37,7 +37,7 @@
 - 지원자 프로필 AI 컨텍스트는 클라이언트 입력을 받지 않고 서버의 안전 투영 빌더를 사용하며 이름·이메일·연락처를 제외한다.
 - `applications`는 `Application`, `application_documents`는 `ApplicationDocument`, `interview_sessions`는 `InterviewSession`, `interview_answers`는 `InterviewAnswer` 이름을 사용한다.
 - `applications` 생성, `submitted_at`, `document_status`, `interview_status` write는 D 영역으로 둔다.
-- 지원자 결과 API는 `UNDECIDED | PASS | HOLD | FAIL | RETRY`를 읽되 자동 판정 reason code, 내부 점수, 기준 하한선과 `screening_memo`를 노출하지 않는다.
+- 지원자 결과 API는 공고 결과 확정 전 `resultPublicationStatus=PENDING`, `screeningDecision=null`만 반환한다. 확정 후 `screening_final_decision`만 `PASS | HOLD | FAIL`로 제한 노출하며 자동판정, reviewer decision, override reason, 내부 점수, 기준 하한선, 확정자와 `screening_memo`는 노출하지 않는다.
 - `interview_answers.transcript`는 E write field이므로 D는 파일/제출 상태만 저장한다.
 
 ## Verify

@@ -56,6 +56,8 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-080 | 기업 - 채용공고 | POST | /company/recruitments | 기업 공고 생성 | 기업 / 기업 사용자 로그인 | N | 201 Created |
 | API-085 | 기업 - 채용공고 | POST | /company/recruitments/ai-draft | 공고 생성 AI 초안 작성 | 기업 / 기업 사용자 로그인 | Y | 202 Accepted |
 | API-012 | 기업 - 지원자/리포트 | PATCH | /company/applicants/{applicantId}/screening-status | 지원자별 수동 전형 판정(폐기 예정) | 기업 / 기업 사용자 로그인 | N | 200 OK / 409 Conflict |
+| API-012R | 기업 - 지원자/리포트 | PATCH | /company/applicants/{applicantId}/screening-review | 지원자별 자동판정 검토 초안 수정/초기화 | 기업 / 기업 사용자 로그인 | N | 200 OK / 409 Conflict |
+| API-012C | 기업 - 지원자/리포트 | POST | /company/recruitments/{recruitmentId}/screening-results/confirm | 공고별 결과 일괄 확정 및 지원자 통보 등록 | 기업 / 기업 사용자 로그인 | N | 200 OK / 409 Conflict |
 | API-013 | 기업 - 채용공고 | GET | /company/recruitments/{recruitmentId} | 공고 상세 및 지원자 관리 진입 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-083 | 기업 - 채용공고 | PATCH | /company/recruitments/{recruitmentId} | 공고 설정 수정 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-084 | 기업 - 채용공고 | DELETE | /company/recruitments/{recruitmentId} | 공고 삭제/보관 | 기업 / 기업 사용자 로그인 | N | 200 OK |
@@ -166,5 +168,6 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-076 | 지원자 - 마이페이지 | POST | /candidate/documents/extract | 서류 텍스트 추출 | 지원자 / 지원자 사용자 로그인 | Y | 202 Accepted |
 | API-077 | 지원자 - 마이페이지 | POST | /candidate/portfolio-links | 직무 관련 링크 등록 | 지원자 / 지원자 사용자 로그인 | N | 201 Created |
 | API-078 | 지원자 - 마이페이지 | GET | /candidate/notifications/interview-invitations | 응시 안내 메일 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
+| API-078A | 지원자 - 마이페이지 | GET | /candidate/notifications/screening-results | 면접관이 확정한 전형 결과 알림 조회 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-079 | AI/리포트 처리 | POST | /ai/guardrails/validate | AI 출력 안전성 검증 | 시스템 / 자동 처리 | N | 200 OK |
 | API-080 | AI/리포트 처리 | GET | /ai/jobs/{processLogId}/status | AI 작업 상태 조회 | 로그인 사용자 / 개발 임시 인증 | N | 200 OK |

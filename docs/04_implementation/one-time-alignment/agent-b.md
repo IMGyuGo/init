@@ -35,6 +35,7 @@
 - `postings`는 `Posting`, `applications`는 `Application`, `notifications`는 `Notification` model 이름을 사용한다.
 - `applications.application_status`, 초대/운영 상태와 `screening_memo` write는 B 영역으로 둔다.
 - `screening_decision`과 자동 판정 reason/version/decided_at은 E 자동 판정 engine write field다. B는 기업 조회 projection만 제공하고 지원자별 결과를 직접 변경하지 않는다.
+- `screening_reviewer_decision`, `screening_final_decision`, override reason, 결과 확정 시각/확정자와 알림 등록은 B 영역이다. B는 자동판정 원본을 보존한 채 필요한 지원자만 검토 초안을 수정하고, 공고 단위 일괄 확정에서 effective decision을 final snapshot으로 저장한다. `UNDECIDED | RETRY`는 수정·확정 대상에서 제외한다.
 - D/E 소유 field를 직접 write하는 코드가 있으면 service 경계를 분리하거나 owner 리뷰가 필요하다고 표시한다.
 - 기존 route alias가 있더라도 새 구현은 `/api/v1/company/recruitments`, `/api/v1/company/applicants` 기준을 사용한다.
 
