@@ -776,6 +776,45 @@ test("provider failure remains distinct from STT recognition failure", async () 
   assert.equal(failedQuestion?.sttFailureReason, "STT provider timed out");
 });
 
+test("STT retry exhaustion remains operator review and does not allow candidate reanswer", async () => {
+  const repository = new InMemoryCandidateRepository();
+  const candidateService = new CandidateService(repository);
+  const interviewRepository = new InMemoryInterviewRepository();
+  const controller = new InterviewController(new InterviewService(candidateService, interviewRepository));
+
+  const started = await controller.startMockInterview(validCandidateRequest, {
+    questionTypes: ["INTRO"],
+    showQuestionText: false,
+  });
+  const sessionId = String(started.data.sessionId);
+  const questions = await controller.listMockQuestions(validCandidateRequest, sessionId);
+  const questionId = questions.data.questions[0]?.questionId ?? 0;
+  const answer = await controller.saveMockAnswer(validCandidateRequest, sessionId, {
+    questionId,
+    audioFile: {
+      storageKey: "candidate/1/mock-answer-retry-exhausted.webm",
+      originalName: "mock-answer-retry-exhausted.webm",
+      mimeType: "audio/webm",
+      sizeBytes: 1024,
+    },
+    durationSeconds: 10,
+  });
+  interviewRepository.saveSttProcessForTest({
+    processLogId: 9402,
+    sessionId: started.data.sessionId,
+    answerId: answer.data.answer.answerId,
+    status: "FAILED",
+    failureCategory: "RETRY_EXHAUSTED",
+    failureReason: "Automatic retry limit exhausted after 3 total attempts.",
+    createdAt: answer.data.answer.submittedAt,
+  });
+
+  const refreshed = await controller.listMockQuestions(validCandidateRequest, sessionId);
+  const failedQuestion = refreshed.data.questions.find((question) => question.questionId === questionId);
+  assert.equal(failedQuestion?.sttStatus, "PROCESSING_FAILED");
+  assert.equal(failedQuestion?.reanswerAvailable, false);
+});
+
 test("recording validation skip stores an unanswered answer and allows moving next", async () => {
   const repository = new InMemoryCandidateRepository();
   const candidateService = new CandidateService(repository);

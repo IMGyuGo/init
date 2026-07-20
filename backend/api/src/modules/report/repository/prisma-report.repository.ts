@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { parseAiJobOutput } from "../service/ai-job-output";
 import { PrismaService } from "../../../shared/prisma.service";
 import { AiProcessNotFoundError, ReportRepository } from "./report.repository";
@@ -28,14 +29,39 @@ export class PrismaReportRepository implements ReportRepository {
     inputRef: string,
     refs: AiProcessRefs = {}
   ): Promise<QueuedAiProcessSnapshot> {
+    if (processType === "REPORT_GENERATE" && (refs.applicationId || refs.sessionId)) {
+      return this.prisma.$transaction(async (transaction) => {
+        if (refs.applicationId) {
+          await transaction.$queryRawUnsafe(
+            'SELECT "application_id" FROM "applications" WHERE "application_id" = $1 FOR UPDATE',
+            BigInt(refs.applicationId),
+          );
+        } else if (refs.sessionId) {
+          await transaction.$queryRawUnsafe(
+            'SELECT "session_id" FROM "interview_sessions" WHERE "session_id" = $1 FOR UPDATE',
+            BigInt(refs.sessionId),
+          );
+        }
+        return this.createQueuedProcessWithClient(transaction, processType, inputRef, refs);
+      });
+    }
+    return this.createQueuedProcessWithClient(this.prisma, processType, inputRef, refs);
+  }
+
+  private async createQueuedProcessWithClient(
+    client: Prisma.TransactionClient | PrismaService,
+    processType: AiProcessType,
+    inputRef: string,
+    refs: AiProcessRefs,
+  ): Promise<QueuedAiProcessSnapshot> {
     if (processType === "REPORT_GENERATE" && refs.applicationId) {
-      const active = await this.findActiveReportProcess(refs.applicationId);
+      const active = await this.findActiveReportProcess(client, refs.applicationId);
       if (active) return { ...this.toQueuedProcessSnapshot(active), idempotentReplay: true };
     }
     const processLogId = this.nextId();
     let processLog;
     try {
-      processLog = await this.prisma.aiProcessLog.create({
+      processLog = await client.aiProcessLog.create({
         data: {
           processLogId,
           applicationId: refs.applicationId ? BigInt(refs.applicationId) : null,
@@ -48,7 +74,7 @@ export class PrismaReportRepository implements ReportRepository {
       });
     } catch (error) {
       if (processType === "REPORT_GENERATE" && refs.applicationId && isUniqueConstraintFailure(error)) {
-        const active = await this.findActiveReportProcess(refs.applicationId);
+        const active = await this.findActiveReportProcess(client, refs.applicationId);
         if (active) return { ...this.toQueuedProcessSnapshot(active), idempotentReplay: true };
       }
       throw error;
@@ -511,8 +537,8 @@ export class PrismaReportRepository implements ReportRepository {
     return Math.max(0, completedAt.getTime() - processLog.startedAt.getTime());
   }
 
-  private findActiveReportProcess(applicationId: number) {
-    return this.prisma.aiProcessLog.findFirst({
+  private findActiveReportProcess(client: Prisma.TransactionClient | PrismaService, applicationId: number) {
+    return client.aiProcessLog.findFirst({
       where: {
         applicationId: BigInt(applicationId),
         processType: "REPORT_GENERATE",

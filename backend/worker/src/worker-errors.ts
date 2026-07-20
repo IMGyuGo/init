@@ -69,6 +69,14 @@ export function isUserRetryableFailureCategory(category: FailureCategory): boole
   return isAutomaticRetryFailureCategory(category) || category === "REGENERATION_REQUIRED";
 }
 
+export function automaticRetryExhaustedFailure(maxAttempts: number): FailureReason {
+  return {
+    category: "RETRY_EXHAUSTED",
+    reason: `Automatic retry limit exhausted after ${maxAttempts} total attempts.`,
+    retryable: false,
+  };
+}
+
 export function toPersistedFailureReason(failure: FailureReason): FailureReason {
   const reasonByCategory: Record<FailureCategory, string> = {
     RETRYABLE: "Temporary AI processing failure.",

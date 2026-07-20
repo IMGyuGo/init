@@ -4,6 +4,7 @@ import { AiProcessLogRepository } from "./process-log.repository";
 import {
   NonRetryableAiWorkerFailure,
   RetryableAiWorkerFailure,
+  automaticRetryExhaustedFailure,
   isAutomaticRetryFailureCategory,
   isUserRetryableFailureCategory,
   toFailureReason,
@@ -73,14 +74,19 @@ export class AiWorkerRunner {
 
   private async processMessage(message: AiQueueMessage): Promise<void> {
     const leaseOwner = `${this.options.workerId}:${message.messageId}`;
-    const receiveCount = this.retryableReceiveCount(message);
-    const attemptCount = Math.min(receiveCount, this.options.maxRetryableReceives);
     const claim = await this.repository.claim(message.job, leaseOwner, this.nextLeaseExpiration(), {
-      attemptCount,
       maxAttempts: this.options.maxRetryableReceives,
     });
     if (claim.status === "BACKOFF") {
       await this.deferUntilBackoffExpires(message, claim.snapshot.nextRetryAt);
+      return;
+    }
+    if (claim.status === "EXHAUSTED") {
+      const failure = claim.snapshot.failure ?? automaticRetryExhaustedFailure(
+        claim.snapshot.maxAttempts ?? this.options.maxRetryableReceives,
+      );
+      await this.options.onFailure?.(message.job, failure);
+      await this.queue.delete(message);
       return;
     }
     if (claim.status !== "CLAIMED") {
@@ -310,10 +316,6 @@ export class AiWorkerRunner {
     return new Date(Date.now() + this.options.visibilityTimeoutSeconds * 1_000);
   }
 
-  private retryableReceiveCount(message: AiQueueMessage): number {
-    return message.receiveCount ?? message.job.attempt;
-  }
-
   private async deferUntilBackoffExpires(message: AiQueueMessage, nextRetryAt: string | undefined): Promise<void> {
     if (!nextRetryAt) return;
     const remainingSeconds = Math.max(1, Math.ceil((Date.parse(nextRetryAt) - Date.now()) / 1_000));
@@ -325,11 +327,7 @@ export class AiWorkerRunner {
   }
 
   private retryLimitExceededFailure(): FailureReason {
-    return {
-      category: "RETRY_EXHAUSTED",
-      reason: `Automatic retry limit exhausted after ${this.options.maxRetryableReceives} total attempts.`,
-      retryable: false
-    };
+    return automaticRetryExhaustedFailure(this.options.maxRetryableReceives);
   }
 }
 
