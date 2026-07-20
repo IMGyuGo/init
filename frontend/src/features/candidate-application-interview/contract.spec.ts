@@ -84,6 +84,8 @@ import {
   getRealtimeSessionUserNotice,
   getTimedOutAiJobStatus,
   hasMeaningfulInterviewRecordingVoice,
+  getCandidatePassRevealStorageKey,
+  getCandidateScreeningResultPresentation,
   isInterviewSpeechPlaybackEventCurrent,
   resolveInterviewerSessionMode,
   shouldAutoStartInterviewRecording,
@@ -93,6 +95,7 @@ import {
   shouldHandleInterviewAnswerTimeout,
   shouldOpenRealtimeMicrophoneForRecordingStart,
   shouldRunInterviewRuntimeCountdown,
+  shouldShowCandidatePassReveal,
   shouldShowPaymentDevTools,
   trimInterviewerSessionEvents,
   getInterviewMediaFileExtension,
@@ -2005,6 +2008,48 @@ const mockReportHref = getMockReportHref(mockReport);
 const mockFeedbackIsSafe = isCandidateFacingMockFeedbackSafe(mockFeedback);
 const recruitingReportIsLimited = isCandidateRecruitingReportLimited(recruitingReport);
 assert.equal(recruitingReport.screeningDecision, "UNDECIDED");
+const generatingResult = getCandidateScreeningResultPresentation(recruitingReport);
+assert.deepEqual(
+  {
+    badge: generatingResult.badge,
+    tone: generatingResult.tone,
+    actionHref: generatingResult.actionHref,
+  },
+  {
+    badge: "분석 중",
+    tone: "undecided",
+    actionHref: "/candidate/applications",
+  },
+);
+const passResult = getCandidateScreeningResultPresentation({ status: "COMPLETED", screeningDecision: "PASS" });
+assert.equal(passResult.badge, "합격");
+assert.equal(passResult.nextStepTitle, "기업의 후속 안내를 확인해주세요.");
+assert.equal(passResult.actionHref, "/candidate/applications");
+const holdResult = getCandidateScreeningResultPresentation({ status: "COMPLETED", screeningDecision: "HOLD" });
+assert.equal(holdResult.badge, "보류");
+assert.equal(holdResult.tone, "hold");
+const undecidedResult = getCandidateScreeningResultPresentation({ status: "COMPLETED", screeningDecision: "UNDECIDED" });
+assert.equal(undecidedResult.badge, "검토 중");
+assert.equal(undecidedResult.tone, "undecided");
+const failResult = getCandidateScreeningResultPresentation({ status: "COMPLETED", screeningDecision: "FAIL" });
+assert.equal(failResult.badge, "전형 종료");
+assert.equal(failResult.actionHref, "/candidate/jobs");
+const failedReportResult = getCandidateScreeningResultPresentation({ status: "FAILED", screeningDecision: "UNDECIDED" });
+assert.equal(failedReportResult.badge, "확인 필요");
+assert.equal(failedReportResult.tone, "fail");
+assert.equal(getCandidatePassRevealStorageKey(17), "candidate-screening-result-seen:17:PASS");
+assert.equal(
+  shouldShowCandidatePassReveal({ status: "COMPLETED", screeningDecision: "PASS" }, null),
+  true,
+);
+assert.equal(
+  shouldShowCandidatePassReveal({ status: "COMPLETED", screeningDecision: "PASS" }, "true"),
+  false,
+);
+assert.equal(
+  shouldShowCandidatePassReveal({ status: "GENERATING", screeningDecision: "PASS" }, null),
+  false,
+);
 const recruitingReadyShowsDeviceSetup = shouldShowInterviewDeviceSetup({
   mode: "recruiting",
   setupCompleted: false,
