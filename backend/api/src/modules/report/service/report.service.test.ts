@@ -275,8 +275,9 @@ describe("ReportService follow-up linkage", () => {
     assert.match(inputs[0]?.transcriptUnavailableReason ?? "", /문맥을 신뢰하기 어려워/);
   });
 
-  it("queues the fixed Saltlux demo report even while STT is pending", async () => {
-    let dispatchedInput: Record<string, unknown> | undefined;
+  it("finalizes the fixed Saltlux demo report synchronously without dispatching SQS", async () => {
+    let dispatched = false;
+    let finalizedInput: Record<string, unknown> | undefined;
     const answer: InterviewAnswer = {
       answerId: 2001,
       sessionId: 3001,
@@ -326,27 +327,30 @@ describe("ReportService follow-up linkage", () => {
         listEvaluationCriteriaByPosting: async () => [],
       } as never,
       {
-        dispatchReportGeneration: async ({ input }: { input: Record<string, unknown> }) => {
-          dispatchedInput = input;
-          return {
-            queued: true,
-            processLogId: 9001,
-            processType: "REPORT_GENERATE",
-            status: "PENDING",
-            inputRef: "fixed-demo-report",
-            report: { reportId: 3001, reportType: "RECRUITING_REPORT", status: "GENERATING" },
-          };
+        dispatchReportGeneration: async () => {
+          dispatched = true;
+          throw new Error("fixed demo must not be dispatched");
+        },
+      } as never,
+      undefined,
+      {
+        finalizeSaltluxFixedDemo: async (input: Record<string, unknown>) => {
+          finalizedInput = input;
+          return { processLogId: 9001, inputRef: "fixed-demo-report" };
         },
       } as never,
     );
 
-    await service.requestApplicationReportGeneration(6001, {
+    const result = await service.requestApplicationReportGeneration(6001, {
       userId: 77,
       candidateId: 66,
       userType: "CANDIDATE",
     });
 
-    const payload = dispatchedInput?.payload as Record<string, unknown> | undefined;
-    assert.equal(payload?.presentationFixtureId, "SALTLUX_AI_BACKEND_V1");
+    assert.equal(dispatched, false);
+    assert.equal(finalizedInput?.applicationId, 6001);
+    assert.equal(result.data.queued, false);
+    assert.equal(result.data.status, "COMPLETED");
+    assert.equal(result.data.reportStatus, "COMPLETED");
   });
 });

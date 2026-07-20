@@ -1,6 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { parseAiJobOutput } from "../service/ai-job-output";
+import {
+  buildSaltluxFixedDemoFinalization,
+  type SaltluxFixedDemoFinalizationInput,
+  type SaltluxFixedDemoProfileResult,
+} from "../service/saltlux-fixed-demo-finalization";
 import { PrismaService } from "../../../shared/prisma.service";
 import { AiProcessNotFoundError, ReportRepository } from "./report.repository";
 import {
@@ -23,6 +28,218 @@ import {
 @Injectable()
 export class PrismaReportRepository implements ReportRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  async finalizeSaltluxFixedDemo(input: SaltluxFixedDemoFinalizationInput): Promise<{
+    processLogId: number;
+    inputRef: string;
+  }> {
+    const result = buildSaltluxFixedDemoFinalization(input);
+    const inputRef = JSON.stringify({
+      kind: "RECRUITING_REPORT_GENERATE",
+      presentationFixtureId: "SALTLUX_AI_BACKEND_V1",
+      reportId: input.reportId,
+      applicationId: input.applicationId,
+      sessionId: input.sessionId,
+      answerIds: input.answers.map((answer) => answer.answerId),
+    });
+
+    return this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRawUnsafe(
+        'SELECT "application_id" FROM "applications" WHERE "application_id" = $1 FOR UPDATE',
+        BigInt(input.applicationId),
+      );
+
+      const existingProcess = await transaction.aiProcessLog.findFirst({
+        where: {
+          applicationId: BigInt(input.applicationId),
+          sessionId: BigInt(input.sessionId),
+          processType: "REPORT_GENERATE",
+          status: "COMPLETED",
+          inputRef: { contains: '"presentationFixtureId":"SALTLUX_AI_BACKEND_V1"' },
+        },
+        orderBy: [{ createdAt: "desc" }, { processLogId: "desc" }],
+      });
+      const existingReport = await transaction.evaluationReport.findUnique({
+        where: { reportId: BigInt(input.reportId) },
+        include: {
+          scores: { include: { evidences: true } },
+          ncsAnswerEvaluations: { include: { evidences: true } },
+        },
+      });
+      if (
+        existingProcess &&
+        existingReport?.status === "COMPLETED" &&
+        existingReport.totalScore === result.totalScore &&
+        existingReport.ncsCompletionStatus === "COMPLETE" &&
+        existingReport.scores.filter((score) => score.ncsProfileId !== null).length === result.profiles.length &&
+        existingReport.scores.filter((score) => score.ncsProfileId === null && score.evidences.length > 0).length === result.profiles.length &&
+        existingReport.ncsAnswerEvaluations.length === result.profiles.length &&
+        existingReport.ncsAnswerEvaluations.every((evaluation) => evaluation.evidences.length > 0)
+      ) {
+        return { processLogId: Number(existingProcess.processLogId), inputRef };
+      }
+
+      const now = new Date();
+      await transaction.evaluationReport.upsert({
+        where: { reportId: BigInt(input.reportId) },
+        create: {
+          reportId: BigInt(input.reportId),
+          applicationId: BigInt(input.applicationId),
+          sessionId: BigInt(input.sessionId),
+          reportType: "RECRUITING_REPORT",
+          status: "COMPLETED",
+          summary: result.summary,
+          totalScore: result.totalScore,
+          ncsCompletionStatus: "COMPLETE",
+          ncsThresholdResult: "MEETS_THRESHOLD",
+          ncsAiDecision: "PASS",
+          ncsDecisionReasonCode: "THRESHOLD_MET",
+          ncsScoringVersion: "NCS_RECRUITING_SCORING_V2",
+          ncsDecisionPolicyVersion: "NCS_INCOMPLETE_AS_FAIL_DEMO_V1",
+          ncsSummaryJson: this.saltluxNcsSummary(result.profiles),
+          generatedAt: now,
+        },
+        update: {
+          applicationId: BigInt(input.applicationId),
+          sessionId: BigInt(input.sessionId),
+          reportType: "RECRUITING_REPORT",
+          status: "COMPLETED",
+          summary: result.summary,
+          totalScore: result.totalScore,
+          ncsCompletionStatus: "COMPLETE",
+          ncsThresholdResult: "MEETS_THRESHOLD",
+          ncsAiDecision: "PASS",
+          ncsDecisionReasonCode: "THRESHOLD_MET",
+          ncsScoringVersion: "NCS_RECRUITING_SCORING_V2",
+          ncsDecisionPolicyVersion: "NCS_INCOMPLETE_AS_FAIL_DEMO_V1",
+          ncsSummaryJson: this.saltluxNcsSummary(result.profiles),
+          generatedAt: now,
+          failureCategory: null,
+          failureReason: null,
+        },
+      });
+
+      await transaction.reportEvidence.deleteMany({
+        where: { score: { reportId: BigInt(input.reportId) } },
+      });
+      await transaction.reportScore.deleteMany({ where: { reportId: BigInt(input.reportId) } });
+      await transaction.ncsAnswerEvaluation.deleteMany({ where: { reportId: BigInt(input.reportId) } });
+
+      for (const profile of result.profiles) {
+        await transaction.reportScore.create({
+          data: {
+            scoreId: this.nextId(),
+            reportId: BigInt(input.reportId),
+            criterionId: BigInt(profile.criterionId),
+            score: profile.score * 20,
+            rationale: profile.rationale,
+            evidences: {
+              create: profile.evidences.map((evidence) => ({
+                evidenceId: this.nextId(),
+                sourceType: "INTERVIEW_ANSWER",
+                answerId: BigInt(evidence.answerId),
+                evidenceText: evidence.text,
+              })),
+            },
+          },
+        });
+        await transaction.reportScore.create({
+          data: {
+            scoreId: this.nextId(),
+            reportId: BigInt(input.reportId),
+            criterionId: BigInt(profile.criterionId),
+            score: profile.score * 20,
+            rationale: `${profile.displayName} 유효 답변 1개의 5점 평균입니다.`,
+            ncsProfileId: profile.ncsProfileId,
+            averageScore: profile.score,
+            normalizedScore: profile.score * 20,
+            weight: profile.weight,
+            weightedScore: profile.weightedScore,
+            minimumAverageScore: 3,
+            assignedQuestionCount: 1,
+            validQuestionCount: 1,
+          },
+        });
+        await transaction.ncsAnswerEvaluation.create({
+          data: {
+            reportId: BigInt(input.reportId),
+            answerId: BigInt(profile.answerId),
+            sessionQuestionId: BigInt(profile.sessionQuestionId),
+            criterionId: BigInt(profile.criterionId),
+            criterionTitleSnapshot: profile.criterionName,
+            ncsProfileId: profile.ncsProfileId,
+            ncsQuestionMode: profile.questionMode,
+            ncsProfileVersion: profile.ncsProfileVersion,
+            scoreStatus: "SCORED",
+            competencyScore: profile.score,
+            evidenceScore: profile.score,
+            totalScore: profile.score,
+            behaviorPoints: profile.behaviorPoints,
+            logicPoints: profile.logicPoints,
+            baseScore: profile.baseScore,
+            effectiveScore: profile.score,
+            followUpApplied: profile.followUpApplied,
+            coverage: 1,
+            confidence: "HIGH",
+            rubricVersion: "ncs-evidence-growth-v1",
+            promptVersion: "ncs-text-evaluation-playground-v1",
+            providerMode: "fixed",
+            modelName: "fixed-demo-fixture-v1",
+            resultJson: this.saltluxQuestionEvaluation(profile),
+            evidences: {
+              create: profile.evidences.map((evidence, index) => ({
+                evidenceId: this.nextId(),
+                sourceAnswerId: BigInt(evidence.answerId),
+                sourceKind: evidence.sourceKind,
+                quote: evidence.text,
+                sortOrder: index + 1,
+              })),
+            },
+          },
+        });
+      }
+
+      await transaction.application.update({
+        where: { applicationId: BigInt(input.applicationId) },
+        data: { reportStatus: "COMPLETED" },
+      });
+
+      const outputRef = JSON.stringify({
+        providerSource: "PRESENTATION_FIXTURE",
+        model: "fixed-demo-fixture-v1",
+        reportId: input.reportId,
+        totalScore: result.totalScore,
+      });
+      const processLogId = this.nextId();
+      await transaction.aiProcessLog.create({
+        data: {
+          processLogId,
+          applicationId: BigInt(input.applicationId),
+          sessionId: BigInt(input.sessionId),
+          processType: "REPORT_GENERATE",
+          status: "COMPLETED",
+          inputRef,
+          outputRef,
+          attemptCount: 1,
+          maxAttempts: 1,
+          startedAt: now,
+          completedAt: now,
+          durationMs: 0,
+          modelName: "fixed-demo-fixture-v1",
+          guardrailLogs: {
+            create: {
+              guardrailLogId: this.nextId(),
+              policyName: "REPORT_FINAL_SAVE",
+              result: "PASS",
+              reason: "솔트룩스 고정 시연 리포트 계약 검증 통과",
+            },
+          },
+        },
+      });
+
+      return { processLogId: Number(processLogId), inputRef };
+    });
+  }
 
   async createQueuedProcess(
     processType: AiProcessType,
@@ -562,6 +779,80 @@ export class PrismaReportRepository implements ReportRepository {
 
   private guardrailFailureCategory(decision: GuardrailDecision): GuardrailDecision["failureCategory"] {
     return decision.failureCategory ?? (decision.result === "BLOCKED" ? "NON_RETRYABLE" : null);
+  }
+
+  private saltluxNcsSummary(profiles: SaltluxFixedDemoProfileResult[]): Prisma.InputJsonValue {
+    return {
+      schemaVersion: "ncs-report-evaluation-output-v2",
+      result: {
+        completionStatus: "COMPLETE",
+        thresholdResult: "MEETS_THRESHOLD",
+        aiDecision: "PASS",
+        decisionReasonCode: "THRESHOLD_MET",
+        totalScore: 88,
+      },
+      profiles: profiles.map((profile) => ({
+        ncsProfileId: profile.ncsProfileId,
+        profileOrder: profile.profileOrder,
+        displayName: profile.displayName,
+        status: "SCORED",
+        averageScore: profile.score,
+        normalizedScore: profile.score * 20,
+        weight: profile.weight,
+        weightedScore: profile.weightedScore,
+        minimumAverageScore: 3,
+        assignedQuestionCount: 1,
+        validQuestionCount: 1,
+        requiredQuestionCount: 1,
+        findingIds: [`strength-${profile.ncsProfileId.toLowerCase()}`],
+      })),
+      incompleteReasons: [],
+    };
+  }
+
+  private saltluxQuestionEvaluation(profile: SaltluxFixedDemoProfileResult): Prisma.InputJsonValue {
+    return {
+      kind: "NCS_TEXT_EVALUATION_PLAYGROUND_V1",
+      rubricVersion: "ncs-evidence-growth-v1",
+      promptVersion: "ncs-text-evaluation-playground-v1",
+      providerMode: "fixed",
+      model: "fixed-demo-fixture-v1",
+      scoreStatus: "SCORED",
+      scores: {
+        competency: profile.score,
+        evidence: profile.score,
+        total: profile.score,
+      },
+      coverage: 1,
+      confidence: "HIGH",
+      questionMode: profile.questionMode,
+      competencies: [{
+        profileId: profile.ncsProfileId,
+        profileVersion: profile.ncsProfileVersion,
+        label: profile.displayName,
+        level: profile.score,
+        score: profile.score,
+        confidence: "HIGH",
+        rationale: profile.rationale,
+        behaviors: [],
+      }],
+      evidenceMaturity: { dimensions: [], sharedEvidence: [] },
+      growth: {
+        strengths: [profile.rationale],
+        gaps: ["대규모 운영 환경의 장기 장애 대응 경험은 추가 확인이 필요합니다."],
+        nextAction: "운영 규모와 장애 대응 책임 범위를 후속 면접에서 확인합니다.",
+        followUpQuestion: "개선 과정에서 품질 회귀는 어떻게 방지했나요?",
+      },
+      guardrail: {
+        result: "PASS",
+        reasons: [],
+        exactQuotesValid: true,
+        sharedEvidenceValid: true,
+        confidenceValid: true,
+        forbiddenWordingDetected: false,
+        promptInjectionDetected: false,
+      },
+    };
   }
 }
 
