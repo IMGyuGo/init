@@ -37,6 +37,14 @@ export type PostingValidationExpectations = {
   posting: AggregateExpectation;
 };
 
+export type SyntheticReportExpectations = {
+  completed: number;
+  decisions: Record<string, number>;
+  minimumScore: number | null;
+  maximumScore: number | null;
+  uniqueScores: number;
+};
+
 export function buildPostingValidationExpectations(
   syntheticPlan: SyntheticApplicantPlanRecord[],
   baselineApplications: ApplicantStateProjection[],
@@ -53,6 +61,26 @@ export function buildPostingValidationExpectations(
       canceled: syntheticCanceled,
     },
     posting: aggregate([...syntheticActive, ...baselineActive], syntheticCanceled + baselineCanceled),
+  };
+}
+
+export function buildSyntheticReportExpectations(
+  plan: SyntheticApplicantPlanRecord[],
+): SyntheticReportExpectations {
+  const completed = plan.filter((record) => record.reportStatus === "COMPLETED");
+  const scores = completed.map((record) => record.reportFixture?.totalScore ?? NaN);
+  if (scores.some((score) => !Number.isInteger(score))) {
+    throw new Error("완료 리포트 plan에 total score가 없습니다.");
+  }
+  return {
+    completed: completed.length,
+    decisions: completed.reduce<Record<string, number>>((counts, record) => {
+      counts[record.screeningDecision] = (counts[record.screeningDecision] ?? 0) + 1;
+      return counts;
+    }, {}),
+    minimumScore: scores.length === 0 ? null : Math.min(...scores),
+    maximumScore: scores.length === 0 ? null : Math.max(...scores),
+    uniqueScores: new Set(scores).size,
   };
 }
 

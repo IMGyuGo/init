@@ -1,9 +1,11 @@
 import {
+  SYNTHETIC_MANIFEST_V2,
   buildSyntheticApplicantPlan,
   type SyntheticImporterOptions,
 } from "../modules/candidate/scripts/synthetic-applicant-importer.contract";
 import {
   buildPostingValidationExpectations,
+  buildSyntheticReportExpectations,
   type ApplicantStateProjection,
 } from "./synthetic-applicant-scale-validation.expectations";
 
@@ -89,6 +91,20 @@ describe("synthetic applicant scale validation expectations", () => {
     expect(serialized).not.toContain("email");
     expect(serialized).not.toContain("name");
     expect(serialized).not.toContain("phone");
+  });
+
+  it("summarizes the approved V2 report distribution without identity data", () => {
+    const v2 = buildSyntheticApplicantPlan({ ...options(), postingId: 36n }, SYNTHETIC_MANIFEST_V2);
+    const actual = buildSyntheticReportExpectations(v2);
+    expect(actual).toEqual({
+      completed: 100,
+      decisions: { PASS: 20, FAIL: 80 },
+      minimumScore: 45,
+      maximumScore: 96,
+      uniqueScores: expect.any(Number),
+    });
+    expect(actual.uniqueScores).toBeGreaterThan(20);
+    expect(JSON.stringify(actual)).not.toMatch(/applicationId|email|name|phone/);
   });
 });
 
