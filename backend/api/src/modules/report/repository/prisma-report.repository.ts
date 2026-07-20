@@ -128,14 +128,12 @@ export class PrismaReportRepository implements ReportRepository {
       for (const profile of result.profiles) {
         await transaction.reportScore.create({
           data: {
-            scoreId: this.nextId(),
             reportId: BigInt(input.reportId),
             criterionId: BigInt(profile.criterionId),
             score: profile.score * 20,
             rationale: profile.rationale,
             evidences: {
               create: profile.evidences.map((evidence) => ({
-                evidenceId: this.nextId(),
                 sourceType: "INTERVIEW_ANSWER",
                 answerId: BigInt(evidence.answerId),
                 evidenceText: evidence.text,
@@ -145,7 +143,6 @@ export class PrismaReportRepository implements ReportRepository {
         });
         await transaction.reportScore.create({
           data: {
-            scoreId: this.nextId(),
             reportId: BigInt(input.reportId),
             criterionId: BigInt(profile.criterionId),
             score: profile.score * 20,
@@ -188,7 +185,6 @@ export class PrismaReportRepository implements ReportRepository {
             resultJson: this.saltluxQuestionEvaluation(profile),
             evidences: {
               create: profile.evidences.map((evidence, index) => ({
-                evidenceId: this.nextId(),
                 sourceAnswerId: BigInt(evidence.answerId),
                 sourceKind: evidence.sourceKind,
                 quote: evidence.text,
@@ -210,10 +206,8 @@ export class PrismaReportRepository implements ReportRepository {
         reportId: input.reportId,
         totalScore: result.totalScore,
       });
-      const processLogId = this.nextId();
-      await transaction.aiProcessLog.create({
+      const processLog = await transaction.aiProcessLog.create({
         data: {
-          processLogId,
           applicationId: BigInt(input.applicationId),
           sessionId: BigInt(input.sessionId),
           processType: "REPORT_GENERATE",
@@ -228,7 +222,6 @@ export class PrismaReportRepository implements ReportRepository {
           modelName: "fixed-demo-fixture-v1",
           guardrailLogs: {
             create: {
-              guardrailLogId: this.nextId(),
               policyName: "REPORT_FINAL_SAVE",
               result: "PASS",
               reason: "솔트룩스 고정 시연 리포트 계약 검증 통과",
@@ -237,7 +230,7 @@ export class PrismaReportRepository implements ReportRepository {
         },
       });
 
-      return { processLogId: Number(processLogId), inputRef };
+      return { processLogId: Number(processLog.processLogId), inputRef };
     });
   }
 
@@ -275,12 +268,10 @@ export class PrismaReportRepository implements ReportRepository {
       const active = await this.findActiveReportProcess(client, refs.applicationId);
       if (active) return { ...this.toQueuedProcessSnapshot(active), idempotentReplay: true };
     }
-    const processLogId = this.nextId();
     let processLog;
     try {
       processLog = await client.aiProcessLog.create({
         data: {
-          processLogId,
           applicationId: refs.applicationId ? BigInt(refs.applicationId) : null,
           sessionId: refs.sessionId ? BigInt(refs.sessionId) : null,
           processType,
@@ -380,17 +371,15 @@ export class PrismaReportRepository implements ReportRepository {
 
   async startProcess(reportId: number, reportType: ReportType, step: ReportPipelineStep): Promise<ProcessLogSnapshot> {
     await this.ensureReport(reportId, reportType);
-    const processLogId = this.nextId();
-    await this.prisma.aiProcessLog.create({
+    const processLog = await this.prisma.aiProcessLog.create({
       data: {
-        processLogId,
         processType: "REPORT_GENERATE",
         status: "PENDING",
         inputRef: JSON.stringify({ reportId, reportType, step }),
         createdAt: new Date()
       }
     });
-    return this.processSnapshot(processLogId, step, "PENDING");
+    return this.processSnapshot(processLog.processLogId, step, "PENDING");
   }
 
   async markProcessRunning(processLogId: number): Promise<ProcessLogSnapshot> {
@@ -494,18 +483,15 @@ export class PrismaReportRepository implements ReportRepository {
     });
 
     for (const score of scores) {
-      const scoreId = this.nextId();
       const criterionId = score.criterionId ? await this.resolveCriterionId(score.criterionId) : null;
       await this.prisma.reportScore.create({
         data: {
-          scoreId,
           reportId: BigInt(reportId),
           criterionId,
           score: score.score,
           rationale: score.rationale,
           evidences: {
             create: score.evidences.map((evidence) => ({
-              evidenceId: this.nextId(),
               sourceType: evidence.sourceType,
               answerId: evidence.answerId ? BigInt(evidence.answerId) : null,
               documentId: evidence.documentId ? BigInt(evidence.documentId) : null,
@@ -521,9 +507,7 @@ export class PrismaReportRepository implements ReportRepository {
   }
 
   async saveGuardrailLog(processLogId: number, policyName: string, decision: GuardrailDecision): Promise<number> {
-    const guardrailLogId = this.nextId();
     const data = {
-      guardrailLogId,
       processLogId: BigInt(processLogId),
       policyName,
       result: decision.result,
@@ -531,10 +515,10 @@ export class PrismaReportRepository implements ReportRepository {
       failureCategory: this.guardrailFailureCategory(decision),
       createdAt: new Date()
     };
-    await this.prisma.aiGuardrailLog.create({
+    const guardrailLog = await this.prisma.aiGuardrailLog.create({
       data
     });
-    return Number(guardrailLogId);
+    return Number(guardrailLog.guardrailLogId);
   }
 
   async getReport(reportId: number): Promise<EvaluationReportSnapshot> {
@@ -771,10 +755,6 @@ export class PrismaReportRepository implements ReportRepository {
       },
       orderBy: [{ createdAt: "desc" }, { processLogId: "desc" }],
     });
-  }
-
-  private nextId(): bigint {
-    return BigInt(Date.now()) * BigInt(1000) + BigInt(Math.floor(Math.random() * 1000));
   }
 
   private guardrailFailureCategory(decision: GuardrailDecision): GuardrailDecision["failureCategory"] {

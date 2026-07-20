@@ -15,6 +15,9 @@ describe("PrismaReportRepository report process locking", () => {
       'SELECT "application_id" FROM "applications" WHERE "application_id" = $1 FOR UPDATE',
       BigInt(22),
     );
+    expect(fixture.transaction.aiProcessLog.create).toHaveBeenCalledWith({
+      data: expect.not.objectContaining({ processLogId: expect.anything() }),
+    });
   });
 
   it("serializes mock report process creation on the interview session row", async () => {
@@ -35,6 +38,7 @@ function reportProcessFixture() {
   const aiProcessLog = {
     findFirst: jest.fn().mockResolvedValue(null),
     create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+      processLogId: 701n,
       ...data,
       attemptCount: 1,
       maxAttempts: 3,
