@@ -8352,7 +8352,7 @@ function InterviewRuntimePanel({
   ]);
 
   return (
-    <main className="candidate-interview-app">
+    <main className={`candidate-interview-app${data && setupCompleted ? " candidate-interview-app--live" : ""}`}>
       <header className="iv-top">
         <Link className="brand" href={candidateApplicationInterviewRoutes.mockInterviewStart}>
           <Image src="/logo-init.png" alt="init" width={1010} height={375} priority />

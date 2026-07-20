@@ -1657,6 +1657,70 @@
   margin: 0 auto;
 }
 
+:global(.candidate-interview-app--live) {
+  background: #0b0a12;
+}
+
+:global(.candidate-interview-app--live .iv-top) {
+  background: rgba(11, 10, 18, 0.86);
+  border-bottom-color: rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(14px);
+}
+
+:global(.candidate-interview-app--live .iv-top .center) {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+:global(.candidate-interview-app--live .iv-top .brand img) {
+  filter: brightness(0) invert(1);
+}
+
+:global(.candidate-interview-app--live .iv-body) {
+  display: flex;
+  flex-direction: column;
+  width: min(1560px, 100%);
+  min-height: calc(100dvh - 56px);
+  padding: 14px 22px 18px;
+}
+
+:global(.candidate-interview-app--live .iv-body > .notice) {
+  position: fixed;
+  top: 70px;
+  left: 50%;
+  z-index: 40;
+  width: max-content;
+  max-width: min(520px, calc(100vw - 48px));
+  padding: 10px 18px;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 13px;
+  background: rgba(24, 22, 36, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.4);
+  transform: translateX(-50%);
+  animation: runtime-toast-out 0.45s ease 3.2s forwards;
+}
+
+:global(.candidate-interview-app--live .iv-body > .notice.danger) {
+  color: #ffd1d1;
+  background: rgba(74, 18, 22, 0.94);
+  border-color: rgba(248, 113, 113, 0.4);
+  animation: none;
+}
+
+@keyframes runtime-toast-out {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :global(.candidate-interview-app--live .iv-body > .notice) {
+    animation: none;
+  }
+}
+
 :global(.candidate-device-setup) {
   display: grid;
   gap: 18px;
@@ -2141,18 +2205,19 @@
 :global(.ai-interviewer-stage) {
   position: relative;
   display: grid;
+  flex: 1 1 auto;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
-  width: min(100%, 1280px);
+  width: 100%;
   min-height: 0;
-  aspect-ratio: 16 / 9;
-  padding: 20px;
-  margin: 0 auto 18px;
+  padding: 16px 22px 18px;
+  margin: 0 auto 12px;
   overflow: hidden;
   color: #fff;
-  background: linear-gradient(155deg, #171622 0%, #24233a 62%, #101019 100%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 18px;
-  box-shadow: 0 18px 48px rgba(20, 18, 45, 0.12);
+  background:
+    radial-gradient(90% 70% at 50% 0%, rgba(110, 91, 246, 0.14) 0%, rgba(110, 91, 246, 0) 58%),
+    linear-gradient(180deg, #17151f 0%, #100e17 100%);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 20px;
 }
 
 :global(.ai-interviewer-stage--viewport-lock:fullscreen) {
@@ -3136,13 +3201,16 @@
   z-index: 2;
   display: grid;
   gap: 10px;
-  width: min(820px, 100%);
-  padding: 16px 20px;
+  justify-items: center;
+  width: min(860px, 100%);
+  padding: 16px 24px;
   margin: 10px auto 0;
   color: #fff;
-  background: rgba(9, 8, 18, 0.62);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 16px;
+  text-align: center;
+  background: rgba(7, 6, 13, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  backdrop-filter: blur(14px);
 }
 
 :global(.ai-interviewer-question span) {
@@ -3244,15 +3312,15 @@
   display: grid;
   grid-template-rows: 38px auto;
   box-sizing: border-box;
-  width: clamp(190px, 18vw, 230px);
+  width: clamp(210px, 19vw, 280px);
   height: auto;
   max-height: none;
   overflow: hidden;
   color: #fff;
-  background: #101019;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #0d0c14;
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 16px;
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.44);
   transform: translateY(-50%);
 }
 
@@ -4104,6 +4172,80 @@
 :global(.interview-exit-button:hover:not(:disabled)) {
   color: #b4232f;
   border-color: #f0c2c6;
+}
+
+:global(.candidate-interview-app--live .candidate-runtime-form) {
+  flex: 0 0 auto;
+  gap: 10px 14px;
+  align-items: center;
+  padding: 12px 16px;
+  background: #14121c;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 18px;
+}
+
+:global(.candidate-interview-app--live .candidate-interview-controls .btn),
+:global(.candidate-interview-app--live .subtitle-toggle) {
+  color: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+:global(.candidate-interview-app--live .candidate-interview-controls .btn:hover:not(:disabled)),
+:global(.candidate-interview-app--live .subtitle-toggle:hover) {
+  background: rgba(255, 255, 255, 0.13);
+}
+
+:global(.candidate-interview-app--live .candidate-interview-controls .btn:disabled) {
+  color: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.06);
+  opacity: 1;
+}
+
+:global(.candidate-interview-app--live .subtitle-toggle.on) {
+  color: #fff;
+  background: rgba(110, 91, 246, 0.42);
+  border-color: rgba(160, 150, 255, 0.4);
+}
+
+:global(.candidate-interview-app--live .candidate-interview-controls .btn.primary) {
+  color: #fff;
+  background: linear-gradient(135deg, #7b68ff, #5b8cff);
+  border-color: transparent;
+  box-shadow: 0 10px 26px rgba(110, 91, 246, 0.34);
+}
+
+:global(.candidate-interview-app--live .candidate-interview-controls .btn.primary:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+
+:global(.candidate-interview-app--live .candidate-runtime-form kbd) {
+  color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+:global(.candidate-interview-app--live .candidate-runtime-form .field-hint) {
+  color: rgba(255, 255, 255, 0.38);
+}
+
+:global(.candidate-interview-app--live .interview-exit-button) {
+  color: #ff9d9d;
+  background: transparent;
+  border-color: rgba(248, 113, 113, 0.34);
+}
+
+:global(.candidate-interview-app--live .interview-exit-button:hover:not(:disabled)) {
+  color: #fff;
+  background: rgba(229, 72, 77, 0.82);
+  border-color: transparent;
+}
+
+:global(.candidate-interview-app--live .interview-exit-button:disabled) {
+  color: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 :global(.candidate-interview-controls .btn),
