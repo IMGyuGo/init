@@ -82,3 +82,14 @@ npm run dev:init
   }
 }
 ```
+
+## Synthetic Non-interactive Accounts
+
+대규모 지원자 시연 importer가 만드는 비로그인 합성 계정은 일반 비회원 지원 row와 구분되는 운영 fixture다.
+
+- `userType=CANDIDATE`, `status=PENDING`, `authProvider=LOCAL`, `passwordHash=null`, `providerUserId=null`을 유지한다.
+- 이메일은 실제 발급 불가능한 `demo.invalid` 예약 도메인을 사용한다.
+- 로컬 로그인과 비밀번호 재설정은 `ACTIVE + LOCAL + passwordHash 존재` 계정만 허용한다.
+- Google OAuth callback은 기존 계정이 `ACTIVE + GOOGLE`이고 provider user ID가 일치할 때만 로그인한다.
+- interactive 시연 계정은 정확히 10개이며 `ACTIVE + LOCAL`로 별도 생성한다.
+- importer는 전체 Prisma seed를 호출하거나 Dev Auth 고정 계정을 변경하지 않는다.

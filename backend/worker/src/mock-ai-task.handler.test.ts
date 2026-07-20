@@ -219,6 +219,44 @@ test("STT stores transcript returned by the configured STT provider", async () =
   assert.equal(output.model, "test-stt-model");
 });
 
+test("fixed presentation STT stores the prepared transcript without calling the provider", async () => {
+  const results = new InMemoryAiResultRepository();
+  let providerCalls = 0;
+  const sttProvider: SttProvider = {
+    transcribe: async () => {
+      providerCalls += 1;
+      throw new Error("fixed presentation must not call STT provider");
+    },
+  };
+  const fixedTranscript = "발표 시연에 사용할 고정 답변입니다.";
+
+  const repository = await run({
+    processLogId: 112,
+    processType: "STT",
+    input: {
+      kind: "RECRUITING_INTERVIEW_STT",
+      payload: {
+        answerId: 43,
+        audioFileId: 12,
+        audioS3Key: "candidate/1/answer-43.wav",
+        presentationFixtureId: "SALTLUX_AI_BACKEND_V1",
+        fixedTranscript,
+      },
+    },
+    results,
+    sttProvider,
+  });
+
+  assert.equal(providerCalls, 0);
+  assert.equal(results.transcripts[0]?.transcript, fixedTranscript);
+  const output = JSON.parse(repository.get(112).outputRef ?? "{}") as {
+    providerMode?: string;
+    providerSource?: string;
+  };
+  assert.equal(output.providerMode, "fixed");
+  assert.equal(output.providerSource, "PRESENTATION_FIXTURE");
+});
+
 test("duplicate STT requests keep the existing transcript result", async () => {
   const results = new InMemoryAiResultRepository();
 
@@ -1126,6 +1164,39 @@ test("report generation does not persist a fake zero score when STT transcript i
   assert.equal(results.generatedReports.has(34), false);
   assert.equal(results.reportScores.has(34), false);
   assert.equal(results.failedReports.get(34)?.failureCategory, "NON_RETRYABLE");
+});
+
+test("recruiting report does not treat an optional follow-up STT failure as a required-answer failure", async () => {
+  const results = new InMemoryAiResultRepository();
+
+  await run({
+    processLogId: 38,
+    processType: "REPORT_GENERATE",
+    input: {
+      kind: "RECRUITING_REPORT_GENERATE",
+      payload: {
+        reportId: 38,
+        reportType: "RECRUITING_REPORT",
+        applicationId: 22,
+        sessionId: 65,
+        jobDescription: "Backend engineer with NestJS and PostgreSQL.",
+        criteria: [{ criterionId: 1, name: "Problem solving", weight: 100 }],
+        answers: [
+          { answerId: 10, transcript: "I diagnosed the database bottleneck and verified the fix." },
+          {
+            answerId: 11,
+            isFollowUpAnswer: true,
+            parentAnswerId: 10,
+            evaluationStatus: "STT_UNAVAILABLE",
+            transcriptUnavailableReason: "optional follow-up audio was unavailable",
+          },
+        ],
+      },
+    },
+    results,
+  });
+
+  assert.equal(results.generatedReports.get(38)?.hasTerminalSttUnavailable, false);
 });
 
 test("mock report generation marks report failed when expression policy is blocked", async () => {

@@ -316,6 +316,51 @@ test("qualityCheckOnly validates a follow-up answer without creating another fol
   assert.equal(results.followUpQuestions.length, 0);
 });
 
+test("fixed presentation quality check bypasses the fact provider", async () => {
+  const results = new InMemoryAiResultRepository();
+  let factCheckCalls = 0;
+  const failingFactProvider: AnswerFactCheckProvider = {
+    async evaluate() {
+      factCheckCalls += 1;
+      throw new Error("fixed presentation must not call fact provider");
+    },
+  };
+  const handler = new OpenAiAiTaskHandler(
+    new MockAiTaskHandler(results),
+    results,
+    provider,
+    undefined,
+    undefined,
+    undefined,
+    { provider: failingFactProvider, configuredModelVersion: "fact-test-model", providerMode: "mock" },
+  );
+
+  const handled = await handler.handle({
+    processLogId: 36,
+    processType: "FOLLOW_UP",
+    attempt: 1,
+    inputRef: JSON.stringify({
+      kind: "RECRUITING_FOLLOW_UP",
+      payload: {
+        sessionId: 8,
+        answerId: 16,
+        previousQuestion: "AI 검색 품질 기준을 팀과 합의한 과정을 설명해 주세요.",
+        transcript: "팀과 검색 누락 사례를 분류하고 같은 평가셋으로 결과를 공유했습니다.",
+        jobDescription: "AI 백엔드 시스템 개발",
+        usageScope: "DEMO_PRESET",
+        qualityCheckOnly: true,
+        presentationFixtureId: "SALTLUX_AI_BACKEND_V1",
+      },
+    }),
+  });
+
+  const output = JSON.parse(handled.outputRef ?? "{}") as Record<string, unknown>;
+  assert.equal(factCheckCalls, 0);
+  assert.equal(output.providerMode, "fixed");
+  assert.equal(output.qualityCheckOnly, true);
+  assert.equal(output.followUpRequired, false);
+});
+
 test("OpenAiAiTaskHandler uses provider for final report generation and keeps save contract", async () => {
   const results = new InMemoryAiResultRepository();
   const reportInputs: ReportGenerationInput[] = [];

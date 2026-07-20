@@ -10,15 +10,19 @@ import {
   type ReportStatus,
 } from "../../candidate";
 import {
-  INTERVIEW_MEDIA_STORAGE,
-  INTERVIEW_REPOSITORY,
-  InMemoryInterviewMediaStorageAdapter,
   type InterviewAnswer,
-  type InterviewMediaStoragePort,
   type InterviewQuestion,
-  type InterviewRepository,
   type RuntimeInterviewSession,
-} from "../../interview";
+} from "../../interview/interview.runtime.types";
+import {
+  INTERVIEW_REPOSITORY,
+  type InterviewRepository,
+} from "../../interview/repository/interview.repository";
+import {
+  INTERVIEW_MEDIA_STORAGE,
+  InMemoryInterviewMediaStorageAdapter,
+  type InterviewMediaStoragePort,
+} from "../../interview/service/interview-media-storage.adapter";
 import {
   CandidateAiProcessView,
   CandidateApplicationStatusView,
@@ -45,6 +49,8 @@ import {
   type CandidateReportScoreRecord,
   type CandidateStoredReport,
 } from "../repository/candidate-report.repository";
+import { InMemoryReportRepository } from "../repository/in-memory-report.repository";
+import { REPORT_REPOSITORY, type ReportRepository } from "../repository/report.repository";
 import {
   type EvaluationCriterionInput,
   type GenerateReportRequest,
@@ -55,8 +61,8 @@ import { AiJobDispatcherService } from "./ai-job-dispatcher.service";
 import { buildDefaultReportCriteria, normalizeReportCriterionName } from "./service-interview-rubric";
 import {
   SALTLUX_FIXED_DEMO_FIXTURE_ID,
-  isSaltluxFixedDemoPosting,
 } from "../../../shared/saltlux-fixed-demo";
+import { shouldUseSaltluxFixedDemoReport } from "./saltlux-fixed-demo-report";
 
 type ReportAnswerSession = Pick<
   RuntimeInterviewSession,
@@ -117,6 +123,8 @@ export class ReportService {
     @Inject(AiJobDispatcherService) private readonly aiJobDispatcher: AiJobDispatcherService,
     @Inject(INTERVIEW_MEDIA_STORAGE)
     private readonly mediaStorage: InterviewMediaStoragePort = new InMemoryInterviewMediaStorageAdapter(),
+    @Inject(REPORT_REPOSITORY)
+    private readonly reportRepository: ReportRepository = new InMemoryReportRepository(),
   ) {}
 
   async listMockReports(currentUser: CurrentCandidateUser): Promise<ApiListResponse<CandidateMockReportSummary>> {
@@ -407,6 +415,34 @@ export class ReportService {
       jobDescription: job.jobDescription,
       currentUser,
     });
+    if (
+      reportInput.input.payload.presentationFixtureId === SALTLUX_FIXED_DEMO_FIXTURE_ID &&
+      this.reportRepository.finalizeSaltluxFixedDemo
+    ) {
+      const finalized = await this.reportRepository.finalizeSaltluxFixedDemo({
+        reportId,
+        applicationId: application.applicationId,
+        sessionId: session.sessionId,
+        criteria: reportInput.input.payload.criteria,
+        answers: reportInput.input.payload.answers,
+      });
+      return this.envelope({
+        accepted: true,
+        queued: false,
+        processLogId: finalized.processLogId,
+        processType: "REPORT_GENERATE",
+        status: "COMPLETED",
+        reportStatus: "COMPLETED",
+        reportId: reportInput.reportId,
+        sessionId: reportInput.sessionId,
+        applicationId: application.applicationId,
+        reportType: reportInput.reportType,
+        answerIds: reportInput.answerIds,
+        fileIds: reportInput.fileIds,
+        callbackTopic: "ai.report.generate.requested",
+        inputRef: finalized.inputRef,
+      });
+    }
     const dispatched = await this.aiJobDispatcher.dispatchReportGeneration({
       reportId,
       reportType: "RECRUITING_REPORT",
@@ -516,7 +552,7 @@ export class ReportService {
     if (status === "FAILED") {
       return this.envelope({
         ...base,
-        candidateMessage: report?.failureReason ?? process?.failureReason ?? "면접 분석을 완료하지 못했습니다.",
+        candidateMessage: "면접 분석을 완료하지 못했습니다. 재처리를 진행하고 있습니다.",
         nextStepLabel: "분석 재시도 필요",
       });
     }
@@ -537,10 +573,17 @@ export class ReportService {
       ]);
     }
     const reportAnswers = await this.reportAnswerInputs(answers, args.reportType);
+    const useSaltluxFixedDemoReport = args.reportType === "RECRUITING_REPORT" &&
+      shouldUseSaltluxFixedDemoReport({
+        companyName: args.companyName,
+        jobTitle: args.jobTitle,
+        sessionMode: args.session.sessionMode,
+        answers: reportAnswers,
+      });
     const pendingSttAnswerIds = reportAnswers
       .filter((answer) => answer.evaluationStatus !== "STT_UNAVAILABLE" && !answer.transcript?.trim())
       .map((answer) => answer.answerId);
-    if (pendingSttAnswerIds.length > 0) {
+    if (!useSaltluxFixedDemoReport && pendingSttAnswerIds.length > 0) {
       throw new CandidateDomainError(
         "COMMON_CONFLICT",
         "모든 답변의 음성 인식 처리가 완료된 뒤 리포트를 생성할 수 있습니다.",
@@ -566,9 +609,7 @@ export class ReportService {
       ...(args.reportType === "RECRUITING_REPORT" && this.interviewRepository.listNcsSessionPolicies
         ? { ncsSessionPolicy: await this.interviewRepository.listNcsSessionPolicies(args.session.sessionId) }
         : {}),
-      ...(args.reportType === "RECRUITING_REPORT" &&
-      args.session.sessionMode === "DEMO_PRESET" &&
-      isSaltluxFixedDemoPosting(args.companyName, args.jobTitle)
+      ...(useSaltluxFixedDemoReport
         ? { presentationFixtureId: SALTLUX_FIXED_DEMO_FIXTURE_ID }
         : {}),
     };
@@ -982,7 +1023,11 @@ export class ReportService {
     const processes = await this.interviewRepository.listTranscriptProcesses(answer.sessionId, answer.answerId);
     const latestProcess = processes[0];
     const failure = latestProcess?.status === "FAILED" &&
-      (latestProcess.failureCategory === "REANSWER_REQUIRED" || latestProcess.failureCategory === "NON_RETRYABLE")
+      (
+        latestProcess.failureCategory === "REANSWER_REQUIRED" ||
+        latestProcess.failureCategory === "NON_RETRYABLE" ||
+        latestProcess.failureCategory === "RETRY_EXHAUSTED"
+      )
       ? latestProcess
       : undefined;
     return failure?.failureReason?.trim() || (failure ? DEFAULT_STT_UNAVAILABLE_REASON : undefined);

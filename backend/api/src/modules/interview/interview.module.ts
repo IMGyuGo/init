@@ -49,6 +49,8 @@ import { InterviewService } from "./service/interview.service";
     AiJobDispatchModule,
     INTERVIEW_MEDIA_STORAGE,
     InterviewService,
+    PublicInterviewAccessGuard,
+    PublicInterviewAccessTokenService,
     PublicInterviewService,
   ],
 })

@@ -10,6 +10,7 @@ import {
   QuestionGenerationSource,
   ResumeQuestionGenerationStatus,
 } from '../company-interview.types';
+import { AutoScreeningPolicyResponseDto } from './evaluation-criterion.dto';
 
 export class InterviewSettingsQueryDto {
   @IsOptional()
@@ -115,4 +116,5 @@ export class InterviewSettingsResponseDto {
     multiBoundActiveQuestionCount: number;
   }>;
   questionSetRequiresReconfirmation!: boolean;
+  screeningPolicy!: AutoScreeningPolicyResponseDto | null;
 }

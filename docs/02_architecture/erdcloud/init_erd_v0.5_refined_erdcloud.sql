@@ -339,6 +339,28 @@ CREATE TABLE evaluation_criteria (
     ncs_profile_version VARCHAR(80)
 );
 
+CREATE TABLE auto_screening_policies (
+    posting_id BIGINT PRIMARY KEY,
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    pass_min_total_score INTEGER NOT NULL,
+    hold_min_total_score INTEGER NOT NULL,
+    require_all_criteria_pass BOOLEAN NOT NULL DEFAULT TRUE,
+    policy_version INTEGER NOT NULL DEFAULT 1,
+    decision_policy_version VARCHAR(80) NOT NULL DEFAULT 'AUTO_SCREENING_DECISION_V1',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT ck_auto_screening_policy_total_scores CHECK (
+        hold_min_total_score >= 0
+        AND hold_min_total_score < pass_min_total_score
+        AND pass_min_total_score <= 100
+    ),
+    CONSTRAINT ck_auto_screening_policy_v1 CHECK (
+        require_all_criteria_pass = TRUE
+        AND policy_version >= 1
+        AND decision_policy_version = 'AUTO_SCREENING_DECISION_V1'
+    )
+);
+
 CREATE TABLE question_bank (
     -- 질문 PK
     question_id BIGINT PRIMARY KEY,
@@ -497,9 +519,21 @@ CREATE TABLE applications (
     -- PENDING, GENERATING, COMPLETED, FAILED
     report_status VARCHAR(40) NOT NULL,
 
-    -- 기업 담당자의 다음 전형 판정:
-    -- UNDECIDED, PASS, HOLD, FAIL
+    -- 자동 판정 결과: UNDECIDED, PASS, HOLD, FAIL, RETRY
     screening_decision VARCHAR(40),
+
+    screening_decision_reason_code VARCHAR(80),
+
+    screening_decision_policy_version VARCHAR(80),
+
+    screening_policy_version INTEGER,
+
+    screening_criteria_version INTEGER,
+
+    -- 멱등 snapshot에 적용한 리포트. API에는 노출하지 않음
+    screening_decision_report_id BIGINT UNIQUE,
+
+    screening_decided_at TIMESTAMP,
 
     -- 기업 담당자 메모
     screening_memo TEXT,
@@ -511,7 +545,27 @@ CREATE TABLE applications (
     submitted_at TIMESTAMP,
 
     -- 지원 건 마지막 수정 시각
-    updated_at TIMESTAMP NOT NULL
+    updated_at TIMESTAMP NOT NULL,
+
+    CONSTRAINT ck_applications_screening_reason_matches_decision CHECK (
+        screening_decision_reason_code IS NULL
+        OR (screening_decision = 'PASS' AND screening_decision_reason_code = 'PASS_TOTAL_AND_CRITERIA_MET')
+        OR (screening_decision = 'HOLD' AND screening_decision_reason_code IN ('HOLD_TOTAL_BAND', 'HOLD_CRITERION_BELOW_PASS_SCORE'))
+        OR (screening_decision = 'FAIL' AND screening_decision_reason_code = 'FAIL_BELOW_HOLD_THRESHOLD')
+        OR (screening_decision = 'RETRY' AND screening_decision_reason_code IN ('RETRY_REPORT_FAILED', 'RETRY_STT_UNAVAILABLE', 'RETRY_EVALUATION_INCOMPLETE', 'RETRY_SCORE_MISSING'))
+    ),
+    CONSTRAINT ck_applications_screening_snapshot_complete CHECK (
+        screening_decision_reason_code IS NULL
+        OR (
+            screening_decision_policy_version IS NOT NULL
+            AND screening_policy_version IS NOT NULL
+            AND screening_policy_version >= 1
+            AND screening_criteria_version IS NOT NULL
+            AND screening_criteria_version >= 1
+            AND screening_decision_report_id IS NOT NULL
+            AND screening_decided_at IS NOT NULL
+        )
+    )
 );
 
 -- 동일 지원자·공고에는 취소되지 않은 활성 지원서가 최대 하나만 존재한다.
@@ -791,7 +845,7 @@ CREATE TABLE evaluation_reports (
     -- 리포트 생성 시각
     generated_at TIMESTAMP,
 
-    -- 실패 구분: RETRYABLE, NON_RETRYABLE
+    -- 실패 구분: RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED, REGENERATION_REQUIRED, RETRY_EXHAUSTED
     failure_category VARCHAR(40),
 
     -- 실패 사유
@@ -1081,11 +1135,22 @@ CREATE TABLE ai_process_logs (
     -- 출력 참조값
     output_ref TEXT,
 
-    -- 실패 구분: RETRYABLE, NON_RETRYABLE
+    -- 실패 구분: RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED, REGENERATION_REQUIRED, RETRY_EXHAUSTED
     failure_category VARCHAR(40),
 
     -- 실패 사유
     failure_reason TEXT,
+
+    -- 실제 provider 실행 시도와 고정 한도
+    attempt_count INTEGER NOT NULL DEFAULT 1 CHECK (attempt_count BETWEEN 1 AND 3),
+    max_attempts INTEGER NOT NULL DEFAULT 3 CHECK (max_attempts = 3),
+
+    -- retryable 실패 뒤 900초 visibility 종료 예정 시각
+    next_retry_at TIMESTAMP,
+
+    -- INITIAL 또는 OPERATOR 명시적 재처리 audit
+    retry_source VARCHAR(30) NOT NULL DEFAULT 'INITIAL' CHECK (retry_source IN ('INITIAL', 'OPERATOR')),
+    retry_of_process_log_id BIGINT,
 
     -- 현재 작업을 claim한 worker 실행 식별자
     lease_owner VARCHAR(160),
@@ -1250,6 +1315,11 @@ ALTER TABLE evaluation_criteria
     ADD CONSTRAINT fk_evaluation_criteria_tag
     FOREIGN KEY (tag_id) REFERENCES criterion_tags(tag_id);
 
+ALTER TABLE auto_screening_policies
+    ADD CONSTRAINT fk_auto_screening_policies_posting
+    FOREIGN KEY (posting_id) REFERENCES postings(posting_id)
+    ON DELETE CASCADE;
+
 ALTER TABLE question_bank
     ADD CONSTRAINT fk_question_bank_company
     FOREIGN KEY (company_id) REFERENCES companies(company_id);
@@ -1324,6 +1394,11 @@ ALTER TABLE applications
 ALTER TABLE applications
     ADD CONSTRAINT fk_applications_candidate
     FOREIGN KEY (candidate_id) REFERENCES candidate_profiles(candidate_id);
+
+ALTER TABLE applications
+    ADD CONSTRAINT fk_applications_screening_decision_report
+    FOREIGN KEY (screening_decision_report_id) REFERENCES evaluation_reports(report_id)
+    ON DELETE RESTRICT;
 
 ALTER TABLE application_documents
     ADD CONSTRAINT fk_application_documents_application
@@ -1521,6 +1596,11 @@ ALTER TABLE ai_process_logs
     ADD CONSTRAINT fk_ai_process_logs_session
     FOREIGN KEY (session_id) REFERENCES interview_sessions(session_id);
 
+ALTER TABLE ai_process_logs
+    ADD CONSTRAINT fk_ai_process_logs_retry_of
+    FOREIGN KEY (retry_of_process_log_id) REFERENCES ai_process_logs(process_log_id)
+    ON DELETE SET NULL;
+
 ALTER TABLE ai_guardrail_logs
     ADD CONSTRAINT fk_ai_guardrail_logs_process
     FOREIGN KEY (process_log_id) REFERENCES ai_process_logs(process_log_id);
@@ -1626,5 +1706,108 @@ CREATE INDEX idx_answer_fact_check_claims_verdict ON answer_fact_check_claims(ve
 CREATE INDEX idx_answer_fact_check_evidences_snapshot ON answer_fact_check_evidences(source_snapshot_id);
 CREATE INDEX idx_ai_process_logs_application ON ai_process_logs(application_id);
 CREATE INDEX idx_ai_process_logs_status_lease ON ai_process_logs(status, lease_expires_at);
+CREATE INDEX idx_ai_process_logs_retry_of ON ai_process_logs(retry_of_process_log_id);
+CREATE UNIQUE INDEX uq_ai_process_logs_active_report_application
+    ON ai_process_logs(application_id)
+    WHERE application_id IS NOT NULL
+      AND process_type = 'REPORT_GENERATE'
+      AND (
+          status IN ('PENDING', 'RUNNING')
+          OR (
+              status = 'FAILED'
+              AND failure_category IN ('RETRYABLE', 'STT_RETRYABLE')
+              AND attempt_count < 3
+              AND next_retry_at IS NOT NULL
+          )
+      );
 CREATE INDEX idx_embeddings_source_type ON embeddings(source_type);
 CREATE INDEX idx_embeddings_source_hash ON embeddings(source_text_hash);
+
+-- =========================================================
+-- 8. 지정 공고용 합성 지원자 importer manifest
+-- =========================================================
+
+CREATE TABLE synthetic_applicant_datasets (
+    dataset_id VARCHAR(64) PRIMARY KEY,
+    environment VARCHAR(30) NOT NULL,
+    posting_id BIGINT NOT NULL,
+    company_id BIGINT NOT NULL,
+    active_count INTEGER NOT NULL,
+    canceled_count INTEGER NOT NULL,
+    interactive_count INTEGER NOT NULL,
+    pipeline_selection_count INTEGER NOT NULL DEFAULT 0,
+    batch_size INTEGER NOT NULL,
+    options_hash VARCHAR(64) NOT NULL,
+    manifest_version VARCHAR(40) NOT NULL DEFAULT 'SYNTHETIC_APPLICANT_MANIFEST_V1',
+    status VARCHAR(30) NOT NULL,
+    last_error TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL,
+    applied_at TIMESTAMP,
+    cleaned_at TIMESTAMP,
+    CONSTRAINT ck_synthetic_applicant_datasets_counts CHECK (
+        active_count >= 100
+        AND active_count <= 5000
+        AND canceled_count >= 0
+        AND canceled_count <= active_count
+        AND interactive_count = 10
+        AND pipeline_selection_count BETWEEN 0 AND 10
+        AND batch_size BETWEEN 10 AND 500
+    ),
+    CONSTRAINT ck_synthetic_applicant_datasets_status CHECK (
+        status IN ('APPLYING', 'APPLIED', 'PARTIAL', 'FAILED', 'CLEANING', 'CLEANED')
+    )
+);
+
+CREATE TABLE synthetic_applicant_records (
+    record_id BIGSERIAL PRIMARY KEY,
+    dataset_id VARCHAR(64) NOT NULL,
+    ordinal INTEGER NOT NULL,
+    user_id BIGINT NOT NULL,
+    candidate_id BIGINT NOT NULL,
+    application_id BIGINT NOT NULL,
+    is_interactive BOOLEAN NOT NULL,
+    is_canceled BOOLEAN NOT NULL,
+    lifecycle_stage VARCHAR(40) NOT NULL,
+    data_depth VARCHAR(40) NOT NULL,
+    pipeline_selected BOOLEAN NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    cleaned_at TIMESTAMP,
+    CONSTRAINT ck_synthetic_applicant_records_ordinal CHECK (ordinal >= 1),
+    CONSTRAINT ck_synthetic_applicant_records_stage CHECK (
+        lifecycle_stage IN (
+            'DOCUMENT_PROCESSING', 'DOCUMENT_REVIEW', 'INTERVIEW_WAITING',
+            'INTERVIEW_IN_PROGRESS', 'REPORT_COMPLETED', 'FAILED', 'CANCELED'
+        )
+    ),
+    CONSTRAINT ck_synthetic_applicant_records_depth CHECK (
+        data_depth IN ('LIGHTWEIGHT', 'PROFILE', 'INTERVIEW', 'REPORT')
+    ),
+    CONSTRAINT fk_synthetic_applicant_records_dataset
+        FOREIGN KEY (dataset_id) REFERENCES synthetic_applicant_datasets(dataset_id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+ALTER TABLE synthetic_applicant_datasets
+    ADD CONSTRAINT fk_synthetic_applicant_datasets_posting
+    FOREIGN KEY (posting_id) REFERENCES postings(posting_id)
+    ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE synthetic_applicant_datasets
+    ADD CONSTRAINT fk_synthetic_applicant_datasets_company
+    FOREIGN KEY (company_id) REFERENCES companies(company_id)
+    ON DELETE RESTRICT ON UPDATE CASCADE;
+
+CREATE UNIQUE INDEX uq_synthetic_applicant_records_dataset_ordinal
+    ON synthetic_applicant_records(dataset_id, ordinal);
+CREATE UNIQUE INDEX uq_synthetic_applicant_records_user
+    ON synthetic_applicant_records(user_id);
+CREATE UNIQUE INDEX uq_synthetic_applicant_records_candidate
+    ON synthetic_applicant_records(candidate_id);
+CREATE UNIQUE INDEX uq_synthetic_applicant_records_application
+    ON synthetic_applicant_records(application_id);
+CREATE INDEX idx_synthetic_applicant_datasets_posting_status
+    ON synthetic_applicant_datasets(posting_id, status);
+CREATE INDEX idx_synthetic_applicant_datasets_company_status
+    ON synthetic_applicant_datasets(company_id, status);
+CREATE INDEX idx_synthetic_applicant_records_dataset_cleaned
+    ON synthetic_applicant_records(dataset_id, cleaned_at);

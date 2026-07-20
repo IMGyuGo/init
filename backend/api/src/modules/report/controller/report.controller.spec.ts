@@ -149,6 +149,15 @@ function assertNoRecruitingInternalFields(data: Record<string, unknown>) {
   assert.equal("companyMemo" in data, false);
   assert.equal("manualEvaluation" in data, false);
   assert.equal("manualEvaluations" in data, false);
+  assert.equal("screeningDecisionReasonCode" in data, false);
+  assert.equal("screeningDecisionPolicyVersion" in data, false);
+  assert.equal("screeningPolicyVersion" in data, false);
+  assert.equal("screeningCriteriaVersion" in data, false);
+  assert.equal("screeningDecisionReportId" in data, false);
+  assert.equal("screeningDecidedAt" in data, false);
+  assert.equal("screeningMemo" in data, false);
+  assert.equal("passMinTotalScore" in data, false);
+  assert.equal("holdMinTotalScore" in data, false);
 }
 
 async function runReportControllerAssertions() {
@@ -487,6 +496,27 @@ async function runReportControllerAssertions() {
     recruitingReportInput.payload?.answers?.some((answer) => "nonverbalMetadata" in answer),
     false,
   );
+
+  candidateReportRepository.saveReport({
+    reportId: submitted.application.applicationId,
+    applicationId: submitted.application.applicationId,
+    sessionId: session.sessionId,
+    reportType: "RECRUITING_REPORT",
+    status: "FAILED",
+    failureReason: "PRIVATE_TRANSCRIPT_FRAGMENT provider timeout for candidate@example.com",
+    generatedAt: "2026-07-02T00:02:30.000Z",
+    scores: [],
+  });
+  submitted.application.screeningDecision = "RETRY";
+  const failedApplicationReport = await controller.getApplicationReport(
+    validCandidateRequest,
+    String(submitted.application.applicationId),
+  );
+  assert.equal(failedApplicationReport.data.status, "FAILED");
+  assert.equal(failedApplicationReport.data.screeningDecision, "RETRY");
+  assertNoRecruitingInternalFields(failedApplicationReport.data as unknown as Record<string, unknown>);
+  assert.equal(failedApplicationReport.data.candidateMessage, "면접 분석을 완료하지 못했습니다. 재처리를 진행하고 있습니다.");
+  assert.doesNotMatch(failedApplicationReport.data.candidateMessage, /PRIVATE_TRANSCRIPT_FRAGMENT|candidate@example\.com/);
 
   candidateReportRepository.saveReport({
     reportId: submitted.application.applicationId,

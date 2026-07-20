@@ -10,7 +10,7 @@ import {
   InterviewType as PrismaInterviewType,
   QuestionUsageScope as PrismaQuestionUsageScope,
   ReportStatus as PrismaReportStatus,
-  type Prisma,
+  Prisma,
 } from "@prisma/client";
 import { PrismaService } from "../../../shared/prisma.service";
 import {
@@ -1669,8 +1669,14 @@ export class PrismaCandidateRepository implements CandidateRepository {
   }): Promise<ApplicationSubmissionResult> {
     try {
       return await this.prisma.$transaction(async (tx) => {
-      const now = new Date();
-      const application = await tx.application.create({
+        await tx.$queryRaw<Array<{ posting_id: bigint }>>`
+          SELECT "posting_id"
+          FROM "postings"
+          WHERE "posting_id" = ${BigInt(input.postingId)}
+          FOR KEY SHARE
+        `;
+        const now = new Date();
+        const application = await tx.application.create({
         data: {
           postingId: BigInt(input.postingId),
           candidateId: BigInt(input.candidateId),
@@ -1799,6 +1805,13 @@ export class PrismaCandidateRepository implements CandidateRepository {
       if (applicationIds.length === 0) {
         return { applicationIds: [], mediaStorageKeys: [] };
       }
+      await tx.$queryRaw<Array<{ applicationId: bigint }>>`
+        SELECT "application_id" AS "applicationId"
+        FROM "applications"
+        WHERE "application_id" IN (${Prisma.join(applicationIds)})
+        ORDER BY "application_id" ASC
+        FOR UPDATE
+      `;
 
       const documents = await tx.applicationDocument.findMany({
         where: { applicationId: { in: applicationIds } },
@@ -1814,6 +1827,47 @@ export class PrismaCandidateRepository implements CandidateRepository {
         select: { sessionId: true },
       });
       const sessionIds = sessions.map((session) => session.sessionId);
+      if (sessionIds.length > 0) {
+        await tx.$queryRaw<Array<{ sessionId: bigint }>>`
+          SELECT "session_id" AS "sessionId"
+          FROM "interview_sessions"
+          WHERE "session_id" IN (${Prisma.join(sessionIds)})
+          ORDER BY "session_id" ASC
+          FOR UPDATE
+        `;
+      }
+
+      const processLogs = await tx.aiProcessLog.findMany({
+        where: {
+          OR: [{ applicationId: { in: applicationIds } }, { sessionId: { in: sessionIds } }],
+        },
+        select: {
+          processLogId: true,
+          status: true,
+          failureCategory: true,
+          attemptCount: true,
+          maxAttempts: true,
+          nextRetryAt: true,
+        },
+      });
+      const hasActiveProcess = processLogs.some((processLog) =>
+        processLog.status === "PENDING" ||
+        processLog.status === "RUNNING" ||
+        (
+          processLog.status === "FAILED" &&
+          (processLog.failureCategory === "RETRYABLE" || processLog.failureCategory === "STT_RETRYABLE") &&
+          processLog.attemptCount < processLog.maxAttempts &&
+          processLog.nextRetryAt !== null
+        ),
+      );
+      if (hasActiveProcess) {
+        throw new CandidateDomainError(
+          "COMMON_CONFLICT",
+          "AI 처리가 진행 중인 지원서는 초기화할 수 없습니다. 처리가 완료된 후 다시 시도해주세요.",
+          409,
+        );
+      }
+      const processLogIds = processLogs.map((processLog) => processLog.processLogId);
 
       const answers = await tx.interviewAnswer.findMany({
         where: { sessionId: { in: sessionIds } },
@@ -1843,14 +1897,6 @@ export class PrismaCandidateRepository implements CandidateRepository {
       });
       const scoreIds = scores.map((score) => score.scoreId);
 
-      const processLogs = await tx.aiProcessLog.findMany({
-        where: {
-          OR: [{ applicationId: { in: applicationIds } }, { sessionId: { in: sessionIds } }],
-        },
-        select: { processLogId: true },
-      });
-      const processLogIds = processLogs.map((processLog) => processLog.processLogId);
-
       await tx.embedding.deleteMany({
         where: {
           OR: [
@@ -1871,6 +1917,18 @@ export class PrismaCandidateRepository implements CandidateRepository {
       });
       await tx.manualEvaluation.deleteMany({ where: { reportId: { in: reportIds } } });
       await tx.reportScore.deleteMany({ where: { reportId: { in: reportIds } } });
+      await tx.application.updateMany({
+        where: { applicationId: { in: applicationIds } },
+        data: {
+          screeningDecision: "UNDECIDED",
+          screeningDecisionReasonCode: null,
+          screeningDecisionPolicyVersion: null,
+          screeningPolicyVersion: null,
+          screeningCriteriaVersion: null,
+          screeningDecisionReportId: null,
+          screeningDecidedAt: null,
+        },
+      });
       await tx.evaluationReport.deleteMany({ where: { reportId: { in: reportIds } } });
 
       await tx.followUpQuestion.deleteMany({ where: { answerId: { in: answerIds } } });

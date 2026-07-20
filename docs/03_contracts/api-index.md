@@ -99,6 +99,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-097 | 기업 - 면접관리 | PATCH | /company/interviews/question-generation-policy | JD·이력서 질문 개수와 NCS 배분 정책 저장 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-098 | 기업 - 면접관리 | GET | /company/interviews/applications/{applicationId}/resume-questions | 지원자별 이력서 질문 생성 상태·검토 목록 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-099 | 기업 - 면접관리 | POST | /company/interviews/applications/{applicationId}/resume-questions/retry | 실패·검토 필요 이력서 질문 재생성 | 기업 / 기업 사용자 로그인 | Y | 202 Accepted |
+| API-100 | AI/리포트 처리 | POST | /admin/applications/{applicationId}/screening-retry | RETRY 상태 REPORT 명시적 재처리 | ADMIN | Y | 202 Accepted |
 | API-087 | 기업 - 설정 | GET | /company/profile | 회사 정보 조회 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-041 | 기업 - 설정 | PATCH | /company/profile | 회사 정보 수정 | 기업 / 기업 사용자 로그인 | N | 200 OK |
 | API-042 | 기업 - 설정 | POST | /company/profile/logo | 회사 로고 이미지 업로드 | 기업 / 기업 사용자 로그인 | N | 201 Created |

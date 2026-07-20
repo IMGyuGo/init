@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  Equals,
   IsArray,
   IsBoolean,
   IsInt,
@@ -53,6 +54,31 @@ export class EvaluationCriterionItemDto {
   sortOrder!: number;
 }
 
+export class AutoScreeningPolicyInputDto {
+  @IsBoolean()
+  enabled!: boolean;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  passMinTotalScore!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  holdMinTotalScore!: number;
+
+  @Equals(true)
+  requireAllCriteriaPass!: true;
+}
+
+export class AutoScreeningPolicyResponseDto extends AutoScreeningPolicyInputDto {
+  policyVersion!: number;
+  decisionPolicyVersion!: 'AUTO_SCREENING_DECISION_V1';
+}
+
 export class UpdateEvaluationCriterionDto {
   @Type(() => Number)
   @IsInt()
@@ -67,6 +93,11 @@ export class UpdateEvaluationCriterionDto {
   @ValidateNested({ each: true })
   @Type(() => EvaluationCriterionItemDto)
   criteria!: EvaluationCriterionItemDto[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AutoScreeningPolicyInputDto)
+  screeningPolicy?: AutoScreeningPolicyInputDto;
 
   @IsOptional()
   @IsBoolean()
@@ -102,4 +133,5 @@ export class EvaluationCriterionResponseDto {
     multiBoundActiveQuestionCount: number;
   }>;
   questionSetRequiresReconfirmation!: boolean;
+  screeningPolicy!: AutoScreeningPolicyResponseDto | null;
 }

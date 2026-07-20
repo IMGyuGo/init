@@ -84,6 +84,7 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - CurrentUser/Dev Auth: `docs/03_contracts/dev-auth-contract.md` 기준. JWT 구현 전에는 local/dev 환경에서 `X-Dev-*` 헤더로 동일한 `CurrentUser`를 만든다.
 - Session: 로그인 성공 시 `accessToken`은 응답 본문으로 반환하고 `refreshToken`은 HttpOnly cookie로 설정한다. 프론트엔드는 protected API에 `Authorization: Bearer {accessToken}`을 사용한다.
 - Google OAuth: 지원자(`CANDIDATE`) 개인 계정만 허용한다. 기업(`COMPANY`) 계정은 이메일 회원가입/로그인만 사용하며 Google OAuth 요청은 `AUTH_USER_TYPE_MISMATCH` 또는 `COMMON_FORBIDDEN`으로 거부한다.
+- 기존 이메일 계정의 Google OAuth 로그인은 `users.status=ACTIVE`, `auth_provider=GOOGLE`, provider user ID 일치 조건을 모두 만족해야 한다. LOCAL/PENDING 계정을 이메일 일치만으로 로그인시키지 않는다.
 - Email delivery: 이메일 인증과 비밀번호 재설정 코드는 Redis TTL 캐시에 저장하고 SMTP로 발송한다.
 
 ### Response Envelope Baseline
@@ -204,7 +205,7 @@ STT 미인식·의미 품질 실패 답변 처리:
 - 이 경우 답변별 NCS 평가는 `scoreStatus=INSUFFICIENT_INPUT`과 모든 nullable 점수 `NULL`로 저장하고 평가 근거 및 `ReportScore`를 생성하지 않는다.
 - 최종 리포트는 해당 profile 점수와 `totalScore`를 `NULL`, `thresholdResult=INCOMPLETE`로 유지한다. 발표 정책 `NCS_INCOMPLETE_AS_FAIL_DEMO_V1`에 따라 화면상 AI 판정만 `FAIL`이며 실제 `applications.screening_decision`은 변경하지 않는다.
 - 화면 피드백은 `평가 미완료`와 인식 실패 사유를 표시한다. 최초 `REANSWER_REQUIRED`에는 한 번의 재답변을 제공하고, 두 번째 인식 실패 또는 재답변 미사용 상태로 면접을 완료한 경우 `STT_UNAVAILABLE`로 확정한다.
-- STT job의 provider timeout과 worker 중단이 재시도 중인 동안에는 `STT_UNAVAILABLE`로 변환하지 않는다. 최신 transcript 처리 process가 STT 또는 의미 품질 FOLLOW_UP의 `FAILED + REANSWER_REQUIRED`이거나 STT 재시도 한도를 소진한 `FAILED + NON_RETRYABLE`이면 terminal `STT_UNAVAILABLE`로 확정한다.
+- STT job의 provider timeout과 worker 중단이 재시도 중인 동안에는 `STT_UNAVAILABLE`로 변환하지 않는다. 최신 transcript 처리 process가 STT 또는 의미 품질 FOLLOW_UP의 `FAILED + REANSWER_REQUIRED`, 인식 불가로 분류된 `FAILED + NON_RETRYABLE`, 자동 재시도 한도를 소진한 `FAILED + RETRY_EXHAUSTED`이면 terminal `STT_UNAVAILABLE`로 확정한다. 단, `RETRY_EXHAUSTED`는 `REANSWER_REQUIRED`로 변환하지 않고 `reanswerAvailable=false`인 운영 확인 상태를 유지한다.
 - 의미 품질은 답변 내용을 잘했는지 평가하지 않고 STT 문장을 신뢰성 있게 해석할 수 있는지만 판별한다. 판별 provider 실패·timeout·invalid output은 fail-open으로 처리해 면접 진행을 막지 않는다.
 - 과거 `STT_UNAVAILABLE_TEMP_ZERO` 행은 조회 호환만 유지하며 신규 생성하거나 NCS 집계에 재사용하지 않는다.
 - 정상 transcript가 있는 답변만 서비스 기본 평가 기준과 점수 구간에 따라 품질 평가한다.
@@ -359,6 +360,7 @@ AI 리포트 금지 기준:
   - 이메일, 인증 코드, 새 비밀번호, 새 비밀번호 확인
 - 검증/전제조건:
   - 가입된 이메일, 인증 코드 유효, 새 비밀번호 정책 충족, 새 비밀번호 확인 일치
+  - `ACTIVE + LOCAL + passwordHash 존재` 계정만 비밀번호를 재설정할 수 있다.
 - 성공 응답/처리:
   - 비밀번호 재설정 완료 후 로그인 화면으로 이동
 - 오류/예외:
@@ -377,6 +379,7 @@ AI 리포트 금지 기준:
   - 이메일
 - 검증/전제조건:
   - 가입된 이메일이어야 함
+  - `ACTIVE + LOCAL + passwordHash 존재` 계정이어야 하며 PENDING 합성 계정에는 코드를 발송하지 않는다.
 - 성공 응답/처리:
   - 인증 코드 입력 영역 활성화
 - 오류/예외:
@@ -396,6 +399,7 @@ AI 리포트 금지 기준:
   - 이메일, 인증 코드
 - 검증/전제조건:
   - 인증 코드가 유효하고 만료되지 않아야 함
+  - `ACTIVE + LOCAL + passwordHash 존재` 계정이어야 한다.
 - 성공 응답/처리:
   - 새 비밀번호 입력 영역 활성화
 - 오류/예외:
@@ -1805,7 +1809,7 @@ AI 리포트 금지 기준:
   - 평가 기준과 자동 판정 정책은 하나의 transaction에서 저장하고, 둘 중 하나라도 실패하면 전체 rollback한다.
   - 평가 기준 하한선 또는 자동 판정 정책이 바뀌면 `policyVersion`을 1 증가시킨다.
   - V2 profile 해제 시 단일 binding 질문은 `isActive=false`, multi-binding 질문은 `REVIEW_REQUIRED`로 보존하고 ACTIVE 질문 세트를 재확정 대상으로 만든다.
-  - 정책 row가 없으면 같은 transaction에서 기본 정책 row를 생성하고 첫 저장 결과의 `criteriaVersion=1`로 응답한다.
+  - 요청에 `screeningPolicy`가 없고 기존 정책 row도 없으면 정책을 임의 생성하지 않으며 `screeningPolicy=null`로 응답한다. 이 경우 자동 판정은 `UNDECIDED`를 유지한다.
   - 평가 기준 변경과 `criteriaVersion` 증가는 하나의 transaction으로 처리한다.
   - `criteriaVersion`이 변경되고 개인화 질문 수가 1개 이상이면, 이미 지원 완료됐고 이력서 추출이 끝난 지원자의 현재 입력 snapshot을 기준으로 `RESUME_QUESTION_GENERATE` 작업을 자동 등록한다.
   - 현재 version의 `READY` 또는 `GENERATING` batch가 이미 있으면 중복 작업을 만들지 않는다. queue 등록 실패는 해당 batch/process를 `FAILED`로 기록하며 평가 기준 저장 자체를 되돌리지 않는다.
@@ -2393,7 +2397,7 @@ Allocation Examples:
 - 검증/전제조건:
   - 평가 완료 상태 또는 NCS `INCOMPLETE` 상태가 명시적으로 확정됨
   - private follow-up 답변은 `follow_up_questions.inserted_session_question_id = interview_answers.session_question_id`로 원본 `answer_id`와 연결한다. 질문 문장, 답변 순서 또는 생성 시각으로 부모 답변을 추측하지 않는다.
-  - 세션의 모든 답변은 transcript가 저장됐거나 최신 STT process가 `FAILED + REANSWER_REQUIRED` 또는 재시도 소진 `FAILED + NON_RETRYABLE`인 `STT_UNAVAILABLE` terminal 상태여야 한다. STT가 아직 처리 중인 답변이 있으면 리포트 작업을 생성하지 않고 `409 COMMON_CONFLICT`를 반환한다.
+  - 세션의 모든 답변은 transcript가 저장됐거나 최신 STT process가 `FAILED + REANSWER_REQUIRED`, 인식 불가 `FAILED + NON_RETRYABLE`, 자동 재시도 소진 `FAILED + RETRY_EXHAUSTED`인 `STT_UNAVAILABLE` terminal 상태여야 한다. STT가 아직 처리 중인 답변이 있으면 리포트 작업을 생성하지 않고 `409 COMMON_CONFLICT`를 반환한다. `RETRY_EXHAUSTED`는 리포트 생성을 더 이상 `STT_PROCESSING`으로 막지 않지만 지원자 재답변은 허용하지 않는다.
 - 성공 응답/처리:
   - 평가 리포트 저장
   - NCS 리포트는 `profileScores`, `totalScore`, `thresholdResult`, `aiDecision`, `decisionReason`, `scoringVersion`, `decisionPolicyVersion`을 저장·응답한다.
@@ -2428,6 +2432,30 @@ Allocation Examples:
   - evaluation_reports, report_scores, report_evidences, manual_evaluations, ai_process_logs, ai_guardrail_logs
 - 비고/미결:
   - 독립 화면 아님. 모든 AI 평가/생성 단계의 공통 정책 레이어
+
+### API-100 POST /admin/applications/{applicationId}/screening-retry
+- 도메인: AI/리포트 처리
+- 권한/인증: ADMIN
+- 상태 코드: 202 Accepted
+- 비동기: Y
+- Path Params: applicationId
+- 요청 데이터: 없음
+- 검증/전제조건:
+  - application의 `screeningDecision=RETRY`여야 한다.
+  - `RETRY_REPORT_FAILED`, `RETRY_EVALUATION_INCOMPLETE`, `RETRY_SCORE_MISSING`만 REPORT 재처리 job을 생성한다.
+  - `RETRY_STT_UNAVAILABLE`은 REPORT만 재처리하지 않고 `action=CANDIDATE_REANSWER_REQUIRED`, `operatorReviewRequired=true`를 반환한다. 이 action은 기존 RETRY 라우팅 구분이며 재답변 허가 자체가 아니다. 실제 허가는 면접 조회의 `reanswerAvailable`을 따르고, 최신 STT가 `RETRY_EXHAUSTED`이면 `reanswerAvailable=false`인 운영 확인 상태다.
+- 성공 응답/처리:
+  - 새 job은 이전 REPORT process의 server-side `inputRef`, 같은 `reportId`와 application/session 참조를 재사용한다.
+  - 새 process log는 `retrySource=OPERATOR`, `retryOfProcessLogId`를 보존한다.
+  - 같은 application의 최신 REPORT job이 `PENDING | RUNNING` 또는 자동 재시도 backoff 중인 `FAILED(RETRYABLE | STT_RETRYABLE, attempt < 3, nextRetryAt 존재)`이면 새 row와 SQS 메시지를 만들지 않고 기존 `processLogId`, `idempotentReplay=true`를 반환한다.
+  - 응답은 `action`, `processLogId`, `status`, `queued`, `idempotentReplay`, `attempt`, `maxAttempts`, `nextRetryAt`, `operatorReviewRequired`를 포함한다.
+  - 생성된 `processLogId`는 기존 `GET /ai/jobs/{processLogId}/status`로 ADMIN이 확인한다.
+- 오류/예외:
+  - application 또는 재사용할 REPORT process가 없으면 `COMMON_NOT_FOUND`다.
+  - RETRY 상태가 아니면 `COMMON_CONFLICT`다.
+  - queue 발행 실패는 개인정보·원문 없는 고정 사유로 FAILED 처리한다.
+- 관련 ERD 테이블:
+  - applications, evaluation_reports, ai_process_logs
 
 ## 기업 - 설정
 
@@ -3618,6 +3646,7 @@ CandidateFolder 입력 제한:
   - base 평가상 불필요하면 `SKIPPED/NOT_REQUIRED`로 저장하며 질문 목록은 변경하지 않는다.
   - 프론트는 완료된 job 상태를 확인한 뒤 정식 질문 목록을 다시 조회하며 별도 삽입 API를 호출하지 않는다.
   - `qualityCheckOnly=true` 성공은 `followUpRequired=false`, `transcriptUsability=USABLE|CHECK_UNAVAILABLE`을 반환하고 `follow_up_questions` row를 만들지 않는다.
+  - `SALTLUX_AI_BACKEND_V1 + DEMO_PRESET`의 개인화 답변은 답변 저장 직후 API가 고정 꼬리질문을 동일 snapshot과 시간 정책으로 동기 삽입한다. API-071 worker 호출은 이미 삽입된 결과를 재사용하는 멱등 보조 경로다.
 - 오류/예외:
   - 이미 1회 생성했거나 snapshot이 불완전하면 `INTERVIEW_NCS_BINDING_INVALID`로 생성하지 않는다.
   - 결과 저장 시 세션이 `IN_PROGRESS`가 아니면 `SKIPPED/SESSION_NOT_IN_PROGRESS`로 저장한다.
@@ -3643,10 +3672,11 @@ CandidateFolder 입력 제한:
   - 필수 질문 응답 완료
 - 성공 응답/처리:
   - 분석 대기 상태로 전환
+  - `SALTLUX_AI_BACKEND_V1 + DEMO_PRESET`은 세션 완료 후 API가 고정 3문항 답변과 NCS snapshot을 검증하고 총점, 역량별 점수, 문항별 평가와 evidence를 동기 확정한다. 응답 시점의 report/process 상태는 `COMPLETED`이며 SQS를 발행하지 않는다. 동일 요청은 기존 완료 결과를 멱등 반환한다.
 - 오류/예외:
   - 업로드 지연 시 분석 대기 상태로 표시하고 재시도를 수행한다.
 - 관련 ERD 테이블:
-  - candidate_profiles, file_assets, postings, question_bank, applications, interview_sessions, interview_answers, ai_process_logs
+  - candidate_profiles, file_assets, postings, question_bank, applications, interview_sessions, interview_answers, evaluation_reports, report_scores, report_evidences, ncs_answer_evaluations, ncs_answer_evaluation_evidences, ai_process_logs
 - 비고/미결:
   - 완료 후 지원현황에는 분석중 상태 표시
 

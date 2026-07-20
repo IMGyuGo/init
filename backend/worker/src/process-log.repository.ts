@@ -6,22 +6,33 @@ import {
   FailureReason,
   GuardrailDecision
 } from "./worker.types";
+import { automaticRetryExhaustedFailure, isAutomaticRetryFailureCategory } from "./worker-errors";
 
-export type AiProcessClaimStatus = "CLAIMED" | "COMPLETED" | "BUSY";
+export type AiProcessClaimStatus = "CLAIMED" | "COMPLETED" | "BUSY" | "BACKOFF" | "EXHAUSTED" | "MISSING";
 
-export interface AiProcessClaimResult {
-  status: AiProcessClaimStatus;
-  snapshot: AiProcessLogSnapshot;
+export type AiProcessClaimResult =
+  | { status: "MISSING" }
+  | {
+      status: Exclude<AiProcessClaimStatus, "MISSING">;
+      snapshot: AiProcessLogSnapshot;
+    };
+
+export interface AiProcessRetryState {
+  maxAttempts: number;
+}
+
+export interface AiProcessFailureState {
+  nextRetryAt?: Date | null;
 }
 
 export interface AiProcessLogRepository {
   ensurePending(job: AiWorkerJob): Promise<AiProcessLogSnapshot>;
   findOrphanedPendingJobs(createdBefore: Date, limit: number): Promise<AiWorkerJob[]>;
   markRunning(processLogId: number): Promise<AiProcessLogSnapshot>;
-  claim(job: AiWorkerJob, leaseOwner: string, leaseExpiresAt: Date): Promise<AiProcessClaimResult>;
+  claim(job: AiWorkerJob, leaseOwner: string, leaseExpiresAt: Date, retryState?: AiProcessRetryState): Promise<AiProcessClaimResult>;
   renewClaim(processLogId: number, leaseOwner: string, leaseExpiresAt: Date): Promise<boolean>;
   markCompleted(processLogId: number, outputRef?: string, usage?: AiProcessUsage, leaseOwner?: string): Promise<AiProcessLogSnapshot>;
-  markFailed(processLogId: number, failure: FailureReason, leaseOwner?: string): Promise<AiProcessLogSnapshot>;
+  markFailed(processLogId: number, failure: FailureReason, leaseOwner?: string, retryState?: AiProcessFailureState): Promise<AiProcessLogSnapshot>;
   saveGuardrailLog(processLogId: number, policyName: string, decision: GuardrailDecision): Promise<number>;
 }
 
@@ -49,7 +60,9 @@ export class InMemoryAiProcessLogRepository implements AiProcessLogRepository {
       processLogId: job.processLogId,
       processType: job.processType,
       status: "PENDING",
-      inputRef: job.inputRef
+      inputRef: job.inputRef,
+      attemptCount: Math.max(1, job.attempt),
+      maxAttempts: 3,
     };
     this.processLogs.set(job.processLogId, created);
     this.processLogCreatedAt.set(job.processLogId, new Date());
@@ -60,8 +73,16 @@ export class InMemoryAiProcessLogRepository implements AiProcessLogRepository {
   async findOrphanedPendingJobs(createdBefore: Date, limit: number): Promise<AiWorkerJob[]> {
     return [...this.processLogs.values()]
       .filter((processLog) =>
-        processLog.processType === "RESUME_QUESTION_GENERATE" &&
-        processLog.status === "PENDING" &&
+        (processLog.processType === "RESUME_QUESTION_GENERATE" || processLog.processType === "REPORT_GENERATE") &&
+        (
+          processLog.status === "PENDING" ||
+          (
+            processLog.status === "FAILED" &&
+            Boolean(processLog.failure && isAutomaticRetryFailureCategory(processLog.failure.category)) &&
+            (processLog.attemptCount ?? 1) < (processLog.maxAttempts ?? 3) &&
+            Boolean(processLog.nextRetryAt && Date.parse(processLog.nextRetryAt) <= Date.now())
+          )
+        ) &&
         (this.processLogCreatedAt.get(processLog.processLogId)?.getTime() ?? Number.POSITIVE_INFINITY) <= createdBefore.getTime()
       )
       .slice(0, Math.max(0, limit))
@@ -77,10 +98,31 @@ export class InMemoryAiProcessLogRepository implements AiProcessLogRepository {
     return this.update(processLogId, { status: "RUNNING", startedAt: new Date().toISOString() });
   }
 
-  async claim(job: AiWorkerJob, leaseOwner: string, leaseExpiresAt: Date): Promise<AiProcessClaimResult> {
+  async claim(
+    job: AiWorkerJob,
+    leaseOwner: string,
+    leaseExpiresAt: Date,
+    retryState: AiProcessRetryState = { maxAttempts: 3 },
+  ): Promise<AiProcessClaimResult> {
     const existing = await this.ensurePending(job);
     if (existing.status === "COMPLETED") {
       return { status: "COMPLETED", snapshot: existing };
+    }
+    if (existing.status === "FAILED") {
+      if (existing.failure?.category === "RETRY_EXHAUSTED") {
+        return { status: "EXHAUSTED", snapshot: existing };
+      }
+      if (
+        !existing.failure ||
+        !isAutomaticRetryFailureCategory(existing.failure.category) ||
+        (existing.attemptCount ?? 1) >= (existing.maxAttempts ?? 3) ||
+        !existing.nextRetryAt
+      ) {
+        return { status: "BUSY", snapshot: existing };
+      }
+      if (Date.parse(existing.nextRetryAt) > Date.now()) {
+        return { status: "BACKOFF", snapshot: existing };
+      }
     }
     if (
       existing.status === "RUNNING" &&
@@ -90,6 +132,27 @@ export class InMemoryAiProcessLogRepository implements AiProcessLogRepository {
       return { status: "BUSY", snapshot: existing };
     }
 
+    const currentAttempt = existing.attemptCount ?? 1;
+    const maxAttempts = existing.maxAttempts ?? retryState.maxAttempts;
+    if (existing.status === "RUNNING" && currentAttempt >= maxAttempts) {
+      const completedAt = new Date();
+      const failure = automaticRetryExhaustedFailure(maxAttempts);
+      const snapshot = this.update(job.processLogId, {
+        status: "FAILED",
+        completedAt: completedAt.toISOString(),
+        durationMs: existing.startedAt
+          ? Math.max(0, completedAt.getTime() - Date.parse(existing.startedAt))
+          : undefined,
+        failure,
+        leaseOwner: undefined,
+        leaseExpiresAt: undefined,
+        nextRetryAt: undefined,
+      });
+      return { status: "EXHAUSTED", snapshot };
+    }
+    const attemptCount = existing.status === "PENDING"
+      ? currentAttempt
+      : Math.min(maxAttempts, currentAttempt + 1);
     const snapshot = this.update(job.processLogId, {
       status: "RUNNING",
       leaseOwner,
@@ -98,6 +161,9 @@ export class InMemoryAiProcessLogRepository implements AiProcessLogRepository {
       completedAt: undefined,
       durationMs: undefined,
       failure: undefined,
+      attemptCount,
+      maxAttempts,
+      nextRetryAt: undefined,
     });
     return { status: "CLAIMED", snapshot };
   }
@@ -137,7 +203,12 @@ export class InMemoryAiProcessLogRepository implements AiProcessLogRepository {
     });
   }
 
-  async markFailed(processLogId: number, failure: FailureReason, leaseOwner?: string): Promise<AiProcessLogSnapshot> {
+  async markFailed(
+    processLogId: number,
+    failure: FailureReason,
+    leaseOwner?: string,
+    retryState: AiProcessFailureState = {},
+  ): Promise<AiProcessLogSnapshot> {
     const existing = this.get(processLogId);
     if (leaseOwner && existing.leaseOwner !== leaseOwner) {
       return existing;
@@ -150,6 +221,7 @@ export class InMemoryAiProcessLogRepository implements AiProcessLogRepository {
       leaseExpiresAt: undefined,
       completedAt,
       durationMs: durationMs(existing.startedAt, completedAt),
+      nextRetryAt: retryState.nextRetryAt?.toISOString(),
     });
   }
 

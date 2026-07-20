@@ -5,9 +5,15 @@ import { PrismaCompanyRecruitingRepository } from "./company-recruiting.reposito
 describe("PrismaCompanyRecruitingRepository", () => {
   it("writes application defaults when creating public applications", async () => {
     let capturedData: Record<string, unknown> | null = null;
-    const prisma = {
+    const calls: string[] = [];
+    const tx = {
+      async $queryRaw(strings: TemplateStringsArray, postingId: bigint) {
+        calls.push(`lock:${postingId}:${strings.join("?")}`);
+        return [{ posting_id: postingId }];
+      },
       application: {
         async create(args: { data: Record<string, unknown> }) {
+          calls.push("create");
           capturedData = args.data;
           return {
             applicationId: 77,
@@ -41,6 +47,11 @@ describe("PrismaCompanyRecruitingRepository", () => {
         },
       },
     };
+    const prisma = {
+      async $transaction<T>(callback: (client: typeof tx) => Promise<T>) {
+        return callback(tx);
+      },
+    };
     const repository = new PrismaCompanyRecruitingRepository(prisma as never);
 
     await repository.createApplication({ postingId: 101, candidateId: 44, screeningMemo: null });
@@ -53,6 +64,9 @@ describe("PrismaCompanyRecruitingRepository", () => {
       screeningDecision: "UNDECIDED",
       screeningMemo: null,
     });
+    assert.match(calls[0] ?? "", /^lock:101:\s*SELECT/);
+    assert.match(calls[0] ?? "", /FOR KEY SHARE/);
+    assert.equal(calls[1], "create");
   });
 
   it("archives postings instead of physically deleting recruitment data", async () => {
@@ -163,6 +177,84 @@ describe("PrismaCompanyRecruitingRepository", () => {
     ]);
     assert.deepEqual(capturedOrderBy, [{ interviewStatus: "asc" }, { applicationId: "asc" }]);
     assert.equal((capturedInclude as { evaluationReports: { select: Record<string, boolean> } }).evaluationReports.select.scores, undefined);
+  });
+
+  it("preserves automatic screening projection in applicant list records", async () => {
+    let capturedInclude: unknown;
+    const decidedAt = new Date("2026-07-20T09:00:00.000Z");
+    const prisma = {
+      application: {
+        async findMany(args: { include: unknown }) {
+          capturedInclude = args.include;
+          return [{
+            applicationId: 77n,
+            postingId: 101n,
+            candidateId: 44n,
+            applicantName: "Kim Applicant",
+            applicantEmail: "kim@example.com",
+            applicantPhone: null,
+            githubUrl: null,
+            blogUrl: null,
+            portfolioUrl: null,
+            motivation: null,
+            additionalInfo: null,
+            profileSnapshot: null,
+            applicationStatus: "SUBMITTED",
+            documentStatus: "EXTRACTED",
+            interviewStatus: "COMPLETED",
+            reportStatus: "COMPLETED",
+            screeningDecision: "HOLD",
+            screeningDecisionReasonCode: "HOLD_CRITERION_BELOW_PASS_SCORE",
+            screeningDecisionPolicyVersion: "AUTO_SCREENING_DECISION_V1",
+            screeningPolicyVersion: 2,
+            screeningCriteriaVersion: 3,
+            screeningDecidedAt: decidedAt,
+            screeningMemo: null,
+            submittedAt: decidedAt,
+            updatedAt: decidedAt,
+            candidate: {
+              candidateId: 44n,
+              githubUrl: null,
+              portfolioUrl: null,
+              summary: null,
+              user: {
+                userId: 88n,
+                email: "kim@example.com",
+                name: "Kim Applicant",
+                phone: null,
+              },
+            },
+            posting: {
+              postingId: 101n,
+              title: "Backend Developer",
+              jobRole: "Backend",
+              autoScreeningPolicy: { enabled: true },
+            },
+            evaluationReports: [],
+            interviewSessions: [],
+          }];
+        },
+      },
+    };
+    const repository = new PrismaCompanyRecruitingRepository(prisma as never);
+
+    const [result] = await repository.listApplicationsForPosting(101, 7, {
+      skip: 0,
+      take: 20,
+      sort: "updatedAt",
+      order: "desc",
+    } as never);
+
+    assert.deepEqual(
+      (capturedInclude as { posting: unknown }).posting,
+      { include: { autoScreeningPolicy: { select: { enabled: true } } } },
+    );
+    assert.equal(result.posting.autoScreeningPolicyEnabled, true);
+    assert.equal(result.screeningDecisionReasonCode, "HOLD_CRITERION_BELOW_PASS_SCORE");
+    assert.equal(result.screeningDecisionPolicyVersion, "AUTO_SCREENING_DECISION_V1");
+    assert.equal(result.screeningPolicyVersion, 2);
+    assert.equal(result.screeningCriteriaVersion, 3);
+    assert.equal(result.screeningDecidedAt, decidedAt);
   });
 
   it("summarizes all active applicants without loading detail relations", async () => {

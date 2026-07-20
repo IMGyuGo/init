@@ -8,6 +8,7 @@ export class FailureReasonDto {
       "STT_RETRYABLE",
       "REANSWER_REQUIRED",
       "REGENERATION_REQUIRED",
+      "RETRY_EXHAUSTED",
     ],
     example: "RETRYABLE",
   })
@@ -67,6 +68,18 @@ export class AiJobResponseDto {
 
   @ApiPropertyOptional({ example: 7 })
   sessionId?: number;
+
+  @ApiPropertyOptional({ example: 1 })
+  attempt?: number;
+
+  @ApiPropertyOptional({ example: 3 })
+  maxAttempts?: number;
+
+  @ApiPropertyOptional({ example: "2026-07-20T17:15:00.000Z" })
+  nextRetryAt?: string;
+
+  @ApiPropertyOptional({ example: false })
+  idempotentReplay?: boolean;
 
   @ApiPropertyOptional({ example: "2026-07-06T10:00:00.000Z" })
   startedAt?: string;

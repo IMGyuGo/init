@@ -81,6 +81,18 @@ sequenceDiagram
 - 자동 판정 규칙은 [`automatic-screening-decision.md`](../03_contracts/automatic-screening-decision.md)를 따른다.
 - RETRY job 생성, backoff와 한도는 #397에서 별도로 확정한다.
 
+### RETRY Processing Flow
+
+- `RETRYABLE | STT_RETRYABLE`은 최초 실행을 포함해 총 3회까지 같은 `processLogId`를 SQS redelivery로 처리한다.
+- retryable 실패 시 worker는 현재 메시지 visibility를 실패 시점부터 900초로 재설정하고 `next_retry_at`을 갱신한다. `attempt_count`는 DB 저장값을 정본으로 삼아 due `FAILED` 또는 lease가 만료된 `RUNNING`을 실제 reclaim할 때만 정확히 1 증가하며, `PENDING` claim과 SQS redelivery만으로는 증가하지 않는다. 이미 최대 시도인 stale `RUNNING`은 provider를 다시 호출하지 않고 원자적으로 `RETRY_EXHAUSTED`로 닫는다. 실행 중 heartbeat는 300초다.
+- 3번째 실패는 `RETRY_EXHAUSTED`, `next_retry_at=NULL`로 기록하고 ACK한다. REPORT process는 운영자가 API-100으로 재처리를 명시적으로 시작할 수 있고, STT process는 REPORT 생성 전제조건만 terminal로 닫은 뒤 운영 확인 대상으로 남긴다.
+- ADMIN 재처리는 새 process log를 만들며 `retry_source=OPERATOR`, `retry_of_process_log_id`로 이전 실행을 연결한다.
+- application별 활성 `REPORT_GENERATE(PENDING | RUNNING | 자동 재시도 backoff 중 FAILED)`은 하나만 허용한다. 중복 요청은 기존 process를 반환하고 큐에 중복 발행하지 않는다.
+- DB commit과 queue publish 사이에서 중단된 `REPORT_GENERATE/PENDING`과 queue message 유실 가능성이 있는 due `REPORT_GENERATE | RESUME_QUESTION_GENERATE/FAILED` 자동 재시도는 동일 process envelope를 복구 발행한다. 중복 delivery는 worker claim으로 멱등 처리하며, `FAILED`는 저장된 `next_retry_at` 이후에만 재claim하고 실제 provider 실행 시 저장 attempt를 1씩 단조 증가시킨다. backoff 중 일찍 도착한 메시지는 삭제하지 않고 남은 시간만큼 visibility를 연장하며 attempt를 소비하지 않는다. 새 recovery message의 SQS receive count가 1부터 시작하거나 조기 delivery로 증가해도 backoff와 총 3회 한도를 초기화하거나 앞당기지 않는다.
+- terminal 후처리 전에 worker가 중단된 `RETRY_EXHAUSTED` 재전달은 같은 `processLogId`의 후처리를 다시 실행한다. REPORT process 생성과 failure 후처리는 recruiting application row 또는 mock interview session row의 같은 잠금을 공유한다. 잠금 안에서 최신 `REPORT_GENERATE` process와 ID가 일치할 때만 실패를 적용하므로, 동시 생성되거나 이미 성공한 더 최신 retry를 과거 메시지가 되돌리지 못한다.
+- `REANSWER_REQUIRED`는 지원자 재답변 1회 경로로만 처리하며 queue attempt와 분리한다.
+- 재처리 성공 시 기존 REPORT final save와 `AUTO_SCREENING_DECISION_V1` engine을 그대로 실행한다.
+
 ### Resume Personalized Question Flow
 
 ```mermaid
@@ -155,16 +167,16 @@ DEMO_PRESET 개인화 작업은 STANDARD `resumeQuestionCount`와 별개인 추�
 
 공식 DEMO_PRESET follow-up은 공통 질문에는 생성하지 않고 개인화 BASE에만 정확히 한 번 결정한다. 첫 provider 실패는 한 번 재시도하고, 재실패하면 답변을 근거로 한 안전 fallback을 사용한다. 원본 두 binding, question mode, answer time과 `usageScope=DEMO_PRESET`을 session private question에 상속한다.
 
-발표 전용 `SALTLUX_AI_BACKEND_V1` fixture는 예외적으로 외부 question/report provider를 호출하지 않는다. API가 정확한 회사명·공고명·`sessionMode=DEMO_PRESET` 조합을 확인해 marker와 고정 꼬리질문을 server-side payload에만 추가하고, worker는 버전 관리된 고정 산출물을 실제 session/answer/criterion ID에 연결해 일반 `evaluation_reports`, `report_scores`, `ncs_answer_evaluations` 저장 경로로 기록한다. `ai_process_logs.output_ref`에는 `providerMode=fixed`, `model=fixed-demo-fixture-v1`을 남긴다. SQS delivery, claim, guardrail, 최종 저장과 멱등성은 일반 REPORT_GENERATE와 동일하게 유지한다.
+발표 전용 `SALTLUX_AI_BACKEND_V1` fixture는 예외적으로 외부 question/report provider와 SQS 가용성에 의존하지 않는다. API가 정확한 회사명·공고명·`sessionMode=DEMO_PRESET` 조합을 확인하며, 개인화 답변 저장 transaction에서 고정 꼬리질문을 실제 session question으로 멱등 삽입한다. 면접 완료 뒤에는 API가 버전 관리된 고정 산출물을 실제 session/answer/criterion ID에 연결해 `evaluation_reports`, legacy 및 NCS `report_scores`, `ncs_answer_evaluations`, evidence와 완료된 `ai_process_logs`를 동기 저장한다. `ai_process_logs.output_ref`에는 `providerSource=PRESENTATION_FIXTURE`, `model=fixed-demo-fixture-v1`을 남긴다. 일반 공고와 일반 DEMO_PRESET은 기존 SQS/worker 경로를 유지한다.
 
-private follow-up 답변의 부모 관계는 질문 문구가 아니라 저장 ID를 정본으로 사용한다. `follow_up_questions.answer_id`는 원본 BASE 답변, `follow_up_questions.inserted_session_question_id`는 꼬리답변의 `interview_answers.session_question_id`와 연결된다. REPORT_GENERATE는 모든 세션 답변의 STT가 transcript 저장 또는 `STT_UNAVAILABLE` terminal 상태에 도달한 뒤에만 발행한다. 최신 STT process의 `FAILED + REANSWER_REQUIRED`와 재시도 한도를 소진한 `FAILED + NON_RETRYABLE`을 terminal로 취급하며, 이전 실패 뒤 더 최신 PENDING/RUNNING 재시도가 있으면 계속 대기한다.
+private follow-up 답변의 부모 관계는 질문 문구가 아니라 저장 ID를 정본으로 사용한다. `follow_up_questions.answer_id`는 원본 BASE 답변, `follow_up_questions.inserted_session_question_id`는 꼬리답변의 `interview_answers.session_question_id`와 연결된다. REPORT_GENERATE는 모든 세션 답변의 STT가 transcript 저장 또는 `STT_UNAVAILABLE` terminal 상태에 도달한 뒤에만 발행한다. 최신 STT process의 `FAILED + REANSWER_REQUIRED`, 인식 불가로 분류된 `FAILED + NON_RETRYABLE`, 총 3회 자동 시도를 소진한 `FAILED + RETRY_EXHAUSTED`를 terminal로 취급하며, 이전 실패 뒤 더 최신 PENDING/RUNNING 재시도가 있으면 계속 대기한다. `RETRY_EXHAUSTED`는 리포트 평가 입력만 `STT_UNAVAILABLE`로 닫고 `REANSWER_REQUIRED`로 변환하거나 지원자 재답변 권한을 부여하지 않으므로 운영 확인 경계를 유지한다.
 
 - 이력서 원문, 추출 텍스트, 질문 결과는 message에 넣지 않는다.
 - worker는 `applicationId`와 `documentId`의 소유 관계를 재검증한 뒤 repository에서 입력을 읽는다.
 - SQS delivery 멱등 key는 `processLogId`, business 멱등 key는 `applicationId + usageScope + policyVersion + criteriaVersion + jdSnapshotHash + resumeDocumentHash`다. legacy input의 usage scope는 STANDARD다.
 - 동일 business key의 `GENERATING`, `READY`, `REVIEW_REQUIRED` batch가 있으면 새 batch를 만들지 않는다. `FAILED`는 API-099의 명시적 retry로만 새 process log를 연결한다.
 - document worker는 추출 결과 저장 뒤 생성한 후속 job을 SQS에 발행한다. 후속 발행이 실패하면 해당 child `ai_process_logs`와 연결 batch만 `FAILED`로 보상하고, 이미 `EXTRACTED`로 저장한 문서 상태는 되돌리지 않는다.
-- worker는 `RESUME_QUESTION_GENERATE`, `PENDING`, 연결 batch `GENERATING` 조건을 15분 이상 만족하는 작업을 큐 미발행·유실로 실행 주체와 연결되지 않은 장기 PENDING 복구 대상(고아 작업)으로 간주한다. 동일 `processLogId`, `processType`, `inputRef`, `attempt` envelope를 재발행하며 worker claim이 중복 delivery를 멱등 처리한다. 복구 조회나 개별 발행 실패는 기록하되 다른 복구 작업과 일반 queue 소비를 중단하지 않는다.
+- worker는 `RESUME_QUESTION_GENERATE/PENDING + 연결 batch GENERATING`, `REPORT_GENERATE/PENDING` 또는 `next_retry_at`이 지난 `REPORT_GENERATE | RESUME_QUESTION_GENERATE/FAILED + RETRYABLE | STT_RETRYABLE`을 큐 미발행·유실 복구 대상으로 간주한다. 동일 `processLogId`, `processType`, `inputRef`, `attempt` envelope를 재발행하며 worker claim이 중복 delivery를 멱등 처리한다. 복구 조회나 개별 발행 실패는 기록하되 다른 복구 작업과 일반 queue 소비를 중단하지 않는다.
 - worker ECS task role은 AI job queue를 소비하는 권한과 함께 후속·복구 job 발행에 필요한 `sqs:SendMessage`를 같은 queue ARN 범위로 가져야 한다.
 - 각 질문 생성 호출은 활성 profile별 남은 슬롯보다 후보를 1개 더 요청하고 품질·중복·정렬 검증을 통과한 후보만 요청 개수까지 채택한다.
 - 정렬 실패는 같은 mode로 최초 생성 후 최대 2회 재생성하고 계약에 허용된 단방향 fallback만 한 번 사용한다.

@@ -17,6 +17,7 @@ import type {
   CreateInterviewAnswerInput,
   CreateMockContextQuestionInput,
   CreateMockInterviewSessionInput,
+  EnsureSaltluxDemoFollowUpInput,
   InterviewQuestionFilter,
   InterviewRepository,
   InterviewSttProcessRecord,
@@ -541,6 +542,131 @@ export class PrismaInterviewRepository implements InterviewRepository {
         include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
       });
       return { answer: this.toAnswer(answer), created: true };
+    });
+  }
+
+  async ensureSaltluxDemoFollowUp(input: EnsureSaltluxDemoFollowUpInput): Promise<boolean> {
+    return this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRawUnsafe(
+        'SELECT "answer_id" FROM "interview_answers" WHERE "answer_id" = $1 AND "session_id" = $2 FOR UPDATE',
+        BigInt(input.answerId),
+        BigInt(input.sessionId),
+      );
+      const answer = await transaction.interviewAnswer.findFirst({
+        where: { answerId: BigInt(input.answerId), sessionId: BigInt(input.sessionId) },
+        include: {
+          session: { select: { sessionMode: true, status: true } },
+          sessionQuestion: {
+            include: { ncsBindings: { orderBy: { bindingOrder: "asc" } } },
+          },
+        },
+      });
+      const sourceQuestion = answer?.sessionQuestion;
+      if (!answer || !sourceQuestion) {
+        throw new ApiException(ERROR_CODES.COMMON_CONFLICT, "시연 꼬리질문 원본 답변을 찾을 수 없습니다.", 409);
+      }
+      if (answer.session.sessionMode !== "DEMO_PRESET" || answer.session.status !== "IN_PROGRESS") {
+        return false;
+      }
+
+      const key = { answerId: answer.answerId, policy: "RECRUITING" } as const;
+      const existing = await transaction.followUpQuestion.findUnique({
+        where: { answerIdPolicy: key },
+      });
+      if (existing?.insertedSessionQuestionId) {
+        return false;
+      }
+
+      const [sequence] = await transaction.$queryRawUnsafe<Array<{ questionId: bigint }>>(
+        `SELECT nextval('interview_runtime_question_id_seq') AS "questionId"`,
+      );
+      if (!sequence) {
+        throw new ApiException(ERROR_CODES.COMMON_CONFLICT, "시연 꼬리질문 ID를 발급하지 못했습니다.", 409);
+      }
+
+      const reorderOffset = 1_000_000;
+      await transaction.$executeRawUnsafe(
+        `UPDATE interview_session_questions
+         SET sort_order = sort_order + $3
+         WHERE session_id = $1 AND sort_order > $2`,
+        answer.sessionId,
+        sourceQuestion.sortOrder,
+        reorderOffset,
+      );
+      await transaction.$executeRawUnsafe(
+        `UPDATE interview_session_questions
+         SET sort_order = sort_order - $3
+         WHERE session_id = $1 AND sort_order > $2`,
+        answer.sessionId,
+        sourceQuestion.sortOrder + reorderOffset,
+        reorderOffset - 1,
+      );
+
+      const inserted = await transaction.interviewSessionQuestion.create({
+        data: {
+          sessionId: answer.sessionId,
+          questionId: null,
+          personalizedQuestionId: null,
+          runtimeQuestionId: sequence.questionId,
+          criterionId: sourceQuestion.criterionId,
+          criterionTitleSnapshot: sourceQuestion.criterionTitleSnapshot,
+          generationSource: "PRESENTATION_FIXTURE",
+          usageScope: sourceQuestion.usageScope,
+          questionType: "FOLLOW_UP",
+          content: input.content,
+          ncsProfileId: sourceQuestion.ncsProfileId,
+          ncsQuestionMode: sourceQuestion.ncsQuestionMode,
+          ncsProfileVersion: sourceQuestion.ncsProfileVersion,
+          alignmentStatus: sourceQuestion.alignmentStatus,
+          alignmentScore: sourceQuestion.alignmentScore,
+          alignmentReason: sourceQuestion.alignmentReason,
+          evaluatorVersion: sourceQuestion.evaluatorVersion,
+          policyVersion: sourceQuestion.policyVersion,
+          criteriaVersion: sourceQuestion.criteriaVersion,
+          sortOrder: sourceQuestion.sortOrder + 1,
+          ncsBindings: {
+            create: sourceQuestion.ncsBindings.map((binding) => ({
+              criterionId: binding.criterionId,
+              criterionTitleSnapshot: binding.criterionTitleSnapshot,
+              ncsProfileId: binding.ncsProfileId,
+              ncsProfileVersion: binding.ncsProfileVersion,
+              alignmentStatus: binding.alignmentStatus,
+              alignmentScore: binding.alignmentScore,
+              alignmentReason: binding.alignmentReason,
+              evaluatorVersion: binding.evaluatorVersion,
+              bindingOrder: binding.bindingOrder,
+            })),
+          },
+        },
+      });
+
+      await transaction.followUpQuestion.upsert({
+        where: { answerIdPolicy: key },
+        create: {
+          answerId: answer.answerId,
+          sourceSessionQuestionId: sourceQuestion.sessionQuestionId,
+          insertedSessionQuestionId: inserted.sessionQuestionId,
+          content: input.content,
+          generationStatus: "INSERTED",
+          policy: "RECRUITING",
+          reason: "NCS_EVIDENCE_GAP",
+          questionMode: sourceQuestion.ncsQuestionMode,
+          answerTimeSec: input.answerTimeSec,
+          insertedAt: new Date(),
+        },
+        update: {
+          sourceSessionQuestionId: sourceQuestion.sessionQuestionId,
+          insertedSessionQuestionId: inserted.sessionQuestionId,
+          content: input.content,
+          generationStatus: "INSERTED",
+          reason: "NCS_EVIDENCE_GAP",
+          skipReason: null,
+          questionMode: sourceQuestion.ncsQuestionMode,
+          answerTimeSec: input.answerTimeSec,
+          insertedAt: new Date(),
+        },
+      });
+      return true;
     });
   }
 

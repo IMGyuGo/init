@@ -139,7 +139,8 @@ API와 DB에서 공유해야 하는 상태값을 정리한다.
 | notification_channel | EMAIL, IN_APP | 알림 채널 |
 | ai_process_type | DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING, GUARDRAIL_VALIDATE, CRITERIA_SUGGEST, QUESTION_GENERATE, RESUME_QUESTION_GENERATE, QUESTION_SET_GENERATE, POSTING_DRAFT_GENERATE | AI 처리 유형 |
 | ai_process_status | PENDING, RUNNING, COMPLETED, FAILED | AI 처리 상태 |
-| failure_category | RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED, REGENERATION_REQUIRED | AI 실패 재시도 가능 여부. `STT_RETRYABLE`은 worker 자동 재시도, `REANSWER_REQUIRED`는 지원자 재답변이 필요한 인식 실패다. `REGENERATION_REQUIRED`는 생성·품질·정렬 검증을 소진해 사용자가 새 job을 시작해야 하는 질문 생성 실패다. 이 경우 `failure.retryable=true`는 사용자 새 job 시작 가능 여부만 뜻하며 queue 자동 재시도·redelivery는 하지 않고 현재 메시지를 ACK한다. |
+| failure_category | RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED, REGENERATION_REQUIRED, RETRY_EXHAUSTED | AI 실패 재시도 가능 여부. `STT_RETRYABLE`은 worker 자동 재시도, `REANSWER_REQUIRED`는 지원자 재답변이 필요한 인식 실패다. `REGENERATION_REQUIRED`는 생성·품질·정렬 검증을 소진해 사용자가 새 job을 시작해야 하는 질문 생성 실패다. `RETRY_EXHAUSTED`는 총 3회 자동 시도를 소진해 운영 확인이 필요한 terminal 실패다. `REGENERATION_REQUIRED`와 `RETRY_EXHAUSTED`는 queue 자동 redelivery를 하지 않고 현재 메시지를 ACK한다. |
+| ai_retry_source | INITIAL, OPERATOR | 최초 job과 ADMIN 명시적 재처리 job의 audit source |
 | guardrail_result | PASS, BLOCKED, REGENERATED | AI 안전 검증 결과 |
 | embedding_source_type | POSTING_JD, CRITERION_TAG, QUESTION, APPLICATION_DOCUMENT, INTERVIEW_ANSWER, EVALUATION_REPORT | 임베딩 원천 유형 |
 ## NCS Question Mapping

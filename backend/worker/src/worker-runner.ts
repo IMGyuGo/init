@@ -4,6 +4,7 @@ import { AiProcessLogRepository } from "./process-log.repository";
 import {
   NonRetryableAiWorkerFailure,
   RetryableAiWorkerFailure,
+  automaticRetryExhaustedFailure,
   isAutomaticRetryFailureCategory,
   isUserRetryableFailureCategory,
   toFailureReason,
@@ -73,11 +74,30 @@ export class AiWorkerRunner {
 
   private async processMessage(message: AiQueueMessage): Promise<void> {
     const leaseOwner = `${this.options.workerId}:${message.messageId}`;
-    const claim = await this.repository.claim(message.job, leaseOwner, this.nextLeaseExpiration());
+    const claim = await this.repository.claim(message.job, leaseOwner, this.nextLeaseExpiration(), {
+      maxAttempts: this.options.maxRetryableReceives,
+    });
+    if (claim.status === "MISSING") {
+      await this.queue.delete(message);
+      return;
+    }
+    if (claim.status === "BACKOFF") {
+      await this.deferUntilBackoffExpires(message, claim.snapshot.nextRetryAt);
+      return;
+    }
+    if (claim.status === "EXHAUSTED") {
+      const failure = claim.snapshot.failure ?? automaticRetryExhaustedFailure(
+        claim.snapshot.maxAttempts ?? this.options.maxRetryableReceives,
+      );
+      await this.options.onFailure?.(message.job, failure);
+      await this.queue.delete(message);
+      return;
+    }
     if (claim.status !== "CLAIMED") {
       await this.queue.delete(message);
       return;
     }
+    const executionAttempt = claim.snapshot.attemptCount ?? 1;
 
     let heartbeat: ReturnType<AiWorkerRunner["startHeartbeat"]> | undefined;
 
@@ -144,12 +164,23 @@ export class AiWorkerRunner {
       heartbeat = undefined;
       const failure = toFailureReason(error);
       if (isAutomaticRetryFailureCategory(failure.category)) {
-        if (this.retryableReceiveCount(message) > this.options.maxRetryableReceives) {
-          await this.failAndAck(message, leaseOwner, this.retryLimitExceededFailure(failure));
+        if (executionAttempt >= this.options.maxRetryableReceives) {
+          await this.failAndAck(message, leaseOwner, this.retryLimitExceededFailure());
           return;
         }
 
-        await this.markFailed(message, leaseOwner, failure);
+        const nextRetryAt = new Date(Date.now() + this.options.visibilityTimeoutSeconds * 1_000);
+        try {
+          await this.queue.extendVisibility(message, this.options.visibilityTimeoutSeconds);
+        } catch {
+          // The initial 900-second processing lease remains the conservative retry gate.
+        }
+        await this.repository.markFailed(
+          message.job.processLogId,
+          failure,
+          leaseOwner,
+          { nextRetryAt },
+        );
         return;
       }
 
@@ -223,9 +254,19 @@ export class AiWorkerRunner {
     }
   }
 
-  private async markFailed(message: AiQueueMessage, leaseOwner: string, failure: FailureReason): Promise<boolean> {
+  private async markFailed(
+    message: AiQueueMessage,
+    leaseOwner: string,
+    failure: FailureReason,
+    nextRetryAt?: Date,
+  ): Promise<boolean> {
     await this.options.onFailure?.(message.job, failure);
-    const snapshot = await this.repository.markFailed(message.job.processLogId, failure, leaseOwner);
+    const snapshot = await this.repository.markFailed(
+      message.job.processLogId,
+      failure,
+      leaseOwner,
+      { nextRetryAt: nextRetryAt ?? null },
+    );
     return snapshot.status === "FAILED" && snapshot.leaseOwner === undefined;
   }
 
@@ -279,17 +320,18 @@ export class AiWorkerRunner {
     return new Date(Date.now() + this.options.visibilityTimeoutSeconds * 1_000);
   }
 
-  private retryableReceiveCount(message: AiQueueMessage): number {
-    return message.receiveCount ?? message.job.attempt;
+  private async deferUntilBackoffExpires(message: AiQueueMessage, nextRetryAt: string | undefined): Promise<void> {
+    if (!nextRetryAt) return;
+    const remainingSeconds = Math.max(1, Math.ceil((Date.parse(nextRetryAt) - Date.now()) / 1_000));
+    try {
+      await this.queue.extendVisibility(message, Math.min(43_200, remainingSeconds));
+    } catch {
+      // Keep the message unacked so SQS can redeliver it using the current visibility deadline.
+    }
   }
 
-  private retryLimitExceededFailure(failure: FailureReason): FailureReason {
-    const prefix = failure.category === "STT_RETRYABLE" ? "STT retry limit exceeded" : "Retry limit exceeded";
-    return {
-      category: "NON_RETRYABLE",
-      reason: `${prefix} after ${this.options.maxRetryableReceives} total attempts: ${failure.reason}`,
-      retryable: false
-    };
+  private retryLimitExceededFailure(): FailureReason {
+    return automaticRetryExhaustedFailure(this.options.maxRetryableReceives);
   }
 }
 

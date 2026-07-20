@@ -291,6 +291,7 @@ export interface GeneratedReportRecord {
   ncsAnswerEvaluations?: NcsAnswerEvaluationRecord[];
   answerFactChecks?: AnswerFactCheckRunRecord[];
   ncsFinalEvaluation?: NcsFinalEvaluation;
+  hasTerminalSttUnavailable?: boolean;
 }
 
 export interface CommunicationAnalysisRecord {
@@ -314,6 +315,7 @@ export interface ReportScoresRecord {
 }
 
 export interface FailedReportRecord {
+  processLogId: number;
   reportId: number;
   reportType: "RECRUITING_REPORT" | "MOCK_INTERVIEW_REPORT";
   applicationId?: number;

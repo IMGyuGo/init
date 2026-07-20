@@ -78,6 +78,8 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | `ai_process_logs` | `AiProcessLog` | E |
 | `ai_guardrail_logs` | `AiGuardrailLog` | E |
 | `embeddings` | `Embedding` | E |
+| `synthetic_applicant_datasets` | `SyntheticApplicantDataset` | D/A |
+| `synthetic_applicant_records` | `SyntheticApplicantRecord` | D/A |
 
 `question_bank`는 DB table 이름만 유지하고 Prisma model은 `Question`으로 둔다. row 하나가 질문 한 건이기 때문이다. `evaluation_criteria`의 Prisma model은 복수형 `EvaluationCriteria`가 아니라 단수형 `EvaluationCriterion`이다. `ai_*` 계열 class/model 이름은 TypeScript 관례에 맞춰 `AiProcessLog`, `AiGuardrailLog`처럼 쓴다.
 
@@ -102,6 +104,42 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | Report | evaluation_reports, ncs_answer_evaluations, ncs_answer_evaluation_evidences, answer_fact_check_runs, answer_fact_check_claims, answer_fact_check_evidences, report_scores, report_evidences, manual_evaluations | 답변·profile별 NCS 평가, 점수와 분리된 사실 검증, exact evidence, AI 집계 결과와 면접관 검토 |
 | AI Infra | ai_process_logs, ai_guardrail_logs, embeddings | AI 처리 상태, 안전성 검증, 검색/추천 |
 | Notification/File | notifications, file_assets | 알림과 업로드 파일 메타데이터 |
+| Demo Fixture Operations | synthetic_applicant_datasets, synthetic_applicant_records | 지정 공고용 합성 지원자 dataset, 생성 ID manifest, 멱등 재개와 cleanup audit |
+
+## Synthetic Applicant Manifest
+
+대규모 시연 fixture는 기존 전체 seed와 분리한다. 상세 실행 계약은 [`synthetic-applicant-importer.md`](../03_contracts/synthetic-applicant-importer.md)를 따른다.
+
+### synthetic_applicant_datasets
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| dataset_id | VARCHAR(64) PRIMARY KEY | 사용자가 지정한 멱등 dataset 식별자 |
+| environment | VARCHAR(30) NOT NULL | 실행 인자와 허용 환경값이 일치한 환경 |
+| posting_id / company_id | BIGINT NOT NULL | 기존 대상 공고와 소유 기업 |
+| active_count / canceled_count | INTEGER NOT NULL | 활성 지원자와 별도 취소 이력 목표 수 |
+| interactive_count | INTEGER NOT NULL CHECK = 10 | 로그인 가능한 시연 계정 수 |
+| pipeline_selection_count | INTEGER NOT NULL | 실제 pipeline 별도 검증 대상으로 선택할 수, 0~10 |
+| batch_size | INTEGER NOT NULL | batch transaction 크기 |
+| options_hash | VARCHAR(64) NOT NULL | 동일 dataset 옵션 변경을 차단하는 SHA-256 |
+| manifest_version | VARCHAR(40) NOT NULL | manifest schema version |
+| status | VARCHAR(30) NOT NULL | APPLYING, APPLIED, PARTIAL, FAILED, CLEANING, CLEANED |
+| last_error | TEXT | 비밀번호·민감 원문을 제외한 마지막 실패 요약 |
+| created_at / updated_at / applied_at / cleaned_at | TIMESTAMP | 실행 및 정리 audit 시각 |
+
+### synthetic_applicant_records
+
+| Column | Definition | Description |
+| --- | --- | --- |
+| record_id | BIGINT PRIMARY KEY | manifest record PK |
+| dataset_id / ordinal | VARCHAR(64) / INTEGER NOT NULL | dataset 내 결정적 순서, unique |
+| user_id / candidate_id / application_id | BIGINT NOT NULL UNIQUE | importer가 생성한 row ID snapshot. cleanup 뒤 audit 보존을 위해 FK로 연결하지 않음 |
+| is_interactive / is_canceled | BOOLEAN NOT NULL | 로그인 계정과 취소 이력 구분 |
+| lifecycle_stage / data_depth | VARCHAR(40) NOT NULL | 상태 분포와 fixture 깊이 |
+| pipeline_selected | BOOLEAN NOT NULL | 별도 승인 pipeline 검증 대상으로 선택됨. importer가 직접 발행하지 않음 |
+| created_at / cleaned_at | TIMESTAMP | 생성 및 manifest 한정 cleanup 시각 |
+
+도메인 row와 record는 같은 batch transaction에서 생성한다. cleanup은 record ID snapshot만 사용하며 이메일 prefix, PK 범위, posting 전체 조건으로 삭제하지 않는다.
 
 ## Table Columns
 
@@ -312,7 +350,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | created_at | TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP | 생성 시각 |
 | updated_at | TIMESTAMP NOT NULL | 수정 시각 |
 
-submitted application이 존재하면 C의 기존 configuration lock과 함께 자동 판정 정책도 잠근다. 실제 Prisma model, migration, CHECK/FK와 ERDCloud SQL은 #398에서 추가한다.
+submitted application이 존재하면 C의 기존 configuration lock과 함께 자동 판정 정책도 잠근다. Prisma model, migration, CHECK/FK와 ERDCloud SQL은 #398에서 함께 관리한다.
 
 ### question_bank
 
@@ -401,8 +439,9 @@ batch business unique key는 `(application_id, usage_scope, policy_version, crit
 | screening_decision | VARCHAR(40) | 자동 전형 판정: UNDECIDED, PASS, HOLD, FAIL, RETRY |
 | screening_decision_reason_code | VARCHAR(80) | 자동 판정 사유. UNDECIDED이면 NULL |
 | screening_decision_policy_version | VARCHAR(80) | 결정 알고리즘 version snapshot |
-| screening_policy_version | INTEGER | 공고별 자동 판정 정책 version snapshot |
-| screening_criteria_version | INTEGER | 평가 기준 version snapshot |
+| screening_policy_version | INTEGER | 적용한 공고별 정책 version snapshot |
+| screening_criteria_version | INTEGER | 적용한 평가 기준 version snapshot |
+| screening_decision_report_id | BIGINT | 멱등 snapshot에 적용한 리포트 FK. API 비노출 |
 | screening_decided_at | TIMESTAMP | 자동 판정 저장 시각 |
 | screening_memo | TEXT | 기업 내부 운영 메모. 자동 판정 입력이 아니며 지원자에게 비노출 |
 | submitted_at | TIMESTAMP | 지원서 최종 제출 시각 |
@@ -529,7 +568,7 @@ batch business unique key는 `(application_id, usage_scope, policy_version, crit
 
 채용면접 런타임에서 `interview_session_questions.sort_order`와 `interview_answers`가 진행 상태의 정본이다. 일반 답변 저장은 세션 질문 단위로 멱등 처리하며, 동일 질문의 재전송은 최초 답변을 그대로 반환한다. 명시적 재답변만 기존 답변 행을 갱신한다. 현재 질문 index는 별도 클라이언트 cursor로 확정하지 않고, 저장된 답변이 없는 첫 세션 질문을 매 조회·전환 시 계산한다. 따라서 API 재시작, 응답 유실, 중복 다음 질문 요청 이후에도 질문을 건너뛰지 않는다. 답변 저장 transaction과 first-unanswered 계산 사이에는 AI process 상태를 전제조건으로 두지 않는다.
 
-STT와 재답변 상태는 별도 컬럼을 추가하지 않고 `interview_answers.submitted_at`과 해당 답변을 참조하는 `ai_process_logs`의 STT 기록으로 계산한다. 최초 `REANSWER_REQUIRED`가 현재 제출 이후 발생하면 재답변 가능, 두 번째 발생이면 인식 불가 확정이다. 재답변은 같은 answer row의 파일, transcript, `submitted_at`을 갱신하므로 새로고침과 API 재시작 이후에도 사용 여부를 복원할 수 있다. `STT_RETRYABLE` 자동 재시도와 provider 실패는 이 횟수에 포함하지 않는다.
+STT와 재답변 상태는 별도 컬럼을 추가하지 않고 `interview_answers.submitted_at`과 해당 답변을 참조하는 `ai_process_logs`의 STT 기록으로 계산한다. 최초 `REANSWER_REQUIRED`가 현재 제출 이후 발생하면 재답변 가능, 두 번째 발생이면 인식 불가 확정이다. 재답변은 같은 answer row의 파일, transcript, `submitted_at`을 갱신하므로 새로고침과 API 재시작 이후에도 사용 여부를 복원할 수 있다. `STT_RETRYABLE` 자동 재시도와 provider 실패는 이 횟수에 포함하지 않는다. `RETRY_EXHAUSTED`는 REPORT 생성 전제조건에서는 terminal `STT_UNAVAILABLE`이지만 재답변 사유는 아니므로 `reanswerAvailable=false`와 운영 확인 상태를 유지한다.
 
 ### follow_up_questions
 
@@ -574,7 +613,9 @@ STT와 재답변 상태는 별도 컬럼을 추가하지 않고 `interview_answe
 | failure_category | VARCHAR(40) | 실패 구분: RETRYABLE, NON_RETRYABLE |
 | failure_reason | TEXT | 실패 사유. 재시도 가능 여부와 함께 화면/운영 로그에 사용 |
 
-`evaluation_reports.status=PENDING | GENERATING` 동안 `applications.screening_decision`은 `UNDECIDED`를 유지한다. 리포트 terminal 실패, STT terminal 인식 불가, NCS 평가 불완전 또는 필수 점수 NULL은 `RETRY`로 저장하고 0점이나 `FAIL`로 변환하지 않는다. `PASS/HOLD/FAIL`은 `AUTO_SCREENING_DECISION_V1`의 유효 점수 조건을 만족할 때만 저장한다. 실제 application 컬럼과 migration은 #398에서 추가한다.
+`evaluation_reports.status=PENDING | GENERATING` 동안 `applications.screening_decision`은 `UNDECIDED`를 유지한다. 리포트 terminal 실패, STT terminal 인식 불가, NCS 평가 불완전 또는 필수 점수 NULL은 `RETRY`로 저장하고 0점이나 `FAIL`로 변환하지 않는다. `PASS/HOLD/FAIL`은 `AUTO_SCREENING_DECISION_V1`의 유효 점수 조건을 만족할 때만 저장한다. `screening_decision_report_id`는 자동 판정 멱등성 검증에만 사용하며 API projection에 포함하지 않는다.
+
+동일 지원서에 새 리포트 version을 만들 때는 증가하는 `report_id`를 발급한다. 같은 리포트의 명시적 재처리는 기존 `report_id`를 유지하며, worker는 application에 이미 반영된 `screening_decision_report_id`보다 작은 지연 작업을 저장하지 않는다.
 
 ### report_scores
 
@@ -752,8 +793,13 @@ NCS profile 집계 row는 `(report_id, ncs_profile_id)`를 unique key로 사용�
 | status | VARCHAR(40) NOT NULL | 처리 상태: PENDING, RUNNING, COMPLETED, FAILED |
 | input_ref | TEXT | 입력 참조값 |
 | output_ref | TEXT | 출력 참조값 |
-| failure_category | VARCHAR(40) | 실패 구분: RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED |
+| failure_category | VARCHAR(40) | 실패 구분: RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED, REGENERATION_REQUIRED, RETRY_EXHAUSTED |
 | failure_reason | TEXT | 실패 사유. 재시도 가능 여부와 함께 기록 |
+| attempt_count | INTEGER NOT NULL DEFAULT 1 | 실제 provider 실행 시도 횟수. 최초 실행 포함 1~3 |
+| max_attempts | INTEGER NOT NULL DEFAULT 3 | #397에서 고정한 queue 자동 시도 한도 |
+| next_retry_at | TIMESTAMP | retryable 실패 뒤 900초 visibility 종료 예정 시각. terminal이면 NULL |
+| retry_source | VARCHAR(30) NOT NULL DEFAULT INITIAL | INITIAL 또는 OPERATOR |
+| retry_of_process_log_id | BIGINT | 명시적 재처리 원본 process log self FK |
 | lease_owner | VARCHAR(160) | 현재 작업을 원자적으로 claim한 worker 실행 식별자 |
 | lease_expires_at | TIMESTAMP | worker claim 만료 시각. heartbeat마다 연장하며 만료된 RUNNING 작업만 재claim할 수 있다. |
 | started_at | TIMESTAMP | 현재 처리 시도 시작 시각 |
@@ -767,7 +813,11 @@ NCS profile 집계 row는 `(report_id, ncs_profile_id)`를 unique key로 사용�
 | cost_metadata_json | TEXT | 비용 계산 메타데이터 |
 | created_at | TIMESTAMP NOT NULL | 생성 시각 |
 
-`(status, lease_expires_at)` 조건부 갱신이 worker claim의 정본이다. `COMPLETED` 재전달은 provider를 호출하지 않고 ack하며, 유효한 lease가 있는 `RUNNING` 중복 메시지도 실행하지 않는다. `PENDING`, `FAILED`, 만료된 `RUNNING`만 새 lease를 획득할 수 있다. migration 이전에 생성된 `lease_expires_at IS NULL`인 `RUNNING` row는 배포 시 기존 worker를 중지한 뒤 새 worker가 한 번 재claim한다.
+`(status, lease_expires_at)` 조건부 갱신이 worker claim의 정본이다. `COMPLETED` 재전달은 provider를 호출하지 않고 ack하며, 유효한 lease가 있는 `RUNNING` 중복 메시지도 실행하지 않는다. `PENDING`, 자동 재시도 가능한 `FAILED(RETRYABLE | STT_RETRYABLE)`이면서 `attempt_count < 3`인 row, 만료된 `RUNNING`만 새 lease를 획득할 수 있다. `RETRY_EXHAUSTED`를 포함한 terminal `FAILED`는 재전달돼도 provider를 호출하지 않는다. migration 이전에 생성된 `lease_expires_at IS NULL`인 `RUNNING` row는 배포 시 기존 worker를 중지한 뒤 새 worker가 한 번 재claim한다.
+
+`attempt_count`는 DB 저장값이 정본이다. `PENDING` 최초 claim은 현재 저장값을 유지하고, 재시도 가능한 due `FAILED` 또는 lease가 만료된 `RUNNING` row를 실제 reclaim할 때만 기존 저장값에서 정확히 1씩 증가하며 3번째 실제 provider 실행 실패에서 `RETRY_EXHAUSTED`로 종료한다. 자동 재시도 `FAILED` row는 `next_retry_at <= now()`일 때만 claim한다. 그 전에 도착한 메시지는 삭제하지 않고 남은 시간만큼 visibility를 연장하며, 이 조기 SQS delivery는 실제 실행 attempt를 소비하지 않는다. migration 전 `REPORT_GENERATE`의 `FAILED + RETRYABLE | STT_RETRYABLE` row 중 `input_ref`가 있고 NULL `next_retry_at`인 행만 배포 시 `CURRENT_TIMESTAMP`로 backfill하고 worker 복구 발행 대상으로 삼는다. 이미 연결 batch가 terminal일 수 있는 legacy `RESUME_QUESTION_GENERATE`와 NULL input 등 안전한 server reference로 복구할 수 없는 다른 legacy NULL-backoff row는 `RETRY_EXHAUSTED` 운영 확인 상태로 전환한다. 새 코드로 생성되는 RESUME 자동 실패는 batch를 terminal로 바꾸지 않고 정확한 `next_retry_at`을 저장하므로 정상 복구 대상이다. 따라서 SQS `ApproximateReceiveCount`가 최초 delivery 전에 증가하거나 새 recovery message에서 1로 초기화되거나 backoff 중 증가해도 attempt와 900초 backoff를 되돌리거나 건너뛰지 않는다. 동일 application의 `REPORT_GENERATE`는 `PENDING | RUNNING` 또는 자동 재시도 backoff 중인 `FAILED(RETRYABLE | STT_RETRYABLE, attempt_count < 3, next_retry_at IS NOT NULL)` row가 최대 하나가 되도록 PostgreSQL 부분 유일 인덱스로 보호한다. `failure_reason`에는 개인정보, 답변·서류 원문과 provider 원문 응답을 저장하지 않는다.
+
+이미 `attempt_count=max_attempts`인 stale `RUNNING`은 추가 provider 실행 없이 조건부 갱신으로 `RETRY_EXHAUSTED`가 되고 terminal 후처리를 재개한다.
 
 ### ai_guardrail_logs
 

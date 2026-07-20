@@ -83,6 +83,8 @@ ERDCloud SQL을 사람이 읽는 테이블/관계 문서로 변환한다.
 | ai_process_logs | process_log_id | 8 | AI 비동기 처리 로그 | application_id -> applications.application_id / session_id -> interview_sessions.session_id |
 | ai_guardrail_logs | guardrail_log_id | 6 | AI 안전 검증 로그 | process_log_id -> ai_process_logs.process_log_id |
 | embeddings | embedding_id | 15 | 검색/추천용 임베딩 | posting_id -> postings.posting_id / tag_id -> criterion_tags.tag_id / question_id -> question_bank.question_id / document_id -> application_documents.document_id / answer_id -> interview_answers.answer_id / report_id -> evaluation_reports.report_id |
+| synthetic_applicant_datasets | dataset_id | 17 | 합성 지원자 실행 옵션, 상태와 cleanup audit | posting_id -> postings.posting_id / company_id -> companies.company_id |
+| synthetic_applicant_records | record_id | 13 | dataset별 생성 user/candidate/application ID manifest | dataset_id -> synthetic_applicant_datasets.dataset_id |
 
 ## Relationships
 
@@ -152,6 +154,9 @@ ERDCloud SQL을 사람이 읽는 테이블/관계 문서로 변환한다.
 | embeddings | document_id | application_documents.document_id | fk_embeddings_document |
 | embeddings | answer_id | interview_answers.answer_id | fk_embeddings_answer |
 | embeddings | report_id | evaluation_reports.report_id | fk_embeddings_report |
+| synthetic_applicant_datasets | posting_id | postings.posting_id | fk_synthetic_applicant_datasets_posting |
+| synthetic_applicant_datasets | company_id | companies.company_id | fk_synthetic_applicant_datasets_company |
+| synthetic_applicant_records | dataset_id | synthetic_applicant_datasets.dataset_id | fk_synthetic_applicant_records_dataset |
 
 ## Business Uniqueness
 

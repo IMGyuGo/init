@@ -58,7 +58,9 @@ import {
 } from "./interview-nonverbal-metadata";
 import {
   SALTLUX_FIXED_DEMO,
+  SALTLUX_FIXED_DEMO_FIXTURE_ID,
   isSaltluxFixedDemoPersonalizedQuestion,
+  saltluxFixedDemoAnswerScriptForQuestion,
 } from "../../../shared/saltlux-fixed-demo";
 
 const DEFAULT_MOCK_QUESTION_TYPES = ["INTRO", "TECHNICAL", "EXPERIENCE", "CLOSING"] as const;
@@ -491,6 +493,7 @@ export class InterviewService {
     if (!requestBody.allowReanswer && !requestBody.retryAnswerId) {
       const replayedAnswer = await this.interviewRepository.findAnswer(session.sessionId, requestBody.questionId);
       if (replayedAnswer) {
+        session = await this.ensureSaltluxDemoFollowUp(session, replayedAnswer, currentUser);
         return this.buildSaveAnswerResponse(session, replayedAnswer, undefined, undefined, true);
       }
       session = await this.syncCurrentQuestionToFirstUnanswered(session);
@@ -596,6 +599,8 @@ export class InterviewService {
       idempotentReplay = !result.created;
     }
 
+    session = await this.ensureSaltluxDemoFollowUp(session, answer, currentUser);
+
     return this.buildSaveAnswerResponse(
       session,
       answer,
@@ -603,6 +608,33 @@ export class InterviewService {
       idempotentReplay ? undefined : audioFile,
       idempotentReplay,
     );
+  }
+
+  private async ensureSaltluxDemoFollowUp(
+    session: RuntimeInterviewSession,
+    answer: InterviewAnswer,
+    currentUser: CurrentCandidateUser,
+  ): Promise<RuntimeInterviewSession> {
+    if (
+      session.interviewType !== "RECRUITING" ||
+      session.sessionMode !== "DEMO_PRESET" ||
+      !this.interviewRepository.ensureSaltluxDemoFollowUp
+    ) {
+      return session;
+    }
+
+    const question = await this.requiredQuestion(answer.questionId);
+    if (!isSaltluxFixedDemoPersonalizedQuestion(question.content)) {
+      return session;
+    }
+
+    await this.interviewRepository.ensureSaltluxDemoFollowUp({
+      sessionId: session.sessionId,
+      answerId: answer.answerId,
+      content: SALTLUX_FIXED_DEMO.questions.followUp,
+      answerTimeSec: session.answerTimeSecSnapshot ?? SALTLUX_FIXED_DEMO.answerTimeSec,
+    });
+    return this.getRecruitingRuntimeSession(session.sessionId, currentUser);
   }
 
   private async buildSaveAnswerResponse(
@@ -1026,7 +1058,10 @@ export class InterviewService {
     }
 
     const previousQuestion = requestBody.previousQuestion ?? (await this.requiredQuestion(answer.questionId)).content;
-    const transcript = requestBody.transcript ?? answer.transcript;
+    const fixedTranscript = session.sessionMode === "DEMO_PRESET"
+      ? saltluxFixedDemoAnswerScriptForQuestion(previousQuestion)
+      : undefined;
+    const transcript = fixedTranscript ?? requestBody.transcript ?? answer.transcript;
     if (!transcript?.trim()) {
       throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "Transcript is required for follow-up question.", 400, [
         { field: "transcript", reason: "transcript is required" },
@@ -1051,6 +1086,9 @@ export class InterviewService {
       ...(requestBody.qualityCheckOnly === true ? { qualityCheckOnly: true } : {}),
       sessionId: session.sessionId,
       ...(session.sessionMode === "DEMO_PRESET" ? { usageScope: "DEMO_PRESET" } : {}),
+      ...(session.sessionMode === "DEMO_PRESET" && saltluxFixedDemoAnswerScriptForQuestion(previousQuestion)
+        ? { presentationFixtureId: SALTLUX_FIXED_DEMO_FIXTURE_ID }
+        : {}),
       ...(session.sessionMode === "DEMO_PRESET" && isSaltluxFixedDemoPersonalizedQuestion(previousQuestion)
         ? { fixedFollowUpQuestion: SALTLUX_FIXED_DEMO.questions.followUp }
         : {}),
@@ -1091,12 +1129,22 @@ export class InterviewService {
     }
 
     const audioFile = await this.candidateService.getInterviewFileAsset(audioFileId, currentUser, "audioFileId");
+    const question = await this.requiredQuestion(answer.questionId);
+    const fixedTranscript = session.sessionMode === "DEMO_PRESET"
+      ? saltluxFixedDemoAnswerScriptForQuestion(question.content)
+      : undefined;
     return {
       answerId: answer.answerId,
       audioFileId,
       audioS3Key: audioFile.storageKey,
       durationSeconds: requestedDurationSeconds ?? answer.durationSeconds,
       sessionId: session.sessionId,
+      ...(fixedTranscript
+        ? {
+            fixedTranscript,
+            presentationFixtureId: SALTLUX_FIXED_DEMO_FIXTURE_ID,
+          }
+        : {}),
     };
   }
 

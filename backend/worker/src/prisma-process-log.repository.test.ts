@@ -131,14 +131,14 @@ test("PrismaAiProcessLogRepository records retryability on failed worker jobs", 
   });
   const failed = await repository.markFailed(11, {
     category: "RETRYABLE",
-    reason: "provider timeout",
+    reason: "provider timeout for applicant@example.com transcript=private",
     retryable: true
   });
 
   assert.equal(failed.status, "FAILED");
   assert.deepEqual(failed.failure, {
     category: "RETRYABLE",
-    reason: "provider timeout",
+    reason: "Temporary AI processing failure.",
     retryable: true
   });
 });
@@ -202,6 +202,48 @@ test("PrismaAiProcessLogRepository records guardrail retryability", async () => 
   assert.equal(guardrailCreateArgs.data.failureCategory, "NON_RETRYABLE");
 });
 
+test("PrismaAiProcessLogRepository does not recreate a deleted process log while claiming", async () => {
+  let upsertCalls = 0;
+  const prisma = {
+    aiProcessLog: {
+      async upsert(args: any) {
+        upsertCalls += 1;
+        return {
+          ...args.create,
+          outputRef: null,
+          failureCategory: null,
+          failureReason: null,
+        };
+      },
+      async findUnique(_args: any) {
+        return null;
+      },
+      async update(_args: any) {
+        throw new Error("not used");
+      },
+      async updateMany(_args: any) {
+        return { count: 0 };
+      },
+    },
+    aiGuardrailLog: {
+      async create(_args: any) {
+        return { guardrailLogId: BigInt(1) };
+      },
+    },
+  };
+  const repository = new PrismaAiProcessLogRepository(prisma);
+
+  const claim = await repository.claim({
+    processLogId: 20,
+    processType: "REPORT_GENERATE",
+    inputRef: JSON.stringify({ payload: { applicationId: 99, reportId: 100 } }),
+    attempt: 1,
+  }, "worker-a:message-20", new Date(Date.now() + 60_000));
+
+  assert.equal(String(claim.status), "MISSING");
+  assert.equal(upsertCalls, 0);
+});
+
 test("PrismaAiProcessLogRepository atomically claims and renews an AI process lease", async () => {
   const records = new Map<bigint, any>();
   const updateManyCalls: any[] = [];
@@ -244,7 +286,7 @@ test("PrismaAiProcessLogRepository atomically claims and renews an AI process le
         updateManyCalls.push(args);
         const id = args.where.processLogId;
         const existing = records.get(id);
-        if (!existing) return { count: 0 };
+        if (!existing || !matchesAiProcessLogWhere(existing, args.where)) return { count: 0 };
         records.set(id, { ...existing, ...args.data });
         return { count: 1 };
       },
@@ -257,31 +299,99 @@ test("PrismaAiProcessLogRepository atomically claims and renews an AI process le
   };
   const repository = new PrismaAiProcessLogRepository(prisma);
   const leaseExpiresAt = new Date("2026-07-16T12:00:00.000Z");
+  const job = {
+    processLogId: 21,
+    processType: "QUESTION_GENERATE" as const,
+    inputRef: "question:21",
+    attempt: 1,
+  };
 
-  const claim = await repository.claim({
+  await repository.ensurePending(job);
+  const claim = await repository.claim(job, "worker-a:message-21", leaseExpiresAt);
+  const renewed = await repository.renewClaim(21, "worker-a:message-21", new Date("2026-07-16T12:05:00.000Z"));
+  const reclaimed = await repository.claim({
     processLogId: 21,
     processType: "QUESTION_GENERATE",
     inputRef: "question:21",
-    attempt: 1,
-  }, "worker-a:message-21", leaseExpiresAt);
-  const renewed = await repository.renewClaim(21, "worker-a:message-21", new Date("2026-07-16T12:05:00.000Z"));
+    attempt: 99,
+  }, "worker-b:message-21", new Date("2026-07-21T12:00:00.000Z"));
+  records.set(BigInt(21), {
+    ...records.get(BigInt(21)),
+    leaseExpiresAt: new Date(Date.now() - 1_000),
+  });
+  const thirdClaim = await repository.claim({
+    processLogId: 21,
+    processType: "QUESTION_GENERATE",
+    inputRef: "question:21",
+    attempt: 999,
+  }, "worker-c:message-21", new Date(Date.now() + 60_000));
+  records.set(BigInt(21), {
+    ...records.get(BigInt(21)),
+    leaseExpiresAt: new Date(Date.now() - 1_000),
+  });
+  const exhausted = await repository.claim({
+    processLogId: 21,
+    processType: "QUESTION_GENERATE",
+    inputRef: "question:21",
+    attempt: 999,
+  }, "worker-d:message-21", new Date(Date.now() + 60_000));
 
   assert.equal(claim.status, "CLAIMED");
   assert.equal(claim.snapshot.leaseOwner, "worker-a:message-21");
+  assert.equal(claim.snapshot.attemptCount, 1);
   assert.equal(renewed, true);
+  assert.equal(reclaimed.status, "CLAIMED");
+  assert.equal(reclaimed.snapshot.attemptCount, 2);
+  assert.equal(thirdClaim.status, "CLAIMED");
+  assert.equal(thirdClaim.snapshot.attemptCount, 3);
+  assert.equal(exhausted.status, "EXHAUSTED");
+  assert.equal(exhausted.snapshot.status, "FAILED");
+  assert.equal(exhausted.snapshot.failure?.category, "RETRY_EXHAUSTED");
+  assert.equal(exhausted.snapshot.attemptCount, 3);
+  assert.equal(updateManyCalls[0].where.attemptCount, 1);
+  assert.equal(updateManyCalls[0].data.attemptCount, 1);
   assert.deepEqual(updateManyCalls[0].where.OR, [
-    { status: { in: ["PENDING", "FAILED"] } },
+    { status: "PENDING" },
+    {
+      status: "FAILED",
+      failureCategory: { in: ["RETRYABLE", "STT_RETRYABLE"] },
+      attemptCount: { lt: 3 },
+      nextRetryAt: { lte: updateManyCalls[0].where.OR[1].nextRetryAt.lte },
+    },
     { status: "RUNNING", leaseExpiresAt: null },
-    { status: "RUNNING", leaseExpiresAt: { lte: updateManyCalls[0].where.OR[2].leaseExpiresAt.lte } },
+    { status: "RUNNING", leaseExpiresAt: { lte: updateManyCalls[0].where.OR[3].leaseExpiresAt.lte } },
   ]);
   assert.deepEqual(updateManyCalls[1].where, {
     processLogId: BigInt(21),
     status: "RUNNING",
     leaseOwner: "worker-a:message-21",
   });
+  assert.equal(updateManyCalls[2].where.attemptCount, 1);
+  assert.equal(updateManyCalls[2].data.attemptCount, 2);
+  assert.equal(updateManyCalls[3].where.attemptCount, 2);
+  assert.equal(updateManyCalls[3].data.attemptCount, 3);
+  assert.equal(updateManyCalls[4].where.attemptCount, 3);
+  assert.equal(updateManyCalls[4].data.status, "FAILED");
+  assert.equal(updateManyCalls[4].data.failureCategory, "RETRY_EXHAUSTED");
 });
 
-test("PrismaAiProcessLogRepository finds only stale pending resume-question jobs with generating batches", async () => {
+function matchesAiProcessLogWhere(record: any, where: any): boolean {
+  if (where.processLogId !== undefined && record.processLogId !== where.processLogId) return false;
+  if (typeof where.status === "string" && record.status !== where.status) return false;
+  if (typeof where.attemptCount === "number" && record.attemptCount !== where.attemptCount) return false;
+  if (typeof where.attemptCount?.lt === "number" && record.attemptCount >= where.attemptCount.lt) return false;
+  if (typeof where.leaseOwner === "string" && record.leaseOwner !== where.leaseOwner) return false;
+  if (where.failureCategory?.in && !where.failureCategory.in.includes(record.failureCategory)) return false;
+  if (where.nextRetryAt?.lte && (!record.nextRetryAt || record.nextRetryAt > where.nextRetryAt.lte)) return false;
+  if (where.leaseExpiresAt === null && record.leaseExpiresAt !== null) return false;
+  if (
+    where.leaseExpiresAt?.lte &&
+    (!record.leaseExpiresAt || record.leaseExpiresAt > where.leaseExpiresAt.lte)
+  ) return false;
+  return !where.OR || where.OR.some((condition: any) => matchesAiProcessLogWhere(record, condition));
+}
+
+test("PrismaAiProcessLogRepository finds stale recoverable report and resume-question jobs", async () => {
   let findManyArgs: any;
   const prisma = {
     aiProcessLog: {
@@ -308,12 +418,28 @@ test("PrismaAiProcessLogRepository finds only stale pending resume-question jobs
   const jobs = await repository.findOrphanedPendingJobs(createdBefore, 5);
 
   assert.deepEqual(findManyArgs.where, {
-    processType: "RESUME_QUESTION_GENERATE",
-    status: "PENDING",
     createdAt: { lte: createdBefore },
     inputRef: { not: null },
-    latestResumeQuestionBatches: { some: { status: "GENERATING" } },
+    OR: [
+      {
+        status: "PENDING",
+        processType: "REPORT_GENERATE",
+      },
+      {
+        status: "PENDING",
+        processType: "RESUME_QUESTION_GENERATE",
+        latestResumeQuestionBatches: { some: { status: "GENERATING" } },
+      },
+      {
+        status: "FAILED",
+        processType: { in: ["REPORT_GENERATE", "RESUME_QUESTION_GENERATE"] },
+        failureCategory: { in: ["RETRYABLE", "STT_RETRYABLE"] },
+        attemptCount: { lt: 3 },
+        nextRetryAt: { lte: findManyArgs.where.OR[2].nextRetryAt.lte },
+      },
+    ],
   });
+  assert.ok(findManyArgs.where.OR[2].nextRetryAt.lte instanceof Date);
   assert.deepEqual(jobs, [{
     processLogId: 41,
     processType: "RESUME_QUESTION_GENERATE",

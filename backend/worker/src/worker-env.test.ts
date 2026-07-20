@@ -79,20 +79,19 @@ test("loadWorkerEnv accepts legacy API env aliases", () => {
 
 test("loadWorkerEnv validates bounded numeric worker settings", () => {
   assert.equal(loadWorkerEnv({ ...validEnv, WORKER_BATCH_SIZE: "10" }).workerBatchSize, 10);
-  assert.equal(loadWorkerEnv({ ...validEnv, WORKER_MAX_RETRYABLE_RECEIVES: "4" }).workerMaxRetryableReceives, 4);
+  assert.equal(loadWorkerEnv({ ...validEnv, WORKER_MAX_RETRYABLE_RECEIVES: "3" }).workerMaxRetryableReceives, 3);
   assert.equal(loadWorkerEnv({ ...validEnv, WORKER_POLL_INTERVAL_MS: "60000" }).workerPollIntervalMs, 60000);
-  assert.equal(loadWorkerEnv({ ...validEnv, WORKER_VISIBILITY_TIMEOUT_SECONDS: "120" }).workerVisibilityTimeoutSeconds, 120);
   assert.equal(
-    loadWorkerEnv({ ...validEnv, WORKER_VISIBILITY_TIMEOUT_SECONDS: "120", WORKER_VISIBILITY_HEARTBEAT_MS: "30000" })
+    loadWorkerEnv({ ...validEnv, WORKER_VISIBILITY_TIMEOUT_SECONDS: "900", WORKER_VISIBILITY_HEARTBEAT_MS: "300000" })
       .workerHeartbeatIntervalMs,
-    30000,
+    300000,
   );
   assert.equal(loadWorkerEnv({ ...validEnv, OPENAI_STT_TIMEOUT_MS: "20000" }).openaiSttTimeoutMs, 20000);
 
   assert.throws(() => loadWorkerEnv({ ...validEnv, WORKER_BATCH_SIZE: "0" }), /Expected integer between 1 and 10/);
   assert.throws(
-    () => loadWorkerEnv({ ...validEnv, WORKER_MAX_RETRYABLE_RECEIVES: "0" }),
-    /Expected integer between 1 and 10/
+    () => loadWorkerEnv({ ...validEnv, WORKER_MAX_RETRYABLE_RECEIVES: "4" }),
+    /WORKER_MAX_RETRYABLE_RECEIVES must equal 3/
   );
   assert.throws(
     () => loadWorkerEnv({ ...validEnv, WORKER_POLL_INTERVAL_MS: "99" }),
@@ -103,16 +102,15 @@ test("loadWorkerEnv validates bounded numeric worker settings", () => {
     /Expected integer between 1000 and 600000/
   );
   assert.throws(
-    () => loadWorkerEnv({ ...validEnv, WORKER_VISIBILITY_TIMEOUT_SECONDS: "29" }),
-    /Expected integer between 30 and 43200/
+    () => loadWorkerEnv({ ...validEnv, WORKER_VISIBILITY_TIMEOUT_SECONDS: "120" }),
+    /WORKER_VISIBILITY_TIMEOUT_SECONDS must equal 900/
   );
   assert.throws(
     () => loadWorkerEnv({
       ...validEnv,
-      WORKER_VISIBILITY_TIMEOUT_SECONDS: "30",
       WORKER_VISIBILITY_HEARTBEAT_MS: "30000",
     }),
-    /Expected integer between 1000 and 29000/
+    /WORKER_VISIBILITY_HEARTBEAT_MS must equal 300000/
   );
 });
 

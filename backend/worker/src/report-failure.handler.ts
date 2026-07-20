@@ -1,5 +1,6 @@
 import { AiResultRepository, FailedReportRecord, ResumeQuestionJobReference } from "./ai-result.repository";
 import { AiWorkerJob, FailureReason } from "./worker.types";
+import { toPersistedFailureReason } from "./worker-errors";
 
 interface ReportJobInput {
   payload?: {
@@ -29,6 +30,7 @@ export function createDocumentExtractionStartHandler(results: AiResultRepository
 
 export function createReportFailureHandler(results: AiResultRepository) {
   return async (job: AiWorkerJob, failure: FailureReason): Promise<void> => {
+    const persistedFailure = toPersistedFailureReason(failure);
     if (job.processType === "DOCUMENT_EXTRACT") {
       const documentRef = documentRefFromJob(job);
       if (documentRef) {
@@ -40,7 +42,7 @@ export function createReportFailureHandler(results: AiResultRepository) {
     if (job.processType === "RESUME_QUESTION_GENERATE") {
       const reference = resumeQuestionReferenceFromJob(job);
       if (reference) {
-        await results.markResumeQuestionGenerationFailed(reference, failure);
+        await results.markResumeQuestionGenerationFailed(reference, persistedFailure);
       }
       return;
     }
@@ -49,7 +51,7 @@ export function createReportFailureHandler(results: AiResultRepository) {
       return;
     }
 
-    const failedReport = failedReportFromJob(job, failure);
+    const failedReport = failedReportFromJob(job, persistedFailure);
     if (!failedReport) {
       return;
     }
@@ -119,6 +121,7 @@ function failedReportFromJob(job: AiWorkerJob, failure: FailureReason): FailedRe
     }
 
     return {
+      processLogId: job.processLogId,
       reportId,
       reportType,
       ...positiveRef(input.payload?.applicationId, "applicationId"),

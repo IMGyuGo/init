@@ -68,3 +68,23 @@ export function isAutomaticRetryFailureCategory(category: FailureCategory): bool
 export function isUserRetryableFailureCategory(category: FailureCategory): boolean {
   return isAutomaticRetryFailureCategory(category) || category === "REGENERATION_REQUIRED";
 }
+
+export function automaticRetryExhaustedFailure(maxAttempts: number): FailureReason {
+  return {
+    category: "RETRY_EXHAUSTED",
+    reason: `Automatic retry limit exhausted after ${maxAttempts} total attempts.`,
+    retryable: false,
+  };
+}
+
+export function toPersistedFailureReason(failure: FailureReason): FailureReason {
+  const reasonByCategory: Record<FailureCategory, string> = {
+    RETRYABLE: "Temporary AI processing failure.",
+    STT_RETRYABLE: "Temporary STT processing failure.",
+    NON_RETRYABLE: "AI processing failed with a non-retryable error.",
+    REANSWER_REQUIRED: "STT recognition unavailable; candidate reanswer required.",
+    REGENERATION_REQUIRED: "AI output regeneration requires an explicit retry.",
+    RETRY_EXHAUSTED: "Automatic retry limit exhausted after 3 total attempts.",
+  };
+  return { ...failure, reason: reasonByCategory[failure.category] };
+}

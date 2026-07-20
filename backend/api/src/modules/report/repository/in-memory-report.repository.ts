@@ -1,5 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import { parseAiJobOutput } from "../service/ai-job-output";
+import {
+  buildSaltluxFixedDemoFinalization,
+  type SaltluxFixedDemoFinalizationInput,
+} from "../service/saltlux-fixed-demo-finalization";
 import { AiProcessNotFoundError, ReportRepository } from "./report.repository";
 import {
   CommunicationAnalysis,
@@ -52,19 +56,86 @@ export class InMemoryReportRepository implements ReportRepository {
   private readonly scoresByReport = new Map<number, ReportScore[]>();
   private readonly guardrailLogs: GuardrailLogRecord[] = [];
   private readonly queuedProcesses = new Map<number, QueuedAiProcessSnapshot>();
+  private readonly saltluxProcesses = new Map<string, { processLogId: number; inputRef: string }>();
+
+  async finalizeSaltluxFixedDemo(input: SaltluxFixedDemoFinalizationInput): Promise<{
+    processLogId: number;
+    inputRef: string;
+  }> {
+    const key = `${input.applicationId}:${input.sessionId}`;
+    const existing = this.saltluxProcesses.get(key);
+    if (existing) return { ...existing };
+
+    const result = buildSaltluxFixedDemoFinalization(input);
+    const inputRef = JSON.stringify({
+      kind: "RECRUITING_REPORT_GENERATE",
+      presentationFixtureId: "SALTLUX_AI_BACKEND_V1",
+      reportId: input.reportId,
+      applicationId: input.applicationId,
+      sessionId: input.sessionId,
+      answerIds: input.answers.map((answer) => answer.answerId),
+    });
+    const processLogId = this.nextProcessLogId++;
+    this.reports.set(input.reportId, {
+      reportId: input.reportId,
+      reportType: "RECRUITING_REPORT",
+      status: "COMPLETED",
+      summary: result.summary,
+      totalScore: result.totalScore,
+    });
+    this.scoresByReport.set(input.reportId, result.profiles.map((profile) => ({
+      criterionId: profile.criterionId,
+      criterionName: profile.criterionName,
+      score: profile.score * 20,
+      rationale: profile.rationale,
+      rubricAnchor: `${profile.score}/5 NCS 행동·논리 근거`,
+      confidence: "HIGH",
+      uncertaintyReasons: [],
+      evidences: profile.evidences.map((evidence) => ({
+        sourceType: "INTERVIEW_ANSWER",
+        answerId: evidence.answerId,
+        text: evidence.text,
+      })),
+    })));
+    this.processLogs.set(processLogId, {
+      processLogId,
+      processType: "REPORT_GENERATE",
+      step: "REPORT_GENERATE",
+      status: "COMPLETED",
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      durationMs: 0,
+      modelName: "fixed-demo-fixture-v1",
+    });
+    this.processReportIds.set(processLogId, input.reportId);
+    const finalized = { processLogId, inputRef };
+    this.saltluxProcesses.set(key, finalized);
+    return { ...finalized };
+  }
 
   async createQueuedProcess(
     processType: AiProcessType,
     inputRef: string,
     refs: AiProcessRefs = {}
   ): Promise<QueuedAiProcessSnapshot> {
+    if (processType === "REPORT_GENERATE" && refs.applicationId) {
+      const active = [...this.queuedProcesses.values()].find((process) =>
+        process.processType === "REPORT_GENERATE" &&
+        process.applicationId === refs.applicationId &&
+        isActiveReportProcess(process)
+      );
+      if (active) return { ...active, idempotentReplay: true };
+    }
     const process: QueuedAiProcessSnapshot = {
       processLogId: this.nextProcessLogId++,
       processType,
       status: "PENDING",
       inputRef,
       applicationId: refs.applicationId,
-      sessionId: refs.sessionId
+      sessionId: refs.sessionId,
+      attempt: 1,
+      maxAttempts: 3,
+      idempotentReplay: false,
     };
     this.queuedProcesses.set(process.processLogId, process);
     return { ...process };
@@ -324,4 +395,12 @@ function durationMs(startedAt: string | undefined, completedAt: string): number 
   const started = Date.parse(startedAt);
   const completed = Date.parse(completedAt);
   return Number.isFinite(started) && Number.isFinite(completed) ? Math.max(0, completed - started) : undefined;
+}
+
+function isActiveReportProcess(process: QueuedAiProcessSnapshot): boolean {
+  if (process.status === "PENDING" || process.status === "RUNNING") return true;
+  return process.status === "FAILED" &&
+    (process.failure?.category === "RETRYABLE" || process.failure?.category === "STT_RETRYABLE") &&
+    (process.attempt ?? 1) < (process.maxAttempts ?? 3) &&
+    Boolean(process.nextRetryAt);
 }

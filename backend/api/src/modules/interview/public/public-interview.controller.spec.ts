@@ -9,6 +9,7 @@ import type { PublicApplicationAccessVerifier } from "./public-application-acces
 import { PublicInterviewAccessTokenService } from "./public-interview-access-token.service";
 import { PublicInterviewController } from "./public-interview.controller";
 import { PublicInterviewService } from "./public-interview.service";
+import { PublicInterviewCompletionController } from "../../report/controller/public-interview-completion.controller";
 
 function assertRoute(methodName: keyof PublicInterviewController, expectedPath: string, expectedMethod: RequestMethod) {
   const handler = PublicInterviewController.prototype[methodName];
@@ -25,10 +26,55 @@ assertRoute("listQuestions", "interviews/:sessionId/questions", RequestMethod.GE
 assertRoute("saveAnswer", "interviews/:sessionId/answers", RequestMethod.POST);
 assertRoute("uploadMedia", "interviews/:sessionId/media", RequestMethod.POST);
 assertRoute("moveNextQuestion", "interviews/:sessionId/next-question", RequestMethod.POST);
-assertRoute("completeInterview", "interviews/:sessionId/complete", RequestMethod.PATCH);
 assertRoute("requestStt", "interviews/:sessionId/stt", RequestMethod.POST);
 assertRoute("requestFollowUpQuestion", "interviews/:sessionId/follow-up-question", RequestMethod.POST);
 assertRoute("createRealtimeSession", "interviews/:sessionId/realtime-session", RequestMethod.POST);
+
+test("public interview completion requests the recruiting report before returning", async () => {
+  const requestedApplicationIds: number[] = [];
+  const controller = new PublicInterviewCompletionController(
+    {
+      completeInterview: async () => ({ data: { status: "COMPLETED" }, meta: {} }),
+    } as never,
+    {
+      requestApplicationReportGeneration: async (applicationId: number) => {
+        requestedApplicationIds.push(applicationId);
+        return { data: {}, meta: {} };
+      },
+    } as never,
+  );
+  const request = {
+    headers: {},
+    publicInterviewAccess: {
+      tokenType: "PUBLIC_INTERVIEW" as const,
+      applicationId: 44,
+      sessionId: 55,
+      candidateId: 66,
+      userId: 77,
+    },
+    currentUser: {
+      userId: 77,
+      userType: "CANDIDATE" as const,
+      companyId: null,
+      candidateId: 66,
+    },
+  };
+
+  const result = await controller.completeInterview(request, "55");
+
+  assert.equal(result.data.status, "COMPLETED");
+  assert.deepEqual(requestedApplicationIds, [44]);
+});
+
+assert.equal(Reflect.getMetadata(PATH_METADATA, PublicInterviewCompletionController), "public");
+assert.equal(
+  Reflect.getMetadata(PATH_METADATA, PublicInterviewCompletionController.prototype.completeInterview),
+  "interviews/:sessionId/complete",
+);
+assert.equal(
+  Reflect.getMetadata(METHOD_METADATA, PublicInterviewCompletionController.prototype.completeInterview),
+  RequestMethod.PATCH,
+);
 
 function createPublicInterviewFixture() {
   const candidateRepository = new InMemoryCandidateRepository();

@@ -11,6 +11,7 @@ import {
   scoreBand,
 } from "../interview-report/report-visuals";
 import { createApplicantInterviewMediaSession, getApplicantDocument, getApplicantEvaluation, updateScreeningStatus } from "./api";
+import { shouldPollApplicantEvaluation } from "./applicant-evaluation-polling";
 import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
 import type {
   NcsReportEvaluationOutput,
@@ -32,10 +33,12 @@ import {
 import { formatRecruitingStatusLabel } from "./status-labels";
 import type { ApplicantEvaluation, ApplicantInterviewFileAsset, ScreeningDecision } from "./types";
 
-const decisions: ScreeningDecision[] = ["UNDECIDED", "PASS", "HOLD", "FAIL"];
+type ManualScreeningDecision = Exclude<ScreeningDecision, "RETRY">;
+
+const decisions: ManualScreeningDecision[] = ["UNDECIDED", "PASS", "HOLD", "FAIL"];
 
 // 전형 결정 카드 라디오에 표시할 설명/톤. (#289)
-const DECISION_OPTION_META: Record<ScreeningDecision, { description: string; tone: "neutral" | "pass" | "hold" | "fail" }> = {
+const DECISION_OPTION_META: Record<ManualScreeningDecision, { description: string; tone: "neutral" | "pass" | "hold" | "fail" }> = {
   UNDECIDED: { description: "아직 결정하지 않음", tone: "neutral" },
   PASS: { description: "다음 전형으로 진행", tone: "pass" },
   HOLD: { description: "추가 검토 후 결정", tone: "hold" },
@@ -50,6 +53,7 @@ const REPORT_TABS: ReadonlyArray<{ id: ReportTab; label: string }> = [
   { id: "submission", label: "지원 정보" },
   { id: "decision", label: "전형 결정" },
 ];
+const REPORT_POLL_INTERVAL_MS = 2_000;
 
 export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }) {
   const [evaluation, setEvaluation] = useState<ApplicantEvaluation | null>(null);
@@ -81,8 +85,32 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!shouldPollApplicantEvaluation(evaluation)) return;
+
+    let cancelled = false;
+    const intervalId = window.setInterval(() => {
+      void getApplicantEvaluation(applicantId)
+        .then((result) => {
+          if (!cancelled) setEvaluation(result.data);
+        })
+        .catch(() => {
+          // 일시적인 조회 실패는 기존 화면을 유지하고 다음 주기에 다시 확인한다.
+        });
+    }, REPORT_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [applicantId, evaluation]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (evaluation?.applicant.autoScreeningPolicyEnabled) {
+      setMessage("자동 판정이 활성화된 공고의 전형 결과는 직접 변경할 수 없습니다.");
+      return;
+    }
     setLoading(true);
     setMessage("");
     try {
@@ -125,6 +153,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   }
 
   const report = evaluation?.report ?? null;
+  const isAutoScreeningManaged = evaluation?.applicant.autoScreeningPolicyEnabled === true;
   const displayAnswers = evaluation ? getDisplayAnswers(evaluation.answers) : [];
   const integritySummary = evaluation ? buildRecruitingIntegritySummary(displayAnswers) : null;
 
@@ -242,7 +271,24 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
 
             {tab === "decision" ? (
               <div className="report-tabpanel" role="tabpanel">
-                <form className="panel decision-panel" onSubmit={handleSubmit}>
+                {isAutoScreeningManaged ? (
+                  <section className="panel decision-panel">
+                    <div className="panel-head">
+                      <div>
+                        <h2>자동 전형 결과</h2>
+                      </div>
+                    </div>
+
+                    <DecisionSummary report={report} />
+
+                    <div className="decision-field">
+                      <span className="decision-field-label">자동 판정 상태</span>
+                      <StatusBadge value={evaluation?.screening.decision} />
+                    </div>
+                    <p className="notice">자동 판정이 활성화된 공고의 결과는 직접 변경할 수 없습니다.</p>
+                  </section>
+                ) : (
+                  <form className="panel decision-panel" onSubmit={handleSubmit}>
                   <div className="panel-head">
                     <div>
                       <h2>전형 결정</h2>
@@ -290,7 +336,8 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                       저장
                     </button>
                   </div>
-                </form>
+                  </form>
+                )}
               </div>
             ) : null}
 
