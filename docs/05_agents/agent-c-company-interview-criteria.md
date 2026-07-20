@@ -20,6 +20,7 @@
 
 - `criterion_tags`
 - `evaluation_criteria`
+- `auto_screening_policies`
 - `question_bank`
 - `interview_question_generation_policies` (NQ-M1 예정)
 - 면접 시간 정책
@@ -50,6 +51,7 @@ C 담당 Codex는 이 파일을 읽는 즉시 아래 규칙을 작업 전제에 
 - API path, request/response, enum, error code를 바꿔야 하면 `docs/03_contracts`를 먼저 수정한다.
 - `criterion_tags`, `evaluation_criteria`, `question_bank` 구조나 상태 전이를 바꿔야 하면 `docs/02_architecture`와 `docs/04_implementation`을 먼저 맞춘다.
 - `question_bank`, `evaluation_criteria`는 E 담당자와 충돌 가능성이 있으므로 변경 시 E 리뷰가 필요하다.
+- C는 공고별 자동 판정 정책과 기준별 하한선을 저장하지만 지원자별 판정은 계산하거나 write하지 않는다.
 - NCS profile/mode/version과 alignment 판정은 E 계약을 소비하며 C에 threshold를 복제하지 않는다.
 - 지원자별 질문 table과 worker 상태는 E, 지원 완료·세션 snapshot은 D 소유다. C는 정책 저장, 조회 UX, 명시적 retry 요청만 담당한다.
 - NQ-M0 cross-owner 결정은 `ncs-recruiting-question-generation-review-requests.md`의 Review ID로 추적한다.

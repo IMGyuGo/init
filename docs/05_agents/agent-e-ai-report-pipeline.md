@@ -24,6 +24,7 @@
 - `report_scores`
 - `report_evidences`
 - `embeddings`
+- `applications` 자동 전형 판정 projection
 - AI worker processing
 
 ## Outputs
@@ -53,6 +54,7 @@ E 담당 Codex는 이 파일을 읽는 즉시 아래 규칙을 작업 전제에 
 - `ai_process_logs`, `ai_guardrail_logs`, `evaluation_reports`, `report_scores`, `report_evidences`, `embeddings` 구조나 상태 전이를 바꿔야 하면 `docs/02_architecture`와 `docs/04_implementation`을 먼저 맞춘다.
 - `question_bank`, `evaluation_criteria` 사용 방식은 C 담당자와 충돌 가능성이 있으므로 변경 시 C 리뷰가 필요하다.
 - `interview_answers` 입력 구조는 D 담당자와 충돌 가능성이 있으므로 변경 시 D 리뷰가 필요하다.
+- 리포트 final save 이후 C의 공고별 policy snapshot을 사용해 `PASS/HOLD/FAIL/RETRY`를 결정론적으로 저장한다. 판정 가능한 점수가 없으면 FAIL로 변환하지 않는다.
 - Windows 검증은 `powershell -ExecutionPolicy Bypass -File scripts\check-local.ps1 -Role E`를 사용한다.
 - Windows 명령은 UTF-8 출력과 `-LiteralPath` 사용 규칙을 지킨다.
 

@@ -33,7 +33,8 @@
 - backend 공고/지원자 운영 API는 `backend/api/src/modules/company-recruiting` 아래로 정렬한다.
 - frontend 기업 공고/지원자 화면은 `frontend/src/features/company-recruiting` 아래로 정렬한다.
 - `postings`는 `Posting`, `applications`는 `Application`, `notifications`는 `Notification` model 이름을 사용한다.
-- `applications.application_status`, 초대/운영 상태, `screening_decision`, `screening_memo` write는 B 영역으로 둔다.
+- `applications.application_status`, 초대/운영 상태와 `screening_memo` write는 B 영역으로 둔다.
+- `screening_decision`과 자동 판정 reason/version/decided_at은 E 자동 판정 engine write field다. B는 기업 조회 projection만 제공하고 지원자별 결과를 직접 변경하지 않는다.
 - D/E 소유 field를 직접 write하는 코드가 있으면 service 경계를 분리하거나 owner 리뷰가 필요하다고 표시한다.
 - 기존 route alias가 있더라도 새 구현은 `/api/v1/company/recruitments`, `/api/v1/company/applicants` 기준을 사용한다.
 

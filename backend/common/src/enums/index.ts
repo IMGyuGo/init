@@ -25,8 +25,20 @@ export type InterviewStatus = (typeof INTERVIEW_STATUSES)[number];
 export const REPORT_STATUSES = ["PENDING", "GENERATING", "COMPLETED", "FAILED"] as const;
 export type ReportStatus = (typeof REPORT_STATUSES)[number];
 
-export const SCREENING_DECISIONS = ["UNDECIDED", "PASS", "HOLD", "FAIL"] as const;
+export const SCREENING_DECISIONS = ["UNDECIDED", "PASS", "HOLD", "FAIL", "RETRY"] as const;
 export type ScreeningDecision = (typeof SCREENING_DECISIONS)[number];
+
+export const SCREENING_DECISION_REASON_CODES = [
+  "PASS_TOTAL_AND_CRITERIA_MET",
+  "HOLD_TOTAL_BAND",
+  "HOLD_CRITERION_BELOW_PASS_SCORE",
+  "FAIL_BELOW_HOLD_THRESHOLD",
+  "RETRY_REPORT_FAILED",
+  "RETRY_STT_UNAVAILABLE",
+  "RETRY_EVALUATION_INCOMPLETE",
+  "RETRY_SCORE_MISSING",
+] as const;
+export type ScreeningDecisionReasonCode = (typeof SCREENING_DECISION_REASON_CODES)[number];
 
 export const INTERVIEW_TYPES = ["MOCK", "RECRUITING"] as const;
 export type InterviewType = (typeof INTERVIEW_TYPES)[number];
