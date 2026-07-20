@@ -958,7 +958,7 @@ assert.deepEqual(getInterviewAiPollingPolicy({ timedAutoAdvance: false }), {
 });
 
 assert.deepEqual(getInterviewAiPollingPolicy({ timedAutoAdvance: true }), {
-  attempts: 8,
+  attempts: 40,
   intervalMs: 500,
 });
 assert.equal(shouldContinueInterviewWithoutFollowUp({ failureCategory: "TIMEOUT" }), true);

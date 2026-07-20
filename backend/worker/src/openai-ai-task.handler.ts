@@ -181,11 +181,69 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
     const usageScope = payload.usageScope === "DEMO_PRESET" ? "DEMO_PRESET" : "STANDARD";
     const generationSource = optionalText(payload.generationSource);
     const qualityCheckOnly = payload.qualityCheckOnly === true;
+    const fixedPresentationFixture =
+      payload.presentationFixtureId === SALTLUX_FIXED_PRESENTATION_FIXTURE_ID;
     if (policy === "RECRUITING" && !hasText(jobDescription) && !hasText(documentSummary)) {
       throw new NonRetryableAiWorkerFailure("jobDescription or documentSummary is required");
     }
 
     const ncsPlan = policy === "RECRUITING" ? planNcsFollowUp(payload) : undefined;
+    const fixedFollowUpQuestion = fixedPresentationFixture
+      ? optionalText(payload.fixedFollowUpQuestion)
+      : undefined;
+    if (fixedPresentationFixture && qualityCheckOnly) {
+      return {
+        outputRef: JSON.stringify({
+          sessionId,
+          answerId,
+          policy,
+          usageScope,
+          providerMode: "fixed",
+          providerSource: "PRESENTATION_FIXTURE",
+          qualityCheckOnly: true,
+          transcriptUsability: "USABLE",
+          followUpRequired: false,
+        }),
+        guardrail: { result: "PASS", reason: null },
+        finalSave: async () => undefined,
+      };
+    }
+    if (fixedFollowUpQuestion) {
+      const guardrail = this.validateMockPolicy(policy, fixedFollowUpQuestion);
+      return {
+        outputRef: JSON.stringify({
+          sessionId,
+          answerId,
+          providerMode: "fixed",
+          providerSource: "PRESENTATION_FIXTURE",
+          policy,
+          previousQuestion,
+          content: fixedFollowUpQuestion,
+          model: "fixed-demo-fixture-v1",
+          followUpRequired: true,
+          usageScope,
+          attempts: 0,
+          fallbackUsed: false,
+          questionMode: ncsPlan?.questionMode,
+          answerTimeSec: ncsPlan?.answerTimeSec ?? optionalPositiveNumber(payload.answerTimeSec, "answerTimeSec"),
+          baseScores: ncsPlan?.baseScores,
+          dedupeKey: `${policy}:${sessionId}:${answerId}`,
+          duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP",
+        }),
+        guardrail,
+        finalSave: () => this.results.saveFollowUpQuestion({
+          sessionId,
+          answerId,
+          required: true,
+          content: fixedFollowUpQuestion,
+          policy,
+          reason: "NCS_EVIDENCE_GAP",
+          questionMode: ncsPlan?.questionMode,
+          answerTimeSec: ncsPlan?.answerTimeSec ?? optionalPositiveNumber(payload.answerTimeSec, "answerTimeSec"),
+          usageScope,
+        }),
+      };
+    }
     const factPlan = ncsPlan
       ? await planFactClarification(payload, factCheckContextOf(payload.factCheckContext, {
           ...this.factCheckOptions,
@@ -225,45 +283,6 @@ export class OpenAiAiTaskHandler implements AiTaskHandler {
         guardrail: { result: "PASS", reason: null },
         finalSave: () => this.results.saveFollowUpQuestion({
           sessionId, answerId, required: false, policy, usageScope,
-        }),
-      };
-    }
-    const fixedFollowUpQuestion = usageScope === "DEMO_PRESET"
-      ? optionalText(payload.fixedFollowUpQuestion)
-      : undefined;
-    if (fixedFollowUpQuestion) {
-      const guardrail = this.validateMockPolicy(policy, fixedFollowUpQuestion);
-      return {
-        outputRef: JSON.stringify({
-          sessionId,
-          answerId,
-          providerMode: "fixed",
-          providerSource: "PRESENTATION_FIXTURE",
-          policy,
-          previousQuestion,
-          content: fixedFollowUpQuestion,
-          model: "fixed-demo-fixture-v1",
-          followUpRequired: true,
-          usageScope,
-          attempts: 0,
-          fallbackUsed: false,
-          questionMode: ncsPlan?.questionMode,
-          answerTimeSec: ncsPlan?.answerTimeSec ?? optionalPositiveNumber(payload.answerTimeSec, "answerTimeSec"),
-          baseScores: ncsPlan?.baseScores,
-          dedupeKey: `${policy}:${sessionId}:${answerId}`,
-          duplicatePolicy: "KEEP_EXISTING_FOLLOW_UP",
-        }),
-        guardrail,
-        finalSave: () => this.results.saveFollowUpQuestion({
-          sessionId,
-          answerId,
-          required: true,
-          content: fixedFollowUpQuestion,
-          policy,
-          reason: "NCS_EVIDENCE_GAP",
-          questionMode: ncsPlan?.questionMode,
-          answerTimeSec: ncsPlan?.answerTimeSec ?? optionalPositiveNumber(payload.answerTimeSec, "answerTimeSec"),
-          usageScope,
         }),
       };
     }

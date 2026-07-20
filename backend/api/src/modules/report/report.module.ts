@@ -8,6 +8,7 @@ import { CandidateReportMediaController } from "./controller/candidate-report-me
 import { ReportController } from "./controller/report.controller";
 import { ReportsController } from "./controller/reports.controller";
 import { AdminScreeningRetryController } from "./controller/admin-screening-retry.controller";
+import { PublicInterviewCompletionController } from "./controller/public-interview-completion.controller";
 import { CANDIDATE_REPORT_REPOSITORY } from "./repository/candidate-report.repository";
 import { InMemoryCandidateReportRepository } from "./repository/in-memory-candidate-report.repository";
 import { PrismaCandidateReportRepository } from "./repository/prisma-candidate-report.repository";
@@ -35,7 +36,13 @@ const candidateReportRepositoryProvider = usePrismaRepository
 
 @Module({
   imports: [AuthModule, CandidateModule, InterviewModule, AiJobDispatchModule],
-  controllers: [ReportsController, ReportController, CandidateReportMediaController, AdminScreeningRetryController],
+  controllers: [
+    ReportsController,
+    ReportController,
+    CandidateReportMediaController,
+    AdminScreeningRetryController,
+    PublicInterviewCompletionController,
+  ],
   providers: [
     DevAuthAdapter,
     PrismaService,
@@ -55,7 +62,6 @@ const candidateReportRepositoryProvider = usePrismaRepository
     DevAuthAdapter,
     GuardrailService,
     CANDIDATE_REPORT_REPOSITORY,
-    InterviewModule,
     ReportService,
     AiJobDispatchModule,
   ],

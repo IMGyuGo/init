@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpException, Param, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, HttpException, Param, Post, Req, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { CandidateDomainError } from "../../candidate";
 import { DeviceCheckDto } from "../dto/interview.device-check.dto";
@@ -96,14 +96,6 @@ export class PublicInterviewController {
   moveNextQuestion(@Req() request: PublicInterviewRequest, @Param("sessionId") sessionId: string) {
     return this.handle(() =>
       this.publicInterviewService.moveNextQuestion(Number(sessionId), request.publicInterviewAccess),
-    );
-  }
-
-  @UseGuards(PublicInterviewAccessGuard)
-  @Patch("interviews/:sessionId/complete")
-  completeInterview(@Req() request: PublicInterviewRequest, @Param("sessionId") sessionId: string) {
-    return this.handle(() =>
-      this.publicInterviewService.completeInterview(Number(sessionId), request.publicInterviewAccess),
     );
   }
 

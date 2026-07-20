@@ -2,6 +2,7 @@ import {
   SALTLUX_FIXED_DEMO,
   estimateKoreanSpeechSeconds,
   isSaltluxFixedDemoPosting,
+  saltluxFixedDemoAnswerScriptForQuestion,
 } from "./saltlux-fixed-demo";
 
 describe("Saltlux fixed presentation fixture", () => {
@@ -24,5 +25,16 @@ describe("Saltlux fixed presentation fixture", () => {
         estimateKoreanSpeechSeconds(question) + estimateKoreanSpeechSeconds(answer),
       ).toBeLessThanOrEqual(SALTLUX_FIXED_DEMO.maxQuestionAndAnswerSeconds);
     }
+  });
+
+  it("maps only the three fixed questions to their prepared answer scripts", () => {
+    expect(saltluxFixedDemoAnswerScriptForQuestion(SALTLUX_FIXED_DEMO.questions.common))
+      .toBe(SALTLUX_FIXED_DEMO.answerScripts.common);
+    expect(saltluxFixedDemoAnswerScriptForQuestion(SALTLUX_FIXED_DEMO.questions.personalized))
+      .toBe(SALTLUX_FIXED_DEMO.answerScripts.personalized);
+    expect(saltluxFixedDemoAnswerScriptForQuestion(SALTLUX_FIXED_DEMO.questions.followUp))
+      .toBe(SALTLUX_FIXED_DEMO.answerScripts.followUp);
+    expect(saltluxFixedDemoAnswerScriptForQuestion("일반 면접 질문입니다."))
+      .toBeUndefined();
   });
 });
