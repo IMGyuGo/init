@@ -1316,7 +1316,7 @@ export function getInterviewAiPollingPolicy({
   timedAutoAdvance,
 }: InterviewAiPollingPolicyInput): InterviewAiPollingPolicy {
   return timedAutoAdvance
-    ? { attempts: 8, intervalMs: 500 }
+    ? { attempts: 40, intervalMs: 500 }
     : { attempts: 90, intervalMs: 1000 };
 }
 

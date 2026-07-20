@@ -253,7 +253,16 @@ export class MockAiTaskHandler implements AiTaskHandler {
     const audioFileId = positiveNumber(payload.audioFileId, "audioFileId");
     const audioS3Key = requiredText(payload.audioS3Key, "audioS3Key");
     const audioSeconds = optionalPositiveNumber(payload.durationSeconds, "durationSeconds");
-    const providerResult = this.options.sttProvider
+    const fixedTranscript = payload.presentationFixtureId === SALTLUX_FIXED_PRESENTATION_FIXTURE_ID
+      ? optionalText(payload.fixedTranscript)
+      : undefined;
+    const providerResult = fixedTranscript
+      ? {
+          transcript: fixedTranscript,
+          transcriptSource: "PRESENTATION_FIXTURE",
+          model: "fixed-demo-fixture-v1",
+        }
+      : this.options.sttProvider
       ? await this.options.sttProvider.transcribe({ audioFileId, audioS3Key })
       : {
           transcript: `Transcript generated from ${audioS3Key}`,
@@ -263,7 +272,7 @@ export class MockAiTaskHandler implements AiTaskHandler {
     return {
       outputRef: JSON.stringify({
         answerId,
-        providerMode: this.options.sttProvider ? "openai" : "mock",
+        providerMode: fixedTranscript ? "fixed" : this.options.sttProvider ? "openai" : "mock",
         providerSource: providerResult.transcriptSource,
         fileAsset: fileAssetRef(audioFileId, audioS3Key),
         transcript: providerResult.transcript,

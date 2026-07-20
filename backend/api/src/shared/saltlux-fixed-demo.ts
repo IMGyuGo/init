@@ -32,6 +32,20 @@ export function isSaltluxFixedDemoPersonalizedQuestion(question: string | null |
   return normalize(question) === normalize(SALTLUX_FIXED_DEMO.questions.personalized);
 }
 
+export function saltluxFixedDemoAnswerScriptForQuestion(question: string | null | undefined) {
+  const normalized = normalize(question);
+  if (normalized === normalize(SALTLUX_FIXED_DEMO.questions.common)) {
+    return SALTLUX_FIXED_DEMO.answerScripts.common;
+  }
+  if (normalized === normalize(SALTLUX_FIXED_DEMO.questions.personalized)) {
+    return SALTLUX_FIXED_DEMO.answerScripts.personalized;
+  }
+  if (normalized === normalize(SALTLUX_FIXED_DEMO.questions.followUp)) {
+    return SALTLUX_FIXED_DEMO.answerScripts.followUp;
+  }
+  return undefined;
+}
+
 export function isSaltluxFixedDemoQuestionSnapshot(contents: Array<string | null | undefined>) {
   return contents.length === 2 &&
     normalize(contents[0]) === normalize(SALTLUX_FIXED_DEMO.questions.common) &&

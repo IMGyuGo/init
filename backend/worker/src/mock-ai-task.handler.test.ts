@@ -219,6 +219,44 @@ test("STT stores transcript returned by the configured STT provider", async () =
   assert.equal(output.model, "test-stt-model");
 });
 
+test("fixed presentation STT stores the prepared transcript without calling the provider", async () => {
+  const results = new InMemoryAiResultRepository();
+  let providerCalls = 0;
+  const sttProvider: SttProvider = {
+    transcribe: async () => {
+      providerCalls += 1;
+      throw new Error("fixed presentation must not call STT provider");
+    },
+  };
+  const fixedTranscript = "발표 시연에 사용할 고정 답변입니다.";
+
+  const repository = await run({
+    processLogId: 112,
+    processType: "STT",
+    input: {
+      kind: "RECRUITING_INTERVIEW_STT",
+      payload: {
+        answerId: 43,
+        audioFileId: 12,
+        audioS3Key: "candidate/1/answer-43.wav",
+        presentationFixtureId: "SALTLUX_AI_BACKEND_V1",
+        fixedTranscript,
+      },
+    },
+    results,
+    sttProvider,
+  });
+
+  assert.equal(providerCalls, 0);
+  assert.equal(results.transcripts[0]?.transcript, fixedTranscript);
+  const output = JSON.parse(repository.get(112).outputRef ?? "{}") as {
+    providerMode?: string;
+    providerSource?: string;
+  };
+  assert.equal(output.providerMode, "fixed");
+  assert.equal(output.providerSource, "PRESENTATION_FIXTURE");
+});
+
 test("duplicate STT requests keep the existing transcript result", async () => {
   const results = new InMemoryAiResultRepository();
 

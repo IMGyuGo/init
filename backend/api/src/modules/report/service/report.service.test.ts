@@ -274,4 +274,79 @@ describe("ReportService follow-up linkage", () => {
     assert.equal(inputs[0]?.transcript, undefined);
     assert.match(inputs[0]?.transcriptUnavailableReason ?? "", /문맥을 신뢰하기 어려워/);
   });
+
+  it("queues the fixed Saltlux demo report even while STT is pending", async () => {
+    let dispatchedInput: Record<string, unknown> | undefined;
+    const answer: InterviewAnswer = {
+      answerId: 2001,
+      sessionId: 3001,
+      questionId: 4001,
+      sessionQuestionId: 5001,
+      durationSeconds: 20,
+      submittedAt: "2026-07-20T00:00:00.000Z",
+    };
+    const service = new ReportService(
+      {
+        getOwnedApplicationReportContext: async () => ({
+          application: { applicationId: 6001, postingId: 7001 },
+          session: {
+            sessionId: 3001,
+            interviewType: "RECRUITING",
+            showQuestionText: true,
+            sessionMode: "DEMO_PRESET",
+            status: "COMPLETED",
+          },
+          job: {
+            companyName: "솔트룩스",
+            title: "[Product Center] AI Backend Engineer (신입/경력)",
+            jobRole: "AI Backend Engineer",
+            jobDescription: "AI 검색 백엔드 개발",
+          },
+        }),
+      } as never,
+      {
+        listAnswersBySession: async () => [answer],
+        findQuestion: async () => ({
+          questionId: 4001,
+          questionType: "EXPERIENCE",
+          content: "AI 검색 품질 기준을 팀과 합의한 과정을 설명해 주세요.",
+          sortOrder: 1,
+          interviewType: "RECRUITING",
+          isActive: false,
+        }),
+        listTranscriptProcesses: async () => [{
+          processLogId: 8001,
+          status: "RUNNING",
+          createdAt: "2026-07-20T00:00:01.000Z",
+        }],
+        listNcsSessionPolicies: async () => [],
+      } as never,
+      {
+        listFollowUpQuestionsByAnswerIds: async () => [],
+        listEvaluationCriteriaByPosting: async () => [],
+      } as never,
+      {
+        dispatchReportGeneration: async ({ input }: { input: Record<string, unknown> }) => {
+          dispatchedInput = input;
+          return {
+            queued: true,
+            processLogId: 9001,
+            processType: "REPORT_GENERATE",
+            status: "PENDING",
+            inputRef: "fixed-demo-report",
+            report: { reportId: 3001, reportType: "RECRUITING_REPORT", status: "GENERATING" },
+          };
+        },
+      } as never,
+    );
+
+    await service.requestApplicationReportGeneration(6001, {
+      userId: 77,
+      candidateId: 66,
+      userType: "CANDIDATE",
+    });
+
+    const payload = dispatchedInput?.payload as Record<string, unknown> | undefined;
+    assert.equal(payload?.presentationFixtureId, "SALTLUX_AI_BACKEND_V1");
+  });
 });

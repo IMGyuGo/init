@@ -58,7 +58,9 @@ import {
 } from "./interview-nonverbal-metadata";
 import {
   SALTLUX_FIXED_DEMO,
+  SALTLUX_FIXED_DEMO_FIXTURE_ID,
   isSaltluxFixedDemoPersonalizedQuestion,
+  saltluxFixedDemoAnswerScriptForQuestion,
 } from "../../../shared/saltlux-fixed-demo";
 
 const DEFAULT_MOCK_QUESTION_TYPES = ["INTRO", "TECHNICAL", "EXPERIENCE", "CLOSING"] as const;
@@ -1026,7 +1028,10 @@ export class InterviewService {
     }
 
     const previousQuestion = requestBody.previousQuestion ?? (await this.requiredQuestion(answer.questionId)).content;
-    const transcript = requestBody.transcript ?? answer.transcript;
+    const fixedTranscript = session.sessionMode === "DEMO_PRESET"
+      ? saltluxFixedDemoAnswerScriptForQuestion(previousQuestion)
+      : undefined;
+    const transcript = fixedTranscript ?? requestBody.transcript ?? answer.transcript;
     if (!transcript?.trim()) {
       throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "Transcript is required for follow-up question.", 400, [
         { field: "transcript", reason: "transcript is required" },
@@ -1051,6 +1056,9 @@ export class InterviewService {
       ...(requestBody.qualityCheckOnly === true ? { qualityCheckOnly: true } : {}),
       sessionId: session.sessionId,
       ...(session.sessionMode === "DEMO_PRESET" ? { usageScope: "DEMO_PRESET" } : {}),
+      ...(session.sessionMode === "DEMO_PRESET" && saltluxFixedDemoAnswerScriptForQuestion(previousQuestion)
+        ? { presentationFixtureId: SALTLUX_FIXED_DEMO_FIXTURE_ID }
+        : {}),
       ...(session.sessionMode === "DEMO_PRESET" && isSaltluxFixedDemoPersonalizedQuestion(previousQuestion)
         ? { fixedFollowUpQuestion: SALTLUX_FIXED_DEMO.questions.followUp }
         : {}),
@@ -1091,12 +1099,22 @@ export class InterviewService {
     }
 
     const audioFile = await this.candidateService.getInterviewFileAsset(audioFileId, currentUser, "audioFileId");
+    const question = await this.requiredQuestion(answer.questionId);
+    const fixedTranscript = session.sessionMode === "DEMO_PRESET"
+      ? saltluxFixedDemoAnswerScriptForQuestion(question.content)
+      : undefined;
     return {
       answerId: answer.answerId,
       audioFileId,
       audioS3Key: audioFile.storageKey,
       durationSeconds: requestedDurationSeconds ?? answer.durationSeconds,
       sessionId: session.sessionId,
+      ...(fixedTranscript
+        ? {
+            fixedTranscript,
+            presentationFixtureId: SALTLUX_FIXED_DEMO_FIXTURE_ID,
+          }
+        : {}),
     };
   }
 

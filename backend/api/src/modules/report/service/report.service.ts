@@ -10,15 +10,19 @@ import {
   type ReportStatus,
 } from "../../candidate";
 import {
-  INTERVIEW_MEDIA_STORAGE,
-  INTERVIEW_REPOSITORY,
-  InMemoryInterviewMediaStorageAdapter,
   type InterviewAnswer,
-  type InterviewMediaStoragePort,
   type InterviewQuestion,
-  type InterviewRepository,
   type RuntimeInterviewSession,
-} from "../../interview";
+} from "../../interview/interview.runtime.types";
+import {
+  INTERVIEW_REPOSITORY,
+  type InterviewRepository,
+} from "../../interview/repository/interview.repository";
+import {
+  INTERVIEW_MEDIA_STORAGE,
+  InMemoryInterviewMediaStorageAdapter,
+  type InterviewMediaStoragePort,
+} from "../../interview/service/interview-media-storage.adapter";
 import {
   CandidateAiProcessView,
   CandidateApplicationStatusView,
@@ -537,10 +541,17 @@ export class ReportService {
       ]);
     }
     const reportAnswers = await this.reportAnswerInputs(answers, args.reportType);
+    const useSaltluxFixedDemoReport = args.reportType === "RECRUITING_REPORT" &&
+      shouldUseSaltluxFixedDemoReport({
+        companyName: args.companyName,
+        jobTitle: args.jobTitle,
+        sessionMode: args.session.sessionMode,
+        answers: reportAnswers,
+      });
     const pendingSttAnswerIds = reportAnswers
       .filter((answer) => answer.evaluationStatus !== "STT_UNAVAILABLE" && !answer.transcript?.trim())
       .map((answer) => answer.answerId);
-    if (pendingSttAnswerIds.length > 0) {
+    if (!useSaltluxFixedDemoReport && pendingSttAnswerIds.length > 0) {
       throw new CandidateDomainError(
         "COMMON_CONFLICT",
         "모든 답변의 음성 인식 처리가 완료된 뒤 리포트를 생성할 수 있습니다.",
@@ -566,13 +577,7 @@ export class ReportService {
       ...(args.reportType === "RECRUITING_REPORT" && this.interviewRepository.listNcsSessionPolicies
         ? { ncsSessionPolicy: await this.interviewRepository.listNcsSessionPolicies(args.session.sessionId) }
         : {}),
-      ...(args.reportType === "RECRUITING_REPORT" &&
-      shouldUseSaltluxFixedDemoReport({
-        companyName: args.companyName,
-        jobTitle: args.jobTitle,
-        sessionMode: args.session.sessionMode,
-        answers: reportAnswers,
-      })
+      ...(useSaltluxFixedDemoReport
         ? { presentationFixtureId: SALTLUX_FIXED_DEMO_FIXTURE_ID }
         : {}),
     };
