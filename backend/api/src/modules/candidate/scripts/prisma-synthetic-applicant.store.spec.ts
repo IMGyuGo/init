@@ -30,19 +30,30 @@ describe("synthetic report persistence shape", () => {
 });
 
 describe("synthetic application timestamps", () => {
-  const baseNow = Date.parse("2026-07-21T00:00:00.000Z");
+  const datasetCreatedAt = new Date("2026-07-21T00:00:00.000Z");
 
   it("makes lower V2 ordinals newer for the default descending UI sort", () => {
-    const first = syntheticApplicationUpdatedAt(SYNTHETIC_MANIFEST_V2, 1, baseNow);
-    const eleventh = syntheticApplicationUpdatedAt(SYNTHETIC_MANIFEST_V2, 11, baseNow);
+    const first = syntheticApplicationUpdatedAt(SYNTHETIC_MANIFEST_V2, 1, datasetCreatedAt);
+    const eleventh = syntheticApplicationUpdatedAt(SYNTHETIC_MANIFEST_V2, 11, datasetCreatedAt);
 
-    expect(first?.getTime()).toBe(baseNow - 60_000);
-    expect(eleventh?.getTime()).toBe(baseNow - 11 * 60_000);
+    expect(first?.getTime()).toBe(datasetCreatedAt.getTime() - 60_000);
+    expect(eleventh?.getTime()).toBe(datasetCreatedAt.getTime() - 11 * 60_000);
     expect(first!.getTime()).toBeGreaterThan(eleventh!.getTime());
   });
 
+  it("returns the same V2 timestamp when a later resume reuses the dataset anchor", () => {
+    const initial = syntheticApplicationUpdatedAt(SYNTHETIC_MANIFEST_V2, 11, datasetCreatedAt);
+    const resumed = syntheticApplicationUpdatedAt(
+      SYNTHETIC_MANIFEST_V2,
+      11,
+      new Date(datasetCreatedAt.getTime()),
+    );
+
+    expect(resumed).toEqual(initial);
+  });
+
   it("keeps application updatedAt omitted for V1", () => {
-    expect(syntheticApplicationUpdatedAt(SYNTHETIC_MANIFEST_V1, 1, baseNow)).toBeUndefined();
+    expect(syntheticApplicationUpdatedAt(SYNTHETIC_MANIFEST_V1, 1, datasetCreatedAt)).toBeUndefined();
   });
 });
 

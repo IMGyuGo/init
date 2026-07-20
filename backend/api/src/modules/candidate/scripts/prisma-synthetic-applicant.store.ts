@@ -18,10 +18,10 @@ const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 } as const;
 export function syntheticApplicationUpdatedAt(
   manifestVersion: SyntheticManifestVersion,
   ordinal: number,
-  baseNow: number,
+  datasetCreatedAt: Date,
 ) {
   return manifestVersion === SYNTHETIC_MANIFEST_V2
-    ? new Date(baseNow - ordinal * 60_000)
+    ? new Date(datasetCreatedAt.getTime() - ordinal * 60_000)
     : undefined;
 }
 
@@ -121,12 +121,20 @@ export class PrismaSyntheticApplicantStore implements SyntheticApplicantStore {
     await this.prisma.$transaction(async (tx) => {
       const dataset = await tx.syntheticApplicantDataset.findUnique({
         where: { datasetId },
-        select: { postingId: true, manifestVersion: true },
+        select: { postingId: true, manifestVersion: true, createdAt: true },
       });
       if (!dataset) throw new Error(`dataset manifest가 없습니다: ${datasetId}`);
       assertSyntheticManifestVersion(dataset.manifestVersion);
       for (const record of records) {
-        await this.createRecord(tx, datasetId, dataset.postingId, record, passwordHash, dataset.manifestVersion);
+        await this.createRecord(
+          tx,
+          datasetId,
+          dataset.postingId,
+          record,
+          passwordHash,
+          dataset.manifestVersion,
+          dataset.createdAt,
+        );
       }
     }, TRANSACTION_OPTIONS);
   }
@@ -180,10 +188,10 @@ export class PrismaSyntheticApplicantStore implements SyntheticApplicantStore {
     record: SyntheticApplicantPlanRecord,
     passwordHash: string,
     manifestVersion: SyntheticManifestVersion,
+    datasetCreatedAt: Date,
   ) {
-    const baseNow = Date.now();
-    const now = new Date(baseNow - record.ordinal * 60_000);
-    const applicationUpdatedAt = syntheticApplicationUpdatedAt(manifestVersion, record.ordinal, baseNow);
+    const now = new Date(Date.now() - record.ordinal * 60_000);
+    const applicationUpdatedAt = syntheticApplicationUpdatedAt(manifestVersion, record.ordinal, datasetCreatedAt);
     const user = await tx.user.create({
       data: {
         email: record.email,
