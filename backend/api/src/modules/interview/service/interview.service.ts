@@ -493,6 +493,7 @@ export class InterviewService {
     if (!requestBody.allowReanswer && !requestBody.retryAnswerId) {
       const replayedAnswer = await this.interviewRepository.findAnswer(session.sessionId, requestBody.questionId);
       if (replayedAnswer) {
+        session = await this.ensureSaltluxDemoFollowUp(session, replayedAnswer, currentUser);
         return this.buildSaveAnswerResponse(session, replayedAnswer, undefined, undefined, true);
       }
       session = await this.syncCurrentQuestionToFirstUnanswered(session);
@@ -598,6 +599,8 @@ export class InterviewService {
       idempotentReplay = !result.created;
     }
 
+    session = await this.ensureSaltluxDemoFollowUp(session, answer, currentUser);
+
     return this.buildSaveAnswerResponse(
       session,
       answer,
@@ -605,6 +608,33 @@ export class InterviewService {
       idempotentReplay ? undefined : audioFile,
       idempotentReplay,
     );
+  }
+
+  private async ensureSaltluxDemoFollowUp(
+    session: RuntimeInterviewSession,
+    answer: InterviewAnswer,
+    currentUser: CurrentCandidateUser,
+  ): Promise<RuntimeInterviewSession> {
+    if (
+      session.interviewType !== "RECRUITING" ||
+      session.sessionMode !== "DEMO_PRESET" ||
+      !this.interviewRepository.ensureSaltluxDemoFollowUp
+    ) {
+      return session;
+    }
+
+    const question = await this.requiredQuestion(answer.questionId);
+    if (!isSaltluxFixedDemoPersonalizedQuestion(question.content)) {
+      return session;
+    }
+
+    await this.interviewRepository.ensureSaltluxDemoFollowUp({
+      sessionId: session.sessionId,
+      answerId: answer.answerId,
+      content: SALTLUX_FIXED_DEMO.questions.followUp,
+      answerTimeSec: session.answerTimeSecSnapshot ?? SALTLUX_FIXED_DEMO.answerTimeSec,
+    });
+    return this.getRecruitingRuntimeSession(session.sessionId, currentUser);
   }
 
   private async buildSaveAnswerResponse(

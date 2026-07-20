@@ -3680,6 +3680,7 @@ CandidateFolder 입력 제한:
   - base 평가상 불필요하면 `SKIPPED/NOT_REQUIRED`로 저장하며 질문 목록은 변경하지 않는다.
   - 프론트는 완료된 job 상태를 확인한 뒤 정식 질문 목록을 다시 조회하며 별도 삽입 API를 호출하지 않는다.
   - `qualityCheckOnly=true` 성공은 `followUpRequired=false`, `transcriptUsability=USABLE|CHECK_UNAVAILABLE`을 반환하고 `follow_up_questions` row를 만들지 않는다.
+  - `SALTLUX_AI_BACKEND_V1 + DEMO_PRESET`의 개인화 답변은 답변 저장 직후 API가 고정 꼬리질문을 동일 snapshot과 시간 정책으로 동기 삽입한다. API-071 worker 호출은 이미 삽입된 결과를 재사용하는 멱등 보조 경로다.
 - 오류/예외:
   - 이미 1회 생성했거나 snapshot이 불완전하면 `INTERVIEW_NCS_BINDING_INVALID`로 생성하지 않는다.
   - 결과 저장 시 세션이 `IN_PROGRESS`가 아니면 `SKIPPED/SESSION_NOT_IN_PROGRESS`로 저장한다.
@@ -3705,10 +3706,11 @@ CandidateFolder 입력 제한:
   - 필수 질문 응답 완료
 - 성공 응답/처리:
   - 분석 대기 상태로 전환
+  - `SALTLUX_AI_BACKEND_V1 + DEMO_PRESET`은 세션 완료 후 API가 고정 3문항 답변과 NCS snapshot을 검증하고 총점, 역량별 점수, 문항별 평가와 evidence를 동기 확정한다. 응답 시점의 report/process 상태는 `COMPLETED`이며 SQS를 발행하지 않는다. 동일 요청은 기존 완료 결과를 멱등 반환한다.
 - 오류/예외:
   - 업로드 지연 시 분석 대기 상태로 표시하고 재시도를 수행한다.
 - 관련 ERD 테이블:
-  - candidate_profiles, file_assets, postings, question_bank, applications, interview_sessions, interview_answers, ai_process_logs
+  - candidate_profiles, file_assets, postings, question_bank, applications, interview_sessions, interview_answers, evaluation_reports, report_scores, report_evidences, ncs_answer_evaluations, ncs_answer_evaluation_evidences, ai_process_logs
 - 비고/미결:
   - 완료 후 지원현황에는 분석중 상태 표시
 

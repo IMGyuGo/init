@@ -149,7 +149,10 @@ export class PrismaAiProcessLogRepository implements AiProcessLogRepository {
     leaseExpiresAt: Date,
     retryState: AiProcessRetryState = { maxAttempts: 3 },
   ): Promise<AiProcessClaimResult> {
-    const existing = await this.ensurePending(job);
+    const existing = await this.findOptionalSnapshot(job.processLogId);
+    if (!existing) {
+      return { status: "MISSING" };
+    }
     const now = new Date();
     const currentAttempt = existing.attemptCount ?? 1;
     const maxAttempts = existing.maxAttempts ?? retryState.maxAttempts;
@@ -377,11 +380,19 @@ export class PrismaAiProcessLogRepository implements AiProcessLogRepository {
   }
 
   private async findSnapshot(processLogId: number): Promise<AiProcessLogSnapshot> {
+    const processLog = await this.findOptionalSnapshot(processLogId);
+    if (!processLog) {
+      throw new Error(`Process log ${processLogId} was not initialized.`);
+    }
+    return processLog;
+  }
+
+  private async findOptionalSnapshot(processLogId: number): Promise<AiProcessLogSnapshot | undefined> {
     const processLog = await this.prisma.aiProcessLog.findUnique({
       where: { processLogId: BigInt(processLogId) },
     });
     if (!processLog) {
-      throw new Error(`Process log ${processLogId} was not initialized.`);
+      return undefined;
     }
     return this.toSnapshot(processLog);
   }

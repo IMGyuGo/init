@@ -2,8 +2,9 @@ import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
 
 import {
+  formatSyntheticImporterFailure,
   parseSyntheticImporterArgs,
-  sanitizeSyntheticError,
+  serializeSyntheticImporterOutput,
   validateSyntheticEnvironment,
 } from "./synthetic-applicant-importer.contract";
 import { PrismaSyntheticApplicantStore } from "./prisma-synthetic-applicant.store";
@@ -34,10 +35,10 @@ async function main() {
 }
 
 function print(value: unknown) {
-  process.stdout.write(`${JSON.stringify(value, (_, nested) => typeof nested === "bigint" ? nested.toString() : nested, 2)}\n`);
+  process.stdout.write(serializeSyntheticImporterOutput(value));
 }
 
 main().catch((error) => {
-  process.stderr.write(`synthetic-applicant-importer failed: ${sanitizeSyntheticError(error)}\n`);
+  process.stderr.write(formatSyntheticImporterFailure(error));
   process.exitCode = 1;
 });

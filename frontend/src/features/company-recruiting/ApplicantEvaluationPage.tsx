@@ -11,6 +11,7 @@ import {
   scoreBand,
 } from "../interview-report/report-visuals";
 import { createApplicantInterviewMediaSession, getApplicantDocument, getApplicantEvaluation, updateScreeningStatus } from "./api";
+import { shouldPollApplicantEvaluation } from "./applicant-evaluation-polling";
 import { canEditScreeningDecision } from "./applicant-list";
 import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
 import type {
@@ -53,6 +54,7 @@ const REPORT_TABS: ReadonlyArray<{ id: ReportTab; label: string }> = [
   { id: "submission", label: "지원 정보" },
   { id: "decision", label: "전형 결정" },
 ];
+const REPORT_POLL_INTERVAL_MS = 2_000;
 
 export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }) {
   const [evaluation, setEvaluation] = useState<ApplicantEvaluation | null>(null);
@@ -83,6 +85,26 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!shouldPollApplicantEvaluation(evaluation)) return;
+
+    let cancelled = false;
+    const intervalId = window.setInterval(() => {
+      void getApplicantEvaluation(applicantId)
+        .then((result) => {
+          if (!cancelled) setEvaluation(result.data);
+        })
+        .catch(() => {
+          // 일시적인 조회 실패는 기존 화면을 유지하고 다음 주기에 다시 확인한다.
+        });
+    }, REPORT_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [applicantId, evaluation]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -143,136 +165,136 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
 
   return (
     <section className="app-page glass-page notion applicant-report-page">
-        <div className="page-head">
-          <div>
-            <Breadcrumb
-              items={[
-                { label: "공고 목록", href: "/company/recruitments" },
-                ...(evaluation
-                  ? [
-                      {
-                        label: evaluation.recruitment.title,
-                        href: `/company/recruitments/${evaluation.recruitment.recruitmentId}`,
-                      },
-                    ]
-                  : []),
-                { label: evaluation?.applicant.name ?? "평가 상세" },
-              ]}
-            />
-            <h1>{evaluation?.applicant.name ?? "지원자 평가 상세"}</h1>
-            {evaluation ? <p className="page-sub">{evaluation.applicant.email}</p> : null}
-          </div>
-          {evaluation ? (
-            <Link className="btn secondary" href={`/company/recruitments/${evaluation.recruitment.recruitmentId}`}>
-              공고 대시보드
-            </Link>
-          ) : null}
+      <div className="page-head">
+        <div>
+          <Breadcrumb
+            items={[
+              { label: "공고 목록", href: "/company/recruitments" },
+              ...(evaluation
+                ? [
+                  {
+                    label: evaluation.recruitment.title,
+                    href: `/company/recruitments/${evaluation.recruitment.recruitmentId}`,
+                  },
+                ]
+                : []),
+              { label: evaluation?.applicant.name ?? "평가 상세" },
+            ]}
+          />
+          <h1>{evaluation?.applicant.name ?? "지원자 평가 상세"}</h1>
+          {evaluation ? <p className="page-sub">{evaluation.applicant.email}</p> : null}
         </div>
-
-        {message ? <p className="notice">{message}</p> : null}
-
         {evaluation ? (
-          <>
-            <nav className="report-tabs" role="tablist" aria-label="지원자 리포트 탭">
-              {REPORT_TABS.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === item.id}
-                  className={`report-tab${tab === item.id ? " is-active" : ""}`}
-                  onClick={() => setTab(item.id)}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </nav>
+          <Link className="btn secondary" href={`/company/recruitments/${evaluation.recruitment.recruitmentId}`}>
+            공고 대시보드
+          </Link>
+        ) : null}
+      </div>
 
-            {tab === "overview" ? (
-              <div className="report-tabpanel" role="tabpanel">
-                <ReportOverview
-                  report={report}
-                  integritySummary={integritySummary}
-                  screeningDecision={decision}
-                />
-              </div>
-            ) : null}
+      {message ? <p className="notice">{message}</p> : null}
 
-            {tab === "submission" ? (
-              <div className="report-tabpanel" role="tabpanel">
-            <section className="panel applicant-submission-panel">
-              <div className="panel-head">
-                <div>
-                  <h2>지원 정보</h2>
+      {evaluation ? (
+        <>
+          <nav className="report-tabs" role="tablist" aria-label="지원자 리포트 탭">
+            {REPORT_TABS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === item.id}
+                className={`report-tab${tab === item.id ? " is-active" : ""}`}
+                onClick={() => setTab(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+
+          {tab === "overview" ? (
+            <div className="report-tabpanel" role="tabpanel">
+              <ReportOverview
+                report={report}
+                integritySummary={integritySummary}
+                screeningDecision={decision}
+              />
+            </div>
+          ) : null}
+
+          {tab === "submission" ? (
+            <div className="report-tabpanel" role="tabpanel">
+              <section className="panel applicant-submission-panel">
+                <div className="panel-head">
+                  <div>
+                    <h2>지원 정보</h2>
+                  </div>
                 </div>
-              </div>
-              <dl className="applicant-submission-details">
-                <SubmissionItem label="이름" value={evaluation.submission.name} />
-                <SubmissionItem label="이메일" value={evaluation.submission.email} />
-                <SubmissionItem label="연락처" value={evaluation.submission.phone} />
-                <SubmissionLink label="GitHub" value={evaluation.submission.githubUrl} />
-                <SubmissionLink label="블로그" value={evaluation.submission.blogUrl} />
-                <SubmissionLink label="포트폴리오 URL" value={evaluation.submission.portfolioUrl} />
-                <SubmissionItem label="지원동기" value={evaluation.submission.motivation} multiline />
-                <SubmissionItem label="추가 설명" value={evaluation.submission.additionalInfo} multiline />
-                {evaluation.submission.profileSnapshot ? (
-                  <>
-                    <SubmissionItem label="한 줄 소개" value={evaluation.submission.profileSnapshot.summary} multiline />
-                    <SubmissionItem label="자기소개서" value={evaluation.submission.profileSnapshot.coverLetter} multiline />
-                    <SubmissionItem label="학력" value={evaluation.submission.profileSnapshot.educations.map((item) => `${item.schoolName}${item.major ? ` · ${item.major}` : ""} (${item.startMonth}~${item.endMonth ?? "현재"})`).join("\n")} multiline />
-                    <SubmissionItem label="경력" value={evaluation.submission.profileSnapshot.careers.map((item) => `${item.companyName} · ${item.jobRole} (${item.startMonth}~${item.isCurrent ? "재직 중" : item.endMonth ?? ""})\n${item.responsibilities}`).join("\n\n")} multiline />
-                    <SubmissionItem label="프로젝트·활동" value={evaluation.submission.profileSnapshot.activities.map((item) => `${item.organizationName} (${item.startDate}~${item.isOngoing ? "진행 중" : item.endDate ?? ""})\n${item.description}`).join("\n\n")} multiline />
-                    <SubmissionItem label="자격·어학·수상" value={evaluation.submission.profileSnapshot.credentials.map((item) => `${item.name} · ${item.issuer} · ${item.acquiredMonth}${item.result ? ` · ${item.result}` : ""}`).join("\n")} multiline />
-                  </>
-                ) : null}
-              </dl>
-              <div className="applicant-submission-documents">
-                <h3>제출 서류</h3>
-                {evaluation.submission.documents.length ? (
-                  evaluation.submission.documents.map((documentItem) => (
-                    <div className="applicant-document-row" key={documentItem.documentId}>
-                      <div>
-                        <strong>{documentItem.documentType === "RESUME" ? "이력서" : "포트폴리오"}</strong>
-                        <span>{documentItem.originalName} · {formatFileSize(documentItem.sizeBytes)}</span>
+                <dl className="applicant-submission-details">
+                  <SubmissionItem label="이름" value={evaluation.submission.name} />
+                  <SubmissionItem label="이메일" value={evaluation.submission.email} />
+                  <SubmissionItem label="연락처" value={evaluation.submission.phone} />
+                  <SubmissionLink label="GitHub" value={evaluation.submission.githubUrl} />
+                  <SubmissionLink label="블로그" value={evaluation.submission.blogUrl} />
+                  <SubmissionLink label="포트폴리오 URL" value={evaluation.submission.portfolioUrl} />
+                  <SubmissionItem label="지원동기" value={evaluation.submission.motivation} multiline />
+                  <SubmissionItem label="추가 설명" value={evaluation.submission.additionalInfo} multiline />
+                  {evaluation.submission.profileSnapshot ? (
+                    <>
+                      <SubmissionItem label="한 줄 소개" value={evaluation.submission.profileSnapshot.summary} multiline />
+                      <SubmissionItem label="자기소개서" value={evaluation.submission.profileSnapshot.coverLetter} multiline />
+                      <SubmissionItem label="학력" value={evaluation.submission.profileSnapshot.educations.map((item) => `${item.schoolName}${item.major ? ` · ${item.major}` : ""} (${item.startMonth}~${item.endMonth ?? "현재"})`).join("\n")} multiline />
+                      <SubmissionItem label="경력" value={evaluation.submission.profileSnapshot.careers.map((item) => `${item.companyName} · ${item.jobRole} (${item.startMonth}~${item.isCurrent ? "재직 중" : item.endMonth ?? ""})\n${item.responsibilities}`).join("\n\n")} multiline />
+                      <SubmissionItem label="프로젝트·활동" value={evaluation.submission.profileSnapshot.activities.map((item) => `${item.organizationName} (${item.startDate}~${item.isOngoing ? "진행 중" : item.endDate ?? ""})\n${item.description}`).join("\n\n")} multiline />
+                      <SubmissionItem label="자격·어학·수상" value={evaluation.submission.profileSnapshot.credentials.map((item) => `${item.name} · ${item.issuer} · ${item.acquiredMonth}${item.result ? ` · ${item.result}` : ""}`).join("\n")} multiline />
+                    </>
+                  ) : null}
+                </dl>
+                <div className="applicant-submission-documents">
+                  <h3>제출 서류</h3>
+                  {evaluation.submission.documents.length ? (
+                    evaluation.submission.documents.map((documentItem) => (
+                      <div className="applicant-document-row" key={documentItem.documentId}>
+                        <div>
+                          <strong>{documentItem.documentType === "RESUME" ? "이력서" : "포트폴리오"}</strong>
+                          <span>{documentItem.originalName} · {formatFileSize(documentItem.sizeBytes)}</span>
+                        </div>
+                        <button
+                          className="btn secondary compact"
+                          type="button"
+                          disabled={openingDocumentId === documentItem.fileId}
+                          onClick={() => void handleOpenDocument(documentItem.fileId)}
+                        >
+                          {openingDocumentId === documentItem.fileId ? "여는 중" : "파일 열기"}
+                        </button>
                       </div>
-                      <button
-                        className="btn secondary compact"
-                        type="button"
-                        disabled={openingDocumentId === documentItem.fileId}
-                        onClick={() => void handleOpenDocument(documentItem.fileId)}
-                      >
-                        {openingDocumentId === documentItem.fileId ? "여는 중" : "파일 열기"}
-                      </button>
-                    </div>
-                  ))
-                ) : (
-                  <div className="empty">제출된 파일을 찾을 수 없습니다.</div>
-                )}
-              </div>
-            </section>
-              </div>
-            ) : null}
+                    ))
+                  ) : (
+                    <div className="empty">제출된 파일을 찾을 수 없습니다.</div>
+                  )}
+                </div>
+              </section>
+            </div>
+          ) : null}
 
-            {tab === "decision" ? (
-              <div className="report-tabpanel" role="tabpanel">
-                {isAutoScreeningLocked ? (
-                  <section className="panel decision-panel">
-                    <div className="panel-head">
-                      <div>
-                        <h2>자동 전형 결과</h2>
-                      </div>
+          {tab === "decision" ? (
+            <div className="report-tabpanel" role="tabpanel">
+              {isAutoScreeningLocked ? (
+                <section className="panel decision-panel">
+                  <div className="panel-head">
+                    <div>
+                      <h2>자동 전형 결과</h2>
                     </div>
+                  </div>
 
-                    <DecisionSummary report={report} />
+                  <DecisionSummary report={report} />
 
-                    <div className="decision-field">
-                      <span className="decision-field-label">자동 판정 상태</span>
-                      <StatusBadge value={evaluation?.screening.decision} />
-                    </div>
-                    <p className="notice">리포트 판정이 완료된 뒤 전형 결과를 변경할 수 있습니다.</p>
-                  </section>
-                ) : (
-                  <form className="panel decision-panel" onSubmit={handleSubmit}>
+                  <div className="decision-field">
+                    <span className="decision-field-label">자동 판정 상태</span>
+                    <StatusBadge value={evaluation?.screening.decision} />
+                  </div>
+                  <p className="notice">리포트 판정이 완료된 뒤 전형 결과를 변경할 수 있습니다.</p>
+                </section>
+              ) : (
+                <form className="panel decision-panel" onSubmit={handleSubmit}>
                   <div className="panel-head">
                     <div>
                       <h2>전형 결정</h2>
@@ -320,94 +342,94 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                       저장
                     </button>
                   </div>
-                  </form>
-                )}
-              </div>
-            ) : null}
-
-            {tab === "answers" ? (
-              <div className="report-tabpanel" role="tabpanel">
-            <section className="panel">
-              <div className="panel-head">
-                <div>
-                  <h2>면접 답변</h2>
-                </div>
-              </div>
-
-              {displayAnswers.length > 0 ? (
-                <div className="company-answer-list">
-                  {displayAnswers.map((answer, index) => (
-                    <article className="company-answer-item" key={answer.answerId}>
-                      <div className="company-answer-rail">
-                        <span className="company-answer-qnum">{index + 1}</span>
-                      </div>
-                      <div className="company-answer-body">
-                      <header className="company-answer-qhead">
-                        <span className="company-answer-qmeta">
-                          질문 {index + 1}
-                          <span className="company-answer-type">{formatQuestionTypeLabel(answer.questionType)}</span>
-                        </span>
-                        <h3>{answer.questionContent ?? "질문 정보 없음"}</h3>
-                      </header>
-
-                      <CompanyAnswerMedia
-                        applicantId={applicantId}
-                        audioFile={answer.audioFile}
-                        videoFile={answer.videoFile}
-                      />
-
-                      <div className="company-answer-block company-answer-bubble">
-                        <span className="company-answer-label is-answer">답변</span>
-                        {answer.transcript?.trim() ? (
-                          <CollapsibleText text={answer.transcript} />
-                        ) : (
-                          <p className="company-answer-empty-text">답변 스크립트가 없습니다.</p>
-                        )}
-                      </div>
-
-                      <RecruitingIntegritySignalView metadata={answer.nonverbalMetadata} />
-
-                      {answer.followUpQuestions.length > 0 ? (
-                        <div className="company-answer-block company-answer-section">
-                          <span className="company-answer-label">꼬리질문</span>
-                          <ol className="company-followup-list">
-                            {answer.followUpQuestions.map((followUp) => (
-                              <li className="company-followup-card" key={followUp.followUpId}>
-                                <p className="company-follow-up-question">{followUp.content}</p>
-                                <div className="company-follow-up-answer">
-                                  <span className="company-answer-label is-sub is-answer">답변</span>
-                                  <CompanyAnswerMedia
-                                    applicantId={applicantId}
-                                    audioFile={followUp.answer?.audioFile ?? null}
-                                    compact
-                                    videoFile={followUp.answer?.videoFile ?? null}
-                                  />
-                                  <p>{followUp.answer?.transcript?.trim() ? followUp.answer.transcript : "저장된 꼬리질문 답변이 없습니다."}</p>
-                                  <RecruitingIntegritySignalView metadata={followUp.answer?.nonverbalMetadata ?? null} compact />
-                                </div>
-                              </li>
-                            ))}
-                          </ol>
-                        </div>
-                      ) : null}
-
-                      {answer.durationSeconds != null ? (
-                        <div className="company-answer-meta">답변 시간 {answer.durationSeconds}초</div>
-                      ) : null}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className="empty">저장된 면접 답변이 없습니다.</div>
+                </form>
               )}
-            </section>
-              </div>
-            ) : null}
-          </>
-        ) : (
-          <div className="empty">평가 상세를 불러오는 중입니다.</div>
-        )}
+            </div>
+          ) : null}
+
+          {tab === "answers" ? (
+            <div className="report-tabpanel" role="tabpanel">
+              <section className="panel">
+                <div className="panel-head">
+                  <div>
+                    <h2>면접 답변</h2>
+                  </div>
+                </div>
+
+                {displayAnswers.length > 0 ? (
+                  <div className="company-answer-list">
+                    {displayAnswers.map((answer, index) => (
+                      <article className="company-answer-item" key={answer.answerId}>
+                        <div className="company-answer-rail">
+                          <span className="company-answer-qnum">{index + 1}</span>
+                        </div>
+                        <div className="company-answer-body">
+                          <header className="company-answer-qhead">
+                            <span className="company-answer-qmeta">
+                              질문 {index + 1}
+                              <span className="company-answer-type">{formatQuestionTypeLabel(answer.questionType)}</span>
+                            </span>
+                            <h3>{answer.questionContent ?? "질문 정보 없음"}</h3>
+                          </header>
+
+                          <CompanyAnswerMedia
+                            applicantId={applicantId}
+                            audioFile={answer.audioFile}
+                            videoFile={answer.videoFile}
+                          />
+
+                          <div className="company-answer-block company-answer-bubble">
+                            <span className="company-answer-label is-answer">답변</span>
+                            {answer.transcript?.trim() ? (
+                              <CollapsibleText text={answer.transcript} />
+                            ) : (
+                              <p className="company-answer-empty-text">답변 스크립트가 없습니다.</p>
+                            )}
+                          </div>
+
+                          <RecruitingIntegritySignalView metadata={answer.nonverbalMetadata} />
+
+                          {answer.followUpQuestions.length > 0 ? (
+                            <div className="company-answer-block company-answer-section">
+                              <span className="company-answer-label">꼬리질문</span>
+                              <ol className="company-followup-list">
+                                {answer.followUpQuestions.map((followUp) => (
+                                  <li className="company-followup-card" key={followUp.followUpId}>
+                                    <p className="company-follow-up-question">{followUp.content}</p>
+                                    <div className="company-follow-up-answer">
+                                      <span className="company-answer-label is-sub is-answer">답변</span>
+                                      <CompanyAnswerMedia
+                                        applicantId={applicantId}
+                                        audioFile={followUp.answer?.audioFile ?? null}
+                                        compact
+                                        videoFile={followUp.answer?.videoFile ?? null}
+                                      />
+                                      <p>{followUp.answer?.transcript?.trim() ? followUp.answer.transcript : "저장된 꼬리질문 답변이 없습니다."}</p>
+                                      <RecruitingIntegritySignalView metadata={followUp.answer?.nonverbalMetadata ?? null} compact />
+                                    </div>
+                                  </li>
+                                ))}
+                              </ol>
+                            </div>
+                          ) : null}
+
+                          {answer.durationSeconds != null ? (
+                            <div className="company-answer-meta">답변 시간 {answer.durationSeconds}초</div>
+                          ) : null}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="empty">저장된 면접 답변이 없습니다.</div>
+                )}
+              </section>
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <div className="empty">평가 상세를 불러오는 중입니다.</div>
+      )}
     </section>
   );
 }
@@ -659,50 +681,50 @@ function ReportOverview({
             {[...report.scores]
               .sort((a, b) => (b.score ?? -1) - (a.score ?? -1))
               .map((score) => {
-              const pct = clampPercent(score.score ?? 0);
-              const scoreTone = score.score != null ? competencyBand(score.score).tone : "low";
-              const hasDetail = Boolean(score.rationale?.trim()) || score.evidences.length > 0;
-              const isOpen = expanded.has(score.scoreId);
-              return (
-                <li className="report-competency-item" key={score.scoreId}>
-                  <div className="report-competency-row">
-                    <span className="report-competency-namewrap">
-                      <span className="report-competency-name">{formatScoreCriterionName(score.criterionName, score.rationale)}</span>
-                      {score.weight != null ? <span className="report-competency-weight">가중치 {score.weight}%</span> : null}
-                    </span>
-                    <span className={`report-competency-score tone-${scoreTone}`}>{score.score ?? "평가 미완료"}</span>
-                  </div>
-                  <div className="report-competency-bar" aria-hidden="true">
-                    <span className={`tone-${scoreTone}`} style={{ width: `${pct}%` }} />
-                  </div>
-                  {hasDetail ? (
-                    <>
-                      <button
-                        type="button"
-                        className="report-competency-toggle"
-                        aria-expanded={isOpen}
-                        onClick={() => toggleExpanded(score.scoreId)}
-                      >
-                        {isOpen ? "근거 숨기기" : "근거 보기"}
-                        <span className={`report-competency-caret${isOpen ? " is-open" : ""}`} aria-hidden="true">⌄</span>
-                      </button>
-                      {isOpen ? (
-                        <div className="report-competency-detail">
-                          {score.rationale?.trim() ? <p className="report-competency-rationale">{score.rationale}</p> : null}
-                          {score.evidences.length > 0 ? (
-                            <div className="report-competency-evidence">
-                              {score.evidences.map((evidence) => (
-                                <blockquote key={evidence.evidenceId}>{evidence.evidenceText}</blockquote>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </>
-                  ) : null}
-                </li>
-              );
-            })}
+                const pct = clampPercent(score.score ?? 0);
+                const scoreTone = score.score != null ? competencyBand(score.score).tone : "low";
+                const hasDetail = Boolean(score.rationale?.trim()) || score.evidences.length > 0;
+                const isOpen = expanded.has(score.scoreId);
+                return (
+                  <li className="report-competency-item" key={score.scoreId}>
+                    <div className="report-competency-row">
+                      <span className="report-competency-namewrap">
+                        <span className="report-competency-name">{formatScoreCriterionName(score.criterionName, score.rationale)}</span>
+                        {score.weight != null ? <span className="report-competency-weight">가중치 {score.weight}%</span> : null}
+                      </span>
+                      <span className={`report-competency-score tone-${scoreTone}`}>{score.score ?? "평가 미완료"}</span>
+                    </div>
+                    <div className="report-competency-bar" aria-hidden="true">
+                      <span className={`tone-${scoreTone}`} style={{ width: `${pct}%` }} />
+                    </div>
+                    {hasDetail ? (
+                      <>
+                        <button
+                          type="button"
+                          className="report-competency-toggle"
+                          aria-expanded={isOpen}
+                          onClick={() => toggleExpanded(score.scoreId)}
+                        >
+                          {isOpen ? "근거 숨기기" : "근거 보기"}
+                          <span className={`report-competency-caret${isOpen ? " is-open" : ""}`} aria-hidden="true">⌄</span>
+                        </button>
+                        {isOpen ? (
+                          <div className="report-competency-detail">
+                            {score.rationale?.trim() ? <p className="report-competency-rationale">{score.rationale}</p> : null}
+                            {score.evidences.length > 0 ? (
+                              <div className="report-competency-evidence">
+                                {score.evidences.map((evidence) => (
+                                  <blockquote key={evidence.evidenceId}>{evidence.evidenceText}</blockquote>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </li>
+                );
+              })}
           </ul>
         ) : (
           <div className="empty">세부 점수와 근거가 아직 없습니다.</div>

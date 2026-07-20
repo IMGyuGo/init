@@ -1,7 +1,20 @@
 import { createHash } from "crypto";
 
-export const SYNTHETIC_MANIFEST_VERSION = "SYNTHETIC_APPLICANT_MANIFEST_V1";
+import { allocateByWeight } from "./synthetic-applicant-importer.allocation";
+import { buildSyntheticApplicantPlanV2 } from "./synthetic-applicant-importer.v2";
+
+export const SYNTHETIC_MANIFEST_V1 = "SYNTHETIC_APPLICANT_MANIFEST_V1" as const;
+export const SYNTHETIC_MANIFEST_V2 = "SYNTHETIC_APPLICANT_MANIFEST_V2" as const;
+export const SYNTHETIC_MANIFEST_VERSION = SYNTHETIC_MANIFEST_V2;
 export const SYNTHETIC_PRODUCTION_ACK = "ISSUE_393_DEPLOYED_AND_SNAPSHOT_READY";
+
+export const SYNTHETIC_V2_OPERATIONAL_CONTRACT = {
+  postingId: 36n,
+  activeCount: 1_000,
+  canceledCount: 50,
+  interactiveCount: 10,
+  pipelineSelectionCount: 0,
+} as const;
 
 export type SyntheticImporterAction = "plan" | "apply" | "cleanup";
 export type SyntheticLifecycleStage =
@@ -35,6 +48,21 @@ export type SyntheticApplicationProjection = {
   screeningDecision: "UNDECIDED" | "PASS" | "HOLD" | "FAIL";
 };
 
+export type SyntheticManifestVersion =
+  | "SYNTHETIC_APPLICANT_MANIFEST_V1"
+  | "SYNTHETIC_APPLICANT_MANIFEST_V2";
+
+export type SyntheticProfileScoreFixture = {
+  id: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
+  weight: 40 | 30;
+  score: number;
+};
+
+export type SyntheticReportFixture = {
+  totalScore: number;
+  profiles: SyntheticProfileScoreFixture[];
+};
+
 export type SyntheticApplicantPlanRecord = SyntheticApplicationProjection & {
   ordinal: number;
   email: string;
@@ -45,6 +73,7 @@ export type SyntheticApplicantPlanRecord = SyntheticApplicationProjection & {
   lifecycleStage: SyntheticLifecycleStage;
   dataDepth: SyntheticDataDepth;
   pipelineSelected: boolean;
+  reportFixture: SyntheticReportFixture | null;
 };
 
 const STAGE_WEIGHTS: Array<[SyntheticLifecycleStage, number]> = [
@@ -61,6 +90,12 @@ const DEPTH_WEIGHTS: Array<[SyntheticDataDepth, number]> = [
   ["PROFILE", 150],
   ["INTERVIEW", 40],
   ["REPORT", 10],
+];
+
+const LEGACY_PROFILES: SyntheticProfileScoreFixture[] = [
+  { id: "JOB_TECHNICAL", weight: 40, score: 84 },
+  { id: "COLLABORATION_COMMUNICATION", weight: 30, score: 78 },
+  { id: "PROBLEM_SOLVING", weight: 30, score: 81 },
 ];
 
 const INTERACTIVE_STAGE_SHOWCASE: SyntheticLifecycleStage[] = [
@@ -162,9 +197,13 @@ export function validateSyntheticEnvironment(
   }
 }
 
-export function syntheticOptionsHash(options: SyntheticImporterOptions) {
+export function syntheticOptionsHash(
+  options: SyntheticImporterOptions,
+  manifestVersion: SyntheticManifestVersion = SYNTHETIC_MANIFEST_V2,
+) {
+  assertSyntheticManifestVersion(manifestVersion);
   const canonical = JSON.stringify({
-    manifestVersion: SYNTHETIC_MANIFEST_VERSION,
+    manifestVersion,
     environment: options.environment,
     companyId: options.companyId.toString(),
     postingId: options.postingId.toString(),
@@ -178,7 +217,43 @@ export function syntheticOptionsHash(options: SyntheticImporterOptions) {
   return createHash("sha256").update(canonical).digest("hex");
 }
 
-export function buildSyntheticApplicantPlan(options: SyntheticImporterOptions): SyntheticApplicantPlanRecord[] {
+export function buildSyntheticApplicantPlan(
+  options: SyntheticImporterOptions,
+  manifestVersion: SyntheticManifestVersion = SYNTHETIC_MANIFEST_V2,
+) {
+  if (manifestVersion === SYNTHETIC_MANIFEST_V1) return buildSyntheticApplicantPlanV1(options);
+  if (manifestVersion === SYNTHETIC_MANIFEST_V2) return buildSyntheticApplicantPlanV2(options);
+  throw new Error(`지원하지 않는 synthetic manifest version입니다: ${String(manifestVersion)}`);
+}
+
+export function assertSyntheticManifestVersion(value: string): asserts value is SyntheticManifestVersion {
+  if (value !== SYNTHETIC_MANIFEST_V1 && value !== SYNTHETIC_MANIFEST_V2) {
+    throw new Error(`지원하지 않는 synthetic manifest version입니다: ${value}`);
+  }
+}
+
+export function assertV2SyntheticOperationalContract(
+  actual: Pick<
+    SyntheticImporterOptions,
+    "postingId" | "activeCount" | "canceledCount" | "interactiveCount" | "pipelineSelectionCount"
+  >,
+) {
+  for (const field of [
+    "postingId",
+    "activeCount",
+    "canceledCount",
+    "interactiveCount",
+    "pipelineSelectionCount",
+  ] as const) {
+    if (actual[field] !== SYNTHETIC_V2_OPERATIONAL_CONTRACT[field]) {
+      throw new Error(
+        `V2 operational contract ${field}가 승인값과 다릅니다: expected=${SYNTHETIC_V2_OPERATIONAL_CONTRACT[field]}, actual=${actual[field]}`,
+      );
+    }
+  }
+}
+
+export function buildSyntheticApplicantPlanV1(options: SyntheticImporterOptions): SyntheticApplicantPlanRecord[] {
   validateSyntheticImporterOptions(options);
   const stageCounts = allocateByWeight(options.activeCount, STAGE_WEIGHTS.map((entry) => entry[1]));
   const stages = STAGE_WEIGHTS.flatMap(([stage], index) => Array(stageCounts[index]).fill(stage)) as SyntheticLifecycleStage[];
@@ -201,6 +276,7 @@ export function buildSyntheticApplicantPlan(options: SyntheticImporterOptions): 
       lifecycleStage: stage,
       dataDepth: depths[index],
       pipelineSelected: ordinal <= options.pipelineSelectionCount,
+      reportFixture: legacyReportFixture(stage, depths[index]),
       ...projectionFor(stage, ordinal),
     };
   });
@@ -215,10 +291,19 @@ export function buildSyntheticApplicantPlan(options: SyntheticImporterOptions): 
       lifecycleStage: "CANCELED",
       dataDepth: "LIGHTWEIGHT",
       pipelineSelected: false,
+      reportFixture: null,
       ...projectionFor("CANCELED", ordinal),
     });
   }
   return records;
+}
+
+function legacyReportFixture(stage: SyntheticLifecycleStage, depth: SyntheticDataDepth): SyntheticReportFixture | null {
+  if (stage !== "REPORT_COMPLETED") return null;
+  return {
+    totalScore: 81,
+    profiles: depth === "REPORT" ? LEGACY_PROFILES.map((profile) => ({ ...profile })) : [],
+  };
 }
 
 export function summarizeSyntheticPlan(records: SyntheticApplicantPlanRecord[]) {
@@ -247,6 +332,14 @@ export function sanitizeSyntheticError(error: unknown) {
     .replace(/(["']?(?:password|passwordHash)["']?\s*[:=]\s*)[^,}\s]+/gi, "$1[REDACTED]")
     .replace(/[\r\n\t]+/g, " ")
     .slice(0, 1_000);
+}
+
+export function serializeSyntheticImporterOutput(value: unknown) {
+  return `${JSON.stringify(value, (_, nested) => typeof nested === "bigint" ? nested.toString() : nested, 2)}\n`;
+}
+
+export function formatSyntheticImporterFailure(_error: unknown) {
+  return "synthetic-applicant-importer failed: operation failed; inspect the dataset status for diagnostics\n";
 }
 
 function parseNamedArguments(argv: string[]) {
@@ -281,18 +374,6 @@ function integer(value: string, name: string) {
 function positiveBigInt(value: string, name: string) {
   if (!/^\d+$/.test(value) || BigInt(value) <= 0n) throw new Error(`--${name}은 1 이상의 정수여야 합니다.`);
   return BigInt(value);
-}
-
-function allocateByWeight(total: number, weights: number[]) {
-  const weightTotal = weights.reduce((sum, weight) => sum + weight, 0);
-  const raw = weights.map((weight) => (total * weight) / weightTotal);
-  const allocated = raw.map(Math.floor);
-  let remaining = total - allocated.reduce((sum, count) => sum + count, 0);
-  const order = raw
-    .map((value, index) => ({ index, remainder: value - Math.floor(value) }))
-    .sort((left, right) => right.remainder - left.remainder || left.index - right.index);
-  for (let index = 0; index < remaining; index += 1) allocated[order[index].index] += 1;
-  return allocated;
 }
 
 function spreadInteractiveStages(stages: SyntheticLifecycleStage[], interactiveCount: number) {

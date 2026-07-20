@@ -202,6 +202,48 @@ test("PrismaAiProcessLogRepository records guardrail retryability", async () => 
   assert.equal(guardrailCreateArgs.data.failureCategory, "NON_RETRYABLE");
 });
 
+test("PrismaAiProcessLogRepository does not recreate a deleted process log while claiming", async () => {
+  let upsertCalls = 0;
+  const prisma = {
+    aiProcessLog: {
+      async upsert(args: any) {
+        upsertCalls += 1;
+        return {
+          ...args.create,
+          outputRef: null,
+          failureCategory: null,
+          failureReason: null,
+        };
+      },
+      async findUnique(_args: any) {
+        return null;
+      },
+      async update(_args: any) {
+        throw new Error("not used");
+      },
+      async updateMany(_args: any) {
+        return { count: 0 };
+      },
+    },
+    aiGuardrailLog: {
+      async create(_args: any) {
+        return { guardrailLogId: BigInt(1) };
+      },
+    },
+  };
+  const repository = new PrismaAiProcessLogRepository(prisma);
+
+  const claim = await repository.claim({
+    processLogId: 20,
+    processType: "REPORT_GENERATE",
+    inputRef: JSON.stringify({ payload: { applicationId: 99, reportId: 100 } }),
+    attempt: 1,
+  }, "worker-a:message-20", new Date(Date.now() + 60_000));
+
+  assert.equal(String(claim.status), "MISSING");
+  assert.equal(upsertCalls, 0);
+});
+
 test("PrismaAiProcessLogRepository atomically claims and renews an AI process lease", async () => {
   const records = new Map<bigint, any>();
   const updateManyCalls: any[] = [];
@@ -257,13 +299,15 @@ test("PrismaAiProcessLogRepository atomically claims and renews an AI process le
   };
   const repository = new PrismaAiProcessLogRepository(prisma);
   const leaseExpiresAt = new Date("2026-07-16T12:00:00.000Z");
-
-  const claim = await repository.claim({
+  const job = {
     processLogId: 21,
-    processType: "QUESTION_GENERATE",
+    processType: "QUESTION_GENERATE" as const,
     inputRef: "question:21",
     attempt: 1,
-  }, "worker-a:message-21", leaseExpiresAt);
+  };
+
+  await repository.ensurePending(job);
+  const claim = await repository.claim(job, "worker-a:message-21", leaseExpiresAt);
   const renewed = await repository.renewClaim(21, "worker-a:message-21", new Date("2026-07-16T12:05:00.000Z"));
   const reclaimed = await repository.claim({
     processLogId: 21,

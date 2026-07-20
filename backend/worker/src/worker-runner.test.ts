@@ -749,6 +749,34 @@ test("acks duplicate processLogId deliveries without invoking the provider twice
   assert.equal(queue.deletedMessageIds.length, 2);
 });
 
+test("acks an orphaned SQS message when its process log was deleted", async () => {
+  class MissingProcessLogRepository extends InMemoryAiProcessLogRepository {
+    override async claim(): Promise<{ status: "MISSING" }> {
+      return { status: "MISSING" };
+    }
+  }
+
+  const queue = new InMemoryAiJobQueue([message(20)]);
+  const repository = new MissingProcessLogRepository();
+  let handlerCalls = 0;
+  let failureCalls = 0;
+
+  await new AiWorkerRunner(queue, repository, {
+    async handle() {
+      handlerCalls += 1;
+      return { guardrail: { result: "PASS", reason: null } };
+    },
+  }, {
+    onFailure: async () => {
+      failureCalls += 1;
+    },
+  }).processBatch();
+
+  assert.equal(handlerCalls, 0);
+  assert.equal(failureCalls, 0);
+  assert.deepEqual(queue.deletedMessageIds, ["message-20"]);
+});
+
 test("does not execute a concurrently leased processLogId", async () => {
   const queue = new InMemoryAiJobQueue([message(15)]);
   const repository = new InMemoryAiProcessLogRepository();
