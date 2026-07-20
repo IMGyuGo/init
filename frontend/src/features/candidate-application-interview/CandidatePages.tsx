@@ -3405,7 +3405,8 @@ function InterviewRuntimePanel({
   const [interviewerPipPosition, setInterviewerPipPosition] = useState<CameraPipPosition>();
   const [fullscreenActive, setFullscreenActive] = useState(false);
   const [interviewerInfoOpen, setInterviewerInfoOpen] = useState(false);
-  const [subtitlesEnabled, setSubtitlesEnabled] = useState(false);
+  const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
+  const [completeConfirmOpen, setCompleteConfirmOpen] = useState(false);
   const [remainingSeconds, setRemainingSeconds] = useState(DEFAULT_INTERVIEW_QUESTION_TIME_LIMIT_SECONDS);
   const [timerPhase, setTimerPhase] = useState<RuntimeTimerPhase>("ANSWERING");
   const [introCompleted, setIntroCompleted] = useState(false);
@@ -8021,6 +8022,22 @@ function InterviewRuntimePanel({
   const formattedRemainingTime = formatInterviewCountdown(remainingSeconds);
   const timerLabel = timerPhase === "PREPARING" ? "준비 시간" : "남은 시간";
   const timerDanger = timerPhase === "ANSWERING" && remainingSeconds <= 10;
+  const timerWarning = timerPhase === "ANSWERING" && !timerDanger && remainingSeconds <= 30;
+  const timerTotalSeconds = Math.max(
+    1,
+    (timerPhase === "PREPARING" ? runtimePreparationTimeSec : runtimeAnswerTimeSec) ??
+      DEFAULT_INTERVIEW_QUESTION_TIME_LIMIT_SECONDS,
+  );
+  const timerElapsedRatio = Math.min(1, Math.max(0, 1 - remainingSeconds / timerTotalSeconds));
+  const totalQuestionCount = Math.max(1, data?.runtime.totalQuestions ?? 1);
+  const microphoneLevelPercent = Math.max(0, Math.min(100, Math.round(microphoneLevel)));
+  const microphoneHint = !microphoneReady
+    ? "마이크 확인 필요"
+    : !recording
+      ? "마이크 준비됨"
+      : microphoneLevelPercent >= 12
+        ? "잘 들려요"
+        : "조금 크게 말해 주세요";
   const interviewerProfile = getAiInterviewerProfile(mode);
   const interviewerQuestionPrompt = formatAiInterviewerQuestionPrompt({
     question: currentQuestion,
@@ -8050,6 +8067,7 @@ function InterviewRuntimePanel({
     networkReady,
     networkStatus,
   });
+  const runtimeAlertChips = runtimeStatusChips.filter((chip) => chip.tone === "warning");
   const runtimeDeviceRecheckState = getRuntimeDeviceRecheckState({
     setupCompleted,
     recording,
@@ -8391,6 +8409,13 @@ function InterviewRuntimePanel({
                   <div className="mic-meter" aria-label={`마이크 입력 ${microphoneLevel}%`}>
                     <span style={{ width: `${microphoneLevel}%` }} />
                   </div>
+                  <p className="mic-meter-hint" aria-live="polite">
+                    {!microphoneReady
+                      ? "마이크를 연결하고 권한을 허용해주세요."
+                      : microphoneLevelPercent >= 12
+                        ? "잘 들려요. 이 크기로 답변해주세요."
+                        : "소리가 작습니다. 조금 크게 말해 주세요."}
+                  </p>
                   <div className="status-line"><span className={networkReady ? "ok" : "wait"}>{networkReady ? "✓" : "!"}</span> {networkStatus}</div>
                 </div>
                 <div className="candidate-device-controls">
@@ -8453,11 +8478,25 @@ function InterviewRuntimePanel({
               data-session-mode-fallback={AI_INTERVIEWER_SESSION_MODE_POLICY.fallbackReason ?? ""}
             >
               <audio ref={bindRealtimeRemoteAudio} className="sr-only" autoPlay aria-hidden="true" />
+              <div
+                className={`ai-interviewer-stage__timebar ${timerDanger ? "danger" : timerWarning ? "warning" : ""}`}
+                aria-hidden="true"
+              >
+                <span style={{ width: `${Math.round(timerElapsedRatio * 100)}%` }} />
+              </div>
               <div className="ai-interviewer-stage__top">
                 <div className="ai-interviewer-stage__meta">
                   <strong>질문 {questionNumber} / {data.runtime.totalQuestions}</strong>
+                  <span className="ai-interviewer-stage__dots" aria-hidden="true">
+                    {Array.from({ length: totalQuestionCount }, (_, index) => (
+                      <i key={index} className={index < questionNumber ? "on" : ""} />
+                    ))}
+                  </span>
                 </div>
-                <div className={`question-timer ${timerDanger ? "danger" : ""}`} aria-label={`${timerLabel} ${formattedRemainingTime}`}>
+                <div
+                  className={`question-timer ${timerDanger ? "danger" : ""} ${timerWarning ? "warning" : ""}`}
+                  aria-label={`${timerLabel} ${formattedRemainingTime}`}
+                >
                   <span>{timerLabel}</span>
                   <strong>{formattedRemainingTime}</strong>
                 </div>
@@ -8469,13 +8508,15 @@ function InterviewRuntimePanel({
                 </div>
               </div>
 
-              <div className="runtime-status-hud" aria-label="실시간 면접 상태">
-                {runtimeStatusChips.map((chip) => (
-                  <span key={chip.id} className={`runtime-status-chip runtime-status-chip--${chip.id} runtime-status-chip--${chip.tone}`}>
-                    {chip.label}
-                  </span>
-                ))}
-              </div>
+              {runtimeAlertChips.length ? (
+                <div className="runtime-status-hud" aria-label="장치 확인 안내">
+                  {runtimeAlertChips.map((chip) => (
+                    <span key={chip.id} className={`runtime-status-chip runtime-status-chip--${chip.id} runtime-status-chip--${chip.tone}`}>
+                      {chip.label}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
 
               {integrityWarning ? (
                 <div className="runtime-integrity-warning" role="status" aria-live="polite">
@@ -8568,13 +8609,24 @@ function InterviewRuntimePanel({
               ) : null}
 
               <div className={`ai-interviewer-question ${subtitlesEnabled ? "" : "muted"}`}>
-                <span>{subtitlesEnabled ? "질문 보기" : "질문 음성 안내"}</span>
+                <span
+                  className={`ai-interviewer-question__status ai-interviewer-question__status--${interviewerSessionState.tone}`}
+                  aria-live="polite"
+                >
+                  {interviewerSessionState.label}
+                </span>
                 <strong>{interviewerQuestionPrompt}</strong>
+                <span className="ai-interviewer-question__mic">
+                  <i className="ai-interviewer-question__mic-track" aria-hidden="true">
+                    <i style={{ width: `${microphoneLevelPercent}%` }} />
+                  </i>
+                  {microphoneHint}
+                </span>
               </div>
 
-              <div className={`question-voice-status ${questionSpeechSupported ? "" : "unsupported"}`} aria-live="polite">
-                {questionSpeechStatus}
-              </div>
+              <p className="sr-only" aria-live="polite">
+                {questionSpeechSupported ? questionSpeechStatus : `${questionSpeechStatus}. 질문 음성을 사용할 수 없습니다.`}
+              </p>
 
               {cameraPreviewVisible ? (
                 <div
@@ -8661,23 +8713,6 @@ function InterviewRuntimePanel({
                   </button>
                 ) : null}
                 <button
-                  className="btn primary"
-                  type="button"
-                  disabled={
-                    busy ||
-                    !currentQuestion ||
-                    !currentQuestionStateReady ||
-                    currentQuestionLocked ||
-                    !questionSpeechCompleted ||
-                    questionSpeechPlaying ||
-                    (!recording && !canSubmitAnswer && !canStartManualRecording)
-                  }
-                  onClick={handleAnswerComplete}
-                >
-                  <span>{shouldShowRecordingStartLabel ? "녹화 시작" : "답변 완료"}</span>
-                  <kbd>Enter</kbd>
-                </button>
-                <button
                   className="btn"
                   type="button"
                   disabled={!canStartCurrentQuestionReanswer}
@@ -8704,19 +8739,89 @@ function InterviewRuntimePanel({
                   <span>{subtitlesEnabled ? "질문 숨기기" : "질문 보기"}</span>
                   <kbd>Q</kbd>
                 </button>
+                <button
+                  className="btn primary candidate-interview-controls__primary"
+                  type="button"
+                  disabled={
+                    busy ||
+                    !currentQuestion ||
+                    !currentQuestionStateReady ||
+                    currentQuestionLocked ||
+                    !questionSpeechCompleted ||
+                    questionSpeechPlaying ||
+                    (!recording && !canSubmitAnswer && !canStartManualRecording)
+                  }
+                  onClick={handleAnswerComplete}
+                >
+                  <span>{shouldShowRecordingStartLabel ? "녹화 시작" : "답변 완료"}</span>
+                  <kbd>Enter</kbd>
+                </button>
               </div>
               <p className="field-hint">STT 실패 시 재답변은 문항당 1회만 가능합니다.</p>
               <div className="candidate-interview-complete-action">
                 <button
-                  className="btn primary lg"
+                  className="btn interview-exit-button"
                   type="button"
                   disabled={busy || recording || !canCompleteInterview}
-                  onClick={() => void handleComplete()}
+                  onClick={() => setCompleteConfirmOpen(true)}
                 >
                   면접 완료
                 </button>
               </div>
             </form>
+
+            {completeConfirmOpen ? (
+              <div
+                className="modal-backdrop"
+                role="presentation"
+                onMouseDown={(event) => {
+                  if (event.target === event.currentTarget && !busy) setCompleteConfirmOpen(false);
+                }}
+              >
+                <section
+                  className="modal interview-complete-confirm-modal"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="interview-complete-confirm-title"
+                  aria-describedby="interview-complete-confirm-description"
+                >
+                  <div className="modal-head">
+                    <div>
+                      <h2 id="interview-complete-confirm-title">면접을 완료할까요?</h2>
+                      <p id="interview-complete-confirm-description">
+                        제출 후에는 답변을 수정하거나 다시 응시할 수 없습니다.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="confirm-box">
+                    <strong>답변한 질문 {answeredQuestionCount} / {data.runtime.totalQuestions}</strong>
+                    <span>제출하면 AI 분석이 시작됩니다.</span>
+                  </div>
+                  <div className="modal-actions split-actions">
+                    <button
+                      autoFocus
+                      className="btn secondary"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setCompleteConfirmOpen(false)}
+                    >
+                      계속 응시
+                    </button>
+                    <button
+                      className="btn primary"
+                      type="button"
+                      disabled={busy || recording || !canCompleteInterview}
+                      onClick={() => {
+                        setCompleteConfirmOpen(false);
+                        void handleComplete();
+                      }}
+                    >
+                      면접 완료
+                    </button>
+                  </div>
+                </section>
+              </div>
+            ) : null}
           </>
         ) : null}
       </section>

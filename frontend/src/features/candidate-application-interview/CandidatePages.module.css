@@ -2141,8 +2141,8 @@
 :global(.ai-interviewer-stage) {
   position: relative;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
-  width: min(100%, 1120px);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  width: min(100%, 1280px);
   min-height: 0;
   aspect-ratio: 16 / 9;
   padding: 20px;
@@ -2169,19 +2169,62 @@
   border-radius: 0;
 }
 
+:global(.ai-interviewer-stage__timebar) {
+  position: relative;
+  z-index: 5;
+  height: 5px;
+  margin-bottom: 14px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+}
+
+:global(.ai-interviewer-stage__timebar span) {
+  display: block;
+  height: 100%;
+  background: #8b7cff;
+  border-radius: inherit;
+  transition: width 320ms linear, background-color 200ms ease;
+}
+
+:global(.ai-interviewer-stage__timebar.warning span) {
+  background: #f5b942;
+}
+
+:global(.ai-interviewer-stage__timebar.danger span) {
+  background: #ff6b6b;
+}
+
 :global(.ai-interviewer-stage__top) {
   position: relative;
   z-index: 5;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: flex-start;
+  align-items: center;
   gap: 16px;
 }
 
 :global(.ai-interviewer-stage__meta) {
   display: grid;
   justify-self: start;
+  gap: 8px;
+}
+
+:global(.ai-interviewer-stage__dots) {
+  display: flex;
   gap: 6px;
+  align-items: center;
+}
+
+:global(.ai-interviewer-stage__dots i) {
+  width: 8px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.24);
+  border-radius: 999px;
+}
+
+:global(.ai-interviewer-stage__dots i.on) {
+  background: #8b7cff;
 }
 
 :global(.ai-interviewer-stage__top span) {
@@ -2192,12 +2235,14 @@
 
 :global(.ai-interviewer-stage__top strong) {
   color: #fff;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 900;
 }
 
 :global(.ai-interviewer-stage .question-timer) {
   justify-self: center;
+  min-width: 152px;
+  padding: 10px 20px;
   color: #fff;
   background: rgba(255, 255, 255, 0.12);
   border-color: rgba(255, 255, 255, 0.16);
@@ -2205,6 +2250,19 @@
 
 :global(.ai-interviewer-stage .question-timer span) {
   color: rgba(255, 255, 255, 0.68);
+  font-size: 13px;
+}
+
+:global(.ai-interviewer-stage .question-timer strong) {
+  font-size: 40px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+}
+
+:global(.ai-interviewer-stage .question-timer.warning) {
+  color: #ffe4b0;
+  background: rgba(245, 185, 66, 0.2);
+  border-color: rgba(245, 185, 66, 0.45);
 }
 
 :global(.ai-interviewer-stage .question-timer.danger) {
@@ -3077,12 +3135,12 @@
   position: relative;
   z-index: 2;
   display: grid;
-  gap: 8px;
-  width: min(560px, 100%);
-  padding: 12px 14px;
-  margin: 0 auto;
+  gap: 10px;
+  width: min(820px, 100%);
+  padding: 16px 20px;
+  margin: 10px auto 0;
   color: #fff;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(9, 8, 18, 0.62);
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 16px;
 }
@@ -3094,41 +3152,87 @@
 }
 
 :global(.ai-interviewer-question strong) {
-  font-size: 15px;
-  font-weight: 900;
-  line-height: 1.5;
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.6;
   overflow-wrap: anywhere;
 }
 
 :global(.ai-interviewer-question.muted strong) {
   color: rgba(255, 255, 255, 0.72);
-  font-size: 14px;
+  font-size: 16px;
+}
+
+:global(.ai-interviewer-question__status) {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+:global(.ai-interviewer-question__status::before) {
+  width: 7px;
+  height: 7px;
+  content: "";
+  background: currentcolor;
+  border-radius: 999px;
+}
+
+:global(.ai-interviewer-question__status--speaking) {
+  color: #b9b0ff;
+}
+
+:global(.ai-interviewer-question__status--recording) {
+  color: #7ee2b8;
+}
+
+:global(.ai-interviewer-question__status--thinking) {
+  color: #ffd79a;
+}
+
+:global(.ai-interviewer-question__status--warning) {
+  color: #ffc46b;
+}
+
+:global(.ai-interviewer-question__mic) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+:global(.ai-interviewer-question__mic-track) {
+  width: 96px;
+  height: 5px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+}
+
+:global(.ai-interviewer-question__mic-track i) {
+  display: block;
+  height: 100%;
+  background: #4ecb9a;
+  border-radius: inherit;
+  transition: width 90ms linear;
 }
 
 :global(.ai-interviewer-stage:fullscreen .ai-interviewer-question) {
-  width: min(760px, 100%);
-  padding: 18px 20px;
+  width: min(960px, 100%);
+  padding: 20px 24px;
 }
 
 :global(.ai-interviewer-stage:fullscreen .ai-interviewer-question strong) {
-  font-size: 19px;
+  font-size: 23px;
 }
 
 :global(.ai-interviewer-stage:fullscreen .ai-interviewer-question.muted strong) {
-  font-size: 17px;
-}
-
-:global(.ai-interviewer-stage > .question-voice-status) {
-  position: relative;
-  z-index: 2;
-  justify-self: center;
-  margin-top: 10px;
-  color: #fff;
-  background: rgba(110, 91, 246, 0.42);
-}
-
-:global(.ai-interviewer-stage:fullscreen > .question-voice-status) {
-  margin-top: 18px;
+  font-size: 19px;
 }
 
 :global(.candidate-camera-pip) {
@@ -3287,26 +3391,26 @@
 :global(.ai-interviewer-stage--candidate-primary .ai-interviewer-question) {
   align-self: end;
   justify-self: center;
-  width: min(540px, calc(100% - 360px));
+  width: min(620px, calc(100% - 320px));
   min-height: 0;
   height: fit-content;
-  padding: 12px 14px;
+  padding: 14px 18px;
   margin: 0 auto;
   background: rgba(43, 42, 58, 0.78);
   backdrop-filter: blur(10px);
 }
 
 :global(.ai-interviewer-stage--candidate-primary .ai-interviewer-question strong) {
-  font-size: 14px;
+  font-size: 17px;
 }
 
 :global(.ai-interviewer-stage:fullscreen.ai-interviewer-stage--candidate-primary .ai-interviewer-question) {
-  width: min(620px, calc(100% - 400px));
-  padding: 14px 16px;
+  width: min(720px, calc(100% - 360px));
+  padding: 16px 20px;
 }
 
 :global(.ai-interviewer-stage:fullscreen.ai-interviewer-stage--candidate-primary .ai-interviewer-question strong) {
-  font-size: 16px;
+  font-size: 19px;
 }
 
 :global(.ai-interviewer-stage--candidate-primary .candidate-camera-pip) {
@@ -3755,6 +3859,13 @@
   transition: width 90ms linear;
 }
 
+:global(.mic-meter-hint) {
+  margin: 2px 0 0;
+  color: var(--ink-500);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 :global(.ok),
 :global(.wait) {
   display: inline-grid;
@@ -3971,8 +4082,28 @@
 }
 
 :global(.candidate-interview-controls) {
+  flex: 1 1 100%;
   gap: 10px;
   justify-content: flex-start;
+}
+
+:global(.candidate-interview-controls .btn.candidate-interview-controls__primary) {
+  min-width: 168px;
+  min-height: 54px;
+  padding: 0 24px;
+  margin-left: auto;
+  font-size: 16px;
+}
+
+:global(.interview-exit-button) {
+  color: var(--ink-600);
+  background: transparent;
+  border: 1px solid var(--line-soft);
+}
+
+:global(.interview-exit-button:hover:not(:disabled)) {
+  color: #b4232f;
+  border-color: #f0c2c6;
 }
 
 :global(.candidate-interview-controls .btn),
@@ -5380,7 +5511,20 @@
 
   :global(.ai-interviewer-stage .question-timer) {
     width: auto;
-    min-width: 122px;
+    min-width: 112px;
+    padding: 8px 12px;
+  }
+
+  :global(.ai-interviewer-stage .question-timer strong) {
+    font-size: 28px;
+  }
+
+  :global(.ai-interviewer-stage__timebar) {
+    margin-bottom: 0;
+  }
+
+  :global(.candidate-interview-controls .btn.candidate-interview-controls__primary) {
+    margin-left: 0;
   }
 
   :global(.stage-shortcut-button span) {
