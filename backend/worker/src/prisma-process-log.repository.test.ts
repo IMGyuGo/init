@@ -131,14 +131,14 @@ test("PrismaAiProcessLogRepository records retryability on failed worker jobs", 
   });
   const failed = await repository.markFailed(11, {
     category: "RETRYABLE",
-    reason: "provider timeout",
+    reason: "provider timeout for applicant@example.com transcript=private",
     retryable: true
   });
 
   assert.equal(failed.status, "FAILED");
   assert.deepEqual(failed.failure, {
     category: "RETRYABLE",
-    reason: "provider timeout",
+    reason: "Temporary AI processing failure.",
     retryable: true
   });
 });
@@ -269,10 +269,17 @@ test("PrismaAiProcessLogRepository atomically claims and renews an AI process le
   assert.equal(claim.status, "CLAIMED");
   assert.equal(claim.snapshot.leaseOwner, "worker-a:message-21");
   assert.equal(renewed, true);
+  assert.equal(updateManyCalls[0].where.attemptCount, 1);
   assert.deepEqual(updateManyCalls[0].where.OR, [
-    { status: { in: ["PENDING", "FAILED"] } },
+    { status: "PENDING" },
+    {
+      status: "FAILED",
+      failureCategory: { in: ["RETRYABLE", "STT_RETRYABLE"] },
+      attemptCount: { lt: 3 },
+      nextRetryAt: { lte: updateManyCalls[0].where.OR[1].nextRetryAt.lte },
+    },
     { status: "RUNNING", leaseExpiresAt: null },
-    { status: "RUNNING", leaseExpiresAt: { lte: updateManyCalls[0].where.OR[2].leaseExpiresAt.lte } },
+    { status: "RUNNING", leaseExpiresAt: { lte: updateManyCalls[0].where.OR[3].leaseExpiresAt.lte } },
   ]);
   assert.deepEqual(updateManyCalls[1].where, {
     processLogId: BigInt(21),
@@ -281,7 +288,7 @@ test("PrismaAiProcessLogRepository atomically claims and renews an AI process le
   });
 });
 
-test("PrismaAiProcessLogRepository finds only stale pending resume-question jobs with generating batches", async () => {
+test("PrismaAiProcessLogRepository finds stale recoverable report and resume-question jobs", async () => {
   let findManyArgs: any;
   const prisma = {
     aiProcessLog: {
@@ -308,12 +315,28 @@ test("PrismaAiProcessLogRepository finds only stale pending resume-question jobs
   const jobs = await repository.findOrphanedPendingJobs(createdBefore, 5);
 
   assert.deepEqual(findManyArgs.where, {
-    processType: "RESUME_QUESTION_GENERATE",
-    status: "PENDING",
     createdAt: { lte: createdBefore },
     inputRef: { not: null },
-    latestResumeQuestionBatches: { some: { status: "GENERATING" } },
+    OR: [
+      {
+        status: "PENDING",
+        processType: "REPORT_GENERATE",
+      },
+      {
+        status: "PENDING",
+        processType: "RESUME_QUESTION_GENERATE",
+        latestResumeQuestionBatches: { some: { status: "GENERATING" } },
+      },
+      {
+        status: "FAILED",
+        processType: { in: ["REPORT_GENERATE", "RESUME_QUESTION_GENERATE"] },
+        failureCategory: { in: ["RETRYABLE", "STT_RETRYABLE"] },
+        attemptCount: { lt: 3 },
+        nextRetryAt: { lte: findManyArgs.where.OR[2].nextRetryAt.lte },
+      },
+    ],
   });
+  assert.ok(findManyArgs.where.OR[2].nextRetryAt.lte instanceof Date);
   assert.deepEqual(jobs, [{
     processLogId: 41,
     processType: "RESUME_QUESTION_GENERATE",

@@ -46,7 +46,7 @@ test("follow-up publish failure does not roll an already extracted document back
 test("resume-question publish failure is recorded for the exact usage scope", async () => {
   const results = new InMemoryAiResultRepository();
   const onFailure = createReportFailureHandler(results);
-  const failureReason = failure("RETRYABLE", "AccessDenied: sqs:SendMessage");
+  const failureReason = failure("RETRYABLE", "AccessDenied for applicant@example.com transcript=private");
 
   await onFailure({
     processLogId: 2,
@@ -65,7 +65,11 @@ test("resume-question publish failure is recorded for the exact usage scope", as
     attempt: 1,
   }, failureReason);
 
-  assert.deepEqual(results.scopedFailedResumeQuestions.get("206:DEMO_PRESET"), failureReason);
+  assert.deepEqual(results.scopedFailedResumeQuestions.get("206:DEMO_PRESET"), {
+    category: "RETRYABLE",
+    reason: "Temporary AI processing failure.",
+    retryable: true,
+  });
   assert.equal(results.failedResumeQuestions.has(206), false);
 });
 
@@ -81,7 +85,7 @@ test("report failure handler records report retryability from process input", as
     }
   });
 
-  await onFailure(job, failure("RETRYABLE", "provider timeout"));
+  await onFailure(job, failure("RETRYABLE", "provider timeout for applicant@example.com transcript=private"));
 
   assert.deepEqual(results.failedReports.get(30), {
     reportId: 30,
@@ -89,7 +93,7 @@ test("report failure handler records report retryability from process input", as
     applicationId: 22,
     sessionId: 65,
     failureCategory: "RETRYABLE",
-    failureReason: "provider timeout"
+    failureReason: "Temporary AI processing failure."
   });
 });
 

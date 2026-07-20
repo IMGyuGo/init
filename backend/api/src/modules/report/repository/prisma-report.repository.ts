@@ -28,18 +28,31 @@ export class PrismaReportRepository implements ReportRepository {
     inputRef: string,
     refs: AiProcessRefs = {}
   ): Promise<QueuedAiProcessSnapshot> {
+    if (processType === "REPORT_GENERATE" && refs.applicationId) {
+      const active = await this.findActiveReportProcess(refs.applicationId);
+      if (active) return { ...this.toQueuedProcessSnapshot(active), idempotentReplay: true };
+    }
     const processLogId = this.nextId();
-    const processLog = await this.prisma.aiProcessLog.create({
-      data: {
-        processLogId,
-        applicationId: refs.applicationId ? BigInt(refs.applicationId) : null,
-        sessionId: refs.sessionId ? BigInt(refs.sessionId) : null,
-        processType,
-        status: "PENDING",
-        inputRef,
-        createdAt: new Date()
+    let processLog;
+    try {
+      processLog = await this.prisma.aiProcessLog.create({
+        data: {
+          processLogId,
+          applicationId: refs.applicationId ? BigInt(refs.applicationId) : null,
+          sessionId: refs.sessionId ? BigInt(refs.sessionId) : null,
+          processType,
+          status: "PENDING",
+          inputRef,
+          createdAt: new Date()
+        }
+      });
+    } catch (error) {
+      if (processType === "REPORT_GENERATE" && refs.applicationId && isUniqueConstraintFailure(error)) {
+        const active = await this.findActiveReportProcess(refs.applicationId);
+        if (active) return { ...this.toQueuedProcessSnapshot(active), idempotentReplay: true };
       }
-    });
+      throw error;
+    }
 
     return {
       processLogId: Number(processLog.processLogId),
@@ -47,7 +60,11 @@ export class PrismaReportRepository implements ReportRepository {
       status: "PENDING",
       inputRef: processLog.inputRef ?? "",
       applicationId: processLog.applicationId ? Number(processLog.applicationId) : undefined,
-      sessionId: processLog.sessionId ? Number(processLog.sessionId) : undefined
+      sessionId: processLog.sessionId ? Number(processLog.sessionId) : undefined,
+      attempt: processLog.attemptCount,
+      maxAttempts: processLog.maxAttempts,
+      nextRetryAt: processLog.nextRetryAt?.toISOString(),
+      idempotentReplay: false,
     };
   }
 
@@ -421,6 +438,9 @@ export class PrismaReportRepository implements ReportRepository {
     audioSeconds?: number | null;
     estimatedCostUsd?: unknown | null;
     costMetadataJson?: string | null;
+    attemptCount?: number;
+    maxAttempts?: number;
+    nextRetryAt?: Date | null;
   }): QueuedAiProcessSnapshot {
     return {
       processLogId: Number(processLog.processLogId),
@@ -431,6 +451,9 @@ export class PrismaReportRepository implements ReportRepository {
       output: parseAiJobOutput(processLog.outputRef),
       applicationId: processLog.applicationId ? Number(processLog.applicationId) : undefined,
       sessionId: processLog.sessionId ? Number(processLog.sessionId) : undefined,
+      attempt: processLog.attemptCount ?? 1,
+      maxAttempts: processLog.maxAttempts ?? 3,
+      nextRetryAt: processLog.nextRetryAt?.toISOString(),
       startedAt: processLog.startedAt?.toISOString(),
       completedAt: processLog.completedAt?.toISOString(),
       durationMs: processLog.durationMs ?? undefined,
@@ -488,6 +511,25 @@ export class PrismaReportRepository implements ReportRepository {
     return Math.max(0, completedAt.getTime() - processLog.startedAt.getTime());
   }
 
+  private findActiveReportProcess(applicationId: number) {
+    return this.prisma.aiProcessLog.findFirst({
+      where: {
+        applicationId: BigInt(applicationId),
+        processType: "REPORT_GENERATE",
+        OR: [
+          { status: { in: ["PENDING", "RUNNING"] } },
+          {
+            status: "FAILED",
+            failureCategory: { in: ["RETRYABLE", "STT_RETRYABLE"] },
+            attemptCount: { lt: 3 },
+            nextRetryAt: { not: null },
+          },
+        ],
+      },
+      orderBy: [{ createdAt: "desc" }, { processLogId: "desc" }],
+    });
+  }
+
   private nextId(): bigint {
     return BigInt(Date.now()) * BigInt(1000) + BigInt(Math.floor(Math.random() * 1000));
   }
@@ -503,4 +545,8 @@ function toNumber(value: unknown): number | undefined {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function isUniqueConstraintFailure(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "P2002");
 }

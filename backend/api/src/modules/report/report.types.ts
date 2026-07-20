@@ -26,7 +26,8 @@ export type FailureCategory =
   | "NON_RETRYABLE"
   | "STT_RETRYABLE"
   | "REANSWER_REQUIRED"
-  | "REGENERATION_REQUIRED";
+  | "REGENERATION_REQUIRED"
+  | "RETRY_EXHAUSTED";
 
 export function isRetryableFailureCategory(category: FailureCategory): boolean {
   return category === "RETRYABLE" ||
@@ -272,6 +273,10 @@ export interface QueuedAiProcessSnapshot {
   output?: unknown;
   applicationId?: number;
   sessionId?: number;
+  attempt?: number;
+  maxAttempts?: number;
+  nextRetryAt?: string;
+  idempotentReplay?: boolean;
   failure?: FailureReason;
   startedAt?: string;
   completedAt?: string;

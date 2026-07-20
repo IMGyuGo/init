@@ -44,6 +44,10 @@ export class AiJobDispatcherService {
     const persistedInputRef = JSON.stringify(command.persistedInput ?? command.input);
     const process = await this.repository.createQueuedProcess(command.processType, persistedInputRef, command.refs);
 
+    if (process.idempotentReplay) {
+      return { ...process, queued: true };
+    }
+
     try {
       await this.queuePublisher.publish({
         processLogId: process.processLogId,
@@ -51,8 +55,8 @@ export class AiJobDispatcherService {
         inputRef: queueInputRef,
         attempt: 1
       });
-    } catch (error) {
-      const failed = await this.repository.markQueuedProcessFailed(process.processLogId, this.queuePublishFailure(error));
+    } catch {
+      const failed = await this.repository.markQueuedProcessFailed(process.processLogId, this.queuePublishFailure());
       return {
         ...failed,
         queued: false
@@ -83,11 +87,10 @@ export class AiJobDispatcherService {
     };
   }
 
-  private queuePublishFailure(error: unknown): FailureReason {
-    const reason = error instanceof Error ? error.message : "unknown queue publish failure";
+  private queuePublishFailure(): FailureReason {
     return {
       category: "RETRYABLE",
-      reason: `AI queue publish failed: ${reason}`,
+      reason: "AI queue publish failed.",
       retryable: true
     };
   }
