@@ -381,7 +381,7 @@ describe("PrismaCompanyRecruitingRepository", () => {
     assert.equal(countWheres.length, 3);
   });
 
-  it("counts only pending PASS/HOLD/FAIL decisions in the confirmation preview", async () => {
+  it("counts only report-completed pending PASS/HOLD/FAIL decisions in the confirmation preview", async () => {
     const prisma = {
       application: {
         async count(args: { where: Record<string, unknown> }) {
@@ -394,11 +394,11 @@ describe("PrismaCompanyRecruitingRepository", () => {
         },
         async findMany() {
           return [
-            { screeningDecision: "PASS", screeningReviewerDecision: null, screeningFinalDecision: null, screeningResultConfirmedAt: null },
-            { screeningDecision: "PASS", screeningReviewerDecision: "HOLD", screeningFinalDecision: null, screeningResultConfirmedAt: null },
-            { screeningDecision: "FAIL", screeningReviewerDecision: null, screeningFinalDecision: null, screeningResultConfirmedAt: null },
-            { screeningDecision: "PASS", screeningReviewerDecision: null, screeningFinalDecision: "PASS", screeningResultConfirmedAt: new Date("2026-07-21T12:30:00.000Z") },
-            { screeningDecision: "RETRY", screeningReviewerDecision: null, screeningFinalDecision: null, screeningResultConfirmedAt: null },
+            { reportStatus: "COMPLETED", screeningDecision: "PASS", screeningReviewerDecision: null, screeningFinalDecision: null, screeningResultConfirmedAt: null },
+            { reportStatus: "GENERATING", screeningDecision: "PASS", screeningReviewerDecision: "HOLD", screeningFinalDecision: null, screeningResultConfirmedAt: null },
+            { reportStatus: "COMPLETED", screeningDecision: "FAIL", screeningReviewerDecision: null, screeningFinalDecision: null, screeningResultConfirmedAt: null },
+            { reportStatus: "COMPLETED", screeningDecision: "PASS", screeningReviewerDecision: null, screeningFinalDecision: "PASS", screeningResultConfirmedAt: new Date("2026-07-21T12:30:00.000Z") },
+            { reportStatus: "COMPLETED", screeningDecision: "RETRY", screeningReviewerDecision: null, screeningFinalDecision: null, screeningResultConfirmedAt: null },
           ];
         },
       },
@@ -408,21 +408,21 @@ describe("PrismaCompanyRecruitingRepository", () => {
     const result = await repository.summarizeApplicationsForPosting(101, 7);
 
     assert.deepEqual(result.effectiveScreeningDecisionCounts, { PASS: 2, HOLD: 1, FAIL: 1, RETRY: 1 });
-    assert.deepEqual(result.confirmationEligibleDecisionCounts, { PASS: 1, HOLD: 1, FAIL: 1 });
-    assert.equal(result.confirmationEligibleTotal, 3);
+    assert.deepEqual(result.confirmationEligibleDecisionCounts, { PASS: 1, HOLD: 0, FAIL: 1 });
+    assert.equal(result.confirmationEligibleTotal, 2);
     assert.equal(result.confirmedTotal, 1);
-    assert.equal(result.excludedTotal, 1);
+    assert.equal(result.excludedTotal, 2);
   });
 
-  it("finalizes pass target by updating only pass/fail-decided applications", async () => {
+  it("finalizes completed pass/hold/fail targets while preserving automatic screening snapshots", async () => {
     const updateManyArgs: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> = [];
     let capturedFindManyWhere: Record<string, unknown> | null = null;
-    const selectedApplications = [createApplicantListRow(1n, "top@example.com"), createApplicantListRow(3n, "next@example.com")];
+    const selectedApplications = [createApplicantListRow(1n, "top@example.com")];
     const tx = {
       application: {
         async updateMany(args: { where: Record<string, unknown>; data: Record<string, unknown> }) {
           updateManyArgs.push(args);
-          return { count: 2 };
+          return { count: 1 };
         },
         async findMany(args: { where: Record<string, unknown> }) {
           capturedFindManyWhere = args.where;
@@ -437,15 +437,62 @@ describe("PrismaCompanyRecruitingRepository", () => {
     };
     const repository = new PrismaCompanyRecruitingRepository(prisma as never);
 
-    const result = await repository.finalizeApplicationsPassTarget(101, 7, [1, 3]);
+    const result = await repository.finalizeApplicationsPassTarget(101, 7, [
+      { applicationId: 1, decision: "PASS", preserveAutomaticSnapshot: true },
+      { applicationId: 2, decision: "FAIL", preserveAutomaticSnapshot: true },
+      { applicationId: 3, decision: "FAIL", preserveAutomaticSnapshot: false },
+    ]);
 
     assert.deepEqual(updateManyArgs[0], {
       where: {
         postingId: 101n,
         posting: { companyId: 7n },
         applicationStatus: { not: "CANCELED" },
-        screeningDecision: { in: ["PASS", "FAIL"] },
-        applicationId: { notIn: [1n, 3n] },
+        reportStatus: "COMPLETED",
+        screeningResultConfirmedAt: null,
+        OR: [
+          { screeningReviewerDecision: { in: ["PASS", "HOLD", "FAIL"] } },
+          { screeningReviewerDecision: null, screeningDecision: { in: ["PASS", "HOLD", "FAIL"] } },
+        ],
+        applicationId: 1n,
+      },
+      data: {
+        screeningReviewerDecision: "PASS",
+        screeningDecisionOverrideReason: "목표 합격자 수 기준 합격 처리",
+        screeningMemo: "목표 합격자 수 기준 합격 처리",
+      },
+    });
+    assert.deepEqual(updateManyArgs[1], {
+      where: {
+        postingId: 101n,
+        posting: { companyId: 7n },
+        applicationStatus: { not: "CANCELED" },
+        reportStatus: "COMPLETED",
+        screeningResultConfirmedAt: null,
+        OR: [
+          { screeningReviewerDecision: { in: ["PASS", "HOLD", "FAIL"] } },
+          { screeningReviewerDecision: null, screeningDecision: { in: ["PASS", "HOLD", "FAIL"] } },
+        ],
+        applicationId: 2n,
+      },
+      data: {
+        screeningReviewerDecision: "FAIL",
+        screeningDecisionOverrideReason: "목표 합격자 수 기준 불합격 처리",
+        screeningMemo: "목표 합격자 수 기준 불합격 처리",
+      },
+    });
+    assert.deepEqual(updateManyArgs[2], {
+      where: {
+        postingId: 101n,
+        posting: { companyId: 7n },
+        applicationStatus: { not: "CANCELED" },
+        reportStatus: "COMPLETED",
+        screeningResultConfirmedAt: null,
+        OR: [
+          { screeningReviewerDecision: { in: ["PASS", "HOLD", "FAIL"] } },
+          { screeningReviewerDecision: null, screeningDecision: { in: ["PASS", "HOLD", "FAIL"] } },
+        ],
+        applicationId: 3n,
       },
       data: {
         screeningDecision: "FAIL",
@@ -455,36 +502,24 @@ describe("PrismaCompanyRecruitingRepository", () => {
         screeningCriteriaVersion: null,
         screeningDecisionReportId: null,
         screeningDecidedAt: null,
+        screeningReviewerDecision: null,
+        screeningDecisionOverrideReason: null,
         screeningMemo: "목표 합격자 수 기준 불합격 처리",
-      },
-    });
-    assert.deepEqual(updateManyArgs[1], {
-      where: {
-        postingId: 101n,
-        posting: { companyId: 7n },
-        applicationStatus: { not: "CANCELED" },
-        screeningDecision: { in: ["PASS", "FAIL"] },
-        applicationId: { in: [1n, 3n] },
-      },
-      data: {
-        screeningDecision: "PASS",
-        screeningDecisionReasonCode: null,
-        screeningDecisionPolicyVersion: null,
-        screeningPolicyVersion: null,
-        screeningCriteriaVersion: null,
-        screeningDecisionReportId: null,
-        screeningDecidedAt: null,
-        screeningMemo: "목표 합격자 수 기준 합격 처리",
       },
     });
     assert.deepEqual(capturedFindManyWhere, {
       postingId: 101n,
       posting: { companyId: 7n },
       applicationStatus: { not: "CANCELED" },
-      screeningDecision: { in: ["PASS", "FAIL"] },
-      applicationId: { in: [1n, 3n] },
+      reportStatus: "COMPLETED",
+      screeningResultConfirmedAt: null,
+      OR: [
+        { screeningReviewerDecision: "PASS" },
+        { screeningReviewerDecision: null, screeningDecision: "PASS" },
+      ],
+      applicationId: { in: [1n] },
     });
-    assert.deepEqual(result.map((application) => application.applicationId), [1, 3]);
+    assert.deepEqual(result.map((application) => application.applicationId), [1]);
   });
 
   it("clears automatic screening snapshot fields when saving a manual screening override", async () => {
