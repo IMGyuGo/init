@@ -1,6 +1,7 @@
 import {
   SYNTHETIC_MANIFEST_V1,
   SYNTHETIC_MANIFEST_V2,
+  SYNTHETIC_MANIFEST_V3,
   syntheticOptionsHash,
   type SyntheticApplicantPlanRecord,
   type SyntheticImporterOptions,
@@ -45,12 +46,12 @@ describe("SyntheticApplicantImporterService", () => {
   it("records a partial batch failure and resumes only missing ordinals", async () => {
     const store = new FakeSyntheticApplicantStore();
     const service = new SyntheticApplicantImporterService(store);
-    const options = fixtureOptions({ batchSize: 500 });
+    const options = fixtureOptions();
     store.failOnCreateBatchCall = 2;
 
     await expect(service.apply(options, "hashed-password")).rejects.toThrow("simulated batch failure");
     expect(store.dataset?.status).toBe("PARTIAL");
-    expect(store.records).toHaveLength(500);
+    expect(store.records).toHaveLength(100);
 
     store.failOnCreateBatchCall = null;
     const resumed = await service.apply(options, "hashed-password");
@@ -65,7 +66,7 @@ describe("SyntheticApplicantImporterService", () => {
     const service = new SyntheticApplicantImporterService(store);
     await service.apply(fixtureOptions(), "hashed-password");
 
-    await expect(service.apply(fixtureOptions({ batchSize: 200 }), "hashed-password")).rejects.toThrow("다른 옵션");
+    await expect(service.apply(fixtureOptions({ environment: "staging" }), "hashed-password")).rejects.toThrow("다른 옵션");
     expect(store.records).toHaveLength(1_050);
   });
 
@@ -88,11 +89,11 @@ describe("SyntheticApplicantImporterService", () => {
     expect(store.cleanedApplicationIds).toEqual(expectedApplicationIds);
   });
 
-  it("creates new datasets as V2 and resumes an existing V1 dataset with V1 hash", async () => {
-    const v2Store = new FakeSyntheticApplicantStore();
-    const v2Service = new SyntheticApplicantImporterService(v2Store);
-    await v2Service.apply(fixtureOptions(), "hashed-password");
-    expect(v2Store.dataset?.manifestVersion).toBe("SYNTHETIC_APPLICANT_MANIFEST_V2");
+  it("creates new datasets as V3 and resumes existing V1/V2 datasets with their original hashes", async () => {
+    const v3Store = new FakeSyntheticApplicantStore();
+    const v3Service = new SyntheticApplicantImporterService(v3Store);
+    await v3Service.apply(fixtureOptions(), "hashed-password");
+    expect(v3Store.dataset?.manifestVersion).toBe("SYNTHETIC_APPLICANT_MANIFEST_V3");
 
     const v1Store = new FakeSyntheticApplicantStore();
     const legacy = legacyFixtureOptions();
@@ -101,6 +102,13 @@ describe("SyntheticApplicantImporterService", () => {
     const result = await v1Service.apply(legacy, "hashed-password");
     expect(result.datasetStatus).toBe("APPLIED");
     expect(v1Store.dataset?.manifestVersion).toBe("SYNTHETIC_APPLICANT_MANIFEST_V1");
+
+    const v2Store = new FakeSyntheticApplicantStore();
+    const v2Options = fixtureOptions({ datasetId: "demo-service-v2" });
+    v2Store.seedExistingDataset(v2Options, SYNTHETIC_MANIFEST_V2);
+    const v2Result = await new SyntheticApplicantImporterService(v2Store).apply(v2Options, "hashed-password");
+    expect(v2Result.datasetStatus).toBe("APPLIED");
+    expect(v2Store.dataset?.manifestVersion).toBe("SYNTHETIC_APPLICANT_MANIFEST_V2");
   });
 
   it("preserves V1 plan, partial resume, already-applied, preview and cleanup semantics", async () => {
@@ -143,9 +151,11 @@ describe("SyntheticApplicantImporterService", () => {
   it.each([
     ["plan", { activeCount: 999, canceledCount: 51 }],
     ["plan", { pipelineSelectionCount: 1 }],
+    ["plan", { batchSize: 500 }],
     ["apply", { activeCount: 999, canceledCount: 51 }],
     ["apply", { pipelineSelectionCount: 1 }],
-  ] as const)("rejects a non-contract V2 %s before any write or manifest record read", async (action, overrides) => {
+    ["apply", { batchSize: 500 }],
+  ] as const)("rejects a non-contract V3 %s before any write or manifest record read", async (action, overrides) => {
     const store = new FakeSyntheticApplicantStore();
     const service = new SyntheticApplicantImporterService(store);
     const options = fixtureOptions({ action, ...overrides });
@@ -154,7 +164,7 @@ describe("SyntheticApplicantImporterService", () => {
       ? service.plan(options)
       : service.apply(options, "hashed-password");
 
-    await expect(operation).rejects.toThrow("V2");
+    await expect(operation).rejects.toThrow("V3");
     expect(store.createDatasetCalls).toBe(0);
     expect(store.listRecordsCalls).toBe(0);
     expect(store.updateDatasetCalls).toBe(0);
@@ -270,7 +280,7 @@ class FakeSyntheticApplicantStore implements SyntheticApplicantStore {
   }
 
   seedExistingDataset(options: SyntheticImporterOptions, manifestVersion: string) {
-    const optionsHash = manifestVersion === SYNTHETIC_MANIFEST_V1 || manifestVersion === SYNTHETIC_MANIFEST_V2
+    const optionsHash = manifestVersion === SYNTHETIC_MANIFEST_V1 || manifestVersion === SYNTHETIC_MANIFEST_V2 || manifestVersion === SYNTHETIC_MANIFEST_V3
       ? syntheticOptionsHash(options, manifestVersion)
       : "unsupported-test-options-hash";
     this.dataset = {

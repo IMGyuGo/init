@@ -9,8 +9,10 @@ import { PrismaCompanyRecruitingRepository } from "../modules/company-recruiting
 import {
   SYNTHETIC_MANIFEST_V1,
   SYNTHETIC_MANIFEST_V2,
+  SYNTHETIC_MANIFEST_V3,
   assertSyntheticManifestVersion,
   assertV2SyntheticOperationalContract,
+  assertV3SyntheticOperationalContract,
   buildSyntheticApplicantPlan,
   type SyntheticApplicantPlanRecord,
   type SyntheticImporterOptions,
@@ -21,9 +23,16 @@ import type { PrismaService } from "../shared/prisma.service";
 import {
   assertV2SyntheticIdentityAggregate,
   assertV2SyntheticManifestProjection,
+  assertV3SyntheticIdentityAggregate,
+  assertV3SyntheticInterviewCompletedCount,
+  assertV3SyntheticManifestProjection,
   buildPostingValidationExpectations,
   buildSyntheticReportExpectations,
+  buildV3SyntheticFirstPageAggregate,
   countSyntheticReportDecisions,
+  createScaleValidationErrorBoundary,
+  verifyV3ExactSearchAggregateOnly,
+  verifyV3FirstPageAggregateOnly,
   type PostingStatusCounts,
   type PostingValidationExpectations,
 } from "./synthetic-applicant-scale-validation.expectations";
@@ -70,6 +79,7 @@ type SyntheticIdentityRow = {
 
 const prisma = new PrismaClient();
 const repository = new PrismaCompanyRecruitingRepository(prisma as unknown as PrismaService);
+const errorBoundary = createScaleValidationErrorBoundary();
 
 const APPLICATION_STATUS_ORDER = [
   "DRAFT",
@@ -87,9 +97,13 @@ async function main() {
   const args = parseArguments(process.argv.slice(2));
   const dataset = await prisma.syntheticApplicantDataset.findUnique({ where: { datasetId: args.datasetId } });
   assert(dataset, `dataset을 찾을 수 없습니다: ${args.datasetId}`);
+  errorBoundary.markManifestVersion(dataset.manifestVersion);
   assertSyntheticManifestVersion(dataset.manifestVersion);
   if (dataset.manifestVersion === SYNTHETIC_MANIFEST_V2) {
     assertV2SyntheticOperationalContract(dataset);
+  }
+  if (dataset.manifestVersion === SYNTHETIC_MANIFEST_V3) {
+    assertV3SyntheticOperationalContract(dataset);
   }
 
   const records = await prisma.syntheticApplicantRecord.findMany({
@@ -155,6 +169,9 @@ async function main() {
   if (dataset.manifestVersion === SYNTHETIC_MANIFEST_V2) {
     assertV2SyntheticManifestProjection(records, planned);
   }
+  if (dataset.manifestVersion === SYNTHETIC_MANIFEST_V3) {
+    assertV3SyntheticManifestProjection(records, planned);
+  }
   const activeRecords = records.filter((record) => !record.isCanceled);
   const canceledRecords = records.filter((record) => record.isCanceled);
 
@@ -190,6 +207,9 @@ async function main() {
   const expectations = buildPostingValidationExpectations(planned, baselineApplications);
 
   const databaseCounts = await verifyDomainRows(ids, records);
+  const v3InterviewStatus = dataset.manifestVersion === SYNTHETIC_MANIFEST_V3
+    ? await verifyV3SyntheticInterviewStatus(ids.applicationIds)
+    : null;
   const authentication = await verifySyntheticIdentities(records, planned, dataset.manifestVersion);
   const summary = await repository.summarizeApplicationsForPosting(postingId, companyId);
   verifySummary(summary, expectations.posting);
@@ -198,13 +218,18 @@ async function main() {
   const pageSnapshots = await verifyRepresentativePages(postingId, companyId, expectations.posting.active);
   const search = dataset.manifestVersion === SYNTHETIC_MANIFEST_V1
     ? await verifyLegacyDatasetSearch(postingId, companyId, dataset.datasetId, expectations.synthetic.active)
-    : await verifyV2ExactEmailSearch(postingId, companyId, planned.find((record) => !record.isCanceled)!.email);
+    : dataset.manifestVersion === SYNTHETIC_MANIFEST_V2
+      ? await verifyV2ExactEmailSearch(postingId, companyId, planned.find((record) => !record.isCanceled)!.email)
+      : await verifyV3ExactEmailSearch(postingId, companyId, planned.find((record) => !record.isCanceled)!.email);
   const filters = await verifyFilters(postingId, companyId, expectations.posting.statusCounts);
   const sorts = await verifySorts(postingId, companyId);
   const details = await verifyDetailDepths(companyId, records);
   const reportFixtures = await verifyReportFixtures(records, planned, dataset.manifestVersion);
   const firstPageDecisions = dataset.manifestVersion === SYNTHETIC_MANIFEST_V2
     ? await verifyV2FirstPageDecisions(postingId, companyId, baselineRows.map((row) => row.applicationId))
+    : null;
+  const firstPageAggregate = dataset.manifestVersion === SYNTHETIC_MANIFEST_V3
+    ? await verifyV3FirstPageAggregate(postingId, companyId, baselineRows.map((row) => row.applicationId))
     : null;
   const metrics = await measureQueries(postingId, companyId, expectations.posting.active, args.iterations);
 
@@ -233,6 +258,7 @@ async function main() {
       concurrentChangeBehavior: "posting-wide validation fails closed",
     },
     databaseCounts,
+    ...(v3InterviewStatus ? { syntheticInterviewStatus: v3InterviewStatus } : {}),
     authentication,
     summary,
     pageCoverage,
@@ -243,6 +269,7 @@ async function main() {
     details,
     reportFixtures,
     ...(firstPageDecisions ? { firstPageDecisions } : {}),
+    ...(firstPageAggregate ? { firstPageAggregate } : {}),
     metrics,
     queryPlans,
     externalDispatch: {
@@ -300,6 +327,9 @@ async function verifySyntheticIdentities(
   let nonInteractive = 0;
   let invalidNonInteractive = 0;
   let identityMatches = 0;
+  const fullIdentities = new Set<string>();
+  const givenIdentities = new Set<string>();
+  const familyIdentities = new Set<string>();
 
   for (const record of records) {
     const user = usersById.get(record.userId.toString());
@@ -310,11 +340,17 @@ async function verifySyntheticIdentities(
     assert(user.name === expected.name, "manifest user name이 plan과 다릅니다.");
     assert(user.phone === expected.phone, "manifest user phone이 plan과 다릅니다.");
     identityMatches += 1;
+    fullIdentities.add(user.name);
+    givenIdentities.add(user.name.slice(1));
+    familyIdentities.add(user.name.slice(0, 1));
 
     const domain = user.email.slice(user.email.lastIndexOf("@") + 1);
     assert(domain.length > 0, "manifest user email domain이 없습니다.");
     if (manifestVersion === SYNTHETIC_MANIFEST_V2) {
       assert((V2_EMAIL_DOMAINS as readonly string[]).includes(domain), "V2 manifest user domain이 allowlist에 없습니다.");
+    }
+    if (manifestVersion === SYNTHETIC_MANIFEST_V3) {
+      assert((V2_EMAIL_DOMAINS as readonly string[]).includes(domain), "V3 manifest user domain이 allowlist에 없습니다.");
     }
     domainCounts[domain] = (domainCounts[domain] ?? 0) + 1;
 
@@ -344,7 +380,29 @@ async function verifySyntheticIdentities(
   assert(identityMatches === records.length, "manifest identity가 plan과 일치하지 않습니다.");
   const aggregate = { interactive, nonInteractive, invalidNonInteractive, identityMatches, domainCounts };
   if (manifestVersion === SYNTHETIC_MANIFEST_V2) assertV2SyntheticIdentityAggregate(aggregate);
+  if (manifestVersion === SYNTHETIC_MANIFEST_V3) {
+    const aggregate = {
+      interactive,
+      nonInteractive,
+      invalidNonInteractive,
+      identityMatches,
+      domainCounts,
+      uniqueFullCount: fullIdentities.size,
+      uniqueGivenCount: givenIdentities.size,
+      uniqueFamilyCount: familyIdentities.size,
+    };
+    assertV3SyntheticIdentityAggregate(aggregate);
+    return aggregate;
+  }
   return aggregate;
+}
+
+async function verifyV3SyntheticInterviewStatus(applicationIds: bigint[]) {
+  const completed = await prisma.application.count({
+    where: { applicationId: { in: applicationIds }, interviewStatus: "COMPLETED" },
+  });
+  assertV3SyntheticInterviewCompletedCount(completed);
+  return { COMPLETED: completed };
 }
 
 function verifySummary(
@@ -423,6 +481,20 @@ async function verifyV2ExactEmailSearch(postingId: number, companyId: number, em
   return { strategy: "exact-email", totalItems: 1, returnedItems: 1 };
 }
 
+async function verifyV3ExactEmailSearch(postingId: number, companyId: number, email: string) {
+  const normalized = query({ q: email, page: 1, limit: 20 });
+  return verifyV3ExactSearchAggregateOnly(
+    async () => {
+      const [items, totalItems] = await Promise.all([
+        repository.listApplicationsForPosting(postingId, companyId, normalized),
+        repository.countApplicationsForPosting(postingId, companyId, normalized),
+      ]);
+      return { items, totalItems };
+    },
+    (item) => item.candidate.user.email === email,
+  );
+}
+
 async function verifyV2FirstPageDecisions(
   postingId: number,
   companyId: number,
@@ -445,6 +517,31 @@ async function verifyV2FirstPageDecisions(
   assert((decisions.PASS ?? 0) > 0, "V2 첫 페이지 synthetic 지원자에 PASS가 없습니다.");
   assert((decisions.FAIL ?? 0) > 0, "V2 첫 페이지 synthetic 지원자에 FAIL이 없습니다.");
   return { page, limit, syntheticItems: syntheticItems.length, decisions };
+}
+
+async function verifyV3FirstPageAggregate(
+  postingId: number,
+  companyId: number,
+  baselineApplicationIds: bigint[],
+) {
+  const page = 1;
+  const limit = 20;
+  return verifyV3FirstPageAggregateOnly(
+    async () => {
+      const items = await repository.listApplicationsForPosting(
+        postingId,
+        companyId,
+        query({ page, limit, sort: "updatedAt", order: "desc" }),
+      );
+      const baselineIds = new Set(baselineApplicationIds.map((applicationId) => applicationId.toString()));
+      const syntheticItems = items.filter((item) => !baselineIds.has(String(item.applicationId)));
+      return syntheticItems.map((item) => ({
+        decision: item.screeningDecision,
+        identity: item.candidate.user.name,
+      }));
+    },
+    buildV3SyntheticFirstPageAggregate,
+  );
 }
 
 async function verifyFilters(
@@ -561,6 +658,9 @@ async function verifyReportFixtures(
     if (manifestVersion === SYNTHETIC_MANIFEST_V2) {
       assert(report.scores.length === 3, "V2 완료 리포트에 canonical profile score 세 건이 없습니다.");
     }
+    if (manifestVersion === SYNTHETIC_MANIFEST_V3) {
+      assert(report.scores.length === 3, "V3 완료 리포트에 canonical profile score 세 건이 없습니다.");
+    }
     const scoreByProfile = new Map(report.scores.map((score) => [score.ncsProfileId, score]));
     assert(scoreByProfile.size === report.scores.length, "완료 리포트 profile ID가 중복되었습니다.");
     let weightedTotal = 0;
@@ -607,7 +707,7 @@ async function verifyReportFixtures(
     assert(scores.every((score) => score === 81), "V1 완료 리포트 total score 81 계약이 깨졌습니다.");
     assert(profileRows === detailedCompleted * 3, "V1 REPORT depth profile row 계약이 깨졌습니다.");
     assert(weightedTotalsMatched === detailedCompleted, "V1 REPORT depth weighted total 계약이 깨졌습니다.");
-  } else {
+  } else if (manifestVersion === SYNTHETIC_MANIFEST_V2) {
     assert(actual.completed === 100, "V2 완료 리포트가 정확히 100건이 아닙니다.");
     assertCountMap(actual.decisions, { PASS: 20, FAIL: 80 }, "V2 completedReportDecision");
     assert((actual.decisions.HOLD ?? 0) === 0, "V2 완료 리포트 HOLD 판정이 0건이 아닙니다.");
@@ -616,6 +716,15 @@ async function verifyReportFixtures(
     assert(actual.uniqueScores > 20, "V2 완료 리포트 unique score가 20개 이하입니다.");
     assert(actual.profileRows === 300, "V2 완료 리포트 profile row가 정확히 300건이 아닙니다.");
     assert(actual.weightedTotalsMatched === 100, "V2 완료 리포트 weighted total 일치가 정확히 100건이 아닙니다.");
+  } else {
+    assert(actual.completed === 920, "V3 완료 리포트가 정확히 920건이 아닙니다.");
+    assertCountMap(actual.decisions, { PASS: 184, FAIL: 736 }, "V3 completedReportDecision");
+    assert((actual.decisions.HOLD ?? 0) === 0, "V3 완료 리포트 HOLD 판정이 0건이 아닙니다.");
+    assert(actual.minimumScore === 45, "V3 완료 리포트 minimum score가 45가 아닙니다.");
+    assert(actual.maximumScore === 96, "V3 완료 리포트 maximum score가 96이 아닙니다.");
+    assert(actual.uniqueScores > 20, "V3 완료 리포트 unique score가 20개 이하입니다.");
+    assert(actual.profileRows === 2_760, "V3 완료 리포트 profile row가 정확히 2,760건이 아닙니다.");
+    assert(actual.weightedTotalsMatched === 920, "V3 완료 리포트 weighted total 일치가 정확히 920건이 아닙니다.");
   }
   return actual;
 }
@@ -810,10 +919,10 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 main()
-  .catch((error) => {
-    process.stderr.write(`synthetic-applicant-scale-validation failed: ${error instanceof Error ? error.message : String(error)}\n`);
-    process.exitCode = 1;
-  })
   .finally(async () => {
     await prisma.$disconnect();
+  })
+  .catch((error) => {
+    process.stderr.write(errorBoundary.format(error));
+    process.exitCode = 1;
   });

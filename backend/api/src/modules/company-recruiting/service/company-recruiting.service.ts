@@ -616,27 +616,21 @@ export class CompanyRecruitingService {
     }
 
     const applications = await this.repository.listApplicationsForPassTargeting(recruitmentId, companyId);
-    if (applications.some((application) => application.posting.autoScreeningPolicyEnabled)) {
-      throw new CompanyRecruitingException(
-        409,
-        ERROR_CODES.COMMON_CONFLICT,
-        "자동 전형 판정이 활성화된 공고는 결과 검토 후 일괄 확정 기능을 사용해주세요.",
-        [{ field: "targetPassCount", reason: "SCREENING_DECISION_SYSTEM_MANAGED" }],
-      );
-    }
     const previousById = new Map(applications.map((application) => [application.applicationId, application]));
-    const currentPassApplications = applications
-      .filter((application) => application.screeningDecision === ScreeningDecision.PASS)
-      .sort(comparePassTargetApplications);
-
     const targetEligibleApplications = applications
-      .filter((application) => isPassTargetEligibleDecision(application.screeningDecision))
+      .filter((application) => (
+        application.reportStatus === "COMPLETED"
+        && application.screeningResultConfirmationStatus === "PENDING"
+        && isPassTargetEligibleDecision(application.effectiveScreeningDecision)
+      ))
       .sort(comparePassTargetApplications);
+    const currentPassApplications = targetEligibleApplications
+      .filter((application) => application.effectiveScreeningDecision === ScreeningDecision.PASS);
     if (targetPassCount > targetEligibleApplications.length) {
       throw new CompanyRecruitingException(
         400,
         ERROR_CODES.COMMON_VALIDATION_FAILED,
-        "목표 합격자 수만큼 합격/불합격 판정이 완료된 지원자가 부족합니다.",
+        "목표 합격자 수만큼 리포트가 완료된 합격/보류/불합격 지원자가 부족합니다.",
         [{ field: "targetPassCount", reason: "INSUFFICIENT_DECIDED_APPLICANTS" }],
       );
     }
@@ -660,11 +654,18 @@ export class CompanyRecruitingService {
     const finalizedPassApplications = await this.repository.finalizeApplicationsPassTarget(
       recruitmentId,
       companyId,
-      targetApplicationIds,
+      targetEligibleApplications.map((application) => ({
+        applicationId: application.applicationId,
+        decision: targetApplicationIdSet.has(application.applicationId) ? "PASS" : "FAIL",
+        preserveAutomaticSnapshot: shouldPreserveAutomaticScreeningSnapshot(application),
+      })),
     );
     const finalizedById = new Map(finalizedPassApplications.map((application) => [application.applicationId, application]));
     const finalPassApplications = targetApplications
-      .map((application) => finalizedById.get(application.applicationId) ?? { ...application, screeningDecision: ScreeningDecision.PASS })
+      .map((application) => finalizedById.get(application.applicationId) ?? {
+        ...application,
+        effectiveScreeningDecision: ScreeningDecision.PASS,
+      })
       .sort(comparePassTargetApplications);
 
     const recipients: PassMailResultRecord["recipients"] = [];
@@ -707,6 +708,8 @@ export class CompanyRecruitingService {
           applicationId: application.applicationId,
           screeningDecision: application.screeningDecision,
           screeningMemo: application.screeningMemo,
+          screeningReviewerDecision: application.screeningReviewerDecision,
+          screeningDecisionOverrideReason: application.screeningDecisionOverrideReason,
         }));
 
       await this.repository.restoreApplicationScreeningDecisions(recruitmentId, companyId, restoreStates);
@@ -1220,7 +1223,19 @@ function latestApplicantScore(application: ApplicantRecord): number | null {
 }
 
 function isPassTargetEligibleDecision(screeningDecision: string | null): boolean {
-  return screeningDecision === ScreeningDecision.PASS || screeningDecision === ScreeningDecision.FAIL;
+  return screeningDecision === ScreeningDecision.PASS
+    || screeningDecision === ScreeningDecision.HOLD
+    || screeningDecision === ScreeningDecision.FAIL;
+}
+
+function shouldPreserveAutomaticScreeningSnapshot(application: ApplicantRecord): boolean {
+  return application.posting.autoScreeningPolicyEnabled
+    || application.screeningDecisionReasonCode !== null
+    || application.screeningDecisionPolicyVersion !== null
+    || application.screeningPolicyVersion !== null
+    || application.screeningCriteriaVersion !== null
+    || application.screeningDecisionReportId !== null
+    || application.screeningDecidedAt !== null;
 }
 
 function compareNullableDatesAsc(left: Date | null, right: Date | null): number {

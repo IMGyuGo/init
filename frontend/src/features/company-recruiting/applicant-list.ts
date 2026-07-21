@@ -44,7 +44,11 @@ export function getScreeningConfirmationPreview(summary: ApplicantSummary | null
 }
 
 export function getPassMailTargetLimit(summary: ApplicantSummary | null) {
-  return (summary?.screeningDecisionCounts.PASS ?? 0) + (summary?.screeningDecisionCounts.FAIL ?? 0);
+  if (!summary) return 0;
+  return Math.min(
+    summary.confirmationEligibleTotal,
+    summary.reportStatusCounts.COMPLETED ?? 0,
+  );
 }
 
 export function applyScreeningDecisionCountChange(
@@ -82,8 +86,7 @@ export function canEditScreeningDecision(input: {
   screeningDecision: string | null;
   screeningResultConfirmationStatus?: "PENDING" | "CONFIRMED";
 }) {
-  return input.autoScreeningPolicyEnabled &&
-    input.screeningResultConfirmationStatus !== "CONFIRMED" &&
+  return input.screeningResultConfirmationStatus !== "CONFIRMED" &&
     input.reportStatus === "COMPLETED" &&
     ["PASS", "HOLD", "FAIL"].includes(input.screeningDecision ?? "");
 }

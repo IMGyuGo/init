@@ -2,10 +2,17 @@ import { createHash } from "crypto";
 
 import { allocateByWeight } from "./synthetic-applicant-importer.allocation";
 import { buildSyntheticApplicantPlanV2 } from "./synthetic-applicant-importer.v2";
+import { buildSyntheticApplicantPlanV3 } from "./synthetic-applicant-importer.v3";
+
+export {
+  SYNTHETIC_V3_OPERATIONAL_CONTRACT,
+  assertV3SyntheticOperationalContract,
+} from "./synthetic-applicant-importer.v3-shape";
 
 export const SYNTHETIC_MANIFEST_V1 = "SYNTHETIC_APPLICANT_MANIFEST_V1" as const;
 export const SYNTHETIC_MANIFEST_V2 = "SYNTHETIC_APPLICANT_MANIFEST_V2" as const;
-export const SYNTHETIC_MANIFEST_VERSION = SYNTHETIC_MANIFEST_V2;
+export const SYNTHETIC_MANIFEST_V3 = "SYNTHETIC_APPLICANT_MANIFEST_V3" as const;
+export const SYNTHETIC_MANIFEST_VERSION = SYNTHETIC_MANIFEST_V3;
 export const SYNTHETIC_PRODUCTION_ACK = "ISSUE_393_DEPLOYED_AND_SNAPSHOT_READY";
 
 export const SYNTHETIC_V2_OPERATIONAL_CONTRACT = {
@@ -50,7 +57,8 @@ export type SyntheticApplicationProjection = {
 
 export type SyntheticManifestVersion =
   | "SYNTHETIC_APPLICANT_MANIFEST_V1"
-  | "SYNTHETIC_APPLICANT_MANIFEST_V2";
+  | "SYNTHETIC_APPLICANT_MANIFEST_V2"
+  | "SYNTHETIC_APPLICANT_MANIFEST_V3";
 
 export type SyntheticProfileScoreFixture = {
   id: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
@@ -199,7 +207,7 @@ export function validateSyntheticEnvironment(
 
 export function syntheticOptionsHash(
   options: SyntheticImporterOptions,
-  manifestVersion: SyntheticManifestVersion = SYNTHETIC_MANIFEST_V2,
+  manifestVersion: SyntheticManifestVersion = SYNTHETIC_MANIFEST_V3,
 ) {
   assertSyntheticManifestVersion(manifestVersion);
   const canonical = JSON.stringify({
@@ -219,15 +227,16 @@ export function syntheticOptionsHash(
 
 export function buildSyntheticApplicantPlan(
   options: SyntheticImporterOptions,
-  manifestVersion: SyntheticManifestVersion = SYNTHETIC_MANIFEST_V2,
+  manifestVersion: SyntheticManifestVersion = SYNTHETIC_MANIFEST_V3,
 ) {
   if (manifestVersion === SYNTHETIC_MANIFEST_V1) return buildSyntheticApplicantPlanV1(options);
   if (manifestVersion === SYNTHETIC_MANIFEST_V2) return buildSyntheticApplicantPlanV2(options);
+  if (manifestVersion === SYNTHETIC_MANIFEST_V3) return buildSyntheticApplicantPlanV3(options);
   throw new Error(`지원하지 않는 synthetic manifest version입니다: ${String(manifestVersion)}`);
 }
 
 export function assertSyntheticManifestVersion(value: string): asserts value is SyntheticManifestVersion {
-  if (value !== SYNTHETIC_MANIFEST_V1 && value !== SYNTHETIC_MANIFEST_V2) {
+  if (value !== SYNTHETIC_MANIFEST_V1 && value !== SYNTHETIC_MANIFEST_V2 && value !== SYNTHETIC_MANIFEST_V3) {
     throw new Error(`지원하지 않는 synthetic manifest version입니다: ${value}`);
   }
 }

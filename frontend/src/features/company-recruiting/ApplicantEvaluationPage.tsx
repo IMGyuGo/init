@@ -10,7 +10,13 @@ import {
   GAUGE_CIRCUMFERENCE,
   scoreBand,
 } from "../interview-report/report-visuals";
-import { createApplicantInterviewMediaSession, getApplicantDocument, getApplicantEvaluation, updateScreeningReview } from "./api";
+import {
+  createApplicantInterviewMediaSession,
+  getApplicantDocument,
+  getApplicantEvaluation,
+  updateScreeningReview,
+  updateScreeningStatus,
+} from "./api";
 import { shouldPollApplicantEvaluation } from "./applicant-evaluation-polling";
 import { canEditScreeningDecision } from "./applicant-list";
 import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
@@ -73,7 +79,9 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
       const result = await getApplicantEvaluation(applicantId);
       setEvaluation(result.data);
       setDecision(result.data.screening.effectiveDecision);
-      setMemo(result.data.screening.overrideReason ?? "");
+      setMemo(result.data.applicant.autoScreeningPolicyEnabled
+        ? result.data.screening.overrideReason ?? ""
+        : result.data.screening.memo ?? "");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "평가 상세를 불러오지 못했습니다.");
     } finally {
@@ -113,17 +121,25 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
     }
     const automaticDecision = evaluation?.screening.decision;
     const resetToAutomatic = decision === automaticDecision;
-    if (!resetToAutomatic && memo.trim().length < 10) {
+    const usesAutomaticReview = evaluation?.applicant.autoScreeningPolicyEnabled === true;
+    if (usesAutomaticReview && !resetToAutomatic && memo.trim().length < 10) {
       setMessage("자동 판정을 변경하려면 10자 이상의 변경 사유를 입력해주세요.");
       return;
     }
     setLoading(true);
     setMessage("");
     try {
-      await updateScreeningReview(applicantId, {
-        screeningReviewerDecision: resetToAutomatic ? null : decision as ManualScreeningDecision,
-        overrideReason: resetToAutomatic ? null : memo.trim(),
-      });
+      if (usesAutomaticReview) {
+        await updateScreeningReview(applicantId, {
+          screeningReviewerDecision: resetToAutomatic ? null : decision as ManualScreeningDecision,
+          overrideReason: resetToAutomatic ? null : memo.trim(),
+        });
+      } else {
+        await updateScreeningStatus(applicantId, {
+          screeningDecision: decision,
+          screeningMemo: memo.trim() || undefined,
+        });
+      }
       await load({ clearMessage: false });
       window.alert("저장되었습니다.");
     } catch (error) {
