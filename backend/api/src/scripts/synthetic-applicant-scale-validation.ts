@@ -30,6 +30,7 @@ import {
   buildSyntheticReportExpectations,
   buildV3SyntheticFirstPageAggregate,
   countSyntheticReportDecisions,
+  createScaleValidationErrorBoundary,
   verifyV3ExactSearchAggregateOnly,
   verifyV3FirstPageAggregateOnly,
   type PostingStatusCounts,
@@ -78,6 +79,7 @@ type SyntheticIdentityRow = {
 
 const prisma = new PrismaClient();
 const repository = new PrismaCompanyRecruitingRepository(prisma as unknown as PrismaService);
+const errorBoundary = createScaleValidationErrorBoundary();
 
 const APPLICATION_STATUS_ORDER = [
   "DRAFT",
@@ -95,6 +97,7 @@ async function main() {
   const args = parseArguments(process.argv.slice(2));
   const dataset = await prisma.syntheticApplicantDataset.findUnique({ where: { datasetId: args.datasetId } });
   assert(dataset, `dataset을 찾을 수 없습니다: ${args.datasetId}`);
+  errorBoundary.markManifestVersion(dataset.manifestVersion);
   assertSyntheticManifestVersion(dataset.manifestVersion);
   if (dataset.manifestVersion === SYNTHETIC_MANIFEST_V2) {
     assertV2SyntheticOperationalContract(dataset);
@@ -917,7 +920,7 @@ function assert(condition: unknown, message: string): asserts condition {
 
 main()
   .catch((error) => {
-    process.stderr.write(`synthetic-applicant-scale-validation failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(errorBoundary.format(error));
     process.exitCode = 1;
   })
   .finally(async () => {

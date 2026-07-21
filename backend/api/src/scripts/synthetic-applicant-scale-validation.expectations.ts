@@ -6,7 +6,10 @@ import type {
   ScreeningDecision,
 } from "@prisma/client";
 
-import type { SyntheticApplicantPlanRecord } from "../modules/candidate/scripts/synthetic-applicant-importer.contract";
+import {
+  SYNTHETIC_MANIFEST_V3,
+  type SyntheticApplicantPlanRecord,
+} from "../modules/candidate/scripts/synthetic-applicant-importer.contract";
 import { V2_EMAIL_DOMAINS } from "../modules/candidate/scripts/synthetic-applicant-importer.v2";
 
 export type ApplicantStateProjection = {
@@ -210,6 +213,22 @@ export async function verifyV3ExactSearchAggregateOnly<T>(
   } catch {
     throw new Error("V3 exact-search aggregate verification failed.");
   }
+}
+
+export function createScaleValidationErrorBoundary() {
+  let isV3Manifest = false;
+
+  return {
+    markManifestVersion(manifestVersion: string) {
+      isV3Manifest = manifestVersion === SYNTHETIC_MANIFEST_V3;
+    },
+    format(error: unknown) {
+      if (isV3Manifest) {
+        return "synthetic-applicant-scale-validation failed: V3 aggregate verification failed.\n";
+      }
+      return `synthetic-applicant-scale-validation failed: ${error instanceof Error ? error.message : String(error)}\n`;
+    },
+  };
 }
 
 export async function verifyV3FirstPageAggregateOnly(

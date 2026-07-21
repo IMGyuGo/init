@@ -25,9 +25,13 @@ describe("synthetic applicant scale validation expectations", () => {
     const source = verifierSource();
     const operationalIndex = source.indexOf("assertV3SyntheticOperationalContract(dataset)");
     const manifestReadIndex = source.indexOf("prisma.syntheticApplicantRecord.findMany");
+    const errorBoundaryIndex = source.indexOf("errorBoundary.markManifestVersion(dataset.manifestVersion)");
 
     expect(operationalIndex).toBeGreaterThan(-1);
     expect(operationalIndex).toBeLessThan(manifestReadIndex);
+    expect(errorBoundaryIndex).toBeGreaterThan(-1);
+    expect(errorBoundaryIndex).toBeLessThan(manifestReadIndex);
+    expect(source).toContain("errorBoundary.format(error)");
     expect(source).toContain("assertV3SyntheticManifestProjection(records, planned)");
     expect(source).toContain("assertV3SyntheticIdentityAggregate(aggregate)");
     expect(source).toContain("assertV3SyntheticInterviewCompletedCount");
@@ -117,6 +121,32 @@ describe("synthetic applicant scale validation expectations", () => {
     });
     expect(successOutput).not.toMatch(/name|email|phone|userId|candidateId|applicationId|idSample/i);
     expect(successOutput).not.toMatch(/김가나|박다라/);
+  });
+
+  it("renders every post-manifest V3 failure as one constant while preserving V2 error output", () => {
+    const sensitiveValues = [
+      "email=private.person@controlled.example",
+      "name=Private Person",
+      "phone=010-1234-5678",
+      "userId=71001",
+      "candidateId=72001",
+      "applicationId=73001",
+    ];
+    const downstream = new Error(`Prisma query failed: ${sensitiveValues.join(" ")}`);
+    const v3Boundary = createScaleValidationErrorBoundary();
+    v3Boundary.markManifestVersion(SYNTHETIC_MANIFEST_V3);
+
+    const v3Output = v3Boundary.format(downstream);
+
+    expect(v3Output).toBe("synthetic-applicant-scale-validation failed: V3 aggregate verification failed.\n");
+    expect(v3Output).not.toMatch(/name|email|phone|userId|candidateId|applicationId|idSample/i);
+    for (const value of sensitiveValues) expect(v3Output).not.toContain(value);
+
+    const v2Boundary = createScaleValidationErrorBoundary();
+    v2Boundary.markManifestVersion(SYNTHETIC_MANIFEST_V2);
+    expect(v2Boundary.format(downstream)).toBe(
+      `synthetic-applicant-scale-validation failed: ${downstream.message}\n`,
+    );
   });
 
   it("preserves synthetic-only expectations when the posting has no baseline", () => {
@@ -536,4 +566,15 @@ function serializeFailure(error: Error) {
     message: error.message,
     cause: error.cause instanceof Error ? error.cause.message : error.cause ?? null,
   });
+}
+
+function createScaleValidationErrorBoundary() {
+  const factory = (validationExpectations as unknown as {
+    createScaleValidationErrorBoundary?: () => {
+      markManifestVersion: (manifestVersion: string) => void;
+      format: (error: unknown) => string;
+    };
+  }).createScaleValidationErrorBoundary;
+  if (!factory) throw new Error("createScaleValidationErrorBoundary is not implemented");
+  return factory();
 }
