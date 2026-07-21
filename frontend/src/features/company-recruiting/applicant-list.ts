@@ -4,6 +4,8 @@ export const APPLICANTS_PAGE_SIZE = 20;
 
 export type ApplicantSort = "recent" | "score" | "applicationStatus" | "interviewStatus" | "reportStatus";
 
+export const DEFAULT_APPLICANT_SORT: ApplicantSort = "score";
+
 export const APPLICANT_SORT_OPTIONS: ReadonlyArray<{ value: ApplicantSort; label: string }> = [
   { value: "recent", label: "최신순" },
   { value: "score", label: "점수 높은순" },
