@@ -1068,7 +1068,7 @@ export function RecruitmentCreatePage() {
             >
               <span className="wizard-choice-badge">AI 초안</span>
               <Image className="wizard-choice-art" src={choiceAi} alt="" width={200} height={200} aria-hidden="true" />
-              <strong><span className="ai-grad-text">AI</span>로 초안 만들기</strong>
+              <strong>AI로 초안 만들기</strong>
               <span>제목·키워드를 넣으면 공고 상세 초안을 채워줍니다.</span>
             </button>
           </div>
