@@ -32,15 +32,12 @@ import {
   JdImageUploadResponseDto,
   PassMailDispatchResponseDto,
   RecruitmentResponseDto,
-  ScreeningResultConfirmationResponseDto,
 } from "../dto/company-recruiting-response.dto";
-import { ConfirmScreeningResultsDto } from "../dto/confirm-screening-results.dto";
 import { CreateRecruitmentDto } from "../dto/create-recruitment.dto";
 import { ListApplicantsByRecruitmentQueryDto, ListApplicantsQueryDto, ListQueryDto } from "../dto/list-query.dto";
 import { SendRecruitmentPassMailsDto } from "../dto/send-recruitment-pass-mails.dto";
 import { UpdateRecruitmentDto } from "../dto/update-recruitment.dto";
 import { UpdateScreeningStatusDto } from "../dto/update-screening-status.dto";
-import { UpdateScreeningReviewDto } from "../dto/update-screening-review.dto";
 
 type CompanyRequest = RequestLike & { currentUser: CurrentUser };
 type UploadedJdImageFile = {
@@ -218,21 +215,6 @@ export class CompanyRecruitingController {
     return ok(request, data);
   }
 
-  @Post("recruitments/:recruitmentId/screening-results/confirm")
-  @HttpCode(200)
-  @ApiOperationId("API-012C")
-  @ApiOperation({ summary: "공고별 자동 전형 결과 일괄 확정 및 지원자 통보" })
-  @ApiParamId("recruitmentId", "채용 공고 ID")
-  @ApiEnvelopeResponse(ScreeningResultConfirmationResponseDto)
-  async confirmScreeningResults(
-    @Req() request: CompanyRequest,
-    @Param("recruitmentId", ParseIntPipe) recruitmentId: number,
-    @Body() dto: ConfirmScreeningResultsDto,
-  ) {
-    const data = await this.companyRecruitingService.confirmScreeningResults(request.currentUser, recruitmentId, dto);
-    return ok(request, data);
-  }
-
   @Get("applicants")
   @ApiOperationId("API-018")
   @ApiOperation({ summary: "지원자 목록 조회" })
@@ -296,20 +278,6 @@ export class CompanyRecruitingController {
     @Body() dto: UpdateScreeningStatusDto,
   ) {
     const data = await this.companyRecruitingService.updateScreeningStatus(request.currentUser, applicantId, dto);
-    return ok(request, data);
-  }
-
-  @Patch("applicants/:applicantId/screening-review")
-  @ApiOperationId("API-012R")
-  @ApiOperation({ summary: "자동 전형 결과 검토 초안 수정 또는 초기화" })
-  @ApiParamId("applicantId", "지원자/application ID")
-  @ApiEnvelopeResponse(ApplicantResponseDto)
-  async updateScreeningReview(
-    @Req() request: CompanyRequest,
-    @Param("applicantId", ParseIntPipe) applicantId: number,
-    @Body() dto: UpdateScreeningReviewDto,
-  ) {
-    const data = await this.companyRecruitingService.updateScreeningReview(request.currentUser, applicantId, dto);
     return ok(request, data);
   }
 }

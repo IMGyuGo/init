@@ -216,10 +216,6 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         interviewStatusCounts: {},
         reportStatusCounts: {},
         screeningDecisionCounts: {},
-        effectiveScreeningDecisionCounts: {},
-        confirmationEligibleTotal: 0,
-        confirmedTotal: 0,
-        excludedTotal: 0,
         attentionRequiredTotal: 0,
       };
     },
@@ -256,36 +252,6 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         screeningDecision: (input as { screeningDecision: string }).screeningDecision,
         screeningMemo: (input as { screeningMemo?: string | null }).screeningMemo ?? null,
       };
-    },
-    async updateApplicationScreeningReview(applicationId: number, companyId: number, input: unknown) {
-      calls.updateApplicationScreeningReview = [applicationId, companyId, input];
-      const review = input as {
-        screeningReviewerDecision: string | null;
-        screeningDecisionOverrideReason: string | null;
-      };
-      return {
-        ...applicant,
-        screeningReviewerDecision: review.screeningReviewerDecision,
-        effectiveScreeningDecision: review.screeningReviewerDecision ?? applicant.screeningDecision ?? "UNDECIDED",
-        screeningDecisionOverrideReason: review.screeningDecisionOverrideReason,
-      };
-    },
-    async confirmScreeningResults(postingId: number, companyId: number, userId: number, expectedEligibleCount: number) {
-      calls.confirmScreeningResults = [postingId, companyId, userId, expectedEligibleCount];
-      return {
-        scopeChanged: false,
-        idempotent: false,
-        eligibleCount: expectedEligibleCount,
-        excludedCount: 0,
-        excludedCounts: { UNDECIDED: 0, RETRY: 0 },
-        confirmedCount: expectedEligibleCount,
-        decisionCounts: { PASS: expectedEligibleCount, HOLD: 0, FAIL: 0 },
-        confirmedAt: new Date("2026-07-21T12:30:00.000Z"),
-        emailRecipients: [],
-      };
-    },
-    async markScreeningResultEmailNotification(notificationId: number, status: "SENT" | "FAILED") {
-      calls.markScreeningResultEmailNotification = [notificationId, status];
     },
     async createFileAsset(input: unknown) {
       calls.createFileAsset = [input];
@@ -331,14 +297,7 @@ function createApplicantRecord(overrides: Partial<ApplicantRecord> = {}): Applic
     screeningDecisionPolicyVersion: null,
     screeningPolicyVersion: null,
     screeningCriteriaVersion: null,
-    screeningDecisionReportId: null,
     screeningDecidedAt: null,
-    screeningReviewerDecision: null,
-    effectiveScreeningDecision: "UNDECIDED",
-    screeningFinalDecision: null,
-    screeningDecisionOverrideReason: null,
-    screeningResultConfirmationStatus: "PENDING",
-    screeningResultConfirmedAt: null,
     screeningMemo: null,
     passMailDeliveryStatus: "NOT_SENT",
     passMailSentAt: null,
@@ -2932,12 +2891,10 @@ describe("CompanyRecruitingService", () => {
     const managedApplicant = createApplicantRecord({
       reportStatus: "COMPLETED",
       screeningDecision: "HOLD",
-      effectiveScreeningDecision: "HOLD",
       screeningDecisionReasonCode: "HOLD_CRITERION_BELOW_PASS_SCORE",
       screeningDecisionPolicyVersion: "AUTO_SCREENING_DECISION_V1",
       screeningPolicyVersion: 2,
       screeningCriteriaVersion: 4,
-      screeningDecisionReportId: 900,
       screeningDecidedAt: new Date("2026-07-20T01:00:00.000Z"),
       evaluationReports: [reportFixture(83)],
       posting: {
@@ -2948,15 +2905,6 @@ describe("CompanyRecruitingService", () => {
     const repository = createRepository({
       async findApplicationForCompany() {
         return managedApplicant;
-      },
-      async updateApplicationScreeningReview(applicationId: number, companyId: number, input: unknown) {
-        repository.calls.updateApplicationScreeningReview = [applicationId, companyId, input];
-        return createApplicantRecord({
-          ...managedApplicant,
-          screeningReviewerDecision: "PASS",
-          effectiveScreeningDecision: "PASS",
-          screeningDecisionOverrideReason: "면접 근거를 검토해 합격으로 변경합니다",
-        });
       },
     });
     const service = new CompanyRecruitingService(repository);
@@ -2970,91 +2918,18 @@ describe("CompanyRecruitingService", () => {
       policyVersion: 2,
       criteriaVersion: 4,
       decidedAt: "2026-07-20T01:00:00.000Z",
-      reviewerDecision: null,
-      effectiveDecision: "HOLD",
-      finalDecision: null,
-      overrideReason: null,
-      confirmationStatus: "PENDING",
-      confirmedAt: null,
       memo: null,
     });
-    const updated = await service.updateScreeningReview(companyUser, 77, {
-      screeningReviewerDecision: "PASS",
-      overrideReason: "면접 근거를 검토해 합격으로 변경합니다",
+    const updated = await service.updateScreeningStatus(companyUser, 77, {
+      screeningDecision: "PASS",
+      screeningMemo: "최종 검토 후 합격 처리",
     });
-    assert.equal(updated.effectiveScreeningDecision, "PASS");
-    assert.deepEqual(repository.calls.updateApplicationScreeningReview, [
+    assert.equal(updated.screeningDecision, "PASS");
+    assert.deepEqual(repository.calls.updateApplicationScreening, [
       77,
       7,
-      {
-        screeningReviewerDecision: "PASS",
-        screeningDecisionOverrideReason: "면접 근거를 검토해 합격으로 변경합니다",
-      },
+      { screeningDecision: "PASS", screeningMemo: "최종 검토 후 합격 처리" },
     ]);
-  });
-
-  it("confirms all eligible results and sends notifications without changing the snapshot", async () => {
-    const repository = createRepository({
-      async confirmScreeningResults() {
-        return {
-          scopeChanged: false,
-          idempotent: false,
-          eligibleCount: 2,
-          excludedCount: 1,
-          excludedCounts: { UNDECIDED: 0, RETRY: 1 },
-          confirmedCount: 2,
-          decisionCounts: { PASS: 1, HOLD: 1, FAIL: 0 },
-          confirmedAt: new Date("2026-07-21T12:30:00.000Z"),
-          emailRecipients: [{
-            notificationId: 501,
-            applicationId: 77,
-            userId: 88,
-            email: "kim@example.com",
-            name: "Kim Applicant",
-            decision: "PASS" as const,
-          }],
-        };
-      },
-    });
-    const sent: string[] = [];
-    const mailer = {
-      async send(message: { to: string }) {
-        sent.push(message.to);
-        return { messageId: "screening-result-1", acceptedCount: 1, rejectedCount: 0 };
-      },
-    };
-    const service = new CompanyRecruitingService(repository, undefined, {}, undefined, undefined, undefined, mailer);
-
-    const result = await service.confirmScreeningResults(companyUser, 101, { expectedEligibleCount: 2 });
-
-    assert.equal(result.confirmedCount, 2);
-    assert.deepEqual(result.confirmedCounts, { PASS: 1, HOLD: 1, FAIL: 0 });
-    assert.deepEqual(result.excludedCounts, { UNDECIDED: 0, RETRY: 1 });
-    assert.deepEqual(sent, ["kim@example.com"]);
-    assert.deepEqual(repository.calls.markScreeningResultEmailNotification, [501, "SENT"]);
-  });
-
-  it("rejects confirmation when the reviewed scope changed", async () => {
-    const repository = createRepository({
-      async confirmScreeningResults() {
-        return {
-          scopeChanged: true,
-          idempotent: false,
-          eligibleCount: 3,
-          excludedCount: 0,
-          excludedCounts: { UNDECIDED: 0, RETRY: 0 },
-          confirmedCount: 0,
-          decisionCounts: { PASS: 0, HOLD: 0, FAIL: 0 },
-          confirmedAt: null,
-          emailRecipients: [],
-        };
-      },
-    });
-
-    await assert.rejects(
-      new CompanyRecruitingService(repository).confirmScreeningResults(companyUser, 101, { expectedEligibleCount: 2 }),
-      (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "COMMON_CONFLICT",
-    );
   });
 
   it("rejects screening decisions outside the agreed enum values", async () => {

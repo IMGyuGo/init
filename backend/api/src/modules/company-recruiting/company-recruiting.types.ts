@@ -33,8 +33,6 @@ export type NormalizedApplicantListQuery = Omit<NormalizedListQuery, "status"> &
   interviewStatus?: InterviewStatusValue;
   reportStatus?: ReportStatusValue;
   screeningDecision?: ScreeningDecisionValue;
-  effectiveScreeningDecision?: ScreeningDecisionValue;
-  screeningResultConfirmationStatus?: "PENDING" | "CONFIRMED";
 };
 
 export type ApplicantSummaryRecord = {
@@ -45,32 +43,7 @@ export type ApplicantSummaryRecord = {
   interviewStatusCounts: Partial<Record<InterviewStatusValue, number>>;
   reportStatusCounts: Partial<Record<ReportStatusValue, number>>;
   screeningDecisionCounts: Partial<Record<ScreeningDecisionValue, number>>;
-  effectiveScreeningDecisionCounts: Partial<Record<ScreeningDecisionValue, number>>;
-  confirmationEligibleTotal: number;
-  confirmedTotal: number;
-  excludedTotal: number;
   attentionRequiredTotal: number;
-};
-
-export type ScreeningResultNotificationRecipient = {
-  notificationId: number;
-  applicationId: number;
-  userId: number;
-  email: string;
-  name: string;
-  decision: "PASS" | "HOLD" | "FAIL";
-};
-
-export type ScreeningResultConfirmationRecord = {
-  scopeChanged: boolean;
-  idempotent: boolean;
-  eligibleCount: number;
-  excludedCount: number;
-  excludedCounts: Record<"UNDECIDED" | "RETRY", number>;
-  confirmedCount: number;
-  decisionCounts: Record<"PASS" | "HOLD" | "FAIL", number>;
-  confirmedAt: Date | null;
-  emailRecipients: ScreeningResultNotificationRecipient[];
 };
 
 export type PassMailRecipientRecord = {
@@ -146,14 +119,7 @@ export type ApplicantRecord = {
   screeningDecisionPolicyVersion: string | null;
   screeningPolicyVersion: number | null;
   screeningCriteriaVersion: number | null;
-  screeningDecisionReportId: number | null;
   screeningDecidedAt: Date | null;
-  screeningReviewerDecision: string | null;
-  effectiveScreeningDecision: string;
-  screeningFinalDecision: string | null;
-  screeningDecisionOverrideReason: string | null;
-  screeningResultConfirmationStatus: "PENDING" | "CONFIRMED";
-  screeningResultConfirmedAt: Date | null;
   screeningMemo: string | null;
   passMailDeliveryStatus: PassMailDeliveryStatusValue;
   passMailSentAt: Date | null;

@@ -14,10 +14,6 @@ describe("AUTO_SCREENING_DECISION_V1 persistence contract", () => {
     expect(schema).toMatch(/screeningPolicyVersion\s+Int\?/);
     expect(schema).toMatch(/screeningCriteriaVersion\s+Int\?/);
     expect(schema).toMatch(/screeningDecisionReportId\s+BigInt\?/);
-    expect(schema).toMatch(/screeningReviewerDecision\s+ScreeningDecision\?/);
-    expect(schema).toMatch(/screeningFinalDecision\s+ScreeningDecision\?/);
-    expect(schema).toMatch(/screeningResultConfirmedAt\s+DateTime\?/);
-    expect(schema).toMatch(/screeningResultConfirmedByUserId\s+BigInt\?/);
     expect(schema).toMatch(/screeningDecidedAt\s+DateTime\?/);
   });
 
@@ -38,9 +34,6 @@ describe("AUTO_SCREENING_DECISION_V1 persistence contract", () => {
       "정책 row가 없으면 같은 transaction에서 기본 정책 row를 생성",
     );
     expect(decisionContract).toContain("screening_decision_report_id");
-    expect(decisionContract).toContain("screening_reviewer_decision");
-    expect(decisionContract).toContain("screening_final_decision");
-    expect(decisionContract).toContain("screening_result_confirmed_at");
     expect(decisionContract).toContain("API 응답에는 노출하지 않는다");
   });
 

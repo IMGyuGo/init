@@ -81,8 +81,6 @@ describe("PrismaCandidateRepository", () => {
             interviewStatus: "COMPLETED",
             reportStatus: "COMPLETED",
             screeningDecision: "HOLD",
-            screeningFinalDecision: "HOLD",
-            screeningResultConfirmedAt: updatedAt,
             screeningMemo: "지원자에게 공개하면 안 되는 내부 메모",
             submittedAt: updatedAt,
             updatedAt,

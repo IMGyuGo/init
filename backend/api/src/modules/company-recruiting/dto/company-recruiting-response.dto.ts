@@ -337,24 +337,6 @@ export class ApplicantResponseDto {
   @ApiProperty({ enum: ["UNDECIDED", "PASS", "HOLD", "FAIL", "RETRY"], example: "UNDECIDED" })
   screeningDecision!: string;
 
-  @ApiPropertyOptional({ enum: ["PASS", "HOLD", "FAIL"], nullable: true })
-  screeningReviewerDecision!: string | null;
-
-  @ApiProperty({ enum: ["UNDECIDED", "PASS", "HOLD", "FAIL", "RETRY"] })
-  effectiveScreeningDecision!: string;
-
-  @ApiPropertyOptional({ enum: ["PASS", "HOLD", "FAIL"], nullable: true })
-  finalScreeningDecision!: string | null;
-
-  @ApiPropertyOptional({ nullable: true })
-  screeningDecisionOverrideReason!: string | null;
-
-  @ApiProperty({ enum: ["PENDING", "CONFIRMED"] })
-  screeningResultConfirmationStatus!: string;
-
-  @ApiPropertyOptional({ nullable: true })
-  screeningResultConfirmedAt!: string | null;
-
   @ApiProperty({ example: false })
   autoScreeningPolicyEnabled!: boolean;
 
@@ -408,18 +390,6 @@ export class ApplicantSummaryResponseDto {
   @ApiProperty({ type: Object, example: { UNDECIDED: 1100, PASS: 150 } })
   screeningDecisionCounts!: Record<string, number>;
 
-  @ApiProperty({ type: Object, example: { PASS: 120, HOLD: 20, FAIL: 300, RETRY: 10 } })
-  effectiveScreeningDecisionCounts!: Record<string, number>;
-
-  @ApiProperty({ example: 440 })
-  confirmationEligibleTotal!: number;
-
-  @ApiProperty({ example: 0 })
-  confirmedTotal!: number;
-
-  @ApiProperty({ example: 10 })
-  excludedTotal!: number;
-
   @ApiProperty({ example: 1120 })
   attentionRequiredTotal!: number;
 }
@@ -465,32 +435,6 @@ export class PassMailDispatchResponseDto {
 
   @ApiProperty({ type: [PassMailRecipientResponseDto] })
   recipients!: PassMailRecipientResponseDto[];
-}
-
-export class ScreeningResultConfirmationResponseDto {
-  @ApiProperty({ example: 101 })
-  recruitmentId!: number;
-
-  @ApiProperty({ example: false })
-  idempotent!: boolean;
-
-  @ApiProperty({ example: 18 })
-  confirmedCount!: number;
-
-  @ApiProperty({ type: Object, example: { PASS: 8, HOLD: 3, FAIL: 7 } })
-  confirmedCounts!: Record<string, number>;
-
-  @ApiProperty({ type: Object, example: { UNDECIDED: 1, RETRY: 1 } })
-  excludedCounts!: Record<string, number>;
-
-  @ApiProperty({ example: "2026-07-21T12:30:00.000Z", nullable: true })
-  confirmedAt!: string | null;
-
-  @ApiProperty({ example: 18 })
-  emailSentCount!: number;
-
-  @ApiProperty({ example: 0 })
-  emailFailedCount!: number;
 }
 
 export class ApplicantEvaluationResponseDto {

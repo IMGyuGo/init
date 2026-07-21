@@ -214,12 +214,10 @@ describe("PrismaCompanyRecruitingRepository", () => {
         posting: { companyId: 7n },
         applicationStatus: { not: "CANCELED" },
         documentStatus: "EXTRACTED",
-        AND: [
-          { OR: [{ screeningDecision: "UNDECIDED" }, { screeningDecision: null }] },
-          { OR: [
-            { candidate: { user: { name: { contains: "kim", mode: "insensitive" } } } },
-            { candidate: { user: { email: { contains: "kim", mode: "insensitive" } } } },
-          ] },
+        AND: [{ OR: [{ screeningDecision: "UNDECIDED" }, { screeningDecision: null }] }],
+        OR: [
+          { candidate: { user: { name: { contains: "kim", mode: "insensitive" } } } },
+          { candidate: { user: { email: { contains: "kim", mode: "insensitive" } } } },
         ],
       },
       {
@@ -227,12 +225,10 @@ describe("PrismaCompanyRecruitingRepository", () => {
         posting: { companyId: 7n },
         applicationStatus: { not: "CANCELED" },
         documentStatus: "EXTRACTED",
-        AND: [
-          { OR: [{ screeningDecision: "UNDECIDED" }, { screeningDecision: null }] },
-          { OR: [
-            { candidate: { user: { name: { contains: "kim", mode: "insensitive" } } } },
-            { candidate: { user: { email: { contains: "kim", mode: "insensitive" } } } },
-          ] },
+        AND: [{ OR: [{ screeningDecision: "UNDECIDED" }, { screeningDecision: null }] }],
+        OR: [
+          { candidate: { user: { name: { contains: "kim", mode: "insensitive" } } } },
+          { candidate: { user: { email: { contains: "kim", mode: "insensitive" } } } },
         ],
       },
     ]);
@@ -347,14 +343,6 @@ describe("PrismaCompanyRecruitingRepository", () => {
           };
           return [{ [field]: values[field], _count: { _all: 10 } }];
         },
-        async findMany() {
-          return Array.from({ length: 10 }, () => ({
-            screeningDecision: "UNDECIDED",
-            screeningReviewerDecision: null,
-            screeningFinalDecision: null,
-            screeningResultConfirmedAt: null,
-          }));
-        },
       },
     };
     const repository = new PrismaCompanyRecruitingRepository(prisma as never);
@@ -367,9 +355,6 @@ describe("PrismaCompanyRecruitingRepository", () => {
     assert.equal(result.applicationStatusCounts.SUBMITTED, 10);
     assert.equal(result.interviewStatusCounts.COMPLETED, 10);
     assert.equal(result.screeningDecisionCounts.UNDECIDED, 10);
-    assert.equal(result.effectiveScreeningDecisionCounts.UNDECIDED, 10);
-    assert.equal(result.confirmationEligibleTotal, 0);
-    assert.equal(result.excludedTotal, 10);
     assert.deepEqual(groupBys, [
       "applicationStatus",
       "documentStatus",

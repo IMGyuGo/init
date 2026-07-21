@@ -483,15 +483,10 @@ export class ReportService {
       reportStatus,
       sessionId: session.sessionId,
       interviewSessionStatus: session.status,
-      resultPublicationStatus: application.resultPublicationStatus,
-      screeningDecision: application.resultPublicationStatus === "CONFIRMED" ? application.screeningDecision : null,
-      screeningResultConfirmedAt: application.resultPublicationStatus === "CONFIRMED"
-        ? application.screeningResultConfirmedAt
-        : null,
+      screeningDecision: application.screeningDecision,
       submittedAt: application.submittedAt,
       updatedAt: application.updatedAt,
-      reportAvailable:
-        application.resultPublicationStatus === "CONFIRMED" && reportStatus === "COMPLETED" && Boolean(report),
+      reportAvailable: reportStatus === "COMPLETED" && Boolean(report),
     });
   }
 
@@ -525,11 +520,7 @@ export class ReportService {
       status,
       applicationStatus: application.applicationStatus,
       interviewStatus: application.interviewStatus,
-      resultPublicationStatus: application.resultPublicationStatus,
-      screeningDecision: application.resultPublicationStatus === "CONFIRMED" ? application.screeningDecision : null,
-      screeningResultConfirmedAt: application.resultPublicationStatus === "CONFIRMED"
-        ? application.screeningResultConfirmedAt
-        : null,
+      screeningDecision: application.screeningDecision,
       companyName: job.companyName,
       jobTitle: job.title,
       reportId: report?.reportId,
@@ -566,9 +557,7 @@ export class ReportService {
       });
     }
 
-    const decisionPresentation = this.recruitingDecisionPresentation(
-      application.resultPublicationStatus === "CONFIRMED" ? application.screeningDecision : null,
-    );
+    const decisionPresentation = this.recruitingDecisionPresentation(application.screeningDecision);
     return this.envelope({
       ...base,
       candidateMessage: decisionPresentation.message,
@@ -1121,14 +1110,8 @@ export class ReportService {
   private recruitingDecisionPresentation(
     decision: CandidateRecruitingReportView["screeningDecision"],
   ): { label: string; message: string } {
-    if (decision === null) {
-      return {
-        label: "결과 검토 중",
-        message: "기업에서 전형 결과를 검토하고 있습니다.",
-      };
-    }
     const presentation: Record<
-      Exclude<CandidateRecruitingReportView["screeningDecision"], null>,
+      CandidateRecruitingReportView["screeningDecision"],
       { label: string; message: string }
     > = {
       UNDECIDED: {

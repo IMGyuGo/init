@@ -479,43 +479,6 @@ export class PrismaCandidateRepository implements CandidateRepository {
     return applications.map((application) => this.toApplication(application));
   }
 
-  async listScreeningResultNotifications(userId: number) {
-    const notifications = await this.prisma.notification.findMany({
-      where: {
-        userId: BigInt(userId),
-        channel: "IN_APP",
-        notificationType: "SCREENING_RESULT_CONFIRMED",
-        application: {
-          screeningResultConfirmedAt: { not: null },
-          screeningFinalDecision: { in: ["PASS", "HOLD", "FAIL"] },
-        },
-      },
-      orderBy: { notificationId: "desc" },
-      include: {
-        application: {
-          include: {
-            posting: { include: { company: true } },
-          },
-        },
-      },
-    });
-    return notifications.flatMap((notification) => {
-      const application = notification.application;
-      const decision = application?.screeningFinalDecision;
-      const confirmedAt = application?.screeningResultConfirmedAt;
-      if (!application || !confirmedAt || !decision || !["PASS", "HOLD", "FAIL"].includes(decision)) return [];
-      return [{
-        notificationId: Number(notification.notificationId),
-        applicationId: Number(application.applicationId),
-        postingId: Number(application.postingId),
-        companyName: application.posting.company.name,
-        jobTitle: application.posting.title,
-        screeningDecision: decision as "PASS" | "HOLD" | "FAIL",
-        confirmedAt: confirmedAt.toISOString(),
-      }];
-    });
-  }
-
   async findApplication(applicationId: number): Promise<Application | undefined> {
     const application = await this.prisma.application.findUnique({
       where: { applicationId: BigInt(applicationId) },
@@ -2272,9 +2235,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
       documentStatus: application.documentStatus,
       interviewStatus: application.interviewStatus,
       reportStatus: application.reportStatus,
-      resultPublicationStatus: application.screeningResultConfirmedAt ? "CONFIRMED" : "PENDING",
-      screeningDecision: application.screeningResultConfirmedAt ? application.screeningFinalDecision : null,
-      screeningResultConfirmedAt: application.screeningResultConfirmedAt?.toISOString() ?? null,
+      screeningDecision: application.screeningDecision ?? "UNDECIDED",
       submittedAt: submittedAt.toISOString(),
       updatedAt: application.updatedAt.toISOString(),
     };

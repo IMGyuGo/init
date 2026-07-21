@@ -7,7 +7,6 @@ import type {
   CandidateMockReportFeedback,
   CandidateMockReportSummary,
   CandidateRecruitingReportView,
-  CandidateScreeningResultNotification,
   ConsentType,
   CreatePortfolioLinkRequest,
   InterviewRuntimeSessionView,
@@ -738,32 +737,6 @@ export function buildCandidateReportCompleteNotification(
     createdAt: application.updatedAt ?? "",
     read: readIds.has(id),
   };
-}
-
-export function buildCandidateScreeningResultNotifications(
-  items: CandidateScreeningResultNotification[],
-  readIds: ReadonlySet<string>,
-  dismissedIds: ReadonlySet<string> = new Set(),
-): CandidateNotificationItem[] {
-  return items
-    .map((item): CandidateNotificationItem | null => {
-      const id = `candidate-screening-result-${item.notificationId}`;
-      if (dismissedIds.has(id)) return null;
-      const resultLabel = item.screeningDecision === "PASS"
-        ? "합격"
-        : item.screeningDecision === "HOLD" ? "보류" : "불합격";
-      return {
-        id,
-        applicationId: item.applicationId,
-        title: "기업 전형 결과가 확정되었습니다",
-        message: `${item.companyName} ${item.jobTitle} 전형 결과는 ${resultLabel}입니다.`,
-        href: candidateApplicationInterviewRoutes.applicationReport(item.applicationId),
-        createdAt: item.confirmedAt,
-        read: readIds.has(id),
-      };
-    })
-    .filter((item): item is CandidateNotificationItem => Boolean(item))
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
 export function countUnreadCandidateNotifications(notifications: CandidateNotificationItem[]): number {

@@ -59,9 +59,6 @@ sequenceDiagram
   participant Report as evaluation_reports
   participant Decision as Auto Decision Service
   participant App as applications
-  participant Company as Company Reviewer
-  participant Notice as notifications
-  participant Candidate as Candidate Portal
 
   Worker->>Guard: 리포트·점수 최종 검증
   alt report pending or generating
@@ -75,25 +72,12 @@ sequenceDiagram
     Worker->>Decision: final scores + criteria/passScore + policy snapshot
     Decision->>App: PASS/HOLD/FAIL + reason/version snapshot
   end
-  App-->>Company: effectiveDecision 기준 PASS/HOLD/FAIL 그룹 목록
-  opt 필요한 지원자만 검토
-    Company->>App: 지원자별 reviewerDecision/변경 사유 저장
-  end
-  Company->>Company: 공고 단위 결과 확정 Alert 재확인
-  Company->>App: 판정 가능한 미확정 결과 일괄 확정
-  App->>Notice: IN_APP 생성 + EMAIL PENDING 멱등 등록
-  App-->>Candidate: 확정 이후에만 제한 결과 공개
 ```
 
 - `PASS/HOLD/FAIL`은 guardrail 이후 저장된 유효 점수가 있을 때만 결정한다.
 - report 생성 중에는 `UNDECIDED`를 유지한다.
 - report terminal 실패, STT terminal 인식 불가, 평가 불완전 또는 필수 점수 NULL은 `RETRY`이며 0점/FAIL로 변환하지 않는다.
 - 자동 판정 저장은 `reportId + policyVersion + criteriaVersion + decisionPolicyVersion`을 멱등 key로 사용한다.
-- 자동판정 저장 시점에는 기업 사용자에게만 결과를 공개한다. 지원자 API는 면접관 확정 전 내부 판정값과 리포트 내용을 반환하지 않는다.
-- 기업 목록은 `effectiveDecision = reviewerDecision ?? screeningDecision`으로 자동 분류하고 면접관에게 합격/보류/불합격 그룹과 건수를 먼저 보여준다. 면접관은 전원을 체크하지 않고 필요한 지원자만 검토·수정한다.
-- 면접관 수정은 자동판정이 `PASS | HOLD | FAIL`인 미확정 지원자에게만 허용하고, 다른 값이면 내부 변경 사유를 필수 저장한다. 자동판정으로 되돌리면 reviewer decision과 변경 사유를 NULL로 만든다.
-- 공고 단위 확정 버튼은 대상 인원과 제외된 `UNDECIDED | RETRY` 인원을 Alert에 표시하고 사용자 재확인 후에만 API를 호출한다. application 최종 결과·확정 snapshot과 지원자 IN_APP 알림 생성을 transaction으로 처리하고 EMAIL 알림은 멱등 `PENDING`으로 등록한다.
-- 지원자 포털 공개는 이메일 발송 성공 여부가 아니라 application의 면접관 확정 snapshot을 기준으로 한다.
 - 자동 판정 규칙은 [`automatic-screening-decision.md`](../03_contracts/automatic-screening-decision.md)를 따른다.
 - RETRY job 생성, backoff와 한도는 #397에서 별도로 확정한다.
 
@@ -183,7 +167,7 @@ DEMO_PRESET 개인화 작업은 STANDARD `resumeQuestionCount`와 별개인 추�
 
 공식 DEMO_PRESET follow-up은 공통 질문에는 생성하지 않고 개인화 BASE에만 정확히 한 번 결정한다. 첫 provider 실패는 한 번 재시도하고, 재실패하면 답변을 근거로 한 안전 fallback을 사용한다. 원본 두 binding, question mode, answer time과 `usageScope=DEMO_PRESET`을 session private question에 상속한다.
 
-발표 전용 `SALTLUX_AI_BACKEND_V1` fixture는 예외적으로 외부 question/report provider와 SQS 가용성에 의존하지 않는다. API가 정확한 회사명·공고명·`sessionMode=DEMO_PRESET` 조합을 확인하며, 개인화 답변 저장 transaction에서 고정 꼬리질문을 실제 session question으로 멱등 삽입한다. 면접 완료 뒤에는 API가 버전 관리된 고정 산출물을 실제 session/answer/criterion ID에 연결해 `evaluation_reports`, legacy 및 NCS `report_scores`, `ncs_answer_evaluations`, evidence와 완료된 `ai_process_logs`를 동기 저장한다. 같은 transaction에서 이미 확정된 고정 리포트 총점과 공고의 `passMinTotalScore`, `holdMinTotalScore`를 일반 자동판정 규칙에 입력해 `PASS | HOLD | FAIL`을 저장하며, 리포트 생성이나 AI 평가를 다시 실행하지 않는다. 자동판정은 면접관에게만 즉시 보이고 지원자에게는 면접관 확정 후 공개한다. `ai_process_logs.output_ref`에는 `providerSource=PRESENTATION_FIXTURE`, `model=fixed-demo-fixture-v1`을 남긴다. 일반 공고와 일반 DEMO_PRESET은 기존 SQS/worker 경로를 유지한다.
+발표 전용 `SALTLUX_AI_BACKEND_V1` fixture는 예외적으로 외부 question/report provider와 SQS 가용성에 의존하지 않는다. API가 정확한 회사명·공고명·`sessionMode=DEMO_PRESET` 조합을 확인하며, 개인화 답변 저장 transaction에서 고정 꼬리질문을 실제 session question으로 멱등 삽입한다. 면접 완료 뒤에는 API가 버전 관리된 고정 산출물을 실제 session/answer/criterion ID에 연결해 `evaluation_reports`, legacy 및 NCS `report_scores`, `ncs_answer_evaluations`, evidence와 완료된 `ai_process_logs`를 동기 저장한다. `ai_process_logs.output_ref`에는 `providerSource=PRESENTATION_FIXTURE`, `model=fixed-demo-fixture-v1`을 남긴다. 일반 공고와 일반 DEMO_PRESET은 기존 SQS/worker 경로를 유지한다.
 
 private follow-up 답변의 부모 관계는 질문 문구가 아니라 저장 ID를 정본으로 사용한다. `follow_up_questions.answer_id`는 원본 BASE 답변, `follow_up_questions.inserted_session_question_id`는 꼬리답변의 `interview_answers.session_question_id`와 연결된다. REPORT_GENERATE는 모든 세션 답변의 STT가 transcript 저장 또는 `STT_UNAVAILABLE` terminal 상태에 도달한 뒤에만 발행한다. 최신 STT process의 `FAILED + REANSWER_REQUIRED`, 인식 불가로 분류된 `FAILED + NON_RETRYABLE`, 총 3회 자동 시도를 소진한 `FAILED + RETRY_EXHAUSTED`를 terminal로 취급하며, 이전 실패 뒤 더 최신 PENDING/RUNNING 재시도가 있으면 계속 대기한다. `RETRY_EXHAUSTED`는 리포트 평가 입력만 `STT_UNAVAILABLE`로 닫고 `REANSWER_REQUIRED`로 변환하거나 지원자 재답변 권한을 부여하지 않으므로 운영 확인 경계를 유지한다.
 
