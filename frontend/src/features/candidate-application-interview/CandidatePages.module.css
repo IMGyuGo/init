@@ -2070,7 +2070,8 @@
   flex: none;
 }
 
-:global(.dvc__actions .btn) {
+:global(.app-shell .glass-page .dvc__actions .btn) {
+  height: auto;
   min-height: 52px;
   padding: 0 26px;
   font-size: 17px;
