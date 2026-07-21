@@ -599,7 +599,8 @@ export class InMemoryCompanyInterviewRepository
         currentScreeningPolicy.holdMinTotalScore !== nextPolicyInput.holdMinTotalScore ||
         currentScreeningPolicy.requireAllCriteriaPass !==
           nextPolicyInput.requireAllCriteriaPass ||
-        options.criteriaPassScoresChanged;
+        options.criteriaPassScoresChanged ||
+        currentScreeningPolicy?.decisionPolicyVersion !== 'AUTO_SCREENING_DECISION_V1';
       screeningPolicy = {
         postingId,
         enabled: nextPolicyInput.enabled,

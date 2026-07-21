@@ -60,7 +60,7 @@ export class AutoScreeningPolicyInputDto {
 
   @Type(() => Number)
   @IsInt()
-  @Min(0)
+  @Min(1)
   @Max(100)
   passMinTotalScore!: number;
 

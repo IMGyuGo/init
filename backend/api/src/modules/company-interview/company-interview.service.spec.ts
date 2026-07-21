@@ -358,12 +358,13 @@ describe('CompanyInterviewService', () => {
 
   it('saves criteria and the automatic screening policy as one versioned setting', async () => {
     const { service } = createFixture();
+    const screeningCriteria = [
+      { criterionId: 1, tagId: 1, weight: 60, passScore: 50, sortOrder: 1 },
+      { criterionId: 2, tagId: 2, weight: 40, passScore: 30, sortOrder: 2 },
+    ];
     const first = await service.updateEvaluationCriteria(companyUser, {
       postingId: 1,
-      criteria: [
-        { criterionId: 1, tagId: 1, weight: 60, passScore: 65, sortOrder: 1 },
-        { criterionId: 2, tagId: 2, weight: 40, passScore: 55, sortOrder: 2 },
-      ],
+      criteria: screeningCriteria,
       screeningPolicy: {
         enabled: true,
         passMinTotalScore: 70,
@@ -387,13 +388,7 @@ describe('CompanyInterviewService', () => {
 
     const unchanged = await service.updateEvaluationCriteria(companyUser, {
       postingId: 1,
-      criteria: first.criteria.map((criterion) => ({
-        criterionId: criterion.criterionId,
-        tagId: criterion.tagId,
-        weight: criterion.weight,
-        passScore: criterion.passScore,
-        sortOrder: criterion.sortOrder,
-      })),
+      criteria: screeningCriteria,
       screeningPolicy: {
         enabled: true,
         passMinTotalScore: 70,
@@ -405,13 +400,7 @@ describe('CompanyInterviewService', () => {
 
     const thresholdChanged = await service.updateEvaluationCriteria(companyUser, {
       postingId: 1,
-      criteria: unchanged.criteria.map((criterion) => ({
-        criterionId: criterion.criterionId,
-        tagId: criterion.tagId,
-        weight: criterion.weight,
-        passScore: criterion.passScore,
-        sortOrder: criterion.sortOrder,
-      })),
+      criteria: screeningCriteria,
       screeningPolicy: {
         enabled: true,
         passMinTotalScore: 75,
@@ -425,14 +414,10 @@ describe('CompanyInterviewService', () => {
       companyUser,
       {
         postingId: 1,
-        criteria: thresholdChanged.criteria.map((criterion, index) => ({
-          criterionId: criterion.criterionId,
-          tagId: criterion.tagId,
-          weight: criterion.weight,
-          passScore:
-            index === 0 ? (criterion.passScore ?? 0) + 1 : criterion.passScore,
-          sortOrder: criterion.sortOrder,
-        })),
+        criteria: [
+          { ...screeningCriteria[0], passScore: 51 },
+          screeningCriteria[1],
+        ],
       },
     );
     assert.equal(criterionThresholdChanged.screeningPolicy?.policyVersion, 3);

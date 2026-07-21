@@ -32,6 +32,7 @@ import { NonRetryableAiWorkerFailure } from "./worker-errors";
 import { AiWorkerJob, FailureReason } from "./worker.types";
 import {
   AUTO_SCREENING_DECISION_POLICY_VERSION,
+  AUTO_SCREENING_DECISION_POLICY_VERSION_V1,
   decideAutoScreening,
   type AutoScreeningCriterionSnapshot,
   type AutoScreeningPolicySnapshot,
@@ -1045,8 +1046,8 @@ export class PrismaAiResultRepository implements AiResultRepository {
       }
       if (
         policyRow.requireAllCriteriaPass !== true ||
-        policyRow.decisionPolicyVersion !==
-          AUTO_SCREENING_DECISION_POLICY_VERSION
+        (policyRow.decisionPolicyVersion !== AUTO_SCREENING_DECISION_POLICY_VERSION_V1 &&
+          policyRow.decisionPolicyVersion !== AUTO_SCREENING_DECISION_POLICY_VERSION)
       ) {
         throw new NonRetryableAiWorkerFailure(
           "Unsupported automatic screening policy snapshot",
@@ -1105,7 +1106,7 @@ export class PrismaAiResultRepository implements AiResultRepository {
         application.screeningPolicyVersion === policy.policyVersion &&
         application.screeningCriteriaVersion === generationPolicy.criteriaVersion &&
         application.screeningDecisionPolicyVersion ===
-          AUTO_SCREENING_DECISION_POLICY_VERSION;
+          policy.decisionPolicyVersion;
       if (sameSnapshot) {
         if (
           application.screeningDecision === decision.decision &&
@@ -1134,7 +1135,7 @@ export class PrismaAiResultRepository implements AiResultRepository {
           screeningDecision: decision.decision,
           screeningDecisionReasonCode: decision.reasonCode,
           screeningDecisionPolicyVersion:
-            AUTO_SCREENING_DECISION_POLICY_VERSION,
+            policy.decisionPolicyVersion,
           screeningPolicyVersion: policy.policyVersion,
           screeningCriteriaVersion: generationPolicy.criteriaVersion,
           screeningDecisionReportId: BigInt(record.reportId),
@@ -1507,8 +1508,11 @@ function buildAutoScreeningCriteria(
         criterionId,
         active,
         evaluationComplete: profile?.status === "SCORED",
-        passScore: criterion.passScore,
-        score: profile?.normalizedScore ?? null,
+        passScore:
+          criterion.passScore === null
+            ? null
+            : Math.min(criterion.passScore, criterion.weight),
+        score: profile?.weightedScore ?? null,
       };
     }
     const score = record.scores?.find(
@@ -1518,7 +1522,10 @@ function buildAutoScreeningCriteria(
       criterionId,
       active,
       evaluationComplete: score !== undefined,
-      passScore: criterion.passScore,
+      passScore:
+        criterion.passScore === null
+          ? null
+          : Math.min(criterion.passScore, criterion.weight),
       score: score?.score ?? null,
     };
   });

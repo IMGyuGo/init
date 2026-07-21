@@ -1,16 +1,8 @@
 export const AUTO_SCREENING_DECISION_POLICY_VERSION = "AUTO_SCREENING_DECISION_V1" as const;
+export const AUTO_SCREENING_DECISION_POLICY_VERSION_V1 = AUTO_SCREENING_DECISION_POLICY_VERSION;
+export type AutoScreeningDecisionPolicyVersion = typeof AUTO_SCREENING_DECISION_POLICY_VERSION;
 
 export type ScreeningDecision = "UNDECIDED" | "PASS" | "HOLD" | "FAIL" | "RETRY";
-
-export type ScreeningDecisionReasonCode =
-  | "PASS_TOTAL_AND_CRITERIA_MET"
-  | "HOLD_TOTAL_BAND"
-  | "HOLD_CRITERION_BELOW_PASS_SCORE"
-  | "FAIL_BELOW_HOLD_THRESHOLD"
-  | "RETRY_REPORT_FAILED"
-  | "RETRY_STT_UNAVAILABLE"
-  | "RETRY_EVALUATION_INCOMPLETE"
-  | "RETRY_SCORE_MISSING";
 
 export interface AutoScreeningPolicySnapshot {
   enabled: boolean;
@@ -18,7 +10,7 @@ export interface AutoScreeningPolicySnapshot {
   holdMinTotalScore: number;
   requireAllCriteriaPass: true;
   policyVersion: number;
-  decisionPolicyVersion: typeof AUTO_SCREENING_DECISION_POLICY_VERSION;
+  decisionPolicyVersion: AutoScreeningDecisionPolicyVersion;
 }
 
 export interface AutoScreeningReportSnapshot {
@@ -43,15 +35,16 @@ export interface AutoScreeningDecisionInput {
   criteria: AutoScreeningCriterionSnapshot[];
 }
 
-export type AutoScreeningDecisionResult =
-  | { decision: "UNDECIDED"; reasonCode: null }
-  | {
-      decision: Exclude<ScreeningDecision, "UNDECIDED">;
-      reasonCode: ScreeningDecisionReasonCode;
-    };
+export type AutoScreeningDecisionResult = {
+  decision: ScreeningDecision;
+  reasonCode: null;
+};
 
-const isValidScore = (value: number | null): value is number =>
+const isValidIntegerScore = (value: number | null): value is number =>
   value !== null && Number.isInteger(value) && value >= 0 && value <= 100;
+
+const isValidWeightedScore = (value: number | null): value is number =>
+  value !== null && Number.isFinite(value) && value >= 0 && value <= 100;
 
 export const decideAutoScreening = (
   input: AutoScreeningDecisionInput,
@@ -72,11 +65,11 @@ export const decideAutoScreening = (
   }
 
   if (input.report.status === "FAILED") {
-    return { decision: "RETRY", reasonCode: "RETRY_REPORT_FAILED" };
+    return { decision: "RETRY", reasonCode: null };
   }
 
   if (input.hasTerminalSttUnavailable) {
-    return { decision: "RETRY", reasonCode: "RETRY_STT_UNAVAILABLE" };
+    return { decision: "RETRY", reasonCode: null };
   }
 
   const activeCriteria = input.criteria.filter((criterion) => criterion.active);
@@ -84,32 +77,28 @@ export const decideAutoScreening = (
     !input.evaluationComplete ||
     activeCriteria.some((criterion) => !criterion.evaluationComplete)
   ) {
-    return { decision: "RETRY", reasonCode: "RETRY_EVALUATION_INCOMPLETE" };
+    return { decision: "RETRY", reasonCode: null };
   }
 
   if (
-    !isValidScore(input.report.totalScore) ||
+    !isValidIntegerScore(input.report.totalScore) ||
     activeCriteria.some(
-      (criterion) => !isValidScore(criterion.passScore) || !isValidScore(criterion.score),
+      (criterion) =>
+        !isValidIntegerScore(criterion.passScore) ||
+        !isValidWeightedScore(criterion.score),
     )
   ) {
-    return { decision: "RETRY", reasonCode: "RETRY_SCORE_MISSING" };
-  }
-
-  if (input.report.totalScore < input.policy.holdMinTotalScore) {
-    return { decision: "FAIL", reasonCode: "FAIL_BELOW_HOLD_THRESHOLD" };
+    return { decision: "RETRY", reasonCode: null };
   }
 
   const allCriteriaMet = activeCriteria.every(
     (criterion) => criterion.score! >= criterion.passScore!,
   );
-  if (input.report.totalScore >= input.policy.passMinTotalScore && allCriteriaMet) {
-    return { decision: "PASS", reasonCode: "PASS_TOTAL_AND_CRITERIA_MET" };
+  if (!allCriteriaMet) {
+    return { decision: "FAIL", reasonCode: null };
   }
-
   if (input.report.totalScore < input.policy.passMinTotalScore) {
-    return { decision: "HOLD", reasonCode: "HOLD_TOTAL_BAND" };
+    return { decision: "HOLD", reasonCode: null };
   }
-
-  return { decision: "HOLD", reasonCode: "HOLD_CRITERION_BELOW_PASS_SCORE" };
+  return { decision: "PASS", reasonCode: null };
 };

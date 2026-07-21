@@ -6,6 +6,8 @@ import {
   planNcsFollowUp,
 } from "./ncs-report-evaluation.adapter";
 import type { AnswerFactCheckProvider, AnswerFactCheckInput } from "./answer-fact-check.types";
+import { ncsEvidenceDimensions, ncsProfile } from "./ncs-text-evaluation.profiles";
+import type { NcsTextEvaluationDraft, NcsTextEvaluationProvider } from "./ncs-text-evaluation.types";
 
 const PROFILE_VERSION = "2025.12-v1";
 
@@ -46,6 +48,77 @@ test("NCS report evaluation stores exact answer evidence and aggregates only sco
   }
 });
 
+test("retries the NCS evaluator once when the first output uses forbidden wording", async () => {
+  const transcript = [
+    "API 구조를 설계했습니다.",
+    "트래픽 지표를 분석했습니다.",
+    "캐시와 DB 우회 대안을 비교했습니다.",
+    "캐시 우회를 적용했습니다.",
+    "오류율과 p95를 검증했습니다.",
+  ].join(" ");
+  const retryReasons: Array<string | undefined> = [];
+  const provider: NcsTextEvaluationProvider = {
+    async evaluate(input, options) {
+      retryReasons.push(options?.retryReason);
+      const profile = ncsProfile(input.profileIds[0]!);
+      const draft: NcsTextEvaluationDraft = {
+        competencies: [{
+          profileId: profile.id,
+          level: 2,
+          confidence: "MEDIUM",
+          rationale: options?.retryReason === "FORBIDDEN_WORDING"
+            ? "답변에서 직접 확인되는 기술 행동 근거가 있습니다."
+            : "말투가 명확합니다.",
+          behaviors: profile.behaviors.map((behavior, index) => ({
+            behaviorId: behavior.id,
+            observed: index === 0,
+            confidence: index === 0 ? "MEDIUM" : "LOW",
+            rationale: index === 0 ? "답변에서 직접 확인되는 행동 근거가 있습니다." : "직접 근거가 부족합니다.",
+            evidenceQuotes: index === 0 ? ["API 구조를 설계했습니다."] : [],
+          })),
+        }],
+        evidenceDimensions: ncsEvidenceDimensions(input.questionMode).map((dimension, index) => ({
+          dimensionId: dimension.id,
+          score: index === 0 ? 1 : 0,
+          confidence: index === 0 ? "MEDIUM" : "LOW",
+          rationale: index === 0 ? "답변에서 직접 확인되는 논리 근거가 있습니다." : "직접 근거가 부족합니다.",
+          evidenceQuotes: index === 0 ? ["트래픽 지표를 분석했습니다."] : [],
+        })),
+        sharedEvidence: [],
+        growth: {
+          strengths: ["API 구조를 설계했습니다.라는 근거가 있습니다."],
+          gaps: ["대안 비교의 기준을 더 구체화하세요."],
+          nextAction: "선택 기준과 검증 결과를 함께 설명하세요.",
+          followUpQuestion: "대안을 비교한 기준과 검증 결과를 설명해 주세요.",
+        },
+      };
+      return { draft, model: "ncs-retry-fixture", usage: { inputTokens: 10, outputTokens: 5 } };
+    },
+  };
+
+  const result = await evaluateNcsReportAnswers(
+    176,
+    [{
+      answerId: 1761,
+      question: "API 구조를 설계한 이유와 대안을 비교하고 검증한 결과를 설명해주세요.",
+      transcript,
+      sessionQuestionId: 17601,
+      criterionId: 31,
+      criterionTitleSnapshot: "직무 수행 역량",
+      ncsProfileId: "JOB_TECHNICAL",
+      ncsQuestionMode: "TECHNICAL_KNOWLEDGE",
+      ncsProfileVersion: PROFILE_VERSION,
+      alignmentStatus: "ALIGNED",
+    }],
+    [31],
+    provider,
+  );
+
+  assert.deepEqual(retryReasons, [undefined, "FORBIDDEN_WORDING"]);
+  assert.equal(result.evaluations[0]?.output.scoreStatus, "SCORED");
+  assert.equal(result.usage?.inputTokens, 20);
+  assert.equal(result.usage?.outputTokens, 10);
+});
 test("V2 evaluates only active bindings and omits inactive profile placeholders", async () => {
   const result = await evaluateNcsReportAnswers(
     170,

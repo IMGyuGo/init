@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import {
-  AUTO_SCREENING_DECISION_POLICY_VERSION,
+  AUTO_SCREENING_DECISION_POLICY_VERSION_V1,
   decideAutoScreening,
   type AutoScreeningDecisionInput,
 } from "./auto-screening-decision";
@@ -15,7 +15,7 @@ const completeInput = (
     holdMinTotalScore: 50,
     requireAllCriteriaPass: true,
     policyVersion: 3,
-    decisionPolicyVersion: AUTO_SCREENING_DECISION_POLICY_VERSION,
+    decisionPolicyVersion: AUTO_SCREENING_DECISION_POLICY_VERSION_V1,
   },
   report: {
     reportId: 41,
@@ -64,7 +64,7 @@ describe("AUTO_SCREENING_DECISION_V1", () => {
     }
   });
 
-  it("applies RETRY reasons in the required priority order", () => {
+  it("returns RETRY in the required priority order", () => {
     assert.deepEqual(
       decideAutoScreening(
         completeInput({
@@ -73,17 +73,17 @@ describe("AUTO_SCREENING_DECISION_V1", () => {
           evaluationComplete: false,
         }),
       ),
-      { decision: "RETRY", reasonCode: "RETRY_REPORT_FAILED" },
+      { decision: "RETRY", reasonCode: null },
     );
     assert.deepEqual(
       decideAutoScreening(
         completeInput({ hasTerminalSttUnavailable: true, evaluationComplete: false }),
       ),
-      { decision: "RETRY", reasonCode: "RETRY_STT_UNAVAILABLE" },
+      { decision: "RETRY", reasonCode: null },
     );
     assert.deepEqual(
       decideAutoScreening(completeInput({ evaluationComplete: false })),
-      { decision: "RETRY", reasonCode: "RETRY_EVALUATION_INCOMPLETE" },
+      { decision: "RETRY", reasonCode: null },
     );
     assert.deepEqual(
       decideAutoScreening(
@@ -99,13 +99,13 @@ describe("AUTO_SCREENING_DECISION_V1", () => {
           ],
         }),
       ),
-      { decision: "RETRY", reasonCode: "RETRY_EVALUATION_INCOMPLETE" },
+      { decision: "RETRY", reasonCode: null },
     );
     assert.deepEqual(
       decideAutoScreening(
         completeInput({ report: { reportId: 41, status: "COMPLETED", totalScore: null } }),
       ),
-      { decision: "RETRY", reasonCode: "RETRY_SCORE_MISSING" },
+      { decision: "RETRY", reasonCode: null },
     );
     assert.deepEqual(
       decideAutoScreening(
@@ -121,7 +121,7 @@ describe("AUTO_SCREENING_DECISION_V1", () => {
           ],
         }),
       ),
-      { decision: "RETRY", reasonCode: "RETRY_SCORE_MISSING" },
+      { decision: "RETRY", reasonCode: null },
     );
   });
 
@@ -130,21 +130,21 @@ describe("AUTO_SCREENING_DECISION_V1", () => {
       decideAutoScreening(
         completeInput({ report: { reportId: 41, status: "COMPLETED", totalScore: 49 } }),
       ),
-      { decision: "FAIL", reasonCode: "FAIL_BELOW_HOLD_THRESHOLD" },
+      { decision: "HOLD", reasonCode: null },
     );
     assert.deepEqual(
       decideAutoScreening(
         completeInput({ report: { reportId: 41, status: "COMPLETED", totalScore: 50 } }),
       ),
-      { decision: "HOLD", reasonCode: "HOLD_TOTAL_BAND" },
+      { decision: "HOLD", reasonCode: null },
     );
     assert.deepEqual(decideAutoScreening(completeInput()), {
       decision: "PASS",
-      reasonCode: "PASS_TOTAL_AND_CRITERIA_MET",
+      reasonCode: null,
     });
   });
 
-  it("holds a pass-band total when any active criterion is below its pass score", () => {
+  it("fails when any active criterion is below its pass score", () => {
     assert.deepEqual(
       decideAutoScreening(
         completeInput({
@@ -154,7 +154,81 @@ describe("AUTO_SCREENING_DECISION_V1", () => {
           ],
         }),
       ),
-      { decision: "HOLD", reasonCode: "HOLD_CRITERION_BELOW_PASS_SCORE" },
+      { decision: "FAIL", reasonCode: null },
+    );
+  });
+});
+
+describe("automatic screening cutoff rules", () => {
+  const v2Policy = {
+    enabled: true,
+    passMinTotalScore: 80,
+    holdMinTotalScore: 0,
+    requireAllCriteriaPass: true as const,
+    policyVersion: 1,
+    decisionPolicyVersion: "AUTO_SCREENING_DECISION_V1" as const,
+  };
+
+  it("fails when any weighted competency score is below its cutoff", () => {
+    assert.deepEqual(
+      decideAutoScreening(
+        completeInput({
+          policy: v2Policy,
+          report: { reportId: 41, status: "COMPLETED", totalScore: 90 },
+          criteria: [
+            { criterionId: 1, active: true, evaluationComplete: true, passScore: 25, score: 24 },
+            { criterionId: 2, active: true, evaluationComplete: true, passScore: 25, score: 29 },
+          ],
+        }),
+      ),
+      { decision: "FAIL", reasonCode: null },
+    );
+  });
+
+  it("holds only when every competency cutoff is met but the total cutoff is missed", () => {
+    assert.deepEqual(
+      decideAutoScreening(
+        completeInput({
+          policy: v2Policy,
+          report: { reportId: 41, status: "COMPLETED", totalScore: 79 },
+          criteria: [
+            { criterionId: 1, active: true, evaluationComplete: true, passScore: 25, score: 25 },
+            { criterionId: 2, active: true, evaluationComplete: true, passScore: 30, score: 30 },
+          ],
+        }),
+      ),
+      { decision: "HOLD", reasonCode: null },
+    );
+  });
+
+  it("accepts decimal weighted competency scores", () => {
+    assert.deepEqual(
+      decideAutoScreening(
+        completeInput({
+          policy: v2Policy,
+          report: { reportId: 41, status: "COMPLETED", totalScore: 80 },
+          criteria: [
+            { criterionId: 1, active: true, evaluationComplete: true, passScore: 24, score: 24.6 },
+            { criterionId: 2, active: true, evaluationComplete: true, passScore: 30, score: 30.4 },
+          ],
+        }),
+      ),
+      { decision: "PASS", reasonCode: null },
+    );
+  });
+  it("passes when every competency cutoff and the total cutoff are met", () => {
+    assert.deepEqual(
+      decideAutoScreening(
+        completeInput({
+          policy: v2Policy,
+          report: { reportId: 41, status: "COMPLETED", totalScore: 80 },
+          criteria: [
+            { criterionId: 1, active: true, evaluationComplete: true, passScore: 25, score: 25 },
+            { criterionId: 2, active: true, evaluationComplete: true, passScore: 30, score: 30 },
+          ],
+        }),
+      ),
+      { decision: "PASS", reasonCode: null },
     );
   });
 });

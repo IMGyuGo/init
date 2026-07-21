@@ -513,6 +513,7 @@ export class CompanyInterviewService {
         !Number.isInteger(dto.screeningPolicy.passMinTotalScore) ||
         !Number.isInteger(dto.screeningPolicy.holdMinTotalScore) ||
         dto.screeningPolicy.holdMinTotalScore < 0 ||
+        dto.screeningPolicy.passMinTotalScore < 1 ||
         dto.screeningPolicy.passMinTotalScore > 100 ||
         dto.screeningPolicy.holdMinTotalScore >
           dto.screeningPolicy.passMinTotalScore
@@ -533,7 +534,7 @@ export class CompanyInterviewService {
             criterion.passScore === undefined ||
             !Number.isInteger(criterion.passScore) ||
             criterion.passScore < 0 ||
-            criterion.passScore > 100,
+            criterion.passScore > criterion.weight,
         )
       ) {
         validationFailed('자동 판정에 사용할 활성 평가 기준의 합격점을 입력해주세요.', [

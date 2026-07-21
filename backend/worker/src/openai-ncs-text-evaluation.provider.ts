@@ -10,6 +10,7 @@ import {
   NcsTextEvaluationDraft,
   NcsTextEvaluationInput,
   NcsTextEvaluationProvider,
+  NcsTextEvaluationProviderOptions,
   NcsTextEvaluationProviderResult
 } from "./ncs-text-evaluation.types";
 
@@ -51,7 +52,10 @@ export class OpenAiNcsTextEvaluationProvider implements NcsTextEvaluationProvide
     this.client = new OpenAI({ apiKey });
   }
 
-  async evaluate(input: NcsTextEvaluationInput): Promise<NcsTextEvaluationProviderResult> {
+  async evaluate(
+    input: NcsTextEvaluationInput,
+    options: NcsTextEvaluationProviderOptions = {},
+  ): Promise<NcsTextEvaluationProviderResult> {
     const selectedProfiles = input.profileIds.map((profileId) => ncsProfile(profileId));
     const evidenceSentences = sentenceLedger(input.answerText);
     const requiredCompetencyShape = selectedProfiles
@@ -90,6 +94,15 @@ export class OpenAiNcsTextEvaluationProvider implements NcsTextEvaluationProvide
             "Score only observable NCS behaviors and the answer's logical evidence structure. Do not lower a score because of a technical factual contradiction; a separate fact-check provider owns that decision.",
             "Do not mention hiring outcomes, acceptance, rejection, hiring fit, age, gender, school, appearance, region, disability, or health.",
             "Feedback is for skill growth only. Do not infer traits or facts absent from the answer.",
+            "생성하는 평가 문장에는 표정, 시선, 눈 맞춤, 목소리, 음성 톤, 억양, 말투, 성격, 정직성, 거짓말 또는 이와 유사한 비언어·성향 추론을 포함하지 마세요. 답변에서 직접 확인되는 행동, 결정, 근거, 결과와 논리 구조만 설명하세요.",
+            ...(options.retryReason === "FORBIDDEN_WORDING"
+              ? [
+                  "This is a repair attempt because the previous draft used prohibited wording.",
+                  "Do not mention or infer facial expression, eye contact, voice, tone, accent, speaking style, personality, honesty, dishonesty, or lying.",
+                  "이번 재생성에서는 표정, 시선, 눈 맞춤, 목소리, 음성 톤, 억양, 말투, 성격, 정직성, 거짓말이라는 표현과 비슷한 표현을 평가 문장에 절대 사용하지 마세요.",
+                  "Use only directly observable actions, decisions, evidence, results, and answer structure."
+                ]
+              : []),
             "Every non-empty growth.strengths item must include at least one exact evidence quote verbatim so the worker can verify that the strength is grounded."
           ].join(" ")
         },
