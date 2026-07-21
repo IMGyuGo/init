@@ -6144,8 +6144,8 @@ td input {
 /* KPI 플랫 */
 .glass-page.notion .kpi-summary { gap: 12px; }
 .glass-page.notion .kpi { background: #ffffff; backdrop-filter: none; -webkit-backdrop-filter: none; border: 1px solid rgba(55, 53, 47, 0.1); border-radius: 10px; box-shadow: none; padding: 18px 20px; }
-.glass-page.notion .kpi span { font-size: 13px; font-weight: 500; color: rgba(55, 53, 47, 0.6); }
-.glass-page.notion .kpi strong { color: #191919; font-weight: 700; font-variant-numeric: tabular-nums; }
+.glass-page.notion .kpi span { font-size: 15px; font-weight: 500; color: rgba(55, 53, 47, 0.6); }
+.glass-page.notion .kpi strong { color: #191919; font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .glass-page.notion .kpi.primary { background: #ffffff; box-shadow: none; }
 .glass-page.notion .kpi.primary span { color: rgba(55, 53, 47, 0.6); }
 .glass-page.notion .kpi.primary strong { color: #3b6fe0; }
@@ -6494,8 +6494,8 @@ td input {
 }
 .notion .wizard-choice-card:hover { border-color: #3b6fe0; background: #fbfcff; transform: translateY(-3px); box-shadow: 0 8px 24px rgba(55, 53, 47, 0.08); }
 .notion .wizard-choice-art { width: 168px; height: 168px; object-fit: contain; margin-bottom: 4px; }
-.notion .wizard-choice-card strong { font-size: 19px; font-weight: 700; color: #191919; }
-.notion .wizard-choice-card span:last-child { max-width: 260px; font-size: 14px; line-height: 1.55; color: rgba(55, 53, 47, 0.6); word-break: keep-all; }
+.notion .wizard-choice-card strong { font-size: 32px; font-weight: 800; color: #191919; }
+.notion .wizard-choice-card span:last-child { max-width: 280px; font-size: 15.5px; line-height: 1.55; color: rgba(55, 53, 47, 0.6); word-break: keep-all; }
 .notion .wizard-choice-badge {
   position: absolute;
   top: 16px;
@@ -6559,6 +6559,19 @@ td input {
 .notion .wizard-nav-final { display: flex; gap: 10px; }
 .notion .wizard-nav .btn { min-width: 132px; }
 .notion .wizard-nav-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+.notion .wizard-intro-actions .btn {
+  min-height: 54px;
+  padding: 0 32px;
+  font-size: 18px;
+}
+
+.notion .wizard-nav-actions .btn {
+  min-height: 52px;
+  padding: 0 26px;
+  font-size: 17px;
+}
+
 
 .notion .posting-draft-modal {
   display: grid;
@@ -6679,7 +6692,10 @@ td input {
 .notion .page-banner .banner-cta {
   position: static;
   justify-self: start;
+  min-height: 52px;
+  padding: 0 28px;
   margin-top: 6px;
+  font-size: 17px;
 }
 .notion .page-banner-art {
   width: 300px;
@@ -10740,7 +10756,7 @@ p {
 }
 .notion.candidate-mypage .application-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 108px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 16px;
   padding: 15px 14px;
@@ -10783,9 +10799,10 @@ p {
 /* 결과 확인·면접 준비하기 등 라벨 길이와 무관하게 버튼 크기 통일 (고정 폭 열 + 꽉 채움) */
 .notion.candidate-mypage .application-row__cta {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  width: 100%;
+  min-width: 108px;
   height: 34px;
   padding: 0 10px;
   font-size: 12.5px;

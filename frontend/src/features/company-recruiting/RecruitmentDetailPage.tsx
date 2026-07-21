@@ -110,6 +110,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
   const [applicantSort, setApplicantSort] = useState<ApplicantSort>(DEFAULT_APPLICANT_SORT);
   const [targetPassCount, setTargetPassCount] = useState("");
   const [passMailSending, setPassMailSending] = useState(false);
+  const [passMailConfirmOpen, setPassMailConfirmOpen] = useState(false);
   const [applicantSearchInput, setApplicantSearchInput] = useState("");
   const [applicantQuery, setApplicantQuery] = useState("");
   const [applicantFilters, setApplicantFilters] = useState<ApplicantFilters>(EMPTY_APPLICANT_FILTERS);
@@ -337,7 +338,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
     setApplicantFilters((current) => ({ ...current, [field]: value }));
   }
 
-  async function handlePassMailSend() {
+  function handlePassMailSend() {
     const trimmedTargetPassCount = targetPassCount.trim();
     const parsedTargetPassCount = Number(trimmedTargetPassCount);
     if (!trimmedTargetPassCount || !Number.isInteger(parsedTargetPassCount) || parsedTargetPassCount < 0) {
@@ -348,13 +349,13 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
       setMessage("목표 합격자 수는 최대 합격 가능 인원을 넘을 수 없습니다.");
       return;
     }
-    const shouldSend = window.confirm(
-      `점수순으로 합격자를 ${parsedTargetPassCount}명으로 맞추고 나머지 대상자는 불합격 처리한 뒤 합격자에게만 메일을 발송할까요?`,
-    );
-    if (!shouldSend) {
-      return;
-    }
+    setMessage("");
+    setPassMailConfirmOpen(true);
+  }
 
+  async function executePassMailSend() {
+    const parsedTargetPassCount = Number(targetPassCount.trim());
+    setPassMailConfirmOpen(false);
     setPassMailSending(true);
     setMessage("");
     try {
@@ -801,6 +802,15 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
             </div>
           </div>
         ) : null}
+        {passMailConfirmOpen ? (
+          <PassMailConfirmModal
+            targetPassCount={Number(targetPassCount.trim())}
+            currentPassCount={currentPassCount}
+            sending={passMailSending}
+            onCancel={() => setPassMailConfirmOpen(false)}
+            onConfirm={() => void executePassMailSend()}
+          />
+        ) : null}
     </section>
   );
 }
@@ -909,6 +919,60 @@ function RecruitmentStructuredInfo({
         </section>
       ) : null}
       {fallbackHtml.trim() ? <JobDescriptionViewer value={fallbackHtml} emptyMessage="" /> : null}
+    </div>
+  );
+}
+
+function PassMailConfirmModal({
+  targetPassCount,
+  currentPassCount,
+  sending,
+  onCancel,
+  onConfirm,
+}: {
+  targetPassCount: number;
+  currentPassCount: number;
+  sending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="modal-backdrop pass-mail-confirm-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !sending) onCancel();
+      }}
+    >
+      <section
+        className="modal pass-mail-confirm-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pass-mail-confirm-title"
+        aria-describedby="pass-mail-confirm-description"
+      >
+        <div className="modal-head">
+          <div>
+            <h2 id="pass-mail-confirm-title">합격 메일을 전송할까요?</h2>
+            <p id="pass-mail-confirm-description">
+              점수순으로 합격자를 {targetPassCount}명으로 맞추고 나머지 대상자는 불합격 처리한 뒤
+              합격자에게만 안내 메일을 발송합니다.
+            </p>
+          </div>
+        </div>
+        <div className="confirm-box">
+          <strong>목표 합격자 {targetPassCount}명</strong>
+          <span>현재 합격 {currentPassCount}명 · 발송 후에는 되돌릴 수 없습니다.</span>
+        </div>
+        <div className="modal-actions split-actions">
+          <button autoFocus className="btn secondary" type="button" disabled={sending} onClick={onCancel}>
+            취소
+          </button>
+          <button className="btn primary" type="button" disabled={sending} onClick={onConfirm}>
+            {sending ? "발송 중" : "합격 메일 전송"}
+          </button>
+        </div>
+      </section>
     </div>
   );
 }

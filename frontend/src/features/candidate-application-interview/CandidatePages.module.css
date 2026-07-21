@@ -1688,6 +1688,13 @@
   gap: 18px;
 }
 
+:global(.candidate-device-setup__head .toolbar .btn) {
+  min-height: 52px;
+  padding: 0 26px;
+  font-size: 17px;
+  font-weight: 800;
+}
+
 :global(.candidate-device-setup__head) {
   display: flex;
   align-items: flex-start;
@@ -2059,8 +2066,16 @@
 }
 :global(.dvc__actions) {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   flex: none;
+}
+
+:global(.app-shell .glass-page .dvc__actions .btn) {
+  height: auto;
+  min-height: 52px;
+  padding: 0 26px;
+  font-size: 17px;
+  font-weight: 800;
 }
 
 @media (max-width: 860px) {
@@ -2199,7 +2214,7 @@
   position: relative;
   z-index: 5;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 720px) minmax(0, 1fr);
   align-items: flex-start;
   gap: 14px;
 }
@@ -2226,6 +2241,7 @@
   min-width: 148px;
   padding: 8px 18px;
   align-self: flex-start;
+  justify-self: end;
   color: #fff;
   background: rgba(255, 255, 255, 0.12);
   border-color: rgba(255, 255, 255, 0.16);
@@ -2254,7 +2270,7 @@
 }
 
 :global(.ai-interviewer-stage:fullscreen .ai-interviewer-stage__top) {
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 840px) minmax(0, 1fr) auto;
 }
 
 :global(.ai-interviewer-stage:fullscreen .ai-interviewer-stage__actions) {
@@ -2719,9 +2735,16 @@
 }
 
 :global(.notion.candidate-mypage .application-row__actions) {
-  display: grid;
-  gap: 3px;
-  width: 108px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  width: auto;
+}
+
+:global(.notion.candidate-mypage .application-row__cancel) {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 :global(.notion.candidate-mypage .application-row__cancel) {
