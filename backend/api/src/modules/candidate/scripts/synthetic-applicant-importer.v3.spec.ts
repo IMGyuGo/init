@@ -4,6 +4,23 @@ import { V2_EMAIL_DOMAINS } from "./synthetic-applicant-importer.v2";
 import type { SyntheticApplicantPlanRecord, SyntheticImporterOptions } from "./synthetic-applicant-importer.contract";
 
 describe("synthetic applicant importer V3", () => {
+  it("excludes mechanically padded names that are not in the curated public reference", () => {
+    const names = V3_GIVEN_NAMES.map(([name]) => name);
+    for (const implausible of [
+      "라영",
+      "라현",
+      "로율",
+      "로희",
+      "리율",
+      "리희",
+      "마온",
+      "마은",
+      "마진",
+    ]) {
+      expect(names).not.toContain(implausible);
+    }
+  });
+
   it("owns exactly 525 distinct realistic two-syllable given names and ASCII email transliterations", () => {
     expect(V3_GIVEN_NAMES).toHaveLength(525);
     expect(new Set(V3_GIVEN_NAMES.map(([name]) => name)).size).toBe(525);
@@ -11,6 +28,17 @@ describe("synthetic applicant importer V3", () => {
     expect(V3_GIVEN_NAMES.every(([name, transliteration]) => (
       /^[가-힣]{2}$/.test(name) && /^[a-z]+$/.test(transliteration)
     ))).toBe(true);
+  });
+
+  it.each([
+    ["postingId", { postingId: 35n }],
+    ["activeCount", { activeCount: 999 }],
+    ["canceledCount", { canceledCount: 49 }],
+    ["interactiveCount", { interactiveCount: 9 }],
+    ["pipelineSelectionCount", { pipelineSelectionCount: 1 }],
+    ["batchSize", { batchSize: 500 }],
+  ] as const)("fails closed when %s differs from the fixed V3 shape", (_field, overrides) => {
+    expect(() => buildSyntheticApplicantPlanV3(options(overrides))).toThrow("V3 operational contract");
   });
 
   it.each(["issue411-v3-alpha", "issue411-v3-bravo", "issue411-v3-charlie"])(

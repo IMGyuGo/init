@@ -4,6 +4,11 @@ import { allocateByWeight } from "./synthetic-applicant-importer.allocation";
 import { buildSyntheticApplicantPlanV2 } from "./synthetic-applicant-importer.v2";
 import { buildSyntheticApplicantPlanV3 } from "./synthetic-applicant-importer.v3";
 
+export {
+  SYNTHETIC_V3_OPERATIONAL_CONTRACT,
+  assertV3SyntheticOperationalContract,
+} from "./synthetic-applicant-importer.v3-shape";
+
 export const SYNTHETIC_MANIFEST_V1 = "SYNTHETIC_APPLICANT_MANIFEST_V1" as const;
 export const SYNTHETIC_MANIFEST_V2 = "SYNTHETIC_APPLICANT_MANIFEST_V2" as const;
 export const SYNTHETIC_MANIFEST_V3 = "SYNTHETIC_APPLICANT_MANIFEST_V3" as const;
@@ -16,15 +21,6 @@ export const SYNTHETIC_V2_OPERATIONAL_CONTRACT = {
   canceledCount: 50,
   interactiveCount: 10,
   pipelineSelectionCount: 0,
-} as const;
-
-export const SYNTHETIC_V3_OPERATIONAL_CONTRACT = {
-  postingId: 36n,
-  activeCount: 1_000,
-  canceledCount: 50,
-  interactiveCount: 10,
-  pipelineSelectionCount: 0,
-  batchSize: 100,
 } as const;
 
 export type SyntheticImporterAction = "plan" | "apply" | "cleanup";
@@ -261,28 +257,6 @@ export function assertV2SyntheticOperationalContract(
     if (actual[field] !== SYNTHETIC_V2_OPERATIONAL_CONTRACT[field]) {
       throw new Error(
         `V2 operational contract ${field}가 승인값과 다릅니다: expected=${SYNTHETIC_V2_OPERATIONAL_CONTRACT[field]}, actual=${actual[field]}`,
-      );
-    }
-  }
-}
-
-export function assertV3SyntheticOperationalContract(
-  actual: Pick<
-    SyntheticImporterOptions,
-    "postingId" | "activeCount" | "canceledCount" | "interactiveCount" | "pipelineSelectionCount" | "batchSize"
-  >,
-) {
-  for (const field of [
-    "postingId",
-    "activeCount",
-    "canceledCount",
-    "interactiveCount",
-    "pipelineSelectionCount",
-    "batchSize",
-  ] as const) {
-    if (actual[field] !== SYNTHETIC_V3_OPERATIONAL_CONTRACT[field]) {
-      throw new Error(
-        `V3 operational contract ${field}가 승인값과 다릅니다: expected=${SYNTHETIC_V3_OPERATIONAL_CONTRACT[field]}, actual=${actual[field]}`,
       );
     }
   }

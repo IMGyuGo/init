@@ -15,7 +15,7 @@ import {
 } from "./synthetic-applicant-scale-validation.expectations";
 
 describe("synthetic applicant scale validation expectations", () => {
-  const plan = buildSyntheticApplicantPlan(options());
+  const plan = buildSyntheticApplicantPlan(options(), SYNTHETIC_MANIFEST_V2);
 
   it("preserves synthetic-only expectations when the posting has no baseline", () => {
     const actual = buildPostingValidationExpectations(plan, []);

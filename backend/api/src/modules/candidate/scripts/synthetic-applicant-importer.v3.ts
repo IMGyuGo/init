@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { V3_GIVEN_NAMES } from "./synthetic-applicant-given-names.v3";
 import { V2_EMAIL_DOMAINS, V2_SURNAMES } from "./synthetic-applicant-importer.v2";
+import { assertV3SyntheticOperationalContract } from "./synthetic-applicant-importer.v3-shape";
 import type {
   SyntheticApplicantPlanRecord,
   SyntheticDataDepth,
@@ -27,6 +28,7 @@ const V3_DEPTH_COUNTS: ReadonlyArray<readonly [SyntheticDataDepth, number]> = [
 ];
 
 export function buildSyntheticApplicantPlanV3(options: SyntheticImporterOptions): SyntheticApplicantPlanRecord[] {
+  assertV3SyntheticOperationalContract(options);
   const stages = buildStages(options.datasetId);
   const depths = buildDepths(stages, options.datasetId);
   ensureInteractiveDepth(depths, options.interactiveCount);
