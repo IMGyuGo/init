@@ -155,7 +155,11 @@ export type CompanyRecruitingRepositoryPort = {
   countApplicationsForPosting(postingId: number, companyId: number, query: NormalizedApplicantListQuery): Promise<number>;
   summarizeApplicationsForPosting(postingId: number, companyId: number): Promise<ApplicantSummaryRecord>;
   listApplicationsForPassTargeting(postingId: number, companyId: number): Promise<ApplicantRecord[]>;
-  finalizeApplicationsPassTarget(postingId: number, companyId: number, applicationIds: number[]): Promise<ApplicantRecord[]>;
+  finalizeApplicationsPassTarget(
+    postingId: number,
+    companyId: number,
+    decisions: PassTargetApplicationDecision[],
+  ): Promise<ApplicantRecord[]>;
   promoteApplicationsToPass(applicationIds: number[], companyId: number): Promise<ApplicantRecord[]>;
   markPassMailSent(applicationId: number, companyId: number): Promise<void>;
   markPassMailFailed(applicationId: number, companyId: number, errorMessage: string): Promise<void>;
@@ -190,6 +194,14 @@ export type ApplicationScreeningRestoreState = {
   applicationId: number;
   screeningDecision: string | null;
   screeningMemo: string | null;
+  screeningReviewerDecision: string | null;
+  screeningDecisionOverrideReason: string | null;
+};
+
+export type PassTargetApplicationDecision = {
+  applicationId: number;
+  decision: "PASS" | "FAIL";
+  preserveAutomaticSnapshot: boolean;
 };
 
 @Injectable()
@@ -488,6 +500,7 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
       this.prisma.application.findMany({
         where: activeWhere,
         select: {
+          reportStatus: true,
           screeningDecision: true,
           screeningReviewerDecision: true,
           screeningFinalDecision: true,
@@ -523,7 +536,11 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
     };
     for (const row of screeningResultRows) {
       const decision = row.screeningReviewerDecision ?? row.screeningDecision;
-      if (row.screeningResultConfirmedAt === null && isFinalScreeningDecision(decision)) {
+      if (
+        row.reportStatus === "COMPLETED"
+        && row.screeningResultConfirmedAt === null
+        && isFinalScreeningDecision(decision)
+      ) {
         confirmationEligibleDecisionCounts[decision] += 1;
       }
     }
@@ -563,63 +580,71 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
   async finalizeApplicationsPassTarget(
     postingId: number,
     companyId: number,
-    applicationIds: number[],
+    decisions: PassTargetApplicationDecision[],
   ): Promise<ApplicantRecord[]> {
-    const passIds = applicationIds.map((applicationId) => BigInt(applicationId));
+    const passIds = decisions
+      .filter((decision) => decision.decision === ScreeningDecision.PASS)
+      .map((decision) => BigInt(decision.applicationId));
     const activePostingWhere = {
       postingId: BigInt(postingId),
       posting: { companyId: BigInt(companyId) },
       applicationStatus: { not: ApplicationStatus.CANCELED },
-    };
-    const passTargetDecisionWhere = {
-      screeningDecision: { in: [ScreeningDecision.PASS, ScreeningDecision.FAIL] },
+      reportStatus: "COMPLETED" as const,
+      screeningResultConfirmedAt: null,
+      OR: [
+        { screeningReviewerDecision: { in: [ScreeningDecision.PASS, ScreeningDecision.HOLD, ScreeningDecision.FAIL] } },
+        {
+          screeningReviewerDecision: null,
+          screeningDecision: { in: [ScreeningDecision.PASS, ScreeningDecision.HOLD, ScreeningDecision.FAIL] },
+        },
+      ],
     };
 
     return this.prisma.$transaction(async (tx) => {
-      await tx.application.updateMany({
-        where: {
-          ...activePostingWhere,
-          ...passTargetDecisionWhere,
-          ...(passIds.length > 0 ? { applicationId: { notIn: passIds } } : {}),
-        },
-        data: {
-          screeningDecision: ScreeningDecision.FAIL,
-          screeningDecisionReasonCode: null,
-          screeningDecisionPolicyVersion: null,
-          screeningPolicyVersion: null,
-          screeningCriteriaVersion: null,
-          screeningDecisionReportId: null,
-          screeningDecidedAt: null,
-          screeningMemo: "목표 합격자 수 기준 불합격 처리",
-        },
-      });
+      const updateResults = await Promise.all(decisions.map((decision) => {
+        const reason = decision.decision === ScreeningDecision.PASS
+          ? "목표 합격자 수 기준 합격 처리"
+          : "목표 합격자 수 기준 불합격 처리";
+        return tx.application.updateMany({
+          where: {
+            ...activePostingWhere,
+            applicationId: BigInt(decision.applicationId),
+          },
+          data: decision.preserveAutomaticSnapshot
+            ? {
+                screeningReviewerDecision: decision.decision,
+                screeningDecisionOverrideReason: reason,
+                screeningMemo: reason,
+              }
+            : {
+                screeningDecision: decision.decision,
+                screeningDecisionReasonCode: null,
+                screeningDecisionPolicyVersion: null,
+                screeningPolicyVersion: null,
+                screeningCriteriaVersion: null,
+                screeningDecisionReportId: null,
+                screeningDecidedAt: null,
+                screeningReviewerDecision: null,
+                screeningDecisionOverrideReason: null,
+                screeningMemo: reason,
+              },
+        });
+      }));
+      if (updateResults.some((result) => result.count !== 1)) {
+        throw new Error("PASS_TARGET_SCOPE_CHANGED");
+      }
 
       if (passIds.length === 0) {
         return [];
       }
 
-      await tx.application.updateMany({
-        where: {
-          ...activePostingWhere,
-          ...passTargetDecisionWhere,
-          applicationId: { in: passIds },
-        },
-        data: {
-          screeningDecision: ScreeningDecision.PASS,
-          screeningDecisionReasonCode: null,
-          screeningDecisionPolicyVersion: null,
-          screeningPolicyVersion: null,
-          screeningCriteriaVersion: null,
-          screeningDecisionReportId: null,
-          screeningDecidedAt: null,
-          screeningMemo: "목표 합격자 수 기준 합격 처리",
-        },
-      });
-
       const applications = await tx.application.findMany({
         where: {
           ...activePostingWhere,
-          ...passTargetDecisionWhere,
+          OR: [
+            { screeningReviewerDecision: ScreeningDecision.PASS },
+            { screeningReviewerDecision: null, screeningDecision: ScreeningDecision.PASS },
+          ],
           applicationId: { in: passIds },
         },
         include: applicantListInclude,
@@ -949,12 +974,8 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
         data: {
           screeningDecision: state.screeningDecision as ScreeningDecision | null,
           screeningMemo: state.screeningMemo,
-          screeningDecisionReasonCode: null,
-          screeningDecisionPolicyVersion: null,
-          screeningPolicyVersion: null,
-          screeningCriteriaVersion: null,
-          screeningDecisionReportId: null,
-          screeningDecidedAt: null,
+          screeningReviewerDecision: state.screeningReviewerDecision as ScreeningDecision | null,
+          screeningDecisionOverrideReason: state.screeningDecisionOverrideReason,
         },
       }),
     ));

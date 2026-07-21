@@ -37,10 +37,10 @@ assert.equal(
 assert.equal(
   canEditScreeningDecision({
     autoScreeningPolicyEnabled: false,
-    reportStatus: "PENDING",
-    screeningDecision: "UNDECIDED",
+    reportStatus: "COMPLETED",
+    screeningDecision: "PASS",
   }),
-  false,
+  true,
 );
 
 assert.equal(
@@ -138,7 +138,26 @@ assert.equal(
     excludedTotal: 53,
     attentionRequiredTotal: 0,
   }),
-  17,
+  47,
+);
+
+assert.equal(
+  getPassMailTargetLimit({
+    activeTotal: 100,
+    canceledHistoryTotal: 0,
+    applicationStatusCounts: { COMPLETED: 100 },
+    documentStatusCounts: { EXTRACTED: 100 },
+    interviewStatusCounts: { COMPLETED: 10 },
+    reportStatusCounts: { COMPLETED: 10, GENERATING: 74, PENDING: 16 },
+    screeningDecisionCounts: { PASS: 20, HOLD: 4, FAIL: 60, UNDECIDED: 16 },
+    effectiveScreeningDecisionCounts: { PASS: 20, HOLD: 4, FAIL: 60, UNDECIDED: 16 },
+    confirmationEligibleTotal: 84,
+    confirmationEligibleDecisionCounts: { PASS: 20, HOLD: 4, FAIL: 60 },
+    confirmedTotal: 0,
+    excludedTotal: 16,
+    attentionRequiredTotal: 0,
+  }),
+  10,
 );
 
 assert.deepEqual(

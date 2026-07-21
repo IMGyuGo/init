@@ -146,6 +146,14 @@ RETRY의 재처리 횟수, backoff, 지원자 재답변과 운영자 재처리 �
 10. 동일 범위의 확정 재호출은 기존 확정 결과와 알림을 반환하는 멱등 성공이다. 이미 확정된 결과를 다른 값으로 바꾸거나 중복 알림을 만들지 않는다.
 11. V1에서는 확정 취소, 확정 후 결과 변경, 생성된 리포트의 커트라인 재적용 UI를 제공하지 않는다.
 
+### Score-based pass target and pass mail
+
+- 공고의 결과 미확정 지원자 중 `reportStatus=COMPLETED`이고 `effectiveDecision=PASS | HOLD | FAIL`인 모든 지원자를 목표 합격자 수 선발 대상으로 사용한다.
+- 대상은 최신 리포트 총점 내림차순, 제출 시각 오름차순, application ID 오름차순으로 정렬한다. 상위 목표 인원은 유효 `PASS`, 나머지는 유효 `FAIL`로 저장하므로 대상 범위의 `HOLD`도 두 결과 중 하나로 변경한다.
+- 완전한 자동 판정 snapshot이 있으면 `screening_decision`과 reason/version/report snapshot을 보존하고 `screening_reviewer_decision`에 목표 선발 결과를 저장한다. legacy 또는 snapshot 불완전 행만 `screening_decision`을 직접 갱신한다.
+- 최종 유효 `PASS`에게만 합격 메일을 발송하며 이미 `SENT`인 대상은 재발송하지 않는다. 발송 실패 대상은 이번 요청 직전 reviewer/legacy 상태로 복구한다.
+- `UNDECIDED`, `RETRY`, 리포트 미완료, 결과 확정 지원자는 목표 인원과 최대 선발 가능 인원에서 제외한다.
+
 지원자 공개 상태는 다음과 같다.
 
 | resultPublicationStatus | 조건 | 지원자 응답 |
@@ -206,6 +214,7 @@ RETRY의 재처리 횟수, backoff, 지원자 재답변과 운영자 재처리 �
 - API-012의 지원자별 `screeningDecision` 수동 mutation은 폐기한다. 자동 판정 활성 공고에 대한 호출은 `COMMON_CONFLICT`와 `reason=SCREENING_DECISION_SYSTEM_MANAGED`를 반환한다.
 - API-026 수동 평가는 메모를 저장할 수 있지만 최종 `screeningDecision`을 입력받지 않는다.
 - API-012R은 미확정 지원자의 reviewer decision과 변경 사유를 저장하거나 자동판정으로 초기화한다.
+- API-014-PASS-MAILS는 자동 판정 정책 활성 여부와 관계없이 판정 가능한 미확정 `PASS | HOLD | FAIL` 전체를 점수순으로 PASS/FAIL에 재배치하고 자동 판정 snapshot이 있으면 reviewer decision으로 보존한다.
 - API-012C는 공고의 판정 가능한 미확정 결과를 Alert 재확인 후 일괄 확정한다. 확정 전 면접관 화면에는 지원자 비공개 상태와 대상/제외 인원을 표시한다.
 
 ### Candidate result

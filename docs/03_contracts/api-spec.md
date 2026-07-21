@@ -779,8 +779,8 @@ AI 리포트 금지 기준:
   - `applicationStatusCounts`, `documentStatusCounts`, `interviewStatusCounts`, `reportStatusCounts`: 활성 지원 건의 상태별 수
   - `effectiveScreeningDecisionCounts`: reviewer decision이 있으면 이를 우선한 `PASS | HOLD | FAIL | UNDECIDED | RETRY` count
   - `confirmationStatusCounts`: `PENDING | CONFIRMED` count
-  - `confirmationEligibleTotal`: 자동판정이 `PASS | HOLD | FAIL`이고 아직 확정되지 않은 활성 지원 건 수
-  - `confirmationEligibleDecisionCounts`: 아직 확정되지 않은 판정 가능 지원 건의 `PASS | HOLD | FAIL`별 count. 합계는 `confirmationEligibleTotal`과 같아야 한다.
+  - `confirmationEligibleTotal`: `reportStatus=COMPLETED`, 유효 판정이 `PASS | HOLD | FAIL`, 결과 미확정인 활성 지원 건 수. 화면의 최대 목표 합격자 수로 사용한다.
+  - `confirmationEligibleDecisionCounts`: 리포트 완료·결과 미확정인 판정 가능 지원 건의 `PASS | HOLD | FAIL`별 count. 합계는 `confirmationEligibleTotal`과 같아야 한다.
   - `attentionRequiredTotal`: 서류·면접·리포트 중 하나가 `FAILED`이거나 전형 판정이 `UNDECIDED | RETRY`인 활성 지원 건 수
   - 상태별 count map에 키가 없으면 0으로 해석한다.
 - 오류/예외:
@@ -801,22 +801,23 @@ AI 리포트 금지 기준:
 - Request Body:
   - `targetPassCount`: number, required, 0 이상 5000 이하 정수
 - 검증/전제조건:
-  - 자동 전형 판정 정책이 활성화된 공고에서는 이 legacy API를 사용하지 않고 API-012R 검토와 API-012C 일괄 확정 흐름을 사용한다. 호출 시 `409 COMMON_CONFLICT`, `reason=SCREENING_DECISION_SYSTEM_MANAGED`를 반환한다.
+  - 자동 전형 판정 정책 활성 여부와 관계없이 호출할 수 있다.
   - 공고 조회 권한 보유
-  - 목표 인원만큼 최종 합격 대상을 선정할 수 있도록 `PASS` 또는 `FAIL` 판정이 완료된 활성 지원자가 있어야 한다.
+  - 목표 인원만큼 최종 합격 대상을 선정할 수 있도록 `reportStatus=COMPLETED`, 결과 미확정, `effectiveScreeningDecision=PASS | HOLD | FAIL`인 활성 지원자가 있어야 한다.
 - 성공 응답/처리:
   - `targetPassCount`를 최종 PASS 정원으로 해석한다.
-  - `PASS` 또는 `FAIL` 판정이 완료된 활성 지원자만 목표 합격자 수 조정 대상 pool로 사용한다.
-  - `HOLD`, `UNDECIDED` 지원자는 목표 합격자 수 조정에서 제외하며 이 API가 전형 상태를 변경하지 않는다.
+  - `reportStatus=COMPLETED`, 결과 미확정, `effectiveScreeningDecision=PASS | HOLD | FAIL`인 활성 지원자를 목표 합격자 수 조정 대상 pool로 사용한다.
+  - `HOLD`도 대상 pool에 포함하며 목표 인원 선발 결과에 따라 `PASS` 또는 `FAIL`로 변경한다. `UNDECIDED`, `RETRY`, 리포트 미완료, 결과 확정 지원자는 제외한다.
   - 대상 pool 안에서 최신 리포트 `totalScore` 높은 순으로 목표 인원만 PASS 처리하고, 점수가 없는 지원자는 뒤에 둔다.
   - 최종 PASS 대상에 포함되지 않은 대상 pool 지원자는 FAIL 처리한다.
   - 동점이면 지원일 빠른 순, applicationId 오름차순으로 처리한다.
+  - 완전한 자동 판정 snapshot이 있는 지원자는 `screeningDecision`을 덮어쓰지 않고 `screeningReviewerDecision`과 변경 사유를 저장한다. legacy 지원자만 `screeningDecision`과 메모를 직접 갱신한다.
   - 최종 PASS 대상자에게만 합격 메일을 발송하고 이미 `SENT`로 기록된 대상은 재발송하지 않는다.
   - `currentPassCount`, `targetPassCount`, `promotedCount`, `demotedCount`, `sentCount`, `failedCount`, `skippedCount`, `recipients[]`를 반환한다.
 - 오류/예외:
   - 공고 정보가 없거나 권한이 없으면 404를 반환한다.
-  - `PASS` 또는 `FAIL` 판정이 완료된 활성 지원자가 목표 합격자 수보다 부족하면 400을 반환한다.
-  - 메일 발송 실패가 하나라도 있으면 실패 대상은 `deliveryStatus=FAILED`로 기록하고, 실패 대상의 신규 PASS 승격은 기존 판정으로 복구한 뒤 503 `MAIL_DELIVERY_FAILED`를 반환한다.
+  - 리포트 완료·결과 미확정·유효 `PASS | HOLD | FAIL`인 활성 지원자가 목표 합격자 수보다 부족하면 400을 반환한다.
+  - 메일 발송 실패가 하나라도 있으면 실패 대상은 `deliveryStatus=FAILED`로 기록하고, 실패 대상에 이번 요청으로 적용한 reviewer/legacy 판정을 기존 상태로 복구한 뒤 503 `MAIL_DELIVERY_FAILED`를 반환한다.
 - 관련 ERD 테이블:
   - companies, postings, applications, evaluation_reports, notifications
 - 비고/미결:
