@@ -2066,8 +2066,15 @@
 }
 :global(.dvc__actions) {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   flex: none;
+}
+
+:global(.dvc__actions .btn) {
+  min-height: 52px;
+  padding: 0 26px;
+  font-size: 17px;
+  font-weight: 800;
 }
 
 @media (max-width: 860px) {
