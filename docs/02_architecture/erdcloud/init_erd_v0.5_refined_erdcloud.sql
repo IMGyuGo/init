@@ -351,7 +351,7 @@ CREATE TABLE auto_screening_policies (
     updated_at TIMESTAMP NOT NULL,
     CONSTRAINT ck_auto_screening_policy_total_scores CHECK (
         hold_min_total_score >= 0
-        AND hold_min_total_score <= pass_min_total_score
+        AND hold_min_total_score < pass_min_total_score
         AND pass_min_total_score <= 100
     ),
     CONSTRAINT ck_auto_screening_policy_v1 CHECK (
@@ -535,18 +535,6 @@ CREATE TABLE applications (
 
     screening_decided_at TIMESTAMP,
 
-    -- 면접관 검토 초안, 확정 결과와 자동판정 변경 사유
-    screening_reviewer_decision VARCHAR(40),
-
-    screening_final_decision VARCHAR(40),
-
-    screening_decision_override_reason TEXT,
-
-    -- 면접관이 자동판정 결과를 지원자 통보 대상으로 확정한 시각/사용자
-    screening_result_confirmed_at TIMESTAMP,
-
-    screening_result_confirmed_by_user_id BIGINT,
-
     -- 기업 담당자 메모
     screening_memo TEXT,
 
@@ -576,32 +564,6 @@ CREATE TABLE applications (
             AND screening_criteria_version >= 1
             AND screening_decision_report_id IS NOT NULL
             AND screening_decided_at IS NOT NULL
-        )
-    ),
-    CONSTRAINT ck_applications_screening_reviewer_override CHECK (
-        (
-            screening_reviewer_decision IS NULL
-            AND screening_decision_override_reason IS NULL
-        )
-        OR (
-            screening_decision IN ('PASS', 'HOLD', 'FAIL')
-            AND screening_reviewer_decision IN ('PASS', 'HOLD', 'FAIL')
-            AND screening_reviewer_decision <> screening_decision
-            AND LENGTH(BTRIM(screening_decision_override_reason)) BETWEEN 10 AND 1000
-        )
-    ),
-    CONSTRAINT ck_applications_screening_confirmation_complete CHECK (
-        (
-            screening_result_confirmed_at IS NULL
-            AND screening_result_confirmed_by_user_id IS NULL
-            AND screening_final_decision IS NULL
-        )
-        OR (
-            screening_result_confirmed_at IS NOT NULL
-            AND screening_result_confirmed_by_user_id IS NOT NULL
-            AND screening_decision IN ('PASS', 'HOLD', 'FAIL')
-            AND screening_final_decision IN ('PASS', 'HOLD', 'FAIL')
-            AND screening_final_decision = COALESCE(screening_reviewer_decision, screening_decision)
         )
     )
 );
@@ -1151,11 +1113,6 @@ CREATE TABLE notifications (
     sent_at TIMESTAMP
 );
 
-CREATE UNIQUE INDEX uq_notifications_screening_result_channel
-    ON notifications (application_id, user_id, channel, notification_type)
-    WHERE application_id IS NOT NULL
-      AND notification_type = 'SCREENING_RESULT_CONFIRMED';
-
 CREATE TABLE ai_process_logs (
     -- AI 비동기 처리 로그 PK
     process_log_id BIGINT PRIMARY KEY,
@@ -1441,11 +1398,6 @@ ALTER TABLE applications
 ALTER TABLE applications
     ADD CONSTRAINT fk_applications_screening_decision_report
     FOREIGN KEY (screening_decision_report_id) REFERENCES evaluation_reports(report_id)
-    ON DELETE RESTRICT;
-
-ALTER TABLE applications
-    ADD CONSTRAINT fk_applications_screening_result_confirmer
-    FOREIGN KEY (screening_result_confirmed_by_user_id) REFERENCES users(user_id)
     ON DELETE RESTRICT;
 
 ALTER TABLE application_documents

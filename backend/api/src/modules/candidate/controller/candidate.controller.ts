@@ -205,14 +205,6 @@ export class CandidateController {
     });
   }
 
-  @Get(candidateApiRoutes.screeningResultNotifications)
-  listScreeningResultNotifications(@Req() request: CandidateRequest) {
-    return this.handle(() => {
-      const currentUser = resolveCurrentCandidate(request.currentUser);
-      return this.candidateService.listScreeningResultNotifications(currentUser);
-    });
-  }
-
   @Patch(candidateApiRoutes.cancelApplication)
   cancelApplication(@Req() request: CandidateRequest, @Param("applicationId") applicationId: string) {
     return this.handle(() => {

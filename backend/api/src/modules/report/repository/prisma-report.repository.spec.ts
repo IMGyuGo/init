@@ -83,17 +83,7 @@ function reportProcessFixture() {
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       create: jest.fn().mockResolvedValue({}),
     },
-    application: {
-      findUnique: jest.fn().mockResolvedValue({
-        screeningDecisionReportId: null,
-        posting: {
-          autoScreeningPolicy: null,
-          questionGenerationPolicy: null,
-          criteria: [],
-        },
-      }),
-      update: jest.fn().mockResolvedValue({}),
-    },
+    application: { update: jest.fn().mockResolvedValue({}) },
   };
   const prisma = {
     aiProcessLog,

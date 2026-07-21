@@ -343,7 +343,7 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | posting_id | BIGINT PRIMARY KEY | 정책 대상 공고 FK |
 | enabled | BOOLEAN NOT NULL DEFAULT FALSE | 자동 판정 활성화 여부 |
 | pass_min_total_score | INTEGER NOT NULL | PASS 총점 하한선, 0~100 |
-| hold_min_total_score | INTEGER NOT NULL | HOLD 총점 하한선, 0~100이며 PASS 하한선 이하. PASS 하한선과 같으면 총점 HOLD 구간을 사용하지 않음 |
+| hold_min_total_score | INTEGER NOT NULL | HOLD 총점 하한선, 0~100이며 PASS 하한선 미만 |
 | require_all_criteria_pass | BOOLEAN NOT NULL DEFAULT TRUE | 활성 기준별 `pass_score` 모두 충족 필요. V1은 TRUE만 허용 |
 | policy_version | INTEGER NOT NULL DEFAULT 1 | 정책 또는 기준 하한선 변경 시 증가 |
 | decision_policy_version | VARCHAR(80) NOT NULL | `AUTO_SCREENING_DECISION_V1` |
@@ -443,11 +443,6 @@ batch business unique key는 `(application_id, usage_scope, policy_version, crit
 | screening_criteria_version | INTEGER | 적용한 평가 기준 version snapshot |
 | screening_decision_report_id | BIGINT | 멱등 snapshot에 적용한 리포트 FK. API 비노출 |
 | screening_decided_at | TIMESTAMP | 자동 판정 저장 시각 |
-| screening_reviewer_decision | VARCHAR(40) | 면접관이 자동판정을 수정한 검토 초안: PASS, HOLD, FAIL. 자동판정 유지 시 NULL |
-| screening_final_decision | VARCHAR(40) | 공고 단위 결과 확정 시 저장한 최종 전형 결과: PASS, HOLD, FAIL. 확정 전 NULL |
-| screening_decision_override_reason | TEXT | 검토 초안이 자동판정과 다를 때 필수인 기업 내부 변경 사유. 지원자 비노출 |
-| screening_result_confirmed_at | TIMESTAMP | 면접관이 자동판정 결과를 지원자 통보 대상으로 확정한 시각. 확정 전 NULL |
-| screening_result_confirmed_by_user_id | BIGINT | 결과를 확정한 기업 사용자 FK. 확정 전 NULL |
 | screening_memo | TEXT | 기업 내부 운영 메모. 자동 판정 입력이 아니며 지원자에게 비노출 |
 | submitted_at | TIMESTAMP | 지원서 최종 제출 시각 |
 | updated_at | TIMESTAMP NOT NULL | 지원 건 마지막 수정 시각 |
@@ -457,8 +452,6 @@ batch business unique key는 `(application_id, usage_scope, policy_version, crit
 동일한 `(posting_id, candidate_id)`에는 `application_status <> 'CANCELED'`인 활성 지원서가 최대 하나만 존재한다. 이 조건은 PostgreSQL 부분 유일 인덱스로 보장한다. 지원 취소 후 재지원할 때는 취소된 row를 복구하지 않고 새 `applications` row와 새 서류·동의·면접 세션을 생성하며, 취소 row와 연결된 질문·세션 snapshot은 감사·추적을 위해 보존한다. 기업의 활성 지원자 목록과 `applicantCount`에서는 `CANCELED`를 제외하지만, 평가 기준·질문 설정 잠금의 제출 이력 판단에는 취소 row도 계속 포함한다.
 
 대규모 지원자 목록은 `(posting_id, updated_at, application_id)` 안정 정렬 인덱스와 공고별 `document_status`, `interview_status`, `report_status`, `screening_decision` 복합 인덱스를 사용한다. 목록은 활성 지원서만 페이지 단위로 조회하고, 상태별 전체 수는 `applications`만 집계해 상세 면접·리포트 relation을 읽지 않는다.
-
-자동판정 저장과 최종 결과 공개는 분리한다. `PASS | HOLD | FAIL` 자동판정 저장 직후 기업 지원자 목록은 `effectiveDecision = screening_reviewer_decision ?? screening_decision`으로 전원을 합격/보류/불합격 그룹에 배치한다. 면접관은 전체를 하나씩 체크하지 않고 필요한 지원자만 상세 확인해 `screening_reviewer_decision`을 저장하거나 NULL로 되돌려 자동판정을 유지한다. 자동판정과 다른 검토 초안에는 `screening_decision_override_reason`이 필수다. 공고 단위 확정 transaction은 판정 가능한 미확정 지원자마다 `screening_final_decision=effectiveDecision`을 저장하고 확정 시각·확정자를 기록한 뒤 지원자 알림을 생성한다. 지원자 API는 확정 후에만 `screening_final_decision`을 반환한다. `UNDECIDED | RETRY`는 일괄 확정에서 제외하고 기업 주의 목록에 남긴다. 이메일 발송 실패는 이미 확정된 포털 공개를 되돌리지 않는다.
 
 실데이터 규모 검증은 `backend/api`에서 `npm run verify:large-applicants -- <공고 ID>`로 실행한다. 출력의 `responseTimeMs`와 `queryPlan`(`EXPLAIN ANALYZE`, buffers 포함)을 함께 기록해 100/1,000/5,000명 구간의 회귀를 비교한다.
 
@@ -788,9 +781,6 @@ NCS profile 집계 row는 `(report_id, ncs_profile_id)`를 unique key로 사용�
 | notification_type | VARCHAR(80) NOT NULL | 알림 유형 |
 | status | VARCHAR(40) NOT NULL | 발송 상태 |
 | sent_at | TIMESTAMP | 발송 시각 |
-
-전형 결과 확정 알림은 `notification_type=SCREENING_RESULT_CONFIRMED`를 사용한다. 면접관 확정 transaction은 지원자용 `IN_APP` 알림을 한 번만 생성하고, `EMAIL` 알림은 `PENDING`으로 멱등 등록한다. 이메일 발송 성공은 `SENT`, 재시도 가능한 실패는 `FAILED`로 기록하되 결과 확정과 포털 공개 상태에는 영향을 주지 않는다.
-`(application_id, user_id, channel, notification_type)`에는 `SCREENING_RESULT_CONFIRMED` 전용 부분 유일 인덱스를 두어 확정 API 재호출이 채널별 중복 알림을 만들지 않도록 한다.
 
 ### ai_process_logs
 

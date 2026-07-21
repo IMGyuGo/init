@@ -1,10 +1,9 @@
 # Automatic Screening Decision Contract
 
-> Issues: #394, #429
+> Issue: #394
 > Contract version: `AUTO_SCREENING_DECISION_V1`
-> Result publication revision: `SCREENING_RESULT_CONFIRMATION_V1`
 
-채용 AI 면접 리포트와 기업이 공고별로 저장한 기준을 사용해 지원자의 전형 결과를 자동 분류하는 계약이다. 시스템은 모든 판정 가능한 지원자를 먼저 `PASS`, `HOLD`, `FAIL`로 나누며, 면접관은 전원을 하나씩 판정하지 않는다. 면접관은 필요한 지원자만 자동판정을 수정할 수 있고, 공고 단위 확정 전까지 지원자에게 결과를 공개하지 않는다.
+채용 AI 면접 리포트와 기업이 공고별로 저장한 기준을 사용해 지원자의 전형 결과를 자동으로 결정하는 계약이다. 기업 사용자는 지원자별 `PASS`, `HOLD`, `FAIL`을 직접 선택하지 않고, 공고를 열기 전에 판정 정책과 평가 기준별 하한선을 설정한다.
 
 ## Scope And Ownership
 
@@ -13,8 +12,7 @@
 | 공고별 자동 판정 정책과 평가 기준 하한선 설정 | C | B, E, PM |
 | 리포트 완료·평가 가능성 판단과 자동 판정 실행 | E | B, C, A |
 | `applications` 자동 판정 결과 저장과 기업 조회 | E/B | A, C |
-| 면접관 검토 초안 수정, 공고 단위 결과 확정, 지원자 알림 등록 | B | A, D, E, PM |
-| 확정된 지원자 제한 결과 조회와 View | D | B, E, PM |
+| 지원자 제한 결과 조회와 View | D | B, E, PM |
 | 공통 enum, Prisma migration | A | B, C, D, E |
 | RETRY job 실행·한도·운영 개입 | E/A | D, PM |
 
@@ -84,8 +82,7 @@ RETRY의 재처리 횟수, backoff, 지원자 재답변과 운영자 재처리 �
 ### Validation
 
 - `passMinTotalScore`, `holdMinTotalScore`는 0~100 정수다.
-- `holdMinTotalScore <= passMinTotalScore`여야 한다.
-- 두 하한선이 같으면 총점 HOLD 구간을 사용하지 않는다. 이때 총점이 공통 하한선 미만이면 `FAIL`, 이상이면서 모든 활성 기준 하한선을 충족하면 `PASS`다. 총점은 충족하지만 필수 기준이 미달이면 `HOLD`다.
+- `holdMinTotalScore < passMinTotalScore`여야 한다.
 - `enabled=true`이면 모든 활성 `evaluation_criteria.pass_score`가 0~100 정수여야 한다.
 - `requireAllCriteriaPass`는 V1에서 반드시 `true`다. 향후 완화 정책은 새 contract version으로 추가한다.
 - NCS framework는 활성 profile의 가중치 합계가 100이어야 한다.
@@ -111,15 +108,6 @@ RETRY의 재처리 횟수, backoff, 지원자 재답변과 운영자 재처리 �
 
 브라우저 telemetry, 비언어 지표, 기업 내부 메모와 지원자별 수동 점수는 자동 판정 입력으로 사용하지 않는다. API consumer와 frontend는 점수 또는 결과를 재계산하지 않는다.
 
-`holdMinTotalScore=passMinTotalScore`여도 위 판정 순서는 바꾸지 않는다. 동일 경계값에서는 9번의 총점 HOLD 구간이 공집합이 되며, 8번의 필수 기준 검증을 통과하지 못한 경우에만 10번의 `HOLD`가 남는다.
-
-### Saltlux presentation fixture
-
-- `SALTLUX_AI_BACKEND_V1 + DEMO_PRESET`은 버전 관리된 동일 리포트를 사용한다. 커트라인을 바꾸기 위해 AI 평가나 리포트를 다시 생성하지 않는다.
-- 고정 리포트 총점과 이미 저장된 활성 기준 점수를 공고의 `passMinTotalScore`, `holdMinTotalScore`, 기준별 `passScore`에 한 번 적용한다.
-- 리포트 완료와 자동판정 저장은 같은 API transaction에서 처리한다. 일반 worker 경로와 동일한 deterministic decision 함수를 사용한다.
-- fixture 결과도 면접관에게만 먼저 노출하고, 지원자 공개는 별도의 면접관 확정 이후로 제한한다.
-
 ## State Transitions
 
 허용 전이는 다음과 같다.
@@ -127,31 +115,8 @@ RETRY의 재처리 횟수, backoff, 지원자 재답변과 운영자 재처리 �
 - `UNDECIDED -> PASS | HOLD | FAIL | RETRY`
 - `RETRY -> PASS | HOLD | FAIL`은 재처리 성공 후 자동 판정으로만 허용한다.
 - 동일 리포트·동일 policy snapshot에 대한 같은 결과 저장은 멱등 성공으로 처리한다.
-- `screening_decision`의 `PASS`, `HOLD`, `FAIL`은 해당 리포트와 policy snapshot의 terminal 자동판정이며 직접 덮어쓰지 않는다. 면접관 수정값은 별도 `screening_reviewer_decision`에 저장한다.
+- `PASS`, `HOLD`, `FAIL`은 해당 리포트와 policy snapshot의 terminal 결과이며 기업 사용자가 직접 변경할 수 없다.
 - terminal 결과를 다시 계산해야 하면 새 report version 또는 명시적 RETRY process를 만들고 audit 가능한 process log를 남긴다.
-
-자동판정 상태 전이와 지원자 공개 상태는 서로 독립적이다. 자동판정이 `PASS | HOLD | FAIL`에 도달해도 면접관 확정 전에는 지원자에게 공개하지 않는다.
-
-## Result Confirmation And Candidate Publication
-
-1. 자동판정 engine이 `PASS | HOLD | FAIL`을 저장하면 기업 목록은 `effectiveDecision = screeningReviewerDecision ?? screeningDecision`으로 모든 판정 가능 지원자를 합격/보류/불합격 그룹에 즉시 배치한다.
-2. 면접관은 목록 전체를 하나씩 체크하지 않는다. 궁금하거나 수정이 필요한 지원자만 상세 리포트를 열고 `PASS | HOLD | FAIL` 중 다른 검토 결과를 저장한다.
-3. 자동판정과 다른 검토 결과에는 10~1000자의 내부 변경 사유가 필수다. 자동판정으로 되돌리면 reviewer decision과 변경 사유를 NULL로 초기화한다.
-4. `UNDECIDED | RETRY`는 수정·확정 대상이 아니며 기업 목록의 `재처리/확인 필요` 그룹에 남긴다.
-5. 공고 단위 `결과 확정` 버튼은 현재 합격/보류/불합격 인원, 확정 대상 합계, 제외되는 `UNDECIDED | RETRY` 인원을 Alert 또는 modal에 표시한다. 사용자가 `취소`하면 API를 호출하지 않고, `확정`을 다시 선택해야만 일괄 확정 API를 호출한다.
-6. 확정 API는 요청의 `expectedEligibleCount`와 현재 판정 가능 미확정 인원이 다르면 `SCREENING_CONFIRMATION_SCOPE_CHANGED`로 거부하고 목록 새로고침을 요구한다.
-7. 확정 transaction은 공고에 속한 판정 가능한 미확정 application row를 잠그고 각 행에 `screening_final_decision=effectiveDecision`, 확정 시각·확정자를 저장하며 지원자별 `IN_APP` 알림과 `EMAIL/PENDING` 알림을 멱등 생성한다.
-8. transaction commit 이후 지원자 API는 `resultPublicationStatus=CONFIRMED`와 제한된 최종 `screeningDecision`을 반환한다.
-9. 이메일 발송 실패는 notification을 `FAILED`로 남기고 재시도하되, 확정 상태와 지원자 포털 공개를 되돌리지 않는다.
-10. 동일 범위의 확정 재호출은 기존 확정 결과와 알림을 반환하는 멱등 성공이다. 이미 확정된 결과를 다른 값으로 바꾸거나 중복 알림을 만들지 않는다.
-11. V1에서는 확정 취소, 확정 후 결과 변경, 생성된 리포트의 커트라인 재적용 UI를 제공하지 않는다.
-
-지원자 공개 상태는 다음과 같다.
-
-| resultPublicationStatus | 조건 | 지원자 응답 |
-| --- | --- | --- |
-| `PENDING` | 공고 결과 미확정, `UNDECIDED`, `RETRY` | 내부 자동·검토 판정, 점수, 리포트를 숨기고 `결과 검토 중` 표시 |
-| `CONFIRMED` | `screening_final_decision=PASS | HOLD | FAIL`이며 면접관 확정 snapshot 존재 | 제한된 최종 `screeningDecision`과 통보 시각 표시 |
 
 ## Persistence Projection
 
@@ -166,11 +131,6 @@ RETRY의 재처리 횟수, backoff, 지원자 재답변과 운영자 재처리 �
 | `screening_criteria_version` | INTEGER nullable | 적용한 평가 기준 version |
 | `screening_decision_report_id` | BIGINT nullable | 멱등 snapshot에 적용한 리포트 FK. 내부 저장 전용 |
 | `screening_decided_at` | TIMESTAMP nullable | 자동 판정 저장 시각 |
-| `screening_reviewer_decision` | ScreeningDecision nullable | 면접관 검토 초안. 자동판정 유지 시 NULL |
-| `screening_final_decision` | ScreeningDecision nullable | 공고 단위 확정 시 effective decision snapshot |
-| `screening_decision_override_reason` | TEXT nullable | 자동판정과 다른 검토 결과의 내부 사유 |
-| `screening_result_confirmed_at` | TIMESTAMP nullable | 면접관 결과 확정 시각. 지원자 공개 기준 |
-| `screening_result_confirmed_by_user_id` | BIGINT nullable | 결과를 확정한 기업 사용자 FK |
 
 `screening_memo`는 기업 내부 운영 메모로 유지하지만 판정 입력이 아니며 지원자에게 노출하지 않는다.
 `screening_decision_report_id`는 `reportId + policyVersion + criteriaVersion + decisionPolicyVersion` 멱등 키를 DB에 보존하기 위한 내부 필드이며 기업·지원자 API 응답에는 노출하지 않는다.
@@ -201,28 +161,25 @@ RETRY의 재처리 횟수, backoff, 지원자 재답변과 운영자 재처리 �
 
 ### Company applicant/report
 
-- API-014, API-020과 지원자 목록은 자동 `screeningDecision`, `screeningReviewerDecision`, `effectiveScreeningDecision`, `finalScreeningDecision`, 자동판정 reason/version, `screeningResultConfirmationStatus`, 확정 시각을 기업에 반환한다.
-- 목록은 `effectiveScreeningDecision` 기준 PASS/HOLD/FAIL 그룹과 count를 제공하고 `UNDECIDED | RETRY`를 별도 주의 그룹으로 제공한다.
-- API-012의 지원자별 `screeningDecision` 수동 mutation은 폐기한다. 자동 판정 활성 공고에 대한 호출은 `COMMON_CONFLICT`와 `reason=SCREENING_DECISION_SYSTEM_MANAGED`를 반환한다.
+- API-020과 지원자 목록은 `screeningDecision`, `screeningDecisionReasonCode`, 적용 policy/criteria version과 `screeningDecidedAt`을 기업에 반환한다.
+- API-012의 지원자별 `screeningDecision` 수동 mutation은 리포트 판정 완료 뒤 허용한다. 완료 기준은 `reportStatus=COMPLETED`이고 현재 `screeningDecision`이 `PASS`, `HOLD`, `FAIL` 중 하나인 상태다.
+- 수동 변경 결과는 기업 화면의 최종 전형 결과가 되며, DB의 판정/사유 check constraint와 충돌하지 않도록 자동 판정 snapshot 컬럼을 비운다.
+- 리포트 판정 완료 전 호출은 `COMMON_CONFLICT`와 `reason=SCREENING_DECISION_NOT_READY`를 반환한다.
 - API-026 수동 평가는 메모를 저장할 수 있지만 최종 `screeningDecision`을 입력받지 않는다.
-- API-012R은 미확정 지원자의 reviewer decision과 변경 사유를 저장하거나 자동판정으로 초기화한다.
-- API-012C는 공고의 판정 가능한 미확정 결과를 Alert 재확인 후 일괄 확정한다. 확정 전 면접관 화면에는 지원자 비공개 상태와 대상/제외 인원을 표시한다.
 
 ### Candidate result
 
-- API-073과 API-074는 항상 `resultPublicationStatus: PENDING | CONFIRMED`를 반환한다.
-- 면접관 확정 전에는 내부 `screeningDecision`이 존재해도 지원자 응답의 `screeningDecision`을 `null`로 반환하고 리포트·점수·reason code를 노출하지 않는다.
-- 확정 후에만 `screening_final_decision`을 `screeningDecision: PASS | HOLD | FAIL`로 반환한다. 자동판정과 reviewer decision은 지원자에게 공개하지 않는다. `UNDECIDED | RETRY`는 지원자에게 공개하거나 확정할 수 없다.
-- 지원자 응답에는 내부 점수, 기준별 하한선, `screeningDecisionReasonCode`, `screeningMemo`, 확정자 정보를 포함하지 않는다.
-- `PENDING` 기본 문구는 `결과 검토 중`이며 합격·보류·전형 종료로 표현하지 않는다.
+- API-073과 API-074는 `screeningDecision: UNDECIDED | PASS | HOLD | FAIL | RETRY`를 반환한다.
+- `RETRY`는 report가 실패했거나 점수가 없어도 조회 가능한 제한 결과다.
+- 지원자 응답에는 내부 점수, 기준별 하한선, `screeningDecisionReasonCode`, `screeningMemo`를 포함하지 않는다.
+- 상태 표시 기본 문구는 #395에서 정의하며 `RETRY`를 합격·보류·전형 종료로 표현하지 않는다.
 
 ## Rollout Compatibility
 
 1. 공통 enum과 API 계약을 먼저 배포한다.
-2. 면접관 확정 전 결과를 숨기는 candidate projection과 `PENDING` fallback을 먼저 배포한다.
+2. `RETRY`와 알 수 없는 상태 fallback을 지원하는 프론트를 먼저 배포한다.
 3. DB migration과 자동 판정 engine을 배포하되 feature flag 또는 policy `enabled`로 결과 생성을 활성화한다.
-4. 면접관 검토 수정 API, 공고 단위 확정 UI/API와 멱등 알림 생성을 배포한다.
-5. 기존 수동 판정 UI와 API consumer를 제거한다.
-6. E2E가 통과한 뒤 신규 공고의 자동 판정 정책을 필수화한다.
+4. 기존 수동 판정 UI와 API consumer를 제거한다.
+5. E2E가 통과한 뒤 신규 공고의 자동 판정 정책을 필수화한다.
 
-기존 `PASS/HOLD/FAIL` 데이터는 기업 화면에서 그대로 읽되 confirmation snapshot이 없는 기존 결과는 지원자에게 자동 공개하지 않는다. 기존 공고를 자동 변환하거나 과거 결과를 재계산하지 않으며, 지원자 공개가 필요하면 면접관이 현재 결과를 명시적으로 확정한다.
+기존 `PASS/HOLD/FAIL` 데이터는 그대로 읽는다. 기존 공고를 자동 변환하거나 과거 결과를 재계산하지 않는다.

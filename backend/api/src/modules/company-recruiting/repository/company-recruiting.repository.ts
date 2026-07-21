@@ -4,7 +4,6 @@ import {
   AuthProvider,
   DocumentStatus,
   DocumentType,
-  NotificationChannel,
   PostingStatus,
   ScreeningDecision,
   UserStatus,
@@ -21,7 +20,6 @@ import type {
   NormalizedListQuery,
   PublicRecruitmentRecord,
   RecruitmentRecord,
-  ScreeningResultConfirmationRecord,
 } from "../company-recruiting.types";
 
 const postingActiveApplicationCountInclude = {
@@ -114,11 +112,6 @@ export type UpdateApplicationScreeningInput = {
   screeningMemo: string | null;
 };
 
-export type UpdateApplicationScreeningReviewInput = {
-  screeningReviewerDecision: ScreeningDecision | null;
-  screeningDecisionOverrideReason: string | null;
-};
-
 export type CreateFileAssetInput = {
   ownerUserId: number;
   storageKey: string;
@@ -170,18 +163,6 @@ export type CompanyRecruitingRepositoryPort = {
     companyId: number,
     input: UpdateApplicationScreeningInput,
   ): Promise<ApplicantRecord | null>;
-  updateApplicationScreeningReview(
-    applicationId: number,
-    companyId: number,
-    input: UpdateApplicationScreeningReviewInput,
-  ): Promise<ApplicantRecord | null>;
-  confirmScreeningResults(
-    postingId: number,
-    companyId: number,
-    confirmedByUserId: number,
-    expectedEligibleCount: number,
-  ): Promise<ScreeningResultConfirmationRecord>;
-  markScreeningResultEmailNotification(notificationId: number, status: "SENT" | "FAILED"): Promise<void>;
   createFileAsset(input: CreateFileAssetInput): Promise<CompanyFileAssetRecord>;
   createApplicationDocument(input: CreateApplicationDocumentInput): Promise<{ documentId: number }>;
 };
@@ -475,7 +456,6 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
       interviewStatuses,
       reportStatuses,
       screeningDecisions,
-      screeningResultRows,
       attentionRequiredTotal,
     ] = await Promise.all([
       this.prisma.application.count({ where: activeWhere }),
@@ -485,15 +465,6 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
       this.prisma.application.groupBy({ by: ["interviewStatus"], where: activeWhere, _count: { _all: true } }),
       this.prisma.application.groupBy({ by: ["reportStatus"], where: activeWhere, _count: { _all: true } }),
       this.prisma.application.groupBy({ by: ["screeningDecision"], where: activeWhere, _count: { _all: true } }),
-      this.prisma.application.findMany({
-        where: activeWhere,
-        select: {
-          screeningDecision: true,
-          screeningReviewerDecision: true,
-          screeningFinalDecision: true,
-          screeningResultConfirmedAt: true,
-        },
-      }),
       this.prisma.application.count({
         where: {
           ...activeWhere,
@@ -502,25 +473,11 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
             { interviewStatus: "FAILED" },
             { reportStatus: "FAILED" },
             { screeningDecision: ScreeningDecision.UNDECIDED },
-            { screeningDecision: ScreeningDecision.RETRY },
             { screeningDecision: null },
           ],
         },
       }),
     ]);
-
-    const effectiveScreeningDecisionCounts = screeningResultRows.reduce<Record<string, number>>((counts, row) => {
-      const decision = row.screeningResultConfirmedAt
-        ? row.screeningFinalDecision ?? ScreeningDecision.UNDECIDED
-        : row.screeningReviewerDecision ?? row.screeningDecision ?? ScreeningDecision.UNDECIDED;
-      counts[decision] = (counts[decision] ?? 0) + 1;
-      return counts;
-    }, {});
-    const confirmationEligibleTotal = screeningResultRows.filter((row) =>
-      row.screeningResultConfirmedAt === null &&
-      isFinalScreeningDecision(row.screeningReviewerDecision ?? row.screeningDecision)
-    ).length;
-    const confirmedTotal = screeningResultRows.filter((row) => row.screeningResultConfirmedAt !== null).length;
 
     return {
       activeTotal,
@@ -530,10 +487,6 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
       interviewStatusCounts: toGroupCountMap(interviewStatuses, "interviewStatus"),
       reportStatusCounts: toGroupCountMap(reportStatuses, "reportStatus"),
       screeningDecisionCounts: toScreeningDecisionCountMap(screeningDecisions),
-      effectiveScreeningDecisionCounts,
-      confirmationEligibleTotal,
-      confirmedTotal,
-      excludedTotal: screeningResultRows.length - confirmationEligibleTotal - confirmedTotal,
       attentionRequiredTotal,
     };
   }
@@ -681,208 +634,6 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
       include: applicantInclude,
     });
     return mapApplicant(application);
-  }
-
-  async updateApplicationScreeningReview(
-    applicationId: number,
-    companyId: number,
-    input: UpdateApplicationScreeningReviewInput,
-  ): Promise<ApplicantRecord | null> {
-    const updated = await this.prisma.application.updateMany({
-      where: {
-        applicationId: BigInt(applicationId),
-        posting: { companyId: BigInt(companyId) },
-        screeningResultConfirmedAt: null,
-      },
-      data: {
-        screeningReviewerDecision: input.screeningReviewerDecision,
-        screeningDecisionOverrideReason: input.screeningDecisionOverrideReason,
-      },
-    });
-    if (updated.count === 0) return null;
-
-    const application = await this.prisma.application.findUnique({
-      where: { applicationId: BigInt(applicationId) },
-      include: applicantInclude,
-    });
-    return application ? mapApplicant(application) : null;
-  }
-
-  async confirmScreeningResults(
-    postingId: number,
-    companyId: number,
-    confirmedByUserId: number,
-    expectedEligibleCount: number,
-  ): Promise<ScreeningResultConfirmationRecord> {
-    return this.prisma.$transaction(async (tx) => {
-      type LockedScreeningRow = {
-        application_id: bigint;
-        user_id: bigint;
-        email: string;
-        name: string;
-        screening_decision: ScreeningDecision | null;
-        screening_reviewer_decision: ScreeningDecision | null;
-        screening_final_decision: ScreeningDecision | null;
-        screening_result_confirmed_at: Date | null;
-      };
-
-      const rows = await tx.$queryRaw<LockedScreeningRow[]>`
-        SELECT
-          a."application_id",
-          u."user_id",
-          COALESCE(a."applicant_email", u."email") AS "email",
-          COALESCE(a."applicant_name", u."name") AS "name",
-          a."screening_decision",
-          a."screening_reviewer_decision",
-          a."screening_final_decision",
-          a."screening_result_confirmed_at"
-        FROM "applications" a
-        JOIN "postings" p ON p."posting_id" = a."posting_id"
-        JOIN "candidate_profiles" cp ON cp."candidate_id" = a."candidate_id"
-        JOIN "users" u ON u."user_id" = cp."user_id"
-        WHERE a."posting_id" = ${BigInt(postingId)}
-          AND p."company_id" = ${BigInt(companyId)}
-          AND a."application_status" <> 'CANCELED'
-        FOR UPDATE OF a
-      `;
-
-      const effectiveDecision = (row: LockedScreeningRow) =>
-        row.screening_reviewer_decision ?? row.screening_decision;
-      const isEligible = (
-        decision: ScreeningDecision | null,
-      ): decision is "PASS" | "HOLD" | "FAIL" =>
-        decision === ScreeningDecision.PASS || decision === ScreeningDecision.HOLD || decision === ScreeningDecision.FAIL;
-      const pending = rows.filter((row) => row.screening_result_confirmed_at === null && isEligible(effectiveDecision(row)));
-      const confirmed = rows.filter((row) => row.screening_result_confirmed_at !== null && isEligible(row.screening_final_decision));
-      const excludedCounts = rows.reduce<Record<"UNDECIDED" | "RETRY", number>>((counts, row) => {
-        if (row.screening_result_confirmed_at !== null) return counts;
-        const decision = effectiveDecision(row);
-        if (decision === ScreeningDecision.RETRY) counts.RETRY += 1;
-        else if (!isEligible(decision)) counts.UNDECIDED += 1;
-        return counts;
-      }, { UNDECIDED: 0, RETRY: 0 });
-      const excludedCount = excludedCounts.UNDECIDED + excludedCounts.RETRY;
-
-      if (pending.length === 0 && confirmed.length > 0) {
-        const retryableNotifications = await tx.notification.findMany({
-          where: {
-            applicationId: { in: confirmed.map((row) => row.application_id) },
-            channel: NotificationChannel.EMAIL,
-            notificationType: "SCREENING_RESULT_CONFIRMED",
-            status: { in: ["PENDING", "FAILED"] },
-          },
-        });
-        const notificationByApplication = new Map(
-          retryableNotifications.map((notification) => [notification.applicationId?.toString() ?? "", notification]),
-        );
-        const emailRecipients = confirmed.flatMap((row) => {
-          const notification = notificationByApplication.get(row.application_id.toString());
-          const decision = row.screening_final_decision;
-          return notification && isEligible(decision)
-            ? [{
-                notificationId: Number(notification.notificationId),
-                applicationId: Number(row.application_id),
-                userId: Number(row.user_id),
-                email: row.email,
-                name: row.name,
-                decision,
-              }]
-            : [];
-        });
-        return buildConfirmationRecord(confirmed, excludedCounts, true, emailRecipients);
-      }
-      if (pending.length !== expectedEligibleCount) {
-        return {
-          scopeChanged: true,
-          idempotent: false,
-          eligibleCount: pending.length,
-          excludedCount,
-          excludedCounts,
-          confirmedCount: confirmed.length,
-          decisionCounts: { PASS: 0, HOLD: 0, FAIL: 0 },
-          confirmedAt: confirmed[0]?.screening_result_confirmed_at ?? null,
-          emailRecipients: [],
-        };
-      }
-
-      const confirmationTime = new Date();
-      if (pending.length > 0) {
-        await tx.$executeRaw`
-          UPDATE "applications"
-          SET
-            "screening_final_decision" = COALESCE("screening_reviewer_decision", "screening_decision"),
-            "screening_result_confirmed_at" = ${confirmationTime},
-            "screening_result_confirmed_by_user_id" = ${BigInt(confirmedByUserId)}
-          WHERE "posting_id" = ${BigInt(postingId)}
-            AND "screening_result_confirmed_at" IS NULL
-            AND COALESCE("screening_reviewer_decision", "screening_decision") IN ('PASS', 'HOLD', 'FAIL')
-        `;
-
-        await tx.notification.createMany({
-          data: pending.flatMap((row) => [
-            {
-              userId: row.user_id,
-              applicationId: row.application_id,
-              channel: NotificationChannel.IN_APP,
-              notificationType: "SCREENING_RESULT_CONFIRMED",
-              status: "PENDING",
-            },
-            {
-              userId: row.user_id,
-              applicationId: row.application_id,
-              channel: NotificationChannel.EMAIL,
-              notificationType: "SCREENING_RESULT_CONFIRMED",
-              status: "PENDING",
-            },
-          ]),
-          skipDuplicates: true,
-        });
-      }
-
-      const emailNotifications = await tx.notification.findMany({
-        where: {
-          applicationId: { in: pending.map((row) => row.application_id) },
-          channel: NotificationChannel.EMAIL,
-          notificationType: "SCREENING_RESULT_CONFIRMED",
-          status: "PENDING",
-        },
-      });
-      const notificationByApplication = new Map(
-        emailNotifications.map((notification) => [notification.applicationId?.toString() ?? "", notification]),
-      );
-      const finalizedPending = pending.map((row) => ({
-        ...row,
-        screening_final_decision: effectiveDecision(row),
-        screening_result_confirmed_at: confirmationTime,
-      }));
-      const emailRecipients = finalizedPending.flatMap((row) => {
-        const notification = notificationByApplication.get(row.application_id.toString());
-        const decision = row.screening_final_decision;
-        return notification && isEligible(decision)
-          ? [{
-              notificationId: Number(notification.notificationId),
-              applicationId: Number(row.application_id),
-              userId: Number(row.user_id),
-              email: row.email,
-              name: row.name,
-              decision,
-            }]
-          : [];
-      });
-
-      return buildConfirmationRecord([...confirmed, ...finalizedPending], excludedCounts, false, emailRecipients);
-    });
-  }
-
-  async markScreeningResultEmailNotification(notificationId: number, status: "SENT" | "FAILED"): Promise<void> {
-    await this.prisma.notification.updateMany({
-      where: {
-        notificationId: BigInt(notificationId),
-        channel: NotificationChannel.EMAIL,
-        notificationType: "SCREENING_RESULT_CONFIRMED",
-      },
-      data: { status, sentAt: status === "SENT" ? new Date() : null },
-    });
   }
 
   async markPassMailSent(applicationId: number, companyId: number): Promise<void> {
@@ -1147,35 +898,6 @@ function buildApplicationWhere(
   query: NormalizedApplicantListQuery,
 ): Prisma.ApplicationWhereInput {
   const q = query.q?.trim();
-  const conditions: Prisma.ApplicationWhereInput[] = [];
-  if (query.screeningDecision === ScreeningDecision.UNDECIDED) {
-    conditions.push({ OR: [{ screeningDecision: ScreeningDecision.UNDECIDED }, { screeningDecision: null }] });
-  } else if (query.screeningDecision) {
-    conditions.push({ screeningDecision: query.screeningDecision });
-  }
-  if (query.effectiveScreeningDecision) {
-    const decision = query.effectiveScreeningDecision;
-    conditions.push({
-      OR: [
-        { screeningResultConfirmedAt: { not: null }, screeningFinalDecision: decision },
-        { screeningResultConfirmedAt: null, screeningReviewerDecision: decision },
-        { screeningResultConfirmedAt: null, screeningReviewerDecision: null, screeningDecision: decision },
-      ],
-    });
-  }
-  if (query.screeningResultConfirmationStatus === "CONFIRMED") {
-    conditions.push({ screeningResultConfirmedAt: { not: null } });
-  } else if (query.screeningResultConfirmationStatus === "PENDING") {
-    conditions.push({ screeningResultConfirmedAt: null });
-  }
-  if (q) {
-    conditions.push({
-      OR: [
-        { candidate: { user: { name: { contains: q, mode: "insensitive" } } } },
-        { candidate: { user: { email: { contains: q, mode: "insensitive" } } } },
-      ],
-    });
-  }
   return {
     postingId: BigInt(postingId),
     posting: { companyId: BigInt(companyId) },
@@ -1184,7 +906,19 @@ function buildApplicationWhere(
     ...(query.documentStatus ? { documentStatus: query.documentStatus } : {}),
     ...(query.interviewStatus ? { interviewStatus: query.interviewStatus } : {}),
     ...(query.reportStatus ? { reportStatus: query.reportStatus } : {}),
-    ...(conditions.length > 0 ? { AND: conditions } : {}),
+    ...(query.screeningDecision === ScreeningDecision.UNDECIDED
+      ? { AND: [{ OR: [{ screeningDecision: ScreeningDecision.UNDECIDED }, { screeningDecision: null }] }] }
+      : query.screeningDecision
+        ? { screeningDecision: query.screeningDecision }
+        : {}),
+    ...(q
+      ? {
+          OR: [
+            { candidate: { user: { name: { contains: q, mode: "insensitive" } } } },
+            { candidate: { user: { email: { contains: q, mode: "insensitive" } } } },
+          ],
+        }
+      : {}),
   };
 }
 
@@ -1341,16 +1075,7 @@ function mapApplicant(application: ApplicationWithIncludes | ApplicationWithDeta
     screeningDecisionPolicyVersion: application.screeningDecisionPolicyVersion,
     screeningPolicyVersion: application.screeningPolicyVersion,
     screeningCriteriaVersion: application.screeningCriteriaVersion,
-    screeningDecisionReportId: application.screeningDecisionReportId == null ? null : Number(application.screeningDecisionReportId),
     screeningDecidedAt: application.screeningDecidedAt,
-    screeningReviewerDecision: application.screeningReviewerDecision,
-    effectiveScreeningDecision: application.screeningResultConfirmedAt
-      ? application.screeningFinalDecision ?? ScreeningDecision.UNDECIDED
-      : application.screeningReviewerDecision ?? application.screeningDecision ?? ScreeningDecision.UNDECIDED,
-    screeningFinalDecision: application.screeningFinalDecision,
-    screeningDecisionOverrideReason: application.screeningDecisionOverrideReason,
-    screeningResultConfirmationStatus: application.screeningResultConfirmedAt ? "CONFIRMED" : "PENDING",
-    screeningResultConfirmedAt: application.screeningResultConfirmedAt,
     screeningMemo: application.screeningMemo,
     passMailDeliveryStatus: application.passMailDeliveryStatus,
     passMailSentAt: application.passMailSentAt,
@@ -1551,16 +1276,7 @@ function mapApplicantList(application: ApplicationWithListIncludes): ApplicantRe
     screeningDecisionPolicyVersion: application.screeningDecisionPolicyVersion,
     screeningPolicyVersion: application.screeningPolicyVersion,
     screeningCriteriaVersion: application.screeningCriteriaVersion,
-    screeningDecisionReportId: application.screeningDecisionReportId == null ? null : Number(application.screeningDecisionReportId),
     screeningDecidedAt: application.screeningDecidedAt,
-    screeningReviewerDecision: application.screeningReviewerDecision,
-    effectiveScreeningDecision: application.screeningResultConfirmedAt
-      ? application.screeningFinalDecision ?? ScreeningDecision.UNDECIDED
-      : application.screeningReviewerDecision ?? application.screeningDecision ?? ScreeningDecision.UNDECIDED,
-    screeningFinalDecision: application.screeningFinalDecision,
-    screeningDecisionOverrideReason: application.screeningDecisionOverrideReason,
-    screeningResultConfirmationStatus: application.screeningResultConfirmedAt ? "CONFIRMED" : "PENDING",
-    screeningResultConfirmedAt: application.screeningResultConfirmedAt,
     screeningMemo: application.screeningMemo,
     passMailDeliveryStatus: application.passMailDeliveryStatus,
     passMailSentAt: application.passMailSentAt,
@@ -1621,43 +1337,6 @@ function toScreeningDecisionCountMap(
     counts[key] = (counts[key] ?? 0) + row._count._all;
     return counts;
   }, {});
-}
-
-function buildConfirmationRecord(
-  rows: Array<{ screening_final_decision: ScreeningDecision | null; screening_result_confirmed_at: Date | null }>,
-  excludedCounts: Record<"UNDECIDED" | "RETRY", number>,
-  idempotent: boolean,
-  emailRecipients: ScreeningResultConfirmationRecord["emailRecipients"],
-): ScreeningResultConfirmationRecord {
-  const decisionCounts = rows.reduce<Record<"PASS" | "HOLD" | "FAIL", number>>(
-    (counts, row) => {
-      if (row.screening_final_decision === ScreeningDecision.PASS) counts.PASS += 1;
-      if (row.screening_final_decision === ScreeningDecision.HOLD) counts.HOLD += 1;
-      if (row.screening_final_decision === ScreeningDecision.FAIL) counts.FAIL += 1;
-      return counts;
-    },
-    { PASS: 0, HOLD: 0, FAIL: 0 },
-  );
-  return {
-    scopeChanged: false,
-    idempotent,
-    eligibleCount: rows.length,
-    excludedCount: excludedCounts.UNDECIDED + excludedCounts.RETRY,
-    excludedCounts,
-    confirmedCount: rows.length,
-    decisionCounts,
-    confirmedAt: rows.reduce<Date | null>((latest, row) => {
-      if (!row.screening_result_confirmed_at) return latest;
-      return !latest || row.screening_result_confirmed_at > latest ? row.screening_result_confirmed_at : latest;
-    }, null),
-    emailRecipients,
-  };
-}
-
-function isFinalScreeningDecision(
-  decision: ScreeningDecision | null,
-): decision is "PASS" | "HOLD" | "FAIL" {
-  return decision === ScreeningDecision.PASS || decision === ScreeningDecision.HOLD || decision === ScreeningDecision.FAIL;
 }
 
 function findLinkedFollowUpAnswer<T extends FollowUpAnswerCandidate>(

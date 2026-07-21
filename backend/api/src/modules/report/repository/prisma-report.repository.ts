@@ -7,10 +7,6 @@ import {
   type SaltluxFixedDemoProfileResult,
 } from "../service/saltlux-fixed-demo-finalization";
 import { PrismaService } from "../../../shared/prisma.service";
-import {
-  AUTO_SCREENING_DECISION_POLICY_VERSION,
-  decideAutoScreening,
-} from "../service/auto-screening-decision";
 import { AiProcessNotFoundError, ReportRepository } from "./report.repository";
 import {
   CommunicationAnalysis,
@@ -70,19 +66,6 @@ export class PrismaReportRepository implements ReportRepository {
           ncsAnswerEvaluations: { include: { evidences: true } },
         },
       });
-      const applicationContext = await transaction.application.findUnique({
-        where: { applicationId: BigInt(input.applicationId) },
-        include: {
-          posting: {
-            include: {
-              autoScreeningPolicy: true,
-              questionGenerationPolicy: true,
-              criteria: true,
-            },
-          },
-        },
-      });
-      if (!applicationContext) throw new Error("Saltlux demo application was not found");
       if (
         existingProcess &&
         existingReport?.status === "COMPLETED" &&
@@ -91,11 +74,7 @@ export class PrismaReportRepository implements ReportRepository {
         existingReport.scores.filter((score) => score.ncsProfileId !== null).length === result.profiles.length &&
         existingReport.scores.filter((score) => score.ncsProfileId === null && score.evidences.length > 0).length === result.profiles.length &&
         existingReport.ncsAnswerEvaluations.length === result.profiles.length &&
-        existingReport.ncsAnswerEvaluations.every((evaluation) => evaluation.evidences.length > 0) &&
-        (
-          applicationContext.posting.autoScreeningPolicy?.enabled !== true ||
-          applicationContext.screeningDecisionReportId === BigInt(input.reportId)
-        )
+        existingReport.ncsAnswerEvaluations.every((evaluation) => evaluation.evidences.length > 0)
       ) {
         return { processLogId: Number(existingProcess.processLogId), inputRef };
       }
@@ -216,50 +195,9 @@ export class PrismaReportRepository implements ReportRepository {
         });
       }
 
-      const policyRow = applicationContext.posting.autoScreeningPolicy;
-      const generationPolicy = applicationContext.posting.questionGenerationPolicy;
-      const criteria = applicationContext.posting.criteria.map((criterion) => {
-        const profile = result.profiles.find((candidate) => candidate.criterionId === Number(criterion.criterionId));
-        return {
-          active: true,
-          score: profile ? profile.score * 20 : null,
-          passScore: criterion.passScore,
-          evaluationComplete: Boolean(profile),
-        };
-      });
-      const decision = decideAutoScreening({
-        policy: policyRow?.enabled && generationPolicy?.criteriaVersion && generationPolicy.criteriaVersion > 0
-          ? {
-              enabled: true,
-              passMinTotalScore: policyRow.passMinTotalScore,
-              holdMinTotalScore: policyRow.holdMinTotalScore,
-              requireAllCriteriaPass: true,
-              policyVersion: policyRow.policyVersion,
-              decisionPolicyVersion: AUTO_SCREENING_DECISION_POLICY_VERSION,
-            }
-          : null,
-        report: { status: "COMPLETED", totalScore: result.totalScore },
-        hasTerminalSttUnavailable: false,
-        evaluationComplete: criteria.every((criterion) => criterion.evaluationComplete),
-        criteria,
-      });
-
       await transaction.application.update({
         where: { applicationId: BigInt(input.applicationId) },
-        data: {
-          reportStatus: "COMPLETED",
-          ...(decision.decision !== "UNDECIDED" && policyRow && generationPolicy
-            ? {
-                screeningDecision: decision.decision,
-                screeningDecisionReasonCode: decision.reasonCode,
-                screeningDecisionPolicyVersion: AUTO_SCREENING_DECISION_POLICY_VERSION,
-                screeningPolicyVersion: policyRow.policyVersion,
-                screeningCriteriaVersion: generationPolicy.criteriaVersion,
-                screeningDecisionReportId: BigInt(input.reportId),
-                screeningDecidedAt: new Date(),
-              }
-            : {}),
-        },
+        data: { reportStatus: "COMPLETED" },
       });
 
       const outputRef = JSON.stringify({
