@@ -94,6 +94,7 @@ DTO와 API client 타입은 아래 naming을 따른다. 같은 요청/응답 타
 | `applications` | `interview_status` | D | B/E |
 | `applications` | `report_status` | E | B/D |
 | `applications` | `screening_decision`, 자동 판정 reason/version/decided_at | E | B/D 제한 조회, C 정책 연동 |
+| `applications` | reviewer/final decision, override reason, result confirmed_at/by | B | D는 확정된 final decision만 제한 조회, E 쓰기 금지 |
 | `applications` | `screening_memo` | B | E 읽기 금지, D 지원자 응답 비노출 |
 | `interview_sessions` | 세션 생성/시작/완료, `status` | D | E |
 | `interview_session_questions` | 세션별 질문 연결과 표시 순서 | D | E |
@@ -125,12 +126,12 @@ DTO와 API client 타입은 아래 naming을 따른다. 같은 요청/응답 타
 | `ADMIN` | 운영/검증 API | read/manage | MVP에서는 최소화하고 별도 관리자 API 추가 시 문서 갱신 |
 | `COMPANY` | own company profile | read/update | `CurrentUser.companyId`와 resource `companyId` 일치 |
 | `COMPANY` | own postings | create/read/update/archive | `postings.company_id = CurrentUser.companyId` |
-| `COMPANY` | own applicants/applications | read automatic screening result, update internal memo/invite | application이 자기 회사 공고에 속해야 함. 자동 판정 결과 직접 변경 금지 |
+| `COMPANY` | own applicants/applications | read automatic screening result, edit reviewer decision before confirmation, confirm posting results, update internal memo/invite | 자동 판정 원본은 변경 금지. 미확정 PASS/HOLD/FAIL만 검토 초안 수정, 공고 단위 일괄 확정 |
 | `COMPANY` | reports for own postings | read company report | 지원자 제한용 field를 제외한 기업용 report |
 | `CANDIDATE` | own profile/documents | read/update/upload | `CurrentUser.candidateId`와 resource `candidateId` 일치 |
 | `CANDIDATE` | public/open postings | read/apply | 공고가 공개/지원 가능 상태 |
 | `CANDIDATE` | own applications/interviews | read/start/answer/complete | application이 본인 소유이고 응시 기간/동의/장치 점검 조건 충족 |
-| `CANDIDATE` | own reports | read limited candidate report | 기업 내부 메모, screening memo, 전체 평가 근거는 노출 금지 |
+| `CANDIDATE` | own reports | read confirmed limited candidate result | 면접관 확정 전 판정·리포트 비노출. 기업 내부 메모, screening memo, 전체 평가 근거는 항상 노출 금지 |
 | Worker/System | AI process/report generation and automatic screening decision | update AI-owned fields and applications automatic screening projection | queue message, process log와 policy snapshot 기준. public controller에서 직접 호출 금지 |
 | `ADMIN` | RETRY 상태의 REPORT 재처리 | explicit retry/create and status read | API-100, 활성 REPORT job 멱등성, audit process log 필수 |
 
@@ -139,11 +140,11 @@ DTO와 API client 타입은 아래 naming을 따른다. 같은 요청/응답 타
 | Module | Owns | Reads | Representative APIs | Notes |
 | --- |--- |--- |--- |--- |
 | auth-common | users, companies, candidate_profiles | Redis/TTL cache | /auth/* | 이메일 인증 코드는 DB 저장 금지 |
-| company | postings, evaluation_criteria, auto_screening_policies, question_bank, applications screening memo | reports, candidate_profiles, automatic screening result | /company/* | 기업은 기준을 설정하고 지원자별 자동 판정 결과를 직접 변경하지 않음 |
+| company | postings, evaluation_criteria, auto_screening_policies, question_bank, applications screening memo/reviewer decision/result confirmation | reports, candidate_profiles, automatic screening result | /company/* | 자동판정 원본을 보존하고 필요한 지원자만 검토 초안을 수정한 뒤 공고 단위로 확정·알림 등록 |
 | candidate-interview | interview_sessions, interview_session_questions, interview_answers, consent_records | applications, postings, question_bank | /candidate/*interview* | 모의면접과 채용면접은 `interview_type`으로 분리 |
 | ai-report | evaluation_reports, report_scores, report_evidences, ai_process_logs, ai_guardrail_logs, embeddings, applications automatic screening projection | documents, answers, criteria, auto screening policy | /reports/*, /ai/* | 가드레일 통과 전 결과 저장 금지, 점수 없음은 RETRY |
 | file-storage | file_assets | users | /candidate/resume, /company/profile/logo | 원본 파일은 Object Storage |
-| notification | notifications | users, applications | invitation/notification endpoints | 메일 발송 실패 상태 기록 |
+| notification | notifications | users, applications | invitation/notification endpoints | 결과 확정 IN_APP/EMAIL 알림 멱등 등록, 메일 발송 실패 상태 기록 |
 
 ## API Distribution
 

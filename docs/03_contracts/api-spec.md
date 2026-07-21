@@ -739,7 +739,7 @@ AI 리포트 금지 기준:
   - 공고 ID
   - pagination: `page`(기본 1), `limit`(기본 20, 최대 100)
   - 검색: `q` 또는 호환 alias `keyword`로 지원자 이름·이메일 부분 검색
-  - 상태 필터: `applicationStatus`, `documentStatus`, `interviewStatus`, `reportStatus`, `screeningDecision`
+  - 상태 필터: `applicationStatus`, `documentStatus`, `interviewStatus`, `reportStatus`, `screeningDecision`(호환), `effectiveScreeningDecision`, `screeningResultConfirmationStatus`
   - 정렬: `sort=updatedAt|applicationStatus|interviewStatus|reportStatus|score`, `order=asc|desc`
 - 검증/전제조건:
   - 공고 조회 권한 보유
@@ -748,6 +748,10 @@ AI 리포트 금지 기준:
   - 기본 지원자 목록과 pagination count는 `application_status != CANCELED`인 활성 지원 건만 포함한다. 취소 이력은 DB에서 삭제하지 않는다.
   - 검색과 복수 상태 필터는 AND로 결합한다.
   - 목록 응답은 화면 행에 필요한 지원자·최신 면접 세션·최신 리포트 요약만 반환하며, 점수 근거·답변·서류 본문은 API-020 상세 조회에서 반환한다.
+  - 각 행은 `screeningDecision`(자동판정), `screeningReviewerDecision`, `effectiveScreeningDecision`, `finalScreeningDecision`, `screeningResultConfirmationStatus`를 반환한다.
+  - 화면은 `effectiveScreeningDecision` 기준 `PASS`, `HOLD`, `FAIL` 그룹과 count를 먼저 표시한다. `UNDECIDED | RETRY`는 `재처리/확인 필요` 그룹에 분리한다.
+  - 사용자는 목록 전체를 하나씩 체크하지 않는다. 필요한 지원자만 상세 화면으로 이동하거나 목록 편집 UI에서 API-012R을 호출한다.
+  - 미확정 결과가 있으면 공고 단위 `결과 확정` 버튼과 확정 가능/제외 인원을 표시한다.
   - 정렬 값이 같은 경우 `applicationId`를 보조 정렬 키로 사용해 페이지 경계의 순서를 안정화한다.
   - `sort=score`는 최신 리포트의 `totalScore` 기준이며 점수가 없는 지원자는 뒤에 배치한다. 동점이면 지원일 빠른 순, applicationId 오름차순으로 안정화한다.
 - 오류/예외:
@@ -772,8 +776,11 @@ AI 리포트 금지 기준:
 - 성공 응답/처리:
   - `activeTotal`: `application_status != CANCELED`인 활성 지원 건 수
   - `canceledHistoryTotal`: 취소 이력 수
-  - `applicationStatusCounts`, `documentStatusCounts`, `interviewStatusCounts`, `reportStatusCounts`, `screeningDecisionCounts`: 활성 지원 건의 상태별 수
-  - `attentionRequiredTotal`: 서류·면접·리포트 중 하나가 `FAILED`이거나 전형 판정이 `UNDECIDED`인 활성 지원 건 수
+  - `applicationStatusCounts`, `documentStatusCounts`, `interviewStatusCounts`, `reportStatusCounts`: 활성 지원 건의 상태별 수
+  - `effectiveScreeningDecisionCounts`: reviewer decision이 있으면 이를 우선한 `PASS | HOLD | FAIL | UNDECIDED | RETRY` count
+  - `confirmationStatusCounts`: `PENDING | CONFIRMED` count
+  - `confirmationEligibleTotal`: 자동판정이 `PASS | HOLD | FAIL`이고 아직 확정되지 않은 활성 지원 건 수
+  - `attentionRequiredTotal`: 서류·면접·리포트 중 하나가 `FAILED`이거나 전형 판정이 `UNDECIDED | RETRY`인 활성 지원 건 수
   - 상태별 count map에 키가 없으면 0으로 해석한다.
 - 오류/예외:
   - 공고 정보가 없거나 권한이 없으면 404를 반환한다.
@@ -793,6 +800,7 @@ AI 리포트 금지 기준:
 - Request Body:
   - `targetPassCount`: number, required, 0 이상 5000 이하 정수
 - 검증/전제조건:
+  - 자동 전형 판정 정책이 활성화된 공고에서는 이 legacy API를 사용하지 않고 API-012R 검토와 API-012C 일괄 확정 흐름을 사용한다. 호출 시 `409 COMMON_CONFLICT`, `reason=SCREENING_DECISION_SYSTEM_MANAGED`를 반환한다.
   - 공고 조회 권한 보유
   - 목표 인원만큼 최종 합격 대상을 선정할 수 있도록 `PASS` 또는 `FAIL` 판정이 완료된 활성 지원자가 있어야 한다.
 - 성공 응답/처리:
@@ -888,6 +896,75 @@ AI 리포트 금지 기준:
   - companies, candidate_profiles, postings, applications, evaluation_reports, report_scores, report_evidences, manual_evaluations
 - 비고/미결:
   - 자동 판정 계약은 `automatic-screening-decision.md`를 따른다.
+
+### API-012R PATCH /company/applicants/{applicantId}/screening-review
+- 도메인: 기업 - 지원자/리포트
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 지원자 평가 상세 화면 (/company/applicants/{applicantId}/evaluation)
+- UI Type: form
+- 상태 코드: 200 OK, 409 Conflict
+- 비동기: N
+- Path Params: applicantId
+- 요청 데이터:
+  - `screeningReviewerDecision: PASS | HOLD | FAIL | null`
+  - `overrideReason?: string | null`
+- 검증/전제조건:
+  - 자기 회사 공고에 연결된 지원자만 수정할 수 있다.
+  - 현재 자동판정이 `PASS | HOLD | FAIL` 중 하나이고 유효한 report/policy/criteria snapshot을 가져야 한다.
+  - 이미 공고 결과가 확정된 지원자는 수정할 수 없다.
+  - 자동판정과 다른 값을 저장하면 trim 기준 10~1000자 `overrideReason`이 필수다.
+  - `screeningReviewerDecision=null`은 자동판정 유지로 초기화하며 변경 사유도 NULL로 만든다.
+- 성공 응답/처리:
+  - 검토 초안과 변경 사유를 저장하고 `effectiveScreeningDecision=screeningReviewerDecision ?? screeningDecision`을 반환한다.
+  - 목록의 합격/보류/불합격 그룹과 count는 effective decision 기준으로 갱신한다.
+- 오류/예외:
+  - `UNDECIDED | RETRY`: `COMMON_CONFLICT`, `reason=SCREENING_DECISION_NOT_REVIEWABLE`
+  - 확정 완료: `COMMON_CONFLICT`, `reason=SCREENING_RESULT_ALREADY_CONFIRMED`
+  - 변경 사유 누락/범위 오류: `COMMON_VALIDATION_FAILED`
+- 관련 ERD 테이블:
+  - users, postings, applications, evaluation_reports
+
+### API-012C POST /company/recruitments/{recruitmentId}/screening-results/confirm
+- 도메인: 기업 - 지원자/리포트
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 공고별 지원자 관리 화면 (/company/recruitments/{recruitmentId})
+- UI Type: confirmation dialog + button
+- 상태 코드: 200 OK, 409 Conflict
+- 비동기: N
+- Path Params: recruitmentId
+- 요청 데이터:
+  - `expectedEligibleCount: number`
+- 프론트 확인 계약:
+  - 버튼 클릭 시 현재 `PASS`, `HOLD`, `FAIL` 인원, 총 확정 대상, `UNDECIDED | RETRY` 제외 인원을 Alert 또는 modal에 표시한다.
+  - 문구는 `정말 확정하시겠습니까? 확정 후 지원자에게 알림이 발송되며 결과를 변경할 수 없습니다.`를 포함한다.
+  - 사용자가 두 번째 `확정`을 눌러야 API를 호출하며 `취소`하면 아무 상태도 변경하지 않는다.
+- 검증/전제조건:
+  - 자기 회사 공고만 확정할 수 있다.
+  - 판정 가능한 미확정 지원자는 자동판정이 `PASS | HOLD | FAIL`이며 final decision이 없어야 한다.
+  - 서버가 다시 계산한 판정 가능 미확정 인원과 `expectedEligibleCount`가 같아야 한다.
+- 성공 응답/처리:
+  - 공고와 대상 application row를 잠근 transaction에서 각 행의 `finalScreeningDecision=effectiveScreeningDecision`, 확정 시각, 확정자 FK를 저장한다.
+  - 같은 transaction에서 대상 지원자별 `IN_APP/SCREENING_RESULT_CONFIRMED` 알림을 생성하고 `EMAIL/SCREENING_RESULT_CONFIRMED` 알림을 `PENDING`으로 등록한다.
+  - `UNDECIDED | RETRY`는 변경하지 않고 제외 건수로 반환한다.
+  - transaction commit 이후 API-073과 API-074가 확정된 최종 결과를 각 지원자에게 반환한다.
+  - 동일 범위 재호출은 기존 결과와 알림 상태를 반환하며 중복 알림을 만들지 않는다.
+  - Response envelope: `{ data, meta }`
+  - `data.recruitmentId: number`
+  - `data.confirmedCount: number`
+  - `data.confirmedCounts: { PASS: number, HOLD: number, FAIL: number }`
+  - `data.excludedCounts: { UNDECIDED: number, RETRY: number }`
+  - `data.confirmedAt: string`
+- 오류/예외:
+  - 대상 인원 변경: `COMMON_CONFLICT`, `reason=SCREENING_CONFIRMATION_SCOPE_CHANGED`
+  - 공고 없음: `COMMON_NOT_FOUND`
+  - 다른 회사 공고: `COMMON_FORBIDDEN`
+  - 알림 등록 transaction 실패 시 확정도 rollback한다.
+  - transaction 이후 이메일 전송 실패는 확정과 포털 공개를 rollback하지 않고 notification을 `FAILED`로 남긴다.
+- 관련 ERD 테이블:
+  - users, candidate_profiles, postings, applications, evaluation_reports, notifications
+- 비고/미결:
+  - V1은 확정 취소와 확정 후 결과 변경을 제공하지 않는다.
+  - 결과 공개 및 알림 멱등 계약은 `automatic-screening-decision.md`를 따른다.
 
 ## 공개 - 채용공고/지원
 
@@ -1181,8 +1258,9 @@ AI 리포트 금지 기준:
   - 지원자 조회 권한 보유
 - 성공 응답/처리:
   - 지원자 기본 정보, 지원/면접/리포트 상태, 전형 상태/메모 표시
-  - 자동 판정 projection으로 `screeningDecision`, `screeningDecisionReasonCode`, `screeningDecisionPolicyVersion`, `screeningPolicyVersion`, `screeningCriteriaVersion`, `screeningDecidedAt`을 반환한다.
+  - 자동·검토·최종 판정 projection으로 `screeningDecision`, `screeningReviewerDecision`, `effectiveScreeningDecision`, `finalScreeningDecision`, `screeningDecisionOverrideReason`, 자동판정 reason/version, `screeningResultConfirmationStatus`, 확정 시각을 반환한다.
   - `screeningDecision=PASS | HOLD | FAIL`이면 유효 총점이 존재해야 하며, `RETRY`이면 점수를 0으로 대체하지 않는다.
+  - `screeningResultConfirmationStatus=PENDING`이어도 기업 사용자는 자동판정과 전체 리포트를 먼저 조회하고 API-012R로 검토 결과를 수정하거나 자동판정으로 초기화할 수 있다. 화면에는 `지원자에게 아직 공개되지 않음`을 표시한다.
   - `submission`에 제출 당시 `name`, `email`, `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `motivation`, `additionalInfo`를 반환한다.
   - 신규 회원 지원서는 `submission.profileSnapshot`에 제출 당시 `summary`, `coverLetter`, `educations`, `careers`, `activities`, `credentials`를 포함한 `CandidateProfileSnapshotV1`을 반환한다.
   - `submission.documents`에 `documentId`, `fileId`, `documentType`, `originalName`, `mimeType`, `sizeBytes`, `uploadedAt`을 반환한다.
@@ -1807,7 +1885,8 @@ AI 리포트 금지 기준:
   - `sortOrder`는 요청 배열 안에서 중복될 수 없음
   - `passScore`는 nullable이며 값이 있으면 정책 점수 범위 안이어야 함
   - `screeningPolicy.enabled=true`이면 활성 criteria의 `passScore`는 모두 0~100 정수여야 한다.
-  - `0 <= screeningPolicy.holdMinTotalScore < screeningPolicy.passMinTotalScore <= 100`을 만족해야 한다.
+  - `0 <= screeningPolicy.holdMinTotalScore <= screeningPolicy.passMinTotalScore <= 100`을 만족해야 한다.
+  - 두 하한선이 같으면 총점 HOLD 구간을 사용하지 않는다. 설정 화면의 `보류 구간 사용 안 함`은 별도 DB 필드가 아니라 두 값을 같게 저장하는 방식으로 표현한다.
   - `screeningPolicy.requireAllCriteriaPass`는 V1에서 `true`만 허용한다.
   - `description`은 공용 태그 설명을 변경하지 않고 해당 공고의 평가 기준 설명 스냅샷으로 저장한다.
   - `description`을 생략하면 기존 기준 설명을 유지하며, 신규 기준이면 태그 기본 설명을 사용한다.
@@ -3466,17 +3545,16 @@ CandidateFolder 입력 제한:
 - 검증/전제조건:
   - 본인 지원 건이며 응시 완료 상태
 - 성공 응답/처리:
-  - 응시 결과 또는 제한된 피드백 표시
-  - 시스템 자동 판정 결과 `screeningDecision`을 `UNDECIDED | PASS | HOLD | FAIL | RETRY`로 반환한다.
-  - `PASS | HOLD | FAIL`은 판정 가능한 점수가 존재할 때만 반환한다.
-  - 리포트 실패, 점수 없음, 평가 불완전 또는 STT terminal 실패는 `RETRY`로 반환하며 0점 또는 `FAIL`로 변환하지 않는다.
-  - 자동 판정 결과는 저장 즉시 지원자에게 공개한다. 별도 발표·게시 상태는 두지 않는다.
-  - `UNDECIDED`는 리포트 생성 대기/진행 또는 정책 미설정 상태이며 지원자 화면에서 `결과 확인 중`으로 표시한다.
-  - `RETRY`여도 제한 결과 projection을 반환하며 내부 reason code, 점수, 기준 하한선과 기업 메모는 포함하지 않는다.
+  - 면접관 확정 전에는 결과 검토 중 상태를, 확정 후에는 제한된 결과를 표시한다.
+  - `resultPublicationStatus: PENDING | CONFIRMED`를 항상 반환한다.
+  - 공고 결과 확정 전에는 내부 자동판정·검토 초안이 존재해도 `resultPublicationStatus=PENDING`, `screeningDecision=null`로 반환하고 리포트·점수·reason code를 노출하지 않는다.
+  - 공고 결과 확정 후에만 `resultPublicationStatus=CONFIRMED`, `screeningDecision=finalScreeningDecision`, `confirmedAt`을 반환한다.
+  - `UNDECIDED | RETRY`는 확정할 수 없으며 지원자에게 내부 상태를 노출하지 않고 `결과 검토 중`으로 표시한다.
+  - 확정 후에도 내부 점수, 기준별 하한선, `screeningDecisionReasonCode`, 기업 메모와 확정자 정보는 포함하지 않는다.
 - 오류/예외:
   - 리포트 생성 중이면 처리 상태를 표시하고 접근 제한 항목은 안내 문구를 표시한다.
 - 관련 ERD 테이블:
-  - companies, candidate_profiles, postings, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, ai_process_logs
+  - companies, candidate_profiles, postings, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, notifications, ai_process_logs
 - 비고/미결:
   - reportType=RECRUITING_REPORT, 지원자 제한 조회
   - 기업 내부 메모, 수동 평가 상세, AI 근거·내부 점수는 지원자 응답에 포함하지 않는다.
@@ -3496,13 +3574,13 @@ CandidateFolder 입력 제한:
   - 본인 지원 건
 - 성공 응답/처리:
   - 전형 상태 표시
-  - 시스템 자동 판정 결과 `screeningDecision`을 `UNDECIDED | PASS | HOLD | FAIL | RETRY`로 반환한다.
-  - 전형 결정은 저장 즉시 공개한다. `UNDECIDED`는 `결과 확인 중`, `RETRY`는 `평가 재시도`로 표시한다.
-  - `PASS | HOLD | FAIL`은 유효 점수가 있는 경우에만 허용하며 `RETRY`를 전형 종료로 표시하지 않는다.
+  - `resultPublicationStatus: PENDING | CONFIRMED`를 반환한다.
+  - 공고 결과 확정 전 또는 내부 자동판정이 `UNDECIDED | RETRY`이면 `PENDING`, `screeningDecision=null`과 `결과 검토 중`을 반환한다.
+  - 공고 결과 확정 후에만 `CONFIRMED`, `screeningDecision=finalScreeningDecision`, `confirmedAt`을 반환한다.
 - 오류/예외:
   - 상태 조회 실패 시 다시 조회 버튼을 제공한다.
 - 관련 ERD 테이블:
-  - companies, candidate_profiles, postings, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, manual_evaluations, ai_process_logs
+  - companies, candidate_profiles, postings, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, manual_evaluations, notifications, ai_process_logs
 - 비고/미결:
   - 기업용 합격/탈락 내부 메모와 수동 평가 상세는 노출하지 않음
   - 지원자 응답에는 `screeningDecisionReasonCode`를 포함하지 않는다.
@@ -3706,7 +3784,7 @@ CandidateFolder 입력 제한:
   - 필수 질문 응답 완료
 - 성공 응답/처리:
   - 분석 대기 상태로 전환
-  - `SALTLUX_AI_BACKEND_V1 + DEMO_PRESET`은 세션 완료 후 API가 고정 3문항 답변과 NCS snapshot을 검증하고 총점, 역량별 점수, 문항별 평가와 evidence를 동기 확정한다. 응답 시점의 report/process 상태는 `COMPLETED`이며 SQS를 발행하지 않는다. 동일 요청은 기존 완료 결과를 멱등 반환한다.
+  - `SALTLUX_AI_BACKEND_V1 + DEMO_PRESET`은 세션 완료 후 API가 고정 3문항 답변과 NCS snapshot을 검증하고 총점, 역량별 점수, 문항별 평가와 evidence를 동기 확정한다. 같은 transaction에서 동일 리포트 점수와 공고의 총점·기준별 커트라인을 일반 자동판정 규칙에 적용해 `PASS | HOLD | FAIL`을 저장한다. 리포트 또는 AI 평가를 다시 생성하지 않는다. 응답 시점의 report/process 상태는 `COMPLETED`이며 SQS를 발행하지 않는다. 동일 요청은 기존 완료 결과를 멱등 반환한다. 자동판정은 면접관에게만 먼저 노출하고 API-012C 확정 전에는 지원자에게 공개하지 않는다.
 - 오류/예외:
   - 업로드 지연 시 분석 대기 상태로 표시하고 재시도를 수행한다.
 - 관련 ERD 테이블:
@@ -3796,6 +3874,28 @@ CandidateFolder 입력 제한:
   - candidate_profiles, postings, applications, application_documents, interview_sessions, notifications, ai_process_logs
 - 비고/미결:
   - MVP 후순위
+
+### API-078A GET /candidate/notifications/screening-results
+- 도메인: 지원자 - 마이페이지
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 지원자 마이페이지 및 지원현황 화면
+- UI Type: section
+- 상태 코드: 200 OK
+- 비동기: N
+- 요청 데이터: 없음
+- 검증/전제조건:
+  - 로그인한 지원자 본인의 `SCREENING_RESULT_CONFIRMED` 알림만 조회한다.
+- 성공 응답/처리:
+  - 면접관 확정 transaction에서 생성된 IN_APP 알림을 최신순으로 반환한다.
+  - 각 항목은 `notificationId`, `applicationId`, `notificationType`, `sentAt`과 결과 화면 이동 정보를 포함한다.
+  - 상세 `screeningDecision`은 알림 payload에 복제하지 않고 API-073 또는 API-074에서 확정 상태를 재검증해 조회한다.
+- 오류/예외:
+  - 이메일 발송이 `FAILED`여도 IN_APP 알림과 확정 결과 조회는 유지한다.
+  - 다른 지원자의 알림은 반환하지 않는다.
+- 관련 ERD 테이블:
+  - users, candidate_profiles, applications, notifications
+- 비고/미결:
+  - 전형 결과 공개 조건은 `automatic-screening-decision.md`를 따른다.
 
 ### Answer Nonverbal Metadata Addendum
 - Applies to:
