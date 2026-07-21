@@ -516,10 +516,19 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
       counts[decision] = (counts[decision] ?? 0) + 1;
       return counts;
     }, {});
-    const confirmationEligibleTotal = screeningResultRows.filter((row) =>
-      row.screeningResultConfirmedAt === null &&
-      isFinalScreeningDecision(row.screeningReviewerDecision ?? row.screeningDecision)
-    ).length;
+    const confirmationEligibleDecisionCounts: Record<"PASS" | "HOLD" | "FAIL", number> = {
+      PASS: 0,
+      HOLD: 0,
+      FAIL: 0,
+    };
+    for (const row of screeningResultRows) {
+      const decision = row.screeningReviewerDecision ?? row.screeningDecision;
+      if (row.screeningResultConfirmedAt === null && isFinalScreeningDecision(decision)) {
+        confirmationEligibleDecisionCounts[decision] += 1;
+      }
+    }
+    const confirmationEligibleTotal = Object.values(confirmationEligibleDecisionCounts)
+      .reduce((total, count) => total + count, 0);
     const confirmedTotal = screeningResultRows.filter((row) => row.screeningResultConfirmedAt !== null).length;
 
     return {
@@ -532,6 +541,7 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
       screeningDecisionCounts: toScreeningDecisionCountMap(screeningDecisions),
       effectiveScreeningDecisionCounts,
       confirmationEligibleTotal,
+      confirmationEligibleDecisionCounts,
       confirmedTotal,
       excludedTotal: screeningResultRows.length - confirmationEligibleTotal - confirmedTotal,
       attentionRequiredTotal,
@@ -658,16 +668,12 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
     companyId: number,
     input: UpdateApplicationScreeningInput,
   ): Promise<ApplicantRecord | null> {
-    const ownedApplication = await this.prisma.application.findFirst({
-      where: { applicationId: BigInt(applicationId), posting: { companyId: BigInt(companyId) } },
-      select: { applicationId: true },
-    });
-    if (!ownedApplication) {
-      return null;
-    }
-
-    const application = await this.prisma.application.update({
-      where: { applicationId: BigInt(applicationId) },
+    const updated = await this.prisma.application.updateMany({
+      where: {
+        applicationId: BigInt(applicationId),
+        posting: { companyId: BigInt(companyId) },
+        screeningResultConfirmedAt: null,
+      },
       data: {
         screeningDecision: input.screeningDecision,
         screeningMemo: input.screeningMemo,
@@ -678,9 +684,14 @@ export class PrismaCompanyRecruitingRepository implements CompanyRecruitingRepos
         screeningDecisionReportId: null,
         screeningDecidedAt: null,
       },
+    });
+    if (updated.count === 0) return null;
+
+    const application = await this.prisma.application.findUnique({
+      where: { applicationId: BigInt(applicationId) },
       include: applicantInclude,
     });
-    return mapApplicant(application);
+    return application ? mapApplicant(application) : null;
   }
 
   async updateApplicationScreeningReview(

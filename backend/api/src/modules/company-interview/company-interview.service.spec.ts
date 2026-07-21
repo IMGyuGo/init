@@ -438,7 +438,24 @@ describe('CompanyInterviewService', () => {
     assert.equal(criterionThresholdChanged.screeningPolicy?.policyVersion, 3);
   });
 
-  it('rejects invalid automatic screening thresholds and missing active pass scores', async () => {
+  it.each([80, 90])('allows an equal PASS/HOLD threshold at %i for the Saltlux cutoff scenario', async (threshold) => {
+    const service = createService();
+    const result = await service.updateEvaluationCriteria(companyUser, {
+      postingId: 1,
+      criteria: [{ criterionId: 1, tagId: 1, weight: 100, passScore: 70, sortOrder: 1 }],
+      screeningPolicy: {
+        enabled: true,
+        passMinTotalScore: threshold,
+        holdMinTotalScore: threshold,
+        requireAllCriteriaPass: true,
+      },
+    });
+
+    assert.equal(result.screeningPolicy?.passMinTotalScore, threshold);
+    assert.equal(result.screeningPolicy?.holdMinTotalScore, threshold);
+  });
+
+  it('rejects a HOLD threshold above PASS and missing active pass scores', async () => {
     const service = createService();
     await assert.rejects(
       () => service.updateEvaluationCriteria(companyUser, {
@@ -447,7 +464,7 @@ describe('CompanyInterviewService', () => {
         screeningPolicy: {
           enabled: true,
           passMinTotalScore: 50,
-          holdMinTotalScore: 50,
+          holdMinTotalScore: 51,
           requireAllCriteriaPass: true,
         },
       }),

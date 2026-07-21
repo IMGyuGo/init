@@ -218,6 +218,7 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         screeningDecisionCounts: {},
         effectiveScreeningDecisionCounts: {},
         confirmationEligibleTotal: 0,
+        confirmationEligibleDecisionCounts: { PASS: 0, HOLD: 0, FAIL: 0 },
         confirmedTotal: 0,
         excludedTotal: 0,
         attentionRequiredTotal: 0,
@@ -2926,6 +2927,59 @@ describe("CompanyRecruitingService", () => {
       7,
       { screeningDecision: "HOLD", screeningMemo: "추가 확인 필요" },
     ]);
+  });
+
+  it("rejects legacy manual screening changes after the result is confirmed", async () => {
+    const confirmedApplicant = createApplicantRecord({
+      screeningDecision: "PASS",
+      effectiveScreeningDecision: "PASS",
+      screeningFinalDecision: "PASS",
+      screeningResultConfirmationStatus: "CONFIRMED",
+      screeningResultConfirmedAt: new Date("2026-07-21T12:30:00.000Z"),
+    });
+    const repository = createRepository({
+      async findApplicationForCompany() {
+        return confirmedApplicant;
+      },
+    });
+
+    await assert.rejects(
+      new CompanyRecruitingService(repository).updateScreeningStatus(companyUser, 77, {
+        screeningDecision: "FAIL",
+        screeningMemo: "확정 후 변경 시도",
+      }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "COMMON_CONFLICT" &&
+        "getStatus" in error &&
+        typeof error.getStatus === "function" &&
+        error.getStatus() === 409,
+    );
+  });
+
+  it("returns a conflict when confirmation wins the legacy manual update race", async () => {
+    const repository = createRepository({
+      async updateApplicationScreening() {
+        return null;
+      },
+    });
+
+    await assert.rejects(
+      new CompanyRecruitingService(repository).updateScreeningStatus(companyUser, 77, {
+        screeningDecision: "HOLD",
+        screeningMemo: "동시 확정 충돌",
+      }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "COMMON_CONFLICT" &&
+        "getStatus" in error &&
+        typeof error.getStatus === "function" &&
+        error.getStatus() === 409,
+    );
   });
 
   it("returns automatic screening details and allows manual override after the report decision is complete", async () => {

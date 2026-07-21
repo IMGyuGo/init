@@ -47,6 +47,7 @@ export type ApplicantSummaryRecord = {
   screeningDecisionCounts: Partial<Record<ScreeningDecisionValue, number>>;
   effectiveScreeningDecisionCounts: Partial<Record<ScreeningDecisionValue, number>>;
   confirmationEligibleTotal: number;
+  confirmationEligibleDecisionCounts: Record<"PASS" | "HOLD" | "FAIL", number>;
   confirmedTotal: number;
   excludedTotal: number;
   attentionRequiredTotal: number;

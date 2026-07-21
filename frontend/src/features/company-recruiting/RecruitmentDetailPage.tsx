@@ -25,6 +25,7 @@ import {
   canEditScreeningDecision,
   getApplicantSortQuery,
   getApplicantSummaryMetrics,
+  getScreeningConfirmationPreview,
   type ApplicantSort,
 } from "./applicant-list";
 import { BackButton, Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
@@ -190,6 +191,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
 
   const { activeTotal, reportCompleted, completionRate } = getApplicantSummaryMetrics(applicantSummary);
   const effectiveCounts = applicantSummary?.effectiveScreeningDecisionCounts ?? {};
+  const confirmationPreview = getScreeningConfirmationPreview(applicantSummary);
 
   async function handlePublicApplicationLinkCopy() {
     if (!recruitment) {
@@ -779,14 +781,14 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
               </div>
               <h2 id="screening-confirm-title" className="open-confirm-title">전형 결과를 정말 확정하시겠습니까?</h2>
               <p id="screening-confirm-description" className="open-confirm-desc">
-                확정 대상 {(applicantSummary?.confirmationEligibleTotal ?? 0)}명의 PASS·HOLD·FAIL 결과가 지원자에게 공개되고 알림이 발송됩니다. 확정 후에는 이 화면에서 수정할 수 없습니다.
+                확정 대상 {confirmationPreview.eligibleTotal}명의 PASS·HOLD·FAIL 결과가 지원자에게 공개되고 알림이 발송됩니다. 확정 후에는 이 화면에서 수정할 수 없습니다.
               </p>
               <p className="open-confirm-desc">
-                합격 {effectiveCounts.PASS ?? 0}명 · 보류 {effectiveCounts.HOLD ?? 0}명 · 불합격 {effectiveCounts.FAIL ?? 0}명
+                합격 {confirmationPreview.eligibleDecisionCounts.PASS}명 · 보류 {confirmationPreview.eligibleDecisionCounts.HOLD}명 · 불합격 {confirmationPreview.eligibleDecisionCounts.FAIL}명
               </p>
-              {((effectiveCounts.UNDECIDED ?? 0) + (effectiveCounts.RETRY ?? 0)) > 0 ? (
+              {(confirmationPreview.excludedDecisionCounts.UNDECIDED + confirmationPreview.excludedDecisionCounts.RETRY) > 0 ? (
                 <p className="notice">
-                  미판정 {effectiveCounts.UNDECIDED ?? 0}명 · 재처리 {effectiveCounts.RETRY ?? 0}명은 이번 확정에서 제외됩니다.
+                  미판정 {confirmationPreview.excludedDecisionCounts.UNDECIDED}명 · 재처리 {confirmationPreview.excludedDecisionCounts.RETRY}명은 이번 확정에서 제외됩니다.
                 </p>
               ) : null}
               <div className="open-confirm-actions">

@@ -780,6 +780,7 @@ AI 리포트 금지 기준:
   - `effectiveScreeningDecisionCounts`: reviewer decision이 있으면 이를 우선한 `PASS | HOLD | FAIL | UNDECIDED | RETRY` count
   - `confirmationStatusCounts`: `PENDING | CONFIRMED` count
   - `confirmationEligibleTotal`: 자동판정이 `PASS | HOLD | FAIL`이고 아직 확정되지 않은 활성 지원 건 수
+  - `confirmationEligibleDecisionCounts`: 아직 확정되지 않은 판정 가능 지원 건의 `PASS | HOLD | FAIL`별 count. 합계는 `confirmationEligibleTotal`과 같아야 한다.
   - `attentionRequiredTotal`: 서류·면접·리포트 중 하나가 `FAILED`이거나 전형 판정이 `UNDECIDED | RETRY`인 활성 지원 건 수
   - 상태별 count map에 키가 없으면 0으로 해석한다.
 - 오류/예외:
@@ -884,12 +885,14 @@ AI 리포트 금지 기준:
   - `RETRY`는 system-only 상태이므로 이 API에서 입력할 수 없다.
 - 검증/전제조건:
   - 자기 회사 공고에 연결된 지원자만 수정 가능
+  - 이미 결과가 확정된 지원자는 수정할 수 없다.
   - 자동 판정 정책이 활성화된 공고는 리포트 판정이 완료된 뒤에만 수동 변경할 수 있다.
   - 완료 기준은 `reportStatus=COMPLETED`이고 현재 `screeningDecision`이 `PASS`, `HOLD`, `FAIL` 중 하나인 상태다.
 - 성공 응답/처리:
   - 수동 변경 결과를 반환한다.
   - 수동 변경 시 자동 판정 snapshot 필드(`screeningDecisionReasonCode`, policy/criteria version, report id, decidedAt)는 비운다.
 - 오류/예외:
+  - 확정 완료: `COMMON_CONFLICT`, `reason=SCREENING_RESULT_ALREADY_CONFIRMED`
   - 자동 판정 활성 공고에서 리포트 판정 완료 전이면 `COMMON_CONFLICT`, `reason=SCREENING_DECISION_NOT_READY`를 반환한다.
   - 허용되지 않은 전형 상태, 권한 없는 지원자, 존재하지 않는 지원자이면 오류를 반환한다.
 - 관련 ERD 테이블:

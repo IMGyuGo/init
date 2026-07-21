@@ -926,6 +926,11 @@ export class CompanyRecruitingService {
         [{ field: "screeningDecision", reason: "SCREENING_DECISION_SYSTEM_MANAGED" }],
       );
     }
+    if (existing.screeningResultConfirmationStatus === "CONFIRMED") {
+      throw new CompanyRecruitingException(409, ERROR_CODES.COMMON_CONFLICT, "이미 확정된 결과는 변경할 수 없습니다.", [
+        { field: "screeningDecision", reason: "SCREENING_RESULT_ALREADY_CONFIRMED" },
+      ]);
+    }
     const screeningDecision = parseScreeningDecision(dto.screeningDecision);
     const application = await this.repository.updateApplicationScreening(applicantId, companyId, {
       screeningDecision,
@@ -933,7 +938,9 @@ export class CompanyRecruitingService {
     });
 
     if (!application) {
-      throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "지원자를 찾을 수 없습니다.");
+      throw new CompanyRecruitingException(409, ERROR_CODES.COMMON_CONFLICT, "결과 확정과 동시에 변경되어 저장할 수 없습니다. 목록을 새로고침해주세요.", [
+        { field: "screeningDecision", reason: "SCREENING_RESULT_ALREADY_CONFIRMED" },
+      ]);
     }
 
     return toApplicantResponse(application);

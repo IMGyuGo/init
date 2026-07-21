@@ -32,6 +32,17 @@ export function getApplicantSummaryMetrics(summary: ApplicantSummary | null) {
   };
 }
 
+export function getScreeningConfirmationPreview(summary: ApplicantSummary | null) {
+  return {
+    eligibleTotal: summary?.confirmationEligibleTotal ?? 0,
+    eligibleDecisionCounts: summary?.confirmationEligibleDecisionCounts ?? { PASS: 0, HOLD: 0, FAIL: 0 },
+    excludedDecisionCounts: {
+      UNDECIDED: summary?.effectiveScreeningDecisionCounts.UNDECIDED ?? 0,
+      RETRY: summary?.effectiveScreeningDecisionCounts.RETRY ?? 0,
+    },
+  };
+}
+
 export function getPassMailTargetLimit(summary: ApplicantSummary | null) {
   return (summary?.screeningDecisionCounts.PASS ?? 0) + (summary?.screeningDecisionCounts.FAIL ?? 0);
 }
@@ -50,10 +61,18 @@ export function applyScreeningDecisionCountChange(
   const effectiveScreeningDecisionCounts = { ...summary.effectiveScreeningDecisionCounts };
   effectiveScreeningDecisionCounts[previous] = Math.max(0, (effectiveScreeningDecisionCounts[previous] ?? 0) - 1);
   effectiveScreeningDecisionCounts[next] = (effectiveScreeningDecisionCounts[next] ?? 0) + 1;
+  const confirmationEligibleDecisionCounts = { ...summary.confirmationEligibleDecisionCounts };
+  if (previous === "PASS" || previous === "HOLD" || previous === "FAIL") {
+    confirmationEligibleDecisionCounts[previous] = Math.max(0, confirmationEligibleDecisionCounts[previous] - 1);
+  }
+  if (next === "PASS" || next === "HOLD" || next === "FAIL") {
+    confirmationEligibleDecisionCounts[next] += 1;
+  }
 
   return {
     ...summary,
     effectiveScreeningDecisionCounts,
+    confirmationEligibleDecisionCounts,
   };
 }
 

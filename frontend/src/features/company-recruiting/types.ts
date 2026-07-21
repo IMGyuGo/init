@@ -192,6 +192,7 @@ export type ApplicantSummary = {
   screeningDecisionCounts: Record<string, number>;
   effectiveScreeningDecisionCounts: Record<string, number>;
   confirmationEligibleTotal: number;
+  confirmationEligibleDecisionCounts: Record<"PASS" | "HOLD" | "FAIL", number>;
   confirmedTotal: number;
   excludedTotal: number;
   attentionRequiredTotal: number;

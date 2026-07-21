@@ -17,7 +17,9 @@ const criteria = [
 describe("Saltlux synchronous automatic screening decision", () => {
   it.each([
     [85, 80, 50, "PASS", "PASS_TOTAL_AND_CRITERIA_MET"],
+    [85, 80, 80, "PASS", "PASS_TOTAL_AND_CRITERIA_MET"],
     [85, 90, 50, "HOLD", "HOLD_TOTAL_BAND"],
+    [85, 90, 90, "FAIL", "FAIL_BELOW_HOLD_THRESHOLD"],
     [49, 80, 50, "FAIL", "FAIL_BELOW_HOLD_THRESHOLD"],
   ] as const)(
     "maps score %i with pass %i and hold %i to %s",

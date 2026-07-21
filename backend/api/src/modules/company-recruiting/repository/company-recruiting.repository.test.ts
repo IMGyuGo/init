@@ -369,6 +369,7 @@ describe("PrismaCompanyRecruitingRepository", () => {
     assert.equal(result.screeningDecisionCounts.UNDECIDED, 10);
     assert.equal(result.effectiveScreeningDecisionCounts.UNDECIDED, 10);
     assert.equal(result.confirmationEligibleTotal, 0);
+    assert.deepEqual(result.confirmationEligibleDecisionCounts, { PASS: 0, HOLD: 0, FAIL: 0 });
     assert.equal(result.excludedTotal, 10);
     assert.deepEqual(groupBys, [
       "applicationStatus",
@@ -378,6 +379,39 @@ describe("PrismaCompanyRecruitingRepository", () => {
       "screeningDecision",
     ]);
     assert.equal(countWheres.length, 3);
+  });
+
+  it("counts only pending PASS/HOLD/FAIL decisions in the confirmation preview", async () => {
+    const prisma = {
+      application: {
+        async count(args: { where: Record<string, unknown> }) {
+          if (args.where.applicationStatus === "CANCELED") return 0;
+          if (args.where.OR) return 1;
+          return 5;
+        },
+        async groupBy() {
+          return [];
+        },
+        async findMany() {
+          return [
+            { screeningDecision: "PASS", screeningReviewerDecision: null, screeningFinalDecision: null, screeningResultConfirmedAt: null },
+            { screeningDecision: "PASS", screeningReviewerDecision: "HOLD", screeningFinalDecision: null, screeningResultConfirmedAt: null },
+            { screeningDecision: "FAIL", screeningReviewerDecision: null, screeningFinalDecision: null, screeningResultConfirmedAt: null },
+            { screeningDecision: "PASS", screeningReviewerDecision: null, screeningFinalDecision: "PASS", screeningResultConfirmedAt: new Date("2026-07-21T12:30:00.000Z") },
+            { screeningDecision: "RETRY", screeningReviewerDecision: null, screeningFinalDecision: null, screeningResultConfirmedAt: null },
+          ];
+        },
+      },
+    };
+    const repository = new PrismaCompanyRecruitingRepository(prisma as never);
+
+    const result = await repository.summarizeApplicationsForPosting(101, 7);
+
+    assert.deepEqual(result.effectiveScreeningDecisionCounts, { PASS: 2, HOLD: 1, FAIL: 1, RETRY: 1 });
+    assert.deepEqual(result.confirmationEligibleDecisionCounts, { PASS: 1, HOLD: 1, FAIL: 1 });
+    assert.equal(result.confirmationEligibleTotal, 3);
+    assert.equal(result.confirmedTotal, 1);
+    assert.equal(result.excludedTotal, 1);
   });
 
   it("finalizes pass target by updating only pass/fail-decided applications", async () => {
@@ -455,6 +489,7 @@ describe("PrismaCompanyRecruitingRepository", () => {
 
   it("clears automatic screening snapshot fields when saving a manual screening override", async () => {
     let capturedData: Record<string, unknown> | null = null;
+    let capturedWhere: Record<string, unknown> | null = null;
     const application = {
       applicationId: 77,
       postingId: 101,
@@ -492,11 +527,12 @@ describe("PrismaCompanyRecruitingRepository", () => {
     };
     const prisma = {
       application: {
-        async findFirst() {
-          return { applicationId: 77 };
-        },
-        async update(args: { data: Record<string, unknown> }) {
+        async updateMany(args: { where: Record<string, unknown>; data: Record<string, unknown> }) {
+          capturedWhere = args.where;
           capturedData = args.data;
+          return { count: 1 };
+        },
+        async findUnique() {
           return application;
         },
       },
@@ -518,6 +554,35 @@ describe("PrismaCompanyRecruitingRepository", () => {
       screeningDecidedAt: null,
       screeningMemo: "추가 확인 필요",
     });
+    assert.deepEqual(capturedWhere, {
+      applicationId: 77n,
+      posting: { companyId: 7n },
+      screeningResultConfirmedAt: null,
+    });
+  });
+
+  it("does not update a manual screening decision when confirmation wins the race", async () => {
+    let detailLoaded = false;
+    const prisma = {
+      application: {
+        async updateMany() {
+          return { count: 0 };
+        },
+        async findUnique() {
+          detailLoaded = true;
+          return null;
+        },
+      },
+    };
+    const repository = new PrismaCompanyRecruitingRepository(prisma as never);
+
+    const result = await repository.updateApplicationScreening(77, 7, {
+      screeningDecision: "HOLD",
+      screeningMemo: "추가 확인 필요",
+    });
+
+    assert.equal(result, null);
+    assert.equal(detailLoaded, false);
   });
 
   it("creates file_assets metadata for JD editor image uploads", async () => {

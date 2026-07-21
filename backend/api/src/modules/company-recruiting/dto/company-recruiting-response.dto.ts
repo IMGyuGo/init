@@ -414,6 +414,9 @@ export class ApplicantSummaryResponseDto {
   @ApiProperty({ example: 440 })
   confirmationEligibleTotal!: number;
 
+  @ApiProperty({ type: Object, example: { PASS: 120, HOLD: 20, FAIL: 300 } })
+  confirmationEligibleDecisionCounts!: Record<"PASS" | "HOLD" | "FAIL", number>;
+
   @ApiProperty({ example: 0 })
   confirmedTotal!: number;
 

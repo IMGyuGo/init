@@ -138,7 +138,7 @@ RETRY의 재처리 횟수, backoff, 지원자 재답변과 운영자 재처리 �
 2. 면접관은 목록 전체를 하나씩 체크하지 않는다. 궁금하거나 수정이 필요한 지원자만 상세 리포트를 열고 `PASS | HOLD | FAIL` 중 다른 검토 결과를 저장한다.
 3. 자동판정과 다른 검토 결과에는 10~1000자의 내부 변경 사유가 필수다. 자동판정으로 되돌리면 reviewer decision과 변경 사유를 NULL로 초기화한다.
 4. `UNDECIDED | RETRY`는 수정·확정 대상이 아니며 기업 목록의 `재처리/확인 필요` 그룹에 남긴다.
-5. 공고 단위 `결과 확정` 버튼은 현재 합격/보류/불합격 인원, 확정 대상 합계, 제외되는 `UNDECIDED | RETRY` 인원을 Alert 또는 modal에 표시한다. 사용자가 `취소`하면 API를 호출하지 않고, `확정`을 다시 선택해야만 일괄 확정 API를 호출한다.
+5. 공고 단위 `결과 확정` 버튼은 아직 확정되지 않은 합격/보류/불합격 인원, 확정 대상 합계, 제외되는 `UNDECIDED | RETRY` 인원을 Alert 또는 modal에 표시한다. 이미 확정된 인원은 확정 대상 판정별 인원에 포함하지 않는다. 사용자가 `취소`하면 API를 호출하지 않고, `확정`을 다시 선택해야만 일괄 확정 API를 호출한다.
 6. 확정 API는 요청의 `expectedEligibleCount`와 현재 판정 가능 미확정 인원이 다르면 `SCREENING_CONFIRMATION_SCOPE_CHANGED`로 거부하고 목록 새로고침을 요구한다.
 7. 확정 transaction은 공고에 속한 판정 가능한 미확정 application row를 잠그고 각 행에 `screening_final_decision=effectiveDecision`, 확정 시각·확정자를 저장하며 지원자별 `IN_APP` 알림과 `EMAIL/PENDING` 알림을 멱등 생성한다.
 8. transaction commit 이후 지원자 API는 `resultPublicationStatus=CONFIRMED`와 제한된 최종 `screeningDecision`을 반환한다.
