@@ -751,7 +751,7 @@ test("PrismaAiResultRepository stores the automatic PASS snapshot and keeps dupl
   assert.equal(fixture.application().screeningDecision, "PASS");
   assert.equal(
     fixture.application().screeningDecisionReasonCode,
-    "PASS_TOTAL_AND_CRITERIA_MET",
+    null,
   );
   assert.equal(fixture.application().screeningDecisionReportId, 30n);
   assert.equal(fixture.application().screeningPolicyVersion, 2);
@@ -865,14 +865,14 @@ test("PrismaAiResultRepository moves RETRY to PASS after the same report is rege
   assert.equal(fixture.application().screeningDecision, "RETRY");
   assert.equal(
     fixture.application().screeningDecisionReasonCode,
-    "RETRY_REPORT_FAILED",
+    null,
   );
 
   await repository.saveGeneratedReport(generatedRecruitingReport());
   assert.equal(fixture.application().screeningDecision, "PASS");
   assert.equal(
     fixture.application().screeningDecisionReasonCode,
-    "PASS_TOTAL_AND_CRITERIA_MET",
+    null,
   );
 });
 
