@@ -919,10 +919,10 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 main()
+  .finally(async () => {
+    await prisma.$disconnect();
+  })
   .catch((error) => {
     process.stderr.write(errorBoundary.format(error));
     process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
   });

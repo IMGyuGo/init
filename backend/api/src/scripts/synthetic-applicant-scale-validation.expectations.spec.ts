@@ -41,6 +41,17 @@ describe("synthetic applicant scale validation expectations", () => {
     expect(source).toContain("actual.weightedTotalsMatched === 920");
   });
 
+  it("routes disconnect failures through the terminal error boundary", () => {
+    const terminalChain = verifierSource().slice(verifierSource().lastIndexOf("main()"));
+    const disconnectIndex = terminalChain.indexOf(".finally(async () => {");
+    const catchIndex = terminalChain.indexOf(".catch((error) => {");
+
+    expect(disconnectIndex).toBeGreaterThan(-1);
+    expect(catchIndex).toBeGreaterThan(disconnectIndex);
+    expect(terminalChain.slice(disconnectIndex, catchIndex)).toContain("await prisma.$disconnect()");
+    expect(terminalChain.slice(catchIndex)).toContain("process.stderr.write(errorBoundary.format(error))");
+  });
+
   it("uses the real updatedAt-desc repository page for aggregate-only V3 diversity evidence", () => {
     const body = sourceFunction(verifierSource(), "async function verifyV3FirstPageAggregate", "async function verifyFilters");
 
