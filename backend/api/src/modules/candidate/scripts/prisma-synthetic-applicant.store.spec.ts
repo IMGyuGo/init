@@ -85,16 +85,51 @@ describe("synthetic report score persistence", () => {
     expect(create).not.toHaveBeenCalled();
     expect(createMany).toHaveBeenCalledTimes(1);
     expect(createMany).toHaveBeenCalledWith({
-      data: expect.arrayContaining([
-        expect.objectContaining({
+      data: [
+        {
           reportId: 91n,
           criterionId: null,
-          ncsProfileId: "JOB_TECHNICAL",
+          score: 83,
           rationale: "합성 면접 답변에서 문제 구조화와 협업 근거를 확인했습니다.",
-        }),
-      ]),
+          ncsProfileId: "JOB_TECHNICAL",
+          averageScore: 4.15,
+          normalizedScore: 83,
+          weight: 40,
+          weightedScore: 33.2,
+          minimumAverageScore: 3,
+          assignedQuestionCount: 1,
+          validQuestionCount: 1,
+        },
+        {
+          reportId: 91n,
+          criterionId: null,
+          score: 78,
+          rationale: "합성 면접 답변에서 문제 구조화와 협업 근거를 확인했습니다.",
+          ncsProfileId: "COLLABORATION_COMMUNICATION",
+          averageScore: 3.9,
+          normalizedScore: 78,
+          weight: 30,
+          weightedScore: 23.4,
+          minimumAverageScore: 3,
+          assignedQuestionCount: 1,
+          validQuestionCount: 1,
+        },
+        {
+          reportId: 91n,
+          criterionId: null,
+          score: 78,
+          rationale: "합성 면접 답변에서 문제 구조화와 협업 근거를 확인했습니다.",
+          ncsProfileId: "PROBLEM_SOLVING",
+          averageScore: 3.9,
+          normalizedScore: 78,
+          weight: 30,
+          weightedScore: 23.4,
+          minimumAverageScore: 3,
+          assignedQuestionCount: 1,
+          validQuestionCount: 1,
+        },
+      ],
     });
-    expect(createMany.mock.calls[0][0].data).toHaveLength(3);
   });
 
   it("does not call createMany when a legacy failed report has no score rows", async () => {
