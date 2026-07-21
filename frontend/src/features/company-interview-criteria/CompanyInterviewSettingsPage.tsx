@@ -130,6 +130,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
   const [settings, setSettings] = useState<InterviewSettings | null>(null);
   const [settingsStep, setSettingsStep] = useState(1);
   const [criteriaDrafts, setCriteriaDrafts] = useState<CriteriaDraft[]>([]);
+  const [overallPassScore, setOverallPassScore] = useState("80");
   const [timePolicyDraft, setTimePolicyDraft] = useState<TimePolicyDraft | null>(null);
   const [evaluationFramework, setEvaluationFramework] = useState<EvaluationFramework>("NCS_3_PROFILE_V1");
   const [questionPolicyDraft, setQuestionPolicyDraft] = useState<QuestionGenerationPolicyDraft | null>(null);
@@ -171,6 +172,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       const fixedNcsCriteria = toFixedNcsCriteriaDrafts(response.data);
       setSettings(response.data);
       setCriteriaDrafts(fixedNcsCriteria ?? []);
+      setOverallPassScore(String(response.data.screeningPolicy?.passMinTotalScore ?? 80));
       setTimePolicyDraft(toTimePolicyDraft(response.data));
       setEvaluationFramework(
         response.data.evaluationFramework === "LEGACY" &&
@@ -306,9 +308,10 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     if (!settings) return false;
     return (
       evaluationFramework !== settings.evaluationFramework ||
-      JSON.stringify(criteriaDrafts) !== JSON.stringify(toCriteriaDrafts(settings))
+      JSON.stringify(criteriaDrafts) !== JSON.stringify(toCriteriaDrafts(settings)) ||
+      overallPassScore !== String(settings.screeningPolicy?.passMinTotalScore ?? 80)
     );
-  }, [criteriaDrafts, evaluationFramework, settings]);
+  }, [criteriaDrafts, evaluationFramework, overallPassScore, settings]);
   const hasQuestionPolicyChanges = useMemo(() => {
     if (!settings || !questionPolicyDraft) return false;
     return (
@@ -351,6 +354,11 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
     );
   }
 
+  function updateOverallPassScore(value: string) {
+    setCriteriaError("");
+    setOverallPassScore(value);
+  }
+
   function updateCriterionActive(draftId: string, active: boolean) {
     setCriteriaError("");
     setCriteriaDrafts((current) =>
@@ -380,7 +388,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
       return false;
     }
 
-    const validationMessage = validateCriteriaDrafts(criteriaDrafts, evaluationFramework);
+    const validationMessage = validateCriteriaDrafts(criteriaDrafts, evaluationFramework, overallPassScore);
     if (validationMessage) {
       setCriteriaError(validationMessage);
       return false;
@@ -408,12 +416,18 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
         postingId: settings.posting.postingId,
         evaluationFramework,
         confirmQuestionImpact,
+        screeningPolicy: {
+          enabled: true,
+          passMinTotalScore: toNumber(overallPassScore),
+          holdMinTotalScore: 0,
+          requireAllCriteriaPass: true,
+        },
         criteria: normalizedCriteria.map((criterion) => ({
           criterionId: criterion.criterionId,
           tagId: criterion.tagId,
           description: criterion.description,
           weight: toNumber(criterion.weight),
-          passScore: criterion.passScore.trim() === "" ? null : toNumber(criterion.passScore),
+          passScore: criterion.passScore.trim() === "" ? null : Math.min(toNumber(criterion.passScore), toNumber(criterion.weight)),
           sortOrder: toNumber(criterion.sortOrder),
         })),
       });
@@ -425,6 +439,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
         return {
           ...reconciledSettings,
           evaluationFramework: response.data.evaluationFramework,
+          screeningPolicy: response.data.screeningPolicy,
           questionGenerationPolicy: {
             ...current.questionGenerationPolicy,
             criteriaVersion: response.data.criteriaVersion,
@@ -440,7 +455,7 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
           category: criterion.category,
           description: criterion.description,
           weight: String(criterion.weight),
-          passScore: criterion.passScore === null ? "" : String(criterion.passScore),
+          passScore: criterion.passScore === null ? "" : String(Math.min(criterion.passScore, criterion.weight)),
           sortOrder: String(criterion.sortOrder),
         })),
       );
@@ -1188,11 +1203,11 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                             aria-label={`${criterion.tagName} 합격점`}
                             inputMode="numeric"
                             min={0}
-                            max={100}
+                            max={Math.max(0, toNumber(criterion.weight))}
                             placeholder="-"
                             type="number"
                             value={criterion.passScore}
-                            disabled={settings.configurationLocked}
+                            disabled={settings.configurationLocked || toNumber(criterion.weight) === 0}
                             onChange={(event) => updateCriteriaDraft(criterion.draftId, "passScore", event.target.value)}
                           />
                         </td>
@@ -1202,6 +1217,29 @@ export function CompanyInterviewSettingsPage({ postingId }: { postingId?: number
                 </table>
               </div>
             </form>
+
+            <section className="panel">
+              <div className="panel-head">
+                <div>
+                  <h2>총합 점수 커트라인</h2>
+                  <p>모든 역량 기준을 충족한 뒤, 최종 합격에 필요한 총점을 설정합니다.</p>
+                </div>
+              </div>
+              <label className="form-field">
+                <span>합격 총점</span>
+                <input
+                  aria-label="총합 점수 커트라인"
+                  inputMode="numeric"
+                  min={1}
+                  max={100}
+                  type="number"
+                  value={overallPassScore}
+                  disabled={settings.configurationLocked}
+                  onChange={(event) => updateOverallPassScore(event.target.value)}
+                />
+              </label>
+              <p className="notice">역량별 합격점을 모두 넘기고, 총점이 이 기준 이상이면 합격입니다. 총점만 부족하면 보류로 표시됩니다.</p>
+            </section>
 
             <div className="settings-step-nav">
               <span />
@@ -1917,7 +1955,7 @@ function toFixedNcsCriteriaDrafts(settings: InterviewSettings): CriteriaDraft[] 
       category: resolvedTag.category,
       description: existing?.description ?? resolvedTag.description,
       weight: String(existing?.weight ?? defaultWeights[index]),
-      passScore: existing?.passScore === null || existing?.passScore === undefined ? "" : String(existing.passScore),
+      passScore: existing?.passScore === null || existing?.passScore === undefined ? "" : String(Math.min(existing.passScore, existing.weight)),
       sortOrder: String(index + 1),
     };
   });
@@ -1932,7 +1970,7 @@ function toCriteriaDrafts(settings: InterviewSettings): CriteriaDraft[] {
     category: criterion.category,
     description: criterion.description,
     weight: String(criterion.weight),
-    passScore: criterion.passScore === null ? "" : String(criterion.passScore),
+    passScore: criterion.passScore === null ? "" : String(Math.min(criterion.passScore, criterion.weight)),
     sortOrder: String(criterion.sortOrder),
   }));
 }
@@ -1973,7 +2011,11 @@ function toDigitsOnly(value: string) {
   return value.replace(/\D/g, "");
 }
 
-function validateCriteriaDrafts(criteria: CriteriaDraft[], framework: EvaluationFramework = "LEGACY") {
+function validateCriteriaDrafts(criteria: CriteriaDraft[], framework: EvaluationFramework = "LEGACY", overallPassScore = "80") {
+  const totalCutoff = toNumber(overallPassScore);
+  if (!Number.isInteger(totalCutoff) || totalCutoff < 1 || totalCutoff > 100) {
+    return "총합 점수 커트라인은 1부터 100 사이의 정수로 입력해주세요.";
+  }
   if (criteria.length === 0) {
     return framework !== "LEGACY" ? "NCS 평가 기준 3개를 모두 설정해주세요." : "";
   }
@@ -2012,8 +2054,11 @@ function validateCriteriaDrafts(criteria: CriteriaDraft[], framework: Evaluation
         ? "NCS 배점은 0부터 100 사이의 정수로 입력해주세요."
         : "배점은 1부터 100 사이의 정수로 입력해주세요.";
     }
-    if (passScore !== null && (!Number.isInteger(passScore) || passScore < 0 || passScore > 100)) {
-      return "합격점은 비워두거나 0부터 100 사이의 정수로 입력해주세요.";
+    if (framework !== "LEGACY" && weight > 0 && passScore === null) {
+      return "사용 중인 역량마다 합격점을 입력해주세요.";
+    }
+    if (passScore !== null && (!Number.isInteger(passScore) || passScore < 0 || passScore > weight)) {
+      return "역량별 합격점은 배점 이하의 정수로 입력해주세요.";
     }
 
     totalWeight += weight;

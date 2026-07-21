@@ -222,8 +222,11 @@ export class PrismaReportRepository implements ReportRepository {
         const profile = result.profiles.find((candidate) => candidate.criterionId === Number(criterion.criterionId));
         return {
           active: true,
-          score: profile ? profile.score * 20 : null,
-          passScore: criterion.passScore,
+          score: profile ? profile.weightedScore : null,
+          passScore:
+            criterion.passScore === null
+              ? null
+              : Math.min(criterion.passScore, criterion.weight),
           evaluationComplete: Boolean(profile),
         };
       });
@@ -255,7 +258,7 @@ export class PrismaReportRepository implements ReportRepository {
                 screeningDecisionPolicyVersion: AUTO_SCREENING_DECISION_POLICY_VERSION,
                 screeningPolicyVersion: policyRow.policyVersion,
                 screeningCriteriaVersion: generationPolicy.criteriaVersion,
-                screeningDecisionReportId: BigInt(input.reportId),
+                screeningDecisionReport: { connect: { reportId: BigInt(input.reportId) } },
                 screeningDecidedAt: new Date(),
               }
             : {}),

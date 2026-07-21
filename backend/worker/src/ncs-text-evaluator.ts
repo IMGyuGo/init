@@ -618,7 +618,7 @@ function validateDraft(input: NcsTextEvaluationInput, draft: NcsTextEvaluationDr
     }
   }
 
-  const generatedText = generatedEvaluationText(draft);
+  const generatedText = generatedEvaluationText(draft, uniqueStrings(usages.map((usage) => usage.quote)));
   const forbidden = FORBIDDEN_OUTPUT_PATTERNS.find(({ pattern }) => pattern.test(generatedText));
   if (forbidden) {
     forbiddenWordingDetected = true;
@@ -677,7 +677,7 @@ function groupEvidenceUsages(usages: EvidenceUsage[]): Map<string, string[]> {
   return grouped;
 }
 
-function generatedEvaluationText(draft: NcsTextEvaluationDraft): string {
+function generatedEvaluationText(draft: NcsTextEvaluationDraft, sourceQuotes: readonly string[]): string {
   return [
     ...draft.competencies.flatMap((competency) => [
       competency.rationale,
@@ -691,7 +691,15 @@ function generatedEvaluationText(draft: NcsTextEvaluationDraft): string {
     draft.growth?.followUpQuestion
   ]
     .filter((value): value is string => typeof value === "string")
+    .map((value) => removeSourceQuotes(value, sourceQuotes))
     .join("\n");
+}
+
+function removeSourceQuotes(value: string, sourceQuotes: readonly string[]): string {
+  return [...sourceQuotes]
+    .filter((quote) => quote.length > 0)
+    .sort((left, right) => right.length - left.length)
+    .reduce((text, quote) => text.split(quote).join(""), value);
 }
 
 function validGrowth(value: NcsGrowthFeedback | undefined): value is NcsGrowthFeedback {

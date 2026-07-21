@@ -155,6 +155,13 @@ export interface NcsTextEvaluationProviderResult {
   };
 }
 
+export interface NcsTextEvaluationProviderOptions {
+  retryReason?: "FORBIDDEN_WORDING";
+}
+
 export interface NcsTextEvaluationProvider {
-  evaluate(input: NcsTextEvaluationInput): Promise<NcsTextEvaluationProviderResult>;
+  evaluate(
+    input: NcsTextEvaluationInput,
+    options?: NcsTextEvaluationProviderOptions,
+  ): Promise<NcsTextEvaluationProviderResult>;
 }

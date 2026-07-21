@@ -68,6 +68,14 @@ export type InterviewSettings = {
       bindingOrder: number;
     }>;
   }>;
+  screeningPolicy?: {
+    enabled: boolean;
+    passMinTotalScore: number;
+    holdMinTotalScore: number;
+    requireAllCriteriaPass: true;
+    policyVersion: number;
+    decisionPolicyVersion: "AUTO_SCREENING_DECISION_V1" | "AUTO_SCREENING_DECISION_V2";
+  } | null;
   timePolicy: {
     preparationTimeSec: number;
     answerTimeSec: number;
@@ -141,6 +149,12 @@ export type UpdateEvaluationCriteriaInput = {
     passScore?: number | null;
     sortOrder: number;
   }>;
+  screeningPolicy?: {
+    enabled: boolean;
+    passMinTotalScore: number;
+    holdMinTotalScore: number;
+    requireAllCriteriaPass: true;
+  };
   confirmQuestionImpact?: boolean;
 };
 
@@ -154,6 +168,7 @@ export type EvaluationCriteriaResult = {
   configurationLockedReason: "SUBMITTED_APPLICATION_EXISTS" | null;
   questionImpactByProfile: NcsQuestionImpact[];
   questionSetRequiresReconfirmation: boolean;
+  screeningPolicy: InterviewSettings["screeningPolicy"];
 };
 
 export type UpdateQuestionGenerationPolicyInput = {

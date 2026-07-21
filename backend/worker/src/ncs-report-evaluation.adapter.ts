@@ -634,6 +634,19 @@ async function runNcsEvaluation(
         inputTokens: generated.usage?.inputTokens,
         outputTokens: generated.usage?.outputTokens,
       };
+
+      if (shouldRetryForForbiddenWording(output)) {
+        const repaired = await provider.evaluate(input, { retryReason: "FORBIDDEN_WORDING" });
+        output = finalizeNcsTextEvaluation(input, repaired.draft, {
+          providerMode: "openai",
+          model: repaired.model,
+        });
+        usage = mergeEvaluationUsage(usage, {
+          modelName: repaired.model,
+          inputTokens: repaired.usage?.inputTokens,
+          outputTokens: repaired.usage?.outputTokens,
+        });
+      }
     }
   } else {
     output = evaluateNcsTextDeterministically(input);
@@ -644,6 +657,12 @@ async function runNcsEvaluation(
     ], output.providerMode, output.model);
   }
   return { output, usage };
+}
+
+function shouldRetryForForbiddenWording(output: NcsTextEvaluationOutput): boolean {
+  return output.scoreStatus === "BLOCKED" && output.guardrail.reasons.some(
+    (reason) => reason.startsWith("forbidden evaluation wording detected:"),
+  );
 }
 
 function evidenceSourcesForQuote(

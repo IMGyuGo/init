@@ -414,7 +414,8 @@ export class PrismaCompanyInterviewRepository
             nextScreeningPolicyInput.holdMinTotalScore ||
           currentScreeningPolicy.requireAllCriteriaPass !==
             nextScreeningPolicyInput.requireAllCriteriaPass ||
-          options.criteriaPassScoresChanged;
+          options.criteriaPassScoresChanged ||
+          currentScreeningPolicy?.decisionPolicyVersion !== 'AUTO_SCREENING_DECISION_V1';
         if (screeningPolicyChanged) {
           screeningPolicy = await tx.autoScreeningPolicy.upsert({
             where: { postingId: BigInt(postingId) },
@@ -1068,7 +1069,7 @@ function mapAutoScreeningPolicy(policy: {
     holdMinTotalScore: policy.holdMinTotalScore,
     requireAllCriteriaPass: true,
     policyVersion: policy.policyVersion,
-    decisionPolicyVersion: 'AUTO_SCREENING_DECISION_V1',
+    decisionPolicyVersion: policy.decisionPolicyVersion as AutoScreeningPolicyRecord['decisionPolicyVersion'],
   };
 }
 

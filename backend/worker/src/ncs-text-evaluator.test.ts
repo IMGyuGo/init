@@ -259,6 +259,25 @@ test("forbidden hiring or sensitive wording blocks generated feedback", () => {
   assert.equal(technicalOutput.guardrail.forbiddenWordingDetected, false);
 });
 
+test("source evidence containing a forbidden word does not block generated feedback", () => {
+  const quote = "The team discussed speaking style while dividing tasks.";
+  const input = { ...technicalInput, answerText: quote };
+  const draft = emptyTechnicalDraft();
+  draft.competencies[0]!.level = 2;
+  draft.competencies[0]!.behaviors[0] = {
+    behaviorId: "technical-principle",
+    observed: true,
+    confidence: "MEDIUM",
+    rationale: "기술 원리 근거가 확인됩니다.",
+    evidenceQuotes: [quote]
+  };
+  draft.growth.strengths = [`근거: "${quote}"`];
+
+  const output = finalizeNcsTextEvaluation(input, draft, { providerMode: "openai" });
+
+  assert.equal(output.scoreStatus, "SCORED");
+  assert.equal(output.guardrail.forbiddenWordingDetected, false);
+});
 test("English hiring decisions and nonverbal trait inferences are blocked", () => {
   const hiringDraft = emptyTechnicalDraft();
   hiringDraft.growth.nextAction = "The candidate should be hired and passed the interview.";
