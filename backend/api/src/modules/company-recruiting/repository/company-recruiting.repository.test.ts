@@ -2,6 +2,63 @@ import assert from "node:assert/strict";
 
 import { PrismaCompanyRecruitingRepository } from "./company-recruiting.repository";
 
+function createApplicantListRow(applicationId: bigint, email: string) {
+  const now = new Date("2026-07-20T00:00:00.000Z");
+  return {
+    applicationId,
+    postingId: 101n,
+    candidateId: applicationId,
+    applicantName: null,
+    applicantEmail: email,
+    applicantPhone: null,
+    githubUrl: null,
+    blogUrl: null,
+    portfolioUrl: null,
+    motivation: null,
+    additionalInfo: null,
+    profileSnapshot: null,
+    applicationStatus: "SUBMITTED",
+    documentStatus: "EXTRACTED",
+    interviewStatus: "COMPLETED",
+    reportStatus: "COMPLETED",
+    screeningDecision: "PASS",
+    screeningDecisionReasonCode: null,
+    screeningDecisionPolicyVersion: null,
+    screeningPolicyVersion: null,
+    screeningCriteriaVersion: null,
+    screeningDecidedAt: null,
+    screeningMemo: null,
+    submittedAt: now,
+    updatedAt: now,
+    candidate: {
+      candidateId: applicationId,
+      githubUrl: null,
+      portfolioUrl: null,
+      summary: null,
+      user: {
+        userId: applicationId,
+        email,
+        name: `Applicant ${applicationId}`,
+        phone: null,
+      },
+    },
+    posting: {
+      postingId: 101n,
+      title: "Backend Developer",
+      jobRole: "Backend",
+      autoScreeningPolicy: { enabled: false },
+    },
+    evaluationReports: [{
+      reportId: applicationId,
+      status: "COMPLETED",
+      totalScore: 90,
+      summary: null,
+      generatedAt: now,
+    }],
+    interviewSessions: [],
+  };
+}
+
 describe("PrismaCompanyRecruitingRepository", () => {
   it("writes application defaults when creating public applications", async () => {
     let capturedData: Record<string, unknown> | null = null;
@@ -308,7 +365,80 @@ describe("PrismaCompanyRecruitingRepository", () => {
     assert.equal(countWheres.length, 3);
   });
 
-  it("updates only B-owned screening fields", async () => {
+  it("finalizes pass target by updating only pass/fail-decided applications", async () => {
+    const updateManyArgs: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> = [];
+    let capturedFindManyWhere: Record<string, unknown> | null = null;
+    const selectedApplications = [createApplicantListRow(1n, "top@example.com"), createApplicantListRow(3n, "next@example.com")];
+    const tx = {
+      application: {
+        async updateMany(args: { where: Record<string, unknown>; data: Record<string, unknown> }) {
+          updateManyArgs.push(args);
+          return { count: 2 };
+        },
+        async findMany(args: { where: Record<string, unknown> }) {
+          capturedFindManyWhere = args.where;
+          return selectedApplications;
+        },
+      },
+    };
+    const prisma = {
+      async $transaction<T>(callback: (client: typeof tx) => Promise<T>) {
+        return callback(tx);
+      },
+    };
+    const repository = new PrismaCompanyRecruitingRepository(prisma as never);
+
+    const result = await repository.finalizeApplicationsPassTarget(101, 7, [1, 3]);
+
+    assert.deepEqual(updateManyArgs[0], {
+      where: {
+        postingId: 101n,
+        posting: { companyId: 7n },
+        applicationStatus: { not: "CANCELED" },
+        screeningDecision: { in: ["PASS", "FAIL"] },
+        applicationId: { notIn: [1n, 3n] },
+      },
+      data: {
+        screeningDecision: "FAIL",
+        screeningDecisionReasonCode: null,
+        screeningDecisionPolicyVersion: null,
+        screeningPolicyVersion: null,
+        screeningCriteriaVersion: null,
+        screeningDecisionReportId: null,
+        screeningDecidedAt: null,
+        screeningMemo: "목표 합격자 수 기준 불합격 처리",
+      },
+    });
+    assert.deepEqual(updateManyArgs[1], {
+      where: {
+        postingId: 101n,
+        posting: { companyId: 7n },
+        applicationStatus: { not: "CANCELED" },
+        screeningDecision: { in: ["PASS", "FAIL"] },
+        applicationId: { in: [1n, 3n] },
+      },
+      data: {
+        screeningDecision: "PASS",
+        screeningDecisionReasonCode: null,
+        screeningDecisionPolicyVersion: null,
+        screeningPolicyVersion: null,
+        screeningCriteriaVersion: null,
+        screeningDecisionReportId: null,
+        screeningDecidedAt: null,
+        screeningMemo: "목표 합격자 수 기준 합격 처리",
+      },
+    });
+    assert.deepEqual(capturedFindManyWhere, {
+      postingId: 101n,
+      posting: { companyId: 7n },
+      applicationStatus: { not: "CANCELED" },
+      screeningDecision: { in: ["PASS", "FAIL"] },
+      applicationId: { in: [1n, 3n] },
+    });
+    assert.deepEqual(result.map((application) => application.applicationId), [1, 3]);
+  });
+
+  it("clears automatic screening snapshot fields when saving a manual screening override", async () => {
     let capturedData: Record<string, unknown> | null = null;
     const application = {
       applicationId: 77,
@@ -319,6 +449,12 @@ describe("PrismaCompanyRecruitingRepository", () => {
       interviewStatus: "NOT_READY",
       reportStatus: "PENDING",
       screeningDecision: "HOLD",
+      screeningDecisionReasonCode: null,
+      screeningDecisionPolicyVersion: null,
+      screeningPolicyVersion: null,
+      screeningCriteriaVersion: null,
+      screeningDecisionReportId: null,
+      screeningDecidedAt: null,
       screeningMemo: "추가 확인 필요",
       submittedAt: null,
       updatedAt: new Date("2026-06-29T00:00:00.000Z"),
@@ -359,6 +495,12 @@ describe("PrismaCompanyRecruitingRepository", () => {
 
     assert.deepEqual(capturedData, {
       screeningDecision: "HOLD",
+      screeningDecisionReasonCode: null,
+      screeningDecisionPolicyVersion: null,
+      screeningPolicyVersion: null,
+      screeningCriteriaVersion: null,
+      screeningDecisionReportId: null,
+      screeningDecidedAt: null,
       screeningMemo: "추가 확인 필요",
     });
   });

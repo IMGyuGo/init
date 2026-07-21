@@ -394,6 +394,49 @@ export class ApplicantSummaryResponseDto {
   attentionRequiredTotal!: number;
 }
 
+export class PassMailRecipientResponseDto {
+  @ApiProperty({ example: 77 })
+  applicationId!: number;
+
+  @ApiProperty({ example: "candidate@example.com" })
+  email!: string;
+
+  @ApiProperty({ example: "김지원" })
+  name!: string;
+
+  @ApiPropertyOptional({ nullable: true, example: 88 })
+  totalScore!: number | null;
+
+  @ApiProperty({ enum: ["SENT", "FAILED", "SKIPPED"], example: "SENT" })
+  deliveryStatus!: string;
+}
+
+export class PassMailDispatchResponseDto {
+  @ApiProperty({ example: 7 })
+  currentPassCount!: number;
+
+  @ApiProperty({ example: 10 })
+  targetPassCount!: number;
+
+  @ApiProperty({ example: 3 })
+  promotedCount!: number;
+
+  @ApiProperty({ example: 2 })
+  demotedCount!: number;
+
+  @ApiProperty({ example: 10 })
+  sentCount!: number;
+
+  @ApiProperty({ example: 0 })
+  failedCount!: number;
+
+  @ApiProperty({ example: 1 })
+  skippedCount!: number;
+
+  @ApiProperty({ type: [PassMailRecipientResponseDto] })
+  recipients!: PassMailRecipientResponseDto[];
+}
+
 export class ApplicantEvaluationResponseDto {
   @ApiProperty({ type: ApplicantResponseDto })
   applicant!: ApplicantResponseDto;

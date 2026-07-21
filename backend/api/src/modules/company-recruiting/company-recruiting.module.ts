@@ -52,6 +52,7 @@ import {
         publicApplicationAuthAdapter: PublicApplicationAuthAdapterPort,
         publicInterviewEntryAdapter: PublicInterviewEntryAdapterPort,
         interviewPublicationReadiness: CompanyInterviewService,
+        mailService: MailService,
       ) => new CompanyRecruitingService(
         repository,
         storageAdapter,
@@ -59,6 +60,7 @@ import {
         publicApplicationAuthAdapter,
         publicInterviewEntryAdapter,
         interviewPublicationReadiness,
+        mailService,
       ),
       inject: [
         PrismaCompanyRecruitingRepository,
@@ -66,6 +68,7 @@ import {
         PublicApplicationAuthAdapter,
         DeferredPublicInterviewEntryAdapter,
         CompanyInterviewService,
+        MailService,
       ],
     },
   ],

@@ -2,6 +2,7 @@ import type {
   ApplicationStatus,
   DocumentStatus,
   InterviewStatus,
+  PassMailDeliveryStatus,
   PostingStatus,
   ReportStatus,
   ScreeningDecision,
@@ -13,6 +14,7 @@ export type DocumentStatusValue = `${DocumentStatus}`;
 export type InterviewStatusValue = `${InterviewStatus}`;
 export type ReportStatusValue = `${ReportStatus}`;
 export type ScreeningDecisionValue = `${ScreeningDecision}`;
+export type PassMailDeliveryStatusValue = `${PassMailDeliveryStatus}`;
 
 export type NormalizedListQuery = {
   page: number;
@@ -42,6 +44,25 @@ export type ApplicantSummaryRecord = {
   reportStatusCounts: Partial<Record<ReportStatusValue, number>>;
   screeningDecisionCounts: Partial<Record<ScreeningDecisionValue, number>>;
   attentionRequiredTotal: number;
+};
+
+export type PassMailRecipientRecord = {
+  applicationId: number;
+  email: string;
+  name: string;
+  totalScore: number | null;
+  deliveryStatus: "SENT" | "FAILED" | "SKIPPED";
+};
+
+export type PassMailResultRecord = {
+  currentPassCount: number;
+  targetPassCount: number;
+  promotedCount: number;
+  demotedCount: number;
+  sentCount: number;
+  failedCount: number;
+  skippedCount: number;
+  recipients: PassMailRecipientRecord[];
 };
 
 export type RecruitmentRecord = {
@@ -100,6 +121,10 @@ export type ApplicantRecord = {
   screeningCriteriaVersion: number | null;
   screeningDecidedAt: Date | null;
   screeningMemo: string | null;
+  passMailDeliveryStatus: PassMailDeliveryStatusValue;
+  passMailSentAt: Date | null;
+  passMailFailedAt: Date | null;
+  passMailFailureReason: string | null;
   submittedAt: Date | null;
   updatedAt: Date;
   candidate: {

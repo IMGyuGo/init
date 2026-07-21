@@ -17,10 +17,12 @@ import type { CreateRecruitmentDto } from "../dto/create-recruitment.dto";
 import type { ListApplicantsQueryDto, ListQueryDto } from "../dto/list-query.dto";
 import type { RequestPublicApplicationAccessLinkDto } from "../dto/request-public-application-access-link.dto";
 import type { SubmitPublicApplicationDto } from "../dto/submit-public-application.dto";
+import type { SendRecruitmentPassMailsDto } from "../dto/send-recruitment-pass-mails.dto";
 import type { UpdateRecruitmentDto } from "../dto/update-recruitment.dto";
 import type { UpdateScreeningStatusDto } from "../dto/update-screening-status.dto";
 import type { CompanyRecruitingRepositoryPort } from "../repository/company-recruiting.repository";
 import type { InterviewPublicationReadiness } from "../../company-interview/company-interview.types";
+import type { MailMessage } from "../../mail/mail.types";
 import type {
   ApplicantRecord,
   ApplicationStatusValue,
@@ -31,6 +33,7 @@ import type {
   JobDescriptionImageUploadResponse,
   NormalizedApplicantListQuery,
   NormalizedListQuery,
+  PassMailResultRecord,
   PublicApplicationDocumentUploadFile,
   PublicRecruitmentRecord,
   RecruitmentRecord,
@@ -61,6 +64,10 @@ export type CompanyRecruitingStorageObject = {
 export type CompanyRecruitingStorageAdapterPort = {
   putObject(input: CompanyRecruitingStoragePutObjectInput): Promise<void>;
   getObject?(key: string, options?: { range?: string }): Promise<CompanyRecruitingStorageObject>;
+};
+
+export type CompanyRecruitingMailAdapterPort = {
+  send(message: MailMessage): Promise<unknown>;
 };
 
 export type CompanyRecruitingUploadConfig = {
@@ -113,6 +120,7 @@ export class CompanyRecruitingService {
         postingId: number,
       ): Promise<InterviewPublicationReadiness>;
     },
+    private readonly mailAdapter?: CompanyRecruitingMailAdapterPort,
   ) {}
 
   async createRecruitment(user: CurrentUser, dto: CreateRecruitmentDto) {
@@ -593,6 +601,128 @@ export class CompanyRecruitingService {
     return this.repository.summarizeApplicationsForPosting(recruitmentId, companyId);
   }
 
+  async sendRecruitmentPassMails(
+    user: CurrentUser,
+    recruitmentId: number,
+    dto: SendRecruitmentPassMailsDto,
+  ): Promise<PassMailResultRecord> {
+    const companyId = requireCompanyId(user);
+    const targetPassCount = parseTargetPassCount(dto.targetPassCount);
+    const posting = await this.repository.findPostingForCompany(recruitmentId, companyId);
+    if (!posting) {
+      throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "공고를 찾을 수 없습니다.");
+    }
+
+    const applications = await this.repository.listApplicationsForPassTargeting(recruitmentId, companyId);
+    const previousById = new Map(applications.map((application) => [application.applicationId, application]));
+    const currentPassApplications = applications
+      .filter((application) => application.screeningDecision === ScreeningDecision.PASS)
+      .sort(comparePassTargetApplications);
+
+    const targetEligibleApplications = applications
+      .filter((application) => isPassTargetEligibleDecision(application.screeningDecision))
+      .sort(comparePassTargetApplications);
+    if (targetPassCount > targetEligibleApplications.length) {
+      throw new CompanyRecruitingException(
+        400,
+        ERROR_CODES.COMMON_VALIDATION_FAILED,
+        "목표 합격자 수만큼 합격/불합격 판정이 완료된 지원자가 부족합니다.",
+        [{ field: "targetPassCount", reason: "INSUFFICIENT_DECIDED_APPLICANTS" }],
+      );
+    }
+
+    const targetApplications = targetEligibleApplications.slice(0, targetPassCount);
+    const targetApplicationIds = targetApplications.map((application) => application.applicationId);
+    const targetApplicationIdSet = new Set(targetApplicationIds);
+    const currentPassApplicationIdSet = new Set(currentPassApplications.map((application) => application.applicationId));
+    const promotedCount = targetApplications.filter(
+      (application) => !currentPassApplicationIdSet.has(application.applicationId),
+    ).length;
+    const demotedCount = currentPassApplications.filter(
+      (application) => !targetApplicationIdSet.has(application.applicationId),
+    ).length;
+
+    const mailAdapter = this.mailAdapter;
+    if (targetApplications.length > 0 && !mailAdapter) {
+      throw new CompanyRecruitingException(500, ERROR_CODES.COMMON_VALIDATION_FAILED, "합격 메일 발송 설정이 필요합니다.");
+    }
+
+    const finalizedPassApplications = await this.repository.finalizeApplicationsPassTarget(
+      recruitmentId,
+      companyId,
+      targetApplicationIds,
+    );
+    const finalizedById = new Map(finalizedPassApplications.map((application) => [application.applicationId, application]));
+    const finalPassApplications = targetApplications
+      .map((application) => finalizedById.get(application.applicationId) ?? { ...application, screeningDecision: ScreeningDecision.PASS })
+      .sort(comparePassTargetApplications);
+
+    const recipients: PassMailResultRecord["recipients"] = [];
+    const failedApplications: ApplicantRecord[] = [];
+    for (const application of finalPassApplications) {
+      if (application.passMailDeliveryStatus === "SENT") {
+        recipients.push(toPassMailRecipient(application, "SKIPPED"));
+        continue;
+      }
+
+      const recipient = toPassMailRecipient(application, "SENT");
+      try {
+        await mailAdapter?.send(buildPassMailMessage(posting, application));
+        await this.repository.markPassMailSent(application.applicationId, companyId);
+        recipients.push(recipient);
+      } catch (error) {
+        failedApplications.push(application);
+        await this.repository.markPassMailFailed(application.applicationId, companyId, errorMessage(error));
+        recipients.push({ ...recipient, deliveryStatus: "FAILED" });
+      }
+    }
+
+    const sentCount = recipients.filter((recipient) => recipient.deliveryStatus === "SENT").length;
+    const failedCount = recipients.filter((recipient) => recipient.deliveryStatus === "FAILED").length;
+    const skippedCount = recipients.filter((recipient) => recipient.deliveryStatus === "SKIPPED").length;
+    if (failedCount > 0) {
+      const successfulApplicationIds = new Set(
+        recipients
+          .filter((recipient) => recipient.deliveryStatus === "SENT" || recipient.deliveryStatus === "SKIPPED")
+          .map((recipient) => recipient.applicationId),
+      );
+      const restoreStates = [
+        ...failedApplications,
+        ...currentPassApplications.filter((application) => !targetApplicationIdSet.has(application.applicationId)),
+      ]
+        .filter((application) => !successfulApplicationIds.has(application.applicationId))
+        .map((application) => previousById.get(application.applicationId))
+        .filter((application): application is ApplicantRecord => Boolean(application))
+        .map((application) => ({
+          applicationId: application.applicationId,
+          screeningDecision: application.screeningDecision,
+          screeningMemo: application.screeningMemo,
+        }));
+
+      await this.repository.restoreApplicationScreeningDecisions(recruitmentId, companyId, restoreStates);
+      throw new CompanyRecruitingException(
+        503,
+        ERROR_CODES.MAIL_DELIVERY_FAILED,
+        "합격 메일 발송에 실패했습니다. 실패한 대상은 기존 판정으로 복구했습니다.",
+        failedApplications.map((application) => ({
+          field: "applicationId",
+          reason: String(application.applicationId),
+        })),
+      );
+    }
+
+    return {
+      currentPassCount: currentPassApplications.length,
+      targetPassCount,
+      promotedCount,
+      demotedCount,
+      sentCount,
+      failedCount,
+      skippedCount,
+      recipients,
+    };
+  }
+
   async getApplicantEvaluation(user: CurrentUser, applicantId: number) {
     const companyId = requireCompanyId(user);
     const application = await this.repository.findApplicationForCompany(applicantId, companyId);
@@ -778,12 +908,12 @@ export class CompanyRecruitingService {
     if (!existing) {
       throw new CompanyRecruitingException(404, ERROR_CODES.COMMON_NOT_FOUND, "지원자를 찾을 수 없습니다.");
     }
-    if (existing.posting.autoScreeningPolicyEnabled) {
+    if (existing.posting.autoScreeningPolicyEnabled && !canOverrideAutomaticScreening(existing)) {
       throw new CompanyRecruitingException(
         409,
         ERROR_CODES.COMMON_CONFLICT,
-        "자동 판정이 활성화된 공고의 전형 결과는 직접 변경할 수 없습니다.",
-        [{ field: "screeningDecision", reason: "SCREENING_DECISION_SYSTEM_MANAGED" }],
+        "리포트 판정이 완료된 뒤 전형 결과를 변경할 수 있습니다.",
+        [{ field: "screeningDecision", reason: "SCREENING_DECISION_NOT_READY" }],
       );
     }
     const screeningDecision = parseScreeningDecision(dto.screeningDecision);
@@ -937,6 +1067,74 @@ function requireCompanyId(user: CurrentUser): number {
     throw new CompanyRecruitingException(403, ERROR_CODES.COMMON_FORBIDDEN, "기업 사용자만 접근할 수 있습니다.");
   }
   return user.companyId;
+}
+
+function parseTargetPassCount(value: number): number {
+  if (!Number.isInteger(value) || value < 0 || value > 5000) {
+    throw new CompanyRecruitingException(400, ERROR_CODES.COMMON_VALIDATION_FAILED, "목표 합격자 수를 확인해주세요.", [
+      { field: "targetPassCount", reason: "INVALID_TARGET_PASS_COUNT" },
+    ]);
+  }
+  return value;
+}
+
+function comparePassTargetApplications(left: ApplicantRecord, right: ApplicantRecord): number {
+  const leftScore = latestApplicantScore(left);
+  const rightScore = latestApplicantScore(right);
+  if (leftScore === null && rightScore !== null) return 1;
+  if (leftScore !== null && rightScore === null) return -1;
+  if (leftScore !== null && rightScore !== null && leftScore !== rightScore) {
+    return rightScore - leftScore;
+  }
+
+  const submittedCompare = compareNullableDatesAsc(left.submittedAt, right.submittedAt);
+  if (submittedCompare !== 0) return submittedCompare;
+  return left.applicationId - right.applicationId;
+}
+
+function latestApplicantScore(application: ApplicantRecord): number | null {
+  return application.evaluationReports[0]?.totalScore ?? null;
+}
+
+function isPassTargetEligibleDecision(screeningDecision: string | null): boolean {
+  return screeningDecision === ScreeningDecision.PASS || screeningDecision === ScreeningDecision.FAIL;
+}
+
+function compareNullableDatesAsc(left: Date | null, right: Date | null): number {
+  const leftTime = left?.getTime() ?? Number.MAX_SAFE_INTEGER;
+  const rightTime = right?.getTime() ?? Number.MAX_SAFE_INTEGER;
+  return leftTime - rightTime;
+}
+
+function toPassMailRecipient(
+  application: ApplicantRecord,
+  deliveryStatus: PassMailResultRecord["recipients"][number]["deliveryStatus"],
+): PassMailResultRecord["recipients"][number] {
+  return {
+    applicationId: application.applicationId,
+    email: application.applicantEmail ?? application.candidate.user.email,
+    name: application.applicantName ?? application.candidate.user.name,
+    totalScore: latestApplicantScore(application),
+    deliveryStatus,
+  };
+}
+
+function buildPassMailMessage(posting: RecruitmentRecord, application: ApplicantRecord): MailMessage {
+  const name = application.applicantName ?? application.candidate.user.name;
+  const email = application.applicantEmail ?? application.candidate.user.email;
+  return {
+    kind: "RECRUITING_PASS_NOTICE",
+    to: email,
+    subject: `[init] ${posting.title} 합격 안내`,
+    text: [
+      `안녕하세요, ${name}님.`,
+      "",
+      `${posting.title} 전형 합격을 안내드립니다.`,
+      "추가 전형 또는 입사 안내는 채용 담당자가 별도로 전달드릴 예정입니다.",
+      "",
+      "감사합니다.",
+    ].join("\n"),
+  };
 }
 
 function findApplicantInterviewMediaFile(application: ApplicantRecord, fileId: number): CompanyFileAssetRecord | null {
@@ -1138,6 +1336,15 @@ function parseScreeningDecision(value: UpdateScreeningStatusDto["screeningDecisi
     ]);
   }
   return value as ScreeningDecision;
+}
+
+function canOverrideAutomaticScreening(application: ApplicantRecord): boolean {
+  const reportStatus = application.evaluationReports[0]?.status ?? application.reportStatus;
+  return reportStatus === "COMPLETED" && ["PASS", "HOLD", "FAIL"].includes(application.screeningDecision ?? "");
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function parseOptionalPostingStatus(value: string | undefined): PostingStatus | undefined {

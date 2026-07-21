@@ -740,7 +740,7 @@ AI 리포트 금지 기준:
   - pagination: `page`(기본 1), `limit`(기본 20, 최대 100)
   - 검색: `q` 또는 호환 alias `keyword`로 지원자 이름·이메일 부분 검색
   - 상태 필터: `applicationStatus`, `documentStatus`, `interviewStatus`, `reportStatus`, `screeningDecision`
-  - 정렬: `sort=updatedAt|applicationStatus|interviewStatus|reportStatus`, `order=asc|desc`
+  - 정렬: `sort=updatedAt|applicationStatus|interviewStatus|reportStatus|score`, `order=asc|desc`
 - 검증/전제조건:
   - 공고 조회 권한 보유
 - 성공 응답/처리:
@@ -749,6 +749,7 @@ AI 리포트 금지 기준:
   - 검색과 복수 상태 필터는 AND로 결합한다.
   - 목록 응답은 화면 행에 필요한 지원자·최신 면접 세션·최신 리포트 요약만 반환하며, 점수 근거·답변·서류 본문은 API-020 상세 조회에서 반환한다.
   - 정렬 값이 같은 경우 `applicationId`를 보조 정렬 키로 사용해 페이지 경계의 순서를 안정화한다.
+  - `sort=score`는 최신 리포트의 `totalScore` 기준이며 점수가 없는 지원자는 뒤에 배치한다. 동점이면 지원일 빠른 순, applicationId 오름차순으로 안정화한다.
 - 오류/예외:
   - 공고 정보가 없거나 권한이 없으면 접근 제한 메시지를 표시한다.
 - 관련 ERD 테이블:
@@ -780,6 +781,37 @@ AI 리포트 금지 기준:
   - companies, postings, applications
 - 비고/미결:
   - 목록 page/limit와 무관한 전체 집계이며 지원자 상세 relation을 조회하지 않는다.
+
+### API-014-PASS-MAILS POST /company/recruitments/{recruitmentId}/applicants/pass-mails
+- 도메인: 기업 - 채용공고
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 지원자 관리 화면 (/company/recruitments/{recruitmentId}/applicants)
+- UI Type: action
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: recruitmentId
+- Request Body:
+  - `targetPassCount`: number, required, 0 이상 5000 이하 정수
+- 검증/전제조건:
+  - 공고 조회 권한 보유
+  - 목표 인원만큼 최종 합격 대상을 선정할 수 있도록 `PASS` 또는 `FAIL` 판정이 완료된 활성 지원자가 있어야 한다.
+- 성공 응답/처리:
+  - `targetPassCount`를 최종 PASS 정원으로 해석한다.
+  - `PASS` 또는 `FAIL` 판정이 완료된 활성 지원자만 목표 합격자 수 조정 대상 pool로 사용한다.
+  - `HOLD`, `UNDECIDED` 지원자는 목표 합격자 수 조정에서 제외하며 이 API가 전형 상태를 변경하지 않는다.
+  - 대상 pool 안에서 최신 리포트 `totalScore` 높은 순으로 목표 인원만 PASS 처리하고, 점수가 없는 지원자는 뒤에 둔다.
+  - 최종 PASS 대상에 포함되지 않은 대상 pool 지원자는 FAIL 처리한다.
+  - 동점이면 지원일 빠른 순, applicationId 오름차순으로 처리한다.
+  - 최종 PASS 대상자에게만 합격 메일을 발송하고 이미 `SENT`로 기록된 대상은 재발송하지 않는다.
+  - `currentPassCount`, `targetPassCount`, `promotedCount`, `demotedCount`, `sentCount`, `failedCount`, `skippedCount`, `recipients[]`를 반환한다.
+- 오류/예외:
+  - 공고 정보가 없거나 권한이 없으면 404를 반환한다.
+  - `PASS` 또는 `FAIL` 판정이 완료된 활성 지원자가 목표 합격자 수보다 부족하면 400을 반환한다.
+  - 메일 발송 실패가 하나라도 있으면 실패 대상은 `deliveryStatus=FAILED`로 기록하고, 실패 대상의 신규 PASS 승격은 기존 판정으로 복구한 뒤 503 `MAIL_DELIVERY_FAILED`를 반환한다.
+- 관련 ERD 테이블:
+  - companies, postings, applications, evaluation_reports, notifications
+- 비고/미결:
+  - SMTP 접수 이후 실제 수신함 도착 및 스팸 분류는 운영 smoke 수신함에서 별도로 확인한다.
 
 ### API-032 GET /company/recruitments?keyword={keyword}&status={status}
 - 도메인: 기업 - 채용공고
@@ -830,6 +862,7 @@ AI 리포트 금지 기준:
 ## 기업 - 지원자/리포트
 
 ### API-012 PATCH /company/applicants/{applicantId}/screening-status
+
 - 도메인: 기업 - 지원자/리포트
 - 권한/인증: 기업 / 기업 사용자 로그인
 - 관련 화면: 공고 관리 화면 (/company/applications/dashboard)
@@ -843,17 +876,18 @@ AI 리포트 금지 기준:
   - `RETRY`는 system-only 상태이므로 이 API에서 입력할 수 없다.
 - 검증/전제조건:
   - 자기 회사 공고에 연결된 지원자만 수정 가능
-  - 자동 판정 정책이 활성화된 공고에는 지원자별 `screening_decision` mutation을 허용하지 않는다.
+  - 자동 판정 정책이 활성화된 공고는 리포트 판정이 완료된 뒤에만 수동 변경할 수 있다.
+  - 완료 기준은 `reportStatus=COMPLETED`이고 현재 `screeningDecision`이 `PASS`, `HOLD`, `FAIL` 중 하나인 상태다.
 - 성공 응답/처리:
-  - legacy 자동 판정 비활성 공고의 이행 기간에만 기존 결과를 반환한다.
+  - 수동 변경 결과를 반환한다.
+  - 수동 변경 시 자동 판정 snapshot 필드(`screeningDecisionReasonCode`, policy/criteria version, report id, decidedAt)는 비운다.
 - 오류/예외:
-  - 자동 판정 활성 공고이면 `COMMON_CONFLICT`, `reason=SCREENING_DECISION_SYSTEM_MANAGED`를 반환한다.
+  - 자동 판정 활성 공고에서 리포트 판정 완료 전이면 `COMMON_CONFLICT`, `reason=SCREENING_DECISION_NOT_READY`를 반환한다.
   - 허용되지 않은 전형 상태, 권한 없는 지원자, 존재하지 않는 지원자이면 오류를 반환한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, applications, evaluation_reports, report_scores, report_evidences, manual_evaluations
 - 비고/미결:
   - 자동 판정 계약은 `automatic-screening-decision.md`를 따른다.
-  - #398에서 자동 판정 engine을 활성화한 뒤 기업 UI와 route를 제거한다.
 
 ## 공개 - 채용공고/지원
 

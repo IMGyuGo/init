@@ -219,6 +219,28 @@ function createRepository(overrides: Record<string, unknown> = {}) {
         attentionRequiredTotal: 0,
       };
     },
+    async listApplicationsForPassTargeting(postingId: number, companyId: number) {
+      calls.listApplicationsForPassTargeting = [postingId, companyId];
+      return [];
+    },
+    async finalizeApplicationsPassTarget(postingId: number, companyId: number, applicationIds: number[]) {
+      calls.finalizeApplicationsPassTarget = [postingId, companyId, applicationIds];
+      return [];
+    },
+    async promoteApplicationsToPass(applicationIds: number[], companyId: number) {
+      calls.promoteApplicationsToPass = [applicationIds, companyId];
+      return [];
+    },
+    async markPassMailSent(applicationId: number, companyId: number) {
+      calls.markPassMailSent = [applicationId, companyId];
+    },
+    async markPassMailFailed(applicationId: number, companyId: number, errorMessage: string) {
+      calls.markPassMailFailed = [applicationId, companyId, errorMessage];
+    },
+    async restoreApplicationScreeningDecisions(postingId: number, companyId: number, states: unknown[]) {
+      calls.restoreApplicationScreeningDecisions = [postingId, companyId, states];
+      return [];
+    },
     async findApplicationForCompany(applicationId: number, companyId: number) {
       calls.findApplicationForCompany = [applicationId, companyId];
       return applicationId === applicant.applicationId && companyId === 7 ? applicant : null;
@@ -277,6 +299,10 @@ function createApplicantRecord(overrides: Partial<ApplicantRecord> = {}): Applic
     screeningCriteriaVersion: null,
     screeningDecidedAt: null,
     screeningMemo: null,
+    passMailDeliveryStatus: "NOT_SENT",
+    passMailSentAt: null,
+    passMailFailedAt: null,
+    passMailFailureReason: null,
     submittedAt: null,
     updatedAt: new Date("2026-06-29T00:00:00.000Z"),
     candidate: {
@@ -320,6 +346,20 @@ function createApplicantRecord(overrides: Partial<ApplicantRecord> = {}): Applic
     evaluationReports: [],
     interviewSessions: [],
     ...overrides,
+  };
+}
+
+function reportFixture(totalScore: number): ApplicantRecord["evaluationReports"][number] {
+  return {
+    reportId: 900,
+    applicationId: 77,
+    sessionId: null,
+    status: "COMPLETED",
+    totalScore,
+    summary: "Synthetic report",
+    generatedAt: new Date("2026-07-02T00:00:00.000Z"),
+    scores: [],
+    ncsAnswerEvaluations: [],
   };
 }
 
@@ -547,6 +587,314 @@ describe("CompanyRecruitingService", () => {
     const service = new CompanyRecruitingService(repository);
 
     assert.deepEqual(await service.getRecruitmentApplicantSummary(companyUser, 101), summary);
+  });
+
+  it("finalizes pass decisions to the target count before sending pass mails", async () => {
+    const applicants = [
+      createApplicantRecord({
+        applicationId: 1,
+        applicantEmail: "top-pass@example.com",
+        screeningDecision: "PASS",
+        submittedAt: new Date("2026-07-01T00:00:00.000Z"),
+        evaluationReports: [{ ...reportFixture(91), reportId: 1 }],
+      }),
+      createApplicantRecord({
+        applicationId: 2,
+        applicantEmail: "demoted-pass@example.com",
+        screeningDecision: "PASS",
+        submittedAt: new Date("2026-07-03T00:00:00.000Z"),
+        evaluationReports: [{ ...reportFixture(70), reportId: 2 }],
+      }),
+      createApplicantRecord({
+        applicationId: 3,
+        applicantEmail: "promoted-fail@example.com",
+        screeningDecision: "FAIL",
+        submittedAt: new Date("2026-07-02T00:00:00.000Z"),
+        evaluationReports: [{ ...reportFixture(88), reportId: 3 }],
+      }),
+      createApplicantRecord({
+        applicationId: 4,
+        applicantEmail: "low-fail@example.com",
+        screeningDecision: "FAIL",
+        submittedAt: new Date("2026-07-01T00:00:00.000Z"),
+        evaluationReports: [{ ...reportFixture(65), reportId: 4 }],
+      }),
+    ];
+    const passTargetIds: number[][] = [];
+    const repository = createRepository({
+      async listApplicationsForPassTargeting(postingId: number, companyId: number) {
+        assert.deepEqual([postingId, companyId], [101, 7]);
+        return applicants;
+      },
+      async finalizeApplicationsPassTarget(postingId: number, companyId: number, applicationIds: number[]) {
+        assert.deepEqual([postingId, companyId], [101, 7]);
+        passTargetIds.push(applicationIds);
+        return applicants
+          .filter((applicant) => applicationIds.includes(applicant.applicationId))
+          .map((applicant) => ({ ...applicant, screeningDecision: "PASS" }));
+      },
+    });
+    const sent: string[] = [];
+    const mailer = {
+      async send(message: { to: string }) {
+        sent.push(message.to);
+        return { messageId: `mail-${sent.length}`, acceptedCount: 1, rejectedCount: 0 };
+      },
+    };
+    const service = new CompanyRecruitingService(repository, undefined, {}, undefined, undefined, undefined, mailer);
+
+    const result = await service.sendRecruitmentPassMails(companyUser, 101, { targetPassCount: 2 });
+
+    assert.deepEqual(passTargetIds, [[1, 3]]);
+    assert.deepEqual(sent, ["top-pass@example.com", "promoted-fail@example.com"]);
+    assert.equal(result.currentPassCount, 2);
+    assert.equal(result.targetPassCount, 2);
+    assert.equal(result.promotedCount, 1);
+    assert.equal(result.demotedCount, 1);
+    assert.equal(result.sentCount, 2);
+    assert.equal(result.failedCount, 0);
+  });
+
+  it("uses only applicants already decided as pass or fail when applying the target pass count", async () => {
+    const applicants = [
+      createApplicantRecord({
+        applicationId: 1,
+        applicantEmail: "pass@example.com",
+        screeningDecision: "PASS",
+        submittedAt: new Date("2026-07-01T00:00:00.000Z"),
+        evaluationReports: [{ ...reportFixture(80), reportId: 1 }],
+      }),
+      createApplicantRecord({
+        applicationId: 2,
+        applicantEmail: "fail@example.com",
+        screeningDecision: "FAIL",
+        submittedAt: new Date("2026-07-02T00:00:00.000Z"),
+        evaluationReports: [{ ...reportFixture(70), reportId: 2 }],
+      }),
+      createApplicantRecord({
+        applicationId: 3,
+        applicantEmail: "hold-high@example.com",
+        screeningDecision: "HOLD",
+        submittedAt: new Date("2026-07-03T00:00:00.000Z"),
+        evaluationReports: [{ ...reportFixture(99), reportId: 3 }],
+      }),
+      createApplicantRecord({
+        applicationId: 4,
+        applicantEmail: "undecided-high@example.com",
+        screeningDecision: "UNDECIDED",
+        submittedAt: new Date("2026-07-04T00:00:00.000Z"),
+        evaluationReports: [{ ...reportFixture(98), reportId: 4 }],
+      }),
+    ];
+    const passTargetIds: number[][] = [];
+    const repository = createRepository({
+      async listApplicationsForPassTargeting() {
+        return applicants;
+      },
+      async finalizeApplicationsPassTarget(_postingId: number, _companyId: number, applicationIds: number[]) {
+        passTargetIds.push(applicationIds);
+        return applicants
+          .filter((applicant) => applicationIds.includes(applicant.applicationId))
+          .map((applicant) => ({ ...applicant, screeningDecision: "PASS" }));
+      },
+    });
+    const sent: string[] = [];
+    const mailer = {
+      async send(message: { to: string }) {
+        sent.push(message.to);
+        return { messageId: `mail-${sent.length}`, acceptedCount: 1, rejectedCount: 0 };
+      },
+    };
+    const service = new CompanyRecruitingService(repository, undefined, {}, undefined, undefined, undefined, mailer);
+
+    const result = await service.sendRecruitmentPassMails(companyUser, 101, { targetPassCount: 1 });
+
+    assert.deepEqual(passTargetIds, [[1]]);
+    assert.deepEqual(sent, ["pass@example.com"]);
+    assert.equal(result.promotedCount, 0);
+    assert.equal(result.demotedCount, 0);
+  });
+
+  it("sends pass mails only to finalized pass target applicants", async () => {
+    const applicants = [
+      createApplicantRecord({
+        applicationId: 1,
+        applicantEmail: "first-pass@example.com",
+        screeningDecision: "PASS",
+        submittedAt: new Date("2026-07-01T00:00:00.000Z"),
+        evaluationReports: [{ ...reportFixture(91), reportId: 1 }],
+      }),
+      createApplicantRecord({
+        applicationId: 2,
+        applicantEmail: "new-pass@example.com",
+        screeningDecision: "PASS",
+        submittedAt: new Date("2026-07-02T00:00:00.000Z"),
+        evaluationReports: [{ ...reportFixture(88), reportId: 2 }],
+      }),
+    ];
+    const sent: string[] = [];
+    const repository = createRepository({
+      async listApplicationsForPassTargeting() {
+        return applicants;
+      },
+      async finalizeApplicationsPassTarget(_postingId: number, _companyId: number, applicationIds: number[]) {
+        return applicants.filter((applicant) => applicationIds.includes(applicant.applicationId));
+      },
+    });
+    const mailer = {
+      async send(message: { to: string }) {
+        sent.push(message.to);
+        return { messageId: `mail-${sent.length}`, acceptedCount: 1, rejectedCount: 0 };
+      },
+    };
+    const service = new CompanyRecruitingService(repository, undefined, {}, undefined, undefined, undefined, mailer);
+
+    const result = await service.sendRecruitmentPassMails(companyUser, 101, { targetPassCount: 2 });
+
+    assert.deepEqual(sent, ["first-pass@example.com", "new-pass@example.com"]);
+    assert.equal(result.sentCount, 2);
+    assert.equal(result.failedCount, 0);
+    assert.deepEqual(result.recipients.map((recipient) => recipient.deliveryStatus), ["SENT", "SENT"]);
+  });
+
+  it("skips pass mail recipients that were already sent", async () => {
+    const applicants = [
+      createApplicantRecord({
+        applicationId: 1,
+        applicantEmail: "already-sent@example.com",
+        screeningDecision: "PASS",
+        passMailDeliveryStatus: "SENT",
+        passMailSentAt: new Date("2026-07-04T00:00:00.000Z"),
+        submittedAt: new Date("2026-07-01T00:00:00.000Z"),
+        evaluationReports: [{ ...reportFixture(91), reportId: 1 }],
+      }),
+      createApplicantRecord({
+        applicationId: 2,
+        applicantEmail: "new-pass@example.com",
+        screeningDecision: "PASS",
+        submittedAt: new Date("2026-07-02T00:00:00.000Z"),
+        evaluationReports: [{ ...reportFixture(88), reportId: 2 }],
+      }),
+    ];
+    const sent: string[] = [];
+    const markedSent: number[] = [];
+    const repository = createRepository({
+      async listApplicationsForPassTargeting() {
+        return applicants;
+      },
+      async finalizeApplicationsPassTarget(_postingId: number, _companyId: number, applicationIds: number[]) {
+        return applicants.filter((applicant) => applicationIds.includes(applicant.applicationId));
+      },
+      async markPassMailSent(applicationId: number) {
+        markedSent.push(applicationId);
+      },
+    });
+    const mailer = {
+      async send(message: { to: string }) {
+        sent.push(message.to);
+        return { messageId: `mail-${sent.length}`, acceptedCount: 1, rejectedCount: 0 };
+      },
+    };
+    const service = new CompanyRecruitingService(repository, undefined, {}, undefined, undefined, undefined, mailer);
+
+    const result = await service.sendRecruitmentPassMails(companyUser, 101, { targetPassCount: 2 });
+
+    assert.deepEqual(sent, ["new-pass@example.com"]);
+    assert.deepEqual(markedSent, [2]);
+    assert.equal(result.sentCount, 1);
+    assert.equal(result.failedCount, 0);
+    assert.equal(result.skippedCount, 1);
+    assert.deepEqual(result.recipients.map((recipient) => recipient.deliveryStatus), ["SKIPPED", "SENT"]);
+  });
+
+  it("fails pass mail requests and restores newly promoted applicants when delivery fails", async () => {
+    const applicants = [
+      createApplicantRecord({
+        applicationId: 1,
+        applicantEmail: "existing-pass@example.com",
+        screeningDecision: "PASS",
+        submittedAt: new Date("2026-07-01T00:00:00.000Z"),
+        evaluationReports: [{ ...reportFixture(91), reportId: 1 }],
+      }),
+      createApplicantRecord({
+        applicationId: 2,
+        applicantEmail: "promoted-fail@example.com",
+        screeningDecision: "FAIL",
+        screeningMemo: "기존 불합격",
+        submittedAt: new Date("2026-07-02T00:00:00.000Z"),
+        evaluationReports: [{ ...reportFixture(88), reportId: 2 }],
+      }),
+    ];
+    const repository = createRepository({
+      async listApplicationsForPassTargeting() {
+        return applicants;
+      },
+      async finalizeApplicationsPassTarget(_postingId: number, _companyId: number, applicationIds: number[]) {
+        return applicants
+          .filter((applicant) => applicationIds.includes(applicant.applicationId))
+          .map((applicant) => ({ ...applicant, screeningDecision: "PASS" }));
+      },
+      async markPassMailSent(applicationId: number) {
+        markedSent.push(applicationId);
+      },
+      async markPassMailFailed(applicationId: number, _companyId: number, reason: string) {
+        markedFailed.push({ applicationId, reason });
+      },
+      async restoreApplicationScreeningDecisions(_postingId: number, _companyId: number, states: unknown[]) {
+        restoredStates.push(...states);
+        return [];
+      },
+    });
+    const sent: string[] = [];
+    const markedSent: number[] = [];
+    const markedFailed: Array<{ applicationId: number; reason: string }> = [];
+    const restoredStates: unknown[] = [];
+    const mailer = {
+      async send(message: { to: string }) {
+        sent.push(message.to);
+        if (message.to === "promoted-fail@example.com") {
+          throw new Error("smtp rejected");
+        }
+        return { messageId: "mail-ok", acceptedCount: 1, rejectedCount: 0 };
+      },
+    };
+    const service = new CompanyRecruitingService(repository, undefined, {}, undefined, undefined, undefined, mailer);
+
+    await assert.rejects(
+      () => service.sendRecruitmentPassMails(companyUser, 101, { targetPassCount: 2 }),
+      /합격 메일 발송에 실패했습니다/,
+    );
+
+    assert.deepEqual(sent, ["existing-pass@example.com", "promoted-fail@example.com"]);
+    assert.deepEqual(markedSent, [1]);
+    assert.deepEqual(markedFailed.map((entry) => entry.applicationId), [2]);
+    assert.deepEqual(restoredStates, [{
+      applicationId: 2,
+      screeningDecision: "FAIL",
+      screeningMemo: "기존 불합격",
+    }]);
+  });
+
+  it("rejects a target pass count above the pass/fail decided applicant count", async () => {
+    const repository = createRepository({
+      async listApplicationsForPassTargeting() {
+        return [
+          createApplicantRecord({
+            applicationId: 1,
+            applicantEmail: "one@example.com",
+            screeningDecision: "PASS",
+            evaluationReports: [{ ...reportFixture(91), reportId: 1 }],
+          }),
+          createApplicantRecord({ applicationId: 2, applicantEmail: "two@example.com", screeningDecision: "FAIL" }),
+        ];
+      },
+    });
+    const service = new CompanyRecruitingService(repository);
+
+    await assert.rejects(
+      () => service.sendRecruitmentPassMails(companyUser, 101, { targetPassCount: 3 }),
+      /합격\/불합격 판정이 완료된 지원자가 부족합니다/,
+    );
   });
 
   it.each([100, 1_000, 5_000])("keeps first, middle, and last page boundaries stable for %i applicants", async (size) => {
@@ -2539,14 +2887,16 @@ describe("CompanyRecruitingService", () => {
     ]);
   });
 
-  it("returns automatic screening details to the company and blocks manual changes when enabled", async () => {
+  it("returns automatic screening details and allows manual override after the report decision is complete", async () => {
     const managedApplicant = createApplicantRecord({
+      reportStatus: "COMPLETED",
       screeningDecision: "HOLD",
       screeningDecisionReasonCode: "HOLD_CRITERION_BELOW_PASS_SCORE",
       screeningDecisionPolicyVersion: "AUTO_SCREENING_DECISION_V1",
       screeningPolicyVersion: 2,
       screeningCriteriaVersion: 4,
       screeningDecidedAt: new Date("2026-07-20T01:00:00.000Z"),
+      evaluationReports: [reportFixture(83)],
       posting: {
         ...createApplicantRecord().posting,
         autoScreeningPolicyEnabled: true,
@@ -2570,19 +2920,16 @@ describe("CompanyRecruitingService", () => {
       decidedAt: "2026-07-20T01:00:00.000Z",
       memo: null,
     });
-    await assert.rejects(
-      service.updateScreeningStatus(companyUser, 77, {
-        screeningDecision: "PASS",
-      }),
-      (error: unknown) =>
-        typeof error === "object" &&
-        error !== null &&
-        "code" in error &&
-        error.code === "COMMON_CONFLICT" &&
-        "details" in error &&
-        JSON.stringify(error.details).includes("SCREENING_DECISION_SYSTEM_MANAGED"),
-    );
-    assert.equal(repository.calls.updateApplicationScreening, undefined);
+    const updated = await service.updateScreeningStatus(companyUser, 77, {
+      screeningDecision: "PASS",
+      screeningMemo: "최종 검토 후 합격 처리",
+    });
+    assert.equal(updated.screeningDecision, "PASS");
+    assert.deepEqual(repository.calls.updateApplicationScreening, [
+      77,
+      7,
+      { screeningDecision: "PASS", screeningMemo: "최종 검토 후 합격 처리" },
+    ]);
   });
 
   it("rejects screening decisions outside the agreed enum values", async () => {
