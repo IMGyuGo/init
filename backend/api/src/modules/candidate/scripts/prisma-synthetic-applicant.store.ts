@@ -2,6 +2,7 @@ import { PrismaClient, type Prisma } from "@prisma/client";
 
 import {
   SYNTHETIC_MANIFEST_V2,
+  SYNTHETIC_MANIFEST_V3,
   assertSyntheticManifestVersion,
   type SyntheticApplicantPlanRecord,
   type SyntheticImporterOptions,
@@ -20,7 +21,7 @@ export function syntheticApplicationUpdatedAt(
   ordinal: number,
   datasetCreatedAt: Date,
 ) {
-  return manifestVersion === SYNTHETIC_MANIFEST_V2
+  return manifestVersion === SYNTHETIC_MANIFEST_V2 || manifestVersion === SYNTHETIC_MANIFEST_V3
     ? new Date(datasetCreatedAt.getTime() - ordinal * 60_000)
     : undefined;
 }
@@ -435,9 +436,9 @@ export class PrismaSyntheticApplicantStore implements SyntheticApplicantStore {
       },
       select: { reportId: true },
     });
-    for (const score of write.scores) {
-      await tx.reportScore.create({
-        data: {
+    if (write.scores.length > 0) {
+      await tx.reportScore.createMany({
+        data: write.scores.map((score) => ({
           reportId: report.reportId,
           criterionId: null,
           score: score.score,
@@ -450,7 +451,7 @@ export class PrismaSyntheticApplicantStore implements SyntheticApplicantStore {
           minimumAverageScore: score.minimumAverageScore,
           assignedQuestionCount: score.assignedQuestionCount,
           validQuestionCount: score.validQuestionCount,
-        },
+        })),
       });
     }
   }
