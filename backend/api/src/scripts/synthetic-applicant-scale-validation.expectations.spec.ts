@@ -1,5 +1,9 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import {
   SYNTHETIC_MANIFEST_V2,
+  SYNTHETIC_MANIFEST_V3,
   buildSyntheticApplicantPlan,
   type SyntheticApplicantPlanRecord,
   type SyntheticImporterOptions,
@@ -16,6 +20,39 @@ import {
 
 describe("synthetic applicant scale validation expectations", () => {
   const plan = buildSyntheticApplicantPlan(options(), SYNTHETIC_MANIFEST_V2);
+
+  it("wires V3 fixed-shape, projection, identity, interview and report assertions into the verifier", () => {
+    const source = verifierSource();
+    const operationalIndex = source.indexOf("assertV3SyntheticOperationalContract(dataset)");
+    const manifestReadIndex = source.indexOf("prisma.syntheticApplicantRecord.findMany");
+
+    expect(operationalIndex).toBeGreaterThan(-1);
+    expect(operationalIndex).toBeLessThan(manifestReadIndex);
+    expect(source).toContain("assertV3SyntheticManifestProjection(records, planned)");
+    expect(source).toContain("assertV3SyntheticIdentityAggregate(aggregate)");
+    expect(source).toContain("assertV3SyntheticInterviewCompletedCount");
+    expect(source).toContain("actual.completed === 920");
+    expect(source).toContain("{ PASS: 184, FAIL: 736 }");
+    expect(source).toContain("actual.profileRows === 2_760");
+    expect(source).toContain("actual.weightedTotalsMatched === 920");
+  });
+
+  it("uses the real updatedAt-desc repository page for aggregate-only V3 diversity evidence", () => {
+    const body = sourceFunction(verifierSource(), "async function verifyV3FirstPageAggregate", "async function verifyFilters");
+
+    expect(body).toContain('sort: "updatedAt", order: "desc"');
+    expect(body).toContain("baselineIds");
+    expect(body).toContain("buildV3SyntheticFirstPageAggregate");
+    expect(body).not.toMatch(/return\s+\{[^}]*name|return\s+\{[^}]*email|return\s+\{[^}]*phone|IdSample/is);
+  });
+
+  it("keeps the V3 exact search value internal to aggregate-only output and errors", () => {
+    const body = sourceFunction(verifierSource(), "async function verifyV3ExactEmailSearch", "async function verifyV2FirstPageDecisions");
+
+    expect(body).toContain("candidate.user.email === email");
+    expect(body).toContain("return { totalItems: 1, returnedItems: 1 }");
+    expect(body).not.toContain("${email}");
+  });
 
   it("preserves synthetic-only expectations when the posting has no baseline", () => {
     const actual = buildPostingValidationExpectations(plan, []);
@@ -112,6 +149,21 @@ describe("synthetic applicant scale validation expectations", () => {
     expect(JSON.stringify(actual)).not.toMatch(/applicationId|email|name|phone/);
   });
 
+  it("summarizes the approved V3 report distribution without identity data", () => {
+    const v3 = buildSyntheticApplicantPlan({ ...options(), postingId: 36n }, SYNTHETIC_MANIFEST_V3);
+    const actual = buildSyntheticReportExpectations(v3);
+
+    expect(actual).toEqual({
+      completed: 920,
+      decisions: { PASS: 184, FAIL: 736 },
+      minimumScore: 45,
+      maximumScore: 96,
+      uniqueScores: expect.any(Number),
+    });
+    expect(actual.uniqueScores).toBeGreaterThan(20);
+    expect(JSON.stringify(actual)).not.toMatch(/applicationId|email|name|phone/);
+  });
+
   it("accepts only the approved fixed V2 identity aggregate", () => {
     expect(() => assertV2SyntheticIdentityAggregate(v2IdentityAggregate())).not.toThrow();
   });
@@ -126,6 +178,60 @@ describe("synthetic applicant scale validation expectations", () => {
       ...v2IdentityAggregate(),
       [field]: value,
     })).toThrow();
+  });
+
+  it("accepts only the approved V3 identity and diversity aggregate", () => {
+    expect(() => assertV3IdentityAggregate(v3IdentityAggregate())).not.toThrow();
+  });
+
+  it.each([
+    ["interactive", 9],
+    ["nonInteractive", 1_039],
+    ["invalidNonInteractive", 1],
+    ["identityMatches", 1_049],
+    ["uniqueFullCount", 1_049],
+    ["uniqueGivenCount", 524],
+    ["uniqueFamilyCount", 19],
+  ] as const)("rejects a V3 %s aggregate outside the approved total", (field, value) => {
+    expect(() => assertV3IdentityAggregate({
+      ...v3IdentityAggregate(),
+      [field]: value,
+    })).toThrow();
+  });
+
+  it("rejects a V3 identity aggregate outside the controlled domain allowlist", () => {
+    expect(() => assertV3IdentityAggregate({
+      ...v3IdentityAggregate(),
+      domainCounts: { "uncontrolled.example": 1_050 },
+    })).toThrow("allowlist");
+  });
+
+  it("returns only aggregate V3 latest-page diversity and decision evidence", () => {
+    const actual = buildV3FirstPageAggregate([
+      { decision: "PASS", identity: "김가나" },
+      { decision: "FAIL", identity: "박다라" },
+    ]);
+
+    expect(actual).toEqual({
+      syntheticItems: 2,
+      uniqueFullCount: 2,
+      uniqueGivenCount: 2,
+      uniqueFamilyCount: 2,
+      decisions: { PASS: 1, FAIL: 1 },
+    });
+    expect(JSON.stringify(actual)).not.toMatch(/name|email|phone|idSample|김가나|박다라/i);
+  });
+
+  it("rejects a V3 latest page without decision and identity diversity", () => {
+    expect(() => buildV3FirstPageAggregate([
+      { decision: "PASS", identity: "김가나" },
+      { decision: "PASS", identity: "김가나" },
+    ])).toThrow();
+  });
+
+  it("accepts only 920 actual V3 synthetic completed interviews", () => {
+    expect(() => assertV3InterviewCompletedCount(920)).not.toThrow();
+    expect(() => assertV3InterviewCompletedCount(919)).toThrow("920");
   });
 
   it("counts the actual database report decisions supplied by the verifier", () => {
@@ -161,6 +267,36 @@ describe("synthetic applicant scale validation expectations", () => {
 
     expect(() => assertV2ManifestProjection(project(malformedPlan), malformedPlan)).toThrow(`${label} aggregate`);
   });
+
+  it("accepts the exact posting-36 V3 manifest projection independent of record order", () => {
+    const fixedPlan = buildSyntheticApplicantPlan({ ...options(), postingId: 36n }, SYNTHETIC_MANIFEST_V3);
+
+    expect(() => assertV3ManifestProjection(project(fixedPlan).reverse(), fixedPlan)).not.toThrow();
+  });
+
+  it.each([
+    ["isCanceled", true],
+    ["isInteractive", false],
+    ["pipelineSelected", true],
+    ["lifecycleStage", "CANCELED"],
+    ["dataDepth", "REPORT"],
+  ] as const)("rejects a V3 manifest record with a mismatched %s projection", (field, value) => {
+    const fixedPlan = buildSyntheticApplicantPlan({ ...options(), postingId: 36n }, SYNTHETIC_MANIFEST_V3);
+    const actual = project(fixedPlan);
+    Object.assign(actual[0], { [field]: value });
+
+    expect(() => assertV3ManifestProjection(actual, fixedPlan)).toThrow(field);
+  });
+
+  it.each([
+    ["stage", "lifecycleStage", "CANCELED"],
+    ["depth", "dataDepth", "REPORT"],
+  ] as const)("rejects a malformed V3 %s aggregate even when a supplied plan repeats it", (label, field, value) => {
+    const malformedPlan = buildSyntheticApplicantPlan({ ...options(), postingId: 36n }, SYNTHETIC_MANIFEST_V3);
+    Object.assign(malformedPlan[0], { [field]: value });
+
+    expect(() => assertV3ManifestProjection(project(malformedPlan), malformedPlan)).toThrow(`${label} aggregate`);
+  });
 });
 
 type ManifestProjection = Pick<
@@ -185,6 +321,52 @@ function assertV2ManifestProjection(actual: ManifestProjection[], planned: Synth
   }).assertV2SyntheticManifestProjection;
   if (!assertion) throw new Error("assertV2SyntheticManifestProjection is not implemented");
   assertion(actual, planned);
+}
+
+function assertV3ManifestProjection(actual: ManifestProjection[], planned: SyntheticApplicantPlanRecord[]) {
+  const assertion = (validationExpectations as unknown as {
+    assertV3SyntheticManifestProjection?: (actual: ManifestProjection[], planned: SyntheticApplicantPlanRecord[]) => void;
+  }).assertV3SyntheticManifestProjection;
+  if (!assertion) throw new Error("assertV3SyntheticManifestProjection is not implemented");
+  assertion(actual, planned);
+}
+
+type V3IdentityAggregate = SyntheticIdentityAggregate & {
+  uniqueFullCount: number;
+  uniqueGivenCount: number;
+  uniqueFamilyCount: number;
+};
+
+function assertV3IdentityAggregate(actual: V3IdentityAggregate) {
+  const assertion = (validationExpectations as unknown as {
+    assertV3SyntheticIdentityAggregate?: (aggregate: V3IdentityAggregate) => void;
+  }).assertV3SyntheticIdentityAggregate;
+  if (!assertion) throw new Error("assertV3SyntheticIdentityAggregate is not implemented");
+  assertion(actual);
+}
+
+function buildV3FirstPageAggregate(actual: Array<{ decision: string | null; identity: string }>) {
+  const builder = (validationExpectations as unknown as {
+    buildV3SyntheticFirstPageAggregate?: (
+      records: Array<{ decision: string | null; identity: string }>,
+    ) => {
+      syntheticItems: number;
+      uniqueFullCount: number;
+      uniqueGivenCount: number;
+      uniqueFamilyCount: number;
+      decisions: Record<string, number>;
+    };
+  }).buildV3SyntheticFirstPageAggregate;
+  if (!builder) throw new Error("buildV3SyntheticFirstPageAggregate is not implemented");
+  return builder(actual);
+}
+
+function assertV3InterviewCompletedCount(actual: number) {
+  const assertion = (validationExpectations as unknown as {
+    assertV3SyntheticInterviewCompletedCount?: (completed: number) => void;
+  }).assertV3SyntheticInterviewCompletedCount;
+  if (!assertion) throw new Error("assertV3SyntheticInterviewCompletedCount is not implemented");
+  assertion(actual);
 }
 
 function options(): SyntheticImporterOptions {
@@ -221,4 +403,28 @@ function v2IdentityAggregate(): SyntheticIdentityAggregate {
     identityMatches: 1_050,
     domainCounts: {},
   };
+}
+
+function v3IdentityAggregate(): V3IdentityAggregate {
+  return {
+    interactive: 10,
+    nonInteractive: 1_040,
+    invalidNonInteractive: 0,
+    identityMatches: 1_050,
+    domainCounts: { "bluepost.init-jungle.cloud": 1_050 },
+    uniqueFullCount: 1_050,
+    uniqueGivenCount: 525,
+    uniqueFamilyCount: 20,
+  };
+}
+
+function verifierSource() {
+  return readFileSync(join(__dirname, "synthetic-applicant-scale-validation.ts"), "utf8");
+}
+
+function sourceFunction(source: string, start: string, end: string) {
+  const startIndex = source.indexOf(start);
+  const endIndex = source.indexOf(end, startIndex + start.length);
+  if (startIndex < 0 || endIndex < 0) throw new Error(`verifier function boundary missing: ${start}`);
+  return source.slice(startIndex, endIndex);
 }
