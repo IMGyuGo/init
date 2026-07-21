@@ -10,6 +10,8 @@ import type {
   PostingDraftGenerateInput,
   Recruitment,
   RecruitmentStatus,
+  SendPassMailsInput,
+  PassMailResult,
   UpdateScreeningStatusInput,
   UpdateRecruitmentInput,
 } from "./types";
@@ -37,7 +39,7 @@ export type ApplicantListQuery = {
   interviewStatus?: string;
   reportStatus?: string;
   screeningDecision?: string;
-  sort?: "updatedAt" | "applicationStatus" | "interviewStatus" | "reportStatus";
+  sort?: "updatedAt" | "score" | "applicationStatus" | "interviewStatus" | "reportStatus";
   order?: "asc" | "desc";
 };
 
@@ -109,6 +111,13 @@ export async function listRecruitmentApplicants(recruitmentId: number, query: Ap
 
 export async function getRecruitmentApplicantSummary(recruitmentId: number) {
   return request<ApplicantSummary>(`/company/recruitments/${recruitmentId}/applicants/summary`);
+}
+
+export async function sendRecruitmentPassMails(recruitmentId: number, input: SendPassMailsInput) {
+  return request<PassMailResult>(`/company/recruitments/${recruitmentId}/applicants/pass-mails`, {
+    method: "POST",
+    body: input,
+  });
 }
 
 export async function getApplicantEvaluation(applicantId: number) {

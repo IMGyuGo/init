@@ -11,6 +11,7 @@ import {
   scoreBand,
 } from "../interview-report/report-visuals";
 import { createApplicantInterviewMediaSession, getApplicantDocument, getApplicantEvaluation, updateScreeningStatus } from "./api";
+import { canEditScreeningDecision } from "./applicant-list";
 import { Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
 import type {
   NcsReportEvaluationOutput,
@@ -85,8 +86,8 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (evaluation?.applicant.autoScreeningPolicyEnabled) {
-      setMessage("자동 판정이 활성화된 공고의 전형 결과는 직접 변경할 수 없습니다.");
+    if (!canEditDecision) {
+      setMessage("리포트 판정이 완료된 뒤 전형 결과를 변경할 수 있습니다.");
       return;
     }
     setLoading(true);
@@ -131,7 +132,12 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
   }
 
   const report = evaluation?.report ?? null;
-  const isAutoScreeningManaged = evaluation?.applicant.autoScreeningPolicyEnabled === true;
+  const canEditDecision = evaluation ? canEditScreeningDecision({
+    autoScreeningPolicyEnabled: evaluation.applicant.autoScreeningPolicyEnabled,
+    reportStatus: evaluation.statuses.reportStatus,
+    screeningDecision: evaluation.screening.decision,
+  }) : false;
+  const isAutoScreeningLocked = evaluation?.applicant.autoScreeningPolicyEnabled === true && !canEditDecision;
   const displayAnswers = evaluation ? getDisplayAnswers(evaluation.answers) : [];
   const integritySummary = evaluation ? buildRecruitingIntegritySummary(displayAnswers) : null;
 
@@ -249,7 +255,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
 
             {tab === "decision" ? (
               <div className="report-tabpanel" role="tabpanel">
-                {isAutoScreeningManaged ? (
+                {isAutoScreeningLocked ? (
                   <section className="panel decision-panel">
                     <div className="panel-head">
                       <div>
@@ -263,7 +269,7 @@ export function ApplicantEvaluationPage({ applicantId }: { applicantId: number }
                       <span className="decision-field-label">자동 판정 상태</span>
                       <StatusBadge value={evaluation?.screening.decision} />
                     </div>
-                    <p className="notice">자동 판정이 활성화된 공고의 결과는 직접 변경할 수 없습니다.</p>
+                    <p className="notice">리포트 판정이 완료된 뒤 전형 결과를 변경할 수 있습니다.</p>
                   </section>
                 ) : (
                   <form className="panel decision-panel" onSubmit={handleSubmit}>
