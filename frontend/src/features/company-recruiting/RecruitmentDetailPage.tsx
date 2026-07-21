@@ -20,6 +20,7 @@ import {
 import {
   APPLICANTS_PAGE_SIZE,
   APPLICANT_SORT_OPTIONS,
+  DEFAULT_APPLICANT_SORT,
   applyScreeningDecisionCountChange,
   canEditScreeningDecision,
   getApplicantSortQuery,
@@ -104,7 +105,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const actionMenuRef = useRef<HTMLDivElement>(null);
   const [applicantPage, setApplicantPage] = useState(1);
-  const [applicantSort, setApplicantSort] = useState<ApplicantSort>("recent");
+  const [applicantSort, setApplicantSort] = useState<ApplicantSort>(DEFAULT_APPLICANT_SORT);
   const [targetPassCount, setTargetPassCount] = useState("");
   const [passMailSending, setPassMailSending] = useState(false);
   const [applicantSearchInput, setApplicantSearchInput] = useState("");

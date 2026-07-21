@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import {
+  DEFAULT_APPLICANT_SORT,
   applyScreeningDecisionCountChange,
   canEditScreeningDecision,
   getApplicantSortQuery,
@@ -8,6 +9,8 @@ import {
   getApplicantSummaryMetrics,
 } from "./applicant-list";
 
+assert.equal(DEFAULT_APPLICANT_SORT, "score");
+assert.deepEqual(getApplicantSortQuery(DEFAULT_APPLICANT_SORT), { sort: "score", order: "desc" });
 assert.deepEqual(getApplicantSortQuery("recent"), { sort: "updatedAt", order: "desc" });
 assert.deepEqual(getApplicantSortQuery("interviewStatus"), { sort: "interviewStatus", order: "asc" });
 assert.deepEqual(getApplicantSortQuery("score"), { sort: "score", order: "desc" });
