@@ -2785,6 +2785,7 @@ td span {
   padding: 0 11px;
   font-size: 12px;
   font-weight: 700;
+  white-space: nowrap;
   border-radius: 999px;
 }
 
