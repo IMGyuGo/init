@@ -30,6 +30,8 @@ import {
   buildSyntheticReportExpectations,
   buildV3SyntheticFirstPageAggregate,
   countSyntheticReportDecisions,
+  verifyV3ExactSearchAggregateOnly,
+  verifyV3FirstPageAggregateOnly,
   type PostingStatusCounts,
   type PostingValidationExpectations,
 } from "./synthetic-applicant-scale-validation.expectations";
@@ -478,14 +480,16 @@ async function verifyV2ExactEmailSearch(postingId: number, companyId: number, em
 
 async function verifyV3ExactEmailSearch(postingId: number, companyId: number, email: string) {
   const normalized = query({ q: email, page: 1, limit: 20 });
-  const [items, totalItems] = await Promise.all([
-    repository.listApplicationsForPosting(postingId, companyId, normalized),
-    repository.countApplicationsForPosting(postingId, companyId, normalized),
-  ]);
-  assert(totalItems === 1, "V3 exact-email 검색 결과 aggregate가 정확히 한 건이 아닙니다.");
-  assert(items.length === 1, "V3 exact-email 검색 첫 페이지 aggregate가 정확히 한 건이 아닙니다.");
-  assert(items[0]?.candidate.user.email === email, "V3 exact-email 검색 결과가 plan과 다릅니다.");
-  return { totalItems: 1, returnedItems: 1 };
+  return verifyV3ExactSearchAggregateOnly(
+    async () => {
+      const [items, totalItems] = await Promise.all([
+        repository.listApplicationsForPosting(postingId, companyId, normalized),
+        repository.countApplicationsForPosting(postingId, companyId, normalized),
+      ]);
+      return { items, totalItems };
+    },
+    (item) => item.candidate.user.email === email,
+  );
 }
 
 async function verifyV2FirstPageDecisions(
@@ -519,17 +523,22 @@ async function verifyV3FirstPageAggregate(
 ) {
   const page = 1;
   const limit = 20;
-  const items = await repository.listApplicationsForPosting(
-    postingId,
-    companyId,
-    query({ page, limit, sort: "updatedAt", order: "desc" }),
+  return verifyV3FirstPageAggregateOnly(
+    async () => {
+      const items = await repository.listApplicationsForPosting(
+        postingId,
+        companyId,
+        query({ page, limit, sort: "updatedAt", order: "desc" }),
+      );
+      const baselineIds = new Set(baselineApplicationIds.map((applicationId) => applicationId.toString()));
+      const syntheticItems = items.filter((item) => !baselineIds.has(String(item.applicationId)));
+      return syntheticItems.map((item) => ({
+        decision: item.screeningDecision,
+        identity: item.candidate.user.name,
+      }));
+    },
+    buildV3SyntheticFirstPageAggregate,
   );
-  const baselineIds = new Set(baselineApplicationIds.map((applicationId) => applicationId.toString()));
-  const syntheticItems = items.filter((item) => !baselineIds.has(String(item.applicationId)));
-  return buildV3SyntheticFirstPageAggregate(syntheticItems.map((item) => ({
-    decision: item.screeningDecision,
-    identity: item.candidate.user.name,
-  })));
 }
 
 async function verifyFilters(

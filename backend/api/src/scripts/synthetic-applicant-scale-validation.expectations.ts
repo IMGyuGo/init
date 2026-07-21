@@ -197,6 +197,34 @@ export function buildV3SyntheticFirstPageAggregate(actual: readonly V3SyntheticF
   return aggregate;
 }
 
+export async function verifyV3ExactSearchAggregateOnly<T>(
+  load: () => Promise<{ items: readonly T[]; totalItems: number }>,
+  matchesExpected: (item: T) => boolean,
+) {
+  try {
+    const { items, totalItems } = await load();
+    if (totalItems !== 1 || items.length !== 1 || !matchesExpected(items[0])) {
+      throw new Error("V3 exact-search aggregate mismatch.");
+    }
+    return { totalItems: 1, returnedItems: 1 };
+  } catch {
+    throw new Error("V3 exact-search aggregate verification failed.");
+  }
+}
+
+export async function verifyV3FirstPageAggregateOnly(
+  load: () => Promise<V3SyntheticFirstPageProjection[]>,
+  aggregate: (
+    actual: readonly V3SyntheticFirstPageProjection[],
+  ) => ReturnType<typeof buildV3SyntheticFirstPageAggregate> = buildV3SyntheticFirstPageAggregate,
+) {
+  try {
+    return aggregate(await load());
+  } catch {
+    throw new Error("V3 latest-page aggregate verification failed.");
+  }
+}
+
 export function assertV3SyntheticInterviewCompletedCount(actual: number) {
   if (actual !== 920) throw new Error("V3 synthetic interview COMPLETED aggregate가 정확히 920건이 아닙니다.");
 }

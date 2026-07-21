@@ -43,6 +43,7 @@ describe("synthetic applicant scale validation expectations", () => {
     expect(body).toContain('sort: "updatedAt", order: "desc"');
     expect(body).toContain("baselineIds");
     expect(body).toContain("buildV3SyntheticFirstPageAggregate");
+    expect(body).toContain("verifyV3FirstPageAggregateOnly");
     expect(body).not.toMatch(/return\s+\{[^}]*name|return\s+\{[^}]*email|return\s+\{[^}]*phone|IdSample/is);
   });
 
@@ -50,8 +51,72 @@ describe("synthetic applicant scale validation expectations", () => {
     const body = sourceFunction(verifierSource(), "async function verifyV3ExactEmailSearch", "async function verifyV2FirstPageDecisions");
 
     expect(body).toContain("candidate.user.email === email");
-    expect(body).toContain("return { totalItems: 1, returnedItems: 1 }");
+    expect(body).toContain("verifyV3ExactSearchAggregateOnly");
     expect(body).not.toContain("${email}");
+  });
+
+  it("replaces a V3 exact-search repository failure with constant aggregate-only evidence", async () => {
+    const searchedValue = "private.person@controlled.example";
+    const sensitiveValues = [searchedValue, "userId=71001", "candidateId=72001", "applicationId=73001"];
+    const operation = v3ExactSearchAggregateOnly<{ candidate: { user: { email: string } } }>();
+
+    const failure = await captureError(operation(
+      async () => {
+        throw new Error(`Prisma query failed: ${sensitiveValues.join(" ")}`);
+      },
+      (item) => item.candidate.user.email === searchedValue,
+    ));
+    const failureOutput = serializeFailure(failure);
+
+    expect(failure.message).toBe("V3 exact-search aggregate verification failed.");
+    expect(failureOutput).not.toMatch(/name|email|phone|userId|candidateId|applicationId|idSample/i);
+    for (const value of sensitiveValues) expect(failureOutput).not.toContain(value);
+
+    const success = await operation(
+      async () => ({
+        items: [{ candidate: { user: { email: searchedValue } } }],
+        totalItems: 1,
+      }),
+      (item) => item.candidate.user.email === searchedValue,
+    );
+    const successOutput = JSON.stringify(success);
+    expect(success).toEqual({ totalItems: 1, returnedItems: 1 });
+    expect(successOutput).not.toMatch(/name|email|phone|userId|candidateId|applicationId|idSample/i);
+    expect(successOutput).not.toContain(searchedValue);
+  });
+
+  it("replaces a V3 first-page repository failure with constant aggregate-only evidence", async () => {
+    const sensitiveValues = [
+      "name=Private Person",
+      "email=private.person@controlled.example",
+      "phone=010-1234-5678",
+      "applicationId=73001",
+    ];
+    const operation = v3FirstPageAggregateOnly();
+
+    const failure = await captureError(operation(async () => {
+      throw new Error(`Prisma query failed: ${sensitiveValues.join(" ")}`);
+    }));
+    const failureOutput = serializeFailure(failure);
+
+    expect(failure.message).toBe("V3 latest-page aggregate verification failed.");
+    expect(failureOutput).not.toMatch(/name|email|phone|userId|candidateId|applicationId|idSample/i);
+    for (const value of sensitiveValues) expect(failureOutput).not.toContain(value);
+
+    const success = await operation(async () => [
+      { decision: "PASS", identity: "김가나" },
+      { decision: "FAIL", identity: "박다라" },
+    ]);
+    const successOutput = JSON.stringify(success);
+    expect(success).toEqual({
+      syntheticItems: 2,
+      uniqueFullCount: 2,
+      uniqueGivenCount: 2,
+      uniqueFamilyCount: 2,
+      decisions: { PASS: 1, FAIL: 1 },
+    });
+    expect(successOutput).not.toMatch(/name|email|phone|userId|candidateId|applicationId|idSample/i);
+    expect(successOutput).not.toMatch(/김가나|박다라/);
   });
 
   it("preserves synthetic-only expectations when the posting has no baseline", () => {
@@ -427,4 +492,48 @@ function sourceFunction(source: string, start: string, end: string) {
   const endIndex = source.indexOf(end, startIndex + start.length);
   if (startIndex < 0 || endIndex < 0) throw new Error(`verifier function boundary missing: ${start}`);
   return source.slice(startIndex, endIndex);
+}
+
+function v3ExactSearchAggregateOnly<T>() {
+  const operation = (validationExpectations as unknown as {
+    verifyV3ExactSearchAggregateOnly?: (
+      load: () => Promise<{ items: readonly T[]; totalItems: number }>,
+      matchesExpected: (item: T) => boolean,
+    ) => Promise<{ totalItems: number; returnedItems: number }>;
+  }).verifyV3ExactSearchAggregateOnly;
+  if (!operation) throw new Error("verifyV3ExactSearchAggregateOnly is not implemented");
+  return operation;
+}
+
+function v3FirstPageAggregateOnly() {
+  const operation = (validationExpectations as unknown as {
+    verifyV3FirstPageAggregateOnly?: (
+      load: () => Promise<Array<{ decision: string | null; identity: string }>>,
+    ) => Promise<{
+      syntheticItems: number;
+      uniqueFullCount: number;
+      uniqueGivenCount: number;
+      uniqueFamilyCount: number;
+      decisions: Record<string, number>;
+    }>;
+  }).verifyV3FirstPageAggregateOnly;
+  if (!operation) throw new Error("verifyV3FirstPageAggregateOnly is not implemented");
+  return operation;
+}
+
+async function captureError(operation: Promise<unknown>) {
+  try {
+    await operation;
+    throw new Error("expected operation to fail");
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    return error;
+  }
+}
+
+function serializeFailure(error: Error) {
+  return JSON.stringify({
+    message: error.message,
+    cause: error.cause instanceof Error ? error.cause.message : error.cause ?? null,
+  });
 }
