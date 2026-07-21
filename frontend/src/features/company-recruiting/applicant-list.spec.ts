@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   DEFAULT_APPLICANT_SORT,
@@ -178,3 +179,14 @@ assert.deepEqual(
   }),
   { activeTotal: 1250, completedInterviews: 875, reportCompleted: 800, completionRate: 70 },
 );
+
+const recruitmentDetailSource = readFileSync(
+  new URL("./RecruitmentDetailPage.tsx", import.meta.url),
+  "utf8",
+);
+
+assert.match(
+  recruitmentDetailSource,
+  /<td className="screening-status-cell">\s*<StatusBadge value=\{item\.report \? item\.report\.status : "NONE_OR_GENERATING"\} \/>/,
+);
+assert.doesNotMatch(recruitmentDetailSource, /"자동 판정"/);

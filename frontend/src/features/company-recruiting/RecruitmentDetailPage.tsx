@@ -666,7 +666,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                             <td>
                               <StatusBadge value={item.interviewStatus} />
                             </td>
-                            <td>
+                            <td className="screening-status-cell">
                               <StatusBadge value={item.report ? item.report.status : "NONE_OR_GENERATING"} />
                             </td>
                             <td>
@@ -680,9 +680,9 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                               {!canEditDecision ? (
                                 <div className="autosave-field">
                                   <StatusBadge value={item.effectiveScreeningDecision} />
-                                  <span className="autosave-state">
-                                    {item.screeningResultConfirmationStatus === "CONFIRMED" ? "확정" : "자동 판정"}
-                                  </span>
+                                  {item.screeningResultConfirmationStatus === "CONFIRMED" ? (
+                                    <span className="autosave-state">확정</span>
+                                  ) : null}
                                 </div>
                               ) : (
                                 <div className={`autosave-field ${decisionState === "saving" ? "is-saving" : ""} ${decisionState === "error" ? "is-error" : ""}`}>
