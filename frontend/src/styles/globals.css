@@ -6494,7 +6494,8 @@ td input {
 }
 .notion .wizard-choice-card:hover { border-color: #3b6fe0; background: #fbfcff; transform: translateY(-3px); box-shadow: 0 8px 24px rgba(55, 53, 47, 0.08); }
 .notion .wizard-choice-art { width: 168px; height: 168px; object-fit: contain; margin-bottom: 4px; }
-.notion .wizard-choice-card strong { font-size: 26px; font-weight: 800; color: #191919; }
+.notion .wizard-choice-card strong { font-size: 32px; font-weight: 800; color: #191919; }
+.notion .wizard-choice-card strong .ai-grad-text { font-size: 1.18em; font-weight: 900; }
 .notion .wizard-choice-card span:last-child { max-width: 280px; font-size: 15.5px; line-height: 1.55; color: rgba(55, 53, 47, 0.6); word-break: keep-all; }
 .notion .wizard-choice-badge {
   position: absolute;
