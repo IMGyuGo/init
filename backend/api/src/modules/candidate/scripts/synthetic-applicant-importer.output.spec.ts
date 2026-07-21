@@ -1,6 +1,7 @@
 import {
   SYNTHETIC_MANIFEST_V1,
   SYNTHETIC_MANIFEST_V2,
+  SYNTHETIC_MANIFEST_V3,
   buildSyntheticApplicantPlan,
   formatSyntheticImporterFailure,
   serializeSyntheticImporterOutput,
@@ -19,7 +20,7 @@ import {
 const FORBIDDEN_MARKERS = /email|phone|password|hash|userId|candidateId|applicationId|name/i;
 
 describe("synthetic applicant importer CLI output", () => {
-  it("serializes actual V1/V2 plan and V2 apply/cleanup results without identity or internal ID data", async () => {
+  it("serializes actual V1/V2/V3 plan and V3 apply/cleanup results without identity or internal ID data", async () => {
     const options = fixedOptions();
     const store = new OutputStore();
     const service = new SyntheticApplicantImporterService(store);
@@ -35,6 +36,7 @@ describe("synthetic applicant importer CLI output", () => {
 
     const v1Identity = buildSyntheticApplicantPlan(legacyOptions, SYNTHETIC_MANIFEST_V1)[0];
     const v2Identity = buildSyntheticApplicantPlan(options, SYNTHETIC_MANIFEST_V2)[0];
+    const v3Identity = buildSyntheticApplicantPlan(options, SYNTHETIC_MANIFEST_V3)[0];
     const knownSensitiveValues = [
       v1Identity.email,
       v1Identity.name,
@@ -42,6 +44,9 @@ describe("synthetic applicant importer CLI output", () => {
       v2Identity.email,
       v2Identity.name,
       v2Identity.phone,
+      v3Identity.email,
+      v3Identity.name,
+      v3Identity.phone,
       "10001",
       "20001",
       "30001",
@@ -63,14 +68,16 @@ describe("synthetic applicant importer CLI output", () => {
     }
   });
 
-  it("formats a CLI failure without sensitive markers or supplied V1/V2 identity values", () => {
+  it("formats a CLI failure without sensitive markers or supplied V1/V2/V3 identity values", () => {
     const v1Identity = buildSyntheticApplicantPlan(legacyFixtureOptions(), SYNTHETIC_MANIFEST_V1)[0];
     const v2Identity = buildSyntheticApplicantPlan(fixedOptions(), SYNTHETIC_MANIFEST_V2)[0];
+    const v3Identity = buildSyntheticApplicantPlan(fixedOptions(), SYNTHETIC_MANIFEST_V3)[0];
     const bcryptHash = "$2b$12$12345678901234567890123456789012345678901234567890123";
     const error = new Error([
       `email=${v2Identity.email}`,
       `phone=${v1Identity.phone}`,
       `name='${v1Identity.name}'`,
+      `v3Identity=${v3Identity.email}/${v3Identity.phone}/${v3Identity.name}`,
       "password=Secret123456",
       `passwordHash=${bcryptHash}`,
       "userId=10001",
@@ -81,7 +88,19 @@ describe("synthetic applicant importer CLI output", () => {
     const serialized = formatSyntheticImporterFailure(error);
 
     expect(serialized).not.toMatch(FORBIDDEN_MARKERS);
-    for (const value of [v1Identity.email, v1Identity.name, v1Identity.phone, v2Identity.email, bcryptHash, "10001", "20001", "30001"]) {
+    for (const value of [
+      v1Identity.email,
+      v1Identity.name,
+      v1Identity.phone,
+      v2Identity.email,
+      v3Identity.email,
+      v3Identity.name,
+      v3Identity.phone,
+      bcryptHash,
+      "10001",
+      "20001",
+      "30001",
+    ]) {
       expect(serialized).not.toContain(value);
     }
     expect(serialized).toContain("synthetic-applicant-importer failed:");
@@ -178,12 +197,12 @@ function fixedOptions(overrides: Partial<SyntheticImporterOptions> = {}): Synthe
     environment: "local",
     companyId: 1n,
     postingId: 36n,
-    datasetId: "output-v2",
+    datasetId: "output-v3",
     activeCount: 1_000,
     canceledCount: 50,
     interactiveCount: 10,
     pipelineSelectionCount: 0,
-    batchSize: 500,
+    batchSize: 100,
     ...overrides,
   };
 }

@@ -133,7 +133,7 @@ describe("synthetic applicant scale validation expectations", () => {
   });
 
   it("accepts the exact posting-36 V2 manifest projection independent of record order", () => {
-    const fixedPlan = buildSyntheticApplicantPlan({ ...options(), postingId: 36n });
+    const fixedPlan = buildSyntheticApplicantPlan({ ...options(), postingId: 36n }, SYNTHETIC_MANIFEST_V2);
 
     expect(() => assertV2ManifestProjection(project(fixedPlan).reverse(), fixedPlan)).not.toThrow();
   });
@@ -145,7 +145,7 @@ describe("synthetic applicant scale validation expectations", () => {
     ["lifecycleStage", "CANCELED"],
     ["dataDepth", "REPORT"],
   ] as const)("rejects a V2 manifest record with a mismatched %s projection", (field, value) => {
-    const fixedPlan = buildSyntheticApplicantPlan({ ...options(), postingId: 36n });
+    const fixedPlan = buildSyntheticApplicantPlan({ ...options(), postingId: 36n }, SYNTHETIC_MANIFEST_V2);
     const actual = project(fixedPlan);
     Object.assign(actual[0], { [field]: value });
 
@@ -156,7 +156,7 @@ describe("synthetic applicant scale validation expectations", () => {
     ["stage", "lifecycleStage", "CANCELED"],
     ["depth", "dataDepth", "REPORT"],
   ] as const)("rejects a malformed V2 %s aggregate even when a supplied plan repeats it", (label, field, value) => {
-    const malformedPlan = buildSyntheticApplicantPlan({ ...options(), postingId: 36n });
+    const malformedPlan = buildSyntheticApplicantPlan({ ...options(), postingId: 36n }, SYNTHETIC_MANIFEST_V2);
     Object.assign(malformedPlan[0], { [field]: value });
 
     expect(() => assertV2ManifestProjection(project(malformedPlan), malformedPlan)).toThrow(`${label} aggregate`);

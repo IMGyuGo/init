@@ -1,7 +1,9 @@
 import {
   SYNTHETIC_MANIFEST_V2,
+  SYNTHETIC_MANIFEST_V3,
   assertSyntheticManifestVersion,
   assertV2SyntheticOperationalContract,
+  assertV3SyntheticOperationalContract,
   buildSyntheticApplicantPlan,
   chunkSyntheticRecords,
   sanitizeSyntheticError,
@@ -78,6 +80,10 @@ export class SyntheticApplicantImporterService {
       assertV2SyntheticOperationalContract(options);
       if (existing) assertV2SyntheticOperationalContract(existing);
     }
+    if (manifestVersion === SYNTHETIC_MANIFEST_V3) {
+      assertV3SyntheticOperationalContract(options);
+      if (existing) assertV3SyntheticOperationalContract(existing);
+    }
     const records = buildSyntheticApplicantPlan(options, manifestVersion);
     const optionsHash = syntheticOptionsHash(options, manifestVersion);
     if (existing && existing.optionsHash !== optionsHash) {
@@ -102,6 +108,10 @@ export class SyntheticApplicantImporterService {
     if (manifestVersion === SYNTHETIC_MANIFEST_V2) {
       assertV2SyntheticOperationalContract(options);
       if (dataset) assertV2SyntheticOperationalContract(dataset);
+    }
+    if (manifestVersion === SYNTHETIC_MANIFEST_V3) {
+      assertV3SyntheticOperationalContract(options);
+      if (dataset) assertV3SyntheticOperationalContract(dataset);
     }
     const plannedRecords = buildSyntheticApplicantPlan(options, manifestVersion);
     const optionsHash = syntheticOptionsHash(options, manifestVersion);
@@ -204,7 +214,7 @@ export class SyntheticApplicantImporterService {
   }
 
   private resolveManifestVersion(dataset: SyntheticDatasetManifest | null): SyntheticManifestVersion {
-    if (!dataset) return SYNTHETIC_MANIFEST_V2;
+    if (!dataset) return SYNTHETIC_MANIFEST_V3;
     assertSyntheticManifestVersion(dataset.manifestVersion);
     return dataset.manifestVersion;
   }

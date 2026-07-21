@@ -2,10 +2,12 @@ import { createHash } from "crypto";
 
 import { allocateByWeight } from "./synthetic-applicant-importer.allocation";
 import { buildSyntheticApplicantPlanV2 } from "./synthetic-applicant-importer.v2";
+import { buildSyntheticApplicantPlanV3 } from "./synthetic-applicant-importer.v3";
 
 export const SYNTHETIC_MANIFEST_V1 = "SYNTHETIC_APPLICANT_MANIFEST_V1" as const;
 export const SYNTHETIC_MANIFEST_V2 = "SYNTHETIC_APPLICANT_MANIFEST_V2" as const;
-export const SYNTHETIC_MANIFEST_VERSION = SYNTHETIC_MANIFEST_V2;
+export const SYNTHETIC_MANIFEST_V3 = "SYNTHETIC_APPLICANT_MANIFEST_V3" as const;
+export const SYNTHETIC_MANIFEST_VERSION = SYNTHETIC_MANIFEST_V3;
 export const SYNTHETIC_PRODUCTION_ACK = "ISSUE_393_DEPLOYED_AND_SNAPSHOT_READY";
 
 export const SYNTHETIC_V2_OPERATIONAL_CONTRACT = {
@@ -14,6 +16,15 @@ export const SYNTHETIC_V2_OPERATIONAL_CONTRACT = {
   canceledCount: 50,
   interactiveCount: 10,
   pipelineSelectionCount: 0,
+} as const;
+
+export const SYNTHETIC_V3_OPERATIONAL_CONTRACT = {
+  postingId: 36n,
+  activeCount: 1_000,
+  canceledCount: 50,
+  interactiveCount: 10,
+  pipelineSelectionCount: 0,
+  batchSize: 100,
 } as const;
 
 export type SyntheticImporterAction = "plan" | "apply" | "cleanup";
@@ -50,7 +61,8 @@ export type SyntheticApplicationProjection = {
 
 export type SyntheticManifestVersion =
   | "SYNTHETIC_APPLICANT_MANIFEST_V1"
-  | "SYNTHETIC_APPLICANT_MANIFEST_V2";
+  | "SYNTHETIC_APPLICANT_MANIFEST_V2"
+  | "SYNTHETIC_APPLICANT_MANIFEST_V3";
 
 export type SyntheticProfileScoreFixture = {
   id: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
@@ -199,7 +211,7 @@ export function validateSyntheticEnvironment(
 
 export function syntheticOptionsHash(
   options: SyntheticImporterOptions,
-  manifestVersion: SyntheticManifestVersion = SYNTHETIC_MANIFEST_V2,
+  manifestVersion: SyntheticManifestVersion = SYNTHETIC_MANIFEST_V3,
 ) {
   assertSyntheticManifestVersion(manifestVersion);
   const canonical = JSON.stringify({
@@ -219,15 +231,16 @@ export function syntheticOptionsHash(
 
 export function buildSyntheticApplicantPlan(
   options: SyntheticImporterOptions,
-  manifestVersion: SyntheticManifestVersion = SYNTHETIC_MANIFEST_V2,
+  manifestVersion: SyntheticManifestVersion = SYNTHETIC_MANIFEST_V3,
 ) {
   if (manifestVersion === SYNTHETIC_MANIFEST_V1) return buildSyntheticApplicantPlanV1(options);
   if (manifestVersion === SYNTHETIC_MANIFEST_V2) return buildSyntheticApplicantPlanV2(options);
+  if (manifestVersion === SYNTHETIC_MANIFEST_V3) return buildSyntheticApplicantPlanV3(options);
   throw new Error(`지원하지 않는 synthetic manifest version입니다: ${String(manifestVersion)}`);
 }
 
 export function assertSyntheticManifestVersion(value: string): asserts value is SyntheticManifestVersion {
-  if (value !== SYNTHETIC_MANIFEST_V1 && value !== SYNTHETIC_MANIFEST_V2) {
+  if (value !== SYNTHETIC_MANIFEST_V1 && value !== SYNTHETIC_MANIFEST_V2 && value !== SYNTHETIC_MANIFEST_V3) {
     throw new Error(`지원하지 않는 synthetic manifest version입니다: ${value}`);
   }
 }
@@ -248,6 +261,28 @@ export function assertV2SyntheticOperationalContract(
     if (actual[field] !== SYNTHETIC_V2_OPERATIONAL_CONTRACT[field]) {
       throw new Error(
         `V2 operational contract ${field}가 승인값과 다릅니다: expected=${SYNTHETIC_V2_OPERATIONAL_CONTRACT[field]}, actual=${actual[field]}`,
+      );
+    }
+  }
+}
+
+export function assertV3SyntheticOperationalContract(
+  actual: Pick<
+    SyntheticImporterOptions,
+    "postingId" | "activeCount" | "canceledCount" | "interactiveCount" | "pipelineSelectionCount" | "batchSize"
+  >,
+) {
+  for (const field of [
+    "postingId",
+    "activeCount",
+    "canceledCount",
+    "interactiveCount",
+    "pipelineSelectionCount",
+    "batchSize",
+  ] as const) {
+    if (actual[field] !== SYNTHETIC_V3_OPERATIONAL_CONTRACT[field]) {
+      throw new Error(
+        `V3 operational contract ${field}가 승인값과 다릅니다: expected=${SYNTHETIC_V3_OPERATIONAL_CONTRACT[field]}, actual=${actual[field]}`,
       );
     }
   }
