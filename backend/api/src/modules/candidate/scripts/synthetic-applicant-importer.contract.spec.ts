@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
 
+import { buildSyntheticApplicantPlanV2 } from "./synthetic-applicant-importer.v2";
+
 import {
   SYNTHETIC_MANIFEST_V1,
   SYNTHETIC_MANIFEST_V2,
+  SYNTHETIC_MANIFEST_V3,
   assertV2SyntheticOperationalContract,
+  assertV3SyntheticOperationalContract,
   buildSyntheticApplicantPlan,
   parseSyntheticImporterArgs,
   sanitizeSyntheticError,
@@ -107,10 +111,12 @@ describe("synthetic applicant importer contract", () => {
     );
   });
 
-  it("uses V2 for a new plan and rejects an unknown manifest version", () => {
-    const options = fixtureOptions();
+  it("uses V3 for a new plan, preserves explicit V2, and rejects an unknown manifest version", () => {
+    const options = fixtureOptions({ postingId: 36n, pipelineSelectionCount: 0 });
     expect(buildSyntheticApplicantPlan(options)[0].name).not.toContain("시연 지원자");
-    expect(syntheticOptionsHash(options)).toBe(syntheticOptionsHash(options, SYNTHETIC_MANIFEST_V2));
+    expect(buildSyntheticApplicantPlan(options, SYNTHETIC_MANIFEST_V2)).toEqual(buildSyntheticApplicantPlanV2(options));
+    expect(syntheticOptionsHash(options)).toBe(syntheticOptionsHash(options, SYNTHETIC_MANIFEST_V3));
+    expect(syntheticOptionsHash(options)).not.toBe(syntheticOptionsHash(options, SYNTHETIC_MANIFEST_V2));
     expect(syntheticOptionsHash(options)).not.toBe(syntheticOptionsHash(options, SYNTHETIC_MANIFEST_V1));
     expect(() => buildSyntheticApplicantPlan(options, "UNKNOWN" as never)).toThrow("manifest version");
   });
@@ -127,6 +133,22 @@ describe("synthetic applicant importer contract", () => {
       { ...valid, pipelineSelectionCount: 1 },
     ]) {
       expect(() => assertV2SyntheticOperationalContract(invalid)).toThrow("V2 operational contract");
+    }
+  });
+
+  it("accepts only the unchanged fixed production shape for V3", () => {
+    const valid = fixtureOptions({ postingId: 36n, pipelineSelectionCount: 0 });
+    expect(() => assertV3SyntheticOperationalContract(valid)).not.toThrow();
+
+    for (const invalid of [
+      { ...valid, postingId: 35n },
+      { ...valid, activeCount: 999 },
+      { ...valid, canceledCount: 51 },
+      { ...valid, interactiveCount: 9 },
+      { ...valid, pipelineSelectionCount: 1 },
+      { ...valid, batchSize: 500 },
+    ]) {
+      expect(() => assertV3SyntheticOperationalContract(invalid)).toThrow("V3 operational contract");
     }
   });
 

@@ -22,7 +22,7 @@ export const V2_EMAIL_DOMAINS = [
   "mymail.init-jungle.cloud",
 ] as const;
 
-const SURNAMES = [
+export const V2_SURNAMES = [
   ["김", "kim"], ["이", "lee"], ["박", "park"], ["최", "choi"], ["정", "jung"],
   ["강", "kang"], ["조", "cho"], ["윤", "yoon"], ["장", "jang"], ["임", "lim"],
   ["한", "han"], ["오", "oh"], ["서", "seo"], ["신", "shin"], ["권", "kwon"],
@@ -132,8 +132,8 @@ function buildDepths(stages: SyntheticLifecycleStage[], activeCount: number): Sy
 }
 
 function identity(datasetId: string, ordinal: number): Pick<SyntheticApplicantPlanRecord, "email" | "name" | "phone"> {
-  const surname = SURNAMES[(ordinal - 1) % SURNAMES.length];
-  const given = GIVEN_NAMES[Math.floor((ordinal - 1) / SURNAMES.length) % GIVEN_NAMES.length];
+  const surname = V2_SURNAMES[(ordinal - 1) % V2_SURNAMES.length];
+  const given = GIVEN_NAMES[Math.floor((ordinal - 1) / V2_SURNAMES.length) % GIVEN_NAMES.length];
   const digest = createHash("sha256").update(`${datasetId}:${ordinal}:identity`).digest("hex");
   const code = String(Number.parseInt(digest.slice(0, 8), 16) % 10_000).padStart(4, "0");
   const domain = V2_EMAIL_DOMAINS[Number.parseInt(digest.slice(8, 10), 16) % V2_EMAIL_DOMAINS.length];
