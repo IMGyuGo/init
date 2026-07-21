@@ -135,6 +135,12 @@ enum NotificationChannel {
   IN_APP
 }
 
+enum PassMailDeliveryStatus {
+  NOT_SENT
+  SENT
+  FAILED
+}
+
 enum AiProcessType {
   DOCUMENT_EXTRACT
   STT
@@ -731,6 +737,10 @@ model Application {
   screeningDecisionReportId      BigInt?                             @unique(map: "uk_applications_screening_decision_report") @map("screening_decision_report_id")
   screeningDecidedAt             DateTime?                           @map("screening_decided_at")
   screeningMemo                  String?                             @map("screening_memo")
+  passMailDeliveryStatus         PassMailDeliveryStatus               @default(NOT_SENT) @map("pass_mail_delivery_status")
+  passMailSentAt                 DateTime?                           @map("pass_mail_sent_at")
+  passMailFailedAt               DateTime?                           @map("pass_mail_failed_at")
+  passMailFailureReason          String?                             @map("pass_mail_failure_reason") @db.VarChar(500)
   submittedAt                    DateTime?                           @map("submitted_at")
   updatedAt                      DateTime                            @updatedAt @map("updated_at")
   posting                        Posting                             @relation(fields: [postingId], references: [postingId])
@@ -752,6 +762,7 @@ model Application {
   @@index([postingId, interviewStatus], map: "idx_applications_posting_interview_status")
   @@index([postingId, reportStatus], map: "idx_applications_posting_report_status")
   @@index([postingId, screeningDecision], map: "idx_applications_posting_screening_decision")
+  @@index([postingId, passMailDeliveryStatus], map: "idx_applications_posting_pass_mail_delivery")
   @@map("applications")
 }
 
