@@ -224,43 +224,44 @@ enum CandidateCredentialType {
 }
 
 model User {
-  userId            BigInt             @id @default(autoincrement()) @map("user_id")
-  email             String             @unique @db.VarChar(255)
-  passwordHash      String?            @map("password_hash") @db.VarChar(255)
-  userType          UserType           @map("user_type")
-  name              String             @db.VarChar(100)
-  phone             String?            @db.VarChar(50)
-  status            UserStatus         @default(PENDING)
-  createdAt         DateTime           @default(now()) @map("created_at")
-  updatedAt         DateTime           @updatedAt @map("updated_at")
-  authProvider      AuthProvider       @default(LOCAL) @map("auth_provider")
-  providerUserId    String?            @map("provider_user_id") @db.VarChar(255)
-  ownedCompany      Company?           @relation("CompanyOwner")
-  candidateProfile  CandidateProfile?
-  fileAssets        FileAsset[]
-  manualEvaluations ManualEvaluation[]
-  notifications     Notification[]
-  paymentCustomers  PaymentCustomer[]
+  userId                    BigInt             @id @default(autoincrement()) @map("user_id")
+  email                     String             @unique @db.VarChar(255)
+  passwordHash              String?            @map("password_hash") @db.VarChar(255)
+  userType                  UserType           @map("user_type")
+  name                      String             @db.VarChar(100)
+  phone                     String?            @db.VarChar(50)
+  status                    UserStatus         @default(PENDING)
+  createdAt                 DateTime           @default(now()) @map("created_at")
+  updatedAt                 DateTime           @updatedAt @map("updated_at")
+  authProvider              AuthProvider       @default(LOCAL) @map("auth_provider")
+  providerUserId            String?            @map("provider_user_id") @db.VarChar(255)
+  ownedCompany              Company?           @relation("CompanyOwner")
+  candidateProfile          CandidateProfile?
+  fileAssets                FileAsset[]
+  manualEvaluations         ManualEvaluation[]
+  notifications             Notification[]
+  confirmedScreeningResults Application[]      @relation("ScreeningResultConfirmer")
+  paymentCustomers          PaymentCustomer[]
 
   @@unique([authProvider, providerUserId], map: "uk_users_provider_user")
   @@map("users")
 }
 
 model Company {
-  companyId                  BigInt            @id @default(autoincrement()) @map("company_id")
-  ownerUserId                BigInt            @unique @map("owner_user_id")
-  name                       String            @db.VarChar(150)
-  businessRegistrationNumber String            @unique @map("business_registration_number") @db.VarChar(10)
-  verificationStatus         String            @map("verification_status") @db.VarChar(30)
-  logoFileId                 BigInt?           @map("logo_file_id")
-  industry                   String?           @db.VarChar(100)
+  companyId                  BigInt                      @id @default(autoincrement()) @map("company_id")
+  ownerUserId                BigInt                      @unique @map("owner_user_id")
+  name                       String                      @db.VarChar(150)
+  businessRegistrationNumber String                      @unique @map("business_registration_number") @db.VarChar(10)
+  verificationStatus         String                      @map("verification_status") @db.VarChar(30)
+  logoFileId                 BigInt?                     @map("logo_file_id")
+  industry                   String?                     @db.VarChar(100)
   profile                    String?
-  talentProfile              String?           @map("talent_profile")
-  evaluationPolicy           String?           @map("evaluation_policy")
-  createdAt                  DateTime          @default(now()) @map("created_at")
-  updatedAt                  DateTime          @updatedAt @map("updated_at")
-  owner                      User              @relation("CompanyOwner", fields: [ownerUserId], references: [userId])
-  logoFile                   FileAsset?        @relation("CompanyLogo", fields: [logoFileId], references: [fileId])
+  talentProfile              String?                     @map("talent_profile")
+  evaluationPolicy           String?                     @map("evaluation_policy")
+  createdAt                  DateTime                    @default(now()) @map("created_at")
+  updatedAt                  DateTime                    @updatedAt @map("updated_at")
+  owner                      User                        @relation("CompanyOwner", fields: [ownerUserId], references: [userId])
+  logoFile                   FileAsset?                  @relation("CompanyLogo", fields: [logoFileId], references: [fileId])
   postings                   Posting[]
   questions                  Question[]
   paymentCustomers           PaymentCustomer[]
@@ -415,39 +416,39 @@ model CandidateFolder {
 }
 
 model Posting {
-  postingId                BigInt                             @id @default(autoincrement()) @map("posting_id")
-  companyId                BigInt                             @map("company_id")
-  title                    String                             @db.VarChar(200)
-  jobRole                  String                             @map("job_role") @db.VarChar(100)
-  jobDescription           String?                            @map("job_description")
-  careerRequirement        String?                            @map("career_requirement") @db.VarChar(150)
-  educationRequirement     String?                            @map("education_requirement") @db.VarChar(150)
-  salaryInfo               String?                            @map("salary_info") @db.VarChar(150)
-  workLocation             String?                            @map("work_location") @db.VarChar(150)
-  employmentType           String?                            @map("employment_type") @db.VarChar(150)
+  postingId                  BigInt                             @id @default(autoincrement()) @map("posting_id")
+  companyId                  BigInt                             @map("company_id")
+  title                      String                             @db.VarChar(200)
+  jobRole                    String                             @map("job_role") @db.VarChar(100)
+  jobDescription             String?                            @map("job_description")
+  careerRequirement          String?                            @map("career_requirement") @db.VarChar(150)
+  educationRequirement       String?                            @map("education_requirement") @db.VarChar(150)
+  salaryInfo                 String?                            @map("salary_info") @db.VarChar(150)
+  workLocation               String?                            @map("work_location") @db.VarChar(150)
+  employmentType             String?                            @map("employment_type") @db.VarChar(150)
   // 지원자 필터용 구조화 필드(한글 라벨 코드). 값 검증은 애플리케이션단(IsIn)에서 수행.
-  jobRoleCode              String?                            @map("job_role_code") @db.VarChar(50)
-  regionCode               String?                            @map("region_code") @db.VarChar(30)
-  careerMinYears           Int?                               @map("career_min_years")
-  careerMaxYears           Int?                               @map("career_max_years")
-  employmentTypeCode       String?                            @map("employment_type_code") @db.VarChar(20)
-  recruitmentType          String?                            @map("recruitment_type") @db.VarChar(20)
+  jobRoleCode                String?                            @map("job_role_code") @db.VarChar(50)
+  regionCode                 String?                            @map("region_code") @db.VarChar(30)
+  careerMinYears             Int?                               @map("career_min_years")
+  careerMaxYears             Int?                               @map("career_max_years")
+  employmentTypeCode         String?                            @map("employment_type_code") @db.VarChar(20)
+  recruitmentType            String?                            @map("recruitment_type") @db.VarChar(20)
   // 회사 위치: 도로명 주소 + 위경도(지원자 공고 상세 지도 핀용). 좌표는 프론트 geocoder 로 채워 저장.
-  workplaceAddress         String?                            @map("workplace_address") @db.VarChar(300)
-  workplaceLat             Float?                             @map("workplace_lat")
-  workplaceLng             Float?                             @map("workplace_lng")
-  startsOn                 DateTime?                          @map("starts_on") @db.Date
-  endsOn                   DateTime?                          @map("ends_on") @db.Date
-  status                   PostingStatus                      @default(DRAFT)
-  createdAt                DateTime                           @default(now()) @map("created_at")
-  updatedAt                DateTime                           @updatedAt @map("updated_at")
-  company                  Company                            @relation(fields: [companyId], references: [companyId])
-  criteria                 EvaluationCriterion[]
-  questions                Question[]
-  applications             Application[]
-  questionSets             InterviewQuestionSet[]
-  timePolicy               InterviewTimePolicy?
-  questionGenerationPolicy InterviewQuestionGenerationPolicy?
+  workplaceAddress           String?                            @map("workplace_address") @db.VarChar(300)
+  workplaceLat               Float?                             @map("workplace_lat")
+  workplaceLng               Float?                             @map("workplace_lng")
+  startsOn                   DateTime?                          @map("starts_on") @db.Date
+  endsOn                     DateTime?                          @map("ends_on") @db.Date
+  status                     PostingStatus                      @default(DRAFT)
+  createdAt                  DateTime                           @default(now()) @map("created_at")
+  updatedAt                  DateTime                           @updatedAt @map("updated_at")
+  company                    Company                            @relation(fields: [companyId], references: [companyId])
+  criteria                   EvaluationCriterion[]
+  questions                  Question[]
+  applications               Application[]
+  questionSets               InterviewQuestionSet[]
+  timePolicy                 InterviewTimePolicy?
+  questionGenerationPolicy   InterviewQuestionGenerationPolicy?
   autoScreeningPolicy        AutoScreeningPolicy?
   syntheticApplicantDatasets SyntheticApplicantDataset[]
 
@@ -456,26 +457,26 @@ model Posting {
 }
 
 model SyntheticApplicantDataset {
-  datasetId             String                     @id @map("dataset_id") @db.VarChar(64)
-  environment           String                     @db.VarChar(30)
-  postingId             BigInt                     @map("posting_id")
-  companyId             BigInt                     @map("company_id")
-  activeCount           Int                        @map("active_count")
-  canceledCount         Int                        @map("canceled_count")
-  interactiveCount      Int                        @map("interactive_count")
-  pipelineSelectionCount Int                       @default(0) @map("pipeline_selection_count")
-  batchSize             Int                        @map("batch_size")
-  optionsHash           String                     @map("options_hash") @db.VarChar(64)
-  manifestVersion       String                     @default("SYNTHETIC_APPLICANT_MANIFEST_V1") @map("manifest_version") @db.VarChar(40)
-  status                String                     @db.VarChar(30)
-  lastError             String?                    @map("last_error")
-  createdAt             DateTime                   @default(now()) @map("created_at")
-  updatedAt             DateTime                   @updatedAt @map("updated_at")
-  appliedAt             DateTime?                  @map("applied_at")
-  cleanedAt             DateTime?                  @map("cleaned_at")
-  posting               Posting                    @relation(fields: [postingId], references: [postingId], onDelete: Restrict)
-  company               Company                    @relation(fields: [companyId], references: [companyId], onDelete: Restrict)
-  records               SyntheticApplicantRecord[]
+  datasetId              String                     @id @map("dataset_id") @db.VarChar(64)
+  environment            String                     @db.VarChar(30)
+  postingId              BigInt                     @map("posting_id")
+  companyId              BigInt                     @map("company_id")
+  activeCount            Int                        @map("active_count")
+  canceledCount          Int                        @map("canceled_count")
+  interactiveCount       Int                        @map("interactive_count")
+  pipelineSelectionCount Int                        @default(0) @map("pipeline_selection_count")
+  batchSize              Int                        @map("batch_size")
+  optionsHash            String                     @map("options_hash") @db.VarChar(64)
+  manifestVersion        String                     @default("SYNTHETIC_APPLICANT_MANIFEST_V1") @map("manifest_version") @db.VarChar(40)
+  status                 String                     @db.VarChar(30)
+  lastError              String?                    @map("last_error")
+  createdAt              DateTime                   @default(now()) @map("created_at")
+  updatedAt              DateTime                   @updatedAt @map("updated_at")
+  appliedAt              DateTime?                  @map("applied_at")
+  cleanedAt              DateTime?                  @map("cleaned_at")
+  posting                Posting                    @relation(fields: [postingId], references: [postingId], onDelete: Restrict)
+  company                Company                    @relation(fields: [companyId], references: [companyId], onDelete: Restrict)
+  records                SyntheticApplicantRecord[]
 
   @@index([postingId, status], map: "idx_synthetic_applicant_datasets_posting_status")
   @@index([companyId, status], map: "idx_synthetic_applicant_datasets_company_status")
@@ -713,47 +714,53 @@ model ApplicationInterviewQuestion {
 }
 
 model Application {
-  applicationId                  BigInt                              @id @default(autoincrement()) @map("application_id")
-  postingId                      BigInt                              @map("posting_id")
-  candidateId                    BigInt                              @map("candidate_id")
-  applicantName                  String?                             @map("applicant_name") @db.VarChar(100)
-  applicantEmail                 String?                             @map("applicant_email") @db.VarChar(255)
-  applicantPhone                 String?                             @map("applicant_phone") @db.VarChar(50)
-  githubUrl                      String?                             @map("github_url") @db.VarChar(500)
-  blogUrl                        String?                             @map("blog_url") @db.VarChar(500)
-  portfolioUrl                   String?                             @map("portfolio_url") @db.VarChar(500)
-  motivation                     String?
-  additionalInfo                 String?                             @map("additional_info")
-  profileSnapshot                Json?                               @map("profile_snapshot")
-  applicationStatus              ApplicationStatus                   @default(SUBMITTED) @map("application_status")
-  documentStatus                 DocumentStatus                      @default(NOT_SUBMITTED) @map("document_status")
-  interviewStatus                InterviewStatus                     @default(NOT_READY) @map("interview_status")
-  reportStatus                   ReportStatus                        @default(PENDING) @map("report_status")
-  screeningDecision              ScreeningDecision?                  @default(UNDECIDED) @map("screening_decision")
-  screeningDecisionReasonCode    ScreeningDecisionReasonCode?        @map("screening_decision_reason_code")
-  screeningDecisionPolicyVersion String?                             @map("screening_decision_policy_version") @db.VarChar(80)
-  screeningPolicyVersion         Int?                                @map("screening_policy_version")
-  screeningCriteriaVersion       Int?                                @map("screening_criteria_version")
-  screeningDecisionReportId      BigInt?                             @unique(map: "uk_applications_screening_decision_report") @map("screening_decision_report_id")
-  screeningDecidedAt             DateTime?                           @map("screening_decided_at")
-  screeningMemo                  String?                             @map("screening_memo")
-  passMailDeliveryStatus         PassMailDeliveryStatus               @default(NOT_SENT) @map("pass_mail_delivery_status")
-  passMailSentAt                 DateTime?                           @map("pass_mail_sent_at")
-  passMailFailedAt               DateTime?                           @map("pass_mail_failed_at")
-  passMailFailureReason          String?                             @map("pass_mail_failure_reason") @db.VarChar(500)
-  submittedAt                    DateTime?                           @map("submitted_at")
-  updatedAt                      DateTime                            @updatedAt @map("updated_at")
-  posting                        Posting                             @relation(fields: [postingId], references: [postingId])
-  candidate                      CandidateProfile                    @relation(fields: [candidateId], references: [candidateId])
-  documents                      ApplicationDocument[]
-  consentRecords                 ConsentRecord[]
-  interviewSessions              InterviewSession[]
-  evaluationReports              EvaluationReport[]                  @relation("ApplicationEvaluationReports")
-  screeningDecisionReport        EvaluationReport?                   @relation("ApplicationScreeningDecisionReport", fields: [screeningDecisionReportId], references: [reportId], onDelete: Restrict)
-  notifications                  Notification[]
-  aiProcessLogs                  AiProcessLog[]
-  clientPerformanceLogs          ClientPerformanceLog[]
-  interviewQuestionBatches       ApplicationInterviewQuestionBatch[]
+  applicationId                    BigInt                              @id @default(autoincrement()) @map("application_id")
+  postingId                        BigInt                              @map("posting_id")
+  candidateId                      BigInt                              @map("candidate_id")
+  applicantName                    String?                             @map("applicant_name") @db.VarChar(100)
+  applicantEmail                   String?                             @map("applicant_email") @db.VarChar(255)
+  applicantPhone                   String?                             @map("applicant_phone") @db.VarChar(50)
+  githubUrl                        String?                             @map("github_url") @db.VarChar(500)
+  blogUrl                          String?                             @map("blog_url") @db.VarChar(500)
+  portfolioUrl                     String?                             @map("portfolio_url") @db.VarChar(500)
+  motivation                       String?
+  additionalInfo                   String?                             @map("additional_info")
+  profileSnapshot                  Json?                               @map("profile_snapshot")
+  applicationStatus                ApplicationStatus                   @default(SUBMITTED) @map("application_status")
+  documentStatus                   DocumentStatus                      @default(NOT_SUBMITTED) @map("document_status")
+  interviewStatus                  InterviewStatus                     @default(NOT_READY) @map("interview_status")
+  reportStatus                     ReportStatus                        @default(PENDING) @map("report_status")
+  screeningDecision                ScreeningDecision?                  @default(UNDECIDED) @map("screening_decision")
+  screeningDecisionReasonCode      ScreeningDecisionReasonCode?        @map("screening_decision_reason_code")
+  screeningDecisionPolicyVersion   String?                             @map("screening_decision_policy_version") @db.VarChar(80)
+  screeningPolicyVersion           Int?                                @map("screening_policy_version")
+  screeningCriteriaVersion         Int?                                @map("screening_criteria_version")
+  screeningDecisionReportId        BigInt?                             @unique(map: "uk_applications_screening_decision_report") @map("screening_decision_report_id")
+  screeningDecidedAt               DateTime?                           @map("screening_decided_at")
+  screeningReviewerDecision        ScreeningDecision?                  @map("screening_reviewer_decision")
+  screeningFinalDecision           ScreeningDecision?                  @map("screening_final_decision")
+  screeningDecisionOverrideReason  String?                             @map("screening_decision_override_reason")
+  screeningResultConfirmedAt       DateTime?                           @map("screening_result_confirmed_at")
+  screeningResultConfirmedByUserId BigInt?                             @map("screening_result_confirmed_by_user_id")
+  screeningMemo                    String?                             @map("screening_memo")
+  passMailDeliveryStatus           PassMailDeliveryStatus              @default(NOT_SENT) @map("pass_mail_delivery_status")
+  passMailSentAt                   DateTime?                           @map("pass_mail_sent_at")
+  passMailFailedAt                 DateTime?                           @map("pass_mail_failed_at")
+  passMailFailureReason            String?                             @map("pass_mail_failure_reason") @db.VarChar(500)
+  submittedAt                      DateTime?                           @map("submitted_at")
+  updatedAt                        DateTime                            @updatedAt @map("updated_at")
+  posting                          Posting                             @relation(fields: [postingId], references: [postingId])
+  candidate                        CandidateProfile                    @relation(fields: [candidateId], references: [candidateId])
+  documents                        ApplicationDocument[]
+  consentRecords                   ConsentRecord[]
+  interviewSessions                InterviewSession[]
+  evaluationReports                EvaluationReport[]                  @relation("ApplicationEvaluationReports")
+  screeningDecisionReport          EvaluationReport?                   @relation("ApplicationScreeningDecisionReport", fields: [screeningDecisionReportId], references: [reportId], onDelete: Restrict)
+  screeningResultConfirmedBy       User?                               @relation("ScreeningResultConfirmer", fields: [screeningResultConfirmedByUserId], references: [userId], onDelete: Restrict)
+  notifications                    Notification[]
+  aiProcessLogs                    AiProcessLog[]
+  clientPerformanceLogs            ClientPerformanceLog[]
+  interviewQuestionBatches         ApplicationInterviewQuestionBatch[]
 
   // Prisma 6.19 cannot model a partial index; the active-row unique invariant is managed in migration SQL.
   @@index([postingId, applicationStatus])
@@ -762,6 +769,9 @@ model Application {
   @@index([postingId, interviewStatus], map: "idx_applications_posting_interview_status")
   @@index([postingId, reportStatus], map: "idx_applications_posting_report_status")
   @@index([postingId, screeningDecision], map: "idx_applications_posting_screening_decision")
+  @@index([postingId, screeningReviewerDecision], map: "idx_applications_posting_screening_reviewer")
+  @@index([postingId, screeningFinalDecision], map: "idx_applications_posting_screening_final")
+  @@index([postingId, screeningResultConfirmedAt], map: "idx_applications_posting_screening_confirmed")
   @@index([postingId, passMailDeliveryStatus], map: "idx_applications_posting_pass_mail_delivery")
   @@map("applications")
 }
@@ -1262,8 +1272,8 @@ model AiProcessLog {
   generatedQuestions          Question[]
   latestResumeQuestionBatches ApplicationInterviewQuestionBatch[] @relation("LatestResumeQuestionProcess")
   personalizedQuestions       ApplicationInterviewQuestion[]      @relation("ResumeQuestionSourceProcess")
-  retryOfProcessLog           AiProcessLog?                        @relation("AiProcessRetryChain", fields: [retryOfProcessLogId], references: [processLogId], onDelete: SetNull)
-  retryProcessLogs            AiProcessLog[]                       @relation("AiProcessRetryChain")
+  retryOfProcessLog           AiProcessLog?                       @relation("AiProcessRetryChain", fields: [retryOfProcessLogId], references: [processLogId], onDelete: SetNull)
+  retryProcessLogs            AiProcessLog[]                      @relation("AiProcessRetryChain")
 
   @@index([status, leaseExpiresAt], map: "idx_ai_process_logs_status_lease")
   @@index([retryOfProcessLogId], map: "idx_ai_process_logs_retry_of")

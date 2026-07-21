@@ -60,6 +60,7 @@ import {
   createInterviewerSessionActionEvent,
   createInterviewerSessionEvent,
   buildCandidateReportCompleteNotifications,
+  buildCandidateScreeningResultNotifications,
   countUnreadCandidateNotifications,
   formatAiInterviewerQuestionPrompt,
   getRecruitingReportPollingIntervalMs,
@@ -1870,6 +1871,28 @@ assert.deepEqual(
     },
   ],
 );
+assert.deepEqual(
+  buildCandidateScreeningResultNotifications([
+    {
+      notificationId: 501,
+      applicationId: 12,
+      postingId: 7,
+      companyName: "Init Labs",
+      jobTitle: "Backend Developer",
+      screeningDecision: "PASS",
+      confirmedAt: "2026-07-10T09:00:00.000Z",
+    },
+  ], new Set()),
+  [{
+    id: "candidate-screening-result-501",
+    applicationId: 12,
+    title: "기업 전형 결과가 확정되었습니다",
+    message: "Init Labs Backend Developer 전형 결과는 합격입니다.",
+    href: "/candidate/applications/12/report",
+    createdAt: "2026-07-10T09:00:00.000Z",
+    read: false,
+  }],
+);
 assert.equal(
   shouldPollRecruitingReportCompletion({
     interviewStatus: "COMPLETED",
@@ -1974,7 +1997,9 @@ const recruitingReport: CandidateRecruitingReportView = {
   status: "GENERATING",
   applicationStatus: "SUBMITTED",
   interviewStatus: "COMPLETED",
+  resultPublicationStatus: "PENDING",
   screeningDecision: "UNDECIDED",
+  screeningResultConfirmedAt: null,
   companyName: "Init Labs",
   jobTitle: "Backend Developer",
   candidateMessage: "면접 분석이 진행 중입니다.",

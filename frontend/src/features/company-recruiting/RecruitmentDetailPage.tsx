@@ -14,8 +14,8 @@ import {
   getRecruitmentApplicantSummary,
   listRecruitmentApplicants,
   publishRecruitment,
-  sendRecruitmentPassMails,
-  updateScreeningStatus,
+  confirmScreeningResults,
+  updateScreeningReview,
 } from "./api";
 import {
   APPLICANTS_PAGE_SIZE,
@@ -25,7 +25,7 @@ import {
   canEditScreeningDecision,
   getApplicantSortQuery,
   getApplicantSummaryMetrics,
-  getPassMailTargetLimit,
+  getScreeningConfirmationPreview,
   type ApplicantSort,
 } from "./applicant-list";
 import { BackButton, Breadcrumb, StatusBadge } from "./CompanyRecruitingChrome";
@@ -54,7 +54,8 @@ import {
 } from "./screening-autosave";
 import type { Applicant, ApplicantSummary, PageMeta, Recruitment, ScreeningDecision } from "./types";
 
-const decisions: ScreeningDecision[] = ["UNDECIDED", "PASS", "HOLD", "FAIL"];
+const decisions: ScreeningDecision[] = ["PASS", "HOLD", "FAIL"];
+const decisionFilters: ScreeningDecision[] = ["PASS", "HOLD", "FAIL", "RETRY", "UNDECIDED"];
 
 type ApplicantFilters = {
   applicationStatus: string;
@@ -106,8 +107,8 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
   const actionMenuRef = useRef<HTMLDivElement>(null);
   const [applicantPage, setApplicantPage] = useState(1);
   const [applicantSort, setApplicantSort] = useState<ApplicantSort>(DEFAULT_APPLICANT_SORT);
-  const [targetPassCount, setTargetPassCount] = useState("");
-  const [passMailSending, setPassMailSending] = useState(false);
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
+  const [confirmingResults, setConfirmingResults] = useState(false);
   const [applicantSearchInput, setApplicantSearchInput] = useState("");
   const [applicantQuery, setApplicantQuery] = useState("");
   const [applicantFilters, setApplicantFilters] = useState<ApplicantFilters>(EMPTY_APPLICANT_FILTERS);
@@ -158,7 +159,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
         documentStatus: applicantFilters.documentStatus || undefined,
         interviewStatus: applicantFilters.interviewStatus || undefined,
         reportStatus: applicantFilters.reportStatus || undefined,
-        screeningDecision: applicantFilters.screeningDecision || undefined,
+        effectiveScreeningDecision: applicantFilters.screeningDecision || undefined,
         ...getApplicantSortQuery(applicantSort),
       });
       const nextDrafts = Object.fromEntries(
@@ -189,12 +190,8 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
   }, []);
 
   const { activeTotal, reportCompleted, completionRate } = getApplicantSummaryMetrics(applicantSummary);
-  const currentPassCount = applicantSummary?.screeningDecisionCounts.PASS ?? 0;
-  const passMailTargetLimit = getPassMailTargetLimit(applicantSummary);
-
-  useEffect(() => {
-    setTargetPassCount(String(currentPassCount));
-  }, [currentPassCount, recruitmentId]);
+  const effectiveCounts = applicantSummary?.effectiveScreeningDecisionCounts ?? {};
+  const confirmationPreview = getScreeningConfirmationPreview(applicantSummary);
 
   async function handlePublicApplicationLinkCopy() {
     if (!recruitment) {
@@ -248,13 +245,18 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
         applyScreeningDecisionCountChange(current, previousDraft.decision, decision),
       );
     }
-    await saveScreeningField(applicant, "decision", nextDraft);
+    if (
+      decision === normalizeDecision(applicant.screeningDecision) ||
+      nextDraft.memo.trim().length >= 10
+    ) {
+      await saveScreeningField(applicant, "decision", nextDraft);
+    }
   }
 
   async function handleMemoBlur(applicant: Applicant) {
     const draft = screeningDrafts[applicant.applicationId];
     const savedDraft = savedScreeningDrafts[applicant.applicationId];
-    if (!draft || (savedDraft && draft.memo === savedDraft.memo)) {
+    if (!draft || (savedDraft && !hasScreeningDraftChanged(savedDraft, draft))) {
       return;
     }
     await saveScreeningField(applicant, "memo", draft);
@@ -265,6 +267,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
       autoScreeningPolicyEnabled: applicant.autoScreeningPolicyEnabled,
       reportStatus: applicant.report?.status ?? applicant.reportStatus,
       screeningDecision: applicant.screeningDecision,
+      screeningResultConfirmationStatus: applicant.screeningResultConfirmationStatus,
     })) {
       return;
     }
@@ -275,9 +278,15 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
 
     setAutosaveState((current) => markScreeningAutosaveSaving(current, applicant.applicationId, field));
     try {
-      const result = await updateScreeningStatus(applicant.applicationId, {
-        screeningDecision: draft.decision,
-        screeningMemo: draft.memo || undefined,
+      const automaticDecision = normalizeDecision(applicant.screeningDecision);
+      const resetToAutomatic = draft.decision === automaticDecision;
+      if (!resetToAutomatic && draft.memo.trim().length < 10) {
+        setAutosaveState((current) => markScreeningAutosaveError(current, applicant.applicationId, "memo"));
+        return;
+      }
+      const result = await updateScreeningReview(applicant.applicationId, {
+        screeningReviewerDecision: resetToAutomatic ? null : draft.decision as "PASS" | "HOLD" | "FAIL",
+        overrideReason: resetToAutomatic ? null : draft.memo.trim(),
       });
       const updatedDraft = toScreeningDraft(result.data);
       setApplicants((current) =>
@@ -325,41 +334,23 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
     setApplicantFilters((current) => ({ ...current, [field]: value }));
   }
 
-  async function handlePassMailSend() {
-    const trimmedTargetPassCount = targetPassCount.trim();
-    const parsedTargetPassCount = Number(trimmedTargetPassCount);
-    if (!trimmedTargetPassCount || !Number.isInteger(parsedTargetPassCount) || parsedTargetPassCount < 0) {
-      setMessage("목표 합격자 수를 숫자로 입력해주세요.");
-      return;
-    }
-    if (parsedTargetPassCount > passMailTargetLimit) {
-      setMessage("목표 합격자 수는 최대 합격 가능 인원을 넘을 수 없습니다.");
-      return;
-    }
-    const shouldSend = window.confirm(
-      `목표 합격자 수를 ${parsedTargetPassCount}명으로 맞추고 나머지는 불합격 처리한 뒤 합격자에게만 메일을 발송할까요?`,
-    );
-    if (!shouldSend) {
-      return;
-    }
-
-    setPassMailSending(true);
+  async function handleScreeningResultsConfirm() {
+    const expectedEligibleCount = applicantSummary?.confirmationEligibleTotal ?? 0;
+    setConfirmingResults(true);
     setMessage("");
     try {
-      const result = await sendRecruitmentPassMails(recruitmentId, {
-        targetPassCount: parsedTargetPassCount,
-      });
+      const result = await confirmScreeningResults(recruitmentId, expectedEligibleCount);
+      setConfirmationOpen(false);
       await loadApplicants();
       await loadOverview({ clearMessage: false });
       setMessage(
-        `합격 ${result.data.targetPassCount}명 기준으로 ${result.data.promotedCount}명을 합격 처리하고 ${result.data.demotedCount}명을 불합격 처리했습니다. 메일 ${result.data.sentCount}건을 발송했습니다.`
-        + (result.data.skippedCount > 0 ? ` 이미 발송된 ${result.data.skippedCount}건은 제외했습니다.` : "")
-        + (result.data.failedCount > 0 ? ` 실패 ${result.data.failedCount}건은 확인이 필요합니다.` : ""),
+        `전형 결과 ${result.data.confirmedCount}건을 확정했습니다. 지원자 알림 메일 ${result.data.emailSentCount}건을 발송했습니다.`
+        + (result.data.emailFailedCount > 0 ? ` 메일 실패 ${result.data.emailFailedCount}건은 재확인이 필요합니다.` : ""),
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "합격 메일 발송 중 오류가 발생했습니다.");
+      setMessage(error instanceof Error ? error.message : "전형 결과 확정 중 오류가 발생했습니다.");
     } finally {
-      setPassMailSending(false);
+      setConfirmingResults(false);
     }
   }
 
@@ -516,27 +507,17 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                         ))}
                       </select>
                     </label>
-                    <div className="pass-target-control" aria-label="합격 대상자 메일 발송">
-                      <span className="pass-target-current">합격 {currentPassCount}명</span>
-                      <label className="pass-target-field">
-                        <span>목표</span>
-                        <input
-                          aria-label="목표 합격자 수"
-                          type="number"
-                          min={0}
-                          max={passMailTargetLimit}
-                          value={targetPassCount}
-                          onChange={(event) => setTargetPassCount(event.target.value)}
-                        />
-                      </label>
-                      <span className="pass-target-current">최대 {passMailTargetLimit}명</span>
+                    <div className="pass-target-control" aria-label="전형 결과 확정">
+                      <span className="pass-target-current">합격 {effectiveCounts.PASS ?? 0}명</span>
+                      <span className="pass-target-current">보류 {effectiveCounts.HOLD ?? 0}명</span>
+                      <span className="pass-target-current">불합격 {effectiveCounts.FAIL ?? 0}명</span>
                       <button
                         className="btn primary pass-mail-button"
                         type="button"
-                        disabled={passMailSending || applicantsLoading || loading}
-                        onClick={() => void handlePassMailSend()}
+                        disabled={confirmingResults || applicantsLoading || loading || (applicantSummary?.confirmationEligibleTotal ?? 0) === 0}
+                        onClick={() => setConfirmationOpen(true)}
                       >
-                        {passMailSending ? "발송 중" : "합격 메일 전송"}
+                        결과 확정
                       </button>
                     </div>
                   </div>
@@ -588,7 +569,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                   onChange={(event) => updateApplicantFilter("screeningDecision", event.target.value)}
                 >
                   <option value="">전형 상태 전체</option>
-                  {decisions.map((decision) => <option key={decision} value={decision}>{formatRecruitingStatusLabel(decision)}</option>)}
+                  {decisionFilters.map((decision) => <option key={decision} value={decision}>{formatRecruitingStatusLabel(decision)}</option>)}
                 </select>
                 <button className="btn secondary" type="submit" disabled={applicantsLoading}>검색</button>
               </form>
@@ -630,6 +611,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                           autoScreeningPolicyEnabled: item.autoScreeningPolicyEnabled,
                           reportStatus: item.report?.status ?? item.reportStatus,
                           screeningDecision: item.screeningDecision,
+                          screeningResultConfirmationStatus: item.screeningResultConfirmationStatus,
                         });
 
                         const evaluationHref = `/company/applicants/${item.applicationId}/evaluation`;
@@ -666,8 +648,10 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                             <td onClick={(event) => event.stopPropagation()}>
                               {!canEditDecision ? (
                                 <div className="autosave-field">
-                                  <StatusBadge value={item.screeningDecision} />
-                                  <span className="autosave-state">자동 판정</span>
+                                  <StatusBadge value={item.effectiveScreeningDecision} />
+                                  <span className="autosave-state">
+                                    {item.screeningResultConfirmationStatus === "CONFIRMED" ? "확정" : "자동 판정"}
+                                  </span>
                                 </div>
                               ) : (
                                 <div className={`autosave-field ${decisionState === "saving" ? "is-saving" : ""} ${decisionState === "error" ? "is-error" : ""}`}>
@@ -690,7 +674,9 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                             </td>
                             <td onClick={(event) => event.stopPropagation()}>
                               {!canEditDecision ? (
-                                <span className="screening-report-score is-empty">자동 판정</span>
+                                <span className="screening-report-score is-empty">
+                                  {item.screeningResultConfirmationStatus === "CONFIRMED" ? "변경 불가" : "확인 필요"}
+                                </span>
                               ) : (
                                 <div className={`autosave-field ${memoState === "saving" ? "is-saving" : ""} ${memoState === "error" ? "is-error" : ""}`}>
                                   <input
@@ -698,7 +684,7 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                                     value={screeningDrafts[item.applicationId]?.memo ?? ""}
                                     onBlur={() => void handleMemoBlur(item)}
                                     onChange={(event) => updateDraft(item.applicationId, { memo: event.target.value })}
-                                    placeholder="수동 메모"
+                                    placeholder="자동판정 변경 사유(10자 이상)"
                                   />
                                   <span className="autosave-state" aria-live="polite">
                                     {memoState === "error" ? "저장 실패" : ""}
@@ -780,6 +766,38 @@ export function RecruitmentDetailPage({ recruitmentId }: { recruitmentId: number
                     </button>
                   </>
                 )}
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {confirmationOpen ? (
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal open-confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="screening-confirm-title" aria-describedby="screening-confirm-description">
+              <div className="open-confirm-icon" aria-hidden="true">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="8" x2="12" y2="13" />
+                  <line x1="12" y1="16.5" x2="12.01" y2="16.5" />
+                </svg>
+              </div>
+              <h2 id="screening-confirm-title" className="open-confirm-title">전형 결과를 정말 확정하시겠습니까?</h2>
+              <p id="screening-confirm-description" className="open-confirm-desc">
+                확정 대상 {confirmationPreview.eligibleTotal}명의 PASS·HOLD·FAIL 결과가 지원자에게 공개되고 알림이 발송됩니다. 확정 후에는 이 화면에서 수정할 수 없습니다.
+              </p>
+              <p className="open-confirm-desc">
+                합격 {confirmationPreview.eligibleDecisionCounts.PASS}명 · 보류 {confirmationPreview.eligibleDecisionCounts.HOLD}명 · 불합격 {confirmationPreview.eligibleDecisionCounts.FAIL}명
+              </p>
+              {(confirmationPreview.excludedDecisionCounts.UNDECIDED + confirmationPreview.excludedDecisionCounts.RETRY) > 0 ? (
+                <p className="notice">
+                  미판정 {confirmationPreview.excludedDecisionCounts.UNDECIDED}명 · 재처리 {confirmationPreview.excludedDecisionCounts.RETRY}명은 이번 확정에서 제외됩니다.
+                </p>
+              ) : null}
+              <div className="open-confirm-actions">
+                <button className="btn secondary" type="button" disabled={confirmingResults} onClick={() => setConfirmationOpen(false)}>
+                  취소
+                </button>
+                <button className="btn primary" type="button" disabled={confirmingResults} onClick={() => void handleScreeningResultsConfirm()}>
+                  {confirmingResults ? "확정 중…" : "확정하고 통보"}
+                </button>
               </div>
             </div>
           </div>
@@ -898,8 +916,8 @@ function RecruitmentStructuredInfo({
 
 function toScreeningDraft(item: Applicant): ScreeningDraft {
   return {
-    decision: normalizeDecision(item.screeningDecision),
-    memo: item.screeningMemo ?? "",
+    decision: normalizeDecision(item.effectiveScreeningDecision),
+    memo: item.screeningDecisionOverrideReason ?? "",
   };
 }
 

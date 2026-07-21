@@ -514,7 +514,7 @@ export class CompanyInterviewService {
         !Number.isInteger(dto.screeningPolicy.holdMinTotalScore) ||
         dto.screeningPolicy.holdMinTotalScore < 0 ||
         dto.screeningPolicy.passMinTotalScore > 100 ||
-        dto.screeningPolicy.holdMinTotalScore >=
+        dto.screeningPolicy.holdMinTotalScore >
           dto.screeningPolicy.passMinTotalScore
       ) {
         validationFailed('자동 판정 점수 기준을 확인해주세요.', [

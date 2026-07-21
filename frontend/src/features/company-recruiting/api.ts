@@ -13,6 +13,8 @@ import type {
   SendPassMailsInput,
   PassMailResult,
   UpdateScreeningStatusInput,
+  UpdateScreeningReviewInput,
+  ScreeningResultConfirmation,
   UpdateRecruitmentInput,
 } from "./types";
 import { authFetch } from "../../api/client";
@@ -39,6 +41,8 @@ export type ApplicantListQuery = {
   interviewStatus?: string;
   reportStatus?: string;
   screeningDecision?: string;
+  effectiveScreeningDecision?: string;
+  screeningResultConfirmationStatus?: "PENDING" | "CONFIRMED";
   sort?: "updatedAt" | "score" | "applicationStatus" | "interviewStatus" | "reportStatus";
   order?: "asc" | "desc";
 };
@@ -166,6 +170,20 @@ export async function updateScreeningStatus(applicantId: number, input: UpdateSc
   return request<Applicant>(`/company/applicants/${applicantId}/screening-status`, {
     method: "PATCH",
     body: input,
+  });
+}
+
+export async function updateScreeningReview(applicantId: number, input: UpdateScreeningReviewInput) {
+  return request<Applicant>(`/company/applicants/${applicantId}/screening-review`, {
+    method: "PATCH",
+    body: input,
+  });
+}
+
+export async function confirmScreeningResults(recruitmentId: number, expectedEligibleCount: number) {
+  return request<ScreeningResultConfirmation>(`/company/recruitments/${recruitmentId}/screening-results/confirm`, {
+    method: "POST",
+    body: { expectedEligibleCount },
   });
 }
 
