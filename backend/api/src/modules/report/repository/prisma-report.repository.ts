@@ -9,7 +9,6 @@ import {
 import { PrismaService } from "../../../shared/prisma.service";
 import {
   AUTO_SCREENING_DECISION_POLICY_VERSION,
-  decideAutoScreening,
 } from "../service/auto-screening-decision";
 import { AiProcessNotFoundError, ReportRepository } from "./report.repository";
 import {
@@ -72,15 +71,6 @@ export class PrismaReportRepository implements ReportRepository {
       });
       const applicationContext = await transaction.application.findUnique({
         where: { applicationId: BigInt(input.applicationId) },
-        include: {
-          posting: {
-            include: {
-              autoScreeningPolicy: true,
-              questionGenerationPolicy: true,
-              criteria: true,
-            },
-          },
-        },
       });
       if (!applicationContext) throw new Error("Saltlux demo application was not found");
       if (
@@ -92,10 +82,8 @@ export class PrismaReportRepository implements ReportRepository {
         existingReport.scores.filter((score) => score.ncsProfileId === null && score.evidences.length > 0).length === result.profiles.length &&
         existingReport.ncsAnswerEvaluations.length === result.profiles.length &&
         existingReport.ncsAnswerEvaluations.every((evaluation) => evaluation.evidences.length > 0) &&
-        (
-          applicationContext.posting.autoScreeningPolicy?.enabled !== true ||
-          applicationContext.screeningDecisionReportId === BigInt(input.reportId)
-        )
+        applicationContext.screeningDecision === "PASS" &&
+        applicationContext.screeningDecisionReportId === BigInt(input.reportId)
       ) {
         return { processLogId: Number(existingProcess.processLogId), inputRef };
       }
@@ -216,52 +204,15 @@ export class PrismaReportRepository implements ReportRepository {
         });
       }
 
-      const policyRow = applicationContext.posting.autoScreeningPolicy;
-      const generationPolicy = applicationContext.posting.questionGenerationPolicy;
-      const criteria = applicationContext.posting.criteria.map((criterion) => {
-        const profile = result.profiles.find((candidate) => candidate.criterionId === Number(criterion.criterionId));
-        return {
-          active: true,
-          score: profile ? profile.weightedScore : null,
-          passScore:
-            criterion.passScore === null
-              ? null
-              : Math.min(criterion.passScore, criterion.weight),
-          evaluationComplete: Boolean(profile),
-        };
-      });
-      const decision = decideAutoScreening({
-        policy: policyRow?.enabled && generationPolicy?.criteriaVersion && generationPolicy.criteriaVersion > 0
-          ? {
-              enabled: true,
-              passMinTotalScore: policyRow.passMinTotalScore,
-              holdMinTotalScore: policyRow.holdMinTotalScore,
-              requireAllCriteriaPass: true,
-              policyVersion: policyRow.policyVersion,
-              decisionPolicyVersion: AUTO_SCREENING_DECISION_POLICY_VERSION,
-            }
-          : null,
-        report: { status: "COMPLETED", totalScore: result.totalScore },
-        hasTerminalSttUnavailable: false,
-        evaluationComplete: criteria.every((criterion) => criterion.evaluationComplete),
-        criteria,
-      });
-
       await transaction.application.update({
         where: { applicationId: BigInt(input.applicationId) },
         data: {
           reportStatus: "COMPLETED",
-          ...(decision.decision !== "UNDECIDED" && policyRow && generationPolicy
-            ? {
-                screeningDecision: decision.decision,
-                screeningDecisionReasonCode: decision.reasonCode,
-                screeningDecisionPolicyVersion: AUTO_SCREENING_DECISION_POLICY_VERSION,
-                screeningPolicyVersion: policyRow.policyVersion,
-                screeningCriteriaVersion: generationPolicy.criteriaVersion,
-                screeningDecisionReport: { connect: { reportId: BigInt(input.reportId) } },
-                screeningDecidedAt: new Date(),
-              }
-            : {}),
+          screeningDecision: "PASS",
+          screeningDecisionReasonCode: null,
+          screeningDecisionPolicyVersion: AUTO_SCREENING_DECISION_POLICY_VERSION,
+          screeningDecisionReport: { connect: { reportId: BigInt(input.reportId) } },
+          screeningDecidedAt: new Date(),
         },
       });
 
