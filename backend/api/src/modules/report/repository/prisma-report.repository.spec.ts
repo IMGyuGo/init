@@ -53,6 +53,17 @@ describe("PrismaReportRepository report process locking", () => {
     });
     const processData = fixture.transaction.aiProcessLog.create.mock.calls[0]?.[0].data;
     expect(processData).not.toHaveProperty("maxAttempts");
+    expect(fixture.transaction.application.update).toHaveBeenCalledWith({
+      where: { applicationId: BigInt(21) },
+      data: expect.objectContaining({
+        reportStatus: "COMPLETED",
+        screeningDecision: "PASS",
+        screeningDecisionReasonCode: null,
+        screeningDecisionPolicyVersion: "AUTO_SCREENING_DECISION_V1",
+        screeningDecisionReport: { connect: { reportId: BigInt(31) } },
+        screeningDecidedAt: expect.any(Date),
+      }),
+    });
   });
 });
 
