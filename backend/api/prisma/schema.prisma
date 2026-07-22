@@ -274,6 +274,7 @@ model Company {
 model FileAsset {
   fileId                    BigInt                @id @default(autoincrement()) @map("file_id")
   ownerUserId               BigInt                @map("owner_user_id")
+  uploadRequestId           String?               @map("upload_request_id") @db.Uuid
   storageKey                String                @map("storage_key") @db.VarChar(500)
   originalName              String                @map("original_name") @db.VarChar(255)
   mimeType                  String                @map("mime_type") @db.VarChar(100)
@@ -289,6 +290,7 @@ model FileAsset {
   videoAnswers              InterviewAnswer[]     @relation("VideoFile")
   audioAnswers              InterviewAnswer[]     @relation("AudioFile")
 
+  @@unique([ownerUserId, uploadRequestId], map: "uq_file_assets_owner_upload_request")
   @@map("file_assets")
 }
 

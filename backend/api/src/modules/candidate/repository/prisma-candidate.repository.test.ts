@@ -58,6 +58,44 @@ function postingRow(input: Partial<Record<string, unknown>> = {}) {
 }
 
 describe("PrismaCandidateRepository", () => {
+  it("reuses the winning file asset after an upload request unique race", async () => {
+    const uploadRequestId = "7b93470b-53d2-4c88-a275-e6e35ae5b97d";
+    const existing = {
+      fileId: 9n,
+      ownerUserId: 7n,
+      uploadRequestId,
+      storageKey: `candidate/1/interviews/${uploadRequestId}-answer.webm`,
+      originalName: "answer.webm",
+      mimeType: "video/webm",
+      sizeBytes: 2_048n,
+      status: "ACTIVE",
+      createdAt: new Date("2026-07-22T00:00:00.000Z"),
+    };
+    const prisma = {
+      fileAsset: {
+        async create() {
+          throw { code: "P2002", meta: { target: ["owner_user_id", "upload_request_id"] } };
+        },
+        async findFirst() {
+          return existing;
+        },
+      },
+    };
+    const repository = new PrismaCandidateRepository(prisma as never);
+
+    const result = await repository.createFileAsset({
+      ownerUserId: 7,
+      uploadRequestId,
+      storageKey: existing.storageKey,
+      originalName: existing.originalName,
+      mimeType: existing.mimeType,
+      sizeBytes: Number(existing.sizeBytes),
+    });
+
+    assert.equal(result.fileId, 9);
+    assert.equal(result.uploadRequestId, uploadRequestId);
+  });
+
   it("maps only the candidate-visible screening decision from an application", async () => {
     const updatedAt = new Date("2026-07-19T00:00:00.000Z");
     const prisma = {

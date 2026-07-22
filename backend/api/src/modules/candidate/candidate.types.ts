@@ -238,6 +238,7 @@ export interface CandidateApplyView {
 export interface FileAsset {
   fileId: number;
   ownerUserId: number;
+  uploadRequestId?: string;
   storageKey: string;
   originalName: string;
   mimeType: string;
@@ -522,6 +523,7 @@ export interface CandidateRepository {
   findJob(jobId: number): Promise<CandidateJob | undefined>;
   getInterviewTimePolicy(postingId: number): Promise<InterviewTimePolicy>;
   findFileAsset(fileId: number): Promise<FileAsset | undefined>;
+  findFileAssetByUploadRequestId(ownerUserId: number, uploadRequestId: string): Promise<FileAsset | undefined>;
   findLatestExtractedTextByFileId(fileId: number): Promise<string | null>;
   listApplications(candidateId: number): Promise<Application[]>;
   listScreeningResultNotifications(userId: number): Promise<CandidateScreeningResultNotification[]>;

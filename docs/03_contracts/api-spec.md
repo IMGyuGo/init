@@ -1597,6 +1597,29 @@ AI 리포트 금지 기준:
 - 관련 ERD 테이블:
   - question_bank, applications, interview_sessions
 
+### API-092-MEDIA POST /public/interviews/{sessionId}/media
+- 도메인: 지원자 - Public 채용면접
+- 권한/인증: Authorization Bearer publicAccessToken
+- 관련 화면: D public runtime
+- UI Type: section
+- 상태 코드: 201 Created
+- 비동기: N
+- Path Params: sessionId
+- 요청 데이터: `multipart/form-data`
+  - `file`: 답변 영상 또는 음성 파일
+  - `uploadRequestId`: 선택 UUID. 재시도 시 같은 파일에는 같은 값을 사용한다.
+- 검증/전제조건:
+  - publicAccessToken의 sessionId가 path sessionId와 일치하고 세션이 `IN_PROGRESS`여야 한다.
+  - 허용 MIME은 `video/webm`, `video/mp4`, `audio/webm`, `audio/mp4`, `audio/mpeg`, `audio/wav`이며 최대 크기는 500 MiB다.
+- 성공 응답/처리:
+  - 원본은 기존 API 서버 경유 S3 경로에 저장하고 응답으로 `file_assets` 메타데이터를 반환한다.
+  - 같은 사용자와 `uploadRequestId`로 같은 파일 메타데이터를 재전송하면 새 객체/행을 만들지 않고 기존 `fileId`를 반환한다.
+  - `uploadRequestId`가 없으면 기존과 같이 매 요청을 새 업로드로 처리한다.
+- 오류/예외:
+  - 같은 사용자와 `uploadRequestId`에 원본명, MIME 또는 크기가 다르면 `409 COMMON_CONFLICT`를 반환한다.
+- 관련 ERD 테이블:
+  - users, candidate_profiles, interview_sessions, file_assets
+
 ### API-092 POST /public/interviews/{sessionId}/answers
 - 도메인: 지원자 - Public 채용면접
 - 권한/인증: Authorization Bearer publicAccessToken
@@ -3637,6 +3660,30 @@ CandidateFolder 입력 제한:
   - candidate_profiles, file_assets, postings, question_bank, applications, interview_sessions, ai_process_logs
 - 비고/미결:
   - 모의면접과 동일하게 면접 질문 표시 기본값 OFF. 질문 음성 다시 듣기 버튼 삭제. CC 자막 기능 아님
+
+### API-068-MEDIA POST /candidate/interviews/{sessionId}/media
+- 도메인: 지원자 - 모의/채용면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 모의면접 및 채용 AI 면접 진행 화면
+- UI Type: section
+- 상태 코드: 201 Created
+- 비동기: N
+- Path Params: sessionId
+- 요청 데이터: `multipart/form-data`
+  - `file`: 답변 영상 또는 음성 파일
+  - `uploadRequestId`: 선택 UUID. 재시도 시 같은 파일에는 같은 값을 사용한다.
+- 검증/전제조건:
+  - 세션이 요청 지원자 소유이고 `IN_PROGRESS`여야 한다.
+  - 허용 MIME은 `video/webm`, `video/mp4`, `audio/webm`, `audio/mp4`, `audio/mpeg`, `audio/wav`이며 최대 크기는 500 MiB다.
+- 성공 응답/처리:
+  - 원본은 기존 API 서버 경유 S3 경로에 저장하고 응답으로 `file_assets` 메타데이터를 반환한다.
+  - `uploadRequestId`가 있으면 S3 key는 해당 ID를 포함한 결정적 경로를 사용한다.
+  - 같은 사용자와 `uploadRequestId`로 같은 파일 메타데이터를 재전송하면 새 객체/행을 만들지 않고 기존 `fileId`를 반환한다.
+  - `uploadRequestId`가 없으면 기존과 같이 매 요청을 새 업로드로 처리한다.
+- 오류/예외:
+  - 같은 사용자와 `uploadRequestId`에 원본명, MIME 또는 크기가 다르면 `409 COMMON_CONFLICT`를 반환한다.
+- 관련 ERD 테이블:
+  - users, candidate_profiles, interview_sessions, file_assets
 
 ### API-068 POST /candidate/interviews/{sessionId}/answers
 - 도메인: 지원자 - 채용면접

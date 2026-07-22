@@ -348,6 +348,7 @@ export class InterviewService {
     sessionId: number,
     file: UploadedInterviewMediaFile | undefined,
     currentUser: CurrentCandidateUser,
+    uploadRequestId?: string,
   ) {
     const session = await this.getOwnedRuntimeSession(sessionId, currentUser);
     this.assertInProgress(session);
@@ -357,7 +358,23 @@ export class InterviewService {
       ]);
     }
 
-    const storageKey = this.buildInterviewMediaStorageKey(currentUser.candidateId, session.sessionId, file.originalName);
+    const storageKey = this.buildInterviewMediaStorageKey(
+      currentUser.candidateId,
+      session.sessionId,
+      file.originalName,
+      uploadRequestId,
+    );
+    const fileAssetInput = {
+      storageKey,
+      originalName: file.originalName,
+      mimeType: file.mimeType,
+      sizeBytes: file.sizeBytes,
+      uploadRequestId,
+    };
+    const existingFileAsset = await this.candidateService.prepareInterviewFileAsset(fileAssetInput, currentUser);
+    if (existingFileAsset) {
+      return this.envelope(existingFileAsset);
+    }
     await this.mediaStorage.putObject({
       key: storageKey,
       body: file.buffer,
@@ -365,15 +382,7 @@ export class InterviewService {
       contentType: file.mimeType,
     });
 
-    const fileAsset = await this.candidateService.createInterviewFileAsset(
-      {
-        storageKey,
-        originalName: file.originalName,
-        mimeType: file.mimeType,
-        sizeBytes: file.sizeBytes,
-      },
-      currentUser,
-    );
+    const fileAsset = await this.candidateService.createInterviewFileAsset(fileAssetInput, currentUser);
 
     return this.envelope(fileAsset);
   }
@@ -416,7 +425,12 @@ export class InterviewService {
     return this.getRecruitingRuntimeSession(sessionId, currentUser);
   }
 
-  private buildInterviewMediaStorageKey(candidateId: number, sessionId: number, originalName: string): string {
+  private buildInterviewMediaStorageKey(
+    candidateId: number,
+    sessionId: number,
+    originalName: string,
+    uploadRequestId?: string,
+  ): string {
     const safeName = originalName
       .replace(/\\/g, "/")
       .split("/")
@@ -425,7 +439,8 @@ export class InterviewService {
       .replace(/-+/g, "-")
       .replace(/^-|-$/g, "")
       || "interview-media.webm";
-    return `candidate/${candidateId}/interviews/${Date.now()}-${sessionId}-${safeName}`;
+    const uploadKey = uploadRequestId ?? `${Date.now()}-${sessionId}`;
+    return `candidate/${candidateId}/interviews/${uploadKey}-${safeName}`;
   }
 
   private async getRecruitingRuntimeSession(

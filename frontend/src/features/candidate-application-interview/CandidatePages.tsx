@@ -63,6 +63,7 @@ import {
   type RuntimeQuestionListResponse,
   type RuntimeQuestionView,
   type SaveInterviewAnswerRequest,
+  type SaveInterviewAnswerResponse,
   type RealtimeInterviewSessionResponse,
   createCandidateApiClient,
   createPublicInterviewApiClient,
@@ -70,6 +71,12 @@ import {
   publicCandidateApiPaths,
   type InterviewRuntimeApiClient,
 } from "./api";
+import {
+  createInterviewUploadJobStore,
+  findOptimisticNextInterviewQuestion,
+  InterviewUploadQueue,
+  type InterviewUploadJob,
+} from "./interview-upload-queue";
 import { CandidateProfileSection } from "./CandidateProfileSection";
 import { CandidateProfileSnapshotEditor } from "./CandidateProfileSnapshotEditor";
 import { CandidateScreeningResult } from "./CandidateScreeningResult";
@@ -156,6 +163,8 @@ import {
   buildCandidateReportCompleteNotification,
   buildCandidateReportCompleteNotifications,
   buildCandidateScreeningResultNotifications,
+  buildInterviewCameraConstraints,
+  buildInterviewMediaRecorderOptions,
   clampCameraPipPosition,
   countUnreadCandidateNotifications,
   createInterviewAnswerFormStateForQuestion,
@@ -3384,6 +3393,8 @@ function InterviewRuntimePanel({
   const [autoAiPipeline, setAutoAiPipeline] = useState<AutoAiPipelineState>();
   const [pendingAiPipelineCount, setPendingAiPipelineCount] = useState(0);
   const [runtimeQuestionSyncRequired, setRuntimeQuestionSyncRequired] = useState(false);
+  const [uploadJobs, setUploadJobs] = useState<InterviewUploadJob[]>([]);
+  const [uploadQueuePersistent, setUploadQueuePersistent] = useState(true);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState("");
@@ -3438,6 +3449,16 @@ function InterviewRuntimePanel({
   const completionReadyRef = useRef(false);
   completionReadyRef.current = completionReady;
   const savingQuestionIdsRef = useRef<Set<number>>(new Set());
+  const runtimeApiRef = useRef(runtimeApi);
+  runtimeApiRef.current = runtimeApi;
+  const uploadQueueRef = useRef<InterviewUploadQueue | null>(null);
+  const uploadCompletionRef = useRef<(
+    job: InterviewUploadJob,
+    result: SaveInterviewAnswerResponse,
+  ) => Promise<void>>(async () => undefined);
+  const completeAnswerSubmitToNextReadyMetricRef = useRef<
+    typeof completeAnswerSubmitToNextReadyMetric
+  >(() => undefined);
   const interviewerStageRef = useRef<HTMLDivElement | null>(null);
   const cameraPipRef = useRef<HTMLDivElement | null>(null);
   const cameraPipDragRef = useRef<CameraPipDragState | null>(null);
@@ -3521,6 +3542,86 @@ function InterviewRuntimePanel({
   const realtimeSilenceStartedAtRef = useRef<number | null>(null);
   const realtimeEncouragedQuestionRef = useRef<number | null>(null);
   const videoAttachRunRef = useRef(0);
+  useEffect(() => {
+    const sessionId = data?.runtime.sessionId;
+    if (!sessionId) return;
+
+    let active = true;
+    let queue: InterviewUploadQueue | null = null;
+    const handleOnline = () => {
+      void queue?.resume();
+    };
+
+    void (async () => {
+      const queueStore = await createInterviewUploadJobStore(`interview-upload-queue-${sessionId}`);
+      if (!active) return;
+      setUploadQueuePersistent(queueStore.persistent);
+      queue = new InterviewUploadQueue(queueStore.store, {
+        upload: async (job) => {
+          const uploadFile = new File([job.fileBlob], job.fileName, { type: job.mimeType });
+          const uploaded = (
+            await runtimeApiRef.current.uploadInterviewMedia(
+              job.sessionId,
+              uploadFile,
+              job.uploadRequestId,
+            )
+          ).data;
+          cacheUploadedInterviewBlob(uploaded, job.fileBlob);
+          return { fileId: uploaded.fileId, storageKey: uploaded.storageKey };
+        },
+        saveAnswer: async (job, request) => {
+          const response = job.mode === "mock"
+            ? await runtimeApiRef.current.saveMockAnswer(job.sessionId, request)
+            : await runtimeApiRef.current.saveRecruitingAnswer(job.sessionId, request);
+          return response.data;
+        },
+        onCompleted: async (job, result) => {
+          if (active) await uploadCompletionRef.current(job, result);
+        },
+        onStateChange: (jobs) => {
+          if (!active) return;
+          setUploadJobs(jobs);
+          const failedJob = jobs.find((job) => job.state === "FAILED");
+          if (failedJob) {
+            savingQuestionIdsRef.current.delete(failedJob.questionId);
+            completeAnswerSubmitToNextReadyMetricRef.current({
+              questionId: failedJob.questionId,
+              outcome: "BACKGROUND_UPLOAD_FAILED",
+              nextReady: false,
+            });
+            setMessage(
+              `답변 업로드에 실패했습니다. 네트워크를 확인한 뒤 업로드 재시도를 눌러주세요. (${failedJob.lastError ?? "원인 미상"})`,
+            );
+          }
+        },
+      });
+      uploadQueueRef.current = queue;
+      window.addEventListener("online", handleOnline);
+      await queue.resume();
+    })().catch((queueError) => {
+      if (!active) return;
+      setUploadQueuePersistent(false);
+      setMessage(toErrorMessage(queueError));
+    });
+
+    return () => {
+      active = false;
+      window.removeEventListener("online", handleOnline);
+      if (uploadQueueRef.current === queue) uploadQueueRef.current = null;
+    };
+  }, [data?.runtime.sessionId, mode]);
+
+  const hasUnfinishedMediaUploads = uploadJobs.length > 0;
+  useEffect(() => {
+    if (!hasUnfinishedMediaUploads) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [hasUnfinishedMediaUploads]);
+
   const bindRealtimeRemoteAudio = useCallback((element: HTMLAudioElement | null) => {
     realtimeRemoteAudioRef.current = element;
     setRealtimeRemoteAudioElement(element);
@@ -6771,7 +6872,12 @@ function InterviewRuntimePanel({
     let realtimeMicrophoneOpenedForRecording = false;
     try {
       const mimeType = getSupportedRecordingMimeType();
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(stream, buildInterviewMediaRecorderOptions(mimeType));
+      } catch {
+        recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      }
       recorderRef.current = recorder;
       recordingChunksRef.current = [];
       recordingVoicePeakRef.current = 0;
@@ -7073,6 +7179,111 @@ function InterviewRuntimePanel({
     speakCurrentQuestion("manual");
   }
 
+  function applySavedInterviewAnswer(
+    preparedRequest: SaveInterviewAnswerRequest,
+    resultData: SaveInterviewAnswerResponse,
+    question: RuntimeQuestionView | undefined,
+    shouldAutoAdvance: boolean,
+    preservePreparedQuestion = false,
+  ) {
+    setGazeRetakeQuestionId((current) => current === preparedRequest.questionId ? null : current);
+    realtimeSttTranscriptByQuestionRef.current.delete(preparedRequest.questionId);
+    const audioFileId = resultData.audioFile?.fileId ?? resultData.answer.audioFileId;
+    const videoFileId = resultData.videoFile?.fileId ?? resultData.answer.videoFileId;
+    const answerFileAssetId = audioFileId ?? videoFileId;
+    const savedAnswer: LastSavedAnswer = {
+      answerId: resultData.answer.answerId,
+      questionId: resultData.answer.questionId,
+      questionText: question?.content ?? question?.audioPrompt ?? "이전 질문",
+      transcript: `${formatQuestionTypeLabel(question?.questionType)} 답변 파일이 저장되었습니다.`,
+      durationSeconds: resultData.answer.durationSeconds,
+      fileAssetId: answerFileAssetId,
+      audioFileId,
+      audioS3Key: resultData.audioFile?.storageKey,
+      videoFileId,
+      videoS3Key: resultData.videoFile?.storageKey,
+    };
+    if (preparedRequest.transcript) {
+      savedAnswer.transcript = preparedRequest.transcript;
+      savedAnswer.transcriptSource = "OPENAI_REALTIME_STT_RELAY";
+    }
+    setLastAnswer(savedAnswer);
+    setAutoAiPipeline({
+      answerId: savedAnswer.answerId,
+      sttStatus: savedAnswer.transcriptSource === "OPENAI_REALTIME_STT_RELAY" ? "COMPLETED" : "PENDING",
+      followUpStatus: "IDLE",
+      transcript: savedAnswer.transcriptSource === "OPENAI_REALTIME_STT_RELAY" ? savedAnswer.transcript : undefined,
+    });
+    if (preparedRequest.allowReanswer || preparedRequest.retryAnswerId) {
+      setReansweringQuestionId(null);
+      setReansweredQuestionIds((current) => {
+        const next = new Set(current);
+        next.add(preparedRequest.questionId);
+        return next;
+      });
+    }
+    markQuestionAnswered(preparedRequest.questionId);
+    const shouldPrepareFollowUp = shouldDeferQuestionTransitionForFollowUp(question?.questionType);
+    if (shouldPrepareFollowUp) {
+      stopQuestionSpeech();
+      setQuestionSpeechStatus("답변 분석 중");
+    } else {
+      const preparedQuestionIsStillCurrent =
+        preservePreparedQuestion &&
+        data?.runtime.currentQuestion?.questionId === resultData.currentQuestion?.questionId &&
+        Boolean(data?.runtime.currentQuestion) === Boolean(resultData.currentQuestion);
+      applyAuthoritativeQuestionTransition(
+        preparedRequest.questionId,
+        resultData.currentQuestion,
+        resultData.completionReady,
+      );
+      if (!preparedQuestionIsStillCurrent) {
+        prepareAuthoritativeNextQuestion(resultData.currentQuestion);
+      }
+    }
+    setRetryAnswerId(undefined);
+    setRetryingQuestionId(undefined);
+    setMessage(
+      shouldPrepareFollowUp
+        ? "답변이 저장되었습니다. 답변에 이어질 꼬리질문을 준비하고 있습니다."
+        : resultData.completionReady
+        ? "답변이 저장되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
+        : "답변이 저장되었습니다. 다음 질문으로 이동했습니다.",
+    );
+    void runAutomaticAiPipeline(
+      savedAnswer,
+      question,
+      getInterviewAiPollingPolicy({ timedAutoAdvance: shouldAutoAdvance }),
+    );
+  }
+
+  uploadCompletionRef.current = async (job, resultData) => {
+    try {
+      const preparedRequest: SaveInterviewAnswerRequest = {
+        ...job.answerRequest,
+        ...(job.mediaKind === "video"
+          ? { videoFileId: job.uploadedFile?.fileId }
+          : { audioFileId: job.uploadedFile?.fileId }),
+      };
+      applySavedInterviewAnswer(
+        preparedRequest,
+        resultData,
+        job.question,
+        Boolean(job.autoAdvance),
+        job.question?.questionType === "FOLLOW_UP",
+      );
+    } catch (submitError) {
+      completeAnswerSubmitToNextReadyMetric({
+        questionId: job.questionId,
+        outcome: "BACKGROUND_ANSWER_RECONCILE_FAILED",
+        nextReady: false,
+      });
+      setMessage(toErrorMessage(submitError));
+    } finally {
+      savingQuestionIdsRef.current.delete(job.questionId);
+    }
+  };
+
   async function submitAnswerRequest(
     request: SaveInterviewAnswerRequest,
     question = currentQuestion,
@@ -7090,85 +7301,95 @@ function InterviewRuntimePanel({
     }
     savingQuestionIdsRef.current.add(request.questionId);
     beginAnswerSubmitToNextReadyMetric(request.questionId, metricOrigin);
-    setBusy(true);
     setMessage("");
+    const requestWithTranscript = attachRealtimeTranscriptToRequest(request);
+    const requestWithRetry =
+      retryAnswerId && question?.questionId === request.questionId
+        ? { ...requestWithTranscript, retryAnswerId }
+        : requestWithTranscript;
+    const queuedMediaKind = requestWithRetry.videoFile ? "video" : requestWithRetry.audioFile ? "audio" : undefined;
+    const queuedMedia = requestWithRetry.videoFile ?? requestWithRetry.audioFile;
+    const cachedMedia = queuedMedia ? getCachedRecordingEntry(queuedMedia.storageKey) : undefined;
+    const queue = uploadQueueRef.current;
+
+    if (queue && queuedMediaKind && queuedMedia && cachedMedia) {
+      const shouldAutoAdvance = autoAdvanceAfterAnswerSubmitRef.current;
+      autoAdvanceAfterAnswerSubmitRef.current = false;
+      const queuedAnswerRequest: InterviewUploadJob["answerRequest"] = {
+        questionId: requestWithRetry.questionId,
+        durationSeconds: requestWithRetry.durationSeconds,
+        allowReanswer: requestWithRetry.allowReanswer,
+        skipReason: requestWithRetry.skipReason,
+        nonverbalMetadata: requestWithRetry.nonverbalMetadata,
+        retryAnswerId: requestWithRetry.retryAnswerId,
+        transcript: requestWithRetry.transcript,
+      };
+      const now = Date.now();
+      const job: InterviewUploadJob = {
+        uploadRequestId: crypto.randomUUID(),
+        sessionId: data.runtime.sessionId,
+        questionId: requestWithRetry.questionId,
+        question,
+        mode,
+        metricOrigin,
+        autoAdvance: shouldAutoAdvance,
+        mediaKind: queuedMediaKind,
+        fileBlob: cachedMedia.blob,
+        fileName: queuedMedia.originalName,
+        mimeType: queuedMedia.mimeType,
+        answerRequest: queuedAnswerRequest,
+        state: "QUEUED",
+        retryCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      void queue.enqueue(job)
+        .then(() => {
+          if (question?.questionType === "FOLLOW_UP") {
+            const nextQuestion = findOptimisticNextInterviewQuestion(
+              data.questions.questions,
+              requestWithRetry.questionId,
+            );
+            markQuestionAnswered(requestWithRetry.questionId);
+            applyAuthoritativeQuestionTransition(
+              requestWithRetry.questionId,
+              nextQuestion,
+              !nextQuestion,
+            );
+            prepareAuthoritativeNextQuestion(nextQuestion);
+            setMessage(nextQuestion
+              ? "답변을 백그라운드에서 업로드하며 다음 질문으로 이동했습니다."
+              : "마지막 답변을 백그라운드에서 업로드하고 있습니다.");
+          } else {
+            stopQuestionSpeech();
+            setQuestionSpeechStatus("답변 업로드 및 분석 대기");
+            setMessage("답변을 백그라운드에서 업로드하고 있습니다. 업로드 후 꼬리질문을 준비합니다.");
+          }
+        })
+        .catch((queueError) => {
+          savingQuestionIdsRef.current.delete(job.questionId);
+          completeAnswerSubmitToNextReadyMetric({
+            questionId: job.questionId,
+            outcome: "BACKGROUND_UPLOAD_QUEUE_FAILED",
+            nextReady: false,
+          });
+          setMessage(toErrorMessage(queueError));
+        });
+      return;
+    }
+
+    setBusy(true);
     try {
       const api = runtimeApi;
-      const requestWithTranscript = attachRealtimeTranscriptToRequest(request);
-      const requestWithRetry =
-        retryAnswerId && question?.questionId === request.questionId
-          ? { ...requestWithTranscript, retryAnswerId }
-          : requestWithTranscript;
       const preparedRequest = await prepareAnswerRequestWithUploadedMedia(api, data.runtime.sessionId, requestWithRetry);
       const result =
         mode === "mock"
           ? await api.saveMockAnswer(data.runtime.sessionId, preparedRequest)
           : await api.saveRecruitingAnswer(data.runtime.sessionId, preparedRequest);
-      setGazeRetakeQuestionId((current) => current === preparedRequest.questionId ? null : current);
-      realtimeSttTranscriptByQuestionRef.current.delete(preparedRequest.questionId);
-      const audioFileId = result.data.audioFile?.fileId ?? result.data.answer.audioFileId;
-      const videoFileId = result.data.videoFile?.fileId ?? result.data.answer.videoFileId;
-      const answerFileAssetId = audioFileId ?? videoFileId;
-      const savedAnswer: LastSavedAnswer = {
-        answerId: result.data.answer.answerId,
-        questionId: result.data.answer.questionId,
-        questionText: question?.content ?? question?.audioPrompt ?? "이전 질문",
-        transcript: `${formatQuestionTypeLabel(question?.questionType)} 답변 파일이 저장되었습니다.`,
-        durationSeconds: result.data.answer.durationSeconds,
-        fileAssetId: answerFileAssetId,
-        audioFileId,
-        audioS3Key: result.data.audioFile?.storageKey,
-        videoFileId,
-        videoS3Key: result.data.videoFile?.storageKey,
-      };
-      if (preparedRequest.transcript) {
-        savedAnswer.transcript = preparedRequest.transcript;
-        savedAnswer.transcriptSource = "OPENAI_REALTIME_STT_RELAY";
-      }
-      setLastAnswer(savedAnswer);
-      setAutoAiPipeline({
-        answerId: savedAnswer.answerId,
-        sttStatus: savedAnswer.transcriptSource === "OPENAI_REALTIME_STT_RELAY" ? "COMPLETED" : "PENDING",
-        followUpStatus: "IDLE",
-        transcript: savedAnswer.transcriptSource === "OPENAI_REALTIME_STT_RELAY" ? savedAnswer.transcript : undefined,
-      });
-      if (preparedRequest.allowReanswer || preparedRequest.retryAnswerId) {
-        setReansweringQuestionId(null);
-        setReansweredQuestionIds((current) => {
-          const next = new Set(current);
-          next.add(preparedRequest.questionId);
-          return next;
-        });
-      }
-      markQuestionAnswered(preparedRequest.questionId);
-      const shouldPrepareFollowUp = shouldDeferQuestionTransitionForFollowUp(question?.questionType);
-      if (shouldPrepareFollowUp) {
-        stopQuestionSpeech();
-        setQuestionSpeechStatus("답변 분석 중");
-      } else {
-        applyAuthoritativeQuestionTransition(
-          preparedRequest.questionId,
-          result.data.currentQuestion,
-          result.data.completionReady,
-        );
-        prepareAuthoritativeNextQuestion(result.data.currentQuestion);
-      }
-      setRetryAnswerId(undefined);
-      setRetryingQuestionId(undefined);
       const shouldAutoAdvance = autoAdvanceAfterAnswerSubmitRef.current;
       autoAdvanceAfterAnswerSubmitRef.current = false;
-      setMessage(
-        shouldPrepareFollowUp
-          ? "답변이 저장되었습니다. 답변에 이어질 꼬리질문을 준비하고 있습니다."
-          : result.data.completionReady
-          ? "답변이 저장되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
-          : "답변이 저장되었습니다. 다음 질문으로 이동했습니다.",
-      );
-      void runAutomaticAiPipeline(
-        savedAnswer,
-        question,
-        getInterviewAiPollingPolicy({ timedAutoAdvance: shouldAutoAdvance }),
-      );
+      applySavedInterviewAnswer(preparedRequest, result.data, question, shouldAutoAdvance);
     } catch (submitError) {
       autoAdvanceAfterAnswerSubmitRef.current = false;
       completeAnswerSubmitToNextReadyMetric({
@@ -7893,6 +8114,7 @@ function InterviewRuntimePanel({
       },
     });
   }
+  completeAnswerSubmitToNextReadyMetricRef.current = completeAnswerSubmitToNextReadyMetric;
 
   function clearAnswerSubmitToNextReadyMetric(questionId: number) {
     if (answerSubmitToNextReadyPerfRef.current?.sourceQuestionId === questionId) {
@@ -7958,6 +8180,10 @@ function InterviewRuntimePanel({
 
   async function handleComplete() {
     if (!data) return;
+    if (hasUnfinishedMediaUploads) {
+      setMessage("백그라운드 답변 업로드가 끝난 뒤 면접을 완료할 수 있습니다.");
+      return;
+    }
     setBusy(true);
     setMessage("");
     try {
@@ -7984,6 +8210,21 @@ function InterviewRuntimePanel({
     }
   }
 
+  function handleRetryFailedMediaUpload(job: InterviewUploadJob) {
+    const queue = uploadQueueRef.current;
+    if (!queue) {
+      setMessage("업로드 큐를 초기화하지 못했습니다. 화면을 새로고침한 뒤 다시 시도해주세요.");
+      return;
+    }
+    savingQuestionIdsRef.current.add(job.questionId);
+    beginAnswerSubmitToNextReadyMetric(job.questionId, job.metricOrigin ?? "background_upload_retry");
+    setMessage("답변 업로드를 다시 시도합니다.");
+    void queue.retryFailed(job.uploadRequestId).catch((queueError) => {
+      savingQuestionIdsRef.current.delete(job.questionId);
+      setMessage(toErrorMessage(queueError));
+    });
+  }
+
   const runtimeTitle = mode === "recruiting" ? "채용 AI 면접 진행" : "AI 모의면접 진행";
   const answeredQuestionCount = data
     ? data.questions.questions.filter((question) => question.answered || answeredQuestionIds.has(question.questionId)).length
@@ -7999,8 +8240,14 @@ function InterviewRuntimePanel({
   const isCurrentQuestionLast = Boolean(
     data && currentQuestionIndex >= 0 && currentQuestionIndex >= data.runtime.totalQuestions - 1,
   );
-  const answerProcessingBusy = pendingAiPipelineCount > 0 || runtimeQuestionSyncRequired;
+  const pendingMediaUploadCount = uploadJobs.filter((job) => job.state !== "FAILED").length;
+  const failedMediaUpload = uploadJobs.find((job) => job.state === "FAILED");
+  const currentQuestionUploadPending = uploadJobs.some(
+    (job) => job.questionId === currentQuestion?.questionId && job.state !== "FAILED",
+  );
+  const answerProcessingBusy = pendingMediaUploadCount > 0 || pendingAiPipelineCount > 0 || runtimeQuestionSyncRequired;
   const answerProcessingFailed = Boolean(
+    failedMediaUpload ||
     !autoAiPipeline?.followUpSkipped &&
       (autoAiPipeline?.error ||
         autoAiPipeline?.sttStatus === "FAILED" ||
@@ -8368,6 +8615,27 @@ function InterviewRuntimePanel({
 
       <section className="iv-body">
         <StatusNotice loading={loading || busy} error={error} message={message} />
+        {uploadJobs.length > 0 ? (
+          <p className={failedMediaUpload ? "notice danger" : "notice"} role="status">
+            {failedMediaUpload
+              ? "답변 업로드 실패 작업이 남아 있습니다. 네트워크를 확인해주세요."
+              : `답변 ${pendingMediaUploadCount}개를 백그라운드에서 순서대로 업로드하고 있습니다.`}
+            {failedMediaUpload ? (
+              <button
+                className="btn secondary"
+                type="button"
+                onClick={() => handleRetryFailedMediaUpload(failedMediaUpload)}
+              >
+                업로드 재시도
+              </button>
+            ) : null}
+          </p>
+        ) : null}
+        {!uploadQueuePersistent ? (
+          <p className="notice" role="status">
+            이 브라우저에서는 업로드 임시 저장을 사용할 수 없습니다. 업로드가 끝날 때까지 창을 닫지 마세요.
+          </p>
+        ) : null}
         {gazeRetakeRequired ? (
           <p className="notice danger" role="alert">{GAZE_DATA_RETAKE_GUIDANCE}</p>
         ) : null}
@@ -8734,6 +9002,7 @@ function InterviewRuntimePanel({
                   type="button"
                   disabled={
                     busy ||
+                    currentQuestionUploadPending ||
                     !currentQuestion ||
                     !currentQuestionStateReady ||
                     currentQuestionLocked ||
@@ -8763,7 +9032,7 @@ function InterviewRuntimePanel({
                 <button
                   className="btn primary lg"
                   type="button"
-                  disabled={busy || recording || !canCompleteInterview}
+                  disabled={busy || recording || hasUnfinishedMediaUploads || !canCompleteInterview}
                   onClick={() => void handleComplete()}
                 >
                   면접 완료
@@ -12070,8 +12339,8 @@ function startCameraQualityMonitor(
 
 async function getCameraMediaStream(cameraDeviceId = "", microphoneDeviceId = ""): Promise<CameraStreamResult> {
   const videoAttempts: Array<MediaTrackConstraints | boolean> = cameraDeviceId
-    ? [{ deviceId: { ideal: cameraDeviceId } }, true]
-    : [{ facingMode: "user" }, true];
+    ? [buildInterviewCameraConstraints(cameraDeviceId), { deviceId: { ideal: cameraDeviceId } }, true]
+    : [buildInterviewCameraConstraints(), { facingMode: "user" }, true];
   const audioAttempts: Array<MediaTrackConstraints | boolean> = microphoneDeviceId
     ? [
         {

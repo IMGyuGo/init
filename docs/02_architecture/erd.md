@@ -49,7 +49,7 @@ ERDCloud SQL을 사람이 읽는 테이블/관계 문서로 변환한다.
 | --- |--- |--- |--- |--- |
 | users | user_id | 11 | 서비스 계정과 인증 방식 |  |
 | companies | company_id | 12 | 기업 프로필과 평가 정책 | logo_file_id -> file_assets.file_id |
-| file_assets | file_id | 8 | 업로드 파일 메타데이터 | owner_user_id -> users.user_id |
+| file_assets | file_id | 9 | 사용자별 업로드 멱등 키를 포함한 파일 메타데이터 | owner_user_id -> users.user_id |
 | candidate_profiles | candidate_id | 9 | 지원자 프로필, 자기소개서와 기본 이력서 | user_id -> users.user_id / default_resume_file_id -> file_assets.file_id |
 | candidate_educations | education_id | 11 | 지원자 학력 | candidate_id -> candidate_profiles.candidate_id |
 | candidate_careers | career_id | 13 | 지원자 경력 | candidate_id -> candidate_profiles.candidate_id |

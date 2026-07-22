@@ -180,6 +180,12 @@ export class InMemoryCandidateRepository implements CandidateRepository {
     return this.fileAssets.find((fileAsset) => fileAsset.fileId === fileId);
   }
 
+  async findFileAssetByUploadRequestId(ownerUserId: number, uploadRequestId: string): Promise<FileAsset | undefined> {
+    return this.fileAssets.find((fileAsset) =>
+      fileAsset.ownerUserId === ownerUserId && fileAsset.uploadRequestId === uploadRequestId,
+    );
+  }
+
   async findLatestExtractedTextByFileId(fileId: number): Promise<string | null> {
     const document = [...this.documents]
       .reverse()
@@ -557,6 +563,7 @@ export class InMemoryCandidateRepository implements CandidateRepository {
 
     const fileAsset: FileAsset = {
       ownerUserId: input.ownerUserId,
+      uploadRequestId: input.uploadRequestId,
       storageKey: input.storageKey,
       originalName: input.originalName,
       mimeType: input.mimeType,
