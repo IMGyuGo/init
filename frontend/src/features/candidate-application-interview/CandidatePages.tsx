@@ -3456,6 +3456,10 @@ function InterviewRuntimePanel({
     job: InterviewUploadJob,
     result: SaveInterviewAnswerResponse,
   ) => Promise<void>>(async () => undefined);
+  const uploadAnswerSavedRef = useRef<(
+    job: InterviewUploadJob,
+    result: SaveInterviewAnswerResponse,
+  ) => Promise<void>>(async () => undefined);
   const completeAnswerSubmitToNextReadyMetricRef = useRef<
     typeof completeAnswerSubmitToNextReadyMetric
   >(() => undefined);
@@ -3574,6 +3578,9 @@ function InterviewRuntimePanel({
             ? await runtimeApiRef.current.saveMockAnswer(job.sessionId, request)
             : await runtimeApiRef.current.saveRecruitingAnswer(job.sessionId, request);
           return response.data;
+        },
+        onAnswerSaved: async (job, result) => {
+          if (active) await uploadAnswerSavedRef.current(job, result);
         },
         onCompleted: async (job, result) => {
           if (active) await uploadCompletionRef.current(job, result);
@@ -7259,6 +7266,7 @@ function InterviewRuntimePanel({
 
   uploadCompletionRef.current = async (job, resultData) => {
     try {
+      if (job.savedAnswer) return;
       const preparedRequest: SaveInterviewAnswerRequest = {
         ...job.answerRequest,
         ...(job.mediaKind === "video"
@@ -7281,6 +7289,25 @@ function InterviewRuntimePanel({
       setMessage(toErrorMessage(submitError));
     } finally {
       savingQuestionIdsRef.current.delete(job.questionId);
+    }
+  };
+
+  uploadAnswerSavedRef.current = async (job, resultData) => {
+    try {
+      applySavedInterviewAnswer(
+        { ...job.answerRequest, mediaUploadRequestId: job.uploadRequestId },
+        resultData,
+        job.question,
+        Boolean(job.autoAdvance),
+        job.question?.questionType === "FOLLOW_UP",
+      );
+    } catch (submitError) {
+      completeAnswerSubmitToNextReadyMetric({
+        questionId: job.questionId,
+        outcome: "BACKGROUND_ANSWER_RECONCILE_FAILED",
+        nextReady: false,
+      });
+      setMessage(toErrorMessage(submitError));
     }
   };
 
@@ -7344,8 +7371,13 @@ function InterviewRuntimePanel({
         updatedAt: now,
       };
 
+      const answerFirst = Boolean(requestWithRetry.transcript?.trim());
       void queue.enqueue(job)
         .then(() => {
+          if (answerFirst) {
+            setMessage("실시간 음성 인식 답변을 저장하고 있습니다. 영상은 백그라운드에서 업로드됩니다.");
+            return;
+          }
           if (question?.questionType === "FOLLOW_UP") {
             const nextQuestion = findOptimisticNextInterviewQuestion(
               data.questions.questions,
@@ -8241,11 +8273,12 @@ function InterviewRuntimePanel({
     data && currentQuestionIndex >= 0 && currentQuestionIndex >= data.runtime.totalQuestions - 1,
   );
   const pendingMediaUploadCount = uploadJobs.filter((job) => job.state !== "FAILED").length;
+  const pendingAnswerSubmissionCount = uploadJobs.filter((job) => job.state !== "FAILED" && !job.savedAnswer).length;
   const failedMediaUpload = uploadJobs.find((job) => job.state === "FAILED");
   const currentQuestionUploadPending = uploadJobs.some(
     (job) => job.questionId === currentQuestion?.questionId && job.state !== "FAILED",
   );
-  const answerProcessingBusy = pendingMediaUploadCount > 0 || pendingAiPipelineCount > 0 || runtimeQuestionSyncRequired;
+  const answerProcessingBusy = pendingAnswerSubmissionCount > 0 || pendingAiPipelineCount > 0 || runtimeQuestionSyncRequired;
   const answerProcessingFailed = Boolean(
     failedMediaUpload ||
     !autoAiPipeline?.followUpSkipped &&

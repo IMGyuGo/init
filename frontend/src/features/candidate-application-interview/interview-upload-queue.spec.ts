@@ -134,6 +134,38 @@ test("retries answer saving without uploading the same blob again", async () => 
   assert.deepEqual(await store.list(), []);
 });
 
+test("realtime transcript saves the answer before uploading media and does not save it twice", async () => {
+  const store = new MemoryInterviewUploadJobStore();
+  const events: string[] = [];
+  const saved: number[] = [];
+  const queue = new InterviewUploadQueue(store, {
+    upload: async (job) => {
+      events.push(`upload:${job.questionId}`);
+      return { fileId: 88, storageKey: `candidate/1/${job.fileName}` };
+    },
+    saveAnswer: async (job, request) => {
+      events.push(`answer:${job.questionId}`);
+      assert.equal(request.mediaUploadRequestId, job.uploadRequestId);
+      assert.equal(request.videoFileId, undefined);
+      return createAnswerResponse(job.questionId);
+    },
+    onAnswerSaved: async (_job, result) => {
+      saved.push(result.answer.answerId);
+    },
+  }, { retryDelaysMs: [0, 0, 0] });
+  const job = {
+    ...createJob("00000000-0000-4000-8000-000000000009", 9),
+    answerRequest: { questionId: 9, durationSeconds: 30, transcript: "realtime transcript" },
+  };
+
+  await queue.enqueue(job);
+  await queue.resume();
+
+  assert.deepEqual(events, ["answer:9", "upload:9"]);
+  assert.deepEqual(saved, [9]);
+  assert.deepEqual(await store.list(), []);
+});
+
 test("offline jobs wait without consuming retries and resume when online", async () => {
   const store = new MemoryInterviewUploadJobStore();
   let online = false;
