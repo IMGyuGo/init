@@ -206,6 +206,7 @@ test("prisma interview repository persists answers through interview_answers", a
         sessionQuestionId: 501n,
         videoFileId: 30001n,
         audioFileId: null,
+        mediaUploadRequestId: null,
         transcript,
         nonverbalMetadata,
         durationSeconds: 42,
