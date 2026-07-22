@@ -1339,6 +1339,23 @@ export function shouldDeferQuestionTransitionForFollowUp(questionType?: string):
   return Boolean(questionType && questionType !== "FOLLOW_UP");
 }
 
+export function shouldPreserveDemoQuestionUntilManualAdvance({
+  interviewMode,
+  sessionMode,
+  questionType,
+}: {
+  interviewMode: "mock" | "recruiting";
+  sessionMode?: "STANDARD" | "DEMO_PRESET";
+  questionType?: string;
+}): boolean {
+  return (
+    interviewMode === "recruiting" &&
+    sessionMode === "DEMO_PRESET" &&
+    Boolean(questionType) &&
+    questionType !== "FOLLOW_UP"
+  );
+}
+
 export function getInterviewAiPollingPolicy({
   timedAutoAdvance,
 }: InterviewAiPollingPolicyInput): InterviewAiPollingPolicy {
