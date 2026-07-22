@@ -919,6 +919,7 @@ model InterviewAnswer {
   sessionQuestionId      BigInt?                       @map("session_question_id")
   videoFileId            BigInt?                       @map("video_file_id")
   audioFileId            BigInt?                       @map("audio_file_id")
+  mediaUploadRequestId   String?                       @map("media_upload_request_id") @db.Uuid
   transcript             String?
   nonverbalMetadata      Json?                         @map("nonverbal_metadata")
   durationSeconds        Int?                          @map("duration_seconds")
@@ -936,6 +937,7 @@ model InterviewAnswer {
   followUpFactCheckRuns  AnswerFactCheckRun[]          @relation("FactCheckFollowUpAnswer")
 
   @@index([sessionQuestionId], map: "idx_interview_answers_session_question")
+  @@unique([sessionId, mediaUploadRequestId], map: "uq_interview_answers_session_media_upload_request")
   @@map("interview_answers")
 }
 

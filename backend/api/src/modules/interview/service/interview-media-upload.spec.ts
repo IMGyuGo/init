@@ -22,7 +22,7 @@ function createFixture() {
   const interviewRepository = new InMemoryInterviewRepository();
   const mediaStorage = new InMemoryInterviewMediaStorageAdapter();
   const service = new InterviewService(candidateService, interviewRepository, undefined, mediaStorage);
-  return { candidateRepository, mediaStorage, service };
+  return { candidateRepository, interviewRepository, mediaStorage, service };
 }
 
 function createMediaFile(sizeBytes = 2_048) {
@@ -102,6 +102,45 @@ test("media upload DTO accepts an optional UUID and rejects arbitrary request ID
   const errors = await validate(invalid);
   assert.equal(errors.length, 1);
   assert.ok(errors[0]?.constraints?.isUuid);
+});
+
+test("realtime transcript answer is saved before media and media upload attaches it later", async () => {
+  const { interviewRepository, service } = createFixture();
+  const started = await service.startMockInterview({ questionTypes: ["INTRO"] }, DEV_CANDIDATE_USER);
+  const questionId = started.data.currentQuestion!.questionId;
+
+  const saved = await service.saveMockAnswer(started.data.sessionId, {
+    questionId,
+    durationSeconds: 12,
+    transcript: "realtime transcript",
+    mediaUploadRequestId: UPLOAD_REQUEST_ID,
+  }, DEV_CANDIDATE_USER);
+
+  assert.equal(saved.data.answer.videoFileId, undefined);
+  const uploaded = await service.uploadInterviewMedia(
+    started.data.sessionId,
+    createMediaFile(),
+    DEV_CANDIDATE_USER,
+    UPLOAD_REQUEST_ID,
+  );
+  const answers = await interviewRepository.listAnswersBySession(started.data.sessionId);
+
+  assert.equal(answers[0]?.videoFileId, uploaded.data.fileId);
+});
+
+test("file-less answer without realtime transcript is rejected", async () => {
+  const { service } = createFixture();
+  const started = await service.startMockInterview({ questionTypes: ["INTRO"] }, DEV_CANDIDATE_USER);
+  const questionId = started.data.currentQuestion!.questionId;
+
+  await assert.rejects(
+    () => service.saveMockAnswer(started.data.sessionId, {
+      questionId,
+      durationSeconds: 12,
+      mediaUploadRequestId: UPLOAD_REQUEST_ID,
+    }, DEV_CANDIDATE_USER),
+    (error: unknown) => error instanceof CandidateDomainError && error.code === "COMMON_VALIDATION_FAILED",
+  );
 });
 
 test("candidate and public media controllers forward uploadRequestId", async () => {

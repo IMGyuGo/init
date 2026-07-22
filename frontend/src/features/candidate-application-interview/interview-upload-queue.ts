@@ -38,6 +38,7 @@ export interface InterviewUploadJob {
   updatedAt: number;
   nextAttemptAt?: number;
   uploadedFile?: InterviewUploadedMedia;
+  savedAnswer?: SaveInterviewAnswerResponse;
   lastError?: string;
 }
 
@@ -50,6 +51,7 @@ export interface InterviewUploadJobStore {
 export interface InterviewUploadQueueHandlers {
   upload(job: InterviewUploadJob): Promise<InterviewUploadedMedia>;
   saveAnswer(job: InterviewUploadJob, request: SaveInterviewAnswerRequest): Promise<SaveInterviewAnswerResponse>;
+  onAnswerSaved?(job: InterviewUploadJob, result: SaveInterviewAnswerResponse): void | Promise<void>;
   onCompleted?(job: InterviewUploadJob, result: SaveInterviewAnswerResponse): void | Promise<void>;
   onStateChange?(jobs: InterviewUploadJob[]): void;
 }
@@ -181,6 +183,20 @@ export class InterviewUploadQueue {
     result: SaveInterviewAnswerResponse;
   }> {
     let current = job;
+    const answerFirst = Boolean(current.answerRequest.transcript?.trim());
+    if (answerFirst && !current.savedAnswer) {
+      current = { ...current, state: "SAVING_ANSWER", updatedAt: this.now(), nextAttemptAt: undefined };
+      await this.store.put(current);
+      await this.emitState();
+      const savedAnswer = await this.handlers.saveAnswer(current, {
+        ...current.answerRequest,
+        mediaUploadRequestId: current.uploadRequestId,
+      });
+      current = { ...current, savedAnswer, state: "UPLOADING", updatedAt: this.now(), lastError: undefined };
+      await this.store.put(current);
+      await this.handlers.onAnswerSaved?.(current, savedAnswer);
+      await this.emitState();
+    }
     if (!current.uploadedFile) {
       current = { ...current, state: "UPLOADING", updatedAt: this.now(), nextAttemptAt: undefined };
       await this.store.put(current);
@@ -189,19 +205,24 @@ export class InterviewUploadQueue {
       current = {
         ...current,
         uploadedFile,
-        state: "SAVING_ANSWER",
+        state: answerFirst ? "UPLOADING" : "SAVING_ANSWER",
         updatedAt: this.now(),
         lastError: undefined,
       };
       await this.store.put(current);
       await this.emitState();
     } else {
-      current = { ...current, state: "SAVING_ANSWER", updatedAt: this.now(), nextAttemptAt: undefined };
+      current = { ...current, state: answerFirst ? "UPLOADING" : "SAVING_ANSWER", updatedAt: this.now(), nextAttemptAt: undefined };
       await this.store.put(current);
+    }
+
+    if (current.savedAnswer) {
+      return { job: current, result: current.savedAnswer };
     }
 
     const request: SaveInterviewAnswerRequest = {
       ...current.answerRequest,
+      mediaUploadRequestId: current.uploadRequestId,
       ...(current.mediaKind === "video"
         ? { videoFileId: current.uploadedFile!.fileId }
         : { audioFileId: current.uploadedFile!.fileId }),

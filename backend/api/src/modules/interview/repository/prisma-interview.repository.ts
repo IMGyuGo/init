@@ -457,6 +457,25 @@ export class PrismaInterviewRepository implements InterviewRepository {
     return answer ? this.toAnswer(answer) : undefined;
   }
 
+  async findAnswerByMediaUploadRequestId(sessionId: number, mediaUploadRequestId: string): Promise<InterviewAnswer | undefined> {
+    const answer = await this.prisma.interviewAnswer.findFirst({
+      where: { sessionId: BigInt(sessionId), mediaUploadRequestId },
+      include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
+    });
+    return answer ? this.toAnswer(answer) : undefined;
+  }
+
+  countPendingMediaAnswers(sessionId: number): Promise<number> {
+    return this.prisma.interviewAnswer.count({
+      where: {
+        sessionId: BigInt(sessionId),
+        mediaUploadRequestId: { not: null },
+        videoFileId: null,
+        audioFileId: null,
+      },
+    });
+  }
+
   async findLatestAnswer(sessionId: number): Promise<InterviewAnswer | undefined> {
     const answer = await this.prisma.interviewAnswer.findFirst({
       where: { sessionId: BigInt(sessionId) },
@@ -487,6 +506,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
         sessionQuestionId: sessionQuestion.sessionQuestionId,
         videoFileId: input.videoFileId ? BigInt(input.videoFileId) : null,
         audioFileId: input.audioFileId ? BigInt(input.audioFileId) : null,
+        mediaUploadRequestId: input.mediaUploadRequestId ?? null,
         ...(input.transcript !== undefined ? { transcript: input.transcript } : {}),
         ...(input.nonverbalMetadata !== undefined ? { nonverbalMetadata: this.toPrismaJson(input.nonverbalMetadata) } : {}),
         durationSeconds: input.durationSeconds,
@@ -534,6 +554,7 @@ export class PrismaInterviewRepository implements InterviewRepository {
           sessionQuestionId: sessionQuestion.sessionQuestionId,
           videoFileId: input.videoFileId ? BigInt(input.videoFileId) : null,
           audioFileId: input.audioFileId ? BigInt(input.audioFileId) : null,
+          mediaUploadRequestId: input.mediaUploadRequestId ?? null,
           ...(input.transcript !== undefined ? { transcript: input.transcript } : {}),
           ...(input.nonverbalMetadata !== undefined ? { nonverbalMetadata: this.toPrismaJson(input.nonverbalMetadata) } : {}),
           durationSeconds: input.durationSeconds,
@@ -678,11 +699,25 @@ export class PrismaInterviewRepository implements InterviewRepository {
       data: {
         videoFileId: input.videoFileId ? BigInt(input.videoFileId) : null,
         audioFileId: input.audioFileId ? BigInt(input.audioFileId) : null,
+        ...(input.mediaUploadRequestId !== undefined ? { mediaUploadRequestId: input.mediaUploadRequestId } : {}),
         transcript: input.transcript ?? null,
         nonverbalMetadata: this.toNullablePrismaJson(input.nonverbalMetadata),
         durationSeconds: input.durationSeconds,
         submittedAt: new Date(input.submittedAt),
       },
+      include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
+    });
+    return this.toAnswer(answer);
+  }
+
+  async attachMediaToAnswer(input: { sessionId: number; mediaUploadRequestId: string; fileId: number; mediaKind: "video" | "audio" }): Promise<InterviewAnswer | undefined> {
+    const existing = await this.prisma.interviewAnswer.findFirst({
+      where: { sessionId: BigInt(input.sessionId), mediaUploadRequestId: input.mediaUploadRequestId },
+    });
+    if (!existing) return undefined;
+    const answer = await this.prisma.interviewAnswer.update({
+      where: { answerId: existing.answerId },
+      data: input.mediaKind === "video" ? { videoFileId: BigInt(input.fileId) } : { audioFileId: BigInt(input.fileId) },
       include: { sessionQuestion: { select: ANSWER_SESSION_QUESTION_SELECT } },
     });
     return this.toAnswer(answer);

@@ -81,6 +81,7 @@ type AnswerRequestBody = {
   videoFile?: RuntimeFileAssetDto;
   audioFileId?: number;
   audioFile?: RuntimeFileAssetDto;
+  mediaUploadRequestId?: string;
   transcript?: string;
   durationSeconds: number;
   allowReanswer: boolean;
@@ -373,6 +374,7 @@ export class InterviewService {
     };
     const existingFileAsset = await this.candidateService.prepareInterviewFileAsset(fileAssetInput, currentUser);
     if (existingFileAsset) {
+      await this.attachUploadedMediaToAnswer(session, existingFileAsset, uploadRequestId);
       return this.envelope(existingFileAsset);
     }
     await this.mediaStorage.putObject({
@@ -383,6 +385,7 @@ export class InterviewService {
     });
 
     const fileAsset = await this.candidateService.createInterviewFileAsset(fileAssetInput, currentUser);
+    await this.attachUploadedMediaToAnswer(session, fileAsset, uploadRequestId);
 
     return this.envelope(fileAsset);
   }
@@ -441,6 +444,20 @@ export class InterviewService {
       || "interview-media.webm";
     const uploadKey = uploadRequestId ?? `${Date.now()}-${sessionId}`;
     return `candidate/${candidateId}/interviews/${uploadKey}-${safeName}`;
+  }
+
+  private async attachUploadedMediaToAnswer(
+    session: RuntimeInterviewSession,
+    fileAsset: FileAsset,
+    uploadRequestId?: string,
+  ): Promise<void> {
+    if (!uploadRequestId) return;
+    await this.interviewRepository.attachMediaToAnswer({
+      sessionId: session.sessionId,
+      mediaUploadRequestId: uploadRequestId,
+      fileId: fileAsset.fileId,
+      mediaKind: fileAsset.mimeType.startsWith("audio/") ? "audio" : "video",
+    });
   }
 
   private async getRecruitingRuntimeSession(
@@ -573,19 +590,21 @@ export class InterviewService {
           currentUser,
           "audioFileId",
         );
-    if (!skippedForRecordingValidation && !videoFile && !audioFile) {
+    const submittedTranscript = requestBody.transcript?.trim() || undefined;
+    const allowsPendingMedia = Boolean(submittedTranscript && requestBody.mediaUploadRequestId);
+    if (!skippedForRecordingValidation && !videoFile && !audioFile && !allowsPendingMedia) {
       throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "At least one media file is required.", 400, [
         { field: "file", reason: "videoFile/videoFileId or audioFile/audioFileId is required" },
       ]);
     }
 
     const submittedAt = new Date().toISOString();
-    const submittedTranscript = requestBody.transcript?.trim() || undefined;
     const answerInput = {
       sessionId: session.sessionId,
       questionId: requestBody.questionId,
       videoFileId: videoFile?.fileId,
       audioFileId: audioFile?.fileId,
+      mediaUploadRequestId: requestBody.mediaUploadRequestId,
       transcript: skippedForRecordingValidation ? "[NO_ANSWER] Recording validation failed twice." : submittedTranscript,
       nonverbalMetadata: requestBody.nonverbalMetadata,
       durationSeconds: requestBody.durationSeconds,
@@ -614,13 +633,16 @@ export class InterviewService {
       idempotentReplay = !result.created;
     }
 
+    const attached = await this.attachAvailableMediaToAnswer(session, answer, requestBody.mediaUploadRequestId, currentUser);
+    answer = attached.answer;
+
     session = await this.ensureSaltluxDemoFollowUp(session, answer, currentUser);
 
     return this.buildSaveAnswerResponse(
       session,
       answer,
-      idempotentReplay ? undefined : videoFile,
-      idempotentReplay ? undefined : audioFile,
+      idempotentReplay ? undefined : videoFile ?? attached.videoFile,
+      idempotentReplay ? undefined : audioFile ?? attached.audioFile,
       idempotentReplay,
     );
   }
@@ -650,6 +672,28 @@ export class InterviewService {
       answerTimeSec: session.answerTimeSecSnapshot ?? SALTLUX_FIXED_DEMO.answerTimeSec,
     });
     return this.getRecruitingRuntimeSession(session.sessionId, currentUser);
+  }
+
+  private async attachAvailableMediaToAnswer(
+    session: RuntimeInterviewSession,
+    answer: InterviewAnswer,
+    mediaUploadRequestId: string | undefined,
+    currentUser: CurrentCandidateUser,
+  ): Promise<{ answer: InterviewAnswer; videoFile?: FileAsset; audioFile?: FileAsset }> {
+    if (!mediaUploadRequestId || answer.videoFileId || answer.audioFileId) return { answer };
+    const fileAsset = await this.candidateService.findInterviewFileAssetByUploadRequestId(mediaUploadRequestId, currentUser);
+    if (!fileAsset) return { answer };
+    const mediaKind = fileAsset.mimeType.startsWith("audio/") ? "audio" : "video";
+    const attached = await this.interviewRepository.attachMediaToAnswer({
+      sessionId: session.sessionId,
+      mediaUploadRequestId,
+      fileId: fileAsset.fileId,
+      mediaKind,
+    });
+    return {
+      answer: attached ?? answer,
+      ...(mediaKind === "video" ? { videoFile: fileAsset } : { audioFile: fileAsset }),
+    };
   }
 
   private async buildSaveAnswerResponse(
@@ -713,6 +757,12 @@ export class InterviewService {
     if (answeredCount !== session.questionIds.length) {
       throw new CandidateDomainError("COMMON_CONFLICT", "All required questions must be answered.", 409, [
         { field: "answers", reason: `${answeredCount}/${session.questionIds.length} questions answered` },
+      ]);
+    }
+    const pendingMediaCount = await this.interviewRepository.countPendingMediaAnswers(session.sessionId);
+    if (pendingMediaCount > 0) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "All answer media uploads must finish before completion.", 409, [
+        { field: "media", reason: `${pendingMediaCount} answer media upload(s) are pending` },
       ]);
     }
 
@@ -1538,6 +1588,13 @@ export class InterviewService {
     if (requestBody.retryAnswerId !== undefined && !this.isPositiveInteger(requestBody.retryAnswerId)) {
       throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "retryAnswerId is invalid.", 400, [
         { field: "retryAnswerId", reason: "retryAnswerId must be a positive integer" },
+      ]);
+    }
+    if (requestBody.mediaUploadRequestId !== undefined
+      && (typeof requestBody.mediaUploadRequestId !== "string"
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestBody.mediaUploadRequestId))) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "mediaUploadRequestId is invalid.", 400, [
+        { field: "mediaUploadRequestId", reason: "mediaUploadRequestId must be a UUID" },
       ]);
     }
     if (requestBody.allowReanswer === true && requestBody.retryAnswerId !== undefined) {

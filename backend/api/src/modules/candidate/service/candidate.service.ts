@@ -1185,6 +1185,18 @@ export class CandidateService {
     return existing;
   }
 
+  async findInterviewFileAssetByUploadRequestId(
+    uploadRequestId: string,
+    currentUser: CurrentCandidateUser,
+  ): Promise<FileAsset | undefined> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uploadRequestId)) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "Upload request ID is invalid.", 400, [
+        { field: "mediaUploadRequestId", reason: "mediaUploadRequestId must be a UUID" },
+      ]);
+    }
+    return this.repository.findFileAssetByUploadRequestId(currentUser.userId, uploadRequestId);
+  }
+
   private assertInterviewFileAssetMatches(fileAsset: FileAsset, dto: InterviewFileAssetInput): void {
     if (
       fileAsset.storageKey !== dto.storageKey

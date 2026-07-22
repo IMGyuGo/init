@@ -156,6 +156,7 @@ export interface InterviewAnswer {
   sessionQuestionId?: number;
   videoFileId?: number;
   audioFileId?: number;
+  mediaUploadRequestId?: string;
   transcript?: string;
   nonverbalMetadata?: InterviewAnswerNonverbalMetadata;
   durationSeconds: number;

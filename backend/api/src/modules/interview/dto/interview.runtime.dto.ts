@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  IsUUID,
   MaxLength,
   Min,
 } from "class-validator";
@@ -110,6 +111,10 @@ export class SaveInterviewAnswerDto {
   @IsOptional()
   @IsString()
   transcript?: string;
+
+  @IsOptional()
+  @IsUUID()
+  mediaUploadRequestId?: string;
 }
 
 export class AiInterviewRequestDto {

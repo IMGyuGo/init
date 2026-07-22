@@ -146,7 +146,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-066 | 지원자 - 지원현황/채용면접 | GET | /candidate/applications/{applicationId}/interview | 채용 전형용 AI 면접 진행 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-067 | 지원자 - 채용면접 | GET | /candidate/interviews/{sessionId}/questions | 질문 음성 안내 및 면접 질문 표시 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-068-MEDIA | 지원자 - 모의/채용면접 | POST | /candidate/interviews/{sessionId}/media | 답변 영상/음성 파일 업로드 | 지원자 / 지원자 사용자 로그인 | N | 201 Created |
-| API-068 | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/answers | 영상/음성 답변 녹화 | 지원자 / 지원자 사용자 로그인 | N | 201 Created |
+| API-068 | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/answers | STT 답변 저장 및 영상/음성 답변 연결 | 지원자 / 지원자 사용자 로그인 | N | 201 Created |
 | API-069 | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/next-question | 다음 질문 이동 및 단축키 지원 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
 | API-070 | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/stt | STT 처리 | 지원자 / 지원자 사용자 로그인 | Y | 202 Accepted |
 | API-070-RT | 지원자 - 채용면접 | POST | /candidate/interviews/{sessionId}/realtime-session | 실시간 AI 면접 세션 생성 | 지원자 / 지원자 사용자 로그인 | N | 200 OK |
@@ -158,7 +158,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | API-090 | 지원자 - Public 채용면접 | POST | /public/interviews/{sessionId}/device-check | public 면접 장치 점검 | publicAccessToken | N | 200 OK |
 | API-091 | 지원자 - Public 채용면접 | GET | /public/interviews/{sessionId}/questions | public 면접 질문 조회 | publicAccessToken | N | 200 OK |
 | API-092-MEDIA | 지원자 - Public 채용면접 | POST | /public/interviews/{sessionId}/media | public 답변 영상/음성 파일 업로드 | publicAccessToken | N | 201 Created |
-| API-092 | 지원자 - Public 채용면접 | POST | /public/interviews/{sessionId}/answers | public 면접 답변 저장 | publicAccessToken | N | 201 Created |
+| API-092 | 지원자 - Public 채용면접 | POST | /public/interviews/{sessionId}/answers | public STT 답변 저장 및 영상/음성 답변 연결 | publicAccessToken | N | 201 Created |
 | API-093 | 지원자 - Public 채용면접 | POST | /public/interviews/{sessionId}/next-question | public 면접 다음 질문 이동 | publicAccessToken | N | 200 OK |
 | API-094 | 지원자 - Public 채용면접 | POST | /public/interviews/{sessionId}/stt | public 면접 STT 처리 | publicAccessToken | Y | 202 Accepted |
 | API-094-RT | 지원자 - Public 채용면접 | POST | /public/interviews/{sessionId}/realtime-session | public 실시간 AI 면접 세션 생성 | publicAccessToken | N | 200 OK |

@@ -466,6 +466,7 @@ export interface SaveInterviewAnswerRequest {
   nonverbalMetadata?: Record<string, unknown>;
   retryAnswerId?: number;
   transcript?: string;
+  mediaUploadRequestId?: string;
 }
 
 export interface InterviewAnswer {

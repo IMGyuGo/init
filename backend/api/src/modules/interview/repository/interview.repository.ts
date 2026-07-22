@@ -30,6 +30,7 @@ export interface CreateInterviewAnswerInput {
   questionId: number;
   videoFileId?: number;
   audioFileId?: number;
+  mediaUploadRequestId?: string;
   transcript?: string;
   nonverbalMetadata?: InterviewAnswerNonverbalMetadata;
   durationSeconds: number;
@@ -69,6 +70,13 @@ export interface InterviewSttProcessRecord {
 
 export interface UpdateInterviewAnswerInput extends CreateInterviewAnswerInput {
   answerId: number;
+}
+
+export interface AttachInterviewAnswerMediaInput {
+  sessionId: number;
+  mediaUploadRequestId: string;
+  fileId: number;
+  mediaKind: "video" | "audio";
 }
 
 export interface EnsureSaltluxDemoFollowUpInput {
@@ -111,6 +119,7 @@ export interface InterviewRepository {
   countAnswersBySession(sessionId: number): MaybePromise<number>;
   findAnswer(sessionId: number, questionId: number): MaybePromise<InterviewAnswer | undefined>;
   findAnswerById(sessionId: number, answerId: number): MaybePromise<InterviewAnswer | undefined>;
+  findAnswerByMediaUploadRequestId(sessionId: number, mediaUploadRequestId: string): MaybePromise<InterviewAnswer | undefined>;
   findLatestAnswer(sessionId: number): MaybePromise<InterviewAnswer | undefined>;
   createAnswer(input: CreateInterviewAnswerInput): MaybePromise<InterviewAnswer>;
   createAnswerIdempotent(input: CreateInterviewAnswerInput): MaybePromise<CreateInterviewAnswerIdempotentResult>;
@@ -120,4 +129,6 @@ export interface InterviewRepository {
   listSttProcesses(sessionId: number, answerId: number): MaybePromise<InterviewSttProcessRecord[]>;
   listTranscriptProcesses(sessionId: number, answerId: number): MaybePromise<InterviewSttProcessRecord[]>;
   updateAnswer(input: UpdateInterviewAnswerInput): MaybePromise<InterviewAnswer>;
+  attachMediaToAnswer(input: AttachInterviewAnswerMediaInput): MaybePromise<InterviewAnswer | undefined>;
+  countPendingMediaAnswers(sessionId: number): MaybePromise<number>;
 }
