@@ -201,6 +201,7 @@ import {
   shouldEnableManualInterviewRecording,
   shouldHandleInterviewAnswerTimeout,
   shouldOpenRealtimeMicrophoneForRecordingStart,
+  shouldPreserveDemoQuestionUntilManualAdvance,
   shouldPollRecruitingReportCompletion,
   shouldRunInterviewRuntimeCountdown,
   shouldShowPaymentDevTools,
@@ -7284,7 +7285,12 @@ function InterviewRuntimePanel({
     setMessage(question.sttFailureReason ?? "음성 인식에 실패해 같은 질문에 한 번 더 답변할 수 있습니다.");
   }
 
-  async function syncRuntimeAfterFollowUpDecision() {
+  async function syncRuntimeAfterFollowUpDecision({
+    preserveCurrentQuestion = false,
+  }: {
+    preserveCurrentQuestion?: boolean;
+  } = {}) {
+    if (preserveCurrentQuestion) return;
     setRuntimeQuestionSyncRequired(true);
     try {
       await refresh();
@@ -7299,6 +7305,15 @@ function InterviewRuntimePanel({
     pollingPolicy = getInterviewAiPollingPolicy({ timedAutoAdvance: false }),
   ) {
     if (!data) return;
+
+    const preserveCurrentDemoQuestion = shouldPreserveDemoQuestionUntilManualAdvance({
+      interviewMode: mode,
+      sessionMode: data.runtime.sessionMode,
+      questionType: question?.questionType,
+    });
+    const syncPreparedQuestion = (force = false) => syncRuntimeAfterFollowUpDecision({
+      preserveCurrentQuestion: preserveCurrentDemoQuestion && !force,
+    });
 
     setPendingAiPipelineCount((count) => count + 1);
     let sttProcessLogId: number | undefined;
@@ -7381,12 +7396,12 @@ function InterviewRuntimePanel({
               : undefined,
           }));
           if (shouldSkipFollowUp) {
-            await syncRuntimeAfterFollowUpDecision();
+            await syncPreparedQuestion();
             if (reanswerRequired) {
               setMessage("재답변에서도 음성 인식 내용을 확인하기 어려워 이 답변은 평가에서 제외됩니다. 다음 질문으로 이동해주세요.");
             }
           } else if (reanswerRequired) {
-            await syncRuntimeAfterFollowUpDecision();
+            await syncPreparedQuestion(true);
             setMessage(
               `${followUpStatus.failure?.reason ?? "음성 인식 결과의 문맥을 확인하기 어렵습니다."} 다시 답변을 눌러 현재 질문을 한 번 더 녹음해주세요.`,
             );
@@ -7405,7 +7420,7 @@ function InterviewRuntimePanel({
           const isLastFollowUpQuestion = answeredQuestionIndex >= 0
             ? answeredQuestionIndex >= data.runtime.totalQuestions - 1
             : false;
-          await syncRuntimeAfterFollowUpDecision();
+          await syncPreparedQuestion();
           setAutoAiPipeline((current) => ({
             answerId: savedAnswer.answerId,
             ...current,
@@ -7417,7 +7432,9 @@ function InterviewRuntimePanel({
           }));
           setMessage(
             skipDemoCommonFollowUp
-              ? "협업 공통 답변의 음성 인식 확인이 완료되었습니다. 개인화 질문으로 이동해주세요."
+              ? preserveCurrentDemoQuestion
+                ? "다음 질문이 준비되었습니다. 다음 질문 버튼을 눌러 계속해주세요."
+                : "협업 공통 답변의 음성 인식 확인이 완료되었습니다. 개인화 질문으로 이동해주세요."
               : isLastFollowUpQuestion
                 ? "마지막 답변 처리가 완료되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
                 : "답변 처리가 완료되었습니다. 다음 질문으로 이동해주세요.",
@@ -7447,7 +7464,7 @@ function InterviewRuntimePanel({
           extractAiJobBoolean(followUpStatus.outputRef, "followUpRequired") ??
           Boolean(followUpQuestion);
 
-        await syncRuntimeAfterFollowUpDecision();
+        await syncPreparedQuestion();
         setAutoAiPipeline((current) => ({
           answerId: savedAnswer.answerId,
           ...current,
@@ -7460,7 +7477,9 @@ function InterviewRuntimePanel({
         }));
 
         setMessage(
-          followUpRequired && followUpQuestion
+          preserveCurrentDemoQuestion
+            ? "다음 질문이 준비되었습니다. 다음 질문 버튼을 눌러 계속해주세요."
+            : followUpRequired && followUpQuestion
             ? "답변에 이어질 꼬리질문이 바로 다음 질문으로 준비되었습니다."
             : "답변 처리가 완료되었습니다. 다음 기본 질문을 계속 진행해주세요.",
         );
@@ -7530,12 +7549,12 @@ function InterviewRuntimePanel({
             : "STT 처리가 아직 진행 중입니다. 잠시 후 상태를 다시 확인해주세요.",
         }));
         if (shouldSkipFollowUp) {
-          await syncRuntimeAfterFollowUpDecision();
+          await syncPreparedQuestion();
           if (reanswerRequired) {
             setMessage("재답변에서도 음성 인식 내용을 확인하기 어려워 이 답변은 평가에서 제외됩니다. 다음 질문으로 이동해주세요.");
           }
         } else if (reanswerRequired) {
-          await syncRuntimeAfterFollowUpDecision();
+          await syncPreparedQuestion(true);
           setMessage(
             `${sttStatus.failure?.reason ?? "음성 인식 결과를 확인하기 어렵습니다."} 다시 답변을 눌러 해당 질문을 한 번 더 녹음해주세요.`,
           );
@@ -7563,7 +7582,7 @@ function InterviewRuntimePanel({
           sttProcessLogId,
           error: "STT 결과에서 transcript를 찾지 못했습니다.",
         }));
-        await syncRuntimeAfterFollowUpDecision();
+        await syncPreparedQuestion();
         completeAnswerSubmitToNextReadyMetric({
           questionId: savedAnswer.questionId,
           processLogId: sttProcessLogId,
@@ -7649,12 +7668,12 @@ function InterviewRuntimePanel({
             : undefined,
         }));
         if (shouldSkipFollowUp) {
-          await syncRuntimeAfterFollowUpDecision();
+          await syncPreparedQuestion();
           if (reanswerRequired) {
             setMessage("재답변에서도 음성 인식 내용을 확인하기 어려워 이 답변은 평가에서 제외됩니다. 다음 질문으로 이동해주세요.");
           }
         } else if (reanswerRequired) {
-          await syncRuntimeAfterFollowUpDecision();
+          await syncPreparedQuestion(true);
           setMessage(
             `${followUpStatus.failure?.reason ?? "음성 인식 결과의 문맥을 확인하기 어렵습니다."} 다시 답변을 눌러 해당 질문을 한 번 더 녹음해주세요.`,
           );
@@ -7674,7 +7693,7 @@ function InterviewRuntimePanel({
         const isLastFollowUpQuestion = answeredQuestionIndex >= 0
           ? answeredQuestionIndex >= data.runtime.totalQuestions - 1
           : false;
-        await syncRuntimeAfterFollowUpDecision();
+        await syncPreparedQuestion();
         setAutoAiPipeline((current) => ({
           answerId: savedAnswer.answerId,
           ...current,
@@ -7686,7 +7705,9 @@ function InterviewRuntimePanel({
         }));
         setMessage(
           skipDemoCommonFollowUp
-            ? "협업 공통 답변의 음성 인식 확인이 완료되었습니다. 개인화 질문으로 이동해주세요."
+            ? preserveCurrentDemoQuestion
+              ? "다음 질문이 준비되었습니다. 다음 질문 버튼을 눌러 계속해주세요."
+              : "협업 공통 답변의 음성 인식 확인이 완료되었습니다. 개인화 질문으로 이동해주세요."
             : isLastFollowUpQuestion
               ? "마지막 답변 처리가 완료되었습니다. 면접 완료 버튼을 눌러 제출을 마무리해주세요."
               : "답변 처리가 완료되었습니다. 다음 질문으로 이동해주세요.",
@@ -7717,7 +7738,7 @@ function InterviewRuntimePanel({
         extractAiJobBoolean(followUpStatus.outputRef, "followUpRequired") ??
         Boolean(followUpQuestion);
 
-      await syncRuntimeAfterFollowUpDecision();
+      await syncPreparedQuestion();
       setAutoAiPipeline((current) => ({
         answerId: savedAnswer.answerId,
         ...current,
@@ -7730,7 +7751,9 @@ function InterviewRuntimePanel({
       }));
 
       setMessage(
-        followUpRequired && followUpQuestion
+        preserveCurrentDemoQuestion
+          ? "다음 질문이 준비되었습니다. 다음 질문 버튼을 눌러 계속해주세요."
+          : followUpRequired && followUpQuestion
           ? "답변에 이어질 꼬리질문이 바로 다음 질문으로 준비되었습니다."
           : "답변 처리가 완료되었습니다. 다음 기본 질문을 계속 진행해주세요.",
       );
@@ -7753,7 +7776,7 @@ function InterviewRuntimePanel({
         error: shouldSkipFollowUp ? undefined : toErrorMessage(pipelineError),
       }));
       if (shouldSkipFollowUp) {
-        await syncRuntimeAfterFollowUpDecision();
+        await syncPreparedQuestion();
       }
       completeAnswerSubmitToNextReadyMetric({
         questionId: savedAnswer.questionId,
@@ -8724,7 +8747,7 @@ function InterviewRuntimePanel({
                   <kbd>Enter</kbd>
                 </button>
                 <button
-                  className="btn"
+                  className={data.runtime.sessionMode === "DEMO_PRESET" && canMoveNextQuestion ? "btn primary" : "btn"}
                   type="button"
                   disabled={busy || recording || !canMoveNextQuestion}
                   onClick={() => void handleNextQuestion()}
