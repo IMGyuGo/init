@@ -200,6 +200,7 @@ import {
   getRealtimeSessionUserNotice,
   getRuntimeDeviceRecheckState,
   getTimedOutAiJobStatus,
+  hasAvailableMockInterviewPass,
   hasMeaningfulInterviewRecordingVoice,
   getCandidateApplicationReportHref,
   getMockInterviewDeviceCheckHref,
@@ -2485,6 +2486,12 @@ export function CandidateMockInterviewStartPage() {
     setBusy(true);
     setMessage("");
     try {
+      const passSummary = await getCandidateMockInterviewPassSummary();
+      if (!hasAvailableMockInterviewPass(passSummary.availablePasses)) {
+        setMessage("사용 가능한 모의면접 이용권이 없습니다. 이용권을 구매한 뒤 다시 시도해주세요.");
+        return;
+      }
+
       const startRequest = toStartMockInterviewRequest(state);
       let questionProcessLogId: number | undefined;
       try {
@@ -2513,12 +2520,16 @@ export function CandidateMockInterviewStartPage() {
       try {
         result = await getCandidateApi().startMockInterview({ ...startRequest, questionProcessLogId });
       } catch (startError) {
-        if (!questionProcessLogId) throw startError;
+        if (!questionProcessLogId || isMockInterviewPassRequiredError(startError)) throw startError;
         result = await getCandidateApi().startMockInterview(startRequest);
       }
       router.push(getMockInterviewDeviceCheckHref(result.data));
     } catch (submitError) {
-      setMessage(toErrorMessage(submitError));
+      setMessage(
+        isMockInterviewPassRequiredError(submitError)
+          ? "사용 가능한 모의면접 이용권이 없습니다. 이용권을 구매한 뒤 다시 시도해주세요."
+          : toErrorMessage(submitError),
+      );
     } finally {
       setBusy(false);
     }
@@ -12901,4 +12912,10 @@ function toErrorMessage(error: unknown): string {
     return error.body?.error.message ?? error.message;
   }
   return error instanceof Error ? error.message : "요청 처리 중 오류가 발생했습니다.";
+}
+
+function isMockInterviewPassRequiredError(error: unknown): boolean {
+  return error instanceof CandidateApiError
+    && error.status === 409
+    && error.body?.error.details.some((detail) => detail.reason === "PASS_REQUIRED") === true;
 }

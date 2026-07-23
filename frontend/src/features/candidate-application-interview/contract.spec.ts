@@ -84,6 +84,7 @@ import {
   getRealtimeSilenceEncouragementDecision,
   getRealtimeSessionUserNotice,
   getTimedOutAiJobStatus,
+  hasAvailableMockInterviewPass,
   hasMeaningfulInterviewRecordingVoice,
   getCandidatePassRevealStorageKey,
   getCandidateScreeningResultPresentation,
@@ -118,6 +119,10 @@ import {
   toSubmitApplicationRequest,
   toUploadResumeRequest,
 } from "./view-model";
+
+assert.equal(hasAvailableMockInterviewPass(0), false);
+assert.equal(hasAvailableMockInterviewPass(-1), false);
+assert.equal(hasAvailableMockInterviewPass(1), true);
 
 const detectedPersonCount = countPersonDetections([
   {
