@@ -677,7 +677,7 @@ export function useLipSyncDriverState(input: LipSyncDriverInput): LipSyncDriverS
       ? 0
       : audioAnalysisAvailable
         ? mouthOpen
-        : getMouthOpenValueForShape(mouthShape),
+        : getMouthOpenValueForShape(mouthShapeStabilization.mouthShape),
   };
 }
 
