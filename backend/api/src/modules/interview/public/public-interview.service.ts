@@ -117,9 +117,19 @@ export class PublicInterviewService {
     return this.interviewService.saveRecruitingAnswer(sessionId, dto, this.toCurrentCandidateUser(access));
   }
 
-  uploadMedia(sessionId: number, file: UploadedInterviewMediaFile | undefined, access: PublicInterviewAccess) {
+  uploadMedia(
+    sessionId: number,
+    file: UploadedInterviewMediaFile | undefined,
+    access: PublicInterviewAccess,
+    uploadRequestId?: string,
+  ) {
     this.assertAccessSession(sessionId, access);
-    return this.interviewService.uploadInterviewMedia(sessionId, file, this.toCurrentCandidateUser(access));
+    return this.interviewService.uploadInterviewMedia(
+      sessionId,
+      file,
+      this.toCurrentCandidateUser(access),
+      uploadRequestId,
+    );
   }
 
   moveNextQuestion(sessionId: number, access: PublicInterviewAccess) {

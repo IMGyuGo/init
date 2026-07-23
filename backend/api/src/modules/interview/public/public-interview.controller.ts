@@ -5,6 +5,7 @@ import { DeviceCheckDto } from "../dto/interview.device-check.dto";
 import { AiInterviewRequestDto, CreateRealtimeInterviewSessionDto, SaveInterviewAnswerDto } from "../dto/interview.runtime.dto";
 import { PublicInterviewAccessGuard, type PublicInterviewRequest } from "./public-interview-access.guard";
 import { PublicInterviewStartDto } from "./public-interview.dto";
+import { UploadInterviewMediaDto } from "../dto/upload-interview-media.dto";
 import { PublicInterviewService } from "./public-interview.service";
 
 type UploadedInterviewMediaFile = {
@@ -74,6 +75,7 @@ export class PublicInterviewController {
     @Req() request: PublicInterviewRequest,
     @Param("sessionId") sessionId: string,
     @UploadedFile() file?: UploadedInterviewMediaFile,
+    @Body() dto: UploadInterviewMediaDto = {},
   ) {
     return this.handle(() =>
       this.publicInterviewService.uploadMedia(
@@ -87,6 +89,7 @@ export class PublicInterviewController {
             }
           : undefined,
         request.publicInterviewAccess,
+        dto.uploadRequestId,
       ),
     );
   }

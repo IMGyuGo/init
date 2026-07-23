@@ -471,6 +471,16 @@ export class PrismaCandidateRepository implements CandidateRepository {
     return fileAsset ? this.toFileAsset(fileAsset) : undefined;
   }
 
+  async findFileAssetByUploadRequestId(ownerUserId: number, uploadRequestId: string): Promise<FileAsset | undefined> {
+    const fileAsset = await this.prisma.fileAsset.findFirst({
+      where: {
+        ownerUserId: BigInt(ownerUserId),
+        uploadRequestId,
+      },
+    });
+    return fileAsset ? this.toFileAsset(fileAsset) : undefined;
+  }
+
   async listApplications(candidateId: number): Promise<Application[]> {
     const applications = await this.prisma.application.findMany({
       where: { candidateId: BigInt(candidateId) },
@@ -2027,17 +2037,28 @@ export class PrismaCandidateRepository implements CandidateRepository {
   }
 
   async createFileAsset(input: Omit<FileAsset, "fileId" | "createdAt" | "status">): Promise<FileAsset> {
-    const fileAsset = await this.prisma.fileAsset.create({
-      data: {
-        ownerUserId: BigInt(input.ownerUserId),
-        storageKey: input.storageKey,
-        originalName: input.originalName,
-        mimeType: input.mimeType,
-        sizeBytes: BigInt(input.sizeBytes),
-        status: "ACTIVE",
-      },
-    });
-    return this.toFileAsset(fileAsset);
+    try {
+      const fileAsset = await this.prisma.fileAsset.create({
+        data: {
+          ownerUserId: BigInt(input.ownerUserId),
+          uploadRequestId: input.uploadRequestId,
+          storageKey: input.storageKey,
+          originalName: input.originalName,
+          mimeType: input.mimeType,
+          sizeBytes: BigInt(input.sizeBytes),
+          status: "ACTIVE",
+        },
+      });
+      return this.toFileAsset(fileAsset);
+    } catch (error) {
+      if (input.uploadRequestId && isPrismaUniqueConstraintError(error)) {
+        const existing = await this.findFileAssetByUploadRequestId(input.ownerUserId, input.uploadRequestId);
+        if (existing) {
+          return existing;
+        }
+      }
+      throw error;
+    }
   }
 
   async createPortfolioLink(input: Omit<PortfolioLink, "portfolioLinkId" | "createdAt">): Promise<PortfolioLink> {
@@ -2306,6 +2327,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
     return {
       fileId: Number(fileAsset.fileId),
       ownerUserId: Number(fileAsset.ownerUserId),
+      uploadRequestId: fileAsset.uploadRequestId ?? undefined,
       storageKey: fileAsset.storageKey,
       originalName: fileAsset.originalName,
       mimeType: fileAsset.mimeType,

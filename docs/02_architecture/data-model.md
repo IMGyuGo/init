@@ -182,12 +182,15 @@ NCS 질문 생성의 NQ-M0 logical model과 version/privacy 규칙은 [ncs-recru
 | --- |--- |--- |
 | file_id | BIGINT PRIMARY KEY | 업로드 파일 PK |
 | owner_user_id | BIGINT NOT NULL | 파일 소유 사용자 FK |
+| upload_request_id | UUID | 면접 미디어 재시도 멱등 키. 사용자별로 유일하며 기존/비면접 파일은 NULL |
 | storage_key | VARCHAR(500) NOT NULL | 스토리지 내부 키. 예: S3 object key |
 | original_name | VARCHAR(255) NOT NULL | 원본 파일명 |
 | mime_type | VARCHAR(100) NOT NULL | MIME 타입 |
 | size_bytes | BIGINT NOT NULL | 파일 크기 byte |
 | status | VARCHAR(30) NOT NULL | 파일 상태: ACTIVE, DELETED, FAILED 등 |
 | created_at | TIMESTAMP NOT NULL | 파일 생성/업로드 시각 |
+
+`file_assets(owner_user_id, upload_request_id)`는 `upload_request_id IS NOT NULL`인 행에서 유일하다. 동일 사용자의 같은 키는 하나의 S3 객체와 파일 메타데이터 행만 가리킨다.
 
 ### candidate_profiles
 

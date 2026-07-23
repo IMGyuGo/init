@@ -13,6 +13,7 @@ import {
   StartOfficialInterviewDto,
 } from "../dto/interview.runtime.dto";
 import { UpdateMockSessionTitleDto } from "../dto/update-mock-session-title.dto";
+import { UploadInterviewMediaDto } from "../dto/upload-interview-media.dto";
 import { interviewApiRoutePrefix, interviewApiRoutes } from "../interview.routes";
 import { InterviewService } from "../service/interview.service";
 
@@ -178,6 +179,7 @@ export class InterviewController {
     @Req() request: CandidateRequest,
     @Param("sessionId") sessionId: string,
     @UploadedFile() file?: UploadedInterviewMediaFile,
+    @Body() dto: UploadInterviewMediaDto = {},
   ) {
     return this.handle(() =>
       this.interviewService.uploadInterviewMedia(
@@ -191,6 +193,7 @@ export class InterviewController {
             }
           : undefined,
         resolveCurrentCandidate(request.currentUser),
+        dto.uploadRequestId,
       ),
     );
   }

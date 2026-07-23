@@ -133,6 +133,14 @@ interface UploadedCandidateDocumentFile {
   buffer: Buffer;
 }
 
+interface InterviewFileAssetInput {
+  storageKey: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadRequestId?: string;
+}
+
 export const CANDIDATE_REPOSITORY = Symbol("CANDIDATE_REPOSITORY");
 
 export { CandidateDomainError } from "../candidate.errors";
@@ -1129,21 +1137,77 @@ export class CandidateService {
   }
 
   async createInterviewFileAsset(
-    dto: { storageKey: string; originalName: string; mimeType: string; sizeBytes: number },
+    dto: InterviewFileAssetInput,
     currentUser: CurrentCandidateUser,
   ): Promise<FileAsset> {
-    this.assertRuntimeFileAssetRequest(dto);
-    this.assertRuntimeFileAssetMetadataOnly(dto);
-    this.assertInterviewMediaFile(dto.mimeType, dto.sizeBytes);
-    this.assertObjectStorageKey(dto.storageKey, currentUser.candidateId);
+    const existing = await this.prepareInterviewFileAsset(dto, currentUser);
+    if (existing) {
+      return existing;
+    }
 
-    return this.repository.createFileAsset({
+    const fileAsset = await this.repository.createFileAsset({
       ownerUserId: currentUser.userId,
+      uploadRequestId: dto.uploadRequestId,
       storageKey: dto.storageKey,
       originalName: dto.originalName,
       mimeType: dto.mimeType,
       sizeBytes: dto.sizeBytes,
     });
+    if (dto.uploadRequestId) {
+      this.assertInterviewFileAssetMatches(fileAsset, dto);
+    }
+    return fileAsset;
+  }
+
+  async prepareInterviewFileAsset(
+    dto: InterviewFileAssetInput,
+    currentUser: CurrentCandidateUser,
+  ): Promise<FileAsset | undefined> {
+    this.assertRuntimeFileAssetRequest(dto);
+    this.assertRuntimeFileAssetMetadataOnly(dto);
+    this.assertInterviewMediaFile(dto.mimeType, dto.sizeBytes);
+    this.assertObjectStorageKey(dto.storageKey, currentUser.candidateId);
+
+    if (!dto.uploadRequestId) {
+      return undefined;
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(dto.uploadRequestId)) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "Upload request ID is invalid.", 400, [
+        { field: "uploadRequestId", reason: "uploadRequestId must be a UUID" },
+      ]);
+    }
+
+    const existing = await this.repository.findFileAssetByUploadRequestId(currentUser.userId, dto.uploadRequestId);
+    if (!existing) {
+      return undefined;
+    }
+    this.assertInterviewFileAssetMatches(existing, dto);
+    return existing;
+  }
+
+  async findInterviewFileAssetByUploadRequestId(
+    uploadRequestId: string,
+    currentUser: CurrentCandidateUser,
+  ): Promise<FileAsset | undefined> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uploadRequestId)) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "Upload request ID is invalid.", 400, [
+        { field: "mediaUploadRequestId", reason: "mediaUploadRequestId must be a UUID" },
+      ]);
+    }
+    return this.repository.findFileAssetByUploadRequestId(currentUser.userId, uploadRequestId);
+  }
+
+  private assertInterviewFileAssetMatches(fileAsset: FileAsset, dto: InterviewFileAssetInput): void {
+    if (
+      fileAsset.storageKey !== dto.storageKey
+      || fileAsset.originalName !== dto.originalName
+      || fileAsset.mimeType !== dto.mimeType
+      || fileAsset.sizeBytes !== dto.sizeBytes
+    ) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "Upload request ID is already used by another file.", 409, [
+        { field: "uploadRequestId", reason: "uploadRequestId metadata mismatch" },
+      ]);
+    }
   }
 
   async getInterviewFileAsset(

@@ -265,6 +265,20 @@ export class InMemoryInterviewRepository implements InterviewRepository {
     return answer ? this.cloneAnswer(answer) : undefined;
   }
 
+  findAnswerByMediaUploadRequestId(sessionId: number, mediaUploadRequestId: string): InterviewAnswer | undefined {
+    const answer = this.answers.find(
+      (candidate) => candidate.sessionId === sessionId && candidate.mediaUploadRequestId === mediaUploadRequestId,
+    );
+    return answer ? this.cloneAnswer(answer) : undefined;
+  }
+
+  countPendingMediaAnswers(sessionId: number): number {
+    return this.answers.filter((answer) => answer.sessionId === sessionId
+      && Boolean(answer.mediaUploadRequestId)
+      && !answer.videoFileId
+      && !answer.audioFileId).length;
+  }
+
   findLatestAnswer(sessionId: number): InterviewAnswer | undefined {
     const answer = [...this.answers].reverse().find((candidate) => candidate.sessionId === sessionId);
     return answer ? this.cloneAnswer(answer) : undefined;
@@ -277,6 +291,7 @@ export class InMemoryInterviewRepository implements InterviewRepository {
       questionId: input.questionId,
       videoFileId: input.videoFileId,
       audioFileId: input.audioFileId,
+      mediaUploadRequestId: input.mediaUploadRequestId,
       transcript: input.transcript,
       nonverbalMetadata: input.nonverbalMetadata,
       durationSeconds: input.durationSeconds,
@@ -380,12 +395,22 @@ export class InMemoryInterviewRepository implements InterviewRepository {
       questionId: input.questionId,
       videoFileId: input.videoFileId,
       audioFileId: input.audioFileId,
+      mediaUploadRequestId: input.mediaUploadRequestId,
       transcript: input.transcript,
       nonverbalMetadata: input.nonverbalMetadata,
       durationSeconds: input.durationSeconds,
       submittedAt: input.submittedAt,
     };
     this.answers[index] = this.cloneAnswer(answer);
+    return this.cloneAnswer(answer);
+  }
+
+  attachMediaToAnswer(input: { sessionId: number; mediaUploadRequestId: string; fileId: number; mediaKind: "video" | "audio" }): InterviewAnswer | undefined {
+    const answer = this.answers.find((candidate) =>
+      candidate.sessionId === input.sessionId && candidate.mediaUploadRequestId === input.mediaUploadRequestId);
+    if (!answer) return undefined;
+    if (input.mediaKind === "video") answer.videoFileId = input.fileId;
+    else answer.audioFileId = input.fileId;
     return this.cloneAnswer(answer);
   }
 

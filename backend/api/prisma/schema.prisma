@@ -274,6 +274,7 @@ model Company {
 model FileAsset {
   fileId                    BigInt                @id @default(autoincrement()) @map("file_id")
   ownerUserId               BigInt                @map("owner_user_id")
+  uploadRequestId           String?               @map("upload_request_id") @db.Uuid
   storageKey                String                @map("storage_key") @db.VarChar(500)
   originalName              String                @map("original_name") @db.VarChar(255)
   mimeType                  String                @map("mime_type") @db.VarChar(100)
@@ -289,6 +290,7 @@ model FileAsset {
   videoAnswers              InterviewAnswer[]     @relation("VideoFile")
   audioAnswers              InterviewAnswer[]     @relation("AudioFile")
 
+  @@unique([ownerUserId, uploadRequestId], map: "uq_file_assets_owner_upload_request")
   @@map("file_assets")
 }
 
@@ -917,6 +919,7 @@ model InterviewAnswer {
   sessionQuestionId      BigInt?                       @map("session_question_id")
   videoFileId            BigInt?                       @map("video_file_id")
   audioFileId            BigInt?                       @map("audio_file_id")
+  mediaUploadRequestId   String?                       @map("media_upload_request_id") @db.Uuid
   transcript             String?
   nonverbalMetadata      Json?                         @map("nonverbal_metadata")
   durationSeconds        Int?                          @map("duration_seconds")
@@ -934,6 +937,7 @@ model InterviewAnswer {
   followUpFactCheckRuns  AnswerFactCheckRun[]          @relation("FactCheckFollowUpAnswer")
 
   @@index([sessionQuestionId], map: "idx_interview_answers_session_question")
+  @@unique([sessionId, mediaUploadRequestId], map: "uq_interview_answers_session_media_upload_request")
   @@map("interview_answers")
 }
 

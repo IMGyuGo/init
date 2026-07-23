@@ -199,6 +199,7 @@ export interface CreatePortfolioLinkRequest {
 export interface CandidateFileAsset {
   fileId: number;
   ownerUserId: number;
+  uploadRequestId?: string;
   storageKey: string;
   originalName: string;
   mimeType: string;
@@ -465,6 +466,7 @@ export interface SaveInterviewAnswerRequest {
   nonverbalMetadata?: Record<string, unknown>;
   retryAnswerId?: number;
   transcript?: string;
+  mediaUploadRequestId?: string;
 }
 
 export interface InterviewAnswer {
@@ -1073,7 +1075,7 @@ export interface CandidateApiClient {
   startInterview(applicationId: number, mode?: InterviewSessionMode): Promise<ApiResponse<StartInterviewResponse>>;
   getInterviewRuntime(applicationId: number): Promise<ApiResponse<CandidateInterviewRuntimeView>>;
   listRecruitingQuestions(sessionId: number): Promise<ApiResponse<RuntimeQuestionListResponse>>;
-  uploadInterviewMedia(sessionId: number, file: File): Promise<ApiResponse<CandidateFileAsset>>;
+  uploadInterviewMedia(sessionId: number, file: File, uploadRequestId?: string): Promise<ApiResponse<CandidateFileAsset>>;
   saveRecruitingAnswer(
     sessionId: number,
     body: SaveInterviewAnswerRequest,
@@ -1310,9 +1312,10 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
       request<ApiResponse<CandidateInterviewRuntimeView>>(candidateApiPaths.interviewRuntime(applicationId)),
     listRecruitingQuestions: (sessionId) =>
       request<ApiResponse<RuntimeQuestionListResponse>>(candidateApiPaths.recruitingQuestions(sessionId)),
-    uploadInterviewMedia: (sessionId, file) => {
+    uploadInterviewMedia: (sessionId, file, uploadRequestId) => {
       const formData = new FormData();
       formData.append("file", file);
+      if (uploadRequestId) formData.append("uploadRequestId", uploadRequestId);
       return requestFormData<ApiResponse<CandidateFileAsset>>(candidateApiPaths.interviewMedia(sessionId), formData);
     },
     saveRecruitingAnswer: (sessionId, body) =>
@@ -1458,9 +1461,10 @@ export function createPublicInterviewApiClient(
       request<ApiResponse<CandidateInterviewRuntimeView>>(publicInterviewApiPaths.interviewRuntime(applicationId)),
     listRecruitingQuestions: (sessionId) =>
       request<ApiResponse<RuntimeQuestionListResponse>>(publicInterviewApiPaths.questions(sessionId)),
-    uploadInterviewMedia: (sessionId, file) => {
+    uploadInterviewMedia: (sessionId, file, uploadRequestId) => {
       const formData = new FormData();
       formData.append("file", file);
+      if (uploadRequestId) formData.append("uploadRequestId", uploadRequestId);
       return requestFormData<ApiResponse<CandidateFileAsset>>(publicInterviewApiPaths.media(sessionId), formData);
     },
     saveRecruitingAnswer: (sessionId, body) =>

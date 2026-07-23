@@ -24,6 +24,31 @@ import type {
 } from "./api";
 import { candidateApplicationInterviewRoutes } from "./routes";
 
+export const INTERVIEW_RECORDING_PROFILE = {
+  width: 1280,
+  height: 720,
+  frameRate: 15,
+  videoBitsPerSecond: 800_000,
+  audioBitsPerSecond: 48_000,
+} as const;
+
+export function buildInterviewCameraConstraints(cameraDeviceId = ""): MediaTrackConstraints {
+  return {
+    ...(cameraDeviceId ? { deviceId: { ideal: cameraDeviceId } } : { facingMode: "user" }),
+    width: { ideal: INTERVIEW_RECORDING_PROFILE.width, max: INTERVIEW_RECORDING_PROFILE.width },
+    height: { ideal: INTERVIEW_RECORDING_PROFILE.height, max: INTERVIEW_RECORDING_PROFILE.height },
+    frameRate: { ideal: INTERVIEW_RECORDING_PROFILE.frameRate, max: INTERVIEW_RECORDING_PROFILE.frameRate },
+  };
+}
+
+export function buildInterviewMediaRecorderOptions(mimeType?: string): MediaRecorderOptions {
+  return {
+    ...(mimeType ? { mimeType } : {}),
+    videoBitsPerSecond: INTERVIEW_RECORDING_PROFILE.videoBitsPerSecond,
+    audioBitsPerSecond: INTERVIEW_RECORDING_PROFILE.audioBitsPerSecond,
+  };
+}
+
 export interface CandidateApplicationFormState {
   candidateName: string;
   email: string;

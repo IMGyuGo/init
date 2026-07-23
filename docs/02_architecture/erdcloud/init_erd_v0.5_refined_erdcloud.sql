@@ -91,6 +91,9 @@ CREATE TABLE file_assets (
     -- 파일 소유 사용자 FK
     owner_user_id BIGINT NOT NULL,
 
+    -- 면접 미디어 재시도 멱등 키. 사용자별 유일, 기존/비면접 파일은 NULL
+    upload_request_id UUID,
+
     -- 스토리지 내부 키. 예: S3 object key
     storage_key VARCHAR(500) NOT NULL,
 
@@ -107,7 +110,9 @@ CREATE TABLE file_assets (
     status VARCHAR(30) NOT NULL,
 
     -- 파일 생성/업로드 시각
-    created_at TIMESTAMP NOT NULL
+    created_at TIMESTAMP NOT NULL,
+
+    CONSTRAINT uq_file_assets_owner_upload_request UNIQUE (owner_user_id, upload_request_id)
 );
 
 CREATE TABLE candidate_profiles (
