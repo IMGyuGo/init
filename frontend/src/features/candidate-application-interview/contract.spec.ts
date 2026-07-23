@@ -62,6 +62,7 @@ import {
   buildCandidateReportCompleteNotifications,
   buildCandidateScreeningResultNotifications,
   countUnreadCandidateNotifications,
+  defaultApplicationFormState,
   formatAiInterviewerQuestionPrompt,
   getRecruitingReportPollingIntervalMs,
   getAiInterviewerProfile,
@@ -76,6 +77,7 @@ import {
   getInterviewRuntimeScreenSwapState,
   getInterviewRuntimeShortcutHints,
   getRuntimeDeviceRecheckState,
+  hasRequiredConsents,
   getInterviewRuntimeProgressionState,
   getInterviewRuntimeStatusChips,
   getInterviewerSessionState,
@@ -108,6 +110,7 @@ import {
   isCandidateInterviewStartEnabled,
   isCandidateRecruitingReportLimited,
   resolveRecordedMimeType,
+  requiredApplicationConsents,
   shouldShowInterviewDeviceSetup,
   toRuntimeQuestionSpeechText,
   toDeviceCheckRequest,
@@ -542,6 +545,9 @@ const query: CandidateJobQuery = {
 
 // @ts-expect-error Closed postings are not a valid candidate list filter value.
 const closedFilterQuery: CandidateJobQuery = { postingStatus: "CLOSED" };
+
+assert.deepEqual(defaultApplicationFormState.consentTypes, requiredApplicationConsents);
+assert.equal(hasRequiredConsents(defaultApplicationFormState.consentTypes), true);
 
 const submitRequest: SubmitApplicationRequest = toSubmitApplicationRequest({
   candidateName: " Kim Applicant ",

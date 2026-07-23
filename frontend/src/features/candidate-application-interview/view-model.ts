@@ -549,7 +549,7 @@ export const defaultApplicationFormState: CandidateApplicationFormState = {
   blogUrl: "",
   motivation: "",
   additionalInfo: "",
-  consentTypes: [],
+  consentTypes: [...requiredApplicationConsents],
 };
 
 export function isCandidateNameConfirmed(name: string, email: string): boolean {
