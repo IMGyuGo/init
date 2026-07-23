@@ -74,15 +74,25 @@ export interface RealtimeInterviewSpeechResponseEvent {
       question_id?: string;
     };
     instructions: string;
-    input: [
-      {
-        type: "message";
-        role: "user";
-        content: [{ type: "input_text"; text: string }];
-      },
-    ];
+    input: [];
   };
 }
+
+export interface RealtimeResponseCancelEvent {
+  type: "response.cancel";
+  event_id: string;
+  response_id: string;
+}
+
+export interface RealtimeOutputAudioBufferClearEvent {
+  type: "output_audio_buffer.clear";
+  event_id: string;
+}
+
+export type RealtimeInterviewClientEvent =
+  | RealtimeInterviewSpeechResponseEvent
+  | RealtimeResponseCancelEvent
+  | RealtimeOutputAudioBufferClearEvent;
 
 export interface CreateRealtimeInterviewSpeechResponseEventInput {
   purpose: RealtimeInterviewSpeechPurpose;
@@ -99,6 +109,14 @@ export interface RealtimeResponseMetadata {
   status: string;
   completed: boolean;
 }
+
+export interface RealtimeOutputAudioTranscript {
+  responseId: string;
+  text: string;
+  completed: boolean;
+}
+
+export type RealtimeSpeechTranscriptMatch = "partial" | "complete" | "mismatch";
 
 export function shouldStartRealtimeSession({
   setupCompleted,
@@ -134,21 +152,15 @@ export function createRealtimeInterviewSpeechResponseEvent({
       conversation: "none",
       output_modalities: ["audio"],
       metadata,
-      instructions: getRealtimeInterviewSpeechInstructions(purpose),
-      input: [
-        {
-          type: "message",
-          role: "user",
-          content: [{ type: "input_text", text: trimmedText }],
-        },
-      ],
+      instructions: getRealtimeInterviewSpeechInstructions(trimmedText),
+      input: [],
     },
   };
 }
 
 export function sendRealtimeClientEvent(
   connection: RealtimeInterviewWebRtcConnection | null | undefined,
-  event: RealtimeInterviewSpeechResponseEvent,
+  event: RealtimeInterviewClientEvent,
 ): boolean {
   if (!connection || connection.dataChannel.readyState !== "open") {
     return false;
@@ -170,6 +182,25 @@ export function sendRealtimeSpeechClientEvent(
   return sent;
 }
 
+export function cancelRealtimeSpeechResponse(
+  connection: RealtimeInterviewWebRtcConnection | null | undefined,
+  responseId: string,
+): boolean {
+  const normalizedResponseId = responseId.trim();
+  if (!normalizedResponseId) return false;
+
+  const cancelSent = sendRealtimeClientEvent(connection, {
+    type: "response.cancel",
+    event_id: `interview_response_cancel_${normalizedResponseId}`,
+    response_id: normalizedResponseId,
+  });
+  const clearSent = sendRealtimeClientEvent(connection, {
+    type: "output_audio_buffer.clear",
+    event_id: `interview_output_audio_clear_${normalizedResponseId}`,
+  });
+  return cancelSent && clearSent;
+}
+
 export function setRealtimeInterviewMicrophoneEnabled(
   connection: RealtimeInterviewWebRtcConnection | null | undefined,
   enabled: boolean,
@@ -185,9 +216,18 @@ export function setRealtimeInterviewMicrophoneEnabled(
 }
 
 export function getRealtimeResponseMetadata(event: unknown): RealtimeResponseMetadata | undefined {
-  if (!isRealtimeResponseDoneEvent(event)) {
-    return undefined;
-  }
+  return getRealtimeResponseEventMetadata(event, "response.done");
+}
+
+export function getRealtimeResponseCreatedMetadata(event: unknown): RealtimeResponseMetadata | undefined {
+  return getRealtimeResponseEventMetadata(event, "response.created");
+}
+
+function getRealtimeResponseEventMetadata(
+  event: unknown,
+  eventType: "response.created" | "response.done",
+): RealtimeResponseMetadata | undefined {
+  if (!isRealtimeResponseEvent(event, eventType)) return undefined;
 
   const rawMetadata = event.response.metadata;
   if (!rawMetadata) {
@@ -211,6 +251,46 @@ export function getRealtimeResponseMetadata(event: unknown): RealtimeResponseMet
     status: event.response.status,
     completed: event.response.status === "completed",
   };
+}
+
+export function getRealtimeOutputAudioTranscript(event: unknown): RealtimeOutputAudioTranscript | undefined {
+  if (!event || typeof event !== "object") return undefined;
+  const record = event as Record<string, unknown>;
+  const completed = record.type === "response.output_audio_transcript.done";
+  if (!completed && record.type !== "response.output_audio_transcript.delta") return undefined;
+
+  const responseId = record.response_id;
+  const text = completed ? record.transcript : record.delta;
+  if (typeof responseId !== "string" || !responseId.trim() || typeof text !== "string") {
+    return undefined;
+  }
+
+  return {
+    responseId,
+    text,
+    completed,
+  };
+}
+
+export function getRealtimeSpeechTranscriptMatch({
+  expectedText,
+  transcript,
+  completed,
+}: {
+  expectedText: string;
+  transcript: string;
+  completed: boolean;
+}): RealtimeSpeechTranscriptMatch {
+  const expected = normalizeRealtimeSpokenText(expectedText);
+  const actual = normalizeRealtimeSpokenText(transcript);
+
+  if (!expected || !actual) {
+    return completed ? "mismatch" : "partial";
+  }
+  if (completed) {
+    return actual === expected ? "complete" : "mismatch";
+  }
+  return expected.startsWith(actual) ? "partial" : "mismatch";
 }
 
 export function getRealtimeAudioCompletedResponseId(event: unknown): string | undefined {
@@ -446,36 +526,21 @@ function parseRealtimeDataChannelMessage(data: unknown): unknown {
   }
 }
 
-function getRealtimeInterviewSpeechInstructions(purpose: RealtimeInterviewSpeechPurpose): string {
-  if (purpose === "interview_intro") {
-    return [
-      "Say the provided Korean interview intro exactly once.",
-      "Do not add follow-up questions, explanations, or evaluation.",
-      "Use a calm, natural interviewer voice at a slightly slower than normal pace.",
-    ].join(" ");
-  }
-
-  if (purpose === "interview_encouragement") {
-    return [
-      "Say only the provided encouragement line.",
-      "Do not ask a new question, do not evaluate the candidate, and do not continue the conversation.",
-      "Use a brief, reassuring Korean tone at a slightly slower than normal pace.",
-    ].join(" ");
-  }
-
-  if (purpose === "interview_follow_up_question") {
-    return [
-      "Read the provided Korean follow-up interview question exactly once.",
-      "The backend already generated this follow-up question; do not generate another follow-up, explanations, or evaluation.",
-      "Use a calm, natural interviewer voice at a slightly slower than normal pace.",
-    ].join(" ");
-  }
-
+function getRealtimeInterviewSpeechInstructions(exactScript: string): string {
   return [
-    "Read the provided Korean interview question exactly once.",
-    "Do not add follow-up questions, explanations, or evaluation.",
-    "Use a calm, natural interviewer voice at a slightly slower than normal pace.",
-  ].join(" ");
+    "Speak the exact script between the markers once and say nothing else.",
+    "Do not speak the markers. Do not acknowledge, add, omit, paraphrase, explain, or repeat any words.",
+    "--- BEGIN EXACT SCRIPT ---",
+    exactScript,
+    "--- END EXACT SCRIPT ---",
+  ].join("\n");
+}
+
+function normalizeRealtimeSpokenText(text: string): string {
+  return text
+    .normalize("NFKC")
+    .toLocaleLowerCase("ko-KR")
+    .replace(/[\p{P}\p{S}\s]+/gu, "");
 }
 
 function isRealtimeInterviewSpeechPurpose(value: unknown): value is RealtimeInterviewSpeechPurpose {
@@ -487,8 +552,11 @@ function isRealtimeInterviewSpeechPurpose(value: unknown): value is RealtimeInte
   );
 }
 
-function isRealtimeResponseDoneEvent(event: unknown): event is {
-  type: "response.done";
+function isRealtimeResponseEvent(
+  event: unknown,
+  eventType: "response.created" | "response.done",
+): event is {
+  type: "response.created" | "response.done";
   response: {
     id?: string;
     status: string;
@@ -498,7 +566,7 @@ function isRealtimeResponseDoneEvent(event: unknown): event is {
   if (!event || typeof event !== "object") return false;
   const record = event as Record<string, unknown>;
   const response = record.response;
-  if (record.type !== "response.done" || !response || typeof response !== "object") return false;
+  if (record.type !== eventType || !response || typeof response !== "object") return false;
   if (typeof (response as Record<string, unknown>).status !== "string") return false;
   const metadata = (response as Record<string, unknown>).metadata;
   return Boolean(metadata && typeof metadata === "object");

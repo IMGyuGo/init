@@ -532,6 +532,10 @@ test("openai realtime session reads client supplied speech events without automa
               interrupt_response?: boolean;
             };
           };
+          output?: {
+            voice?: string;
+            speed?: number;
+          };
         };
       };
     };
@@ -540,8 +544,11 @@ test("openai realtime session reads client supplied speech events without automa
     assert.match(body.session?.instructions ?? "", /Read the provided Korean interview question exactly once/i);
     assert.match(body.session?.instructions ?? "", /backend-generated follow-up question exactly once/i);
     assert.match(body.session?.instructions ?? "", /Do not generate realtime follow-up questions/i);
+    assert.doesNotMatch(body.session?.instructions ?? "", /\b(?:calm|neutral)\b[^.]*\btone\b/i);
     assert.equal(body.session?.audio?.input?.turn_detection?.create_response, false);
     assert.equal(body.session?.audio?.input?.turn_detection?.interrupt_response, false);
+    assert.equal(body.session?.audio?.output?.voice, "marin");
+    assert.equal(body.session?.audio?.output?.speed, 0.9);
   } finally {
     process.env.AI_INTERVIEWER_REALTIME_PROVIDER = originalProvider;
     process.env.OPENAI_API_KEY = originalApiKey;

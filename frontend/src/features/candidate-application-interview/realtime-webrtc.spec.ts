@@ -2,10 +2,14 @@ import { strict as assert } from "node:assert";
 
 import type { RealtimeInterviewSessionResponse } from "./api";
 import {
+  cancelRealtimeSpeechResponse,
   createRealtimeInterviewSpeechResponseEvent,
   createRealtimeInterviewWebRtcConnection,
   getRealtimeAudioCompletedResponseId,
+  getRealtimeOutputAudioTranscript,
+  getRealtimeResponseCreatedMetadata,
   getRealtimeResponseMetadata,
+  getRealtimeSpeechTranscriptMatch,
   sendRealtimeClientEvent,
   sendRealtimeSpeechClientEvent,
   setRealtimeInterviewMicrophoneEnabled,
@@ -246,15 +250,10 @@ function testQuestionSpeechResponseEventUsesOpenAiResponseCreate() {
   assert.equal(event.response.metadata.response_purpose, "interview_question");
   assert.equal(event.response.metadata.question_id, "101");
   assert.equal(event.response.metadata.playback_id, "7");
-  assert.match(event.response.instructions, /read the provided Korean interview question exactly once/i);
-  assert.match(event.response.instructions, /slightly slower than normal pace/i);
-  assert.deepEqual(event.response.input, [
-    {
-      type: "message",
-      role: "user",
-      content: [{ type: "input_text", text: "자기소개를 해주세요." }],
-    },
-  ]);
+  assert.match(event.response.instructions, /자기소개를 해주세요\./);
+  assert.match(event.response.instructions, /exact script/i);
+  assert.doesNotMatch(event.response.instructions, /\b(?:calm|natural|slower|tone|pace)\b/i);
+  assert.deepEqual(event.response.input, []);
 }
 
 function testFollowUpQuestionSpeechResponseEventUsesFollowUpPurpose() {
@@ -267,12 +266,9 @@ function testFollowUpQuestionSpeechResponseEventUsesFollowUpPurpose() {
 
   assert.equal(event.response.metadata.response_purpose, "interview_follow_up_question");
   assert.equal(event.response.metadata.question_id, "202");
-  assert.match(event.response.instructions, /follow-up interview question/i);
-  assert.match(event.response.instructions, /do not generate another follow-up/i);
-  assert.match(event.response.instructions, /slightly slower than normal pace/i);
-  assert.deepEqual(event.response.input[0]?.content, [
-    { type: "input_text", text: "방금 답변에서 말한 성능 개선 과정을 더 구체적으로 설명해주세요." },
-  ]);
+  assert.match(event.response.instructions, /방금 답변에서 말한 성능 개선 과정을 더 구체적으로 설명해주세요\./);
+  assert.doesNotMatch(event.response.instructions, /\b(?:calm|natural|slower|tone|pace)\b/i);
+  assert.deepEqual(event.response.input, []);
 }
 
 function testEncouragementSpeechResponseEventUsesExactText() {
@@ -284,22 +280,122 @@ function testEncouragementSpeechResponseEventUsesExactText() {
   });
 
   assert.equal(event.response.metadata.response_purpose, "interview_encouragement");
-  assert.match(event.response.instructions, /say only the provided encouragement line/i);
-  assert.match(event.response.instructions, /slightly slower than normal pace/i);
-  assert.deepEqual(event.response.input[0]?.content, [
-    { type: "input_text", text: "괜찮습니다. 긴장하지 말고 말해보세요." },
-  ]);
+  assert.match(event.response.instructions, /괜찮습니다\. 긴장하지 말고 말해보세요\./);
+  assert.doesNotMatch(event.response.instructions, /\b(?:calm|natural|slower|tone|pace)\b/i);
+  assert.deepEqual(event.response.input, []);
 }
 
-function testIntroSpeechResponseEventUsesSlightlySlowerPace() {
+function testIntroSpeechResponseEventContainsOnlyExactScriptInstructions() {
   const event = createRealtimeInterviewSpeechResponseEvent({
     purpose: "interview_intro",
     text: "안녕하세요. 지금부터 AI 모의면접을 시작하겠습니다.",
     playbackId: 1,
   });
 
-  assert.match(event.response.instructions, /say the provided Korean interview intro exactly once/i);
-  assert.match(event.response.instructions, /slightly slower than normal pace/i);
+  assert.match(event.response.instructions, /안녕하세요\. 지금부터 AI 모의면접을 시작하겠습니다\./);
+  assert.match(event.response.instructions, /nothing else/i);
+  assert.doesNotMatch(event.response.instructions, /\b(?:calm|natural|slower|tone|pace)\b/i);
+  assert.deepEqual(event.response.input, []);
+}
+
+function testRealtimeResponseCreatedMetadataCanLinkExpectedSpeech() {
+  assert.deepEqual(
+    getRealtimeResponseCreatedMetadata({
+      type: "response.created",
+      response: {
+        id: "resp_intro",
+        status: "in_progress",
+        metadata: {
+          response_purpose: "interview_intro",
+          playback_id: "3",
+        },
+      },
+    }),
+    {
+      responseId: "resp_intro",
+      purpose: "interview_intro",
+      playbackId: 3,
+      questionId: undefined,
+      status: "in_progress",
+      completed: false,
+    },
+  );
+}
+
+function testRealtimeOutputAudioTranscriptParsesDeltaAndDoneEvents() {
+  assert.deepEqual(
+    getRealtimeOutputAudioTranscript({
+      type: "response.output_audio_transcript.delta",
+      response_id: "resp_intro",
+      delta: "안녕하세요.",
+    }),
+    { responseId: "resp_intro", text: "안녕하세요.", completed: false },
+  );
+  assert.deepEqual(
+    getRealtimeOutputAudioTranscript({
+      type: "response.output_audio_transcript.done",
+      response_id: "resp_intro",
+      transcript: "안녕하세요. 지금부터 면접을 시작하겠습니다.",
+    }),
+    {
+      responseId: "resp_intro",
+      text: "안녕하세요. 지금부터 면접을 시작하겠습니다.",
+      completed: true,
+    },
+  );
+}
+
+function testRealtimeSpeechTranscriptGuardAllowsOnlyTheExpectedSpokenText() {
+  const expectedText = "안녕하세요. 지금부터 채용 AI 면접을 시작하겠습니다.";
+
+  assert.equal(
+    getRealtimeSpeechTranscriptMatch({ expectedText, transcript: "안녕하세요. 지금부터", completed: false }),
+    "partial",
+  );
+  assert.equal(
+    getRealtimeSpeechTranscriptMatch({
+      expectedText,
+      transcript: "안녕하세요 지금부터 채용 AI 면접을 시작하겠습니다",
+      completed: true,
+    }),
+    "complete",
+  );
+  assert.equal(
+    getRealtimeSpeechTranscriptMatch({
+      expectedText,
+      transcript: "좋습니다. 안녕하세요. 지금부터 채용 AI 면접을 시작하겠습니다.",
+      completed: false,
+    }),
+    "mismatch",
+  );
+  assert.equal(
+    getRealtimeSpeechTranscriptMatch({
+      expectedText,
+      transcript: `${expectedText} 침착하게 말해보겠습니다.`,
+      completed: true,
+    }),
+    "mismatch",
+  );
+}
+
+function testRealtimeSpeechCancellationStopsResponseAndClearsWebRtcAudio() {
+  const dataChannel = new FakeRealtimeDataChannel();
+  dataChannel.open();
+  const connection = {
+    peerConnection: new FakeRealtimePeerConnection(),
+    dataChannel,
+    localAudioTracks: [],
+    close() {
+      dataChannel.close();
+    },
+  };
+
+  assert.equal(cancelRealtimeSpeechResponse(connection, "resp_intro"), true);
+  assert.deepEqual(
+    dataChannel.sentData.map((serialized) => JSON.parse(serialized).type),
+    ["response.cancel", "output_audio_buffer.clear"],
+  );
+  assert.equal(JSON.parse(dataChannel.sentData[0] ?? "{}").response_id, "resp_intro");
 }
 
 function testSendRealtimeClientEventOnlySendsWhenDataChannelIsOpen() {
@@ -535,7 +631,7 @@ function testSpeechClientEventRestoresRealtimeMicrophoneWhenSendFails() {
 
 async function main() {
   testRealtimeSessionRequestWaitsForLiveMicrophoneStream();
-  testIntroSpeechResponseEventUsesSlightlySlowerPace();
+  testIntroSpeechResponseEventContainsOnlyExactScriptInstructions();
   testQuestionSpeechResponseEventUsesOpenAiResponseCreate();
   testFollowUpQuestionSpeechResponseEventUsesFollowUpPurpose();
   testEncouragementSpeechResponseEventUsesExactText();
@@ -543,6 +639,10 @@ async function main() {
   testSpeechClientEventMutesRealtimeMicrophoneUntilResponseCompletes();
   testSpeechClientEventRestoresRealtimeMicrophoneWhenSendFails();
   testRealtimeResponseMetadataParsesDoneEvents();
+  testRealtimeResponseCreatedMetadataCanLinkExpectedSpeech();
+  testRealtimeOutputAudioTranscriptParsesDeltaAndDoneEvents();
+  testRealtimeSpeechTranscriptGuardAllowsOnlyTheExpectedSpokenText();
+  testRealtimeSpeechCancellationStopsResponseAndClearsWebRtcAudio();
   testCancelledRealtimeResponseIsNotCompleted();
   testRealtimeAudioCompletionParsesResponseAudioDoneEvents();
   testRealtimeMicrophoneStaysMutedWhenQuestionSpeechIsInterrupted();
