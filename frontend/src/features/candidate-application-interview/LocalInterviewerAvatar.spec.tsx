@@ -74,6 +74,8 @@ assert.equal(resolveMouthOpenness("small", 0.58), "full");
 assert.equal(resolveMouthOpenness("full", 0.43), "full");
 assert.equal(resolveMouthOpenness("full", 0.42), "small");
 assert.equal(resolveMouthOpenness("small", Number.NaN), "small");
+assert.equal(resolveMouthOpenness("small", 0.65, { enter: 0.7, exit: 0.5 }), "small");
+assert.equal(resolveMouthOpenness("full", 0.55, { enter: 0.7, exit: 0.5 }), "full");
 
 assert.equal(getMouthSpriteVariant("open", "small"), "open-small");
 assert.equal(getMouthSpriteVariant("open", "full"), "open");

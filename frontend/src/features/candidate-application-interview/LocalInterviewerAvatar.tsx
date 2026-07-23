@@ -8,6 +8,7 @@ import {
   type AvatarPresentationState,
   type MouthShape,
 } from "./LipSyncDriver";
+import { DEFAULT_LIP_SYNC_TUNING_SETTINGS } from "./LipSyncTuning";
 
 const postureImageByState: Record<AvatarPresentationState, string> = {
   idle: "/assets/interviewer-avatar/listening.png",
@@ -28,8 +29,15 @@ export type MouthSpriteVariant =
   | "round"
   | "teeth";
 
-const FULL_MOUTH_OPEN_ENTER_THRESHOLD = 0.58;
-const FULL_MOUTH_OPEN_EXIT_THRESHOLD = 0.42;
+export interface MouthOpennessThresholds {
+  enter: number;
+  exit: number;
+}
+
+const DEFAULT_MOUTH_OPENNESS_THRESHOLDS: MouthOpennessThresholds = {
+  enter: DEFAULT_LIP_SYNC_TUNING_SETTINGS.fullOpenEnterThreshold,
+  exit: DEFAULT_LIP_SYNC_TUNING_SETTINGS.fullOpenExitThreshold,
+};
 
 const mouthSpriteVariants: MouthSpriteVariant[] = [
   "rest",
@@ -58,12 +66,13 @@ const mouthImageByVariant: Record<MouthSpriteVariant, string> = {
 export function resolveMouthOpenness(
   previous: MouthOpenness,
   mouthOpen: number,
+  thresholds: MouthOpennessThresholds = DEFAULT_MOUTH_OPENNESS_THRESHOLDS,
 ): MouthOpenness {
   if (!Number.isFinite(mouthOpen)) return previous;
   if (previous === "full") {
-    return mouthOpen <= FULL_MOUTH_OPEN_EXIT_THRESHOLD ? "small" : "full";
+    return mouthOpen <= thresholds.exit ? "small" : "full";
   }
-  return mouthOpen >= FULL_MOUTH_OPEN_ENTER_THRESHOLD ? "full" : "small";
+  return mouthOpen >= thresholds.enter ? "full" : "small";
 }
 
 export function getMouthSpriteVariant(
@@ -80,6 +89,8 @@ export interface LocalInterviewerAvatarProps {
   presentationState: AvatarPresentationState;
   mouthShape: MouthShape;
   mouthOpen?: number;
+  fullOpenEnterThreshold?: number;
+  fullOpenExitThreshold?: number;
   reducedMotion: boolean;
   className?: string;
 }
@@ -95,11 +106,16 @@ export function LocalInterviewerAvatar({
   presentationState,
   mouthShape,
   mouthOpen = getMouthOpenValueForShape(mouthShape),
+  fullOpenEnterThreshold = DEFAULT_MOUTH_OPENNESS_THRESHOLDS.enter,
+  fullOpenExitThreshold = DEFAULT_MOUTH_OPENNESS_THRESHOLDS.exit,
   reducedMotion,
   className = "",
 }: LocalInterviewerAvatarProps) {
   const [mouthOpenness, setMouthOpenness] = useState<MouthOpenness>(() => (
-    resolveMouthOpenness("small", mouthOpen)
+    resolveMouthOpenness("small", mouthOpen, {
+      enter: fullOpenEnterThreshold,
+      exit: fullOpenExitThreshold,
+    })
   ));
 
   useEffect(() => {
@@ -107,8 +123,11 @@ export function LocalInterviewerAvatar({
       setMouthOpenness("small");
       return;
     }
-    setMouthOpenness((previous) => resolveMouthOpenness(previous, mouthOpen));
-  }, [mouthOpen, presentationState, reducedMotion]);
+    setMouthOpenness((previous) => resolveMouthOpenness(previous, mouthOpen, {
+      enter: fullOpenEnterThreshold,
+      exit: fullOpenExitThreshold,
+    }));
+  }, [fullOpenEnterThreshold, fullOpenExitThreshold, mouthOpen, presentationState, reducedMotion]);
 
   const renderedMouthShape: MouthShape = presentationState === "speaking" && !reducedMotion ? mouthShape : "rest";
   const renderedMouthVariant = getMouthSpriteVariant(renderedMouthShape, mouthOpenness);

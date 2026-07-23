@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  DEFAULT_LIP_SYNC_TUNING_SETTINGS,
+  type LipSyncTuningSettings,
+} from "./LipSyncTuning";
 
 export type MouthShape = "rest" | "closed" | "open" | "wide" | "round" | "teeth";
 
@@ -35,6 +39,7 @@ export interface LipSyncDriverInput {
   speechText: string;
   speechBoundary?: SpeechBoundaryTiming;
   reducedMotion: boolean;
+  tuning?: LipSyncTuningSettings;
 }
 
 export interface LipSyncDriverState {
@@ -63,6 +68,8 @@ export interface StabilizeMouthShapeInput {
   nowMs: number;
   voiced: boolean;
   forceRest: boolean;
+  minimumShapeHoldMs?: number;
+  silenceHangoverMs?: number;
 }
 
 const SILENCE_RMS_THRESHOLD = 0.012;
@@ -100,8 +107,6 @@ const SIMPLE_VOWEL_CUE_WEIGHT = 1.15;
 const COMPOUND_VOWEL_CUE_WEIGHT = 0.72;
 const FINAL_CONSONANT_CUE_WEIGHT = 0.36;
 const SPEECH_PAUSE_CUE_WEIGHT = 1.65;
-const MIN_MOUTH_SHAPE_HOLD_MS = 80;
-const SILENCE_HANGOVER_MS = 60;
 const mouthOpenValueByShape: Record<MouthShape, number> = {
   rest: 0,
   closed: 0.08,
@@ -138,13 +143,19 @@ export function stabilizeMouthShape(input: StabilizeMouthShapeInput): MouthShape
   const safeNowMs = Number.isFinite(input.nowMs)
     ? Math.max(0, input.nowMs)
     : input.previous.changedAtMs;
+  const minimumShapeHoldMs = Number.isFinite(input.minimumShapeHoldMs)
+    ? Math.max(0, input.minimumShapeHoldMs ?? 0)
+    : DEFAULT_LIP_SYNC_TUNING_SETTINGS.minimumShapeHoldMs;
+  const silenceHangoverMs = Number.isFinite(input.silenceHangoverMs)
+    ? Math.max(0, input.silenceHangoverMs ?? 0)
+    : DEFAULT_LIP_SYNC_TUNING_SETTINGS.silenceHangoverMs;
   if (input.forceRest) {
     return { mouthShape: "rest", changedAtMs: safeNowMs };
   }
 
   if (input.voiced) {
     const canChange = input.previous.mouthShape === "rest"
-      || safeNowMs - input.previous.changedAtMs >= MIN_MOUTH_SHAPE_HOLD_MS;
+      || safeNowMs - input.previous.changedAtMs >= minimumShapeHoldMs;
     const mouthShape = canChange ? input.requestedMouthShape : input.previous.mouthShape;
     return {
       mouthShape,
@@ -158,7 +169,7 @@ export function stabilizeMouthShape(input: StabilizeMouthShapeInput): MouthShape
   if (
     input.previous.mouthShape !== "rest"
     && input.previous.lastVoicedAtMs !== undefined
-    && safeNowMs - input.previous.lastVoicedAtMs < SILENCE_HANGOVER_MS
+    && safeNowMs - input.previous.lastVoicedAtMs < silenceHangoverMs
   ) {
     return input.previous;
   }
@@ -349,6 +360,39 @@ function getTimelineCue(
   return timeline.find((cue) => cue.startMs <= elapsedMs && cue.endMs > elapsedMs);
 }
 
+export function applyTimelineOffsetMs(
+  elapsedMs: number,
+  offsetMs: number,
+  timelineEndMs: number,
+): number {
+  const safeElapsedMs = Number.isFinite(elapsedMs) ? elapsedMs : 0;
+  const safeOffsetMs = Number.isFinite(offsetMs) ? offsetMs : 0;
+  const safeTimelineEndMs = Number.isFinite(timelineEndMs) ? Math.max(0, timelineEndMs) : 0;
+  return Math.min(safeTimelineEndMs, Math.max(0, safeElapsedMs + safeOffsetMs));
+}
+
+export function getTimelineMouthOpenValue(
+  timeline: VisemeCue[],
+  elapsedMs: number,
+): number {
+  const cue = getTimelineCue(timeline, elapsedMs);
+  if (!cue) return 0;
+
+  const baseMouthOpen = getMouthOpenValueForShape(cue.mouthShape);
+  if (
+    cue.mouthShape === "rest"
+    || cue.mouthShape === "closed"
+    || cue.mouthShape === "teeth"
+  ) {
+    return baseMouthOpen;
+  }
+
+  const cueDurationMs = Math.max(1, cue.endMs - cue.startMs);
+  const cueProgress = Math.min(1, Math.max(0, (elapsedMs - cue.startMs) / cueDurationMs));
+  const edgeProgress = Math.min(1, cueProgress / 0.25, (1 - cueProgress) / 0.25);
+  return baseMouthOpen * (0.45 + 0.55 * edgeProgress);
+}
+
 function getTimelineMouthShape(
   timeline: VisemeCue[] | undefined,
   elapsedMs: number | undefined,
@@ -449,6 +493,7 @@ export function useLipSyncDriverState(input: LipSyncDriverInput): LipSyncDriverS
     changedAtMs: 0,
   });
   const speaking = input.presentationState === "speaking";
+  const tuning = input.tuning ?? DEFAULT_LIP_SYNC_TUNING_SETTINGS;
   const timeline = useMemo(
     () => buildKoreanVisemeTimeline(
       input.speechText,
@@ -623,7 +668,11 @@ export function useLipSyncDriverState(input: LipSyncDriverInput): LipSyncDriverS
         } else {
           sourceElapsedMs = now - startTimeRef.current;
         }
-        setElapsedMs(sourceElapsedMs);
+        setElapsedMs(applyTimelineOffsetMs(
+          sourceElapsedMs,
+          tuning.timelineOffsetMs,
+          timeline.at(-1)?.endMs ?? 0,
+        ));
       }
       frameId = window.requestAnimationFrame(update);
     };
@@ -639,7 +688,7 @@ export function useLipSyncDriverState(input: LipSyncDriverInput): LipSyncDriverS
       analyser?.disconnect();
       if (input.audioStream) void audioContext?.close().catch(() => undefined);
     };
-  }, [input.audioSource, input.audioStream, timeline]);
+  }, [input.audioSource, input.audioStream, timeline, tuning.timelineOffsetMs]);
 
   const requestedMouthShape = resolveLipSyncMouthShape({
     speaking,
@@ -660,6 +709,8 @@ export function useLipSyncDriverState(input: LipSyncDriverInput): LipSyncDriverS
         ? rms > SILENCE_RMS_THRESHOLD
         : audioAnalysisAvailable === false && speaking,
       forceRest: !speaking || input.reducedMotion || currentTimelineCue?.isPause === true,
+      minimumShapeHoldMs: tuning.minimumShapeHoldMs,
+      silenceHangoverMs: tuning.silenceHangoverMs,
     }));
   }, [
     audioAnalysisAvailable,
@@ -669,6 +720,8 @@ export function useLipSyncDriverState(input: LipSyncDriverInput): LipSyncDriverS
     requestedMouthShape,
     rms,
     speaking,
+    tuning.minimumShapeHoldMs,
+    tuning.silenceHangoverMs,
   ]);
 
   return {
@@ -677,7 +730,7 @@ export function useLipSyncDriverState(input: LipSyncDriverInput): LipSyncDriverS
       ? 0
       : audioAnalysisAvailable
         ? mouthOpen
-        : getMouthOpenValueForShape(mouthShapeStabilization.mouthShape),
+        : getTimelineMouthOpenValue(timeline, elapsedMs),
   };
 }
 

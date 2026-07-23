@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import * as lipSyncDriver from "./LipSyncDriver";
 import {
+  applyTimelineOffsetMs,
   advanceAudioDrivenTimelineElapsedMs,
   buildKoreanVisemeTimeline,
   getBoundaryAlignedTimelineElapsedMs,
@@ -12,6 +13,7 @@ import {
   getMouthShapeForRms,
   getRelativeAudioElapsedMs,
   getTimelineElapsedMsForCharacterIndex,
+  getTimelineMouthOpenValue,
   isLipSyncAudioAnalysisAvailable,
   resolveLipSyncMouthShape,
   smoothMouthOpenValue,
@@ -157,6 +159,10 @@ assert.equal(smoothMouthOpenValue(0, 0), 0);
 assert.equal(getRelativeAudioElapsedMs(42.75, 42.5), 250);
 assert.equal(getRelativeAudioElapsedMs(42.5, 42.75), 0);
 assert.equal(getRelativeAudioElapsedMs(Number.NaN, 42.5), 0);
+assert.equal(applyTimelineOffsetMs(100, 50, 300), 150);
+assert.equal(applyTimelineOffsetMs(100, -150, 300), 0);
+assert.equal(applyTimelineOffsetMs(280, 50, 300), 300);
+assert.equal(applyTimelineOffsetMs(Number.NaN, 50, 300), 50);
 assert.equal(getEstimatedSpeechDurationMs("가나다라마바사아자차", undefined, false), 1_550);
 assert.equal(getEstimatedSpeechDurationMs("가나다라마바사아자차", undefined, true), 1_800);
 assert.equal(getEstimatedSpeechDurationMs("가나다라마바사아자차", 2_125, true), 2_125);
@@ -174,6 +180,12 @@ assert.equal(timeline.at(-1)?.endMs, 900);
 for (let index = 1; index < timeline.length; index += 1) {
   assert.equal(timeline[index - 1]?.endMs, timeline[index]?.startMs);
 }
+
+const openCue = [{ startMs: 0, endMs: 1_000, mouthShape: "open" as const }];
+assert.ok(getTimelineMouthOpenValue(openCue, 20) < 0.58);
+assert.ok(getTimelineMouthOpenValue(openCue, 500) >= 0.58);
+assert.ok(getTimelineMouthOpenValue(openCue, 980) < 0.58);
+assert.equal(getTimelineMouthOpenValue(openCue, 1_000), 0);
 
 const weightedMaTimeline = buildKoreanVisemeTimeline("마", 1_000);
 assert.equal(weightedMaTimeline.length, 2);
@@ -260,6 +272,39 @@ const explicitPause = stabilizeMouthShape({
   forceRest: true,
 });
 assert.equal(explicitPause.mouthShape, "rest");
+
+const configuredHold = stabilizeMouthShape({
+  previous: { mouthShape: "open", changedAtMs: 100, lastVoicedAtMs: 100 },
+  requestedMouthShape: "wide",
+  nowMs: 171,
+  voiced: true,
+  forceRest: false,
+  minimumShapeHoldMs: 70,
+  silenceHangoverMs: 90,
+});
+assert.equal(configuredHold.mouthShape, "wide");
+
+const configuredHangover = stabilizeMouthShape({
+  previous: configuredHold,
+  requestedMouthShape: "rest",
+  nowMs: 250,
+  voiced: false,
+  forceRest: false,
+  minimumShapeHoldMs: 70,
+  silenceHangoverMs: 90,
+});
+assert.equal(configuredHangover.mouthShape, "wide");
+
+const configuredSilenceEnd = stabilizeMouthShape({
+  previous: configuredHangover,
+  requestedMouthShape: "rest",
+  nowMs: 262,
+  voiced: false,
+  forceRest: false,
+  minimumShapeHoldMs: 70,
+  silenceHangoverMs: 90,
+});
+assert.equal(configuredSilenceEnd.mouthShape, "rest");
 
 const boundaryTimeline = buildKoreanVisemeTimeline("가 나", 1_000);
 const secondWordOffsetMs = getTimelineElapsedMsForCharacterIndex(boundaryTimeline, 2);
