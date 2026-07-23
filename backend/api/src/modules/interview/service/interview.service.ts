@@ -66,6 +66,7 @@ import {
 const DEFAULT_MOCK_QUESTION_TYPES = ["INTRO", "TECHNICAL", "EXPERIENCE", "CLOSING"] as const;
 const DEFAULT_REALTIME_MODEL = "gpt-realtime-2";
 const DEFAULT_REALTIME_VOICE = "marin";
+const DEFAULT_REALTIME_SPEECH_SPEED = 0.9;
 const DEFAULT_REALTIME_API_BASE_URL = "https://api.openai.com";
 const MOCK_REALTIME_CLIENT_SECRET_TTL_MS = 2 * 60 * 1000;
 export type UploadedInterviewMediaFile = {
@@ -944,6 +945,7 @@ export class InterviewService {
             },
             output: {
               voice,
+              speed: DEFAULT_REALTIME_SPEECH_SPEED,
             },
           },
         },
@@ -1018,7 +1020,7 @@ export class InterviewService {
         "Read the provided Korean interview question exactly once, or read the backend-generated follow-up question exactly once, when the client asks you to read a question.",
         "Say only the provided encouragement line when the client asks you to encourage a silent candidate.",
         "Do not generate realtime follow-up questions, answer evaluations, or extra coaching during the session.",
-        "Keep a calm coaching tone and do not make hiring decisions.",
+        "Do not make hiring decisions.",
         "Do not infer protected attributes or evaluate appearance, accent, gender, age, school, region, disability, or health.",
       ].join(" ");
     }
@@ -1030,7 +1032,7 @@ export class InterviewService {
       "Say only the provided encouragement line when the client asks you to encourage a silent candidate.",
       "Do not generate realtime follow-up questions, answer evaluations, or extra coaching during the session.",
       "The backend follow-up pipeline handles follow-up question generation after answer submission.",
-      "Keep a neutral interview tone and do not make final hiring decisions.",
+      "Do not make final hiring decisions.",
       "Do not infer protected attributes or evaluate appearance, accent, gender, age, school, region, disability, or health.",
     ].join(" ");
   }

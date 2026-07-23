@@ -611,6 +611,10 @@ export function shouldShowPaymentDevTools(env: PaymentDevToolsVisibilityEnv = {}
   return true;
 }
 
+export function hasAvailableMockInterviewPass(availablePasses: number): boolean {
+  return Number.isInteger(availablePasses) && availablePasses > 0;
+}
+
 export function toSubmitApplicationRequest(state: CandidateApplicationFormState): SubmitApplicationRequest {
   const candidateName = state.candidateName.trim();
   const email = state.email.trim();

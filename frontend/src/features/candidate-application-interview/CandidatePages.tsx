@@ -84,10 +84,14 @@ import { isCandidateApplicationCancelable } from "./application-cancellation";
 import { isCandidateDemoCommandShortcut } from "./candidate-demo-tools";
 import { getRecruitingRuntimeTotalQuestions } from "./demo-preset-runtime";
 import {
+  cancelRealtimeSpeechResponse,
   createRealtimeInterviewSpeechResponseEvent,
   createRealtimeInterviewWebRtcConnection,
   getRealtimeAudioCompletedResponseId,
+  getRealtimeOutputAudioTranscript,
+  getRealtimeResponseCreatedMetadata,
   getRealtimeResponseMetadata,
+  getRealtimeSpeechTranscriptMatch,
   sendRealtimeSpeechClientEvent,
   setRealtimeInterviewMicrophoneEnabled,
   shouldRestoreRealtimeMicrophoneAfterSpeechResponse,
@@ -196,6 +200,7 @@ import {
   getRealtimeSessionUserNotice,
   getRuntimeDeviceRecheckState,
   getTimedOutAiJobStatus,
+  hasAvailableMockInterviewPass,
   hasMeaningfulInterviewRecordingVoice,
   getCandidateApplicationReportHref,
   getMockInterviewDeviceCheckHref,
@@ -2481,6 +2486,12 @@ export function CandidateMockInterviewStartPage() {
     setBusy(true);
     setMessage("");
     try {
+      const passSummary = await getCandidateMockInterviewPassSummary();
+      if (!hasAvailableMockInterviewPass(passSummary.availablePasses)) {
+        setMessage("사용 가능한 모의면접 이용권이 없습니다. 이용권을 구매한 뒤 다시 시도해주세요.");
+        return;
+      }
+
       const startRequest = toStartMockInterviewRequest(state);
       let questionProcessLogId: number | undefined;
       try {
@@ -2509,12 +2520,16 @@ export function CandidateMockInterviewStartPage() {
       try {
         result = await getCandidateApi().startMockInterview({ ...startRequest, questionProcessLogId });
       } catch (startError) {
-        if (!questionProcessLogId) throw startError;
+        if (!questionProcessLogId || isMockInterviewPassRequiredError(startError)) throw startError;
         result = await getCandidateApi().startMockInterview(startRequest);
       }
       router.push(getMockInterviewDeviceCheckHref(result.data));
     } catch (submitError) {
-      setMessage(toErrorMessage(submitError));
+      setMessage(
+        isMockInterviewPassRequiredError(submitError)
+          ? "사용 가능한 모의면접 이용권이 없습니다. 이용권을 구매한 뒤 다시 시도해주세요."
+          : toErrorMessage(submitError),
+      );
     } finally {
       setBusy(false);
     }
@@ -3534,6 +3549,10 @@ function InterviewRuntimePanel({
   const realtimeSpeechTimeoutRef = useRef<number | null>(null);
   const realtimeSpeechResponseMetadataByIdRef = useRef<Map<string, RealtimeResponseMetadata>>(new Map());
   const realtimeAudioCompletedResponseIdsRef = useRef<Set<string>>(new Set());
+  const realtimeExpectedSpeechByPlaybackIdRef = useRef<Map<number, string>>(new Map());
+  const realtimeSpeechTranscriptByResponseIdRef = useRef<Map<string, string>>(new Map());
+  const realtimeValidatedSpeechResponseIdsRef = useRef<Set<string>>(new Set());
+  const realtimeRejectedSpeechResponseIdsRef = useRef<Set<string>>(new Set());
   const speechPlaybackIdRef = useRef(0);
   const speechBoundarySequenceRef = useRef(0);
   const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
@@ -3756,6 +3775,10 @@ function InterviewRuntimePanel({
   const clearRealtimeSpeechCompletionState = useCallback(() => {
     realtimeSpeechResponseMetadataByIdRef.current.clear();
     realtimeAudioCompletedResponseIdsRef.current.clear();
+    realtimeExpectedSpeechByPlaybackIdRef.current.clear();
+    realtimeSpeechTranscriptByResponseIdRef.current.clear();
+    realtimeValidatedSpeechResponseIdsRef.current.clear();
+    realtimeRejectedSpeechResponseIdsRef.current.clear();
   }, []);
 
   const closeRealtimeConnection = useCallback(() => {
@@ -3977,6 +4000,7 @@ function InterviewRuntimePanel({
         }),
       );
       if (sent) {
+        realtimeExpectedSpeechByPlaybackIdRef.current.set(playbackId, text);
         setInterviewerSpeechUsesRealtimeAudio(true);
         setQuestionSpeechSupported(true);
         setQuestionSpeechPlaying(true);
@@ -4117,6 +4141,7 @@ function InterviewRuntimePanel({
           }),
         );
         if (sent) {
+          realtimeExpectedSpeechByPlaybackIdRef.current.set(playbackId, text);
           setInterviewerSpeechUsesRealtimeAudio(true);
           setQuestionSpeechSupported(true);
           setQuestionSpeechPlaying(true);
@@ -4264,15 +4289,22 @@ function InterviewRuntimePanel({
     [appendInterviewerSessionActionEvent, clearBrowserSpeechTimeouts, currentQuestion, data?.runtime.sessionId, isCurrentSpeechPlayback, realtimeSpeechReady, setRealtimeMicrophoneOpen, stopQuestionSpeech, updateInterviewerSpeechBoundary],
   );
 
+  const forgetRealtimeSpeechResponse = useCallback((metadata: RealtimeResponseMetadata) => {
+    realtimeExpectedSpeechByPlaybackIdRef.current.delete(metadata.playbackId);
+    if (!metadata.responseId) return;
+    realtimeSpeechResponseMetadataByIdRef.current.delete(metadata.responseId);
+    realtimeAudioCompletedResponseIdsRef.current.delete(metadata.responseId);
+    realtimeSpeechTranscriptByResponseIdRef.current.delete(metadata.responseId);
+    realtimeValidatedSpeechResponseIdsRef.current.delete(metadata.responseId);
+    realtimeRejectedSpeechResponseIdsRef.current.delete(metadata.responseId);
+  }, []);
+
   const completeRealtimeSpeechPlayback = useCallback((metadata: RealtimeResponseMetadata) => {
     const sessionId = currentRuntimeSessionIdRef.current;
 
     if (metadata.purpose === "interview_intro") {
       clearRealtimeSpeechTimeout();
-      if (typeof metadata.responseId === "string") {
-        realtimeSpeechResponseMetadataByIdRef.current.delete(metadata.responseId);
-        realtimeAudioCompletedResponseIdsRef.current.delete(metadata.responseId);
-      }
+      forgetRealtimeSpeechResponse(metadata);
       if (typeof sessionId === "number") {
         introSpokenSessionRef.current = sessionId;
       }
@@ -4290,10 +4322,7 @@ function InterviewRuntimePanel({
 
     if (isRealtimeQuestionSpeechPurpose(metadata.purpose)) {
       clearRealtimeSpeechTimeout();
-      if (typeof metadata.responseId === "string") {
-        realtimeSpeechResponseMetadataByIdRef.current.delete(metadata.responseId);
-        realtimeAudioCompletedResponseIdsRef.current.delete(metadata.responseId);
-      }
+      forgetRealtimeSpeechResponse(metadata);
       setQuestionSpeechPlaying(false);
       setQuestionSpeechCompleted(true);
       setQuestionSpeechStatus(
@@ -4311,10 +4340,7 @@ function InterviewRuntimePanel({
     }
 
     if (metadata.purpose === "interview_encouragement") {
-      if (typeof metadata.responseId === "string") {
-        realtimeSpeechResponseMetadataByIdRef.current.delete(metadata.responseId);
-        realtimeAudioCompletedResponseIdsRef.current.delete(metadata.responseId);
-      }
+      forgetRealtimeSpeechResponse(metadata);
       setQuestionSpeechPlaying(false);
       setInterviewerSpeechUsesRealtimeAudio(false);
       setQuestionSpeechStatus("Realtime 격려 안내를 재생했습니다.");
@@ -4322,7 +4348,52 @@ function InterviewRuntimePanel({
     }
 
     setQuestionSpeechStatus("Realtime 격려 안내를 재생했습니다.");
-  }, [appendInterviewerSessionActionEvent, clearRealtimeSpeechTimeout]);
+  }, [appendInterviewerSessionActionEvent, clearRealtimeSpeechTimeout, forgetRealtimeSpeechResponse]);
+
+  const rejectRealtimeSpeechPlayback = useCallback((metadata: RealtimeResponseMetadata, reason: string) => {
+    const responseId = metadata.responseId;
+    if (!responseId || realtimeRejectedSpeechResponseIdsRef.current.has(responseId)) return;
+
+    realtimeRejectedSpeechResponseIdsRef.current.add(responseId);
+    realtimeExpectedSpeechByPlaybackIdRef.current.delete(metadata.playbackId);
+    realtimeSpeechTranscriptByResponseIdRef.current.delete(responseId);
+    realtimeValidatedSpeechResponseIdsRef.current.delete(responseId);
+    cancelRealtimeSpeechResponse(realtimeConnectionRef.current, responseId);
+    setQuestionSpeechPlaying(false);
+    setInterviewerSpeechUsesRealtimeAudio(false);
+
+    if (metadata.purpose === "interview_intro") {
+      clearRealtimeSpeechTimeout();
+      setIntroCompleted(false);
+      appendInterviewerSessionActionEvent({
+        action: "speech:fallback",
+        phase: "FALLBACK_TTS",
+        label: `Realtime AI 안내 문장 불일치 (${reason})`,
+      });
+      setQuestionSpeechStatus("Realtime AI 안내에 추가 문장이 감지되어 브라우저 음성으로 전환합니다.");
+      window.setTimeout(() => speakInterviewIntro({ forceBrowserSpeech: true }), 150);
+      return;
+    }
+
+    if (isRealtimeQuestionSpeechPurpose(metadata.purpose)) {
+      clearRealtimeSpeechTimeout();
+      setQuestionSpeechCompleted(false);
+      const realtimeQuestionSpeechLabel =
+        metadata.purpose === "interview_follow_up_question" ? "Realtime 꼬리질문 음성" : "Realtime 질문 음성";
+      appendInterviewerSessionActionEvent({
+        action: "speech:fallback",
+        phase: "FALLBACK_TTS",
+        label: `${realtimeQuestionSpeechLabel} 문장 불일치 (${reason})`,
+        questionId: metadata.questionId,
+      });
+      setQuestionSpeechStatus(`${realtimeQuestionSpeechLabel}에 추가 문장이 감지되어 브라우저 음성으로 전환합니다.`);
+      window.setTimeout(() => speakCurrentQuestion("auto", { forceBrowserSpeech: true }), 150);
+      return;
+    }
+
+    setRealtimeMicrophoneOpen(true);
+    setQuestionSpeechStatus("Realtime 격려 문장이 일치하지 않아 재생을 중단했습니다.");
+  }, [appendInterviewerSessionActionEvent, clearRealtimeSpeechTimeout, setRealtimeMicrophoneOpen, speakCurrentQuestion, speakInterviewIntro]);
 
   const handleRealtimeDataEvent = useCallback(
     (event: unknown) => {
@@ -4331,11 +4402,54 @@ function InterviewRuntimePanel({
       if (audioCompletedResponseId) {
         realtimeAudioCompletedResponseIdsRef.current.add(audioCompletedResponseId);
         const completedMetadata = realtimeSpeechResponseMetadataByIdRef.current.get(audioCompletedResponseId);
-        if (!completedMetadata) return;
+        if (!completedMetadata || !completedMetadata.completed) return;
 
         const sessionId = currentRuntimeSessionIdRef.current;
         if (!isCurrentSpeechPlayback(completedMetadata.playbackId, completedMetadata.questionId, sessionId)) return;
+        if (!realtimeValidatedSpeechResponseIdsRef.current.has(audioCompletedResponseId)) {
+          rejectRealtimeSpeechPlayback(completedMetadata, "transcript 미검증");
+          return;
+        }
         completeRealtimeSpeechPlayback(completedMetadata);
+        return;
+      }
+
+      const createdMetadata = getRealtimeResponseCreatedMetadata(event);
+      if (createdMetadata?.responseId) {
+        const sessionId = currentRuntimeSessionIdRef.current;
+        if (!isCurrentSpeechPlayback(createdMetadata.playbackId, createdMetadata.questionId, sessionId)) return;
+        realtimeSpeechResponseMetadataByIdRef.current.set(createdMetadata.responseId, createdMetadata);
+        return;
+      }
+
+      const outputTranscript = getRealtimeOutputAudioTranscript(event);
+      if (outputTranscript) {
+        const transcriptMetadata = realtimeSpeechResponseMetadataByIdRef.current.get(outputTranscript.responseId);
+        if (!transcriptMetadata) return;
+        const sessionId = currentRuntimeSessionIdRef.current;
+        if (!isCurrentSpeechPlayback(transcriptMetadata.playbackId, transcriptMetadata.questionId, sessionId)) return;
+
+        const expectedText = realtimeExpectedSpeechByPlaybackIdRef.current.get(transcriptMetadata.playbackId);
+        if (!expectedText) {
+          rejectRealtimeSpeechPlayback(transcriptMetadata, "기대 문장 누락");
+          return;
+        }
+        const transcript = outputTranscript.completed
+          ? outputTranscript.text
+          : `${realtimeSpeechTranscriptByResponseIdRef.current.get(outputTranscript.responseId) ?? ""}${outputTranscript.text}`;
+        realtimeSpeechTranscriptByResponseIdRef.current.set(outputTranscript.responseId, transcript);
+        const transcriptMatch = getRealtimeSpeechTranscriptMatch({
+          expectedText,
+          transcript,
+          completed: outputTranscript.completed,
+        });
+        if (transcriptMatch === "mismatch") {
+          rejectRealtimeSpeechPlayback(transcriptMetadata, "출력 transcript 불일치");
+          return;
+        }
+        if (transcriptMatch === "complete") {
+          realtimeValidatedSpeechResponseIdsRef.current.add(outputTranscript.responseId);
+        }
         return;
       }
 
@@ -4344,6 +4458,7 @@ function InterviewRuntimePanel({
 
       const sessionId = currentRuntimeSessionIdRef.current;
       if (!isCurrentSpeechPlayback(metadata.playbackId, metadata.questionId, sessionId)) return;
+      if (metadata.responseId && realtimeRejectedSpeechResponseIdsRef.current.has(metadata.responseId)) return;
       if (shouldRestoreRealtimeMicrophoneAfterSpeechResponse(metadata)) {
         setRealtimeMicrophoneOpen(true);
       }
@@ -4386,6 +4501,11 @@ function InterviewRuntimePanel({
         return;
       }
 
+      if (metadata.responseId && !realtimeValidatedSpeechResponseIdsRef.current.has(metadata.responseId)) {
+        rejectRealtimeSpeechPlayback(metadata, "완료 transcript 미검증");
+        return;
+      }
+
       if (
         (metadata.purpose === "interview_intro"
           || isRealtimeQuestionSpeechPurpose(metadata.purpose)
@@ -4415,7 +4535,7 @@ function InterviewRuntimePanel({
       clearRealtimeSpeechTimeout();
       setQuestionSpeechStatus("Realtime 격려 안내를 재생했습니다.");
     },
-    [appendInterviewerSessionActionEvent, clearRealtimeSpeechTimeout, completeRealtimeSpeechPlayback, isCurrentSpeechPlayback, setRealtimeMicrophoneOpen, speakCurrentQuestion, speakInterviewIntro],
+    [appendInterviewerSessionActionEvent, clearRealtimeSpeechTimeout, completeRealtimeSpeechPlayback, isCurrentSpeechPlayback, rejectRealtimeSpeechPlayback, setRealtimeMicrophoneOpen, speakCurrentQuestion, speakInterviewIntro],
   );
 
   const attachRuntimeVideoRef = useCallback((node: HTMLVideoElement | null) => {
@@ -4980,6 +5100,7 @@ function InterviewRuntimePanel({
       );
       if (!sent) return;
 
+      realtimeExpectedSpeechByPlaybackIdRef.current.set(playbackId, decision.text);
       setActiveInterviewerSpeechText(decision.text);
       setInterviewerSpeechBoundary(undefined);
       setInterviewerSpeechUsesRealtimeAudio(true);
@@ -12791,4 +12912,10 @@ function toErrorMessage(error: unknown): string {
     return error.body?.error.message ?? error.message;
   }
   return error instanceof Error ? error.message : "요청 처리 중 오류가 발생했습니다.";
+}
+
+function isMockInterviewPassRequiredError(error: unknown): boolean {
+  return error instanceof CandidateApiError
+    && error.status === 409
+    && error.body?.error.details.some((detail) => detail.reason === "PASS_REQUIRED") === true;
 }
