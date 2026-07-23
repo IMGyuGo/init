@@ -15,6 +15,7 @@ import {
   isLipSyncAudioAnalysisAvailable,
   resolveLipSyncMouthShape,
   smoothMouthOpenValue,
+  stabilizeMouthShape,
 } from "./LipSyncDriver";
 
 type TestAudioSourceNode = { kind: "stream" | "element" };
@@ -188,6 +189,78 @@ assert.ok(
     > weightedPauseTimeline[0]!.endMs - weightedPauseTimeline[0]!.startMs,
 );
 
+const repeatedOpenTimeline = buildKoreanVisemeTimeline("가가", 1_000);
+assert.deepEqual(
+  repeatedOpenTimeline.map((cue) => ({ mouthShape: cue.mouthShape, isPause: cue.isPause })),
+  [{ mouthShape: "open", isPause: false }],
+);
+assert.equal(repeatedOpenTimeline[0]?.startMs, 0);
+assert.equal(repeatedOpenTimeline[0]?.endMs, 1_000);
+
+const punctuatedOpenTimeline = buildKoreanVisemeTimeline("가,가", 1_000);
+assert.deepEqual(
+  punctuatedOpenTimeline.map((cue) => ({ mouthShape: cue.mouthShape, isPause: cue.isPause })),
+  [
+    { mouthShape: "open", isPause: false },
+    { mouthShape: "rest", isPause: true },
+    { mouthShape: "open", isPause: false },
+  ],
+);
+
+let stabilization = stabilizeMouthShape({
+  previous: { mouthShape: "rest", changedAtMs: 0 },
+  requestedMouthShape: "open",
+  nowMs: 100,
+  voiced: true,
+  forceRest: false,
+});
+assert.equal(stabilization.mouthShape, "open");
+
+stabilization = stabilizeMouthShape({
+  previous: stabilization,
+  requestedMouthShape: "wide",
+  nowMs: 150,
+  voiced: true,
+  forceRest: false,
+});
+assert.equal(stabilization.mouthShape, "open");
+
+stabilization = stabilizeMouthShape({
+  previous: stabilization,
+  requestedMouthShape: "wide",
+  nowMs: 181,
+  voiced: true,
+  forceRest: false,
+});
+assert.equal(stabilization.mouthShape, "wide");
+
+const bufferedSilence = stabilizeMouthShape({
+  previous: stabilization,
+  requestedMouthShape: "rest",
+  nowMs: 220,
+  voiced: false,
+  forceRest: false,
+});
+assert.equal(bufferedSilence.mouthShape, "wide");
+
+const sustainedSilence = stabilizeMouthShape({
+  previous: bufferedSilence,
+  requestedMouthShape: "rest",
+  nowMs: 242,
+  voiced: false,
+  forceRest: false,
+});
+assert.equal(sustainedSilence.mouthShape, "rest");
+
+const explicitPause = stabilizeMouthShape({
+  previous: stabilization,
+  requestedMouthShape: "rest",
+  nowMs: 200,
+  voiced: false,
+  forceRest: true,
+});
+assert.equal(explicitPause.mouthShape, "rest");
+
 const boundaryTimeline = buildKoreanVisemeTimeline("가 나", 1_000);
 const secondWordOffsetMs = getTimelineElapsedMsForCharacterIndex(boundaryTimeline, 2);
 assert.ok(secondWordOffsetMs > 0);
@@ -216,7 +289,7 @@ const expandedHangulCueCount = [...punctuatedQuestion]
   .reduce((total, character) => total + getMouthShapesForKoreanCharacter(character).length, 0);
 
 assert.equal(hangulCount > 0, true);
-assert.equal(punctuatedTimeline.length, expandedHangulCueCount + punctuationCount);
+assert.ok(punctuatedTimeline.length <= expandedHangulCueCount + punctuationCount);
 assert.equal(punctuatedTimeline.at(-1)?.mouthShape, "rest");
 
 assert.equal(resolveLipSyncMouthShape({ speaking: false, reducedMotion: false, rms: 0.12 }), "rest");

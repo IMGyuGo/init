@@ -9,6 +9,7 @@ export type VisemeCue = {
   endMs: number;
   mouthShape: MouthShape;
   sourceCharacterIndex?: number;
+  isPause?: boolean;
 };
 
 export type SpeechBoundaryTiming = {
@@ -50,6 +51,20 @@ export interface ResolveLipSyncMouthShapeInput {
   audioAnalysisAvailable?: boolean;
 }
 
+export type MouthShapeStabilizationState = {
+  mouthShape: MouthShape;
+  changedAtMs: number;
+  lastVoicedAtMs?: number;
+};
+
+export interface StabilizeMouthShapeInput {
+  previous: MouthShapeStabilizationState;
+  requestedMouthShape: MouthShape;
+  nowMs: number;
+  voiced: boolean;
+  forceRest: boolean;
+}
+
 const SILENCE_RMS_THRESHOLD = 0.012;
 const OPEN_RMS_THRESHOLD = 0.07;
 const MAX_RMS_MOUTH_OPEN = 0.12;
@@ -85,6 +100,8 @@ const SIMPLE_VOWEL_CUE_WEIGHT = 1.15;
 const COMPOUND_VOWEL_CUE_WEIGHT = 0.72;
 const FINAL_CONSONANT_CUE_WEIGHT = 0.36;
 const SPEECH_PAUSE_CUE_WEIGHT = 1.65;
+const MIN_MOUTH_SHAPE_HOLD_MS = 80;
+const SILENCE_HANGOVER_MS = 60;
 const mouthOpenValueByShape: Record<MouthShape, number> = {
   rest: 0,
   closed: 0.08,
@@ -115,6 +132,43 @@ export function smoothMouthOpenValue(previous: number, target: number): number {
   const safeTarget = clampMouthOpenValue(target);
   const factor = safeTarget > safePrevious ? MOUTH_OPEN_ATTACK : MOUTH_OPEN_RELEASE;
   return safePrevious + (safeTarget - safePrevious) * factor;
+}
+
+export function stabilizeMouthShape(input: StabilizeMouthShapeInput): MouthShapeStabilizationState {
+  const safeNowMs = Number.isFinite(input.nowMs)
+    ? Math.max(0, input.nowMs)
+    : input.previous.changedAtMs;
+  if (input.forceRest) {
+    return { mouthShape: "rest", changedAtMs: safeNowMs };
+  }
+
+  if (input.voiced) {
+    const canChange = input.previous.mouthShape === "rest"
+      || safeNowMs - input.previous.changedAtMs >= MIN_MOUTH_SHAPE_HOLD_MS;
+    const mouthShape = canChange ? input.requestedMouthShape : input.previous.mouthShape;
+    return {
+      mouthShape,
+      changedAtMs: mouthShape === input.previous.mouthShape
+        ? input.previous.changedAtMs
+        : safeNowMs,
+      lastVoicedAtMs: safeNowMs,
+    };
+  }
+
+  if (
+    input.previous.mouthShape !== "rest"
+    && input.previous.lastVoicedAtMs !== undefined
+    && safeNowMs - input.previous.lastVoicedAtMs < SILENCE_HANGOVER_MS
+  ) {
+    return input.previous;
+  }
+
+  return {
+    mouthShape: "rest",
+    changedAtMs: input.previous.mouthShape === "rest"
+      ? input.previous.changedAtMs
+      : safeNowMs,
+  };
 }
 
 function getHangulIndices(character: string) {
@@ -185,7 +239,12 @@ export function getMouthShapeForRms(rms: number): MouthShape {
 }
 
 export function buildKoreanVisemeTimeline(text: string, durationMs: number): VisemeCue[] {
-  const weightedCues: Array<{ mouthShape: MouthShape; sourceCharacterIndex: number; weight: number }> = [];
+  const weightedCues: Array<{
+    mouthShape: MouthShape;
+    sourceCharacterIndex: number;
+    weight: number;
+    isPause: boolean;
+  }> = [];
   let sourceCharacterIndex = 0;
 
   for (const character of text) {
@@ -195,32 +254,47 @@ export function buildKoreanVisemeTimeline(text: string, durationMs: number): Vis
       const vowelShapes = COMPOUND_VOWEL_MOUTH_SHAPES.get(indices.vowel)
         ?? [getMouthShapeForKoreanVowel(indices.vowel)];
       const hasFinalCue = BILABIAL_FINALS.has(indices.final);
-      const candidates: Array<{ mouthShape: MouthShape; weight: number }> = [];
+      const candidates: Array<{ mouthShape: MouthShape; weight: number; isPause: boolean }> = [];
 
       if (hasInitialCue) {
         candidates.push({
           mouthShape: BILABIAL_INITIALS.has(indices.initial) ? "closed" : "teeth",
           weight: INITIAL_CONSONANT_CUE_WEIGHT,
+          isPause: false,
         });
       }
       candidates.push(...vowelShapes.map((mouthShape) => ({
         mouthShape,
         weight: vowelShapes.length > 1 ? COMPOUND_VOWEL_CUE_WEIGHT : SIMPLE_VOWEL_CUE_WEIGHT,
+        isPause: false,
       })));
       if (hasFinalCue) {
-        candidates.push({ mouthShape: "closed", weight: FINAL_CONSONANT_CUE_WEIGHT });
+        candidates.push({
+          mouthShape: "closed",
+          weight: FINAL_CONSONANT_CUE_WEIGHT,
+          isPause: false,
+        });
       }
 
       for (const candidate of candidates) {
         const previous = weightedCues.at(-1);
-        if (previous?.sourceCharacterIndex === sourceCharacterIndex && previous.mouthShape === candidate.mouthShape) {
+        if (
+          previous?.mouthShape === candidate.mouthShape
+          && previous.isPause === candidate.isPause
+          && sourceCharacterIndex <= previous.sourceCharacterIndex + 1
+        ) {
           previous.weight += candidate.weight;
         } else {
           weightedCues.push({ ...candidate, sourceCharacterIndex });
         }
       }
     } else if (SPEECH_PAUSE_CHARACTERS.has(character)) {
-      weightedCues.push({ mouthShape: "rest", sourceCharacterIndex, weight: SPEECH_PAUSE_CUE_WEIGHT });
+      weightedCues.push({
+        mouthShape: "rest",
+        sourceCharacterIndex,
+        weight: SPEECH_PAUSE_CUE_WEIGHT,
+        isPause: true,
+      });
     }
     sourceCharacterIndex += character.length;
   }
@@ -240,6 +314,7 @@ export function buildKoreanVisemeTimeline(text: string, durationMs: number): Vis
       endMs,
       mouthShape: weightedCue.mouthShape,
       sourceCharacterIndex: weightedCue.sourceCharacterIndex,
+      isPause: weightedCue.isPause,
     };
     startMs = endMs;
     return cue;
@@ -266,9 +341,19 @@ export function getBoundaryAlignedTimelineElapsedMs(
   return Math.min(timelineEndMs, boundaryOffsetMs + safeElapsedSinceBoundaryMs);
 }
 
-function getTimelineMouthShape(timeline: VisemeCue[] | undefined, elapsedMs: number | undefined): MouthShape | undefined {
+function getTimelineCue(
+  timeline: VisemeCue[] | undefined,
+  elapsedMs: number | undefined,
+): VisemeCue | undefined {
   if (!timeline?.length || elapsedMs === undefined) return undefined;
-  return timeline.find((cue) => cue.startMs <= elapsedMs && cue.endMs > elapsedMs)?.mouthShape;
+  return timeline.find((cue) => cue.startMs <= elapsedMs && cue.endMs > elapsedMs);
+}
+
+function getTimelineMouthShape(
+  timeline: VisemeCue[] | undefined,
+  elapsedMs: number | undefined,
+): MouthShape | undefined {
+  return getTimelineCue(timeline, elapsedMs)?.mouthShape;
 }
 
 export function resolveLipSyncMouthShape(input: ResolveLipSyncMouthShapeInput): MouthShape {
@@ -359,6 +444,10 @@ export function useLipSyncDriverState(input: LipSyncDriverInput): LipSyncDriverS
   const [audioAnalysisAvailable, setAudioAnalysisAvailable] = useState<boolean | undefined>(
     input.audioSource || input.audioStream ? undefined : false,
   );
+  const [mouthShapeStabilization, setMouthShapeStabilization] = useState<MouthShapeStabilizationState>({
+    mouthShape: "rest",
+    changedAtMs: 0,
+  });
   const speaking = input.presentationState === "speaking";
   const timeline = useMemo(
     () => buildKoreanVisemeTimeline(
@@ -406,6 +495,7 @@ export function useLipSyncDriverState(input: LipSyncDriverInput): LipSyncDriverS
       setRms(0);
       setMouthOpen(0);
       setElapsedMs(0);
+      setMouthShapeStabilization({ mouthShape: "rest", changedAtMs: performance.now() });
       return;
     }
 
@@ -416,6 +506,7 @@ export function useLipSyncDriverState(input: LipSyncDriverInput): LipSyncDriverS
     lastAudioDrivenFrameAtRef.current = 0;
     boundaryAnchorRef.current = undefined;
     setMouthOpen(0);
+    setMouthShapeStabilization({ mouthShape: "rest", changedAtMs: startTimeRef.current });
   }, [input.audioSource, input.reducedMotion, speaking]);
 
   useEffect(() => {
@@ -550,7 +641,7 @@ export function useLipSyncDriverState(input: LipSyncDriverInput): LipSyncDriverS
     };
   }, [input.audioSource, input.audioStream, timeline]);
 
-  const mouthShape = resolveLipSyncMouthShape({
+  const requestedMouthShape = resolveLipSyncMouthShape({
     speaking,
     reducedMotion: input.reducedMotion,
     rms,
@@ -558,9 +649,30 @@ export function useLipSyncDriverState(input: LipSyncDriverInput): LipSyncDriverS
     elapsedMs,
     audioAnalysisAvailable,
   });
+  const currentTimelineCue = getTimelineCue(timeline, elapsedMs);
+
+  useEffect(() => {
+    setMouthShapeStabilization((previous) => stabilizeMouthShape({
+      previous,
+      requestedMouthShape,
+      nowMs: performance.now(),
+      voiced: audioAnalysisAvailable === true
+        ? rms > SILENCE_RMS_THRESHOLD
+        : audioAnalysisAvailable === false && speaking,
+      forceRest: !speaking || input.reducedMotion || currentTimelineCue?.isPause === true,
+    }));
+  }, [
+    audioAnalysisAvailable,
+    currentTimelineCue?.isPause,
+    elapsedMs,
+    input.reducedMotion,
+    requestedMouthShape,
+    rms,
+    speaking,
+  ]);
 
   return {
-    mouthShape,
+    mouthShape: mouthShapeStabilization.mouthShape,
     mouthOpen: !speaking || input.reducedMotion
       ? 0
       : audioAnalysisAvailable
