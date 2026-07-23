@@ -14,9 +14,12 @@ function readPngDimensions(bytes, path) {
     throw new Error(`${path} is not a valid PNG file`);
   }
 
+  const colorType = bytes[25];
   return {
     width: bytes.readUInt32BE(16),
     height: bytes.readUInt32BE(20),
+    colorType,
+    hasAlpha: colorType === 4 || colorType === 6,
   };
 }
 
