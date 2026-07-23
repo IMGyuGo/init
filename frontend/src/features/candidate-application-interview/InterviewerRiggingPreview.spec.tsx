@@ -50,7 +50,11 @@ assert.doesNotMatch(previewSource, /Cubism|interviewer-cubism/);
 
 const interviewAvatarSource = readFileSync(new URL("./InterviewAvatar.tsx", import.meta.url), "utf8");
 assert.match(interviewAvatarSource, /LocalInterviewerAvatar/);
+assert.match(interviewAvatarSource, /useLipSyncDriverState/);
+assert.match(interviewAvatarSource, /mouthOpen=\{lipSyncState\.mouthOpen\}/);
 assert.doesNotMatch(interviewAvatarSource, /Cubism|interviewer-cubism/);
+
+assert.match(previewSource, /mouthOpen=\{lipSyncState\.mouthOpen\}/);
 
 const lipSyncDriverSource = readFileSync(new URL("./LipSyncDriver.ts", import.meta.url), "utf8");
 assert.doesNotMatch(lipSyncDriverSource, /Cubism|interviewer-cubism/);

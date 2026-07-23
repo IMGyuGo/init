@@ -229,6 +229,7 @@ export function InterviewerAudioLipSyncQa({ reducedMotion }: InterviewerAudioLip
           <LocalInterviewerAvatar
             presentationState={presentationState}
             mouthShape={lipSyncState.mouthShape}
+            mouthOpen={lipSyncState.mouthOpen}
             reducedMotion={reducedMotion}
           />
         </div>
