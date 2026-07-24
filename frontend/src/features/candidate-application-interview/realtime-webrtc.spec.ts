@@ -252,6 +252,11 @@ function testQuestionSpeechResponseEventUsesOpenAiResponseCreate() {
   assert.equal(event.response.metadata.playback_id, "7");
   assert.match(event.response.instructions, /자기소개를 해주세요\./);
   assert.match(event.response.instructions, /exact script/i);
+  assert.match(event.response.instructions, /200ms/);
+  assert.match(event.response.instructions, /110ms/);
+  assert.match(event.response.instructions, /260ms/);
+  assert.match(event.response.instructions, /silent pauses/i);
+  assert.match(event.response.instructions, /say nothing else/i);
   assert.doesNotMatch(event.response.instructions, /\b(?:calm|natural|slower|tone|pace)\b/i);
   assert.deepEqual(event.response.input, []);
 }
@@ -294,6 +299,10 @@ function testIntroSpeechResponseEventContainsOnlyExactScriptInstructions() {
 
   assert.match(event.response.instructions, /안녕하세요\. 지금부터 AI 모의면접을 시작하겠습니다\./);
   assert.match(event.response.instructions, /nothing else/i);
+  assert.match(event.response.instructions, /200ms/);
+  assert.match(event.response.instructions, /110ms/);
+  assert.match(event.response.instructions, /260ms/);
+  assert.match(event.response.instructions, /silent pauses/i);
   assert.doesNotMatch(event.response.instructions, /\b(?:calm|natural|slower|tone|pace)\b/i);
   assert.deepEqual(event.response.input, []);
 }

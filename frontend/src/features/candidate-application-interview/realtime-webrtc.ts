@@ -530,6 +530,7 @@ function getRealtimeInterviewSpeechInstructions(exactScript: string): string {
   return [
     "Speak the exact script between the markers once and say nothing else.",
     "Do not speak the markers. Do not acknowledge, add, omit, paraphrase, explain, or repeat any words.",
+    "Use silent pauses at punctuation without changing the words: about 200ms after a period, exclamation mark, or question mark; about 110ms after a comma, semicolon, or colon; and about 260ms at an ellipsis.",
     "--- BEGIN EXACT SCRIPT ---",
     exactScript,
     "--- END EXACT SCRIPT ---",
