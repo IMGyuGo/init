@@ -46,6 +46,8 @@ assert.match(markup, />설정 저장</);
 assert.match(markup, />기본값으로 초기화</);
 assert.match(markup, /aria-live="polite"/);
 assert.match(markup, /aria-label="최근 입 모양 전환 기록"/);
+assert.match(markup, /OpenAI Realtime 립싱크 튜닝/);
+assert.match(markup, />Realtime 음성 테스트 시작</);
 
 const reducedAudioQaMarkup = renderToStaticMarkup(
   <InterviewerAudioLipSyncQa reducedMotion />,
@@ -61,6 +63,10 @@ assert.doesNotMatch(previewSource, /Cubism|interviewer-cubism/);
 assert.match(previewSource, /InterviewerLipSyncTuningPanel/);
 
 const tuningPanelSource = readFileSync(new URL("./InterviewerLipSyncTuningPanel.tsx", import.meta.url), "utf8");
+assert.match(tuningPanelSource, /createInterviewerPreviewRealtimeSession/);
+assert.match(tuningPanelSource, /audioSource:\s*remoteAudioElement/);
+assert.match(tuningPanelSource, /audioStream:\s*remoteStream/);
+assert.doesNotMatch(tuningPanelSource, /speechSynthesis|SpeechSynthesisUtterance/);
 assert.ok(
   tuningPanelSource.includes("실제 면접 적용 설정으로 저장했습니다."),
   "save status should match the approved tuning copy",

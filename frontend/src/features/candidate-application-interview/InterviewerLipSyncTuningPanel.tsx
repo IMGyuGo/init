@@ -1,12 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createCandidateApiClient } from "./api";
 import { LocalInterviewerAvatar } from "./LocalInterviewerAvatar";
-import {
-  useLipSyncDriverState,
-  type MouthShape,
-  type SpeechBoundaryTiming,
-} from "./LipSyncDriver";
+import { useLipSyncDriverState, type MouthShape } from "./LipSyncDriver";
 import {
   clearLipSyncTuningSettings,
   DEFAULT_LIP_SYNC_TUNING_SETTINGS,
@@ -15,6 +12,11 @@ import {
   saveLipSyncTuningSettings,
   type LipSyncTuningSettings,
 } from "./LipSyncTuning";
+import {
+  RealtimeLipSyncTuningController,
+  type RealtimeLipSyncTuningStatus,
+} from "./RealtimeLipSyncTuningController";
+import { createRealtimeInterviewWebRtcConnection } from "./realtime-webrtc";
 
 export const DEFAULT_LIP_SYNC_TUNING_SPEECH_TEXT =
   "안녕하세요. 지금부터 AI 모의면접을 시작하겠습니다.";
@@ -71,8 +73,6 @@ const tuningFields: readonly TuningField[] = [
   },
 ] as const;
 
-type PlaybackState = "idle" | "playing" | "error" | "unsupported";
-
 type MouthTransition = {
   id: number;
   character: string;
@@ -88,26 +88,34 @@ export function InterviewerLipSyncTuningPanel({
   reducedMotion,
 }: InterviewerLipSyncTuningPanelProps) {
   const previewRootRef = useRef<HTMLDivElement | null>(null);
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
-  const boundarySequenceRef = useRef(0);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const controllerRef = useRef<RealtimeLipSyncTuningController | null>(null);
   const currentCharacterIndexRef = useRef(0);
   const transitionIdRef = useRef(0);
+  const [remoteAudioElement, setRemoteAudioElement] = useState<HTMLAudioElement | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [speechText, setSpeechText] = useState(DEFAULT_LIP_SYNC_TUNING_SPEECH_TEXT);
   const [draft, setDraft] = useState<LipSyncTuningSettings>(
     DEFAULT_LIP_SYNC_TUNING_SETTINGS,
   );
-  const [playbackState, setPlaybackState] = useState<PlaybackState>("idle");
+  const [playbackState, setPlaybackState] = useState<RealtimeLipSyncTuningStatus>("idle");
   const [statusMessage, setStatusMessage] = useState("기본값으로 준비되었습니다.");
-  const [speechBoundary, setSpeechBoundary] = useState<SpeechBoundaryTiming>();
   const [transitions, setTransitions] = useState<MouthTransition[]>([]);
   const playing = playbackState === "playing";
+  const connecting = playbackState === "connecting";
+  const setRemoteAudioNode = useCallback((element: HTMLAudioElement | null) => {
+    remoteAudioRef.current = element;
+    setRemoteAudioElement(element);
+  }, []);
   const lipSyncState = useLipSyncDriverState({
     presentationState: playing ? "speaking" : "idle",
+    audioSource: remoteAudioElement,
+    audioStream: remoteStream,
     speechText,
-    speechBoundary,
     reducedMotion,
     tuning: draft,
   });
+  currentCharacterIndexRef.current = lipSyncState.sourceCharacterIndex ?? 0;
 
   useEffect(() => {
     setDraft(readLipSyncTuningSettings(window.localStorage));
@@ -152,10 +160,8 @@ export function InterviewerLipSyncTuningPanel({
   }, [speechText]);
 
   useEffect(() => () => {
-    if (utteranceRef.current && typeof window !== "undefined") {
-      window.speechSynthesis?.cancel();
-      utteranceRef.current = null;
-    }
+    controllerRef.current?.dispose();
+    controllerRef.current = null;
   }, []);
 
   function updateDraft(key: keyof LipSyncTuningSettings, value: number) {
@@ -165,73 +171,35 @@ export function InterviewerLipSyncTuningPanel({
     }));
   }
 
-  function stopSpeech(message = "음성 테스트를 중지했습니다.") {
-    if (typeof window !== "undefined") window.speechSynthesis?.cancel();
-    utteranceRef.current = null;
-    setPlaybackState("idle");
-    setSpeechBoundary(undefined);
-    setStatusMessage(message);
-  }
-
   function playSpeech() {
-    if (
-      typeof window === "undefined"
-      || !("speechSynthesis" in window)
-      || typeof SpeechSynthesisUtterance === "undefined"
-    ) {
-      setPlaybackState("unsupported");
-      setStatusMessage("이 브라우저는 음성 합성을 지원하지 않습니다.");
-      return;
-    }
-
-    const trimmedSpeechText = speechText.trim();
-    if (!trimmedSpeechText) {
+    const audioElement = remoteAudioRef.current;
+    if (!audioElement) {
       setPlaybackState("error");
-      setStatusMessage("테스트 문장을 입력해주세요.");
+      setStatusMessage("Realtime 오디오 출력을 준비하지 못했습니다.");
       return;
     }
 
-    window.speechSynthesis.cancel();
-    boundarySequenceRef.current = 0;
     currentCharacterIndexRef.current = 0;
-    setSpeechBoundary(undefined);
     setTransitions([]);
-
-    const utterance = new SpeechSynthesisUtterance(trimmedSpeechText);
-    utterance.lang = "ko-KR";
-    utterance.rate = 0.9;
-    utterance.pitch = 1;
-    utterance.voice = window.speechSynthesis
-      .getVoices()
-      .find((voice) => voice.lang.toLowerCase().startsWith("ko")) ?? null;
-    utterance.onboundary = (event) => {
-      boundarySequenceRef.current += 1;
-      currentCharacterIndexRef.current = event.charIndex;
-      setSpeechBoundary({
-        sequence: boundarySequenceRef.current,
-        characterIndex: event.charIndex,
-        elapsedMs: event.elapsedTime * 1000,
+    if (!controllerRef.current) {
+      const apiClient = createCandidateApiClient();
+      controllerRef.current = new RealtimeLipSyncTuningController({
+        createSession: async () => (
+          await apiClient.createInterviewerPreviewRealtimeSession({
+            mode: "realtime-voice",
+            transport: "webrtc",
+          })
+        ).data,
+        connect: createRealtimeInterviewWebRtcConnection,
+        remoteAudioElement: audioElement,
+        onSnapshot: (snapshot) => {
+          setPlaybackState(snapshot.status);
+          setStatusMessage(snapshot.message);
+          setRemoteStream(snapshot.remoteStream);
+        },
       });
-    };
-    utterance.onstart = () => {
-      setPlaybackState("playing");
-      setStatusMessage("음성과 입 모양을 재생하고 있습니다.");
-    };
-    utterance.onend = () => {
-      utteranceRef.current = null;
-      setPlaybackState("idle");
-      setSpeechBoundary(undefined);
-      setStatusMessage("음성 테스트가 끝났습니다.");
-    };
-    utterance.onerror = () => {
-      utteranceRef.current = null;
-      setPlaybackState("error");
-      setSpeechBoundary(undefined);
-      setStatusMessage("음성 테스트를 재생하지 못했습니다.");
-    };
-
-    utteranceRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
+    }
+    void controllerRef.current.play(speechText);
   }
 
   function saveDraft() {
@@ -259,9 +227,15 @@ export function InterviewerLipSyncTuningPanel({
       className="interviewer-rigging-preview__tuning-panel"
       data-lip-sync-tuning-panel="true"
     >
+      <audio
+        aria-label="OpenAI Realtime 튜닝 음성"
+        autoPlay
+        hidden
+        ref={setRemoteAudioNode}
+      />
       <div className="interviewer-rigging-preview__tuning-controls">
         <div>
-          <strong>브라우저 음성 립싱크 튜닝</strong>
+          <strong>OpenAI Realtime 립싱크 튜닝</strong>
           <p>슬라이더를 조정한 뒤 같은 문장을 반복 재생해 비교하세요.</p>
         </div>
 
@@ -275,8 +249,16 @@ export function InterviewerLipSyncTuningPanel({
         </label>
 
         <div className="interviewer-rigging-preview__speech-actions">
-          <button type="button" onClick={playing ? () => stopSpeech() : playSpeech}>
-            {playing ? "음성 테스트 중지" : "음성 테스트 시작"}
+          <button
+            disabled={connecting}
+            type="button"
+            onClick={playing ? () => controllerRef.current?.stop() : playSpeech}
+          >
+            {playing
+              ? "Realtime 음성 테스트 중지"
+              : connecting
+                ? "Realtime 연결 중..."
+                : "Realtime 음성 테스트 시작"}
           </button>
           <span aria-live="polite" className="interviewer-rigging-preview__tuning-status">
             {statusMessage}
