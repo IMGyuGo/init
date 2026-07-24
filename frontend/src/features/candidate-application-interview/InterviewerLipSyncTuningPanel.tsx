@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { getApiBaseUrl } from "../../api/api-base-url";
 import { createCandidateApiClient } from "./api";
 import { LocalInterviewerAvatar } from "./LocalInterviewerAvatar";
@@ -116,7 +116,7 @@ export function InterviewerLipSyncTuningPanel({
     reducedMotion,
     tuning: draft,
   });
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (lipSyncState.sourceCharacterIndex !== undefined) {
       currentCharacterIndexRef.current = lipSyncState.sourceCharacterIndex;
     }
