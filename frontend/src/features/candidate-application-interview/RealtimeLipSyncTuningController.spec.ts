@@ -98,6 +98,24 @@ function createFakeAudioElement() {
   return { srcObject: null } as unknown as HTMLAudioElement;
 }
 
+function createDeferred<T>() {
+  let resolve: ((value: T) => void) | undefined;
+  let reject: ((reason?: unknown) => void) | undefined;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return {
+    promise,
+    resolve(value: T) {
+      resolve?.(value);
+    },
+    reject(reason?: unknown) {
+      reject?.(reason);
+    },
+  };
+}
+
 async function testReusesOneHealthyConnectionPerPage() {
   let sessionRequests = 0;
   const connectInputs: CreateRealtimeInterviewWebRtcConnectionInput[] = [];
@@ -200,6 +218,33 @@ async function testStopIgnoresLateCancelledProviderEvents() {
   assert.equal(snapshots.at(-1)?.message, "Realtime 음성 테스트를 중지했습니다.");
 }
 
+async function testStopBeforeResponseCreatedCancelsActiveProviderResponse() {
+  const snapshots: RealtimeLipSyncTuningSnapshot[] = [];
+  const fake = createFakeConnection();
+  const controller = new RealtimeLipSyncTuningController({
+    createSession: async () => previewSession(),
+    connect: async () => fake.connection,
+    remoteAudioElement: createFakeAudioElement(),
+    onSnapshot: (snapshot) => snapshots.push(snapshot),
+    now: () => NOW,
+  });
+
+  await controller.play("안녕하세요.");
+  controller.stop();
+
+  assert.deepEqual(
+    fake.sentEvents.map((event) => event.type),
+    ["response.create", "response.cancel", "output_audio_buffer.clear"],
+  );
+  assert.equal("response_id" in fake.sentEvents[1]!, false);
+  assert.equal(snapshots.at(-1)?.status, "idle");
+
+  controller.handleEvent(responseCreated("response-too-late", "1"));
+  controller.handleEvent(audioStopped("response-too-late"));
+  assert.equal(snapshots.at(-1)?.status, "idle");
+  assert.equal(snapshots.at(-1)?.activeResponseId, undefined);
+}
+
 async function testFailedConnectionReportsErrorAndCanRetry() {
   let attempts = 0;
   const snapshots: RealtimeLipSyncTuningSnapshot[] = [];
@@ -224,6 +269,105 @@ async function testFailedConnectionReportsErrorAndCanRetry() {
   assert.equal(attempts, 2);
   assert.equal(snapshots.at(-1)?.status, "playing");
   assert.equal(fake.sentEvents.filter((event) => event.type === "response.create").length, 1);
+}
+
+async function testConcurrentPlayCallsShareOneDeferredConnection() {
+  let sessionRequests = 0;
+  let connectCalls = 0;
+  const sessionDeferred = createDeferred<RealtimePreviewSessionResponse>();
+  const connectionDeferred = createDeferred<RealtimeInterviewWebRtcConnection>();
+  const snapshots: RealtimeLipSyncTuningSnapshot[] = [];
+  const fake = createFakeConnection();
+  const controller = new RealtimeLipSyncTuningController({
+    createSession: async () => {
+      sessionRequests += 1;
+      return sessionDeferred.promise;
+    },
+    connect: async () => {
+      connectCalls += 1;
+      return connectionDeferred.promise;
+    },
+    remoteAudioElement: createFakeAudioElement(),
+    onSnapshot: (snapshot) => snapshots.push(snapshot),
+    now: () => NOW,
+  });
+
+  const firstPlay = controller.play("첫 번째 문장");
+  const secondPlay = controller.play("두 번째 문장");
+  sessionDeferred.resolve(previewSession());
+  await Promise.resolve();
+  await Promise.resolve();
+  connectionDeferred.resolve(fake.connection);
+  await Promise.all([firstPlay, secondPlay]);
+
+  assert.equal(sessionRequests, 1);
+  assert.equal(connectCalls, 1);
+  assert.deepEqual(
+    fake.sentEvents.map((event) => event.type),
+    [
+      "response.create",
+      "response.cancel",
+      "output_audio_buffer.clear",
+      "response.create",
+    ],
+  );
+  assert.equal("response_id" in fake.sentEvents[1]!, false);
+  assert.equal(
+    fake.sentEvents.filter((event) => event.type === "response.create").length,
+    2,
+  );
+  assert.equal(snapshots.at(-1)?.playbackId, 2);
+  assert.equal(snapshots.at(-1)?.status, "playing");
+  assert.equal(fake.closeCount, 0);
+}
+
+async function testStaleFailedOpenerCannotOverrideOrCloseRecoveryConnection() {
+  let sessionRequests = 0;
+  let connectCalls = 0;
+  const firstConnection = createDeferred<RealtimeInterviewWebRtcConnection>();
+  const recoveryConnection = createDeferred<RealtimeInterviewWebRtcConnection>();
+  const recoveryFake = createFakeConnection();
+  const snapshots: RealtimeLipSyncTuningSnapshot[] = [];
+  let recoveryPlay: Promise<void> | undefined;
+  let controller: RealtimeLipSyncTuningController;
+  controller = new RealtimeLipSyncTuningController({
+    createSession: async () => {
+      sessionRequests += 1;
+      return previewSession();
+    },
+    connect: async () => {
+      connectCalls += 1;
+      return connectCalls === 1 ? firstConnection.promise : recoveryConnection.promise;
+    },
+    remoteAudioElement: createFakeAudioElement(),
+    onSnapshot: (snapshot) => {
+      snapshots.push(snapshot);
+      if (snapshot.status === "error" && !recoveryPlay) {
+        recoveryPlay = controller.play("복구 문장");
+      }
+    },
+    now: () => NOW,
+  });
+
+  const firstPlay = controller.play("실패할 첫 문장");
+  const sharedPlay = controller.play("같은 연결을 기다리는 문장");
+  await Promise.resolve();
+  await Promise.resolve();
+  firstConnection.reject(new Error("offer failed"));
+  await Promise.all([firstPlay, sharedPlay]);
+
+  assert.equal(sessionRequests, 2);
+  assert.equal(connectCalls, 2);
+  assert.equal(snapshots.at(-1)?.status, "connecting");
+
+  recoveryConnection.resolve(recoveryFake.connection);
+  await recoveryPlay;
+  assert.equal(recoveryFake.closeCount, 0);
+  assert.equal(
+    recoveryFake.sentEvents.filter((event) => event.type === "response.create").length,
+    1,
+  );
+  assert.equal(snapshots.at(-1)?.status, "playing");
 }
 
 async function testConnectionCallbacksPublishRemoteStreamAndCloseBrokenConnection() {
@@ -252,7 +396,7 @@ async function testConnectionCallbacksPublishRemoteStreamAndCloseBrokenConnectio
   assert.equal(snapshots.at(-1)?.remoteStream, null);
 }
 
-async function testRefreshesCredentialsWithinFiveSecondsOfExpiry() {
+async function testRefreshesCredentialsAtInclusiveFiveSecondExpiryBoundary() {
   let currentNow = NOW;
   let sessionRequests = 0;
   const fakes = [createFakeConnection(), createFakeConnection()];
@@ -270,7 +414,7 @@ async function testRefreshesCredentialsWithinFiveSecondsOfExpiry() {
   await controller.play("첫 문장");
   controller.handleEvent(responseCreated("response-expiring", "1"));
   controller.handleEvent(audioStopped("response-expiring"));
-  currentNow += 1_001;
+  currentNow += 1_000;
   await controller.play("두 번째 문장");
 
   assert.equal(sessionRequests, 2);
@@ -392,19 +536,57 @@ async function testDisposeDuringConnectionDoesNotPublishAfterCleanup() {
   assert.equal(snapshots.length, snapshotCountAfterDispose);
 }
 
+async function testDisposeDuringSessionRequestDoesNotStartConnection() {
+  const snapshots: RealtimeLipSyncTuningSnapshot[] = [];
+  const audioElement = createFakeAudioElement();
+  const fake = createFakeConnection();
+  let connectCalls = 0;
+  let resolveSession: ((session: RealtimePreviewSessionResponse) => void) | undefined;
+  const pendingSession = new Promise<RealtimePreviewSessionResponse>((resolve) => {
+    resolveSession = resolve;
+  });
+  const controller = new RealtimeLipSyncTuningController({
+    createSession: async () => pendingSession,
+    connect: async () => {
+      connectCalls += 1;
+      audioElement.srcObject = {} as MediaStream;
+      return fake.connection;
+    },
+    remoteAudioElement: audioElement,
+    onSnapshot: (snapshot) => snapshots.push(snapshot),
+    now: () => NOW,
+  });
+
+  const playPromise = controller.play("안녕하세요.");
+  await Promise.resolve();
+  controller.dispose();
+  const snapshotCountAfterDispose = snapshots.length;
+  resolveSession?.(previewSession());
+  await playPromise;
+
+  assert.equal(connectCalls, 0);
+  assert.equal(fake.closeCount, 0);
+  assert.equal(audioElement.srcObject, null);
+  assert.equal(snapshots.length, snapshotCountAfterDispose);
+}
+
 async function main() {
   await testReusesOneHealthyConnectionPerPage();
   await testEmptyTextDoesNotConnectOrSend();
   await testStopCancelsResponseAndClearsAudioBuffer();
   await testStopIgnoresLateCancelledProviderEvents();
+  await testStopBeforeResponseCreatedCancelsActiveProviderResponse();
   await testFailedConnectionReportsErrorAndCanRetry();
+  await testConcurrentPlayCallsShareOneDeferredConnection();
+  await testStaleFailedOpenerCannotOverrideOrCloseRecoveryConnection();
   await testConnectionCallbacksPublishRemoteStreamAndCloseBrokenConnection();
-  await testRefreshesCredentialsWithinFiveSecondsOfExpiry();
+  await testRefreshesCredentialsAtInclusiveFiveSecondExpiryBoundary();
   await testProviderFailureDoesNotReportSuccessfulPlayback();
   await testOnlyMatchingAudioStoppedEventCompletesPlayback();
   await testCompletedTranscriptMismatchStopsWithExactScriptError();
   await testDisposeClosesConnectionAndDetachesAudio();
   await testDisposeDuringConnectionDoesNotPublishAfterCleanup();
+  await testDisposeDuringSessionRequestDoesNotStartConnection();
   console.log("RealtimeLipSyncTuningController.spec.ts: all assertions passed");
 }
 

@@ -47,6 +47,7 @@ export class RealtimeLipSyncTuningController {
   private status: RealtimeLipSyncTuningStatus = "idle";
   private message = "OpenAI Realtime 음성 테스트를 준비했습니다.";
   private connectionGeneration = 0;
+  private connectionAttempt: Promise<void> | null = null;
   private failedConnectionGeneration: number | undefined;
   private disposed = false;
 
@@ -60,16 +61,16 @@ export class RealtimeLipSyncTuningController {
       return;
     }
     if (!this.isConnectionHealthy() || this.credentialsExpireSoon()) {
-      this.closeConnection();
-    }
-
-    if (!this.connection) {
       this.publish("connecting", "OpenAI Realtime 연결을 준비하고 있습니다.");
+      const connectionAttempt = this.ensureConnection();
       try {
-        await this.openConnection();
+        await connectionAttempt;
       } catch {
-        this.closeConnection();
         if (this.disposed) return;
+        if (
+          this.isConnectionHealthy()
+          || (this.connectionAttempt && this.connectionAttempt !== connectionAttempt)
+        ) return;
         this.publish("error", "OpenAI Realtime 연결에 실패했습니다.");
         return;
       }
@@ -152,13 +153,32 @@ export class RealtimeLipSyncTuningController {
     this.dependencies.remoteAudioElement.srcObject = null;
   }
 
-  private async openConnection(): Promise<void> {
+  private ensureConnection(): Promise<void> {
+    if (this.isConnectionHealthy() && !this.credentialsExpireSoon()) {
+      return Promise.resolve();
+    }
+    if (this.connectionAttempt) return this.connectionAttempt;
+
+    this.closeConnection();
+    const generation = ++this.connectionGeneration;
+    const attempt = this.openConnection(generation).finally(() => {
+      if (this.connectionAttempt === attempt) {
+        this.connectionAttempt = null;
+      }
+    });
+    this.connectionAttempt = attempt;
+    return attempt;
+  }
+
+  private async openConnection(generation: number): Promise<void> {
     const session = await this.dependencies.createSession();
+    if (this.disposed || generation !== this.connectionGeneration) {
+      throw new Error("Realtime preview session request became stale.");
+    }
     if (this.credentialsExpireSoon(session)) {
       throw new Error("Realtime preview credentials expire too soon.");
     }
 
-    const generation = ++this.connectionGeneration;
     this.failedConnectionGeneration = undefined;
     const connection = await this.dependencies.connect({
       session,
@@ -241,8 +261,17 @@ export class RealtimeLipSyncTuningController {
   }
 
   private cancelActiveResponse(): void {
-    if (this.activeResponseId) {
+    if (this.playbackActive && this.activeResponseId) {
       cancelRealtimeSpeechResponse(this.connection, this.activeResponseId);
+    } else if (this.playbackActive && this.connection?.dataChannel.readyState === "open") {
+      this.connection.dataChannel.send(JSON.stringify({
+        type: "response.cancel",
+        event_id: `lip_sync_tuning_response_cancel_active_${this.playbackId}`,
+      }));
+      sendRealtimeClientEvent(this.connection, {
+        type: "output_audio_buffer.clear",
+        event_id: `lip_sync_tuning_output_audio_clear_active_${this.playbackId}`,
+      });
     }
     this.clearActiveResponse();
   }
