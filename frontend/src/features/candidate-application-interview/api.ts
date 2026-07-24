@@ -546,11 +546,8 @@ export interface CreateRealtimeInterviewSessionRequest {
   transport?: "webrtc";
 }
 
-export interface RealtimeInterviewSessionResponse {
+export interface RealtimeSessionCredentials {
   accepted: true;
-  sessionId: number;
-  applicationId?: number;
-  interviewType: InterviewType;
   mode: "realtime-voice";
   provider: "mock" | "openai";
   model: string;
@@ -561,6 +558,16 @@ export interface RealtimeInterviewSessionResponse {
   expiresAt: string;
   endpoint: string;
 }
+
+export interface RealtimeInterviewSessionResponse extends RealtimeSessionCredentials {
+  sessionId: number;
+  applicationId?: number;
+  interviewType: InterviewType;
+}
+
+export type RealtimePreviewSessionResponse = RealtimeSessionCredentials & {
+  provider: "openai";
+};
 
 export interface AiJobStatusResponse {
   processLogId: number;
@@ -946,6 +953,7 @@ export const candidateApiPaths = {
   mockComplete: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/complete`,
   mockStt: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/stt`,
   mockRealtimeSession: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/realtime-session`,
+  interviewerPreviewRealtimeSession: "/api/v1/interviewer-preview/realtime-session",
   mockFollowUpQuestion: (sessionId: number) => `/api/v1/candidate/mock-interviews/${sessionId}/follow-up-question`,
   mockReports: "/api/v1/candidate/mock-interview/reports",
   mockHistory: "/api/v1/candidate/mock-interviews/history",
@@ -1045,6 +1053,9 @@ export interface CandidateApiClient {
     sessionId: number,
     body: CreateRealtimeInterviewSessionRequest,
   ): Promise<ApiResponse<RealtimeInterviewSessionResponse>>;
+  createInterviewerPreviewRealtimeSession(
+    body: CreateRealtimeInterviewSessionRequest,
+  ): Promise<ApiResponse<RealtimePreviewSessionResponse>>;
   requestMockFollowUpQuestion(
     sessionId: number,
     body: AiInterviewRequest,
@@ -1228,6 +1239,11 @@ export function createCandidateApiClient(options: CandidateApiClientOptions = {}
       }),
     createMockRealtimeSession: (sessionId, body) =>
       request<ApiResponse<RealtimeInterviewSessionResponse>>(candidateApiPaths.mockRealtimeSession(sessionId), {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    createInterviewerPreviewRealtimeSession: (body) =>
+      request<ApiResponse<RealtimePreviewSessionResponse>>(candidateApiPaths.interviewerPreviewRealtimeSession, {
         method: "POST",
         body: JSON.stringify(body),
       }),

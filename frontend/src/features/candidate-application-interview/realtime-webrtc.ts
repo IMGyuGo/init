@@ -1,4 +1,4 @@
-import type { RealtimeInterviewSessionResponse } from "./api";
+import type { RealtimeSessionCredentials } from "./api";
 
 const DEFAULT_REALTIME_CONNECTION_READY_TIMEOUT_MS = 10000;
 
@@ -17,6 +17,7 @@ export interface RealtimePeerConnectionLike {
   onconnectionstatechange: RTCPeerConnection["onconnectionstatechange"];
   ontrack: ((event: RTCTrackEvent) => unknown) | null;
   addTrack(track: MediaStreamTrack, stream: MediaStream): RTCRtpSender;
+  addTransceiver(trackOrKind: string, init?: RTCRtpTransceiverInit): RTCRtpTransceiver;
   createDataChannel(label: string): RealtimeDataChannelLike;
   createOffer(): Promise<RTCSessionDescriptionInit>;
   setLocalDescription(description: RTCSessionDescriptionInit): Promise<void>;
@@ -25,8 +26,8 @@ export interface RealtimePeerConnectionLike {
 }
 
 export interface CreateRealtimeInterviewWebRtcConnectionInput {
-  session: RealtimeInterviewSessionResponse;
-  localStream: MediaStream;
+  session: RealtimeSessionCredentials;
+  localStream?: MediaStream | null;
   fetcher?: typeof fetch;
   peerConnectionFactory?: () => RealtimePeerConnectionLike;
   remoteAudioElement?: HTMLAudioElement | null;
@@ -60,7 +61,8 @@ export type RealtimeInterviewSpeechPurpose =
   | "interview_intro"
   | "interview_question"
   | "interview_follow_up_question"
-  | "interview_encouragement";
+  | "interview_encouragement"
+  | "lip_sync_tuning";
 
 export interface RealtimeInterviewSpeechResponseEvent {
   type: "response.create";
@@ -334,15 +336,19 @@ export async function createRealtimeInterviewWebRtcConnection({
     throw new Error("Realtime WebRTC connection requires WebRTC transport.");
   }
 
-  const sourceAudioTracks = localStream.getAudioTracks().filter((track) => track.readyState === "live");
-  if (sourceAudioTracks.length === 0) {
+  const sourceAudioTracks = localStream
+    ? localStream.getAudioTracks().filter((track) => track.readyState === "live")
+    : [];
+  if (localStream && sourceAudioTracks.length === 0) {
     throw new Error("Realtime WebRTC connection requires a live microphone track.");
   }
   const realtimeAudioTracks = sourceAudioTracks.map((track) => track.clone());
   realtimeAudioTracks.forEach((track) => {
     track.enabled = false;
   });
-  const realtimeAudioStream = createRealtimeAudioStream(localStream, realtimeAudioTracks);
+  const realtimeAudioStream = localStream
+    ? createRealtimeAudioStream(localStream, realtimeAudioTracks)
+    : null;
 
   const peerConnection = peerConnectionFactory();
   const dataChannel = peerConnection.createDataChannel("oai-events");
@@ -451,9 +457,13 @@ export async function createRealtimeInterviewWebRtcConnection({
   };
 
   try {
-    realtimeAudioTracks.forEach((track) => {
-      peerConnection.addTrack(track, realtimeAudioStream);
-    });
+    if (realtimeAudioStream) {
+      realtimeAudioTracks.forEach((track) => {
+        peerConnection.addTrack(track, realtimeAudioStream);
+      });
+    } else {
+      peerConnection.addTransceiver("audio", { direction: "recvonly" });
+    }
 
     const offer = await peerConnection.createOffer();
     if (!offer.sdp) {
@@ -530,6 +540,7 @@ function getRealtimeInterviewSpeechInstructions(exactScript: string): string {
   return [
     "Speak the exact script between the markers once and say nothing else.",
     "Do not speak the markers. Do not acknowledge, add, omit, paraphrase, explain, or repeat any words.",
+    "Use silent pauses at punctuation without changing the words: about 200ms after a period, exclamation mark, or question mark; about 110ms after a comma, semicolon, or colon; and about 260ms at an ellipsis.",
     "--- BEGIN EXACT SCRIPT ---",
     exactScript,
     "--- END EXACT SCRIPT ---",
@@ -548,7 +559,8 @@ function isRealtimeInterviewSpeechPurpose(value: unknown): value is RealtimeInte
     value === "interview_intro" ||
     value === "interview_question" ||
     value === "interview_follow_up_question" ||
-    value === "interview_encouragement"
+    value === "interview_encouragement" ||
+    value === "lip_sync_tuning"
   );
 }
 

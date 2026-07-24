@@ -19,6 +19,7 @@ import { InMemoryAiJobQueuePublisher } from "../../report/service/ai-job-queue.p
 import { UpdateMockSessionTitleDto } from "../dto/update-mock-session-title.dto";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
+import { PublicInterviewService } from "../public/public-interview.service";
 
 type InterviewControllerRoute =
   | "startMockInterview"
@@ -104,6 +105,39 @@ assertRoute("completeRecruitingInterview", interviewApiRoutes.recruitingComplete
 assertRoute("requestRecruitingStt", interviewApiRoutes.recruitingStt, RequestMethod.POST);
 assertRoute("requestRecruitingFollowUpQuestion", interviewApiRoutes.recruitingFollowUpQuestion, RequestMethod.POST);
 assertRoute("createRecruitingRealtimeSession", interviewApiRoutes.recruitingRealtimeSession, RequestMethod.POST);
+
+test("public realtime session delegates to recruiting session creation", async () => {
+  const calls: unknown[][] = [];
+  const delegatedResult = { data: { provider: "openai", interviewType: "RECRUITING" }, meta: {} };
+  const service = new PublicInterviewService(
+    {} as never,
+    {} as never,
+    {} as never,
+    {
+      async createRecruitingRealtimeSession(...args: unknown[]) {
+        calls.push(args);
+        return delegatedResult;
+      },
+    } as never,
+  );
+  const access = {
+    tokenType: "PUBLIC_INTERVIEW" as const,
+    applicationId: 44,
+    sessionId: 55,
+    candidateId: 66,
+    userId: 77,
+  };
+  const dto = { mode: "realtime-voice" as const, transport: "webrtc" as const };
+
+  const result = await service.createRealtimeSession(55, dto, access);
+
+  assert.equal(result, delegatedResult);
+  assert.deepEqual(calls, [[55, dto, {
+    userId: 77,
+    userType: "CANDIDATE",
+    candidateId: 66,
+  }]]);
+});
 
 test("mock STT handoff includes answer duration for worker usage tracking", async () => {
   const repository = new InMemoryCandidateRepository();
@@ -500,10 +534,12 @@ test("openai realtime session reads client supplied speech events without automa
   const originalApiKey = process.env.OPENAI_API_KEY;
   const originalFetch = globalThis.fetch;
   const requestBodies: string[] = [];
+  const requestHeaders: HeadersInit[] = [];
   process.env.AI_INTERVIEWER_REALTIME_PROVIDER = "openai";
   process.env.OPENAI_API_KEY = "test-openai-key";
   globalThis.fetch = (async (_input, init) => {
     requestBodies.push(String(init?.body ?? ""));
+    requestHeaders.push(init?.headers ?? {});
     return new Response(JSON.stringify({ value: "ephemeral-client-secret", expires_at: 1783300000 }), { status: 200 });
   }) as typeof fetch;
 
@@ -541,6 +577,11 @@ test("openai realtime session reads client supplied speech events without automa
     };
 
     assert.equal(realtime.data.provider, "openai");
+    assert.deepEqual(requestHeaders[0], {
+      Authorization: "Bearer test-openai-key",
+      "Content-Type": "application/json",
+      "OpenAI-Safety-Identifier": `candidate-${DEV_CANDIDATE_USER.candidateId}`,
+    });
     assert.match(body.session?.instructions ?? "", /Read the provided Korean interview question exactly once/i);
     assert.match(body.session?.instructions ?? "", /backend-generated follow-up question exactly once/i);
     assert.match(body.session?.instructions ?? "", /Do not generate realtime follow-up questions/i);

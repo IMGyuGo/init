@@ -35,6 +35,19 @@ assert.match(markup, /data-audio-qa-renderer="png"/);
 assert.match(markup, /aria-label="로컬 RMS QA 음원"/);
 assert.match(markup, /controls=""/);
 assert.match(markup, />로컬 음원 재생</);
+assert.ok(markup.includes('data-lip-sync-tuning-panel="true"'), "tuning panel should render");
+assert.match(markup, /안녕하세요\. 지금부터 AI 모의면접을 시작하겠습니다\./);
+assert.match(markup, /입 모양 시간차/);
+assert.match(markup, /최소 입 모양 유지/);
+assert.match(markup, /무음 여운/);
+assert.match(markup, /큰 입 전환 기준/);
+assert.match(markup, /작은 입 복귀 기준/);
+assert.match(markup, />설정 저장</);
+assert.match(markup, />기본값으로 초기화</);
+assert.match(markup, /aria-live="polite"/);
+assert.match(markup, /aria-label="최근 입 모양 전환 기록"/);
+assert.match(markup, /OpenAI Realtime 립싱크 튜닝/);
+assert.match(markup, />Realtime 음성 테스트 시작</);
 
 const reducedAudioQaMarkup = renderToStaticMarkup(
   <InterviewerAudioLipSyncQa reducedMotion />,
@@ -47,10 +60,64 @@ assert.match(previewRouteSource, /CandidatePages\.module\.css/);
 
 const previewSource = readFileSync(new URL("./InterviewerRiggingPreview.tsx", import.meta.url), "utf8");
 assert.doesNotMatch(previewSource, /Cubism|interviewer-cubism/);
+assert.match(previewSource, /InterviewerLipSyncTuningPanel/);
+
+const tuningPanelSource = readFileSync(new URL("./InterviewerLipSyncTuningPanel.tsx", import.meta.url), "utf8");
+assert.match(tuningPanelSource, /createInterviewerPreviewRealtimeSession/);
+assert.match(
+  tuningPanelSource,
+  /import \{ getApiBaseUrl \} from "\.\.\/\.\.\/api\/api-base-url";/,
+  "the tuning panel should use the configured backend API origin",
+);
+assert.match(
+  tuningPanelSource,
+  /createCandidateApiClient\(\{\s*baseUrl: getApiBaseUrl\(\),?\s*\}\)/,
+  "the preview credential client should target the backend instead of the Next.js origin",
+);
+assert.doesNotMatch(
+  tuningPanelSource,
+  /createCandidateApiClient\(\s*\)/,
+  "the tuning panel must not fall back to same-origin Candidate API requests",
+);
+assert.match(tuningPanelSource, /audioSource:\s*remoteAudioElement/);
+assert.match(tuningPanelSource, /audioStream:\s*remoteStream/);
+assert.doesNotMatch(tuningPanelSource, /speechSynthesis|SpeechSynthesisUtterance/);
+assert.match(
+  tuningPanelSource,
+  /useLayoutEffect\(\(\) => \{\s*if \(lipSyncState\.sourceCharacterIndex !== undefined\) \{\s*currentCharacterIndexRef\.current = lipSyncState\.sourceCharacterIndex;\s*\}\s*\}, \[lipSyncState\.sourceCharacterIndex\]\);/,
+  "the tuning history should update its character ref before mutation observers run",
+);
+assert.doesNotMatch(tuningPanelSource, /sourceCharacterIndex \?\? 0/);
+assert.ok(
+  tuningPanelSource.includes("실제 면접 적용 설정으로 저장했습니다."),
+  "save status should match the approved tuning copy",
+);
+assert.doesNotMatch(
+  tuningPanelSource,
+  /catch \{\s*setDraft\(DEFAULT_LIP_SYNC_TUNING_SETTINGS\)/,
+  "a storage reset failure should leave the draft unchanged",
+);
 
 const interviewAvatarSource = readFileSync(new URL("./InterviewAvatar.tsx", import.meta.url), "utf8");
 assert.match(interviewAvatarSource, /LocalInterviewerAvatar/);
+assert.match(interviewAvatarSource, /useLipSyncDriverState/);
+assert.match(interviewAvatarSource, /mouthOpen=\{lipSyncState\.mouthOpen\}/);
+assert.ok(
+  interviewAvatarSource.includes("useStoredLipSyncTuningSettings"),
+  "actual interview should read saved lip-sync tuning",
+);
+assert.match(interviewAvatarSource, /tuning:\s*lipSyncTuning/);
+assert.match(
+  interviewAvatarSource,
+  /fullOpenEnterThreshold=\{lipSyncTuning\.fullOpenEnterThreshold\}/,
+);
+assert.match(
+  interviewAvatarSource,
+  /fullOpenExitThreshold=\{lipSyncTuning\.fullOpenExitThreshold\}/,
+);
 assert.doesNotMatch(interviewAvatarSource, /Cubism|interviewer-cubism/);
+
+assert.match(previewSource, /mouthOpen=\{lipSyncState\.mouthOpen\}/);
 
 const lipSyncDriverSource = readFileSync(new URL("./LipSyncDriver.ts", import.meta.url), "utf8");
 assert.doesNotMatch(lipSyncDriverSource, /Cubism|interviewer-cubism/);

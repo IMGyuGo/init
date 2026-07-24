@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { LocalInterviewerAvatar, getAvatarPresentationState } from "./LocalInterviewerAvatar";
-import { useLipSyncDriver } from "./LipSyncDriver";
+import { useLipSyncDriverState } from "./LipSyncDriver";
 import type { SpeechBoundaryTiming } from "./LipSyncDriver";
+import { useStoredLipSyncTuningSettings } from "./LipSyncTuning";
 import type { InterviewerSessionPhase } from "./view-model";
 
 export interface InterviewAvatarProps {
@@ -32,19 +33,24 @@ export function usePrefersReducedMotion() {
 export function InterviewAvatar({ phase, audioSource, audioStream, speechText, speechBoundary, className }: InterviewAvatarProps) {
   const presentationState = getAvatarPresentationState(phase);
   const reducedMotion = usePrefersReducedMotion();
-  const mouthShape = useLipSyncDriver({
+  const lipSyncTuning = useStoredLipSyncTuningSettings();
+  const lipSyncState = useLipSyncDriverState({
     presentationState,
     audioSource,
     audioStream,
     speechText,
     speechBoundary,
     reducedMotion,
+    tuning: lipSyncTuning,
   });
 
   return (
     <LocalInterviewerAvatar
       presentationState={presentationState}
-      mouthShape={mouthShape}
+      mouthShape={lipSyncState.mouthShape}
+      mouthOpen={lipSyncState.mouthOpen}
+      fullOpenEnterThreshold={lipSyncTuning.fullOpenEnterThreshold}
+      fullOpenExitThreshold={lipSyncTuning.fullOpenExitThreshold}
       reducedMotion={reducedMotion}
       className={className}
     />

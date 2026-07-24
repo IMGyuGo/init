@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import test from "node:test";
 import type {
   ApiErrorBody,
   CandidateApplicationSummary,
@@ -11,6 +12,7 @@ import type {
   CandidateRecruitingReportView,
   CreatePortfolioLinkRequest,
   InterviewDeviceCheckRequest,
+  RealtimeInterviewSessionResponse,
   RuntimeFileAssetRequest,
   SaveInterviewAnswerRequest,
   SaveInterviewConsentRequest,
@@ -18,7 +20,7 @@ import type {
   SubmitApplicationRequest,
   UploadResumeRequest,
 } from "./api";
-import { candidateApiPaths } from "./api";
+import { candidateApiPaths, createCandidateApiClient } from "./api";
 import { isCandidateApplicationCancelable } from "./application-cancellation";
 import {
   createRealtimeInterviewWebRtcConnection,
@@ -2141,6 +2143,47 @@ const recruitingRealtimeSessionPath = candidateApiPaths.recruitingRealtimeSessio
 assert.equal(mockRealtimeSessionPath, "/api/v1/candidate/mock-interviews/10001/realtime-session");
 assert.equal(recruitingRealtimeSessionPath, "/api/v1/candidate/interviews/1/realtime-session");
 
+test("creates an authenticated interviewer preview realtime session request", async () => {
+  const previewRequests: Array<{ url: string; init: RequestInit }> = [];
+  const previewFetcher: typeof fetch = async (input, init = {}) => {
+    previewRequests.push({ url: String(input), init });
+    return new Response(JSON.stringify({
+      data: {
+        accepted: true,
+        mode: "realtime-voice",
+        provider: "openai",
+        model: "gpt-realtime-2",
+        voice: "marin",
+        transport: "webrtc",
+        clientSecret: "ephemeral-preview-secret",
+        clientSecretType: "ephemeral",
+        expiresAt: "2026-07-24T00:02:00.000Z",
+        endpoint: "https://api.openai.com/v1/realtime/calls",
+      },
+      meta: { traceId: "preview-trace", timestamp: "2026-07-24T00:00:00.000Z" },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const previewClient = createCandidateApiClient({
+    baseUrl: "https://api.test",
+    fetcher: previewFetcher,
+  });
+
+  await previewClient.createInterviewerPreviewRealtimeSession({
+    mode: "realtime-voice",
+    transport: "webrtc",
+  });
+
+  assert.equal(
+    previewRequests[0]?.url,
+    "https://api.test/api/v1/interviewer-preview/realtime-session",
+  );
+  assert.equal(previewRequests[0]?.init.method, "POST");
+  assert.equal(previewRequests[0]?.init.body, JSON.stringify({
+    mode: "realtime-voice",
+    transport: "webrtc",
+  }));
+});
+
 function createContractRealtimeAudioTrack(enabled = true): MediaStreamTrack {
   const track = {
     kind: "audio",
@@ -2158,21 +2201,22 @@ function createContractRealtimeAudioTrack(enabled = true): MediaStreamTrack {
 
 const realtimeConnectionStates: RTCPeerConnectionState[] = [];
 const realtimeDataChannelStates: RTCDataChannelState[] = [];
+const contractRealtimeInterviewSession: RealtimeInterviewSessionResponse = {
+  accepted: true,
+  sessionId: 1,
+  interviewType: "MOCK",
+  mode: "realtime-voice",
+  provider: "openai",
+  model: "gpt-realtime-2",
+  voice: "marin",
+  transport: "webrtc",
+  clientSecret: "ephemeral-client-secret",
+  clientSecretType: "ephemeral",
+  expiresAt: "2026-07-06T00:00:00.000Z",
+  endpoint: "https://api.openai.com/v1/realtime/calls",
+};
 const realtimeWebRtcConnectionPromise = createRealtimeInterviewWebRtcConnection({
-  session: {
-    accepted: true,
-    sessionId: 1,
-    interviewType: "MOCK",
-    mode: "realtime-voice",
-    provider: "openai",
-    model: "gpt-realtime-2",
-    voice: "marin",
-    transport: "webrtc",
-    clientSecret: "ephemeral-client-secret",
-    clientSecretType: "ephemeral",
-    expiresAt: "2026-07-06T00:00:00.000Z",
-    endpoint: "https://api.openai.com/v1/realtime/calls",
-  },
+  session: contractRealtimeInterviewSession,
   localStream: {
     getAudioTracks: () => [createContractRealtimeAudioTrack()],
   } as MediaStream,
@@ -2193,6 +2237,7 @@ const realtimeWebRtcConnectionPromise = createRealtimeInterviewWebRtcConnection(
       onconnectionstatechange: null,
       ontrack: null,
       addTrack: () => ({} as RTCRtpSender),
+      addTransceiver: () => ({} as RTCRtpTransceiver),
       createDataChannel: (label) => {
         assert.equal(label, "oai-events");
         const dataChannel: ReturnType<RealtimePeerConnectionLike["createDataChannel"]> = {

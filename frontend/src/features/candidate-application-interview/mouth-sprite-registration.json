@@ -1,0 +1,14 @@
+{
+  "canvas": { "width": 230, "height": 105 },
+  "variants": {
+    "rest": { "x": 0, "y": 0 },
+    "closed": { "x": 0, "y": 0 },
+    "open-small": { "x": 0, "y": -14 },
+    "open": { "x": 0, "y": 0 },
+    "wide-small": { "x": 0, "y": -12 },
+    "wide": { "x": 0, "y": 0 },
+    "round-small": { "x": 0, "y": -13 },
+    "round": { "x": 0, "y": 0 },
+    "teeth": { "x": 0, "y": 0 }
+  }
+}

@@ -103,6 +103,39 @@ describe("Swagger setup", () => {
     }
   });
 
+  it("documents protected interviewer preview auth and errors without overwriting the public realtime summary", async () => {
+    const response = await request(app.getHttpServer()).get("/api-docs-json").expect(200);
+    const preview = response.body.paths["/api/v1/interviewer-preview/realtime-session"].post;
+    const publicRealtime = response.body.paths["/api/v1/public/interviews/{sessionId}/realtime-session"].post;
+    const previewHeaderNames = (preview.parameters ?? []).map(
+      (parameter: { name: string }) => parameter.name,
+    );
+
+    expect(preview["x-api-id"]).toBe("API-097-RT");
+    expect(preview.summary).toBe("면접관 립싱크 튜닝용 실시간 AI 세션 생성");
+    expect(preview.security).toContainEqual({ bearer: [] });
+    expect(previewHeaderNames).toEqual(expect.arrayContaining([
+      "X-Dev-User-Id",
+      "X-Dev-User-Type",
+      "X-Dev-Company-Id",
+      "X-Dev-Candidate-Id",
+    ]));
+    for (const status of ["200", "400", "401", "403", "404", "409", "502"]) {
+      expect(preview.responses[status]).toEqual(expect.objectContaining({
+        description: expect.any(String),
+      }));
+    }
+    for (const status of ["400", "401", "403", "404", "409", "502"]) {
+      expect(preview.responses[status].content).toEqual({
+        "application/json": {
+          schema: { $ref: "#/components/schemas/ApiErrorEnvelopeDto" },
+        },
+      });
+    }
+    expect(publicRealtime.summary).toBe("비회원 채용면접 실시간 AI 세션 생성");
+    expect(publicRealtime.summary).not.toBe(preview.summary);
+  });
+
   it("documents descriptions for operations, parameters, responses, request bodies, and schema properties", async () => {
     const response = await request(app.getHttpServer()).get("/api-docs-json").expect(200);
     const missingDescriptions = collectMissingSwaggerDescriptions(response.body);

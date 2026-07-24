@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import * as lipSyncDriver from "./LipSyncDriver";
 import {
+  applyTimelineOffsetMs,
   advanceAudioDrivenTimelineElapsedMs,
   buildKoreanVisemeTimeline,
   getBoundaryAlignedTimelineElapsedMs,
@@ -12,9 +13,12 @@ import {
   getMouthShapeForRms,
   getRelativeAudioElapsedMs,
   getTimelineElapsedMsForCharacterIndex,
+  getTimelineMouthOpenValue,
+  getTimelineSourceCharacterIndex,
   isLipSyncAudioAnalysisAvailable,
   resolveLipSyncMouthShape,
   smoothMouthOpenValue,
+  stabilizeMouthShape,
 } from "./LipSyncDriver";
 
 type TestAudioSourceNode = { kind: "stream" | "element" };
@@ -156,6 +160,10 @@ assert.equal(smoothMouthOpenValue(0, 0), 0);
 assert.equal(getRelativeAudioElapsedMs(42.75, 42.5), 250);
 assert.equal(getRelativeAudioElapsedMs(42.5, 42.75), 0);
 assert.equal(getRelativeAudioElapsedMs(Number.NaN, 42.5), 0);
+assert.equal(applyTimelineOffsetMs(100, 50, 300), 150);
+assert.equal(applyTimelineOffsetMs(100, -150, 300), 0);
+assert.equal(applyTimelineOffsetMs(280, 50, 300), 300);
+assert.equal(applyTimelineOffsetMs(Number.NaN, 50, 300), 50);
 assert.equal(getEstimatedSpeechDurationMs("가나다라마바사아자차", undefined, false), 1_550);
 assert.equal(getEstimatedSpeechDurationMs("가나다라마바사아자차", undefined, true), 1_800);
 assert.equal(getEstimatedSpeechDurationMs("가나다라마바사아자차", 2_125, true), 2_125);
@@ -173,6 +181,15 @@ assert.equal(timeline.at(-1)?.endMs, 900);
 for (let index = 1; index < timeline.length; index += 1) {
   assert.equal(timeline[index - 1]?.endMs, timeline[index]?.startMs);
 }
+assert.equal(getTimelineSourceCharacterIndex(timeline, 0), 0);
+assert.ok((getTimelineSourceCharacterIndex(timeline, 700) ?? 0) > 0);
+assert.equal(getTimelineSourceCharacterIndex(timeline, 900), undefined);
+
+const openCue = [{ startMs: 0, endMs: 1_000, mouthShape: "open" as const }];
+assert.ok(getTimelineMouthOpenValue(openCue, 20) < 0.58);
+assert.ok(getTimelineMouthOpenValue(openCue, 500) >= 0.58);
+assert.ok(getTimelineMouthOpenValue(openCue, 980) < 0.58);
+assert.equal(getTimelineMouthOpenValue(openCue, 1_000), 0);
 
 const weightedMaTimeline = buildKoreanVisemeTimeline("마", 1_000);
 assert.equal(weightedMaTimeline.length, 2);
@@ -181,12 +198,137 @@ assert.ok(
     < weightedMaTimeline[1]!.endMs - weightedMaTimeline[1]!.startMs,
 );
 
-const weightedPauseTimeline = buildKoreanVisemeTimeline("가,", 1_000);
-assert.equal(weightedPauseTimeline.length, 2);
-assert.ok(
-  weightedPauseTimeline[1]!.endMs - weightedPauseTimeline[1]!.startMs
-    > weightedPauseTimeline[0]!.endMs - weightedPauseTimeline[0]!.startMs,
+function getPauseDurations(text: string, durationMs: number): number[] {
+  return buildKoreanVisemeTimeline(text, durationMs)
+    .filter((cue) => cue.isPause)
+    .map((cue) => cue.endMs - cue.startMs);
+}
+
+assert.deepEqual(getPauseDurations("안녕하세요. 지금부터", 2_000), [200]);
+assert.deepEqual(getPauseDurations("천천히, 다시", 2_000), [110]);
+assert.deepEqual(getPauseDurations("잠시… 다시", 2_000), [260]);
+assert.deepEqual(getPauseDurations("정말?! 다시", 2_000), [200]);
+assert.deepEqual(getPauseDurations("잠시... 다시", 2_000), [260]);
+assert.deepEqual(getPauseDurations("가 나", 1_000), []);
+
+assert.equal(getEstimatedSpeechDurationMs("가.나", undefined, false), 600);
+assert.equal(getEstimatedSpeechDurationMs("가나다라.마", undefined, false), 975);
+
+const compressedPauseTimeline = buildKoreanVisemeTimeline("가.나", 250);
+const compressedPause = compressedPauseTimeline.find((cue) => cue.isPause);
+assert.ok(compressedPause);
+assert.ok(compressedPause.endMs - compressedPause.startMs < 200);
+assert.ok(compressedPause.endMs - compressedPause.startMs >= 0);
+assert.equal(compressedPauseTimeline.at(-1)?.endMs, 250);
+for (let index = 1; index < compressedPauseTimeline.length; index += 1) {
+  assert.equal(compressedPauseTimeline[index - 1]?.endMs, compressedPauseTimeline[index]?.startMs);
+  assert.ok(compressedPauseTimeline[index]!.endMs >= compressedPauseTimeline[index]!.startMs);
+}
+
+const repeatedOpenTimeline = buildKoreanVisemeTimeline("가가", 1_000);
+assert.deepEqual(
+  repeatedOpenTimeline.map((cue) => ({ mouthShape: cue.mouthShape, isPause: cue.isPause })),
+  [{ mouthShape: "open", isPause: false }],
 );
+assert.equal(repeatedOpenTimeline[0]?.startMs, 0);
+assert.equal(repeatedOpenTimeline[0]?.endMs, 1_000);
+
+const punctuatedOpenTimeline = buildKoreanVisemeTimeline("가,가", 1_000);
+assert.deepEqual(
+  punctuatedOpenTimeline.map((cue) => ({ mouthShape: cue.mouthShape, isPause: cue.isPause })),
+  [
+    { mouthShape: "open", isPause: false },
+    { mouthShape: "rest", isPause: true },
+    { mouthShape: "open", isPause: false },
+  ],
+);
+
+let stabilization = stabilizeMouthShape({
+  previous: { mouthShape: "rest", changedAtMs: 0 },
+  requestedMouthShape: "open",
+  nowMs: 100,
+  voiced: true,
+  forceRest: false,
+});
+assert.equal(stabilization.mouthShape, "open");
+
+stabilization = stabilizeMouthShape({
+  previous: stabilization,
+  requestedMouthShape: "wide",
+  nowMs: 150,
+  voiced: true,
+  forceRest: false,
+});
+assert.equal(stabilization.mouthShape, "open");
+
+stabilization = stabilizeMouthShape({
+  previous: stabilization,
+  requestedMouthShape: "wide",
+  nowMs: 181,
+  voiced: true,
+  forceRest: false,
+});
+assert.equal(stabilization.mouthShape, "wide");
+
+const bufferedSilence = stabilizeMouthShape({
+  previous: stabilization,
+  requestedMouthShape: "rest",
+  nowMs: 220,
+  voiced: false,
+  forceRest: false,
+});
+assert.equal(bufferedSilence.mouthShape, "wide");
+
+const sustainedSilence = stabilizeMouthShape({
+  previous: bufferedSilence,
+  requestedMouthShape: "rest",
+  nowMs: 242,
+  voiced: false,
+  forceRest: false,
+});
+assert.equal(sustainedSilence.mouthShape, "rest");
+
+const explicitPause = stabilizeMouthShape({
+  previous: stabilization,
+  requestedMouthShape: "rest",
+  nowMs: 200,
+  voiced: false,
+  forceRest: true,
+});
+assert.equal(explicitPause.mouthShape, "rest");
+
+const configuredHold = stabilizeMouthShape({
+  previous: { mouthShape: "open", changedAtMs: 100, lastVoicedAtMs: 100 },
+  requestedMouthShape: "wide",
+  nowMs: 171,
+  voiced: true,
+  forceRest: false,
+  minimumShapeHoldMs: 70,
+  silenceHangoverMs: 90,
+});
+assert.equal(configuredHold.mouthShape, "wide");
+
+const configuredHangover = stabilizeMouthShape({
+  previous: configuredHold,
+  requestedMouthShape: "rest",
+  nowMs: 250,
+  voiced: false,
+  forceRest: false,
+  minimumShapeHoldMs: 70,
+  silenceHangoverMs: 90,
+});
+assert.equal(configuredHangover.mouthShape, "wide");
+
+const configuredSilenceEnd = stabilizeMouthShape({
+  previous: configuredHangover,
+  requestedMouthShape: "rest",
+  nowMs: 262,
+  voiced: false,
+  forceRest: false,
+  minimumShapeHoldMs: 70,
+  silenceHangoverMs: 90,
+});
+assert.equal(configuredSilenceEnd.mouthShape, "rest");
 
 const boundaryTimeline = buildKoreanVisemeTimeline("가 나", 1_000);
 const secondWordOffsetMs = getTimelineElapsedMsForCharacterIndex(boundaryTimeline, 2);
@@ -216,7 +358,7 @@ const expandedHangulCueCount = [...punctuatedQuestion]
   .reduce((total, character) => total + getMouthShapesForKoreanCharacter(character).length, 0);
 
 assert.equal(hangulCount > 0, true);
-assert.equal(punctuatedTimeline.length, expandedHangulCueCount + punctuationCount);
+assert.ok(punctuatedTimeline.length <= expandedHangulCueCount + punctuationCount);
 assert.equal(punctuatedTimeline.at(-1)?.mouthShape, "rest");
 
 assert.equal(resolveLipSyncMouthShape({ speaking: false, reducedMotion: false, rms: 0.12 }), "rest");

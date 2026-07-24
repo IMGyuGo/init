@@ -1,22 +1,42 @@
 import { strict as assert } from "node:assert";
 import { renderToStaticMarkup } from "react-dom/server";
-import { LocalInterviewerAvatar } from "./LocalInterviewerAvatar";
+import {
+  getMouthSpriteVariant,
+  LocalInterviewerAvatar,
+  resolveMouthOpenness,
+  type MouthSpriteVariant,
+} from "./LocalInterviewerAvatar";
 import type { AvatarPresentationState, MouthShape } from "./LipSyncDriver";
 
-const mouthShapes: MouthShape[] = ["rest", "closed", "open", "wide", "round", "teeth"];
-const mouthSpritePaths = mouthShapes.map(
-  (shape) => `/assets/interviewer-avatar/mouth-sprite/${shape}.png`,
+const mouthSpriteVariants: MouthSpriteVariant[] = [
+  "rest",
+  "closed",
+  "open-small",
+  "open",
+  "wide-small",
+  "wide",
+  "round-small",
+  "round",
+  "teeth",
+];
+const activeMouthSpriteVariants = mouthSpriteVariants.filter(
+  (variant) => variant !== "rest",
+);
+const mouthSpritePaths = mouthSpriteVariants.map(
+  (variant) => `/assets/interviewer-avatar/mouth-sprite/${variant}.png`,
 );
 
 function renderAvatar(
   presentationState: AvatarPresentationState,
   mouthShape: MouthShape,
   reducedMotion = false,
+  mouthOpen?: number,
 ) {
   return renderToStaticMarkup(
     <LocalInterviewerAvatar
       presentationState={presentationState}
       mouthShape={mouthShape}
+      mouthOpen={mouthOpen}
       reducedMotion={reducedMotion}
     />,
   );
@@ -35,30 +55,49 @@ function assertAllMouthSprites(markup: string) {
   }
 
   assert.doesNotMatch(markup, /\/assets\/interviewer-avatar\/mouth\/(?:rest|closed|open|wide|round|teeth)\.png/);
-  assert.equal(markup.match(/class="local-interviewer-avatar__mouth"/g)?.length, 6);
-  assert.equal(markup.match(/loading="eager"/g)?.length, 6);
-  assert.equal(markup.match(/width="230" height="105"/g)?.length, 6);
+  assert.equal(markup.match(/class="local-interviewer-avatar__mouth-underlay"/g)?.length, 1);
+  assert.equal(markup.match(/class="local-interviewer-avatar__mouth"/g)?.length, 8);
+  assert.equal(markup.match(/loading="eager"/g)?.length, 9);
+  assert.equal(markup.match(/width="230" height="105"/g)?.length, 9);
 }
 
-function assertActiveMouthShape(markup: string, activeShape?: MouthShape) {
-  assert.equal(markup.match(/data-active="true"/g)?.length ?? 0, activeShape ? 1 : 0);
+function assertActiveMouthVariant(markup: string, activeVariant?: MouthSpriteVariant) {
+  assert.equal(markup.match(/data-active="true"/g)?.length ?? 0, activeVariant ? 1 : 0);
 
-  for (const shape of mouthShapes) {
-    const expectedActive = shape === activeShape ? "true" : "false";
+  for (const variant of activeMouthSpriteVariants) {
+    const expectedActive = variant === activeVariant ? "true" : "false";
     assert.match(
       markup,
-      new RegExp(`data-mouth-shape="${shape}" data-active="${expectedActive}"`),
+      new RegExp(`data-mouth-variant="${variant}" data-active="${expectedActive}"`),
     );
   }
+  assert.doesNotMatch(markup, /<img\b[^>]*data-mouth-variant="rest"/);
 }
+
+assert.equal(resolveMouthOpenness("small", 0.57), "small");
+assert.equal(resolveMouthOpenness("small", 0.58), "full");
+assert.equal(resolveMouthOpenness("full", 0.43), "full");
+assert.equal(resolveMouthOpenness("full", 0.42), "small");
+assert.equal(resolveMouthOpenness("small", Number.NaN), "small");
+assert.equal(resolveMouthOpenness("small", 0.65, { enter: 0.7, exit: 0.5 }), "small");
+assert.equal(resolveMouthOpenness("full", 0.55, { enter: 0.7, exit: 0.5 }), "full");
+
+assert.equal(getMouthSpriteVariant("open", "small"), "open");
+assert.equal(getMouthSpriteVariant("open", "full"), "open");
+assert.equal(getMouthSpriteVariant("wide", "small"), "wide");
+assert.equal(getMouthSpriteVariant("round", "small"), "round");
+assert.equal(getMouthSpriteVariant("teeth", "small"), "teeth");
+assert.equal(getMouthSpriteVariant("closed", "full"), "closed");
 
 const talkingMarkup = renderAvatar("speaking", "wide");
 
 assert.match(talkingMarkup, /data-state="talking"/);
 assert.match(talkingMarkup, /data-mouth-shape="wide"/);
+assert.match(talkingMarkup, /data-mouth-variant="wide"/);
 assert.match(talkingMarkup, /src="\/assets\/interviewer-avatar\/listening\.png"/);
 assertAllMouthSprites(talkingMarkup);
-assertActiveMouthShape(talkingMarkup, "wide");
+assertActiveMouthVariant(talkingMarkup, "wide");
+assert.match(talkingMarkup, /data-mouth-layer="underlay" data-visible="true"/);
 assert.match(talkingMarkup, /width="1086" height="1448"/);
 
 const nonSpeakingCases: Array<{
@@ -97,11 +136,13 @@ for (const { presentationState, mouthShape, reducedMotion, posturePath } of nonS
   assert.match(markup, new RegExp(`data-state="${renderState}"`));
   assert.match(markup, /data-mouth-shape="rest"/);
   assert.match(markup, new RegExp(`src="${posturePath.replaceAll("/", "\\/")}"`));
+  assert.match(markup, /data-mouth-layer="underlay" data-visible="false"/);
   assertAllMouthSprites(markup);
-  assertActiveMouthShape(markup);
+  assertActiveMouthVariant(markup);
 }
 
 const openTalkingMarkup = renderAvatar("speaking", "open");
+const smallOpenTalkingMarkup = renderAvatar("speaking", "open", false, 0.3);
 const closedTalkingMarkup = renderAvatar("speaking", "closed");
 const teethTalkingMarkup = renderAvatar("speaking", "teeth");
 const extractMouthSpriteSources = (markup: string) =>
@@ -111,6 +152,10 @@ const extractMouthSpriteSources = (markup: string) =>
 
 assert.deepEqual(extractMouthSpriteSources(openTalkingMarkup), mouthSpritePaths);
 assert.deepEqual(extractMouthSpriteSources(teethTalkingMarkup), mouthSpritePaths);
-assertActiveMouthShape(openTalkingMarkup, "open");
-assertActiveMouthShape(closedTalkingMarkup);
-assertActiveMouthShape(teethTalkingMarkup, "teeth");
+assertActiveMouthVariant(openTalkingMarkup, "open");
+assertActiveMouthVariant(smallOpenTalkingMarkup, "open");
+assert.match(smallOpenTalkingMarkup, /data-mouth-variant="open"/);
+assert.match(smallOpenTalkingMarkup, /--mouth-register-x:0%/);
+assert.match(smallOpenTalkingMarkup, /--mouth-register-y:0%/);
+assertActiveMouthVariant(closedTalkingMarkup);
+assertActiveMouthVariant(teethTalkingMarkup, "teeth");

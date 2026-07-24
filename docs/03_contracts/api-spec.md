@@ -2353,6 +2353,36 @@ Allocation Examples:
 - 관련 ERD 테이블:
   - postings, evaluation_criteria, interview_question_generation_policies
 
+### API-097-RT POST /interviewer-preview/realtime-session
+
+- 관련 화면: 면접관 립싱크 튜닝 화면 (`/interviewer-preview`)
+- 상태 코드: `200 OK`
+- 인증: 로그인 사용자 (`ADMIN`, `COMPANY`, `CANDIDATE`)
+- Route Owner: `backend/api/src/modules/interview`의 `InterviewerPreviewController` (`InterviewModule`, owner D; 인증 연동은 A 리뷰 필요)
+- Guard: `JwtAuthGuard`가 필요하다.
+- Request Body:
+  - `mode?: "realtime-voice"`
+  - `transport?: "webrtc"`
+- Response `data`:
+  - `accepted: true`
+  - `mode: "realtime-voice"`
+  - `provider: "openai"`
+  - `model: string`
+  - `voice: string`
+  - `transport: "webrtc"`
+  - `clientSecret: string`
+  - `clientSecretType: "ephemeral"`
+  - `expiresAt: string`
+  - `endpoint: string`
+- Business Rules:
+  - 면접 ID를 요구하거나 반환하지 않고 면접 테이블을 조회·변경하지 않는다.
+  - 서버만 OpenAI API key를 사용하며 브라우저에는 ephemeral secret만 반환한다.
+  - `AI_INTERVIEWER_REALTIME_PROVIDER=openai`과 `OPENAI_API_KEY`가 필요하다.
+  - model, voice, endpoint는 각각 기존 `OPENAI_REALTIME_MODEL`, `OPENAI_REALTIME_VOICE`, `OPENAI_REALTIME_API_BASE_URL`를 사용하고, speech speed는 `0.9`를 사용한다. 클라이언트는 이 값을 재정의할 수 없다.
+  - safety identifier에는 역할과 `userId`만 사용한다.
+- Errors: `COMMON_UNAUTHORIZED`, `COMMON_VALIDATION_FAILED`, `COMMON_CONFLICT`, `COMMON_EXTERNAL_SERVICE_FAILED`
+- Related Tables: 없음
+
 ### API-098 GET /company/interviews/applications/{applicationId}/resume-questions
 - 도메인: 기업 - 면접관리
 - 권한/인증: 기업 / 기업 사용자 로그인

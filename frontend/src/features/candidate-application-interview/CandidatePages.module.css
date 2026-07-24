@@ -2928,7 +2928,7 @@
   user-select: none;
 }
 
-:global(.local-interviewer-avatar__mouth) {
+:global(.local-interviewer-avatar__mouth-window) {
   position: absolute;
   top: 36.947514%;
   left: 39.594843%;
@@ -2936,12 +2936,36 @@
   display: block;
   width: 21.178637%;
   height: 7.251381%;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+:global(.local-interviewer-avatar__mouth-underlay) {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   opacity: 0;
   pointer-events: none;
   user-select: none;
 }
 
+:global(.local-interviewer-avatar__mouth) {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  transform: translate3d(var(--mouth-register-x), var(--mouth-register-y), 0);
+  pointer-events: none;
+  user-select: none;
+}
+
+:global(.local-interviewer-avatar__mouth-underlay[data-visible="true"]),
 :global(.local-interviewer-avatar__mouth[data-active="true"]) {
   opacity: 1;
 }
