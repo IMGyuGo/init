@@ -19,6 +19,9 @@ const mouthSpriteVariants: MouthSpriteVariant[] = [
   "round",
   "teeth",
 ];
+const activeMouthSpriteVariants = mouthSpriteVariants.filter(
+  (variant) => variant !== "rest",
+);
 const mouthSpritePaths = mouthSpriteVariants.map(
   (variant) => `/assets/interviewer-avatar/mouth-sprite/${variant}.png`,
 );
@@ -52,7 +55,8 @@ function assertAllMouthSprites(markup: string) {
   }
 
   assert.doesNotMatch(markup, /\/assets\/interviewer-avatar\/mouth\/(?:rest|closed|open|wide|round|teeth)\.png/);
-  assert.equal(markup.match(/class="local-interviewer-avatar__mouth"/g)?.length, 9);
+  assert.equal(markup.match(/class="local-interviewer-avatar__mouth-underlay"/g)?.length, 1);
+  assert.equal(markup.match(/class="local-interviewer-avatar__mouth"/g)?.length, 8);
   assert.equal(markup.match(/loading="eager"/g)?.length, 9);
   assert.equal(markup.match(/width="230" height="105"/g)?.length, 9);
 }
@@ -60,13 +64,14 @@ function assertAllMouthSprites(markup: string) {
 function assertActiveMouthVariant(markup: string, activeVariant?: MouthSpriteVariant) {
   assert.equal(markup.match(/data-active="true"/g)?.length ?? 0, activeVariant ? 1 : 0);
 
-  for (const variant of mouthSpriteVariants) {
+  for (const variant of activeMouthSpriteVariants) {
     const expectedActive = variant === activeVariant ? "true" : "false";
     assert.match(
       markup,
       new RegExp(`data-mouth-variant="${variant}" data-active="${expectedActive}"`),
     );
   }
+  assert.doesNotMatch(markup, /<img\b[^>]*data-mouth-variant="rest"/);
 }
 
 assert.equal(resolveMouthOpenness("small", 0.57), "small");
@@ -92,6 +97,7 @@ assert.match(talkingMarkup, /data-mouth-variant="wide"/);
 assert.match(talkingMarkup, /src="\/assets\/interviewer-avatar\/listening\.png"/);
 assertAllMouthSprites(talkingMarkup);
 assertActiveMouthVariant(talkingMarkup, "wide");
+assert.match(talkingMarkup, /data-mouth-layer="underlay" data-visible="true"/);
 assert.match(talkingMarkup, /width="1086" height="1448"/);
 
 const nonSpeakingCases: Array<{
@@ -130,6 +136,7 @@ for (const { presentationState, mouthShape, reducedMotion, posturePath } of nonS
   assert.match(markup, new RegExp(`data-state="${renderState}"`));
   assert.match(markup, /data-mouth-shape="rest"/);
   assert.match(markup, new RegExp(`src="${posturePath.replaceAll("/", "\\/")}"`));
+  assert.match(markup, /data-mouth-layer="underlay" data-visible="false"/);
   assertAllMouthSprites(markup);
   assertActiveMouthVariant(markup);
 }
@@ -148,5 +155,7 @@ assert.deepEqual(extractMouthSpriteSources(teethTalkingMarkup), mouthSpritePaths
 assertActiveMouthVariant(openTalkingMarkup, "open");
 assertActiveMouthVariant(smallOpenTalkingMarkup, "open-small");
 assert.match(smallOpenTalkingMarkup, /data-mouth-variant="open-small"/);
+assert.match(smallOpenTalkingMarkup, /--mouth-register-x:0%/);
+assert.match(smallOpenTalkingMarkup, /--mouth-register-y:-13\.333333%/);
 assertActiveMouthVariant(closedTalkingMarkup);
 assertActiveMouthVariant(teethTalkingMarkup, "teeth");

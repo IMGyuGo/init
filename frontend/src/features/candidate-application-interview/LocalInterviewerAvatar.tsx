@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import type { InterviewerSessionPhase } from "./view-model";
 import {
   getMouthOpenValueForShape,
@@ -9,6 +9,12 @@ import {
   type MouthShape,
 } from "./LipSyncDriver";
 import { DEFAULT_LIP_SYNC_TUNING_SETTINGS } from "./LipSyncTuning";
+import {
+  getMouthSpriteRegistrationCss,
+  type MouthSpriteVariant,
+} from "./MouthSpriteRegistration";
+
+export type { MouthSpriteVariant } from "./MouthSpriteRegistration";
 
 const postureImageByState: Record<AvatarPresentationState, string> = {
   idle: "/assets/interviewer-avatar/listening.png",
@@ -18,16 +24,11 @@ const postureImageByState: Record<AvatarPresentationState, string> = {
 };
 
 export type MouthOpenness = "small" | "full";
-export type MouthSpriteVariant =
-  | "rest"
-  | "closed"
-  | "open-small"
-  | "open"
-  | "wide-small"
-  | "wide"
-  | "round-small"
-  | "round"
-  | "teeth";
+
+type MouthSpriteStyle = CSSProperties & Record<
+  "--mouth-register-x" | "--mouth-register-y",
+  string
+>;
 
 export interface MouthOpennessThresholds {
   enter: number;
@@ -50,6 +51,9 @@ const mouthSpriteVariants: MouthSpriteVariant[] = [
   "round",
   "teeth",
 ];
+const activeMouthSpriteVariants = mouthSpriteVariants.filter(
+  (variant) => variant !== "rest",
+);
 
 const mouthImageByVariant: Record<MouthSpriteVariant, string> = {
   rest: "/assets/interviewer-avatar/mouth-sprite/rest.png",
@@ -137,6 +141,7 @@ export function LocalInterviewerAvatar({
     && !reducedMotion
     && mouthShape !== "rest"
     && mouthShape !== "closed";
+  const shouldShowMouthUnderlay = presentationState === "speaking" && !reducedMotion;
 
   return (
     <div
@@ -156,21 +161,44 @@ export function LocalInterviewerAvatar({
         unoptimized
         width={1086}
       />
-      {mouthSpriteVariants.map((variant) => (
+      <div className="local-interviewer-avatar__mouth-window">
         <Image
-          key={variant}
           alt=""
-          className="local-interviewer-avatar__mouth"
-          data-mouth-variant={variant}
-          data-active={shouldActivateMouth && variant === renderedMouthVariant ? "true" : "false"}
+          className="local-interviewer-avatar__mouth-underlay"
+          data-mouth-layer="underlay"
+          data-visible={shouldShowMouthUnderlay ? "true" : "false"}
           draggable={false}
           height={105}
           loading="eager"
-          src={mouthImageByVariant[variant]}
+          src={mouthImageByVariant.rest}
           unoptimized
           width={230}
         />
-      ))}
+        {activeMouthSpriteVariants.map((variant) => {
+          const registration = getMouthSpriteRegistrationCss(variant);
+          const mouthStyle: MouthSpriteStyle = {
+            "--mouth-register-x": registration.x,
+            "--mouth-register-y": registration.y,
+          };
+
+          return (
+            <Image
+              key={variant}
+              alt=""
+              className="local-interviewer-avatar__mouth"
+              data-mouth-variant={variant}
+              data-active={shouldActivateMouth && variant === renderedMouthVariant ? "true" : "false"}
+              draggable={false}
+              height={105}
+              loading="eager"
+              src={mouthImageByVariant[variant]}
+              style={mouthStyle}
+              unoptimized
+              width={230}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
