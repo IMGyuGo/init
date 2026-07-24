@@ -48,6 +48,19 @@ assert.deepEqual(
 assert.ok(audit.mouthSprite.files.every((file) => file.bytes > 0));
 assert.ok(audit.mouthSprite.files.every((file) => file.hasAlpha === true));
 assert.deepEqual(
+  audit.mouthSpriteRegistration.pairs.map((pair) => pair.names),
+  [
+    ["open-small", "open"],
+    ["wide-small", "wide"],
+    ["round-small", "round"],
+  ],
+);
+for (const pair of audit.mouthSpriteRegistration.pairs) {
+  assert.ok(pair.rawDeltaY >= 12, `${pair.names.join("/")} must reproduce the source regression`);
+  assert.ok(Math.abs(pair.registeredDeltaY) <= 3, `${pair.names.join("/")} y anchor must align`);
+  assert.ok(Math.abs(pair.registeredDeltaX) <= 3, `${pair.names.join("/")} x anchor must align`);
+}
+assert.deepEqual(
   audit.duplicateGroups.map((group) => group.paths),
   [
     ["listening.png", "mouth/closed.png", "mouth/rest.png"],

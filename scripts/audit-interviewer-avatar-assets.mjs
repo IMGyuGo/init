@@ -2,8 +2,15 @@ import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import sharp from "../frontend/node_modules/sharp/lib/index.js";
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const MOUTH_SPRITE_PAIRS = [
+  ["open-small", "open"],
+  ["wide-small", "wide"],
+  ["round-small", "round"],
+];
 
 function toPosixPath(value) {
   return value.replaceAll("\\", "/");
@@ -61,6 +68,75 @@ function summarize(files) {
   };
 }
 
+async function readUpperLipAnchor(path) {
+  const { data, info } = await sharp(path).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  let left = info.width;
+  let right = -1;
+  let top = info.height;
+
+  for (let y = 0; y < info.height; y += 1) {
+    for (let x = 0; x < info.width; x += 1) {
+      const index = (y * info.width + x) * 4;
+      const red = data[index];
+      const green = data[index + 1];
+      const blue = data[index + 2];
+      const alpha = data[index + 3];
+      const lipPixel = alpha > 80
+        && red < 145
+        && green < 115
+        && blue < 110
+        && red > green * 0.9;
+      if (!lipPixel) continue;
+      left = Math.min(left, x);
+      right = Math.max(right, x);
+      top = Math.min(top, y);
+    }
+  }
+
+  if (right < left || top >= info.height) {
+    throw new Error(`${path} has no measurable upper-lip pixels`);
+  }
+
+  return { x: Math.trunc((left + right) / 2), y: top };
+}
+
+async function auditMouthSpriteRegistration(baseDirectory) {
+  const registrationManifest = JSON.parse(await readFile(
+    resolve(
+      PROJECT_ROOT,
+      "frontend/src/features/candidate-application-interview/mouth-sprite-registration.json",
+    ),
+    "utf8",
+  ));
+  const pairs = [];
+
+  for (const names of MOUTH_SPRITE_PAIRS) {
+    const [smallName, fullName] = names;
+    const smallAnchor = await readUpperLipAnchor(
+      resolve(baseDirectory, `mouth-sprite/${smallName}.png`),
+    );
+    const fullAnchor = await readUpperLipAnchor(
+      resolve(baseDirectory, `mouth-sprite/${fullName}.png`),
+    );
+    const smallRegistration = registrationManifest.variants[smallName];
+    const fullRegistration = registrationManifest.variants[fullName];
+    pairs.push({
+      names,
+      rawDeltaX: smallAnchor.x - fullAnchor.x,
+      rawDeltaY: smallAnchor.y - fullAnchor.y,
+      registeredDeltaX:
+        smallAnchor.x + smallRegistration.x - fullAnchor.x - fullRegistration.x,
+      registeredDeltaY:
+        smallAnchor.y + smallRegistration.y - fullAnchor.y - fullRegistration.y,
+    });
+  }
+
+  return {
+    canvas: registrationManifest.canvas,
+    pairs,
+  };
+}
+
 export async function auditInterviewerAvatarAssets(baseDirectory) {
   const files = await collectPngFiles(baseDirectory, baseDirectory);
   const pose = summarize(files.filter((file) => !file.path.includes("/")));
@@ -77,6 +153,7 @@ export async function auditInterviewerAvatarAssets(baseDirectory) {
   const currentPackBytes = pose.bytes + fullMouth.bytes;
   const spriteCandidatePackBytes = pose.bytes + mouthSprite.bytes;
   const spriteCandidateSavingsBytes = currentPackBytes - spriteCandidatePackBytes;
+  const mouthSpriteRegistration = await auditMouthSpriteRegistration(baseDirectory);
 
   return {
     pose,
@@ -86,6 +163,7 @@ export async function auditInterviewerAvatarAssets(baseDirectory) {
     spriteCandidatePackBytes,
     spriteCandidateSavingsBytes,
     spriteCandidateSavingsPercent: Math.round((spriteCandidateSavingsBytes / currentPackBytes) * 10_000) / 100,
+    mouthSpriteRegistration,
     duplicateGroups: [...filesByHash.entries()]
       .filter(([, paths]) => paths.length > 1)
       .map(([sha256, paths]) => ({ sha256, paths: paths.sort() }))
@@ -155,9 +233,8 @@ export async function auditCubismProofModel(modelJsonPath) {
 
 const currentFilePath = fileURLToPath(import.meta.url);
 if (process.argv[1] && resolve(process.argv[1]) === currentFilePath) {
-  const projectRoot = resolve(dirname(currentFilePath), "..");
   const audit = await auditInterviewerAvatarAssets(
-    resolve(projectRoot, "frontend/public/assets/interviewer-avatar"),
+    resolve(PROJECT_ROOT, "frontend/public/assets/interviewer-avatar"),
   );
   process.stdout.write(`${JSON.stringify(audit, null, 2)}\n`);
 }
