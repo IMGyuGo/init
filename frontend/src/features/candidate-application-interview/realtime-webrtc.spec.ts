@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 
-import type { RealtimeInterviewSessionResponse } from "./api";
+import type { RealtimeInterviewSessionResponse, RealtimeSessionCredentials } from "./api";
 import {
   cancelRealtimeSpeechResponse,
   createRealtimeInterviewSpeechResponseEvent,
@@ -49,12 +49,18 @@ class FakeRealtimePeerConnection implements RealtimePeerConnectionLike {
   ontrack: ((event: RTCTrackEvent) => unknown) | null = null;
   readonly dataChannel = new FakeRealtimeDataChannel();
   readonly addedTracks: MediaStreamTrack[] = [];
+  readonly transceivers: Array<{ kind: string; init?: RTCRtpTransceiverInit }> = [];
   localDescription?: RTCSessionDescriptionInit;
   remoteDescription?: RTCSessionDescriptionInit;
 
   addTrack(track: MediaStreamTrack) {
     this.addedTracks.push(track);
     return {} as RTCRtpSender;
+  }
+
+  addTransceiver(kind: string, init?: RTCRtpTransceiverInit) {
+    this.transceivers.push({ kind, init });
+    return {} as RTCRtpTransceiver;
   }
 
   createDataChannel(label: string) {
@@ -99,6 +105,19 @@ const openAiRealtimeSession: RealtimeInterviewSessionResponse = {
   clientSecret: "ephemeral-client-secret",
   clientSecretType: "ephemeral",
   expiresAt: "2026-07-06T00:00:00.000Z",
+  endpoint: "https://api.openai.com/v1/realtime/calls",
+};
+
+const openAiPreviewSession: RealtimeSessionCredentials = {
+  accepted: true,
+  mode: "realtime-voice",
+  provider: "openai",
+  model: "gpt-realtime-2",
+  voice: "marin",
+  transport: "webrtc",
+  clientSecret: "ephemeral-preview-secret",
+  clientSecretType: "ephemeral",
+  expiresAt: "2026-07-24T00:02:00.000Z",
   endpoint: "https://api.openai.com/v1/realtime/calls",
 };
 
@@ -236,6 +255,26 @@ async function testConnectionFailureCallbackRunsAfterReady() {
   assert.match(failureMessage, /data channel closed/i);
 }
 
+async function testOutputOnlyConnectionReceivesAudioWithoutLocalTracks() {
+  const peerConnection = new FakeRealtimePeerConnection();
+  const connectionPromise = createRealtimeInterviewWebRtcConnection({
+    session: openAiPreviewSession,
+    fetcher: async () => new Response("remote-answer-sdp", { status: 200 }),
+    peerConnectionFactory: () => peerConnection,
+    readyTimeoutMs: 200,
+  });
+
+  peerConnection.connect();
+  peerConnection.dataChannel.open();
+  const connection = await connectionPromise;
+
+  assert.deepEqual(peerConnection.transceivers, [
+    { kind: "audio", init: { direction: "recvonly" } },
+  ]);
+  assert.equal(peerConnection.addedTracks.length, 0);
+  assert.deepEqual(connection.localAudioTracks, []);
+}
+
 function testQuestionSpeechResponseEventUsesOpenAiResponseCreate() {
   const event = createRealtimeInterviewSpeechResponseEvent({
     purpose: "interview_question",
@@ -305,6 +344,41 @@ function testIntroSpeechResponseEventContainsOnlyExactScriptInstructions() {
   assert.match(event.response.instructions, /silent pauses/i);
   assert.doesNotMatch(event.response.instructions, /\b(?:calm|natural|slower|tone|pace)\b/i);
   assert.deepEqual(event.response.input, []);
+}
+
+function testLipSyncTuningSpeechResponseEventUsesExactText() {
+  const event = createRealtimeInterviewSpeechResponseEvent({
+    purpose: "lip_sync_tuning",
+    text: "아에이오우.",
+    playbackId: 11,
+  });
+
+  assert.equal(event.response.metadata.response_purpose, "lip_sync_tuning");
+  assert.equal(event.response.metadata.playback_id, "11");
+  assert.equal(event.response.metadata.question_id, undefined);
+  assert.equal(event.response.conversation, "none");
+  assert.deepEqual(event.response.output_modalities, ["audio"]);
+  assert.match(event.response.instructions, /아에이오우\./);
+  assert.match(event.response.instructions, /exact script/i);
+  assert.deepEqual(event.response.input, []);
+  assert.deepEqual(
+    getRealtimeResponseMetadata({
+      type: "response.done",
+      response: {
+        id: "resp_lip_sync_tuning",
+        status: "completed",
+        metadata: event.response.metadata,
+      },
+    }),
+    {
+      responseId: "resp_lip_sync_tuning",
+      purpose: "lip_sync_tuning",
+      playbackId: 11,
+      questionId: undefined,
+      status: "completed",
+      completed: true,
+    },
+  );
 }
 
 function testRealtimeResponseCreatedMetadataCanLinkExpectedSpeech() {
@@ -641,6 +715,7 @@ function testSpeechClientEventRestoresRealtimeMicrophoneWhenSendFails() {
 async function main() {
   testRealtimeSessionRequestWaitsForLiveMicrophoneStream();
   testIntroSpeechResponseEventContainsOnlyExactScriptInstructions();
+  testLipSyncTuningSpeechResponseEventUsesExactText();
   testQuestionSpeechResponseEventUsesOpenAiResponseCreate();
   testFollowUpQuestionSpeechResponseEventUsesFollowUpPurpose();
   testEncouragementSpeechResponseEventUsesExactText();
@@ -659,6 +734,7 @@ async function main() {
   testRealtimeMicrophoneRestoresAfterCompletedEncouragement();
   await testConnectionWaitsForOpenDataChannel();
   await testConnectionFailureCallbackRunsAfterReady();
+  await testOutputOnlyConnectionReceivesAudioWithoutLocalTracks();
   await testRealtimeMicrophoneCanBeMutedDuringAssistantSpeech();
 }
 
