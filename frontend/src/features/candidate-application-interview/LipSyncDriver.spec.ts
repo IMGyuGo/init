@@ -14,6 +14,7 @@ import {
   getRelativeAudioElapsedMs,
   getTimelineElapsedMsForCharacterIndex,
   getTimelineMouthOpenValue,
+  getTimelineSourceCharacterIndex,
   isLipSyncAudioAnalysisAvailable,
   resolveLipSyncMouthShape,
   smoothMouthOpenValue,
@@ -180,6 +181,9 @@ assert.equal(timeline.at(-1)?.endMs, 900);
 for (let index = 1; index < timeline.length; index += 1) {
   assert.equal(timeline[index - 1]?.endMs, timeline[index]?.startMs);
 }
+assert.equal(getTimelineSourceCharacterIndex(timeline, 0), 0);
+assert.ok((getTimelineSourceCharacterIndex(timeline, 700) ?? 0) > 0);
+assert.equal(getTimelineSourceCharacterIndex(timeline, 900), undefined);
 
 const openCue = [{ startMs: 0, endMs: 1_000, mouthShape: "open" as const }];
 assert.ok(getTimelineMouthOpenValue(openCue, 20) < 0.58);

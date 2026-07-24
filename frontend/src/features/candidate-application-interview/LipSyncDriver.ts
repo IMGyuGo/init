@@ -45,6 +45,7 @@ export interface LipSyncDriverInput {
 export interface LipSyncDriverState {
   mouthShape: MouthShape;
   mouthOpen: number;
+  sourceCharacterIndex?: number;
 }
 
 export interface ResolveLipSyncMouthShapeInput {
@@ -434,6 +435,14 @@ function getTimelineCue(
   return timeline.find((cue) => cue.startMs <= elapsedMs && cue.endMs > elapsedMs);
 }
 
+export function getTimelineSourceCharacterIndex(
+  timeline: VisemeCue[],
+  elapsedMs: number,
+): number | undefined {
+  return timeline.find((cue) => elapsedMs >= cue.startMs && elapsedMs < cue.endMs)
+    ?.sourceCharacterIndex;
+}
+
 export function applyTimelineOffsetMs(
   elapsedMs: number,
   offsetMs: number,
@@ -808,6 +817,7 @@ export function useLipSyncDriverState(input: LipSyncDriverInput): LipSyncDriverS
       : audioAnalysisAvailable
         ? mouthOpen
         : getTimelineMouthOpenValue(timeline, elapsedMs),
+    sourceCharacterIndex: currentTimelineCue?.sourceCharacterIndex,
   };
 }
 
