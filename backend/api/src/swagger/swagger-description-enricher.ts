@@ -300,6 +300,13 @@ const OPERATION_DOCUMENTATION_BY_HANDLER: Record<string, OperationDocumentation>
   },
 };
 
+const OPERATION_DOCUMENTATION_BY_PATH: Record<string, OperationDocumentation> = {
+  "POST /api/v1/interviewer-preview/realtime-session": {
+    summary: "면접관 립싱크 튜닝용 실시간 AI 세션 생성",
+    description: "로그인 사용자의 역할과 사용자 식별자를 바탕으로 독립된 OpenAI Realtime ephemeral credential을 발급합니다.",
+  },
+};
+
 const PARAMETER_DESCRIPTIONS: Record<string, string> = {
   applicantId: "지원자 또는 지원서 식별자입니다.",
   applicationId: "지원서 식별자입니다.",
@@ -616,8 +623,9 @@ function enrichPaths(document: SwaggerObject) {
 function enrichOperation(method: string, path: string, operation: SwaggerObject) {
   const existingSummary = readString(operation.summary);
   const handlerName = readHandlerName(operation);
-  const documentedOperation = !existingSummary && handlerName
-    ? OPERATION_DOCUMENTATION_BY_HANDLER[handlerName]
+  const documentedOperation = !existingSummary
+    ? OPERATION_DOCUMENTATION_BY_PATH[`${method} ${path}`] ??
+      (handlerName ? OPERATION_DOCUMENTATION_BY_HANDLER[handlerName] : undefined)
     : undefined;
   if (documentedOperation) {
     operation.summary = documentedOperation.summary;

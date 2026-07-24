@@ -63,6 +63,7 @@ import {
   saltluxFixedDemoAnswerScriptForQuestion,
 } from "../../../shared/saltlux-fixed-demo";
 import { RealtimeSessionCredentialService } from "./realtime-session-credential.service";
+import { assertRealtimeSessionRequest } from "./realtime-session-request";
 
 const DEFAULT_MOCK_QUESTION_TYPES = ["INTRO", "TECHNICAL", "EXPERIENCE", "CLOSING"] as const;
 const MOCK_REALTIME_CLIENT_SECRET_TTL_MS = 2 * 60 * 1000;
@@ -848,7 +849,7 @@ export class InterviewService {
     currentUser: CurrentCandidateUser,
   ): Promise<{ data: RealtimeInterviewSessionResult; meta: { traceId: string; timestamp: string } }> {
     this.assertInProgress(session);
-    this.assertRealtimeSessionRequest(dto);
+    assertRealtimeSessionRequest(dto);
 
     const provider = this.realtimeSessionProvider();
     const result = provider === "openai"
@@ -856,20 +857,6 @@ export class InterviewService {
       : this.createMockRealtimeSessionResult(session, currentUser);
 
     return this.envelope(result);
-  }
-
-  private assertRealtimeSessionRequest(dto: CreateRealtimeInterviewSessionDto): void {
-    const requestBody = this.toRequestBody(dto ?? {}, "realtimeSession");
-    if (requestBody.mode !== undefined && requestBody.mode !== "realtime-voice") {
-      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "Realtime session mode is invalid.", 400, [
-        { field: "mode", reason: "mode must be realtime-voice" },
-      ]);
-    }
-    if (requestBody.transport !== undefined && requestBody.transport !== "webrtc") {
-      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "Realtime session transport is invalid.", 400, [
-        { field: "transport", reason: "transport must be webrtc" },
-      ]);
-    }
   }
 
   private realtimeSessionProvider(): RealtimeInterviewProvider {

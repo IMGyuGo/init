@@ -18,7 +18,7 @@ import type {
   SubmitApplicationRequest,
   UploadResumeRequest,
 } from "./api";
-import { candidateApiPaths } from "./api";
+import { candidateApiPaths, createCandidateApiClient } from "./api";
 import { isCandidateApplicationCancelable } from "./application-cancellation";
 import {
   createRealtimeInterviewWebRtcConnection,
@@ -2134,6 +2134,45 @@ const recruitingFollowUpPath = candidateApiPaths.recruitingFollowUpQuestion(1);
 const recruitingRealtimeSessionPath = candidateApiPaths.recruitingRealtimeSession(1);
 assert.equal(mockRealtimeSessionPath, "/api/v1/candidate/mock-interviews/10001/realtime-session");
 assert.equal(recruitingRealtimeSessionPath, "/api/v1/candidate/interviews/1/realtime-session");
+
+const previewRequests: Array<{ url: string; init: RequestInit }> = [];
+const previewFetcher: typeof fetch = async (input, init = {}) => {
+  previewRequests.push({ url: String(input), init });
+  return new Response(JSON.stringify({
+    data: {
+      accepted: true,
+      mode: "realtime-voice",
+      provider: "openai",
+      model: "gpt-realtime-2",
+      voice: "marin",
+      transport: "webrtc",
+      clientSecret: "ephemeral-preview-secret",
+      clientSecretType: "ephemeral",
+      expiresAt: "2026-07-24T00:02:00.000Z",
+      endpoint: "https://api.openai.com/v1/realtime/calls",
+    },
+    meta: { traceId: "preview-trace", timestamp: "2026-07-24T00:00:00.000Z" },
+  }), { status: 200, headers: { "content-type": "application/json" } });
+};
+const previewClient = createCandidateApiClient({
+  baseUrl: "https://api.test",
+  fetcher: previewFetcher,
+});
+const previewRequest = previewClient.createInterviewerPreviewRealtimeSession({
+  mode: "realtime-voice",
+  transport: "webrtc",
+});
+void previewRequest.then(() => {
+  assert.equal(
+    previewRequests[0]?.url,
+    "https://api.test/api/v1/interviewer-preview/realtime-session",
+  );
+  assert.equal(previewRequests[0]?.init.method, "POST");
+  assert.equal(previewRequests[0]?.init.body, JSON.stringify({
+    mode: "realtime-voice",
+    transport: "webrtc",
+  }));
+});
 
 function createContractRealtimeAudioTrack(enabled = true): MediaStreamTrack {
   const track = {
