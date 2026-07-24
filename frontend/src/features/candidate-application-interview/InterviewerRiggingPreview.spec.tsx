@@ -64,6 +64,21 @@ assert.match(previewSource, /InterviewerLipSyncTuningPanel/);
 
 const tuningPanelSource = readFileSync(new URL("./InterviewerLipSyncTuningPanel.tsx", import.meta.url), "utf8");
 assert.match(tuningPanelSource, /createInterviewerPreviewRealtimeSession/);
+assert.match(
+  tuningPanelSource,
+  /import \{ getApiBaseUrl \} from "\.\.\/\.\.\/api\/api-base-url";/,
+  "the tuning panel should use the configured backend API origin",
+);
+assert.match(
+  tuningPanelSource,
+  /createCandidateApiClient\(\{\s*baseUrl: getApiBaseUrl\(\),?\s*\}\)/,
+  "the preview credential client should target the backend instead of the Next.js origin",
+);
+assert.doesNotMatch(
+  tuningPanelSource,
+  /createCandidateApiClient\(\s*\)/,
+  "the tuning panel must not fall back to same-origin Candidate API requests",
+);
 assert.match(tuningPanelSource, /audioSource:\s*remoteAudioElement/);
 assert.match(tuningPanelSource, /audioStream:\s*remoteStream/);
 assert.doesNotMatch(tuningPanelSource, /speechSynthesis|SpeechSynthesisUtterance/);

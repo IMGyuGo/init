@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getApiBaseUrl } from "../../api/api-base-url";
 import { createCandidateApiClient } from "./api";
 import { LocalInterviewerAvatar } from "./LocalInterviewerAvatar";
 import { useLipSyncDriverState, type MouthShape } from "./LipSyncDriver";
@@ -184,7 +185,7 @@ export function InterviewerLipSyncTuningPanel({
     currentCharacterIndexRef.current = 0;
     setTransitions([]);
     if (!controllerRef.current) {
-      const apiClient = createCandidateApiClient();
+      const apiClient = createCandidateApiClient({ baseUrl: getApiBaseUrl() });
       controllerRef.current = new RealtimeLipSyncTuningController({
         createSession: async () => (
           await apiClient.createInterviewerPreviewRealtimeSession({

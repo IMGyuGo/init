@@ -109,21 +109,30 @@ describe("RealtimeSessionCredentialService", () => {
   });
 
   it("maps a non-successful OpenAI response to an external service failure", async () => {
+    const secretMarker = "sk-provider-secret-marker";
     process.env.AI_INTERVIEWER_REALTIME_PROVIDER = "openai";
     process.env.OPENAI_API_KEY = "server-test-key";
     const service = new RealtimeSessionCredentialService(async () => new Response(
-      JSON.stringify({ error: { message: "provider unavailable" } }),
+      JSON.stringify({ error: { message: `provider unavailable ${secretMarker}` } }),
       { status: 503 },
     ));
 
-    await expect(service.issueOpenAi({
-      instructions: "instructions",
-      safetyIdentifier: "preview-candidate-7",
-    })).rejects.toMatchObject<Partial<CandidateDomainError>>({
+    let thrown: unknown;
+    try {
+      await service.issueOpenAi({
+        instructions: "instructions",
+        safetyIdentifier: "preview-candidate-7",
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject<Partial<CandidateDomainError>>({
       code: "COMMON_EXTERNAL_SERVICE_FAILED",
       statusCode: 502,
-      details: [{ field: "openai", reason: "provider unavailable" }],
+      details: [{ field: "openai", reason: "provider returned status 503" }],
     });
+    expect(JSON.stringify((thrown as CandidateDomainError).details)).not.toContain(secretMarker);
   });
 
   it("maps an OpenAI transport rejection to a bounded external service failure", async () => {
@@ -175,7 +184,7 @@ describe("RealtimeSessionCredentialService", () => {
     })).rejects.toMatchObject<Partial<CandidateDomainError>>({
       code: "COMMON_EXTERNAL_SERVICE_FAILED",
       statusCode: 502,
-      details: [{ field: "openai", reason: "status 503" }],
+      details: [{ field: "openai", reason: "provider returned status 503" }],
     });
   });
 

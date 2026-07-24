@@ -117,16 +117,10 @@ export class RealtimeSessionCredentialService {
     }
 
     if (!response.ok) {
-      const errorPayload = isObjectRecord(parsedPayload) && isObjectRecord(parsedPayload.error)
-        ? parsedPayload.error
-        : undefined;
-      const providerMessage = typeof errorPayload?.message === "string"
-        ? errorPayload.message
-        : rawBody.slice(0, 200) || `status ${response.status}`;
       throw externalServiceFailure(
         "OpenAI realtime session creation failed.",
         "openai",
-        providerMessage,
+        `provider returned status ${response.status}`,
       );
     }
 
