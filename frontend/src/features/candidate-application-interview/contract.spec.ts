@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import test from "node:test";
 import type {
   ApiErrorBody,
   CandidateApplicationSummary,
@@ -2135,34 +2136,36 @@ const recruitingRealtimeSessionPath = candidateApiPaths.recruitingRealtimeSessio
 assert.equal(mockRealtimeSessionPath, "/api/v1/candidate/mock-interviews/10001/realtime-session");
 assert.equal(recruitingRealtimeSessionPath, "/api/v1/candidate/interviews/1/realtime-session");
 
-const previewRequests: Array<{ url: string; init: RequestInit }> = [];
-const previewFetcher: typeof fetch = async (input, init = {}) => {
-  previewRequests.push({ url: String(input), init });
-  return new Response(JSON.stringify({
-    data: {
-      accepted: true,
-      mode: "realtime-voice",
-      provider: "openai",
-      model: "gpt-realtime-2",
-      voice: "marin",
-      transport: "webrtc",
-      clientSecret: "ephemeral-preview-secret",
-      clientSecretType: "ephemeral",
-      expiresAt: "2026-07-24T00:02:00.000Z",
-      endpoint: "https://api.openai.com/v1/realtime/calls",
-    },
-    meta: { traceId: "preview-trace", timestamp: "2026-07-24T00:00:00.000Z" },
-  }), { status: 200, headers: { "content-type": "application/json" } });
-};
-const previewClient = createCandidateApiClient({
-  baseUrl: "https://api.test",
-  fetcher: previewFetcher,
-});
-const previewRequest = previewClient.createInterviewerPreviewRealtimeSession({
-  mode: "realtime-voice",
-  transport: "webrtc",
-});
-void previewRequest.then(() => {
+test("creates an authenticated interviewer preview realtime session request", async () => {
+  const previewRequests: Array<{ url: string; init: RequestInit }> = [];
+  const previewFetcher: typeof fetch = async (input, init = {}) => {
+    previewRequests.push({ url: String(input), init });
+    return new Response(JSON.stringify({
+      data: {
+        accepted: true,
+        mode: "realtime-voice",
+        provider: "openai",
+        model: "gpt-realtime-2",
+        voice: "marin",
+        transport: "webrtc",
+        clientSecret: "ephemeral-preview-secret",
+        clientSecretType: "ephemeral",
+        expiresAt: "2026-07-24T00:02:00.000Z",
+        endpoint: "https://api.openai.com/v1/realtime/calls",
+      },
+      meta: { traceId: "preview-trace", timestamp: "2026-07-24T00:00:00.000Z" },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const previewClient = createCandidateApiClient({
+    baseUrl: "https://api.test",
+    fetcher: previewFetcher,
+  });
+
+  await previewClient.createInterviewerPreviewRealtimeSession({
+    mode: "realtime-voice",
+    transport: "webrtc",
+  });
+
   assert.equal(
     previewRequests[0]?.url,
     "https://api.test/api/v1/interviewer-preview/realtime-session",

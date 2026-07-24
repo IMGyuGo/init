@@ -1,5 +1,12 @@
 import type { CurrentUser } from "@init/common";
-import { CandidateDomainError } from "../../candidate";
+import {
+  CandidateDomainError,
+  CandidateService,
+  DEV_CANDIDATE_USER,
+  InMemoryCandidateRepository,
+} from "../../candidate";
+import { InMemoryInterviewRepository } from "../repository/in-memory-interview.repository";
+import { InterviewService } from "./interview.service";
 import type { IssueOpenAiRealtimeCredentialsInput } from "./realtime-session-credential.service";
 import { InterviewerPreviewRealtimeService } from "./interviewer-preview-realtime.service";
 
@@ -71,5 +78,68 @@ describe("InterviewerPreviewRealtimeService", () => {
       details: [{ field, reason }],
     });
     expect(issueOpenAi).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: "null", dto: null },
+    { label: "number", dto: 42 },
+    { label: "string", dto: "invalid" },
+    { label: "boolean", dto: true },
+    { label: "array", dto: [] },
+  ])("rejects a $label preview body before issuing credentials", async ({ dto }) => {
+    const issueOpenAi = jest.fn();
+    const service = new InterviewerPreviewRealtimeService({ issueOpenAi } as never);
+
+    await expect(service.createSession(
+      dto as never,
+      { userId: 7, userType: "CANDIDATE", candidateId: 11, companyId: null },
+    )).rejects.toMatchObject<Partial<CandidateDomainError>>({
+      code: "COMMON_VALIDATION_FAILED",
+      statusCode: 400,
+      message: "Request body is invalid.",
+      details: [{ field: "realtimeSession", reason: "realtimeSession must be an object" }],
+    });
+    expect(issueOpenAi).not.toHaveBeenCalled();
+  });
+
+  it("preserves object-shape validation for existing interview realtime sessions", async () => {
+    const originalProvider = process.env.AI_INTERVIEWER_REALTIME_PROVIDER;
+    const issueOpenAi = jest.fn().mockResolvedValue(credentials);
+    const candidateService = new CandidateService(new InMemoryCandidateRepository());
+    const interviewService = new InterviewService(
+      candidateService,
+      new InMemoryInterviewRepository(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { issueOpenAi } as never,
+    );
+    const started = await interviewService.startMockInterview(
+      { questionTypes: ["INTRO"], showQuestionText: false },
+      DEV_CANDIDATE_USER,
+    );
+    process.env.AI_INTERVIEWER_REALTIME_PROVIDER = "openai";
+
+    try {
+      for (const dto of [null, 42, "invalid", true, []]) {
+        await expect(interviewService.createMockRealtimeSession(
+          started.data.sessionId,
+          dto as never,
+          DEV_CANDIDATE_USER,
+        )).rejects.toMatchObject<Partial<CandidateDomainError>>({
+          code: "COMMON_VALIDATION_FAILED",
+          statusCode: 400,
+          details: [{ field: "realtimeSession", reason: "realtimeSession must be an object" }],
+        });
+      }
+      expect(issueOpenAi).not.toHaveBeenCalled();
+    } finally {
+      if (originalProvider === undefined) {
+        delete process.env.AI_INTERVIEWER_REALTIME_PROVIDER;
+      } else {
+        process.env.AI_INTERVIEWER_REALTIME_PROVIDER = originalProvider;
+      }
+    }
   });
 });

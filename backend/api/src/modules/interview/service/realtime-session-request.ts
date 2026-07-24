@@ -4,6 +4,14 @@ import type { CreateRealtimeInterviewSessionDto } from "../dto/interview.runtime
 export function assertRealtimeSessionRequest(
   dto: CreateRealtimeInterviewSessionDto | null | undefined,
 ): void {
+  if (dto === null || (dto !== undefined && (typeof dto !== "object" || Array.isArray(dto)))) {
+    throw new CandidateDomainError(
+      "COMMON_VALIDATION_FAILED",
+      "Request body is invalid.",
+      400,
+      [{ field: "realtimeSession", reason: "realtimeSession must be an object" }],
+    );
+  }
   if (dto?.mode !== undefined && dto.mode !== "realtime-voice") {
     throw new CandidateDomainError(
       "COMMON_VALIDATION_FAILED",

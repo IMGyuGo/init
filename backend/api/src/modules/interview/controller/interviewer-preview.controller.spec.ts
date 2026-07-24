@@ -8,6 +8,7 @@ import { RequestMethod } from "@nestjs/common";
 import type { CurrentUser } from "@init/common";
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
 import { CandidateDomainError } from "../../candidate";
+import { InterviewerPreviewRealtimeService } from "../service/interviewer-preview-realtime.service";
 import { InterviewerPreviewController } from "./interviewer-preview.controller";
 
 describe("InterviewerPreviewController", () => {
@@ -71,5 +72,36 @@ describe("InterviewerPreviewController", () => {
         details: [{ field: "mode", reason: "mode must be realtime-voice" }],
       },
     });
+  });
+
+  it.each([
+    { label: "null", dto: null },
+    { label: "primitive", dto: 42 },
+    { label: "array", dto: [] },
+  ])("maps a non-object $label body before issuing credentials", async ({ dto }) => {
+    const issueOpenAi = jest.fn();
+    const controller = new InterviewerPreviewController(
+      new InterviewerPreviewRealtimeService({ issueOpenAi } as never),
+    );
+
+    await expect(controller.createRealtimeSession(
+      {
+        currentUser: {
+          userId: 7,
+          userType: "CANDIDATE",
+          candidateId: 11,
+          companyId: null,
+        },
+      } as never,
+      dto as never,
+    )).rejects.toMatchObject({
+      status: 400,
+      response: {
+        code: "COMMON_VALIDATION_FAILED",
+        message: "Request body is invalid.",
+        details: [{ field: "realtimeSession", reason: "realtimeSession must be an object" }],
+      },
+    });
+    expect(issueOpenAi).not.toHaveBeenCalled();
   });
 });
