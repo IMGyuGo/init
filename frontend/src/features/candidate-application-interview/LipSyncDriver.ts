@@ -106,7 +106,10 @@ const INITIAL_CONSONANT_CUE_WEIGHT = 0.42;
 const SIMPLE_VOWEL_CUE_WEIGHT = 1.15;
 const COMPOUND_VOWEL_CUE_WEIGHT = 0.72;
 const FINAL_CONSONANT_CUE_WEIGHT = 0.36;
-const SPEECH_PAUSE_CUE_WEIGHT = 1.65;
+const SHORT_PAUSE_MS = 110;
+const SENTENCE_PAUSE_MS = 200;
+const ELLIPSIS_PAUSE_MS = 260;
+const MIN_SPEECH_CUE_DURATION_MS = 40;
 const mouthOpenValueByShape: Record<MouthShape, number> = {
   rest: 0,
   closed: 0.08,
@@ -249,16 +252,46 @@ export function getMouthShapeForRms(rms: number): MouthShape {
   return "open";
 }
 
+function getPauseRunDurationMs(pauseRun: string): number {
+  if (pauseRun.includes("…") || /\.{3,}/u.test(pauseRun)) return ELLIPSIS_PAUSE_MS;
+  if (/[.!?]/u.test(pauseRun)) return SENTENCE_PAUSE_MS;
+  return SHORT_PAUSE_MS;
+}
+
+export function getSpeechPauseDurationMs(text: string): number {
+  const characters = [...text];
+  let totalMs = 0;
+
+  for (let index = 0; index < characters.length;) {
+    if (!SPEECH_PAUSE_CHARACTERS.has(characters[index]!)) {
+      index += 1;
+      continue;
+    }
+
+    let pauseRun = "";
+    while (index < characters.length && SPEECH_PAUSE_CHARACTERS.has(characters[index]!)) {
+      pauseRun += characters[index];
+      index += 1;
+    }
+    totalMs += getPauseRunDurationMs(pauseRun);
+  }
+
+  return totalMs;
+}
+
 export function buildKoreanVisemeTimeline(text: string, durationMs: number): VisemeCue[] {
   const weightedCues: Array<{
     mouthShape: MouthShape;
     sourceCharacterIndex: number;
     weight: number;
     isPause: boolean;
+    targetDurationMs?: number;
   }> = [];
+  const characters = [...text];
   let sourceCharacterIndex = 0;
 
-  for (const character of text) {
+  for (let characterIndex = 0; characterIndex < characters.length;) {
+    const character = characters[characterIndex]!;
     const indices = getHangulIndices(character);
     if (indices) {
       const hasInitialCue = BILABIAL_INITIALS.has(indices.initial) || TEETH_INITIALS.has(indices.initial);
@@ -299,27 +332,68 @@ export function buildKoreanVisemeTimeline(text: string, durationMs: number): Vis
           weightedCues.push({ ...candidate, sourceCharacterIndex });
         }
       }
+      sourceCharacterIndex += character.length;
+      characterIndex += 1;
     } else if (SPEECH_PAUSE_CHARACTERS.has(character)) {
+      const pauseSourceCharacterIndex = sourceCharacterIndex;
+      let pauseRun = "";
+      while (
+        characterIndex < characters.length
+        && SPEECH_PAUSE_CHARACTERS.has(characters[characterIndex]!)
+      ) {
+        const pauseCharacter = characters[characterIndex]!;
+        pauseRun += pauseCharacter;
+        sourceCharacterIndex += pauseCharacter.length;
+        characterIndex += 1;
+      }
       weightedCues.push({
         mouthShape: "rest",
-        sourceCharacterIndex,
-        weight: SPEECH_PAUSE_CUE_WEIGHT,
+        sourceCharacterIndex: pauseSourceCharacterIndex,
+        weight: 0,
         isPause: true,
+        targetDurationMs: getPauseRunDurationMs(pauseRun),
       });
+    } else {
+      sourceCharacterIndex += character.length;
+      characterIndex += 1;
     }
-    sourceCharacterIndex += character.length;
   }
 
   if (!weightedCues.length || durationMs <= 0) return [];
 
-  const totalWeight = weightedCues.reduce((total, cue) => total + cue.weight, 0);
-  let elapsedWeight = 0;
+  const speechCues = weightedCues.filter((cue) => !cue.isPause);
+  const requestedPauseMs = weightedCues.reduce(
+    (total, cue) => total + (cue.targetDurationMs ?? 0),
+    0,
+  );
+  const protectedSpeechMs = Math.min(
+    durationMs,
+    speechCues.length * MIN_SPEECH_CUE_DURATION_MS,
+  );
+  const pauseScale = requestedPauseMs > 0
+    ? Math.min(1, Math.max(0, durationMs - protectedSpeechMs) / requestedPauseMs)
+    : 0;
+  const effectivePauseDurations = weightedCues.map((cue) => (
+    cue.isPause ? Math.round((cue.targetDurationMs ?? 0) * pauseScale) : 0
+  ));
+  const effectivePauseMs = effectivePauseDurations.reduce((total, value) => total + value, 0);
+  const speechBudgetMs = Math.max(0, durationMs - effectivePauseMs);
+  const totalSpeechWeight = speechCues.reduce((total, cue) => total + cue.weight, 0);
+  let elapsedSpeechWeight = 0;
+  let elapsedPauseMs = 0;
   let startMs = 0;
   return weightedCues.map((weightedCue, index) => {
-    elapsedWeight += weightedCue.weight;
+    if (weightedCue.isPause) {
+      elapsedPauseMs += effectivePauseDurations[index] ?? 0;
+    } else {
+      elapsedSpeechWeight += weightedCue.weight;
+    }
+    const elapsedSpeechMs = totalSpeechWeight > 0
+      ? Math.round((elapsedSpeechWeight / totalSpeechWeight) * speechBudgetMs)
+      : 0;
     const endMs = index === weightedCues.length - 1
       ? durationMs
-      : Math.round((elapsedWeight / totalWeight) * durationMs);
+      : elapsedSpeechMs + elapsedPauseMs;
     const cue = {
       startMs,
       endMs,
@@ -423,7 +497,10 @@ export function getEstimatedSpeechDurationMs(
   const syllableDurationMs = realtimeAudio
     ? REALTIME_ESTIMATED_SPEECH_SYLLABLE_MS
     : BROWSER_ESTIMATED_SPEECH_SYLLABLE_MS;
-  return Math.max(600, [...text].filter((character) => getHangulIndices(character)).length * syllableDurationMs);
+  const spokenSyllableMs = [...text]
+    .filter((character) => getHangulIndices(character))
+    .length * syllableDurationMs;
+  return Math.max(600, spokenSyllableMs + getSpeechPauseDurationMs(text));
 }
 
 function calculateRms(samples: Uint8Array<ArrayBuffer>): number {

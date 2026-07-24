@@ -194,12 +194,32 @@ assert.ok(
     < weightedMaTimeline[1]!.endMs - weightedMaTimeline[1]!.startMs,
 );
 
-const weightedPauseTimeline = buildKoreanVisemeTimeline("가,", 1_000);
-assert.equal(weightedPauseTimeline.length, 2);
-assert.ok(
-  weightedPauseTimeline[1]!.endMs - weightedPauseTimeline[1]!.startMs
-    > weightedPauseTimeline[0]!.endMs - weightedPauseTimeline[0]!.startMs,
-);
+function getPauseDurations(text: string, durationMs: number): number[] {
+  return buildKoreanVisemeTimeline(text, durationMs)
+    .filter((cue) => cue.isPause)
+    .map((cue) => cue.endMs - cue.startMs);
+}
+
+assert.deepEqual(getPauseDurations("안녕하세요. 지금부터", 2_000), [200]);
+assert.deepEqual(getPauseDurations("천천히, 다시", 2_000), [110]);
+assert.deepEqual(getPauseDurations("잠시… 다시", 2_000), [260]);
+assert.deepEqual(getPauseDurations("정말?! 다시", 2_000), [200]);
+assert.deepEqual(getPauseDurations("잠시... 다시", 2_000), [260]);
+assert.deepEqual(getPauseDurations("가 나", 1_000), []);
+
+assert.equal(getEstimatedSpeechDurationMs("가.나", undefined, false), 600);
+assert.equal(getEstimatedSpeechDurationMs("가나다라.마", undefined, false), 975);
+
+const compressedPauseTimeline = buildKoreanVisemeTimeline("가.나", 250);
+const compressedPause = compressedPauseTimeline.find((cue) => cue.isPause);
+assert.ok(compressedPause);
+assert.ok(compressedPause.endMs - compressedPause.startMs < 200);
+assert.ok(compressedPause.endMs - compressedPause.startMs >= 0);
+assert.equal(compressedPauseTimeline.at(-1)?.endMs, 250);
+for (let index = 1; index < compressedPauseTimeline.length; index += 1) {
+  assert.equal(compressedPauseTimeline[index - 1]?.endMs, compressedPauseTimeline[index]?.startMs);
+  assert.ok(compressedPauseTimeline[index]!.endMs >= compressedPauseTimeline[index]!.startMs);
+}
 
 const repeatedOpenTimeline = buildKoreanVisemeTimeline("가가", 1_000);
 assert.deepEqual(
