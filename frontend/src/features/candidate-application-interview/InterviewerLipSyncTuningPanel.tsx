@@ -238,7 +238,7 @@ export function InterviewerLipSyncTuningPanel({
     try {
       const saved = saveLipSyncTuningSettings(draft);
       setDraft(saved);
-      setStatusMessage("설정을 저장했습니다. 실제 면접에도 적용됩니다.");
+      setStatusMessage("실제 면접 적용 설정으로 저장했습니다.");
     } catch {
       setStatusMessage("설정을 저장하지 못했습니다.");
     }
@@ -250,8 +250,7 @@ export function InterviewerLipSyncTuningPanel({
       setDraft(defaults);
       setStatusMessage("기본값으로 초기화했습니다.");
     } catch {
-      setDraft(DEFAULT_LIP_SYNC_TUNING_SETTINGS);
-      setStatusMessage("기본값을 불러왔지만 브라우저 저장소는 초기화하지 못했습니다.");
+      setStatusMessage("브라우저 저장소를 초기화하지 못했습니다. 현재 편집값을 유지합니다.");
     }
   }
 

@@ -60,10 +60,34 @@ const previewSource = readFileSync(new URL("./InterviewerRiggingPreview.tsx", im
 assert.doesNotMatch(previewSource, /Cubism|interviewer-cubism/);
 assert.match(previewSource, /InterviewerLipSyncTuningPanel/);
 
+const tuningPanelSource = readFileSync(new URL("./InterviewerLipSyncTuningPanel.tsx", import.meta.url), "utf8");
+assert.ok(
+  tuningPanelSource.includes("실제 면접 적용 설정으로 저장했습니다."),
+  "save status should match the approved tuning copy",
+);
+assert.doesNotMatch(
+  tuningPanelSource,
+  /catch \{\s*setDraft\(DEFAULT_LIP_SYNC_TUNING_SETTINGS\)/,
+  "a storage reset failure should leave the draft unchanged",
+);
+
 const interviewAvatarSource = readFileSync(new URL("./InterviewAvatar.tsx", import.meta.url), "utf8");
 assert.match(interviewAvatarSource, /LocalInterviewerAvatar/);
 assert.match(interviewAvatarSource, /useLipSyncDriverState/);
 assert.match(interviewAvatarSource, /mouthOpen=\{lipSyncState\.mouthOpen\}/);
+assert.ok(
+  interviewAvatarSource.includes("useStoredLipSyncTuningSettings"),
+  "actual interview should read saved lip-sync tuning",
+);
+assert.match(interviewAvatarSource, /tuning:\s*lipSyncTuning/);
+assert.match(
+  interviewAvatarSource,
+  /fullOpenEnterThreshold=\{lipSyncTuning\.fullOpenEnterThreshold\}/,
+);
+assert.match(
+  interviewAvatarSource,
+  /fullOpenExitThreshold=\{lipSyncTuning\.fullOpenExitThreshold\}/,
+);
 assert.doesNotMatch(interviewAvatarSource, /Cubism|interviewer-cubism/);
 
 assert.match(previewSource, /mouthOpen=\{lipSyncState\.mouthOpen\}/);
