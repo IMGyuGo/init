@@ -261,11 +261,8 @@ export interface AiHandoffResult {
 
 export type RealtimeInterviewProvider = "mock" | "openai";
 
-export interface RealtimeInterviewSessionResult {
+export interface RealtimeSessionCredentials {
   accepted: true;
-  sessionId: number;
-  applicationId?: number;
-  interviewType: InterviewType;
   mode: "realtime-voice";
   provider: RealtimeInterviewProvider;
   model: string;
@@ -275,4 +272,14 @@ export interface RealtimeInterviewSessionResult {
   clientSecretType: "ephemeral";
   expiresAt: string;
   endpoint: string;
+}
+
+export interface RealtimeInterviewSessionResult extends RealtimeSessionCredentials {
+  sessionId: number;
+  applicationId?: number;
+  interviewType: InterviewType;
+}
+
+export interface RealtimePreviewSessionResult extends RealtimeSessionCredentials {
+  provider: "openai";
 }

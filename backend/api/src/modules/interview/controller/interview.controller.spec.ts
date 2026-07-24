@@ -500,10 +500,12 @@ test("openai realtime session reads client supplied speech events without automa
   const originalApiKey = process.env.OPENAI_API_KEY;
   const originalFetch = globalThis.fetch;
   const requestBodies: string[] = [];
+  const requestHeaders: HeadersInit[] = [];
   process.env.AI_INTERVIEWER_REALTIME_PROVIDER = "openai";
   process.env.OPENAI_API_KEY = "test-openai-key";
   globalThis.fetch = (async (_input, init) => {
     requestBodies.push(String(init?.body ?? ""));
+    requestHeaders.push(init?.headers ?? {});
     return new Response(JSON.stringify({ value: "ephemeral-client-secret", expires_at: 1783300000 }), { status: 200 });
   }) as typeof fetch;
 
@@ -541,6 +543,11 @@ test("openai realtime session reads client supplied speech events without automa
     };
 
     assert.equal(realtime.data.provider, "openai");
+    assert.deepEqual(requestHeaders[0], {
+      Authorization: "Bearer test-openai-key",
+      "Content-Type": "application/json",
+      "OpenAI-Safety-Identifier": `candidate-${DEV_CANDIDATE_USER.candidateId}`,
+    });
     assert.match(body.session?.instructions ?? "", /Read the provided Korean interview question exactly once/i);
     assert.match(body.session?.instructions ?? "", /backend-generated follow-up question exactly once/i);
     assert.match(body.session?.instructions ?? "", /Do not generate realtime follow-up questions/i);

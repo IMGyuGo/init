@@ -15,6 +15,7 @@ import { INTERVIEW_REPOSITORY } from "./repository/interview.repository";
 import { PrismaInterviewRepository } from "./repository/prisma-interview.repository";
 import { INTERVIEW_MEDIA_STORAGE, S3InterviewMediaStorageAdapter } from "./service/interview-media-storage.adapter";
 import { InterviewService } from "./service/interview.service";
+import { RealtimeSessionCredentialService } from "./service/realtime-session-credential.service";
 
 @Module({
   imports: [AuthModule, CandidateModule, PaymentModule, AiJobDispatchModule],
@@ -31,6 +32,7 @@ import { InterviewService } from "./service/interview.service";
         return new PrismaInterviewRepository(prisma);
       },
     },
+    RealtimeSessionCredentialService,
     InterviewService,
     {
       provide: INTERVIEW_MEDIA_STORAGE,
@@ -49,6 +51,7 @@ import { InterviewService } from "./service/interview.service";
     AiJobDispatchModule,
     INTERVIEW_MEDIA_STORAGE,
     InterviewService,
+    RealtimeSessionCredentialService,
     PublicInterviewAccessGuard,
     PublicInterviewAccessTokenService,
     PublicInterviewService,

@@ -62,12 +62,9 @@ import {
   isSaltluxFixedDemoPersonalizedQuestion,
   saltluxFixedDemoAnswerScriptForQuestion,
 } from "../../../shared/saltlux-fixed-demo";
+import { RealtimeSessionCredentialService } from "./realtime-session-credential.service";
 
 const DEFAULT_MOCK_QUESTION_TYPES = ["INTRO", "TECHNICAL", "EXPERIENCE", "CLOSING"] as const;
-const DEFAULT_REALTIME_MODEL = "gpt-realtime-2";
-const DEFAULT_REALTIME_VOICE = "marin";
-const DEFAULT_REALTIME_SPEECH_SPEED = 0.9;
-const DEFAULT_REALTIME_API_BASE_URL = "https://api.openai.com";
 const MOCK_REALTIME_CLIENT_SECRET_TTL_MS = 2 * 60 * 1000;
 export type UploadedInterviewMediaFile = {
   originalName: string;
@@ -92,18 +89,6 @@ type AnswerRequestBody = {
 };
 type MockQuestionType = InterviewQuestion["questionType"];
 
-type OpenAiRealtimeClientSecretResponse = {
-  value?: string;
-  expires_at?: number;
-  client_secret?: {
-    value?: string;
-    expires_at?: number;
-  };
-  error?: {
-    message?: string;
-  };
-};
-
 @Injectable()
 export class InterviewService {
   constructor(
@@ -121,6 +106,9 @@ export class InterviewService {
     @Optional()
     @Inject(REPORT_REPOSITORY)
     private readonly reportRepository?: ReportRepository,
+    @Optional()
+    @Inject(RealtimeSessionCredentialService)
+    private readonly realtimeCredentials: RealtimeSessionCredentialService = new RealtimeSessionCredentialService(),
   ) {}
 
   async listOwnedMockInterviewSessions(currentUser: CurrentCandidateUser): Promise<RuntimeInterviewSession[]> {
@@ -914,102 +902,16 @@ export class InterviewService {
     session: RuntimeInterviewSession,
     currentUser: CurrentCandidateUser,
   ): Promise<RealtimeInterviewSessionResult> {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new CandidateDomainError("COMMON_CONFLICT", "OpenAI realtime session provider is not configured.", 409, [
-        { field: "OPENAI_API_KEY", reason: "OPENAI_API_KEY is required when AI_INTERVIEWER_REALTIME_PROVIDER=openai" },
-      ]);
-    }
-
-    const model = process.env.OPENAI_REALTIME_MODEL || DEFAULT_REALTIME_MODEL;
-    const voice = process.env.OPENAI_REALTIME_VOICE || DEFAULT_REALTIME_VOICE;
-    const response = await fetch(this.realtimeClientSecretsEndpoint(), {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "OpenAI-Safety-Identifier": `candidate-${currentUser.candidateId}`,
-      },
-      body: JSON.stringify({
-        session: {
-          type: "realtime",
-          model,
-          instructions: this.buildRealtimeInterviewInstructions(session),
-          audio: {
-            input: {
-              turn_detection: {
-                type: "server_vad",
-                create_response: false,
-                interrupt_response: false,
-              },
-            },
-            output: {
-              voice,
-              speed: DEFAULT_REALTIME_SPEECH_SPEED,
-            },
-          },
-        },
-      }),
+    const credentials = await this.realtimeCredentials.issueOpenAi({
+      instructions: this.buildRealtimeInterviewInstructions(session),
+      safetyIdentifier: `candidate-${currentUser.candidateId}`,
     });
-    const rawBody = await response.text();
-    const payload = this.parseOpenAiRealtimeClientSecret(rawBody);
-    if (!response.ok) {
-      const errorReason = payload.error?.message ?? (rawBody.slice(0, 200) || `status ${response.status}`);
-      throw new CandidateDomainError("COMMON_EXTERNAL_SERVICE_FAILED", "OpenAI realtime session creation failed.", 502, [
-        { field: "openai", reason: errorReason },
-      ]);
-    }
-
-    const clientSecret = payload.value ?? payload.client_secret?.value;
-    if (!clientSecret) {
-      throw new CandidateDomainError("COMMON_EXTERNAL_SERVICE_FAILED", "OpenAI realtime client secret was not returned.", 502, [
-        { field: "clientSecret", reason: "OpenAI response did not include an ephemeral client secret" },
-      ]);
-    }
-
     return {
-      accepted: true,
+      ...credentials,
       sessionId: session.sessionId,
       applicationId: session.applicationId,
       interviewType: session.interviewType,
-      mode: "realtime-voice",
-      provider: "openai",
-      model,
-      voice,
-      transport: "webrtc",
-      clientSecret,
-      clientSecretType: "ephemeral",
-      expiresAt: this.realtimeExpiresAt(payload.expires_at ?? payload.client_secret?.expires_at),
-      endpoint: this.realtimeCallsEndpoint(),
     };
-  }
-
-  private parseOpenAiRealtimeClientSecret(rawBody: string): OpenAiRealtimeClientSecretResponse {
-    if (!rawBody) return {};
-    try {
-      return JSON.parse(rawBody) as OpenAiRealtimeClientSecretResponse;
-    } catch {
-      return {};
-    }
-  }
-
-  private realtimeExpiresAt(expiresAt?: number): string {
-    if (expiresAt && Number.isFinite(expiresAt)) {
-      return new Date(expiresAt * 1000).toISOString();
-    }
-    return new Date(Date.now() + MOCK_REALTIME_CLIENT_SECRET_TTL_MS).toISOString();
-  }
-
-  private realtimeClientSecretsEndpoint(): string {
-    return `${this.realtimeApiBaseUrl()}/v1/realtime/client_secrets`;
-  }
-
-  private realtimeCallsEndpoint(): string {
-    return `${this.realtimeApiBaseUrl()}/v1/realtime/calls`;
-  }
-
-  private realtimeApiBaseUrl(): string {
-    return (process.env.OPENAI_REALTIME_API_BASE_URL || DEFAULT_REALTIME_API_BASE_URL).replace(/\/+$/, "");
   }
 
   private buildRealtimeInterviewInstructions(session: RuntimeInterviewSession): string {
