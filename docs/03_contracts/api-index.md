@@ -32,6 +32,7 @@ NestJS 구현은 API path를 그대로 controller 파일명으로 흩뜨리지 �
 | `backend/api/src/modules/company-profile` | `CompanyProfileController` | `/api/v1/company/profile`, `/api/v1/company/notifications` | A/B | API-041..043 |
 | `backend/api/src/modules/candidate` | `CandidateController` | `/api/v1/candidate/profile`, `/api/v1/candidate/jobs`, `/api/v1/candidate/applications`, `/api/v1/candidate/resume`, `/api/v1/candidate/portfolio-links` | D | API-057F..078 중 프로필/지원/마이페이지 |
 | `backend/api/src/modules/interview` | `InterviewController`, `PublicInterviewController` | `/api/v1/candidate/mock-interviews`, `/api/v1/candidate/interviews`, `/api/v1/public` | D/E | API-044..057, API-064..072, API-087..096 |
+| `backend/api/src/modules/interview` | `InterviewerPreviewController` | `/api/v1/interviewer-preview` | D | API-097-RT |
 | `backend/api/src/modules/report` | `ReportController` | `/api/v1/company/reports`, `/api/v1/reports`, `/api/v1/candidate/*/reports` | E | API-019, API-022..031, API-053..057, API-073 |
 | `backend/api/src/modules/ai` | `AiController` | `/api/v1/ai` | E | API-079 |
 
