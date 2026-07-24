@@ -82,10 +82,10 @@ assert.equal(resolveMouthOpenness("small", Number.NaN), "small");
 assert.equal(resolveMouthOpenness("small", 0.65, { enter: 0.7, exit: 0.5 }), "small");
 assert.equal(resolveMouthOpenness("full", 0.55, { enter: 0.7, exit: 0.5 }), "full");
 
-assert.equal(getMouthSpriteVariant("open", "small"), "open-small");
+assert.equal(getMouthSpriteVariant("open", "small"), "open");
 assert.equal(getMouthSpriteVariant("open", "full"), "open");
-assert.equal(getMouthSpriteVariant("wide", "small"), "wide-small");
-assert.equal(getMouthSpriteVariant("round", "small"), "round-small");
+assert.equal(getMouthSpriteVariant("wide", "small"), "wide");
+assert.equal(getMouthSpriteVariant("round", "small"), "round");
 assert.equal(getMouthSpriteVariant("teeth", "small"), "teeth");
 assert.equal(getMouthSpriteVariant("closed", "full"), "closed");
 
@@ -153,9 +153,9 @@ const extractMouthSpriteSources = (markup: string) =>
 assert.deepEqual(extractMouthSpriteSources(openTalkingMarkup), mouthSpritePaths);
 assert.deepEqual(extractMouthSpriteSources(teethTalkingMarkup), mouthSpritePaths);
 assertActiveMouthVariant(openTalkingMarkup, "open");
-assertActiveMouthVariant(smallOpenTalkingMarkup, "open-small");
-assert.match(smallOpenTalkingMarkup, /data-mouth-variant="open-small"/);
+assertActiveMouthVariant(smallOpenTalkingMarkup, "open");
+assert.match(smallOpenTalkingMarkup, /data-mouth-variant="open"/);
 assert.match(smallOpenTalkingMarkup, /--mouth-register-x:0%/);
-assert.match(smallOpenTalkingMarkup, /--mouth-register-y:-13\.333333%/);
+assert.match(smallOpenTalkingMarkup, /--mouth-register-y:0%/);
 assertActiveMouthVariant(closedTalkingMarkup);
 assertActiveMouthVariant(teethTalkingMarkup, "teeth");

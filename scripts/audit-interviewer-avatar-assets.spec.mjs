@@ -57,7 +57,12 @@ assert.deepEqual(
 );
 for (const pair of audit.mouthSpriteRegistration.pairs) {
   assert.ok(pair.rawDeltaY >= 12, `${pair.names.join("/")} must reproduce the source regression`);
-  assert.ok(Math.abs(pair.registeredDeltaY) <= 3, `${pair.names.join("/")} y anchor must align`);
+  assert.ok(Math.abs(pair.registeredDeltaY) <= 3, `${pair.names.join("/")} upper-lip anchor must align`);
+  assert.equal(
+    pair.registeredCornerDeltaY,
+    0,
+    `${pair.names.join("/")} mouth-corner anchor must align exactly`,
+  );
   assert.ok(Math.abs(pair.registeredDeltaX) <= 3, `${pair.names.join("/")} x anchor must align`);
 }
 assert.deepEqual(

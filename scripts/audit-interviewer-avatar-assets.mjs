@@ -73,6 +73,7 @@ async function readUpperLipAnchor(path) {
   let left = info.width;
   let right = -1;
   let top = info.height;
+  const mouthPixels = [];
 
   for (let y = 0; y < info.height; y += 1) {
     for (let x = 0; x < info.width; x += 1) {
@@ -81,6 +82,16 @@ async function readUpperLipAnchor(path) {
       const green = data[index + 1];
       const blue = data[index + 2];
       const alpha = data[index + 3];
+      const mouthPixel = x >= 35
+        && x < 200
+        && y >= 20
+        && y < 85
+        && alpha > 150
+        && red < 175
+        && green < 140
+        && blue < 135
+        && red > green * 0.82;
+      if (mouthPixel) mouthPixels.push({ x, y });
       const lipPixel = alpha > 80
         && red < 145
         && green < 115
@@ -96,8 +107,22 @@ async function readUpperLipAnchor(path) {
   if (right < left || top >= info.height) {
     throw new Error(`${path} has no measurable upper-lip pixels`);
   }
+  if (mouthPixels.length === 0) {
+    throw new Error(`${path} has no measurable mouth-corner pixels`);
+  }
 
-  return { x: Math.trunc((left + right) / 2), y: top };
+  const mouthLeft = Math.min(...mouthPixels.map((pixel) => pixel.x));
+  const mouthRight = Math.max(...mouthPixels.map((pixel) => pixel.x));
+  const cornerRows = mouthPixels
+    .filter((pixel) => pixel.x <= mouthLeft + 5 || pixel.x >= mouthRight - 5)
+    .map((pixel) => pixel.y)
+    .sort((leftRow, rightRow) => leftRow - rightRow);
+
+  return {
+    x: Math.trunc((left + right) / 2),
+    y: top,
+    cornerY: cornerRows[Math.floor(cornerRows.length / 2)],
+  };
 }
 
 async function auditMouthSpriteRegistration(baseDirectory) {
@@ -128,6 +153,12 @@ async function auditMouthSpriteRegistration(baseDirectory) {
         smallAnchor.x + smallRegistration.x - fullAnchor.x - fullRegistration.x,
       registeredDeltaY:
         smallAnchor.y + smallRegistration.y - fullAnchor.y - fullRegistration.y,
+      rawCornerDeltaY: smallAnchor.cornerY - fullAnchor.cornerY,
+      registeredCornerDeltaY:
+        smallAnchor.cornerY
+        + smallRegistration.y
+        - fullAnchor.cornerY
+        - fullRegistration.y,
     });
   }
 
