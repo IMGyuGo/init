@@ -35,6 +35,17 @@ assert.match(markup, /data-audio-qa-renderer="png"/);
 assert.match(markup, /aria-label="로컬 RMS QA 음원"/);
 assert.match(markup, /controls=""/);
 assert.match(markup, />로컬 음원 재생</);
+assert.ok(markup.includes('data-lip-sync-tuning-panel="true"'), "tuning panel should render");
+assert.match(markup, /안녕하세요\. 지금부터 AI 모의면접을 시작하겠습니다\./);
+assert.match(markup, /입 모양 시간차/);
+assert.match(markup, /최소 입 모양 유지/);
+assert.match(markup, /무음 여운/);
+assert.match(markup, /큰 입 전환 기준/);
+assert.match(markup, /작은 입 복귀 기준/);
+assert.match(markup, />설정 저장</);
+assert.match(markup, />기본값으로 초기화</);
+assert.match(markup, /aria-live="polite"/);
+assert.match(markup, /aria-label="최근 입 모양 전환 기록"/);
 
 const reducedAudioQaMarkup = renderToStaticMarkup(
   <InterviewerAudioLipSyncQa reducedMotion />,
@@ -47,6 +58,7 @@ assert.match(previewRouteSource, /CandidatePages\.module\.css/);
 
 const previewSource = readFileSync(new URL("./InterviewerRiggingPreview.tsx", import.meta.url), "utf8");
 assert.doesNotMatch(previewSource, /Cubism|interviewer-cubism/);
+assert.match(previewSource, /InterviewerLipSyncTuningPanel/);
 
 const interviewAvatarSource = readFileSync(new URL("./InterviewAvatar.tsx", import.meta.url), "utf8");
 assert.match(interviewAvatarSource, /LocalInterviewerAvatar/);

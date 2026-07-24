@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePrefersReducedMotion } from "./InterviewAvatar";
+import { InterviewerLipSyncTuningPanel } from "./InterviewerLipSyncTuningPanel";
 import { LocalInterviewerAvatar } from "./LocalInterviewerAvatar";
 import {
   useLipSyncDriverState,
@@ -337,6 +338,7 @@ export function InterviewerRiggingPreview() {
           </div>
         </div>
 
+        <InterviewerLipSyncTuningPanel reducedMotion={reducedMotion} />
         <InterviewerAudioLipSyncQa reducedMotion={reducedMotion} />
       </section>
     </main>
