@@ -377,8 +377,7 @@ async function testStaleFailedOpenerCannotOverrideOrCloseRecoveryConnection() {
   const recoveryFake = createFakeConnection();
   const snapshots: RealtimeLipSyncTuningSnapshot[] = [];
   let recoveryPlay: Promise<void> | undefined;
-  let controller: RealtimeLipSyncTuningController;
-  controller = new RealtimeLipSyncTuningController({
+  const controller = new RealtimeLipSyncTuningController({
     createSession: async () => {
       sessionRequests += 1;
       return previewSession();

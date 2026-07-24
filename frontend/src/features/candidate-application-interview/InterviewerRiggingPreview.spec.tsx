@@ -84,8 +84,8 @@ assert.match(tuningPanelSource, /audioStream:\s*remoteStream/);
 assert.doesNotMatch(tuningPanelSource, /speechSynthesis|SpeechSynthesisUtterance/);
 assert.match(
   tuningPanelSource,
-  /if \(lipSyncState\.sourceCharacterIndex !== undefined\) \{\s*currentCharacterIndexRef\.current = lipSyncState\.sourceCharacterIndex;\s*\}/,
-  "the tuning history should preserve its last character while the timeline rests or ends",
+  /useEffect\(\(\) => \{\s*if \(lipSyncState\.sourceCharacterIndex !== undefined\) \{\s*currentCharacterIndexRef\.current = lipSyncState\.sourceCharacterIndex;\s*\}\s*\}, \[lipSyncState\.sourceCharacterIndex\]\);/,
+  "the tuning history should preserve its last character while updating the ref outside render",
 );
 assert.doesNotMatch(tuningPanelSource, /sourceCharacterIndex \?\? 0/);
 assert.ok(

@@ -81,12 +81,13 @@ export function resolveMouthOpenness(
 
 export function getMouthSpriteVariant(
   mouthShape: MouthShape,
-  _openness: MouthOpenness,
+  openness: MouthOpenness,
 ): MouthSpriteVariant {
   // The small sprites include a separately positioned face patch, so translating
   // them to the lip anchor also shifts the surrounding skin over the base image.
   // Keep the audio hysteresis state, but render only the aligned base variants
   // until small sprites are regenerated from the exact same source geometry.
+  void openness;
   return mouthShape;
 }
 
