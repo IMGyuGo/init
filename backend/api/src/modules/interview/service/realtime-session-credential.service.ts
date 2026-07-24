@@ -85,7 +85,7 @@ export class RealtimeSessionCredentialService {
         "COMMON_EXTERNAL_SERVICE_FAILED",
         "OpenAI realtime session creation failed.",
         502,
-        [{ field: "openai", reason: payload.error?.message ?? rawBody.slice(0, 200) }],
+        [{ field: "openai", reason: payload.error?.message ?? (rawBody.slice(0, 200) || `status ${response.status}`) }],
       );
     }
 
@@ -109,7 +109,7 @@ export class RealtimeSessionCredentialService {
       transport: "webrtc",
       clientSecret,
       clientSecretType: "ephemeral",
-      expiresAt: Number.isFinite(expiresAtSeconds)
+      expiresAt: expiresAtSeconds && Number.isFinite(expiresAtSeconds)
         ? new Date(expiresAtSeconds! * 1000).toISOString()
         : new Date(Date.now() + 120_000).toISOString(),
       endpoint: `${baseUrl}/v1/realtime/calls`,
