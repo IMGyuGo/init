@@ -8,12 +8,20 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import type { CurrentUser } from "@init/common";
+import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { Request } from "express";
+import {
+  ApiDevAuthHeaders,
+  ApiErrorResponses,
+  ApiOperationId,
+} from "../../../swagger/swagger.decorators";
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
 import { CandidateDomainError } from "../../candidate";
 import { CreateRealtimeInterviewSessionDto } from "../dto/interview.runtime.dto";
 import { InterviewerPreviewRealtimeService } from "../service/interviewer-preview-realtime.service";
 
+@ApiTags("Interviewer Preview")
+@ApiErrorResponses()
 @Controller("interviewer-preview")
 @UseGuards(JwtAuthGuard)
 export class InterviewerPreviewController {
@@ -23,6 +31,10 @@ export class InterviewerPreviewController {
   ) {}
 
   @Post("realtime-session")
+  @ApiBearerAuth("bearer")
+  @ApiDevAuthHeaders()
+  @ApiOperationId("API-097-RT")
+  @ApiOperation({ summary: "면접관 립싱크 튜닝용 실시간 AI 세션 생성" })
   createRealtimeSession(
     @Req() request: Request & { currentUser: CurrentUser },
     @Body() dto: CreateRealtimeInterviewSessionDto,
